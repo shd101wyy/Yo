@@ -507,7 +507,7 @@ _c_pointer_result_as_declared :: (fn(r : &TypeValue, call : String, context : &F
     Rc(.Pointer(_)) => Rc.clone(r),
     _ => match(can_optimize_as_nullable_pointer(r), .Some(p) => p, .None => return(call))
   );
-  pointee := match(ptr, Rc(.Pointer(inner)) => Rc.clone(inner), _ => return(call));
+  pointee := match(&ptr, Rc(.Pointer(inner)) => Rc.clone(inner), _ => return(call));
   pointee_str := get_type_string(&pointee, &context.base);
   cond(
     (get_type_string(&ptr, &context.base) == `${pointee_str}*`) => `((${get_type_string(r, &context.base)})(${pointee_str} const*){ ${call} })`,
