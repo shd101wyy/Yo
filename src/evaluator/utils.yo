@@ -4260,11 +4260,8 @@ reset_sibling_flow_state :: (fn(env : &Environment, prev_arm : &Option(AstExpr))
   if(recs.len() == usize(0), {
     return(());
   });
-  (ri : usize) = usize(0);
-  while(ri < recs.len(), {
+  for(&recs, r => {
     match(
-      recs.get(ri),
-      .Some(r) => match(
         find_variable_by_id(env, r.var_id),
         .Some(v) => {
           match(prev_arm, .Some(pa) => _keep_undone_move(&v, &r.before_consumed, &pa), .None => ());
@@ -4272,10 +4269,7 @@ reset_sibling_flow_state :: (fn(env : &Environment, prev_arm : &Option(AstExpr))
           v.consumed_at_token = match(r.before_consumed, .Some(bc) => Option(Token).Some(bc), .None => Option(Token).None);
         },
         .None => ()
-      ),
-      .None => ()
-    );
-    ri = (ri + usize(1));
+      );
   });
 });
 /// Does a `match` arm pattern anywhere in `e` bind `name`?
@@ -4526,18 +4520,12 @@ _span_holds :: (fn(node : &AstExpr, t : &Token) -> bool)({
 /// and a diverging last arm is not one of them.
 keep_last_arm_moves :: (fn(env : &Environment, last_arm : &AstExpr, group_log_start : usize) -> unit)({
   recs := first_flow_records_in(group_log_start, branch_init_log_len());
-  (ri : usize) = usize(0);
-  while(ri < recs.len(), {
+  for(&recs, r => {
     match(
-      recs.get(ri),
-      .Some(r) => match(
         find_variable_by_id(env, r.var_id),
         .Some(v) => _keep_undone_move(&v, &r.before_consumed, last_arm),
         .None => ()
-      ),
-      .None => ()
-    );
-    ri = (ri + usize(1));
+      );
   });
 });
 /// At a `break` or `continue`: the move state of every variable declared
@@ -4548,21 +4536,15 @@ snapshot_loop_flow :: (fn(lc : &LoopBodyCtx, env : &Environment, site : &Token) 
   ids := ArrayList(usize).new();
   states := ArrayList(Option(Token)).new();
   recs := first_flow_records_in(lc.log_start, branch_init_log_len());
-  (ri : usize) = usize(0);
-  while(ri < recs.len(), {
+  for(&recs, r => {
     match(
-      recs.get(ri),
-      .Some(r) => match(
         find_variable_by_id(env, r.var_id),
         .Some(v) => if(v.frame_level < lc.entry_frame_count, {
           ids.push(v.id);
           states.push(match(v.consumed_at_token, .Some(ct) => Option(Token).Some(ct), .None => Option(Token).None));
         }),
         .None => ()
-      ),
-      .None => ()
-    );
-    ri = (ri + usize(1));
+      );
   });
   LoopFlowSnapshot(site : site, var_ids : ids, consumed : states)
 });
@@ -4661,11 +4643,8 @@ check_loop_flow :: (
   fn(lc : &LoopBodyCtx, body_completes : bool, has_normal_exit : bool, env : &Environment, loop_expr : &AstExpr, exn : Exception) -> unit
 )({
   recs := first_flow_records_in(lc.log_start, branch_init_log_len());
-  (ri : usize) = usize(0);
-  while(ri < recs.len(), {
+  for(&recs, r => {
     match(
-      recs.get(ri),
-      .Some(r) => match(
         find_variable_by_id(env, r.var_id),
         .Some(v) => if(v.frame_level < lc.entry_frame_count, {
           pre := r.before_consumed;
@@ -4756,10 +4735,7 @@ check_loop_flow :: (
           record_flow_event(v.id, Rc.new(TypeValueNode.Unit), Option(TypeValue).None, FlowEventKind.Join, &v.token, &r.before_init, &pre, &v.initialized_at_token, match(v.consumed_at_token, .Some(jc) => Option(Token).Some(jc), .None => Option(Token).None));
         }),
         .None => ()
-      ),
-      .None => ()
-    );
-    ri = (ri + usize(1));
+      );
   });
 });
 /// The variable with id `id` in `env`, innermost frame first.

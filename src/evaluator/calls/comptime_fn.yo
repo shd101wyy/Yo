@@ -358,24 +358,22 @@ RecursiveTypeRef :: (
     arg_values : ArrayList(EvalValue)
   )
 );
+derive(RecursiveTypeRef, Clone);
 (g_recursive_type_refs : RefCell(ArrayList(RecursiveTypeRef))) = RefCell(ArrayList(RecursiveTypeRef)).new(ArrayList(RecursiveTypeRef).new());
 /// Look up the recursive-type-ref for a placeholder SomeT id, if any.
-lookup_recursive_type_ref :: (fn(some_id : &String) -> Option(RecursiveTypeRef))({
-  (i : usize) = usize(0);
-  n := g_recursive_type_refs.with(xs => xs.len());
-  (found : Option(RecursiveTypeRef)) = Option(RecursiveTypeRef).None;
-  while((i < n) && match(found, .None => true, .Some(_) => false), {
-    match(
-      g_recursive_type_refs.with(xs => xs.get(i)),
-      .Some(r) => if(r.some_id == some_id, {
-        found = Option(RecursiveTypeRef).Some(r);
-      }),
-      .None => ()
-    );
-    i = (i + usize(1));
-  });
-  found
-});
+lookup_recursive_type_ref :: (fn(some_id : &String) -> Option(RecursiveTypeRef))(
+  g_recursive_type_refs.with(xs => {
+    (found : Option(RecursiveTypeRef)) = Option(RecursiveTypeRef).None;
+    (i : usize) = usize(0);
+    while((i < xs.len()) && found.is_none(), {
+      if(xs(i).some_id == some_id, {
+        found = Option(RecursiveTypeRef).Some(xs(i).clone());
+      });
+      i = (i + usize(1));
+    });
+    found
+  })
+);
 /// Is `v` a TypeVal carrying a RESOLVED type (not a recursion placeholder)?
 /// A placeholder is a `SomeT` whose id is registered in the side-table; any
 /// other TypeVal is resolved. Returns the inner type when resolved.
@@ -506,12 +504,8 @@ canonicalize_instantiation_via_ctfe_memo :: (fn(ty : &TypeValue) -> TypeValue)({
   match(
     canon_bucket,
     .Some(bucket) => {
-      (ci : usize) = usize(0);
-      n := bucket.caches.len();
-      while(ci < n, {
-        match(
-          bucket.caches.get(ci),
-          .Some(cache) => if(_arg_vals_equal(&cache.arg_values, &want_args), {
+      for(&bucket.caches, cache => {
+        if(_arg_vals_equal(&cache.arg_values, &want_args), {
             match(
               _resolved_type_of(&cache.value),
               .Some(rt) => if(is_struct_type(&rt), {
@@ -519,10 +513,7 @@ canonicalize_instantiation_via_ctfe_memo :: (fn(ty : &TypeValue) -> TypeValue)({
               }),
               .None => ()
             );
-          }),
-          .None => ()
-        );
-        ci = (ci + usize(1));
+          });
       });
     },
     .None => ()
@@ -572,21 +563,14 @@ resolve_recursive_type_ref :: (fn(some_ty : &TypeValue, ctx : &EvalContext) -> O
   );
   // Strategy 1: exact-arg-match cache entry with a resolved value.
   {
-    (i : usize) = usize(0);
-    n := bucket.caches.len();
-    while(i < n, {
-      match(
-        bucket.caches.get(i),
-        .Some(cache) => if(_arg_vals_equal(&cache.arg_values, &rref.arg_values), {
+    for(&bucket.caches, cache => {
+      if(_arg_vals_equal(&cache.arg_values, &rref.arg_values), {
           match(
             _resolved_type_of(&cache.value),
             .Some(rt) => return(Option(TypeValue).Some(rt)),
             .None => ()
           );
-        }),
-        .None => ()
-      );
-      i = (i + usize(1));
+        });
     });
   };
   // Strategy 2: ctx.self_type when it is a struct/object.
@@ -599,19 +583,12 @@ resolve_recursive_type_ref :: (fn(some_ty : &TypeValue, ctx : &EvalContext) -> O
   );
   // Strategy 3: any resolved cache entry of the same function.
   {
-    (i : usize) = usize(0);
-    n := bucket.caches.len();
-    while(i < n, {
+    for(&bucket.caches, cache => {
       match(
-        bucket.caches.get(i),
-        .Some(cache) => match(
           _resolved_type_of(&cache.value),
           .Some(rt) => return(Option(TypeValue).Some(rt)),
           .None => ()
-        ),
-        .None => ()
-      );
-      i = (i + usize(1));
+        );
     });
   };
   Option(TypeValue).None
@@ -1117,12 +1094,8 @@ evaluate_comptime_fn_call :: (
     match(
       g_comptime_fn_caches.with(xs => xs.get(the_entry_idx)),
       .Some(entry) => {
-        (cfi : usize) = usize(0);
-        n_cc := entry.caches.len();
-        while((cfi < n_cc) && match(cached_result, .None => true, .Some(_) => false), {
-          match(
-            entry.caches.get(cfi),
-            .Some(cache) => {
+        for(&entry.caches, cache => {
+          if(cached_result.is_none(), {
               if(cache.arg_values.len() == all_arg_vals.len(), {
                 (args_match : bool) = true;
                 (ami : usize) = usize(0);
@@ -1149,10 +1122,7 @@ evaluate_comptime_fn_call :: (
                   cached_result = Option(EvalValue).Some(cache.value);
                 });
               });
-            },
-            .None => ()
-          );
-          cfi = (cfi + usize(1));
+          });
         });
       },
       .None => ()

@@ -72,6 +72,7 @@ AwaitPointExtra :: (
     target_is_reassign : bool
   )
 );
+derive(AwaitPointExtra, Clone);
 // ---------------------------------------------------------------------------
 // _is_dot_access — structural AST check for `obj.method(...)` calls
 // ---------------------------------------------------------------------------
@@ -511,7 +512,7 @@ analyze_await_points :: (
     );
     expr_char_key := usize(ast_expr_token(sp.expr.clone()).character).to_string();
     match(
-      await_extras.with(extras => extras.get(expr_char_key.clone())),
+      await_extras.with(extras => extras.get_cloned(expr_char_key.clone())),
       .None => (),
       // should not happen: every SP was registered via detect_await_expr_
       .Some(extra) => {

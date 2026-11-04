@@ -2456,11 +2456,8 @@ _find_specialization_cache :: (
         if(entry.func_id == func_id, {
           n_caches := entry.caches.len();
           (ci : usize) = usize(0);
-          while((ci < n_caches) && result.is_none(), {
-            cache_opt := entry.caches.get(ci);
-            match(
-              cache_opt,
-              .Some(cache) => {
+          for(&entry.caches, cache => {
+            if(result.is_none(), {
                 // Check compile-time arg values match
                 n_ct := cache.compile_time_arg_values.len();
                 n_cur_ct := compile_time_arg_values.len();
@@ -2583,9 +2580,7 @@ _find_specialization_cache :: (
                     result = Option(EvalValue).Some(cache.specialized_func_value);
                   });
                 });
-              },
-              .None => ()
-            );
+            });
             ci = (ci + usize(1));
           });
         });
@@ -2615,29 +2610,32 @@ _store_specialization_cache :: (
   // Find existing entry for this func_id
   n_entries := g_specialized_fn_caches.with(xs => xs.len());
   (ei : usize) = usize(0);
-  (found : bool) = false;
-  while((ei < n_entries) && !found, {
+  (found : Option(SpecializedFunctionCacheEntry)) = Option(SpecializedFunctionCacheEntry).None;
+  while((ei < n_entries) && found.is_none(), {
     entry_opt := g_specialized_fn_caches.with(xs => xs.get(ei));
     match(
       entry_opt,
       .Some(entry) => {
         if(entry.func_id == func_id, {
-          found = true;
-          // Push into existing entry's caches
-          entry.caches.push(new_cache);
+          found = Option(SpecializedFunctionCacheEntry).Some(entry);
         });
       },
       .None => ()
     );
     ei = (ei + usize(1));
   });
-  if(!found, {
-    // Create new entry
-    new_caches := ArrayList(SpecializedFunctionCache).new();
-    new_caches.push(new_cache);
-    entry := SpecializedFunctionCacheEntry(func_id : func_id.clone(), caches : new_caches);
-    g_specialized_fn_caches.with_mut({ entry }(xs) => xs.push(entry));
-  });
+  match(
+    found,
+    // Push into the existing entry's caches
+    .Some(entry) => entry.caches.push(new_cache),
+    .None => {
+      // Create new entry
+      new_caches := ArrayList(SpecializedFunctionCache).new();
+      new_caches.push(new_cache);
+      entry := SpecializedFunctionCacheEntry(func_id : func_id.clone(), caches : new_caches);
+      g_specialized_fn_caches.with_mut({ entry }(xs) => xs.push(entry));
+    }
+  );
 });
 /// Specializations minted while a recording is open
 /// (`specialization_recording_begin`). `check` gives each demand-loaded module
@@ -2694,7 +2692,7 @@ purge_specialization_caches_owned_by :: (fn(owner : &String) -> unit)({
         (ci : usize) = entry.caches.len();
         while(ci > usize(0), {
           ci = (ci - usize(1));
-          hit := match(entry.caches.get(ci), .Some(c) => (c.owner == owner), .None => false);
+          hit := (entry.caches(ci).owner == owner);
           if(hit, {
             entry.caches.drain(ci .. (ci + usize(1)));
           });
@@ -2733,20 +2731,14 @@ specialization_capture_value_count :: (fn() -> usize)({
     match(
       g_specialized_fn_caches.with(xs => xs.get(ei)),
       .Some(entry) => {
-        (ci : usize) = usize(0);
-        while(ci < entry.caches.len(), {
+        for(&entry.caches, c => {
           match(
-            entry.caches.get(ci),
-            .Some(c) => match(
               c.specialized_func_value,
               .FuncVal(_, __scv) => {
                 n = (n + __scv.len());
               },
               _ => ()
-            ),
-            .None => ()
-          );
-          ci = (ci + usize(1));
+            );
         });
       },
       .None => ()
@@ -2765,20 +2757,14 @@ specialization_flat_capture_count :: (fn() -> usize)({
     match(
       g_specialized_fn_caches.with(xs => xs.get(ei)),
       .Some(entry) => {
-        (ci : usize) = usize(0);
-        while(ci < entry.caches.len(), {
+        for(&entry.caches, c => {
           match(
-            entry.caches.get(ci),
-            .Some(c) => match(
               c.specialized_func_value,
               .FuncVal(__sfd, _) => {
                 n = (n + __sfd.*.cap_names.len());
               },
               _ => ()
-            ),
-            .None => ()
-          );
-          ci = (ci + usize(1));
+            );
         });
       },
       .None => ()

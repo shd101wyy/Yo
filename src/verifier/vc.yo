@@ -1255,12 +1255,10 @@ _emit :: (
     .None => `${ctx.fn_name}/${label}`
   );
   (dup_count : usize) = usize(0);
-  (oi : usize) = usize(0);
-  while(oi < ctx.obligations.len(), {
-    if(match(ctx.obligations.get(oi), .Some(o) => ((o.name == base_name) || o.name.starts_with(`${base_name}~`)), .None => false), {
+  for(&ctx.obligations, o => {
+    if((o.name == base_name) || o.name.starts_with(`${base_name}~`), {
       dup_count = (dup_count + usize(1));
     });
-    oi = (oi + usize(1));
   });
   obl_name := if(dup_count == usize(0), base_name, `${base_name}~${(dup_count + usize(1)).to_string()}`);
   q := new_vc_query(obl_name.clone());

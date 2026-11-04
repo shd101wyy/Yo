@@ -76,6 +76,7 @@ EffectCallPointExtra_ :: (
     is_transitive_closure_call : bool
   )
 );
+derive(EffectCallPointExtra_, Clone);
 // ---------------------------------------------------------------------------
 // is_effect_call_ — checks if expr is a call to the effect parameter
 // ---------------------------------------------------------------------------
@@ -709,7 +710,7 @@ analyze_effect_call_points :: (
     );
     expr_key := usize(ast_expr_token(sp.expr.clone()).character).to_string();
     match(
-      effect_extras.with(extras => extras.get(expr_key.clone())),
+      effect_extras.with(extras => extras.get_cloned(expr_key.clone())),
       .None => (),
       .Some(extra) => {
         ecp := EffectCallPoint(
