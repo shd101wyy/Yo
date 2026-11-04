@@ -920,6 +920,17 @@ impl(
         self.tokens.get(idx),
         .Some(t) => t,
         .None => {
+          // A parenthesized call must end at its `)`: running out of tokens
+          // leaves it unclosed. Report it at the `(` (index - 1), the only
+          // token that locates the call.
+          if(has_whitespace == false, {
+            open_tok := match(
+              self.tokens.get(index - usize(1)),
+              .Some(t) => t,
+              .None => exn.throw(dyn(make_parse_error_raw(&self.module_path.*, `unclosed ( in function call: expected , or ) before the end of the file`)))
+            );
+            exn.throw(dyn(make_parse_error(&open_tok, `unclosed ( in function call: expected , or ) before the end of the file`)));
+          });
           return(FnArgsResult(args : args, index : idx));
         }
       );
@@ -930,7 +941,11 @@ impl(
           // REJECTED there ("Unexpected token").
           idx = (idx + usize(1));
         },
-        ((curr.kind == TokenKind.Semicolon) || (curr.kind == TokenKind.RBracket) || (curr.kind == TokenKind.RCurlyBracket)) => {
+        // `;`, `]` and `}` end a whitespace-separated call's arguments with
+        // the statement. A parenthesized call must end at its `)`, so for it
+        // they fall through to the error below
+        // (issues/fixed/2026-11-05-a-call-missing-its-closing-paren-before-a-semicolon-parses.md).
+        (has_whitespace && ((curr.kind == TokenKind.Semicolon) || (curr.kind == TokenKind.RBracket) || (curr.kind == TokenKind.RCurlyBracket))) => {
           return(FnArgsResult(args : args, index : idx));
         },
         (curr.kind == TokenKind.RParen) => {
@@ -948,6 +963,9 @@ impl(
                 &curr,
                 cond(
                   has_whitespace => `expected ; to end function call`,
+                  (curr.kind == TokenKind.Semicolon) => `expected , or ) in function call: the call's ( is not closed before this ;`,
+                  (curr.kind == TokenKind.RBracket) => `expected , or ) in function call: the call's ( is not closed before this ]`,
+                  (curr.kind == TokenKind.RCurlyBracket) => `expected , or ) in function call: the call's ( is not closed before this }`,
                   true => `expected , or ) in function call`
                 )
               )
