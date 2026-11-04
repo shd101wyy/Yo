@@ -2414,7 +2414,7 @@ run_verify_step :: (
     cmd = cmd.arg(String.from("--verify-mode"));
     cmd = cmd.arg(cfg.mode.clone());
     if(cfg.strict, {
-      _arg_s := cmd.arg(String.from("--strict"));
+      cmd = cmd.arg(String.from("--strict"));
     });
     // Streamed, not captured — the per-function report is the point.
     st := e.io.await(cmd.status(e.io), e);
@@ -2469,17 +2469,17 @@ run_test_suite :: (
       exi = (exi + usize(1));
     });
     if(suite.verbose, {
-      _arg_c := cmd.arg(String.from("--verbose"));
+      cmd = cmd.arg(String.from("--verbose"));
     });
     if(suite.bail, {
-      _arg_c := cmd.arg(String.from("--bail"));
+      cmd = cmd.arg(String.from("--bail"));
     });
     if(suite.parallel > i32(1), {
       cmd = cmd.arg(String.from("--parallel"));
       cmd = cmd.arg(suite.parallel.to_string());
     });
     if(ctx.verbose, {
-      _arg_c := cmd.arg(String.from("--verbose"));
+      cmd = cmd.arg(String.from("--verbose"));
     });
     // Streamed, not captured — the test runner's own report is the point of
     // running it.
