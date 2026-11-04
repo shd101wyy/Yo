@@ -3,7 +3,7 @@
 **PROPOSED 2026-11-04 — backlog.** This is the keep/reject audit after studying Ada 2022 (the RM at ada-auth.org) and SPARK/GNATprove (the SPARK User's Guide, "UG") against Yo's language and verifier. It is a sibling of [`BEND_LAWS_AND_AGENT_LOOP_LESSONS.md`](BEND_LAWS_AND_AGENT_LOOP_LESSONS.md), whose 2026-11-04 addendum (keep Z3; items Z1–Z5) this doc extends. Four research reports were each checked by a critic against Yo's plans and decisions: the Ada language, SPARK verification, multiple solvers, and tooling/process. Items Yo already has or deliberately rejected are listed in §6.
 
 **Filed from this audit:**
-- `issues/2026-11-04-the-verifier-walks-past-a-panic-so-a-diverging-path-refutes-or-is-ill-sorted.md` (S2)
+- `issues/fixed/2026-11-04-the-verifier-walks-past-a-panic-so-a-diverging-path-refutes-or-is-ill-sorted.md` (S2)
 - `issues/2026-11-04-the-verify-cache-stores-wall-clock-unknown-verdicts-and-keys-on-the-pinned-z3-version-not-the-binary.md` (S3)
 - `issues/questions/2026-11-04-should-a-generic-body-be-checked-against-its-where-bounds.md`
 - a new reproducer appended to `issues/generic-trial-degrades-a-failed-evaluation-to-unit.md`
@@ -156,7 +156,7 @@ type_invariant(Span, _span_ok); // proved at exits of public fns returning Span 
 ## 7. Suggested sequencing
 
 **v0.2.75**, small items that don't collide with VBD:
-- Fix the panic bug (`issues/2026-11-04-the-verifier-walks-past-a-panic-so-a-diverging-path-refutes-or-is-ill-sorted.md`): the `k2`/`k3`/`kb` fixtures and a bugged twin, plus the plan-text correction.
+- Fix the panic bug (`issues/fixed/2026-11-04-the-verifier-walks-past-a-panic-so-a-diverging-path-refutes-or-is-ill-sorted.md`): the `k2`/`k3`/`kb` fixtures and a bugged twin, plus the plan-text correction.
 - Phase 0: Z1 with no caching of wall-clock unknowns, Z2, the solver-identity cache key, the musl fix.
 - Std-only K3 narrowing and newtype derives.
 - File the remaining questions: executable refinements and `panic-unreachable`. The `where` contract model is already filed (`issues/questions/2026-11-04-should-a-generic-body-be-checked-against-its-where-bounds.md`).

@@ -59,7 +59,7 @@ The maintainer is right about the direction but has the wrong component in mind.
 
 1. **E1: `assert` assumes what it proved.** Push `P` onto the path after it is emitted.
    - **Effort:** XS. **Gate:** now.
-   - **Bug record:** filed as `issues/2026-11-04-assert-is-not-assumed-after-it-is-proved.md` (S3), with the probe as its test; the fix amends FV:733.
+   - **Bug record:** filed as `issues/fixed/2026-11-04-assert-is-not-assumed-after-it-is-proved.md` (S3), with the probe as its test; the fix amends FV:733.
    - **Trade-off to state:** after a refuted assert, later counterexamples are no longer independent (TP_NEXT:225-226).
    - **TP_NEXT:** add a new §10 row ahead of T1. It is the precondition for T3's cut rule (:229).
 

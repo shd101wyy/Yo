@@ -706,7 +706,7 @@ runtime assert).
 | --- | --- |
 | Integer/bool arithmetic, comparisons, logical ops, `cond`/`if` | ✅ verified |
 | Let bindings (`:=`, `=`), begin blocks, calls to contracted/comptime-foldable callees | ✅ verified |
-| `assert(P)` sites, `panic` paths, `old(...)` (two-state: the function-entry snapshot; body-locals are gated — no entry value) | ✅ verified |
+| `assert(P)` sites (proved, then assumed on the path after them), `panic` paths (a path that reaches `panic` owes no `ensures`), `old(...)` (two-state: the function-entry snapshot; body-locals are gated — no entry value) | ✅ verified |
 | `match` over value enums (testers, projections, constructions) | ✅ verified (V3) |
 | structs / tuples / ref enums | 🚧 in progress |
 | `while` with `invariant(...)` (the havoc rule) | ✅ verified (V4) |

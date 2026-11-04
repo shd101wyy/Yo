@@ -791,3 +791,65 @@ test("a verify-mode callee this run does not verify has an open frame, with comp
   assert(_count_outcome(&reports, String.from("ok")) == usize(0), `probe must not verify, got: [${_reports_dump(&reports)}]`);
   assert(_count_outcome(&reports, String.from("refuted")) == usize(1), `probe must refute, got: [${_reports_dump(&reports)}]`);
 });
+
+/// Obligations across every report whose verdict is `proved` (`want_proved`)
+/// or `refuted`.
+_count_obligations :: (fn(reports : &ArrayList(VerifyFnReport), want_proved : bool) -> usize)({
+  (n : usize) = usize(0);
+  (i : usize) = usize(0);
+  while(i < reports.len(), {
+    rp := reports.get(i).unwrap();
+    (j : usize) = usize(0);
+    while(j < rp.obligations.len(), {
+      hit := match(
+        &rp.obligations.get(j).unwrap().verdict,
+        .Proved(_) => want_proved,
+        .Refuted(_) => !(want_proved),
+        _ => false
+      );
+      if(hit, {
+        n = (n + usize(1));
+      });
+      j = (j + usize(1));
+    });
+    i = (i + usize(1));
+  });
+  n
+});
+
+test("a panic ends its path: a diverging arm owes no ensures and keeps the VC well-sorted", {
+  if(!_have_z3(), {
+    return(());
+  });
+  reports := _load_reports(String.from("./tests/spec/fixtures/valid/panic_paths.yo"), io, true);
+  assert(_count_outcome(&reports, String.from("ok")) == usize(6), `all six must verify, got: [${_reports_dump(&reports)}]`);
+});
+
+test("a panic cuts only the path that reaches it: the bugged twins refute", {
+  if(!_have_z3(), {
+    return(());
+  });
+  reports := _load_reports(String.from("./tests/spec/fixtures/negative/panic_paths_false.yo"), io, true);
+  assert(_count_outcome(&reports, String.from("refuted")) == usize(4), `all four must refute, got: [${_reports_dump(&reports)}]`);
+});
+
+test("an assert is assumed after it, and only on the path it sits on", {
+  if(!_have_z3(), {
+    return(());
+  });
+  reports := _load_reports(String.from("./tests/spec/fixtures/negative/assert_assumed.yo"), io, true);
+  assert(_count_outcome(&reports, String.from("ok")) == usize(1), `only steps_required may verify, got: [${_reports_dump(&reports)}]`);
+  assert(_count_outcome(&reports, String.from("refuted")) == usize(2), `steps and in_branch must refute, got: [${_reports_dump(&reports)}]`);
+  // steps: gt5 refuted, gt3 proved; steps_required: both proved; in_branch:
+  // the in-branch assert proved, the one after the branch refuted.
+  assert(_count_obligations(&reports, true) == usize(4), `4 asserts must prove, got ${_count_obligations(&reports, true).to_string()}`);
+  assert(_count_obligations(&reports, false) == usize(2), `2 asserts must refute, got ${_count_obligations(&reports, false).to_string()}`);
+});
+
+test("a fact a nested branch learned holds only where the enclosing branch ran", {
+  if(!_have_z3(), {
+    return(());
+  });
+  reports := _load_reports(String.from("./tests/spec/fixtures/negative/branch_fact_leak.yo"), io, true);
+  assert(_count_outcome(&reports, String.from("refuted")) == usize(2), `lc and lm must refute, got: [${_reports_dump(&reports)}]`);
+});
