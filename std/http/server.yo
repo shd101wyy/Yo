@@ -43,13 +43,14 @@ DEFAULT_MAX_REQUEST_BYTES :: (usize(16) * (usize(1024) * usize(1024)));
 /// `Connection` itself, and close the connection.
 _respond :: (fn(stream : &TcpStream, resp : HttpResponse, io : Io) -> Impl(Future(unit, IoExn)))(
   io.async({ &stream, resp }(e : IoExn) => {
+    mut(r) := resp;
     cond(
-      resp.get_header(`Connection`).is_none() => {
-        resp.headers.insert(`Connection`, `close`);
+      r.get_header(`Connection`).is_none() => {
+        r.headers.insert(`Connection`, `close`);
       },
       true => ()
     );
-    _w := e.io.await(stream.write_string(resp.to_string(), e.io), e);
+    _w := e.io.await(stream.write_string(r.to_string(), e.io), e);
     e.io.await(stream.close(e.io), e);
     ()
   })

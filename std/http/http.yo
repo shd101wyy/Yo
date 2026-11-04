@@ -634,7 +634,7 @@ parse_response :: (fn(raw : &String) -> Result(HttpResponse, HttpParseError))({
       return(.Err(HttpParseError.InvalidStatusCode(code_str)));
     }
   );
-  resp := HttpResponse.new(status, &status_text);
+  mut(resp) := HttpResponse.new(status, &status_text);
   resp.version = version;
   mut(j) := usize(1);
   while(j < lines.len(), j = (j + usize(1)), {
@@ -711,7 +711,7 @@ parse_request :: (fn(raw : &String) -> Result(HttpRequest, HttpParseError))({
     },
     true => ()
   );
-  req := HttpRequest.new(method, &parts(usize(1)));
+  mut(req) := HttpRequest.new(method, &parts(usize(1)));
   mut(j) := usize(1);
   while(j < lines.len(), j = (j + usize(1)), {
     // Read in place; only the error copies the line out.
