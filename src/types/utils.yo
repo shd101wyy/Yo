@@ -37,6 +37,11 @@ pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { HashSet } :: import("std/collections/hash_set");
+/// Set once some future type carries a non-elided origin (decision 43 step 4,
+/// N3-1: an `io.async` that captures a borrow, or a spelled
+/// `Future(T, E, p)`). Until then no future borrows anything and the borrow
+/// walks answer without one. Never cleared: it only gates a fast path.
+(mut(g_future_origins_exist) : bool) = false;
 /// Capture-list borrow entries by capture-struct id (`register_capture_borrows`).
 (g_capture_borrows : RefCell(HashMap(String, ArrayList(CaptureBorrow)))) = RefCell(HashMap(String, ArrayList(CaptureBorrow))).new(HashMap(String, ArrayList(CaptureBorrow)).new());
 { TypeValue, TypeValueNode, FuncMeta, no_labels, t_refine_inner, no_types, SharedList, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_borrow, fn_result_is_ref, t_origin_spelled_names } :: import("./definitions.yo");
@@ -537,16 +542,6 @@ collect_type_borrows :: (fn(ty : &TypeValue, out : &mut ArrayList(CaptureBorrow)
     true => _collect_type_borrows_inner(ty, out, u32(0))
   )
 );
-/// Set once some future type carries a non-elided origin (decision 43 step 4,
-/// N3-1: an `io.async` that captures a borrow, or a spelled
-/// `Future(T, E, p)`). Until then no future borrows anything and the borrow
-/// walks answer without one. Never cleared: it only gates a fast path.
-(mut(g_future_origins_exist) : bool) = false;
-note_future_origins_exist :: (fn() -> unit)({
-  g_future_origins_exist = true;
-  g_origin_types_exist = true;
-  g_move_only_possible = true;
-});
 /// The `io.async` futures (by per-call wrapper id) that borrow a `&T`
 /// parameter through a closure they capture (§3.13 A2): C passes that
 /// parameter by value, so the future points into the frame that returns and
@@ -794,7 +789,14 @@ note_origin_types_exist :: (fn() -> unit)({
   // step 3, §5 route 3), which is move-only: arm the fast-path knob the
   // move-only walk is gated on (`type_is_move_only`, `move_only_reason`).
   g_move_only_possible = true;
+});/// A future type now carries an origin (decision 43 step 4): arms the
+/// future-origin, origin-type and move-only fast paths.
+note_future_origins_exist :: (fn() -> unit)({
+  g_future_origins_exist = true;
+  g_origin_types_exist = true;
+  g_move_only_possible = true;
 });
+
 /// True if a value of `ty` carries an origin (plans/backlog/REFERENCES_AND_ORIGINS.md
 /// O4, O10; decision 43 step 3): `ty` holds a `Reference` outside a function
 /// type's slots, or an origin argument (an `OriginSet` in a struct's or an
