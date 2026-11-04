@@ -178,7 +178,7 @@ impl(
     // If other is absolute, return other
     cond(
       other._is_absolute => {
-        return(other);
+        return(other.clone());
       },
       true => ()
     );
@@ -359,7 +359,7 @@ impl(
   with_extension : (fn(self : &Self, ext : &String) -> Self)({
     cond(
       (self._segments.len() == usize(0)) => {
-        return(self);
+        return(self.clone());
       },
       true => ()
     );
@@ -388,7 +388,7 @@ impl(
         return(Self(_prefix : self._prefix.clone(), _segments : new_segments, _is_absolute : self._is_absolute));
       },
       .None => {
-        return(self);
+        return(self.clone());
       }
     );
   }),
@@ -581,13 +581,13 @@ impl(
   relative_to : (fn(self : &Self, base : &Self) -> Self)({
     cond(
       (self._is_absolute != base._is_absolute) => {
-        return(self);
+        return(self.clone());
       },
       true => ()
     );
     cond(
       (self._prefix != base._prefix) => {
-        return(self);
+        return(self.clone());
       },
       true => ()
     );

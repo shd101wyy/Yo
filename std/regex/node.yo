@@ -105,8 +105,8 @@ GroupNameEntry :: struct(
 derive(GroupNameEntry, Clone);
 /// One node of the pattern AST.
 ///
-/// Reference-counted (`ref(struct(...))`) so `children : ArrayList(Self)` can
-/// close the recursion without a `Box`. Which fields carry information
+/// A plain value: `children : ArrayList(Self)` closes the recursion through
+/// the list's heap buffer, so no `Box` is needed. Which fields carry information
 /// depends entirely on `kind`; see `NodeKind`, which documents that per
 /// variant, and the module header for why it is one wide struct instead of
 /// an enum.
@@ -143,10 +143,9 @@ RegexNode :: struct(
   /// other kind, so it is not a reliable "no anchor" signal — check `kind`.
   anchor : AnchorKind
 );
-// A node is a shared handle (`ref`), so its clone is another handle to the
-// same node, as its implicit copy is: `ArrayList(RegexNode).clone()` (a
-// `sequence` of a borrowed list) needs `Clone` on the element.
-impl(RegexNode, Clone(clone : (fn(self : &Self) -> Self)(self)));
+// A deep copy: `ArrayList(RegexNode).clone()` (a `sequence` of a borrowed
+// list) needs `Clone` on the element.
+derive(RegexNode, Clone);
 impl(
   RegexNode,
   /// A node matching exactly the code point `cp`.

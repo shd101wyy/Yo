@@ -577,7 +577,7 @@ impl(
   status : (fn(self : &Self, io : Io) -> Impl(Future(ExitStatus, IoExn)))(
     // The future borrows the command (`self : &Self`): the caller keeps the
     // `Command` alive until the future is awaited.
-    io.async(e => {
+    io.async({ &self, io }(e : IoExn) => {
       pid := e.io.await(
         _spawn_with_fds(self, i32(-1), i32(-1), i32(-1), io),
         e
@@ -591,7 +591,7 @@ impl(
   /// the child to exit and returns the exit status plus the captured bytes.
   output : (fn(self : &Self, io : Io) -> Impl(Future(Output, IoExn)))(
     // The future borrows the command, as `status` does.
-    io.async(e => {
+    io.async({ &self, io }(e : IoExn) => {
       // Create stdout and stderr pipes.
       mut(out_fd_buf) := MaybeUninit(Array(i32, usize(2))).new();
       out_fd := (*i32)(out_fd_buf.as_ptr());
@@ -1080,7 +1080,7 @@ impl(
   /// the parent's stream; `Null` redirects to /dev/null. Call `wait()` to
   /// reap.
   spawn : (fn(self : &Self, io : Io) -> Impl(Future(Child, IoExn)))(
-    io.async(e => {
+    io.async({ &self, io }(e : IoExn) => {
       in_pair := _stdio_fds(self._stdin, true, e.exn);
       out_pair := _stdio_fds(self._stdout, false, e.exn);
       err_pair := _stdio_fds(self._stderr, false, e.exn);

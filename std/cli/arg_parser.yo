@@ -128,7 +128,7 @@ impl(
   get_subcommand_args : (fn(self : &Self) -> Option(&Self))(
     match(
       &self._subcommand_args,
-      .Some(b) => .Some(b.*.*),
+      .Some(b) => .Some(&b.*),
       .None => .None
     )
   ),
@@ -605,47 +605,43 @@ impl(
                   match(
                     self._find_subcommand(&current_arg),
                     .Some(sub_idx) => {
-                      match(
-                        self._subcommand_parsers.get(sub_idx),
-                        .Some(sub_parser) => {
-                          // Build new args list: [program_name, ...remaining args after subcommand name].
-                          mut(sub_args) := ArrayList(String).new();
+                      {
+                        // Build new args list: [program_name, ...remaining args after subcommand name].
+                        mut(sub_args) := ArrayList(String).new();
+                        match(
+                          args.get_cloned(usize(0)),
+                          .Some(prog) => {
+                            sub_args.push(prog);
+                          },
+                          .None => {
+                            sub_args.push(self._name.clone());
+                          }
+                        );
+                        mut(j) := (idx + usize(1));
+                        while(j < args_len, j = (j + usize(1)), {
                           match(
-                            args.get_cloned(usize(0)),
-                            .Some(prog) => {
-                              sub_args.push(prog);
+                            args.get_cloned(j),
+                            .Some(a) => {
+                              sub_args.push(a);
                             },
-                            .None => {
-                              sub_args.push(self._name.clone());
-                            }
+                            .None => ()
                           );
-                          mut(j) := (idx + usize(1));
-                          while(j < args_len, j = (j + usize(1)), {
-                            match(
-                              args.get_cloned(j),
-                              .Some(a) => {
-                                sub_args.push(a);
-                              },
-                              .None => ()
-                            );
-                          });
-                          // Recursively parse the subcommand.
-                          match(
-                            recur(&sub_parser, &sub_args),
-                            .Ok(sub_parsed) => {
-                              parsed._subcommand = .Some(current_arg.clone());
-                              parsed._subcommand_args = .Some(Box.new(sub_parsed));
-                              idx = args_len;
-                              is_subcmd = true;
-                            },
-                            .Err(sub_err) => {
-                              err_msg = .Some(sub_err);
-                              is_subcmd = true;
-                            }
-                          );
-                        },
-                        .None => ()
-                      );
+                        });
+                        // Recursively parse the subcommand.
+                        match(
+                          recur(&self._subcommand_parsers(sub_idx), &sub_args),
+                          .Ok(sub_parsed) => {
+                            parsed._subcommand = .Some(current_arg.clone());
+                            parsed._subcommand_args = .Some(Box.new(sub_parsed));
+                            idx = args_len;
+                            is_subcmd = true;
+                          },
+                          .Err(sub_err) => {
+                            err_msg = .Some(sub_err);
+                            is_subcmd = true;
+                          }
+                        );
+                      };
                     },
                     .None => ()
                   );
