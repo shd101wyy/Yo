@@ -76,3 +76,27 @@ test("ref-struct receiver: the same defaults", {
   assert(r.state == u64(7), "ref receiver: 3+3+1");
   assert(r.ro() == u64(7), "ref receiver ro");
 });
+// A default whose receiver is BY VALUE owns it, as a provided method's does:
+// it may move a move-only receiver into a sibling that consumes it. Before the
+// fix the materialized default bound `self` as a borrow, so the move was E0901
+// "it is borrowed", and a default that only read its by-value receiver never
+// dropped it (issues/fixed/2026-11-05-a-trait-default-cannot-move-its-by-value-self.md).
+{ String } :: import("std/string");
+Finish :: trait(
+  finish : (fn(self : Self) -> String),
+  (finish_twice : (fn(self : Self) -> String)) ?= (self -> Self.finish(self).repeat(usize(2))),
+  (label_len : (fn(self : Self) -> usize)) ?= (self -> Self.finish(self).len())
+);
+Digester :: struct(label : String, n : u64);
+impl(
+  Digester,
+  Finish(
+    finish : (fn(self : Self) -> String)(`${self.label}${self.n.to_string()}`)
+  )
+);
+test("by-value self default moves a move-only receiver", {
+  h := Digester(label : `h`, n : u64(7));
+  assert(h.finish_twice() == `h7h7`, "the default consumed the receiver");
+  g := Digester(label : `abc`, n : u64(12));
+  assert(g.label_len() == usize(5), "a default reading through a consuming sibling");
+});

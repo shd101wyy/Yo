@@ -19,7 +19,7 @@ pragma(Pragma.AllowUnsafe);
   mark_node_preevaluated,
   unmark_node_preevaluated
 } :: import("../../expr_info.yo");
-{ Environment, Variable, synthetic_token, get_variables_from_env, add_variable_to_env, snapshot_env } :: import("../../env.yo");
+{ Environment, Variable, synthetic_token, get_variables_from_env, add_variable_to_env, by_value_param_owns, snapshot_env } :: import("../../env.yo");
 { Token, TokenKind, intern_token_str } :: import("../../token.yo");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { function_reaches_non_send_global, d1_note_thread_reach } :: import("../effects/mutation_summary.yo");
@@ -846,8 +846,13 @@ _monomorphize_default_fv :: (
             if(fn_param_is_ptr_borrow(&sub_ft, spi), {
               sp_var.is_ref = true;
             });
-            if(!sp_is_ref && !match(match(&sub_ft, Rc(.Func({ result : _ })) => fn_param_by_value_at(&sub_ft, spi), _ => Option(bool).None), .Some(b) => b, .None => false), {
+            sp_by_value := match(match(&sub_ft, Rc(.Func({ result : _ })) => fn_param_by_value_at(&sub_ft, spi), _ => Option(bool).None), .Some(b) => b, .None => false);
+            if(!sp_is_ref && !sp_by_value, {
               sp_var.is_imm_borrow = true;
+            });
+            // A by-value parameter owns its argument (`bind_parameter`).
+            if(sp_by_value, {
+              sp_var.is_owning_the_rc_value = by_value_param_owns(&sp_ty);
             });
           },
           .None => ()
