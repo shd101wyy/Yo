@@ -702,16 +702,13 @@ _bind_projection_result :: (
       origin_carrying_value_roots(&root.arg, env, ctx),
       ArrayList(OriginRootPlace).new()
     );
-    (hri2 : usize) = usize(0);
-    while(hri2 < holder_roots.len(), {
-      hr := holder_roots.get_cloned(hri2).unwrap();
+    for(&holder_roots, hr => {
       if(!is_mut || hr.is_mut, {
         match(get_variables_from_env(env, hr.place.root_name.clone()).last(), .Some(rv) => root_vars.push(rv), .None => ());
         root_labels.push(root.label.clone());
         root_names.push(hr.place.root_name.clone());
         places.push(hr.place.clone());
       });
-      hri2 = (hri2 + usize(1));
     });
     if((holder_roots.len() == usize(0)) && (!is_mut || root.is_mut), {
       match(
