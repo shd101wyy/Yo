@@ -1,0 +1,12 @@
+{ println } :: import("std/fmt");
+Tracked :: struct(n : i32);
+peek :: (fn(n : &i32) -> i32)(n);
+unbox :: (fn(b : &Box(i32)) -> i32)(b.*);
+unbox_field :: (fn(b : &Box(Tracked)) -> i32)(b.*.n);
+main :: (fn() -> unit)({
+  x := i32(1);
+  b := Box.new(i32(2));
+  t := Box.new(Tracked(n : i32(3)));
+  println(peek(&x) + unbox(&b) + unbox_field(&t));
+});
+export(main);

@@ -25,7 +25,7 @@
 { Environment } :: import("../../env.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
-{ sanitize_for_c_identifier, c_field_name, c_variant_member_name, get_variable_name_for_codegen, get_enum_variant_c_name, can_optimize_as_nullable_pointer, type_key, extern_c_global_matches, get_variable_name_for_codegen_at } :: import("../utils/index.yo");
+{ sanitize_for_c_identifier, c_field_name, c_variant_member_name, get_variable_name_for_codegen, get_enum_variant_c_name, can_optimize_as_nullable_pointer, type_key, extern_c_global_matches, get_variable_name_for_codegen_at, get_type_string } :: import("../utils/index.yo");
 { generate_comptime_value } :: import("./comptime_value.yo");
 { lookup_io_builtin_struct_field, expr_info_deferred_dup_expressions, is_call_scoped_share_dup } :: import("../../expr_info.yo");
 { emit_deferred_dup_or_code } :: import("./drop_dup.yo");
@@ -284,7 +284,61 @@ _tuple_field_access :: (fn(object_type : &TypeValue, object_code : &String, fiel
 );
 /// Generate field access for structs, objects, enums, pointers, tuples, dyn,
 /// newtypes, and module namespaces.
+/// The reference type of the field `field_name` of `object_type` (through
+/// raw pointers), when that field is a reference (decision 43 step 3, N2b's
+/// `const T*` / `T*` field).
+_field_reference_type :: (fn(object_type : &TypeValue, field_name : &String) -> Option(TypeValue))({
+  (t : TypeValue) = Rc.clone(object_type);
+  while(is_pointer_type(&t), {
+    t = match(&t, Rc(.Pointer(p)) => Rc.clone(p), _ => Rc.clone(t));
+  });
+  labels := match(&t, Rc(.Struct({ field_labels : fl })) => Rc.clone(fl), Rc(.Tuple(tl, _)) => Rc.clone(tl), _ => return(Option(TypeValue).None));
+  types := match(&t, Rc(.Struct({ field_types : ft })) => Rc.clone(ft), Rc(.Tuple(_, tt)) => Rc.clone(tt), _ => return(Option(TypeValue).None));
+  (i : usize) = usize(0);
+  while(i < labels.len(), {
+    if(match(labels.get(i), .Some(l) => (l == field_name), .None => false), {
+      return(_reference_or_none(types.get(i)));
+    });
+    i = (i + usize(1));
+  });
+  // A tuple's element is named by its index.
+  match(
+    field_name.parse_i64(),
+    .Some(ix) => if(is_tuple_type(&t), _reference_or_none(types.get(usize(ix))), Option(TypeValue).None),
+    .None => Option(TypeValue).None
+  )
+});
+_reference_or_none :: (fn(t : Option(TypeValue)) -> Option(TypeValue))(
+  match(t, .Some(rt) => if(match(&rt, Rc(.Reference(_, _, _)) => true, _ => false), Option(TypeValue).Some(rt), Option(TypeValue).None), .None => Option(TypeValue).None)
+);
+/// A field access. A reference field (N1e-2) reads as the place it refers
+/// to: its C is the pointer's dereference, which a lend folds back to the
+/// pointer (`_apply_ref_amp`). A `&` field's `const T*` is read through a
+/// `T*`: the checker keeps the place read-only, and the place's address
+/// fills the `T*` every `&T` slot and projection result lowers to.
 generate_field_access :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
+  code := _generate_field_access_raw(expr, indent, context);
+  args := match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
+  ref_ty := match(
+    args.get(usize(0)),
+    .Some(obj) => match(
+      args.get(usize(1)),
+      .Some(fld) => if(ast_expr_is_atom(&fld), match(context.base.get_expr_info(&obj), .Some(oei) => _field_reference_type(&oei.ty, &ast_expr_text(&fld).*.clone()), .None => Option(TypeValue).None), Option(TypeValue).None),
+      .None => Option(TypeValue).None
+    ),
+    .None => Option(TypeValue).None
+  );
+  match(
+    ref_ty,
+    .Some(Rc(.Reference(gf_pointee, gf_mut, _))) => cond(
+      (code.len() == usize(0)) => code,
+      gf_mut => `(*${code})`,
+      true => `(*((${get_type_string(&gf_pointee, &context.base)}*)${code}))`
+    ),
+    _ => code
+  )
+});
+_generate_field_access_raw :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("/* ERROR: field access not evaluated */")));
   args := match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
   if(args.len() != usize(2), {

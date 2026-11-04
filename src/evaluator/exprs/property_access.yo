@@ -33,7 +33,8 @@ pragma(Pragma.AllowUnsafe);
   scope_release_note_query,
   mark_node_preevaluated,
   unmark_node_preevaluated,
-  record_deref_site
+  record_deref_edit_site,
+  note_deref_migrated_file
 } :: import("../../expr_info.yo");
 { Environment, Variable, get_variables_from_env, get_receiver_methods_by_name_from_env, get_pointer_own_methods_by_name_from_env, env_adopt } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx, record_module_member_read, sns_module_of, is_dot_callee } :: import("../context.yo");
@@ -53,10 +54,10 @@ pragma(Pragma.AllowUnsafe);
 { private_member_blocked, is_private_member_name, debug_knob } :: import("../../utils.yo");
 { get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ unknown_field_message, unknown_field_code, unknown_variant_message, unknown_field_through_deref_message, type_carries_origin, origin_value_phase_message, origin_beyond_n2b, origin_beyond_n2b_message, reference_value_phase_message } :: import("../../types/utils.yo");
+{ unknown_field_message, unknown_field_code, unknown_variant_message, unknown_field_through_deref_message, type_carries_origin, origin_value_phase_message, origin_beyond_n2b, origin_beyond_n2b_message } :: import("../../types/utils.yo");
 { format_error_message, format_error_message_with_help, with_code } :: import("../../error.yo");
 { suggest_name, E_AMBIGUOUS_METHOD, E_DEREF_OF_BORROW } :: import("../../diagnostics.yo");
-{ attach_temp_variable_to_expr, local_borrow_take_receiver, local_borrow_mark_receiver, local_borrow_clear_receiver, local_borrows_active, local_borrow_access_expr, LocalBorrowAccess, deref_exempt_mark, deref_exempt_clear, variable_is_reference_binding, deref_rule_applies, deref_rule_recording, note_reference_deref_site, is_reference_deref_site, note_synthesized_deref_star, is_synthesized_deref_star, deref_reads_through_pointee } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, local_borrow_take_receiver, local_borrow_mark_receiver, local_borrow_clear_receiver, local_borrows_active, local_borrow_access_expr, LocalBorrowAccess, deref_exempt_mark, deref_exempt_clear, variable_is_reference_binding, deref_rule_applies, deref_rule_recording, note_reference_deref_site, is_reference_deref_site, note_synthesized_deref_star, is_synthesized_deref_star, deref_reads_through_pointee, deref_payload_type, deref_exempt_take, note_reference_field_read, reference_field_read_type, reject_reference_field_without_deref, local_borrow_place_text } :: import("../utils.yo");
 { is_valid_variable_name } :: import("../utils.yo");
 { is_implicitly_unsafe_capable_file, is_class1_panic_method_name, is_class1_panic_receiver_type, is_class1_panic_exempt_file, is_union_member_read_capable, union_member_read_error_message, is_std_module_path } :: import("../memory_safety.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("./expr.yo");
@@ -84,17 +85,28 @@ _reject_origin_carrying_unit_variant :: (fn(en_ty : &TypeValue, at : &AstExpr, c
     exn.throw(dyn(format_error_message(ast_expr_token(at), origin_beyond_n2b_message(en_ty))));
   })
 );
-/// N2b (decision 43 step 3; design doc §5 Q1 verdict A): a read of a
-/// reference-typed FIELD produces a reference VALUE — binding it,
-/// dereferencing it or calling through it is N1e's (references as binding
-/// types). The holder is N2b's; the reference out of it is not.
-_reject_reference_value_field_read :: (fn(ft : &TypeValue, at : &AstExpr, ctx : &EvalContext, exn : Exception) -> unit)(
+/// A read of a reference FIELD (decision 43 step 2, N1e-2): `v.at` with
+/// `at : &(T, p)` reads as the place it refers to, of type `T`, as a
+/// reference binding does (VERDICTS-13 §11's check layer): `v.at.*` is that
+/// place, `v.at.f`/`v.at.m()`/`f(v.at)` read through or lend it, and a bare
+/// `v.at` in a by-value position is E0926. The returned type is the field's
+/// as it is read: the pointee for a reference field. A `v.at.*` evaluated
+/// before reads with its label at the `*` (`is_reference_deref_site`) and is
+/// a plain read.
+_reference_field_read_type :: (fn(ft : &TypeValue, expr : &AstExpr, property_expr : &AstExpr, exempt : bool, ctx : &EvalContext, exn : Exception) -> TypeValue)(
   match(
     ft,
-    Rc(.Reference(_, _, _)) => if(!is_std_module_path(&ast_expr_token(at).module_path.*, ctx.std_path.clone()), {
-      exn.throw(dyn(format_error_message(ast_expr_token(at), reference_value_phase_message(ft))));
-    }),
-    _ => ()
+    Rc(.Reference(rf_pointee, _, _)) => {
+      rf_tok := ast_expr_token(property_expr);
+      if(!is_reference_deref_site(&rf_tok), {
+        note_reference_field_read(ast_expr_id(expr), ft);
+        if(!exempt && deref_rule_applies(&rf_tok, ctx), {
+          reject_reference_field_without_deref(&local_borrow_place_text(expr), &rf_tok.value.*, ft, &rf_tok, ctx, exn);
+        });
+      });
+      Rc.clone(rf_pointee)
+    },
+    _ => Rc.clone(ft)
   )
 );
 /// A payload-free variant of a reference-semantics enum (`ref(enum(UnitVal, …))`)
@@ -468,6 +480,10 @@ _try_resolve_associated_type :: (
 // ---------------------------------------------------------------------------
 // evaluate_property_access
 // ---------------------------------------------------------------------------
+/// The object `r.*` of a written `r.*.*` that `--migrate deref` is
+/// evaluating (N1e-1): its own `.*` arm decides whether the inner `.*` is an
+/// old payload read or the reference's deref an earlier run wrote.
+(mut(g_deref_chain_object_id) : usize) = usize(0);
 evaluate_property_access :: (
   fn(
     expr : &AstExpr,
@@ -498,6 +514,10 @@ _evaluate_property_access_node :: (
   // The receiver of an enclosing `.` place chain reports no access of its
   // own (local borrows, plans/VALUES_BY_DEFAULT.md decision 18).
   lb_is_receiver := local_borrow_take_receiver(expr);
+  // A reference-field read in a receiver or reference-slot position is not a
+  // whole-value read (N1e-2): taken here, before the object's own mark
+  // replaces it.
+  pa_deref_exempt := deref_exempt_take(expr);
   // Guard: must be a "." function call.
   if(!ast_expr_is_fn_call_of(expr, BF_DOT, .None), {
     exn.throw(
@@ -720,6 +740,11 @@ _evaluate_property_access_node :: (
   // RAW — see the comment at the `is_kind` early-return above.
   local_borrow_mark_receiver(&object_expr);
   deref_exempt_mark(&object_expr);
+  // `--migrate deref` over `r.*.*`: the object `r.*` is told apart from an
+  // old payload read below (`g_deref_chain_object_id`).
+  if(deref_rule_recording() && ast_expr_is_atom_of(&property_expr, "*") && ast_expr_is_fn_call_of(&object_expr, BF_DOT, Option(usize).Some(usize(2))), {
+    g_deref_chain_object_id = ast_expr_id(&object_expr);
+  });
   object_expr = evaluate_expression_raw(&object_expr, &env, ctx, exn);
   deref_exempt_clear();
   local_borrow_clear_receiver();
@@ -790,9 +815,21 @@ _evaluate_property_access_node :: (
           // the old way (the payload, recorded as `r.*.*`); any other `.*`
           // on a reference is already the new spelling (a file `--migrate
           // deref` ran on before), and reads as below.
-          if(deref_rule_recording() && deref_reads_through_pointee(&rd_oi.ty), {
-            record_deref_site(ast_expr_token(&object_expr), &rd_v.name);
+          // In `r.*.*` (`expr` is the object of a written `.*`), the old
+          // reading would read a payload's payload; when the payload is not
+          // itself read through by `.*`, that is no old source, and the inner
+          // `.*` is the reference's deref an earlier run wrote.
+          rd_chain_new := (deref_rule_recording() && (ast_expr_id(expr) == g_deref_chain_object_id) && match(deref_payload_type(&rd_oi.ty), .Some(rd_pt) => !deref_reads_through_pointee(&rd_pt), .None => false));
+          if(ast_expr_id(expr) == g_deref_chain_object_id, {
+            g_deref_chain_object_id = usize(0);
+          });
+          if(deref_rule_recording() && !rd_chain_new && deref_reads_through_pointee(&rd_oi.ty), {
+            record_deref_edit_site(ast_expr_token(&object_expr), &rd_v.name, u8(3));
           }, {
+            // A `.*` no old source could write: the file is migrated already.
+            if(deref_rule_recording(), {
+              note_deref_migrated_file(ast_expr_token(&object_expr));
+            });
             // The node reads as the name itself from here on: it is
             // recorded rewritten to the atom `r` under its own id
             // (`note_rewritten_node`), so codegen, the place walks and a
@@ -834,6 +871,62 @@ _evaluate_property_access_node :: (
       ),
       .None => ()
     );
+    // `v.at.*` on a reference FIELD read (N1e-2): the place the field refers
+    // to, which the bare read already names (`_reference_field_read_type`).
+    // The node is recorded rewritten to that read under its own id, with the
+    // label at the `*`'s position (a deref site), so it re-evaluates as a
+    // plain read and `v.at.*.*` is the referent's own deref.
+    // A read the rewrite already produced (its label sits at a `*`) is the
+    // referent itself, and its `.*` is the referent's own.
+    rf_mode := match(
+      &object_expr,
+      .FnCall(_, _, Rc(rfm_args), _, _) => match(rfm_args.get(usize(1)), .Some(rfm_l) => if(is_reference_deref_site(&ast_expr_token(&rfm_l)), Option(TypeValue).None, reference_field_read_type(ast_expr_id(&object_expr))), .None => Option(TypeValue).None),
+      .Atom(_, _) => Option(TypeValue).None
+    );
+    if(rf_mode.is_some() && deref_rule_applies(ast_expr_token(&property_expr), ctx) && _is_written_star(&property_expr), {
+      match(
+        &object_expr,
+        .FnCall(_, rf_f, Rc(rf_args), rf_infix, rf_tok) => {
+          rf_obj := match(rf_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+          rf_label := match(rf_args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
+          rf_label_tok := ast_expr_token(&rf_label);
+          rf_star_tok := ast_expr_token(&property_expr);
+          rf_new_tok := Token(
+            kind : rf_label_tok.kind,
+            value : Rc.clone(rf_label_tok.value),
+            row : rf_star_tok.row,
+            column : rf_star_tok.column,
+            character : rf_star_tok.character,
+            byte_offset : rf_star_tok.byte_offset,
+            module_path : Rc.clone(rf_label_tok.module_path),
+            input : Rc.clone(rf_label_tok.input)
+          );
+          note_reference_deref_site(&rf_new_tok);
+          rf_new_args := ArrayList(AstExpr).new();
+          rf_new_args.push(rf_obj);
+          rf_new_args.push(AstExpr.Atom(ast_expr_id(&rf_label), rf_new_tok));
+          rf_node := AstExpr.FnCall(ast_expr_id(expr), rf_f.clone(), Rc.new(rf_new_args), rf_infix, rf_tok.clone());
+          note_rewritten_node(&rf_node);
+          match(&rf_mode, .Some(rf_rt) => note_reference_field_read(ast_expr_id(expr), &rf_rt), .None => ());
+          match(
+            obj_info_opt,
+            .Some(rf_oi) => {
+              rf_out := new_expr_info(&env, &rf_oi.ty);
+              rf_out.value = rf_oi.value;
+              expr_info_set_origin_type(&rf_out, expr_info_origin_type(&rf_oi));
+              rf_out.is_accessing_property = rf_oi.is_accessing_property;
+              rf_out.path_collection = rf_oi.path_collection.clone();
+              rf_out.variable_name = rf_oi.variable_name.clone();
+              rf_out.source_variable = rf_oi.source_variable;
+              expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &rf_out);
+            },
+            .None => ()
+          );
+          return(rf_node);
+        },
+        .Atom(_, _) => ()
+      );
+    });
     match(
       &obj_ty_deref,
       .Some(ot) => {
@@ -1930,8 +2023,7 @@ Raw pointer operations may dereference invalid memory.`
               );
               return(expr);
             });
-            ft_idx := match(fields_types.get(idx), .Some(t) => t, .None => t_unit());
-            _reject_reference_value_field_read(&ft_idx, expr, ctx, exn);
+            ft_idx := _reference_field_read_type(&match(fields_types.get(idx), .Some(t) => t, .None => t_unit()), expr, &property_expr, pa_deref_exempt, ctx, exn);
             field_origin_idx := match(
               match(obj_info_opt, .Some(oi) => expr_info_origin_type(&oi), .None => Option(TypeValue).None),
               .Some(ot) => ot,
@@ -2138,8 +2230,7 @@ Raw pointer operations may dereference invalid memory.`
                 return(expr);
               });
             });
-            ft_lbl := match(fields_types.get(fi_lbl), .Some(t) => t, .None => t_unit());
-            _reject_reference_value_field_read(&ft_lbl, expr, ctx, exn);
+            ft_lbl := _reference_field_read_type(&match(fields_types.get(fi_lbl), .Some(t) => t, .None => t_unit()), expr, &property_expr, pa_deref_exempt, ctx, exn);
             field_origin_lbl := match(
               match(obj_info_opt, .Some(oi) => expr_info_origin_type(&oi), .None => Option(TypeValue).None),
               .Some(ot) => ot,

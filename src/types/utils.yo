@@ -899,13 +899,6 @@ _origin_beyond_n2b_inner :: (fn(ty : &TypeValue, seen : &mut ArrayList(String), 
 origin_beyond_n2b_message :: (fn(ty : &TypeValue) -> String)(
   `A value of \`${type_to_string(ty)}\` carries an origin inside a container or a cell, which the remaining pieces of first-class storage open (decision 43 step 3): containers over reference-holding elements arrive with N2c (their std generic bodies and their flow-set growth), cell payloads with N2d (and N1d's \`Escapable\`). An inline composite — a value struct or enum, a tuple, an array — holds references from N2b on.`
 );
-/// A READ of a reference-typed field produces a reference VALUE, which
-/// N1e opens (references as binding types, `.*`, auto-deref; decision 43
-/// step 2's N1e). N2b builds, moves and copies the HOLDER; reading the
-/// reference out of it is the next step.
-reference_value_phase_message :: (fn(ty : &TypeValue) -> String)(
-  `\`${type_to_string(ty)}\` is a reference value, which arrives with references as binding types (decision 43 step 2, N1e): first-class storage (N2b) builds, moves and copies the value HOLDING it, and reading the reference out — binding it, dereferencing it, calling through it — is N1e's.`
-);
 /// The wall at a run-time function's signature: a parameter or result whose
 /// type carries an origin BEYOND N2b (a container or a cell — inline
 /// composites are N2b's values; the `&T` / `-> &T` slots are N1's) would
@@ -4169,7 +4162,7 @@ type_may_provide_slice_source :: (fn(ty : &TypeValue) -> bool)({
 });
 export(enum_phantom_type_arg_somes, enum_phantom_type_args_masked);
 export(CaptureBorrow, register_capture_borrows, capture_struct_borrows, capture_borrows_exist, capture_borrow_place_string, collect_type_borrows, type_is_second_class, type_first_mut_borrow, type_pointee_second_class);
-export(type_carries_origin, type_is_escapable, escapable_bound_error, note_origin_types_exist, origin_value_phase_message, reject_origin_carrying_signature, no_origin_position_error, origin_beyond_n2b, origin_beyond_n2b_message, reference_value_phase_message);
+export(type_carries_origin, type_is_escapable, escapable_bound_error, note_origin_types_exist, origin_value_phase_message, reject_origin_carrying_signature, no_origin_position_error, origin_beyond_n2b, origin_beyond_n2b_message);
 export(set_target_pointer_size);
 export(is_drop_trait_name, is_drop_method_name, is_destructor_trait_member, is_clone_trait_type, dyn_type_lists_clone, type_holds_dyn_by_value);
 export(get_target_pointer_size_bits);

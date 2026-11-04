@@ -124,7 +124,7 @@ pragma(Pragma.AllowUnsafe);
 :: import("../utils.yo");
 { eprintln } :: import("std/fmt");
 { EvalValue, is_unknown_val, is_type_value, is_var_ref, is_func_val } :: import("../value.yo");
-{ TypeValue, TypeValueNode, t_refine_inner, SharedList, no_flags, no_types, fn_param_mut_ref_flags, fn_param_by_value_flags, fn_result_is_ref, fn_result_is_mut_ref, fn_result_origin_names, fn_result_composite_origin_names, fn_param_in_result_origin, fn_result_slot, shared_list } :: import("../types/definitions.yo");
+{ TypeValue, TypeValueNode, t_refine_inner, SharedList, no_flags, no_types, fn_param_mut_ref_flags, fn_param_by_value_flags, fn_result_is_ref, fn_result_is_mut_ref, fn_result_origin_names, fn_result_composite_origin_names, fn_param_in_result_origin, fn_param_pointee_in_result_origin, fn_result_slot, shared_list, t_slot_is_mut_ref } :: import("../types/definitions.yo");
 { is_never_type, is_unit_type, is_function_type, is_function_type_and_returns_comptime_value, is_box_type, is_unique_box_type, is_dyn_type, is_future_trait_type, is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type, is_primitive_type, is_pointer_type, is_bool_type, is_array_type, is_struct_type, is_tuple_type, is_some_type, cell_handle_view, is_atomic_counted_handle_type, is_counted_cell_type, is_arc_type, is_counted_handle_value_type, unique_box_payload_type } :: import("../types/guards.yo");
 { get_func_type, is_fn_ctfe_clone, is_closure_fn, is_io_async_sm_closure } :: import("../function_value.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../types/compatibility.yo");
@@ -175,6 +175,9 @@ pragma(Pragma.AllowUnsafe);
 /// (N1e-1, `property_access.yo`), by source position: the name there is the
 /// deref, never a whole-value read, in this node and in every clone of it.
 (g_reference_deref_sites : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
+/// Field reads of a reference field (N1e-2), with the field's reference
+/// type as the instance declares it (`note_reference_field_read`).
+(g_reference_field_reads : RefCell(HashMap(usize, TypeValue))) = RefCell(HashMap(usize, TypeValue)).new(HashMap(usize, TypeValue).new());
 /// The `*` atoms of the `w.*` derefs the auto-deref hooks synthesize
 /// (`make_deref_expr`, N1e-1), by id: every other `*` of a `.*` was written,
 /// in the source or in a batch the test runner printed from it.
@@ -2737,6 +2740,11 @@ place_root_binding :: (fn(place : &AstExpr, env : &Environment, ctx : &EvalConte
   // reference binding is the name `r`, decision 43 step 2 N1e-1).
   (cur : AstExpr) = ast_rewritten_node(&ast_expr_strip_borrow_marker(place));
   while(!ast_expr_is_atom(&cur), {
+    // A reference field's read (N1e-2) is the place it refers to, which the
+    // binding only points to.
+    if(is_reference_field_read(ast_expr_id(&cur)), {
+      return(Option(Variable).None);
+    });
     (next : AstExpr) = match(
       cur,
       .FnCall(_, pr_callee, Rc(pr_args), pr_infix, _) => cond(
@@ -2763,6 +2771,44 @@ place_root_binding :: (fn(place : &AstExpr, env : &Environment, ctx : &EvalConte
     cur = ast_rewritten_node(&next);
   });
   get_variables_from_env(env, ast_expr_token(&cur).value.*.clone()).last()
+});
+/// E0908: a write of `place` that goes through a `&` reference field
+/// (`v.at.* = x`, `v.at.f = x` or `&mut v.at` with `at : &(T, p)`, decision
+/// 43 step 2 N1e-2). The field lends the place it refers to read-only, as a
+/// `&T` parameter does; a `&mut` field lends it writable.
+reject_write_through_shared_reference_field :: (fn(place : &AstExpr, tok : &Token, ctx : &EvalContext, exn : Exception) -> unit)({
+  if(g_reference_field_reads.with(m => m.len()) == usize(0), {
+    return(());
+  });
+  (cur : AstExpr) = ast_rewritten_node(&ast_expr_strip_borrow_marker(place));
+  while(!ast_expr_is_atom(&cur), {
+    if(match(reference_field_read_mode(ast_expr_id(&cur)), .Some(rw_mut) => !rw_mut, .None => false), {
+      rw_text := _place_text(&cur);
+      raise_flow_violation(
+        with_code(
+          format_error_message_with_help(
+            tok,
+            `Cannot write through \`${rw_text}\`: it is a \`&\` reference field, a read-only borrow of the place it refers to.`,
+            Option(String).Some(`declare the field \`&mut\` to write through it, or copy the value into a local first (\`q := ${rw_text}.*;\`) and write the copy`)
+          ),
+          E_WRITE_THROUGH_BORROW
+        ),
+        ctx,
+        exn
+      );
+      return(());
+    });
+    (rw_next : AstExpr) = match(
+      cur,
+      .FnCall(_, rw_callee, Rc(rw_args), rw_infix, _) => cond(
+        ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))) => match(rw_args.get(usize(0)), .Some(a) => a, .None => return(())),
+        rw_infix => return(()),
+        true => rw_callee
+      ),
+      .Atom(_, _) => cur
+    );
+    cur = ast_rewritten_node(&rw_next);
+  });
 });
 /// `yo fix --migrate mut-bindings`: whether the binding at the root of
 /// `place` has a type variable's type. A store through it is judged "not its
@@ -2793,6 +2839,7 @@ _place_root_is_type_variable :: (fn(place : &AstExpr, env : &Environment) -> boo
 /// binding). A module-level root is judged by the globals step at its own
 /// sites, and a compile-time root holds no runtime storage to lend.
 place_require_mut :: (fn(place : &AstExpr, tok : &Token, how : &String, handle_ok : bool, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
+  reject_write_through_shared_reference_field(place, tok, ctx, exn);
   if(!g_audit_mut_bindings && !migrate_mut_bindings_on() && !global_mut_rule_applies(tok, ctx), {
     return(());
   });
@@ -6194,14 +6241,57 @@ local_borrow_take_receiver :: (fn(e : &AstExpr) -> bool)({
   });
   hit
 });
-/// Before evaluating `e` where a bare reference binding is not a
-/// whole-value read (`g_deref_exempt_id`): only an atom is marked.
-deref_exempt_mark :: (fn(e : &AstExpr) -> unit)(
-  if(ast_expr_is_atom(e), {
-    g_deref_exempt_id = ast_expr_id(e);
-    g_deref_exempt_armed = true;
-  })
+/// Before evaluating `e` where a bare reference (a binding, or a field read
+/// of a reference field, N1e-2) is not a whole-value read
+/// (`g_deref_exempt_id`).
+deref_exempt_mark :: (fn(e : &AstExpr) -> unit)({
+  g_deref_exempt_id = ast_expr_id(e);
+  g_deref_exempt_armed = true;
+});
+/// The ids of field reads whose field is a reference (decision 43 step 2,
+/// N1e-2): `v.at` with `at : &(T, p)` reads as the place it refers to, of
+/// type `T`, as a reference binding does, so `v.at.*` is that place and a
+/// bare `v.at` in a by-value position is E0926. `ref_ty` is the field's
+/// reference type: its mutability decides a write through it, its origin
+/// where the place it refers to lives.
+note_reference_field_read :: (fn(id : usize, ref_ty : &TypeValue) -> unit)({
+  _old := g_reference_field_reads.with_mut({ id, ty : Rc.clone(ref_ty) }(m) => m.insert(id, Rc.clone(ty)));
+  ()
+});
+/// The field's reference type when the node `id` reads a reference field.
+reference_field_read_type :: (fn(id : usize) -> Option(TypeValue))(
+  if(g_reference_field_reads.with(m => m.len()) == usize(0), Option(TypeValue).None, g_reference_field_reads.with(m => m.get_cloned(&id)))
 );
+/// `.Some(is_mut)` when the node `id` reads a reference field.
+reference_field_read_mode :: (fn(id : usize) -> Option(bool))(
+  match(reference_field_read_type(id), .Some(rt) => Option(bool).Some(t_slot_is_mut_ref(&rt)), .None => Option(bool).None)
+);
+is_reference_field_read :: (fn(id : usize) -> bool)(reference_field_read_mode(id).is_some());
+/// E0926 at a field read `text` whose field is the reference `ref_ty`, used
+/// as a whole value without `.*` (N1e-2; the binding form is
+/// `reject_reference_without_deref`). `tok` is the field label's token.
+reject_reference_field_without_deref :: (fn(text : &String, label : &String, ref_ty : &TypeValue, tok : &Token, ctx : &EvalContext, exn : Exception) -> unit)({
+  if(ctx.is_in_function_call_checking_phase, {
+    return(());
+  });
+  if(deref_rule_recording(), {
+    record_deref_site(tok, label);
+    return(());
+  });
+  shown := type_to_string_for_message(ref_ty);
+  raise_flow_violation(
+    &with_code(
+      format_error_message_with_help(
+        tok,
+        `\`${text}\` is a reference (\`${shown}\`): reading the value it refers to is spelled \`${text}.*\``,
+        Option(String).Some(`write \`${text}.*\`; \`${text}.field\`, \`${text}.method()\` and \`${text}(i)\` read through it, and \`f(${text})\` passes it to a reference parameter`)
+      ),
+      E_REFERENCE_READ_WITHOUT_DEREF
+    ),
+    ctx,
+    exn
+  );
+});
 /// After `e` was evaluated.
 deref_exempt_clear :: (fn() -> unit)({
   g_deref_exempt_armed = false;
@@ -6248,6 +6338,19 @@ is_synthesized_deref_star :: (fn(id : usize) -> bool)(
 /// reference's own deref under either reading.
 deref_reads_through_pointee :: (fn(ty : &TypeValue) -> bool)(
   cell_handle_view(ty).is_some() || (unique_box_payload_type(ty).is_some() || (is_pointer_type(ty) || _labels_name_a_star(ty)))
+);
+/// The value the old reading's `.*` on `ty` reads: a cell handle's or a
+/// `Box`'s payload, a pointer's pointee. `.None` for a field named `*`.
+deref_payload_type :: (fn(ty : &TypeValue) -> Option(TypeValue))(
+  match(
+    cell_handle_view(ty),
+    .Some(v) => Option(TypeValue).Some(Rc.clone(v.payload)),
+    .None => match(
+      unique_box_payload_type(ty),
+      .Some(p) => Option(TypeValue).Some(p),
+      .None => match(t_refine_inner(ty), Rc(.Pointer(p)) => Option(TypeValue).Some(Rc.clone(p)), _ => Option(TypeValue).None)
+    )
+  )
 );
 _labels_name_a_star :: (fn(t : &TypeValue) -> bool)({
   labels := match(
@@ -7878,7 +7981,15 @@ projection_call_root_args :: (fn(call : &AstExpr, ctx : &EvalContext) -> ArrayLi
     p_ref := match(param_is_ref.get(i), .Some(b) => b, .None => false);
     p_own := match(param_is_owning.get(i), .Some(b) => b, .None => true);
     p_in := match(&res_names, .Some(rn) => fn_param_in_result_origin(&meta_ty, i, &rn), .None => true);
-    if((p_ref || !p_own) && p_in, {
+    // A holder passed by value (an N2b composite carrying origins, N1e-2):
+    // the result may point where its references do.
+    p_carries := match(
+      args.get(i),
+      .Some(ha) => match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&_strip_lend(&ha))), .Some(hai) => type_carries_origin(&hai.ty), .None => false),
+      .None => false
+    );
+    p_holder := ((p_own && !p_ref) && p_carries);
+    if((p_ref || (!p_own || p_holder)) && p_in, {
       match(args.get(i), .Some(a) => out.push(ProjectionRootArg(arg : _strip_lend(&a), is_mut : p_ref, label : _param_label_at(&meta_ty, i))), .None => ());
     });
     i = (i + usize(1));
@@ -7912,12 +8023,44 @@ origin_carrying_value_roots :: (fn(e : &AstExpr, env : &Environment, ctx : &Eval
     _holder_roots_into(&stripped, env, ctx, &mut out);
     return(out);
   });
+  // A call whose result spells its origins (`-> Option(&mut(T, p))`, O3):
+  // the value points only where those origins do. An argument whose
+  // parameter they do not name contributes nothing; one whose pointee
+  // carries them (`self : &mut Cursor(p)`, O3 step 2) contributes the
+  // places its holder froze, not its own place.
+  oc_ft := projection_call_callee_type(&stripped, ctx);
+  oc_names := match(&oc_ft, .Some(oc_t) => fn_result_composite_origin_names(&oc_t), .None => Option(SharedList(String)).None);
   match(
     stripped,
     .FnCall(_, _, fc_args, _, _) => {
       (i : usize) = usize(0);
       while(i < fc_args.len(), {
         arg := match(fc_args.get(i), .Some(a) => a, .None => make_err_expr());
+        (oc_mode : u8) = match(
+          &oc_ft,
+          .Some(oc_t) => match(
+            &oc_names,
+            .Some(oc_n) => cond(
+              fn_param_in_result_origin(&oc_t, i, &oc_n) => u8(0),
+              fn_param_pointee_in_result_origin(&oc_t, i, &oc_n) => u8(2),
+              true => u8(1)
+            ),
+            .None => u8(0)
+          ),
+          .None => u8(0)
+        );
+        if(oc_mode == u8(1), {
+          i = (i + usize(1));
+          continue;
+        });
+        if(oc_mode == u8(2), {
+          oc_place := ast_expr_strip_borrow_marker(&arg);
+          if(ast_expr_is_atom(&oc_place), {
+            _holder_roots_into(&oc_place, env, ctx, &mut out);
+          });
+          i = (i + usize(1));
+          continue;
+        });
         // A `label : value` argument: the value.
         value := cond(
           ast_expr_is_fn_call_of(&arg, BK_COLON, Option(usize).Some(usize(2))) => match(
@@ -8133,11 +8276,18 @@ export(
   deref_exempt_mark,
   deref_exempt_clear,
   deref_exempt_take,
+  note_reference_field_read,
+  is_reference_field_read,
+  reference_field_read_mode,
+  reference_field_read_type,
+  reject_reference_field_without_deref,
+  reject_write_through_shared_reference_field,
   note_reference_deref_site,
   is_reference_deref_site,
   note_synthesized_deref_star,
   is_synthesized_deref_star,
   deref_reads_through_pointee,
+  deref_payload_type,
   variable_is_reference_binding,
   deref_rule_applies,
   deref_rule_recording,
