@@ -575,3 +575,34 @@ test("Clone: an anonymous record of a String clones field-wise", {
   r3 := _ct_sclone(&r);
   assert(r3.a == String.from("x"), "a where(T <: Clone) body clones it");
 });
+// An instantiated generic body judges the types it builds as the concrete
+// instances they denote: `Option(Option(V))` at `V := _CtNoClone` is not `Copy`,
+// so the match takes the owned result and its arm moves `prev` out; at
+// `V := i32` it is `Copy`, so the result copies
+// (issues/fixed/2026-11-05-a-hashmap-of-a-plain-data-struct-without-copy-cannot-insert.md).
+_CtNest :: (fn(comptime(V) : Type) -> comptime(Type))(struct(tag : u8));
+impl(
+  generic(V : Type),
+  _CtNest(V),
+  wrap2 : (fn(self : &Self, value : V) -> Option(Option(V)))(.Some(.Some(value))),
+  unwrap1 : (fn(self : &Self, value : V) -> Option(V))(
+    match(
+      Self.wrap2(self, value),
+      .Some(prev) => prev,
+      .None => .None
+    )
+  ),
+  twice : (fn(self : &Self, value : V) -> bool)({
+    r := Self.wrap2(self, value);
+    a := r;
+    b := r;
+    (a.is_some() && b.is_some())
+  })
+);
+test("Copy: a generic body moves a plain payload out of a nested Option result", {
+  comptime_assert(!Type.impls(_CtNoClone, Copy) && !Type.impls(Option(Option(_CtNoClone)), Copy), "not Copy");
+  n := _CtNest(_CtNoClone)(tag : u8(0));
+  match(n.unwrap1(_CtNoClone(n : i32(7))), .Some(p) => assert(p.n == i32(7), "moved out"), .None => assert(false, "present"));
+  k := _CtNest(i32)(tag : u8(0));
+  assert(k.twice(i32(3)), "a Copy instance copies");
+});
