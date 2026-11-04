@@ -9825,7 +9825,7 @@ once `SEED_VERSION` parses it.
     must-have, and Generation B moves to v0.2.77 with the retirement.
 - **Part B: the three classes** (Fable consultations #13 Task 4 and #18 §C,
   binding; the per-declaration table is
-  [`V5_PART_B_CLASSIFICATION.md`](V5_PART_B_CLASSIFICATION.md)). Decision 46
+  [`handover/V5_PART_B_CLASSIFICATION.md`](handover/V5_PART_B_CLASSIFICATION.md)). Decision 46
   (E0919) makes an `Rc` payload read-only, so `Rc(S)` is not an option for a
   written context: it is either a `&mut`-threaded value or
   `Rc(RefCell(S))`. Each `ref` declaration is one of three classes:

@@ -418,7 +418,7 @@ After v0.2.74 shipped, the maintainer delegated the v0.2.75 cut to Fable (consul
 
 30. **V5 part B classifies each `ref` declaration R, L or S** (Fable consultation #18 §C, 2026-11-04, confirming #13 Task 4; `plans/VALUES_BY_DEFAULT.md` V5 "Part B: the three classes").
     - **R**, never written after construction: a plain struct (`Rc(S)` only when large and copied in a loop). **L**, written and threaded: an owned value at its root, `&mut S` where written, `&S` where read; no allocation. **S**, semantically shared (a stored handle read or written while no caller holds the context): `Rc(RefCell(S))`, or `Rc(S)` with at most two `RefCell` fields. A tie goes to L.
-    - **Procedure per declaration:** written? (no: R); stored in a field, payload, module binding or stored closure? (no: L); by hand, does every stored use have the context on its path as a parameter? (yes: L with restructuring; no: S). `src_census.py` runs the first two steps; the table is `plans/V5_PART_B_CLASSIFICATION.md`.
+    - **Procedure per declaration:** written? (no: R); stored in a field, payload, module binding or stored closure? (no: L); by hand, does every stored use have the context on its path as a parameter? (yes: L with restructuring; no: S). `src_census.py` runs the first two steps; the table is `plans/handover/V5_PART_B_CLASSIFICATION.md`.
     - **Order:** plan text, census, then per file every L declaration before any S. Each S type on the evaluator's path is perf-gated (ABBA `check ./src` within 3 % wall and RSS, plus the fixpoint); the ratchet is re-baselined at the end.
     - **Estimate** (Fable, 206 declarations): R ≈ 86, L ≈ 100, S ≈ 15–20. The three `ref(enum)`s are V4's shared trees and become read-only `Rc`.
 
