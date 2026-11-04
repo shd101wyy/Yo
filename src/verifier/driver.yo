@@ -405,11 +405,11 @@ solver_answer_of_response :: (fn(response : &String, opts : &EncodeOptions) -> S
   )
 });
 /// Spawn the solver on `q` under `opts` and read its answer.
-_solve :: (fn(q : &VcQuery, opts : &EncodeOptions, binary : &String) -> SolverAnswer)({
-  script := encode_script(q, opts.*);
+_solve :: (fn(q : &VcQuery, opts : EncodeOptions, binary : &String) -> SolverAnswer)({
+  script := encode_script(q, opts);
   match(
     run_z3_script(binary.clone(), &script),
-    .Ok(response) => solver_answer_of_response(&response, opts),
+    .Ok(response) => solver_answer_of_response(&response, &opts),
     .Err(msg) => SolverAnswer(verdict : VerifyVerdict.SolverError(msg), cacheable : false)
   )
 });
@@ -456,7 +456,7 @@ run_vc_query :: (fn(q : &VcQuery, cfg : &VerifyRunConfig, binary : &String) -> V
     ),
     .None => ()
   );
-  answer := _solve(q, &cfg.encode_opts, binary);
+  answer := _solve(q, cfg.encode_opts, binary);
   match(
     &answer.verdict,
     .Unproven(_) => {
@@ -467,7 +467,7 @@ run_vc_query :: (fn(q : &VcQuery, cfg : &VerifyRunConfig, binary : &String) -> V
         want_unsat_core : cfg.encode_opts.want_unsat_core,
         want_counterexample : cfg.encode_opts.want_counterexample
       );
-      answer = _solve(q, &retry_opts, binary);
+      answer = _solve(q, retry_opts, binary);
     },
     _ => ()
   );
