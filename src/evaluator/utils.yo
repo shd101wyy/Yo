@@ -4920,6 +4920,9 @@ _drop_in_arms_that_keep :: (
   // A binding that owns nothing (a `match`/`for` binding, a `mut` place)
   // has nothing of its own to drop: what its move consumed is its holder,
   // whose own join drops it in the arms that keep it.
+  if(debug_knob(`YO_DEBUG_HMFIX`).is_some(), {
+    eprintln(`[hmfix] join ${v.name} ty=${type_to_string(&v.ty)} own=${if(v.is_owning_the_rc_value, "1", "0")} rc=${if(type_contains_rc_type(&v.ty), "1", "0")} somet=${match(&v.ty, Rc(.SomeT({ resolution : r })) => if(r.is_some(), "resolved", "open"), _ => "no")}`);
+  });
   if(!v.is_owning_the_rc_value || v.is_ref || !type_contains_rc_type(&v.ty), {
     return(true);
   });
