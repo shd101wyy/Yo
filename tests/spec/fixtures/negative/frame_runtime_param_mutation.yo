@@ -7,14 +7,9 @@ pragma(Pragma.Verify);
 { ArrayList } :: import("std/collections/array_list");
 { grow } :: import("./frame_runtime_param_mutation_grow.yo");
 
-probe_grow :: (
-  fn(
-    xs : ArrayList(i32),
-    requires(xs.len() == usize(0)),
-    ensures(r == usize(0))
-  ) -> (r : usize)
-)({
-  grow(xs);
+probe_grow :: (fn(ensures(r == usize(0))) -> (r : usize))({
+  mut(xs) := ArrayList(i32).new();
+  grow(&mut xs);
   xs.len()
 });
 export(probe_grow);

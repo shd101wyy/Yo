@@ -152,7 +152,7 @@ parse_lock_file :: (fn(content : &String) -> Result(LockFile, String))({
       .Some(items) => {
         (i : usize) = usize(0);
         while(i < items.len(), {
-          item := items(i);
+          item := items(i).clone();
           if(!item.is_table(), {
             return(Result(LockFile, String).Err(String.from("yo.lock: a [[package]] entry is not a table")));
           });

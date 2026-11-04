@@ -44,7 +44,7 @@ make_fncall_expr :: (fn(func_name : str) -> AstExpr)(
 );
 // Creates a `:= x rhs` FnCall to simulate an assignment parent expression.
 make_assign_expr :: (fn(var_name : str, rhs : &AstExpr) -> AstExpr)({
-  args := ArrayList(AstExpr).new();
+  mut(args) := ArrayList(AstExpr).new();
   args.push(make_ident_expr(var_name));
   args.push(rhs);
   AstExpr.FnCall(
@@ -81,7 +81,7 @@ make_detect_all_detector :: (fn() -> SuspensionPointDetector)({
         n = (cur + usize(1));
         cur
       });
-      points := ArrayList(SuspensionPoint).new();
+      mut(points) := ArrayList(SuspensionPoint).new();
       sp := SuspensionPoint(
         index : idx,
         expr : expr.clone(),
@@ -161,7 +161,7 @@ test("analyze_suspension_points: fncall body — detect_all detector → 1 point
 test("analyze_suspension_points: nested fncall — detect_all detects outer + inner", {
   // Body: outer_call(inner_call())
   inner := make_fncall_expr("inner_call");
-  args := ArrayList(AstExpr).new();
+  mut(args) := ArrayList(AstExpr).new();
   args.push(inner);
   outer := AstExpr.FnCall(
     usize(0),
@@ -177,7 +177,7 @@ test("analyze_suspension_points: nested fncall — detect_all detects outer + in
 });
 test("analyze_suspension_points: suspension point index is sequential", {
   inner := make_fncall_expr("a");
-  args := ArrayList(AstExpr).new();
+  mut(args) := ArrayList(AstExpr).new();
   args.push(inner);
   outer := AstExpr.FnCall(
     usize(0),

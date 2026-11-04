@@ -72,7 +72,7 @@ test("generic fn async closure captures the enclosing params", {
   t_e := IoExn(io : io, exn : t_exn);
   path := Path.new(path_join(temp_dir(), `yo_generic_param_capture.bin`.to_string()));
   f := io.await(File.open(&path, OpenMode.Write, io), t_e);
-  payload := ArrayList(u8).new();
+  mut(payload) := ArrayList(u8).new();
   payload.push(u8(0x41));
   payload.push(u8(0x42));
   payload.push(u8(0x43));
@@ -80,7 +80,7 @@ test("generic fn async closure captures the enclosing params", {
   assert(wrote == usize(3), "generic write captured w/buf/size/io");
   io.await(f.close(io), t_e);
   f2 := io.await(File.open(&path, OpenMode.Read, io), t_e);
-  buf := ArrayList(u8).with_capacity(usize(8));
+  mut(buf) := ArrayList(u8).with_capacity(usize(8));
   (mut(bi) : usize) = usize(0);
   while(bi < usize(8), bi = (bi + usize(1)), {
     buf.push(u8(0));
@@ -109,7 +109,7 @@ test("non-generic control of the same shape still works", {
   t_e := IoExn(io : io, exn : t_exn);
   path := Path.new(path_join(temp_dir(), `yo_generic_param_capture_ctl.bin`.to_string()));
   f := io.await(File.open(&path, OpenMode.Write, io), t_e);
-  payload := ArrayList(u8).new();
+  mut(payload) := ArrayList(u8).new();
   payload.push(u8(0x58));
   wrote := io.await(write_once_file(&f, payload.ptr().unwrap(), payload.len(), io), t_e);
   assert(wrote == usize(1), "plain fn param capture unchanged");
@@ -128,12 +128,12 @@ test("generic fn async closure captures the enclosing params implicitly", {
     )
   );
   t_e := IoExn(io : io, exn : t_exn);
-  data := ArrayList(u8).new();
+  mut(data) := ArrayList(u8).new();
   data.push(u8(0x61));
   data.push(u8(0x62));
   data.push(u8(0x63));
   src := MemSrc(data : data, pos : usize(0));
-  buf := ArrayList(u8).with_capacity(usize(8));
+  mut(buf) := ArrayList(u8).with_capacity(usize(8));
   (mut(bi) : usize) = usize(0);
   while(bi < usize(8), bi = (bi + usize(1)), {
     buf.push(u8(0));

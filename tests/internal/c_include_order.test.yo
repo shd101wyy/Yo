@@ -24,7 +24,7 @@ _index_of :: (fn(list : &ArrayList(String), needle : &String) -> usize)({
   (mut(i) : usize) = usize(0);
   while(i < list.len(), {
     match(
-      list.get(i),
+      list.get_cloned(i),
       .Some(v) => if(v == needle, {
         return(i);
       }),
@@ -36,7 +36,7 @@ _index_of :: (fn(list : &ArrayList(String), needle : &String) -> usize)({
 });
 
 _registered :: (fn() -> ArrayList(String))({
-  r := ArrayList(String).new();
+  mut(r) := ArrayList(String).new();
   // The hash order that broke the Windows leg: a dependent header first.
   r.push(String.from("<psapi.h>"));
   r.push(String.from("<stdint.h>"));
@@ -65,7 +65,7 @@ test("windows: <windows.h> is emitted exactly once even though it was registered
   (mut(i) : usize) = usize(0);
   while(i < out.len(), {
     match(
-      out.get(i),
+      out.get_cloned(i),
       .Some(v) => if(v == "<windows.h>", {
         count = (count + usize(1));
       }),

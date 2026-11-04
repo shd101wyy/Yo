@@ -29,6 +29,9 @@ ClosureParamSlot :: ref(
     decl_site : String
   )
 );
+// Never written after construction, so a value-like record: its Clone is the
+// field-wise copy (VERDICTS-13 §12; V5 part-B target a plain struct).
+derive(ClosureParamSlot, Clone);
 /// A deferred async-block generation request: async blocks are generated after
 /// all regular functions. `future_type` (SomeType | DynType) and
 /// `future_trait_type` (FutureTraitType) both become `TypeValue`.
@@ -57,6 +60,10 @@ DeferredAsyncBlock :: ref(
     source_call_id : usize
   )
 );
+// A deferred block is a registry entry with identity (the block list, the by-struct-name map and
+// the topological sort share one object), so its Clone is the handle copy (VERDICTS-13 §12;
+// V5 part-B target `Rc(struct)`).
+impl(DeferredAsyncBlock, Clone(clone : (fn(self : &Self) -> Self)(self)));
 InAsyncStateMachine :: ref(struct(future_type : TypeValue));
 /// One suspension point the single-pass lowering emitted
 /// (plans/ASYNC_STATE_MACHINE_GENERATION.md phase 5): what the abort hook needs
@@ -334,7 +341,7 @@ resolve_var_name_in_context :: (
     return(var_name.clone());
   });
   match(
-    context.state_machine_variables,
+    &context.state_machine_variables,
     .None => var_name.clone(),
     .Some(vars) => {
       (result : String) = var_name.clone();

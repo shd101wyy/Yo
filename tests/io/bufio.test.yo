@@ -106,7 +106,7 @@ test("BufReader raw read: buffered serve, partial then remaining, EOF is 0", {
   io.await(write_string(&path, `0123456789`.to_string(), io), t_e);
   f := io.await(File.open(&path, OpenMode.Read, io), t_e);
   br := BufReader(File).new(f);
-  buf := ArrayList(u8).new();
+  mut(buf) := ArrayList(u8).new();
   (mut(i) : usize) = usize(0);
   while(i < usize(16), i = (i + usize(1)), {
     buf.push(u8(0));
@@ -135,7 +135,7 @@ test("BufReader large read bypasses the buffer", {
   );
   t_e := IoExn(io : io, exn : t_exn);
   path := _p("bypass.txt");
-  big := ArrayList(u8).new();
+  mut(big) := ArrayList(u8).new();
   (mut(i) : usize) = usize(0);
   while(i < usize(64), i = (i + usize(1)), {
     big.push(u8(usize(65) + (i % usize(26))));
@@ -145,7 +145,7 @@ test("BufReader large read bypasses the buffer", {
   io.await(fw.close(io), t_e);
   f := io.await(File.open(&path, OpenMode.Read, io), t_e);
   br := BufReader(File).with_capacity(f, usize(8));
-  out := ArrayList(u8).new();
+  mut(out) := ArrayList(u8).new();
   (mut(j) : usize) = usize(0);
   while(j < usize(64), j = (j + usize(1)), {
     out.push(u8(0));
@@ -298,7 +298,7 @@ test("copy drains a BufReader into a BufWriter (both satisfy the bounds)", {
   t_e := IoExn(io : io, exn : t_exn);
   pa := _p("copy_a.txt");
   pb := _p("copy_b.txt");
-  payload := ArrayList(u8).new();
+  mut(payload) := ArrayList(u8).new();
   (mut(i) : usize) = usize(0);
   while(i < usize(9000), i = (i + usize(1)), {
     payload.push(u8(i % usize(251)));
@@ -342,7 +342,7 @@ test("BufWriter write_string and write_bytes buffer without pointers", {
   fw := io.await(File.open(&p, OpenMode.Write, io), t_e);
   bw := BufWriter(File).with_capacity(fw, usize(64));
   io.await(bw.write_string(String.from("hello "), io), t_e);
-  bs := ArrayList(u8).new();
+  mut(bs) := ArrayList(u8).new();
   bs.push(u8(119));
   bs.push(u8(111));
   bs.push(u8(114));

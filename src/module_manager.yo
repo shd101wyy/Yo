@@ -265,10 +265,13 @@ _yo_std_env_value :: (fn() -> Option(String))({
 /// Every branch returns the CANONICALIZED spelling (see `_std_canonicalize`)
 /// so the resolution route never leaks into module paths or emitted C.
 resolve_std_path :: (fn() -> String)({
+  // A snapshot: a borrow of the module-level override cannot stay live
+  // across the call.
+  std_override := g_std_path_override.clone();
   match(
-    g_std_path_override,
+    std_override,
     .Some(p) => {
-      return(_std_canonicalize(p.clone()));
+      return(_std_canonicalize(&p));
     },
     .None => ()
   );
@@ -356,7 +359,7 @@ _entry_std_root :: (fn(entry : &String) -> Option(String))({
 /// `resolve_std_path()`.
 prefer_entry_std_root :: (fn(entries : &ArrayList(String)) -> unit)({
   match(
-    g_std_path_override,
+    g_std_path_override.clone(),
     .Some(_) => {
       return(());
     },
@@ -379,7 +382,7 @@ prefer_entry_std_root :: (fn(entries : &ArrayList(String)) -> unit)({
   (ei : usize) = usize(0);
   while(ei < entries.len(), {
     entry := match(
-      entries.get(ei),
+      entries.get_cloned(ei),
       .Some(e) => e.clone(),
       .None => String.new()
     );
@@ -393,17 +396,13 @@ prefer_entry_std_root :: (fn(entries : &ArrayList(String)) -> unit)({
         return(());
       },
       .Some(r) => {
-        match(
-          shared,
-          .None => {
-            shared = Option(String).Some(r.clone());
-          },
-          .Some(s) => {
-            if(!(s == r), {
-              return(());
-            });
-          }
-        );
+        agrees := match(&shared, .None => true, .Some(s) => (s == r));
+        if(!agrees, {
+          return(());
+        });
+        if(shared.is_none(), {
+          shared = Option(String).Some(r.clone());
+        });
       }
     );
     ei = (ei + usize(1));
@@ -504,7 +503,7 @@ _open_doc_index :: (fn(fs_path : &String) -> Option(usize))({
   n := g_open_doc_paths.with(xs => xs.len());
   while(i < n, {
     match(
-      g_open_doc_paths.with(xs => xs.get(i)),
+      g_open_doc_paths.with(xs => xs.get_cloned(i)),
       .Some(p) => if(p == fs_path, {
         return(Option(usize).Some(i));
       }),
@@ -522,13 +521,13 @@ mm_set_open_document :: (fn(fs_path : &String, text : &String) -> unit)({
   match(
     _open_doc_index(fs_path.clone()),
     .Some(i) => {
-      g_open_doc_texts.with_mut(xs => {
-        xs(i) = text.clone();
+      g_open_doc_texts.with_mut({ i, t : text.clone() }(xs) => {
+        xs(i) = t;
       });
     },
     .None => {
-      g_open_doc_paths.with_mut(xs => xs.push(fs_path.clone()));
-      g_open_doc_texts.with_mut(xs => xs.push(text.clone()));
+      g_open_doc_paths.with_mut({ p : fs_path.clone() }(xs) => xs.push(p));
+      g_open_doc_texts.with_mut({ t : text.clone() }(xs) => xs.push(t));
     }
   );
 });
@@ -547,7 +546,7 @@ mm_forget_open_document :: (fn(fs_path : &String) -> unit)({
 _open_doc_text :: (fn(fs_path : &String) -> Option(String))(
   match(
     _open_doc_index(fs_path.clone()),
-    .Some(i) => g_open_doc_texts.with(xs => xs.get(i)),
+    .Some(i) => g_open_doc_texts.with(xs => xs.get_cloned(i)),
     .None => Option(String).None
   )
 );
@@ -614,7 +613,7 @@ mm_changed_definitions :: (fn(fs_path : &String) -> Option(DefDiff))({
   read_out := ArrayList(ArrayList(u8)).new();
   _read_source_capturing_error(fs_path.clone(), &mut read_out);
   src_bytes := match(
-    read_out.get(usize(0)),
+    read_out.get_cloned(usize(0)),
     .Some(b) => b,
     .None => {
       _take_load_error();
@@ -632,7 +631,7 @@ mm_changed_definitions :: (fn(fs_path : &String) -> Option(DefDiff))({
   parse_out := ArrayList(ArrayList(AstExpr)).new();
   _parse_capturing_error(&src, walk_key.clone(), &mut parse_out);
   mod_exprs := match(
-    parse_out.get(usize(0)),
+    parse_out.get_cloned(usize(0)),
     .Some(es) => es,
     .None => {
       _take_load_error();
@@ -749,7 +748,7 @@ mm_invalidate_document :: (fn(fs_path : &String) -> ArrayList(String))({
   (i : usize) = usize(0);
   while(i < removed.len(), {
     match(
-      removed.get(i),
+      removed.get_cloned(i),
       .Some(owner) => {
         purge_type_trait_methods_owned_by(owner.clone());
         purge_trait_impl_sites_owned_by(owner.clone());
@@ -974,7 +973,7 @@ _list_contains :: (fn(list : &ArrayList(String), item : &String) -> bool)({
   (i : usize) = usize(0);
   while((i < list.len()) && !found, {
     match(
-      list.get(i),
+      list.get_cloned(i),
       .Some(x) => if(x == item, {
         found = true;
       }),
@@ -987,7 +986,7 @@ _list_contains :: (fn(list : &ArrayList(String), item : &String) -> bool)({
 /// Add `index` to `module`'s list in the apply-side grouping map.
 _rev_add_index :: (fn(indexes_by_module : &mut HashMap(String, ArrayList(usize)), module : &String, index : usize) -> unit)({
   list := match(
-    indexes_by_module.get(module.clone()),
+    indexes_by_module.get_cloned(module.clone()),
     .Some(existing) => existing,
     .None => ArrayList(usize).new()
   );
@@ -1003,7 +1002,7 @@ _rev_add_module :: (fn(modules : &mut ArrayList(String), excluded : &HashSet(Str
     (mi : usize) = usize(0);
     while((mi < modules.len()) && !skip, {
       match(
-        modules.get(mi),
+        modules.get_cloned(mi),
         .Some(m) => if(m == module, {
           skip = true;
         }),
@@ -1110,7 +1109,7 @@ _admit_closure_key :: (
     return(false);
   });
   names := match(
-    names_by_module.get(module.clone()),
+    names_by_module.get_cloned(module.clone()),
     .Some(ns) => ns,
     .None => ArrayList(String).new()
   );
@@ -1202,7 +1201,7 @@ _revalidation_closure :: (fn(seeds : &ArrayList(String)) -> ArrayList(String))({
   (fi : usize) = usize(0);
   while(fi < first.len(), {
     match(
-      first.get(fi),
+      first.get_cloned(fi),
       .Some(k) => if(!seen.contains(k.clone()), {
         seen.insert(k.clone());
         out.push(k.clone());
@@ -1218,7 +1217,7 @@ _revalidation_closure :: (fn(seeds : &ArrayList(String)) -> ArrayList(String))({
     names_by_module := HashMap(String, ArrayList(String)).new();
     while(scanned < out.len(), {
       match(
-        out.get(scanned),
+        out.get_cloned(scanned),
         .Some(key) => {
           module := def_key_module(key.clone());
           match(
@@ -1229,7 +1228,7 @@ _revalidation_closure :: (fn(seeds : &ArrayList(String)) -> ArrayList(String))({
                 w.by_index.get(&ix),
                 .Some(d) => {
                   names := match(
-                    names_by_module.get(module.clone()),
+                    names_by_module.get_cloned(module.clone()),
                     .Some(ns) => ns,
                     .None => {
                       modules.push(module.clone());
@@ -1256,15 +1255,15 @@ _revalidation_closure :: (fn(seeds : &ArrayList(String)) -> ArrayList(String))({
     (mi : usize) = usize(0);
     while(mi < modules.len(), {
       match(
-        modules.get(mi),
+        modules.get_cloned(mi),
         .Some(m) => match(
-          names_by_module.get(m.clone()),
+          names_by_module.get_cloned(m.clone()),
           .Some(names) => {
             mentioning := _defs_mentioning(m.clone(), &names);
             (ki : usize) = usize(0);
             while(ki < mentioning.len(), {
               match(
-                mentioning.get(ki),
+                mentioning.get_cloned(ki),
                 .Some(k) => if(!seen.contains(k.clone()), {
                   fresh.push(k.clone());
                 }),
@@ -1284,7 +1283,7 @@ _revalidation_closure :: (fn(seeds : &ArrayList(String)) -> ArrayList(String))({
       (xi : usize) = usize(0);
       while(xi < more.len(), {
         match(
-          more.get(xi),
+          more.get_cloned(xi),
           .Some(k) => if(!seen.contains(k.clone()), {
             seen.insert(k.clone());
             out.push(k.clone());
@@ -1381,7 +1380,7 @@ mm_revalidate_plan :: (fn(fs_path : &String) -> Option(RevalPlan))({
   (ki : usize) = usize(0);
   while(ki < closure.len(), {
     match(
-      closure.get(ki),
+      closure.get_cloned(ki),
       .Some(key) => if(!_list_contains(&seeds, key.clone()), {
         module := def_key_module(key.clone());
         index := def_key_index(key.clone());
@@ -1399,7 +1398,7 @@ mm_revalidate_plan :: (fn(fs_path : &String) -> Option(RevalPlan))({
                 def_ok = (!d.is_impl && w.ctx.is_some());
                 if(def_ok, {
                   names := match(
-                    names_by_module.get(module.clone()),
+                    names_by_module.get_cloned(module.clone()),
                     .Some(ns) => ns,
                     .None => ArrayList(String).new()
                   );
@@ -1429,14 +1428,14 @@ mm_revalidate_plan :: (fn(fs_path : &String) -> Option(RevalPlan))({
   // The changed defs' own names join their module's group (they are
   // revalidated too, and their ordered readers must fall back).
   cn := match(
-    names_by_module.get(diff.module_key.clone()),
+    names_by_module.get_cloned(diff.module_key.clone()),
     .Some(ns) => ns,
     .None => ArrayList(String).new()
   );
   (cni : usize) = usize(0);
   while(cni < changed_names.len(), {
     match(
-      changed_names.get(cni),
+      changed_names.get_cloned(cni),
       .Some(n) => cn.push(n.clone()),
       .None => ()
     );
@@ -1447,13 +1446,13 @@ mm_revalidate_plan :: (fn(fs_path : &String) -> Option(RevalPlan))({
   // hold copies — file-level for them. And each closure module's own ordered
   // statements reading its revalidated names likewise.
   if(env_mod.env.get(`YO_DEBUG_P3DIFF`).is_some(), {
-    kit_dbg := names_by_module.keys();
+    kit_dbg := names_by_module.keys_cloned().into_iter();
     kopt_dbg := kit_dbg.next();
     while(kopt_dbg.is_some(), {
       match(
         kopt_dbg,
         .Some(mk_dbg) => match(
-          names_by_module.get(mk_dbg.clone()),
+          names_by_module.get_cloned(mk_dbg.clone()),
           .Some(ns_dbg) => {
             readers_dbg := ordered_readers_of(mk_dbg.clone(), ns_dbg.clone());
             eprintln(`[p3read] target=${mk_dbg.clone()} names=${ns_dbg.len().to_string()} readers=${readers_dbg.len().to_string()}`);
@@ -1465,19 +1464,19 @@ mm_revalidate_plan :: (fn(fs_path : &String) -> Option(RevalPlan))({
       kopt_dbg = kit_dbg.next();
     });
   });
-  mit := names_by_module.keys();
+  mit := names_by_module.keys_cloned().into_iter();
   mopt := mit.next();
   while(mopt.is_some(), {
     match(
       mopt,
       .Some(module) => match(
-        names_by_module.get(module.clone()),
+        names_by_module.get_cloned(module.clone()),
         .Some(names) => {
           readers := ordered_readers_of(module.clone(), names.clone());
           (ri : usize) = usize(0);
           while(ri < readers.len(), {
             match(
-              readers.get(ri),
+              readers.get_cloned(ri),
               .Some(importer) => if(_reader_rebindable(importer.clone(), names.clone()), {
                 // Phase 3 (§6): re-point the importer's own bindings at the
                 // re-forced definitions and re-force the importer's
@@ -1539,7 +1538,7 @@ mm_revalidate_plan :: (fn(fs_path : &String) -> Option(RevalPlan))({
         (xi : usize) = usize(0);
         while(xi < extra.len(), {
           match(
-            extra.get(xi),
+            extra.get_cloned(xi),
             .Some(key) => if(
               !(_list_contains(&seeds, key.clone()) || _list_contains(&closure_keys, key.clone())),
               if(!_admit_closure_key(key.clone(), &mut closure_keys, &mut fallbacks, &mut names2_by_module), {
@@ -1564,19 +1563,19 @@ mm_revalidate_plan :: (fn(fs_path : &String) -> Option(RevalPlan))({
   // readers get the file-level path rather than a second re-bind round: one
   // pass terminates, a fixpoint would not obviously, and over-invalidating a
   // reader is the safe direction.
-  m2it := names2_by_module.keys();
+  m2it := names2_by_module.keys_cloned().into_iter();
   m2opt := m2it.next();
   while(m2opt.is_some(), {
     match(
       m2opt,
       .Some(module2) => match(
-        names2_by_module.get(module2.clone()),
+        names2_by_module.get_cloned(module2.clone()),
         .Some(names2) => {
           readers2 := ordered_readers_of(module2.clone(), names2.clone());
           (r2i : usize) = usize(0);
           while(r2i < readers2.len(), {
             match(
-              readers2.get(r2i),
+              readers2.get_cloned(r2i),
               .Some(importer2) => if(!_rebinds_contain(&rebinds, importer2.clone()), {
                 fallbacks.push(importer2.clone());
               }),
@@ -1604,7 +1603,7 @@ mm_revalidate_plan :: (fn(fs_path : &String) -> Option(RevalPlan))({
   Option(RevalPlan).Some(
     RevalPlan(
       module_key : diff.module_key.clone(),
-      changed : diff.changed,
+      changed : diff.changed.clone(),
       fresh_exprs : diff.fresh_exprs.clone(),
       closure_keys : closure_keys,
       fallback_modules : fallbacks,
@@ -1640,7 +1639,7 @@ mm_revalidate_apply :: (
   (ki : usize) = usize(0);
   while(ki < plan.closure_keys.len(), {
     match(
-      plan.closure_keys.get(ki),
+      plan.closure_keys.get_cloned(ki),
       .Some(key) => match(
         def_key_index(key.clone()),
         .Some(ix) => _rev_add_index(&mut indexes_by_module, def_key_module(key.clone()), ix),
@@ -1666,7 +1665,7 @@ mm_revalidate_apply :: (
   (li : usize) = usize(0);
   while(li < plan.closure_keys.len(), {
     match(
-      plan.closure_keys.get(li),
+      plan.closure_keys.get_cloned(li),
       .Some(key) => _rev_add_module(&mut modules, excluded, def_key_module(key.clone())),
       .None => ()
     );
@@ -1683,11 +1682,11 @@ mm_revalidate_apply :: (
     (mi : usize) = usize(0);
     while((mi < modules.len()) && !progressed, {
       match(
-        modules.get(mi),
+        modules.get_cloned(mi),
         .Some(m) => if(!settled.contains(m.clone()), {
           (blocked : bool) = false;
           match(
-            indexes_by_module.get(m.clone()),
+            indexes_by_module.get_cloned(m.clone()),
             .Some(idxs) => {
               (ii : usize) = usize(0);
               while((ii < idxs.len()) && !blocked, {
@@ -1716,7 +1715,7 @@ mm_revalidate_apply :: (
                         (xi : usize) = usize(0);
                         while((xi < modules.len()) && !involved, {
                           match(
-                            modules.get(xi),
+                            modules.get_cloned(xi),
                             .Some(x) => if((x == dep_mod) && !settled.contains(&dep_mod), {
                               involved = true;
                             }),
@@ -1755,7 +1754,7 @@ mm_revalidate_apply :: (
       (advanced : bool) = false;
       while((mi2 < modules.len()) && !advanced, {
         match(
-          modules.get(mi2),
+          modules.get_cloned(mi2),
           .Some(m) => if(!settled.contains(m.clone()), {
             _ := settled.insert(m.clone());
             ordered.push(m.clone());
@@ -1771,11 +1770,11 @@ mm_revalidate_apply :: (
   (oi : usize) = usize(0);
   while(oi < ordered.len(), {
     match(
-      ordered.get(oi),
+      ordered.get_cloned(oi),
       .Some(module) => match(
         finished_walk_for(module.clone()),
         .Some(walk) => match(
-          indexes_by_module.get(module.clone()),
+          indexes_by_module.get_cloned(module.clone()),
           .Some(idxs) => {
             defs := ArrayList(PendingDef).new();
             (pick : usize) = usize(0);
@@ -1875,7 +1874,7 @@ mm_revalidate_apply :: (
             (fi : usize) = usize(0);
             while(fi < mod_failures.len(), {
               match(
-                mod_failures.get(fi),
+                mod_failures.get_cloned(fi),
                 .Some(msg) => failures.push(msg.clone()),
                 .None => ()
               );
@@ -1930,7 +1929,7 @@ mm_revalidate_apply :: (
                   (rni : usize) = usize(0);
                   while(rni < entry.names.len(), {
                     match(
-                      entry.names.get(rni),
+                      entry.names.get_cloned(rni),
                       .Some(nm) => {
                         (found : bool) = false;
                         (fdi : usize) = usize(0);
@@ -2018,8 +2017,11 @@ _load_imports_file :: (fn(exn : Exception) -> unit)({
     return(());
   });
   g_imports_file_loaded = true;
+  // A snapshot: a borrow of the module-level override cannot stay live
+  // across the calls below.
+  imports_override := g_imports_file_override.clone();
   match(
-    g_imports_file_override,
+    imports_override,
     .None => (),
     .Some(p) => {
       text := String.from_bytes(read_file_sync(p.clone(), exn));
@@ -2081,9 +2083,9 @@ _register_manifest_import_roots :: (fn(fs_path : &String, exn : Exception) -> un
     .None => String.from(".")
   );
   found := find_manifest(&entry_dir);
-  key := match(found, .Some(p) => p.clone(), .None => String.new());
+  key := match(&found, .Some(p) => p.clone(), .None => String.new());
   match(
-    g_manifest_roots_for,
+    g_manifest_roots_for.clone(),
     .Some(k) => if(k == key, {
       return(());
     }),
@@ -2308,7 +2310,7 @@ _load_module_at_abs :: (fn(abs : &String) -> Option(String))({
     eprintln(`[warmload] MISS path=${abs.clone()}`);
   });
   touch_mark := module_load_begin();
-  std_path := match(g_loader_std_path, .Some(s) => s.clone(), .None => String.from(""));
+  std_path := match(g_loader_std_path.clone(), .Some(s) => s, .None => String.from(""));
   fs_path := abs.replace(String.from("file://"), String.new());
   // Phase 0: this load's read+parse / evaluation walls. `prof_t0` spans the
   // WHOLE load so the parent window subtracts the load's true total.
@@ -2319,7 +2321,7 @@ _load_module_at_abs :: (fn(abs : &String) -> Option(String))({
   read_out := ArrayList(ArrayList(u8)).new();
   _read_source_capturing_error(fs_path.clone(), &mut read_out);
   src_bytes := match(
-    read_out.get(usize(0)),
+    read_out.get_cloned(usize(0)),
     .Some(b) => b,
     .None => return(Option(String).Some(match(_take_load_error(), .Some(m) => m, .None => `Failed to read module "${abs}"`)))
   );
@@ -2351,7 +2353,7 @@ _load_module_at_abs :: (fn(abs : &String) -> Option(String))({
   parse_out := ArrayList(ArrayList(AstExpr)).new();
   _parse_capturing_error(&src, abs.clone(), &mut parse_out);
   mod_exprs := match(
-    parse_out.get(usize(0)),
+    parse_out.get_cloned(usize(0)),
     .Some(es) => es,
     .None => return(Option(String).Some(match(_take_load_error(), .Some(m) => m, .None => `Failed to parse module "${abs}"`)))
   );
@@ -2401,7 +2403,7 @@ _load_module_at_abs :: (fn(abs : &String) -> Option(String))({
   match(
     out_vals.get(usize(0)),
     .Some(mv) => {
-      reg_ty := match(out_tys.get(usize(0)), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
+      reg_ty := match(out_tys.get_cloned(usize(0)), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
       register_module(abs.clone(), &mv, &reg_ty);
       module_load_end(abs, touch_mark);
       Option(String).None
@@ -2679,7 +2681,7 @@ _reject_non_unit_main :: (fn(module_value : &EvalValue, exn : Exception) -> unit
     .StructVal(_, labels, values) => {
       (i : usize) = usize(0);
       while(i < labels.len(), {
-        if(match(labels.get(i), .Some(l) => (l == "main"), .None => false), {
+        if(match(labels.get_cloned(i), .Some(l) => (l == "main"), .None => false), {
           match(
             values.get(i),
             .Some(v) => match(
@@ -2809,7 +2811,7 @@ mm_eval_entry_exprs :: (
       ModuleLoadOutcome(
         ok : true,
         module_value : mv,
-        module_type : match(out_tys.get(usize(0)), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit)),
+        module_type : match(out_tys.get_cloned(usize(0)), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit)),
         env : env,
         ctx : ctx
       )

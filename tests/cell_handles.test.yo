@@ -214,11 +214,11 @@ test("S20: a Clone Dyn over a cell handle clones into a fresh cell", {
 // option is spelled by the handle's typedef, so the list's struct follows it
 // (issues/2026-11-02-a-retyped-rc-surfaces-cell-handle-view-gaps.md).
 test("a list of optional cell handles orders its struct after the handle's typedef", {
-  xs := ArrayList(Option(TRc(i32))).new();
+  mut(xs) := ArrayList(Option(TRc(i32))).new();
   xs.push(.Some(trc(i32(1))));
   xs.push(.None);
   assert(xs.len() == usize(2), "two slots");
-  assert(match(xs.get(usize(0)), .Some(.Some(h)) => (h.* == i32(1)), _ => false), "the handle's payload");
+  assert(match(xs.get_cloned(usize(0)), .Some(.Some(h)) => (h.* == i32(1)), _ => false), "the handle's payload");
 });
 // An atomic `ref` enum is no object of its own for the box rule, as with
 // `Arc`: `dyn` of an atomic handle over one boxes it for a `Send` `Dyn`.
@@ -244,7 +244,7 @@ _push_later :: (fn(items : &mut ArrayList(i32), io : Io) -> Impl(Future(unit, Io
   io.async({ items : &mut items.* }(io : Io) => items.push(i32(1)))
 );
 test("S14: a future may hold a & place lent through a cell handle, not a &mut one", {
-  p := _p(i32(0));
+  mut(p) := _p(i32(0));
   p.items.push(i32(1));
   h := trc(p);
   assert(io.await(_count_later(&h.*.items, io), io) == usize(1), "a & lend through the handle crosses the await");
@@ -297,22 +297,26 @@ _hd_peek :: (fn(c : &_HdCell, act : &Impl(Fn() -> unit)) -> i32)({
   act();
   _hd_drops + (c.n - c.n)
 });
+// An `ArrayList` is a value since B8, so a second handle to ONE list is
+// spelled with a `ref` object around it: `hs2 := hs` shares the object, and
+// `hs2.xs.clear()` empties the list the receiver borrows from.
+_HdBag :: ref(struct(xs : ArrayList(TRc(_HdCell))));
 test("a receiver reached through a cell handle element outlives a closure that drops the last other handle", {
   _hd_drops = i32(0);
-  hs := ArrayList(TRc(_HdCell)).new();
-  hs.push(trc(_HdCell(n : i32(1))));
+  hs := _HdBag(xs : ArrayList(TRc(_HdCell)).new());
+  hs.xs.push(trc(_HdCell(n : i32(1))));
   hs2 := hs;
   assert(
-    hs(usize(0)).peek(() => {
-      hs2.clear();
+    hs.xs(usize(0)).peek(() => {
+      hs2.xs.clear();
     }) == i32(0),
     "auto-dereferenced receiver: the cell outlives the call"
   );
   assert(_hd_drops == i32(1), "and is destroyed once, after it");
-  hs.push(trc(_HdCell(n : i32(2))));
+  hs.xs.push(trc(_HdCell(n : i32(2))));
   assert(
-    _hd_peek(&hs(usize(0)).*, () => {
-      hs2.clear();
+    _hd_peek(&hs.xs(usize(0)).*, () => {
+      hs2.xs.clear();
     }) == i32(1),
     "a `&` argument through the handle"
   );

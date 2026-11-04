@@ -20,22 +20,22 @@ fill_inout :: (fn(out : &mut ArrayList(i32)) -> unit)({
 });
 apply :: (fn(f : &Impl(Fn() -> unit)) -> unit)(f());
 main :: (fn() -> unit)({
-  xs := ArrayList(i32).new();
+  mut(xs) := ArrayList(i32).new();
   fill_copy(&xs);
   fill_inout(&mut xs);
-  rows := ArrayList(ArrayList(i32)).new();
+  mut(rows) := ArrayList(ArrayList(i32)).new();
   rows.push(ArrayList(i32).new());
   deque_copy(Deque(i32).new());
-  // Listed: a `match` binding of a map value.
-  m := HashMap(i32, ArrayList(i32)).new();
+  // Not listed since the value flip: a `mut` match binding owns its copy.
+  mut(m) := HashMap(i32, ArrayList(i32)).new();
   m.insert(i32(1), ArrayList(i32).new());
-  match(m.get(i32(1)), .Some(l) => l.push(i32(6)), .None => ());
-  // Listed: a value `for` binding.
-  for(rows, row => row.push(i32(7)));
+  match(m.get_cloned(i32(1)), .Some(mut(l)) => l.push(i32(6)), .None => ());
+  // A write to a value `for` binding is E0917 since the flip (decision 47).
+  // (no line: the borrowed form below is the way to write each element)
   // Not listed: the borrowed `for` form writes the element in place.
   for(&mut rows, row => row.push(i32(8)));
   // Listed as a capture: the closure's copy of `seen`.
-  seen := ArrayList(i32).new();
+  mut(seen) := ArrayList(i32).new();
   apply(() => {
     seen.push(i32(9));
   });
@@ -46,7 +46,7 @@ main :: (fn() -> unit)({
     recorded.with_mut(r => r.push(i32(10)));
   });
   // Not listed: a local.
-  local := ArrayList(i32).new();
+  mut(local) := ArrayList(i32).new();
   local.push(i32(11));
   println(xs.len());
 });

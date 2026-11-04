@@ -36,13 +36,7 @@ test("macro helpers: ExprVal Atom equality via __yo_expr_eq", {
   // 1 only when `quote(x) == quote(x)` AND `quote(x) != quote(y)`.
   src := String.from("pragma(Pragma.SkipPrelude);\nv :: cond(__yo_expr_eq(quote(x), quote(x)) => cond(__yo_expr_eq(quote(x), quote(y)) => 0, true => 1), true => 0);\nexport(v);\n");
   eval := Evaluator.new(String.from("<phase6f1>"), String.from("<no-std>"), noop_loader, &src, exn);
-  match(
-    eval.get_module_error(),
-    .Some(_) => {
-      assert(false, "module error");
-    },
-    .None => ()
-  );
+  assert(eval.get_module_error().is_none(), "module error");
   match(
     eval.get_module_value(),
     .None => {
@@ -107,13 +101,7 @@ test("macro helpers: gensym produces fresh atoms", {
   // an atom still equals itself (the control) → 1.
   src := String.from("pragma(Pragma.SkipPrelude);\na :: gensym(\"u\");\nb :: gensym(\"u\");\nv :: cond(__yo_expr_eq(a, a) => cond(__yo_expr_eq(a, b) => 0, true => 1), true => 0);\nexport(v);\n");
   eval := Evaluator.new(String.from("<phase6f2>"), String.from("<no-std>"), noop_loader, &src, exn);
-  match(
-    eval.get_module_error(),
-    .Some(_) => {
-      assert(false, "module error");
-    },
-    .None => ()
-  );
+  assert(eval.get_module_error().is_none(), "module error");
   match(
     eval.get_module_value(),
     .None => {
@@ -178,13 +166,7 @@ test("macro helpers: .cdr on ComptimeListVal", {
   // arg) → 4; the control `car(args)` is `3`, not `4`.
   src := String.from("pragma(Pragma.SkipPrelude);\nargs :: __yo_expr_get_args(quote((3 + 4)));\nv :: cond(__yo_expr_eq(__yo_comptime_list_car(__yo_comptime_list_cdr(args)), quote(4)) => cond(__yo_expr_eq(__yo_comptime_list_car(args), quote(4)) => 0, true => 4), true => 0);\nexport(v);\n");
   eval := Evaluator.new(String.from("<phase6f3>"), String.from("<no-std>"), noop_loader, &src, exn);
-  match(
-    eval.get_module_error(),
-    .Some(_) => {
-      assert(false, "module error");
-    },
-    .None => ()
-  );
+  assert(eval.get_module_error().is_none(), "module error");
   match(
     eval.get_module_value(),
     .None => {

@@ -94,7 +94,7 @@ _module_exprs :: (
 )({
   target_fs := uri_to_fs_path(module_path.clone());
   if(target_fs == uri_to_fs_path(doc_abs.clone()), {
-    return(doc_exprs);
+    return(doc_exprs.clone());
   });
   src := match(
     mm_module_source(target_fs.clone()),
@@ -701,7 +701,7 @@ _member_definition :: (
             (is_field : bool) = false;
             (fi : usize) = usize(0);
             while(fi < field_labels.len(), {
-              if(match(field_labels.get(fi), .Some(l) => (l == member), .None => false), {
+              if(match(field_labels.get_cloned(fi), .Some(l) => (l == member), .None => false), {
                 is_field = true;
               });
               fi = (fi + usize(1));
@@ -715,7 +715,7 @@ _member_definition :: (
             (is_variant : bool) = false;
             (vi : usize) = usize(0);
             while(vi < variant_names.len(), {
-              if(match(variant_names.get(vi), .Some(n) => (n == member), .None => false), {
+              if(match(variant_names.get_cloned(vi), .Some(n) => (n == member), .None => false), {
                 is_variant = true;
               });
               vi = (vi + usize(1));

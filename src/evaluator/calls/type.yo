@@ -119,7 +119,7 @@ try_to_call_type_with_arguments :: (
   (o_fi : usize) = usize(0);
   while(o_fi < n_fields, {
     match(
-      type_fields.get(o_fi),
+      type_fields.get_cloned(o_fi),
       .Some(o_f) => if(origin_beyond_n2b(&o_f.ty) && !is_std_module_path(&ast_expr_token(function_callee_expr).module_path.*, ctx.std_path.clone()), {
         o_shown := match(
           expr_info_table_get(&ctx.expr_info_table, ast_expr_id(function_callee_expr)),
@@ -156,7 +156,7 @@ try_to_call_type_with_arguments :: (
       i = (i + usize(1));
     });
     arg_expr := match(arg_expr_opt, .Some(a) => a, .None => function_callee_expr);
-    field_opt := type_fields.get(i);
+    field_opt := type_fields.get_cloned(i);
     member_element := match(
       field_opt,
       .Some(f) => f.clone(),
@@ -212,7 +212,7 @@ try_to_call_type_with_arguments :: (
       (search_i : usize) = usize(0);
       while(search_i < n_fields, {
         match(
-          type_fields.get(search_i),
+          type_fields.get_cloned(search_i),
           .Some(f) => {
             if(f.label == label_tok, {
               found_idx = .Some(search_i);
@@ -230,7 +230,7 @@ try_to_call_type_with_arguments :: (
           // old `.None => member_element` fallback copied the loop-carried
           // TypeField out of a previous iteration.
           match(
-            type_fields.get(idx),
+            type_fields.get_cloned(idx),
             .Some(found_field) => {
               // Cannot label an already-assigned field.
               if(found_field.assigned_value.is_some(), {
@@ -382,7 +382,14 @@ try_to_call_type_with_arguments :: (
     // Decision 44: a callable into a `Dyn(Fn(...))` field is `dyn(f)`.
     reject_bare_callable_into_dyn_fn(&member_element.ty, &arg_info.ty, &actual_arg_expr, `field "${member_element.label}"`, ctx, exn);
     reject_second_class_escape(&arg_info.ty, String.from("stored in a field of a named type"), ast_expr_token(&actual_arg_expr), ctx, exn);
-    set_expr_as_needs_to_call_dup(&evaluated_arg, ctx, exn, "field-store");
+    // A reference field stores the place's address (T9): no ownership is
+    // copied, so no dup. One recorded here paired with the place's own
+    // scope-end drop, and the pair optimizer cancelled both as a move into
+    // the holder, whose drop never drops a reference: the place leaked
+    // (issues/fixed/2026-11-03-a-place-lent-into-a-reference-field-is-never-dropped.md).
+    if(!match(&member_element.ty, Rc(.Reference(_, _, _)) => true, _ => false), {
+      set_expr_as_needs_to_call_dup(&evaluated_arg, ctx, exn, "field-store");
+    });
     env_adopt(&env, &arg_info.env);
     // Convert comptime type → runtime type unless the field type is comptime-only.
     // A comptime numeric bound for a numeric FIELD coerces to the field's
@@ -442,7 +449,7 @@ try_to_call_type_with_arguments :: (
     while(ci < n_fields, {
       already_checked := match(checked_indices.get(&ci), .Some(_) => true, .None => false);
       if(!already_checked, {
-        field_opt2 := type_fields.get(ci);
+        field_opt2 := type_fields.get_cloned(ci);
         match(
           field_opt2,
           .Some(field) => {

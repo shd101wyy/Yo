@@ -5,8 +5,8 @@ pragma(Pragma.Verify);
 append_all :: (
   fn(
     src : &ArrayList(i32),
-    dst : &ArrayList(i32),
-    requires(distinct(src.*, dst.*), (dst.len() + src.len()) >= dst.len()),
+    dst : &mut ArrayList(i32),
+    requires(distinct(src, dst), (dst.len() + src.len()) >= dst.len()),
     ensures(dst.len() == (old(dst.len()) + src.len()))
   ) -> unit
 )({
@@ -18,17 +18,17 @@ append_all :: (
   });
 });
 
-// REFUTED at the call: one list passed as both.
-onto_itself :: (fn(xs : ArrayList(i32), requires((xs.len() + xs.len()) >= xs.len()), ensures(xs.len() >= old(xs.len()))) -> unit)({
-  append_all(&xs, &xs);
-});
+// One list passed as both (`onto_itself`, `append_all(xs, xs)` for an
+// `xs : &mut ArrayList(i32)`) is E0910 at evaluation, before the verifier's
+// `distinct(src, dst)` sees it
+// (issues/fixed/2026-11-04-a-mut-reference-parameter-lent-as-both-arguments-of-one-call-is-accepted.md).
 
 // SUBSET ERROR: without distinct, a body mutating one of two same-typed
 // list parameters is rejected.
 append_unchecked :: (
   fn(
-    src : ArrayList(i32),
-    dst : ArrayList(i32),
+    src : &ArrayList(i32),
+    dst : &mut ArrayList(i32),
     requires((dst.len() + src.len()) >= dst.len()),
     ensures(dst.len() == (old(dst.len()) + src.len()))
   ) -> unit

@@ -42,7 +42,6 @@ pragma(Pragma.AllowUnsafe);
   BK_FN_ONCE_TRAIT,
   ast_expr_is_local_borrow_mode_call,
   ast_expr_strip_borrow_marker,
-  ast_expr_is_address_of_call,
   BK_BORROW_MUT,
   BF_ADDR_OF,
   BF_ADDRESS_OF,
@@ -128,7 +127,7 @@ pragma(Pragma.AllowUnsafe);
 { get_func_type, is_fn_ctfe_clone, is_closure_fn, is_io_async_sm_closure } :: import("../function_value.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../types/compatibility.yo");
 { type_to_string, type_to_string_for_message } :: import("../types/string.yo");
-{ type_is_bitwise_copy, type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_holds_counted_handle, type_holds_counted_handle_ignoring_migration, set_counted_handle_rule, counted_handle_std_generic_on, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow, is_bound_closure_identity, is_closure_capture_struct, resolve_cell_chain, is_future_value_type, is_bare_callable_into_dyn_fn, type_contains_some_type_deep, type_representation_contains_raw_ptr, type_holds_dyn_by_value, dyn_type_lists_clone, fn_trait_call_func_type, type_carries_origin } :: import("../types/utils.yo");
+{ type_is_bitwise_copy, type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_holds_counted_handle, type_holds_counted_handle_ignoring_migration, set_counted_handle_rule, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow, is_bound_closure_identity, is_closure_capture_struct, resolve_cell_chain, is_future_value_type, is_bare_callable_into_dyn_fn, type_contains_some_type_deep, type_holds_dyn_by_value, dyn_type_lists_clone, fn_trait_call_func_type, type_carries_origin } :: import("../types/utils.yo");
 { expr_info_table_set, migrate_match_scrutinee_on, record_migrate_edit, migrate_dyn_spelling_on, record_dyn_spelling_site, is_mut_global, is_thread_local, migrate_mutable_globals_on, record_mutable_global_site, migrate_mut_bindings_on, record_mut_binding_site, record_mut_binding_site_pending, record_mut_param_site, record_mut_param_site_pending, record_mut_judged, migrate_deref_on, audit_deref_on, deref_rule_suspended, record_deref_site, record_deref_edit_site } :: import("../expr_info.yo");
 { is_global_mut_rule_exempt, is_deref_rule_exempt } :: import("./memory_safety.yo");
 // `set_expr_as_needs_to_call_dup` builds + evaluates a `___dup(name)` call.
@@ -180,7 +179,10 @@ pragma(Pragma.AllowUnsafe);
 (g_synthesized_deref_stars : RefCell(HashSet(usize))) = RefCell(HashSet(usize)).new(HashSet(usize).new());
 /// The block statements after a borrow binding, for its live range: set by
 /// `evaluate_begin_expression` just before it evaluates the binding.
-(mut(g_lb_lookahead_stmts) : ArrayList(AstExpr)) = ArrayList(AstExpr).new();
+// A RefCell, not a mut binding: the staged list is move-only since the
+// flip, and a mutable module-level binding cannot lend itself to `.clone()`
+// (E0916).
+(g_lb_lookahead_stmts : RefCell(ArrayList(AstExpr))) = RefCell(ArrayList(AstExpr)).new(ArrayList(AstExpr).new());
 (mut(g_lb_lookahead_index) : usize) = usize(0);
 (mut(g_lb_lookahead_id) : usize) = usize(0);
 (mut(g_lb_lookahead_armed) : bool) = false;
@@ -249,7 +251,7 @@ attach_temp_variable_to_expr :: (
       var_value := cond(_holds_cell => Option(EvalValue).None, true => info.value);
       expr_tok := ast_expr_token(expr);
       match(
-        info.variable_name,
+        &info.variable_name,
         .Some(existing_name) => {
           // Update the existing variable (if found in env).
           existing_vars := get_variables_from_env(&info.env, &existing_name);
@@ -434,10 +436,10 @@ throw_expr_is_implicit_variable_error :: (
       n := rhs_info.path_collection.len();
       (i : usize) = usize(0);
       while(i < n, {
-        path := match(rhs_info.path_collection.get(i), .Some(p) => p, .None => ArrayList(String).new());
+        path := match(rhs_info.path_collection.get_cloned(i), .Some(p) => p, .None => ArrayList(String).new());
         if(path.len() > usize(0), {
           match(
-            path.get(usize(0)),
+            path.get_cloned(usize(0)),
             .Some(first) => {
               var_name_opt = Option(String).Some(first);
             },
@@ -661,12 +663,17 @@ _clone_hint :: (fn(name : &String, ty : &TypeValue) -> String)(
 /// `Arc` (decision 17: `Rc.clone(h)`, which no payload method can shadow,
 /// decision 32).
 _counted_handle_ctor :: (fn(ty : &TypeValue) -> String)(cond(is_arc_type(&t_refine_inner(ty)) => String.from("Arc"), true => String.from("Rc")));
+/// The migration sentence that ends a counted handle's E0901 help. An
+/// accessor site's help drops it: there std's reader makes the copy, which
+/// `--migrate rc-clone` cannot spell, and the help names `get_cloned`
+/// instead (VERDICTS-8 Q1).
+RC_CLONE_MIGRATE_HINT :: " `yo fix <path> --migrate rc-clone` spells the clones.";
 /// The E0901 note for a named value of a type decision 17 copies only
 /// explicitly (`type_holds_counted_handle`): a handle's `Rc.clone(h)` /
 /// `Arc.clone(h)`, or the `.clone()` of a value holding one.
 _counted_handle_help :: (fn(name : &String, ty : &TypeValue) -> String)(
   cond(
-    is_counted_handle_value_type(&t_refine_inner(ty)) => `\`${name}\` is a counted handle (\`${type_to_string(ty)}\`), and a copy of a handle is a new owner, so it is spelled where it is made (plans/VALUES_BY_DEFAULT.md decision 17): write \`${_counted_handle_ctor(ty)}.clone(${name})\` for a second handle, move it (its last use moves it), or lend it with \`&${name}\` to a \`&T\` parameter. \`yo fix <path> --migrate rc-clone\` spells the clones.`,
+    is_counted_handle_value_type(&t_refine_inner(ty)) => `\`${name}\` is a counted handle (\`${type_to_string(ty)}\`), and a copy of a handle is a new owner, so it is spelled where it is made (plans/VALUES_BY_DEFAULT.md decision 17): write \`${_counted_handle_ctor(ty)}.clone(${name})\` for a second handle, move it (its last use moves it), or lend it with \`&${name}\` to a \`&T\` parameter.${RC_CLONE_MIGRATE_HINT}`,
     type_lacks_clone(ty) => `\`${name}\` has type \`${type_to_string(ty)}\`, which holds a counted handle (\`Rc\`/\`Arc\`), so it is copied only explicitly (plans/VALUES_BY_DEFAULT.md decision 17), and it is not \`Clone\`: give it \`derive(${_copy_derive_target(ty)}, Clone)\`, whose clone copies each handle, or move it (\`sink(${name})\`).`,
     true => `\`${name}\` has type \`${type_to_string(ty)}\`, which holds a counted handle (\`Rc\`/\`Arc\`), so it is copied only explicitly (plans/VALUES_BY_DEFAULT.md decision 17): write \`${name}.clone()\` for a copy (it copies each handle), move it (\`sink(${name})\`), or lend it with \`&${name}\` to a \`&T\` parameter.`
   )
@@ -674,7 +681,7 @@ _counted_handle_help :: (fn(name : &String, ty : &TypeValue) -> String)(
 /// `_counted_handle_help` for a value with no name of its own.
 _counted_handle_type_help :: (fn(ty : &TypeValue) -> String)(
   cond(
-    is_counted_handle_value_type(&t_refine_inner(ty)) => `\`${type_to_string(ty)}\` is a counted handle, and a copy of a handle is a new owner, so it is spelled where it is made (plans/VALUES_BY_DEFAULT.md decision 17): wrap the place in \`${_counted_handle_ctor(ty)}.clone(...)\` for a second handle, lend it to a \`&T\` parameter, or move its whole owner. \`yo fix <path> --migrate rc-clone\` spells the clones.`,
+    is_counted_handle_value_type(&t_refine_inner(ty)) => `\`${type_to_string(ty)}\` is a counted handle, and a copy of a handle is a new owner, so it is spelled where it is made (plans/VALUES_BY_DEFAULT.md decision 17): wrap the place in \`${_counted_handle_ctor(ty)}.clone(...)\` for a second handle, lend it to a \`&T\` parameter, or move its whole owner.${RC_CLONE_MIGRATE_HINT}`,
     type_lacks_clone(ty) => `\`${type_to_string(ty)}\` holds a counted handle (\`Rc\`/\`Arc\`), so it is copied only explicitly (plans/VALUES_BY_DEFAULT.md decision 17), and it is not \`Clone\`: give it \`derive(${_copy_derive_target(ty)}, Clone)\`, lend it to a \`&T\` parameter, or move its whole owner.`,
     true => `\`${type_to_string(ty)}\` holds a counted handle (\`Rc\`/\`Arc\`), so it is copied only explicitly (plans/VALUES_BY_DEFAULT.md decision 17): call \`.clone()\` on it for a copy (it copies each handle), lend it to a \`&T\` parameter, or move its whole owner.`
   )
@@ -1353,7 +1360,7 @@ reject_second_class_escape :: (fn(ty : &TypeValue, how : &String, tok : &Token, 
   });
   bs := ArrayList(CaptureBorrow).new();
   collect_type_borrows(ty, &mut bs);
-  b := match(bs.get(usize(0)), .Some(x) => x, .None => return(()));
+  b := match(bs.get_cloned(usize(0)), .Some(x) => x, .None => return(()));
   raise_flow_violation(
     with_code(
       format_error_message_with_help(
@@ -1630,7 +1637,7 @@ reject_second_class_return :: (fn(ty : &TypeValue, tok : &Token, env : &Environm
     (all_params : bool) = true;
     (bi : usize) = usize(0);
     while(bi < bs.len(), bi = (bi + usize(1)), {
-      b := match(bs.get(bi), .Some(x) => x, .None => return(()));
+      b := match(bs.get_cloned(bi), .Some(x) => x, .None => return(()));
       // A `&T` parameter is copied into the future only through the body's
       // own `{ &p }` entry; a borrowing closure the body captures points at
       // the parameter's slot in the frame that returns.
@@ -1710,6 +1717,7 @@ _find_var_by_id :: (fn(env : &Environment, id : usize) -> Option(Tuple(Variable,
 /// ends with the holder's scope, not at its last use (the last-use refinement
 /// lands with decision 18's live ranges).
 _CaptureFreeze :: struct(holder_id : usize, holder_name : String, borrow : CaptureBorrow);
+derive(_CaptureFreeze, Clone);
 /// `holder` was just bound (`:=`, `=`) to a value of type `ty`. If the value
 /// is second-class, check that every place it borrows outlives the holder
 /// (decision 38 A: a binding may not outlive any place its value borrows),
@@ -1723,7 +1731,7 @@ note_second_class_binding :: (fn(holder : &Variable, ty : &TypeValue, tok : &Tok
   // §3.13 A2: a borrowing future is awaited where it is made. Bound to a
   // local, it would hold its borrow across whatever runs before the await.
   if(is_future_value_type(ty), {
-    b0 := match(bs.get(usize(0)), .Some(x) => x, .None => return(()));
+    b0 := match(bs.get_cloned(usize(0)), .Some(x) => x, .None => return(()));
     // `_ := f(&mut x, io)` binds a hidden temporary: name the discard.
     if(is_any_temp_variable_name(holder.name.clone()), {
       raise_flow_violation(
@@ -1757,7 +1765,7 @@ note_second_class_binding :: (fn(holder : &Variable, ty : &TypeValue, tok : &Tok
   holder_at := _find_var_by_id(env, holder.id);
   (bi : usize) = usize(0);
   while(bi < bs.len(), {
-    b := match(bs.get(bi), .Some(x) => x, .None => return(()));
+    b := match(bs.get_cloned(bi), .Some(x) => x, .None => return(()));
     outlives := match(
       _find_var_by_id(env, b.root_id),
       .Some(root_at) => match(
@@ -1783,18 +1791,15 @@ note_second_class_binding :: (fn(holder : &Variable, ty : &TypeValue, tok : &Tok
         exn
       );
     });
-    fz := _CaptureFreeze(holder_id : holder.id, holder_name : holder.name.clone(), borrow : b);
-    match(
-      g_capture_freezes.with(m => m.get(&b.root_id)),
-      .Some(list) => {
-        list.push(fz);
-      },
-      .None => {
-        fresh := ArrayList(_CaptureFreeze).new();
-        fresh.push(fz);
-        g_capture_freezes.with_mut(m => m.insert(b.root_id, fresh));
-      }
-    );
+    fz := _CaptureFreeze(holder_id : holder.id, holder_name : holder.name.clone(), borrow : b.clone());
+    // The list is a value (B8): take it out, push, and put it back, all
+    // inside one `with_mut` — a pushed copy would never reach the registry.
+    root_id := b.root_id;
+    g_capture_freezes.with_mut({ fz, root_id }(m) => {
+      mut(list) := match(m.remove(&root_id), .Some(l) => l, .None => ArrayList(_CaptureFreeze).new());
+      list.push(fz);
+      m.insert(root_id, list);
+    });
     bi = (bi + usize(1));
   });
 });
@@ -1809,7 +1814,7 @@ reject_second_class_result_outliving :: (fn(ty : &TypeValue, scope_frame : usize
   collect_type_borrows(ty, &mut bs);
   (bi : usize) = usize(0);
   while(bi < bs.len(), {
-    b := match(bs.get(bi), .Some(x) => x, .None => return(()));
+    b := match(bs.get_cloned(bi), .Some(x) => x, .None => return(()));
     match(
       _find_var_by_id(env, b.root_id),
       .Some(root_at) => if(root_at.1 >= scope_frame, {
@@ -1841,11 +1846,11 @@ check_capture_freeze_access :: (fn(v : &Variable, is_write : bool, tok : &Token,
     return(());
   });
   match(
-    g_capture_freezes.with(m => m.get(&v.id)),
+    g_capture_freezes.with(m => m.get_cloned(&v.id)),
     .Some(list) => {
       (fi : usize) = usize(0);
       while(fi < list.len(), {
-        fz := match(list.get(fi), .Some(x) => x, .None => return(()));
+        fz := match(list.get_cloned(fi), .Some(x) => x, .None => return(()));
         if(fz.borrow.is_mut || is_write, {
           live := match(
             _find_var_by_id(env, fz.holder_id),
@@ -1879,6 +1884,7 @@ check_capture_freeze_access :: (fn(v : &Variable, is_write : bool, tok : &Token,
 /// from a capture-list borrow the argument's type carries (decision 38 B)
 /// rather than the place the argument names.
 _ArgPlace :: struct(root_id : usize, path : ArrayList(String), text : String, from_capture : bool);
+derive(_ArgPlace, Clone);
 /// The places argument `arg` (evaluated) reaches: the place it names, when it
 /// is a field chain rooted at a runtime binding (`z`, `s.items`) and `named`
 /// holds, and every place a capture-list closure it holds borrows,
@@ -1919,7 +1925,7 @@ _arg_places :: (fn(arg : &AstExpr, named : bool, env : &Environment, ctx : &Eval
         (ri : usize) = fields_rev.len();
         while(ri > usize(0), {
           ri = (ri - usize(1));
-          path.push(match(fields_rev.get(ri), .Some(f) => f, .None => String.new()));
+          path.push(match(fields_rev.get_cloned(ri), .Some(f) => f, .None => String.new()));
         });
         text := String.from("`");
         text.push_string(ast_expr_to_string(arg));
@@ -1941,7 +1947,7 @@ _arg_places :: (fn(arg : &AstExpr, named : bool, env : &Environment, ctx : &Eval
         // and its caller-side places are `_check_future_operand_lends`'s
         // (§3.13 A4).
         match(
-          bs.get(bi),
+          bs.get_cloned(bi),
           .Some(b) => if(variable_id_in_scope(env, b.root_id), {
             out.push(_ArgPlace(root_id : b.root_id, path : b.path.clone(), text : _capture_borrow_note(&b), from_capture : true));
           }),
@@ -1962,7 +1968,7 @@ _places_overlap :: (fn(a : &_ArgPlace, b : &_ArgPlace) -> bool)({
   n := if(a.path.len() < b.path.len(), a.path.len(), b.path.len());
   (i : usize) = usize(0);
   while(i < n, {
-    if(match(a.path.get(i), .Some(x) => x, .None => String.new()) != match(b.path.get(i), .Some(y) => y, .None => String.new()), {
+    if(match(a.path.get_cloned(i), .Some(x) => x, .None => String.new()) != match(b.path.get_cloned(i), .Some(y) => y, .None => String.new()), {
       return(false);
     });
     i = (i + usize(1));
@@ -2040,17 +2046,17 @@ require_capture_borrow_exclusivity :: (
   (i : usize) = usize(0);
   while(i < all_args.len(), {
     if(match(excl.get(i), .Some(e) => e, .None => false), {
-      pis := match(places.get(i), .Some(x) => x, .None => ArrayList(_ArgPlace).new());
+      pis := match(places.get_cloned(i), .Some(x) => x, .None => ArrayList(_ArgPlace).new());
       (j : usize) = usize(0);
       while(j < all_args.len(), {
         if(j != i, {
-          pjs := match(places.get(j), .Some(x) => x, .None => ArrayList(_ArgPlace).new());
+          pjs := match(places.get_cloned(j), .Some(x) => x, .None => ArrayList(_ArgPlace).new());
           (x : usize) = usize(0);
           while(x < pis.len(), {
-            pa := match(pis.get(x), .Some(v) => v, .None => return(()));
+            pa := match(pis.get_cloned(x), .Some(v) => v, .None => return(()));
             (y : usize) = usize(0);
             while(y < pjs.len(), {
-              pb := match(pjs.get(y), .Some(v) => v, .None => return(()));
+              pb := match(pjs.get_cloned(y), .Some(v) => v, .None => return(()));
               if((pa.from_capture || pb.from_capture) && _places_overlap(&pa, &pb), {
                 arg_i := match(all_args.get(i), .Some(v) => v, .None => make_err_expr());
                 arg_j := match(all_args.get(j), .Some(v) => v, .None => make_err_expr());
@@ -2101,7 +2107,7 @@ set_expr_as_consumed :: (
       // there and not in the others (E0907).
       type_is_bitwise_copy(Rc.clone(info.ty)) => (),
       true => match(
-        info.variable_name,
+        &info.variable_name,
         // Step 2: no variable name → nothing to consume.
         .None => (),
         .Some(name) => {
@@ -2210,7 +2216,8 @@ set_expr_as_consumed :: (
 (g_audit_global_lend_printed : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
 global_lend_audit_enabled :: (fn() -> bool)(g_audit_global_lend);
 global_lend_audit_print :: (fn(line : &String) -> unit)({
-  if(g_audit_global_lend_printed.with_mut(s => s.insert(line.clone())), {
+  line_owned := line.clone();
+  if(g_audit_global_lend_printed.with_mut({ line_owned }(s) => s.insert(line_owned.clone())), {
     eprintln(line);
   });
 });
@@ -2218,6 +2225,8 @@ global_lend_audit_print :: (fn(line : &String) -> unit)({
 global_lend_location :: (fn(t : &Token) -> String)(
   `${display_module_path(&t.module_path.*)}:${(usize(t.row) + usize(1)).to_string()}:${(usize(t.column) + usize(1)).to_string()}`
 );
+derive(_ArgPlace, Clone);
+derive(_CaptureFreeze, Clone);
 /// The census key of the module-level binding `name` declared at `decl`.
 global_lend_key :: (fn(decl : &Token, name : &String) -> String)(`${global_lend_location(decl)}:${name}`);
 // ---------------------------------------------------------------------------
@@ -2238,6 +2247,7 @@ global_lend_key :: (fn(decl : &Token, name : &String) -> String)(`${global_lend_
 /// - (B) a lend of a place at or below a field written through a handle
 ///   (`G.f = v` against `&G.f`, `&G.f.g`) conflicts with that write.
 GlobalPlacePath :: struct(path : String, heap : bool, through_handle : bool);
+derive(GlobalPlacePath, Clone);
 /// The field path of `place` below its root (`f.g.`), cut at the first element
 /// access or dereference (`heap`), and whether any step goes through a `ref`
 /// handle or a dereference (`through_handle`).
@@ -2280,7 +2290,7 @@ global_place_path :: (fn(place : &AstExpr, ctx : &EvalContext) -> GlobalPlacePat
   (ri : usize) = rev.len();
   while(ri > usize(0), {
     ri = (ri - usize(1));
-    path.push_string(&match(rev.get(ri), .Some(f) => f, .None => String.new()));
+    path.push_string(&match(rev.get_cloned(ri), .Some(f) => f, .None => String.new()));
     path.push_str(".");
   });
   GlobalPlacePath(path : path, heap : heap, through_handle : through)
@@ -2288,6 +2298,7 @@ global_place_path :: (fn(place : &AstExpr, ctx : &EvalContext) -> GlobalPlacePat
 /// A lend of a place under a handle a module-level binding holds, waiting
 /// for a conflicting write (rules A and B above).
 GlobalHandleLend :: struct(path : String, heap : bool, at : Token, text : String);
+derive(GlobalHandleLend, Clone);
 (g_global_handle_mutcalls : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
 (g_global_handle_writes : RefCell(HashMap(String, ArrayList(GlobalPlacePath)))) = RefCell(HashMap(String, ArrayList(GlobalPlacePath))).new(HashMap(String, ArrayList(GlobalPlacePath)).new());
 (g_global_handle_write_locs : RefCell(HashMap(String, ArrayList(String)))) = RefCell(HashMap(String, ArrayList(String))).new(HashMap(String, ArrayList(String)).new());
@@ -2299,6 +2310,8 @@ global_mut_key :: (fn(gv : &Variable) -> String)(`${canonical_module_path(&gv.to
 _global_write_hits_lend :: (fn(w : &GlobalPlacePath, path : &String, heap : bool) -> bool)(
   path.starts_with(&w.path) && (!w.heap || heap)
 );
+derive(GlobalPlacePath, Clone);
+derive(GlobalHandleLend, Clone);
 /// `name` followed by the field path `path` (`f.g.`), as written (`name.f.g`).
 _global_path_display :: (fn(name : &String, path : &String) -> String)(
   if(path.is_empty(), name.clone(), `${name}.${path.slice_copy(usize(0) .. (path.len() - usize(1)))}`)
@@ -2328,16 +2341,20 @@ _global_handle_conflict :: (fn(gv : &Variable, l : &GlobalHandleLend, what : &St
 global_note_handle_mutcall :: (fn(gv : &Variable, tok : &Token, ctx : &EvalContext, exn : Exception) -> unit)({
   key := global_mut_key(gv);
   loc := global_lend_location(tok);
-  if(!g_global_handle_mutcalls.with(m => m.contains_key(key.clone())), {
-    g_global_handle_mutcalls.with_mut(m => m.insert(key.clone(), loc.clone()));
+  // Owned key clones per sink callback (`with_mut`'s callback parameter).
+  gmc_key := key.clone();
+  gmc_loc := loc.clone();
+  if(!g_global_handle_mutcalls.with(m => m.contains_key(&gmc_key)), {
+    g_global_handle_mutcalls.with_mut(({ gmc_key, gmc_loc }(m) => m.insert(gmc_key, gmc_loc)));
   });
+  ghl_key := key.clone();
   match(
-    g_global_handle_lends.with(m => m.get(key.clone())),
+    g_global_handle_lends.with(m => m.get_cloned(&ghl_key)),
     .Some(ls) => {
       (li : usize) = usize(0);
       while(li < ls.len(), li = (li + usize(1)), {
         match(
-          ls.get(li),
+          ls.get_cloned(li),
           .Some(l) => if(l.heap, {
             _global_handle_conflict(gv, &l, &`a \`&mut self\` method is called on \`${gv.name}\``, &loc, ctx, exn);
           }),
@@ -2353,19 +2370,25 @@ global_note_handle_mutcall :: (fn(gv : &Variable, tok : &Token, ctx : &EvalConte
 global_note_handle_write :: (fn(gv : &Variable, w : &GlobalPlacePath, tok : &Token, ctx : &EvalContext, exn : Exception) -> unit)({
   key := global_mut_key(gv);
   loc := global_lend_location(tok);
-  ws := match(g_global_handle_writes.with(m => m.get(key.clone())), .Some(x) => x, .None => ArrayList(GlobalPlacePath).new());
-  locs := match(g_global_handle_write_locs.with(m => m.get(key.clone())), .Some(x) => x, .None => ArrayList(String).new());
+  ws := match(g_global_handle_writes.with(m => m.get_cloned(key.clone())), .Some(x) => x, .None => ArrayList(GlobalPlacePath).new());
+  locs := match(g_global_handle_write_locs.with(m => m.get_cloned(key.clone())), .Some(x) => x, .None => ArrayList(String).new());
   ws.push(GlobalPlacePath(path : w.path.clone(), heap : w.heap, through_handle : w.through_handle));
   locs.push(loc.clone());
-  g_global_handle_writes.with_mut(m => m.insert(key.clone(), ws));
-  g_global_handle_write_locs.with_mut(m => m.insert(key.clone(), locs));
+  // Owned key/value clones per sink callback (`with_mut`'s callback).
+  ghw_key := key.clone();
+  ghw_val := ws.clone();
+  g_global_handle_writes.with_mut(({ ghw_key, ghw_val }(m) => m.insert(ghw_key, ghw_val)));
+  ghl_key2 := key.clone();
+  ghl_locs := locs.clone();
+  g_global_handle_write_locs.with_mut(({ ghl_key2, ghl_locs }(m) => m.insert(ghl_key2, ghl_locs)));
+  ghl_key3 := key.clone();
   match(
-    g_global_handle_lends.with(m => m.get(key.clone())),
+    g_global_handle_lends.with(m => m.get_cloned(&ghl_key3)),
     .Some(ls) => {
       (li : usize) = usize(0);
       while(li < ls.len(), li = (li + usize(1)), {
         match(
-          ls.get(li),
+          ls.get_cloned(li),
           .Some(l) => if(_global_write_hits_lend(w, &l.path, l.heap), {
             _global_handle_conflict(gv, &l, &`\`${_global_path_display(&gv.name, &w.path)}\` is written`, &loc, ctx, exn);
           }),
@@ -2382,21 +2405,21 @@ global_note_handle_lend :: (fn(gv : &Variable, l : GlobalHandleLend, ctx : &Eval
   key := global_mut_key(gv);
   if(l.heap, {
     match(
-      g_global_handle_mutcalls.with(m => m.get(key.clone())),
+      g_global_handle_mutcalls.with(m => m.get_cloned(key.clone())),
       .Some(loc) => _global_handle_conflict(gv, &l, &`a \`&mut self\` method is called on \`${gv.name}\``, &loc, ctx, exn),
       .None => ()
     );
   });
   match(
-    g_global_handle_writes.with(m => m.get(key.clone())),
+    g_global_handle_writes.with(m => m.get_cloned(key.clone())),
     .Some(ws) => {
-      locs := match(g_global_handle_write_locs.with(m => m.get(key.clone())), .Some(x) => x, .None => ArrayList(String).new());
+      locs := match(g_global_handle_write_locs.with(m => m.get_cloned(key.clone())), .Some(x) => x, .None => ArrayList(String).new());
       (wi : usize) = usize(0);
       while(wi < ws.len(), wi = (wi + usize(1)), {
         match(
-          ws.get(wi),
+          ws.get_cloned(wi),
           .Some(w) => if(_global_write_hits_lend(&w, &l.path, l.heap), {
-            loc := match(locs.get(wi), .Some(x) => x, .None => String.new());
+            loc := match(locs.get_cloned(wi), .Some(x) => x, .None => String.new());
             _global_handle_conflict(gv, &l, &`\`${_global_path_display(&gv.name, &w.path)}\` is written`, &loc, ctx, exn);
           }),
           .None => ()
@@ -2405,9 +2428,9 @@ global_note_handle_lend :: (fn(gv : &Variable, l : GlobalHandleLend, ctx : &Eval
     },
     .None => ()
   );
-  ls := match(g_global_handle_lends.with(m => m.get(key.clone())), .Some(x) => x, .None => ArrayList(GlobalHandleLend).new());
+  ls := match(g_global_handle_lends.with(m => m.get_cloned(key.clone())), .Some(x) => x, .None => ArrayList(GlobalHandleLend).new());
   ls.push(l);
-  g_global_handle_lends.with_mut(m => m.insert(key.clone(), ls));
+  g_global_handle_lends.with_mut(m => m.insert(key.clone(), ls.clone()));
 });
 /// Whether the rule for bindings below module level is enforced at `tok`
 /// (decision 47 step 2, Generation A: not in the trees the seed builds,
@@ -2707,34 +2730,26 @@ place_require_mut :: (fn(place : &AstExpr, tok : &Token, how : &String, handle_o
   binding_require_mut(&rv, tok, how, ctx, exn);
 });
 // ---------------------------------------------------------------------------
-// YO_AUDIT_IMPLICIT_COPY (plans/VALUES_BY_DEFAULT.md §6, item 1)
+// The implicit-copy recorder (plans/VALUES_BY_DEFAULT.md §6, item 1)
 // ---------------------------------------------------------------------------
-/// Lists every dup the evaluator inserts that unique ownership turns into an
-/// explicit `.clone()`: a store, binding, return, owning argument or capture
-/// of an RC-bearing value (every dup is one, `type_contains_rc_type` gates
-/// them all) whose source stays alive. One stderr line per site:
-/// `file:line:col [implicit-copy] <category> <type> <path> source=<kind> \`<source>\``.
-/// A source that is borrowed (a by-value parameter, a `match`/`for` binding,
-/// an `inout` slot), a non-owning temporary (a field or index read: no
-/// partial moves, decision 19), a module-level value or a closure's own
-/// capture cannot be moved from, so its dup is reported at once. An owning
-/// local or `own` parameter is held PENDING and judged at its declaring
-/// frame's epilogue (`audit_judge_implicit_copies`, exprs/begin.yo): it is a
-/// copy only if the variable is read again after the site. Inert unless the
-/// knob is set: nothing else in the evaluator reads these tables.
-(g_audit_implicit_copy : bool) = debug_knob(`YO_AUDIT_IMPLICIT_COPY`).is_some();
-/// YO_AUDIT_COPYING_ACCESSOR (plans/handover/VBD_LOOKAHEAD_2026-10-23.md §4.2
-/// B6-b, item N7; plans/VALUES_BY_DEFAULT.md decision 20): lists every call
-/// in user code of a copying accessor that has a `<name>_cloned` sibling in
-/// the impl registry (`get`, `first`, `last`, `front`, `back`, `peek`,
-/// `get_key_value`, `get_index`, `first_entry`, `last_entry` — whatever the
-/// registry holds a `<name>_cloned` for; the compiler keeps no name list)
-/// whose result carries a unique buffer (`_ic_category_is_unique_buffer`:
-/// `String`, a std collection, a value aggregate holding one). One stderr
-/// line per call site:
-/// `file:line:col [copying-accessor] <category> <type> \`recv.method(...)\``.
-/// `yo fix --migrate cloned-accessors` rewrites the same sites.
-(g_audit_copying_accessor : bool) = debug_knob(`YO_AUDIT_COPYING_ACCESSOR`).is_some();
+// Records every dup the evaluator inserts whose source stays alive: a
+// store, binding, return, owning argument or capture of an RC-bearing value
+// (every dup is one, `type_contains_rc_type` gates them all). A source that
+// is borrowed (a by-value parameter, a `match`/`for` binding, an `inout`
+// slot), a non-owning temporary (a field or index read: no partial moves,
+// decision 19), a module-level value or a closure's own capture cannot be
+// moved from, so its dup is judged at once. An owning local or `own`
+// parameter is held PENDING and judged at its declaring frame's epilogue
+// (`audit_judge_implicit_copies`, exprs/begin.yo): it is a copy only if the
+// variable is read again after the site. `yo fix --migrate rc-clone` turns
+// the sites into `Rc.clone` / `.clone()` spellings, and `YO_AUDIT_COPY_TRAIT`
+// prints its own lines through the same tables. Inert otherwise: nothing
+// else in the evaluator reads them. (The `YO_AUDIT_IMPLICIT_COPY` and
+// `YO_AUDIT_COPYING_ACCESSOR` listings, `yo fix --migrate explicit-copy`
+// and `--migrate cloned-accessors`, with the written-after, flow, loop and
+// raw-pointer tables their guards read, were deleted with the `BTreeMap`
+// flip: every unique-buffer copy they found is E0901 now, whose help names
+// the `.clone()` or the `_cloned` accessor. They last shipped in v0.2.73.)
 /// YO_AUDIT_COPY_TRAIT (plans/VALUES_BY_DEFAULT.md decision 36):
 /// Sizes decision 36's sweep: every implicit copy of a plain-data value (no
 /// owned buffer, not move-only) whose type is not `Copy`, with the source
@@ -2755,87 +2770,33 @@ place_require_mut :: (fn(place : &AstExpr, tok : &Token, how : &String, handle_o
 /// decision 19). Inert unless the knob is set.
 (g_audit_copy_trait : bool) = debug_knob(`YO_AUDIT_COPY_TRAIT`).is_some();
 audit_copy_trait_enabled :: (fn() -> bool)(g_audit_copy_trait);
-/// One implicit copy `yo fix --migrate explicit-copy` makes explicit
-/// (plans/VALUES_BY_DEFAULT.md V2b, "Unique buffers", Generation A): a copy
-/// of a `String`, a std collection or a value aggregate holding one whose
-/// source stays alive, which unique buffers turn into E0901. `row`/`col` are
-/// the copied expression's leftmost token, `expect` the expression as the
-/// evaluator prints it (the rewrite matches it against the source text before
-/// it edits anything), and `ty` the copied type: a position recorded with two
-/// types is a generic body, which the rewrite leaves alone. `copy_path` is how
-/// the copy is made (`binding`, `return`, ...).
+/// One implicit copy the copy recorder keeps (`yo fix --migrate rc-clone`,
+/// decision 17): a copy of a counted handle, or of a value holding one,
+/// whose source stays alive. `row`/`col` are the copied expression's
+/// leftmost token, `expect` the expression as the evaluator prints it (the
+/// rewrite matches it against the source text before it edits anything),
+/// and `ty` the copied type: a position recorded with two types is a generic
+/// body, which the rewrite leaves alone. `copy_path` is how the copy is made
+/// (`binding`, `return`, ...).
 ///
-/// `.clone()` makes the copy independent, where today the two share one
-/// buffer. That is a behavior change exactly when one side is written while
-/// the other is read again, so the copy's source variable and, for a binding
-/// or an assignment, its destination variable are kept (`src_decl`,
-/// `dst_decl`: `_ic_decl_key` of each declaration, empty when there is none)
-/// with the site's own position (`at_module`, `at_offset`). A site one of
-/// them is written after (`record_copy_write`) is listed, not rewritten.
-///
-/// `src_borrow` describes the root the copied place borrows from
-/// (`_ic_place_root_borrow`: a `&`/`&mut` parameter, a `&mut` borrow, a
-/// module-level binding or a borrowed binding; empty for an owned root). A
-/// `return` of such a place leaves its block with a value that shares the
-/// root's buffer: out of a function, where a caller may write through it
-/// (usually a classic accessor whose hand edit is a projection, `-> &T`,
-/// decision 24), or out of a `match`/`cond` arm or inner block into a
-/// binding the written-after guard cannot see. It is listed, not rewritten
-/// (issues/questions/2026-10-14-explicit-copy-migration-cannot-see-writes-through-an-escaped-copy.md,
-/// issues/fixed/2026-10-18-explicit-copy-migration-rewrites-an-arm-tail-copy-of-a-borrowed-binding.md).
-///
-/// `in_generic` is set when the copy was evaluated inside a generic
-/// specialization (`ctx.currently_specializing_function`: a function with
-/// `comptime`/`generic` parameters or a generic impl's method), or its type
-/// still mentions an open type parameter (a definition-time trial of a
-/// generic body no call instantiated: `type_contains_some_type_deep`). One
-/// `.clone()` there would demand `Clone` of every instantiation, while the
-/// run may have seen only one of them, so the site is listed, not rewritten
+/// `in_generic` is set when the copy was evaluated inside a generic body
+/// (`_ic_in_generic`), where one spelling would serve every instantiation
+/// while the run may have seen only one of them, so the site is listed, not
+/// rewritten
 /// (issues/fixed/2026-10-17-explicit-copy-migration-rewrites-a-generic-body-seen-at-one-type.md).
 ///
-/// `src_dying` describes a source that is part of a temporary dying right
-/// after the copy (`_ic_dying_temp_source`: a `match` binding of an owned
-/// temporary such as `m.get(k)`'s result, or a field read whose receiver
-/// chain ends in one, `make().name`); empty otherwise. For the `match`
-/// binding this is the copy-trait audit's temporary-as-move rule
-/// (`audit_record_copy_trait`'s `temp` root); the field read is this guard's
-/// own rule, read through the ExprInfo table (that audit reports a field read
-/// as a copy). The explicit-copy audit still reports both, since today's dup
-/// is real, so the migration lists them instead of cloning a value that is
-/// usually read nowhere else.
-///
 /// `capture_label` is set for a closure capture list's shorthand entry `x`,
-/// which names the capture and its source together: the `.clone()` belongs on
-/// the source, so the rewrite expands the entry to `x : x.clone()` (a bare
-/// `{ x.clone() }` does not parse). Empty for every other copy.
+/// which names the capture and its source together: the spelling belongs on
+/// the source, so the rewrite expands the entry to `x : Rc.clone(x)`. Empty
+/// for every other copy.
 ///
-/// `ty_value` is the copied type itself, which the listing asks for `Clone`
-/// (`type_lacks_clone`) once the whole run is evaluated, and
-/// `lacks_clone_at_copy` the same question asked when the copy was
-/// recorded. A copy of a type without `Clone` at the end (a `StringBuilder`
-/// or a `HeaderMap` before B11 derives one, a collection of such elements)
-/// is still E0901 under unique buffers, and no `.clone()` spells it, so it
-/// is listed for a move or a borrow
-/// (issues/fixed/2026-10-22-explicit-copy-migration-omits-copies-of-a-type-without-clone-from-its-listing.md).
-/// Impls register in evaluation order, so the two answers differ for a copy
-/// a body makes above its type's `Clone` in the same module (`String.split`
-/// pushing `self`, `std/string/string.yo`, about 2,700 lines above the
-/// impl). Such a copy used to be dropped
-/// (issues/fixed/2026-10-24-explicit-copy-migration-drops-a-copy-made-before-its-types-clone-impl-registers.md).
-/// An `impl` below the copy is forced by the `.clone()` method lookup, so
-/// that copy is cloned. One whose `Clone` comes from a `derive(T, Clone)`
-/// (`ic_clone_comes_from_derive`) is listed instead: a seed older than the
-/// fix that forces a `derive` there would not resolve that `.clone()`
-/// (issues/fixed/2026-10-24-a-derive-below-its-first-method-use-is-not-forced.md).
-///
-/// Under `yo fix --migrate rc-clone` (decision 17) `spelling` names the copy
-/// to spell: `Rc` or `Arc` for a counted handle (`Rc.clone(e)`), `clone` for
-/// a value holding one (`e.clone()`), `derive` for such a value whose type is
-/// not `Clone` (listed); empty under `--migrate explicit-copy`. An implicit
-/// closure capture (`copy_path` `capture`) is recorded at the closure's `=>`
-/// with `expect` the captured name and `capture_names` every name the closure
-/// captures implicitly (`,`-joined), which the rewrite lists, since a capture
-/// list is exhaustive.
+/// `spelling` names the copy to spell: `Rc` or `Arc` for a counted handle
+/// (`Rc.clone(e)`), `clone` for a value holding one (`e.clone()`), `derive`
+/// for such a value whose type is not `Clone` (listed). An implicit closure
+/// capture (`copy_path` `capture`) is recorded at the closure's `=>` with
+/// `expect` the captured name and `capture_names` every name the closure
+/// captures implicitly (`,`-joined), which the rewrite lists, since a
+/// capture list is exhaustive.
 ExplicitCopySite :: struct(
   path : String,
   row : usize,
@@ -2843,49 +2804,26 @@ ExplicitCopySite :: struct(
   expect : String,
   ty : String,
   copy_path : String,
-  src_decl : String,
-  dst_decl : String,
-  at_module : String,
-  at_offset : u32,
-  src_borrow : String,
   in_generic : bool,
-  src_dying : String,
   capture_label : String,
-  ty_value : TypeValue,
-  lacks_clone_at_copy : bool,
   spelling : String,
   capture_names : String
 );
 derive(ExplicitCopySite, Clone);
-/// One write to a variable that may reach a buffer it shares (an assignment
-/// into one of its fields or elements, a `&mut` argument or receiver the
-/// callee may write, a `&mut` local borrow), recorded while the migration
-/// runs: `decl` is the variable's `_ic_decl_key`. The same record serves a
-/// raw pointer derived from a variable (`record_copy_pointer`).
-CopyWrite :: struct(decl : String, at_module : String, at_offset : u32);
-derive(CopyWrite, Clone);
-(mut(g_migrate_explicit_copy) : bool) = false;
 (g_explicit_copy_sites : RefCell(ArrayList(ExplicitCopySite))) = RefCell(ArrayList(ExplicitCopySite)).new(ArrayList(ExplicitCopySite).new());
 (g_explicit_copy_site_keys : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
-(g_copy_writes : RefCell(ArrayList(CopyWrite))) = RefCell(ArrayList(CopyWrite)).new(ArrayList(CopyWrite).new());
-(g_copy_pointers : RefCell(ArrayList(CopyWrite))) = RefCell(ArrayList(CopyWrite)).new(ArrayList(CopyWrite).new());
-set_migrate_explicit_copy :: (fn(on : bool) -> unit)({
-  g_migrate_explicit_copy = on;
-});
-/// `yo fix --migrate rc-clone` (decision 17, V2c): the explicit-copy
-/// recorder, kept to the copies the counted-handle rule rejects
+/// `yo fix --migrate rc-clone` (decision 17, V2c): the copy recorder, kept
+/// to the copies the counted-handle rule rejects
 /// (`type_holds_counted_handle_ignoring_migration`), with the rule itself
 /// suspended while the tree that still copies its handles implicitly is
 /// evaluated.
 (mut(g_migrate_rc_clone) : bool) = false;
 set_migrate_rc_clone :: (fn(on : bool) -> unit)({
   g_migrate_rc_clone = on;
-  g_migrate_explicit_copy = on;
   set_counted_handle_rule(!on);
 });
+/// Whether the copy recorder runs (`yo fix --migrate rc-clone`).
 migrate_rc_clone_on :: (fn() -> bool)(g_migrate_rc_clone);
-/// Whether `yo fix --migrate explicit-copy` is recording.
-migrate_explicit_copy_on :: (fn() -> bool)(g_migrate_explicit_copy);
 /// Record one site, once per position and type.
 record_explicit_copy_site :: (fn(site : ExplicitCopySite) -> unit)({
   key := `${site.path}:${site.row.to_string()}:${site.col.to_string()}:${site.ty}:${site.copy_path}:${site.expect}`;
@@ -2899,454 +2837,7 @@ take_explicit_copy_sites :: (fn() -> ArrayList(ExplicitCopySite))({
   g_explicit_copy_site_keys.with_mut(s => s.clear());
   out
 });
-/// One copying-accessor call `yo fix --migrate cloned-accessors` rewrites to
-/// its `<name>_cloned` sibling (B6-b; plans/VALUES_BY_DEFAULT.md decision 20):
-/// `row`/`col` are the METHOD NAME's token (`get` of `raw.get(i)` — the
-/// rewrite inserts `_cloned` right after it), `method`/`cloned` the two
-/// names, `recv_text` the receiver as printed, and `ty` the call's result
-/// type: a position recorded at two types is a generic body, which the
-/// rewrite leaves alone. `src_decl` is the receiver's root declaration
-/// (`_ic_decl_key`, empty when the receiver is a call's own result): a copy
-/// out of a container written afterwards, or one a raw pointer reaches, is
-/// listed, not rewritten — the same guards `--migrate explicit-copy` applies.
-/// `at_module`/`at_offset` identify the position independently of `path`
-/// (the two spellings of a module path). `in_generic` is set when the call
-/// was evaluated inside a generic specialization or its type still mentions
-/// an open type parameter: one `<name>_cloned` there would demand `Clone` of
-/// every instantiation.
-CopyingAccessorSite :: struct(
-  path : String,
-  row : usize,
-  col : usize,
-  method : String,
-  cloned : String,
-  recv_text : String,
-  ty : String,
-  ty_value : TypeValue,
-  src_decl : String,
-  at_module : String,
-  at_offset : u32,
-  in_generic : bool
-);
-derive(CopyingAccessorSite, Clone);
-(mut(g_migrate_cloned_accessors) : bool) = false;
-(g_copying_accessor_sites : RefCell(ArrayList(CopyingAccessorSite))) = RefCell(ArrayList(CopyingAccessorSite)).new(ArrayList(CopyingAccessorSite).new());
-(g_copying_accessor_site_keys : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
-(g_copying_accessor_printed : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
-set_migrate_cloned_accessors :: (fn(on : bool) -> unit)({
-  g_migrate_cloned_accessors = on;
-});
-/// Whether `yo fix --migrate cloned-accessors` is recording.
-migrate_cloned_accessors_on :: (fn() -> bool)(g_migrate_cloned_accessors);
-/// Either the YO_AUDIT_COPYING_ACCESSOR knob or the migration: the
-/// call-site classifier is inert otherwise.
-audit_copying_accessor_enabled :: (fn() -> bool)(g_audit_copying_accessor || g_migrate_cloned_accessors);
-/// Record one accessor site, once per position and result type.
-record_copying_accessor_site :: (fn(site : CopyingAccessorSite) -> unit)({
-  key := `${site.path}:${site.row.to_string()}:${site.col.to_string()}:${site.ty}`;
-  if(!g_copying_accessor_site_keys.with_mut(s => s.insert(key)), {
-    return(());
-  });
-  g_copying_accessor_sites.with_mut(xs => xs.push(site.clone()));
-});
-take_copying_accessor_sites :: (fn() -> ArrayList(CopyingAccessorSite))({
-  out := g_copying_accessor_sites.with_mut(xs => xs.split_off(usize(0)));
-  g_copying_accessor_site_keys.with_mut(s => s.clear());
-  out
-});
-/// Print one audit line, once per line.
-audit_print_copying_accessor :: (fn(line : &String) -> unit)({
-  if(g_audit_copying_accessor && g_copying_accessor_printed.with_mut(s => s.insert(line.clone())), {
-    eprintln(line);
-  });
-});
-/// Either copy migration recording: the written-after, flow, tail-destination
-/// and raw-pointer tables below serve `explicit-copy` and `cloned-accessors`
-/// with the same guards.
-copy_migration_recording_on :: (fn() -> bool)(g_migrate_explicit_copy || g_migrate_cloned_accessors);
-/// A variable declaration's identity across the session: its token's module
-/// (canonical) and byte offset.
-_ic_decl_key :: (fn(decl : &Token) -> String)(
-  `${canonical_module_path(&decl.module_path.*)}:${decl.byte_offset.to_string()}`
-);
-/// The variable `place` is rooted in (`x` of `x`, `x.f`, `x(i).g`), looked
-/// up in `env`, or none. A non-infix call is walked to its callee, which is
-/// an index's collection (`xs(i)` roots at `xs`). Given `stop_ctx`, the walk
-/// also stops, with none, at a call whose ExprInfo names an owning temporary
-/// (`_ic_owning_temp`): a call's own result (`make()`, `grab(&s)`) is rooted
-/// in no variable, and the function binding its callee names is not one.
-_ic_place_root_var :: (fn(place : &AstExpr, env : &Environment, (stop_ctx : Option(EvalContext)) ?= .None) -> Option(Variable))({
-  (e : AstExpr) = place.clone();
-  (walking : bool) = true;
-  while(walking, {
-    match(
-      e,
-      .Atom(_, _) => {
-        walking = false;
-      },
-      .FnCall(_, callee, Rc(args), is_infix, _) => cond(
-        (is_infix || ast_expr_is_fn_call_of(&e, BF_DOT, Option(usize).Some(usize(2)))) => {
-          e = match(args.get(usize(0)), .Some(a) => a, .None => return(Option(Variable).None));
-        },
-        true => {
-          match(
-            stop_ctx,
-            .Some(sc) => if(match(_ic_owning_temp(&e, &sc), .Some(owning) => owning, .None => false), {
-              return(Option(Variable).None);
-            }),
-            .None => ()
-          );
-          e = callee;
-        }
-      )
-    );
-  });
-  tok := ast_expr_token(&e);
-  if(tok.kind != TokenKind.Identifier, {
-    return(Option(Variable).None);
-  });
-  find_variable_in_env(env, tok.value.*.clone())
-});
-/// The declaration key of the variable `place` is rooted in, or empty.
-_ic_place_root_decl :: (fn(place : &AstExpr, env : &Environment) -> String)(
-  match(_ic_place_root_var(place, env), .Some(v) => _ic_decl_key(&v.token), .None => String.new())
-);
-/// The declaration key of the variable a pattern binding declared at
-/// `binding` takes a part of, while the migration runs: the variable `place`
-/// (a `match` scrutinee, a destructuring's right-hand side, evaluated in
-/// `env`) is a place of, or empty. A call's own result is rooted in no
-/// variable (`_ic_place_root_var`'s `stop_ctx`), and neither is a variable of
-/// another module than the binding's: a `for` expansion's
-/// `match(iter.next(), .Some(x) => …)` binds the user's `x` from the
-/// template's iterator, whose writes advance it and touch no element.
-_ic_binding_source_decl :: (fn(place : &AstExpr, env : &Environment, ctx : &EvalContext, binding : &Token) -> String)({
-  if(!copy_migration_recording_on(), {
-    return(String.new());
-  });
-  match(
-    _ic_place_root_var(place, env, stop_ctx : Option(EvalContext).Some(ctx)),
-    .Some(v) => cond(
-      (canonical_module_path(&v.token.module_path.*) == canonical_module_path(&binding.module_path.*)) => _ic_decl_key(&v.token),
-      true => String.new()
-    ),
-    .None => String.new()
-  )
-});
-/// Record a write to the variable `place` is rooted in, at `at`, while the
-/// migration runs.
-record_copy_write :: (fn(place : &AstExpr, env : &Environment, at : &Token) -> unit)({
-  if(!copy_migration_recording_on(), {
-    return(());
-  });
-  record_copy_write_decl(_ic_place_root_decl(place, env), at);
-});
-/// The same, for a variable whose declaration key is known.
-record_copy_write_decl :: (fn(decl : String, at : &Token) -> unit)({
-  if(!copy_migration_recording_on() || decl.is_empty(), {
-    return(());
-  });
-  g_copy_writes.with_mut(xs => xs.push(CopyWrite(decl : decl.clone(), at_module : canonical_module_path(&at.module_path.*), at_offset : at.byte_offset)));
-});
-take_copy_writes :: (fn() -> ArrayList(CopyWrite))({
-  out := g_copy_writes.with_mut(xs => xs.split_off(usize(0)));
-  out
-});
-/// Record, while the migration runs, that the call `call` (evaluated in
-/// `env`) whose result has type `result_ty` derives a raw pointer from its
-/// arguments `args` (the receiver included): `.ptr()`, `.end_ptr()`, a
-/// function handing back `*T` or `?*T`. The result is a raw view
-/// (`type_representation_contains_raw_ptr`: a pointer, or a value holding
-/// one that owns no buffer of its own), and each argument rooted in a named
-/// variable may be the storage it points into. A copy of that variable is
-/// then the buffer the program reaches through the pointer: a `.clone()`
-/// would hand one side a fresh buffer, and the pointer would dangle or read
-/// the other side
-/// (issues/fixed/2026-10-21-the-explicit-copy-migration-clones-a-buffer-whose-pointer-is-taken-afterwards.md).
-/// Two call paths record: a method or trait dispatch
-/// (`try_to_call_function_with_arguments`), and a direct call of a function
-/// value with a runtime result (`_evaluate_funcval_runtime_call`), which
-/// passes the call's arguments as written. An argument lent with `&x` or `&mut x` (`first_ptr(&marks)`, a helper
-/// deriving the pointer from its borrow parameter) is the place `x`.
-record_copy_pointer :: (fn(result_ty : &TypeValue, args : &ArrayList(AstExpr), env : &Environment, at : &Token) -> unit)({
-  if(!copy_migration_recording_on() || !type_representation_contains_raw_ptr(result_ty), {
-    return(());
-  });
-  (i : usize) = usize(0);
-  while(i < args.len(), i = (i + usize(1)), {
-    match(args.get(i), .Some(a) => record_copy_pointer_place(&a, env, at), .None => ());
-  });
-});
-/// Record, while the migration runs, that a raw pointer is derived from the
-/// variable `place` is rooted in: an argument of a pointer-returning call
-/// (`record_copy_pointer`), or the operand of the address-of `addr_of(x)`
-/// (`addr_of(marks(i))` roots at `marks`). An argument's label (`xs :
-/// marks`), a call-site borrow marker or a nested address-of around the place
-/// is read through first.
-record_copy_pointer_place :: (fn(place : &AstExpr, env : &Environment, at : &Token) -> unit)({
-  if(!copy_migration_recording_on(), {
-    return(());
-  });
-  (bare : AstExpr) = place.clone();
-  if(ast_expr_is_fn_call_of(&bare, ":", Option(usize).Some(usize(2))), {
-    bare = match(bare, .FnCall(_, _, Rc(lab_args), _, _) => match(lab_args.get(usize(1)), .Some(lv) => lv, .None => return(())), .Atom(_, _) => return(()));
-  });
-  while(ast_expr_is_address_of_call(&bare, Option(usize).Some(usize(1))) || ast_expr_is_fn_call_of(&bare, BK_BORROW_MUT, Option(usize).Some(usize(1))), {
-    bare = match(
-      bare,
-      .FnCall(_, _, Rc(peel_args), _, _) => match(peel_args.get(usize(0)), .Some(inner) => inner, .None => return(())),
-      .Atom(_, _) => return(())
-    );
-  });
-  decl := _ic_place_root_decl(&bare, env);
-  if(!decl.is_empty(), {
-    g_copy_pointers.with_mut(xs => xs.push(CopyWrite(decl : decl.clone(), at_module : canonical_module_path(&at.module_path.*), at_offset : at.byte_offset)));
-  });
-});
-take_copy_pointers :: (fn() -> ArrayList(CopyWrite))({
-  out := g_copy_pointers.with_mut(xs => xs.split_off(usize(0)));
-  out
-});
-/// The destinations a block's or a conditional's result positions flow
-/// into, by position: `decl` is the destination variable's `_ic_decl_key`,
-/// `at_module`/`at_offset` the leftmost token of one result position.
-(g_copy_tail_dests : RefCell(ArrayList(CopyWrite))) = RefCell(ArrayList(CopyWrite)).new(ArrayList(CopyWrite).new());
-/// One flow of a variable's value into another variable, recorded while the
-/// migration runs: the value of `src` (an `_ic_decl_key`), or a place rooted
-/// in it, is stored in `dst` by a binding, an assignment or a capture at
-/// `at_module`/`at_offset` (the leftmost token of the stored expression).
-CopyFlow :: struct(src : String, dst : String, at_module : String, at_offset : u32);
-derive(CopyFlow, Clone);
-(g_copy_flows : RefCell(ArrayList(CopyFlow))) = RefCell(ArrayList(CopyFlow)).new(ArrayList(CopyFlow).new());
-/// Record, while the migration runs, that the value of `rhs` is stored in
-/// the variable `dest_decl` (a binding, an assignment, a capture), for each
-/// result position of `rhs`: `rhs` itself, and when it is a block, a `cond`
-/// (an `if`) or a `match`, nested, a block's tail and each arm's body.
-///
-/// A copy made at a nested position is a `return` copy (it leaves its arm),
-/// which carries no destination of its own, so the position is recorded as
-/// flowing into `dest_decl` (`g_copy_tail_dests`). Without it the
-/// written-after guard judged `t := if(c, e.no, e.yes); t.push(x)` against
-/// `e` alone and cloned two lists the push was meant to reach
-/// (issues/fixed/2026-10-22-explicit-copy-migration-clones-a-conditional-arm-whose-binding-is-written-afterwards.md).
-///
-/// A position whose value is a place rooted in a local variable (`x`,
-/// `x.f`, `xs(i)`; not a call's own result) records a flow from that
-/// variable into `dest_decl` (`g_copy_flows`), whether the store moves it
-/// (its last use, which makes no copy site) or copies it. A copy whose
-/// source or destination flows on into a variable the program writes
-/// (`x := e.no; t := x; t.push(v)`, or `t := if(c, { x := e.no; x },
-/// e.yes)`) shared its buffer with that write, so the guard follows the
-/// flows
-/// (issues/fixed/2026-10-23-explicit-copy-migration-misses-a-write-through-a-local-the-copy-was-moved-into.md).
-///
-/// A `return(...)` inside an arm leaves the function, not the arm, and is
-/// not a result position of `rhs`.
-record_copy_tail_dests :: (fn(rhs : &AstExpr, dest_decl : &String, ctx : &EvalContext) -> unit)({
-  if(!copy_migration_recording_on() || dest_decl.is_empty(), {
-    return(());
-  });
-  _ic_note_result_positions(rhs, dest_decl, false, ctx);
-});
-_ic_note_result_positions :: (fn(e : &AstExpr, dest_decl : &String, nested : bool, ctx : &EvalContext) -> unit)(
-  match(
-    e,
-    .FnCall(_, _, Rc(nargs), _, _) => cond(
-      ast_expr_is_fn_call_of(e, BK_BEGIN, Option(usize).None) => match(nargs.last(), .Some(tail) => recur(&tail, dest_decl, true, ctx), .None => ()),
-      (ast_expr_is_fn_call_of(e, BK_COND, Option(usize).None) || ast_expr_is_fn_call_of(e, BK_MATCH, Option(usize).None)) => {
-        (ai : usize) = usize(0);
-        while(ai < nargs.len(), ai = (ai + usize(1)), {
-          arm := nargs(ai);
-          if(ast_expr_is_fn_call_of(&arm, "=>", Option(usize).Some(usize(2))), {
-            match(arm, .FnCall(_, _, Rc(arm_args), _, _) => match(arm_args.get(usize(1)), .Some(arm_body) => recur(&arm_body, dest_decl, true, ctx), .None => ()), .Atom(_, _) => ());
-          });
-        });
-      },
-      true => _ic_note_result_position(e, dest_decl, nested, ctx)
-    ),
-    .Atom(_, _) => _ic_note_result_position(e, dest_decl, nested, ctx)
-  )
-);
-_ic_note_result_position :: (fn(e : &AstExpr, dest_decl : &String, nested : bool, ctx : &EvalContext) -> unit)({
-  at := _ic_leftmost_token(e);
-  at_module := canonical_module_path(&at.module_path.*);
-  if(nested, {
-    g_copy_tail_dests.with_mut(xs => xs.push(CopyWrite(decl : dest_decl.clone(), at_module : at_module.clone(), at_offset : at.byte_offset)));
-  });
-  match(
-    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(e)),
-    .Some(info) => match(
-      _ic_place_root_var(e, &info.env, stop_ctx : Option(EvalContext).Some(ctx)),
-      .Some(v) => {
-        src := _ic_decl_key(&v.token);
-        if(src != dest_decl, {
-          g_copy_flows.with_mut(xs => xs.push(CopyFlow(src : src.clone(), dst : dest_decl.clone(), at_module : at_module.clone(), at_offset : at.byte_offset)));
-        });
-      },
-      .None => ()
-    ),
-    .None => ()
-  );
-});
-/// Record, while the migration runs, a flow of the variable `src` into the
-/// variable `dst` (both `_ic_decl_key`s) at `at`: a `&mut` capture-list
-/// entry (`{ &mut entry }`, `{ e : &mut entry }`) binds a second name for the
-/// captured variable's place, so a write through the capture in the closure
-/// body is a write of the variable, and the guard follows the flow to it
-/// (issues/fixed/2026-10-24-explicit-copy-migration-misses-a-write-through-a-mut-capture-list-borrow.md).
-record_copy_flow_decl :: (fn(src : String, dst : String, at : &Token) -> unit)({
-  if(!copy_migration_recording_on() || src.is_empty() || dst.is_empty() || (src == dst), {
-    return(());
-  });
-  g_copy_flows.with_mut(xs => xs.push(CopyFlow(src : src.clone(), dst : dst.clone(), at_module : canonical_module_path(&at.module_path.*), at_offset : at.byte_offset)));
-});
-take_copy_flows :: (fn() -> ArrayList(CopyFlow))({
-  out := g_copy_flows.with_mut(xs => xs.split_off(usize(0)));
-  out
-});
-take_copy_tail_dests :: (fn() -> ArrayList(CopyWrite))({
-  out := g_copy_tail_dests.with_mut(xs => xs.split_off(usize(0)));
-  out
-});
-/// The source span of one `Clone` impl's member, by byte offset in its
-/// module (`start`..`end`, inclusive, over the member's tokens), and the
-/// impl's receiver type.
-CloneImplBody :: struct(at_module : String, start : u32, end : u32, receiver : String);
-derive(CloneImplBody, Clone);
-(g_clone_impl_bodies : RefCell(ArrayList(CloneImplBody))) = RefCell(ArrayList(CloneImplBody)).new(ArrayList(CloneImplBody).new());
-(g_clone_impl_body_keys : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
-/// The nominal types a `derive(T, …, Clone, …)` gave `Clone` while the
-/// migration ran, by head name (`type_head_name_for_impl_forcing`).
-(g_clone_derived_heads : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
-/// Record, while the migration runs, that `member` (the value of a member of
-/// an `impl(receiver, Clone(...))`) is where `receiver` defines its copy.
-/// A copy of a field of `self` there is the impl's chosen depth, not an
-/// implicit copy the program happens to make: `AstExpr`'s impl shares its
-/// children on purpose and `Pattern`'s deep-copies them, and the write that
-/// makes the difference observable is in a caller of `clone`, out of any
-/// local guard's sight. So `yo fix --migrate explicit-copy` lists every copy
-/// in that span instead of rewriting it
-/// (issues/fixed/2026-10-22-explicit-copy-migration-deepens-a-sharing-clone-impl.md).
-/// The span is by position, so a later evaluation of the body (a generic
-/// impl's specialization) is covered as well.
-record_clone_impl_body :: (fn(member : &AstExpr, receiver : &String) -> unit)({
-  if(!g_migrate_explicit_copy, {
-    return(());
-  });
-  root := ast_expr_token(member);
-  (lo : u32) = root.byte_offset;
-  (hi : u32) = root.byte_offset;
-  stack := ArrayList(AstExpr).new();
-  stack.push(member.clone());
-  while(stack.len() > usize(0), {
-    e := match(stack.pop(), .Some(x) => x, .None => make_err_expr());
-    tok := ast_expr_token(&e);
-    if(tok.module_path == root.module_path, {
-      if(tok.byte_offset < lo, {
-        lo = tok.byte_offset;
-      });
-      if(tok.byte_offset > hi, {
-        hi = tok.byte_offset;
-      });
-    });
-    match(
-      e,
-      .FnCall(_, callee, Rc(args), _, _) => {
-        stack.push(callee);
-        (k : usize) = usize(0);
-        while(k < args.len(), k = (k + usize(1)), {
-          stack.push(args(k));
-        });
-      },
-      .Atom(_, _) => ()
-    );
-  });
-  at_module := canonical_module_path(&root.module_path.*);
-  key := `${at_module}:${lo.to_string()}:${hi.to_string()}`;
-  if(g_clone_impl_body_keys.with_mut(s => s.insert(key.clone())), {
-    g_clone_impl_bodies.with_mut(xs => xs.push(CloneImplBody(at_module : at_module.clone(), start : lo, end : hi, receiver : receiver.clone())));
-  });
-});
-take_clone_impl_bodies :: (fn() -> ArrayList(CloneImplBody))({
-  out := g_clone_impl_bodies.with_mut(xs => xs.split_off(usize(0)));
-  g_clone_impl_body_keys.with_mut(s => s.clear());
-  out
-});
-/// The source span of a region whose code runs more than once, by byte
-/// offset in its module (`start`..`end`, inclusive, over the region's
-/// tokens): a runtime `while` (a `for` is one after expansion), a closure a
-/// caller may call again, or a function (`is_function`, a `fn(...)`
-/// literal), which runs again on its next call.
-CopyLoop :: struct(at_module : String, start : u32, end : u32, is_function : bool);
-derive(CopyLoop, Clone);
-(g_copy_loops : RefCell(ArrayList(CopyLoop))) = RefCell(ArrayList(CopyLoop)).new(ArrayList(CopyLoop).new());
-(g_copy_loop_ids : RefCell(HashSet(usize))) = RefCell(HashSet(usize)).new(HashSet(usize).new());
-/// Record, while the migration runs, that `region` (a runtime `while`, a fn
-/// literal) runs more than once. A write the region makes ABOVE a copy in it
-/// runs again after the copy on the next iteration or call, so the
-/// written-after guard counts it as after the copy whenever the copy
-/// outlives one run of the region
-/// (issues/fixed/2026-10-24-explicit-copy-migration-misses-a-write-a-loop-makes-above-the-copy.md).
-/// One span per module the region's tokens come from: a `for`'s expansion
-/// mixes the prelude's template tokens with the body's own.
-record_copy_loop :: (fn(region : &AstExpr, (is_function : bool) ?= false) -> unit)({
-  if(!copy_migration_recording_on(), {
-    return(());
-  });
-  if(!g_copy_loop_ids.with_mut(s => s.insert(ast_expr_id(region))), {
-    return(());
-  });
-  heads := ArrayList(Token).new();
-  los := ArrayList(u32).new();
-  his := ArrayList(u32).new();
-  stack := ArrayList(AstExpr).new();
-  stack.push(region.clone());
-  while(stack.len() > usize(0), {
-    e := match(stack.pop(), .Some(x) => x, .None => make_err_expr());
-    tok := ast_expr_token(&e);
-    (gi : usize) = usize(0);
-    (searching : bool) = true;
-    while(searching && (gi < heads.len()), {
-      if(heads(gi).module_path == tok.module_path, {
-        searching = false;
-      }, {
-        gi = (gi + usize(1));
-      });
-    });
-    if(searching, {
-      heads.push(tok.clone());
-      los.push(tok.byte_offset);
-      his.push(tok.byte_offset);
-    }, {
-      if(tok.byte_offset < los(gi), {
-        los(gi) = tok.byte_offset;
-      });
-      if(tok.byte_offset > his(gi), {
-        his(gi) = tok.byte_offset;
-      });
-    });
-    match(
-      e,
-      .FnCall(_, callee, Rc(args), _, _) => {
-        stack.push(callee);
-        (k : usize) = usize(0);
-        while(k < args.len(), k = (k + usize(1)), {
-          stack.push(args(k));
-        });
-      },
-      .Atom(_, _) => ()
-    );
-  });
-  (hk : usize) = usize(0);
-  while(hk < heads.len(), hk = (hk + usize(1)), {
-    g_copy_loops.with_mut(xs => xs.push(CopyLoop(at_module : canonical_module_path(&heads(hk).module_path.*), start : los(hk), end : his(hk), is_function : is_function)));
-  });
-});
-take_copy_loops :: (fn() -> ArrayList(CopyLoop))({
-  out := g_copy_loops.with_mut(xs => xs.split_off(usize(0)));
-  g_copy_loop_ids.with_mut(s => s.clear());
-  out
-});
-export(owning_param_binding_beside, move_through_sink_shadow, ExplicitCopySite, CopyWrite, CloneImplBody, ICMigrateCtx, _rc_clone_spelling, set_migrate_explicit_copy, migrate_explicit_copy_on, set_migrate_rc_clone, migrate_rc_clone_on, migrate_rc_clone_borrow_scrutinee, _ic_in_generic, record_explicit_copy_site, take_explicit_copy_sites, explicit_copy_type_is_collection, record_copy_write, record_copy_write_decl, take_copy_writes, record_copy_pointer, record_copy_pointer_place, take_copy_pointers, record_copy_tail_dests, take_copy_tail_dests, CopyFlow, record_copy_flow_decl, take_copy_flows, record_clone_impl_body, take_clone_impl_bodies, CopyLoop, record_copy_loop, take_copy_loops, _ic_decl_key, _ic_place_root_decl, _ic_binding_source_decl, record_clone_derive, ic_clone_comes_from_derive, CopyingAccessorSite, set_migrate_cloned_accessors, migrate_cloned_accessors_on, audit_copying_accessor_enabled, audit_print_copying_accessor, record_copying_accessor_site, take_copying_accessor_sites, copy_migration_recording_on, _ic_category_is_unique_buffer, _ic_place_root_var);
+export(owning_param_binding_beside, move_through_sink_shadow, ExplicitCopySite, ICMigrateCtx, _rc_clone_spelling, set_migrate_rc_clone, migrate_rc_clone_on, migrate_rc_clone_borrow_scrutinee, _ic_in_generic, record_explicit_copy_site, take_explicit_copy_sites, RC_CLONE_MIGRATE_HINT);
 /// One dup whose source is an owning local, waiting for its frame's epilogue.
 ImplicitCopyPending :: struct(
   /// The finished report line, printed if the variable is used again.
@@ -3355,10 +2846,11 @@ ImplicitCopyPending :: struct(
   /// the same module is a use after the copy.
   module_path : String,
   byte_offset : u32,
-  /// The `.clone()` insertion `yo fix --migrate explicit-copy` makes if the
-  /// copy is real, or none (the knob alone, or a copy it does not rewrite).
+  /// The spelling `yo fix --migrate rc-clone` records if the copy is real,
+  /// or none (an audit-only site, or a copy it does not rewrite).
   migrate_site : Option(ExplicitCopySite)
 );
+derive(ImplicitCopyPending, Clone);
 /// Variable id → its pending copy sites.
 (g_implicit_copy_pending : RefCell(HashMap(usize, ArrayList(ImplicitCopyPending)))) = RefCell(HashMap(usize, ArrayList(ImplicitCopyPending))).new(HashMap(usize, ArrayList(ImplicitCopyPending)).new());
 /// Lines already printed: def-time trials, the checking phase and each
@@ -3372,102 +2864,9 @@ ImplicitCopyPending :: struct(
 /// local is read again), `macro` (a scrutinee a macro introduced — `for`'s
 /// element: a borrow) or `place` (a parameter, field, global: a borrow).
 ImplicitCopyRoot :: struct(kind : String, root_id : usize);
+derive(ImplicitCopyRoot, Clone);
 (g_implicit_copy_match_roots : RefCell(HashMap(usize, ImplicitCopyRoot))) = RefCell(HashMap(usize, ImplicitCopyRoot)).new(HashMap(usize, ImplicitCopyRoot).new());
-/// What `place` is rooted in when that root is not owned by the copy's
-/// frame, for the `return` split: a `&` or `&mut` parameter, a `&mut` borrow
-/// (a `&mut` local, or a `match` binding through one), a module-level binding,
-/// or a borrowed binding (a `match`/`for` binding of a borrowed place). Empty
-/// for an owning local, an owned parameter, a temporary (a call's owned
-/// result: `make().tags(i)`, `grab(&s).*.f`, read through the ExprInfo table,
-/// not walked to the function binding its callee names,
-/// issues/fixed/2026-10-20-explicit-copy-return-split-calls-a-temporary-a-borrowed-binding.md),
-/// or a `match` binding of either.
-_ic_place_root_borrow :: (fn(place : &AstExpr, env : &Environment, ctx : &EvalContext) -> String)(
-  match(
-    _ic_place_root_var(place, env, stop_ctx : Option(EvalContext).Some(ctx)),
-    .Some(v) => cond(
-      v.is_imm_borrow => String.from("a `&` parameter"),
-      (v.is_ref && v.is_parameter) => String.from("a `&mut` parameter"),
-      v.is_ref => String.from("a `&mut` borrow"),
-      v.is_module_level => `the module-level binding \`${v.name}\``,
-      (v.is_owning_the_rc_value || is_any_temp_variable_name(v.name.clone())) => String.new(),
-      // A `match` binding owns what it binds out of a temporary, or is a
-      // part of an owning local judged at that local's frame end.
-      match(g_implicit_copy_match_roots.with(m => m.get(&v.id)), .Some(r) => ((r.kind == "temp") || (r.kind == "local")), .None => false) => String.new(),
-      true => String.from("a borrowed binding")
-    ),
-    .None => String.new()
-  )
-);
-/// Whether `e`'s ExprInfo names a temporary: `.Some(true)` for an owning one
-/// (a call's owned result), `.Some(false)` for a non-owning one (a
-/// projection: a field read, an index result, a borrow a call returns), and
-/// none for anything else (a named variable, a plain value, no ExprInfo).
-_ic_owning_temp :: (fn(e : &AstExpr, ctx : &EvalContext) -> Option(bool))({
-  info := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(e)), .Some(i) => i, .None => return(Option(bool).None));
-  name := match(info.variable_name, .Some(n) => n.clone(), .None => return(Option(bool).None));
-  if(!is_any_temp_variable_name(name.clone()), {
-    return(Option(bool).None);
-  });
-  match(find_variable_in_env(&info.env, name.clone()), .Some(v) => Option(bool).Some(v.is_owning_the_rc_value), .None => Option(bool).None)
-});
-/// What the copied expression `rhs` is a part of when that is a temporary
-/// dying right after the copy, for `yo fix --migrate explicit-copy`'s
-/// dying-temporary guard: a field read or an element read whose container
-/// chain, read through the ExprInfo table, ends in an owning temporary
-/// (`make().name`, `h.f().name`, `make().tags(i)`). Each step is a `.` field
-/// read (its receiver is the container) or an index (`index_trait_ptr_type`
-/// on its ExprInfo; its callee is the container); a container that is a
-/// non-owning temporary (another projection) is walked through. Empty for
-/// anything else: a container that is a named variable, a method call's
-/// result (a method returning `&T` may point into storage the temporary
-/// does not own), or no ExprInfo is not judged dying.
-/// A dereference (`grab().*.name`) also ends the walk with empty: the copy
-/// reads storage the dying handle only points to, which an `Rc`/`Arc`
-/// pointee or a pointer's target outlives, so the copy is genuine
-/// (issues/fixed/2026-10-21-explicit-copy-dying-temporary-guard-calls-a-copy-through-a-dereference-a-move.md).
-/// A `Box` pointee does die with its handle, but it is not told apart: the
-/// old rule (a `.clone()`) is never wrong, only wasted.
-///
-/// A `match` binding of an owned temporary (`.Some(v) => v` over `m.get(k)`)
-/// is not judged here: its copies are held pending and judged at the end of
-/// its arm (`audit_record_implicit_copy`, `audit_judge_arm_copies`), where a
-/// copy read again is genuine and the last use is a move
-/// (issues/fixed/2026-10-21-explicit-copy-dying-temporary-guard-lists-every-copy-of-a-reused-match-binding.md).
-_ic_dying_temp_source :: (fn(rhs : &AstExpr, ctx : &EvalContext) -> String)({
-  (e : AstExpr) = rhs.clone();
-  (element : bool) = false;
-  while(true, {
-    // A step an evaluator rewrite replaced reads as rewritten.
-    e = ast_rewritten_node(&e);
-    container := cond(
-      ast_expr_is_fn_call_of(&e, BF_DOT, Option(usize).Some(usize(2))) => {
-        if(_is_deref_place(&e), {
-          return(String.new());
-        });
-        match(e, .FnCall(_, _, Rc(args), _, _) => match(args.get(usize(0)), .Some(a) => a, .None => return(String.new())), .Atom(_, _) => return(String.new()))
-      },
-      match(
-        e,
-        .FnCall(_, _, _, is_infix, _) => (!is_infix && match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&e)), .Some(ii) => expr_info_index_trait_ptr_type(&ii).is_some(), .None => false)),
-        .Atom(_, _) => false
-      ) => {
-        element = true;
-        match(e, .FnCall(_, callee, _, _, _) => callee, .Atom(_, _) => return(String.new()))
-      },
-      true => return(String.new())
-    );
-    match(
-      _ic_owning_temp(&container, ctx),
-      .Some(owning) => if(owning, {
-        return(if(element, String.from("an element of a temporary"), String.from("a field of a temporary")));
-      }),
-      .None => return(String.new())
-    );
-    e = container;
-  });
-  String.new()
-});
+derive(ImplicitCopyRoot, Clone);
 /// Record what `binding`, a pattern binding of a `match` whose evaluated
 /// scrutinee is described by `scr_info`, borrows from.
 audit_note_match_binding :: (
@@ -3484,11 +2883,11 @@ audit_note_match_binding :: (
     return(());
   });
   root := match(
-    scr_info.variable_name,
+    &scr_info.variable_name,
     .Some(sn) => match(
       find_variable_in_env(&scr_info.env, &sn),
       .Some(sv) => match(
-        g_implicit_copy_match_roots.with(m => m.get(&sv.id)),
+        g_implicit_copy_match_roots.with(m => m.get_cloned(&sv.id)),
         .Some(inherited) => inherited,
         .None => cond(
           (canonical_module_path(&sv.token.module_path.*) != canonical_module_path(&binding.token.module_path.*)) => ImplicitCopyRoot(kind : String.from("macro"), root_id : sv.id),
@@ -3503,11 +2902,11 @@ audit_note_match_binding :: (
     ),
     .None => ImplicitCopyRoot(kind : String.from("place"), root_id : usize(0))
   );
-  g_implicit_copy_match_roots.with_mut(m => m.insert(binding.id, root));
+  g_implicit_copy_match_roots.with_mut(m => m.insert(binding.id, root.clone()));
 });
-/// The audit's recorder runs for the knob, and for `yo fix --migrate
-/// explicit-copy`, which turns its sites into `.clone()` insertions.
-audit_implicit_copy_enabled :: (fn() -> bool)(g_audit_implicit_copy || migrate_explicit_copy_on());
+/// The recorder runs for `yo fix --migrate rc-clone`, which turns its sites
+/// into `Rc.clone` / `.clone()` spellings.
+audit_implicit_copy_enabled :: (fn() -> bool)(g_migrate_rc_clone);
 /// Remove and return the pending sites of variable `id` (its frame's epilogue
 /// judges them), or none.
 audit_take_implicit_copy_pending :: (fn(id : usize) -> Option(ArrayList(ImplicitCopyPending)))(
@@ -3519,12 +2918,13 @@ audit_take_implicit_copy_pending :: (fn(id : usize) -> Option(ArrayList(Implicit
 audit_print_implicit_copy :: (fn(line : &String) -> unit)({
   // An empty line is a site held for the migration only, whose audit line
   // already printed (`audit_record_implicit_copy`'s `temp-payload`).
-  if((g_audit_implicit_copy || audit_copy_trait_enabled()) && !line.is_empty() && g_implicit_copy_printed.with_mut(s => s.insert(line.clone())), {
+  line_owned := line.clone();
+  if(audit_copy_trait_enabled() && !line.is_empty() && g_implicit_copy_printed.with_mut({ line_owned }(s) => s.insert(line_owned.clone())), {
     eprintln(line);
   });
 });
-/// Report one judged copy: print its line for the knob, and record its
-/// insertion for `yo fix --migrate explicit-copy`.
+/// Report one judged copy: print its line for `YO_AUDIT_COPY_TRAIT`, and
+/// record its spelling for `yo fix --migrate rc-clone`.
 audit_report_implicit_copy :: (fn(site : &ImplicitCopyPending) -> unit)({
   audit_print_implicit_copy(&site.line);
   match(&site.migrate_site, .Some(ms) => record_explicit_copy_site(ms.clone()), .None => ());
@@ -3541,82 +2941,17 @@ _ic_leftmost_token :: (fn(e : &AstExpr) -> Token)(
     )
   )
 );
-/// The categories unique buffers make explicit-copy (V2b, Generation B):
-/// `String`, the std collections (`_IC_COLLECTIONS`), and a value aggregate
-/// holding one.
-_ic_category_is_unique_buffer :: (fn(category : &String) -> bool)({
-  base := cond(
-    category.starts_with("via:") => category.substring(usize(4), category.len()),
-    true => category.clone()
-  );
-  (base == "String") || _implicit_copy_collection_name(&base).is_some()
-});
-/// Record, while the migration runs, that a `derive` gave `target` `Clone`
-/// (`process_trait_arg`, evaluator/builtins/derive.yo).
-record_clone_derive :: (fn(target : &TypeValue) -> unit)({
-  if(!g_migrate_explicit_copy, {
-    return(());
-  });
-  head := type_head_name_for_impl_forcing(target);
-  if(!head.is_empty(), {
-    _new_head := g_clone_derived_heads.with_mut(hs => hs.insert(head.clone()));
-  });
-});
-/// Does `ty`, or a type argument of it (to a depth of four), take its
-/// `Clone` from a `derive` (`record_clone_derive`)? A copy made above its
-/// type's `Clone` (`ExplicitCopySite.lacks_clone_at_copy`) is listed when
-/// it does: a `.clone()` method lookup that misses forces the pending
-/// `impl`s of the type (`force_pending_impls_for_type_name`), so a
-/// `.clone()` written above an `impl(T, Clone(…))` resolves; a `derive` is
-/// forced too, but not by a seed older than that fix
-/// (issues/fixed/2026-10-24-a-derive-below-its-first-method-use-is-not-forced.md).
-ic_clone_comes_from_derive :: (fn(ty : &TypeValue, (depth : u32) ?= u32(0)) -> bool)({
-  head := type_head_name_for_impl_forcing(ty);
-  if(!head.is_empty() && g_clone_derived_heads.with(hs => hs.contains(&head)), {
-    return(true);
-  });
-  if(depth >= u32(4), {
-    return(false);
-  });
-  targs := match(
-    ty,
-    Rc(.Struct({ type_arguments : sta })) => Rc.clone(sta),
-    Rc(.EnumT({ type_arguments : eta })) => Rc.clone(eta),
-    _ => no_types()
-  );
-  (i : usize) = usize(0);
-  while(i < targs.len(), i = (i + usize(1)), {
-    if(match(targs.get(i), .Some(ta) => recur(&ta, depth + u32(1)), .None => false), {
-      return(true);
-    });
-  });
-  false
-});
-/// The insertion `yo fix --migrate explicit-copy` makes for a copy, or none:
-/// only a copy unique buffers turn into E0901 (`_ic_category_is_unique_buffer`)
-/// at a point where `.clone()` on the copied expression is the copy (not a
-/// capture, whose copy is made by the closure, and not a binding a macro
-/// wrote). A copy of a type without `Clone` is kept as well: the listing
-/// asks `ExplicitCopySite.ty_value` for `Clone` once the run is evaluated
-/// (`ExplicitCopySite.lacks_clone_at_copy`).
-/// What a copy site carries for `yo fix --migrate explicit-copy`: the
-/// copied expression's FIRST token as written (`p` of `p.name`, whose own
-/// token is the `.`), where the rewrite finds it in the source, and the
-/// declaration keys of its source and destination variables (`_ic_decl_key`,
-/// empty when there is none).
-ICMigrateCtx :: struct(leftmost : Token, src_decl : String, dst_decl : String, src_borrow : String, in_generic : bool, src_dying : String, capture_label : String, capture_names : String);
+/// What a copy site carries for `yo fix --migrate rc-clone`: the copied
+/// expression's FIRST token as written (`p` of `p.name`, whose own token is
+/// the `.`), where the rewrite finds it in the source.
+ICMigrateCtx :: struct(leftmost : Token, in_generic : bool, capture_label : String, capture_names : String);
 /// Whether a copy of `ty` is made in a generic body, where the run may see
 /// one instantiation of many (`ExplicitCopySite.in_generic`): its type still
-/// mentions a type variable, or the specialization being evaluated is one.
-/// `--migrate explicit-copy` counts any specialization (B1's rule);
-/// `--migrate rc-clone` counts only a body that is generic
+/// mentions a type variable, or the body being specialized is generic
 /// (`SpecializingFunctionInfo.is_generic_body`), so a copy in a closure body
 /// specialized in plain code is spelled.
 _ic_in_generic :: (fn(ctx : &EvalContext, ty : &TypeValue) -> bool)(
-  type_contains_some_type_deep(ty) || cond(
-    g_migrate_rc_clone => match(ctx.currently_specializing_function, .Some(s) => s.is_generic_body, .None => false),
-    true => ctx.currently_specializing_function.is_some()
-  )
+  type_contains_some_type_deep(ty) || match(ctx.currently_specializing_function, .Some(s) => s.is_generic_body, .None => false)
 );
 /// How `yo fix --migrate rc-clone` spells the copy of a value of `ty`
 /// (`ExplicitCopySite.spelling`): `Rc`/`Arc` for a handle, `clone` for a
@@ -3641,21 +2976,20 @@ _rc_clone_spelling :: (fn(ty : &TypeValue) -> String)({
     true => String.from("clone")
   )
 });
+/// The spelling `yo fix --migrate rc-clone` records for a copy, or none: a
+/// copy of a value holding a counted handle, at a point where the spelling
+/// on the copied expression is the copy (not a binding a macro wrote), and
+/// not in a std generic body or a `comptime_expect_error` argument.
 _ic_migrate_site :: (
-  fn(m : &ICMigrateCtx, ty : &TypeValue, category : &String, copy_path : str, source_text : &String) -> Option(ExplicitCopySite)
+  fn(m : &ICMigrateCtx, ty : &TypeValue, copy_path : str, source_text : &String) -> Option(ExplicitCopySite)
 )(
   cond(
-    !migrate_explicit_copy_on() => Option(ExplicitCopySite).None,
-    (g_migrate_rc_clone && !type_holds_counted_handle_ignoring_migration(ty)) => Option(ExplicitCopySite).None,
-    // A std generic body's copies are not judged by the rule (B6 gives them
-    // their spelling), so the migration does not spell them either.
-    (g_migrate_rc_clone && counted_handle_std_generic_on()) => Option(ExplicitCopySite).None,
+    !g_migrate_rc_clone => Option(ExplicitCopySite).None,
+    !type_holds_counted_handle_ignoring_migration(ty) => Option(ExplicitCopySite).None,
     // A copy inside a `comptime_expect_error` argument is the error the
     // program expects.
-    (g_migrate_rc_clone && propagate_def_time_errors()) => Option(ExplicitCopySite).None,
-    (!g_migrate_rc_clone && !_ic_category_is_unique_buffer(category)) => Option(ExplicitCopySite).None,
+    propagate_def_time_errors() => Option(ExplicitCopySite).None,
     (copy_path == "binding(macro)") => Option(ExplicitCopySite).None,
-    ((copy_path == "capture") && !g_migrate_rc_clone) => Option(ExplicitCopySite).None,
     true => Option(ExplicitCopySite).Some(
       ExplicitCopySite(
         path : m.leftmost.module_path.*.clone(),
@@ -3664,17 +2998,9 @@ _ic_migrate_site :: (
         expect : source_text.clone(),
         ty : type_to_string(ty),
         copy_path : String.from(copy_path),
-        src_decl : m.src_decl.clone(),
-        dst_decl : m.dst_decl.clone(),
-        at_module : canonical_module_path(&m.leftmost.module_path.*),
-        at_offset : m.leftmost.byte_offset,
-        src_borrow : m.src_borrow.clone(),
         in_generic : m.in_generic,
-        src_dying : m.src_dying.clone(),
         capture_label : m.capture_label.clone(),
-        ty_value : ty.clone(),
-        lacks_clone_at_copy : type_lacks_clone(ty),
-        spelling : if(g_migrate_rc_clone, _rc_clone_spelling(ty), String.new()),
+        spelling : _rc_clone_spelling(ty),
         capture_names : m.capture_names.clone()
       )
     )
@@ -3693,11 +3019,15 @@ _ic_migrate_site :: (
 PendingScrutineeBorrow :: struct(scr : AstExpr, ty : TypeValue, clone_scrutinee : bool);
 (g_pending_scrutinee_borrows : RefCell(HashMap(usize, ArrayList(PendingScrutineeBorrow)))) = RefCell(HashMap(usize, ArrayList(PendingScrutineeBorrow))).new(HashMap(usize, ArrayList(PendingScrutineeBorrow)).new());
 record_pending_scrutinee_borrow :: (fn(var_id : usize, scr : &AstExpr, ty : &TypeValue, (clone_scrutinee : bool) ?= false) -> unit)({
-  g_pending_scrutinee_borrows.with_mut({ clone_scrutinee, scr, ty : Rc.clone(ty), var_id }(m) => {
-    xs := match(m.get(&var_id), .Some(l) => l, .None => ArrayList(PendingScrutineeBorrow).new());
-    xs.push(PendingScrutineeBorrow(scr : scr, ty : Rc.clone(ty), clone_scrutinee : clone_scrutinee));
-    m.insert(var_id, xs);
-  });
+  // Snapshot out, build outside, write back: the old body read AND wrote
+  // per-call state inside `with_mut`'s sink callback.
+  psb_key := var_id;
+  snapshot := g_pending_scrutinee_borrows.with_mut(({ psb_key }(m) => match(m.remove(&psb_key), .Some(l) => l, .None => ArrayList(PendingScrutineeBorrow).new())));
+  psb_scr := scr.clone();
+  psb_ty := Rc.clone(ty);
+  snapshot.push(PendingScrutineeBorrow(scr : psb_scr, ty : psb_ty, clone_scrutinee : clone_scrutinee));
+  psb_key2 := var_id;
+  g_pending_scrutinee_borrows.with_mut(({ psb_key2, snapshot }(m) => m.insert(psb_key2, snapshot)));
 });
 /// The scrutinee positions (`<canonical module>:<row>:<col>` of the leftmost
 /// token) of matches whose arms write through a binding: the rc-clone driver
@@ -3706,7 +3036,7 @@ record_pending_scrutinee_borrow :: (fn(var_id : usize, scr : &AstExpr, ty : &Typ
 note_migrate_mut_scrutinee :: (fn(scr : &AstExpr) -> unit)({
   lt := _ic_leftmost_token(&ast_expr_strip_borrow_marker(scr));
   key := `${canonical_module_path(&lt.module_path.*)}:${lt.row.to_string()}:${lt.column.to_string()}`;
-  g_migrate_mut_scrutinees.with_mut(s => s.insert(key));
+  g_migrate_mut_scrutinees.with_mut(s => s.insert(key.clone()));
 });
 /// Whether `key` (`<canonical module>:<row>:<col>`) is such a position.
 migrate_mut_scrutinee_at :: (fn(key : &String) -> bool)(g_migrate_mut_scrutinees.with(s => s.contains(key.clone())));
@@ -3718,6 +3048,7 @@ clear_migrate_mut_scrutinees :: (fn() -> unit)({
 take_pending_scrutinee_borrows :: (fn(var_id : usize) -> ArrayList(PendingScrutineeBorrow))(
   g_pending_scrutinee_borrows.with_mut(m => match(m.remove(&var_id), .Some(l) => l, .None => ArrayList(PendingScrutineeBorrow).new()))
 );
+derive(PendingScrutineeBorrow, Clone);
 /// With `clone_scrutinee` and a `Clone` type the scrutinee's clone is spelled
 /// instead (`Rc.clone(x)` / `Arc.clone(x)` / `x.clone()`, `_rc_clone_spelling`):
 /// for a module-level binding, because a `match(&G, …)` binding borrows a
@@ -3728,7 +3059,7 @@ take_pending_scrutinee_borrows :: (fn(var_id : usize) -> ArrayList(PendingScruti
 /// The driver spells a `borrow` as `&mut` when an arm wrote through one of
 /// its bindings (`note_migrate_mut_scrutinee`).
 migrate_rc_clone_borrow_scrutinee :: (fn(scr : &AstExpr, ty : &TypeValue, (clone_scrutinee : bool) ?= false) -> unit)({
-  if(!g_migrate_rc_clone || counted_handle_std_generic_on() || propagate_def_time_errors() || type_requires_explicit_copy(ty) || !type_holds_counted_handle_ignoring_migration(ty), {
+  if(!g_migrate_rc_clone || propagate_def_time_errors() || type_requires_explicit_copy(ty) || !type_holds_counted_handle_ignoring_migration(ty), {
     return(());
   });
   lt := _ic_leftmost_token(scr);
@@ -3740,16 +3071,8 @@ migrate_rc_clone_borrow_scrutinee :: (fn(scr : &AstExpr, ty : &TypeValue, (clone
       expect : ast_expr_to_string(scr),
       ty : type_to_string(ty),
       copy_path : String.from("match-scrutinee"),
-      src_decl : String.new(),
-      dst_decl : String.new(),
-      at_module : canonical_module_path(&lt.module_path.*),
-      at_offset : lt.byte_offset,
-      src_borrow : String.new(),
       in_generic : false,
-      src_dying : String.new(),
       capture_label : String.new(),
-      ty_value : ty.clone(),
-      lacks_clone_at_copy : type_lacks_clone(ty),
       spelling : if(clone_scrutinee && !type_lacks_clone(ty), _rc_clone_spelling(ty), String.from("borrow")),
       capture_names : String.new()
     )
@@ -3767,7 +3090,7 @@ _implicit_copy_collection_name :: (fn(name : &String) -> Option(String))({
   (i : usize) = usize(0);
   while(i < bases.len(), {
     match(
-      bases.get(i),
+      bases.get_cloned(i),
       .Some(base) => if((name == base) || name.starts_with(`${base}(`), {
         return(Option(String).Some(base));
       }),
@@ -3777,18 +3100,12 @@ _implicit_copy_collection_name :: (fn(name : &String) -> Option(String))({
   });
   Option(String).None
 });
-/// Whether `ty`, a printed type, is a std collection
-/// (`_implicit_copy_collection_name`): `yo fix --migrate explicit-copy`
-/// rewrites a `for` value form over one to the read walk.
-explicit_copy_type_is_collection :: (fn(ty : &String) -> bool)(
-  _implicit_copy_collection_name(ty).is_some()
-);
 /// The category of the first RC-bearing member, for an aggregate.
 _implicit_copy_first_member :: (fn(members : &ArrayList(TypeValue), depth : u32) -> Option(String))({
   (mi : usize) = usize(0);
   while(mi < members.len(), {
     match(
-      members.get(mi),
+      members.get_cloned(mi),
       .Some(m) => if(type_contains_rc_type(&m), {
         return(Option(String).Some(_implicit_copy_category_at(&m, depth + u32(1))));
       }),
@@ -3803,7 +3120,7 @@ _implicit_copy_plain_members :: (fn(members : &ArrayList(TypeValue)) -> bool)({
   (pi : usize) = usize(0);
   while(pi < members.len(), {
     match(
-      members.get(pi),
+      members.get_cloned(pi),
       .Some(m) => if(type_contains_rc_type(&m), {
         return(false);
       }),
@@ -3898,12 +3215,13 @@ _implicit_copy_category_at :: (fn(ty : &TypeValue, depth : u32) -> String)({
     Rc(.Func({ result : _ })) => String.from("closure"),
     // An open type parameter in a definition-time trial: each instantiation
     // reports its concrete type, so this is the generic body itself.
-    Rc(.SomeT({ required_trait_types : st_traits })) => {
+    Rc(.SomeT({ bounds : st_traits_bnd })) => {
+      st_traits := st_traits_bnd.required();
       (sti : usize) = usize(0);
       (is_future : bool) = false;
       while(sti < st_traits.len(), {
         match(
-          st_traits.get(sti),
+          st_traits.get_cloned(sti),
           .Some(st) => if(is_future_trait_type(&st), {
             is_future = true;
           }),
@@ -3931,8 +3249,8 @@ audit_record_implicit_copy :: (
     /// False for a closure's own captures: `ctx.captured_variables` is then
     /// the closure being built, not the function the site sits in.
     in_closure_body_check : bool,
-    /// The site as `yo fix --migrate explicit-copy` needs it; `.None` (a
-    /// capture) records no insertion.
+    /// The site as `yo fix --migrate rc-clone` needs it; `.None` records no
+    /// spelling.
     (migrate_ctx : Option(ICMigrateCtx)) ?= .None
   ) -> unit
 )({
@@ -3944,14 +3262,14 @@ audit_record_implicit_copy :: (
   (kind : String) = String.from("unknown");
   (pending_id : Option(usize)) = Option(usize).None;
   // A `match` binding of an owned temporary: the copy is real today, so the
-  // audit line prints at once, but `yo fix --migrate explicit-copy` holds the
-  // insertion until the arm ends (`audit_judge_arm_copies`): a copy read
+  // audit line prints at once, but `yo fix --migrate rc-clone` holds the
+  // spelling until the arm ends (`audit_judge_arm_copies`): a copy read
   // again is genuine, the last use a move.
   (temp_binding_id : Option(usize)) = Option(usize).None;
   match(
     find_variable_in_env(env, source_name.clone()),
     .Some(v) => {
-      captured := (in_closure_body_check && match(ctx.captured_variables, .Some(cv) => cv.contains_key(v.name.clone()), .None => false));
+      captured := (in_closure_body_check && match(&ctx.captured_variables, .Some(cv) => cv.contains_key(v.name.clone()), .None => false));
       cond(
         is_any_temp_variable_name(v.name.clone()) => {
           kind = String.from("projection");
@@ -3976,8 +3294,8 @@ audit_record_implicit_copy :: (
             pending_id = Option(usize).Some(v.id);
           });
         },
-        (!v.is_owning_the_rc_value && g_implicit_copy_match_roots.with(m => m.get(&v.id)).is_some()) => match(
-          g_implicit_copy_match_roots.with(m => m.get(&v.id)),
+        (!v.is_owning_the_rc_value && g_implicit_copy_match_roots.with(m => m.get_cloned(&v.id)).is_some()) => match(
+          g_implicit_copy_match_roots.with(m => m.get_cloned(&v.id)),
           .Some(r) => cond(
             (r.kind == "temp") => {
               kind = String.from("temp-payload");
@@ -4001,7 +3319,7 @@ audit_record_implicit_copy :: (
                   found := false;
                   while((mbi < lbi.places.len()) && !found, mbi = (mbi + usize(1)), {
                     match(
-                      lbi.places.get(mbi),
+                      lbi.places.get_cloned(mbi),
                       .Some(pl) => if(pl.module_root, {
                         found = true;
                       }),
@@ -4039,7 +3357,7 @@ audit_record_implicit_copy :: (
   line := `${display_module_path(&site_tok.module_path.*)}:${(site_tok.row + u32(1)).to_string()}:${(site_tok.column + u32(1)).to_string()} [implicit-copy] ${category} ${type_to_string(ty).replace(" ", String.from(""))} ${copy_path} source=${kind} \`${text.replace("\n", String.from(" "))}\``;
   migrate_site := match(
     migrate_ctx,
-    .Some(mc) => _ic_migrate_site(&mc, ty, &category, copy_path, source_text),
+    .Some(mc) => _ic_migrate_site(&mc, ty, copy_path, source_text),
     .None => Option(ExplicitCopySite).None
   );
   match(
@@ -4062,24 +3380,22 @@ audit_record_implicit_copy :: (
 /// Hold one copy site pending under variable `vid`, judged where that
 /// variable's frame ends.
 _audit_hold_implicit_copy :: (fn(vid : usize, entry : ImplicitCopyPending) -> unit)(
-  match(
-    g_implicit_copy_pending.with(m => m.get(&vid)),
-    .Some(lst) => lst.push(entry),
-    .None => {
-      fresh := ArrayList(ImplicitCopyPending).new();
-      fresh.push(entry);
-      g_implicit_copy_pending.with_mut(m => m.insert(vid, fresh));
-    }
-  )
+  // The list is a value (B8): take it out, push, and put it back inside one
+  // `with_mut` — a pushed copy would never reach the registry.
+  g_implicit_copy_pending.with_mut({ vid, entry }(m) => {
+    mut(lst) := match(m.remove(&vid), .Some(l) => l, .None => ArrayList(ImplicitCopyPending).new());
+    lst.push(entry);
+    m.insert(vid, lst);
+  })
 );
 // ---------------------------------------------------------------------------
 // YO_AUDIT_COPY_TRAIT (plans/VALUES_BY_DEFAULT.md decision 36)
 // ---------------------------------------------------------------------------
-// The knob itself is defined beside YO_AUDIT_IMPLICIT_COPY's: the shared
-// printer above reads it, and a runtime binding must precede its readers.
+// The knob itself is defined with the copy recorder's documentation above:
+// the shared printer reads it, and a runtime binding must precede its readers.
 /// Either copy audit: the pending-site tables and the frame-end judge serve
 /// both.
-audit_pending_copies_enabled :: (fn() -> bool)(g_audit_implicit_copy || g_audit_copy_trait || migrate_explicit_copy_on());
+audit_pending_copies_enabled :: (fn() -> bool)(g_audit_copy_trait || g_migrate_rc_clone);
 /// Record one implicit copy of a plain-data value for `YO_AUDIT_COPY_TRAIT`.
 /// `source` is the copied expression as written: a variable (judged by its
 /// kind), a field read (`a.b`, a copy at once) or anything else (a
@@ -4115,8 +3431,8 @@ audit_record_copy_trait :: (
     match(
       find_variable_in_env(env, ast_expr_token(source).value.*.clone()),
       .Some(v) => {
-        captured := (in_closure_body_check && match(ctx.captured_variables, .Some(cv) => cv.contains_key(v.name.clone()), .None => false));
-        root := g_implicit_copy_match_roots.with(m => m.get(&v.id));
+        captured := (in_closure_body_check && match(&ctx.captured_variables, .Some(cv) => cv.contains_key(v.name.clone()), .None => false));
+        root := g_implicit_copy_match_roots.with(m => m.get_cloned(&v.id));
         cond(
           (is_any_temp_variable_name(v.name.clone()) || v.is_compile_time_only) => {
             return(());
@@ -4154,7 +3470,7 @@ audit_record_copy_trait :: (
                     found := false;
                     while((mpi < lbi.places.len()) && !found, mpi = (mpi + usize(1)), {
                       match(
-                        lbi.places.get(mpi),
+                        lbi.places.get_cloned(mpi),
                         .Some(pl) => if(pl.module_root, {
                           found = true;
                         }),
@@ -4189,21 +3505,13 @@ audit_record_copy_trait :: (
     (text.len() > usize(60)) => `${text.substring(usize(0), usize(57))}...`,
     true => text
   );
-  first := match(needs.get(usize(0)), .Some(n) => n, .None => String.new());
+  first := match(needs.get_cloned(usize(0)), .Some(n) => n, .None => String.new());
   line := `${display_module_path(&site_tok.module_path.*)}:${(site_tok.row + u32(1)).to_string()}:${(site_tok.column + u32(1)).to_string()} [copy-trait] ${first} ${type_to_string(ty).replace(" ", String.from(""))} ${copy_path} source=${kind} needs=${String.from(",").join(&needs)} \`${shown_text.replace("\n", String.from(" "))}\``;
   match(
     pending_id,
     .Some(vid) => {
       entry := ImplicitCopyPending(line : line, module_path : site_tok.module_path.*.clone(), byte_offset : site_tok.byte_offset, migrate_site : .None);
-      match(
-        g_implicit_copy_pending.with(m => m.get(&vid)),
-        .Some(lst) => lst.push(entry),
-        .None => {
-          fresh := ArrayList(ImplicitCopyPending).new();
-          fresh.push(entry);
-          g_implicit_copy_pending.with_mut(m => m.insert(vid, fresh));
-        }
-      );
+      _audit_hold_implicit_copy(vid, entry);
     },
     .None => audit_print_implicit_copy(&line)
   );
@@ -4241,6 +3549,7 @@ get_dup_use_site_token :: (fn(id : usize) -> Option(Token))(g_dup_use_site_token
 /// exprs/begin.yo): the copy moves the local, so a read of it after `site`
 /// is the use of a moved value.
 DynCopyPending :: struct(site : ImplicitCopyPending, name : String, ty : TypeValue, site_tok : Token, seq : u64);
+derive(DynCopyPending, Clone);
 /// The sequence number the next pending `Dyn` copy gets (`dyn_copy_mark`).
 (mut(g_dyn_copy_seq) : u64) = u64(0);
 /// Variable id → the pending `Dyn` copies of it.
@@ -4291,6 +3600,7 @@ check_dyn_copy :: (fn(rhs : &AstExpr, ei : &ExprInfo, variable_name : &String, c
     )
   )
 );
+derive(DynCopyPending, Clone);
 /// `check_dyn_copy` for the implicit capture of variable `v` by an escaping
 /// closure at `tok` (a closure that only borrows its captures copies
 /// nothing). A capture moves the variable in Generation B, so one that cannot
@@ -4320,9 +3630,13 @@ note_dyn_copy_pending :: (fn(v : &Variable, tok : &Token, ty : &TypeValue) -> un
     site_tok : tok.clone(),
     seq : _next_dyn_copy_seq()
   );
-  lst := match(g_dyn_copy_pending.with_mut(m => m.remove(&v.id)), .Some(l) => l, .None => ArrayList(DynCopyPending).new());
+  // Owned key; the list moves back in (`with_mut`'s callback is a sink
+  // parameter).
+  dcp_key := v.id.clone();
+  lst := match(g_dyn_copy_pending.with_mut(({ dcp_key }(m) => m.remove(&dcp_key))), .Some(l) => l, .None => ArrayList(DynCopyPending).new());
   lst.push(entry);
-  g_dyn_copy_pending.with_mut(m => m.insert(v.id, lst));
+  dcp_key2 := v.id.clone();
+  g_dyn_copy_pending.with_mut(({ dcp_key2, lst }(m) => m.insert(dcp_key2, lst)));
 });
 _next_dyn_copy_seq :: (fn() -> u64)({
   n := g_dyn_copy_seq;
@@ -4338,21 +3652,7 @@ dyn_copy_rollback :: (fn(mark : u64) -> unit)({
   if(g_dyn_copy_pending.with(m => m.len()) == usize(0), {
     return(());
   });
-  ids := g_dyn_copy_pending.with(m => {
-    out := ArrayList(usize).new();
-    it := m.keys();
-    (more : bool) = true;
-    while(more, {
-      match(
-        it.next(),
-        .Some(k) => out.push(k),
-        .None => {
-          more = false;
-        }
-      );
-    });
-    out
-  });
+  ids := g_dyn_copy_pending.with(m => m.keys_cloned());
   (i : usize) = usize(0);
   while(i < ids.len(), i = (i + usize(1)), {
     id := match(ids.get(i), .Some(x) => x, .None => usize(0));
@@ -4363,7 +3663,7 @@ dyn_copy_rollback :: (fn(mark : u64) -> unit)({
         (j : usize) = usize(0);
         while(j < lst.len(), j = (j + usize(1)), {
           match(
-            lst.get(j),
+            lst.get_cloned(j),
             .Some(e) => if(e.seq < mark, {
               kept.push(e);
             }),
@@ -4371,7 +3671,10 @@ dyn_copy_rollback :: (fn(mark : u64) -> unit)({
           );
         });
         if(kept.len() > usize(0), {
-          g_dyn_copy_pending.with_mut(m => m.insert(id, kept));
+          // Owned key/value (`with_mut`'s callback is a sink parameter).
+          dcp_k := id.clone();
+          dcp_v := kept.clone();
+          g_dyn_copy_pending.with_mut(({ dcp_k, dcp_v }(m) => m.insert(dcp_k, dcp_v)));
         });
       },
       .None => ()
@@ -4406,23 +3709,15 @@ set_expr_as_needs_to_call_dup :: (
     rhs : &AstExpr,
     ctx : &EvalContext,
     exn : Exception,
-    /// The store kind, for YO_AUDIT_IMPLICIT_COPY only: `binding`, `assign`,
+    /// The store kind, for the implicit-copy recorder only: `binding`, `assign`,
     /// `field-store`, `element`, `param`, `return` or `dyn`.
     (copy_path : str) ?= "dup",
-    /// The declaration key (`_ic_decl_key`) of the variable the copy is
-    /// stored in, for a binding or an assignment: `yo fix --migrate
-    /// explicit-copy` leaves a copy alone when that variable is written
-    /// afterwards.
-    (copy_dest_decl : Option(String)) ?= .None,
     /// The label of a closure capture list's shorthand entry `x`, whose
-    /// source this copy is: `yo fix --migrate explicit-copy` spells the
-    /// entry `x : x.clone()` (`ExplicitCopySite.capture_label`).
+    /// source this copy is: `yo fix --migrate rc-clone` spells the entry
+    /// `x : Rc.clone(x)` (`ExplicitCopySite.capture_label`).
     (copy_capture_label : Option(String)) ?= .None
   ) -> unit
 )({
-  // The result positions of a block or conditional `rhs` flow into the
-  // same destination, and their copies are judged against it.
-  match(copy_dest_decl, .Some(tail_dest) => record_copy_tail_dests(rhs, &tail_dest, ctx), .None => ());
   // YO_AUDIT_COPY_TRAIT: a plain-data copy, before any early return (a
   // plain value often has no temp name, and a known value is inlined).
   if(g_audit_copy_trait, {
@@ -4532,7 +3827,7 @@ set_expr_as_needs_to_call_dup :: (
       if(dyn_copy_rule_applies(&ei.ty), {
         check_dyn_copy(rhs, &ei, &variable_name, ctx, exn);
       });
-      if(g_audit_implicit_copy || migrate_explicit_copy_on(), {
+      if(g_migrate_rc_clone, {
         audit_record_implicit_copy(
           ast_expr_token(rhs),
           &ei.ty,
@@ -4542,7 +3837,7 @@ set_expr_as_needs_to_call_dup :: (
           ast_expr_to_string(rhs),
           ctx,
           true,
-          migrate_ctx : .Some(ICMigrateCtx(leftmost : _ic_leftmost_token(rhs), src_decl : _ic_place_root_decl(rhs, &ei.env), dst_decl : match(copy_dest_decl, .Some(dd) => dd, .None => String.new()), src_borrow : _ic_place_root_borrow(rhs, &ei.env, ctx), in_generic : _ic_in_generic(ctx, &ei.ty), src_dying : _ic_dying_temp_source(rhs, ctx), capture_label : match(copy_capture_label, .Some(cl) => cl, .None => String.new()), capture_names : String.new()))
+          migrate_ctx : .Some(ICMigrateCtx(leftmost : _ic_leftmost_token(rhs), in_generic : _ic_in_generic(ctx, &ei.ty), capture_label : match(&copy_capture_label, .Some(cl) => cl.clone(), .None => String.new()), capture_names : String.new()))
         );
       });
       dup_expr := generate_expr_from_code(`${BF_DUP}(${variable_name})`, exn);
@@ -4855,7 +4150,7 @@ borrowed_place_read_only_handle :: (fn(ev : &AstExpr, ctx : &EvalContext) -> Opt
   while(ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))), {
     // A step an evaluator rewrite replaced reads as rewritten.
     cur = ast_rewritten_node(&cur);
-    d_args := match(cur, .FnCall(_, _, Rc(__bh_a), _, _) => __bh_a, .Atom(_, _) => ArrayList(AstExpr).new());
+    d_args := match(cur, .FnCall(_, _, __bh_a, _, _) => Rc.clone(__bh_a).*.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
     base := match(d_args.get(usize(0)), .Some(b) => b, .None => return(Option(AstExpr).None));
     fld := match(d_args.get(usize(1)), .Some(f) => f, .None => return(Option(AstExpr).None));
     if(!ast_expr_is_atom(&fld), {
@@ -5342,7 +4637,7 @@ _keep_body_end_move :: (fn(v : &Variable, ct : &Token, loc : &Token, after : boo
 _snapshot_state_of :: (fn(snap : &LoopFlowSnapshot, id : usize, pre : &Option(Token)) -> Option(Token))({
   (si : usize) = usize(0);
   while(si < snap.var_ids.len(), {
-    if(match(snap.var_ids.get(si), .Some(x) => (x == id), .None => false), {
+    if(match(snap.var_ids.get_cloned(si), .Some(x) => (x == id), .None => false), {
       return(match(snap.consumed.get(si), .Some(c) => c, .None => pre));
     });
     si = (si + usize(1));
@@ -5384,7 +4679,7 @@ check_loop_flow :: (
           (ci : usize) = usize(0);
           while(ci < lc.continue_states.len(), {
             match(
-              lc.continue_states.get(ci),
+              lc.continue_states.get_cloned(ci),
               .Some(cs) => match(_snapshot_state_of(&cs, v.id, &pre), .Some(t) => back_moved.push(t), .None => back_live.push(cs.site)),
               .None => ()
             );
@@ -5418,7 +4713,7 @@ check_loop_flow :: (
           (bi : usize) = usize(0);
           while(bi < lc.break_states.len(), {
             match(
-              lc.break_states.get(bi),
+              lc.break_states.get_cloned(bi),
               .Some(bs) => match(_snapshot_state_of(&bs, v.id, &pre), .Some(t) => exit_moved.push(t), .None => exit_live.push(bs.site)),
               .None => ()
             );
@@ -5542,7 +4837,10 @@ _drop_in_arms_that_keep :: (
   });
   if(match(
     &v.ty,
-    Rc(.SomeT({ required_trait_types : s_rtt, resolution : s_rc })) => (s_rc.is_none() && (s_rtt.len() == usize(0))),
+    Rc(.SomeT({ bounds : s_rtt_bnd, resolution : s_rc })) => {
+      s_rtt := s_rtt_bnd.required();
+      (s_rc.is_none() && (s_rtt.len() == usize(0)))
+    },
     _ => false
   ), {
     return(false);
@@ -5594,7 +4892,7 @@ _drop_in_arms_that_keep :: (
             drop_expr := generate_expr_from_code(`${BF_DROP}(${v.name})`, exn);
             evaluated := evaluate_expression_raw(&drop_expr, env, ctx, exn);
             v.consumed_at_token = Option(Token).None;
-            drops := match(bi.deferred_drop_expressions, .Some(l) => l, .None => ArrayList(AstExpr).new());
+            drops := match(&bi.deferred_drop_expressions, .Some(l) => l.clone(), .None => ArrayList(AstExpr).new());
             drops.push(evaluated);
             bi.deferred_drop_expressions = Option(ArrayList(AstExpr)).Some(drops);
             // A `return` inside this arm already emits the arm's deferred
@@ -5651,7 +4949,7 @@ reject_mixed_closure_arms :: (
           _arm_closure_capture_struct(&info),
           .Some(Rc(.Struct({ id : cid }))) => if(cid.len() > usize(0), {
             if(first_id.len() == usize(0), {
-              first_id = cid;
+              first_id = cid.clone();
             }, if(cid != first_id, {
               exn.throw(
                 dyn(
@@ -5971,12 +5269,12 @@ merge_and_check_envs :: (
               cb_i = (cb_i + usize(1));
             });
             if(cb_tys.len() > usize(1), {
-              cb_first_ty := match(cb_tys.get(usize(0)), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
-              cb_first_cap := match(cb_caps.get(usize(0)), .Some(c) => c, .None => Option(TypeValue).None);
+              cb_first_ty := match(cb_tys.get_cloned(usize(0)), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
+              cb_first_cap := match(cb_caps.get_cloned(usize(0)), .Some(c) => c, .None => Option(TypeValue).None);
               (cb_k : usize) = usize(1);
               while(cb_k < cb_tys.len(), {
-                cb_cur_ty := match(cb_tys.get(cb_k), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
-                cb_cur_cap := match(cb_caps.get(cb_k), .Some(c) => c, .None => Option(TypeValue).None);
+                cb_cur_ty := match(cb_tys.get_cloned(cb_k), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
+                cb_cur_cap := match(cb_caps.get_cloned(cb_k), .Some(c) => c, .None => Option(TypeValue).None);
                 cb_tok := match(
                   bodies.get(match(cb_body_idx.get(usize(0)), .Some(x) => x, .None => usize(0))),
                   .Some(cb_b0) => ast_expr_token(&cb_b0),
@@ -6676,6 +5974,7 @@ LocalBorrowPlace :: struct(
   /// The place as written, for messages (the steps may be cut short).
   text : String
 );
+derive(LocalBorrowPlace, Clone);
 /// One local borrow in scope: `y := &place` or `y := &mut place`.
 LocalBorrowInfo :: ref(
   struct(
@@ -6725,11 +6024,12 @@ LocalBorrowElidedOrigin :: struct(
   labels : ArrayList(String),
   roots : ArrayList(String)
 );
+impl(LocalBorrowInfo, Clone(clone : (fn(self : &Self) -> Self)(self)));
 /// The innermost macro call whose expansion declares a borrow named at
 /// `decl`, when `decl` is template code of that macro (another module).
 _lb_macro_site_of :: (fn(decl : &Token) -> Option(LocalBorrowMacroSite))(
   match(
-    g_lb_macro_sites.with(xs => xs.last()),
+    g_lb_macro_sites.with(xs => xs.last_cloned()),
     .Some(site) => cond(
       (site.site.module_path != decl.module_path) => Option(LocalBorrowMacroSite).Some(site),
       true => Option(LocalBorrowMacroSite).None
@@ -6748,6 +6048,7 @@ LocalBorrowMatchPlace :: struct(name : String, decl : Token, last_use : Token, e
 /// token `end`, and the ids of the `.await(…)` calls written in that
 /// expansion (`local_borrow_enter_macro_site`).
 LocalBorrowMacroSite :: struct(site : Token, end : Token, await_ids : ArrayList(usize));
+derive(LocalBorrowMacroSite, Clone);
 /// How an access touches a place.
 LocalBorrowAccess :: enum(Read, Write, Move, Exclusive);
 /// Any local borrow in scope: the fast gate every access hook checks first.
@@ -6763,6 +6064,9 @@ local_borrows_mark :: (fn() -> LocalBorrowMark)(
     macro_sites : g_lb_macro_sites.with(xs => xs.len())
   )
 );
+derive(LocalBorrowMatchPlace, Clone);
+derive(LocalBorrowPatternBinding, Clone);
+derive(LocalBorrowMacroSite, Clone);
 local_borrows_truncate :: (fn(mark : LocalBorrowMark) -> unit)({
   while(g_local_borrows.with(xs => xs.len()) > mark.borrows, {
     g_local_borrows.with_mut(xs => xs.pop());
@@ -6959,7 +6263,7 @@ local_borrow_set_lookahead :: (fn(stmts : &ArrayList(AstExpr), i : usize, stmt :
   if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
     eprintln(`[n2b] arm lookahead for stmt id=${ast_expr_id(stmt)}`);
   });
-  g_lb_lookahead_stmts = stmts.clone();
+  g_lb_lookahead_stmts.replace(stmts.clone());
   g_lb_lookahead_index = i;
   g_lb_lookahead_id = ast_expr_id(stmt);
   g_lb_lookahead_armed = true;
@@ -6973,7 +6277,7 @@ _lb_is_cell_type :: (fn(t : &TypeValue) -> bool)(
 _lb_contains :: (fn(xs : &ArrayList(String), x : &String) -> bool)({
   (i : usize) = usize(0);
   while(i < xs.len(), {
-    if(match(xs.get(i), .Some(y) => (y == x), .None => false), {
+    if(match(xs.get_cloned(i), .Some(y) => (y == x), .None => false), {
       return(true);
     });
     i = (i + usize(1));
@@ -7045,7 +6349,7 @@ local_borrow_place_of :: (fn(e0 : &AstExpr, env : &Environment, ctx : &EvalConte
   (stop : bool) = false;
   while((k > usize(0)) && !stop, {
     k = (k - usize(1));
-    step := match(steps.get(k), .Some(s) => s, .None => String.from("?"));
+    step := match(steps.get_cloned(k), .Some(s) => s, .None => String.from("?"));
     recv_ty := match(
       recvs.get(k),
       .Some(r) => match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&r)), .Some(ri) => Rc.clone(ri.ty), .None => Rc.clone(root.ty)),
@@ -7195,7 +6499,7 @@ cell_rooted_place_of :: (fn(e0 : &AstExpr, env : &Environment, ctx : &EvalContex
   (stop : bool) = false;
   while((k > usize(0)) && !stop, {
     k = (k - usize(1));
-    step := match(steps.get(k), .Some(s) => s, .None => String.from("?"));
+    step := match(steps.get_cloned(k), .Some(s) => s, .None => String.from("?"));
     recv_ty := match(
       recvs.get(k),
       .Some(r) => match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&r)), .Some(ri) => Rc.clone(ri.ty), .None => Rc.clone(root.ty)),
@@ -7239,7 +6543,7 @@ cell_rooted_place_of :: (fn(e0 : &AstExpr, env : &Environment, ctx : &EvalContex
   (ci : usize) = usize(0);
   while(ci < cell.len(), {
     cell_text.push_str(".");
-    cell_text.push_string(match(cell.get(ci), .Some(s) => s, .None => String.new()));
+    cell_text.push_string(match(cell.get_cloned(ci), .Some(s) => s, .None => String.new()));
     ci = (ci + usize(1));
   });
   Option(CellRootedPlace).Some(
@@ -7264,7 +6568,7 @@ cell_rooted_same_cell :: (fn(p : &CellRootedPlace, q : &CellRootedPlace) -> bool
   });
   (i : usize) = usize(0);
   while(i < p.cell_steps.len(), {
-    if(match(p.cell_steps.get(i), .Some(x) => x, .None => String.new()) != match(q.cell_steps.get(i), .Some(y) => y, .None => String.new()), {
+    if(match(p.cell_steps.get_cloned(i), .Some(x) => x, .None => String.new()) != match(q.cell_steps.get_cloned(i), .Some(y) => y, .None => String.new()), {
       return(false);
     });
     i = (i + usize(1));
@@ -7278,7 +6582,7 @@ cell_rooted_places_overlap :: (fn(p : &CellRootedPlace, q : &CellRootedPlace) ->
   n := cond((p.below.len() < q.below.len()) => p.below.len(), true => q.below.len());
   (i : usize) = usize(0);
   while(i < n, {
-    if(match(p.below.get(i), .Some(x) => x, .None => String.new()) != match(q.below.get(i), .Some(y) => y, .None => String.new()), {
+    if(match(p.below.get_cloned(i), .Some(x) => x, .None => String.new()) != match(q.below.get_cloned(i), .Some(y) => y, .None => String.new()), {
       return(false);
     });
     i = (i + usize(1));
@@ -7296,8 +6600,8 @@ local_borrow_places_overlap :: (fn(p : &LocalBorrowPlace, q : &LocalBorrowPlace)
   n := cond((p.steps.len() < q.steps.len()) => p.steps.len(), true => q.steps.len());
   (i : usize) = usize(0);
   while(i < n, {
-    a := match(p.steps.get(i), .Some(x) => x, .None => String.new());
-    b := match(q.steps.get(i), .Some(x) => x, .None => String.new());
+    a := match(p.steps.get_cloned(i), .Some(x) => x, .None => String.new());
+    b := match(q.steps.get_cloned(i), .Some(x) => x, .None => String.new());
     if(a != b, {
       return(false);
     });
@@ -7386,7 +6690,7 @@ local_borrow_pattern_source :: (fn(name : &String, decl : &Token) -> Option(Loca
   while(i > usize(0), {
     i = (i - usize(1));
     match(
-      g_local_borrow_patterns.with(xs => xs.get(i)),
+      g_local_borrow_patterns.with(xs => xs.get_cloned(i)),
       .Some(pb) => if(_lb_same_decl(pb.name.clone(), &pb.decl, name.clone(), decl), {
         return(Option(LocalBorrowInfo).Some(pb.borrow));
       }),
@@ -7411,7 +6715,11 @@ local_borrow_scrutinee_source :: (fn(scrutinee : &AstExpr, env : &Environment, c
 /// Record that the `match` binding `name` (declared at `decl`) is reached
 /// from the local borrow `borrow`.
 local_borrow_note_pattern_binding :: (fn(name : &String, decl : &Token, borrow : &LocalBorrowInfo) -> unit)({
-  g_local_borrow_patterns.with_mut(xs => xs.push(LocalBorrowPatternBinding(name : name.clone(), decl : decl, borrow : borrow)));
+  name_owned := name.clone();
+  // Owned captures (`with_mut`'s callback is a sink parameter).
+  lbp_decl := decl.clone();
+  lbp_borrow := borrow.clone();
+  g_local_borrow_patterns.with_mut({ name_owned, lbp_decl, lbp_borrow }(xs) => xs.push(LocalBorrowPatternBinding(name : name_owned.clone(), decl : lbp_decl, borrow : lbp_borrow)));
 });
 /// E0911: the access `kind` of `place` at `tok` conflicts with the live
 /// borrow `info`, which freezes `frozen`.
@@ -7462,17 +6770,17 @@ _lb_raise_conflict :: (
     }
   );
   match(
-    info.elided_origin,
+    &info.elided_origin,
     .Some(eo) => {
       (ek : usize) = usize(0);
       while(ek < eo.roots.len(), {
-        if(match(eo.roots.get(ek), .Some(rn) => (rn == frozen.root_name), .None => false), {
-          frozen_label := match(eo.labels.get(ek), .Some(l) => l, .None => String.new());
+        if(match(eo.roots.get_cloned(ek), .Some(rn) => (rn == frozen.root_name), .None => false), {
+          frozen_label := match(eo.labels.get_cloned(ek), .Some(l) => l, .None => String.new());
           keep := String.new();
           (kk : usize) = usize(0);
           while(kk < eo.labels.len(), {
             match(
-              eo.labels.get(kk),
+              eo.labels.get_cloned(kk),
               .Some(l) => if(!(l == frozen_label) && !_lb_label_listed(&eo.labels, kk), {
                 if(keep.len() > usize(0), {
                   keep.push_str(", ");
@@ -7508,7 +6816,7 @@ _lb_raise_conflict :: (
 _lb_label_listed :: (fn(labels : &ArrayList(String), k : usize) -> bool)({
   (j : usize) = usize(0);
   while(j < k, {
-    if(match(labels.get(j), .Some(a) => match(labels.get(k), .Some(b) => (a == b), .None => false), .None => false), {
+    if(match(labels.get_cloned(j), .Some(a) => match(labels.get_cloned(k), .Some(b) => (a == b), .None => false), .None => false), {
       return(true);
     });
     j = (j + usize(1));
@@ -7529,7 +6837,7 @@ local_borrow_access :: (fn(place : &LocalBorrowPlace, kind : &LocalBorrowAccess,
         (pi : usize) = usize(0);
         while(pi < info.places.len(), {
           match(
-            info.places.get(pi),
+            info.places.get_cloned(pi),
             .Some(fp) => if(local_borrow_places_overlap(&fp, place), {
               _lb_raise_conflict(&info, &fp, place, kind, tok, ctx, exn);
             }),
@@ -7654,7 +6962,7 @@ local_borrow_result_borrow_of :: (fn(e : &AstExpr, env : &Environment, ctx : &Ev
 /// boundary.
 local_borrow_reject_result_borrow :: (fn(info : &LocalBorrowInfo, tok : &Token, ctx : &EvalContext, exn : Exception) -> unit)({
   ftext := match(
-    info.places.get(usize(0)),
+    info.places.get_cloned(usize(0)),
     .Some(p0) => _lb_place_text(&p0),
     .None => info.name.clone()
   );
@@ -7688,7 +6996,7 @@ local_borrow_note_call :: (fn(tok : &Token, callee_text : &String, ctx : &EvalCo
     match(
       g_local_borrows.with(xs => xs.get(i)),
       .Some(info) => if(info.module_root && _lb_live_at(&info, tok), {
-        root_text := match(info.places.get(usize(0)), .Some(p0) => _lb_place_text(&p0), .None => info.name.clone());
+        root_text := match(info.places.get_cloned(usize(0)), .Some(p0) => _lb_place_text(&p0), .None => info.name.clone());
         // A call a desugared `for` makes (macro plan B1) is the loop's.
         shown := match(for_desugar_site_of(tok), .Some(fc) => ast_expr_token(&fc).value.*.clone(), .None => callee_text.clone());
         entries := ArrayList(TokenAndError).new();
@@ -7730,7 +7038,7 @@ local_borrow_note_await :: (fn(tok : &Token, ctx : &EvalContext, exn : Exception
   sites.push(tok);
   (si : usize) = usize(0);
   while(si < g_lb_macro_sites.with(xs => xs.len()), si = (si + usize(1)), {
-    match(g_lb_macro_sites.with(xs => xs.get(si)), .Some(ms) => sites.push(ms.site), .None => ());
+    match(g_lb_macro_sites.with(xs => xs.get_cloned(si)), .Some(ms) => sites.push(ms.site), .None => ());
   });
   (i : usize) = g_local_borrows.with(xs => xs.len());
   while(i > usize(0), {
@@ -7751,7 +7059,7 @@ local_borrow_note_await :: (fn(tok : &Token, ctx : &EvalContext, exn : Exception
   while(pi > usize(0), {
     pi = (pi - usize(1));
     match(
-      g_local_borrow_match_places.with(xs => xs.get(pi)),
+      g_local_borrow_match_places.with(xs => xs.get_cloned(pi)),
       .Some(mp) => if(mp.borrow.crosses_cell || mp.borrow.module_root, {
         match(
           _lb_first_site_in(&sites, &mp.decl, &mp.end),
@@ -7765,11 +7073,16 @@ local_borrow_note_await :: (fn(tok : &Token, ctx : &EvalContext, exn : Exception
 });
 /// The first of `sites` in the live range `(decl, end]`.
 _lb_first_site_in :: (fn(sites : &ArrayList(Token), decl : &Token, end : &Token) -> Option(Token))({
+  // Owned clones read OUTSIDE the loop: the loop body closure captured the
+  // `&Token` parameters per iteration (B8).
+  lb_dmp := Rc.clone(decl.module_path);
+  lb_dch := decl.character;
+  lb_ech := end.character;
   (i : usize) = usize(0);
   while(i < sites.len(), i = (i + usize(1)), {
     match(
-      sites.get(i),
-      .Some(st) => if((st.module_path == decl.module_path) && ((st.character > decl.character) && (st.character <= end.character)), {
+      sites.get_cloned(i),
+      .Some(st) => if((st.module_path == lb_dmp) && ((st.character > lb_dch) && (st.character <= lb_ech)), {
         return(Option(Token).Some(st));
       }),
       .None => ()
@@ -7795,7 +7108,7 @@ _lb_raise_across_await :: (fn(name : String, info : &LocalBorrowInfo, decl : &To
   match(
     for_site,
     .Some(fs) => {
-      ftext := match(info.places.get(usize(0)), .Some(p0) => _lb_place_text(&p0), .None => name.clone());
+      ftext := match(info.places.get_cloned(usize(0)), .Some(p0) => _lb_place_text(&p0), .None => name.clone());
       entries.push(TokenAndError(token : fs, error_message : `this \`for\` loop borrows \`${ftext}\` for its whole extent (its hidden local \`${name}\`):`));
     },
     .None => {
@@ -7860,7 +7173,7 @@ _lb_collect_await_ids :: (fn(e : &AstExpr, out : &mut ArrayList(usize)) -> unit)
 local_borrow_enter_macro_site :: (fn(tok : &Token, call : &AstExpr, expansion : &AstExpr) -> unit)({
   ids := ArrayList(usize).new();
   _lb_collect_await_ids(expansion, &mut ids);
-  g_lb_macro_sites.with_mut(xs => xs.push(LocalBorrowMacroSite(site : tok, end : _last_token_of(call, tok), await_ids : ids)));
+  g_lb_macro_sites.with_mut(xs => xs.push(LocalBorrowMacroSite(site : tok, end : _last_token_of(call, tok), await_ids : ids.clone())));
 });
 /// The expansion `local_borrow_enter_macro_site` announced is evaluated.
 local_borrow_leave_macro_site :: (fn() -> unit)({
@@ -7875,7 +7188,7 @@ local_borrow_is_macro_await :: (fn(id : usize) -> bool)({
   (i : usize) = usize(0);
   while(i < g_lb_macro_sites.with(xs => xs.len()), i = (i + usize(1)), {
     match(
-      g_lb_macro_sites.with(xs => xs.get(i)),
+      g_lb_macro_sites.with(xs => xs.get_cloned(i)),
       .Some(ms) => {
         (j : usize) = usize(0);
         while(j < ms.await_ids.len(), j = (j + usize(1)), {
@@ -8065,7 +7378,7 @@ _lb_last_mention :: (fn(e : &AstExpr, name : &String, best : &Option(Token), (in
 /// last child that mentions it; anything else (a loop, a call, an
 /// assignment, a closure) is live to its end.
 _lb_region_end :: (fn(e : &AstExpr, name : &String, root : &Token) -> Token)({
-  args := match(e, .FnCall(_, _, Rc(a), _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+  args := match(e, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
   is_block := ast_expr_is_fn_call_of(e, BK_BEGIN, Option(usize).None);
   is_cond := ast_expr_is_fn_call_of(e, BK_COND, Option(usize).None);
   is_branch := (is_cond || ast_expr_is_fn_call_of(e, BK_MATCH, Option(usize).None));
@@ -8170,9 +7483,8 @@ local_borrow_range_of :: (fn(binding : &AstExpr, name : &String, decl : &Token) 
     g_lb_lookahead_armed = false;
     // Staged through a local: `.clone()` directly on the `mut(G)` global is
     // E0916 (the receiver lend), while reading it by name is decision 47's
-    // reassignment case (issues/2026-10-26-explicit-copy-migration-inserts-a-clone-that-lends-a-mut-g-global.md).
-    (cur_lb_stmts : ArrayList(AstExpr)) = g_lb_lookahead_stmts;
-    stmts := cur_lb_stmts.clone();
+    // reassignment case (issues/retired/2026-10-26-explicit-copy-migration-inserts-a-clone-that-lends-a-mut-g-global.md).
+    stmts := g_lb_lookahead_stmts.with(xs => xs.clone());
     (j : usize) = stmts.len();
     (found : bool) = false;
     while((j > (g_lb_lookahead_index + usize(1))) && !found, {
@@ -8216,7 +7528,7 @@ local_borrow_register :: (
     .None => ()
   );
   places := ArrayList(LocalBorrowPlace).new();
-  places.push(place);
+  places.push(place.clone());
   // Declared by a macro expansion's template code: live over the whole
   // macro call, in the call's coordinates.
   (start : Token) = decl;
@@ -8254,7 +7566,9 @@ local_borrow_register :: (
     places : places,
     last_use : last_use,
     end : end,
-    parents : parents,
+    // Cloned into the record: the transitive-freeze loop below still reads
+    //  (B8: the struct literal would move it).
+    parents : parents.clone(),
     crosses_cell : crosses,
     module_root : module_root,
     step_pin : step_pin
@@ -8370,7 +7684,13 @@ local_borrow_register_match_place :: (fn(name : &String, decl : &Token, place : 
 local_borrow_note_match_place :: (fn(borrow : &LocalBorrowInfo, name : &String, decl : &Token, body : &AstExpr) -> unit)({
   last := match(_lb_last_mention(body, name.clone(), Option(Token).None), .Some(t) => t, .None => return(()));
   end := _lb_region_end(body, name.clone(), decl);
-  g_local_borrow_match_places.with_mut(xs => xs.push(LocalBorrowMatchPlace(name : name.clone(), decl : decl, last_use : last, end : end, borrow : borrow)));
+  name_owned := name.clone();
+  // Owned captures (`with_mut`'s callback is a sink parameter).
+  lbmp_decl := decl.clone();
+  lbmp_last := last.clone();
+  lbmp_end := end.clone();
+  lbmp_borrow := borrow.clone();
+  g_local_borrow_match_places.with_mut({ name_owned, lbmp_decl, lbmp_last, lbmp_end, lbmp_borrow }(xs) => xs.push(LocalBorrowMatchPlace(name : name_owned.clone(), decl : lbmp_decl, last_use : lbmp_last, end : lbmp_end, borrow : lbmp_borrow)));
 });
 // ---------------------------------------------------------------------------
 // Direct projection calls (plans/VALUES_BY_DEFAULT.md decision 24, V2b)
@@ -8427,6 +7747,7 @@ ProjectionRootArg :: struct(
   /// The parameter the argument is passed to (for the elided-origin note).
   label : String
 );
+derive(ProjectionRootArg, Clone);
 _strip_lend :: (fn(e : &AstExpr) -> AstExpr)(
   cond(
     ast_expr_is_fn_call_of(e, BF_ADDR_OF, Option(usize).Some(usize(1))) => match(
@@ -8465,7 +7786,7 @@ projection_call_root_args :: (fn(call : &AstExpr, ctx : &EvalContext) -> ArrayLi
   // passes (`runtime_arg_exprs_in_order`).
   args := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(call)),
-    .Some(ci2) => match(ci2.runtime_arg_exprs_in_order, .Some(ra) => ra, .None => ArrayList(AstExpr).new()),
+    .Some(ci2) => match(&ci2.runtime_arg_exprs_in_order, .Some(ra) => ra.clone(), .None => ArrayList(AstExpr).new()),
     .None => ArrayList(AstExpr).new()
   );
   res_names := fn_result_origin_names(&meta_ty);
@@ -8483,7 +7804,7 @@ projection_call_root_args :: (fn(call : &AstExpr, ctx : &EvalContext) -> ArrayLi
 });
 /// The label of parameter `i` of the `Func` `ft` (empty past the end).
 _param_label_at :: (fn(ft : &TypeValue, i : usize) -> String)(
-  match(ft, Rc(.Func({ meta : pla_m })) => match(pla_m.*.param_labels.get(i), .Some(l) => l, .None => String.new()), _ => String.new())
+  match(ft, Rc(.Func({ meta : pla_m })) => match(pla_m.*.param_labels.get_cloned(i), .Some(l) => l, .None => String.new()), _ => String.new())
 );
 /// One ground place an origin-carrying composite freezes, with the mode the
 /// reference holding it has (decision 43 step 3, T8/T9).
@@ -8491,6 +7812,7 @@ OriginRootPlace :: struct(
   place : LocalBorrowPlace,
   is_mut : bool
 );
+derive(OriginRootPlace, Clone);
 /// The ground places a value of an origin-carrying INLINE COMPOSITE (N2b)
 /// freezes: the places its producing call lent — every argument whose type
 /// is a reference (`&x`, `&mut xs`, a struct constructor's `&` field, a
@@ -8587,7 +7909,7 @@ _holder_roots_into :: (fn(a : &AstExpr, env : &Environment, ctx : &EvalContext, 
         (pi : usize) = usize(0);
         while(pi < info.places.len(), {
           match(
-            info.places.get(pi),
+            info.places.get_cloned(pi),
             .Some(p) => out.push(OriginRootPlace(place : p, is_mut : info.is_mut)),
             .None => ()
           );
@@ -8616,12 +7938,11 @@ freeze_origin_carrying_binding :: (fn(binding : &AstExpr, rhs : &AstExpr, var_na
   range := local_borrow_range_of(binding, var_name.clone(), name_tok);
   (ri : usize) = usize(0);
   while(ri < roots.len(), {
-    root := roots(ri);
     // No access check HERE: the lend itself was checked where it was made
     // (the argument marker at the call, T9), and a same-name entry from this
     // binding's own def-time trial pass would self-conflict. The freeze is
     // enforced at every later access against the entry registered below.
-    local_borrow_register(var_name.clone(), name_tok, root.is_mut, &root.place, &range, &Option(Variable).None);
+    local_borrow_register(var_name.clone(), name_tok, roots(ri).is_mut, &roots(ri).place, &range, &Option(Variable).None);
     ri = (ri + usize(1));
   });
   if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
@@ -8647,15 +7968,14 @@ reject_composite_result_local_roots :: (fn(e : &AstExpr, env : &Environment, ctx
       });
       (oi : usize) = usize(0);
       while(oi < roots.len(), {
-        root := roots(oi);
         match(
-          get_variables_from_env(env, root.place.root_name.clone()).last(),
+          get_variables_from_env(env, roots(oi).place.root_name.clone()).last(),
           .Some(rv) => if(!rv.is_parameter && !rv.is_module_level, {
             raise_flow_violation(
               with_code(
                 format_error_message_with_help(
                   ast_expr_token(e),
-                  `Cannot return a value holding \`${_lb_place_text(&root.place)}\`: the origin names a local of this function, and a result may name only origin parameters or reference-typed parameters' places (decision 43, plans/backlog/REFERENCES_AND_ORIGINS.md O3).`,
+                  `Cannot return a value holding \`${_lb_place_text(&roots(oi).place)}\`: the origin names a local of this function, and a result may name only origin parameters or reference-typed parameters' places (decision 43, plans/backlog/REFERENCES_AND_ORIGINS.md O3).`,
                   Option(String).Some(String.from("build the result over a parameter's place, or return an owned value"))
                 ),
                 E_LOCAL_BORROW_ESCAPES

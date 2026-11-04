@@ -19,10 +19,10 @@
   §9.
 - **Spelling:** the tree spells borrows `x : &T` / `x : &mut T`
   (decision 42, #1310).
-- **Handover:** start with
-  [`plans/handover/VBD_HANDOVER_2026-10-17.md`](handover/VBD_HANDOVER_2026-10-17.md), which has the
-  releases, the open PRs, the branches in flight and the v0.2.65 gate;
-  its predecessor
+- **Handover:** start with the living release-by-release schedule,
+  [`plans/handover/VBD_RELEASE_SCHEDULE.md`](handover/VBD_RELEASE_SCHEDULE.md),
+  then the latest handover,
+  [`VBD_HANDOVER_2026-10-20.md`](handover/VBD_HANDOVER_2026-10-20.md);
   [`VBD_HANDOVER_2026-10-15.md`](handover/VBD_HANDOVER_2026-10-15.md)
   keeps the process recipes and scripts.
 
@@ -184,6 +184,16 @@ Progress:
   - V2c, decision 17: implicit `Rc`/`Arc` copies are E0901, `yo fix
     --migrate rc-clone`, and the std/src/tests sweep; A6's `Rc`-field half
     with it (V2c's "As built").
+  - V2b B8, the flip of `ArrayList` and `String`: both are values that own
+    their buffer (`Drop`, `Trace`, `Clone` through the owner; `Send` and
+    `Sync` exactly when the element is), an implicit copy of a live one is
+    E0901, and std, src and tests read elements through `get_cloned`,
+    `clone()` or a borrow. `TypeValue`'s two late-written parts keep their
+    pre-flip sharing through one cell each: `SomeTBounds` for a `SomeT`'s
+    where-clause bounds, and `TraitTBody` for a trait's members and
+    `where(Self <: X)` constraints (consultation #13 §10 and §13; whether
+    to delete them is
+    `issues/questions/2026-11-02-should-a-somet-carry-its-bounds-immutably-from-construction.md`).
   - decision 43 step 2, Generation A: N1a (#1698), N1b (#1705), N1c-1
     (#1711), N1c-3 (#1712), and N1d — the `Escapable` marker derived from
     a type's structure, a failed `where(T <: Escapable)` and an `Rc`/`Arc`
@@ -195,6 +205,16 @@ Progress:
     `r.*` lowers to the C a bare read was, a bare `match(r, …)` matches
     through (VERDICTS-13 §11, §14); N1e-2 (reference-typed bindings) is
     v0.2.75. Step 3's N2a (#1713) and N2b (#1720).
+  - V2's B10: `Deque`, `BTreeMap`, `OrderedMap` and `PriorityQueue` are
+    values (`Clone` derived, or for `Deque` placed in the source's
+    allocator; `BTreeMap.range` consumes, as `keys`/`values` do; §6 V2,
+    item 3's B10). The flip-bound modes `--migrate explicit-copy` and
+    `--migrate cloned-accessors` retired with it (§6, "After V5",
+    "Flip-bound modes").
+  - V2's B11: `StringBuilder`, `HeaderMap` and `HttpHeader` are values
+    (`Clone` derived; `StringBuilder.into_string` hands its buffer over,
+    `HeaderMap.entries()` borrows the map's list, D24/D26; §6 V2, item 3's
+    B11).
 - **In progress:**
   - V3's remaining async work (§3.13). A4's std half (`timeout`/`select`
     over futures) landed 2026-10-20, see A4's "As built".
@@ -2217,6 +2237,12 @@ and in git, not a silent edit.
       non-escaping closure argument overlaps everything it captures, which
       refines today's rule that any closure argument reaches the container
       (`_reject_if_container_reachable`, `src/types/flowability.yo`).
+      A non-closure sibling reaches the container only through a
+      reference-semantic edge: its own `&`/`&mut` mode, a shared handle
+      (a `ref` type, `Rc`/`Arc`, a cell handle, `Weak`) or a held
+      `Reference`. A value that only owns a list of the container's type is
+      a different list (amended 2026-11-02, VERDICTS-12 B8-Q2,
+      `issues/fixed/2026-10-31-the-element-borrow-sibling-rule-still-rejects-a-value-collection-that-cannot-alias.md`).
     - **Value roots.** A `&mut` argument, or a by-value argument of a
       non-implicitly-copyable type (a move), that overlaps any other
       argument is a compile error. Two `&` arguments may overlap.
@@ -6934,7 +6960,7 @@ compiler; the std shapes are plain structs the seed lowers):
         remaining errors by hand, then add decision 27's lint.
       - **It closes an S1.** A write through a `String` copy reaches the
         original only when the original was non-empty
-        (`issues/a-write-through-a-string-copy-is-lost-when-the-string-was-empty.md`,
+        (`issues/fixed/a-write-through-a-string-copy-is-lost-when-the-string-was-empty.md`,
         re-triaged 2026-10-14: the local, by-value-parameter and field-copy
         shapes all still split). It closes with the flip. Each of those
         copies then moves or is E0901, and Generation B carries its test.
@@ -8249,6 +8275,15 @@ heavy run, the command is given in item 2.
        the bound result is written afterwards (`match(m.get(k), .Some(l) =>
        l.push(x))` writes the shared list today). Run it over std, src and
        tests in the same PR.
+     - As retired (2026-11-03, consultation #17, `VERDICTS-17.md`):
+       `--migrate cloned-accessors`, N7 (`YO_AUDIT_COPYING_ACCESSOR`) and
+       `--hot-path` were deleted with the `BTreeMap` flip (B10, v0.2.74),
+       together with `--migrate explicit-copy` and the written-after, flow,
+       loop and raw-pointer tables both read. After the flip the copy inside
+       the specialized accessor is E0901, re-anchored at the caller with the
+       same `_copying_accessor_info` help, so the recorder has nothing left
+       to see. They last shipped in v0.2.73; the caller re-anchoring and
+       `check-accessor-copy-names-get-cloned` stay.
      - E0901 surface: roughly 2,100 accessor unwraps in `src/` of all
        element kinds (§6: 3,314 owned-temporary bindings, 7 of 11 from an
        accessor); the buffer-owning share is N7's number.
@@ -8333,7 +8368,7 @@ heavy run, the command is given in item 2.
        `_bytes` sites rewritten; whatever the probe left; the tests that
        assert sharing (`ref_count` of a list or string, e.g.
        `tests/collections/array_list_convenience.test.yo`); the S1's test
-       (`issues/a-write-through-a-string-copy-is-lost-when-the-string-was-empty.md`
+       (`issues/fixed/a-write-through-a-string-copy-is-lost-when-the-string-was-empty.md`
        moves to `fixed/`); docs in both languages, the instructions and
        the skills cheatsheets; `plans/STRING_VALUE_SEMANTICS.md`'s status.
      - Flips: every implicit copy of a `String`, an `ArrayList` or a value
@@ -9848,6 +9883,21 @@ that later phases add.
     the next release.
   - GRAMMAR and DESIGN (en-US and zh-CN) stop naming `--migrate` modes, and
     §7's "Found by" column keeps them only as history.
+- **Flip-bound modes** (2026-11-03, consultation #17, `VERDICTS-17.md`). A
+  mode whose subject a flip turns into E0901 retires with that flip, not
+  with this step: once the copy it rewrites is an error, evaluation stops
+  there and the recorder sees nothing, while the error's help names the same
+  rewrite. `--migrate explicit-copy` and `--migrate cloned-accessors`, with
+  the `YO_AUDIT_IMPLICIT_COPY` and `YO_AUDIT_COPYING_ACCESSOR` listings,
+  retired with the `BTreeMap` flip (B10, v0.2.74); their last working
+  release is v0.2.73, and they open the retired-migrations table in
+  `docs/*/ERROR_DIAGNOSTICS.md`. The README gate for them is stage 0: on
+  v0.2.73, before pinning v0.2.74 or later, each of the six projects runs
+  `--migrate explicit-copy`, `--migrate cloned-accessors`, `--migrate
+  rc-clone` in that order, then every other mode v0.2.73 ships, and commits
+  the reviewed result. Stage 1, on v0.2.75, is the gate above for the
+  remaining modes. A copy stage 0 misses is fixed by hand under E0901's help
+  between the stages; it is a bug only if the help is wrong.
 - **Exception.** If `yo fix --migrate` becomes how users outside this
   repository upgrade their packages after a breaking change, keep the newest
   one or two (Rust keeps edition migrations for that reason). Under the
@@ -9866,7 +9916,7 @@ that later phases add.
 | `T :: atomic(ref(struct(...)))` shared across threads | `Arc(T)` over a value `T` (requires `T <: (Send, Sync)`) | E0602 at the `Arc` |
 | `T :: ref(enum(... Self ...))` | `enum(... Box(Self) ...)`, or `Rc(Self)` children for the large compiler trees; `TypeValue` is `Rc(TypeValueNode)` (decision 21, as built 2026-10-13) | V4 list |
 | `Box(T)` whose copies must alias | `Rc(T)` | V1 step 1 renames all; step 2 moves recursion back |
-| an implicit copy of a `String`, collection, `Box` or `Dyn` whose source lives on | `x.clone()`, a move, or `y := &x` | E0901 + note (V2b) |
+| an implicit copy of a `String`, collection, `Box` or `Dyn` whose source lives on | `x.clone()`, a move, or `y := &x` | E0901 + note (V2b); `--migrate explicit-copy`/`cloned-accessors`: retired with the `BTreeMap` flip, v0.2.74; last shipped v0.2.73 |
 | an implicit `Rc`/`Arc` copy | `r.clone()` | E0901 (V2c) |
 | `Dispose where(Self <: Rc)` | `Dispose` on a move-only value | V3 impl check |
 | a resource copied (`m2 := m`) | `Arc(Mutex(T))`, `clone()`, or `&mut` | E0901 + note |

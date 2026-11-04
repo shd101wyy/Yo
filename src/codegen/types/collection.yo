@@ -37,7 +37,7 @@
   is_array_type,
   get_adopted_extern_c_type
 } :: import("../../types/guards.yo");
-{ type_contains_some_type, type_carries_origin, origin_beyond_n2b } :: import("../../types/utils.yo");
+{ type_contains_some_type, type_carries_origin, origin_beyond_n2b, type_is_comptime_only } :: import("../../types/utils.yo");
 { resolve_enum_shell, resolve_struct_shell } :: import("../../types/creators.yo");
 { stable_type_identity } :: import("../../types/type_key.yo");
 {
@@ -76,9 +76,9 @@
 /// type's CONTENT with an ordinal fallback on collision.
 _intern_type_c_name_fresh :: (fn(key : &String) -> String)({
   base := `__yo_t_${fnv1a64(key).to_string()}`;
-  id := base.clone();
-  (ord : usize) = usize(0);
-  (collided : bool) = true;
+  mut(id) := base.clone();
+  (mut(ord) : usize) = usize(0);
+  (mut(collided) : bool) = true;
   while(collided, {
     collided = false;
     match(
@@ -93,8 +93,12 @@ _intern_type_c_name_fresh :: (fn(key : &String) -> String)({
       .None => ()
     );
   });
-  _g_type_c_name_intern.with_mut(m => m.insert(key.clone(), id.clone()));
-  _g_type_c_name_intern_r.with_mut(m => m.insert(id.clone(), key.clone()));
+  key_owned := key.clone();
+  id_owned := id.clone();
+  _g_type_c_name_intern.with_mut({ key_owned, id_owned }(m) => m.insert(key_owned, id_owned));
+  key_owned_r := key.clone();
+  id_owned_r := id.clone();
+  _g_type_c_name_intern_r.with_mut({ key_owned_r, id_owned_r }(m) => m.insert(id_owned_r, key_owned_r));
   if((ord > usize(0)) && profile_enabled(), {
     eprintln(`profile: type-name hash collision: ${key} -> ${id}`);
   });
@@ -120,9 +124,9 @@ _struct_some_type_is_only_in_function_fields :: (
         return(true); // cyclic reference is fine
       });
       visited.insert(id.clone());
-      (ok : bool) = true;
+      (mut(ok) : bool) = true;
       n := field_types.len();
-      (i : usize) = usize(0);
+      (mut(i) : usize) = usize(0);
       while((i < n) && ok, {
         ft := match(field_types.get(i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
         cond(
@@ -154,13 +158,13 @@ _enum_some_type_is_only_in_function_fields :: (
         return(true);
       });
       visited.insert(id.clone());
-      (ok : bool) = true;
+      (mut(ok) : bool) = true;
       nv := variant_fields.len();
-      (vi : usize) = usize(0);
+      (mut(vi) : usize) = usize(0);
       while((vi < nv) && ok, {
         fields := match(variant_fields.get(vi), .Some(f) => f, .None => no_types());
         nf := fields.len();
-        (fi : usize) = usize(0);
+        (mut(fi) : usize) = usize(0);
         while((fi < nf) && ok, {
           ft := match(fields.get(fi), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
           cond(
@@ -191,6 +195,45 @@ _enum_some_type_is_only_in_function_fields :: (
 // across two C types (passing/initializing mismatches). The stable render
 // never changes, so a second arrival is detected and ALIASED instead.
 (g_stable_to_key : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
+/// Whether a nominal value type has a runtime field (a struct's non-`comptime`
+/// field, an enum variant's payload) whose type is comptime-only (`Type`,
+/// `ComptimeList(…)`, `comptime_int`, `Expr`, …). Such a type has no C
+/// representation: every such field would lower to the `// Unknown type:`
+/// comment. The reflection records `Type.get_info` returns (`TypeInfo`,
+/// `FunctionInfo`, `TraitKind`, all `impl(_, Comptime())`) are the case that
+/// reaches collection: as the type of a compile-time-folded
+/// `Type.get_info(C)` in a runtime generic body, which emits no code
+/// (issues/fixed/2026-11-03-a-runtime-position-type-get-info-emits-the-comptime-typeinfo-struct.md).
+_has_comptime_only_runtime_field :: (fn(ty : &TypeValue) -> bool)(
+  match(
+    ty,
+    Rc(.Struct({ is_source_namespace })) => if(is_source_namespace, false, {
+      fs := get_runtime_struct_fields(ty);
+      (mut(found) : bool) = false;
+      (mut(i) : usize) = usize(0);
+      while((i < fs.len()) && !found, {
+        found = type_is_comptime_only(&fs(i).ty);
+        i = (i + usize(1));
+      });
+      found
+    }),
+    Rc(.EnumT({ variant_fields })) => {
+      (mut(found) : bool) = false;
+      (mut(vi) : usize) = usize(0);
+      while((vi < variant_fields.len()) && !found, {
+        fields := match(variant_fields.get(vi), .Some(f) => f, .None => no_types());
+        (mut(fi) : usize) = usize(0);
+        while((fi < fields.len()) && !found, {
+          found = match(fields.get(fi), .Some(ft) => type_is_comptime_only(&ft), .None => false);
+          fi = (fi + usize(1));
+        });
+        vi = (vi + usize(1));
+      });
+      found
+    },
+    _ => false
+  )
+);
 collect_type :: (fn(type_in : &TypeValue, context : &CodeGenContext) -> unit)({
   // Resolve a leaked recursive-enum SELF-SHELL to its final BEFORE collecting, so
   // recursion descends into the FINAL's variant fields (the shell has none) and
@@ -225,6 +268,10 @@ collect_type :: (fn(type_in : &TypeValue, context : &CodeGenContext) -> unit)({
   );
   if(context.get_type_entry(type_key(&type)).is_some(), {
     return(()); // Already collected this type
+  });
+  // A comptime-only record (the reflection `TypeInfo` family) has no C form.
+  if(_has_comptime_only_runtime_field(&type), {
+    return(());
   });
   // SomeTypes (generic) — conservatively skip (monomorphized before
   // codegen in the supported corpus). Fn/Future/resolved-concrete branches
@@ -272,7 +319,7 @@ collect_type :: (fn(type_in : &TypeValue, context : &CodeGenContext) -> unit)({
     // which reached 200 KB+ for recursive types → ~10× C bloat).
     tk := type_key(&type);
     stable := stable_type_identity(&type);
-    (aliased : bool) = false;
+    (mut(aliased) : bool) = false;
     match(
       g_stable_to_key.with(m => m.get_cloned(stable.clone())),
       .Some(prev_key) => if(!(prev_key == tk), {
@@ -288,7 +335,9 @@ collect_type :: (fn(type_in : &TypeValue, context : &CodeGenContext) -> unit)({
         aliased = true;
       }),
       .None => {
-        g_stable_to_key.with_mut(m => m.insert(stable.clone(), tk.clone()));
+        stable_owned := stable.clone();
+        tk_owned := tk.clone();
+        g_stable_to_key.with_mut({ stable_owned, tk_owned }(m) => m.insert(stable_owned, tk_owned));
       }
     );
     if(!aliased, {
@@ -324,7 +373,7 @@ collect_type :: (fn(type_in : &TypeValue, context : &CodeGenContext) -> unit)({
       Rc(.Struct({})) => {
         runtime_fields := get_runtime_struct_fields(&type);
         n := runtime_fields.len();
-        (i : usize) = usize(0);
+        (mut(i) : usize) = usize(0);
         while(i < n, {
           match(
             runtime_fields.get(i),
@@ -343,11 +392,11 @@ collect_type :: (fn(type_in : &TypeValue, context : &CodeGenContext) -> unit)({
       &type,
       Rc(.EnumT({ variant_fields })) => {
         nv := variant_fields.len();
-        (vi : usize) = usize(0);
+        (mut(vi) : usize) = usize(0);
         while(vi < nv, {
           fields := match(variant_fields.get(vi), .Some(f) => f, .None => no_types());
           nf := fields.len();
-          (fi : usize) = usize(0);
+          (mut(fi) : usize) = usize(0);
           while(fi < nf, {
             match(
               fields.get(fi),
@@ -368,7 +417,7 @@ collect_type :: (fn(type_in : &TypeValue, context : &CodeGenContext) -> unit)({
       &type,
       Rc(.Union({ field_types })) => {
         n := field_types.len();
-        (i : usize) = usize(0);
+        (mut(i) : usize) = usize(0);
         while(i < n, {
           match(field_types.get(i), .Some(ft) => recur(&ft, context), .None => ());
           i = (i + usize(1));
@@ -381,7 +430,7 @@ collect_type :: (fn(type_in : &TypeValue, context : &CodeGenContext) -> unit)({
       &type,
       Rc(.DynT({ required_trait_types })) => {
         n := required_trait_types.len();
-        (i : usize) = usize(0);
+        (mut(i) : usize) = usize(0);
         while(i < n, {
           match(required_trait_types.get(i), .Some(tt) => recur(&tt, context), .None => ());
           i = (i + usize(1));
@@ -402,12 +451,13 @@ collect_type :: (fn(type_in : &TypeValue, context : &CodeGenContext) -> unit)({
     // cycle: the second encounter early-returns on the already-registered key.)
     match(
       type,
-      Rc(.TraitT({ field_types })) => {
+      Rc(.TraitT({ body : field_types_body })) => {
+        field_types := field_types_body.field_types();
         n := field_types.len();
-        (i : usize) = usize(0);
+        (mut(i) : usize) = usize(0);
         while(i < n, {
           match(
-            field_types.get(i),
+            field_types.get_cloned(i),
             .Some(ft) => match(
               &ft,
               Rc(.Func({ param_types : __mpt, result : __mres })) => {
@@ -441,11 +491,11 @@ _collect_field_pointees :: (fn(ft : &TypeValue, context : &CodeGenContext) -> un
     Rc(.Pointer(p)) => collect_type(&p, context),
     Rc(.EnumT({ variant_fields })) => {
       nv := variant_fields.len();
-      (vi : usize) = usize(0);
+      (mut(vi) : usize) = usize(0);
       while(vi < nv, {
         fields := match(variant_fields.get(vi), .Some(f) => f, .None => no_types());
         nfi := fields.len();
-        (fj : usize) = usize(0);
+        (mut(fj) : usize) = usize(0);
         while(fj < nfi, {
           match(
             fields.get(fj),
@@ -476,27 +526,27 @@ _collect_field_pointees :: (fn(ft : &TypeValue, context : &CodeGenContext) -> un
 /// transitive container nesting. See
 /// issues/fixed/yo-self-p1-uncollected-pointee.md.
 collect_pointer_pointees :: (fn(context : &CodeGenContext) -> unit)({
-  (changed : bool) = true;
+  (mut(changed) : bool) = true;
   while(changed, {
     changed = false;
     before := context.types.len();
     // Snapshot registered struct TypeValues FIRST (collect_type mutates the map;
     // do not call it while iterating context.types.values()).
-    snapshot := ArrayList(TypeValue).new();
+    mut(snapshot) := ArrayList(TypeValue).new();
     for(&context.types, (_tid, entry) => {
       if(is_struct_type(&entry.ty), {
         snapshot.push(Rc.clone(entry.ty));
       });
     });
     n := snapshot.len();
-    (i : usize) = usize(0);
+    (mut(i) : usize) = usize(0);
     while(i < n, {
       match(
-        snapshot.get(i),
+        snapshot.get_cloned(i),
         .Some(t) => {
           rfs := get_runtime_struct_fields(&t);
           nf := rfs.len();
-          (fi : usize) = usize(0);
+          (mut(fi) : usize) = usize(0);
           while(fi < nf, {
             match(rfs.get(fi), .Some(rf) => _collect_field_pointees(&rf.ty, context), .None => ());
             fi = (fi + usize(1));
@@ -519,13 +569,13 @@ collect_types_from_function_type :: (fn(function_type : &TypeValue, context : &C
     function_type,
     Rc(.Func({ param_types, forall_types, result })) => {
       np := param_types.len();
-      (pi : usize) = usize(0);
+      (mut(pi) : usize) = usize(0);
       while(pi < np, {
         match(slot_pointee_at(&param_types, pi), .Some(pt) => collect_type(&pt, context), .None => ());
         pi = (pi + usize(1));
       });
       nf := forall_types.len();
-      (fi : usize) = usize(0);
+      (mut(fi) : usize) = usize(0);
       while(fi < nf, {
         match(forall_types.get(fi), .Some(ft) => collect_type(&ft, context), .None => ());
         fi = (fi + usize(1));
@@ -581,7 +631,7 @@ _collect_types_from_node :: (fn(expr : &AstExpr, context : &CodeGenContext, info
       );
       // Deferred drop expressions.
       match(
-        ei.deferred_drop_expressions,
+        &ei.deferred_drop_expressions,
         .Some(drops) => {
           nd := drops.len();
           (di : usize) = usize(0);
@@ -730,7 +780,7 @@ collect_required_types :: (fn(module_value : &EvalValue, context : &CodeGenConte
     nk := keys.len();
     (ki : usize) = usize(0);
     while(ki < nk, {
-      key := match(keys.get(ki), .Some(k) => k, .None => String.from(""));
+      key := match(keys.get_cloned(ki), .Some(k) => k, .None => String.from(""));
       if(!processed.contains(key.clone()), {
         processed.insert(key.clone());
         found_new = true;
@@ -755,4 +805,4 @@ collect_required_types :: (fn(module_value : &EvalValue, context : &CodeGenConte
 register_collect_type :: (fn() -> unit)(
   set_collect_type_fn(collect_type)
 );
-export(collect_type, collect_types_from_function_type, collect_types_from_expr, collect_required_types, collect_pointer_pointees, register_collect_type);
+export(collect_type, collect_types_from_function_type, collect_types_from_expr, collect_required_types, collect_pointer_pointees, register_collect_type, _has_comptime_only_runtime_field);

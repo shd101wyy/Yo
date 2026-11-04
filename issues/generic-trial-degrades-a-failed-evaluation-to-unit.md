@@ -108,3 +108,19 @@ substitution is current. Inside another impl whose binder is also called `T`, th
 SomeT's id plus the projected constant), not by spelling. That is a design change to
 `TypeValue.Array`'s length, which `plans/TYPE_SYSTEM_SOUNDNESS.md` Phase 3 (type identity) did
 not cover. Until it lands, the `unit` exclusion in `mark_generic_independent` stays.
+
+## Another reproducer (2026-11-04, Ada/SPARK lessons audit)
+
+A never-instantiated generic body that calls a method no bound provides, with an undefined argument, passes `yo check` (tree binary of develop `8559f3a26`):
+
+```yo
+{ println } :: import("std/fmt");
+g :: (fn(generic(T : Type), x : T, where(T <: Eq(T))) -> T)(x.no_such_method(undefined_name));
+main :: (fn() -> unit)({
+  println("ok");
+});
+export(main);
+```
+
+`undefined_name` resolves under no instantiation, so this is the "re-raise a swallow with no SomeT involvement" case of this doc. The related question, whether a generic body may use operations its `where` bounds do not provide at all, is `issues/questions/2026-11-04-should-a-generic-body-be-checked-against-its-where-bounds.md`.
+

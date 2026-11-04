@@ -5,7 +5,7 @@ pragma(Pragma.Verify);
 
 // zip without the equal-length requires: b(i) can read past b's end.
 zip_unchecked :: (fn(a : &ArrayList(i32), b : &ArrayList(i32), ensures(r.len() == a.len())) -> (r : ArrayList(i32)))({
-  out := ArrayList(i32).new();
+  mut(out) := ArrayList(i32).new();
   (mut(i) : usize) = usize(0);
   while(i < a.len(), {
     invariant(i <= a.len(), out.len() == i);
@@ -17,7 +17,7 @@ zip_unchecked :: (fn(a : &ArrayList(i32), b : &ArrayList(i32), ensures(r.len() =
 
 // filter claimed to keep every element.
 filter_all :: (fn(xs : &ArrayList(i32), ensures(r.len() == xs.len())) -> (r : ArrayList(i32)))({
-  out := ArrayList(i32).new();
+  mut(out) := ArrayList(i32).new();
   (mut(i) : usize) = usize(0);
   while(i < xs.len(), {
     invariant(i <= xs.len(), out.len() <= i);
@@ -31,7 +31,7 @@ filter_all :: (fn(xs : &ArrayList(i32), ensures(r.len() == xs.len())) -> (r : Ar
 
 // reverse claimed one shorter.
 reverse_short :: (fn(xs : &ArrayList(i32), ensures(r.len() < xs.len())) -> (r : ArrayList(i32)))({
-  out := ArrayList(i32).new();
+  mut(out) := ArrayList(i32).new();
   (mut(i) : usize) = xs.len();
   while(i > usize(0), {
     invariant(i <= xs.len(), out.len() == (xs.len() - i));

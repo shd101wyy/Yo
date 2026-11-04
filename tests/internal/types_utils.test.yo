@@ -1,9 +1,12 @@
 /// Tests for `src/types/utils.yo` — pointer size config, integer bit-width,
 /// integer range, and comptime cast checks.
+// `_trp_looped_struct` writes a shared list through a raw pointer.
+pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 import("std/fmt");
 { TypeValue, TypeValueNode, shared_list, no_types, no_labels, SharedList } :: import("../../src/types/definitions.yo");
-{ t_i8, t_i16, t_i32, t_i64, t_u8, t_u16, t_u32, t_u64, t_usize, t_isize, t_bool, t_unit, t_f32, t_f64, t_comptime_int, t_comptime_float, t_comptime_string, t_some_t, t_array, t_dyn_simple, t_future_trait_simple, t_ptr } :: import("../../src/types/creators.yo");
+{ t_i8, t_i16, t_i32, t_i64, t_u8, t_u16, t_u32, t_u64, t_usize, t_isize, t_bool, t_unit, t_f32, t_f64, t_comptime_int, t_comptime_float, t_comptime_string, t_some_t, t_array, t_dyn_simple, t_future_trait_simple, t_ptr, t_trait_simple, t_with_resolution } :: import("../../src/types/creators.yo");
+{ _add_where_clause_constraint } :: import("../../src/evaluator/types/function.yo");
 { Environment } :: import("../../src/env.yo");
 { type_intern_key } :: import("../../src/types/intern.yo");
 { HashSet } :: import("std/collections/hash_set");
@@ -366,10 +369,10 @@ test("get_all_some_types: SomeT itself is collected", {
   result := get_all_some_types(&ty);
   assert(result.len() == usize(1), "SomeT should return(1 element)");
   match(
-    result.get(usize(0)),
+    result.get_cloned(usize(0)),
     .Some(found) => match(
       found,
-      Rc(.SomeT(_, name : n, _, _, _, _, _, _, _, _)) =>
+      Rc(.SomeT(_, name : n, _, _, _, _, _)) =>
         assert(n == String.from("T"), "collected SomeT should have name T"),
       _ => assert(false, "expected SomeT variant")
     ),
@@ -437,9 +440,9 @@ test("type_contains_rc_type: plain struct returns false", {
   assert(!type_contains_rc_type(&s), "plain struct → false");
 });
 test("type_contains_rc_type: struct containing object field returns true", {
-  field_labels := ArrayList(String).new();
+  mut(field_labels) := ArrayList(String).new();
   field_labels.push(String.from("inner"));
-  inner_types := ArrayList(TypeValue).new();
+  mut(inner_types) := ArrayList(TypeValue).new();
   inner_types.push(
     Rc.new(
       TypeValueNode.Struct(
@@ -492,15 +495,15 @@ test("type_contains_rc_type: unresolved SomeT is conservatively true", {
 // rather than TS's visited set.
 // ---------------------------------------------------------------------------
 _trp_struct :: (fn(name : &String, labels : &ArrayList(String), types : &ArrayList(TypeValue), is_ref : bool, is_atomic : bool, is_newtype : bool) -> TypeValue)(
-  Rc.new(TypeValueNode.Struct(String.from(""), name, shared_list(labels.clone()), shared_list(types.clone()), is_ref, is_atomic, is_newtype, String.from(""), no_types(), false))
+  Rc.new(TypeValueNode.Struct(String.from(""), name.clone(), shared_list(labels.clone()), shared_list(types.clone()), is_ref, is_atomic, is_newtype, String.from(""), no_types(), false))
 );
 _trp_labels1 :: (fn(a : &String) -> ArrayList(String))({
-  l := ArrayList(String).new();
-  l.push(a);
+  mut(l) := ArrayList(String).new();
+  l.push(a.clone());
   l
 });
 _trp_types1 :: (fn(a : &TypeValue) -> ArrayList(TypeValue))({
-  l := ArrayList(TypeValue).new();
+  mut(l) := ArrayList(TypeValue).new();
   l.push(Rc.clone(a));
   l
 });
@@ -540,60 +543,60 @@ test("raw-ptr predicate: atomic object struct is FALSE — Arc-style heap-owning
   assert(!type_representation_contains_raw_ptr(&s), "atomic object(p : *(u8))");
 });
 test("raw-ptr predicate: tuple with a Ptr field is true", {
-  labels := ArrayList(String).new();
+  mut(labels) := ArrayList(String).new();
   labels.push(String.from(""));
   labels.push(String.from(""));
-  types := ArrayList(TypeValue).new();
+  mut(types) := ArrayList(TypeValue).new();
   types.push(t_i32());
   types.push(t_ptr(t_u8()));
   assert(type_representation_contains_raw_ptr(Rc.new(TypeValueNode.Tuple(shared_list(labels), shared_list(types)))), "(i32, *(u8))");
 });
 test("raw-ptr predicate: tuple of primitives is false", {
-  labels := ArrayList(String).new();
+  mut(labels) := ArrayList(String).new();
   labels.push(String.from(""));
   labels.push(String.from(""));
-  types := ArrayList(TypeValue).new();
+  mut(types) := ArrayList(TypeValue).new();
   types.push(t_i32());
   types.push(t_bool());
   assert(!type_representation_contains_raw_ptr(Rc.new(TypeValueNode.Tuple(shared_list(labels), shared_list(types)))), "(i32, bool)");
 });
 test("raw-ptr predicate: enum with a variant carrying a Ptr field is true", {
-  vnames := ArrayList(String).new();
+  mut(vnames) := ArrayList(String).new();
   vnames.push(String.from("None"));
   vnames.push(String.from("Some"));
-  vfields := ArrayList(SharedList(TypeValue)).new();
+  mut(vfields) := ArrayList(SharedList(TypeValue)).new();
   vfields.push(no_types());
   vfields.push(shared_list(_trp_types1(t_ptr(t_u8()))));
-  vlabels := ArrayList(SharedList(String)).new();
+  mut(vlabels) := ArrayList(SharedList(String)).new();
   vlabels.push(no_labels());
   vlabels.push(shared_list(_trp_labels1(String.from("0"))));
-  discs := ArrayList(i64).new();
+  mut(discs) := ArrayList(i64).new();
   discs.push(i64(0));
   discs.push(i64(1));
   e := Rc.new(TypeValueNode.EnumT(String.from(""), String.from("OptPtr"), shared_list(vnames), shared_list(vfields), Option(String).None, shared_list(vlabels), shared_list(discs), false, false, no_types()));
   assert(type_representation_contains_raw_ptr(&e), "enum(None, Some(*(u8)))");
 });
 test("raw-ptr predicate: enum with only primitive variants is false", {
-  vnames := ArrayList(String).new();
+  mut(vnames) := ArrayList(String).new();
   vnames.push(String.from("A"));
   vnames.push(String.from("B"));
-  vfields := ArrayList(SharedList(TypeValue)).new();
+  mut(vfields) := ArrayList(SharedList(TypeValue)).new();
   vfields.push(no_types());
   vfields.push(shared_list(_trp_types1(t_i32())));
-  vlabels := ArrayList(SharedList(String)).new();
+  mut(vlabels) := ArrayList(SharedList(String)).new();
   vlabels.push(no_labels());
   vlabels.push(shared_list(_trp_labels1(String.from("0"))));
-  discs := ArrayList(i64).new();
+  mut(discs) := ArrayList(i64).new();
   discs.push(i64(0));
   discs.push(i64(1));
   e := Rc.new(TypeValueNode.EnumT(String.from(""), String.from("Prim"), shared_list(vnames), shared_list(vfields), Option(String).None, shared_list(vlabels), shared_list(discs), false, false, no_types()));
   assert(!type_representation_contains_raw_ptr(&e), "enum(A, B(i32))");
 });
 test("raw-ptr predicate: union with a Ptr field is true", {
-  labels := ArrayList(String).new();
+  mut(labels) := ArrayList(String).new();
   labels.push(String.from("i"));
   labels.push(String.from("p"));
-  types := ArrayList(TypeValue).new();
+  mut(types) := ArrayList(TypeValue).new();
   types.push(t_i32());
   types.push(t_ptr(t_u8()));
   assert(type_representation_contains_raw_ptr(Rc.new(TypeValueNode.Union(String.from("U"), shared_list(labels), shared_list(types)))), "union(i : i32, p : *(u8))");
@@ -630,28 +633,29 @@ test("type_intern_key: nested empty-id structs of different depth key apart", {
 });
 // A type's lists are never written after the node is built, so no TypeValue
 // the compiler makes contains itself. This test writes a node's field list
-// through the list handle on purpose, to build the cycle the predicate's
-// depth cap must survive. `fields` must not be empty: `shared_list` of an
+// on purpose, to build the cycle the predicate's depth cap must survive. The
+// list is a `SharedList` (an `Rc`), whose payload is read-only through the
+// handle (decision 46), so the write goes through a raw pointer. `fields` must not be empty: `shared_list` of an
 // empty list is the shared empty list, which this would write.
 _trp_looped_struct :: (fn(name : &String, sink(labels) : ArrayList(String), sink(fields) : ArrayList(TypeValue), at : usize) -> TypeValue)({
   shared_fields := shared_list(fields);
-  looped := Rc.new(TypeValueNode.Struct(String.from(""), name, shared_list(labels), shared_fields.clone(), false, false, false, String.from(""), no_types(), false));
-  items := shared_fields.*.items;
-  items.insert(at, looped.clone());
+  looped := Rc.new(TypeValueNode.Struct(String.from(""), name.clone(), shared_list(labels), shared_fields.clone(), false, false, false, String.from(""), no_types(), false));
+  items := addr_of(shared_fields.*.items);
+  items.*.insert(at, looped.clone());
   looped
 });
 test("raw-ptr predicate: a type object that contains itself terminates", {
-  labels := ArrayList(String).new();
+  mut(labels) := ArrayList(String).new();
   labels.push(String.from("a"));
   labels.push(String.from("b"));
-  fields := ArrayList(TypeValue).new();
+  mut(fields) := ArrayList(TypeValue).new();
   fields.push(t_i32());
   looped := _trp_looped_struct(String.from("Loop"), labels, fields, usize(1));
   assert(!type_representation_contains_raw_ptr(&looped), "struct(a : i32, b : <itself>)");
-  ptr_labels := ArrayList(String).new();
+  mut(ptr_labels) := ArrayList(String).new();
   ptr_labels.push(String.from("a"));
   ptr_labels.push(String.from("b"));
-  ptr_fields := ArrayList(TypeValue).new();
+  mut(ptr_fields) := ArrayList(TypeValue).new();
   ptr_fields.push(t_ptr(t_u8()));
   looped_ptr := _trp_looped_struct(String.from("LoopPtr"), ptr_labels, ptr_fields, usize(0));
   assert(type_representation_contains_raw_ptr(&looped_ptr), "struct(a : <itself>, b : *(u8))");
@@ -664,4 +668,30 @@ test("raw-ptr predicate: nested structs with the same id are walked, not taken f
 });
 test("raw-ptr predicate: Dyn(Trait) is FALSE — RC-managed reference-semantics", {
   assert(!type_representation_contains_raw_ptr(t_dyn_simple(ArrayList(TypeValue).new())), "Dyn()");
+});
+// A SomeT's bounds are ONE shared cell (`SomeTBounds`, consultation #13 §10):
+// a where clause stamps a bound after a parameter type already holds the
+// SomeT, and every holder of that identity must see it; a NEW SomeT built
+// from it (a resolution copy, a substitution) owns a fresh cell.
+_somet_required_len :: (fn(t : &TypeValue) -> usize)(
+  match(
+    t,
+    Rc(.SomeT(_, _, _, _, b, _, _)) => b.required_len(),
+    Rc(.Pointer(inner)) => _somet_required_len(&inner),
+    _ => usize(99)
+  )
+);
+test("SomeT bounds: a later stamp reaches the type built over the SomeT, never a copy built before it", {
+  t := t_some_t(&String.from("T"), usize(0));
+  // A parameter type built BEFORE the where clause runs (`x : *(T)`).
+  param_ty := t_ptr(&t);
+  // A new SomeT identity built from it before the stamp (a resolution copy).
+  copy := t_with_resolution(&t, &t_i32());
+  _add_where_clause_constraint(&t, &t_trait_simple(&String.from("Send")), false);
+  assert(_somet_required_len(&t) == usize(1), "the stamped SomeT holds the bound");
+  assert(_somet_required_len(&param_ty) == usize(1), "the parameter type built over it sees the bound");
+  assert(_somet_required_len(&copy) == usize(0), "a copy built before the stamp keeps its own, empty bounds");
+  // The same where clause re-validated does not append a second copy.
+  _add_where_clause_constraint(&t, &t_trait_simple(&String.from("Send")), false);
+  assert(_somet_required_len(&t) == usize(1), "the stamp dedups by trait id");
 });

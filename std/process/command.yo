@@ -209,7 +209,7 @@ impl(
     mut(i) := usize(0);
     while(i < n, {
       match(
-        more.get(i),
+        more.get_cloned(i),
         .Some(s) => {
           self._args.push(s);
         },
@@ -304,13 +304,13 @@ _command_has_interior_nul :: (fn(self : &Command) -> bool)({
 // `ArrayList(u8)`. The returned list owns the C-string storage; callers
 // extract the raw `*(u8)` pointers separately.
 _build_cstr_storage :: (fn(self : &Command) -> ArrayList(ArrayList(u8)))({
-  storage := ArrayList(ArrayList(u8)).new();
+  mut(storage) := ArrayList(ArrayList(u8)).new();
   storage.push(self._program.to_cstr());
   n := self._args.len();
   mut(i) := usize(0);
   while(i < n, {
     match(
-      self._args.get(i),
+      self._args.get_cloned(i),
       .Some(s) => {
         storage.push(s.to_cstr());
       },
@@ -325,14 +325,14 @@ _build_cstr_storage :: (fn(self : &Command) -> ArrayList(ArrayList(u8)))({
 // same-KEY entries and appending new ones.
 _build_env_storage :: (fn(self : &Command) -> ArrayList(ArrayList(u8)))({
   { environ } :: import("../libc/unistd");
-  storage := ArrayList(ArrayList(u8)).new();
-  keys := ArrayList(String).new();
+  mut(storage) := ArrayList(ArrayList(u8)).new();
+  mut(keys) := ArrayList(String).new();
   // Overrides FIRST so an inherited same-key entry is skipped below.
   n := self._env_overrides.len();
   mut(i) := usize(0);
   while(i < n, {
     match(
-      self._env_overrides.get(i),
+      self._env_overrides.get_cloned(i),
       .Some(entry) => {
         match(
           entry.index_of("=", usize(0)),
@@ -366,7 +366,7 @@ _build_env_storage :: (fn(self : &Command) -> ArrayList(ArrayList(u8)))({
           (mut(ki) : usize) = usize(0);
           while(ki < keys.len(), {
             match(
-              keys.get(ki),
+              keys.get_cloned(ki),
               .Some(k) => if(k == key, {
                 overridden = true;
               }),
@@ -419,7 +419,7 @@ _spawn_with_fds :: (
   // as `storage`: it must be an Rc value the capture struct can own, and it
   // must stay alive until the spawn call reads it.
   cwd_cstr := match(
-    self._cwd,
+    &self._cwd,
     .Some(cd) => Option(ArrayList(u8)).Some(cd.to_cstr()),
     .None => Option(ArrayList(u8)).None
   );
@@ -451,17 +451,13 @@ _spawn_with_fds :: (
     // Fill argv pointers from each owning ArrayList(u8) in storage.
     mut(j) := usize(0);
     while(j < argc, {
+      // In place: the pointer must point into `storage`'s own buffer,
+      // which outlives the spawn call (a copy would die at the statement).
       match(
-        storage.get(j),
-        .Some(cs) => match(
-          cs.ptr(),
-          .Some(p) => {
-            (argv_buf.add(j)).* = .Some(p);
-          },
-          .None => {
-            (argv_buf.add(j)).* = .None;
-          }
-        ),
+        storage(j).ptr(),
+        .Some(p) => {
+          (argv_buf.add(j)).* = .Some(p);
+        },
         .None => {
           (argv_buf.add(j)).* = .None;
         }
@@ -483,17 +479,12 @@ _spawn_with_fds :: (
       envp_buf := (*?*u8)(envp_mem);
       (mut(ej) : usize) = usize(0);
       while(ej < envc, {
+        // In place, as for argv above.
         match(
-          env_storage.get(ej),
-          .Some(es) => match(
-            es.ptr(),
-            .Some(ep) => {
-              (envp_buf.add(ej)).* = .Some(ep);
-            },
-            .None => {
-              (envp_buf.add(ej)).* = .None;
-            }
-          ),
+          env_storage(ej).ptr(),
+          .Some(ep) => {
+            (envp_buf.add(ej)).* = .Some(ep);
+          },
           .None => {
             (envp_buf.add(ej)).* = .None;
           }
@@ -505,7 +496,7 @@ _spawn_with_fds :: (
     });
     (mut(cwd_ptr) : ?*u8) = .None;
     match(
-      cwd_cstr,
+      &cwd_cstr,
       .Some(cc) => {
         cwd_ptr = cc.ptr();
       },
@@ -553,7 +544,7 @@ _drain_fd :: (fn(fd : i32, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))(
   io.async(e => {
     buf_size := usize(4096);
     buf := (*u8)(malloc(buf_size).unwrap());
-    out := ArrayList(u8).new();
+    mut(out) := ArrayList(u8).new();
     while(true, {
       n := e.io.await(IO_file.read(fd, buf, u32(buf_size), u64(0)), e.io);
       cond(

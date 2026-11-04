@@ -8,26 +8,26 @@ pragma(Pragma.Verify);
 { ArrayList } :: import("std/collections/array_list");
 { assert } :: import("std/assert");
 
-grow1 :: (fn(xs : ArrayList(i32), ensures(xs.len() == (old(xs.len()) + usize(1)))) -> unit)({
+grow1 :: (fn(xs : &mut ArrayList(i32), ensures(xs.len() == (old(xs.len()) + usize(1)))) -> unit)({
   xs.push(i32(7));
 });
 
 grow_in_loop :: (fn(n : i32, requires(n == i32(3)), ensures(true)) -> (r : i32))({
-  ys := ArrayList(i32).new();
+  mut(ys) := ArrayList(i32).new();
   (mut(i) : i32) = i32(0);
   while(i < n, {
     invariant((i >= i32(0)) && (i <= n));
     assert(ys.len() == usize(0));
-    grow1(ys);
+    grow1(&mut ys);
     i = (i + i32(1));
   });
   i
 });
 
 maybe_grow :: (fn(c : bool, ensures(r == usize(1))) -> (r : usize))({
-  ys := ArrayList(i32).new();
+  mut(ys) := ArrayList(i32).new();
   if(c, {
-    grow1(ys);
+    grow1(&mut ys);
   });
   ys.len()
 });
