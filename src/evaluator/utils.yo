@@ -187,15 +187,15 @@ pragma(Pragma.AllowUnsafe);
 /// where the future is made (`calls/function.yo`), read by the binding
 /// freeze and the return rule (`origin_carrying_value_roots`).
 (g_future_roots : RefCell(HashMap(usize, ArrayList(FutureRoot)))) = RefCell(HashMap(usize, ArrayList(FutureRoot))).new(HashMap(usize, ArrayList(FutureRoot)).new());
-/// The block statements after a borrow binding, for its live range: set by
-/// `evaluate_begin_expression` just before it evaluates the binding.
-// A RefCell, not a mut binding: the staged list is move-only since the
-// flip, and a mutable module-level binding cannot lend itself to `.clone()`
-// (E0916).
-(g_lb_lookahead_stmts : RefCell(ArrayList(AstExpr))) = RefCell(ArrayList(AstExpr)).new(ArrayList(AstExpr).new());
-(mut(g_lb_lookahead_index) : usize) = usize(0);
-(mut(g_lb_lookahead_id) : usize) = usize(0);
-(mut(g_lb_lookahead_armed) : bool) = false;
+/// The block statements after each pending borrow binding, for its live
+/// range: one frame per binding statement, set by `evaluate_begin_expression`
+/// just before it evaluates the binding and read by the binding's range by
+/// statement id, so a stale frame is never read. Frames, not one slot: a
+/// binding whose right-hand side evaluates a function body (a generic
+/// combinator's specialization, a comptime constructor) arms its own nested
+/// blocks' bindings in between, and with one slot the outer binding lost its
+/// range and froze nothing past its own statement.
+(g_lb_lookaheads : RefCell(ArrayList(_LbLookahead))) = RefCell(ArrayList(_LbLookahead)).new(ArrayList(_LbLookahead).new());
 // Phase A.4.1: `generate_temp_variable_name_prefix`,
 // `generate_new_temp_variable_name`, `is_temp_variable_name`, and `random_id`
 // were relocated to `src/utils.yo`.
@@ -6329,7 +6329,6 @@ local_borrows_truncate :: (fn(mark : LocalBorrowMark) -> unit)({
     ()
   });
   g_lb_receiver_armed = false;
-  g_lb_lookahead_armed = false;
 });
 /// Before a `.` access evaluates its receiver `recv`: `recv` is a prefix of
 /// the place the access names.
@@ -6541,9 +6540,12 @@ local_borrow_is_binding_stmt :: (fn(stmt : &AstExpr) -> bool)(
   )
 );
 /// `stmt` may bind a projection call's result (`r := t.index(i)`, decision
-/// 24), which is a local borrow: `name := call(...)`. Whether the callee is a
-/// projection is known only once the call is evaluated, so every such
-/// binding is handed the look-ahead; one that binds a value leaves it unused.
+/// 24), which is a local borrow: `name := call(...)`, or move or copy a
+/// holder (`w := v`, an origin-carrying value: decision 43 step 3's N2b
+/// composites and step 4's borrowing futures), whose binding freezes what the
+/// source froze. Whether the value borrows is known only once it is
+/// evaluated, so every such binding is handed the look-ahead; one that binds
+/// a plain value leaves it unused.
 local_borrow_may_bind_projection_stmt :: (fn(stmt : &AstExpr) -> bool)(
   ast_expr_is_fn_call_of(stmt, BK_INIT_ASSIGN, Option(usize).Some(usize(2))) && match(
     stmt,
@@ -6551,6 +6553,7 @@ local_borrow_may_bind_projection_stmt :: (fn(stmt : &AstExpr) -> bool)(
       match(sargs.get(usize(0)), .Some(l) => ast_expr_is_atom(&l), .None => false) && match(
         sargs.get(usize(1)),
         .Some(.FnCall(_, _, _, r_infix, _)) => !r_infix,
+        .Some(.Atom(_, _)) => true,
         _ => false
       )
     ),
@@ -6563,10 +6566,36 @@ local_borrow_set_lookahead :: (fn(stmts : &ArrayList(AstExpr), i : usize, stmt :
   if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
     eprintln(`[n2b] arm lookahead for stmt id=${ast_expr_id(stmt)}`);
   });
-  g_lb_lookahead_stmts.replace(stmts.clone());
-  g_lb_lookahead_index = i;
-  g_lb_lookahead_id = ast_expr_id(stmt);
-  g_lb_lookahead_armed = true;
+  frame := _LbLookahead(id : ast_expr_id(stmt), index : i, stmts : stmts.clone());
+  g_lb_lookaheads.with_mut({ frame }(xs) => {
+    match(
+      _lb_lookahead_index_of(xs, frame.id),
+      .Some(old) => {
+        _stale := xs.remove(old);
+      },
+      .None => ()
+    );
+    // A binding that binds a value leaves its frame unread; only the
+    // innermost frames can still be read.
+    if(xs.len() >= usize(64), {
+      _oldest := xs.remove(usize(0));
+    });
+    xs.push(frame);
+  });
+});
+/// One pending look-ahead (`local_borrow_set_lookahead`).
+_LbLookahead :: struct(id : usize, index : usize, stmts : ArrayList(AstExpr));
+derive(_LbLookahead, Clone);
+/// The index of the frame of statement `id`.
+_lb_lookahead_index_of :: (fn(xs : &ArrayList(_LbLookahead), id : usize) -> Option(usize))({
+  (i : usize) = xs.len();
+  while(i > usize(0), {
+    i = (i - usize(1));
+    if(match(xs.get(i), .Some(f) => (f.id == id), .None => false), {
+      return(Option(usize).Some(i));
+    });
+  });
+  Option(usize).None
 });
 /// A reference cell: a step into it leaves the static place model. A cell
 /// handle (`cell_handle_view`, V5's `Rc`/`Arc`) is one, as the `Rc` it
@@ -7768,40 +7797,36 @@ local_borrow_range_of :: (fn(binding : &AstExpr, name : &String, decl : &Token) 
   (end : Token) = _last_token_of(binding, decl);
   (repoint : bool) = false;
   if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
-    (dbg_armed : bool) = g_lb_lookahead_armed;
-    dbg_have := g_lb_lookahead_id;
-    eprintln(`[n2b] range_of ${name}: armed=${dbg_armed} want=${ast_expr_id(binding)} have=${dbg_have}`);
+    eprintln(`[n2b] range_of ${name}: want=${ast_expr_id(binding)} pending=${g_lb_lookaheads.with(xs => xs.len()).to_string()}`);
   });
-  // The id alone gates the look-ahead (N2b): the armed flag is reset by
-  // `local_borrows_truncate`, which every NESTED begin block runs — a
-  // binding whose RHS evaluates a function body (`v := View(x)(...)`, the
-  // callee a comptime constructor) loses the flag between the arm at its
-  // statement and its own range read. The statement id is unique, so a stale
-  // arm cannot match; a nested block's own arm replaces the id and the
-  // binding falls back to its statement-local range as before.
-  if(g_lb_lookahead_id == ast_expr_id(binding), {
-    g_lb_lookahead_armed = false;
-    // Staged through a local: `.clone()` directly on the `mut(G)` global is
-    // E0916 (the receiver lend), while reading it by name is decision 47's
-    // reassignment case (issues/retired/2026-10-26-explicit-copy-migration-inserts-a-clone-that-lends-a-mut-g-global.md).
-    stmts := g_lb_lookahead_stmts.with(xs => xs.clone());
-    (j : usize) = stmts.len();
-    (found : bool) = false;
-    while((j > (g_lb_lookahead_index + usize(1))) && !found, {
-      j = (j - usize(1));
-      st := match(stmts.get(j), .Some(s) => s, .None => make_err_expr());
-      if(_lb_mentions(&st, name.clone()), {
-        found = true;
-        last = match(_lb_last_mention(&st, name.clone(), Option(Token).None), .Some(t) => t, .None => decl);
-        end = _lb_region_end(&st, name.clone(), decl);
+  // The statement id finds the binding's own frame: a nested block's
+  // bindings (in a function body the right-hand side evaluated) armed their
+  // own frames in between. Without a frame the binding keeps its
+  // statement-local range.
+  bid := ast_expr_id(binding);
+  match(
+    g_lb_lookaheads.with({ bid }(xs) => match(_lb_lookahead_index_of(xs, bid), .Some(fi) => xs.get_cloned(fi), .None => Option(_LbLookahead).None)),
+    .Some(frame) => {
+      stmts := frame.stmts.clone();
+      (j : usize) = stmts.len();
+      (found : bool) = false;
+      while((j > (frame.index + usize(1))) && !found, {
+        j = (j - usize(1));
+        st := match(stmts.get(j), .Some(s) => s, .None => make_err_expr());
+        if(_lb_mentions(&st, name.clone()), {
+          found = true;
+          last = match(_lb_last_mention(&st, name.clone(), Option(Token).None), .Some(t) => t, .None => decl);
+          end = _lb_region_end(&st, name.clone(), decl);
+        });
       });
-    });
-    (k : usize) = (g_lb_lookahead_index + usize(1));
-    while((k < stmts.len()) && !repoint, {
-      repoint = match(stmts.get(k), .Some(s) => _lb_has_repoint(&s, name.clone()), .None => false);
-      k = (k + usize(1));
-    });
-  });
+      (k : usize) = (frame.index + usize(1));
+      while((k < stmts.len()) && !repoint, {
+        repoint = match(stmts.get(k), .Some(s) => _lb_has_repoint(&s, name.clone()), .None => false);
+        k = (k + usize(1));
+      });
+    },
+    .None => ()
+  );
   LocalBorrowRange(last_use : last, end : end, has_repoint : repoint)
 });
 /// Register the local borrow `name` (declared at `decl`) of `place`, live as

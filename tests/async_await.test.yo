@@ -7669,6 +7669,13 @@ test("a bound borrowing future freezes what it borrows until its last use (decis
     c.n = i32(5);
     io.await(h, io)
   }, "Cannot write `c.n` here");
+  // Moved to another binding, the future keeps its places frozen.
+  comptime_expect_error({
+    h := _a2_bump(&mut c, io);
+    h2 := h;
+    c.n = i32(5);
+    io.await(h2, io)
+  }, "Cannot write `c.n` here");
 });
 test("a borrowing future is never spawned or carried out of its lender's scope", {
   mut(c) := _A2Counter(n : i32(0));
