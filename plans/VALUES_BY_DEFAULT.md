@@ -199,12 +199,13 @@ Progress:
     a type's structure, a failed `where(T <: Escapable)` and an `Rc`/`Arc`
     payload carrying an origin as E0909, `&h.*.x` and `{ x : &h.*.x }`
     through a read-only handle with the handle frozen (O9, O10);
-    `RefCell.get()`/`get_mut()` split out to N3 (#1724); N1e-1 — a
+    `RefCell.get()`/`get_mut()` split out to N3 (#1724); N1e-1 (#1752) — a
     reference binding reads and writes its referent with `.*` outside std
     and src, a bare whole-value use is E0926 (`yo fix --migrate deref`),
     `r.*` lowers to the C a bare read was, a bare `match(r, …)` matches
     through (VERDICTS-13 §11, §14); N1e-2 (reference-typed bindings) is
-    v0.2.75. Step 3's N2a (#1713) and N2b (#1720).
+    v0.2.75. N1f's `FnMut` half (decision 37's call-repeatedly closures; the
+    `impl(&T, …)` half follows N1e). Step 3's N2a (#1713) and N2b (#1720).
   - V2's B10: `Deque`, `BTreeMap`, `OrderedMap` and `PriorityQueue` are
     values (`Clone` derived, or for `Deque` placed in the source's
     allocator; `BTreeMap.range` consumes, as `keys`/`values` do; §6 V2,
@@ -3104,6 +3105,38 @@ and in git, not a silent edit.
         closure passed to an `Impl(Fn)` slot is rejected naming `FnMut`;
         two live calls of one `FnMut` are E0911; `Dyn(FnMut)` stored and
         called; the `Sync` slot rejects a `FnMut`.
+      - **As built (2026-11-03, decision 43 N1f, Generation A;
+        VERDICTS-15).** `FnMut(...)` is a builtin head beside `Fn`/`FnOnce`
+        (`FnTraitT` base `"FnMut"`), and the order is one rank,
+        `fn_trait_base_serves` (`src/types/definitions.yo`), read by type
+        compatibility, the argument check and `dyn` boxing. "Writes a `&mut`
+        capture" is read structurally as "holds one" (VERDICTS-15 Q4′,
+        `capture_struct_is_fnmut`): Yo's capture list spells the `&mut`, so
+        an unwritten one is an over-asked `&`. A closure literal still adopts
+        its slot's trait, so "inferred" means relative to that slot:
+        - Under an `FnMut` slot a capture list's by-value entries are writable
+          (decision 47's "an entry takes no `mut`" assumed a per-call copy; the
+          `FnMut` call borrows the persistent record), and the closure derives
+          neither `Copy` nor `Clone` (`capture_struct_is_fnmut`). Under `Fn`
+          or `FnOnce` an entry write stays E0917, whose help now names
+          `FnMut`.
+        - An `FnMut` call is a `&mut self` receiver call: E0917 through an
+          unmarked binding or a by-value parameter, E0908 through `&` (a
+          parameter, a `&Dyn`, a local `&` borrow), E0911 against a live
+          borrow, and the callee is lent exclusively in decision 38 B's
+          overlap check. Two live calls are therefore the ordinary E0911
+          (corpus rows `fnmut-two-live-calls`/`fnmut-sequential-calls`).
+        - E0913 is widened to the whole order (constant
+          `E_CLOSURE_TRAIT_TOO_WEAK`): a value typed `FnMut` at an `Fn` slot
+          or boxed as `Dyn(Fn)`, an `FnOnce` at an `FnMut` slot or
+          `Dyn(FnMut)`. `Dyn(FnMut(...))` is move-only.
+        - VERDICTS-1 Q10's exemption is the one predicate
+          `fn_slot_admits_capture_fnmut` (`src/evaluator/utils.yo`): a closure
+          holding a `&mut` capture whose trait came from an `Fn(...)` slot (a
+          literal, an unannotated closure value, a `Dyn(Fn(...))` boxing) is
+          admitted, `YO_AUDIT_FNMUT=1` printing each site. N3 deletes it in
+          the PR that switches std's slots (`SEED_VERSION_AUTOMATION.md`). A
+          `Sync` slot is not exempt: it rejects such a closure naming `FnMut`.
     - **Calling a closure is a receiver call, so it is never marked**
       (amended 2026-10-05 by the maintainer).
       - `f(x)` is `f`'s call method with `f` as the receiver, so decision
