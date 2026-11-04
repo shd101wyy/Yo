@@ -15,7 +15,7 @@ pragma(Pragma.AllowUnsafe);
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 // Check that two String values are equal; fails with msg if not.
 assert_str_eq :: (fn(actual : &String, expected : &String, msg : str) -> unit)(
-  if(actual == expected, (), {
+  if(actual.* == expected.*, (), {
     println(`assert_str_eq FAILED: expected="${expected}" actual="${actual}" — ${msg}`);
     assert(false, &msg);
   })
@@ -1185,10 +1185,10 @@ test("`x =>> body` is rejected with E0008", {
 _tokens_of :: (fn(e : &AstExpr, out : &mut ArrayList(Token)) -> unit)(
   match(
     e,
-    .Atom(_, tok) => out.push(tok),
+    .Atom(_, tok) => out.push(tok.*),
     .FnCall(_, callee, Rc(args), _, tok) => {
-      out.push(tok);
-      _tokens_of(&callee, out);
+      out.push(tok.*);
+      _tokens_of(&callee.*, out);
       (mut(i) : usize) = usize(0);
       while(i < args.len(), i = (i + usize(1)), {
         _tokens_of(&args(i), out);

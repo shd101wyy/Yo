@@ -124,9 +124,9 @@ test("parse_manifest: every dependency shape parses", {
   match(
     &r.source,
     .Git(url, req, subdir) => {
-      assert(url == "https://github.com/shd101wyy/raylib_yo", "url");
-      assert(subdir == "", "no subdir");
-      match(req, .Version(v) => assert(v == "^0.0.6", "version req"), _ => panic("expected a version requirement"));
+      assert(url.* == "https://github.com/shd101wyy/raylib_yo", "url");
+      assert(subdir.* == "", "no subdir");
+      match(req, .Version(v) => assert(v.* == "^0.0.6", "version req"), _ => panic("expected a version requirement"));
     },
     .Path(_) => panic("raylib_yo is a git dependency")
   );
@@ -134,20 +134,20 @@ test("parse_manifest: every dependency shape parses", {
   j := m.find_dependency(String.from("json-yo")).unwrap();
   match(
     &j.source,
-    .Git(_, req, _) => match(req, .Tag(t) => assert(t == "v1.2.0", "tag"), _ => panic("expected a tag")),
+    .Git(_, req, _) => match(req, .Tag(t) => assert(t.* == "v1.2.0", "tag"), _ => panic("expected a tag")),
     .Path(_) => panic("json-yo is a git dependency")
   );
   u := m.find_dependency(String.from("utils")).unwrap();
   match(
     &u.source,
-    .Git(_, _, subdir) => assert(subdir == "packages/utils", "subdir"),
+    .Git(_, _, subdir) => assert(subdir.* == "packages/utils", "subdir"),
     .Path(_) => panic("utils is a git dependency")
   );
   p := m.find_dependency(String.from("mylib")).unwrap();
   match(
     &p.source,
     .Git(_, _, _) => panic("mylib is a path dependency"),
-    .Path(path) => assert(path == "../mylib", "path")
+    .Path(path) => assert(path.* == "../mylib", "path")
   );
   h := m.find_dependency(String.from("head")).unwrap();
   match(
@@ -158,13 +158,13 @@ test("parse_manifest: every dependency shape parses", {
   b := m.find_dependency(String.from("main")).unwrap();
   match(
     &b.source,
-    .Git(_, req, _) => match(req, .Branch(br) => assert(br == "main", "branch"), _ => panic("expected a branch")),
+    .Git(_, req, _) => match(req, .Branch(br) => assert(br.* == "main", "branch"), _ => panic("expected a branch")),
     .Path(_) => panic("main is a git dependency")
   );
   pin := m.find_dependency(String.from("pinned")).unwrap();
   match(
     &pin.source,
-    .Git(_, req, _) => match(req, .Rev(sha) => assert(sha == "0123abcd", "rev"), _ => panic("expected a rev")),
+    .Git(_, req, _) => match(req, .Rev(sha) => assert(sha.* == "0123abcd", "rev"), _ => panic("expected a rev")),
     .Path(_) => panic("pinned is a git dependency")
   );
   s := m.find_dependency(String.from("snapshot")).unwrap();

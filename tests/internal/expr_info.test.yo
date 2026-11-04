@@ -224,6 +224,6 @@ test("new_expr_info creates ExprInfo with None optionals", {
 test("new_expr_info env field is set", {
   env := Environment.new(Rc.new(String.from("mod/path")));
   info := new_expr_info(&env, Rc.new(TypeValueNode.Int(u8(32), true)));
-  ty_ok := match(&info.ty, Rc(.Int(bits, signed)) => ((bits == u8(32)) && signed), _ => false);
+  ty_ok := match(&info.ty, Rc(.Int(bits, signed)) => ((bits.* == u8(32)) && signed.*), _ => false);
   assert(ty_ok, "ty is i32");
 });

@@ -77,8 +77,8 @@ mk_ident_call :: (fn(id : usize, name : str, args : &ArrayList(AstExpr)) -> AstE
 /// Build `lhs = rhs` expression.
 mk_assign :: (fn(id : usize, lhs : &AstExpr, rhs : &AstExpr) -> AstExpr)({
   mut(args) := ArrayList(AstExpr).new();
-  args.push(lhs);
-  args.push(rhs);
+  args.push(lhs.*);
+  args.push(rhs.*);
   mk_op_call(id, BK_ASSIGN, &args)
 });
 /// Stub evaluator: stores t_bool() + BoolVal(true) ExprInfo for any expr.
@@ -92,7 +92,7 @@ stub_eval_bool :: (
   info := new_expr_info(env, t_bool());
   info.value = .Some(EvalValue.BoolVal(true));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
-  expr
+  expr.*
 });
 /// Stub evaluator: stores t_i32() + IntLit("42") ExprInfo for any expr.
 stub_eval_i32 :: (
@@ -105,7 +105,7 @@ stub_eval_i32 :: (
   info := new_expr_info(env, t_i32());
   info.value = .Some(EvalValue.IntLit(String.from("42")));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
-  expr
+  expr.*
 });
 /// Raw (exn-threading) variants: `evaluate_assignment` dispatches the RHS
 /// through `evaluate_expression_raw` (the propagating path), so tests must
@@ -122,7 +122,7 @@ stub_eval_bool_raw :: (
   info := new_expr_info(env, t_bool());
   info.value = .Some(EvalValue.BoolVal(true));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
-  expr
+  expr.*
 });
 stub_eval_i32_raw :: (
   fn(
@@ -136,7 +136,7 @@ stub_eval_i32_raw :: (
   info := new_expr_info(env, t_i32());
   info.value = .Some(EvalValue.IntLit(String.from("42")));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
-  expr
+  expr.*
 });
 // ---------------------------------------------------------------------------
 // throw_rhs_contains_control_flow_expression_error

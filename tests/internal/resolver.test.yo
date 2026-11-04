@@ -352,12 +352,12 @@ test("locked_entry_satisfies: a different URL or a path source never satisfies",
 /// error must be a coded YoError whose primary code is `code`.
 _expect_e15xx :: (fn(err : &AnyError, code : &String) -> unit)({
   match(
-    downcast(err, YoError),
+    downcast(err.*, YoError),
     .Some(ye) => match(
       ye.diagnostics.get_cloned(usize(0)),
       .Some(d) => match(
         &d.code,
-        .Some(c) => assert(c == code, `the failure is ${code}, got ${c}`),
+        .Some(c) => assert(c.* == code.*, `the failure is ${code}, got ${c}`),
         .None => assert(false, `the primary diagnostic carries no code`)
       ),
       .None => assert(false, "a diagnostic group must have an entry")

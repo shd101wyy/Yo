@@ -44,7 +44,7 @@ make_ident :: (fn(v : str) -> AstExpr)(
 /// Create `func_name(arg)` — a simple call expression.
 make_simple_call :: (fn(func_name : str, arg : &AstExpr, char_pos : usize) -> AstExpr)({
   mut(args) := ArrayList(AstExpr).new();
-  args.push(arg);
+  args.push(arg.*);
   AstExpr.FnCall(
     usize(0),
     make_ident(func_name),
@@ -66,7 +66,7 @@ make_dot_call :: (fn(module_name : str, method_name : str, arg : &AstExpr) -> As
     make_token(TokenKind.Dot, ".")
   );
   mut(outer_args) := ArrayList(AstExpr).new();
-  outer_args.push(arg);
+  outer_args.push(arg.*);
   AstExpr.FnCall(
     usize(0),
     dot_fncall,
