@@ -827,7 +827,7 @@ a bug in `vc.yo`, not in Z3, and only about 1,300 of the verifier's roughly
 
 **What changes is how Yo depends on Z3.** The maintainer accepted these items
 on 2026-11-04. Z1–Z4 are queued for v0.2.75 or later; Z5 stays parked
-behind their triggers.
+behind its trigger.
 
 | # | Item | Effort | Notes |
 | --- | --- | --- | --- |
