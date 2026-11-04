@@ -34,6 +34,10 @@ static inline size_t yo_test_const_len(const char* s) {
   return strlen(s);
 }
 
+static inline const char* yo_test_const_maybe(int which) {
+  return which == 0 ? (const char*)0 : "maybe";
+}
+
 static inline int yo_test_const_first(const unsigned char* b) {
   return (int)b[0];
 }

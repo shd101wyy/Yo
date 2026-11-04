@@ -17,7 +17,9 @@ c_include(
   yo_test_const_len :
     (fn(s : *(char)) -> usize),
   yo_test_const_first :
-    (fn(b : *(u8)) -> i32)
+    (fn(b : *(u8)) -> i32),
+  yo_test_const_maybe :
+    (fn(which : i32) -> ?*(char))
 );
 _ccr_name :: (fn(which : i32) -> *(char))(unsafe(yo_test_const_name(which)));
 test("a const char* result binds to a local", {
@@ -33,4 +35,12 @@ test("a const char* result is returned from a Yo function", {
 test("a const result whose pointee is a typedef (uint8_t) binds too", {
   b := unsafe(yo_test_const_bytes());
   assert(unsafe(yo_test_const_first(b)) == i32(97), "the first byte is 'a'");
+});
+test("a nullable const char* result binds as ?*(char)", {
+  match(
+    unsafe(yo_test_const_maybe(i32(1))),
+    .Some(p) => assert(unsafe(yo_test_const_len(p)) == usize(5), "the C string"),
+    .None => assert(false, "a non-null result is Some")
+  );
+  assert(unsafe(yo_test_const_maybe(i32(0))).is_none(), "a null result is None");
 });

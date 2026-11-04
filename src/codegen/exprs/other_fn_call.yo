@@ -489,23 +489,28 @@ _is_inside_object_method :: (fn(context : &FunctionGenerationContext) -> bool)(
 _current_self_param_is_ref :: (fn(context : &FunctionGenerationContext) -> bool)(
   match(&context.current_function_type, .Some(ft) => match(ft, Rc(.Func({ result : _ })) => match(fn_param_mut_ref_at(&ft, usize(0)), .Some(b) => b, .None => false), _ => false), .None => false)
 );
-/// The call `call` of a `c_include`d function whose result is the data pointer `r`
-/// (`T*`), read as that declared type: `((T*)(T const*){ call })`. Yo has no
-/// const pointer, so a binding spells a C `const T*` result as `*(T)`, and a
-/// `T*` temporary, local, return or parameter initialized from it drops the
-/// qualifier, which clang's `-Werror=incompatible-pointer-types` rejects. The
-/// compound literal accepts exactly what a `const T*` accepts (a `T*` or a
-/// `const T*`), so a result whose pointee differs from the binding's stays a
-/// C error; the cast then drops only the `const`
+/// The call `call` of a `c_include`d function whose result `r` is a data
+/// pointer `T*` (or a nullable `?*T`, laid out as that pointer), read as its
+/// declared type: `((T*)(T const*){ call })`. Yo has no const pointer, so a
+/// binding spells a C `const T*` result as `*(T)`, and a `T*` temporary,
+/// local, return or argument initialized from it drops the qualifier, which
+/// clang's `-Werror=incompatible-pointer-types` rejects. The compound literal
+/// accepts exactly what a `const T*` accepts (a `T*` or a `const T*`), so a
+/// result whose pointee differs from the binding's stays a C error; the cast
+/// then drops only the `const`
 /// (issues/fixed/2026-11-05-a-c-include-function-returning-a-const-pointer-fails-the-clang-build.md).
-/// A pointer whose C spelling is not the pointee's followed by `*` is left as
+/// A pointer whose C spelling is not its pointee's followed by `*` is left as
 /// it is.
 _c_pointer_result_as_declared :: (fn(r : &TypeValue, call : String, context : &FunctionGenerationContext) -> String)({
-  pointee := match(r, Rc(.Pointer(inner)) => Rc.clone(inner), _ => return(call));
-  ptr_str := get_type_string(r, &context.base);
+  ptr := match(
+    r,
+    Rc(.Pointer(_)) => Rc.clone(r),
+    _ => match(can_optimize_as_nullable_pointer(r), .Some(p) => p, .None => return(call))
+  );
+  pointee := match(ptr, Rc(.Pointer(inner)) => Rc.clone(inner), _ => return(call));
   pointee_str := get_type_string(&pointee, &context.base);
   cond(
-    (ptr_str == `${pointee_str}*`) => `((${ptr_str})(${pointee_str} const*){ ${call} })`,
+    (get_type_string(&ptr, &context.base) == `${pointee_str}*`) => `((${get_type_string(r, &context.base)})(${pointee_str} const*){ ${call} })`,
     true => call
   )
 });
