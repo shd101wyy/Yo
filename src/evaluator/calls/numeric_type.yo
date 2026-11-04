@@ -22,9 +22,9 @@ pragma(Pragma.AllowUnsafe);
   new_expr_info,
   expr_info_table_get,
   expr_info_table_set,
-  record_macro_expansion,
+  record_lowering,
   expr_info_adopt_env,
-  expr_info_set_macro_expansion
+  expr_info_set_lowered_to
 } :: import("../../expr_info.yo");
 { Environment, snapshot_env } :: import("../../env.yo");
 { TypeValue } :: import("../../types/definitions.yo");
@@ -428,14 +428,14 @@ try_to_convert_to_numeric_type :: (
       .Atom(_, _) => make_err_expr()
     );
     // Lower the runtime cast to a `__yo_as` node, then attach it to the ORIGINAL
-    // expr's ExprInfo as a `macro_expansion`. Codegen walks the original parsed
+    // expr's ExprInfo as a `lowered_to`. Codegen walks the original parsed
     // node (which keeps its `i32(...)` structure — codegen does NOT see returned
     // rewrites), so the lowering must travel via the ExprInfo the original node's
-    // id maps to — the enum node cannot be mutated in place, so the existing
-    // macro_expansion mechanism carries it (codegen generation.yo checks it
+    // id maps to — the enum node cannot be mutated in place, so the lowering
+    // channel carries it (codegen generation.yo checks it
     // before the
     // structural dispatch). The `__yo_as` node gets a FRESH id so codegen's
-    // re-dispatch onto it does not re-trigger the same macro_expansion (infinite
+    // re-dispatch onto it does not re-trigger the same lowered_to (infinite
     // loop); its `runtime_arg_exprs_in_order` is the value arg only (not the type).
     yo_as_node := _make_yo_as_node(alloc_global_expr_id(), ast_expr_token(expr), &evaluated, &type_expr);
     yo_as_info := new_expr_info(&env, target_type);
@@ -453,12 +453,12 @@ try_to_convert_to_numeric_type :: (
     out_info.value = .None;
     // ALSO record in the durable id-keyed side-table: a later eval pass (e.g.
     // a cond-arm re-eval or branch-merge trial) can overwrite this expr's
-    // ExprInfo WITHOUT macro_expansion, losing the lowering — codegen then
+    // ExprInfo WITHOUT lowered_to, losing the lowering — codegen then
     // FTTs the conversion (`u32(n)`/`i32(perm.mode)` in arm-result position,
-    // the stage-2 conversion cluster). Same durable-table pattern as the
-    // if-macro fix (see record_macro_expansion / lookup_macro_expansion).
-    record_macro_expansion(ast_expr_id(expr), yo_as_node.clone());
-    expr_info_set_macro_expansion(&out_info, Option(AstExpr).Some(yo_as_node));
+    // the stage-2 conversion cluster). The durable table is the lowering
+    // channel's fallback (see `g_lowerings`).
+    record_lowering(ast_expr_id(expr), yo_as_node.clone());
+    expr_info_set_lowered_to(&out_info, Option(AstExpr).Some(yo_as_node));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
     return(.Some(expr));
   });

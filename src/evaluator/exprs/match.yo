@@ -44,7 +44,7 @@ pragma(Pragma.AllowUnsafe);
   expr_info_set_is_primitive_match,
   expr_info_set_primitive_pattern_values,
   expr_info_adopt_env,
-  expr_info_set_macro_expansion,
+  expr_info_set_lowered_to,
   push_branch_group,
   begin_branch_group_arm,
   branch_group_stack_len,
@@ -1843,7 +1843,7 @@ evaluate_match :: (
       expr_info_set_case_executed(&mae_info, Option(bool).Some(true));
       // The constant/range tests are synthesized nodes outside the source
       // AST. Codegen's collectors (functions, types) follow a node's
-      // `macro_expansion`, so an arm the general lowering will emit hangs its
+      // `lowered_to`, so an arm the general lowering will emit hangs its
       // tests off the ARM's `=>` node as a `begin(...)` of them. NOT off the
       // pattern node: for a top-level constant arm (`"a" => …`) the pattern
       // node IS the literal inside its own test, and codegen's
@@ -1861,7 +1861,7 @@ evaluate_match :: (
           ptok := ast_expr_token(&arm_expr);
           begin_atom := AstExpr.Atom(alloc_global_expr_id(), Token(kind : TokenKind.Identifier, value : intern_token_str(String.from(BK_BEGIN)), row : ptok.row, column : ptok.column, character : ptok.character, byte_offset : ptok.byte_offset, module_path : Rc.clone(ptok.module_path), input : Rc.clone(ptok.input)));
           arm_info := new_expr_info(&env, t_unit());
-          expr_info_set_macro_expansion(&arm_info, Option(AstExpr).Some(AstExpr.FnCall(alloc_global_expr_id(), begin_atom, Rc.new(tests), false, ptok)));
+          expr_info_set_lowered_to(&arm_info, Option(AstExpr).Some(AstExpr.FnCall(alloc_global_expr_id(), begin_atom, Rc.new(tests), false, ptok)));
           expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&arm_expr), &arm_info);
         });
       });

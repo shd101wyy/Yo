@@ -409,9 +409,9 @@ _func_result_is_comptime_only :: (fn(ft : &TypeValue) -> bool)(
 );
 /// True if any runtime parameter of the Func contains a SomeType at the codegen
 /// ABI level, or the Func has generic type parameters.
-/// True if the function has an `Expr`-typed parameter — i.e. it is a MACRO
-/// (`fn(quote(x) : Expr, …) -> unquote(Expr)`). Macros are expanded at the call
-/// site and never emitted as C functions (Expr has no C representation).
+/// True if the function has an `Expr`-typed parameter — a comptime-only
+/// function over quoted code (`fn(comptime(e) : Expr) -> comptime(Expr)`),
+/// never emitted as a C function (Expr has no C representation).
 _func_has_expr_param :: (fn(ft : &TypeValue) -> bool)(
   match(
     ft,
@@ -505,7 +505,7 @@ _body_is_effectful :: (fn(body : &Option(AstExpr), context : &CodeGenContext) ->
 /// definition. This is the single source of truth, called from both loops.
 ///
 /// Skip when (and `__yo_user_main` is never skipped):
-///   - skip_unemittable: hard-generic (generic / SomeT param) or MACRO (Expr param)
+///   - skip_unemittable: hard-generic (generic / SomeT param) or an Expr param
 ///   - skip1: (no effects/evidence/effect-record) and (hard-generic or
 ///     comptime-only result or builtin-inline-only body)
 ///   - skip2: generic params, or generic return that is not a plain `Impl(...)`
@@ -549,9 +549,9 @@ should_skip_function_codegen :: (fn(func_id : &String, c_name : &String, value :
   // (`.throw = fn_yo_id_N`). Skipping them leaves that pointer undeclared.
   // (`skip1`/`skip2` already exempt ERMs;
   // `skip_unemittable` was the missing exemption.)
-  // A MACRO (Expr-typed param) is NEVER emittable — skip it regardless of ERM status.
-  // Only the hard-generic skip is ERM-exempt (an effect handler's generic params are
-  // type-erased to void*; a macro's Expr param is not a runtime type at all).
+  // A function with an Expr-typed param is NEVER emittable — skip it regardless of ERM
+  // status. Only the hard-generic skip is ERM-exempt (an effect handler's generic params
+  // are type-erased to void*; an Expr param is not a runtime type at all).
   skip_unemittable := (!is_user_main && ((!is_erm && is_function_type_hard_generic(&function_type)) || _func_has_expr_param(&function_type)));
   skip1 := (!is_user_main && (!is_effectful && (!has_evidence && !is_erm)) && (is_function_type_hard_generic(&function_type) || _func_result_is_comptime_only(&function_type) || is_function_value_with_only_builtin_yo_inline_function_call(value).is_some()));
   has_generic_params := (!is_user_main && (!is_effectful && !is_erm) && _func_has_generic_params(&function_type));

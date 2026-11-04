@@ -77,8 +77,7 @@ process_unquotes_in_expr :: (
       // callee with `_is_unquote` (is-the-callee-an-unquote-CALL) never
       // matched, so unquotes were silently left UNSPLICED in every
       // expansion and only "worked" when the unexpanded node happened to
-      // evaluate benignly (LHS `unquote(temp) := ...` did not —
-      // tests/codegen-bootstrap/try_macro_assign.yo).
+      // evaluate benignly (LHS `unquote(temp) := ...` did not).
       if(_is_unquote(expr), {
         if(!(args.len() == usize(1)), {
           return(expr);
@@ -252,10 +251,10 @@ evaluate_quote :: (
     }
   );
   // Process unquotes inside a FRESH-ID CLONE of the quoted template. The
-  // template is part of the macro fn's body AST and is expanded on EVERY
+  // template is part of the comptime fn's body AST and is expanded on EVERY
   // call; a derived (id-preserving) clone makes every expansion share
   // ExprInfo-table keys with the template AND with every other expansion
-  // of the same macro — table writes then drop values other holders still
+  // of the same template — table writes then drop values other holders still
   // reference (intermittent allocator SIGTRAPs). `clone_expr_fresh_ids`
   // gives every expansion fresh ids under the id-keyed table.
   quoted := process_unquotes_in_expr(clone_expr_fresh_ids(&arg), env, ctx, exn);

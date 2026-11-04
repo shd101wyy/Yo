@@ -156,12 +156,12 @@ pragma(Pragma.AllowUnsafe);
 /// the specialization. Only stamps a FuncVal whose own generic is empty, and only
 /// when `names` is non-empty.
 /// True if a generic-impl method must NOT be generic-stamped — i.e. it is a
-/// MACRO / quoted-expr / comptime method, not a runtime monomorphizable function.
+/// quoted-expr / comptime method, not a runtime monomorphizable function.
 /// Stamping such a method makes it specialization-eligible, and specializing it
 /// re-evaluates a body that quotes (`__yo_expr_to_string`) with a no-value Expr
 /// arg and throws (observed specializing the `!`/Not operator's comptime variant
 /// during a sibling method's resolution). These are caught by EITHER an
-/// `Expr`-typed parameter (a quote-taking macro) OR a comptime-only result (an
+/// `Expr`-typed parameter (a quote-taking comptime method) OR a comptime-only result (an
 /// operator's `comptime_*` variant) — neither is monomorphized for codegen.
 _method_ty_skip_stamp :: (fn(ty : &TypeValue) -> bool)(
   match(
@@ -4745,9 +4745,9 @@ _c2_eval_direct_field :: (
       // and a recorded snapshot is shared between ExprInfos.
       st.env = expr_info_adopt_env(&mfi);
       mval := match(mfi.value, .Some(v) => v, .None => EvalValue.UnitVal);
-      m_is_macro := _method_ty_skip_stamp(&mfi.ty);
+      m_skip_stamp := _method_ty_skip_stamp(&mfi.ty);
       (m_to_push : EvalValue) = EvalValue.UnitVal;
-      if(m_is_macro, {
+      if(m_skip_stamp, {
         m_to_push = mval;
       }, {
         m_to_push = _stamp_impl_forall_on_method(&mval, &st.forall_names);
@@ -4826,9 +4826,9 @@ _c2_eval_inner_field :: (
         },
         _ => ()
       );
-      g_is_macro := _method_ty_skip_stamp(&gfi.ty);
+      g_skip_stamp := _method_ty_skip_stamp(&gfi.ty);
       (g_to_push : EvalValue) = EvalValue.UnitVal;
-      if(g_is_macro, {
+      if(g_skip_stamp, {
         g_to_push = g_mval;
       }, {
         g_to_push = _stamp_impl_forall_on_method(&g_mval, &st.forall_names);

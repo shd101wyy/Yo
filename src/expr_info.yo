@@ -385,7 +385,9 @@ ExprInfoRare :: ref(
     doc_comment : Option(String),
     deferred_dup_expressions : Option(ArrayList(AstExpr)),
     capture_type : Option(TypeValue),
-    macro_expansion : Option(AstExpr),
+    /// The tree this node was lowered to (`g_lowerings`, the builtin-lowering
+    /// channel); codegen emits it instead of the node.
+    lowered_to : Option(AstExpr),
     original_expr : Option(AstExpr),
     comptime_ref : Option(ComptimeRef),
     index_trait_ptr_type : Option(TypeValue),
@@ -530,7 +532,7 @@ _clone_expr_info_rare :: (fn(r : &Option(ExprInfoRare)) -> Option(ExprInfoRare))
         doc_comment : x.doc_comment.clone(),
         deferred_dup_expressions : x.deferred_dup_expressions.clone(),
         capture_type : x.capture_type.clone(),
-        macro_expansion : x.macro_expansion,
+        lowered_to : x.lowered_to,
         original_expr : x.original_expr,
         comptime_ref : x.comptime_ref.clone(),
         index_trait_ptr_type : x.index_trait_ptr_type.clone(),
@@ -610,20 +612,20 @@ expr_info_set_capture_type :: (fn(info : &ExprInfo, v : &Option(TypeValue)) -> u
   r.capture_type = v.clone();
   ()
 });
-expr_info_macro_expansion :: (fn(info : &ExprInfo) -> Option(AstExpr))(
+expr_info_lowered_to :: (fn(info : &ExprInfo) -> Option(AstExpr))(
   match(
     info.rare,
-    .Some(r) => r.macro_expansion,
+    .Some(r) => r.lowered_to,
     .None => Option(AstExpr).None
   )
 );
 /// Skip-None setter: writing `.None` into an absent rare group is a no-op.
-expr_info_set_macro_expansion :: (fn(info : &ExprInfo, v : &Option(AstExpr)) -> unit)({
+expr_info_set_lowered_to :: (fn(info : &ExprInfo, v : &Option(AstExpr)) -> unit)({
   if(v.is_none() && info.rare.is_none(), {
     return(());
   });
   r := _expr_info_rare_for_write(info);
-  r.macro_expansion = v;
+  r.lowered_to = v;
   ()
 });
 expr_info_original_expr :: (fn(info : &ExprInfo) -> Option(AstExpr))(
@@ -810,7 +812,7 @@ _expr_info_rare_for_write :: (fn(info : &ExprInfo) -> ExprInfoRare)(
         doc_comment : Option(String).None,
         deferred_dup_expressions : Option(ArrayList(AstExpr)).None,
         capture_type : Option(TypeValue).None,
-        macro_expansion : Option(AstExpr).None,
+        lowered_to : Option(AstExpr).None,
         original_expr : Option(AstExpr).None,
         comptime_ref : Option(ComptimeRef).None,
         index_trait_ptr_type : Option(TypeValue).None,
@@ -2606,19 +2608,6 @@ fid_fully_specialized :: (fn(fid : &String) -> bool)({
   calls := match(g_fid_rtcalls.with(m => m.get(fid.clone())), .Some(v) => v, .None => usize(0));
   (specs > usize(0)) && (specs >= calls)
 });
-// Macro-expansion side-table: a macro CALL's expanded form (e.g. `if(c, t, e)` →
-// its `cond(...)`), keyed by the call's expr id. Codegen lowers a macro
-// call ONLY via `ExprInfo.macro_expansion` (generation.yo) — but that per-pass
-// ExprInfo gets OVERWRITTEN across eval passes: a later eval of the same call id
-// re-sets its table entry WITHOUT macro_expansion, so codegen then reads `None`
-// and emits "Failed to transpile" (this is exactly why every `if(...recur...)`
-// fails — confirmed: same id is macro-set once, then read with no expansion).
-// The per-pass side-table is churnable, so this durable,
-// id-keyed table is written once by the macro path and
-// read by codegen as a FALLBACK when the per-pass ExprInfo lost it. A macro
-// call's expansion is a stable syntactic property of its id, so the record stays
-// correct regardless of which pass last touched the ExprInfo. (Same pattern as
-// g_method_callee_values above.)
 /// The error a forced `io.async` closure body's definition-time trial
 /// swallowed, keyed by the body's source position (`module:row:col`).
 /// Nothing evaluates such a body again, so codegen finds it hollow; it reports
@@ -2690,23 +2679,37 @@ record_spec_instantiation :: (fn(spec_fid : &String, call_token : &Token, descri
   ()
 });
 lookup_spec_instantiation :: (fn(spec_fid : &String) -> Option(SpecInstantiation))(g_spec_instantiations.with(m => m.get_cloned(spec_fid)));
-(g_macro_expansions : RefCell(HashMap(ExprId, AstExpr))) = RefCell(HashMap(ExprId, AstExpr)).new(HashMap(ExprId, AstExpr).new());
-/// Record the expanded form for a macro-call expr id.
-record_macro_expansion :: (fn(call_id : ExprId, expanded : &AstExpr) -> unit)({
+/// The builtin-lowering channel (plans/backlog/MACRO_AND_ISO_REMOVAL.md C3;
+/// `ExprInfo.lowered_to` was `macro_expansion` until the macro layer was
+/// deleted): a node the evaluator lowered to another tree, which codegen and
+/// every walk over evaluated code read INSTEAD of the node, keyed by its expr
+/// id. The node cannot be rewritten in place: codegen walks the original
+/// parsed tree, and a cast replaces the node, callee included
+/// (`calls/pointer_type.yo`). The writers: the `Copy` `.clone()` lowered to its
+/// receiver (`calls/function.yo`), the structural clone (`utils/closure.yo`),
+/// the match-arm pattern tests (`exprs/match.yo`), the local-borrow pin
+/// channel (`exprs/initialization_assignment.yo`) and the pointer and numeric
+/// casts (`calls/pointer_type.yo`, `calls/numeric_type.yo`). The per-pass
+/// `ExprInfo.lowered_to` can be overwritten by a later evaluation of the same
+/// node without it, so this durable table is written once and read as the
+/// FALLBACK; a node's lowering is a stable property of its id.
+(g_lowerings : RefCell(HashMap(ExprId, AstExpr))) = RefCell(HashMap(ExprId, AstExpr)).new(HashMap(ExprId, AstExpr).new());
+/// Record the lowered form of the node `call_id`.
+record_lowering :: (fn(call_id : ExprId, expanded : &AstExpr) -> unit)({
   record_owned_expr_id(call_id);
-  g_macro_expansions.with_mut(m => m.insert(call_id, expanded));
+  g_lowerings.with_mut(m => m.insert(call_id, expanded));
   ()
 });
-/// Look up the expanded form for a macro-call expr id, if recorded.
-lookup_macro_expansion :: (fn(call_id : ExprId) -> Option(AstExpr))(
-  g_macro_expansions.with(m => m.get(&call_id))
+/// The lowered form of the node `call_id`, if one was recorded.
+lookup_lowering :: (fn(call_id : ExprId) -> Option(AstExpr))(
+  g_lowerings.with(m => m.get(&call_id))
 );
 derive(SpecInstantiation, Clone);
 // Module-level mutable-variable init expressions, collected during module-body
 // evaluation (`evaluate_anonymous_module_begin_exprs`) and consumed by codegen
 // to emit file-scope `static` declarations + initialize them in the main
 // wrapper. The `EvalValue` enum cannot hold the field, so this durable global is the idiomatic
-// eval→codegen bridge (same pattern as g_macro_expansions / g_method_callee_values
+// eval→codegen bridge (same pattern as g_lowerings / g_method_callee_values
 // above). Dedup by expr id bounds re-collection across the evaluator's multiple
 // passes; codegen additionally dedups by resolved C variable name (a global may
 // still be recorded under distinct clone ids) to avoid duplicate C declarations.
@@ -2776,8 +2779,8 @@ export(
   expr_info_set_capture_field_inits,
   expr_info_capture_type,
   expr_info_set_capture_type,
-  expr_info_macro_expansion,
-  expr_info_set_macro_expansion,
+  expr_info_lowered_to,
+  expr_info_set_lowered_to,
   expr_info_original_expr,
   expr_info_set_original_expr,
   expr_info_comptime_ref,
@@ -3080,7 +3083,7 @@ print_spec_report_if_requested :: (fn() -> unit)({
 export(record_fid_rtcall, record_fid_spec, fid_fully_specialized, print_spec_report_if_requested, record_node_eval);
 export(mark_by_value_param_share_dup, is_by_value_param_share_dup, mark_call_scoped_share_dup, is_call_scoped_share_dup, mark_call_scoped_share_drop, is_call_scoped_share_drop);
 export(mark_node_preevaluated, unmark_node_preevaluated, node_is_preevaluated, mark_call_once_capture_dup, is_call_once_capture_dup, mark_moved_container_dup, is_moved_container_dup, mark_fnonce_capture_drop, is_fnonce_capture_drop, mark_fnonce_post_call_release, is_fnonce_post_call_release);
-export(record_macro_expansion, lookup_macro_expansion);
+export(record_lowering, lookup_lowering);
 export(HollowBodyError, record_hollow_body_error, clear_hollow_body_error, lookup_hollow_body_error);
 export(trial_body_site, record_generic_trial_error, clear_generic_trial_error, lookup_generic_trial_error);
 export(SpecInstantiation, record_spec_instantiation, lookup_spec_instantiation);
@@ -3103,7 +3106,7 @@ _purge_expr_side_tables_at :: (fn(id : usize) -> unit)({
   _t := g_method_callee_types.with_mut(m => m.remove(&id));
   _b := g_io_builtin_calls.with_mut(m => m.remove(&id));
   _v := g_method_callee_values.with_mut(m => m.remove(&id));
-  _m := g_macro_expansions.with_mut(m => m.remove(&id));
+  _m := g_lowerings.with_mut(m => m.remove(&id));
   _p := g_local_borrow_step_pins.with_mut(m => m.remove(&id));
   _d := g_immediate_old_value_drops.with_mut(m => m.remove(&id));
   _c := g_consume_releases.with_mut(s => s.remove(&id));
@@ -3152,7 +3155,7 @@ purge_executed_clone_metadata :: (fn(table : &ExprInfoTable, root : &AstExpr, lo
 });
 /// Total entries across those tables (the B2 plateau test's probe).
 expr_side_table_entry_count :: (fn() -> usize)(
-  g_method_callee_types.with(m => m.len()) + g_io_builtin_calls.with(m => m.len()) + g_method_callee_values.with(m => m.len()) + g_macro_expansions.with(m => m.len()) + g_immediate_old_value_drops.with(m => m.len()) + g_consume_releases.with(s => s.len())
+  g_method_callee_types.with(m => m.len()) + g_io_builtin_calls.with(m => m.len()) + g_method_callee_values.with(m => m.len()) + g_lowerings.with(m => m.len()) + g_immediate_old_value_drops.with(m => m.len()) + g_consume_releases.with(s => s.len())
 );
 export(record_module_level_init_expr, get_module_level_init_exprs);
 export(purge_expr_side_tables, purge_executed_clone_metadata, expr_side_table_entry_count);

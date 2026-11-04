@@ -9,13 +9,13 @@
 //!   * `evaluated_body_contains_unwind` — true if `unwind` appears outside
 //!     a function boundary.
 //!   * `expr_tree_contains_return` — same shape but also matches `return`.
-//!     The macro-expansion case is omitted because `ExprInfo.macro_expansion`
+//!     The lowering case is omitted because `ExprInfo.lowered_to`
 //!     lives in a side table not reachable from a raw `AstExpr`.
 //!   * `expr_contains_loop_terminator` — also matches `break`.
 //!   * `expr_contains_await` — also matches `io.await` calls.
 //!
 //! All of these are AST-only baselines: anything that lives in `ExprInfo`
-//! (macro expansions, io-builtin markers) is not reachable from a raw
+//! (lowerings, io-builtin markers) is not reachable from a raw
 //! `AstExpr` and is not consulted.
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
@@ -38,7 +38,7 @@ pragma(Pragma.AllowUnsafe);
   BK_BEGIN,
   BK_WHILE
 } :: import("./expr.yo");
-{ lookup_macro_expansion } :: import("./expr_info.yo");
+{ lookup_lowering } :: import("./expr_info.yo");
 { codegen_tables_enabled } :: import("./utils.yo");
 { is_io_await_call, is_io_async_call } :: import("./evaluator/async/await_analysis.yo");
 { RefCell } :: import("std/sync/refcell");
@@ -117,7 +117,7 @@ evaluated_body_contains_unwind :: (fn(e : &AstExpr) -> bool)(
 /// `return`. Skips new function/closure boundaries; recurses into cond/match
 /// branches.
 ///
-/// The macro-expansion case is omitted — `ExprInfo.macro_expansion` lives in
+/// The lowering case is omitted — `ExprInfo.lowered_to` lives in
 /// a side table (`ExprInfoTable`) and is not reachable from a raw `AstExpr`,
 /// so this helper is an AST-only baseline.
 expr_tree_contains_return :: (fn(e : &AstExpr) -> bool)(
@@ -277,7 +277,7 @@ expr_contains_loop_terminator :: (fn(expr : &AstExpr) -> bool)(
 ///
 /// AST-only convention, like the siblings above: io.await / io.async are
 /// detected via `is_io_await_call` / `is_io_async_call` (dot-access pattern);
-/// the ExprInfo-only cases (`macroExpansion`, type-value /
+/// the ExprInfo-only cases (`lowered_to`, type-value /
 /// `typeImplementsFn` callee skips) are omitted — `ExprInfo` lives in a side
 /// table not reachable from a raw `AstExpr`.
 expr_contains_await :: (fn(expr : &AstExpr) -> bool)(
@@ -289,16 +289,16 @@ expr_contains_await :: (fn(expr : &AstExpr) -> bool)(
       if(is_io_await_call(expr), {
         return(true);
       });
-      // A macro call (`if(...)`) keeps its macro head in the AST; the nodes
-      // the evaluator actually stamped (io-builtin markers included) are the
-      // EXPANSION's clones, so an `aio.await(...)` inside a raw `if` arg is
-      // invisible to this walk — recurse into the expansion instead. Mirrors
-      // `exprContainsAwait`, which follows
-      // `expr.$.macroExpansion`. Without this, an if-in-while body whose
-      // branch awaits emitted "Expected await in while loop body but none
-      // found" — the loop body vanished and the program spun forever.
+      // A lowered node keeps its original head in the AST; the nodes the
+      // evaluator actually stamped (io-builtin markers included) are the
+      // LOWERING's, so an `aio.await(...)` inside a raw arg is invisible to
+      // this walk — recurse into the lowering (the durable table, which needs
+      // no ExprInfo) instead. Without this, an if-in-while body whose branch
+      // awaits (the `if` was a macro then) emitted "Expected await in while
+      // loop body but none found" — the loop body vanished and the program
+      // spun forever.
       match(
-        lookup_macro_expansion(ast_expr_id(expr)),
+        lookup_lowering(ast_expr_id(expr)),
         .Some(me) => {
           return(recur(&me));
         },
@@ -370,9 +370,8 @@ expr_contains_await :: (fn(expr : &AstExpr) -> bool)(
 /// `while_loop_N_continue` / `after_while_loop_N` labels, only when it knows the
 /// loop encloses another suspending loop. A shallow scan of the body's
 /// top-level expressions misses the ordinary shapes — the inner loop usually
-/// sits inside a `match` arm or an `if`, and `if(...)` keeps its macro head in
-/// the AST, so the branch structure is only reachable through the macro
-/// expansion. Missing it makes the outer loop lower as if it were innermost: no
+/// sits inside a `match` arm or a lowered node, whose structure is only
+/// reachable through its lowering. Missing it makes the outer loop lower as if it were innermost: no
 /// back-edge and no exit label, so its body runs once and control never returns
 /// to it. Honors the same boundaries as `expr_contains_await`.
 ///
@@ -385,7 +384,7 @@ expr_contains_while_with_await :: (fn(expr : &AstExpr) -> bool)(
         return(true);
       });
       match(
-        lookup_macro_expansion(ast_expr_id(expr)),
+        lookup_lowering(ast_expr_id(expr)),
         .Some(me) => {
           return(recur(&me));
         },

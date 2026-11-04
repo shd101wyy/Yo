@@ -51,8 +51,8 @@
   expr_info_table_set,
   expr_info_set_capture_type,
   expr_info_set_capture_field_inits,
-  expr_info_set_macro_expansion,
-  record_macro_expansion,
+  expr_info_set_lowered_to,
+  record_lowering,
   expr_info_index_trait_ptr_type,
   expr_info_index_method_type
 } :: import("../../expr_info.yo");
@@ -1685,7 +1685,7 @@ _eval_clone_template :: (fn(code : &String, recv : &AstExpr, env : &Environment,
 /// that node's type and value, recorded durably as the numeric conversions'
 /// are. The info is a fresh one: `generated`'s own shares its `rare` record,
 /// so setting the expansion there made `generated` expand to itself (a walk
-/// following `macro_expansion` never returned).
+/// following `lowered_to` never returned).
 _expand_clone_to :: (fn(expr : &AstExpr, generated : &AstExpr, ctx : &EvalContext) -> AstExpr)({
   match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(generated)),
@@ -1694,8 +1694,8 @@ _expand_clone_to :: (fn(expr : &AstExpr, generated : &AstExpr, ctx : &EvalContex
       out.value = gen_info.value;
       out.control_flow = gen_info.control_flow;
       out.variable_name = gen_info.variable_name.clone();
-      record_macro_expansion(ast_expr_id(expr), generated.clone());
-      expr_info_set_macro_expansion(&out, Option(AstExpr).Some(generated));
+      record_lowering(ast_expr_id(expr), generated.clone());
+      expr_info_set_lowered_to(&out, Option(AstExpr).Some(generated));
       expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
     },
     .None => ()

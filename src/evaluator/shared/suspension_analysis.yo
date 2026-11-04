@@ -36,7 +36,7 @@ pragma(Pragma.AllowUnsafe);
 { HashSet } :: import("std/collections/hash_set");
 { TokenKind } :: import("../../token.yo");
 { AstExpr, ExprId, ast_expr_id, ast_expr_is_fn_call_of, ast_expr_is_local_borrow_mode_call } :: import("../../expr.yo");
-{ ExprInfo, lookup_macro_expansion, is_module_level_global, expr_info_deferred_dup_expressions, expr_info_macro_expansion, scope_variables, lookup_local_borrow_step_pin } :: import("../../expr_info.yo");
+{ ExprInfo, lookup_lowering, is_module_level_global, expr_info_deferred_dup_expressions, expr_info_lowered_to, scope_variables, lookup_local_borrow_step_pin } :: import("../../expr_info.yo");
 { is_unit_type } :: import("../../types/guards.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_ptr } :: import("../../types/creators.yo");
@@ -78,12 +78,13 @@ SuspensionPointDetector :: ref(
     /// (no recursion into func/args). Used for nested async blocks that
     /// have their own analysis. Deferred dup expressions are still walked.
     should_skip_body : Dyn(Fn(expr : &AstExpr) -> bool),
-    /// Walk EVERY macro call through its expansion, not only `if`: the async
-    /// lowering generates the expansion, so an await that only a user macro
-    /// contains is a suspension point like any other
+    /// Walk every lowered node through its lowering (`lookup_lowering`): the
+    /// async lowering generates the lowering, so an await that only the
+    /// lowered tree contains is a suspension point like any other
     /// (issues/fixed/io-await-inside-a-macro-expansion-is-emitted-as-a-blocking-await.md).
-    /// The effect lowering splits only `if`, and keeps the old rule.
-    follow_macro_expansions : bool
+    /// The effect lowering does not (its one reason was the `if` macro, a
+    /// parse-time desugar since 2026-08-21).
+    follow_lowerings : bool
   )
 );
 // ---------------------------------------------------------------------------
@@ -580,21 +581,21 @@ walk_expr_ :: (
           return(());
         });
       });
-      // `if` is a macro over `cond`. Its branch structure only exists in the
-      // expansion, so walk that instead — otherwise its suspension points never
-      // get the merged indices and `cond_branch` fields that codegen (which
-      // does follow the expansion) goes on to reference. The per-pass ExprInfo
-      // can lose the macro expansion here, so use the durable side-table first
-      // (the state_code_gen.yo pattern).
-      // The async detector follows every macro call (`follow_macro_expansions`).
-      follow_expansion := (ast_expr_is_fn_call_of(expr_cloned.clone(), "if", Option(usize).None) || (detector.follow_macro_expansions && lookup_macro_expansion(ast_expr_id(expr_cloned.clone())).is_some()));
+      // A lowered node: its structure only exists in the lowering, so walk
+      // that instead — otherwise its suspension points never get the merged
+      // indices and `cond_branch` fields that codegen (which does follow the
+      // lowering) goes on to reference. The per-pass ExprInfo can lose the
+      // lowering here, so use the durable side-table first (the
+      // state_code_gen.yo pattern). Only the async detector follows
+      // (`follow_lowerings`).
+      follow_expansion := (detector.follow_lowerings && lookup_lowering(ast_expr_id(expr_cloned.clone())).is_some());
       if(follow_expansion, {
         expansion := match(
-          lookup_macro_expansion(ast_expr_id(expr_cloned.clone())),
+          lookup_lowering(ast_expr_id(expr_cloned.clone())),
           .Some(me) => Option(AstExpr).Some(me),
           .None => match(
             get_info(expr_cloned.clone()),
-            .Some(iinfo) => expr_info_macro_expansion(&iinfo),
+            .Some(iinfo) => expr_info_lowered_to(&iinfo),
             .None => Option(AstExpr).None
           )
         );

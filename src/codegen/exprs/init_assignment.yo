@@ -9,7 +9,7 @@
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, ExprId, ast_expr_id, ast_expr_is_atom, ast_expr_is_atom_of, ast_expr_is_fn_call_of, ast_expr_token, ast_expr_text, BK_COMPTIME, BK_ARRAY_VAL, ast_expr_is_local_borrow_mode_call, BF_DOT } :: import("../../expr.yo");
-{ RuntimeDestructuring, expr_info_converted_runtime_type, expr_info_runtime_destructurings, expr_info_deferred_dup_expressions, expr_info_macro_expansion, scope_variables, lookup_local_borrow_step_pin } :: import("../../expr_info.yo");
+{ RuntimeDestructuring, expr_info_converted_runtime_type, expr_info_runtime_destructurings, expr_info_deferred_dup_expressions, expr_info_lowered_to, scope_variables, lookup_local_borrow_step_pin } :: import("../../expr_info.yo");
 { Variable, Environment } :: import("../../env.yo");
 { is_array_type, is_unit_type, is_struct_type, is_reference_struct_type, is_tuple_type, is_newtype_type } :: import("../../types/guards.yo");
 { TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
@@ -218,7 +218,7 @@ _emit_destructurings :: (fn(destructurings : &ArrayList(RuntimeDestructuring), r
 ///   declarators are spelled by the same code that spells them everywhere).
 /// - The PIN (plans/archive/INOUT_LOCAL_BINDINGS_AUDIT.md §8 B4): when the evaluator
 ///   stamped the `inout(name)` node with `source_variable` (the hidden owning
-///   local) and `macro_expansion` (the object expression), emit
+///   local) and `lowered_to` (the object expression), emit
 ///   `Obj* pin = <dup(obj)>;` BEFORE the binding. The pin is an ordinary
 ///   owning local of the frame, so the scope-end drop the evaluator already
 ///   scheduled for it releases the `+1` on every exit path.
@@ -283,7 +283,7 @@ _generate_inout_local_binding :: (fn(lhs : &AstExpr, rhs : &AstExpr, bind_key : 
     .Some(lhs_ei) => match(
       lhs_ei.source_variable,
       .Some(pin_var) => match(
-        expr_info_macro_expansion(&lhs_ei),
+        expr_info_lowered_to(&lhs_ei),
         .Some(pin_expr) => {
           pin_code := _call_generate_expr(&pin_expr, indent.clone(), context);
           mut(pin_decl) := indent.clone();
@@ -386,7 +386,7 @@ generate_local_borrow_repoint :: (fn(expr : &AstExpr, indent : &String, context 
     .Some(lhs_ei) => match(
       lhs_ei.source_variable,
       .Some(sp) => match(
-        expr_info_macro_expansion(&lhs_ei),
+        expr_info_lowered_to(&lhs_ei),
         .Some(cell_expr) => {
           sp_slot := match(_sm_local_slot(&sp, context), .Some(slot) => slot, .None => sanitize_for_c_identifier(sp.name.clone(), false));
           cell_code := _call_generate_expr(&cell_expr, indent.clone(), context);

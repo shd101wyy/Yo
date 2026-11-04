@@ -9,8 +9,8 @@
 //! storage during the call — for the read-only majority of callees the
 //! Stage-0 `+1` dup is pure overhead and is elided.
 //!
-//! The walk runs over EVALUATED bodies: macro heads are followed through
-//! `macro_expansion`; nested callees are resolved through the func node's
+//! The walk runs over EVALUATED bodies: lowered nodes are followed through
+//! `lowered_to`; nested callees are resolved through the func node's
 //! ExprInfo value (plain calls) or the method-callee side-table (method
 //! calls). It is a MAY-analysis: anything unresolvable answers "mutates".
 //!
@@ -53,7 +53,7 @@
   expr_info_capture_type,
   expr_info_index_method_value,
   expr_info_is_anonymous_function_definition,
-  expr_info_macro_expansion,
+  expr_info_lowered_to,
   scope_variables
 } :: import("../../expr_info.yo");
 { EvalContext } :: import("../context.yo");
@@ -367,9 +367,9 @@ impl(
     match(
       info_opt,
       .Some(info) => {
-        // A macro call's raw arguments are not what executes — the expansion is.
+        // A lowered node's raw arguments are not what executes — its lowering is.
         match(
-          expr_info_macro_expansion(&info),
+          expr_info_lowered_to(&info),
           .Some(mx) => {
             // A local borrow: a `&mx` argument to this method's own recursive
             // call is rejected while the method is still being evaluated.
@@ -1698,7 +1698,7 @@ impl(
       expr_info_table_get(table, ast_expr_id(e)),
       .Some(info) => {
         match(
-          expr_info_macro_expansion(&info),
+          expr_info_lowered_to(&info),
           .Some(mx) => {
             _MsP.return_exprs(mx, table, out, is_tail);
             return(());
@@ -1796,7 +1796,7 @@ impl(
       info_opt,
       .Some(info) => {
         match(
-          expr_info_macro_expansion(&info),
+          expr_info_lowered_to(&info),
           .Some(mx) => {
             return(_MsP.classify(mx, ctx));
           },
@@ -2037,7 +2037,7 @@ impl(
       info_opt,
       .Some(info) => {
         match(
-          expr_info_macro_expansion(&info),
+          expr_info_lowered_to(&info),
           .Some(mx) => {
             _MsP.flowing(mx, ctx, out);
             return(());
@@ -2358,7 +2358,7 @@ impl(
       info_opt,
       .Some(info) => {
         match(
-          expr_info_macro_expansion(&info),
+          expr_info_lowered_to(&info),
           .Some(mx) => {
             _MsP.collect(mx, ctx);
             return(());
@@ -2786,7 +2786,7 @@ impl(
       info_opt,
       .Some(info) => {
         match(
-          expr_info_macro_expansion(&info),
+          expr_info_lowered_to(&info),
           .Some(mx) => {
             // A local borrow: a `&mx` argument to this method's own recursive
             // call is rejected while the method is still being evaluated.
@@ -3065,7 +3065,7 @@ impl(
       info_opt,
       .Some(info) => {
         match(
-          expr_info_macro_expansion(&info),
+          expr_info_lowered_to(&info),
           .Some(mx) => {
             // A local borrow: a `&mx` argument to this method's own recursive
             // call is rejected while the method is still being evaluated.
@@ -3738,7 +3738,7 @@ _rcw_crossing :: (fn(place : &AstExpr, table : &ExprInfoTable) -> Option(_RcwCro
   while(walking, {
     (expanded : Option(AstExpr)) = match(
       expr_info_table_get(table, ast_expr_id(&cur)),
-      .Some(ci) => match(expr_info_macro_expansion(&ci), .Some(mx) => Option(AstExpr).Some(mx), .None => Option(AstExpr).None),
+      .Some(ci) => match(expr_info_lowered_to(&ci), .Some(mx) => Option(AstExpr).Some(mx), .None => Option(AstExpr).None),
       .None => Option(AstExpr).None
     );
     match(
@@ -3848,7 +3848,7 @@ _rcw_walk :: (fn(e : &AstExpr, ctx : &_MspCtx, in_closure_in : bool) -> unit)({
     expr_info_table_get(&ctx.table, ast_expr_id(e)),
     .Some(info) => {
       match(
-        expr_info_macro_expansion(&info),
+        expr_info_lowered_to(&info),
         .Some(mx) => {
           return(_rcw_walk(&mx, ctx, in_closure));
         },
@@ -4328,11 +4328,11 @@ _gr_value_function :: (fn(e : &AstExpr, ctx : &_GrCtx) -> Option(String))({
   )
 });
 _gr_walk :: (fn(e : &AstExpr, ctx : &_GrCtx) -> Option(String))({
-  // A macro call: the expansion is what runs.
+  // A lowered node: its lowering is what runs.
   match(
     expr_info_table_get(&ctx.table, ast_expr_id(e)),
     .Some(ei) => match(
-      expr_info_macro_expansion(&ei),
+      expr_info_lowered_to(&ei),
       .Some(exp) => {
         return(_gr_walk(&exp, ctx));
       },

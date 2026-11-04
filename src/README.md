@@ -69,8 +69,9 @@ happened); translate the old path when reading older `issues/` and
    imports evaluator internals pays a large Yo-compile cost): assignment,
    binding, initialization_assignment, open, runtime, typeof, unwind,
    identifier_and_operator, type_of, context, evaluator_index,
-   macro_registry, type_trait_methods, await/effect/suspension analyses,
-   the four macro/reflection (macro + reflection, end-to-end through `Evaluator.new`).
+   type_trait_methods, await/effect/suspension analyses, and the
+   quote/reflection files `quote_macro_eval`, `ast_reflection` and
+   `macro_helpers` (end-to-end through `Evaluator.new`).
 3. ~~**End-to-end evaluator tests** — `eval_basics` / `eval_tail_1` /
    `eval_tail_2`~~ **RETIRED 2026-08-05** together with their subject,
    `src/evaluator/eval.yo`. Those three files (337 tests) were the only
@@ -84,11 +85,9 @@ happened); translate the old path when reading older `issues/` and
    change"). It had accumulated 5 real bugs that nothing could catch — see
    `issues/fixed/yo-self-evalresult-value-cell-confusion.md`.
 
-Tests that need macro **dispatch** (executing macro bodies at expansion
-time) are gated on `MACRO_DISPATCH_ENABLED` in
-`src/evaluator/calls/function.yo`. The flag is **`true`** (dispatch was
-re-enabled 2026-06-11 after the heap-corruption fix — see `issues/fixed/`),
-so the `macro_expansion/ast_reflection/macro_helpers` macro tests run for real.
+Yo has no macro layer (plans/backlog/MACRO_AND_ISO_REMOVAL.md Part C): the
+quote/reflection files exercise `quote`, `unquote`, `gensym` and the
+`__yo_expr_*` builtins over comptime `Expr` values.
 
 The strongest evaluator gate is not the unit suite but the self-hosted
 binary itself:

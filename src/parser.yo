@@ -2271,9 +2271,9 @@ parse :: (
   ) -> ArrayList(AstExpr)
 )({
   p := Parser.new(input_string, module_path, exn);
-  // Desugar `if(...)` calls to `cond(...)` on the fresh parse — every
-  // consumer of `parse` (module loads, compile entries, the test runner)
-  // gets a macro-head-free tree. The formatter only runs `parse` as a
+  // Desugar `if(...)` calls to `cond(...)` and `for(...)` to its loop on the
+  // fresh parse — every consumer of `parse` (module loads, compile entries,
+  // the test runner) gets a tree free of both builtin-form heads. The formatter only runs `parse` as a
   // refuse-to-rewrite gate and discards the tree (it renders the token
   // stream), so `yo fmt` still round-trips `if` intact.
   desugar_program_if_calls(p.get_program(exn))

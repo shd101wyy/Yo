@@ -42,7 +42,7 @@
   register_thread_local,
   register_mut_global,
   expr_info_set_is_compile_time_only_assignment,
-  expr_info_set_macro_expansion,
+  expr_info_set_lowered_to,
   record_local_borrow_step_pin
 } :: import("../../expr_info.yo");
 {
@@ -178,7 +178,7 @@ _inout_place_chain :: (fn(place : &AstExpr, hops : &mut ArrayList(_InoutPlaceHop
 /// owning local holds a `+1` on it for the binding's scope, so reassigning
 /// or dropping the visible handle cannot free the storage `name` points into
 /// (§2 P4). Rejected: index/deref places (`xs(i)`, `p.*` — element borrows
-/// are the `for` macro's job), rvalues, `Type.member`, compile-time roots,
+/// are the `for` loop's job), rvalues, `Type.member`, compile-time roots,
 /// the `::` form, and module-level declarations. An `io.async` body is
 /// accepted: its state machine keeps each local in one task slot.
 ///
@@ -194,7 +194,7 @@ _inout_place_chain :: (fn(place : &AstExpr, hops : &mut ArrayList(_InoutPlaceHop
 /// Codegen channel (init_assignment.yo `_generate_inout_local_binding`): the
 /// `:=` node's ExprInfo has unit type; the `inout(name)` LHS node's ExprInfo
 /// carries the PIN when one exists — `source_variable` = the hidden owning
-/// local, `macro_expansion` = the object expression it holds. The LHS node
+/// local, `lowered_to` = the object expression it holds. The LHS node
 /// is never dispatched through `generate_expression`, so neither field is
 /// read by anything else.
 _evaluate_inout_local_binding :: (
@@ -306,7 +306,7 @@ _evaluate_inout_local_binding :: (
     }
   );
   // A `*` hop is a pointer dereference — an interior place with no owner the
-  // binding could pin (§2 P5). Element borrows are the `for` macro's job.
+  // binding could pin (§2 P5). Element borrows are the `for` loop's job.
   // …except in privileged code (`pragma(Pragma.AllowUnsafe)` files and
   // compiler-synthesized expansions): the prelude's borrowed `for` binds the
   // element as `x := &mut ptr.*` while the collection is pinned by a hidden
@@ -590,7 +590,7 @@ _evaluate_inout_local_binding :: (
     pin_var,
     .Some(pv) => {
       lhs_info.source_variable = Option(Variable).Some(pv);
-      expr_info_set_macro_expansion(&lhs_info, &pin_expr);
+      expr_info_set_lowered_to(&lhs_info, &pin_expr);
     },
     .None => ()
   );
@@ -797,7 +797,7 @@ _bind_projection_result :: (
 ///
 /// Codegen channel (init_assignment.yo `generate_local_borrow_repoint`): the
 /// `mut(cur)` node's ExprInfo carries the step: `source_variable` = the step
-/// pin, `macro_expansion` = the cell expression it takes.
+/// pin, `lowered_to` = the cell expression it takes.
 evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx : &EvalContext, exn : Exception) -> AstExpr)({
   (env : Environment) = env_in;
   args := match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
@@ -1028,7 +1028,7 @@ evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx
     step_pin,
     .Some(spv) => {
       lhs_info.source_variable = Option(Variable).Some(spv);
-      expr_info_set_macro_expansion(&lhs_info, &pin_expr);
+      expr_info_set_lowered_to(&lhs_info, &pin_expr);
     },
     .None => ()
   );
@@ -1170,7 +1170,7 @@ evaluate_initialization_assignment :: (
   });
   // `name := &mut place` — a LOCAL second-class reference binding
   // (plans/archive/INOUT_LOCAL_BINDINGS_AUDIT.md §7–§8, Phase B). Variables and
-  // field places only; element borrows go through the `for` macro.
+  // field places only; element borrows go through the `for` loop.
   // `name := &place` is the read-only local borrow (decision 18).
   if(ast_expr_is_fn_call(&lhs) && ast_expr_is_local_borrow_mode_call(&lhs, .None), {
     return(_evaluate_inout_local_binding(expr, &lhs, &rhs, is_compile_time_only, &env, ctx, exn));
@@ -1357,13 +1357,13 @@ Bound type: ${type_to_string(&rhs_info.ty)}`
     // Check if the RHS variable has been consumed (moved).
     require_expr_not_consumed(&rhs, &env, ctx, exn);
     // Insert dup-on-store (transfers/shares RC ownership of the RHS). A
-    // binding a macro introduced (`for`'s gensym'd collection pin) carries
-    // the macro's module in its name token, not the user's.
+    // binding spliced from another module's code (a derive template) carries
+    // that module in its name token, not the user's.
     set_expr_as_needs_to_call_dup(
       &rhs,
       ctx,
       exn,
-      cond((!audit_pending_copies_enabled() || (ast_expr_token(&actual_lhs).module_path == ast_expr_token(&rhs).module_path)) => "binding", true => "binding(macro)")
+      cond((!audit_pending_copies_enabled() || (ast_expr_token(&actual_lhs).module_path == ast_expr_token(&rhs).module_path)) => "binding", true => "binding(foreign)")
     );
     // Re-read env in case set_expr_as_needs_to_call_dup updated it.
     match(

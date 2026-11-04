@@ -646,8 +646,9 @@ generate_consumed_var_drops_for_escape :: (fn(indent : &String, context : &Funct
                               // would double-free. "Before" must be PROVABLE:
                               // a consumption whose token is not in the escape
                               // point's stream (a temp moved into a local by
-                              // macro-expanded code, e.g. the borrowed `for`'s
-                              // guard and iterator temps) cannot be ordered
+                              // code synthesized at another position, e.g. the
+                              // borrowed `for`'s guard and iterator temps under
+                              // the retired macro) cannot be ordered
                               // against it, and emitting there released a count
                               // the local's own drop also releases — a double
                               // free on every unwind out of a borrowed `for`

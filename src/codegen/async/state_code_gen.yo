@@ -15,7 +15,7 @@
 { is_io_async_call, is_io_await_call, extract_future_trait_from_type, get_future_variable_id_ } :: import("../../evaluator/async/await_analysis.yo");
 { extract_target_variable_id } :: import("../../evaluator/shared/suspension_analysis.yo");
 { expr_contains_await, expr_contains_while_with_await } :: import("../../expr_traversal.yo");
-{ expr_info_primitive_pattern_values, expr_info_is_primitive_match, lookup_macro_expansion, some_resolution } :: import("../../expr_info.yo");
+{ expr_info_primitive_pattern_values, expr_info_is_primitive_match, lookup_lowering, some_resolution } :: import("../../expr_info.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("../exprs/_expr.yo");
 { arm_value_with_dups } :: import("../exprs/drop_dup.yo");
@@ -95,12 +95,12 @@ collect_branch_await_exprs :: (
     out.push(expr);
     return(());
   });
-  // A macro call (`if`, ...) keeps its macro head in the AST; the exprs the
-  // evaluator ANNOTATED live in the expansion. Walking the raw args here
-  // collects await exprs with no ExprInfo, which the access builder cannot
-  // type. Every tree walk in this family follows the expansion.
+  // A lowered node keeps its original head in the AST; the exprs the
+  // evaluator ANNOTATED live in its lowering (`lookup_lowering`). Walking the
+  // raw args here collects await exprs with no ExprInfo, which the access
+  // builder cannot type. Every tree walk in this family follows the lowering.
   match(
-    lookup_macro_expansion(ast_expr_id(expr)),
+    lookup_lowering(ast_expr_id(expr)),
     .Some(me) => {
       recur(&me, out);
       return(());

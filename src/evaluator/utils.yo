@@ -2937,8 +2937,9 @@ derive(ImplicitCopyPending, Clone);
 /// temporary such as a call result — the binding owns its part, so a store
 /// of it is not a copy here; any copy happened inside the callee), `local`
 /// (an owning local, `root_id`: the binding is a part of it, a copy if the
-/// local is read again), `macro` (a scrutinee a macro introduced — `for`'s
-/// element: a borrow) or `place` (a parameter, field, global: a borrow).
+/// local is read again), `foreign` (a scrutinee declared in another module —
+/// code spliced from a derive template, and the `for` element under the
+/// retired macro: a borrow) or `place` (a parameter, field, global: a borrow).
 ImplicitCopyRoot :: struct(kind : String, root_id : usize);
 derive(ImplicitCopyRoot, Clone);
 (g_implicit_copy_match_roots : RefCell(HashMap(usize, ImplicitCopyRoot))) = RefCell(HashMap(usize, ImplicitCopyRoot)).new(HashMap(usize, ImplicitCopyRoot).new());
@@ -2966,7 +2967,7 @@ audit_note_match_binding :: (
         g_implicit_copy_match_roots.with(m => m.get_cloned(&sv.id)),
         .Some(inherited) => inherited,
         .None => cond(
-          (canonical_module_path(&sv.token.module_path.*) != canonical_module_path(&binding.token.module_path.*)) => ImplicitCopyRoot(kind : String.from("macro"), root_id : sv.id),
+          (canonical_module_path(&sv.token.module_path.*) != canonical_module_path(&binding.token.module_path.*)) => ImplicitCopyRoot(kind : String.from("foreign"), root_id : sv.id),
           // A temporary of plain data (no counted value) owns what it
           // holds, as an owning RC temporary does.
           is_any_temp_variable_name(sv.name.clone()) => ImplicitCopyRoot(kind : cond((sv.is_owning_the_rc_value || !type_contains_rc_type(&sv.ty)) => String.from("temp"), true => String.from("place")), root_id : sv.id),
@@ -3054,7 +3055,8 @@ _rc_clone_spelling :: (fn(ty : &TypeValue) -> String)({
 });
 /// The spelling `yo fix --migrate rc-clone` records for a copy, or none: a
 /// copy of a value holding a counted handle, at a point where the spelling
-/// on the copied expression is the copy (not a binding a macro wrote), and
+/// on the copied expression is the copy (not a binding written in another
+/// module's code), and
 /// not in a std generic body or a `comptime_expect_error` argument.
 _ic_migrate_site :: (
   fn(m : &ICMigrateCtx, ty : &TypeValue, copy_path : str, source_text : &String) -> Option(ExplicitCopySite)
@@ -3065,7 +3067,7 @@ _ic_migrate_site :: (
     // A copy inside a `comptime_expect_error` argument is the error the
     // program expects.
     propagate_def_time_errors() => Option(ExplicitCopySite).None,
-    (copy_path == "binding(macro)") => Option(ExplicitCopySite).None,
+    (copy_path == "binding(foreign)") => Option(ExplicitCopySite).None,
     true => Option(ExplicitCopySite).Some(
       ExplicitCopySite(
         path : m.leftmost.module_path.*.clone(),
@@ -3377,8 +3379,8 @@ audit_record_implicit_copy :: (
               kind = String.from("temp-payload");
               temp_binding_id = Option(usize).Some(v.id);
             },
-            (r.kind == "macro") => {
-              kind = String.from("for-element");
+            (r.kind == "foreign") => {
+              kind = String.from("foreign-element");
             },
             (r.kind == "local") => {
               kind = String.from("match-local");
@@ -3528,8 +3530,8 @@ audit_record_copy_trait :: (
               (r.kind == "temp") => {
                 return(());
               },
-              (r.kind == "macro") => {
-                kind = String.from("for-element");
+              (r.kind == "foreign") => {
+                kind = String.from("foreign-element");
               },
               (r.kind == "local") => {
                 kind = String.from("match-local");

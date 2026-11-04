@@ -39,7 +39,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../expr.yo");
 { is_auto_generated_expansion, is_implicitly_unsafe_capable_file, is_class1_panic_method_name, is_class1_panic_receiver_type, is_class1_panic_exempt_file, is_std_module_path, is_prelude_or_generated_file } :: import("../memory_safety.yo");
 { D3PendingInout, d3_record_inout_place, d3_check_pending, d3_check_pending_unresolved_callee, require_no_inout_write_through_borrow, shared_borrow_param_root_of_place, reject_write_through_shared_borrow_param } :: import("../exprs/assignment.yo");
-{ ExprInfo, is_thread_local, is_mut_global, new_expr_info, expr_info_closure_function_value, expr_info_table_get, expr_info_table_set, record_method_callee_type, lookup_method_callee_type, record_method_callee_value, lookup_method_callee_value, record_io_builtin_struct_field, lookup_io_builtin_struct_field, record_io_builtin_call, record_macro_expansion, lookup_macro_expansion, record_fid_rtcall, active_where_trait_ids, record_fid_spec, lookup_struct_ctor_fid, struct_effective_ctor_fid, struct_fully_concrete_instance, adopt_receiver_struct_instance, mark_node_preevaluated, unmark_node_preevaluated, expr_info_adopt_env, expr_info_capture_type, expr_info_comptime_ref, expr_info_index_method_type, expr_info_index_method_value, expr_info_set_comptime_ref, expr_info_set_deferred_dup_expressions, expr_info_set_index_method_type, expr_info_set_index_method_value, expr_info_set_index_trait_ptr_type, expr_info_set_macro_expansion, some_resolution, purge_executed_clone_metadata, mark_fnonce_post_call_release, migrate_drop_trait_on, record_destructor_site, HandleCtorSite, migrate_handle_ctors_on, record_handle_ctor_site, migrate_mut_bindings_on, record_mut_judged } :: import("../../expr_info.yo");
+{ ExprInfo, is_thread_local, is_mut_global, new_expr_info, expr_info_closure_function_value, expr_info_table_get, expr_info_table_set, record_method_callee_type, lookup_method_callee_type, record_method_callee_value, lookup_method_callee_value, record_io_builtin_struct_field, lookup_io_builtin_struct_field, record_io_builtin_call, record_lowering, lookup_lowering, record_fid_rtcall, active_where_trait_ids, record_fid_spec, lookup_struct_ctor_fid, struct_effective_ctor_fid, struct_fully_concrete_instance, adopt_receiver_struct_instance, mark_node_preevaluated, unmark_node_preevaluated, expr_info_adopt_env, expr_info_capture_type, expr_info_comptime_ref, expr_info_index_method_type, expr_info_index_method_value, expr_info_set_comptime_ref, expr_info_set_deferred_dup_expressions, expr_info_set_index_method_type, expr_info_set_index_method_value, expr_info_set_index_trait_ptr_type, expr_info_set_lowered_to, some_resolution, purge_executed_clone_metadata, mark_fnonce_post_call_release, migrate_drop_trait_on, record_destructor_site, HandleCtorSite, migrate_handle_ctors_on, record_handle_ctor_site, migrate_mut_bindings_on, record_mut_judged } :: import("../../expr_info.yo");
 {
   Variable,
   Environment,
@@ -941,7 +941,7 @@ _reject_private_construction :: (
 /// record and an anonymous record have no declaration, and no impl ranges
 /// over every `fn` signature), so the receiver lookup misses although
 /// `Type.impls(T, Clone)` holds. The clone of a `Copy` value is the copy, so
-/// the call expands to its receiver (`ExprInfo.macro_expansion`, recorded
+/// the call expands to its receiver (`ExprInfo.lowered_to`, recorded
 /// durably like the numeric conversions'): `g := f.clone()` is `g := f`, and
 /// the binding copies as it does for any read of `f`. A tuple or an array has
 /// the prelude's element-wise `Clone` impl and never misses. A record or a
@@ -1007,8 +1007,8 @@ _try_structural_copy_clone :: (
   });
   out_info := new_expr_info(env, &recv_ty);
   out_info.value = ri.value;
-  record_macro_expansion(ast_expr_id(expr), recv.clone());
-  expr_info_set_macro_expansion(&out_info, Option(AstExpr).Some(recv));
+  record_lowering(ast_expr_id(expr), recv.clone());
+  expr_info_set_lowered_to(&out_info, Option(AstExpr).Some(recv));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   Option(AstExpr).Some(expr)
 });
@@ -2805,9 +2805,9 @@ _try_expand_call_overload :: (
   func_expr := match(call_expr, .FnCall(_, fb, _, _, _) => fb, _ => evaluated_callee);
   // Trial each candidate; collect the indices that type-check.
   // The trials run under is_in_function_call_checking_phase so NESTED
-  // comptime/macro calls short-circuit to UnknownVal instead of executing
+  // comptime calls short-circuit to UnknownVal instead of executing
   // (the flag is set on each dry-run). Without this, every trial
-  // re-evaluated its cloned arg exprs INCLUDING macro expansion and CTFE —
+  // re-evaluated its cloned arg exprs INCLUDING CTFE —
   // exponential in nested operator-call chains (std/glob.yo never
   // finished). Restored HERE (not inside the helper) because the trial's
   // swallow handler unwinds past the helper's own tail on failure.
@@ -3284,7 +3284,7 @@ _check_bundle_fields_copy :: (fn(expr : &AstExpr, args : &ArrayList(AstExpr), ct
 /// tail of a block, recursively.
 _future_value_leaves :: (fn(e : &AstExpr, out : &mut ArrayList(AstExpr)) -> unit)({
   match(
-    lookup_macro_expansion(ast_expr_id(e)),
+    lookup_lowering(ast_expr_id(e)),
     .Some(expanded) => {
       recur(&expanded, out);
       return(());
@@ -4033,7 +4033,7 @@ _lent_place_touched :: (fn(target : &AstExpr, lent : &_LentPlace, ctx : &EvalCon
 /// method on it. Reads, `&` borrows and code that never names the place pass.
 _find_lent_place_access :: (fn(e : &AstExpr, lent : &_LentPlace, ctx : &EvalContext) -> Option(Tuple(AstExpr, String)))({
   match(
-    lookup_macro_expansion(ast_expr_id(e)),
+    lookup_lowering(ast_expr_id(e)),
     .Some(expanded) => match(recur(&expanded, lent, ctx), .Some(hit) => return(Option(Tuple(AstExpr, String)).Some(hit)), .None => ()),
     .None => ()
   );
@@ -9489,7 +9489,7 @@ _evaluate_function_call_unanchored :: (
   //
   // Exemptions: the call is lexically inside an `unsafe(...)` wrapper
   // (`ctx.unsafe_context`, set by `evaluate_unsafe`), or the call lives in
-  // an auto-generated (macro/derive) expansion, which inherits privilege
+  // an auto-generated (derive) expansion, which inherits privilege
   // from its user-facing trigger site.
   //
   // The callee's TYPE carries the FFI marker (extern symbols bind as an
@@ -12234,7 +12234,7 @@ Fix: wrap the call:
         // bodies are type-checked at DEFINITION time; the call site only
         // needs the
         // return type. Comptime-only-return calls still execute via the gate
-        // above (memoized type constructors, macros, etc.), so this does NOT
+        // above (memoized type constructors, etc.), so this does NOT
         // suppress the comptime-expectation errors `comptime_expect_error` tests
         // rely on — verified: compiler tests 53->57, std 150->151, tests 154->155, 0
         // regressions across 560 files.
