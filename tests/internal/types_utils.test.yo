@@ -651,8 +651,9 @@ _trp_unloop :: (fn(t : &TypeValue, at : usize) -> unit)(
   match(
     t,
     Rc(.Struct({ field_types : fields })) => {
-      items := fields.*.items;
-      _self_edge := items.remove(at);
+      // The same raw-pointer write `_trp_looped_struct` closes the loop with.
+      items := addr_of(fields.*.items);
+      _self_edge := items.*.remove(at);
     },
     _ => ()
   )
