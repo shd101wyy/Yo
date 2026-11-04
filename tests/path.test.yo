@@ -660,7 +660,7 @@ test("Path.join accepts str, String, and Path interchangeably", {
   assert(p.join("/abs").to_string() == `/abs`, "absolute other still replaces");
 });
 test("Path.push extends in place; absolute push replaces", {
-  p := Path.new(`a/b`);
+  mut(p) := Path.new(`a/b`);
   p.push("c");
   assert(p.to_string() == `a/b/c`, "pushed");
   p.push("/root");
@@ -719,14 +719,14 @@ test("Path.join keeps .. coming from the ARGUMENT (measured defect)", {
 });
 test("Path.push keeps .. coming from the ARGUMENT (measured defect)", {
   // Was `a/b/c` — `push` is `join` in place and had the same defect.
-  p := Path.new(`a/b`);
+  mut(p) := Path.new(`a/b`);
   p.push(`../c`);
   assert(p.to_string() == `a/b/../c`, "recorded as written");
   assert(p == Path.new(`a/b`).join(`../c`), "push agrees with join");
 });
 test("Path new/join/push agree on a path with no ..", {
   base := Path.new(`a/b`);
-  pushed := Path.new(`a/b`);
+  mut(pushed) := Path.new(`a/b`);
   pushed.push(`c/d`);
   assert(base.join(`c/d`) == Path.new(`a/b/c/d`), "join agrees with new");
   assert(pushed == Path.new(`a/b/c/d`), "push agrees with new");
@@ -776,7 +776,7 @@ test("Path UNC root is a root, not a segment", {
 test("Path UNC survives join, push, components and normalize", {
   root := Path.new(`\\\\server\\share`);
   assert(root.join(`a/b`).to_string() == `\\\\server\\share\\a\\b`, "join keeps the share");
-  p := Path.new(`\\\\server\\share\\a`);
+  mut(p) := Path.new(`\\\\server\\share\\a`);
   p.push(`../b`);
   assert(p.normalize().to_string() == `\\\\server\\share\\b`, "push + normalize keep the share");
   assert(Path.new(`\\\\server\\share\\..\\..\\x`).normalize().to_string() == `\\\\server\\share\\x`, ".. never climbs out of a share");

@@ -253,8 +253,9 @@ test("Non-capturing group does not create capture", {
   re := Regex.new(`(?:abc)+`).unwrap();
   m := re.find(`abcabc`);
   assert(m.is_some(), "should match");
-  assert(m.unwrap().value() == `abcabc`, "should match abcabc");
-  assert(m.unwrap().group_count() == usize(0), "no capture groups");
+  found := m.unwrap();
+  assert(found.value() == `abcabc`, "should match abcabc");
+  assert(found.group_count() == usize(0), "no capture groups");
 });
 // ============================================================================
 // 10. Case-Insensitive Flag
@@ -1290,10 +1291,8 @@ test("find_iter yields match_all's matches lazily", {
   assert(lazy_matches.len() == eager.len(), "find_iter should yield exactly match_all's match count");
   mut(i) := usize(0);
   while(i < eager.len(), i = (i + usize(1)), {
-    l := lazy_matches(i);
-    e := eager(i);
-    assert((l.index() == e.index()) && (l.end() == e.end()), "lazy and eager match i should agree on byte offsets");
-    assert(l.value() == e.value(), "lazy and eager match i should agree on text");
+    assert((lazy_matches(i).index() == eager(i).index()) && (lazy_matches(i).end() == eager(i).end()), "lazy and eager match i should agree on byte offsets");
+    assert(lazy_matches(i).value() == eager(i).value(), "lazy and eager match i should agree on text");
   });
   mut(exhausted) := re.find_iter(&input);
   exhausted.next();
