@@ -187,10 +187,21 @@ test("TypeInfo compound: Pointer pointee", {
   pointee_is_i32 :: match(ptr_info, .Ptr(p) => __yo_are_types_compatible(p, i32), _ => false);
   comptime_assert(pointee_is_i32, "pointer pointee should be i32");
 });
-test("TypeInfo compound: Arc is AtomicObject struct", {
+// `Rc` and `Arc` are views over a cell primitive (V5 cells Generation B,
+// plans/VALUES_BY_DEFAULT.md §3.5). Reflection reads the declared shape: a
+// newtype with one implementation field holding the counted cell, and the
+// cell is the (atomic) object that holds the payload.
+test("TypeInfo compound: Arc is a newtype over an AtomicObject cell", {
   arc_info :: Type.get_info(Arc(i32));
-  is_atomic_kind :: match(
+  is_one_field_newtype :: match(
     arc_info,
+    .Struct(fields, kind) => (match(kind, .NewType => true, _ => false) && (fields.len() == usize(1))),
+    _ => false
+  );
+  comptime_assert(is_one_field_newtype, "Arc should reflect as a one-field NewType");
+  cell_type :: match(arc_info, .Struct(fields, _) => fields.get(usize(0)).field_type, _ => i32);
+  is_atomic_cell :: match(
+    Type.get_info(cell_type),
     .Struct(fields, kind) => (
       match(kind, .AtomicObject => true, _ => false) &&
         (fields.len() == usize(1)) &&
@@ -198,7 +209,45 @@ test("TypeInfo compound: Arc is AtomicObject struct", {
     ),
     _ => false
   );
-  comptime_assert(is_atomic_kind, "Arc should reflect as AtomicObject struct");
+  comptime_assert(is_atomic_cell, "Arc's cell should reflect as an AtomicObject holding the i32");
+});
+test("TypeInfo compound: Rc is a newtype over an Object cell", {
+  rc_info :: Type.get_info(Rc(i32));
+  is_one_field_newtype :: match(
+    rc_info,
+    .Struct(fields, kind) => (match(kind, .NewType => true, _ => false) && (fields.len() == usize(1))),
+    _ => false
+  );
+  comptime_assert(is_one_field_newtype, "Rc should reflect as a one-field NewType");
+  cell_type :: match(rc_info, .Struct(fields, _) => fields.get(usize(0)).field_type, _ => i32);
+  is_object_cell :: match(
+    Type.get_info(cell_type),
+    .Struct(fields, kind) => (
+      match(kind, .Object => true, _ => false) &&
+        (fields.len() == usize(1)) &&
+          __yo_are_types_compatible(fields.get(usize(0)).field_type, i32)
+    ),
+    _ => false
+  );
+  comptime_assert(is_object_cell, "Rc's cell should reflect as an Object holding the i32");
+});
+// The borrowed `for`'s guard (`__borrow_guard`, std/prelude.yo) retains a
+// second handle only for a kind that reflects as Object or AtomicObject: a
+// `ref` object, whose borrow flag it holds. An `Rc` or `Arc` reflects as a
+// NewType, so the guard holds nothing for one; its payload is read-only
+// through the handle (E0919), so there is no flag to hold. The count shows
+// which: a retained handle is a second owner while the guard lives.
+TIGuardObj :: ref(struct(x : i32));
+test("borrow guard retains no Rc or Arc handle, and a ref object's", {
+  r := Rc.new(i32(1));
+  rg := __borrow_guard(&r);
+  assert(ref_count(r) == usize(1), "the guard holds no Rc handle");
+  a := Arc.new(i32(2));
+  ag := __borrow_guard(&a);
+  assert(ref_count(a) == usize(1), "the guard holds no Arc handle");
+  o := TIGuardObj(x : i32(3));
+  og := __borrow_guard(&o);
+  assert(ref_count(o) == usize(2), "the guard retains a ref object's handle");
 });
 test("TypeInfo compound: Function info", {
   FnType :: (fn(x : i32, y : i32) -> bool);
