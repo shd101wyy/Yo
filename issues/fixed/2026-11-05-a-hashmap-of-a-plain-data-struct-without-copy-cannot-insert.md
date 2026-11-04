@@ -43,12 +43,12 @@ V5 part B turns `ref(struct)` declarations into plain structs. A written record 
 
 The two errors have two separate causes. Both are in the evaluator, and neither is in `std`.
 
-1. **E0901 (`insert`): an instantiated generic type was judged as generic.**
-   - A generic body evaluated for `V := Span` builds `Result(Option(V), HashMapError)`. In that type, `V` is a type variable that carries its resolution, `Span`. The enum's payload is the concrete `Option(Span)`, but its type argument keeps the definition-era `Option(V)`: `substitute` rewrites only a bare variable or a phantom position among an enum's type arguments.
-   - `type_lacks_copy_for_flip` (`src/evaluator/trait_checking.yo`), decision 36's flip, answered "copies implicitly" for every type that mentions a type variable, resolved ones included. It does so because asking `Copy` of `Option(U)` binds the impl's `T` to the variable itself.
+1. **E0901 (`insert`): a type built by an instantiated generic body was judged as generic.**
+   - A generic body evaluated for `V := Span` builds `Result(Option(V), HashMapError)`. Its payload is the concrete `Option(Span)`. Its type argument keeps the definition-era `Option(V)`, with the impl's own `V` still open, because `substitute` rewrites a compound enum type argument only at a phantom position.
+   - `type_lacks_copy_for_flip` (`src/evaluator/trait_checking.yo`), decision 36's flip, answered "copies implicitly" for every type that mentions a type variable. Its impls cannot judge such a type: asking `Copy` of `Option(V)` binds the impl's `T` to the variable.
    - So the scrutinee of `match(Self.try_insert(...), .Ok(prev) => prev, …)` read as copyable and was borrowed (`_decide_match_mode`). Its binding `prev`, whose type is the concrete payload `Option(Span)`, read as move-only. The arm could neither copy `prev` nor move it out of a borrow.
    - The same shape fails with no `std` involved: a generic impl matching `.Some(prev) => prev` on its own `Option(Option(V))` result. A scrutinee whose type is `Option(V)` or `Result(V, E)` worked, because a bare variable argument is substituted.
-   - A `String` field hid the bug: a type that owns a buffer is move-only by `type_is_move_only`, which follows resolutions.
+   - A `String` field hid the bug: a type that owns a buffer is move-only by `type_is_move_only`, which walks payloads.
 2. **E0907 (`try_insert`): a parameter's own re-bind read as another value.**
    - A struct-literal argument (`Span(lo : …, hi : …)`) folds to a constant. A specialized body then re-binds the parameter beside its owning binding, as a non-owning shadow (`calls/helper.yo`).
    - The `cond`/`match` join elaborates "moved in some arms" into a drop in the arms that keep the value (`_drop_in_arms_that_keep`). It refused whenever another variable of the same name was visible in such an arm, the guard against a pattern binding that shadows the name.
@@ -57,9 +57,11 @@ The two errors have two separate causes. Both are in the evaluator, and neither 
 
 ## Fix
 
-- `type_lacks_copy_for_flip` judges a type whose variables are all resolved as the concrete instance it denotes (`_flip_concrete_instance`). A type with an open variable is still judged per instantiation.
-  - The concrete instance comes from `substitute` in a new mode, `subst_adopt_every_resolution` (`src/types/substitution.yo`). That mode replaces every variable that carries a concrete resolution with that resolution, and also walks compound enum type arguments.
-  - The `Copy` question is then asked of a type that mentions no variable, through the usual memo.
+- `type_lacks_copy_for_flip` judges a type that mentions a type variable by its parts (`_flip_part_lacks_copy`): a field, a variant payload, an element, or a resolved variable's resolution.
+  - A `Copy` impl needs every part `Copy`, so one plain-data part without `Copy` makes the whole explicit-copy.
+  - The walk skips a part that holds a cell or a move-only value; such a part is judged by its own rules.
+  - It does not enter a pointer, a reference or a cell.
+  - A type whose parts all copy still copies implicitly, as before. A part that is an open type variable is judged per instantiation.
 - `_drop_in_arms_that_keep` no longer counts the parameter's own non-owning re-bind as another value (`_is_param_rebind_of`: a parameter of the same name, owning nothing, bound in the owning parameter's frame). A drop through the re-bind moves the owning binding, as every other move through it does (`_move_through_sink_shadow`).
 
 ## Tests
