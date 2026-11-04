@@ -869,9 +869,11 @@ _fetch_follow :: (
     Impl(Future(HttpResponse, IoExn))
 )({
   url_str_owned := url_str.clone();
+  opts_owned := opts.clone();
+  max_redirects := opts.max_redirects;
   io.async(e => {
     mut(current) := url_str_owned.clone();
-    mut(hop_opts) := opts;
+    mut(hop_opts) := opts_owned;
     mut(hops) := usize(0);
     (mut(result) : Option(HttpResponse)) = Option(HttpResponse).None;
     // A `done` flag rather than break/continue: the awaiting loop is a
@@ -883,11 +885,11 @@ _fetch_follow :: (
       // `max_redirects == 0` means "do not follow": the first 3xx comes back
       // verbatim (reqwest's `Policy::none`). Otherwise the cap counts hops
       // FOLLOWED, so the (max+1)th 3xx throws.
-      follow := (resp.is_redirect() && !location.is_empty() && (opts.max_redirects > usize(0)));
+      follow := (resp.is_redirect() && !location.is_empty() && (max_redirects > usize(0)));
       cond(
         follow => {
           cond(
-            (hops >= opts.max_redirects) => {
+            (hops >= max_redirects) => {
               e.exn.throw(dyn(HttpError.TooManyRedirects));
             },
             true => ()
