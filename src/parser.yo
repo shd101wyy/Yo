@@ -927,9 +927,9 @@ impl(
             open_tok := match(
               self.tokens.get(index - usize(1)),
               .Some(t) => t,
-              .None => exn.throw(dyn(make_parse_error_raw(&self.module_path.*, `unclosed ( in function call: expected , or ) before the end of the file`)))
+              .None => exn.throw(dyn(make_parse_error_raw(&self.module_path.*, `expected , or ) in function call: the call's ( is not closed before the end of the file`)))
             );
-            exn.throw(dyn(make_parse_error(&open_tok, `unclosed ( in function call: expected , or ) before the end of the file`)));
+            exn.throw(dyn(make_parse_error(&open_tok, `expected , or ) in function call: the call's ( is not closed before the end of the file`)));
           });
           return(FnArgsResult(args : args, index : idx));
         }

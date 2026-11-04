@@ -1601,7 +1601,7 @@ test :: (fn() -> unit)({
   // ... use x ...
   // At end of scope, RC is decremented
   // If RC reaches 0, memory is automatically freed
-}
+});
 ```
 
 ## Tuple
