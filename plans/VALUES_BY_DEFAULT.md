@@ -1095,7 +1095,9 @@ Each kind of root gets its own check:
   excludes `RefCell`-reaching values as it excludes `Rc` (§3.12).
 - **Decision 21's trees need nothing**: immutable after construction they
   stay `Rc(struct(...))`; the mutable registries among the compiler's
-  ~3,000 `ref` trees get `RefCell` at V4/V5, classified once per tree.
+  ~3,000 `ref` trees get `RefCell` at V4/V5, classified once per tree, and
+  the written contexts that only one call tree reaches become `&mut`-threaded
+  values instead (V5 part B's class L, VERDICTS-18 §C).
 - **Rollout** (the VBD implementer, 2026-10-10): the error cannot turn on
   before std, `src/` and tests stop relying on the run-time mark.
   - **Generation A** (with V1's write-site work): `RefCell(T)` lands; the
@@ -1108,8 +1110,10 @@ Each kind of root gets its own check:
     prove it; then (c) is the error everywhere.
   - **`ref(struct)` handles** are outside this rule until V5: they keep
     the entry-time assert (`_maybe_emit_method_entry_borrow_assert`), and
-    V4/V5's per-tree classification decides `RefCell` or immutable for
-    each; Generation A's census counts them separately.
+    V4/V5's per-tree classification decides for each: immutable (a plain
+    struct, or a read-only `Rc(S)`), linear (an owned value threaded as
+    `&mut S` where it is written), or shared (`Rc(RefCell(S))`); V5 part B
+    has the procedure. Generation A's census counts them separately.
   - **The V1 determinism tests** (a closure and an async body mutating a
     captured `Rc(ArrayList(T))` under a `for`) flip in Generation B from
     "panics" to "compile error, or a `RefCell` that panics".
@@ -9456,7 +9460,8 @@ not an estimate.
      The known ones include the async runtime's shared states (A5's
      `Channel`, `Rc(_ChannelState(T))`) and the compiler's mutable
      registries, which V4/V5's per-tree classification already sends to
-     `RefCell`.
+     `RefCell`; the threaded contexts are `&mut` values, not cells (V5
+     part B).
    - Then the write is the error everywhere, with the three doors in its
      text. E0909's read-only-handle predicate becomes true for `Rc`, and
      the async `Mutex` tests gain the `Rc(Mutex(T))` shape.
@@ -9778,8 +9783,12 @@ once `SEED_VERSION` parses it.
   the hard ceiling (later, Generation B needs a release of its own).
 - **Generation A.** The parser accepts both, and the evaluator warns on each
   use. `std/` and `src/` stop using them:
-  - the ~60 context objects become `Rc(struct(...))`, and the ~135 result
-    records become plain structs;
+  - ~~the ~60 context objects become `Rc(struct(...))`, and the ~135 result
+    records become plain structs~~ — superseded 2026-11-04 (Fable
+    consultations #13 Task 4 and #18 §C): decision 46 (E0919) makes an
+    `Rc` payload read-only, so a written context cannot be `Rc(S)`. Each
+    `ref` declaration is classified instead, by "Part B: the three classes"
+    below;
   - the wrappers and buffer cells move onto `__yo_cell`/`__yo_atomic_cell`
     (each wrapper's only field becomes the private `_cell`, so
     `Box(T)(…)` outside the prelude is E0405);
@@ -9811,6 +9820,56 @@ once `SEED_VERSION` parses it.
     and 3 `ref(enum)` declarations, std's non-collection `ref` types, and
     tests' 267 core declarations plus 151 cli-case fixtures.
   - **v0.2.76.** Generation B below.
+  - **Amended 2026-11-04 (schedule §5f decisions 27–29):** v0.2.75 became a
+    cadence cut. The declaration migration ("part B") is v0.2.76's only
+    must-have, and Generation B moves to v0.2.77 with the retirement.
+- **Part B: the three classes** (Fable consultations #13 Task 4 and #18 §C,
+  binding; the per-declaration table is
+  [`V5_PART_B_CLASSIFICATION.md`](V5_PART_B_CLASSIFICATION.md)). Decision 46
+  (E0919) makes an `Rc` payload read-only, so `Rc(S)` is not an option for a
+  written context: it is either a `&mut`-threaded value or
+  `Rc(RefCell(S))`. Each `ref` declaration is one of three classes:
+  - **R, never written** after construction: a plain `struct`, passed by
+    `&` and returned by value; `Rc(S)` (read-only, so E0919 never bites)
+    only when it is large and copied in a loop. `derive(Clone)` only where
+    a measured site needs it.
+  - **L, written and threaded:** an owned value at the root that creates
+    it, `&mut S` where it is written, `&S` where it is only read. It adds
+    no allocation. Dynamically scoped flags stay plain fields with the
+    save/restore pattern; where the saved field holds a counted handle or a
+    move-only value, the save is `take`/`replace`
+    (`saved := replace(&mut ctx.expected_type, .None)`), never a copy.
+  - **S, semantically shared:** a stored handle that is read or written
+    while no caller holds the context. `Rc(RefCell(S))`, or `Rc(S)` with at
+    most two `RefCell` fields when the rest is read-only (V4 PR 1's
+    `ValueCell` shape).
+  - A tie goes to L.
+- **The procedure, per declaration** (`src_census.py` runs steps 1 and 2):
+  1. **Written?** Any `v.field = …` or `&mut v.field` on a value of the
+     type. If not, it is R.
+  2. **Stored?** The type in a struct field, an enum payload, a module
+     `::`/`=` binding or a stored closure, directly or under
+     `Rc`/`Option`/`ArrayList`. If not, it is L.
+  3. **Reachability, by hand** (25 cases or fewer): if every stored use has
+     the context on its path as a parameter, it is L with restructuring
+     (`ImplInFlight.ctx` passes the context at use time; a result that
+     returns the handle, `ModuleLoadOutcome.ctx`, returns the value).
+     Otherwise it is S.
+- **Order:** this text first; then the census; then the migration per file,
+  every L declaration before any S. Each S type on the evaluator's path has
+  V4's perf gate: an ABBA `check ./src --std-path ./std`, three rounds,
+  within 3 % wall time and 3 % max RSS, plus the fixpoint. The memory
+  ratchet is re-baselined afterwards.
+- **Residual risk.** L threading can surface E0910 at a call that lends the
+  context twice (0 such calls measured): fix the call, not the type. The
+  `replace` residue adds about 126 save/restore pairs. The S choices for
+  `Environment` and `ExprInfo` carry the RSS risk.
+- **User form** (the docs and #1707's `yo explain` text for the `ref`
+  warning). Two questions decide a `ref` declaration's replacement: is it
+  written after construction, and is it needed by two owners that outlive
+  each other's calls? No and no: a plain struct. Yes and no: an owned value
+  lent as `&mut`. Yes and yes: `Rc(RefCell(S))`. The README projects
+  migrate by hand the same way.
 - **Generation B** (once `SEED_VERSION` carries a std without `ref`).
   - The parser drops the constructors.
   - `is_reference_semantics`/`is_atomic_rc` become "is a cell payload"
