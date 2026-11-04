@@ -75,7 +75,7 @@ is_unlabeled_ensures_atom :: (fn(id : ExprId) -> bool)(
 // LoadModuleFn result
 // ---------------------------------------------------------------------------
 /// Return value of a `load_module` callback.
-LoadModuleResult :: ref(
+LoadModuleResult :: (
   struct(
     module_value : EvalValue,
     /// The source-namespace STRUCT TYPE with real member field types.
@@ -100,7 +100,7 @@ FuncOrAsyncBlockKind :: enum(
 );
 derive(FuncOrAsyncBlockKind, Copy, Clone);
 /// Evaluation sub-context for a function body or async / test block.
-FuncOrAsyncBlockCtx :: ref(
+FuncOrAsyncBlockCtx :: (
   struct(
     kind : FuncOrAsyncBlockKind,
     /// The type of the function being evaluated (meaningless for async/test blocks).
@@ -137,7 +137,7 @@ LoopFlowSnapshot :: struct(
   consumed : ArrayList(Option(Token))
 );
 derive(LoopFlowSnapshot, Clone);
-LoopBodyCtx :: ref(
+LoopBodyCtx :: (
   struct(
     kind : LoopKind,
     env : Environment,
@@ -172,7 +172,7 @@ CaptureUsage :: enum(Read, Write, Own);
 derive(CaptureUsage, Copy, Clone);
 /// Information about a variable captured from an outer scope inside a closure
 /// or async block.
-CapturedVarInfo :: ref(
+CapturedVarInfo :: (
   struct(
     frame_level : usize,
     usage : CaptureUsage,
@@ -183,7 +183,7 @@ CapturedVarInfo :: ref(
 // Specializing function state
 // ---------------------------------------------------------------------------
 /// Tracks a single in-progress generic function specialization.
-SpecializingFunctionInfo :: ref(
+SpecializingFunctionInfo :: (
   struct(
     original_func_id : String,
     specialized_func_id : String,
@@ -226,7 +226,7 @@ sync_mut_decl_census_untrusted :: (fn(ctx : &EvalContext) -> unit)({
 // Impl concrete-type return tracking
 // ---------------------------------------------------------------------------
 /// One return-site's concrete type for `Impl(...)` return-type unification.
-ImplConcreteTypeInfo :: ref(
+ImplConcreteTypeInfo :: (
   struct(
     concrete_type : TypeValue,
     env : Environment,
@@ -241,7 +241,7 @@ impl(ImplConcreteTypeInfo, Clone(clone : (fn(self : &Self) -> Self)(self)));
 ///
 /// Holds no `env` (callerEnv is used at lookup time) and no `body`
 /// (ExprInfoTable makes AST re-evaluation safe).
-CalledComptimeFnCache :: ref(
+CalledComptimeFnCache :: (
   struct(
     func_id : String,
     arg_values : ArrayList(EvalValue),
@@ -268,7 +268,7 @@ impl(ComptimeFnCacheEntry, Clone(clone : (fn(self : &Self) -> Self)(self)));
 /// Stored in the module-global `g_specialized_fn_caches` (calls/helper.yo,
 /// keyed by `func_id`) rather than on `FuncVal`, to avoid updating ~24
 /// pattern-match sites; the cache lives for the whole process.
-SpecializedFunctionCache :: ref(
+SpecializedFunctionCache :: (
   struct(
     /// The compile-time argument values (generic + implicit + comptime params)
     /// used to create this specialization.
@@ -548,7 +548,7 @@ ArgValues :: ref(
 // ---------------------------------------------------------------------------
 // FunctionCallResult
 // ---------------------------------------------------------------------------
-FuncCallResult :: ref(
+FuncCallResult :: (
   struct(
     callee_env : Environment,
     caller_env : Environment,
@@ -567,7 +567,7 @@ FuncCallResult :: ref(
 // ComptimeFnCallResult
 // ---------------------------------------------------------------------------
 /// Result from `evaluate_comptime_fn_call`.
-ComptimeFnCallResult :: ref(
+ComptimeFnCallResult :: (
   struct(
     value : EvalValue,
     caller_env : Environment,
@@ -580,7 +580,7 @@ ComptimeFnCallResult :: ref(
 // ---------------------------------------------------------------------------
 // TypeCallResult
 // ---------------------------------------------------------------------------
-TypeCallResult :: ref(
+TypeCallResult :: (
   struct(
     values : ArrayList(Option(EvalValue)),
     path_collection : PathCollection,
@@ -595,44 +595,44 @@ TypeCallResult :: ref(
 // ---------------------------------------------------------------------------
 // Module / trait / macro / numeric / pointer / index call results
 // ---------------------------------------------------------------------------
-ModuleTypeCallResult :: ref(
+ModuleTypeCallResult :: (
   struct(
     module_value : EvalValue,
     caller_env : Environment
   )
 );
-TraitTypeCallResult :: ref(
+TraitTypeCallResult :: (
   struct(
     trait_value : EvalValue,
     caller_env : Environment
   )
 );
-TraitSpecializationResult :: ref(
+TraitSpecializationResult :: (
   struct(
     specialized_trait_type : TypeValue,
     caller_env : Environment
   )
 );
-MacroFuncCallResult :: ref(
+MacroFuncCallResult :: (
   struct(
     callee_env : Environment,
     caller_env : Environment,
     return_expr : AstExpr
   )
 );
-NumericTypeCallResult :: ref(
+NumericTypeCallResult :: (
   struct(
     expr : AstExpr,
     env : Environment
   )
 );
-PointerTypeCallResult :: ref(
+PointerTypeCallResult :: (
   struct(
     expr : AstExpr,
     env : Environment
   )
 );
-IndexCallResult :: ref(
+IndexCallResult :: (
   struct(
     /// Auto-dereferenced value (Output type, not *(Output)).
     value : Option(EvalValue),
@@ -682,7 +682,7 @@ CallResultKind :: enum(
   /// An error occurred during call dispatch.
   ErrorResult(message : String)
 );
-FunctionToCall :: ref(
+FunctionToCall :: (
   struct(
     ty : TypeValue,
     args : Option(ArrayList(AstExpr)),

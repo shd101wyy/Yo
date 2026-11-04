@@ -598,17 +598,9 @@ _flatten_or :: (fn(e : &AstExpr) -> ArrayList(AstExpr))({
 });
 _bind_names_sorted :: (fn(binds : &ArrayList(BindInfo)) -> ArrayList(String))({
   names := ArrayList(String).new();
-  (i : usize) = usize(0);
-  while(i < binds.len(), {
-    match(
-      binds.get(i),
-      .Some(b) => {
+  for(&binds, b => {
         names.push(b.name.clone());
-      },
-      .None => ()
-    );
-    i = (i + usize(1));
-  });
+      });
   // Selection sort into a fresh list — the lists are tiny.
   sorted := ArrayList(String).new();
   taken := ArrayList(usize).new();
@@ -1617,17 +1609,9 @@ compile_pattern :: (
     match(
       first_binds,
       .Some(fb) => {
-        (bi : usize) = usize(0);
-        while(bi < fb.len(), {
-          match(
-            fb.get(bi),
-            .Some(b) => {
+        for(&fb, b => {
               pc.binds.push(b);
-            },
-            .None => ()
-          );
-          bi = (bi + usize(1));
-        });
+            });
       },
       .None => ()
     );
