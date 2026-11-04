@@ -40,7 +40,7 @@ pragma(Pragma.AllowUnsafe);
   is_for_desugar_target
 } :: import("../../expr.yo");
 { is_auto_generated_expansion, is_implicitly_unsafe_capable_file, is_class1_panic_method_name, is_class1_panic_receiver_type, is_class1_panic_exempt_file, is_std_module_path, is_prelude_or_generated_file } :: import("../memory_safety.yo");
-{ D3PendingInout, d3_record_inout_place, d3_check_pending, d3_check_pending_unresolved_callee, require_no_inout_write_through_borrow } :: import("../exprs/assignment.yo");
+{ D3PendingInout, d3_record_inout_place, d3_check_pending, d3_check_pending_unresolved_callee, require_no_inout_write_through_borrow, shared_borrow_param_root_of_place, reject_write_through_shared_borrow_param } :: import("../exprs/assignment.yo");
 { ExprInfo, is_thread_local, is_mut_global, new_expr_info, expr_info_closure_function_value, expr_info_table_get, expr_info_table_set, record_method_callee_type, lookup_method_callee_type, record_method_callee_value, lookup_method_callee_value, record_io_builtin_struct_field, lookup_io_builtin_struct_field, record_io_builtin_call, record_macro_expansion, lookup_macro_expansion, record_fid_rtcall, active_where_trait_ids, record_fid_spec, lookup_struct_ctor_fid, struct_effective_ctor_fid, struct_fully_concrete_instance, adopt_receiver_struct_instance, mark_node_preevaluated, unmark_node_preevaluated, expr_info_adopt_env, expr_info_capture_type, expr_info_comptime_ref, expr_info_index_method_type, expr_info_index_method_value, expr_info_set_comptime_ref, expr_info_set_deferred_dup_expressions, expr_info_set_index_method_type, expr_info_set_index_method_value, expr_info_set_index_trait_ptr_type, expr_info_set_macro_expansion, some_resolution, purge_executed_clone_metadata, mark_fnonce_post_call_release, migrate_drop_trait_on, record_destructor_site, HandleCtorSite, migrate_handle_ctors_on, record_handle_ctor_site, migrate_mut_bindings_on, record_mut_judged } :: import("../../expr_info.yo");
 {
   Variable,
@@ -61,7 +61,8 @@ pragma(Pragma.AllowUnsafe);
   fv_source_count,
   fv_source_val,
   bind_parameter,
-  generate_variable_id
+  generate_variable_id,
+  closure_param_slot_trait
 } :: import("../../env.yo");
 { some_t_bounds, TypeValue, TypeValueNode, FuncMeta, t_refine_inner, shared_list, no_types, no_labels, no_levels, SharedList, no_flags, slot_pointee_at, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_by_value, t_reference, fn_param_mut_ref_flags, fn_param_by_value_flags, t_slot_with_pointee, t_slot_is_borrow, fn_param_slots, is_origin_kind, t_origin_kind, t_origin_named, fn_result_slot } :: import("../../types/definitions.yo");
 { get_func_param_defaults, get_func_param_default_exprs, default_param_eval_env, get_func_param_comptime, register_func_param_comptime, is_param_quoted, is_macro_fn, macro_return_is_unquote, evaluate_function_return_type_again, get_func_return_type_expr, get_func_variadic_param, get_func_param_type_exprs, get_func_where_clause_exprs, evaluate_function_parameter_type_again, _collect_type_arg_somes, _resolve_some_types_deep, collect_wrapper_trait_somes, evaluate_origin_argument } :: import("../types/function.yo");
@@ -73,7 +74,7 @@ pragma(Pragma.AllowUnsafe);
 { stable_module_id, stable_func_id, private_member_blocked, debug_knob, parse_raw_int, is_temp_variable_name } :: import("../../utils.yo");
 { type_key } :: import("../../types/type_key.yo");
 { record_await_fusion_candidate } :: import("../../expr_traversal.yo");
-{ attach_temp_variable_to_expr, projection_call_mode_of, deref_exempt_mark, deref_exempt_clear, consume_called_fnonce_closure, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, reject_second_class_escape, reject_write_through_rc, place_cell_hops, PlaceCellHops, handle_payload_is_read_only, require_capture_borrow_exclusivity, local_borrows_active, local_borrow_value_place_of, local_borrow_places_overlap, LocalBorrowPlace, CellRootedPlace, cell_rooted_place_of, cell_rooted_same_cell, cell_rooted_places_overlap, local_borrow_note_runtime_call, local_borrow_enter_macro_site, local_borrow_leave_macro_site, local_borrow_is_macro_await, local_borrow_is_scalar_type, variable_is_borrow_parameter, variable_id_in_scope, reject_bare_callable_into_dyn_fn, bare_callable_recorded_into_dyn_fn, global_lend_audit_enabled, global_lend_audit_print, global_lend_location, global_lend_key, global_place_path, GlobalHandleLend, global_note_handle_mutcall, global_note_handle_lend, global_require_mut, variable_is_future_operand_parameter, place_require_mut, RC_CLONE_MIGRATE_HINT } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, projection_call_mode_of, deref_exempt_mark, deref_exempt_clear, consume_called_fnonce_closure, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, reject_second_class_escape, reject_write_through_rc, place_cell_hops, PlaceCellHops, handle_payload_is_read_only, require_capture_borrow_exclusivity, local_borrows_active, local_borrow_value_place_of, local_borrow_places_overlap, LocalBorrowPlace, CellRootedPlace, cell_rooted_place_of, cell_rooted_same_cell, cell_rooted_places_overlap, local_borrow_note_runtime_call, local_borrow_enter_macro_site, local_borrow_leave_macro_site, local_borrow_is_macro_await, local_borrow_is_scalar_type, variable_is_borrow_parameter, variable_id_in_scope, reject_bare_callable_into_dyn_fn, bare_callable_recorded_into_dyn_fn, global_lend_audit_enabled, global_lend_audit_print, global_lend_location, global_lend_key, global_place_path, GlobalHandleLend, global_note_handle_mutcall, global_note_handle_lend, global_require_mut, variable_is_future_operand_parameter, place_require_mut, local_borrow_write_expr, check_capture_freeze_access, reference_field_read_mode, RC_CLONE_MIGRATE_HINT } :: import("../utils.yo");
 {
   EvalContext,
   ExpectedTypeCtx,
@@ -102,7 +103,7 @@ pragma(Pragma.AllowUnsafe);
 { are_types_compatible, are_types_compatible_exact } :: import("../../types/compatibility.yo");
 { is_drop_method_name, is_clone_trait_type, type_contains_some_type, type_contains_some_type_deep, is_bound_closure_identity, resolve_cell_chain, type_contains_rc_type, type_requires_explicit_copy, type_is_bitwise_copy, fn_param_is_ptr_borrow, CaptureBorrow, capture_borrows_exist, collect_type_borrows, register_capture_borrows, capture_struct_borrows, capture_borrow_place_string, is_future_value_type, type_is_second_class, type_carries_origin, origin_value_phase_message, origin_beyond_n2b, origin_beyond_n2b_message, type_holds_counted_handle_ignoring_migration, type_lacks_clone } :: import("../../types/utils.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ trait_impl_epoch, get_all_some_types, type_mentions_some_type_named, type_somes_all_resolve_concrete, target_integer_type_range, dyn_member_is_method, dyn_member_unsafe_reason, dyn_upcast_note, same_name_note, deref_miss_note, mark_generic_independent, type_mentions_impl_fn_or_future } :: import("../../types/utils.yo");
+{ trait_impl_epoch, type_is_typed_fnmut_closure, closure_fn_trait_of, get_all_some_types, type_mentions_some_type_named, type_somes_all_resolve_concrete, target_integer_type_range, dyn_member_is_method, dyn_member_unsafe_reason, dyn_upcast_note, same_name_note, deref_miss_note, mark_generic_independent, type_mentions_impl_fn_or_future } :: import("../../types/utils.yo");
 { check_literal_fits, comptime_int_value_misfit } :: import("../values/integer.yo");
 { type_id_or_empty, get_type_trait_methods_by_name, get_assoc_type_entries, MethodEntry } :: import("../values/type_trait_methods.yo");
 { evaluate_comptime_fn_call, resolve_recursive_type_ref, canonicalize_instantiation_via_ctfe_memo } :: import("./comptime_fn.yo");
@@ -3972,6 +3973,12 @@ _lent_place_of :: (fn(e : &AstExpr) -> Option(_LentPlace))({
   while(!ast_expr_is_atom(&cur), {
     // A step an evaluator rewrite replaced reads as rewritten.
     cur = ast_rewritten_node(&cur);
+    // A step through a `&` reference field (N1e-2) reaches the place the
+    // field shares: lending it borrows nothing of the holder, which a later
+    // argument may move or write, as a reborrow through `&` does.
+    if(match(reference_field_read_mode(ast_expr_id(&cur)), .Some(lp_mut) => !lp_mut, .None => false), {
+      return(Option(_LentPlace).None);
+    });
     match(
       cur,
       .FnCall(_, callee, Rc(c_args), _, _) => if(ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))), {
@@ -8679,6 +8686,65 @@ _consume_fnonce_callee :: (fn(callee : &AstExpr, call : &AstExpr, callee_info : 
   });
   consume_called_fnonce_closure(callee, &v, env, ctx, exn);
 });
+/// The callee is called as an `FnMut(...)`. A closure parameter of a
+/// specialized body decides by its declared slot's trait
+/// (`closure_param_slot_trait`): the binding carries the argument's type, and
+/// an `FnMut` closure moved into a `sink(f) : Impl(FnOnce(...))` parameter is
+/// called there as an `FnOnce`. Otherwise the binding's own closure trait,
+/// then the trait the callee's type carries; only a callee with no closure
+/// trait anywhere is judged by how its literal was typed
+/// (`type_is_typed_fnmut_closure`).
+_callee_slot_is_fnmut :: (fn(callee_info : &ExprInfo, env : &Environment) -> bool)({
+  match(
+    &callee_info.variable_name,
+    .Some(sn) => match(
+      get_variables_from_env(env, sn.clone()).last(),
+      .Some(sv) => {
+        match(closure_param_slot_trait(sv.id), .Some(sb) => return(sb == "FnMut"), .None => ());
+        if(closure_fn_trait_of(&sv.ty).is_some(), {
+          return(type_is_typed_fnmut_closure(&sv.ty));
+        });
+      },
+      .None => ()
+    ),
+    .None => ()
+  );
+  type_is_typed_fnmut_closure(&callee_info.ty)
+});
+/// Decision 37 (plans/VALUES_BY_DEFAULT.md, decision 43 N1f): an `FnMut(...)`
+/// call takes its closure as `self : &mut Self`, so the callee is a `&mut self`
+/// receiver and decision 47 and the E0908 rule decide it (VERDICTS-15 Q2):
+/// through a `&T` parameter or a `&` local borrow it is E0908; an unmarked
+/// local, pattern binding or by-value parameter is E0917; a live borrow of the
+/// callee or a closure capturing it conflicts with the call (E0911/E0910). A
+/// `&mut` parameter, a `mut(f)` local, a `&mut` local borrow and a temporary
+/// callee are exclusive already.
+_require_exclusive_fnmut_callee :: (fn(callee : &AstExpr, callee_info : &ExprInfo, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
+  if(!_callee_slot_is_fnmut(callee_info, env), {
+    return(());
+  });
+  tok := ast_expr_token(callee);
+  what := `call \`${ast_expr_to_string(callee)}\`, an \`FnMut(...)\` closure, whose call borrows it exclusively`;
+  match(
+    shared_borrow_param_root_of_place(callee, env, ctx),
+    .Some(sbv) => {
+      reject_write_through_shared_borrow_param(&sbv, &what, &tok, ctx, exn);
+      return(());
+    },
+    .None => ()
+  );
+  local_borrow_write_expr(callee, &what, &tok, env, ctx, exn);
+  match(
+    &callee_info.variable_name,
+    .Some(cn) => match(
+      get_variables_from_env(env, cn.clone()).last(),
+      .Some(cv) => check_capture_freeze_access(&cv, true, &tok, env, ctx, exn),
+      .None => ()
+    ),
+    .None => ()
+  );
+  place_require_mut(callee, &tok, &String.from("call the `FnMut(...)` closure"), false, env, ctx, exn);
+});
 _evaluate_function_call_unanchored :: (
   fn(
     expr : &AstExpr,
@@ -9274,7 +9340,10 @@ _evaluate_function_call_unanchored :: (
   callee_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_callee));
   match(
     callee_info_opt,
-    .Some(once_ci) => _consume_fnonce_callee(&evaluated_callee, expr, &once_ci, env, ctx, exn),
+    .Some(once_ci) => {
+      _require_exclusive_fnmut_callee(&evaluated_callee, &once_ci, env, ctx, exn);
+      _consume_fnonce_callee(&evaluated_callee, expr, &once_ci, env, ctx, exn);
+    },
     .None => ()
   );
   // Decision 24: a projection (`-> &T` / `-> &mut T`) called directly

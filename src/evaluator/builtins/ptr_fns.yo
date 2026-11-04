@@ -34,10 +34,10 @@ pragma(Pragma.AllowUnsafe);
   ValueCell,
   value_cell_new
 } :: import("../../value.yo");
-{ TypeValue, TypeValueNode, SharedList, fn_param_is_mut_ref, fn_param_is_by_value, fn_result_origin_names, fn_param_in_result_origin } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, SharedList, fn_param_is_mut_ref, fn_param_is_by_value, fn_result_origin_names, fn_param_in_result_origin, t_slot_origin_names, origin_names_contain } :: import("../../types/definitions.yo");
 { t_ptr } :: import("../../types/creators.yo");
 { format_error_message, format_error_message_with_help, with_code } :: import("../../error.yo");
-{ attach_temp_variable_to_expr, projection_call_mode_of, projection_call_root_args } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, projection_call_mode_of, projection_call_root_args, reference_field_read_type } :: import("../utils.yo");
 { evaluate_expression_guarded } :: import("../exprs/expr.yo");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { call_promote_index_places_for_write } :: import("../context.yo");
@@ -118,6 +118,34 @@ _spelled_origin_error :: (fn(name : &String, ctx : &EvalContext) -> Option(_Proj
     i = (i + usize(1));
   });
   Option(_ProjRootError).None
+});
+/// A reference field's referent (N1e-2: `v.r` with `r : &(T, p)`) lives in
+/// the places the field's origin names, whatever holder it is read from: a
+/// projection's spelled result origin must list each of them. `.None` when
+/// the field's origin is elided, which names no places (the holder
+/// parameter's rule decides then); `.Some(.None)` when the result lists them
+/// or spells none.
+_field_origin_error :: (fn(field_ty : &TypeValue, ctx : &EvalContext) -> Option(Option(_ProjRootError)))({
+  fo := match(t_slot_origin_names(field_ty), .Some(n) => n, .None => return(Option(Option(_ProjRootError)).None));
+  ft := match(_enclosing_fn_type(ctx), .Some(t) => t, .None => return(Option(Option(_ProjRootError)).Some(Option(_ProjRootError).None)));
+  names := match(fn_result_origin_names(&ft), .Some(n) => n, .None => return(Option(Option(_ProjRootError)).Some(Option(_ProjRootError).None)));
+  (i : usize) = usize(0);
+  while(i < fo.len(), {
+    fo_n := match(fo.get(i), .Some(n) => n, .None => String.new());
+    if(!origin_names_contain(&names, &fo_n), {
+      origin_text := if(names.len() == usize(1), match(names.get(usize(0)), .Some(n) => n, .None => String.new()), `(${_join_names(&names)})`);
+      return(
+        Option(Option(_ProjRootError)).Some(
+          _proj_err(
+            `This projection's result is declared \`&(T, ${origin_text})\`, and this place is what a reference field refers to, in the places of origin \`${fo_n}\`, which that origin does not name: a result points only into the places its origin lists (decision 43, O3's return rule).`,
+            Option(str).Some(E_ORIGIN_MISMATCH)
+          )
+        )
+      );
+    });
+    i = (i + usize(1));
+  });
+  Option(Option(_ProjRootError)).Some(Option(_ProjRootError).None)
 });
 /// The enclosing body's parameter names as written: a closure's own (its
 /// body context's `FuncValData.params`), which may differ from its expected
@@ -232,7 +260,30 @@ _projection_root_error :: (fn(place : &AstExpr, is_mut : bool, env : &Environmen
         // A raw-pointer deref: the place is wherever the pointer points.
         .Some(f) => if(ast_expr_is_atom_of(&f, "*"), Option(_ProjRootError).None, {
           base := match(pr_args.get(usize(0)), .Some(b) => b, .None => make_err_expr());
-          _projection_root_error(&base, is_mut, env, ctx)
+          // A reference field of a holder parameter (N1e-2: `v.r` with
+          // `v : _View(p)`, `r : &(T, p)`) is a place OUTSIDE the holder,
+          // in the places its origins name: the result's origin must list
+          // them (`fn_param_in_result_origin`'s holder rule).
+          rb_param := match(
+            ast_rewritten_node(&base),
+            .Atom(_, rb_tok) => match(
+              get_variables_from_env(env, rb_tok.value.*.clone()).last(),
+              .Some(rb_v) => if(rb_v.is_parameter && !rb_v.is_compile_time_only, Option(String).Some(rb_tok.value.*.clone()), Option(String).None),
+              .None => Option(String).None
+            ),
+            _ => Option(String).None
+          );
+          // The field's own spelled origin decides when it has one; an
+          // elided one is judged by the holder parameter's origins.
+          match(
+            reference_field_read_type(ast_expr_id(place)),
+            .Some(rb_fty) => match(
+              _field_origin_error(&rb_fty, ctx),
+              .Some(rb_fe) => rb_fe,
+              .None => match(rb_param, .Some(rb_name) => _spelled_origin_error(&rb_name, ctx), .None => _projection_root_error(&base, is_mut, env, ctx))
+            ),
+            .None => _projection_root_error(&base, is_mut, env, ctx)
+          )
         }),
         .None => Option(_ProjRootError).None
       ),

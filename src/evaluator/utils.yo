@@ -40,6 +40,7 @@ pragma(Pragma.AllowUnsafe);
   BK_UNSAFE_FN,
   BK_FN_TRAIT,
   BK_FN_ONCE_TRAIT,
+  BK_FN_MUT_TRAIT,
   ast_expr_is_local_borrow_mode_call,
   ast_expr_strip_borrow_marker,
   BK_BORROW_MUT,
@@ -95,6 +96,7 @@ pragma(Pragma.AllowUnsafe);
   variable_has_undone_move,
   is_fn_capture_value_binding,
   is_capture_list_value_binding,
+  is_fnmut_capture_value_binding,
   is_macro_pattern_binding,
   is_fnonce_capture_frame,
   is_closure_param_frame,
@@ -116,18 +118,18 @@ pragma(Pragma.AllowUnsafe);
   with_code
 } :: import("../error.yo");
 { raise_flow_violation, propagate_def_time_errors } :: import("../types/flowability.yo");
-{ suggest_name, E_USE_OF_MOVED_VALUE, E_MOVED_ON_SOME_PATHS, E_BORROW_ESCAPES, E_BORROW_CONFLICT, E_WRITE_THROUGH_BORROW, E_LOCAL_BORROW_CONFLICT, E_LOCAL_BORROW_ESCAPES, E_CLOSURE_MOVES_CAPTURE, E_BARE_CALLABLE_INTO_DYN, E_GLOBAL_LENT_TO_CALL, E_IMMUTABLE_BINDING_WRITE, E_RC_PAYLOAD_WRITE, E_REFERENCE_READ_WITHOUT_DEREF, E_ORIGIN_MISMATCH } :: import("../diagnostics.yo");
+{ suggest_name, E_USE_OF_MOVED_VALUE, E_MOVED_ON_SOME_PATHS, E_BORROW_ESCAPES, E_BORROW_CONFLICT, E_WRITE_THROUGH_BORROW, E_LOCAL_BORROW_CONFLICT, E_LOCAL_BORROW_ESCAPES, E_CLOSURE_TRAIT_TOO_WEAK, E_BARE_CALLABLE_INTO_DYN, E_GLOBAL_LENT_TO_CALL, E_IMMUTABLE_BINDING_WRITE, E_RC_PAYLOAD_WRITE, E_REFERENCE_READ_WITHOUT_DEREF, E_ORIGIN_MISMATCH } :: import("../diagnostics.yo");
 { Exception } :: import("std/error");
 { generate_new_temp_variable_name, is_temp_variable_name, is_any_temp_variable_name, debug_knob, display_module_path, canonical_module_path }
 :: import("../utils.yo");
 { eprintln } :: import("std/fmt");
 { EvalValue, is_unknown_val, is_type_value, is_var_ref, is_func_val } :: import("../value.yo");
-{ TypeValue, TypeValueNode, t_refine_inner, SharedList, no_flags, no_types, fn_param_mut_ref_flags, fn_param_by_value_flags, fn_result_is_ref, fn_result_is_mut_ref, fn_result_origin_names, fn_result_composite_origin_names, fn_param_in_result_origin, fn_result_slot, shared_list } :: import("../types/definitions.yo");
+{ TypeValue, TypeValueNode, t_refine_inner, SharedList, no_flags, no_types, fn_param_mut_ref_flags, fn_param_by_value_flags, fn_result_is_ref, fn_result_is_mut_ref, fn_result_origin_names, fn_result_composite_origin_names, fn_param_in_result_origin, fn_param_pointee_in_result_origin, fn_result_slot, shared_list, t_slot_is_mut_ref } :: import("../types/definitions.yo");
 { is_never_type, is_unit_type, is_function_type, is_function_type_and_returns_comptime_value, is_box_type, is_unique_box_type, is_dyn_type, is_future_trait_type, is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type, is_primitive_type, is_pointer_type, is_bool_type, is_array_type, is_struct_type, is_tuple_type, is_some_type, cell_handle_view, is_atomic_counted_handle_type, is_counted_cell_type, is_arc_type, is_counted_handle_value_type, unique_box_payload_type } :: import("../types/guards.yo");
 { get_func_type, is_fn_ctfe_clone, is_closure_fn, is_io_async_sm_closure } :: import("../function_value.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../types/compatibility.yo");
 { type_to_string, type_to_string_for_message } :: import("../types/string.yo");
-{ type_is_bitwise_copy, type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_holds_counted_handle, type_holds_counted_handle_ignoring_migration, set_counted_handle_rule, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow, is_bound_closure_identity, is_closure_capture_struct, resolve_cell_chain, is_future_value_type, is_bare_callable_into_dyn_fn, type_contains_some_type_deep, type_holds_dyn_by_value, dyn_type_lists_clone, fn_trait_call_func_type, type_carries_origin } :: import("../types/utils.yo");
+{ type_is_bitwise_copy, type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_holds_counted_handle, type_holds_counted_handle_ignoring_migration, set_counted_handle_rule, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow, is_bound_closure_identity, is_closure_capture_struct, resolve_cell_chain, is_future_value_type, is_bare_callable_into_dyn_fn, type_contains_some_type_deep, type_holds_dyn_by_value, dyn_type_lists_clone, fn_trait_call_func_type, type_carries_origin, type_is_typed_fnmut_closure, capture_struct_is_fnmut } :: import("../types/utils.yo");
 { expr_info_table_set, migrate_match_scrutinee_on, record_migrate_edit, migrate_dyn_spelling_on, record_dyn_spelling_site, is_mut_global, is_thread_local, migrate_mutable_globals_on, record_mutable_global_site, migrate_mut_bindings_on, record_mut_binding_site, record_mut_binding_site_pending, record_mut_param_site, record_mut_param_site_pending, record_mut_judged, migrate_deref_on, audit_deref_on, deref_rule_suspended, record_deref_site, record_deref_edit_site } :: import("../expr_info.yo");
 { is_global_mut_rule_exempt, is_deref_rule_exempt } :: import("./memory_safety.yo");
 // `set_expr_as_needs_to_call_dup` builds + evaluates a `___dup(name)` call.
@@ -173,6 +175,9 @@ pragma(Pragma.AllowUnsafe);
 /// (N1e-1, `property_access.yo`), by source position: the name there is the
 /// deref, never a whole-value read, in this node and in every clone of it.
 (g_reference_deref_sites : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
+/// Field reads of a reference field (N1e-2), with the field's reference
+/// type as the instance declares it (`note_reference_field_read`).
+(g_reference_field_reads : RefCell(HashMap(usize, TypeValue))) = RefCell(HashMap(usize, TypeValue)).new(HashMap(usize, TypeValue).new());
 /// The `*` atoms of the `w.*` derefs the auto-deref hooks synthesize
 /// (`make_deref_expr`, N1e-1), by id: every other `*` of a `.*` was written,
 /// in the source or in a batch the test runner printed from it.
@@ -861,7 +866,7 @@ consume_called_fnonce_closure :: (fn(callee : &AstExpr, v : &Variable, env : &En
           `Cannot call \`${v.name}\` here: it is captured implicitly by this closure, and an \`FnOnce(...)\` call consumes the closure it calls, so it would be gone after this closure's first call.`,
           Option(String).Some(`list it and type this closure \`FnOnce(...)\`: \`{ ${v.name} }(...) => ${v.name}()\``)
         ),
-        E_CLOSURE_MOVES_CAPTURE
+        E_CLOSURE_TRAIT_TOO_WEAK
       ),
       ctx,
       exn
@@ -899,10 +904,10 @@ consume_called_fnonce_closure :: (fn(callee : &AstExpr, v : &Variable, env : &En
         with_code(
           format_error_message_with_help(
             &tok,
-            `Cannot call \`${v.name}\` here: it is a by-value capture of a closure typed \`Fn(...)\`, whose call borrows its captures, and an \`FnOnce(...)\` call consumes the closure it calls.`,
+            `Cannot call \`${v.name}\` here: it is a by-value capture of a closure typed \`${if(is_fnmut_capture_value_binding(v.id), "FnMut", "Fn")}(...)\`, whose call borrows its captures, and an \`FnOnce(...)\` call consumes the closure it calls.`,
             Option(String).Some(String.from("type the enclosing closure `FnOnce(...)`, so its body owns its captures"))
           ),
-          E_CLOSURE_MOVES_CAPTURE
+          E_CLOSURE_TRAIT_TOO_WEAK
         ),
         ctx,
         exn
@@ -1044,16 +1049,17 @@ _throw_explicit_copy_violation :: (fn(rhs : &AstExpr, ty : &TypeValue, what : &S
   );
 });
 /// E0913 for a move out of a by-value capture of a closure typed `Fn(...)`
-/// (plans/VALUES_BY_DEFAULT.md decision 37): an `Fn` call borrows the
-/// captures so the closure can run again, and a closure that moves one out is
-/// call-once. The error names the moving line; the fix is the `FnOnce(...)`
-/// type, whose call consumes the closure.
-_throw_fn_closure_moves_capture :: (fn(rhs : &AstExpr, ty : &TypeValue, ctx : &EvalContext, exn : Exception) -> unit)({
+/// or `FnMut(...)` (plans/VALUES_BY_DEFAULT.md decision 37): either call
+/// borrows the captures so the closure can run again, and a closure that
+/// moves one out is call-once. The error names the moving line; the fix is
+/// the `FnOnce(...)` type, whose call consumes the closure.
+_throw_fn_closure_moves_capture :: (fn(rhs : &AstExpr, ty : &TypeValue, var_id : usize, ctx : &EvalContext, exn : Exception) -> unit)({
   name := _place_text(rhs);
-  msg := `Cannot move \`${name}\` out of the closure: it is a by-value capture, and the closure is typed \`Fn(...)\`, whose call borrows its captures so it can run again. A closure that moves a capture out is called once.`;
+  trait_name := if(is_fnmut_capture_value_binding(var_id), "FnMut", "Fn");
+  msg := `Cannot move \`${name}\` out of the closure: it is a by-value capture, and the closure is typed \`${trait_name}(...)\`, whose call borrows its captures so it can run again. A closure that moves a capture out is called once.`;
   help := `type the closure \`FnOnce(...)\`: its call consumes the closure, whose body then owns its captures and may move \`${name}\` (\`${type_to_string(ty)}\` ${_explicit_copy_kind(ty)}) out`;
   raise_flow_violation(
-    with_code(format_error_message_with_help(ast_expr_token(rhs), &msg, Option(String).Some(help)), E_CLOSURE_MOVES_CAPTURE),
+    with_code(format_error_message_with_help(ast_expr_token(rhs), &msg, Option(String).Some(help)), E_CLOSURE_TRAIT_TOO_WEAK),
     ctx,
     exn
   );
@@ -1178,7 +1184,7 @@ _throw_implicit_capture_move :: (fn(rhs : &AstExpr, ty : &TypeValue, ctx : &Eval
   msg := `Cannot move \`${name}\` out of the closure: it is captured implicitly, and a closure body moves a capture out only from a capture list. A closure that moves a capture out is called once.`;
   help := `list the capture and type the closure \`FnOnce(...)\`: \`{ ${name} }(...) => ...\`, whose call consumes the closure (\`${type_to_string(ty)}\` ${_explicit_copy_kind(ty)})`;
   raise_flow_violation(
-    with_code(format_error_message_with_help(ast_expr_token(rhs), &msg, Option(String).Some(help)), E_CLOSURE_MOVES_CAPTURE),
+    with_code(format_error_message_with_help(ast_expr_token(rhs), &msg, Option(String).Some(help)), E_CLOSURE_TRAIT_TOO_WEAK),
     ctx,
     exn
   );
@@ -1217,7 +1223,7 @@ transfer_explicit_copy_value :: (fn(rhs : &AstExpr, ei : &ExprInfo, variable_nam
       },
       v.is_module_level => _throw_explicit_copy_violation(rhs, &ei.ty, String.from("it is a module-level binding, which lives for the whole program and is never moved. Copy it with `.clone()`, or lend it with `&` (a call may borrow a module-level binding only while nothing writes it, plans/VALUES_BY_DEFAULT.md decision 18 rule 3)."), ctx, exn),
       v.is_ref => _throw_explicit_copy_violation(rhs, &ei.ty, String.from("it is a `&mut` borrow, which names storage the caller owns. Lend it on with `&mut`, or move the caller's value."), ctx, exn),
-      is_fn_capture_value_binding(v.id) => _throw_fn_closure_moves_capture(rhs, &ei.ty, ctx, exn),
+      is_fn_capture_value_binding(v.id) => _throw_fn_closure_moves_capture(rhs, &ei.ty, v.id, ctx, exn),
       _is_implicit_closure_capture(&v, &ei.env, ctx) => _throw_implicit_capture_move(rhs, &ei.ty, ctx, exn),
       v.is_owning_the_rc_value => set_expr_as_consumed(rhs, &ei.env, false, ctx, exn),
       _move_through_sink_shadow(&v, rhs, &ei.env) => (),
@@ -2030,7 +2036,9 @@ require_capture_borrow_exclusivity :: (
     extra,
     .Some(callee) => {
       all_args.push(callee);
-      excl.push(match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&callee)), .Some(inf) => type_first_mut_borrow(&inf.ty).is_some(), .None => false));
+      // A called `FnMut(...)` closure is borrowed exclusively by its call
+      // (decision 37), whatever it captures.
+      excl.push(match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&callee)), .Some(inf) => (type_first_mut_borrow(&inf.ty).is_some() || type_is_typed_fnmut_closure(&inf.ty)), .None => false));
       named.push(true);
     },
     .None => ()
@@ -2498,6 +2506,74 @@ global_require_mut :: (fn(gv : &Variable, tok : &Token, how : &String, ctx : &Ev
 /// not write the binding and is not listed.
 (g_audit_mut_bindings : bool) = debug_knob(`YO_AUDIT_MUT_BINDINGS`).is_some();
 mut_binding_audit_enabled :: (fn() -> bool)(g_audit_mut_bindings);
+// ---------------------------------------------------------------------------
+// Decision 43 N1f: a closure that is `FnMut` by its captures at an `Fn` slot
+// ---------------------------------------------------------------------------
+/// The census knob for N1f's one-release exemption, `YO_AUDIT_FNMUT=1`
+/// (VERDICTS-15 Q5): each closure the exemption admits prints one stderr
+/// line, `file:line:col [fnmut] slot=<the slot's type> captures=<names>`,
+/// once per site; nothing is rejected either way. Its count over std and
+/// src sizes N3's switch of std's slots to `FnMut(...)`.
+(g_audit_fnmut : bool) = debug_knob(`YO_AUDIT_FNMUT`).is_some();
+/// A closure holding a `&mut` capture is `FnMut` by decision 37 (its call
+/// writes through the capture, decision 38's "a `FnMut` closure (one holding
+/// a `&mut` capture)"), and an `Fn(...)` slot calls through a shared borrow.
+/// Until std's call-repeatedly slots take `FnMut(...)` (decision 43 N3), a
+/// closure whose trait came from an `Fn(...)` slot — a literal at the slot,
+/// or an unannotated closure value reaching one — and is `FnMut` only by its
+/// captures is still admitted, as it was before `FnMut` existed: the write
+/// goes through the capture's pointer (decision 37's phase note; VERDICTS-1
+/// Q10, VERDICTS-15 Q4). This is that exemption, the one predicate N3
+/// deletes in the PR that switches std's slots
+/// (plans/backlog/SEED_VERSION_AUTOMATION.md). It does not cover a value
+/// TYPED `FnMut(...)` reaching an `Fn(...)` slot or a `Dyn(Fn(...))`
+/// (E0913), a write of a by-value entry under an `Fn(...)` slot (E0917), or
+/// a `Sync` slot (rejected naming `FnMut`, `utils/closure.yo`).
+fn_slot_admits_capture_fnmut :: (fn() -> bool)(true);
+/// The closure `closure_ty` reaches the `Fn(...)` slot `slot` (a parameter,
+/// an annotation, a `Dyn(Fn(...))`) and is `FnMut` by its captures alone
+/// (`capture_struct_is_fnmut`, VERDICTS-15 Q4′). `fn_slot_admits_capture_fnmut`
+/// admits it (the census line is printed); past the exemption it is E0913.
+/// Nothing happens for any other closure.
+judge_capture_fnmut_at_fn_slot :: (fn(tok : &Token, slot : &TypeValue, closure_ty : &TypeValue, ctx : &EvalContext, exn : Exception) -> unit)({
+  if(!capture_struct_is_fnmut(closure_ty), {
+    return(());
+  });
+  bs := ArrayList(CaptureBorrow).new();
+  collect_type_borrows(closure_ty, &mut bs);
+  names := String.new();
+  (ni : usize) = usize(0);
+  while(ni < bs.len(), ni = (ni + usize(1)), {
+    match(
+      bs.get_cloned(ni),
+      .Some(b) => if(b.is_mut, {
+        if(!names.is_empty(), {
+          names.push_str(",");
+        });
+        names.push_string(&`\`${b.label}\``);
+      }),
+      .None => ()
+    );
+  });
+  if(g_audit_fnmut, {
+    global_lend_audit_print(&`${global_lend_location(tok)} [fnmut] slot=${type_to_string(slot)} captures=${names}`);
+  });
+  if(fn_slot_admits_capture_fnmut(), {
+    return(());
+  });
+  raise_flow_violation(
+    with_code(
+      format_error_message_with_help(
+        tok,
+        `This closure holds the \`&mut\` capture ${names}, so its call writes through it: it is an \`FnMut(...)\` closure, and the slot is \`${type_to_string(slot)}\`, whose callee may call it again through a shared borrow.`,
+        Option(String).Some(String.from("declare the parameter `f : &mut Impl(FnMut(...))` (or `sink(f) : Impl(FnMut(...))`), or capture the place with `&` if the closure only reads it"))
+      ),
+      E_CLOSURE_TRAIT_TOO_WEAK
+    ),
+    ctx,
+    exn
+  );
+});
 /// Reject a malformed binder marker: `holder`'s argument `idx` is a
 /// `mut(...)` call whose argument is not a NAME (`mut(x.f)`, `mut(1)`).
 /// `desugar_if_calls` strips every well-formed `mut(name)` in a binder
@@ -2575,6 +2651,13 @@ binding_require_mut :: (fn(v : &Variable, tok : &Token, how : &String, ctx : &Ev
   if(v.is_ref || (v.is_imm_borrow || variable_inout_borrow_root_id(v).is_some()), {
     return(());
   });
+  // A by-value capture-list entry of a closure typed `FnMut(...)` is part of
+  // the record its call borrows exclusively (decision 37, VERDICTS-15 Q1):
+  // writing it writes state that persists across calls, and the slot's
+  // `FnMut` is the visible marker.
+  if(is_fnmut_capture_value_binding(v.id), {
+    return(());
+  });
   if(is_any_temp_variable_name(&v.name) || v.name.starts_with("__"), {
     return(());
   });
@@ -2621,7 +2704,10 @@ binding_require_mut :: (fn(v : &Variable, tok : &Token, how : &String, ctx : &Ev
     help = if(
       is_macro_elem,
       `rebind it to a mutable local and write that (\`mut(${name}_m) := ${name};\`), or loop with \`for(&mut coll, ${name} => ...)\` to write each element in place`,
-      `rebind it to a mutable local and write that (\`mut(${name}_m) := ${name};\`, a move, not a copy, for an owning value), or take \`${name} : &mut T\` if the caller's value should change`
+      cond(
+        is_capture_list_value_binding(v.id) => `rebind it to a mutable local and write that (\`mut(${name}_m) := ${name};\`, a move, not a copy, for an owning value), or type the closure \`FnMut(...)\` if the state should persist across calls`,
+        true => `rebind it to a mutable local and write that (\`mut(${name}_m) := ${name};\`, a move, not a copy, for an owning value), or take \`${name} : &mut T\` if the caller's value should change`
+      )
     );
   }, {
     what := cond(
@@ -2654,6 +2740,11 @@ place_root_binding :: (fn(place : &AstExpr, env : &Environment, ctx : &EvalConte
   // reference binding is the name `r`, decision 43 step 2 N1e-1).
   (cur : AstExpr) = ast_rewritten_node(&ast_expr_strip_borrow_marker(place));
   while(!ast_expr_is_atom(&cur), {
+    // A reference field's read (N1e-2) is the place it refers to, which the
+    // binding only points to.
+    if(is_reference_field_read(ast_expr_id(&cur)), {
+      return(Option(Variable).None);
+    });
     (next : AstExpr) = match(
       cur,
       .FnCall(_, pr_callee, Rc(pr_args), pr_infix, _) => cond(
@@ -2680,6 +2771,44 @@ place_root_binding :: (fn(place : &AstExpr, env : &Environment, ctx : &EvalConte
     cur = ast_rewritten_node(&next);
   });
   get_variables_from_env(env, ast_expr_token(&cur).value.*.clone()).last()
+});
+/// E0908: a write of `place` that goes through a `&` reference field
+/// (`v.at.* = x`, `v.at.f = x` or `&mut v.at` with `at : &(T, p)`, decision
+/// 43 step 2 N1e-2). The field lends the place it refers to read-only, as a
+/// `&T` parameter does; a `&mut` field lends it writable.
+reject_write_through_shared_reference_field :: (fn(place : &AstExpr, tok : &Token, ctx : &EvalContext, exn : Exception) -> unit)({
+  if(g_reference_field_reads.with(m => m.len()) == usize(0), {
+    return(());
+  });
+  (cur : AstExpr) = ast_rewritten_node(&ast_expr_strip_borrow_marker(place));
+  while(!ast_expr_is_atom(&cur), {
+    if(match(reference_field_read_mode(ast_expr_id(&cur)), .Some(rw_mut) => !rw_mut, .None => false), {
+      rw_text := _place_text(&cur);
+      raise_flow_violation(
+        with_code(
+          format_error_message_with_help(
+            tok,
+            `Cannot write through \`${rw_text}\`: it is a \`&\` reference field, a read-only borrow of the place it refers to.`,
+            Option(String).Some(`declare the field \`&mut\` to write through it, or copy the value into a local first (\`q := ${rw_text}.*;\`) and write the copy`)
+          ),
+          E_WRITE_THROUGH_BORROW
+        ),
+        ctx,
+        exn
+      );
+      return(());
+    });
+    (rw_next : AstExpr) = match(
+      cur,
+      .FnCall(_, rw_callee, Rc(rw_args), rw_infix, _) => cond(
+        ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))) => match(rw_args.get(usize(0)), .Some(a) => a, .None => return(())),
+        rw_infix => return(()),
+        true => rw_callee
+      ),
+      .Atom(_, _) => cur
+    );
+    cur = ast_rewritten_node(&rw_next);
+  });
 });
 /// `yo fix --migrate mut-bindings`: whether the binding at the root of
 /// `place` has a type variable's type. A store through it is judged "not its
@@ -2710,6 +2839,7 @@ _place_root_is_type_variable :: (fn(place : &AstExpr, env : &Environment) -> boo
 /// binding). A module-level root is judged by the globals step at its own
 /// sites, and a compile-time root holds no runtime storage to lend.
 place_require_mut :: (fn(place : &AstExpr, tok : &Token, how : &String, handle_ok : bool, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
+  reject_write_through_shared_reference_field(place, tok, ctx, exn);
   if(!g_audit_mut_bindings && !migrate_mut_bindings_on() && !global_mut_rule_applies(tok, ctx), {
     return(());
   });
@@ -3590,7 +3720,7 @@ check_dyn_copy :: (fn(rhs : &AstExpr, ei : &ExprInfo, variable_name : &String, c
       v.is_compile_time_only => (),
       v.is_module_level => _throw_explicit_copy_violation(rhs, &ei.ty, String.from("it is a module-level binding, which lives for the whole program and is never moved. Lend it with `&` instead (a call may borrow a module-level binding only while nothing writes it, plans/VALUES_BY_DEFAULT.md decision 18 rule 3)."), ctx, exn),
       v.is_ref => _throw_explicit_copy_violation(rhs, &ei.ty, String.from("it is a `&mut` borrow, which names storage the caller owns. Lend it on with `&mut`, or move the caller's value."), ctx, exn),
-      is_fn_capture_value_binding(v.id) => _throw_fn_closure_moves_capture(rhs, &ei.ty, ctx, exn),
+      is_fn_capture_value_binding(v.id) => _throw_fn_closure_moves_capture(rhs, &ei.ty, v.id, ctx, exn),
       _is_implicit_closure_capture(&v, &ei.env, ctx) => _throw_implicit_capture_move(rhs, &ei.ty, ctx, exn),
       (v.is_parameter && !v.is_owning_the_rc_value && _owning_param_binding_beside(&ei.env, &v).is_none()) => _throw_explicit_copy_violation(rhs, &ei.ty, String.from("it is a `&T` parameter, and a borrow cannot give the value away. Take the parameter by value (`x : T`, without `&`) to own it."), ctx, exn),
       true => {
@@ -6087,14 +6217,57 @@ local_borrow_take_receiver :: (fn(e : &AstExpr) -> bool)({
   });
   hit
 });
-/// Before evaluating `e` where a bare reference binding is not a
-/// whole-value read (`g_deref_exempt_id`): only an atom is marked.
-deref_exempt_mark :: (fn(e : &AstExpr) -> unit)(
-  if(ast_expr_is_atom(e), {
-    g_deref_exempt_id = ast_expr_id(e);
-    g_deref_exempt_armed = true;
-  })
+/// Before evaluating `e` where a bare reference (a binding, or a field read
+/// of a reference field, N1e-2) is not a whole-value read
+/// (`g_deref_exempt_id`).
+deref_exempt_mark :: (fn(e : &AstExpr) -> unit)({
+  g_deref_exempt_id = ast_expr_id(e);
+  g_deref_exempt_armed = true;
+});
+/// The ids of field reads whose field is a reference (decision 43 step 2,
+/// N1e-2): `v.at` with `at : &(T, p)` reads as the place it refers to, of
+/// type `T`, as a reference binding does, so `v.at.*` is that place and a
+/// bare `v.at` in a by-value position is E0926. `ref_ty` is the field's
+/// reference type: its mutability decides a write through it, its origin
+/// where the place it refers to lives.
+note_reference_field_read :: (fn(id : usize, ref_ty : &TypeValue) -> unit)({
+  _old := g_reference_field_reads.with_mut({ id, ty : Rc.clone(ref_ty) }(m) => m.insert(id, Rc.clone(ty)));
+  ()
+});
+/// The field's reference type when the node `id` reads a reference field.
+reference_field_read_type :: (fn(id : usize) -> Option(TypeValue))(
+  if(g_reference_field_reads.with(m => m.len()) == usize(0), Option(TypeValue).None, g_reference_field_reads.with(m => m.get_cloned(&id)))
 );
+/// `.Some(is_mut)` when the node `id` reads a reference field.
+reference_field_read_mode :: (fn(id : usize) -> Option(bool))(
+  match(reference_field_read_type(id), .Some(rt) => Option(bool).Some(t_slot_is_mut_ref(&rt)), .None => Option(bool).None)
+);
+is_reference_field_read :: (fn(id : usize) -> bool)(reference_field_read_mode(id).is_some());
+/// E0926 at a field read `text` whose field is the reference `ref_ty`, used
+/// as a whole value without `.*` (N1e-2; the binding form is
+/// `reject_reference_without_deref`). `tok` is the field label's token.
+reject_reference_field_without_deref :: (fn(text : &String, label : &String, ref_ty : &TypeValue, tok : &Token, ctx : &EvalContext, exn : Exception) -> unit)({
+  if(ctx.is_in_function_call_checking_phase, {
+    return(());
+  });
+  if(deref_rule_recording(), {
+    record_deref_site(tok, label);
+    return(());
+  });
+  shown := type_to_string_for_message(ref_ty);
+  raise_flow_violation(
+    &with_code(
+      format_error_message_with_help(
+        tok,
+        `\`${text}\` is a reference (\`${shown}\`): reading the value it refers to is spelled \`${text}.*\``,
+        Option(String).Some(`write \`${text}.*\`; \`${text}.field\`, \`${text}.method()\` and \`${text}(i)\` read through it, and \`f(${text})\` passes it to a reference parameter`)
+      ),
+      E_REFERENCE_READ_WITHOUT_DEREF
+    ),
+    ctx,
+    exn
+  );
+});
 /// After `e` was evaluated.
 deref_exempt_clear :: (fn() -> unit)({
   g_deref_exempt_armed = false;
@@ -6141,6 +6314,19 @@ is_synthesized_deref_star :: (fn(id : usize) -> bool)(
 /// reference's own deref under either reading.
 deref_reads_through_pointee :: (fn(ty : &TypeValue) -> bool)(
   cell_handle_view(ty).is_some() || (unique_box_payload_type(ty).is_some() || (is_pointer_type(ty) || _labels_name_a_star(ty)))
+);
+/// The value the old reading's `.*` on `ty` reads: a cell handle's or a
+/// `Box`'s payload, a pointer's pointee. `.None` for a field named `*`.
+deref_payload_type :: (fn(ty : &TypeValue) -> Option(TypeValue))(
+  match(
+    cell_handle_view(ty),
+    .Some(v) => Option(TypeValue).Some(Rc.clone(v.payload)),
+    .None => match(
+      unique_box_payload_type(ty),
+      .Some(p) => Option(TypeValue).Some(p),
+      .None => match(t_refine_inner(ty), Rc(.Pointer(p)) => Option(TypeValue).Some(Rc.clone(p)), _ => Option(TypeValue).None)
+    )
+  )
 );
 _labels_name_a_star :: (fn(t : &TypeValue) -> bool)({
   labels := match(
@@ -7262,7 +7448,7 @@ _lb_fn_literal_binds :: (fn(callee : &AstExpr, name : &String) -> bool)(
       fc,
       .Atom(_, fct) => cond(
         ((fct.value.* == "->") && (fargs.len() == usize(2))) => match(fargs.get(usize(0)), .Some(head) => _lb_fn_literal_binds(&head, name.clone()), .None => false),
-        true => (((fct.value.* == BK_FN) || (fct.value.* == BK_CTL) || ((fct.value.* == BK_UNSAFE_FN) || (fct.value.* == BK_FN_TRAIT)) || (fct.value.* == BK_FN_ONCE_TRAIT)) && _lb_any_binds_name(&fargs, name.clone()))
+        true => (((fct.value.* == BK_FN) || (fct.value.* == BK_CTL) || ((fct.value.* == BK_UNSAFE_FN) || (fct.value.* == BK_FN_TRAIT)) || ((fct.value.* == BK_FN_ONCE_TRAIT) || (fct.value.* == BK_FN_MUT_TRAIT))) && _lb_any_binds_name(&fargs, name.clone()))
       ),
       .FnCall(_, _, _, _, _) => false
     ),
@@ -7771,7 +7957,15 @@ projection_call_root_args :: (fn(call : &AstExpr, ctx : &EvalContext) -> ArrayLi
     p_ref := match(param_is_ref.get(i), .Some(b) => b, .None => false);
     p_own := match(param_is_owning.get(i), .Some(b) => b, .None => true);
     p_in := match(&res_names, .Some(rn) => fn_param_in_result_origin(&meta_ty, i, &rn), .None => true);
-    if((p_ref || !p_own) && p_in, {
+    // A holder passed by value (an N2b composite carrying origins, N1e-2):
+    // the result may point where its references do.
+    p_carries := match(
+      args.get(i),
+      .Some(ha) => match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&_strip_lend(&ha))), .Some(hai) => type_carries_origin(&hai.ty), .None => false),
+      .None => false
+    );
+    p_holder := ((p_own && !p_ref) && p_carries);
+    if((p_ref || (!p_own || p_holder)) && p_in, {
       match(args.get(i), .Some(a) => out.push(ProjectionRootArg(arg : _strip_lend(&a), is_mut : p_ref, label : _param_label_at(&meta_ty, i))), .None => ());
     });
     i = (i + usize(1));
@@ -7805,12 +7999,44 @@ origin_carrying_value_roots :: (fn(e : &AstExpr, env : &Environment, ctx : &Eval
     _holder_roots_into(&stripped, env, ctx, &mut out);
     return(out);
   });
+  // A call whose result spells its origins (`-> Option(&mut(T, p))`, O3):
+  // the value points only where those origins do. An argument whose
+  // parameter they do not name contributes nothing; one whose pointee
+  // carries them (`self : &mut Cursor(p)`, O3 step 2) contributes the
+  // places its holder froze, not its own place.
+  oc_ft := projection_call_callee_type(&stripped, ctx);
+  oc_names := match(&oc_ft, .Some(oc_t) => fn_result_composite_origin_names(&oc_t), .None => Option(SharedList(String)).None);
   match(
     stripped,
     .FnCall(_, _, fc_args, _, _) => {
       (i : usize) = usize(0);
       while(i < fc_args.len(), {
         arg := match(fc_args.get(i), .Some(a) => a, .None => make_err_expr());
+        (oc_mode : u8) = match(
+          &oc_ft,
+          .Some(oc_t) => match(
+            &oc_names,
+            .Some(oc_n) => cond(
+              fn_param_in_result_origin(&oc_t, i, &oc_n) => u8(0),
+              fn_param_pointee_in_result_origin(&oc_t, i, &oc_n) => u8(2),
+              true => u8(1)
+            ),
+            .None => u8(0)
+          ),
+          .None => u8(0)
+        );
+        if(oc_mode == u8(1), {
+          i = (i + usize(1));
+          continue;
+        });
+        if(oc_mode == u8(2), {
+          oc_place := ast_expr_strip_borrow_marker(&arg);
+          if(ast_expr_is_atom(&oc_place), {
+            _holder_roots_into(&oc_place, env, ctx, &mut out);
+          });
+          i = (i + usize(1));
+          continue;
+        });
         // A `label : value` argument: the value.
         value := cond(
           ast_expr_is_fn_call_of(&arg, BK_COLON, Option(usize).Some(usize(2))) => match(
@@ -8026,11 +8252,18 @@ export(
   deref_exempt_mark,
   deref_exempt_clear,
   deref_exempt_take,
+  note_reference_field_read,
+  is_reference_field_read,
+  reference_field_read_mode,
+  reference_field_read_type,
+  reject_reference_field_without_deref,
+  reject_write_through_shared_reference_field,
   note_reference_deref_site,
   is_reference_deref_site,
   note_synthesized_deref_star,
   is_synthesized_deref_star,
   deref_reads_through_pointee,
+  deref_payload_type,
   variable_is_reference_binding,
   deref_rule_applies,
   deref_rule_recording,
@@ -8075,4 +8308,4 @@ export(
 );
 export(global_lend_audit_enabled, global_lend_audit_print, global_lend_location, global_lend_key);
 export(GlobalPlacePath, global_place_path, GlobalHandleLend, global_note_handle_mutcall, global_note_handle_write, global_note_handle_lend, global_mut_rule_applies, global_require_mut);
-export(mut_binding_audit_enabled, reject_malformed_mut_marker, reject_malformed_pattern_mut_markers, binding_require_mut, place_require_mut);
+export(judge_capture_fnmut_at_fn_slot, fn_slot_admits_capture_fnmut, mut_binding_audit_enabled, reject_malformed_mut_marker, reject_malformed_pattern_mut_markers, binding_require_mut, place_require_mut);

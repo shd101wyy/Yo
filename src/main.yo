@@ -141,7 +141,7 @@ json :: import("std/encoding/json");
 { record_input_file, reset_input_files, input_files, input_file_entries, set_input_hashing, input_hashing_enabled } :: import("./input_record.yo");
 { YoError, ExitWith, render_any_error, take_error_diagnostics } :: import("./error.yo");
 { ExplicitCopySite, set_migrate_rc_clone, migrate_mut_scrutinee_at, clear_migrate_mut_scrutinees, take_explicit_copy_sites } :: import("./evaluator/utils.yo");
-{ MigrateEdit, set_migrate_param_modes, take_migrate_edits, AddrOfSite, set_migrate_addr_of, take_addr_of_sites, set_migrate_drop_trait, take_destructor_sites, set_migrate_match_scrutinee, MarkerSite, set_migrate_markers, take_marker_sites, DerefSite, set_migrate_deref, set_deref_rule_suspended, take_deref_sites, RcPatternSite, set_migrate_rc_pattern, take_rc_pattern_sites, DynSpellingSite, set_migrate_dyn_spelling, take_dyn_spelling_sites, HandleCtorSite, set_migrate_handle_ctors, take_handle_ctor_sites, MutableGlobalSite, set_migrate_mutable_globals, take_mutable_global_sites, set_migrate_mut_bindings, take_mut_binding_sites, take_mut_param_sites, take_mut_judged } :: import("./expr_info.yo");
+{ MigrateEdit, set_migrate_param_modes, take_migrate_edits, AddrOfSite, set_migrate_addr_of, take_addr_of_sites, set_migrate_drop_trait, take_destructor_sites, set_migrate_match_scrutinee, MarkerSite, set_migrate_markers, take_marker_sites, DerefSite, set_migrate_deref, set_deref_rule_suspended, take_deref_sites, take_deref_migrated_files, RcPatternSite, set_migrate_rc_pattern, take_rc_pattern_sites, DynSpellingSite, set_migrate_dyn_spelling, take_dyn_spelling_sites, HandleCtorSite, set_migrate_handle_ctors, take_handle_ctor_sites, MutableGlobalSite, set_migrate_mutable_globals, take_mutable_global_sites, set_migrate_mut_bindings, take_mut_binding_sites, take_mut_param_sites, take_mut_judged } :: import("./expr_info.yo");
 { Diagnostic, Span, Severity } :: import("./diagnostics.yo");
 { set_strict_test_bodies, SkippedTestBody, take_skipped_test_bodies } :: import("./evaluator/exprs/test.yo");
 {
@@ -2006,11 +2006,11 @@ _bsm_walk :: (
         cond(
           // Declaration heads.
           (!is_infix && ((word == "fn") || (word == "ctl"))) => _bsm_param_list(&args, usize(0), lines, out, claimed, counts),
-          (!is_infix && ((word == "Fn") || (word == "FnOnce"))) => _bsm_param_list(&args, usize(1), lines, out, claimed, counts),
+          (!is_infix && ((word == "Fn") || ((word == "FnMut") || (word == "FnOnce")))) => _bsm_param_list(&args, usize(1), lines, out, claimed, counts),
           // The result slot.
           _bsm_is_infix_of(e, "->") => {
             lhs_w := match(_bsm_callee(_bsm_arg(e, usize(0))), .Atom(_, lt) => lt.value.*.clone(), _ => String.new());
-            if((lhs_w == "fn") || (lhs_w == "ctl") || (lhs_w == "Fn") || (lhs_w == "FnOnce"), {
+            if((lhs_w == "fn") || (lhs_w == "ctl") || (lhs_w == "Fn") || (lhs_w == "FnMut") || (lhs_w == "FnOnce"), {
               rt := _bsm_arg(e, usize(1));
               match(
                 _bsm_mode_sig(&rt),
@@ -2752,6 +2752,14 @@ _run_migrate_deref :: (
   while(spi < sites.len(), spi = (spi + usize(1)), {
     site_paths.push(canonical_module_path(sites(spi).path.clone()));
   });
+  // The files that already read their references with `.*`: an old-reading
+  // payload `.*` (edit 3) there is the reference's deref, written by an
+  // earlier run (issues/fixed/2026-11-04-migrate-deref-adds-a-second-star-on-a-second-run.md).
+  migrated_raw := take_deref_migrated_files();
+  migrated := HashSet(String).new();
+  for(&migrated_raw, mp => {
+    _new := migrated.insert(canonical_module_path(mp.clone()));
+  });
   (n_done : usize) = usize(0);
   (n_skipped : usize) = usize(0);
   (ti : usize) = usize(0);
@@ -2820,6 +2828,11 @@ _run_migrate_deref :: (
             println(`fix: ${at}: no \`&\`/\`&mut\` marker written right before \`${st.expect}\`; left as written`);
           }
         );
+        continue;
+      });
+      if((st.edit == u8(3)) && migrated.contains(&canon), {
+        n_skipped = (n_skipped + usize(1));
+        println(`fix: ${at}: \`${st.expect}.*\` reads through a reference to a Box, an Rc, a pointer or a cell handle, and this file already reads its references with \`.*\` (an earlier run); left as written`);
         continue;
       });
       span_end := if(st.col < runes.len(), _expr_span_end(&runes, st.col, st.col, &st.expect, &file), Option(usize).None);

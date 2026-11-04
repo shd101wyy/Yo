@@ -127,8 +127,15 @@ test("compatibility — FnTraitT structural", {
   fn1 := t_fn_trait_simple(String.from("Fn"), ArrayList(TypeValue).new(), t_unit());
   fn2 := t_fn_trait_simple(String.from("Fn"), ArrayList(TypeValue).new(), t_unit());
   fn3 := t_fn_trait_simple(String.from("FnMut"), ArrayList(TypeValue).new(), t_unit());
+  fn4 := t_fn_trait_simple(String.from("FnOnce"), ArrayList(TypeValue).new(), t_unit());
   assert(are_types_compatible(&fn1, &fn2), "Fn()→unit ~ Fn()→unit");
-  assert(!are_types_compatible(&fn1, &fn3), "Fn !~ FnMut");
+  // Decision 37: `Fn` implies `FnMut`, which implies `FnOnce` (actual, expected).
+  assert(are_types_compatible(&fn1, &fn3), "an Fn serves an FnMut slot");
+  assert(are_types_compatible(&fn3, &fn4), "an FnMut serves an FnOnce slot");
+  assert(are_types_compatible(&fn1, &fn4), "an Fn serves an FnOnce slot");
+  assert(!are_types_compatible(&fn3, &fn1), "an FnMut does not serve an Fn slot");
+  assert(!are_types_compatible(&fn4, &fn3), "an FnOnce does not serve an FnMut slot");
+  assert(!are_types_compatible(&fn4, &fn1), "an FnOnce does not serve an Fn slot");
 });
 test("compatibility — FutureTraitT simple", {
   f1 := t_future_trait_simple(String.from("Io"), t_unit());

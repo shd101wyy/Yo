@@ -909,6 +909,45 @@ fn_result_slot :: (fn(ft : &TypeValue) -> TypeValue)(match(ft, Rc(.Func({ result
 /// The value type a `Func` returns or projects: `T` for `-> T`, `-> &T` and
 /// `-> &mut T`. Unit for a non-`Func`.
 fn_result_pointee :: (fn(ft : &TypeValue) -> TypeValue)(t_slot_pointee(&fn_result_slot(ft)));
+/// The rank of a closure trait's base name in decision 37's order: `Fn` (0)
+/// implies `FnMut` (1), which implies `FnOnce` (2). A closure whose trait
+/// ranks at most the slot's serves it: a borrowing call also serves an
+/// exclusive one, and either serves one consuming call. `.None` for a name
+/// that is none of the three.
+fn_trait_rank :: (fn(base_name : &String) -> Option(u8))(
+  cond(
+    (base_name == "Fn") => Option(u8).Some(u8(0)),
+    (base_name == "FnMut") => Option(u8).Some(u8(1)),
+    (base_name == "FnOnce") => Option(u8).Some(u8(2)),
+    true => Option(u8).None
+  )
+);
+/// A closure typed `actual` may stand where `expected` is required
+/// (decision 37's order, `fn_trait_rank`): the same trait, or a stronger one
+/// (`Fn` where `FnMut` or `FnOnce` is required, `FnMut` where `FnOnce` is).
+fn_trait_base_serves :: (fn(actual : &String, expected : &String) -> bool)(
+  match(
+    fn_trait_rank(actual),
+    .Some(ar) => match(fn_trait_rank(expected), .Some(er) => (ar <= er), .None => false),
+    .None => (actual == expected)
+  )
+);
+/// What a call of a closure typed `base_name` does to it, for E0913's text.
+fn_trait_call_contract :: (fn(base_name : &String) -> String)(
+  cond(
+    (base_name == "FnOnce") => String.from("which is called at most once (its call consumes it)"),
+    (base_name == "FnMut") => String.from("whose call borrows it exclusively (its body writes its state or a `&mut` capture)"),
+    true => String.from("whose call borrows it")
+  )
+);
+/// What a slot typed `base_name` may do with a closure it receives, for
+/// E0913's text.
+fn_trait_slot_contract :: (fn(base_name : &String) -> String)(
+  cond(
+    (base_name == "Fn") => String.from("the closure may be called again, through a shared borrow"),
+    true => String.from("the closure may be called again")
+  )
+);
 /// The `Func` (or closure trait, `Fn(...) -> &T`, N1c) `ft` is a
 /// projection (`-> &T` or `-> &mut T`).
 fn_result_is_ref :: (fn(ft : &TypeValue) -> bool)(match(ft, Rc(.Func({ result : fri_r })) => t_slot_is_borrow(&fri_r), Rc(.FnTraitT({ call_result : fri_cr })) => t_slot_is_borrow(&fri_cr), _ => false));
@@ -1016,10 +1055,42 @@ fn_param_in_result_origin :: (fn(ft : &TypeValue, i : usize, names : &SharedList
         });
         false
       },
-      .None => false
+      // A by-value parameter whose type spells origins (`v : _View(p)`, an
+      // N2b holder) points into those places: it is in the result's origin
+      // when it names one the result lists (N1e-2, a reference read out of
+      // a holder parameter).
+      .None => if(t_slot_is_by_value(&pro_s), {
+        held := ArrayList(String).new();
+        _spelled_origins_into(&pro_s, &mut held, usize(0));
+        (hj : usize) = usize(0);
+        while(hj < held.len(), {
+          if(origin_names_contain(names, &held(hj)), {
+            return(true);
+          });
+          hj = (hj + usize(1));
+        });
+        false
+      }, false)
     ),
     .None => false
   )
+});
+/// Parameter `i` of `ft` is a reference whose pointee spells an origin the
+/// result lists (`self : &mut Cursor(p)` with `-> Option(&mut(T, p))`, O3
+/// step 2, N1e-2): the result points where the pointee's references point,
+/// not into the parameter's own place.
+fn_param_pointee_in_result_origin :: (fn(ft : &TypeValue, i : usize, names : &SharedList(String)) -> bool)({
+  pp := match(fn_param_slots(ft).get(i), .Some(Rc(.Reference(pi_pointee, _, _))) => Rc.clone(pi_pointee), _ => return(false));
+  held := ArrayList(String).new();
+  _spelled_origins_into(&pp, &mut held, usize(0));
+  (hj : usize) = usize(0);
+  while(hj < held.len(), {
+    if(origin_names_contain(names, &held(hj)), {
+      return(true);
+    });
+    hj = (hj + usize(1));
+  });
+  false
 });
 /// Parameter `i` of the `Func` / `FnTraitT` `ft` is `&mut T` (false past the
 /// last parameter).
@@ -1090,5 +1161,6 @@ get_struct_field_comptime_flags :: (
   g_struct_field_comptime_flags.with(m => m.get_cloned(struct_id.clone()))
 );
 export(TypeValue, TypeValueNode, FuncMeta, SomeTBounds, SomeTBoundsCell, some_t_bounds, some_t_bounds_empty, TraitTBody, TraitTBodyCell, trait_t_body, SharedList, SharedListCell, SharedListElem, shared_list, no_types, no_labels, no_flags, no_levels, no_discriminants, no_type_lists, no_label_lists, t_refine_inner, register_struct_field_comptime_flags, get_struct_field_comptime_flags);
-export(fn_result_slot, fn_result_pointee, fn_result_is_ref, fn_result_is_mut_ref, t_origin_spelled_names, t_slot_origin_names, fn_result_origin_names, fn_result_composite_origin_names, origin_names_contain, fn_param_in_result_origin);
+export(fn_trait_rank, fn_trait_base_serves, fn_trait_call_contract, fn_trait_slot_contract);
+export(fn_result_slot, fn_result_pointee, fn_result_is_ref, fn_result_is_mut_ref, t_origin_spelled_names, t_slot_origin_names, fn_result_origin_names, fn_result_composite_origin_names, origin_names_contain, fn_param_in_result_origin, fn_param_pointee_in_result_origin);
 export(t_origin_elided, t_origin_kind, t_origin_named, t_reference_with_origin, is_origin_kind, t_reference, t_slot, t_slot_pointee, slot_pointee_at, slot_pointees, t_slot_is_mut_ref, t_slot_is_borrow, t_slot_is_by_value, t_slot_with_pointee, t_slot_like, fn_param_slots, fn_param_is_mut_ref, fn_param_is_by_value, fn_param_mut_ref_at, fn_param_by_value_at, fn_param_mut_ref_flags, fn_param_by_value_flags);

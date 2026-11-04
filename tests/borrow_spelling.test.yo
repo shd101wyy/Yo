@@ -259,8 +259,9 @@ test("the map form `for(&mut m, (k, v) => …)` borrows the value only", {
 // a constructor lends its `&`/`&mut` fields (T9), the binding freezes the
 // places its origins name (T8), a copy of an all-`&` holder shares, and a
 // `&mut`-holding one is move-only (§5 route 3). A container or a cell is
-// still only NAMED (the wall names N2c/N2d), and READING a reference field
-// — binding it, dereferencing it — is N1e's.
+// still only NAMED (the wall names N2c/N2d). A reference field reads as the
+// place it refers to (N1e-2, below): a bare read in a by-value position is
+// E0926, as a reference binding's is.
 BsView :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(at : &(i32, p), lo : usize));
 BsPair :: (fn(comptime(p) : Origin, comptime(q) : Origin) -> comptime(Type))(struct(a : &(i32, p), b : &mut(i32, q)));
 BsElided :: struct(f : &i32, g : &mut i32);
@@ -315,7 +316,7 @@ comptime_expect_error(
     v := BsView(x)(at : &x, lo : usize(0));
     _ := v.at;
   }),
-  "is a reference value"
+  "reading the value it refers to is spelled `v.at.*`"
 );
 comptime_expect_error(
   bs_holder_freeze :: (fn() -> unit)({
@@ -977,3 +978,46 @@ test("A place lent into a reference field is dropped at its own scope end", {
     assert(v.n == l.len(), "the list is still readable beside its holder");
   });
 });
+// Reading a reference out of a holder (decision 43 step 2, N1e-2): a
+// reference FIELD reads as the place it refers to, as a reference binding
+// does. `v.at.*` is that place, `v.xs.len()` and `f(v.xs)` read through or
+// lend it, a holder parameter's field is a result over the holder's
+// origins, and `m.at.* = v` writes through a `&mut` field.
+BsRV :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(at : &(i32, p), xs : &(ArrayList(i32), p)));
+BsRM :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(at : &mut(i32, p)));
+bs_rv_first :: (fn(generic(p : Origin), v : BsRV(p)) -> &(i32, p))(&v.at.*);
+bs_rv_len :: (fn(xs : &ArrayList(i32)) -> usize)(xs.len());
+test("A reference field reads and writes through with .*", {
+  x := i32(41);
+  mut(l) := ArrayList(i32).new();
+  l.push(i32(7));
+  v := BsRV((x, l))(at : &x, xs : &l);
+  assert(v.at.* == i32(41), "v.at.* reads the referent");
+  assert(v.xs.len() == usize(1), "a method through a reference field");
+  assert(bs_rv_len(v.xs) == usize(1), "a reference field lent to a reference parameter");
+  r := bs_rv_first(v);
+  assert(r.* == i32(41), "a reference read out of a holder parameter");
+  mut(y) := i32(1);
+  {
+    // Not `mut(m)`: the write lands in `y`, which `m` only points to.
+    m := BsRM(y)(at : &mut y);
+    m.at.* = i32(5);
+  };
+  assert(y == i32(5), "a write through a `&mut` field writes the referent");
+});
+comptime_expect_error(
+  bs_rv_write_through_shared :: (fn() -> unit)({
+    x := i32(1);
+    v := BsView(x)(at : &x, lo : usize(0));
+    v.at.* = i32(2);
+  }),
+  "Cannot write through `v.at`: it is a `&` reference field"
+);
+comptime_expect_error(
+  bs_rv_bare_operand :: (fn() -> i32)({
+    x := i32(1);
+    v := BsView(x)(at : &x, lo : usize(0));
+    v.at + i32(1)
+  }),
+  "reading the value it refers to is spelled `v.at.*`"
+);
