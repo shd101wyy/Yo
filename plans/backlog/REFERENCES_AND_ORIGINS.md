@@ -534,7 +534,10 @@ parameter):
   local in it (E0912, `async-forward-local`). A call's result future names the
   callee's parameters, and the binding freeze and the return rule map them to
   the arguments that call lent, so forwarding is ordinary substitution
-  (`async-forward-param`). The future half of A2's wrapper-id registry and
+  (`async-forward-param`). A bound future handed by value to a call that
+  makes a future (a combinator operand, `select(f, g, io)`) carries the places
+  it froze into that call's future, so they stay frozen past the operand's own
+  last use. The future half of A2's wrapper-id registry and
   its checked-call set are deleted; the closure half stays (VERDICTS-14 Q3).
   A parameter-level origin over-freezes a field capture, which is sound (O3's
   accepted over-freeze).

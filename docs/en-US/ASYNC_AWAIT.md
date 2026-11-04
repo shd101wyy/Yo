@@ -378,8 +378,9 @@ that borrows:
 - it may be the operand of a combinator, a generic function whose by-value
   parameter and result are both Futures (`both(a, b, io)` over
   `Impl(Future(A, Io))` and `Impl(Future(B, Io))`): the combinator's own
-  Future then borrows what its operands borrow and is awaited where it is
-  made in turn. Two operands of one call may not lend overlapping places when
+  Future then borrows what its operands borrow, and follows the same rules
+  in turn. An operand may be a bound Future: `s := select(f, g, io)` keeps
+  what `f` froze frozen until `s`'s last use. Two operands of one call may not lend overlapping places when
   either side is `&mut` (E0910, decision 38 B); two `&` borrows of one place
   are fine. A by-value Future parameter of a function whose result is not a
   Future, or of a non-generic function (checked once, at its definition, so
