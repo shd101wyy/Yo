@@ -657,7 +657,10 @@ havoc 状态（每个被赋值名都换成全新无约束常量）上假设
 判定：`proved`、`refuted`，以及因 rlimit 耗尽而得到的 `unknown`。被墙上时钟
 兜底超时截断的 `unknown`（机器负载高时）显示为
 `UNPROVEN  unknown: wall-clock timeout (…); not cached`，下次运行会重新询问
-求解器。
+求解器。缓存命中的 `unknown` 会带上 `(cached; --no-cache asks the solver again)`，
+因为本次运行没有再次询问求解器。缓存键中的 `--version` 文本只标明 Z3 的发行版本，
+不标明平台或构建；同一版本的不同构建可能以不同方式计数 rlimit（分配器与体系结构
+路径不同）。缓存按用户、按机器存放，因此只有在多台机器之间共享缓存时这一点才有影响。
 
 `--rlimit <n>` 设置每次查询的这一预算（默认 5000000）。预算内得到 `unknown`
 的查询，会先以 20 倍预算自动重试一次，然后才报告为 `unproven`。大目标以

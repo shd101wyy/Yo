@@ -6127,7 +6127,13 @@ _print_verify_fn_report :: (fn(rp : &VerifyFnReport, detailed : bool) -> unit)(
                 .Unproven(reason) => `UNPROVEN  ${reason}`,
                 .SolverError(msg) => `SOLVER-ERROR  ${msg}`
               );
-              cached_mark := if(obl.cached, String.from(" (cached)"), String.new());
+              // A cached `unknown` (only an rlimit-exhausted one is stored)
+              // was not asked again: say how to ask.
+              cached_mark := cond(
+                !(obl.cached) => String.new(),
+                match(&obl.verdict, .Unproven(_) => true, _ => false) => String.from(" (cached; --no-cache asks the solver again)"),
+                true => String.from(" (cached)")
+              );
               folded_mark := if(obl.folded, String.from(" (folded)"), String.new());
               kind_mark := if(obl.elision_only && bad, String.from(" (elision-only: guard kept)"), String.new());
               println(`    ${obl.name}: ${detail}${cached_mark}${folded_mark}${kind_mark}`);

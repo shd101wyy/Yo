@@ -803,7 +803,13 @@ wall-clock) and a fixed `:random-seed 0`, so only reproducible verdicts
 are cached: `proved`, `refuted`, and an `unknown` whose rlimit ran out.
 An `unknown` the wall-clock backstop cut short (a loaded machine) reads
 `UNPROVEN  unknown: wall-clock timeout (…); not cached`, and the next run
-asks the solver again.
+asks the solver again. A cached `unknown` is printed with
+`(cached; --no-cache asks the solver again)`, because the run did not ask
+again. The `--version` text in the key names the Z3 release, not the
+platform or the build, and two builds of one release can count rlimit
+differently (allocator and architecture paths). The cache lives per user
+and per machine, so this only matters if a cache is ever shared between
+machines.
 
 `--rlimit <n>` sets that budget per query (default 5000000). A query the
 budget leaves `unknown` gets one automatic retry at 20× the budget before
