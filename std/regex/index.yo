@@ -54,7 +54,8 @@
 utf8 :: import("../encoding/utf8.yo");
 /// Compiled regular expression backed by an NFA program.
 Regex :: struct(
-  _program : NfaProgram,
+  /// Read-only after compilation; shared with every `NfaVm` a search builds.
+  _program : Rc(NfaProgram),
   _flags : RegexFlags,
   _pattern : String,
   _n_groups : usize,
@@ -91,7 +92,7 @@ impl(
           .Ok(ast) => {
             n_groups := parser.group_count();
             compiler := NfaCompiler.new();
-            program := compiler.compile(&ast, n_groups, parser.group_names());
+            mut(program) := compiler.compile(&ast, n_groups, parser.group_names());
             // Literal prefix scan is case-sensitive; disable when ignoreCase
             cond(
               flags.ignore_case => {
@@ -101,7 +102,7 @@ impl(
             );
             .Ok(
               Self(
-                _program : program,
+                _program : Rc.new(program),
                 _flags : flags,
                 _pattern : pattern.clone(),
                 _n_groups : n_groups,

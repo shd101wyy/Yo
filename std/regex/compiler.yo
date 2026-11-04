@@ -46,6 +46,7 @@ pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("std/collections/array_list");
 import("std/string");
 { RegexNode, CharRange, GroupNameEntry } :: import("./node.yo");
+{ replace } :: import("std/mem");
 /// NFA instruction types.
 InstrKind :: enum(
   /// Consume one rune, which must equal `codepoint`. Fails the thread
@@ -355,20 +356,21 @@ NfaProgram :: struct(
 NfaCompiler :: struct(
   _program : NfaProgram
 );
+_empty_program :: (fn() -> NfaProgram)(
+  NfaProgram(
+    instructions : ArrayList(Instr).new(),
+    classes : ArrayList(ClassEntry).new(),
+    n_groups : usize(0),
+    group_names : ArrayList(GroupNameEntry).new(),
+    literal_prefix : ArrayList(u8).new()
+  )
+);
 // Utilities defined first (bottom-up ordering required)
 impl(
   NfaCompiler,
   /// A compiler with an empty program. Use it for exactly one `compile`.
   new : (fn() -> Self)(
-    Self(
-      _program : NfaProgram(
-        instructions : ArrayList(Instr).new(),
-        classes : ArrayList(ClassEntry).new(),
-        n_groups : usize(0),
-        group_names : ArrayList(GroupNameEntry).new(),
-        literal_prefix : ArrayList(u8).new()
-      )
-    )
+    Self(_program : _empty_program())
   ),
   _emit : (fn(self : &mut Self, instr : Instr) -> usize)({
     idx := self._program.instructions.len();
@@ -594,7 +596,7 @@ impl(
     c._emit(Instr.save_instr(usize(1)));
     c._emit(Instr.match_instr());
     c._extract_literal_prefix();
-    c._program
+    replace(&mut c._program, _empty_program())
   })
 );
 export(
