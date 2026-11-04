@@ -1,0 +1,47 @@
+$ yo explain E0011
+E0011 — malformed `for` loop
+
+This `for(...)` call is not a collection and an `x => body` handle.
+
+`for` is a builtin form the parser lowers to a loop: `for(coll, x => body)` consumes `coll` through its `into_iter()`, `for(&coll, x => body)` reads each element in place, and `for(&mut coll, x => body)` writes each element in place; over a map the handle is `(k, v) => body`. A call with another number of arguments, or whose second argument is not a `=>` with one binder and a body, is not a loop. To pass a function value, call it in the body: `for(xs, x => f(x))`.
+
+Example — this fails:
+  { ArrayList } :: import("std/collections/array_list");
+  sum :: (fn(xs : ArrayList(i32)) -> i32)({
+    mut(total) := i32(0);
+    for(xs);
+    total
+  });
+  export(sum);
+  
+Example — write this instead:
+  { ArrayList } :: import("std/collections/array_list");
+  sum :: (fn(xs : ArrayList(i32)) -> i32)({
+    mut(total) := i32(0);
+    for(xs, x => {
+      total = (total + x);
+    });
+    total
+  });
+  export(sum);
+  
+  `for(xs)` has no handle; `for(xs, x => ...)` binds each element as `x`.
+Run 'yo explain --list' for all codes.
+rc=0
+$ yo check main.yo
+error[E0011]: `for(xs)` is not a `for` loop: `for` takes a collection and a handle `x => body` (a map: `(k, v) => body`).
+  --> main.yo:4:3
+  |
+4 |   for(xs);
+  |   ^^^
+help: write `for(coll, x => body)` to consume `coll`, `for(&coll, x => body)` to read each element in place, or `for(&mut coll, x => body)` to write each element in place
+help: run `yo explain E0011` for more information
+yo: error: check: 1 file(s) failed evaluator coverage
+check: parsing <REPO>/std/prelude.yo
+check: parsed <PRELUDE_EXPRS> top-level exprs
+check: invoking evaluate_anonymous_module_begin_exprs (prelude)
+check: <REPO>/std/prelude.yo — evaluator OK
+check: parsing main.yo
+check: parsed 4 top-level exprs
+check: invoking evaluate_anonymous_module_begin_exprs
+rc=1
