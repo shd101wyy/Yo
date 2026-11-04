@@ -123,7 +123,7 @@ test("FnMut: a `&mut` capture written by an FnMut closure reaches the caller", {
   mut(total) := i32(0);
   {
     _fm_each(i32(4), { &mut total }(i : i32) => {
-      total = (total + i);
+      total.* = (total.* + i);
     });
   };
   assert(total == i32(6), "0 + 1 + 2 + 3");
@@ -133,8 +133,8 @@ test("FnMut: the Q10 exemption admits a `&mut`-capturing literal at an Fn slot",
   {
     assert(
       _fm_call_fn_twice({ &mut z }() => {
-        z = (z + i32(1));
-        z
+        z.* = (z.* + i32(1));
+        z.*
       }) == i32(3),
       "1 + 2: the write goes through the capture's pointer"
     );
@@ -146,7 +146,7 @@ test("FnMut: the Q10 exemption admits a `&mut`-capturing literal at an Fn slot",
 test("FnMut: an unwritten `&mut` capture is accepted at an FnMut slot", {
   mut(z) := i32(5);
   {
-    assert(_fm_twice({ &mut z }() => z) == i32(10), "5 + 5: the closure only reads z");
+    assert(_fm_twice({ &mut z }() => z.*) == i32(10), "5 + 5: the closure only reads z");
   };
   z = i32(6);
   assert(z == i32(6), "z is free again after the closure's scope");
@@ -154,7 +154,7 @@ test("FnMut: an unwritten `&mut` capture is accepted at an FnMut slot", {
 comptime_expect_error(
   _fm_sync_slot_rejects_unwritten :: (fn() -> unit)({
     mut(z) := i32(0);
-    _r := _fm_run_sync({ &mut z }() => z);
+    _r := _fm_run_sync({ &mut z }() => z.*);
   }),
   "it is an `FnMut(...)` closure"
 );
@@ -162,8 +162,8 @@ comptime_expect_error(
   _fm_sync_slot_rejects :: (fn() -> unit)({
     mut(z) := i32(0);
     _r := _fm_run_sync({ &mut z }() => {
-      z = (z + i32(1));
-      z
+      z.* = (z.* + i32(1));
+      z.*
     });
   }),
   "it is an `FnMut(...)` closure"
