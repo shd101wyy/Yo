@@ -22,7 +22,8 @@ implementation breakdown another agent can pick up phase by phase
 > recursive `ghost_fn` lemmas + lexicographic `decreases` — LANDED as
 > #1075); B4 (evals corpus) and B5 (repo-shape gate) are UNSTARTED
 > and are the live remainder of the ROADMAP's Agent-loop item; B6 `par2`
-> unstarted, weakest agent-loop relevance. Known blocker for the `spec/`
+> unstarted, weakest agent-loop relevance. **2026-11-04:** the BendTT
+> audit's addendum (keep Z3; Z1–Z5 below) is the newest section. Known blocker for the `spec/`
 > convention: `issues/fixed/law-over-an-imported-callee-cannot-verify.md` (fixed 2026-10-03).
 
 The one-paragraph verdict: **Bend 2's verification foundation is the road
@@ -775,6 +776,75 @@ banner; B3–B6 report their outcome in this file's header.
 | D2 | Lemma instantiation in laws (body-less vs a `using(...)` zone) | **Laws stay body-less.** A law states a claim; facts it needs enter through the lemma's `ensures` (call the lemma where a `bool` is needed, or quantify the lemma's `ensures` universally). A fixture that cannot be written this way is filed as an issue with the shape, not solved by growing the surface | B2 task 6 stands as written |
 | D3 | Human ownership of `spec/` — compiler-enforced or convention | **Convention, documented; no compiler rule.** `yo init` scaffolds `spec/README.md` stating the wall (claims here, written by the human; proofs are the contracts and invariants in the code) and the CODEOWNERS line to add; `yo verify --strict ./spec` is the gate. The compiler does not know what a "law file" is | B3 task 3 gains the `spec/README.md` scaffold; B1 docs describe the convention |
 | D4 | Checker speed as a product number | **Yes: B0's summary line prints wall time and the number of solver queries**, in text and JSON (`elapsed_ms`, `queries`), so `yo verify` has a number to improve and the self-verification sweep can chart it | B0 task 3 amended |
+
+## Addendum 2026-11-04 — BendTT and the Z3 dependency (decision: keep Z3)
+
+The maintainer asked whether BendTT (`paper/BendTT.pdf`, the Bend 2 kernel)
+is sound and whether Yo could use it to get rid of Z3. An audit read the paper
+and `bendlang/bend` at `ea66e004` (including the Lean file
+`bend2/bendtt.lean`), mapped what Yo's verifier hands to Z3, and surveyed the
+Z3-free options. Two adversarial reviewers re-checked the soundness verdict.
+Neither could refute it.
+
+**BendTT's soundness.** The core is consistent as stated, and the claim looks
+mechanized. `Claim.consistent` (`bendtt.lean:1725`, proof at `:4023`) says no
+definition accepted by the executable `Book.check` has a type convertible to
+the empty type. The proof uses no `sorry` or extra axioms. `Type : Type`
+survives because live code is affine, functions are never copied, and
+recursion is lexicographically decreasing with no mutual recursion. The dead
+(erased, type-level) fragment is inconsistent by design: Hurkens' paradox
+typechecks there (paper Fig. 1). The guarantee is narrow:
+
+- It is not peer-reviewed, the proofs are AI-written, and Lean is not built in
+  Bend's public CI. The kernel changed after the last thorough re-check.
+- Type checking is not decidable (it runs on a step budget), and strong
+  normalization is not proved.
+- Everything in front of the kernel is unproven: the parser, the `safe.ts`
+  translator, the default `bend.ts` checker, and templates, which are checked
+  only at closed instances. Every unsoundness found so far was in that front
+  end, and one is still open (bendlang/bend#1236).
+- The theorems are about the kernel's evaluator, not the compiled code. For
+  example, `U32.add` is proved as ripple-carry but runs as native `+`.
+
+**Why Yo keeps Z3.** BendTT is a proof checker, not a prover. Of 371 real Yo
+queries, about 63% were quantifier-free bit-vector problems and about 31% were
+quantified array invariants. Under a BendTT-style kernel, all of these would
+become hand-written proofs: the AoRTE (absence of run-time errors) overflow,
+index and division checks, the loop invariants (BendTT has no loops), list
+`ensures`, `law`s, and the steps of R2 lemmas. That matters because proved
+obligations remove runtime guards from the binary in verify mode.
+
+BendTT's consistency also depends on rules Yo does not have: affine closures,
+mandatory termination, no mutation and no primitive integers. Yo has RC
+closures, `while` loops, partial correctness by default (D12), references with
+origins, effects and async. At most, BendTT could check Yo's ghost code
+through yet another unverified translator.
+
+The risk is also misplaced. Every false proof recorded in `issues/fixed/` was
+a bug in `vc.yo`, not in Z3, and only about 1,300 of the verifier's roughly
+10,700 lines are Z3-specific. The *Reject* list above stands, and so does
+[`DEPENDENT_TYPES_POSITION.md`](DEPENDENT_TYPES_POSITION.md).
+
+**What changes is how Yo depends on Z3.** The maintainer accepted these items
+on 2026-11-04. Z1–Z4 are queued for v0.2.75 or later; Z5 stays parked
+behind their triggers.
+
+| # | Item | Effort | Notes |
+| --- | --- | --- | --- |
+| Z1 | A solver timeout or `unknown` gets its own outcome: record `:reason-unknown`, and never let machine load flip a verdict silently | days | Fixes `issues/2026-10-25-spec-insertion-sort-flips-to-unproven-under-machine-load.md` |
+| Z2 | Pin the Z3 download by sha256: one digest per host asset next to `Z3_VERSION`, checked before unpacking | days | `src/verifier/z3.yo` `_install_z3` / `z3_download_url` (~L106–L320) verifies nothing today |
+| Z3 | A solver-neutral encoding plus cvc5 as a **CI-only** consensus oracle over `tests/spec`. The encoding uses SMT-LIB 2.7 names, with option names and the model parser isolated. A disagreement fails the job loudly | 1–2 weeks | Amends [`FORMAL_VERIFICATION.md`](FORMAL_VERIFICATION.md) D2 ("Z3 only") **only as a test oracle**: Z3 stays the one user-facing solver |
+| Z4 | Satisfiability of the assumption set: check that the joint `assumed()` contracts, ghost-fn defining axioms and the `__yo_lapp`/`__yo_msof` axioms have a model, and report an inconsistent set (which would otherwise prove everything silently). Also audit that `assumed`/ghost facts cannot drive guard elision without being labeled | 1 week | The one BendTT idea worth taking: every opaque definition ships a model (`safe.ts:40-45`) |
+| Z5 | Parked. A CI `--certify` mode (cvc5 CPC certificates checked by Ethos, or by the Lean-verified Logos), or, if a target ever has no Z3 binary, an in-house bit-blaster with CaDiCaL plus an LRAT checker written in Yo for the QF_BV share | 2–4 weeks / 1–2 months | Revisit if Z3 becomes the blocker (wasm, musl, licensing). Alethe/Carcara cannot cover Yo: no bit-vectors. Same parking spot as [`THEOREM_PROVING_NEXT.md`](THEOREM_PROVING_NEXT.md) §8 |
+
+None of these reduces trust in `vc.yo`, which is where Yo's false proofs have
+actually come from. That trust stays with the bugged-twin fixtures and with
+differential testing against the emitted C.
+
+**What would reopen the question:** an independent elaboration of the current
+`bendtt.lean` with `#print axioms`, BendTT gaining certified bit-vector or
+array procedures, or Yo adopting mandatory termination and affine closures
+(reversing D12 and decision 43's memory model).
 
 ## References
 
