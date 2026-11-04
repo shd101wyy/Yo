@@ -1130,10 +1130,12 @@ test("A4: two operands of one combinator may not lend overlapping places with a 
 });
 test("A4: a combinator over a borrowing future is itself second-class", {
   mut(c) := _A4Counter(n : i32(0));
+  // Decision 43 step 4: bound, it freezes what its operand lends.
   comptime_expect_error({
     f := _a4_done(_a4_bump_after(&mut c, u64(1), io), io);
-    ()
-  }, "would hold a borrowing future");
+    c.n = i32(5);
+    io.await(f, io)
+  }, "Cannot write `c.n` here");
   comptime_expect_error(io.spawn(_a4_done(_a4_bump_after(&mut c, u64(1), io), io), io), "spawned or moved into a by-value parameter");
   comptime_expect_error(io.spawn(_a4_bump_after(&mut c, u64(1), io), io), "spawned or moved into a by-value parameter");
   comptime_expect_error(_a4_eat(_a4_bump_after(&mut c, u64(1), io)), "spawned or moved into a by-value parameter");
@@ -1373,8 +1375,9 @@ test("A4: timeout over a borrowing future is itself second-class", {
   mut(c) := _A4Counter(n : i32(0));
   comptime_expect_error({
     f := timeout(_a4_bump_after(&mut c, u64(1), io), Duration.from_millis(i64(5)), io);
-    ()
-  }, "would hold a borrowing future");
+    c.n = i32(5);
+    io.await(f, io)
+  }, "Cannot write `c.n` here");
   comptime_expect_error(io.spawn(timeout(_a4_bump_after(&mut c, u64(1), io), Duration.from_millis(i64(5)), io), io), "spawned or moved into a by-value parameter");
 });
 /// `timeout` and `select` inside a task: the lent locals live in the task's
@@ -1451,8 +1454,9 @@ test("A4: a combinator specialized for a first-class operand still checks a borr
   );
   comptime_expect_error({
     f := _a4_with_k(_a4_bump_after(&mut c, u64(1), io), i32(2), io);
-    ()
-  }, "would hold a borrowing future");
+    c.n = i32(5);
+    io.await(f, io)
+  }, "Cannot write `c.n` here");
   assert(io.await(_a4_with_k(_a4_bump_after(&mut c, u64(1), io), i32(2), io), io) == i32(1), "the borrowing operand ran");
   assert(c.n == i32(1), "the operand wrote through its borrow");
 });

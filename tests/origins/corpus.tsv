@@ -59,10 +59,10 @@ closure-returns-param	O2 per-call Fn origins	pos	N1	ACCEPT	-|Last expression in 
 closure-param-into-capture	hole: elision x closures	neg	N2	UNION	-|carries an origin
 closure-push-capture	§7 a &mut capture of a flow-inferred container	pos	N2	ACCEPT	-|carries an origin
 closure-push-capture-then-write	§7 a &mut capture of a flow-inferred container	neg	N2	E0911	-|carries an origin
-async-cold-start-write	hole: captures in a state machine across a cold start, O8	neg	N3	E0911	E0909|would hold a borrowing future
-async-cold-start-await-first	O8	pos	N3	ACCEPT	E0909|would hold a borrowing future
-async-forward-local	O8 return rule	neg	N3	E0912	E0909|is declared inside the block
-async-forward-param	O8 forwarding	pos	N3	ACCEPT	E0909|is second-class and cannot be returned
+async-cold-start-write	hole: captures in a state machine across a cold start, O8	neg	N3	E0911	E0911|Cannot write `x` here
+async-cold-start-await-first	O8	pos	N3	ACCEPT	accept
+async-forward-local	O8 return rule	neg	N3	E0912	E0912|the origin names a local of this function
+async-forward-param	O8 forwarding	pos	N3	ACCEPT	accept
 await-local-borrow	O5	pos	N1	ACCEPT	accept
 impl-wider-than-trait	O7 traits (an impl against its trait)	neg	N1	ORIGIN_MISMATCH	-|a projection (decision 24)
 impl-narrower-than-trait	O7 traits (an impl against its trait)	pos	N1	ACCEPT	-|Failed to evaluate
