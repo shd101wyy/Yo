@@ -8322,28 +8322,46 @@ origin_carrying_value_roots :: (fn(e : &AstExpr, env : &Environment, ctx : &Eval
   out
 });
 /// The frozen places of the holder named by the atom `a`: its local-borrow
-/// entries' places (an N2b holder binding registers one per root).
+/// entries' places, each with its own entry's mode. An N2b holder binding
+/// registers one entry per root, all together
+/// (`freeze_origin_carrying_binding`), so the holder's roots are the run of
+/// its entries ending at its latest one.
 _holder_roots_into :: (fn(a : &AstExpr, env : &Environment, ctx : &EvalContext, out : &mut ArrayList(OriginRootPlace)) -> unit)({
   a_name := ast_expr_token(a).value.*.clone();
-  match(
-    get_variables_from_env(env, a_name.clone()).last(),
-    .Some(hv) => match(
-      local_borrow_info_of(hv.name.clone(), &hv.token),
-      .Some(info) => {
+  hv := match(get_variables_from_env(env, a_name.clone()).last(), .Some(v) => v, .None => return(()));
+  (i : usize) = g_local_borrows.with(xs => xs.len());
+  (found : bool) = false;
+  (done : bool) = false;
+  while((i > usize(0)) && !done, {
+    i = (i - usize(1));
+    match(
+      g_local_borrows.with(xs => xs.get(i)),
+      .Some(info) => if(_lb_same_decl(info.name.clone(), &info.decl, hv.name.clone(), &hv.token), {
+        found = true;
         (pi : usize) = usize(0);
-        while(pi < info.places.len(), {
-          match(
-            info.places.get_cloned(pi),
-            .Some(p) => out.push(OriginRootPlace(place : p, is_mut : info.is_mut)),
-            .None => ()
-          );
-          pi = (pi + usize(1));
+        while(pi < info.places.len(), pi = (pi + usize(1)), {
+          match(info.places.get_cloned(pi), .Some(p) => out.push(OriginRootPlace(place : p, is_mut : info.is_mut)), .None => ());
         });
-      },
+      }, {
+        done = found;
+      }),
       .None => ()
-    ),
-    .None => ()
-  )
+    );
+  });
+});
+/// The places the holder `a` (a bound borrowing future, decision 43 step 4)
+/// freezes, by the caller's names, each with its mode: a call that takes the
+/// holder by value makes a value holding them too.
+holder_future_roots :: (fn(a : &AstExpr, env : &Environment, ctx : &EvalContext) -> ArrayList(FutureRoot))({
+  places := ArrayList(OriginRootPlace).new();
+  _holder_roots_into(a, env, ctx, &mut places);
+  out := ArrayList(FutureRoot).new();
+  (i : usize) = usize(0);
+  while(i < places.len(), i = (i + usize(1)), {
+    r := places(i).clone();
+    out.push(FutureRoot(name : r.place.root_name.clone(), path : r.place.steps.clone(), is_mut : r.is_mut));
+  });
+  out
 });
 /// N2b's binding freeze (decision 43 step 3, T8/T9): a local bound to a
 /// value whose type carries an origin freezes, from its initialization to
@@ -8457,7 +8475,7 @@ reject_composite_result_local_roots :: (fn(e : &AstExpr, env : &Environment, ctx
   );
 });
 export(FutureRoot, note_future_roots, future_roots_of);
-export(projection_call_mode_of, ProjectionRootArg, projection_call_root_args, projection_call_callee_type, OriginRootPlace, origin_carrying_value_roots, freeze_origin_carrying_binding, reject_composite_result_local_roots);
+export(projection_call_mode_of, ProjectionRootArg, projection_call_root_args, projection_call_callee_type, OriginRootPlace, origin_carrying_value_roots, holder_future_roots, freeze_origin_carrying_binding, reject_composite_result_local_roots);
 export(record_pending_scrutinee_borrow, take_pending_scrutinee_borrows, PendingScrutineeBorrow, note_migrate_mut_scrutinee, migrate_mut_scrutinee_at, clear_migrate_mut_scrutinees, drop_owned_match_binding_at_arm_end, match_scrutinee_is_capture, local_borrow_register_match_place, local_borrow_note_match_place, note_consuming_match_scrutinee, consuming_match_scrutinee_at, moved_value_help, migrate_borrowed_match_at, _lb_arrow_shadows, _lb_fn_literal_binds, _lb_mentions);
 export(
   LocalBorrowPlace,

@@ -1349,6 +1349,29 @@ test("N3-1: select over two borrowing futures of disjoint fields of one struct",
   assert(p.a.n == i32(1), "the first field took its write");
   assert(p.b.n == i32(101), "the second field kept the earlier write");
 });
+// A bound borrowing future handed to a combinator: the combinator's future
+// holds what the operand held, so the places stay frozen past the operand's
+// own last use, until the combinator's future is done.
+test("N3-1: a combinator over a bound borrowing future keeps its places frozen", {
+  mut(p) := _A4Pair(a : _A4Counter(n : i32(0)), b : _A4Counter(n : i32(100)));
+  comptime_expect_error({
+    fa := _a4_bump_after(&mut p.a, u64(1), io);
+    s := select(fa, _a4_read_after(&p.b, u64(5), io), io);
+    p.a.n = i32(7);
+    io.await(s, io)
+  }, "Cannot write `p.a.n` here");
+  comptime_expect_error({
+    fb := _a4_read_after(&p.b, u64(1), io);
+    s := select(_a4_bump_after(&mut p.a, u64(5), io), fb, io);
+    p.b.n = i32(7);
+    io.await(s, io)
+  }, "Cannot write `p.b.n` here");
+  fa := _a4_bump_after(&mut p.a, u64(1), io);
+  s := select(fa, _a4_read_after(&p.b, u64(300), io), io);
+  _r := io.await(s, io);
+  p.a.n = i32(7);
+  assert(p.a.n == i32(7), "the freeze ends with the combinator's last use");
+});
 test("A4: select's two operands may not lend overlapping places with a &mut side (decision 38 B)", {
   mut(c) := _A4Counter(n : i32(0));
   comptime_expect_error(
