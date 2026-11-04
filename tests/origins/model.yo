@@ -98,7 +98,7 @@ Ty :: ref(
     Fut(shared : u64, excl : u64)
   )
 );
-impl(Ty, Clone(clone : (fn(self : &Self) -> Self)(self)));
+impl(Ty, Clone(clone : (fn(self : &Self) -> Self)(self.*)));
 /// The origins a type carries: `mode` 0 all, 1 the shared loans, 2 the
 /// exclusive ones.
 orig :: (fn(t : Ty, mode : usize) -> u64)(
@@ -1279,7 +1279,7 @@ check_fn_body :: (fn(ck : Ck, f : usize, sb : Subst) -> unit)({
   match(
     &def.body,
     .Some(b) => {
-      stmts := desugar(&b);
+      stmts := desugar(&b.*);
       env.drop_uses = cond(ablated(ck, ABLATE_USER_DROP) => u64(0), true => scan_guards(&stmts));
       check_list(ck, env, &stmts, u64(0));
     },

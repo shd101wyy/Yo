@@ -21,7 +21,7 @@ test("Test TryFrom/TryInto traits", {
       try_from : (
         value ->
           cond(
-            ((value % 2) == 0) => .Ok(EvenNumber(value)),
+            ((value.* % 2) == 0) => .Ok(EvenNumber(value.*)),
             true => .Err("Only even numbers are allowed (i32)")
           )
       )
@@ -34,7 +34,7 @@ test("Test TryFrom/TryInto traits", {
       try_from : (
         value ->
           cond(
-            ((value % 2) == 0) => .Ok(EvenNumber(i32(value))),
+            ((value.* % 2) == 0) => .Ok(EvenNumber(i32(value.*))),
             true => .Err("Only even numbers are allowed (i64)")
           )
       )
@@ -374,15 +374,15 @@ test("Option completion: expect, is_some_and, inspect, take, replace", {
   some := Option(i32).Some(i32(7));
   none := Option(i32).None;
   assert(some.expect("must be some") == i32(7), "expect returns the value");
-  assert(some.is_some_and(v => (v > i32(5))), "is_some_and true");
-  assert(!some.is_some_and(v => (v > i32(10))), "is_some_and false predicate");
-  assert(!none.is_some_and(v => (v > i32(0))), "is_some_and on None");
+  assert(some.is_some_and(v => (v.* > i32(5))), "is_some_and true");
+  assert(!some.is_some_and(v => (v.* > i32(10))), "is_some_and false predicate");
+  assert(!none.is_some_and(v => (v.* > i32(0))), "is_some_and on None");
   // Closures capture locals BY VALUE, so the closure borrows the list it
   // writes (`{ &mut seen }`).
   { ArrayList } :: import("std/collections/array_list");
   mut(seen) := ArrayList(i32).new();
   echoed := some.inspect({ &mut seen }(v) => {
-    seen.push(v);
+    seen.push(v.*);
   });
   assert((seen.len() == usize(1)) && (seen.get(usize(0)).unwrap() == i32(7)), "inspect ran the callback");
   assert(echoed.unwrap() == i32(7), "inspect returns the option");
@@ -424,10 +424,10 @@ test("Result completion: unwrap_or, unwrap_or_default, expect, inspect, flatten,
   mut(seen_ok) := ArrayList(i32).new();
   mut(seen_err) := ArrayList(u8).new();
   _ := ok.inspect({ &mut seen_ok }(v) => {
-    seen_ok.push(v);
+    seen_ok.push(v.*);
   });
   _ := err.inspect_err({ &mut seen_err }(e) => {
-    seen_err.push(e);
+    seen_err.push(e.*);
   });
   assert((seen_ok.len() == usize(1)) && (seen_ok.get(usize(0)).unwrap() == i32(4)), "inspect saw the Ok value");
   assert((seen_err.len() == usize(1)) && (seen_err.get(usize(0)).unwrap() == u8(1)), "inspect_err saw the Err value");

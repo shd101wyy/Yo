@@ -46,7 +46,7 @@ make_fncall_expr :: (fn(func_name : str) -> AstExpr)(
 make_assign_expr :: (fn(var_name : str, rhs : &AstExpr) -> AstExpr)({
   mut(args) := ArrayList(AstExpr).new();
   args.push(make_ident_expr(var_name));
-  args.push(rhs);
+  args.push(rhs.*);
   AstExpr.FnCall(
     usize(0),
     make_ident_expr(":="),
@@ -77,8 +77,8 @@ make_detect_all_detector :: (fn() -> SuspensionPointDetector)({
   SuspensionPointDetector(
     detect : dyn((expr, parent_expr) => {
       idx := next_index.with_mut(n => {
-        cur := n;
-        n = (cur + usize(1));
+        cur := n.*;
+        n.* = (cur + usize(1));
         cur
       });
       mut(points) := ArrayList(SuspensionPoint).new();

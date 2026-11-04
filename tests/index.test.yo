@@ -939,9 +939,9 @@ test("V2b: a projection yields a place rooted at a borrow parameter", {
 // ============================================================
 _v2b_first :: (fn(t : &Trio) -> &i32)(&t.a);
 _v2b_first_mut :: (fn(t : &mut Trio) -> &mut i32)(&mut t.a);
-_v2b_read :: (fn(x : &i32) -> i32)(x + i32(0));
+_v2b_read :: (fn(x : &i32) -> i32)(x.* + i32(0));
 _v2b_bump :: (fn(x : &mut i32) -> unit)({
-  x = (x + i32(1));
+  x.* = (x.* + i32(1));
 });
 // RC elements: the place is read through and written through, never
 // copied into a temporary that is dropped.
@@ -994,10 +994,10 @@ test("V2b: a projection call is a borrow argument", {
 test("V2b: a projection call binds a local borrow", {
   mut(t) := Trio(a : i32(5), b : i32(6), c : i32(7));
   r := t.index(usize(1));
-  assert(r == i32(6), "read through the & borrow");
+  assert(r.* == i32(6), "read through the & borrow");
   assert(t.b == i32(6), "its root stays readable while a & borrow is live");
   w := t.index_mut(usize(2));
-  w = (w + i32(30));
+  w.* = (w.* + i32(30));
   assert(t.c == i32(37), "written through the &mut borrow, read after its last use");
   t.c = i32(1);
   assert(t.c == i32(1), "the root is writable after the borrow's last use");
@@ -1017,9 +1017,9 @@ test("V2b: a std collection's index method call binds a local borrow", {
   mut(xs) := ArrayList(i32).new();
   xs.push(i32(7));
   r := xs.index(usize(0));
-  assert((r + i32(0)) == i32(7), "r reads the element through the borrow");
+  assert((r.* + i32(0)) == i32(7), "r reads the element through the borrow");
   w := xs.index_mut(usize(0));
-  w = (w + i32(1));
+  w.* = (w.* + i32(1));
   assert(xs(usize(0)) == i32(8), "written through the &mut borrow");
   assert((xs.index(usize(0)) + i32(1)) == i32(9), "an operand");
   xs.index_mut(usize(0)) = i32(20);
@@ -1047,7 +1047,7 @@ impl(
 test("V2b: a generic impl's projection method call is a place", {
   mut(p) := V2bPair(i32)(v : i32(7), w : i32(8));
   r := p.at(usize(1));
-  assert((r + i32(0)) == i32(8), "bound as a & borrow");
+  assert((r.* + i32(0)) == i32(8), "bound as a & borrow");
   assert((p.at(usize(0)) + i32(1)) == i32(8), "an operand");
   p.at_mut(usize(0)) = i32(70);
   _v2b_bump(p.at_mut(usize(1)));
@@ -1132,7 +1132,7 @@ comptime_expect_error(
   _v2b_write_through_read_binding :: (fn() -> unit)({
     t := Trio(a : i32(5), b : i32(6), c : i32(7));
     r := t.index(usize(0));
-    r = i32(1);
+    r.* = i32(1);
   }),
   "is a `&` borrow, which is read-only"
 );
@@ -1238,7 +1238,7 @@ impl(
   VIndex(usize)(
     Output : i32,
     index : (fn(self : &Self, idx : usize) -> &Self.Output)(
-      _quad_at(addr_of(self), Self._slot(self, self._clamp(idx)))
+      _quad_at(addr_of(self.*), Self._slot(self, self._clamp(idx)))
     )
   )
 );
@@ -1247,7 +1247,7 @@ impl(
   VIndexMut(usize)(
     Output : i32,
     index_mut : (fn(self : &mut Self, idx : usize) -> &mut Self.Output)(
-      _quad_at(addr_of(self), Self._slot(self, self._clamp(idx)))
+      _quad_at(addr_of(self.*), Self._slot(self, self._clamp(idx)))
     )
   )
 );
