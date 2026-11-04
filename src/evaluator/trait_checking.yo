@@ -37,6 +37,8 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../types/guards.yo");
 { enum_instance_node_id, nominal_instance_node_id, type_key, TYPE_IDENTITY_CACHE_CAP, type_identity_slot, type_identity_slot_holds, type_identity_cacheable, type_key_memo_check_enabled } :: import("../types/type_key.yo");
 { subst_new, subst_adopt_every_resolution, substitute } :: import("../types/substitution.yo");
+{ debug_knob : __dbg_fx_knob } :: import("../utils.yo");
+{ eprintln : __dbg_fx_eprintln } :: import("std/fmt");
 {
   is_fn_trait_type,
   is_future_trait_type,
@@ -1516,11 +1518,46 @@ _flip_concrete_instance :: (fn(ty : &TypeValue) -> Option(TypeValue))({
   s := subst_new();
   subst_adopt_every_resolution(&s);
   out := substitute(&s, ty);
+  if(__dbg_fx_knob(`YO_DEBUG_HMFIX`).is_some(), {
+    __dbg_fx_eprintln(`[hmfix] concrete in=${type_to_string(ty)} out=${type_to_string(&out)} cacheable=${if(type_identity_cacheable(&out), "1", "0")} args=${__dbg_fx_args(&out, u32(0))}`);
+  });
   cond(
     type_identity_cacheable(&out) => Option(TypeValue).Some(out),
     true => Option(TypeValue).None
   )
 });
+__dbg_fx_args :: (fn(t : &TypeValue, d : u32) -> String)(
+  cond(
+    (d > u32(3)) => String.from("..."),
+    true => match(
+      t,
+      Rc(.SomeT({ name : sn, resolution : sr })) => `SomeT(${sn}, ${if(sr.is_some(), "res", "open")})`,
+      Rc(.EnumT(_, en_name, _, _, _, _, _, _, _, etas)) => {
+        out := `${en_name}[`;
+        (i : usize) = usize(0);
+        while(i < etas.len(), {
+          out.push_string(match(etas.get(i), .Some(a) => recur(&a, d + u32(1)), .None => String.from("?")));
+          out.push_str(",");
+          i = (i + usize(1));
+        });
+        out.push_str("]");
+        out
+      },
+      Rc(.Struct({ name : st_name, type_arguments : tas })) => {
+        out := `${st_name}[`;
+        (i : usize) = usize(0);
+        while(i < tas.len(), {
+          out.push_string(match(tas.get(i), .Some(a) => recur(&a, d + u32(1)), .None => String.from("?")));
+          out.push_str(",");
+          i = (i + usize(1));
+        });
+        out.push_str("]");
+        out
+      },
+      _ => type_to_string(t)
+    )
+  )
+);
 /// Record `ty`'s answer in the identity cache, when the key it is memoized
 /// under was computed in the current type-key epoch (else `ty`'s key may have
 /// changed since).
