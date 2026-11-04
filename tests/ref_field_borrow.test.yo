@@ -20,7 +20,7 @@ bump :: (fn(v : &mut i32) -> unit)({
 });
 
 test("field of a local object passed to a ref param", {
-  mut(h) := Holder(s : String.from("x"), n : i32(41));
+  h := Holder(s : String.from("x"), n : i32(41));
   bump(&mut h.n);
   assert(h.n == i32(42), "write-through landed in the field");
 });
@@ -29,7 +29,7 @@ test("String field write-through via a ref param", {
   replace_s :: (fn(v : &mut String, nv : &String) -> unit)({
     v.* = nv.clone();
   });
-  mut(h) := Holder(s : String.from("hello"), n : i32(1));
+  h := Holder(s : String.from("hello"), n : i32(1));
   replace_s(&mut h.s, String.from("rewritten"));
   assert(h.s == "rewritten", "owner sees the write");
 });
@@ -63,7 +63,7 @@ comptime_expect_error(
 // Element-only intermediate hop is SAFE: the root `w` is a local the
 // callee cannot reach, so nothing can free `w.inner` mid-call.
 test("intermediate object hop is allowed when the root is unreachable", {
-  mut(w) := Wrapper(inner : Holder(s : String.from("x"), n : i32(9)));
+  w := Wrapper(inner : Holder(s : String.from("x"), n : i32(9)));
   bump(&mut w.inner.n);
   assert(w.inner.n == i32(10), "write landed through the intermediate hop");
 });
@@ -72,7 +72,7 @@ test("intermediate object hop is allowed when the root is unreachable", {
 // local — the local handle keeps it alive for as long as the local lives.
 test("bind the intermediate object to a local first", {
   w := Wrapper(inner : Holder(s : String.from("x"), n : i32(9)));
-  mut(b) := w.inner;
+  b := w.inner;
   bump(&mut b.n);
   assert(w.inner.n == i32(10), "write landed through the local handle");
 });
@@ -131,7 +131,7 @@ test("ref and own arguments of distinct objects are allowed", {
   use_and_sink :: (fn(x : &mut String, sink(victim) : Holder) -> usize)(
     x.len()
   );
-  mut(a) := Holder(s : String.from("abcde"), n : i32(1));
+  a := Holder(s : String.from("abcde"), n : i32(1));
   b := Holder(s : String.from("other"), n : i32(2));
   n := use_and_sink(&mut a.s, b);
   assert(n == usize(5), "borrow read fine while a distinct object was consumed");
@@ -338,7 +338,7 @@ test("box deref is allowed when the box is unreachable", {
   read_n :: (fn(v : &mut i32) -> unit)({
     v.* = (v.* + i32(1));
   });
-  mut(b) := Box.new(Holder(s : String.from("x"), n : i32(5)));
+  b := Box.new(Holder(s : String.from("x"), n : i32(5)));
   read_n(&mut b.*.n);
   assert(b.*.n == i32(6), "write landed through the deref place");
   r := Rc.new(Holder(s : String.from("x"), n : i32(5)));
@@ -415,7 +415,7 @@ test("an element borrow beside a value that cannot reach the container", {
   v := String.from("c");
   old := _put_str(&mut xs(usize(0)), v);
   assert((old == "a") && (xs(usize(0)) == "c"), "the element written in place");
-  mut(h) := _StrLists(lists : ArrayList(String).new(), tag : String.from("t"));
+  h := _StrLists(lists : ArrayList(String).new(), tag : String.from("t"));
   h.lists.push(String.from("x"));
   old2 := _put_str(&mut h.lists(usize(0)), String.from("y"));
   assert((old2 == "x") && (h.lists(usize(0)) == "y"), "through a field path");
@@ -439,7 +439,7 @@ test("an element borrow beside a value that can reach the container", {
   xs.push(String.from("a"));
   b := _ListBox(lists : ArrayList(String).new());
   comptime_expect_error(hold_beside(&mut xs(usize(0)), &b), "could hold a handle");
-  mut(h) := _StrLists(lists : ArrayList(String).new(), tag : String.from("t"));
+  h := _StrLists(lists : ArrayList(String).new(), tag : String.from("t"));
   h.lists.push(String.from("x"));
   h2 := h;
   comptime_expect_error(owner_beside(&mut h.lists(usize(0)), &h2), "could hold a handle");
@@ -475,7 +475,7 @@ test("an element borrow beside a value that owns a list of the container's type"
   assert((xs.len() == usize(1)) && (xs(usize(0)) == "w"), "the element written in place, xs not grown");
   grow_box_beside(&mut xs(usize(0)), _ListBox(lists : ArrayList(String).new()));
   assert((xs.len() == usize(1)) && (xs(usize(0)) == "v"), "a list inside a by-value struct is not xs");
-  mut(h) := _StrLists(lists : ArrayList(String).new(), tag : String.from("t"));
+  h := _StrLists(lists : ArrayList(String).new(), tag : String.from("t"));
   h.lists.push(String.from("x"));
   grow_beside(&mut h.lists(usize(0)), ArrayList(String).new());
   assert((h.lists.len() == usize(1)) && (h.lists(usize(0)) == "w"), "through a ref owner's field");

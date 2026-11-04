@@ -11523,7 +11523,7 @@ run_test :: (
           // without leak detection.
           if(use_asan && combined.contains("detect_leaks is not supported"), {
             _sv_asan2 := proc_env.set(String.from("ASAN_OPTIONS"), String.from("detect_leaks=0"));
-            mut(tcmd2) := Command.new(tmp_bin.clone());
+            tcmd2 := Command.new(tmp_bin.clone());
             tout2 := io.await(tcmd2.output(io), IoExn(io : io, exn : exn));
             combined = String.from_bytes(tout2.stdout.clone());
             combined.push_string(String.from_bytes(tout2.stderr.clone()));

@@ -58,7 +58,7 @@ _read_all :: (fn(stream : &TcpStream, io : Io) -> Impl(Future(String, IoExn)))(
 _raw_exchange :: (fn(port : u16, request : &String, io : Io) -> Impl(Future(String, IoExn)))({
   owned_request := request.clone();
   io.async(e => {
-    mut(s) := e.io.await(TcpStream.connect(SocketAddr.loopback(port), e.io), e);
+    s := e.io.await(TcpStream.connect(SocketAddr.loopback(port), e.io), e);
     w := e.io.await(s.write_string(&owned_request, e.io), e);
     assert(w == owned_request.len(), `short write: ${w} of ${owned_request.len()} bytes`);
     raw := e.io.await(_read_all(&s, e.io), e);
@@ -177,7 +177,7 @@ test("a chunked request body is decoded before the handler sees it", {
   ioe := IoExn(io : io, exn : exn);
   server := io.await(HttpServer.bind(SocketAddr.loopback(u16(19972)), io), IoExn(io : io, exn : exn));
   task := io.spawn(server.clone().serve_once(_echo, io), IoExn(io : io, exn : exn));
-  mut(s) := io.await(TcpStream.connect(SocketAddr.loopback(u16(19972)), io), IoExn(io : io, exn : exn));
+  s := io.await(TcpStream.connect(SocketAddr.loopback(u16(19972)), io), IoExn(io : io, exn : exn));
   _w := io.await(s.write_string(`PUT /c HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nabc\r\n2\r\nde\r\n0\r\n\r\n`, io), ioe);
   raw := io.await(_read_all(&s, io), ioe);
   assert(raw.starts_with(`HTTP/1.1 200 OK\r\n`), `status line: ${raw}`);
@@ -197,7 +197,7 @@ test("a request that does not parse gets 400 with the reason, handler not called
   );
   ioe := IoExn(io : io, exn : exn);
   server := io.await(HttpServer.bind(SocketAddr.loopback(u16(19973)), io), IoExn(io : io, exn : exn));
-  mut(called) := Rc.new(RefCell(ArrayList(i32)).new(ArrayList(i32).new()));
+  called := Rc.new(RefCell(ArrayList(i32)).new(ArrayList(i32).new()));
   seen := Rc.clone(called);
   task := io.spawn(
     server.clone().serve_once(req => {
@@ -206,7 +206,7 @@ test("a request that does not parse gets 400 with the reason, handler not called
     }, io),
     IoExn(io : io, exn : exn)
   );
-  mut(s) := io.await(TcpStream.connect(SocketAddr.loopback(u16(19973)), io), IoExn(io : io, exn : exn));
+  s := io.await(TcpStream.connect(SocketAddr.loopback(u16(19973)), io), IoExn(io : io, exn : exn));
   _w := io.await(s.write_string(`BREW /pot HTTP/1.1\r\nHost: x\r\n\r\n`, io), ioe);
   raw := io.await(_read_all(&s, io), ioe);
   assert(raw.starts_with(`HTTP/1.1 400 Bad Request\r\n`), `status line: ${raw}`);
@@ -228,8 +228,8 @@ test("serve loops until stop(); local_addr reports the bound port", {
   ioe := IoExn(io : io, exn : exn);
   server := io.await(HttpServer.bind(SocketAddr.loopback(u16(19974)), io), IoExn(io : io, exn : exn));
   assert(server.local_addr().port == u16(19974), `local_addr port ${server.local_addr().port}`);
-  mut(hits) := Rc.new(RefCell(ArrayList(i32)).new(ArrayList(i32).new()));
-  mut(seen) := Rc.clone(hits);
+  hits := Rc.new(RefCell(ArrayList(i32)).new(ArrayList(i32).new()));
+  seen := Rc.clone(hits);
   stopper := server.clone();
   task := io.spawn(
     server.clone().serve(req => {
@@ -410,7 +410,7 @@ test("a request with an unreadable Content-Length gets 400 and serve keeps servi
   );
   ioe := IoExn(io : io, exn : exn);
   server := io.await(HttpServer.bind(SocketAddr.loopback(u16(19976)), io), IoExn(io : io, exn : exn));
-  mut(hits) := Rc.new(RefCell(ArrayList(i32)).new(ArrayList(i32).new()));
+  hits := Rc.new(RefCell(ArrayList(i32)).new(ArrayList(i32).new()));
   seen := Rc.clone(hits);
   stopper := server.clone();
   task := io.spawn(
@@ -426,7 +426,7 @@ test("a request with an unreadable Content-Length gets 400 and serve keeps servi
     }, io),
     IoExn(io : io, exn : exn)
   );
-  mut(s) := io.await(TcpStream.connect(SocketAddr.loopback(u16(19976)), io), IoExn(io : io, exn : exn));
+  s := io.await(TcpStream.connect(SocketAddr.loopback(u16(19976)), io), IoExn(io : io, exn : exn));
   _w := io.await(s.write_string(`POST /x HTTP/1.1\r\nHost: x\r\nContent-Length: abc\r\n\r\n`, io), ioe);
   raw := io.await(_read_all(&s, io), ioe);
   assert(raw.starts_with(`HTTP/1.1 400 Bad Request\r\n`), `status line: ${raw}`);
@@ -464,7 +464,7 @@ test("a request over max_request_bytes gets 413 and serve keeps serving", {
     }, io),
     IoExn(io : io, exn : exn)
   );
-  mut(s) := io.await(TcpStream.connect(SocketAddr.loopback(u16(19977)), io), IoExn(io : io, exn : exn));
+  s := io.await(TcpStream.connect(SocketAddr.loopback(u16(19977)), io), IoExn(io : io, exn : exn));
   big := `GET /aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa HTTP/1.1\r\nHost: x\r\n\r\n`;
   _w := io.await(s.write_string(&big, io), ioe);
   raw := io.await(_read_all(&s, io), ioe);

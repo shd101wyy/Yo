@@ -50,7 +50,7 @@ _run_child_with_verdict :: (fn(mode : str, verdict : str, io : Io) -> Output)({
   _s := env.set(String.from("YO_DEBUG_ALLOC_CHILD"), String.from(mode));
   _v := env.set(String.from("YO_DEBUG_ALLOC_VERDICT"), String.from(verdict));
   argv := args();
-  mut(cmd) := Command.new(&argv(usize(0)));
+  cmd := Command.new(&argv(usize(0)));
   io.await(cmd.output(io), IoExn(io : io, exn : exn))
 });
 /// `malloc` that cannot fail in these tests.
