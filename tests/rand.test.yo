@@ -15,7 +15,7 @@
 } :: import("std/rand");
 
 test("PCG32 reference sequence for seed 42, stream 54", {
-  r := Rng.with_stream(u64(42), u64(54));
+  mut(r) := Rng.with_stream(u64(42), u64(54));
   assert(r.next_u32() == u32(0xa15c02b7), "draw 1");
   assert(r.next_u32() == u32(0x7b47f409), "draw 2");
   assert(r.next_u32() == u32(0xba1d3330), "draw 3");
@@ -24,22 +24,22 @@ test("PCG32 reference sequence for seed 42, stream 54", {
   assert(r.next_u32() == u32(0xcbed606e), "draw 6");
 });
 test("same seed reproduces; different stream diverges", {
-  a := Rng.new(u64(7));
-  b := Rng.new(u64(7));
+  mut(a) := Rng.new(u64(7));
+  mut(b) := Rng.new(u64(7));
   assert(a.next_u64() == b.next_u64(), "reproducible");
-  c := Rng.with_stream(u64(7), u64(99));
-  d := Rng.new(u64(7));
+  mut(c) := Rng.with_stream(u64(7), u64(99));
+  mut(d) := Rng.new(u64(7));
   assert(c.next_u64() != d.next_u64(), "streams independent");
 });
 test("next_u64 and next_f64 compose from the reference draws", {
-  r := Rng.with_stream(u64(42), u64(54));
+  mut(r) := Rng.with_stream(u64(42), u64(54));
   assert(r.next_u64() == ((u64(0xa15c02b7) << u64(32)) | u64(0x7b47f409)), "hi<<32 | lo of draws 1-2");
-  r2 := Rng.with_stream(u64(42), u64(54));
+  mut(r2) := Rng.with_stream(u64(42), u64(54));
   f := r2.next_f64();
   assert((f >= f64(0.6303102)) && (f < f64(0.6303103)), "53-bit float in [0,1)");
 });
 test("next_below and range stay in bounds and hit every residue", {
-  r := Rng.new(u64(123));
+  mut(r) := Rng.new(u64(123));
   mut(seen) := ArrayList(bool).new();
   (mut(si) : usize) = usize(0);
   while(si < usize(6), si = (si + usize(1)), {
@@ -64,7 +64,7 @@ test("next_below and range stay in bounds and hit every residue", {
   assert(all_hit, "200 rolls hit all six faces");
 });
 test("shuffle permutes in place; choice picks a member", {
-  r := Rng.new(u64(9));
+  mut(r) := Rng.new(u64(9));
   mut(xs) := ArrayList(i32).new();
   (mut(i) : usize) = usize(0);
   while(i < usize(20), i = (i + usize(1)), {
@@ -100,7 +100,7 @@ test("one-element ranges are the safe edge: range(x..x+1) is x and next_below(1)
   // documents the unsafe edge — `range(x..x)` and `next_below(0)` — which is
   // now a panic (tests/cli-cases/rand-empty-range-panics). The legal boundary
   // right next to it must keep working without rejection-sampling forever.
-  r := Rng.new(u64(7));
+  mut(r) := Rng.new(u64(7));
   (mut(i) : usize) = usize(0);
   while(i < usize(50), i = (i + usize(1)), {
     assert(r.range(i64(5) .. i64(6)) == i64(5), "range(5..6) is always 5");
@@ -112,7 +112,7 @@ test("one-element ranges are the safe edge: range(x..x+1) is x and next_below(1)
 test("range_inclusive covers both endpoints", {
   // `1..=6` must be able to produce 6; the half-open `1..6` never can. The
   // whole point of the second method is that the call site says which.
-  r := Rng.new(u64(31));
+  mut(r) := Rng.new(u64(31));
   mut(seen) := ArrayList(bool).new();
   (mut(si) : usize) = usize(0);
   while(si < usize(6), si = (si + usize(1)), {
@@ -145,7 +145,7 @@ test("range_inclusive covers both endpoints", {
 test("range_inclusive spanning the full i64 width does not overflow", {
   // `end + 1` would wrap for `end == i64.MAX`, so that case draws all 64 bits
   // directly instead of going through next_below.
-  r := Rng.new(u64(5));
+  mut(r) := Rng.new(u64(5));
   (mut(i) : usize) = usize(0);
   (mut(saw_neg) : bool) = false;
   (mut(saw_pos) : bool) = false;
@@ -163,7 +163,7 @@ test("range_inclusive spanning the full i64 width does not overflow", {
   assert(saw_neg && saw_pos, "full-width draws land on both signs");
 });
 test("next_bool is a fair coin off the top bit", {
-  r := Rng.new(u64(77));
+  mut(r) := Rng.new(u64(77));
   (mut(heads) : usize) = usize(0);
   (mut(i) : usize) = usize(0);
   while(i < usize(1000), i = (i + usize(1)), {
@@ -231,7 +231,7 @@ test("a wide range does not overflow the span computation", {
   // behaviour in C, so the two architectures need not agree, and the span is
   // computed in unsigned instead. These are the pairs that would have caught
   // it; every draw must still land inside the requested range.
-  r := Rng.new(u64(2026));
+  mut(r) := Rng.new(u64(2026));
   (mut(i) : usize) = usize(0);
   while(i < usize(60), i = (i + usize(1)), {
     a := r.range(i64(-9223372036854775808) .. i64(0));

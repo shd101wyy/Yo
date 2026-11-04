@@ -610,7 +610,7 @@ _cleanup_failed_download :: (
   ) -> Impl(Future(unit, IoExn))
 )({
   owned_version_dir := version_dir.clone();
-  io.async((e : IoExn) => {
+  io.async({ owned_version_dir, &tmp_path }(e : IoExn) => {
     ver_exists := e.io.await(exists(Path.new(&owned_version_dir), e.io), e.io);
     if(ver_exists, {
       e.io.await(remove_dir_all(Path.new(&owned_version_dir), e.io), e);

@@ -1231,7 +1231,7 @@ impl(
   )
 );
 test("Drop: a trait method named drop or dispose keeps its Dyn vtable slot", {
-  (d : Dyn(_MoStack)) = dyn(_MoStackImpl(top : i32(10)));
+  (mut(d) : Dyn(_MoStack)) = dyn(_MoStackImpl(top : i32(10)));
   assert(d.drop(i32(3)) == i32(7), "a user trait's drop is called through Dyn");
   assert(d.dispose() == i32(7), "a user trait's dispose is called through Dyn");
 });
@@ -1555,7 +1555,7 @@ test("move-only: an inner loop's exit and a move before a `break` drop nothing t
 // lives in a task slot rather than a C local.
 test("move-only: in an io.async loop, a `break` or `continue` before a later move drops the slot local once", {
   before := g_mo_disposed;
-  result := Rc.new(RefCell(i32).new(0));
+  mut(result) := Rc.new(RefCell(i32).new(0));
   task := io.async({ result : Rc.clone(result) }(io : Io) => {
     (mut(i) : i32) = i32(0);
     (mut(total) : i32) = i32(0);
@@ -1669,7 +1669,7 @@ test("move-only: an exit between a move and a reassignment drops nothing", {
 test("move-only: in an io.async loop, an exit between a move and a reassignment drops nothing", {
   g_mo_sum = i32(0);
   before := g_mo_disposed;
-  result := Rc.new(RefCell(i32).new(0));
+  mut(result) := Rc.new(RefCell(i32).new(0));
   task := io.async({ result : Rc.clone(result) }(io : Io) => {
     (mut(i) : i32) = i32(0);
     (mut(total) : i32) = i32(0);
@@ -1700,7 +1700,7 @@ test("move-only: in an io.async loop, an exit between a move and a reassignment 
 test("move-only: in an io.async loop, an exit inside a binding's own initializer drops nothing", {
   g_mo_sum = i32(0);
   before := g_mo_disposed;
-  result := Rc.new(RefCell(i32).new(0));
+  mut(result) := Rc.new(RefCell(i32).new(0));
   task := io.async({ result : Rc.clone(result) }(io : Io) => {
     (mut(total) : i32) = i32(0);
     (mut(i) : i32) = i32(0);
@@ -1737,7 +1737,7 @@ test("move-only: in an io.async loop, an exit inside a binding's own initializer
   assert(g_mo_sum == i32(83), "nothing disposed twice");
   g_mo_sum = i32(0);
   before2 := g_mo_disposed;
-  result2 := Rc.new(RefCell(i32).new(0));
+  mut(result2) := Rc.new(RefCell(i32).new(0));
   task2 := io.async({ result2 : Rc.clone(result2) }(io : Io) => {
     (mut(i) : i32) = i32(0);
     while(i < i32(4), {
@@ -3254,7 +3254,7 @@ test("move-only: a move on a loop's `break` path stands only on the paths after 
 });
 test("move-only: in an io.async loop, a `return` before the `break` path moves a slot local drops it", {
   d0 := _mo_counts_reset();
-  result := Rc.new(RefCell(i32).new(0));
+  mut(result) := Rc.new(RefCell(i32).new(0));
   task := io.async({ result : Rc.clone(result) }(io : Io) => {
     (mut(i) : i32) = i32(0);
     f := _MoFd(n : i32(3));

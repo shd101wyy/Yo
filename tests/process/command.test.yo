@@ -383,7 +383,7 @@ test("Command.current_dir runs the child in the requested directory (generation 
   e := IoExn(io : io, exn : exn);
   dir := `yo_cwd_probe_dir_b`;
   io.await(create_dir_all_str("yo_cwd_probe_dir_b", io), e);
-  cmd := cond(
+  mut(cmd) := cond(
     (platform == Platform.Windows) => {
       mut(c) := Command.new(`cmd.exe`);
       c = c.arg(`/C`);
@@ -700,7 +700,7 @@ test("a child-stdin write larger than the pipe buffer does not park the event lo
     )
   );
   e := IoExn(io : io, exn : exn);
-  cmd := cond(
+  mut(cmd) := cond(
     (platform == Platform.Windows) => {
       // ~1 s of ping, then drain stdin to nul.
       mut(c) := Command.new(`cmd.exe`);

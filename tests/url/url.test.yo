@@ -379,7 +379,7 @@ test("Url.path_segments splits the path and is None without an authority", {
 // Setters
 // ============================================================================
 test("Url setters replace each component and round-trip through to_string", {
-  u := Url.parse(String.from("http://example.com/a?x=1#f")).unwrap();
+  mut(u) := Url.parse(String.from("http://example.com/a?x=1#f")).unwrap();
   assert(u.set_scheme(`https`).is_ok(), "scheme replaced");
   assert(u.set_host(Option(String).Some(`other.example`)).is_ok(), "host replaced");
   u.set_port(Option(u16).Some(u16(8443)));
@@ -396,7 +396,7 @@ test("Url setters replace each component and round-trip through to_string", {
   assert(again.fragment().clone().unwrap() == `g`, "fragment survives");
 });
 test("Url setters remove optional components with .None", {
-  u := Url.parse(String.from("http://user@example.com:99/a?x=1#f")).unwrap();
+  mut(u) := Url.parse(String.from("http://user@example.com:99/a?x=1#f")).unwrap();
   assert(u.set_query(Option(String).None).is_ok(), "query removed");
   assert(u.set_fragment(Option(String).None).is_ok(), "fragment removed");
   assert(u.set_userinfo(Option(String).None).is_ok(), "userinfo removed");
@@ -408,7 +408,7 @@ test("Url setters remove optional components with .None", {
   assert(u.to_string() == `http:/a`, `opaque form: ${u.to_string()}`);
 });
 test("Url.set_port takes every u16 including 0", {
-  u := Url.parse(String.from("http://example.com/")).unwrap();
+  mut(u) := Url.parse(String.from("http://example.com/")).unwrap();
   u.set_port(Option(u16).Some(u16(0)));
   assert(u.to_string() == `http://example.com:0/`, `port 0: ${u.to_string()}`);
   u.set_port(Option(u16).Some(u16(65535)));
@@ -419,7 +419,7 @@ test("Url setters reject a raw CRLF — the request-splitting vector", {
   // through Url.path() into HttpRequest's request line and splits one request
   // into two; Url.parse has always rejected it, and a setter that did not
   // would be a hole straight past the parser.
-  u := Url.parse(String.from("http://example.com/a")).unwrap();
+  mut(u) := Url.parse(String.from("http://example.com/a")).unwrap();
   crlf := `/a\r\nX-Injected: 1`;
   match(
     u.set_path(&crlf),
@@ -438,7 +438,7 @@ test("Url setters reject a raw CRLF — the request-splitting vector", {
   assert(u.set_fragment(Option(String).Some(`é`)).is_err(), "nor a raw UTF-8 byte");
 });
 test("Url setters reject the delimiters that would relocate the component", {
-  u := Url.parse(String.from("http://example.com/a")).unwrap();
+  mut(u) := Url.parse(String.from("http://example.com/a")).unwrap();
   // A `?` inside a path silently becomes a query on the next parse.
   assert(u.set_path(`/a?x=1`).is_err(), "a ? ends a path");
   assert(u.set_path(`/a#f`).is_err(), "and so does a #");
@@ -457,7 +457,7 @@ test("Url setters reject the delimiters that would relocate the component", {
   assert(u.set_userinfo(Option(String).Some(`user:pw`)).is_ok(), "but a colon is fine");
 });
 test("Url.set_host requires brackets for an IPv6 literal", {
-  u := Url.parse(String.from("http://example.com/")).unwrap();
+  mut(u) := Url.parse(String.from("http://example.com/")).unwrap();
   assert(u.set_host(Option(String).Some(`[::1]`)).is_ok(), "bracketed V6 accepted");
   assert(u.to_string() == `http://[::1]/`, `rendered ${u.to_string()}`);
   // A bare V6 literal's colons would read as a port on the next parse.
@@ -468,19 +468,19 @@ test("Url.set_host requires brackets for an IPv6 literal", {
 test("Url.set_path guards the shapes to_string would render ambiguously", {
   // With a host, `to_string` writes scheme://host immediately followed by the
   // path — a path of `x` would render `http://hostx`.
-  u := Url.parse(String.from("http://example.com/a")).unwrap();
+  mut(u) := Url.parse(String.from("http://example.com/a")).unwrap();
   assert(u.set_path(`x`).is_err(), "a relative path with a host is rejected");
   assert(u.set_path(``).is_ok(), "but an empty path is fine");
   assert(u.to_string() == `http://example.com`, `rendered ${u.to_string()}`);
   // With NO host, a path starting with `//` would render scheme://... and
   // re-parse as an authority: a different URL than the one built.
-  o := Url.parse(String.from("mailto:user@example.com")).unwrap();
+  mut(o) := Url.parse(String.from("mailto:user@example.com")).unwrap();
   assert(o.host().is_none(), "an opaque URI has no host");
   assert(o.set_path(`//evil.example/x`).is_err(), "// with no host is rejected");
   assert(o.set_path(`/ok`).is_ok(), "a single slash is fine");
 });
 test("Url.set_scheme takes only an RFC 3986 scheme", {
-  u := Url.parse(String.from("http://example.com/")).unwrap();
+  mut(u) := Url.parse(String.from("http://example.com/")).unwrap();
   assert(u.set_scheme(`https`).is_ok(), "letters");
   assert(u.set_scheme(`x-y.z+1`).is_ok(), "letters, digits, - . + after the first byte");
   assert(u.set_scheme(`1http`).is_err(), "a scheme must start with a letter");

@@ -75,9 +75,10 @@ test("with_max_response_bytes drives an over-cap body to ResponseTooLarge", {
   );
   ioe := IoExn(io : io, exn : exn);
   server := io.await(HttpServer.bind(SocketAddr.loopback(u16(19989)), io), IoExn(io : io, exn : exn));
+  stopper := server.clone();
   task := io.spawn(
-    server.serve(req => {
-      server.stop();
+    server.clone().serve(req => {
+      stopper.stop();
       HttpResponse.with_status(StatusCode.OK()).with_body(`0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef`)
     }, io),
     IoExn(io : io, exn : exn)
@@ -94,7 +95,7 @@ _redirect_hop :: (fn(req : &HttpRequest) -> HttpResponse)({
   n := match(req.path.strip_prefix(`/r/`), .Some(rest) => rest.parse_u64().unwrap_or(u64(0)), .None => u64(0));
   cond(
     (n > u64(0)) => {
-      resp := HttpResponse.with_status(StatusCode.FOUND());
+      mut(resp) := HttpResponse.with_status(StatusCode.FOUND());
       resp.headers.append(`Location`, `/r/${n - u64(1)}`);
       resp
     },
@@ -134,12 +135,13 @@ test("a redirect chain over the cap throws TooManyRedirects", {
   // list is a value (B8) and the handler owns what it captures.
   served := Rc.new(RefCell(ArrayList(i32)).new(ArrayList(i32).new()));
   seen := Rc.clone(served);
+  stopper := server.clone();
   task := io.spawn(
-    server.serve(req => {
+    server.clone().serve(req => {
       seen.with_mut(l => l.push(i32(1)));
       cond(
         (seen.with(l => l.len()) >= usize(11)) => {
-          server.stop();
+          stopper.stop();
         },
         true => ()
       );
@@ -165,11 +167,12 @@ test("a redirect chain under the cap is followed to its 200", {
   );
   ioe := IoExn(io : io, exn : exn);
   server := io.await(HttpServer.bind(SocketAddr.loopback(u16(19986)), io), IoExn(io : io, exn : exn));
+  stopper := server.clone();
   task := io.spawn(
-    server.serve(req => {
+    server.clone().serve(req => {
       cond(
         (req.path == `/r/0`) => {
-          server.stop();
+          stopper.stop();
         },
         true => ()
       );
@@ -209,7 +212,7 @@ test("FetchOptions builders set the new fields", {
 _dotdot_redirect :: (fn(req : &HttpRequest) -> HttpResponse)(
   cond(
     (req.path == `/a/b/c`) => {
-      resp := HttpResponse.with_status(StatusCode.FOUND());
+      mut(resp) := HttpResponse.with_status(StatusCode.FOUND());
       resp.headers.append(`Location`, `../x`);
       resp
     },
@@ -228,11 +231,12 @@ test("a `../` Location climbs a directory instead of being pasted verbatim", {
   );
   ioe := IoExn(io : io, exn : exn);
   server := io.await(HttpServer.bind(SocketAddr.loopback(u16(19987)), io), IoExn(io : io, exn : exn));
+  stopper := server.clone();
   task := io.spawn(
-    server.serve(req => {
+    server.clone().serve(req => {
       cond(
         (req.path != `/a/b/c`) => {
-          server.stop();
+          stopper.stop();
         },
         true => ()
       );

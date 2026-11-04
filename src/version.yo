@@ -126,10 +126,10 @@ find_yo_version_file :: (
     io : Io
   ) -> Impl(Future(Option(Path), Io))
 )(
-  io.async((io : Io) => {
+  io.async({ &start_dir }(io : Io) => {
     result := Option(Path).None;
     keep_going := true;
-    current := start_dir;
+    current := start_dir.clone();
     while(keep_going, {
       candidate := current.join(Path.new(String.from(YO_VERSION_FILE)));
       found := io.await(exists(&candidate, io), io);

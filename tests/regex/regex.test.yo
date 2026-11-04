@@ -1280,7 +1280,7 @@ test("find_iter yields match_all's matches lazily", {
   re := Regex.new(`\d+`).unwrap();
   input := `a1 bb22 ccc333`;
   mut(lazy_matches) := ArrayList(RegexMatch).new();
-  it := re.find_iter(&input);
+  mut(it) := re.find_iter(&input);
   mut(nxt) := it.next();
   while(nxt.is_some(), {
     lazy_matches.push(nxt.unwrap());
@@ -1295,13 +1295,13 @@ test("find_iter yields match_all's matches lazily", {
     assert((l.index() == e.index()) && (l.end() == e.end()), "lazy and eager match i should agree on byte offsets");
     assert(l.value() == e.value(), "lazy and eager match i should agree on text");
   });
-  exhausted := re.find_iter(&input);
+  mut(exhausted) := re.find_iter(&input);
   exhausted.next();
   assert(exhausted.next().is_some(), "a fresh iterator still yields (single-pass, not shared)");
 });
 test("find_iter stops after exhaustion", {
   re := Regex.new(`x`).unwrap();
-  it := re.find_iter(`yxz`);
+  mut(it) := re.find_iter(`yxz`);
   first := it.next();
   assert(first.is_some(), "first next should match");
   second := it.next();
@@ -1309,7 +1309,7 @@ test("find_iter stops after exhaustion", {
 });
 test("find_iter walks empty matches without looping", {
   re := Regex.new(`a*`).unwrap();
-  it := re.find_iter(`ab`);
+  mut(it) := re.find_iter(`ab`);
   mut(n) := usize(0);
   mut(nxt) := it.next();
   while(nxt.is_some(), {
