@@ -51,3 +51,5 @@ The rule is enforced in the evaluator (`src/evaluator/calls/function.yo`, the "e
 ## Status
 
 Open. The test (the two-module repro as a `check` expectation of E0910) lands with the fix.
+
+A stage-1 compiler built from develop `79f5a2cc2` cannot run the repro as written. N1e's E0926 rejects `{ &options }` on a `&Opts` parameter outside the exempt `src/` tree. The seed and `src/` still accept that spelling.
