@@ -142,9 +142,12 @@ impl(
       Impl(Future(unit, IoExn))
   )(
     io.async(e => {
-      (stream, parsed) := e.io.await(self._accept_request(e.io), e);
-      resp := match(parsed, .Ok(req) => handler(&req), .Err(bad) => bad);
-      e.io.await(_respond(&stream, resp, e.io), e);
+      got := e.io.await(self._accept_request(e.io), e);
+      match(
+        got,
+        (stream, .Ok(req)) => e.io.await(_respond(&stream, handler(&req), e.io), e),
+        (stream, .Err(bad)) => e.io.await(_respond(&stream, bad, e.io), e)
+      );
       ()
     })
   ),
@@ -157,9 +160,12 @@ impl(
   )(
     io.async(e => {
       while(!self.stopped.with(b => b.*), {
-        (stream, parsed) := e.io.await(self._accept_request(e.io), e);
-        resp := match(parsed, .Ok(req) => handler(&req), .Err(bad) => bad);
-        e.io.await(_respond(&stream, resp, e.io), e);
+        got := e.io.await(self._accept_request(e.io), e);
+        match(
+          got,
+          (stream, .Ok(req)) => e.io.await(_respond(&stream, handler(&req), e.io), e),
+          (stream, .Err(bad)) => e.io.await(_respond(&stream, bad, e.io), e)
+        );
       });
       ()
     })

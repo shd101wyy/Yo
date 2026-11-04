@@ -170,7 +170,7 @@ impl(
       cstr := cstr_bytes.ptr().unwrap();
       result := e.io.await(IO_file.openat(AT_FDCWD, cstr, flags, file_mode), e.io);
       fd := IoError.check(result, e.exn);
-      File._new(fd, path_str)
+      File._new(fd, path_str.clone())
     })
   }),
   /// Open a file from a `str` path with the given mode and custom permissions.
@@ -206,13 +206,14 @@ impl(
       opts.creates() => i32(perm.mode),
       true => i32(0)
     );
+    path_owned := path.to_string();
     io.async(e => {
       flags := match(
         opts.to_flags(),
         .Ok(f) => f,
         .Err(msg) => e.exn.throw(dyn(Context.new(&msg, dyn(IoError.InvalidInput))))
       );
-      path_str := path.to_string();
+      path_str := path_owned.clone();
       cstr_bytes := match(path_str.to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(IoError.InvalidInput)));
       cstr := cstr_bytes.ptr().unwrap();
       result := e.io.await(IO_file.openat(AT_FDCWD, cstr, flags, file_mode), e.io);
