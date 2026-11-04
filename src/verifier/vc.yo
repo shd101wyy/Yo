@@ -1990,7 +1990,7 @@ _expr_term :: (fn(ctx : &mut VcCtx, e : &AstExpr) -> Option(VcTerm))({
     dargs := _fn_call_args(e);
     d_obj := dargs.get(usize(0)).unwrap();
     d_fld := dargs.get(usize(1)).unwrap();
-    if(ast_expr_is_atom(&d_obj) && ast_expr_is_atom_of(&d_fld, "*") && ctx.vars.get(ast_expr_text(&d_obj).*.clone()).is_some(), {
+    if(ast_expr_is_atom(&d_obj) && ast_expr_is_atom_of(&d_fld, "*") && ctx.vars.contains_key(ast_expr_text(&d_obj).*), {
       d_same := match(
         (expr_info_table_get(&ctx.table, ast_expr_id(e)), expr_info_table_get(&ctx.table, ast_expr_id(&d_obj))),
         (.None, _) => true,

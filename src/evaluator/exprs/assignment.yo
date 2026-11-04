@@ -1261,7 +1261,7 @@ _reference_deref_write_target :: (fn(lhs : &AstExpr, env : &Environment, ctx : &
   if(deref_rule_recording() || !ast_expr_is_fn_call_of(lhs, BF_DOT, Option(usize).Some(usize(2))), {
     return(Option(AstExpr).None);
   });
-  rw_args := match(lhs, .FnCall(_, _, Rc(a), _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+  rw_args := match(lhs, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
   rw_recv := match(rw_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
   rw_field := match(rw_args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
   if(!ast_expr_is_atom(&rw_recv) || !ast_expr_is_atom(&rw_field) || (ast_expr_token(&rw_field).value.* != "*"), {

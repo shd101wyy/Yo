@@ -314,7 +314,8 @@ is_deref_rule_exempt :: (fn(mp : &String, std_path : &String) -> bool)(
       b := (
         mp.starts_with(String.from("auto-generated://")) || (is_std_module_path(mp, std_path) || (abs.starts_with(&src_root) || (abs.starts_with(&scripts_root) || ((abs == build_file) || abs.contains(&store)))))
       );
-      g_deref_rule_exempt_memo.with_mut(m => m.insert(mp.clone(), b));
+      mp_owned := mp.clone();
+      g_deref_rule_exempt_memo.with_mut({ mp_owned, b : b.clone() }(m) => m.insert(mp_owned.clone(), b));
       b
     }
   )

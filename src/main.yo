@@ -2765,7 +2765,7 @@ _run_migrate_deref :: (
     (si : usize) = usize(0);
     while(si < sites.len(), si = (si + usize(1)), {
       if(site_paths(si) == canon, {
-        st := sites(si);
+        st := sites(si).clone();
         if(seen.insert(`${st.edit.to_string()}:${st.row.to_string()}:${st.col.to_string()}`), {
           mine.push(st);
         });
@@ -2779,7 +2779,7 @@ _run_migrate_deref :: (
     checked := ArrayList(_PendingFix).new();
     (mi : usize) = usize(0);
     while(mi < mine.len(), mi = (mi + usize(1)), {
-      st := mine(mi);
+      st := mine(mi).clone();
       at := `${file}:${(st.row + usize(1)).to_string()}:${(st.col + usize(1)).to_string()}`;
       line := match(lines.get_cloned(st.row), .Some(l) => l, .None => String.new());
       runes := ArrayList(rune).new();

@@ -3334,6 +3334,7 @@ export(MarkerSite, set_migrate_markers, migrate_markers_on, record_marker_site, 
 /// `{ r : &r.* }`), and `edit` 2 deletes the borrow marker (`&`, `&mut `)
 /// written right before it (`match(&r, …)` → `match(r, …)`).
 DerefSite :: struct(path : String, row : usize, col : usize, expect : String, edit : u8);
+derive(DerefSite, Clone);
 (mut(g_migrate_deref) : bool) = false;
 (g_deref_sites : RefCell(ArrayList(DerefSite))) = RefCell(ArrayList(DerefSite)).new(ArrayList(DerefSite).new());
 (g_deref_site_keys : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
@@ -3366,7 +3367,8 @@ record_deref_site :: (fn(tok : &Token, expect : &String) -> unit)({
   if(g_audit_deref, {
     eprintln(`[deref] ${tok.module_path.*}:${(tok.row + u32(1)).to_string()}:${(tok.column + u32(1)).to_string()} ${expect}`);
   });
-  g_deref_sites.with_mut(xs => xs.push(DerefSite(path : tok.module_path.*.clone(), row : usize(tok.row), col : usize(tok.column), expect : expect.clone(), edit : u8(0))));
+  site := DerefSite(path : tok.module_path.*.clone(), row : usize(tok.row), col : usize(tok.column), expect : expect.clone(), edit : u8(0));
+  g_deref_sites.with_mut({ site }(xs) => xs.push(site));
 });
 /// Record an `edit` 1 (label prefix `text`) or 2 (drop the marker) site at
 /// `tok`. Once per position and edit.
@@ -3378,7 +3380,8 @@ record_deref_edit_site :: (fn(tok : &Token, text : &String, edit : u8) -> unit)(
   if(g_audit_deref, {
     eprintln(`[deref] ${tok.module_path.*}:${(tok.row + u32(1)).to_string()}:${(tok.column + u32(1)).to_string()} ${if(edit == u8(2), "drop-marker", "label")} ${text}`);
   });
-  g_deref_sites.with_mut(xs => xs.push(DerefSite(path : tok.module_path.*.clone(), row : usize(tok.row), col : usize(tok.column), expect : text.clone(), edit : edit)));
+  site := DerefSite(path : tok.module_path.*.clone(), row : usize(tok.row), col : usize(tok.column), expect : text.clone(), edit : edit);
+  g_deref_sites.with_mut({ site }(xs) => xs.push(site));
 });
 take_deref_sites :: (fn() -> ArrayList(DerefSite))({
   out := g_deref_sites.with_mut(xs => xs.split_off(usize(0)));
