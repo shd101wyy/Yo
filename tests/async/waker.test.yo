@@ -32,7 +32,7 @@ test("Test yield_now runs every turn it is asked for", {
   // Asserting a time bound here would therefore pin the harness, not the
   // feature, and would flake on a slower runner. The loose bound below only
   // catches a catastrophic regression — a mechanism that blocks or deadlocks.
-  n := Rc(i32)(i32(400));
+  n := Rc(i32).new(i32(400));
   started := Instant.now();
   h := io.spawn(
     io.async((io : Io) => {
@@ -70,7 +70,7 @@ test("Test std/async yield is the timer-free mechanism", {
   // without a single `__yo_io_poll()`, which is exactly the build-smoke hang
   // (issues/fixed/build-smoke-hangs-registry-perturbation.md). The spawned task's
   // counter reaching 400 with the spawner making progress is the oracle.
-  n := Rc(i32)(i32(400));
+  n := Rc(i32).new(i32(400));
   started := Instant.now();
   h := io.spawn(
     io.async((io : Io) => {

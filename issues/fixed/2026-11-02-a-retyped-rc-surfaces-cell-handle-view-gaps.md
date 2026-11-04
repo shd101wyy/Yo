@@ -2,7 +2,7 @@
 
 **Severity:** S3 — no user program reaches the first and third gaps (a safe file cannot retype `Rc`), and the second and fourth need a `pragma(Pragma.AllowUnsafe)` cell wrapper. Together they kept the v0.2.73 seed from lowering V5's `Rc`/`Arc` over `__yo_cell`, which moves V5 cells Generation B (the std retype) from v0.2.74 to v0.2.75.
 
-**Status:** fixed in the compiler by V5 cells Generation A (`vbd/v5-gen-a-completion`). `tests/cell_handles.test.yo` covers gaps 2 and 4 now. Gaps 1 and 3 are reachable only through the prelude's `Rc`/`Arc`, so their regression rows go live with cells Generation B (v0.2.75), which moves this doc to `issues/fixed/`.
+**Status:** fixed. The compiler half is V5 cells Generation A (#1725, v0.2.74). V5 cells Generation B (`vbd/v5-cells-gen-b`, v0.2.75) ships the retyped std, so the gap 1 and gap 3 rows now run against the shipped prelude. `tests/cell_handles.test.yo` covers gaps 2 and 4 with test-local handles.
 
 ## How it was found
 
@@ -121,3 +121,7 @@ the `a list of optional cell handles orders its struct after the handle's typede
 - Generation B: the `dyn(...)` rows of `tests/handle_constructors.test.yo` and `tests/dyn.test.yo` cover gap 1,
   and the `Weak`/`ArcWeak` rows of `tests/rc.test.yo` and `tests/arc.test.yo` cover gap 3, all against the
   shipped std.
+- Generation B, measured 2026-11-03 with a tree binary built by the emulated v0.2.74 seed (the B9 flip frontier
+  plus #1724 and #1725): `tests/dyn.test.yo` 56, `tests/handle_constructors.test.yo` 15, `tests/rc.test.yo` 175,
+  `tests/arc.test.yo` 31, `tests/explicit_allocators.test.yo` 18 (with the new reuse row: a `dyn` over a placed `Rc`
+  is that `Rc`'s cell), all passing.

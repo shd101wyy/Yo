@@ -110,6 +110,70 @@ test("box, arc and a dyn over a placed rc are placed by their alloc argument", {
   };
   assert(counts.live == usize(0), "every kind routed its release back");
 });
+// `Rc` is a view over `__yo_cell` (V5 cells Generation B), and a cell handle
+// is a box already (`src/evaluator/values/dyn.yo`): `dyn(...)` of a placed
+// `Rc` takes the handle's own cell as its data object. Boxing the handle
+// again would make a second cell, on the global allocator, whose payload is
+// the `Rc(_Dog)`: the downcasts below would both see it.
+test("A dyn over a placed Rc reuses the Rc's cell: no second cell", {
+  counts := _counts();
+  heap := _counting(addr_of(counts));
+  {
+    r := Rc.new(_Dog(volume : i32(6)), alloc : .Some(heap));
+    (d : Dyn(_Speak)) = dyn(Rc.clone(r));
+    assert(ref_count(r) == usize(2), `the dyn holds a count on the Rc's cell: ${ref_count(r)}`);
+    assert(counts.live == usize(1), `one placed cell: ${counts.live}`);
+    assert(d.speak() == i32(6), "dispatched to the Rc's payload");
+    assert(downcast(d, _Dog).is_some(), "the data object's payload is the _Dog");
+    assert(downcast(d, Rc(_Dog)).is_none(), "not an Rc(_Dog) boxed again");
+  };
+  assert(counts.live == usize(0), `the one cell went back: ${counts.live}`);
+});
+// A `Dyn` clone of a placed `Rc` builds its fresh cell with the source's
+// owner as the cell constructor's explicit allocator
+// (plans/backlog/ALLOCATOR_PLACEMENT.md §6 B2b). Until B2b it made the owner
+// the thread's allocation scope for the impl's `clone`, the one path whose
+// placement rode the thread-local.
+test("A Dyn(Trait, Clone) over a placed Rc clones into its allocator, twice", {
+  counts := _counts();
+  heap := _counting(addr_of(counts));
+  {
+    (d : Dyn(_Speak, Clone)) = dyn(Rc.new(_Dog(volume : i32(4)), alloc : .Some(heap)));
+    (e : Dyn(_Speak, Clone)) = d.clone();
+    (f : Dyn(_Speak, Clone)) = e.clone();
+    assert(counts.live == usize(3), `the source and both clones are placed: ${counts.live}`);
+    assert((d.speak() + e.speak() + f.speak()) == i32(12), "each clone dispatches to its own payload");
+  };
+  assert(counts.live == usize(0), `every clone went back: ${counts.live}`);
+});
+// An allocator whose `alloc` itself allocates without an `alloc` argument
+// (a `dyn` box). Nothing makes an allocator current, so the inner allocation
+// is global and never calls back in: before B2b a `Dyn` clone ran the
+// cell's `alloc` with its own allocator as the thread scope, and the inner
+// box recursed until the stack overflowed
+// (issues/retired/2026-10-21-should-allocator-callbacks-run-outside-the-allocation-scope.md).
+_reent_alloc :: (fn(ctx : ?*void, size : usize, align : usize) -> ?*void)({
+  (inner : Dyn(_Speak)) = dyn(_Dog(volume : i32(1)));
+  assert(inner.speak() == i32(1), "the callback's own allocation");
+  c := (*_Counts)(ctx.unwrap());
+  unsafe(c.*.allocs = (c.*.allocs + usize(1)));
+  unsafe(c.*.live = (c.*.live + usize(1)));
+  GlobalAllocator.malloc(size)
+});
+_REENT_VTABLE := AllocatorVTable(alloc : _reent_alloc, realloc : _count_realloc, free : _count_free);
+test("An allocator whose callbacks allocate places Rc, Arc and a Dyn clone without recursing", {
+  counts := _counts();
+  reent := Allocator(ctx : .Some((*void)(addr_of(counts))), vtable : addr_of(_REENT_VTABLE));
+  {
+    r := Rc.new(i32(1), alloc : .Some(reent));
+    a := Arc.new(i32(2), alloc : .Some(reent));
+    (d : Dyn(_Speak, Clone)) = dyn(Rc.new(_Dog(volume : i32(3)), alloc : .Some(reent)));
+    (e : Dyn(_Speak, Clone)) = d.clone();
+    assert(counts.live == usize(4), `four placed cells: ${counts.live}`);
+    assert((r.* + a.* + e.speak()) == i32(6), "payloads");
+  };
+  assert(counts.live == usize(0), `all four went back: ${counts.live}`);
+});
 // `Box`'s layout (plans/backlog/ALLOCATOR_PLACEMENT.md, "Related: `Box`'s
 // layout"): an 8-byte flags word in front of the payload, its placed bit set
 // only by an `alloc` argument, and the owner prefix only on a placed cell.

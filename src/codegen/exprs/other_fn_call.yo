@@ -1462,14 +1462,12 @@ _enum_variant_index :: (fn(enum_ty : &TypeValue, name : &String) -> Option(usize
     _ => Option(usize).None
   )
 );
-/// The allocation scope (`__yo_alloc_scope_t`) of a cell primitive's
-/// constructor call from its `Option(Allocator)` argument `alloc_arg`
+/// The allocator (`__yo_alloc_scope_t`) of a cell primitive's constructor
+/// call from its `Option(Allocator)` argument `alloc_arg`
 /// (plans/VALUES_BY_DEFAULT.md §3.5): `.Some(a)` is `{a.ctx, a.vtable}`, so the
-/// cell is allocated through `a`'s vtable with no scope switch, and `.None`
-/// is the current scope if a live `alloc : .Some(a)` swap made one current
-/// (rc/arc's window), else the global allocator — `box`'s `.None` is
-/// hard-global instead (B1). The argument is evaluated once, into a temp
-/// named after the call `call`.
+/// cell is allocated through `a`'s vtable, and `.None` is the global
+/// allocator (`{0, 0}`), as `box`'s is. The argument is evaluated once, into
+/// a temp named after the call `call`.
 _cell_alloc_scope :: (fn(alloc_arg : &AstExpr, call : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
   opt_ty := match(context.base.get_expr_info(alloc_arg), .Some(ai) => Rc.clone(ai.ty), .None => Rc.new(TypeValueNode.Unit));
   alloc_ty := match(
@@ -1496,7 +1494,7 @@ _cell_alloc_scope :: (fn(alloc_arg : &AstExpr, call : &AstExpr, indent : &String
       em.emit_string_line(`${indent}${get_type_string(&opt_ty, &context.base)} ${tmp} = ${code};`);
       some_tag := get_enum_variant_c_name(&opt_ty, String.from("Some"), &context.base);
       payload := `${tmp}.data.${c_variant_member_name(String.from("Some"))}.${sanitize_for_c_identifier(String.from("value"), false)}`;
-      `((${tmp}.tag == ${some_tag}) ? (__yo_alloc_scope_t){ (void*)${payload}.${c_field_name(&a_ty, String.from("ctx"))}, (const void*)${payload}.${c_field_name(&a_ty, String.from("vtable"))} } : __yo_scope_current())`
+      `((${tmp}.tag == ${some_tag}) ? (__yo_alloc_scope_t){ (void*)${payload}.${c_field_name(&a_ty, String.from("ctx"))}, (const void*)${payload}.${c_field_name(&a_ty, String.from("vtable"))} } : (__yo_alloc_scope_t){ 0, 0 })`
     },
     // The evaluator types the argument `Option(Allocator)`
     // (`_cell_allocator_type`, evaluator/calls/function.yo).
@@ -2564,7 +2562,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
             );
             ci = (ci + usize(1));
           });
-          // The cell's allocation scope goes first. The payload was
+          // The cell's allocator goes first. The payload was
           // generated first (Yo evaluates arguments left to right), so it is
           // held in a temp before the allocator argument runs.
           if(is_cell, {

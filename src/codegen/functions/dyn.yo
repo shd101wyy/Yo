@@ -141,9 +141,10 @@ generate_dyn_box_functions :: (fn(context : &FunctionGenerationContext) -> unit)
             em.emit_declaration_line("");
           });
           em.emit_string_line(`static ${box_name}* __yo_new_${box_name}(${value_str} value) {`);
-          em.emit_string_line(`  __yo_alloc_scope_t __yo_sc = __yo_scope_current();`);
-          em.emit_string_line(`  ${box_name}* box = (${box_name}*)${context.base.rc_alloc_scoped_call(&String.from("__yo_sc"), &box_name)};`);
-          em.emit_line("  box->header.ref_count = 1u | __yo_rc_tag_of(__yo_sc);");
+          // `dyn(...)`'s own box is global (ALLOCATOR_PLACEMENT.md §2.4: a
+          // placed payload is a placed `Rc`, used as the data object).
+          em.emit_string_line(`  ${box_name}* box = (${box_name}*)__yo_rc_alloc(sizeof(${box_name}));`);
+          em.emit_line("  box->header.ref_count = 1u;");
           em.emit_line("  box->header.borrow_count = 0;");
           if(context.base.needs_cycle_gc, {
             em.emit_line("  box->header.gc_flags = 0;");
@@ -340,11 +341,13 @@ _dyn_clone_fn_name :: (fn(impl_key : &String) -> String)(`__yo_dyn_clone_${impl_
 /// Emit `__yo_dyn_clone_<impl>(void* self_ptr)`, which `d.clone()` reaches
 /// through the vtable (`__yo_dyn_clone`, functions/gc_runtime.yo): it returns
 /// a fresh payload holding the impl's `clone` of this one, so the two `Dyn`s
-/// share nothing. The fresh payload and everything the impl's `clone`
-/// allocates land where the source lives (decision 12, §3.11): the source's
-/// owner scope (`__yo_scope_of_object`) is current for the call. A boxed
-/// payload (`Rc(T)`, the auto-boxed `dyn(v)`) gets a new box through the
-/// box's own constructor; a reference payload is the impl's result itself.
+/// share nothing. The fresh payload lands where the source lives (decision
+/// 12, §3.11): a cell handle's fresh cell (V5's `Rc(T)`/`Arc(T)`) gets the
+/// source's owner (`__yo_scope_of_object`) as its constructor's explicit
+/// allocator; the auto-boxed `dyn(v)`'s box is global, as its source's is.
+/// What the impl's `clone` allocates itself is global: there is no
+/// allocation scope (plans/backlog/ALLOCATOR_PLACEMENT.md §6 B2b). A
+/// reference payload is the impl's result itself.
 /// The impl's `clone` comes from the `Clone` evidence the evaluator resolved
 /// for this `dyn(...)` (`_resolve_dyn_trait_values`), which it guarantees for
 /// a payload put into a `Dyn` that lists `Clone`.
@@ -377,21 +380,17 @@ _emit_dyn_clone_function :: (
         em.emit_declaration_string_line(`  ${concrete_str} concrete_value = (${concrete_str})self_ptr;`);
         receiver = if(self_by_ptr, String.from("&concrete_value"), String.from("concrete_value"));
       });
-      em.emit_declaration_line("  __yo_alloc_scope_t __yo_saved_scope = __yo_scope_current();");
-      em.emit_declaration_line("  __yo_alloc_scope_t __yo_owner_scope = __yo_scope_of_object(self_ptr);");
-      em.emit_declaration_line("  __yo_scope_set(__yo_owner_scope.ctx, (void*)__yo_owner_scope.vtable);");
       if(is_boxed, {
         boxed_cname := _boxed_c_name(data_type.clone(), context);
         // A cell primitive's constructor (a cell handle's box, V5's `Rc`/`Arc`)
-        // takes the allocation scope first (`__yo_cell(V)(v, alloc)`,
+        // takes the allocator first (`__yo_cell(V)(v, alloc)`,
         // functions/constructors.yo): the fresh box lands in the source's owner.
-        scope_arg := if(is_cell_primitive_type(&_dyn_data_object_type(data_type)), String.from("__yo_owner_scope, "), String.new());
+        scope_arg := if(is_cell_primitive_type(&_dyn_data_object_type(data_type)), String.from("__yo_scope_of_object(self_ptr), "), String.new());
         em.emit_declaration_string_line(`  ${boxed_cname}* out = __yo_new_${boxed_cname}(${scope_arg}${entry.c_name}(${receiver}));`);
       }, {
         concrete_str := get_type_string(concrete_type.clone(), &context.base);
         em.emit_declaration_string_line(`  ${concrete_str} out = ${entry.c_name}(${receiver});`);
       });
-      em.emit_declaration_line("  __yo_scope_set(__yo_saved_scope.ctx, (void*)__yo_saved_scope.vtable);");
       em.emit_declaration_line("  return (void*)out;");
     }),
     .None => {

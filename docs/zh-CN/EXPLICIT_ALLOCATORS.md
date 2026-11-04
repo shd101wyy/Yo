@@ -104,9 +104,7 @@ make_node :: (fn(name : i32, (alloc : Option(Allocator)) ?= .None) -> Rc(Node))(
 - `io.async` 任务的状态机，
 - 运行时自身的簿记（事件循环结构、线程池）。
 
-`Box.new` 直接调用 `a` 的 `alloc`。`Rc.new` 和 `Arc.new` 在这一次构造期间把 `a` 设为当前线程的
-分配作用域（直到单元原语自己接受分配器为止），所以用于 `Rc.new` 或 `Arc.new` 的分配器必须
-遵守[编写自己的分配器](#编写自己的分配器)中的回调规则。
+`Box.new`、`Rc.new` 和 `Arc.new` 都直接调用 `a` 的 `alloc`。
 
 ## 容器
 
@@ -228,12 +226,9 @@ Allocator :: struct(ctx : ?*void, vtable : *AllocatorVTable);
   一次重新分配）时的值，所以按尺寸分级的分配器（例如内存池）不需要自己的块头。
 - 块可能在另一个线程上被释放（在那里 drop 的 `Arc`），所以被多个线程共享的分配器
   要让它的 `free` 线程安全。
-- 回调不能创建不带 `alloc` 参数的引用计数对象：其中不能有 `ref` 构造器，也不能有
-  不带 `alloc` 的 `Rc.new`、`Arc.new` 或 `dyn`。在 `Rc.new(v, alloc : .Some(a))` 和
-  `Arc.new(v, alloc : .Some(a))` 中，回调运行时当前线程的分配作用域正是它自己的分配器，
-  这样的分配会再次调用 `alloc`，递归直到栈溢出。容器、`String` 和 `Box.new(...)` 是全局的，
-  可以放心使用。请从 `GlobalAllocator` 或你自己持有的缓冲区获取内存，如下面的示例
-  所示。
+- 回调可以分配内存：不带 `alloc` 参数的创建无论在哪里运行都使用全局分配器，因此不会
+  再次调用你的分配器。你交出去的块请从 `GlobalAllocator` 或你自己持有的缓冲区获取，
+  如下面的示例所示。
 
 你的函数永远看不到所有者前缀：`std/allocator` 向你的 `alloc` 申请前缀
 （`max(16, align)` 字节）加上调用方所需的字节，按 `max(16, align)` 对齐，并自己管理
@@ -323,10 +318,8 @@ yo compile main.yo --allocator fixed --debug-heap -o app && ./app
 
 ## 开销
 
-`ref` 构造器、`dyn` 盒子和 `io.async` 任务仍会检查 `Rc.new` 和 `Arc.new` 为一次构造设置的
-线程分配作用域：一次 relaxed 原子读取和一次分支，编译器自举的测量结果在噪声范围内
-（`plans/archive/EXPLICIT_ALLOCATORS.md`）。等 `Rc.new` 和 `Arc.new` 通过单元原语放置之后，
-这个检查就会删除（`plans/backlog/ALLOCATOR_PLACEMENT.md`，B2）。容器大小不变，因为
+不带 `alloc` 参数的创建（`ref` 构造器、`dyn` 盒子、`io.async` 任务）不为放置付出任何代价：
+它直接从全局分配器分配，没有需要检查的线程局部变量。容器大小不变，因为
 分配器存放在缓冲区的前缀里，而不是新增的字段。
 
 只有被放置的块才为所有者付出空间。全局 `Box` 单元在载荷前带一个 8 字节的标志字，就像
