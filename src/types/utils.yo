@@ -567,9 +567,13 @@ future_unreturnable_borrow :: (fn(ty : &TypeValue) -> Option(CaptureBorrow))({
       &cur,
       Rc(.SomeT({ id : fu_id, resolution : fu_res })) => {
         match(g_unreturnable_futures.with(m => m.get_cloned(&fu_id)), .Some(b) => return(Option(CaptureBorrow).Some(b)), .None => ());
-        match(fu_res, .Some(r) => {
-          cur = Rc.clone(r);
-        }, .None => return(Option(CaptureBorrow).None));
+        match(
+          fu_res,
+          .Some(r) => {
+            cur = Rc.clone(r);
+          },
+          .None => return(Option(CaptureBorrow).None)
+        );
       },
       _ => return(Option(CaptureBorrow).None)
     );
@@ -789,14 +793,14 @@ note_origin_types_exist :: (fn() -> unit)({
   // step 3, §5 route 3), which is move-only: arm the fast-path knob the
   // move-only walk is gated on (`type_is_move_only`, `move_only_reason`).
   g_move_only_possible = true;
-});/// A future type now carries an origin (decision 43 step 4): arms the
+});
+/// A future type now carries an origin (decision 43 step 4): arms the
 /// future-origin, origin-type and move-only fast paths.
 note_future_origins_exist :: (fn() -> unit)({
   g_future_origins_exist = true;
   g_origin_types_exist = true;
   g_move_only_possible = true;
 });
-
 /// True if a value of `ty` carries an origin (plans/backlog/REFERENCES_AND_ORIGINS.md
 /// O4, O10; decision 43 step 3): `ty` holds a `Reference` outside a function
 /// type's slots, or an origin argument (an `OriginSet` in a struct's or an

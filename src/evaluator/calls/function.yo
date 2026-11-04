@@ -3313,7 +3313,7 @@ _note_io_builtin_call :: (fn(expr : &AstExpr, ret_ty : &TypeValue, args : &Array
   cond(
     is_io_async_call(expr) => _register_borrowing_future(ret_ty, ast_expr_id(expr), args, env, ctx),
     is_io_await_call(expr) => {
-      _check_awaited_future(args, env, ctx, exn);
+      _check_awaited_future(args, ctx, exn);
       ArrayList(String).new()
     },
     true => ArrayList(String).new()
@@ -3404,8 +3404,7 @@ _future_value_leaves :: (fn(e : &AstExpr, out : &mut ArrayList(AstExpr)) -> unit
 /// frozen until the await completes. Where the future came from no longer
 /// matters (decision 43 step 4): a bound future froze its places from its
 /// binding on (`freeze_origin_carrying_binding`).
-_check_awaited_future :: (fn(args : &ArrayList(AstExpr), env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
-  env;
+_check_awaited_future :: (fn(args : &ArrayList(AstExpr), ctx : &EvalContext, exn : Exception) -> unit)({
   operand := match(args.get(usize(0)), .Some(a) => _unlabeled_argument(&a), .None => return(()));
   bs := ArrayList(CaptureBorrow).new();
   match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&operand)), .Some(oi) => collect_type_borrows(&oi.ty, &mut bs), .None => ());
