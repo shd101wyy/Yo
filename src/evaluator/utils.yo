@@ -4953,6 +4953,9 @@ _drop_in_arms_that_keep :: (
               match(
                 same_name.get(sni),
                 .Some(sv) => if(sv.id != v.id, {
+                  if(debug_knob(`YO_DEBUG_HMFIX`).is_some(), {
+                    eprintln(`[hmfix] samename ${v.name} v.id=${v.id.to_string()} sv.id=${sv.id.to_string()} sv.own=${if(sv.is_owning_the_rc_value, "1", "0")} sv.param=${if(sv.is_parameter, "1", "0")} v.param=${if(v.is_parameter, "1", "0")} sv.ty=${type_to_string(&sv.ty)} arm=${si.to_string()}`);
+                  });
                   return(false);
                 }),
                 .None => ()
