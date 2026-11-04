@@ -62,6 +62,9 @@ Regex :: struct(
   /// Shared with every `RegexMatch` this pattern builds.
   _group_names : Rc(ArrayList(GroupNameEntry))
 );
+// A copy is a second handle to the same compiled program: the pattern text
+// is cloned, the program and group names are shared (`Rc`).
+derive(Regex, Clone);
 // Block 1: Constructor and leaf methods
 impl(
   Regex,
@@ -84,7 +87,7 @@ impl(
       flags_result,
       .Err(e) => .Err(e),
       .Ok(flags) => {
-        parser := RegexParser.new(pattern);
+        mut(parser) := RegexParser.new(pattern);
         ast_result := parser.parse();
         match(
           ast_result,
@@ -281,7 +284,7 @@ impl(
     (mut(shared) : Option(Rc(String))) = .None;
     bytes := &input;
     input_len := bytes.len();
-    vm := NfaVm.new(&self._program, self._flags, input);
+    mut(vm) := NfaVm.new(&self._program, self._flags, input);
     cond(
       self._flags.sticky => {
         result := vm.exec_at(from_byte);
@@ -339,7 +342,7 @@ impl(
     (mut(shared) : Option(Rc(String))) = .None;
     bytes := &input;
     input_len := bytes.len();
-    vm := NfaVm.new(&self._program, self._flags, input);
+    mut(vm) := NfaVm.new(&self._program, self._flags, input);
     cond(
       self._flags.sticky => {
         // Sticky: only try at position 0, then at end of each match
@@ -459,14 +462,13 @@ impl(
   Iterator(
     Item : RegexMatch,
     next : (fn(self : &mut Self) -> Option(RegexMatch))({
-      re := self._regex;
       input_len := self._input.len();
       while(self._byte_pos <= input_len, {
         result := self._vm.exec_at(self._byte_pos);
         cond(
           result.matched => {
             mut(shared) := Option(Rc(String)).Some(Rc.clone(&self._input));
-            m := re._build_match(&result.slots, &self._input.*, &mut shared);
+            m := self._regex._build_match(&result.slots, &self._input.*, &mut shared);
             match_start := result.slots(usize(0));
             match_end := result.slots(usize(1));
             cond(
@@ -481,7 +483,7 @@ impl(
                     char_len := utf8.step_len(b);
                     next_pos := (self._byte_pos + char_len);
                     self._byte_pos = cond(
-                      self._has_prefix => re._find_prefix_pos(&self._input.*, next_pos),
+                      self._has_prefix => self._regex._find_prefix_pos(&self._input.*, next_pos),
                       true => next_pos
                     );
                   }
@@ -489,7 +491,7 @@ impl(
               },
               true => {
                 self._byte_pos = cond(
-                  self._has_prefix => re._find_prefix_pos(&self._input.*, match_end),
+                  self._has_prefix => self._regex._find_prefix_pos(&self._input.*, match_end),
                   true => match_end
                 );
               }
@@ -501,7 +503,7 @@ impl(
             // one UTF-8 character and retry from there (find_all's
             // non-sticky miss arm).
             cond(
-              re._flags.sticky => {
+              self._regex._flags.sticky => {
                 self._byte_pos = (input_len + usize(1));
               },
               (self._byte_pos >= input_len) => {
@@ -512,7 +514,7 @@ impl(
                 char_len := utf8.step_len(b);
                 next_pos := (self._byte_pos + char_len);
                 self._byte_pos = cond(
-                  self._has_prefix => re._find_prefix_pos(&self._input.*, next_pos),
+                  self._has_prefix => self._regex._find_prefix_pos(&self._input.*, next_pos),
                   true => next_pos
                 );
               }
@@ -542,7 +544,7 @@ impl(
       true => usize(0)
     );
     RegexMatchIter(
-      _regex : self,
+      _regex : self.clone(),
       _vm : vm,
       _input : Rc.new(input.clone()),
       _byte_pos : byte_pos,
@@ -774,17 +776,16 @@ impl(
         (mut(last_end_byte) : usize) = usize(0);
         mut(mi) := usize(0);
         while(mi < all_matches.len(), mi = (mi + usize(1)), {
-          m := all_matches(mi);
           // m.index() is the match's start BYTE offset
-          match_start_byte := m.index();
-          match_end_byte := (match_start_byte + m.value().len());
+          match_start_byte := all_matches(mi).index();
+          match_end_byte := (match_start_byte + all_matches(mi).value().len());
           // Copy text between last match end and this match start
           mut(pi) := last_end_byte;
           while(pi < match_start_byte, pi = (pi + usize(1)), {
             out.push(input_bytes.byte_at(pi));
           });
           // Apply replacement
-          rep := self._apply_replacement(replacement, &m);
+          rep := self._apply_replacement(replacement, &all_matches(mi));
           rep_bytes := rep;
           mut(ri) := usize(0);
           while(ri < rep_bytes.len(), ri = (ri + usize(1)), {
@@ -845,19 +846,18 @@ impl(
         (mut(last_end_byte) : usize) = usize(0);
         mut(mi) := usize(0);
         while(mi < all_matches.len(), mi = (mi + usize(1)), {
-          m := all_matches(mi);
           // Copy text between last match end and this match start
           mut(pi) := last_end_byte;
-          while(pi < m.index(), pi = (pi + usize(1)), {
+          while(pi < all_matches(mi).index(), pi = (pi + usize(1)), {
             out.push(input_bytes.byte_at(pi));
           });
-          rep := f(&m);
+          rep := f(&all_matches(mi));
           rep_bytes := rep;
           mut(ri) := usize(0);
           while(ri < rep_bytes.len(), ri = (ri + usize(1)), {
             out.push(rep_bytes.byte_at(ri));
           });
-          last_end_byte = m.end();
+          last_end_byte = all_matches(mi).end();
         });
         // Copy remaining text after last match
         mut(pi) := last_end_byte;
@@ -903,10 +903,9 @@ impl(
         (mut(last_end_byte) : usize) = usize(0);
         mut(mi) := usize(0);
         while(mi < all_matches.len(), mi = (mi + usize(1)), {
-          m := all_matches(mi);
           // m.index() is the match's start BYTE offset
-          match_start_byte := m.index();
-          match_end_byte := (match_start_byte + m.value().len());
+          match_start_byte := all_matches(mi).index();
+          match_end_byte := (match_start_byte + all_matches(mi).value().len());
           // Extract text from last_end_byte to match_start_byte
           mut(part_bytes) := ArrayList(u8).new();
           mut(pi) := last_end_byte;
@@ -916,8 +915,8 @@ impl(
           parts.push(String.from_bytes(part_bytes));
           // Include capture groups in split result (like JS)
           mut(gi) := usize(1);
-          while(gi <= m.group_count(), gi = (gi + usize(1)), {
-            grp := m.group(gi);
+          while(gi <= all_matches(mi).group_count(), gi = (gi + usize(1)), {
+            grp := all_matches(mi).group(gi);
             match(
               grp,
               .Some(g) => {
@@ -952,7 +951,7 @@ impl(
   Regex,
   Pattern(
     is_prefix_of : (fn(self : &Self, haystack : &String, position : usize) -> bool)({
-      vm := NfaVm.new(&self._program, self._flags, haystack);
+      mut(vm) := NfaVm.new(&self._program, self._flags, haystack);
       vm.exec_at(position).matched
     }),
     /// A match must END exactly at `end_position` (clamped to `len()`).
@@ -963,8 +962,7 @@ impl(
       (mut(hit) : bool) = false;
       (mut(i) : usize) = usize(0);
       while((i < ms.len()) && !hit, i = (i + usize(1)), {
-        m := ms(i);
-        hit = (m.end() == eff);
+        hit = (ms(i).end() == eff);
       });
       hit
     }),
@@ -989,10 +987,9 @@ impl(
       (mut(last) : Option(usize)) = .None;
       (mut(i) : usize) = usize(0);
       while(i < ms.len(), i = (i + usize(1)), {
-        m := ms(i);
         cond(
-          (m.index() <= lim) => {
-            last = .Some(m.index());
+          (ms(i).index() <= lim) => {
+            last = .Some(ms(i).index());
           },
           true => ()
         );
@@ -1000,7 +997,7 @@ impl(
       last
     }),
     length_in : (fn(self : &Self, haystack : &String, at : usize) -> usize)({
-      vm := NfaVm.new(&self._program, self._flags, haystack);
+      mut(vm) := NfaVm.new(&self._program, self._flags, haystack);
       result := vm.exec_at(at);
       cond(
         result.matched => ((result.slots(usize(1)) - result.slots(usize(0)))),
