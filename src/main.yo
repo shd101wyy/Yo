@@ -5626,25 +5626,31 @@ run_verify_cmd :: (
   (harness_ok : bool) = true;
   if(results.len() < usize(2), {
     harness_ok = false;
-  }, {
-    match(
-      &results(usize(0)).verdict,
-      .Proved(_) => (),
-      _ => {
-        harness_ok = false;
-      }
-    );
-    match(
-      &results(usize(1)).verdict,
-      .Refuted(ce) => {
-        if(ce.len() == usize(0), {
+  });
+  (hri : usize) = usize(0);
+  for(&results, r => {
+    cond(
+      (hri == usize(0)) => match(
+        &r.verdict,
+        .Proved(_) => (),
+        _ => {
           harness_ok = false;
-        });
-      },
-      _ => {
-        harness_ok = false;
-      }
+        }
+      ),
+      (hri == usize(1)) => match(
+        &r.verdict,
+        .Refuted(ce) => {
+          if(ce.len() == usize(0), {
+            harness_ok = false;
+          });
+        },
+        _ => {
+          harness_ok = false;
+        }
+      ),
+      true => ()
     );
+    hri = (hri + usize(1));
   });
   // V3: evaluate the target set with the mode override and target paths
   // armed, so the evaluator records one VerifyTask per verifiable
@@ -5714,13 +5720,11 @@ run_verify_cmd :: (
   match(
     &explain_fn,
     .Some(pat) => {
-      for(&all_reports, rp => {
-        if(rp.fn_id.contains(pat.clone()), {
-            reports.push(rp);
-          });
-      });
+      n_all := all_reports.len();
+      all_reports.retain(&(rp => rp.fn_id.contains(pat.clone())));
+      reports = all_reports;
       if(reports.len() == usize(0), {
-        exn.throw(dyn(`verify: --explain '${pat}' matched no verified function (of ${all_reports.len().to_string()})`));
+        exn.throw(dyn(`verify: --explain '${pat}' matched no verified function (of ${n_all.to_string()})`));
       });
     },
     .None => {
@@ -6048,7 +6052,6 @@ _print_verify_fn_report :: (fn(rp : &VerifyFnReport, detailed : bool) -> unit)(
     },
     true => {
       println(`  ${rp.outcome}  ${rp.fn_id} [${rp.mode}]`);
-      (i : usize) = usize(0);
       for(&rp.obligations, obl => {
             bad := match(
               &obl.verdict,
