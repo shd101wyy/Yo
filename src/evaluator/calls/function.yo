@@ -8690,7 +8690,7 @@ _consume_fnonce_callee :: (fn(callee : &AstExpr, call : &AstExpr, callee_info : 
 /// (`type_is_typed_fnmut_closure`).
 _callee_slot_is_fnmut :: (fn(callee_info : &ExprInfo, env : &Environment) -> bool)({
   match(
-    callee_info.variable_name,
+    &callee_info.variable_name,
     .Some(sn) => match(
       get_variables_from_env(env, sn.clone()).last(),
       .Some(sv) => {
@@ -8729,7 +8729,7 @@ _require_exclusive_fnmut_callee :: (fn(callee : &AstExpr, callee_info : &ExprInf
   );
   local_borrow_write_expr(callee, &what, &tok, env, ctx, exn);
   match(
-    callee_info.variable_name,
+    &callee_info.variable_name,
     .Some(cn) => match(
       get_variables_from_env(env, cn.clone()).last(),
       .Some(cv) => check_capture_freeze_access(&cv, true, &tok, env, ctx, exn),

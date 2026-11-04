@@ -1038,7 +1038,8 @@ _capture_struct_declares_mut :: (fn(ty : &TypeValue) -> bool)(
 /// it is lent exclusively wherever it is an argument (decision 38 B).
 (g_fnmut_capture_struct_ids : RefCell(HashMap(String, bool))) = RefCell(HashMap(String, bool)).new(HashMap(String, bool).new());
 mark_fnmut_capture_struct :: (fn(struct_id : &String) -> unit)({
-  g_fnmut_capture_struct_ids.with_mut(m => m.insert(struct_id.clone(), true));
+  sid_owned := struct_id.clone();
+  g_fnmut_capture_struct_ids.with_mut({ sid_owned }(m) => m.insert(sid_owned, true));
 });
 /// `ty`, resolved through its type variables, is the capture record of a
 /// closure TYPED `FnMut(...)` (`mark_fnmut_capture_struct`): a literal its
@@ -1046,7 +1047,7 @@ mark_fnmut_capture_struct :: (fn(struct_id : &String) -> unit)({
 capture_struct_typed_fnmut :: (fn(ty : &TypeValue) -> bool)(
   cond(
     (g_fnmut_capture_struct_ids.with(m => m.len()) == usize(0)) => false,
-    true => match(resolution_chain_end(ty), Rc(.Struct({ id : cf_sid })) => g_fnmut_capture_struct_ids.with(m => m.get(&cf_sid)).is_some(), _ => false)
+    true => match(resolution_chain_end(ty), Rc(.Struct({ id : cf_sid })) => g_fnmut_capture_struct_ids.with(m => m.contains_key(&cf_sid)), _ => false)
   )
 );
 /// `ty` is an `FnMut` closure (decision 37, decision 43 N1f): its capture
