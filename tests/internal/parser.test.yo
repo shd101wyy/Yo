@@ -15,7 +15,7 @@ pragma(Pragma.AllowUnsafe);
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 // Check that two String values are equal; fails with msg if not.
 assert_str_eq :: (fn(actual : &String, expected : &String, msg : str) -> unit)(
-  if(actual == expected, (), {
+  if(actual.* == expected.*, (), {
     println(`assert_str_eq FAILED: expected="${expected}" actual="${actual}" — ${msg}`);
     assert(false, &msg);
   })
@@ -779,7 +779,7 @@ test("Parse colon : with multi-line parenthesized -> RHS in struct field", {
 // `import("std/fmt/format")` and the rendering call, whose printed form
 // (`(<expr>.format)("<spec>")`) shows exactly where the peel cut.
 _ts :: (fn(inner : str) -> String)({
-  sb := StringBuilder.new();
+  mut(sb) := StringBuilder.new();
   sb.write_byte(u8(96));
   sb.write_str(inner);
   sb.write_byte(u8(96));
@@ -1185,10 +1185,10 @@ test("`x =>> body` is rejected with E0008", {
 _tokens_of :: (fn(e : &AstExpr, out : &mut ArrayList(Token)) -> unit)(
   match(
     e,
-    .Atom(_, tok) => out.push(tok),
+    .Atom(_, tok) => out.push(tok.*),
     .FnCall(_, callee, Rc(args), _, tok) => {
-      out.push(tok);
-      _tokens_of(&callee, out);
+      out.push(tok.*);
+      _tokens_of(&callee.*, out);
       (mut(i) : usize) = usize(0);
       while(i < args.len(), i = (i + usize(1)), {
         _tokens_of(&args(i), out);
@@ -1207,7 +1207,7 @@ test("every token of a parse shares the module's source and path cells", {
   );
   source := String.from("f(`a${b + c}d`, x - y, { p; q });");
   prog := parse(&source, `cells.yo`, exn);
-  toks := ArrayList(Token).new();
+  mut(toks) := ArrayList(Token).new();
   (mut(i) : usize) = usize(0);
   while(i < prog.len(), i = (i + usize(1)), {
     _tokens_of(&prog(i), &mut toks);
@@ -1234,6 +1234,56 @@ test("every token of a parse shares the module's source and path cells", {
   });
   assert(shared > usize(8), "the walk saw the program's tokens");
 });
+// A template's lowering is positioned at the template: every token of
+// `y := `${p}`` and of the builder block `z := `a${p}b`` lies at or after
+// the binding's name. The lowering's `.`/`to_string`/`format` tokens used to
+// sit at row 0 / character 0 of the module's own stream, so they read as the
+// earliest token of the function, and an arm holding `${p}` "began" before an
+// early return above it: the arm's undone-drop window swallowed that return's
+// exit drop of `p`
+// (issues/fixed/2026-11-03-a-template-string-in-a-later-arm-skips-an-early-returns-drop-of-the-interpolated-local.md).
+test("a template's lowered tokens sit at the template, not at the start of the module", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected parse error");
+        unwind(());
+      }
+    )
+  );
+  source := String.from("pad_to_move_the_templates := 0;\ny := `${p}`;\nz := `a${p}b`;\nw := `${p:>4}`;\n");
+  prog := parse(&source, `positions.yo`, exn);
+  (mut(checked) : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
+  while(i < prog.len(), i = (i + usize(1)), {
+    mut(toks) := ArrayList(Token).new();
+    _tokens_of(&prog(i), &mut toks);
+    (mut(start) : Option(u32)) = .None;
+    (mut(k) : usize) = usize(0);
+    while(k < toks.len(), k = (k + usize(1)), {
+      t := toks(k);
+      if((t.value.* == `y`) || ((t.value.* == `z`) || (t.value.* == `w`)), {
+        start = .Some(t.character);
+      });
+    });
+    match(
+      start,
+      .Some(c0) => {
+        (mut(j) : usize) = usize(0);
+        while(j < toks.len(), j = (j + usize(1)), {
+          t := toks(j);
+          if(t.character < c0, {
+            println(`token "${t.value.*}" at character ${t.character} precedes its statement at ${c0}`);
+            assert(false, "a template's lowered token precedes the template");
+          });
+        });
+        checked = (checked + usize(1));
+      },
+      .None => ()
+    );
+  });
+  assert(checked == usize(3), "the walk saw the three template bindings");
+});
 // Token text is interned (`Token.value`,
 // issues/fixed/2026-10-28-how-token-text-stays-shared-once-string-is-a-value.md):
 // every identifier, keyword, operator and number token holds the ONE
@@ -1242,7 +1292,7 @@ test("every token of a parse shares the module's source and path cells", {
 // that silently stops interning (a copy of the text per token) fails here
 // instead of only moving the memory ratchet.
 _value_cells_of :: (fn(toks : &ArrayList(Token), text : str) -> ArrayList(Rc(String)))({
-  out := ArrayList(Rc(String)).new();
+  mut(out) := ArrayList(Rc(String)).new();
   (mut(i) : usize) = usize(0);
   while(i < toks.len(), i = (i + usize(1)), {
     t := toks(i);

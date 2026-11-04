@@ -50,7 +50,6 @@ pragma(Pragma.AllowUnsafe);
 { Exception, AnyError } :: import("std/error");
 { type_to_string } :: import("../../types/string.yo");
 { push_copy_pending, clear_copy_pending } :: import("../trait_checking.yo");
-{ record_clone_derive } :: import("../utils.yo");
 { RefCell } :: import("std/sync/refcell");
 // ---------------------------------------------------------------------------
 // Derive-impl failure channel
@@ -68,9 +67,17 @@ pragma(Pragma.AllowUnsafe);
 (g_derive_impl_code : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
 _flag_derive_impl_err :: (fn(msg : &String, code : &Option(String)) -> unit)({
   g_derive_impl_err.with_mut(xs => xs.clear());
-  g_derive_impl_err.with_mut(xs => xs.push(msg.clone()));
+  derive_msg := msg.clone();
+  g_derive_impl_err.with_mut({ derive_msg }(xs) => xs.push(derive_msg));
   g_derive_impl_code.with_mut(xs => xs.clear());
-  match(code, .Some(c) => g_derive_impl_code.with_mut(xs => xs.push(c.clone())), .None => ());
+  match(
+    code,
+    .Some(c) => {
+      derive_code := c.clone();
+      g_derive_impl_code.with_mut({ derive_code }(xs) => xs.push(derive_code));
+    },
+    .None => ()
+  );
 });
 _clear_derive_impl_err :: (fn() -> unit)({
   g_derive_impl_err.with_mut(xs => xs.clear());
@@ -78,8 +85,8 @@ _clear_derive_impl_err :: (fn() -> unit)({
 });
 _derive_impl_err_message :: (fn() -> String)(
   match(
-    g_derive_impl_err.with(xs => xs.get(usize(0))),
-    .Some(m) => m.clone(),
+    g_derive_impl_err.with(xs => xs.get_cloned(usize(0))),
+    .Some(m) => m,
     .None => String.from("the generated impl failed to evaluate")
   )
 );
@@ -300,7 +307,7 @@ call_registered_derive_rule :: (
       if(ji > usize(0), {
         joined = (joined.clone() + String.from(", "));
       });
-      joined = (joined.clone() + match(param_names.get(ji), .Some(n) => n, .None => String.from("")));
+      joined = (joined.clone() + match(param_names.get_cloned(ji), .Some(n) => n, .None => String.from("")));
       ji = (ji + usize(1));
     });
     list_code := `comptime_list(${joined})`;
@@ -390,7 +397,7 @@ call_registered_derive_rule :: (
   _derive_eval_guarded(desugar_if_calls(&result_expr), caller_env, ctx, &mut impl_out);
   if(impl_out.len() == usize(0), {
     raw_msg := _derive_impl_err_message();
-    impl_code := g_derive_impl_code.with(xs => xs.get(usize(0)));
+    impl_code := g_derive_impl_code.with(xs => xs.get_cloned(usize(0)));
     _clear_derive_impl_err();
     msg := _derive_strip_error_prefix(&raw_msg);
     exn.throw(
@@ -449,11 +456,6 @@ process_trait_arg :: (
       String.from("")
     }
   );
-  // `yo fix --migrate explicit-copy` lists a copy made above a derived
-  // `Clone` (`record_clone_derive`).
-  if(key == "Clone", {
-    record_clone_derive(target_type);
-  });
   // Look up the registered derive rule.
   rule_opt := get_derive_rule(&key);
   derive_rule_val := match(
@@ -579,7 +581,7 @@ _evaluate_derive_executing :: (
   // Extract arguments.
   args := match(
     expr,
-    .FnCall(_, _, Rc(a), _, _) => a,
+    .FnCall(_, _, Rc(a), _, _) => a.clone(),
     .Atom(_, _) => ArrayList(AstExpr).new()
   );
   if(args.len() < usize(2), {
@@ -609,7 +611,7 @@ _evaluate_derive_executing :: (
     forall_expr := match(forall_arg_opt, .Some(fa) => fa, .None => make_err_expr());
     forall_params := match(
       forall_expr,
-      .FnCall(_, _, Rc(fps), _, _) => fps,
+      .FnCall(_, _, Rc(fps), _, _) => fps.clone(),
       .Atom(_, _) => ArrayList(AstExpr).new()
     );
     _fr := env.push_frame(false);

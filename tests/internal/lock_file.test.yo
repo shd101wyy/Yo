@@ -23,9 +23,17 @@ _entry :: (fn(name : str, version : str, source : &String, commit : str, integri
     dependencies : ArrayList(String).new()
   )
 );
-_lock_of :: (fn(entries : &ArrayList(LockEntry)) -> LockFile)(
-  LockFile(packages : entries)
-);
+// `LockEntry` is a `ref` type with no `Clone`, so the list is copied one
+// handle at a time.
+_lock_of :: (fn(entries : &ArrayList(LockEntry)) -> LockFile)({
+  mut(packages) := ArrayList(LockEntry).new();
+  (mut(i) : usize) = usize(0);
+  while(i < entries.len(), {
+    packages.push(entries(i));
+    i = (i + usize(1));
+  });
+  LockFile(packages : packages)
+});
 _parsed :: (fn(content : &String) -> LockFile)(
   match(
     parse_lock_file(content),
@@ -133,8 +141,8 @@ test("write_lock_file_content: an empty lock is the header and the version", {
   assert(_parsed(&out).packages.len() == usize(0), "round-trips empty");
 });
 test("write_lock_file_content: round-trips a git package", {
-  entries := ArrayList(LockEntry).new();
-  e := _entry("mylib", "2.0.0", git_source(String.from("https://github.com/user/mylib.git"), String.from("v2.0.0")), "deadbeef", "sha256-FFFF");
+  mut(entries) := ArrayList(LockEntry).new();
+  mut(e) := _entry("mylib", "2.0.0", git_source(String.from("https://github.com/user/mylib.git"), String.from("v2.0.0")), "deadbeef", "sha256-FFFF");
   e.dependencies.push(String.from("a"));
   e.dependencies.push(String.from("b"));
   entries.push(e);
@@ -151,7 +159,7 @@ test("write_lock_file_content: round-trips a git package", {
   assert((p.dependencies(usize(0)) == "a") && (p.dependencies(usize(1)) == "b"), "dependency names in order");
 });
 test("write_lock_file_content: a path package omits its empty fields", {
-  entries := ArrayList(LockEntry).new();
+  mut(entries) := ArrayList(LockEntry).new();
   entries.push(_entry("mylib", "", path_source(String.from("../mylib")), "", ""));
   out := write_lock_file_content(_lock_of(&entries));
   assert(out.contains(String.from("source = \"path+../mylib\"")), "source line");
@@ -161,7 +169,7 @@ test("write_lock_file_content: a path package omits its empty fields", {
   assert(!out.contains(String.from("version = \"")), "no version string");
 });
 test("write_lock_file_content: packages are written sorted by name", {
-  entries := ArrayList(LockEntry).new();
+  mut(entries) := ArrayList(LockEntry).new();
   entries.push(_entry("zeta", "1.0.0", git_source(String.from("https://z"), String.from("v1.0.0")), "z", "sha256-z"));
   entries.push(_entry("alpha", "1.0.0", git_source(String.from("https://a"), String.from("v1.0.0")), "a", "sha256-a"));
   entries.push(_entry("mid", "", path_source(String.from("./mid")), "", ""));
@@ -177,7 +185,7 @@ test("write_lock_file_content: packages are written sorted by name", {
 // find_lock_entry / lock_files_equal
 // ---------------------------------------------------------------------------
 test("find_lock_entry: None for an unknown name, the entry otherwise", {
-  entries := ArrayList(LockEntry).new();
+  mut(entries) := ArrayList(LockEntry).new();
   entries.push(_entry("a", "1.0.0", git_source(String.from("https://a"), String.from("v1.0.0")), "aaa", "sha256-a"));
   lock := _lock_of(&entries);
   match(find_lock_entry(&lock, String.from("unknown")), .Some(_) => assert(false, "expected None"), .None => ());
@@ -188,22 +196,22 @@ test("find_lock_entry: None for an unknown name, the entry otherwise", {
   );
 });
 test("lock_files_equal: order-insensitive, field-sensitive", {
-  a := ArrayList(LockEntry).new();
+  mut(a) := ArrayList(LockEntry).new();
   a.push(_entry("x", "1.0.0", git_source(String.from("https://x"), String.from("v1.0.0")), "x1", "sha256-x"));
   a.push(_entry("y", "", path_source(String.from("./y")), "", ""));
-  b := ArrayList(LockEntry).new();
+  mut(b) := ArrayList(LockEntry).new();
   b.push(_entry("y", "", path_source(String.from("./y")), "", ""));
   b.push(_entry("x", "1.0.0", git_source(String.from("https://x"), String.from("v1.0.0")), "x1", "sha256-x"));
   assert(lock_files_equal(_lock_of(&a), _lock_of(&b)), "same packages in another order are equal");
-  c := ArrayList(LockEntry).new();
+  mut(c) := ArrayList(LockEntry).new();
   c.push(_entry("x", "1.0.0", git_source(String.from("https://x"), String.from("v1.0.0")), "x2", "sha256-x"));
   c.push(_entry("y", "", path_source(String.from("./y")), "", ""));
   assert(!lock_files_equal(_lock_of(&a), _lock_of(&c)), "a different commit is a different lock");
-  d := ArrayList(LockEntry).new();
+  mut(d) := ArrayList(LockEntry).new();
   d.push(_entry("x", "1.0.0", git_source(String.from("https://x"), String.from("v1.0.0")), "x1", "sha256-x"));
   assert(!lock_files_equal(_lock_of(&a), _lock_of(&d)), "a missing package is a different lock");
-  e := ArrayList(LockEntry).new();
-  ex := _entry("x", "1.0.0", git_source(String.from("https://x"), String.from("v1.0.0")), "x1", "sha256-x");
+  mut(e) := ArrayList(LockEntry).new();
+  mut(ex) := _entry("x", "1.0.0", git_source(String.from("https://x"), String.from("v1.0.0")), "x1", "sha256-x");
   ex.dependencies.push(String.from("y"));
   e.push(ex);
   e.push(_entry("y", "", path_source(String.from("./y")), "", ""));

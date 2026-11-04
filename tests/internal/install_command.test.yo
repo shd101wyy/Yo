@@ -202,10 +202,10 @@ test("load_project_manifest outside a project fails as error[E1502]", {
         match(
           downcast(err, YoError),
           .Some(ye) => match(
-            ye.diagnostics.get(usize(0)),
+            ye.diagnostics.get_cloned(usize(0)),
             .Some(d) => match(
-              d.code,
-              .Some(c) => assert(c == "E1502", `no manifest is E1502, got ${c}`),
+              &d.code,
+              .Some(c) => assert(c.* == "E1502", `no manifest is E1502, got ${c}`),
               .None => assert(false, "the primary diagnostic carries no code")
             ),
             .None => assert(false, "a diagnostic group must have an entry")

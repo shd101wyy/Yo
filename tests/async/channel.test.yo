@@ -344,7 +344,7 @@ test("Test channel Stream combinators", {
     i = (i + i32(1));
   });
   ch.close();
-  chain := ch.filter(x => ((x % i32(2)) == i32(1))).map(x => (x * i32(10)));
+  chain := ch.filter(x => ((x.* % i32(2)) == i32(1))).map(x => (x.* * i32(10)));
   got := match(
     io.await(timeout(chain.collect(io), Duration.from_millis(i64(5000)), io), io),
     .Ok(list) => list,
@@ -368,7 +368,7 @@ test("Test channel Stream map then filter keeps each closure", {
     i = (i + i32(1));
   });
   ch.close();
-  chain := ch.map(x => (x * i32(10))).filter(x => (x > i32(20)));
+  chain := ch.map(x => (x.* * i32(10))).filter(x => (x.* > i32(20)));
   got := io.await(chain.collect(io), io);
   assert(got.len() == usize(2), "30 and 40 pass the filter");
   assert(got(usize(0)) == i32(30), "the map ran before the filter");
@@ -386,7 +386,7 @@ test("Test a consumer loop over a channel fed by another task", {
     ()
   });
   h := io.spawn(producer, io);
-  seen := ArrayList(i32).new();
+  mut(seen) := ArrayList(i32).new();
   (mut(draining) : bool) = true;
   while(draining, {
     nx := io.await(ch.next(io), io);
@@ -438,7 +438,7 @@ test("the same stream combinator twice in one chain", {
   _a := ch.try_send(i32(1));
   _b := ch.try_send(i32(2));
   ch.close();
-  chain := ch.map(x => (x * i32(10))).map(x => (x + i32(1)));
+  chain := ch.map(x => (x.* * i32(10))).map(x => (x.* + i32(1)));
   mapped := io.await(chain.collect(io), io);
   assert(mapped.len() == usize(2), "map then map keeps both items");
   assert(match(mapped.get(usize(1)), .Some(v) => (v == i32(21)), .None => false), "both maps applied in order");
@@ -447,7 +447,7 @@ test("the same stream combinator twice in one chain", {
   _d := ch2.try_send(i32(4));
   _e := ch2.try_send(i32(5));
   ch2.close();
-  chain2 := ch2.filter(x => (x > i32(3))).filter(x => (x < i32(5)));
+  chain2 := ch2.filter(x => (x.* > i32(3))).filter(x => (x.* < i32(5)));
   kept := io.await(chain2.collect(io), io);
   assert(kept.len() == usize(1), "filter then filter keeps the one item both accept");
 });

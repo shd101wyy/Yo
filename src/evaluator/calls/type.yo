@@ -40,7 +40,7 @@ pragma(Pragma.AllowUnsafe);
   expr_info_set_converted_runtime_type
 } :: import("../../expr_info.yo");
 { comptime_numeric_slot_type } :: import("../values/integer.yo");
-{ Environment, env_adopt } :: import("../../env.yo");
+{ Environment, Variable, env_adopt } :: import("../../env.yo");
 { TypeValue, t_reference_with_origin, t_origin_named, shared_list } :: import("../../types/definitions.yo");
 { type_to_string } :: import("../../types/string.yo");
 { same_name_note, type_carries_origin, origin_value_phase_message, origin_beyond_n2b, origin_beyond_n2b_message } :: import("../../types/utils.yo");
@@ -51,7 +51,7 @@ pragma(Pragma.AllowUnsafe);
 { is_std_module_path } :: import("../memory_safety.yo");
 { EvalValue, value_to_string } :: import("../../value.yo");
 { TypeField } :: import("../types/field.yo");
-{ set_expr_as_needs_to_call_dup, reject_second_class_escape, reject_bare_callable_into_dyn_fn, bare_callable_recorded_into_dyn_fn } :: import("../utils.yo");
+{ set_expr_as_needs_to_call_dup, reject_second_class_escape, reject_bare_callable_into_dyn_fn, bare_callable_recorded_into_dyn_fn, deref_exempt_mark, deref_exempt_clear, variable_is_reference_binding, deref_rule_applies, is_reference_deref_site, reject_reference_without_deref } :: import("../utils.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
 { format_error_message, with_code } :: import("../../error.yo");
 { E_INCOMPATIBLE_TYPES, E_ARGUMENT_COUNT_MISMATCH, E_BORROW_MARKER_MISMATCH } :: import("../../diagnostics.yo");
@@ -119,7 +119,7 @@ try_to_call_type_with_arguments :: (
   (o_fi : usize) = usize(0);
   while(o_fi < n_fields, {
     match(
-      type_fields.get(o_fi),
+      type_fields.get_cloned(o_fi),
       .Some(o_f) => if(origin_beyond_n2b(&o_f.ty) && !is_std_module_path(&ast_expr_token(function_callee_expr).module_path.*, ctx.std_path.clone()), {
         o_shown := match(
           expr_info_table_get(&ctx.expr_info_table, ast_expr_id(function_callee_expr)),
@@ -156,7 +156,7 @@ try_to_call_type_with_arguments :: (
       i = (i + usize(1));
     });
     arg_expr := match(arg_expr_opt, .Some(a) => a, .None => function_callee_expr);
-    field_opt := type_fields.get(i);
+    field_opt := type_fields.get_cloned(i);
     member_element := match(
       field_opt,
       .Some(f) => f.clone(),
@@ -212,7 +212,7 @@ try_to_call_type_with_arguments :: (
       (search_i : usize) = usize(0);
       while(search_i < n_fields, {
         match(
-          type_fields.get(search_i),
+          type_fields.get_cloned(search_i),
           .Some(f) => {
             if(f.label == label_tok, {
               found_idx = .Some(search_i);
@@ -230,7 +230,7 @@ try_to_call_type_with_arguments :: (
           // old `.None => member_element` fallback copied the loop-carried
           // TypeField out of a previous iteration.
           match(
-            type_fields.get(idx),
+            type_fields.get_cloned(idx),
             .Some(found_field) => {
               // Cannot label an already-assigned field.
               if(found_field.assigned_value.is_some(), {
@@ -314,9 +314,26 @@ try_to_call_type_with_arguments :: (
     // in its own swallow, exactly as before.
     saved_expected := ctx.expected_type;
     ctx.expected_type = .Some(ExpectedTypeCtx(ty : Rc.clone(member_element.ty), env : env));
+    // A field typed as a reference (N2b) takes a reference binding bare, as a
+    // reference parameter does (`f(r)`, E0926's exemption, decision 43 step 2
+    // N1e-1); `&r`/`&mut r` there names the referent, spelled `&r.*`.
+    t9_field_is_reference := match(&member_element.ty, Rc(.Reference(_, _, _)) => true, _ => false);
+    if(t9_field_is_reference, {
+      deref_exempt_mark(&actual_arg_expr);
+    });
     evaluated_arg := evaluate_expression_raw(&actual_arg_expr, &env, ctx, exn);
+    deref_exempt_clear();
     ctx.expected_type = saved_expected;
     arg_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_arg));
+    if(t9_field_is_reference && (t9_is_mut_marker || t9_is_amp_marker) && ast_expr_is_atom(&evaluated_arg), {
+      match(
+        match(&arg_info_opt, .Some(t9_ai) => t9_ai.source_variable, .None => Option(Variable).None),
+        .Some(t9_rv) => if(variable_is_reference_binding(&t9_rv) && deref_rule_applies(ast_expr_token(&evaluated_arg), ctx) && !is_reference_deref_site(ast_expr_token(&evaluated_arg)), {
+          reject_reference_without_deref(&t9_rv, ast_expr_token(&evaluated_arg), u8(2), ctx, exn);
+        }),
+        .None => ()
+      );
+    });
     if(arg_info_opt.is_none(), {
       exn.throw(
         dyn(
@@ -365,7 +382,14 @@ try_to_call_type_with_arguments :: (
     // Decision 44: a callable into a `Dyn(Fn(...))` field is `dyn(f)`.
     reject_bare_callable_into_dyn_fn(&member_element.ty, &arg_info.ty, &actual_arg_expr, `field "${member_element.label}"`, ctx, exn);
     reject_second_class_escape(&arg_info.ty, String.from("stored in a field of a named type"), ast_expr_token(&actual_arg_expr), ctx, exn);
-    set_expr_as_needs_to_call_dup(&evaluated_arg, ctx, exn, "field-store");
+    // A reference field stores the place's address (T9): no ownership is
+    // copied, so no dup. One recorded here paired with the place's own
+    // scope-end drop, and the pair optimizer cancelled both as a move into
+    // the holder, whose drop never drops a reference: the place leaked
+    // (issues/fixed/2026-11-03-a-place-lent-into-a-reference-field-is-never-dropped.md).
+    if(!match(&member_element.ty, Rc(.Reference(_, _, _)) => true, _ => false), {
+      set_expr_as_needs_to_call_dup(&evaluated_arg, ctx, exn, "field-store");
+    });
     env_adopt(&env, &arg_info.env);
     // Convert comptime type → runtime type unless the field type is comptime-only.
     // A comptime numeric bound for a numeric FIELD coerces to the field's
@@ -425,7 +449,7 @@ try_to_call_type_with_arguments :: (
     while(ci < n_fields, {
       already_checked := match(checked_indices.get(&ci), .Some(_) => true, .None => false);
       if(!already_checked, {
-        field_opt2 := type_fields.get(ci);
+        field_opt2 := type_fields.get_cloned(ci);
         match(
           field_opt2,
           .Some(field) => {

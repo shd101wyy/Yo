@@ -41,12 +41,12 @@ _PmV :: struct(n : i32);
 derive(_PmV, Copy, Clone);
 impl(_PmV, Eq(_PmV)((==) : (fn(lhs : &Self, rhs : &Self) -> bool)(lhs.n == rhs.n)));
 _pm_inc :: (fn(n : &mut i32) -> unit)({
-  n = (n + i32(1));
+  n.* = (n.* + i32(1));
 });
 _pm_swap :: (fn(a : &mut i32, b : &mut i32) -> unit)({
-  t := a;
-  a = b;
-  b = t;
+  t := a.*;
+  a.* = b.*;
+  b.* = t;
 });
 _pm_push_seven :: (fn(xs : &mut ArrayList(i32)) -> unit)({
   xs.push(i32(7));
@@ -72,21 +72,22 @@ test("a plain parameter is by value: an explicit-copy argument moves into it", {
   comptime_expect_error(r.n, "use of moved value");
 });
 
-test("a still implicitly copyable kind is shared into a by-value parameter, as `t := s` binds it", {
-  // Until V2b makes `String` explicit-copy, passing it by value is a share
-  // (+1), exactly like `t := s`, and the caller keeps its string.
+test("a String moves into a by-value parameter, as `t := s` binds it", {
+  // `String` is a value since B8: passing it by value moves it, and a copy
+  // the caller keeps is spelled `.clone()`.
   s := String.from("hello");
-  assert(_pm_take(s) == usize(5), "the callee got its own share");
+  assert(_pm_take(s.clone()) == usize(5), "the callee got its own copy");
   assert(s.len() == usize(5), "s stays usable");
-  xs := ArrayList(String).new();
+  mut(xs) := ArrayList(String).new();
   xs.push(s);
-  assert((xs.len() == usize(1)) && (s == "hello"), "pushed by value and still usable");
+  assert(xs.len() == usize(1), "pushed by value");
+  comptime_expect_error(s.len(), "use of moved value");
 });
 
 _PmHandle :: ref(struct(n : i32));
 test("an io.async body shares a handle into a by-value parameter: the slot keeps its own reference", {
   t := io.async((io : Io) => {
-    xs := ArrayList(_PmHandle).new();
+    mut(xs) := ArrayList(_PmHandle).new();
     q := _PmHandle(n : i32(2));
     io.await(sleep(u64(1)), io);
     xs.push(q);
@@ -161,16 +162,18 @@ test("arithmetic and unary operator impls take their operands by value", {
   comptime_expect_error(impl(_PmMoney, Eq(_PmMoney)((==) : (fn(lhs : Self, rhs : Self) -> bool)(lhs.c == rhs.c))), "as written");
 });
 
-test("a by-value operator copies a counted operand", {
+test("a by-value operator moves a move-only operand", {
+  // A `String` is a value since B8, so a struct holding one is move-only:
+  // the operator takes both operands, and a kept operand is a `.clone()`.
   x := _PmTag(s : String.from("ab"));
   y := _PmTag(s : String.from("cd"));
   z := (x + y);
   assert(z.s == "abcd", "the impl owned both operands");
-  assert((x.s == "ab") && (y.s == "cd"), "the operands' strings were shared, not freed");
+  comptime_expect_error(x.s, "use of moved value");
   s := String.from("he");
-  t := (s + String.from("llo"));
+  t := (s.clone() + String.from("llo"));
   assert(t == "hello", "String's by-value (+)");
-  assert(s == "he", "s survives as the left operand");
+  assert(s == "he", "the clone left s alone");
 });
 
 test("imm parameters borrow", {
@@ -225,7 +228,7 @@ test("Fn traits spelled with imm and mut", {
   assert(_pm_apply_imm(t => t.len(), &s) == usize(4), "Impl(Fn(imm(s) : String) -> usize)");
   (mut(v) : i32) = i32(1);
   _pm_apply_mut(n => {
-    n = (n + i32(10));
+    n.* = (n.* + i32(10));
   }, &mut v);
   assert(v == i32(11), "Impl(Fn(mut(n) : i32) -> unit) writes through to the caller");
 });
@@ -233,23 +236,23 @@ test("Fn traits spelled with imm and mut", {
 test("mut(y) := place is inout(y) := place", {
   (mut(x) : i32) = i32(1);
   y := &mut x;
-  y = i32(5);
-  assert(y == i32(5), "read through y");
+  y.* = i32(5);
+  assert(y.* == i32(5), "read through y");
   assert(x == i32(5), "a write through y lands in x (read after y's last use)");
   x = i32(6);
   z := &mut x;
-  assert(z == i32(6), "mut(z) := names the same place");
+  assert(z.* == i32(6), "mut(z) := names the same place");
   mut(h) := _PmHolder(items : ArrayList(i32).new(), n : i32(0));
   n := &mut h.n;
-  n = i32(9);
+  n.* = i32(9);
   assert(h.n == i32(9), "a field place");
 });
 
 test("&x and &mut x scrutinees match the place", {
   (mut(o) : Option(i32)) = .Some(i32(3));
-  r := match(&o, .Some(v) => v, .None => i32(0));
+  r := match(&o, .Some(v) => v.*, .None => i32(0));
   assert(r == i32(3), "match(&o, ...) reads o");
-  r2 := match(&mut o, .Some(v) => (v + i32(1)), .None => i32(0));
+  r2 := match(&mut o, .Some(v) => (v.* + i32(1)), .None => i32(0));
   assert(r2 == i32(4), "match(&mut o, ...) reads o");
   s := String.from("kept");
   k := match(&s, t => t.len());
@@ -260,14 +263,14 @@ test("&x and &mut x scrutinees match the place", {
 // closure-taking function): the marker's diagnostic text used to append to
 // the callee token's own buffer, renaming `xs` to `xs(i)` for the next
 // evaluation (issues/fixed/ast-place-text-renames-the-callee-of-an-element-place.md).
-_pm_is_one :: (fn(v : &i32) -> bool)(v == i32(1));
+_pm_is_one :: (fn(v : &i32) -> bool)(v.* == i32(1));
 _pm_first_is_one :: (fn(xs : &ArrayList(i32), comptime(k) : i32) -> bool)(_pm_is_one(&xs(usize(0))));
 _pm_first_by :: (fn(xs : &ArrayList(i32), cmp : &Impl(Fn(v : &i32) -> bool)) -> bool)(cmp(&xs(usize(0))));
 test("&xs(i) lends an element from a body evaluated per specialization", {
-  xs := ArrayList(i32).new();
+  mut(xs) := ArrayList(i32).new();
   xs.push(i32(1));
   assert(_pm_first_is_one(&xs, i32(3)), "comptime-specialized body");
-  assert(_pm_first_by(&xs, v => (v == i32(1))), "closure-taking body");
+  assert(_pm_first_by(&xs, v => (v.* == i32(1))), "closure-taking body");
 });
 // A callee whose body lends through markers (`&key`, `&mut h`) still reads
 // as not writing its `&mut T` parameter, so a `&T` binding may be handed to it
@@ -289,7 +292,7 @@ test("a callee lending through markers does not write its &mut T parameter", {
   assert(t.lookup(&s) < u64(7), "a &T binding handed to a &mut T parameter nothing writes");
 });
 test("a marker that does not fit the parameter is an error", {
-  s := String.from("x");
+  mut(s) := String.from("x");
   (c : i32) = i32(0);
   comptime_expect_error(_pm_len(&mut s), "is not `&mut T`");
   comptime_expect_error(_pm_inc(&c), "lend the place with `&mut c`");
@@ -300,7 +303,7 @@ test("a marker that does not fit the parameter is an error", {
   }, "is not an expression of its own");
   comptime_expect_error({
     y := &c;
-    y = i32(1);
+    y.* = i32(1);
   }, "is a `&` borrow, which is read-only");
   comptime_expect_error(addr_of(c), "not available in safe code");
 });
@@ -330,7 +333,9 @@ test("Dyn(LogicalNot) over a by-value operator impl", {
 // consumed the payload instead of copying it would now free each box twice
 // (the call, then the Dyn's drop), which only an AddressSanitizer run of
 // the language suite (as CI runs it) reports.
-_PmNamed :: struct(name : String);
+// The name sits behind an `Rc`: a `String` is a value since B8, and a
+// move-only payload cannot be called by value through a Dyn at all (E0614).
+_PmNamed :: struct(name : Rc(String));
 derive(_PmNamed, Clone);
 impl(_PmNamed, LogicalNot((!) : (fn(self : Self) -> bool)(self.name.len() == usize(0))));
 _PmHeld :: struct(n : i32);
@@ -344,7 +349,7 @@ impl(
 );
 impl(_PmHeld, LogicalNot((!) : (fn(self : Self) -> bool)(self.n == i32(0))));
 test("a by-value self called through a Dyn gets a copy of the payload", {
-  (e : Dyn(LogicalNot, Clone)) = dyn(_PmNamed(name : String.from("abc")));
+  (e : Dyn(LogicalNot, Clone)) = dyn(_PmNamed(name : Rc.new(String.from("abc"))));
   assert(!!e.clone(), "first call, on a clone: the name is non-empty");
   assert(!!e.clone(), "second call reads the payload the first call did not free");
   assert(!!e, "third call, on the original");
@@ -432,7 +437,7 @@ test("the deleted spellings inout and own are errors naming mut and sink", {
   comptime_expect_error({
     inout(y) := _c;
   }, "`inout(x)` was deleted");
-  xs := ArrayList(i32).new();
+  mut(xs) := ArrayList(i32).new();
   xs.push(i32(1));
   comptime_expect_error(
     for(xs, inout(x) => {
@@ -452,7 +457,7 @@ _pm_bump :: (fn(o : &mut Option(i32)) -> unit)(
   match(
     o,
     .Some(n) => {
-      n = (n + i32(1));
+      n.* = (n.* + i32(1));
     },
     .None => ()
   )
@@ -461,7 +466,7 @@ _pm_rename :: (fn(o : &mut Option(String)) -> unit)(
   match(
     o,
     .Some(s) => {
-      s = String.from("renamed");
+      s.* = String.from("renamed");
     },
     .None => ()
   )
@@ -470,7 +475,7 @@ _PmPair :: enum(P(a : i32, b : String), Q);
 _pm_read_place :: (fn(p : &mut _PmPair) -> usize)(
   match(
     p,
-    .P(a, b) => (usize(a) + b.len()),
+    .P(a, b) => (usize(a.*) + b.len()),
     .Q => usize(0)
   )
 );
@@ -479,7 +484,7 @@ test("match(&mut x, …) binds mut places", {
   match(
     &mut o,
     .Some(n) => {
-      n = (n + i32(10));
+      n.* = (n.* + i32(10));
     },
     .None => ()
   );
@@ -490,7 +495,7 @@ test("match(&mut x, …) binds mut places", {
 test("a mut place of a counted payload replaces it in the scrutinee", {
   (mut(os) : Option(String)) = .Some(String.from("old"));
   _pm_rename(&mut os);
-  assert(match(&os, .Some(s) => (s == String.from("renamed")), .None => false), "the payload was replaced in place");
+  assert(match(&os, .Some(s) => (s.* == String.from("renamed")), .None => false), "the payload was replaced in place");
   (mut(p) : _PmPair) = .P(a : i32(2), b : String.from("abc"));
   assert(_pm_read_place(&mut p) == usize(5), "places are read through");
 });
@@ -501,7 +506,7 @@ test("a mut place of a move-only payload drops the old value at the write", {
     match(
       &mut o,
       .Some(r) => {
-        r = _PmRes(n : i32(2));
+        r.* = _PmRes(n : i32(2));
         assert(g_pm_disposed == (before + i32(1)), "the old payload was dropped at the write");
       },
       .None => ()
@@ -517,7 +522,7 @@ test("the scrutinee is reached only through a live mut place", {
       &mut o,
       .Some(n) => {
         o = .None;
-        n
+        n.*
       },
       .None => i32(0)
     ),
@@ -525,11 +530,11 @@ test("the scrutinee is reached only through a live mut place", {
   );
   (h : Option(i32)) = .Some(i32(1));
   comptime_expect_error(
-    (fn(x : &Option(i32)) -> i32)(match(&mut x, .Some(n) => n, .None => i32(0))),
+    (fn(x : &Option(i32)) -> i32)(match(&mut x.*, .Some(n) => n.*, .None => i32(0))),
     "is a `&` borrow"
   );
   comptime_expect_error(match(&mut Option(i32).Some(i32(1)), .Some(n) => n, .None => i32(0)), "is a temporary");
-  assert(match(&h, .Some(n) => n, .None => i32(0)) == i32(1), "h untouched");
+  assert(match(&h, .Some(n) => n.*, .None => i32(0)) == i32(1), "h untouched");
 });
 // A field or a dereference scrutinee is a place too: the arm writes it, not a
 // copy (issues/fixed/2026-10-16-a-mut-match-on-a-field-or-a-dereference-writes-a-copy.md).
@@ -540,7 +545,7 @@ test("a mut match on a field or a dereference writes the scrutinee's part", {
   match(
     &mut s.o,
     .Some(t) => {
-      t = String.from("bbb");
+      t.* = String.from("bbb");
     },
     .None => ()
   );
@@ -549,7 +554,7 @@ test("a mut match on a field or a dereference writes the scrutinee's part", {
   match(
     &mut h.o,
     .Some(n) => {
-      n = (n + i32(1));
+      n.* = (n.* + i32(1));
     },
     .None => ()
   );
@@ -559,7 +564,7 @@ test("a mut match on a field or a dereference writes the scrutinee's part", {
   match(
     &mut b.*,
     .Some(n) => {
-      n = (n + i32(1));
+      n.* = (n.* + i32(1));
     },
     .None => ()
   );
@@ -615,7 +620,7 @@ test("the deleted mode words imm and mut are E0009 naming the sigil spelling", {
   }, "`mut(x)` was deleted");
   comptime_expect_error({ imm(_c) }() => i32(1), "`imm(x)` was deleted");
   comptime_expect_error({ mut(z) : &mut _c }() => i32(1), "`mut(x)` was deleted");
-  xs := ArrayList(i32).new();
+  mut(xs) := ArrayList(i32).new();
   xs.push(i32(1));
   comptime_expect_error(
     for(xs, mut(x) => {
@@ -730,7 +735,7 @@ test("a later argument cannot overwrite or relend the place an earlier argument 
     _pm_peek(&a, a.bump(i32(1)))
   }, "the borrow starts when that argument is evaluated");
   comptime_expect_error({
-    xs := ArrayList(String).new();
+    mut(xs) := ArrayList(String).new();
     xs.push(String.from("a"));
     _pm_str_len(&xs(usize(0)), {
       xs.push(String.from("b"));
@@ -751,7 +756,7 @@ test("a later argument cannot overwrite or relend the place an earlier argument 
     "a later argument may write a field the lent place does not overlap"
   );
   assert(p.k == i32(3), "the disjoint write landed");
-  xs := ArrayList(i32).new();
+  mut(xs) := ArrayList(i32).new();
   xs.push(i32(xs.len()));
   assert(xs(usize(0)) == i32(0), "a `&mut self` receiver lets a later argument read it");
 });
@@ -800,7 +805,7 @@ _pm_str_pair_len :: (fn(s : &mut String, p : &_PmLentStr) -> usize)({
 });
 _pm_field_pair :: (fn(s : &mut String, k : &i32) -> i32)({
   s.push_str("?");
-  k + i32(1)
+  k.* + i32(1)
 });
 _PmObj :: ref(struct(n : i32));
 impl(
@@ -815,7 +820,7 @@ impl(
 // `&mut self` receiver beside `&` of its holder, passes.
 _PmCbHolder :: struct(n : i32, cb : Dyn(Fn(x : i32) -> i32));
 _pm_cb_apply :: (fn(p : &mut _PmCbHolder, k : &i32) -> i32)({
-  p.n = (p.n + k);
+  p.n = (p.n + k.*);
   p.n
 });
 _PmMk :: struct(tag : i32, mk : Dyn(Fn(x : i32) -> _PmRes));
@@ -1015,7 +1020,7 @@ test("Hash, Debug, Format, ToJson and Error impls may not take self : &mut Self"
 _pm_seq_sub :: (fn(a : i32, b : i32) -> i32)(a - b);
 _pm_seq_first :: (fn(generic(T : Type), a : T, b : T) -> T)(a);
 _pm_seq_bump :: (fn(p : &mut i32) -> i32)({
-  p = i32(10);
+  p.* = i32(10);
   i32(1)
 });
 _PmSeqAcc :: struct(base : i32);

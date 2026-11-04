@@ -11,31 +11,31 @@ impl(
     WalkCursor : usize,
     WalkElem : i32,
     walk_start : (fn(self : &Self) -> usize)(usize(0)),
-    walk_valid : (fn(self : &Self, cur : &usize) -> bool)(cur < self.items.len()),
-    walk_ref : (fn(self : &Self, cur : &usize) -> &i32)(self.items.ptr().unwrap().add(cur)),
-    walk_next : (fn(self : &Self, cur : &usize) -> usize)(cur + usize(1))
+    walk_valid : (fn(self : &Self, cur : &usize) -> bool)(cur.* < self.items.len()),
+    walk_ref : (fn(self : &Self, cur : &usize) -> &i32)(self.items.ptr().unwrap().add(cur.*)),
+    walk_next : (fn(self : &Self, cur : &usize) -> usize)(cur.* + usize(1))
   )
 );
 impl(
   Bag,
   BorrowedWalkMut(
-    walk_elem : (fn(self : &mut Self, cur : &usize) -> &mut i32)(self.items.ptr().unwrap().add(cur))
+    walk_elem : (fn(self : &mut Self, cur : &usize) -> &mut i32)(self.items.ptr().unwrap().add(cur.*))
   )
 );
 impl(
   Bag,
   total : (fn(self : &Self) -> i32)({
     mut(t) := i32(0);
-    for(self.items, x => {
+    for(&self.items, x => {
       t = (t + x);
     });
     t
   })
 );
 main :: (fn() -> unit)({
-  xs := ArrayList(i32).new();
+  mut(xs) := ArrayList(i32).new();
   xs.push(i32(1));
-  bag := Bag(items : xs);
+  mut(bag) := Bag(items : xs);
   other := bag; // the body cannot name `bag` (E0911); the call goes through an alias
   (mut(seen) : i32) = i32(0);
   for(&mut bag, x => {

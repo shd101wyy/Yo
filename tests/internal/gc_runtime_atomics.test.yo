@@ -240,8 +240,8 @@ emit_type_preamble :: (fn(alloc_abi_v2 : bool) -> String)({
 /// A function type of `arity` pointer-sized parameters (the vtable slots'
 /// parameter types do not decide the version; their count does).
 mk_slot_type :: (fn(arity : usize) -> TypeValue)({
-  labels := ArrayList(String).new();
-  types := ArrayList(TypeValue).new();
+  mut(labels) := ArrayList(String).new();
+  mut(types) := ArrayList(TypeValue).new();
   (mut(i) : usize) = usize(0);
   while(i < arity, {
     labels.push(`p${i.to_string()}`);
@@ -254,8 +254,8 @@ mk_slot_type :: (fn(arity : usize) -> TypeValue)({
 /// take `alloc_n`, `realloc_n` and `free_n` parameters, declared in that
 /// order, or in the reverse order when `reversed`.
 mk_vtable_type :: (fn(alloc_n : usize, realloc_n : usize, free_n : usize, reversed : bool) -> TypeValue)({
-  field_labels := ArrayList(String).new();
-  field_types := ArrayList(TypeValue).new();
+  mut(field_labels) := ArrayList(String).new();
+  mut(field_types) := ArrayList(TypeValue).new();
   if(reversed, {
     field_labels.push(String.from("free"));
     field_types.push(mk_slot_type(free_n));

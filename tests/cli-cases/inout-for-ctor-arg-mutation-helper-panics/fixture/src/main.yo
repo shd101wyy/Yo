@@ -18,15 +18,15 @@ impl(
     WalkCursor : usize,
     WalkElem : i32,
     walk_start : (fn(self : &Self) -> usize)(usize(0)),
-    walk_valid : (fn(self : &Self, cur : &usize) -> bool)(cur < self.items.len()),
-    walk_ref : (fn(self : &Self, cur : &usize) -> &i32)(self.items.ptr().unwrap().add(cur)),
-    walk_next : (fn(self : &Self, cur : &usize) -> usize)(cur + usize(1))
+    walk_valid : (fn(self : &Self, cur : &usize) -> bool)(cur.* < self.items.len()),
+    walk_ref : (fn(self : &Self, cur : &usize) -> &i32)(self.items.ptr().unwrap().add(cur.*)),
+    walk_next : (fn(self : &Self, cur : &usize) -> usize)(cur.* + usize(1))
   )
 );
 impl(
   Bag,
   BorrowedWalkMut(
-    walk_elem : (fn(self : &mut Self, cur : &usize) -> &mut i32)(self.items.ptr().unwrap().add(cur))
+    walk_elem : (fn(self : &mut Self, cur : &usize) -> &mut i32)(self.items.ptr().unwrap().add(cur.*))
   )
 );
 impl(
@@ -44,7 +44,7 @@ main :: (fn() -> unit)({
   mut(seen) := usize(0);
   for(&mut bag, x => {
     seen = (seen + other.grow()); // panics: grow pushes into the borrowed list
-    x = (x + i32(1));
+    x.* = (x.* + i32(1));
   });
   assert(false, "unreachable: grow must panic first");
 });

@@ -82,14 +82,14 @@ _method_doc_of :: (fn(methods : &ArrayList(DocFunction), name : &String) -> Opti
   (mut(i) : usize) = usize(0);
   while(i < methods.len(), {
     m := match(
-      methods.get(i),
+      methods.get_cloned(i),
       .Some(x) => x,
       .None => {
         i = (i + usize(1));
         continue;
       }
     );
-    if(m.name == name, {
+    if(m.name == name.*, {
       return(m.doc.clone());
     });
     i = (i + usize(1));
@@ -99,7 +99,7 @@ _method_doc_of :: (fn(methods : &ArrayList(DocFunction), name : &String) -> Opti
 _is_doc :: (fn(doc : &Option(String), expected : &String) -> bool)(
   match(
     doc,
-    .Some(d) => (d == expected),
+    .Some(d) => (d.* == expected.*),
     .None => false
   )
 );
@@ -113,19 +113,19 @@ test("a same-named impl member keeps its own receiver's doc comment", {
     )
   );
   tokens := tokenize(_twin_new_source(), `test.yo`, exn);
-  lookup := build_doc_lookup(extract_doc_comments(&tokens));
+  mut(lookup) := build_doc_lookup(extract_doc_comments(&tokens));
   impls := extract_impl_info_from_tokens(&tokens, &mut lookup);
   vs_methods := match(
-    impls.get(`Vs`),
-    .Some(e) => e.methods,
+    impls.get_cloned(`Vs`),
+    .Some(e) => e.methods.clone(),
     .None => ArrayList(DocFunction).new()
   );
   assert(vs_methods.len() == usize(2), "Vs has new and get");
   assert(_is_doc(_method_doc_of(&vs_methods, `new`), `Make one.`), "Vs.new carries its own comment");
   assert(_is_doc(_method_doc_of(&vs_methods, `get`), `Read it.`), "and so does the unique member");
   rs_methods := match(
-    impls.get(`Rs`),
-    .Some(e) => e.methods,
+    impls.get_cloned(`Rs`),
+    .Some(e) => e.methods.clone(),
     .None => ArrayList(DocFunction).new()
   );
   assert(
@@ -147,11 +147,11 @@ test("the impl scan records receiver-qualified doc keys for the registry lookups
     )
   );
   tokens := tokenize(_twin_new_source(), `test.yo`, exn);
-  lookup := build_doc_lookup(extract_doc_comments(&tokens));
+  mut(lookup) := build_doc_lookup(extract_doc_comments(&tokens));
   extract_impl_info_from_tokens(&tokens, &mut lookup);
-  assert(_is_doc(lookup.get(`Vs.new`), `Make one.`), "a qualified key for Vs.new");
-  assert(_is_doc(lookup.get(`Rs.new`), `Make a ref one.`), "a qualified key for Rs.new");
-  assert(_is_doc(lookup.get(`Vs.get`), `Read it.`), "a qualified key for the unique member");
+  assert(_is_doc(lookup.get_cloned(`Vs.new`), `Make one.`), "a qualified key for Vs.new");
+  assert(_is_doc(lookup.get_cloned(`Rs.new`), `Make a ref one.`), "a qualified key for Rs.new");
+  assert(_is_doc(lookup.get_cloned(`Vs.get`), `Read it.`), "a qualified key for the unique member");
 });
 test("a doc comment separated from the member by a plain note still attaches", {
   // `_collect_doc_comment_before` stops at the first non-doc token, so the
@@ -168,11 +168,11 @@ test("a doc comment separated from the member by a plain note still attaches", {
   );
   source := `impl(\n  Vs,\n  /// Make one.\n  // grouped under construction\n  new : (fn(x : i32) -> Self)(Self(x))\n);\n`;
   tokens := tokenize(&source, `test.yo`, exn);
-  lookup := build_doc_lookup(extract_doc_comments(&tokens));
+  mut(lookup) := build_doc_lookup(extract_doc_comments(&tokens));
   impls := extract_impl_info_from_tokens(&tokens, &mut lookup);
   vs_methods := match(
-    impls.get(`Vs`),
-    .Some(e) => e.methods,
+    impls.get_cloned(`Vs`),
+    .Some(e) => e.methods.clone(),
     .None => ArrayList(DocFunction).new()
   );
   assert(_is_doc(_method_doc_of(&vs_methods, `new`), `Make one.`), "the fallback still finds the comment");
@@ -221,31 +221,31 @@ test("token-only docs count exported top-level declarations, not members", {
   total := (m.functions.len() + m.types.len() + m.traits.len() + m.constants.len());
   assert(total == usize(4), `4 items (Point, ShapeKind, Renderable, MAX_COORD), got ${total.to_string()}`);
   assert(m.constants.len() == usize(1), `only MAX_COORD is a constant, got ${m.constants.len().to_string()}`);
-  c := m.constants(usize(0));
+  c := (m.constants(usize(0))).clone();
   assert(c.name == `MAX_COORD`, `the constant is MAX_COORD, got '${c.name}'`);
-  assert(match(c.doc, .Some(d) => (d == `A real constant.`), .None => false), "the constant keeps its doc");
+  assert(match(&c.doc, .Some(d) => (d.* == `A real constant.`), .None => false), "the constant keeps its doc");
 });
 test("token-only docs attach methods, fields and variants to their type", {
   m := token_module_(&_token_fixture_source);
   assert(m.types.len() == usize(2), `Point and ShapeKind are types, got ${m.types.len().to_string()}`);
-  point := m.types(usize(0));
+  point := (m.types(usize(0))).clone();
   assert(point.name == `Point`, `first type is Point, got '${point.name}'`);
-  assert(match(point.doc, .Some(d) => (d == `A documented point.`), .None => false), "the type keeps its doc");
+  assert(match(&point.doc, .Some(d) => (d.* == `A documented point.`), .None => false), "the type keeps its doc");
   // The impl method rides on the type, with its doc.
   assert(point.methods.len() == usize(1), `Point carries taxicab, got ${point.methods.len().to_string()}`);
-  taxicab := point.methods(usize(0));
+  taxicab := (point.methods(usize(0))).clone();
   assert(taxicab.name == `taxicab`, `the method is taxicab, got '${taxicab.name}'`);
-  assert(match(taxicab.doc, .Some(d) => (d == `Taxicab length.`), .None => false), "the method keeps its doc");
+  assert(match(&taxicab.doc, .Some(d) => (d.* == `Taxicab length.`), .None => false), "the method keeps its doc");
   // Struct fields ride on the type with their docs.
-  fields := match(point.fields, .Some(fs) => fs, .None => ArrayList(DocField).new());
+  fields := match(&point.fields, .Some(fs) => fs.clone(), .None => ArrayList(DocField).new());
   assert(fields.len() == usize(2), `both documented fields attach, got ${fields.len().to_string()}`);
-  fx := fields(usize(0));
+  fx := (fields(usize(0))).clone();
   assert(fx.name == `x`, `first field is x, got '${fx.name}'`);
-  assert(match(fx.doc, .Some(d) => (d == `Horizontal coordinate.`), .None => false), "the field keeps its doc");
+  assert(match(&fx.doc, .Some(d) => (d.* == `Horizontal coordinate.`), .None => false), "the field keeps its doc");
   // Enum variants ride on the type with their docs.
-  shape := m.types(usize(1));
+  shape := (m.types(usize(1))).clone();
   assert(shape.name == `ShapeKind`, `second type is ShapeKind, got '${shape.name}'`);
-  variants := match(shape.variants, .Some(vs) => vs, .None => ArrayList(DocVariant).new());
+  variants := match(&shape.variants, .Some(vs) => vs.clone(), .None => ArrayList(DocVariant).new());
   assert(variants.len() == usize(2), `both documented variants attach, got ${variants.len().to_string()}`);
   assert(variants(usize(0)).name == `Circle`, "first variant is Circle");
   assert(
@@ -254,7 +254,7 @@ test("token-only docs attach methods, fields and variants to their type", {
   );
   // The trait is a trait, and its method's doc survives on it.
   assert(m.traits.len() == usize(1), `Renderable is a trait, got ${m.traits.len().to_string()}`);
-  tr := m.traits(usize(0));
+  tr := (m.traits(usize(0))).clone();
   assert(tr.name == `Renderable`, `the trait is Renderable, got '${tr.name}'`);
   assert(tr.methods.len() == usize(1), `the trait carries render, got ${tr.methods.len().to_string()}`);
   assert(
@@ -262,7 +262,7 @@ test("token-only docs attach methods, fields and variants to their type", {
     "the trait method keeps its doc"
   );
   // The module doc survives either way.
-  assert(match(m.doc, .Some(d) => (d == `Fixture module.`), .None => false), "the module doc survives");
+  assert(match(&m.doc, .Some(d) => (d.* == `Fixture module.`), .None => false), "the module doc survives");
 });
 test("token-only docs: a module without export() documents nothing, like the evaluator", {
   // `std/math.yo` precedent, measured: a module with no export statement
@@ -272,7 +272,7 @@ test("token-only docs: a module without export() documents nothing, like the eva
   m := token_module_(String.from("//! No exports.\n/// Documented anyway.\nA :: struct(x : i32);\n"));
   total := (m.functions.len() + m.types.len() + m.traits.len() + m.constants.len());
   assert(total == usize(0), `no export statement means no items, got ${total.to_string()}`);
-  assert(match(m.doc, .Some(d) => (d == `No exports.`), .None => false), "the module doc still survives");
+  assert(match(&m.doc, .Some(d) => (d.* == `No exports.`), .None => false), "the module doc still survives");
 });
 test("token-only docs: an undocumented exported type still carries its method docs", {
   // The type has no doc comment of its own, so only its impl methods bring
@@ -285,7 +285,7 @@ test("token-only docs: an undocumented exported type still carries its method do
     )
   );
   assert(m.types.len() == usize(1), `Quiet is documented as a type, got ${m.types.len().to_string()}`);
-  quiet := m.types(usize(0));
+  quiet := (m.types(usize(0))).clone();
   assert(quiet.name == `Quiet`, `the type is Quiet, got '${quiet.name}'`);
   assert(quiet.doc.is_none(), "Quiet itself has no doc comment");
   assert(quiet.methods.len() == usize(1), `loud rides on Quiet, got ${quiet.methods.len().to_string()}`);

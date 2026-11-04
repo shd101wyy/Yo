@@ -35,14 +35,14 @@ impl(
   where(I <: Wrappable),
   I,
   double_wrap : (fn(generic(B : Type), self : &Self, tag : &B) -> Wrap(Wrap(Self, B), B))(
-    Wrap(Wrap(Self, B), B)(_inner : Wrap(Self, B)(_inner : self, _tag : tag), _tag : tag)
+    Wrap(Wrap(Self, B), B)(_inner : Wrap(Self, B)(_inner : self.*, _tag : tag.*), _tag : tag.*)
   )
 );
 impl(
   i32,
   Wrappable(
     wrap_with : (fn(generic(B : Type), self : Self, tag : &B) -> Wrap(Self, B))(
-      Wrap(Self, B)(_inner : self, _tag : tag)
+      Wrap(Self, B)(_inner : self, _tag : tag.*)
     )
   )
 );

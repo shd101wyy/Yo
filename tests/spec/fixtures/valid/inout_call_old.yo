@@ -4,8 +4,8 @@
 // `twice_bumped` proves `r == n + 2` from `inc`'s two-state contract.
 pragma(Pragma.Verify);
 
-inc :: (fn(v : &mut i32, requires(v >= i32(0), v <= i32(1000)), ensures(v == (old(v) + i32(1)))) -> unit)({
-  v = (v + i32(1));
+inc :: (fn(v : &mut i32, requires(v.* >= i32(0), v.* <= i32(1000)), ensures(v.* == (old(v.*) + i32(1)))) -> unit)({
+  v.* = (v.* + i32(1));
 });
 
 twice_bumped :: (fn(n : i32, requires(n >= i32(0), n <= i32(10)), ensures(r == (n + i32(2)))) -> (r : i32))({

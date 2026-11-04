@@ -43,8 +43,8 @@ make_ident :: (fn(v : str) -> AstExpr)(
 );
 /// Create `func_name(arg)` — a simple call expression.
 make_simple_call :: (fn(func_name : str, arg : &AstExpr, char_pos : usize) -> AstExpr)({
-  args := ArrayList(AstExpr).new();
-  args.push(arg);
+  mut(args) := ArrayList(AstExpr).new();
+  args.push(arg.*);
   AstExpr.FnCall(
     usize(0),
     make_ident(func_name),
@@ -55,7 +55,7 @@ make_simple_call :: (fn(func_name : str, arg : &AstExpr, char_pos : usize) -> As
 });
 /// Create `module_name.method_name(arg)` — a dotted-access call expression.
 make_dot_call :: (fn(module_name : str, method_name : str, arg : &AstExpr) -> AstExpr)({
-  dot_args := ArrayList(AstExpr).new();
+  mut(dot_args) := ArrayList(AstExpr).new();
   dot_args.push(make_ident(module_name));
   dot_args.push(AstExpr.Atom(usize(0), make_token(TokenKind.Identifier, method_name)));
   dot_fncall := AstExpr.FnCall(
@@ -65,8 +65,8 @@ make_dot_call :: (fn(module_name : str, method_name : str, arg : &AstExpr) -> As
     true,
     make_token(TokenKind.Dot, ".")
   );
-  outer_args := ArrayList(AstExpr).new();
-  outer_args.push(arg);
+  mut(outer_args) := ArrayList(AstExpr).new();
+  outer_args.push(arg.*);
   AstExpr.FnCall(
     usize(0),
     dot_fncall,
@@ -133,7 +133,7 @@ test("is_effect_call_: call to non-matching name => false", {
 test("is_effect_call_: dotted call with field_path match => true", {
   // ctl.raise(x) with field_path = Some(["raise"])
   expr := make_dot_call("ctl", "raise", make_ident("x"));
-  field_path := ArrayList(String).new();
+  mut(field_path) := ArrayList(String).new();
   field_path.push(String.from("raise"));
   result := is_effect_call_(
     &expr,
@@ -147,7 +147,7 @@ test("is_effect_call_: dotted call with field_path match => true", {
 test("is_effect_call_: dotted call with wrong field_path => false", {
   // ctl.other(x) with field_path = Some(["raise"])
   expr := make_dot_call("ctl", "other", make_ident("x"));
-  field_path := ArrayList(String).new();
+  mut(field_path) := ArrayList(String).new();
   field_path.push(String.from("raise"));
   result := is_effect_call_(
     &expr,
@@ -250,7 +250,7 @@ test("analyze_effect_call_points: result field_path is preserved", {
     Option(ArrayList(String)).None,
     get_info_none
   );
-  has_path := match(result.effect_field_path, .Some(_) => true, .None => false);
+  has_path := match(&result.effect_field_path, .Some(_) => true, .None => false);
   assert(!has_path, "None field_path should be preserved as None");
 });
 test("analyze_effect_call_points: include_transitive=false does not change empty result", {

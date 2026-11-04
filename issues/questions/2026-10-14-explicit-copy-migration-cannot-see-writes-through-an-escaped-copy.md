@@ -71,3 +71,9 @@ rewritten; field stores, elements and by-value arguments keep the automatic
 `.clone()`. The `&mut` root is included because a `return` of a field of a
 `&mut self` receiver is the same accessor shape, whose hand edit is a
 `-> &mut T` projection. The fixture is `tests/cli-cases/fix-migrate-explicit-copy`.
+
+2026-11-03: moot. The `BTreeMap` flip (B10) deleted `yo fix --migrate
+explicit-copy` with its 22 cli-cases (consultation #17, amending Option 3 of
+`issues/questions/2026-10-27-what-the-implicit-copy-audit-and-the-explicit-copy-migration-cover-after-b8.md`):
+every unique-buffer copy is E0901 after that flip, so there is no migration
+left to judge an escaping copy. It last shipped in v0.2.73.

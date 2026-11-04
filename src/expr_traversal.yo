@@ -71,7 +71,7 @@ evaluated_body_contains_unwind :: (fn(e : &AstExpr) -> bool)(
           if(is_branch_arrow, {
             inner_args := match(
               arg_a,
-              .FnCall(_, _, Rc(ia_inner), _, _) => ia_inner,
+              .FnCall(_, _, Rc(ia_inner), _, _) => ia_inner.clone(),
               .Atom(_, _) => ArrayList(AstExpr).new()
             );
             ni := inner_args.len();
@@ -149,7 +149,7 @@ expr_tree_contains_return :: (fn(e : &AstExpr) -> bool)(
           if(is_branch_arrow, {
             inner_args := match(
               arg_a,
-              .FnCall(_, _, Rc(ia_inner), _, _) => ia_inner,
+              .FnCall(_, _, Rc(ia_inner), _, _) => ia_inner.clone(),
               .Atom(_, _) => ArrayList(AstExpr).new()
             );
             ni := inner_args.len();
@@ -508,7 +508,7 @@ all_paths_unwind :: (fn(e : &AstExpr) -> bool)(
         while(apw_j < apw_args.len(), {
           apw_arm := match(apw_args.get(apw_j), .Some(a) => a, .None => make_err_expr());
           if(ast_expr_is_fn_call_of(&apw_arm, "=>", .None), {
-            apw_arm_args := match(apw_arm, .FnCall(_, _, Rc(aa), _, _) => aa, .Atom(_, _) => ArrayList(AstExpr).new());
+            apw_arm_args := match(apw_arm, .FnCall(_, _, Rc(aa), _, _) => aa.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
             if(apw_arm_args.len() >= usize(2), {
               apw_has_arm = true;
               match(
@@ -755,12 +755,15 @@ record_await_fusion_candidate :: (fn(call : &AstExpr, func_id : &String, body : 
       ),
       .None => Option(FusionCandidate).None
     );
-    g_fusion_candidate_of_fn.with_mut(m => m.insert(func_id.clone(), candidate.clone()));
+    fc_key := func_id.clone();
+    g_fusion_candidate_of_fn.with_mut({ fc_key, candidate }(m) => m.insert(fc_key, candidate));
   });
   // Only a wrapper's calls are recorded: every other call would grow the
   // table for nothing.
   if(match(g_fusion_candidate_of_fn.with(m => m.get_cloned(func_id.clone())), .Some(c) => c.is_some(), .None => false), {
-    g_fusion_callee_of_call.with_mut(m => m.insert(ast_expr_id(call).to_string(), func_id.clone()));
+    fc_call_key := ast_expr_id(call).to_string();
+    fc_callee := func_id.clone();
+    g_fusion_callee_of_call.with_mut({ fc_call_key, fc_callee }(m) => m.insert(fc_call_key, fc_callee));
   });
 });
 /// The recorded candidate for `call`, if its callee is an `io.async` wrapper.

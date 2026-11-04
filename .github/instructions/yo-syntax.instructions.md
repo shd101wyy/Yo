@@ -488,7 +488,7 @@ WalkCtx :: struct(io : Io, exn : Exception);
 
 walk_dir :: (fn(root : Path, ctx : WalkCtx) -> Impl(Future(unit, WalkCtx)))(
   io.async((ctx : WalkCtx) => {
-    stack := ArrayList(Path).new();
+    mut(stack) := ArrayList(Path).new();
     {
       stack.push(root);
     };
@@ -630,7 +630,7 @@ Safe code cannot even HOLD a raw pointer value (2026-09-07): an expression whose
 
 Inside an unsafe-capable file, the following operations are wrapped in `unsafe(...)` (so the unsafe surface stays greppable). The compiler enforces the wrap only on `extern "c"` call sites; on the rest it is the audit convention `yo unsafe-report` keys off, and the pragma alone is what admits them (`docs/en-US/MEMORY_SAFETY.md`):
 
-- Pointer dereference: `p.*` (read), `p.* = v` (write). `.*` on a BORROW (`v.*` with `v : &T`/`&mut T`, `y.*` with `y := &x`) is E0920: a borrow is a mode, not a type, and already reads as its value (`.*` on a borrow arrives with decision 43); the only borrowed receiver keeping `.*` is a type's own field named `*` (std's atomics: `self.*` on `self : &Self`)
+- Pointer dereference: `p.*` (read), `p.* = v` (write). `.*` on a REFERENCE binding (`v.*` with `v : &T`/`&mut T`, `y.*` with `y := &x`, a `for(&xs, x => …)` element, a `match(&x, …)` binding) is the reference's own deref outside std and src (N1e-1): a whole-value read or write of the referent is spelled `v.*` / `v.* = e`, and the bare name in a by-value position (an operand, a by-value argument, an initializer, a return, `v = e`, `&v`) is E0926; receivers (`v.f`, `v.m()`, `v(i)`), `f(v)` into a reference parameter, the re-point `v = &place` and a `match(v, …)` scrutinee (it matches through the reference; its bindings borrow the payload) stay bare, and `match(&v, …)` on a reference is E0926 (the marker is redundant; the migration drops it). Through a reference to a `Box`/`Rc`/pointer the payload is `v.*.*`. std and src keep the old reading (bare reads, `v.*` meaning the payload, `.*` on a borrow E0920) until N3; `yo fix <path> --migrate deref` rewrites user code. Note `r.* = (a + b)`: an assignment's right-hand side operator chain is parenthesized, as everywhere (E0003)
 - `addr_of(x)` of a `&T` parameter (`self : &Self` included), or of a place inside it (a field of a value struct or tuple, an element of an array it holds), is E0921: codegen passes every `&T` parameter of a non-projection function as a copy (`fn_param_is_ptr_borrow`, whatever the size of `T`), so the pointer is the callee's copy and dangles once the call returns. The caller's address comes from a `x : *T` parameter (the caller passes `addr_of(place)`) or `x : &mut T` (passed as a pointer). Not E0921: a field of a `ref(struct)` handle or anything behind a raw pointer (`addr_of(self.*)`, `addr_of(self.f)` on an `atomic(ref(struct))`, both in shared cells), and a projection's (`-> &T`) `&T` parameter, which is passed as a pointer (`issues/retired/2026-10-25-should-addr-of-a-borrowed-parameter-be-rejected.md`)
 - Pointer arithmetic: `.add(n)`, `.sub(n)`, `.offset_from(q)`
 - `consume(p.* = v)` (deref-and-init)
@@ -850,9 +850,9 @@ For mutating a caller's variable without raw pointers, prefix the parameter's ty
 
 ```yo
 swap :: (fn(a : &mut i32, b : &mut i32) -> unit)({
-  tmp := a;
-  a = b;
-  b = tmp;
+  tmp := a.*;
+  a.* = b.*;
+  b.* = tmp;
 });
 
 main :: (fn() -> unit)({
@@ -1220,7 +1220,7 @@ bar();
 ```yo
 { ArrayList } :: import("std/collections/array_list");
 
-list := ArrayList(i32).new();
+mut(list) := ArrayList(i32).new();
 list.push(i32(10));
 list.push(i32(20));
 
@@ -1352,8 +1352,8 @@ divide :: (fn(x : i32, y : i32, requires(y != i32(0)), ensures(result == (x / y)
   mutated `name : &mut T` params).
 
 ```yo
-increment :: (fn(n : &mut i32, requires(n < i32(100)), ensures(n == (old(n) + i32(1)))) -> unit)({
-  n = (n + i32(1));
+increment :: (fn(n : &mut i32, requires(n.* < i32(100)), ensures(n.* == (old(n.*) + i32(1)))) -> unit)({
+  n.* = (n.* + i32(1));
 });
 ```
 

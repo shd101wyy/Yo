@@ -7,9 +7,10 @@
 // the call, so once the `&mut` side grows or replaces the storage below the
 // cell, the callee reads a stale copy. Disjoint paths below one cell, two
 // `&` lends, a whole-cell `&` beside a below-cell `&mut`, and distinct
-// cells all pass; so does lending the whole cell to both sides (a copy of
-// a handle follows the object), which is why `s.push_string(&s)` keeps
-// working while the collections are shared handles.
+// cells all pass; so does lending a whole `ref` cell to both sides (a copy
+// of a handle follows the object). A `String` or an `ArrayList` is a value,
+// not a handle, so `s.push_string(&s)` and `l.extend_cloned(&l)` fall under
+// decision 28's value-root rule (E0910) instead.
 { assert } :: import("std/assert");
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
@@ -20,11 +21,15 @@ _Node :: ref(struct(v : i32));
 _Outer :: struct(node : _Node, k : i32);
 
 _touch :: (fn(x : &mut i32, y : &i32) -> i32)({
-  x = (x + i32(1));
-  y + i32(1)
+  x.* = (x.* + i32(1));
+  y.* + i32(1)
 });
-_peek2 :: (fn(x : &i32, y : &i32) -> i32)(x + y);
-_node_peek :: (fn(n : &_Node, v : &i32) -> i32)(n.v + v);
+_peek2 :: (fn(x : &i32, y : &i32) -> i32)(x.* + y.*);
+_node_peek :: (fn(n : &_Node, v : &i32) -> i32)(n.v + v.*);
+_grow_beside :: (fn(h : &mut _Holder, g : &_Holder) -> usize)({
+  h.xs.push(String.from("z"));
+  g.xs.len()
+});
 
 impl(
   _Holder,
@@ -66,16 +71,16 @@ test("same-cell lends that do not overlap pass", {
   assert(_node_peek(&p.node, &p.node.v) == i32(6), "a whole-cell `&` beside a below-cell `&`");
 });
 
-test("lending the whole cell to both sides keeps following the object", {
-  l := ArrayList(String).new();
-  l.push(String.from("a"));
-  l.push(String.from("b"));
-  _r := l.extend_cloned(&l);
-  assert(l.len() == usize(4), "a whole-cell `&` argument is a copy of the handle, not of the storage");
+test("a list lent `&mut` and `&` to one call is E0910; a whole ref cell lent to both follows the object", {
+  comptime_expect_error({
+    mut(l) := ArrayList(String).new();
+    l.extend_cloned(&l)
+  }, "overlaps it");
   o := _Holder(xs : ArrayList(String).new(), s : String.from("a"), a : i32(1), b : i32(2));
   o.xs.push(String.from("a"));
   o.xs.push(String.from("b"));
   t := o.xs.clone();
   _r2 := o.xs.extend_cloned(&t);
   assert(o.xs.len() == usize(4), "a copy beside the receiver still appends");
+  assert(_grow_beside(&mut o, &o) == usize(5), "a whole-cell `&` argument is a copy of the handle, not of the storage");
 });

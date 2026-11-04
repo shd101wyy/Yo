@@ -30,7 +30,7 @@ test("Circular type↔value: round-trip through both directions", {
   declared := TypeShape.FuncT(`result_int`);
   v := default_value(&declared);
   match(
-    v,
+    &v,
     .FnV(stored) => {
       derived := type_for_value(&v);
       match(
@@ -42,7 +42,7 @@ test("Circular type↔value: round-trip through both directions", {
       // also assert the stored type matches what we passed in
       match(
         stored,
-        .FuncT(name2) => assert(name2 == `result_int`, "stored name should match"),
+        .FuncT(name2) => assert(name2.* == `result_int`, "stored name should match"),
         .IntT => assert(false, "stored should be FuncT"),
         .BoolT => assert(false, "stored should be FuncT")
       );

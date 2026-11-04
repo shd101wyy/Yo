@@ -151,7 +151,7 @@ try_to_implement_closure_by_fn_module_type :: (
   n_params := param_labels.len();
   (pi : usize) = usize(0);
   while(pi < n_params, {
-    p_label := match(param_labels.get(pi), .Some(l) => l, .None => String.from("_p"));
+    p_label := match(param_labels.get_cloned(pi), .Some(l) => l, .None => String.from("_p"));
     p_type := match(slot_pointee_at(&param_types, pi), .Some(t) => t, .None => t_unit());
     p_tok := synthetic_token(p_label.clone(), &env.module_path.*);
     p_var_opt := add_variable_to_env(

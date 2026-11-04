@@ -50,7 +50,7 @@ test("SuspensionPoint constructor sets all fields", {
     cond_branch_suspension_in_while : Option(ArrayList(bool)).None
   );
   assert(sp.index == usize(0), "index");
-  result := match(sp.target_variable_id, .Some(id) => id, .None => String.from(""));
+  result := match(&sp.target_variable_id, .Some(id) => id.clone(), .None => String.from(""));
   assert(result == "v0", "target_variable_id");
   result2 := match(sp.is_inside_while, .Some(b) => b, .None => false);
   assert(result2, "is_inside_while");
@@ -74,9 +74,9 @@ test("SuspensionPoint optional fields default to None", {
     cond_branch_suspension_exprs : Option(ArrayList(AstExpr)).None,
     cond_branch_suspension_in_while : Option(ArrayList(bool)).None
   );
-  has_target := match(sp.target_variable_id, .Some(_) => true, .None => false);
+  has_target := match(&sp.target_variable_id, .Some(_) => true, .None => false);
   assert(!has_target, "target_variable_id should be None");
-  has_cond := match(sp.is_inside_cond, .Some(_) => true, .None => false);
+  has_cond := match(&sp.is_inside_cond, .Some(_) => true, .None => false);
   assert(!has_cond, "is_inside_cond should be None");
 });
 test("SuspensionCapturedVariable fields accessible", {
@@ -133,7 +133,7 @@ test("SuspensionAnalysisResult can hold suspension points", {
 test("SuspensionAnalysisResult variable_id_remapping", {
   r := suspension_analysis_result_empty();
   r.variable_id_remapping.insert(String.from("old_v0"), String.from("new_v0"));
-  got := r.variable_id_remapping.get(String.from("old_v0"));
+  got := r.variable_id_remapping.get_cloned(&String.from("old_v0"));
   result := match(got, .Some(v) => v, .None => String.from(""));
   assert(result == "new_v0", "remapping lookup");
 });

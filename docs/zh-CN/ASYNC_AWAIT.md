@@ -371,7 +371,7 @@ export(main);
 
 Counter :: struct(n : i32);
 bump :: (fn(c : &mut Counter, io : Io) -> Impl(Future(unit, Io)))(
-  io.async({ &mut c }(io : Io) => {
+  io.async({ c : &mut c.* }(io : Io) => {
     c.n = (c.n + i32(1));
   })
 );
@@ -657,7 +657,7 @@ export(main);
 // 把 `n` 不断对半拆分，直到每块都是 1；每处理一块 await 一次。
 count_leaves :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
   io.async((io : Io) => {
-    stack := ArrayList(i32).new();
+    mut(stack) := ArrayList(i32).new();
     stack.push(n);
     (leaves : i32) = i32(0);
     while(stack.len() > usize(0), {
@@ -726,7 +726,7 @@ work :: (fn(id : i32, io : Io) -> Impl(Future(i32, Io)))(
 run_all :: (fn(io : Io) -> Impl(Future(i32, Io)))(
   io.async((io : Io) => {
     io.await(yield(io), io);
-    handles := ArrayList(JoinHandle(i32)).new();
+    mut(handles) := ArrayList(JoinHandle(i32)).new();
     handles.push(io.spawn(work(i32(1), io), io));
     handles.push(io.spawn(work(i32(2), io), io));
     // ✓ 真正的挂起点：这个任务等待期间其他任务照常运行
@@ -803,7 +803,7 @@ while(i < rest.len(), i = (i + usize(1)), {
 
 Counter :: struct(n : i32);
 bump_after :: (fn(c : &mut Counter, ms : u64, io : Io) -> Impl(Future(i32, Io)))(
-  io.async({ &mut c, ms }(io : Io) => {
+  io.async({ c : &mut c.*, ms }(io : Io) => {
     io.await(sleep(ms), io);
     c.n = (c.n + i32(1));
     c.n

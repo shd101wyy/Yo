@@ -4,7 +4,7 @@
 //! Phase 2b stubs (returning false) are tested to confirm they return false —
 //! so a future implementation landing out of order gets caught.
 { String } :: import("std/string");
-{ TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, no_discriminants, no_type_lists, no_label_lists, SharedList } :: import("../../src/types/definitions.yo");
+{ some_t_bounds, TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, no_discriminants, no_type_lists, no_label_lists, SharedList } :: import("../../src/types/definitions.yo");
 { t_unit, t_bool, t_void, t_i32, t_u8, t_i8, t_u16, t_i16, t_u32, t_u64, t_i64, t_f32, t_f64, t_usize, t_isize, t_comptime_int, t_comptime_float, t_comptime_string, t_ptr, t_array, t_func_simple, t_trait_simple, t_module_simple, t_some_t, t_expr_t, t_comptime_list, t_dyn_simple, t_fn_trait_simple, t_future_trait_simple } :: import("../../src/types/creators.yo");
 { is_int_type, is_float_type } :: import("../../src/types/guards.yo");
 { ArrayList } :: import("std/collections/array_list");
@@ -335,8 +335,8 @@ test("is_function_type_generic: simple func not generic", {
 });
 test("is_function_type_generic: generic func is generic", {
   // Build a Func variant with one generic label
-  fl := ArrayList(String).new();
-  ft := ArrayList(TypeValue).new();
+  mut(fl) := ArrayList(String).new();
+  mut(ft) := ArrayList(TypeValue).new();
   fl.push(String.from("T"));
   ft.push(Rc.new(TypeValueNode.TypeUni(usize(0))));
   f := Rc.new(
@@ -368,8 +368,8 @@ test("is_function_type_generic: generic func is generic", {
 });
 test("is_function_type_generic: implicit params make generic (but not hard)", {
   // Build a Func with one implicit (using) label and no generic
-  il := ArrayList(String).new();
-  it_ := ArrayList(TypeValue).new();
+  mut(il) := ArrayList(String).new();
+  mut(it_) := ArrayList(TypeValue).new();
   il.push(String.from("io"));
   it_.push(t_module_simple(String.from("Io")));
   f := Rc.new(
@@ -512,7 +512,7 @@ test("is_rc_type: SomeT with no Future constraint is not RC", {
 });
 test("is_rc_type: SomeT with Future trait constraint is RC", {
   // A SomeT with a Future trait in required_trait_types
-  req := ArrayList(TypeValue).new();
+  mut(req) := ArrayList(TypeValue).new();
   req.push(t_future_trait_simple(String.from("Io"), t_unit()));
   some_ty := Rc.new(
     TypeValueNode.SomeT(
@@ -520,10 +520,7 @@ test("is_rc_type: SomeT with Future trait constraint is RC", {
       String.from("T"),
       usize(0),
       Rc.new(TypeValueNode.TypeUni(usize(0))),
-      req,
-      ArrayList(usize).new(),
-      ArrayList(TypeValue).new(),
-      ArrayList(usize).new(),
+      some_t_bounds(req, ArrayList(usize).new(), ArrayList(TypeValue).new(), ArrayList(usize).new()),
       Option(TypeValue).None,
       Option(TypeValue).None
     )
@@ -537,9 +534,9 @@ test("is_rc_type: SomeT with Future trait constraint is RC", {
 // field whose constructor id is the builtin's name.
 // ---------------------------------------------------------------------------
 _one_field_struct :: (fn(name : str, label : str, field : TypeValue, is_ref : bool, is_atomic : bool, is_newtype : bool, cfid : str) -> TypeValue)({
-  labels := ArrayList(String).new();
+  mut(labels) := ArrayList(String).new();
   labels.push(String.from(label));
-  types := ArrayList(TypeValue).new();
+  mut(types) := ArrayList(TypeValue).new();
   types.push(field);
   Rc.new(
     TypeValueNode.Struct(
@@ -564,13 +561,13 @@ _view_of :: (fn(name : str, payload : TypeValue, is_atomic : bool) -> TypeValue)
 );
 /// `enum(None, Some(payload))`, the `Option` shape.
 _option_of :: (fn(payload : TypeValue) -> TypeValue)({
-  names := ArrayList(String).new();
+  mut(names) := ArrayList(String).new();
   names.push(String.from("None"));
   names.push(String.from("Some"));
   none_fields := ArrayList(TypeValue).new();
-  some_fields := ArrayList(TypeValue).new();
+  mut(some_fields) := ArrayList(TypeValue).new();
   some_fields.push(payload);
-  fields := ArrayList(SharedList(TypeValue)).new();
+  mut(fields) := ArrayList(SharedList(TypeValue)).new();
   fields.push(shared_list(none_fields));
   fields.push(shared_list(some_fields));
   Rc.new(TypeValueNode.EnumT(String.from("opt"), String.from("Option"), shared_list(names), shared_list(fields), Option(String).None, no_label_lists(), no_discriminants(), false, false, no_types()))

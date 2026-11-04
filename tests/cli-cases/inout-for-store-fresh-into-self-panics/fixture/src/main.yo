@@ -10,21 +10,21 @@ impl(
     WalkCursor : usize,
     WalkElem : i32,
     walk_start : (fn(self : &Self) -> usize)(usize(0)),
-    walk_valid : (fn(self : &Self, cur : &usize) -> bool)(cur < self.items.len()),
-    walk_ref : (fn(self : &Self, cur : &usize) -> &i32)(self.items.ptr().unwrap().add(cur)),
-    walk_next : (fn(self : &Self, cur : &usize) -> usize)(cur + usize(1))
+    walk_valid : (fn(self : &Self, cur : &usize) -> bool)(cur.* < self.items.len()),
+    walk_ref : (fn(self : &Self, cur : &usize) -> &i32)(self.items.ptr().unwrap().add(cur.*)),
+    walk_next : (fn(self : &Self, cur : &usize) -> usize)(cur.* + usize(1))
   )
 );
 impl(
   Bag,
   BorrowedWalkMut(
-    walk_elem : (fn(self : &mut Self, cur : &usize) -> &mut i32)(self.items.ptr().unwrap().add(cur))
+    walk_elem : (fn(self : &mut Self, cur : &usize) -> &mut i32)(self.items.ptr().unwrap().add(cur.*))
   )
 );
 impl(
   Bag,
   rebuild : (fn(self : &Self) -> unit)({
-    fresh := ArrayList(i32).new();
+    mut(fresh) := ArrayList(i32).new();
     fresh.push(i32(1)); // fresh storage: mutating it is not a mutation of the bag
     self.items = fresh; // now reachable from self
     fresh.push(i32(2)); // mutates the bag's storage
@@ -37,7 +37,7 @@ main :: (fn() -> unit)({
   other := bag; // a second handle: the loop's static borrow cannot see it
   for(&mut bag, x => {
     other.rebuild(); // panics: the method stores fresh storage into self and mutates it
-    x = i32(9);
+    x.* = i32(9);
   });
   assert(false, "unreachable: rebuild must panic first");
 });

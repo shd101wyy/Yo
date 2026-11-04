@@ -11,8 +11,8 @@
 pragma(Pragma.Verify);
 
 pick :: (
-  fn(generic(T : Type), flag : bool, a : &T, b : &T, ensures((result == a) || (result == b))) -> (result : T)
-)(if(flag, a, b));
+  fn(generic(T : Type), flag : bool, a : &T, b : &T, ensures((result == a.*) || (result == b.*))) -> (result : T)
+)(if(flag, a.*, b.*));
 
 caller :: (fn(ensures((r == i32(1)) || (r == i32(2)))) -> (r : i32))(
   pick(true, i32(1), i32(2))

@@ -100,6 +100,21 @@ Hardening (branch `ci/release-tail-hardening`): bump moved to its own
 lever added, v0.2.14→v0.2.15 pins bumped manually via PR. Remaining USER
 ACTION: add the Workflows permission to `RELEASE_PAT`.
 
+## Seed-gated follow-up (2026-11-02): the json `insert` moves its old value out
+
+The element-borrow sibling rule stopped rejecting a value sibling that only OWNS a list of the
+container's type (VERDICTS-12 B8-Q2,
+`issues/fixed/2026-10-31-the-element-borrow-sibling-rule-still-rejects-a-value-collection-that-cannot-alias.md`).
+`std/encoding/json.yo`'s `insert` can then replace the entry in place:
+`return(Option(JsonValue).Some(replace(&mut values(i), value)));` with
+`{ replace } :: import("../mem");`, in place of `old := values(i).clone(); values(i) = value;`,
+which deep-copies the old entry on every key overwrite. The compiler calls `JsonValue.insert`
+(`src/context_command.yo` and others), so stage 1 evaluates the body with the seed. The v0.2.73
+seed rejects that spelling ("could hold a handle", measured 2026-11-02), so the switch waits until
+`SEED_VERSION` is a release that carries the loosened rule (v0.2.74 or later). Gate: `yo build`
+the tree with the actual seed bundle, then a test that overwrites a key (`JsonValue.insert`
+twice on one key).
+
 ## ~~Seed-gated follow-up (2026-08-27): migrate the compiler off `std/sys/bufio`~~ **DONE 2026-08-28**
 
 Landed once v0.2.18 became the seed — that release carries #299 (the
@@ -428,6 +443,23 @@ the spelled bound reports (`_check_counted_cell_payload`,
 cli-cases and tests that pin the message keep passing. W6b's amendment of
 O9/O10 (the collector's removal) is not pre-empted by either half.
 
+## Seed-gated follow-up (2026-11-02): std and src read references with `.*` (decision 43 N3)
+
+Decision 43 step 2's N1e-1 (v0.2.74, VERDICTS-13 §11 and §14) makes a
+reference binding outside std and the compiler's own source read and write
+its referent with `.*` (E0926 for a bare whole-value use; `yo fix
+--migrate deref`), with `r.*` lowered to the C a bare `r` read was. std,
+src, `scripts/`, `build.yo` and a fetched dependency keep the old reading
+(`is_deref_rule_exempt`, `src/evaluator/memory_safety.yo`) because the
+v0.2.73 seed that compiles them rejects `.*` on a borrow (E0920).
+
+**Generation B (N3, once `SEED_VERSION` carries N1e-1, v0.2.74):** run
+`yo fix std src scripts build.yo --migrate deref` (`YO_AUDIT_DEREF=1` sizes
+it first; std's prelude alone records several hundred sites), then delete
+`is_deref_rule_exempt` and the old-reading branches it guards: the
+`deref_rule_applies` exemption, E0920 in `property_access.yo`, and the
+recording mode's `v.*` → `v.*.*` rewrite once no exempt tree is left.
+
 ## Seed-gated follow-up (2026-11-02): V5 cells — `Rc`/`Arc` become views over `__yo_cell`
 
 V5 Generation A completion (`plans/VALUES_BY_DEFAULT.md` §V5 and §3.5 "Left to V5") retypes the two counted
@@ -647,6 +679,22 @@ stress repro under `--sanitize thread`.
 the two bodies above, `Rc.make_mut`'s move, the `extern` block, the stress
 row, a no-clone move row per handle kind, and the issue moved to
 `issues/fixed/`.
+
+## Seed-gated follow-up (2026-11-03): no consuming match in a wrapper the compiler awaits twice
+
+**Generation A (#1695, on the B8 value flip):** a general-lowered `match`
+fused at two awaits of one task gets fresh C labels per emission
+(`issues/fixed/2026-10-31-a-wrapper-whose-match-is-fused-at-two-awaits-redefines-its-c-labels.md`).
+The v0.2.73 seed lacks the fix. Once `ArrayList`/`String` are values, a
+consuming match over them lowers with labels, and the seed redefines those
+labels wherever a wrapper holding one is awaited twice in the compiler's own
+task bodies. The tree build hit two such wrappers, `remove_dir`
+(`std/fs/dir.yo`, awaited twice by `remove_dir_all`) and `_read_depfile`
+(`src/build_runner.yo`, awaited twice by `artifact_input_stamp`). Both now avoid
+the match: `is_err()` + `unwrap_or(...)`, and `unwrap_or(...)` + `for(&lines, ...)`.
+
+**Generation B (once `SEED_VERSION` carries #1695, v0.2.74 or later):**
+restore the two `match` forms and delete their seed comments.
 
 ## Seed-gated follow-up (2026-10-28): `box` asks for its payload's alignment
 

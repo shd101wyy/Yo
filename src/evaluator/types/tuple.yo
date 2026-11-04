@@ -62,7 +62,7 @@ evaluate_tuple_elements_type :: (
       (dup_idx : usize) = usize(0);
       (has_dup : bool) = false;
       while((dup_idx < field_labels.len()) && !has_dup, {
-        existing := match(field_labels.get(dup_idx), .Some(l) => l, .None => String.from(""));
+        existing := match(field_labels.get_cloned(dup_idx), .Some(l) => l, .None => String.from(""));
         if(existing == field.label, {
           has_dup = true;
         });
@@ -107,7 +107,7 @@ evaluate_tuple_type :: (
   ) -> AstExpr
 )({
   (env : Environment) = env_in;
-  args := match(expr, .FnCall(_, _, Rc(a), _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+  args := match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
   // Empty tuple → unit type.
   if(args.len() == usize(0), {
     unit_val := create_type_value(Rc.new(TypeValueNode.Unit));
@@ -126,7 +126,7 @@ evaluate_tuple_type :: (
   (j : usize) = usize(0);
   while(j < result.fields.len(), {
     field := match(
-      result.fields.get(j),
+      result.fields.get_cloned(j),
       .Some(f) => f,
       .None => TypeField(
         label : String.from(""),

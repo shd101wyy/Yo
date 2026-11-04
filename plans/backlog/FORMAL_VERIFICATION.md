@@ -1945,7 +1945,7 @@ verifier design choices (kept from the 2026-05 draft, now normative):
 | # | Decision | Rationale | Supersedes |
 | --- | --- | --- | --- |
 | D1 | Build the compile-time SMT verifier (this plan) | ROADMAP Phase 1 flagship; LLM-authorship oracle | 2026-05 "Phase 0 only, park Phase 1+" |
-| D2 | **Z3 only** | One solver, pinned, tested; multi-solver is support surface without users (user decision, 2026-09-04) | Old backend matrix (CVC5/CBMC/KLEE/SeaHorn) — dropped, not deferred |
+| D2 | **Z3 only** | One solver, pinned, tested; multi-solver is support surface without users (user decision, 2026-09-04). **Amended 2026-11-04:** cvc5 may run as a CI-only consensus oracle over `tests/spec`; Z3 stays the one user-facing solver ([`BEND_LAWS_AND_AGENT_LOOP_LESSONS.md`](BEND_LAWS_AND_AGENT_LOOP_LESSONS.md) addendum, Z3) | Old backend matrix (CVC5/CBMC/KLEE/SeaHorn) — dropped, not deferred |
 | D3 | **Named returns, no magic `result`** | Uses existing labeled-return syntax; no keyword magic, no scope rules, self-documenting (user decision, 2026-09-04) | Old §A4/§D4 keyword debate; Phase-0 `_RESULT_IDENTIFIER` |
 | D4 | Separate verifier pass, not evaluator extension | Dafny/Boogie shape; isolates symbolic state; avoids destabilizing the self-hosting evaluator; re-scopes old §B1's cost | Old "extend the evaluator with path conditions" |
 | D5 | In-memory VC terms + direct SMT-LIB 2; no persisted VIR | The IR existed to keep "the SMT backend stupid"; an in-memory term type does that without a pipeline stage | Old §B2 (separate `FORMAL_VERIFICATION_VIR.md`) |

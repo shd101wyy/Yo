@@ -105,7 +105,7 @@ _PARSE_ERR :: "add_one :: (fn(x : i32) -> i32)((x + i32(1)));\nmain :: (fn() -> 
 
 /// Analyze `text` as `doc_path`; the outcome the server would retain.
 _analyze :: (fn(doc_path : &String, text : &String, std_path : &String, io : Io) -> Option(AnalyzeOutcome))({
-  out := ArrayList(AnalyzeOutcome).new();
+  mut(out) := ArrayList(AnalyzeOutcome).new();
   _diags := analyze_document(doc_path.clone(), text, std_path, io, &mut out);
   out.get(usize(0))
 });
@@ -176,78 +176,40 @@ _CONTRACT_DOC :: "pragma(Pragma.Verify);\n\nnon_zero :: ghost_fn((fn(x : i32) ->
 /// nested patterns like `.Some(.Object(...))` do not parse.
 _hover_text :: (fn(h : &Option(JsonValue)) -> String)({
   (mut(out) : String) = String.new();
-  root := match(
-    h,
-    .Some(x) => x,
-    .None => {
-      return(out);
-    }
-  );
-  contents := match(
-    root,
-    .Object(ks, vs) => {
-      (mut(found) : Option(JsonValue)) = Option(JsonValue).None;
-      (mut(i) : usize) = usize(0);
-      while(i < ks.len(), {
-        match(
-          ks.get(i),
-          .Some(k) => {
-            if(k == String.from("contents"), {
-              match(
-                vs.get(i),
-                .Some(cv) => {
-                  found = Option(JsonValue).Some(cv);
-                },
-                .None => ()
-              );
-            });
-          },
-          .None => ()
-        );
-        i = (i + usize(1));
-      });
-      match(
-        found,
-        .Some(f) => f,
-        .None => {
-          return(out);
-        }
-      )
-    },
-    _ => {
-      return(out);
-    }
-  );
   match(
-    contents,
-    .Object(ks2, vs2) => {
-      (mut(j) : usize) = usize(0);
-      while(j < ks2.len(), {
-        match(
-          ks2.get(j),
-          .Some(k2) => {
-            if(k2 == String.from("value"), {
-              match(
-                vs2.get(j),
-                .Some(vv) => {
-                  match(
-                    vv,
-                    .Str(s) => {
-                      out = s.clone();
-                    },
-                    _ => ()
-                  );
-                },
-                .None => ()
-              );
-            });
-          },
-          .None => ()
-        );
-        j = (j + usize(1));
-      });
-    },
-    _ => ()
+    h,
+    .Some(root) => match(
+      root,
+      .Object(ks, vs) => {
+        (mut(i) : usize) = usize(0);
+        while(i < ks.len(), {
+          if(ks(i) == String.from("contents"), {
+            match(
+              &vs(i),
+              .Object(ks2, vs2) => {
+                (mut(j) : usize) = usize(0);
+                while(j < ks2.len(), {
+                  if(ks2(j) == String.from("value"), {
+                    match(
+                      &vs2(j),
+                      .Str(s) => {
+                        out = s.clone();
+                      },
+                      _ => ()
+                    );
+                  });
+                  j = (j + usize(1));
+                });
+              },
+              _ => ()
+            );
+          });
+          i = (i + usize(1));
+        });
+      },
+      _ => ()
+    ),
+    .None => ()
   );
   out
 });
@@ -632,7 +594,7 @@ test("workspace/symbol lists the open documents' matching top-level symbols", {
     _analyze(doc_path.clone(), String.from(_TYPED_DECL), std_path.clone(), io),
     .Some(oc) => {
       lines := String.from(_TYPED_DECL).split(String.from("\n"));
-      ws := ArrayList(WorkspaceDoc).new();
+      mut(ws) := ArrayList(WorkspaceDoc).new();
       ws.push(WorkspaceDoc(uri : String.from("file:///virtual/ws-a.yo"), exprs : oc.exprs.clone(), lines : lines));
       all := json.stringify(handle_workspace_symbols(String.new(), &ws));
       assert(all.contains("\"Point\"") && all.contains("\"answer\"") && all.contains("\"p\""), "an empty query lists every symbol");
@@ -664,16 +626,16 @@ test("an error's std-anchored note becomes relatedInformation, not a 0:0 entry",
   std_path := resolve_std_path();
   mm_forget_open_document(doc_path.clone());
   _pre := mm_invalidate_document(doc_path.clone());
-  out_state := ArrayList(AnalyzeOutcome).new();
+  mut(out_state) := ArrayList(AnalyzeOutcome).new();
   diags := analyze_document(doc_path.clone(), text.clone(), std_path.clone(), io, &mut out_state);
   assert_eq(diags.len(), usize(1), "only the primary surfaces; its note is attached, not standalone");
   match(
-    diags.get(usize(0)),
+    diags.get_cloned(usize(0)),
     .Some(d) => {
       assert(d.code == Option(String).Some(String.from("E0602")), `the primary is the missing-trait error, got ${d.code.to_string()}`);
       assert_eq(d.related.len(), usize(1), "the std-anchored note is attached as related");
       match(
-        d.related.get(usize(0)),
+        d.related.get_cloned(usize(0)),
         .Some(r) => {
           assert(r.message.contains(String.from("raised here")), `the note's message, got ${r.message}`);
           assert(r.path.contains(String.from("index.yo")), `the note is anchored at std's where clause, got ${r.path}`);

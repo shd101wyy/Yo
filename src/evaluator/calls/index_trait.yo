@@ -12,6 +12,7 @@
 //!   - has_index_impl: Array fast path + trait-field/registry method lookup
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
+{ replace } :: import("std/mem");
 { str_lit_unquote_bytes } :: import("../../utils.yo");
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, ExprId, ast_expr_token, ast_expr_id, make_err_expr, ast_expr_is_fn_call_of, ast_expr_is_atom, ast_expr_is_atom_of, ast_expr_to_string, BF_DOT, ast_rewritten_node } :: import("../../expr.yo");
@@ -42,7 +43,9 @@ pragma(Pragma.AllowUnsafe);
   VarArgEntry,
   set_promote_index_places_fn,
   set_is_index_place_fn,
-  sync_counted_handle_std_generic
+  sync_mut_decl_census_untrusted,
+  SpecializingFunctionInfo,
+  _clone_captured_variables
 } :: import("../context.yo");
 {
   ExprInfo,
@@ -178,7 +181,7 @@ _resolve_prelude_range_type :: (
     );
     vi = (vi + usize(1));
   });
-  out.get(usize(0))
+  out.get_cloned(usize(0))
 });
 /// The type constructor a struct type came from (`""` when it was not built
 /// by one). See `_check_range_type`.
@@ -212,7 +215,7 @@ _cached_range_type :: (
   fn(inclusive : bool, env : &Environment, ctx : &EvalContext) -> Option(TypeValue)
 )(
   match(
-    if(inclusive, g_range_incl_ty_cache.with(xs => xs.get(usize(0))), g_range_ty_cache.with(xs => xs.get(usize(0)))),
+    if(inclusive, g_range_incl_ty_cache.with(xs => xs.get_cloned(usize(0))), g_range_ty_cache.with(xs => xs.get_cloned(usize(0)))),
     .Some(hit) => Option(TypeValue).Some(hit),
     .None => {
       name := if(inclusive, String.from("RangeInclusive"), String.from("Range"));
@@ -326,14 +329,14 @@ _extract_range_indices :: (
       });
       start_raw := match(
         start_field,
-        .IntLit(r) => r,
+        .IntLit(r) => r.clone(),
         _ => {
           return(Option(_IdxRange).None);
         }
       );
       end_raw := match(
         end_field,
-        .IntLit(r) => r,
+        .IntLit(r) => r.clone(),
         _ => {
           return(Option(_IdxRange).None);
         }
@@ -385,12 +388,14 @@ _find_all_index_methods :: (
   result := ArrayList(_IndexMethodEntry).new();
   match(
     concrete_type,
-    Rc(.TraitT(_, _, field_labels, field_types, _, _, _, _, _, _)) => {
+    Rc(.TraitT(_, field_labels_body, _, _, _, _)) => {
+      field_labels := field_labels_body.field_labels();
+      field_types := field_labels_body.field_types();
       n := field_labels.len();
       (i : usize) = usize(0);
       while(i < n, {
-        lbl_opt := field_labels.get(i);
-        ty_opt := field_types.get(i);
+        lbl_opt := field_labels.get_cloned(i);
+        ty_opt := field_types.get_cloned(i);
         match(
           lbl_opt,
           .Some(lbl) => {
@@ -1109,13 +1114,18 @@ _specialize_index_method :: (
   // `return(...)` in the CALLER's body was then checked against the index
   // method's result type (issues/fixed/a-swallowed-index-specialization-leaks-its-function-context.md).
   saved_fb := ctx.is_evaluating_function_body_or_async_block;
-  saved_caps := ctx.captured_variables;
+  // B9: the capture map is a value now, so the save is a snapshot (the same
+  // `CapturedVarInfo` handles; the type has no `Clone`): what the trial
+  // records is dropped with it. The trial re-evaluates the receiver
+  // and index the dispatch already evaluated, so its caller-side capture
+  // records repeat ones the dispatch made.
+  saved_caps := _clone_captured_variables(&ctx.captured_variables);
   saved_loop := ctx.is_evaluating_loop_body;
-  saved_fri := ctx.function_return_impl_concrete_type;
+  saved_fri := ctx.function_return_impl_concrete_type.clone();
   saved_self := ctx.self_type.clone();
   saved_enclosing := ctx.enclosing_function_return_type.clone();
   saved_spec := ctx.currently_specializing_function;
-  saved_spec_len := match(ctx.currently_specializing_function_stack, .Some(st) => st.len(), .None => usize(0));
+  saved_spec_len := match(&ctx.currently_specializing_function_stack, .Some(st) => st.len(), .None => usize(0));
   // The trial re-evaluates the receiver and the index argument inside a
   // whole call, whose argument rules move a move-only named local again.
   // The dispatch already moved it (`b(k)`, `b(Wrap(k : k))`, `b(take(k))`,
@@ -1166,13 +1176,16 @@ _specialize_index_method :: (
   ctx.self_type = saved_self;
   ctx.enclosing_function_return_type = saved_enclosing;
   ctx.currently_specializing_function = saved_spec;
-  sync_counted_handle_std_generic(ctx);
+  sync_mut_decl_census_untrusted(ctx);
+  // Taken out and stored back: a `match` binding is a copy of the stack
+  // once collections are values.
+  spec_stack := replace(&mut ctx.currently_specializing_function_stack, Option(ArrayList(SpecializingFunctionInfo)).None);
   match(
-    ctx.currently_specializing_function_stack,
+    spec_stack,
     .Some(st) => {
-      while(st.len() > saved_spec_len, {
-        st.pop();
-      });
+      stack := st;
+      stack.truncate(saved_spec_len);
+      ctx.currently_specializing_function_stack = .Some(stack);
     },
     .None => ()
   );
@@ -1226,7 +1239,7 @@ _find_comptime_index_method :: (
   (found : Option(_IndexMethodEntry)) = Option(_IndexMethodEntry).None;
   while((i < n) && found.is_none(), {
     match(
-      methods.get(i),
+      methods.get_cloned(i),
       .Some(m) => {
         match(
           &m.method_type,
@@ -1654,7 +1667,7 @@ try_to_call_with_index_trait :: (
   });
   // 4. Comptime string path
   match(
-    string_raw_opt,
+    &string_raw_opt,
     .Some(raw) => {
       rn := raw.len();
       str_unquoted := if(
@@ -1872,7 +1885,7 @@ _record_index_unchecked_twin :: (
   });
   trait_id := match(
     get_trait_type_from_env(caller_env, String.from(trait_name)),
-    .Some(Rc(.TraitT(id : tid))) => tid,
+    .Some(Rc(.TraitT(id : tid))) => tid.clone(),
     _ => String.new()
   );
   if(trait_id == "", {

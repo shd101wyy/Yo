@@ -175,7 +175,7 @@ WalkCtx :: struct(io : Io, exn : Exception);
 
 process_dir :: (fn(root : Path, io : Io) -> Impl(Future(unit, WalkCtx)))(
   io.async((ctx : WalkCtx) => {
-    stack := ArrayList(Path).new();
+    mut(stack) := ArrayList(Path).new();
     {
       stack.push(root);
     };

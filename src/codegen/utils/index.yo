@@ -93,7 +93,8 @@ get_uses_tls :: (fn() -> bool)(g_uses_tls);
   ast_expr_is_fn_call,
   ast_expr_is_fn_call_of,
   ast_expr_token,
-  ast_expr_text
+  ast_expr_text,
+  ast_rewritten_node
 } :: import("../../expr.yo");
 { EvalValue } :: import("../../value.yo");
 { is_io_async_call } :: import("../../evaluator/async/await_analysis.yo");
@@ -444,17 +445,17 @@ impl(
   /// appended verbatim when non-empty (the dyn vtable pass labels its ids).
   emit_typeid_static : (fn(self : &Self, static_var_name : &String, comment : &String) -> unit)({
     if(self.chunk_mode, {
-      decl := String.from("extern const char ");
+      mut(decl) := String.from("extern const char ");
       decl.push_string(static_var_name.clone());
       decl.push_str(";");
       decl.push_string(comment.clone());
       self.emitter.emit_declaration_string_line(&decl);
-      def := String.from("const char ");
+      mut(def) := String.from("const char ");
       def.push_string(static_var_name);
       def.push_str(" = 0;\n");
       self.chunk_globals.push_string(&def);
     }, {
-      decl := String.from("static const char ");
+      mut(decl) := String.from("static const char ");
       decl.push_string(static_var_name);
       decl.push_str(" = 0;");
       decl.push_string(comment);
@@ -469,7 +470,7 @@ impl(
   comptime_pointer_static : (fn(self : &Self, c_type : &String, init : &String) -> String)({
     key := `${c_type.clone()}=${init.clone()}`;
     match(
-      self.comptime_pointer_statics.get(key.clone()),
+      self.comptime_pointer_statics.get_cloned(key.clone()),
       .Some(name) => name,
       .None => {
         name := `__yo_cptr_${self.comptime_pointer_statics.len()}`;
@@ -575,7 +576,7 @@ impl(
     if(!self.functions.contains_key(func_id.clone()), {
       self.function_order.push(func_id.clone());
     });
-    (final_name : String) = c_name.clone();
+    (mut(final_name) : String) = c_name.clone();
     match(
       self.functions.get(func_id),
       .Some(existing) => {
@@ -586,7 +587,7 @@ impl(
       },
       .None => {
         if(self.registered_c_names.contains(final_name.clone()), {
-          (k : usize) = usize(1);
+          (mut(k) : usize) = usize(1);
           while(self.registered_c_names.contains(`${c_name}_x${k.to_string()}`), {
             k = (k + usize(1));
           });
@@ -647,10 +648,10 @@ impl(
   register_dyn_upcast : (fn(self : &Self, src : &TypeValue, tgt : &TypeValue) -> unit)({
     src_key := type_key(src);
     tgt_key := type_key(tgt.clone());
-    targets := match(self.dyn_upcasts.get(src_key.clone()), .Some(t) => t, .None => ArrayList(TypeValue).new());
-    (i : usize) = usize(0);
+    mut(targets) := match(self.dyn_upcasts.get_cloned(src_key.clone()), .Some(t) => t, .None => ArrayList(TypeValue).new());
+    (mut(i) : usize) = usize(0);
     while(i < targets.len(), {
-      if(match(targets.get(i), .Some(t) => (type_key(&t) == tgt_key), .None => false), {
+      if(match(targets.get_cloned(i), .Some(t) => (type_key(&t) == tgt_key), .None => false), {
         return(());
       });
       i = (i + usize(1));
@@ -707,10 +708,10 @@ allocator_vtable_abi_version :: (fn(vt : &TypeValue) -> usize)(
   match(
     resolve_struct_shell(vt),
     Rc(.Struct({ field_labels, field_types })) => {
-      (alloc_n : usize) = usize(0);
-      (realloc_n : usize) = usize(0);
-      (free_n : usize) = usize(0);
-      (fi : usize) = usize(0);
+      (mut(alloc_n) : usize) = usize(0);
+      (mut(realloc_n) : usize) = usize(0);
+      (mut(free_n) : usize) = usize(0);
+      (mut(fi) : usize) = usize(0);
       while(fi < field_labels.len(), {
         n := match(
           field_types.get(fi),
@@ -771,9 +772,9 @@ _is_std_declared_struct :: (fn(sid : &String, std_path : &String) -> bool)(
 std_allocator_abi_is_v2 :: (fn(env : &Environment, std_path : &String) -> bool)({
   vars := get_variables_from_env(env, &String.from("AllocatorVTable"));
   // 0 until a std declaration is seen.
-  (version : usize) = usize(0);
-  (stray_v2 : bool) = false;
-  (vi : usize) = usize(0);
+  (mut(version) : usize) = usize(0);
+  (mut(stray_v2) : bool) = false;
+  (mut(vi) : usize) = usize(0);
   while(vi < vars.len(), {
     match(
       vars.get(vi),
@@ -826,18 +827,18 @@ get_runtime_struct_fields :: (fn(struct_type : &TypeValue) -> ArrayList(RuntimeS
   match(
     struct_type,
     Rc(.Struct({ id, field_labels, field_types })) => {
-      result := ArrayList(RuntimeStructField).new();
+      mut(result) := ArrayList(RuntimeStructField).new();
       flags_opt := get_struct_field_comptime_flags(id.clone());
       n := field_types.len();
-      (fi : usize) = usize(0);
+      (mut(fi) : usize) = usize(0);
       while(fi < n, {
         is_comptime := match(
-          flags_opt,
+          flags_opt.clone(),
           .Some(flags) => match(flags.get(fi), .Some(f) => f, .None => false),
           .None => false
         );
         if(!is_comptime, {
-          label := match(field_labels.get(fi), .Some(l) => l, .None => String.from(""));
+          label := match(field_labels.get_cloned(fi), .Some(l) => l, .None => String.from(""));
           ty := match(field_types.get(fi), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
           result.push(RuntimeStructField(label : label, ty : ty));
         });
@@ -1031,13 +1032,13 @@ pattern_literal_arm_guards :: (
     access : str
   ) -> String
 )({
-  out := String.new();
+  mut(out) := String.new();
   match(
     enum_type,
     Rc(.EnumT({ variant_names : vns, variant_field_labels : vfls })) => {
       cvariant := if(variant_name.starts_with("."), variant_name.substring(usize(1), variant_name.len()), variant_name.clone());
-      (vi : usize) = vns.len();
-      (vk : usize) = usize(0);
+      (mut(vi) : usize) = vns.len();
+      (mut(vk) : usize) = usize(0);
       while(vk < vns.len(), {
         match(
           vns.get(vk),
@@ -1050,13 +1051,13 @@ pattern_literal_arm_guards :: (
       });
       if(vi < vns.len(), {
         labels := match(vfls.get(vi), .Some(l) => l, .None => no_labels());
-        (pi2 : usize) = usize(0);
+        (mut(pi2) : usize) = usize(0);
         while(pi2 < params.len(), {
           match(
             params.get(pi2),
             .Some(pp) => {
               if(pattern_param_is_literal(&pp), {
-                field_label := match(labels.get(pi2), .Some(fl) => fl, .None => String.from(""));
+                field_label := match(labels.get_cloned(pi2), .Some(fl) => fl, .None => String.from(""));
                 if(out.len() > usize(0), {
                   out.push_str(" && ");
                 });
@@ -1107,10 +1108,10 @@ function_c_name :: (fn(func_id : &String) -> String)(
 extern_c_global_matches :: (fn(name : &String, ty : &TypeValue) -> bool)({
   tk := type_key(ty);
   tys := get_extern_c_global_types(name);
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < tys.len(), {
     match(
-      tys.get(i),
+      tys.get_cloned(i),
       .Some(gty) => if(type_key(&gty) == tk, {
         return(true);
       }),
@@ -1122,11 +1123,11 @@ extern_c_global_matches :: (fn(name : &String, ty : &TypeValue) -> bool)({
 });
 /// `s` with every byte that is not `[a-zA-Z0-9_]` spelled `_u<byte>_`.
 _mangle_c_identifier_bytes :: (fn(s : &String) -> String)({
-  sanitized := String.new();
+  mut(sanitized) := String.new();
   // BYTE count — the loop reads byte_at; String.len() counts RUNES
   // (multibyte content under-walks; see other_fn_call.yo's splitter fix).
   n := s.len();
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < n, {
     b := s.byte_at(i);
     if(_is_c_identifier_byte(b), {
@@ -1165,7 +1166,7 @@ sanitize_for_c_identifier :: (fn(s : &String, is_extern_c : bool) -> String)({
     return(sanitized);
   });
   if(!_is_compiler_shaped_identifier(&sanitized), {
-    prefixed := String.from("__yo_v_");
+    mut(prefixed) := String.from("__yo_v_");
     prefixed.push_string(&sanitized);
     return(prefixed);
   });
@@ -1181,7 +1182,7 @@ c_symbol_name :: (fn(s : &String) -> String)(
 );
 _avoid_c_reserved_word :: (fn(sanitized : String) -> String)({
   if(_c_reserved_words.contains(&sanitized), {
-    prefixed := String.from("__yo_c_reserved_");
+    mut(prefixed) := String.from("__yo_c_reserved_");
     prefixed.push_string(&sanitized);
     return(prefixed);
   });
@@ -1301,8 +1302,8 @@ _inline_body_passes_params_through :: (fn(call : &AstExpr, fv : &EvalValue) -> b
   nparams := params.len();
   // Walk the body arguments, dropping type arguments, and require the ones that
   // remain to line up with the parameters in order.
-  (pi : usize) = usize(0);
-  (i : usize) = usize(0);
+  (mut(pi) : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < args.len(), {
     arg := _inline_unwrap_transparent(match(args.get(i), .Some(a) => a, .None => return(false)));
     name := match(
@@ -1311,8 +1312,8 @@ _inline_body_passes_params_through :: (fn(call : &AstExpr, fv : &EvalValue) -> b
       .FnCall(_, _, _, _, _) => return(false)
     );
     // Is this identifier one of the parameters at all?
-    (is_param : bool) = false;
-    (j : usize) = usize(0);
+    (mut(is_param) : bool) = false;
+    (mut(j) : usize) = usize(0);
     while(j < nparams, {
       match(
         params.get_cloned(j),
@@ -1391,9 +1392,9 @@ arm_params :: (fn(case_value : &AstExpr) -> ArrayList(AstExpr))(
     .FnCall(_, func, Rc(args), _, _) => match(
       func,
       .Atom(_, _) => {
-        out := ArrayList(AstExpr).new();
+        mut(out) := ArrayList(AstExpr).new();
         n := args.len();
-        (i : usize) = usize(1);
+        (mut(i) : usize) = usize(1);
         while(i < n, {
           match(
             args.get(i),
@@ -1417,11 +1418,11 @@ nullable_variant_names :: (fn(t : &TypeValue) -> Option(ArrayList(String)))(
   match(
     t,
     Rc(.EnumT({ variant_names : vns, variant_fields : vfs })) => {
-      (empty_name : String) = String.new();
-      (payload_name : String) = String.new();
-      (i : usize) = usize(0);
+      (mut(empty_name) : String) = String.new();
+      (mut(payload_name) : String) = String.new();
+      (mut(i) : usize) = usize(0);
       while(i < vns.len(), {
-        vn := match(vns.get(i), .Some(n) => n, .None => String.new());
+        vn := match(vns.get_cloned(i), .Some(n) => n, .None => String.new());
         nf := match(vfs.get(i), .Some(f) => f.len(), .None => usize(0));
         if(nf == usize(0), {
           empty_name = vn;
@@ -1430,7 +1431,7 @@ nullable_variant_names :: (fn(t : &TypeValue) -> Option(ArrayList(String)))(
         });
         i = (i + usize(1));
       });
-      out := ArrayList(String).new();
+      mut(out) := ArrayList(String).new();
       out.push(empty_name);
       out.push(payload_name);
       Option(ArrayList(String)).Some(out)
@@ -1467,7 +1468,7 @@ nullable_arm_selects_payload :: (fn(enum_type : &TypeValue, case_value : &AstExp
 nullable_arm_payload_binder :: (fn(case_value : &AstExpr) -> Option(AstExpr))({
   params := arm_params(case_value);
   is_curly := ((params.len() == usize(1)) && match(params.get(usize(0)), .Some(p0) => ast_expr_is_fn_call_of(&p0, "_", Option(usize).None), .None => false));
-  dparams := if(is_curly, match(params.get(usize(0)), .Some(p0) => match(p0, .FnCall(_, _, Rc(ca), _, _) => ca, .Atom(_, _) => ArrayList(AstExpr).new()), .None => params.clone()), params.clone());
+  dparams := if(is_curly, match(params.get(usize(0)), .Some(p0) => match(p0, .FnCall(_, _, Rc(ca), _, _) => ca.clone(), .Atom(_, _) => ArrayList(AstExpr).new()), .None => params.clone()), params.clone());
   match(
     dparams.get(usize(0)),
     .Some(p) => {
@@ -1491,9 +1492,9 @@ can_optimize_as_simple_enum :: (fn(t : &TypeValue) -> bool)(
       if(is_reference_semantics, {
         return(false);
       });
-      (all_empty : bool) = true;
+      (mut(all_empty) : bool) = true;
       n := variant_fields.len();
-      (vi : usize) = usize(0);
+      (mut(vi) : usize) = usize(0);
       while(vi < n, {
         match(
           variant_fields.get(vi),
@@ -1567,13 +1568,14 @@ _lookup_named_c_type :: (fn(t : &TypeValue, context : &CodeGenContext) -> String
 _some_t_requires_future :: (fn(t : &TypeValue) -> bool)(
   match(
     t,
-    Rc(.SomeT({ required_trait_types : rtts })) => {
-      (found : bool) = false;
-      (i : usize) = usize(0);
+    Rc(.SomeT({ bounds : rtts_bnd })) => {
+      rtts := rtts_bnd.required();
+      (mut(found) : bool) = false;
+      (mut(i) : usize) = usize(0);
       n := rtts.len();
       while((i < n) && !found, {
         match(
-          rtts.get(i),
+          rtts.get_cloned(i),
           .Some(Rc(.FutureTraitT(_, _, _, _))) => {
             found = true;
           },
@@ -1595,13 +1597,14 @@ _some_t_requires_future :: (fn(t : &TypeValue) -> bool)(
 _extract_future_trait_of_some_t :: (fn(t : &TypeValue) -> Option(TypeValue))(
   match(
     t,
-    Rc(.SomeT({ required_trait_types : eft_rtts })) => {
-      (eft_found : Option(TypeValue)) = Option(TypeValue).None;
-      (eft_i : usize) = usize(0);
+    Rc(.SomeT({ bounds : eft_rtts_bnd })) => {
+      eft_rtts := eft_rtts_bnd.required();
+      (mut(eft_found) : Option(TypeValue)) = Option(TypeValue).None;
+      (mut(eft_i) : usize) = usize(0);
       n := eft_rtts.len();
       while((eft_i < n) && eft_found.is_none(), {
         match(
-          eft_rtts.get(eft_i),
+          eft_rtts.get_cloned(eft_i),
           .Some(eft_rt) => match(
             &eft_rt,
             Rc(.FutureTraitT(_, _, _, _)) => {
@@ -1671,8 +1674,8 @@ erased_future_result_type_string :: (fn(t : &TypeValue, context : &CodeGenContex
 /// "bounded by a monotonic visited set" convention type_to_string follows.
 (g_gts_some_stack : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
 _gts_stack_contains :: (fn(sid : &String) -> bool)({
-  (found : bool) = false;
-  (i : usize) = usize(0);
+  (mut(found) : bool) = false;
+  (mut(i) : usize) = usize(0);
   n := g_gts_some_stack.with(xs => xs.len());
   while((i < n) && !found, {
     match(
@@ -1731,7 +1734,7 @@ get_type_string :: (fn(t : &TypeValue, context : &CodeGenContext) -> String)(
       base := _lookup_named_c_type(t, context);
       // Reference-semantics structs (object/atomic object) are pointers in C.
       if(is_ref, {
-        ptr := base.clone();
+        mut(ptr) := base.clone();
         ptr.push_str("*");
         return(ptr);
       });
@@ -1747,7 +1750,7 @@ get_type_string :: (fn(t : &TypeValue, context : &CodeGenContext) -> String)(
       .None => {
         base := _lookup_named_c_type(t, context);
         if(is_ref, {
-          ptr := base.clone();
+          mut(ptr) := base.clone();
           ptr.push_str("*");
           return(ptr);
         });
@@ -1760,7 +1763,7 @@ get_type_string :: (fn(t : &TypeValue, context : &CodeGenContext) -> String)(
       // In Yo a PtrType is a borrow `*(T)`. Object types are already pointers
       // in C; for value types a borrow is a pointer to the value. Either way
       // the C type is `<base>*`.
-      base := recur(&pointee, context);
+      mut(base) := recur(&pointee, context);
       base.push_str("*");
       base
     },
@@ -1770,7 +1773,7 @@ get_type_string :: (fn(t : &TypeValue, context : &CodeGenContext) -> String)(
     Rc(.Array(element, length, length_var)) => cond(
       (length_var.len() == usize(0)) => {
         element_type_string := recur(&element, context);
-        array_type_name := String.from("Array_");
+        mut(array_type_name) := String.from("Array_");
         array_type_name.push_string(c_symbol_name(element_type_string.clone()));
         array_type_name.push_str("_");
         array_type_name.push_string(length.to_string());
@@ -1780,7 +1783,7 @@ get_type_string :: (fn(t : &TypeValue, context : &CodeGenContext) -> String)(
         array_type_name
       },
       true => {
-        fallback := String.from("// Unknown type: ");
+        mut(fallback) := String.from("// Unknown type: ");
         fallback.push_string(type_to_string(t));
         fallback
       }
@@ -1821,7 +1824,8 @@ get_type_string :: (fn(t : &TypeValue, context : &CodeGenContext) -> String)(
             _ => ()
           );
         });
-        g_gts_some_stack.with_mut(xs => xs.push(sid.clone()));
+        sid_owned := sid.clone();
+        g_gts_some_stack.with_mut({ sid_owned }(xs) => xs.push(sid_owned.clone()));
         gts_out := recur(&rct, context);
         g_gts_some_stack.with_mut(xs => xs.drain((xs.len() - usize(1)) .. xs.len()));
         gts_out
@@ -1887,7 +1891,7 @@ get_type_string :: (fn(t : &TypeValue, context : &CodeGenContext) -> String)(
     },
     // Comptime-only / type-level types should not reach codegen.
     _ => {
-      fallback := String.from("// Unknown type: ");
+      mut(fallback) := String.from("// Unknown type: ");
       fallback.push_string(type_to_string(t));
       fallback
     }
@@ -1921,8 +1925,8 @@ get_storage_type_string :: (fn(t : &TypeValue, context : &CodeGenContext) -> Str
 /// match a real C name.
 scope_stack_contains :: (fn(stack : &ArrayList(String), cn : &String) -> bool)({
   n := stack.len();
-  (i : usize) = usize(0);
-  (found : bool) = false;
+  (mut(i) : usize) = usize(0);
+  (mut(found) : bool) = false;
   while((i < n) && !found, {
     match(
       stack.get_cloned(i),
@@ -1940,7 +1944,7 @@ scope_stack_contains :: (fn(stack : &ArrayList(String), cn : &String) -> bool)({
 get_variable_type_string :: (
   fn(t : &TypeValue, var_name : &String, context : &CodeGenContext) -> String
 )({
-  result := get_type_string(t, context);
+  mut(result) := get_type_string(t, context);
   result.push_str(" ");
   c_name := sanitize_for_c_identifier(var_name, false);
   // Record the declared C name (choke-point for every typed declaration) so the
@@ -1953,17 +1957,19 @@ get_variable_type_string :: (
 /// (`declared_c_var_names`). The set is shared, an `Rc(RefCell(...))`
 /// (decision 46), because the emitter holds the same set
 /// (`Emitter.declared_ref`) and writes it too.
-declare_c_var_name :: (fn(context : &CodeGenContext, c_name : &String) -> unit)(
-  context.declared_c_var_names.with_mut(names => {
-    names.insert(c_name.clone());
+declare_c_var_name :: (fn(context : &CodeGenContext, c_name : &String) -> unit)({
+  name_owned := c_name.clone();
+  context.declared_c_var_names.with_mut({ name_owned }(names) => {
+    names.insert(name_owned);
   })
-);
+});
 /// Push `c_name` onto the current function's block-scope stack
 /// (`declared_scopes`), which the emitter shares the same way
 /// (`Emitter.scope_ref`).
-push_declared_scope :: (fn(context : &CodeGenContext, c_name : &String) -> unit)(
-  context.declared_scopes.with_mut(scopes => scopes.push(c_name.clone()))
-);
+push_declared_scope :: (fn(context : &CodeGenContext, c_name : &String) -> unit)({
+  name_owned := c_name.clone();
+  context.declared_scopes.with_mut({ name_owned }(scopes) => scopes.push(name_owned))
+});
 /// Generate the C name for an enum variant: `<ENUM_CNAME>_<VARIANT>` (both
 /// upper-cased).
 get_enum_variant_c_name :: (
@@ -1981,7 +1987,7 @@ get_enum_variant_c_name :: (
       // plans/archive/STD_API_AUDIT_D4_PLAN.md D4 PR 3) or runes, and byte 1 is always
       // a rune boundary here — this holds even for a non-ASCII variant name.
       clean := if(variant_name.starts_with("."), variant_name.substring(usize(1), variant_name.len()), variant_name.clone());
-      result := enum_c_name.to_uppercase();
+      mut(result) := enum_c_name.to_uppercase();
       result.push_str("_");
       result.push_string(clean.to_uppercase());
       result
@@ -2008,7 +2014,7 @@ _codegen_name_of_variables :: (fn(variable_name : &String, variables : &ArrayLis
       // (`stdout`/`stderr` — non-Func, so it can't carry is_extern on its type;
       // tracked in the g_extern_c_globals registry). Either way, keep the REAL
       // C name (skip the `__yo_c_reserved_` reserved-word prefix).
-      is_extern_c_fn := match(&variable.ty, Rc(.Func({ meta : __fm1 })) => match(__fm1.*.is_extern, .Some(lang) => (lang == "c"), .None => false), _ => false);
+      is_extern_c_fn := match(&variable.ty, Rc(.Func({ meta : __fm1 })) => match(&__fm1.*.is_extern, .Some(lang) => (lang == "c"), .None => false), _ => false);
       // The registry is NAME-keyed, but the rule is per-RESOLVED-variable
       // (extern-ness rides the TYPE):
       // a LOCAL binding that merely shares the name (IoError.from_errno's
@@ -2480,7 +2486,9 @@ _checked_fixed_array_subscript :: (fn(index_code : String, array_type : &TypeVal
 /// materializing it as `T name = <rendering>;` would redefine the variable in
 /// its own scope.
 is_self_named_atom :: (fn(expr : &AstExpr, variable_name : &String) -> bool)(
-  ast_expr_is_atom(expr) && (variable_name == ast_expr_token(expr).value.*)
+  // Read through an evaluator rewrite: `r.*` on a reference binding is the
+  // name `r` itself (decision 43 step 2 N1e-1, `note_rewritten_node`).
+  match(ast_rewritten_node(expr), .Atom(_, sn_tok) => (variable_name == sn_tok.value.*), .FnCall(_, _, _, _, _) => false)
 );
 /// The `fn(...)` type a `dyn(...)` payload's concrete type is, through its
 /// `SomeT` resolutions (an `Impl(Fn(...))` parameter bound to a named `fn`),

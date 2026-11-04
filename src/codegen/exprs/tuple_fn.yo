@@ -27,10 +27,10 @@ _args :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
 _build_tuple :: (fn(arg_exprs : &ArrayList(AstExpr), c_name : &String, expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("")));
   elem_types := match(&ei.ty, Rc(.Tuple({ field_types : fts })) => Rc.clone(fts), _ => no_types());
-  args_list := String.from("");
+  mut(args_list) := String.from("");
   n := arg_exprs.len();
   (i : usize) = usize(0);
-  (any_elem : bool) = false;
+  (mut(any_elem) : bool) = false;
   while(i < n, {
     match(
       arg_exprs.get(i),
@@ -40,7 +40,7 @@ _build_tuple :: (fn(arg_exprs : &ArrayList(AstExpr), c_name : &String, expr : &A
       .Some(arg) => if(match(elem_types.get(i), .Some(et) => is_unit_type(&et), .None => false), {
         u_code := _call_generate_expr(&arg, indent.clone(), context);
         if(u_code.len() > usize(0), {
-          u_stmt := indent.clone();
+          mut(u_stmt) := indent.clone();
           u_stmt.push_string(&u_code);
           u_stmt.push_str(";");
           em_u := context.base.emitter;
@@ -78,7 +78,7 @@ _build_tuple :: (fn(arg_exprs : &ArrayList(AstExpr), c_name : &String, expr : &A
   tuple_value.push_string(&args_list);
   tuple_value.push_str(" }");
   match(
-    ei.variable_name,
+    &ei.variable_name,
     .Some(temp_var) => {
       decl := indent.clone();
       decl.push_string(get_variable_type_string(&ei.ty, temp_var.clone(), &context.base));
@@ -110,7 +110,7 @@ generate_anonymous_tuple :: (fn(expr : &AstExpr, indent : &String, context : &Fu
   ty_key := type_key(&ei.ty);
   c_name_opt := context.base.get_type_c_name(ty_key.clone());
   match(
-    ei.runtime_arg_exprs_in_order,
+    &ei.runtime_arg_exprs_in_order,
     .Some(arg_exprs) => match(
       c_name_opt,
       .Some(c_name) => _build_tuple(&arg_exprs, &c_name, expr, indent, context),

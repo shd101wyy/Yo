@@ -34,7 +34,7 @@ test("a struct pattern is partial: unlisted fields match anything", {
       p,
       Person(age : 0) => i32(-1),
       Person(name : "alice") => i32(1),
-      Person(name, age) => age
+      Person(name, age) => age.*
     )
   );
   assert(h(Person(String.from("bob"), 0)) == i32(-1));
@@ -48,9 +48,9 @@ test("a field may carry any sub-pattern", {
   k :: (fn(hh : &Holder) -> i32)(
     match(
       hh,
-      Holder(tag : .Full(7), note) => (note + i32(100)),
-      Holder(tag : .Full(v), note) => (v + note),
-      Holder(tag : .Empty, note) => (note * i32(-1))
+      Holder(tag : .Full(7), note) => (note.* + i32(100)),
+      Holder(tag : .Full(v), note) => (v.* + note.*),
+      Holder(tag : .Empty, note) => (note.* * i32(-1))
     )
   );
   assert(k(Holder(Cell.Full(7), 1)) == i32(101));
@@ -82,8 +82,8 @@ test("an enum payload holding a struct takes a struct sub-pattern", {
   w :: (fn(e : &Wrap) -> i32)(
     match(
       e,
-      .W(Point(x : 0, y)) => y,
-      .W(Point(x, y)) => (x - y),
+      .W(Point(x : 0, y)) => y.*,
+      .W(Point(x, y)) => (x.* - y.*),
       .Nothing => i32(0)
     )
   );
@@ -106,7 +106,7 @@ test("a whole-value binding of a struct pattern", {
 test("a reference-semantics struct pattern reads through the pointer", {
   SharedPoint :: ref(struct(x : i32, y : i32));
   s :: (fn(p : &SharedPoint) -> i32)(
-    match(p, { x : 0, y } => y, { x, y } => (x + y))
+    match(p, { x : 0, y } => y.*, { x, y } => (x.* + y.*))
   );
   assert(s(SharedPoint(0, 7)) == i32(7));
   assert(s(SharedPoint(3, 7)) == i32(10));
@@ -123,14 +123,14 @@ test("a reference-semantics struct pattern reads through the pointer", {
 // copyable, which does not exercise the rule).
 _MvElem :: struct(a : i32, b : i64);
 test("a match through a borrowed element of a move-only struct", {
-  xs := ArrayList(_MvElem).new();
+  mut(xs) := ArrayList(_MvElem).new();
   xs.push(_MvElem(a : i32(3), b : i64(30)));
   xs.push(_MvElem(a : i32(4), b : i64(40)));
   match(
     &xs(usize(1)),
     _MvElem(a : v, b : s) => {
-      assert(v == i32(4), "the borrowed element's first field");
-      assert(s == i64(40), "and its second field, read through the place");
+      assert(v.* == i32(4), "the borrowed element's first field");
+      assert(s.* == i64(40), "and its second field, read through the place");
     }
   );
   // The list still owns its elements: nothing was moved or dropped out of it.
@@ -139,7 +139,7 @@ test("a match through a borrowed element of a move-only struct", {
 });
 _MvTree :: enum(Leaf(v : i32), At(sub : Box(Self)));
 test("a match through a borrowed element of a Box-children enum", {
-  xs := ArrayList(_MvTree).new();
+  mut(xs) := ArrayList(_MvTree).new();
   xs.push(_MvTree.Leaf(v : i32(7)));
   xs.push(_MvTree.At(sub : Box.new(_MvTree.Leaf(v : i32(9)))));
   match(
@@ -256,8 +256,10 @@ test("a scrutinee over a field of a call result releases the result once per eva
   (mut(hits) : i32) = i32(0);
   while(i < i32(4), i = (i + i32(1)), {
     a := match(_scr_tok(i).n, i32(2) => i32(1), _ => i32(0));
-    b := match(_scr_tok(i).s, "payload" => i32(1), _ => i32(0));
-    c := match(&_scr_tok(i).s, x => x.len());
+    b := match(_scr_tok(i).s.clone(), "payload" => i32(1), _ => i32(0));
+    // `.clone()`: a borrowed scrutinee of a call result's move-only field is a false E0901
+    // (issues/2026-10-31-a-borrowed-match-scrutinee-of-a-call-results-move-only-field-is-a-false-e0901.md).
+    c := match(_scr_tok(i).s.clone(), x => x.len());
     d := match(_scr_tok(i).n + i32(1), i32(3) => i32(1), _ => i32(0));
     hits = (hits + a + b + i32(c) + d);
   });

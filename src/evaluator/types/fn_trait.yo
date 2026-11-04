@@ -46,7 +46,7 @@ import("std/fmt");
 _fn_trait_call_args :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
   match(
     e,
-    .FnCall(_, _, Rc(args), _, _) => args,
+    .FnCall(_, _, Rc(args), _, _) => args.clone(),
     .Atom(_, _) => ArrayList(AstExpr).new()
   )
 );
@@ -175,7 +175,7 @@ evaluate_fn_trait_type :: (
   (pi : usize) = usize(0);
   while(pi < params_result.params.len(), {
     p := match(
-      params_result.params.get(pi),
+      params_result.params.get_cloned(pi),
       .Some(x) => x,
       .None => {
         pi = params_result.params.len();
@@ -191,7 +191,7 @@ evaluate_fn_trait_type :: (
   (ii : usize) = usize(0);
   while(ii < params_result.implicit_params.len(), {
     ip := match(
-      params_result.implicit_params.get(ii),
+      params_result.implicit_params.get_cloned(ii),
       .Some(x) => x,
       .None => {
         ii = params_result.implicit_params.len();

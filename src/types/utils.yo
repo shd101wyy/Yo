@@ -503,13 +503,15 @@ register_capture_borrows :: (fn(struct_id : &String, borrows : &ArrayList(Captur
     });
     i = (i + usize(1));
   });
-  g_capture_borrows.with_mut(m => m.insert(struct_id.clone(), borrows));
+  borrows_owned := borrows.clone();
+  struct_id_owned := struct_id.clone();
+  g_capture_borrows.with_mut({ borrows_owned, struct_id_owned }(m) => m.insert(struct_id_owned, borrows_owned.clone()));
 });
 /// The borrow entries recorded for the capture struct `struct_id`.
 capture_struct_borrows :: (fn(struct_id : &String) -> Option(ArrayList(CaptureBorrow)))(
   cond(
     (g_capture_borrows.with(m => m.len()) == usize(0)) => Option(ArrayList(CaptureBorrow)).None,
-    true => g_capture_borrows.with(m => m.get(struct_id))
+    true => g_capture_borrows.with(m => m.get_cloned(struct_id))
   )
 );
 /// Some capture list has recorded a borrow: the fast path of every check that
@@ -521,7 +523,7 @@ capture_borrow_place_string :: (fn(b : &CaptureBorrow) -> String)({
   (i : usize) = usize(0);
   while(i < b.path.len(), {
     out.push_str(".");
-    out.push_string(match(b.path.get(i), .Some(f) => f, .None => String.new()));
+    out.push_string(match(b.path.get_cloned(i), .Some(f) => f, .None => String.new()));
     i = (i + usize(1));
   });
   out
@@ -549,11 +551,11 @@ _collect_type_borrows_inner :: (fn(ty_in : &TypeValue, out : &mut ArrayList(Capt
     &ty,
     Rc(.SomeT({ id : st_id, resolution : f_res })) => if(is_future_value_type(&ty) && (depth <= u32(12)), {
       match(
-        g_capture_borrows.with(m => m.get(&st_id)),
+        g_capture_borrows.with(m => m.get_cloned(&st_id)),
         .Some(bs) => {
           (bi : usize) = usize(0);
           while(bi < bs.len(), {
-            match(bs.get(bi), .Some(b) => out.push(b), .None => ());
+            match(bs.get_cloned(bi), .Some(b) => out.push(b), .None => ());
             bi = (bi + usize(1));
           });
         },
@@ -579,11 +581,11 @@ _collect_type_borrows_inner :: (fn(ty_in : &TypeValue, out : &mut ArrayList(Capt
     },
     Rc(.Struct({ id : sid, field_types : fields })) => {
       match(
-        g_capture_borrows.with(m => m.get(&sid)),
+        g_capture_borrows.with(m => m.get_cloned(&sid)),
         .Some(bs) => {
           (bi : usize) = usize(0);
           while(bi < bs.len(), {
-            match(bs.get(bi), .Some(b) => out.push(b), .None => ());
+            match(bs.get_cloned(bi), .Some(b) => out.push(b), .None => ());
             bi = (bi + usize(1));
           });
         },
@@ -666,7 +668,7 @@ _pointee_second_class_inner :: (fn(ty_in : &TypeValue, depth : u32) -> Option(Ty
   (ci : usize) = usize(0);
   while(ci < comps.len(), {
     match(
-      recur(match(comps.get(ci), .Some(c) => c, .None => Rc.new(TypeValueNode.Unit)), depth + u32(1)),
+      recur(match(comps.get_cloned(ci), .Some(c) => c, .None => Rc.new(TypeValueNode.Unit)), depth + u32(1)),
       .Some(found) => {
         return(Option(TypeValue).Some(found));
       },
@@ -848,7 +850,12 @@ _origin_beyond_n2b_inner :: (fn(ty : &TypeValue, seen : &mut ArrayList(String), 
     // reference value is N1e's, reported at its own read wall).
     Rc(.Reference(_, _, _)) => false,
     Rc(.OriginSet(_, _)) => false,
-    Rc(.Pointer(inner)) => _origin_beyond_n2b_inner(&inner, seen, depth + u32(1)),
+    // A pointee is storage OUTSIDE the composite: a container's element
+    // buffer (`ArrayList`'s `_ptr : ?*T` once collections are value
+    // structs) or a cell. An origin behind a pointer is N2c's or N2d's, not
+    // an inline position
+    // (issues/fixed/2026-11-03-a-value-container-over-references-passes-the-n2b-wall.md).
+    Rc(.Pointer(inner)) => type_carries_origin(&inner),
     Rc(.Array(element : elem)) => _origin_beyond_n2b_inner(&elem, seen, depth + u32(1)),
     Rc(.RefineT(inner, _)) => _origin_beyond_n2b_inner(&inner, seen, depth + u32(1)),
     Rc(.Tuple({ field_types : fields })) => _any_beyond_n2b(&fields, seen, depth),
@@ -987,7 +994,7 @@ type_first_mut_borrow :: (fn(ty : &TypeValue) -> Option(CaptureBorrow))({
   (i : usize) = usize(0);
   while(i < bs.len(), {
     match(
-      bs.get(i),
+      bs.get_cloned(i),
       .Some(b) => if(b.is_mut, {
         return(Option(CaptureBorrow).Some(b));
       }),
@@ -1005,12 +1012,12 @@ _capture_struct_declares_mut :: (fn(ty : &TypeValue) -> bool)(
     true => match(
       ty,
       Rc(.Struct({ id : sid })) => match(
-        g_capture_borrows.with(m => m.get(&sid)),
+        g_capture_borrows.with(m => m.get_cloned(&sid)),
         .Some(bs) => {
           (found : bool) = false;
           (i : usize) = usize(0);
           while(i < bs.len(), {
-            if(match(bs.get(i), .Some(b) => b.is_mut, .None => false), {
+            if(match(bs.get_cloned(i), .Some(b) => b.is_mut, .None => false), {
               found = true;
             });
             i = (i + usize(1));
@@ -1134,7 +1141,7 @@ type_holds_dyn_by_value :: (fn(ty : &TypeValue) -> bool)(_holds_dyn_by_value_inn
 _any_holds_dyn_by_value :: (fn(fields : &ArrayList(TypeValue), depth : u32) -> bool)({
   (i : usize) = usize(0);
   while(i < fields.len(), {
-    if(match(fields.get(i), .Some(ft) => _holds_dyn_by_value_inner(&ft, depth), .None => false), {
+    if(match(fields.get_cloned(i), .Some(ft) => _holds_dyn_by_value_inner(&ft, depth), .None => false), {
       return(true);
     });
     i = (i + usize(1));
@@ -1206,10 +1213,11 @@ _dyn_move_only_fn_trait :: (fn(ty : &TypeValue) -> String)(
 is_future_value_type :: (fn(ty : &TypeValue) -> bool)(
   match(
     ty,
-    Rc(.SomeT({ required_trait_types : rtt })) => {
+    Rc(.SomeT({ bounds : rtt_bnd })) => {
+      rtt := rtt_bnd.required();
       (i : usize) = usize(0);
       while(i < rtt.len(), {
-        if(match(rtt.get(i), .Some(t) => is_future_trait_type(&t), .None => false), {
+        if(match(rtt.get_cloned(i), .Some(t) => is_future_trait_type(&t), .None => false), {
           return(true);
         });
         i = (i + usize(1));
@@ -1246,6 +1254,7 @@ _TypeWalk :: struct(path : ArrayList(_TypeWalkFrame), memo : ArrayList(_ReprMemo
 /// One aggregate on a `_TypeWalk` path, with the walk's `cut` flag from
 /// before it was entered (restored, or-ed with its own, when it is left).
 _TypeWalkFrame :: struct(ty : TypeValue, outer_cut : bool);
+derive(_TypeWalkFrame, Clone);
 _TYPE_WALK_TRACK_DEPTH :: u32(8);
 /// A stack backstop, not an answer cap: no well-formed type nests this deep
 /// without a cycle, which `_TypeWalk.path` catches first.
@@ -1264,7 +1273,7 @@ _type_walk_enter :: (fn(w : &mut _TypeWalk, ty : &TypeValue, depth : u32) -> Opt
   (i : usize) = usize(0);
   while(i < w.memo.len(), {
     match(
-      w.memo.get(i),
+      w.memo.get_cloned(i),
       .Some(e) => if(__yo_ptr_eq(&e.ty, ty), {
         return(Option(bool).Some(e.answer));
       }),
@@ -1275,7 +1284,7 @@ _type_walk_enter :: (fn(w : &mut _TypeWalk, ty : &TypeValue, depth : u32) -> Opt
   (pi : usize) = usize(0);
   while(pi < w.path.len(), {
     match(
-      w.path.get(pi),
+      w.path.get_cloned(pi),
       .Some(f) => if(__yo_ptr_eq(&f.ty, ty), {
         w.cut = true;
         return(Option(bool).Some(false));
@@ -1509,22 +1518,6 @@ _nominal_lacks_copy :: (fn(ty : &TypeValue) -> bool)(
 set_counted_handle_rule :: (fn(on : bool) -> unit)({
   g_counted_handle_rule_on = on;
 });
-/// The evaluator is specializing a generic function or method defined in std
-/// (`sync_counted_handle_std_generic`, evaluator/context.yo). Its copies of a
-/// `T` that is a handle (`ArrayList(T).get`'s element, `Option(T).unwrap`'s
-/// payload) are not judged by decision 17 (plans/VALUES_BY_DEFAULT.md V2c, as
-/// built): a specialization's types are concrete, so a copy of a `T` cannot
-/// be told from a copy of an `Rc(U)` there, and the whole body is exempt.
-/// Measured 2026-10-28 with `YO_DEBUG_V2C_JUDGE_STD_GENERIC=1` (which judges
-/// these bodies): std itself is clean, and `check ./src` fails 238 of 276
-/// files, every one at `HashMap.get` or `ArrayList.get` instantiated at a
-/// handle element. The exemption goes once src reads handle elements through
-/// B6's accessors (`get_cloned`, `xs(i)` in place, `with`).
-(mut(g_counted_handle_std_generic) : bool) = false;
-set_counted_handle_std_generic :: (fn(on : bool) -> unit)({
-  g_counted_handle_std_generic = on;
-});
-counted_handle_std_generic_on :: (fn() -> bool)(g_counted_handle_std_generic);
 type_requires_explicit_copy :: (fn(ty : &TypeValue) -> bool)(type_is_move_only(ty) || (_plain_data_lacks_copy(ty) || type_holds_counted_handle(ty)));
 /// Decision 17 (plans/VALUES_BY_DEFAULT.md, V2c): copying an `Rc`/`Arc` needs
 /// `.clone()`, as in Rust. A new handle is a new owner, so sharing is visible
@@ -1536,18 +1529,18 @@ type_requires_explicit_copy :: (fn(ty : &TypeValue) -> bool)(type_is_move_only(t
 /// implicitly until V5 and B12), at a closure (judged by its capture record,
 /// decision 36: one owning an `Rc` is not `Copy`) and at a type variable. A
 /// generic body's copy of a `T` is judged as decision 36's flip judges it,
-/// at each instantiation, except inside std (`set_counted_handle_std_generic`):
-/// std's generic readers (`ArrayList(T).get`, `Option(T)`'s combinators) copy
-/// their element through `T`, and B6's accessors are the spelling that does
-/// not copy.
+/// at each instantiation, std's included: a std reader that copies its
+/// element through `T` (`ArrayList(T).get`, `HashMap(K, V).get`) is E0901 at
+/// a handle element, reported at the user's call with B6's accessors as the
+/// repair (`get_cloned`, `xs(i)` in place, `with`; `_reported_at_user_call`).
 ///
 /// `yo fix --migrate rc-clone` suspends the rule while it records the copies
 /// it spells (`set_counted_handle_rule`): the tree it migrates still copies
 /// them implicitly.
-type_holds_counted_handle :: (fn(ty : &TypeValue) -> bool)(g_counted_handle_rule_on && !g_counted_handle_std_generic && type_holds_counted_handle_ignoring_migration(ty));
+type_holds_counted_handle :: (fn(ty : &TypeValue) -> bool)(g_counted_handle_rule_on && type_holds_counted_handle_ignoring_migration(ty));
 /// `type_holds_counted_handle` whether or not the rule is suspended (by `yo
-/// fix --migrate rc-clone`, or in a std generic body): what the migration
-/// records a copy by, so it spells exactly the copies the rule rejects.
+/// fix --migrate rc-clone`): what the migration records a copy by, so it
+/// spells exactly the copies the rule rejects.
 type_holds_counted_handle_ignoring_migration :: (fn(ty : &TypeValue) -> bool)({
   w := _type_walk_new();
   _holds_counted_handle_inner(ty, &mut w, u32(0))
@@ -1668,7 +1661,7 @@ _move_only_reason_inner :: (fn(ty_in : &TypeValue, depth : u32) -> Option(String
     Rc(.Struct({ field_labels : fls, field_types : fields })) => {
       (i : usize) = usize(0);
       while(i < fields.len(), {
-        fl := match(fls.get(i), .Some(l) => l, .None => String.new());
+        fl := match(fls.get_cloned(i), .Some(l) => l, .None => String.new());
         labels.push(`field \`${fl}\``);
         comps.push(match(fields.get(i), .Some(f) => f, .None => Rc.new(TypeValueNode.Unit)));
         i = (i + usize(1));
@@ -1678,7 +1671,7 @@ _move_only_reason_inner :: (fn(ty_in : &TypeValue, depth : u32) -> Option(String
       (vi : usize) = usize(0);
       while(vi < all_fields.len(), {
         vf := match(all_fields.get(vi), .Some(f) => f, .None => no_types());
-        vn := match(vns.get(vi), .Some(n) => n, .None => String.new());
+        vn := match(vns.get_cloned(vi), .Some(n) => n, .None => String.new());
         (fi : usize) = usize(0);
         while(fi < vf.len(), {
           labels.push(`variant \`${vn}\``);
@@ -1699,11 +1692,11 @@ _move_only_reason_inner :: (fn(ty_in : &TypeValue, depth : u32) -> Option(String
   );
   (ci : usize) = usize(0);
   while(ci < comps.len(), {
-    c := match(comps.get(ci), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
+    c := match(comps.get_cloned(ci), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
     match(
       cond(type_is_move_only(&c) => recur(&c, depth + u32(1)), true => Option(String).None),
       .Some(inner) => {
-        lbl := match(labels.get(ci), .Some(l) => l, .None => String.new());
+        lbl := match(labels.get_cloned(ci), .Some(l) => l, .None => String.new());
         return(Option(String).Some(`\`${type_to_string_for_message(&ty)}\` holds a move-only value in its ${lbl} (\`${type_to_string_for_message(&c)}\`): ${inner}`));
       },
       .None => ()
@@ -1847,7 +1840,7 @@ _type_contains_rc_inner :: (fn(ty_in : &TypeValue, w : &mut _TypeWalk, depth : u
       // a comptime call) was reported RC → its result temp was marked owning →
       // the return-tail dup was skipped → stage-2 comptime_list evaluated_arg
       // over-release (issues/retired/yo-self-stage2-unwind-check-coverage.md).
-      Rc(.SomeT({ required_trait_types : _, resolution : resolved })) => match(
+      Rc(.SomeT({ bounds : _, resolution : resolved })) => match(
         resolved,
         .Some(concrete) => recur(&concrete, w, depth + u32(1), flip),
         .None => true
@@ -1869,7 +1862,7 @@ type_has_no_open_some :: (fn(t : &TypeValue) -> bool)({
   (hno_i : usize) = usize(0);
   while(hno_i < hno_somes.len(), {
     match(
-      hno_somes.get(hno_i),
+      hno_somes.get_cloned(hno_i),
       .Some(hno_s) => {
         if(is_some_type(resolve_cell_chain(&hno_s)), {
           return(false);
@@ -1919,7 +1912,7 @@ _any_reaches_non_atomic_cell :: (fn(fields : &ArrayList(TypeValue), w : &mut _Ty
   (i : usize) = usize(0);
   while(i < fields.len(), {
     match(
-      fields.get(i),
+      fields.get_cloned(i),
       .Some(ft) => if(_reaches_non_atomic_cell_inner(&ft, w, depth), {
         return(true);
       }),
@@ -2138,22 +2131,9 @@ control_bound_field_message :: (fn(label : &String, ty : &TypeValue) -> String)(
   `Field "${label}" of a reference type cannot hold ${type_to_string(ty)}: it is (or contains) a \`ctl\` handler, which unwinds into the frame that installed it. A reference object outlives that frame, so a later call through the object would unwind into a frame that no longer exists. Pass the handler as an argument instead, or keep it in a value struct.`
 );
 /// True iff `id` is already in `visited` (linear scan; visited lists are tiny).
-_id_already_visited :: (fn(visited : &ArrayList(String), id : &String) -> bool)({
-  (i : usize) = usize(0);
-  n := visited.len();
-  (found : bool) = false;
-  while((i < n) && !found, {
-    match(
-      visited.get(i),
-      .Some(v) => if(v == id, {
-        found = true;
-      }),
-      .None => ()
-    );
-    i = (i + usize(1));
-  });
-  found
-});
+/// Compared in place: a `get_cloned` per probe deep-copies every visited id,
+/// and this guard runs at every struct or enum node of every type walk.
+_id_already_visited :: (fn(visited : &ArrayList(String), id : &String) -> bool)(visited.contains(id));
 /// Walker for `can_type_form_rc_cycle`: does `ty` (a field type reached from the
 /// root ref-struct `original_id`) reference back to a cyclic RC object?
 /// `visited` holds the
@@ -2206,7 +2186,7 @@ buffer_element_types :: (fn(fields : &ArrayList(TypeValue)) -> ArrayList(TypeVal
   (i : usize) = usize(0);
   while(i < fields.len(), i = (i + usize(1)), {
     match(
-      fields.get(i),
+      fields.get_cloned(i),
       .Some(f) => match(buffer_element_type(&f), .Some(e) => out.push(e), .None => ()),
       .None => ()
     );
@@ -2244,7 +2224,8 @@ value_type_owns_buffer_outright :: (fn(ty : &TypeValue) -> bool)(
 /// trait registry, so the declaration is kept here.
 (g_declared_acyclic_ids : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
 declare_acyclic_type_id :: (fn(id : &String) -> unit)({
-  _ := g_declared_acyclic_ids.with_mut(s => s.insert(id.clone()));
+  id_owned := id.clone();
+  _ := g_declared_acyclic_ids.with_mut({ id_owned }(s) => s.insert(id_owned.clone()));
 });
 /// Is `ty` a struct or enum whose `Acyclic` impl is declared?
 _declared_acyclic :: (fn(ty : &TypeValue) -> bool)(
@@ -2286,7 +2267,7 @@ _type_refs_back_to_cyclic :: (
         _id_already_visited(visited, &sid) => true,
         true => {
           v2 := visited.clone();
-          v2.push(sid);
+          v2.push(sid.clone());
           (found : bool) = false;
           (i : usize) = usize(0);
           while((i < sfields.len()) && !found, {
@@ -2391,7 +2372,7 @@ _type_refs_back_to_cyclic :: (
       _id_already_visited(visited, &eid) => false,
       true => {
         v2 := visited.clone();
-        v2.push(eid);
+        v2.push(eid.clone());
         (found : bool) = false;
         (vi : usize) = usize(0);
         while((vi < vfs.len()) && !found, {
@@ -2605,28 +2586,31 @@ type_contains_some_type :: (fn(ty : &TypeValue) -> bool)(
     // FnTraitT; futures to state-machine structs). Without this carve-out the
     // contains-SomeT gates skip emitting Rc(Impl(Fn)) constructors and drop
     // Impl(Fn)-typed capture fields (the get_info cluster).
-    Rc(.SomeT({ required_trait_types : cst_rtt, resolution : cst_rc })) => cond(
-      cst_rc.is_some() => false,
-      true => {
-        (cst_has_fn_or_fut : bool) = false;
-        (cst_i : usize) = usize(0);
-        while(cst_i < cst_rtt.len(), {
-          match(
-            cst_rtt.get(cst_i),
-            .Some(Rc(.FnTraitT(_, _, _, _, _, _))) => {
-              cst_has_fn_or_fut = true;
-            },
-            .Some(Rc(.FutureTraitT(_, _, _, _))) => {
-              cst_has_fn_or_fut = true;
-            },
-            .Some(_) => (),
-            .None => ()
-          );
-          cst_i = (cst_i + usize(1));
-        });
-        !cst_has_fn_or_fut
-      }
-    ),
+    Rc(.SomeT({ bounds : cst_rtt_bnd, resolution : cst_rc })) => {
+      cst_rtt := cst_rtt_bnd.required();
+      cond(
+        cst_rc.is_some() => false,
+        true => {
+          (cst_has_fn_or_fut : bool) = false;
+          (cst_i : usize) = usize(0);
+          while(cst_i < cst_rtt.len(), {
+            match(
+              cst_rtt.get_cloned(cst_i),
+              .Some(Rc(.FnTraitT(_, _, _, _, _, _))) => {
+                cst_has_fn_or_fut = true;
+              },
+              .Some(Rc(.FutureTraitT(_, _, _, _))) => {
+                cst_has_fn_or_fut = true;
+              },
+              .Some(_) => (),
+              .None => ()
+            );
+            cst_i = (cst_i + usize(1));
+          });
+          !cst_has_fn_or_fut
+        }
+      )
+    },
     Rc(.TypeAppT(constructor : _)) => true,
     _ => false
   )
@@ -2657,7 +2641,7 @@ _collect_some_types_into :: (
   ty = t_refine_inner(&ty);
   match(
     &ty,
-    Rc(.SomeT(_, _, _, _, _, _, _, _, _, _)) => {
+    Rc(.SomeT(_, _, _, _, _, _, _)) => {
       acc.push(Rc.clone(ty));
     },
     Rc(.TypeAppT(constructor : con, args : args_list)) => {
@@ -2709,7 +2693,7 @@ _collect_some_types_into :: (
         return(());
       });
       if(st_id.len() > usize(0), {
-        visited_ids.push(st_id);
+        visited_ids.push(st_id.clone());
       });
       (i : usize) = usize(0);
       while(i < ftys.len(), {
@@ -2723,7 +2707,7 @@ _collect_some_types_into :: (
         return(());
       });
       if(en_id.len() > usize(0), {
-        visited_ids.push(en_id);
+        visited_ids.push(en_id.clone());
       });
       (vi : usize) = usize(0);
       while(vi < vfs.len(), {
@@ -2918,13 +2902,15 @@ enum_phantom_type_args_masked :: (fn(ty : &TypeValue, mask : &ArrayList(bool)) -
           if(field_somes.is_none(), {
             field_somes = Option(ArrayList(TypeValue)).Some(get_all_some_types(ty));
           });
-          ta_id := match(&ta, Rc(.SomeT({ id : x })) => x, _ => String.from(""));
-          fs := field_somes.unwrap();
+          ta_id := match(&ta, Rc(.SomeT({ id : x })) => x.clone(), _ => String.from(""));
+          // Borrow the cached list: `unwrap()` moves it out of the
+          // option, and the next iteration would unwrap a moved value.
+          fs := match(&field_somes, .Some(l) => l.clone(), .None => ArrayList(TypeValue).new());
           (in_field : bool) = false;
           (j : usize) = usize(0);
           while((j < fs.len()) && !in_field, {
             match(
-              fs.get(j),
+              fs.get_cloned(j),
               .Some(Rc(.SomeT({ id : fid }))) => if(fid == ta_id, {
                 in_field = true;
               }),
@@ -2957,7 +2943,7 @@ fields_have_incompatible_contexts :: (fn(fts : &ArrayList(TypeValue)) -> bool)({
   (has_rt_only : bool) = false;
   (fi : usize) = usize(0);
   while(fi < fts.len(), {
-    (ft : TypeValue) = match(fts.get(fi), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
+    (ft : TypeValue) = match(fts.get_cloned(fi), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
     fi = (fi + usize(1));
     // A pointer field classifies by its POINTEE (`*(Self)` / `*(i32)` are
     // both-context; `*(Rc(i32))` is runtime-only — tests/basic arm 10's
@@ -3021,7 +3007,7 @@ type_somes_all_resolve_concrete :: (fn(ty : &TypeValue) -> bool)({
               (sarc_ii : usize) = usize(0);
               while(sarc_ii < sarc_inner.len(), {
                 match(
-                  sarc_inner.get(sarc_ii),
+                  sarc_inner.get_cloned(sarc_ii),
                   .Some(sarc_is) => {
                     somes.push(sarc_is);
                     ()
@@ -3045,7 +3031,7 @@ type_somes_all_resolve_concrete :: (fn(ty : &TypeValue) -> bool)({
   (ok : bool) = true;
   (i : usize) = usize(0);
   while((i < somes.len()) && ok, {
-    st := match(somes.get(i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
+    st := match(somes.get_cloned(i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
     (cur : TypeValue) = st;
     (seen : ArrayList(String)) = ArrayList(String).new();
     (walk : bool) = true;
@@ -3053,12 +3039,12 @@ type_somes_all_resolve_concrete :: (fn(ty : &TypeValue) -> bool)({
     while(walk, {
       match(
         Rc.clone(cur),
-        Rc(.SomeT(sarc_id, _, _, _, _, _, _, _, _, sarc_rc)) => {
+        Rc(.SomeT(sarc_id, _, _, _, _, _, sarc_rc)) => {
           (revisit : bool) = false;
           (si : usize) = usize(0);
           while(si < seen.len(), {
             match(
-              seen.get(si),
+              seen.get_cloned(si),
               .Some(sid) => if(sid == sarc_id, {
                 revisit = true;
               }),
@@ -3127,7 +3113,7 @@ resolution_chain_end :: (fn(t_in : &TypeValue) -> TypeValue)({
         (ri : usize) = usize(0);
         while(ri < seen.len(), {
           match(
-            seen.get(ri),
+            seen.get_cloned(ri),
             .Some(rs) => if(rs == rcc_id, {
               revisit = true;
             }),
@@ -3178,9 +3164,11 @@ is_closure_capture_struct :: (fn(t : &TypeValue) -> bool)(
 is_bound_closure_identity :: (fn(t : &TypeValue) -> bool)(
   match(
     t,
-    Rc(.SomeT({ name : bci_nm, required_trait_types : bci_rtt })) => (
+    Rc(.SomeT({ name : bci_nm, bounds : bci_rtt_bnd })) => {
+      bci_rtt := bci_rtt_bnd.required();
+
       (bci_nm == "Impl") && !_any_future_trait(&bci_rtt) && _resolves_to_concrete_type(t)
-    ),
+    },
     _ => false
   )
 );
@@ -3194,7 +3182,7 @@ _resolves_to_concrete_type :: (fn(t : &TypeValue) -> bool)({
 _any_future_trait :: (fn(tys : &ArrayList(TypeValue)) -> bool)({
   (aft_i : usize) = usize(0);
   while(aft_i < tys.len(), {
-    if(match(tys.get(aft_i), .Some(aft_t) => is_future_trait_type(&aft_t), .None => false), {
+    if(match(tys.get_cloned(aft_i), .Some(aft_t) => is_future_trait_type(&aft_t), .None => false), {
       return(true);
     });
     aft_i = (aft_i + usize(1));
@@ -3235,7 +3223,7 @@ type_contains_some_type_deep :: (fn(ty : &TypeValue) -> bool)({
   (found : bool) = false;
   while((i < n) && !found, {
     match(
-      sts.get(i),
+      sts.get_cloned(i),
       .Some(st) => if(type_contains_some_type(&st), {
         found = true;
       }),
@@ -3258,12 +3246,13 @@ type_mentions_impl_fn_or_future :: (fn(ty : &TypeValue) -> bool)({
   (i : usize) = usize(0);
   while(i < sts.len(), {
     match(
-      sts.get(i),
-      .Some(Rc(.SomeT({ required_trait_types : rtt }))) => {
+      sts.get_cloned(i),
+      .Some(Rc(.SomeT({ bounds : rtt_bounds }))) => {
+        rtt := rtt_bounds.required();
         (j : usize) = usize(0);
         while(j < rtt.len(), {
           match(
-            rtt.get(j),
+            rtt.get_cloned(j),
             .Some(Rc(.FnTraitT(_, _, _, _, _, _))) => {
               return(true);
             },
@@ -3327,9 +3316,12 @@ fn_type_unrepresentable_impl :: (fn(ty : &TypeValue) -> Option(TypeValue))(
         fu_t := cond((i < fu_pt.len()) => match(fu_pt.get(i), .Some(t) => t_slot_pointee(&t), .None => Rc.new(TypeValueNode.Unit)), true => t_slot_pointee(&fu_res));
         match(
           &fu_t,
-          Rc(.SomeT({ name : nm, required_trait_types : rtt, resolution : res })) => if((nm == "Impl") && res.is_none() && !_any_future_trait(&rtt), {
-            return(Option(TypeValue).Some(Rc.clone(fu_t)));
-          }),
+          Rc(.SomeT({ name : nm, bounds : rtt_bounds, resolution : res })) => {
+            rtt := rtt_bounds.required();
+            if((nm == "Impl") && res.is_none() && !_any_future_trait(&rtt), {
+              return(Option(TypeValue).Some(Rc.clone(fu_t)));
+            })
+          },
           Rc(.Func(_, _, _, _, _, _, _)) => match(
             recur(&fu_t),
             .Some(fu_inner) => {
@@ -3407,7 +3399,7 @@ _max_field_alignment :: (fn(fts : &ArrayList(TypeValue)) -> Option(usize))({
   (i : usize) = usize(0);
   n := fts.len();
   while((i < n) && !unknown, {
-    ft := match(fts.get(i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
+    ft := match(fts.get_cloned(i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
     match(
       _align_via_slot(&ft),
       .Some(a) => {
@@ -3431,7 +3423,7 @@ _aggregate_size :: (fn(fts : &ArrayList(TypeValue)) -> Option(usize))({
   (i : usize) = usize(0);
   n := fts.len();
   while((i < n) && !unknown, {
-    ft := match(fts.get(i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
+    ft := match(fts.get_cloned(i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
     match(
       _size_via_slot(&ft),
       .Some(fbits) => match(
@@ -3474,7 +3466,7 @@ _c_aggregate_size :: (fn(fts : &ArrayList(TypeValue)) -> Option(usize))({
   n := fts.len();
   while(i < n, {
     match(
-      fts.get(i),
+      fts.get_cloned(i),
       .Some(ft) => if(!is_unit_type(&ft), {
         members = (members + usize(1));
       }),
@@ -3626,21 +3618,7 @@ get_alignment_of_type :: (fn(ty_in : &TypeValue) -> Option(usize))({
 // was bypassed (yield unknown, never overflow the stack).
 // issues/fixed/plain-recursive-enum-segfaults-the-evaluator.md.
 (g_size_walk_stack : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
-_size_walk_stack_has :: (fn(id : &String) -> bool)({
-  (found : bool) = false;
-  (i : usize) = usize(0);
-  while((i < g_size_walk_stack.with(xs => xs.len())) && !found, {
-    match(
-      g_size_walk_stack.with(xs => xs.get(i)),
-      .Some(x) => if(x == id, {
-        found = true;
-      }),
-      .None => ()
-    );
-    i = (i + usize(1));
-  });
-  found
-});
+_size_walk_stack_has :: (fn(id : &String) -> bool)(g_size_walk_stack.with(xs => xs.contains(id)));
 /// The value-enum size computation (tag + largest variant payload), factored
 /// out of `get_size_of_type`'s `.EnumT` arm so the arm can bracket it with the
 /// cycle stack push/pop.
@@ -3788,7 +3766,8 @@ get_size_of_type :: (fn(ty_in : &TypeValue) -> Option(usize))({
         s_ref => Option(usize).Some(usize(get_target_pointer_size_bits())),
         _size_walk_stack_has(s_sz_id.clone()) => Option(usize).None,
         true => {
-          g_size_walk_stack.with_mut(xs => xs.push(s_sz_id.clone()));
+          s_sz_id_owned := s_sz_id.clone();
+          g_size_walk_stack.with_mut({ s_sz_id_owned }(xs) => xs.push(s_sz_id_owned.clone()));
           out := cond(
             (s_nt && (sfts.len() > usize(0))) => match(sfts.get(usize(0)), .Some(f0) => recur(&f0), .None => Option(usize).None),
             true => _c_aggregate_size(&sfts.items)
@@ -3826,23 +3805,29 @@ get_size_of_type :: (fn(ty_in : &TypeValue) -> Option(usize))({
     // payload, with alignment. The `e_ref` short-circuit matches the struct
     // branch — without it the variant-field walk
     // recurses forever on a recursive ref-enum (variant field typed `Self`).
-    Rc(.EnumT({ id : e_sz_id, variant_fields : evf, is_reference_semantics : e_ref })) => cond(
-      e_ref => Option(usize).Some(usize(get_target_pointer_size_bits())),
-      // Lowered to the bare pointer (NULL = the empty variant), as codegen emits
-      // it: `sizeof(Option(*(i32)))` is a pointer, not a tag plus a pointer.
-      can_optimize_as_nullable_pointer(&ty).is_some() => Option(usize).Some(usize(get_target_pointer_size_bits())),
-      // Cycle backstop (issues/fixed/plain-recursive-enum-segfaults-the-evaluator.md):
-      // a VALUE enum re-entered on the walk stack is an infinite-size type the
-      // definition-time check should have rejected — yield unknown rather than
-      // overflow the stack.
-      _size_walk_stack_has(e_sz_id.clone()) => Option(usize).None,
-      true => {
-        g_size_walk_stack.with_mut(xs => xs.push(e_sz_id.clone()));
-        out := _enum_value_size(&evf);
-        g_size_walk_stack.with_mut(xs => xs.pop());
-        out
-      }
-    ),
+    Rc(.EnumT({ id : e_sz_id, variant_fields : evf, is_reference_semantics : e_ref })) => {
+      // The stack test runs BEFORE the cond: an arm is a closure, and
+      // capturing `e_sz_id` (a `&String`) to clone it inside one is a copy.
+      sz_in_stack := _size_walk_stack_has(e_sz_id.clone());
+      cond(
+        e_ref => Option(usize).Some(usize(get_target_pointer_size_bits())),
+        // Lowered to the bare pointer (NULL = the empty variant), as codegen emits
+        // it: `sizeof(Option(*(i32)))` is a pointer, not a tag plus a pointer.
+        can_optimize_as_nullable_pointer(&ty).is_some() => Option(usize).Some(usize(get_target_pointer_size_bits())),
+        // Cycle backstop (issues/fixed/plain-recursive-enum-segfaults-the-evaluator.md):
+        // a VALUE enum re-entered on the walk stack is an infinite-size type the
+        // definition-time check should have rejected — yield unknown rather than
+        // overflow the stack.
+        sz_in_stack => Option(usize).None,
+        true => {
+          e_sz_id_owned := e_sz_id.clone();
+          g_size_walk_stack.with_mut({ e_sz_id_owned }(xs) => xs.push(e_sz_id_owned));
+          out := _enum_value_size(&evf);
+          g_size_walk_stack.with_mut(xs => xs.pop());
+          out
+        }
+      )
+    },
     _ => .None
   )
 });
@@ -3880,7 +3865,7 @@ derive(_ReprMemoEntry, Clone);
 _repr_path_contains :: (fn(ty : &TypeValue) -> bool)({
   (i : usize) = usize(0);
   while(i < g_repr_path.with(xs => xs.len()), {
-    if(match(g_repr_path.with(xs => xs.get(i)), .Some(p) => __yo_ptr_eq(&p, ty), .None => false), {
+    if(match(g_repr_path.with(xs => xs.get_cloned(i)), .Some(p) => __yo_ptr_eq(&p, ty), .None => false), {
       return(true);
     });
     i = (i + usize(1));
@@ -3888,11 +3873,11 @@ _repr_path_contains :: (fn(ty : &TypeValue) -> bool)({
   false
 });
 _repr_memo_lookup :: (fn(key : &String, ty : &TypeValue) -> Option(bool))({
-  bucket := match(g_repr_memo.with(m => m.get(key)), .Some(b) => b, .None => return(Option(bool).None));
+  bucket := match(g_repr_memo.with(m => m.get_cloned(key)), .Some(b) => b, .None => return(Option(bool).None));
   (i : usize) = usize(0);
   while(i < bucket.len(), {
     match(
-      bucket.get(i),
+      bucket.get_cloned(i),
       .Some(e) => if(__yo_ptr_eq(&e.ty, ty), {
         return(Option(bool).Some(e.answer));
       }),
@@ -3903,9 +3888,11 @@ _repr_memo_lookup :: (fn(key : &String, ty : &TypeValue) -> Option(bool))({
   Option(bool).None
 });
 _repr_memo_store :: (fn(key : &String, ty : &TypeValue, answer : bool) -> unit)({
-  bucket := match(g_repr_memo.with(m => m.get(key.clone())), .Some(b) => b, .None => ArrayList(_ReprMemoEntry).new());
+  bucket := match(g_repr_memo.with(m => m.get_cloned(key.clone())), .Some(b) => b, .None => ArrayList(_ReprMemoEntry).new());
   bucket.push(_ReprMemoEntry(ty : Rc.clone(ty), answer : answer));
-  _ := g_repr_memo.with_mut(m => m.insert(key.clone(), bucket));
+  key_owned := key.clone();
+  bucket_owned := bucket.clone();
+  _ := g_repr_memo.with_mut({ key_owned, bucket_owned }(m) => m.insert(key_owned.clone(), bucket_owned));
 });
 /// Start a top-level predicate call: an empty memo, no cut, no opaque
 /// handle. Clearing `g_repr_allocator_opaque` here (not only in the wrapper's
@@ -4214,7 +4201,7 @@ export(can_comptime_float_cast_to);
 export(prohibit_void_type);
 export(type_requires_comptime_modifier, type_prohibits_comptime_modifier);
 export(type_implements_runtime_builtin, type_implements_runtime, type_is_comptime_only);
-export(type_contains_rc_type, type_reaches_non_atomic_cell, type_is_move_only, type_requires_explicit_copy, type_holds_counted_handle, type_holds_counted_handle_ignoring_migration, set_counted_handle_rule, set_counted_handle_std_generic, counted_handle_std_generic_on, type_contains_rc_cell_or_move_only, set_type_lacks_copy_fn, set_type_lacks_clone_fn, type_lacks_clone, bump_trait_impl_epoch, trait_impl_epoch, move_only_reason, move_only_declarations_exist, note_move_only_possible, is_value_nominal_type, MoveOnlyNominalFn, set_move_only_nominal_fn, GenericOwnerDropFn, set_generic_owner_drop_fn);
+export(type_contains_rc_type, type_reaches_non_atomic_cell, type_is_move_only, type_requires_explicit_copy, type_holds_counted_handle, type_holds_counted_handle_ignoring_migration, set_counted_handle_rule, type_contains_rc_cell_or_move_only, set_type_lacks_copy_fn, set_type_lacks_clone_fn, type_lacks_clone, bump_trait_impl_epoch, trait_impl_epoch, move_only_reason, move_only_declarations_exist, note_move_only_possible, is_value_nominal_type, MoveOnlyNominalFn, set_move_only_nominal_fn, GenericOwnerDropFn, set_generic_owner_drop_fn);
 export(type_is_control_bound);
 export(can_type_form_rc_cycle, declare_acyclic_type_id, type_uses_small_rc_header, buffer_element_type, buffer_element_types, value_type_owns_buffer, value_type_owns_buffer_outright, _type_refs_back_to_cyclic);
 export(type_requires_inference);
@@ -4266,7 +4253,7 @@ _mentions_trait_self :: (fn(ty : &TypeValue) -> bool)({
   somes := get_all_some_types(ty);
   (i : usize) = usize(0);
   while(i < somes.len(), {
-    if(match(somes.get(i), .Some(s) => match(s, Rc(.SomeT({ name : n })) => (n == "Self"), _ => false), .None => false), {
+    if(match(somes.get_cloned(i), .Some(s) => match(s, Rc(.SomeT({ name : n })) => (n == "Self"), _ => false), .None => false), {
       return(true);
     });
     i = (i + usize(1));
@@ -4301,7 +4288,7 @@ dyn_member_unsafe_reason :: (fn(member_ty : &TypeValue) -> Option(String))(
       while(i < pts.len(), {
         pt := match(pts.get(i), .Some(t) => t_slot_pointee(&t), .None => Rc.new(TypeValueNode.Unit));
         if(_mentions_trait_self(&pt), {
-          label := match(labels.get(i), .Some(l) => l, .None => String.from("?"));
+          label := match(labels.get_cloned(i), .Some(l) => l, .None => String.from("?"));
           return(Option(String).Some(`its parameter "${label}" has type ${type_to_string(&pt)}, which the Dyn erases`));
         });
         i = (i + usize(1));
@@ -4330,12 +4317,14 @@ dyn_type_has_vtable_slot :: (fn(dyn_ty : &TypeValue, name : &String) -> bool)(
         hit := match(
           tt,
           Rc(.FnTraitT(_, _, _, _, _, _)) => (name == "call"),
-          Rc(.TraitT({ field_labels : fls, field_types : fts })) => {
+          Rc(.TraitT({ body : fls_body })) => {
+            fls := fls_body.field_labels();
+            fts := fls_body.field_types();
             (found : bool) = false;
             (j : usize) = usize(0);
             while((j < fls.len()) && !found, {
-              if(match(fls.get(j), .Some(l) => (l == name), .None => false), {
-                ft := match(fts.get(j), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
+              if(match(fls.get_cloned(j), .Some(l) => (l == name), .None => false), {
+                ft := match(fts.get_cloned(j), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
                 found = (dyn_member_is_method(&ft) && dyn_member_unsafe_reason(&ft).is_none());
               });
               j = (j + usize(1));
@@ -4363,11 +4352,13 @@ dyn_vtable_slot_result_is_ref :: (fn(dyn_ty : &TypeValue, name : &String) -> boo
       while(i < rtt.len(), {
         match(
           rtt.get(i),
-          .Some(Rc(.TraitT({ field_labels : fls, field_types : fts }))) => {
+          .Some(Rc(.TraitT({ body : fls_body }))) => {
+            fls := fls_body.field_labels();
+            fts := fls_body.field_types();
             (j : usize) = usize(0);
             while(j < fls.len(), {
-              if(match(fls.get(j), .Some(l) => (l == name), .None => false), {
-                ft := match(fts.get(j), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
+              if(match(fls.get_cloned(j), .Some(l) => (l == name), .None => false), {
+                ft := match(fts.get_cloned(j), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
                 return(dyn_member_is_method(&ft) && dyn_member_unsafe_reason(&ft).is_none() && fn_result_is_ref(&ft));
               });
               j = (j + usize(1));
@@ -4406,11 +4397,13 @@ dyn_vtable_slot_param_is_ref :: (fn(dyn_ty : &TypeValue, name : &String) -> Arra
               k = (k + usize(1));
             });
           }),
-          Rc(.TraitT({ field_labels : fls, field_types : fts })) => {
+          Rc(.TraitT({ body : fls_body })) => {
+            fls := fls_body.field_labels();
+            fts := fls_body.field_types();
             (j : usize) = usize(0);
             while((j < fls.len()) && out.is_empty(), {
-              if(match(fls.get(j), .Some(l) => (l == name), .None => false), {
-                ft := match(fts.get(j), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
+              if(match(fls.get_cloned(j), .Some(l) => (l == name), .None => false), {
+                ft := match(fts.get_cloned(j), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
                 if(dyn_member_is_method(&ft) && dyn_member_unsafe_reason(&ft).is_none(), {
                   match(
                     &ft,
@@ -4493,10 +4486,11 @@ _is_unerased_callable :: (fn(t : &TypeValue) -> bool)(
   match(
     t,
     Rc(.Func({ result : _ })) => true,
-    Rc(.SomeT({ required_trait_types : uc_rtt })) => {
+    Rc(.SomeT({ bounds : uc_rtt_bnd })) => {
+      uc_rtt := uc_rtt_bnd.required();
       (i : usize) = usize(0);
       while(i < uc_rtt.len(), i = (i + usize(1)), {
-        if(match(uc_rtt.get(i), .Some(uc_t) => match(uc_t, Rc(.FnTraitT(base_name : _)) => true, _ => false), .None => false), {
+        if(match(uc_rtt.get_cloned(i), .Some(uc_t) => match(uc_t, Rc(.FnTraitT(base_name : _)) => true, _ => false), .None => false), {
           return(true);
         });
       });
@@ -4549,7 +4543,7 @@ unknown_field_message :: (fn(label : &String, base_ty : &TypeValue, fields : &Ar
     if(fi > usize(0), {
       list.push_str(", ");
     });
-    list.push_string(match(fields.get(fi), .Some(f) => f, .None => String.new()));
+    list.push_string(match(fields.get_cloned(fi), .Some(f) => f, .None => String.new()));
     fi = (fi + usize(1));
   });
   // A module is a source-namespace struct: name what it exports, not its
@@ -4590,7 +4584,7 @@ unknown_field_through_deref_message :: (
     if(fi > usize(0), {
       list.push_str(", ");
     });
-    list.push_string(match(payload_fields.get(fi), .Some(f) => f, .None => String.new()));
+    list.push_string(match(payload_fields.get_cloned(fi), .Some(f) => f, .None => String.new()));
     fi = (fi + usize(1));
   });
   fields_note := cond(
@@ -4609,7 +4603,7 @@ unknown_variant_message :: (fn(variant : &String, enum_ty : &TypeValue, variants
     if(vi > usize(0), {
       list.push_str(", ");
     });
-    list.push_string(match(variants.get(vi), .Some(v) => v, .None => String.new()));
+    list.push_string(match(variants.get_cloned(vi), .Some(v) => v, .None => String.new()));
     vi = (vi + usize(1));
   });
   `Enum variant "${variant}" not found in enum ${type_to_string(enum_ty)}. Its variants: ${list}.`
@@ -4644,7 +4638,7 @@ _type_mentions_generic_length :: (fn(ty : &TypeValue, depth : u32) -> bool)(
 _any_mentions_generic_length :: (fn(tys : &ArrayList(TypeValue), depth : u32) -> bool)({
   (i : usize) = usize(0);
   while(i < tys.len(), {
-    if(match(tys.get(i), .Some(t) => _type_mentions_generic_length(&t, depth + u32(1)), .None => false), {
+    if(match(tys.get_cloned(i), .Some(t) => _type_mentions_generic_length(&t, depth + u32(1)), .None => false), {
       return(true);
     });
     i = (i + usize(1));
@@ -4669,7 +4663,7 @@ mark_generic_independent :: (fn(err : &YoError, a : &TypeValue, b : &TypeValue) 
   (i : usize) = usize(0);
   while(i < err.diagnostics.len(), {
     match(
-      err.diagnostics.get(i),
+      err.diagnostics.get_cloned(i),
       .Some(d) => entries.push(
         cond(
           (i == usize(0)) => Diagnostic(
@@ -4750,11 +4744,12 @@ closure_fn_trait_of :: (fn(ty : &TypeValue) -> Option(TypeValue))({
       Rc.clone(cur),
       Rc(.FnTraitT(base_name : _)) => return(Option(TypeValue).Some(Rc.clone(cur))),
       Rc(.DynT({ required_trait_types : cft_drtt })) => return(_first_fn_trait(&cft_drtt.items)),
-      Rc(.SomeT({ id : cft_id, required_trait_types : cft_rtt, resolution : cft_res })) => {
+      Rc(.SomeT({ id : cft_id, bounds : cft_rtt_bnd, resolution : cft_res })) => {
+        cft_rtt := cft_rtt_bnd.required();
         match(_first_fn_trait(&cft_rtt), .Some(t) => return(Option(TypeValue).Some(t)), .None => ());
         (cft_i : usize) = usize(0);
         while(cft_i < seen.len(), {
-          if(match(seen.get(cft_i), .Some(s) => (s == cft_id), .None => false), {
+          if(match(seen.get_cloned(cft_i), .Some(s) => (s == cft_id), .None => false), {
             return(Option(TypeValue).None);
           });
           cft_i = (cft_i + usize(1));
@@ -4776,7 +4771,7 @@ closure_fn_trait_of :: (fn(ty : &TypeValue) -> Option(TypeValue))({
 _first_fn_trait :: (fn(ts : &ArrayList(TypeValue)) -> Option(TypeValue))({
   (i : usize) = usize(0);
   while(i < ts.len(), {
-    match(ts.get(i), .Some(t) => if(is_fn_trait_type(&t), return(Option(TypeValue).Some(t))), .None => ());
+    match(ts.get_cloned(i), .Some(t) => if(is_fn_trait_type(&t), return(Option(TypeValue).Some(t))), .None => ());
     i = (i + usize(1));
   });
   Option(TypeValue).None

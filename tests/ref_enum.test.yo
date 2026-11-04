@@ -31,17 +31,20 @@ comptime_expect_error(bad_ref_named :: ref(Shape));
 comptime_expect_error(bad_atomic_prim :: atomic(i32));
 
 area :: (fn(sh : &Shape) -> i32)(
-  match(sh, .Circle(r) => (r * r * i32(3)), .Square(s) => (s * s))
+  match(sh, .Circle(r) => (r.* * r.* * i32(3)), .Square(s) => (s.* * s.*))
 );
+impl(Nest, Clone(clone : (fn(self : &Self) -> Self)(self.*)));
+impl(Tree, Clone(clone : (fn(self : &Self) -> Self)(self.*)));
+derive(Holder, Clone);
 tree_sum :: (fn(t : &Tree) -> i32)(
-  match(t, .Leaf(value) => value, .Node(left, right) => (recur(&left) + recur(&right)))
+  match(t, .Leaf(value) => value.*, .Node(left, right) => (recur(&left.*) + recur(&right.*)))
 );
 // Reduce a Nest to the sum of its tips (recurses through `Self` + ArrayList(Self)).
 nest_sum :: (fn(t : &Nest) -> i32)(
   match(
     t,
-    .Tip(n) => n,
-    .One(inner) => recur(&inner),
+    .Tip(n) => n.*,
+    .One(inner) => recur(&inner.*),
     .Many(items) => {
       (mut(acc) : i32) = i32(0);
       (mut(i) : usize) = usize(0);
@@ -64,10 +67,10 @@ nest_sum :: (fn(t : &Nest) -> i32)(
 nest_rebuild :: (fn(t : &Nest) -> Nest)(
   match(
     t,
-    .Tip(n) => Nest.Tip(n : n),
-    .One(inner) => Nest.One(inner : recur(&inner)),
+    .Tip(n) => Nest.Tip(n : n.*),
+    .One(inner) => Nest.One(inner : recur(&inner.*)),
     .Many(items) => {
-      out := ArrayList(Nest).new();
+      mut(out) := ArrayList(Nest).new();
       (mut(i) : usize) = usize(0);
       while(i < items.len(), {
         match(
@@ -125,7 +128,7 @@ test("ref(enum) drops its variant's RC fields on free", {
 test("recursive ref(enum) RECONSTRUCTION (Self + ArrayList(Self) fields)", {
   // Build a Nest reached through both a direct `Self` (`One`) and an
   // `ArrayList(Self)` (`Many`) field.
-  leaves := ArrayList(Nest).new();
+  mut(leaves) := ArrayList(Nest).new();
   leaves.push(Nest.Tip(n : i32(1)));
   leaves.push(Nest.One(inner : Nest.Tip(n : i32(2))));
   leaves.push(Nest.Tip(n : i32(4)));
@@ -351,7 +354,7 @@ test("Drop accepts every reference enum, and a value enum it makes move-only", {
 Chain :: ref(enum(End, Link(next : Self)));
 derive(Chain, Eq(Chain));
 chain_len :: (fn(c : &Chain) -> i32)(
-  match(c, .End => i32(0), .Link(next) => (recur(&next) + i32(1)))
+  match(c, .End => i32(0), .Link(next) => (recur(&next.*) + i32(1)))
 );
 Kind3 :: ref(enum(Leaf, Other, Node(elem : Self)));
 derive(Kind3, Eq(Kind3));

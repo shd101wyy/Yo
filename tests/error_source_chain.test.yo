@@ -85,6 +85,45 @@ test("a user trait's Dyn(SelfTrait) payload binds and passes as Dyn(ThatTrait)",
   (passed : String) = match(c.parent(), .Some(p) => _handle(&p), .None => `root`);
   assert(passed == `root(R)`, `passing the payload lost the trait, got ${passed}`);
 });
+// A trait's node is minted before its body is evaluated, so a member typed
+// over `Dyn(SelfTrait)` embeds the trait while it is still being built. What
+// the trait declares AFTER that member must still reach the embedded copy:
+// the `Dyn` returned through the first member's type dispatches the LAST
+// member and carries the `where(Self <: X)` constraint, and an impl is
+// checked against that constraint. The members and constraints live in one
+// shared cell (`TraitTBody`, consultation #13 §13); a snapshot taken when the
+// first member was evaluated would build a vtable with one slot.
+_Chain :: trait(
+  (link : (fn(self : &Self) -> Option(Dyn(SelfTrait)))) ?= (self -> .None),
+  weight : (fn(self : &Self) -> i32),
+  where(Self <: ToString)
+);
+_AnyChain :: Dyn(_Chain);
+_ChainLeaf :: struct(w : i32);
+impl(_ChainLeaf, ToString(to_string : (fn(self : &Self) -> String)(`leaf`)));
+impl(_ChainLeaf, _Chain(weight : (fn(self : &Self) -> i32)(self.w)));
+_ChainLink :: struct(w : i32, leaf_w : i32);
+impl(_ChainLink, ToString(to_string : (fn(self : &Self) -> String)(`link`)));
+impl(
+  _ChainLink,
+  _Chain(
+    link : (fn(self : &Self) -> Option(_AnyChain))(Option(_AnyChain).Some(dyn(_ChainLeaf(w : self.leaf_w)))),
+    weight : (fn(self : &Self) -> i32)(self.w)
+  )
+);
+test("a Dyn(SelfTrait) member's payload dispatches the members and constraints declared after it", {
+  (c : _AnyChain) = dyn(_ChainLink(w : i32(2), leaf_w : i32(5)));
+  (w : i32) = match(c.link(), .Some(p) => p.weight(), .None => i32(0));
+  assert(w == i32(5), `the payload dispatched the last member wrongly, got ${w.to_string()}`);
+  (s : String) = match(c.link(), .Some(p) => p.to_string(), .None => String.new());
+  assert(s == `leaf`, `the payload lost the where(Self <: ToString) constraint, got ${s}`);
+});
+test("a trait's where(Self <: X), declared after a Dyn(SelfTrait) member, is checked at an impl", {
+  comptime_expect_error({
+    _ChainNoStr :: struct(w : i32);
+    impl(_ChainNoStr, _Chain(weight : (fn(self : &Self) -> i32)(self.w)));
+  }, "does not implement required constraint");
+});
 test("root_cause returns the innermost error, and is identity on a lone error", {
   // Scored at RUNTIME on the rendered value, not on a comptime assertion:
   // a comptime_assert here could hold vacuously.

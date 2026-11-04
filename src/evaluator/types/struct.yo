@@ -134,7 +134,7 @@ evaluate_struct_type :: (
   // Trait MARKERS (Send/Acyclic/Comptime/Runtime) are auto-derived AFTER field
   // evaluation by `auto_derive_traits_for_struct_type` (below).
   // Evaluate fields
-  args := match(expr, .FnCall(_, _, Rc(a), _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+  args := match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
   field_labels := ArrayList(String).new();
   field_types := ArrayList(TypeValue).new();
   runtime_field_types := ArrayList(TypeValue).new();
@@ -152,7 +152,7 @@ evaluate_struct_type :: (
     (dup_idx : usize) = usize(0);
     (has_dup : bool) = false;
     while((dup_idx < field_labels.len()) && !has_dup, {
-      existing := match(field_labels.get(dup_idx), .Some(l) => l, .None => String.from(""));
+      existing := match(field_labels.get_cloned(dup_idx), .Some(l) => l, .None => String.from(""));
       if(existing == field.label, {
         has_dup = true;
       });
@@ -293,8 +293,8 @@ evaluate_struct_type :: (
   if(!(is_reference_semantics || is_atomic_rc), {
     (vc_i : usize) = usize(0);
     while(vc_i < patched_types.len(), {
-      vc_ft := match(patched_types.get(vc_i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
-      vc_label := match(field_labels_s.get(vc_i), .Some(l) => l, .None => String.from(""));
+      vc_ft := match(patched_types.get_cloned(vc_i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
+      vc_label := match(field_labels_s.get_cloned(vc_i), .Some(l) => l, .None => String.from(""));
       if(_type_reaches_root_by_value(&vc_ft, struct_id.clone(), struct_id.clone(), ArrayList(String).new()), {
         exn.throw(
           dyn(
@@ -386,6 +386,7 @@ evaluate_struct_type :: (
 });
 /// One instantiation of a cell primitive: its payload type and its struct id.
 _CellInstance :: struct(is_atomic : bool, payload : TypeValue, id : String);
+derive(_CellInstance, Clone);
 /// Every cell instantiation so far, in creation order. Global for the reason
 /// the CTFE memo is (`g_comptime_fn_caches`, calls/comptime_fn.yo): a module
 /// loaded on demand evaluates in a fresh context, and it must still name the
@@ -414,7 +415,7 @@ _cell_instance_id :: (fn(is_atomic : bool, v : &TypeValue) -> String)({
   (i : usize) = usize(0);
   while(i < n, {
     match(
-      g_cell_instances.with(xs => xs.get(i)),
+      g_cell_instances.with(xs => xs.get_cloned(i)),
       .Some(inst) => if((inst.is_atomic == is_atomic) && _ctfe_args_equal(&EvalValue.TypeVal(inst.payload.clone()), &given), {
         return(inst.id.clone());
       }),
@@ -425,7 +426,7 @@ _cell_instance_id :: (fn(is_atomic : bool, v : &TypeValue) -> String)({
   id := String.from(if(is_atomic, BK_YO_ATOMIC_CELL, BK_YO_CELL));
   id.push_str("#");
   id.push_string(type_key(v));
-  g_cell_instances.with_mut({ id, is_atomic, v : Rc.clone(v) }(xs) => xs.push(_CellInstance(is_atomic : is_atomic, payload : v.clone(), id : id.clone())));
+  g_cell_instances.with_mut({ cell_id : id.clone(), is_atomic, v : Rc.clone(v) }(xs) => xs.push(_CellInstance(is_atomic : is_atomic, payload : v, id : cell_id)));
   id
 });
 /// `__yo_cell(V)` / `__yo_atomic_cell(V)`: the private heap-cell primitive
@@ -472,7 +473,7 @@ evaluate_cell_type :: (
     );
     return(make_err_expr());
   });
-  args := match(expr, .FnCall(_, _, Rc(a), _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+  args := match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
   if(args.len() != usize(1), {
     exn.throw(
       dyn(

@@ -69,7 +69,7 @@ test("wait_timeout re-acquires the mutex before returning", {
     // mutex we hold, and a try after it must be the only thing that can
     // take it.
   });
-  assert(m.try_with_lock(v => v).is_some(), "the mutex was held on return and released cleanly");
+  assert(m.try_with_lock(v => v.*).is_some(), "the mutex was held on return and released cleanly");
 });
 // ============================================================================
 // wait / signal / broadcast — the untimed forms, which had no coverage either
@@ -103,7 +103,7 @@ test("broadcast releases every waiter", {
   flag := AtomicI32.new(i32(0));
   woken := AtomicI32.new(i32(0));
   parked := Channel(i32).new(usize(4));
-  handles := ArrayList(Thread(unit)).new();
+  mut(handles) := ArrayList(Thread(unit)).new();
   (mut(t) : i64) = i64(0);
   while(t < i64(4), {
     handles.push(

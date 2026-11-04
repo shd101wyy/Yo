@@ -22,6 +22,8 @@
 { get_type_string, fresh_local_name, _checked_fixed_array_subscript } :: import("../utils/index.yo");
 { generate_drop_code_for_value, generate_dup_code_for_value, get_drop_function_for_type, get_dup_function_for_type, resolve_some_type_param_type } :: import("./drop_dup.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
+{ _has_comptime_only_runtime_field } :: import("../types/collection.yo");
+{ resolve_enum_shell, resolve_struct_shell } :: import("../../types/creators.yo");
 /// The `i`-th argument of a FnCall (or `.None`).
 _arg :: (fn(expr : &AstExpr, i : usize) -> Option(AstExpr))(
   match(expr, .FnCall(_, _, Rc(args), _, _) => args.get(i), .Atom(_, _) => Option(AstExpr).None)
@@ -137,13 +139,22 @@ generate_drop :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGener
 /// Release the value `value_arg` evaluates to: the body of `___drop(<value>)`,
 /// shared with `consume(x)` of an owned value (`generate_consume`).
 generate_drop_of_operand :: (fn(value_arg : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
+  value_type := resolve_some_type_param_type(value_arg, _ty(value_arg, context), context);
+  // A value of a comptime-only record (the reflection `TypeInfo` family) has
+  // no C form: `collect_type` registers no C type for it, so its operand
+  // cannot be lowered, and it holds nothing to release. Such a drop is the
+  // scope end of a compile-time binding (`info :: Type.get_info(T)` in a
+  // runtime body), which the evaluator tracks like any owning local
+  // (issues/fixed/2026-11-04-a-comptime-typeinfo-local-s-scope-end-drop-lowers-an-unregistered-enum.md).
+  if(_has_comptime_only_runtime_field(resolve_struct_shell(resolve_enum_shell(&value_type))), {
+    return(String.new());
+  });
   value_code := _rc_operand(value_arg, indent.clone(), context);
   // Single-pass async lowering: an await moved this temp's future into
   // the task's slot, which releases it.
   if(match(context.sm_inline_lowering, .Some(low) => low.moved_into_slot.contains(value_code.clone()), .None => false), {
     return(String.new());
   });
-  value_type := resolve_some_type_param_type(value_arg, _ty(value_arg, context), context);
   em := context.base.emitter;
   code_len_before := em.code.len();
   drop_code := generate_drop_code_for_value(value_code.clone(), &value_type, context);

@@ -307,7 +307,7 @@ test("SocketAddr Eq, Ord, Clone and use as a HashMap key", {
   assert(hash_one(&a) == hash_one(&b), "equal socket addresses hash equal");
   assert(hash_one(&a) != hash_one(&c), "a differing port changes the hash");
   // The point of all four: a connection table keyed by peer.
-  conns := HashMap(SocketAddr, i32).new();
+  mut(conns) := HashMap(SocketAddr, i32).new();
   conns.insert(a, i32(1));
   conns.insert(c, i32(2));
   assert(conns.len() == usize(2), "two distinct keys");

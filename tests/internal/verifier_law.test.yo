@@ -54,13 +54,13 @@ _join :: (fn(xs : &ArrayList(String), sep : &String) -> String)({
     if(i > usize(0), {
       out.push_string(sep.clone());
     });
-    out.push_string(match(xs.get(i), .Some(x) => x, .None => String.new()));
+    out.push_string(match(xs.get_cloned(i), .Some(x) => x, .None => String.new()));
     i = (i + usize(1));
   });
   out
 });
 _arm :: (fn(rel_path : &String, std_path : &String) -> unit)({
-  targets := ArrayList(String).new();
+  mut(targets) := ArrayList(String).new();
   targets.push(rel_path.clone());
   targets.push(mm_resolve_entry_abs(rel_path.clone(), std_path.clone()));
   take_verify_tasks();
@@ -123,7 +123,7 @@ _count_outcome :: (fn(reports : &ArrayList(VerifyFnReport), want : &String) -> u
   while(i < reports.len(), {
     match(
       reports.get(i),
-      .Some(rp) => if(rp.outcome == want, {
+      .Some(rp) => if(rp.outcome == want.*, {
         n = (n + usize(1));
       }),
       .None => ()
@@ -279,10 +279,10 @@ test("law: a false law REFUTES with a counter-example", {
         match(
           rp.obligations.get(i),
           .Some(obl) => match(
-            obl.verdict,
+            &obl.verdict,
             .Refuted(ce) => {
               // x = 0 is where "abs is strictly positive" fails.
-              if(_join(&ce, String.from("; ")).contains(String.from("x = #x0000000000000000")), {
+              if(_join(&ce.*, String.from("; ")).contains(String.from("x = #x0000000000000000")), {
                 named = true;
               });
             },

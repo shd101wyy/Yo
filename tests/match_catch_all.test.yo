@@ -107,12 +107,12 @@ impl(
 test("a match on an owned nullable-pointer Option releases its scrutinee", {
   before := g_tracked_disposed;
   {
-    xs := ArrayList(Tracked).new();
+    mut(xs) := ArrayList(Tracked).new();
     xs.push(Tracked(v : i32(1)));
     xs.push(Tracked(v : i32(2)));
     (mut(sum) : i32) = i32(0);
     (mut(i) : usize) = usize(0);
-    positions := ArrayList(usize).new();
+    mut(positions) := ArrayList(usize).new();
     positions.push(usize(0));
     positions.push(usize(1));
     while(i < positions.len(), {
@@ -142,7 +142,7 @@ test("a match on an owned nullable-pointer Option releases its scrutinee", {
 // uninitialized (issues/fixed/a-literal-sub-pattern-in-a-variant-arm-skips-the-wildcard-arm.md).
 TagLit :: enum(Leaf(n : i32), Node(k : i32, flag : bool));
 test("a literal sub-pattern miss takes the wildcard arm", {
-  pick :: (fn(e : &TagLit) -> i32)(match(e, .Node(k, true) => k, _ => i32(-1)));
+  pick :: (fn(e : &TagLit) -> i32)(match(e, .Node(k, true) => k.*, _ => i32(-1)));
   picki :: (fn(e : &TagLit) -> i32)(match(e, .Node(7, f) => i32(70), _ => i32(-1)));
   assert(pick(TagLit.Node(i32(5), true)) == i32(5), "the guarded arm runs when its literal holds");
   assert(pick(TagLit.Node(i32(6), false)) == i32(-1), "a bool literal miss reaches the wildcard");
@@ -154,9 +154,9 @@ test("literal arms that jointly cover their variant still split by payload", {
   both :: (fn(e : &TagLit) -> i32)(
     match(
       e,
-      .Node(k, true) => k,
-      .Node(k, false) => (i32(0) - k),
-      .Leaf(n) => n
+      .Node(k, true) => k.*,
+      .Node(k, false) => (i32(0) - k.*),
+      .Leaf(n) => n.*
     )
   );
   assert(both(TagLit.Node(i32(5), true)) == i32(5), "the true arm");

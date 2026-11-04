@@ -5,14 +5,14 @@
 // (issues/fixed/verifier-contracted-generic-fn-is-silently-unverified.md).
 pragma(Pragma.Verify);
 
-identity :: (fn(generic(T : Type), x : &T, ensures(result == x)) -> (result : T))(x);
+identity :: (fn(generic(T : Type), x : &T, ensures(result == x)) -> (result : T))(x.*);
 
 pick :: (
   fn(generic(T : Type), b : bool, x : &T, y : &T, ensures(cond(b => (result == x), true => (result == y)))) -> (result : T)
 )(
   cond(
-    b => x,
-    true => y
+    b => x.*,
+    true => y.*
   )
 );
 

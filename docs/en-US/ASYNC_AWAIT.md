@@ -428,7 +428,7 @@ method's `io.async` capture what it needs by value; a Future made through a
 
 Counter :: struct(n : i32);
 bump :: (fn(c : &mut Counter, io : Io) -> Impl(Future(unit, Io)))(
-  io.async({ &mut c }(io : Io) => {
+  io.async({ c : &mut c.* }(io : Io) => {
     c.n = (c.n + i32(1));
   })
 );
@@ -757,7 +757,7 @@ worklist instead: one future in total, and the pending work is an `ArrayList`.
 // Split `n` into halves until every piece is 1, awaiting once per piece.
 count_leaves :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
   io.async((io : Io) => {
-    stack := ArrayList(i32).new();
+    mut(stack) := ArrayList(i32).new();
     stack.push(n);
     (leaves : i32) = i32(0);
     while(stack.len() > usize(0), {
@@ -829,7 +829,7 @@ work :: (fn(id : i32, io : Io) -> Impl(Future(i32, Io)))(
 run_all :: (fn(io : Io) -> Impl(Future(i32, Io)))(
   io.async((io : Io) => {
     io.await(yield(io), io);
-    handles := ArrayList(JoinHandle(i32)).new();
+    mut(handles) := ArrayList(JoinHandle(i32)).new();
     handles.push(io.spawn(work(i32(1), io), io));
     handles.push(io.spawn(work(i32(2), io), io));
     // ✓ a real suspension point: the other tasks run while this one waits
@@ -912,7 +912,7 @@ operand may be a borrowing Future: its borrow ends when the call does.
 
 Counter :: struct(n : i32);
 bump_after :: (fn(c : &mut Counter, ms : u64, io : Io) -> Impl(Future(i32, Io)))(
-  io.async({ &mut c, ms }(io : Io) => {
+  io.async({ c : &mut c.*, ms }(io : Io) => {
     io.await(sleep(ms), io);
     c.n = (c.n + i32(1));
     c.n

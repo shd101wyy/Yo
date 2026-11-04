@@ -63,7 +63,7 @@ _load_fixture_tasks :: (fn(rel : &String, io : Io) -> ArrayList(VerifyTask))({
     )
   );
   std_path := resolve_std_path();
-  targets := ArrayList(String).new();
+  mut(targets) := ArrayList(String).new();
   targets.push(rel.clone());
   targets.push(mm_resolve_entry_abs(rel.clone(), std_path.clone()));
   take_verify_tasks();
@@ -98,7 +98,7 @@ _task_func_val :: (fn(tasks : &ArrayList(VerifyTask)) -> EvalValue)(
 _count_contract_asserts :: (fn(func_val : &EvalValue, label : &String) -> usize)(
   match(
     func_val,
-    .FuncVal(fvd, _) => _count_labeled_asserts_in_body(&fvd.*.body, label.clone(), true),
+    .FuncVal(fvd, _) => _count_labeled_asserts_in_body(&fvd.*.*.body, label.clone(), true),
     _ => usize(0)
   )
 );
@@ -107,14 +107,14 @@ _count_contract_asserts :: (fn(func_val : &EvalValue, label : &String) -> usize)
 _count_contract_asserts_in_ast :: (fn(func_val : &EvalValue, label : &String) -> usize)(
   match(
     func_val,
-    .FuncVal(fvd, _) => _count_labeled_asserts_in_body(&fvd.*.body, label.clone(), false),
+    .FuncVal(fvd, _) => _count_labeled_asserts_in_body(&fvd.*.*.body, label.clone(), false),
     _ => usize(0)
   )
 );
 _count_labeled_asserts_in_body :: (fn(body : &AstExpr, label : &String, emitted_only : bool) -> usize)(
   match(
     body,
-    .FnCall(_, _, Rc(args), _, _) => if(emitted_only, _count_labeled_asserts(&emitted_block_statements(args), label.clone()), _count_labeled_asserts(&args, label.clone())),
+    .FnCall(_, _, Rc(args), _, _) => if(emitted_only, _count_labeled_asserts(&emitted_block_statements(args.clone()), label.clone()), _count_labeled_asserts(&args.*, label.clone())),
     .Atom(_, _) => usize(0)
   )
 );
@@ -166,12 +166,12 @@ test("strip drops proved ensures asserts and keeps the requires guard (mechanism
   nr := _count_contract_asserts(&fv, String.from("requires failed"));
   assert(ne == usize(1), `pre-strip: one ensures assert (got ${ne.to_string()})`);
   assert(nr == usize(1), `pre-strip: one requires guard (got ${nr.to_string()})`);
-  unproved := ArrayList(bool).new();
+  mut(unproved) := ArrayList(bool).new();
   unproved.push(false);
   stripped_u := strip_proved_ensures_asserts(&fv, &unproved);
   assert(stripped_u == usize(0), "an unproved ensures keeps its assert");
   assert(_count_contract_asserts(&fv, String.from("ensures failed")) == usize(1), "post-strip (unproved): the ensures assert stays");
-  proved := ArrayList(bool).new();
+  mut(proved) := ArrayList(bool).new();
   proved.push(true);
   stripped := strip_proved_ensures_asserts(&fv, &proved);
   assert(stripped == usize(1), `exactly the ensures assert is stripped, got ${stripped.to_string()}`);

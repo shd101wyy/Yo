@@ -29,12 +29,12 @@ impl(
     WalkCursor : usize,
     WalkElem : i32,
     walk_start : (fn(self : &Self) -> usize)(usize(0)),
-    walk_valid : (fn(self : &Self, cur : &usize) -> bool)(cur < self.items.len()),
+    walk_valid : (fn(self : &Self, cur : &usize) -> bool)(cur.* < self.items.len()),
     walk_ref : (fn(self : &Self, cur : &usize) -> &i32)({
-      assert(cur < self.items.len(), "Bag: walk cursor out of bounds");
-      self.items.ptr().unwrap().add(cur)
+      assert(cur.* < self.items.len(), "Bag: walk cursor out of bounds");
+      self.items.ptr().unwrap().add(cur.*)
     }),
-    walk_next : (fn(self : &Self, cur : &usize) -> usize)(cur + usize(1))
+    walk_next : (fn(self : &Self, cur : &usize) -> usize)(cur.* + usize(1))
   )
 );
 // The write half: `for(&mut bag, …)` needs `BorrowedWalkMut` too; a type with
@@ -43,8 +43,8 @@ impl(
   Bag,
   BorrowedWalkMut(
     walk_elem : (fn(self : &mut Self, cur : &usize) -> &mut i32)({
-      assert(cur < self.items.len(), "Bag: walk cursor out of bounds");
-      self.items.ptr().unwrap().add(cur)
+      assert(cur.* < self.items.len(), "Bag: walk cursor out of bounds");
+      self.items.ptr().unwrap().add(cur.*)
     })
   )
 );
@@ -54,7 +54,7 @@ impl(
     self.version = (self.version + i32(1));
   }),
   reset : (fn(self : &mut Self) -> unit)({
-    self = Bag(items : ArrayList(i32).new(), version : i32(0));
+    self.* = Bag(items : ArrayList(i32).new(), version : i32(0));
   })
 );
 test("borrowed for over a user collection; &mut self methods assert on the object, not the handle slot", {
@@ -65,8 +65,8 @@ test("borrowed for over a user collection; &mut self methods assert on the objec
   assert(bag.version == i32(1), "field store through &mut self outside any borrow");
   mut(total) := i32(0);
   for(&mut bag, x => {
-    total = (total + x);
-    x = (x * i32(10));
+    total = (total + x.*);
+    x.* = (x.* * i32(10));
   });
   assert(total == i32(3), "the user collection's BorrowedWalk drives the borrowed loop");
   assert((bag.items(usize(0)) == i32(10)) && (bag.items(usize(1)) == i32(20)), "elements mutated in place");
@@ -109,7 +109,7 @@ impl(
   })
 );
 test("borrowed for: a read-only user method with a typed local, through an alias, does not trip the flag", {
-  xs := ArrayList(i32).new();
+  mut(xs) := ArrayList(i32).new();
   xs.push(i32(6));
   xs.push(i32(8));
   bag := Bag(items : xs, version : i32(0));
@@ -139,12 +139,12 @@ impl(
   sum_read_walk : (fn(self : &Self) -> i32)({
     mut(total) := i32(0);
     for(&self.items, x => {
-      total = (total + x);
+      total = (total + x.*);
     });
     total
   }),
   doubled_copy : (fn(self : &Self) -> ArrayList(i32))({
-    copy := self.items.clone();
+    mut(copy) := self.items.clone();
     mut(i) := usize(0);
     while(i < copy.len(), {
       copy(i) = (copy(i) * i32(2));
@@ -155,7 +155,7 @@ impl(
   })
 );
 test("borrowed for: user methods iterating the collection or mutating a fresh copy, through an alias, do not trip the flag", {
-  xs := ArrayList(i32).new();
+  mut(xs) := ArrayList(i32).new();
   xs.push(i32(2));
   xs.push(i32(3));
   bag := Bag(items : xs, version : i32(0));
@@ -187,15 +187,15 @@ impl(
     WalkCursor : usize,
     WalkElem : i32,
     walk_start : (fn(self : &Self) -> usize)(usize(0)),
-    walk_valid : (fn(self : &Self, cur : &usize) -> bool)(cur < self.items.len()),
-    walk_ref : (fn(self : &Self, cur : &usize) -> &i32)(&self.items(cur)),
-    walk_next : (fn(self : &Self, cur : &usize) -> usize)(cur + usize(1))
+    walk_valid : (fn(self : &Self, cur : &usize) -> bool)(cur.* < self.items.len()),
+    walk_ref : (fn(self : &Self, cur : &usize) -> &i32)(&self.items(cur.*)),
+    walk_next : (fn(self : &Self, cur : &usize) -> usize)(cur.* + usize(1))
   )
 );
 impl(
   FwdBag,
   BorrowedWalkMut(
-    walk_elem : (fn(self : &mut Self, cur : &usize) -> &mut i32)(&mut self.items(cur))
+    walk_elem : (fn(self : &mut Self, cur : &usize) -> &mut i32)(&mut self.items(cur.*))
   )
 );
 test("borrowed for over a ref collection forwarding the inner projection: no assert, in-place mutation, flag released", {
@@ -204,8 +204,8 @@ test("borrowed for over a ref collection forwarding the inner projection: no ass
   bag.items.push(i32(2));
   mut(total) := i32(0);
   for(&mut bag, x => {
-    total = (total + x);
-    x = (x * i32(10));
+    total = (total + x.*);
+    x.* = (x.* * i32(10));
   });
   assert(total == i32(3), "the forwarded projection drives the borrowed loop");
   assert((bag.items(usize(0)) == i32(10)) && (bag.items(usize(1)) == i32(20)), "elements mutated in place through the forwarded projection");
@@ -365,15 +365,15 @@ impl(
     WalkCursor : usize,
     WalkElem : i32,
     walk_start : (fn(self : &Self) -> usize)(usize(0)),
-    walk_valid : (fn(self : &Self, cur : &usize) -> bool)(cur < self.items.len()),
-    walk_ref : (fn(self : &Self, cur : &usize) -> &i32)(self.items.ptr().unwrap().add(cur)),
-    walk_next : (fn(self : &Self, cur : &usize) -> usize)(cur + usize(1))
+    walk_valid : (fn(self : &Self, cur : &usize) -> bool)(cur.* < self.items.len()),
+    walk_ref : (fn(self : &Self, cur : &usize) -> &i32)(self.items.ptr().unwrap().add(cur.*)),
+    walk_next : (fn(self : &Self, cur : &usize) -> usize)(cur.* + usize(1))
   )
 );
 impl(
   VBag,
   BorrowedWalkMut(
-    walk_elem : (fn(self : &mut Self, cur : &usize) -> &mut i32)(self.items.ptr().unwrap().add(cur))
+    walk_elem : (fn(self : &mut Self, cur : &usize) -> &mut i32)(self.items.ptr().unwrap().add(cur.*))
   )
 );
 impl(
@@ -427,7 +427,7 @@ impl(
 // parameters instead of giving up on the call.
 keep_in_cell :: (fn(b : VBag) -> RefCell(VBag))(RefCell(VBag).new(b));
 test("borrowed for: read-only methods iterating a value field by value, through an alias, do not trip the flag", {
-  xs := ArrayList(i32).new();
+  mut(xs) := ArrayList(i32).new();
   xs.push(i32(1));
   xs.push(i32(2));
   c := Counter(n : usize(3));
@@ -451,7 +451,7 @@ test("borrowed for: read-only methods iterating a value field by value, through 
     seen = (seen + other.sum_copy());
     cell := keep_in_cell(other);
     seen = (seen + cell.with(v => v.items.len()));
-    x = (x * i32(10));
+    x.* = (x.* * i32(10));
   });
   // Each method sums 0 + 1 + 2 = 3; six methods plus the two-element list, two elements.
   assert(seen == usize(40), "every by-value iteration of a value field runs without the entry assert");
@@ -468,7 +468,7 @@ test("borrowed for: read-only methods iterating a value field by value, through 
 // (issues/fixed/2026-10-30-box-layout-trips-the-interior-reference-flag-in-a-borrowed-for-through-an-alias.md).
 keep_boxed :: (fn(b : VBag) -> Box(VBag))(Box.new(b));
 test("borrowed for: boxing the object through an alias does not trip the flag", {
-  xs := ArrayList(i32).new();
+  mut(xs) := ArrayList(i32).new();
   xs.push(i32(1));
   xs.push(i32(2));
   c := Counter(n : usize(3));
@@ -486,7 +486,7 @@ test("borrowed for: boxing the object through an alias does not trip the flag", 
   for(&mut bag, x => {
     kept := keep_boxed(other);
     seen = (seen + kept.*.items.len());
-    x = (x * i32(10));
+    x.* = (x.* * i32(10));
   });
   assert(seen == usize(4), "the boxed handle reads the list once per element");
   assert((bag.items(usize(0)) == i32(10)) && (bag.items(usize(1)) == i32(20)), "the borrowed loop still mutates in place");
@@ -501,7 +501,7 @@ test("borrowed for: boxing the object through an alias does not trip the flag", 
 keep_rc :: (fn(b : VBag) -> Rc(VBag))(Rc.new(b));
 keep_rc_new :: (fn(b : VBag) -> Rc(VBag))(Rc.new(b));
 test("borrowed for: moving the object into an Rc cell through an alias does not trip the flag", {
-  xs := ArrayList(i32).new();
+  mut(xs) := ArrayList(i32).new();
   xs.push(i32(1));
   xs.push(i32(2));
   c := Counter(n : usize(3));
@@ -521,7 +521,7 @@ test("borrowed for: moving the object into an Rc cell through an alias does not 
     seen = (seen + kept.*.items.len());
     kept_new := keep_rc_new(other);
     seen = (seen + kept_new.*.items.len());
-    x = (x * i32(10));
+    x.* = (x.* * i32(10));
   });
   assert(seen == usize(8), "each cell reads the list once per element");
   assert((bag.items(usize(0)) == i32(10)) && (bag.items(usize(1)) == i32(20)), "the borrowed loop still mutates in place");
@@ -547,7 +547,7 @@ owner_is_global :: (fn(b : VBag) -> bool)({
   __yo_rc_owner_ctx(cell).is_none() && __yo_rc_owner_vtable(cell).is_none()
 });
 test("borrowed for: reading the object's owner through an alias does not trip the flag", {
-  xs := ArrayList(i32).new();
+  mut(xs) := ArrayList(i32).new();
   xs.push(i32(1));
   xs.push(i32(2));
   c := Counter(n : usize(3));
@@ -566,7 +566,7 @@ test("borrowed for: reading the object's owner through an alias does not trip th
     if(owner_is_global(other), {
       seen = (seen + usize(1));
     });
-    x = (x * i32(10));
+    x.* = (x.* * i32(10));
   });
   assert(seen == usize(2), "a global object has no owner, read once per element");
   assert((bag.items(usize(0)) == i32(10)) && (bag.items(usize(1)) == i32(20)), "the borrowed loop still mutates in place");
@@ -602,15 +602,15 @@ impl(
     WalkCursor : usize,
     WalkElem : i32,
     walk_start : (fn(self : &Self) -> usize)(usize(0)),
-    walk_valid : (fn(self : &Self, cur : &usize) -> bool)(cur < self.items.len()),
-    walk_ref : (fn(self : &Self, cur : &usize) -> &i32)(self.items.ptr().unwrap().add(cur)),
-    walk_next : (fn(self : &Self, cur : &usize) -> usize)(cur + usize(1))
+    walk_valid : (fn(self : &Self, cur : &usize) -> bool)(cur.* < self.items.len()),
+    walk_ref : (fn(self : &Self, cur : &usize) -> &i32)(self.items.ptr().unwrap().add(cur.*)),
+    walk_next : (fn(self : &Self, cur : &usize) -> usize)(cur.* + usize(1))
   )
 );
 impl(
   NBag,
   BorrowedWalkMut(
-    walk_elem : (fn(self : &mut Self, cur : &usize) -> &mut i32)(self.items.ptr().unwrap().add(cur))
+    walk_elem : (fn(self : &mut Self, cur : &usize) -> &mut i32)(self.items.ptr().unwrap().add(cur.*))
   )
 );
 impl(
@@ -638,7 +638,7 @@ test("borrowed for: a callee that only writes a scalar global does not trip the 
     seen = (seen + other.label_ctor());
     seen = (seen + other.label_plain());
     seen = (seen + other.label_stats());
-    x = (x + i32(1));
+    x.* = (x.* + i32(1));
   });
   // Three labels of length 2, two elements.
   assert(seen == usize(12), "every read-only label runs without the entry assert");
@@ -655,7 +655,7 @@ test("read walk over user collections: walk_ref through a pointer and through a 
   bag.items.push(i32(2));
   (mut(total) : i32) = i32(0);
   for(&bag, x => {
-    total = (total + x);
+    total = (total + x.*);
     total = (total + bag.version); // the body may read the walked collection
   });
   assert(total == i32(3), "Bag's walk_ref drives the read walk");
@@ -664,7 +664,7 @@ test("read walk over user collections: walk_ref through a pointer and through a 
   fwd.items.push(i32(6));
   total = i32(0);
   for(&fwd, x => {
-    total = (total + x);
+    total = (total + x.*);
   });
   assert(total == i32(11), "the forwarded read projection drives the read walk");
   fwd.items.push(i32(7));
@@ -682,18 +682,18 @@ impl(
     WalkCursor : usize,
     WalkElem : i32,
     walk_start : (fn(self : &Self) -> usize)(usize(0)),
-    walk_valid : (fn(self : &Self, cur : &usize) -> bool)(cur < self.items.len()),
-    walk_ref : (fn(self : &Self, cur : &usize) -> &i32)(&self.items(cur)),
-    walk_next : (fn(self : &Self, cur : &usize) -> usize)(cur + usize(1))
+    walk_valid : (fn(self : &Self, cur : &usize) -> bool)(cur.* < self.items.len()),
+    walk_ref : (fn(self : &Self, cur : &usize) -> &i32)(&self.items(cur.*)),
+    walk_next : (fn(self : &Self, cur : &usize) -> usize)(cur.* + usize(1))
   )
 );
 test("a read-only user collection is a read-walk source", {
-  rb := ReadOnlyBag(items : ArrayList(i32).new());
+  mut(rb) := ReadOnlyBag(items : ArrayList(i32).new());
   rb.items.push(i32(4));
   rb.items.push(i32(5));
   (mut(total) : i32) = i32(0);
   for(&rb, x => {
-    total = (total + x);
+    total = (total + x.*);
   });
   assert(total == i32(9), "the forwarded walk_ref needs no pragma");
 });

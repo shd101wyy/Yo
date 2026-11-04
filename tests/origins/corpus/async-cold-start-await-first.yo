@@ -5,7 +5,7 @@ _run :: (fn(io : Io) -> Impl(Future(unit, Io)))(
   io.async((io : Io) => {
     mut(x) := i32(1);
     fut := io.async({ &mut x }(io : Io) => {
-      x = (x + i32(1));
+      x.* = (x.* + i32(1));
     });
     io.await(fut, io);
     x = i32(5);

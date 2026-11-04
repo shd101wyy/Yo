@@ -100,7 +100,7 @@ _render_contract_block :: (
     sb.write_string(String.from(" · ghost_fn (spec-only, never called at runtime)"));
   });
   sb.write_string(`\n\nverification mode: ${mode}\n`);
-  (ri : usize) = usize(0);
+  (mut(ri) : usize) = usize(0);
   while(ri < reqs.len(), {
     match(
       reqs.get(ri),
@@ -111,7 +111,7 @@ _render_contract_block :: (
     );
     ri = (ri + usize(1));
   });
-  (ei : usize) = usize(0);
+  (mut(ei) : usize) = usize(0);
   while(ei < enss.len(), {
     match(
       enss.get(ei),
@@ -140,7 +140,7 @@ _render_contract_block :: (
 _find_token_at :: (
   fn(tokens : &ArrayList(Token), line : usize, character : usize) -> Option(Token)
 )({
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   n := tokens.len();
   while(i < n, {
     t := match(
@@ -182,7 +182,7 @@ _collect_candidates :: (
     },
     .FnCall(_, func_box, Rc(args), _, _) => {
       recur(&func_box, target, out);
-      (i : usize) = usize(0);
+      (mut(i) : usize) = usize(0);
       while(i < args.len(), {
         match(
           args.get(i),
@@ -199,7 +199,7 @@ _collect_candidates :: (
 _best_candidate :: (
   fn(cands : &ArrayList(AstExpr), info_table : &ExprInfoTable) -> Option(AstExpr)
 )({
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < cands.len(), {
     match(
       cands.get(i),
@@ -220,10 +220,10 @@ _best_candidate :: (
 _select_best_variable :: (
   fn(vars : &ArrayList(Variable), target : &Token) -> Option(Variable)
 )({
-  (best_visible : Option(Variable)) = Option(Variable).None;
-  (best_row : usize) = usize(0);
-  (best_col : usize) = usize(0);
-  (i : usize) = usize(0);
+  (mut(best_visible) : Option(Variable)) = Option(Variable).None;
+  (mut(best_row) : usize) = usize(0);
+  (mut(best_col) : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < vars.len(), {
     v := match(
       vars.get(i),
@@ -323,7 +323,7 @@ _classify_roles :: (fn(e : &AstExpr, roles : &AtomRoles) -> unit)({
     .FnCall(_, func_box, Rc(args), is_infix, _) => {
       callee := match(
         func_box,
-        .Atom(_, _) => ast_expr_text(&func_box).*,
+        .Atom(_, _) => ast_expr_text(&func_box).*.clone(),
         .FnCall(_, _, _, _, _) => String.new()
       );
       cond(

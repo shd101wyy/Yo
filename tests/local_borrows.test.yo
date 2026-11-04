@@ -22,7 +22,7 @@ List :: struct(head : Option(Node));
 (mut(g_count) : i32) = i32(0);
 g_list := List(head : .None);
 bump :: (fn(n : &mut i32) -> unit)({
-  n = (n + i32(1));
+  n.* = (n.* + i32(1));
 });
 take_string :: (fn(sink(s) : String) -> usize)(s.len());
 noop :: (fn() -> unit)(());
@@ -40,13 +40,13 @@ test("imm borrow of a field of a value struct", {
   mut(p) := Point(x : i32(1), y : i32(2));
   px := &p.x;
   p.y = i32(5);
-  assert(px == i32(1), "a sibling field stays writable while px is live");
+  assert(px.* == i32(1), "a sibling field stays writable while px is live");
   assert(p.y == i32(5), "sibling write landed");
 });
 test("after an imm borrow's last use its place is writable again", {
   mut(x) := i32(1);
   y := &x;
-  v := y;
+  v := y.*;
   x = i32(2);
   assert((v == i32(1)) && (x == i32(2)), "the write after the last use is accepted");
 });
@@ -55,7 +55,7 @@ test("after an imm borrow's last use its place is writable again", {
 test("mut borrow writes through, and the place is free after its last use", {
   mut(x) := i32(1);
   y := &mut x;
-  y = i32(5);
+  y.* = i32(5);
   assert(x == i32(5), "the write through y landed in x, read after y's last use");
   x = i32(6);
   assert(x == i32(6), "x is writable after y's last use");
@@ -70,8 +70,8 @@ test("sibling fields of a value struct are borrowed independently", {
   mut(p) := Point(x : i32(1), y : i32(2));
   a := &mut p.x;
   b := &mut p.y;
-  a = i32(10);
-  b = i32(20);
+  a.* = i32(10);
+  b.* = i32(20);
   assert((p.x == i32(10)) && (p.y == i32(20)), "both writes landed");
   mut(sh) := Shape(origin : Point(x : i32(0), y : i32(0)), name : String.from("sq"));
   o := &mut sh.origin;
@@ -83,7 +83,7 @@ test("a sibling field is readable while a mut borrow of another field is live", 
   mut(p) := Point(x : i32(1), y : i32(7));
   a := &mut p.x;
   v := p.y;
-  a = v;
+  a.* = v;
   assert(p.x == i32(7), "read the sibling, wrote through a");
 });
 test("a borrow's last use in one arm leaves the other arm free", {
@@ -92,7 +92,7 @@ test("a borrow's last use in one arm leaves the other arm free", {
   y := &mut x;
   cond(
     c => {
-      y = i32(2);
+      y.* = i32(2);
     },
     true => {
       x = i32(3);
@@ -105,7 +105,7 @@ test("a borrow declared in a loop body is fresh each iteration", {
   mut(i) := i32(0);
   while(i < i32(3), {
     acc := &mut total;
-    acc = (acc + i);
+    acc.* = (acc.* + i);
     i = (i + i32(1));
   });
   assert(total == i32(3), "0 + 1 + 2");
@@ -114,20 +114,20 @@ test("a borrow of a borrow keeps its source borrowed, and both write the same pl
   mut(sh) := Shape(origin : Point(x : i32(0), y : i32(0)), name : String.from("sq"));
   a := &mut sh.origin;
   b := &mut a.y;
-  b = i32(3);
+  b.* = i32(3);
   a.x = i32(4);
   assert((sh.origin.y == i32(3)) && (sh.origin.x == i32(4)), "b writes into a's target");
 });
 test("a borrow of a module-level place with no call in its range", {
   c := &mut g_count;
-  c = (c + i32(7));
+  c.* = (c.* + i32(7));
   assert(g_count == i32(7), "written through c; the read is after c's last use");
   g_count = i32(0);
 });
 test("a mut borrow passed to a mut parameter", {
   mut(x) := i32(1);
   y := &mut x;
-  bump(&mut y);
+  bump(&mut y.*);
   bump(y);
   assert(x == i32(3), "both calls wrote x through y");
 });
@@ -135,7 +135,7 @@ test("an object field borrow pins the object; the cell is the unit", {
   h := Holder(n : i32(1), s : String.from("h"));
   {
     n := &mut h.n;
-    n = (n + i32(1));
+    n.* = (n.* + i32(1));
   };
   assert(h.n == i32(2), "written through the pinned object");
   assert(ref_count(h) == usize(1), "the pin was released at the borrow's scope end");
@@ -153,7 +153,7 @@ append :: (fn(list : &mut List, v : i32) -> unit)({
       .None => ()
     );
   });
-  cur = .Some(Node(value : v, next : .None));
+  cur.* = .Some(Node(value : v, next : .None));
 });
 sum_list :: (fn(list : &List) -> i32)({
   (mut(total) : i32) = i32(0);
@@ -216,7 +216,7 @@ comptime_expect_error(
   imm_assign_rejected :: (fn() -> unit)({
     x := i32(1);
     y := &x;
-    y = i32(2);
+    y.* = i32(2);
   }),
   "is a `&` borrow, which is read-only"
 );
@@ -240,7 +240,7 @@ comptime_expect_error(
   imm_to_mut_parameter_rejected :: (fn() -> unit)({
     x := i32(1);
     y := &x;
-    bump(&mut y);
+    bump(&mut y.*);
   }),
   "is a `&` borrow, which is read-only"
 );
@@ -266,7 +266,7 @@ comptime_expect_error(
 );
 comptime_expect_error(
   mutating_method_under_imm_rejected :: (fn() -> unit)({
-    s := String.from("a");
+    mut(s) := String.from("a");
     y := &s;
     s.push_str("b");
     _n := y.len();
@@ -345,7 +345,7 @@ comptime_expect_error(
     i := i32(0);
     y := &mut x;
     while(i < i32(3), {
-      y = (y + i32(1));
+      y.* = (y.* + i32(1));
       x = i32(0);
       i = (i + i32(1));
     });
@@ -365,7 +365,7 @@ comptime_expect_error(
 comptime_expect_error(
   module_level_borrow_across_a_call_rejected :: (fn() -> unit)({
     c := &mut g_count;
-    c = i32(1);
+    c.* = i32(1);
     noop();
     c = i32(2);
   }),
@@ -382,7 +382,7 @@ comptime_expect_error(
     mut(xs) := ArrayList(i32).new();
     xs.push(i32(1));
     c := &mut g_count;
-    c = i32(1);
+    c.* = i32(1);
     for(&mut xs, x => {
       x = i32(2);
     });
@@ -451,7 +451,7 @@ comptime_expect_error(
     match(
       cur,
       .Some(n) => {
-        d := &cur;
+        d := &cur.*;
         cur = &mut n.next;
         _b := d.is_some();
       },
@@ -551,13 +551,13 @@ comptime_expect_error(
 ret_scalar :: (fn() -> i32)({
   x := i32(1);
   y := &x;
-  v := y;
+  v := y.*;
   v
 });
 ret_through_op :: (fn() -> i32)({
   x := i32(1);
   y := &x;
-  y + i32(0)
+  y.* + i32(0)
 });
 test("copying a borrow out before returning the copy is the way out", {
   assert(ret_scalar() == i32(1), "`v := y` reads through the borrow and v owns the copy");
@@ -577,20 +577,20 @@ test("a closure parameter named like a live borrow does not extend the borrow", 
   match(
     cur,
     .Some(v) => {
-      v = (v * i32(3));
+      v.* = (v.* * i32(3));
     },
     .None => ()
   );
   r := match(o, .Some(v) => v, .None => i32(0));
   result.with_mut(cur => {
-    cur = r;
+    cur.* = r;
   });
-  assert(result.with(c => c) == i32(6), "the write through the closure parameter landed");
+  assert(result.with(c => c.*) == i32(6), "the write through the closure parameter landed");
 });
 test("a match arm pattern that binds the name shadows the borrow", {
   (mut(o) : i32) = i32(1);
   cur := &mut o;
-  cur = i32(5);
+  cur.* = i32(5);
   v := (o + i32(0));
   other := Option(i32).Some(i32(4));
   w := match(
@@ -603,7 +603,7 @@ test("a match arm pattern that binds the name shadows the borrow", {
 test("a named fn literal parameter named like a live borrow does not extend the borrow", {
   (mut(o) : i32) = i32(1);
   cur := &mut o;
-  cur = i32(5);
+  cur.* = i32(5);
   v := (o + i32(0));
   f := (fn(cur : i32) -> i32)(cur + i32(1));
   w := f(i32(2));
@@ -661,7 +661,7 @@ test("a match binding used only in an if condition ends at the condition", {
   fa := GroupArm(pattern : .Some(usize(1)), classic : true);
   match(
     &fa.pattern,
-    .Some(fidx) => if(fidx == usize(1), {
+    .Some(fidx) => if(fidx.* == usize(1), {
       fa.classic = false;
     }),
     .None => ()
@@ -676,7 +676,7 @@ test("a match binding that is an if condition by itself ends at the condition", 
   fa := GroupFlag(flag : .Some(true), classic : true);
   match(
     &fa.flag,
-    .Some(b) => if(b, {
+    .Some(b) => if(b.*, {
       fa.classic = false;
     }),
     .None => ()
@@ -684,25 +684,27 @@ test("a match binding that is an if condition by itself ends at the condition", 
   assert(!fa.classic, "the arm wrote the sibling field after the binding's last use");
 });
 
-// `.*` on a borrow names no place: a borrow is a mode on the binding, not a
-// type, and it reads as its value; `.*` on a borrow arrives with decision 43.
-// Before E0920 the deref fell through the property lookup and surfaced as
-// the evaluator internal "check_if_function_parameter_matches_argument: arg
-// has no ExprInfo" far from the `.*`
+// `.*` on a reference reads the value it refers to, and the bare name in a
+// by-value position is E0926 (decision 43 step 2 N1e-1). Before N1e-1 the
+// deref was E0920, and before E0920 it fell through the property lookup and
+// surfaced as the evaluator internal "check_if_function_parameter_matches_argument:
+// arg has no ExprInfo" far from the `.*`
 // (issues/fixed/2026-10-17-a-dereference-of-a-borrow-parameter-in-a-closure-reports-an-internal-error.md).
-comptime_expect_error({
-  _deref_of_borrow_param :: (fn(v : &i32) -> bool)(v.* < i32(20));
+_deref_of_borrow_param :: (fn(v : &i32) -> bool)(v.* < i32(20));
+_deref_of_local_borrow :: (fn() -> bool)({
+  x := i32(25);
+  y := &x;
+  y.* < i32(20)
+});
+test("`.*` reads through a borrow parameter and a local borrow", {
   n := i32(5);
-  _deref_of_borrow_param(&n);
-}, "does not apply to a borrow");
+  assert(_deref_of_borrow_param(&n), "a borrow parameter reads its referent");
+  assert(!_deref_of_local_borrow(), "a local borrow reads its referent");
+});
 comptime_expect_error({
-  _deref_of_local_borrow :: (fn() -> bool)({
-    x := i32(5);
-    y := &x;
-    y.* < i32(20)
-  });
-  _deref_of_local_borrow();
-}, "does not apply to a borrow");
-// The borrow itself reads as its value (`v < i32(20)`, tested above), and a
-// type's OWN field named `*` keeps its field read (std's atomics; pinned by
-// `check ./std`, which reads `self.*` on `self : &Self` throughout).
+  _bare_borrow_param :: (fn(v : &i32) -> bool)(v.* < i32(20));
+  n := i32(5);
+  _bare_borrow_param(&n);
+}, "reading the value it refers to is spelled `v.*`");
+// A type's OWN field named `*` keeps its field read (std's atomics; pinned
+// by `check ./std`, which reads `self.*` on `self : &Self` throughout).

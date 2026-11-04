@@ -53,7 +53,7 @@ _load_reports :: (
     )
   );
   std_path := resolve_std_path();
-  targets := ArrayList(String).new();
+  mut(targets) := ArrayList(String).new();
   targets.push(rel_path.clone());
   targets.push(mm_resolve_entry_abs(rel_path.clone(), std_path.clone()));
   _ := take_verify_tasks();
@@ -83,7 +83,7 @@ _load_reports :: (
   verify_and_strip_tasks(&cfg, &binary, take_verify_tasks())
 });
 _reports_dump :: (fn(reports : &ArrayList(VerifyFnReport)) -> String)({
-  ids := ArrayList(String).new();
+  mut(ids) := ArrayList(String).new();
   (mut(i) : usize) = usize(0);
   while(i < reports.len(), {
     match(
@@ -95,13 +95,13 @@ _reports_dump :: (fn(reports : &ArrayList(VerifyFnReport)) -> String)({
     );
     i = (i + usize(1));
   });
-  sb := StringBuilder.new();
+  mut(sb) := StringBuilder.new();
   (mut(j) : usize) = usize(0);
   while(j < ids.len(), {
     if(j > usize(0), {
       sb.write_string(String.from(", "));
     });
-    sb.write_string(ids.get(j).unwrap().clone());
+    sb.write_string(ids(j).clone());
     j = (j + usize(1));
   });
   sb.to_string()
@@ -113,7 +113,7 @@ _count_outcome :: (fn(reports : &ArrayList(VerifyFnReport), outcome : &String) -
     match(
       reports.get(i),
       .Some(rp) => {
-        if(rp.outcome == outcome, {
+        if(rp.outcome == outcome.*, {
           n = (n + usize(1));
         });
       },
@@ -632,7 +632,7 @@ test("a lexicographic decreases(i, j) proves a recursion no single measure can; 
   );
 });
 
-test("a for over a list (value form and read walk) verifies with produced(xs); a double push, a skipped count and a growing list fail", {
+test("a for over a list (the read walk) verifies with produced(xs); a double push and a skipped count fail", {
   if(!_have_z3(), {
     return(());
   });
@@ -654,13 +654,16 @@ test("a for over a list (value form and read walk) verifies with produced(xs); a
     _count_outcome(&bad_reports, String.from("refuted")) == usize(2),
     `copy_twice and count_all must refute, got: [${_reports_dump(&bad_reports)}]`
   );
+  // A body that grows the list it walks (`grow`) no longer reaches the
+  // verifier: the walk borrows the list for the whole loop, so the push is
+  // E0911 at evaluation (VBD B8, ArrayList is a value).
   assert(
-    _count_outcome(&bad_reports, String.from("subset-error")) == usize(1),
-    `grow must be a subset error, got: [${_reports_dump(&bad_reports)}]`
+    _count_outcome(&bad_reports, String.from("subset-error")) == usize(0),
+    `no subset error is left in the fixture, got: [${_reports_dump(&bad_reports)}]`
   );
 });
 
-test("distinct(a, b) lets a body mutate one of two same-typed lists; one list passed as both refutes", {
+test("distinct(a, b) lets a body mutate one of two same-typed lists; without it the body is a subset error", {
   if(!_have_z3(), {
     return(());
   });
@@ -678,9 +681,11 @@ test("distinct(a, b) lets a body mutate one of two same-typed lists; one list pa
     io,
     true
   );
+  // One list passed as both (`append_all(xs, xs)`) no longer reaches the
+  // verifier: it is E0910 at evaluation, so the fixture leaves it out.
   assert(
-    _count_outcome(&bad_reports, String.from("refuted")) == usize(1),
-    `onto_itself must refute, got: [${_reports_dump(&bad_reports)}]`
+    _count_outcome(&bad_reports, String.from("refuted")) == usize(0),
+    `no refutation is left in the fixture, got: [${_reports_dump(&bad_reports)}]`
   );
   assert(
     _count_outcome(&bad_reports, String.from("subset-error")) == usize(1),

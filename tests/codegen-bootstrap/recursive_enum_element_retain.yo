@@ -17,6 +17,7 @@ JV :: enum(
   Arr(items : ArrayList(Self)),
   Num(value : f64)
 );
+derive(JV, Clone);
 
 P :: ref(struct(depth : i32));
 
@@ -26,7 +27,7 @@ impl(
     cond(
       (self.depth > i32(0)) => {
         self.depth = (self.depth - i32(1));
-        items := ArrayList(JV).new();
+        mut(items) := ArrayList(JV).new();
         while(true, {
           match(
             recur(self),
@@ -55,7 +56,7 @@ main :: (fn() -> unit)({
     r,
     .Ok(jv) => match(
       jv,
-      .Arr(items) => match(items(usize(0)), .Str(sv) => sv, _ => String.from("?")),
+      .Arr(items) => match((items(usize(0))).clone(), .Str(sv) => sv, _ => String.from("?")),
       _ => String.from("??")
     ),
     .Err(_) => String.from("E")

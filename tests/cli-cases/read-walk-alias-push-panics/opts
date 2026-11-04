@@ -1,9 +1,11 @@
-# The read walk `for(&xs, …)` (B7a) lets its body READ the walked collection,
-# so the body can share its handle (`h := xs`) and grow it through the share.
-# The loop's guard holds `xs`'s runtime borrow flag, so the push panics
-# instead of reallocating the buffer under the live element reference `x`.
+# The read walk `for(&xs, …)` (B7a) lets its body READ the walked collection.
+# Before the value flip (B8) the body could share its handle (`h := xs`) and
+# grow it through the share, and the loop's guard (`xs`'s runtime borrow flag)
+# made that push panic instead of reallocating the buffer under the live
+# element reference `x`. A value list has no shared handle: `h := xs` moves
+# the walked list, which the loop's `&` borrow rejects at compile time (E0911).
 # A user wrapper whose `walk_ref` forwards into an inner collection is NOT
 # covered by the flag:
 # issues/2026-10-24-a-forwarded-walk-leaves-the-inner-collection-unguarded.md.
-stdout_keep_match=panic: container operation while an interior reference.*
+stdout_keep_match=error\[E0911\]: Cannot move .xs. here: .for_coll0. borrows .xs. with .&. and is still live.*|--> src/main\.yo:[0-9]+:[0-9]+
 timeout=300

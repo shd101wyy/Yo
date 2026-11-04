@@ -1,0 +1,5 @@
+error[E0901]: use of moved value: cannot copy what `ArrayList(Holder).get` copies (its element), whose type `Holder` is move-only (it is neither `Copy` nor `Clone`), and it cannot be moved either: it is the value a pointer or reference points to, and that storage still owns it (a dereference copies, it never moves).
+--> main.yo:11:19
+help: `Holder` holds a counted handle (`Rc`/`Arc`), so it is copied only explicitly (plans/VALUES_BY_DEFAULT.md decision 17), and it is not `Clone`: give it `derive(Holder, Clone)`, lend it to a `&T` parameter, or move its whole owner. Read it in place with `holders(i)`, write through it with `holders.with(i, ...)`, or give the element `Clone` (a `derive`) to copy it.
+help: run `yo explain E0901` for more information
+note: raised here, inside the standard library

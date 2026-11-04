@@ -39,35 +39,35 @@ test("path_collection_new returns empty list", {
 // path_contains_path
 // ---------------------------------------------------------------------------
 test("path_contains_path — prefix is contained", {
-  p1 := ArrayList(String).new();
+  mut(p1) := ArrayList(String).new();
   p1.push(String.from("x"));
   p1.push(String.from("a"));
-  p2 := ArrayList(String).new();
+  mut(p2) := ArrayList(String).new();
   p2.push(String.from("x"));
   assert(path_contains_path(&p1, &p2), "p1=[x,a] contains p2=[x]");
 });
 test("path_contains_path — equal paths are contained", {
-  p1 := ArrayList(String).new();
+  mut(p1) := ArrayList(String).new();
   p1.push(String.from("x"));
   p1.push(String.from("a"));
-  p2 := ArrayList(String).new();
+  mut(p2) := ArrayList(String).new();
   p2.push(String.from("x"));
   p2.push(String.from("a"));
   assert(path_contains_path(&p1, &p2), "equal paths are contained");
 });
 test("path_contains_path — shorter path is not contained in longer prefix", {
-  p1 := ArrayList(String).new();
+  mut(p1) := ArrayList(String).new();
   p1.push(String.from("x"));
-  p2 := ArrayList(String).new();
+  mut(p2) := ArrayList(String).new();
   p2.push(String.from("x"));
   p2.push(String.from("a"));
   assert(!path_contains_path(&p1, &p2), "[x] does not contain [x,a]");
 });
 test("path_contains_path — disjoint paths are not contained", {
-  p1 := ArrayList(String).new();
+  mut(p1) := ArrayList(String).new();
   p1.push(String.from("x"));
   p1.push(String.from("a"));
-  p2 := ArrayList(String).new();
+  mut(p2) := ArrayList(String).new();
   p2.push(String.from("y"));
   assert(!path_contains_path(&p1, &p2), "disjoint paths not contained");
 });
@@ -75,17 +75,17 @@ test("path_contains_path — disjoint paths are not contained", {
 // path_conflicts_with_path
 // ---------------------------------------------------------------------------
 test("path_conflicts_with_path — conflicting paths", {
-  p1 := ArrayList(String).new();
+  mut(p1) := ArrayList(String).new();
   p1.push(String.from("x"));
-  p2 := ArrayList(String).new();
+  mut(p2) := ArrayList(String).new();
   p2.push(String.from("x"));
   p2.push(String.from("a"));
   assert(path_conflicts_with_path(&p1, &p2), "[x] conflicts with [x,a]");
 });
 test("path_conflicts_with_path — non-conflicting paths", {
-  p1 := ArrayList(String).new();
+  mut(p1) := ArrayList(String).new();
   p1.push(String.from("x"));
-  p2 := ArrayList(String).new();
+  mut(p2) := ArrayList(String).new();
   p2.push(String.from("y"));
   assert(!path_conflicts_with_path(&p1, &p2), "[x] does not conflict with [y]");
 });
@@ -93,25 +93,25 @@ test("path_conflicts_with_path — non-conflicting paths", {
 // path_collection_conflicts_with_path_collection
 // ---------------------------------------------------------------------------
 test("path_collection_conflicts — overlapping collections", {
-  p1 := ArrayList(String).new();
+  mut(p1) := ArrayList(String).new();
   p1.push(String.from("a"));
-  p2 := ArrayList(String).new();
+  mut(p2) := ArrayList(String).new();
   p2.push(String.from("a"));
   p2.push(String.from("b"));
-  c1 := ArrayList(ArrayList(String)).new();
+  mut(c1) := ArrayList(ArrayList(String)).new();
   c1.push(p1);
-  c2 := ArrayList(ArrayList(String)).new();
+  mut(c2) := ArrayList(ArrayList(String)).new();
   c2.push(p2);
   assert(path_collection_conflicts_with_path_collection(&c1, &c2), "collections conflict");
 });
 test("path_collection_conflicts — disjoint collections", {
-  p1 := ArrayList(String).new();
+  mut(p1) := ArrayList(String).new();
   p1.push(String.from("x"));
-  p2 := ArrayList(String).new();
+  mut(p2) := ArrayList(String).new();
   p2.push(String.from("y"));
-  c1 := ArrayList(ArrayList(String)).new();
+  mut(c1) := ArrayList(ArrayList(String)).new();
   c1.push(p1);
-  c2 := ArrayList(ArrayList(String)).new();
+  mut(c2) := ArrayList(ArrayList(String)).new();
   c2.push(p2);
   assert(!path_collection_conflicts_with_path_collection(&c1, &c2), "disjoint collections don't conflict");
 });
@@ -153,7 +153,7 @@ test("has_any_control_flow", {
 test("merge_control_flows", {
   r := control_flow_of(ControlFlowKind.Return);
   b := control_flow_of(ControlFlowKind.Break);
-  flows := ArrayList(ControlFlowFlags).new();
+  mut(flows) := ArrayList(ControlFlowFlags).new();
   flows.push(r);
   flows.push(b);
   merged := merge_control_flows(&flows);
@@ -224,6 +224,6 @@ test("new_expr_info creates ExprInfo with None optionals", {
 test("new_expr_info env field is set", {
   env := Environment.new(Rc.new(String.from("mod/path")));
   info := new_expr_info(&env, Rc.new(TypeValueNode.Int(u8(32), true)));
-  ty_ok := match(&info.ty, Rc(.Int(bits, signed)) => ((bits == u8(32)) && signed), _ => false);
+  ty_ok := match(&info.ty, Rc(.Int(bits, signed)) => ((bits.* == u8(32)) && signed.*), _ => false);
   assert(ty_ok, "ty is i32");
 });

@@ -155,7 +155,7 @@ impl(
   unwrap : (fn(self : Self) -> T)(__yo_panic("not an Option"))
 );
 `;
-  found := ArrayList(Class1Extraction).new();
+  mut(found) := ArrayList(Class1Extraction).new();
   scan_class1_extractions(String.from("fixture.yo"), &src, &mut found);
   assert(found.len() == usize(3), "three panicking Option methods; Widget is not a class-1 receiver");
   assert(_class1_status(&found, "Option", "unwrap") == "gated", "unwrap is gated");
@@ -175,7 +175,7 @@ test("class-1 scan: every trapping Option/Result extraction in the prelude is ga
     )
   );
   src := io.await(fs_file.read_to_string(Path.new(String.from("std/prelude.yo")), io), IoExn(io : io, exn : exn));
-  found := ArrayList(Class1Extraction).new();
+  mut(found) := ArrayList(Class1Extraction).new();
   scan_class1_extractions(String.from("std/prelude.yo"), &src, &mut found);
   (mut(ungated) : usize) = usize(0);
   (mut(i) : usize) = usize(0);

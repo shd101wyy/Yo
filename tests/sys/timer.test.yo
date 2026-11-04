@@ -14,34 +14,34 @@ test("Test Io timer", {
   // =========================================================================
   value := Rc.new(RefCell(i32).new(0));
   task1 := io.async({ value : Rc.clone(value) }(io : Io) => {
-    assert(value.with(cur => cur) == 0); // 0
+    assert(value.with(cur => cur.*) == 0); // 0
     value.with_mut(cur => {
-      cur = (cur + 1);
+      cur.* = (cur.* + 1);
     }); // 1
     unsafe(printf("Timer test: sleeping 50ms...\n"));
     result := io.await(sleep(u64(50)), io);
     unsafe(printf("Timer test: woke up with result=%d\n", result));
     assert(result > i32(0));
-    assert(value.with(cur => cur) == 3); // yield() resumed block2 first, which set it to 3
+    assert(value.with(cur => cur.*) == 3); // yield() resumed block2 first, which set it to 3
     value.with_mut(cur => {
-      cur = (cur + 1);
+      cur.* = (cur.* + 1);
     }); // 4
     unsafe(printf("Timer test: sleeping 3000ms...\n"));
     result2 := io.await(sleep(u64(3000)), io);
     unsafe(printf("Timer test: woke up with result=%d\n", result2));
     assert(result2 > i32(0));
-    assert(value.with(cur => cur) == 4); // 4
+    assert(value.with(cur => cur.*) == 4); // 4
     unsafe(printf("All async timer tests passed!\n"));
   });
   task2 := io.async((io : Io) => {
-    assert(value.with(cur => cur) == 1); // 1
+    assert(value.with(cur => cur.*) == 1); // 1
     value.with_mut(cur => {
-      cur = (cur + 1);
+      cur.* = (cur.* + 1);
     }); // 2
     io.await(yield(io), io);
-    assert(value.with(cur => cur) == 2); // yield() resumes before sleep(50ms), nobody changed it
+    assert(value.with(cur => cur.*) == 2); // yield() resumes before sleep(50ms), nobody changed it
     value.with_mut(cur => {
-      cur = (cur + 1);
+      cur.* = (cur.* + 1);
     }); // 3
   });
   h1 := io.spawn(task1, io);
@@ -61,12 +61,12 @@ test("Test zero-length sleep completes", {
     r1 := io.await(sleep(u64(0)), io);
     assert(r1 >= i32(0), "sleep(0) awaited inside a task should complete without error");
     inner.with_mut(cur => {
-      cur = true;
+      cur.* = true;
     });
   });
   h := io.spawn(t, io);
   _r := h.await(io);
-  assert(inner.with(cur => cur), "the zero-sleep task body should have run to completion");
+  assert(inner.with(cur => cur.*), "the zero-sleep task body should have run to completion");
 });
 // io_uring submission is deferred to the loop's next poll, so a single tick
 // that starts more operations than the ring has SQ entries (1024) used to run
@@ -81,7 +81,7 @@ _one_sleep :: (fn(io : Io) -> Impl(Future(i32, Io)))(
   })
 );
 _many_sleeps_in_one_tick :: (fn(io : Io) -> unit)({
-  hs := ArrayList(JoinHandle(i32)).new();
+  mut(hs) := ArrayList(JoinHandle(i32)).new();
   (mut(i) : usize) = usize(0);
   while(i < usize(1500), i = (i + usize(1)), {
     hs.push(io.spawn(_one_sleep(io), io));

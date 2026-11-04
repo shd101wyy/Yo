@@ -71,7 +71,7 @@ _not_take :: (fn(comptime(T) : Type, p : *_NotCell(T)) -> bool)({
   was_clear
 });
 _not_flag :: (fn(comptime(T) : Type, p : *bool) -> bool)(!unsafe(p.*));
-_not_ptr :: (fn(b : &Box(bool)) -> *bool)(addr_of(b.*));
+_not_ptr :: (fn(b : &Box(bool)) -> *bool)(addr_of(b.*.*.*.*));
 _NotWrap :: (fn(comptime(T) : Type) -> comptime(Type))(struct(st : Box(_NotCell(T))));
 impl(
   generic(T : Type),
@@ -112,7 +112,7 @@ _not_store_only :: (fn(comptime(T) : Type, p : *_NotStoreCell) -> bool)({
   unsafe(consume(p.*.flag = false));
   true
 });
-_not_store_cell :: (fn(b : &Box(_NotStoreCell)) -> *_NotStoreCell)(addr_of(b.*));
+_not_store_cell :: (fn(b : &Box(_NotStoreCell)) -> *_NotStoreCell)(addr_of(b.*.*));
 test("a store in a comptime-parameterized fn first called as an operand of ! is emitted", {
   c := Box.new(_NotStoreCell(flag : true));
   assert(!!_not_store_take(i32, _not_store_cell(&c)), "the first call reads the set flag");

@@ -83,9 +83,9 @@ comptime_expect_error({
 // Positive runtime guardrail: safe code with no pointer surface
 // compiles and runs cleanly.
 swap :: (fn(a : &mut i32, b : &mut i32) -> unit)({
-  tmp := a;
-  a = b;
-  b = tmp;
+  tmp := a.*;
+  a.* = b.*;
+  b.* = tmp;
 });
 test("safe code uses inout, no raw pointers needed", {
   mut(x) := i32(1);
@@ -154,18 +154,21 @@ comptime_expect_error({
   c := m.ctrl;
   c
 });
-{
+// A test body, not a module-level block: a value map written through
+// `&mut self` is a local (a mutable module-level binding cannot be lent,
+// decision 47).
+test("a HashMap is safe to hold and use", {
   { HashMap } :: import("std/collections/hash_map");
-  m := HashMap(i32, i32).new();
+  mut(m) := HashMap(i32, i32).new();
   m.insert(i32(1), i32(2));
   assert(m.len() == usize(1), "a HashMap is safe to hold and use");
-};
+});
 // `IndexUnchecked.index_unchecked` skips the bounds check; codegen calls it
 // only at a subscript the verifier proved in bounds. Its result is a raw
 // pointer, so safe code cannot call it directly, not even to dereference at
 // once (plans/backlog/SAFE_MODE_5B_CONTAINER_BOUNDS_ELISION.md).
 comptime_expect_error({
-  xs := ArrayList(i32).new();
+  mut(xs) := ArrayList(i32).new();
   xs.push(i32(1));
   xs.index_unchecked(usize(5))
 });
@@ -173,7 +176,7 @@ comptime_expect_error({
 // way: the V2b split once gave both twins projection results, which safe code
 // could call (issues/fixed/2026-10-14-safe-code-can-call-the-unchecked-index-twins.md).
 comptime_expect_error({
-  xs := ArrayList(i32).new();
+  mut(xs) := ArrayList(i32).new();
   xs.push(i32(1));
   xs.index_unchecked_mut(usize(5))
 });

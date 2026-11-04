@@ -47,7 +47,7 @@ test("Test JoinHandle abort returns None", {
   fut := io.async({ ran : Rc.clone(ran) }(io : Io) => {
     io.await(sleep(u64(50)), io);
     ran.with_mut(cur => {
-      cur = true;
+      cur.* = true;
     });
     return(i32(9));
   });
@@ -56,7 +56,7 @@ test("Test JoinHandle abort returns None", {
   assert(h.state() == FutureState.Aborted, "abort should mark the task Aborted");
   r := h.await(io);
   assert(match(r, .Some(_) => false, .None => true), "awaiting an aborted task should give .None");
-  assert(!ran.with(cur => cur), "the aborted body must not resume past its suspension point");
+  assert(!ran.with(cur => cur.*), "the aborted body must not resume past its suspension point");
 });
 // ---------------------------------------------------------------------------
 // 4. The aborted task's pending timer completion fires safely afterwards
@@ -68,7 +68,7 @@ test("Test aborted task pending completion is safe", {
   fut := io.async({ ran2 : Rc.clone(ran2) }(io : Io) => {
     io.await(sleep(u64(10)), io);
     ran2.with_mut(cur => {
-      cur = true;
+      cur.* = true;
     });
     return(i32(3));
   });
@@ -79,7 +79,7 @@ test("Test aborted task pending completion is safe", {
   // Outlive the aborted task's 10ms timer so its continuation fires into the
   // aborted state machine while the loop is still alive.
   io.await(sleep(u64(30)), io);
-  assert(!ran2.with(cur => cur), "aborted body must not have resumed when its timer fired");
+  assert(!ran2.with(cur => cur.*), "aborted body must not have resumed when its timer fired");
 });
 // ---------------------------------------------------------------------------
 // 5. abort() after completion is a no-op
@@ -170,7 +170,7 @@ test("aborting a task aborts the named child future it awaits", {
   child := io.async({ ran : Rc.clone(ran) }(io : Io) => {
     io.await(sleep(u64(50)), io);
     ran.with_mut(cur => {
-      cur = true;
+      cur.* = true;
     });
     i32(1)
   });
@@ -182,7 +182,7 @@ test("aborting a task aborts the named child future it awaits", {
   io.await(yield(io), io);
   hp.abort();
   io.await(sleep(u64(80)), io);
-  assert(!ran.with(cur => cur), "and its body never resumed past its sleep");
+  assert(!ran.with(cur => cur.*), "and its body never resumed past its sleep");
   assert(hp.await(io).is_none(), "the parent reads .None");
 });
 test("aborting a task leaves a task it joins running", {
@@ -190,7 +190,7 @@ test("aborting a task leaves a task it joins running", {
   shared := io.async({ ran : Rc.clone(ran) }(io : Io) => {
     io.await(sleep(u64(20)), io);
     ran.with_mut(cur => {
-      cur = true;
+      cur.* = true;
     });
     i32(5)
   });
@@ -204,7 +204,7 @@ test("aborting a task leaves a task it joins running", {
   // joined task is detached and keeps running.
   assert(hw.await(io).is_none(), "the waiter reads .None");
   io.await(sleep(u64(60)), io);
-  assert(ran.with(cur => cur), "the joined task's body ran to the end");
+  assert(ran.with(cur => cur.*), "the joined task's body ran to the end");
 });
 // ---------------------------------------------------------------------------
 // A user method named `await` is an ordinary method: codegen lowers
@@ -311,7 +311,7 @@ test("a dropped handle detaches its task, which runs to the end", {
       io.async({ ran : Rc.clone(ran) }(io : Io) => {
         io.await(sleep(u64(10)), io);
         ran.with_mut(cur => {
-          cur = true;
+          cur.* = true;
         });
         ()
       }),
@@ -319,13 +319,13 @@ test("a dropped handle detaches its task, which runs to the end", {
     );
   };
   io.await(sleep(u64(40)), io);
-  assert(ran.with(cur => cur), "the detached task finished on its own");
+  assert(ran.with(cur => cur.*), "the detached task finished on its own");
 });
 // issues/fixed/a-method-call-on-a-move-only-element-disposes-a-copy-of-it.md:
 // a method call on an element of a handle list borrowed it through a copy
 // whose drop released the task a second time.
 test("a handle list: borrow elements in place, pop to own one", {
-  hs := ArrayList(JoinHandle(i32)).new();
+  mut(hs) := ArrayList(JoinHandle(i32)).new();
   hs.push(io.spawn(io.async((io : Io) => i32(1)), io));
   hs.push(
     io.spawn(

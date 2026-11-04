@@ -45,7 +45,7 @@ reaches the second call's inference, which then unifies it with `i32`.
 The callee's forall `T` is one `SomeT` node shared by every call of `count`;
 argument checking against an expected `ArrayList(T)` that has not been
 freshened per call would carry the first call's solution into the second.
-`issues/questions/2026-10-20-typevalue-constraint-lists-are-stamped-in-place.md`
+`issues/fixed/2026-10-20-typevalue-constraint-lists-are-stamped-in-place.md`
 describes the related in-place writes to a `SomeT`'s lists. Not root-caused.
 
 ## Root cause

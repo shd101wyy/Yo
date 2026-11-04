@@ -89,7 +89,7 @@ emit_warning :: (fn(d : &Diagnostic) -> unit)({
       pi = (pi + usize(1));
     });
     if(!seen, {
-      g_pending_warnings.with_mut(xs => xs.push(d.clone()));
+      g_pending_warnings.with_mut({ &d }(xs) => xs.push(d.clone()));
     });
   });
 });
@@ -324,6 +324,18 @@ E_ORIGIN_MISMATCH :: "E0923";
 /// inside a value points outward, so moving a value never dangles anything
 /// it holds (O5: no `Pin`).
 E_ORIGIN_NAMES_ITSELF :: "E0924";
+/// A reference binding read or written as a whole value without `.*`
+/// (decision 43 step 2, N1e-1; plans/backlog/REFERENCES_AND_ORIGINS.md O1,
+/// step-2 consultation Q7/Q8, VERDICTS-13 §11): a `&T`/`&mut T` parameter, a
+/// local borrow, a borrow capture or a `for`/`match` borrow binding used as
+/// an operator operand, a by-value argument, an initializer, a result, the
+/// target of `r = v`, or under `&r`/`&mut r`. A reference is not its
+/// referent: `r.*` reads or writes the value, operators never dereference
+/// (`n + 1` with `n : &i32` is this error), and `.field`, `.method()` and
+/// `r(i)` auto-dereference. Outside std and the compiler tree only, which
+/// keep the old reading until N3 (`is_deref_rule_exempt`). E0920 is retired
+/// there: `.*` on a reference reads its referent.
+E_REFERENCE_READ_WITHOUT_DEREF :: "E0926";
 // Comptime.
 E_COMPTIME_ARGUMENT :: "E1101";
 E_COMPTIME_OVERFLOW :: "E1102";
@@ -603,8 +615,12 @@ edit_distance :: (fn(a : &String, b : &String) -> usize)({
 (g_std_export_names : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
 (g_std_export_modules : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
 register_std_export :: (fn(name : &String, module_spec : &String) -> unit)({
-  g_std_export_names.with_mut(xs => xs.push(name.clone()));
-  g_std_export_modules.with_mut(xs => xs.push(module_spec.clone()));
+  // Hoisted owned clones: `with_mut` takes its callback by value, and a
+  // closure capturing a borrow (`&name`) is second-class (E0909).
+  n_ := name.clone();
+  m_ := module_spec.clone();
+  g_std_export_names.with_mut({ n_ }(xs) => xs.push(n_));
+  g_std_export_modules.with_mut({ m_ }(xs) => xs.push(m_));
 });
 std_export_index_size :: (fn() -> usize)(g_std_export_names.with(xs => xs.len()));
 /// Every std module spec exporting `name`, in registration (sorted-walk) order.
@@ -699,7 +715,7 @@ _render_block :: (fn(d : &Diagnostic, w : usize, color : bool, out : &mut ArrayL
       .Some(line) => {
         if(mi == usize(0), {
           match(
-            d.code,
+            &d.code,
             .Some(c) => out.push(`${_colorize(`${prefix}[${c}]`, sev_ansi, color)}: ${line}`),
             .None => out.push(`${_colorize(&prefix, sev_ansi, color)}: ${line}`)
           );
@@ -734,7 +750,7 @@ _render_block :: (fn(d : &Diagnostic, w : usize, color : bool, out : &mut ArrayL
   });
   if(d.help.is_some(), {
     h := match(
-      d.help,
+      &d.help,
       .Some(hh) => hh.clone(),
       .None => String.new()
     );
@@ -742,7 +758,7 @@ _render_block :: (fn(d : &Diagnostic, w : usize, color : bool, out : &mut ArrayL
   });
   if(d.code.is_some(), {
     c := match(
-      d.code,
+      &d.code,
       .Some(cc) => cc.clone(),
       .None => String.new()
     );
@@ -805,7 +821,7 @@ render_diagnostics_short :: (fn(diagnostics : &ArrayList(Diagnostic)) -> String)
         prefix := _severity_prefix(d.severity);
         head := _first_message_line(&d.message);
         match(
-          d.code,
+          &d.code,
           .Some(c) => out.push(
             `${_display_path(&d.span.path)}:${(d.span.row + usize(1))}:${(d.span.col + usize(1))}: ${prefix}[${c}]: ${head}`
           ),
@@ -852,7 +868,7 @@ render_diagnostics_json :: (fn(diagnostics : &ArrayList(Diagnostic)) -> String)(
         keys.push(String.from("code"));
         vals.push(
           match(
-            d.code,
+            &d.code,
             .Some(c) => JsonValue.Str(value : c.clone()),
             .None => JsonValue.Null
           )
@@ -870,7 +886,7 @@ render_diagnostics_json :: (fn(diagnostics : &ArrayList(Diagnostic)) -> String)(
         keys.push(String.from("repair"));
         vals.push(
           match(
-            d.repair,
+            &d.repair,
             .Some(r) => {
               rk := ArrayList(String).new();
               rv := ArrayList(JsonValue).new();
@@ -894,7 +910,7 @@ render_diagnostics_json :: (fn(diagnostics : &ArrayList(Diagnostic)) -> String)(
         keys.push(String.from("help"));
         vals.push(
           match(
-            d.help,
+            &d.help,
             .Some(h) => JsonValue.Str(value : h.clone()),
             .None => JsonValue.Null
           )
@@ -940,13 +956,13 @@ render_diagnostics_sarif :: (fn(diagnostics : &ArrayList(Diagnostic)) -> String)
     match(
       diagnostics.get_cloned(ri),
       .Some(d) => match(
-        d.code,
+        &d.code,
         .Some(c) => {
           (seen : bool) = false;
           (ki : usize) = usize(0);
           while(ki < rule_ids.len(), {
             match(
-              rule_ids.get(ki),
+              rule_ids.get_cloned(ki),
               .Some(k) => if(k == c, {
                 seen = true;
               }),
@@ -989,7 +1005,7 @@ render_diagnostics_sarif :: (fn(diagnostics : &ArrayList(Diagnostic)) -> String)
         keys := ArrayList(String).new();
         vals := ArrayList(JsonValue).new();
         match(
-          d.code,
+          &d.code,
           .Some(c) => {
             keys.push(String.from("ruleId"));
             vals.push(JsonValue.Str(value : c.clone()));
@@ -1035,7 +1051,7 @@ render_diagnostics_sarif :: (fn(diagnostics : &ArrayList(Diagnostic)) -> String)
           vals.push(JsonValue.Array(items : locs));
         });
         match(
-          d.repair,
+          &d.repair,
           .Some(r) => {
             fkeys := ArrayList(String).new();
             fvals := ArrayList(JsonValue).new();
@@ -1154,7 +1170,7 @@ export(
 );
 export(E_USE_OF_MOVED_VALUE, E_CANNOT_REASSIGN, E_MAYBE_UNINITIALIZED, E_NO_MATCHING_CALL);
 export(E_OPTIMISTIC_PANIC, E_CONFLICTING_IMPL, E_CANNOT_INFER, E_DYN_UNCALLABLE, E_ARGUMENT_LABEL_MISMATCH, E_AMBIGUOUS_METHOD, E_DISCARDED_MUST_USE, E_BARE_CALLABLE_INTO_DYN);
-export(E_NEVER_FULLY_EVALUATED, E_FORWARD_REFERENCE, E_MOVED_ON_SOME_PATHS, E_WRITE_THROUGH_BORROW, E_BORROW_ESCAPES, E_BORROW_CONFLICT, E_LOCAL_BORROW_CONFLICT, E_LOCAL_BORROW_ESCAPES, E_CLOSURE_TRAIT_TOO_WEAK, E_BORROW_MARKER_MISMATCH, E_EXPLICIT_DESTRUCTOR_CALL, E_GLOBAL_LENT_TO_CALL, E_IMMUTABLE_BINDING_WRITE, E_COMPTIME_BINDING_RUNTIME_WRITE, E_RC_PAYLOAD_WRITE, E_DEREF_OF_BORROW, E_ADDR_OF_BORROW_PARAM, E_ORIGIN_NOT_DECLARED, E_ORIGIN_MISMATCH, E_ORIGIN_NAMES_ITSELF);
+export(E_NEVER_FULLY_EVALUATED, E_FORWARD_REFERENCE, E_MOVED_ON_SOME_PATHS, E_WRITE_THROUGH_BORROW, E_BORROW_ESCAPES, E_BORROW_CONFLICT, E_LOCAL_BORROW_CONFLICT, E_LOCAL_BORROW_ESCAPES, E_CLOSURE_TRAIT_TOO_WEAK, E_BORROW_MARKER_MISMATCH, E_EXPLICIT_DESTRUCTOR_CALL, E_GLOBAL_LENT_TO_CALL, E_IMMUTABLE_BINDING_WRITE, E_COMPTIME_BINDING_RUNTIME_WRITE, E_RC_PAYLOAD_WRITE, E_DEREF_OF_BORROW, E_ADDR_OF_BORROW_PARAM, E_ORIGIN_NOT_DECLARED, E_ORIGIN_MISMATCH, E_ORIGIN_NAMES_ITSELF, E_REFERENCE_READ_WITHOUT_DEREF);
 export(E_COMPTIME_ARGUMENT, E_COMPTIME_OVERFLOW, E_COMPTIME_DIVISION_BY_ZERO, E_COMPTIME_RUNTIME_BINDING, E_COMPTIME_PARAM_DEFAULT);
 export(E_INTERNAL_COMPILER_ERROR);
 export(E_DEP_FETCH_FAILED, E_MANIFEST_NOT_FOUND, E_LOCK_MISMATCH, E_STORE_INTEGRITY_MISMATCH, E_NO_MATCHING_VERSION, E_INVALID_PACKAGE_NAME);

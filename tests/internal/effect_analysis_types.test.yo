@@ -53,7 +53,7 @@ test("effect_analysis_result_empty has no effects", {
   assert(r.effect_call_points.len() == usize(0), "no call points");
   assert(r.captured_variables.len() == usize(0), "no captured vars");
   assert(r.effect_parameter_name == "raise", "param name");
-  has_infos := match(r.effect_handler_infos, .Some(_) => true, .None => false);
+  has_infos := match(&r.effect_handler_infos, .Some(_) => true, .None => false);
   assert(!has_infos, "no handler infos");
 });
 test("EffectCallPoint base fields accessible", {
@@ -84,7 +84,7 @@ test("EffectCallPoint transitive flags can be set", {
   assert(eff_idx == usize(1), "effect_index");
 });
 test("EffectCallPoint operation_arg_types can be populated", {
-  args := ArrayList(TypeValue).new();
+  mut(args) := ArrayList(TypeValue).new();
   args.push(t_unit());
   ecp := EffectCallPoint(
     base : make_sp(usize(0)),
@@ -147,11 +147,11 @@ test("EffectHandlerInfo fields accessible", {
     operation_result_type : t_unit()
   );
   assert(info.effect_parameter_name == "raise", "param name");
-  has_field_path := match(info.effect_field_path, .Some(_) => true, .None => false);
+  has_field_path := match(&info.effect_field_path, .Some(_) => true, .None => false);
   assert(!has_field_path, "no field path");
 });
 test("EffectHandlerInfo with field path", {
-  path := ArrayList(String).new();
+  mut(path) := ArrayList(String).new();
   path.push(String.from("errors"));
   path.push(String.from("raise"));
   info := EffectHandlerInfo(
@@ -162,7 +162,7 @@ test("EffectHandlerInfo with field path", {
     operation_arg_types : ArrayList(TypeValue).new(),
     operation_result_type : t_unit()
   );
-  path_got := match(info.effect_field_path, .Some(p) => p.len(), .None => usize(0));
+  path_got := match(&info.effect_field_path, .Some(p) => p.len(), .None => usize(0));
   assert(path_got == usize(2), "field path length");
 });
 test("EffectAnalysisResult can hold effect_call_points", {
@@ -181,13 +181,13 @@ test("EffectAnalysisResult can hold effect_call_points", {
 test("EffectAnalysisResult variable_id_remapping", {
   r := effect_analysis_result_empty(String.from("exn"), t_unit());
   r.variable_id_remapping.insert(String.from("old_v0"), String.from("new_v0"));
-  got := r.variable_id_remapping.get(String.from("old_v0"));
+  got := r.variable_id_remapping.get_cloned(&String.from("old_v0"));
   result := match(got, .Some(v) => v, .None => String.from(""));
   assert(result == "new_v0", "remapping lookup");
 });
 test("EffectAnalysisResult effect_handler_infos can be set", {
   r := effect_analysis_result_empty(String.from("raise"), t_unit());
-  infos := ArrayList(EffectHandlerInfo).new();
+  mut(infos) := ArrayList(EffectHandlerInfo).new();
   infos.push(
     EffectHandlerInfo(
       effect_parameter_name : String.from("raise"),
@@ -199,6 +199,6 @@ test("EffectAnalysisResult effect_handler_infos can be set", {
     )
   );
   r.effect_handler_infos = Option(ArrayList(EffectHandlerInfo)).Some(infos);
-  count := match(r.effect_handler_infos, .Some(is) => is.len(), .None => usize(0));
+  count := match(&r.effect_handler_infos, .Some(is) => is.len(), .None => usize(0));
   assert(count == usize(1), "one handler info");
 });

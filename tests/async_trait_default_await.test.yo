@@ -19,7 +19,7 @@ AsyncReader :: trait(
     (
       (self, extra, io) ->
         io.async(e => {
-          a := e.io.await(Self.read(self, io), e);
+          a := e.io.await(Self.read(self.*, io), e);
           a + extra
         })
     ),
@@ -29,8 +29,8 @@ AsyncReader :: trait(
     (
       (self, io) ->
         io.async(e => {
-          a := e.io.await(Self.read(self, io), e);
-          b := e.io.await(Self.read(self, io), e);
+          a := e.io.await(Self.read(self.*, io), e);
+          b := e.io.await(Self.read(self.*, io), e);
           a + b
         })
     )
@@ -39,7 +39,7 @@ AsyncReader :: trait(
 /// same missing-function-body-context root cause.
 Doubler :: trait(
   base : (fn(self : &Self) -> usize),
-  (dbl : (fn(self : &Self) -> usize)) ?= (self -> return(Self.base(self) * usize(2)))
+  (dbl : (fn(self : &Self) -> usize)) ?= (self -> return(Self.base(self.*) * usize(2)))
 );
 Ra :: struct(k : usize);
 derive(Ra, Copy, Clone);

@@ -4,7 +4,11 @@
 # `inout` receiver, an `inout` argument or an assignment into the place), a
 # callee whose mutation mask is unresolved (`-unresolved`), and a write to a
 # closure's capture (`-capture`). Writes through a local, an `inout`
-# parameter or a `Box` are not listed.
+# parameter or a `Box` are not listed. Since the flip (B8) two of the listed
+# shapes are unrepresentable: a value list written through a `match` binding
+# of a map value is E0901 (the read copies a move-only value), and a write to
+# a value `for` binding is E0917; the fixture keeps an owned `get_cloned` copy
+# as a not-listed row in their place.
 env=YO_AUDIT_INOUT_BORROW=1
 stdout_keep_match=\[inout-borrow[a-z-]*\] main\.yo:[0-9]+:[0-9]+
 timeout=120

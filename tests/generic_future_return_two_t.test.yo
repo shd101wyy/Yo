@@ -25,10 +25,10 @@
 _Pair :: struct(lo : i32, hi : i32);
 derive(_Pair, Copy, Clone);
 _wrap_r :: (fn(generic(R : Type), v : &R, io : Io) -> Impl(Future(R, Io)))(
-  io.async((io : Io) => v)
+  io.async((io : Io) => v.*)
 );
 _wrap_t :: (fn(generic(T : Type), v : &T, io : Io) -> Impl(Future(T, Io)))(
-  io.async((io : Io) => v)
+  io.async((io : Io) => v.*)
 );
 test("a generic Impl(Future(R)) at two different R in one program", {
   a := io.await(_wrap_r(i32(7), io), io);

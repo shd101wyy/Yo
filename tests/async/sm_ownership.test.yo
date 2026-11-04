@@ -115,10 +115,12 @@ test("a nested io.async capturing a state machine's String retains it", {
     s := String.from("abcdef");
     t := Thing(n : i32(3));
     io.await(yield(io), io);
+    // The inner future owns its own String (a value since B8) and the Thing.
+    s2 := s.clone();
     r := io.await(
       io.async((io : Io) => {
         io.await(yield(io), io);
-        s.len() + usize(t.n)
+        s2.len() + usize(t.n)
       }),
       io
     );
@@ -281,9 +283,9 @@ test("a heap local reassigned in an arm after a loop await releases the old valu
 });
 
 // issues/fixed/an-aborted-task-releases-a-local-it-moved-before-its-await.md
-(g_kept_things : ArrayList(Thing)) = ArrayList(Thing).new();
+g_kept_things := RefCell(ArrayList(Thing)).new(ArrayList(Thing).new());
 _keep_thing :: (fn(sink(t) : Thing) -> unit)({
-  g_kept_things.push(t);
+  g_kept_things.with_mut({ t }(l) => l.push(t));
 });
 _move_then_sleep :: (fn(io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
@@ -300,7 +302,7 @@ test("an aborted task does not release a local it moved before its await", {
   h.abort();
   _r := h.await(io);
   assert(g_disposed == i32(0), "the moved value belongs to its new owner");
-  g_kept_things.clear();
+  g_kept_things.with_mut(l => l.clear());
   assert(g_disposed == i32(1), "the new owner releases it exactly once");
 });
 // issues/fixed/a-bare-block-in-an-io-async-body-keeps-its-locals-until-the-task-ends.md
@@ -373,7 +375,7 @@ _pin_across_await :: (fn(nap : u64, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
     mut(o) := Thing(n : i32(1));
     r := &mut o.n;
-    r = (r + i32(1));
+    r.* = (r.* + i32(1));
     o = Thing(n : i32(5));
     e.await(sleep(nap), e);
     o.n + i32(2)
@@ -399,7 +401,7 @@ test("a pinned object is released once when the task is aborted", {
 // issues/fixed/a-local-copied-from-a-captured-value-in-an-io-async-body-does-not-compile.md
 _alias_sleeper :: (fn(t : &Thing, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    s := t;
+    s := t.*;
     e.await(sleep(u64(50)), e);
     s.n
   })
@@ -467,7 +469,7 @@ impl(
     clone : (fn(self : &Self) -> Self)(Oops(thing : self.thing))
   )
 );
-_classify :: (fn(t : &Thing) -> Result(i32, Oops))(Result(i32, Oops).Err(Oops(thing : t)));
+_classify :: (fn(t : &Thing) -> Result(i32, Oops))(Result(i32, Oops).Err(Oops(thing : t.*)));
 _move_into_throw :: (fn(t : &Thing, io : Io) -> Impl(Future(i32, IoExn)))(
   io.async((e : IoExn) => {
     e.io.await(yield(e.io), e.io);
@@ -548,7 +550,7 @@ _take_n :: (fn(t : &Thing, io : Io) -> Impl(Future(i32, Io)))(
   })
 );
 _arg_dup_in_task :: (fn(keep : &ArrayList(Thing), io : Io) -> Impl(Future(i32, Io)))(
-  io.async((e : Io) => {
+  io.async({ keep : &keep.* }(e : Io) => {
     x := e.await(_take_n(&keep(usize(0)), e), e);
     x
   })
@@ -556,7 +558,7 @@ _arg_dup_in_task :: (fn(keep : &ArrayList(Thing), io : Io) -> Impl(Future(i32, I
 test("an argument read out of a container inside a task is released", {
   before := g_disposed;
   {
-    keep := ArrayList(Thing).new();
+    mut(keep) := ArrayList(Thing).new();
     keep.push(Thing(n : i32(7)));
     r := io.await(_arg_dup_in_task(&keep, io), io);
     assert(r == i32(7), "the task's value");
@@ -675,14 +677,17 @@ _count_later :: (fn(io : Io) -> Impl(Future(i32, Io)))(
 );
 _move_then_read :: (fn(io : Io) -> Impl(Future(_MvReport, Io)))(
   io.async((e : Io) => {
-    xs := ArrayList(Thing).new();
+    mut(xs) := ArrayList(Thing).new();
     xs.push(Thing(n : i32(1)));
     xs.push(Thing(n : i32(2)));
     e.await(yield(e), e);
-    _MvReport(items : xs, n : xs.len(), extra : e.await(_count_later(e), e))
+    // Since B8 a list moves, so its length is read before the move (a read
+    // in a later argument is E0901); the await in a later argument stays.
+    n := xs.len();
+    _MvReport(items : xs, n : n, extra : e.await(_count_later(e), e))
   })
 );
-test("a later argument of the consuming call still reads a moved slot local", {
+test("a consuming call moves a slot local, with an await in a later argument", {
   before := g_disposed;
   {
     r := io.await(_move_then_read(io), io);
@@ -784,7 +789,7 @@ test("an aborted task releases a local re-bound after its previous value moved",
   _abort_move_each_iteration(io);
   released := g_disposed;
   assert(released == i32(1), `the second iteration's Thing, released ${released}`);
-  g_kept_things.clear();
+  g_kept_things.with_mut(l => l.clear());
   assert(g_disposed == i32(2), "the first iteration's Thing, by its new owner");
 });
 // A future type variable held in a generic aggregate: the async block's state
@@ -799,7 +804,7 @@ _hold_future :: (fn(generic(T : Type), sink(x) : T) -> _FutHolder(T))(_FutHolder
 // holder are what the lowering bug broke.
 test("an io.async future stored in a generic struct's Option field is read from it", {
   h := _hold_future(io.async((io2 : Io) => i32(8)));
-  st := match(&h.r, .Some(task) => io.state(&task), .None => FutureState.Aborted);
+  st := match(&h.r, .Some(task) => io.state(&task.*), .None => FutureState.Aborted);
   assert(st == FutureState.Cold, "the stored future is still cold");
 });
 _PtrHolder :: (fn(comptime(T) : Type) -> comptime(Type))(ref(struct(r : Option(*T))));
@@ -849,7 +854,7 @@ _scrubbing_later :: (fn(io : Io) -> Impl(Future(i32, Io)))(
 );
 _len_then_await :: (fn(io : Io) -> Impl(Future(_LenReport, Io)))(
   io.async((e : Io) => {
-    xs := ArrayList(i32).new();
+    mut(xs) := ArrayList(i32).new();
     xs.push(i32(1));
     xs.push(i32(2));
     e.await(yield(e), e);
@@ -877,7 +882,7 @@ _give_back :: (fn(t : Thing, io : Io) -> Impl(Future(Thing, Io)))(
 _give_back_string :: (fn(s : String, io : Io) -> Impl(Future(String, Io)))(
   io.async((io2 : Io) => {
     io2.await(yield(io2), io2);
-    s
+    s.clone()
   })
 );
 test("a state machine returning an implicit capture retains it for the result", {
@@ -888,7 +893,7 @@ test("a state machine returning an implicit capture retains it for the result", 
     assert(r.n == i32(5), "the awaiter reads the captured value");
   };
   assert(g_disposed == (before + i32(1)), "disposed once, by the awaiter's scope");
-  out := ArrayList(String).new();
+  mut(out) := ArrayList(String).new();
   (mut(i) : i32) = i32(0);
   while(i < i32(3), {
     out.push(io.await(_give_back_string(`s${i}`, io), io));
@@ -901,7 +906,7 @@ test("a state machine returning an implicit capture retains it for the result", 
   f := io.async((io : Io) => {
     r := io.await(_give_back(Thing(n : i32(6)), io), io);
     alive := (g_disposed == before2);
-    strs := ArrayList(String).new();
+    mut(strs) := ArrayList(String).new();
     (mut(j) : i32) = i32(0);
     while(j < i32(3), {
       strs.push(io.await(_give_back_string(`t${j}`, io), io));
@@ -1200,7 +1205,7 @@ test("a downcast receiver inside io.async releases its reference", {
 // owning closure's capture), so the value was released twice.
 _sm_er_take :: (fn(b : Box(i32), r : &Rc(RefCell(i32))) -> unit)({
   r.with_mut(cur => {
-    cur = b.*;
+    cur.* = b.*;
   });
 });
 test("an early return after moving a task-slot local into a call drops it once", {
@@ -1208,7 +1213,7 @@ test("an early return after moving a task-slot local into a call drops it once",
   task := io.async({ result : Rc.clone(result) }(io : Io) => {
     s := Box.new(i32(100));
     cond(
-      result.with(cur => (cur == i32(0))) => {
+      result.with(cur => (cur.* == i32(0))) => {
         io.await(yield(io), io);
         _sm_er_take(s, &result);
         return;
@@ -1216,30 +1221,30 @@ test("an early return after moving a task-slot local into a call drops it once",
       true => ()
     );
     result.with_mut(cur => {
-      cur = i32(999);
+      cur.* = i32(999);
     });
   });
   io.await(task, io);
-  assert(result.with(cur => cur) == i32(100), "the early return ran after the move");
+  assert(result.with(cur => cur.*) == i32(100), "the early return ran after the move");
 });
 test("an early return after moving a task-slot local into a closure's capture drops it once", {
   result := Rc.new(RefCell(i32).new(0));
   task := io.async({ result : Rc.clone(result) }(io : Io) => {
     s := Box.new(i32(200));
     cond(
-      result.with(cur => (cur == i32(0))) => {
+      result.with(cur => (cur.* == i32(0))) => {
         io.await(yield(io), io);
         result.with_mut(cur => {
-          cur = s.*;
+          cur.* = s.*;
         });
         return;
       },
       true => ()
     );
     result.with_mut(cur => {
-      cur = i32(999);
+      cur.* = i32(999);
     });
   });
   io.await(task, io);
-  assert(result.with(cur => cur) == i32(200), "the closure owned the moved local");
+  assert(result.with(cur => cur.*) == i32(200), "the closure owned the moved local");
 });

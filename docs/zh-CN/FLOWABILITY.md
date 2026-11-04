@@ -18,12 +18,12 @@ Yo 在编译期保证：安全代码无法构造出悬垂引用。这一设计�
 ```yo
 x := i32(1);
 y := &mut x; // y 命名 x 的槽位
-y = i32(2); // 写入 x
+y.* = i32(2); // 写入 x
 z := x; // 可以：y 的最后一次使用在上面，x 重新可用
 r := &p.x; // 对值结构体字段的只读借用
-v := r; // 通过 r 读取；`r = v` 会是 E0908
+v := r.*; // 通过 r 读取；`r.* = v` 会是 E0908
 n := &mut h.n; // RC 对象的字段：h 指向的对象在此作用域内被钉住
-copy := n; // 拷贝被指向的值 —— `&mut` 是模式，不是可存储的类型
+copy := n.*; // 拷贝被引用的值
 ```
 
 **借用从绑定处一直存活到它的最后一次使用**，并在这段范围内冻结它的位置：
@@ -69,7 +69,7 @@ append :: (fn(list : &mut List, v : i32) -> unit)({
       .None => ()
     );
   });
-  cur = .Some(Rc.new(Node(value : v, next : .None))); // 写入尾部槽位
+  cur.* = .Some(Rc.new(Node(value : v, next : .None))); // 写入尾部槽位
 });
 ```
 
@@ -130,12 +130,13 @@ borrows from it"`）而非内存破坏。同缓存行加载 + 预测分支 —�
 容器只交出**值**，从不交出指向其缓冲区内部的指针：
 
 ```yo
-e := xs.get(i); // object 元素：指向元素对象的句柄
-e.push_str("!"); //   就地变异元素；句柄在 xs.push / realloc 之后
-//   依然有效 —— 它指向 String 对象本身，
-//   而不是 xs 的缓冲区内部
+e := xs.get_cloned(i); // String 元素：一份副本（自 B8 起 String 是值），
+//   在 xs.push / realloc 之后依然有效
+xs.with(i, s => s.push_str("!")); // 就地写入元素
+h := xs.get(i); // `ref(struct(...))` 元素：指向对象的句柄，
+//   通过它就地变异对象
 xs(i) = v; // 索引写：就地替换元素
-t := xs.get(i).unwrap(); // struct 元素：拷出 ……
+t := xs.get(i).unwrap(); // Copy 的 struct 元素：拷出 ……
 xs(i) = t2; //   …… 再写回
 for(xs, x => { ... }); // 迭代是值形式（into_iter）
 ```
@@ -148,7 +149,7 @@ for(&mut enemies, e => {
 }); // struct 元素就地修改
 for(&mut names, s => {
   s.push_str("!");
-}); // RC 元素：每个元素不再 dup
+}); // String 元素：就地写入
 for(&mut counts, c => {
   bump(c);
 }); // 把元素交给 &mut 参数
