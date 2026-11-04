@@ -54,13 +54,6 @@ Substitution :: ref(
     /// copies even share an id — and a name-keyed entry for one rewrote the
     /// others (`ch.map(f).filter(g)` built `StreamFilter(_, <f's capture>)`).
     own_resolution_ids : ArrayList(String),
-    /// Adopt the own resolution of EVERY SomeT occurrence whose chain ends
-    /// in a concrete type, and walk every enum type argument, compound ones
-    /// included (`subst_adopt_every_resolution`): the walk that turns a type
-    /// an instantiated generic body built (`Option(Option(V))` with
-    /// `V := Span`, whose argument keeps its definition-era `Option(V)`)
-    /// into the concrete instance it denotes.
-    adopt_every_resolution : bool,
     /// Struct and enum nodes this walk already substituted, sorted by
     /// address (`node_memo_from`, searched with `__yo_ptr_lt`), and their
     /// results (`node_memo_to`). A TypeValue is a shared DAG and the walk was
@@ -84,7 +77,6 @@ subst_new :: (fn() -> Substitution)(
     len_var_names : ArrayList(String).new(),
     len_var_values : ArrayList(usize).new(),
     own_resolution_ids : ArrayList(String).new(),
-    adopt_every_resolution : false,
     node_memo_from : ArrayList(TypeValue).new(),
     node_memo_to : ArrayList(TypeValue).new()
   )
@@ -136,7 +128,6 @@ _without_len_vars :: (fn(s : &Substitution) -> Substitution)(
       len_var_names : ArrayList(String).new(),
       len_var_values : ArrayList(usize).new(),
       own_resolution_ids : s.own_resolution_ids.clone(),
-      adopt_every_resolution : s.adopt_every_resolution,
       node_memo_from : ArrayList(TypeValue).new(),
       node_memo_to : ArrayList(TypeValue).new()
     )
@@ -271,15 +262,7 @@ subst_adopt_own_resolution :: (fn(s : &Substitution, id : &String) -> unit)({
     s.own_resolution_ids.push(id.clone());
   });
 });
-/// Adopt the own resolution of every SomeT occurrence that carries one and
-/// walk compound enum type arguments too (see `adopt_every_resolution`).
-subst_adopt_every_resolution :: (fn(s : &Substitution) -> unit)({
-  s.adopt_every_resolution = true;
-});
 _subst_adopts_own :: (fn(s : &Substitution, id : &String) -> bool)({
-  if(s.adopt_every_resolution, {
-    return(true);
-  });
   (i : usize) = usize(0);
   while(i < s.own_resolution_ids.len(), {
     if(match(s.own_resolution_ids.get_cloned(i), .Some(v) => (v == id), .None => false), {
@@ -462,7 +445,6 @@ _mask_func_own_binders :: (fn(s : &Substitution, forall_labels : &ArrayList(Stri
     // An adopted own resolution belongs to its SomeT, never to a nested
     // fn's binder (a distinct SomeT), so the mask never applies to it.
     own_resolution_ids : s.own_resolution_ids.clone(),
-    adopt_every_resolution : s.adopt_every_resolution,
     node_memo_from : ArrayList(TypeValue).new(),
     node_memo_to : ArrayList(TypeValue).new()
   );
@@ -777,7 +759,7 @@ _substitute_node :: (fn(s : &Substitution, ty : &TypeValue, is_root : bool) -> T
           while(ti < etas.len(), {
             etarg := match(etas.get(ti), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
             et_phantom := match(e_mask.get(ti), .Some(b) => b, .None => false);
-            new_etarg := if(_is_some_t(&etarg) || et_phantom || s.adopt_every_resolution, _substitute_at(&s_nom_e, &etarg, false), etarg.clone());
+            new_etarg := if(_is_some_t(&etarg) || et_phantom, _substitute_at(&s_nom_e, &etarg, false), etarg.clone());
             etas_changed = (etas_changed || !__yo_ptr_eq(&new_etarg, &etarg));
             new_etas.push(new_etarg);
             ti = (ti + usize(1));
@@ -848,7 +830,6 @@ export(
   subst_set_self,
   subst_add,
   subst_adopt_own_resolution,
-  subst_adopt_every_resolution,
   subst_lookup,
   subst_add_len_var,
   subst_lookup_len_var,
