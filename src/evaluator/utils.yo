@@ -115,7 +115,8 @@ pragma(Pragma.AllowUnsafe);
   format_error_messages_with_help,
   TokenAndError,
   YoError,
-  with_code
+  with_code,
+  with_primary_repair_at_token
 } :: import("../error.yo");
 { raise_flow_violation, propagate_def_time_errors } :: import("../types/flowability.yo");
 { suggest_name, E_USE_OF_MOVED_VALUE, E_MOVED_ON_SOME_PATHS, E_BORROW_ESCAPES, E_BORROW_CONFLICT, E_WRITE_THROUGH_BORROW, E_LOCAL_BORROW_CONFLICT, E_LOCAL_BORROW_ESCAPES, E_CLOSURE_TRAIT_TOO_WEAK, E_BARE_CALLABLE_INTO_DYN, E_GLOBAL_LENT_TO_CALL, E_IMMUTABLE_BINDING_WRITE, E_RC_PAYLOAD_WRITE, E_REFERENCE_READ_WITHOUT_DEREF, E_ORIGIN_MISMATCH } :: import("../diagnostics.yo");
@@ -2723,8 +2724,17 @@ binding_require_mut :: (fn(v : &Variable, tok : &Token, how : &String, ctx : &Ev
       `declare it \`mut(${name}) := ...\` (or \`(mut(${name}) : T) = ...\`, \`.Some(mut(${name}))\` in a pattern, \`{ a, mut(${name}) }\` in a destructuring); \`yo fix <path> --migrate mut-bindings\` marks every written binding`
     );
   });
+  err := with_code(format_error_messages_with_help(&entries, Option(String).Some(help)), E_IMMUTABLE_BINDING_WRITE);
+  // The one mechanical repair (VERDICTS-20 §5): wrap the declared name in
+  // `mut(...)`. Lexical and unambiguous for a local, pattern, destructuring
+  // or compile-time binding, whose declaration token IS the name; a
+  // parameter-like binding takes no marker, so it gets none.
   raise_flow_violation(
-    with_code(format_error_messages_with_help(&entries, Option(String).Some(help)), E_IMMUTABLE_BINDING_WRITE),
+    if(
+      !is_param_like && (v.token.value.* == name),
+      with_primary_repair_at_token(&err, &v.token, &`mut(${name})`, &`declare \`${name}\` as \`mut(${name})\``),
+      err
+    ),
     ctx,
     exn
   );
