@@ -17,6 +17,15 @@ impl(
 _pick :: (fn(c : &_Cell) -> Option(&_Cell))(.Some(c));
 _pick_mut :: (fn(c : &mut _Cell) -> Option(&mut _Cell))(.Some(c));
 _read :: (fn(c : &_Cell) -> i32)(c.n);
+// An arrow method whose result carries an origin takes its `&Self`
+// receiver by pointer, like a projection, so `.Some(&self.n)` points at the
+// caller's place, through `Dyn` dispatch too.
+_Peek :: trait(peek : (fn(self : &Self) -> Option(&i32)));
+impl(_Cell, _Peek(peek : (self -> .Some(&self.n))));
+// A reference payload beside a later operand that reads its root: the
+// payload is the place's address, never a temporary's.
+_Two :: enum(Both(r : &_Cell, k : i32), Neither);
+_both :: (fn(c : &_Cell) -> _Two)(.Both(c, _read(c)));
 _Shape :: trait(area : (fn(self : &Self) -> i32));
 _Sq :: struct(s : i32);
 impl(_Sq, _Shape(area : (fn(self : &Self) -> i32)(self.s * self.s)));
@@ -143,6 +152,19 @@ test("ref payload: a `&` payload is read-only", {
     ),
     "read-only"
   );
+});
+test("ref payload: an arrow method's receiver of an origin-carrying result", {
+  c := _Cell(n : i32(8));
+  v := match(c.peek(), .Some(r) => r.*, .None => i32(0));
+  assert(v == i32(8), "c.peek()");
+  (d : Dyn(_Peek)) = dyn(_Cell(n : i32(9)));
+  w := match(d.peek(), .Some(r) => r.*, .None => i32(0));
+  assert(w == i32(9), "d.peek() through the vtable");
+});
+test("ref payload: a variant with a reference and a later operand", {
+  c := _Cell(n : i32(5));
+  v := match(_both(&c), .Both(r, k) => (r.n + k), .Neither => i32(0));
+  assert(v == i32(10), "r points at `c`, k read it");
 });
 test("ref payload: a `&Dyn(Trait)` payload dispatches through its vtable", {
   (d : Dyn(_Shape)) = dyn(_Sq(s : i32(3)));
