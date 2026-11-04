@@ -75,4 +75,4 @@ Both failed before the fix (E0901 at `hash_map.yo:704`, and at the test's own ar
 
 ## Status
 
-Fixed.
+Fixed. The first bullet of the fix was later replaced at the root: `substitute` now rewrites every enum type argument, so the type the flip sees is the concrete instance, and the parts walk was removed (issues/fixed/2026-11-05-a-generic-body-copies-a-non-copy-instance-whose-type-argument-is-compound.md). The tests above still guard it.
