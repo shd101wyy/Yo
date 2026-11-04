@@ -550,7 +550,7 @@ _take_n :: (fn(t : &Thing, io : Io) -> Impl(Future(i32, Io)))(
   })
 );
 _arg_dup_in_task :: (fn(keep : &ArrayList(Thing), io : Io) -> Impl(Future(i32, Io)))(
-  io.async({ &keep }(e : Io) => {
+  io.async({ keep : &keep.* }(e : Io) => {
     x := e.await(_take_n(&keep(usize(0)), e), e);
     x
   })

@@ -47,9 +47,9 @@ test("read walk over ArrayList: every element, in order, and the body may read t
   (mut(weighted) : i32) = i32(0);
   (mut(pos) : i32) = i32(0);
   for(&xs, x => {
-    sum = (sum + x);
+    sum = (sum + x.*);
     pos = (pos + i32(1));
-    weighted = (weighted + (x * pos));
+    weighted = (weighted + (x.* * pos));
     assert(xs.len() == usize(3), "a read of the walked list in the body");
   });
   assert(sum == i32(6), "every element seen");
@@ -91,7 +91,7 @@ test("read walk over Deque, PriorityQueue and HashSet", {
   dq.push_back(i32(3));
   (mut(seen) : i32) = i32(0);
   for(&dq, x => {
-    seen = ((seen * i32(10)) + x);
+    seen = ((seen * i32(10)) + x.*);
   });
   assert(seen == i32(123), "the deque in front-to-back order");
   mut(pq) := PriorityQueue(i32).new();
@@ -101,7 +101,7 @@ test("read walk over Deque, PriorityQueue and HashSet", {
   (mut(sum) : i32) = i32(0);
   (mut(count) : usize) = usize(0);
   for(&pq, x => {
-    sum = (sum + x);
+    sum = (sum + x.*);
     count = (count + usize(1));
   });
   assert((sum == i32(24)) && (count == usize(3)), "every queued element, in heap order");
@@ -113,7 +113,7 @@ test("read walk over Deque, PriorityQueue and HashSet", {
   sum = i32(0);
   count = usize(0);
   for(&set, x => {
-    sum = (sum + x);
+    sum = (sum + x.*);
     count = (count + usize(1));
   });
   assert((sum == i32(60)) && (count == usize(3)), "every set element once");
@@ -127,7 +127,7 @@ test("read walk over the maps: (k, v) borrows both, a single name the entry", {
   (mut(klen) : usize) = usize(0);
   mut(keys) := ArrayList(String).new();
   for(&m, (k, v) => {
-    vsum = (vsum + v);
+    vsum = (vsum + v.*);
     klen = (klen + k.len());
     keys.push(k.clone());
   });
@@ -145,8 +145,8 @@ test("read walk over the maps: (k, v) borrows both, a single name the entry", {
   om.insert(i32(1), i32(10));
   (mut(order) : i32) = i32(0);
   for(&om, (k, v) => {
-    order = ((order * i32(10)) + k);
-    assert(v == (k * i32(10)), "value beside its key");
+    order = ((order * i32(10)) + k.*);
+    assert(v.* == (k.* * i32(10)), "value beside its key");
   });
   assert(order == i32(31), "insertion order");
   mut(bt) := BTreeMap(i32, i32).new();
@@ -154,8 +154,8 @@ test("read walk over the maps: (k, v) borrows both, a single name the entry", {
   bt.insert(i32(1), i32(10));
   order = i32(0);
   for(&bt, (k, v) => {
-    order = ((order * i32(10)) + k);
-    assert(v == (k * i32(10)), "value beside its key");
+    order = ((order * i32(10)) + k.*);
+    assert(v.* == (k.* * i32(10)), "value beside its key");
   });
   assert(order == i32(12), "key order");
 });
@@ -167,7 +167,7 @@ test("nested read walks: the same list twice, and a read walk inside a write wal
   (mut(pairs) : i32) = i32(0);
   for(&xs, a => {
     for(&xs, b => {
-      pairs = (pairs + (a * b));
+      pairs = (pairs + (a.* * b.*));
     });
   });
   assert(pairs == i32(36), "two read borrows of one list: (1+2+3)^2");
@@ -176,7 +176,7 @@ test("nested read walks: the same list twice, and a read walk inside a write wal
   ys.push(i32(20));
   for(&mut ys, y => {
     for(&xs, x => {
-      y = (y + x);
+      y.* = (y.* + x.*);
     });
   });
   assert((ys(usize(0)) == i32(16)) && (ys(usize(1)) == i32(26)), "each written element saw every read one");
@@ -185,9 +185,9 @@ test("nested read walks: the same list twice, and a read walk inside a write wal
   assert((xs.len() == usize(4)) && (ys.len() == usize(3)), "every guard released");
 });
 _rw_find_first_over :: (fn(xs : &ArrayList(i32), limit : i32) -> i32)({
-  for(&xs, x => {
-    if(x > limit, {
-      v := x;
+  for(&xs.*, x => {
+    if(x.* > limit, {
+      v := x.*;
       return(v);
     });
   });
@@ -202,13 +202,13 @@ test("read walk: break, continue and return leave the list usable", {
   });
   (mut(sum) : i32) = i32(0);
   for(&xs, x => {
-    if(x == i32(1), {
+    if(x.* == i32(1), {
       continue;
     });
-    if(x == i32(4), {
+    if(x.* == i32(4), {
       break;
     });
-    sum = (sum + x);
+    sum = (sum + x.*);
   });
   assert(sum == i32(5), "0 + 2 + 3: 1 skipped, the walk left at 4");
   xs.push(i32(6)); // the guard released on `break`
@@ -269,7 +269,7 @@ comptime_expect_error(
     mut(xs) := ArrayList(i32).new();
     xs.push(i32(1));
     for(&xs, x => {
-      x = i32(2);
+      x.* = i32(2);
     });
   }),
   "is a `&` borrow, which is read-only"
@@ -289,7 +289,7 @@ comptime_expect_error(
     mut(m) := HashMap(i32, i32).new();
     m.insert(i32(1), i32(1));
     for(&m, (k, v) => {
-      v = (v + k);
+      v.* = (v.* + k.*);
     });
   }),
   "is a `&` borrow, which is read-only"
@@ -301,7 +301,7 @@ comptime_expect_error(
     mut(xs) := ArrayList(i32).new();
     xs.push(i32(1));
     for(&xs, x => {
-      xs.push(x);
+      xs.push(x.*);
     });
   }),
   "Cannot write `xs` here"
@@ -309,7 +309,7 @@ comptime_expect_error(
 // The element is second-class: returning it is E0912 — read it out first.
 comptime_expect_error(
   read_walk_element_returned :: (fn(xs : &ArrayList(i32)) -> i32)({
-    for(&xs, x => {
+    for(&xs.*, x => {
       return(x);
     });
     i32(0)

@@ -16,7 +16,7 @@ Holder :: ref(struct(s : String, n : i32));
 Wrapper :: ref(struct(inner : Holder));
 
 bump :: (fn(v : &mut i32) -> unit)({
-  v = (v + i32(1));
+  v.* = (v.* + i32(1));
 });
 
 test("field of a local object passed to a ref param", {
@@ -27,7 +27,7 @@ test("field of a local object passed to a ref param", {
 
 test("String field write-through via a ref param", {
   replace_s :: (fn(v : &mut String, nv : &String) -> unit)({
-    v = nv.clone();
+    v.* = nv.clone();
   });
   h := Holder(s : String.from("hello"), n : i32(1));
   replace_s(&mut h.s, String.from("rewritten"));
@@ -53,7 +53,7 @@ comptime_expect_error(
   nested_object_hop_with_root_rejected :: (fn() -> unit)({
     soak :: (fn(v : &mut i32, victim : &Wrapper) -> unit)({
       victim.inner = Holder(s : String.from("replaced"), n : i32(0));
-      v = i32(99);
+      v.* = i32(99);
     });
     w := Wrapper(inner : Holder(s : String.from("x"), n : i32(1)));
     soak(&mut w.inner.n, &w);
@@ -215,7 +215,7 @@ g_list := ArrayList(i32).new();
 comptime_expect_error(
   index_ref_of_module_container :: (fn() -> unit)({
     bump2 :: (fn(v : &mut i32) -> unit)({
-      v = (v + i32(1));
+      v.* = (v.* + i32(1));
     });
     bump2(&mut g_list(usize(0)));
   })
@@ -226,7 +226,7 @@ comptime_expect_error(
 // cannot move during the call. Write-through lands in the live element.
 test("indexed element to a ref param without the container", {
   bump3 :: (fn(v : &mut i32) -> unit)({
-    v = (v + i32(1));
+    v.* = (v.* + i32(1));
   });
   mut(xs) := ArrayList(i32).new();
   xs.push(i32(41));
@@ -247,7 +247,7 @@ test("indexed element to a ref param without the container", {
 // on the unwind path), the `push` below would panic.
 test("interior-ref call releases the container's borrow flag on return", {
   bump4 :: (fn(v : &mut i32) -> unit)({
-    v = (v + i32(1));
+    v.* = (v.* + i32(1));
   });
   mut(xs) := ArrayList(i32).new();
   xs.push(i32(41));
@@ -259,9 +259,9 @@ test("interior-ref call releases the container's borrow flag on return", {
 test("interior-ref call releases the container's borrow flag on unwind", {
   Raise :: (ctl() -> unit);
   bump_then_raise :: (fn(v : &mut i32, raise : Raise) -> unit)({
-    v = (v + i32(1));
+    v.* = (v.* + i32(1));
     raise(); // the handler unwinds the INSTALLING function, through this call site
-    v = i32(0); // never reached
+    v.* = i32(0); // never reached
   });
   run_borrowed :: (fn(target : &mut ArrayList(i32)) -> unit)({
     (raise : Raise) = (
@@ -284,8 +284,8 @@ test("interior-ref call releases the container's borrow flag on unwind", {
 // container is freely usable in the same call.
 test("copy the element out to combine with container use", {
   use_both :: (fn(v : &mut i32, target : &mut ArrayList(i32)) -> unit)({
-    target.push(v);
-    v = i32(0);
+    target.push(v.*);
+    v.* = i32(0);
   });
   mut(xs) := ArrayList(i32).new();
   xs.push(i32(7));
@@ -304,7 +304,7 @@ comptime_expect_error(
   index_ref_with_capturing_closure :: (fn() -> unit)({
     run :: (fn(v : &mut i32, grow : &Impl(Fn() -> unit)) -> unit)({
       grow();
-      v = i32(99);
+      v.* = i32(99);
     });
     mut(xs) := ArrayList(i32).new();
     xs.push(i32(41));
@@ -322,7 +322,7 @@ comptime_expect_error(
 comptime_expect_error(
   box_deref_with_box_arg :: (fn() -> unit)({
     evil :: (fn(v : &mut i32, victim : &Rc(Holder)) -> unit)({
-      victim.* = Holder(s : String.from("replacement"), n : i32(7));
+      victim.*.* = Holder(s : String.from("replacement"), n : i32(7));
       v = i32(99);
     });
     b := Rc.new(Holder(s : String.from("orig"), n : i32(1)));
@@ -336,7 +336,7 @@ comptime_expect_error(
 // handle (decision 46).
 test("box deref is allowed when the box is unreachable", {
   read_n :: (fn(v : &mut i32) -> unit)({
-    v = (v + i32(1));
+    v.* = (v.* + i32(1));
   });
   b := Box.new(Holder(s : String.from("x"), n : i32(5)));
   read_n(&mut b.*.n);
@@ -350,7 +350,7 @@ test("box deref is allowed when the box is unreachable", {
 g_static_struct :: struct(s : String, n : i32);
 mut(g_static_val) := g_static_struct(s : String.from("x"), n : i32(42));
 bump_static :: (fn(v : &mut i32) -> unit)({
-  v = (v + i32(1));
+  v.* = (v.* + i32(1));
 });
 test("a module-level struct's i32 field is copied out for a &mut param", {
   comptime_expect_error(bump_static(&mut g_static_val.n), "is declared `mut(g_static_val)`");
@@ -367,7 +367,7 @@ g_rc_tuple := (ArrayList(i32).new(), i32(42));
 comptime_expect_error(
   borrow_module_tuple_rc_field :: (fn() -> unit)({
     overwrite_rc :: (fn(v : &mut ArrayList(i32)) -> unit)({
-      v = ArrayList(i32).new();
+      v.* = ArrayList(i32).new();
     });
     overwrite_rc(&mut g_rc_tuple.0);
   })
@@ -379,7 +379,7 @@ g_rc_s := g_rc_struct_ty(list : ArrayList(i32).new(), tag : i32(0));
 comptime_expect_error(
   borrow_module_struct_rc_field :: (fn() -> unit)({
     overwrite_rc2 :: (fn(v : &mut ArrayList(i32)) -> unit)({
-      v = ArrayList(i32).new();
+      v.* = ArrayList(i32).new();
     });
     overwrite_rc2(&mut g_rc_s.list);
   })
@@ -390,7 +390,7 @@ comptime_expect_error(
 comptime_expect_error(
   borrow_index_ref_own_overlap :: (fn() -> unit)({
     own_and_ref :: (fn(x : &mut i32, sink(victim) : ArrayList(i32)) -> unit)({
-      x = i32(99);
+      x.* = i32(99);
     });
     mut(xs) := ArrayList(i32).new();
     xs.push(i32(41));
@@ -405,7 +405,7 @@ comptime_expect_error(
 // (issues/fixed/2026-10-24-an-element-borrow-rejects-a-sibling-argument-that-cannot-reach-the-container.md).
 _put_str :: (fn(dst : &mut String, v : String) -> String)({
   old := dst.clone();
-  dst = v;
+  dst.* = v;
   old
 });
 _StrLists :: ref(struct(lists : ArrayList(String), tag : String));
@@ -462,12 +462,12 @@ test("an element borrow beside a value that owns a list of the container's type"
   grow_beside :: (fn(dst : &mut String, other : ArrayList(String)) -> unit)({
     mut(o) := other;
     o.push(String.from("grown"));
-    dst = String.from("w");
+    dst.* = String.from("w");
   });
   grow_box_beside :: (fn(dst : &mut String, other : _ListBox) -> unit)({
     mut(o) := other;
     o.lists.push(String.from("grown"));
-    dst = String.from("v");
+    dst.* = String.from("v");
   });
   mut(xs) := ArrayList(String).new();
   xs.push(String.from("a"));
@@ -487,8 +487,8 @@ test("an element borrow beside a value that owns a list of the container's type"
 _VNode :: enum(Leaf(n : i32), Branch(kids : ArrayList(Self)));
 test("an element borrow beside a recursive value that owns lists of the container's type", {
   put_node :: (fn(dst : &mut _VNode, v : _VNode) -> i32)({
-    old := match(dst, .Leaf(n) => n, .Branch(_) => i32(-1));
-    dst = v;
+    old := match(dst, .Leaf(n) => n.*, .Branch(_) => i32(-1));
+    dst.* = v;
     old
   });
   mut(kids) := ArrayList(_VNode).new();
@@ -506,7 +506,7 @@ _write_through :: (fn(dst : &mut String, cb : Impl(Fn(v : &mut String) -> unit))
   cb(dst);
 });
 _plain_write :: (fn(v : &mut String) -> unit)({
-  v = String.from("plain");
+  v.* = String.from("plain");
 });
 test("an element borrow beside a variable holding a closure is rejected", {
   mut(xs) := ArrayList(String).new();
@@ -516,7 +516,7 @@ test("an element borrow beside a variable holding a closure is rejected", {
   {
     (cb : Impl(Fn(v : &mut String) -> unit)) = ({ &mut xs }(v) => {
       xs.clear();
-      v = String.from("w");
+      v.* = String.from("w");
     });
     comptime_expect_error(_write_through(&mut xs(usize(0)), cb), "the closure `cb` borrows `xs`");
   };
@@ -536,7 +536,7 @@ test("an element borrow beside a closure in a struct field is rejected", {
   {
     (cb : Impl(Fn(v : &mut String) -> unit)) = ({ &mut xs }(v) => {
       xs.clear();
-      v = String.from("w");
+      v.* = String.from("w");
     });
     comptime_expect_error(field_beside(&mut xs(usize(0)), _CbFieldBox(cb : dyn(cb))), "the closure `cb` borrows `xs`");
   };

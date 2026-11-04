@@ -15,15 +15,15 @@ eval :: (fn(e : *MyExpr) -> i32)({
   return(
     match(
       &e.*,
-      .Lit(v) => v,
+      .Lit(v) => v.*,
       .Add(l, r) => {
-        lv := recur(addr_of(l.*));
-        rv := recur(addr_of(r.*));
+        lv := recur(addr_of(l.*.*));
+        rv := recur(addr_of(r.*.*));
         lv + rv
       },
       .Mul(l, r) => {
-        lv := recur(addr_of(l.*));
-        rv := recur(addr_of(r.*));
+        lv := recur(addr_of(l.*.*));
+        rv := recur(addr_of(r.*.*));
         lv * rv
       },
       .List(items) => {
@@ -101,7 +101,7 @@ impl(
     })
   )
 );
-impl(HolderProbe, Clone(clone : (fn(self : &Self) -> Self)(self)));
+impl(HolderProbe, Clone(clone : (fn(self : &Self) -> Self)(self.*)));
 Holder :: enum(
   HEmpty,
   HOne(p : HolderProbe),
@@ -174,7 +174,7 @@ derive(ListTree, Clone);
 _list_tree_weight :: (fn(t : &ListTree) -> i32)(
   match(
     t,
-    .LtLeaf(n) => n,
+    .LtLeaf(n) => n.*,
     .LtList(xs) => match(xs.get_cloned(usize(0)), .Some(x) => recur(&x), .None => i32(0)),
     .LtGrid(rows) => match(
       rows.get_cloned(usize(0)),
