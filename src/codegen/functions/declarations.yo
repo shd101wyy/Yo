@@ -301,24 +301,16 @@ generate_object_constructor_declarations :: (fn(context : &CodeGenContext) -> un
   em.emit_declaration_line("static inline void* __yo_dyn_retain(void* data, const void* vtable); // Dyn payload retain through its vtable");
   em.emit_declaration_line("static inline void __yo_dyn_release(void* data, const void* vtable); // Dyn payload release through its vtable");
   em.emit_declaration_line("static inline void* __yo_dyn_clone(void* data, const void* vtable); // Dyn payload clone through its vtable");
-  // The ATOMIC pair is defined in the CODE buffer (gc_runtime.yo, both the
-  // lightweight and the full-GC path) and so lands AFTER everything in the
-  // declaration buffer. Declaration-buffer code that releases a reference —
+  // The ATOMIC pair is defined in the CODE buffer (gc_runtime.yo) and so
+  // lands AFTER everything in the declaration buffer. Declaration-buffer
+  // code that releases a reference —
   // the spawn wrapper's per-field capture drop — calls it, and without these
   // two lines that call was an implicit declaration followed by a `static`
   // definition, which is a hard C error
   // (issues/fixed/spawn-closure-captures-never-dropped-leak.md).
   em.emit_declaration_line("static void __yo_decr_rc_atomic(void* ptr); // Atomic RC decrement (atomic ref objects)");
   em.emit_declaration_line("static void* __yo_incr_rc_atomic(void* ptr); // Atomic RC increment (atomic ref objects)");
-  // GC function declarations.
-  em.emit_declaration_line("static void __yo_gc_register(void* ptr); // Register object for cycle detection");
-  em.emit_declaration_line("static void __yo_gc_unregister(void* ptr); // Unregister object from cycle detection");
-  em.emit_declaration_line("static void __yo_gc_collect(); // Thorough full-heap cycle collection (explicit Gc.collect())");
-  em.emit_declaration_line("static void __yo_gc_collect_incremental(); // Bacon-Rajan incremental collection (auto-trigger)");
-  em.emit_declaration_line("static void __yo_gc_add_root(void* ptr); // Bacon-Rajan: buffer a possible cycle root");
-  em.emit_declaration_line("static void __yo_gc_remove_root(void* ptr); // Bacon-Rajan: unbuffer a possible cycle root");
-  em.emit_declaration_line("static void __yo_gc_init_thread(); // Initialize thread-local GC state (for worker threads)");
-  em.emit_declaration_line("static void __yo_cleanup_thread_gc(); // Clean up thread-local GC state");
+  em.emit_declaration_line("static void __yo_cleanup_thread(void); // A worker thread's exit: frees its async runtime pools");
   // Per THREAD: the hook frees the exiting thread's own pools, and each
   // thread installs it the first time it allocates one. As a process global
   // every thread's first enqueue wrote it while exiting threads read it — a
@@ -326,8 +318,7 @@ generate_object_constructor_declarations :: (fn(context : &CodeGenContext) -> un
   // cross_thread_wake and spawn_blocking (the value was always the same
   // function, which is not a synchronization).
   thread_local_kw := if(is_target_windows(&context.target_info), String.from("__declspec(thread)"), String.from("_Thread_local"));
-  em.emit_declaration_string_line(`static ${thread_local_kw} void (*__yo_async_thread_exit_hook)(void); // Frees the exiting thread's async runtime pools; installed by the async runtime, called by __yo_cleanup_thread_gc`);
-  em.emit_declaration_line("static void __yo_init_process_cleanup(void); // Initialize process cleanup");
+  em.emit_declaration_string_line(`static ${thread_local_kw} void (*__yo_async_thread_exit_hook)(void); // Frees the exiting thread's async runtime pools; installed by the async runtime, called by __yo_cleanup_thread`);
   // Per-object constructor declarations.
   // A live cursor walk of the registry, not a borrowed `for`: the body can
   // register a late type (the on-demand hook), which a borrowed walk refuses.

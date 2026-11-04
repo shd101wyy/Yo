@@ -48,7 +48,7 @@ a leak, never a dangling handle. Two consequences worth knowing:
   object stays leaked — the conservative bound;
 - more generally, tracked allocations and drops performed by dispose code during a
   collection are accounted conservatively (see
-  `issues/dispose-time-mutations-of-tracked-objects-during-a-collection-leak-conservatively.md`,
+  `issues/retired/dispose-time-mutations-of-tracked-objects-during-a-collection-leak-conservatively.md`,
   filed with this fix).
 
 A kept cell is only leaked from THAT collection: once it is unreachable again, a

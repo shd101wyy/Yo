@@ -76,7 +76,6 @@ every such claim auditable.
 | ------------------------ | ---------------------------- | --------------------------------------- |
 | **Reference counting**   | Non-atomic RC (thread-local) | Atomic RC (thread-safe)                 |
 | **Cross-thread sharing** | Not allowed (not Send)       | Allowed (Send and Sync when all fields are Sync) |
-| **Cycle collection**     | Yes (stop-the-world GC)      | No (purely atomic RC)                   |
 | **Example**              | `Rc(T)`, a user `ref(struct)` | `Arc(T)`, `Mutex(T)`, `Channel(T)`      |
 
 ```yo

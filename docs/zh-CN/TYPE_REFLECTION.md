@@ -371,7 +371,6 @@ derive_rule(
 | `Type.is_compatible_with(A, B)`   | 宽松类型兼容性（允许隐式转换）                  |
 | `Type.impls(T, Marker)`           | 检查类型 `T` 是否实现了标记 trait               |
 | `Type.contains_rc_type(T)`        | 检查类型是否包含引用计数字段                    |
-| `Type.can_form_rc_cycle(T)`       | 检查类型是否可能形成引用计数循环                |
 
 ### 类型相等 vs 类型兼容
 

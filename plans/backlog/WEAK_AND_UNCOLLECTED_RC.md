@@ -31,8 +31,12 @@ no pragma, and std's `SAFETY:` sentences that justified an `Acyclic`
 declaration are gone (§4 "As built"). **W6a is implemented (2026-10-29,
 `vbd/w6a-collector-off-default`, stacked on W5):** `--cycle-collector off`
 is the default for one release, and §6 precondition 3 records the
-tracked-type counts and the oracle's report over the corpus. W6b has not
-started.
+tracked-type counts and the oracle's report over the corpus. **W6b is
+implemented (2026-11-03, `vbd/w6b-delete-collector`, for v0.2.75):** the
+collector, `Trace`, `std/gc`, the large header, `--cycle-collector` and the
+declared `Acyclic` form are deleted, a positive `impl(T, Acyclic())` is an
+error, `CYCLE_COLLECTION.md` is folded into `MEMORY_SAFETY.md`, and O9/O10
+are amended in text (§4 and §6 "As built (W6b)").
 
 ## 0. Verdict
 
@@ -315,7 +319,7 @@ cycle walk skips it by name (`is_weak_handle_type`; the constructor stamps
 same stamp. `tests/cycle_collector.test.yo` pins the
 CollectWhite row on a cycle closed through a `ref(struct)`: an
 `Rc(RefCell(Node))` cycle is not collected at all yet
-(`issues/2026-10-21-an-rc-refcell-cycle-is-never-tracked-by-the-collector.md`).
+(`issues/retired/2026-10-21-an-rc-refcell-cycle-is-never-tracked-by-the-collector.md`).
 
 ### 3.5 With the rest of the model
 
@@ -404,6 +408,37 @@ down explicitly). It is offered: any `where(T <: Acyclic)` a user or a
 library writes — a server's session store, an embedded object pool, an
 API that promises not to leak — and a possible `yo check` lint under
 `--cycle-collector off` (§5, open question 4).
+
+**As built (W6b, 2026-11-03; VERDICTS-16 Q1, option A).**
+
+- The declared form is gone, and a hand-written positive impl is now
+  rejected at the impl site, concrete or generic, beside `Escapable`'s
+  rejection and in its shape (uncoded): "`Acyclic` is derived from a
+  type's structure and is never implemented by hand: …"
+  (`_throw_if_acyclic_impl`, `src/evaluator/values/impl.yo`). The walk's
+  trust in a registered impl (`_acy_declared`) and its generic guard
+  (`g_acy_generic_guard`) went with it, as did the `type_implements_acyclic`
+  export, which had no caller outside `trait_checking.yo`. The negative
+  `impl(T, !Acyclic)` stays: it is sound and conservative.
+- "Its primitive impls STAY" (§6) was written before the builtin fast path
+  (`type_implements_acyclic_builtin`) made them redundant: every std
+  declaration is deleted, 72 lines (the prelude's 32, which include
+  `ComptimeList(T)`, `ComptimeValue` and `FutureState`; 37 in
+  `std/libc/stdatomic.yo`; 3 in `std/sync`). The fast path answers the
+  primitives, `_acy_expand`'s fallthrough the comptime lists and functions,
+  the `ExternOpaqueT` arm the opaque externs, and the walk the rest.
+  `tests/basic.test.yo`, `tests/send_sync.test.yo` and
+  `tests/type_soundness.test.yo` stay green without them.
+- The compiler's 11 declarations (`AstExpr`, `VcSort`, `VcTerm`,
+  `TypeValue`, the `SharedList` instances) are deleted with their
+  `SAFETY:` labels; the sentences describing the trees' shape stay as
+  documentation. `AstExpr` and `VcTerm` recur through `ArrayList`, a `ref`
+  object until B8, so the walk answers `!Acyclic` for them today and will
+  flip at B8; the two internal tests that pinned the declared answer were
+  deleted rather than re-pinned.
+- The marker keeps its readers: user `where(T <: Acyclic)` bounds,
+  `Type.impls`, the closure capture marker plumbing and §5 question 4's
+  lint. Nothing in std requires it.
 
 ## 5. Open questions, with positions
 
@@ -547,6 +582,47 @@ loses its reason, so `REFERENCES_AND_ORIGINS.md` O9/O10 and §3.1's
 "`Rc<&'a T>` stays closed" row are amended to Rust's rule; the verifier's
 exclusion of `Rc`-reaching values keeps its other reason (aliasing).
 
+**As built (W6b, 2026-11-03, `vbd/w6b-delete-collector`).** One PR, with
+no Generation A/B split: the v0.2.73 seed compiles a std without `Trace`
+(every `Trace` lookup in its codegen runs only under `needs_cycle_gc`,
+false by default since W6a) and reads `__yo_build_executable`'s missing
+tenth argument as `off` (measured in `~/Workspace/Yo-wt/vbd-logs/w6b/PLAN.md`).
+
+- **Removed as listed above**, with these specifics. The emitted
+  collector and its stubs (`generate_full_gc_runtime_functions`,
+  ~880 lines of `gc_runtime.yo`); `__yo_gc_register`, `__yo_gc_init_thread`
+  and `__yo_gc_collect` (a worker thread's exit hook is now
+  `__yo_cleanup_thread`); the traversal functions in
+  `codegen/functions/constructors.yo` and the `Trace` impl collection in
+  `collection.yo`; the `__yo_gc_*` builtins (`BF_YO_GC_COLLECT`,
+  `BF_YO_GC_TRACE_CHILD`) and `Type.can_form_rc_cycle`
+  (`BF_YO_TYPE_CAN_FORM_RC_CYCLE`); `std/gc.yo`; `--debug-gc` with
+  `--cycle-collector` (compile, test, `build.CycleCollector`, the artifact
+  field and the build builtin's tenth argument). The async state machines
+  always allocate from the pool now.
+- **The header.** Every cell carries the 8-byte `__yo_ref_header_t`
+  (`ref_count`, `type_id`, `borrow_count`); `__yo_rc_prefix_t` is a typedef
+  of it, and the gc mark/flag fields, `type_uses_small_rc_header`,
+  `compute_needs_cycle_gc` and `can_type_form_rc_cycle` are gone.
+- **The declared `Acyclic` form**: §4 "As built (W6b)". The "48
+  declarations on the compiler's containers" were 11 at the base, since
+  B-series flips had already removed the rest.
+- **Tests.** Deleted with their subject: `tests/cycle_collector.test.yo`,
+  `tests/gc_cleanup_exit.test.yo`, the cli-case `build-cycle-collector-off`
+  and the full-collector half of `tests/internal/gc_runtime_atomics.test.yo`.
+  The codegen corpus's seven files that observed `Gc.tracked_count()` count
+  their `Drop`s instead. Two `Weak` cases joined `tests/rc.test.yo` (a cycle
+  closed through a `Weak` frees itself; a weak-parent tree frees itself),
+  and the cli-cases `a-reference-cycle-leaks-and-the-debug-heap-reports-it`
+  and `weak-frees-its-cell-at-the-last-weak` replace the two-mode ones.
+- **Docs.** `CYCLE_COLLECTION.md` is deleted in both languages; what
+  survives (cycles leak, `Weak` breaks the back edge, the `--allocator
+  debug` oracle) is `MEMORY_SAFETY.md`'s "Reference Cycles Leak" section.
+- **O9/O10: text only** (VERDICTS-16 Q2, option (a)). The collector reason
+  is retired in `REFERENCES_AND_ORIGINS.md`; the `Escapable` bound on
+  counted-cell payloads stays enforced until origin propagation through
+  counted cells lands (that plan's §6 row: post-campaign, unscheduled).
+
 ## 7. Phases
 
 | Phase | Lands | Gate |
@@ -556,7 +632,7 @@ exclusion of `Rc`-reaching values keeps its other reason (aliasing).
 | W3 | `Weak(T)`: the weak count in the freed 16 bits, `downgrade`/`upgrade`/`new`/counts/`ptr_eq`, `Clone`, the dead flag, the two free paths, `traverse_fn` skipping `Weak` | upgrade after the last strong is `.None`; the allocation is freed at the last `Weak` (`--debug-heap` count); a parent pointer through `Weak(RefCell(Node))`; a cycle broken by a `Weak` is untracked under `Auto` and leak-free under `Off`; an `upgrade` from a `Drop` during CollectWhite returns `.None`; ASan on all of it |
 | W4 | `ArcWeak(T)` with atomic counts; `Send`/`Sync`; ARC.md and DESIGN.md (both languages) gain the `ArcWeak` sentence deferred from W2 | the W3 rows across a `Thread.spawn`; TSan |
 | W5 | the derived `Acyclic` walk ignores `Weak` edges and answers a cycle through a cell inductively (the S2 derivation fix); the declared exemption without the pragma; `yo fix` drops the `SAFETY:` comments in std | `tests/send_sync.test.yo` rows: a weak-parent tree is `Acyclic`, a strong-parent one is not, `Option(Box(Self))` and `ArrayList(Self)` stay `Acyclic`; the S2 reproducer's types not `Acyclic`; an object holding a cyclic cell behind an `Option` or a pointer not `Acyclic` (`issues/fixed/2026-10-22-an-object-holding-a-cyclic-cell-behind-an-option-or-a-pointer-derives-acyclic.md`, found at W2) |
-| W6 | the default flips to `Off` for one release (the measurement of §6), then the collector, `Trace`, the declared `Acyclic` form, the large header and the knob are deleted (the derived `Acyclic` marker stays); docs in both languages; the origins plan's O9/O10 amended | §6's three preconditions recorded as met; the fixpoint and the memory ratchet (headers shrink); `yo test --allocator debug` green over the corpus with no collector |
+| W6 | the default flips to `Off` for one release (the measurement of §6), then the collector, `Trace`, the declared `Acyclic` form, the large header and the knob are deleted (the derived `Acyclic` marker stays); docs in both languages; the origins plan's O9/O10 amended. **W6a built 2026-10-29, W6b built 2026-11-03** (§6 "As built") | §6's three preconditions recorded as met; the fixpoint and the memory ratchet (headers shrink); `yo test --allocator debug` green over the corpus with no collector |
 
 Each phase is one PR; W3 is Generation A (the prelude gains the types; std
 uses them on the next seed). The user-facing text is written with the

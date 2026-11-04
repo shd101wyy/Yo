@@ -9,16 +9,27 @@
 // `v :: variants.get(vi)` in the derive machinery accumulated the deficit
 // until the AST node freed). TS's escape lists drop only the local. Fixed
 // via FunctionGenerationContext.current_assignment_save_temp. See
-// issues/fixed/yo-self-dyn-throw-double-drop.md. Expected output: "done tracked=0".
+// issues/fixed/yo-self-dyn-throw-double-drop.md. Expected output: "done live=0".
 { println } :: import("std/fmt");
 { String } :: import("std/string");
 { Exception } :: import("std/error");
-Gc :: import("std/gc");
-// A cyclable ref struct so Gc.tracked_count() observes it.
+// A ref struct counted when made and when dropped: an over-drop of the old
+// value would drop it twice.
+(mut(g_dropped) : i64) = i64(0);
+(mut(g_made) : i64) = i64(0);
 Node :: ref(struct(v : i32, next : Option(Self)));
-make_node :: (fn(v : i32) -> Node)(
-  Node(v : v, next : .None)
+impl(
+  Node,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_dropped = (g_dropped + i64(1));
+    })
+  )
 );
+make_node :: (fn(v : i32) -> Node)({
+  g_made = (g_made + i64(1));
+  Node(v : v, next : .None)
+});
 // Throws before producing a value — the caller's reassignment never
 // completes, so the old value must be dropped exactly once (the local's
 // scope drop), not also via the save temp.
@@ -44,6 +55,6 @@ main :: (fn() -> unit)({
     run_once(j);
     j = (j + i32(1));
   });
-  println(`done tracked=${Gc.tracked_count()}`);
+  println(`done live=${(g_made - g_dropped).to_string()}`);
 });
 export(main);

@@ -126,25 +126,20 @@ from. A tree whose children are `Rc` handles, like the parent-pointer example ab
 is not `Acyclic`: nothing in its type stops a child edge from pointing back
 at an ancestor. Neither, for now, is a type that recurs through an
 `ArrayList`: the list is a shared object, so a list can hold a value that
-holds the list. A type the derivation rejects can declare the marker,
-`impl(T, Acyclic())`, without `pragma(Pragma.AllowUnsafe)`: a wrong
-declaration leaks, it never dangles. The declaration also keeps the type's
-cells away from the cycle collector, and it exists only as long as the
-collector does.
+holds the list.
 
-## With the cycle collector
+The marker cannot be declared. `impl(T, Acyclic())` is an error, generic or
+not: the marker is the type's structure, as `Escapable` is. To make a type
+`Acyclic`, put a `Weak` on its back edge. `impl(T, !Acyclic)` opts a type
+out.
 
-A `Weak` is not an edge of the ownership graph. The collector's walk does not
-visit a `Weak` field, and a hand-written `Trace` must not visit one either, so a
-cycle closed through a `Weak` is not a cycle: a type whose only back edge is a
-`Weak` is acyclic, and its cells are never tracked. Under
-`--cycle-collector off` ([CYCLE_COLLECTION.md](./CYCLE_COLLECTION.md)) a `Weak`
-back edge is what keeps such a structure from leaking.
+## Cycles leak
 
-When the collector frees a garbage cycle, an `upgrade` from a `Drop` it runs is
-`.None` for a cell of that cycle and succeeds for a live cell. A garbage cell a
-`Weak` outside the cycle still names has its payload dropped and its allocation
-kept until that `Weak` goes; `tracked_count()` no longer counts it.
+Yo has no cycle collector: a cycle of strong handles is never freed, and
+its cells' `Drop` never runs ([MEMORY_SAFETY.md](./MEMORY_SAFETY.md#reference-cycles-leak)).
+A `Weak` is not an edge of the ownership graph, so a cycle closed through a
+`Weak` is not a cycle, and a `Weak` back edge is what keeps such a structure
+from leaking.
 
 ## `ArcWeak(T)`: the thread-safe form
 
@@ -178,5 +173,4 @@ ones.
 ## Related docs
 
 - [ARC.md](./ARC.md) — `Arc(T)`, the atomically counted handle
-- [CYCLE_COLLECTION.md](./CYCLE_COLLECTION.md) — the collector and `--cycle-collector off`
-- [MEMORY_SAFETY.md](./MEMORY_SAFETY.md) — the leak oracles
+- [MEMORY_SAFETY.md](./MEMORY_SAFETY.md) — reference cycles and the leak oracles

@@ -219,8 +219,6 @@ BF_YO_DYN_DROP :: "__yo_dyn_drop";
 BF_YO_DYN_DUP :: "__yo_dyn_dup";
 BF_YO_SOMETYPE_DROP :: "__yo_sometype_drop";
 BF_YO_SOMETYPE_DUP :: "__yo_sometype_dup";
-BF_YO_GC_COLLECT :: "__yo_gc_collect";
-BF_YO_GC_TRACE_CHILD :: "__yo_gc_trace_child";
 // Inline operator builtins
 BF_YO_OP_ADD :: "__yo_op_add";
 BF_YO_OP_SUB :: "__yo_op_sub";
@@ -313,7 +311,6 @@ BF_YO_TYPE_TO_COMPTIME_STRING :: "__yo_type_to_comptime_string";
 BF_YO_ARE_TYPES_COMPATIBLE :: "__yo_are_types_compatible";
 BF_YO_ARE_TYPES_EQUAL :: "__yo_are_types_equal";
 BF_YO_TYPE_CONTAINS_RC_TYPE :: "__yo_type_contains_rc_type";
-BF_YO_TYPE_CAN_FORM_RC_CYCLE :: "__yo_type_can_form_rc_cycle";
 BF_YO_TYPE_IMPLS :: "__yo_type_impls";
 BF_YO_TYPE_GET_INFO :: "__yo_type_get_info";
 BF_YO_TYPE_JOIN_FIELDS :: "__yo_type_join_fields";
@@ -472,7 +469,7 @@ AstExpr :: ref(
     FnCall(id : ExprId, func : Self, args : Rc(ArrayList(Self)), is_infix : bool, token : Token)
   )
 );
-// SAFETY: an AstExpr tree has no back edges. Nothing in src/ writes a payload
+// An AstExpr tree has no back edges. Nothing in src/ writes a payload
 // of a built node: the language admits a variant-field write (`e.func = e`
 // closes a cycle), and an audit of src/ (2026-10-21) found no `.func =` or
 // `.args =` assignment. Every `args` list is filled before its FnCall is
@@ -481,12 +478,8 @@ AstExpr :: ref(
 // one, or a `&mut` pass. The one in-place rewrite,
 // `strip_proved_ensures_asserts` in evaluator/builtins/contracts.yo, refills a
 // body's statement list with a subset of its own elements, which cannot
-// close a cycle. So no node reaches itself. Declaring `Acyclic` keeps
-// AstExpr nodes, and every container and struct that reaches no other cycle
-// through them, out of the cycle collector (plans/VALUES_BY_DEFAULT.md
-// §3.12, decision 21's trees;
-// issues/fixed/2026-10-18-a-linkedlist-of-managed-elements-forms-uncollected-cycles.md).
-impl(AstExpr, Acyclic());
+// close a cycle. So no node reaches itself (plans/VALUES_BY_DEFAULT.md
+// decision 21's trees).
 // SHARE-on-recursion Clone (replaces `derive(AstExpr, Clone)`). `AstExpr` is now
 // a `ref(enum)`, so its `func` (a `Self` handle) and `args` (an
 // `Rc(ArrayList(Self))`) fields are RC handles — cloning SHARES them (an RC bump;
@@ -1223,7 +1216,7 @@ export(BF_ADDRESS_OF, BF_ARRAY_FILL, BF_DERIVE, BF_DERIVE_RULE, BF_REF_COUNT, BF
 export(BF_YO_DECR_RC, BF_YO_INCR_RC, BF_YO_DECR_RC_ATOMIC, BF_YO_INCR_RC_ATOMIC);
 export(BF_YO_DROP_ARRAY_ELEMENT, BF_YO_DUP_ARRAY_ELEMENT);
 export(BF_YO_DROP_TUPLE_ELEMENT, BF_YO_DUP_TUPLE_ELEMENT, BF_YO_RC_OWN, BF_YO_RC_FORGET_PAYLOAD, BF_YO_CAPTURE_FIELD);
-export(BF_YO_DYN_DROP, BF_YO_DYN_DUP, BF_YO_SOMETYPE_DROP, BF_YO_SOMETYPE_DUP, BF_YO_GC_COLLECT, BF_YO_GC_TRACE_CHILD);
+export(BF_YO_DYN_DROP, BF_YO_DYN_DUP, BF_YO_SOMETYPE_DROP, BF_YO_SOMETYPE_DUP);
 export(BF_YO_OP_ADD, BF_YO_OP_SUB, BF_YO_OP_MUL, BF_YO_OP_DIV, BF_YO_OP_MOD, BF_YO_OP_NEG);
 export(BF_YO_OP_ADD_WRAP, BF_YO_OP_SUB_WRAP, BF_YO_OP_MUL_WRAP);
 export(BF_YO_OP_EQ, BF_YO_OP_NEQ, BF_YO_OP_LT, BF_YO_OP_LTE, BF_YO_OP_GT, BF_YO_OP_GTE);
@@ -1245,7 +1238,7 @@ export(BF_YO_COMPTIME_LIST_APPEND, BF_YO_COMPTIME_LIST_LENGTH, BF_YO_COMPTIME_LI
 export(BF_YO_COMPTIME_LIST_GET, BF_YO_COMPTIME_LIST_INDEX, BF_YO_COMPTIME_LIST_INDEX_RANGE);
 export(BF_YO_COMPTIME_LIST_INDEX_RANGE_INCLUSIVE);
 export(BF_YO_TYPE_TO_COMPTIME_STRING, BF_YO_ARE_TYPES_COMPATIBLE, BF_YO_ARE_TYPES_EQUAL);
-export(BF_YO_TYPE_CONTAINS_RC_TYPE, BF_YO_TYPE_CAN_FORM_RC_CYCLE, BF_YO_TYPE_IMPLS, BF_YO_TYPE_GET_INFO);
+export(BF_YO_TYPE_CONTAINS_RC_TYPE, BF_YO_TYPE_IMPLS, BF_YO_TYPE_GET_INFO);
 export(BF_YO_TYPE_JOIN_FIELDS, BF_YO_TYPE_MAP_VARIANTS, BF_YO_COMPTIME_STRING_TO_EXPR);
 export(BF_YO_PROCESS_PLATFORM, BF_YO_PROCESS_ARCH, BF_YO_POINTER_SIZE_BITS);
 export(BF_YO_BUILD_EXECUTABLE, BF_YO_BUILD_STATIC_LIBRARY, BF_YO_BUILD_SHARED_LIBRARY);

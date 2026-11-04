@@ -44,7 +44,6 @@ extern(
 // primitive (pthread_mutex_t or equivalent). It carries its own internal
 // synchronization and is designed to be shared across threads.
 impl(__YO_THREAD_SYNC_TYPE, Send());
-impl(__YO_THREAD_SYNC_TYPE, Acyclic());
 
 // ============================================================================
 // Mutex(T) — atomic-object mutex wrapper with closure-scoped lock API
@@ -119,7 +118,6 @@ impl(
 /// methods are private to `std/sync/` (member visibility).
 _RawMutexState :: struct(_handle : __YO_THREAD_SYNC_TYPE, _owner : AtomicUsize);
 RawMutex :: struct(_cell : __yo_atomic_cell(_RawMutexState));
-impl(RawMutex, Acyclic());
 impl(
   _RawMutexState,
   Drop(

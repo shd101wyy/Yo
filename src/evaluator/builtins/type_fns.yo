@@ -3,7 +3,7 @@
 //! Functions implemented:
 //!   evaluate_yo_type_to_string, evaluate_yo_are_types_compatible,
 //!   evaluate_yo_are_types_equal, evaluate_yo_type_contains_rc_type,
-//!   evaluate_yo_type_can_form_rc_cycle, evaluate_yo_type_impls,
+//!   evaluate_yo_type_impls,
 //!   evaluate_yo_type_get_info, evaluate_comptime_eval,
 //!   evaluate_comptime_string_to_expr, evaluate_type_join_fields,
 //!   evaluate_type_map_variants.
@@ -43,7 +43,7 @@ pragma(Pragma.AllowUnsafe);
 { is_type_hierarchy_type, is_trait_type } :: import("../../types/guards.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../../types/compatibility.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ type_contains_rc_type, can_type_form_rc_cycle } :: import("../../types/utils.yo");
+{ type_contains_rc_type } :: import("../../types/utils.yo");
 { type_implements_trait_bool } :: import("../trait_checking.yo");
 { format_error_message } :: import("../../error.yo");
 { evaluate_expression_raw, evaluate_expression_guarded } :: import("../exprs/expr.yo");
@@ -446,63 +446,6 @@ evaluate_yo_type_contains_rc_type :: (
   });
   type_val := _extract_type_val(&arg0, &arg_info, "__yo_type_contains_rc_type", exn);
   flag := type_contains_rc_type(&type_val);
-  out_info := new_expr_info(&arg_info.env, t_bool());
-  out_info.value = Option(EvalValue).Some(EvalValue.BoolVal(flag));
-  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-  expr
-});
-/// __yo_type_can_form_rc_cycle(T) -> bool
-/// Returns true if the type can form an RC reference cycle.
-/// Delegates to can_type_form_rc_cycle (stub: always false in Phase 2).
-evaluate_yo_type_can_form_rc_cycle :: (
-  fn(
-    expr : &AstExpr,
-    env : &Environment,
-    ctx : &EvalContext,
-    exn : Exception
-  ) -> AstExpr
-)({
-  arg0 := match(
-    expr,
-    .FnCall(_, _, Rc(fargs), _, _) => match(
-      fargs.get(usize(0)),
-      .Some(x) => x,
-      .None => {
-        return(expr);
-      }
-    ),
-    _ => {
-      return(expr);
-    }
-  );
-  eval_arg := evaluate_expression_raw(&arg0, env, ctx, exn);
-  arg_info := match(
-    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&eval_arg)),
-    .Some(i) => i,
-    .None => {
-      exn.throw(
-        dyn(
-          format_error_message(
-            ast_expr_token(&arg0),
-            String.from("__yo_type_can_form_rc_cycle: failed to evaluate argument")
-          )
-        )
-      );
-      new_expr_info(env, t_unit())
-    }
-  );
-  if(!is_type_hierarchy_type(&arg_info.ty), {
-    exn.throw(
-      dyn(
-        format_error_message(
-          ast_expr_token(&arg0),
-          `__yo_type_can_form_rc_cycle: expected a Type argument, got: ${type_to_string(&arg_info.ty)}`
-        )
-      )
-    );
-  });
-  type_val := _extract_type_val(&arg0, &arg_info, "__yo_type_can_form_rc_cycle", exn);
-  flag := can_type_form_rc_cycle(&type_val);
   out_info := new_expr_info(&arg_info.env, t_bool());
   out_info.value = Option(EvalValue).Some(EvalValue.BoolVal(flag));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
@@ -2133,7 +2076,6 @@ evaluate_type_map_variants :: (
 export(
   evaluate_yo_are_types_compatible,
   evaluate_yo_are_types_equal,
-  evaluate_yo_type_can_form_rc_cycle,
   evaluate_yo_type_contains_rc_type,
   evaluate_yo_type_impls,
   evaluate_yo_type_to_string,

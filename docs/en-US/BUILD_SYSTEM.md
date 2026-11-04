@@ -118,7 +118,6 @@ Build artifacts use struct types with default field values (like Zig's options p
 | `optimize`  | `Optimize`     | `Optimize.Debug`   | Optimization level                         |
 | `allocator` | `AllocatorKind` | `AllocatorKind.System` | Memory allocator                           |
 | `heap_size` | `usize`        | `16777216` (16 MiB) | Fixed-region heap size (`AllocatorKind.Fixed` only) |
-| `cycle_collector` | `CycleCollector` | `CycleCollector.Off` | Reference-cycle collector; `Auto` compiles with one (`--cycle-collector auto`) |
 | `sanitize`  | `Sanitize`     | `Sanitize.None`    | Sanitizer                                  |
 
 ### `StaticLibrary`
@@ -202,18 +201,6 @@ exits with status 23, so `yo build run` and
 `yo test --allocator debug` fail on a leak. See
 [Memory Safety](MEMORY_SAFETY.md#--allocator-debug-leaks-and-heap-misuse-at-run-time).
 
-### Cycle collector
-
-| Value                 | Description                                                     |
-| --------------------- | --------------------------------------------------------------- |
-| `CycleCollector.Auto` | The collector runs when some type can form a reference cycle |
-| `CycleCollector.Off`  | No collector: a reference cycle leaks, as in Rust (default)     |
-
-`CycleCollector.Off` is `yo compile --cycle-collector off`, the default: `Gc.collect()`
-does nothing, `Gc.tracked_count()` is 0, and a cycle's cells are never freed.
-See [Cycle Collection](CYCLE_COLLECTION.md#compiling-without-the-collector---cycle-collector-off).
-The field is transitional: the collector is being removed, after which `Off`
-is the only behavior.
 
 ### Sanitizers
 

@@ -155,6 +155,40 @@ std 不提供 arena：`std/arena` 已于 2026-10-24 删除，`FixedBufferAllocat
 
 直接调用 `Allocator.alloc` / `free` 会得到裸指针，因此需要 `pragma(Pragma.AllowUnsafe);`。`alloc` 参数和 `_in` 构造函数不需要。完整指南（编写自己的分配器、线程、调试）见 [EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md)；设计记录见 `plans/archive/EXPLICIT_ALLOCATORS.md`。
 
+## 引用环会泄漏
+
+引用计数在单元的最后一个强句柄消失时释放它，因此无法释放环：环中的每个单元都让下一个单元的计数保持在零以上。
+Yo 没有环回收器（v0.2.75 移除，决策 48，`plans/backlog/WEAK_AND_UNCOLLECTED_RC.md` §6）。与 Rust 的 `Rc`
+一样，强句柄组成的环会泄漏：它的单元永远不会被释放，其 `Drop` 也永远不会运行。因此 `Drop` 只在一个确定的时刻运行，
+即最后一个句柄被释放时。泄漏并不是不安全：没有指针会悬垂。
+
+```yo
+Node :: ref(struct(value : i32, next : Option(Self)));
+test("a cycle of strong handles is never freed", {
+  a := Node(value : i32(1), next : .None);
+  b := Node(value : i32(2), next : .Some(a));
+  a.next = .Some(b); // a -> b -> a: both counts stay above zero
+});
+```
+
+解决办法与 Rust 相同：用 `Weak`（或 `ArcWeak`）这种不拥有的句柄来命名回边（[WEAK.md](./WEAK.md)）。父节点通过 `Rc`
+拥有子节点，每个子节点通过 `Weak` 指向父节点。这样释放根节点就会释放整个结构。
+
+有两个工具可以找出你无意中构造的环：
+
+- **运行时**：泄漏检测。`--allocator debug`（[下文](#--allocator-debug运行时的泄漏与堆误用)）在退出时列出泄漏的块并让运行失败，
+  `yo test --allocator debug` 让泄漏的测试失败。`--allocator fixed --debug-heap` 打印计数：
+
+  ```bash
+  yo compile main.yo --allocator fixed --debug-heap -o app
+  ./app
+  # heap: peak 448.0 B of 16.0 MiB, 16 allocations, live at exit: 2 blocks / 96 bytes
+  ```
+
+- **编译时**：`Acyclic` 标记。当从 `T` 的值出发不可达任何强边组成的环时，`T <: Acyclic` 成立，`Weak` 边不计入。
+  `where(T <: Acyclic)` 约束是 API 承诺其值不会持有泄漏环的方式。该标记由类型的结构推导，不能声明
+  （[WEAK.md](./WEAK.md#acyclic-标记)）。
+
 ## 逃逸口：`pragma(Pragma.AllowUnsafe);`
 
 当你确实需要原始指针时 —— 绑定 C 库、编写自定义分配器、实现新集合 —— 在文件顶部加一行声明，进入 unsafe-capable 模式：
@@ -376,6 +410,7 @@ d := state.wrapping_sub(inc);
 - **它作用于你的代码。** 标准库的 bug 仍然可能导致 UB，因为标准库内部使用原始指针。缓解措施是审计、模糊测试和 `yo unsafe-report` 清单 —— 与 Swift、Go、Java 处理它们 unsafe 内部的方法相同。
 - **FFI 是调用方的问题。** 用错误的参数类型调用 C 函数或违反它的前置契约是 C 层面的 UB。包在 extern 调用外的 `unsafe(...)` 是逐站点的审查标记；它并不验证契约。
 - **跨线程的数据竞争**由 `Send` / `Sync` / `Arc(T)` 处理，不在这个模型中。它们是正交的。
+- **它不防止泄漏。** 引用环会泄漏（[上文](#引用环会泄漏)）；`--allocator debug` 的检测能找到它。
 - **在 `pragma(Pragma.AllowUnsafe);` 文件内部**，所有保证都失效 —— 这正是 opt-in 的意义。你接受文件内所有内容的审计责任。
 
 定调：**安全的 Yo 代码无法违反内存安全。Unsafe 表面被限定在显式通过 pragma opt-in 的文件中 —— 主要是标准库 —— 它规模小、按发布版审计、有模糊测试覆盖。**

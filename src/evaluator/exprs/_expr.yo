@@ -146,7 +146,6 @@ import("std/fmt");
   BF_YO_DYN_DUP,
   BF_YO_SOMETYPE_DROP,
   BF_YO_SOMETYPE_DUP,
-  BF_YO_GC_COLLECT,
   BF_YO_EXPR_IS_ATOM,
   BF_YO_EXPR_IS_FN_CALL,
   BF_YO_EXPR_GET_CALLEE,
@@ -167,7 +166,6 @@ import("std/fmt");
   BF_YO_ARE_TYPES_COMPATIBLE,
   BF_YO_ARE_TYPES_EQUAL,
   BF_YO_TYPE_CONTAINS_RC_TYPE,
-  BF_YO_TYPE_CAN_FORM_RC_CYCLE,
   BF_YO_TYPE_IMPLS,
   BF_YO_TYPE_GET_INFO,
   BF_YO_TYPE_JOIN_FIELDS,
@@ -396,7 +394,6 @@ _is_deleted_borrow_word :: (fn(e : &AstExpr, with_imm : bool) -> bool)(
   evaluate_yo_expr_is_fn_call,
   evaluate_yo_expr_to_string
 } :: import("../builtins/expr_fns.yo");
-{ evaluate_yo_gc_collect } :: import("../builtins/gc.yo");
 { evaluate_gensym } :: import("../builtins/gensym.yo");
 { evaluate_impl_constraint } :: import("../builtins/impl_constraint.yo");
 { evaluate_macro_expand } :: import("../builtins/macro_expand.yo");
@@ -458,7 +455,6 @@ _is_deleted_borrow_word :: (fn(e : &AstExpr, with_imm : bool) -> bool)(
 {
   evaluate_yo_are_types_compatible,
   evaluate_yo_are_types_equal,
-  evaluate_yo_type_can_form_rc_cycle,
   evaluate_yo_type_contains_rc_type,
   evaluate_yo_type_impls,
   evaluate_yo_type_to_string,
@@ -1333,8 +1329,6 @@ _evaluate_expression :: (
           evaluate_yo_some_type_drop(expr, env, ctx, exn),
         ((__dk_len == usize(17)) && ast_expr_is_fn_call_of(expr, BF_YO_SOMETYPE_DUP, .None)) =>
           evaluate_yo_some_type_dup(expr, env, ctx, exn),
-        ((__dk_len == usize(15)) && ast_expr_is_fn_call_of(expr, BF_YO_GC_COLLECT, .None)) =>
-          evaluate_yo_gc_collect(expr, env, ctx, exn),
         ((__dk_len == usize(5)) && ast_expr_is_fn_call_of(expr, BK_QUOTE, .None)) =>
           evaluate_quote(expr, env, ctx, exn),
         ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, BK_GENSYM, .None)) =>
@@ -1408,8 +1402,6 @@ _evaluate_expression :: (
           evaluate_yo_are_types_equal(expr, env, ctx, exn),
         ((__dk_len == usize(26)) && ast_expr_is_fn_call_of(expr, BF_YO_TYPE_CONTAINS_RC_TYPE, .Some(usize(1)))) =>
           evaluate_yo_type_contains_rc_type(expr, env, ctx, exn),
-        ((__dk_len == usize(27)) && ast_expr_is_fn_call_of(expr, BF_YO_TYPE_CAN_FORM_RC_CYCLE, .Some(usize(1)))) =>
-          evaluate_yo_type_can_form_rc_cycle(expr, env, ctx, exn),
         ((__dk_len == usize(15)) && ast_expr_is_fn_call_of(expr, BF_YO_TYPE_IMPLS, .Some(usize(2)))) =>
           evaluate_yo_type_impls(expr, env, ctx, exn),
         ((__dk_len == usize(18)) && ast_expr_is_fn_call_of(expr, BF_YO_TYPE_GET_INFO, .Some(usize(1)))) =>

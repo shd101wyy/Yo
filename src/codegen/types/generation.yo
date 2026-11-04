@@ -2,7 +2,7 @@
 //!
 //! Carries the per-type DECLARATION emitters (str / array-wrapper /
 //! struct / tuple / union / enum / future) and the
-//! `generate_type_declarations` driver (runtime preamble: GC headers,
+//! `generate_type_declarations` driver (runtime preamble: debug macros,
 //! atomics, thread-sync macros, __yo_ref_header_t, future types — then the
 //! type-walk).
 { String } :: import("std/string");
@@ -12,7 +12,7 @@
 { HashMap } :: import("std/collections/hash_map");
 { TypeValue, TypeValueNode, no_types, no_labels, t_slot_pointee } :: import("../../types/definitions.yo");
 { is_unit_type, is_struct_type, is_enum_type, is_tuple_type, is_reference_struct_type, is_newtype_type, is_dyn_type, is_union_type, is_future_trait_type, is_function_type, is_fn_trait_type, is_some_type, is_array_type } :: import("../../types/guards.yo");
-{ type_contains_some_type, type_uses_small_rc_header, dyn_member_is_method, dyn_member_unsafe_reason, is_destructor_trait_member } :: import("../../types/utils.yo");
+{ type_contains_some_type, dyn_member_is_method, dyn_member_unsafe_reason, is_destructor_trait_member } :: import("../../types/utils.yo");
 { some_resolution } :: import("../../expr_info.yo");
 { type_to_string } :: import("../../types/string.yo");
 { is_target_windows, is_target_macos } :: import("../../target.yo");
@@ -272,11 +272,7 @@ generate_struct_declaration :: (fn(struct_type : &TypeValue, c_name : &String, c
           atomic_word := if(is_atomic_rc, "atomic ", "");
           header_word := if(is_atomic_rc, "Atomic r", "R");
           context.emitter.emit_declaration_string_line(`struct ${c_name}_struct { // ${name} : ${type_to_string(struct_type)} (${atomic_word}reference counted)`);
-          if(type_uses_small_rc_header(struct_type, context.needs_cycle_gc, is_atomic_rc), {
-            context.emitter.emit_declaration_line("  __yo_ref_header_small_t header; // Small RC header (cycle-incapable type)");
-          }, {
-            context.emitter.emit_declaration_string_line(`  __yo_ref_header_t header; // ${header_word}eference count header`);
-          });
+          context.emitter.emit_declaration_string_line(`  __yo_ref_header_t header; // ${header_word}eference count header`);
           _rf := _emit_runtime_fields(&runtime_fields, context);
           context.emitter.emit_declaration_line("};");
         },
@@ -509,11 +505,7 @@ generate_enum_declaration :: (fn(enum_type : &TypeValue, c_name : &String, conte
         atomic_tag := if(is_atomic_rc, String.from("atomic "), String.from(""));
         header_tag := if(is_atomic_rc, String.from("Atomic r"), String.from("R"));
         context.emitter.emit_declaration_string_line(`struct ${c_name}_struct { // ${name} : ${type_to_string(enum_type)} (${atomic_tag}reference counted)`);
-        if(type_uses_small_rc_header(enum_type, context.needs_cycle_gc, is_atomic_rc), {
-          context.emitter.emit_declaration_line("  __yo_ref_header_small_t header; // Small RC header (cycle-incapable type)");
-        }, {
-          context.emitter.emit_declaration_string_line(`  __yo_ref_header_t header; // ${header_tag}eference count header`);
-        });
+        context.emitter.emit_declaration_string_line(`  __yo_ref_header_t header; // ${header_tag}eference count header`);
         context.emitter.emit_declaration_string_line(`  ${tag_enum_name} tag;`);
         if(union_has_members, {
           context.emitter.emit_declaration_string_line(`  ${variant_union_name} data;`);
@@ -533,32 +525,18 @@ generate_enum_declaration :: (fn(enum_type : &TypeValue, c_name : &String, conte
     _ => ()
   )
 );
-/// Emit the runtime preamble that opens `generate_type_declarations`: the GC
-/// debug macros + mark/flags, the target-specific thread-synchronization
+/// Emit the runtime preamble that opens `generate_type_declarations`: the
+/// debug macros, the target-specific thread-synchronization
 /// types/macros, the atomic wrappers, mutex/cond constructors, the
-/// `__yo_ref_header_t` (chosen by needs_cycle_gc), and the generic Future /
+/// `__yo_ref_header_t`, and the generic Future /
 /// I/O Future struct types — a fixed-template head; the type-walk (forward
 /// decls + topological emission) follows it.
 _emit_type_runtime_preamble :: (fn(context : &CodeGenContext) -> unit)({
   em := context.emitter;
-  debug_gc_define := if(context.debug_gc, String.from("#define __YO_DEBUG_GC 1"), String.from("// #define __YO_DEBUG_GC 1"));
   debug_par_define := if(context.debug_parallelism, String.from("#define __YO_DEBUG_PARALLELISM 1"), String.from("// #define __YO_DEBUG_PARALLELISM 1"));
   debug_async_define := if(context.debug_async_await, String.from("#define __YO_DEBUG_ASYNC_AWAIT 1"), String.from("// #define __YO_DEBUG_ASYNC_AWAIT 1"));
   em.emit_declaration_string_line(
-    `// Non-atomic Reference Counting with Thread-Local Cycle Collection
-// Based on QuickJS trial deletion algorithm
-// See CYCLE_COLLECTION.md for design details
-
-// Debug flag for GC operations - use --debug-gc flag to enable
-${debug_gc_define}
-
-#ifdef __YO_DEBUG_GC
-  #define GC_DEBUG(...) fprintf(stderr, "GC: " __VA_ARGS__)
-#else
-  #define GC_DEBUG(...)
-#endif
-
-// Debug flag for parallelism operations - use --debug-parallelism flag to enable
+    `// Debug flag for parallelism operations - use --debug-parallelism flag to enable
 ${debug_par_define}
 
 #ifdef __YO_DEBUG_PARALLELISM
@@ -575,25 +553,12 @@ ${debug_async_define}
 #else
   #define ASYNC_DEBUG(...)
 #endif
-
-// GC mark states for QuickJS-style trial deletion cycle collection
-typedef enum {
-  __YO_GC_UNMARKED = 0,
-  __YO_GC_CANDIDATE = 1,
-  __YO_GC_TRIAL_DELETED = 2,
-  __YO_GC_LIVE = 3,
-  __YO_GC_GARBAGE = 4
-} __yo_gc_mark_t;
-
-// GC flags
-#define __YO_GC_TRACKED              0x01
-#define __YO_GC_BUFFERED             0x02
 `
   );
   // Thread synchronization — target-specific types + macros.
   if(is_target_windows(&context.target_info), {
     em.emit_declaration_string_line(
-      `// Thread synchronization for stop-the-world GC (Windows)
+      `// Thread synchronization (Windows)
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
@@ -652,7 +617,7 @@ static inline bool __yo_cond_timedwait(__YO_COND_TYPE* c, __YO_THREAD_SYNC_TYPE*
   }, {
     macos_includes := if(is_target_macos(&context.target_info), String.from("#include <sys/types.h>\n#include <sys/sysctl.h>"), String.from(""));
     em.emit_declaration_string_line(
-      `// Thread synchronization for stop-the-world GC (POSIX)
+      `// Thread synchronization (POSIX)
 #include <pthread.h>
 #include <unistd.h>
 #include <sys/syscall.h>
@@ -755,7 +720,7 @@ static inline bool __yo_cond_timedwait(__YO_COND_TYPE* c, __YO_THREAD_SYNC_TYPE*
 #define __yo_thread_self() ((uintptr_t)pthread_self())`
     );
   });
-  // Thread handle type, atomic wrappers, mutex/cond constructors, GC-state fwd decl.
+  // Thread handle type, atomic wrappers, mutex/cond constructors.
   em.emit_declaration_string_line(
     `
 // Thread handle type for parallelism - value type, stack allocated
@@ -968,88 +933,21 @@ static __YO_COND_TYPE __yo_cond_create(void) {
   __yo_cond_init(&cond);
   return cond;
 }
-
-// Forward declare __yo_thread_gc_state_t for use in __yo_ref_header_t
-typedef struct __yo_thread_gc_state __yo_thread_gc_state_t;
 `
   );
-  // Reference-counting header — layout chosen by needs_cycle_gc.
-  if(context.needs_cycle_gc, {
-    em.emit_declaration_string_line(
-      `
-// Reference counting header - non-atomic RC with cycle collection support
-typedef struct __yo_ref_header_t {
-  // Packed into one 8-byte word (P2 memory): ref_count u32 (4B refs >> addressable
-  // memory), gc_mark/gc_flags as bytes, borrow_count u16. Shrinks the header 64 -> 56 B,
-  // saving ~8 B/object; e.g. ArrayList 88 -> 80 crosses the 96 -> 80 malloc class
-  // (~0.4 GB at self-compile scale). gc_mark holds __yo_gc_mark_t values 0..4.
-  uint32_t ref_count;
-  uint8_t gc_flags;
-  uint8_t gc_mark;
-  uint16_t borrow_count;
-  // dispose_fn sits IMMEDIATELY after the packed word so the small header
-  // below is a strict PREFIX of this one: __yo_decr_rc reads flags and
-  // dispose_fn at the same offsets for both layouts, branch-free.
-  void (*dispose_fn)(void*);
-  // The visitor receives each managed child AND that child's own traverse
-  // function (a void pointer, NULL when none was generated), so a walker that is not
-  // the collector can descend without a header.
-  void (*traverse_fn)(void*, void (*visit)(void*, void*));
-  struct __yo_ref_header_t* gc_next;
-  struct __yo_ref_header_t* gc_prev;
-  struct __yo_ref_header_t* roots_next;  // Bacon-Rajan possible-roots intrusive list (O(1) unlink at free)
-  struct __yo_ref_header_t* roots_prev;
-} __yo_ref_header_t;
-
-// Small RC header (16 B) for cycle-INCAPABLE, non-atomic types — the ones
-// whose constructors never __yo_gc_register. Every GC visitor early-returns
-// on !(gc_flags & __YO_GC_TRACKED), so these objects' traverse_fn and GC
-// list pointers were never read; this drops them (56 -> 16 B on the
-// majority class — see plans/archive/RC_HEADER_SPLIT.md). A strict prefix
-// of __yo_ref_header_t. Generic code that may see EITHER layout (incr/decr,
-// the borrow checks, ref_count(), every GC visitor's TRACKED test) reads through
-// __yo_rc_prefix_t and casts to __yo_ref_header_t* only once the object is
-// known to be TRACKED: a member access through the 56-byte type on a 16-byte
-// object is undefined behavior, not merely an unused tail
-// (issues/fixed/small-rc-header-accessed-through-the-full-header-type.md).
-typedef struct __yo_ref_header_small_t {
-  uint32_t ref_count;
-  uint8_t gc_flags;
-  uint8_t gc_mark;
-  uint16_t borrow_count;
-  void (*dispose_fn)(void*);
-} __yo_ref_header_small_t;
-typedef __yo_ref_header_small_t __yo_rc_prefix_t;
-
-// Per-thread GC state
-struct __yo_thread_gc_state {
-  __yo_ref_header_t* tracked_objects;
-  size_t tracked_count;
-  size_t thread_id;
-  size_t alloc_count;
-  __yo_ref_header_t* possible_roots;   // Bacon-Rajan: head of the possible-roots list
-  size_t possible_roots_count;         // length of possible_roots (collection trigger)
-  __yo_ref_header_t** gc_white;        // scratch buffer: white (garbage) objects gathered during a collection
-  size_t gc_white_count;
-  size_t gc_white_cap;
-  __yo_thread_gc_state_t* next;
-  __yo_thread_gc_state_t* prev;
-};`
-    );
-  }, {
-    em.emit_declaration_string_line(
-      `
-// Lightweight reference counting header — no cycle detection fields
+  // Reference-counting header.
+  em.emit_declaration_string_line(
+    `
+// Reference counting header
 // Uses type_id dispatch instead of function pointer for dispose (faster in WASM: br_table vs call_indirect)
 typedef struct __yo_ref_header_t {
   uint32_t ref_count;     // u32 (matches the atomic-RC casts; 4B refs >> addressable memory)
   uint16_t type_id;
   uint16_t borrow_count;
 } __yo_ref_header_t;
-// One layout here, so the layout-agnostic view is the header itself.
+// One layout, so the layout-agnostic view is the header itself.
 typedef __yo_ref_header_t __yo_rc_prefix_t;`
-    );
-  });
+  );
   // Explicit allocators (plans/archive/EXPLICIT_ALLOCATORS.md §3.4): the top bit of
   // `ref_count` marks a block placed by an explicit `Allocator`; such a block
   // carries a 16-byte owner prefix (`std/allocator.yo`'s `_AllocPrefix`, the
@@ -1222,16 +1120,6 @@ ${alloc_in_fn}`
     cond(
       (context.allocator == "debug") => "static inline bool __yo_debug_alloc_on(void) { return true; }",
       true => "static inline bool __yo_debug_alloc_on(void) { return false; }"
-    )
-  );
-  // The `--cycle-collector` mode as the program can read it (extern "Yo"):
-  // the FLAG, not the runtime selected from it, so a test of the uncollected
-  // build can tell "off" from "auto with no cyclic type"
-  // (plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §1).
-  em.emit_declaration_line(
-    cond(
-      context.cycle_collector_off => "static inline bool __yo_cycle_collector_off(void) { return true; }",
-      true => "static inline bool __yo_cycle_collector_off(void) { return false; }"
     )
   );
   // Generic Future + I/O Future struct types.

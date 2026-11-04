@@ -9,20 +9,22 @@
 // 0). This was the ~9x under-free that ballooned the self-compiled compiler to
 // 26G on src/main.yo; TS always materialized+dropped.
 //
-// Observable: `Gc.tracked_count()`. `Node` is self-referential (`Option(Self)`)
-// and therefore CYCLABLE, so each live instance is registered with the cycle
-// collector and counted (an acyclic ref-struct is NOT tracked — the count would
-// stay 0 regardless of leaks). The helper constructs four references and
-// returns; with correct eager RC drops the live count returns to baseline 0.
-// The count is kept small (well under the GC's auto-collect threshold) so the
-// collector does not fire and mask a missing drop — mirroring how
-// `tests/cycle_collector.test.yo` asserts exact counts. Pre-fix yo-self leaves
-// the post-helper count at 4 (all four leaked), failing the assert (a DIFF /
-// non-zero exit in the differential harness); TS and fixed yo-self both pass.
+// Observable: `Node`'s `Drop` counts the instances dropped. The helper
+// constructs four references and returns; with correct eager RC drops all four
+// are dropped by the time it returns. Pre-fix yo-self dropped none of them,
+// failing the assert (non-zero exit in the corpus harness).
 { assert } :: import("std/assert");
-Gc :: import("std/gc");
 
+(mut(g_dropped) : i64) = i64(0);
 Node :: ref(struct(x : i32, next : Option(Self)));
+impl(
+  Node,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_dropped = (g_dropped + i64(1));
+    })
+  )
+);
 Holder :: ref(struct(n : Node));
 
 // Value enum with an RC field: dropping the enum result disposes its owned Node.
@@ -51,11 +53,7 @@ build_and_discard :: (fn() -> unit)({
 });
 
 main :: (fn() -> unit)({
-  assert(Gc.tracked_count() == u64(0), "baseline: no tracked objects at start");
   build_and_discard();
-  assert(
-    Gc.tracked_count() == u64(0),
-    "no leak: every constructed reference was dropped at scope end"
-  );
+  assert(g_dropped == i64(4), "no leak: every constructed reference was dropped at scope end");
 });
 export(main);

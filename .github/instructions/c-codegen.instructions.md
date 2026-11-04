@@ -597,9 +597,9 @@ functions are kernel32, the module `CreateThread` already links against. Test:
 `tests/internal/main_wrapper_console_cp.test.yo`
 (issues/fixed/windows-console-non-ascii-mojibake-under-legacy-code-page.md).
 
-### RC headers: read an object of unknown layout through `__yo_rc_prefix_t`
+### RC headers: one layout
 
-Under cycle GC, cycle-incapable non-atomic types carry the 16-byte `__yo_ref_header_small_t`. Every other RC type carries the 56-byte `__yo_ref_header_t`, of which the small header is a prefix. **Any runtime C that can see either layout** must read through `__yo_rc_prefix_t*`: incr/decr, `ref_count()`, the borrow checks, and GC visitors given a child pointer. It may cast to `__yo_ref_header_t*` only after testing `__YO_GC_TRACKED` through the prefix. A member access through the 56-byte type on a 16-byte object is undefined behavior even when only prefix fields are touched. The UBSan acceptance run caught exactly that (`issues/fixed/small-rc-header-accessed-through-the-full-header-type.md`). In lightweight mode `__yo_rc_prefix_t` is the one header. `tests/internal/gc_runtime_atomics.test.yo` pins the rule. Lightweight mode is what `compute_needs_cycle_gc` picks when no type is a cycle root, and ALWAYS under `--cycle-collector off` (`CodeGenContext.cycle_collector_off`, decision 48 W1), so a program with cyclic types can reach the lightweight runtime too: runtime C must not assume a cycle-capable type implies the cycle-GC header. The flag itself reaches the program as `__yo_cycle_collector_off()` (beside `__yo_debug_alloc_on()`).
+Every RC cell carries the one `__yo_ref_header_t` (`ref_count` u32, `type_id` u16, `borrow_count` u16); `__yo_rc_prefix_t` is a typedef of it, kept so runtime C reads a header through one name. There is no cycle collector, no large header and no `traverse_fn` (decision 48 W6b, `plans/backlog/WEAK_AND_UNCOLLECTED_RC.md` §6): dispose runs through the type-tag `__yo_dispose_dispatch`. `tests/internal/gc_runtime_atomics.test.yo` pins the runtime text.
 
 **Explicit allocators changed this C contract** (`plans/reference/EXPLICIT_ALLOCATORS.md`, P0–P5 landed 2026-09-30):
 
@@ -671,7 +671,6 @@ the same question.
 
 ## Debug flags
 
-- `--debug-gc` — debug garbage collector and reference counting
 - `--debug-parallelism` — debug parallel worker threads
 - `--debug-async-await` — debug async/await
 
@@ -730,12 +729,11 @@ To confirm a suspected leak, use a `Drop` counter on a `ref(struct)` /
 `ref(enum)` and read it after the scope that owns the value (statement temps are
 released at SCOPE end, not after the statement). The old-value save of a FIELD
 reassignment (`k.next = .None`) is released the same way — at the ENCLOSING
-scope's end, not after the statement — so a `Gc.collect()` later in the same
-scope still sees the old handle and classifies its target reachable. A test that
-clears a field to make a subgraph unreachable before collecting must do the
-clear inside its own function (measured 2026-10-06 writing the cycle-collector
-resurrection test; the emitted C saves `__yo_v_k->__yo_v_next` and defers its
-`__yo_decr_rc` to the function's closing brace).
+scope's end, not after the statement — so a `Drop` counter read later in the
+same scope still sees the old handle alive. A test that clears a field to drop
+a subgraph must do the clear inside its own function (measured 2026-10-06; the
+emitted C saves `__yo_v_k->__yo_v_next` and defers its `__yo_decr_rc` to the
+function's closing brace).
 
 **An emitter whose expression carries an owning result temp declares that temp
 itself** (`attach_temp_variable_to_expr(expr, true, …)` in its evaluator path)
