@@ -162,11 +162,11 @@ impl(
   where(T <: (Integer, _UnaryProbe)),
   T,
   /// `~` on a generic-typed value — the shape that could not be written.
-  g_complement : (fn(self : &T) -> T)(~self),
+  g_complement : (fn(self : &T) -> T)(~self.*),
   /// `!` on a generic-typed value, via a comparison. Always worked.
-  g_is_zero : (fn(self : &T) -> bool)(!(self != T(0))),
+  g_is_zero : (fn(self : &T) -> bool)(!(self.* != T(0))),
   /// `~` twice, so more than one use site in one body is covered.
-  g_roundtrip : (fn(self : &T) -> T)(~~self),
+  g_roundtrip : (fn(self : &T) -> T)(~~self.*),
   /// The complement WIDENED. This is the shape that exposed the missing
   /// narrowing cast in the inline lowering: C promotes `~(uint8_t)x` to `int`,
   /// so without a cast back to the operand's own type `u32(~u8(0))` was
@@ -174,7 +174,7 @@ impl(
   /// compared `int -256` against `0` and took the wrong arm. Binding the
   /// complement to a local first hides it, because the local's declared type
   /// does the narrowing, so the widening MUST be in the expression.
-  g_complement_wide : (fn(self : &T) -> u32)(u32(~self))
+  g_complement_wide : (fn(self : &T) -> u32)(u32(~self.*))
 );
 impl(
   generic(T : Type),
@@ -183,7 +183,7 @@ impl(
   /// Unary `-` on a generic-typed value. Its symbol also names the BINARY
   /// lowering, which is what made the naive widening of the fast path emit
   /// `(y) - ()`.
-  g_negate : (fn(self : &T) -> T)(-self)
+  g_negate : (fn(self : &T) -> T)(-self.*)
 );
 _concrete_complement :: (fn(y : u8) -> u8)(~y);
 _concrete_complement_wide :: (fn(y : u8) -> u32)(u32(~y));

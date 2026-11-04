@@ -73,7 +73,7 @@ pragma(Pragma.AllowUnsafe);
 { stable_module_id, stable_func_id, private_member_blocked, debug_knob, parse_raw_int, is_temp_variable_name } :: import("../../utils.yo");
 { type_key } :: import("../../types/type_key.yo");
 { record_await_fusion_candidate } :: import("../../expr_traversal.yo");
-{ attach_temp_variable_to_expr, projection_call_mode_of, consume_called_fnonce_closure, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, reject_second_class_escape, reject_write_through_rc, place_cell_hops, PlaceCellHops, handle_payload_is_read_only, require_capture_borrow_exclusivity, local_borrows_active, local_borrow_value_place_of, local_borrow_places_overlap, LocalBorrowPlace, CellRootedPlace, cell_rooted_place_of, cell_rooted_same_cell, cell_rooted_places_overlap, local_borrow_note_runtime_call, local_borrow_enter_macro_site, local_borrow_leave_macro_site, local_borrow_is_macro_await, local_borrow_is_scalar_type, variable_is_borrow_parameter, variable_id_in_scope, reject_bare_callable_into_dyn_fn, bare_callable_recorded_into_dyn_fn, global_lend_audit_enabled, global_lend_audit_print, global_lend_location, global_lend_key, global_place_path, GlobalHandleLend, global_note_handle_mutcall, global_note_handle_lend, global_require_mut, variable_is_future_operand_parameter, place_require_mut, RC_CLONE_MIGRATE_HINT } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, projection_call_mode_of, deref_exempt_mark, deref_exempt_clear, consume_called_fnonce_closure, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, reject_second_class_escape, reject_write_through_rc, place_cell_hops, PlaceCellHops, handle_payload_is_read_only, require_capture_borrow_exclusivity, local_borrows_active, local_borrow_value_place_of, local_borrow_places_overlap, LocalBorrowPlace, CellRootedPlace, cell_rooted_place_of, cell_rooted_same_cell, cell_rooted_places_overlap, local_borrow_note_runtime_call, local_borrow_enter_macro_site, local_borrow_leave_macro_site, local_borrow_is_macro_await, local_borrow_is_scalar_type, variable_is_borrow_parameter, variable_id_in_scope, reject_bare_callable_into_dyn_fn, bare_callable_recorded_into_dyn_fn, global_lend_audit_enabled, global_lend_audit_print, global_lend_location, global_lend_key, global_place_path, GlobalHandleLend, global_note_handle_mutcall, global_note_handle_lend, global_require_mut, variable_is_future_operand_parameter, place_require_mut, RC_CLONE_MIGRATE_HINT } :: import("../utils.yo");
 {
   EvalContext,
   ExpectedTypeCtx,
@@ -151,7 +151,7 @@ MACRO_DISPATCH_ENABLED :: true;
 { try_to_convert_to_pointer_type } :: import("./pointer_type.yo");
 { CtorMethodImpl, instance_constructor_fid, impls_of_constructor_method, synthesize_impl_binders, first_failed_impl_where } :: import("../values/impl.yo");
 { TypeField, get_struct_fields } :: import("../types/field.yo");
-{ _somes_are_closure_forall_args, try_to_call_function_with_arguments, strip_argument_label, apply_call_site_borrow_markers, check_call_site_borrow_marker, _unlabeled_argument, consume_argument_for_parameter, _param_accepts_second_class, check_argument_for_parameter, inout_argument_roots, argument_is_aliased_by_inout, closure_argument_owned_type, resolve_param_types_from_expected, fn_literal_arg_is_deferred, collect_somes_with_fn_sigs, unresolved_own_binder, forall_binding_now, validate_where_constraints_for_call, reapply_where_clause_exprs_for_call, create_specialization_at_call, reject_runtime_comptime_arguments, runtime_value_for_comptime_param, _type_has_array_len_var, _trial_eval_ret_type_expr } :: import("./helper.yo");
+{ _somes_are_closure_forall_args, try_to_call_function_with_arguments, strip_argument_label, apply_call_site_borrow_markers, check_call_site_borrow_marker, _check_reference_argument, _unlabeled_argument, consume_argument_for_parameter, _param_accepts_second_class, check_argument_for_parameter, inout_argument_roots, argument_is_aliased_by_inout, closure_argument_owned_type, resolve_param_types_from_expected, fn_literal_arg_is_deferred, collect_somes_with_fn_sigs, unresolved_own_binder, forall_binding_now, validate_where_constraints_for_call, reapply_where_clause_exprs_for_call, create_specialization_at_call, reject_runtime_comptime_arguments, runtime_value_for_comptime_param, _type_has_array_len_var, _trial_eval_ret_type_expr } :: import("./helper.yo");
 { get_func_type, register_func_type, is_control_fn, get_closure_body_type, is_fnonce_closure_fn, is_fnonce_capture_struct, get_closure_capture_info } :: import("../../function_value.yo");
 { structural_clone_expansion } :: import("../utils/closure.yo");
 { is_ghost_fn } :: import("../builtins/contracts.yo");
@@ -1602,7 +1602,11 @@ _sai_arg_type :: (
   });
   saved_et := ctx.expected_type;
   ctx.expected_type = Option(ExpectedTypeCtx).None;
+  // Its slot is not known yet: argument matching judges a bare reference
+  // binding (E0926, `_check_reference_argument`).
+  deref_exempt_mark(&place);
   evaluated := evaluate_expression_raw(&place, env, ctx, exn);
+  deref_exempt_clear();
   ctx.expected_type = saved_et;
   match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated)),
@@ -9247,7 +9251,14 @@ _evaluate_function_call_unanchored :: (
         expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&func_expr), &gc_info);
         func_expr
       },
-      .None => evaluate_expression_raw(&func_expr, env, ctx, exn)
+      .None => {
+        // A callee is read through, never as a whole value: `f(x)` with
+        // `f : &Impl(Fn(…))`, the index `r(i)` (E0926, N1e-1).
+        deref_exempt_mark(&func_expr);
+        ev_callee := evaluate_expression_raw(&func_expr, env, ctx, exn);
+        deref_exempt_clear();
+        ev_callee
+      }
     )
   );
   if(callee_is_marked_dot, {
@@ -11041,11 +11052,18 @@ Fix: wrap the call:
               match(fv_param_ct.get(ai), .Some(c) => c, .None => false)
               && match(slot_pointee_at(&resolved_param_types, ai), .Some(o_pt) => is_origin_kind(&o_pt), .None => false)
             );
+            // A bare reference binding lent to a reference slot is not a
+            // whole-value read (E0926, N1e-1; `_check_reference_argument`
+            // judges the rest after the call's marker check).
+            if(!match(fv_param_ct.get(ai), .Some(c) => c, .None => false) && !match(fv_param_is_owning.get(ai), .Some(o) => o, .None => true), {
+              deref_exempt_mark(&arg_expr_eff);
+            });
             evaled_arg := if(
               fv_takes_origin,
               evaluate_origin_argument(&arg_expr_eff, &arg_eval_env, ctx, exn),
               evaluate_expression_raw(&arg_expr_eff, &arg_eval_env, ctx, exn)
             );
+            deref_exempt_clear();
             ctx.expected_type = arg_saved_expected;
             // A `&mut` argument writes the place it names, as in
             // `check_if_function_parameter_matches_argument`: a bare one is a
@@ -11131,6 +11149,17 @@ Fix: wrap the call:
             // above): it is not a caller expression, so no caller variable is
             // moved or projected by it.
             if(!du_frame_pushed, {
+              if(ai < n_p, {
+                _check_reference_argument(
+                  _unlabeled_argument(match(fv_written_args.get(ai), .Some(w) => w, .None => arg_expr_eff)),
+                  _unlabeled_argument(&arg_expr_eff),
+                  (fv_p_owning || fv_call_is_operator),
+                  false,
+                  fv_p_is_ct,
+                  ctx,
+                  exn
+                );
+              });
               if(!fv_call_is_operator && (ai < n_p), {
                 check_call_site_borrow_marker(
                   _unlabeled_argument(match(fv_written_args.get(ai), .Some(w) => w, .None => arg_expr_eff)),

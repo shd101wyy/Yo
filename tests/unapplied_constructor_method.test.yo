@@ -22,9 +22,9 @@ impl(
   first : (fn(self : &Self) -> A)(self.a),
   second : (fn(self : &Self) -> B)(self.b),
   set_first : (fn(self : &mut Self, a : &A) -> unit)({
-    self.a = a;
+    self.a = a.*;
   }),
-  make : (fn(a : &A, b : &B) -> Self)(Self(a : a, b : b)),
+  make : (fn(a : &A, b : &B) -> Self)(Self(a : a.*, b : b.*)),
   first_type : (fn(comptime(self) : Self) -> comptime(Type))(A)
 );
 _Tagged :: (fn(comptime(T) : Type) -> comptime(Type))(
@@ -41,8 +41,8 @@ impl(
   value_or : (fn(self : &Self, d : &T) -> T)(
     match(
       self,
-      .Some(v) => v,
-      .Empty => d
+      .Some(v) => v.*,
+      .Empty => d.*
     )
   )
 );

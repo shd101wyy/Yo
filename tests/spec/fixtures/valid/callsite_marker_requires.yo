@@ -5,10 +5,10 @@
 // and the call failed to type-check (E0610).
 pragma(Pragma.Verify);
 
-unset_flag :: (fn(b : &bool, requires(!b)) -> i32)(i32(0));
+unset_flag :: (fn(b : &bool, requires(!b.*)) -> i32)(i32(0));
 
-bump :: (fn(n : &mut i32, requires((n >= i32(0)) && (n < i32(100)))) -> unit)({
-  n = (n + i32(1));
+bump :: (fn(n : &mut i32, requires((n.* >= i32(0)) && (n.* < i32(100)))) -> unit)({
+  n.* = (n.* + i32(1));
 });
 
 main :: (fn() -> unit)({

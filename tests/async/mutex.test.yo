@@ -45,19 +45,19 @@ test("Test mutex excludes across awaits", {
   worker :: (fn(m2 : Arc(Mutex(i64)), ins : &Rc(RefCell(bool)), ovl : &Rc(RefCell(i64)), io : Io) -> Impl(Future(unit, Io)))(
     io.async({ ins : Rc.clone(ins), m2 : Arc.clone(m2), ovl : Rc.clone(ovl) }(io : Io) => {
       io.await(m2.*.lock(io), io);
-      if(ins.with(v => v), {
+      if(ins.with(v => v.*), {
         ovl.with_mut(n => {
-          n = (n + i64(1));
+          n.* = (n.* + i64(1));
         });
       });
       ins.with_mut(v => {
-        v = true;
+        v.* = true;
       });
       before := m2.*.get();
       io.await(sleep(u64(5)), io);
       m2.*.set(before + i64(1));
       ins.with_mut(v => {
-        v = false;
+        v.* = false;
       });
       m2.*.unlock();
       return(());
@@ -69,7 +69,7 @@ test("Test mutex excludes across awaits", {
   _r1 := h1.await(io);
   _r2 := h2.await(io);
   _r3 := h3.await(io);
-  assert(overlaps.with(n => n) == i64(0), "no task may enter the section while another holds the lock");
+  assert(overlaps.with(n => n.*) == i64(0), "no task may enter the section while another holds the lock");
   assert(m.*.get() == i64(3), "read-modify-write across an await must not lose updates");
   assert(!m.*.is_locked(), "all sections released");
 });
@@ -181,8 +181,8 @@ test("Test with_lock runs a body that borrows the caller's locals", {
   s.push(i64(41));
   r := io.await(
     m.with_lock({ &s }(v : &mut i64) => {
-      v = (v + match(s.get(usize(0)), .Some(e) => e, .None => i64(-1)));
-      v
+      v.* = (v.* + match(s.get(usize(0)), .Some(e) => e, .None => i64(-1)));
+      v.*
     }, io),
     io
   );
@@ -225,8 +225,8 @@ test("Test tasks contend through Arc handles, and lock borrows through them acro
     io.async({ b : Arc.clone(b) }(io : Io) => {
       r := io.await(
         b.*.with_lock((v : &mut i64) => {
-          v = (v + i64(100));
-          v
+          v.* = (v.* + i64(100));
+          v.*
         }, io),
         io
       );
@@ -324,7 +324,7 @@ Gauge :: struct(n : i64);
 /// `&mut` argument through an `Arc`) out of the way, so the E0909 rule is what
 /// answers.
 peek_mut :: (fn(g : &mut Gauge, io : Io) -> Impl(Future(i64, Io)))(
-  io.async({ &mut g }(io : Io) => {
+  io.async({ g : &mut g.* }(io : Io) => {
     io.await(sleep(u64(1)), io);
     g.n
   })

@@ -61,15 +61,15 @@ mk_ident_call :: (fn(id : usize, name : str, args : &ArrayList(AstExpr)) -> AstE
 /// Build `lhs := rhs` initialization assignment expression.
 mk_init_assign :: (fn(id : usize, lhs : &AstExpr, rhs : &AstExpr) -> AstExpr)({
   mut(args) := ArrayList(AstExpr).new();
-  args.push(lhs);
-  args.push(rhs);
+  args.push(lhs.*);
+  args.push(rhs.*);
   mk_op_call(id, BK_INIT_ASSIGN, &args)
 });
 /// Build `lhs :: rhs` const declaration expression.
 mk_const :: (fn(id : usize, lhs : &AstExpr, rhs : &AstExpr) -> AstExpr)({
   mut(args) := ArrayList(AstExpr).new();
-  args.push(lhs);
-  args.push(rhs);
+  args.push(lhs.*);
+  args.push(rhs.*);
   mk_op_call(id, BK_CONST, &args)
 });
 /// Stub evaluator: stores t_bool() + BoolVal(true) ExprInfo for any expr.
@@ -83,7 +83,7 @@ stub_eval_bool :: (
   info := new_expr_info(env, t_bool());
   info.value = Option(EvalValue).Some(EvalValue.BoolVal(true));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
-  expr
+  expr.*
 });
 /// Raw-seam variant of stub_eval_bool (ignores the custom handler).
 stub_eval_bool_raw :: (
@@ -107,7 +107,7 @@ stub_eval_i32 :: (
   info := new_expr_info(env, t_i32());
   info.value = Option(EvalValue).Some(EvalValue.IntLit(String.from("42")));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
-  expr
+  expr.*
 });
 // ---------------------------------------------------------------------------
 // evaluate_initialization_assignment — error cases
@@ -239,7 +239,7 @@ test("init_assign: rhs renames to temp var", {
     info_opt,
     .Some(info) => match(
       &info.variable_name,
-      .Some(vn) => assert(!(vn == String.from("_")), "temp var should not be named _"),
+      .Some(vn) => assert(!(vn.* == String.from("_")), "temp var should not be named _"),
       .None => () // also acceptable — temp var name may be stored on lhs ExprInfo
     ),
     .None => assert(false, "ExprInfo not set for _ init assign result")

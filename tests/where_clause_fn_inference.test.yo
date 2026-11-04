@@ -42,7 +42,7 @@ impl(
     LocalMapIter(Self, A, B, F)(_inner : self, _f : f)
   )
 );
-double :: (fn(x : &i32) -> i32)(x * i32(2));
+double :: (fn(x : &i32) -> i32)(x.* * i32(2));
 test("where-clause associated-type inference binds A and B from impl + Fn signature", {
   mut(list) := ArrayList(i32).new();
   list.push(i32(1));
@@ -61,7 +61,7 @@ test("where-clause inference with bool callback return type", {
   mut(list) := ArrayList(i32).new();
   list.push(i32(1));
   it1 := list.into_iter();
-  is_pos :: (fn(x : &i32) -> bool)(x > i32(0));
+  is_pos :: (fn(x : &i32) -> bool)(x.* > i32(0));
   (mut(iter) : LocalMapIter(type_of(it1), i32, bool, fn(x : &i32) -> bool)) = it1.local_map_to(is_pos);
   match(
     iter.next(),
@@ -111,7 +111,7 @@ impl(
 __wb_sum :: (
   fn(generic(C : Type), c : C, where(C <: __WbInto(Item := i32))) -> i32
 )(
-  c.wb_into().fold(i32(0), (acc, x) => (acc + x))
+  c.wb_into().fold(i32(0), (acc, x) => (acc.* + x.*))
 );
 __wb_count :: (
   fn(generic(C : Type), c : C, where(C <: __WbInto)) -> usize
@@ -156,7 +156,7 @@ derive(generic(T : Type), where(T <: Clone), _WcBox(T), Clone);
 derive(generic(T : Type), where(T <: Copy), _WcBox(T), Copy);
 _WcPair :: (fn(comptime(T) : Type) -> comptime(Type))(struct(a : T, b : T));
 _wc_need_send :: (fn(generic(T : Type), x : &T, where(T <: Send)) -> unit)(());
-_wc_fwd :: (fn(generic(U : Type), y : &U) -> unit)(_wc_need_send(_WcPair(U)(a : y, b : y)));
+_wc_fwd :: (fn(generic(U : Type), y : &U) -> unit)(_wc_need_send(_WcPair(U)(a : y.*, b : y.*)));
 _WcNotSend :: struct(x : i32);
 derive(_WcNotSend, Copy, Clone);
 impl(_WcNotSend, !Send());

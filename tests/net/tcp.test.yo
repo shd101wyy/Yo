@@ -486,7 +486,7 @@ _d6_ends_headers :: (fn(b : &ArrayList(u8)) -> bool)({
   )
 });
 _d6_read_headers :: (fn(stream : &TcpStream, io : Io) -> Impl(Future(String, IoExn)))(
-  io.async({ &stream }(e : IoExn) => {
+  io.async({ stream : &stream.* }(e : IoExn) => {
     buf := (*u8)(malloc(usize(4096)).unwrap());
     mut(bytes) := ArrayList(u8).new();
     mut(eof) := false;

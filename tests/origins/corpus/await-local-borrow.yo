@@ -2,8 +2,8 @@
 // manifest tests/origins/corpus.tsv): POSITIVE: a body-local borrow live across an `await` (O5: the local lives in the heap state machine).
 // Expected once decision 43's rules land: accepted (today too).
 _bump :: (fn(c : &mut i32, io : Io) -> Impl(Future(unit, Io)))(
-  io.async({ &mut c }(io : Io) => {
-    c = (c + i32(1));
+  io.async({ c : &mut c.* }(io : Io) => {
+    c.* = (c.* + i32(1));
   })
 );
 _outer :: (fn(io : Io) -> Impl(Future(i32, Io)))(

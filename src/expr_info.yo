@@ -3321,6 +3321,74 @@ take_marker_sites :: (fn() -> ArrayList(MarkerSite))({
   out
 });
 export(MarkerSite, set_migrate_markers, migrate_markers_on, record_marker_site, take_marker_sites);
+/// One `.*` `yo fix --migrate deref` inserts (decision 43 step 2, N1e-1;
+/// step-2 consultation Q7, VERDICTS-13 §11): outside std and the compiler
+/// tree, a reference binding read or written as a whole value (`n + 1`,
+/// `r = v`, `&r`) reads its referent with `.*` (E0926), and a `v.*` that
+/// meant the `Box`/`Rc`/field-`*` deref through a reference becomes
+/// `v.*.*`. Every site is one insertion of `.*` right after the expression
+/// whose leftmost token is at `row`/`col` and which prints as `expect`;
+/// the rewrite matches `expect` against the source text first.
+/// `edit` 1 instead inserts `<expect> : ` before the token at `row`/`col`
+/// (a capture-list pun or shorthand `{ &r }` / `{ r }` gains its label:
+/// `{ r : &r.* }`), and `edit` 2 deletes the borrow marker (`&`, `&mut `)
+/// written right before it (`match(&r, …)` → `match(r, …)`).
+DerefSite :: struct(path : String, row : usize, col : usize, expect : String, edit : u8);
+derive(DerefSite, Clone);
+(mut(g_migrate_deref) : bool) = false;
+(g_deref_sites : RefCell(ArrayList(DerefSite))) = RefCell(ArrayList(DerefSite)).new(ArrayList(DerefSite).new());
+(g_deref_site_keys : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
+set_migrate_deref :: (fn(on : bool) -> unit)({
+  g_migrate_deref = on;
+});
+/// Whether `yo fix --migrate deref` is recording (E0926 records the site
+/// instead of rejecting it).
+migrate_deref_on :: (fn() -> bool)(g_migrate_deref);
+/// Every other `yo fix --migrate` takes code written before the deref rule
+/// one rule forward, so the files it evaluates keep the old reading (as std
+/// and src do); `--migrate deref` is the step after it.
+(mut(g_deref_rule_suspended) : bool) = false;
+set_deref_rule_suspended :: (fn(on : bool) -> unit)({
+  g_deref_rule_suspended = on;
+});
+deref_rule_suspended :: (fn() -> bool)(g_deref_rule_suspended);
+/// `YO_AUDIT_DEREF=1`: the census of N1e-1's sites, printed as
+/// `[deref] <file>:<row>:<col> <expr>` at each one (print-only, every file,
+/// the exempt trees included), so the PR states the real count.
+(g_audit_deref : bool) = debug_knob(`YO_AUDIT_DEREF`).is_some();
+audit_deref_on :: (fn() -> bool)(g_audit_deref);
+/// Record one site: `tok` is the expression's leftmost token. Recorded
+/// once per position.
+record_deref_site :: (fn(tok : &Token, expect : &String) -> unit)({
+  key := `${tok.module_path.*}:${tok.row.to_string()}:${tok.column.to_string()}`;
+  if(!g_deref_site_keys.with_mut(s => s.insert(key.clone())), {
+    return(());
+  });
+  if(g_audit_deref, {
+    eprintln(`[deref] ${tok.module_path.*}:${(tok.row + u32(1)).to_string()}:${(tok.column + u32(1)).to_string()} ${expect}`);
+  });
+  site := DerefSite(path : tok.module_path.*.clone(), row : usize(tok.row), col : usize(tok.column), expect : expect.clone(), edit : u8(0));
+  g_deref_sites.with_mut({ site }(xs) => xs.push(site));
+});
+/// Record an `edit` 1 (label prefix `text`) or 2 (drop the marker) site at
+/// `tok`. Once per position and edit.
+record_deref_edit_site :: (fn(tok : &Token, text : &String, edit : u8) -> unit)({
+  key := `${edit.to_string()}:${tok.module_path.*}:${tok.row.to_string()}:${tok.column.to_string()}`;
+  if(!g_deref_site_keys.with_mut(s => s.insert(key.clone())), {
+    return(());
+  });
+  if(g_audit_deref, {
+    eprintln(`[deref] ${tok.module_path.*}:${(tok.row + u32(1)).to_string()}:${(tok.column + u32(1)).to_string()} ${if(edit == u8(2), "drop-marker", "label")} ${text}`);
+  });
+  site := DerefSite(path : tok.module_path.*.clone(), row : usize(tok.row), col : usize(tok.column), expect : text.clone(), edit : edit);
+  g_deref_sites.with_mut({ site }(xs) => xs.push(site));
+});
+take_deref_sites :: (fn() -> ArrayList(DerefSite))({
+  out := g_deref_sites.with_mut(xs => xs.split_off(usize(0)));
+  g_deref_site_keys.with_mut(s => s.clear());
+  out
+});
+export(DerefSite, set_migrate_deref, migrate_deref_on, set_deref_rule_suspended, deref_rule_suspended, audit_deref_on, record_deref_site, record_deref_edit_site, take_deref_sites);
 /// One pattern `yo fix --migrate rc-pattern` wraps in `Rc(…)`
 /// (plans/VALUES_BY_DEFAULT.md decision 31, Generation B): a structural
 /// pattern at an `Rc(T)` position, which the compiler no longer looks through

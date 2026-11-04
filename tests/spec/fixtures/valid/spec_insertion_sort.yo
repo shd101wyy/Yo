@@ -18,7 +18,7 @@ insertion_sort :: (
     s : &mut Array(i64, 8),
     ensures(
       forall(p : i64, ((p >= i64(0)) && (p < i64(7))) ==> (s(p) <= s(p + i64(1)))),
-      forall(x : i64, ms_count(ms_of(s), x) == ms_count(ms_of(old(s)), x))
+      forall(x : i64, ms_count(ms_of(s.*), x) == ms_count(ms_of(old(s.*)), x))
     )
   ) -> (result : unit)
 )({
@@ -28,11 +28,11 @@ insertion_sort :: (
       i >= i64(1),
       i <= i64(8),
       forall(p : i64, ((p >= i64(0)) && (p < (i - i64(1)))) ==> (s(p) <= s(p + i64(1)))),
-      forall(x : i64, ms_count(ms_of(s), x) == ms_count(ms_of(old(s)), x))
+      forall(x : i64, ms_count(ms_of(s.*), x) == ms_count(ms_of(old(s.*)), x))
     );
     decreases(i64(8) - i);
     tmp := s(i);
-    s0 := s;
+    s0 := s.*;
     mut(j) := (i - i64(1));
     while((j >= i64(0)) && (s(j) > tmp), {
       invariant(

@@ -39,7 +39,8 @@ pragma(Pragma.AllowUnsafe);
   ast_expr_is_atom_of,
   ast_expr_to_string,
   make_err_expr,
-  for_desugar_site_of
+  for_desugar_site_of,
+  ast_rewritten_node
 } :: import("../expr.yo");
 { TokenKind } :: import("../token.yo");
 { lookup_method_callee_value, ExprInfo, ExprInfoTable, expr_info_table_get, expr_info_macro_expansion } :: import("../expr_info.yo");
@@ -51,6 +52,7 @@ pragma(Pragma.AllowUnsafe);
 { VcSort, VcOp, VcTerm, VcTermNode, VcQuery, VcQuantKind, VcFunDecl, new_vc_query, vc_eq, vc_and, vc_or, vc_not, vc_distinct } :: import("./terms.yo");
 { mangle_vc_name, encode_sort, encode_term, _msof_key } :: import("./encode.yo");
 { type_display_name } :: import("../types/string.yo");
+{ type_key } :: import("../types/type_key.yo");
 { is_unit_type } :: import("../types/guards.yo");
 {
   is_ghost_fn,
@@ -1969,6 +1971,37 @@ _expr_term :: (fn(ctx : &mut VcCtx, e : &AstExpr) -> Option(VcTerm))({
     _fail_subset(ctx, String.from("return(...) (an early exit: the walk does not model the returning path)"), e);
     return(Option(VcTerm).None);
   });
+  // `r.*` on a reference binding (decision 43 step 2 N1e-1) reads the
+  // referent: the evaluator rewrote it to the name `r` itself.
+  if(ast_expr_is_fn_call_of(e, ".", .Some(usize(2))), {
+    match(
+      ast_rewritten_node(e),
+      .Atom(rd_id, rd_tok) => {
+        return(_expr_term(ctx, &AstExpr.Atom(rd_id, rd_tok)));
+      },
+      _ => ()
+    );
+    // A generic body's predicate pass leaves `x.*` untyped over an opaque
+    // `T`, and a callee's clause walked at a call site was evaluated in
+    // another node: neither has the rewrite. The deref of a bound reference
+    // name is the name's own term, as the bare `x` was; a reference reads as
+    // its pointee's type, so the deref and the name share it (a `Box`'s or
+    // a pointer's `.*` does not).
+    dargs := _fn_call_args(e);
+    d_obj := dargs.get(usize(0)).unwrap();
+    d_fld := dargs.get(usize(1)).unwrap();
+    if(ast_expr_is_atom(&d_obj) && ast_expr_is_atom_of(&d_fld, "*") && ctx.vars.contains_key(ast_expr_text(&d_obj).*), {
+      d_same := match(
+        (expr_info_table_get(&ctx.table, ast_expr_id(e)), expr_info_table_get(&ctx.table, ast_expr_id(&d_obj))),
+        (.None, _) => true,
+        (.Some(de), .Some(oe)) => (type_key(&de.ty) == type_key(&oe.ty)),
+        _ => false
+      );
+      if(d_same, {
+        return(_expr_term(ctx, &d_obj));
+      });
+    });
+  });
   info := match(
     expr_info_table_get(&ctx.table, ast_expr_id(e)),
     .Some(i) => i,
@@ -2054,7 +2087,7 @@ _expr_term :: (fn(ctx : &mut VcCtx, e : &AstExpr) -> Option(VcTerm))({
   if(ast_expr_is_fn_call(e), {
     args := match(
       e,
-      .FnCall(_, _, Rc(a), _, _) => a.clone(),
+      .FnCall(_, _, Rc(a), _, _) => _args_through_deref(&a),
       .Atom(_, _) => ArrayList(AstExpr).new()
     );
     // An `old(...)` CALLEE (`old(self)(k)`, a list read through the
@@ -3573,7 +3606,7 @@ _walk_invariants_in_order :: (fn(ctx : &mut VcCtx, invs : &ArrayList(AstExpr)) -
 _fn_call_args :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
   match(
     e,
-    .FnCall(_, _, Rc(cargs), _, _) => cargs.clone(),
+    .FnCall(_, _, Rc(cargs), _, _) => _args_through_deref(&cargs),
     .Atom(_, _) => ArrayList(AstExpr).new()
   )
 );
@@ -4276,6 +4309,47 @@ _list_ext_eq :: (fn(ctx : &mut VcCtx, elem : &VcSort, a : &VcTerm, b : &VcTerm) 
   )
 });
 /// The operator/cast/call dispatch.
+/// `args` with each `r.*` on a reference binding read as the name `r` the
+/// evaluator rewrote it to (decision 43 step 2 N1e-1): `old(v.*)`,
+/// `produced(xs.*)` and `distinct(a.*, b.*)` name their argument.
+_args_through_deref :: (fn(args : &ArrayList(AstExpr)) -> ArrayList(AstExpr))({
+  out := ArrayList(AstExpr).new();
+  (i : usize) = usize(0);
+  while(i < args.len(), {
+    a := args.get(i).unwrap();
+    out.push(
+      cond(
+        ast_expr_is_fn_call_of(&a, ".", .Some(usize(2))) => _deref_as_name(&a),
+        // A lend of the referent, `&r.*` / `&mut r.*`: the marker over the
+        // name (`for(&xs.*, x => …)` walks `xs`).
+        (ast_expr_is_fn_call_of(&a, "&", .Some(usize(1))) || ast_expr_is_fn_call_of(&a, "&mut", .Some(usize(1)))) => match(
+          a.clone(),
+          .FnCall(m_id, m_f, Rc(m_args), m_infix, m_tok) => {
+            m_out := ArrayList(AstExpr).new();
+            m_out.push(_deref_as_name(&m_args.get(usize(0)).unwrap()));
+            AstExpr.FnCall(m_id, m_f, Rc.new(m_out), m_infix, m_tok)
+          },
+          _ => a
+        ),
+        true => a
+      )
+    );
+    i = (i + usize(1));
+  });
+  out
+});
+/// `r.*` on a reference binding as the name `r` the evaluator rewrote it
+/// to; any other expression as written.
+_deref_as_name :: (fn(a : &AstExpr) -> AstExpr)(
+  cond(
+    ast_expr_is_fn_call_of(a, ".", .Some(usize(2))) => match(
+      ast_rewritten_node(a),
+      .Atom(rd_id, rd_tok) => AstExpr.Atom(rd_id, rd_tok),
+      _ => a.clone()
+    ),
+    true => a.clone()
+  )
+);
 _call_term :: (
   fn(ctx : &mut VcCtx, e : &AstExpr, head : &String, args : &ArrayList(AstExpr), info : &ExprInfo)
   -> Option(VcTerm)
@@ -5705,6 +5779,27 @@ _typed_binding_lhs_name :: (fn(lhs : &AstExpr) -> Option(String))(
 /// the declared form `(x : T) = v` (`:`-call lhs). `.None` for anything
 /// else (field writes stay outside the subset; index writes are handled
 /// by `_index_write_target`).
+/// `r.* = v` on a reference binding (decision 43 step 2 N1e-1): the
+/// evaluator wrote `r = v`, the write the bare spelling was, as the
+/// statement's expansion; the walk reads that rebind.
+_deref_write_as_rebind :: (fn(ctx : &mut VcCtx, stmt : AstExpr) -> AstExpr)({
+  lhs_is_deref := match(
+    stmt,
+    .FnCall(_, _, Rc(sa), _, _) => (ast_expr_is_fn_call_of(&stmt, "=", .Some(usize(2))) && match(sa.get(usize(0)), .Some(sl) => ast_expr_is_fn_call_of(&sl, ".", .Some(usize(2))), .None => false)),
+    .Atom(_, _) => false
+  );
+  if(!lhs_is_deref, {
+    return(stmt);
+  });
+  match(
+    match(expr_info_table_get(&ctx.table, ast_expr_id(&stmt)), .Some(ei) => expr_info_macro_expansion(&ei), .None => Option(AstExpr).None),
+    .Some(xp) => cond(
+      ast_expr_is_fn_call_of(&xp, "=", .Some(usize(2))) => xp,
+      true => stmt
+    ),
+    .None => stmt
+  )
+});
 _binding_name_of :: (fn(lhs : &AstExpr) -> Option(String))(
   cond(
     ast_expr_is_atom(lhs) => Option(String).Some(ast_expr_text(lhs).*.clone()),
@@ -5937,7 +6032,7 @@ _begin_term :: (fn(ctx : &mut VcCtx, args : &ArrayList(AstExpr)) -> Option(VcTer
   (i : usize) = usize(0);
   result := Option(VcTerm).None;
   while(i < args.len(), {
-    stmt := args.get(i).unwrap();
+    stmt := _deref_write_as_rebind(ctx, args.get(i).unwrap());
     // A prior statement exited the loop (break/continue): everything
     // after it in this block is dead — stop walking.
     if(ctx.path_dead, {

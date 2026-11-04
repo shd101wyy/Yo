@@ -55,7 +55,7 @@ impl(
   _CtPair(T),
   Eq(_CtPair(T))(
     (==) : ((lhs, rhs) -> ((lhs.a == rhs.a) && (lhs.b == rhs.b))),
-    (!=) : ((lhs, rhs) -> !(lhs == rhs))
+    (!=) : ((lhs, rhs) -> !(lhs.* == rhs.*))
   )
 );
 // The `Copy` impl of a struct may come before its fields' own `Copy` impls
@@ -546,8 +546,8 @@ test("Copy: a &mut capture makes a closure neither Copy nor Clone", {
   mut(n) := i32(0);
   {
     (t : Impl(Fn() -> i32)) = ({ &mut n }() => {
-      n = (n + i32(1));
-      n
+      n.* = (n.* + i32(1));
+      n.*
     });
     comptime_assert(!Type.impls(type_of(t), Copy), "two copies of one exclusive borrow would alias");
     comptime_assert(!Type.impls(type_of(t), Clone), "a clone would copy the borrow");

@@ -32,7 +32,8 @@ pragma(Pragma.AllowUnsafe);
   expr_info_set_comptime_ref,
   scope_release_note_query,
   mark_node_preevaluated,
-  unmark_node_preevaluated
+  unmark_node_preevaluated,
+  record_deref_site
 } :: import("../../expr_info.yo");
 { Environment, Variable, get_variables_from_env, get_receiver_methods_by_name_from_env, get_pointer_own_methods_by_name_from_env, env_adopt } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx, record_module_member_read, sns_module_of, is_dot_callee } :: import("../context.yo");
@@ -55,7 +56,7 @@ pragma(Pragma.AllowUnsafe);
 { unknown_field_message, unknown_field_code, unknown_variant_message, unknown_field_through_deref_message, type_carries_origin, origin_value_phase_message, origin_beyond_n2b, origin_beyond_n2b_message, reference_value_phase_message } :: import("../../types/utils.yo");
 { format_error_message, format_error_message_with_help, with_code } :: import("../../error.yo");
 { suggest_name, E_AMBIGUOUS_METHOD, E_DEREF_OF_BORROW } :: import("../../diagnostics.yo");
-{ attach_temp_variable_to_expr, local_borrow_take_receiver, local_borrow_mark_receiver, local_borrow_clear_receiver, local_borrows_active, local_borrow_access_expr, LocalBorrowAccess } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, local_borrow_take_receiver, local_borrow_mark_receiver, local_borrow_clear_receiver, local_borrows_active, local_borrow_access_expr, LocalBorrowAccess, deref_exempt_mark, deref_exempt_clear, variable_is_reference_binding, deref_rule_applies, deref_rule_recording, note_reference_deref_site, is_reference_deref_site, note_synthesized_deref_star, is_synthesized_deref_star, deref_reads_through_pointee } :: import("../utils.yo");
 { is_valid_variable_name } :: import("../utils.yo");
 { is_implicitly_unsafe_capable_file, is_class1_panic_method_name, is_class1_panic_receiver_type, is_class1_panic_exempt_file, is_union_member_read_capable, union_member_read_error_message, is_std_module_path } :: import("../memory_safety.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("./expr.yo");
@@ -244,11 +245,19 @@ make_deref_expr :: (fn(obj : &AstExpr, dot_tok : &Token, at : &Token) -> AstExpr
     module_path : Rc.clone(at.module_path),
     input : Rc.clone(at.input)
   );
+  star_id := alloc_global_expr_id();
+  note_synthesized_deref_star(star_id);
   args := ArrayList(AstExpr).new();
   args.push(obj);
-  args.push(AstExpr.Atom(alloc_global_expr_id(), star_tok));
+  args.push(AstExpr.Atom(star_id, star_tok));
   AstExpr.FnCall(alloc_global_expr_id(), AstExpr.Atom(alloc_global_expr_id(), dot_tok), Rc.new(args), true, dot_tok)
 });
+/// Whether the `*` atom `star` of a `.*` is written (in the source, or in a
+/// batch the test runner printed from it as `.(*)`): the auto-deref hooks
+/// synthesize `w.*` (`make_deref_expr`), which keeps the payload's reading.
+_is_written_star :: (fn(star : &AstExpr) -> bool)(
+  !is_synthesized_deref_star(ast_expr_id(star))
+);
 /// The labels a field read can name on `t`: a struct's, tuple's or union's.
 _field_labels_of :: (fn(t : &TypeValue) -> SharedList(String))(
   match(
@@ -469,7 +478,13 @@ evaluate_property_access :: (
 )(
   // A field read the auto-dereference below rewrote reads as rewritten
   // (`ast_rewritten_node`), so a re-evaluation does not rewrite it again.
-  _evaluate_property_access_node(&ast_rewritten_node(expr), env_in, ctx, exn)
+  match(
+    ast_rewritten_node(expr),
+    // `r.*` on a reference binding (N1e-1) was rewritten to the name `r`
+    // itself: a re-evaluation reads the name.
+    .Atom(rw_id, rw_tok) => evaluate_expression_raw(&AstExpr.Atom(rw_id, rw_tok), env_in, ctx, exn),
+    rw_node => _evaluate_property_access_node(&rw_node, env_in, ctx, exn)
+  )
 );
 _evaluate_property_access_node :: (
   fn(
@@ -704,7 +719,9 @@ _evaluate_property_access_node :: (
   ctx.expected_type = Option(ExpectedTypeCtx).None;
   // RAW — see the comment at the `is_kind` early-return above.
   local_borrow_mark_receiver(&object_expr);
+  deref_exempt_mark(&object_expr);
   object_expr = evaluate_expression_raw(&object_expr, &env, ctx, exn);
+  deref_exempt_clear();
   local_borrow_clear_receiver();
   ctx.expected_type = old_expected_type;
   // The outermost node of a place chain reads the whole place: E0911 while a
@@ -756,6 +773,67 @@ _evaluate_property_access_node :: (
   // -------------------------------------------------------------------------
   if(ast_expr_is_atom(&property_expr) && ast_expr_is_atom_of(&property_expr, "*"), {
     obj_ty_deref := match(obj_info_opt, .Some(oi) => Option(TypeValue).Some(Rc.clone(oi.ty)), .None => Option(TypeValue).None);
+    // `r.*` on a reference binding `r` (decision 43 step 2 N1e-1,
+    // VERDICTS-13 §11): outside std and the compiler tree it is the
+    // reference's deref, the value a bare `r` read before, lowered to the
+    // same C (the node is recorded rewritten to the name, below). A
+    // `Box`/`Rc`/pointer/field-`*` deref through the reference is
+    // `r.*.*`. std and src keep the old reading below (the `.*` reaches
+    // through to the payload), and `yo fix --migrate deref`, which reads old
+    // source, records such a `.*` as `r.*.*` and evaluates it the old way.
+    match(
+      obj_info_opt,
+      .Some(rd_oi) => match(
+        rd_oi.source_variable,
+        .Some(rd_v) => if(ast_expr_is_atom(&object_expr) && variable_is_reference_binding(&rd_v) && deref_rule_applies(ast_expr_token(&object_expr), ctx) && !is_reference_deref_site(ast_expr_token(&object_expr)) && _is_written_star(&property_expr), {
+          // The recorder reads a `.*` through a `Box`, a handle or a pointer
+          // the old way (the payload, recorded as `r.*.*`); any other `.*`
+          // on a reference is already the new spelling (a file `--migrate
+          // deref` ran on before), and reads as below.
+          if(deref_rule_recording() && deref_reads_through_pointee(&rd_oi.ty), {
+            record_deref_site(ast_expr_token(&object_expr), &rd_v.name);
+          }, {
+            // The node reads as the name itself from here on: it is
+            // recorded rewritten to the atom `r` under its own id
+            // (`note_rewritten_node`), so codegen, the place walks and a
+            // re-evaluation see exactly the bare read `r` was, with this
+            // id's info an atom read's. The name keeps its exemption
+            // (`note_reference_deref_site`).
+            // The name keeps `r`'s spelling at the `*`'s position: a deref
+            // site no source name occupies, so a later `.*` on it (`r.*.*`,
+            // also in a clone of this body) is the payload's deref, not a
+            // second reference deref.
+            rd_name_tok := ast_expr_token(&object_expr);
+            rd_star_tok := ast_expr_token(&property_expr);
+            rd_tok := Token(
+              kind : rd_name_tok.kind,
+              value : Rc.clone(rd_name_tok.value),
+              row : rd_star_tok.row,
+              column : rd_star_tok.column,
+              character : rd_star_tok.character,
+              byte_offset : rd_star_tok.byte_offset,
+              module_path : Rc.clone(rd_name_tok.module_path),
+              input : Rc.clone(rd_name_tok.input)
+            );
+            note_reference_deref_site(&rd_tok);
+            out_rd := new_expr_info(&env, &rd_oi.ty);
+            out_rd.value = rd_oi.value;
+            expr_info_set_origin_type(&out_rd, expr_info_origin_type(&rd_oi));
+            out_rd.variable_name = rd_oi.variable_name.clone();
+            out_rd.source_variable = rd_oi.source_variable;
+            out_rd.path_collection = rd_oi.path_collection.clone();
+            rd_atom := AstExpr.Atom(ast_expr_id(expr), rd_tok);
+            note_rewritten_node(&rd_atom);
+            expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_rd);
+            // The caller keeps the node it is handed (an argument list, a
+            // stored result): hand it the name.
+            return(rd_atom);
+          });
+        }),
+        .None => ()
+      ),
+      .None => ()
+    );
     match(
       &obj_ty_deref,
       .Some(ot) => {

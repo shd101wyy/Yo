@@ -415,7 +415,7 @@ KNode :: ref(
     Kids(k : ArrayList(Self))
   )
 );
-impl(KNode, Clone(clone : (fn(self : &Self) -> Self)(self)));
+impl(KNode, Clone(clone : (fn(self : &Self) -> Self)(self.*)));
 impl(
   KNode,
   Drop(
@@ -539,8 +539,8 @@ impl(
 );
 test("A dispose that resurrects a cycle member leaves no dangling handle", {
   build :: (fn(k : &MNode) -> unit)({
-    a := MNode(1, .None, .Some(k), true, false);
-    b := MNode(2, .Some(a), .Some(k), true, false);
+    a := MNode(1, .None, .Some(k.*), true, false);
+    b := MNode(2, .Some(a), .Some(k.*), true, false);
     a.next = .Some(b); // a <-> b cycle; both unreachable after return
   });
   do_test :: (fn() -> MNode)({
@@ -582,8 +582,8 @@ test("A resurrected pair is reclaimed once unreachable again", {
   do_test :: (fn() -> MNode)({
     k := MNode(0, .None, .None, false, true);
     build :: (fn(k : &MNode) -> unit)({
-      a := MNode(1, .None, .Some(k), true, false);
-      b := MNode(2, .None, .Some(k), false, false);
+      a := MNode(1, .None, .Some(k.*), true, false);
+      b := MNode(2, .None, .Some(k.*), false, false);
       a.next = .Some(b);
       b.next = .Some(a); // a <-> b, unreachable after return
     });

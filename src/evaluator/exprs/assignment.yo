@@ -27,9 +27,11 @@ pragma(Pragma.AllowUnsafe);
   BF_DOT,
   ast_expr_strip_borrow_marker,
   is_mut_binding,
-  is_thread_local_binding
+  is_thread_local_binding,
+  alloc_global_expr_id,
+  ast_rewritten_node
 } :: import("../../expr.yo");
-{ ExprInfo, ComptimeRef, new_expr_info, expr_info_table_set, expr_info_table_get, ControlFlowFlags, has_any_control_flow, control_flow_to_string, record_branch_init, has_dominating_branch_init, path_collection_of_name, expr_info_set_converted_runtime_type, register_thread_local, is_thread_local, register_mut_global, expr_info_capture_type, expr_info_comptime_ref, expr_info_index_trait_ptr_type, expr_info_set_is_compile_time_only_assignment, some_resolution, migrate_mut_bindings_on, record_mut_judged } :: import("../../expr_info.yo");
+{ ExprInfo, ComptimeRef, new_expr_info, record_macro_expansion, expr_info_set_macro_expansion, expr_info_table_set, expr_info_table_get, ControlFlowFlags, has_any_control_flow, control_flow_to_string, record_branch_init, has_dominating_branch_init, path_collection_of_name, expr_info_set_converted_runtime_type, register_thread_local, is_thread_local, register_mut_global, expr_info_capture_type, expr_info_comptime_ref, expr_info_index_trait_ptr_type, expr_info_set_is_compile_time_only_assignment, some_resolution, migrate_mut_bindings_on, record_mut_judged } :: import("../../expr_info.yo");
 {
   Environment,
   Variable,
@@ -131,7 +133,14 @@ pragma(Pragma.AllowUnsafe);
   in_compile_time_fn_body,
   place_cell_hops,
   is_cell_handle_deref_step,
-  _last_token_of
+  _last_token_of,
+  deref_exempt_mark,
+  deref_exempt_take,
+  deref_exempt_clear,
+  variable_is_reference_binding,
+  deref_rule_applies,
+  deref_rule_recording,
+  reject_reference_without_deref
 } :: import("../utils.yo");
 { parse_raw_int, debug_knob } :: import("../../utils.yo");
 { eprintln } :: import("std/fmt");
@@ -313,7 +322,9 @@ _borrowed_root_walk :: (fn(lhs : &AstExpr, env : &Environment, ctx : &EvalContex
 /// steps that stay inside a copy (see `_borrowed_root_walk`); `.None` when a
 /// step leaves it.
 _place_root_variable :: (fn(lhs : &AstExpr, env : &Environment, ctx : &EvalContext, through_collections : bool) -> Option(Variable))({
-  (cur : AstExpr) = lhs;
+  // A step an evaluator rewrite replaced reads as rewritten (`r.*` on a
+  // reference binding is the name `r`, decision 43 step 2 N1e-1).
+  (cur : AstExpr) = ast_rewritten_node(lhs);
   (done : bool) = false;
   while(!done, {
     (next : Option(AstExpr)) = match(
@@ -337,7 +348,7 @@ _place_root_variable :: (fn(lhs : &AstExpr, env : &Environment, ctx : &EvalConte
         if(!in_copy, {
           return(Option(Variable).None);
         });
-        cur = obj;
+        cur = ast_rewritten_node(&obj);
       },
       .None => {
         done = true;
@@ -370,7 +381,7 @@ shared_borrow_param_root_of_place :: (fn(place : &AstExpr, env : &Environment, c
 });
 /// The way out E0908 offers for a write through the `&T` parameter `v`.
 _shared_borrow_param_fix :: (fn(v : &Variable) -> String)(
-  `declare it \`${v.name} : &mut T\` to write the caller's value, take it by value (\`${v.name} : T\`, without \`&\`) to own and write a copy, or copy it into a local first (\`q := ${v.name};\`) and write the copy`
+  `declare it \`${v.name} : &mut T\` to write the caller's value, take it by value (\`${v.name} : T\`, without \`&\`) to own and write a copy, or copy it into a local first (\`q := ${v.name}.*;\`) and write the copy`
 );
 /// E0908: a write through the `&T` parameter `v`; `what` names it
 /// (`write \`p.n\``).
@@ -513,8 +524,8 @@ _check_capture_borrow_write :: (fn(lhs : &AstExpr, tok : &Token, env : &Environm
 /// The way out E0908 offers for a write into the borrowed binding `bv`.
 _write_through_borrow_fix :: (fn(bv : &Variable) -> String)(
   cond(
-    bv.is_parameter => `take it by value (\`${bv.name} : T\`, without \`&\`) to own and write it, or as \`${bv.name} : &mut T\` to write the caller's value, or copy it into a local first (\`q := ${bv.name};\`) and write the copy`,
-    true => `copy it into a local first (\`q := ${bv.name};\`) and write the copy; to write a \`for\` element in place, loop with \`for(&mut xs, ${bv.name} => ...)\``
+    bv.is_parameter => `take it by value (\`${bv.name} : T\`, without \`&\`) to own and write it, or as \`${bv.name} : &mut T\` to write the caller's value, or copy it into a local first (\`q := ${bv.name}.*;\`) and write the copy`,
+    true => `copy it into a local first (\`q := ${bv.name}.*;\`) and write the copy; to write a \`for\` element in place, loop with \`for(&mut xs, ${bv.name} => ...)\``
   )
 );
 /// The place as written (`p.inner.m`), not the printer's parenthesized
@@ -1243,6 +1254,25 @@ get_atomic_object_root_type :: (
 // ---------------------------------------------------------------------------
 // evaluate_assignment
 // ---------------------------------------------------------------------------
+/// The name `r` of an assignment target `r.*` when `r` is a reference
+/// binding judged by N1e-1's rule outside its recording mode (decision 43
+/// step 2): the target is the referent, the place a bare `r = v` wrote.
+_reference_deref_write_target :: (fn(lhs : &AstExpr, env : &Environment, ctx : &EvalContext) -> Option(AstExpr))({
+  if(deref_rule_recording() || !ast_expr_is_fn_call_of(lhs, BF_DOT, Option(usize).Some(usize(2))), {
+    return(Option(AstExpr).None);
+  });
+  rw_args := match(lhs, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
+  rw_recv := match(rw_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+  rw_field := match(rw_args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
+  if(!ast_expr_is_atom(&rw_recv) || !ast_expr_is_atom(&rw_field) || (ast_expr_token(&rw_field).value.* != "*"), {
+    return(Option(AstExpr).None);
+  });
+  match(
+    get_variables_from_env(env, ast_expr_token(&rw_recv).value.*.clone()).last(),
+    .Some(rw_v) => if(variable_is_reference_binding(&rw_v) && deref_rule_applies(ast_expr_token(&rw_recv), ctx), Option(AstExpr).Some(rw_recv), Option(AstExpr).None),
+    .None => Option(AstExpr).None
+  )
+});
 /// Evaluate an `=` assignment expression.
 ///
 /// Handles:
@@ -1333,6 +1363,42 @@ evaluate_assignment :: (
       });
     });
   });
+  // `r.* = v` on a reference binding `r` (decision 43 step 2 N1e-1): outside
+  // std and src it writes the referent, the write a bare `r = v` was, so it
+  // is evaluated as that assignment and lowered to the same C (codegen
+  // emits the expansion).
+  match(
+    _reference_deref_write_target(&lhs, &env, ctx),
+    .Some(rw_name) => {
+      rw_expr := match(
+        expr,
+        .FnCall(_, rw_f, _, rw_infix, rw_tok) => {
+          rw_args := ArrayList(AstExpr).new();
+          rw_args.push(rw_name.clone());
+          rw_args.push(rhs.clone());
+          AstExpr.FnCall(alloc_global_expr_id(), rw_f, Rc.new(rw_args), rw_infix, rw_tok)
+        },
+        .Atom(_, _) => expr.clone()
+      );
+      deref_exempt_mark(&rw_name);
+      rw_evaluated := evaluate_expression_raw(&rw_expr, &env, ctx, exn);
+      deref_exempt_clear();
+      match(
+        expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&rw_evaluated)),
+        .Some(rw_info) => {
+          out := new_expr_info(&rw_info.env, &rw_info.ty);
+          out.value = rw_info.value;
+          out.control_flow = rw_info.control_flow;
+          record_macro_expansion(ast_expr_id(expr), rw_evaluated.clone());
+          expr_info_set_macro_expansion(&out, Option(AstExpr).Some(rw_evaluated));
+          expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
+        },
+        .None => ()
+      );
+      return(expr);
+    },
+    .None => ()
+  );
   is_atom_lhs := ast_expr_is_atom(&lhs);
   is_typed_binding_lhs := (ast_expr_is_fn_call(&lhs) && ast_expr_is_fn_call_of(&lhs, BK_COLON, .Some(usize(2))));
   // -----------------------------------------------------------------------
@@ -2053,6 +2119,12 @@ Bound type: ${type_to_string(&mcb_v.ty)}`
   });
   // The if-check above guarantees vars is non-empty here; the .None arm is unreachable.
   variable := match(vars.last(), .Some(v) => v, .None => make_err_variable(&env));
+  // Outside std and src a whole-value write of a reference binding is
+  // `r.* = v` (E0926, decision 43 step 2 N1e-1); `r = &place` re-points it
+  // and never reaches here, and `r.* = v` arrives exempt.
+  if(!deref_exempt_take(&lhs_resolved) && variable_is_reference_binding(&variable) && deref_rule_applies(ast_expr_token(&lhs_resolved), ctx), {
+    reject_reference_without_deref(&variable, ast_expr_token(&lhs_resolved), u8(1), ctx, exn);
+  });
   // Closure capture tracking — a WRITE to an outer variable from inside a
   // function body / async block is a capture too (tracked with usage "own").
   // Reads are tracked by the

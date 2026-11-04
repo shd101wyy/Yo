@@ -36,27 +36,27 @@ comptime_expect_error({
 // ============================================================================
 test("RwLock new stores the initial value", {
   lock := RwLock(i32).new(i32(7));
-  assert(lock.with_read(v => v) == i32(7), "with_read sees the initial value");
+  assert(lock.with_read(v => v.*) == i32(7), "with_read sees the initial value");
 });
 test("RwLock with_write writes through", {
   lock := RwLock(i32).new(i32(0));
   written := lock.with_write(v => {
-    v = i32(42);
-    v
+    v.* = i32(42);
+    v.*
   });
   assert(written == i32(42), "with_write returns the value its body produced");
-  assert(lock.with_read(v => v) == i32(42), "the write landed in the shared cell");
+  assert(lock.with_read(v => v.*) == i32(42), "the write landed in the shared cell");
 });
 test("RwLock with_read propagates the return value", {
   lock := RwLock(i32).new(i32(7));
-  doubled := lock.with_read(v => (v * i32(2)));
+  doubled := lock.with_read(v => (v.* * i32(2)));
   assert(doubled == i32(14), "with_read propagates its body's value");
 });
 test("RwLock repeated read acquisitions release each time", {
   lock := RwLock(i32).new(i32(1));
   mut(i) := i32(0);
   while(i < i32(5), {
-    assert(lock.with_read(v => v) == i32(1), "every read acquisition succeeds");
+    assert(lock.with_read(v => v.*) == i32(1), "every read acquisition succeeds");
     i = (i + i32(1));
   });
 });
@@ -64,15 +64,15 @@ test("RwLock alternating read and write acquisitions", {
   lock := RwLock(i32).new(i32(0));
   mut(i) := i32(0);
   while(i < i32(5), {
-    seen := lock.with_read(v => v);
+    seen := lock.with_read(v => v.*);
     assert(seen == i, "the reader sees the previous writer's value");
     lock.with_write(v => {
-      v = (v + i32(1));
-      v
+      v.* = (v.* + i32(1));
+      v.*
     });
     i = (i + i32(1));
   });
-  assert(lock.with_read(v => v) == i32(5), "five writes landed");
+  assert(lock.with_read(v => v.*) == i32(5), "five writes landed");
 });
 test("RwLock protects a value struct", {
   Point :: struct(x : i32, y : i32);
@@ -124,7 +124,7 @@ test("RwLock with_read admits several readers at the same time", {
         if(entered.load(MemoryOrder.Acquire) >= i32(3), {
           all_in.fetch_add(i32(1), MemoryOrder.AcqRel);
         });
-        v
+        v.*
       });
     }
   );
@@ -144,12 +144,12 @@ test("RwLock writer thread modifies the protected value", {
   lock := RwLock(i32).new(i32(0));
   t := Thread(unit).spawn(io => {
     lock.with_write(v => {
-      v = i32(42);
-      v
+      v.* = i32(42);
+      v.*
     });
   });
   t.join();
-  assert(lock.with_read(v => v) == i32(42), "the main thread sees the writer's value");
+  assert(lock.with_read(v => v.*) == i32(42), "the main thread sees the writer's value");
 });
 test("RwLock two writer threads increment the protected counter", {
   if(arch == Arch.Wasm32, return(()));
@@ -159,8 +159,8 @@ test("RwLock two writer threads increment the protected counter", {
       mut(i) := i32(0);
       while(i < i32(100), {
         lock.with_write(v => {
-          v = (v + i32(1));
-          v
+          v.* = (v.* + i32(1));
+          v.*
         });
         i = (i + i32(1));
       });
@@ -173,7 +173,7 @@ test("RwLock two writer threads increment the protected counter", {
   t2 := Thread(unit).spawn(io => shared_bump.*());
   t1.join();
   t2.join();
-  assert(lock.with_read(v => v) == i32(200), "no increment was lost across 2 threads x 100 writes");
+  assert(lock.with_read(v => v.*) == i32(200), "no increment was lost across 2 threads x 100 writes");
 });
 
 // ============================================================================
@@ -206,8 +206,8 @@ test("RwLock N readers and M writers: mutual exclusion holds and no thread starv
           if((other_writers != i32(0)) || (readers_inside != i32(0)), {
             violations.fetch_add(i32(1), MemoryOrder.AcqRel);
           });
-          v = (v + i32(1));
-          seen := v;
+          v.* = (v.* + i32(1));
+          seen := v.*;
           active_writers.fetch_sub(i32(1), MemoryOrder.AcqRel);
           seen
         });
@@ -229,7 +229,7 @@ test("RwLock N readers and M writers: mutual exclusion holds and no thread starv
           if(writers_inside != i32(0), {
             violations.fetch_add(i32(1), MemoryOrder.AcqRel);
           });
-          val := v;
+          val := v.*;
           active_readers.fetch_sub(i32(1), MemoryOrder.AcqRel);
           val
         });
@@ -255,7 +255,7 @@ test("RwLock N readers and M writers: mutual exclusion holds and no thread starv
   assert(violations.load(MemoryOrder.Acquire) == i32(0), "no reader may overlap a writer and no two writers may overlap");
   assert(writes_done.load(MemoryOrder.Acquire) == (ITERATIONS * WRITERS), "every writer completed every iteration");
   assert(reads_done.load(MemoryOrder.Acquire) == (ITERATIONS * READERS), "every reader completed every iteration");
-  assert(lock.with_read(v => v) == (ITERATIONS * WRITERS), "no write was lost");
+  assert(lock.with_read(v => v.*) == (ITERATIONS * WRITERS), "no write was lost");
 });
 
 // ============================================================================
@@ -277,7 +277,7 @@ test("RwLock readers blocked behind a held writer are woken on release", {
   // arrive, so all three park in `_read_cv.wait`.
   w := Thread(unit).spawn(io => {
     lock.with_write(v => {
-      v = i32(99);
+      v.* = i32(99);
       writer_inside.store(i32(1), MemoryOrder.Release);
       mut(spins) := i32(0);
       while((arrived.load(MemoryOrder.Acquire) < i32(3)) && (spins < i32(5000)), {
@@ -286,7 +286,7 @@ test("RwLock readers blocked behind a held writer are woken on release", {
       });
       sleep_blocking(Duration.from_millis(i64(20)));
       done_while_held.store(done.load(MemoryOrder.Acquire), MemoryOrder.Release);
-      v
+      v.*
     });
   });
   // Wait until the writer really holds the lock before releasing the readers.
@@ -296,7 +296,7 @@ test("RwLock readers blocked behind a held writer are woken on release", {
   (reader : Impl(Fn() -> unit)) = (
     () => {
       arrived.fetch_add(i32(1), MemoryOrder.AcqRel);
-      seen := lock.with_read(v => v);
+      seen := lock.with_read(v => v.*);
       if(seen == i32(99), {
         done.fetch_add(i32(1), MemoryOrder.AcqRel);
       });
@@ -327,15 +327,15 @@ test("RwLock with pool tasks concurrent reads", {
   pool := ThreadPool.new(usize(2));
   wg.add(i32(3));
   spawn(&pool, io => {
-    seen.fetch_add(lock.with_read(v => v), MemoryOrder.AcqRel);
+    seen.fetch_add(lock.with_read(v => v.*), MemoryOrder.AcqRel);
     wg.done();
   });
   spawn(&pool, io => {
-    seen.fetch_add(lock.with_read(v => v), MemoryOrder.AcqRel);
+    seen.fetch_add(lock.with_read(v => v.*), MemoryOrder.AcqRel);
     wg.done();
   });
   spawn(&pool, io => {
-    seen.fetch_add(lock.with_read(v => v), MemoryOrder.AcqRel);
+    seen.fetch_add(lock.with_read(v => v.*), MemoryOrder.AcqRel);
     wg.done();
   });
   wg.wait();
@@ -349,13 +349,13 @@ test("RwLock with pool tasks write then read", {
   wg.add(i32(1));
   spawn(&pool, io => {
     lock.with_write(v => {
-      v = i32(77);
-      v
+      v.* = i32(77);
+      v.*
     });
     wg.done();
   });
   wg.wait();
-  assert(lock.with_read(v => v) == i32(77), "the main thread sees the worker's write");
+  assert(lock.with_read(v => v.*) == i32(77), "the main thread sees the worker's write");
 });
 // Regression for issues/fixed/generic-r-callback-with-unit-closure-emits-void-star-temp.md.
 //
@@ -366,15 +366,15 @@ test("RwLock with pool tasks write then read", {
 test("RwLock with_write body may end in a statement (unit R)", {
   lock := RwLock(i32).new(i32(0));
   lock.with_write(v => {
-    v = i32(42);
+    v.* = i32(42);
   });
-  assert(lock.with_read(v => v) == i32(42), "the unit-bodied write landed");
+  assert(lock.with_read(v => v.*) == i32(42), "the unit-bodied write landed");
 });
 test("RwLock with_read body may end in a statement (unit R)", {
   lock := RwLock(i32).new(i32(5));
   seen := AtomicI32.new(i32(0));
   lock.with_read(v => {
-    seen.store(v, MemoryOrder.Release);
+    seen.store(v.*, MemoryOrder.Release);
   });
   assert(seen.load(MemoryOrder.Acquire) == i32(5), "the unit-bodied read observed the value");
 });
@@ -396,25 +396,25 @@ test("a cyclic element type is accepted", {
 // ============================================================================
 test("try_with_read and try_with_write both succeed on an idle lock", {
   lock := RwLock(i64).new(i64(5));
-  r := lock.try_with_read(v => v);
+  r := lock.try_with_read(v => v.*);
   assert(r.is_some(), "an idle lock grants a shared acquisition");
   assert(r.unwrap() == i64(5), "and the body sees the value");
   w := lock.try_with_write(v => {
-    v = (v + i64(1));
-    v
+    v.* = (v.* + i64(1));
+    v.*
   });
   assert(w.is_some(), "an idle lock grants an exclusive acquisition");
   assert(w.unwrap() == i64(6), "the write happened");
-  assert(lock.try_with_read(v => v).unwrap() == i64(6), "and both released on the way out");
+  assert(lock.try_with_read(v => v.*).unwrap() == i64(6), "and both released on the way out");
 });
 test("several try_with_read acquisitions coexist", {
   // The whole point of a read lock: shared acquisitions do not exclude each
   // other. A nested try_with_read must succeed.
   lock := RwLock(i64).new(i64(3));
   outer := lock.try_with_read(a => {
-    inner := lock.try_with_read(b => b);
+    inner := lock.try_with_read(b => b.*);
     assert(inner.is_some(), "a second reader gets in while the first holds");
-    a + inner.unwrap()
+    a.* + inner.unwrap()
   });
   assert(outer.is_some(), "the outer reader succeeded");
   assert(outer.unwrap() == i64(6), "both readers saw the value");
@@ -432,12 +432,12 @@ test("try_with_write fails while a reader holds the lock", {
     });
   });
   reading.recv();
-  assert(lock.try_with_write(v => v).is_none(), "one reader blocks the writer");
+  assert(lock.try_with_write(v => v.*).is_none(), "one reader blocks the writer");
   // But another reader still gets in.
-  assert(lock.try_with_read(v => v).is_some(), "a reader does not block a reader");
+  assert(lock.try_with_read(v => v.*).is_some(), "a reader does not block a reader");
   _ := release.send(i32(1));
   reader.join();
-  assert(lock.try_with_write(v => v).is_some(), "and the writer gets in once the reader left");
+  assert(lock.try_with_write(v => v.*).is_some(), "and the writer gets in once the reader left");
 });
 test("try_with_read fails while a writer holds the lock", {
   lock := RwLock(i64).new(i64(0));
@@ -447,15 +447,15 @@ test("try_with_read fails while a writer holds the lock", {
     lock.with_write(v => {
       _ := writing.send(i32(1));
       release.recv();
-      v = i64(42);
+      v.* = i64(42);
     });
   });
   writing.recv();
-  assert(lock.try_with_read(v => v).is_none(), "a writer excludes readers");
-  assert(lock.try_with_write(v => v).is_none(), "and excludes other writers");
+  assert(lock.try_with_read(v => v.*).is_none(), "a writer excludes readers");
+  assert(lock.try_with_write(v => v.*).is_none(), "and excludes other writers");
   _ := release.send(i32(1));
   writer.join();
-  assert(lock.try_with_read(v => v).unwrap() == i64(42), "the writer's value is visible after");
+  assert(lock.try_with_read(v => v.*).unwrap() == i64(42), "the writer's value is visible after");
 });
 test("a failed try_with_read leaves the reader count untouched", {
   // A try that bails after incrementing _readers would leave the lock
@@ -473,12 +473,12 @@ test("a failed try_with_read leaves the reader count untouched", {
   // Fail a few times while the writer holds it.
   (mut(i) : i64) = i64(0);
   while(i < i64(5), {
-    assert(lock.try_with_read(v => v).is_none(), "each attempt fails");
+    assert(lock.try_with_read(v => v.*).is_none(), "each attempt fails");
     i = (i + i64(1));
   });
   _ := release.send(i32(1));
   writer.join();
   // If any of those had leaked a reader, this exclusive acquisition would
   // fail forever.
-  assert(lock.try_with_write(v => v).is_some(), "no failed attempt leaked a reader");
+  assert(lock.try_with_write(v => v.*).is_some(), "no failed attempt leaked a reader");
 });

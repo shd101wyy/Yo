@@ -40,18 +40,18 @@ impl(
 );
 len_of :: (fn(s : &String) -> usize)(s.len());
 bump :: (fn(n : &mut i32) -> unit)({
-  n = (n + i32(1));
+  n.* = (n.* + i32(1));
 });
 tracked_n :: (fn(t : &Tracked) -> i32)(t.n);
 tracked_set :: (fn(t : &mut Tracked, v : i32) -> unit)({
   t.n = v;
 });
 twice :: (fn(comptime(k) : &i32) -> i32)(k + k);
-apply :: (fn(f : &Impl(Fn(v : &String) -> usize), s : &String) -> usize)(f(&s));
-apply_mut :: (fn(f : &Impl(Fn(v : &mut i32) -> unit), n : &mut i32) -> unit)(f(&mut n));
+apply :: (fn(f : &Impl(Fn(v : &String) -> usize), s : &String) -> usize)(f(&s.*));
+apply_mut :: (fn(f : &Impl(Fn(v : &mut i32) -> unit), n : &mut i32) -> unit)(f(&mut n.*));
 old_len_of :: (fn(s : &String) -> usize)(s.len());
 old_bump :: (fn(n : &mut i32) -> unit)({
-  n = (n + i32(1));
+  n.* = (n.* + i32(1));
 });
 // A `ref` object, not an `Rc`: the cursor walk writes `next` through each
 // node, and an `Rc`'s payload is read-only (decision 46).
@@ -68,7 +68,7 @@ append :: (fn(list : &mut List, v : i32) -> unit)({
       .None => ()
     );
   });
-  cur = .Some(Node(value : v, next : .None));
+  cur.* = .Some(Node(value : v, next : .None));
 });
 sum_list :: (fn(list : &List) -> i32)({
   (mut(total) : i32) = i32(0);
@@ -135,19 +135,19 @@ test("`Fn(v : &T)` slots and `(v : &T) => …` closure parameters", {
   assert(apply((v : &String) => v.len(), &s) == usize(5), "a closure parameter borrows");
   (mut(k) : i32) = i32(1);
   apply_mut((v : &mut i32) => {
-    v = (v * i32(10));
+    v.* = (v.* * i32(10));
   }, &mut k);
   assert(k == i32(10), "a &mut closure parameter wrote the caller's place");
   assert(s.len() == usize(5), "s is still usable");
 });
-bs_apply_named :: (fn(f : Impl(Fn(t : &i32) -> i32), x : &i32) -> i32)(f(&x));
-bs_bump_named :: (fn(f : Impl(Fn(n : &mut i32) -> unit), v : &mut i32) -> unit)(f(&mut v));
+bs_apply_named :: (fn(f : Impl(Fn(t : &i32) -> i32), x : &i32) -> i32)(f(&x.*));
+bs_bump_named :: (fn(f : Impl(Fn(n : &mut i32) -> unit), v : &mut i32) -> unit)(f(&mut v.*));
 test("a `&T` / `&mut T` closure parameter keeps its own name under a differently labelled `Fn` slot", {
   k := i32(3);
-  assert(bs_apply_named((s : &i32) => (s + i32(1)), &k) == i32(4), "the closure reads its own `s`, not the slot's `t`");
+  assert(bs_apply_named((s : &i32) => (s.* + i32(1)), &k) == i32(4), "the closure reads its own `s`, not the slot's `t`");
   (mut(m) : i32) = i32(1);
   bs_bump_named((q : &mut i32) => {
-    q = (q + i32(1));
+    q.* = (q.* + i32(1));
   }, &mut m);
   assert(m == i32(2), "the closure writes through its own `q`, not the slot's `n`");
 });
@@ -159,11 +159,11 @@ test("`y := &place` reads through and `y := &mut place` writes through", {
   assert(y.len() == usize(3), "read through the borrow");
   mut(x) := i32(1);
   z := &mut x;
-  z = i32(5);
+  z.* = i32(5);
   assert(x == i32(5), "the write through z landed in x");
   mut(p) := Point(x : i32(1), y : i32(2));
   px := &mut p.x;
-  px = i32(8);
+  px.* = i32(8);
   assert(p.x == i32(8), "a field borrow wrote the field");
 });
 test("the annotated local borrow `(y : &T) = &place`", {
@@ -172,7 +172,7 @@ test("the annotated local borrow `(y : &T) = &place`", {
   assert(y.len() == usize(2), "read through the annotated borrow");
   (mut(n) : i32) = i32(3);
   (m : &mut i32) = &mut n;
-  m = i32(4);
+  m.* = i32(4);
   assert(n == i32(4), "written through the annotated &mut borrow");
 });
 test("a local borrow of a move-only value drops nothing", {
@@ -204,16 +204,16 @@ test("capture list `{ y : &y, z : &mut z }` and the puns `{ &y, &mut z }`", {
   mut(z) := i32(1);
   {
     (h : Impl(Fn(m : i32) -> i32)) = ({ y : &y, z : &mut z }(m : i32) => {
-      z = (z + (y + m));
-      z
+      z.* = (z.* + (y.* + m));
+      z.*
     });
     assert(h(i32(1)) == i32(12), "read y, wrote z");
   };
   assert(z == i32(12), "the &mut capture wrote the caller's z");
   {
     (g : Impl(Fn() -> i32)) = ({ &y, &mut z }() => {
-      z = (z + y);
-      z
+      z.* = (z.* + y.*);
+      z.*
     });
     assert(g() == i32(22), "the puns borrow the same places");
   };
@@ -228,11 +228,11 @@ test("`for(&xs, x => …)` reads and `for(&mut xs, x => …)` writes in place", 
   xs.push(i32(3));
   (mut(sum) : i32) = i32(0);
   for(&xs, x => {
-    sum = (sum + x);
+    sum = (sum + x.*);
   });
   assert(sum == i32(6), "the read loop saw every element");
   for(&mut xs, x => {
-    x = (x * i32(10));
+    x.* = (x.* * i32(10));
   });
   assert((xs(usize(0)) == i32(10)) && (xs(usize(2)) == i32(30)), "the &mut loop wrote each element in place");
   mut(ps) := ArrayList(Point).new();
@@ -247,7 +247,7 @@ test("the map form `for(&mut m, (k, v) => …)` borrows the value only", {
   m.insert(i32(1), i32(10));
   m.insert(i32(2), i32(20));
   for(&mut m, (k, v) => {
-    v = (v + k);
+    v.* = (v.* + k.*);
   });
   assert((m.get(i32(1)) == .Some(i32(11))) && (m.get(i32(2)) == .Some(i32(22))), "each value was written in place");
 });
@@ -402,7 +402,7 @@ comptime_expect_error(
   bs_read_only_local :: (fn() -> unit)({
     x := i32(1);
     y := &x;
-    y = i32(2);
+    y.* = i32(2);
   }),
   "is a `&` borrow, which is read-only"
 );
@@ -434,13 +434,13 @@ comptime_expect_error(
 // from N1c on; the mode, the pointee and the emitted C are the elided
 // form's. An origin binder is not a type parameter, so these functions are
 // not generic.
-bs_origin_first :: (fn(generic(p : Origin), v : &(i32, p)) -> i32)(v);
+bs_origin_first :: (fn(generic(p : Origin), v : &(i32, p)) -> i32)(v.*);
 bs_origin_bump :: (fn(generic(p : Origin), v : &mut(i32, p)) -> unit)({
-  v = (v + i32(1));
+  v.* = (v.* + i32(1));
 });
-bs_origin_union :: (fn(generic(p : Origin, q : Origin), a : &(i32, (p, q)), b : &(i32, q)) -> i32)(a + b);
+bs_origin_union :: (fn(generic(p : Origin, q : Origin), a : &(i32, (p, q)), b : &(i32, q)) -> i32)(a.* + b.*);
 bs_origin_apply :: (fn(generic(p : Origin), f : Impl(Fn(v : &(i32, p)) -> i32), v : &(i32, p)) -> i32)(f(v));
-bs_origin_generic :: (fn(generic(T : Type, p : Origin), v : &(T, p)) -> T)(v);
+bs_origin_generic :: (fn(generic(T : Type, p : Origin), v : &(T, p)) -> T)(v.*);
 test("a parameter typed `&(T, p)` / `&mut(T, p)` lends like `&T` / `&mut T`", {
   x := i32(41);
   assert(bs_origin_first(&x) == i32(41), "a `&(i32, p)` parameter reads the caller's value");
@@ -448,7 +448,7 @@ test("a parameter typed `&(T, p)` / `&mut(T, p)` lends like `&T` / `&mut T`", {
   bs_origin_bump(&mut y);
   assert(y == i32(2), "a `&mut(i32, p)` parameter writes the caller's place");
   assert(bs_origin_union(&x, &y) == i32(43), "a union `(p, q)` in origin position");
-  assert(bs_origin_apply((v : &i32) => (v + i32(1)), &x) == i32(42), "an `Fn(v : &(i32, p))` slot takes a closure with an elided `&i32` parameter");
+  assert(bs_origin_apply((v : &i32) => (v.* + i32(1)), &x) == i32(42), "an `Fn(v : &(i32, p))` slot takes a closure with an elided `&i32` parameter");
   assert(bs_origin_generic(&x) == i32(41), "a type parameter and an origin parameter side by side");
 });
 bs_apply_elided :: (fn(f : Impl(Fn(v : &i32) -> i32), v : &i32) -> i32)(f(v));
@@ -494,7 +494,7 @@ bs_ret_union :: (fn(generic(p : Origin), s : &(BsTrio, p), t : &BsTrio, pick : b
     true => &t.c
   )
 );
-bs_ret_read :: (fn(x : &i32) -> i32)(x + i32(0));
+bs_ret_read :: (fn(x : &i32) -> i32)(x.* + i32(0));
 test("a result typed `&(T, o)` / `&mut(T, o)` projects like `-> &T` / `-> &mut T`", {
   t := BsTrio(a : i32(1), b : i32(2), c : i32(3));
   assert(bs_ret_read(bs_ret_origin(&t)) == i32(1), "an origin parameter's result reads the caller's place");
@@ -531,7 +531,7 @@ comptime_expect_error(
 bs_pick_s :: (fn(s : &BsTrio, t : &BsTrio) -> &(i32, s))(&s.a);
 bs_pick_p :: (fn(generic(p : Origin), s : &(BsTrio, p), t : &BsTrio) -> &(i32, p))(&s.b);
 bs_pick_mut :: (fn(s : &mut BsTrio, t : &mut BsTrio) -> &mut(i32, s))(&mut s.c);
-bs_pick_gen :: (fn(generic(T : Type), s : &T, t : &T) -> &(T, s))(&s);
+bs_pick_gen :: (fn(generic(T : Type), s : &T, t : &T) -> &(T, s))(&s.*);
 test("a spelled result origin freezes only the arguments it names", {
   t := BsTrio(a : i32(1), b : i32(2), c : i32(3));
   mut(u) := BsTrio(a : i32(4), b : i32(5), c : i32(6));
@@ -543,7 +543,7 @@ test("a spelled result origin freezes only the arguments it names", {
   assert(bs_ret_read(q) == i32(2), "an origin parameter names the arguments whose slots carry it");
   mut(v) := BsTrio(a : i32(7), b : i32(8), c : i32(9));
   m := bs_pick_mut(&mut v, &mut u);
-  m = i32(90);
+  m.* = i32(90);
   u.c = i32(60);
   assert((v.c == i32(90)) && (u.c == i32(60)), "a `&mut(i32, s)` result holds `s` alone");
   x := i32(11);
@@ -621,19 +621,19 @@ bs_first :: (fn(t : &BsTrio) -> &i32)(&t.a);
 bs_third_mut :: (fn(t : &mut BsTrio) -> &mut i32)(&mut t.c);
 BsProj :: struct(get : (fn(t : &BsTrio) -> &i32), put : (fn(t : &mut BsTrio) -> &mut i32));
 bs_via_fn :: (fn(f : (fn(t : &BsTrio) -> &i32), t : &BsTrio) -> i32)({
-  r := f(&t);
+  r := f(&t.*);
   bs_ret_read(r)
 });
 bs_via_impl :: (fn(f : Impl(Fn(t : &BsTrio) -> &i32), t : &BsTrio) -> i32)({
-  r := f(&t);
+  r := f(&t.*);
   bs_ret_read(r)
 });
 bs_poke_impl :: (fn(f : Impl(Fn(t : &mut BsTrio) -> &mut i32), t : &mut BsTrio) -> unit)({
-  r := f(&mut t);
-  r = i32(70);
+  r := f(&mut t.*);
+  r.* = i32(70);
 });
 bs_via_dyn :: (fn(f : Dyn(Fn(t : &BsTrio) -> &i32), t : &BsTrio) -> i32)({
-  r := f(&t);
+  r := f(&t.*);
   bs_ret_read(r)
 });
 BsAsk :: (ctl(key : &i32) -> &(i32, key));
@@ -649,7 +649,7 @@ test("a projection is called through a function value, a closure trait and an ef
   g := h.get(&t);
   assert(bs_ret_read(g) == i32(1), "a `fn(...) -> &T` field");
   m := (h.put)(&mut t);
-  m = i32(30);
+  m.* = i32(30);
   assert(t.c == i32(30), "a `&mut` projection through a field writes the place");
   assert(bs_via_impl(bs_first, &t) == i32(1), "a named projection in an `Impl(Fn(...) -> &T)` slot");
   assert(bs_via_impl((s : &BsTrio) => &s.b, &t) == i32(2), "a closure literal yielding `&place`");
@@ -660,13 +660,13 @@ test("a projection is called through a function value, a closure trait and an ef
   (e : Dyn(Fn(s : &BsTrio) -> &i32)) = dyn(bs_first);
   assert(bs_via_dyn(e, &t) == i32(70), "a `Dyn(Fn(...) -> &T)` named projection");
   (ask : BsAsk) = (fn(key : &i32) -> &(i32, key))({
-    return(&key);
+    return(&key.*);
   });
   assert(bs_ask_use(ask) == i32(31), "a `ctl` handler resumes with a place of its key");
 });
 comptime_expect_error(
   bs_fn_value_freezes :: (fn(f : (fn(t : &BsTrio) -> &i32), t : &mut BsTrio) -> i32)({
-    r := f(&t);
+    r := f(&t.*);
     t.a = i32(9);
     bs_ret_read(r)
   }),
@@ -737,17 +737,17 @@ test("Escapable holds for a type without origins, and a borrow reaches through a
   h := Rc.new(BsHeld(x : i32(1), y : i32(2)));
   a := &h.*.x;
   b := &h.*.y;
-  assert((a + b) == i32(3), "two shared borrows through one Rc handle");
+  assert((a.* + b.*) == i32(3), "two shared borrows through one Rc handle");
   c := Arc.new(BsHeld(x : i32(3), y : i32(4)));
   d := &c.*.y;
-  assert(d == i32(4), "a shared borrow through an Arc handle");
+  assert(d.* == i32(4), "a shared borrow through an Arc handle");
   // Another handle's drop is legal: the frozen `h` still holds the payload.
   h2 := Rc.clone(h);
   q := &h.*.x;
   drop(h2);
-  assert(q == i32(1), "the payload outlives the other handle");
+  assert(q.* == i32(1), "the payload outlives the other handle");
   // A capture through the handle: `h` is frozen while the closure lives.
-  (f : Impl(Fn() -> i32)) = ({ v : &h.*.y }() => v);
+  (f : Impl(Fn() -> i32)) = ({ v : &h.*.y }() => v.*);
   assert(f() == i32(2), "a closure borrows through the handle");
 });
 comptime_expect_error(
@@ -795,7 +795,7 @@ comptime_expect_error(
 comptime_expect_error(
   bs_handle_capture_frozen :: (fn() -> i32)({
     mut(h) := Rc.new(BsHeld(x : i32(1), y : i32(2)));
-    (f : Impl(Fn() -> i32)) = ({ v : &h.*.x }() => v);
+    (f : Impl(Fn() -> i32)) = ({ v : &h.*.x }() => v.*);
     h = Rc.new(BsHeld(x : i32(3), y : i32(4)));
     f()
   }),
@@ -808,6 +808,137 @@ comptime_expect_error(
   }),
   "A borrow capture cannot reach through"
 );
+// A reference is read and written as a whole value with `.*` (decision 43
+// step 2, N1e-1; plans/backlog/REFERENCES_AND_ORIGINS.md): outside std and
+// the compiler's own source a bare reference binding in a by-value position
+// is E0926. Receivers (`r.f`, `r.m()`, `r(i)`), a lend to a reference
+// parameter (`f(r)`) and the re-point `r = &place` stay bare; `&r` is
+// `&r.*`, and through a reference to a `Box` the payload is `r.*.*`.
+BsCell :: struct(n : i32);
+derive(BsCell, Copy, Clone);
+impl(BsCell, twice : (fn(self : &Self) -> i32)(self.n + self.n));
+bs_add1 :: (fn(n : &i32) -> i32)(n.* + i32(1));
+bs_set :: (fn(r : &mut i32, v : i32) -> unit)({
+  r.* = v;
+});
+bs_bump :: (fn(r : &mut i32) -> unit)({
+  r.* = (r.* + i32(1));
+});
+bs_relay :: (fn(r : &mut i32) -> unit)({
+  bs_bump(r);
+  bs_bump(&mut r.*);
+});
+bs_read_cell :: (fn(c : &BsCell) -> i32)(c.n + c.twice());
+bs_copy_cell :: (fn(c : &BsCell) -> BsCell)(c.*);
+bs_box_payload :: (fn(b : &Box(i32)) -> i32)(b.*.*);
+bs_text_len :: (fn(s : &String) -> usize)(s.len());
+bs_text_copy :: (fn(s : &String) -> String)(s.*.clone());
+bs_through_local :: (fn(c : &mut BsCell) -> i32)({
+  y := &mut c.*;
+  y.n = i32(40);
+  c.n + i32(2)
+});
+test("A reference reads and writes its referent with .*", {
+  mut(a) := i32(4);
+  assert(bs_add1(&a) == i32(5), "n.* + 1 reads the referent");
+  bs_set(&mut a, i32(9));
+  assert(a == i32(9), "r.* = v writes the referent");
+  bs_relay(&mut a);
+  assert(a == i32(11), "f(r) and f(&mut r.*) both lend the referent");
+  c := BsCell(n : i32(3));
+  assert(bs_read_cell(&c) == i32(9), "receivers read through the reference");
+  assert(bs_copy_cell(&c).n == i32(3), "c.* copies the referent");
+  b := Box.new(i32(7));
+  assert(bs_box_payload(&b) == i32(7), "b.*.* is the payload through the reference");
+  s := String.from("hey");
+  assert(bs_text_len(&s) == usize(3), "a method through a reference");
+  assert(bs_text_copy(&s).len() == usize(3), "s.*.clone() copies the String it refers to");
+  mut(m) := BsCell(n : i32(0));
+  assert(bs_through_local(&mut m) == i32(42), "a local borrow of the referent");
+  o := Option(i32).Some(i32(3));
+  k := match(&o, .Some(n) => (n.* + i32(1)), .None => i32(0));
+  assert(k == i32(4), "a match(&x, …) binding reads with .*");
+  mut(xs) := ArrayList(i32).new();
+  xs.push(i32(1));
+  xs.push(i32(2));
+  mut(sum) := i32(0);
+  for(&xs, x => {
+    sum = (sum + x.*);
+  });
+  assert(sum == i32(3), "a for(&xs, …) element reads with .*");
+});
+comptime_expect_error(
+  bs_bare_operand :: (fn(n : &i32) -> i32)(n + i32(1)),
+  "reading the value it refers to is spelled `n.*`"
+);
+comptime_expect_error(
+  bs_bare_write :: (fn(r : &mut i32) -> unit)({
+    r = i32(1);
+  }),
+  "writing the value it refers to is spelled `r.* = …`"
+);
+comptime_expect_error(
+  bs_bare_borrow :: (fn(r : &mut i32) -> unit)({
+    bs_bump(&mut r);
+  }),
+  "borrowing the value it refers to is spelled `&r.*`"
+);
+comptime_expect_error(
+  bs_bare_return :: (fn(c : &BsCell) -> BsCell)(c),
+  "reading the value it refers to is spelled `c.*`"
+);
+comptime_expect_error(
+  bs_bare_match_binding :: (fn(o : Option(i32)) -> i32)(match(&o, .Some(n) => (n + i32(1)), .None => i32(0))),
+  "reading the value it refers to is spelled `n.*`"
+);
+// A bare `match(r, …)` on a reference matches through it (VERDICTS-13 §14):
+// its bindings are borrows of the referent's payload, and through a `&mut`
+// reference they write it. `match(&r, …)` is E0926 (the marker is redundant,
+// and `yo fix --migrate deref` drops it), and `match(r.*, …)` matches a copy
+// of the referent, which a value that is not implicitly copyable cannot leave.
+bs_name_len :: (fn(o : &Option(String)) -> usize)(match(o, .Some(s) => (s.len() + s.len()), .None => usize(0)));
+bs_set_some :: (fn(o : &mut Option(i32)) -> unit)(
+  match(
+    o,
+    .Some(n) => {
+      n.* = i32(9);
+    },
+    .None => ()
+  )
+);
+test("A bare match on a reference matches through it", {
+  o := Option(String).Some(String.from("abc"));
+  assert(bs_name_len(&o) == usize(6), "match(r, …) binds the payload as a borrow");
+  assert(o.unwrap_or(String.new()).len() == usize(3), "the referent is unchanged after the match");
+  mut(p) := Option(i32).Some(i32(1));
+  bs_set_some(&mut p);
+  assert(p.unwrap_or(i32(0)) == i32(9), "match(r, …) on a `&mut` reference writes through its binding");
+});
+comptime_expect_error(
+  bs_match_marker :: (fn(o : &Option(i32)) -> i32)(match(&o, .Some(n) => n.*, .None => i32(0))),
+  "the borrow marker is redundant"
+);
+comptime_expect_error(
+  bs_match_deref_moves :: (fn(o : &Option(Box(i32))) -> i32)(match(o.*, .Some(b) => b.*, .None => i32(0))),
+  "Cannot match `o.*` by value"
+);
+// `r.* = v` drops the referent's old value at the write, as the bare `r = v`
+// did: the write is lowered to that assignment, which records the drop.
+bs_replace_tracked :: (fn(r : &mut Tracked, n : i32) -> i32)({
+  before := g_bs_disposed;
+  r.* = Tracked(n : n);
+  g_bs_disposed - before
+});
+test("A write through a reference drops the old value at the write", {
+  mut(t) := Tracked(n : i32(1));
+  assert(bs_replace_tracked(&mut t, i32(2)) == i32(1), "a `&mut` parameter's write drops the old value");
+  assert(t.n == i32(2), "the referent holds the new value");
+  before := g_bs_disposed;
+  y := &mut t;
+  y.* = Tracked(n : i32(3));
+  assert(g_bs_disposed == (before + i32(1)), "a local borrow's write drops the old value");
+  assert(t.n == i32(3), "the local borrow wrote the referent");
+});
 // issues/fixed/2026-11-03-a-place-lent-into-a-reference-field-is-never-dropped.md:
 // the holder stores the place's address, and the list is still dropped at
 // its own scope end (the runner's leak check sees a miss).

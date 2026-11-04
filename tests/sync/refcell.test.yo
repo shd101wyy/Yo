@@ -23,33 +23,33 @@ test("with_mut through one handle is seen through another", {
 test("with returns the body's result, and nested reads share the cell", {
   c := Rc.new(RefCell(i32).new(i32(20)));
   d := Rc.clone(c);
-  sum := c.with(v => d.with(w => (v + w)));
+  sum := c.with(v => d.with(w => (v.* + w.*)));
   assert(sum == i32(40), "two readers at once");
 });
 test("the mark is released after each access", {
   c := Rc.new(RefCell(i32).new(i32(1)));
   c.with_mut(v => {
-    v = (v + i32(1));
+    v.* = (v.* + i32(1));
   });
   c.with_mut(v => {
-    v = (v * i32(10));
+    v.* = (v.* * i32(10));
   });
-  assert(c.with(v => v) == i32(20), "a second with_mut runs after the first");
+  assert(c.with(v => v.*) == i32(20), "a second with_mut runs after the first");
 });
 test("the mark is released when the body unwinds", {
   c := Rc.new(RefCell(i32).new(i32(1)));
   _unwinds :: (fn(cell : &Rc(RefCell(i32))) -> i32)({
     cell.with_mut(v => {
-      v = i32(2);
+      v.* = i32(2);
       unwind(i32(7));
     });
     i32(0)
   });
   assert(_unwinds(&c) == i32(7), "the body unwound out of the function");
   c.with_mut(v => {
-    v = (v + i32(1));
+    v.* = (v.* + i32(1));
   });
-  assert(c.with(v => v) == i32(3), "the cell is free again, with the write kept");
+  assert(c.with(v => v.*) == i32(3), "the cell is free again, with the write kept");
 });
 // `with_mut`'s body is an `FnOnce` moved in (decision 37): it may move a
 // captured move-only value into the cell, which a borrowed `Fn` body cannot
@@ -84,31 +84,31 @@ test("a RefCell is a value: a plain local works without an Rc", {
   cell.with_mut(s => {
     s.push_str("y");
   });
-  assert(cell.with(s => (s == "xy")), "written through a & receiver");
+  assert(cell.with(s => (s.* == "xy")), "written through a & receiver");
 });
 test("clone copies the value into a new cell", {
   a := RefCell(i32).new(i32(3));
   b := a.clone();
   b.with_mut(v => {
-    v = i32(4);
+    v.* = i32(4);
   });
-  assert((a.with(v => v) == i32(3)) && (b.with(v => v) == i32(4)), "independent cells");
+  assert((a.with(v => v.*) == i32(3)) && (b.with(v => v.*) == i32(4)), "independent cells");
 });
 // `replace`, `replace_with`, `take` and `into_inner`: step 0 of
 // issues/questions/2026-10-23-should-yo-add-a-flagless-cell.md.
 test("replace_with counts through a second handle and returns the old value", {
   counter := Rc.new(RefCell(i32).new(i32(0)));
   other := Rc.clone(counter);
-  assert(other.replace_with(n => (n + i32(1))) == i32(0), "the old value");
-  assert(counter.replace_with(n => (n * i32(10))) == i32(1), "the first handle sees 1");
-  assert(other.with(n => n) == i32(10), "both updates landed in the one cell");
+  assert(other.replace_with(n => (n.* + i32(1))) == i32(0), "the old value");
+  assert(counter.replace_with(n => (n.* * i32(10))) == i32(1), "the first handle sees 1");
+  assert(other.with(n => n.*) == i32(10), "both updates landed in the one cell");
 });
 test("replace swaps a String in and gives the old one back", {
   name := Rc.new(RefCell(String).new(String.from("old")));
   other := Rc.clone(name);
   was := other.replace(String.from("new"));
   assert(was == "old", "the replaced value");
-  assert(name.with(s => (s == "new")), "seen through the other handle");
+  assert(name.with(s => (s.* == "new")), "seen through the other handle");
 });
 test("replace_with builds the successor of a collection from the current one", {
   log := Rc.new(RefCell(ArrayList(String)).new(ArrayList(String).new()));
@@ -134,7 +134,7 @@ test("take leaves the default behind", {
   assert(taken.len() == usize(2), "the items moved out");
   assert(other.with(xs => xs.len()) == usize(0), "an empty list is left");
   n := RefCell(i32).new(i32(7));
-  assert((n.take() == i32(7)) && (n.with(v => v) == i32(0)), "i32's default is 0");
+  assert((n.take() == i32(7)) && (n.with(v => v.*) == i32(0)), "i32's default is 0");
 });
 test("into_inner consumes the cell and returns the value", {
   cell := RefCell(String).new(String.from("x"));
@@ -181,19 +181,19 @@ test("the mark is released when replace_with's function unwinds", {
   _unwinds :: (fn(cell : &Rc(RefCell(i32))) -> i32)({
     cell.replace_with(
       v => cond(
-        (v == i32(1)) => unwind(i32(7)),
-        true => (v + i32(1))
+        (v.* == i32(1)) => unwind(i32(7)),
+        true => (v.* + i32(1))
       )
     );
     i32(0)
   });
   assert(_unwinds(&c) == i32(7), "the function unwound out of the caller");
-  assert(c.with(v => v) == i32(1), "the value is unchanged");
-  assert(c.replace_with(v => (v + i32(1))) == i32(1), "the cell is free again");
+  assert(c.with(v => v.*) == i32(1), "the value is unchanged");
+  assert(c.replace_with(v => (v.* + i32(1))) == i32(1), "the cell is free again");
   c.with_mut(v => {
-    v = (v + i32(1));
+    v.* = (v.* + i32(1));
   });
-  assert(c.with(v => v) == i32(3), "and with_mut runs after it");
+  assert(c.with(v => v.*) == i32(3), "and with_mut runs after it");
 });
 // A cell reached through an `Rc` element is kept alive for the call even
 // when the body drops every other handle: the caller holds a +1 on the

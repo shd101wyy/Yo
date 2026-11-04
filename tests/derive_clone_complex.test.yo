@@ -148,12 +148,12 @@ test("derive Clone for recursive enum with Rc(Self)", {
     .Branch(left, right) => {
       match(
         &left.*,
-        .Leaf(v) => assert(v == i32(1), "left leaf"),
+        .Leaf(v) => assert(v.* == i32(1), "left leaf"),
         .Branch(_, _) => assert(false, "unexpected branch")
       );
       match(
         &right.*,
-        .Leaf(v) => assert(v == i32(2), "right leaf"),
+        .Leaf(v) => assert(v.* == i32(2), "right leaf"),
         .Branch(_, _) => assert(false, "unexpected branch")
       );
     },
@@ -175,7 +175,7 @@ test("derive Clone for recursive struct with Option(Rc(Self))", {
   assert(c.v == i32(1), "head v");
   match(
     &c.next,
-    .Some(b) => assert(b.*.v == i32(2), "tail v"),
+    .Some(b) => assert(b.*.*.v == i32(2), "tail v"),
     .None => assert(false, "expected next")
   );
 });
@@ -295,7 +295,7 @@ test("derive Clone for a nullable-pointer recursive enum over ArrayList(Option(S
 // layout (issues/fixed/2026-10-17-a-nullable-shaped-enum-over-box-of-self-emits-a-self-referential-typedef.md).
 BoxChain :: enum(Leaf, Node(b : Box(Self)));
 derive(BoxChain, Clone);
-_box_chain_depth :: (fn(t : &BoxChain) -> i32)(match(t, .Node(b) => (i32(1) + _box_chain_depth(&b.*)), .Leaf => i32(0)));
+_box_chain_depth :: (fn(t : &BoxChain) -> i32)(match(t, .Node(b) => (i32(1) + _box_chain_depth(&b.*.*)), .Leaf => i32(0)));
 test("derive Clone for a recursive enum whose only payload is Box(Self)", {
   orig := BoxChain.Node(Box.new(BoxChain.Node(Box.new(BoxChain.Leaf))));
   c := orig.clone();

@@ -52,7 +52,8 @@
 { snapshot_env, Environment, add_variable_to_env } :: import("../../env.yo");
 { EvalContext, note_unlabeled_ensures_atom, is_module_ghost_fn_def } :: import("../context.yo");
 { EvalValue, create_unknown_val } :: import("../../value.yo");
-{ TypeValue, TypeValueNode, t_refine_inner, slot_pointee_at, t_slot_pointee } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, t_refine_inner, slot_pointee_at, t_slot_pointee, t_slot_is_borrow, t_slot_is_mut_ref } :: import("../../types/definitions.yo");
+{ get_func_type } :: import("../../function_value.yo");
 { t_type, t_unit, t_bool, t_i64, t_u8 } :: import("../../types/creators.yo");
 { Token, TokenKind } :: import("../../token.yo");
 { file_has_pragma } :: import("../memory_safety.yo");
@@ -2024,6 +2025,23 @@ _callsite_param_type :: (
 /// whose callee is not a contracted FuncVal is skipped; a predicate that
 /// still fails to evaluate throws (a malformed contract at a real call
 /// site is an error, not a silent drop).
+/// The parameter slot labelled `label` in the function type `fty`.
+_callee_param_slot :: (fn(fty : &TypeValue, label : &String) -> Option(TypeValue))(
+  match(
+    fty,
+    Rc(.Func({ param_types : cps, meta : cfm })) => {
+      (j : usize) = usize(0);
+      while(j < cfm.*.param_labels.items.len(), {
+        if(cfm.*.param_labels.items(j) == label, {
+          return(cps.items.get_cloned(j));
+        });
+        j = (j + usize(1));
+      });
+      Option(TypeValue).None
+    },
+    _ => Option(TypeValue).None
+  )
+);
 _stash_callsite_contracts :: (
   fn(
     e : &AstExpr,
@@ -2099,7 +2117,7 @@ _stash_callsite_contracts :: (
         .Some(at) => at,
         .None => t_unit()
       );
-      add_variable_to_env(
+      __pv := add_variable_to_env(
         &site_env,
         __pn.clone(),
         __pt.clone(),
@@ -2109,6 +2127,19 @@ _stash_callsite_contracts :: (
         false,
         false,
         ast_expr_token(e)
+      );
+      // A reference parameter stays one in the clauses (`ensures(r == v.*)`,
+      // decision 43 step 2 N1e-1), as in the callee's own predicates.
+      match(
+        (__pv, _callee_param_slot(&get_func_type(&fid), &__pn)),
+        (.Some(__pvv), .Some(__ps)) => if(t_slot_is_borrow(&__ps), {
+          if(t_slot_is_mut_ref(&__ps), {
+            __pvv.is_ref = true;
+          }, {
+            __pvv.is_imm_borrow = true;
+          });
+        }),
+        _ => ()
       );
     });
     bi = (bi + usize(1));

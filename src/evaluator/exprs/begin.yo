@@ -132,7 +132,9 @@ pragma(Pragma.AllowUnsafe);
   local_borrow_reject_result_borrow,
   reject_composite_result_local_roots,
   reject_bare_callable_into_dyn_fn,
-  bare_callable_recorded_into_dyn_fn
+  bare_callable_recorded_into_dyn_fn,
+  deref_exempt_mark,
+  deref_exempt_clear
 } :: import("../utils.yo");
 { Token } :: import("../../token.yo");
 { Exception } :: import("std/error");
@@ -2537,6 +2539,20 @@ _contains_return_of :: (fn(e : &AstExpr, name : &String) -> bool)({
     .Atom(_, _) => false
   )
 });
+/// The enclosing function returns a reference (a projection, `-> &T`):
+/// a bare reference binding returned from it passes what it borrows, not a
+/// whole-value read (E0926, decision 43 step 2 N1e-1).
+_enclosing_fn_returns_reference :: (fn(ctx : &EvalContext) -> bool)(
+  match(
+    ctx.is_evaluating_function_body_or_async_block,
+    .Some(fb_ctx) => match(
+      fb_ctx.kind,
+      .FunctionBody => match(&fb_ctx.func_type, .Some(Rc(.Func({ result : rr_slot }))) => t_slot_is_borrow(&rr_slot), _ => false),
+      _ => false
+    ),
+    .None => false
+  )
+);
 /// The enclosing function's declared result type, when evaluating a body.
 _enclosing_fn_result_type :: (fn(ctx : &EvalContext) -> Option(TypeValue))(
   match(
@@ -2981,7 +2997,11 @@ _evaluate_begin_expression_impl :: (
             },
             .None => ()
           );
+          if(_enclosing_fn_returns_reference(ctx), {
+            deref_exempt_mark(&ret_arg);
+          });
           evaluated_ret_arg := evaluate_expression_raw(&ret_arg, &env, ctx, exn);
+          deref_exempt_clear();
           ctx.expected_type = old_expected;
           // N2b's return rule over composite results (decision 43, O3): an
           // origin-carrying result may name origin parameters or reference
@@ -3373,7 +3393,11 @@ _evaluate_begin_expression_impl :: (
             }
           );
         });
+        if(is_result_chain_block && is_last_in_loop && _enclosing_fn_returns_reference(ctx), {
+          deref_exempt_mark(&expr_to_eval);
+        });
         evaluated := evaluate_expression_raw(&expr_to_eval, &env, ctx, exn);
+        deref_exempt_clear();
         // N2b's return rule over composite results (decision 43, O3), the
         // body-tail form: judged AFTER the tail is evaluated (the check
         // reads its type), not gated on `local_borrows_active()` (the first
@@ -3430,8 +3454,20 @@ _evaluate_begin_expression_impl :: (
         });
         // An assignment statement's value (the old value) is unused: drop
         // an explicit-copy old value right after the store, as Rust does.
+        // A written `r.* = v` (decision 43 step 2 N1e-1) is lowered to its
+        // `r = v` expansion, the assignment codegen emits, so the drop is
+        // recorded on that.
         if(!is_last_in_loop && ast_expr_is_fn_call_of(&evaluated, BK_ASSIGN, .None), {
-          _drop_unused_old_value_now(&evaluated, &env, ctx, exn);
+          old_assign := match(
+            expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated)),
+            .Some(oa_info) => match(
+              expr_info_macro_expansion(&oa_info),
+              .Some(oa_mx) => if(ast_expr_is_fn_call_of(&oa_mx, BK_ASSIGN, .None), oa_mx, evaluated.clone()),
+              .None => evaluated.clone()
+            ),
+            .None => evaluated.clone()
+          );
+          _drop_unused_old_value_now(&old_assign, &env, ctx, exn);
         });
         // Track runtime side effects for non-last expressions.
         // A begin block with any runtime non-last expression cannot be

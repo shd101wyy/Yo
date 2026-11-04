@@ -283,6 +283,43 @@ is_global_mut_rule_exempt :: (fn(mp : &String, std_path : &String) -> bool)(
     }
   )
 );
+/// Decision 43 step 2, N1e-1 (step-2 consultation Q7, VERDICTS-13 §11):
+/// the trees that keep the OLD reading of a reference binding until N3 — a
+/// bare read is its value, and `v.*` on a `&Box(T)`/`&Rc(T)` (or on a
+/// pointee with a field named `*`) is that deref — because the seed that
+/// compiles them rejects `.*` on a borrow (E0920): std (`is_std_module_path`),
+/// the compiler source beside it (`<std>/../src/`), the repository's build
+/// file and scripts, a fetched dependency in the store
+/// (`.../store/sha256/...`) and compiler-synthesized expansions. Keyed on
+/// the DEFINING file of the expression, so a std generic body specialized
+/// for a user type keeps std's reading. Everywhere else E0926 rejects a
+/// whole-value read or write of a reference without `.*`. Deleted at N3,
+/// which migrates std and src (plans/backlog/SEED_VERSION_AUTOMATION.md).
+(g_deref_rule_exempt_memo : RefCell(HashMap(String, bool))) = RefCell(HashMap(String, bool)).new(HashMap(String, bool).new());
+is_deref_rule_exempt :: (fn(mp : &String, std_path : &String) -> bool)(
+  match(
+    g_deref_rule_exempt_memo.with(m => m.get(mp)),
+    .Some(b) => b,
+    .None => {
+      (sp : String) = std_path.clone();
+      while(sp.ends_with(`/`), {
+        sp = sp.slice_copy(usize(0) .. (sp.len() - usize(1)));
+      });
+      abs := _lex_abs_path(mp.clone());
+      repo_root := match(Path.new(_lex_abs_path(&sp)).parent(), .Some(pp) => pp.to_string(), .None => String.new());
+      src_root := `${repo_root}/src/`;
+      scripts_root := `${repo_root}/scripts/`;
+      build_file := `${repo_root}/build.yo`;
+      store := String.from("/store/sha256/");
+      b := (
+        mp.starts_with(String.from("auto-generated://")) || (is_std_module_path(mp, std_path) || (abs.starts_with(&src_root) || (abs.starts_with(&scripts_root) || ((abs == build_file) || abs.contains(&store)))))
+      );
+      mp_owned := mp.clone();
+      g_deref_rule_exempt_memo.with_mut({ mp_owned, b : b.clone() }(m) => m.insert(mp_owned.clone(), b));
+      b
+    }
+  )
+);
 is_macro_def_capable_file :: (fn(module_path : &Option(String)) -> bool)(
   match(
     module_path,
@@ -437,6 +474,7 @@ export(
   is_auto_generated_expansion,
   is_macro_def_capable_file,
   is_global_mut_rule_exempt,
+  is_deref_rule_exempt,
   is_pointer_value_capable_file,
   is_overload_set_capable_file,
   is_prelude_or_generated_file,

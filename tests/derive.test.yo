@@ -247,13 +247,13 @@ MyEq :: (fn(comptime(Rhs) : Type) -> comptime(Trait))(
 impl(
   i32,
   MyEq(i32)(
-    my_eq : ((self, other) -> (self == other))
+    my_eq : ((self, other) -> (self.* == other.*))
   )
 );
 impl(
   bool,
   MyEq(bool)(
-    my_eq : ((self, other) -> (self == other))
+    my_eq : ((self, other) -> (self.* == other.*))
   )
 );
 // Register derive rule for MyEq: field-wise equality (structs and fieldless enums)
@@ -308,7 +308,7 @@ __derive_uses_eq :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, compt
   ctx.make_impl(
     quote(
       UsesEq(
-        uses_eq : ((self, other) -> (self == other))
+        uses_eq : ((self, other) -> (self.* == other.*))
       )
     )
   )
@@ -491,7 +491,7 @@ test("derive Clone for a generic struct over containers of its parameter", {
   p := ClonePeek(String)(n : i32(1), peeked : .Some(`p`), items : items, cell : Box.new(`c`));
   q := p.clone();
   assert(q.n == i32(1), "n");
-  assert(match(&q.peeked, .Some(s) => (s == `p`), .None => false), "the Option field");
+  assert(match(&q.peeked, .Some(s) => (s.* == `p`), .None => false), "the Option field");
   assert(q.items.len() == usize(1), "the ArrayList field");
   assert(q.cell.* == `c`, "the Box field");
 });

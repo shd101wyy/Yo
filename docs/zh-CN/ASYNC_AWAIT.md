@@ -371,7 +371,7 @@ export(main);
 
 Counter :: struct(n : i32);
 bump :: (fn(c : &mut Counter, io : Io) -> Impl(Future(unit, Io)))(
-  io.async({ &mut c }(io : Io) => {
+  io.async({ c : &mut c.* }(io : Io) => {
     c.n = (c.n + i32(1));
   })
 );
@@ -803,7 +803,7 @@ while(i < rest.len(), i = (i + usize(1)), {
 
 Counter :: struct(n : i32);
 bump_after :: (fn(c : &mut Counter, ms : u64, io : Io) -> Impl(Future(i32, Io)))(
-  io.async({ &mut c, ms }(io : Io) => {
+  io.async({ c : &mut c.*, ms }(io : Io) => {
     io.await(sleep(ms), io);
     c.n = (c.n + i32(1));
     c.n

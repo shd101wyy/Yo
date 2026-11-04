@@ -17,13 +17,13 @@
 // Closure that reads a ref parameter is rejected.
 comptime_expect_error(
   make_reader :: (fn(x : &mut i32) -> Impl(Fn() -> i32))(
-    () => x
+    () => x.*
   )
 );
 // Closure that writes a ref parameter is rejected.
 comptime_expect_error(
   make_writer :: (fn(x : &mut i32) -> Impl(Fn() -> unit))(() => {
-    x = i32(99);
+    x.* = i32(99);
   })
 );
 // Nested closure capturing an outer ref param is rejected.

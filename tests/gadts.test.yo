@@ -24,9 +24,9 @@ test("GADT basic construction", {
 eval_value :: (fn(generic(T : Type), v : &Value(T)) -> T)(
   match(
     v,
-    .IntVal(i) => i,
-    .BoolVal(b) => b,
-    .PairVal(a, b) => a
+    .IntVal(i) => i.*,
+    .BoolVal(b) => b.*,
+    .PairVal(a, b) => a.*
   )
 );
 test("GADT match type refinement - IntVal", {
@@ -52,8 +52,8 @@ test("GADT match type refinement - PairVal", {
 eval_int_only :: (fn(v : &Value(i32)) -> i32)(
   match(
     v,
-    .IntVal(i) => i,
-    .PairVal(a, b) => a
+    .IntVal(i) => i.*,
+    .PairVal(a, b) => a.*
   )
 );
 test("GADT exhaustiveness - concrete type excludes unreachable variants", {
@@ -75,15 +75,15 @@ MyPair :: (fn(comptime(A) : Type, comptime(B) : Type) -> comptime(Type))(
 my_fst :: (fn(generic(A : Type, B : Type), p : &MyPair(A, B)) -> A)(
   match(
     p,
-    .MkIntBool(x, y) => x,
-    .MkBoolInt(x, y) => x
+    .MkIntBool(x, y) => x.*,
+    .MkBoolInt(x, y) => x.*
   )
 );
 my_snd :: (fn(generic(A : Type, B : Type), p : &MyPair(A, B)) -> B)(
   match(
     p,
-    .MkIntBool(x, y) => y,
-    .MkBoolInt(x, y) => y
+    .MkIntBool(x, y) => y.*,
+    .MkBoolInt(x, y) => y.*
   )
 );
 test("GADT multiple type params - fst", {
@@ -109,8 +109,8 @@ Tagged :: (fn(comptime(T) : Type) -> comptime(Type))(
 eval_tagged :: (fn(generic(T : Type), t : &Tagged(T)) -> T)(
   match(
     t,
-    .TagInt(i) => i,
-    .TagBool(b) => b
+    .TagInt(i) => i.*,
+    .TagBool(b) => b.*
   )
 );
 test("GADT with discriminant values", {
@@ -132,9 +132,9 @@ MixedVal :: (fn(comptime(T) : Type) -> comptime(Type))(
 eval_mixed :: (fn(generic(T : Type), mv : &MixedVal(T)) -> T)(
   match(
     mv,
-    .MInt(i) => i,
-    .MBool(b) => b,
-    .MGeneric(g) => g
+    .MInt(i) => i.*,
+    .MBool(b) => b.*,
+    .MGeneric(g) => g.*
   )
 );
 test("GADT mixed variants - IntVal", {

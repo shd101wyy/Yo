@@ -156,11 +156,11 @@ impl(
     (==) : (fn(lhs : &Self, rhs : &Self) -> bool)(
       match(
         lhs,
-        .Leaf(x) => match(rhs, .Leaf(y) => (x == y), _ => false),
-        .Node(a) => match(rhs, .Node(b) => _kids_eq(&a, &b), _ => false)
+        .Leaf(x) => match(rhs, .Leaf(y) => (x.* == y.*), _ => false),
+        .Node(a) => match(rhs, .Node(b) => _kids_eq(&a.*, &b.*), _ => false)
       )
     ),
-    (!=) : (fn(lhs : &Self, rhs : &Self) -> bool)(!(lhs == rhs))
+    (!=) : (fn(lhs : &Self, rhs : &Self) -> bool)(!(lhs.* == rhs.*))
   )
 );
 test("list elements of a recursive enum compare through its later Eq impl", {
@@ -179,7 +179,7 @@ impl(
   Branch,
   Eq(Branch)(
     (==) : (fn(lhs : &Self, rhs : &Self) -> bool)(lhs.v == rhs.v),
-    (!=) : (fn(lhs : &Self, rhs : &Self) -> bool)(!(lhs == rhs))
+    (!=) : (fn(lhs : &Self, rhs : &Self) -> bool)(!(lhs.* == rhs.*))
   )
 );
 test("list elements of a recursive struct compare through its later Eq impl", {

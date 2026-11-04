@@ -25,10 +25,10 @@ pragma(Pragma.AllowUnsafe);
 // `File` is move-only, so the future borrows it) and copies the rest.
 read_once_params :: (
   fn(generic(R : Type), r : &R, buf : *u8, size : usize, io : Io, where(R <: Reader)) -> Impl(Future(usize, IoExn))
-)(io.async({ &r, buf, size, io }(e : IoExn) => e.io.await(r.read(buf, size, io), e)));
+)(io.async({ r : &r.*, buf, size, io }(e : IoExn) => e.io.await(r.read(buf, size, io), e)));
 write_once_params :: (
   fn(generic(W : Type), w : &W, buf : *u8, size : usize, io : Io, where(W <: Writer)) -> Impl(Future(usize, IoExn))
-)(io.async({ &w, buf, size, io }(e : IoExn) => e.io.await(w.write(buf, size, io), e)));
+)(io.async({ w : &w.*, buf, size, io }(e : IoExn) => e.io.await(w.write(buf, size, io), e)));
 // The same shape with NO capture list, which is the path the fix repaired:
 // the generic parameters are captured implicitly. A `File`'s future borrows
 // the file, so it needs the list above; a `ref` reader's `read` owns what it
@@ -57,7 +57,7 @@ read_once_implicit :: (
 // Non-generic control of the same shape — always worked; pins that the fix
 // did not disturb the plain path.
 write_once_file :: (fn(f : &File, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
-  io.async({ &f, buf, size, io }(e : IoExn) => e.io.await(f.write(buf, size, io), e))
+  io.async({ f : &f.*, buf, size, io }(e : IoExn) => e.io.await(f.write(buf, size, io), e))
 );
 
 test("generic fn async closure captures the enclosing params", {

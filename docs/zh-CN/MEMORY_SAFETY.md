@@ -94,9 +94,9 @@ C / Rust 用指针或 `&mut T` 解决的模式，在安全 Yo 中由 `&mut T` �
 
 ```yo
 swap :: (fn(a : &mut i32, b : &mut i32) -> unit)({
-  tmp := a;
-  a = b;
-  b = tmp;
+  tmp := a.*;
+  a.* = b.*;
+  b.* = tmp;
 });
 
 main :: (fn() -> unit)({

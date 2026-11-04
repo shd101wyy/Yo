@@ -60,7 +60,7 @@ test("typed errors with byte positions", {
   e2 := csv.parse(String.from("a,\"unterminated\n"));
   assert(match(e2, .Err(e) => match(e, .UnterminatedQuote({ start }) => (start == usize(2)), _ => false), .Ok(_) => false), "unterminated quote");
   e3 := csv.parse(String.from("a\rb\n"));
-  assert(match(&e3, .Err(e) => match(e, .BareCarriageReturn({ pos }) => (pos == usize(1)), _ => false), .Ok(_) => false), "bare CR");
+  assert(match(&e3, .Err(e) => match(e, .BareCarriageReturn({ pos }) => (pos.* == usize(1)), _ => false), .Ok(_) => false), "bare CR");
   msg := match(e3, .Err(e) => e.to_string(), .Ok(_) => String.new());
   assert(msg == "bare carriage return at byte 1", "ToString");
 });

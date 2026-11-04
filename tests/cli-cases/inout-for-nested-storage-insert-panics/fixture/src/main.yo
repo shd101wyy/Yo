@@ -8,7 +8,7 @@ main :: (fn() -> unit)({
   mut(other) := scores; // since B10 a MOVE: the map is a value, so no second handle exists
   for(&mut scores, (k, v) => {
     other.insert(String.from("c"), i32(3)); // panics: mutates the inner map while `v` borrows an entry
-    v = (v + i32(1));
+    v.* = (v.* + i32(1));
   });
   assert(false, "unreachable: insert must panic first");
 });

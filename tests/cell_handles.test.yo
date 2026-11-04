@@ -174,7 +174,7 @@ test("S13: a borrow of a place in a handle's payload pins the cell", {
   {
     x := &h.x;
     assert(ref_count(h) == usize(2), `the borrow's pin holds the cell: ${ref_count(h)}`);
-    assert(x == i32(2), "read through the borrow");
+    assert(x.* == i32(2), "read through the borrow");
   };
   assert(ref_count(h) == usize(1), "the pin was released at the borrow's scope end");
 });
@@ -223,7 +223,7 @@ test("a list of optional cell handles orders its struct after the handle's typed
 // An atomic `ref` enum is no object of its own for the box rule, as with
 // `Arc`: `dyn` of an atomic handle over one boxes it for a `Send` `Dyn`.
 _AE :: atomic(ref(enum(A(n : i32), B)));
-impl(_AE, _Area(area : (fn(self : &Self) -> i32)(match(self, .A(n) => n, .B => i32(0)))));
+impl(_AE, _Area(area : (fn(self : &Self) -> i32)(match(self, .A(n) => n.*, .B => i32(0)))));
 test("S2: an atomic handle of an atomic ref enum is a box in a Send Dyn, as an Arc of one is", {
   (d : Dyn(_Area, Send)) = dyn(tarc(_AE.A(n : i32(7))));
   assert(d.area() == i32(7), "dispatched through the atomic handle");
@@ -235,13 +235,13 @@ test("D2: a handle auto-dereferences to its payload whatever Target its Deref im
   assert(m.x == i32(3), "m.x is m.*.x");
 });
 _count_later :: (fn(items : &ArrayList(i32), io : Io) -> Impl(Future(usize, Io)))(
-  io.async({ &items }(io : Io) => {
+  io.async({ items : &items.* }(io : Io) => {
     io.await(yield(io), io);
     items.len()
   })
 );
 _push_later :: (fn(items : &mut ArrayList(i32), io : Io) -> Impl(Future(unit, Io)))(
-  io.async({ &mut items }(io : Io) => items.push(i32(1)))
+  io.async({ items : &mut items.* }(io : Io) => items.push(i32(1)))
 );
 test("S14: a future may hold a & place lent through a cell handle, not a &mut one", {
   mut(p) := _p(i32(0));
@@ -252,7 +252,7 @@ test("S14: a future may hold a & place lent through a cell handle, not a &mut on
 });
 _Node :: struct(v : i32, next : Option(TRc(Self)));
 _sum_nodes :: (fn(n : &_Node) -> i32)(
-  match(&n.next, .Some(h) => (n.v + _sum_nodes(&h.*)), .None => n.v)
+  match(&n.next, .Some(h) => (n.v + _sum_nodes(&h.*.*)), .None => n.v)
 );
 test("a recursive type through a cell handle", {
   tail := trc(_Node(v : i32(3), next : .None));
