@@ -36,6 +36,7 @@ pragma(Pragma.AllowUnsafe);
   is_weak_handle_type
 } :: import("../types/guards.yo");
 { enum_instance_node_id, nominal_instance_node_id, type_key, TYPE_IDENTITY_CACHE_CAP, type_identity_slot, type_identity_slot_holds, type_identity_cacheable, type_key_memo_check_enabled } :: import("../types/type_key.yo");
+{ subst_new, subst_adopt_every_resolution, substitute } :: import("../types/substitution.yo");
 {
   is_fn_trait_type,
   is_future_trait_type,
@@ -1407,8 +1408,19 @@ type_lacks_copy_for_flip :: (fn(ty_in : &TypeValue) -> bool)({
   // type identity: this predicate runs on every type the mutation summary
   // classifies, and the uncached walk was 7% of `check src/main.yo`'s
   // allocation calls (issues/fixed/2026-10-30-rc-clone-calls-defeat-the-mutation-summary-memo.md).
+  //
+  // A type an instantiated generic body built is not such a type: its
+  // variables are resolved, but its type arguments keep them
+  // (`Option(Option(V))` with `V := Span` keeps the definition-era
+  // `Option(V)` argument, while its payload is the concrete `Option(Span)`).
+  // It is judged as the concrete instance it denotes
+  // (`_flip_concrete_instance`): judged as generic, the scrutinee of
+  // `match(<Option(Option(V))>, .Some(prev) => prev)` read as copyable and
+  // was borrowed, while its payload `prev` read as move-only, so the arm
+  // could neither copy nor move it
+  // (issues/fixed/2026-11-05-a-hashmap-of-a-plain-data-struct-without-copy-cannot-insert.md).
   if(!type_identity_cacheable(&ty) && !(is_closure_capture_struct(&ty) && type_has_no_open_some(&ty)), {
-    return(false);
+    return(match(_flip_concrete_instance(&ty), .Some(concrete) => recur(&concrete), .None => false));
   });
   env := match(
     g_flip_env,
@@ -1495,6 +1507,19 @@ type_lacks_copy_for_flip :: (fn(ty_in : &TypeValue) -> bool)({
   g_lacks_copy_memo.with_mut({ memo_key, answer }(m) => m.insert(memo_key, answer));
   _record_lacks_copy_fast(&ty, key_epoch, answer);
   answer
+});
+/// The concrete instance `ty` denotes: every type variable replaced by the
+/// concrete end of its own resolution chain, in payloads and type arguments
+/// alike (`subst_adopt_every_resolution`). `.None` while a variable is open:
+/// such a type is judged per instantiation.
+_flip_concrete_instance :: (fn(ty : &TypeValue) -> Option(TypeValue))({
+  s := subst_new();
+  subst_adopt_every_resolution(&s);
+  out := substitute(&s, ty);
+  cond(
+    type_identity_cacheable(&out) => Option(TypeValue).Some(out),
+    true => Option(TypeValue).None
+  )
 });
 /// Record `ty`'s answer in the identity cache, when the key it is memoized
 /// under was computed in the current type-key epoch (else `ty`'s key may have

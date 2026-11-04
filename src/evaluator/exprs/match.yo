@@ -131,9 +131,6 @@ pragma(Pragma.AllowUnsafe);
   pattern_const_values
 } :: import("./pattern_compile.yo");
 { Exception, AnyError } :: import("std/error");
-{ debug_knob : __dbg_hm_knob } :: import("../../utils.yo");
-{ eprintln : __dbg_hm_eprintln } :: import("std/fmt");
-{ type_mentions_some_type : __dbg_hm_mentions } :: import("../../types/utils.yo");
 { RefCell } :: import("std/sync/refcell");
 // ---------------------------------------------------------------------------
 // Local helpers
@@ -749,9 +746,6 @@ _decide_match_mode :: (
       ),
       .None => ()
     );
-  });
-  if(__dbg_hm_knob(`YO_DEBUG_HMFIX`).is_some(), {
-    __dbg_hm_eprintln(`[hmfix] match scr=${type_to_string(&ty)} rec=${if(type_requires_explicit_copy(&ty), "1", "0")} some=${if(__dbg_hm_mentions(&ty), "1", "0")} atom=${if(is_atom, "1", "0")}`);
   });
   if(!type_requires_explicit_copy(&ty), {
     // `yo fix --migrate rc-clone` (the rule suspended): a place the rule
