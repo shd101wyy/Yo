@@ -100,11 +100,12 @@ impl(
   UnixListener,
   /// Bind to a filesystem path and start listening. The path must not
   /// already exist (`AddressInUse` otherwise) and is NOT unlinked on close.
-  bind : (fn(path : &Path, io : Io) -> Impl(Future(UnixListener, IoExn)))(
+  bind : (fn(path : &Path, io : Io) -> Impl(Future(UnixListener, IoExn)))({
+    path_owned := path.clone();
     io.async(e => {
       raw_fd := e.io.await(IO_unix.socket_stream(), e.io);
       fd := NetError.check(raw_fd, e.exn);
-      path_s := path.to_string();
+      path_s := path_owned.to_string();
       cstr_bytes := match(path_s.to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(IoError.InvalidInput)));
       addr := IO_unix.make_sockaddr_un(cstr_bytes.ptr().unwrap());
       addr_buf := match(
@@ -135,7 +136,7 @@ impl(
       );
       return(UnixListener(_cell : Box.new(_UnixListenerState(_sock : _UnixSocketState(_fd : fd, _is_closed : false), _path : path_s))));
     })
-  ),
+  }),
   /// Accept an incoming connection, returning a new `UnixStream`.
   accept : (fn(self : &Self, io : Io) -> Impl(Future(UnixStream, IoExn)))(
     io.async({ &self }(e : IoExn) => {
@@ -180,7 +181,8 @@ export(UnixListener);
 impl(
   UnixStream,
   /// Connect to a Unix-domain socket at `path`, returning a new stream.
-  connect : (fn(path : &Path, io : Io) -> Impl(Future(UnixStream, IoExn)))(
+  connect : (fn(path : &Path, io : Io) -> Impl(Future(UnixStream, IoExn)))({
+    path_owned := path.clone();
     io.async(e => {
       raw_fd := e.io.await(IO_unix.socket_stream(), e.io);
       fd := NetError.check(raw_fd, e.exn);
@@ -192,7 +194,7 @@ impl(
         },
         true => ()
       );
-      path_s := path.to_string();
+      path_s := path_owned.to_string();
       cstr_bytes := match(path_s.to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(IoError.InvalidInput)));
       addr := IO_unix.make_sockaddr_un(cstr_bytes.ptr().unwrap());
       addr_buf := match(
@@ -215,7 +217,7 @@ impl(
       );
       return(UnixStream(_cell : Box.new(_UnixSocketState(_fd : fd, _is_closed : false))));
     })
-  ),
+  }),
   /// Write a `str` to the stream. Returns the number of bytes written.
   write_str : (fn(self : &Self, data : str, io : Io) -> Impl(Future(usize, IoExn)))({
     s := String.from(data);

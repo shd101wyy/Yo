@@ -138,6 +138,8 @@ impl(
     o
   })
 );
+// A request's future owns a copy of its options (`_fetch_once`).
+derive(FetchOptions, Clone);
 export(FetchOptions, DEFAULT_MAX_REDIRECTS, DEFAULT_MAX_RESPONSE_BYTES);
 // ============================================================================
 // Internal: the transport a request runs over
@@ -670,9 +672,10 @@ _fetch_once :: (
     Impl(Future(HttpResponse, IoExn))
 )({
   url_str_owned := url_str.clone();
+  opts_owned := opts.clone();
   io.async(e => {
-    prep := _prepare(&url_str_owned, opts, pool.is_some(), e.exn);
-    idempotent := _is_idempotent(opts.method);
+    prep := _prepare(&url_str_owned, &opts_owned, pool.is_some(), e.exn);
+    idempotent := _is_idempotent(opts_owned.method);
     (mut(out) : Option(HttpResponse)) = Option(HttpResponse).None;
     // A `done`/`attempt` pair rather than break/continue: an awaiting loop is
     // a state machine (C24), and every await below sits at most ONE branch
@@ -725,7 +728,7 @@ _fetch_once :: (
       conn := match(conn_opt, .Some(c) => c, .None => __yo_panic("unreachable: no connection"));
       _wn := e.io.await(conn.write_string(&prep.request, e.io), e);
       framed := e.io.await(
-        read_http_message_buffered(&conn, opts.max_response_bytes, prep.kind, &carry, e.io),
+        read_http_message_buffered(&conn, opts_owned.max_response_bytes, prep.kind, &carry, e.io),
         e
       );
       (mut(raw) : String) = String.new();

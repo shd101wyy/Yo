@@ -114,10 +114,11 @@ impl(
   /// Windows takes the non-atomic path described in the module header. Async:
   /// awaited on the event loop, and it throws `IoExn` carrying the errno if
   /// `parent` does not exist, is not writable, or a name cannot be won.
-  new_in : (fn(parent : &Path, io : Io) -> Impl(Future(TempDir, IoExn)))(
+  new_in : (fn(parent : &Path, io : Io) -> Impl(Future(TempDir, IoExn)))({
+    parent_owned := parent.clone();
     io.async(e => {
       // Build template: parent/yo_tmp_XXXXXX
-      template_path := parent.join(Path.new(`yo_tmp_XXXXXX`));
+      template_path := parent_owned.join(Path.new(`yo_tmp_XXXXXX`));
       template_str := template_path.to_string();
       // Allocate a mutable C string for mkdtemp
       template_bytes := template_str;
@@ -144,7 +145,7 @@ impl(
       // Through `Path` once, so `path()` renders exactly what it did.
       TempDir(_cell : Box.new(_TempDirState(_path : Path.new(&path_str).to_string(), _removed : false)))
     })
-  ),
+  }),
   /// `new_in` against the system temporary directory (`env.temp_dir()` —
   /// `TMPDIR` on POSIX, `TEMP`/`TMP` on Windows) — Rust's
   /// `tempfile::TempDir::new`.
@@ -242,10 +243,11 @@ impl(
   /// temporary is never briefly world-readable. Windows takes the non-atomic
   /// path described in the module header. Async: awaited on the event loop,
   /// and throws `IoExn` with the errno on failure.
-  new_in : (fn(parent : &Path, io : Io) -> Impl(Future(TempFile, IoExn)))(
+  new_in : (fn(parent : &Path, io : Io) -> Impl(Future(TempFile, IoExn)))({
+    parent_owned := parent.clone();
     io.async(e => {
       // Build template: parent/yo_tmp_XXXXXX
-      template_path := parent.join(Path.new(`yo_tmp_XXXXXX`));
+      template_path := parent_owned.join(Path.new(`yo_tmp_XXXXXX`));
       template_str := template_path.to_string();
       template_bytes := template_str;
       buf_len := (template_bytes.len() + usize(1));
@@ -270,7 +272,7 @@ impl(
       file := _file_mod.File._new(fd, path.clone());
       TempFile(_cell : Box.new(_TempFileState(_file : file, _path : path, _removed : false)))
     })
-  ),
+  }),
   /// `new_in` against the system temporary directory (`env.temp_dir()`) —
   /// Rust's `tempfile::NamedTempFile::new`.
   new : (fn(io : Io) -> Impl(Future(TempFile, IoExn)))(

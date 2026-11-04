@@ -100,13 +100,15 @@ impl(
   /// unreadable `Content-Length`, malformed chunking) is answered the same way
   /// (`413` for oversize) instead of being thrown out of the server
   /// (issues/fixed/one-malformed-request-killed-http-server-serve.md).
-  _accept_request : (fn(self : &Self, io : Io) -> Impl(Future(Tuple(TcpStream, Result(HttpRequest, HttpResponse)), IoExn)))(
+  _accept_request : (fn(self : &Self, io : Io) -> Impl(Future(Tuple(TcpStream, Result(HttpRequest, HttpResponse)), IoExn)))({
+    // The future owns a handle to the listener and a copy of the ceiling,
+    // not a borrow of the server: `accept`'s future borrows the listener,
+    // and a borrow may cross an `Rc` deref.
+    listener := Rc.clone(self.listener);
+    max_request_bytes := self.max_request_bytes;
     io.async(e => {
-      // Through a local handle: `accept`'s future borrows the listener, and a
-      // borrow may cross an `Rc` deref but not the `ref` server holding it.
-      listener := Rc.clone(self.listener);
       stream := e.io.await(listener.*.accept(e.io), e);
-      framed := e.io.await(read_http_message(&stream, self.max_request_bytes, MessageKind.Request, e.io), e);
+      framed := e.io.await(read_http_message(&stream, max_request_bytes, MessageKind.Request, e.io), e);
       parsed := match(
         framed,
         .Ok(raw) => match(
@@ -117,14 +119,14 @@ impl(
         .Err(ferr) => Result(HttpRequest, HttpResponse).Err(
           match(
             &ferr,
-            .ResponseTooLarge => HttpResponse.with_status(StatusCode.CONTENT_TOO_LARGE()).with_body(`request larger than ${self.max_request_bytes} bytes`),
+            .ResponseTooLarge => HttpResponse.with_status(StatusCode.CONTENT_TOO_LARGE()).with_body(`request larger than ${max_request_bytes} bytes`),
             _ => HttpResponse.with_status(StatusCode.BAD_REQUEST()).with_body(ferr.to_string())
           )
         )
       );
       (stream, parsed)
     })
-  ),
+  }),
   /// Accept ONE connection, read one request, run `handler`, write the
   /// response and close. A request that does not parse, or whose framing is
   /// broken, is answered without calling `handler` (`_accept_request`).
@@ -169,11 +171,11 @@ impl(
     self.stopped.replace(true);
   }),
   /// Close the listening socket.
-  close : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))(
+  close : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))({
+    listener := Rc.clone(self.listener);
     io.async(e => {
-      listener := Rc.clone(self.listener);
       e.io.await(listener.*.close(e.io), e);
     })
-  )
+  })
 );
 export(HttpServer, DEFAULT_MAX_REQUEST_BYTES);
