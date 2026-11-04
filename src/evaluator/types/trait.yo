@@ -42,7 +42,7 @@ import("std/fmt");
 { Environment, get_variables_from_env, add_variable_to_env, env_adopt } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
 { EvalValue, create_type_value, create_unknown_val, is_type_value } :: import("../../value.yo");
-{ TypeValue, TypeValueNode, shared_list, no_types, no_labels, t_slot_pointee } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, trait_t_body, shared_list, no_types, no_labels, t_slot_pointee } :: import("../../types/definitions.yo");
 { t_some_t, generate_some_type_id } :: import("../../types/creators.yo");
 { is_some_type, is_trait_type, is_function_type } :: import("../../types/guards.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
@@ -87,7 +87,7 @@ _TraitFieldResult :: struct(
 _fn_call_args :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
   match(
     e,
-    .FnCall(_, _, Rc(args), _, _) => args,
+    .FnCall(_, _, Rc(args), _, _) => args.clone(),
     .Atom(_, _) => ArrayList(AstExpr).new()
   )
 );
@@ -112,7 +112,7 @@ _get_or_create_some_ty_for_trait :: (
 )({
   // "Self" case
   if(ast_expr_is_atom(lhs_expr), {
-    var_name := ast_expr_text(lhs_expr).*;
+    var_name := ast_expr_text(lhs_expr).*.clone();
     if(var_name == "Self", {
       return(_SomeTyResolvedResult(Rc.clone(self_type), true));
     });
@@ -328,11 +328,14 @@ _apply_single_constraint_for_trait :: (
   if(res.is_self, {
     match(
       trait_ty,
-      Rc(.TraitT(_, _, _, _, _, _, sc, nc, _, _)) => {
-        if(is_negated, {
-          nc.push(Rc.clone(trait_ty2));
-        }, {
-          sc.push(Rc.clone(trait_ty2));
+      Rc(.TraitT(_, sc_body, _, _, _, _)) => {
+        sc_trait := Rc.clone(trait_ty2);
+        sc_body.with_mut({ sc_trait, is_negated }(b) => {
+          if(is_negated, {
+            b.neg_self_constraints.push(sc_trait);
+          }, {
+            b.self_constraints.push(sc_trait);
+          });
         });
       },
       _ => ()
@@ -502,11 +505,14 @@ _parse_trait_where_clauses :: (
       if(res.is_self, {
         match(
           trait_ty,
-          Rc(.TraitT(_, _, _, _, _, _, sc, nc, _, _)) => {
-            if(is_neg, {
-              nc.push(Rc.clone(trait_ty2));
-            }, {
-              sc.push(Rc.clone(trait_ty2));
+          Rc(.TraitT(_, sc_body, _, _, _, _)) => {
+            sc_trait := Rc.clone(trait_ty2);
+            sc_body.with_mut({ sc_trait, is_neg }(b) => {
+              if(is_neg, {
+                b.neg_self_constraints.push(sc_trait);
+              }, {
+                b.self_constraints.push(sc_trait);
+              });
             });
           },
           _ => ()
@@ -638,7 +644,7 @@ _evaluate_trait_field :: (
         )
       );
     });
-    label_str = ast_expr_text(&lhs_label_expr).*;
+    label_str = ast_expr_text(&lhs_label_expr).*.clone();
     label_expr_opt = .Some(lhs_label_expr);
     type_expr_opt = .Some(rhs_type_expr);
   }, {
@@ -675,7 +681,7 @@ _evaluate_trait_field :: (
         )
       );
     });
-    label_str = ast_expr_text(&expr_inner).*;
+    label_str = ast_expr_text(&expr_inner).*.clone();
     label_expr_opt = .Some(expr_inner);
   });
   // Determine expected field type from context
@@ -685,9 +691,10 @@ _evaluate_trait_field :: (
     .Some(expected_tt) => {
       match(
         expected_tt,
-        Rc(.TraitT(_, _, _, fts, _, _, _, _, _, _)) => {
+        Rc(.TraitT(_, fts_body, _, _, _, _)) => {
+          fts := fts_body.field_types();
           match(
-            fts.get(trait_field_index),
+            fts.get_cloned(trait_field_index),
             .Some(ft) => {
               expected_field_ty_opt = .Some(ft);
             },
@@ -756,7 +763,7 @@ _evaluate_trait_field :: (
       __enss := get_func_ensures_exprs(ast_expr_id(&type_expr).to_string());
       __trait_id := match(
         trait_ty,
-        Rc(.TraitT(_, _, _, _, tid, _, _, _, _, _)) => tid.clone(),
+        Rc(.TraitT(_, _, tid, _, _, _)) => tid.clone(),
         _ => String.new()
       );
       if(((__reqs.len() > usize(0)) || (__enss.len() > usize(0))) && (__trait_id.len() > usize(0)), {
@@ -1051,36 +1058,32 @@ evaluate_trait_type :: (
   // Extract trait name from context if available
   // (trait name is set externally via variable binding, not embedded in the trait expr)
   trait_name_str := String.from("");
-  // Build the shared ArrayLists that will form the TraitT value
   // Phase 2: occurrence-indexed from the declaration's source position —
   // unique per mint like the `random_id` it replaces, but an edit in another
   // module cannot renumber it.
   decl_tok := ast_expr_token(expr);
   trait_id := stable_type_id(String.from("trait_"), &decl_tok.module_path.*, usize(decl_tok.row), usize(decl_tok.column));
-  assoc_type_names := ArrayList(String).new();
-  field_labels := ArrayList(String).new();
-  field_types := ArrayList(TypeValue).new();
-  self_constraints := ArrayList(TypeValue).new();
-  neg_self_constraints := ArrayList(TypeValue).new();
-  // Mutable trait type value — ArrayList fields are RC objects, so in-place
-  // push() calls on self_constraints/neg_self_constraints reflect into trait_ty.
+  // The trait's node is minted before its body is evaluated: the body names
+  // the trait itself (`SelfTrait`, `Self.X` through `ctx.self_trait_type`, a
+  // member typed over `Dyn(SelfTrait)`). Its members and `where(Self <: X)`
+  // constraints are written into ONE shared cell (`TraitTBody`) afterwards,
+  // and every holder of the node, including a copy embedded in a member's
+  // type, sees them: a `Dyn` vtable, an impl check and a default-method
+  // lookup read the embedded node's lists (consultation #13 §13).
+  trait_body := trait_t_body(ArrayList(String).new(), ArrayList(String).new(), ArrayList(TypeValue).new(), ArrayList(TypeValue).new(), ArrayList(TypeValue).new());
   (trait_ty : TypeValue) = Rc.new(
     TypeValueNode.TraitT(
       trait_name_str,
-      assoc_type_names,
-      field_labels,
-      field_types,
+      Rc.clone(&trait_body),
       trait_id.clone(),
       Option(TypeValue).None,
-      self_constraints,
-      neg_self_constraints,
       no_labels(),
       no_types()
     )
   );
   // Push a scoped env frame for trait evaluation
   env_mut.push_frame(false);
-  args := match(expr, .FnCall(_, _, Rc(a), _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+  args := match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
   // Create "Self" SomeType for the trait
   top_frame := env_mut.frames.len();
   self_frame_level := if(top_frame > usize(0), top_frame - usize(1), usize(0));
@@ -1154,7 +1157,7 @@ evaluate_trait_type :: (
       ctx.expected_type,
       .Some(et) => match(
         &et.ty,
-        Rc(.TraitT(_, _, _, _, _, _, _, _, _, _)) => Option(TypeValue).Some(Rc.clone(et.ty)),
+        Rc(.TraitT(_, _, _, _, _, _)) => Option(TypeValue).Some(Rc.clone(et.ty)),
         _ => Option(TypeValue).None
       ),
       .None => Option(TypeValue).None
@@ -1181,16 +1184,8 @@ evaluate_trait_type :: (
       .None => ()
     );
     // Check for duplicate labels
-    (is_duplicate : bool) = false;
-    (li : usize) = usize(0);
-    while(li < field_labels.len(), {
-      existing_label := match(field_labels.get(li), .Some(s) => s, .None => String.from(""));
-      li = (li + usize(1));
-      if(existing_label == field_result.label, {
-        is_duplicate = true;
-        li = field_labels.len();
-      });
-    });
+    dup_label := field_result.label.clone();
+    is_duplicate := trait_body.with({ dup_label }(b) => b.field_labels.contains(&dup_label));
     if(is_duplicate, {
       exn.throw(
         dyn(
@@ -1201,13 +1196,20 @@ evaluate_trait_type :: (
         )
       );
     });
-    field_labels.push(field_result.label.clone());
-    field_types.push(Rc.clone(field_result.ty));
+    member_label := field_result.label.clone();
+    member_ty := Rc.clone(field_result.ty);
+    member_is_assoc := field_result.assoc_some_ty.is_some();
+    trait_body.with_mut({ member_label, member_ty, member_is_assoc }(b) => {
+      b.field_labels.push(member_label.clone());
+      b.field_types.push(member_ty);
+      if(member_is_assoc, {
+        b.assoc_type_names.push(member_label.clone());
+      });
+    });
     // If it's an associated type, add it to assoc_type_names and bind in env
     match(
       &field_result.assoc_some_ty,
       .Some(some_ty) => {
-        assoc_type_names.push(field_result.label.clone());
         // Only bind if not already bound (check existing vars)
         existing_vars := get_variables_from_env(&env_mut, &field_result.label);
         (already_bound : bool) = false;
@@ -1299,9 +1301,11 @@ evaluate_trait_type :: (
   // the parameter side needs the per-param comptime side
   // table, which trait FIELD fn-types do not register — no known witness.
   (vf_i : usize) = usize(0);
+  field_types := trait_body.field_types();
+  field_labels := trait_body.field_labels();
   while(vf_i < field_types.len(), {
     vf_ty := match(
-      field_types.get(vf_i),
+      field_types.get_cloned(vf_i),
       .Some(t) => t,
       .None => {
         vf_i = (vf_i + usize(1));
@@ -1322,10 +1326,10 @@ evaluate_trait_type :: (
             match(
               find_some_type_missing_comptime_constraint(&vf_ret, &env_mut),
               .Some(vf_missing) => {
-                vf_label := match(field_labels.get(vf_i), .Some(l) => l, .None => String.from("?"));
+                vf_label := match(field_labels.get_cloned(vf_i), .Some(l) => l, .None => String.from("?"));
                 vf_missing_name := match(
                   &vf_missing,
-                  Rc(.SomeT(id : _, name : vf_mn)) => vf_mn,
+                  Rc(.SomeT(id : _, name : vf_mn)) => vf_mn.clone(),
                   _ => type_to_string(&vf_missing)
                 );
                 exn.throw(

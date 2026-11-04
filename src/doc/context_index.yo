@@ -69,6 +69,7 @@ ContextIndexEntry :: struct(
   /// a barrel re-export.
   origin : String
 );
+derive(ContextIndexEntry, Clone);
 /// One indexed module: the `--list` row.
 ContextIndexModule :: struct(
   module : String,
@@ -82,6 +83,7 @@ ContextIndexModule :: struct(
   /// describe slices the module page from the owning corpus.
   index_dir : String
 );
+derive(ContextIndexModule, Clone);
 /// `<cache>/context` — the sibling of `store/`, `git/` and `index/`; the
 /// layout lives in `src/cache.yo` so `yo cache gc` and the builder share it.
 context_dir :: (fn(cache_root : &String) -> String)(
@@ -109,7 +111,7 @@ _collect_index_files :: (
   fn(
     dir : &String,
     root : &String,
-    files : &ArrayList(String),
+    files : &mut ArrayList(String),
     io : Io,
     exn : Exception
   ) -> unit
@@ -188,13 +190,13 @@ context_tree_key :: (
   fn(root : &String, prefix : &String, io : Io, exn : Exception) -> String
 )({
   files := ArrayList(String).new();
-  _collect_index_files(root.clone(), root.clone(), &files, io, exn);
+  _collect_index_files(root.clone(), root.clone(), &mut files, io, exn);
   files.sort();
   corpus := `name ${context_corpus_name(root.clone(), prefix)}\nformat ${INDEX_FORMAT_VERSION}\nyo ${String.from(CURRENT_YO_VERSION)}\n`;
   (fi : usize) = usize(0);
   while(fi < files.len(), {
     match(
-      files.get(fi),
+      files.get_cloned(fi),
       .Some(file) => {
         rel := Path.new(&file).relative_to(Path.new(root)).to_string();
         bytes := io.await(read(Path.new(file.clone()), io), IoExn(io : io, exn : exn));
@@ -305,7 +307,7 @@ context_index_ensure :: (
   });
   eprintln(`Building the context index for ${root} (key ${key})...`);
   files := ArrayList(String).new();
-  _collect_index_files(root.clone(), root.clone(), &files, io, exn);
+  _collect_index_files(root.clone(), root.clone(), &mut files, io, exn);
   files.sort();
   io.await(create_dir_all(Path.new(idx_dir.clone()).join(Path.new(String.from("modules"))), io), IoExn(io : io, exn : exn));
   std_path := resolve_std_path();
@@ -315,7 +317,7 @@ context_index_ensure :: (
   (fi : usize) = usize(0);
   while(fi < files.len(), {
     match(
-      files.get(fi),
+      files.get_cloned(fi),
       .Some(file) => {
         module := context_module_name(file.clone(), root.clone(), prefix.clone());
         df := document_one_file(file.clone(), root.clone(), std_path.clone(), false, io, exn);
@@ -337,7 +339,7 @@ context_index_ensure :: (
             (ei : usize) = usize(0);
             while(ei < entries.len(), {
               match(
-                entries.get(ei),
+                entries.get_cloned(ei),
                 .Some(e) => {
                   index_txt.push_string(_entry_line(&e));
                   index_txt.push_str("\n");
@@ -514,7 +516,7 @@ module_md_dir :: (fn(idx_dir : &String, module : &String) -> String)({
 /// The last segment of a module path.
 module_leaf :: (fn(module : &String) -> String)({
   segs := module.split(String.from("/"));
-  segs.last_cloned().unwrap_or(module)
+  segs.last_cloned().unwrap_or(module.clone())
 });
 /// The kind letter for one exported label's type, as the query surface
 /// spells it.
@@ -552,7 +554,7 @@ _export_label_entries :: (
         (ei : usize) = usize(0);
         while(ei < entries.len(), {
           match(
-            entries.get(ei),
+            entries.get_cloned(ei),
             .Some(e) => {
               if(e.name == label, {
                 covered = true;
@@ -564,7 +566,7 @@ _export_label_entries :: (
         });
         if(!covered, {
           match(
-            types.get(li),
+            types.get_cloned(li),
             .Some(tv) => {
               entries.push(
                 ContextIndexEntry(
@@ -784,7 +786,7 @@ _mark_barrel_origins :: (
     (ei : usize) = usize(0);
     while(ei < entries.len(), {
       match(
-        entries.get(ei),
+        entries.get_cloned(ei),
         .Some(e) => {
           if((e.origin.len() == usize(0)) && defined.contains(&e.name), {
             // `e` borrows the element: write an owned copy back.

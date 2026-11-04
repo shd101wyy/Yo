@@ -40,7 +40,7 @@ mk_struct :: (
 );
 empty_labels :: (fn() -> ArrayList(String))(ArrayList(String).new());
 box_labels :: (fn() -> ArrayList(String))({
-  l := ArrayList(String).new();
+  mut(l) := ArrayList(String).new();
   l.push(String.from("*"));
   l
 });
@@ -92,7 +92,7 @@ test("is_box_type matches reference-semantics Struct named Rc(T) with single fie
   not_box_name := mk_struct("Other", &wrong_name_labels, true, false, false);
   assert(!is_box_type(&not_box_name), "wrong name");
   // Not an Rc because the field isn't labeled `*`.
-  no_star_labels := ArrayList(String).new();
+  mut(no_star_labels) := ArrayList(String).new();
   no_star_labels.push(String.from("inner"));
   not_box_field := mk_struct("Rc(i32)", &no_star_labels, true, false, false);
   assert(!is_box_type(&not_box_field), "wrong field label");

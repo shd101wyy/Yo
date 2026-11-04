@@ -45,7 +45,7 @@ walk :: (fn(start : Rc(i32)) -> Rc(i32))({
 Bag :: struct(h : Rc(i32), items : ArrayList(i32));
 fill :: (fn(b : Bag) -> usize)({
   mut(bb) := b;
-  match(bb, { items : xs } => {
+  match(&mut bb, { items : xs } => {
     xs.push(i32(1));
   });
   bb.items.len() + usize(bb.h.*)
@@ -79,7 +79,7 @@ hits :: (fn(h : &Option(Rc(i32)), n : i32) -> i32)({
 main :: (fn() -> unit)({
   a := Rc.new(i32(1));
   b := a;
-  xs := ArrayList(Rc(i32)).new();
+  mut(xs) := ArrayList(Rc(i32)).new();
   xs.push(a);
   n := Node(label : b, weight : i32(2));
   m := n;
@@ -96,7 +96,7 @@ main :: (fn() -> unit)({
   bare2 := bare;
   last := Rc.new(i32(6));
   moved := last;
-  w := RefCell(i32).new(i32(7));
+  mut(w) := RefCell(i32).new(i32(7));
   u := w.with(c => (c + total(a, i32(0))));
   p := peek(&Holder(slot : .Some(Rc.new(i32(8)))));
   cell := Rc.new(i32(9));

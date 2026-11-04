@@ -131,7 +131,7 @@ collect_unwind_value_ctypes :: (fn(context : &FunctionGenerationContext) -> unit
 emit_unwind_value_buffer :: (fn(context : &FunctionGenerationContext) -> unit)({
   em := context.base.emitter;
   empty := match(
-    context.unwind_value_c_types,
+    &context.unwind_value_c_types,
     .Some(types) => types.is_empty(),
     .None => true
   );
@@ -156,7 +156,7 @@ emit_unwind_value_buffer :: (fn(context : &FunctionGenerationContext) -> unit)({
   decl.push_str(if(context.base.chunk_mode, "typedef union {\n", "static _Thread_local _Alignas(16) union {\n"));
   decl.push_str("    char __pad[64];\n");
   match(
-    context.unwind_value_c_types,
+    &context.unwind_value_c_types,
     .Some(types) => {
       (idx : usize) = usize(0);
       for(&types, t => {

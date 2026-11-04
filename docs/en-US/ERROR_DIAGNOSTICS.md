@@ -276,75 +276,6 @@ out of the only handle; a uniquely owned value or `Box(T)`; and
 `Arc(Mutex(T))` or atomics across threads. There is no `yo fix` migration:
 which door fits depends on why the state is shared.
 
-`yo fix <path> --migrate explicit-copy` prepares the values-by-default plan's
-unique buffers (V2b). Once `String` and the std collections own their buffers
-uniquely, an implicit copy whose source is used again is E0901. The migration
-runs while the tree still compiles those copies. It evaluates each file and
-writes `.clone()` after each copy of a `String`, a collection or a value
-holding one, whose source is used again. That covers `t := s` before a later
-read of `s`, a field read through a borrow (`p.name`), a borrowed parameter
-returned, and a copy stored, passed by value or returned. The copy must be one
-`.clone()` can make, so its type implements `Clone`.
-
-Today such a copy shares its buffer with the source; with `.clone()` it is
-independent. That changes the program exactly where one side is written while
-the other is read again: `l := m(k); l.push(x)` meant to grow the map's list.
-So a copy whose source, or whose destination variable, is written after it (a
-store into a field or element, a `&mut` argument or receiver the callee may
-write, a `&mut` borrow) is listed with its position and left for a hand edit:
-`&mut` where the write was meant to reach the source, `.clone()` where it was
-not. A capture list's entry counts as such a copy, and a write to the capture
-in the closure body (`{ seen }() => seen.push(x)`) as a write of it. A copy
-made at a result position of a block, `if`, `cond` or `match` (an arm's tail,
-nested) flows into the variable the result is bound or assigned to, so
-`t := if(c, e.no, e.yes); t.push(x)` lists both arm copies. The migration
-also follows the copy, and its source, into every local they are stored in
-afterwards, moves included: `x := e.no; t := x; t.push(v)` lists the copy
-into `x`, since `t` writes the buffer `x` shares with `e.no`. A write the
-migration cannot see is the residual: one made through the copy after it
-left the function, stored in a field, passed by value or returned.
-`--dry-run` prints every insertion with how the copy is made (`binding`,
-`return`, `field-store`, …) so those can be reviewed.
-
-A capture list's shorthand entry `{ s }` names the capture and its source
-together, so its copy is spelled `{ s : s.clone() }`.
-
-These sites are also left as written:
-
-- a copy inside the member of a `Clone` impl (`impl(T, Clone(clone : ...))`):
-  there the impl decides how deep a copy of `T` goes. A field it shares on
-  purpose (a tree whose clone shares its children) must not become a deep
-  copy, and the write that makes the difference observable is in a caller
-  of `clone`, out of the migration's sight. Spell `.clone()` for a deep copy,
-  or share the field for a sharing one;
-- a copy made by an implicit closure capture;
-- a binding a macro wrote;
-- a position copied at two types (a generic body);
-- a site whose source text does not print as the evaluated expression;
-- a copy whose source or destination has a raw pointer derived from it
-  anywhere in the module (`marks.ptr()`, `addr_of(marks(i))`, or a helper
-  taking `&marks` and returning a pointer): the program reaches the buffer
-  through the pointer, which a `.clone()` would leave dangling or pointing at
-  the other side. Move the value instead, taking the pointer first;
-- a copy out of a temporary that dies at the end of its statement (a field or
-  an element of a call's result, `make().name`, `make().tags(i)`): that copy
-  is usually a move. A field read through a dereference (`grab().*.name`) is
-  not one: the pointee can outlive the handle, so it is rewritten. A `match`
-  binding of a call's result (`.Some(v) => v` over `m.get(k)`) is judged at
-  the end of its arm instead: a copy made while the binding is read again is
-  rewritten, and its last use is a move, neither rewritten nor listed. A copy
-  made in the arm's guard is always rewritten: a failing guard passes the
-  same value on to the next arm;
-- with `--hot-path <path>` (repeatable), every copy in a file under that path.
-  On a hot path a deep copy per operation adds up, and the hand edit is
-  usually a borrow or a shared value rather than a `.clone()`.
-
-A `test(...)` body whose trial evaluation fails is listed too, and counted in
-the summary: the trial swallows its error so the file still evaluates, but
-some of the body's copies may be left unmigrated, so review it by hand.
-
-A clone the move checker later finds redundant is for decision 27's lint.
-
 `yo fix <path> --migrate rc-clone` spells decision 17's counted-handle copies.
 Copying an `Rc` or `Arc` needs `.clone()`, as in Rust: a second handle is a new
 owner, so an implicit copy of a handle, or of a value holding one, whose source
@@ -356,7 +287,7 @@ holding one, `{ h : Rc.clone(h) }` for a capture list's shorthand entry. A
 closure that captures a handle implicitly while its source is read again gets
 a capture list naming every value it captures, the handle as
 `h : Rc.clone(h)` (a capture list is exhaustive). `Rc.clone` is the count bump
-the implicit copy made, so none of the sharing guards above apply. Left as
+the implicit copy made, so no sharing guard applies. Left as
 written and listed: a value holding a handle whose type is not `Clone` (give
 it `derive(T, Clone)`), a copy in a generic body (where the copied value may
 be a type parameter), a position copied at two
@@ -365,6 +296,31 @@ expression, a closure whose parameter list is not found, and a `test(...)`
 body that does not evaluate. A copy inside a generic body where the handle is
 a type parameter (`ArrayList(Rc(T)).get(i)` copies a `T`) is not judged by the
 rule.
+
+#### Retired migrations
+
+A migration whose subject a values-by-default flip turns into E0901 retires
+with that flip: once the copy it rewrote is an error, the error's help names
+the same rewrite. These modes are gone from `yo fix`; the release that last
+shipped each one still runs it.
+
+| Migration | What it rewrote | Last shipped |
+| --- | --- | --- |
+| `explicit-copy` (with the `YO_AUDIT_IMPLICIT_COPY` listing) | a copy of a `String`, a collection or a value holding one whose source is used again, to `.clone()` | v0.2.73 |
+| `cloned-accessors` (with the `YO_AUDIT_COPYING_ACCESSOR` listing and `--hot-path`) | a copying accessor call whose result holds a `String` or a collection, `r.get(i)` to `r.get_cloned(i)` | v0.2.73 |
+
+Both retired with the `BTreeMap` flip (v0.2.74). To migrate code written
+against an older std, run them on v0.2.73 in phase order, then step up:
+
+```sh
+yo version install 0.2.73
+yo fix <path> --migrate explicit-copy
+yo fix <path> --migrate cloned-accessors
+yo fix <path> --migrate rc-clone
+```
+
+then pin v0.2.74 and fix what is left by E0901's help (`.clone()`,
+`get_cloned(i)`, a borrow or a move).
 
 ## Warnings
 

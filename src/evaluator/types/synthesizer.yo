@@ -183,8 +183,8 @@ synthesis_type_id :: (fn(ty : &TypeValue) -> String)(
     ty,
     Rc(.Struct({ id })) => id.clone(),
     Rc(.EnumT(id, _, _, _, _, _, _, _, _, _)) => id.clone(),
-    Rc(.TraitT(_, _, _, _, id, _, _, _, _, _)) => id.clone(),
-    Rc(.SomeT(id, _, _, _, _, _, _, _, _, _)) => id.clone(),
+    Rc(.TraitT(_, _, id, _, _, _)) => id.clone(),
+    Rc(.SomeT(id, _, _, _, _, _, _)) => id.clone(),
     _ => type_to_string_key(ty)
   )
 );
@@ -310,7 +310,7 @@ _bind_some_type :: (
       // (issues/fixed/a-caller-binder-named-t-collides-with-io-async-t.md).
       found_slot_someid := match(
         old_var.value.get(usize(0)),
-        .Some(ov) => match(ov, .TypeVal(ovt) => match(ovt, Rc(.SomeT({ id : ovid })) => ovid, _ => variable_bound_some_id(&old_var)), _ => String.from("")),
+        .Some(ov) => match(ov, .TypeVal(ovt) => match(ovt, Rc(.SomeT({ id : ovid })) => ovid.clone(), _ => variable_bound_some_id(&old_var)), _ => String.from("")),
         .None => String.from("")
       );
       identity_mismatch := ((source_some_id.len() > usize(0)) && (found_slot_someid.len() > usize(0)) && (found_slot_someid != source_some_id));
@@ -418,7 +418,7 @@ _occurs_check :: (fn(some_type_id : &String, some_type_name : &String, ty : &Typ
     n := visited.len();
     while((vi < n) && !found_visited, {
       v := match(
-        visited.get(vi),
+        visited.get_cloned(vi),
         .Some(s) => s,
         .None => {
           vi = n;
@@ -437,7 +437,7 @@ _occurs_check :: (fn(some_type_id : &String, some_type_name : &String, ty : &Typ
   visited.push(ty_id);
   match(
     ty,
-    Rc(.SomeT(sid, _, _, _, _, _, _, _, _, _)) => (some_type_id == sid),
+    Rc(.SomeT(sid, _, _, _, _, _, _)) => (some_type_id == sid),
     Rc(.Struct({ field_types })) => {
       (res : bool) = false;
       i := usize(0);
@@ -644,12 +644,13 @@ _occurs_check :: (fn(some_type_id : &String, some_type_name : &String, ty : &Typ
       });
       res
     },
-    Rc(.TraitT(_, _, _, field_types, _, _, _, _, _, _)) => {
+    Rc(.TraitT(_, field_types_body, _, _, _, _)) => {
+      field_types := field_types_body.field_types();
       (res : bool) = false;
       i := usize(0);
       while((i < field_types.len()) && !res, {
         ft := match(
-          field_types.get(i),
+          field_types.get_cloned(i),
           .Some(t) => t,
           .None => {
             i = field_types.len();
@@ -749,7 +750,7 @@ _synthesize_implicit_params :: (
   (ei : usize) = usize(0);
   while(ei < n_exp, {
     exp_ty := match(
-      expected_types.get(ei),
+      expected_types.get_cloned(ei),
       .Some(t) => t,
       .None => {
         ei = n_exp;
@@ -762,7 +763,7 @@ _synthesize_implicit_params :: (
       already_matched := match(matched_given.get(gj), .Some(b) => b, .None => false);
       if(!already_matched, {
         giv_ty := match(
-          given_types.get(gj),
+          given_types.get_cloned(gj),
           .Some(g) => g,
           .None => {
             gj = n_giv;
@@ -930,8 +931,8 @@ _synthesize_types_impl :: (
     giv_self_ident := is_bound_closure_identity(given_ty);
     expected_bound := if(exp_self_ident, Rc.clone(expected_ty), get_value_of_some_type_from_env(&ee, expected_ty));
     given_bound := if(giv_self_ident, Rc.clone(given_ty), get_value_of_some_type_from_env(&ge, given_ty));
-    exp_some_id := match(expected_ty, Rc(.SomeT(id, _, _, _, _, _, _, _, _, _)) => id.clone(), _ => ``);
-    giv_some_id := match(given_ty, Rc(.SomeT(id, _, _, _, _, _, _, _, _, _)) => id.clone(), _ => ``);
+    exp_some_id := match(expected_ty, Rc(.SomeT(id, _, _, _, _, _, _)) => id.clone(), _ => ``);
+    giv_some_id := match(given_ty, Rc(.SomeT(id, _, _, _, _, _, _)) => id.clone(), _ => ``);
     // A resolved closure identity (`is_bound_closure_identity`) is a
     // binding, not a free variable: with `T := <k1's Impl>` from the
     // receiver, `value : T` against `<k2's Impl>` must not rebind `T`
@@ -957,36 +958,38 @@ _synthesize_types_impl :: (
       !exp_bound_is_some => {
         // Expected is bound — use its value to bind given
         val := EvalValue.TypeVal(Rc.clone(expected_bound));
-        _bind_some_type(&ge, match(given_ty, Rc(.SomeT(_, n, _, _, _, _, _, _, _, _)) => n.clone(), _ => ``), match(given_ty, Rc(.SomeT(gid9, _, _, _, _, _, _, _, _, _)) => gid9.clone(), _ => ``), &val, &expected_bound, &tok, exn);
+        _bind_some_type(&ge, match(given_ty, Rc(.SomeT(_, n, _, _, _, _, _)) => n.clone(), _ => ``), match(given_ty, Rc(.SomeT(gid9, _, _, _, _, _, _)) => gid9.clone(), _ => ``), &val, &expected_bound, &tok, exn);
       },
       !giv_bound_is_some => {
         // Given is bound — use its value to bind expected
         val := EvalValue.TypeVal(Rc.clone(given_bound));
-        _bind_some_type(&ee, match(expected_ty, Rc(.SomeT(_, n, _, _, _, _, _, _, _, _)) => n.clone(), _ => ``), match(expected_ty, Rc(.SomeT(eid9, _, _, _, _, _, _, _, _, _)) => eid9.clone(), _ => ``), &val, &given_bound, &tok, exn);
+        _bind_some_type(&ee, match(expected_ty, Rc(.SomeT(_, n, _, _, _, _, _)) => n.clone(), _ => ``), match(expected_ty, Rc(.SomeT(eid9, _, _, _, _, _, _)) => eid9.clone(), _ => ``), &val, &given_bound, &tok, exn);
       },
       (exp_some_id == giv_some_id) => (),
       // Same SomeType — nothing to do
       true => {
         // Both unbound — bind expected to given.type (given is the unification target)
         val := EvalValue.TypeVal(Rc.clone(given_ty));
-        _bind_some_type(&ee, match(expected_ty, Rc(.SomeT(_, n, _, _, _, _, _, _, _, _)) => n.clone(), _ => ``), match(expected_ty, Rc(.SomeT(eid8, _, _, _, _, _, _, _, _, _)) => eid8.clone(), _ => ``), &val, given_ty, &tok, exn);
+        _bind_some_type(&ee, match(expected_ty, Rc(.SomeT(_, n, _, _, _, _, _)) => n.clone(), _ => ``), match(expected_ty, Rc(.SomeT(eid8, _, _, _, _, _, _)) => eid8.clone(), _ => ``), &val, given_ty, &tok, exn);
         val2 := EvalValue.TypeVal(Rc.clone(given_ty));
-        _bind_some_type(&ge, match(given_ty, Rc(.SomeT(_, n, _, _, _, _, _, _, _, _)) => n.clone(), _ => ``), match(given_ty, Rc(.SomeT(gid8, _, _, _, _, _, _, _, _, _)) => gid8.clone(), _ => ``), &val2, given_ty, &tok, exn);
+        _bind_some_type(&ge, match(given_ty, Rc(.SomeT(_, n, _, _, _, _, _)) => n.clone(), _ => ``), match(given_ty, Rc(.SomeT(gid8, _, _, _, _, _, _)) => gid8.clone(), _ => ``), &val2, given_ty, &tok, exn);
       }
     );
     // After unifying, recursively synthesize required trait type parameters
     if(exp_some_id != giv_some_id, {
       match(
         expected_ty,
-        Rc(.SomeT(_, _, _, _, expected_traits, _, _, _, _, _)) => {
+        Rc(.SomeT(_, _, _, _, expected_traits_bnd, _, _)) => {
+          expected_traits := expected_traits_bnd.required();
           match(
             given_ty,
-            Rc(.SomeT(_, _, _, _, given_traits, _, _, _, _, _)) => {
+            Rc(.SomeT(_, _, _, _, given_traits_bnd, _, _)) => {
+              given_traits := given_traits_bnd.required();
               n_et := expected_traits.len();
               (eti : usize) = usize(0);
               while(eti < n_et, {
                 exp_trait := match(
-                  expected_traits.get(eti),
+                  expected_traits.get_cloned(eti),
                   .Some(t) => t,
                   .None => {
                     eti = n_et;
@@ -999,7 +1002,7 @@ _synthesize_types_impl :: (
                     (fi : usize) = usize(0);
                     while(fi < given_traits.len(), {
                       giv_trait := match(
-                        given_traits.get(fi),
+                        given_traits.get_cloned(fi),
                         .Some(t) => t,
                         .None => {
                           fi = given_traits.len();
@@ -1020,7 +1023,7 @@ _synthesize_types_impl :: (
                     (fi : usize) = usize(0);
                     while(fi < given_traits.len(), {
                       giv_trait := match(
-                        given_traits.get(fi),
+                        given_traits.get_cloned(fi),
                         .Some(t) => t,
                         .None => {
                           fi = given_traits.len();
@@ -1056,10 +1059,10 @@ _synthesize_types_impl :: (
       return(_synthesize_types_impl(resolve_cell_chain(expected_ty), &ee, given_ty, &ge, checked, opts, exn));
     });
     bound := get_value_of_some_type_from_env(&ee, expected_ty);
-    exp_id2 := match(expected_ty, Rc(.SomeT(id, _, _, _, _, _, _, _, _, _)) => id.clone(), _ => ``);
-    exp_name := match(expected_ty, Rc(.SomeT(_, n, _, _, _, _, _, _, _, _)) => n.clone(), _ => ``);
-    exp_traits := match(expected_ty, Rc(.SomeT(_, _, _, _, rts, _, _, _, _, _)) => rts, _ => ArrayList(TypeValue).new());
-    if(is_some_type(&bound) && match(&bound, Rc(.SomeT(bid, _, _, _, _, _, _, _, _, _)) => (bid == exp_id2), _ => false), {
+    exp_id2 := match(expected_ty, Rc(.SomeT(id, _, _, _, _, _, _)) => id.clone(), _ => ``);
+    exp_name := match(expected_ty, Rc(.SomeT(_, n, _, _, _, _, _)) => n.clone(), _ => ``);
+    exp_traits := match(expected_ty, Rc(.SomeT(_, _, _, _, rts_bnd, _, _)) => rts_bnd.required(), _ => ArrayList(TypeValue).new());
+    if(is_some_type(&bound) && match(&bound, Rc(.SomeT(bid, _, _, _, _, _, _)) => (bid == exp_id2), _ => false), {
       // Unbound — bind to given_ty
       // Occurs check
       {
@@ -1083,7 +1086,7 @@ _synthesize_types_impl :: (
       (eti : usize) = usize(0);
       while(eti < n_et, {
         exp_trait := match(
-          exp_traits.get(eti),
+          exp_traits.get_cloned(eti),
           .Some(t) => t,
           .None => {
             eti = n_et;
@@ -1121,8 +1124,8 @@ _synthesize_types_impl :: (
       return(_synthesize_types_impl(expected_ty, &ee, resolve_cell_chain(given_ty), &ge, checked, opts, exn));
     });
     existing_bound := get_value_of_some_type_from_env(&ge, given_ty);
-    giv_id2 := match(given_ty, Rc(.SomeT(id, _, _, _, _, _, _, _, _, _)) => id.clone(), _ => ``);
-    giv_name := match(given_ty, Rc(.SomeT(_, n, _, _, _, _, _, _, _, _)) => n.clone(), _ => ``);
+    giv_id2 := match(given_ty, Rc(.SomeT(id, _, _, _, _, _, _)) => id.clone(), _ => ``);
+    giv_name := match(given_ty, Rc(.SomeT(_, n, _, _, _, _, _)) => n.clone(), _ => ``);
     if(!is_some_type(&existing_bound), {
       // Given is already bound — recurse
       res := _synthesize_types_impl(expected_ty, &ee, &existing_bound, &ge, checked, opts, exn);
@@ -1263,8 +1266,8 @@ _synthesize_types_impl :: (
         (sl_i : usize) = usize(0);
         (sl_eq : bool) = true;
         while((sl_i < exp_lbls.len()) && sl_eq, {
-          sl_e := match(exp_lbls.get(sl_i), .Some(x) => x, .None => String.from(""));
-          sl_g := match(giv_lbls.get(sl_i), .Some(x) => x, .None => String.from(""));
+          sl_e := match(exp_lbls.get_cloned(sl_i), .Some(x) => x, .None => String.from(""));
+          sl_g := match(giv_lbls.get_cloned(sl_i), .Some(x) => x, .None => String.from(""));
           if(sl_e != sl_g, {
             sl_eq = false;
           });
@@ -1363,8 +1366,8 @@ _synthesize_types_impl :: (
         (vni : usize) = usize(0);
         (vn_ok : bool) = (exp_vn.len() > usize(0));
         while((vni < exp_vn.len()) && vn_ok, {
-          evn := match(exp_vn.get(vni), .Some(x) => x, .None => String.from(""));
-          gvn := match(giv_vn.get(vni), .Some(x) => x, .None => String.from("?"));
+          evn := match(exp_vn.get_cloned(vni), .Some(x) => x, .None => String.from(""));
+          gvn := match(giv_vn.get_cloned(vni), .Some(x) => x, .None => String.from("?"));
           if(!(evn == gvn), {
             vn_ok = false;
           });
@@ -1457,8 +1460,8 @@ _synthesize_types_impl :: (
       );
       (tci_sy : usize) = usize(0);
       while(tci_sy < tca_n_sy, {
-        et_sy := match(exp_tca_sy.get(tci_sy), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
-        gt_sy := match(giv_tca_sy.get(tci_sy), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
+        et_sy := match(exp_tca_sy.get_cloned(tci_sy), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
+        gt_sy := match(giv_tca_sy.get_cloned(tci_sy), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
         res_sy := _synthesize_types_impl(&et_sy, &ee, &gt_sy, &ge, checked, opts, exn);
         ee = res_sy.expected_env;
         ge = res_sy.given_env;
@@ -1533,16 +1536,16 @@ _synthesize_types_impl :: (
   });
   // Case: TraitT + TraitT (same constructor)
   if(is_trait_type(expected_ty) && is_trait_type(given_ty), {
-    exp_trait_id := match(expected_ty, Rc(.TraitT(_, _, _, _, id, _, _, _, _, _)) => id.clone(), _ => ``);
-    giv_trait_id := match(given_ty, Rc(.TraitT(_, _, _, _, id, _, _, _, _, _)) => id.clone(), _ => ``);
+    exp_trait_id := match(expected_ty, Rc(.TraitT(_, _, id, _, _, _)) => id.clone(), _ => ``);
+    giv_trait_id := match(given_ty, Rc(.TraitT(_, _, id, _, _, _)) => id.clone(), _ => ``);
     if(exp_trait_id == giv_trait_id, {
-      exp_ft := match(expected_ty, Rc(.TraitT(_, _, _, fts, _, _, _, _, _, _)) => fts, _ => ArrayList(TypeValue).new());
-      giv_ft := match(given_ty, Rc(.TraitT(_, _, _, fts, _, _, _, _, _, _)) => fts, _ => ArrayList(TypeValue).new());
+      exp_ft := match(expected_ty, Rc(.TraitT(_, fts_body, _, _, _, _)) => fts_body.field_types(), _ => ArrayList(TypeValue).new());
+      giv_ft := match(given_ty, Rc(.TraitT(_, fts_body3, _, _, _, _)) => fts_body3.field_types(), _ => ArrayList(TypeValue).new());
       n := exp_ft.len();
       (i : usize) = usize(0);
       while(i < n, {
         et := match(
-          exp_ft.get(i),
+          exp_ft.get_cloned(i),
           .Some(t) => t,
           .None => {
             i = n;
@@ -1550,7 +1553,7 @@ _synthesize_types_impl :: (
           }
         );
         gt := match(
-          giv_ft.get(i),
+          giv_ft.get_cloned(i),
           .Some(t) => t,
           .None => {
             i = n;
@@ -1596,7 +1599,7 @@ _synthesize_types_impl :: (
           &et,
           Rc(.FnTraitT(eb, _, _, _, _, _)) => match(&gt, Rc(.FnTraitT(gb, _, _, _, _, _)) => (eb == gb), _ => false),
           Rc(.FutureTraitT(_, _, _, _, _)) => is_future_trait_type(&gt),
-          Rc(.TraitT(_, _, _, _, eid, _, _, _, _, _)) => match(&gt, Rc(.TraitT(_, _, _, _, gid, _, _, _, _, _)) => (eid == gid), _ => false),
+          Rc(.TraitT(_, _, eid, _, _, _)) => match(&gt, Rc(.TraitT(_, _, gid, _, _, _)) => (eid == gid), _ => false),
           _ => false
         );
         if(same_kind, {

@@ -100,7 +100,7 @@ _enum_field_access :: (fn(object_type : &TypeValue, object_code : &String, field
                 match(
                   lbls.get(li),
                   .Some(lbl) => if(lbl == field_name, {
-                    vname := match(vnames.get(vi), .Some(v) => v, .None => String.from(""));
+                    vname := match(vnames.get_cloned(vi), .Some(v) => v, .None => String.from(""));
                     out := object_code.clone();
                     // A reference-semantics enum (`ref(enum(…))`) value is a pointer,
                     // so its variant data is reached with `->`, not `.` (as in match).

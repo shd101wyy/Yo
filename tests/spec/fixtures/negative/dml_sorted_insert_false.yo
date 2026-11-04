@@ -15,7 +15,7 @@ insert_at_end :: (
     ensures(forall(i : usize, ((i < r.len()) && ((i + usize(1)) < r.len())) ==> (r(i) <= r(i + usize(1)))))
   ) -> (r : ArrayList(i32))
 )({
-  out := ArrayList(i32).new();
+  mut(out) := ArrayList(i32).new();
   (mut(i) : usize) = usize(0);
   while(i < xs.len(), {
     invariant(i <= xs.len(), out.len() == i, forall(k : usize, (k < i) ==> (out(k) == xs(k))));

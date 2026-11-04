@@ -7,7 +7,7 @@
 pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("std/collections/array_list");
 { String } :: import("std/string");
-{ TypeValue, TypeValueNode, SharedList, shared_list, no_types } :: import("./definitions.yo");
+{ some_t_bounds, trait_t_body, TypeValue, TypeValueNode, SharedList, shared_list, no_types } :: import("./definitions.yo");
 // P2 hash-consing: RE-WIRED (2026-07-02) — the runaway explosion this was
 // unwired for during the bisect turned out to be _patch_self_shell's missing
 // cycle guard (now fixed + guarded, issues/fixed/patch-self-shell-exponential-walk.md);
@@ -91,7 +91,7 @@ subst_add_len_var :: (fn(s : &Substitution, name : &String, value : usize) -> un
   i := usize(0);
   n := s.len_var_names.len();
   while(i < n, {
-    ni := match(s.len_var_names.get(i), .Some(v) => v, .None => ``);
+    ni := match(s.len_var_names.get_cloned(i), .Some(v) => v, .None => ``);
     if(ni == name, {
       s.len_var_values(i) = value;
       return(());
@@ -119,15 +119,15 @@ _without_len_vars :: (fn(s : &Substitution) -> Substitution)(
   cond(
     (s.len_var_names.len() == usize(0)) => s,
     true => Substitution(
-      names : s.names,
-      levels : s.levels,
-      types : s.types,
-      visited_trait_ids : s.visited_trait_ids,
-      self_from : s.self_from,
-      self_to : s.self_to,
+      names : s.names.clone(),
+      levels : s.levels.clone(),
+      types : s.types.clone(),
+      visited_trait_ids : s.visited_trait_ids.clone(),
+      self_from : s.self_from.clone(),
+      self_to : s.self_to.clone(),
       len_var_names : ArrayList(String).new(),
       len_var_values : ArrayList(usize).new(),
-      own_resolution_ids : s.own_resolution_ids,
+      own_resolution_ids : s.own_resolution_ids.clone(),
       node_memo_from : ArrayList(TypeValue).new(),
       node_memo_to : ArrayList(TypeValue).new()
     )
@@ -157,10 +157,10 @@ _subst_lookup_by_name :: (fn(s : &Substitution, name : &String) -> Option(TypeVa
   i := usize(0);
   n := s.names.len();
   while(i < n, {
-    ni := match(s.names.get(i), .Some(v) => v, .None => ``);
+    ni := match(s.names.get_cloned(i), .Some(v) => v, .None => ``);
     if(ni == name, {
       return(
-        match(s.types.get(i), .Some(t) => Option(TypeValue).Some(t), .None => Option(TypeValue).None)
+        match(s.types.get_cloned(i), .Some(t) => Option(TypeValue).Some(t), .None => Option(TypeValue).None)
       );
     });
     i = (i + usize(1));
@@ -197,7 +197,7 @@ subst_lookup_len_var :: (fn(s : &Substitution, name : &String) -> Option(usize))
   i := usize(0);
   n := s.len_var_names.len();
   while(i < n, {
-    ni := match(s.len_var_names.get(i), .Some(v) => v, .None => ``);
+    ni := match(s.len_var_names.get_cloned(i), .Some(v) => v, .None => ``);
     if(ni == name, {
       return(
         match(
@@ -229,7 +229,7 @@ _subst_trait_visited :: (fn(s : &Substitution, id : &String) -> bool)({
   i := usize(0);
   n := s.visited_trait_ids.len();
   while(i < n, {
-    vi := match(s.visited_trait_ids.get(i), .Some(v) => v, .None => ``);
+    vi := match(s.visited_trait_ids.get_cloned(i), .Some(v) => v, .None => ``);
     if(vi == id, {
       return(true);
     });
@@ -242,7 +242,7 @@ subst_add :: (fn(s : &Substitution, name : &String, level : usize, ty : &TypeVal
   i := usize(0);
   n := s.names.len();
   while(i < n, {
-    ni := match(s.names.get(i), .Some(v) => v, .None => ``);
+    ni := match(s.names.get_cloned(i), .Some(v) => v, .None => ``);
     li := match(s.levels.get(i), .Some(v) => v, .None => usize(0));
     if((ni == name) && (li == level), {
       s.types(i) = Rc.clone(ty);
@@ -265,7 +265,7 @@ subst_adopt_own_resolution :: (fn(s : &Substitution, id : &String) -> unit)({
 _subst_adopts_own :: (fn(s : &Substitution, id : &String) -> bool)({
   (i : usize) = usize(0);
   while(i < s.own_resolution_ids.len(), {
-    if(match(s.own_resolution_ids.get(i), .Some(v) => (v == id), .None => false), {
+    if(match(s.own_resolution_ids.get_cloned(i), .Some(v) => (v == id), .None => false), {
       return(true);
     });
     i = (i + usize(1));
@@ -277,12 +277,12 @@ subst_lookup :: (fn(s : &Substitution, name : &String, level : usize) -> Option(
   i := usize(0);
   n := s.names.len();
   while(i < n, {
-    ni := match(s.names.get(i), .Some(v) => v, .None => ``);
+    ni := match(s.names.get_cloned(i), .Some(v) => v, .None => ``);
     li := match(s.levels.get(i), .Some(v) => v, .None => usize(0));
     if((ni == name) && (li == level), {
       return(
         match(
-          s.types.get(i),
+          s.types.get_cloned(i),
           .Some(t) => Option(TypeValue).Some(t),
           .None => Option(TypeValue).None
         )
@@ -316,7 +316,7 @@ _type_mentions_some_id :: (fn(ty : &TypeValue, id : &String) -> bool)({
   somes := get_all_some_types(ty);
   (i : usize) = usize(0);
   while(i < somes.len(), {
-    if(match(somes.get(i), .Some(Rc(.SomeT({ id : sid }))) => (sid == id), _ => false), {
+    if(match(somes.get_cloned(i), .Some(Rc(.SomeT({ id : sid }))) => (sid == id), _ => false), {
       return(true);
     });
     i = (i + usize(1));
@@ -354,8 +354,8 @@ _is_self_pattern :: (fn(s : &Substitution, ty : &TypeValue) -> bool)({
   if(s.self_from.len() == usize(0), {
     return(false);
   });
-  from := match(s.self_from.get(usize(0)), .Some(f) => f, .None => Rc.new(TypeValueNode.Unit));
-  ty_id := match(ty, Rc(.Struct({ id : sid })) => sid, Rc(.EnumT(eid, _, _, _, _, _, _, _, _, _)) => eid, _ => String.new());
+  from := match(s.self_from.get_cloned(usize(0)), .Some(f) => f, .None => Rc.new(TypeValueNode.Unit));
+  ty_id := match(ty, Rc(.Struct({ id : sid })) => sid.clone(), Rc(.EnumT(eid, _, _, _, _, _, _, _, _, _)) => eid.clone(), _ => String.new());
   if(ty_id.is_empty(), {
     return(false);
   });
@@ -386,7 +386,7 @@ _mfb_is_binder :: (fn(labels : &ArrayList(String), nm : &String) -> bool)({
   (hit : bool) = false;
   while((bi < labels.len()) && !hit, {
     match(
-      labels.get(bi),
+      labels.get_cloned(bi),
       .Some(b_nm) => if(b_nm == nm, {
         hit = true;
       }),
@@ -404,7 +404,7 @@ _mask_func_own_binders :: (fn(s : &Substitution, forall_labels : &ArrayList(Stri
   {
     (si : usize) = usize(0);
     while((si < s.names.len()) && !any_masked, {
-      nm := match(s.names.get(si), .Some(v) => v, .None => ``);
+      nm := match(s.names.get_cloned(si), .Some(v) => v, .None => ``);
       if(_mfb_is_binder(forall_labels, &nm), {
         any_masked = true;
       });
@@ -417,7 +417,7 @@ _mask_func_own_binders :: (fn(s : &Substitution, forall_labels : &ArrayList(Stri
   {
     (li : usize) = usize(0);
     while((li < s.len_var_names.len()) && !any_masked, {
-      lnm := match(s.len_var_names.get(li), .Some(v) => v, .None => ``);
+      lnm := match(s.len_var_names.get_cloned(li), .Some(v) => v, .None => ``);
       if(_mfb_is_binder(forall_labels, &lnm), {
         any_masked = true;
       });
@@ -434,30 +434,33 @@ _mask_func_own_binders :: (fn(s : &Substitution, forall_labels : &ArrayList(Stri
     // Shared handles: the trait-recursion guard and the Self binding apply
     // unchanged under the mask (B4-1b: the share is intentional; a rebuild is
     // on the hot generic-resolution path, and the arrays become `Rc` at V2c).
-    visited_trait_ids : s.visited_trait_ids,
-    self_from : s.self_from,
-    self_to : s.self_to,
+    // Cloned (B8): the arrays are values now, so the mask REBUILDS the
+    // shared ones — V2c's Rc arrays are the real fix (the comment above
+    // kept the share intent).
+    visited_trait_ids : s.visited_trait_ids.clone(),
+    self_from : s.self_from.clone(),
+    self_to : s.self_to.clone(),
     len_var_names : ArrayList(String).new(),
     len_var_values : ArrayList(usize).new(),
     // An adopted own resolution belongs to its SomeT, never to a nested
     // fn's binder (a distinct SomeT), so the mask never applies to it.
-    own_resolution_ids : s.own_resolution_ids,
+    own_resolution_ids : s.own_resolution_ids.clone(),
     node_memo_from : ArrayList(TypeValue).new(),
     node_memo_to : ArrayList(TypeValue).new()
   );
   (ci : usize) = usize(0);
   while(ci < s.names.len(), {
-    nm := match(s.names.get(ci), .Some(v) => v, .None => ``);
+    nm := match(s.names.get_cloned(ci), .Some(v) => v, .None => ``);
     if(!_mfb_is_binder(forall_labels, &nm), {
       masked.names.push(nm);
       masked.levels.push(match(s.levels.get(ci), .Some(v) => v, .None => usize(0)));
-      masked.types.push(match(s.types.get(ci), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit)));
+      masked.types.push(match(s.types.get_cloned(ci), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit)));
     });
     ci = (ci + usize(1));
   });
   (mli : usize) = usize(0);
   while(mli < s.len_var_names.len(), {
-    lnm := match(s.len_var_names.get(mli), .Some(v) => v, .None => ``);
+    lnm := match(s.len_var_names.get_cloned(mli), .Some(v) => v, .None => ``);
     if(!_mfb_is_binder(forall_labels, &lnm), {
       masked.len_var_names.push(lnm);
       masked.len_var_values.push(match(s.len_var_values.get(mli), .Some(v) => v, .None => usize(0)));
@@ -518,8 +521,8 @@ _substitute_at :: (fn(s : &Substitution, ty : &TypeValue, is_root : bool) -> Typ
     return(_substitute_node(s, ty, is_root));
   });
   (at : usize) = _node_memo_lower_bound(s, ty);
-  if(match(s.node_memo_from.get(at), .Some(f) => __yo_ptr_eq(&f, ty), .None => false), {
-    return(match(s.node_memo_to.get(at), .Some(t) => t, .None => Rc.clone(ty)));
+  if(match(s.node_memo_from.get_cloned(at), .Some(f) => __yo_ptr_eq(&f, ty), .None => false), {
+    return(match(s.node_memo_to.get_cloned(at), .Some(t) => t, .None => Rc.clone(ty)));
   });
   out := _substitute_node(s, ty, is_root);
   // The recursion inserted entries of its own, so the slot moved.
@@ -534,7 +537,7 @@ _node_memo_lower_bound :: (fn(s : &Substitution, ty : &TypeValue) -> usize)({
   (hi : usize) = s.node_memo_from.len();
   while(lo < hi, {
     mid := (lo + ((hi - lo) / usize(2)));
-    if(match(s.node_memo_from.get(mid), .Some(f) => __yo_ptr_lt(&f, ty), .None => false), {
+    if(match(s.node_memo_from.get_cloned(mid), .Some(f) => __yo_ptr_lt(&f, ty), .None => false), {
       lo = (mid + usize(1));
     }, {
       hi = mid;
@@ -553,7 +556,7 @@ _substitute_node :: (fn(s : &Substitution, ty : &TypeValue, is_root : bool) -> T
     // Interned like
     // every other arm; the hash-consing invariant is load-bearing for codegen
     // identity.
-    intern_type(match(s.self_to.get(usize(0)), .Some(st) => st, .None => Rc.clone(ty))),
+    intern_type(match(s.self_to.get_cloned(usize(0)), .Some(st) => st, .None => Rc.clone(ty))),
     intern_type(
       match(
         ty,
@@ -619,38 +622,40 @@ _substitute_node :: (fn(s : &Substitution, ty : &TypeValue, is_root : bool) -> T
         Rc(
           .TraitT(
             name : n,
-            assoc_type_names : atns,
-            field_labels : fls,
-            field_types : fts,
+            body : atns_body,
             id : tid,
             is_concrete : ic,
-            self_constraints : scons,
-            neg_self_constraints : ncons,
             assoc_constraint_labels : atcl,
             assoc_constraint_types : atct
           )
         ) =>
-          // Cycle guard: self-referential traits (e.g. a method returning
-          // `Dyn(SelfTrait)`) form a cyclic TypeValue graph. If we are already
-          // recursing into this trait id, return it unchanged to break the cycle.
-          cond(
-            ((tid.len() > usize(0)) && _subst_trait_visited(s, &tid)) => Rc.clone(ty),
-            true => {
-              if(tid.len() > usize(0), {
-                s.visited_trait_ids.push(tid.clone());
-              });
-              // Nominal boundary — see _without_len_vars.
-              s_nom_t := _without_len_vars(s);
-              new_fts := ArrayList(TypeValue).new();
-              i := usize(0);
-              while(i < fts.len(), {
-                elem := match(fts.get(i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
-                new_fts.push(_substitute_at(&s_nom_t, &elem, false));
-                i = (i + usize(1));
-              });
-              Rc.new(TypeValueNode.TraitT(n.clone(), atns.clone(), fls.clone(), new_fts, tid.clone(), ic.clone(), scons.clone(), ncons.clone(), Rc.clone(atcl), Rc.clone(atct)))
-            }
-          ),
+          {
+            atns := atns_body.assoc_type_names();
+            fls := atns_body.field_labels();
+            fts := atns_body.field_types();
+            scons := atns_body.self_constraints();
+            ncons := atns_body.neg_self_constraints(); // Cycle guard: self-referential traits (e.g. a method returning
+            // `Dyn(SelfTrait)`) form a cyclic TypeValue graph. If we are already
+            // recursing into this trait id, return it unchanged to break the cycle.
+            cond(
+              ((tid.len() > usize(0)) && _subst_trait_visited(s, &tid)) => Rc.clone(ty),
+              true => {
+                if(tid.len() > usize(0), {
+                  s.visited_trait_ids.push(tid.clone());
+                });
+                // Nominal boundary — see _without_len_vars.
+                s_nom_t := _without_len_vars(s);
+                new_fts := ArrayList(TypeValue).new();
+                i := usize(0);
+                while(i < fts.len(), {
+                  elem := match(fts.get_cloned(i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
+                  new_fts.push(_substitute_at(&s_nom_t, &elem, false));
+                  i = (i + usize(1));
+                });
+                Rc.new(TypeValueNode.TraitT(n.clone(), trait_t_body(atns.clone(), fls.clone(), new_fts, scons.clone(), ncons.clone()), tid.clone(), ic.clone(), Rc.clone(atcl), Rc.clone(atct)))
+              }
+            )
+          },
         // SomeT — check substitution first; if not found, recurse into constraints.
         Rc(
           .SomeT(
@@ -658,13 +663,14 @@ _substitute_node :: (fn(s : &Substitution, ty : &TypeValue, is_root : bool) -> T
             name : n,
             frame_level : lvl,
             parent_type : pt,
-            required_trait_types : rts,
-            required_trait_levels : rlvls,
-            negative_trait_types : nts,
-            negative_trait_levels : nlvls,
+            bounds : rts_bnd,
             resolution : rcp
           )
         ) => {
+          rts := rts_bnd.required();
+          rlvls := rts_bnd.required_levels();
+          nts := rts_bnd.negative();
+          nlvls := rts_bnd.negative_levels();
           // A SomeT that carries its own resolution is already bound: a
           // (name, level) entry names ANOTHER binder that shares its spelling
           // (`filter`'s `F` vs the `map` `F` nested in its `Self`), so only
@@ -692,18 +698,18 @@ _substitute_node :: (fn(s : &Substitution, ty : &TypeValue, is_root : bool) -> T
               new_rts := ArrayList(TypeValue).new();
               i := usize(0);
               while(i < rts.len(), {
-                elem := match(rts.get(i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
+                elem := match(rts.get_cloned(i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
                 new_rts.push(_substitute_at(s, &elem, false));
                 i = (i + usize(1));
               });
               new_nts := ArrayList(TypeValue).new();
               i = usize(0);
               while(i < nts.len(), {
-                elem := match(nts.get(i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
+                elem := match(nts.get_cloned(i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
                 new_nts.push(_substitute_at(s, &elem, false));
                 i = (i + usize(1));
               });
-              Rc.new(TypeValueNode.SomeT(orig_id.clone(), n.clone(), lvl, Rc.clone(pt), new_rts, rlvls.clone(), new_nts, nlvls.clone(), Option(TypeValue).None, rcp.clone()))
+              Rc.new(TypeValueNode.SomeT(orig_id.clone(), n.clone(), lvl, Rc.clone(pt), some_t_bounds(new_rts, rlvls.clone(), new_nts, nlvls.clone()), Option(TypeValue).None, rcp.clone()))
             }
           )
         },
@@ -812,7 +818,7 @@ substitute_all :: (fn(s : &Substitution, types : &ArrayList(TypeValue)) -> Array
   result := ArrayList(TypeValue).new();
   i := usize(0);
   while(i < types.len(), {
-    elem := match(types.get(i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
+    elem := match(types.get_cloned(i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
     result.push(substitute(s, &elem));
     i = (i + usize(1));
   });

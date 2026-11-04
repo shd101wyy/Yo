@@ -24,7 +24,7 @@ import("std/fmt");
 { Environment, snapshot_env } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
 { EvalValue, create_type_value, is_type_value } :: import("../../value.yo");
-{ TypeValue, TypeValueNode, no_types, no_labels } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, trait_t_body, no_types, no_labels } :: import("../../types/definitions.yo");
 { t_i32 } :: import("../../types/creators.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -42,7 +42,7 @@ evaluate_concrete_type :: (
   // Concrete type constructor expects exactly 1 argument.
   args := match(
     expr,
-    .FnCall(_, _, Rc(a), _, _) => a,
+    .FnCall(_, _, Rc(a), _, _) => a.clone(),
     .Atom(_, _) => ArrayList(AstExpr).new()
   );
   if(!(args.len() == usize(1)), {
@@ -109,25 +109,18 @@ evaluate_concrete_type :: (
   concrete_id.push_string(type_to_string(&concrete_ty));
   concrete_trait_ty := Rc.new(
     TypeValueNode.TraitT(
-      String.from(""),
       // name (anonymous concrete trait)
-      ArrayList(String).new(),
-      // assoc_type_names
-      ArrayList(String).new(),
-      // field_labels
-      ArrayList(TypeValue).new(),
-      // field_types
-      concrete_id,
+      String.from(""),
+      // no members and no Self constraints
+      trait_t_body(ArrayList(String).new(), ArrayList(String).new(), ArrayList(TypeValue).new(), ArrayList(TypeValue).new(), ArrayList(TypeValue).new()),
       // id
-      Option(TypeValue).Some(concrete_ty),
+      concrete_id,
       // is_concrete
-      ArrayList(TypeValue).new(),
-      // self_constraints
-      ArrayList(TypeValue).new(),
-      // neg_self_constraints
-      no_labels(),
+      Option(TypeValue).Some(concrete_ty),
       // assoc_constraint_labels
-      no_types() // assoc_constraint_types
+      no_labels(),
+      // assoc_constraint_types
+      no_types()
     )
   );
   trait_val := create_type_value(&concrete_trait_ty);

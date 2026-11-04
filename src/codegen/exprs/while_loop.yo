@@ -17,7 +17,7 @@
 { replace } :: import("std/mem");
 /// Emit `<indent><text>` + newline.
 _emit_line :: (fn(em : &Emitter, indent : &String, text : &String) -> unit)({
-  line := indent.clone();
+  mut(line) := indent.clone();
   line.push_string(text);
   em.emit_string_line(&line);
 });
@@ -54,7 +54,7 @@ generate_step_expression :: (fn(step_expr : &AstExpr, indent : &String, context 
     ast_expr_is_fn_call_of(step_expr, BK_BEGIN, .None) => {
       em := context.base.emitter;
       _emit_line(&em, indent.clone(), String.from("{"));
-      inner := indent.clone();
+      mut(inner) := indent.clone();
       inner.push_str("  ");
       _call_generate_expr(step_expr, &inner, context);
       _emit_line(&em, indent.clone(), String.from("}"));
@@ -77,12 +77,12 @@ generate_step_expression :: (fn(step_expr : &AstExpr, indent : &String, context 
 );
 /// Concatenate `current` then `prev` (cloned) into a fresh drop list.
 _concat_drops :: (fn(current : &Option(ArrayList(AstExpr)), prev : &Option(ArrayList(AstExpr))) -> ArrayList(AstExpr))({
-  out := ArrayList(AstExpr).new();
+  mut(out) := ArrayList(AstExpr).new();
   match(
     current,
     .Some(cd) => {
       n := cd.len();
-      (i : usize) = usize(0);
+      (mut(i) : usize) = usize(0);
       while(i < n, {
         match(
           cd.get(i),
@@ -100,7 +100,7 @@ _concat_drops :: (fn(current : &Option(ArrayList(AstExpr)), prev : &Option(Array
     prev,
     .Some(pp) => {
       n := pp.len();
-      (i : usize) = usize(0);
+      (mut(i) : usize) = usize(0);
       while(i < n, {
         match(
           pp.get(i),
@@ -132,12 +132,12 @@ generate_loop_body :: (fn(body_expr : &AstExpr, indent : &String, context : &Fun
       em := context.base.emitter;
       // Scope-marker: C block for begin-local variables (as in begin.yo:137).
       // Required so deferred drops of locals declared here scope-clean.
-      hdr := indent.clone();
+      mut(hdr) := indent.clone();
       hdr.push_str("{ // begin block (loop body)");
       em.emit_string_line(&hdr);
       args := _args(body_expr);
       n := args.len();
-      (i : usize) = usize(0);
+      (mut(i) : usize) = usize(0);
       while(i < n, {
         match(
           args.get(i),
@@ -158,7 +158,7 @@ generate_loop_body :: (fn(body_expr : &AstExpr, indent : &String, context : &Fun
                 .None => false
               );
               if(!is_bare_temp, {
-                line := indent.clone();
+                mut(line) := indent.clone();
                 line.push_string(&code);
                 line.push_str(";");
                 em.emit_string_line(&line);
@@ -173,7 +173,7 @@ generate_loop_body :: (fn(body_expr : &AstExpr, indent : &String, context : &Fun
         current_drops,
         .Some(drops) => {
           nd := drops.len();
-          (di : usize) = usize(0);
+          (mut(di) : usize) = usize(0);
           while(di < nd, {
             match(
               drops.get(di),
@@ -206,7 +206,7 @@ generate_loop_body :: (fn(body_expr : &AstExpr, indent : &String, context : &Fun
                   if(!sc_skip, {
                     code := _call_generate_expr(&de, indent.clone(), context);
                     if(code.len() > usize(0), {
-                      line := indent.clone();
+                      mut(line) := indent.clone();
                       line.push_string(&code);
                       line.push_str(";");
                       em.emit_string_line(&line);
@@ -221,7 +221,7 @@ generate_loop_body :: (fn(body_expr : &AstExpr, indent : &String, context : &Fun
         },
         .None => ()
       );
-      ftr := indent.clone();
+      mut(ftr) := indent.clone();
       ftr.push_str("} // end begin block (loop body)");
       em.emit_string_line(&ftr);
       context.pending_deferred_drops = prev_pending;
@@ -245,7 +245,7 @@ generate_loop_body :: (fn(body_expr : &AstExpr, indent : &String, context : &Fun
       context.pending_deferred_drops = prev_pending;
       context.consumed_var_pending_drops = prev_consumed;
       if(code.len() > usize(0), {
-        line := indent.clone();
+        mut(line) := indent.clone();
         line.push_string(&code);
         line.push_str(";");
         em.emit_string_line(&line);
@@ -292,7 +292,7 @@ generate_while_loop :: (fn(expr : &AstExpr, indent : &String, context : &Functio
       expr_info_comptime_unrolled_bodies(&ei),
       .Some(bodies) => {
         n := bodies.len();
-        (i : usize) = usize(0);
+        (mut(i) : usize) = usize(0);
         while(i < n, {
           match(bodies.get(i), .Some(b) => generate_loop_body(&b, indent.clone(), context), .None => ());
           i = (i + usize(1));
@@ -305,7 +305,7 @@ generate_while_loop :: (fn(expr : &AstExpr, indent : &String, context : &Functio
   );
   args := _args(expr);
   inner := String.from("  ");
-  body_indent := indent.clone();
+  mut(body_indent) := indent.clone();
   body_indent.push_string(inner.clone());
   cond(
     (args.len() == usize(2)) => {
@@ -316,7 +316,7 @@ generate_while_loop :: (fn(expr : &AstExpr, indent : &String, context : &Functio
       loop_label := stable_label_id(String.from("loop_"), &loop_tok.module_path.*, usize(loop_tok.row), usize(loop_tok.column));
       context.base.current_loop_label = Option(String).Some(loop_label.clone());
       saved_baseline := context.loop_body_drops_baseline_count;
-      context.loop_body_drops_baseline_count = Option(usize).Some(match(context.pending_deferred_drops, .Some(p) => p.len(), .None => usize(0)));
+      context.loop_body_drops_baseline_count = Option(usize).Some(match(&context.pending_deferred_drops, .Some(p) => p.len(), .None => usize(0)));
       em := context.base.emitter;
       _emit_line(&em, indent.clone(), String.from("while (true) {"));
       _emit_while_cond_break(&cond_expr, body_indent.clone(), context);
@@ -343,7 +343,7 @@ generate_while_loop :: (fn(expr : &AstExpr, indent : &String, context : &Functio
       context.base.current_loop_label = Option(String).Some(loop_label.clone());
       context.base.current_continue_label = Option(String).Some(continue_label.clone());
       saved_baseline := context.loop_body_drops_baseline_count;
-      context.loop_body_drops_baseline_count = Option(usize).Some(match(context.pending_deferred_drops, .Some(p) => p.len(), .None => usize(0)));
+      context.loop_body_drops_baseline_count = Option(usize).Some(match(&context.pending_deferred_drops, .Some(p) => p.len(), .None => usize(0)));
       em := context.base.emitter;
       _emit_line(&em, indent.clone(), String.from("while (true) {"));
       _emit_while_cond_break(&cond_expr, body_indent.clone(), context);

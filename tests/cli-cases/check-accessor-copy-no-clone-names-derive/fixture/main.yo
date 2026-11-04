@@ -1,0 +1,14 @@
+// A copying accessor whose element has no `Clone`: `get_cloned` demands
+// `where(T <: Clone)`, so the E0901 help names the in-place reads and the
+// `derive` instead of a `_cloned` call. `Holder` holds a counted handle and
+// derives no `Clone`.
+{ ArrayList } :: import("std/collections/array_list");
+{ assert } :: import("std/assert");
+Holder :: struct(h : Rc(i32));
+main :: (fn() -> unit)({
+  mut(holders) := ArrayList(Holder).new();
+  holders.push(Holder(h : Rc.new(i32(4))));
+  first := holders.get(usize(0));
+  assert(first.is_some(), "an element");
+});
+export(main);

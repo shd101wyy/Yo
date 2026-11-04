@@ -76,7 +76,7 @@ mk_ident_call :: (fn(id : usize, name : str, args : &ArrayList(AstExpr)) -> AstE
 });
 /// Build `lhs = rhs` expression.
 mk_assign :: (fn(id : usize, lhs : &AstExpr, rhs : &AstExpr) -> AstExpr)({
-  args := ArrayList(AstExpr).new();
+  mut(args) := ArrayList(AstExpr).new();
   args.push(lhs);
   args.push(rhs);
   mk_op_call(id, BK_ASSIGN, &args)
@@ -156,19 +156,19 @@ cf_error_throws :: (fn(rhs : &AstExpr) -> bool)({
   false
 });
 test("cf_error: cond rhs throws", {
-  args := ArrayList(AstExpr).new();
+  mut(args) := ArrayList(AstExpr).new();
   args.push(mk_ident(usize(1), "x"));
   rhs := mk_ident_call(usize(100), BK_COND, &args);
   assert(cf_error_throws(&rhs), "expected throw for cond rhs");
 });
 test("cf_error: match rhs throws", {
-  args := ArrayList(AstExpr).new();
+  mut(args) := ArrayList(AstExpr).new();
   args.push(mk_ident(usize(2), "x"));
   rhs := mk_ident_call(usize(101), BK_MATCH, &args);
   assert(cf_error_throws(&rhs), "expected throw for match rhs");
 });
 test("cf_error: begin rhs throws", {
-  args := ArrayList(AstExpr).new();
+  mut(args) := ArrayList(AstExpr).new();
   args.push(mk_ident(usize(3), "x"));
   rhs := mk_ident_call(usize(102), BK_BEGIN, &args);
   assert(cf_error_throws(&rhs), "expected throw for begin rhs");

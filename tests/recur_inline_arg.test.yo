@@ -21,7 +21,7 @@ to_str :: (fn(toks : &ArrayList(Token), i : usize) -> String)({
   )
 });
 test("recur returning RC type as argument does not leak", {
-  toks := ArrayList(Token).new();
+  mut(toks) := ArrayList(Token).new();
   toks.push(Token(name : `a`));
   toks.push(Token(name : `b`));
   toks.push(Token(name : `c`));
@@ -91,12 +91,12 @@ count_leaves :: (fn(n : &Node, acc : &mut ArrayList(usize)) -> unit)({
 });
 test("unit recur releases the dup of a composite argument", {
   leaf := Leaf(name : `x`);
-  items := ArrayList(Node).new();
+  mut(items) := ArrayList(Node).new();
   items.push(Node.One(leaf : leaf));
   items.push(Node.One(leaf : leaf));
   root := Node.Many(items : items);
   before := ref_count(leaf);
-  acc := ArrayList(usize).new();
+  mut(acc) := ArrayList(usize).new();
   count_leaves(&root, &mut acc);
   count_leaves(&root, &mut acc);
   assert(acc.len() == usize(4), "four leaves visited");

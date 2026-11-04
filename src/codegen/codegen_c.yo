@@ -235,7 +235,7 @@ static int __yo_dispose_dispatch(void* ptr) {
     (i : usize) = usize(0);
     while(i < n, {
       match(
-        names.get(i),
+        names.get_cloned(i),
         .Some(name) => match(
           context.dispose_type_ids.get(name.clone()),
           .Some(id) => {
@@ -693,7 +693,7 @@ static Slice_uint8_t_u42_ __yo_args;
   (prof_fn_std : usize) = usize(0);
   (prof_i : usize) = usize(0);
   while(prof_i < base.function_order.len(), {
-    fid := match(base.function_order.get(prof_i), .Some(f) => f, .None => String.new());
+    fid := match(base.function_order.get_cloned(prof_i), .Some(f) => f, .None => String.new());
     match(
       base.get_function_entry(&fid),
       .Some(fe) => {

@@ -15,7 +15,7 @@ pragma(Pragma.SkipWasm32Wasi); // the store-reuse test spawns native git childre
 // normalize_line_endings
 // ---------------------------------------------------------------------------
 test("normalize_line_endings: no-op when no CR", {
-  bytes := ArrayList(u8).new();
+  mut(bytes) := ArrayList(u8).new();
   bytes.push(u8(104)); // 'h'
   bytes.push(u8(105)); // 'i'
   bytes.push(u8(10)); // '\n'
@@ -26,7 +26,7 @@ test("normalize_line_endings: no-op when no CR", {
   assert(result(usize(2)) == u8(10), "LF preserved");
 });
 test("normalize_line_endings: removes CR before LF", {
-  bytes := ArrayList(u8).new();
+  mut(bytes) := ArrayList(u8).new();
   bytes.push(u8(104)); // 'h'
   bytes.push(u8(13)); // '\r'
   bytes.push(u8(10)); // '\n'
@@ -38,7 +38,7 @@ test("normalize_line_endings: removes CR before LF", {
   assert(result(usize(2)) == u8(105), "i");
 });
 test("normalize_line_endings: lone CR is preserved", {
-  bytes := ArrayList(u8).new();
+  mut(bytes) := ArrayList(u8).new();
   bytes.push(u8(13)); // '\r' NOT followed by '\n'
   bytes.push(u8(65)); // 'A'
   result := normalize_line_endings(&bytes);
@@ -47,7 +47,7 @@ test("normalize_line_endings: lone CR is preserved", {
   assert(result(usize(1)) == u8(65), "A preserved");
 });
 test("normalize_line_endings: multiple CRLF sequences", {
-  bytes := ArrayList(u8).new();
+  mut(bytes) := ArrayList(u8).new();
   bytes.push(u8(97)); // 'a'
   bytes.push(u8(13)); // '\r'
   bytes.push(u8(10)); // '\n'
@@ -90,14 +90,14 @@ test("sort_dir_entries: empty list stays empty", {
   assert(sorted.len() == usize(0), "empty");
 });
 test("sort_dir_entries: single entry unchanged", {
-  entries := ArrayList(DirEntry).new();
+  mut(entries) := ArrayList(DirEntry).new();
   entries.push(_make_dir_entry("foo.txt"));
   sorted := sort_dir_entries(&entries);
   assert(sorted.len() == usize(1), "one entry");
   assert(sorted(usize(0)).name == "foo.txt", "name preserved");
 });
 test("sort_dir_entries: already sorted list unchanged", {
-  entries := ArrayList(DirEntry).new();
+  mut(entries) := ArrayList(DirEntry).new();
   entries.push(_make_dir_entry("a.txt"));
   entries.push(_make_dir_entry("b.txt"));
   entries.push(_make_dir_entry("c.txt"));
@@ -107,7 +107,7 @@ test("sort_dir_entries: already sorted list unchanged", {
   assert(sorted(usize(2)).name == "c.txt", "c third");
 });
 test("sort_dir_entries: reverse order is sorted", {
-  entries := ArrayList(DirEntry).new();
+  mut(entries) := ArrayList(DirEntry).new();
   entries.push(_make_dir_entry("z.txt"));
   entries.push(_make_dir_entry("m.txt"));
   entries.push(_make_dir_entry("a.txt"));

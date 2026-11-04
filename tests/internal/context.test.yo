@@ -1,6 +1,7 @@
 //! Tests for src/evaluator/context.yo
 //! Mirrors the structure of src/evaluator/context.ts
 { String } :: import("std/string");
+{ assert, panic } :: import("std/assert");
 { ArrayList } :: import("std/collections/array_list");
 { TokenKind, Token } :: import("../../src/token.yo");
 {
@@ -47,21 +48,21 @@ test("eval_context_new: default fields", {
   assert(!ctx.is_inside_io_async_call, "not in io async call by default");
   assert(ctx.std_path == "/std", "std_path set correctly");
   match(
-    ctx.current_module_path,
+    &ctx.current_module_path,
     .Some(p) => assert(p == "test.yo", "module_path set"),
     .None => assert(false, "module_path should be Some")
   );
 });
 test("eval_context_new: all optional fields are None", {
   ctx := eval_context_new(String.from("/usr/yo"), String.from("main.yo"));
-  match(ctx.load_module, .Some(_) => assert(false, "should be None"), .None => ());
-  match(ctx.is_evaluating_function_body_or_async_block, .Some(_) => assert(false, "should be None"), .None => ());
-  match(ctx.is_evaluating_loop_body, .Some(_) => assert(false, "should be None"), .None => ());
-  match(ctx.expected_type, .Some(_) => assert(false, "should be None"), .None => ());
-  match(ctx.captured_variables, .Some(_) => assert(false, "should be None"), .None => ());
-  match(ctx.function_return_impl_concrete_type, .Some(_) => assert(false, "should be None"), .None => ());
-  match(ctx.currently_specializing_function, .Some(_) => assert(false, "should be None"), .None => ());
-  match(ctx.doc_comment_lookup, .Some(_) => assert(false, "should be None"), .None => ());
+  match(&ctx.load_module, .Some(_) => assert(false, "should be None"), .None => ());
+  match(&ctx.is_evaluating_function_body_or_async_block, .Some(_) => assert(false, "should be None"), .None => ());
+  match(&ctx.is_evaluating_loop_body, .Some(_) => assert(false, "should be None"), .None => ());
+  match(&ctx.expected_type, .Some(_) => assert(false, "should be None"), .None => ());
+  match(&ctx.captured_variables, .Some(_) => assert(false, "should be None"), .None => ());
+  match(&ctx.function_return_impl_concrete_type, .Some(_) => assert(false, "should be None"), .None => ());
+  match(&ctx.currently_specializing_function, .Some(_) => assert(false, "should be None"), .None => ());
+  match(&ctx.doc_comment_lookup, .Some(_) => assert(false, "should be None"), .None => ());
 });
 test("eval_context_new: boolean flags default to false", {
   ctx := eval_context_new(String.from("/std"), String.from("x.yo"));
@@ -104,7 +105,7 @@ test("track_variable_usage: no function body context → no-op", {
   track_variable_usage(String.from("x"), usize(0), CaptureUsage.Read, &tok, &ctx);
   // captured_variables should remain None
   match(
-    ctx.captured_variables,
+    &ctx.captured_variables,
     .Some(_) => assert(false, "map should remain None"),
     .None => ()
   );
@@ -125,7 +126,7 @@ test("track_variable_usage: with function body context but var not in env → no
   // env has no frames, so frame_count()=0; frame_level=0 >= 0 → early return
   track_variable_usage(String.from("notfound"), usize(0), CaptureUsage.Read, &tok, &ctx);
   match(
-    ctx.captured_variables,
+    &ctx.captured_variables,
     .None => assert(false, "map should still exist"),
     .Some(map) => match(
       map.get(String.from("notfound")),
@@ -155,7 +156,7 @@ test("track_variable_usage: a parameter shadowing an outer name is not a capture
   ctx.is_evaluating_function_body_or_async_block = Option(FuncOrAsyncBlockCtx).Some(sub_ctx);
   track_variable_usage(String.from("io"), usize(1), CaptureUsage.Read, make_token("io"), &ctx);
   match(
-    ctx.captured_variables,
+    &ctx.captured_variables,
     .None => (),
     .Some(map) => assert(map.get(String.from("io")).is_none(), "the parameter is not a capture")
   );
@@ -203,7 +204,6 @@ test("get_type_call_result: returns None for FunctionTypeResult", {
 // create_function_body_evaluation_context (Phase 3c)
 // ---------------------------------------------------------------------------
 { create_function_body_evaluation_context } :: import("../../src/evaluator/context.yo");
-{ assert, panic } :: import("std/assert");
 test("create_function_body_evaluation_context: basic flags", {
   ctx := eval_context_new(String.from("/std"), String.from("test.yo"));
   env := Environment.new(Rc.new(`test`));
@@ -244,13 +244,13 @@ test("create_function_body_evaluation_context: function body context embedded", 
   );
   // captured_variables is a fresh empty map
   match(
-    body_ctx.captured_variables,
+    &body_ctx.captured_variables,
     .None => assert(false, "captured_variables should be Some"),
     .Some(_) => ()
   );
   // function_return_impl_concrete_type is a fresh empty list
   match(
-    body_ctx.function_return_impl_concrete_type,
+    &body_ctx.function_return_impl_concrete_type,
     .None => assert(false, "function_return_impl_concrete_type should be Some"),
     .Some(_) => ()
   );
@@ -266,7 +266,7 @@ test("create_function_body_evaluation_context: expected_type set to return(type)
     &ctx
   );
   match(
-    body_ctx.expected_type,
+    &body_ctx.expected_type,
     .None => assert(false, "expected_type should be Some"),
     .Some(ectx) => match(
       &ectx.ty,

@@ -1200,8 +1200,8 @@ test("RegexError renders through ToString", {
 // cap cannot be introduced by accident.
 // ============================================================================
 test("more than 99 capture groups neither error nor truncate", {
-  pat := ArrayList(u8).new();
-  inp := ArrayList(u8).new();
+  mut(pat) := ArrayList(u8).new();
+  mut(inp) := ArrayList(u8).new();
   mut(i) := usize(0);
   while(i < usize(120), i = (i + usize(1)), {
     pat.push(u8(40));
@@ -1279,7 +1279,7 @@ test("group_span is None for a non-participating group", {
 test("find_iter yields match_all's matches lazily", {
   re := Regex.new(`\d+`).unwrap();
   input := `a1 bb22 ccc333`;
-  lazy_matches := ArrayList(RegexMatch).new();
+  mut(lazy_matches) := ArrayList(RegexMatch).new();
   it := re.find_iter(&input);
   mut(nxt) := it.next();
   while(nxt.is_some(), {

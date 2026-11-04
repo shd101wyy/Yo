@@ -64,7 +64,7 @@ _verify_fixture :: (fn(rel_path : &String, io : Io) -> ArrayList(VerifyFnReport)
   // Targets must carry BOTH forms: Token.module_path is the path EXACTLY
   // as passed to mm_load_file (the relative spelling here), while an
   // imported module's tokens carry the resolved absolute path.
-  targets := ArrayList(String).new();
+  mut(targets) := ArrayList(String).new();
   targets.push(rel_path.clone());
   targets.push(mm_resolve_entry_abs(rel_path.clone(), std_path.clone()));
   // Drop anything a previous test left in the registry, arm the mode and
@@ -132,7 +132,7 @@ _first_outcome :: (fn(reports : &ArrayList(VerifyFnReport), want : &String, what
     found,
     .Some(rp) => rp,
     .None => {
-      ids := ArrayList(String).new();
+      mut(ids) := ArrayList(String).new();
       (mut(j) : usize) = usize(0);
       while(j < reports.len(), {
         match(
@@ -160,7 +160,7 @@ _refuted_with :: (fn(rp : &VerifyFnReport, name_prefix : &String, needle : &Stri
       .Some(obl) => {
         name_ok := obl.name.contains(name_prefix.clone());
         match(
-          obl.verdict,
+          &obl.verdict,
           .Refuted(ce) => {
             ce_all := _join(&ce, String.from("; "));
             if(name_ok && ce_all.contains(needle.clone()), {
@@ -177,11 +177,11 @@ _refuted_with :: (fn(rp : &VerifyFnReport, name_prefix : &String, needle : &Stri
   hit
 });
 _join :: (fn(ss : &ArrayList(String), sep : &String) -> String)({
-  sb := StringBuilder.new();
+  mut(sb) := StringBuilder.new();
   (mut(i) : usize) = usize(0);
   while(i < ss.len(), {
     match(
-      ss.get(i),
+      ss.get_cloned(i),
       .Some(s) => {
         if(i > usize(0), {
           sb.write_string(sep.clone());
@@ -197,7 +197,7 @@ _join :: (fn(ss : &ArrayList(String), sep : &String) -> String)({
 
 test("subset error: while loop outside the V3 verifiable subset (no solver needed)", {
   reports := _verify_fixture(String.from("./tests/spec/fixtures/negative/subset_while.yo"), io);
-  ids := ArrayList(String).new();
+  mut(ids) := ArrayList(String).new();
   (mut(di) : usize) = usize(0);
   while(di < reports.len(), {
     match(
@@ -248,7 +248,7 @@ test("positive battery: every function in verify_straight_line proves", {
     return(());
   });
   reports := _verify_fixture(String.from("./tests/spec/verify_straight_line.test.yo"), io);
-  ids := ArrayList(String).new();
+  mut(ids) := ArrayList(String).new();
   (mut(bi) : usize) = usize(0);
   while(bi < reports.len(), {
     match(
@@ -261,7 +261,7 @@ test("positive battery: every function in verify_straight_line proves", {
             br.obligations.get(oj),
             .Some(obl) => {
               match(
-                obl.verdict,
+                &obl.verdict,
                 .Refuted(ce) => {
                   ids.push(`  ${obl.name}: ${_join(&ce, String.from(", "))}`);
                 },
@@ -327,13 +327,13 @@ test("obligation names are unique and guard obligations carry their site", {
     _fn_report_named(&reports, String.from(":10")),
     .Some(rp) => {
       assert(_names_unique(&rp), "two_divs: two divisions give two distinct obligation names");
-      (rows : ArrayList(usize)) = ArrayList(usize).new();
+      (mut(rows) : ArrayList(usize)) = ArrayList(usize).new();
       (mut(i) : usize) = usize(0);
       while(i < rp.obligations.len(), {
         obl := rp.obligations(i);
         if(obl.name.contains("divisor-nonzero"), {
           match(
-            obl.site,
+            &obl.site,
             .Some(gs) => {
               assert(gs.class == "divisor-nonzero", "the site names its guard class");
               assert(gs.module.ends_with("obligation_sites.yo"), `the site names its module (got ${gs.module})`);

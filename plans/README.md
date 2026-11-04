@@ -64,7 +64,9 @@ verifier's design, V1–V7 landed),
 2026-09-30 ATS audit [`ATS_STYLE_INDEXED_TYPES`](backlog/ATS_STYLE_INDEXED_TYPES.md)
 (indexed types and existentials: what Yo has, what the verifier still needs),
 [`BEND_LAWS_AND_AGENT_LOOP_LESSONS`](backlog/BEND_LAWS_AND_AGENT_LOOP_LESSONS.md)
-and [`LLM_AUTHORING_AUDIT_2026-09-19`](backlog/LLM_AUTHORING_AUDIT_2026-09-19.md).
+(with its 2026-11-04 BendTT addendum: keep Z3), its 2026-11-04 sibling
+[`ADA_SPARK_LESSONS`](backlog/ADA_SPARK_LESSONS.md) (Ada/SPARK keep/reject; one
+user-facing solver plus a cvc5 CI oracle), and [`LLM_AUTHORING_AUDIT_2026-09-19`](backlog/LLM_AUTHORING_AUDIT_2026-09-19.md).
 [`MACRO_AND_ISO_REMOVAL`](backlog/MACRO_AND_ISO_REMOVAL.md) is the 2026-10-20
 maintainer decision record and campaign, revised after review and scheduled
 inside the VBD campaign, for deleting the macro layer (`for` becomes a parse-time desugar following

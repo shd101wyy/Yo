@@ -729,7 +729,10 @@ register_closure_await_analysis :: (fn(func_id : &String, result : &AwaitAnalysi
   if(!codegen_tables_enabled(), {
     return(());
   });
-  g_closure_await_analysis.with_mut(m => m.insert(func_id.clone(), result));
+  func_id_owned := func_id.clone();
+  // A handle copy: the analysis is a `ref` object shared with codegen.
+  result_handle := result;
+  g_closure_await_analysis.with_mut({ func_id_owned, result_handle }(m) => m.insert(func_id_owned, result_handle));
 });
 /// The await analysis recorded for `func_id`, if any.
 get_closure_await_analysis :: (fn(func_id : &String) -> Option(AwaitAnalysisResult))(

@@ -42,8 +42,8 @@ hmac :: (
   if(k.len() > block, {
     k = (D <: Digest).finish_bytes((D <: Digest).update((D <: Digest).new(), &k));
   });
-  ikey := ArrayList(u8).with_capacity(block);
-  okey := ArrayList(u8).with_capacity(block);
+  mut(ikey) := ArrayList(u8).with_capacity(block);
+  mut(okey) := ArrayList(u8).with_capacity(block);
   (mut(i) : usize) = usize(0);
   while(i < block, i = (i + usize(1)), {
     kb := match(k.get(i), .Some(b) => b, .None => u8(0));

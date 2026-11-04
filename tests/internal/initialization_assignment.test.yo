@@ -60,14 +60,14 @@ mk_ident_call :: (fn(id : usize, name : str, args : &ArrayList(AstExpr)) -> AstE
 });
 /// Build `lhs := rhs` initialization assignment expression.
 mk_init_assign :: (fn(id : usize, lhs : &AstExpr, rhs : &AstExpr) -> AstExpr)({
-  args := ArrayList(AstExpr).new();
+  mut(args) := ArrayList(AstExpr).new();
   args.push(lhs);
   args.push(rhs);
   mk_op_call(id, BK_INIT_ASSIGN, &args)
 });
 /// Build `lhs :: rhs` const declaration expression.
 mk_const :: (fn(id : usize, lhs : &AstExpr, rhs : &AstExpr) -> AstExpr)({
-  args := ArrayList(AstExpr).new();
+  mut(args) := ArrayList(AstExpr).new();
   args.push(lhs);
   args.push(rhs);
   mk_op_call(id, BK_CONST, &args)
@@ -129,7 +129,7 @@ test_invalid_shape_throws :: (fn() -> bool)({
   // Build a plain assignment `=` (not `:=` or `::`) — invalid for this handler.
   lhs := mk_ident(usize(1), "x");
   rhs := mk_ident(usize(2), "true");
-  args := ArrayList(AstExpr).new();
+  mut(args) := ArrayList(AstExpr).new();
   args.push(lhs);
   args.push(rhs);
   expr := mk_op_call(usize(10), "=", &args);
@@ -238,7 +238,7 @@ test("init_assign: rhs renames to temp var", {
   match(
     info_opt,
     .Some(info) => match(
-      info.variable_name,
+      &info.variable_name,
       .Some(vn) => assert(!(vn == String.from("_")), "temp var should not be named _"),
       .None => () // also acceptable — temp var name may be stored on lhs ExprInfo
     ),

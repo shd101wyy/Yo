@@ -29,8 +29,8 @@ _all_digits :: (fn(s : &String) -> bool)({
   // (multibyte content under-walks; see other_fn_call.yo's splitter fix).
   n := s.len();
   if(n == usize(0), false, {
-    (i : usize) = usize(0);
-    (ok : bool) = true;
+    (mut(i) : usize) = usize(0);
+    (mut(ok) : bool) = true;
     while(i < n, {
       b := s.byte_at(i);
       if(!((b >= u8(48)) && (b <= u8(57))), {
@@ -61,7 +61,7 @@ _tuple_index_of :: (fn(rhs_type : &TypeValue, label : &String) -> Option(usize))
     rhs_type,
     Rc(.Tuple({ field_labels : fls })) => {
       n := fls.len();
-      (i : usize) = usize(0);
+      (mut(i) : usize) = usize(0);
       while(i < n, {
         match(
           fls.get(i),
@@ -91,7 +91,7 @@ _sm_binding_slot :: (fn(key : ExprId, env : &Environment, name : &String, contex
     return(Option(String).None);
   });
   match(
-    context.state_machine_variables,
+    &context.state_machine_variables,
     .Some(smv) => sm_slot_of(key, env, name, &smv, &context.variable_id_remapping, &context.state_machine_field_aliases, &context.sm_capture_slot),
     .None => Option(String).None
   )
@@ -112,7 +112,7 @@ _clear_sm_move_flag :: (fn(slot : &String, indent : &String, context : &Function
 /// The id of the atom in destructuring `pattern` that binds `name` (the key
 /// whose scope record holds the bound variable), or the pattern's own id.
 _binding_atom_key :: (fn(pattern : &AstExpr, name : &String) -> ExprId)({
-  (stack : ArrayList(AstExpr)) = ArrayList(AstExpr).new();
+  (mut(stack) : ArrayList(AstExpr)) = ArrayList(AstExpr).new();
   stack.push(pattern);
   while(stack.len() > usize(0), {
     cur := match(stack.pop(), .Some(x) => x, .None => pattern);
@@ -122,7 +122,7 @@ _binding_atom_key :: (fn(pattern : &AstExpr, name : &String) -> ExprId)({
         return(ast_expr_id(&cur));
       }),
       .FnCall(_, _, Rc(args), _, _) => {
-        (i : usize) = usize(0);
+        (mut(i) : usize) = usize(0);
         while(i < args.len(), {
           match(args.get(i), .Some(a) => stack.push(a), .None => ());
           i = (i + usize(1));
@@ -141,7 +141,7 @@ _emit_destructurings :: (fn(destructurings : &ArrayList(RuntimeDestructuring), r
   rhs_code := _call_generate_expr(rhs, indent.clone(), context);
   member_op := if(is_reference_struct_type(rhs_type), String.from("->"), String.from("."));
   n := destructurings.len();
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < n, {
     match(
       destructurings.get_cloned(i),
@@ -152,7 +152,7 @@ _emit_destructurings :: (fn(destructurings : &ArrayList(RuntimeDestructuring), r
         handled_newtype := match(
           _newtype_single_label(rhs_type),
           .Some(nl) => if(nl == rd.label, {
-            line := indent.clone();
+            mut(line) := indent.clone();
             line.push_string(var_type_and_name.clone());
             line.push_str(" = ");
             line.push_string(rhs_code.clone());
@@ -166,7 +166,7 @@ _emit_destructurings :: (fn(destructurings : &ArrayList(RuntimeDestructuring), r
         );
         if(!handled_newtype, {
           field_name := if(_all_digits(&rd.label), {
-            f := String.from("_");
+            mut(f) := String.from("_");
             f.push_string(rd.label.clone());
             f
           }, sanitize_for_c_identifier(rd.label.clone(), false));
@@ -176,7 +176,7 @@ _emit_destructurings :: (fn(destructurings : &ArrayList(RuntimeDestructuring), r
             match(
               _tuple_index_of(rhs_type, rd.label.clone()),
               .Some(idx) => {
-                f := String.from("_");
+                mut(f) := String.from("_");
                 f.push_string(idx.to_string());
                 f
               },
@@ -184,7 +184,7 @@ _emit_destructurings :: (fn(destructurings : &ArrayList(RuntimeDestructuring), r
             ),
             field_name
           );
-          line := indent.clone();
+          mut(line) := indent.clone();
           line.push_string(&var_type_and_name);
           line.push_str(" = ");
           line.push_string(rhs_code.clone());
@@ -226,10 +226,10 @@ _emit_destructurings :: (fn(destructurings : &ArrayList(RuntimeDestructuring), r
 /// shares), else `.None`: it is a C local.
 _sm_local_slot :: (fn(v : &Variable, context : &FunctionGenerationContext) -> Option(String))(
   match(
-    context.state_machine_variables,
+    &context.state_machine_variables,
     .Some(smv) => {
       id := v.id.to_string();
-      canon := match(context.variable_id_remapping, .Some(rm) => match(rm.get_cloned(id.clone()), .Some(m) => m, .None => id), .None => id);
+      canon := match(&context.variable_id_remapping, .Some(rm) => match(rm.get_cloned(id.clone()), .Some(m) => m, .None => id), .None => id);
       match(
         smv.get(&canon),
         .Some(cv) => match(
@@ -270,7 +270,7 @@ _generate_inout_local_binding :: (fn(lhs : &AstExpr, rhs : &AstExpr, bind_key : 
   match(
     lookup_local_borrow_step_pin(ast_expr_id(lhs)),
     .Some(sp) => if(!is_unit_type(&sp.ty), {
-      sp_decl := indent.clone();
+      mut(sp_decl) := indent.clone();
       sp_decl.push_string(match(_sm_local_slot(&sp, context), .Some(slot) => slot, .None => get_variable_type_string(&sp.ty, sp.name.clone(), &context.base)));
       sp_decl.push_str(" = NULL;");
       em.emit_string_line(&sp_decl);
@@ -286,7 +286,7 @@ _generate_inout_local_binding :: (fn(lhs : &AstExpr, rhs : &AstExpr, bind_key : 
         expr_info_macro_expansion(&lhs_ei),
         .Some(pin_expr) => {
           pin_code := _call_generate_expr(&pin_expr, indent.clone(), context);
-          pin_decl := indent.clone();
+          mut(pin_decl) := indent.clone();
           pin_decl.push_string(match(_sm_local_slot(&pin_var, context), .Some(slot) => slot, .None => get_variable_type_string(&pin_var.ty, pin_var.name.clone(), &context.base)));
           pin_decl.push_str(" = ");
           pin_decl.push_string(generate_dup_code_for_value(&pin_code, &pin_var.ty, context));
@@ -301,7 +301,7 @@ _generate_inout_local_binding :: (fn(lhs : &AstExpr, rhs : &AstExpr, bind_key : 
   );
   place_code := _call_generate_expr(rhs, indent.clone(), context);
   // Address the place: fold a `(*x)` pass-through, otherwise `(&(code))`.
-  (addr : String) = String.new();
+  (mut(addr) : String) = String.new();
   if(place_code.starts_with("(*") && place_code.ends_with(")"), {
     addr = place_code.substring(usize(2), place_code.len() - usize(1));
   }, {
@@ -312,7 +312,7 @@ _generate_inout_local_binding :: (fn(lhs : &AstExpr, rhs : &AstExpr, bind_key : 
     addr.push_string(place_code.clone());
     addr.push_str("))");
   });
-  line := indent.clone();
+  mut(line) := indent.clone();
   ref_slot := match(
     bind_env,
     .Some(benv) => {
@@ -339,7 +339,7 @@ _generate_inout_local_binding :: (fn(lhs : &AstExpr, rhs : &AstExpr, bind_key : 
 _is_c_lvalue_chain :: (fn(code : &String) -> bool)({
   n := code.len();
   if(n == usize(0), return(false));
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while((i < n) && ((code.byte_at(i) == u8(40)) || (code.byte_at(i) == u8(42)) || (code.byte_at(i) == u8(32))), {
     i = (i + usize(1));
   });
@@ -350,7 +350,7 @@ _is_c_lvalue_chain :: (fn(code : &String) -> bool)({
   // Balance brackets over the WHOLE string (the leading `(`/`*` prefix that
   // the identifier scan skipped above counts too: `(*p).value` is a valid
   // lvalue chain whose first `(` closes after the identifier).
-  (depth : i32) = i32(0);
+  (mut(depth) : i32) = i32(0);
   i = usize(0);
   while(i < n, {
     c := code.byte_at(i);
@@ -410,7 +410,7 @@ generate_local_borrow_repoint :: (fn(expr : &AstExpr, indent : &String, context 
   });
   ptr := name_code.substring(usize(2), name_code.len() - usize(1));
   place_code := _call_generate_expr(&rhs, indent.clone(), context);
-  (addr : String) = String.new();
+  (mut(addr) : String) = String.new();
   if(place_code.starts_with("(*") && place_code.ends_with(")"), {
     addr = place_code.substring(usize(2), place_code.len() - usize(1));
   }, {
@@ -464,7 +464,7 @@ generate_initialization_assignment :: (fn(expr : &AstExpr, indent : &String, con
         Option(String).Some(`// Error: No type information for variable ${ast_expr_token(&lhs).value.*}`)
       )
     );
-    var_name := match(lhs_ei.variable_name, .Some(vn) => vn.clone(), .None => ast_expr_text(&lhs).*.clone());
+    var_name := match(&lhs_ei.variable_name, .Some(vn) => vn.clone(), .None => ast_expr_text(&lhs).*.clone());
     // Resolve a SomeT binding type through its concrete resolution BEFORE the
     // unit guards below — a binding typed as an unresolved SomeT that resolves
     // to unit rendered `void x = <rhs>;` (invalid C: the worker batch's
@@ -530,7 +530,7 @@ generate_initialization_assignment :: (fn(expr : &AstExpr, indent : &String, con
         match(
           context.base.get_expr_info(&rhs),
           .Some(rei) => match(
-            rei.variable_name,
+            &rei.variable_name,
             .Some(tvn) => {
               temp_var_name := get_variable_name_for_codegen_at(ast_expr_id(&rhs), &tvn, Option(Environment).Some(rei.env));
               rhs_expr_code := _call_generate_expr(&rhs, indent.clone(), context);
@@ -602,7 +602,7 @@ generate_initialization_assignment :: (fn(expr : &AstExpr, indent : &String, con
       rhs_code := match(
         context.base.get_expr_info(&rhs),
         .Some(rei) => match(
-          rei.variable_name,
+          &rei.variable_name,
           .Some(tvn) => {
             temp_var_name := get_variable_name_for_codegen_at(ast_expr_id(&rhs), &tvn, Option(Environment).Some(rei.env));
             // Same name as the binding, or a bare atom already named — no temp.

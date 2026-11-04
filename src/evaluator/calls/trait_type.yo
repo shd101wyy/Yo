@@ -33,7 +33,7 @@ import("std/fmt");
   expr_info_adopt_env
 } :: import("../../expr_info.yo");
 { Environment, snapshot_env } :: import("../../env.yo");
-{ TypeValue, TypeValueNode, shared_list, no_types, no_labels } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, trait_t_body, shared_list, no_types, no_labels } :: import("../../types/definitions.yo");
 { type_to_string } :: import("../../types/string.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 {
@@ -74,17 +74,17 @@ try_to_specialize_trait_type :: (
   // Extract field labels and assoc_type_names from TraitT.
   field_labels := match(
     trait_type,
-    Rc(.TraitT(_, _, labels, _, _, _, _, _, _, _)) => labels.clone(),
+    Rc(.TraitT(_, labels_body, _, _, _, _)) => labels_body.field_labels(),
     _ => ArrayList(String).new()
   );
   assoc_type_names := match(
     trait_type,
-    Rc(.TraitT(_, an, _, _, _, _, _, _, _, _)) => an.clone(),
+    Rc(.TraitT(_, an_body, _, _, _, _)) => an_body.assoc_type_names(),
     _ => ArrayList(String).new()
   );
   trait_name := match(
     trait_type,
-    Rc(.TraitT(n, _, _, _, _, _, _, _, _, _)) => n.clone(),
+    Rc(.TraitT(n, _, _, _, _, _)) => n.clone(),
     _ => String.from("unknown")
   );
   (caller_env : Environment) = caller_env_in;
@@ -92,7 +92,7 @@ try_to_specialize_trait_type :: (
   atc_labels := ArrayList(String).new();
   atc_types := ArrayList(TypeValue).new();
   n_args := arg_exprs.len();
-  (j : usize) = usize(0);
+  (mut(j) : usize) = usize(0);
   while(j < n_args, {
     arg_opt := arg_exprs.get(j);
     arg := match(
@@ -147,7 +147,7 @@ try_to_specialize_trait_type :: (
     (li : usize) = usize(0);
     while(li < field_labels.len(), {
       match(
-        field_labels.get(li),
+        field_labels.get_cloned(li),
         .Some(fl) => {
           if(fl == label_tok, {
             field_exists = true;
@@ -177,7 +177,7 @@ try_to_specialize_trait_type :: (
     (ai : usize) = usize(0);
     while(ai < assoc_type_names.len(), {
       match(
-        assoc_type_names.get(ai),
+        assoc_type_names.get_cloned(ai),
         .Some(an) => {
           if(an == label_tok, {
             is_assoc = true;
@@ -229,8 +229,15 @@ try_to_specialize_trait_type :: (
   // Specialized TraitType — same identity, with the constraints added.
   specialized_trait_type := match(
     trait_type,
-    Rc(.TraitT(n, atns, fls, fts, tid, ic, sc, nsc, _, _)) =>
-      Rc.new(TypeValueNode.TraitT(n.clone(), atns.clone(), fls.clone(), fts.clone(), tid.clone(), ic.clone(), sc.clone(), nsc.clone(), shared_list(atc_labels), shared_list(atc_types))),
+    Rc(.TraitT(n, atns_body, tid, ic, _, _)) =>
+      {
+        atns := atns_body.assoc_type_names();
+        fls := atns_body.field_labels();
+        fts := atns_body.field_types();
+        sc := atns_body.self_constraints();
+        nsc := atns_body.neg_self_constraints();
+        Rc.new(TypeValueNode.TraitT(n.clone(), trait_t_body(atns.clone(), fls.clone(), fts.clone(), sc.clone(), nsc.clone()), tid.clone(), ic.clone(), shared_list(atc_labels), shared_list(atc_types)))
+      },
     _ => Rc.clone(trait_type)
   );
   TraitSpecializationResult(specialized_trait_type : specialized_trait_type, caller_env : caller_env)
@@ -253,17 +260,17 @@ try_to_implement_trait_with_arguments_by_trait_type :: (
   // Extract field labels and types from TraitT.
   field_labels := match(
     trait_type,
-    Rc(.TraitT(_, _, labels, _, _, _, _, _, _, _)) => labels.clone(),
+    Rc(.TraitT(_, labels_body, _, _, _, _)) => labels_body.field_labels(),
     _ => ArrayList(String).new()
   );
   field_types := match(
     trait_type,
-    Rc(.TraitT(_, _, _, types, _, _, _, _, _, _)) => types.clone(),
+    Rc(.TraitT(_, types_body, _, _, _, _)) => types_body.field_types(),
     _ => ArrayList(TypeValue).new()
   );
   trait_name := match(
     trait_type,
-    Rc(.TraitT(n, _, _, _, _, _, _, _, _, _)) => n.clone(),
+    Rc(.TraitT(n, _, _, _, _, _)) => n.clone(),
     _ => String.from("unknown")
   );
   n_fields := field_labels.len();
@@ -315,14 +322,14 @@ try_to_implement_trait_with_arguments_by_trait_type :: (
   pv_type_id := type_id_or_empty(&receiver_ty_pv);
   trait_tid_pv := match(
     trait_type,
-    Rc(.TraitT(_, _, _, _, tid, _, _, _, _, _)) => tid.clone(),
+    Rc(.TraitT(_, _, tid, _, _, _)) => tid.clone(),
     _ => String.from("")
   );
   if(pv_type_id != "", {
     (pvi : usize) = usize(0);
     while(pvi < n_fields, {
-      pv_lbl := match(field_labels.get(pvi), .Some(l) => l, .None => String.from(""));
-      pv_ty := match(field_types.get(pvi), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
+      pv_lbl := match(field_labels.get_cloned(pvi), .Some(l) => l, .None => String.from(""));
+      pv_ty := match(field_types.get_cloned(pvi), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
       if((pv_lbl != "") && is_function_type(&pv_ty), {
         register_provisional_trait_method(
           pv_type_id.clone(),
@@ -344,8 +351,8 @@ try_to_implement_trait_with_arguments_by_trait_type :: (
   // For each trait field, find the matching arg by label.
   (i : usize) = usize(0);
   while(i < n_fields, {
-    field_label_opt := field_labels.get(i);
-    field_type_opt := field_types.get(i);
+    field_label_opt := field_labels.get_cloned(i);
+    field_type_opt := field_types.get_cloned(i);
     field_label := match(field_label_opt, .Some(s) => s, .None => String.from(""));
     field_type := match(field_type_opt, .Some(t) => Rc.clone(t), .None => Rc.new(TypeValueNode.Unit));
     (found_arg : bool) = false;
@@ -398,7 +405,7 @@ try_to_implement_trait_with_arguments_by_trait_type :: (
       (li : usize) = usize(0);
       while(li < n_fields, {
         match(
-          field_labels.get(li),
+          field_labels.get_cloned(li),
           .Some(fl) => {
             if(fl == label_tok, {
               label_exists = true;
@@ -486,7 +493,7 @@ try_to_implement_trait_with_arguments_by_trait_type :: (
   (k : usize) = usize(0);
   while(k < n_fields, {
     match(
-      field_labels.get(k),
+      field_labels.get_cloned(k),
       .Some(lbl) => {
         result_names.push(lbl.clone());
       },

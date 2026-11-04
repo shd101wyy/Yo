@@ -13,6 +13,7 @@
 import("std/fmt");
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
+{ Exception } :: import("std/error");
 
 Holder :: ref(struct(v : String));
 
@@ -102,7 +103,7 @@ take_nested :: (
 Sack :: ref(struct(items : ArrayList(Holder)));
 
 take_after_move :: (fn(o : Option(i32)) -> i32)({
-  items := ArrayList(Holder).new();
+  mut(items) := ArrayList(Holder).new();
   items.push(Holder(v : String.from("moved-payload")));
   sack := Sack(items : items);
   match(
@@ -191,4 +192,111 @@ test("an early return after a field store releases the field's old value once", 
   assert(_sv_field_store_then_return(h, false) == i32(2), "normal path value");
   assert(g_sv_dropped == (before + i32(2)), "and once on the normal path");
   assert(match(&h.tok, .Some(t) => (t.n == i32(3)), .None => false), "the stored value is still alive");
+});
+// An unwind out of an inner block must not drop a LATER same-named local
+// against the inner one: the escape's consumed-variable drop list matched its
+// target's C name on the block-scope stack, and the inner `(k : usize)` made
+// the outer `k`'s name look declared
+// (issues/fixed/2026-11-03-an-unwind-drop-names-a-shadowing-local-of-another-type.md).
+// A move-only key: its drop takes `_SbKey*`, so a drop emitted against the
+// inner `usize` below is a C type error, and the counter checks the balance.
+(mut(g_sb_key_drops) : i32) = i32(0);
+_SbKey :: struct(n : usize);
+impl(
+  _SbKey,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_sb_key_drops = (g_sb_key_drops + i32(1));
+    })
+  )
+);
+// Throws once the inner counter reaches `limit`.
+_sb_check :: (fn(k : usize, limit : usize, exn : Exception) -> bool)({
+  if(k >= limit, {
+    exn.throw(dyn(String.from("limit")));
+  });
+  true
+});
+// An inner `(k : usize)` loop counter whose call may unwind, then a later
+// outer `k : _SbKey` the cond consumes. The unwind out of the inner loop must
+// drop `cell_key` only: the outer `k` does not exist yet.
+_sb_pick :: (fn(xs : &ArrayList(usize), limit : usize, exn : Exception) -> usize)({
+  (mut(cell_key) : _SbKey) = _SbKey(n : usize(0));
+  (mut(i) : usize) = usize(0);
+  while(i < xs.len(), i = (i + usize(1)), {
+    x := xs(i);
+    simple := match(
+      x,
+      usize(0) => false,
+      _ => {
+        (mut(ok) : bool) = true;
+        (mut(k) : usize) = usize(0);
+        while((k < x) && ok, k = (k + usize(1)), {
+          ok = _sb_check(k, limit, exn);
+        });
+        ok
+      }
+    );
+    if(!simple, {
+      return(usize(0));
+    });
+    k := _SbKey(n : x);
+    cond(
+      (cell_key.n == usize(0)) => {
+        cell_key = k;
+      },
+      !(k.n == cell_key.n) => return(usize(0)),
+      true => ()
+    );
+  });
+  cell_key.n
+});
+_sb_run :: (fn(limit : usize) -> usize)({
+  exn := Exception(throw : (_err -> unwind(usize(99))));
+  mut(xs) := ArrayList(usize).new();
+  xs.push(usize(3));
+  xs.push(usize(3));
+  _sb_pick(&xs, limit, exn)
+});
+test("an unwind out of an inner loop does not drop a later same-named local", {
+  before := g_sb_key_drops;
+  assert(_sb_run(usize(2)) == usize(99), "the inner call unwound");
+  assert(g_sb_key_drops == (before + i32(1)), `the unwind drops cell_key only, dropped ${(g_sb_key_drops - before).to_string()}`);
+});
+test("the same function without an unwind balances every key", {
+  before := g_sb_key_drops;
+  assert(_sb_run(usize(10)) == usize(3), "no unwind");
+  // The initial cell_key (replaced), the second iteration's k, and the final cell_key.
+  assert(g_sb_key_drops == (before + i32(3)), `every key dropped once, dropped ${(g_sb_key_drops - before).to_string()}`);
+});
+// Two same-named locals, the first in an inner block: an unwind inside that
+// block released the first one twice, once for its own drop and once for the
+// later local's drop resolved by name.
+_sb_mk :: (fn(fail : bool, exn : Exception) -> usize)({
+  if(fail, {
+    exn.throw(dyn(String.from("x")));
+  });
+  usize(1)
+});
+_sb_take :: (fn(k : _SbKey) -> usize)(k.n);
+_sb_twice :: (fn(flag : bool, fail : bool, exn : Exception) -> usize)({
+  if(flag, {
+    k := _SbKey(n : usize(1));
+    t := _sb_mk(fail, exn);
+    return(_sb_take(k) + t);
+  });
+  k := _SbKey(n : usize(2));
+  _sb_take(k)
+});
+_sb_twice_run :: (fn(flag : bool, fail : bool) -> usize)({
+  exn := Exception(throw : (_err -> unwind(usize(99))));
+  _sb_twice(flag, fail, exn)
+});
+test("an unwind before a later same-named local drops the earlier one once", {
+  before := g_sb_key_drops;
+  assert(_sb_twice_run(true, true) == usize(99), "the call unwound");
+  assert(g_sb_key_drops == (before + i32(1)), `the inner k is dropped once, dropped ${(g_sb_key_drops - before).to_string()}`);
+  before2 := g_sb_key_drops;
+  assert(_sb_twice_run(true, false) == usize(2), "no unwind");
+  assert(g_sb_key_drops == (before2 + i32(1)), "the consumed k is dropped once by its consumer");
 });
