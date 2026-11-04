@@ -831,9 +831,9 @@ bs_relay :: (fn(r : &mut i32) -> unit)({
 });
 bs_read_cell :: (fn(c : &BsCell) -> i32)(c.n + c.twice());
 bs_copy_cell :: (fn(c : &BsCell) -> BsCell)(c.*);
-bs_box_payload :: (fn(b : &Box(i32)) -> i32)(b.*.*.*.*);
+bs_box_payload :: (fn(b : &Box(i32)) -> i32)(b.*.*);
 bs_text_len :: (fn(s : &String) -> usize)(s.len());
-bs_text_copy :: (fn(s : &String) -> String)(s.*);
+bs_text_copy :: (fn(s : &String) -> String)(s.*.clone());
 bs_through_local :: (fn(c : &mut BsCell) -> i32)({
   y := &mut c.*;
   y.n = i32(40);
@@ -853,13 +853,13 @@ test("A reference reads and writes its referent with .*", {
   assert(bs_box_payload(&b) == i32(7), "b.*.* is the payload through the reference");
   s := String.from("hey");
   assert(bs_text_len(&s) == usize(3), "a method through a reference");
-  assert(bs_text_copy(&s).len() == usize(3), "s.* copies a String");
+  assert(bs_text_copy(&s).len() == usize(3), "s.*.clone() copies the String it refers to");
   mut(m) := BsCell(n : i32(0));
   assert(bs_through_local(&mut m) == i32(42), "a local borrow of the referent");
   o := Option(i32).Some(i32(3));
   k := match(&o, .Some(n) => (n.* + i32(1)), .None => i32(0));
   assert(k == i32(4), "a match(&x, …) binding reads with .*");
-  xs := ArrayList(i32).new();
+  mut(xs) := ArrayList(i32).new();
   xs.push(i32(1));
   xs.push(i32(2));
   mut(sum) := i32(0);
