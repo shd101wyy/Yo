@@ -801,15 +801,21 @@ _count_obligations :: (fn(reports : &ArrayList(VerifyFnReport), want_proved : bo
     rp := reports.get(i).unwrap();
     (j : usize) = usize(0);
     while(j < rp.obligations.len(), {
-      hit := match(
-        &rp.obligations.get(j).unwrap().verdict,
-        .Proved(_) => want_proved,
-        .Refuted(_) => !(want_proved),
-        _ => false
+      match(
+        rp.obligations.get(j),
+        .Some(obl) => {
+          hit := match(
+            &obl.verdict,
+            .Proved(_) => want_proved,
+            .Refuted(_) => !(want_proved),
+            _ => false
+          );
+          if(hit, {
+            n = (n + usize(1));
+          });
+        },
+        .None => ()
       );
-      if(hit, {
-        n = (n + usize(1));
-      });
       j = (j + usize(1));
     });
     i = (i + usize(1));
