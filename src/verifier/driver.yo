@@ -1,11 +1,14 @@
 //! verifier/driver — scheduling, budgets, verdicts, caching (V2).
 //!
 //! The driver owns the per-obligation lifecycle: build the cache key
-//! (sha256 of the query's SMT content + the pin + the run options), look
+//! (sha256 of the query's SMT content + the solver binary's own
+//! `--version` + the run options), look
 //! the verdict up in `~/.cache/yo/verify-cache/<key>.json`, and only on a
 //! miss spawn the solver. Cache hits are reported (`cached: proved`) so CI
 //! logs stay honest. Any input change — predicate text, callee contract
-//! set, solver pin, mode, options — invalidates the key.
+//! set, solver binary, mode, options — invalidates the key. Only
+//! reproducible verdicts are stored: sat, unsat, and an `unknown` whose
+//! deterministic `:rlimit` ran out; a wall-clock timeout is asked again.
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { StringBuilder } :: import("std/fmt");
@@ -21,7 +24,6 @@ json :: import("std/encoding/json");
 { take_verify_tasks, VerifyTask, strip_proved_ensures_asserts, verify_task_def_eval_failure, ProvedGuardSite, record_proved_guard_site } :: import("../evaluator/builtins/contracts.yo");
 { get_current_target } :: import("../target.yo");
 {
-  Z3_VERSION,
   ensure_z3,
   discover_z3,
   run_z3_script,
@@ -30,6 +32,9 @@ json :: import("std/encoding/json");
   z3_error_before_verdict,
   z3_unsat_core_of,
   z3_value_pairs_of,
+  z3_reason_unknown_of,
+  z3_rlimit_used_of,
+  z3_version_of_binary,
   _z3_exists_sync,
   _z3_read_file_sync,
   _z3_write_file_sync,
@@ -252,19 +257,24 @@ verify_cache_dir :: (fn() -> String)({
   );
   `${root}/verify-cache`
 });
-/// The cache key: sha256 of (solver pin, run options, query content). All
-/// inputs are text; each part is newline-terminated so the concatenation
-/// is unambiguous.
+/// The cache key: sha256 of (solver identity, run options, query content).
+/// All inputs are text; each part is newline-terminated so the
+/// concatenation is unambiguous.
 /// Bump when the verifier's encoding or verdict semantics change in a way
 /// the query content does not capture, so no cached verdict from the old
 /// semantics is reused. 2 (2026-09-28): `usize`/`isize` widths follow the
 /// target, guard obligations carry their site in the query name, and stores
-/// key by the run's own budget.
-VERIFIER_CACHE_EPOCH :: "2";
-verify_cache_key :: (fn(q : &VcQuery, cfg : &VerifyRunConfig) -> String)({
+/// key by the run's own budget. 3 (2026-11-04): the key names the solver
+/// binary that ran (its `--version`), not the `Z3_VERSION` pin, and a
+/// wall-clock `unknown` is no longer stored; epoch-2 entries may hold one.
+VERIFIER_CACHE_EPOCH :: "3";
+/// `solver` is the running binary's identity (`z3_version_of_binary`):
+/// `YO_Z3_PATH` and `--solver-path` accept any z3, and a verdict one solver
+/// computed must not answer for another.
+verify_cache_key :: (fn(q : &VcQuery, cfg : &VerifyRunConfig, solver : &String) -> String)({
   material := StringBuilder.new();
   material.write_string(`epoch=${VERIFIER_CACHE_EPOCH}\n`);
-  material.write_string(`z3=${Z3_VERSION}\n`);
+  material.write_string(`solver=${solver}\n`);
   material.write_string(`rlimit=${cfg.encode_opts.rlimit.to_string()}\n`);
   material.write_string(`seed=${cfg.encode_opts.random_seed.to_string()}\n`);
   material.write_string(`timeout=${cfg.encode_opts.timeout_ms.to_string()}\n`);
@@ -293,18 +303,22 @@ verdict_of_response :: (fn(response : &String) -> VerifyVerdict)({
     .Some(v) => cond(
       (v == "unsat") => VerifyVerdict.Proved(z3_unsat_core_of(&forms)),
       (v == "sat") => VerifyVerdict.Refuted(z3_value_pairs_of(&forms)),
-      true => VerifyVerdict.Unproven(response.trim())
+      true => match(
+        z3_reason_unknown_of(&forms),
+        .Some(why) => VerifyVerdict.Unproven(`${v}: ${why}`),
+        .None => VerifyVerdict.Unproven(v)
+      )
     ),
     .None => VerifyVerdict.SolverError(response.trim())
   )
 });
 /// Cache lookup for one obligation: `.Some(result)` on a hit, `.None` on
 /// miss/no-cache/corrupt entry. Synchronous (see the z3.yo header note).
-_cache_lookup :: (fn(q : &VcQuery, cfg : &VerifyRunConfig) -> Option(VerifyResult))({
+_cache_lookup :: (fn(q : &VcQuery, cfg : &VerifyRunConfig, solver : &String) -> Option(VerifyResult))({
   if(cfg.no_cache, {
     return(Option(VerifyResult).None);
   });
-  key := verify_cache_key(q, cfg);
+  key := verify_cache_key(q, cfg, solver);
   cache_path := `${verify_cache_dir()}/${key}.json`;
   match(
     _z3_read_file_sync(cache_path.clone()),
@@ -327,14 +341,15 @@ _cache_lookup :: (fn(q : &VcQuery, cfg : &VerifyRunConfig) -> Option(VerifyResul
     )
   )
 });
-/// Cache store for one obligation. Terminal verdicts only — a SolverError
-/// (missing/crashed solver) must retry on the next run.
+/// Cache store for one obligation. The caller stores only a cacheable
+/// answer (`SolverAnswer.cacheable`): never a SolverError (missing/crashed
+/// solver) nor a wall-clock `unknown`, which must retry on the next run.
 /// Keyed by the run's own `cfg`, the same key `_cache_lookup` reads. Keying
 /// by the default config stored a `--rlimit N` verdict where a later
 /// default-budget run would reuse a verdict it could not reproduce itself.
-_cache_store :: (fn(q : &VcQuery, cfg : &VerifyRunConfig, verdict : &VerifyVerdict) -> unit)({
+_cache_store :: (fn(q : &VcQuery, cfg : &VerifyRunConfig, solver : &String, verdict : &VerifyVerdict) -> unit)({
   _z3_ensure_dir_sync(verify_cache_dir());
-  key := verify_cache_key(q, cfg);
+  key := verify_cache_key(q, cfg, solver);
   cache_path := `${verify_cache_dir()}/${key}.json`;
   payload := _json_obj2(
     String.from("query"),
@@ -345,6 +360,77 @@ _cache_store :: (fn(q : &VcQuery, cfg : &VerifyRunConfig, verdict : &VerifyVerdi
   _z3_write_file_sync(cache_path.clone(), json.stringify(&payload));
   ()
 });
+/// One solver answer: the verdict, and whether the cache may keep it.
+SolverAnswer :: struct(verdict : VerifyVerdict, cacheable : bool);
+/// The store predicate over one raw solver response, run under the budget
+/// `opts` set (pure — the unit-testable seam beside `verdict_of_response`).
+/// sat and unsat are conclusive and cache. An `unknown` caches only when the
+/// deterministic `:rlimit` ran out: the `(get-info :rlimit)` count reached
+/// the budget and z3 did not name the clock. Then the same solver, query,
+/// seed and budget answer `unknown` again. When the wall-clock `:timeout`
+/// backstop fired first (z3 says `timeout`, or `canceled` with budget left)
+/// the verdict depends on machine load, so it is reported as a wall-clock
+/// timeout and asked again on the next run: only conclusive results are
+/// cached (SPARK UG §7.3.6;
+/// issues/fixed/2026-11-04-the-verify-cache-stores-wall-clock-unknown-verdicts-and-keys-on-the-pinned-z3-version-not-the-binary.md).
+/// Any other `unknown` (incompleteness, no reason or count reported) and
+/// every SolverError are not stored either.
+solver_answer_of_response :: (fn(response : &String, opts : &EncodeOptions) -> SolverAnswer)({
+  verdict := verdict_of_response(response);
+  is_unknown := match(&verdict, .Unproven(_) => true, _ => false);
+  if(!is_unknown, {
+    conclusive := match(&verdict, .SolverError(_) => false, _ => true);
+    return(SolverAnswer(verdict : verdict, cacheable : conclusive));
+  });
+  forms := parse_z3_sexprs(response);
+  reason := match(z3_reason_unknown_of(&forms), .Some(r) => r, .None => String.new());
+  used := z3_rlimit_used_of(&forms);
+  budget := opts.rlimit;
+  budget_ran_out := match(used, .Some(n) => (n >= budget), .None => false);
+  budget_left := match(used, .Some(n) => (n < budget), .None => false);
+  used_text := match(used, .Some(n) => n.to_string(), .None => String.from("?"));
+  wall_clock := ((reason == "timeout") || ((reason == "canceled") && budget_left));
+  cond(
+    wall_clock => SolverAnswer(
+      verdict : VerifyVerdict.Unproven(
+        `unknown: wall-clock timeout (the ${opts.timeout_ms.to_string()} ms backstop fired after rlimit ${used_text} of ${budget.to_string()}); not cached`
+      ),
+      cacheable : false
+    ),
+    budget_ran_out => SolverAnswer(
+      verdict : VerifyVerdict.Unproven(`unknown: rlimit exhausted (${used_text} of ${budget.to_string()})`),
+      cacheable : true
+    ),
+    true => SolverAnswer(verdict : verdict, cacheable : false)
+  )
+});
+/// Spawn the solver on `q` under `opts` and read its answer.
+_solve :: (fn(q : &VcQuery, opts : EncodeOptions, binary : &String) -> SolverAnswer)({
+  script := encode_script(q, opts);
+  match(
+    run_z3_script(binary.clone(), &script),
+    .Ok(response) => solver_answer_of_response(&response, &opts),
+    .Err(msg) => SolverAnswer(verdict : VerifyVerdict.SolverError(msg), cacheable : false)
+  )
+});
+/// The last binary `_solver_identity` probed, and its identity.
+(mut(g_solver_identity_binary) : Option(String)) = Option(String).None;
+(mut(g_solver_identity) : Option(String)) = Option(String).None;
+/// The cache's name for the solver at `binary`: its own `--version` output,
+/// probed once per process per binary (one extra spawn per run, not per
+/// query). `.None` when the binary cannot say what it is; the caller then
+/// neither reads nor writes the cache.
+_solver_identity :: (fn(binary : &String) -> Option(String))({
+  probed := g_solver_identity_binary.clone();
+  same := match(probed, .Some(b) => (b == binary.clone()), .None => false);
+  if(same, {
+    return(g_solver_identity.clone());
+  });
+  id := z3_version_of_binary(binary);
+  g_solver_identity_binary = Option(String).Some(binary.clone());
+  g_solver_identity = id.clone();
+  id
+});
 /// Run one obligation end-to-end: cache lookup → solver → parse → cache
 /// store. Synchronous — the solver spawn itself is libc `system(3)`
 /// (z3.yo), so there is no event-loop interaction anywhere in the hot path.
@@ -354,24 +440,25 @@ _cache_store :: (fn(q : &VcQuery, cfg : &VerifyRunConfig, verdict : &VerifyVerdi
 /// the wall backstop (fixed ladder — deterministic, and cheap queries
 /// stay cheap; measured: the insertion sort's outer iterate needs
 /// ~10⁸ rlimit / ~80 s and proves, while every small goal finishes far
-/// under the first stage). Terminal verdicts from either stage cache.
+/// under the first stage). The final stage's answer caches when
+/// `solver_answer_of_response` calls it reproducible, under the key of the
+/// solver that ran.
 run_vc_query :: (fn(q : &VcQuery, cfg : &VerifyRunConfig, binary : &String) -> VerifyResult)({
-  cached_opt := _cache_lookup(q, cfg);
+  solver_id := if(cfg.no_cache, Option(String).None, _solver_identity(binary));
   match(
-    cached_opt,
-    .Some(cached) => {
-      return(cached);
-    },
+    solver_id.clone(),
+    .Some(id) => match(
+      _cache_lookup(q, cfg, &id),
+      .Some(cached) => {
+        return(cached);
+      },
+      .None => ()
+    ),
     .None => ()
   );
-  script := encode_script(q, cfg.encode_opts);
-  verdict := match(
-    run_z3_script(binary.clone(), &script),
-    .Ok(response) => verdict_of_response(&response),
-    .Err(msg) => VerifyVerdict.SolverError(msg)
-  );
+  answer := _solve(q, cfg.encode_opts, binary);
   match(
-    &verdict,
+    &answer.verdict,
     .Unproven(_) => {
       retry_opts := EncodeOptions(
         rlimit : (cfg.encode_opts.rlimit * usize(20)),
@@ -380,24 +467,20 @@ run_vc_query :: (fn(q : &VcQuery, cfg : &VerifyRunConfig, binary : &String) -> V
         want_unsat_core : cfg.encode_opts.want_unsat_core,
         want_counterexample : cfg.encode_opts.want_counterexample
       );
-      retry := encode_script(q, retry_opts);
-      verdict = match(
-        run_z3_script(binary.clone(), &retry),
-        .Ok(response) => verdict_of_response(&response),
-        .Err(msg) => VerifyVerdict.SolverError(msg)
-      );
+      answer = _solve(q, retry_opts, binary);
     },
     _ => ()
   );
-  is_terminal := match(
-    &verdict,
-    .SolverError(_) => false,
-    _ => true
+  match(
+    solver_id,
+    .Some(id) => {
+      if(answer.cacheable, {
+        _cache_store(q, cfg, &id, &answer.verdict);
+      });
+    },
+    .None => ()
   );
-  if(is_terminal, {
-    _cache_store(q, cfg, &verdict);
-  });
-  VerifyResult(query_name : q.name.clone(), verdict : verdict, cached : false)
+  VerifyResult(query_name : q.name.clone(), verdict : answer.verdict.clone(), cached : false)
 });
 /// Outcome of the synchronous solver resolution.
 SolverResolution :: enum(
@@ -1100,6 +1183,8 @@ export(
   verify_cache_dir,
   verify_cache_key,
   verdict_of_response,
+  SolverAnswer,
+  solver_answer_of_response,
   run_vc_query,
   resolve_solver_sync,
   SolverResolution,

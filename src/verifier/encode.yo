@@ -565,7 +565,8 @@ default_encode_options :: (fn() -> EncodeOptions)(
   )
 );
 /// The full SMT-LIB script for one obligation. Layout is fixed:
-/// set-logic, options (deterministic order), content, evidence directives.
+/// set-logic, options (deterministic order), content, evidence directives,
+/// then the two get-info probes (`:reason-unknown`, `:rlimit`).
 encode_script :: (fn(q : &VcQuery, opts : EncodeOptions) -> String)({
   sb := StringBuilder.new();
   sb.write_str("(set-logic ALL)\n");
@@ -594,6 +595,12 @@ encode_script :: (fn(q : &VcQuery, opts : EncodeOptions) -> String)({
     });
     sb.write_str("))\n");
   });
+  // Why an `unknown` stopped and how much budget it used: the driver caches
+  // an `unknown` only when the deterministic `:rlimit` ran out, never when
+  // the wall-clock `:timeout` backstop fired first (driver.yo,
+  // `solver_answer_of_response`). Answered for sat/unsat too; ignored there.
+  sb.write_str("(get-info :reason-unknown)\n");
+  sb.write_str("(get-info :rlimit)\n");
   sb.to_string()
 });
 export(
