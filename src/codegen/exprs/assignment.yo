@@ -53,9 +53,9 @@ _last_is_compile_time_only :: (fn(key : ExprId, env : &Environment, name : &Stri
 /// `lhs` itself. Its record resolves the place's base variable (scope-exit
 /// release, plans/CODEGEN_MEMORY_REDUCTION.md §6).
 _lhs_root_binder :: (fn(lhs : &AstExpr, name : &String, context : &FunctionGenerationContext) -> AstExpr)({
-  (cur : AstExpr) = lhs;
+  (mut(cur) : AstExpr) = lhs;
   while(true, {
-    binds := match(context.base.get_expr_info(&cur), .Some(ci) => match(ci.variable_name, .Some(vn) => (vn == name), .None => false), .None => false);
+    binds := match(context.base.get_expr_info(&cur), .Some(ci) => match(&ci.variable_name, .Some(vn) => (vn == name), .None => false), .None => false);
     if(binds, {
       return(cur);
     });
@@ -184,26 +184,26 @@ generate_assignment :: (fn(expr : &AstExpr, indent : &String, context : &Functio
   // The place is materialized once into a pointer temp taken AFTER the right
   // side (a right side that grows the container would leave a pointer taken
   // before it dangling), and the save and the store both go through it.
-  (place_ptr : Option(String)) = Option(String).None;
+  (mut(place_ptr) : Option(String)) = Option(String).None;
   if(_place_evaluation_runs_a_call(&lhs, context) && !is_unit_type(&lhs_type), {
     place_ptr = Option(String).Some(`__yo_place_ptr_${ast_expr_id(expr).to_string()}`);
   });
-  place_read_code := match(place_ptr, .Some(p) => `(*${p})`, .None => lhs_code.clone());
+  place_read_code := match(&place_ptr, .Some(p) => `(*${p})`, .None => lhs_code.clone());
   em := context.base.emitter;
   // In a state machine the save is written AFTER the RHS, right before the
   // store: the RHS may suspend, and an abort there disposes every non-null
   // slot — a save written first held the pointer the LHS still owns, and
   // both were released (the `fetch` UnsupportedScheme escape). A RHS that
   // moves the old value out zeroes its slot, so the late save reads NULL.
-  (sm_save_line : Option(String)) = Option(String).None;
+  (mut(sm_save_line) : Option(String)) = Option(String).None;
   // A side-effecting place's by-bytes save: deferred to the pointer temp's
   // emission point, after the RHS, together with `deferred_save_c_name` (its
   // temp's C name, for the block-scope stack push below).
-  (deferred_save_line : Option(String)) = Option(String).None;
-  (deferred_save_c_name : String) = String.from("");
+  (mut(deferred_save_line) : Option(String)) = Option(String).None;
+  (mut(deferred_save_c_name) : String) = String.from("");
   // Save the old value into the result temp (for a deferred drop of it).
   match(
-    ei.variable_name,
+    &ei.variable_name,
     .Some(temp_var_name) => {
       // A place reached through a slot holding its pointer (`(*sm->var_y)`:
       // a local borrow, a `mut` match place) is a slot write too: a save
@@ -215,13 +215,13 @@ generate_assignment :: (fn(expr : &AstExpr, indent : &String, context : &Functio
         !in_sm,
         if(!is_unit_type(&lhs_type), {
           match(
-            place_ptr,
+            &place_ptr,
             .Some(pp) => {
               // Side-effecting place: the save waits for the pointer temp
               // (the place's ONE evaluation, taken after the RHS) and copies
               // the old value through it — same by-bytes rationale as the
               // `.None` arm below.
-              save := indent.clone();
+              mut(save) := indent.clone();
               save.push_string(get_variable_type_string(&lhs_type, temp_var_name.clone(), &context.base));
               save.push_str("; memcpy(&");
               save.push_string(temp_var_name.clone());
@@ -234,7 +234,7 @@ generate_assignment :: (fn(expr : &AstExpr, indent : &String, context : &Functio
               deferred_save_c_name = sanitize_for_c_identifier(&temp_var_name, false);
             },
             .None => {
-              save := indent.clone();
+              mut(save) := indent.clone();
               save.push_string(get_variable_type_string(&lhs_type, temp_var_name.clone(), &context.base));
               // Copy the bytes, never a typed load: the destination may be
               // uninitialized (a container's next slot, an `unsafe(p.* = v)` into
@@ -272,11 +272,11 @@ generate_assignment :: (fn(expr : &AstExpr, indent : &String, context : &Functio
         // previously emitted NOTHING, so the deferred drop either dropped
         // calloc zero (silent leak) or referenced an undeclared temp.
         if(!is_unit_type(&lhs_type), {
-          (sm_field : Option(String)) = Option(String).None;
+          (mut(sm_field) : Option(String)) = Option(String).None;
           match(
-            context.state_machine_variables,
+            &context.state_machine_variables,
             .Some(smv) => {
-              (found_cv : Option(CapturedVariable)) = smv.get(temp_var_name.clone());
+              (mut(found_cv) : Option(CapturedVariable)) = smv.get(temp_var_name.clone());
               if(found_cv.is_none(), {
                 // First-match-by-name reading ENTRY fields — never derive
                 // emitted names from map keys (the PR #92 capture lesson).
@@ -301,7 +301,7 @@ generate_assignment :: (fn(expr : &AstExpr, indent : &String, context : &Functio
             },
             .None => ()
           );
-          save_sm := indent.clone();
+          mut(save_sm) := indent.clone();
           match(
             sm_field,
             .Some(fld) => {
@@ -337,7 +337,7 @@ generate_assignment :: (fn(expr : &AstExpr, indent : &String, context : &Functio
   // the local, never the not-yet-defined temp). Save/restore for nesting.
   prev_save_temp := context.current_assignment_save_temp.clone();
   match(
-    ei.variable_name,
+    &ei.variable_name,
     .Some(stn) => {
       context.current_assignment_save_temp = Option(String).Some(stn.clone());
     },
@@ -348,17 +348,17 @@ generate_assignment :: (fn(expr : &AstExpr, indent : &String, context : &Functio
     rhs_code := emit_deferred_dup_or_code(&rhs, _call_generate_expr(&rhs, indent.clone(), context), indent.clone(), context);
     // Same FTT degrade as the scalar arm below.
     if(rhs_code.starts_with("// Failed to transpile"), {
-      ftl := indent.clone();
+      mut(ftl) := indent.clone();
       ftl.push_string(&rhs_code);
       em.emit_string_line(&ftl);
       context.current_assignment_save_temp = prev_save_temp;
-      return(match(ei.variable_name, .Some(v) => sanitize_for_c_identifier(&v, false), .None => String.from("")));
+      return(match(&ei.variable_name, .Some(v) => sanitize_for_c_identifier(&v, false), .None => String.from("")));
     });
     // A side-effecting place is materialized ONCE here, AFTER the RHS: the
     // pointer temp is the place's single evaluation, and the save and the
     // store below both read and write through it.
     match(
-      place_ptr,
+      &place_ptr,
       .Some(pp) => em.emit_string_line(`${indent.clone()}${get_type_string(&lhs_type, &context.base)}* ${pp} = &(${lhs_code}); // Evaluate the place once`),
       .None => ()
     );
@@ -375,14 +375,14 @@ generate_assignment :: (fn(expr : &AstExpr, indent : &String, context : &Functio
     );
     if(is_init, {
       vt := get_variable_type_string(&lhs_type, _call_generate_expr(&lhs, indent.clone(), context), &context.base);
-      line := indent.clone();
+      mut(line) := indent.clone();
       line.push_string(&vt);
       line.push_str(" = ");
       line.push_string(&rhs_code);
       line.push_str(";");
       em.emit_string_line(&line);
     }, {
-      line := indent.clone();
+      mut(line) := indent.clone();
       line.push_string(place_read_code.clone());
       line.push_str(" = ");
       line.push_string(&rhs_code);
@@ -397,11 +397,11 @@ generate_assignment :: (fn(expr : &AstExpr, indent : &String, context : &Functio
     // convention as the return/tail FTT degrades — emit the whole statement
     // as the comment.
     if(rhs_code.starts_with("// Failed to transpile"), {
-      ftl := indent.clone();
+      mut(ftl) := indent.clone();
       ftl.push_string(&rhs_code);
       em.emit_string_line(&ftl);
       context.current_assignment_save_temp = prev_save_temp;
-      return(match(ei.variable_name, .Some(v) => sanitize_for_c_identifier(&v, false), .None => String.from("")));
+      return(match(&ei.variable_name, .Some(v) => sanitize_for_c_identifier(&v, false), .None => String.from("")));
     });
     // A side-effecting place is materialized ONCE here, AFTER the RHS: the
     // pointer temp is the place's single evaluation, and the save and the
@@ -460,6 +460,6 @@ generate_assignment :: (fn(expr : &AstExpr, indent : &String, context : &Functio
     }),
     .None => ()
   );
-  match(ei.variable_name, .Some(v) => sanitize_for_c_identifier(&v, false), .None => String.from(""))
+  match(&ei.variable_name, .Some(v) => sanitize_for_c_identifier(&v, false), .None => String.from(""))
 });
 export(generate_assignment);

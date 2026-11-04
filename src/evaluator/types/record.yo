@@ -106,7 +106,7 @@ evaluate_module_field :: (
       )
     );
   });
-  args := match(expr, .FnCall(_, _, Rc(a), _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+  args := match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
   label_expr := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
   type_expr := match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
   // Validate label identifier
@@ -120,7 +120,7 @@ evaluate_module_field :: (
       )
     );
   });
-  label := ast_expr_text(&label_expr).*;
+  label := ast_expr_text(&label_expr).*.clone();
   (env_mut : Environment) = env;
   // Evaluate type expression
   evaluated_te := evaluate_expression_raw(&type_expr, &env_mut, ctx, exn);

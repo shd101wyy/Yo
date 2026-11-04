@@ -1,0 +1,13 @@
+{ ArrayList } :: import("std/collections/array_list");
+{ println } :: import("std/fmt");
+_MoCl :: struct(n : i32);
+impl(_MoCl, Clone(clone : (fn(self : &Self) -> Self)(_MoCl(n : self.n))));
+impl(_MoCl, Drop(drop : (fn(self : &mut Self) -> unit)(())));
+A :: (fn(comptime(T) : Type, xs : &ArrayList(T), i : usize, where(T <: Clone)) -> T)(xs(i).clone());
+main :: (fn() -> unit)({
+  mut(raw) := ArrayList(struct(b : _MoCl, k : i32)).new();
+  raw.push(_(b : _MoCl(n : i32(4)), k : i32(1)));
+  a := A(struct(b : _MoCl, k : i32), &raw, usize(0));
+  println(`A ${a.b.n} ${a.k}`);
+});
+export(main);

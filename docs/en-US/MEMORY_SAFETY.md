@@ -19,7 +19,7 @@ That is the rule. It is enforced by removing UB-capable constructs from the user
 Everything you'd expect from a modern general-purpose language:
 
 - **Value types.** `i32`, `bool`, `str` (a view of STATIC string bytes — immortal backing), structs, enums, tuples, `Array(T, N)`.
-- **Heap-managed collections.** `ArrayList(T)`, `HashMap(K, V)`, `HashSet(T)`, `Deque(T)`, `String`.
+- **Heap-managed collections.** `ArrayList(T)`, `HashMap(K, V)`, `HashSet(T)`, `Deque(T)`, `String`. `ArrayList(T)` and `String` are uniquely owned values: a copy is a move or an explicit `.clone()`.
 - **Shared ownership.** Reference-semantics types — `ref(struct(...))` / `ref(enum(...))` (single-threaded Rc) — `Arc(T)` (atomic Rc for cross-thread sharing).
 - **Sum / option / result types.** `Option(T)`, `Result(T, E)`, your own `enum`s.
 - **Closures and higher-order functions** over safe types.
@@ -33,7 +33,7 @@ This is the default user experience. No pragma needed, no `addr_of(...)` calls, 
 { ArrayList } :: import("std/collections/array_list");
 
 main :: (fn() -> unit)({
-  list := ArrayList(i32).new();
+  mut(list) := ArrayList(i32).new();
   list.push(i32(1));
   list.push(i32(2));
   list.push(i32(3));
@@ -107,7 +107,7 @@ main :: (fn() -> unit)({
 });
 ```
 
-A borrow is **second-class** and exists in parameter position (`name : &mut T`, `name : &T`) and as a local binding (`name := &mut place`). A function returns a borrow only as a projection (`-> &mut T` yields a place rooted at one of its borrow parameters, reached through the subscript `x(i)` or a direct call `t.index_mut(i)`, whose result binds as a local borrow; see [INDEX_TRAIT.md](./INDEX_TRAIT.md#projections)), `&mut T` is a mode rather than a first-class type (`ArrayList(&mut T)` or a field `f : &mut T` is an error), and a borrow cannot leak into a struct field or a closure capture. A `&mut` argument or binding names a simple lvalue place (a variable, or a field path rooted at one); a binding through an RC object pins that object for its scope. A local borrow (`name := &mut place`, or the read-only `name := &place`) is live until its last use and freezes its place for that range: no write or move of it under a `&` borrow, no access at all except through the borrow under a `&mut` one (E0911) — so the borrowed storage is alive and unaliased for the whole borrow by construction. A local borrow also never crosses the function boundary: `return(<a place rooted at the borrow>)` and a body-tail yielding one are E0912; copy the value out into an owned local first (`v := y;`). Element places (`xs(i)`) are not bindable by hand; elements are borrowed only through `for(&mut coll, x => …)` (or the read-only `for(&coll, x => …)`), which holds a local borrow of the collection for the loop (so the body cannot write the collection, nor name it at all under `&mut`, E0911) and, while collections are reference objects, its runtime borrow flag against other handles. See [FLOWABILITY.md](./FLOWABILITY.md).
+A borrow is **second-class** and exists in parameter position (`name : &mut T`, `name : &T`) and as a local binding (`name := &mut place`). A function returns a borrow only as a projection (`-> &mut T` yields a place rooted at one of its borrow parameters, reached through the subscript `x(i)` or a direct call `t.index_mut(i)`, whose result binds as a local borrow; see [INDEX_TRAIT.md](./INDEX_TRAIT.md#projections)), `&mut T` is a mode rather than a first-class type (`ArrayList(&mut T)` or a field `f : &mut T` is an error), and a borrow cannot leak into a struct field or a closure capture. A `&mut` argument or binding names a simple lvalue place (a variable, or a field path rooted at one); a binding through an RC object pins that object for its scope. A local borrow (`name := &mut place`, or the read-only `name := &place`) is live until its last use and freezes its place for that range: no write or move of it under a `&` borrow, no access at all except through the borrow under a `&mut` one (E0911) — so the borrowed storage is alive and unaliased for the whole borrow by construction. A local borrow also never crosses the function boundary: `return(<a place rooted at the borrow>)` and a body-tail yielding one are E0912; copy the value out into an owned local first (`v := y;`). Element places (`xs(i)`) are not bindable by hand; elements are borrowed only through `for(&mut coll, x => …)` (or the read-only `for(&coll, x => …)`), which holds a local borrow of the collection for the loop (so the body cannot write the collection, nor name it at all under `&mut`, E0911) and, for a collection that is still a reference object (`HashMap` until its flip, a user `ref` collection), its runtime borrow flag against other handles; a value collection (`ArrayList`, `String`) has no other handle, so its static borrow is the whole check. See [FLOWABILITY.md](./FLOWABILITY.md).
 
 Use cases:
 
@@ -127,7 +127,7 @@ The language also closes the **dangling-view hole** that other languages with ra
 
 - `str` is the only built-in view type, and it can only refer to **static** string data (literals, `comptime_str`) — it is never backed by a heap buffer that could be freed under it.
 - **Range operations on collections copy.** `list(usize(1)..usize(3))` and `String` ranges produce an owned value, not a window into the source buffer — there is no heap-backed slice type to dangle.
-- **Element access hands out values, never interior pointers.** `xs.get(i)` returns the element — for reference-semantics elements that is a handle to the element _object_ (it mutates in place and survives the container's growth/realloc); for struct elements it is a copy, written back with `xs(i) = v`. No safe expression yields a pointer into a container's buffer, so growth invalidation is inexpressible.
+- **Element access hands out values, never interior pointers.** `xs.get(i)` returns the element — for reference-semantics elements (`ref(struct(...))`) that is a handle to the element _object_ (it mutates in place and survives the container's growth/realloc); for a `Copy` element it is a copy, written back with `xs(i) = v`; a `String` or other move-only element is copied out with `xs.get_cloned(i)` and written in place with `xs.with(i, s => …)`. No safe expression yields a pointer into a container's buffer, so growth invalidation is inexpressible.
 
 The walkthrough of these rules is in [FLOWABILITY.md](./FLOWABILITY.md); you don't need to know them to write safe code — the compiler rejects the dangerous shapes.
 

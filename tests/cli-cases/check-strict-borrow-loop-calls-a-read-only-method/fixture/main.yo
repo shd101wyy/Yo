@@ -26,16 +26,16 @@ impl(
   Bag,
   total : (fn(self : &Self) -> i32)({
     mut(t) := i32(0);
-    for(self.items, x => {
+    for(&self.items, x => {
       t = (t + x);
     });
     t
   })
 );
 main :: (fn() -> unit)({
-  xs := ArrayList(i32).new();
+  mut(xs) := ArrayList(i32).new();
   xs.push(i32(1));
-  bag := Bag(items : xs);
+  mut(bag) := Bag(items : xs);
   other := bag; // the body cannot name `bag` (E0911); the call goes through an alias
   (mut(seen) : i32) = i32(0);
   for(&mut bag, x => {

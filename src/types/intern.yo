@@ -65,7 +65,7 @@ _append_string_vec :: (fn(sb : &mut StringBuilder, xs : &ArrayList(String)) -> u
   n := xs.len();
   (i : usize) = usize(0);
   while(i < n, {
-    match(xs.get(i), .Some(s) => sb.write_string(&s), .None => ());
+    match(xs.get_cloned(i), .Some(s) => sb.write_string(&s), .None => ());
     sb.write_str(",");
     i = (i + usize(1));
   });
@@ -411,7 +411,12 @@ _intern_key_into :: (
           sb.write_str("}");
         });
       },
-      Rc(.TraitT(tnm, tatn, tfl, tft, tid, tisc, tsc, tnsc, tatcl, tatct)) => {
+      Rc(.TraitT(tnm, tatn_body, tid, tisc, tatcl, tatct)) => {
+        tatn := tatn_body.assoc_type_names();
+        tfl := tatn_body.field_labels();
+        tft := tatn_body.field_types();
+        tsc := tatn_body.self_constraints();
+        tnsc := tatn_body.neg_self_constraints();
         tok := String.from("Tr:");
         tok.push_string(&tid);
         if((tid.len() > usize(0)) && visited.contains(&tok), {
@@ -429,7 +434,7 @@ _intern_key_into :: (
           ntf := tft.len();
           (itf : usize) = usize(0);
           while(itf < ntf, {
-            match(tft.get(itf), .Some(x) => recur(&x, sb, depth + usize(1), visited), .None => ());
+            match(tft.get_cloned(itf), .Some(x) => recur(&x, sb, depth + usize(1), visited), .None => ());
             sb.write_str(",");
             itf = (itf + usize(1));
           });
@@ -443,7 +448,7 @@ _intern_key_into :: (
           nsc := tsc.len();
           (isc : usize) = usize(0);
           while(isc < nsc, {
-            match(tsc.get(isc), .Some(x) => recur(&x, sb, depth + usize(1), visited), .None => ());
+            match(tsc.get_cloned(isc), .Some(x) => recur(&x, sb, depth + usize(1), visited), .None => ());
             sb.write_str(",");
             isc = (isc + usize(1));
           });
@@ -451,7 +456,7 @@ _intern_key_into :: (
           nnc := tnsc.len();
           (inc : usize) = usize(0);
           while(inc < nnc, {
-            match(tnsc.get(inc), .Some(x) => recur(&x, sb, depth + usize(1), visited), .None => ());
+            match(tnsc.get_cloned(inc), .Some(x) => recur(&x, sb, depth + usize(1), visited), .None => ());
             sb.write_str(",");
             inc = (inc + usize(1));
           });
@@ -478,7 +483,11 @@ _intern_key_into :: (
       // FIRST interned variant — the stage-2 statx cluster (single-effect
       // closure param typed IoExn). Render the full distinguishing content,
       // same shape as the TraitT/EnumT arms (visited-guarded for cycles).
-      Rc(.SomeT(smid, smnm, smfl, smpt, smrtt, smrtl, smntt, smntl, smkft, smrcp)) => {
+      Rc(.SomeT(smid, smnm, smfl, smpt, smrtt_bnd, smkft, smrcp)) => {
+        smrtt := smrtt_bnd.required();
+        smrtl := smrtt_bnd.required_levels();
+        smntt := smrtt_bnd.negative();
+        smntl := smrtt_bnd.negative_levels();
         tok := String.from("So:");
         tok.push_string(&smid);
         if((smid.len() > usize(0)) && visited.contains(&tok), {
@@ -496,7 +505,7 @@ _intern_key_into :: (
           nrt := smrtt.len();
           (irt : usize) = usize(0);
           while(irt < nrt, {
-            match(smrtt.get(irt), .Some(x) => recur(&x, sb, depth + usize(1), visited), .None => ());
+            match(smrtt.get_cloned(irt), .Some(x) => recur(&x, sb, depth + usize(1), visited), .None => ());
             sb.write_str(",");
             irt = (irt + usize(1));
           });
@@ -512,7 +521,7 @@ _intern_key_into :: (
           nnt := smntt.len();
           (int_ : usize) = usize(0);
           while(int_ < nnt, {
-            match(smntt.get(int_), .Some(x) => recur(&x, sb, depth + usize(1), visited), .None => ());
+            match(smntt.get_cloned(int_), .Some(x) => recur(&x, sb, depth + usize(1), visited), .None => ());
             sb.write_str(",");
             int_ = (int_ + usize(1));
           });
@@ -765,7 +774,8 @@ _ti_walk :: (fn(t : &TypeValue, depth : usize) -> unit)({
         i_vf = (i_vf + usize(1));
       });
     },
-    Rc(.SomeT({ required_trait_types : rtt })) => {
+    Rc(.SomeT({ bounds : rtt_bnd })) => {
+      rtt := rtt_bnd.required();
       g_ti_some = (g_ti_some + usize(1));
       _ti_list(rtt.len());
     },
@@ -839,7 +849,7 @@ purge_type_intern_owned_by :: (fn(owner : &String) -> unit)({
   (i : usize) = usize(0);
   while(i < keys.len(), {
     match(
-      keys.get(i),
+      keys.get_cloned(i),
       .Some(k) => {
         _r := g_type_intern.with_mut(m => m.remove(&k));
       },
@@ -852,12 +862,12 @@ purge_type_intern_owned_by :: (fn(owner : &String) -> unit)({
 intern_type :: (fn(t : &TypeValue) -> TypeValue)({
   key := type_intern_key(t, usize(0), HashSet(String).new());
   match(
-    g_type_intern.with(m => m.get(&key)),
+    g_type_intern.with(m => m.get_cloned(&key)),
     .Some(canon) => canon,
     .None => {
       owned_keys_record(&g_type_intern_owned, key.clone());
-      g_type_intern.with_mut({ key, t : Rc.clone(t) }(m) => m.insert(key.clone(), Rc.clone(t)));
-      match(g_type_intern.with(m => m.get(&key)), .Some(c) => c, .None => Rc.new(TypeValueNode.Unit))
+      g_type_intern.with_mut({ key : key.clone(), t : Rc.clone(t) }(m) => m.insert(key.clone(), Rc.clone(t)));
+      match(g_type_intern.with(m => m.get_cloned(&key)), .Some(c) => c, .None => Rc.new(TypeValueNode.Unit))
     }
   )
 });

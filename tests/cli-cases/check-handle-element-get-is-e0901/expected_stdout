@@ -1,0 +1,5 @@
+error[E0901]: use of moved value: cannot copy what `ArrayList(Rc(i32)).get` copies (its element), whose type `Rc(i32)` is a counted handle, copied only explicitly (`Rc.clone(h)`), and it cannot be moved either: it is the value a pointer or reference points to, and that storage still owns it (a dereference copies, it never moves).
+--> main.yo:10:10
+help: `Rc(i32)` is a counted handle, and a copy of a handle is a new owner, so it is spelled where it is made (plans/VALUES_BY_DEFAULT.md decision 17): wrap the place in `Rc.clone(...)` for a second handle, lend it to a `&T` parameter, or move its whole owner. Read it in place with `xs(i)`, copy it with `xs.get_cloned(...)`, or write through it with `xs.with(i, ...)`.
+help: run `yo explain E0901` for more information
+note: raised here, inside the standard library

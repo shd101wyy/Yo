@@ -51,7 +51,7 @@ _PAD :: u8(61); // '='
 // ============================================================================
 _encode_with :: (fn(data : &ArrayList(u8), alpha : str, pad : bool) -> String)({
   n := data.len();
-  out := ArrayList(u8).with_capacity(((n + usize(2)) / usize(3)) * usize(4));
+  mut(out) := ArrayList(u8).with_capacity(((n + usize(2)) / usize(3)) * usize(4));
   mut(i) := usize(0);
   while(i < n, i = (i + usize(3)), {
     b0 := data(i);
@@ -116,7 +116,7 @@ _decode_with_res :: (fn(s : &String, alpha : str) -> Result(ArrayList(u8), Encod
     },
     true => ()
   );
-  out := ArrayList(u8).with_capacity((len * usize(3)) / usize(4));
+  mut(out) := ArrayList(u8).with_capacity((len * usize(3)) / usize(4));
   mut(i) := usize(0);
   while(i < len, i = (i + usize(4)), {
     c0 := match(

@@ -33,7 +33,7 @@ Use this skill when you need to:
 
 - `"` creates `str` in runtime code; template strings create `String`. In `comptime` functions, `"hello"` is `comptime_str` (distinct from `str`).
 - Prefer template strings for constant `String` values.
-- `String`: `clone()` is the independent copy (a plain `t := s` still shares a non-empty buffer until VALUES_BY_DEFAULT V2b), and writing a by-value `String` parameter or a `for`/`match` binding is E0908 — take `s : &mut String` or return the new string. Read bytes with `byte_at(i)` / `get_byte(i)`; there is no runtime `s(i)`.
+- `String` and `ArrayList` are uniquely owned values (B8): `t := s` MOVES (a later use of `s` is E0901), `clone()` is the independent copy, and writing a by-value `String` parameter or a `for`/`match` binding is E0908 — take `s : &mut String` or return the new string. Read bytes with `byte_at(i)` / `get_byte(i)`; there is no runtime `s(i)`.
 - Prefer `print`/`println` from `std/fmt` over `printf`.
 - `Option(T)` and `Result(T, E)` are the default nullable/error carriers.
 - Use `rune` for Unicode code points, not `Char`.

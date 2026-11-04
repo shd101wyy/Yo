@@ -40,8 +40,8 @@ _is_word_byte :: (fn(b : u8) -> bool)(
 /// skipped the arm's result-temp assignment and left the temp uninitialized
 /// (SIGBUS; issues/fixed/cond-arm-return-inside-string-literal.md).
 _inside_c_string_literal :: (fn(s : &String, idx : usize) -> bool)({
-  (in_str : bool) = false;
-  (i : usize) = usize(0);
+  (mut(in_str) : bool) = false;
+  (mut(i) : usize) = usize(0);
   while(i < idx, {
     b := s.byte_at(i);
     cond(
@@ -71,10 +71,10 @@ _byte_index_of :: (fn(s : &String, word : &String, from : usize) -> Option(usize
   if((m == usize(0)) || (n < m), {
     return(Option(usize).None);
   });
-  (i : usize) = from;
+  (mut(i) : usize) = from;
   while((i + m) <= n, {
-    (j : usize) = usize(0);
-    (hit : bool) = true;
+    (mut(j) : usize) = usize(0);
+    (mut(hit) : bool) = true;
     while((j < m) && hit, {
       a := match(sb.get_byte(i + j), .Some(x) => x, .None => u8(0));
       b := match(wb.get_byte(j), .Some(x) => x, .None => u8(1));
@@ -97,7 +97,7 @@ _contains_word_return :: (fn(s : &String) -> bool)({
   wlen := usize(6);
   // BYTE length + byte-based find — see _byte_index_of.
   slen := s.len();
-  (from : usize) = usize(0);
+  (mut(from) : usize) = usize(0);
   while(true, {
     match(
       _byte_index_of(s, word.clone(), from),
@@ -136,7 +136,7 @@ _maybe_address_of :: (fn(value_expr : &AstExpr, code : String, cond_outer_is_ptr
   if(!cond_outer_is_ptr, code, {
     arm_is_ptr := match(context.base.get_expr_info(value_expr), .Some(ei) => is_pointer_type(&ei.ty), .None => true);
     if(arm_is_ptr, code, {
-      out := String.from("&(");
+      mut(out) := String.from("&(");
       out.push_string(&code);
       out.push_str(")");
       out
@@ -150,12 +150,12 @@ _is_cf_code :: (fn(value_expr : &AstExpr, code : &String, context : &FunctionGen
 );
 /// Concatenate `current` then `prev` (both optional) into a fresh drop list.
 _concat_drops :: (fn(current : &Option(ArrayList(AstExpr)), prev : &Option(ArrayList(AstExpr))) -> ArrayList(AstExpr))({
-  out := ArrayList(AstExpr).new();
+  mut(out) := ArrayList(AstExpr).new();
   match(
     current,
     .Some(cd) => {
       n := cd.len();
-      (i : usize) = usize(0);
+      (mut(i) : usize) = usize(0);
       while(i < n, {
         match(
           cd.get(i),
@@ -173,7 +173,7 @@ _concat_drops :: (fn(current : &Option(ArrayList(AstExpr)), prev : &Option(Array
     prev,
     .Some(pp) => {
       n := pp.len();
-      (i : usize) = usize(0);
+      (mut(i) : usize) = usize(0);
       while(i < n, {
         match(
           pp.get(i),
@@ -208,7 +208,7 @@ _emit_unassigned_arm_code :: (fn(value : &AstExpr, value_code : &String, indent 
   );
   if((value_code.len() > usize(0)) && is_stmt, {
     em := context.base.emitter;
-    line := indent.clone();
+    mut(line) := indent.clone();
     line.push_string(value_code);
     line.push_str(";");
     em.emit_string_line(&line);
@@ -292,22 +292,22 @@ _generate_dup_arm_value :: (fn(value : &AstExpr, value_indent : &String, context
   raw_code := _call_generate_expr(value, value_indent.clone(), context);
   vei.variable_name = saved_arm_vn;
   if(_is_cf_code(value, raw_code.clone(), context), {
-    cfline := value_indent.clone();
+    mut(cfline) := value_indent.clone();
     cfline.push_string(raw_code.clone());
     cfline.push_str(";");
     em.emit_string_line(&cfline);
     return(Option(String).None);
   });
-  (final_code : String) = raw_code.clone();
-  (declared_temp : bool) = false;
+  (mut(final_code) : String) = raw_code.clone();
+  (mut(declared_temp) : bool) = false;
   match(
-    vei.variable_name,
+    &vei.variable_name,
     .Some(vvn) => {
       vtv := get_variable_name_for_codegen_at(ast_expr_id(value), vvn.clone(), Option(Environment).Some(vei.env));
       // Skip the temp-var declaration when value is an inout-param atom —
       // `T name = (*name);` would shadow the pointer parameter
       // (issues/fixed/inout-multi-stmt-body-shadow.md).
-      (is_inout_atom : bool) = false;
+      (mut(is_inout_atom) : bool) = false;
       if(ast_expr_is_atom(value), {
         iv_vars := scope_variables(ast_expr_id(value), &vei.env, vvn.clone());
         if(iv_vars.len() > usize(0), {
@@ -324,7 +324,7 @@ _generate_dup_arm_value :: (fn(value : &AstExpr, value_indent : &String, context
       // state-machine slot (see handle_atom_deferred_dup in return.yo).
       v_self := is_self_named_atom(value, vvn.clone());
       if(!is_inout_atom && !v_self && !(vtv == raw_code), {
-        dline := value_indent.clone();
+        mut(dline) := value_indent.clone();
         dline.push_string(get_type_string(&vei.ty, &context.base));
         dline.push_str(" ");
         dline.push_string(vtv.clone());
@@ -341,17 +341,17 @@ _generate_dup_arm_value :: (fn(value : &AstExpr, value_indent : &String, context
   );
   // Apply the dup: named dup temp when available, else
   // the drift-safe escape hatch — dup the generated value directly.
-  (dup_named : bool) = false;
+  (mut(dup_named) : bool) = false;
   arm_dup_list := match(expr_info_deferred_dup_expressions(&vei), .Some(d) => d, .None => ArrayList(AstExpr).new());
   match(
     arm_dup_list.get(usize(0)),
     .Some(vdup0) => match(
       context.base.get_expr_info(&vdup0),
       .Some(vdup_info) => match(
-        vdup_info.variable_name,
+        &vdup_info.variable_name,
         .Some(dvn) => {
           dtv := get_variable_name_for_codegen_at(ast_expr_id(&vdup0), dvn.clone(), Option(Environment).Some(vdup_info.env));
-          dline2 := value_indent.clone();
+          mut(dline2) := value_indent.clone();
           dline2.push_string(get_type_string(&vei.ty, &context.base));
           dline2.push_str(" ");
           dline2.push_string(dtv.clone());
@@ -372,7 +372,7 @@ _generate_dup_arm_value :: (fn(value : &AstExpr, value_indent : &String, context
   if(
     !dup_named,
     if(declared_temp, {
-      fline := value_indent.clone();
+      mut(fline) := value_indent.clone();
       fline.push_string(generate_dup_code_for_value(final_code.clone(), &vei.ty, context));
       fline.push_str(";");
       em.emit_string_line(&fline);
@@ -392,7 +392,7 @@ _emit_value_arm_body :: (fn(value : &AstExpr, value_indent : &String, temp_var_o
       .Some(final_code) => match(
         temp_var_opt,
         .Some(tv) => if(!is_unit, {
-          tline := value_indent.clone();
+          mut(tline) := value_indent.clone();
           tline.push_string(tv.clone());
           tline.push_str(" = ");
           tline.push_string(_maybe_address_of(value, final_code.clone(), cond_outer_is_ptr, context));
@@ -407,7 +407,7 @@ _emit_value_arm_body :: (fn(value : &AstExpr, value_indent : &String, temp_var_o
   });
   value_code := _call_generate_expr(value, value_indent.clone(), context);
   if(_is_cf_code(value, value_code.clone(), context), {
-    line := value_indent.clone();
+    mut(line) := value_indent.clone();
     line.push_string(value_code.clone());
     line.push_str(";");
     em.emit_string_line(&line);
@@ -415,7 +415,7 @@ _emit_value_arm_body :: (fn(value : &AstExpr, value_indent : &String, temp_var_o
     assigned := match(
       temp_var_opt,
       .Some(tv) => if(!is_unit, {
-        line := value_indent.clone();
+        mut(line) := value_indent.clone();
         line.push_string(tv.clone());
         line.push_str(" = ");
         line.push_string(_maybe_address_of(value, value_code.clone(), cond_outer_is_ptr, context));
@@ -445,8 +445,8 @@ _emit_begin_arm :: (fn(value : &AstExpr, value_indent : &String, temp_var_opt : 
   n := begin_args.len();
   if(n > usize(0), {
     // All statements except the last.
-    (j : usize) = usize(0);
-    (stop : bool) = false;
+    (mut(j) : usize) = usize(0);
+    (mut(stop) : bool) = false;
     while((j < (n - usize(1))) && !stop, {
       match(
         begin_args.get(j),
@@ -456,7 +456,7 @@ _emit_begin_arm :: (fn(value : &AstExpr, value_indent : &String, temp_var_opt : 
             note_line_position(&em, &barg);
             arg_code := _call_generate_expr(&barg, value_indent.clone(), context);
             if((arg_code.len() > usize(0)) && !is_temp_variable_name(&bei.env.module_path.*, arg_code.clone()), {
-              line := value_indent.clone();
+              mut(line) := value_indent.clone();
               line.push_string(&arg_code);
               line.push_str(";");
               em.emit_string_line(&line);
@@ -487,7 +487,7 @@ _emit_begin_arm :: (fn(value : &AstExpr, value_indent : &String, temp_var_opt : 
           has_final_dups := match(expr_info_deferred_dup_expressions(&fei), .Some(d) => (d.len() > usize(0)), .None => false);
           if(has_final_dups, {
             match(
-              fei.variable_name,
+              fei.variable_name.clone(),
               .Some(fvn) => {
                 fei.variable_name = Option(String).None;
                 raw_code := _call_generate_expr(&final_expr, value_indent.clone(), context);
@@ -496,7 +496,7 @@ _emit_begin_arm :: (fn(value : &AstExpr, value_indent : &String, temp_var_opt : 
                 // Skip the temp-var declaration when final_expr is an inout-param
                 // atom — `T name = (*name);` would shadow the pointer parameter
                 // (issues/fixed/inout-multi-stmt-body-shadow.md).
-                (is_inout_atom : bool) = false;
+                (mut(is_inout_atom) : bool) = false;
                 if(ast_expr_is_atom(&final_expr), {
                   fv_vars := scope_variables(ast_expr_id(&final_expr), &fei.env, fvn.clone());
                   if(fv_vars.len() > usize(0), {
@@ -511,7 +511,7 @@ _emit_begin_arm :: (fn(value : &AstExpr, value_indent : &String, temp_var_opt : 
                 });
                 f_self := is_self_named_atom(&final_expr, fvn.clone());
                 if(!is_inout_atom && !f_self && !(ftv == raw_code), {
-                  dline := value_indent.clone();
+                  mut(dline) := value_indent.clone();
                   dline.push_string(get_type_string(&fei.ty, &context.base));
                   dline.push_str(" ");
                   dline.push_string(ftv.clone());
@@ -529,7 +529,7 @@ _emit_begin_arm :: (fn(value : &AstExpr, value_indent : &String, temp_var_opt : 
             //; else assign the generated final expr. An element-wise dup's
             // temp is one element (`element_wise_dup_target`): the final
             // expr, retained in place, is the value then.
-            (dup_result_used : bool) = false;
+            (mut(dup_result_used) : bool) = false;
             f_dup_list := match(expr_info_deferred_dup_expressions(&fei), .Some(d) => d, .None => ArrayList(AstExpr).new());
             match(
               f_dup_list.get(usize(0)),
@@ -538,13 +538,13 @@ _emit_begin_arm :: (fn(value : &AstExpr, value_indent : &String, temp_var_opt : 
                 match(
                   context.base.get_expr_info(&fdup0),
                   .Some(fdup_info) => match(
-                    fdup_info.variable_name,
+                    &fdup_info.variable_name,
                     .Some(fdvn) => {
                       fdtv := get_variable_name_for_codegen_at(ast_expr_id(&fdup0), fdvn.clone(), Option(Environment).Some(fdup_info.env));
                       match(
                         temp_var_opt,
                         .Some(tv) => if(!is_unit, {
-                          tline := value_indent.clone();
+                          mut(tline) := value_indent.clone();
                           tline.push_string(tv.clone());
                           tline.push_str(" = ");
                           tline.push_string(fdtv.clone());
@@ -569,7 +569,7 @@ _emit_begin_arm :: (fn(value : &AstExpr, value_indent : &String, temp_var_opt : 
                 match(
                   temp_var_opt,
                   .Some(tv) => if(!is_unit, {
-                    line := value_indent.clone();
+                    mut(line) := value_indent.clone();
                     line.push_string(tv.clone());
                     line.push_str(" = ");
                     line.push_string(_maybe_address_of(&final_expr, final_code2.clone(), cond_outer_is_ptr, context));
@@ -585,14 +585,14 @@ _emit_begin_arm :: (fn(value : &AstExpr, value_indent : &String, temp_var_opt : 
             if(
               final_code.len() > usize(0),
               if(_is_cf_code(&final_expr, final_code.clone(), context), {
-                line := value_indent.clone();
+                mut(line) := value_indent.clone();
                 line.push_string(final_code.clone());
                 line.push_str(";");
                 em.emit_string_line(&line);
               }, match(
                 temp_var_opt,
                 .Some(tv) => if(!is_unit, {
-                  line := value_indent.clone();
+                  mut(line) := value_indent.clone();
                   line.push_string(tv.clone());
                   line.push_str(" = ");
                   line.push_string(_maybe_address_of(&final_expr, final_code.clone(), cond_outer_is_ptr, context));
@@ -643,7 +643,7 @@ _emit_cond_if_head :: (fn(condition : &AstExpr, indent : &String, context : &Fun
     generate_deferred_drop_expressions(condition, indent.clone(), context);
     em.emit_string_line(`${indent.clone()}if (${cv}) {`);
   }, {
-    h := indent.clone();
+    mut(h) := indent.clone();
     h.push_str("if (");
     h.push_string(&cc);
     h.push_str(") {");
@@ -663,9 +663,9 @@ generate_cond_expression :: (fn(expr : &AstExpr, indent : &String, context : &Fu
   args := match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
   nargs := args.len();
   // First pass: index of the first non-(compile-time-false) arm.
-  (first_nf : usize) = nargs;
-  (found_nf : bool) = false;
-  (i : usize) = usize(0);
+  (mut(first_nf) : usize) = nargs;
+  (mut(found_nf) : bool) = false;
+  (mut(i) : usize) = usize(0);
   while((i < nargs) && !found_nf, {
     match(
       args.get(i),
@@ -689,7 +689,7 @@ generate_cond_expression :: (fn(expr : &AstExpr, indent : &String, context : &Fu
   });
   // Can we collapse to direct value generation (first non-false arm is a
   // compile-time true)?
-  (can_opt : bool) = false;
+  (mut(can_opt) : bool) = false;
   if(found_nf, {
     match(
       args.get(first_nf),
@@ -714,9 +714,9 @@ generate_cond_expression :: (fn(expr : &AstExpr, indent : &String, context : &Fu
   if(
     !is_unit && !can_opt,
     match(
-      temp_var_opt,
+      &temp_var_opt,
       .Some(tv) => {
-        d := indent.clone();
+        mut(d) := indent.clone();
         d.push_string(get_type_string(&value_type, &context.base));
         d.push_str(" ");
         d.push_string(tv.clone());
@@ -776,18 +776,18 @@ generate_cond_expression :: (fn(expr : &AstExpr, indent : &String, context : &Fu
             if(
               is_unit || temp_var_opt.is_none(),
               if(cf_unit, {
-                cf_line := indent.clone();
+                mut(cf_line) := indent.clone();
                 cf_line.push_string(value_code.clone());
                 cf_line.push_str(";");
                 em.emit_string_line(&cf_line);
               }, _emit_unassigned_arm_code(&value, value_code.clone(), indent.clone(), context))
             );
             match(
-              temp_var_opt,
+              &temp_var_opt,
               .Some(tv) => if(!is_unit, {
                 is_cf := _is_cf_code(&value, value_code.clone(), context);
                 if((value_code.len() > usize(0)) && !is_cf && !(tv_declared_by_arm && (value_code == tv)), {
-                  line := indent.clone();
+                  mut(line) := indent.clone();
                   // The collapse-to-direct path skips this cond's own temp
                   // declaration because the evaluator ADOPTS the arm body's
                   // temp: normally
@@ -815,7 +815,7 @@ generate_cond_expression :: (fn(expr : &AstExpr, indent : &String, context : &Fu
                   line.push_str(";");
                   em.emit_string_line(&line);
                 }, if((value_code.len() > usize(0)) && is_cf, {
-                  line := indent.clone();
+                  mut(line) := indent.clone();
                   line.push_string(value_code.clone());
                   line.push_str(";");
                   em.emit_string_line(&line);
@@ -857,9 +857,9 @@ generate_cond_expression :: (fn(expr : &AstExpr, indent : &String, context : &Fu
     return(if(is_unit, String.from(""), match(temp_var_opt, .Some(tv) => tv, .None => String.from(""))));
   });
   // Full if/else chain.
-  (current_indent : String) = indent.clone();
-  (else_depth : usize) = usize(0);
-  (has_emitted : bool) = false;
+  (mut(current_indent) : String) = indent.clone();
+  (mut(else_depth) : usize) = usize(0);
+  (mut(has_emitted) : bool) = false;
   // A comptime-TRUE condition in a non-first arm is the chain's final `else`:
   // every arm after it is unreachable and must NOT be emitted — the arm is
   // written as a bare `else { … }` (no `if`), so a following arm's `else {`
@@ -867,8 +867,8 @@ generate_cond_expression :: (fn(expr : &AstExpr, indent : &String, context : &Fu
   // Reached by `cond(<runtime> => a, sizeof(T) == usize(0) => b, true => c)`
   // specialized at a zero-sized T (std/collections/array_list.yo). The
   // first-arm case never gets here: `can_opt` collapses it to direct emission.
-  (ct_true_emitted : bool) = false;
-  (i2 : usize) = usize(0);
+  (mut(ct_true_emitted) : bool) = false;
+  (mut(i2) : usize) = usize(0);
   while((i2 < nargs) && !ct_true_emitted, {
     match(
       args.get(i2),
@@ -885,7 +885,7 @@ generate_cond_expression :: (fn(expr : &AstExpr, indent : &String, context : &Fu
                 is_ct_true := match(cbool, .Some(b) => b, .None => false);
                 if(!has_emitted, {
                   if(is_ct_true, {
-                    h := current_indent.clone();
+                    mut(h) := current_indent.clone();
                     h.push_str("{");
                     em.emit_string_line(&h);
                   }, {
@@ -903,7 +903,7 @@ generate_cond_expression :: (fn(expr : &AstExpr, indent : &String, context : &Fu
                   });
                   has_emitted = true;
                 }, {
-                  eh := current_indent.clone();
+                  mut(eh) := current_indent.clone();
                   eh.push_str("else {");
                   em.emit_string_line(&eh);
                   else_depth = (else_depth + usize(1));
@@ -914,7 +914,7 @@ generate_cond_expression :: (fn(expr : &AstExpr, indent : &String, context : &Fu
                   });
                 });
                 value_indent := if(has_emitted && is_ct_true, current_indent.clone(), {
-                  vi := current_indent.clone();
+                  mut(vi) := current_indent.clone();
                   vi.push_str("  ");
                   vi
                 });
@@ -924,7 +924,7 @@ generate_cond_expression :: (fn(expr : &AstExpr, indent : &String, context : &Fu
                   _emit_value_arm(&value, value_indent.clone(), &temp_var_opt, is_unit, cond_outer_is_ptr, context);
                 });
                 if(!(has_emitted && is_ct_true), {
-                  cl := current_indent.clone();
+                  mut(cl) := current_indent.clone();
                   cl.push_str("}");
                   em.emit_string_line(&cl);
                 });
@@ -943,10 +943,10 @@ generate_cond_expression :: (fn(expr : &AstExpr, indent : &String, context : &Fu
     i2 = (i2 + usize(1));
   });
   // Close the else blocks.
-  (c : usize) = usize(0);
+  (mut(c) : usize) = usize(0);
   while(c < else_depth, {
     current_indent = current_indent.substring(usize(0), current_indent.len() - usize(2));
-    cl := current_indent.clone();
+    mut(cl) := current_indent.clone();
     cl.push_str("}");
     em.emit_string_line(&cl);
     c = (c + usize(1));
@@ -957,7 +957,7 @@ generate_cond_expression :: (fn(expr : &AstExpr, indent : &String, context : &Fu
   if(
     !is_unit && !can_opt,
     match(
-      temp_var_opt,
+      &temp_var_opt,
       .Some(tv) => {
         em.mark_declared_in_scope(tv.clone());
       },

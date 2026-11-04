@@ -64,14 +64,14 @@ test("a value of one enum is not accepted where the other is expected", {
   // fix carries its own RED test.
 });
 test("HashMap and HashSet in one closure — error enums of the same shape", {
-  m := HashMap(i32, i32).new();
+  mut(m) := HashMap(i32, i32).new();
   // D9: `insert` is infallible and yields the PREVIOUS value / "was new"
   // directly. This test exists for the ERROR-ENUM specializations, so it uses
   // `try_insert`, which still carries the two same-shaped error enums that
   // gave the test its name.
   r := m.try_insert(i32(7), i32(42));
   assert(match(r, .Ok(_) => true, .Err(_) => false), "insert must succeed");
-  s := HashSet(i32).new();
+  mut(s) := HashSet(i32).new();
   sr := s.try_insert(i32(9));
   assert(match(sr, .Ok(_) => true, .Err(_) => false), "set insert must succeed");
   assert(m.get(i32(7)).is_some(), "key 7 present");
@@ -133,14 +133,14 @@ test("two recursive enums of one shape have distinct ArrayList(Self) instantiati
     (ys : ArrayList(RecA)) = xs;
     consume(ys);
   });
-  xs := ArrayList(RecB).new();
+  mut(xs) := ArrayList(RecB).new();
   xs.push(RecB.Leaf(v : i32(1)));
-  ys := ArrayList(RecB).new();
+  mut(ys) := ArrayList(RecB).new();
   ys.push(RecB.Leaf(v : i32(2)));
   assert(RecB.Node(kids : xs) != RecB.Node(kids : ys), "RecB compares its own elements structurally");
-  ra := ArrayList(RecA).new();
+  mut(ra) := ArrayList(RecA).new();
   ra.push(RecA.Leaf(v : i32(1)));
-  bs := ArrayList(RecA).new();
+  mut(bs) := ArrayList(RecA).new();
   bs.push(RecA.Leaf(v : i32(2)));
   assert(RecA.Node(kids : ra) == RecA.Node(kids : bs), "RecA keeps its always-true ==");
 });

@@ -21,7 +21,7 @@ _synth_ok :: (
   fn(expected_ty : &TypeValue, ee : &Environment, given_ty : &TypeValue, ge : &Environment) -> bool
 )({
   local_exn := Exception(throw : (_err -> unwind(false)));
-  checked := ArrayList(TypePair).new();
+  mut(checked) := ArrayList(TypePair).new();
   (opts : Option(SynthesizeOptions)) = Option(SynthesizeOptions).None;
   _r := synthesize_types(expected_ty, ee, given_ty, ge, &mut checked, &opts, local_exn);
   true
@@ -40,14 +40,14 @@ test("synthesize_types: generic inside a Func param binds structurally", {
   ge := Environment.new(Rc.new(`test`));
   st := t_some_t(`T`, usize(0));
   // expected: fn(a : T) -> bool ; given: fn(a : i32) -> bool  ⇒ T := i32
-  pl_e := ArrayList(String).new();
+  mut(pl_e) := ArrayList(String).new();
   pl_e.push(`a`);
-  pt_e := ArrayList(TypeValue).new();
+  mut(pt_e) := ArrayList(TypeValue).new();
   pt_e.push(Rc.clone(st));
   expected_fn := t_func_simple(pl_e.clone(), pt_e.clone(), t_bool());
-  pl_g := ArrayList(String).new();
+  mut(pl_g) := ArrayList(String).new();
   pl_g.push(`a`);
-  pt_g := ArrayList(TypeValue).new();
+  mut(pt_g) := ArrayList(TypeValue).new();
   pt_g.push(t_i32());
   given_fn := t_func_simple(pl_g.clone(), pt_g.clone(), t_bool());
   ok := _synth_ok(&expected_fn, &ee, &given_fn, &ge);

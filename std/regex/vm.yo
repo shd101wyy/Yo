@@ -54,6 +54,7 @@ pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { NfaProgram, ClassEntry } :: import("./compiler.yo");
 { RegexFlags } :: import("./flags.yo");
+{ replace } :: import("../mem.yo");
 utf8 :: import("../encoding/utf8.yo");
 /// One live NFA thread — a position in the program plus the captures it has
 /// recorded so far. Reference-counted, but never shared: `fork` copies the
@@ -77,7 +78,7 @@ impl(
   /// with one `memset` of `0xFF` instead of a per-slot loop — which is why the
   /// sentinel is MAX rather than 0 (0 is a legal byte offset).
   new : (fn(pc : usize, n_slots : usize) -> Self)({
-    s := ArrayList(usize).with_capacity(n_slots);
+    mut(s) := ArrayList(usize).with_capacity(n_slots);
     // usize.MAX = 0xFF..FF, so memset with 0xFF fills each byte
     s.resize_with_byte(n_slots, int(255));
     Self(pc : pc, slots : s)
@@ -90,7 +91,7 @@ impl(
   /// forks rather than mutating, so a thread's captures are only ever written
   /// by the thread that owns them.
   fork : (fn(self : &Self, new_pc : usize) -> Self)({
-    new_slots := ArrayList(usize).with_capacity(self.slots.len());
+    mut(new_slots) := ArrayList(usize).with_capacity(self.slots.len());
     match(
       self.slots.ptr(),
       .Some(src) => new_slots.extend_from_ptr(src, self.slots.len()),
@@ -164,9 +165,9 @@ impl(
   new : (fn(program : &NfaProgram, flags : RegexFlags, input : &String) -> Self)({
     n_slots := ((program.n_groups + usize(1)) * usize(2));
     n_instr := program.instructions.len();
-    seen := ArrayList(bool).with_capacity(n_instr);
+    mut(seen) := ArrayList(bool).with_capacity(n_instr);
     seen.resize_with_byte(n_instr, int(0));
-    next_seen := ArrayList(bool).with_capacity(n_instr);
+    mut(next_seen) := ArrayList(bool).with_capacity(n_instr);
     next_seen.resize_with_byte(n_instr, int(0));
     Self(
       _program : program,
@@ -338,7 +339,11 @@ impl(
           },
           true => ()
         );
-        new_t := NfaThread(pc : (thread.pc + usize(1)), slots : thread.slots);
+        // The slot list moves on to the thread that follows: the thread
+        // before the Save is dead (no caller reads it after `_add_thread`),
+        // so a copy in the matcher's hot loop would buy nothing (B8,
+        // decision 19's `replace`).
+        new_t := NfaThread(pc : (thread.pc + usize(1)), slots : replace(&mut thread.slots, ArrayList(usize).new()));
         recur(self, list, &new_t, byte_pos, seen);
       },
       .AssertStart => {
@@ -402,7 +407,7 @@ impl(
     unset := usize.MAX;
     mut(sub_current) := ArrayList(NfaThread).new();
     mut(sub_next) := ArrayList(NfaThread).new();
-    sub_seen := ArrayList(bool).with_capacity(self._program.instructions.len());
+    mut(sub_seen) := ArrayList(bool).with_capacity(self._program.instructions.len());
     sub_seen.resize_with_byte(self._program.instructions.len(), int(0));
     initial := NfaThread.new(sub_start_pc, self._n_slots);
     self._add_thread(&mut sub_current, &initial, start_byte, &mut sub_seen);
@@ -484,19 +489,15 @@ impl(
             );
           },
           .CharClass => {
-            class_opt := self._program.classes.get(st_instr.class_idx);
-            match(
-              class_opt,
-              .Some(cls) => {
-                cond(
-                  self._codepoint_in_class(sub_cp, &cls) => {
-                    new_t := st_thread.fork(st_thread.pc + usize(1));
-                    self._add_thread(&mut sub_next, &new_t, sub_pos + sub_blen, &mut sub_seen);
-                  },
-                  true => ()
-                );
+            // The class is read in place: a copy per thread per step would
+            // clone its range list.
+            sub_cls_idx := st_instr.class_idx;
+            cond(
+              ((sub_cls_idx < self._program.classes.len()) && self._codepoint_in_class(sub_cp, &self._program.classes(sub_cls_idx))) => {
+                new_t := st_thread.fork(st_thread.pc + usize(1));
+                self._add_thread(&mut sub_next, &new_t, sub_pos + sub_blen, &mut sub_seen);
               },
-              .None => ()
+              true => ()
             );
           },
           _ => ()
@@ -537,8 +538,10 @@ impl(
     // Reuse pre-allocated seen buffers from the VM
     mut(current) := ArrayList(NfaThread).new();
     mut(next) := ArrayList(NfaThread).new();
-    seen := self._seen;
-    next_seen := self._next_seen;
+    // Borrow the VM's preallocated buffers for this run: taken here and
+    // stored back at the end (B8, decision 19's `replace`), not copied.
+    mut(seen) := replace(&mut self._seen, ArrayList(bool).new());
+    mut(next_seen) := replace(&mut self._next_seen, ArrayList(bool).new());
     mut(deferred) := ArrayList(DeferredThread).new();
     // Clear for this execution
     seen.fill_with_byte(int(0));
@@ -565,7 +568,7 @@ impl(
       seen.fill_with_byte(int(0));
       next_seen.fill_with_byte(int(0));
       // Process deferred threads targeting this byte_pos
-      new_deferred := ArrayList(DeferredThread).new();
+      mut(new_deferred) := ArrayList(DeferredThread).new();
       mut(di) := usize(0);
       while(di < deferred.len(), di = (di + usize(1)), {
         d := deferred(di);
@@ -624,19 +627,14 @@ impl(
           .CharClass => {
             cond(
               !at_end => {
-                class_opt := self._program.classes.get(instr.class_idx);
-                match(
-                  class_opt,
-                  .Some(cls) => {
-                    cond(
-                      self._codepoint_in_class(cur_cp, &cls) => {
-                        new_thread := thread.fork(thread.pc + usize(1));
-                        self._add_thread(&mut next, &new_thread, byte_pos + char_byte_len, &mut next_seen);
-                      },
-                      true => ()
-                    );
+                // In place, as in the sub-match loop above.
+                cls_idx := instr.class_idx;
+                cond(
+                  ((cls_idx < self._program.classes.len()) && self._codepoint_in_class(cur_cp, &self._program.classes(cls_idx))) => {
+                    new_thread := thread.fork(thread.pc + usize(1));
+                    self._add_thread(&mut next, &new_thread, byte_pos + char_byte_len, &mut next_seen);
                   },
-                  .None => ()
+                  true => ()
                 );
               },
               true => ()

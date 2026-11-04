@@ -31,7 +31,8 @@ main :: (fn() -> unit)({
   // operator chain.
   s := String.from("x");
   chain := s.clone().clone().clone().clone().clone().clone().clone().clone().clone().clone().clone().clone().clone().clone();
-  sum := (((((((((((((s + s) + s) + s) + s) + s) + s) + s) + s) + s) + s) + s) + s) + s);
+  // Each operand is a clone: `String`'s `+` consumes both sides (B8 made it a value).
+  sum := (((((((((((((s.clone() + s.clone()) + s.clone()) + s.clone()) + s.clone()) + s.clone()) + s.clone()) + s.clone()) + s.clone()) + s.clone()) + s.clone()) + s.clone()) + s.clone()) + s.clone());
   println(render(i32(1)));
   println(&chain);
   println(&sum);

@@ -16,8 +16,8 @@ test("Once new is not done", {
 });
 test("Once call executes function", {
   o := Once.new();
-  log := ArrayList(i32).new();
-  o.call(() => {
+  mut(log) := ArrayList(i32).new();
+  o.call({ &mut log }() => {
     log.push(i32(1));
   });
   assert(log.len() == usize(1), "function should have been called");
@@ -25,14 +25,14 @@ test("Once call executes function", {
 });
 test("Once call executes only once", {
   o := Once.new();
-  log := ArrayList(i32).new();
-  o.call(() => {
+  mut(log) := ArrayList(i32).new();
+  o.call({ &mut log }() => {
     log.push(i32(1));
   });
-  o.call(() => {
+  o.call({ &mut log }() => {
     log.push(i32(2));
   });
-  o.call(() => {
+  o.call({ &mut log }() => {
     log.push(i32(3));
   });
   assert(log.len() == usize(1), "function should have been called exactly once");
@@ -45,11 +45,11 @@ test("Once is_done after call", {
 });
 test("Once second call is no-op even with different function", {
   o := Once.new();
-  log := ArrayList(i32).new();
-  o.call(() => {
+  mut(log) := ArrayList(i32).new();
+  o.call({ &mut log }() => {
     log.push(i32(42));
   });
-  o.call(() => {
+  o.call({ &mut log }() => {
     log.push(i32(99));
   });
   assert(log.len() == usize(1), "only first function should have run");
@@ -58,10 +58,10 @@ test("Once second call is no-op even with different function", {
 });
 test("Once many calls still executes once", {
   o := Once.new();
-  log := ArrayList(i32).new();
+  mut(log) := ArrayList(i32).new();
   mut(i) := i32(0);
   while(i < i32(100), {
-    o.call(() => {
+    o.call({ &mut log }() => {
       log.push(i32(1));
     });
     i = (i + i32(1));
@@ -71,11 +71,11 @@ test("Once many calls still executes once", {
 });
 test("Once call with side effects", {
   o := Once.new();
-  values := ArrayList(i32).new();
-  o.call(() => {
+  mut(values) := ArrayList(i32).new();
+  o.call({ &mut values }() => {
     values.push(i32(42));
   });
-  o.call(() => {
+  o.call({ &mut values }() => {
     values.push(i32(99));
   });
   assert(values.len() == usize(1), "should have exactly one value");

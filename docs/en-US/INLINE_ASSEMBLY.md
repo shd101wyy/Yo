@@ -942,7 +942,7 @@ Only these Yo types may be used as `asm` operands:
 | **Pointers** | `*(T)` for any `T`                                                     |
 | **Bool**     | `bool` (treated as `i8` in asm context)                                |
 
-Reference-counted types (`ref(struct(...))`, `String`, etc.) are **not allowed** — asm operates on raw values only.
+Reference types (`ref(struct(...))`, `Rc`) and values that own memory (`String`, `ArrayList`, etc.) are **not allowed** — asm operates on raw values only.
 
 ### 11.3. CTFE Blocking
 

@@ -54,7 +54,7 @@ mk_op :: (fn(id : usize, op : str) -> AstExpr)(
 ///   FnCall(call_id, Atom(":"), [Atom(name_id, name), Atom(type_id, typename)], true, ":"-token)
 mk_binding_expr :: (fn(call_id : usize, name_id : usize, name : str, type_id : usize, typename : str) -> AstExpr)({
   callee := AstExpr.Atom(call_id + usize(10000), mk_token(TokenKind.Operator, BK_COLON));
-  args := ArrayList(AstExpr).new();
+  mut(args) := ArrayList(AstExpr).new();
   args.push(mk_ident(name_id, name));
   args.push(mk_ident(type_id, typename));
   AstExpr.FnCall(call_id, callee, Rc.new(args), true, mk_token(TokenKind.Operator, BK_COLON))
@@ -62,7 +62,7 @@ mk_binding_expr :: (fn(call_id : usize, name_id : usize, name : str, type_id : u
 /// Build `comptime(inner)` FnCall.
 mk_comptime_wrap :: (fn(call_id : usize, inner : &AstExpr) -> AstExpr)({
   callee := AstExpr.Atom(call_id + usize(20000), mk_token(TokenKind.Identifier, BK_COMPTIME));
-  args := ArrayList(AstExpr).new();
+  mut(args) := ArrayList(AstExpr).new();
   args.push(inner);
   AstExpr.FnCall(call_id, callee, Rc.new(args), false, mk_token(TokenKind.Identifier, BK_COMPTIME))
 });
@@ -71,7 +71,7 @@ mk_comptime_binding :: (fn(call_id : usize, name_id : usize, name : str, type_id
   ct_call_id := (call_id + usize(500));
   comptime_lhs := mk_comptime_wrap(ct_call_id, mk_ident(name_id, name));
   callee := AstExpr.Atom(call_id + usize(10000), mk_token(TokenKind.Operator, BK_COLON));
-  args := ArrayList(AstExpr).new();
+  mut(args) := ArrayList(AstExpr).new();
   args.push(comptime_lhs);
   args.push(mk_ident(type_id, typename));
   AstExpr.FnCall(call_id, callee, Rc.new(args), true, mk_token(TokenKind.Operator, BK_COLON))

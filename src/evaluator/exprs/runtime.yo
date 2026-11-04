@@ -137,7 +137,7 @@ _reject_borrowed_for_over_mut_global :: (
   match(
     get_variables_from_env(env, &pl.root_name).last(),
     .Some(rv) => if(rv.is_module_level && is_mut_global(&rv.token.module_path.*, &rv.name), {
-      at := match(info.macro_site, .Some(t) => t.clone(), .None => info.decl.clone());
+      at := match(&info.macro_site, .Some(t) => t.clone(), .None => info.decl.clone());
       form := cond(info.is_mut => "for(&mut ...)", true => "for(&...)");
       raise_flow_violation(
         with_code(
@@ -214,7 +214,7 @@ evaluate_borrow_check :: (
   match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_coll)),
     .Some(ci) => match(
-      ci.variable_name,
+      &ci.variable_name,
       .Some(vn) => {
         vars := get_variables_from_env(&ci.env, &vn);
         match(
@@ -228,7 +228,7 @@ evaluate_borrow_check :: (
             match(
               local_borrow_info_of_variable(&v0),
               .Some(info) => match(
-                info.places.get(usize(0)),
+                info.places.get_cloned(usize(0)),
                 .Some(pl) => {
                   if(pl.module_root, {
                     _reject_borrowed_for_over_mut_global(&info, &pl, &ci.env, ctx, exn);

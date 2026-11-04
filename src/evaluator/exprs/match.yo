@@ -96,7 +96,7 @@ pragma(Pragma.AllowUnsafe);
 { type_to_string } :: import("../../types/string.yo");
 { format_error_message, format_error_message_with_help, warning_diagnostic_of_token } :: import("../../error.yo");
 { emit_warning } :: import("../../diagnostics.yo");
-{ migrate_explicit_copy_on, _ic_decl_key, _ic_binding_source_decl, record_copy_flow_decl, owning_param_binding_beside, move_through_sink_shadow } :: import("../utils.yo");
+{ owning_param_binding_beside, move_through_sink_shadow } :: import("../utils.yo");
 { merge_and_check_envs, reject_mixed_closure_arms, consume_case_body_temp_var, attach_temp_variable_to_expr, adopt_never_type, reset_sibling_flow_state, keep_last_arm_moves, audit_pending_copies_enabled, dyn_copy_pending_exists, dyn_copy_rule_applies, note_dyn_copy_pending, audit_note_match_binding, migrate_rc_clone_on, migrate_rc_clone_borrow_scrutinee, note_migrate_mut_scrutinee, LocalBorrowInfo, local_borrows_active, local_borrow_scrutinee_source, local_borrow_note_pattern_binding, note_second_class_binding, reject_malformed_pattern_mut_markers, reject_malformed_mut_marker, place_require_mut, reject_write_through_rc, _lb_arrow_shadows, _lb_fn_literal_binds, _lb_mentions, record_pending_scrutinee_borrow } :: import("../utils.yo");
 { throw_if_mut_lend_through_atomic_object } :: import("./assignment.yo");
 { set_expr_as_consumed, deref_exempt_mark, deref_exempt_clear, variable_is_reference_binding, deref_rule_applies, reject_reference_without_deref, drop_owned_match_binding_at_arm_end, match_scrutinee_is_capture, local_borrow_register_match_place, local_borrow_note_match_place, note_consuming_match_scrutinee, LocalBorrowPlace, LocalBorrowAccess, local_borrow_place_of, local_borrow_access, local_borrow_require_writable, variable_is_mut_borrow, variable_is_imm_borrow, local_borrow_info_of_variable } :: import("../utils.yo");
@@ -284,11 +284,11 @@ _gadt_refined_expected :: (
   (refined : Option(TypeValue)) = Option(TypeValue).None;
   (k : usize) = usize(0);
   while((k < tca.len()) && refined.is_none(), {
-    tk := match(tca.get(k), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
-    tk_id := match(tk, Rc(.SomeT({ id : tid })) => tid, _ => String.new());
+    tk := match(tca.get_cloned(k), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
+    tk_id := match(tk, Rc(.SomeT({ id : tid })) => tid.clone(), _ => String.new());
     if((tk_id.len() > usize(0)) && (tk_id == exp_id), {
       match(
-        gra.get(k),
+        gra.get_cloned(k),
         .Some(g) => {
           refined = Option(TypeValue).Some(g);
         },
@@ -853,7 +853,7 @@ _decide_match_mode :: (
   });
   // A temporary: an owned one transfers to the arms.
   match(
-    info.variable_name,
+    &info.variable_name,
     .Some(tname) => match(
       find_variable_in_env(&info.env, tname.clone()),
       .Some(tv) => if(is_temp_variable_name(&env.module_path.*, &tname), {
@@ -896,7 +896,7 @@ _ArmOwnership :: ref(
 );
 _ownership_hidden_bind :: (fn(own : &_ArmOwnership, ty : &TypeValue, env : &Environment) -> BindInfo)({
   tok := own.tok;
-  name := generate_new_temp_variable_name(&env.module_path.*, usize(tok.row), usize(tok.column), Option(String).Some(`mv${own.counter.to_string()}`), Option(String).Some(tok.module_path.*));
+  name := generate_new_temp_variable_name(&env.module_path.*, usize(tok.row), usize(tok.column), Option(String).Some(`mv${own.counter.to_string()}`), Option(String).Some(tok.module_path.*.clone()));
   own.counter = (own.counter + usize(1));
   atok := Token(kind : TokenKind.Identifier, value : Rc.new(name.clone()), row : tok.row, column : tok.column, character : tok.character, byte_offset : tok.byte_offset, module_path : Rc.clone(tok.module_path), input : Rc.clone(tok.input));
   BindInfo(name : name, ty : Rc.clone(ty), value : Option(EvalValue).None, atom : AstExpr.Atom(alloc_global_expr_id(), atok))
@@ -964,7 +964,7 @@ _augment_arm_pattern :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, own :
       (i : usize) = usize(0);
       while(i < subs.len(), {
         fi := match(field_idx.get(i), .Some(k) => k, .None => usize(0));
-        fty := match(ftys.get(fi), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
+        fty := match(ftys.get_cloned(fi), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
         new_idx.push(fi);
         new_subs.push(recur(&subs(i), &fty, cell, own, env, exn));
         i = (i + usize(1));
@@ -975,12 +975,12 @@ _augment_arm_pattern :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, own :
           (listed : bool) = false;
           (j : usize) = usize(0);
           while(j < field_idx.len(), {
-            if(match(field_idx.get(j), .Some(k) => (k == f), .None => false), {
+            if(match(field_idx.get_cloned(j), .Some(k) => (k == f), .None => false), {
               listed = true;
             });
             j = (j + usize(1));
           });
-          fty := match(ftys.get(f), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
+          fty := match(ftys.get_cloned(f), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
           if(!listed && _part_has_drop(&fty), {
             new_idx.push(f);
             new_subs.push(_ownership_unbound(own, &fty, env));
@@ -1033,7 +1033,7 @@ _augment_arm_pattern :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, own :
       sub_names := pattern_bindings(&sub);
       (si : usize) = usize(0);
       while(si < sub_names.len(), {
-        sn := match(sub_names.get(si), .Some(n) => n, .None => String.new());
+        sn := match(sub_names.get_cloned(si), .Some(n) => n, .None => String.new());
         sty := _bind_ty_of(own, sn.clone());
         bad := cond(
           (in_cell || _names_contain(&own.borrowed, sn.clone())) => false,
@@ -1073,7 +1073,7 @@ _augment_arm_pattern :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, own :
       new_subs := ArrayList(Pattern).new();
       (i : usize) = usize(0);
       while(i < subs.len(), {
-        ety := match(elem_tys.get(i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
+        ety := match(elem_tys.get_cloned(i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
         new_subs.push(recur(&subs(i), &ety, cell, own, env, exn));
         i = (i + usize(1));
       });
@@ -1098,7 +1098,7 @@ _augment_arm_pattern :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, own :
           (listed : bool) = false;
           (j : usize) = usize(0);
           while(j < field_idx.len(), {
-            if(match(field_idx.get(j), .Some(k) => (k == f), .None => false), {
+            if(match(field_idx.get_cloned(j), .Some(k) => (k == f), .None => false), {
               listed = true;
             });
             j = (j + usize(1));
@@ -1122,7 +1122,7 @@ _augment_arm_pattern :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, own :
 _names_contain :: (fn(xs : &ArrayList(String), x : &String) -> bool)({
   (i : usize) = usize(0);
   while(i < xs.len(), {
-    if(match(xs.get(i), .Some(y) => (y == x), .None => false), {
+    if(match(xs.get_cloned(i), .Some(y) => (y == x), .None => false), {
       return(true);
     });
     i = (i + usize(1));
@@ -1205,7 +1205,7 @@ evaluate_match :: (
   });
   all_args := match(
     expr,
-    .FnCall(_, _, Rc(args), _, _) => args,
+    .FnCall(_, _, Rc(args), _, _) => args.clone(),
     .Atom(_, _) => ArrayList(AstExpr).new()
   );
   if(all_args.len() < usize(2), {
@@ -1375,7 +1375,7 @@ evaluate_match :: (
           (tca_i_em : usize) = usize(0);
           while(tca_i_em < tca_raw_em.len(), {
             match(
-              tca_raw_em.get(tca_i_em),
+              tca_raw_em.get_cloned(tca_i_em),
               .Some(tca_e_em) => {
                 tca_resolved_em.push(gadt_resolve_tca_entry(&tca_e_em));
               },
@@ -1438,7 +1438,7 @@ evaluate_match :: (
     mut_root = _scrutinee_root_variable(&scrutinee_expr, &env);
     mut_place = local_borrow_place_of(&scrutinee_expr, &env, ctx);
     match(
-      mut_place,
+      &mut_place,
       .Some(lp) => {
         local_borrow_require_writable(&lp, `match \`${ast_expr_to_string(&scrutinee_expr)}\` with \`&mut\``, ast_expr_token(&scrutinee_expr), ctx, exn);
         local_borrow_access(&lp, LocalBorrowAccess.Exclusive, ast_expr_token(&scrutinee_expr), ctx, exn);
@@ -1522,7 +1522,7 @@ evaluate_match :: (
     // `(p && (g)) => body`: a guard.
     (guard_ast : Option(AstExpr)) = Option(AstExpr).None;
     if(ast_expr_is_fn_call_of(&pattern_ast, "&&", .Some(usize(2))), {
-      gargs := match(pattern_ast, .FnCall(_, _, Rc(ga), _, _) => ga, .Atom(_, _) => ArrayList(AstExpr).new());
+      gargs := match(pattern_ast, .FnCall(_, _, Rc(ga), _, _) => ga.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
       guard_ast = gargs.get(usize(1));
       pattern_ast = match(gargs.get(usize(0)), .Some(a) => a, .None => pattern_ast);
     });
@@ -1559,7 +1559,7 @@ evaluate_match :: (
       keeps : ArrayList(BindInfo).new(),
       borrowed : ArrayList(String).new(),
       add_hidden : consume_drops,
-      bind_tys : pc.binds,
+      bind_tys : pc.binds.clone(),
       tok : ast_expr_token(&arm_expr),
       counter : usize(0),
       is_mut : mut_places
@@ -1580,13 +1580,13 @@ evaluate_match :: (
         keeps : ArrayList(BindInfo).new(),
         borrowed : ArrayList(String).new(),
         add_hidden : false,
-        bind_tys : pc.binds,
+        bind_tys : pc.binds.clone(),
         tok : ast_expr_token(&arm_expr),
         counter : usize(0),
         is_mut : false
       );
       _probe_pat := _augment_arm_pattern(&pat, &position_type, false, &probe, &env, exn);
-      rc_cell_borrowed = probe.borrowed;
+      rc_cell_borrowed = probe.borrowed.clone();
     });
     owned_vars := ArrayList(Variable).new();
     place_vars := ArrayList(Variable).new();
@@ -1610,21 +1610,6 @@ evaluate_match :: (
           scope_release_note_binding(ast_expr_id(&b.atom), &env, b.name.clone());
           // A `mut(name)` pattern binding may be reassigned (decision 47).
           b_tok := ast_expr_token(&b.atom);
-          // A binding into the scrutinee's variable
-          // (`_ic_binding_source_decl`) shares that variable's
-          // buffer, so a write through the binding is a write of the
-          // variable (`record_copy_flow_decl`). A `&mut` match's binding is
-          // the scrutinee's place itself, so a value stored through it is
-          // stored in the variable too: the flow runs both ways
-          // (issues/fixed/2026-10-24-explicit-copy-migration-misses-a-write-through-a-pattern-binding.md).
-          scr_copy_root := if(migrate_explicit_copy_on() && !ct_known, _ic_binding_source_decl(&evaluated_scrutinee, &scr_info.env, ctx, &b_tok), String.new());
-          if(!scr_copy_root.is_empty(), {
-            b_copy_key := _ic_decl_key(&b_tok);
-            record_copy_flow_decl(scr_copy_root.clone(), b_copy_key.clone(), &b_tok);
-            if(mut_places, {
-              record_copy_flow_decl(b_copy_key, scr_copy_root.clone(), &b_tok);
-            });
-          });
           if(is_mut_binding(&b_tok, &b.name), {
             match(
               _added,
@@ -1714,7 +1699,7 @@ evaluate_match :: (
             );
           });
           match(
-            imm_place,
+            &imm_place,
             .Some(ip) => local_borrow_register_match_place(b.name.clone(), ast_expr_token(&b.atom), &ip, &body_ast, false),
             .None => ()
           );
@@ -1976,7 +1961,7 @@ evaluate_match :: (
               match(
                 lb_scr_source,
                 .Some(lbs) => local_borrow_note_match_place(&lbs, pv.name.clone(), &pv.token, &body_ast),
-                .None => match(mut_place, .Some(lp) => local_borrow_register_match_place(pv.name.clone(), &pv.token, &lp, &body_ast), .None => ())
+                .None => match(&mut_place, .Some(lp) => local_borrow_register_match_place(pv.name.clone(), &pv.token, &lp, &body_ast), .None => ())
               );
             },
             .None => ()
@@ -2116,16 +2101,16 @@ evaluate_match :: (
           // its GADT-REFINED expected type instead of cross-branch
           // consistency, and pin the result to the unrefined expected type.
           gadt_gra := match(
-            gadt_va_em,
+            &gadt_va_em,
             .Some(av) => match(
               top_variant_idx,
-              .Some(vidx2) => match(av.get(vidx2), .Some(g) => g, .None => ArrayList(TypeValue).new()),
+              .Some(vidx2) => match(av.get_cloned(vidx2), .Some(g) => g, .None => ArrayList(TypeValue).new()),
               .None => ArrayList(TypeValue).new()
             ),
             .None => ArrayList(TypeValue).new()
           );
           match(
-            gadt_exp_em,
+            &gadt_exp_em,
             .Some(ge) => {
               if(gadt_gra.len() > usize(0), {
                 refined := _gadt_refined_expected(&ge.ty, &gadt_tca_em, &gadt_gra);
@@ -2298,7 +2283,7 @@ evaluate_match :: (
       gi3 = (gi3 + usize(1));
     });
   });
-  register_match_arms(ast_expr_id(expr), cond(force_general => cg_arms, true => arms));
+  register_match_arms(ast_expr_id(expr), cond(force_general => cg_arms, true => arms.clone()));
   // ---------------------------------------------------------------------------
   // Exhaustiveness and unreachability (usefulness over the compiled arms)
   // ---------------------------------------------------------------------------

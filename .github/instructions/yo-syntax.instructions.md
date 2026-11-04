@@ -488,7 +488,7 @@ WalkCtx :: struct(io : Io, exn : Exception);
 
 walk_dir :: (fn(root : Path, ctx : WalkCtx) -> Impl(Future(unit, WalkCtx)))(
   io.async((ctx : WalkCtx) => {
-    stack := ArrayList(Path).new();
+    mut(stack) := ArrayList(Path).new();
     {
       stack.push(root);
     };
@@ -1220,7 +1220,7 @@ bar();
 ```yo
 { ArrayList } :: import("std/collections/array_list");
 
-list := ArrayList(i32).new();
+mut(list) := ArrayList(i32).new();
 list.push(i32(10));
 list.push(i32(20));
 
