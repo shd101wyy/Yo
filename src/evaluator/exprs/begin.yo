@@ -411,7 +411,7 @@ _search_dup_calls :: (fn(expr : &AstExpr, res : &mut DupCallsResult, ctx : &Eval
               sargs.get(usize(1)),
               .Some(body) => {
                 bres := _new_dup_calls_result();
-                recur(&body, &mut bres, ctx);
+                _search_dup_calls(&body, &mut bres, ctx);
                 branch_results.push(bres);
               },
               .None => ()
@@ -2066,7 +2066,7 @@ _ic_scan :: (fn(e : &AstExpr, v : &Variable, site : &ImplicitCopyPending, acc : 
                 });
                 recur(&arm_head, v, site, acc, ctx);
                 body_scan := _ic_sub_scan(acc);
-                recur(&arm_body, v, site, &mut body_scan, ctx);
+                _ic_scan(&arm_body, v, site, &mut body_scan, ctx);
                 _ic_merge(acc, &body_scan);
                 _ic_merge_jumps(acc, &body_scan);
                 n_arms = (n_arms + usize(1));
@@ -2118,10 +2118,10 @@ _ic_scan :: (fn(e : &AstExpr, v : &Variable, site : &ImplicitCopyPending, acc : 
         return(());
       });
       scan := _ic_sub_scan(acc);
-      recur(&f, v, site, &mut scan, ctx);
+      _ic_scan(&f, v, site, &mut scan, ctx);
       (ai : usize) = usize(0);
       while((ai < args.len()) && !(scan.later || scan.done), {
-        match(args.get(ai), .Some(a) => recur(&a, v, site, &mut scan, ctx), .None => ());
+        match(args.get(ai), .Some(a) => _ic_scan(&a, v, site, &mut scan, ctx), .None => ());
         ai = (ai + usize(1));
       });
       if(is_exit, {
