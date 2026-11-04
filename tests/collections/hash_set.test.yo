@@ -476,18 +476,18 @@ test("HashSet maintains uniqueness", {
 // ===== Reference-Counted Type Tests =====
 test("HashSet with Rc elements - basic add and has", {
   mut(set) := HashSet(Rc(i32)).new();
-  set.insert(Rc(i32)(10));
-  set.insert(Rc(i32)(20));
-  set.insert(Rc(i32)(30));
+  set.insert(Rc(i32).new(10));
+  set.insert(Rc(i32).new(20));
+  set.insert(Rc(i32).new(30));
   assert(set.len() == usize(3));
-  assert(set.contains(Rc(i32)(10)));
-  assert(set.contains(Rc(i32)(20)));
-  assert(set.contains(Rc(i32)(30)));
+  assert(set.contains(Rc(i32).new(10)));
+  assert(set.contains(Rc(i32).new(20)));
+  assert(set.contains(Rc(i32).new(30)));
 });
 test("HashSet with Rc elements - duplicate rejected and cleaned up", {
   mut(set) := HashSet(Rc(i32)).new();
-  result1 := set.insert(Rc(i32)(42));
-  result2 := set.insert(Rc(i32)(42));
+  result1 := set.insert(Rc(i32).new(42));
+  result2 := set.insert(Rc(i32).new(42));
   assert(result1 == true);
   assert(result2 == false);
   assert(set.len() == usize(1));
@@ -495,22 +495,22 @@ test("HashSet with Rc elements - duplicate rejected and cleaned up", {
 });
 test("HashSet with Rc elements - remove cleans up element", {
   mut(set) := HashSet(Rc(i32)).new();
-  set.insert(Rc(i32)(10));
-  set.insert(Rc(i32)(20));
-  set.insert(Rc(i32)(30));
-  result := set.remove(Rc(i32)(20));
+  set.insert(Rc(i32).new(10));
+  set.insert(Rc(i32).new(20));
+  set.insert(Rc(i32).new(30));
+  result := set.remove(Rc(i32).new(20));
   assert(result == true);
   assert(set.len() == usize(2));
-  assert(!set.contains(Rc(i32)(20)));
-  assert(set.contains(Rc(i32)(10)));
-  assert(set.contains(Rc(i32)(30)));
+  assert(!set.contains(Rc(i32).new(20)));
+  assert(set.contains(Rc(i32).new(10)));
+  assert(set.contains(Rc(i32).new(30)));
   // The removed Rc(20) should be properly dropped
 });
 test("HashSet with Rc elements - clear cleans up all elements", {
   mut(set) := HashSet(Rc(i32)).new();
-  set.insert(Rc(i32)(1));
-  set.insert(Rc(i32)(2));
-  set.insert(Rc(i32)(3));
+  set.insert(Rc(i32).new(1));
+  set.insert(Rc(i32).new(2));
+  set.insert(Rc(i32).new(3));
   set.clear();
   assert(set.len() == usize(0));
   assert(set.is_empty());
@@ -521,11 +521,11 @@ test("HashSet with Rc elements - stress test with resize", {
   // Add 100 elements to trigger multiple resizes
   mut(i) := 0;
   while(i < 100, i = (i + 1), {
-    set.insert(Rc(i32)(i32(i) * 10));
+    set.insert(Rc(i32).new(i32(i) * 10));
   });
   assert(set.len() == usize(100));
   // Remove one
-  set.remove(Rc(i32)(200));
+  set.remove(Rc(i32).new(200));
   assert(set.len() == usize(99));
   // Clear all
   set.clear();
@@ -537,10 +537,10 @@ test("HashSet with Rc elements - adding many duplicates", {
   // Add same element many times - all duplicates should be dropped
   mut(i) := 0;
   while(i < 50, i = (i + 1), {
-    set.insert(Rc(i32)(42));
+    set.insert(Rc(i32).new(42));
   });
   assert(set.len() == usize(1));
-  assert(set.contains(Rc(i32)(42)));
+  assert(set.contains(Rc(i32).new(42)));
   // 49 duplicate Rc elements should be properly dropped
 });
 // ---- Iterator Tests ----

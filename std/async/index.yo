@@ -401,7 +401,7 @@ derive(
 timeout :: (
   fn(generic(T : Type), fut : Impl(Future(T, Io)), limit : Duration, io : Io) -> Impl(Future(Result(T, TimeoutError), Io))
 )({
-  ms := Rc(u64)(u64(limit.as_millis()));
+  ms := Rc(u64).new(u64(limit.as_millis()));
   io.async({ fut, ms }(io : Io) => {
     // A borrowing operand is spawned under `unsafe`: `_Scoped` guarantees the
     // task ends before this future does (see its documentation). The handle
