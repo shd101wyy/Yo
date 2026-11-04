@@ -721,6 +721,7 @@ VcSubsetError :: (
     source : String
   )
 );
+derive(VcSubsetError, Clone);
 /// Symbolic execution result for one function.
 VcBodyResult :: (
   struct(
@@ -2489,8 +2490,8 @@ _match_term :: (fn(ctx : &mut VcCtx, at : &AstExpr, args : &ArrayList(AstExpr)) 
         lookup_match_arms(ast_expr_id(at)),
         .Some(arms) => {
           ph := _match_phi_new(ctx, &arms);
-          out := _match_arms_ir(ctx, at, &s, &arms, usize(0), &e_ty, &ph);
-          if(out.is_none() || !_match_phi_merge(ctx, at, &ph), {
+          out := _match_arms_ir(ctx, at, &s, &arms, usize(0), &e_ty, &mut ph);
+          if(out.is_none() || !_match_phi_merge(ctx, at, &mut ph), {
             return(Option(VcTerm).None);
           });
           out
@@ -2509,7 +2510,7 @@ _match_term :: (fn(ctx : &mut VcCtx, at : &AstExpr, args : &ArrayList(AstExpr)) 
 /// arm contributes `ite(test_and_guard, body[binds], tail)`; the final arm
 /// must be unguarded (an exhaustive match's last arm holds when reached).
 _match_arms_ir :: (
-  fn(ctx : &mut VcCtx, at : &AstExpr, scrut : &VcTerm, arms : &ArrayList(Arm), from : usize, e_ty : &TypeValue, ph : &_MatchPhi) -> Option(VcTerm)
+  fn(ctx : &mut VcCtx, at : &AstExpr, scrut : &VcTerm, arms : &ArrayList(Arm), from : usize, e_ty : &TypeValue, ph : &mut _MatchPhi) -> Option(VcTerm)
 )(
   cond(
     (from >= arms.len()) => {
@@ -2532,7 +2533,7 @@ _match_arms_ir :: (
 /// matched. A GUARDED final arm can fail, which the ite tree cannot
 /// express without a bottom value: outside the subset, loudly.
 _match_last_arm_ir :: (
-  fn(ctx : &mut VcCtx, scrut : &VcTerm, arms : &ArrayList(Arm), idx : usize, e_ty : &TypeValue, ph : &_MatchPhi) -> Option(VcTerm)
+  fn(ctx : &mut VcCtx, scrut : &VcTerm, arms : &ArrayList(Arm), idx : usize, e_ty : &TypeValue, ph : &mut _MatchPhi) -> Option(VcTerm)
 )({
   arm := arms.get(idx).unwrap();
   if(arm.guard.is_some(), {
@@ -2557,7 +2558,7 @@ _match_last_arm_ir :: (
 /// to projections of `scrut`, build the conjunctive pattern test, conjoin
 /// the guard, and wrap the body in `ite(test, body, tail)`.
 _match_arm_conditioned_ir :: (
-  fn(ctx : &mut VcCtx, arm : &Arm, scrut : &VcTerm, tail : &VcTerm, e_ty : &TypeValue, ph : &_MatchPhi) -> Option(VcTerm)
+  fn(ctx : &mut VcCtx, arm : &Arm, scrut : &VcTerm, tail : &VcTerm, e_ty : &TypeValue, ph : &mut _MatchPhi) -> Option(VcTerm)
 )({
   _match_phi_reset(ctx, ph);
   (arm_test : VcTerm) = Rc.new(VcTermNode.BoolLit(false));
@@ -2659,12 +2660,12 @@ _match_phi_new :: (fn(ctx : &mut VcCtx, arms : &ArrayList(Arm)) -> _MatchPhi)({
   )
 });
 /// Put every arm-written name back to its pre-match term.
-_match_phi_reset :: (fn(ctx : &mut VcCtx, ph : &_MatchPhi) -> unit)({
+_match_phi_reset :: (fn(ctx : &mut VcCtx, ph : &mut _MatchPhi) -> unit)({
   _restore_vars(ctx, &ph.names, &ph.pre);
 });
 /// Record one walked arm: its test, the arm-written names' terms now, and
 /// whether its walk exited the loop (the next arm walks from a live path).
-_match_phi_capture :: (fn(ctx : &mut VcCtx, ph : &_MatchPhi, test : VcTerm) -> unit)({
+_match_phi_capture :: (fn(ctx : &mut VcCtx, ph : &mut _MatchPhi, test : VcTerm) -> unit)({
   post := ArrayList(Option(VcTerm)).new();
   (ni : usize) = usize(0);
   while(ni < ph.names.len(), {
@@ -2682,7 +2683,7 @@ _match_phi_capture :: (fn(ctx : &mut VcCtx, ph : &_MatchPhi, test : VcTerm) -> u
 /// arm (it exited the loop) is not taken on the fall-through path: assume
 /// that permanently, the `cond` rule. False when every arm is dead (the
 /// match has no fall-through state), a subset error like `cond`'s.
-_match_phi_merge :: (fn(ctx : &mut VcCtx, at : &AstExpr, ph : &_MatchPhi) -> bool)({
+_match_phi_merge :: (fn(ctx : &mut VcCtx, at : &AstExpr, ph : &mut _MatchPhi) -> bool)({
   n := ph.tests.len();
   // Walk index k is source arm n-1-k: the arms before it in source order
   // are the walk indices above k.
@@ -6285,7 +6286,7 @@ _transparent_call_term :: (
     g_transparent_reason = String.from("it calls itself without decreases(...), so its definition need not terminate");
     return(Option(VcTerm).None);
   });
-  saved_err := ctx.subset_error;
+  saved_err := ctx.subset_error.clone();
   saved_mut := ctx.mutated_names.len();
   saved_effects := ctx.frame_effects;
   saved_ob := ctx.obligations.len();
@@ -6306,7 +6307,7 @@ _transparent_call_term :: (
         (ctx.mutated_names.len() > saved_mut) => String.from("it changes an argument"),
         (ctx.frame_effects > saved_effects) => String.from("it writes through a `&mut` argument or calls a callee whose frame is not checked"),
         (ctx.subset_error.is_some() && saved_err.is_none()) => match(
-          ctx.subset_error,
+          &ctx.subset_error,
           .Some(se) => `its body is outside the verifier subset (${se.construct})`,
           .None => String.from("its body is outside the verifier subset")
         ),
@@ -7672,7 +7673,7 @@ verify_function_body :: (fn(input : &VerifyFnInput) -> VcBodyResult)({
   VcBodyResult(
     obligations : replace(&mut ctx.obligations, ArrayList(VcObligation).new()),
     value : body_val,
-    error : ctx.subset_error
+    error : replace(&mut ctx.subset_error, Option(VcSubsetError).None)
   )
 });
 // ---------------------------------------------------------------------------

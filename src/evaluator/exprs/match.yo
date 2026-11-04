@@ -946,8 +946,9 @@ _augment_arm_pattern :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, own :
     .Const(_, _, _, _, _) => cond(
       (own.add_hidden && !in_cell && _part_has_drop(ty)) => {
         b := _ownership_hidden_bind(own, ty, env);
+        pat := Pattern.At(name : b.name.clone(), token : ast_expr_token(&b.atom), atom : b.atom, sub : Box.new(p.clone()));
         own.unbound.push(b);
-        Pattern.At(name : b.name.clone(), token : ast_expr_token(&b.atom), atom : b.atom, sub : Box.new(p.clone()))
+        pat
       },
       true => p.clone()
     ),
