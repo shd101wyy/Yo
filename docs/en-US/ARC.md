@@ -71,7 +71,7 @@ need a single wrapped value.
 
 ```yo
 value := Arc.new(i32(42));
-same := Arc(i32)(i32(42));
+same := Arc(i32).new(i32(42));
 ```
 
 ### Placing the cell
