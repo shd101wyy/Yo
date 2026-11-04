@@ -21,6 +21,8 @@ import("std/fmt");
   ast_place_text,
   ast_expr_is_old_mode_spelling,
   deleted_mode_spelling_error,
+  malformed_for_error,
+  BK_FOR,
   BK_FN,
   BK_UNSAFE_FN,
   BK_CTL,
@@ -1222,6 +1224,13 @@ _evaluate_expression :: (
         // function; an `asm(...)` operand `inout(reg, v)` has two arguments.
         (((__dk_len == usize(3)) || (__dk_len == usize(5))) && _is_deleted_borrow_word(expr, false)) => {
           exn.throw(dyn(deleted_mode_spelling_error(ast_expr_token(expr), _deleted_word(expr))));
+          expr
+        },
+        // `for(...)` is a builtin form the parser desugars
+        // (`desugar_if_calls`, src/expr.yo); a call it left alone has the
+        // wrong shape: E0011.
+        ((__dk_len == usize(3)) && ast_expr_is_fn_call_of(expr, BK_FOR, .None)) => {
+          exn.throw(dyn(malformed_for_error(expr)));
           expr
         },
         // `&mut x` is a call-site marker, consumed where it is legal (a call

@@ -8,8 +8,8 @@ pragma(Pragma.AllowUnsafe);
 { HashMap } :: import("std/collections/hash_map");
 { HashSet } :: import("std/collections/hash_set");
 { TokenKind, Token, intern_token_str, empty_token_text } :: import("./token.yo");
-{ format_error_message, with_code, YoError } :: import("./error.yo");
-{ E_DELETED_SPELLING } :: import("./diagnostics.yo");
+{ format_error_message, format_error_message_with_help, with_code, YoError } :: import("./error.yo");
+{ E_DELETED_SPELLING, E_MALFORMED_FOR } :: import("./diagnostics.yo");
 { Exception } :: import("std/error");
 { RefCell } :: import("std/sync/refcell");
 /// The borrow marker each `match(&x, …)` / `match(&mut x, …)` was written
@@ -392,6 +392,8 @@ BK_CONST :: "::";
 BK_COND :: "cond";
 BK_MATCH :: "match";
 BK_WHILE :: "while";
+/// The `for` loop, a builtin form the parser desugars (`desugar_if_calls`).
+BK_FOR :: "for";
 BK_RETURN :: "return";
 BK_BREAK :: "break";
 BK_TEST :: "test";
@@ -619,8 +621,8 @@ _view_children :: (fn(base : &AstExpr) -> AstExpr)(
 /// Deep-clone an expression giving every node a FRESH id. The derived
 /// `AstExpr` Clone keeps ids, so a
 /// derived-clone + evaluate writes the ORIGINAL tree's ExprInfo entries
-/// (and id-0 synthesized nodes all collide); use THIS for trial dry-runs,
-/// macro templates/expansions, and quoted-argument binding.
+/// (and id-0 synthesized nodes all collide); use THIS for trial dry-runs
+/// and spliced quote templates.
 /// Nodes minted by `clone_expr_fresh_ids` so far — the size of the
 /// specialization / trial-clone population (`YO_SPEC_REPORT=1`,
 /// plans/EVALUATOR_MEMORY_REDUCTION.md Phase 0 step 4).
@@ -862,7 +864,7 @@ export(AstExpr, ExprId, BK_TUPLE, BK_TUPLE_TYPE, BK_ARRAY, BK_ARRAY_VAL, BK_BEGI
 export(BF_RUNTIME, BF_UNWIND, BF_RECUR, BF_DOT);
 export(BF_SIZE_OF, BF_ALIGN_OF, BF_TYPE_OF, BF_TYPE_ID, BF_ADDR_OF, BK_MUT, BK_IMM, BK_BORROW_MUT);
 export(BK_COMPTIME, BK_GIVEN, BK_GENERIC, BK_COLON, BK_ASSIGN, BK_INIT_ASSIGN, BK_CONST, BK_COND, BK_MATCH, BK_THREAD_LOCAL);
-export(BK_WHILE, BK_RETURN, BK_BREAK, BK_TEST);
+export(BK_WHILE, BK_FOR, BK_RETURN, BK_BREAK, BK_TEST);
 export(BK_EXTERN, BK_C_INCLUDE, BK_SUBTYPE_OF, BK_WHERE);
 export(make_err_expr, ast_expr_token, ast_expr_text, ast_expr_id, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_atom_and_operator, ast_expr_is_infix_op_fn_call, ast_expr_to_string);
 // ---------------------------------------------------------------------------
@@ -1402,8 +1404,7 @@ _synth_desugar_tok_s :: (fn(kind : TokenKind, value : Rc(String), ref_tok : &Tok
 /// Unwrap an optional `label : value` wrapper on an `if` argument.
 /// `.Some(value)` when the arg is unlabeled or carries the expected label;
 /// `.None` when it carries a DIFFERENT label — the caller then bails out of
-/// the rewrite and the prelude `if` macro path reports the proper
-/// label-mismatch error.
+/// the rewrite and the call reaches the evaluator unrewritten.
 _unwrap_if_label :: (fn(arg : &AstExpr, label : str) -> Option(AstExpr))({
   if(!ast_expr_is_fn_call_of(arg, ":", .Some(usize(2))), {
     return(Option(AstExpr).Some(arg));
@@ -1431,21 +1432,17 @@ _unwrap_if_label :: (fn(arg : &AstExpr, label : str) -> Option(AstExpr))({
 /// calls into the builtin `cond(c => t, true => e)` form, recursively,
 /// WITHOUT descending into `quote(...)` subtrees (quoted ASTs are
 /// user-visible comptime values; code spliced OUT of them is desugared at
-/// the splice sites in evaluator/calls/function.yo and
-/// evaluator/builtins/derive.yo instead).
+/// the splice site in evaluator/builtins/derive.yo instead).
 ///
 /// This runs on every freshly parsed program (parser.yo `parse`,
 /// evaluator/index.yo `Evaluator.new`), so downstream passes — codegen,
 /// the async state machine, the dup/drop optimizer — see a real `cond`
-/// node instead of an `if` macro head and never need the
-/// `ExprInfo.macro_expansion` side-table for `if` (plans/reference/MACRO_POLICY.md
-/// Part 3.2).
+/// node instead of an `if` call head.
 ///
 /// Anything this walk does NOT rewrite (odd arity, mismatched labels,
 /// dynamically constructed `if` calls that reach evaluation without a
-/// splice hook) falls back to the prelude's `if` macro, which is retained
-/// for seed-generation compatibility — the failure mode is the previous
-/// behavior, never a new error.
+/// splice hook) reaches the evaluator as a call of the unbound name `if`
+/// (the prelude's `if` macro was deleted 2026-08-30).
 ///
 /// The rewritten node KEEPS the original call's ExprId (the rewrite runs
 /// before any ExprInfo for the node is written, and the `if` node it
@@ -2255,18 +2252,18 @@ _wrap_glob_destructure :: (fn(decl : &AstExpr) -> AstExpr)({
 // ---------------------------------------------------------------------------
 // `for` (plans/backlog/MACRO_AND_ISO_REMOVAL.md Part B, B1)
 // ---------------------------------------------------------------------------
-// Every two-argument `for(coll, handle)` call is rewritten here into the loop
-// the prelude's `for` macro expands to, node for node, so the macro is never
-// reached (it stays in the prelude for the seed until Part C). The rewrite
+// Every `for(coll, x => body)` call is rewritten here into a loop over the
+// prelude's cursor protocol: `for` is a builtin form (Part C deleted the
+// prelude macro this lowering reproduces node for node, and a `for` call left
+// unrewritten is E0011, `malformed_for_error`). The rewrite
 // runs after decision 42's sigil rewrite (`_bs_for_handle`): the borrowed
 // forms arrive as `for(coll, __yo_mut(x) => body)` / `for(coll, __yo_imm(x)
 // => body)` and the map forms as `(k, __yo_mut(v)) => body`. The cursor
 // protocol stays in prelude functions (`__borrow_guard`, `walk_*`,
 // `__yo_borrow_check`), so a later retarget of the borrowed `for` edits std,
-// not this lowering. The built tree is the macro's quote template with the
-// caller's pieces unquoted into it; `desugar_if_calls` then recurses into it,
-// as the macro splice does into an expansion (the `&`/`&mut` local borrows,
-// the `mut(...)` binders).
+// not this lowering. The built tree is the retired macro's quote template with
+// the caller's pieces in it; `desugar_if_calls` then recurses into it (the
+// `&`/`&mut` local borrows, the `mut(...)` binders).
 /// The `for` loops this desugar rewrote, keyed by the call's token position
 /// (`_borrowed_match_site_key`, which a cloned or rebuilt node keeps): the
 /// call as the desugar received it. Every node the desugar synthesizes
@@ -2288,10 +2285,24 @@ for_desugar_site_of :: (fn(tok : &Token) -> Option(AstExpr))(
     true => g_for_desugar_sites.with(m => m.get(_borrowed_match_site_key(tok)))
   )
 );
-export(for_desugar_site_of, is_for_desugar_target);
-/// A two-argument `for(...)` call: the desugar's target.
+export(for_desugar_site_of, is_for_desugar_target, malformed_for_error);
+/// A `for(coll, handle)` call whose handle is a `=>` with a binder and a body:
+/// the desugar's target. Any other `for(...)` call is left alone and reaches
+/// the evaluator as E0011 (`malformed_for_error`).
 is_for_desugar_target :: (fn(e : &AstExpr) -> bool)(
-  ast_expr_is_fn_call_of(e, "for", Option(usize).Some(usize(2)))
+  ast_expr_is_fn_call_of(e, BK_FOR, Option(usize).Some(usize(2))) && ast_expr_is_fn_call_of(&_bs_arg(e, usize(1)), "=>", Option(usize).Some(usize(2)))
+);
+/// E0011 for a `for(...)` call the desugar left alone: the wrong number of
+/// arguments, or a handle that is not `x => body` / `(k, v) => body`.
+malformed_for_error :: (fn(e : &AstExpr) -> YoError)(
+  with_code(
+    format_error_message_with_help(
+      ast_expr_token(e),
+      `\`${ast_expr_to_string(e)}\` is not a \`for\` loop: \`for\` takes a collection and a handle \`x => body\` (a map: \`(k, v) => body\`).`,
+      Option(String).Some(String.from("write `for(coll, x => body)` to consume `coll`, `for(&coll, x => body)` to read each element in place, or `for(&mut coll, x => body)` to write each element in place"))
+    ),
+    E_MALFORMED_FOR
+  )
 );
 _fd_atom :: (fn(kind : TokenKind, value : str, at : &Token) -> AstExpr)(
   AstExpr.Atom(alloc_global_expr_id(), _synth_desugar_tok(kind, value, at))
@@ -2386,14 +2397,14 @@ _fd_mut_bind :: (fn(name : &Rc(String), value : &AstExpr, at : &Token) -> AstExp
 _fd_bind :: (fn(name : &Rc(String), value : &AstExpr, at : &Token) -> AstExpr)(
   _fd_infix(BK_INIT_ASSIGN, &_fd_name(name, at), value, at)
 );
-/// A hidden local's name: the macro's `gensym` prefix and the loop's ordinal.
+/// A hidden local's name: a `gensym`-style prefix and the loop's ordinal.
 _fd_hidden :: (fn(prefix : str, ordinal : usize) -> Rc(String))({
   n := String.from(prefix);
   n.push_string(ordinal.to_string());
   Rc.new(n)
 });
-/// `comptime_assert(false, "message")`: what the macro's own assertion
-/// reports for a handle it does not accept.
+/// `comptime_assert(false, "message")`: the report for a deleted handle
+/// spelling.
 _fd_reject :: (fn(message : str, at : &Token) -> AstExpr)({
   lit := String.from("\"");
   lit.push_str(message);
@@ -2412,7 +2423,7 @@ _fd_is_deleted_mode_word :: (fn(e : &AstExpr) -> bool)(
 /// The borrowed `for`'s source is a place the loop borrows where it stands:
 /// a variable, or a field path rooted at one (`xs`, `self.items`, `a.b.c`).
 /// Anything else (`make()`, `xs.into_iter()`) is first bound to a hidden
-/// owning local (the macro's `__for_source_is_place`).
+/// owning local.
 _fd_source_is_place :: (fn(e : &AstExpr) -> bool)(
   match(
     e,
@@ -2446,13 +2457,7 @@ _desugar_for_call :: (fn(e : &AstExpr) -> AstExpr)({
   fargs := _bs_args(e);
   coll := match(fargs.get(usize(0)), .Some(c) => c, .None => make_err_expr());
   handle := match(fargs.get(usize(1)), .Some(h) => h, .None => make_err_expr());
-  if(!ast_expr_is_fn_call_of(&handle, "=>", .None), {
-    return(_fd_reject("for macro requires a function handle with `=>`", &tok));
-  });
   hargs := _bs_args(&handle);
-  if(hargs.len() != usize(2), {
-    return(_fd_reject("'for' macro requires 2 arguments in the function handle", &tok));
-  });
   variable := match(hargs.get(usize(0)), .Some(v) => v, .None => make_err_expr());
   body := match(hargs.get(usize(1)), .Some(b) => b, .None => make_err_expr());
   if(_fd_is_deleted_mode_word(&variable), {
@@ -2507,8 +2512,7 @@ _desugar_for_call :: (fn(e : &AstExpr) -> AstExpr)({
       src_place := cond(src_is_place => coll, true => _fd_name(&src_var, &tok));
       out.push(_fd_bind(&c_var, &_fd_prefix(cond(walk_imm => BF_ADDRESS_OF, true => BK_BORROW_MUT), &src_place, &tok), &tok));
       out.push(_fd_bind(&guard_var, &_fd_call1("__borrow_guard", &_fd_name(&c_var, &tok), &tok), &tok));
-      // The cursor is reassigned by the loop's step: `mut`, which the
-      // macro's prelude-token local never needed.
+      // The cursor is reassigned by the loop's step: `mut`.
       out.push(_fd_mut_bind(&cur_var, &_fd_method(&_fd_name(&c_var, &tok), "walk_start", ArrayList(AstExpr).new(), &tok), &tok));
       project := _fd_cursor_call(&c_var, cond(walk_imm => "walk_ref", true => "walk_elem"), &cur_var, &tok);
       // The element bindings: `x := c.walk_elem(&cur)`, or, for a map, the
@@ -2625,8 +2629,8 @@ desugar_if_calls :: (fn(e : &AstExpr) -> AstExpr)(
         .Some(mb) => return(recur(&mb)),
         .None => ()
       );
-      // `for(coll, handle)`: the loop the prelude's `for` macro expands to
-      // (macro plan B1), desugared like the macro's expansion is.
+      // `for(coll, x => body)`: the loop over the cursor protocol (macro
+      // plan B1).
       if(is_for_desugar_target(e), {
         return(recur(&_desugar_for_call(e)));
       });
