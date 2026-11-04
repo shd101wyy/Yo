@@ -18,9 +18,10 @@ import("std/fmt");
 { IoExn } :: import("std/error");
 { Path } :: import("std/path");
 { create_dir_all } :: import("std/fs/dir");
+{ remove_dir_all } :: import("std/fs/walker");
 { write_string, copy } :: import("std/fs/file");
 { args, env, cwd } :: import("std/env");
-{ platform, Platform } :: import("std/process");
+{ platform, Platform, pid } :: import("std/process");
 { exit } :: import("std/libc/stdlib");
 { BuildRegistry, BuildArtifact, ArtifactKind, BuildVerifyConfig, ResolvedDep } :: import("../../src/evaluator/builtins/build.yo");
 _mk_artifact :: (fn(kind : ArtifactKind, name : &String, root : &String) -> BuildArtifact)(
@@ -32,7 +33,6 @@ _mk_artifact :: (fn(kind : ArtifactKind, name : &String, root : &String) -> Buil
     optimize : String.from(""),
     allocator : String.from(""),
     heap_size : usize(0),
-    cycle_collector : String.from("auto"),
     sanitize : String.from(""),
     emit_c_to : String.from(""),
     emit_chunks : usize(0),
@@ -134,26 +134,6 @@ test("register_executable carries the fixed-allocator heap size", {
   got := reg.artifacts(usize(0));
   assert(got.heap_size == usize(65536), "heap_size is copied on registration");
   assert(got.allocator == `fixed`, "allocator is copied on registration");
-});
-test("register_executable carries the cycle-collector mode", {
-  // plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §1: `build.cycle_collector` rides
-  // the artifact like heap_size; a missed copy would build `off` as `auto`.
-  // The build.yo -> --cycle-collector argv path is pinned by the
-  // build-cycle-collector-off cli-case.
-  exn := Exception(
-    throw : (
-      _err -> {
-        assert(false, "unexpected registry error");
-        unwind(());
-      }
-    )
-  );
-  reg := BuildRegistry.new();
-  mut(a) := _mk_artifact(ArtifactKind.Executable, String.from("app"), String.from("./src/main.yo"));
-  a.cycle_collector = String.from("off");
-  reg.register_executable(&a, exn);
-  got := reg.artifacts(usize(0));
-  assert(got.cycle_collector == `off`, "cycle_collector is copied on registration");
 });
 test("child compile flags: the four levels map to four distinct --optimize values", {
   /// issues/fixed/build-release-small-is-identical-to-release-safe.md: release-small
@@ -437,6 +417,18 @@ test("artifact stamp: a different compiler binary is a different stamp", {
   assert(!(a1 == b), "a different compiler binary must not match the recorded stamp");
   assert(a1 == a2, "the same compiler and inputs reproduce the stamp");
 });
+/// Remove a fixture dir, tolerating absence (an `unwind` exits this helper,
+/// not the test body).
+_remove_tolerant :: (fn(path : &String, io : Io) -> unit)({
+  swallow := Exception(
+    throw : (
+      _e -> {
+        unwind(());
+      }
+    )
+  );
+  io.await(remove_dir_all(Path.new(path.clone()), io), IoExn(io : io, exn : swallow));
+});
 test("the build's default C compiler is probed, not the literal clang", {
   // issues/fixed/2026-10-31-yo-build-defaults-to-clang-and-dies-on-clang-less-boxes.md:
   // `yo build` used to default ctx.c_compiler to the literal "clang" with no
@@ -485,8 +477,12 @@ test("the build's default C compiler is probed, not the literal clang", {
   // Arm the child gate AFTER this body's own check has run: every probe
   // child inherits it and exits at the gate instead of re-running the file.
   _svm := env.set(String.from("YO_FAKE_BUILD_CC_MODE"), String.from("1"));
-  scratch := `/tmp/yo_build_cc_probe_fixture`;
-  empty := `/tmp/yo_build_cc_probe_fixture_empty`;
+  // Per-process dirs, removed at the end: a fixed path kept the `clang` a
+  // previous run copied in, so every later run on the box resolved clang
+  // where it expects cc
+  // (issues/fixed/2026-11-03-the-build-runner-cc-probe-test-fails-on-every-rerun-on-one-box.md).
+  scratch := `/tmp/yo_build_cc_probe_fixture.${pid().to_string()}`;
+  empty := `/tmp/yo_build_cc_probe_fixture_empty.${pid().to_string()}`;
   io.await(create_dir_all(Path.new(scratch.clone()), io), IoExn(io : io, exn : io_exn));
   io.await(create_dir_all(Path.new(empty.clone()), io), IoExn(io : io, exn : io_exn));
   self_argv := args();
@@ -512,6 +508,8 @@ test("the build's default C compiler is probed, not the literal clang", {
   _sp2 := env.set(String.from("PATH"), empty.clone());
   no_cc := _resolve_default_or_error(io);
   _sp3 := env.set(String.from("PATH"), &cur_path);
+  _remove_tolerant(&scratch, io);
+  _remove_tolerant(&empty, io);
   assert(cc_only == `cc`, `a PATH with cc but no clang resolves cc, got "${cc_only}"`);
   assert(clang_first == `clang`, `clang wins when present, got "${clang_first}"`);
   assert(explicit == `gcc`, `an explicit --cc wins without probing, got "${explicit}"`);

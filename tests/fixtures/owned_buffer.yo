@@ -1,8 +1,7 @@
 //! A value that owns a heap buffer: the shape every std collection takes
 //! once V2b gives it a uniquely owned buffer (plans/VALUES_BY_DEFAULT.md, V2b
-//! "Unique buffers"). It frees its buffer in `Drop` and traces each slot in
-//! `Trace`, which the gate admits on a value with a `?*E` field. Used by
-//! tests/cycle_collector.test.yo and tests/move_only.test.yo.
+//! "Unique buffers"). It frees its buffer in `Drop`. Used by
+//! tests/move_only.test.yo.
 pragma(Pragma.AllowUnsafe);
 { panic } :: import("std/assert");
 { realloc, free } :: import("std/libc/stdlib.yo");
@@ -50,24 +49,6 @@ impl(
             ___drop(base.add(i).*);
           });
           unsafe(free(.Some((*void)(base))));
-        },
-        .None => ()
-      );
-    })
-  )
-);
-impl(
-  generic(T : Type),
-  VList(T),
-  Trace(
-    trace : (fn(self : &Self, tracer : GcTracer) -> unit)({
-      match(
-        self._ptr,
-        .Some(base) => {
-          (mut(i) : usize) = usize(0);
-          while(i < self._len, i = (i + usize(1)), {
-            tracer.visit(base.add(i));
-          });
         },
         .None => ()
       );

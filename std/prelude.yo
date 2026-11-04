@@ -274,10 +274,13 @@ Sync :: trait(
   id := "Sync"
 );
 export(Sync);
-/// Acyclic trait - indicates a type that cannot form reference cycles.
-/// Types that implement Acyclic don't need cycle collection tracking.
-/// Primitive types, value types without object fields, and objects that
-/// don't reference back to themselves (directly or indirectly) are Acyclic.
+/// Acyclic — a type whose values cannot reach a reference cycle: no cycle of
+/// STRONG edges (`Rc`, `Arc`, a `ref` object) is reachable from `T`, and a
+/// `Weak`/`ArcWeak` edge does not count (plans/backlog/WEAK_AND_UNCOLLECTED_RC.md
+/// §4). It is derived from the type's structure, like `Escapable`, and never
+/// implemented by hand: a positive `impl(T, Acyclic())` is an error, and
+/// `impl(T, !Acyclic)` opts a type out. A `where(T <: Acyclic)` bound is how
+/// an API promises its values cannot leak a cycle; nothing in std requires it.
 Acyclic :: trait(
   id := "Acyclic"
 );
@@ -325,42 +328,6 @@ drop_in_place :: (fn(generic(T : Type), p : *T) -> unit)(
   unsafe(___drop(p.*))
 );
 export(drop_in_place);
-/// === Cycle-GC tracing ===
-/// `GcTracer` carries the cycle collector's edge-registration callback (an opaque
-/// raw pointer). A `Trace` impl calls `tracer.visit(slot)` once per outgoing edge,
-/// passing a POINTER to where the child lives (a struct field or a container buffer
-/// element). The raw callback is never touched directly.
-GcTracer :: newtype(_callback : *u8);
-export(GcTracer);
-extern(
-  "Yo",
-  /// Per-slot edge tracer (compiler intrinsic). Internal — call `tracer.visit`.
-  __yo_gc_trace_child : (fn(generic(T : Type), tracer : GcTracer, slot : &*T) -> unit)
-);
-impl(
-  GcTracer,
-  /// Trace one outgoing edge. `slot` points at where the child lives; the collector
-  /// reads `*slot` WITHOUT touching its reference count — registering the edge if it
-  /// is a managed handle and recursing inline through value structure otherwise.
-  /// Passing the slot pointer (not the element by value) keeps tracing RC-neutral: a
-  /// by-value managed handle would be dup'd then dropped, freeing a live element
-  /// mid-collection.
-  visit : (fn(generic(T : Type), self : Self, slot : &*T) -> unit)(
-    __yo_gc_trace_child(self, slot)
-  )
-);
-/// Trace trait — mandatory for every reference type that can transitively hold a
-/// managed reference. Auto-derived by the compiler for structs/enums (incl.
-/// `Option` and all value types); hand-implemented for containers whose elements
-/// live in a heap buffer (`ArrayList`, `HashMap`, …). The constructor wires
-/// `header.traverse_fn` to this `trace`.
-/// Like `Drop`, only a reference type may implement it (checked at the
-/// `impl`).
-Trace :: trait(
-  id := "Trace",
-  trace : (fn(self : &Self, tracer : GcTracer) -> unit)
-);
-export(Trace);
 // === Explicit allocators ===
 // `Allocator` and `AllocatorVTable` live here so prelude signatures can name
 // them; `std/allocator.yo` holds their methods (`Allocator.global()`,
@@ -1081,7 +1048,6 @@ export(ComptimeToString);
 // for these types, Send is a structural property of the underlying C types.
 // === Builtin types ===
 /// unit
-impl(unit, Acyclic());
 impl(unit, Comptime());
 impl(unit, Runtime());
 impl(unit, Send());
@@ -1117,12 +1083,10 @@ impl(unit, Clone(clone : (fn(self : &Self) -> Self)(())));
 impl(unit, Copy());
 impl(unit, Default(default : (fn() -> Self)(())));
 /// void
-impl(void, Acyclic());
 impl(void, Runtime());
 impl(void, Send());
 impl(void, Sync());
 /// comptime_int
-impl(comptime_int, Acyclic());
 impl(comptime_int, Comptime());
 impl(
   comptime_int,
@@ -1242,7 +1206,6 @@ impl(
 _comptime_int :: comptime_int;
 export(comptime_int : _comptime_int);
 /// comptime_float
-impl(comptime_float, Acyclic());
 impl(comptime_float, Comptime());
 impl(
   comptime_float,
@@ -1337,7 +1300,6 @@ impl(
 _comptime_float :: comptime_float;
 export(comptime_float : _comptime_float);
 /// comptime_str
-impl(comptime_str, Acyclic());
 impl(comptime_str, Comptime());
 impl(
   comptime_str,
@@ -1410,7 +1372,6 @@ export(comptime_str : _comptime_string);
 /// bool
 impl(bool, Send());
 impl(bool, Sync());
-impl(bool, Acyclic());
 impl(
   bool,
   Eq(bool)(
@@ -1472,7 +1433,6 @@ impl(
 );
 impl(i8, Send());
 impl(i8, Sync());
-impl(i8, Acyclic());
 impl(i8, Comptime());
 impl(i8, Runtime());
 impl(
@@ -1768,7 +1728,6 @@ impl(
 );
 impl(i16, Send());
 impl(i16, Sync());
-impl(i16, Acyclic());
 impl(i16, Comptime());
 impl(i16, Runtime());
 impl(
@@ -2064,7 +2023,6 @@ impl(
 );
 impl(i32, Send());
 impl(i32, Sync());
-impl(i32, Acyclic());
 impl(i32, Comptime());
 impl(i32, Runtime());
 impl(
@@ -2362,7 +2320,6 @@ impl(
 );
 impl(i64, Send());
 impl(i64, Sync());
-impl(i64, Acyclic());
 impl(i64, Comptime());
 impl(i64, Runtime());
 impl(
@@ -2658,7 +2615,6 @@ impl(
 );
 impl(u8, Send());
 impl(u8, Sync());
-impl(u8, Acyclic());
 impl(u8, Comptime());
 impl(u8, Runtime());
 impl(
@@ -2937,7 +2893,6 @@ impl(
 );
 impl(u16, Send());
 impl(u16, Sync());
-impl(u16, Acyclic());
 impl(u16, Comptime());
 impl(u16, Runtime());
 impl(
@@ -3216,7 +3171,6 @@ impl(
 );
 impl(u32, Send());
 impl(u32, Sync());
-impl(u32, Acyclic());
 impl(u32, Comptime());
 impl(u32, Runtime());
 impl(
@@ -3495,7 +3449,6 @@ impl(
 );
 impl(u64, Send());
 impl(u64, Sync());
-impl(u64, Acyclic());
 impl(u64, Comptime());
 impl(u64, Runtime());
 impl(
@@ -3764,7 +3717,6 @@ export(u64 : _u64);
 /// f32
 impl(f32, Send());
 impl(f32, Sync());
-impl(f32, Acyclic());
 impl(f32, Comptime());
 impl(f32, Runtime());
 impl(
@@ -3958,7 +3910,6 @@ export(f32 : _f32);
 /// f64
 impl(f64, Send());
 impl(f64, Sync());
-impl(f64, Acyclic());
 impl(f64, Comptime());
 impl(f64, Runtime());
 impl(
@@ -4155,7 +4106,6 @@ impl(
 );
 impl(isize, Send());
 impl(isize, Sync());
-impl(isize, Acyclic());
 impl(isize, Comptime());
 impl(isize, Runtime());
 impl(
@@ -4450,7 +4400,6 @@ impl(
 );
 impl(usize, Send());
 impl(usize, Sync());
-impl(usize, Acyclic());
 impl(usize, Comptime());
 impl(usize, Runtime());
 impl(
@@ -5867,7 +5816,6 @@ impl(
 /// char
 impl(char, Send());
 impl(char, Sync());
-impl(char, Acyclic());
 impl(char, Runtime());
 impl(
   char,
@@ -5979,7 +5927,6 @@ export(char : _char);
 /// int
 impl(int, Send());
 impl(int, Sync());
-impl(int, Acyclic());
 impl(int, Runtime());
 impl(
   int,
@@ -6091,7 +6038,6 @@ export(int : _int);
 /// uint
 impl(uint, Send());
 impl(uint, Sync());
-impl(uint, Acyclic());
 impl(uint, Runtime());
 impl(
   uint,
@@ -6203,7 +6149,6 @@ export(uint : _uint);
 /// short
 impl(short, Send());
 impl(short, Sync());
-impl(short, Acyclic());
 impl(short, Runtime());
 impl(
   short,
@@ -6315,7 +6260,6 @@ export(short : _short);
 /// ushort
 impl(ushort, Send());
 impl(ushort, Sync());
-impl(ushort, Acyclic());
 impl(ushort, Runtime());
 impl(
   ushort,
@@ -6427,7 +6371,6 @@ export(ushort : _ushort);
 /// long
 impl(long, Send());
 impl(long, Sync());
-impl(long, Acyclic());
 impl(long, Runtime());
 impl(
   long,
@@ -6539,7 +6482,6 @@ export(long : _long);
 /// ulong
 impl(ulong, Send());
 impl(ulong, Sync());
-impl(ulong, Acyclic());
 impl(ulong, Runtime());
 impl(
   ulong,
@@ -6651,7 +6593,6 @@ export(ulong : _ulong);
 /// longlong
 impl(longlong, Send());
 impl(longlong, Sync());
-impl(longlong, Acyclic());
 impl(longlong, Runtime());
 impl(
   longlong,
@@ -6763,7 +6704,6 @@ export(longlong : _longlong);
 /// ulonglong
 impl(ulonglong, Send());
 impl(ulonglong, Sync());
-impl(ulonglong, Acyclic());
 impl(ulonglong, Runtime());
 impl(
   ulonglong,
@@ -6875,7 +6815,6 @@ export(ulonglong : _ulonglong);
 /// longdouble
 impl(longdouble, Send());
 impl(longdouble, Sync());
-impl(longdouble, Acyclic());
 impl(longdouble, Runtime());
 impl(
   longdouble,
@@ -7629,7 +7568,6 @@ impl(
 // `std/assert`. The prelude itself never imports other modules.)
 /// ComptimeList
 impl(generic(T : Type), ComptimeList(T), Comptime());
-impl(generic(T : Type), ComptimeList(T), Acyclic());
 impl(
   generic(T : Type),
   where(T <: Comptime),
@@ -7716,7 +7654,6 @@ ComptimeValue :: enum(
   Table(keys : ComptimeList(comptime_str), values : ComptimeList(Self))
 );
 impl(ComptimeValue, Comptime());
-impl(ComptimeValue, Acyclic());
 /// Walk a table's parallel lists for `key`. Written in Yo rather than as a
 /// builtin on purpose: a prelude binding that names a builtin the SEED lacks
 /// fails the bootstrap, and this needs no evaluator support beyond what
@@ -7790,7 +7727,6 @@ ExprList :: ComptimeList(Expr);
 export(ExprList);
 /// Expr
 impl(Expr, Comptime());
-impl(Expr, Acyclic());
 impl(
   Expr,
   ComptimeEq(Expr)(
@@ -7834,9 +7770,6 @@ impl(
   }),
   contains_rc_type : (fn(comptime(self) : Type) -> comptime(bool))({
     return(__yo_type_contains_rc_type(self));
-  }),
-  can_form_rc_cycle : (fn(comptime(self) : Type) -> comptime(bool))({
-    return(__yo_type_can_form_rc_cycle(self));
   }),
   impls : (fn(comptime(self) : Type, comptime(marker) : Trait) -> comptime(bool))({
     return(__yo_type_impls(self, marker));
@@ -9616,7 +9549,6 @@ impl(generic(T : Type, E : Type), where(T <: Copy, E <: Copy), Result(T, E), Cop
 // `Option`'s and `Result`'s `Clone` impls (`Allocator.ctx` is a `?*void`).
 derive(Pragma, Copy, Clone);
 derive(AllocatorVTable, Copy, Clone);
-derive(GcTracer, Copy, Clone);
 derive(Allocator, Copy, Clone);
 derive(Ordering, Copy, Clone);
 derive(generic(T : Type), where(T <: Clone), Range(T), Clone);
@@ -9764,8 +9696,9 @@ export(Result);
 /// only one.
 ///
 /// The payload is `Escapable` (decision 43, plans/backlog/REFERENCES_AND_ORIGINS.md
-/// O9): its drop runs when the last handle goes, where no borrow it holds
-/// could be checked, so a type that holds a reference is E0909.
+/// O9): a type that holds a reference is E0909. The bound is kept until
+/// origin propagation through counted cells; its collector reason went with
+/// W6b (O9).
 ///
 /// ```yo
 /// a := Rc.new(i32(42));
@@ -9971,8 +9904,7 @@ extern(
 ///
 /// A `Weak` is not an edge of the ownership graph, so a cycle closed through
 /// one is not a cycle: a parent pointer is `Weak(RefCell(Node))`, and the
-/// tree frees itself without the cycle collector (and under
-/// `--cycle-collector off`). It has no `Deref`: the payload may be gone, so
+/// tree frees itself. It has no `Deref`: the payload may be gone, so
 /// every read goes through `upgrade`. It is explicit-copy (`Weak.clone(w)`
 /// makes a second handle) and never `Send` or `Sync`; `ArcWeak` is the
 /// thread-safe form.
@@ -9988,9 +9920,8 @@ Weak :: (fn(comptime(V) : Type) -> comptime(Type))(
   // The cell's address, `.None` for `Weak.new()`. It points at the cell's
   // header, not at a `V`, and is never dereferenced here; it is typed by the
   // payload so that a `Weak(RefCell(Self))` field's `Self` is fixed up with
-  // its declaration. A weak edge is not an edge: the cycle walk does not
-  // follow it (`is_weak_handle_type`, §3.4), and neither does the
-  // collector's.
+  // its declaration. A weak edge is not an edge: the `Acyclic` reach walk
+  // does not follow it (`is_weak_handle_type`, §3.4).
   newtype(_cell : ?*V)
 );
 impl(
@@ -10371,9 +10302,9 @@ export(Box);
 ///
 /// Use `Arc.new(value)` to allocate. Access the inner value with `a.*`.
 ///
-/// The payload must be `Send` and `Sync`, as Rust's `Arc<T>` requires; it
-/// need not be `Acyclic` (plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §2). An
-/// atomic cell is never cycle-collected, so a cycle of `Arc` handles leaks,
+/// The payload must be `Send` and `Sync`, as Rust's `Arc<T>` requires, and
+/// `Escapable`: kept until origin propagation through counted cells; its
+/// collector reason went with W6b (O9). A cycle of `Arc` handles leaks,
 /// as in Rust: break it by clearing a back edge before the last handle that
 /// reaches it is dropped. `--allocator fixed --debug-heap` counts the leaked
 /// cells at exit.
@@ -13459,7 +13390,6 @@ FutureState :: enum(
 derive(FutureState, Copy, Clone);
 // SAFETY: FutureState is a plain enum of integer values (Cold, Running, Completed,
 // Aborted) with no heap allocations. It is trivially Send.
-impl(FutureState, Acyclic());
 impl(FutureState, Runtime());
 impl(FutureState, Send());
 impl(FutureState, Sync());
@@ -13625,6 +13555,8 @@ impl(
 /// plans/backlog/STATIC_ARGUMENT_INFERENCE.md §5, H1 fallback (a); Fable
 /// consultation #7). Its body builds through `__yo_cell`, as `Rc.new`'s does
 /// (V5 cells Generation B); the constructor itself stays until that S3 is fixed.
+/// The `Escapable` bound is `Rc`'s: kept until origin propagation through
+/// counted cells; its collector reason went with W6b (O9).
 __yo_rc_cell :: (fn(generic(V : Type), sink(value) : V, (alloc : Option(Allocator)) ?= .None, where(V <: Escapable)) -> Rc(V))({
   // `Rc.new`'s body, kept as `dyn(...)`'s own constructor: a closure
   // literal's payload type is the `Dyn`'s open payload wrapper, and only a
@@ -13636,7 +13568,9 @@ __yo_rc_cell :: (fn(generic(V : Type), sink(value) : V, (alloc : Option(Allocato
 });
 /// `dyn(...)`'s atomically counted cell constructor, for a `Dyn(..., Send)`
 /// target (and a recognized `dyn(Arc.new(<closure>, alloc : a))`):
-/// `__yo_rc_cell`'s twin. Compiler-internal, not exported.
+/// `__yo_rc_cell`'s twin. Compiler-internal, not exported. The `Escapable`
+/// bound is `Arc`'s: kept until origin propagation through counted cells; its
+/// collector reason went with W6b (O9).
 __yo_arc_cell :: (fn(generic(V : Type), sink(value) : V, (alloc : Option(Allocator)) ?= .None, where(V <: (Send, Sync)), where(V <: Escapable)) -> Arc(V))({
   // `Arc.new`'s body, kept as `dyn(...)`'s constructor for a Send target, for
   // `__yo_rc_cell`'s reason.

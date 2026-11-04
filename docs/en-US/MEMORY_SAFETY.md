@@ -155,6 +155,48 @@ std ships no arena: `std/arena` was deleted on 2026-10-24, and a `FixedBufferAll
 
 Calling `Allocator.alloc` / `free` directly hands out raw pointers, so it needs `pragma(Pragma.AllowUnsafe);`. The `alloc` argument and the `_in` constructors do not. The full guide (writing your own allocator, threads, debugging) is [EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md); the design record is `plans/archive/EXPLICIT_ALLOCATORS.md`.
 
+## Reference Cycles Leak
+
+Reference counting frees a cell when its last strong handle goes, so it cannot
+free a cycle: each cell of the cycle keeps the next one's count above zero.
+Yo has no cycle collector (it was removed in v0.2.75, decision 48,
+`plans/backlog/WEAK_AND_UNCOLLECTED_RC.md` §6). As with Rust's `Rc`, a cycle of
+strong handles leaks: its cells are never freed and their `Drop` never runs.
+`Drop` therefore runs at one deterministic point, the last handle's drop. A leak
+is not unsafe: no pointer dangles.
+
+```yo
+Node :: ref(struct(value : i32, next : Option(Self)));
+test("a cycle of strong handles is never freed", {
+  a := Node(value : i32(1), next : .None);
+  b := Node(value : i32(2), next : .Some(a));
+  a.next = .Some(b); // a -> b -> a: both counts stay above zero
+});
+```
+
+The remedy is the one Rust uses. Name the back edge with a `Weak` (or an
+`ArcWeak`), a non-owning handle ([WEAK.md](./WEAK.md)). A parent owns its
+children through `Rc`, and each child names its parent through a `Weak`.
+Dropping the root then frees the whole structure.
+
+Two tools find a cycle you did not mean to build:
+
+- **At run time**, the leak oracles. `--allocator debug` ([below](#--allocator-debug-leaks-and-heap-misuse-at-run-time))
+  lists the leaked blocks at exit and fails the run, and `yo test --allocator debug`
+  fails the leaking test. `--allocator fixed --debug-heap` prints the count:
+
+  ```bash
+  yo compile main.yo --allocator fixed --debug-heap -o app
+  ./app
+  # heap: peak 448.0 B of 16.0 MiB, 16 allocations, live at exit: 2 blocks / 96 bytes
+  ```
+
+- **At compile time**, the `Acyclic` marker. `T <: Acyclic` holds when no cycle
+  of strong edges is reachable from a value of `T`, and a `Weak` edge does not
+  count. A `where(T <: Acyclic)` bound is how an API promises that its values
+  cannot hold a leaking cycle. The marker is derived from the type's
+  structure and cannot be declared ([WEAK.md](./WEAK.md#the-acyclic-marker)).
+
 ## Escape Hatch: `pragma(Pragma.AllowUnsafe);`
 
 When you genuinely need raw pointers — binding a C library, writing a custom allocator, implementing a new collection — opt into unsafe-capable mode with a one-line declaration at the top of the file:
@@ -377,6 +419,7 @@ The safety model is honest about its scope:
 - **It applies to your code.** Stdlib bugs can still cause UB, since the stdlib uses raw pointers internally. The mitigation is audit, fuzz testing, and the `yo unsafe-report` inventory — the same approach Swift, Go, and Java take for their unsafe internals.
 - **FFI is the caller's problem.** Calling a C function with the wrong argument types or violating its precondition contract is UB at the C level. The `unsafe(...)` wrap around extern calls is the per-site review marker; it doesn't validate the contract.
 - **Data races across threads** are handled by `Send` / `Sync` / `Arc(T)`, not by this model. They're orthogonal.
+- **Leaks are not prevented.** A reference cycle leaks ([above](#reference-cycles-leak)); the `--allocator debug` oracle finds it.
 - **Inside `pragma(Pragma.AllowUnsafe);` files**, all bets are off — that's the point of the opt-in. You accept audit responsibility for what's in the file.
 
 The framing: **safe Yo code cannot violate memory safety. The unsafe surface is confined to files that explicitly opt in via pragma — primarily stdlib — which is small, audited per release, and fuzz-tested.**

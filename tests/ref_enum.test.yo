@@ -334,15 +334,6 @@ test("Drop accepts every reference enum, and a value enum it makes move-only", {
   assert((g_value_enum_disposed - value_before) == i32(1), "a value enum's Drop runs once, for its one owner");
   comptime_assert(!Type.impls(DisposedValueEnum, Copy) && !Type.impls(DisposedValueEnum, Clone), "a value enum with Drop is move-only");
   comptime_assert(Type.impls(PlainValueEnum, Copy), "one without Drop can be Copy");
-  comptime_expect_error(
-    impl(
-      PlainValueEnum,
-      Trace(
-        trace : (fn(self : Self, tracer : GcTracer) -> unit)(())
-      )
-    ),
-    "cannot implement \"Trace\""
-  );
 });
 
 // A ref(enum) with one payload-free variant and one `Self` payload is a heap

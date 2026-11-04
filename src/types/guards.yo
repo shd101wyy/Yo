@@ -548,7 +548,7 @@ is_unique_box_type :: (fn(t : &TypeValue) -> bool)(unique_box_payload_type(t).is
 /// (`unique_box_payload_type`). The field names its payload type so that a
 /// `Weak(RefCell(Self))` field's `Self` is fixed up with the declaration, but
 /// it holds the cell's address and owns nothing: a `Weak` is not an edge, so
-/// the cycle walk (`can_type_form_rc_cycle`) does not follow it.
+/// the `Acyclic` reach walk does not follow it.
 is_weak_handle_type :: (fn(t : &TypeValue) -> bool)(
   match(
     t_refine_inner(t),

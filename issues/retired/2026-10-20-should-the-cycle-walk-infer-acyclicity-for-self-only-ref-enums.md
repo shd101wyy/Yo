@@ -2,7 +2,7 @@
 
 **Kind:** design question — an open decision, not a defect.
 
-**Status:** open. Filed 2026-10-20 on `perf/acyclic-compiler-containers`
+**Status:** RETIRED 2026-11-03: decision 48 W6b deleted `can_type_form_rc_cycle`, the collector walk this question was about, and the declared `impl(T, Acyclic())` it weighed is now an error (`plans/backlog/WEAK_AND_UNCOLLECTED_RC.md` §4 "As built (W6b)"). The derived `Acyclic` walk answers `VcSort` structurally. Was: open. Filed 2026-10-20 on `perf/acyclic-compiler-containers`
 (stacked on #1486), which declares `impl(T, Acyclic())` on `AstExpr`,
 `VcTerm` and `VcSort` (decision 9 of the 2026-10-20 schedule decisions).
 

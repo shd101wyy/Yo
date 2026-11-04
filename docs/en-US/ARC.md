@@ -177,7 +177,7 @@ assert((a.* == i32(1)) && (b.* == i32(2)), "a is unchanged");
 
 ## Cycles
 
-Atomic reference counts are not cycle-collected. A payload that holds an `Arc` back to its own
+Yo has no cycle collector ([Memory Safety](MEMORY_SAFETY.md#reference-cycles-leak)). A payload that holds an `Arc` back to its own
 cell, directly or through a `Mutex`, closes a cycle whose counts never reach zero, and the cells
 stay allocated until the process exits, as they would in Rust:
 

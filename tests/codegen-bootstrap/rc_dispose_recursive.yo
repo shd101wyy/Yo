@@ -4,23 +4,28 @@
 // `b.next`; when `b` is dropped at scope end, its auto-derived `___dispose` must
 // drop `b.next` (an `Option(N)`), whose per-variant drop must in turn decrement
 // the inner `N` — else `a` leaks. Exercises both halves of the fix: the struct
-// `___dispose` synthesis AND the INLINE value-enum per-variant drop. Acyclic, so
-// RC alone reclaims everything on scope exit (no `Gc.collect` needed); we assert
-// `after == before` and emit a count-independent string for the differential.
+// `___dispose` synthesis AND the INLINE value-enum per-variant drop. `N`'s
+// `Drop` counts the nodes dropped: both, or `a` leaked.
 pragma(Pragma.AllowUnsafe);
 { printf } :: import("std/libc/stdio.yo");
-Gc :: import("std/gc");
+(mut(g_dropped) : i64) = i64(0);
 N :: ref(struct(v : i32, next : Option(Self)));
+impl(
+  N,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_dropped = (g_dropped + i64(1));
+    })
+  )
+);
 build_and_drop :: (fn() -> unit)({
   a := N(4, Option(N).None);
   b := N(5, Option(N).Some(a)); // a moved into b.next
   (); // a + b dropped at scope end; dropping b must recurse into b.next -> a
 });
 main :: (fn() -> unit)({
-  before := Gc.tracked_count();
   build_and_drop();
-  after := Gc.tracked_count();
-  if(after == before, {
+  if(g_dropped == i64(2), {
     unsafe(printf("recursive dispose freed all\n"));
   }, {
     unsafe(printf("recursive dispose leaked\n"));
