@@ -199,7 +199,7 @@ Progress:
     a type's structure, a failed `where(T <: Escapable)` and an `Rc`/`Arc`
     payload carrying an origin as E0909, `&h.*.x` and `{ x : &h.*.x }`
     through a read-only handle with the handle frozen (O9, O10);
-    `RefCell.get()`/`get_mut()` split out to N3 (#1724); N1e-1 — a
+    `RefCell.get()`/`get_mut()` split out to N3 (#1724); N1e-1 (#1752) — a
     reference binding reads and writes its referent with `.*` outside std
     and src, a bare whole-value use is E0926 (`yo fix --migrate deref`),
     `r.*` lowers to the C a bare read was, a bare `match(r, …)` matches

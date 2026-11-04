@@ -6,8 +6,8 @@
 # ---------------
 # `yo check ./std`, `yo check ./src` and the language suite cover the three
 # directories that hold `.yo` files. They do not cover Yo source that lives
-# INSIDE another file — and six such programs gate the release and the install
-# experience:
+# INSIDE another file — and eight such programs gate the release, the install
+# experience and CI:
 #
 #   * the hello world `scripts/install.sh` / `scripts/install.ps1` compile with
 #     the release they just downloaded (their verification step);
@@ -15,7 +15,9 @@
 #     real install, on POSIX and on Windows;
 #   * the hello world `.github/workflows/release.yml` compiles against each
 #     freshly built bundle (three sites: bundle smoke, musl container smoke,
-#     portable-C smoke).
+#     portable-C smoke);
+#   * the recursion probe `scripts/bootstrap/probe-stack-sizing.sh` compiles in
+#     the static musl bundle job (N1e-1's E0926 broke it on develop, 2026-11-04).
 #
 # A language change that removes a form one of those uses lands green on every
 # required check. `install-scripts.yml` is paths-filtered to the two installer
@@ -152,5 +154,15 @@ while IFS= read -r line; do
   fi
 done < "$WORK/release_sites.txt"
 
-echo "EMBEDDED_YO: sites=$((2 + 2 + site_count)) failures=$fails"
+#---------------------------------------------------------
+# 6. scripts/bootstrap/probe-stack-sizing.sh (the musl bundle job's probe)
+#
+# The script itself runs the probe under 1 MB and 64 MB stacks; here it only
+# has to compile and print its sum on the default stack.
+#---------------------------------------------------------
+awk "/cat > \"\\\$WORK\/probe.yo\" <<'YO'\$/{f=1;next} f&&/^YO\$/{exit} f" \
+  scripts/bootstrap/probe-stack-sizing.sh > "$WORK/probe_stack.yo"
+check "probe-stack-sizing.sh probe" "ok, sum = 125000750000" "$WORK/probe_stack.yo"
+
+echo "EMBEDDED_YO: sites=$((2 + 2 + site_count + 1)) failures=$fails"
 [ "$fails" = "0" ] || exit 1
