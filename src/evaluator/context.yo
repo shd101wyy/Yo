@@ -563,6 +563,7 @@ FuncCallResult :: (
     deferred_drop_expressions : Option(ArrayList(AstExpr))
   )
 );
+derive(FuncCallResult, Clone);
 // ---------------------------------------------------------------------------
 // ComptimeFnCallResult
 // ---------------------------------------------------------------------------
@@ -592,6 +593,7 @@ TypeCallResult :: (
     caller_env : Environment
   )
 );
+derive(TypeCallResult, Clone);
 // ---------------------------------------------------------------------------
 // Module / trait / macro / numeric / pointer / index call results
 // ---------------------------------------------------------------------------
@@ -601,12 +603,14 @@ ModuleTypeCallResult :: (
     caller_env : Environment
   )
 );
+derive(ModuleTypeCallResult, Clone);
 TraitTypeCallResult :: (
   struct(
     trait_value : EvalValue,
     caller_env : Environment
   )
 );
+derive(TraitTypeCallResult, Clone);
 TraitSpecializationResult :: (
   struct(
     specialized_trait_type : TypeValue,
@@ -632,6 +636,7 @@ PointerTypeCallResult :: (
     env : Environment
   )
 );
+derive(PointerTypeCallResult, Clone);
 IndexCallResult :: (
   struct(
     /// Auto-dereferenced value (Output type, not *(Output)).
@@ -652,6 +657,7 @@ IndexCallResult :: (
     comptime_ref : Option(ComptimeRef)
   )
 );
+derive(IndexCallResult, Clone);
 // ---------------------------------------------------------------------------
 // FunctionToCall — result discriminated union
 // ---------------------------------------------------------------------------
@@ -696,42 +702,42 @@ FunctionToCall :: (
 get_function_call_result :: (fn(ftc : &FunctionToCall) -> Option(FuncCallResult))(
   match(
     &ftc.result,
-    .FunctionResult(r) => Option(FuncCallResult).Some(r),
+    .FunctionResult(r) => Option(FuncCallResult).Some(r.clone()),
     _ => Option(FuncCallResult).None
   )
 );
 get_type_call_result :: (fn(ftc : &FunctionToCall) -> Option(TypeCallResult))(
   match(
     &ftc.result,
-    .TypeResult(r) => Option(TypeCallResult).Some(r),
+    .TypeResult(r) => Option(TypeCallResult).Some(r.clone()),
     _ => Option(TypeCallResult).None
   )
 );
 get_module_type_call_result :: (fn(ftc : &FunctionToCall) -> Option(ModuleTypeCallResult))(
   match(
     &ftc.result,
-    .ModuleTypeResult(r) => Option(ModuleTypeCallResult).Some(r),
+    .ModuleTypeResult(r) => Option(ModuleTypeCallResult).Some(r.clone()),
     _ => Option(ModuleTypeCallResult).None
   )
 );
 get_trait_type_call_result :: (fn(ftc : &FunctionToCall) -> Option(TraitTypeCallResult))(
   match(
     &ftc.result,
-    .TraitTypeResult(r) => Option(TraitTypeCallResult).Some(r),
+    .TraitTypeResult(r) => Option(TraitTypeCallResult).Some(r.clone()),
     _ => Option(TraitTypeCallResult).None
   )
 );
 get_index_call_result :: (fn(ftc : &FunctionToCall) -> Option(IndexCallResult))(
   match(
     &ftc.result,
-    .IndexResult(r) => Option(IndexCallResult).Some(r),
+    .IndexResult(r) => Option(IndexCallResult).Some(r.clone()),
     _ => Option(IndexCallResult).None
   )
 );
 get_pointer_type_call_result :: (fn(ftc : &FunctionToCall) -> Option(PointerTypeCallResult))(
   match(
     &ftc.result,
-    .PointerTypeResult(r) => Option(PointerTypeCallResult).Some(r),
+    .PointerTypeResult(r) => Option(PointerTypeCallResult).Some(r.clone()),
     _ => Option(PointerTypeCallResult).None
   )
 );
