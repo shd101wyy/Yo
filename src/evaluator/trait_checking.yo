@@ -173,9 +173,12 @@ register_type_trait :: (fn(type_id : &String, trait_name : str, env : &Environme
 register_type_trait_value :: (fn(type_id : &String, trait_ty : &TypeValue) -> unit)({
   // Taken out of the registry and stored back: a `get` copy is not the stored
   // list once collections are values (plans/VALUES_BY_DEFAULT.md §6 V2a).
-  list := match(g_type_trait_registry.with_mut(m => m.remove(type_id.clone())), .Some(l) => l, .None => ArrayList(TypeValue).new());
+  type_id_owned := type_id.clone();
+  list := match(g_type_trait_registry.with_mut({ type_id_owned }(m) => m.remove(type_id_owned.clone())), .Some(l) => l, .None => ArrayList(TypeValue).new());
   list.push(Rc.clone(trait_ty));
-  g_type_trait_registry.with_mut(m => m.insert(type_id.clone(), list));
+  type_id_owned2 := type_id.clone();
+  list_owned := list.clone();
+  g_type_trait_registry.with_mut({ type_id_owned2, list_owned }(m) => m.insert(type_id_owned2.clone(), list_owned));
   bump_trait_impl_epoch();
 });
 /// Extract a trait's stable identity string: the `id` field for `TraitT`, the
@@ -183,7 +186,7 @@ register_type_trait_value :: (fn(type_id : &String, trait_ty : &TypeValue) -> un
 _trait_type_id :: (fn(ty : &TypeValue) -> String)(
   match(
     ty,
-    Rc(.TraitT(_, _, _, _, id, _, _, _, _, _)) => id.clone(),
+    Rc(.TraitT(_, _, id, _, _, _)) => id.clone(),
     Rc(.FnTraitT(base_name, _, _, _, _, _)) => base_name.clone(),
     Rc(.FutureTraitT(base_name, _, _, _)) => base_name.clone(),
     _ => String.from("")
@@ -200,7 +203,7 @@ _trait_type_id :: (fn(ty : &TypeValue) -> String)(
 /// mutually compatible — wrongly reporting e.g. a plain object as `Send`.
 is_type_registered_as_trait :: (fn(type_id : &String, query_trait : &TypeValue, env : &Environment) -> bool)(
   match(
-    g_type_trait_registry.with(m => m.get(type_id)),
+    g_type_trait_registry.with(m => m.get_cloned(type_id)),
     .None => false,
     .Some(list) => {
       n := list.len();
@@ -208,7 +211,7 @@ is_type_registered_as_trait :: (fn(type_id : &String, query_trait : &TypeValue, 
       (found : bool) = false;
       query_id := _trait_type_id(query_trait);
       while((i < n) && !found, {
-        reg := match(list.get(i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
+        reg := match(list.get_cloned(i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
         if(query_id == _trait_type_id(&reg), {
           found = true;
         });
@@ -267,7 +270,7 @@ _marker_name_of :: (fn(trait_type : &TypeValue, env : &Environment) -> String)({
   (i : usize) = usize(0);
   (found : String) = String.from("");
   while((i < markers.len()) && found.is_empty(), {
-    marker := match(markers.get(i), .Some(m) => m, .None => String.from(""));
+    marker := match(markers.get_cloned(i), .Some(m) => m, .None => String.from(""));
     match(
       get_trait_type_from_env(env, marker.clone()),
       .Some(mt) => if(_trait_type_id(&mt) == tid, {
@@ -294,7 +297,7 @@ _ondemand_guard_contains :: (fn(key : &String) -> bool)({
   (found : bool) = false;
   while((i < g_ondemand_marker_guard.with(xs => xs.len())) && !found, {
     match(
-      g_ondemand_marker_guard.with(xs => xs.get(i)),
+      g_ondemand_marker_guard.with(xs => xs.get_cloned(i)),
       .Some(k) => if(k == key, {
         found = true;
       }),
@@ -603,7 +606,8 @@ _acy_declared :: (fn(t : &TypeValue, key : &String, at : &TypeValue, env : &Envi
   if(g_acy_generic_guard.with(xs => xs.contains(key)), {
     return(false);
   });
-  g_acy_generic_guard.with_mut(xs => xs.push(key.clone()));
+  key_owned := key.clone();
+  g_acy_generic_guard.with_mut({ key_owned }(xs) => xs.push(key_owned.clone()));
   declared := _find_matching_generic_impl(t, at, env);
   g_acy_generic_guard.with_mut(xs => xs.drain((xs.len() - usize(1)) .. xs.len()));
   declared
@@ -650,16 +654,19 @@ _acy_visit :: (fn(t : &TypeValue, key : &String, st : &mut _AcyWalk, at : &TypeV
       while(li < leaves.len(), li = (li + usize(1)), {
         st.memo_ok = false;
         match(
-          leaves.get(li),
-          .Some(leaf) => if(!type_implements_trait(&leaf, at, env).implemented, {
-            st.reach(v) = true;
-          }),
+          leaves.get_cloned(li),
+          .Some(leaf) => {
+            leaf_check := type_implements_trait(&leaf, at, env);
+            if(!leaf_check.implemented, {
+              st.reach(v) = true;
+            });
+          },
           .None => ()
         );
       });
       (ni : usize) = usize(0);
       while(ni < nodes.len(), ni = (ni + usize(1)), {
-        n := match(nodes.get(ni), .Some(x) => x, .None => Rc.new(TypeValueNode.Unit));
+        n := match(nodes.get_cloned(ni), .Some(x) => x, .None => Rc.new(TypeValueNode.Unit));
         nk := nominal_instance_node_id(&n);
         match(
           st.index.get(&nk),
@@ -759,10 +766,13 @@ _acyclic_by_reach :: (fn(target : &TypeValue, at : &TypeValue, env : &Environmen
   (li : usize) = usize(0);
   while(li < leaves.len(), li = (li + usize(1)), {
     match(
-      leaves.get(li),
-      .Some(leaf) => if(!type_implements_trait(&leaf, at, env).implemented, {
-        return(Option(bool).Some(false));
-      }),
+      leaves.get_cloned(li),
+      .Some(leaf) => {
+        leaf_check := type_implements_trait(&leaf, at, env);
+        if(!leaf_check.implemented, {
+          return(Option(bool).Some(false));
+        });
+      },
       .None => ()
     );
   });
@@ -770,7 +780,7 @@ _acyclic_by_reach :: (fn(target : &TypeValue, at : &TypeValue, env : &Environmen
   (reaches : bool) = false;
   (ni : usize) = usize(0);
   while((ni < nodes.len()) && !reaches, ni = (ni + usize(1)), {
-    n := match(nodes.get(ni), .Some(x) => x, .None => Rc.new(TypeValueNode.Unit));
+    n := match(nodes.get_cloned(ni), .Some(x) => x, .None => Rc.new(TypeValueNode.Unit));
     nk := nominal_instance_node_id(&n);
     reaches = match(
       st.index.get(&nk),
@@ -789,7 +799,9 @@ _acyclic_by_reach :: (fn(target : &TypeValue, at : &TypeValue, env : &Environmen
   if(st.memo_ok, {
     (ki : usize) = usize(0);
     while(ki < st.keys.len(), ki = (ki + usize(1)), {
-      g_acy_memo.with_mut(m => m.insert(st.keys(ki).clone(), st.reach(ki)));
+      memo_key := st.keys(ki).clone();
+      memo_val := st.reach(ki);
+      g_acy_memo.with_mut({ memo_key, memo_val }(m) => m.insert(memo_key, memo_val));
     });
   });
   Option(bool).Some(!reaches)
@@ -900,12 +912,12 @@ _check_associated_type_constraints :: (
 )({
   atc_labels := match(
     trait_type,
-    Rc(.TraitT(_, _, _, _, _, _, _, _, l, _)) => Rc.clone(l),
+    Rc(.TraitT(_, _, _, _, l, _)) => Rc.clone(l),
     _ => no_labels()
   );
   atc_types := match(
     trait_type,
-    Rc(.TraitT(_, _, _, _, _, _, _, _, _, t)) => Rc.clone(t),
+    Rc(.TraitT(_, _, _, _, _, t)) => Rc.clone(t),
     _ => no_types()
   );
   n_atc := atc_labels.len();
@@ -916,7 +928,7 @@ _check_associated_type_constraints :: (
   (ok : bool) = true;
   (ci : usize) = usize(0);
   while((ci < n_atc) && ok, {
-    label := match(atc_labels.get(ci), .Some(l) => l, .None => String.from(""));
+    label := match(atc_labels.get_cloned(ci), .Some(l) => l, .None => String.from(""));
     constraint_ty := match(atc_types.get(ci), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
     // Step 1: the target's OWN registrations (a CONCRETE impl's
     // `Item : i32`). The equivalent store is the
@@ -1057,7 +1069,7 @@ _first_non_copy_part :: (fn(target : &TypeValue, copy_tt : &TypeValue, env : &En
     Rc(.Struct({ field_labels : nc_labels, field_types : nc_fields })) => {
       (i : usize) = usize(0);
       while(i < nc_fields.len(), {
-        labels.push(`its field \`${match(nc_labels.get(i), .Some(l) => l, .None => String.new())}\``);
+        labels.push(`its field \`${match(nc_labels.get_cloned(i), .Some(l) => l, .None => String.new())}\``);
         parts.push(match(nc_fields.get(i), .Some(f) => f, .None => Rc.new(TypeValueNode.Unit)));
         i = (i + usize(1));
       });
@@ -1066,7 +1078,7 @@ _first_non_copy_part :: (fn(target : &TypeValue, copy_tt : &TypeValue, env : &En
       (vi : usize) = usize(0);
       while(vi < nc_vfs.len(), {
         vf := match(nc_vfs.get(vi), .Some(f) => f, .None => no_types());
-        vn := match(nc_vns.get(vi), .Some(n) => n, .None => String.new());
+        vn := match(nc_vns.get_cloned(vi), .Some(n) => n, .None => String.new());
         (fi : usize) = usize(0);
         while(fi < vf.len(), {
           labels.push(`its variant \`${vn}\``);
@@ -1080,7 +1092,7 @@ _first_non_copy_part :: (fn(target : &TypeValue, copy_tt : &TypeValue, env : &En
   );
   (pi : usize) = usize(0);
   while(pi < parts.len(), {
-    part := match(parts.get(pi), .Some(p) => p, .None => Rc.new(TypeValueNode.Unit));
+    part := match(parts.get_cloned(pi), .Some(p) => p, .None => Rc.new(TypeValueNode.Unit));
     (part_is_copy : bool) = type_implements_trait(&part, copy_tt, env).implemented;
     // A `&` reference is `Copy` structurally (decision 43 step 3, §5 route 3:
     // copies share what they point at); a `&mut` one never is (exclusive, so
@@ -1120,7 +1132,7 @@ _first_non_copy_part :: (fn(target : &TypeValue, copy_tt : &TypeValue, env : &En
       part_is_copy = (type_mentions_some_type(&part) && generic_pattern_implements_trait(&part, copy_tt, env));
     });
     if(!part_is_copy, {
-      lbl := match(labels.get(pi), .Some(l) => l, .None => String.new());
+      lbl := match(labels.get_cloned(pi), .Some(l) => l, .None => String.new());
       return(Option(String).Some(`${lbl} has type \`${type_to_string(&part)}\``));
     });
     pi = (pi + usize(1));
@@ -1278,7 +1290,10 @@ _type_lacks_clone_for_diagnostics :: (fn(ty : &TypeValue) -> bool)(
     g_flip_env,
     .Some(env) => match(
       get_trait_type_from_env(&env, String.from("Clone")),
-      .Some(clone_tt) => !type_implements_trait(ty, &clone_tt, &env).implemented,
+      .Some(clone_tt) => {
+        clone_check := type_implements_trait(ty, &clone_tt, &env);
+        !clone_check.implemented
+      },
       .None => false
     ),
     .None => false
@@ -1312,7 +1327,7 @@ type_clone_runs_no_user_code :: (fn(ty : &TypeValue, env : &Environment) -> bool
 _clone_parts_run_no_user_code :: (fn(parts : &ArrayList(TypeValue), clone_tt : &TypeValue, visited : &mut HashMap(String, bool), depth : u32) -> bool)({
   (i : usize) = usize(0);
   while(i < parts.len(), i = (i + usize(1)), {
-    if(!match(parts.get(i), .Some(pt) => _clone_runs_no_user_code_inner(&pt, clone_tt, visited, depth + u32(1)), .None => true), {
+    if(!match(parts.get_cloned(i), .Some(pt) => _clone_runs_no_user_code_inner(&pt, clone_tt, visited, depth + u32(1)), .None => true), {
       return(false);
     });
   });
@@ -1435,7 +1450,7 @@ type_lacks_copy_for_flip :: (fn(ty_in : &TypeValue) -> bool)({
   // Not memoized: the answer changes once the derive registers `Copy`.
   (pi : usize) = usize(0);
   while(pi < g_copy_pending_keys.with(xs => xs.len()), {
-    if(match(g_copy_pending_keys.with(xs => xs.get(pi)), .Some(pk) => (pk == key), .None => false), {
+    if(match(g_copy_pending_keys.with(xs => xs.get_cloned(pi)), .Some(pk) => (pk == key), .None => false), {
       return(false);
     });
     pi = (pi + usize(1));
@@ -1450,17 +1465,21 @@ type_lacks_copy_for_flip :: (fn(ty_in : &TypeValue) -> bool)({
   );
   (ipi : usize) = usize(0);
   while(ipi < g_lacks_copy_in_progress.with(xs => xs.len()), {
-    if(match(g_lacks_copy_in_progress.with(xs => xs.get(ipi)), .Some(ik) => (ik == key), .None => false), {
+    if(match(g_lacks_copy_in_progress.with(xs => xs.get_cloned(ipi)), .Some(ik) => (ik == key), .None => false), {
       return(false);
     });
     ipi = (ipi + usize(1));
   });
-  g_lacks_copy_in_progress.with_mut(xs => xs.push(key.clone()));
+  progress_key := key.clone();
+  g_lacks_copy_in_progress.with_mut({ progress_key }(xs) => xs.push(progress_key));
   answer := cond(
     (type_is_comptime_only_full(&ty, &env) || type_is_control_bound(&ty)) => false,
     true => match(
       get_trait_type_from_env(&env, String.from("Copy")),
-      .Some(copy_tt) => !type_implements_trait(&ty, &copy_tt, &env).implemented,
+      .Some(copy_tt) => {
+        copy_check := type_implements_trait(&ty, &copy_tt, &env);
+        !copy_check.implemented
+      },
       .None => false
     )
   );
@@ -1471,7 +1490,8 @@ type_lacks_copy_for_flip :: (fn(ty_in : &TypeValue) -> bool)({
     _clear_lacks_copy_memo();
     g_lacks_copy_memo_epoch = trait_impl_epoch();
   });
-  g_lacks_copy_memo.with_mut(m => m.insert(key.clone(), answer));
+  memo_key := key.clone();
+  g_lacks_copy_memo.with_mut({ memo_key, answer }(m) => m.insert(memo_key, answer));
   _record_lacks_copy_fast(&ty, key_epoch, answer);
   answer
 });
@@ -1570,7 +1590,7 @@ _copy_blockers_into :: (fn(ty_in : &TypeValue, copy_tt : &TypeValue, env : &Envi
   });
   (pi : usize) = usize(0);
   while(pi < parts.len(), {
-    recur(match(parts.get(pi), .Some(p) => p, .None => Rc.new(TypeValueNode.Unit)), copy_tt, env, depth + u32(1), out);
+    recur(match(parts.get_cloned(pi), .Some(p) => p, .None => Rc.new(TypeValueNode.Unit)), copy_tt, env, depth + u32(1), out);
     pi = (pi + usize(1));
   });
 });
@@ -1588,10 +1608,11 @@ _trait_or_supertrait_is :: (fn(bound : &TypeValue, wanted : &TypeValue, depth : 
   });
   match(
     bound,
-    Rc(.TraitT({ self_constraints : st_scs })) => {
+    Rc(.TraitT({ body : st_scs_body })) => {
+      st_scs := st_scs_body.self_constraints();
       (si : usize) = usize(0);
       while(si < st_scs.len(), {
-        if(recur(match(st_scs.get(si), .Some(sc) => sc, .None => Rc.new(TypeValueNode.Unit)), wanted, depth + u32(1)), {
+        if(recur(match(st_scs.get_cloned(si), .Some(sc) => sc, .None => Rc.new(TypeValueNode.Unit)), wanted, depth + u32(1)), {
           return(true);
         });
         si = (si + usize(1));
@@ -2073,12 +2094,13 @@ type_implements_trait :: (
         // selfConstraints of the required trait.
         match(
           req_trait,
-          Rc(.TraitT(_, _, _, _, _, _, self_constraints, _, _, _)) => {
+          Rc(.TraitT(_, self_constraints_body, _, _, _, _)) => {
+            self_constraints := self_constraints_body.self_constraints();
             ns := self_constraints.len();
             (j : usize) = usize(0);
             while(j < ns, {
               sc := match(
-                self_constraints.get(j),
+                self_constraints.get_cloned(j),
                 .Some(t) => t,
                 .None => {
                   j = (j + usize(1));
@@ -2120,7 +2142,9 @@ type_implements_trait :: (
   // via _add_where_clause_constraint (no separate env lookup needed).
   match(
     &target,
-    Rc(.SomeT(_, _, _, _, required_trait_types, _, negative_trait_types, _, _, _)) => {
+    Rc(.SomeT(_, _, _, _, required_trait_types_bnd, _, _)) => {
+      required_trait_types := required_trait_types_bnd.required();
+      negative_trait_types := required_trait_types_bnd.negative();
       (found_req : bool) = false;
       (found_neg : bool) = false;
       // Check required_trait_types.
@@ -2128,7 +2152,7 @@ type_implements_trait :: (
       (ir : usize) = usize(0);
       while(ir < nr, {
         req_t := match(
-          required_trait_types.get(ir),
+          required_trait_types.get_cloned(ir),
           .Some(t) => t,
           .None => {
             ir = (ir + usize(1));
@@ -2145,7 +2169,7 @@ type_implements_trait :: (
       (in2 : usize) = usize(0);
       while(in2 < nn2, {
         neg_t := match(
-          negative_trait_types.get(in2),
+          negative_trait_types.get_cloned(in2),
           .Some(t) => t,
           .None => {
             in2 = (in2 + usize(1));
@@ -2170,7 +2194,7 @@ type_implements_trait :: (
           (iwr : usize) = usize(0);
           while(iwr < nwr, {
             wr_t := match(
-              wcc.required_traits.get(iwr),
+              wcc.required_traits.get_cloned(iwr),
               .Some(t) => t,
               .None => {
                 iwr = (iwr + usize(1));
@@ -2186,7 +2210,7 @@ type_implements_trait :: (
           (iwn : usize) = usize(0);
           while(iwn < nwn, {
             wn_t := match(
-              wcc.negative_traits.get(iwn),
+              wcc.negative_traits.get_cloned(iwn),
               .Some(t) => t,
               .None => {
                 iwn = (iwn + usize(1));
@@ -2254,7 +2278,7 @@ type_implements_trait :: (
   (gi : usize) = usize(0);
   while(gi < gn, {
     entry := match(
-      g_trait_check_recursion_guard.with(xs => xs.get(gi)),
+      g_trait_check_recursion_guard.with(xs => xs.get_cloned(gi)),
       .Some(s) => s,
       .None => {
         gi = (gi + usize(1));
@@ -2405,13 +2429,15 @@ check_self_constraints_violation_msg :: (
   );
   match(
     trait_type,
-    Rc(.TraitT(name, _, _, _, _, _, self_constraints, neg_self_constraints, _, _)) => {
+    Rc(.TraitT(name, self_constraints_body, _, _, _, _)) => {
+      self_constraints := self_constraints_body.self_constraints();
+      neg_self_constraints := self_constraints_body.neg_self_constraints();
       // Check positive constraints (must implement).
       np := self_constraints.len();
       (ip : usize) = usize(0);
       while(ip < np, {
         constraint := match(
-          self_constraints.get(ip),
+          self_constraints.get_cloned(ip),
           .Some(c) => c,
           .None => {
             ip = (ip + usize(1));
@@ -2444,7 +2470,7 @@ check_self_constraints_violation_msg :: (
       (in_ : usize) = usize(0);
       while(in_ < nn, {
         constraint := match(
-          neg_self_constraints.get(in_),
+          neg_self_constraints.get_cloned(in_),
           .Some(c) => c,
           .None => {
             in_ = (in_ + usize(1));
@@ -2526,7 +2552,8 @@ type_implements_runtime_full :: (fn(ty : &TypeValue, env : &Environment) -> bool
 ///
 ///
 begin_send_derivation :: (fn(type_id : &String) -> unit)({
-  g_send_derivation_in_progress.with_mut(xs => xs.push(type_id.clone()));
+  type_id_owned := type_id.clone();
+  g_send_derivation_in_progress.with_mut({ type_id_owned }(xs) => xs.push(type_id_owned.clone()));
 });
 /// Remove a type from the Send auto-derivation in-progress set.
 ///
@@ -2537,7 +2564,7 @@ end_send_derivation :: (fn(type_id : &String) -> unit)({
   (found_idx : Option(usize)) = Option(usize).None;
   while(i < n, {
     entry := match(
-      g_send_derivation_in_progress.with(xs => xs.get(i)),
+      g_send_derivation_in_progress.with(xs => xs.get_cloned(i)),
       .Some(s) => s,
       .None => {
         i = (i + usize(1));
@@ -2575,7 +2602,7 @@ _type_implements_thread_marker :: (fn(ty : &TypeValue, marker : str, env : &Envi
   (id : usize) = usize(0);
   while(id < nd, {
     entry := match(
-      g_send_derivation_in_progress.with(xs => xs.get(id)),
+      g_send_derivation_in_progress.with(xs => xs.get_cloned(id)),
       .Some(s) => s,
       .None => {
         id = (id + usize(1));
@@ -2666,12 +2693,13 @@ deref_target_type :: (fn(ty : &TypeValue, env : &Environment) -> Option(TypeValu
 type_implements_fn :: (fn(ty : &TypeValue) -> bool)(
   match(
     ty,
-    Rc(.SomeT(_, _, _, _, required_trait_types, _, _, _, _, _)) => {
+    Rc(.SomeT(_, _, _, _, required_trait_types_bounds, _, _)) => {
+      required_trait_types := required_trait_types_bounds.required();
       n := required_trait_types.len();
       (i : usize) = usize(0);
       (found : bool) = false;
       while((i < n) && !found, {
-        t := match(required_trait_types.get(i), .Some(v) => v, .None => Rc.new(TypeValueNode.Unit));
+        t := match(required_trait_types.get_cloned(i), .Some(v) => v, .None => Rc.new(TypeValueNode.Unit));
         match(
           t,
           Rc(.FnTraitT(base_name : _)) => {
@@ -2719,7 +2747,7 @@ extract_fn_trait_from_type :: (fn(ty : &TypeValue) -> Option(TypeValue))(
   match(
     ty,
     Rc(.FnTraitT(base_name : _)) => Option(TypeValue).Some(Rc.clone(ty)),
-    Rc(.SomeT(_, _, _, _, _, _, _, _, _, _)) => {
+    Rc(.SomeT(_, _, _, _, _, _, _)) => {
       // Walk the SomeT and its `resolution` chain: a where-clause `F`
       // whose Fn bound was
       // stripped by freshening still resolves through `__impl_fn` (which
@@ -2733,12 +2761,13 @@ extract_fn_trait_from_type :: (fn(ty : &TypeValue) -> Option(TypeValue))(
       while(eft_going, {
         match(
           Rc.clone(eft_cur),
-          Rc(.SomeT(eft_id, _, _, _, eft_rtt, _, _, _, _, eft_rc)) => {
+          Rc(.SomeT(eft_id, _, _, _, eft_rtt_bnd, _, eft_rc)) => {
+            eft_rtt := eft_rtt_bnd.required();
             n := eft_rtt.len();
             (i : usize) = usize(0);
             while((i < n) && eft_out.is_none(), {
               match(
-                eft_rtt.get(i),
+                eft_rtt.get_cloned(i),
                 .Some(t) => match(
                   &t,
                   Rc(.FnTraitT(base_name : _)) => {
@@ -2757,7 +2786,7 @@ extract_fn_trait_from_type :: (fn(ty : &TypeValue) -> Option(TypeValue))(
               (si : usize) = usize(0);
               while(si < eft_seen.len(), {
                 match(
-                  eft_seen.get(si),
+                  eft_seen.get_cloned(si),
                   .Some(sid) => if(sid == eft_id, {
                     eft_revisit = true;
                   }),
@@ -2962,7 +2991,7 @@ function_value_slot_mismatch :: (fn(expected : &TypeValue, given : &TypeValue) -
           e_own := match(fm_e.owns.get(fm_i), .Some(b) => b, .None => false);
           g_own := match(fm_g.owns.get(fm_i), .Some(b) => b, .None => false);
           if((e_ref != g_ref) || (e_own != g_own), {
-            e_lbl := match(fm_e.labels.get(fm_i), .Some(l) => l, .None => String.from("_"));
+            e_lbl := match(fm_e.labels.get_cloned(fm_i), .Some(l) => l, .None => String.from("_"));
             g_lbl := match(fm_g.labels.get(fm_i), .Some(l) => l, .None => e_lbl.clone());
             return(
               Option(String).Some(
@@ -3002,25 +3031,28 @@ function_value_slot_mismatch :: (fn(expected : &TypeValue, given : &TypeValue) -
 impl_param_unmet_trait :: (fn(param_type : &TypeValue, arg_type : &TypeValue, env : &Environment, markers_judged : bool) -> Option(TypeValue))(
   match(
     param_type,
-    Rc(.SomeT({ name : ip_nm, required_trait_types : ip_req })) => cond(
-      ((ip_nm != "Impl") || (get_all_some_types(arg_type).len() > usize(0))) => Option(TypeValue).None,
-      true => {
-        (ip_miss : Option(TypeValue)) = Option(TypeValue).None;
-        (ip_i : usize) = usize(0);
-        while((ip_i < ip_req.len()) && ip_miss.is_none(), {
-          match(
-            ip_req.get(ip_i),
-            .Some(ip_t) => if(!is_fn_trait_type(&ip_t) && !(markers_judged && ((type_to_string(&ip_t) == "Send") || (type_to_string(&ip_t) == "Sync") || (type_to_string(&ip_t) == "Acyclic")))
-            && !type_implements_trait_bool(arg_type, &ip_t, env), {
-              ip_miss = Option(TypeValue).Some(ip_t);
-            }),
-            .None => ()
-          );
-          ip_i = (ip_i + usize(1));
-        });
-        ip_miss
-      }
-    ),
+    Rc(.SomeT({ name : ip_nm, bounds : ip_req_bnd })) => {
+      ip_req := ip_req_bnd.required();
+      cond(
+        ((ip_nm != "Impl") || (get_all_some_types(arg_type).len() > usize(0))) => Option(TypeValue).None,
+        true => {
+          (ip_miss : Option(TypeValue)) = Option(TypeValue).None;
+          (ip_i : usize) = usize(0);
+          while((ip_i < ip_req.len()) && ip_miss.is_none(), {
+            match(
+              ip_req.get_cloned(ip_i),
+              .Some(ip_t) => if(!is_fn_trait_type(&ip_t) && !(markers_judged && ((type_to_string(&ip_t) == "Send") || (type_to_string(&ip_t) == "Sync") || (type_to_string(&ip_t) == "Acyclic")))
+              && !type_implements_trait_bool(arg_type, &ip_t, env), {
+                ip_miss = Option(TypeValue).Some(ip_t);
+              }),
+              .None => ()
+            );
+            ip_i = (ip_i + usize(1));
+          });
+          ip_miss
+        }
+      )
+    },
     _ => Option(TypeValue).None
   )
 );
@@ -3035,30 +3067,33 @@ judge_function_argument_markers :: (
   (judged : bool) = false;
   match(
     param_type,
-    Rc(.SomeT({ name : pn, required_trait_types : prtts })) => if(pn == "Impl", {
-      (pi : usize) = usize(0);
-      while(pi < prtts.len(), {
-        match(
-          prtts.get(pi),
-          .Some(pt) => match(
-            call_function_value_marker(arg_type, arg_value, &pt, env, ctx),
-            .Some(v) => {
-              judged = true;
-              match(
-                v,
-                .Some(o) => {
-                  return(FunctionArgMarkers(judged : true, offense : Option(String).Some(`the function value does not implement ${type_to_string(&pt)}: ${o}`)));
-                },
-                .None => ()
-              );
-            },
+    Rc(.SomeT({ name : pn, bounds : prtts_bnd })) => {
+      prtts := prtts_bnd.required();
+      if(pn == "Impl", {
+        (pi : usize) = usize(0);
+        while(pi < prtts.len(), {
+          match(
+            prtts.get_cloned(pi),
+            .Some(pt) => match(
+              call_function_value_marker(arg_type, arg_value, &pt, env, ctx),
+              .Some(v) => {
+                judged = true;
+                match(
+                  v,
+                  .Some(o) => {
+                    return(FunctionArgMarkers(judged : true, offense : Option(String).Some(`the function value does not implement ${type_to_string(&pt)}: ${o}`)));
+                  },
+                  .None => ()
+                );
+              },
+              .None => ()
+            ),
             .None => ()
-          ),
-          .None => ()
-        );
-        pi = (pi + usize(1));
-      });
-    }),
+          );
+          pi = (pi + usize(1));
+        });
+      })
+    },
     _ => ()
   );
   FunctionArgMarkers(judged : judged, offense : Option(String).None)
@@ -3081,12 +3116,13 @@ impl_argument_unmet_trait_message :: (
 type_implements_future :: (fn(ty : &TypeValue) -> bool)(
   match(
     ty,
-    Rc(.SomeT(_, _, _, _, required_trait_types, _, _, _, _, _)) => {
+    Rc(.SomeT(_, _, _, _, required_trait_types_bounds, _, _)) => {
+      required_trait_types := required_trait_types_bounds.required();
       n := required_trait_types.len();
       (i : usize) = usize(0);
       (found : bool) = false;
       while((i < n) && !found, {
-        t := match(required_trait_types.get(i), .Some(v) => v, .None => Rc.new(TypeValueNode.Unit));
+        t := match(required_trait_types.get_cloned(i), .Some(v) => v, .None => Rc.new(TypeValueNode.Unit));
         match(
           t,
           Rc(.FutureTraitT(base_name : _)) => {
@@ -3152,7 +3188,7 @@ type_contains_some_type_for_codegen_param :: (
     (ci : usize) = usize(0);
     while((ci < checked_ids.len()) && !seen, {
       match(
-        checked_ids.get(ci),
+        checked_ids.get_cloned(ci),
         .Some(k) => if(k == nominal_id, {
           seen = true;
         }),
@@ -3274,7 +3310,7 @@ type_contains_some_type_for_codegen_param :: (
         (ti : usize) = usize(0);
         while((ti < en_phantoms.len()) && !found, {
           match(
-            en_phantoms.get(ti),
+            en_phantoms.get_cloned(ti),
             .Some(ta) => if(recur(&ta, checked_ids), {
               found = true;
             }),
@@ -3327,12 +3363,13 @@ extract_future_trait_from_type :: (fn(ty : &TypeValue) -> Option(TypeValue))(
   match(
     ty.clone(),
     Rc(.FutureTraitT(base_name : _)) => Option(TypeValue).Some(Rc.clone(ty)),
-    Rc(.SomeT(_, _, _, _, required_trait_types, _, _, _, _, _)) => {
+    Rc(.SomeT(_, _, _, _, required_trait_types_bounds, _, _)) => {
+      required_trait_types := required_trait_types_bounds.required();
       n := required_trait_types.len();
       (i : usize) = usize(0);
       while(i < n, {
         t := match(
-          required_trait_types.get(i),
+          required_trait_types.get_cloned(i),
           .Some(v) => v,
           .None => {
             i = (i + usize(1));
@@ -3453,13 +3490,14 @@ find_some_type_missing_comptime_constraint :: (
         // Check required_trait_types.
         match(
           ty,
-          Rc(.SomeT(_, _, _, _, required_trait_types, _, _, _, _, _)) => {
+          Rc(.SomeT(_, _, _, _, required_trait_types_bounds, _, _)) => {
+            required_trait_types := required_trait_types_bounds.required();
             n := required_trait_types.len();
             (i : usize) = usize(0);
             (has_comptime : bool) = false;
             while(i < n, {
               req_t := match(
-                required_trait_types.get(i),
+                required_trait_types.get_cloned(i),
                 .Some(t) => t,
                 .None => {
                   i = (i + usize(1));
@@ -3485,7 +3523,7 @@ find_some_type_missing_comptime_constraint :: (
                   (wi : usize) = usize(0);
                   while(wi < wc_reqs.len(), {
                     match(
-                      wc_reqs.get(wi),
+                      wc_reqs.get_cloned(wi),
                       .Some(wc_t) => if(_trait_type_id(&wc_t) == _trait_type_id(&comptime_trait), {
                         has_comptime = true;
                       }),

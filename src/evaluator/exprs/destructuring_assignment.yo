@@ -44,7 +44,7 @@ pragma(Pragma.AllowUnsafe);
 { type_to_string } :: import("../../types/string.yo");
 { format_error_message, format_error_messages, TokenAndError, with_code } :: import("../../error.yo");
 { unknown_field_message, unknown_field_code } :: import("../../types/utils.yo");
-{ is_valid_variable_name, reject_malformed_mut_marker, migrate_explicit_copy_on, _ic_decl_key, _ic_binding_source_decl, record_copy_flow_decl } :: import("../utils.yo");
+{ is_valid_variable_name, reject_malformed_mut_marker } :: import("../utils.yo");
 { is_mut_binding } :: import("../../expr.yo");
 { clone_value } :: import("../values/clone_value.yo");
 { Exception } :: import("std/error");
@@ -64,11 +64,11 @@ DestructuringResult :: ref(
 // ---------------------------------------------------------------------------
 /// True if `label` is already in the `seen` list.
 _label_already_seen :: (fn(seen : &ArrayList(String), label : &String) -> bool)({
-  i := usize(0);
-  (found : bool) = false;
+  mut(i) := usize(0);
+  (mut(found) : bool) = false;
   while((i < seen.len()) && !found, {
     match(
-      seen.get(i),
+      seen.get_cloned(i),
       .Some(s) => {
         if(s == label, {
           found = true;
@@ -167,7 +167,7 @@ _reject_shadowing :: (fn(env : &Environment, var_name : &String, at : &Token, ct
   match(
     existing.get(n - usize(1)),
     .Some(shadow_var) => {
-      sh_entries := ArrayList(TokenAndError).new();
+      mut(sh_entries) := ArrayList(TokenAndError).new();
       sh_entries.push(
         TokenAndError(
           token : at,
@@ -227,11 +227,11 @@ _is_adopted_extern_c_field :: (fn(rhs_type : &TypeValue, fval_opt : &Option(Eval
 /// Find the index of `label` in `field_labels`, or -1 cast to usize (not found).
 /// Returns `.None` when not found.
 _find_field_index :: (fn(field_labels : &ArrayList(String), label : &String) -> Option(usize))({
-  i := usize(0);
-  (result : Option(usize)) = Option(usize).None;
+  mut(i) := usize(0);
+  (mut(result) : Option(usize)) = Option(usize).None;
   while((i < field_labels.len()) && match(result, .None => true, _ => false), {
     match(
-      field_labels.get(i),
+      field_labels.get_cloned(i),
       .Some(s) => {
         if(s == label, {
           result = Option(usize).Some(i);
@@ -260,16 +260,11 @@ handle_member_destructuring :: (
     ctx : &EvalContext,
     is_compile_time_only : bool,
     is_destructuring_atom_variable : bool,
-    exn : Exception,
-    /// The declaration key (`_ic_decl_key`) of the variable the right-hand
-    /// side is a place of, while `yo fix --migrate explicit-copy` runs: each
-    /// bound name records a flow from it (`record_copy_flow_decl`). None
-    /// otherwise.
-    (copy_src_decl : Option(String)) ?= .None
+    exn : Exception
   ) -> DestructuringResult
 )({
   require_underscore := !is_tuple_type(rhs_type);
-  lhs_func_name := ast_expr_text(lhs_func).*;
+  lhs_func_name := ast_expr_text(lhs_func).*.clone();
   if(require_underscore && !(lhs_func_name == "_"), {
     exn.throw(
       dyn(
@@ -308,9 +303,9 @@ handle_member_destructuring :: (
       )
     );
   });
-  seen_labels := ArrayList(String).new();
-  runtime_destructurings := ArrayList(RuntimeDestructuring).new();
-  (i : usize) = usize(0);
+  mut(seen_labels) := ArrayList(String).new();
+  mut(runtime_destructurings) := ArrayList(RuntimeDestructuring).new();
+  (mut(i) : usize) = usize(0);
   while(i < lhs_fields.len(), {
     // Decision 47: `{ a, mut(b) } := s` and `{ x : mut(b) } := s` declare `b`
     // mutable (per name); `desugar_if_calls` stripped the marker and recorded
@@ -320,23 +315,23 @@ handle_member_destructuring :: (
     if(ast_expr_is_fn_call_of(&lhs_field, BK_COLON, Option(usize).Some(usize(2))), {
       reject_malformed_mut_marker(&lhs_field, usize(1), exn);
     });
-    (field_index : usize) = i; // default: positional
-    (field_value_opt : Option(EvalValue)) = Option(EvalValue).None;
-    (rhs_field_label : String) = match(
-      rhs_field_labels.get(field_index),
+    (mut(field_index) : usize) = i; // default: positional
+    (mut(field_value_opt) : Option(EvalValue)) = Option(EvalValue).None;
+    (mut(rhs_field_label) : String) = match(
+      rhs_field_labels.get_cloned(field_index),
       .Some(l) => l,
       .None => String.from("")
     );
-    (rhs_field_type : TypeValue) = match(
-      rhs_field_types.get(field_index),
+    (mut(rhs_field_type) : TypeValue) = match(
+      rhs_field_types.get_cloned(field_index),
       .Some(t) => t,
       .None => Rc.new(TypeValueNode.Unit)
     );
-    (variable_name_opt : Option(String)) = Option(String).None;
-    (variable_token_opt : Option(AstExpr)) = Option(AstExpr).None; // token carried via lhs_field
-    (label_expr_opt : Option(AstExpr)) = Option(AstExpr).None;
-    (rename_expr_opt : Option(AstExpr)) = Option(AstExpr).None;
-    (did_spread : bool) = false;
+    (mut(variable_name_opt) : Option(String)) = Option(String).None;
+    (mut(variable_token_opt) : Option(AstExpr)) = Option(AstExpr).None; // token carried via lhs_field
+    (mut(label_expr_opt) : Option(AstExpr)) = Option(AstExpr).None;
+    (mut(rename_expr_opt) : Option(AstExpr)) = Option(AstExpr).None;
+    (mut(did_spread) : bool) = false;
     // -----------------------------------------------------------------------
     // Branch 1: spread `...` or `(... : ...)`
     // -----------------------------------------------------------------------
@@ -369,10 +364,10 @@ handle_member_destructuring :: (
         );
       });
       // Spread: destructure all rhs fields not yet seen.
-      (j : usize) = usize(0);
+      (mut(j) : usize) = usize(0);
       while(j < rhs_field_labels.len(), {
-        flab := match(rhs_field_labels.get(j), .Some(l) => l, .None => String.from(""));
-        fty := match(rhs_field_types.get(j), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
+        flab := match(rhs_field_labels.get_cloned(j), .Some(l) => l, .None => String.from(""));
+        fty := match(rhs_field_types.get_cloned(j), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
         if(!_label_already_seen(&seen_labels, flab.clone()), {
           {
             seen_labels.push(flab.clone());
@@ -420,14 +415,6 @@ handle_member_destructuring :: (
               // is_implicit
               ast_expr_token(&lhs_field)
             );
-            match(
-              copy_src_decl,
-              .Some(spread_src) => {
-                spread_tok := ast_expr_token(&lhs_field);
-                record_copy_flow_decl(spread_src.clone(), _ic_decl_key(&spread_tok), &spread_tok);
-              },
-              .None => ()
-            );
           });
         });
         j = (j + usize(1));
@@ -467,7 +454,7 @@ handle_member_destructuring :: (
           );
         });
         label_expr_opt = Option(AstExpr).Some(left_side);
-        label := ast_expr_text(&left_side).*;
+        label := ast_expr_text(&left_side).*.clone();
         fi_opt := _find_field_index(rhs_field_labels, label.clone());
         match(
           fi_opt,
@@ -476,8 +463,8 @@ handle_member_destructuring :: (
           },
           .Some(fi) => {
             field_index = fi;
-            rhs_field_label = match(rhs_field_labels.get(fi), .Some(l) => l, .None => String.from(""));
-            rhs_field_type = match(rhs_field_types.get(fi), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
+            rhs_field_label = match(rhs_field_labels.get_cloned(fi), .Some(l) => l, .None => String.from(""));
+            rhs_field_type = match(rhs_field_types.get_cloned(fi), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
           }
         );
         // Get field value at the resolved index.
@@ -519,7 +506,7 @@ handle_member_destructuring :: (
           runtime_destructurings.push(
             RuntimeDestructuring(
               label : rhs_field_label.clone(),
-              variable_name : match(variable_name_opt, .Some(s) => s.clone(), .None => String.from("")),
+              variable_name : match(&variable_name_opt, .Some(s) => s.clone(), .None => String.from("")),
               ty : Rc.clone(rhs_field_type)
             )
           );
@@ -637,18 +624,6 @@ handle_member_destructuring :: (
               // is_implicit
               ast_expr_token(&var_tok_expr)
             );
-            // The bound name holds a part of the right-hand side's
-            // variable, sharing its buffer: a write through it is a write
-            // of that variable
-            // (issues/fixed/2026-10-24-explicit-copy-migration-misses-a-write-through-a-pattern-binding.md).
-            match(
-              copy_src_decl,
-              .Some(bound_src) => {
-                bound_tok := ast_expr_token(&var_tok_expr);
-                record_copy_flow_decl(bound_src.clone(), _ic_decl_key(&bound_tok), &bound_tok);
-              },
-              .None => ()
-            );
             // Patch is_created_from_destructuring_atom_variable.
             match(
               added_var_opt,
@@ -727,11 +702,6 @@ evaluate_destructuring_assignment :: (
   rhs_type := Rc.clone(rhs_info.ty);
   rhs_value := rhs_info.value;
   is_rhs_atom := ast_expr_is_atom(rhs);
-  // `yo fix --migrate explicit-copy`: the variable the right-hand side is a
-  // place of (`_ic_binding_source_decl`). Each name bound below holds a part
-  // of it, sharing its buffer.
-  ds_lhs_tok := ast_expr_token(lhs);
-  (ds_src_decl : Option(String)) = if(migrate_explicit_copy_on() && !is_compile_time_only, Option(String).Some(_ic_binding_source_decl(rhs, env, ctx, &ds_lhs_tok)), Option(String).None);
   // -------------------------------------------------------------------
   // Struct / union / module destructuring
   // -------------------------------------------------------------------
@@ -752,7 +722,7 @@ evaluate_destructuring_assignment :: (
     field_labels := match(field_labels_opt, .Some(l) => Rc.clone(l), .None => no_labels());
     field_types := match(field_types_opt, .Some(t) => Rc.clone(t), .None => no_types());
     lhs_func := match(lhs, .FnCall(_, fb, _, _, _) => fb, .Atom(_, tok) => AstExpr.Atom(ast_expr_id(lhs), tok));
-    lhs_args := match(lhs, .FnCall(_, _, Rc(args), _, _) => args, _ => ArrayList(AstExpr).new());
+    lhs_args := match(lhs, .FnCall(_, _, Rc(args), _, _) => args.clone(), _ => ArrayList(AstExpr).new());
     return(
       handle_member_destructuring(
         &lhs_func,
@@ -766,8 +736,7 @@ evaluate_destructuring_assignment :: (
         ctx,
         is_compile_time_only,
         is_rhs_atom,
-        exn,
-        copy_src_decl : ds_src_decl.clone()
+        exn
       )
     );
   });
@@ -778,7 +747,7 @@ evaluate_destructuring_assignment :: (
     field_labels := match(&rhs_type, Rc(.Tuple(fl, _)) => Rc.clone(fl), _ => no_labels());
     field_types := match(&rhs_type, Rc(.Tuple(_, ft)) => Rc.clone(ft), _ => no_types());
     lhs_func := match(lhs, .FnCall(_, fb, _, _, _) => fb, .Atom(_, tok) => AstExpr.Atom(ast_expr_id(lhs), tok));
-    lhs_args := match(lhs, .FnCall(_, _, Rc(args), _, _) => args, _ => ArrayList(AstExpr).new());
+    lhs_args := match(lhs, .FnCall(_, _, Rc(args), _, _) => args.clone(), _ => ArrayList(AstExpr).new());
     return(
       handle_member_destructuring(
         &lhs_func,
@@ -792,8 +761,7 @@ evaluate_destructuring_assignment :: (
         ctx,
         is_compile_time_only,
         is_rhs_atom,
-        exn,
-        copy_src_decl : ds_src_decl.clone()
+        exn
       )
     );
   });
@@ -803,7 +771,7 @@ evaluate_destructuring_assignment :: (
   if(is_enum_type(&rhs_type) && ast_expr_is_fn_call(lhs), {
     svn_opt := match(&rhs_type, Rc(.EnumT(_, _, _, _, svn, _, _, _, _, _)) => svn.clone(), _ => Option(String).None);
     match(
-      svn_opt,
+      &svn_opt,
       .None => {
         exn.throw(
           dyn(
@@ -856,7 +824,7 @@ evaluate_destructuring_assignment :: (
       fi = (fi + usize(1));
     });
     lhs_func := match(lhs, .FnCall(_, fb, _, _, _) => fb, .Atom(_, tok) => AstExpr.Atom(ast_expr_id(lhs), tok));
-    lhs_args := match(lhs, .FnCall(_, _, Rc(args), _, _) => args, _ => ArrayList(AstExpr).new());
+    lhs_args := match(lhs, .FnCall(_, _, Rc(args), _, _) => args.clone(), _ => ArrayList(AstExpr).new());
     return(
       handle_member_destructuring(
         &lhs_func,
@@ -870,8 +838,7 @@ evaluate_destructuring_assignment :: (
         ctx,
         is_compile_time_only,
         is_rhs_atom,
-        exn,
-        copy_src_decl : ds_src_decl.clone()
+        exn
       )
     );
   });

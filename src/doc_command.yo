@@ -498,7 +498,7 @@ run_doc :: (
   prefer_entry_std_root(&files);
   std_path := resolve_std_path();
   println(`Generating documentation...`);
-  modules := ArrayList(DocModule).new();
+  mut(modules) := ArrayList(DocModule).new();
   degraded := ArrayList(String).new();
   (fi : usize) = usize(0);
   while(fi < files.len(), {
@@ -558,7 +558,7 @@ run_doc :: (
     println(`No documentable modules found.`);
     return(());
   });
-  build_cross_references(&modules);
+  build_cross_references(&mut modules);
   resolved_version := if(
     options.version.len() > usize(0),
     Option(String).Some(options.version.clone()),

@@ -785,7 +785,7 @@ assemble_chunks :: (
     body.push_str("\n");
     (gi : usize) = usize(0);
     while(gi < fn_ranges.len(), {
-      if(match(assigned.get(gi), .Some(x) => (x == mi), .None => false), {
+      if(match(assigned.get_cloned(gi), .Some(x) => (x == mi), .None => false), {
         match(
           fn_ranges.get(gi),
           .Some(fr) => body.push_string(_ca_dequalify_statics(_ca_slice(&code_bytes, fr.start_b, fr.end_b), &header_defined)),

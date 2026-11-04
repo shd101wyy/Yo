@@ -228,7 +228,7 @@ _ends_headers :: (fn(b : &ArrayList(u8)) -> bool)({
 _read_request :: (fn(stream : &TcpStream, io : Io) -> Impl(Future(String, IoExn)))(
   io.async({ stream : &stream.* }(e : IoExn) => {
     buf := (*u8)(malloc(usize(4096)).unwrap());
-    bytes := ArrayList(u8).new();
+    mut(bytes) := ArrayList(u8).new();
     mut(eof) := false;
     while(!eof && !_ends_headers(&bytes), {
       n := e.io.await(stream.read(buf, usize(4096), e.io), e);
@@ -291,7 +291,7 @@ test("fetch follows redirects, resolving relative and absolute-path Locations", 
   );
   addr := SocketAddr.loopback(u16(19960));
   listener := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
-  responses := ArrayList(String).new();
+  mut(responses) := ArrayList(String).new();
   responses.push(_redirect_to(`next`)); // relative → /dir/next
   responses.push(_redirect_to(`/final`)); // absolute path → /final
   responses.push(_ok_body(`done`));
@@ -301,9 +301,9 @@ test("fetch follows redirects, resolving relative and absolute-path Locations", 
   assert(resp.status == StatusCode.OK(), `final status should be 200, got ${resp.status}`);
   assert(resp.body == "done", `final body should be the last hop's, got "${resp.body}"`);
   assert(seen.with(xs => xs.len()) == usize(3), `three requests should have been made, saw ${seen.with(xs => xs.len())}`);
-  assert(seen.with(xs => xs(usize(0))).starts_with(`GET /dir/start HTTP/1.1`), `hop 0: ${seen.with(xs => xs(usize(0)))}`);
-  assert(seen.with(xs => xs(usize(1))).starts_with(`GET /dir/next HTTP/1.1`), `relative Location must resolve against the base directory: ${seen.with(xs => xs(usize(1)))}`);
-  assert(seen.with(xs => xs(usize(2))).starts_with(`GET /final HTTP/1.1`), `absolute-path Location must resolve against the origin: ${seen.with(xs => xs(usize(2)))}`);
+  assert(seen.with(xs => (xs(usize(0))).clone()).starts_with(`GET /dir/start HTTP/1.1`), `hop 0: ${seen.with(xs => (xs(usize(0))).clone())}`);
+  assert(seen.with(xs => (xs(usize(1))).clone()).starts_with(`GET /dir/next HTTP/1.1`), `relative Location must resolve against the base directory: ${seen.with(xs => (xs(usize(1))).clone())}`);
+  assert(seen.with(xs => (xs(usize(2))).clone()).starts_with(`GET /final HTTP/1.1`), `absolute-path Location must resolve against the origin: ${seen.with(xs => (xs(usize(2))).clone())}`);
   server.await(io);
 });
 test("fetch throws TooManyRedirects past max_redirects", {
@@ -318,7 +318,7 @@ test("fetch throws TooManyRedirects past max_redirects", {
   );
   addr := SocketAddr.loopback(u16(19961));
   listener := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
-  responses := ArrayList(String).new();
+  mut(responses) := ArrayList(String).new();
   responses.push(_redirect_to(`/again`));
   responses.push(_redirect_to(`/again`));
   responses.push(_redirect_to(`/again`));
@@ -340,7 +340,7 @@ test("fetch with max_redirects 0 returns the 3xx verbatim", {
   );
   addr := SocketAddr.loopback(u16(19962));
   listener := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
-  responses := ArrayList(String).new();
+  mut(responses) := ArrayList(String).new();
   responses.push(_redirect_to(`/elsewhere`));
   seen := Rc.new(RefCell(ArrayList(String)).new(ArrayList(String).new()));
   server := io.spawn(_serve_scripted(listener, responses, Rc.clone(seen), io), IoExn(io : io, exn : exn));
@@ -369,7 +369,7 @@ test("fetch throws ResponseTooLarge past max_response_bytes", {
     body.push_str("x");
     i = (i + usize(1));
   });
-  responses := ArrayList(String).new();
+  mut(responses) := ArrayList(String).new();
   responses.push(_ok_body(&body));
   seen := Rc.new(RefCell(ArrayList(String)).new(ArrayList(String).new()));
   server := io.spawn(_serve_scripted(listener, responses, seen, io), IoExn(io : io, exn : exn));
@@ -437,7 +437,7 @@ _chunked :: (fn(chunks : &ArrayList(String), trailer : &String) -> String)({
   mut(out) := `HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n`;
   mut(i) := usize(0);
   while(i < chunks.len(), i = (i + usize(1)), {
-    c := chunks(i);
+    c := chunks(i).clone();
     out = `${out}${_hex(c.to_bytes().len())}\r\n${c}\r\n`;
   });
   `${out}0\r\n${trailer}\r\n`
@@ -453,11 +453,11 @@ test("fetch decodes a chunked body (sizes, extensions and trailers stripped)", {
   );
   addr := SocketAddr.loopback(u16(19965));
   listener := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
-  chunks := ArrayList(String).new();
+  mut(chunks) := ArrayList(String).new();
   chunks.push(`hello, `);
   chunks.push(`chunked `);
   chunks.push(`world — 16+ bytes so a size needs two hex digits`);
-  responses := ArrayList(String).new();
+  mut(responses) := ArrayList(String).new();
   responses.push(_chunked(&chunks, `X-Trailer: t\r\n`));
   // Same body, but the first chunk carries a chunk extension (`;name=value`)
   // and sizes use UPPER-case hex — both legal per RFC 9112 §7.1.
@@ -497,7 +497,7 @@ test("a malformed chunk size is a typed HttpError, not a garbage body", {
   );
   addr := SocketAddr.loopback(u16(19966));
   listener := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
-  responses := ArrayList(String).new();
+  mut(responses) := ArrayList(String).new();
   responses.push(`HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\nzz\r\nhello\r\n0\r\n\r\n`);
   seen := Rc.new(RefCell(ArrayList(String)).new(ArrayList(String).new()));
   server := io.spawn(_serve_scripted(listener, responses, Rc.clone(seen), io), IoExn(io : io, exn : exn));
@@ -534,7 +534,7 @@ test("fetch throws Other on a garbage status line, and the aborted task disposes
   );
   addr := SocketAddr.loopback(u16(19967));
   listener := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
-  responses := ArrayList(String).new();
+  mut(responses) := ArrayList(String).new();
   responses.push(`garbage\r\n\r\n`);
   seen := Rc.new(RefCell(ArrayList(String)).new(ArrayList(String).new()));
   server := io.spawn(_serve_scripted(listener, responses, Rc.clone(seen), io), IoExn(io : io, exn : exn));
@@ -561,7 +561,7 @@ test("fetch round-trips a binary body byte-for-byte", {
       }
     )
   );
-  payload := ArrayList(u8).new();
+  mut(payload) := ArrayList(u8).new();
   payload.push(u8(0x80)); // a bare continuation byte — invalid UTF-8 first
   payload.push(u8(0));
   payload.push(u8(13));
@@ -573,7 +573,7 @@ test("fetch round-trips a binary body byte-for-byte", {
   body := String.from_bytes(payload);
   addr := SocketAddr.loopback(u16(19968));
   listener := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
-  responses := ArrayList(String).new();
+  mut(responses) := ArrayList(String).new();
   responses.push(`HTTP/1.1 200 OK\r\nContent-Length: ${body.len()}\r\nConnection: close\r\n\r\n${body}`);
   seen := Rc.new(RefCell(ArrayList(String)).new(ArrayList(String).new()));
   server := io.spawn(_serve_scripted(listener, responses, seen, io), IoExn(io : io, exn : exn));
@@ -776,7 +776,7 @@ test("an unreadable Content-Length is a typed HttpError, not a silent absence", 
   );
   addr := SocketAddr.loopback(u16(19976));
   listener := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
-  responses := ArrayList(String).new();
+  mut(responses) := ArrayList(String).new();
   responses.push(`HTTP/1.1 200 OK\r\nContent-Length: abc\r\nConnection: close\r\n\r\nhello`);
   responses.push(`HTTP/1.1 200 OK\r\nContent-Length: -5\r\nConnection: close\r\n\r\nhello`);
   responses.push(`HTTP/1.1 200 OK\r\nContent-Length: 5\r\nContent-Length: 9\r\nConnection: close\r\n\r\nhello`);
@@ -842,7 +842,7 @@ test("StatusCode reason, to_string, Eq and Ord", {
 // HeaderMap
 // ============================================================================
 test("HeaderMap lookup is case-insensitive but storage is verbatim", {
-  h := HeaderMap.new();
+  mut(h) := HeaderMap.new();
   h.append(`Content-Type`, `text/plain`);
   assert(h.get(`content-type`).unwrap() == `text/plain`, "lower-case lookup finds it");
   assert(h.get(`CONTENT-TYPE`).unwrap() == `text/plain`, "upper-case too");
@@ -852,7 +852,7 @@ test("HeaderMap lookup is case-insensitive but storage is verbatim", {
   assert(h.to_string() == `Content-Type: text/plain\r\n`, "the stored spelling is preserved");
 });
 test("HeaderMap append keeps repeats, insert replaces them", {
-  h := HeaderMap.new();
+  mut(h) := HeaderMap.new();
   h.append(`Set-Cookie`, `a=1`);
   h.append(`Set-Cookie`, `b=2`);
   h.append(`set-cookie`, `c=3`);
@@ -870,7 +870,7 @@ test("HeaderMap append keeps repeats, insert replaces them", {
   assert(h.insert(`X-New`, `v`).is_none(), "inserting a fresh name reports nothing previous");
 });
 test("HeaderMap remove reports how many lines went", {
-  h := HeaderMap.new();
+  mut(h) := HeaderMap.new();
   h.append(`Accept`, `a`);
   h.append(`X-Keep`, `k`);
   h.append(`accept`, `b`);
@@ -882,13 +882,23 @@ test("HeaderMap remove reports how many lines went", {
   h.remove(`X-Keep`);
   assert(h.is_empty(), "and reports empty once drained");
 });
-test("HeaderMap entries is a snapshot, not the map itself", {
-  h := HeaderMap.new();
+test("HeaderMap entries borrows the map's own list", {
+  // D26: a value HeaderMap with a BORROW getter — the pre-B11 snapshot
+  // (a detached copy every call) is now spelled entries().clone().
+  mut(h) := HeaderMap.new();
   h.append(`A`, `1`);
   e := h.entries();
-  assert(e.len() == usize(1), "one entry");
+  assert(e.len() == usize(1), "one entry, read through the borrow");
+  assert(e(usize(0)).name == `A`, "the field line is readable in order");
+  assert(h.len() == usize(1), "reading the borrow wrote nothing");
+});
+test("HeaderMap entries().clone() is the detached snapshot", {
+  mut(h) := HeaderMap.new();
+  h.append(`A`, `1`);
+  mut(e) := h.entries().clone();
   e.push(HttpHeader.new(`B`, `2`));
-  assert(h.len() == usize(1), "pushing to the snapshot does not change the map");
+  assert(e.len() == usize(2), "two entries in the copy");
+  assert(h.len() == usize(1), "pushing to the detached copy does not change the map");
   assert(h.get(`B`).is_none(), "B never entered the map");
 });
 test("set_header replaces while header() appends", {
@@ -945,7 +955,7 @@ test("parse_response slices a binary body as bytes", {
   // The body used to be rebuilt by splitting the WHOLE message on \r\n and
   // re-joining the tail one concatenation at a time — quadratic, and a
   // substring over a UTF-8 continuation byte panics.
-  bytes := ArrayList(u8).new();
+  mut(bytes) := ArrayList(u8).new();
   bytes.push(u8(0x80)); // a bare continuation byte: not valid UTF-8 on its own
   bytes.push(u8(0x00));
   bytes.push(u8(0x0d)); // and a CR LF inside the body, which the old split ate
@@ -1111,7 +1121,7 @@ _ka_serve :: (
     Impl(Future(unit, IoExn))
 )(
   io.async({ listener, max_conns, mode, stats }(e : IoExn) => {
-    held := ArrayList(TcpStream).new();
+    mut(held) := ArrayList(TcpStream).new();
     mut(n) := usize(0);
     while(n < max_conns, {
       stream := e.io.await(listener.accept(e.io), e);
@@ -1686,7 +1696,7 @@ test("wire: a HEAD response ignores its Content-Length and carries the tail", {
 _serve_until_hangup :: (fn(sink(listener) : TcpListener, io : Io) -> Impl(Future(i32, IoExn)))(
   io.async({ listener }(e : IoExn) => {
     stream := e.io.await(listener.accept(e.io), e);
-    buf := ArrayList(u8).with_capacity(usize(4096));
+    mut(buf) := ArrayList(u8).with_capacity(usize(4096));
     buf.resize_with_byte(usize(4096), int(0));
     _req := e.io.await(stream.read(buf.ptr().unwrap(), usize(4096), e.io), e);
     // 0: the client hung up; 1: the connection was still open after 2 s.
@@ -1739,4 +1749,20 @@ test("an aborted HttpClient fetch takes its exchange down with it", {
   };
   saw := srv.await(io);
   assert(match(saw, .Some(v) => (v == i32(0)), .None => false), `the exchange closed its connection when the fetch was aborted (server saw ${saw})`);
+});
+test("a HeaderMap clone is independent (B11)", {
+  mut(h) := HeaderMap.new();
+  h.append(`A`, `1`);
+  mut(c) := h.clone();
+  c.append(`B`, `2`);
+  assert(h.get(`B`).is_none(), "writes to the clone never reach the map");
+  assert(c.get(`A`).unwrap() == `1`, "the clone carries the original's field lines");
+  assert(h.len() == usize(1), "the original keeps its one line");
+});
+test("writing through the entries() borrow is a compile-time error (D26)", {
+  comptime_expect_error({
+    mut(h) := HeaderMap.new();
+    e := h.entries();
+    e.push(HttpHeader.new(`B`, `2`))
+  }, "a `&` borrow, which is read-only");
 });

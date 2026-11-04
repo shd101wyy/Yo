@@ -136,7 +136,7 @@ test("Rc implements Clone as a second handle, and Eq, Hash and Default by payloa
   assert((ref_count(a) == usize(2)) && (ref_count(b) == usize(2)), "the clone is a second handle to the cell (decision 17)");
   c := Rc.new(Key(k : i32(2)));
   assert(!(a == c), "and compares by payload");
-  m := HashMap(Rc(Key), i32).new();
+  mut(m) := HashMap(Rc(Key), i32).new();
   m.insert(Rc.new(Key(k : i32(3))), i32(30));
   assert(m.get(Rc.new(Key(k : i32(3)))).unwrap_or(i32(0)) == i32(30), "an equal cell hashes to the same entry");
   (z : Rc(i32)) = (Rc(i32) <: Default).default();

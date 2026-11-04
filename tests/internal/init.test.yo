@@ -131,13 +131,13 @@ test("generate_gitignore: contains yo-out/", {
 // generate_agents_md
 // ---------------------------------------------------------------------------
 _make_skills :: (fn() -> ArrayList(SkillEntry))({
-  skills := ArrayList(SkillEntry).new();
+  mut(skills) := ArrayList(SkillEntry).new();
   skills.push(SkillEntry(name : String.from("yo-syntax"), description : String.from("Write and repair Yo source code.")));
   skills.push(SkillEntry(name : String.from("yo-core-patterns"), description : String.from("")));
   skills
 });
 _make_one_target :: (fn() -> ArrayList(String))({
-  targets := ArrayList(String).new();
+  mut(targets) := ArrayList(String).new();
   targets.push(String.from(".agents"));
   targets
 });
@@ -151,7 +151,7 @@ test("generate_agents_md: mentions install location", {
   assert(md.contains(String.from("`.agents/skills/`")), "location sentence names the skills dir");
 });
 test("generate_agents_md: multiple targets joined", {
-  targets := ArrayList(String).new();
+  mut(targets) := ArrayList(String).new();
   targets.push(String.from(".agents"));
   targets.push(String.from(".github"));
   md := generate_agents_md(_make_skills(), &targets);

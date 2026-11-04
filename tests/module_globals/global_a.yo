@@ -3,9 +3,12 @@
 // SAME global name as global_b.yo — the two must be distinct C variables.
 { HashMap } :: import("std/collections/hash_map");
 { String } :: import("std/string");
-(g_cache : HashMap(String, i32)) = HashMap(String, i32).new();
+{ RefCell } :: import("std/sync/refcell");
+// A value map written after its initializer lives in a `RefCell` (a mutable
+// module-level binding cannot be lent `&mut`, decision 47).
+(g_cache : RefCell(HashMap(String, i32))) = RefCell(HashMap(String, i32)).new(HashMap(String, i32).new());
 a_put :: (fn() -> unit)({
-  g_cache.insert(`k`, i32(1));
+  g_cache.with_mut(m => m.insert(`k`, i32(1)));
 });
-a_len :: (fn() -> usize)(g_cache.len());
+a_len :: (fn() -> usize)(g_cache.with(m => m.len()));
 export(a_put, a_len);

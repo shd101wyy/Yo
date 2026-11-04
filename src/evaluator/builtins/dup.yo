@@ -101,7 +101,7 @@ evaluate_dup :: (
   // lowered directly in codegen, see evaluator/types/struct.yo) — structs
   // keep the simple path below.
   if(type_contains_rc_type(&concrete_type), {
-    dup_var_name := match(arg_info.variable_name, .Some(n) => n.clone(), .None => String.new());
+    dup_var_name := match(&arg_info.variable_name, .Some(n) => n.clone(), .None => String.new());
     if(dup_var_name.len() > usize(0), {
       (dup_calls : ArrayList(String)) = ArrayList(String).new();
       if(is_tuple_type(&concrete_type), {
@@ -118,7 +118,7 @@ evaluate_dup :: (
       if(is_array_type(&concrete_type), {
         (arr_elem, arr_len, arr_lvar) := match(
           concrete_type,
-          Rc(.Array(e, l, lv)) => (Rc.clone(e), l, lv),
+          Rc(.Array(e, l, lv)) => (Rc.clone(e), l, lv.clone()),
           _ => (Rc.new(TypeValueNode.Unit), usize(0), String.new())
         );
         // Only compile-time-known lengths; a
@@ -139,7 +139,7 @@ evaluate_dup :: (
             dup_code.push_str(", ");
           });
           match(
-            dup_calls.get(dci),
+            dup_calls.get_cloned(dci),
             .Some(c) => dup_code.push_string(&c),
             .None => ()
           );

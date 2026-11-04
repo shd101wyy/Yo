@@ -760,7 +760,7 @@ x :: 12;                           // a true constant
 | `issues/fixed/2026-10-15-a-module-level-global-lent-to-a-call-can-be-reassigned-while-the-callee-holds-it.md` | §5.1; fixed by #1401 |
 | `issues/fixed/2026-10-15-d3-trusts-every-mutator-defined-in-a-pragma-file-so-std-writes-through-an-arc.md` | B1; fixed by #1397 (landed 2026-10-17, §2.3) |
 | `issues/fixed/2026-10-15-a-local-whose-address-a-method-takes-is-a-dangling-c-local-across-an-await.md` | **Fixed** by `fix/await-method-address-local`. Found by §4 step 10 (#1399): `x.as_ptr()` before an await in an `io.async` body left `x` a C local; the live-range walk saw only `&x`/`addr_of(x)`, and now treats every argument a call passes to a pointer parameter as lent |
-| `issues/a-write-through-a-string-copy-is-lost-when-the-string-was-empty.md` | Older; expect V2b unique buffers to remove it, and re-test after Generation B |
+| `issues/fixed/a-write-through-a-string-copy-is-lost-when-the-string-was-empty.md` | Older; expect V2b unique buffers to remove it, and re-test after Generation B |
 | `issues/fixed/ftt-stub-in-live-closure-falls-off-non-void-function.md` | Type-soundness track (#1162) |
 | `issues/self-hosted-emit-leaks-remaining-classes.md` | Memory track |
 | `issues/fixed/vendor-markdown-punycode-encode-reads-past-the-buffer.md` | **Fixed**: shd101wyy/markdown_yo#18, released as markdown_yo v0.0.17; `yo.toml` raised to `^0.0.17` in #1400 |

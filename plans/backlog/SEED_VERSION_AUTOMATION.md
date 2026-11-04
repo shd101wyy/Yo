@@ -100,6 +100,21 @@ Hardening (branch `ci/release-tail-hardening`): bump moved to its own
 lever added, v0.2.14→v0.2.15 pins bumped manually via PR. Remaining USER
 ACTION: add the Workflows permission to `RELEASE_PAT`.
 
+## Seed-gated follow-up (2026-11-02): the json `insert` moves its old value out
+
+The element-borrow sibling rule stopped rejecting a value sibling that only OWNS a list of the
+container's type (VERDICTS-12 B8-Q2,
+`issues/fixed/2026-10-31-the-element-borrow-sibling-rule-still-rejects-a-value-collection-that-cannot-alias.md`).
+`std/encoding/json.yo`'s `insert` can then replace the entry in place:
+`return(Option(JsonValue).Some(replace(&mut values(i), value)));` with
+`{ replace } :: import("../mem");`, in place of `old := values(i).clone(); values(i) = value;`,
+which deep-copies the old entry on every key overwrite. The compiler calls `JsonValue.insert`
+(`src/context_command.yo` and others), so stage 1 evaluates the body with the seed. The v0.2.73
+seed rejects that spelling ("could hold a handle", measured 2026-11-02), so the switch waits until
+`SEED_VERSION` is a release that carries the loosened rule (v0.2.74 or later). Gate: `yo build`
+the tree with the actual seed bundle, then a test that overwrites a key (`JsonValue.insert`
+twice on one key).
+
 ## ~~Seed-gated follow-up (2026-08-27): migrate the compiler off `std/sys/bufio`~~ **DONE 2026-08-28**
 
 Landed once v0.2.18 became the seed — that release carries #299 (the
@@ -639,6 +654,22 @@ stress repro under `--sanitize thread`.
 the two bodies above, `Rc.make_mut`'s move, the `extern` block, the stress
 row, a no-clone move row per handle kind, and the issue moved to
 `issues/fixed/`.
+
+## Seed-gated follow-up (2026-11-03): no consuming match in a wrapper the compiler awaits twice
+
+**Generation A (#1695, on the B8 value flip):** a general-lowered `match`
+fused at two awaits of one task gets fresh C labels per emission
+(`issues/fixed/2026-10-31-a-wrapper-whose-match-is-fused-at-two-awaits-redefines-its-c-labels.md`).
+The v0.2.73 seed lacks the fix. Once `ArrayList`/`String` are values, a
+consuming match over them lowers with labels, and the seed redefines those
+labels wherever a wrapper holding one is awaited twice in the compiler's own
+task bodies. The tree build hit two such wrappers, `remove_dir`
+(`std/fs/dir.yo`, awaited twice by `remove_dir_all`) and `_read_depfile`
+(`src/build_runner.yo`, awaited twice by `artifact_input_stamp`). Both now avoid
+the match: `is_err()` + `unwrap_or(...)`, and `unwrap_or(...)` + `for(&lines, ...)`.
+
+**Generation B (once `SEED_VERSION` carries #1695, v0.2.74 or later):**
+restore the two `match` forms and delete their seed comments.
 
 ## Seed-gated follow-up (2026-10-28): `box` asks for its payload's alignment
 

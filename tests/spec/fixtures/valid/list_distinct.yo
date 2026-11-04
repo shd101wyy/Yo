@@ -8,8 +8,8 @@ pragma(Pragma.Verify);
 append_all :: (
   fn(
     src : &ArrayList(i32),
-    dst : &ArrayList(i32),
-    requires(distinct(src.*, dst.*), (dst.len() + src.len()) >= dst.len()),
+    dst : &mut ArrayList(i32),
+    requires(distinct(src, dst), (dst.len() + src.len()) >= dst.len()),
     ensures(dst.len() == (old(dst.len()) + src.len()))
   ) -> unit
 )({
@@ -23,19 +23,19 @@ append_all :: (
 
 // A fresh local is distinct from every other list.
 into_fresh :: (fn(xs : ArrayList(i32), ensures(r.len() == xs.len())) -> (r : ArrayList(i32)))({
-  out := ArrayList(i32).new();
-  append_all(&xs, &out);
+  mut(out) := ArrayList(i32).new();
+  append_all(&xs, &mut out);
   out
 });
 
 // The caller's own distinct passes on.
 forward :: (
   fn(
-    a : ArrayList(i32),
-    b : ArrayList(i32),
+    a : &ArrayList(i32),
+    b : &mut ArrayList(i32),
     requires(distinct(a, b), (b.len() + a.len()) >= b.len()),
     ensures(b.len() == (old(b.len()) + a.len()))
   ) -> unit
 )({
-  append_all(&a, &b);
+  append_all(a, b);
 });

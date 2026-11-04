@@ -28,8 +28,8 @@ test("t_func_simple: no params", {
   assert(type_value_tag(&f) == TypeTag.TFunction, "tag must be TFunction");
 });
 test("t_func_simple: one param", {
-  labels := ArrayList(String).new();
-  types := ArrayList(TypeValue).new();
+  mut(labels) := ArrayList(String).new();
+  mut(types) := ArrayList(TypeValue).new();
   labels.push(`x`);
   types.push(t_i32());
   f := t_func_simple(labels.clone(), types.clone(), t_bool());
@@ -40,8 +40,8 @@ test("t_func_simple: one param", {
   check_str(&s, `fn(x : &i32) -> bool`, "t_func_simple: one param");
 });
 test("t_func_simple: two params", {
-  labels := ArrayList(String).new();
-  types := ArrayList(TypeValue).new();
+  mut(labels) := ArrayList(String).new();
+  mut(types) := ArrayList(TypeValue).new();
   labels.push(`a`);
   types.push(t_i32());
   labels.push(`b`);
@@ -51,8 +51,8 @@ test("t_func_simple: two params", {
   check_str(&s, `fn(a : &i32, b : &bool) -> unit`, "t_func_simple: two params");
 });
 test("t_func_simple: unlabeled params", {
-  labels := ArrayList(String).new();
-  types := ArrayList(TypeValue).new();
+  mut(labels) := ArrayList(String).new();
+  mut(types) := ArrayList(TypeValue).new();
   labels.push(String.from(""));
   types.push(t_i32());
   labels.push(String.from(""));
@@ -75,8 +75,8 @@ test("t_trait_simple: string", {
   check_str(&s, `Clone`, "t_trait_simple: string");
 });
 test("t_trait: with fields", {
-  fls := ArrayList(String).new();
-  fts := ArrayList(TypeValue).new();
+  mut(fls) := ArrayList(String).new();
+  mut(fts) := ArrayList(TypeValue).new();
   fls.push(`next`);
   fts.push(t_func_simple(ArrayList(String).new(), ArrayList(TypeValue).new(), t_i32()));
   tr := t_trait(`Iterator`, ArrayList(String).new(), fls.clone(), fts.clone());
@@ -99,8 +99,8 @@ test("t_module_simple: string (no fields)", {
   check_str(&s, `module Io`, "t_module_simple: string");
 });
 test("t_module: string with fields", {
-  fls := ArrayList(String).new();
-  fts := ArrayList(TypeValue).new();
+  mut(fls) := ArrayList(String).new();
+  mut(fts) := ArrayList(TypeValue).new();
   fls.push(`read`);
   fts.push(t_func_simple(ArrayList(String).new(), ArrayList(TypeValue).new(), t_i32()));
   m := t_module(`FS`, fls.clone(), fts.clone());
@@ -124,21 +124,21 @@ test("t_some_t: string (unconstrained)", {
 // are_types_compatible — Func
 // ---------------------------------------------------------------------------
 test("compat: identical func types", {
-  ls := ArrayList(String).new();
-  ts := ArrayList(TypeValue).new();
+  mut(ls) := ArrayList(String).new();
+  mut(ts) := ArrayList(TypeValue).new();
   ls.push(`x`);
   ts.push(t_i32());
   f1 := t_func_simple(ls.clone(), ts.clone(), t_bool());
-  ls2 := ArrayList(String).new();
-  ts2 := ArrayList(TypeValue).new();
+  mut(ls2) := ArrayList(String).new();
+  mut(ts2) := ArrayList(TypeValue).new();
   ls2.push(`x`);
   ts2.push(t_i32());
   f2 := t_func_simple(ls2.clone(), ts2.clone(), t_bool());
   assert(are_types_compatible(&f1, &f2), "same func types should be compatible");
 });
 test("compat: func param count mismatch", {
-  ls1 := ArrayList(String).new();
-  ts1 := ArrayList(TypeValue).new();
+  mut(ls1) := ArrayList(String).new();
+  mut(ts1) := ArrayList(TypeValue).new();
   ls1.push(`x`);
   ts1.push(t_i32());
   f1 := t_func_simple(ls1.clone(), ts1.clone(), t_bool());
@@ -146,13 +146,13 @@ test("compat: func param count mismatch", {
   assert(!are_types_compatible(&f1, &f2), "different param counts should not be compatible");
 });
 test("compat: func return(type mismatch)", {
-  ls := ArrayList(String).new();
-  ts := ArrayList(TypeValue).new();
+  mut(ls) := ArrayList(String).new();
+  mut(ts) := ArrayList(TypeValue).new();
   ls.push(`x`);
   ts.push(t_i32());
   f1 := t_func_simple(ls.clone(), ts.clone(), t_bool());
-  ls2 := ArrayList(String).new();
-  ts2 := ArrayList(TypeValue).new();
+  mut(ls2) := ArrayList(String).new();
+  mut(ts2) := ArrayList(TypeValue).new();
   ls2.push(`x`);
   ts2.push(t_i32());
   f2 := t_func_simple(ls2.clone(), ts2.clone(), t_i32());
@@ -248,14 +248,14 @@ test("substitute: nested in pointer", {
 test("substitute: inside func param", {
   s := subst_new();
   subst_add(&s, `T`, usize(0), t_i32());
-  ls := ArrayList(String).new();
-  ts := ArrayList(TypeValue).new();
+  mut(ls) := ArrayList(String).new();
+  mut(ts) := ArrayList(TypeValue).new();
   ls.push(`x`);
   ts.push(t_some_t(`T`, usize(0)));
   f := t_func_simple(ls.clone(), ts.clone(), t_some_t(`T`, usize(0)));
   res := substitute(&s, &f);
-  ls2 := ArrayList(String).new();
-  ts2 := ArrayList(TypeValue).new();
+  mut(ls2) := ArrayList(String).new();
+  mut(ts2) := ArrayList(TypeValue).new();
   ls2.push(`x`);
   ts2.push(t_i32());
   expected := t_func_simple(ls2.clone(), ts2.clone(), t_i32());
@@ -264,13 +264,13 @@ test("substitute: inside func param", {
 test("substitute_all: list of types", {
   s := subst_new();
   subst_add(&s, `T`, usize(0), t_bool());
-  tys := ArrayList(TypeValue).new();
+  mut(tys) := ArrayList(TypeValue).new();
   tys.push(t_some_t(`T`, usize(0)));
   tys.push(t_i32());
   res := substitute_all(&s, &tys);
   assert(res.len() == usize(2), "length should be 2");
-  t0 := match(res.get(usize(0)), .Some(t) => t, .None => t_unit());
-  t1 := match(res.get(usize(1)), .Some(t) => t, .None => t_unit());
+  t0 := match(res.get_cloned(usize(0)), .Some(t) => t, .None => t_unit());
+  t1 := match(res.get_cloned(usize(1)), .Some(t) => t, .None => t_unit());
   assert(are_types_compatible(&t0, t_bool()), "first should be bool");
   assert(are_types_compatible(&t1, t_i32()), "second should be i32");
 });
@@ -278,7 +278,7 @@ test("substitute_all: list of types", {
 // DynT — construction and tag (Phase 2ar)
 // ---------------------------------------------------------------------------
 test("t_dyn_simple: single trait", {
-  required := ArrayList(TypeValue).new();
+  mut(required) := ArrayList(TypeValue).new();
   required.push(t_trait_simple(`Eq`));
   d := t_dyn_simple(required.clone());
   assert(type_value_tag(&d) == TypeTag.TDyn, "tag should be TDyn");
@@ -289,13 +289,13 @@ test("t_dyn_simple: empty list still constructs", {
   assert(type_value_tag(&d) == TypeTag.TDyn, "tag should be TDyn even with no required traits");
 });
 test("t_dyn: required + negative traits", {
-  required := ArrayList(TypeValue).new();
+  mut(required) := ArrayList(TypeValue).new();
   required.push(t_trait_simple(`Eq`));
-  req_levels := ArrayList(usize).new();
+  mut(req_levels) := ArrayList(usize).new();
   req_levels.push(usize(0));
-  negative := ArrayList(TypeValue).new();
+  mut(negative) := ArrayList(TypeValue).new();
   negative.push(t_trait_simple(`Send`));
-  neg_levels := ArrayList(usize).new();
+  mut(neg_levels) := ArrayList(usize).new();
   neg_levels.push(usize(0));
   d := t_dyn(required.clone(), req_levels.clone(), negative.clone(), neg_levels.clone());
   assert(type_value_tag(&d) == TypeTag.TDyn, "tag should be TDyn");
@@ -311,10 +311,10 @@ test("t_dyn: required + negative traits", {
 // tree walk visits 2^40 paths; `substitute` must visit each node once
 // (issues/fixed/substitute-walks-a-shared-type-as-a-tree.md).
 _dag_level :: (fn(i : usize, child : &TypeValue) -> TypeValue)({
-  labels := ArrayList(String).new();
+  mut(labels) := ArrayList(String).new();
   labels.push(`a`);
   labels.push(`b`);
-  types := ArrayList(TypeValue).new();
+  mut(types) := ArrayList(TypeValue).new();
   types.push(Rc.clone(child));
   types.push(Rc.clone(child));
   Rc.new(TypeValueNode.Struct(`dag_${i.to_string()}`, `Dag${i.to_string()}`, shared_list(labels), shared_list(types), false, false, false, ``, no_types(), false))

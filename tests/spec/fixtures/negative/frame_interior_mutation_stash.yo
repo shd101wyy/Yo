@@ -11,7 +11,7 @@
 /// Keeps a second handle to `xs`.
 remember :: (fn(xs : ArrayList(i32)) -> unit)({
   STASH.with_mut(s => {
-    s.push(xs);
+    s.push(xs.clone());
   });
 });
 
@@ -19,8 +19,8 @@ remember :: (fn(xs : ArrayList(i32)) -> unit)({
 poke :: (fn(ensures(true)) -> unit)({
   STASH.with_mut(s => {
     match(
-      s.get(usize(0)),
-      .Some(l) => {
+      s.get_cloned(usize(0)),
+      .Some(mut(l)) => {
         l.push(i32(7));
       },
       .None => ()

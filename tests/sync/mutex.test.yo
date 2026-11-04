@@ -88,7 +88,7 @@ test("Mutex serializes concurrent read-modify-write, losing no update", {
   // assertion: an off-by-any is a lost update.
   counter := Mutex(i64).new(i64(0));
   wg := WaitGroup.new();
-  handles := ArrayList(Thread(unit)).new();
+  mut(handles) := ArrayList(Thread(unit)).new();
   (mut(t) : i64) = i64(0);
   while(t < _THREADS, {
     wg.add(i32(1));
@@ -134,7 +134,7 @@ test("A Mutex survives being locked and released repeatedly by many threads", {
   // thread must finish.
   m := Mutex(i64).new(i64(0));
   wg := WaitGroup.new();
-  handles := ArrayList(Thread(unit)).new();
+  mut(handles) := ArrayList(Thread(unit)).new();
   (mut(t) : i64) = i64(0);
   while(t < _THREADS, {
     wg.add(i32(1));

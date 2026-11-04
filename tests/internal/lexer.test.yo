@@ -12,7 +12,7 @@ lex_or_panic :: (fn(source : &String, exn : Exception) -> ArrayList(Token))(
 );
 // Filter out Whitespace tokens.
 non_ws :: (fn(toks : &ArrayList(Token)) -> ArrayList(Token))({
-  result := ArrayList(Token).new();
+  mut(result) := ArrayList(Token).new();
   mut(i) := usize(0);
   n := toks.len();
   while(i < n, {
@@ -315,7 +315,7 @@ test("Template string content", {
       }
     )
   );
-  sb := StringBuilder.new();
+  mut(sb) := StringBuilder.new();
   sb.write_byte(u8(0x60));
   sb.write_str("hello");
   sb.write_byte(u8(0x60));
@@ -566,7 +566,7 @@ test("Token row tracking across newlines", {
       }
     )
   );
-  sb := StringBuilder.new();
+  mut(sb) := StringBuilder.new();
   sb.write_str("hello");
   sb.write_byte(u8(10));
   sb.write_str("world");
@@ -759,7 +759,7 @@ test("Unterminated template string raises a lexer diagnostic", {
       }
     )
   );
-  sb := StringBuilder.new();
+  mut(sb) := StringBuilder.new();
   sb.write_byte(u8(0x60));
   sb.write_str("unterminated");
   src := sb.to_string();
@@ -1096,7 +1096,7 @@ test("Leading UTF-8 BOM is skipped, not lexed into the first token", {
   // editors write EF BB BF before an otherwise-ASCII file; decoded, that is
   // U+FEFF, which used to be absorbed into the first identifier ("Variable
   // '<BOM>open' not found" — issues/fixed/lexer-rejects-leading-utf8-bom.md).
-  sb := StringBuilder.new();
+  mut(sb) := StringBuilder.new();
   sb.write_rune(rune(u32(0xFEFF)));
   sb.write_str("open(1)");
   src := sb.to_string();
@@ -1127,7 +1127,7 @@ test("BOM-only input tokenizes to an empty stream", {
       }
     )
   );
-  sb := StringBuilder.new();
+  mut(sb) := StringBuilder.new();
   sb.write_rune(rune(u32(0xFEFF)));
   toks := non_ws(lex_or_panic(sb.to_string(), exn));
   assert(toks.len() == usize(0), "expected 0 tokens");
@@ -1306,7 +1306,7 @@ test("A lone surrogate escape in a template is a lex error", {
   // synthetic StringLit re-decoded to the EMPTY string — `x\uD800y`
   // silently became "" and lost the whole literal part around it
   // (issues/fixed/a-lone-surrogate-unicode-escape-is-silently-accepted.md).
-  cases := ArrayList(String).new();
+  mut(cases) := ArrayList(String).new();
   cases.push(String.from("s :: `x\\uD800y`;"));
   cases.push(String.from("s :: `x\\uDC00y`;"));
   for(cases, src => {
@@ -1335,7 +1335,7 @@ test("A lone surrogate escape in a double-quoted literal is a lex error", {
   // the evaluator's decoder then encoded it as CESU-8 — invalid UTF-8.
   // Text (or another escape) between two halves makes BOTH halves lone:
   // `"\uD83Dx\uDE00"` is two rejects, not one pair.
-  cases := ArrayList(String).new();
+  mut(cases) := ArrayList(String).new();
   cases.push(String.from("s :: \"x\\uD800y\";"));
   cases.push(String.from("s :: \"x\\uDC00y\";"));
   cases.push(String.from("s :: \"\\uD83Dx\\uDE00\";"));

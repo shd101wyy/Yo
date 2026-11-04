@@ -33,7 +33,7 @@ test("a cast-derived handle stored and read later stays valid", {
   w2 := identity_through_cast(unsafe.cast(&w, *u8));
   w2.hits = i32(7);
   assert(w.hits == i32(7), "same object through the round trip");
-  holder := ArrayList(W).new();
+  mut(holder) := ArrayList(W).new();
   holder.push(w2);
   bump_through_cast(unsafe.cast(&w, *u8));
   assert(holder(usize(0)).hits == i32(8), "the held handle sees the callback's write");

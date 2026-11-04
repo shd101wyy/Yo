@@ -58,11 +58,7 @@ _ns_field_type :: (fn(t : &TypeValue, label : &String) -> TypeValue)({
   tys := _ns_types(t);
   (mut(i) : usize) = usize(0);
   while(i < labels.len(), {
-    if(match(
-      labels.get(i),
-      .Some(l) => (l == label),
-      .None => false
-    ), {
+    if(labels(i) == label, {
       return(
         match(
           tys.get(i),
@@ -77,28 +73,20 @@ _ns_field_type :: (fn(t : &TypeValue, label : &String) -> TypeValue)({
 });
 /// The names of a doc module's `types` list.
 _doc_type_names :: (fn(m : &DocModule) -> ArrayList(String))({
-  out := ArrayList(String).new();
+  mut(out) := ArrayList(String).new();
   (mut(i) : usize) = usize(0);
   while(i < m.types.len(), {
-    match(
-      m.types.get(i),
-      .Some(t) => out.push(t.name.clone()),
-      .None => ()
-    );
+    out.push(m.types(i).name.clone());
     i = (i + usize(1));
   });
   out
 });
 /// The names of a doc module's `traits` list.
 _doc_trait_names :: (fn(m : &DocModule) -> ArrayList(String))({
-  out := ArrayList(String).new();
+  mut(out) := ArrayList(String).new();
   (mut(i) : usize) = usize(0);
   while(i < m.traits.len(), {
-    match(
-      m.traits.get(i),
-      .Some(t) => out.push(t.name.clone()),
-      .None => ()
-    );
+    out.push(m.traits(i).name.clone());
     i = (i + usize(1));
   });
   out
@@ -121,7 +109,7 @@ test("the cached prelude loads as a module, not as Unit", {
   outcome := mm_load_file(prelude.clone(), std_path.clone(), false, io, exn);
   assert(outcome.ok, "the cached prelude is a successful load");
   assert(is_module_type(&outcome.module_type), "the outcome's type is a module type, not Unit");
-  labels := _ns_labels(&outcome.module_type).*.items;
+  labels := _ns_labels(&outcome.module_type).*.items.clone();
   assert(labels.len() > usize(100), `the prelude namespace is populated, got ${labels.len().to_string()} field(s)`);
   // Three declarations a reader of the prelude page must find: a type, a
   // generic type constructor and a trait.
@@ -132,7 +120,7 @@ test("the cached prelude loads as a module, not as Unit", {
   // (a TypeVal classifies as a struct/enum/trait; anything else falls through
   // to the constant list), so a namespace of labels with no values would
   // document every declaration as an untyped constant.
-  vals := match(outcome.module_value, .StructVal(_, _, field_values) => Rc.clone(field_values), _ => empty_value_cell());
+  vals := match(&outcome.module_value, .StructVal(_, _, field_values) => Rc.clone(field_values), _ => empty_value_cell());
   assert(vals.len() == labels.len(), `one value per label, got ${vals.len().to_string()} for ${labels.len().to_string()}`);
 });
 test("the cached prelude's parameterised bindings carry their fn field types", {
@@ -211,9 +199,9 @@ test("the doc builder renders the cached prelude's parameterised declarations", 
   (mut(ci) : usize) = usize(0);
   while(ci < doc.constants.len(), {
     match(
-      doc.constants.get(ci),
+      doc.constants.get_cloned(ci),
       .Some(c) => {
-        cval := match(c.value, .Some(v) => v, .None => String.new());
+        cval := match(&c.value, .Some(v) => v.clone(), .None => String.new());
         assert(!cval.starts_with(String.from("<fn")), `constant "${c.name}" holds a fn placeholder (${cval}) — its field type was lost`);
       },
       .None => ()

@@ -4,7 +4,7 @@
 
 **Status:** OPEN — found 2026-10-23 while looking for a way to forget a value
 in std (for `RefCell.into_inner`,
-`issues/2026-10-23-a-move-only-payload-cannot-move-out-of-a-box.md`). Not fixed.
+`issues/fixed/2026-10-23-a-move-only-payload-cannot-move-out-of-a-box.md`). Not fixed.
 
 ## Reproducer
 

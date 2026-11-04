@@ -68,13 +68,15 @@ pragma(Pragma.AllowUnsafe);
 _lookup_or_register_enum_sig :: (fn(bare : &String, decl : &String, full_key : &String) -> String)(
   cond(
     (decl.len() == usize(0)) => match(
-      g_enum_bare_claims.with(m => m.get(bare)),
+      g_enum_bare_claims.with(m => m.get_cloned(bare)),
       .Some(k) => k.clone(),
       .None => match(
-        g_enum_bare_unclaimed.with(m => m.get(bare)),
+        g_enum_bare_unclaimed.with(m => m.get_cloned(bare)),
         .Some(k) => k.clone(),
         .None => {
-          g_enum_bare_unclaimed.with_mut(m => m.insert(bare.clone(), full_key.clone()));
+          full_key_owned := full_key.clone();
+          bare_owned := bare.clone();
+          g_enum_bare_unclaimed.with_mut({ full_key_owned, bare_owned }(m) => m.insert(bare_owned, full_key_owned.clone()));
           bump_type_key_epoch();
           full_key.clone()
         }
@@ -83,22 +85,27 @@ _lookup_or_register_enum_sig :: (fn(bare : &String, decl : &String, full_key : &
     true => {
       sig := `${bare}@${decl}`;
       match(
-        g_enum_sig_keys.with(m => m.get(&sig)),
+        g_enum_sig_keys.with(m => m.get_cloned(&sig)),
         .Some(k) => k.clone(),
         .None => {
           canonical := cond(
             !is_prelude_enum_decl(decl) => full_key.clone(),
             true => match(
-              g_enum_bare_claims.with(m => m.get(bare)),
+              g_enum_bare_claims.with(m => m.get_cloned(bare)),
               .Some(_) => full_key.clone(),
               .None => {
-                adopted := match(g_enum_bare_unclaimed.with(m => m.get(bare)), .Some(k) => k.clone(), .None => full_key.clone());
-                g_enum_bare_claims.with_mut(m => m.insert(bare.clone(), adopted.clone()));
+                adopted := match(g_enum_bare_unclaimed.with(m => m.get_cloned(bare)), .Some(k) => k.clone(), .None => full_key.clone());
+                bare_owned2 := bare.clone();
+                adopted_owned := adopted.clone();
+                g_enum_bare_claims.with_mut({ bare_owned2, adopted_owned }(m) => m.insert(bare_owned2.clone(), adopted_owned));
                 adopted
               }
             )
           );
-          g_enum_sig_keys.with_mut(m => m.insert(sig.clone(), canonical.clone()));
+          // Owned captures (`with_mut`'s callback is a sink parameter).
+          esk_key := sig.clone();
+          esk_val := canonical.clone();
+          g_enum_sig_keys.with_mut({ esk_key, esk_val }(m) => m.insert(esk_key, esk_val));
           bump_type_key_epoch();
           canonical
         }
@@ -156,7 +163,7 @@ _tk_resolve_arg_slot :: (fn(t_in : &TypeValue) -> TypeValue)({
         (ri : usize) = usize(0);
         while(ri < seen.len(), {
           match(
-            seen.get(ri),
+            seen.get_cloned(ri),
             .Some(rs) => if(rs == ras_id, {
               revisit = true;
             }),
@@ -192,27 +199,18 @@ _tk_somes_have_id :: (fn(somes : &ArrayList(TypeValue), id : &String) -> bool)({
   (found : bool) = false;
   (i : usize) = usize(0);
   while((i < somes.len()) && !found, {
-    found = match(somes.get(i), .Some(Rc(.SomeT({ id : sid }))) => (sid == id), _ => false);
+    found = match(somes.get_cloned(i), .Some(Rc(.SomeT({ id : sid }))) => (sid == id), _ => false);
     i = (i + usize(1));
   });
   found
 });
-_tk_seen :: (fn(id : &String) -> bool)({
-  n := g_tk_visited.with(xs => xs.len());
-  (i : usize) = usize(0);
-  (found : bool) = false;
-  while((i < n) && !found, {
-    // Compare in place — the old `e.clone()` deep-copied the byte buffer of
-    // every visited entry per probe (342 M ArrayList(u8) allocations per
-    // self-emit, the #2 string-churn site) just to == it and drop it.
-    // Compact bool-valued arm form (an r3-era self-hosted miscompile of
-    // this shape was fixed by later work — restored 2026-08-07 with the
-    // fixpoint as judge; issues/retired/yo-self-bool-match-arm-miscompile.md).
-    found = match(g_tk_visited.with(xs => xs.get(i)), .Some(e) => (e == id), .None => false);
-    i = (i + usize(1));
-  });
-  found
-});
+_tk_seen :: (fn(id : &String) -> bool)(
+  // Compare in place: a copy of each visited entry per probe (`e.clone()`,
+  // and `get_cloned` once `String` is a value) deep-copies its byte buffer
+  // just to == it and drop it (342 M ArrayList(u8) allocations per
+  // self-emit, the #2 string-churn site).
+  g_tk_visited.with(xs => xs.contains(id))
+);
 /// Whether a generic instance's argument list holds a `Type` or `unit` slot:
 /// a comptime VALUE argument erased from its key's argument part (see the
 /// Struct arm of `_type_key_at`).
@@ -328,7 +326,7 @@ _type_key_at :: (fn(t : &TypeValue, depth : usize) -> String)(
       tk_node := _tk_node_id(&tk_head, &stas);
       if((sid.len() > usize(0)) && _tk_seen(&tk_node), {
         cyc_inner := match(
-          g_struct_cfid_keys.with(m => m.get(&sid)),
+          g_struct_cfid_keys.with(m => m.get_cloned(&sid)),
           // A POISONED slot ("!AMBIG" — multiple instantiations share this
           // sid) must NOT leak the sentinel as a key: two different nested
           // types would both render "!AMBIG" and collide (the sentinel
@@ -415,13 +413,16 @@ _type_key_at :: (fn(t : &TypeValue, depth : usize) -> String)(
           // with registration order deciding the winner per emit.
           if(sid.len() > usize(0), {
             match(
-              g_struct_cfid_keys.with(m => m.get(&sid)),
+              g_struct_cfid_keys.with(m => m.get_cloned(&sid)),
               .Some(prev) => if(!((prev == key) || (prev == "!AMBIG")), {
-                g_struct_cfid_keys.with_mut(m => m.insert(sid.clone(), String.from("!AMBIG")));
+                sid_owned := sid.clone();
+                g_struct_cfid_keys.with_mut({ sid_owned }(m) => m.insert(sid_owned.clone(), String.from("!AMBIG")));
                 bump_type_key_epoch();
               }),
               .None => {
-                g_struct_cfid_keys.with_mut(m => m.insert(sid.clone(), key.clone()));
+                sid_owned2 := sid.clone();
+                key_owned := key.clone();
+                g_struct_cfid_keys.with_mut({ sid_owned2, key_owned }(m) => m.insert(sid_owned2.clone(), key_owned));
                 bump_type_key_epoch();
               }
             );
@@ -442,9 +443,9 @@ _type_key_at :: (fn(t : &TypeValue, depth : usize) -> String)(
         // must get its own visit fn. Unpoisoned REGISTERED sids
         // (.Some non-poison) behave exactly as before.
         (sid.len() > usize(0)) => {
-          slot := g_struct_cfid_keys.with(m => m.get(&sid));
+          slot := g_struct_cfid_keys.with(m => m.get_cloned(&sid));
           need_structural := match(
-            slot,
+            &slot,
             .Some(k) => (k == "!AMBIG"),
             .None => (sfts.len() > usize(0))
           );
@@ -822,7 +823,7 @@ type_identity_slot :: (fn(handles : &ArrayList(TypeValue), ty : &TypeValue) -> u
   (hi : usize) = handles.len();
   while(lo < hi, {
     mid := (lo + ((hi - lo) / usize(2)));
-    if(match(handles.get(mid), .Some(h) => __yo_ptr_lt(&h, ty), .None => false), {
+    if(match(handles.get_cloned(mid), .Some(h) => __yo_ptr_lt(&h, ty), .None => false), {
       lo = (mid + usize(1));
     }, {
       hi = mid;
@@ -832,7 +833,7 @@ type_identity_slot :: (fn(handles : &ArrayList(TypeValue), ty : &TypeValue) -> u
 });
 /// Whether `handles(slot)` is the handle `ty` itself.
 type_identity_slot_holds :: (fn(handles : &ArrayList(TypeValue), slot : usize, ty : &TypeValue) -> bool)(
-  match(handles.get(slot), .Some(h) => __yo_ptr_eq(&h, ty), .None => false)
+  match(handles.get_cloned(slot), .Some(h) => __yo_ptr_eq(&h, ty), .None => false)
 );
 /// `type_identity_cacheable`'s own identity memo: handles sorted by address,
 /// whether each mentions no type variable, and the epoch they were judged in.
@@ -889,22 +890,7 @@ type_key_memo_check_enabled :: (fn() -> bool)({
 // render distinctly here (by their own sid), which only means a missed
 // alias — never a wrong merge, since equal renders imply equal structure.
 (g_sti_visited : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
-_sti_seen :: (fn(id : &String) -> bool)({
-  n := g_sti_visited.with(xs => xs.len());
-  (i : usize) = usize(0);
-  (found : bool) = false;
-  while((i < n) && !found, {
-    match(
-      g_sti_visited.with(xs => xs.get(i)),
-      .Some(v) => if(v == id, {
-        found = true;
-      }),
-      .None => ()
-    );
-    i = (i + usize(1));
-  });
-  found
-});
+_sti_seen :: (fn(id : &String) -> bool)(g_sti_visited.with(xs => xs.contains(id)));
 _stable_identity_at :: (fn(t : &TypeValue, depth : usize) -> String)({
   // DEPTH CAP: the id-based cycle guard below cuts CYCLES, but a memoized
   // instantiation CHAIN (Option(RBNode(Option(RBNode(…)))) where every level
@@ -932,7 +918,7 @@ _stable_identity_at :: (fn(t : &TypeValue, depth : usize) -> String)({
       st := resolve_struct_shell(t);
       (sid, sfls, sfts, s_is_ref) := match(
         st,
-        Rc(.Struct({ id : rid, field_labels : rfls, field_types : rfts, is_reference_semantics : rirs })) => (rid, Rc.clone(rfls), Rc.clone(rfts), rirs),
+        Rc(.Struct({ id : rid, field_labels : rfls, field_types : rfts, is_reference_semantics : rirs })) => (rid.clone(), Rc.clone(rfls), Rc.clone(rfts), rirs),
         _ => (id.clone(), Rc.clone(fls), Rc.clone(fts), t_is_ref)
       );
       pfx := if(s_is_ref, String.from("R#"), String.from(""));
@@ -942,14 +928,15 @@ _stable_identity_at :: (fn(t : &TypeValue, depth : usize) -> String)({
         return(out_cyc);
       });
       if(sid.len() > usize(0), {
-        g_sti_visited.with_mut(xs => xs.push(sid.clone()));
+        sid_owned := sid.clone();
+        g_sti_visited.with_mut({ sid_owned }(xs) => xs.push(sid_owned.clone()));
       });
       out := pfx;
       out.push_string(&sid);
       (i : usize) = usize(0);
       while(i < sfts.len(), {
         ft := match(sfts.get(i), .Some(x) => x, .None => Rc.new(TypeValueNode.Unit));
-        fl := match(sfls.get(i), .Some(x) => x, .None => String.from(""));
+        fl := match(sfls.get_cloned(i), .Some(x) => x, .None => String.from(""));
         out.push_str("_");
         out.push_string(&fl);
         out.push_str(":");
@@ -984,7 +971,7 @@ _stable_identity_at :: (fn(t : &TypeValue, depth : usize) -> String)({
       out.push_string(&eid);
       (vi : usize) = usize(0);
       while(vi < evfs.len(), {
-        vn := match(evns.get(vi), .Some(x) => x, .None => String.from(""));
+        vn := match(evns.get_cloned(vi), .Some(x) => x, .None => String.from(""));
         out.push_str("_");
         out.push_string(&vn);
         match(
