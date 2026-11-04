@@ -135,7 +135,7 @@ test("two levels through Rc payloads", {
     match(
       l,
       .Cons(1, Rc(.Cons(2, Rc(.Cons(n, _))))) => n.*,
-      .Cons(_, t) => sum_boxed(&t.*.*),
+      .Cons(_, t) => sum_boxed(&t.*),
       .Nil => i32(-1)
     )
   );
@@ -173,7 +173,7 @@ test("an or-pattern through an Rc payload", {
 test("whole-value binding of the Rc position still binds the Rc", {
   inner_kind :: (fn(b : &Rc(List)) -> i32)(
     match(
-      b.*.*.*,
+      b.*.*,
       (rest := .Nil) => i32(100),
       _ => i32(101)
     )
@@ -229,7 +229,7 @@ test("a match on an Rc handle with plain variant arms switches on the payload", 
       s,
       Rc(.Dot) => i32(1),
       Rc(.Line(n)) => n.*,
-      Rc(.Pair(a, b)) => (recur(&a.*.*) + recur(&b.*))
+      Rc(.Pair(a, b)) => (recur(&a.*) + recur(&b.*))
     )
   );
   only_line :: (fn(s : &Rc(Shape)) -> i32)(match(s, Rc(.Line(n)) => n.*, _ => i32(0)));
@@ -321,7 +321,7 @@ test("(name := Rc(p)) binds the cell, Rc((name := p)) the payload", {
   m :: (fn(t : &Tree) -> i32)(
     match(
       t,
-      .Node(cell := Rc(.Leaf(n)), _) => (n.* + i32(ref_count(cell.*.*))),
+      .Node(cell := Rc(.Leaf(n)), _) => (n.* + i32(ref_count(cell.*))),
       .Node(_, Rc(inner := .Leaf(n))) => match(inner, .Leaf(x) => (x.* + n.*), .Node(_, _) => i32(-3)),
       _ => i32(0)
     )

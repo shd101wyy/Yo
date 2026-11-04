@@ -580,7 +580,7 @@ test("borrow places: a `&` borrow through an `Rc`/`Arc` deref, never a `&mut` on
   a := Arc.new(_ClAcc(total : i32(6), other : i32(0)));
   assert(_cl_call0({ t : &a.*.total }() => t.*) == i32(6), "a shared capture through an Arc deref");
   comptime_expect_error(_cl_call0({ t : &mut r.*.total }() => t), "cannot reach through an `Rc`");
-  assert(_cl_call0({ &r }() => r.*.*.*.total) == i32(4), "capture the handle and re-derive the place");
+  assert(_cl_call0({ &r }() => r.*.*.total) == i32(4), "capture the handle and re-derive the place");
 });
 test("borrow places: no module-level place", {
   comptime_expect_error(_cl_call0({ &g_cl_total }() => g_cl_total), "module-level binding");
