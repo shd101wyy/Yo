@@ -26,6 +26,8 @@ json :: import("std/encoding/json");
   E_STRUCT_LITERAL_VS_BLOCK,
   E_CALL_SYNTAX,
   E_DELETED_SPELLING,
+  E_MACRO_SIGNATURE,
+  E_MALFORMED_FOR,
   E_VARIABLE_NOT_FOUND,
   E_ENUM_VARIANT_NOT_FOUND,
   E_MODULE_FIELD_NOT_FOUND,
@@ -271,6 +273,36 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "{ String } :: import(\"std/string\");\nlen_of :: (fn(s : &String) -> usize)(s.len());\nexport(len_of);\n",
       "`imm(s) : String` is the deleted mode-word spelling of the read-only borrow `s : &String`.",
       "`imm(s) : String` 是只读借用 `s : &String` 已删除的模式关键字写法。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_MACRO_SIGNATURE,
+      "macro definitions were removed",
+      "宏定义已被移除",
+      "A `quote(p) : Expr` parameter or an `-> unquote(Expr)` result declares a macro, and Yo has no macros.",
+      "`quote(p) : Expr` 参数或 `-> unquote(Expr)` 返回类型声明的是宏，而 Yo 已经没有宏。",
+      "Yo's macro layer was removed (plans/backlog/MACRO_AND_ISO_REMOVAL.md): a function whose signature quotes a parameter, `quote(p) : Expr` (or a quoted variadic `...(quote(p))`), or splices its result, `-> unquote(Expr)`, is rejected; a leftover `pragma(Pragma.AllowMacroDef)` names a `Pragma` variant that no longer exists (E0402). The extension mechanisms are comptime functions, the type layer and the quote/reflection layer: a comptime function `fn(comptime(e) : Expr) -> comptime(Expr)` takes and returns quoted code, and a derive rule (`derive_rule`) splices the `impl(...)` items it returns. `quote(...)`, `unquote(...)` and `unquote_splicing(...)` inside quoted code, `gensym` and the `__yo_expr_*` reflection builtins are unchanged. `if(...)` and `for(...)` are builtin forms. There is no `yo fix` migration: rewrite each macro as a comptime function or as plain code at its call sites.",
+      "Yo 的宏层已被移除（plans/backlog/MACRO_AND_ISO_REMOVAL.md）：签名中引用参数（`quote(p) : Expr`，或带引用的可变参数 `...(quote(p))`）或拼接返回值（`-> unquote(Expr)`）的函数会被拒绝；残留的 `pragma(Pragma.AllowMacroDef)` 引用的是已不存在的 `Pragma` 变体（E0402）。扩展机制是编译期函数、类型层以及 quote/反射层：编译期函数 `fn(comptime(e) : Expr) -> comptime(Expr)` 接收并返回引用的代码，派生规则（`derive_rule`）会拼接它返回的 `impl(...)` 条目。引用代码中的 `quote(...)`、`unquote(...)` 和 `unquote_splicing(...)`、`gensym` 以及 `__yo_expr_*` 反射内建函数保持不变。`if(...)` 和 `for(...)` 是内建形式。没有对应的 `yo fix` 迁移：请把每个宏改写为编译期函数，或在调用处写成普通代码。",
+      "twice :: (fn(quote(e) : Expr) -> unquote(Expr))(quote(unquote(e) + unquote(e)));\nexport(twice);\n",
+      "twice :: (fn(comptime(e) : Expr) -> comptime(Expr))(quote(unquote(e) + unquote(e)));\nexport(twice);\n",
+      "`twice` is a comptime function: it takes quoted code as an `Expr` value and returns the code it builds, which a derive rule or a comptime caller can splice.",
+      "`twice` 是一个编译期函数：它以 `Expr` 值接收引用的代码，并返回它构建的代码，供派生规则或编译期调用者拼接。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_MALFORMED_FOR,
+      "malformed `for` loop",
+      "格式错误的 `for` 循环",
+      "This `for(...)` call is not a collection and an `x => body` handle.",
+      "这个 `for(...)` 调用不是“集合 + `x => body` 处理器”的形式。",
+      "`for` is a builtin form the parser lowers to a loop: `for(coll, x => body)` consumes `coll` through its `into_iter()`, `for(&coll, x => body)` reads each element in place, and `for(&mut coll, x => body)` writes each element in place; over a map the handle is `(k, v) => body`. A call with another number of arguments, or whose second argument is not a `=>` with one binder and a body, is not a loop. To pass a function value, call it in the body: `for(xs, x => f(x))`.",
+      "`for` 是由解析器降级为循环的内建形式：`for(coll, x => body)` 通过 `into_iter()` 消耗 `coll`，`for(&coll, x => body)` 原地读取每个元素，`for(&mut coll, x => body)` 原地写入每个元素；遍历映射时处理器写作 `(k, v) => body`。参数个数不同，或第二个参数不是带一个绑定和一个循环体的 `=>`，都不是循环。若要传入函数值，请在循环体中调用它：`for(xs, x => f(x))`。",
+      "{ ArrayList } :: import(\"std/collections/array_list\");\nsum :: (fn(xs : ArrayList(i32)) -> i32)({\n  mut(total) := i32(0);\n  for(xs);\n  total\n});\nexport(sum);\n",
+      "{ ArrayList } :: import(\"std/collections/array_list\");\nsum :: (fn(xs : ArrayList(i32)) -> i32)({\n  mut(total) := i32(0);\n  for(xs, x => {\n    total = (total + x);\n  });\n  total\n});\nexport(sum);\n",
+      "`for(xs)` has no handle; `for(xs, x => ...)` binds each element as `x`.",
+      "`for(xs)` 缺少处理器；`for(xs, x => ...)` 把每个元素绑定为 `x`。"
     )
   );
   out.push(

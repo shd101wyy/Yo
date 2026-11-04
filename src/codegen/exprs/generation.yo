@@ -96,7 +96,7 @@
   ast_expr_is_local_borrow_mode_call,
   ast_call_args_unmarked
 } :: import("../../expr.yo");
-{ has_any_control_flow, ExprInfo, lookup_macro_expansion, is_call_scoped_share_drop, expr_info_deferred_dup_expressions, expr_info_index_method_type, expr_info_index_method_value, expr_info_index_trait_ptr_type, expr_info_is_index_trait_address_of, expr_info_macro_expansion, scope_variables } :: import("../../expr_info.yo");
+{ has_any_control_flow, ExprInfo, lookup_lowering, is_call_scoped_share_drop, expr_info_deferred_dup_expressions, expr_info_index_method_type, expr_info_index_method_value, expr_info_index_trait_ptr_type, expr_info_is_index_trait_address_of, expr_info_lowered_to, scope_variables } :: import("../../expr_info.yo");
 { is_func_val, is_unknown_val, is_struct_val, is_enum_val, EvalValue } :: import("../../value.yo");
 { is_unit_type, is_primitive_type, is_pointer_type, is_array_type, is_never_type, is_void_type } :: import("../../types/guards.yo");
 { t_slot_pointee } :: import("../../types/definitions.yo");
@@ -764,22 +764,22 @@ generate_func_call :: (fn(expr : &AstExpr, indent : &String, context : &Function
   );
   // RC drop/dup builtins are lowered by their dedicated generators (generate_drop /
   // generate_dup), which resolve the operation from the value's TYPE and are
-  // authoritative — they must never be diverted through a macro_expansion.
+  // authoritative — they must never be diverted through a lowered_to.
   // `(___drop)(x)` / `(___dup)(x)` stay builtin calls all the way to codegen
   // (see the stub note in evaluator/builtins/drop.yo). Because the
   // builtin expr survives here, a stale id-keyed side-table entry (from a colliding
   // expr id) could otherwise mis-route it and double-emit `f(x)(x)`. Route them first.
   if(ast_expr_is_fn_call_of(expr, BF_DROP, Option(usize).None), return(generate_drop(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BF_DUP, Option(usize).None), return(generate_dup(expr, indent.clone(), context)));
-  // Macro expansion: generate the already-expanded form. Prefer the per-expr
-  // ExprInfo; fall back to the durable id-keyed side-table when a later eval
-  // pass overwrote this call's ExprInfo without `macro_expansion` (e.g. a macro
-  // call like `if(...recur...)` — see record_macro_expansion in expr_info.yo).
+  // A lowered node (a cast, a `Copy` clone, a pin, ...): generate its lowering.
+  // Prefer the per-expr ExprInfo; fall back to the durable id-keyed side-table
+  // when a later eval pass overwrote this node's ExprInfo without `lowered_to`
+  // (see `g_lowerings` in expr_info.yo).
   match(
-    expr_info_macro_expansion(&ei),
+    expr_info_lowered_to(&ei),
     .Some(mx) => return(_call_generate_expr(&mx, indent.clone(), context)),
     .None => match(
-      lookup_macro_expansion(ast_expr_id(expr)),
+      lookup_lowering(ast_expr_id(expr)),
       .Some(mx) => return(_call_generate_expr(&mx, indent.clone(), context)),
       .None => ()
     )
@@ -798,7 +798,7 @@ generate_func_call :: (fn(expr : &AstExpr, indent : &String, context : &Function
   if(ast_expr_is_fn_call_of(expr, BF_YO_DROP_TUPLE_ELEMENT, Option(usize).None), return(generate_yo_drop_tuple_element(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BF_YO_DUP_TUPLE_ELEMENT, Option(usize).None), return(generate_yo_dup_tuple_element(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BF_YO_CAPTURE_FIELD, Option(usize).None), return(generate_yo_capture_field(expr, indent.clone(), context)));
-  // (BF_DUP / BF_DROP routed above, before the macro_expansion check.)
+  // (BF_DUP / BF_DROP routed above, before the lowered_to check.)
   if(ast_expr_is_fn_call_of(expr, BF_YO_DYN_DROP, Option(usize).None), return(generate_yo_dyn_drop(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BF_YO_DYN_DUP, Option(usize).None), return(generate_yo_dyn_dup(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BF_YO_INCR_RC_ATOMIC, Option(usize).None), return(generate_yo_incr_rc_atomic(expr, indent.clone(), context)));

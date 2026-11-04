@@ -391,9 +391,10 @@ executes unconditionally on every path that reaches the scope end**. The optimiz
   preserved — dup on the taken arm, scope-end drop on every path;
 - counts a dup in EVERY arm once per arm, so a runtime dup count above 1 also preserves the
   pair;
-- follows `ExprInfo.macro_expansion` instead of the raw macro-call args, because `if(...)`
-  keeps its macro head in the AST and only its recorded `cond` expansion exposes the
-  branch structure. Walking the raw args treated an arm-internal dup as unconditional
+- follows a lowered node's `ExprInfo.lowered_to` (the builtin-lowering channel) instead of
+  its raw args, because only the recorded lowering exposes its structure (the `if` macro's
+  `cond` expansion did, before `if` became a parse-time desugar). Walking the raw args
+  treated an arm-internal dup as unconditional
   and cancelled it — leaking one reference on every path that skipped the arm
   (`issues/fixed/where-constraints-arraylist-96b-leak.md`, fixed 2026-08-06);
 - never optimizes across `while` bodies (a loop-body dup executes N times, the

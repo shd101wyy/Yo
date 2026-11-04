@@ -56,7 +56,7 @@ comment at release.yml:1166.)
 The seed bump commit is the natural scheduling point for the
 generation-gated follow-ups recorded elsewhere: deleting the prelude `if`
 macro + its export, std self-declaring `pragma(Pragma.AllowMacroDef)` and
-dropping the std exemption (`plans/reference/MACRO_POLICY.md`), and allowing
+dropping the std exemption (`plans/archive/MACRO_POLICY.md`), and allowing
 paren-less prefix calls inside `src/`/`std/`
 (`plans/reference/PREFIX_OPERATOR_OPERAND_RULE.md`) — each unlocks only once a
 release CONTAINING those features becomes the seed, i.e. typically the

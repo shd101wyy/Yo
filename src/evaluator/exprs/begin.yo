@@ -60,7 +60,7 @@ pragma(Pragma.AllowUnsafe);
   expr_info_early_return_only_deferred_drop_expressions,
   expr_info_is_anonymous_function_definition,
   expr_info_is_compile_time_only_assignment,
-  expr_info_macro_expansion,
+  expr_info_lowered_to,
   expr_info_consumed_variable_drop_expressions,
   expr_info_set_consumed_variable_drop_expressions,
   expr_info_set_capture_type,
@@ -263,7 +263,7 @@ _push_dup_call :: (fn(res : &DupCallsResult, var_id : &String, e : &AstExpr) -> 
 /// Recursive dup-call search with conservative cross-branch analysis
 /// (the branching arm is inlined; branch bodies recurse via
 /// `recur` into FRESH result containers). Follows a recorded
-/// `macro_expansion` INSTEAD of the raw macro-call args: the expansion is where
+/// `lowered_to` INSTEAD of the raw args of a lowered node: the lowering is where
 /// branching structure (cond/match) is visible, so a dup inside an `if(...)`
 /// arm routes through the branch-aware handler and is flagged partial instead
 /// of being collected as an unconditional dup and wrongly cancelled — which
@@ -330,16 +330,16 @@ _search_dup_calls :: (fn(expr : &AstExpr, res : &DupCallsResult, ctx : &EvalCont
     },
     .None => ()
   );
-  // A macro call (e.g. `if`, expanding to `cond`) keeps its original head in
-  // the AST; the evaluated expansion — the FRESH-ID clone codegen emits — is
-  // recorded in `macro_expansion`. Walk the EXPANSION instead of the raw args:
-  // the expansion's cond/match head routes arm-internal dups through the
+  // A lowered node keeps its original head in the AST; the evaluated
+  // lowering — the tree codegen emits — is recorded in `lowered_to`. Walk the
+  // LOWERING instead of the raw args: a cond/match head in it routes
+  // arm-internal dups through the
   // branch-aware handler below, so they are flagged partial (or counted per
   // arm) instead of cancelled as unconditional dups.
   match(
     ei_opt,
     .Some(ei_mx) => match(
-      expr_info_macro_expansion(&ei_mx),
+      expr_info_lowered_to(&ei_mx),
       .Some(mx) => {
         recur(&mx, res, ctx);
         return(());
@@ -1027,7 +1027,7 @@ _m3_attach_to_returns :: (fn(expr : &AstExpr, variable : &Variable, drop_expr : 
       });
       match(
         expr_info_table_get(&ctx.expr_info_table, ast_expr_id(expr)),
-        .Some(ei) => match(expr_info_macro_expansion(&ei), .Some(mx) => recur(&mx, variable, drop_expr, consumed, ctx), .None => ()),
+        .Some(ei) => match(expr_info_lowered_to(&ei), .Some(mx) => recur(&mx, variable, drop_expr, consumed, ctx), .None => ()),
         .None => ()
       );
       if(ast_expr_is_fn_call_of(expr, BK_COND, Option(usize).None) || ast_expr_is_fn_call_of(expr, BK_MATCH, Option(usize).None), {
@@ -1076,9 +1076,8 @@ _m3_attach_to_returns :: (fn(expr : &AstExpr, variable : &Variable, drop_expr : 
 /// attach `drop_expr` to every `break`/`continue` in `expr` that leaves the
 /// block declaring `variable` while the variable is live and not yet
 /// consumed. A `break` or `continue` inside a loop nested in that block exits
-/// only the nested loop, so the walk does not enter a `while`; a macro call
-/// is walked through its expansion alone (a `for` body sits inside the
-/// expansion's `while`, and its raw `x => body` argument is the same nodes).
+/// only the nested loop, so the walk does not enter a `while`; a lowered node
+/// is walked through its lowering alone.
 /// Without it, `b := make(); if(c, { break; }); sink(b);` in a loop body
 /// skipped `b`'s drop on the `break` path
 /// (issues/fixed/2026-10-23-a-break-or-continue-before-a-later-move-skips-the-drop-of-a-loop-body-local.md).
@@ -1106,7 +1105,7 @@ _m3_attach_to_loop_exits :: (fn(expr : &AstExpr, variable : &Variable, drop_expr
       match(
         expr_info_table_get(&ctx.expr_info_table, ast_expr_id(expr)),
         .Some(ei) => match(
-          expr_info_macro_expansion(&ei),
+          expr_info_lowered_to(&ei),
           .Some(mx) => {
             recur(&mx, variable, drop_expr, consumed, ctx);
             return(());
@@ -1154,10 +1153,10 @@ _m3_attach_to_loop_exits :: (fn(expr : &AstExpr, variable : &Variable, drop_expr
     .Atom(_, _) => ()
   )
 });
-/// Macro-aware `expr_tree_contains_return` for the optimizer's earliest-return
+/// Lowering-aware `expr_tree_contains_return` for the optimizer's earliest-return
 /// detection. The expr_traversal.yo baseline cannot check
-/// `macro_expansion` (no ctx). An `if(cond, { ... return(...) })` statement hides its return in the
-/// recorded expansion — missing it left `earliest_ret` unset, the
+/// `lowered_to` (no ctx). A lowered node can hide a return in its
+/// recorded lowering (an `if(cond, { ... return(...) })` did, as a macro call) — missing it left `earliest_ret` unset, the
 /// return-before-dup guard never fired, and a later child's dup+drop pair was
 /// wrongly cancelled while the if's early return still needed the scope-exit
 /// drop (the stage-2 `undeclared result` C error).
@@ -1171,7 +1170,7 @@ _contains_return_for_opt :: (fn(e : &AstExpr, ctx : &EvalContext) -> bool)({
       match(
         expr_info_table_get(&ctx.expr_info_table, ast_expr_id(e)),
         .Some(ei) => match(
-          expr_info_macro_expansion(&ei),
+          expr_info_lowered_to(&ei),
           .Some(mx) => if(recur(&mx, ctx), {
             return(true);
           }),
@@ -1199,7 +1198,7 @@ _contains_return_for_opt :: (fn(e : &AstExpr, ctx : &EvalContext) -> bool)({
     .Atom(_, _) => false
   )
 });
-/// Does `e` (following `macro_expansion`, not entering a nested `io.async`
+/// Does `e` (following `lowered_to`, not entering a nested `io.async`
 /// body) contain an `io.await`? The state-machine lowering's own test
 /// (`analyze_await_points`): a block with no await has no local that lives
 /// across a suspension, so none of its locals is a state-machine slot.
@@ -1212,7 +1211,7 @@ _contains_io_await_for_opt :: (fn(e : &AstExpr, ctx : &EvalContext) -> bool)(
       true => {
         (found : bool) = match(
           expr_info_table_get(&ctx.expr_info_table, ast_expr_id(e)),
-          .Some(ei) => match(expr_info_macro_expansion(&ei), .Some(mx) => _contains_io_await_for_opt(&mx, ctx), .None => false),
+          .Some(ei) => match(expr_info_lowered_to(&ei), .Some(mx) => _contains_io_await_for_opt(&mx, ctx), .None => false),
           .None => false
         );
         if(!found, {
@@ -1235,7 +1234,7 @@ _contains_io_await_for_opt :: (fn(e : &AstExpr, ctx : &EvalContext) -> bool)(
     .Atom(_, _) => false
   )
 );
-/// Does `e` (following `macro_expansion`) contain an assignment `name = …`?
+/// Does `e` (following `lowered_to`) contain an assignment `name = …`?
 /// Used by `_optimize_dup_drop_pairs`: the alias-binding dup elision
 /// (`h2 := h` sharing ONE count, the alias marked consumed so the base keeps
 /// it) is sound only while the base's count outlives every use of the alias.
@@ -1286,7 +1285,7 @@ _subtree_assigns_variable :: (fn(e : &AstExpr, name : &String, ctx : &EvalContex
       match(
         expr_info_table_get(&ctx.expr_info_table, ast_expr_id(e)),
         .Some(ei) => match(
-          expr_info_macro_expansion(&ei),
+          expr_info_lowered_to(&ei),
           .Some(mx) => if(recur(&mx, name.clone(), ctx), {
             return(true);
           }),
@@ -1349,8 +1348,8 @@ _call_lends_receiver_mut :: (fn(e : &AstExpr, f : &AstExpr, fargs : &ArrayList(A
   ast_expr_is_atom(&self_arg) && (ast_expr_token(&self_arg).value.* == name)
 });
 /// Strip cancelled dup calls from every `deferred_dup_expressions` list in the
-/// tree. Expansions are fresh-id clones (they do not share the spliced arg
-/// nodes), so the walk must follow `macro_expansion` explicitly — the same
+/// tree. A lowering's nodes need not be reachable from the original node's
+/// arguments, so the walk must follow `lowered_to` explicitly — the same
 /// reachability the collector uses, or a cancelled dup would survive in the
 /// emitted tree.
 _remove_dup_calls_from_tree :: (fn(expr : &AstExpr, remove_ids : &HashSet(usize), ctx : &EvalContext) -> unit)({
@@ -1384,7 +1383,7 @@ _remove_dup_calls_from_tree :: (fn(expr : &AstExpr, remove_ids : &HashSet(usize)
         .None => ()
       );
       match(
-        expr_info_macro_expansion(&ei),
+        expr_info_lowered_to(&ei),
         .Some(mx) => recur(&mx, remove_ids, ctx),
         .None => ()
       );
@@ -1963,7 +1962,7 @@ _ic_next_iteration_reads :: (fn(args : &ArrayList(AstExpr), v : &Variable, site 
 /// label before `:` are not reads. A `while` that holds the site runs it
 /// again when a path through the site reaches the next iteration (`!done`, or
 /// a `continue`) and that iteration reads `v` before writing it. Follows
-/// `macro_expansion` as the dup collector does.
+/// `lowered_to` as the dup collector does.
 _ic_scan :: (fn(e : &AstExpr, v : &Variable, site : &ImplicitCopyPending, acc : &_ICScan, ctx : &EvalContext) -> unit)({
   if(acc.later || acc.done, {
     return(());
@@ -1977,7 +1976,7 @@ _ic_scan :: (fn(e : &AstExpr, v : &Variable, site : &ImplicitCopyPending, acc : 
     ei_opt,
     .Some(ei) => {
       match(
-        expr_info_macro_expansion(&ei),
+        expr_info_lowered_to(&ei),
         .Some(mx) => {
           recur(&mx, v, site, acc, ctx);
           return(());
@@ -3462,7 +3461,7 @@ _evaluate_begin_expression_impl :: (
           old_assign := match(
             expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated)),
             .Some(oa_info) => match(
-              expr_info_macro_expansion(&oa_info),
+              expr_info_lowered_to(&oa_info),
               .Some(oa_mx) => if(ast_expr_is_fn_call_of(&oa_mx, BK_ASSIGN, .None), oa_mx, evaluated.clone()),
               .None => evaluated.clone()
             ),

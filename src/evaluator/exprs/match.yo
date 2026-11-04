@@ -44,7 +44,7 @@ pragma(Pragma.AllowUnsafe);
   expr_info_set_is_primitive_match,
   expr_info_set_primitive_pattern_values,
   expr_info_adopt_env,
-  expr_info_set_macro_expansion,
+  expr_info_set_lowered_to,
   push_branch_group,
   begin_branch_group_arm,
   branch_group_stack_len,
@@ -56,7 +56,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../expr_info.yo");
 { Environment, Variable, pop_env_frame, snapshot_env, env_adopt } :: import("../../env.yo");
 { Token, TokenKind, intern_token_str } :: import("../../token.yo");
-{ add_variable_to_env, get_variables_from_env, find_variable_in_env, variable_set_inout_borrow_root_id, variable_mark_inout_borrow_root, mark_macro_pattern_binding } :: import("../../env.yo");
+{ add_variable_to_env, get_variables_from_env, find_variable_in_env, variable_set_inout_borrow_root_id, variable_mark_inout_borrow_root, mark_loop_pattern_binding } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx, fn_ctx_returns_comptime, call_is_index_place } :: import("../context.yo");
 {
   EvalValue,
@@ -1619,18 +1619,11 @@ evaluate_match :: (
               .None => ()
             );
           });
-          // A name the caller wrote, bound by a match a macro expansion built
-          // or a desugared `for` (macro plan B1) builds (`for(coll, x =>
-          // ...)`'s `.Some(x)` arm), rebinds like a parameter.
-          m_tok := ast_expr_token(expr);
-          if(for_desugar_site_of(&m_tok).is_some(), {
-            match(_added, .Some(me_var) => mark_macro_pattern_binding(me_var.id), .None => ());
-          }, {
-            if(b_tok.module_path != m_tok.module_path, {
-              if(canonical_module_path(&b_tok.module_path.*) != canonical_module_path(&m_tok.module_path.*), {
-                match(_added, .Some(me_var) => mark_macro_pattern_binding(me_var.id), .None => ());
-              });
-            });
+          // A name the caller wrote, bound by the match a desugared `for`
+          // (macro plan B1) builds (`for(coll, x => ...)`'s `.Some(x)` arm),
+          // rebinds like a parameter.
+          if(for_desugar_site_of(&ast_expr_token(expr)).is_some(), {
+            match(_added, .Some(me_var) => mark_loop_pattern_binding(me_var.id), .None => ());
           });
           // Decision 38 A: a pattern binding is a binding. A second-class
           // value it binds freezes what it borrows for the arm, and a
@@ -1850,7 +1843,7 @@ evaluate_match :: (
       expr_info_set_case_executed(&mae_info, Option(bool).Some(true));
       // The constant/range tests are synthesized nodes outside the source
       // AST. Codegen's collectors (functions, types) follow a node's
-      // `macro_expansion`, so an arm the general lowering will emit hangs its
+      // `lowered_to`, so an arm the general lowering will emit hangs its
       // tests off the ARM's `=>` node as a `begin(...)` of them. NOT off the
       // pattern node: for a top-level constant arm (`"a" => …`) the pattern
       // node IS the literal inside its own test, and codegen's
@@ -1868,7 +1861,7 @@ evaluate_match :: (
           ptok := ast_expr_token(&arm_expr);
           begin_atom := AstExpr.Atom(alloc_global_expr_id(), Token(kind : TokenKind.Identifier, value : intern_token_str(String.from(BK_BEGIN)), row : ptok.row, column : ptok.column, character : ptok.character, byte_offset : ptok.byte_offset, module_path : Rc.clone(ptok.module_path), input : Rc.clone(ptok.input)));
           arm_info := new_expr_info(&env, t_unit());
-          expr_info_set_macro_expansion(&arm_info, Option(AstExpr).Some(AstExpr.FnCall(alloc_global_expr_id(), begin_atom, Rc.new(tests), false, ptok)));
+          expr_info_set_lowered_to(&arm_info, Option(AstExpr).Some(AstExpr.FnCall(alloc_global_expr_id(), begin_atom, Rc.new(tests), false, ptok)));
           expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&arm_expr), &arm_info);
         });
       });

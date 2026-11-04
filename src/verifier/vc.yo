@@ -43,7 +43,7 @@ pragma(Pragma.AllowUnsafe);
   ast_rewritten_node
 } :: import("../expr.yo");
 { TokenKind } :: import("../token.yo");
-{ lookup_method_callee_value, ExprInfo, ExprInfoTable, expr_info_table_get, expr_info_macro_expansion } :: import("../expr_info.yo");
+{ lookup_method_callee_value, ExprInfo, ExprInfoTable, expr_info_table_get, expr_info_lowered_to } :: import("../expr_info.yo");
 { TypeValue, TypeValueNode, t_refine_inner, no_types, no_labels, SharedList, t_slot_is_mut_ref } :: import("../types/definitions.yo");
 { canonical_module_path } :: import("../utils.yo");
 { get_current_target } :: import("../target.yo");
@@ -124,8 +124,8 @@ _same_recursion_clique :: (fn(a : &String, b : &String) -> bool)({
   found
 });
 /// Scan one expression for calls to task functions, recording
-/// `(caller, callee)` fid edges. Follows `ExprInfo.macro_expansion` for
-/// macro calls (the optimizer-family discipline); reads the callee
+/// `(caller, callee)` fid edges. Follows `ExprInfo.lowered_to` for
+/// lowered nodes (the optimizer-family discipline); reads the callee
 /// FuncVal from the func-slot atom's ExprInfo — the same source the walk
 /// resolves, so the edges match what the walk will see.
 _scan_call_edges :: (
@@ -143,7 +143,7 @@ _scan_call_edges :: (
     .FnCall(_, f, Rc(args), _, _) => {
       expanded := match(
         expr_info_table_get(table, ast_expr_id(e)),
-        .Some(ei) => expr_info_macro_expansion(&ei),
+        .Some(ei) => expr_info_lowered_to(&ei),
         .None => Option(AstExpr).None
       );
       match(
@@ -662,8 +662,8 @@ _enum_ctor_name :: (fn(enum_id : &String, variant : &String) -> String)(
 // ============================================================================
 /// One obligation discovered in a body.
 /// The runtime guard an AoRTE obligation corresponds to. `node_id` is the
-/// in-process trust key (exact across specializations and macro
-/// expansions); `(module, row, column, class)` is the display key, the same
+/// in-process trust key (exact across specializations and
+/// lowerings); `(module, row, column, class)` is the display key, the same
 /// position the guard prints, 0-based like the token
 /// (plans/backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md §4.2).
 GuardSite :: struct(
@@ -3071,20 +3071,20 @@ _or_terms :: (fn(ts : &ArrayList(VcTerm)) -> VcTerm)({
   r
 });
 /// Collect every source name ASSIGNED inside a loop body: `:=`/`=` LHS
-/// names (the havoc set). Follows `ExprInfo.macro_expansion` for macro
-/// calls (`for`, user macros — the branch structure
-/// lives in the expansion, not the macro call; the optimizer-family
-/// discipline from issues/fixed/where-constraints-arraylist-96b-leak.md).
+/// names (the havoc set). Follows `ExprInfo.lowered_to` for lowered
+/// nodes (the structure lives in the lowering, not the node; the
+/// optimizer-family discipline from
+/// issues/fixed/where-constraints-arraylist-96b-leak.md).
 /// Names already in `out` are skipped (idempotent).
 _scan_assigned :: (fn(table : &ExprInfoTable, e : &AstExpr, out : &mut ArrayList(String)) -> unit)(
   match(
     e,
     .Atom(_, _) => (),
     .FnCall(_, f, Rc(fargs), _, _) => {
-      // Macro calls: the semantics live in the expansion.
+      // A lowered node: the semantics live in its lowering.
       expanded := match(
         expr_info_table_get(table, ast_expr_id(e)),
-        .Some(ei) => expr_info_macro_expansion(&ei),
+        .Some(ei) => expr_info_lowered_to(&ei),
         .None => Option(AstExpr).None
       );
       match(
@@ -3753,7 +3753,7 @@ _for_term :: (fn(ctx : &mut VcCtx, e : &AstExpr, args : &ArrayList(AstExpr)) -> 
   coll_name := ast_expr_text(&coll).*.clone();
   list_t := ctx.vars.get_cloned(coll_name.clone());
   // The element sort is read off the list's own term: the source-form
-  // `for` call's arguments are typed through its expansion, not in place.
+  // `for` call's arguments are typed through its desugared loop, not in place.
   elem_opt := match(&list_t, .Some(lt) => _list_sort_elem(_havoc_binding_sort(&lt)), .None => Option(VcSort).None);
   if(elem_opt.is_none(), {
     _fail_subset(ctx, String.from("for over something other than an ArrayList variable"), e);
@@ -3777,20 +3777,12 @@ _for_term :: (fn(ctx : &mut VcCtx, e : &AstExpr, args : &ArrayList(AstExpr)) -> 
     _fail_subset(ctx, String.from("for binding other than a plain name (a mut element writes the list)"), e);
     return(Option(VcTerm).None);
   });
-  // The body is walked in the loop the call was desugared to, or in the
-  // macro expansion the evaluator typed (the
+  // The body is walked in the loop the call was desugared to, `e` (the
   // source-form arguments carry no types): `{ it := xs.into_iter();
   // while(true, { [invariant(...);] tmp := it.next();
   // match(tmp, .Some(x) => body, .None => { break; }) }) }`, or the read
   // walk's cursor loop (`_for_read_walk_loop`).
-  a_opt := cond(
-    _desugared_for_call(e).is_some() => _for_expansion_loop(e),
-    true => match(
-      expr_info_table_get(&ctx.table, ast_expr_id(e)),
-      .Some(ei) => match(expr_info_macro_expansion(&ei), .Some(xp) => _for_expansion_loop(&xp), .None => Option(LoopAnnotations).None),
-      .None => Option(LoopAnnotations).None
-    )
-  );
+  a_opt := _for_expansion_loop(e);
   if(a_opt.is_none(), {
     _fail_subset(ctx, String.from("for whose expansion is not the list-iterator loop"), e);
     return(Option(VcTerm).None);
@@ -4556,7 +4548,7 @@ _call_term :: (
     return(_match_term(ctx, e, args));
   });
   // --- while: the V4 havoc-invariant encoding ----------------------
-  // `for` is a macro over while whose expansion drives an iterator
+  // `for` desugars to a while whose loop drives an iterator
   // (`iter.next()` — an uncontracted trait call over collection state);
   // that needs the collection model of the later phases, so it stays
   // outside the subset with a precise error (the idiomatic replacement —
@@ -4566,10 +4558,8 @@ _call_term :: (
   if(head == "while", {
     return(_while_term(ctx, e, args));
   });
-  if(head == "for", {
-    return(_for_term(ctx, e, args));
-  });
-  // A desugared `for` (macro plan B1): the block the call became.
+  // A `for` loop (macro plan B1): the block the call was desugared to. A
+  // `for(...)` call itself never reaches here (E0011).
   if(head == "begin", {
     match(
       _desugared_for_call(e),
@@ -5792,7 +5782,7 @@ _deref_write_as_rebind :: (fn(ctx : &mut VcCtx, stmt : AstExpr) -> AstExpr)({
     return(stmt);
   });
   match(
-    match(expr_info_table_get(&ctx.table, ast_expr_id(&stmt)), .Some(ei) => expr_info_macro_expansion(&ei), .None => Option(AstExpr).None),
+    match(expr_info_table_get(&ctx.table, ast_expr_id(&stmt)), .Some(ei) => expr_info_lowered_to(&ei), .None => Option(AstExpr).None),
     .Some(xp) => cond(
       ast_expr_is_fn_call_of(&xp, "=", .Some(usize(2))) => xp,
       true => stmt
@@ -7846,7 +7836,7 @@ _callee_frame_open :: (fn(fv : &EvalValue, table : &ExprInfoTable) -> bool)({
   open
 });
 /// Does `e` contain a call to a contracted callee whose frame is open?
-/// Follows macro expansions (the walk sees the expansion) and both the
+/// Follows lowerings (the walk sees the lowering) and both the
 /// callee and the argument positions.
 _frame_scan_open :: (fn(table : &ExprInfoTable, e : &AstExpr) -> bool)({
   f := match(
@@ -7863,7 +7853,7 @@ _frame_scan_open :: (fn(table : &ExprInfoTable, e : &AstExpr) -> bool)({
   );
   expanded := match(
     expr_info_table_get(table, ast_expr_id(e)),
-    .Some(ei) => expr_info_macro_expansion(&ei),
+    .Some(ei) => expr_info_lowered_to(&ei),
     .None => Option(AstExpr).None
   );
   match(

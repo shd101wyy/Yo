@@ -216,12 +216,17 @@ rejected (§5).
 ### L7. `matches(x, pattern)` as a prelude macro
 
 **Yo today.** `match(x, p => true, _ => false)` by hand. Prelude macros
-are free to call (`plans/reference/MACRO_POLICY.md`), and `if` is already
+are free to call (`plans/archive/MACRO_POLICY.md`), and `if` is already
 one.
 
 **Verdict: adopt now;** a five-line prelude macro with a guard form
 `matches(x, (p && (g)))`, and a fmt case. It removes the most common
 three-line `match` a model writes.
+
+**Note (macro plan Part C, 2026-11):** Yo has no macro layer any more
+(`MACRO_AND_ISO_REMOVAL.md`), so a prelude macro is not available.
+`matches(x, p)`, if it is still wanted, is a parse-time desugar or a builtin
+form, the way `if` and `for` are, not a macro.
 
 ### L8. Explicit enum discriminants and C-layout enums for FFI
 

@@ -229,7 +229,7 @@ fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(trait_params) : C
 - `ctx` — a `DeriveContext` struct with `target` (Expr), `forall_params`, `where_clause`
 - `trait_params` — trait constructor arguments as a list of Exprs
 
-The function returns an `Expr` (via `quote` or `.to_expr()`) representing the `impl` block to generate.
+The function returns an `Expr` (via `quote` or `.to_expr()`) representing the `impl` block to generate. The result must be an `impl(...)` item: Yo has no macro layer, and a derive rule cannot splice a statement or an expression into the deriving module, so any other result is rejected (`plans/backlog/MACRO_AND_ISO_REMOVAL.md` §0.1). `ctx.make_impl(...)` builds one.
 
 ### Example: Struct Equality
 

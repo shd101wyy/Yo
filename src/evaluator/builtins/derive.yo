@@ -20,7 +20,9 @@ pragma(Pragma.AllowUnsafe);
   BK_GENERIC,
   BK_WHERE,
   desugar_if_calls,
-  ast_expr_is_atom
+  ast_expr_is_atom,
+  ast_expr_to_string,
+  BK_IMPL_LOWER
 } :: import("../../expr.yo");
 {
   Environment,
@@ -44,7 +46,7 @@ pragma(Pragma.AllowUnsafe);
   expr_info_table_set,
   expr_info_adopt_env
 } :: import("../../expr_info.yo");
-{ format_error_message, primary_diagnostic_code, with_code_carried } :: import("../../error.yo");
+{ format_error_message, format_error_message_with_help, primary_diagnostic_code, with_code_carried } :: import("../../error.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
 { extract_derive_key, get_derive_rule, get_derive_rule_type } :: import("./derive_rule.yo");
 { Exception, AnyError } :: import("std/error");
@@ -378,6 +380,21 @@ call_registered_derive_rule :: (
   // (comptime bindings no longer forced).
   ctx.force_compile_time_bindings = old_force_ct;
   pop_env_frame(caller_env);
+  // A derive rule emits ITEMS: an `impl(...)` (what `ctx.make_impl` builds,
+  // and all Rust's derive emits). Any other result would splice statements or
+  // an expression into the caller's scope, a back door for the macro layer
+  // Yo removed (plans/backlog/MACRO_AND_ISO_REMOVAL.md §0.1).
+  if(!ast_expr_is_fn_call_of(&result_expr, BK_IMPL_LOWER, .None), {
+    exn.throw(
+      dyn(
+        format_error_message_with_help(
+          &tok,
+          `derive on "${type_to_string(target_type)}": the derive rule returned \`${ast_expr_to_string(&result_expr)}\`, which is not an item. A derive rule returns an \`impl(...)\`, and nothing else: it cannot splice statements or an expression into the caller (plans/backlog/MACRO_AND_ISO_REMOVAL.md §0.1).`,
+          Option(String).Some(String.from("build the result with `ctx.make_impl(quote(Trait(...)))`"))
+        )
+      )
+    );
+  });
   // Desugar `if(...)` calls in the rule-built impl Expr (quote templates
   // skip load-time desugaring) so the emitted impl carries `cond` nodes.
   //
@@ -500,8 +517,8 @@ process_trait_arg :: (
 // body is evaluated as runtime code (`is_executing` false, and
 // `is_validating_function_definition` true at definition time), so the derive
 // rule's comptime fold would never execute. The derive runs there with the
-// flags a macro expansion uses (`calls/function.yo`), under its own error
-// handler so the flags are restored before an error propagates. Its impls are
+// validation and CTFE-analysis flags cleared and `is_executing` set, under its
+// own error handler so the flags are restored before an error propagates. Its impls are
 // registered by site, so a body evaluated again (a trial, each specialization
 // of a generic function) registers them once
 // (issues/fixed/a-derive-inside-a-function-body-is-silently-ignored.md).

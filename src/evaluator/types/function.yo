@@ -74,7 +74,7 @@ pragma(Pragma.AllowUnsafe);
   escapable_bound_error
 }
 :: import("../../types/utils.yo");
-{ is_implicitly_unsafe_capable_file, is_macro_def_capable_file } :: import("../memory_safety.yo");
+{ is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { subst_new, subst_add, subst_adopt_own_resolution, substitute, Substitution } :: import("../../types/substitution.yo");
 {
   get_value_of_some_type_from_env,
@@ -83,7 +83,7 @@ pragma(Pragma.AllowUnsafe);
   get_trait_type_from_env
 } :: import("../../types/env_lookup.yo");
 { format_error_message, format_error_message_with_help, with_code, YoError } :: import("../../error.yo");
-{ E_COMPTIME_PARAM_DEFAULT, E_ORIGIN_NOT_DECLARED, E_ORIGIN_NAMES_ITSELF, E_LOCAL_BORROW_ESCAPES } :: import("../../diagnostics.yo");
+{ E_COMPTIME_PARAM_DEFAULT, E_ORIGIN_NOT_DECLARED, E_ORIGIN_NAMES_ITSELF, E_LOCAL_BORROW_ESCAPES, E_MACRO_SIGNATURE } :: import("../../diagnostics.yo");
 { type_to_string } :: import("../../types/string.yo");
 { is_valid_variable_name } :: import("../utils.yo");
 { debug_knob } :: import("../../utils.yo");
@@ -95,125 +95,26 @@ pragma(Pragma.AllowUnsafe);
 { Token, TokenKind, reserved_builtin_binding_message, empty_token_text } :: import("../../token.yo");
 { set_func_contract_hooks, set_refine_annotation_hook, record_owned_func_id } :: import("../values/type_trait_methods.yo");
 { RefCell } :: import("std/sync/refcell");
-// ---------------------------------------------------------------------------
-// Macro side-tables (folded from former
-// `evaluator/types/macro_registry.yo`).
-//
-// `TypeValue.Func` carries no macro flags, so we side-table the
-// information keyed by `func_id`. A function is treated as a macro
-// if EITHER its return type is `unquote(...)` OR it has at least one
-// quoted parameter.
-// ---------------------------------------------------------------------------
-/// Map from func_id → list of parameter indices that are quoted.
-/// Absent entry means no quoted parameters.
-(g_macro_quoted_param_indices : RefCell(HashMap(String, ArrayList(usize)))) = RefCell(HashMap(String, ArrayList(usize))).new(HashMap(String, ArrayList(usize)).new());
-/// Map from func_id → true if return type is `unquote(...)`.
-/// Absent entry means return is not an unquote.
-(g_macro_return_is_unquote : RefCell(HashMap(String, bool))) = RefCell(HashMap(String, bool)).new(HashMap(String, bool).new());
-/// Register the list of quoted parameter indices for a function.
-/// Idempotent: repeated calls overwrite the previous entry.
-register_macro_quoted_params :: (fn(func_id : &String, indices : &ArrayList(usize)) -> unit)({
-  cond(
-    (indices.len() > usize(0)) => {
-      record_owned_func_id(func_id.clone());
-      indices_owned := indices.clone();
-      func_id_owned := func_id.clone();
-      g_macro_quoted_param_indices.with_mut({ indices_owned, func_id_owned }(m) => m.insert(func_id_owned, indices_owned.clone()));
-    },
-    true => ()
-  );
-});
-/// Mark a function as having an `unquote(...)` return type. Idempotent.
-register_macro_return_is_unquote :: (fn(func_id : &String) -> unit)({
-  record_owned_func_id(func_id.clone());
-  func_id_owned := func_id.clone();
-  g_macro_return_is_unquote.with_mut({ func_id_owned }(m) => m.insert(func_id_owned.clone(), true));
-});
-/// Returns the list of quoted parameter indices, or an empty list if none.
-get_macro_quoted_param_indices :: (fn(func_id : &String) -> ArrayList(usize))(
-  match(
-    g_macro_quoted_param_indices.with(m => m.get_cloned(func_id.clone())),
-    .Some(idxs) => idxs,
-    .None => ArrayList(usize).new()
+/// E0010: a macro signature — a quoted parameter or an `unquote(...)` result —
+/// at `tok`. Yo has no macro layer (plans/backlog/MACRO_AND_ISO_REMOVAL.md
+/// Part C); `what` names the piece written.
+macro_signature_error :: (fn(tok : &Token, what : str) -> YoError)(
+  with_code(
+    format_error_message_with_help(
+      tok,
+      `${what} declares a macro, and Yo has no macros: the macro layer was removed (plans/backlog/MACRO_AND_ISO_REMOVAL.md).`,
+      Option(String).Some(String.from("write a comptime function instead: `fn(comptime(e) : Expr) -> comptime(Expr)` takes and returns quoted code, and a derive rule (`derive_rule`) splices the items it returns. `quote(...)`, `unquote(...)` inside quoted code and the `__yo_expr_*` reflection builtins are unchanged."))
+    ),
+    E_MACRO_SIGNATURE
   )
 );
-/// Returns true if the function's return type is `unquote(...)`.
-macro_return_is_unquote :: (fn(func_id : &String) -> bool)(
-  match(
-    g_macro_return_is_unquote.with(m => m.get(func_id.clone())),
-    .Some(_) => true,
-    .None => false
-  )
-);
-/// Returns true if the function is a macro (quoted params OR unquote return).
-is_macro_fn :: (fn(func_id : &String) -> bool)(
-  cond(
-    macro_return_is_unquote(func_id) => true,
-    true => match(
-      g_macro_quoted_param_indices.with(m => m.get_cloned(func_id.clone())),
-      .Some(idxs) => (idxs.len() > usize(0)),
-      .None => false
-    )
-  )
-);
-/// Returns true if the parameter at `param_index` is quoted for `func_id`.
-is_param_quoted :: (fn(func_id : &String, param_index : usize) -> bool)(
-  match(
-    g_macro_quoted_param_indices.with(m => m.get_cloned(func_id.clone())),
-    .Some(idxs) => {
-      (found : bool) = false;
-      (i : usize) = usize(0);
-      n := idxs.len();
-      while((i < n) && !found, {
-        match(
-          idxs.get(i),
-          .Some(idx) => cond(
-            (idx == param_index) => {
-              found = true;
-            },
-            true => ()
-          ),
-          .None => ()
-        );
-        i = (i + usize(1));
-      });
-      found
-    },
-    .None => false
-  )
-);
-/// Copy a macro registration (quoted param indices + unquote-return flag)
-/// from `from_id` to `to_id`. Used to re-key from the `fn(...)`
-/// type-expression id (registered by `evaluate_function_type`) to the
-/// `FuncVal` id, which is what the call site has in hand — the same
-/// two-step as `copy_func_param_defaults` below. No-op when `from_id`
-/// has no entries.
-copy_macro_registration :: (fn(from_id : &String, to_id : &String) -> unit)({
-  match(
-    g_macro_quoted_param_indices.with(m => m.get_cloned(from_id.clone())),
-    .Some(idxs) => {
-      to_id_owned := to_id.clone();
-      idxs_owned := idxs.clone();
-      g_macro_quoted_param_indices.with_mut({ to_id_owned, idxs_owned }(m) => m.insert(to_id_owned.clone(), idxs_owned));
-    },
-    .None => ()
-  );
-  match(
-    g_macro_return_is_unquote.with(m => m.get(from_id.clone())),
-    .Some(_) => {
-      to_id_owned2 := to_id.clone();
-      g_macro_return_is_unquote.with_mut({ to_id_owned2 }(m) => m.insert(to_id_owned2.clone(), true));
-    },
-    .None => ()
-  );
-});
 // ---------------------------------------------------------------------------
 // Optional-parameter side-table (default-argument support).
 //
 // `TypeValue.Func` carries only parallel `param_labels`/`param_types`
 // arrays — no per-param default info. In src/ this lives on
 // `FunctionParameter.defaultValue`; here we side-table it keyed by
-// `func_id`, like the macro registries above. Index `i` holds
+// `func_id`. Index `i` holds
 // `.Some(value)` when parameter `i` has a `?= default` (and may be
 // omitted at the call site, then bound to `value`) or `.None` when
 // required.
@@ -264,9 +165,8 @@ copy_func_param_defaults :: (fn(from_id : &String, to_id : &String) -> unit)({
 /// FuncVal id via the same two-step as the defaults) → the variadic
 /// parameter's NAME and TYPE. `TypeValue.Func` only keeps the
 /// `has_variadic` presence bit, which loses the binding name the
-/// def-time body evaluation must bring into scope (`...(quote(elems))`
-/// in std/collections/array_list.yo's `array_list` macro — `elems` was
-/// unresolved in the body).
+/// def-time body evaluation must bring into scope (a comptime variadic
+/// `...(comptime(elems) : ComptimeList(T))`).
 VariadicParamEntry :: struct(label : String, ty : TypeValue);
 derive(VariadicParamEntry, Clone);
 (g_func_variadic_params : RefCell(HashMap(String, VariadicParamEntry))) = RefCell(HashMap(String, VariadicParamEntry)).new(HashMap(String, VariadicParamEntry).new());
@@ -971,7 +871,6 @@ FuncParam :: struct(
   /// and the variadic one hold their plain type: those lists carry no mode.
   ty : TypeValue,
   is_compile_time_only : bool,
-  is_quote : bool,
   is_implicit : bool,
   // The parameter's evaluated `?= default` value, or `.None` for a
   // required parameter. Collected into a func-id-keyed side-table (the
@@ -1932,7 +1831,6 @@ evaluate_function_parameter :: (
 )({
   (label : Option(String)) = Option(String).None;
   (is_compile_time_only : bool) = is_parameter_comptime_by_default;
-  (is_quote : bool) = false;
   (is_owning_rc_value : bool) = false;
   (is_sink_param : bool) = false;
   (is_param_ref : bool) = false;
@@ -2145,32 +2043,9 @@ evaluate_function_parameter :: (
         is_param_ref = true;
         lhs_mut = match(r_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
       });
-      // quote modifier
+      // A quoted parameter, `quote(p) : Expr`, marked a macro: E0010.
       if(ast_expr_is_fn_call_of(&lhs_mut, BK_QUOTE, Option(usize).None), {
-        is_quote = true;
-        q_args := _fn_call_args(&lhs_mut);
-        if(!(q_args.len() == usize(1)), {
-          exn.throw(
-            dyn(
-              format_error_message(
-                ast_expr_token(&lhs_mut),
-                `Expected one argument for "quote" (or ":"), got ${q_args.len()}`
-              )
-            )
-          );
-        });
-        if(is_compile_time_only, {
-          exn.throw(
-            dyn(
-              format_error_message(
-                ast_expr_token(&lhs_mut),
-                `Cannot use "comptime" with "quote" (or ":"). "quote" parameters means compile-time only, so "comptime" is redundant.`
-              )
-            )
-          );
-        });
-        is_compile_time_only = true;
-        lhs_mut = match(q_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+        exn.throw(dyn(macro_signature_error(ast_expr_token(&lhs_mut), "a `quote(p) : Expr` parameter")));
       });
       if(!ast_expr_is_atom(&lhs_mut) || !is_valid_variable_name(&lhs_mut), {
         exn.throw(
@@ -2519,19 +2394,6 @@ evaluate_function_parameter :: (
       .None => ()
     );
   });
-  // quote type must be Expr or ExprList
-  if(is_quote &&
-    !is_expr_type(&final_param_type) &&
-      !is_expr_list_type(&final_param_type), {
-    exn.throw(
-      dyn(
-        format_error_message(
-          match(label_expr, .Some(e) => ast_expr_token(&e), .None => ast_expr_token(expr)),
-          `Expected Expr or ExprList type for "quote" (or ":") parameter, got ${type_to_string(&final_param_type)}`
-        )
-      )
-    );
-  });
   // Prohibit void type as parameter type
   if(!ctx.is_unsafe_function_type, {
     prohibit_void_type(&final_param_type, match(type_expr, .Some(e) => ast_expr_token(&e), .None => ast_expr_token(expr)), exn);
@@ -2574,7 +2436,7 @@ use_id :: (fn(generic(T : Type),
   );
   label_str := match(label, .Some(l) => l, .None => String.from("?"));
   lbl_tok := match(label_expr, .Some(e) => ast_expr_token(&e), .None => ast_expr_token(expr));
-  if(migrate_param_modes_on() && !is_compile_time_only && !is_quote && label_expr.is_some(), {
+  if(migrate_param_modes_on() && !is_compile_time_only && label_expr.is_some(), {
     _record_param_mode_migration(&lbl_tok, !is_param_ref && !is_owning_rc_value && !has_imm_wrapper, &final_param_type, env_mut);
   });
   // The flip (plans/VALUES_BY_DEFAULT.md decision 30, V3b Generation B step
@@ -2588,7 +2450,7 @@ use_id :: (fn(generic(T : Type),
   // `comptime(x)` parameter follows the same rule (`comptime(imm(x))` borrows,
   // `comptime(mut(x))` is exclusive); the implicit `generic(...)`/`using(...)`
   // parameters are erased and a `Type`-valued one has no mode to speak of.
-  if(!is_parameter_comptime_by_default && !is_quote && !is_param_ref && !is_owning_rc_value && !has_imm_wrapper && !is_type_0(&final_param_type), {
+  if(!is_parameter_comptime_by_default && !is_param_ref && !is_owning_rc_value && !has_imm_wrapper && !is_type_0(&final_param_type), {
     is_owning_rc_value = true;
   });
   // Check if variable already exists from where clause or pre-add pass
@@ -2635,7 +2497,6 @@ use_id :: (fn(generic(T : Type),
           label_str,
           _param_slot(&final_param_type, is_param_ref, is_owning_rc_value, is_parameter_comptime_by_default, &spelled_origin),
           is_compile_time_only,
-          is_quote,
           false,
           captured_default_value,
           default_value_expr,
@@ -2823,7 +2684,6 @@ use_id :: (fn(generic(T : Type),
     label_str,
     _param_slot(&actual_param_type, is_param_ref, is_owning_rc_value, is_parameter_comptime_by_default, &spelled_origin),
     is_compile_time_only,
-    is_quote,
     false,
     captured_default_value,
     default_value_expr,
@@ -3746,7 +3606,6 @@ evaluate_function_parameters :: (
     Rc.new(TypeValueNode.Unit),
     false,
     false,
-    false,
     Option(EvalValue).None,
     Option(AstExpr).None,
     Option(AstExpr).None
@@ -3929,7 +3788,6 @@ evaluate_function_parameters :: (
         param.label.clone(),
         t_slot_pointee(&param.ty),
         true,
-        param.is_quote,
         true,
         Option(EvalValue).None,
         Option(AstExpr).None,
@@ -4289,7 +4147,6 @@ evaluate_function_parameters :: (
       find_variadic = true;
       has_variadic = true;
       (is_vcomptime : bool) = false;
-      (is_vquote : bool) = false;
       (vparam_name : String) = String.from("...");
       (vlabel_expr : AstExpr) = param_expr;
       (vparam_type : TypeValue) = Rc.new(TypeValueNode.Unit);
@@ -4299,7 +4156,7 @@ evaluate_function_parameters :: (
         //
         // The outer is a *colon pair* `lhs : type`, parsed as
         // `:(lhs, type)`. The semantic shape is the colon pair, not the
-        // quote macro (quote is only the unary form): with `BK_QUOTE`
+        // unary quote form: with `BK_QUOTE`
         // and `BK_COLON` as separate constants, the correct spelling
         // is `BK_COLON.Some(2)`.
         if(ast_expr_is_fn_call_of(&varg, BK_COLON, .Some(usize(2))), {
@@ -4310,18 +4167,14 @@ evaluate_function_parameters :: (
             vlabel_expr = match(_fn_call_args(&vlhs_arg).get(usize(0)), .Some(a) => a, .None => make_err_expr());
             vparam_name = ast_expr_text(&vlabel_expr).*.clone();
           }, {
-            // Inner LHS may be `quote(name)` (literal "quote") or
-            // `:(name)` (unary `:`) — both are the unary quote macro,
-            // semantically interchangeable.
+            // A quoted variadic, `...(quote(name) : ExprList)` (or the unary
+            // `:(name)` spelling), marked a macro: E0010.
             vlhs_is_quote := (
               ast_expr_is_fn_call_of(&vlhs_arg, BK_QUOTE, Option(usize).None) ||
                 ast_expr_is_fn_call_of(&vlhs_arg, BK_COLON, .Some(usize(1)))
             );
             if(vlhs_is_quote, {
-              is_vcomptime = true;
-              is_vquote = true;
-              vlabel_expr = match(_fn_call_args(&vlhs_arg).get(usize(0)), .Some(a) => a, .None => make_err_expr());
-              vparam_name = ast_expr_text(&vlabel_expr).*.clone();
+              exn.throw(dyn(macro_signature_error(ast_expr_token(&vlhs_arg), "a quoted variadic `...(quote(p))` parameter")));
             }, {
               if(ast_expr_is_atom(&vlhs_arg) && is_valid_variable_name(&vlhs_arg), {
                 vlabel_expr = vlhs_arg;
@@ -4363,18 +4216,14 @@ evaluate_function_parameters :: (
             vparam_name = ast_expr_text(&vlabel_expr).*.clone();
             vparam_type = Rc.new(TypeValueNode.ComptimeListT(t_type()));
           }, {
-            // ...(quote(name)) or ...(:(name)) — the unary quote
-            // macro. `:` (unary) aliases `quote` semantically.
+            // ...(quote(name)) or ...(:(name)): a quoted variadic marked a
+            // macro (E0010).
             varg_is_quote := (
               ast_expr_is_fn_call_of(&varg, BK_QUOTE, Option(usize).None) ||
                 ast_expr_is_fn_call_of(&varg, BK_COLON, .Some(usize(1)))
             );
             if(varg_is_quote, {
-              is_vcomptime = true;
-              is_vquote = true;
-              vlabel_expr = match(_fn_call_args(&varg).get(usize(0)), .Some(a) => a, .None => make_err_expr());
-              vparam_name = ast_expr_text(&vlabel_expr).*.clone();
-              vparam_type = t_comptime_list(t_expr_t());
+              exn.throw(dyn(macro_signature_error(ast_expr_token(&varg), "a quoted variadic `...(quote(p))` parameter")));
             }, {
               if(ast_expr_is_atom(&varg) && is_valid_variable_name(&varg), {
                 vlabel_expr = varg;
@@ -4405,7 +4254,6 @@ evaluate_function_parameters :: (
         vparam_name.clone(),
         Rc.clone(vparam_type),
         is_vcomptime,
-        is_vquote,
         false,
         Option(EvalValue).None,
         Option(AstExpr).None,
@@ -4494,32 +4342,6 @@ evaluate_function_parameters :: (
         pending_constraints = retry_pending_constraints(&pending_constraints, env_mut, ctx, exn);
       });
     });
-  });
-  // Validate ExprList must be last parameter
-  (eli : usize) = usize(0);
-  while(eli < params.len(), {
-    p := match(
-      params.get_cloned(eli),
-      .Some(x) => x,
-      .None => {
-        eli = params.len();
-        break;
-      }
-    );
-    _eli_tok := ast_expr_token(match(param_exprs.get(eli), .Some(e) => e, .None => make_err_expr()));
-    if(p.is_quote && is_expr_list_type(t_slot_pointee(&p.ty)), {
-      if(!(eli == (params.len() - usize(1))), {
-        exn.throw(
-          dyn(
-            format_error_message(
-              &_eli_tok,
-              String.from("Expected ExprList type to be the last parameter.")
-            )
-          )
-        );
-      });
-    });
-    eli = (eli + usize(1));
   });
   // Final retry of pending constraints
   if(pending_constraints.len() > usize(0), {
@@ -4644,13 +4466,12 @@ evaluate_function_type :: (
   // Parse return type
   (return_label : Option(String)) = Option(String).None;
   (is_return_comptime_only : bool) = false;
-  (is_return_unquote : bool) = false;
   (is_return_type_ref : bool) = false;
   (is_return_type_mut_ref : bool) = false;
   // A spelled result origin, `-> &(T, o)` (decision 43 step 2, N1b).
   (return_origin : Option(TypeValue)) = Option(TypeValue).None;
   (return_type_expr : AstExpr) = return_expr;
-  // -> (ret : i32) or -> (comptime(ret) : i32) or -> (unquote(ret) : Expr)
+  // -> (ret : i32) or -> (comptime(ret) : i32)
   if(ast_expr_is_fn_call_of(&return_type_expr, ":", .Some(usize(2))), {
     ret_args := _fn_call_args(&return_type_expr);
     (rl_expr : AstExpr) = match(ret_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
@@ -4697,44 +4518,10 @@ evaluate_function_type :: (
       });
       rl_expr = match(ct_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
     });
-    // unquote modifier: `-> unquote(...)`.
-    rl_is_unquote := ast_expr_is_fn_call_of(&rl_expr, "unquote", Option(usize).None);
-    if(rl_is_unquote, {
-      is_return_unquote = true;
-      uq_args := _fn_call_args(&rl_expr);
-      if(!(uq_args.len() == usize(1)), {
-        exn.throw(
-          dyn(
-            format_error_message(
-              ast_expr_token(&rl_expr),
-              `Expected one argument for "unquote", got ${uq_args.len()}`
-            )
-          )
-        );
-      });
-      if(is_return_comptime_only, {
-        exn.throw(
-          dyn(
-            format_error_message(
-              ast_expr_token(&rl_expr),
-              `Cannot use "comptime" with "unquote". "unquote" return type means compile-time only, so "comptime" is redundant.`
-            )
-          )
-        );
-      });
-      is_return_comptime_only = true;
-      rl_expr = match(uq_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
-    });
-    // quote on return label is an error
-    if(ast_expr_is_fn_call_of(&rl_expr, BK_QUOTE, Option(usize).None), {
-      exn.throw(
-        dyn(
-          format_error_message(
-            ast_expr_token(&rl_expr),
-            `To define a macro function, please use "unquote" for the return type, not "quote".`
-          )
-        )
-      );
+    // An `unquote(...)` return marked a macro (E0010); a `quote(...)` one
+    // was its misspelling.
+    if(ast_expr_is_fn_call_of(&rl_expr, "unquote", Option(usize).None) || ast_expr_is_fn_call_of(&rl_expr, BK_QUOTE, Option(usize).None), {
+      exn.throw(dyn(macro_signature_error(ast_expr_token(&rl_expr), "an `-> unquote(Expr)` result")));
     });
     // In a labeled return slot, a `comptime` modifier goes on the LABEL,
     // never on the TYPE: reject `-> (name : comptime(T))`; use
@@ -4763,7 +4550,7 @@ evaluate_function_type :: (
     });
     return_label = .Some(ast_expr_text(&rl_expr).*.clone());
   }, {
-    // -> i32 or -> comptime(i32) or -> unquote(Expr) or a projection's
+    // -> i32 or -> comptime(i32) or a projection's
     // -> &T / -> &mut T (decision 24).
     _reject_old_result_mode(&return_type_expr, &env_mut, exn);
     if(ast_expr_is_fn_call(&return_type_expr) && _is_borrow_result_mode(&return_type_expr), {
@@ -4794,42 +4581,8 @@ evaluate_function_type :: (
       });
       return_type_expr = match(ct_args2.get(usize(0)), .Some(a) => a, .None => make_err_expr());
     });
-    rte_is_unquote := ast_expr_is_fn_call_of(&return_type_expr, "unquote", Option(usize).None);
-    if(rte_is_unquote, {
-      is_return_unquote = true;
-      uq_args2 := _fn_call_args(&return_type_expr);
-      if(!(uq_args2.len() == usize(1)), {
-        exn.throw(
-          dyn(
-            format_error_message(
-              ast_expr_token(&return_type_expr),
-              `Expected one argument for "unquote", got ${uq_args2.len()}`
-            )
-          )
-        );
-      });
-      if(is_return_comptime_only, {
-        exn.throw(
-          dyn(
-            format_error_message(
-              ast_expr_token(&return_type_expr),
-              `Cannot use "comptime" with "unquote". "unquote" return type means compile-time only, so "comptime" is redundant.`
-            )
-          )
-        );
-      });
-      is_return_comptime_only = true;
-      return_type_expr = match(uq_args2.get(usize(0)), .Some(a) => a, .None => make_err_expr());
-    });
-    if(ast_expr_is_fn_call_of(&return_type_expr, BK_QUOTE, Option(usize).None), {
-      exn.throw(
-        dyn(
-          format_error_message(
-            ast_expr_token(&return_type_expr),
-            `To define a macro function, please use "unquote" for the return type, not "quote".`
-          )
-        )
-      );
+    if(ast_expr_is_fn_call_of(&return_type_expr, "unquote", Option(usize).None) || ast_expr_is_fn_call_of(&return_type_expr, BK_QUOTE, Option(usize).None), {
+      exn.throw(dyn(macro_signature_error(ast_expr_token(&return_type_expr), "an `-> unquote(Expr)` result")));
     });
   });
   // A borrow left after the wrappers were stripped sits under another one
@@ -4840,7 +4593,7 @@ evaluate_function_type :: (
       dyn(
         format_error_message(
           ast_expr_token(&return_type_expr),
-          String.from("A borrow result is one `&T` or `&mut T` on a run-time function (a projection, decision 24): it cannot be nested in `comptime(...)`, `unquote(...)` or another borrow.")
+          String.from("A borrow result is one `&T` or `&mut T` on a run-time function (a projection, decision 24): it cannot be nested in `comptime(...)` or another borrow.")
         )
       )
     );
@@ -4850,7 +4603,7 @@ evaluate_function_type :: (
       dyn(
         format_error_message(
           ast_expr_token(&return_type_expr),
-          String.from("A borrow result is one `&T` or `&mut T` on a run-time function (a projection, decision 24): it cannot be nested in `comptime(...)`, `unquote(...)` or another borrow.")
+          String.from("A borrow result is one `&T` or `&mut T` on a run-time function (a projection, decision 24): it cannot be nested in `comptime(...)` or another borrow.")
         )
       )
     );
@@ -4987,17 +4740,6 @@ evaluate_function_type :: (
       rci = (rci + usize(1));
     });
   });
-  // unquote return must be Expr type
-  if(is_return_unquote && !is_expr_type(&return_type), {
-    exn.throw(
-      dyn(
-        format_error_message(
-          ast_expr_token(&return_type_expr),
-          `Expected Expr type for "unquote" return type, got ${type_to_string(&return_type)}`
-        )
-      )
-    );
-  });
   // Collect where-clause constraints for the call-site re-application side
   // table (see WhereConstraintEntry above) BEFORE popping the parameter frame:
   // a regular `comptime(T) : Type` parameter's constrained SomeT placeholder
@@ -5076,7 +4818,6 @@ evaluate_function_type :: (
   param_type_exprs := ArrayList(Option(AstExpr)).new();
   param_comptime_flags := ArrayList(bool).new();
   param_assigned_values := ArrayList(Option(EvalValue)).new();
-  quoted_param_indices := ArrayList(usize).new();
   while(ppi < params_result.params.len(), {
     pp := match(
       params_result.params.get_cloned(ppi),
@@ -5111,9 +4852,6 @@ evaluate_function_type :: (
     param_type_exprs.push(pp.ty_expr);
     param_comptime_flags.push(pp.is_compile_time_only);
     param_assigned_values.push(pp.assigned_value);
-    if(pp.is_quote, {
-      quoted_param_indices.push(ppi);
-    });
     ppi = (ppi + usize(1));
   });
   // Register the per-parameter default values keyed by this `fn(...)`
@@ -5228,31 +4966,6 @@ evaluate_function_type :: (
       params_result.variadic_param.label.clone(),
       &params_result.variadic_param.ty
     );
-  });
-  // Gate macro DEFINITIONS behind `pragma(Pragma.AllowMacroDef);`
-  // (plans/reference/MACRO_POLICY.md Part 2). CALLING macros is ungated, and
-  // `auto-generated://` expansions inherit their caller's policy (see
-  // is_macro_def_capable_file).
-  if((quoted_param_indices.len() > usize(0)) || is_return_unquote, {
-    if(!is_macro_def_capable_file(Option(String).Some(ast_expr_token(expr).module_path.*.clone())), {
-      exn.throw(
-        dyn(
-          format_error_message(
-            ast_expr_token(expr),
-            String.from("Defining a macro (a 'quote(...)' parameter or an 'unquote(...)' return type) requires 'pragma(Pragma.AllowMacroDef);' at the top of the file. See plans/reference/MACRO_POLICY.md.")
-          )
-        )
-      );
-    });
-  });
-  // Register macro-ness (quoted param indices + unquote return), keyed by
-  // this `fn(...)` type-expression id and re-keyed under the FuncVal id by
-  // `try_to_implement_function_by_function_type` (same two-step as the
-  // defaults table). `TypeValue.Func` does not carry these flags, so they
-  // live in the macro registry above.
-  register_macro_quoted_params(ast_expr_id(expr).to_string(), &quoted_param_indices);
-  if(is_return_unquote, {
-    register_macro_return_is_unquote(ast_expr_id(expr).to_string());
   });
   (ipi : usize) = usize(0);
   while(ipi < params_result.implicit_params.len(), {
@@ -6072,10 +5785,6 @@ purge_function_side_tables :: (fn(ids : &ArrayList(String)) -> unit)({
     match(
       ids.get_cloned(i),
       .Some(id) => {
-        id_r0 := id.clone();
-        _r0 := g_macro_quoted_param_indices.with_mut({ id_r0 }(m) => m.remove(&id_r0));
-        id_r1 := id.clone();
-        _r1 := g_macro_return_is_unquote.with_mut({ id_r1 }(m) => m.remove(&id_r1));
         id_r2 := id.clone();
         _r2 := g_func_param_defaults.with_mut({ id_r2 }(m) => m.remove(&id_r2));
         id_r3 := id.clone();
@@ -6114,7 +5823,7 @@ purge_function_side_tables :: (fn(ids : &ArrayList(String)) -> unit)({
 });
 export(evaluate_function_type, _resolve_some_types_deep);
 /// Total entries across the per-function side tables (the B2 plateau test's probe).
-function_side_table_entry_count :: (fn() -> usize)(g_macro_quoted_param_indices.with(m => m.len()) + g_macro_return_is_unquote.with(m => m.len()) + g_func_param_defaults.with(m => m.len()) + g_func_variadic_params.with(m => m.len()) + g_func_param_assigned_values.with(m => m.len()) + g_func_param_comptime.with(m => m.len()) + g_func_return_type_expr.with(m => m.len()) + g_func_param_default_exprs.with(m => m.len()) + g_func_param_type_exprs.with(m => m.len()) + g_func_where_constraints.with(m => m.len()) + g_func_where_clause_exprs.with(m => m.len()) + g_func_requires_exprs.with(m => m.len()) + g_func_ensures_exprs.with(m => m.len()) + g_func_decreases_expr.with(m => m.len()) + g_func_assumed_body.with(m => m.len()) + g_func_refined_params.with(m => m.len()) + g_func_return_label.with(m => m.len()));
+function_side_table_entry_count :: (fn() -> usize)(g_func_param_defaults.with(m => m.len()) + g_func_variadic_params.with(m => m.len()) + g_func_param_assigned_values.with(m => m.len()) + g_func_param_comptime.with(m => m.len()) + g_func_return_type_expr.with(m => m.len()) + g_func_param_default_exprs.with(m => m.len()) + g_func_param_type_exprs.with(m => m.len()) + g_func_where_constraints.with(m => m.len()) + g_func_where_clause_exprs.with(m => m.len()) + g_func_requires_exprs.with(m => m.len()) + g_func_ensures_exprs.with(m => m.len()) + g_func_decreases_expr.with(m => m.len()) + g_func_assumed_body.with(m => m.len()) + g_func_refined_params.with(m => m.len()) + g_func_return_label.with(m => m.len()));
 export(purge_function_side_tables, function_side_table_entry_count);
 export(evaluate_function_parameters, is_origin_qualified_reference_expr, evaluate_reference_type, evaluate_origin_argument);
 export(apply_where_clause_constraints);
@@ -6125,13 +5834,6 @@ export(collect_wrapper_trait_somes, _substitute_wrapper_carriers, _resolve_wrapp
 export(FuncParam, FuncParamsResult, PendingConstraint, ExtractComptimeResult);
 export(_add_where_clause_constraint, _trait_has_receiver);
 export(
-  register_macro_quoted_params,
-  register_macro_return_is_unquote,
-  get_macro_quoted_param_indices,
-  macro_return_is_unquote,
-  is_macro_fn,
-  is_param_quoted,
-  copy_macro_registration
 );
 export(
   register_func_param_defaults,

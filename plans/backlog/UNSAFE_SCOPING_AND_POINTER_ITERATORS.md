@@ -105,7 +105,7 @@ to be a property of the std API surface rather than of the language.
 ## 5. Related
 
 - `plans/archive/STD_API_STABILIZATION.md` §2 D14 (#461) — the decision that surfaced this.
-- `plans/reference/OPERATOR_SET_AND_PRECEDENCE.md`, `plans/reference/MACRO_POLICY.md` —
+- `plans/reference/OPERATOR_SET_AND_PRECEDENCE.md`, `plans/archive/MACRO_POLICY.md` —
   prior examples of a language-level policy decision recorded before implementation.
 - `.github/instructions/yo-design.instructions.md` "Unsafe operations" documents
   `unsafe.drop` / `unsafe.cast` but does NOT document the

@@ -220,7 +220,7 @@ process_dir :: (fn(root : Path, io : Io) -> Impl(Future(unit, WalkCtx)))(
 - **`io.await` may appear anywhere in an `io.async` body**: a `match`
   scrutinee, nested inside a condition (`if(!io.await(…), …)`), a later `cond`
   branch, an operand (`add(io.await(a, io), io.await(b, io))`), a `while`
-  condition or step, a macro expansion. The body is lowered in one pass, and
+  condition or step, a lowered cast's argument. The body is lowered in one pass, and
   each await suspends exactly where it is written, in source order; laziness
   is kept (an await in a later branch or on the right of `&&` runs only when
   reached). This replaced the segment lowering, whose unsupported shapes were

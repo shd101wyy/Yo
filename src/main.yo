@@ -1748,7 +1748,7 @@ _run_migrate_drop_trait :: (fn(files : &ArrayList(String), std_path : &String, d
 /// rewritten to the sigil spelling. Each rewrite is an exact synonym (the
 /// parser reads the new spelling back into the old form), so the sweep is
 /// syntactic: each file is parsed WITHOUT the desugar, never evaluated, which
-/// also reaches macro arguments, `quote(...)` templates and generic bodies no
+/// also reaches `quote(...)` templates and generic bodies no
 /// instantiation reaches. The rows:
 ///   - a parameter, a receiver, an `Fn(...)`/`FnOnce(...)` slot, a closure
 ///     parameter and a labeled result: `imm(x) : T` → `x : &T`, `mut(x) : T`
@@ -2361,7 +2361,7 @@ _expr_span_end :: (fn(runes : &ArrayList(rune), col : usize, scan_from : usize, 
 /// Whether `runes[start, end)` is the source of a `for` value form: the first
 /// argument of a `for(` call, followed by the comma before its body
 /// (`for(xs, x => …)`). The loop's `into_iter` takes that source by value
-/// (B7b), so its copy is the receiver's, made where the macro expands.
+/// (B7b), so its copy is the receiver's, made where the loop is desugared.
 _is_for_value_source :: (fn(runes : &ArrayList(rune), start : usize, end : usize) -> bool)({
   (b : usize) = start;
   while((b > usize(0)) && runes(b - usize(1)).is_whitespace(), {
@@ -2896,7 +2896,7 @@ _run_migrate_deref :: (
 /// found in the source from its leftmost token (it may span lines; a
 /// parenthesized infix pattern starts at its `(`) and wrapped in `Rc(…)`. A
 /// site whose source text no longer prints as the evaluated pattern (a
-/// synthetic token, a macro expansion) is listed and left as written. Nested
+/// synthetic token, a lowering) is listed and left as written. Nested
 /// sites compose, because each edit is two insertions. Code that evaluation
 /// never reaches (an uninstantiated generic body) is not seen.
 _run_migrate_rc_pattern :: (
@@ -3097,7 +3097,7 @@ _run_migrate_rc_pattern :: (
 /// specialized in one: the copied value may be a type parameter there, and
 /// one spelling serves one instantiation), a position copied at two
 /// spellings, a site whose source text no longer prints as the evaluated
-/// expression (a macro's), a closure whose parameter list cannot be found,
+/// expression (a synthesized one), a closure whose parameter list cannot be found,
 /// and a `test(...)` body that does not evaluate.
 _run_migrate_rc_clone :: (fn(files : &ArrayList(String), std_path : &String, dry_run : bool, io : Io, exn : Exception) -> unit)({
   (failed : usize) = usize(0);

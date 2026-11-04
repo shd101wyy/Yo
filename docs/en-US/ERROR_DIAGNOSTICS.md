@@ -110,14 +110,13 @@ spelling (decision 42):
   becomes `cur = &mut place`, the capture puns `{ imm(y), mut(z) }` become
   `{ &y, &mut z }`, and `for(xs, mut(x) => …)` becomes `for(&mut xs, x => …)`.
   The compiler rejects the mode words (E0009), and each meant exactly the
-  sigil spelling. It only parses each file, so it reaches macro arguments,
-  `quote(...)` templates and generic bodies too; a mode word in a position no
+  sigil spelling. It only parses each file, so it reaches `quote(...)`
+  templates and generic bodies too; a mode word in a position no
   rule covers is listed with its position and left as written. `inout(x) : T`,
   the spelling before `mut`, becomes `x : &mut T` as well.
 - `--migrate modes` rewrites the deleted `own(x)` parameter to `sink(x)`
   (E0009 rejects `own`). It only parses each file, so it also reaches code
-  evaluation never sees (macro arguments, `quote(...)` templates, test
-  bodies).
+  evaluation never sees (`quote(...)` templates, test bodies).
 - `--migrate addr-of` rewrites each `&x` that was the raw-pointer address-of
   to `addr_of(x)`. It evaluates every file, because only the evaluator knows
   which `&x` is a borrow (`show(&s)` to a `&T` parameter stays) and which is

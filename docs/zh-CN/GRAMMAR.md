@@ -257,7 +257,6 @@ ParameterLabel ::=
   | Identifier                  ;; 按值；类型带符号时为借用
   | 'sink' '(' Identifier ')'   ;; 按值，并且总是移动（即使是共享类）
   | 'comptime' '(' Identifier ')' ;; 仅限编译期的参数
-  | 'quote' '(' Identifier ')'  ;; 宏参数（接收 AST）
 ParameterType ::=
   | Type                        ;; 按值：复制（Copy）、移动，或共享句柄（引用类）
   | '&' Type                    ;; 对调用方值的只读借用
@@ -329,6 +328,9 @@ BorrowedFor ::= 'for' '(' BorrowPlace ',' ClosureLiteral ')' ;; for(&mut xs, x =
   会改写它们。`imm` 是普通标识符。
 - `own(x)` 是 `sink(x)` 更早的写法，同样是错误 E0009；
   `yo fix <path> --migrate modes` 会改写它。
+- `quote(x)` 参数标签、带引用的可变参数 `...(quote(xs))` 以及 `-> unquote(T)`
+  返回类型都声明了宏，而 Yo 没有宏层：错误 E0010（改写为 `comptime(x) : Expr`
+  与 `-> comptime(Expr)`）。
 - 语义见 [FLOWABILITY.md](./FLOWABILITY.md)。
 
 在调用处，被借出的实参带有与参数匹配的标记：

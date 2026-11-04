@@ -33,15 +33,13 @@ pragma(Pragma.AllowUnsafe);
   BK_MATCH,
   BK_ASSIGN,
   is_function_boundary_arrow,
-  desugar_if_calls,
   BF_YO_AS,
   ast_expr_strip_borrow_marker,
-  AUTO_REF_RECEIVER_PATH,
-  is_for_desugar_target
+  AUTO_REF_RECEIVER_PATH
 } :: import("../../expr.yo");
 { is_auto_generated_expansion, is_implicitly_unsafe_capable_file, is_class1_panic_method_name, is_class1_panic_receiver_type, is_class1_panic_exempt_file, is_std_module_path, is_prelude_or_generated_file } :: import("../memory_safety.yo");
 { D3PendingInout, d3_record_inout_place, d3_check_pending, d3_check_pending_unresolved_callee, require_no_inout_write_through_borrow, shared_borrow_param_root_of_place, reject_write_through_shared_borrow_param } :: import("../exprs/assignment.yo");
-{ ExprInfo, is_thread_local, is_mut_global, new_expr_info, expr_info_closure_function_value, expr_info_table_get, expr_info_table_set, record_method_callee_type, lookup_method_callee_type, record_method_callee_value, lookup_method_callee_value, record_io_builtin_struct_field, lookup_io_builtin_struct_field, record_io_builtin_call, record_macro_expansion, lookup_macro_expansion, record_fid_rtcall, active_where_trait_ids, record_fid_spec, lookup_struct_ctor_fid, struct_effective_ctor_fid, struct_fully_concrete_instance, adopt_receiver_struct_instance, mark_node_preevaluated, unmark_node_preevaluated, expr_info_adopt_env, expr_info_capture_type, expr_info_comptime_ref, expr_info_index_method_type, expr_info_index_method_value, expr_info_set_comptime_ref, expr_info_set_deferred_dup_expressions, expr_info_set_index_method_type, expr_info_set_index_method_value, expr_info_set_index_trait_ptr_type, expr_info_set_macro_expansion, some_resolution, purge_executed_clone_metadata, mark_fnonce_post_call_release, migrate_drop_trait_on, record_destructor_site, HandleCtorSite, migrate_handle_ctors_on, record_handle_ctor_site, migrate_mut_bindings_on, record_mut_judged } :: import("../../expr_info.yo");
+{ ExprInfo, is_thread_local, is_mut_global, new_expr_info, expr_info_closure_function_value, expr_info_table_get, expr_info_table_set, record_method_callee_type, lookup_method_callee_type, record_method_callee_value, lookup_method_callee_value, record_io_builtin_struct_field, lookup_io_builtin_struct_field, record_io_builtin_call, record_lowering, lookup_lowering, record_fid_rtcall, active_where_trait_ids, record_fid_spec, lookup_struct_ctor_fid, struct_effective_ctor_fid, struct_fully_concrete_instance, adopt_receiver_struct_instance, mark_node_preevaluated, unmark_node_preevaluated, expr_info_adopt_env, expr_info_capture_type, expr_info_comptime_ref, expr_info_index_method_type, expr_info_index_method_value, expr_info_set_comptime_ref, expr_info_set_deferred_dup_expressions, expr_info_set_index_method_type, expr_info_set_index_method_value, expr_info_set_index_trait_ptr_type, expr_info_set_lowered_to, some_resolution, purge_executed_clone_metadata, mark_fnonce_post_call_release, migrate_drop_trait_on, record_destructor_site, HandleCtorSite, migrate_handle_ctors_on, record_handle_ctor_site, migrate_mut_bindings_on, record_mut_judged } :: import("../../expr_info.yo");
 {
   Variable,
   Environment,
@@ -65,16 +63,16 @@ pragma(Pragma.AllowUnsafe);
   closure_param_slot_trait
 } :: import("../../env.yo");
 { some_t_bounds, TypeValue, TypeValueNode, FuncMeta, t_refine_inner, shared_list, no_types, no_labels, no_levels, SharedList, no_flags, slot_pointee_at, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_by_value, t_reference, fn_param_mut_ref_flags, fn_param_by_value_flags, t_slot_with_pointee, t_slot_is_borrow, fn_param_slots, is_origin_kind, t_origin_kind, t_origin_named, fn_result_slot } :: import("../../types/definitions.yo");
-{ get_func_param_defaults, get_func_param_default_exprs, default_param_eval_env, get_func_param_comptime, register_func_param_comptime, is_param_quoted, is_macro_fn, macro_return_is_unquote, evaluate_function_return_type_again, get_func_return_type_expr, get_func_variadic_param, get_func_param_type_exprs, get_func_where_clause_exprs, evaluate_function_parameter_type_again, _collect_type_arg_somes, _resolve_some_types_deep, collect_wrapper_trait_somes, evaluate_origin_argument } :: import("../types/function.yo");
+{ get_func_param_defaults, get_func_param_default_exprs, default_param_eval_env, get_func_param_comptime, register_func_param_comptime, evaluate_function_return_type_again, get_func_return_type_expr, get_func_variadic_param, get_func_param_type_exprs, get_func_where_clause_exprs, evaluate_function_parameter_type_again, _collect_type_arg_somes, _resolve_some_types_deep, collect_wrapper_trait_somes, evaluate_origin_argument } :: import("../types/function.yo");
 { is_io_async_call, is_io_await_call, is_io_state_call, is_io_spawn_call, is_join_handle_await_call, IO_BUILTIN_NONE } :: import("../async/await_analysis.yo");
 { subst_new, subst_add, substitute } :: import("../../types/substitution.yo");
-{ t_unit, t_type, t_usize, t_comptime_int, t_type_app, t_expr_t, generate_some_type_id, resolve_enum_shell, resolve_struct_shell, UNFRAMED_BINDER_LEVEL, t_with_resolution, enum_phantom_positions } :: import("../../types/creators.yo");
+{ t_unit, t_type, t_usize, t_comptime_int, t_type_app, generate_some_type_id, resolve_enum_shell, resolve_struct_shell, UNFRAMED_BINDER_LEVEL, t_with_resolution, enum_phantom_positions } :: import("../../types/creators.yo");
 { Token, TokenKind, string_is_operator, intern_token_str } :: import("../../token.yo");
 { EvalValue, FuncValData, type_of_eval_value, is_type_val, is_unknown_val, is_func_val, is_module_val, create_runtime_unknown_val_with_name, lookup_enum_cfid, shared_values, value_cell_new } :: import("../../value.yo");
 { stable_module_id, stable_func_id, private_member_blocked, debug_knob, parse_raw_int, is_temp_variable_name } :: import("../../utils.yo");
 { type_key } :: import("../../types/type_key.yo");
 { record_await_fusion_candidate } :: import("../../expr_traversal.yo");
-{ attach_temp_variable_to_expr, projection_call_mode_of, deref_exempt_mark, deref_exempt_clear, consume_called_fnonce_closure, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, reject_second_class_escape, reject_write_through_rc, place_cell_hops, PlaceCellHops, handle_payload_is_read_only, require_capture_borrow_exclusivity, local_borrows_active, local_borrow_value_place_of, local_borrow_places_overlap, LocalBorrowPlace, CellRootedPlace, cell_rooted_place_of, cell_rooted_same_cell, cell_rooted_places_overlap, local_borrow_note_runtime_call, local_borrow_enter_macro_site, local_borrow_leave_macro_site, local_borrow_is_macro_await, local_borrow_is_scalar_type, variable_is_borrow_parameter, variable_id_in_scope, reject_bare_callable_into_dyn_fn, bare_callable_recorded_into_dyn_fn, global_lend_audit_enabled, global_lend_audit_print, global_lend_location, global_lend_key, global_place_path, GlobalHandleLend, global_note_handle_mutcall, global_note_handle_lend, global_require_mut, variable_is_future_operand_parameter, place_require_mut, local_borrow_write_expr, check_capture_freeze_access, reference_field_read_mode, RC_CLONE_MIGRATE_HINT } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, projection_call_mode_of, deref_exempt_mark, deref_exempt_clear, consume_called_fnonce_closure, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, reject_second_class_escape, reject_write_through_rc, place_cell_hops, PlaceCellHops, handle_payload_is_read_only, require_capture_borrow_exclusivity, local_borrows_active, local_borrow_value_place_of, local_borrow_places_overlap, LocalBorrowPlace, CellRootedPlace, cell_rooted_place_of, cell_rooted_same_cell, cell_rooted_places_overlap, local_borrow_note_runtime_call, local_borrow_is_scalar_type, variable_is_borrow_parameter, variable_id_in_scope, reject_bare_callable_into_dyn_fn, bare_callable_recorded_into_dyn_fn, global_lend_audit_enabled, global_lend_audit_print, global_lend_location, global_lend_key, global_place_path, GlobalHandleLend, global_note_handle_mutcall, global_note_handle_lend, global_require_mut, variable_is_future_operand_parameter, place_require_mut, local_borrow_write_expr, check_capture_freeze_access, reference_field_read_mode, RC_CLONE_MIGRATE_HINT } :: import("../utils.yo");
 {
   EvalContext,
   ExpectedTypeCtx,
@@ -98,7 +96,7 @@ pragma(Pragma.AllowUnsafe);
   unmark_dot_callee,
   call_promote_index_places_for_write
 } :: import("../context.yo");
-{ is_pointer_type, is_dyn_type, is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_some_type, is_array_type, is_function_type, is_function_type_generic, is_expr_list_type, is_comptime_list_type, is_fn_trait_type, is_unit_type, is_primitive_type, is_type_0, type_decl_module, is_module_type, is_cell_primitive_type, is_counted_handle_type } :: import("../../types/guards.yo");
+{ is_pointer_type, is_dyn_type, is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_some_type, is_array_type, is_function_type, is_function_type_generic, is_comptime_list_type, is_fn_trait_type, is_unit_type, is_primitive_type, is_type_0, type_decl_module, is_module_type, is_cell_primitive_type, is_counted_handle_type } :: import("../../types/guards.yo");
 { convert_comptime_type_to_runtime_type, get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../../types/compatibility.yo");
 { is_drop_method_name, is_clone_trait_type, type_contains_some_type, type_contains_some_type_deep, is_bound_closure_identity, resolve_cell_chain, type_contains_rc_type, type_requires_explicit_copy, type_is_bitwise_copy, fn_param_is_ptr_borrow, CaptureBorrow, capture_borrows_exist, collect_type_borrows, register_capture_borrows, capture_struct_borrows, capture_borrow_place_string, is_future_value_type, type_is_second_class, type_carries_origin, origin_value_phase_message, origin_beyond_n2b, origin_beyond_n2b_message, type_holds_counted_handle_ignoring_migration, type_lacks_clone } :: import("../../types/utils.yo");
@@ -137,13 +135,6 @@ pragma(Pragma.AllowUnsafe);
 } :: import("./trait_type.yo");
 { try_to_implement_array_by_array_type } :: import("./array_type.yo");
 { has_index_impl, try_to_call_with_index_trait } :: import("./index_trait.yo");
-/// Master switch for macro-call dispatch in the FuncVal arm — see the
-/// comment at its use site. ENABLED 2026-06-11: the heap corruption that
-/// kept it off was root-caused to two general early-return RC bugs
-/// (issues/fixed/yo-self-macro-dispatch-corruption.md), both
-/// fixed; dispatch-ON sweeps are clean (std 152/152 ×5, the compiler's own
-/// suite 240/240, gmalloc-clean) and the macro tests run for real against it.
-MACRO_DISPATCH_ENABLED :: true;
 { try_to_implement_comptime_list_by_comptime_list_type } :: import("./comptime_list_type.yo");
 {
   is_convertible_numeric_type,
@@ -950,7 +941,7 @@ _reject_private_construction :: (
 /// record and an anonymous record have no declaration, and no impl ranges
 /// over every `fn` signature), so the receiver lookup misses although
 /// `Type.impls(T, Clone)` holds. The clone of a `Copy` value is the copy, so
-/// the call expands to its receiver (`ExprInfo.macro_expansion`, recorded
+/// the call expands to its receiver (`ExprInfo.lowered_to`, recorded
 /// durably like the numeric conversions'): `g := f.clone()` is `g := f`, and
 /// the binding copies as it does for any read of `f`. A tuple or an array has
 /// the prelude's element-wise `Clone` impl and never misses. A record or a
@@ -1016,8 +1007,8 @@ _try_structural_copy_clone :: (
   });
   out_info := new_expr_info(env, &recv_ty);
   out_info.value = ri.value;
-  record_macro_expansion(ast_expr_id(expr), recv.clone());
-  expr_info_set_macro_expansion(&out_info, Option(AstExpr).Some(recv));
+  record_lowering(ast_expr_id(expr), recv.clone());
+  expr_info_set_lowered_to(&out_info, Option(AstExpr).Some(recv));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   Option(AstExpr).Some(expr)
 });
@@ -2814,9 +2805,9 @@ _try_expand_call_overload :: (
   func_expr := match(call_expr, .FnCall(_, fb, _, _, _) => fb, _ => evaluated_callee);
   // Trial each candidate; collect the indices that type-check.
   // The trials run under is_in_function_call_checking_phase so NESTED
-  // comptime/macro calls short-circuit to UnknownVal instead of executing
+  // comptime calls short-circuit to UnknownVal instead of executing
   // (the flag is set on each dry-run). Without this, every trial
-  // re-evaluated its cloned arg exprs INCLUDING macro expansion and CTFE —
+  // re-evaluated its cloned arg exprs INCLUDING CTFE —
   // exponential in nested operator-call chains (std/glob.yo never
   // finished). Restored HERE (not inside the helper) because the trial's
   // swallow handler unwinds past the helper's own tail on failure.
@@ -3293,7 +3284,7 @@ _check_bundle_fields_copy :: (fn(expr : &AstExpr, args : &ArrayList(AstExpr), ct
 /// tail of a block, recursively.
 _future_value_leaves :: (fn(e : &AstExpr, out : &mut ArrayList(AstExpr)) -> unit)({
   match(
-    lookup_macro_expansion(ast_expr_id(e)),
+    lookup_lowering(ast_expr_id(e)),
     .Some(expanded) => {
       recur(&expanded, out);
       return(());
@@ -4048,7 +4039,7 @@ _lent_place_touched :: (fn(target : &AstExpr, lent : &_LentPlace, ctx : &EvalCon
 /// method on it. Reads, `&` borrows and code that never names the place pass.
 _find_lent_place_access :: (fn(e : &AstExpr, lent : &_LentPlace, ctx : &EvalContext) -> Option(Tuple(AstExpr, String)))({
   match(
-    lookup_macro_expansion(ast_expr_id(e)),
+    lookup_lowering(ast_expr_id(e)),
     .Some(expanded) => match(recur(&expanded, lent, ctx), .Some(hit) => return(Option(Tuple(AstExpr, String)).Some(hit)), .None => ()),
     .None => ()
   );
@@ -8346,12 +8337,6 @@ evaluate_function_call :: (
     _check_call_value_root_overlap(&std_lends, env, ctx, exn);
     _check_call_cell_root_overlap(&std_lends, env, ctx, exn);
     _check_call_global_lends(expr, &std_lends, &std_r, env, ctx, exn);
-    // An await a macro's expansion writes carries the macro's
-    // tokens; rule 4 judges it at the macro call
-    // (issues/fixed/2026-10-17-a-local-borrow-is-not-checked-across-an-await-a-macro-expands-to.md).
-    if(local_borrows_active() && local_borrow_is_macro_await(ast_expr_id(expr)), {
-      _local_borrow_note_call_site(&std_r, &call_tok, ctx, exn);
-    });
     _record_handle_ctor_call(expr, &std_r, env, ctx);
     return(std_r);
   });
@@ -9510,7 +9495,7 @@ _evaluate_function_call_unanchored :: (
   //
   // Exemptions: the call is lexically inside an `unsafe(...)` wrapper
   // (`ctx.unsafe_context`, set by `evaluate_unsafe`), or the call lives in
-  // an auto-generated (macro/derive) expansion, which inherits privilege
+  // an auto-generated (derive) expansion, which inherits privilege
   // from its user-facing trigger site.
   //
   // The callee's TYPE carries the FFI marker (extern symbols bind as an
@@ -10619,38 +10604,34 @@ Fix: wrap the call:
           });
           n_required_reg = nrr;
         });
-        // Variadic-parameter info (`...(name)` / `...(quote(name))`), looked up
-        // from the side table keyed by this FuncVal's id. `is_quote` is detected
-        // from the recorded type: a quoted variadic carries `ComptimeList(Expr)`
-        // (types/function.yo). Used both to relax the arg-count check below and
-        // to bind the variadic as a `ComptimeList` of raw-AST `Expr`s for macro
-        // expansion.
+        // Variadic-parameter info, looked up from the side table keyed by this
+        // FuncVal's id. Used both to relax the arg-count check below and to
+        // bind the variadic as a `ComptimeList` of the evaluated trailing
+        // arguments.
         fv_variadic_entry_opt := get_func_variadic_param(func_id_fv.clone());
         fv_has_variadic := fv_variadic_entry_opt.is_some();
         (fv_variadic_label : String) = String.from("...");
         (fv_variadic_ty : TypeValue) = t_unit();
-        (fv_variadic_is_quote : bool) = false;
         // A COMPTIME variadic (`...(comptime(name) : ComptimeList(T))`), the
-        // other named form. The side table registers only NAMED variadics —
-        // a bare `...` (C-extern) is skipped by `register_func_variadic_param`
-        // and `...(name)` is rejected at signature evaluation ("not supported
-        // yet", types/function.yo) — so a registered non-quote variadic is
-        // necessarily the comptime one.
+        // one named form. The side table registers only NAMED variadics —
+        // a bare `...` (C-extern) is skipped by `register_func_variadic_param`,
+        // `...(name)` is rejected at signature evaluation ("not supported
+        // yet", types/function.yo) and a quoted one is E0010 — so a
+        // registered variadic is necessarily the comptime one.
         (fv_variadic_is_comptime : bool) = false;
         match(
           fv_variadic_entry_opt,
           .Some(vpe) => {
             fv_variadic_label = vpe.label.clone();
             fv_variadic_ty = Rc.clone(vpe.ty);
-            fv_variadic_is_quote = is_expr_list_type(fv_variadic_ty.clone());
-            fv_variadic_is_comptime = (!fv_variadic_is_quote && is_comptime_list_type(fv_variadic_ty.clone()));
+            fv_variadic_is_comptime = is_comptime_list_type(fv_variadic_ty.clone());
           },
           .None => ()
         );
         // Skip the regular arg-count check when the callee has a variadic
         // parameter: variadics accept any number of trailing args, so a strict
         // `n_a > n_p` upper bound (n_p excludes the variadic) wrongly rejects
-        // e.g. a quoted-variadic macro `m(a, b)` (n_p=0).
+        // e.g. a comptime-variadic `m(a, b)` (n_p=0).
         if(!fv_has_variadic && ((n_a < (n_required_reg + n_ev)) || (n_a > (n_p + n_ev))), {
           (fv_count_msg : String) = `Argument count mismatch: expected ${(n_p + n_ev)}, got ${n_a}`;
           if(n_required_reg != n_p, {
@@ -10663,24 +10644,6 @@ Fix: wrap the call:
         // Mutable: the omitted-default splice after the arg loop bumps it so
         // evaluated defaults count as supplied regular args downstream.
         (n_supplied_reg : usize) = if(n_a >= n_ev, n_a - n_ev, n_a);
-        // Macro-call detection (quoted params / unquote return), looked up
-        // from the macro registry keyed by this FuncVal's id (registered at
-        // fn-type evaluation, re-keyed by
-        // `try_to_implement_function_by_function_type`).
-        // Macro DISPATCH runs a call to a macro fn through its macro body.
-        // MACRO_DISPATCH_ENABLED has been ON since 2026-06-11: the heap
-        // corruption that kept it off was two early-return RC bugs, both
-        // fixed (issues/fixed/codegen-continue-in-while-heap-corruption.md,
-        // issues/fixed/yo-self-macro-dispatch-corruption.md). `is_macro_fn`
-        // reads the REGISTRY (quoted params / unquote returns).
-        fv_is_macro := (MACRO_DISPATCH_ENABLED && is_macro_fn(func_id_fv.clone()));
-        // Every `for(coll, handle)` is desugared at parse time (macro plan
-        // B1); the prelude's `for` macro stays only for the seed, and a call
-        // the desugar missed would still expand silently through it.
-        // `YO_DEBUG_FOR_MACRO_REACHED` makes such a call an error.
-        if(fv_is_macro && is_for_desugar_target(expr) && debug_knob(`YO_DEBUG_FOR_MACRO_REACHED`).is_some(), {
-          exn.throw(dyn(format_error_message(&tok, String.from("YO_DEBUG_FOR_MACRO_REACHED: this `for(...)` call reached the prelude's `for` macro; the parse-time desugar (`desugar_if_calls`, plans/backlog/MACRO_AND_ISO_REMOVAL.md B1) missed it."))));
-        });
         // Early generic synthesis from the expected return type. When this call has an expected type, the function has
         // `generic` parameters, and there is NO explicit `generic(...)` argument,
         // resolve the parameter types from the expected type so that a
@@ -10760,44 +10723,6 @@ Fix: wrap the call:
           ai = match(fv_eval_order.get(fv_ord_k), .Some(o) => o, .None => fv_ord_k);
           fv_ord_k = (fv_ord_k + usize(1));
           arg_expr := match(fv_args.get(ai), .Some(a) => a, .None => make_err_expr());
-          // Quoted parameter: bind the raw argument AST as an `Expr` value
-          // WITHOUT evaluating it (early-continue shape). The 2026-06-07
-          // corruption this shape was
-          // once bisected to no longer reproduces (0/52 on the original
-          // 4-file protocol, post-slice-rework) — see
-          // issues/fixed/codegen-continue-in-while-heap-corruption.md.
-          // A QUOTED VARIADIC (`...(quote(elems))`, e.g. `local_list` in
-          // tests/macro_def_pragma.test.yo) treats
-          // every trailing arg (index >= n_p) as quoted: bind its raw AST as an
-          // `Expr` so the macro body's `elems` receives un-evaluated exprs (and
-          // the CTFE unknown-arg gate sees compile-time-known `ExprVal`s, not
-          // runtime unknowns).
-          if(fv_is_macro && (is_param_quoted(func_id_fv.clone(), ai) || (fv_variadic_is_quote && (ai >= n_p))), {
-            // Strip a "label : value" colon-label wrapper BEFORE quoting, so
-            // a labeled macro arg (`if(c, then :
-            // {...}, else : {...})`) quotes the VALUE. Binding the whole
-            // colon-pair expanded `cond(c => (then : {...}), ...)`, which
-            // hollowed every labeled-if site (basic arm 18).
-            (q_arg_expr : AstExpr) = arg_expr;
-            if((ai < n_p) && ast_expr_is_fn_call_of(&arg_expr, ":", .Some(usize(2))), {
-              q_cl_args := match(
-                arg_expr,
-                .FnCall(_, _, Rc(q_as), _, _) => q_as.clone(),
-                _ => ArrayList(AstExpr).new()
-              );
-              q_label_expr := match(q_cl_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
-              q_label_matches := (ast_expr_is_atom(&q_label_expr) && (ast_expr_token(&q_label_expr).value.* == match(fv_param_labels.get_cloned(ai), .Some(l) => l, .None => String.new())));
-              if(q_label_matches, {
-                q_arg_expr = match(q_cl_args.get(usize(1)), .Some(a) => a, .None => arg_expr);
-              });
-            });
-            q_info := new_expr_info(env, t_expr_t());
-            q_info.value = Option(EvalValue).Some(EvalValue.ExprVal(clone_expr_fresh_ids(&q_arg_expr)));
-            evaled_arg_infos.push(q_info);
-            fv_eai_idx.push(ai);
-            ai = (ai + usize(1));
-            continue;
-          });
           {
             // Strip + VALIDATE a "label : value" colon-label wrapper (this
             // inline
@@ -11892,45 +11817,11 @@ Fix: wrap the call:
           );
           pi = (pi + usize(1));
         });
-        // Bind a QUOTED VARIADIC parameter (`...(quote(elems))`) for macro
-        // expansion: gather the trailing supplied args (regular-arg indices
-        // n_p..n_supplied_reg) as raw-AST `Expr` values into a `ComptimeList`
-        // and bind it under the variadic's name in `fresh_env`, so the macro
-        // body's `elems.len()/car()/cdr()` resolve when the body runs. Without
-        // this, the variadic name is unbound and the body throws; the args
-        // were already
-        // captured as `Expr` in the arg loop above.
-        if(fv_variadic_is_quote, {
-          velems := ArrayList(EvalValue).new();
-          (vidx : usize) = n_p;
-          while(vidx < n_supplied_reg, {
-            match(
-              fv_args.get(vidx),
-              .Some(varg) => {
-                velems.push(EvalValue.ExprVal(clone_expr_fresh_ids(&varg)));
-              },
-              .None => ()
-            );
-            vidx = (vidx + usize(1));
-          });
-          _vbind := add_variable_to_env(
-            &fresh_env,
-            fv_variadic_label.clone(),
-            fv_variadic_ty.clone(),
-            Option(EvalValue).Some(EvalValue.ComptimeListVal(value_cell_new(velems))),
-            true,
-            false,
-            false,
-            false,
-            &tok
-          );
-        });
         // Bind a COMPTIME VARIADIC parameter (`...(comptime(types) :
         // ComptimeList(Type))`): gather the EVALUATED trailing args
         // (regular-arg indices n_p..n_supplied_reg) into a `ComptimeList` and
         // bind it under the variadic's name in `fresh_env` — the env this arm
-        // hands to `evaluate_comptime_fn_call` below as the callee env. The
-        // quote sibling above binds RAW AST; this one binds VALUES.
+        // hands to `evaluate_comptime_fn_call` below as the callee env.
         //
         // Before this existed, the whole of tests/variadic_comptime.test.yo
         // rode on it: with the name unbound, EVERY call site threw
@@ -12093,10 +11984,6 @@ Fix: wrap the call:
             ok
           }
         );
-        // Macro calls (quoted params / unquote return) must execute their
-        // body to produce the expansion, so they route through the comptime
-        // path regardless of the declared return type (a macro call always
-        // executes).
         // `all_args_are_types` alone must NOT divert an ORDINARY function whose
         // parameters merely HAPPEN to all be comptime types. The CTFE arm cannot
         // resolve a return type that NAMES a comptime parameter (its repair is
@@ -12119,7 +12006,7 @@ Fix: wrap the call:
           Rc(.Func({ result : d_result, meta : __fmd })) => (is_type_hierarchy_type(&t_slot_pointee(&d_result)) || __fmd.*.result_is_comptime_only),
           _ => false
         );
-        if(is_type_hierarchy_type(&ret_type) || callee_result_is_comptime || (all_args_are_types && declared_ret_is_type) || fv_is_macro, {
+        if(is_type_hierarchy_type(&ret_type) || callee_result_is_comptime || (all_args_are_types && declared_ret_is_type), {
           ct_arg_entries := ArrayList(ArgEntry).new();
           (ct_ai : usize) = usize(0);
           while(ct_ai < evaled_arg_infos.len(), {
@@ -12159,17 +12046,6 @@ Fix: wrap the call:
             },
             .None => ()
           );
-          // Macro expansion must fully evaluate the body to produce the
-          // expanded code: clear the validation/analysis flags so CTFE
-          // actually executes instead of short-circuiting to UnknownVal.
-          mac_old_validating := ctx.is_validating_function_definition;
-          mac_old_analyzing := ctx.is_analyzing_ctfe_capability;
-          mac_old_executing := ctx.is_executing;
-          if(fv_is_macro, {
-            ctx.is_validating_function_definition = false;
-            ctx.is_analyzing_ctfe_capability = false;
-            ctx.is_executing = true;
-          });
           ct_result := evaluate_comptime_fn_call(
             Option(AstExpr).Some(func_expr),
             &ct_func_type,
@@ -12180,72 +12056,7 @@ Fix: wrap the call:
             ctx,
             exn
           );
-          if(fv_is_macro, {
-            ctx.is_validating_function_definition = mac_old_validating;
-            ctx.is_analyzing_ctfe_capability = mac_old_analyzing;
-            ctx.is_executing = mac_old_executing;
-          });
           ctx.self_type = old_self_ty_ct;
-          // Macro call with an `unquote(...)` return: the CTFE result is the
-          // expansion (an Expr value). Evaluate the expanded expression in
-          // the caller env and store its info as this call's info — the
-          // expansion's type/value ARE the call's type/value
-          if(macro_return_is_unquote(func_id_fv.clone()), {
-            match(
-              ct_result.value,
-              .ExprVal(expanded_box) => {
-                // FRESH-ID CLONE of the expansion before evaluating — the
-                // CTFE result still references the tree, and id-preserving
-                // copies alias ExprInfo-table entries (see the
-                // template-clone comment in builtins/quote.yo).
-                // Desugar `if(...)` calls the expansion may contain (from a
-                // quote template — load-time desugaring skips quote bodies —
-                // or from a cons-built tree) so codegen sees `cond` here too.
-                // An await the expansion makes is judged at this call too
-                // (decision 18 rule 4, `local_borrow_note_await`).
-                mac_expansion := desugar_if_calls(clone_expr_fresh_ids(&expanded_box));
-                local_borrow_enter_macro_site(&tok, expr, &mac_expansion);
-                expanded_expr := evaluate_expression_raw(&mac_expansion, &ct_result.caller_env, ctx, exn);
-                local_borrow_leave_macro_site();
-                exp_info := match(
-                  expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&expanded_expr)),
-                  .Some(i) => i,
-                  .None => new_expr_info(&ct_result.caller_env, &ret_type)
-                );
-                // Record the expansion on the macro CALL's info so C codegen
-                // (generation.yo reads ei.macro_expansion) and the collection pass
-                // generate/walk the EXPANDED tree (e.g. `if(c, then, else)` → its
-                // `cond(...)`) instead of the raw, un-emittable macro-call FnCall.
-                // Use a FRESH info — exp_info IS the expansion's own info, so a
-                // self-referential macro_expansion would recurse forever; copy the
-                // begin-block-relevant fields (value / control_flow / variable_name)
-                // so statement sequencing + early-return detection still work.
-                call_macro_info := new_expr_info(&exp_info.env, &exp_info.ty);
-                call_macro_info.value = exp_info.value;
-                call_macro_info.control_flow = exp_info.control_flow;
-                call_macro_info.variable_name = exp_info.variable_name.clone();
-                expr_info_set_macro_expansion(&call_macro_info, Option(AstExpr).Some(expanded_expr));
-                expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &call_macro_info);
-                // Durably record the expansion keyed by call id: the per-pass
-                // ExprInfo above can be overwritten by a later eval of the same
-                // call WITHOUT macro_expansion (e.g. `if(...recur...)`), leaving
-                // codegen with `None`. Codegen falls back to this side-table.
-                record_macro_expansion(ast_expr_id(expr), &expanded_expr);
-                param_vars;
-                return(expr);
-              },
-              _ => {
-                exn.throw(
-                  dyn(
-                    format_error_message(
-                      &tok,
-                      String.from("Expected macro function to return an Expr value.")
-                    )
-                  )
-                );
-              }
-            );
-          });
           // A `comptime(Self)`-returning generic Array impl method (e.g.
           // `Array.fill : (fn(...) -> comptime(Self))` under `impl(generic(T, U),
           // Array(T, U), ...)`) yields a declared return type whose Array
@@ -12429,7 +12240,7 @@ Fix: wrap the call:
         // bodies are type-checked at DEFINITION time; the call site only
         // needs the
         // return type. Comptime-only-return calls still execute via the gate
-        // above (memoized type constructors, macros, etc.), so this does NOT
+        // above (memoized type constructors, etc.), so this does NOT
         // suppress the comptime-expectation errors `comptime_expect_error` tests
         // rely on — verified: compiler tests 53->57, std 150->151, tests 154->155, 0
         // regressions across 560 files.
@@ -13485,4 +13296,3 @@ Fix: wrap the call:
   )
 });
 export(evaluate_function_call, reject_destructor_member_read);
-export(MACRO_DISPATCH_ENABLED);

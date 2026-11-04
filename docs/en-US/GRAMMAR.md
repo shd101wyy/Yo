@@ -276,7 +276,6 @@ ParameterLabel ::=
   | Identifier                  ;; by value, or borrowed when the type carries a sigil
   | 'sink' '(' Identifier ')'   ;; by value, and always a move (even of a shared kind)
   | 'comptime' '(' Identifier ')' ;; compile-time-only parameter
-  | 'quote' '(' Identifier ')'  ;; macro parameter (receives the AST)
 ParameterType ::=
   | Type                        ;; by value: copied (Copy), moved, or a shared handle (reference kinds)
   | '&' Type                    ;; read-only borrow of the caller's value
@@ -357,6 +356,9 @@ Placement rules for `&` and `&mut`:
   ordinary identifier.
 - `own(x)`, the older spelling of `sink(x)`, is error E0009 as well;
   `yo fix <path> --migrate modes` rewrites it.
+- A `quote(x)` parameter label, a quoted variadic `...(quote(xs))` and an
+  `-> unquote(T)` result declare a macro, and Yo has no macro layer: error
+  E0010 (write `comptime(x) : Expr` and `-> comptime(Expr)`).
 - See [FLOWABILITY.md](./FLOWABILITY.md) for the semantics.
 
 At a call, a borrowed argument carries a marker that matches the parameter:

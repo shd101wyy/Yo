@@ -1,0 +1,35 @@
+$ yo explain E0010
+E0010 — macro definitions were removed
+
+A `quote(p) : Expr` parameter or an `-> unquote(Expr)` result declares a macro, and Yo has no macros.
+
+Yo's macro layer was removed (plans/backlog/MACRO_AND_ISO_REMOVAL.md): a function whose signature quotes a parameter, `quote(p) : Expr` (or a quoted variadic `...(quote(p))`), or splices its result, `-> unquote(Expr)`, is rejected; a leftover `pragma(Pragma.AllowMacroDef)` names a `Pragma` variant that no longer exists (E0402). The extension mechanisms are comptime functions, the type layer and the quote/reflection layer: a comptime function `fn(comptime(e) : Expr) -> comptime(Expr)` takes and returns quoted code, and a derive rule (`derive_rule`) splices the `impl(...)` items it returns. `quote(...)`, `unquote(...)` and `unquote_splicing(...)` inside quoted code, `gensym` and the `__yo_expr_*` reflection builtins are unchanged. `if(...)` and `for(...)` are builtin forms. There is no `yo fix` migration: rewrite each macro as a comptime function or as plain code at its call sites.
+
+Example — this fails:
+  twice :: (fn(quote(e) : Expr) -> unquote(Expr))(quote(unquote(e) + unquote(e)));
+  export(twice);
+  
+Example — write this instead:
+  twice :: (fn(comptime(e) : Expr) -> comptime(Expr))(quote(unquote(e) + unquote(e)));
+  export(twice);
+  
+  `twice` is a comptime function: it takes quoted code as an `Expr` value and returns the code it builds, which a derive rule or a comptime caller can splice.
+Run 'yo explain --list' for all codes.
+rc=0
+$ yo check main.yo
+error[E0010]: a `quote(p) : Expr` parameter declares a macro, and Yo has no macros: the macro layer was removed (plans/backlog/MACRO_AND_ISO_REMOVAL.md).
+  --> main.yo:1:14
+  |
+1 | twice :: (fn(quote(e) : Expr) -> unquote(Expr))(quote(unquote(e) + unquote(e)));
+  |              ^^^^^
+help: write a comptime function instead: `fn(comptime(e) : Expr) -> comptime(Expr)` takes and returns quoted code, and a derive rule (`derive_rule`) splices the items it returns. `quote(...)`, `unquote(...)` inside quoted code and the `__yo_expr_*` reflection builtins are unchanged.
+help: run `yo explain E0010` for more information
+yo: error: check: 1 file(s) failed evaluator coverage
+check: parsing <REPO>/std/prelude.yo
+check: parsed <PRELUDE_EXPRS> top-level exprs
+check: invoking evaluate_anonymous_module_begin_exprs (prelude)
+check: <REPO>/std/prelude.yo — evaluator OK
+check: parsing main.yo
+check: parsed 3 top-level exprs
+check: invoking evaluate_anonymous_module_begin_exprs
+rc=1

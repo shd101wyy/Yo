@@ -185,7 +185,7 @@ pragma(Pragma.AllowUnsafe);
   expr_info_deferred_dup_expressions,
   mark_by_value_param_share_dup,
   mark_moved_container_dup,
-  expr_info_macro_expansion,
+  expr_info_lowered_to,
   record_addr_of_site,
   migrate_addr_of_on,
   migrate_markers_on,
@@ -1335,7 +1335,7 @@ _mark_moved_temp_container_dups :: (fn(arg : &AstExpr, depth : usize, ctx : &Eva
         .None => ()
       );
       match(
-        expr_info_macro_expansion(&ai),
+        expr_info_lowered_to(&ai),
         .Some(mx) => recur(&mx, depth, ctx),
         .None => ()
       );
@@ -6775,7 +6775,7 @@ _evaluated_expr_type :: (
 /// `check_if_function_parameter_matches_argument`: no value, a RUNTIME-ONLY
 /// UnknownVal (a runtime call's result), or a `VarRef` (a runtime binding).
 /// An ordinary UnknownVal is a compile-time placeholder — a definition-time
-/// trial's parameter, a macro body's `quote` parameter — and the operator
+/// trial's parameter — and the operator
 /// overload trials rely on that distinction to pick `comptime_not` or `not`.
 /// A value of a comptime-only type is compile-time by construction, and a
 /// SomeT-typed one is still generic.

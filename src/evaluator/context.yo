@@ -593,7 +593,7 @@ TypeCallResult :: ref(
   )
 );
 // ---------------------------------------------------------------------------
-// Module / trait / macro / numeric / pointer / index call results
+// Module / trait / numeric / pointer / index call results
 // ---------------------------------------------------------------------------
 ModuleTypeCallResult :: ref(
   struct(
@@ -611,13 +611,6 @@ TraitSpecializationResult :: ref(
   struct(
     specialized_trait_type : TypeValue,
     caller_env : Environment
-  )
-);
-MacroFuncCallResult :: ref(
-  struct(
-    callee_env : Environment,
-    caller_env : Environment,
-    return_expr : AstExpr
   )
 );
 NumericTypeCallResult :: ref(
@@ -3030,8 +3023,8 @@ adopt_resolved_definition :: (fn(env : &Environment, var : &Variable, module_fra
   idx
 });
 /// The identifier-miss hook (§4.2). `module_path` is the identifier TOKEN's
-/// module path — the module whose definitions the name can refer to (a macro
-/// expanded elsewhere still names its definition site's module).
+/// module path — the module whose definitions the name can refer to (a quote
+/// template spliced elsewhere still names its definition site's module).
 resolve_pending_definition :: (fn(name : &String, module_path : &String) -> PendingResolution)(
   match(
     _active_walk_for(module_path.clone()),
@@ -3700,7 +3693,6 @@ export(
   ModuleTypeCallResult,
   TraitTypeCallResult,
   TraitSpecializationResult,
-  MacroFuncCallResult,
   NumericTypeCallResult,
   PointerTypeCallResult,
   IndexCallResult,

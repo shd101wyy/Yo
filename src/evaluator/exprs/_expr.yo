@@ -21,6 +21,8 @@ import("std/fmt");
   ast_place_text,
   ast_expr_is_old_mode_spelling,
   deleted_mode_spelling_error,
+  malformed_for_error,
+  BK_FOR,
   BK_FN,
   BK_UNSAFE_FN,
   BK_CTL,
@@ -119,7 +121,6 @@ import("std/fmt");
   BF_PANIC,
   BF_ASM,
   BF_GLOBAL_ASM,
-  BF_MACRO_EXPAND,
   BF_CONSUME,
   BF_DROP,
   BF_DUP,
@@ -399,7 +400,6 @@ _is_deleted_borrow_word :: (fn(e : &AstExpr, with_imm : bool) -> bool)(
 { evaluate_yo_gc_collect } :: import("../builtins/gc.yo");
 { evaluate_gensym } :: import("../builtins/gensym.yo");
 { evaluate_impl_constraint } :: import("../builtins/impl_constraint.yo");
-{ evaluate_macro_expand } :: import("../builtins/macro_expand.yo");
 { evaluate_panic } :: import("../builtins/panic.yo");
 { evaluate_yo_process_functions } :: import("../builtins/process.yo");
 { evaluate_address_call } :: import("../builtins/ptr_fns.yo");
@@ -1226,6 +1226,13 @@ _evaluate_expression :: (
           exn.throw(dyn(deleted_mode_spelling_error(ast_expr_token(expr), _deleted_word(expr))));
           expr
         },
+        // `for(...)` is a builtin form the parser desugars
+        // (`desugar_if_calls`, src/expr.yo); a call it left alone has the
+        // wrong shape: E0011.
+        ((__dk_len == usize(3)) && ast_expr_is_fn_call_of(expr, BK_FOR, .None)) => {
+          exn.throw(dyn(malformed_for_error(expr)));
+          expr
+        },
         // `&mut x` is a call-site marker, consumed where it is legal (a call
         // argument bound to a `mut`/`inout` parameter, a `match` scrutinee).
         // Anywhere else it is not an expression.
@@ -1290,8 +1297,6 @@ _evaluate_expression :: (
           evaluate_asm(expr, env, ctx, exn),
         ((__dk_len == usize(10)) && ast_expr_is_fn_call_of(expr, BF_GLOBAL_ASM, .None)) =>
           evaluate_global_asm(expr, env, ctx, exn),
-        ((__dk_len == usize(12)) && ast_expr_is_fn_call_of(expr, BF_MACRO_EXPAND, .None)) =>
-          evaluate_macro_expand(expr, env, ctx, exn),
         (
           ((__dk_len == usize(2)) && ast_expr_is_fn_call_of(expr, BK_OP_AND, .None)) ||
             ((__dk_len == usize(2)) && ast_expr_is_fn_call_of(expr, BK_OP_OR, .None))

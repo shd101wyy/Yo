@@ -70,8 +70,8 @@ YO_COLOR=always yo build         # 通过环境变量设置
 
 `yo fix <path> --migrate <name>` 执行的是迁移而非修复，服务于参数约定的变更（VALUES_BY_DEFAULT V3b）和借用写法（决策 42）：
 
-- `--migrate borrow-spelling` 把每个用模式关键字写出的借用改写为符号写法：`imm(x) : T` 改为 `x : &T`，`mut(x) : T` 改为 `x : &mut T`（参数、接收者、闭包参数、`Fn(...)` 槽位），`comptime(imm(x)) : T` 改为 `comptime(x) : &T`，局部借用 `mut(y) := place` 改为 `y := &mut place`，重指向 `mut(cur) = place` 改为 `cur = &mut place`，捕获列表的简写 `{ imm(y), mut(z) }` 改为 `{ &y, &mut z }`，`for(xs, mut(x) => …)` 改为 `for(&mut xs, x => …)`。编译器拒绝模式关键字（E0009），而每个模式关键字的含义恰好就是对应的符号写法。它只解析每个文件，所以也能触及宏实参、`quote(...)` 模板和泛型函数体；任何规则都不覆盖的位置上的模式关键字会连同位置列出并保持原样。`mut` 之前的写法 `inout(x) : T` 同样改为 `x : &mut T`。
-- `--migrate modes` 把已删除的 `own(x)` 参数改写为 `sink(x)`（E0009 拒绝 `own`）。它只解析每个文件，所以也能触及求值看不到的代码（宏实参、`quote(...)` 模板、测试体）。
+- `--migrate borrow-spelling` 把每个用模式关键字写出的借用改写为符号写法：`imm(x) : T` 改为 `x : &T`，`mut(x) : T` 改为 `x : &mut T`（参数、接收者、闭包参数、`Fn(...)` 槽位），`comptime(imm(x)) : T` 改为 `comptime(x) : &T`，局部借用 `mut(y) := place` 改为 `y := &mut place`，重指向 `mut(cur) = place` 改为 `cur = &mut place`，捕获列表的简写 `{ imm(y), mut(z) }` 改为 `{ &y, &mut z }`，`for(xs, mut(x) => …)` 改为 `for(&mut xs, x => …)`。编译器拒绝模式关键字（E0009），而每个模式关键字的含义恰好就是对应的符号写法。它只解析每个文件，所以也能触及 `quote(...)` 模板和泛型函数体；任何规则都不覆盖的位置上的模式关键字会连同位置列出并保持原样。`mut` 之前的写法 `inout(x) : T` 同样改为 `x : &mut T`。
+- `--migrate modes` 把已删除的 `own(x)` 参数改写为 `sink(x)`（E0009 拒绝 `own`）。它只解析每个文件，所以也能触及求值看不到的代码（`quote(...)` 模板、测试体）。
 - `--migrate addr-of` 把原本是裸指针取址的 `&x` 改写为 `addr_of(x)`。它会对每个文件求值，因为只有求值器知道哪个 `&x` 是借用（传给 `&T` 参数的 `show(&s)` 保持不变），哪个是取址（绑定、裸指针参数、按值参数或可变参数位置的实参、方法接收者）。求值未触及的位置，或文本已不匹配的位置，会连同位置列出并保持原样。
 - `--migrate params` 只处理已能求值的文件：类型不是 `Copy` 的普通参数改为 `&T` 借用（这正是 flip 之前普通参数的含义）。泛型参数改为 `&T` 借用，除非其 `where` 约束使它是 `Copy`。它写出 `x : &T`。
 - `--migrate markers` 插入调用处的借用标记：传给 `&T` 参数的裸具名位置（变量、字段路径、元素 `xs(i)`）前加 `&x`，传给 `&mut T` 参数的加 `&mut x`。它会对每个文件求值，因为只有求值器知道参数的模式；方法接收者、临时值、运算符操作数、按值与编译期参数、整体传递的借用绑定，以及幽灵代码（契约谓词、`ghost_fn` 函数体）保持裸写。缺少标记是 E0914，始终生效，包括 std。

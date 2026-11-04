@@ -31,7 +31,7 @@ description: "Use when working on C code generation, the codegen transpiler, emi
   place against the final layout. Never emit a zero-padded number yourself:
   a leading-zero pp-number reads as octal and clang warns.
 - **Pseudo-paths never map**: `_` (error nodes), `drop` (synthesized drops)
-  and `auto-generated://` (macro/derive expansions — the "path" embeds the
+  and `auto-generated://` (derive expansions — the "path" embeds the
   expansion text, newlines and all). The gate lives in
   `Emitter.set_yo_line_position`.
 - The **code spill is disabled** when the flag is on (a marker inside the
@@ -270,8 +270,8 @@ source order.
   nothing reads it after the jump — so the escape path must release it:
   `emit_effect_unwind_check` emits the pending drops in a state machine as
   in a plain function (a field's drop zeroes the slot, so the abort dispose
-  does not release it twice). A node from another module (a macro
-  expansion) makes the positions incomparable, and then every local gets a
+  does not release it twice). A node from another module (a spliced
+  derive template) makes the positions incomparable, and then every local gets a
   field. Pattern bindings are locals too, including one bound
   compile-time-only because its scrutinee is known at compile time (captured
   at its declaration atom, `_capture_pattern_bindings`; an extern constant

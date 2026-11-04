@@ -158,7 +158,7 @@ for(&mut scores, (k, v) => {
 }); // map：键只读、值被借用
 ```
 
-宏在整个循环期间持有一个局部借用 `c := &mut coll`，并在其上走一个游标
+循环在整个期间持有一个局部借用 `c := &mut coll`，并在其上走一个游标
 （`BorrowedWalk` trait：一个不持有集合句柄的位置；加上 `BorrowedWalkMut` 的
 `walk_elem` 投影），把每个元素绑定为指向集合自身存储的 `&mut` 局部
 （`plans/VALUES_BY_DEFAULT.md` 决策 39）。循环不会复制集合，每一步都从集合

@@ -31,7 +31,7 @@ pragma(Pragma.AllowUnsafe);
   alloc_global_expr_id,
   ast_rewritten_node
 } :: import("../../expr.yo");
-{ ExprInfo, ComptimeRef, new_expr_info, record_macro_expansion, expr_info_set_macro_expansion, expr_info_table_set, expr_info_table_get, ControlFlowFlags, has_any_control_flow, control_flow_to_string, record_branch_init, has_dominating_branch_init, path_collection_of_name, expr_info_set_converted_runtime_type, register_thread_local, is_thread_local, register_mut_global, expr_info_capture_type, expr_info_comptime_ref, expr_info_index_trait_ptr_type, expr_info_set_is_compile_time_only_assignment, some_resolution, migrate_mut_bindings_on, record_mut_judged } :: import("../../expr_info.yo");
+{ ExprInfo, ComptimeRef, new_expr_info, record_lowering, expr_info_set_lowered_to, expr_info_table_set, expr_info_table_get, ControlFlowFlags, has_any_control_flow, control_flow_to_string, record_branch_init, has_dominating_branch_init, path_collection_of_name, expr_info_set_converted_runtime_type, register_thread_local, is_thread_local, register_mut_global, expr_info_capture_type, expr_info_comptime_ref, expr_info_index_trait_ptr_type, expr_info_set_is_compile_time_only_assignment, some_resolution, migrate_mut_bindings_on, record_mut_judged } :: import("../../expr_info.yo");
 {
   Environment,
   Variable,
@@ -1389,8 +1389,8 @@ evaluate_assignment :: (
           out := new_expr_info(&rw_info.env, &rw_info.ty);
           out.value = rw_info.value;
           out.control_flow = rw_info.control_flow;
-          record_macro_expansion(ast_expr_id(expr), rw_evaluated.clone());
-          expr_info_set_macro_expansion(&out, Option(AstExpr).Some(rw_evaluated));
+          record_lowering(ast_expr_id(expr), rw_evaluated.clone());
+          expr_info_set_lowered_to(&out, Option(AstExpr).Some(rw_evaluated));
           expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
         },
         .None => ()
