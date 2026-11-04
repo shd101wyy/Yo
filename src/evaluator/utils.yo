@@ -4953,6 +4953,11 @@ _drop_in_arms_that_keep :: (
   });
   // The drop names the value, so an arm that binds the same name (a
   // `.Some(x)` pattern) would drop its own binding instead: keep E0907 there.
+  // The parameter's own non-owning re-bind in a specialized body (a
+  // parameter whose argument folded to a constant, calls/helper.yo) is not
+  // another value: a drop through it moves this binding
+  // (`_move_through_sink_shadow`), as every other move through it does
+  // (issues/fixed/2026-11-05-a-hashmap-of-a-plain-data-struct-without-copy-cannot-insert.md).
   (si : usize) = usize(0);
   while(si < bodies.len(), {
     keeps_s := match(consumed_at_tokens.get(si), .Some(.Some(_)) => false, _ => true);
@@ -4967,7 +4972,7 @@ _drop_in_arms_that_keep :: (
             while(sni < same_name.len(), {
               match(
                 same_name.get(sni),
-                .Some(sv) => if(sv.id != v.id, {
+                .Some(sv) => if((sv.id != v.id) && !_is_param_rebind_of(&sbi.env, &sv, v), {
                   return(false);
                 }),
                 .None => ()
@@ -5017,6 +5022,46 @@ _drop_in_arms_that_keep :: (
   });
   v.consumed_at_token = saved_consumed;
   true
+});
+/// `sv` is the non-owning re-bind of the owning parameter `v` that a
+/// specialized body adds beside it (calls/helper.yo): a parameter of the same
+/// name, owning nothing, in the frame that binds `v`.
+_is_param_rebind_of :: (fn(env : &Environment, sv : &Variable, v : &Variable) -> bool)({
+  if(!sv.is_parameter || !v.is_parameter || sv.is_owning_the_rc_value || sv.is_ref || (sv.name != v.name), {
+    return(false);
+  });
+  (fi : usize) = env.frames.len();
+  while(fi > usize(0), {
+    fi = (fi - usize(1));
+    match(
+      env.frames.get(fi),
+      .Some(fr) => {
+        (has_sv : bool) = false;
+        (has_v : bool) = false;
+        (vi : usize) = usize(0);
+        while(vi < fr.variables.len(), {
+          match(
+            fr.variables.get(vi),
+            .Some(fv) => {
+              if(fv.id == sv.id, {
+                has_sv = true;
+              });
+              if(fv.id == v.id, {
+                has_v = true;
+              });
+            },
+            .None => ()
+          );
+          vi = (vi + usize(1));
+        });
+        if(has_sv, {
+          return(has_v);
+        });
+      },
+      .None => ()
+    );
+  });
+  false
 });
 /// The closure an arm yields, as its capture struct: a closure literal's
 /// `capture_type`, or the resolution of a bound closure identity (a local

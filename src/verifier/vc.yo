@@ -786,8 +786,10 @@ VcCtx :: (
     /// The head (havoced) measure TERM of the loop being walked, if any —
     /// a `continue` site proves its own `M(now) < M(head)` step against it.
     head_measure : Option(VcTerm),
-    /// The current straight-line path has exited the loop (break or
-    /// continue): statements after the exit statement are dead, not walked.
+    /// The current straight-line path does not continue: it exited the
+    /// loop (break or continue) or diverged (`panic`). Statements after the
+    /// exit are dead and not walked; a branch whose walk ends dead is assumed
+    /// not taken on the path after the branch.
     path_dead : bool,
     /// Loop nesting depth during a body walk (0 outside any loop body).
     loop_depth : usize,
@@ -2491,9 +2493,10 @@ _match_term :: (fn(ctx : &mut VcCtx, at : &AstExpr, args : &ArrayList(AstExpr)) 
         .Some(arms) => {
           ph := _match_phi_new(ctx, &arms);
           out := _match_arms_ir(ctx, at, &s, &arms, usize(0), &e_ty, &mut ph);
-          if(out.is_none() || !_match_phi_merge(ctx, at, &mut ph), {
+          if(out.is_none(), {
             return(Option(VcTerm).None);
           });
+          _match_phi_merge(ctx, &mut ph);
           out
         },
         .None => {
@@ -2517,7 +2520,7 @@ _match_arms_ir :: (
       _fail_subset(ctx, String.from("match without a final arm"), at);
       Option(VcTerm).None
     },
-    ((from + usize(1)) == arms.len()) => _match_last_arm_ir(ctx, scrut, arms, from, e_ty, ph),
+    ((from + usize(1)) == arms.len()) => _match_last_arm_ir(ctx, at, scrut, arms, from, e_ty, ph),
     true => {
       tail := _match_arms_ir(ctx, at, scrut, arms, from + usize(1), e_ty, ph);
       match(
@@ -2531,9 +2534,11 @@ _match_arms_ir :: (
 /// The final arm: its bindings still scope the body, but no test — Yo
 /// matches are exhaustive, so control reaching the last arm means it
 /// matched. A GUARDED final arm can fail, which the ite tree cannot
-/// express without a bottom value: outside the subset, loudly.
+/// express without a bottom value: outside the subset, loudly. A final arm
+/// that exits or diverges is the ite tree's base all the same: its value is
+/// `_dead_value` of the match `at`, never read on a live path.
 _match_last_arm_ir :: (
-  fn(ctx : &mut VcCtx, scrut : &VcTerm, arms : &ArrayList(Arm), idx : usize, e_ty : &TypeValue, ph : &mut _MatchPhi) -> Option(VcTerm)
+  fn(ctx : &mut VcCtx, at : &AstExpr, scrut : &VcTerm, arms : &ArrayList(Arm), idx : usize, e_ty : &TypeValue, ph : &mut _MatchPhi) -> Option(VcTerm)
 )({
   arm := arms.get(idx).unwrap();
   if(arm.guard.is_some(), {
@@ -2551,8 +2556,12 @@ _match_last_arm_ir :: (
     .None => Option(VcTerm).None
   );
   _restore_vars(ctx, &saved_names, &saved_vals);
+  arm_dead := ctx.path_dead;
   _match_phi_capture(ctx, ph, Rc.new(VcTermNode.BoolLit(true)));
-  body_t
+  cond(
+    (arm_dead && body_t.is_some()) => Option(VcTerm).Some(_dead_value(ctx, at)),
+    true => body_t
+  )
 });
 /// One non-final arm over its COMPILED pattern: bind the pattern's names
 /// to projections of `scrut`, build the conjunctive pattern test, conjoin
@@ -2620,16 +2629,20 @@ _match_arm_conditioned_ir :: (
 /// arms used to walk one after another over each other's writes, so a
 /// write in one arm held on every path
 /// (issues/fixed/2026-10-23-a-write-in-one-match-arm-holds-on-every-path.md).
-/// `dead` marks an arm whose walk exited the loop (break/continue): it
-/// never reaches the code after the match
+/// `dead` marks an arm whose walk exited the loop (break/continue) or
+/// diverged (`panic`): it never reaches the code after the match
 /// (issues/fixed/2026-10-23-a-break-in-a-match-arm-ends-the-walk-of-the-enclosing-block.md).
+/// `start` is the path length before the first arm, `ends` the length after
+/// each arm: walk index k pushed the path entries `[ends[k-1], ends[k])`.
 _MatchPhi :: (
   struct(
     names : ArrayList(String),
     pre : ArrayList(Option(VcTerm)),
     tests : ArrayList(VcTerm),
     posts : ArrayList(ArrayList(Option(VcTerm))),
-    dead : ArrayList(bool)
+    dead : ArrayList(bool),
+    start : usize,
+    ends : ArrayList(usize)
   )
 );
 _match_phi_new :: (fn(ctx : &mut VcCtx, arms : &ArrayList(Arm)) -> _MatchPhi)({
@@ -2656,7 +2669,9 @@ _match_phi_new :: (fn(ctx : &mut VcCtx, arms : &ArrayList(Arm)) -> _MatchPhi)({
     pre : pre,
     tests : ArrayList(VcTerm).new(),
     posts : ArrayList(ArrayList(Option(VcTerm))).new(),
-    dead : ArrayList(bool).new()
+    dead : ArrayList(bool).new(),
+    start : ctx.path.len(),
+    ends : ArrayList(usize).new()
   )
 });
 /// Put every arm-written name back to its pre-match term.
@@ -2675,29 +2690,69 @@ _match_phi_capture :: (fn(ctx : &mut VcCtx, ph : &mut _MatchPhi, test : VcTerm) 
   ph.tests.push(test);
   ph.posts.push(post);
   ph.dead.push(ctx.path_dead);
+  ph.ends.push(ctx.path.len());
   ctx.path_dead = false;
+});
+/// The condition under which the arm at walk index `k` runs: its test and
+/// no source-earlier arm's (walk index k is source arm n-1-k, so the arms
+/// before it in source order are the walk indices above k).
+_match_arm_taken :: (fn(ph : &_MatchPhi, k : usize) -> VcTerm)({
+  earlier := ArrayList(VcTerm).new();
+  (j : usize) = ph.tests.len();
+  while(j > (k + usize(1)), {
+    j = (j - usize(1));
+    earlier.push(ph.tests.get_cloned(j).unwrap());
+  });
+  _arm_taken_term(&earlier, ph.tests.get_cloned(k).unwrap())
 });
 /// After the arms: each arm-written name is the ite over the LIVE arms'
 /// tests of its per-arm terms (first matching arm wins). A name with no
-/// pre-match term was an arm-local binding and goes out of scope. A dead
-/// arm (it exited the loop) is not taken on the fall-through path: assume
-/// that permanently, the `cond` rule. False when every arm is dead (the
-/// match has no fall-through state), a subset error like `cond`'s.
-_match_phi_merge :: (fn(ctx : &mut VcCtx, at : &AstExpr, ph : &mut _MatchPhi) -> bool)({
+/// pre-match term was an arm-local binding and goes out of scope. The path
+/// entries an arm's walk pushed (a callee's ensures, a proved assert, a
+/// nested dead arm's not-taken fact) hold only where that arm ran: each
+/// stays as `taken ==> fact`, the `cond` rule (`_unwind_path_guards`). A
+/// dead arm (it exited the loop or diverged) is not taken on the
+/// fall-through path: assume that permanently. When every arm is dead the
+/// match does not continue either (`path_dead`).
+_match_phi_merge :: (fn(ctx : &mut VcCtx, ph : &mut _MatchPhi) -> unit)({
   n := ph.tests.len();
-  // Walk index k is source arm n-1-k: the arms before it in source order
-  // are the walk indices above k.
+  arm_facts := ArrayList(ArrayList(VcTerm)).new();
+  (from_i : usize) = ph.start;
+  (fk : usize) = usize(0);
+  while(fk < n, {
+    to_i := ph.ends.get(fk).unwrap();
+    fs := ArrayList(VcTerm).new();
+    (pi : usize) = from_i;
+    while((pi < to_i) && (pi < ctx.path.len()), {
+      fs.push(ctx.path.get_cloned(pi).unwrap());
+      pi = (pi + usize(1));
+    });
+    arm_facts.push(fs);
+    from_i = to_i;
+    fk = (fk + usize(1));
+  });
+  while(ctx.path.len() > ph.start, {
+    ctx.path.pop();
+  });
+  (gk : usize) = usize(0);
+  while(gk < n, {
+    fs2 := arm_facts.get_cloned(gk).unwrap();
+    if(fs2.len() > usize(0), {
+      taken := _match_arm_taken(ph, gk);
+      (fi : usize) = usize(0);
+      while(fi < fs2.len(), {
+        gf := _guarded_fact(ctx, &taken, fs2.get_cloned(fi).unwrap());
+        ctx.path.push(gf);
+        fi = (fi + usize(1));
+      });
+    });
+    gk = (gk + usize(1));
+  });
   (base : Option(usize)) = Option(usize).None;
   (k0 : usize) = usize(0);
   while(k0 < n, {
     if(ph.dead.get(k0).unwrap(), {
-      earlier := ArrayList(VcTerm).new();
-      (j : usize) = n;
-      while(j > (k0 + usize(1)), {
-        j = (j - usize(1));
-        earlier.push(ph.tests.get_cloned(j).unwrap());
-      });
-      ctx.path.push(_app1(VcOp.NotOp, _arm_taken_term(&earlier, ph.tests.get_cloned(k0).unwrap())));
+      ctx.path.push(_app1(VcOp.NotOp, _match_arm_taken(ph, k0)));
     }, {
       if(base.is_none(), {
         base = Option(usize).Some(k0);
@@ -2706,11 +2761,11 @@ _match_phi_merge :: (fn(ctx : &mut VcCtx, at : &AstExpr, ph : &mut _MatchPhi) ->
     k0 = (k0 + usize(1));
   });
   if((n > usize(0)) && base.is_none(), {
-    _fail_subset(ctx, String.from("match arm exits the loop on every arm (break/continue) — the match has no fall-through value"), at);
-    return(false);
+    ctx.path_dead = true;
+    return(());
   });
   if((ph.names.len() == usize(0)) || base.is_none(), {
-    return(true);
+    return(());
   });
   b := base.unwrap();
   (ni : usize) = usize(0);
@@ -2743,7 +2798,6 @@ _match_phi_merge :: (fn(ctx : &mut VcCtx, at : &AstExpr, ph : &mut _MatchPhi) ->
     );
     ni = (ni + usize(1));
   });
-  true
 });
 /// Restore ctx.vars to the pre-arm scope (bindings pop in reverse).
 _restore_vars :: (
@@ -3015,11 +3069,15 @@ _variant_accessors :: (fn(e_ty : &TypeValue, variant : &String, count : usize) -
 /// with the guard lost them: `ensures((r >= 1) && (f(x) < 1000))` was
 /// refuted with `f`'s result unconstrained
 /// (issues/fixed/a-callee-fact-in-the-right-operand-of-and-is-dropped.md).
+/// A guarded walk that diverged (`panic`) leaves the path only where the
+/// guard failed: assume that, and the path continues.
 _pop_guard_keep_facts :: (fn(ctx : &mut VcCtx, mark : usize) -> unit)({
   if(ctx.path.len() <= mark, {
     return(());
   });
   guard := ctx.path.get_cloned(mark).unwrap();
+  diverged := ctx.path_dead;
+  ctx.path_dead = false;
   facts := ArrayList(VcTerm).new();
   (fi : usize) = (mark + usize(1));
   while(fi < ctx.path.len(), {
@@ -3031,9 +3089,33 @@ _pop_guard_keep_facts :: (fn(ctx : &mut VcCtx, mark : usize) -> unit)({
   });
   (fj : usize) = usize(0);
   while(fj < facts.len(), {
-    ctx.path.push(_app2(VcOp.ImpOp, &guard, facts.get_cloned(fj).unwrap()));
+    gf := _guarded_fact(ctx, &guard, facts.get_cloned(fj).unwrap());
+    ctx.path.push(gf);
     fj = (fj + usize(1));
   });
+  if(diverged, {
+    ctx.path.push(_app1(VcOp.NotOp, &guard));
+  });
+});
+/// `guard ==> fact` for a fact a branch's walk learned, kept on the path
+/// after the branch. An unenforced fact (`VcCtx.unenforced`) stays
+/// unenforced under its guard: the elision check matches path entries by
+/// their encoding, and the wrapped term would otherwise pass it.
+_guarded_fact :: (fn(ctx : &mut VcCtx, guard : &VcTerm, fact : &VcTerm) -> VcTerm)({
+  wrapped := _app2(VcOp.ImpOp, guard, fact);
+  if(ctx.unenforced.len() > usize(0), {
+    key := encode_term(fact);
+    (ui : usize) = usize(0);
+    (found : bool) = false;
+    while((ui < ctx.unenforced.len()) && !found, {
+      found = (encode_term(&ctx.unenforced.get_cloned(ui).unwrap()) == key);
+      ui = (ui + usize(1));
+    });
+    if(found, {
+      ctx.unenforced.push(Rc.clone(wrapped));
+    });
+  });
+  wrapped
 });
 /// Conjoin a non-empty term list with AndOp (single terms pass through).
 _and_terms :: (fn(ts : &ArrayList(VcTerm)) -> VcTerm)({
@@ -4698,6 +4780,11 @@ _call_term :: (
         p,
         .Some(pt) => {
           _emit(ctx, String.from("assert"), ArrayList(VcTerm).new(), &pt);
+          // A failed assert does not continue, so P holds after it: the
+          // later obligations assume it (Dafny, SPARK, Why3). A branch that
+          // ends keeps it only under its own guard (`_unwind_path_guards`,
+          // `_match_phi_merge`, `_pop_guard_keep_facts`).
+          ctx.path.push(Rc.clone(pt));
           Option(VcTerm).Some(Rc.new(VcTermNode.BoolLit(true)))
         },
         .None => Option(VcTerm).None
@@ -4705,8 +4792,11 @@ _call_term :: (
     );
   });
   // --- panic: diverging ----------------------------------------------------
+  // The path that reaches a `panic` never continues: nothing after it is
+  // walked, and the branch it sits in is assumed not taken after the branch
+  // (`path_dead`, the break/continue machinery). Its value is never used.
   if(head == "panic", {
-    // Diverging path — contributes nothing (SPARK's stance).
+    ctx.path_dead = true;
     return(Option(VcTerm).Some(Rc.new(VcTermNode.BoolLit(true))));
   });
   // --- old(...): the two-state ENTRY snapshot (V5) ---------------------------
@@ -5481,7 +5571,11 @@ _idx64 :: (fn(t : &VcTerm) -> VcTerm)({
 /// Remove `guard_count` entries starting at index `base` of ctx.path,
 /// keeping everything ABOVE them (stacked off and restored in order).
 /// The cond-arm guards are arm-local; assumptions pushed DURING the arm
-/// walk — callee ensures at call sites — must survive the arm.
+/// walk — callee ensures at call sites, a proved assert, a nested dead arm's
+/// not-taken fact — must survive the arm, but they hold only where the arm
+/// ran: each stays as `guards ==> fact`. Kept bare, a nested branch's fact
+/// held on every path after the outer cond
+/// (issues/fixed/2026-11-04-a-fact-learned-inside-a-branch-holds-on-every-path-after-it.md).
 _unwind_path_guards :: (fn(ctx : &mut VcCtx, base : usize, guard_count : usize) -> unit)({
   keep := ArrayList(VcTerm).new();
   (k : usize) = (ctx.path.len() - (base + guard_count));
@@ -5494,21 +5588,54 @@ _unwind_path_guards :: (fn(ctx : &mut VcCtx, base : usize, guard_count : usize) 
     ctx.path.pop();
     k = (k - usize(1));
   });
+  guards := ArrayList(VcTerm).new();
   (g : usize) = guard_count;
   while(g > usize(0), {
+    match(
+      ctx.path.last_cloned(),
+      .Some(gt) => guards.push(gt),
+      .None => ()
+    );
     ctx.path.pop();
     g = (g - usize(1));
   });
+  guard := cond(
+    (guards.len() == usize(0)) => Option(VcTerm).None,
+    true => Option(VcTerm).Some(_and_terms(&guards))
+  );
   (r : usize) = keep.len();
   while(r > usize(0), {
     r = (r - usize(1));
     match(
       keep.get_cloned(r),
-      .Some(t) => ctx.path.push(t),
+      .Some(t) => {
+        kt := match(
+          &guard,
+          .Some(gt) => _guarded_fact(ctx, &gt, &t),
+          .None => t
+        );
+        ctx.path.push(kt);
+      },
       .None => ()
     );
   });
 });
+/// The value of a branch expression no path leaves (every arm exited the
+/// loop or diverged): nothing reads it on a live path, so it is a fresh
+/// unconstrained constant of the expression's own sort, which keeps an
+/// enclosing term well-sorted. A sortless (unit) expression is `true`, the
+/// walk's unit value.
+_dead_value :: (fn(ctx : &mut VcCtx, at : &AstExpr) -> VcTerm)(
+  match(
+    expr_info_table_get(&ctx.table, ast_expr_id(at)),
+    .Some(info) => match(
+      _type_sort(&info.ty),
+      .Some(srt) => Rc.new(VcTermNode.Var(name : `__yo_dead${_next_fresh(ctx).to_string()}`, sort : srt)),
+      .None => Rc.new(VcTermNode.BoolLit(true))
+    ),
+    .None => Rc.new(VcTermNode.BoolLit(true))
+  )
+);
 _cond_ite :: (fn(ctx : &mut VcCtx, at : &AstExpr, args : &ArrayList(AstExpr)) -> Option(VcTerm))({
   // Pair up (condition, value); the trailing `true => v` arm is the else.
   // An arm may ASSIGN (a block value): every arm walks from the SAME
@@ -5634,11 +5761,10 @@ _cond_ite :: (fn(ctx : &mut VcCtx, at : &AstExpr, args : &ArrayList(AstExpr)) ->
     _fail_subset(ctx, String.from("empty cond"), at);
     return(Option(VcTerm).None);
   });
-  // At least one arm must fall through — the cond's VALUE (and the phi
-  // bindings) would otherwise be unreachable garbage. With live arms,
-  // their guards (plus the pushed ¬guards of the dead ones) are
-  // exhaustive on the fall-through path. The cond itself falls through,
-  // so the enclosing block keeps walking.
+  // With live arms, their guards (plus the pushed ¬guards of the dead
+  // ones) are exhaustive on the fall-through path, and the cond itself
+  // falls through, so the enclosing block keeps walking. With none, the
+  // cond does not continue either: every arm left the loop or diverged.
   last_live := usize(0);
   (found_live : bool) = false;
   (ll : usize) = dead_flags.len();
@@ -5656,8 +5782,8 @@ _cond_ite :: (fn(ctx : &mut VcCtx, at : &AstExpr, args : &ArrayList(AstExpr)) ->
     );
   });
   if(!found_live, {
-    _fail_subset(ctx, String.from("cond arm exits the loop on every arm (break/continue) — the cond has no fall-through value"), at);
-    return(Option(VcTerm).None);
+    ctx.path_dead = true;
+    return(Option(VcTerm).Some(_dead_value(ctx, at)));
   });
   ctx.path_dead = false;
   // Phi-fold every assigned name: the post-cond binding is the ite over
@@ -6459,8 +6585,11 @@ _ghost_fn_app_term :: (
       bi = (bi + usize(1));
     });
     // The definition's own obligations (AoRTE in the body) belong to the
-    // ghost_fn's task, not to this caller: drop whatever the walk emits.
+    // ghost_fn's task, not to this caller: drop whatever the walk emits,
+    // and the path facts and divergence it learned over the binders.
     ob_mark := ctx.obligations.len();
+    path_mark := ctx.path.len();
+    saved_dead := ctx.path_dead;
     saved_func := ctx.func_id.clone();
     ctx.func_id = String.from("__yo_gfn_definition");
     body_t := _expr_term(ctx, &body);
@@ -6468,6 +6597,10 @@ _ghost_fn_app_term :: (
     while(ctx.obligations.len() > ob_mark, {
       _ := ctx.obligations.pop();
     });
+    while(ctx.path.len() > path_mark, {
+      ctx.path.pop();
+    });
+    ctx.path_dead = saved_dead;
     _restore_vars(ctx, &saved_bn, &saved_bv);
     match(
       body_t,
@@ -7639,8 +7772,9 @@ verify_function_body :: (fn(input : &VerifyFnInput) -> VcBodyResult)({
       api = (api + usize(1));
     });
   });
+  // A body no path returns from (every path diverged) owes no `ensures`.
   match(
-    &body_val,
+    cond(ctx.path_dead => Option(VcTerm).None, true => body_val.clone()),
     .Some(bv) => {
       match(
         &input.return_label,

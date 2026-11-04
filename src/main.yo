@@ -141,7 +141,7 @@ json :: import("std/encoding/json");
 { record_input_file, reset_input_files, input_files, input_file_entries, set_input_hashing, input_hashing_enabled } :: import("./input_record.yo");
 { YoError, ExitWith, render_any_error, take_error_diagnostics } :: import("./error.yo");
 { ExplicitCopySite, set_migrate_rc_clone, migrate_mut_scrutinee_at, clear_migrate_mut_scrutinees, take_explicit_copy_sites } :: import("./evaluator/utils.yo");
-{ MigrateEdit, set_migrate_param_modes, take_migrate_edits, AddrOfSite, set_migrate_addr_of, take_addr_of_sites, set_migrate_drop_trait, take_destructor_sites, set_migrate_match_scrutinee, MarkerSite, set_migrate_markers, take_marker_sites, DerefSite, set_migrate_deref, set_deref_rule_suspended, take_deref_sites, take_deref_migrated_files, RcPatternSite, set_migrate_rc_pattern, take_rc_pattern_sites, DynSpellingSite, set_migrate_dyn_spelling, take_dyn_spelling_sites, HandleCtorSite, set_migrate_handle_ctors, take_handle_ctor_sites, MutableGlobalSite, set_migrate_mutable_globals, take_mutable_global_sites, set_migrate_mut_bindings, take_mut_binding_sites, take_mut_param_sites, take_mut_judged } :: import("./expr_info.yo");
+{ MigrateEdit, set_migrate_param_modes, take_migrate_edits, AddrOfSite, set_migrate_addr_of, take_addr_of_sites, set_migrate_drop_trait, take_destructor_sites, set_migrate_match_scrutinee, MarkerSite, set_migrate_markers, take_marker_sites, DerefSite, set_migrate_deref, set_deref_rule_suspended, take_deref_sites, take_deref_migrated_files, take_deref_clean_sites, take_deref_dead_arm_files, RcPatternSite, set_migrate_rc_pattern, take_rc_pattern_sites, DynSpellingSite, set_migrate_dyn_spelling, take_dyn_spelling_sites, HandleCtorSite, set_migrate_handle_ctors, take_handle_ctor_sites, MutableGlobalSite, set_migrate_mutable_globals, take_mutable_global_sites, set_migrate_mut_bindings, take_mut_binding_sites, take_mut_param_sites, take_mut_judged } :: import("./expr_info.yo");
 { Diagnostic, Span, Severity } :: import("./diagnostics.yo");
 { set_strict_test_bodies, SkippedTestBody, take_skipped_test_bodies } :: import("./evaluator/exprs/test.yo");
 {
@@ -172,7 +172,7 @@ json :: import("std/encoding/json");
   explain_to_json
 } :: import("./diagnostics_registry.yo");
 { format_yo_source, format_yo_files, FormatYoFilesOptions } :: import("./formatter.yo");
-{ host_target, set_current_target, parse_target, TargetInfo, clang_triple, is_target_linux, is_target_windows, is_target_macos, is_target_wasm, is_target_standalone_wasi, _find_available_compiler } :: import("./target.yo");
+{ host_target, set_current_target, get_current_target, comptime_distinct_targets, parse_target, TargetInfo, clang_triple, is_target_linux, is_target_windows, is_target_macos, is_target_wasm, is_target_standalone_wasi, _find_available_compiler } :: import("./target.yo");
 { set_target_pointer_size, type_lacks_clone } :: import("./types/utils.yo");
 { TypeValue, TypeValueNode, SharedList, no_types, no_labels, slot_pointee_at, t_slot_pointee } :: import("./types/definitions.yo");
 { is_function_type } :: import("./types/guards.yo");
@@ -2701,6 +2701,85 @@ _run_migrate_markers :: (
     exn.throw(dyn(`fix: ${failed.to_string()} file(s) do not evaluate — run \`yo check\` on them; their unevaluated arguments were not migrated`));
   });
 });
+/// `yo fix --migrate deref`'s per-target exchange (a child evaluation writes
+/// one record per line, tab-separated): a field with `\`, a tab or a newline
+/// escaped.
+_deref_field_escape :: (fn(s : &String) -> String)({
+  out := String.new();
+  it := s.clone().chars();
+  (go : bool) = true;
+  while(go, {
+    match(
+      it.next(),
+      .Some(r) => cond(
+        (r.char == u32(0x5C)) => out.push_str("\\\\"),
+        (r.char == u32(0x09)) => out.push_str("\\t"),
+        (r.char == u32(0x0A)) => out.push_str("\\n"),
+        true => out.push_rune(r)
+      ),
+      .None => {
+        go = false;
+      }
+    );
+  });
+  out
+});
+_deref_field_unescape :: (fn(s : &String) -> String)({
+  out := String.new();
+  it := s.clone().chars();
+  (go : bool) = true;
+  (esc : bool) = false;
+  while(go, {
+    match(
+      it.next(),
+      .Some(r) => cond(
+        esc => {
+          esc = false;
+          cond(
+            (r.char == u32(0x74)) => out.push_str("\t"),
+            (r.char == u32(0x6E)) => out.push_str("\n"),
+            true => out.push_rune(r)
+          );
+        },
+        (r.char == u32(0x5C)) => {
+          esc = true;
+        },
+        true => out.push_rune(r)
+      ),
+      .None => {
+        go = false;
+      }
+    );
+  });
+  out
+});
+_deref_field_usize :: (fn(s : &String) -> usize)(
+  match(s.parse_u64(), .Some(v) => usize(v), .None => usize(0))
+);
+/// A site's position, the same under either spelling of its module path.
+_deref_position_key :: (fn(st : &DerefSite) -> String)(
+  `${canonical_module_path(st.path.clone())}\t${st.row.to_string()}\t${st.col.to_string()}`
+);
+/// How one target reads a site, for the disagreement note.
+_deref_site_reading :: (fn(st : &DerefSite) -> String)(
+  cond(
+    (st.edit == u8(1)) => `the label \`${st.expect} : \``,
+    (st.edit == u8(2)) => `\`${st.expect}\` without its \`&\` marker`,
+    (st.edit == u8(3)) => `\`${st.expect}.*.*\``,
+    true => `\`${st.expect}.*\``
+  )
+);
+/// A row or column zero-padded so that sorting the text sorts the number.
+_deref_pad :: (fn(n : usize) -> String)({
+  s := n.to_string();
+  out := String.new();
+  (k : usize) = s.len();
+  while(k < usize(12), k = (k + usize(1)), {
+    out.push_str("0");
+  });
+  out.push_string(&s);
+  out
+});
 /// `yo fix <path> --migrate deref` — decision 43 step 2, N1e-1 (step-2
 /// consultation Q7, VERDICTS-13 §11): a reference binding outside std and
 /// the compiler tree reads and writes its referent with `.*`. Semantic:
@@ -2714,10 +2793,22 @@ _run_migrate_markers :: (
 /// expression on one line and, with `.*` appended, to its dereference; any
 /// other site is listed and left as written. Code that evaluation never
 /// reaches is not seen.
+///
+/// The result does not depend on the host: a file in which a compile-time
+/// `cond` left an arm unevaluated (`arch == Arch.Aarch64` on x86-64) is
+/// evaluated again for every other (architecture, OS) pair of the supported
+/// targets, each in a child process, and the sites are merged. A position
+/// two targets read differently is listed and left as written. `--target`
+/// evaluates for that one target only.
 _run_migrate_deref :: (
-  fn(files : &ArrayList(String), std_path : &String, dry_run : bool, io : Io, exn : Exception) -> unit
+  fn(files : &ArrayList(String), std_path : &String, dry_run : bool, explicit_target : bool, io : Io, exn : Exception) -> unit
 )({
+  // Set when this process is the evaluation for one more target that a
+  // parent `yo fix --migrate deref` spawned (below): it writes what it
+  // recorded to that file and applies nothing.
+  child_out := proc_env.get(String.from("YO_FIX_DEREF_SITES_OUT"));
   (failed : usize) = usize(0);
+  failed_files := ArrayList(String).new();
   (fi : usize) = usize(0);
   while(fi < files.len(), fi = (fi + usize(1)), {
     file := match(files.get_cloned(fi), .Some(f) => f, .None => String.new());
@@ -2734,23 +2825,235 @@ _run_migrate_deref :: (
       _drop := _take_load_error();
       _drop_diags := take_error_diagnostics();
       failed = (failed + usize(1));
-      println(`fix: ${file} does not evaluate; its references are migrated only as far as evaluation reached`);
+      failed_files.push(file.clone());
+      if(child_out.is_none(), {
+        println(`fix: ${file} does not evaluate; its references are migrated only as far as evaluation reached`);
+      });
     });
   });
   set_migrate_deref(false);
-  sites := take_deref_sites();
-  site_paths := ArrayList(String).new();
-  (spi : usize) = usize(0);
-  while(spi < sites.len(), spi = (spi + usize(1)), {
-    site_paths.push(canonical_module_path(sites(spi).path.clone()));
-  });
+  host_sites := take_deref_sites();
+  host_clean := take_deref_clean_sites();
   // The files that already read their references with `.*`: an old-reading
   // payload `.*` (edit 3) there is the reference's deref, written by an
   // earlier run (issues/fixed/2026-11-04-migrate-deref-adds-a-second-star-on-a-second-run.md).
   migrated_raw := take_deref_migrated_files();
+  dead_raw := take_deref_dead_arm_files();
+  match(
+    child_out,
+    .Some(out_path) => {
+      text := String.new();
+      for(&host_sites, st => {
+        line := `S\t${st.edit.to_string()}\t${st.row.to_string()}\t${st.col.to_string()}\t${_deref_field_escape(&st.path)}\t${_deref_field_escape(&st.expect)}\n`;
+        text.push_string(&line);
+      });
+      for(&host_clean, st => {
+        line := `C\t${st.row.to_string()}\t${st.col.to_string()}\t${_deref_field_escape(&st.path)}\t${_deref_field_escape(&st.expect)}\n`;
+        text.push_string(&line);
+      });
+      for(&migrated_raw, mp => {
+        line := `M\t${_deref_field_escape(mp)}\n`;
+        text.push_string(&line);
+      });
+      for(&failed_files, ff => {
+        line := `F\t${_deref_field_escape(ff)}\n`;
+        text.push_string(&line);
+      });
+      io.await(write_string(Path.new(out_path.clone()), &text, io), IoExn(io : io, exn : exn));
+      return(());
+    },
+    .None => ()
+  );
   migrated := HashSet(String).new();
   for(&migrated_raw, mp => {
     _new := migrated.insert(canonical_module_path(mp.clone()));
+  });
+  // One view per target: what its evaluation recorded. The host's is this
+  // process's; a `cond` whose compile-time-known conditions left an arm
+  // unevaluated (`arch == Arch.Aarch64` on x86-64) makes its file evaluate
+  // again for every other (architecture, OS) pair, each in a fresh process
+  // (an in-process re-evaluation is no clean reset), so the result does not
+  // depend on the host
+  // (issues/fixed/2026-11-04-migrate-deref-and-e0926-skip-a-platform-gated-dead-arm.md).
+  // An explicit `--target` evaluates for that target alone.
+  view_sites := ArrayList(ArrayList(DerefSite)).new();
+  view_clean := ArrayList(ArrayList(DerefSite)).new();
+  view_sites.push(host_sites);
+  view_clean.push(host_clean);
+  if(!explicit_target, {
+    dead := HashSet(String).new();
+    for(&dead_raw, dp => {
+      _new := dead.insert(canonical_module_path(dp.clone()));
+    });
+    dead_files := ArrayList(String).new();
+    (dfi : usize) = usize(0);
+    while(dfi < files.len(), dfi = (dfi + usize(1)), {
+      df := files(dfi).clone();
+      if(dead.contains(&canonical_module_path(df.clone())), {
+        dead_files.push(df);
+      });
+    });
+    if(dead_files.len() > usize(0), {
+      host := get_current_target();
+      others := comptime_distinct_targets();
+      (oi : usize) = usize(0);
+      while(oi < others.len(), oi = (oi + usize(1)), {
+        t := others(oi);
+        if((t.arch == host.arch) && (t.os == host.os), {
+          continue;
+        });
+        out_path := `${temp_dir()}/yo-fix-deref-${pid().to_string()}-${oi.to_string()}.txt`;
+        (ran : bool) = match(
+          current_exe(),
+          .Ok(exe) => {
+            cmd := Command.new(exe.to_string());
+            _a0 := cmd.arg(String.from("--std-path"));
+            _a1 := cmd.arg(std_path.clone());
+            _a2 := cmd.arg(String.from("fix"));
+            for(&dead_files, df => {
+              _af := cmd.arg(df.clone());
+            });
+            _a3 := cmd.arg(String.from("--migrate"));
+            _a4 := cmd.arg(String.from("deref"));
+            _a5 := cmd.arg(String.from("--target"));
+            _a6 := cmd.arg(t.triple.clone());
+            _ae := cmd.env(String.from("YO_FIX_DEREF_SITES_OUT"), out_path.clone());
+            cst := io.await(cmd.status(io), IoExn(io : io, exn : exn));
+            (cst.raw == i32(0)) && io.await(exists(Path.new(out_path.clone()), io), io)
+          },
+          .Err(_) => false
+        );
+        if(!ran, {
+          failed = (failed + usize(1));
+          println(`fix: the evaluation for ${t.triple} failed; the arms only that target evaluates were not migrated`);
+          continue;
+        });
+        raw := String.from_bytes(io.await(read(Path.new(out_path.clone()), io), IoExn(io : io, exn : exn)));
+        _remove_batch_artifact(&out_path, io);
+        t_sites := ArrayList(DerefSite).new();
+        t_clean := ArrayList(DerefSite).new();
+        for(raw.split(String.from("\n")), ln => {
+          fs := ln.split(String.from("\t"));
+          cond(
+            ((fs.len() == usize(6)) && (fs(usize(0)) == "S")) => t_sites.push(
+              DerefSite(
+                path : _deref_field_unescape(&fs(usize(4))),
+                row : _deref_field_usize(&fs(usize(2))),
+                col : _deref_field_usize(&fs(usize(3))),
+                expect : _deref_field_unescape(&fs(usize(5))),
+                edit : u8(_deref_field_usize(&fs(usize(1))))
+              )
+            ),
+            ((fs.len() == usize(5)) && (fs(usize(0)) == "C")) => t_clean.push(
+              DerefSite(
+                path : _deref_field_unescape(&fs(usize(3))),
+                row : _deref_field_usize(&fs(usize(1))),
+                col : _deref_field_usize(&fs(usize(2))),
+                expect : _deref_field_unescape(&fs(usize(4))),
+                edit : u8(255)
+              )
+            ),
+            ((fs.len() == usize(2)) && (fs(usize(0)) == "M")) => {
+              _new := migrated.insert(canonical_module_path(_deref_field_unescape(&fs(usize(1)))));
+            },
+            ((fs.len() == usize(2)) && (fs(usize(0)) == "F")) => println(
+              `fix: ${_deref_field_unescape(&fs(usize(1)))} does not evaluate for ${t.triple}; the arms only that target evaluates were not migrated`
+            ),
+            true => ()
+          );
+        });
+        view_sites.push(t_sites);
+        view_clean.push(t_clean);
+      });
+    });
+  });
+  // A position the targets read differently (one records an edit, another
+  // reads it as written or records another edit) is left as written: no
+  // single source text is right for every target.
+  first_sig := HashMap(String, String).new();
+  conflicted := HashSet(String).new();
+  conflict_sigs := ArrayList(String).new();
+  conflict_seen_sig := HashSet(String).new();
+  (vi : usize) = usize(0);
+  while(vi < view_sites.len(), vi = (vi + usize(1)), {
+    entries := ArrayList(String).new();
+    entry_seen := HashSet(String).new();
+    (vk : usize) = usize(0);
+    while(vk < view_sites(vi).len(), vk = (vk + usize(1)), {
+      st := view_sites(vi)(vk).clone();
+      e := `${_deref_position_key(&st)}\n${_deref_site_reading(&st)}`;
+      if(entry_seen.insert(e.clone()), {
+        entries.push(e);
+      });
+    });
+    entries.sort();
+    sig := HashMap(String, String).new();
+    keys := ArrayList(String).new();
+    for(&entries, e => {
+      parts := e.split(String.from("\n"));
+      pk := parts(usize(0)).clone();
+      reading := parts(usize(1)).clone();
+      match(
+        sig.get_cloned(&pk),
+        .Some(prev) => {
+          _old := sig.insert(pk.clone(), `${prev} + ${reading}`);
+        },
+        .None => {
+          _old := sig.insert(pk.clone(), reading);
+          keys.push(pk.clone());
+        }
+      );
+    });
+    (ck : usize) = usize(0);
+    while(ck < view_clean(vi).len(), ck = (ck + usize(1)), {
+      st := view_clean(vi)(ck).clone();
+      pk := _deref_position_key(&st);
+      if(!sig.contains_key(&pk), {
+        _old := sig.insert(pk.clone(), String.from("as written"));
+        keys.push(pk.clone());
+      });
+    });
+    for(&keys, pk => {
+      s := match(sig.get_cloned(pk), .Some(x) => x, .None => String.new());
+      match(
+        first_sig.get_cloned(pk),
+        .Some(f) => if(f != s, {
+          if(conflict_seen_sig.insert(`${pk}\t${f}`), {
+            conflict_sigs.push(`${pk}\t${f}`);
+          });
+          if(conflict_seen_sig.insert(`${pk}\t${s}`), {
+            conflict_sigs.push(`${pk}\t${s}`);
+          });
+          _new := conflicted.insert(pk.clone());
+        }),
+        .None => {
+          _old := first_sig.insert(pk.clone(), s);
+        }
+      );
+    });
+  });
+  sites := ArrayList(DerefSite).new();
+  conflicts := ArrayList(DerefSite).new();
+  conflict_seen := HashSet(String).new();
+  (mvi : usize) = usize(0);
+  while(mvi < view_sites.len(), mvi = (mvi + usize(1)), {
+    (mvk : usize) = usize(0);
+    while(mvk < view_sites(mvi).len(), mvk = (mvk + usize(1)), {
+      st := view_sites(mvi)(mvk).clone();
+      pk := _deref_position_key(&st);
+      if(conflicted.contains(&pk), {
+        if(conflict_seen.insert(pk.clone()), {
+          conflicts.push(st);
+        });
+      }, {
+        sites.push(st);
+      });
+    });
+  });
+  site_paths := ArrayList(String).new();
+  (spi : usize) = usize(0);
+  while(spi < sites.len(), spi = (spi + usize(1)), {
+    site_paths.push(canonical_module_path(sites(spi).path.clone()));
   });
   (n_done : usize) = usize(0);
   (n_skipped : usize) = usize(0);
@@ -2770,6 +3073,29 @@ _run_migrate_deref :: (
           mine.push(st);
         });
       });
+    });
+    // The positions the targets read differently, in source order.
+    file_conflicts := ArrayList(String).new();
+    for(&conflicts, cs => {
+      if(canonical_module_path(cs.path.clone()) == canon, {
+        file_conflicts.push(`${_deref_pad(cs.row)}\t${_deref_pad(cs.col)}\t${_deref_position_key(cs)}\t${cs.expect}`);
+      });
+    });
+    file_conflicts.sort();
+    for(&file_conflicts, fc => {
+      cparts := fc.split(String.from("\t"));
+      cpk := `${cparts(usize(2))}\t${cparts(usize(3))}\t${cparts(usize(4))}`;
+      readings := ArrayList(String).new();
+      for(&conflict_sigs, csg => {
+        if(csg.starts_with(`${cpk}\t`), {
+          readings.push(csg.substring(cpk.len() + usize(1), csg.len()));
+        });
+      });
+      readings.sort();
+      n_skipped = (n_skipped + usize(1));
+      println(
+        `fix: ${file}:${(_deref_field_usize(&cparts(usize(3))) + usize(1)).to_string()}:${(_deref_field_usize(&cparts(usize(4))) + usize(1)).to_string()}: the targets read \`${cparts(usize(5))}\` differently (${String.from(" / ").join(&readings)}); left as written`
+      );
     });
     if(mine.len() == usize(0), {
       continue;
@@ -5067,7 +5393,7 @@ run_fix :: (
     return(());
   });
   if(migrate == "deref", {
-    _run_migrate_deref(&files, std_path.clone(), dry_run, io, exn);
+    _run_migrate_deref(&files, std_path.clone(), dry_run, target_triple.len() > usize(0), io, exn);
     return(());
   });
   (total_applied : usize) = usize(0);
@@ -6074,7 +6400,13 @@ _print_verify_fn_report :: (fn(rp : &VerifyFnReport, detailed : bool) -> unit)(
                 .Unproven(reason) => `UNPROVEN  ${reason}`,
                 .SolverError(msg) => `SOLVER-ERROR  ${msg}`
               );
-              cached_mark := if(obl.cached, String.from(" (cached)"), String.new());
+              // A cached `unknown` (only an rlimit-exhausted one is stored)
+              // was not asked again: say how to ask.
+              cached_mark := cond(
+                !(obl.cached) => String.new(),
+                match(&obl.verdict, .Unproven(_) => true, _ => false) => String.from(" (cached; --no-cache asks the solver again)"),
+                true => String.from(" (cached)")
+              );
               folded_mark := if(obl.folded, String.from(" (folded)"), String.new());
               kind_mark := if(obl.elision_only && bad, String.from(" (elision-only: guard kept)"), String.new());
               println(`    ${obl.name}: ${detail}${cached_mark}${folded_mark}${kind_mark}`);
