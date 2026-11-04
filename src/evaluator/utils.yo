@@ -1828,8 +1828,56 @@ note_second_class_binding :: (
 /// Decision 38 A, "results": a block, arm or `cond` result of type `ty` may
 /// not carry a borrow of a binding declared at or inside frame `scope_frame`
 /// of `env` (the scope the result is leaving).
-reject_second_class_result_outliving :: (fn(ty : &TypeValue, scope_frame : usize, tok : &Token, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
+reject_second_class_result_outliving :: (
+  fn(
+    ty : &TypeValue,
+    scope_frame : usize,
+    tok : &Token,
+    env : &Environment,
+    ctx : &EvalContext,
+    exn : Exception,
+    /// The result expression: a borrowing future's places are the ones
+    /// recorded where it was made (decision 43 step 4).
+    (result_expr : Option(AstExpr)) ?= .None
+  ) -> unit
+)({
   if(!type_is_second_class(ty), {
+    return(());
+  });
+  if(is_future_value_type(ty), {
+    match(
+      result_expr,
+      .Some(re) => {
+        roots := origin_carrying_value_roots(&re, env, ctx);
+        (ri : usize) = usize(0);
+        while(ri < roots.len(), ri = (ri + usize(1)), {
+          rp := roots(ri).place.clone();
+          match(
+            get_variables_from_env(env, rp.root_name.clone()).last(),
+            .Some(rv) => match(
+              _find_var_by_id(env, rv.id),
+              .Some(root_at) => if(root_at.1 >= scope_frame, {
+                raise_flow_violation(
+                  with_code(
+                    format_error_message_with_help(
+                      tok,
+                      `This result borrows \`${rp.text}\`, but \`${rp.root_name}\` is declared inside the block or arm the result leaves, so the borrow would outlive it.`,
+                      Option(String).Some(`declare \`${rp.root_name}\` outside the block, or capture a value instead`)
+                    ),
+                    E_BORROW_ESCAPES
+                  ),
+                  ctx,
+                  exn
+                );
+              }),
+              .None => ()
+            ),
+            .None => ()
+          );
+        });
+      },
+      .None => ()
+    );
     return(());
   });
   bs := ArrayList(CaptureBorrow).new();

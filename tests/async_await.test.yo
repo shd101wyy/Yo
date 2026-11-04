@@ -7645,12 +7645,32 @@ test("a borrowing future: a function returns a future over its & or &mut paramet
   );
   assert(x == i32(6), "an io.async body borrows a local for an await in place");
 });
-test("a borrowing future is awaited where it is made: never bound, spawned or carried out of its lender's scope", {
+// Decision 43 step 4 (VERDICTS-18 §B): a borrowing future may be bound; the
+// binding freezes the places of its origin, each in the mode it was lent in,
+// until the future's last use.
+test("a bound borrowing future freezes what it borrows until its last use (decision 43 N3-1)", {
   mut(c) := _A2Counter(n : i32(0));
+  f := _a2_bump(&mut c, io);
+  io.await(f, io);
+  assert(c.n == i32(1), "the bound future ran at its await");
+  g := _a2_tenfold(&c, io);
+  assert(c.n == i32(1), "a & lend leaves the place readable while the future lives");
+  assert(io.await(g, io) == i32(10), "the bound & future reads the place at its await");
+  c.n = i32(2);
+  assert(c.n == i32(2), "the freeze ends with the future's last use");
   comptime_expect_error({
-    f := _a2_bump(&mut c, io);
-    ()
-  }, "would hold a borrowing future");
+    h := _a2_bump(&mut c, io);
+    c.n = i32(5);
+    io.await(h, io)
+  }, "Cannot write `c.n` here");
+  comptime_expect_error({
+    h := _a2_tenfold(&c, io);
+    c.n = i32(5);
+    io.await(h, io)
+  }, "Cannot write `c.n` here");
+});
+test("a borrowing future is never spawned or carried out of its lender's scope", {
+  mut(c) := _A2Counter(n : i32(0));
   comptime_expect_error(io.spawn(_a2_bump(&mut c, io), io), "spawned or moved into a by-value parameter");
   comptime_expect_error({
     y := i32(1);
@@ -7841,8 +7861,9 @@ test("a future made through a function value is assumed to borrow what the call 
   fp := _a2_bump;
   comptime_expect_error({
     f := fp(&mut c, io);
-    ()
-  }, "would hold a borrowing future");
+    c.n = i32(5);
+    io.await(f, io)
+  }, "Cannot write `c.n` here");
   comptime_expect_error(io.spawn(fp(&mut c, io), io), "spawned or moved into a by-value parameter");
   w := Rc.new(_A2WithNode(node : _A2Node(n : i32(1))));
   gp := _a2_read_i32_later;
