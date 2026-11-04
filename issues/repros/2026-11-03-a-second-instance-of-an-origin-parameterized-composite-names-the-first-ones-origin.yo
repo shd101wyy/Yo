@@ -1,0 +1,12 @@
+// issues/fixed/2026-11-03-a-second-instance-of-an-origin-parameterized-composite-names-the-first-ones-origin.md
+// `yo check` this file: rc 0 (expected: the return rule rejects `h`, whose result is built over `b`, not `a`).
+V :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(at : &(i32, p), lo : usize));
+f :: (fn(a : &i32) -> V(a))(V(a)(at : a, lo : usize(0)));
+h :: (fn(a : &i32, b : &i32) -> V(a))(V(b)(at : b, lo : usize(0)));
+main :: (fn() -> unit)({
+  x := i32(1);
+  y := i32(2);
+  _v := f(&x);
+  _w := h(&x, &y);
+});
+export(main);

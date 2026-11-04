@@ -928,6 +928,59 @@ t_slot_origin_names :: (fn(slot : &TypeValue) -> Option(SharedList(String)))(
 /// `.None` for an elided one (O2: the union of the reference parameters) or
 /// a non-projection.
 fn_result_origin_names :: (fn(ft : &TypeValue) -> Option(SharedList(String)))(t_slot_origin_names(&fn_result_slot(ft)));
+/// Collect the origin names spelled inside `t` (an origin argument of a
+/// struct or enum instance, a reference's origin, through tuples and nested
+/// type arguments) into `out`. False when one of them is elided: an elided
+/// origin is the union of the reference parameters (O2), which lists no names.
+_spelled_origins_into :: (fn(t : &TypeValue, out : &mut ArrayList(String), depth : usize) -> bool)({
+  if(depth > usize(16), {
+    return(true);
+  });
+  match(
+    t,
+    Rc(.OriginSet(so_places, so_elided)) => {
+      if(so_elided, {
+        return(false);
+      });
+      (si : usize) = usize(0);
+      while(si < so_places.len(), {
+        match(so_places.get(si), .Some(n) => out.push(n), .None => ());
+        si = (si + usize(1));
+      });
+      true
+    },
+    Rc(.Reference(so_pointee, _, so_origin)) => (_spelled_origins_into(&so_origin, out, depth + usize(1)) && _spelled_origins_into(&so_pointee, out, depth + usize(1))),
+    Rc(.Struct({ type_arguments : so_tas })) => _spelled_origins_in_list(&so_tas, out, depth),
+    Rc(.EnumT({ type_arguments : so_etas })) => _spelled_origins_in_list(&so_etas, out, depth),
+    Rc(.Tuple({ field_types : so_fts })) => _spelled_origins_in_list(&so_fts, out, depth),
+    _ => true
+  )
+});
+_spelled_origins_in_list :: (fn(ts : &SharedList(TypeValue), out : &mut ArrayList(String), depth : usize) -> bool)({
+  (li : usize) = usize(0);
+  while(li < ts.len(), {
+    if(!match(ts.get(li), .Some(lt) => _spelled_origins_into(&lt, out, depth + usize(1)), .None => true), {
+      return(false);
+    });
+    li = (li + usize(1));
+  });
+  true
+});
+/// The origin names a BY-VALUE result spells in its type (decision 43 step
+/// 3, N2b's composite results; O3's return rule): `-> V(a)` lists `a`,
+/// `-> Option(&(T, p))` lists `p`. `.None` when the result spells no origin
+/// or elides one (O2: then it may name every reference parameter).
+fn_result_composite_origin_names :: (fn(ft : &TypeValue) -> Option(SharedList(String)))({
+  slot := fn_result_slot(ft);
+  if(t_slot_is_borrow(&slot), {
+    return(Option(SharedList(String)).None);
+  });
+  names := ArrayList(String).new();
+  if(!_spelled_origins_into(&slot, &mut names, usize(0)) || (names.len() == usize(0)), {
+    return(Option(SharedList(String)).None);
+  });
+  Option(SharedList(String)).Some(shared_list(names))
+});
 /// Whether `names` holds `name`.
 origin_names_contain :: (fn(names : &SharedList(String), name : &String) -> bool)({
   (oi : usize) = usize(0);
@@ -1037,5 +1090,5 @@ get_struct_field_comptime_flags :: (
   g_struct_field_comptime_flags.with(m => m.get_cloned(struct_id.clone()))
 );
 export(TypeValue, TypeValueNode, FuncMeta, SomeTBounds, SomeTBoundsCell, some_t_bounds, some_t_bounds_empty, TraitTBody, TraitTBodyCell, trait_t_body, SharedList, SharedListCell, SharedListElem, shared_list, no_types, no_labels, no_flags, no_levels, no_discriminants, no_type_lists, no_label_lists, t_refine_inner, register_struct_field_comptime_flags, get_struct_field_comptime_flags);
-export(fn_result_slot, fn_result_pointee, fn_result_is_ref, fn_result_is_mut_ref, t_origin_spelled_names, t_slot_origin_names, fn_result_origin_names, origin_names_contain, fn_param_in_result_origin);
+export(fn_result_slot, fn_result_pointee, fn_result_is_ref, fn_result_is_mut_ref, t_origin_spelled_names, t_slot_origin_names, fn_result_origin_names, fn_result_composite_origin_names, origin_names_contain, fn_param_in_result_origin);
 export(t_origin_elided, t_origin_kind, t_origin_named, t_reference_with_origin, is_origin_kind, t_reference, t_slot, t_slot_pointee, slot_pointee_at, slot_pointees, t_slot_is_mut_ref, t_slot_is_borrow, t_slot_is_by_value, t_slot_with_pointee, t_slot_like, fn_param_slots, fn_param_is_mut_ref, fn_param_is_by_value, fn_param_mut_ref_at, fn_param_by_value_at, fn_param_mut_ref_flags, fn_param_by_value_flags);
