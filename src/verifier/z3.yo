@@ -26,7 +26,9 @@
 //! the NEGATED goal, and asks check-sat, then requests evidence:
 //!   unsat    ⇒ Proved (get-unsat-core names the participating clauses)
 //!   sat      ⇒ Refuted (get-value over the declarations = counter-example)
-//!   unknown  ⇒ Unproven (budget)
+//!   unknown  ⇒ Unproven (budget); `(get-info :reason-unknown)` and
+//!              `(get-info :rlimit)` say whether the budget or the
+//!              wall-clock backstop stopped it
 pragma(Pragma.AllowUnsafe);
 { String, StringBuilder } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
@@ -375,6 +377,35 @@ run_z3_script :: (fn(binary : &String, script : &String) -> Result(String, Strin
   });
   Result(String, String).Ok(out)
 });
+/// The solver binary's own identity: the trimmed output of
+/// `<binary> --version` (`Z3 version 5.1.0 - 64 bit`). `.None` when the
+/// probe cannot run, exits nonzero or prints nothing. The verify cache keys
+/// on this, not on `Z3_VERSION`: discovery honours `YO_Z3_PATH`, which
+/// accepts any z3, and a verdict from one solver must not answer for
+/// another
+/// (issues/fixed/2026-11-04-the-verify-cache-stores-wall-clock-unknown-verdicts-and-keys-on-the-pinned-z3-version-not-the-binary.md).
+z3_version_of_binary :: (fn(binary : &String) -> Option(String))({
+  out_path := _z3_temp_path(String.from("version"));
+  cmd := `${binary} --version > ${out_path} 2>&1`;
+  cmd_buf := cmd.to_cstr();
+  cmd_cstr := cmd_buf.ptr().unwrap();
+  status := unsafe(stdlib.system(Option(*char).Some((*char)(cmd_cstr))));
+  op_read := out_path.clone();
+  out_opt := _z3_read_file_sync(&op_read);
+  op_unlink := out_path.clone();
+  _z3_unlink_sync(&op_unlink);
+  if(status != int(0), {
+    return(Option(String).None);
+  });
+  match(
+    out_opt,
+    .Some(o) => {
+      text := o.trim();
+      if(text.len() == usize(0), Option(String).None, Option(String).Some(text))
+    },
+    .None => Option(String).None
+  )
+});
 // ============================================================================
 // S-expression scanning (verdict parsing — pure, unit-testable)
 // ============================================================================
@@ -557,9 +588,72 @@ _head_atom_text :: (fn(items : &ArrayList(Z3Sexpr)) -> Option(String))(
     .None => Option(String).None
   )
 );
+/// The value of a top-level `(get-info <keyword>)` response, `(:kw v …)`:
+/// the atoms after the keyword joined by spaces (the scanner splits a
+/// quoted string at its spaces), with one pair of surrounding quotes
+/// removed. `.None` when the stream has no such form (an older z3 that
+/// rejects the keyword answers with a tolerated post-verdict error).
+_z3_info_of :: (fn(forms : &ArrayList(Z3Sexpr), keyword : &String) -> Option(String))({
+  (i : usize) = usize(0);
+  while(i < forms.len(), {
+    match(
+      forms.get_cloned(i),
+      .Some(.List(items)) => {
+        if(match(_head_atom_text(&items), .Some(h) => (h == keyword), .None => false), {
+          sb := StringBuilder.new();
+          (j : usize) = usize(1);
+          while(j < items.len(), {
+            if(j > usize(1), {
+              sb.write_byte(u8(0x20));
+            });
+            match(
+              items.get_cloned(j),
+              .Some(item) => {
+                sb.write_string(z3_sexpr_to_string(&item));
+              },
+              .None => ()
+            );
+            j = (j + usize(1));
+          });
+          text := sb.to_string();
+          n := text.len();
+          if((n >= usize(2)) && (text.byte_at(usize(0)) == u8(0x22)) && (text.byte_at(n - usize(1)) == u8(0x22)), {
+            return(Option(String).Some(text.substring(usize(1), n - usize(1))));
+          });
+          return(Option(String).Some(text));
+        });
+      },
+      _ => ()
+    );
+    i = (i + usize(1));
+  });
+  Option(String).None
+});
+/// Why z3 answered `unknown`: its `(get-info :reason-unknown)` response
+/// (`canceled`, `timeout`, `incomplete quantifiers`, …).
+z3_reason_unknown_of :: (fn(forms : &ArrayList(Z3Sexpr)) -> Option(String))(
+  _z3_info_of(forms, String.from(":reason-unknown"))
+);
+/// The resource count the query consumed: its `(get-info :rlimit)`
+/// response. Comparing it with the `:rlimit` budget tells an exhausted
+/// budget (deterministic) from a wall-clock `:timeout` that fired first
+/// (load-dependent): z3 5.1.0 can report either as `canceled`, so the
+/// reason alone cannot separate them.
+z3_rlimit_used_of :: (fn(forms : &ArrayList(Z3Sexpr)) -> Option(usize))(
+  match(
+    _z3_info_of(forms, String.from(":rlimit")),
+    .Some(text) => match(
+      text.parse_u64(),
+      .Some(n) => Option(usize).Some(usize(n)),
+      .None => Option(usize).None
+    ),
+    .None => Option(usize).None
+  )
+);
 /// The unsat core: the first top-level BARE list of atoms (z3 prints it as
 /// `(name1 name2 ...)` right after unsat). Keyword-led forms (`(error …)`,
-/// `(model …)`, `(define-fun …)`) and the get-value response shape are
+/// `(model …)`, `(define-fun …)`, the `(:reason-unknown …)` and
+/// `(:rlimit …)` get-info answers) and the get-value response shape are
 /// skipped.
 z3_unsat_core_of :: (fn(forms : &ArrayList(Z3Sexpr)) -> ArrayList(String))({
   out := ArrayList(String).new();
@@ -573,7 +667,9 @@ z3_unsat_core_of :: (fn(forms : &ArrayList(Z3Sexpr)) -> ArrayList(String))({
           .List(items) => {
             head_kw := match(
               _head_atom_text(&items),
-              .Some(t) => ((t == "error") || (t == "model") || (t == "define-fun")),
+              .Some(t) => (
+                (t == "error") || (t == "model") || (t == "define-fun") || ((t.len() > usize(0)) && (t.byte_at(usize(0)) == u8(0x3A)))
+              ),
               .None => false
             );
             if(!head_kw, {
@@ -727,5 +823,8 @@ export(
   z3_check_sat_of,
   z3_unsat_core_of,
   z3_error_before_verdict,
-  z3_value_pairs_of
+  z3_value_pairs_of,
+  z3_reason_unknown_of,
+  z3_rlimit_used_of,
+  z3_version_of_binary
 );

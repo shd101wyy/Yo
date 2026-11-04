@@ -74,13 +74,14 @@ pragma(Pragma.AllowUnsafe);
   make_err_variable,
   bind_parameter,
   variable_bound_some_id,
-  variable_set_bound_some_id
+  variable_set_bound_some_id,
+  mark_closure_param_slot_trait
 } :: import("../../env.yo");
 // dup-on-store / move for owned fn-call args. utils.yo
 // imports nothing from calls/, so this is acyclic.
-{ set_expr_as_consumed, deref_exempt_mark, deref_exempt_clear, variable_is_reference_binding, deref_rule_applies, is_reference_deref_site, reject_reference_without_deref, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, borrowed_place_read_only_handle, are_values_equal, require_expr_not_consumed, adopt_never_type, reject_bare_callable_into_dyn_fn, reject_bare_callable_result, bare_callable_recorded_into_dyn_fn, reject_second_class_escape, reject_second_class_return, require_capture_borrow_exclusivity, audit_copy_trait_enabled, audit_record_copy_trait, reject_write_through_rc, _owning_param_binding_for_capture_move, reference_field_read_type, reject_write_through_shared_reference_field } :: import("../utils.yo");
+{ set_expr_as_consumed, judge_capture_fnmut_at_fn_slot, deref_exempt_mark, deref_exempt_clear, variable_is_reference_binding, deref_rule_applies, is_reference_deref_site, reject_reference_without_deref, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, borrowed_place_read_only_handle, are_values_equal, require_expr_not_consumed, adopt_never_type, reject_bare_callable_into_dyn_fn, reject_bare_callable_result, bare_callable_recorded_into_dyn_fn, reject_second_class_escape, reject_second_class_return, require_capture_borrow_exclusivity, audit_copy_trait_enabled, audit_record_copy_trait, reject_write_through_rc, _owning_param_binding_for_capture_move, reference_field_read_type, reject_write_through_shared_reference_field } :: import("../utils.yo");
 { function_may_mutate_rc_storage } :: import("../effects/mutation_summary.yo");
-{ some_t_bounds, TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, no_levels, no_flags, SharedList, slot_pointee_at, t_slot_pointee, t_slot, t_slot_like, fn_param_is_mut_ref, fn_param_is_by_value, fn_param_mut_ref_flags, fn_param_by_value_flags, t_slot_with_pointee, fn_result_is_ref, fn_result_is_mut_ref, t_slot_origin_names, is_origin_kind, t_origin_kind, t_origin_named, t_reference_with_origin, t_slot_is_borrow } :: import("../../types/definitions.yo");
+{ some_t_bounds, TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, no_levels, no_flags, SharedList, slot_pointee_at, t_slot_pointee, t_slot, t_slot_like, fn_param_is_mut_ref, fn_param_is_by_value, fn_param_mut_ref_flags, fn_param_by_value_flags, t_slot_with_pointee, fn_result_is_ref, fn_result_is_mut_ref, t_slot_origin_names, is_origin_kind, t_origin_kind, t_origin_named, t_reference_with_origin, fn_trait_base_serves, fn_trait_call_contract, fn_trait_slot_contract, t_slot_is_borrow } :: import("../../types/definitions.yo");
 { Token, TokenKind } :: import("../../token.yo");
 { HashMap } :: import("std/collections/hash_map");
 { HashSet } :: import("std/collections/hash_set");
@@ -232,7 +233,7 @@ pragma(Pragma.AllowUnsafe);
 { generate_expr_from_code } :: import("../../parser.yo");
 { format_error_message, format_error_message_with_help, with_code, YoError, note_diagnostic_of_token } :: import("../../error.yo");
 { is_std_module_path, is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
-{ E_ARGUMENT_LABEL_MISMATCH, E_CLOSURE_MOVES_CAPTURE, E_BORROW_MARKER_MISMATCH } :: import("../../diagnostics.yo");
+{ E_ARGUMENT_LABEL_MISMATCH, E_CLOSURE_TRAIT_TOO_WEAK, E_BORROW_MARKER_MISMATCH } :: import("../../diagnostics.yo");
 { require_ref_own_argument_exclusivity, require_valid_ref_argument_places, flag_flow_violation, flow_violation_pending, flow_violation_error, propagate_def_time_errors, raise_flow_violation } :: import("../../types/flowability.yo");
 {
   mark_as_control_fn,
@@ -1640,23 +1641,40 @@ check_argument_for_parameter :: (
     .Some(fv_note) => _arg_rule_throw_types(arg_tok, `Incompatible types:\n- Expected: ${type_to_string(resolved_pt)}\n- Given   : ${type_to_string(&lowered)}${fv_note}`, resolved_pt, &lowered, ctx, exn),
     .None => ()
   );
-  // Decision 37: `Fn` implies `FnOnce`, never the reverse. A closure typed
-  // `FnOnce(...)` may be called once, and an `Fn(...)` parameter's callee may
-  // call it again. A closure literal adopts the parameter's trait, so this
-  // fires for a named closure (or a forwarded parameter) only.
-  if((_fn_trait_base_of(resolved_pt) == "Fn") && (_fn_trait_base_of(&lowered) == "FnOnce"), {
+  // Decision 37: `Fn` implies `FnMut`, which implies `FnOnce`, never the
+  // reverse (`fn_trait_base_serves`). A closure typed `FnOnce(...)` may be
+  // called once, and an `Fn(...)`/`FnMut(...)` parameter's callee may call it
+  // again; one typed `FnMut(...)` needs an exclusive call, and an `Fn(...)`
+  // parameter's callee may call it through a shared borrow. A closure literal
+  // adopts the parameter's trait, and an unannotated closure value has none,
+  // so this fires for a closure TYPED with its trait (an annotation, a
+  // forwarded parameter, a `Dyn`) only.
+  pt_base := _fn_trait_base_of(resolved_pt);
+  arg_base := _fn_trait_base_of(&lowered);
+  if(!pt_base.is_empty() && (!arg_base.is_empty() && !fn_trait_base_serves(&arg_base, &pt_base)), {
     raise_flow_violation(
       with_code(
         format_error_message_with_help(
           arg_tok,
-          `Argument for parameter "${param_label}" is an \`FnOnce(...)\` closure, which is called at most once (its call consumes it), and the parameter is \`Fn(...)\`: its callee may call the closure again.`,
-          Option(String).Some(String.from("pass an `Fn(...)` closure (one whose body moves no capture out), or declare the parameter `sink(f) : Impl(FnOnce(...))` if the callee calls it once"))
+          `Argument for parameter "${param_label}" is an \`${arg_base}(...)\` closure, ${fn_trait_call_contract(&arg_base)}, and the parameter is \`${pt_base}(...)\`: ${fn_trait_slot_contract(&pt_base)}.`,
+          Option(String).Some(
+            cond(
+              (arg_base == "FnOnce") => `pass an \`${pt_base}(...)\` closure (one whose body moves no capture out), or declare the parameter \`sink(f) : Impl(FnOnce(...))\` if the callee calls it once`,
+              true => String.from("pass an `Fn(...)` closure (one whose body writes no capture), or declare the parameter `f : &mut Impl(FnMut(...))` if the callee calls it one call at a time")
+            )
+          )
         ),
-        E_CLOSURE_MOVES_CAPTURE
+        E_CLOSURE_TRAIT_TOO_WEAK
       ),
       ctx,
       exn
     );
+  });
+  // A closure value with no trait of its own (its literal was typed by no
+  // slot) that is `FnMut` by its `&mut` captures, reaching an `Fn(...)`
+  // parameter: the `Fn`-slot exemption decides it (VERDICTS-15 Q4/Q4′).
+  if((pt_base == "Fn") && arg_base.is_empty(), {
+    judge_capture_fnmut_at_fn_slot(arg_tok, resolved_pt, &lowered, ctx, exn);
   });
   // A FUNCTION argument's marker traits come from its value first — what it
   // captures and what its code reaches (rules D4 + D9,
@@ -4566,6 +4584,22 @@ create_specialized_function_inline :: (
                 match(decl_param_is_ref.get(rbp_i), .Some(b) => b, .None => false),
                 false,
                 synthetic_token(&p_label, &callee_env.module_path.*)
+              );
+              // The binding takes the call's resolved type, whose closure
+              // trait is the ARGUMENT's; the slot's own trait decides how the
+              // body calls it (decision 37, `closure_param_slot_trait`).
+              match(
+                _rbc,
+                .Some(rbc_v) => match(
+                  slot_pointee_at(&decl_param_types, rbp_i),
+                  .Some(rbc_dt) => match(
+                    extract_fn_trait_from_type(&rbc_dt),
+                    .Some(Rc(.FnTraitT(base_name : rbc_b))) => mark_closure_param_slot_trait(rbc_v.id, rbc_b.clone()),
+                    _ => ()
+                  ),
+                  .None => ()
+                ),
+                .None => ()
               );
               _mark_value_rebind(&_rbc, &func_type, rbp_i);
             }, if(cur_is_folded_const, {

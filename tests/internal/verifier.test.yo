@@ -13,11 +13,11 @@
 { VcSort, VcOp, VcTerm, VcTermNode, VcQuantKind, VcQuery, new_vc_query, vc_eq, vc_and, vc_or, vc_not, vc_imp, vc_distinct } :: import("../../src/verifier/terms.yo");
 { mangle_vc_name, encode_sort, encode_term, encode_content, encode_script, encode_fundecl, default_encode_options } :: import("../../src/verifier/encode.yo");
 { Z3Sexpr, parse_z3_sexprs, z3_sexpr_to_string, z3_check_sat_of, z3_unsat_core_of, z3_value_pairs_of, run_z3_script, ensure_z3 } :: import("../../src/verifier/z3.yo");
-{ default_verify_run_config, verify_cache_key, verdict_of_response, VerifyVerdict, VerifyRunConfig, resolve_solver_sync, SolverResolution, verifier_harness_self_test, VerifyFnReport, VerifyFnObligation, verify_report_is_vacuous, verify_outcome_names, is_verify_outcome_name, verify_report_is_failure, verify_report_is_degraded, summarize_verify_reports, verify_summary_count } :: import("../../src/verifier/driver.yo");
+{ default_verify_run_config, verify_cache_key, verdict_of_response, solver_answer_of_response, VerifyVerdict, VerifyRunConfig, resolve_solver_sync, SolverResolution, verifier_harness_self_test, VerifyFnReport, VerifyFnObligation, verify_report_is_vacuous, verify_outcome_names, is_verify_outcome_name, verify_report_is_failure, verify_report_is_degraded, summarize_verify_reports, verify_summary_count } :: import("../../src/verifier/driver.yo");
 { display_module_path, canonical_module_path } :: import("../../src/utils.yo");
 { _pointer_width } :: import("../../src/verifier/vc.yo");
 { run_vc_query, verify_cache_dir } :: import("../../src/verifier/driver.yo");
-{ _z3_exists_sync } :: import("../../src/verifier/z3.yo");
+{ _z3_exists_sync, z3_version_of_binary } :: import("../../src/verifier/z3.yo");
 { set_current_target, parse_target, host_target } :: import("../../src/target.yo");
 { cwd } :: import("std/env");
 // ---------------------------------------------------------------------------
@@ -163,6 +163,8 @@ test("encode_script: options, content, evidence directives in fixed order", {
 (check-sat)
 (get-unsat-core)
 (get-value (x))
+(get-info :reason-unknown)
+(get-info :rlimit)
 `;
   assert(encode_script(&q, opts) == expected, "script golden");
 });
@@ -342,16 +344,97 @@ _golden_query :: (fn(goal_val : u64) -> VcQuery)({
 });
 test("verify_cache_key: stable for identical input, sensitive to options and content", {
   cfg := default_verify_run_config();
-  k1 := verify_cache_key(_golden_query(u64(2)), &cfg);
-  k2 := verify_cache_key(_golden_query(u64(2)), &cfg);
+  z3 := String.from("Z3 version 5.1.0 - 64 bit");
+  k1 := verify_cache_key(_golden_query(u64(2)), &cfg, &z3);
+  k2 := verify_cache_key(_golden_query(u64(2)), &cfg, &z3);
   assert(k1 == k2, "same query + options ⇒ same key");
   assert(k1.len() == usize(64), "sha256 hex length");
   mut(cfg2) := default_verify_run_config();
   cfg2.encode_opts.rlimit = usize(1000);
-  k3 := verify_cache_key(_golden_query(u64(2)), &cfg2);
+  k3 := verify_cache_key(_golden_query(u64(2)), &cfg2, &z3);
   assert(k1 != k3, "budget bump ⇒ different key");
-  k4 := verify_cache_key(_golden_query(u64(3)), &cfg);
+  k4 := verify_cache_key(_golden_query(u64(3)), &cfg, &z3);
   assert(k1 != k4, "goal change ⇒ different key");
+});
+// issues/fixed/2026-11-04-the-verify-cache-stores-wall-clock-unknown-verdicts-and-keys-on-the-pinned-z3-version-not-the-binary.md
+test("verify_cache_key: two solver --version strings give two keys", {
+  cfg := default_verify_run_config();
+  pinned := String.from("Z3 version 5.1.0 - 64 bit");
+  other := String.from("Z3 version 4.16.0 - 64 bit");
+  k1 := verify_cache_key(_golden_query(u64(2)), &cfg, &pinned);
+  k2 := verify_cache_key(_golden_query(u64(2)), &cfg, &other);
+  assert(k1 != k2, "a verdict from one z3 must not answer for another");
+});
+/// The response tail z3 5.1.0 prints for an `unknown` under the default
+/// script (the evidence requests fail, then the two get-info answers).
+_unknown_response :: (fn(reason : &String, used : usize) -> String)(
+  `unknown
+(error "line 12 column 15: unsat core is not available")
+(error "line 13 column 14: model is not available")
+(:reason-unknown "${reason}")
+(:rlimit ${used.to_string()})
+`
+);
+test("solver_answer_of_response: only conclusive verdicts and an exhausted rlimit are cacheable", {
+  opts := default_encode_options();
+  // sat / unsat are conclusive: stored.
+  assert(
+    solver_answer_of_response(String.from("unsat\n(a1)\n(:reason-unknown \"unknown\")\n(:rlimit 1234)\n"), &opts).cacheable,
+    "unsat caches"
+  );
+  assert(
+    solver_answer_of_response(String.from("sat\n((x #x00000002))\n(:reason-unknown \"unknown\")\n(:rlimit 1234)\n"), &opts).cacheable,
+    "sat caches"
+  );
+  // The deterministic budget ran out (`canceled`, count ≥ rlimit): stored.
+  rl := solver_answer_of_response(_unknown_response(String.from("canceled"), usize(5000043)), &opts);
+  assert(rl.cacheable, "an exhausted rlimit is reproducible and caches");
+  match(
+    &rl.verdict,
+    .Unproven(why) => {
+      assert(why.contains(String.from("rlimit exhausted")), `the reason names the budget: ${why}`);
+    },
+    _ => {
+      assert(false, "expected Unproven");
+    }
+  );
+  // The wall-clock backstop fired: never stored, and said so.
+  to := solver_answer_of_response(_unknown_response(String.from("timeout"), usize(434547)), &opts);
+  assert(!to.cacheable, "a wall-clock timeout is load-dependent and must not cache");
+  match(
+    &to.verdict,
+    .Unproven(why) => {
+      assert(why.contains(String.from("wall-clock timeout")), `the reason names the clock: ${why}`);
+    },
+    _ => {
+      assert(false, "expected Unproven");
+    }
+  );
+  // z3 5.1.0 also says `canceled` when the timer fires early; budget left ⇒ the clock.
+  early := solver_answer_of_response(_unknown_response(String.from("canceled"), usize(12)), &opts);
+  assert(!early.cacheable, "`canceled` with budget left is the wall clock, not the rlimit");
+  // Neither limit: not a reproducible-budget verdict, not stored.
+  inc := solver_answer_of_response(_unknown_response(String.from("incomplete quantifiers"), usize(900)), &opts);
+  assert(!inc.cacheable, "an incomplete unknown does not cache");
+  match(
+    inc.verdict.clone(),
+    .Unproven(why) => {
+      assert(why == "unknown: incomplete quantifiers", `the reason is z3's: ${why}`);
+    },
+    _ => {
+      assert(false, "expected Unproven");
+    }
+  );
+  // No get-info answers at all (a z3 that rejects them): not stored.
+  assert(!solver_answer_of_response(String.from("unknown\n"), &opts).cacheable, "a bare unknown does not cache");
+  // A solver error never caches.
+  assert(!solver_answer_of_response(String.new(), &opts).cacheable, "a solver error does not cache");
+});
+test("z3_unsat_core_of: the get-info answers are not an unsat core", {
+  // A script without `(get-unsat-core)` (want_unsat_core off): the only
+  // bare atom lists are the get-info answers, which are not a core.
+  core := z3_unsat_core_of(parse_z3_sexprs(String.from("unsat\n(:reason-unknown \"unknown\")\n(:rlimit 42)\n")));
+  assert(core.len() == usize(0), "keyword-led get-info answers are skipped");
 });
 // ---------------------------------------------------------------------------
 // Real-solver tests — YO_TEST_Z3=1 gated
@@ -661,8 +744,9 @@ test("real z3: a --rlimit run stores its verdict under its own budget's key (YO_
       assert(false, "5 + 5 == 10 proves");
     }
   );
-  own := `${verify_cache_dir()}/${verify_cache_key(&q, &cfg)}.json`;
-  default_slot := `${verify_cache_dir()}/${verify_cache_key(&q, &base)}.json`;
+  solver := z3_version_of_binary(&binary).unwrap();
+  own := `${verify_cache_dir()}/${verify_cache_key(&q, &cfg, &solver)}.json`;
+  default_slot := `${verify_cache_dir()}/${verify_cache_key(&q, &base, &solver)}.json`;
   assert(_z3_exists_sync(&own), "the verdict is cached under the run's own budget");
   assert(!_z3_exists_sync(&default_slot), "and NOT under the default budget's key, where a default run would reuse it");
 });

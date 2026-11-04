@@ -796,14 +796,19 @@ pinned install under `~/.cache/yo/solvers/` → automatic one-time download
 from GitHub Releases. A `--solver-path` that does not exist is a hard
 error (`verify: solver path '…' does not exist`), never a fallback to
 discovery. Verdicts are cached per-obligation under
-`~/.cache/yo/verify-cache/` (keyed by the sha256 of the query, the pin,
-and the run options); pass `--no-cache` to bypass. Determinism comes
-from `:rlimit` budgets (not wall-clock) and a fixed `:random-seed 0`.
+`~/.cache/yo/verify-cache/` (keyed by the sha256 of the query, the
+solver binary's own `--version` output, and the run options); pass
+`--no-cache` to bypass. Determinism comes from `:rlimit` budgets (not
+wall-clock) and a fixed `:random-seed 0`, so only reproducible verdicts
+are cached: `proved`, `refuted`, and an `unknown` whose rlimit ran out.
+An `unknown` the wall-clock backstop cut short (a loaded machine) reads
+`UNPROVEN  unknown: wall-clock timeout (…); not cached`, and the next run
+asks the solver again.
 
 `--rlimit <n>` sets that budget per query (default 5000000). A query the
 budget leaves `unknown` gets one automatic retry at 20× the budget before
 it is reported `unproven`. Raise `--rlimit` for a large goal that ends
-`UNPROVEN  unknown`; the budget is part of the cache key, so the re-run
+`UNPROVEN  unknown: rlimit exhausted (…)`; the budget is part of the cache key, so the re-run
 asks the solver again.
 
 ```bash
@@ -817,7 +822,8 @@ yo verify ./src --solver-path /usr/bin/z3 --rlimit 20000000
 | `refuted` with a model | read the counter-example; it is usually the missing `requires`, or the claim is wrong |
 | a counter-example with an extreme value (`#x80000000`, `#xffffffff`) | the arithmetic overflows: the claim needs a range `requires`, not more proof |
 | a model over `__yo_hv…` names, or `unproven` on an `ensures` after a loop | the loop invariant is too weak (§Loop invariants) |
-| `UNPROVEN  unknown` | check that the facts are there first, then raise `--rlimit` |
+| `UNPROVEN  unknown: rlimit exhausted (…)` | check that the facts are there first, then raise `--rlimit` |
+| `UNPROVEN  unknown: wall-clock timeout (…)` | the machine was loaded: re-run (it was not cached); a goal that keeps timing out needs a smaller claim |
 | a law, or a caller, cannot prove though the code is right | the callee's `ensures` is weaker than the claim needs: strengthen the contract |
 | `ok … — no obligations` | vacuous: add the `ensures` you meant |
 | `cannot verify: <construct>` | the body is outside the subset: restructure it, or use `verify+` to fall back to the runtime assert |

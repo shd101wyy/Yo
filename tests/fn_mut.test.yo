@@ -1,0 +1,317 @@
+{ assert } :: import("std/assert");
+/// `FnMut(...)`, Generation A (plans/VALUES_BY_DEFAULT.md decision 37,
+/// decision 43 N1f, VERDICTS-15): the call-repeatedly closure trait. Its call
+/// takes the closure as `self : &mut Self`, so the body may write its state —
+/// a capture list's by-value entries and its `&mut` captures — and the closure
+/// is called through an exclusive path only (a `mut(f)` binding, a `&mut`
+/// parameter, a temporary). `Fn` implies `FnMut`, which implies `FnOnce`;
+/// never the reverse (E0913). A closure typed `FnMut(...)` derives neither
+/// `Copy` nor `Clone`: a copy would fork its state.
+///
+/// Until std's call-repeatedly slots take `FnMut(...)` (decision 43 N3), a
+/// literal that holds a `&mut` capture is still admitted at an `Fn(...)` slot
+/// (`fn_slot_admits_capture_fnmut`, VERDICTS-15 Q4); a `Sync` slot rejects it.
+_fm_twice :: (fn(f : &mut Impl(FnMut() -> i32)) -> i32)(f() + f());
+_fm_each :: (fn(n : i32, f : &mut Impl(FnMut(i : i32) -> unit)) -> unit)({
+  mut(i) := i32(0);
+  while(i < n, i = (i + i32(1)), {
+    f(i);
+  });
+});
+_fm_run_once :: (fn(sink(f) : Impl(FnOnce() -> i32)) -> i32)(f());
+_fm_call_fn :: (fn(f : &Impl(Fn() -> i32)) -> i32)(f());
+_fm_call_fn_twice :: (fn(f : &Impl(Fn() -> i32)) -> i32)(f() + f());
+_fm_run_sync :: (fn(f : &Impl(Fn() -> i32, Sync)) -> i32)(f());
+
+// --- own state: the body writes its by-value entries ---------------------------
+test("FnMut: a by-value entry is the closure's own state, kept across calls", {
+  (mut(f) : Impl(FnMut() -> i32)) = ({ n : i32(0) }() => {
+    n = (n + i32(1));
+    n
+  });
+  assert(f() == i32(1), "the first call");
+  assert(f() == i32(2), "the second call sees the first call's write");
+  assert(f() == i32(3), "and the third");
+});
+test("FnMut: own state through a `&mut Impl(FnMut(...))` parameter", {
+  assert(
+    _fm_twice({ n : i32(10) }() => {
+      n = (n + i32(1));
+      n
+    }) == i32(23),
+    "11 + 12: a literal is a temporary, lent exclusively"
+  );
+  (mut(g) : Impl(FnMut() -> i32)) = ({ n : i32(0) }() => {
+    n = (n + i32(5));
+    n
+  });
+  assert(_fm_twice(&mut g) == i32(15), "5 + 10");
+  assert(g() == i32(15), "the state persisted in `g` past the callee");
+});
+test("FnMut: own state through a `Dyn(FnMut(...))`", {
+  (mut(d) : Dyn(FnMut() -> i32)) = dyn({ n : i32(0) }() => {
+    n = (n + i32(2));
+    n
+  });
+  assert(d() == i32(2), "the first call");
+  assert(d() == i32(4), "the boxed state persisted");
+});
+test("FnMut: an entry write is the four writes decision 47 gates", {
+  (mut(f) : Impl(FnMut(x : i32) -> i32)) = ({ acc : Array(i32, 2)(i32(0), i32(0)) }(x : i32) => {
+    acc(usize(0)) = (acc(usize(0)) + x);
+    acc(usize(1)) = (acc(usize(1)) + i32(1));
+    acc(usize(0)) * acc(usize(1))
+  });
+  assert(f(i32(3)) == i32(3), "3 * 1");
+  assert(f(i32(4)) == i32(14), "7 * 2: both element writes persisted");
+});
+comptime_expect_error(
+  _fm_entry_write_under_fn :: (fn() -> unit)({
+    (f : Impl(Fn() -> i32)) = ({ n : i32(0) }() => {
+      n = (n + i32(1));
+      n
+    });
+    _r := f();
+  }),
+  "or type the closure `FnMut(...)` if the state should persist across calls"
+);
+// The entry write under an `Fn` slot names both ways out: the rebind (a
+// per-call copy) and the `FnMut` annotation (state kept across calls). A
+// closure literal needs a slot to type it, so the unannotated
+// `tick := ({ n : i32(0) }() => …)` is rejected before its body is read.
+comptime_expect_error(
+  _fm_entry_write_under_fn_names_rebind :: (fn() -> unit)({
+    (f : Impl(Fn() -> i32)) = ({ n : i32(0) }() => {
+      n = (n + i32(1));
+      n
+    });
+    _r := f();
+  }),
+  "rebind it to a mutable local and write that (`mut(n_m) := n;`"
+);
+comptime_expect_error(
+  _fm_unannotated_own_state :: (fn() -> unit)({
+    tick := ({ n : i32(0) }() => {
+      n = (n + i32(1));
+      n
+    });
+    _r := tick();
+  }),
+  "Expected a function type"
+);
+comptime_expect_error(
+  _fm_entry_write_under_fnonce :: (fn() -> unit)({
+    (f : Impl(FnOnce() -> i32)) = ({ n : i32(0) }() => {
+      n = (n + i32(1));
+      n
+    });
+    _r := f();
+  }),
+  "it is a capture-list entry, and a capture-list entry is immutable"
+);
+test("FnMut: under FnOnce an entry is rebound to write it (a move)", {
+  (f : Impl(FnOnce() -> i32)) = ({ n : i32(1) }() => {
+    mut(m) := n;
+    m = (m + i32(1));
+    m
+  });
+  assert(f() == i32(2), "the rebinding owns the moved entry");
+});
+
+// --- `&mut` captures --------------------------------------------------------
+test("FnMut: a `&mut` capture written by an FnMut closure reaches the caller", {
+  mut(total) := i32(0);
+  {
+    _fm_each(i32(4), { &mut total }(i : i32) => {
+      total.* = (total.* + i);
+    });
+  };
+  assert(total == i32(6), "0 + 1 + 2 + 3");
+});
+test("FnMut: the Q10 exemption admits a `&mut`-capturing literal at an Fn slot", {
+  mut(z) := i32(0);
+  {
+    assert(
+      _fm_call_fn_twice({ &mut z }() => {
+        z.* = (z.* + i32(1));
+        z.*
+      }) == i32(3),
+      "1 + 2: the write goes through the capture's pointer"
+    );
+  };
+  assert(z == i32(2), "both calls wrote z");
+});
+// "Writes a `&mut` capture" is read structurally as "holds one" (VERDICTS-15
+// Q4′): an unwritten `&mut` capture still makes the closure `FnMut`.
+test("FnMut: an unwritten `&mut` capture is accepted at an FnMut slot", {
+  mut(z) := i32(5);
+  {
+    assert(_fm_twice({ &mut z }() => z.*) == i32(10), "5 + 5: the closure only reads z");
+  };
+  z = i32(6);
+  assert(z == i32(6), "z is free again after the closure's scope");
+});
+comptime_expect_error(
+  _fm_sync_slot_rejects_unwritten :: (fn() -> unit)({
+    mut(z) := i32(0);
+    _r := _fm_run_sync({ &mut z }() => z.*);
+  }),
+  "it is an `FnMut(...)` closure"
+);
+comptime_expect_error(
+  _fm_sync_slot_rejects :: (fn() -> unit)({
+    mut(z) := i32(0);
+    _r := _fm_run_sync({ &mut z }() => {
+      z.* = (z.* + i32(1));
+      z.*
+    });
+  }),
+  "it is an `FnMut(...)` closure"
+);
+
+// --- Fn implies FnMut implies FnOnce, never the reverse -----------------------
+test("FnMut: an Fn closure is accepted where FnMut is required", {
+  k := i32(4);
+  (mut(a) : Impl(Fn() -> i32)) = ({ k }() => k);
+  assert(_fm_twice(&mut a) == i32(8), "an Fn serves an exclusive call");
+  assert(_fm_twice({ k }() => (k + i32(1))) == i32(10), "a literal that writes nothing");
+});
+test("FnMut: an FnMut closure is accepted by an FnOnce parameter, which moves it in", {
+  (f : Impl(FnMut() -> i32)) = ({ n : i32(6) }() => {
+    n = (n + i32(1));
+    n
+  });
+  assert(_fm_run_once(f) == i32(7), "an FnMut serves one call");
+  comptime_expect_error(f(), "use of moved value");
+});
+comptime_expect_error(
+  _fm_typed_fnmut_at_fn_slot :: (fn() -> unit)({
+    (mut(f) : Impl(FnMut() -> i32)) = ({ n : i32(0) }() => {
+      n = (n + i32(1));
+      n
+    });
+    _r := _fm_call_fn(&f);
+  }),
+  "is an `FnMut(...)` closure"
+);
+comptime_expect_error(
+  _fm_fnonce_at_fnmut_slot :: (fn() -> unit)({
+    k := i32(1);
+    (mut(f) : Impl(FnOnce() -> i32)) = ({ k }() => k);
+    _r := _fm_twice(&mut f);
+  }),
+  "is an `FnOnce(...)` closure"
+);
+comptime_expect_error(
+  _fm_dyn_fn_rejects_fnmut :: (fn() -> unit)({
+    (f : Impl(FnMut() -> i32)) = ({ n : i32(0) }() => {
+      n = (n + i32(1));
+      n
+    });
+    (d : Dyn(Fn() -> i32)) = dyn(f);
+    _r := d();
+  }),
+  "Cannot box an `FnMut(...)` closure as a `Dyn(Fn(...))`"
+);
+comptime_expect_error(
+  _fm_dyn_fnmut_rejects_fnonce :: (fn() -> unit)({
+    k := i32(1);
+    (f : Impl(FnOnce() -> i32)) = ({ k }() => k);
+    (mut(d) : Dyn(FnMut() -> i32)) = dyn(f);
+    _r := d();
+  }),
+  "Cannot box an `FnOnce(...)` closure as a `Dyn(FnMut(...))`"
+);
+
+// --- the call borrows the closure exclusively --------------------------------
+comptime_expect_error(
+  _fm_call_unmarked_local :: (fn() -> unit)({
+    (f : Impl(FnMut() -> i32)) = ({ n : i32(0) }() => {
+      n = (n + i32(1));
+      n
+    });
+    _r := f();
+  }),
+  "Cannot call the `FnMut(...)` closure `f`: it is a binding declared without `mut`"
+);
+comptime_expect_error(
+  _fm_call_by_value_param :: (fn(sink(f) : Impl(FnMut() -> i32)) -> i32)(f()),
+  "Cannot call the `FnMut(...)` closure `f`: it is a parameter, and a parameter is immutable"
+);
+_fm_rebind_by_value :: (fn(sink(f) : Impl(FnMut() -> i32)) -> i32)({
+  mut(g) := f;
+  g() + g()
+});
+test("FnMut: a by-value parameter is rebound to call it", {
+  assert(
+    _fm_rebind_by_value({ n : i32(0) }() => {
+      n = (n + i32(1));
+      n
+    }) == i32(3),
+    "1 + 2"
+  );
+});
+comptime_expect_error(
+  _fm_call_through_shared_param :: (fn(f : &Impl(FnMut() -> i32)) -> i32)(f()),
+  "is a `&T` parameter, a read-only borrow of the caller's value"
+);
+comptime_expect_error(
+  _fm_call_through_shared_dyn :: (fn(d : &Dyn(FnMut() -> i32)) -> i32)(d()),
+  "is a `&T` parameter, a read-only borrow of the caller's value"
+);
+_fm_call_through_mut_dyn :: (fn(d : &mut Dyn(FnMut() -> i32)) -> i32)(d() + d());
+test("FnMut: a `&mut Dyn(FnMut(...))` parameter calls it", {
+  (mut(d) : Dyn(FnMut() -> i32)) = dyn({ n : i32(0) }() => {
+    n = (n + i32(3));
+    n
+  });
+  assert(_fm_call_through_mut_dyn(&mut d) == i32(9), "3 + 6");
+  assert(d() == i32(9), "the state persisted");
+});
+comptime_expect_error(
+  _fm_call_while_borrowed :: (fn() -> unit)({
+    (mut(f) : Impl(FnMut() -> i32)) = ({ n : i32(0) }() => {
+      n = (n + i32(1));
+      n
+    });
+    r := &mut f;
+    _a := f();
+    _b := r();
+  }),
+  "borrows"
+);
+test("FnMut: sequential calls through a borrow and then the owner", {
+  (mut(f) : Impl(FnMut() -> i32)) = ({ n : i32(0) }() => {
+    n = (n + i32(1));
+    n
+  });
+  {
+    r := &mut f;
+    assert(r() == i32(1), "through the borrow");
+  };
+  assert(f() == i32(2), "the owner, after the borrow's last use");
+});
+
+// --- move-only ---------------------------------------------------------------
+test("FnMut: a closure typed FnMut is not Copy, even over Copy captures", {
+  (mut(f) : Impl(FnMut() -> i32)) = ({ n : i32(0) }() => {
+    n = (n + i32(1));
+    n
+  });
+  assert(f() == i32(1), "called once");
+  mut(g) := f;
+  assert(g() == i32(2), "the move carried the state");
+  comptime_expect_error(f(), "use of moved value");
+});
+comptime_expect_error(
+  _fm_dyn_fnmut_move_only :: (fn() -> unit)({
+    (d : Dyn(FnMut() -> i32)) = dyn({ n : i32(0) }() => {
+      n = (n + i32(1));
+      n
+    });
+    e := d;
+    _r := d;
+    _s := e;
+  }),
+  "use of moved value"
+);

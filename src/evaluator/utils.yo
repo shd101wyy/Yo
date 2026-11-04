@@ -40,6 +40,7 @@ pragma(Pragma.AllowUnsafe);
   BK_UNSAFE_FN,
   BK_FN_TRAIT,
   BK_FN_ONCE_TRAIT,
+  BK_FN_MUT_TRAIT,
   ast_expr_is_local_borrow_mode_call,
   ast_expr_strip_borrow_marker,
   BK_BORROW_MUT,
@@ -95,6 +96,7 @@ pragma(Pragma.AllowUnsafe);
   variable_has_undone_move,
   is_fn_capture_value_binding,
   is_capture_list_value_binding,
+  is_fnmut_capture_value_binding,
   is_macro_pattern_binding,
   is_fnonce_capture_frame,
   is_closure_param_frame,
@@ -116,7 +118,7 @@ pragma(Pragma.AllowUnsafe);
   with_code
 } :: import("../error.yo");
 { raise_flow_violation, propagate_def_time_errors } :: import("../types/flowability.yo");
-{ suggest_name, E_USE_OF_MOVED_VALUE, E_MOVED_ON_SOME_PATHS, E_BORROW_ESCAPES, E_BORROW_CONFLICT, E_WRITE_THROUGH_BORROW, E_LOCAL_BORROW_CONFLICT, E_LOCAL_BORROW_ESCAPES, E_CLOSURE_MOVES_CAPTURE, E_BARE_CALLABLE_INTO_DYN, E_GLOBAL_LENT_TO_CALL, E_IMMUTABLE_BINDING_WRITE, E_RC_PAYLOAD_WRITE, E_REFERENCE_READ_WITHOUT_DEREF, E_ORIGIN_MISMATCH } :: import("../diagnostics.yo");
+{ suggest_name, E_USE_OF_MOVED_VALUE, E_MOVED_ON_SOME_PATHS, E_BORROW_ESCAPES, E_BORROW_CONFLICT, E_WRITE_THROUGH_BORROW, E_LOCAL_BORROW_CONFLICT, E_LOCAL_BORROW_ESCAPES, E_CLOSURE_TRAIT_TOO_WEAK, E_BARE_CALLABLE_INTO_DYN, E_GLOBAL_LENT_TO_CALL, E_IMMUTABLE_BINDING_WRITE, E_RC_PAYLOAD_WRITE, E_REFERENCE_READ_WITHOUT_DEREF, E_ORIGIN_MISMATCH } :: import("../diagnostics.yo");
 { Exception } :: import("std/error");
 { generate_new_temp_variable_name, is_temp_variable_name, is_any_temp_variable_name, debug_knob, display_module_path, canonical_module_path }
 :: import("../utils.yo");
@@ -127,7 +129,7 @@ pragma(Pragma.AllowUnsafe);
 { get_func_type, is_fn_ctfe_clone, is_closure_fn, is_io_async_sm_closure } :: import("../function_value.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../types/compatibility.yo");
 { type_to_string, type_to_string_for_message } :: import("../types/string.yo");
-{ type_is_bitwise_copy, type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_holds_counted_handle, type_holds_counted_handle_ignoring_migration, set_counted_handle_rule, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow, is_bound_closure_identity, is_closure_capture_struct, resolve_cell_chain, is_future_value_type, is_bare_callable_into_dyn_fn, type_contains_some_type_deep, type_holds_dyn_by_value, dyn_type_lists_clone, fn_trait_call_func_type, type_carries_origin } :: import("../types/utils.yo");
+{ type_is_bitwise_copy, type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_holds_counted_handle, type_holds_counted_handle_ignoring_migration, set_counted_handle_rule, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow, is_bound_closure_identity, is_closure_capture_struct, resolve_cell_chain, is_future_value_type, is_bare_callable_into_dyn_fn, type_contains_some_type_deep, type_holds_dyn_by_value, dyn_type_lists_clone, fn_trait_call_func_type, type_carries_origin, type_is_typed_fnmut_closure, capture_struct_is_fnmut } :: import("../types/utils.yo");
 { expr_info_table_set, migrate_match_scrutinee_on, record_migrate_edit, migrate_dyn_spelling_on, record_dyn_spelling_site, is_mut_global, is_thread_local, migrate_mutable_globals_on, record_mutable_global_site, migrate_mut_bindings_on, record_mut_binding_site, record_mut_binding_site_pending, record_mut_param_site, record_mut_param_site_pending, record_mut_judged, migrate_deref_on, audit_deref_on, deref_rule_suspended, record_deref_site, record_deref_edit_site } :: import("../expr_info.yo");
 { is_global_mut_rule_exempt, is_deref_rule_exempt } :: import("./memory_safety.yo");
 // `set_expr_as_needs_to_call_dup` builds + evaluates a `___dup(name)` call.
@@ -864,7 +866,7 @@ consume_called_fnonce_closure :: (fn(callee : &AstExpr, v : &Variable, env : &En
           `Cannot call \`${v.name}\` here: it is captured implicitly by this closure, and an \`FnOnce(...)\` call consumes the closure it calls, so it would be gone after this closure's first call.`,
           Option(String).Some(`list it and type this closure \`FnOnce(...)\`: \`{ ${v.name} }(...) => ${v.name}()\``)
         ),
-        E_CLOSURE_MOVES_CAPTURE
+        E_CLOSURE_TRAIT_TOO_WEAK
       ),
       ctx,
       exn
@@ -902,10 +904,10 @@ consume_called_fnonce_closure :: (fn(callee : &AstExpr, v : &Variable, env : &En
         with_code(
           format_error_message_with_help(
             &tok,
-            `Cannot call \`${v.name}\` here: it is a by-value capture of a closure typed \`Fn(...)\`, whose call borrows its captures, and an \`FnOnce(...)\` call consumes the closure it calls.`,
+            `Cannot call \`${v.name}\` here: it is a by-value capture of a closure typed \`${if(is_fnmut_capture_value_binding(v.id), "FnMut", "Fn")}(...)\`, whose call borrows its captures, and an \`FnOnce(...)\` call consumes the closure it calls.`,
             Option(String).Some(String.from("type the enclosing closure `FnOnce(...)`, so its body owns its captures"))
           ),
-          E_CLOSURE_MOVES_CAPTURE
+          E_CLOSURE_TRAIT_TOO_WEAK
         ),
         ctx,
         exn
@@ -1047,16 +1049,17 @@ _throw_explicit_copy_violation :: (fn(rhs : &AstExpr, ty : &TypeValue, what : &S
   );
 });
 /// E0913 for a move out of a by-value capture of a closure typed `Fn(...)`
-/// (plans/VALUES_BY_DEFAULT.md decision 37): an `Fn` call borrows the
-/// captures so the closure can run again, and a closure that moves one out is
-/// call-once. The error names the moving line; the fix is the `FnOnce(...)`
-/// type, whose call consumes the closure.
-_throw_fn_closure_moves_capture :: (fn(rhs : &AstExpr, ty : &TypeValue, ctx : &EvalContext, exn : Exception) -> unit)({
+/// or `FnMut(...)` (plans/VALUES_BY_DEFAULT.md decision 37): either call
+/// borrows the captures so the closure can run again, and a closure that
+/// moves one out is call-once. The error names the moving line; the fix is
+/// the `FnOnce(...)` type, whose call consumes the closure.
+_throw_fn_closure_moves_capture :: (fn(rhs : &AstExpr, ty : &TypeValue, var_id : usize, ctx : &EvalContext, exn : Exception) -> unit)({
   name := _place_text(rhs);
-  msg := `Cannot move \`${name}\` out of the closure: it is a by-value capture, and the closure is typed \`Fn(...)\`, whose call borrows its captures so it can run again. A closure that moves a capture out is called once.`;
+  trait_name := if(is_fnmut_capture_value_binding(var_id), "FnMut", "Fn");
+  msg := `Cannot move \`${name}\` out of the closure: it is a by-value capture, and the closure is typed \`${trait_name}(...)\`, whose call borrows its captures so it can run again. A closure that moves a capture out is called once.`;
   help := `type the closure \`FnOnce(...)\`: its call consumes the closure, whose body then owns its captures and may move \`${name}\` (\`${type_to_string(ty)}\` ${_explicit_copy_kind(ty)}) out`;
   raise_flow_violation(
-    with_code(format_error_message_with_help(ast_expr_token(rhs), &msg, Option(String).Some(help)), E_CLOSURE_MOVES_CAPTURE),
+    with_code(format_error_message_with_help(ast_expr_token(rhs), &msg, Option(String).Some(help)), E_CLOSURE_TRAIT_TOO_WEAK),
     ctx,
     exn
   );
@@ -1181,7 +1184,7 @@ _throw_implicit_capture_move :: (fn(rhs : &AstExpr, ty : &TypeValue, ctx : &Eval
   msg := `Cannot move \`${name}\` out of the closure: it is captured implicitly, and a closure body moves a capture out only from a capture list. A closure that moves a capture out is called once.`;
   help := `list the capture and type the closure \`FnOnce(...)\`: \`{ ${name} }(...) => ...\`, whose call consumes the closure (\`${type_to_string(ty)}\` ${_explicit_copy_kind(ty)})`;
   raise_flow_violation(
-    with_code(format_error_message_with_help(ast_expr_token(rhs), &msg, Option(String).Some(help)), E_CLOSURE_MOVES_CAPTURE),
+    with_code(format_error_message_with_help(ast_expr_token(rhs), &msg, Option(String).Some(help)), E_CLOSURE_TRAIT_TOO_WEAK),
     ctx,
     exn
   );
@@ -1220,7 +1223,7 @@ transfer_explicit_copy_value :: (fn(rhs : &AstExpr, ei : &ExprInfo, variable_nam
       },
       v.is_module_level => _throw_explicit_copy_violation(rhs, &ei.ty, String.from("it is a module-level binding, which lives for the whole program and is never moved. Copy it with `.clone()`, or lend it with `&` (a call may borrow a module-level binding only while nothing writes it, plans/VALUES_BY_DEFAULT.md decision 18 rule 3)."), ctx, exn),
       v.is_ref => _throw_explicit_copy_violation(rhs, &ei.ty, String.from("it is a `&mut` borrow, which names storage the caller owns. Lend it on with `&mut`, or move the caller's value."), ctx, exn),
-      is_fn_capture_value_binding(v.id) => _throw_fn_closure_moves_capture(rhs, &ei.ty, ctx, exn),
+      is_fn_capture_value_binding(v.id) => _throw_fn_closure_moves_capture(rhs, &ei.ty, v.id, ctx, exn),
       _is_implicit_closure_capture(&v, &ei.env, ctx) => _throw_implicit_capture_move(rhs, &ei.ty, ctx, exn),
       v.is_owning_the_rc_value => set_expr_as_consumed(rhs, &ei.env, false, ctx, exn),
       _move_through_sink_shadow(&v, rhs, &ei.env) => (),
@@ -2033,7 +2036,9 @@ require_capture_borrow_exclusivity :: (
     extra,
     .Some(callee) => {
       all_args.push(callee);
-      excl.push(match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&callee)), .Some(inf) => type_first_mut_borrow(&inf.ty).is_some(), .None => false));
+      // A called `FnMut(...)` closure is borrowed exclusively by its call
+      // (decision 37), whatever it captures.
+      excl.push(match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&callee)), .Some(inf) => (type_first_mut_borrow(&inf.ty).is_some() || type_is_typed_fnmut_closure(&inf.ty)), .None => false));
       named.push(true);
     },
     .None => ()
@@ -2501,6 +2506,74 @@ global_require_mut :: (fn(gv : &Variable, tok : &Token, how : &String, ctx : &Ev
 /// not write the binding and is not listed.
 (g_audit_mut_bindings : bool) = debug_knob(`YO_AUDIT_MUT_BINDINGS`).is_some();
 mut_binding_audit_enabled :: (fn() -> bool)(g_audit_mut_bindings);
+// ---------------------------------------------------------------------------
+// Decision 43 N1f: a closure that is `FnMut` by its captures at an `Fn` slot
+// ---------------------------------------------------------------------------
+/// The census knob for N1f's one-release exemption, `YO_AUDIT_FNMUT=1`
+/// (VERDICTS-15 Q5): each closure the exemption admits prints one stderr
+/// line, `file:line:col [fnmut] slot=<the slot's type> captures=<names>`,
+/// once per site; nothing is rejected either way. Its count over std and
+/// src sizes N3's switch of std's slots to `FnMut(...)`.
+(g_audit_fnmut : bool) = debug_knob(`YO_AUDIT_FNMUT`).is_some();
+/// A closure holding a `&mut` capture is `FnMut` by decision 37 (its call
+/// writes through the capture, decision 38's "a `FnMut` closure (one holding
+/// a `&mut` capture)"), and an `Fn(...)` slot calls through a shared borrow.
+/// Until std's call-repeatedly slots take `FnMut(...)` (decision 43 N3), a
+/// closure whose trait came from an `Fn(...)` slot — a literal at the slot,
+/// or an unannotated closure value reaching one — and is `FnMut` only by its
+/// captures is still admitted, as it was before `FnMut` existed: the write
+/// goes through the capture's pointer (decision 37's phase note; VERDICTS-1
+/// Q10, VERDICTS-15 Q4). This is that exemption, the one predicate N3
+/// deletes in the PR that switches std's slots
+/// (plans/backlog/SEED_VERSION_AUTOMATION.md). It does not cover a value
+/// TYPED `FnMut(...)` reaching an `Fn(...)` slot or a `Dyn(Fn(...))`
+/// (E0913), a write of a by-value entry under an `Fn(...)` slot (E0917), or
+/// a `Sync` slot (rejected naming `FnMut`, `utils/closure.yo`).
+fn_slot_admits_capture_fnmut :: (fn() -> bool)(true);
+/// The closure `closure_ty` reaches the `Fn(...)` slot `slot` (a parameter,
+/// an annotation, a `Dyn(Fn(...))`) and is `FnMut` by its captures alone
+/// (`capture_struct_is_fnmut`, VERDICTS-15 Q4′). `fn_slot_admits_capture_fnmut`
+/// admits it (the census line is printed); past the exemption it is E0913.
+/// Nothing happens for any other closure.
+judge_capture_fnmut_at_fn_slot :: (fn(tok : &Token, slot : &TypeValue, closure_ty : &TypeValue, ctx : &EvalContext, exn : Exception) -> unit)({
+  if(!capture_struct_is_fnmut(closure_ty), {
+    return(());
+  });
+  bs := ArrayList(CaptureBorrow).new();
+  collect_type_borrows(closure_ty, &mut bs);
+  names := String.new();
+  (ni : usize) = usize(0);
+  while(ni < bs.len(), ni = (ni + usize(1)), {
+    match(
+      bs.get_cloned(ni),
+      .Some(b) => if(b.is_mut, {
+        if(!names.is_empty(), {
+          names.push_str(",");
+        });
+        names.push_string(&`\`${b.label}\``);
+      }),
+      .None => ()
+    );
+  });
+  if(g_audit_fnmut, {
+    global_lend_audit_print(&`${global_lend_location(tok)} [fnmut] slot=${type_to_string(slot)} captures=${names}`);
+  });
+  if(fn_slot_admits_capture_fnmut(), {
+    return(());
+  });
+  raise_flow_violation(
+    with_code(
+      format_error_message_with_help(
+        tok,
+        `This closure holds the \`&mut\` capture ${names}, so its call writes through it: it is an \`FnMut(...)\` closure, and the slot is \`${type_to_string(slot)}\`, whose callee may call it again through a shared borrow.`,
+        Option(String).Some(String.from("declare the parameter `f : &mut Impl(FnMut(...))` (or `sink(f) : Impl(FnMut(...))`), or capture the place with `&` if the closure only reads it"))
+      ),
+      E_CLOSURE_TRAIT_TOO_WEAK
+    ),
+    ctx,
+    exn
+  );
+});
 /// Reject a malformed binder marker: `holder`'s argument `idx` is a
 /// `mut(...)` call whose argument is not a NAME (`mut(x.f)`, `mut(1)`).
 /// `desugar_if_calls` strips every well-formed `mut(name)` in a binder
@@ -2578,6 +2651,13 @@ binding_require_mut :: (fn(v : &Variable, tok : &Token, how : &String, ctx : &Ev
   if(v.is_ref || (v.is_imm_borrow || variable_inout_borrow_root_id(v).is_some()), {
     return(());
   });
+  // A by-value capture-list entry of a closure typed `FnMut(...)` is part of
+  // the record its call borrows exclusively (decision 37, VERDICTS-15 Q1):
+  // writing it writes state that persists across calls, and the slot's
+  // `FnMut` is the visible marker.
+  if(is_fnmut_capture_value_binding(v.id), {
+    return(());
+  });
   if(is_any_temp_variable_name(&v.name) || v.name.starts_with("__"), {
     return(());
   });
@@ -2624,7 +2704,10 @@ binding_require_mut :: (fn(v : &Variable, tok : &Token, how : &String, ctx : &Ev
     help = if(
       is_macro_elem,
       `rebind it to a mutable local and write that (\`mut(${name}_m) := ${name};\`), or loop with \`for(&mut coll, ${name} => ...)\` to write each element in place`,
-      `rebind it to a mutable local and write that (\`mut(${name}_m) := ${name};\`, a move, not a copy, for an owning value), or take \`${name} : &mut T\` if the caller's value should change`
+      cond(
+        is_capture_list_value_binding(v.id) => `rebind it to a mutable local and write that (\`mut(${name}_m) := ${name};\`, a move, not a copy, for an owning value), or type the closure \`FnMut(...)\` if the state should persist across calls`,
+        true => `rebind it to a mutable local and write that (\`mut(${name}_m) := ${name};\`, a move, not a copy, for an owning value), or take \`${name} : &mut T\` if the caller's value should change`
+      )
     );
   }, {
     what := cond(
@@ -3637,7 +3720,7 @@ check_dyn_copy :: (fn(rhs : &AstExpr, ei : &ExprInfo, variable_name : &String, c
       v.is_compile_time_only => (),
       v.is_module_level => _throw_explicit_copy_violation(rhs, &ei.ty, String.from("it is a module-level binding, which lives for the whole program and is never moved. Lend it with `&` instead (a call may borrow a module-level binding only while nothing writes it, plans/VALUES_BY_DEFAULT.md decision 18 rule 3)."), ctx, exn),
       v.is_ref => _throw_explicit_copy_violation(rhs, &ei.ty, String.from("it is a `&mut` borrow, which names storage the caller owns. Lend it on with `&mut`, or move the caller's value."), ctx, exn),
-      is_fn_capture_value_binding(v.id) => _throw_fn_closure_moves_capture(rhs, &ei.ty, ctx, exn),
+      is_fn_capture_value_binding(v.id) => _throw_fn_closure_moves_capture(rhs, &ei.ty, v.id, ctx, exn),
       _is_implicit_closure_capture(&v, &ei.env, ctx) => _throw_implicit_capture_move(rhs, &ei.ty, ctx, exn),
       (v.is_parameter && !v.is_owning_the_rc_value && _owning_param_binding_beside(&ei.env, &v).is_none()) => _throw_explicit_copy_violation(rhs, &ei.ty, String.from("it is a `&T` parameter, and a borrow cannot give the value away. Take the parameter by value (`x : T`, without `&`) to own it."), ctx, exn),
       true => {
@@ -7389,7 +7472,7 @@ _lb_fn_literal_binds :: (fn(callee : &AstExpr, name : &String) -> bool)(
       fc,
       .Atom(_, fct) => cond(
         ((fct.value.* == "->") && (fargs.len() == usize(2))) => match(fargs.get(usize(0)), .Some(head) => _lb_fn_literal_binds(&head, name.clone()), .None => false),
-        true => (((fct.value.* == BK_FN) || (fct.value.* == BK_CTL) || ((fct.value.* == BK_UNSAFE_FN) || (fct.value.* == BK_FN_TRAIT)) || (fct.value.* == BK_FN_ONCE_TRAIT)) && _lb_any_binds_name(&fargs, name.clone()))
+        true => (((fct.value.* == BK_FN) || (fct.value.* == BK_CTL) || ((fct.value.* == BK_UNSAFE_FN) || (fct.value.* == BK_FN_TRAIT)) || ((fct.value.* == BK_FN_ONCE_TRAIT) || (fct.value.* == BK_FN_MUT_TRAIT))) && _lb_any_binds_name(&fargs, name.clone()))
       ),
       .FnCall(_, _, _, _, _) => false
     ),
@@ -8249,4 +8332,4 @@ export(
 );
 export(global_lend_audit_enabled, global_lend_audit_print, global_lend_location, global_lend_key);
 export(GlobalPlacePath, global_place_path, GlobalHandleLend, global_note_handle_mutcall, global_note_handle_write, global_note_handle_lend, global_mut_rule_applies, global_require_mut);
-export(mut_binding_audit_enabled, reject_malformed_mut_marker, reject_malformed_pattern_mut_markers, binding_require_mut, place_require_mut);
+export(judge_capture_fnmut_at_fn_slot, fn_slot_admits_capture_fnmut, mut_binding_audit_enabled, reject_malformed_mut_marker, reject_malformed_pattern_mut_markers, binding_require_mut, place_require_mut);
