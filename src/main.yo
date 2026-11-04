@@ -2714,7 +2714,7 @@ _run_migrate_markers :: (
 /// escaped.
 _deref_field_escape :: (fn(s : &String) -> String)({
   out := String.new();
-  it := s.chars();
+  it := s.clone().chars();
   (go : bool) = true;
   while(go, {
     match(
@@ -2734,7 +2734,7 @@ _deref_field_escape :: (fn(s : &String) -> String)({
 });
 _deref_field_unescape :: (fn(s : &String) -> String)({
   out := String.new();
-  it := s.chars();
+  it := s.clone().chars();
   (go : bool) = true;
   (esc : bool) = false;
   while(go, {
@@ -2986,8 +2986,10 @@ _run_migrate_deref :: (
   while(vi < view_sites.len(), vi = (vi + usize(1)), {
     entries := ArrayList(String).new();
     entry_seen := HashSet(String).new();
-    for(&view_sites(vi), st => {
-      e := `${_deref_position_key(st)}\n${_deref_site_reading(st)}`;
+    (vk : usize) = usize(0);
+    while(vk < view_sites(vi).len(), vk = (vk + usize(1)), {
+      st := view_sites(vi)(vk).clone();
+      e := `${_deref_position_key(&st)}\n${_deref_site_reading(&st)}`;
       if(entry_seen.insert(e.clone()), {
         entries.push(e);
       });
@@ -3010,8 +3012,10 @@ _run_migrate_deref :: (
         }
       );
     });
-    for(&view_clean(vi), st => {
-      pk := _deref_position_key(st);
+    (ck : usize) = usize(0);
+    while(ck < view_clean(vi).len(), ck = (ck + usize(1)), {
+      st := view_clean(vi)(ck).clone();
+      pk := _deref_position_key(&st);
       if(!sig.contains_key(&pk), {
         _old := sig.insert(pk.clone(), String.from("as written"));
         keys.push(pk.clone());
@@ -3039,15 +3043,18 @@ _run_migrate_deref :: (
   sites := ArrayList(DerefSite).new();
   conflicts := ArrayList(DerefSite).new();
   conflict_seen := HashSet(String).new();
-  for(&view_sites, vs => {
-    for(vs, st => {
-      pk := _deref_position_key(st);
+  (mvi : usize) = usize(0);
+  while(mvi < view_sites.len(), mvi = (mvi + usize(1)), {
+    (mvk : usize) = usize(0);
+    while(mvk < view_sites(mvi).len(), mvk = (mvk + usize(1)), {
+      st := view_sites(mvi)(mvk).clone();
+      pk := _deref_position_key(&st);
       if(conflicted.contains(&pk), {
         if(conflict_seen.insert(pk.clone()), {
-          conflicts.push(st.clone());
+          conflicts.push(st);
         });
       }, {
-        sites.push(st.clone());
+        sites.push(st);
       });
     });
   });

@@ -1,0 +1,23 @@
+{ println } :: import("std/fmt");
+{ arch, Arch } :: import("std/process");
+// Each arm reads and writes `n` as a whole value. Only one arm is live on any
+// host, and every arm is migrated.
+bump :: (fn(n : &mut i64) -> unit)(
+  cond(
+    (arch == Arch.Aarch64) => {
+      n = (n + i64(1));
+    },
+    (arch == Arch.X86_64) => {
+      n = (n + i64(2));
+    },
+    true => {
+      n = (n + i64(3));
+    }
+  )
+);
+main :: (fn() -> unit)({
+  (x : i64) = i64(0);
+  bump(&mut x);
+  println(x);
+});
+export(main);
