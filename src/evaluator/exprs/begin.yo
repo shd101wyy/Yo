@@ -409,6 +409,8 @@ _search_dup_calls :: (fn(expr : &AstExpr, res : &mut DupCallsResult, ctx : &Eval
               sargs.get(usize(1)),
               .Some(body) => {
                 bres := _new_dup_calls_result();
+                // By name, not `recur`: `recur` lends a local `&mut` by value in C
+                // (issues/2026-10-24-recur-lends-a-local-mut-by-value-in-c.md).
                 _search_dup_calls(&body, &mut bres, ctx);
                 branch_results.push(bres);
               },
@@ -2062,6 +2064,7 @@ _ic_scan :: (fn(e : &AstExpr, v : &Variable, site : &ImplicitCopyPending, acc : 
                 });
                 recur(&arm_head, v, site, acc, ctx);
                 body_scan := _ic_sub_scan(acc);
+                // By name, not `recur` (issues/2026-10-24-recur-lends-a-local-mut-by-value-in-c.md).
                 _ic_scan(&arm_body, v, site, &mut body_scan, ctx);
                 _ic_merge(acc, &body_scan);
                 _ic_merge_jumps(acc, &body_scan);
@@ -2114,6 +2117,7 @@ _ic_scan :: (fn(e : &AstExpr, v : &Variable, site : &ImplicitCopyPending, acc : 
         return(());
       });
       scan := _ic_sub_scan(acc);
+      // By name, not `recur` (issues/2026-10-24-recur-lends-a-local-mut-by-value-in-c.md).
       _ic_scan(&f, v, site, &mut scan, ctx);
       (ai : usize) = usize(0);
       while((ai < args.len()) && !(scan.later || scan.done), {
