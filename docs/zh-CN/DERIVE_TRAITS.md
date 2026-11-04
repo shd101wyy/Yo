@@ -229,7 +229,7 @@ fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(trait_params) : C
 - `ctx` — `DeriveContext` 结构体，包含 `target`（Expr）、`forall_params`、`where_clause`
 - `trait_params` — 特征构造函数参数的 Expr 列表
 
-函数返回一个 `Expr`（通过 `quote` 或 `.to_expr()`），表示要生成的 `impl` 代码块。
+函数返回一个 `Expr`（通过 `quote` 或 `.to_expr()`），表示要生成的 `impl` 代码块。结果必须是 `impl(...)` 条目：Yo 没有宏层，派生规则不能向派生所在模块拼接语句或表达式，因此其他结果都会被拒绝（`plans/backlog/MACRO_AND_ISO_REMOVAL.md` §0.1）。`ctx.make_impl(...)` 会构造这样的条目。
 
 ### 示例：结构体相等性
 

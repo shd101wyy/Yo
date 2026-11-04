@@ -43,8 +43,9 @@ Progress:
   - the `Send`/`Sync` split, Generation B: sharing needs `Sync` (`Arc`,
     `RwLock`, `std/imm`; #1268);
   - decision 37's `FnOnce` with decision 38 C, Generation A (#1266;
-    capture-list entries only, per the amendment; one S2 open: a macro
-    that duplicates an `FnOnce` call calls it twice);
+    capture-list entries only, per the amendment; its one S2, a macro that
+    duplicated an `FnOnce` call, retired with the macro layer, macro plan
+    Part C);
   - decision 37's `FnOnce` Generation B, the `Thread.spawn` and
     `ThreadPool` `spawn` signatures (the `io.async` slot waits for V3's
     async work);

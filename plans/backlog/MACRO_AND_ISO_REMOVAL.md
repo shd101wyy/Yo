@@ -54,7 +54,7 @@ behind `MACRO_POLICY.md` §1.5 has since changed direction:
 - The expansion tax the policy itself named "the real maintenance pain" —
   the hand-replicated `ExprInfo.macro_expansion` chase sites, where "nothing
   enforces this; the failure mode is silent" — is still billing: an open S2
-  (`issues/a-macro-that-duplicates-an-fnonce-call-calls-it-twice.md`) and,
+  (`issues/retired/a-macro-that-duplicates-an-fnonce-call-calls-it-twice.md`) and,
   fixed only days ago by re-landing a scope-aware local-borrow live-range
   scan, the module-level borrow-across-expansion S2
   (`issues/fixed/2026-10-17-a-module-level-local-borrow-is-not-checked-across-a-call-a-macro-expands-to.md`),
@@ -1003,7 +1003,7 @@ touches every `for` in 48 files under `tests/`, 25 of them `*.test.yo`). Bootstr
     its remaining fragility is a nested `evaluate_expression_raw` inside a
     DERIVE-generated body, and derive stays. Retitle it without "macro".
   - **The `FnOnce`-twice S2**
-    (`issues/a-macro-that-duplicates-an-fnonce-call-calls-it-twice.md`) is
+    (`issues/retired/a-macro-that-duplicates-an-fnonce-call-calls-it-twice.md`) is
     retired only with evidence that no AST-duplicating path is left: a probe
     showing that neither a derive rule nor a comptime `Expr` splice can
     place one user argument twice, and that the B1 desugar never
@@ -1015,6 +1015,37 @@ touches every `for` in 48 files under `tests/`, 25 of them `*.test.yo`). Bootstr
   - `git mv plans/reference/MACRO_POLICY.md plans/archive/` with a
     supersession banner naming this doc; update `plans/README.md` and every
     `grep -rn "MACRO_POLICY"` reference.
+- **As built (C5–C6, branch `vbd/macro-part-c`, 2026-11-05).**
+  - `tests/async/channel.test.yo`'s `_recv_one` is the written-out block, plus
+    a second case whose await sits in a numeric cast's argument (a lowering,
+    so the async detector's `follow_lowerings` keeps a test); the file's
+    pragma line went with it. `tests/internal/memory_safety_paths.test.yo`
+    lost its four macro-gate cases. The origins row `macro-ret-local` is
+    deleted (fixture, `corpus.tsv` row and model case; 29 N1 rows remain).
+    The comments naming deleted files are rewritten, and `src/README.md`'s
+    macro-test paragraph names the quote/reflection files.
+  - Docs, both languages: DESIGN's macro chapter is "No macro layer", its
+    `if` section drops the prelude-definition listing and its `for` sections
+    call `for` a builtin form; GRAMMAR drops the `quote` parameter-label
+    production and names E0010; ERROR_DIAGNOSTICS, FLOWABILITY,
+    MEMORY_SAFETY, INLINE_ASSEMBLY, COMPILE_TIME_RC (the lowering channel)
+    and DERIVE_TRAITS (the item rule) follow. The remaining `macro` hits in
+    `docs/` are C macros, other languages' macros (`asm!`, Elixir) and the
+    deleted `for_await`'s history.
+  - Instructions and skills: AGENTS.md's bullet is "No macro layer" and its
+    translation table maps the old channel names; `yo-syntax`,
+    `yo-design`, `c-codegen` and `testing` instructions and the
+    `yo-syntax`, `yo-core-patterns` and `yo-async-effects` skills are
+    updated (the skill goldens move with them).
+  - Plans: `LLM_AUTHORING_AUDIT_2026-09-19.md` §2.3 is closed as rejected;
+    `RUST_ADOPTION_CANDIDATES.md` L7 notes that `matches` would be a
+    desugar or a builtin form; `MACRO_POLICY.md` is in `plans/archive/` with
+    a supersession banner, and the live references point there.
+  - C6: the nested-eval issue is retitled to the derive-generated body and
+    stays open. The `FnOnce`-twice S2 is retired on evidence (probes in the
+    PR): a derive rule's result is an `impl(...)` whose method bodies cannot
+    name a caller's local, a `comptime_eval` string's two calls are two
+    source positions, and the `for` desugar binds a non-place source once.
 - **C — escape-hatch checklist** (a parse-surface change outside `src/`/`std/`):
   grep `.github/workflows/` for `AllowMacroDef` and quoted-param signatures
   (the census found none — re-verify), run `scripts/check-embedded-yo.sh`,

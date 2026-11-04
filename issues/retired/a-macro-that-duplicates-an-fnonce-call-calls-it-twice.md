@@ -4,6 +4,23 @@
 
 > Found 2026-10-07 by the adversarial review of PR #1266 (decision 37's `FnOnce`, Generation A). Open: macros need `Pragma.AllowMacroDef`.
 
+> **RETIRED 2026-11-05 (macro plan Part C, `plans/backlog/MACRO_AND_ISO_REMOVAL.md`
+> C6):** the macro layer is deleted (a macro signature is E0010), and no
+> other path places one user argument twice. Probes with the Part C tree
+> binary:
+> - a derive rule that splices a trait parameter written as an `FnOnce` call
+>   twice (`derive(P, Twice(f()))`): the result is an `impl(...)` whose
+>   method body cannot name the caller's local, "A regular function (using
+>   ->) cannot capture outer runtime variables: f";
+> - `comptime_eval("f() + f()")`: two calls at two source positions, so the
+>   second is E0901 (`use of moved value: f`), as two written calls are;
+> - the `for` desugar: `for(f(), x => …)` with `f : Impl(FnOnce() -> ArrayList(i32))`
+>   calls `f` once (a counter in the callee reads 1 per loop); a non-place
+>   source is bound to one hidden owning local.
+>
+> The token-keyed exemption the root cause describes is unchanged; it is
+> sound while every call node in a body has its own source position.
+
 ## Reproducer
 
 `tmp/review/p30.yo` (Dispose counter) and `p31.yo` (String capture) in the
