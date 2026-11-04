@@ -41,6 +41,31 @@ push_one :: (fn(p : *(T), v : i32) -> unit)({
 
 `_decide_match_mode` (src/evaluator/exprs/match.yo) handles a `&mut` scrutinee (marker 2) by walking the place to its root variable with `_scrutinee_root_variable`, then rejecting the match when `_variable_is_imm_borrow(root)` holds. The walk follows every `.` access, including `.*`, so for `p.*.xs` it stops at `p`. `p` is an unmarked parameter, which the predicate treats as a read-only borrow. A raw-pointer dereference starts a new place, though: what lies behind `p.*` is not part of `p`'s storage, so `p`'s mutability says nothing about it. The local-borrow path (`q := &mut p.*.xs`) already gets this right.
 
+## Second symptom: argument exclusivity (E0910) treats two fields behind one pointer as one place
+
+The call-argument exclusivity check has the same blind spot. Lending two disjoint fields of a struct reached through a raw pointer is rejected, and the error names the pointer itself as the lent place. The same call through a `&mut` reference is accepted:
+
+```yo
+pragma(Pragma.AllowUnsafe);
+{ ArrayList } :: import("std/collections/array_list");
+{ replace } :: import("std/mem");
+S :: struct(a : ArrayList(ArrayList(i32)), b : ArrayList(i32));
+via_ref :: (fn(s : &mut S) -> unit)(
+  s.a.push(replace(&mut s.b, ArrayList(i32).new()))
+);
+via_ptr :: (fn(p : *S) -> unit)(
+  p.*.a.push(replace(&mut p.*.b, ArrayList(i32).new()))
+);
+export(via_ref, via_ptr);
+```
+
+```text
+error[E0910]: This argument lends `&mut` `p`, which an earlier argument of the same call lends to it (`((p.(*)).a)`): …
+   --> disj.yo:10:22
+```
+
+`via_ref` is accepted. markdown_it_yo's `state_push` (`state.*.prev_delimiters.push(replace(&mut state.*.delimiters, …))`) hit this; the workaround is to split the call into two statements. Fixing the root walk once, for both the match-mode check and the argument-exclusivity check, covers both symptoms; the test should include `via_ptr`.
+
 ## Recommendation
 
 Stop the root walk at a `.*` whose operand is a raw pointer (a `*(T)`), and do not apply the read-only check past it. Unsafe code that dereferences the pointer already owns the aliasing obligation. Add the reproducer above as a test expecting `1`, and add the `&`-parameter case (`p : &T`, `match(&mut p.*.xs, …)`), which must stay E0908.
