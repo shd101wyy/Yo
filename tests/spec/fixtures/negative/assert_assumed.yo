@@ -1,0 +1,32 @@
+// issues/fixed/2026-11-04-assert-is-not-assumed-after-it-is-proved.md: a
+// failed assert does not continue, so the path after `assert(P)` assumes P.
+pragma(Pragma.Verify);
+{ assert } :: import("std/assert");
+
+// The first assert is refuted (nothing constrains x); the second is proved,
+// because every execution that reaches it has x > 5. Before the fix both
+// were refuted, the second with x = 3.
+steps :: (fn(x : i32) -> i32)({
+  assert(x > i32(5), "gt5");
+  assert(x > i32(3), "gt3");
+  x
+});
+
+// With the requires both asserts are proved.
+steps_required :: (fn(x : i32, requires(x > i32(5))) -> i32)({
+  assert(x > i32(5), "gt5");
+  assert(x > i32(3), "gt3");
+  x
+});
+
+// An assert inside a branch holds only where the branch ran: the first
+// assert is proved (a implies y > 0), the second must refute (a == false,
+// y == 0 reaches it).
+in_branch :: (fn(a : bool, y : i32, requires(!a || (y > i32(0)))) -> i32)({
+  if(a, {
+    assert(y > i32(0), "in the branch");
+  });
+  assert(y > i32(0), "after the branch");
+  y
+});
+export(steps, steps_required, in_branch);

@@ -485,7 +485,7 @@ the current subset produces a precise error:
 | Integer/bool arithmetic, comparisons, logical ops, `cond`, `match`, `if` | V3 |
 | Let bindings (`:=`, `::`), field access, tuple/struct/enum construction | V3 |
 | Calls to contract-carrying or verified pure functions; CTFE-computable calls | V3 |
-| `assert(P)` sites (become obligations), `panic` paths (exempt from `ensures`) | V3 |
+| `assert(P)` sites (become obligations, then assumptions), `panic` paths (a diverging path owes no `ensures`) | V3 |
 | Slices/arrays with `len` (index bounds are auto-obligations) | V3 |
 | `while` loops with `invariant(...)`; `break`/`continue` | V4 |
 | Recursion (with `decreases(...)` for termination) | V4 |
@@ -727,12 +727,22 @@ tools emit).
 - `name := expr` — SSA bind: fresh term variable, path condition
   unchanged.
 - `cond(c1 => e1, c2 => e2, …)` / `match(x, .Pat => e, …)` — branch:
-  execute each arm under `Φ ∧ ci`, join states; `__yo_panic` arms join as
-  diverging paths (exempt from `ensures`).
+  execute each arm under `Φ ∧ ci`, join states. An arm that diverges
+  (`panic`) or leaves the loop does not join: after the branch the path
+  assumes it was not taken. A fact an arm's walk learned (a callee's
+  `ensures`, a proved `assert`) stays on the path as `taken ⇒ fact`.
 - `while` — the havoc-invariant rule above.
-- `assert(P)` — obligation: prove `Φ ⇒ P`.
-- `panic(...)` — diverging path: no obligations after it (process aborts
-  before any observable contract violation — SPARK's stance).
+- `assert(P)` — obligation: prove `Φ ⇒ P`, then assume it (`Φ := Φ ∧ P`):
+  a failed assert does not continue, so P holds on the path after it
+  (Dafny, SPARK and Why3 do the same). The trade-off: after a refuted
+  assert, later counter-examples assume it, so they are no longer
+  independent of it (`THEOREM_PROVING_DIRECTION.md` open question 2).
+- `panic(...)` — diverging path: nothing after it is walked and it owes no
+  `ensures`; in value position the dead arm is left out of the `ite`, so
+  the term stays well-sorted. This is the partial-correctness minimum.
+  SPARK goes further: a raise point must be proved unreachable (SPARK UG
+  §5.2.7). Whether Yo adds that `panic-unreachable` obligation is an open
+  question (`ADA_SPARK_LESSONS.md` item 1).
 - assignment `x = e` / `inout` writes — SSA rename + two-state `old`
   bookkeeping (V5).
 - call — per the purity rules table above (prove requires / assume

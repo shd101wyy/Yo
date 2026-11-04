@@ -1,0 +1,45 @@
+// issues/fixed/2026-11-04-a-fact-learned-inside-a-branch-holds-on-every-path-after-it.md:
+// a fact the walk of a branch learned (here the not-taken fact of a nested
+// arm that breaks) held on every path after the enclosing branch. When `a`
+// is false (lc) or `p` is .B (lm) and `b` is true, the nested break is not
+// reached and `assert(!(b))` fails at runtime; both must refute. Before the
+// fix both were proved.
+pragma(Pragma.Verify);
+{ assert } :: import("std/assert");
+
+Pick :: enum(A, B);
+
+lc :: (fn(a : bool, b : bool) -> i32)({
+  (k : i32) = i32(0);
+  while(true, {
+    invariant(true);
+    if(a, {
+      if(b, {
+        break;
+      });
+    });
+    assert(!b, "leak");
+    break;
+  });
+  k
+});
+
+lm :: (fn(p : Pick, b : bool) -> i32)({
+  (k : i32) = i32(0);
+  while(true, {
+    invariant(true);
+    match(
+      p,
+      .A => {
+        if(b, {
+          break;
+        });
+      },
+      .B => ()
+    );
+    assert(!b, "leak");
+    break;
+  });
+  k
+});
+export(lc, lm);

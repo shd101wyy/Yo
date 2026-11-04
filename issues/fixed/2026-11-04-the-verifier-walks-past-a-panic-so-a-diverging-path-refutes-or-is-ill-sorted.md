@@ -2,7 +2,7 @@
 
 **Severity:** S2 — valid verified code whose only failing path ends in `panic(...)` is reported `refuted` (with a counter-example that takes the panic path) or `solver-error`, although the docs list `panic` paths as verified.
 
-**Status:** open. **Found:** 2026-11-04 by the Ada/SPARK lessons audit (`plans/backlog/ADA_SPARK_LESSONS.md`), reproduced on a tree binary of develop `8559f3a26` with the pinned Z3 5.1.0.
+**Status:** fixed 2026-11-04 (branch `fix/verifier-panic-path-assert`). **Found:** 2026-11-04 by the Ada/SPARK lessons audit (`plans/backlog/ADA_SPARK_LESSONS.md`), reproduced on a tree binary of develop `8559f3a26` with the pinned Z3 5.1.0.
 
 ## Reproducer
 
@@ -68,3 +68,43 @@ The docs claim the opposite (`docs/en-US/FORMAL_VERIFICATION.md` subset table: "
 - Make `panic` a dead path: assume `false` from that point on the current path (cut the path condition), and in value position give it a fresh unconstrained term of the expected sort so the `ite` stays well-sorted.
 - Whether a reachable `panic` should additionally be an obligation (`panic-unreachable`, SPARK's rule) is a separate decision, best decided together with `issues/questions/2026-10-14-overflow-trap-freedom-as-a-default-obligation.md`. Under partial correctness the dead-path fix alone is the sound minimum.
 - Fixture set: `valid/panic_paths.yo` (k2, k3, kb proving) plus a bugged twin whose non-panic path violates `ensures`, so it must still refute. Correct the two doc sentences.
+
+## Fix
+
+`panic` sets `VcCtx.path_dead`, the flag `break`/`continue` already used, so
+a diverging path goes through the machinery that exiting the loop goes
+through:
+
+- in a block, nothing after the `panic` is walked;
+- a `cond`/`match` arm whose walk ends dead is left out of the value `ite`
+  and of the phi merge, and the path after the branch assumes the arm was not
+  taken (`not (c_k and not c_1 and ... and not c_{k-1})`);
+- a branch whose every arm is dead is dead itself (this used to be a subset
+  error for `break`/`continue`), and its value is a fresh constant of the
+  branch's own sort (`_dead_value`), so an enclosing term stays well-sorted;
+  a `match` whose final arm diverges uses the same constant as its `ite` base;
+- a guarded walk (`&&`, `||`, `==>`) whose right operand diverges assumes the
+  guard failed afterwards (`_pop_guard_keep_facts`);
+- a body that is dead on every path owes no `ensures`;
+- the definitional-axiom walk of a recursive `ghost_fn` restores the path and
+  `path_dead`, so its walk over the binders never leaks into the caller.
+
+Fixing this exposed `issues/fixed/2026-11-04-a-fact-learned-inside-a-branch-holds-on-every-path-after-it.md`
+(S1): the not-taken fact of a nested dead arm stayed on the path unguarded.
+It was reachable with `break` before; with `panic` it would have been common.
+Fixed in the same change.
+
+The plan text (`plans/backlog/FORMAL_VERIFICATION.md`, the subset table and
+"Statements → symbolic execution") now states the partial-correctness rule
+and that SPARK proves raise points unreachable; `panic-unreachable` stays an
+open question (`plans/backlog/ADA_SPARK_LESSONS.md` item 1). The verify cache
+needs no epoch bump: its key hashes the query content, and the path
+assumptions are part of it.
+
+## Test
+
+`tests/spec/fixtures/valid/panic_paths.yo` (`k2`, `k3`, `kb`, plus a `match`
+whose final arm panics, a nested panic, and a body where every arm panics)
+all verify; `tests/spec/fixtures/negative/panic_paths_false.yo`, the bugged
+twins whose live path violates `ensures`, all refute. Pinned in
+`tests/internal/verifier_list_len.test.yo`.
