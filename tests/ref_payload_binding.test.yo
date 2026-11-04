@@ -60,6 +60,37 @@ comptime_expect_error(
 _depth :: (fn(e : &Dyn(_Link)) -> i32)(
   match(e.source(), .Some(s) => (_depth(s) + i32(1)), .None => i32(0))
 );
+// While a payload binding is live its referent's root is frozen: a `&`
+// payload freezes `c` against writes, a `&mut` one against any access
+// (E0911, decision 43 O3 step 2).
+comptime_expect_error(
+  _write_root_under_shared :: (fn() -> unit)({
+    mut(c) := _Cell(n : i32(1));
+    match(
+      _pick(&c),
+      .Some(r) => {
+        c.n = i32(2);
+        _ := r.n;
+      },
+      .None => ()
+    );
+  }),
+  "is still live"
+);
+comptime_expect_error(
+  _read_root_under_mut :: (fn() -> unit)({
+    mut(c) := _Cell(n : i32(1));
+    match(
+      _pick_mut(&mut c),
+      .Some(r) => {
+        _ := c.n;
+        r.bump();
+      },
+      .None => ()
+    );
+  }),
+  "is still live"
+);
 test("ref payload: a field read and a method call read through the binding", {
   c := _Cell(n : i32(4));
   a := match(_pick(&c), .Some(r) => r.n, .None => i32(0));
@@ -85,6 +116,18 @@ test("ref payload: a `&mut` payload writes the referent", {
     .None => ()
   );
   assert(c.n == i32(12), "both writes reached `c`");
+});
+test("ref payload: the root is free again after the binding's last use", {
+  mut(c) := _Cell(n : i32(1));
+  match(
+    _pick_mut(&mut c),
+    .Some(r) => {
+      r.bump();
+      c.n = (c.n + i32(1));
+    },
+    .None => ()
+  );
+  assert(c.n == i32(3), "the write after `r`'s last use is legal");
 });
 test("ref payload: a `&` payload is read-only", {
   c := _Cell(n : i32(1));

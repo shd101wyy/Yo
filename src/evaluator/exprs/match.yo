@@ -96,7 +96,7 @@ pragma(Pragma.AllowUnsafe);
 { type_to_string } :: import("../../types/string.yo");
 { format_error_message, format_error_message_with_help, warning_diagnostic_of_token } :: import("../../error.yo");
 { emit_warning } :: import("../../diagnostics.yo");
-{ owning_param_binding_beside, move_through_sink_shadow, note_ref_payload_source } :: import("../utils.yo");
+{ owning_param_binding_beside, move_through_sink_shadow, note_ref_payload_source, origin_carrying_value_roots } :: import("../utils.yo");
 { merge_and_check_envs, reject_mixed_closure_arms, consume_case_body_temp_var, attach_temp_variable_to_expr, adopt_never_type, reset_sibling_flow_state, keep_last_arm_moves, audit_pending_copies_enabled, dyn_copy_pending_exists, dyn_copy_rule_applies, note_dyn_copy_pending, audit_note_match_binding, migrate_rc_clone_on, migrate_rc_clone_borrow_scrutinee, note_migrate_mut_scrutinee, LocalBorrowInfo, local_borrows_active, local_borrow_scrutinee_source, local_borrow_note_pattern_binding, note_second_class_binding, reject_malformed_pattern_mut_markers, reject_malformed_mut_marker, place_require_mut, reject_write_through_rc, _lb_arrow_shadows, _lb_fn_literal_binds, _lb_mentions, record_pending_scrutinee_borrow } :: import("../utils.yo");
 { throw_if_mut_lend_through_atomic_object } :: import("./assignment.yo");
 { set_expr_as_consumed, deref_exempt_mark, deref_exempt_clear, variable_is_reference_binding, deref_rule_applies, reject_reference_without_deref, drop_owned_match_binding_at_arm_end, match_scrutinee_is_capture, local_borrow_register_match_place, local_borrow_note_match_place, note_consuming_match_scrutinee, LocalBorrowPlace, LocalBorrowAccess, local_borrow_place_of, local_borrow_access, local_borrow_require_writable, variable_is_mut_borrow, variable_is_imm_borrow, local_borrow_info_of_variable } :: import("../utils.yo");
@@ -1732,6 +1732,22 @@ evaluate_match :: (
           match(
             &imm_place,
             .Some(ip) => local_borrow_register_match_place(b.name.clone(), ast_expr_token(&b.atom), &ip, &body_ast, false),
+            .None => ()
+          );
+          // A reference payload binding points where the scrutinee's
+          // references do (decision 43 step 3, O3 step 2): those places are
+          // frozen — exclusively for a `&mut` payload — while it is live in
+          // the arm, as a `r := &x` borrow freezes `x`.
+          match(
+            ref_payload,
+            .Some(rf_is_mut) => {
+              rf_roots := origin_carrying_value_roots(&scrutinee_expr, &env, ctx);
+              (rfi : usize) = usize(0);
+              while(rfi < rf_roots.len(), {
+                local_borrow_register_match_place(b.name.clone(), ast_expr_token(&b.atom), &rf_roots(rfi).place, &body_ast, rf_is_mut);
+                rfi = (rfi + usize(1));
+              });
+            },
             .None => ()
           );
           // Below a cell a binding borrows whatever the mode (decision 26).
