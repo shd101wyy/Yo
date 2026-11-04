@@ -1602,8 +1602,10 @@ evaluate_match :: (
           // `r.f`, `r.m()`, `r.*` and a lend of `r` read through it. A `&`
           // payload is read-only (`is_imm_borrow`, a `r : &T` parameter's
           // flag).
+          // A `mut` match's place binding of a reference payload stays the
+          // payload slot itself (re-pointing it is decision 25's).
           (ref_payload : Option(bool)) = cond(
-            ct_known => Option(bool).None,
+            (ct_known || mut_places) => Option(bool).None,
             true => match(&b.ty, Rc(.Reference(_, rp_mut, _)) => Option(bool).Some(rp_mut), _ => Option(bool).None)
           );
           bind_ty := match(&ref_payload, .Some(_) => t_slot_pointee(&b.ty), .None => Rc.clone(b.ty));
@@ -1625,6 +1627,10 @@ evaluate_match :: (
               .Some(rp_var) => {
                 rp_var.is_ref = true;
                 rp_var.is_imm_borrow = !rp_is_mut;
+                // A writable reference binding is the reassignable `is_ref`
+                // one (`r := &mut x`); a `&` one is not (a write through it
+                // is E0908).
+                rp_var.is_reassignable = rp_is_mut;
                 note_ref_payload_source(rp_var.id, &scrutinee_expr);
               },
               .None => ()

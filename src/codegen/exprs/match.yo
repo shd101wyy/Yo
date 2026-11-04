@@ -17,7 +17,7 @@
 { HashMap } :: import("std/collections/hash_map");
 { AstExpr, ast_expr_id, ast_expr_is_atom, ast_expr_is_fn_call_of, ast_expr_token, ast_expr_text, make_err_expr, BK_BEGIN, BF_DOT } :: import("../../expr.yo");
 { EvalValue } :: import("../../value.yo");
-{ TypeValue, TypeValueNode, no_types, no_labels, SharedList } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, no_types, no_labels, SharedList, t_slot_is_borrow } :: import("../../types/definitions.yo");
 {
   has_any_control_flow,
   expr_info_case_executed,
@@ -97,7 +97,13 @@ _emit_pattern_binding_decl :: (
     l.push_string(init_code.clone());
     l.push_str(";");
     em.emit_string_line(&l);
-  })
+  });
+  // A reference payload's binding holds the pointer and the evaluator binds
+  // it as a reference binding (decision 43 step 3): reads go through it, as
+  // a `mut` match's place binding's do.
+  if(t_slot_is_borrow(ty), {
+    _place_add(context, bind);
+  });
 });
 /// Emit `<T>* bind = &(path);` — a `mut` match's place binding
 /// (plans/VALUES_BY_DEFAULT.md decision 26): the binding points at the part,
