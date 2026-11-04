@@ -1595,10 +1595,22 @@ evaluate_match :: (
       match(
         pc.binds.get(bi),
         .Some(b) => {
+          // A payload whose type is a reference (`.Some(r)` over an
+          // `Option(&T)`, decision 43 step 3) binds a REFERENCE BINDING, as
+          // `r := &x` and a `-> &T` projection's result do: the name has the
+          // pointee's type and its C slot holds the pointer (`is_ref`), so
+          // `r.f`, `r.m()`, `r.*` and a lend of `r` read through it. A `&`
+          // payload is read-only (`is_imm_borrow`, a `r : &T` parameter's
+          // flag).
+          (ref_payload : Option(bool)) = cond(
+            ct_known => Option(bool).None,
+            true => match(&b.ty, Rc(.Reference(_, rp_mut, _)) => Option(bool).Some(rp_mut), _ => Option(bool).None)
+          );
+          bind_ty := match(&ref_payload, .Some(_) => t_slot_pointee(&b.ty), .None => Rc.clone(b.ty));
           _added := add_variable_to_env(
             &env,
             b.name.clone(),
-            &b.ty,
+            &bind_ty,
             cond(ct_known => b.value, true => Option(EvalValue).None),
             ct_known,
             false,
@@ -1606,7 +1618,19 @@ evaluate_match :: (
             false,
             ast_expr_token(&b.atom)
           );
-          expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&b.atom), new_expr_info(&env, &b.ty));
+          match(
+            ref_payload,
+            .Some(rp_is_mut) => match(
+              _added,
+              .Some(rp_var) => {
+                rp_var.is_ref = true;
+                rp_var.is_imm_borrow = !rp_is_mut;
+              },
+              .None => ()
+            ),
+            .None => ()
+          );
+          expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&b.atom), new_expr_info(&env, &bind_ty));
           scope_release_note_binding(ast_expr_id(&b.atom), &env, b.name.clone());
           // A `mut(name)` pattern binding may be reassigned (decision 47).
           b_tok := ast_expr_token(&b.atom);
