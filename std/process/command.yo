@@ -174,6 +174,8 @@ Command :: struct(
   _stderr : Stdio,
   _cwd : Option(String)
 );
+// A copy is what each `status`/`output`/`spawn` future owns.
+derive(Command, Clone);
 impl(
   Command,
   /// Create a new `Command` invoking `program`. The program name is also used
@@ -574,24 +576,26 @@ impl(
   Command,
   /// Spawn the child with stdio inherited from the parent, wait for it to
   /// exit, and return its `ExitStatus`.
-  status : (fn(self : &Self, io : Io) -> Impl(Future(ExitStatus, IoExn)))(
-    // The future borrows the command (`self : &Self`): the caller keeps the
-    // `Command` alive until the future is awaited.
-    io.async({ &self, io }(e : IoExn) => {
+  status : (fn(self : &Self, io : Io) -> Impl(Future(ExitStatus, IoExn)))({
+    // The future owns a copy of the command, so it borrows nothing: it may be
+    // spawned, and the caller's `Command` is free to change or drop.
+    cmd := self.clone();
+    io.async({ cmd, io }(e : IoExn) => {
       pid := e.io.await(
-        _spawn_with_fds(self, i32(-1), i32(-1), i32(-1), io),
+        _spawn_with_fds(&cmd, i32(-1), i32(-1), i32(-1), io),
         e
       );
       raw := e.io.await(IO_process.waitpid(pid, i32(0)), e.io);
       IoError.check(raw, e.exn);
       ExitStatus(raw : raw)
     })
-  ),
+  }),
   /// Spawn the child with stdout and stderr captured through pipes. Waits for
   /// the child to exit and returns the exit status plus the captured bytes.
-  output : (fn(self : &Self, io : Io) -> Impl(Future(Output, IoExn)))(
-    // The future borrows the command, as `status` does.
-    io.async({ &self, io }(e : IoExn) => {
+  output : (fn(self : &Self, io : Io) -> Impl(Future(Output, IoExn)))({
+    // The future owns a copy of the command, as `status`'s does.
+    cmd := self.clone();
+    io.async({ cmd, io }(e : IoExn) => {
       // Create stdout and stderr pipes.
       mut(out_fd_buf) := MaybeUninit(Array(i32, usize(2))).new();
       out_fd := (*i32)(out_fd_buf.as_ptr());
@@ -617,7 +621,7 @@ impl(
       _mark_parent_end(err_read, e.exn);
       // Spawn child with the write ends of both pipes.
       pid := e.io.await(
-        _spawn_with_fds(self, i32(-1), out_write, err_write, io),
+        _spawn_with_fds(&cmd, i32(-1), out_write, err_write, io),
         e
       );
       // Close write ends in parent so reads see EOF when child exits.
@@ -654,7 +658,7 @@ impl(
         stderr : stderr_buf
       )
     })
-  )
+  })
 );
 // ============================================================================
 // Child (spawn without waiting)
@@ -1079,13 +1083,15 @@ impl(
   /// pipes whose parent ends live on the returned `Child`; `Inherit` shares
   /// the parent's stream; `Null` redirects to /dev/null. Call `wait()` to
   /// reap.
-  spawn : (fn(self : &Self, io : Io) -> Impl(Future(Child, IoExn)))(
-    io.async({ &self, io }(e : IoExn) => {
-      in_pair := _stdio_fds(self._stdin, true, e.exn);
-      out_pair := _stdio_fds(self._stdout, false, e.exn);
-      err_pair := _stdio_fds(self._stderr, false, e.exn);
+  spawn : (fn(self : &Self, io : Io) -> Impl(Future(Child, IoExn)))({
+    // The future owns a copy of the command, as `status`'s does.
+    cmd := self.clone();
+    io.async({ cmd, io }(e : IoExn) => {
+      in_pair := _stdio_fds(cmd._stdin, true, e.exn);
+      out_pair := _stdio_fds(cmd._stdout, false, e.exn);
+      err_pair := _stdio_fds(cmd._stderr, false, e.exn);
       pid := e.io.await(
-        _spawn_with_fds(self, in_pair(usize(0)), out_pair(usize(0)), err_pair(usize(0)), io),
+        _spawn_with_fds(&cmd, in_pair(usize(0)), out_pair(usize(0)), err_pair(usize(0)), io),
         e
       );
       // Close the CHILD ends in the parent (the child holds its own copies).
@@ -1119,6 +1125,6 @@ impl(
         )
       )
     })
-  )
+  })
 );
 export(Command, ExitStatus, Output, Child, ChildStdin, ChildStdout, ChildStderr);
