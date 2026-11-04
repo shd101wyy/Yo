@@ -850,6 +850,72 @@ touches every `for` in 48 files under `tests/`, 25 of them `*.test.yo`). Bootstr
   rely on, the dup/drop optimizer, and the verifier (`vc.yo:112`, `:2773`;
   `:3287` moved to B1's desugar-site marker) all keep it. Same emit-diff
   gate.
+- **As built (C1–C4, branch `vbd/macro-part-c`, 2026-11-05; merges after
+  the v0.2.75 cut).**
+  - **C1.** E0010 (`E_MACRO_SIGNATURE`, `macro_signature_error` in
+    `src/evaluator/types/function.yo`) fires where the signature is read: a
+    `quote(p)` parameter label, a quoted variadic `...(quote(p))` /
+    `...(:(p))`, and an `unquote(...)` (or misspelled `quote(...)`) result,
+    labeled or not. E0010 was still free. The registry entry, the `yo explain`
+    text in both languages and `tests/cli-cases/macro-signature-is-e0010`
+    carry it; `tests/comptime.test.yo` pins the three spellings and the
+    comptime-function replacement.
+  - **C2.** Deleted: the two registries and `copy_macro_registration` (and its
+    four re-keying call sites), `FuncParam.is_quote`, the gate and
+    `is_macro_def_capable_file`, `Pragma.AllowMacroDef` (variant, name map,
+    AST-shape fast path, the prelude and `std/encoding/json.yo` lines,
+    `tests/async/channel.test.yo`), `MACRO_DISPATCH_ENABLED`, `fv_is_macro`,
+    the quoted-argument and quoted-variadic binding, the force-execute flags,
+    the unquote-return splice, `YO_DEBUG_FOR_MACRO_REACHED`,
+    `MacroFuncCallResult`, `is_function_type_and_is_macro_function` (a
+    `false` stub), `macro_expand.yo` with `BF_MACRO_EXPAND` and its reserved
+    name, the macro-site borrow machinery (`g_lb_macro_sites`,
+    `LocalBorrowMacroSite`, `_lb_macro_site_of`,
+    `local_borrow_enter/leave_macro_site`, `local_borrow_is_macro_await`,
+    `_lb_collect_await_ids`), the prelude `for` macro with
+    `__for_source_is_place`, and the commented-out `fill`. The B1 marker
+    `LocalBorrowInfo.macro_site` is `for_site` now (only the desugared `for`
+    sets it), and `mark_macro_pattern_binding` is `mark_loop_pattern_binding`
+    without its cross-module fallback. A `derive_rule` result that is not an
+    `impl(...)` is rejected naming §0.1 and `ctx.make_impl`
+    (`tests/cli-cases/check-derive-rule-non-item-result`).
+    **Malformed `for`:** `is_for_desugar_target` now requires the handle to be
+    a two-argument `=>`, so a wrong arity or a non-`=>` handle stays a `for`
+    call, and the evaluator reports it as **E0011** (`E_MALFORMED_FOR`,
+    `malformed_for_error` in `src/expr.yo`, dispatched on `BK_FOR` in
+    `src/evaluator/exprs/_expr.yo`) naming the three accepted forms; the
+    desugar's two handle-shape `comptime_assert`s are gone (the deleted
+    mode-word rejections stay). Registry entry, `yo explain E0011`,
+    `tests/cli-cases/malformed-for-is-e0011` and a
+    `tests/for_macro_borrow.test.yo` case. `for` joined the LSP keyword
+    list; both editor grammars already highlighted it.
+  - **C3.** `ExprInfo.macro_expansion` → `ExprInfo.lowered_to`,
+    `g_macro_expansions` → `g_lowerings`, `record_macro_expansion` /
+    `lookup_macro_expansion` → `record_lowering` / `lookup_lowering`,
+    `expr_info_(set_)macro_expansion` → `expr_info_(set_)lowered_to`, the
+    suspension detector's `follow_macro_expansions` → `follow_lowerings`.
+    The channel's documentation (writers, why it cannot be an in-place
+    rewrite, the durable fallback) sits on `g_lowerings` in
+    `src/expr_info.yo`. Gate: the emit-diff of `src/main.yo` through develop's
+    binary and this branch's, and `tests/rc.test.yo`'s same-scope
+    over-cancellation canary (numbers in the PR).
+  - **C4, the verdict per consumer.** Every consumer keeps the channel unless
+    marked:
+
+    | Consumer | Verdict |
+    | -------- | ------- |
+    | codegen emission (`codegen/exprs/generation.yo`) | keep: emits a cast's `__yo_as`, a `Copy` clone's receiver, a pin's object |
+    | codegen collectors (`codegen/functions/collection.yo`, `codegen/types/collection.yo`) | keep: the match-arm tests and the pin channel hang off nodes as lowerings |
+    | codegen async (`async/state_code_gen.yo`, `async/state_machine.yo` `_lv_walk`, `exprs/async.yo`) | keep: an await in a lowered cast's argument is reached through it |
+    | codegen `_operand_mentions` (`exprs/other_fn_call.yo`), the pin (`exprs/init_assignment.yo`) | keep |
+    | the dup/drop optimizer (`evaluator/exprs/begin.yo`, six walks) | keep (emit-diff gate) |
+    | `evaluator/calls/helper.yo` moved-container dups; `calls/function.yo` `_future_value_leaves`, `_find_lent_place_access` | keep |
+    | `effects/mutation_summary.yo` (two walks), `builtins/contracts.yo` `_prepare_callsite_contracts` | keep |
+    | suspension analysis (`shared/suspension_analysis.yo`) | the async detector keeps (`follow_lowerings : true`); the effect analysis followed only the `if` head, dead since `if` became a parse-time desugar, so that clause is deleted |
+    | `expr_traversal.yo` `expr_contains_await`, `expr_contains_while_with_await` | keep |
+    | the verifier (`vc.yo` `_scan_call_edges`, `_scan_assigned`, `_frame_scan_open`) | keep. `_for_term`'s expansion arm and the `head == "for"` dispatch are deleted: a `for` call never reaches the verifier (desugared, or E0011), and the B1 marker finds the loop |
+    | the copy audit's cross-module kinds (`utils.yo`, `initialization_assignment.yo`) | renamed `foreign` / `binding(foreign)` (a spliced derive template); they belong to `--migrate rc-clone`, which retires at v0.2.77 |
+
 - **C5 — tests, fixtures, docs.**
   - **Done early, 2026-10-24** (maintainer decision, branch
     `tests/delete-macro-fixtures-early`; the machinery itself stays until C2
