@@ -53,16 +53,15 @@ arc :: (fn(generic(V : Type), sink(value) : V, (alloc : Option(Allocator)) ?= .N
 
 ```yo
 value := Arc.new(i32(42));
-same := Arc(i32)(i32(42));
+same := Arc(i32).new(i32(42));
 ```
 
 ### 放置单元
 
 `Arc.new(value, alloc : .Some(a))` 从分配器 `a` 分配单元。最后一个句柄
 被 drop 时，无论在哪个线程上，单元都通过 `a` 释放。不传 `alloc` 时，单元使用全局
-分配器（见 [EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md)）。与 `Box.new` 不同，`Arc.new` 在
-分配单元时把 `a` 设为当前线程的分配作用域，所以 `a` 自己的回调不能创建不带 `alloc`
-参数的引用计数对象（见该文档的“编写自己的分配器”）：
+分配器（见 [EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md)）。与 `Box.new` 一样，单元直接调用
+`a` 的 `alloc`：
 
 ```yo
 // `alloc_a` 是任意 `Allocator` 值，例如 `Allocator.global()`。

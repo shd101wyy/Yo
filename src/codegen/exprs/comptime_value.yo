@@ -493,11 +493,11 @@ generate_comptime_value :: (fn(value : &EvalValue, ty : &TypeValue, context : &C
             nf := field_types.len();
             (i : usize) = usize(0);
             (any_arg : bool) = false;
-            // A cell primitive's constructor takes the allocation scope
-            // first (functions/constructors.yo); a value carries no
-            // allocator, so it is placed by the current scope.
+            // A cell primitive's constructor takes the allocator first
+            // (functions/constructors.yo); a value carries no allocator, so
+            // its cell is global.
             if(is_cell_primitive_type(ty), {
-              out.push_str("__yo_scope_current()");
+              out.push_str("(__yo_alloc_scope_t){ 0, 0 }");
               any_arg = true;
             });
             while(i < nf, {

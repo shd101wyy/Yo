@@ -223,7 +223,9 @@ so a seed carrying H1 no longer looks `rc`/`arc` up. Option (b), a cell built as
 the open-slot dispatch rule widened to the nameless `Dyn` payload wrapper, failed both acceptance checks: the
 emit-diff of `src/main.yo` gained a second cell type `Rc(W)` beside `Rc(<capture struct>)` at
 `analyze_await_points`'s closures, and `dyn(Rc.new(<closure>))` emitted a cell whose payload is `void*` (clang
-rejects it). V5 Generation A rewrites the two bodies onto `__yo_cell` with `rc`'s.
+rejects it). V5 cells Generation B (v0.2.75) rewrote the two bodies onto `__yo_cell` with `Rc.new`'s/`Arc.new`'s;
+the two constructors stay until the S3 above (a generic constructor's specialization adopting its result over the
+`Dyn` payload wrapper) is fixed.
 
 **Generation A: compiler and std additions; no src or std call uses them.**
 

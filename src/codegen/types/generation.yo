@@ -1132,12 +1132,13 @@ static inline void __yo_rc_free(void* ptr) {
 }`
     )
   );
-  // `__yo_rc_alloc_scoped` in the interface version the vtable speaks.
-  alloc_scoped_fn := cond(
-    context.alloc_abi_v2 => `// A user-visible RC block of alignment \`align\`: from the scope's allocator
+  // `__yo_rc_alloc_in` in the interface version the vtable speaks.
+  alloc_in_fn := cond(
+    context.alloc_abi_v2 => `// A cell of alignment \`align\` placed by an explicit allocator: from \`s\`
 // (with the extent and the owner in front, \`max(32, align)\` bytes), or from
-// __yo_rc_alloc when no scope is current. Allocate-or-abort either way.
-static inline void* __yo_rc_alloc_scoped(__yo_alloc_scope_t s, size_t size, size_t align) {
+// __yo_rc_alloc for a NULL vtable (an \`alloc : .None\`, the global allocator).
+// Allocate-or-abort either way.
+static inline void* __yo_rc_alloc_in(__yo_alloc_scope_t s, size_t size, size_t align) {
   if (s.vtable == NULL) return __yo_rc_alloc(size);
   size_t span = __yo_rc_cell_prefix_span(align);
   if (size > SIZE_MAX - span) __yo_alloc_fail(size);
@@ -1157,10 +1158,11 @@ static inline void* __yo_rc_alloc_scoped(__yo_alloc_scope_t s, size_t size, size
   return p;
 }
 `,
-    true => `// A user-visible RC block: from the scope's allocator (with the owner prefix
-// in front, the layout std/allocator.yo's Allocator.alloc writes), or from
-// __yo_rc_alloc when no scope is current. Allocate-or-abort either way.
-static inline void* __yo_rc_alloc_scoped(__yo_alloc_scope_t s, size_t size) {
+    true => `// A cell placed by an explicit allocator: from \`s\` (with the owner prefix in
+// front, the layout std/allocator.yo's Allocator.alloc writes), or from
+// __yo_rc_alloc for a NULL vtable (an \`alloc : .None\`, the global allocator).
+// Allocate-or-abort either way.
+static inline void* __yo_rc_alloc_in(__yo_alloc_scope_t s, size_t size) {
   if (s.vtable == NULL) return __yo_rc_alloc(size);
   if (size > SIZE_MAX - __YO_ALLOC_PREFIX_SIZE) __yo_alloc_fail(size);
   char* raw = (char*)((const __yo_alloc_vtable_t*)s.vtable)->alloc(s.ctx, size + __YO_ALLOC_PREFIX_SIZE);
@@ -1175,34 +1177,16 @@ static inline void* __yo_rc_alloc_scoped(__yo_alloc_scope_t s, size_t size) {
 }
 `
   );
-  // The allocation scope (plans/backlog/ALLOCATOR_PLACEMENT.md): the allocator
-  // an `alloc : .Some(a)` argument made current on this thread while the cell
-  // is placed (`rc`/`arc`'s swap, std/prelude.yo), `{ctx, NULL}` for the
-  // global one. Only the user-visible constructor sites consult it
-  // (`__yo_rc_alloc_scoped`); the runtime's own blocks keep `__yo_rc_alloc`.
-  // `__yo_scopes_ever_entered` keeps the thread-local read (a
-  // `_tlv_get_addr` call on Darwin) off every allocation of a program that
-  // never enters a scope.
+  // The allocator a cell is placed by (plans/backlog/ALLOCATOR_PLACEMENT.md):
+  // an `alloc : .Some(a)` argument's `{ctx, vtable}`, `{ctx, NULL}` for the
+  // global one. There is no thread scope: a creation without an `alloc`
+  // argument is global, and a cell constructor takes the allocator as its
+  // first parameter (`__yo_rc_alloc_in`).
   em.emit_declaration_line("typedef __yo_alloc_prefix_t __yo_alloc_scope_t;");
-  if(context.chunk_mode, {
-    em.emit_declaration_line("extern _Thread_local __yo_alloc_scope_t __yo_current_allocator;");
-    em.emit_declaration_line("extern atomic_int __yo_scopes_ever_entered;");
-    context.chunk_globals.push_string(String.from("_Thread_local __yo_alloc_scope_t __yo_current_allocator;\natomic_int __yo_scopes_ever_entered;\n"));
-  }, {
-    em.emit_declaration_line("static _Thread_local __yo_alloc_scope_t __yo_current_allocator;");
-    em.emit_declaration_line("static atomic_int __yo_scopes_ever_entered;");
-  });
   em.emit_declaration_string_line(
-    `static inline __yo_alloc_scope_t __yo_scope_current(void) {
-  if (!atomic_load_explicit(&__yo_scopes_ever_entered, memory_order_relaxed)) {
-    __yo_alloc_scope_t none = { 0, 0 };
-    return none;
-  }
-  return __yo_current_allocator;
-}
-// 0, or the tag bit for a block \`__yo_rc_alloc_scoped\` placed in \`s\`.
+    `// 0, or the tag bit for a block \`__yo_rc_alloc_in\` placed in \`s\`.
 static inline uint32_t __yo_rc_tag_of(__yo_alloc_scope_t s) { return s.vtable ? __YO_RC_TAG : 0u; }
-// The scope an RC object was allocated in: its owner prefix, or the global one.
+// The allocator an RC object was placed by: its owner prefix, or the global one.
 static inline __yo_alloc_scope_t __yo_scope_of_object(void* p) {
   if (((__yo_rc_prefix_t*)p)->ref_count & __YO_RC_TAG) {
     return *(const __yo_alloc_prefix_t*)((char*)p - __YO_ALLOC_PREFIX_SIZE);
@@ -1213,8 +1197,7 @@ static inline __yo_alloc_scope_t __yo_scope_of_object(void* p) {
 // std/prelude.yo's hooks (extern "Yo") for the allocator an RC cell was
 // placed with: its owner prefix's ctx and vtable, the place
 // __yo_scope_of_object reads, or NULL for a global cell (NULL vtable: the
-// global allocator, as __yo_scope_vtable answers). make_mut places its fresh
-// cell there. Unlike __yo_scope_of_object, which only release paths reach,
+// global allocator). make_mut places its fresh cell there. Unlike __yo_scope_of_object, which only release paths reach,
 // these run on an Arc cell while other threads hold handles and update the
 // count through _Atomic casts, so the tag bit is read with a relaxed atomic
 // load; the bit and the prefix never change after construction.
@@ -1230,17 +1213,7 @@ static inline void* __yo_rc_owner_vtable(void* p) {
   }
   return NULL;
 }
-${alloc_scoped_fn}// std/prelude.yo's hooks (extern "Yo"): rc/arc's "alloc : .Some(a)" arm saves
-// and restores the scope through them, and a cell constructor's .None arm
-// still asks __yo_scope_vtable whether one is current (NULL: the global
-// allocator); the default container constructors are global since B1.
-static inline void* __yo_scope_ctx(void) { return __yo_scope_current().ctx; }
-static inline void* __yo_scope_vtable(void) { return (void*)__yo_scope_current().vtable; }
-static inline void __yo_scope_set(void* ctx, void* vtable) {
-  if (vtable) atomic_store_explicit(&__yo_scopes_ever_entered, 1, memory_order_relaxed);
-  __yo_current_allocator.ctx = ctx;
-  __yo_current_allocator.vtable = vtable;
-}`
+${alloc_in_fn}`
   );
   // Whether the program runs on `--allocator debug` (allocator_debug.yo), as
   // the program can read it (extern "Yo"): tests/debug_allocator.test.yo
@@ -1463,7 +1436,7 @@ _pointee_spelling_newtype :: (fn(p : &TypeValue) -> Option(TypeValue))(
 /// by its typedef, which cannot be forward-declared, so the field's struct
 /// follows it. `?*Option(NT)` is an `ArrayList(Option(Rc(T)))` buffer once
 /// `Rc` is a newtype over its cell (V5,
-/// `issues/2026-11-02-a-retyped-rc-surfaces-cell-handle-view-gaps.md`).
+/// `issues/fixed/2026-11-02-a-retyped-rc-surfaces-cell-handle-view-gaps.md`).
 _walk_pointee_newtype :: (fn(ft : &TypeValue) -> Option(TypeValue))(
   match(
     ft,

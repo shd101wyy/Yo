@@ -116,10 +116,7 @@ Everything a program creates without such an argument is global:
 - the state machines of `io.async` tasks,
 - the runtime's own bookkeeping (event-loop structures, thread pools).
 
-`Box.new` calls `a`'s `alloc` directly. `Rc.new` and `Arc.new` make `a` the thread's
-allocation scope for the one construction (until the cell primitive takes the
-allocator itself), so an allocator used with `Rc.new` or `Arc.new` must follow the
-callback rule in [Writing your own allocator](#writing-your-own-allocator).
+`Box.new`, `Rc.new` and `Arc.new` call `a`'s `alloc` directly.
 
 ## Containers
 
@@ -255,13 +252,10 @@ contract:
   size-class allocator, such as a pool, needs no header of its own.
 - A block can be freed on another thread (an `Arc` dropped there), so an
   allocator shared across threads makes its `free` thread-safe.
-- The callbacks must not create a reference-counted object without an
-  `alloc` argument: no `ref` constructor, and no `Rc.new`, `Arc.new` or `dyn` without
-  `alloc`. For `Rc.new(v, alloc : .Some(a))` and `Arc.new(v, alloc : .Some(a))` they run
-  with their own allocator as the thread's allocation scope, so such an
-  allocation calls back into `alloc` and recurses until the stack overflows.
-  Containers, `String` and `Box.new(...)` are global and safe to use. Get memory
-  from `GlobalAllocator` or from a buffer you own, as the example below does.
+- The callbacks may allocate: a creation without an `alloc` argument goes to
+  the global allocator wherever it runs, so it never calls back into yours.
+  Get memory for the blocks you hand out from `GlobalAllocator` or from a
+  buffer you own, as the example below does.
 
 Your functions never see the owner prefix: `std/allocator` asks your `alloc`
 for the prefix (`max(16, align)` bytes) plus what the caller wanted, aligned
@@ -360,12 +354,9 @@ one tells which subsystem a leaked block came from.
 
 ## Cost
 
-A `ref` constructor, a `dyn` box and an `io.async` task still check the
-thread's allocation scope that `Rc.new` and `Arc.new` set for one construction: one
-relaxed atomic load and a branch, measured within noise on the compiler's own
-self-compile (`plans/archive/EXPLICIT_ALLOCATORS.md`). That check is removed
-once `Rc.new` and `Arc.new` place through the cell primitive
-(`plans/backlog/ALLOCATOR_PLACEMENT.md`, B2). Containers keep their size,
+A creation without an `alloc` argument (a `ref` constructor, a `dyn` box, an
+`io.async` task) pays nothing for placement: it allocates from the global
+allocator directly, with no thread-local to check. Containers keep their size,
 because the allocator lives in the buffer's prefix rather than in a new field.
 
 Only a placed block pays for its owner. A global `Box` cell carries an 8-byte

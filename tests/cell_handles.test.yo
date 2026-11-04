@@ -196,7 +196,7 @@ test("S20-S22: dyn of a cell handle dispatches to its payload", {
 });
 // A `Clone` Dyn over a cell handle clones into a fresh box: the vtable's clone
 // builds it through the cell's own constructor, which takes the allocation
-// scope first (issues/2026-11-02-a-retyped-rc-surfaces-cell-handle-view-gaps.md).
+// scope first (issues/fixed/2026-11-02-a-retyped-rc-surfaces-cell-handle-view-gaps.md).
 _Tile :: struct(s : i32);
 derive(_Tile, Clone);
 impl(_Tile, _Area(area : (fn(self : &Self) -> i32)(self.s * self.s)));
@@ -212,7 +212,7 @@ test("S20: a Clone Dyn over a cell handle clones into a fresh cell", {
 });
 // A list buffer of optional cell handles is `*Option(TRc(T))`: the nullable
 // option is spelled by the handle's typedef, so the list's struct follows it
-// (issues/2026-11-02-a-retyped-rc-surfaces-cell-handle-view-gaps.md).
+// (issues/fixed/2026-11-02-a-retyped-rc-surfaces-cell-handle-view-gaps.md).
 test("a list of optional cell handles orders its struct after the handle's typedef", {
   mut(xs) := ArrayList(Option(TRc(i32))).new();
   xs.push(.Some(trc(i32(1))));

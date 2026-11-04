@@ -53,7 +53,7 @@ test("Rc(T).new with alloc places the cell in the allocator and restores the sco
     assert(counts.live == usize(1), `the cell is in the allocator: ${counts.live}`);
     // The construction's scope ends with it: a cell built after it is on the
     // global allocator again.
-    g := Rc(i32)(i32(6));
+    g := Rc(i32).new(i32(6));
     d := Rc(i32).new(i32(7));
     assert(counts.live == usize(1), "the cells after it are on the global allocator");
     assert(((a.* + g.*) + d.*) == i32(18), "the payloads");
