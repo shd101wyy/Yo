@@ -1331,6 +1331,22 @@ test("A4: select over two borrowing futures of disjoint places", {
   s2 := io.await(select(_a4_read_after(&a, u64(1), io), _a4_read_after(&a, u64(300), io), io), io);
   assert(match(s2, .Some(.First(v)) => (v == i32(0)), _ => false), "two & operands over one place");
 });
+_A4Pair :: struct(a : _A4Counter, b : _A4Counter);
+// Decision 43 step 4 (VERDICTS-18 §B) canary: a parameter-level origin
+// over-freezes a field capture, but two futures over disjoint fields of one
+// struct are still accepted together, made in place or bound first.
+test("N3-1: select over two borrowing futures of disjoint fields of one struct", {
+  mut(p) := _A4Pair(a : _A4Counter(n : i32(0)), b : _A4Counter(n : i32(100)));
+  s := io.await(select(_a4_bump_after(&mut p.a, u64(300), io), _a4_bump_after(&mut p.b, u64(1), io), io), io);
+  assert(match(s, .Some(.Second(v)) => (v == i32(101)), _ => false), "the faster operand won");
+  fa := _a4_bump_after(&mut p.a, u64(1), io);
+  fb := _a4_read_after(&p.b, u64(300), io);
+  s2 := io.await(select(fa, fb, io), io);
+  assert(match(s2, .Some(.First(v)) => (v == i32(1)), _ => false), "two bound futures over disjoint fields");
+  io.await(sleep(u64(350)), io);
+  assert(p.a.n == i32(1), "the first field took its write");
+  assert(p.b.n == i32(101), "the second field kept the earlier write");
+});
 test("A4: select's two operands may not lend overlapping places with a &mut side (decision 38 B)", {
   mut(c) := _A4Counter(n : i32(0));
   comptime_expect_error(
