@@ -651,13 +651,17 @@ havoc 状态（每个被赋值名都换成全新无约束常量）上假设
 `~/.cache/yo/solvers/` 下的固定安装 → 从 GitHub Releases 自动一次性下载。
 不存在的 `--solver-path` 是硬错误（`verify: solver path '…' does not exist`），
 绝不会退回自动发现。判定结果按义务缓存在
-`~/.cache/yo/verify-cache/`（以查询内容、版本钉扎与运行选项的
-sha256 为键）；传 `--no-cache` 可跳过。确定性来自 `:rlimit` 预算
-（而非墙上时钟）与固定的 `:random-seed 0`。
+`~/.cache/yo/verify-cache/`（以查询内容、求解器二进制自身的 `--version`
+输出与运行选项的 sha256 为键）；传 `--no-cache` 可跳过。确定性来自
+`:rlimit` 预算（而非墙上时钟）与固定的 `:random-seed 0`，因此只缓存可复现的
+判定：`proved`、`refuted`，以及因 rlimit 耗尽而得到的 `unknown`。被墙上时钟
+兜底超时截断的 `unknown`（机器负载高时）显示为
+`UNPROVEN  unknown: wall-clock timeout (…); not cached`，下次运行会重新询问
+求解器。
 
 `--rlimit <n>` 设置每次查询的这一预算（默认 5000000）。预算内得到 `unknown`
 的查询，会先以 20 倍预算自动重试一次，然后才报告为 `unproven`。大目标以
-`UNPROVEN  unknown` 结束时，就调高 `--rlimit`；预算是缓存键的一部分，因此重新
+`UNPROVEN  unknown: rlimit exhausted (…)` 结束时，就调高 `--rlimit`；预算是缓存键的一部分，因此重新
 运行会再次询问求解器。
 
 ```bash
@@ -671,7 +675,8 @@ yo verify ./src --solver-path /usr/bin/z3 --rlimit 20000000
 | 带模型的 `refuted` | 读反例；通常是缺了 `requires`，或者断言本身就是错的 |
 | 反例里出现极端值（`#x80000000`、`#xffffffff`） | 算术溢出了：断言需要一个范围 `requires`，而不是更多证明 |
 | 反例落在 `__yo_hv…` 名字上，或循环之后的 `ensures` 为 `unproven` | 循环不变式太弱（§循环不变式） |
-| `UNPROVEN  unknown` | 先确认所需的事实都在，再调高 `--rlimit` |
+| `UNPROVEN  unknown: rlimit exhausted (…)` | 先确认所需的事实都在，再调高 `--rlimit` |
+| `UNPROVEN  unknown: wall-clock timeout (…)` | 机器负载过高：重新运行即可（该结果没有缓存）；总是超时的目标需要拆小断言 |
 | 代码没错，法则或调用方却证不出 | 被调用者的 `ensures` 比断言所需的弱：加强契约 |
 | `ok … — no obligations` | 空洞：补上你本想写的 `ensures` |
 | `cannot verify: <构造>` | 函数体在子集之外：重构它，或改用 `verify+` 退回运行时断言 |

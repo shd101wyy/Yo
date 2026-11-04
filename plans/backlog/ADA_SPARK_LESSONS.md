@@ -4,7 +4,7 @@
 
 **Filed from this audit:**
 - `issues/fixed/2026-11-04-the-verifier-walks-past-a-panic-so-a-diverging-path-refutes-or-is-ill-sorted.md` (S2)
-- `issues/2026-11-04-the-verify-cache-stores-wall-clock-unknown-verdicts-and-keys-on-the-pinned-z3-version-not-the-binary.md` (S3)
+- `issues/fixed/2026-11-04-the-verify-cache-stores-wall-clock-unknown-verdicts-and-keys-on-the-pinned-z3-version-not-the-binary.md` (S3)
 - `issues/questions/2026-11-04-should-a-generic-body-be-checked-against-its-where-bounds.md`
 - a new reproducer appended to `issues/generic-trial-degrades-a-failed-evaluation-to-unit.md`
 

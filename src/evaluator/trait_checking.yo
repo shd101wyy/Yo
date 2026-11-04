@@ -57,6 +57,7 @@ pragma(Pragma.AllowUnsafe);
   is_bound_closure_identity,
   resolve_cell_chain,
   type_first_mut_borrow,
+  capture_struct_is_fnmut,
   is_closure_capture_struct,
   type_has_no_open_some,
   type_is_move_only,
@@ -1731,7 +1732,9 @@ type_implements_trait :: (
         // anything holding one: two copies of one exclusive borrow would
         // alias, and a clone would copy the borrow. Its capture record's
         // words (a pointer) are Copy, so the parts alone would answer yes.
-        if(type_first_mut_borrow(&target).is_some(), {
+        // A closure typed `FnMut(...)` is move-only by its trait (decision
+        // 37): a copy would fork the state its calls write.
+        if(capture_struct_is_fnmut(&target), {
           return(TraitCheckResult(implemented : false, env : env));
         });
         (cp_i : usize) = usize(0);
