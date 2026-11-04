@@ -1431,7 +1431,7 @@ resolve_and_fetch :: (
     exn : Exception
   ) -> Impl(Future(LockFile, IoExn))
 )(
-  io.async((e : IoExn) => {
+  io.async({ &manifest, &options }(e : IoExn) => {
     root_dir := manifest.dir.clone();
     cache_root := e.io.await(ensure_cache_layout(e.io, e.exn), e);
     read := e.io.await(read_lock_file(Path.new(root_dir.clone()), e.io, e.exn), e);

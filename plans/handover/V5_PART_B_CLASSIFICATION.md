@@ -39,8 +39,8 @@ shared (`Rc(RefCell(S))`, or `Rc(S)` with at most two `RefCell` fields).
 
 | | R | L | S | total |
 | --- | --- | --- | --- | --- |
-| `src/` | 142 | 46 | 18 | 206 (203 `ref(struct)`, 3 `ref(enum)`) |
-| `std/` | 17 | 19 | 0 | 36 |
+| `src/` | 142 | 45 | 19 | 206 (203 `ref(struct)`, 3 `ref(enum)`) |
+| `std/` | 13 | 23 | 0 | 36 |
 
 - Fable's estimate (R ≈ 86, L ≈ 100, S ≈ 15–20) counted a type as written
   whenever one of its field names was assigned anywhere. The typed census
@@ -53,6 +53,32 @@ shared (`Rc(RefCell(S))`, or `Rc(S)` with at most two `RefCell` fields).
   wall and max RSS, plus the fixpoint). Part B lands after W6b, so the S
   types (all in `src/env.yo`, `src/expr_info.yo`, `src/codegen/`,
   `src/evaluator/builtins/build.yo` and the module walk) wait for it.
+
+## Reclassifications during the migration
+
+The tables below keep the census verdicts; these rows changed by hand while
+migrating.
+
+- `_State` (`src/resolver.yo`): **S**, not L. The `io.async` bodies that
+  resolve packages capture it, so a stored handle outlives the caller's
+  borrow. `_Package` moves with it.
+- `DocState` (`src/lsp/server.yo`): stays `ref` for now. Its target is L, an
+  owned map threaded `&mut`, not S; every `docs.get` copies it out today,
+  so it moves with the LSP server's batch.
+- `EffectCapturedVariable`: a recursive `Option(Self)` field, which a value
+  struct cannot have. It stays `ref` and becomes a read-only `Rc`.
+- `EffectAnalysisResult`: the `ExprInfo` accessor copies it out, and its
+  readers are in W6b files. It waits for the `ExprInfo` (S) batch.
+- The `EvalContext` / `FunctionGenerationContext` field types
+  (`LoadModuleResult`, `FuncOrAsyncBlockCtx`, `LoopBodyCtx`,
+  `CapturedVarInfo`, `SpecializingFunctionInfo`, `ImplConcreteTypeInfo`,
+  `InAsyncStateMachine`, `InlineSuspension`) wait for their owner's batch,
+  because the owners are copied today.
+- Types that are a `HashMap` value stay `ref` until the HashMap
+  plain-data-value fix lands. Today `insert` rejects a `V` that is
+  neither Copy nor `ref`.
+- `Md5`, `Sha1`, `Sha512`, `NfaCompiler`: **L**, not R. They are written
+  through `self`, and the syntactic scan does not count receiver writes.
 
 ## `src/`
 
@@ -229,8 +255,8 @@ shared (`Rc(RefCell(S))`, or `Rc(S)` with at most two `RefCell` fields).
 | `VersionReq` | `src/resolver.yo:277` | struct | – | – | **R** | never written |
 | `Requirement` | `src/resolver.yo:695` | struct | – | _Package field requirements | **R** | never written |
 | `ResolveOptions` | `src/resolver.yo:910` | struct | – | _State field options | **R** | never written |
-| `_Package` | `src/resolver.yo:921` | struct | capture 5, param 5 | _State field packages | **L** | element of `_State.packages` (L) |
-| `_State` | `src/resolver.yo:950` | struct | capture 6, param 1 | – | **L** | written, never stored |
+| `_Package` | `src/resolver.yo:921` | struct | capture 5, param 5 | _State field packages | **L** | element of `_State.packages`; moves with `_State` (S) |
+| `_State` | `src/resolver.yo:950` | struct | capture 6, param 1 | – | **S** | captured by the `io.async` bodies that resolve packages, which outlive the caller's borrow (hand verdict, overrides step 2) |
 | `SkillEntry` | `src/skills_command.yo:21` | struct | – | SkillsInstallResult field skills | **R** | never written |
 | `SkillsInstallResult` | `src/skills_command.yo:30` | struct | – | – | **R** | never written |
 | `SkillCopyCounters` | `src/skills_command.yo:41` | struct | param 2 | – | **L** | written, never stored |
@@ -279,10 +305,10 @@ the rest rests on the syntactic scan.
 | `ArgDef` | `std/cli/arg_parser.yo:50` | – | **R** | never written |
 | `ParsedArgs` | `std/cli/arg_parser.yo:77` | – | **L** | written, never stored |
 | `ArgParser` | `std/cli/arg_parser.yo:91` | – | **L** | written, never stored |
-| `Md5` | `std/crypto/md5.yo:213` | – | **R** | never written |
-| `Sha1` | `std/crypto/sha1.yo:90` | – | **R** | never written |
+| `Md5` | `std/crypto/md5.yo:213` | self | **L** | written through `self` (the census misses receiver writes), never stored |
+| `Sha1` | `std/crypto/sha1.yo:90` | self | **L** | written through `self` (the census misses receiver writes), never stored |
 | `Sha256` | `std/crypto/sha256.yo:175` | param 19 | **L** | written, never stored |
-| `Sha512` | `std/crypto/sha512.yo:170` | – | **R** | never written |
+| `Sha512` | `std/crypto/sha512.yo:170` | self | **L** | written through `self` (the census misses receiver writes), never stored |
 | `_Parser` | `std/encoding/json.yo:561` | fresh 2, param 13 | **L** | written, never stored |
 | `_Parser` | `std/encoding/toml.yo:445` | fresh 2, param 13 | **L** | written, never stored |
 | `ErrorChain` | `std/error.yo:350` | – | **L** | written, never stored |
@@ -298,7 +324,7 @@ the rest rests on the syntactic scan.
 | `Command` | `std/process/command.yo:172` | param 2 | **L** | written, never stored |
 | `Rng` | `std/rand.yo:85` | fresh 1, param 2 | **L** | written, never stored |
 | `NfaProgram` | `std/regex/compiler.yo:330` | param 5, rooted 1 | **L** | held by the compiler, then by `NfaVm`/`Regex` read-only after compilation |
-| `NfaCompiler` | `std/regex/compiler.yo:357` | – | **R** | never written |
+| `NfaCompiler` | `std/regex/compiler.yo:357` | self | **L** | written through `self` (the census misses receiver writes), never stored |
 | `Regex` | `std/regex/index.yo:56` | – | **R** | never written |
 | `RegexMatchIter` | `std/regex/index.yo:450` | – | **L** | written, never stored |
 | `RegexMatch` | `std/regex/match.yo:35` | – | **R** | never written |

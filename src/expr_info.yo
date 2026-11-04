@@ -2124,6 +2124,7 @@ BranchInitRecord :: (
     after_consumed : Option(Token)
   )
 );
+derive(BranchInitRecord, Clone);
 (g_branch_init_log : RefCell(ArrayList(BranchInitRecord))) = RefCell(ArrayList(BranchInitRecord)).new(ArrayList(BranchInitRecord).new());
 /// var_id -> log indices of that variable's records. Keeps
 /// has_dominating_branch_init O(records-for-this-var × active groups) instead
@@ -2183,7 +2184,7 @@ record_branch_consume :: (fn(var_id : usize, token : &Token, before_init : &Opti
   record_flow_event(var_id, Rc.new(TypeValueNode.Unit), Option(TypeValue).None, FlowEventKind.Consume, token.clone(), before_init.clone(), before_consumed, before_init, Option(Token).Some(token))
 );
 branch_init_log_len :: (fn() -> usize)(g_branch_init_log.with(xs => xs.len()));
-get_branch_init_record :: (fn(i : usize) -> Option(BranchInitRecord))(g_branch_init_log.with(xs => xs.get(i)));
+get_branch_init_record :: (fn(i : usize) -> Option(BranchInitRecord))(g_branch_init_log.with(xs => xs.get_cloned(i)));
 /// A branching construct's arm windows: flat `[arm_body_id, start, end]`
 /// triples, one per evaluated arm, each a `[start, end)` window into the log.
 /// Local to the `cond` / `match` evaluation that fills it and hands it to
@@ -2306,7 +2307,7 @@ has_dominating_branch_init :: (fn(var_id : usize) -> bool)({
       while(ii < idxs.len(), {
         i := match(idxs.get(ii), .Some(x) => x, .None => usize(0));
         // Only assignments dominate (moves and joins are not inits).
-        (excluded : bool) = match(g_branch_init_log.with(xs => xs.get(i)), .Some(r) => match(r.kind, .Assign => false, _ => true), .None => true);
+        (excluded : bool) = g_branch_init_log.with(xs => cond((i < xs.len()) => match(xs(i).kind, .Assign => false, _ => true), true => true));
         (gi : usize) = usize(0);
         while(gi < g_branch_group_stack.with(xs => xs.len()), {
           match(
@@ -2358,7 +2359,7 @@ first_flow_records_in :: (fn(start : usize, end : usize) -> ArrayList(BranchInit
   (ri : usize) = start;
   while(ri < end, {
     match(
-      g_branch_init_log.with(xs => xs.get(ri)),
+      g_branch_init_log.with(xs => xs.get_cloned(ri)),
       .Some(r) => if(seen.get(&r.var_id).is_none(), {
         seen.insert(r.var_id, true);
         out.push(r);
@@ -2381,7 +2382,7 @@ last_flow_record_in :: (fn(var_id : usize, start : usize, end : usize) -> Option
         k = (k - usize(1));
         ix := match(idxs.get(k), .Some(x) => x, .None => usize(0));
         if((start <= ix) && (ix < end), {
-          found = g_branch_init_log.with(xs => xs.get(ix));
+          found = g_branch_init_log.with(xs => xs.get_cloned(ix));
         });
       });
     },
@@ -2400,7 +2401,7 @@ first_flow_record_in :: (fn(var_id : usize, start : usize, end : usize) -> Optio
       while((k < idxs.len()) && found.is_none(), {
         ix := match(idxs.get(k), .Some(x) => x, .None => usize(0));
         if((start <= ix) && (ix < end), {
-          found = g_branch_init_log.with(xs => xs.get(ix));
+          found = g_branch_init_log.with(xs => xs.get_cloned(ix));
         });
         k = (k + usize(1));
       });
