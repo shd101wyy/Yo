@@ -4,7 +4,8 @@
 > campaign items, step C follows v0.2.75.** A1 is #1572 (merged; it ships in v0.2.70). A2 and B1 are implemented
 > for v0.2.71 (branches `vbd/alloc-placement-a2` and `vbd/alloc-placement-b1`, stacked; 2026-10-25). B2a is
 > implemented with allocator v2 Generation B (branch `vbd/alloc-v2-gen-b-r2`, 2026-10-28; "As built" under §6 B2).
-> B2b and C are not started. Releases: `plans/handover/VBD_RELEASE_SCHEDULE.md` (revision of 2026-10-24). Line numbers are develop's
+> B2b is implemented on `vbd/b2b-delete-current-allocator` (v0.2.75, stacked on V5 cells Generation B; "As built"
+> under §6 B2). C is not started. Releases: `plans/handover/VBD_RELEASE_SCHEDULE.md` (revision of 2026-10-24). Line numbers are develop's
 > at `82671f612`. The maintainer's criterion: "Yo should be as explicit as possible because it is written by LLMs;
 > no backward compatibility; do things right." His answer to the verdict: "Adopt as recommended". This plan
 > replaces a same-day first draft (the "hybrid", §8 item 1). It amends `plans/reference/EXPLICIT_ALLOCATORS.md`
@@ -298,6 +299,25 @@ B2 ships as two PRs:
   the hooks, and src never did.
 
 If V5 Generation A slips to v0.2.73, B2b slips with it. B2a stays at v0.2.72.
+
+**B2b as built (2026-11-03, v0.2.75, right after V5 cells Generation B; Fable consultation #13 Task 2).** The
+thread-local `__yo_current_allocator`, `__yo_scopes_ever_entered`, `__yo_scope_current` and the three
+`__yo_scope_ctx`/`__yo_scope_vtable`/`__yo_scope_set` hooks are gone from the runtime preamble
+(`src/codegen/types/generation.yo`), and with them the mutation summary's scope-slot special case
+(`src/evaluator/effects/mutation_summary.yo`). `__yo_rc_alloc_scoped` is `__yo_rc_alloc_in`, called only by a cell
+primitive's constructor with the allocator its first parameter carries; a NULL vtable (`alloc : .None`, `{0, 0}`
+at the call site and in a comptime cell constant) is the global allocator. Every other RC block is global with no
+check: a `ref` struct or enum constructor and `dyn`'s box call `__yo_rc_alloc`, and an `io.async` state machine
+comes from its pool (or `__yo_rc_alloc` under the cycle collector) with no placed-task branch. The state machine's
+`resume_scope_wrapper` is deleted: the two resume bodies are the resume functions. The boxed-`dyn` clone wrapper
+(`src/codegen/functions/dyn.yo`, `_emit_dyn_clone_function`) is a conversion, not a deletion: the fresh cell of a
+cell-handle payload gets `__yo_scope_of_object(self_ptr)` as its constructor's explicit allocator, and what the
+impl's `clone` allocates itself is global. `__yo_scope_of_object`, `__yo_rc_tag_of` and the
+`__yo_rc_owner_ctx`/`__yo_rc_owner_vtable` hooks stay (owner-prefix reads). Gate:
+`git grep -nE '__yo_scope_(set|ctx|vtable)' -- std src tests` is empty. Tests (`tests/explicit_allocators.test.yo`):
+a `Dyn(_Speak, Clone)` over a placed `Rc` cloned twice keeps all three cells in the placement allocator, and an
+allocator whose `alloc` boxes a `dyn` places `Rc.new`, `Arc.new` and a `Dyn` clone without recursing (the clone
+recursed before: its wrapper made the allocator current).
 
 **As built, B2a (2026-10-28, branch `vbd/alloc-v2-gen-b-r2`, with allocator v2 Generation B; the v0.2.73
 window).**

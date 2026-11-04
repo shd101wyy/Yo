@@ -125,7 +125,7 @@ the NULL niche, and `ref_count(b)` is an error. `src/` cannot use it until
 take the same parameter. `Rc(V)` and `Arc(V)` are views over the cell primitives
 (`newtype(_cell : __yo_cell(V))`, `newtype(_cell : __yo_atomic_cell(V))`, V5 cells Generation B),
 and the constructor hands the allocator to the cell: `Rc(T)(__yo_cell(T)(value, alloc))`, no
-swap of the thread's scope, so `a`'s callbacks run with no scope as `Box.new`'s do. A direct
+swap of a thread scope, so `a`'s callbacks run as `Box.new`'s do. A direct
 `Rc(T)(v)` is E0405 (the field is private): construct with `Rc.new`/`Arc.new`. Both bind the
 handle (`cell := Rc(T)(…); cell`) instead of ending in it: a tail expression is typed by the
 declared `Rc(V)`/`Arc(V)`, and for the cell call that `dyn(...)` synthesizes around a closure
@@ -133,10 +133,10 @@ capturing a generic function's `Impl(Fn)` parameter that `V` is unbound, a secon
 result
 (`issues/fixed/2026-10-22-a-dyn-closure-in-a-generic-fn-boxes-through-a-cell-typed-by-the-unbound-return.md`;
 the evaluator gap is open as `issues/2026-10-23-a-generic-constructors-specialization-keeps-its-declared-return-for-a-capture-struct-argument.md`).
-The payload carries `where(V <: Escapable)` (decision 43 O9; E0909). The thread scope's ONLY
-setter left is the clone of a `Dyn` over a placed cell (`_emit_dyn_clone_function`), which B2b
-(`plans/backlog/ALLOCATOR_PLACEMENT.md` §6) converts to an explicit allocator argument when it
-deletes the thread-local.
+The payload carries `where(V <: Escapable)` (decision 43 O9; E0909). The clone of a `Dyn` over a
+placed cell (`_emit_dyn_clone_function`) passes the source's owner (`__yo_scope_of_object`) to the
+fresh cell's constructor as its explicit allocator; what the impl's `clone` allocates itself is
+global (`plans/backlog/ALLOCATOR_PLACEMENT.md` §6 B2b).
 
 Single-payload reference-semantics types can use the payload field syntax `(*) : T` and are
 accessed with `value.*`. Treat this as a value payload accessor for reference-semantics values,
@@ -246,11 +246,10 @@ The guarantee is data-race freedom for every program that compiles without `prag
   global; `Box.new`/`Rc.new`/`Arc.new` and the containers' `new`/`with_capacity` take
   `(alloc : Option(Allocator)) ?= .None` (B2a deleted `new_in`/`with_capacity_in`),
   and `clone_in(a)` on `ArrayList`/`HashMap`/`String`/`StringBuilder` places a
-  copy. There is no user-visible allocation scope:
-  `with_allocator`/`current_allocator` were deleted (B1). The thread-local
-  `__yo_current_allocator` survives only for the clone of a `Dyn` over a placed cell;
-  the RC constructor sites still read it (`__yo_rc_alloc_scoped`), the runtime's
-  own blocks never do (`__yo_rc_alloc`), and B2b deletes it.
+  copy. There is no allocation scope: `with_allocator`/`current_allocator` were
+  deleted (B1) and the thread-local behind them (B2b). A `ref` constructor, `dyn`'s
+  box and an `io.async` task allocate with `__yo_rc_alloc` (global); a cell
+  constructor takes its allocator as its first C parameter (`__yo_rc_alloc_in`).
 - The mutable containers' DEFAULT constructors are global
   (`ArrayList.new`/`with_capacity`, `HashMap.new`/`with_capacity`, `Deque.new`,
   and `HashSet`/`StringBuilder`/`String` through them), and so are `ref`
