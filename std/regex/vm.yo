@@ -179,20 +179,20 @@ impl(
   // happens to hold, so a malformed sequence yields U+FFFD and a width of 1
   // rather than failing. The old hand-rolled version indexed `_bytes` past the
   // end on a truncated tail; `decode_lossy` bounds-checks instead.
-  _decode_codepoint : (fn(self : &mut Self, pos : usize) -> DecodedChar)({
+  _decode_codepoint : (fn(self : &Self, pos : usize) -> DecodedChar)({
     d := utf8.decode_lossy(&self._bytes, pos);
     DecodedChar(codepoint : d.code.to_u32(), byte_len : d.width)
   }),
-  _to_lower : (fn(self : &mut Self, cp : u32) -> u32)(
+  _to_lower : (fn(self : &Self, cp : u32) -> u32)(
     cond(
       ((cp >= u32(65)) && (cp <= u32(90))) => (cp + u32(32)),
       true => cp
     )
   ),
-  _is_word_char : (fn(self : &mut Self, cp : u32) -> bool)(
+  _is_word_char : (fn(self : &Self, cp : u32) -> bool)(
     ((cp >= u32(48)) && (cp <= u32(57))) || ((cp >= u32(65)) && (cp <= u32(90))) || ((cp >= u32(97)) && (cp <= u32(122))) || (cp == u32(95))
   ),
-  _find_prev_char_start : (fn(self : &mut Self, pos : usize) -> usize)({
+  _find_prev_char_start : (fn(self : &Self, pos : usize) -> usize)({
     mut(p) := (pos - usize(1));
     while(p > usize(0), p = (p - usize(1)), {
       b := self._bytes(p);
@@ -205,7 +205,7 @@ impl(
     });
     p
   }),
-  _prev_byte_is_newline : (fn(self : &mut Self, pos : usize) -> bool)(
+  _prev_byte_is_newline : (fn(self : &Self, pos : usize) -> bool)(
     cond(
       (pos == usize(0)) => false,
       true => {
@@ -214,7 +214,7 @@ impl(
       }
     )
   ),
-  _cur_byte_is_newline : (fn(self : &mut Self, pos : usize) -> bool)(
+  _cur_byte_is_newline : (fn(self : &Self, pos : usize) -> bool)(
     cond(
       (pos >= self._bytes.len()) => false,
       true => {
@@ -227,14 +227,14 @@ impl(
 // Block 2: Methods that depend on Block 1
 impl(
   NfaVm,
-  _char_matches : (fn(self : &mut Self, expected : u32, actual : u32) -> bool)(
+  _char_matches : (fn(self : &Self, expected : u32, actual : u32) -> bool)(
     cond(
       (expected == actual) => true,
       self._flags.ignore_case => (self._to_lower(expected) == self._to_lower(actual)),
       true => false
     )
   ),
-  _codepoint_in_class : (fn(self : &mut Self, cp : u32, cls : &ClassEntry) -> bool)({
+  _codepoint_in_class : (fn(self : &Self, cp : u32, cls : &ClassEntry) -> bool)({
     check_cp := cond(
       self._flags.ignore_case => self._to_lower(cp),
       true => cp
@@ -278,7 +278,7 @@ impl(
       true => found
     )
   }),
-  _is_word_boundary : (fn(self : &mut Self, pos : usize) -> bool)({
+  _is_word_boundary : (fn(self : &Self, pos : usize) -> bool)({
     left_is_word := cond(
       (pos == usize(0)) => false,
       true => {
@@ -300,7 +300,7 @@ impl(
 // Block 3: _add_thread (recursive, depends on Block 1+2)
 impl(
   NfaVm,
-  _add_thread : (fn(self : &mut Self, list : &mut ArrayList(NfaThread), thread : NfaThread, byte_pos : usize, seen : &mut ArrayList(bool)) -> unit)({
+  _add_thread : (fn(self : &Self, list : &mut ArrayList(NfaThread), thread : NfaThread, byte_pos : usize, seen : &mut ArrayList(bool)) -> unit)({
     mut(th) := thread;
     cond(
       (th.pc >= self._program.instructions.len()) => {
@@ -308,7 +308,7 @@ impl(
       },
       true => ()
     );
-    // Already checked bounds above: th.pc < instructions.len()
+    // Already checked bounds above: thread.pc < instructions.len()
     is_seen := seen(th.pc);
     cond(
       is_seen => {
@@ -321,14 +321,16 @@ impl(
     match(
       instr.kind,
       .Split => {
+        // The thread is owned here: the first branch gets a copy, the
+        // second the thread itself.
         t1 := th.fork(instr.target_a);
-        t2 := th.fork(instr.target_b);
+        th.pc = instr.target_b;
         recur(self, list, t1, byte_pos, seen);
-        recur(self, list, t2, byte_pos, seen);
+        recur(self, list, th, byte_pos, seen);
       },
       .Jump => {
-        new_t := th.fork(instr.target);
-        recur(self, list, new_t, byte_pos, seen);
+        th.pc = instr.target;
+        recur(self, list, th, byte_pos, seen);
       },
       .Save => {
         cond(
@@ -337,12 +339,10 @@ impl(
           },
           true => ()
         );
-        // The slot list moves on to the th that follows: the th
-        // before the Save is dead (no caller reads it after `_add_thread`),
-        // so a copy in the matcher's hot loop would buy nothing (B8,
-        // decision 19's `replace`).
-        new_t := NfaThread(pc : (th.pc + usize(1)), slots : replace(&mut th.slots, ArrayList(usize).new()));
-        recur(self, list, new_t, byte_pos, seen);
+        // The thread is owned here, so it moves on past the Save with its
+        // slots: no copy in the matcher's hot loop.
+        th.pc = (th.pc + usize(1));
+        recur(self, list, th, byte_pos, seen);
       },
       .AssertStart => {
         passes := cond(
@@ -352,8 +352,8 @@ impl(
         );
         cond(
           passes => {
-            new_t := th.fork(th.pc + usize(1));
-            recur(self, list, new_t, byte_pos, seen);
+            th.pc = (th.pc + usize(1));
+            recur(self, list, th, byte_pos, seen);
           },
           true => ()
         );
@@ -366,8 +366,8 @@ impl(
         );
         cond(
           passes => {
-            new_t := th.fork(th.pc + usize(1));
-            recur(self, list, new_t, byte_pos, seen);
+            th.pc = (th.pc + usize(1));
+            recur(self, list, th, byte_pos, seen);
           },
           true => ()
         );
@@ -375,8 +375,8 @@ impl(
       .AssertWordBoundary => {
         cond(
           self._is_word_boundary(byte_pos) => {
-            new_t := th.fork(th.pc + usize(1));
-            recur(self, list, new_t, byte_pos, seen);
+            th.pc = (th.pc + usize(1));
+            recur(self, list, th, byte_pos, seen);
           },
           true => ()
         );
@@ -384,8 +384,8 @@ impl(
       .AssertNonWordBoundary => {
         cond(
           !self._is_word_boundary(byte_pos) => {
-            new_t := th.fork(th.pc + usize(1));
-            recur(self, list, new_t, byte_pos, seen);
+            th.pc = (th.pc + usize(1));
+            recur(self, list, th, byte_pos, seen);
           },
           true => ()
         );
@@ -401,7 +401,7 @@ impl(
   NfaVm,
   // Run a sub-VM starting at sub_start_pc from start_byte.
   // If required_end is not UNSET, only succeed when Match is found at exactly required_end.
-  _run_sub_vm : (fn(self : &mut Self, sub_start_pc : usize, start_byte : usize, required_end : usize) -> bool)({
+  _run_sub_vm : (fn(self : &Self, sub_start_pc : usize, start_byte : usize, required_end : usize) -> bool)({
     unset := usize.MAX;
     mut(sub_current) := ArrayList(NfaThread).new();
     mut(sub_next) := ArrayList(NfaThread).new();
