@@ -3398,6 +3398,44 @@ note_deref_migrated_file :: (fn(tok : &Token) -> unit)({
   mp := tok.module_path.*.clone();
   _new := g_deref_migrated_files.with_mut({ mp }(s) => s.insert(mp));
 });
+/// The files in which a `--migrate deref` evaluation met a `cond` whose
+/// compile-time-known conditions left an arm unevaluated: the arm gated on
+/// another target (`arch == Arch.Aarch64`), which only an evaluation for that
+/// target reaches (issues/fixed/2026-11-04-migrate-deref-and-e0926-skip-a-platform-gated-dead-arm.md).
+(g_deref_dead_arm_files : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
+note_deref_dead_arm_file :: (fn(tok : &Token) -> unit)({
+  mp := tok.module_path.*.clone();
+  _new := g_deref_dead_arm_files.with_mut({ mp }(s) => s.insert(mp));
+});
+/// The files `note_deref_dead_arm_file` saw (module paths in either
+/// spelling); the set is emptied.
+take_deref_dead_arm_files :: (fn() -> HashSet(String))(
+  g_deref_dead_arm_files.with_mut(s => {
+    out := s.clone();
+    s.clear();
+    out
+  })
+);
+/// The positions where a `--migrate deref` evaluation judged a reference
+/// binding's name and recorded nothing (a receiver, a lend to a reference
+/// slot, a written `r.*`), as `edit` 255 sites. An evaluation for another
+/// target that records an edit there disagrees: the migration leaves the
+/// position as written. Recorded once per position.
+(g_deref_clean_sites : RefCell(ArrayList(DerefSite))) = RefCell(ArrayList(DerefSite)).new(ArrayList(DerefSite).new());
+(g_deref_clean_keys : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
+record_deref_clean_site :: (fn(tok : &Token, name : &String) -> unit)({
+  key := `${tok.module_path.*}:${tok.row.to_string()}:${tok.column.to_string()}`;
+  if(!g_deref_clean_keys.with_mut(s => s.insert(key.clone())), {
+    return(());
+  });
+  site := DerefSite(path : tok.module_path.*.clone(), row : usize(tok.row), col : usize(tok.column), expect : name.clone(), edit : u8(255));
+  g_deref_clean_sites.with_mut({ site }(xs) => xs.push(site));
+});
+take_deref_clean_sites :: (fn() -> ArrayList(DerefSite))({
+  out := g_deref_clean_sites.with_mut(xs => xs.split_off(usize(0)));
+  g_deref_clean_keys.with_mut(s => s.clear());
+  out
+});
 take_deref_sites :: (fn() -> ArrayList(DerefSite))({
   out := g_deref_sites.with_mut(xs => xs.split_off(usize(0)));
   g_deref_site_keys.with_mut(s => s.clear());
@@ -3412,7 +3450,7 @@ take_deref_migrated_files :: (fn() -> HashSet(String))(
     out
   })
 );
-export(DerefSite, set_migrate_deref, migrate_deref_on, set_deref_rule_suspended, deref_rule_suspended, audit_deref_on, record_deref_site, record_deref_edit_site, note_deref_migrated_file, take_deref_sites, take_deref_migrated_files);
+export(DerefSite, set_migrate_deref, migrate_deref_on, set_deref_rule_suspended, deref_rule_suspended, audit_deref_on, record_deref_site, record_deref_edit_site, note_deref_migrated_file, note_deref_dead_arm_file, record_deref_clean_site, take_deref_sites, take_deref_migrated_files, take_deref_dead_arm_files, take_deref_clean_sites);
 /// One pattern `yo fix --migrate rc-pattern` wraps in `Rc(…)`
 /// (plans/VALUES_BY_DEFAULT.md decision 31, Generation B): a structural
 /// pattern at an `Rc(T)` position, which the compiler no longer looks through
