@@ -165,7 +165,7 @@ destroying_builtin_error_message :: (fn(builtin : &String, place : &String) -> S
 
 To end a value early, call 'drop(x)': it moves 'x' in, and a later use is an error. A file that destroys a slot it owns through a raw pointer declares 'pragma(Pragma.AllowUnsafe);' and calls 'unsafe(drop_in_place(p))'.`
 );
-/// Is this module path a compiler-synthesized expansion (macro, derive,
+/// Is this module path a compiler-synthesized expansion (derive,
 /// prelude desugaring)? Such URIs are tagged `auto-generated://...`.
 is_auto_generated_expansion :: (fn(module_path : &Option(String)) -> bool)(
   match(
@@ -174,13 +174,6 @@ is_auto_generated_expansion :: (fn(module_path : &Option(String)) -> bool)(
     .Some(mp) => mp.starts_with(String.from("auto-generated://"))
   )
 );
-/// Is the module path permitted to DEFINE macros (`quote(...)` parameters
-/// / `unquote(...)` return types)? True if the file declared
-/// `pragma(Pragma.AllowMacroDef);`, OR the code is compiler-synthesized
-/// (`auto-generated://` inherits the privileged caller's policy, same as
-/// the unsafe gate). The standard library has no exemption: each std file
-/// that defines a macro declares the pragma like any other file
-/// (plans/reference/MACRO_POLICY.md Part 2).
 /// Lexically absolutize a path for the std-prefix comparison below: strip a
 /// `file://` scheme, then absolutize. Purely lexical — no symlink
 /// resolution — matching how the loaders build std module URIs (a join on
@@ -251,7 +244,7 @@ is_std_module_path :: (fn(mp : &String, std_path : &String) -> bool)({
 /// (`<std>/../src/`), the repository's own build file and scripts
 /// (`<std>/../build.yo`, `<std>/../scripts/`, e.g. `scripts/build_site.yo` in
 /// the release job), a fetched dependency in the store
-/// (`.../store/sha256/...`) and macro expansions. std is NOT exempt: its half
+/// (`.../store/sha256/...`) and synthesized code. std is NOT exempt: its half
 /// of Generation B (v0.2.71, `plans/handover/VBD_RELEASE_SCHEDULE.md` §5c
 /// decision 18) marked every written std binding, so a std local that is
 /// written must be `mut`. The module-level rules (E0917 on a global, E0916)
@@ -320,18 +313,6 @@ is_deref_rule_exempt :: (fn(mp : &String, std_path : &String) -> bool)(
     }
   )
 );
-is_macro_def_capable_file :: (fn(module_path : &Option(String)) -> bool)(
-  match(
-    module_path,
-    .None => false,
-    .Some(mp) => {
-      if(mp.starts_with(String.from("auto-generated://")), {
-        return(true);
-      });
-      file_has_pragma(Option(String).Some(mp.clone()), Pragma.AllowMacroDef)
-    }
-  )
-);
 /// May code in this module HOLD a raw pointer value (bind, pass, store or
 /// return one — not only dereference it)? True for unsafe-capable files
 /// (`pragma(Pragma.AllowUnsafe)`), for compiler-synthesized expansions
@@ -358,7 +339,7 @@ is_pointer_value_capable_file :: (fn(module_path : &Option(String), std_path : &
 /// std/prelude.yo's runtime/comptime operator pairing (`(-)`/`(!)`/`(~)`
 /// modules, `Call :: (neg, comptime_neg)`), so only the prelude itself —
 /// plus compiler-synthesized `auto-generated://` code, which inherits the
-/// privileged caller's policy like the unsafe and macro gates — passes.
+/// privileged caller's policy like the unsafe gate — passes.
 /// See plans/reference/FUNCTION_OVERLOADING_POLICY.md.
 is_overload_set_capable_file :: (fn(module_path : &Option(String), std_path : &String) -> bool)(
   is_prelude_or_generated_file(module_path, std_path)
@@ -472,7 +453,6 @@ export(
   _clear_pragma_for_module,
   is_implicitly_unsafe_capable_file,
   is_auto_generated_expansion,
-  is_macro_def_capable_file,
   is_global_mut_rule_exempt,
   is_deref_rule_exempt,
   is_pointer_value_capable_file,

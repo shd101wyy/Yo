@@ -56,7 +56,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../expr_info.yo");
 { Environment, Variable, pop_env_frame, snapshot_env, env_adopt } :: import("../../env.yo");
 { Token, TokenKind, intern_token_str } :: import("../../token.yo");
-{ add_variable_to_env, get_variables_from_env, find_variable_in_env, variable_set_inout_borrow_root_id, variable_mark_inout_borrow_root, mark_macro_pattern_binding } :: import("../../env.yo");
+{ add_variable_to_env, get_variables_from_env, find_variable_in_env, variable_set_inout_borrow_root_id, variable_mark_inout_borrow_root, mark_loop_pattern_binding } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx, fn_ctx_returns_comptime, call_is_index_place } :: import("../context.yo");
 {
   EvalValue,
@@ -1619,18 +1619,11 @@ evaluate_match :: (
               .None => ()
             );
           });
-          // A name the caller wrote, bound by a match a macro expansion built
-          // or a desugared `for` (macro plan B1) builds (`for(coll, x =>
-          // ...)`'s `.Some(x)` arm), rebinds like a parameter.
-          m_tok := ast_expr_token(expr);
-          if(for_desugar_site_of(&m_tok).is_some(), {
-            match(_added, .Some(me_var) => mark_macro_pattern_binding(me_var.id), .None => ());
-          }, {
-            if(b_tok.module_path != m_tok.module_path, {
-              if(canonical_module_path(&b_tok.module_path.*) != canonical_module_path(&m_tok.module_path.*), {
-                match(_added, .Some(me_var) => mark_macro_pattern_binding(me_var.id), .None => ());
-              });
-            });
+          // A name the caller wrote, bound by the match a desugared `for`
+          // (macro plan B1) builds (`for(coll, x => ...)`'s `.Some(x)` arm),
+          // rebinds like a parameter.
+          if(for_desugar_site_of(&ast_expr_token(expr)).is_some(), {
+            match(_added, .Some(me_var) => mark_loop_pattern_binding(me_var.id), .None => ());
           });
           // Decision 38 A: a pattern binding is a binding. A second-class
           // value it binds freezes what it borrows for the arm, and a

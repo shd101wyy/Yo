@@ -97,7 +97,7 @@ pragma(Pragma.AllowUnsafe);
   is_fn_capture_value_binding,
   is_capture_list_value_binding,
   is_fnmut_capture_value_binding,
-  is_macro_pattern_binding,
+  is_loop_pattern_binding,
   is_fnonce_capture_frame,
   is_closure_param_frame,
   variable_note_arm_move,
@@ -153,13 +153,6 @@ pragma(Pragma.AllowUnsafe);
 /// The `mut` places `match` arms bind over a local borrow (decision 25's
 /// cursor), with their live ranges: rule 4 checks them at an `await`.
 (g_local_borrow_match_places : RefCell(ArrayList(LocalBorrowMatchPlace))) = RefCell(ArrayList(LocalBorrowMatchPlace)).new(ArrayList(LocalBorrowMatchPlace).new());
-/// The macro calls whose expansion is being evaluated, outermost first. An
-/// expansion's `await` carries a token of the macro's own source, so rule 4
-/// judges it at these call sites too; a local borrow the expansion's own
-/// template code declares is live across the whole innermost call
-/// (`_lb_macro_site_of`), so the caller's code inside it (a `for` body) is
-/// checked against it.
-(g_lb_macro_sites : RefCell(ArrayList(LocalBorrowMacroSite))) = RefCell(ArrayList(LocalBorrowMacroSite)).new(ArrayList(LocalBorrowMacroSite).new());
 /// The receiver node a `.` access is about to evaluate as part of a place
 /// chain: its own evaluator reports no access (the chain's outermost node
 /// reports the whole place).
@@ -2666,8 +2659,8 @@ binding_require_mut :: (fn(v : &Variable, tok : &Token, how : &String, ctx : &Ev
   if(marked, {
     return(());
   });
-  is_macro_elem := is_macro_pattern_binding(v.id);
-  is_param_like := (v.is_parameter || (is_capture_list_value_binding(v.id) || is_macro_elem));
+  is_loop_elem := is_loop_pattern_binding(v.id);
+  is_param_like := (v.is_parameter || (is_capture_list_value_binding(v.id) || is_loop_elem));
   if(migrate_mut_bindings_on(), {
     cond(
       // A write inside a `comptime_expect_error` argument is held until the
@@ -2694,12 +2687,12 @@ binding_require_mut :: (fn(v : &Variable, tok : &Token, how : &String, ctx : &Ev
   if(is_param_like, {
     what_p := cond(
       v.is_parameter => "a parameter, and a parameter",
-      is_macro_elem => "a binding a macro introduces (a `for` element), and such a binding",
+      is_loop_elem => "a binding a `for` loop introduces (its element), and such a binding",
       true => "a capture-list entry, and a capture-list entry"
     );
     entries.push(TokenAndError(token : tok, error_message : `Cannot ${how} \`${name}\`: it is ${what_p} is immutable (plans/VALUES_BY_DEFAULT.md decision 47).`));
     help = if(
-      is_macro_elem,
+      is_loop_elem,
       `rebind it to a mutable local and write that (\`mut(${name}_m) := ${name};\`), or loop with \`for(&mut coll, ${name} => ...)\` to write each element in place`,
       cond(
         is_capture_list_value_binding(v.id) => `rebind it to a mutable local and write that (\`mut(${name}_m) := ${name};\`, a move, not a copy, for an owning value), or type the closure \`FnMut(...)\` if the state should persist across calls`,
@@ -6065,13 +6058,12 @@ LocalBorrowInfo :: ref(
     /// The binding's name token: the borrow variable's identity.
     decl : Token,
     /// The access tokens after this one (to `end`) are in the live range.
-    /// `decl`, except for a borrow a macro expansion declares in its own
-    /// template code: there it is the macro call's first token
-    /// (`local_borrow_enter_macro_site`).
+    /// `decl`, except for the hidden borrow of a desugared `for` loop: there
+    /// it is the `for` call's token.
     start : Token,
-    /// The macro call whose expansion declared this borrow in its template
-    /// code (so `decl` is in the macro's module), for the E0911 message.
-    macro_site : Option(Token),
+    /// The desugared `for` call whose hidden borrow this is (the loop spans
+    /// it, `for_desugar_site_of`), for the E0911 message.
+    for_site : Option(Token),
     is_mut : bool,
     /// The declared place, then the places re-points went through. The
     /// declared place stays frozen for the whole live range (decision 25),
@@ -6108,18 +6100,6 @@ LocalBorrowElidedOrigin :: struct(
   roots : ArrayList(String)
 );
 impl(LocalBorrowInfo, Clone(clone : (fn(self : &Self) -> Self)(self)));
-/// The innermost macro call whose expansion declares a borrow named at
-/// `decl`, when `decl` is template code of that macro (another module).
-_lb_macro_site_of :: (fn(decl : &Token) -> Option(LocalBorrowMacroSite))(
-  match(
-    g_lb_macro_sites.with(xs => xs.last_cloned()),
-    .Some(site) => cond(
-      (site.site.module_path != decl.module_path) => Option(LocalBorrowMacroSite).Some(site),
-      true => Option(LocalBorrowMacroSite).None
-    ),
-    .None => Option(LocalBorrowMacroSite).None
-  )
-);
 /// A `match` binding over a local borrow: a place reached from it, which a
 /// re-point may go through (decision 25).
 LocalBorrowPatternBinding :: struct(name : String, decl : Token, borrow : LocalBorrowInfo);
@@ -6127,29 +6107,22 @@ LocalBorrowPatternBinding :: struct(name : String, decl : Token, borrow : LocalB
 /// (`match(cur, .Some(n) => …)`): it points into `borrow`'s place from its
 /// binding `decl` to `end` (its last mention `last_use`).
 LocalBorrowMatchPlace :: struct(name : String, decl : Token, last_use : Token, end : Token, borrow : LocalBorrowInfo);
-/// A macro call at `site` whose expansion is being evaluated, the call's last
-/// token `end`, and the ids of the `.await(…)` calls written in that
-/// expansion (`local_borrow_enter_macro_site`).
-LocalBorrowMacroSite :: struct(site : Token, end : Token, await_ids : ArrayList(usize));
-derive(LocalBorrowMacroSite, Clone);
 /// How an access touches a place.
 LocalBorrowAccess :: enum(Read, Write, Move, Exclusive);
 /// Any local borrow in scope: the fast gate every access hook checks first.
 local_borrows_active :: (fn() -> bool)(g_local_borrows.with(xs => xs.len()) > usize(0));
 /// The lengths a begin block restores when it ends (`local_borrows_truncate`).
-LocalBorrowMark :: struct(borrows : usize, patterns : usize, match_places : usize, macro_sites : usize);
+LocalBorrowMark :: struct(borrows : usize, patterns : usize, match_places : usize);
 derive(LocalBorrowMark, Copy, Clone);
 local_borrows_mark :: (fn() -> LocalBorrowMark)(
   LocalBorrowMark(
     borrows : g_local_borrows.with(xs => xs.len()),
     patterns : g_local_borrow_patterns.with(xs => xs.len()),
-    match_places : g_local_borrow_match_places.with(xs => xs.len()),
-    macro_sites : g_lb_macro_sites.with(xs => xs.len())
+    match_places : g_local_borrow_match_places.with(xs => xs.len())
   )
 );
 derive(LocalBorrowMatchPlace, Clone);
 derive(LocalBorrowPatternBinding, Clone);
-derive(LocalBorrowMacroSite, Clone);
 local_borrows_truncate :: (fn(mark : LocalBorrowMark) -> unit)({
   while(g_local_borrows.with(xs => xs.len()) > mark.borrows, {
     g_local_borrows.with_mut(xs => xs.pop());
@@ -6161,10 +6134,6 @@ local_borrows_truncate :: (fn(mark : LocalBorrowMark) -> unit)({
   });
   while(g_local_borrow_match_places.with(xs => xs.len()) > mark.match_places, {
     g_local_borrow_match_places.with_mut(xs => xs.pop());
-    ()
-  });
-  while(g_lb_macro_sites.with(xs => xs.len()) > mark.macro_sites, {
-    g_lb_macro_sites.with_mut(xs => xs.pop());
     ()
   });
   g_lb_receiver_armed = false;
@@ -6729,7 +6698,7 @@ local_borrow_info_placeholder :: (fn(name : &String, tok : &Token) -> LocalBorro
     name : name.clone(),
     decl : tok,
     start : tok,
-    macro_site : Option(Token).None,
+    for_site : Option(Token).None,
     is_mut : false,
     places : ArrayList(LocalBorrowPlace).new(),
     last_use : tok,
@@ -6823,19 +6792,16 @@ _lb_raise_conflict :: (
     )
   );
   // The borrowed `for`'s hidden `c := &mut coll`, which a desugared loop
-  // (macro plan B1) or a macro's own code took.
-  is_for_site := match(info.macro_site, .Some(fs) => for_desugar_site_of(&fs).is_some(), .None => false);
+  // took (macro plan B1).
+  is_for_site := info.for_site.is_some();
   match(
-    info.macro_site,
+    info.for_site,
     .Some(site) => {
       // Point at the loop (the call), which it spans.
       entries.push(
         TokenAndError(
           token : site,
-          error_message : cond(
-            is_for_site => `this \`for\` loop borrows \`${ftext}\` for its whole extent (its hidden local \`${info.name}\`):`,
-            true => `this macro call borrows \`${ftext}\` for its whole extent (its hidden local \`${info.name}\`):`
-          )
+          error_message : `this \`for\` loop borrows \`${ftext}\` for its whole extent (its hidden local \`${info.name}\`):`
         )
       );
     },
@@ -6889,7 +6855,6 @@ _lb_raise_conflict :: (
   );
   help := cond(
     is_for_site => `the borrow lasts for the whole \`for\` loop: make the access after the loop, or through the element the loop binds (\`x\` in a borrowed \`for(&mut coll, x => ...)\`; to read or grow an \`ArrayList\` or a \`Deque\` in the body, walk \`for(coll.indices(), i => ...)\` with \`coll(i)\` instead)`,
-    info.macro_site.is_some() => `the borrow lasts for the whole macro call: make the access after the call, or through the bindings the macro gives you (in a borrowed \`for(&mut coll, x => ...)\`, the element \`x\`; to read or grow an \`ArrayList\` or a \`Deque\` in the body, walk \`for(coll.indices(), i => ...)\` with \`coll(i)\` instead)`,
     info.is_mut => `make the access after \`${info.name}\`'s last use, or make it through \`${info.name}\``,
     true => `make the access after \`${info.name}\`'s last use, or borrow with \`${info.name} := &mut ...\` to write through the borrow`
   );
@@ -7110,19 +7075,9 @@ local_borrow_note_call :: (fn(tok : &Token, callee_text : &String, ctx : &EvalCo
 /// suspended. `tok` is the await. Neither may a `mut` place a `match` arm
 /// binds over such a borrow (`match(cur, .Some(n) => …)`, which points into
 /// the borrow's place while it lives).
-///
-/// An `await` a macro expansion evaluates carries a token of
-/// the macro's own source, so it is also judged at each macro call being
-/// expanded: a borrow live at the call is taken as live across every await
-/// the expansion makes
-/// (issues/fixed/2026-10-17-a-local-borrow-is-not-checked-across-an-await-a-macro-expands-to.md).
 local_borrow_note_await :: (fn(tok : &Token, ctx : &EvalContext, exn : Exception) -> unit)({
   sites := ArrayList(Token).new();
   sites.push(tok);
-  (si : usize) = usize(0);
-  while(si < g_lb_macro_sites.with(xs => xs.len()), si = (si + usize(1)), {
-    match(g_lb_macro_sites.with(xs => xs.get_cloned(si)), .Some(ms) => sites.push(ms.site), .None => ());
-  });
   (i : usize) = g_local_borrows.with(xs => xs.len());
   while(i > usize(0), {
     i = (i - usize(1));
@@ -7180,7 +7135,7 @@ _lb_first_site_in :: (fn(sites : &ArrayList(Token), decl : &Token, end : &Token)
 _lb_raise_across_await :: (fn(name : String, info : &LocalBorrowInfo, decl : &Token, last_use : &Token, decl_note : String, at : &Token, ctx : &EvalContext, exn : Exception) -> unit)({
   why := cond(info.module_root => "a module-level place", true => "a reference cell (`Rc`, `Arc` or a `ref` object)");
   // The hidden borrow of a desugared `for` (macro plan B1) spans the loop.
-  for_site := match(info.macro_site, .Some(fs) => if((name == info.name) && for_desugar_site_of(&fs).is_some(), Option(Token).Some(fs), Option(Token).None), .None => Option(Token).None);
+  for_site := match(info.for_site, .Some(fs) => if(name == info.name, Option(Token).Some(fs), Option(Token).None), .None => Option(Token).None);
   entries := ArrayList(TokenAndError).new();
   entries.push(
     TokenAndError(
@@ -7215,79 +7170,6 @@ _lb_raise_across_await :: (fn(name : String, info : &LocalBorrowInfo, decl : &To
     ctx,
     exn
   );
-});
-/// The ids of the `<recv>.await(…)` calls written in `e`, into `out`.
-_lb_collect_await_ids :: (fn(e : &AstExpr, out : &mut ArrayList(usize)) -> unit)(
-  match(
-    e,
-    .Atom(_, _) => (),
-    .FnCall(_, callee, Rc(args), _, _) => {
-      is_await := match(
-        callee,
-        .FnCall(_, dot, Rc(dargs), is_infix, _) => (
-          is_infix && (dargs.len() == usize(2)) &&
-            match(dot, .Atom(_, dt) => (dt.kind == TokenKind.Dot), .FnCall(_, _, _, _, _) => false) && match(
-              dargs.get(usize(1)),
-              .Some(m) => ast_expr_is_atom_of(&m, "await"),
-              .None => false
-            )
-        ),
-        .Atom(_, _) => false
-      );
-      if(is_await, {
-        out.push(ast_expr_id(e));
-      });
-      _lb_collect_await_ids(&callee, out);
-      (i : usize) = usize(0);
-      while(i < args.len(), i = (i + usize(1)), {
-        match(args.get(i), .Some(a) => _lb_collect_await_ids(&a, out), .None => ());
-      });
-    }
-  )
-);
-/// The macro call `call` at `tok` is about to evaluate its `expansion`
-/// (`local_borrow_note_await`). The awaits written in the expansion carry the
-/// macro's own tokens; `local_borrow_is_macro_await` names them. A borrow the
-/// expansion's template declares is live over the whole call
-/// (`local_borrow_register`), which is what makes a `for` body's access of
-/// the borrowed collection E0911: the prelude's `for` takes
-/// `c := &mut coll` in template code, and the body is the caller's code
-/// (plans/VALUES_BY_DEFAULT.md decision 39).
-local_borrow_enter_macro_site :: (fn(tok : &Token, call : &AstExpr, expansion : &AstExpr) -> unit)({
-  ids := ArrayList(usize).new();
-  _lb_collect_await_ids(expansion, &mut ids);
-  g_lb_macro_sites.with_mut(xs => xs.push(LocalBorrowMacroSite(site : tok, end : _last_token_of(call, tok), await_ids : ids.clone())));
-});
-/// The expansion `local_borrow_enter_macro_site` announced is evaluated.
-local_borrow_leave_macro_site :: (fn() -> unit)({
-  g_lb_macro_sites.with_mut(xs => xs.pop());
-  ()
-});
-/// The call `id` is an `await` written in a macro expansion being evaluated.
-/// Such a call carries the macro's tokens (std's, for a std macro), and a
-/// call in std skips the local-borrow rules, so its caller checks rule 4 for
-/// it (`evaluate_function_call`).
-local_borrow_is_macro_await :: (fn(id : usize) -> bool)({
-  (i : usize) = usize(0);
-  while(i < g_lb_macro_sites.with(xs => xs.len()), i = (i + usize(1)), {
-    match(
-      g_lb_macro_sites.with(xs => xs.get_cloned(i)),
-      .Some(ms) => {
-        (j : usize) = usize(0);
-        while(j < ms.await_ids.len(), j = (j + usize(1)), {
-          match(
-            ms.await_ids.get(j),
-            .Some(aid) => if(aid == id, {
-              return(true);
-            }),
-            .None => ()
-          );
-        });
-      },
-      .None => ()
-    );
-  });
-  false
 });
 // --- Live ranges -------------------------------------------------------------
 /// The left side of an arrow literal (`=>`, `->`) BINDS the identifier
@@ -7612,39 +7494,28 @@ local_borrow_register :: (
   );
   places := ArrayList(LocalBorrowPlace).new();
   places.push(place.clone());
-  // Declared by a macro expansion's template code: live over the whole
-  // macro call, in the call's coordinates.
+  // Declared by a desugared `for` (macro plan B1): the hidden borrow is
+  // live over the whole loop.
   (start : Token) = decl;
   (last_use : Token) = range.last_use;
   (end : Token) = range.end;
-  (macro_site : Option(Token)) = .None;
+  (for_site : Option(Token)) = .None;
   match(
-    _lb_macro_site_of(decl),
-    .Some(site) => {
-      start = site.site;
-      last_use = site.end;
-      end = site.end;
-      macro_site = .Some(site.site);
+    for_desugar_site_of(decl),
+    .Some(for_call) => {
+      for_tok := ast_expr_token(&for_call);
+      start = for_tok;
+      last_use = _last_token_of(&for_call, &for_tok);
+      end = last_use;
+      for_site = .Some(for_tok);
     },
-    // Declared by a desugared `for` (macro plan B1): the hidden borrow is
-    // live over the whole loop, the extent the macro's template borrow had.
-    .None => match(
-      for_desugar_site_of(decl),
-      .Some(for_call) => {
-        for_tok := ast_expr_token(&for_call);
-        start = for_tok;
-        last_use = _last_token_of(&for_call, &for_tok);
-        end = last_use;
-        macro_site = .Some(for_tok);
-      },
-      .None => ()
-    )
+    .None => ()
   );
   info := LocalBorrowInfo(
     name : name.clone(),
     decl : decl,
     start : start,
-    macro_site : macro_site,
+    for_site : for_site,
     is_mut : is_mut,
     places : places,
     last_use : last_use,
@@ -8168,9 +8039,6 @@ export(
   local_borrow_write_expr,
   local_borrow_note_call,
   local_borrow_note_await,
-  local_borrow_enter_macro_site,
-  local_borrow_leave_macro_site,
-  local_borrow_is_macro_await,
   local_borrow_note_runtime_call,
   local_borrow_is_scalar_type,
   local_borrow_range_of,

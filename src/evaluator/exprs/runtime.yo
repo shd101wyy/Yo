@@ -127,9 +127,9 @@ evaluate_runtime :: (
 /// Decision 18 rule 3 with decision 47 at the borrowed `for`: the loop lends
 /// its source to the cursor methods (`walk_start`, `walk_ref`/`walk_elem`, …)
 /// for its whole extent, so a source rooted in a `mut(G)` module-level binding
-/// is E0916, as `f(&G)` is. The macro's own calls are in the prelude's module,
-/// outside the caller's live range of the borrow, so rule 3's per-call check
-/// (`local_borrow_note_call`) never sees them
+/// is E0916, as `f(&G)` is. Under the retired `for` macro the loop's own calls
+/// were in the prelude's module, outside the caller's live range of the borrow,
+/// so rule 3's per-call check (`local_borrow_note_call`) never saw them
 /// (issues/fixed/2026-10-23-a-borrowed-for-over-a-mut-global-is-not-e0916.md).
 _reject_borrowed_for_over_mut_global :: (
   fn(info : &LocalBorrowInfo, pl : &LocalBorrowPlace, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit
@@ -137,7 +137,7 @@ _reject_borrowed_for_over_mut_global :: (
   match(
     get_variables_from_env(env, &pl.root_name).last(),
     .Some(rv) => if(rv.is_module_level && is_mut_global(&rv.token.module_path.*, &rv.name), {
-      at := match(&info.macro_site, .Some(t) => t.clone(), .None => info.decl.clone());
+      at := match(&info.for_site, .Some(t) => t.clone(), .None => info.decl.clone());
       form := cond(info.is_mut => "for(&mut ...)", true => "for(&...)");
       raise_flow_violation(
         with_code(

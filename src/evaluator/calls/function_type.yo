@@ -29,7 +29,7 @@ pragma(Pragma.AllowUnsafe);
 { HashMap } :: import("std/collections/hash_map");
 { HashSet } :: import("std/collections/hash_set");
 { AstExpr, ast_expr_token, ast_expr_id, make_err_expr, clone_expr_fresh_ids, rewrite_projection_tails } :: import("../../expr.yo");
-{ copy_func_param_defaults, copy_func_param_default_exprs, copy_func_param_type_exprs, copy_func_param_comptime, copy_func_param_assigned_values, get_func_param_comptime, copy_func_return_type_expr, copy_macro_registration, get_func_variadic_param, copy_func_variadic_param, copy_func_where_constraints, get_func_where_constraints, WhereConstraintEntry, get_func_requires_exprs, get_func_ensures_exprs, get_func_decreases_expr, get_func_return_label, copy_func_contract_exprs, has_func_assumed_body } :: import("../types/function.yo");
+{ copy_func_param_defaults, copy_func_param_default_exprs, copy_func_param_type_exprs, copy_func_param_comptime, copy_func_param_assigned_values, get_func_param_comptime, copy_func_return_type_expr, get_func_variadic_param, copy_func_variadic_param, copy_func_where_constraints, get_func_where_constraints, WhereConstraintEntry, get_func_requires_exprs, get_func_ensures_exprs, get_func_decreases_expr, get_func_return_label, copy_func_contract_exprs, has_func_assumed_body } :: import("../types/function.yo");
 { ExprInfo, new_expr_info, expr_info_table_set, expr_info_table_get, has_control_flow, has_any_control_flow, push_active_where_trait_ids, pop_active_where_trait_ids, some_resolution, trial_body_site, record_generic_trial_error, clear_generic_trial_error, migrate_dyn_spelling_on } :: import("../../expr_info.yo");
 {
   Environment,
@@ -136,8 +136,8 @@ _evaluated_measure_for_verify :: (fn(dm : &AstExpr, env : &Environment, ctx : &E
 /// a `fn` literal inside it (a derive rule's fold callback) is re-defined on
 /// every call; re-running the same site's trial each time was a third of a
 /// derive-heavy check (issues/derive-clone-costs-17-ms-per-type.md). Keyed by
-/// the site, the function type and the printed body, since a macro expansion
-/// reuses its template's tokens with different bodies.
+/// the site, the function type and the printed body, since a quoted template
+/// spliced by a derive rule reuses its tokens with different bodies.
 (g_deferred_trial_clean : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
 
 _reset_pred_eval_failed :: (fn() -> unit)({
@@ -1608,7 +1608,6 @@ Result type: ${type_to_string(&result_box)}`
           copy_func_param_assigned_values(ast_expr_id(&fn_type_box).to_string(), fn_val_id.clone());
           copy_func_return_type_expr(ast_expr_id(&fn_type_box).to_string(), fn_val_id.clone());
           copy_func_variadic_param(ast_expr_id(&fn_type_box).to_string(), fn_val_id.clone());
-          copy_macro_registration(ast_expr_id(&fn_type_box).to_string(), fn_val_id.clone());
           copy_func_where_constraints(ast_expr_id(&fn_type_box).to_string(), fn_val_id.clone());
           copy_func_contract_exprs(ast_expr_id(&fn_type_box).to_string(), fn_val_id.clone());
         },
@@ -1881,8 +1880,8 @@ Result type: ${type_to_string(&result_box)}`
             ctx.is_evaluating_function_body_or_async_block.is_some(),
             &def_param_toks
           );
-          // Bind the variadic parameter (`...(quote(elems))` → `elems` as
-          // an unknown ComptimeList) into the body env — its name/type
+          // Bind the variadic parameter (`...(comptime(elems) : ComptimeList(T))`
+          // → `elems` as an unknown ComptimeList) into the body env — its name/type
           // are not on TypeValue.Func, so they ride the side table (see
           // types/function.yo).
           match(
