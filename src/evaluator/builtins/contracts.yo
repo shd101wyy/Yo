@@ -417,6 +417,7 @@ GhostFnDef :: (
     body : AstExpr
   )
 );
+derive(GhostFnDef, Clone);
 (g_ghost_fn_defs : RefCell(HashMap(String, GhostFnDef))) = RefCell(HashMap(String, GhostFnDef)).new(HashMap(String, GhostFnDef).new());
 register_ghost_fn_def :: (fn(func_id : &String, params : &ArrayList(String), body : &AstExpr) -> unit)({
   func_id_owned := func_id.clone();
@@ -427,7 +428,7 @@ register_ghost_fn_def :: (fn(func_id : &String, params : &ArrayList(String), bod
   ()
 });
 ghost_fn_def_of :: (fn(func_id : &String) -> Option(GhostFnDef))(
-  g_ghost_fn_defs.with(m => m.get(func_id))
+  g_ghost_fn_defs.with(m => m.get_cloned(func_id))
 );
 /// The refinement CHAIN registry: an outer predicate's func_id → the
 /// predicates of the refinement it wraps (outermost inner first —

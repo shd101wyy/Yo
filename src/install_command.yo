@@ -236,15 +236,12 @@ install_dependencies :: (
   io.async((e : IoExn) => {
     options := ResolveOptions(mode : owned_mode.clone(), locked : locked, offline : offline, verbose : verbose);
     lock := e.io.await(resolve_and_fetch(manifest, &options, e.io, e.exn), e);
-    (i : usize) = usize(0);
-    while(i < lock.packages.len(), {
-      p := lock.packages(i);
+    for(&lock.packages, p => {
       where_ := cond(
         p.is_git() => `${p.ref()} (${p.commit.substring(usize(0), usize(12))})`,
         true => p.path()
       );
       println(`  ${p.name} → ${where_}`);
-      i = (i + usize(1));
     });
     lock
   })
@@ -277,7 +274,7 @@ run_add :: (
     exn : Exception
   ) -> Impl(Future(unit, IoExn))
 )(
-  io.async((e : IoExn) => {
+  io.async({ &options }(e : IoExn) => {
     manifest := load_project_manifest(e.exn);
     parsed := match(
       parse_package_specifier(options.package_spec.clone()),
@@ -646,7 +643,7 @@ run_install :: (
     exn : Exception
   ) -> Impl(Future(unit, IoExn))
 )(
-  io.async((e : IoExn) => {
+  io.async({ &options }(e : IoExn) => {
     manifest := load_project_manifest(e.exn);
     (ni : usize) = usize(0);
     while(ni < options.names.len(), {
