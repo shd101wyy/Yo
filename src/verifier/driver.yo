@@ -474,7 +474,7 @@ verifier_harness_self_test :: (fn(cfg : &VerifyRunConfig, binary : &String) -> A
 // The per-function verification pass (V3)
 // ============================================================================
 /// One obligation's outcome inside a function report.
-VerifyFnObligation :: (
+VerifyFnObligation :: ref(
   struct(
     name : String,
     verdict : VerifyVerdict,
@@ -498,7 +498,7 @@ VerifyFnObligation :: (
   )
 );
 /// The verification report for one function.
-VerifyFnReport :: (
+VerifyFnReport :: ref(
   struct(
     fn_id : String,
     /// "verify" | "verify+" (the mode the file resolved to).
@@ -908,11 +908,7 @@ verify_and_strip_tasks :: (
           .None => {
             obligations := ArrayList(VerifyFnObligation).new();
             (worst : usize) = usize(0);
-            (oi : usize) = usize(0);
-            while(oi < body_res.obligations.len(), {
-              match(
-                body_res.obligations.get(oi),
-                .Some(obl) => {
+            for(&body_res.obligations, obl => {
                   // Literal-construction CTFE folding: a pre-resolved
                   // obligation skips the solver entirely (the verdict came
                   // from constant folding, which is a proof).
@@ -991,11 +987,7 @@ verify_and_strip_tasks :: (
                       worst = rank;
                     });
                   });
-                },
-                .None => ()
-              );
-              oi = (oi + usize(1));
-            });
+                });
             outcome := cond(
               (worst == usize(3)) => String.from("refuted"),
               (worst == usize(2)) => String.from("solver-error"),

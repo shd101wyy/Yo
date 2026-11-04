@@ -903,27 +903,23 @@ _ownership_hidden_bind :: (fn(own : &mut _ArmOwnership, ty : &TypeValue, env : &
 });
 _ownership_unbound :: (fn(own : &mut _ArmOwnership, ty : &TypeValue, env : &Environment) -> Pattern)({
   b := _ownership_hidden_bind(own, ty, env);
+  pat := Pattern.Bind(name : b.name.clone(), token : ast_expr_token(&b.atom), atom : b.atom);
   own.unbound.push(b);
-  Pattern.Bind(name : b.name.clone(), token : ast_expr_token(&b.atom), atom : b.atom)
+  pat
 });
 _ownership_keep :: (fn(own : &mut _ArmOwnership, ty : &TypeValue, p : Pattern, env : &Environment) -> Pattern)({
   b := _ownership_hidden_bind(own, ty, env);
+  pat := Pattern.At(name : b.name.clone(), token : ast_expr_token(&b.atom), atom : b.atom, sub : Box.new(p));
   own.keeps.push(b);
-  Pattern.At(name : b.name.clone(), token : ast_expr_token(&b.atom), atom : b.atom, sub : Box.new(p))
+  pat
 });
 /// A part with a drop of its own (a counted cell or a move-only value).
 _part_has_drop :: (fn(ty : &TypeValue) -> bool)(type_contains_rc_cell_or_move_only(ty));
 _bind_ty_of :: (fn(own : &mut _ArmOwnership, name : &String) -> Option(TypeValue))({
-  (i : usize) = usize(0);
-  while(i < own.bind_tys.len(), {
-    match(
-      own.bind_tys.get(i),
-      .Some(b) => if(b.name == name, {
+  for(&own.bind_tys, b => {
+    if(b.name == name, {
         return(Option(TypeValue).Some(Rc.clone(b.ty)));
-      }),
-      .None => ()
-    );
-    i = (i + usize(1));
+      });
   });
   Option(TypeValue).None
 });
@@ -1133,11 +1129,7 @@ _names_contain :: (fn(xs : &ArrayList(String), x : &String) -> bool)({
 /// arm is selected.
 _add_hidden_bindings :: (fn(binds : &ArrayList(BindInfo), env : &Environment, ctx : &EvalContext) -> ArrayList(Variable))({
   out := ArrayList(Variable).new();
-  (i : usize) = usize(0);
-  while(i < binds.len(), {
-    match(
-      binds.get(i),
-      .Some(b) => {
+  for(&binds, b => {
         match(
           add_variable_to_env(env, b.name.clone(), &b.ty, Option(EvalValue).None, false, false, false, false, ast_expr_token(&b.atom)),
           .Some(v) => out.push(v),
@@ -1145,11 +1137,7 @@ _add_hidden_bindings :: (fn(binds : &ArrayList(BindInfo), env : &Environment, ct
         );
         expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&b.atom), new_expr_info(env, &b.ty));
         scope_release_note_binding(ast_expr_id(&b.atom), env, b.name.clone());
-      },
-      .None => ()
-    );
-    i = (i + usize(1));
-  });
+      });
   out
 });
 _own_all :: (fn(vs : &ArrayList(Variable)) -> unit)({
@@ -1590,11 +1578,7 @@ evaluate_match :: (
     });
     owned_vars := ArrayList(Variable).new();
     place_vars := ArrayList(Variable).new();
-    (bi : usize) = usize(0);
-    while(bi < pc.binds.len(), {
-      match(
-        pc.binds.get(bi),
-        .Some(b) => {
+    for(&pc.binds, b => {
           _added := add_variable_to_env(
             &env,
             b.name.clone(),
@@ -1723,11 +1707,7 @@ evaluate_match :: (
               .None => ()
             );
           });
-        },
-        .None => ()
-      );
-      bi = (bi + usize(1));
-    });
+        });
     unbound_vars := _add_hidden_bindings(&own.unbound, &env, ctx);
     keep_vars := _add_hidden_bindings(&own.keeps, &env, ctx);
     classic := arm_is_classic(&pattern_ast, &pat, guard_ast.is_some(), scrutinee_is_primitive);

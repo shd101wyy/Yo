@@ -74,6 +74,9 @@ migrating.
   `CapturedVarInfo`, `SpecializingFunctionInfo`, `ImplConcreteTypeInfo`,
   `InAsyncStateMachine`, `InlineSuspension`) wait for their owner's batch,
   because the owners are copied today.
+- `VerifyResult`, `VerifyFnReport` and `VerifyFnObligation`
+  (`src/verifier/driver.yo`) stay `ref` until W6b merges: `src/main.yo`, a
+  W6b file, reads them by element copy.
 - Types that are a `HashMap` value stay `ref` until the HashMap
   plain-data-value fix lands. Today `insert` rejects a `V` that is
   neither Copy nor `ref`.
