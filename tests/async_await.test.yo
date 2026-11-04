@@ -7626,6 +7626,7 @@ test("a future's result type spells its origin: Future(T, E, p) (decision 43 N3-
   mut(c) := _A2Counter(n : i32(0));
   io.await(_n3_bump_spelled(&mut c, io), io);
   assert(c.n == i32(1), "the spelled-origin future writes through the lent &mut");
+  comptime_expect_error(Future(unit, Io, i32), "The third argument of `Future(T, E, p)` is an origin");
 });
 test("a borrowing future: a function returns a future over its & or &mut parameter (§3.13 A2)", {
   mut(c) := _A2Counter(n : i32(0));
