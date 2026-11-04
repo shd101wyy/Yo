@@ -59,10 +59,8 @@ Semaphore :: struct(_cell : __yo_atomic_cell(_SemaphoreState));
 // Allocated locally inside with_permit; Yo's drop-on-scope-exit and
 // drop-on-unwind machinery guarantees the release under both a normal return
 // and `unwind(...)`. Mirrors __MutexUnlocker in ./mutex.yo.
-__SemaphoreReleaser :: ref(
-  struct(
-    _sem : Semaphore
-  )
+__SemaphoreReleaser :: struct(
+  _sem : Semaphore
 );
 impl(
   __SemaphoreReleaser,

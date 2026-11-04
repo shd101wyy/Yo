@@ -193,16 +193,14 @@ _parse_port :: (fn(s : &String, start : usize, end : usize) -> Result(u16, UrlEr
   .Ok(u16(val))
 });
 /// Parsed URL with scheme, host, port, path, query, and fragment components.
-Url :: ref(
-  struct(
-    _scheme : String,
-    _host : Option(String),
-    _port : Option(u16),
-    _path : String,
-    _query : Option(String),
-    _fragment : Option(String),
-    _userinfo : Option(String)
-  )
+Url :: struct(
+  _scheme : String,
+  _host : Option(String),
+  _port : Option(u16),
+  _path : String,
+  _query : Option(String),
+  _fragment : Option(String),
+  _userinfo : Option(String)
 );
 impl(
   Url,
@@ -616,7 +614,7 @@ impl(
   // Each also rejects the delimiters that would relocate the component: a `?`
   // written into a path silently becomes a query on the next parse.
   /// Replace the scheme. Must be `ALPHA *( ALPHA / DIGIT / "+" / "-" / "." )`.
-  set_scheme : (fn(self : &Self, scheme : &String) -> Result(unit, UrlError))(
+  set_scheme : (fn(self : &mut Self, scheme : &String) -> Result(unit, UrlError))(
     cond(
       !_is_scheme(scheme) => .Err(UrlError.Other(`invalid scheme: ${scheme}`)),
       true => {
@@ -634,7 +632,7 @@ impl(
   ///
   /// The `.None` case removes the whole authority, so a following `to_string`
   /// renders the opaque `scheme:path` form.
-  set_host : (fn(self : &Self, host : &Option(String)) -> Result(unit, UrlError))(
+  set_host : (fn(self : &mut Self, host : &Option(String)) -> Result(unit, UrlError))(
     match(
       host,
       .None => {
@@ -661,7 +659,7 @@ impl(
   ),
   /// Replace the port, or remove it with `.None`. Infallible: every `u16` is a
   /// legal port, including 0.
-  set_port : (fn(self : &Self, port : Option(u16)) -> unit)({
+  set_port : (fn(self : &mut Self, port : Option(u16)) -> unit)({
     self._port = port;
   }),
   /// Replace the path.
@@ -671,7 +669,7 @@ impl(
   /// a path of `x` would render `http://hostx`. With NO host the path must not
   /// start with `//`, which would render `scheme://...` and re-parse as an
   /// authority: a different URL than the one built.
-  set_path : (fn(self : &Self, path : &String) -> Result(unit, UrlError))(
+  set_path : (fn(self : &mut Self, path : &String) -> Result(unit, UrlError))(
     match(
       _validate_component(path, `path`, `?#`),
       .Err(e) => .Err(e),
@@ -689,7 +687,7 @@ impl(
     )
   ),
   /// Replace the query (WITHOUT the leading `?`), or remove it with `.None`.
-  set_query : (fn(self : &Self, query : &Option(String)) -> Result(unit, UrlError))(
+  set_query : (fn(self : &mut Self, query : &Option(String)) -> Result(unit, UrlError))(
     match(
       query,
       .None => {
@@ -711,7 +709,7 @@ impl(
   /// `.None`. The fragment is LAST in the grammar, so nothing can follow it and
   /// there is no delimiter to guard — every URI byte is legal here, including
   /// `/`, `?` and `#`.
-  set_fragment : (fn(self : &Self, fragment : &Option(String)) -> Result(unit, UrlError))(
+  set_fragment : (fn(self : &mut Self, fragment : &Option(String)) -> Result(unit, UrlError))(
     match(
       fragment,
       .None => {
@@ -736,7 +734,7 @@ impl(
   /// `@`, so `set_userinfo("a@b")` on `//host` would re-parse with userinfo
   /// `a` and host `b@host` — the classic credential-confusion shape, where
   /// the host a reader sees is not the host the URL resolves to.
-  set_userinfo : (fn(self : &Self, userinfo : &Option(String)) -> Result(unit, UrlError))(
+  set_userinfo : (fn(self : &mut Self, userinfo : &Option(String)) -> Result(unit, UrlError))(
     match(
       userinfo,
       .None => {

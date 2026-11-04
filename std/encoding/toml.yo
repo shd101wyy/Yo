@@ -442,20 +442,18 @@ derive(_Step, Clone);
 /// because a `TomlValue` held beside the root is a COPY of the table once
 /// `ArrayList` is a value type, and a line inserted into the copy would be
 /// lost (plans/handover/VBD_LOOKAHEAD_2026-10-23.md, P3).
-_Parser :: ref(
-  struct(
-    src : ArrayList(u8),
-    pos : usize,
-    /// The path from the root to the table bare `key = value` lines are
-    /// inserted into, re-resolved from the root on every insert.
-    cur : ArrayList(_Step),
-    /// `cur`'s encoded provenance path.
-    cur_path : String,
-    /// Encoded paths of every table this parse has created…
-    paths : ArrayList(String),
-    /// …and how each of them was created, in the same order.
-    kinds : ArrayList(_TableKind)
-  )
+_Parser :: struct(
+  src : ArrayList(u8),
+  pos : usize,
+  /// The path from the root to the table bare `key = value` lines are
+  /// inserted into, re-resolved from the root on every insert.
+  cur : ArrayList(_Step),
+  /// `cur`'s encoded provenance path.
+  cur_path : String,
+  /// Encoded paths of every table this parse has created…
+  paths : ArrayList(String),
+  /// …and how each of them was created, in the same order.
+  kinds : ArrayList(_TableKind)
 );
 /// Append `key` to an encoded provenance path. The key is LENGTH-PREFIXED so
 /// no two distinct key sequences can encode to the same string (a plain `.`

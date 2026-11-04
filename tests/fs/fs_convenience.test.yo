@@ -48,12 +48,12 @@ _make_junction :: (fn(link : &Path, target : &Path, io : Io) -> bool)({
     )
   );
   ioe := IoExn(io : io, exn : exn);
-  cmd := Command.new(`cmd`);
-  cmd.arg(`/c`);
-  cmd.arg(`mklink`);
-  cmd.arg(`/J`);
-  cmd.arg(_winpath(link));
-  cmd.arg(_winpath(target));
+  mut(cmd) := Command.new(`cmd`);
+  cmd = cmd.arg(`/c`);
+  cmd = cmd.arg(`mklink`);
+  cmd = cmd.arg(`/J`);
+  cmd = cmd.arg(_winpath(link));
+  cmd = cmd.arg(_winpath(target));
   st := io.await(cmd.status(io), ioe);
   st.success()
 });

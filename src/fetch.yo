@@ -329,9 +329,9 @@ compute_content_hash :: (
 /// line, so a private or missing remote fails instead of hanging the install.
 /// Every git child the compiler spawns is built here.
 git_command :: (fn() -> Command)({
-  cmd := Command.new(String.from("git"));
-  cmd.env(String.from("GIT_TERMINAL_PROMPT"), String.from("0"));
-  cmd.env(String.from("GIT_ASKPASS"), String.from("echo"));
+  mut(cmd) := Command.new(String.from("git"));
+  cmd = cmd.env(String.from("GIT_TERMINAL_PROMPT"), String.from("0"));
+  cmd = cmd.env(String.from("GIT_ASKPASS"), String.from("echo"));
   cmd
 });
 /// The commit SHA named by `git ls-remote` output for ONE ref.
@@ -388,14 +388,14 @@ resolve_git_ref :: (
   owned_url := url.clone();
   owned_ref := ref.clone();
   io.async((e : IoExn) => {
-    cmd := git_command();
-    cmd.arg(String.from("ls-remote"));
-    cmd.arg(String.from("--"));
-    cmd.arg(&owned_url);
-    cmd.arg(owned_ref.clone());
+    mut(cmd) := git_command();
+    cmd = cmd.arg(String.from("ls-remote"));
+    cmd = cmd.arg(String.from("--"));
+    cmd = cmd.arg(&owned_url);
+    cmd = cmd.arg(owned_ref.clone());
     // Ask for the PEELED ref too: without a pattern matching it, git omits the
     // `<ref>^{}` line and an annotated tag answers with its tag OBJECT alone.
-    cmd.arg(`${owned_ref}^{}`);
+    cmd = cmd.arg(`${owned_ref}^{}`);
     out := e.io.await(cmd.output(e.io), e);
     text := String.from_bytes(out.stdout.clone()).trim();
     if(text.len() == usize(0), {
@@ -489,13 +489,13 @@ ensure_mirror :: (
       println(`  mirroring ${owned_url}...`);
     });
     tmp := `${mirror}.tmp-${_random_suffix()}`;
-    cmd := git_command();
-    cmd.arg(String.from("clone"));
-    cmd.arg(String.from("--mirror"));
-    cmd.arg(String.from("--quiet"));
-    cmd.arg(String.from("--"));
-    cmd.arg(owned_url.clone());
-    cmd.arg(tmp.clone());
+    mut(cmd) := git_command();
+    cmd = cmd.arg(String.from("clone"));
+    cmd = cmd.arg(String.from("--mirror"));
+    cmd = cmd.arg(String.from("--quiet"));
+    cmd = cmd.arg(String.from("--"));
+    cmd = cmd.arg(owned_url.clone());
+    cmd = cmd.arg(tmp.clone());
     status := e.io.await(cmd.status(e.io), e);
     if(!status.success(), {
       e.exn.throw(dyn(format_coded_error(E_DEP_FETCH_FAILED, `git clone --mirror failed for ${owned_url}`)));
@@ -518,13 +518,13 @@ mirror_rev_parse :: (
   owned_ref := ref.clone();
   owned_mirror := mirror.clone();
   io.async((e : IoExn) => {
-    cmd := git_command();
-    cmd.arg(String.from("--git-dir"));
-    cmd.arg(&owned_mirror);
-    cmd.arg(String.from("rev-parse"));
-    cmd.arg(String.from("--verify"));
-    cmd.arg(String.from("--quiet"));
-    cmd.arg(`${owned_ref}^{commit}`);
+    mut(cmd) := git_command();
+    cmd = cmd.arg(String.from("--git-dir"));
+    cmd = cmd.arg(&owned_mirror);
+    cmd = cmd.arg(String.from("rev-parse"));
+    cmd = cmd.arg(String.from("--verify"));
+    cmd = cmd.arg(String.from("--quiet"));
+    cmd = cmd.arg(`${owned_ref}^{commit}`);
     out := e.io.await(cmd.output(e.io), e);
     text := String.from_bytes(out.stdout.clone()).trim();
     if(!out.status.success() || (text.len() == usize(0)), Option(String).None, Option(String).Some(text))
@@ -542,12 +542,12 @@ _mirror_has_commit :: (
   owned_mirror := mirror.clone();
   owned_commit := commit.clone();
   io.async((e : IoExn) => {
-    cmd := git_command();
-    cmd.arg(String.from("--git-dir"));
-    cmd.arg(&owned_mirror);
-    cmd.arg(String.from("cat-file"));
-    cmd.arg(String.from("-e"));
-    cmd.arg(`${owned_commit}^{commit}`);
+    mut(cmd) := git_command();
+    cmd = cmd.arg(String.from("--git-dir"));
+    cmd = cmd.arg(&owned_mirror);
+    cmd = cmd.arg(String.from("cat-file"));
+    cmd = cmd.arg(String.from("-e"));
+    cmd = cmd.arg(`${owned_commit}^{commit}`);
     // `.output()`, not `.status()`: a MISS is the normal pre-fetch answer, and
     // `.status()` inherits stderr, so git's `fatal: Not a valid object name`
     // printed straight into the install output.
@@ -568,16 +568,16 @@ _mirror_fetch :: (
   owned_what := what.clone();
   owned_mirror := mirror.clone();
   io.async((e : IoExn) => {
-    cmd := git_command();
-    cmd.arg(String.from("--git-dir"));
-    cmd.arg(&owned_mirror);
-    cmd.arg(String.from("fetch"));
-    cmd.arg(String.from("--quiet"));
-    cmd.arg(String.from("origin"));
+    mut(cmd) := git_command();
+    cmd = cmd.arg(String.from("--git-dir"));
+    cmd = cmd.arg(&owned_mirror);
+    cmd = cmd.arg(String.from("fetch"));
+    cmd = cmd.arg(String.from("--quiet"));
+    cmd = cmd.arg(String.from("origin"));
     match(
       &owned_what,
       .Some(w) => {
-        cmd.arg(w.clone());
+        cmd = cmd.arg(w.clone());
       },
       .None => ()
     );
@@ -649,17 +649,17 @@ _extract_tree :: (
   io.async((e : IoExn) => {
     e.io.await(create_dir_all(Path.new(owned_dest.clone()), e.io), e);
     index := `${owned_dest}.index`;
-    cmd := git_command();
-    cmd.env(String.from("GIT_INDEX_FILE"), index.clone());
-    cmd.arg(String.from("--git-dir"));
-    cmd.arg(&owned_mirror);
-    cmd.arg(String.from("--work-tree"));
-    cmd.arg(owned_dest.clone());
-    cmd.arg(String.from("checkout"));
-    cmd.arg(String.from("--quiet"));
-    cmd.arg(owned_commit.clone());
-    cmd.arg(String.from("--"));
-    cmd.arg(String.from("."));
+    mut(cmd) := git_command();
+    cmd = cmd.env(String.from("GIT_INDEX_FILE"), index.clone());
+    cmd = cmd.arg(String.from("--git-dir"));
+    cmd = cmd.arg(&owned_mirror);
+    cmd = cmd.arg(String.from("--work-tree"));
+    cmd = cmd.arg(owned_dest.clone());
+    cmd = cmd.arg(String.from("checkout"));
+    cmd = cmd.arg(String.from("--quiet"));
+    cmd = cmd.arg(owned_commit.clone());
+    cmd = cmd.arg(String.from("--"));
+    cmd = cmd.arg(String.from("."));
     status := e.io.await(cmd.status(e.io), e);
     index_present := e.io.await(exists(Path.new(index.clone()), e.io), e.io);
     if(index_present, {

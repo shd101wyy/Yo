@@ -558,15 +558,13 @@ _hex_digit :: (fn(b : u8) -> u8)(
   )
 );
 
-_Parser :: ref(
-  struct(
-    // BYTES, not `str`: `str` is the STATIC string view and a runtime
-    // String cannot become one (plans/archive/SLICE_REWORK.md), so a
-    // str-typed parser could never parse runtime input — an HTTP body, an
-    // LSP frame. Both public entry points funnel into bytes.
-    src : ArrayList(u8),
-    pos : usize
-  )
+_Parser :: struct(
+  // BYTES, not `str`: `str` is the STATIC string view and a runtime
+  // String cannot become one (plans/archive/SLICE_REWORK.md), so a
+  // str-typed parser could never parse runtime input — an HTTP body, an
+  // LSP frame. Both public entry points funnel into bytes.
+  src : ArrayList(u8),
+  pos : usize
 );
 impl(
   _Parser,

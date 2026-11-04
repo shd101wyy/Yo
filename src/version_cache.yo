@@ -716,11 +716,11 @@ download_version :: (
     // 2. Extract; the tarball root is a `<bundleName>/` directory holding
     // bin/, std/ and vendor/ as SIBLINGS (the compiler resolves its std by
     // walking up from the executable, and mimalloc as <std>/../vendor).
-    tar_cmd := Command.new(String.from("tar"));
-    tar_cmd.arg(String.from("xzf"));
-    tar_cmd.arg(&tarball_path);
-    tar_cmd.arg(String.from("-C"));
-    tar_cmd.arg(&tmp_path_str);
+    mut(tar_cmd) := Command.new(String.from("tar"));
+    tar_cmd = tar_cmd.arg(String.from("xzf"));
+    tar_cmd = tar_cmd.arg(&tarball_path);
+    tar_cmd = tar_cmd.arg(String.from("-C"));
+    tar_cmd = tar_cmd.arg(&tmp_path_str);
     tar_out := e.io.await(tar_cmd.output(e.io), e);
     if(!tar_out.status.success(), {
       e.io.await(_cleanup_failed_download(&version_dir, tmp_dir.path(), e.io, e.exn), e);

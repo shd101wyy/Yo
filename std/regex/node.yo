@@ -110,40 +110,38 @@ derive(GroupNameEntry, Clone);
 /// depends entirely on `kind`; see `NodeKind`, which documents that per
 /// variant, and the module header for why it is one wide struct instead of
 /// an enum.
-RegexNode :: ref(
-  struct(
-    /// Which node this is. Every other field is only meaningful for the kinds
-    /// `NodeKind` lists it under.
-    kind : NodeKind,
-    /// Sub-patterns, in source order: none for the leaf kinds, one for a
-    /// quantifier / group / lookaround, two for an alternation, any number for
-    /// a sequence.
-    children : ArrayList(Self),
-    /// `Literal`: the code point to match.
-    codepoint : u32,
-    /// `CharClass`: the inclusive code-point ranges the class accepts. Not
-    /// required to be sorted or disjoint.
-    ranges : ArrayList(CharRange),
-    /// `CharClass`: `[^...]` — accept anything OUTSIDE `ranges`.
-    /// `Lookahead`/`Lookbehind`: the assertion is NEGATIVE (`(?!`, `(?<!`).
-    negated : bool,
-    /// `Quantifier`: minimum repetitions, 0 for `*` and `?`.
-    q_min : usize,
-    /// `Quantifier`: maximum repetitions, where **0 means UNBOUNDED** — the
-    /// sentinel for `*`, `+` and `{m,}`. So `q_max == 0` is not "match zero
-    /// times"; `{0,0}` is not expressible here.
-    q_max : usize,
-    /// `Quantifier`: greedy (`a*`) rather than lazy (`a*?`). Decides the order
-    /// the compiler emits the two `Split` targets in, which is the whole of
-    /// what greediness means to this engine.
-    q_greedy : bool,
-    /// `Group`: the 1-based capture number. `Backreference`: the group number
-    /// being referred back to.
-    group_index : usize,
-    /// `Anchor`: which assertion. Constructors leave it `.Start` for every
-    /// other kind, so it is not a reliable "no anchor" signal — check `kind`.
-    anchor : AnchorKind
-  )
+RegexNode :: struct(
+  /// Which node this is. Every other field is only meaningful for the kinds
+  /// `NodeKind` lists it under.
+  kind : NodeKind,
+  /// Sub-patterns, in source order: none for the leaf kinds, one for a
+  /// quantifier / group / lookaround, two for an alternation, any number for
+  /// a sequence.
+  children : ArrayList(Self),
+  /// `Literal`: the code point to match.
+  codepoint : u32,
+  /// `CharClass`: the inclusive code-point ranges the class accepts. Not
+  /// required to be sorted or disjoint.
+  ranges : ArrayList(CharRange),
+  /// `CharClass`: `[^...]` — accept anything OUTSIDE `ranges`.
+  /// `Lookahead`/`Lookbehind`: the assertion is NEGATIVE (`(?!`, `(?<!`).
+  negated : bool,
+  /// `Quantifier`: minimum repetitions, 0 for `*` and `?`.
+  q_min : usize,
+  /// `Quantifier`: maximum repetitions, where **0 means UNBOUNDED** — the
+  /// sentinel for `*`, `+` and `{m,}`. So `q_max == 0` is not "match zero
+  /// times"; `{0,0}` is not expressible here.
+  q_max : usize,
+  /// `Quantifier`: greedy (`a*`) rather than lazy (`a*?`). Decides the order
+  /// the compiler emits the two `Split` targets in, which is the whole of
+  /// what greediness means to this engine.
+  q_greedy : bool,
+  /// `Group`: the 1-based capture number. `Backreference`: the group number
+  /// being referred back to.
+  group_index : usize,
+  /// `Anchor`: which assertion. Constructors leave it `.Start` for every
+  /// other kind, so it is not a reliable "no anchor" signal — check `kind`.
+  anchor : AnchorKind
 );
 // A node is a shared handle (`ref`), so its clone is another handle to the
 // same node, as its implicit copy is: `ArrayList(RegexNode).clone()` (a

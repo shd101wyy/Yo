@@ -295,11 +295,11 @@ _install_z3 :: (
     if(!_z3_write_file_sync(zip_path.clone(), &resp.body), {
       e.exn.throw(dyn(`verify: failed to write ${zip_path}`));
     });
-    uc := Command.new(String.from("unzip"));
-    uc.arg(String.from("-o"));
-    uc.arg(zip_path.clone());
-    uc.arg(String.from("-d"));
-    uc.arg(solvers_root.clone());
+    mut(uc) := Command.new(String.from("unzip"));
+    uc = uc.arg(String.from("-o"));
+    uc = uc.arg(zip_path.clone());
+    uc = uc.arg(String.from("-d"));
+    uc = uc.arg(solvers_root.clone());
     uout := e.io.await(uc.output(e.io), e);
     _z3_unlink_sync(zip_path.clone());
     if(!uout.status.success(), {

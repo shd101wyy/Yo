@@ -53,15 +53,13 @@
 { RegexError } :: import("./error.yo");
 utf8 :: import("../encoding/utf8.yo");
 /// Compiled regular expression backed by an NFA program.
-Regex :: ref(
-  struct(
-    _program : NfaProgram,
-    _flags : RegexFlags,
-    _pattern : String,
-    _n_groups : usize,
-    /// Shared with every `RegexMatch` this pattern builds.
-    _group_names : Rc(ArrayList(GroupNameEntry))
-  )
+Regex :: struct(
+  _program : NfaProgram,
+  _flags : RegexFlags,
+  _pattern : String,
+  _n_groups : usize,
+  /// Shared with every `RegexMatch` this pattern builds.
+  _group_names : Rc(ArrayList(GroupNameEntry))
 );
 // Block 1: Constructor and leaf methods
 impl(
@@ -447,15 +445,13 @@ impl(
 /// `find_all`'s infinite-loop guard), so a large input can be scanned
 /// without materializing every match. Single-pass: once `next()` returns
 /// `.None` the iterator is exhausted (it does not rewind).
-RegexMatchIter :: ref(
-  struct(
-    _regex : Regex,
-    _vm : NfaVm,
-    /// The iterator's copy of the input, shared with every match it yields.
-    _input : Rc(String),
-    _byte_pos : usize,
-    _has_prefix : bool
-  )
+RegexMatchIter :: struct(
+  _regex : Regex,
+  _vm : NfaVm,
+  /// The iterator's copy of the input, shared with every match it yields.
+  _input : Rc(String),
+  _byte_pos : usize,
+  _has_prefix : bool
 );
 impl(
   RegexMatchIter,

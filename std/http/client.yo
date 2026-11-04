@@ -66,24 +66,22 @@ IO_timer :: import("../sys/timer");
 // FetchOptions
 // ============================================================================
 /// Options for configuring an HTTP request.
-FetchOptions :: ref(
-  struct(
-    method : HttpMethod,
-    headers : HeaderMap,
-    body : String,
-    /// Deadline for the WHOLE request, redirects included — `.None` waits
-    /// forever. On expiry the in-flight connection is aborted and `fetch`
-    /// throws `HttpError.Timeout`.
-    timeout : Option(Duration),
-    /// How many 3xx `Location` hops to follow before throwing
-    /// `HttpError.TooManyRedirects`. `0` returns the first 3xx verbatim.
-    max_redirects : usize,
-    /// Ceiling on the raw response bytes (headers + body) buffered into
-    /// memory before `HttpError.ResponseTooLarge` is thrown; `0` = unlimited.
-    /// This client buffers the whole response into a `String`, so the
-    /// default (64 MiB) is what stands between an unbounded server and OOM.
-    max_response_bytes : usize
-  )
+FetchOptions :: struct(
+  method : HttpMethod,
+  headers : HeaderMap,
+  body : String,
+  /// Deadline for the WHOLE request, redirects included — `.None` waits
+  /// forever. On expiry the in-flight connection is aborted and `fetch`
+  /// throws `HttpError.Timeout`.
+  timeout : Option(Duration),
+  /// How many 3xx `Location` hops to follow before throwing
+  /// `HttpError.TooManyRedirects`. `0` returns the first 3xx verbatim.
+  max_redirects : usize,
+  /// Ceiling on the raw response bytes (headers + body) buffered into
+  /// memory before `HttpError.ResponseTooLarge` is thrown; `0` = unlimited.
+  /// This client buffers the whole response into a `String`, so the
+  /// default (64 MiB) is what stands between an unbounded server and OOM.
+  max_response_bytes : usize
 );
 /// Default redirect cap — what browsers and curl use.
 DEFAULT_MAX_REDIRECTS :: usize(10);
@@ -104,34 +102,40 @@ impl(
     )
   ),
   /// Set the HTTP method.
-  with_method : (fn(self : &Self, method : HttpMethod) -> Self)({
-    self.method = method;
-    self
+  with_method : (fn(self : Self, method : HttpMethod) -> Self)({
+    mut(o) := self;
+    o.method = method;
+    o
   }),
   /// Add a request header.
-  with_header : (fn(self : &Self, name : &String, value : &String) -> Self)({
-    self.headers.append(name, value);
-    self
+  with_header : (fn(self : Self, name : &String, value : &String) -> Self)({
+    mut(o) := self;
+    o.headers.append(name, value);
+    o
   }),
   /// Set the request body.
-  with_body : (fn(self : &Self, body : &String) -> Self)({
-    self.body = body.clone();
-    self
+  with_body : (fn(self : Self, body : &String) -> Self)({
+    mut(o) := self;
+    o.body = body.clone();
+    o
   }),
   /// Give the whole request (redirects included) a deadline.
-  with_timeout : (fn(self : &Self, limit : Duration) -> Self)({
-    self.timeout = Option(Duration).Some(limit);
-    self
+  with_timeout : (fn(self : Self, limit : Duration) -> Self)({
+    mut(o) := self;
+    o.timeout = Option(Duration).Some(limit);
+    o
   }),
   /// Cap the number of redirect hops followed (`0` = return 3xx verbatim).
-  with_max_redirects : (fn(self : &Self, n : usize) -> Self)({
-    self.max_redirects = n;
-    self
+  with_max_redirects : (fn(self : Self, n : usize) -> Self)({
+    mut(o) := self;
+    o.max_redirects = n;
+    o
   }),
   /// Cap the raw response bytes buffered into memory (`0` = unlimited).
-  with_max_response_bytes : (fn(self : &Self, n : usize) -> Self)({
-    self.max_response_bytes = n;
-    self
+  with_max_response_bytes : (fn(self : Self, n : usize) -> Self)({
+    mut(o) := self;
+    o.max_response_bytes = n;
+    o
   })
 );
 export(FetchOptions, DEFAULT_MAX_REDIRECTS, DEFAULT_MAX_RESPONSE_BYTES);

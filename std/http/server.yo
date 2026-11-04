@@ -13,7 +13,9 @@
 //!
 //! `serve` runs until `stop()` is called (checked after each connection) —
 //! from another task, or from the handler itself. `serve_once` handles exactly
-//! one connection, which is what a test wants.
+//! one connection, which is what a test wants. Both consume the server, so
+//! the future owns it; keep a `server.clone()` (a second handle to the same
+//! listener and stop flag) for `stop`, `local_addr` and `close`.
 //!
 //! A client's mistake never takes the server down: a request that does not
 //! parse gets `400`, one that exceeds `max_request_bytes` gets `413`, one
@@ -32,6 +34,7 @@ import("../string");
 { IoExn } :: import("../error");
 { TcpListener, TcpStream } :: import("../net/tcp");
 { SocketAddr } :: import("../net/addr");
+{ RefCell } :: import("../sync/refcell");
 { HttpError, HttpHeader, HeaderMap, StatusCode, HttpRequest, HttpResponse, parse_request } :: import("./http.yo");
 { read_http_message, MessageKind } :: import("./wire.yo");
 /// Default ceiling on a request (headers + body): 16 MiB.
@@ -53,18 +56,20 @@ _respond :: (fn(stream : &TcpStream, resp : HttpResponse, io : Io) -> Impl(Futur
 );
 /// An HTTP/1.1 server bound to a `TcpListener`.
 ///
-/// A shared `ref` handle: a handler may call `stop()` on the server it runs
-/// under. The listener is move-only, so the server holds it through an `Rc`,
-/// which is what lets `close`'s future borrow it across a suspension.
-HttpServer :: ref(
-  struct(
-    listener : Rc(TcpListener),
-    /// Requests larger than this are answered with `413 Payload Too Large`
-    /// and the connection closed; `serve` keeps going (0 lifts the ceiling).
-    max_request_bytes : usize,
-    stopped : bool
-  )
+/// Semantically shared (plans/VALUES_BY_DEFAULT.md V5 part B, class S): a
+/// handler calls `stop()` on the server whose `serve` future is running it,
+/// so two owners outlive each other's calls. A clone is a second handle: the
+/// listener sits behind an `Rc` (it is move-only, and `close`'s future
+/// borrows it across a suspension) and the stop flag behind an
+/// `Rc(RefCell(bool))`, so every clone sees one listener and one flag.
+HttpServer :: struct(
+  listener : Rc(TcpListener),
+  /// Requests larger than this are answered with `413 Payload Too Large`
+  /// and the connection closed; `serve` keeps going (0 lifts the ceiling).
+  max_request_bytes : usize,
+  stopped : Rc(RefCell(bool))
 );
+derive(HttpServer, Clone);
 impl(
   HttpServer,
   /// Bind a listening socket on `addr` (port 0 picks a free port — read it
@@ -72,17 +77,20 @@ impl(
   bind : (fn(addr : SocketAddr, io : Io) -> Impl(Future(HttpServer, IoExn)))(
     io.async(e => {
       listener := e.io.await(TcpListener.bind(addr, e.io), e);
-      HttpServer(listener : Rc.new(listener), max_request_bytes : DEFAULT_MAX_REQUEST_BYTES, stopped : false)
+      HttpServer(listener : Rc.new(listener), max_request_bytes : DEFAULT_MAX_REQUEST_BYTES, stopped : Rc.new(RefCell(bool).new(false)))
     })
   ),
   /// The address the server is listening on.
   local_addr : (fn(self : &Self) -> SocketAddr)(
     self.listener.*.local_addr()
   ),
-  /// Set the request-size ceiling (builder pattern; 0 = unlimited).
-  with_max_request_bytes : (fn(self : &Self, n : usize) -> Self)({
-    self.max_request_bytes = n;
-    self
+  /// Set the request-size ceiling (builder pattern, before `serve`; 0 =
+  /// unlimited). A clone taken earlier keeps the old ceiling, which only
+  /// `serve` reads.
+  with_max_request_bytes : (fn(self : Self, n : usize) -> Self)({
+    mut(s) := self;
+    s.max_request_bytes = n;
+    s
   }),
   /// Accept ONE connection and read one request from it. Returns the
   /// connection and either the request or the response it gets without
@@ -120,13 +128,14 @@ impl(
   /// response and close. A request that does not parse, or whose framing is
   /// broken, is answered without calling `handler` (`_accept_request`).
   ///
-  /// The returned future owns `handler` (`sink`), so it can be spawned: a
+  /// The returned future owns the server and `handler` (`sink`), so it can
+  /// be spawned: a
   /// closure argument moves its captures into it (plans/VALUES_BY_DEFAULT.md
   /// decision 22). A future that only borrowed the handler would be
   /// second-class, and an `io.spawn` of it is E0909
   /// (issues/fixed/2026-10-15-http-server-captures-its-borrowed-handler-into-the-connection-future.md).
   serve_once : (
-    fn(self : &Self, sink(handler) : Impl(Fn(req : &HttpRequest) -> HttpResponse), io : Io) ->
+    fn(self : Self, sink(handler) : Impl(Fn(req : &HttpRequest) -> HttpResponse), io : Io) ->
       Impl(Future(unit, IoExn))
   )(
     io.async(e => {
@@ -137,14 +146,14 @@ impl(
     })
   ),
   /// Serve connections one after another until `stop()` has been called
-  /// (checked after each connection completes). The future owns `handler`,
-  /// as `serve_once`'s does.
+  /// (checked after each connection completes). The future owns the server
+  /// and `handler`, as `serve_once`'s does.
   serve : (
-    fn(self : &Self, sink(handler) : Impl(Fn(req : &HttpRequest) -> HttpResponse), io : Io) ->
+    fn(self : Self, sink(handler) : Impl(Fn(req : &HttpRequest) -> HttpResponse), io : Io) ->
       Impl(Future(unit, IoExn))
   )(
     io.async(e => {
-      while(!self.stopped, {
+      while(!self.stopped.with(b => b.*), {
         got := e.io.await(self._accept_request(e.io), e);
         resp := match(got.1, .Ok(req) => handler(&req), .Err(bad) => bad);
         e.io.await(_respond(&got.0, resp, e.io), e);
@@ -153,8 +162,10 @@ impl(
     })
   ),
   /// Ask `serve` to return after the connection it is currently handling.
+  /// Writes the flag every clone shares, so a handle kept beside a running
+  /// `serve` (or the handler's own capture) stops it.
   stop : (fn(self : &Self) -> unit)({
-    self.stopped = true;
+    self.stopped.replace(true);
   }),
   /// Close the listening socket.
   close : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))(

@@ -22,8 +22,8 @@ main :: (fn(io : Io) -> unit)({
       }
     )
   );
-  cmd := Command.new(`echo`);
-  cmd.arg(`capture_ok`);
+  mut(cmd) := Command.new(`echo`);
+  cmd = cmd.arg(`capture_ok`);
   st := io.await(cmd.status(io), IoExn(io : io, exn : exn));
   println(`rc=${st.code().unwrap_or(i32(-1))}`);
 });

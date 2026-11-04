@@ -59,16 +59,14 @@ utf8 :: import("../encoding/utf8.yo");
 /// One live NFA thread — a position in the program plus the captures it has
 /// recorded so far. Reference-counted, but never shared: `fork` copies the
 /// slots, because two threads that diverge must not see each other's captures.
-NfaThread :: ref(
-  struct(
-    /// Index into `NfaProgram.instructions` — the instruction this thread is
-    /// about to execute.
-    pc : usize,
-    /// `2 * (n_groups + 1)` capture positions, `usize.MAX` meaning "unset".
-    /// Slot `2g` is group `g`'s start and `2g+1` its end; 0 and 1 are the
-    /// whole match.
-    slots : ArrayList(usize)
-  )
+NfaThread :: struct(
+  /// Index into `NfaProgram.instructions` — the instruction this thread is
+  /// about to execute.
+  pc : usize,
+  /// `2 * (n_groups + 1)` capture positions, `usize.MAX` meaning "unset".
+  /// Slot `2g` is group `g`'s start and `2g+1` its end; 0 and 1 are the
+  /// whole match.
+  slots : ArrayList(usize)
 );
 impl(
   NfaThread,
@@ -144,15 +142,13 @@ DeferredThread :: struct(
 /// buffers are shared mutable scratch), but `exec_at` may be called repeatedly
 /// on the same instance for different start offsets, which is how `find_all`
 /// walks a string.
-NfaVm :: ref(
-  struct(
-    _program : NfaProgram,
-    _flags : RegexFlags,
-    _bytes : ArrayList(u8),
-    _n_slots : usize,
-    _seen : ArrayList(bool),
-    _next_seen : ArrayList(bool)
-  )
+NfaVm :: struct(
+  _program : NfaProgram,
+  _flags : RegexFlags,
+  _bytes : ArrayList(u8),
+  _n_slots : usize,
+  _seen : ArrayList(bool),
+  _next_seen : ArrayList(bool)
 );
 // Block 1: Constructor and leaf helpers (no method dependencies)
 impl(
