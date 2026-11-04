@@ -40,7 +40,7 @@ shared (`Rc(RefCell(S))`, or `Rc(S)` with at most two `RefCell` fields).
 | | R | L | S | total |
 | --- | --- | --- | --- | --- |
 | `src/` | 142 | 45 | 19 | 206 (203 `ref(struct)`, 3 `ref(enum)`) |
-| `std/` | 13 | 23 | 0 | 36 |
+| `std/` | 13 | 22 | 1 | 36 |
 
 - Fable's estimate (R ≈ 86, L ≈ 100, S ≈ 15–20) counted a type as written
   whenever one of its field names was assigned anywhere. The typed census
@@ -80,6 +80,8 @@ migrating.
 - Types that are a `HashMap` value stay `ref` until the HashMap
   plain-data-value fix lands. Today `insert` rejects a `V` that is
   neither Copy nor `ref`.
+- `HttpServer` (`std/http/server.yo`): **S**, not L. A handler calls `stop()` while
+  `serve` runs on the same server (VERDICTS-20 §4).
 - `Md5`, `Sha1`, `Sha512`, `NfaCompiler`: **L**, not R. They are written
   through `self`, and the syntactic scan does not count receiver writes.
 
@@ -320,7 +322,7 @@ the rest rests on the syntactic scan.
 | `FetchOptions` | `std/http/client.yo:69` | param 3 | **L** | written, never stored |
 | `HttpRequest` | `std/http/http.yo:213` | param 3, rooted 1 | **L** | written, never stored |
 | `HttpResponse` | `std/http/http.yo:440` | rooted 3 | **L** | held by `_DeadlineOutcome.Done` while the client builds it |
-| `HttpServer` | `std/http/server.yo:59` | – | **L** | written, never stored |
+| `HttpServer` | `std/http/server.yo:59` | – | **S** | `stop()` runs inside a handler while `serve` runs on the same server (two owners that outlive each other's calls): `Rc(TcpListener)` plus `Rc(RefCell(bool))` `stopped`, `derive(Clone)`, `serve(self : Self)` (VERDICTS-20 §4) |
 | `Path` | `std/path.yo:51` | – | **R** | the census's "written" hits are other types' `.path`/`.parent` fields; no typed write: a plain value (provisional) |
 | `__BorrowGuard` | `std/prelude.yo:11069` | – | **R** | never written |
 | `Output` | `std/process/command.yo:143` | – | **R** | never written |
