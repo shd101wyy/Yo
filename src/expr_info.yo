@@ -3370,25 +3370,49 @@ record_deref_site :: (fn(tok : &Token, expect : &String) -> unit)({
   site := DerefSite(path : tok.module_path.*.clone(), row : usize(tok.row), col : usize(tok.column), expect : expect.clone(), edit : u8(0));
   g_deref_sites.with_mut({ site }(xs) => xs.push(site));
 });
-/// Record an `edit` 1 (label prefix `text`) or 2 (drop the marker) site at
-/// `tok`. Once per position and edit.
+/// Record an `edit` 1 (label prefix `text`), 2 (drop the marker) or 3 (append
+/// `.*` to an old `r.*` that read the payload of a `Box`/`Rc`/pointer/cell
+/// handle through the reference) site at `tok`. Once per position and edit.
+/// An edit 3 is applied only in a file that shows no new spelling
+/// (`note_deref_migrated_file`): the source cannot tell an old `b.*` (the
+/// payload) from an already-migrated one (the reference's deref).
 record_deref_edit_site :: (fn(tok : &Token, text : &String, edit : u8) -> unit)({
   key := `${edit.to_string()}:${tok.module_path.*}:${tok.row.to_string()}:${tok.column.to_string()}`;
   if(!g_deref_site_keys.with_mut(s => s.insert(key.clone())), {
     return(());
   });
   if(g_audit_deref, {
-    eprintln(`[deref] ${tok.module_path.*}:${(tok.row + u32(1)).to_string()}:${(tok.column + u32(1)).to_string()} ${if(edit == u8(2), "drop-marker", "label")} ${text}`);
+    eprintln(`[deref] ${tok.module_path.*}:${(tok.row + u32(1)).to_string()}:${(tok.column + u32(1)).to_string()} ${if(edit == u8(2), "drop-marker", if(edit == u8(3), "payload", "label"))} ${text}`);
   });
   site := DerefSite(path : tok.module_path.*.clone(), row : usize(tok.row), col : usize(tok.column), expect : text.clone(), edit : edit);
   g_deref_sites.with_mut({ site }(xs) => xs.push(site));
+});
+/// The files whose `--migrate deref` evaluation met a written `r.*` on a
+/// reference whose pointee no `.*` reaches into (`n.*` with `n : &i32`): old
+/// source cannot spell that (it was E0920), so the file already reads its
+/// references the new way, and its `b.*` through a `Box`/`Rc`/pointer/cell
+/// handle reference is that reference's deref, not the payload (a second run
+/// is a no-op, issues/fixed/2026-11-04-migrate-deref-adds-a-second-star-on-a-second-run.md).
+(g_deref_migrated_files : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
+note_deref_migrated_file :: (fn(tok : &Token) -> unit)({
+  mp := tok.module_path.*.clone();
+  _new := g_deref_migrated_files.with_mut({ mp }(s) => s.insert(mp));
 });
 take_deref_sites :: (fn() -> ArrayList(DerefSite))({
   out := g_deref_sites.with_mut(xs => xs.split_off(usize(0)));
   g_deref_site_keys.with_mut(s => s.clear());
   out
 });
-export(DerefSite, set_migrate_deref, migrate_deref_on, set_deref_rule_suspended, deref_rule_suspended, audit_deref_on, record_deref_site, record_deref_edit_site, take_deref_sites);
+/// The files `note_deref_migrated_file` saw, as recorded (module paths in
+/// either spelling); the set is emptied.
+take_deref_migrated_files :: (fn() -> HashSet(String))(
+  g_deref_migrated_files.with_mut(s => {
+    out := s.clone();
+    s.clear();
+    out
+  })
+);
+export(DerefSite, set_migrate_deref, migrate_deref_on, set_deref_rule_suspended, deref_rule_suspended, audit_deref_on, record_deref_site, record_deref_edit_site, note_deref_migrated_file, take_deref_sites, take_deref_migrated_files);
 /// One pattern `yo fix --migrate rc-pattern` wraps in `Rc(…)`
 /// (plans/VALUES_BY_DEFAULT.md decision 31, Generation B): a structural
 /// pattern at an `Rc(T)` position, which the compiler no longer looks through

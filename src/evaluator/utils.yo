@@ -6256,6 +6256,19 @@ is_synthesized_deref_star :: (fn(id : usize) -> bool)(
 deref_reads_through_pointee :: (fn(ty : &TypeValue) -> bool)(
   cell_handle_view(ty).is_some() || (unique_box_payload_type(ty).is_some() || (is_pointer_type(ty) || _labels_name_a_star(ty)))
 );
+/// The value the old reading's `.*` on `ty` reads: a cell handle's or a
+/// `Box`'s payload, a pointer's pointee. `.None` for a field named `*`.
+deref_payload_type :: (fn(ty : &TypeValue) -> Option(TypeValue))(
+  match(
+    cell_handle_view(ty),
+    .Some(v) => Option(TypeValue).Some(Rc.clone(v.payload)),
+    .None => match(
+      unique_box_payload_type(ty),
+      .Some(p) => Option(TypeValue).Some(p),
+      .None => match(t_refine_inner(ty), Rc(.Pointer(p)) => Option(TypeValue).Some(Rc.clone(p)), _ => Option(TypeValue).None)
+    )
+  )
+);
 _labels_name_a_star :: (fn(t : &TypeValue) -> bool)({
   labels := match(
     t,
@@ -8191,6 +8204,7 @@ export(
   note_synthesized_deref_star,
   is_synthesized_deref_star,
   deref_reads_through_pointee,
+  deref_payload_type,
   variable_is_reference_binding,
   deref_rule_applies,
   deref_rule_recording,
