@@ -417,7 +417,7 @@ test("solver_answer_of_response: only conclusive verdicts and an exhausted rlimi
   inc := solver_answer_of_response(_unknown_response(String.from("incomplete quantifiers"), usize(900)), &opts);
   assert(!inc.cacheable, "an incomplete unknown does not cache");
   match(
-    &inc.verdict,
+    inc.verdict.clone(),
     .Unproven(why) => {
       assert(why == "unknown: incomplete quantifiers", `the reason is z3's: ${why}`);
     },
