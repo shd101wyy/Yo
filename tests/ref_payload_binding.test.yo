@@ -102,7 +102,9 @@ test("ref payload: `r.*` is the referent and `r` lends bare to a `&T` parameter"
   c := _Cell(n : i32(6));
   v := match(_pick(&c), .Some(r) => r.*.n, .None => i32(0));
   w := match(_pick(&c), .Some(r) => _read(r), .None => i32(0));
+  m := match(_pick(&c), .Some(r) => r.*.get(), .None => i32(0));
   assert(v == i32(6), "r.*.n");
+  assert(m == i32(6), "r.*.get()");
   assert(w == i32(6), "_read(r)");
 });
 test("ref payload: a `&mut` payload writes the referent", {
