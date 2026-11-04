@@ -105,7 +105,7 @@ _count_outcome :: (fn(reports : &ArrayList(VerifyFnReport), want : &String) -> u
   while(i < reports.len(), {
     match(
       reports.get(i),
-      .Some(rp) => if(rp.outcome == want, {
+      .Some(rp) => if(rp.outcome == want.*, {
         n = (n + usize(1));
       }),
       .None => ()
@@ -121,7 +121,7 @@ _first_outcome :: (fn(reports : &ArrayList(VerifyFnReport), want : &String, what
   while(i < reports.len(), {
     match(
       reports.get(i),
-      .Some(rp) => if((rp.outcome == want) && found.is_none(), {
+      .Some(rp) => if((rp.outcome == want.*) && found.is_none(), {
         found = Option(VerifyFnReport).Some(rp);
       }),
       .None => ()
@@ -162,7 +162,7 @@ _refuted_with :: (fn(rp : &VerifyFnReport, name_prefix : &String, needle : &Stri
         match(
           &obl.verdict,
           .Refuted(ce) => {
-            ce_all := _join(&ce, String.from("; "));
+            ce_all := _join(&ce.*, String.from("; "));
             if(name_ok && ce_all.contains(needle.clone()), {
               hit = true;
             });
@@ -263,7 +263,7 @@ test("positive battery: every function in verify_straight_line proves", {
               match(
                 &obl.verdict,
                 .Refuted(ce) => {
-                  ids.push(`  ${obl.name}: ${_join(&ce, String.from(", "))}`);
+                  ids.push(`  ${obl.name}: ${_join(&ce.*, String.from(", "))}`);
                 },
                 _ => ()
               );

@@ -63,7 +63,7 @@ mk_binding_expr :: (fn(call_id : usize, name_id : usize, name : str, type_id : u
 mk_comptime_wrap :: (fn(call_id : usize, inner : &AstExpr) -> AstExpr)({
   callee := AstExpr.Atom(call_id + usize(20000), mk_token(TokenKind.Identifier, BK_COMPTIME));
   mut(args) := ArrayList(AstExpr).new();
-  args.push(inner);
+  args.push(inner.*);
   AstExpr.FnCall(call_id, callee, Rc.new(args), false, mk_token(TokenKind.Identifier, BK_COMPTIME))
 });
 /// Build a `(comptime(name) : typename)` binding.
@@ -98,7 +98,7 @@ stub_evaluate_type :: (
   info := new_expr_info(env, &ty);
   info.value = .Some(val);
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
-  expr
+  expr.*
 });
 /// The raw evaluator twin of `stub_evaluate_type` (the handler is unused): the code under
 /// test evaluates sub-expressions through `evaluate_expression_raw` too.

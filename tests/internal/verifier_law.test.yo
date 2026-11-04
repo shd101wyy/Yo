@@ -123,7 +123,7 @@ _count_outcome :: (fn(reports : &ArrayList(VerifyFnReport), want : &String) -> u
   while(i < reports.len(), {
     match(
       reports.get(i),
-      .Some(rp) => if(rp.outcome == want, {
+      .Some(rp) => if(rp.outcome == want.*, {
         n = (n + usize(1));
       }),
       .None => ()
@@ -282,7 +282,7 @@ test("law: a false law REFUTES with a counter-example", {
             &obl.verdict,
             .Refuted(ce) => {
               // x = 0 is where "abs is strictly positive" fails.
-              if(_join(&ce, String.from("; ")).contains(String.from("x = #x0000000000000000")), {
+              if(_join(&ce.*, String.from("; ")).contains(String.from("x = #x0000000000000000")), {
                 named = true;
               });
             },

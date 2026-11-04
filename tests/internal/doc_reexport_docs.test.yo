@@ -100,18 +100,18 @@ test("a re-exported type takes the declaring module's documentation", {
   idx := match(modules.get_cloned(usize(0)), .Some(m) => m, .None => return(()));
   t := match(idx.types.get_cloned(usize(0)), .Some(x) => x, .None => return(()));
   assert(
-    match(&t.doc, .Some(d) => (d == `A point in the plane.`), .None => false),
+    match(&t.doc, .Some(d) => (d.* == `A point in the plane.`), .None => false),
     "the re-exported type carries the declaration's own doc"
   );
   m0 := match(t.methods.get_cloned(usize(0)), .Some(x) => x, .None => return(()));
   assert(
-    match(&m0.doc, .Some(d) => (d == `Make a point at the origin.`), .None => false),
+    match(&m0.doc, .Some(d) => (d.* == `Make a point at the origin.`), .None => false),
     "and so does its method"
   );
   fs := match(&t.fields, .Some(x) => x.clone(), .None => return(()));
   f0 := match(fs.get_cloned(usize(0)), .Some(x) => x, .None => return(()));
   assert(
-    match(&f0.doc, .Some(d) => (d == `The x coordinate.`), .None => false),
+    match(&f0.doc, .Some(d) => (d.* == `The x coordinate.`), .None => false),
     "and its field"
   );
 });
@@ -139,13 +139,13 @@ test("a module that documents its own re-export keeps what it wrote", {
   idx := match(modules.get_cloned(usize(0)), .Some(m) => m, .None => return(()));
   t := match(idx.types.get_cloned(usize(0)), .Some(x) => x, .None => return(()));
   assert(
-    match(&t.doc, .Some(d) => (d == `Re-exported here with a note of its own.`), .None => false),
+    match(&t.doc, .Some(d) => (d.* == `Re-exported here with a note of its own.`), .None => false),
     "an existing doc is never overwritten"
   );
   // The bare method still fills in — only `.None` is touched.
   m0 := match(t.methods.get_cloned(usize(0)), .Some(x) => x, .None => return(()));
   assert(
-    match(&m0.doc, .Some(d) => (d == `Make a point at the origin.`), .None => false),
+    match(&m0.doc, .Some(d) => (d.* == `Make a point at the origin.`), .None => false),
     "while its undocumented method still fills in"
   );
 });
@@ -195,6 +195,6 @@ test("the cross-reference passes write back: a trait lists its implementors and 
   pm := match(modules.get_cloned(usize(1)), .Some(m) => m, .None => return(()));
   t := match(pm.types.get_cloned(usize(0)), .Some(x) => x, .None => return(()));
   m1 := match(t.methods.get_cloned(usize(1)), .Some(x) => x, .None => return(()));
-  assert(match(&m1.doc, .Some(d) => (d == `Render it.`), .None => false), "the bare impl method takes the trait's doc");
-  assert(match(&m1.inherited_from, .Some(n) => (n == `Show`), .None => false), "attributed to the trait");
+  assert(match(&m1.doc, .Some(d) => (d.* == `Render it.`), .None => false), "the bare impl method takes the trait's doc");
+  assert(match(&m1.inherited_from, .Some(n) => (n.* == `Show`), .None => false), "attributed to the trait");
 });
