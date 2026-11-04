@@ -18,9 +18,9 @@ pragma(Pragma.AllowUnsafe);
 { AstExpr, ExprId, ast_expr_token, ast_expr_id, make_err_expr, ast_expr_is_fn_call_of, ast_expr_is_atom, ast_expr_is_atom_of, ast_expr_to_string, BF_DOT, ast_rewritten_node } :: import("../../expr.yo");
 { Token } :: import("../../token.yo");
 { Environment, Variable, get_receiver_methods_by_name_from_env, get_variables_from_env, find_variable_in_env, add_variable_to_env, synthetic_token, snapshot_env, FvCaptureSource, fv_capture_source, fv_source_name, fv_source_ty, fv_capture_vals } :: import("../../env.yo");
-{ TypeValue, TypeValueNode, fn_param_mut_ref_at, fn_param_by_value_at, slot_pointee_at, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_by_value, fn_param_mut_ref_flags, t_slot_is_borrow } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, fn_param_mut_ref_at, fn_param_by_value_at, slot_pointee_at, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_by_value, fn_param_mut_ref_flags, t_slot_is_borrow, t_refine_inner } :: import("../../types/definitions.yo");
 { t_unit, t_ptr, t_usize, t_type } :: import("../../types/creators.yo");
-{ is_array_type, is_pointer_type, is_trait_type, is_struct_type, is_function_type, is_reference_struct_type } :: import("../../types/guards.yo");
+{ is_array_type, is_pointer_type, is_trait_type, is_struct_type, is_function_type, is_reference_struct_type, cell_handle_view } :: import("../../types/guards.yo");
 {
   EvalValue,
   is_array_val,
@@ -63,7 +63,7 @@ pragma(Pragma.AllowUnsafe);
 { format_error_message, format_eval_failure, with_code } :: import("../../error.yo");
 { E_WRITE_THROUGH_BORROW } :: import("../../diagnostics.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ variable_is_imm_borrow, projection_call_mode_of } :: import("../utils.yo");
+{ variable_is_imm_borrow, projection_call_mode_of, variable_is_reference_binding } :: import("../utils.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { convert_comptime_type_to_runtime_type, get_trait_type_from_env } :: import("../../types/env_lookup.yo");
 { _is_verify_target, resolve_verify_mode, record_index_unchecked_twin, forget_index_unchecked_twin } :: import("../builtins/contracts.yo");
@@ -2146,32 +2146,162 @@ has_index_impl :: (
   methods := _find_all_index_methods(concrete_type, caller_env);
   methods.len() > usize(0)
 });
-/// `e` is an element access `recv(i)` whose receiver is a RUNTIME binding of
-/// a type that dispatches `Index` — the shape a MARKED match scrutinee
-/// (`match(&xs(i), …)`) must read in place, not copy
-/// (issues/fixed/2026-10-17-a-match-through-a-borrowed-element-copies-the-element.md).
-/// A closure or function call of the same shape fails `has_index_impl`, and a
-/// compile-time-only receiver (a `::` binding) is not a place.
-_is_index_place :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext) -> bool)({
-  ctx;
+/// The type behind a reference or a raw pointer, for a place step: the
+/// pointee of a `&T`/`&mut T` slot or of a `*T`, through refinements.
+_place_step_pointee :: (fn(t : &TypeValue) -> Option(TypeValue))(
   match(
-    e,
-    .FnCall(_, isp_callee, Rc(isp_args), isp_infix, _) => {
-      if(isp_infix || !ast_expr_is_atom(&isp_callee) || (isp_args.len() != usize(1)), {
-        return(false);
+    t_refine_inner(t),
+    Rc(.Pointer(pt)) => Option(TypeValue).Some(Rc.clone(pt)),
+    Rc(.Reference({ pointee : rp })) => Option(TypeValue).Some(Rc.clone(rp)),
+    _ => Option(TypeValue).None
+  )
+);
+/// `t` with a reference slot (`&T`, `&mut T`) read through: a field or an
+/// index reads through a reference as through the value.
+_place_step_through_reference :: (fn(t : &TypeValue) -> TypeValue)(
+  match(
+    t_refine_inner(t),
+    Rc(.Reference({ pointee : rp })) => t_refine_inner(rp),
+    tt => tt
+  )
+);
+/// The type of the field `label` of a value aggregate `t` (a non-`ref`,
+/// non-namespace struct, or a labelled tuple), `.None` for anything else: a
+/// cell or `ref` struct's field lies behind a handle, outside the place.
+_place_step_field_type :: (fn(t : &TypeValue, label : &String) -> Option(TypeValue))(
+  match(
+    _place_step_through_reference(t),
+    Rc(.Struct({ field_labels : fl, field_types : ft, is_reference_semantics : r, is_source_namespace : sns })) => cond(
+      ((r || sns) || cell_handle_view(t).is_some()) => Option(TypeValue).None,
+      true => {
+        (i : usize) = usize(0);
+        while(i < fl.items.len(), {
+          if(fl.items(i) == label.*, {
+            return(ft.get(i));
+          });
+          i = (i + usize(1));
+        });
+        Option(TypeValue).None
+      }
+    ),
+    Rc(.Tuple(tl, tt)) => {
+      (i : usize) = usize(0);
+      while(i < tl.items.len(), {
+        if(tl.items(i) == label.*, {
+          return(tt.get(i));
+        });
+        i = (i + usize(1));
       });
-      match(
-        get_variables_from_env(env, ast_expr_token(&isp_callee).value.*.clone()).last(),
-        .Some(isp_v) => cond(
-          isp_v.is_compile_time_only => false,
-          true => has_index_impl(&isp_v.ty, &isp_args, env, ctx)
-        ),
-        .None => false
-      )
+      Option(TypeValue).None
     },
-    .Atom(_, _) => false
+    _ => Option(TypeValue).None
+  )
+);
+/// The element type `recv(i)` reads on a receiver of type `t`, when `t`
+/// has exactly one `index` method (the element type is then fixed whatever
+/// the index argument's type), `.None` otherwise.
+_place_step_index_output :: (fn(t : &TypeValue, env : &Environment) -> Option(TypeValue))({
+  methods := _find_all_index_methods(t, env, "index");
+  if(methods.len() != usize(1), {
+    return(Option(TypeValue).None);
+  });
+  m := methods(usize(0)).clone();
+  // The method's own index parameter type stands in for the argument's.
+  arg_ty := match(&m.method_type, Rc(.Func({ param_types : pts })) => slot_pointee_at(&pts, usize(1)), _ => Option(TypeValue).None);
+  match(
+    arg_ty,
+    .Some(at) => match(_index_shape_of(&m.method_type, &at), .Some(sh) => Option(TypeValue).Some(Rc.clone(sh.output)), .None => Option(TypeValue).None),
+    .None => Option(TypeValue).None
   )
 });
+/// The static type of the place `e` when it is a projection chain rooted at
+/// a RUNTIME binding — field steps (`.f`), raw-pointer and reference
+/// dereferences (`.*`) and element accesses `recv(i)` dispatched through
+/// `Index` — read before `e` is evaluated; `.None` for any other shape
+/// (a function or method call, a compile-time binding, a step through a
+/// cell) or when a step's type cannot be known yet. A method call
+/// `s.m(i)` and an element access through a field `s.xs(i)` share their
+/// syntax: the step is an element access exactly when `xs` is a field of
+/// the receiver's type.
+_place_chain_type :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext) -> Option(TypeValue))(
+  match(
+    e,
+    .Atom(_, pc_tok) => match(
+      get_variables_from_env(env, pc_tok.value.*.clone()).last(),
+      .Some(pc_v) => cond(
+        pc_v.is_compile_time_only => Option(TypeValue).None,
+        true => Option(TypeValue).Some(Rc.clone(pc_v.ty))
+      ),
+      .None => Option(TypeValue).None
+    ),
+    .FnCall(_, pc_callee, Rc(pc_args), pc_infix, _) => cond(
+      ast_expr_is_fn_call_of(e, BF_DOT, Option(usize).Some(usize(2))) => match(
+        pc_args.get(usize(1)),
+        .Some(.Atom(_, pc_f)) => match(
+          recur(&pc_args(usize(0)), env, ctx),
+          .Some(pc_base) => cond(
+            // A reference binding's type is its referent's (the mode is
+            // the binding's): `r.*` reads that type.
+            ((pc_f.value.* == "*") && _is_reference_binding_atom(&pc_args(usize(0)), env)) => Option(TypeValue).Some(pc_base),
+            (pc_f.value.* == "*") => _place_step_pointee(&pc_base),
+            true => _place_step_field_type(&pc_base, &pc_f.value.*)
+          ),
+          .None => Option(TypeValue).None
+        ),
+        _ => Option(TypeValue).None
+      ),
+      (pc_infix || (pc_args.len() != usize(1))) => Option(TypeValue).None,
+      true => match(
+        recur(&pc_callee, env, ctx),
+        .Some(pc_recv) => {
+          pc_rt := _place_step_through_reference(&pc_recv);
+          cond(
+            has_index_impl(&pc_rt, &pc_args, env, ctx) => match(
+              _place_step_index_output(&pc_rt, env),
+              .Some(pc_out) => Option(TypeValue).Some(pc_out),
+              // The element type depends on the index argument's: the
+              // access is still a place, only no step may follow it.
+              .None => Option(TypeValue).Some(t_unit())
+            ),
+            true => Option(TypeValue).None
+          )
+        },
+        .None => Option(TypeValue).None
+      )
+    )
+  )
+);
+/// `e` is a projection chain (`_place_chain_type`) that reads an element
+/// through `Index` somewhere along it — `xs(i)`, `xs(i).f`, `s.xs(i)`,
+/// `p.*.xs(i)` — the shape a MARKED match scrutinee (`match(&xs(i).f, …)`)
+/// must read in place, not copy
+/// (issues/fixed/2026-10-17-a-match-through-a-borrowed-element-copies-the-element.md,
+/// issues/fixed/2026-11-05-a-borrowed-element-field-scrutinee-is-e0901.md). A
+/// chain without an element access is a field path, which
+/// `is_place_expression` already routes in place.
+_is_index_place :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext) -> bool)(
+  _place_chain_type(e, env, ctx).is_some() && _chain_has_index_step(e)
+);
+/// `e` names a runtime reference binding (`r : &T`, a borrowing match's
+/// binding).
+_is_reference_binding_atom :: (fn(e : &AstExpr, env : &Environment) -> bool)(
+  match(
+    e,
+    .Atom(_, rb_tok) => match(get_variables_from_env(env, rb_tok.value.*.clone()).last(), .Some(rb_v) => variable_is_reference_binding(&rb_v), .None => false),
+    .FnCall(_, _, _, _, _) => false
+  )
+);
+/// `e`, a projection chain, has a non-`.` call step (an element access).
+_chain_has_index_step :: (fn(e : &AstExpr) -> bool)(
+  match(
+    e,
+    .Atom(_, _) => false,
+    .FnCall(_, ch_callee, Rc(ch_args), _, _) => cond(
+      ast_expr_is_fn_call_of(e, BF_DOT, Option(usize).Some(usize(2))) => recur(&ch_args(usize(0))),
+      true => true
+    )
+  )
+);
 /// Install `promote_index_places_for_write` behind context.yo's hook.
 register_promote_index_places :: (fn() -> unit)({
   set_promote_index_places_fn(promote_index_places_for_write);
