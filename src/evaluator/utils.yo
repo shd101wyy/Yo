@@ -1224,7 +1224,12 @@ transfer_explicit_copy_value :: (fn(rhs : &AstExpr, ei : &ExprInfo, variable_nam
       _is_implicit_closure_capture(&v, &ei.env, ctx) => _throw_implicit_capture_move(rhs, &ei.ty, ctx, exn),
       v.is_owning_the_rc_value => set_expr_as_consumed(rhs, &ei.env, false, ctx, exn),
       _move_through_sink_shadow(&v, rhs, &ei.env) => (),
-      true => _throw_explicit_copy_violation(rhs, &ei.ty, String.from("it is borrowed (a `&T` parameter or a `match`/`for` binding), and a borrow cannot give the value away. Take the parameter by value (`x : T`, without `&`) to own it."), ctx, exn)
+      true => {
+        if(debug_knob(`YO_DEBUG_HMFIX`).is_some(), {
+          eprintln(`[hmfix] transfer ${variable_name} ty=${type_to_string(&ei.ty)} some=${if(type_contains_some_type_deep(&ei.ty), "1", "0")} param=${if(v.is_parameter, "1", "0")}`);
+        });
+        _throw_explicit_copy_violation(rhs, &ei.ty, String.from("it is borrowed (a `&T` parameter or a `match`/`for` binding), and a borrow cannot give the value away. Take the parameter by value (`x : T`, without `&`) to own it."), ctx, exn);
+      }
     )
   );
 });
