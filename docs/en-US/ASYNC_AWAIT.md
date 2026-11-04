@@ -373,7 +373,7 @@ capture list (`{ &x }`, `{ &mut x }`). The Future it makes is then
 **second-class** (§3.13 A2 of `plans/VALUES_BY_DEFAULT.md`), like a closure
 that borrows:
 
-- it is awaited where it is made, as the operand of `io.await` (directly, or
+- it may be awaited where it is made, as the operand of `io.await` (directly, or
   as the value of an `if`/`cond`/`match` arm or a block's tail);
 - it may be the operand of a combinator, a generic function whose by-value
   parameter and result are both Futures (`both(a, b, io)` over
@@ -398,8 +398,17 @@ that borrows:
   captures is E0909. A borrowing closure the function was lent through a
   `&Impl(Fn(...))` parameter counts as that parameter
   (`m.with_lock({ &s }(v : &mut i64) => ..., io)`);
-- it is never bound to a local (a `match` arm's pattern included), discarded
-  with `_ := ...`, stored, captured by an escaping closure or spawned (E0909);
+- it may be bound with `:=`. The binding freezes every place the Future
+  borrows, each in the mode it was lent in, from the binding to the Future's
+  last use, as a local borrow does: `f := bump(&mut c, io);` then a write of
+  `c` before `io.await(f, io)` is E0911, and awaiting first is fine (decision
+  43, `Future(T, E, p)`). A function may also return a Future that another
+  call made over its own parameters (`f(c : &mut C, io)` returning
+  `bump(&mut c.*, io)`);
+- it is never bound by a `match` arm's pattern or re-assigned with `=`,
+  discarded with `_ := ...`, stored, captured by an escaping closure or
+  spawned (E0909), and a Future that borrows a local of the function is not
+  returned (E0912);
 - the effect bundle of its `io.await` is a place (`io`, `self.io`), not an
   expression that runs code: the bundle is evaluated after the Future is made,
   and could otherwise move or overwrite what the Future borrows (E0910);
@@ -413,8 +422,8 @@ that borrows:
 
 A call through a function value (a local or parameter of function type)
 cannot show what its Future borrows, so its Future is assumed to borrow every
-place the call lends with `&`/`&mut`: `fp := bump; f := fp(&mut c, io);` is
-E0909 like the direct call.
+place the call lends with `&`/`&mut`: `fp := bump; f := fp(&mut c, io);`
+freezes `c` until `f`'s last use, like the direct call.
 
 A call through a `Dyn` goes through its vtable, whose Future type carries no
 borrows, so a type whose trait method returns a borrowing Future cannot be
@@ -434,11 +443,14 @@ bump :: (fn(c : &mut Counter, io : Io) -> Impl(Future(unit, Io)))(
 );
 
 main :: (fn(io : Io) -> unit)({
-  c := Counter(n : i32(0));
+  mut(c) := Counter(n : i32(0));
   io.await(bump(&mut c, io), io);
   io.await(bump(&mut c, io), io);
   assert(c.n == i32(2), "each await writes through the lent `&mut`");
-  // f := bump(&mut c, io); // E0909: `f` would hold a borrowing future
+  f := bump(&mut c, io);
+  // c.n = i32(5); // E0911: `c` is frozen until `f`'s last use
+  io.await(f, io);
+  assert(c.n == i32(3), "the bound Future ran at its await");
 });
 export(main);
 ```
