@@ -17,6 +17,7 @@
 { Deque } :: import("std/collections/deque");
 { PriorityQueue } :: import("std/collections/priority_queue");
 { MapEntry } :: import("std/collections/entry");
+{ String } :: import("std/string");
 (mut(g_mc_dropped) : i32) = i32(0);
 (mut(g_mc_sum) : i32) = i32(0);
 _McFd :: struct(n : i32);
@@ -423,4 +424,18 @@ test("OrderedMap of a plain key with neither Copy nor Clone: the same surface", 
   assert(m.len() == usize(1), "one left");
   m.clear();
   assert(m.is_empty(), "empty");
+});
+// A plain value with neither `Copy` nor `Clone` and no `Drop`: `insert`
+// moves the old value out of `try_insert`'s owned result
+// (`match(Self.try_insert(...), .Ok(prev) => prev, …)`), and `try_insert`
+// drops or moves its argument on every path
+// (issues/fixed/2026-11-05-a-hashmap-of-a-plain-data-struct-without-copy-cannot-insert.md).
+test("HashMap of a plain value with neither Copy nor Clone: insert, overwrite, try_insert, remove", {
+  mut(m) := HashMap(String, _McTok).new();
+  assert(m.insert(String.from("a"), _McTok(id : i32(10))).is_none(), "a fresh key");
+  match(m.insert(String.from("a"), _McTok(id : i32(11))), .Some(old) => assert(old.id == i32(10), "the old value"), .None => assert(false, "present"));
+  match(m.try_insert(String.from("b"), _McTok(id : i32(20))), .Ok(.None) => (), _ => assert(false, "a fresh key"));
+  match(m.try_insert(String.from("b"), _McTok(id : i32(21))), .Ok(.Some(old)) => assert(old.id == i32(20), "the old value"), _ => assert(false, "present"));
+  match(m.remove(&String.from("a")), .Some(v) => assert(v.id == i32(11), "removed"), .None => assert(false, "present"));
+  assert(m.len() == usize(1), "one left");
 });

@@ -75,7 +75,8 @@ pragma(Pragma.AllowUnsafe);
   trait_impl_epoch,
   is_drop_trait_name,
   buffer_element_types,
-  type_is_escapable
+  type_is_escapable,
+  type_contains_rc_cell_or_move_only
 } :: import("../types/utils.yo");
 { type_to_string, type_key_epoch } :: import("../types/string.yo");
 { force_pending_impls_for_type_name, type_head_name_for_impl_forcing, EvalContext, call_function_value_marker, call_closure_capture_marker, set_copy_trait_blockers_fn } :: import("./context.yo");
@@ -1396,8 +1397,19 @@ type_lacks_copy_for_flip :: (fn(ty_in : &TypeValue) -> bool)({
   // type identity: this predicate runs on every type the mutation summary
   // classifies, and the uncached walk was 7% of `check src/main.yo`'s
   // allocation calls (issues/fixed/2026-10-30-rc-clone-calls-defeat-the-mutation-summary-memo.md).
+  //
+  // Such a type still lacks `Copy` when one of its parts does: a `Copy`
+  // impl needs every part `Copy` (decision 36), so the part decides it
+  // (`_flip_part_lacks_copy`). An instantiated generic body builds such
+  // types: `Option(Option(V))` at `V := Span` keeps the definition-era
+  // `Option(V)` (open `V`) as its type argument, while its payload is the
+  // concrete `Option(Span)`. Judged by its argument alone it copied
+  // implicitly while its payload was move-only, so
+  // `match(<Option(Option(V))>, .Some(prev) => prev)` borrowed the
+  // scrutinee and could neither copy nor move `prev` out
+  // (issues/fixed/2026-11-05-a-hashmap-of-a-plain-data-struct-without-copy-cannot-insert.md).
   if(!type_identity_cacheable(&ty) && !(is_closure_capture_struct(&ty) && type_has_no_open_some(&ty)), {
-    return(false);
+    return(_flip_part_lacks_copy(&ty));
   });
   env := match(
     g_flip_env,
@@ -1484,6 +1496,53 @@ type_lacks_copy_for_flip :: (fn(ty_in : &TypeValue) -> bool)({
   g_lacks_copy_memo.with_mut({ memo_key, answer }(m) => m.insert(memo_key, answer));
   _record_lacks_copy_fast(&ty, key_epoch, answer);
   answer
+});
+/// Whether a part of `ty` (a field, a variant's payload, an element; a
+/// resolved type variable's resolution) is plain data without `Copy`, for a
+/// type the flip cannot judge by its impls (one that mentions a type
+/// variable, `type_lacks_copy_for_flip`). A part holding a cell or a
+/// move-only value is not plain data and is judged by its own rules (the
+/// whole is move-only or a counted handle then), and the walk does not enter
+/// a pointer, a reference or a cell, so it ends on any type a value can hold.
+_flip_part_lacks_copy :: (fn(ty : &TypeValue) -> bool)({
+  parts := match(
+    ty,
+    Rc(.SomeT({ resolution : sr })) => {
+      end := resolve_cell_chain(ty);
+      return(sr.is_some() && !is_some_type(&end) && type_lacks_copy_for_flip(&end));
+    },
+    Rc(.Struct({ field_types : sfts, is_reference_semantics : s_is_ref })) => if(s_is_ref, ArrayList(TypeValue).new(), sfts.items.clone()),
+    Rc(.EnumT({ variant_fields : evfs, is_reference_semantics : e_is_ref })) => {
+      out := ArrayList(TypeValue).new();
+      if(!e_is_ref, {
+        (vi : usize) = usize(0);
+        while(vi < evfs.len(), {
+          match(evfs.get(vi), .Some(vf) => out.append(vf.items.clone()), .None => ());
+          vi = (vi + usize(1));
+        });
+      });
+      out
+    },
+    Rc(.Tuple(field_labels : _, field_types : tfts)) => tfts.items.clone(),
+    Rc(.Array(element : ael, length : _)) => {
+      one := ArrayList(TypeValue).new();
+      one.push(Rc.clone(ael));
+      one
+    },
+    _ => ArrayList(TypeValue).new()
+  );
+  (i : usize) = usize(0);
+  while(i < parts.len(), {
+    match(
+      parts.get_cloned(i),
+      .Some(p) => if(!type_contains_rc_cell_or_move_only(&p) && type_lacks_copy_for_flip(&p), {
+        return(true);
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  false
 });
 /// Record `ty`'s answer in the identity cache, when the key it is memoized
 /// under was computed in the current type-key epoch (else `ty`'s key may have

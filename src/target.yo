@@ -228,6 +228,34 @@ _build_target_info :: (fn(a : Arch, o : Os, abi : Option(Abi)) -> TargetInfo)(
     triple : _build_triple(a, o, abi)
   )
 );
+/// One supported target per (architecture, OS) pair, in `SUPPORTED_TARGETS`
+/// order. The compile-time target queries (`__yo_process_arch`,
+/// `__yo_process_platform`, `__yo_pointer_size_bits`) read nothing else, so
+/// these are every distinct view a `cond(arch == …)` arm can be evaluated
+/// under (`yo fix --migrate deref` evaluates a file's other targets' arms
+/// for each, issues/fixed/2026-11-04-migrate-deref-and-e0926-skip-a-platform-gated-dead-arm.md).
+comptime_distinct_targets :: (fn() -> ArrayList(TargetInfo))({
+  out := ArrayList(TargetInfo).new();
+  triples := String.from(SUPPORTED_TARGETS).split(String.from(", "));
+  (i : usize) = usize(0);
+  while(i < triples.len(), i = (i + usize(1)), {
+    match(
+      parse_target(&triples(i)),
+      .Ok(t) => {
+        (seen : bool) = false;
+        (j : usize) = usize(0);
+        while((j < out.len()) && !seen, j = (j + usize(1)), {
+          seen = ((out(j).arch == t.arch) && (out(j).os == t.os));
+        });
+        if(!seen, {
+          out.push(t);
+        });
+      },
+      .Err(_) => ()
+    );
+  });
+  out
+});
 // ── Linux musl detection ──────────────────────────────────────────────
 /// Detect whether the host Linux system uses musl libc.
 /// Currently returns Abi.Gnu — musl detection via /lib filesystem reads
@@ -543,6 +571,7 @@ export(
   set_current_target,
   get_current_target,
   parse_target,
+  comptime_distinct_targets,
   clang_triple,
   is_target_windows,
   is_target_linux,

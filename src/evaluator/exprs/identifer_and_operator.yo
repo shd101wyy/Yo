@@ -15,7 +15,9 @@
   path_collection_of_name,
   expr_info_set_origin_type,
   is_extern_c_global,
-  scope_release_note_query
+  scope_release_note_query,
+  migrate_deref_on,
+  record_deref_clean_site
 } :: import("../../expr_info.yo");
 { Token, string_is_operator } :: import("../../token.yo");
 { Environment, Variable, get_variables_from_env, env_candidate_names, find_variable_in_env, find_variable_in_env_at, variable_move_note } :: import("../../env.yo");
@@ -487,8 +489,16 @@ evaluate_identifier_and_operator :: (
   // Decision 43 step 2 N1e-1 (VERDICTS-13 §11): outside std and the compiler
   // tree a reference binding read as a whole value is spelled `r.*` (E0926);
   // the receiver, reference-slot and re-point positions marked it exempt.
-  if(!deref_is_exempt && variable_is_reference_binding(&variable) && deref_rule_applies(&token, ctx) && !is_reference_deref_site(&token), {
-    reject_reference_without_deref(&variable, &token, u8(0), ctx, exn);
+  if(variable_is_reference_binding(&variable) && deref_rule_applies(&token, ctx), {
+    if(!deref_is_exempt && !is_reference_deref_site(&token), {
+      reject_reference_without_deref(&variable, &token, u8(0), ctx, exn);
+    }, {
+      // Judged and read as written: an evaluation for another target that
+      // records an edit here disagrees (`yo fix --migrate deref`).
+      if(migrate_deref_on() && !ctx.is_in_function_call_checking_phase, {
+        record_deref_clean_site(&token, &variable.name);
+      });
+    });
   });
   // A read of the whole variable: E0911 while a `mut` borrow of a place
   // overlapping it is live (plans/VALUES_BY_DEFAULT.md decision 18).
