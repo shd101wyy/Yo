@@ -1,0 +1,117 @@
+// A pattern binding whose payload is a reference (decision 43 step 3,
+// plans/backlog/REFERENCES_AND_ORIGINS.md O4; decision 44's `&Dyn(Trait)`):
+// `.Some(r)` over an `Option(&T)` binds `r` as a reference binding, exactly
+// as `r := &x` and a `-> &T` projection's result do. A field read, a method
+// call and a lend read through it, `r.*` is the referent, and a `&` payload
+// is read-only. Over an `Option(&Dyn(Trait))` this is what a borrowing
+// `Error.source` walk needs (plans/handover/D43_STEP3_N2_DESIGN.md §3.2).
+{ assert } :: import("std/assert");
+_Cell :: struct(n : i32);
+impl(
+  _Cell,
+  get : (fn(self : &Self) -> i32)(self.n),
+  bump : (fn(self : &mut Self) -> unit)({
+    self.n = (self.n + i32(1));
+  })
+);
+_pick :: (fn(c : &_Cell) -> Option(&_Cell))(.Some(c));
+_pick_mut :: (fn(c : &mut _Cell) -> Option(&mut _Cell))(.Some(c));
+_read :: (fn(c : &_Cell) -> i32)(c.n);
+_Shape :: trait(area : (fn(self : &Self) -> i32));
+_Sq :: struct(s : i32);
+impl(_Sq, _Shape(area : (fn(self : &Self) -> i32)(self.s * self.s)));
+_first :: (fn(r : &Dyn(_Shape)) -> Option(&Dyn(_Shape)))(.Some(r));
+_area :: (fn(r : &Dyn(_Shape)) -> i32)(r.area());
+// The end-state shape of `Error.source` (VERDICTS-1 §B13): a link lends its
+// cause as a borrowed trait object, and a walk follows the borrows.
+_Link :: trait(
+  code : (fn(self : &Self) -> i32),
+  (source : (fn(self : &Self) -> Option(&Dyn(SelfTrait)))) ?= (self -> .None)
+);
+_Leaf :: struct(code : i32);
+impl(_Leaf, _Link(code : (fn(self : &Self) -> i32)(self.code)));
+_Wrap :: struct(code : i32, cause : Dyn(_Link));
+impl(
+  _Wrap,
+  _Link(
+    code : (fn(self : &Self) -> i32)(self.code),
+    source : (fn(self : &Self) -> Option(&Dyn(_Link)))(.Some(&self.cause))
+  )
+);
+_root_code :: (fn(e : &Dyn(_Link)) -> i32)(
+  match(e.source(), .Some(s) => _root_code(s), .None => e.code())
+);
+// A projection's result positions are written with the sigil (decision
+// 24); the payload binding's place is rooted at `e` through `e.source()`.
+_root :: (fn(e : &Dyn(_Link)) -> &Dyn(_Link))(
+  match(e.source(), .Some(s) => &_root(s).*, .None => &e.*)
+);
+_first_cause :: (fn(e : &Dyn(_Link)) -> &Dyn(_Link))(
+  match(e.source(), .Some(s) => &s.*, .None => &e.*)
+);
+// The payload's place is rooted at the projection's own local: E0912.
+comptime_expect_error(
+  _escape :: (fn(c : &_Cell) -> &_Cell)({
+    l := _Cell(n : c.n);
+    match(_pick(&l), .Some(s) => &s.*, .None => &c.*)
+  }),
+  "single-root rule"
+);
+_depth :: (fn(e : &Dyn(_Link)) -> i32)(
+  match(e.source(), .Some(s) => (_depth(s) + i32(1)), .None => i32(0))
+);
+test("ref payload: a field read and a method call read through the binding", {
+  c := _Cell(n : i32(4));
+  a := match(_pick(&c), .Some(r) => r.n, .None => i32(0));
+  b := match(_pick(&c), .Some(r) => r.get(), .None => i32(0));
+  assert(a == i32(4), "r.n reads the referent's field");
+  assert(b == i32(4), "r.get() calls through the reference");
+});
+test("ref payload: `r.*` is the referent and `r` lends bare to a `&T` parameter", {
+  c := _Cell(n : i32(6));
+  v := match(_pick(&c), .Some(r) => r.*.n, .None => i32(0));
+  w := match(_pick(&c), .Some(r) => _read(r), .None => i32(0));
+  assert(v == i32(6), "r.*.n");
+  assert(w == i32(6), "_read(r)");
+});
+test("ref payload: a `&mut` payload writes the referent", {
+  mut(c) := _Cell(n : i32(1));
+  match(
+    _pick_mut(&mut c),
+    .Some(r) => {
+      r.bump();
+      r.n = (r.n + i32(10));
+    },
+    .None => ()
+  );
+  assert(c.n == i32(12), "both writes reached `c`");
+});
+test("ref payload: a `&` payload is read-only", {
+  c := _Cell(n : i32(1));
+  comptime_expect_error(
+    match(
+      _pick(&c),
+      .Some(r) => {
+        r.n = i32(2);
+      },
+      .None => ()
+    ),
+    "read-only"
+  );
+});
+test("ref payload: a `&Dyn(Trait)` payload dispatches through its vtable", {
+  (d : Dyn(_Shape)) = dyn(_Sq(s : i32(3)));
+  a := match(_first(&d), .Some(r) => r.area(), .None => i32(0));
+  b := match(_first(&d), .Some(r) => _area(r), .None => i32(0));
+  assert(a == i32(9), "r.area()");
+  assert(b == i32(9), "_area(r)");
+});
+test("ref payload: a borrowing `source` chain walks without cloning", {
+  (e : Dyn(_Link)) = dyn(_Wrap(code : i32(1), cause : dyn(_Wrap(code : i32(2), cause : dyn(_Leaf(code : i32(3)))))));
+  assert(_root_code(&e) == i32(3), "the innermost link's code");
+  assert(_depth(&e) == i32(2), "two causes below the head");
+  r := _root(&e);
+  assert(r.code() == i32(3), "the root returned as a borrow of the leaf");
+  f := _first_cause(&e);
+  assert(f.code() == i32(2), "the first cause returned as a borrow");
+});
