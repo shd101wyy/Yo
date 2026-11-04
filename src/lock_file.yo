@@ -41,21 +41,19 @@ LOCK_FILE_NAME :: "yo.lock";
 // Data types
 // ---------------------------------------------------------------------------
 /// One resolved package.
-LockEntry :: (
-  struct(
-    /// The import name (the `[dependencies]` key).
-    name : String,
-    /// The semver of the chosen tag ("" for a branch, a commit, or a path).
-    version : String,
-    /// `git+<url>#<ref>` or `path+<path relative to the root manifest>`.
-    source : String,
-    /// The fetched commit ("" for a path package).
-    commit : String,
-    /// `sha256-…` of the fetched tree ("" for a path package — it is live).
-    integrity : String,
-    /// The names of the package's own (non-dev) dependencies.
-    dependencies : ArrayList(String)
-  )
+LockEntry :: struct(
+  /// The import name (the `[dependencies]` key).
+  name : String,
+  /// The semver of the chosen tag ("" for a branch, a commit, or a path).
+  version : String,
+  /// `git+<url>#<ref>` or `path+<path relative to the root manifest>`.
+  source : String,
+  /// The fetched commit ("" for a path package).
+  commit : String,
+  /// `sha256-…` of the fetched tree ("" for a path package — it is live).
+  integrity : String,
+  /// The names of the package's own (non-dev) dependencies.
+  dependencies : ArrayList(String)
 );
 derive(LockEntry, Clone);
 impl(
@@ -98,10 +96,8 @@ path_source :: (fn(path : &String) -> String)(
   `path+${path}`
 );
 /// In-memory representation of a `yo.lock` file.
-LockFile :: (
-  struct(
-    packages : ArrayList(LockEntry)
-  )
+LockFile :: struct(
+  packages : ArrayList(LockEntry)
 );
 derive(LockFile, Clone);
 impl(
@@ -257,15 +253,13 @@ write_lock_file_content :: (fn(lock : &LockFile) -> String)({
 // Disk I/O
 // ---------------------------------------------------------------------------
 /// What reading the lock found.
-LockRead :: (
-  struct(
-    lock : LockFile,
-    /// True when the file was absent.
-    absent : bool,
-    /// The parse problem of a present-but-unusable file (a v1 lock, or
-    /// corruption); the resolver regenerates such a lock.
-    problem : Option(String)
-  )
+LockRead :: struct(
+  lock : LockFile,
+  /// True when the file was absent.
+  absent : bool,
+  /// The parse problem of a present-but-unusable file (a v1 lock, or
+  /// corruption); the resolver regenerates such a lock.
+  problem : Option(String)
 );
 /// Read `<project_dir>/yo.lock`. Absent or unusable → an empty lock, with
 /// the flags telling which.

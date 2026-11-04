@@ -76,28 +76,24 @@ _did_you_mean :: (fn(lbl : &String, labels : &ArrayList(String)) -> Option(Strin
 /// A binding the pattern introduces, collected during compilation and added
 /// to the arm's env frame by the caller once the WHOLE pattern is compiled
 /// (an or-pattern compiles every alternative but binds each name once).
-BindInfo :: (
-  struct(
-    name : String,
-    ty : TypeValue,
-    value : Option(EvalValue),
-    atom : AstExpr
-  )
+BindInfo :: struct(
+  name : String,
+  ty : TypeValue,
+  value : Option(EvalValue),
+  atom : AstExpr
 );
 derive(BindInfo, Clone);
 /// Per-arm compilation state.
-PatternCtx :: (
-  struct(
-    /// The `=>` node's id — the hidden subject names are derived from it.
-    arm_id : usize,
-    /// Hidden subject counter (unique within the arm).
-    counter : usize,
-    /// The scrutinee's value is known at compile time (bindings become
-    /// compile-time-only, as the pre-IR destructuring did).
-    ct_scrutinee : bool,
-    /// Bindings collected so far.
-    binds : ArrayList(BindInfo)
-  )
+PatternCtx :: struct(
+  /// The `=>` node's id — the hidden subject names are derived from it.
+  arm_id : usize,
+  /// Hidden subject counter (unique within the arm).
+  counter : usize,
+  /// The scrutinee's value is known at compile time (bindings become
+  /// compile-time-only, as the pre-IR destructuring did).
+  ct_scrutinee : bool,
+  /// Bindings collected so far.
+  binds : ArrayList(BindInfo)
 );
 new_pattern_ctx :: (fn(arm_id : usize, ct_scrutinee : bool) -> PatternCtx)(
   PatternCtx(arm_id : arm_id, counter : usize(0), ct_scrutinee : ct_scrutinee, binds : ArrayList(BindInfo).new())
@@ -599,8 +595,8 @@ _flatten_or :: (fn(e : &AstExpr) -> ArrayList(AstExpr))({
 _bind_names_sorted :: (fn(binds : &ArrayList(BindInfo)) -> ArrayList(String))({
   names := ArrayList(String).new();
   for(&binds, b => {
-        names.push(b.name.clone());
-      });
+    names.push(b.name.clone());
+  });
   // Selection sort into a fresh list — the lists are tiny.
   sorted := ArrayList(String).new();
   taken := ArrayList(usize).new();

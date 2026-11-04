@@ -2105,24 +2105,22 @@ some_resolution :: (fn(t : &TypeValue) -> Option(TypeValue))(
 /// effect instead of its inner paths' events).
 FlowEventKind :: enum(Assign, Consume, Join);
 derive(FlowEventKind, Copy, Clone);
-BranchInitRecord :: (
-  struct(
-    var_id : usize,
-    ty : TypeValue,
-    capture : Option(TypeValue),
-    kind : FlowEventKind,
-    /// The event's token (the assignment target, the move site).
-    token : Token,
-    /// The variable's definite-initialization and move state right before and
-    /// right after the event. `Variable` is one shared object per binding,
-    /// so these are the only per-path record of it: a `cond`/`match` arm
-    /// starts from the state before the branch (`reset_sibling_flow_state`,
-    /// evaluator/utils.yo), and a join reads each arm's end state from here.
-    before_init : Option(Token),
-    before_consumed : Option(Token),
-    after_init : Option(Token),
-    after_consumed : Option(Token)
-  )
+BranchInitRecord :: struct(
+  var_id : usize,
+  ty : TypeValue,
+  capture : Option(TypeValue),
+  kind : FlowEventKind,
+  /// The event's token (the assignment target, the move site).
+  token : Token,
+  /// The variable's definite-initialization and move state right before and
+  /// right after the event. `Variable` is one shared object per binding,
+  /// so these are the only per-path record of it: a `cond`/`match` arm
+  /// starts from the state before the branch (`reset_sibling_flow_state`,
+  /// evaluator/utils.yo), and a join reads each arm's end state from here.
+  before_init : Option(Token),
+  before_consumed : Option(Token),
+  after_init : Option(Token),
+  after_consumed : Option(Token)
 );
 derive(BranchInitRecord, Clone);
 (g_branch_init_log : RefCell(ArrayList(BranchInitRecord))) = RefCell(ArrayList(BranchInitRecord)).new(ArrayList(BranchInitRecord).new());

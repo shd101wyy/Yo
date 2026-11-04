@@ -4392,14 +4392,14 @@ reset_sibling_flow_state :: (fn(env : &Environment, prev_arm : &Option(AstExpr))
   });
   for(&recs, r => {
     match(
-        find_variable_by_id(env, r.var_id),
-        .Some(v) => {
-          match(prev_arm, .Some(pa) => _keep_undone_move(&v, &r.before_consumed, &pa), .None => ());
-          v.initialized_at_token = r.before_init;
-          v.consumed_at_token = match(r.before_consumed, .Some(bc) => Option(Token).Some(bc), .None => Option(Token).None);
-        },
-        .None => ()
-      );
+      find_variable_by_id(env, r.var_id),
+      .Some(v) => {
+        match(prev_arm, .Some(pa) => _keep_undone_move(&v, &r.before_consumed, &pa), .None => ());
+        v.initialized_at_token = r.before_init;
+        v.consumed_at_token = match(r.before_consumed, .Some(bc) => Option(Token).Some(bc), .None => Option(Token).None);
+      },
+      .None => ()
+    );
   });
 });
 /// Does a `match` arm pattern anywhere in `e` bind `name`?
@@ -4652,10 +4652,10 @@ keep_last_arm_moves :: (fn(env : &Environment, last_arm : &AstExpr, group_log_st
   recs := first_flow_records_in(group_log_start, branch_init_log_len());
   for(&recs, r => {
     match(
-        find_variable_by_id(env, r.var_id),
-        .Some(v) => _keep_undone_move(&v, &r.before_consumed, last_arm),
-        .None => ()
-      );
+      find_variable_by_id(env, r.var_id),
+      .Some(v) => _keep_undone_move(&v, &r.before_consumed, last_arm),
+      .None => ()
+    );
   });
 });
 /// At a `break` or `continue`: the move state of every variable declared
@@ -4668,13 +4668,13 @@ snapshot_loop_flow :: (fn(lc : &LoopBodyCtx, env : &Environment, site : &Token) 
   recs := first_flow_records_in(lc.log_start, branch_init_log_len());
   for(&recs, r => {
     match(
-        find_variable_by_id(env, r.var_id),
-        .Some(v) => if(v.frame_level < lc.entry_frame_count, {
-          ids.push(v.id);
-          states.push(match(v.consumed_at_token, .Some(ct) => Option(Token).Some(ct), .None => Option(Token).None));
-        }),
-        .None => ()
-      );
+      find_variable_by_id(env, r.var_id),
+      .Some(v) => if(v.frame_level < lc.entry_frame_count, {
+        ids.push(v.id);
+        states.push(match(v.consumed_at_token, .Some(ct) => Option(Token).Some(ct), .None => Option(Token).None));
+      }),
+      .None => ()
+    );
   });
   LoopFlowSnapshot(site : site, var_ids : ids, consumed : states)
 });
@@ -4775,97 +4775,97 @@ check_loop_flow :: (
   recs := first_flow_records_in(lc.log_start, branch_init_log_len());
   for(&recs, r => {
     match(
-        find_variable_by_id(env, r.var_id),
-        .Some(v) => if(v.frame_level < lc.entry_frame_count, {
-          pre := r.before_consumed;
-          body_end := match(v.consumed_at_token, .Some(ct) => Option(Token).Some(ct), .None => Option(Token).None);
-          // Back edges.
-          back_moved := ArrayList(Token).new();
-          back_live := ArrayList(Token).new();
-          if(body_completes, {
-            match(body_end, .Some(t) => back_moved.push(t), .None => back_live.push(v.token));
+      find_variable_by_id(env, r.var_id),
+      .Some(v) => if(v.frame_level < lc.entry_frame_count, {
+        pre := r.before_consumed;
+        body_end := match(v.consumed_at_token, .Some(ct) => Option(Token).Some(ct), .None => Option(Token).None);
+        // Back edges.
+        back_moved := ArrayList(Token).new();
+        back_live := ArrayList(Token).new();
+        if(body_completes, {
+          match(body_end, .Some(t) => back_moved.push(t), .None => back_live.push(v.token));
+        });
+        (ci : usize) = usize(0);
+        while(ci < lc.continue_states.len(), {
+          match(
+            lc.continue_states.get_cloned(ci),
+            .Some(cs) => match(_snapshot_state_of(&cs, v.id, &pre), .Some(t) => back_moved.push(t), .None => back_live.push(cs.site)),
+            .None => ()
+          );
+          ci = (ci + usize(1));
+        });
+        if(pre.is_none() && (back_moved.len() > usize(0)) && !migrate_borrowed_match_at(match(back_moved.get(usize(0)), .Some(t) => t, .None => v.token)), {
+          mv_tok := match(back_moved.get(usize(0)), .Some(t) => t, .None => v.token);
+          entries := ArrayList(TokenAndError).new();
+          entries.push(
+            TokenAndError(
+              token : mv_tok,
+              error_message : `use of moved value: \`${v.name}\` is moved inside the loop, and the next iteration uses it again. Move it only on a path that leaves the loop, or give it a new value before the iteration ends.`
+            )
+          );
+          entries.push(TokenAndError(token : v.token, error_message : String.from("declared outside the loop here")));
+          exn.throw(dyn(with_code(format_error_messages_with_help(&entries, moved_value_help(&v.name, &v.ty, &mv_tok)), E_USE_OF_MOVED_VALUE)));
+        });
+        // Ways out.
+        exit_moved := ArrayList(Token).new();
+        exit_live := ArrayList(Token).new();
+        if(has_normal_exit, {
+          // The condition reads the state an iteration left: the state at
+          // entry, or one a back edge left (the same, when it was live; a
+          // value moved before the loop and given a new value inside is
+          // moved or not depending on the iteration count).
+          match(pre, .Some(t) => exit_moved.push(t), .None => exit_live.push(v.token));
+          if(pre.is_some() && (back_live.len() > usize(0)), {
+            exit_live.push(match(back_live.get(usize(0)), .Some(t) => t, .None => v.token));
           });
-          (ci : usize) = usize(0);
-          while(ci < lc.continue_states.len(), {
-            match(
-              lc.continue_states.get_cloned(ci),
-              .Some(cs) => match(_snapshot_state_of(&cs, v.id, &pre), .Some(t) => back_moved.push(t), .None => back_live.push(cs.site)),
-              .None => ()
-            );
-            ci = (ci + usize(1));
-          });
-          if(pre.is_none() && (back_moved.len() > usize(0)) && !migrate_borrowed_match_at(match(back_moved.get(usize(0)), .Some(t) => t, .None => v.token)), {
-            mv_tok := match(back_moved.get(usize(0)), .Some(t) => t, .None => v.token);
-            entries := ArrayList(TokenAndError).new();
-            entries.push(
-              TokenAndError(
-                token : mv_tok,
-                error_message : `use of moved value: \`${v.name}\` is moved inside the loop, and the next iteration uses it again. Move it only on a path that leaves the loop, or give it a new value before the iteration ends.`
-              )
-            );
-            entries.push(TokenAndError(token : v.token, error_message : String.from("declared outside the loop here")));
-            exn.throw(dyn(with_code(format_error_messages_with_help(&entries, moved_value_help(&v.name, &v.ty, &mv_tok)), E_USE_OF_MOVED_VALUE)));
-          });
-          // Ways out.
-          exit_moved := ArrayList(Token).new();
-          exit_live := ArrayList(Token).new();
-          if(has_normal_exit, {
-            // The condition reads the state an iteration left: the state at
-            // entry, or one a back edge left (the same, when it was live; a
-            // value moved before the loop and given a new value inside is
-            // moved or not depending on the iteration count).
-            match(pre, .Some(t) => exit_moved.push(t), .None => exit_live.push(v.token));
-            if(pre.is_some() && (back_live.len() > usize(0)), {
-              exit_live.push(match(back_live.get(usize(0)), .Some(t) => t, .None => v.token));
-            });
-          });
-          (bi : usize) = usize(0);
-          while(bi < lc.break_states.len(), {
-            match(
-              lc.break_states.get_cloned(bi),
-              .Some(bs) => match(_snapshot_state_of(&bs, v.id, &pre), .Some(t) => exit_moved.push(t), .None => exit_live.push(bs.site)),
-              .None => ()
-            );
-            bi = (bi + usize(1));
-          });
-          // Only a value with a drop is at stake: without drop flags its drop
-          // after the loop cannot be decided. A value with nothing to drop is
-          // simply moved after the loop (a later use is E0901).
-          if((exit_moved.len() > usize(0)) && (exit_live.len() > usize(0)) && type_contains_rc_type(&v.ty) && !migrate_borrowed_match_at(match(exit_moved.get(usize(0)), .Some(t) => t, .None => v.token)), {
-            entries2 := ArrayList(TokenAndError).new();
-            entries2.push(
-              TokenAndError(
-                token : match(exit_moved.get(usize(0)), .Some(t) => t, .None => v.token),
-                error_message : `Variable "${v.name}" is moved on some ways out of the loop but not on others, so after the loop it would be dropped on some paths only. Moved here:`
-              )
-            );
-            entries2.push(TokenAndError(token : match(exit_live.get(usize(0)), .Some(t) => t, .None => v.token), error_message : String.from("Not moved on the way out here:")));
-            exn.throw(dyn(with_code(format_error_messages(&entries2), E_MOVED_ON_SOME_PATHS)));
-          });
-          final := match(exit_moved.get(usize(0)), .Some(t) => Option(Token).Some(t), .None => Option(Token).None);
-          if((exit_moved.len() > usize(0)) || (exit_live.len() > usize(0)), {
-            v.consumed_at_token = match(final, .Some(ft) => Option(Token).Some(ft), .None => Option(Token).None);
-          });
-          if(pre.is_none() && (exit_live.len() == usize(0)) && final.is_some(), {
-            match(
-              body_end,
-              .Some(be) => {
-                note := variable_move_note(&v, &be);
-                joined := ((note.row != be.row) || (note.column != be.column));
-                loc := cond(
-                  (joined && (note.module_path == be.module_path)) => note,
-                  true => be.clone()
-                );
-                _keep_body_end_move(&v, &be, &loc, joined, loop_expr);
-              },
-              .None => ()
-            );
-            match(final, .Some(ft) => _mark_moved_at_loop_end(&v, &ft, loop_expr), .None => ());
-          });
-          record_flow_event(v.id, Rc.new(TypeValueNode.Unit), Option(TypeValue).None, FlowEventKind.Join, &v.token, &r.before_init, &pre, &v.initialized_at_token, match(v.consumed_at_token, .Some(jc) => Option(Token).Some(jc), .None => Option(Token).None));
-        }),
-        .None => ()
-      );
+        });
+        (bi : usize) = usize(0);
+        while(bi < lc.break_states.len(), {
+          match(
+            lc.break_states.get_cloned(bi),
+            .Some(bs) => match(_snapshot_state_of(&bs, v.id, &pre), .Some(t) => exit_moved.push(t), .None => exit_live.push(bs.site)),
+            .None => ()
+          );
+          bi = (bi + usize(1));
+        });
+        // Only a value with a drop is at stake: without drop flags its drop
+        // after the loop cannot be decided. A value with nothing to drop is
+        // simply moved after the loop (a later use is E0901).
+        if((exit_moved.len() > usize(0)) && (exit_live.len() > usize(0)) && type_contains_rc_type(&v.ty) && !migrate_borrowed_match_at(match(exit_moved.get(usize(0)), .Some(t) => t, .None => v.token)), {
+          entries2 := ArrayList(TokenAndError).new();
+          entries2.push(
+            TokenAndError(
+              token : match(exit_moved.get(usize(0)), .Some(t) => t, .None => v.token),
+              error_message : `Variable "${v.name}" is moved on some ways out of the loop but not on others, so after the loop it would be dropped on some paths only. Moved here:`
+            )
+          );
+          entries2.push(TokenAndError(token : match(exit_live.get(usize(0)), .Some(t) => t, .None => v.token), error_message : String.from("Not moved on the way out here:")));
+          exn.throw(dyn(with_code(format_error_messages(&entries2), E_MOVED_ON_SOME_PATHS)));
+        });
+        final := match(exit_moved.get(usize(0)), .Some(t) => Option(Token).Some(t), .None => Option(Token).None);
+        if((exit_moved.len() > usize(0)) || (exit_live.len() > usize(0)), {
+          v.consumed_at_token = match(final, .Some(ft) => Option(Token).Some(ft), .None => Option(Token).None);
+        });
+        if(pre.is_none() && (exit_live.len() == usize(0)) && final.is_some(), {
+          match(
+            body_end,
+            .Some(be) => {
+              note := variable_move_note(&v, &be);
+              joined := ((note.row != be.row) || (note.column != be.column));
+              loc := cond(
+                (joined && (note.module_path == be.module_path)) => note,
+                true => be.clone()
+              );
+              _keep_body_end_move(&v, &be, &loc, joined, loop_expr);
+            },
+            .None => ()
+          );
+          match(final, .Some(ft) => _mark_moved_at_loop_end(&v, &ft, loop_expr), .None => ());
+        });
+        record_flow_event(v.id, Rc.new(TypeValueNode.Unit), Option(TypeValue).None, FlowEventKind.Join, &v.token, &r.before_init, &pre, &v.initialized_at_token, match(v.consumed_at_token, .Some(jc) => Option(Token).Some(jc), .None => Option(Token).None));
+      }),
+      .None => ()
+    );
   });
 });
 /// The variable with id `id` in `env`, innermost frame first.

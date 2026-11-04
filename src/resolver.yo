@@ -53,16 +53,14 @@
 // ---------------------------------------------------------------------------
 /// A parsed semantic version tag (`v1.2.3`, `1.2.3-rc.1`; a `+build` suffix
 /// is accepted and ignored, as semver orders it last and Cargo drops it).
-SemVer :: (
-  struct(
-    /// The tag exactly as written (`v1.2.3`) — what goes into `yo.lock`.
-    tag : String,
-    major : i32,
-    minor : i32,
-    patch : i32,
-    /// The pre-release identifiers after `-` ("" for a release).
-    pre : String
-  )
+SemVer :: struct(
+  /// The tag exactly as written (`v1.2.3`) — what goes into `yo.lock`.
+  tag : String,
+  major : i32,
+  minor : i32,
+  patch : i32,
+  /// The pre-release identifiers after `-` ("" for a release).
+  pre : String
 );
 derive(SemVer, Clone);
 impl(
@@ -262,22 +260,18 @@ _CmpOp :: enum(Caret, Tilde, Exact, Greater, GreaterEq, Less, LessEq, Wildcard);
 derive(_CmpOp, Copy, Clone);
 /// One comparator of a requirement: an operator and a possibly partial
 /// version (`1`, `1.2`, `1.2.3`, `1.2.3-rc.1`, `1.*`).
-_Comparator :: (
-  struct(
-    op : _CmpOp,
-    /// -1 marks a bare `*`.
-    major : i32,
-    minor : Option(i32),
-    patch : Option(i32),
-    pre : String
-  )
+_Comparator :: struct(
+  op : _CmpOp,
+  /// -1 marks a bare `*`.
+  major : i32,
+  minor : Option(i32),
+  patch : Option(i32),
+  pre : String
 );
 /// A parsed requirement: comparators joined by `,` (all must hold).
-VersionReq :: (
-  struct(
-    text : String,
-    comparators : ArrayList(_Comparator)
-  )
+VersionReq :: struct(
+  text : String,
+  comparators : ArrayList(_Comparator)
 );
 _wildcard_all :: (fn() -> _Comparator)(
   _Comparator(op : _CmpOp.Wildcard, major : i32(-1), minor : Option(i32).None, patch : Option(i32).None, pre : String.new())
@@ -688,12 +682,10 @@ resolve_latest_tag :: (
 // Requirements and the ref decision (pure)
 // ---------------------------------------------------------------------------
 /// One requirer's demand on a package.
-Requirement :: (
-  struct(
-    /// The package (or `<root>`) whose manifest declares it.
-    requirer : String,
-    requirement : GitRequirement
-  )
+Requirement :: struct(
+  /// The package (or `<root>`) whose manifest declares it.
+  requirer : String,
+  requirement : GitRequirement
 );
 /// The ref chosen for a git package.
 ChosenRef :: enum(
@@ -900,15 +892,13 @@ ResolveMode :: enum(
   UpdateAll
 );
 derive(ResolveMode, Clone);
-ResolveOptions :: (
-  struct(
-    mode : ResolveMode,
-    /// Fail instead of changing `yo.lock` (CI).
-    locked : bool,
-    /// Fail instead of touching the network.
-    offline : bool,
-    verbose : bool
-  )
+ResolveOptions :: struct(
+  mode : ResolveMode,
+  /// Fail instead of changing `yo.lock` (CI).
+  locked : bool,
+  /// Fail instead of touching the network.
+  offline : bool,
+  verbose : bool
 );
 derive(ResolveOptions, Clone);
 /// One package of the graph while it is being resolved.

@@ -142,16 +142,14 @@ pragma(Pragma.AllowUnsafe);
 // ---------------------------------------------------------------------------
 // DupCallsResult — result type for collect_dup_calls_conservatively.
 // ---------------------------------------------------------------------------
-DupCallsResult :: (
-  struct(
-    /// Maps variable id → list of `___dup(...)` call expressions.
-    dup_calls : HashMap(String, ArrayList(AstExpr)),
-    /// Variable ids that have dups in some branches but not all (conservative).
-    vars_with_partial_branch_dups : ArrayList(String),
-    /// Insertion-ordered key list for `dup_calls`: avoids HashMap key
-    /// iteration at the branch-merge and application sites.
-    dup_call_var_ids : ArrayList(String)
-  )
+DupCallsResult :: struct(
+  /// Maps variable id → list of `___dup(...)` call expressions.
+  dup_calls : HashMap(String, ArrayList(AstExpr)),
+  /// Variable ids that have dups in some branches but not all (conservative).
+  vars_with_partial_branch_dups : ArrayList(String),
+  /// Insertion-ordered key list for `dup_calls`: avoids HashMap key
+  /// iteration at the branch-merge and application sites.
+  dup_call_var_ids : ArrayList(String)
 );
 _new_dup_calls_result :: (fn() -> DupCallsResult)(
   DupCallsResult(
@@ -426,29 +424,29 @@ _search_dup_calls :: (fn(expr : &AstExpr, res : &mut DupCallsResult, ctx : &Eval
     // Union of var ids with dups in ANY branch; merge nested partials.
     all_vars := ArrayList(String).new();
     for(&branch_results, br => {
-          (ki : usize) = usize(0);
-          while(ki < br.dup_call_var_ids.len(), {
-            match(
-              br.dup_call_var_ids.get_cloned(ki),
-              .Some(vid) => if(!_ids_list_contains(&all_vars, vid.clone()), {
-                all_vars.push(vid);
-              }),
-              .None => ()
-            );
-            ki = (ki + usize(1));
-          });
-          (pi : usize) = usize(0);
-          while(pi < br.vars_with_partial_branch_dups.len(), {
-            match(
-              br.vars_with_partial_branch_dups.get_cloned(pi),
-              .Some(pv) => if(!_ids_list_contains(&res.vars_with_partial_branch_dups, pv.clone()), {
-                res.vars_with_partial_branch_dups.push(pv);
-              }),
-              .None => ()
-            );
-            pi = (pi + usize(1));
-          });
-        });
+      (ki : usize) = usize(0);
+      while(ki < br.dup_call_var_ids.len(), {
+        match(
+          br.dup_call_var_ids.get_cloned(ki),
+          .Some(vid) => if(!_ids_list_contains(&all_vars, vid.clone()), {
+            all_vars.push(vid);
+          }),
+          .None => ()
+        );
+        ki = (ki + usize(1));
+      });
+      (pi : usize) = usize(0);
+      while(pi < br.vars_with_partial_branch_dups.len(), {
+        match(
+          br.vars_with_partial_branch_dups.get_cloned(pi),
+          .Some(pv) => if(!_ids_list_contains(&res.vars_with_partial_branch_dups, pv.clone()), {
+            res.vars_with_partial_branch_dups.push(pv);
+          }),
+          .None => ()
+        );
+        pi = (pi + usize(1));
+      });
+    });
     // Per-variable branch categorization:
     // a branch-arm dup executes only when that arm is taken, so it may be
     // exposed to the optimizer ONLY when EVERY arm dups the variable (with
@@ -466,25 +464,25 @@ _search_dup_calls :: (fn(expr : &AstExpr, res : &mut DupCallsResult, ctx : &Eval
           all_branch_dups := ArrayList(AstExpr).new();
           (branches_with_dup : usize) = usize(0);
           for(&branch_results, br2 => {
-                match(
-                  br2.dup_calls.get_cloned(vid.clone()),
-                  .Some(bdups) => if(bdups.len() > usize(0), {
-                    branches_with_dup = (branches_with_dup + usize(1));
-                    (bdi : usize) = usize(0);
-                    while(bdi < bdups.len(), {
-                      match(
-                        bdups.get(bdi),
-                        .Some(bd) => {
-                          all_branch_dups.push(bd);
-                        },
-                        .None => ()
-                      );
-                      bdi = (bdi + usize(1));
-                    });
-                  }),
-                  .None => ()
-                );
-              });
+            match(
+              br2.dup_calls.get_cloned(vid.clone()),
+              .Some(bdups) => if(bdups.len() > usize(0), {
+                branches_with_dup = (branches_with_dup + usize(1));
+                (bdi : usize) = usize(0);
+                while(bdi < bdups.len(), {
+                  match(
+                    bdups.get(bdi),
+                    .Some(bd) => {
+                      all_branch_dups.push(bd);
+                    },
+                    .None => ()
+                  );
+                  bdi = (bdi + usize(1));
+                });
+              }),
+              .None => ()
+            );
+          });
           if(branches_with_dup == branch_results.len(), {
             // Every arm dups the variable — expose them to the optimizer.
             (fdi : usize) = usize(0);
@@ -1807,37 +1805,35 @@ _optimize_dup_drop_pairs :: (
 // The implicit-copy recorder: is the copied variable used again?
 // ---------------------------------------------------------------------------
 /// What `_ic_scan` found for one pending copy site.
-_ICScan :: (
-  struct(
-    /// A node at the site's position was visited.
-    site_seen : bool,
-    /// Reads of the variable seen.
-    reads : usize,
-    /// A read after the site: the copy is a real copy.
-    later : bool,
-    /// Every path through the site has ended within the scanned region: it
-    /// left the function (`return`, `unwind`, `panic`), left or restarted the
-    /// innermost loop (`break`, `continue`), or (`stop_at_write`) wrote the
-    /// variable, so nothing after it in the region reads the copied value.
-    done : bool,
-    /// A path through the site reached a `break` of the innermost loop, so
-    /// the code after that loop is on it whatever the rest of the loop does.
-    broke : bool,
-    /// A path through the site reached a `continue` of the innermost loop,
-    /// so the next iteration is on it whatever the rest of the body does.
-    continued : bool,
-    /// The scan starts after the site (the next iteration of a loop that
-    /// holds it): every read is later, and every write or exit is on a path
-    /// through the site.
-    post_site : bool,
-    /// The first read after the site, when `later` came from one (a loop that
-    /// runs the site again sets `later` with none).
-    later_tok : Option(Token),
-    /// An assignment to the variable after the site (or around it, `v =
-    /// f(v)`) ends the scan: what follows reads the new value. The unique
-    /// `Dyn` rule (`judge_dyn_copies`) sets it; the audit counts such reads.
-    stop_at_write : bool
-  )
+_ICScan :: struct(
+  /// A node at the site's position was visited.
+  site_seen : bool,
+  /// Reads of the variable seen.
+  reads : usize,
+  /// A read after the site: the copy is a real copy.
+  later : bool,
+  /// Every path through the site has ended within the scanned region: it
+  /// left the function (`return`, `unwind`, `panic`), left or restarted the
+  /// innermost loop (`break`, `continue`), or (`stop_at_write`) wrote the
+  /// variable, so nothing after it in the region reads the copied value.
+  done : bool,
+  /// A path through the site reached a `break` of the innermost loop, so
+  /// the code after that loop is on it whatever the rest of the loop does.
+  broke : bool,
+  /// A path through the site reached a `continue` of the innermost loop,
+  /// so the next iteration is on it whatever the rest of the body does.
+  continued : bool,
+  /// The scan starts after the site (the next iteration of a loop that
+  /// holds it): every read is later, and every write or exit is on a path
+  /// through the site.
+  post_site : bool,
+  /// The first read after the site, when `later` came from one (a loop that
+  /// runs the site again sets `later` with none).
+  later_tok : Option(Token),
+  /// An assignment to the variable after the site (or around it, `v =
+  /// f(v)`) ends the scan: what follows reads the new value. The unique
+  /// `Dyn` rule (`judge_dyn_copies`) sets it; the audit counts such reads.
+  stop_at_write : bool
 );
 _ic_new_scan :: (fn() -> _ICScan)(
   _ICScan(site_seen : false, reads : usize(0), later : false, done : false, broke : false, continued : false, post_site : false, later_tok : Option(Token).None, stop_at_write : false)

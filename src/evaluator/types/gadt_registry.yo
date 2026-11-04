@@ -23,14 +23,12 @@ pragma(Pragma.AllowUnsafe);
 // ---------------------------------------------------------------------------
 // Per-definition variant args
 // ---------------------------------------------------------------------------
-GadtEntry :: (
-  struct(
-    /// The enum type's `id` — the lookup key.
-    enum_id : String,
-    /// Per-variant type-arg lists, parallel to the enum's variant order.
-    /// An empty inner list means that variant is non-GADT.
-    variant_args : ArrayList(ArrayList(TypeValue))
-  )
+GadtEntry :: struct(
+  /// The enum type's `id` — the lookup key.
+  enum_id : String,
+  /// Per-variant type-arg lists, parallel to the enum's variant order.
+  /// An empty inner list means that variant is non-GADT.
+  variant_args : ArrayList(ArrayList(TypeValue))
 );
 (g_gadt_entries : RefCell(ArrayList(GadtEntry))) = RefCell(ArrayList(GadtEntry)).new(ArrayList(GadtEntry).new());
 /// Record a GADT enum's per-variant return-type args; registering `enum_id`
@@ -65,12 +63,11 @@ is_gadt_enum :: (fn(enum_id : &String) -> bool)(
 // ---------------------------------------------------------------------------
 // Per-instantiation type-constructor args
 // ---------------------------------------------------------------------------
-GadtTcaEntry :: (
+GadtTcaEntry ::
   struct(
     enum_id : String,
     type_constructor_args : ArrayList(TypeValue)
-  )
-);
+  );
 (g_gadt_tca_entries : RefCell(ArrayList(GadtTcaEntry))) = RefCell(ArrayList(GadtTcaEntry)).new(ArrayList(GadtTcaEntry).new());
 /// Record the type-constructor args for an instantiated GADT enum.
 register_gadt_type_constructor_args :: (

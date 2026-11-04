@@ -90,11 +90,9 @@ toml_key :: (fn(k : &String) -> String)({
 /// Scanner state carried from one line to the next: which multi-line string
 /// delimiter is open (`0` = none, `"` or `'`), and the bracket depth of the
 /// value being read.
-_Scan :: (
-  struct(
-    ml : u8,
-    depth : i32
-  )
+_Scan :: struct(
+  ml : u8,
+  depth : i32
 );
 /// Scan `line` from byte `from` to its end, updating `st`. Returns the byte
 /// offset of the first `=` met at depth 0 outside strings and comments (or
@@ -185,11 +183,9 @@ _skip_ws :: (fn(line : &String, from : usize) -> usize)({
   i
 });
 /// A parsed key path (`a.b."c d"`) and where it ends.
-_KeyPath :: (
-  struct(
-    keys : ArrayList(String),
-    end : usize
-  )
+_KeyPath :: struct(
+  keys : ArrayList(String),
+  end : usize
 );
 /// Decode the escapes of a basic-string key. Keys are names, so the common
 /// escapes suffice; an unknown escape keeps its character.
@@ -289,12 +285,10 @@ _LineKind :: enum(
   Other
 );
 derive(_LineKind, Clone);
-_Line :: (
-  struct(
-    kind : _LineKind,
-    /// For an `Entry`: the index of the last line of its value.
-    end : usize
-  )
+_Line :: struct(
+  kind : _LineKind,
+  /// For an `Entry`: the index of the last line of its value.
+  end : usize
 );
 /// Classify every line of `lines`.
 _classify :: (fn(lines : &ArrayList(String)) -> Result(ArrayList(_Line), String))({
@@ -402,11 +396,9 @@ _section_end :: (fn(kinds : &ArrayList(_Line), from : usize) -> usize)({
   kinds.len()
 });
 /// A half-open line range `[start, end)` to delete or replace.
-_Range :: (
-  struct(
-    start : usize,
-    end : usize
-  )
+_Range :: struct(
+  start : usize,
+  end : usize
 );
 derive(_Range, Copy, Clone);
 /// Every line range that defines `table.key`: entries `key = …` and

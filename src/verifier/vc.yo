@@ -691,46 +691,40 @@ _guard_site :: (fn(e : &AstExpr, class : &String) -> Option(GuardSite))({
     )
   )
 });
-VcObligation :: (
-  struct(
-    name : String,
-    query : VcQuery,
-    /// The runtime guard this obligation discharges; `.None` for contract,
-    /// loop and assert obligations.
-    (site : Option(GuardSite)) ?= Option(GuardSite).None,
-    /// Proved here, may this obligation remove its guard? False when an
-    /// unenforced assumption (`VcCtx.unenforced`) was on the path.
-    (elidable : bool) ?= false,
-    /// 5b Phase 2 (plans/backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md §6):
-    /// an ELISION-ONLY obligation decides its guard and nothing else. Not
-    /// proved, the guard stays and is itself the defined behavior, so it never
-    /// fails the function or counts toward its outcome.
-    (elision_only : bool) ?= false,
-    /// Literal-construction CTFE folding: the goal constant-folded to a
-    /// BoolLit, so the verdict is known WITHOUT an SMT call (`_emit`).
-    (pre : Option(VcPreVerdict)) ?= Option(VcPreVerdict).None
-  )
+VcObligation :: struct(
+  name : String,
+  query : VcQuery,
+  /// The runtime guard this obligation discharges; `.None` for contract,
+  /// loop and assert obligations.
+  (site : Option(GuardSite)) ?= Option(GuardSite).None,
+  /// Proved here, may this obligation remove its guard? False when an
+  /// unenforced assumption (`VcCtx.unenforced`) was on the path.
+  (elidable : bool) ?= false,
+  /// 5b Phase 2 (plans/backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md §6):
+  /// an ELISION-ONLY obligation decides its guard and nothing else. Not
+  /// proved, the guard stays and is itself the defined behavior, so it never
+  /// fails the function or counts toward its outcome.
+  (elision_only : bool) ?= false,
+  /// Literal-construction CTFE folding: the goal constant-folded to a
+  /// BoolLit, so the verdict is known WITHOUT an SMT call (`_emit`).
+  (pre : Option(VcPreVerdict)) ?= Option(VcPreVerdict).None
 );
 /// The pre-resolved verdict for a constant-folded obligation.
 VcPreVerdict :: enum(PreProved, PreRefuted);
 derive(VcPreVerdict, Copy, Clone);
 /// Why a function could not be verified (subset gate).
-VcSubsetError :: (
-  struct(
-    construct : String,
-    source : String
-  )
+VcSubsetError :: struct(
+  construct : String,
+  source : String
 );
 derive(VcSubsetError, Clone);
 /// Symbolic execution result for one function.
-VcBodyResult :: (
-  struct(
-    obligations : ArrayList(VcObligation),
-    /// The body's value as a term (for ensures binding); `.None` when a
-    /// subset error aborted the walk.
-    value : Option(VcTerm),
-    error : Option(VcSubsetError)
-  )
+VcBodyResult :: struct(
+  obligations : ArrayList(VcObligation),
+  /// The body's value as a term (for ensures binding); `.None` when a
+  /// subset error aborted the walk.
+  value : Option(VcTerm),
+  error : Option(VcSubsetError)
 );
 // ============================================================================
 // The executor context
@@ -740,141 +734,139 @@ VcBodyResult :: (
 /// index `idx_name` from 0 to `len(list)`, `x` is `list[idx]`, and
 /// `produced(<coll_name>)` is the list cut at the index.
 ForFrame :: struct(idx_name : String, coll_name : String, list : VcTerm, elem : VcSort, elem_name : String);
-VcCtx :: (
-  struct(
-    table : ExprInfoTable,
-    fn_name : String,
-    /// The FuncVal's `func_id` — self-recursion detection at call sites.
-    func_id : String,
-    /// Source-name → current term (SSA by rebinding).
-    vars : HashMap(String, VcTerm),
-    /// Path assumptions (requires, branch conditions), conjoined.
-    path : ArrayList(VcTerm),
-    /// The subset of `path` terms no runtime check enforces: an own requires
-    /// with no entry assert, a `refine` premise, a callee's `ensures`. An
-    /// obligation proved while one of these is on the path is still proved
-    /// for `yo verify`, but must not elide a guard, because a caller the
-    /// verifier never walks can break the assumption
-    /// (plans/backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md §5.1 rule 3).
-    unenforced : ArrayList(VcTerm),
-    /// Generate the elision-only obligations (`VerifyFnInput.elision_obligations`).
-    (elision_obligations : bool) ?= false,
-    /// `VerifyFnInput.body_abstract`: proofs here remove no guards.
-    (body_abstract : bool) ?= false,
-    obligations : ArrayList(VcObligation),
-    subset_error : Option(VcSubsetError),
-    /// Counter for query names and synthetic vars.
-    fresh : usize,
-    /// Havoc-version counter for loop encodings (V4): each `while` gets a
-    /// distinct post-havoc generation so nested/back-to-back loops never
-    /// share a synthetic constant.
-    havoc : usize,
-    /// This function's `decreases(M)` measure (V4 recursion), if any.
-    decreases : Option(AstExpr),
-    /// Break sites of the loop body being walked (V4.2): each `break`
-    /// snapshots the path condition and every binding — the loop's exit
-    /// state is the disjunction of these with the fresh-havoc cond-exit.
-    break_sites : ArrayList(BreakSite),
-    /// The invariant predicates of the loop being walked (V4.2): a
-    /// `continue` site proves them over the state at the statement.
-    loop_invariants : ArrayList(AstExpr),
-    /// The loop being walked's `decreases(M)` AST, if any (V4.2 continue).
-    loop_measure : Option(AstExpr),
-    /// The ghost index of the loop being walked when it is a `for`: a
-    /// `continue` there moves to the next element before the head.
-    loop_for_idx : Option(String),
-    /// The head (havoced) measure TERM of the loop being walked, if any —
-    /// a `continue` site proves its own `M(now) < M(head)` step against it.
-    head_measure : Option(VcTerm),
-    /// The current straight-line path does not continue: it exited the
-    /// loop (break or continue) or diverged (`panic`). Statements after the
-    /// exit are dead and not walked; a branch whose walk ends dead is assumed
-    /// not taken on the path after the branch.
-    path_dead : bool,
-    /// Loop nesting depth during a body walk (0 outside any loop body).
-    loop_depth : usize,
-    /// The FUNCTION-ENTRY binding snapshot (params + module bindings at
-    /// body start, taken before the walk): `old(e)` walks e against it
-    /// (V5 two-state). Body-locals have no entry binding.
-    entry_vars : HashMap(String, VcTerm),
-    /// While a CALLEE's `ensures` is being assumed at a call site (R1 slice
-    /// 2): callee param label → its PRE-call term for every argument the
-    /// call mutates, so the callee's `old(self.len())` reads the state
-    /// before the call and not the caller's function entry.
-    call_pre : Option(HashMap(String, VcTerm)),
-    /// Every NAME a call in this body rebound through the mutation model
-    /// (R1 slice 2) — a parameter here whose own contract never says
-    /// `old(<param>)` is the loud gap of
-    /// issues/questions/modifies-clause-for-callee-side-effects.md.
-    mutated_names : ArrayList(String),
-    /// Every list-typed LOCAL bound from an existing list rather than a
-    /// fresh `ArrayList(T).new()` / `.with_capacity(n)`: ArrayList is a
-    /// reference type, so such a local may be the same list as another
-    /// name, and the model (one value per name) cannot follow the alias.
-    list_alias_locals : ArrayList(String),
-    /// List-typed locals last bound from `ArrayList(T).new()` /
-    /// `with_capacity(n)`: no other name can be the same list (R2 task 5).
-    fresh_list_locals : ArrayList(String),
-    /// Where a `distinct(a, b)` is being walked: 0 = elsewhere (a subset
-    /// error), 1 = the fn's own requires (assumed; the pair is recorded),
-    /// 2 = a callee's requires at a call (proved from the arguments).
-    requires_phase : usize,
-    /// At a call (phase 2): callee parameter -> the caller's argument name
-    /// ("" when the argument is not a plain name).
-    call_arg_names : HashMap(String, String),
-    /// The `distinct(a, b)` pairs of the fn's own requires, both orders.
-    distinct_pairs : ArrayList(String),
-    /// Datatype declaration entries (`<dt-name>|<ctor0> <ctor1> (f0 sort) ...`)
-    /// for every enum sort used so far — merged into each obligation's
-    /// VcQuery.datatypes at `_emit` time so the emitted script declares
-    /// everything the terms mention.
-    datatypes : ArrayList(String),
-    /// The sorts behind the value-enum datatypes above, by SMT name: each
-    /// constructor's datatype and each field accessor's sort. A name bound
-    /// to a constructor or projection term carries no sort of its own
-    /// (`_vc_term_sort`).
-    ctor_sorts : HashMap(String, VcSort),
-    acc_sorts : HashMap(String, VcSort),
-    /// Name → ArrS sort for every bound ARRAY value (V5 task 6). The name's
-    /// current TERM may be a store chain (index writes rebind), which carries
-    /// no sort — this table is where the walk reads the element sort and the
-    /// compile-time length (bounds obligations, `ms_of` folding, havoc).
-    array_sorts : HashMap(String, VcSort),
-    /// > 0 while walking a quantifier BODY (V5 task 6): index-bounds
-    /// obligations are SUPPRESSED there — a bounded index inside `forall(p, g ==> s(p) ...)`
-    /// is the spec's own guard's business; a free-variable bounds goal under
-    /// a binder would be an unprovable non-obligation.
-    quant_depth : usize,
-    /// The `__yo_msof_<elem>` functions used so far (elem sorts) — merged
-    /// into every obligation's VcQuery.fundecls at `_emit` time. Deduped
-    /// through `fundecl_keys`: comparing VcSorts at runtime would call the
-    /// derived Eq, which is HOLLOW for ref enums with Self payloads
-    /// (issues/fixed/derived-eq-ref-enum-self-payload-hollow-at-runtime.md).
-    fundecls : ArrayList(VcSort),
-    fundecl_keys : ArrayList(String),
-    /// Closed definition axioms for the `ms_of` terms walked so far
-    /// (merged into every obligation's VcQuery.axioms at `_emit` time),
-    /// deduped by the encoded array term — the same array term walked
-    /// from several invariants defines the same function application.
-    axioms : ArrayList(VcTerm),
-    ms_axiom_keys : ArrayList(String),
-    /// R2: the uninterpreted function of every recursive `ghost_fn` walked
-    /// so far, and the keys that dedupe their definitional axioms.
-    fun_decls : ArrayList(VcFunDecl),
-    gfn_keys : ArrayList(String),
-    /// The `for` loops being walked, innermost last (`produced(xs)`).
-    for_frames : ArrayList(ForFrame),
-    /// > 0 while a callee's parameter labels are bound over the caller's
-    /// names (its requires, ensures and clique measure at a call): a call
-    /// to an open-frame callee there is a subset error, because the
-    /// restore after it would put back the stale terms of the names the
-    /// labels shadow.
-    label_depth : usize,
-    /// Calls that may change caller state beyond the call's result — an
-    /// open-frame callee, or an argument written through `&mut`. A
-    /// spec-transparent attempt that adds one is not transparent.
-    frame_effects : usize
-  )
+VcCtx :: struct(
+  table : ExprInfoTable,
+  fn_name : String,
+  /// The FuncVal's `func_id` — self-recursion detection at call sites.
+  func_id : String,
+  /// Source-name → current term (SSA by rebinding).
+  vars : HashMap(String, VcTerm),
+  /// Path assumptions (requires, branch conditions), conjoined.
+  path : ArrayList(VcTerm),
+  /// The subset of `path` terms no runtime check enforces: an own requires
+  /// with no entry assert, a `refine` premise, a callee's `ensures`. An
+  /// obligation proved while one of these is on the path is still proved
+  /// for `yo verify`, but must not elide a guard, because a caller the
+  /// verifier never walks can break the assumption
+  /// (plans/backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md §5.1 rule 3).
+  unenforced : ArrayList(VcTerm),
+  /// Generate the elision-only obligations (`VerifyFnInput.elision_obligations`).
+  (elision_obligations : bool) ?= false,
+  /// `VerifyFnInput.body_abstract`: proofs here remove no guards.
+  (body_abstract : bool) ?= false,
+  obligations : ArrayList(VcObligation),
+  subset_error : Option(VcSubsetError),
+  /// Counter for query names and synthetic vars.
+  fresh : usize,
+  /// Havoc-version counter for loop encodings (V4): each `while` gets a
+  /// distinct post-havoc generation so nested/back-to-back loops never
+  /// share a synthetic constant.
+  havoc : usize,
+  /// This function's `decreases(M)` measure (V4 recursion), if any.
+  decreases : Option(AstExpr),
+  /// Break sites of the loop body being walked (V4.2): each `break`
+  /// snapshots the path condition and every binding — the loop's exit
+  /// state is the disjunction of these with the fresh-havoc cond-exit.
+  break_sites : ArrayList(BreakSite),
+  /// The invariant predicates of the loop being walked (V4.2): a
+  /// `continue` site proves them over the state at the statement.
+  loop_invariants : ArrayList(AstExpr),
+  /// The loop being walked's `decreases(M)` AST, if any (V4.2 continue).
+  loop_measure : Option(AstExpr),
+  /// The ghost index of the loop being walked when it is a `for`: a
+  /// `continue` there moves to the next element before the head.
+  loop_for_idx : Option(String),
+  /// The head (havoced) measure TERM of the loop being walked, if any —
+  /// a `continue` site proves its own `M(now) < M(head)` step against it.
+  head_measure : Option(VcTerm),
+  /// The current straight-line path does not continue: it exited the
+  /// loop (break or continue) or diverged (`panic`). Statements after the
+  /// exit are dead and not walked; a branch whose walk ends dead is assumed
+  /// not taken on the path after the branch.
+  path_dead : bool,
+  /// Loop nesting depth during a body walk (0 outside any loop body).
+  loop_depth : usize,
+  /// The FUNCTION-ENTRY binding snapshot (params + module bindings at
+  /// body start, taken before the walk): `old(e)` walks e against it
+  /// (V5 two-state). Body-locals have no entry binding.
+  entry_vars : HashMap(String, VcTerm),
+  /// While a CALLEE's `ensures` is being assumed at a call site (R1 slice
+  /// 2): callee param label → its PRE-call term for every argument the
+  /// call mutates, so the callee's `old(self.len())` reads the state
+  /// before the call and not the caller's function entry.
+  call_pre : Option(HashMap(String, VcTerm)),
+  /// Every NAME a call in this body rebound through the mutation model
+  /// (R1 slice 2) — a parameter here whose own contract never says
+  /// `old(<param>)` is the loud gap of
+  /// issues/questions/modifies-clause-for-callee-side-effects.md.
+  mutated_names : ArrayList(String),
+  /// Every list-typed LOCAL bound from an existing list rather than a
+  /// fresh `ArrayList(T).new()` / `.with_capacity(n)`: ArrayList is a
+  /// reference type, so such a local may be the same list as another
+  /// name, and the model (one value per name) cannot follow the alias.
+  list_alias_locals : ArrayList(String),
+  /// List-typed locals last bound from `ArrayList(T).new()` /
+  /// `with_capacity(n)`: no other name can be the same list (R2 task 5).
+  fresh_list_locals : ArrayList(String),
+  /// Where a `distinct(a, b)` is being walked: 0 = elsewhere (a subset
+  /// error), 1 = the fn's own requires (assumed; the pair is recorded),
+  /// 2 = a callee's requires at a call (proved from the arguments).
+  requires_phase : usize,
+  /// At a call (phase 2): callee parameter -> the caller's argument name
+  /// ("" when the argument is not a plain name).
+  call_arg_names : HashMap(String, String),
+  /// The `distinct(a, b)` pairs of the fn's own requires, both orders.
+  distinct_pairs : ArrayList(String),
+  /// Datatype declaration entries (`<dt-name>|<ctor0> <ctor1> (f0 sort) ...`)
+  /// for every enum sort used so far — merged into each obligation's
+  /// VcQuery.datatypes at `_emit` time so the emitted script declares
+  /// everything the terms mention.
+  datatypes : ArrayList(String),
+  /// The sorts behind the value-enum datatypes above, by SMT name: each
+  /// constructor's datatype and each field accessor's sort. A name bound
+  /// to a constructor or projection term carries no sort of its own
+  /// (`_vc_term_sort`).
+  ctor_sorts : HashMap(String, VcSort),
+  acc_sorts : HashMap(String, VcSort),
+  /// Name → ArrS sort for every bound ARRAY value (V5 task 6). The name's
+  /// current TERM may be a store chain (index writes rebind), which carries
+  /// no sort — this table is where the walk reads the element sort and the
+  /// compile-time length (bounds obligations, `ms_of` folding, havoc).
+  array_sorts : HashMap(String, VcSort),
+  /// > 0 while walking a quantifier BODY (V5 task 6): index-bounds
+  /// obligations are SUPPRESSED there — a bounded index inside `forall(p, g ==> s(p) ...)`
+  /// is the spec's own guard's business; a free-variable bounds goal under
+  /// a binder would be an unprovable non-obligation.
+  quant_depth : usize,
+  /// The `__yo_msof_<elem>` functions used so far (elem sorts) — merged
+  /// into every obligation's VcQuery.fundecls at `_emit` time. Deduped
+  /// through `fundecl_keys`: comparing VcSorts at runtime would call the
+  /// derived Eq, which is HOLLOW for ref enums with Self payloads
+  /// (issues/fixed/derived-eq-ref-enum-self-payload-hollow-at-runtime.md).
+  fundecls : ArrayList(VcSort),
+  fundecl_keys : ArrayList(String),
+  /// Closed definition axioms for the `ms_of` terms walked so far
+  /// (merged into every obligation's VcQuery.axioms at `_emit` time),
+  /// deduped by the encoded array term — the same array term walked
+  /// from several invariants defines the same function application.
+  axioms : ArrayList(VcTerm),
+  ms_axiom_keys : ArrayList(String),
+  /// R2: the uninterpreted function of every recursive `ghost_fn` walked
+  /// so far, and the keys that dedupe their definitional axioms.
+  fun_decls : ArrayList(VcFunDecl),
+  gfn_keys : ArrayList(String),
+  /// The `for` loops being walked, innermost last (`produced(xs)`).
+  for_frames : ArrayList(ForFrame),
+  /// > 0 while a callee's parameter labels are bound over the caller's
+  /// names (its requires, ensures and clique measure at a call): a call
+  /// to an open-frame callee there is a subset error, because the
+  /// restore after it would put back the stale terms of the names the
+  /// labels shadow.
+  label_depth : usize,
+  /// Calls that may change caller state beyond the call's result — an
+  /// open-frame callee, or an argument written through `&mut`. A
+  /// spec-transparent attempt that adds one is not transparent.
+  frame_effects : usize
 );
 derive(ForFrame, Clone);
 _new_vc_ctx :: (fn(table : &ExprInfoTable, fn_name : &String, func_id : &String) -> VcCtx)(
@@ -2634,16 +2626,14 @@ _match_arm_conditioned_ir :: (
 /// (issues/fixed/2026-10-23-a-break-in-a-match-arm-ends-the-walk-of-the-enclosing-block.md).
 /// `start` is the path length before the first arm, `ends` the length after
 /// each arm: walk index k pushed the path entries `[ends[k-1], ends[k])`.
-_MatchPhi :: (
-  struct(
-    names : ArrayList(String),
-    pre : ArrayList(Option(VcTerm)),
-    tests : ArrayList(VcTerm),
-    posts : ArrayList(ArrayList(Option(VcTerm))),
-    dead : ArrayList(bool),
-    start : usize,
-    ends : ArrayList(usize)
-  )
+_MatchPhi :: struct(
+  names : ArrayList(String),
+  pre : ArrayList(Option(VcTerm)),
+  tests : ArrayList(VcTerm),
+  posts : ArrayList(ArrayList(Option(VcTerm))),
+  dead : ArrayList(bool),
+  start : usize,
+  ends : ArrayList(usize)
 );
 _match_phi_new :: (fn(ctx : &mut VcCtx, arms : &ArrayList(Arm)) -> _MatchPhi)({
   names := ArrayList(String).new();
@@ -7536,32 +7526,30 @@ _term_width :: (fn(t : &VcTerm) -> usize)(
 // The per-function entry point
 // ============================================================================
 /// VerifyInput: everything the definition site knows.
-VerifyFnInput :: (
-  struct(
-    fn_name : String,
-    /// The FuncVal's `func_id` (recursion detection; the re-keyed
-    /// contract side tables are readable under it).
-    func_id : String,
-    body : AstExpr,
-    param_names : ArrayList(String),
-    param_types : ArrayList(TypeValue),
-    result_type : TypeValue,
-    requires_exprs : ArrayList(AstExpr),
-    ensures_exprs : ArrayList(AstExpr),
-    /// Phase V4 `decreases(M)` termination measure (recursion).
-    (decreases_expr : Option(AstExpr)) ?= Option(AstExpr).None,
-    return_label : Option(String),
-    table : ExprInfoTable,
-    /// Per `requires_exprs` entry: enforced by a runtime entry assert
-    /// (`VerifyTask.requires_enforced`); a missing entry is unenforced.
-    requires_enforced : ArrayList(bool),
-    /// 5b Phase 2: also generate the elision-only obligations (`yo compile`
-    /// when it records guard sites, `yo verify --elision`).
-    (elision_obligations : bool) ?= false,
-    /// The task's body is generic and verified abstractly: no obligation is
-    /// elidable (§5.1 rule 5 of SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md).
-    (body_abstract : bool) ?= false
-  )
+VerifyFnInput :: struct(
+  fn_name : String,
+  /// The FuncVal's `func_id` (recursion detection; the re-keyed
+  /// contract side tables are readable under it).
+  func_id : String,
+  body : AstExpr,
+  param_names : ArrayList(String),
+  param_types : ArrayList(TypeValue),
+  result_type : TypeValue,
+  requires_exprs : ArrayList(AstExpr),
+  ensures_exprs : ArrayList(AstExpr),
+  /// Phase V4 `decreases(M)` termination measure (recursion).
+  (decreases_expr : Option(AstExpr)) ?= Option(AstExpr).None,
+  return_label : Option(String),
+  table : ExprInfoTable,
+  /// Per `requires_exprs` entry: enforced by a runtime entry assert
+  /// (`VerifyTask.requires_enforced`); a missing entry is unenforced.
+  requires_enforced : ArrayList(bool),
+  /// 5b Phase 2: also generate the elision-only obligations (`yo compile`
+  /// when it records guard sites, `yo verify --elision`).
+  (elision_obligations : bool) ?= false,
+  /// The task's body is generic and verified abstractly: no obligation is
+  /// elidable (§5.1 rule 5 of SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md).
+  (body_abstract : bool) ?= false
 );
 /// Symbolically execute one function definition. Always returns a result —
 /// subset violations land in `.error`, never thrown.

@@ -348,15 +348,13 @@ _ctfe_args_equal :: (
 // SomeT's unique id. `resolve_recursive_type_ref` (in `function.yo`) reads it.
 // Mutated via `push` (never reassigned), mirroring `impl.yo`'s registry.
 // ---------------------------------------------------------------------------
-RecursiveTypeRef :: (
-  struct(
-    /// The placeholder `SomeT`'s `id` — the lookup key.
-    some_id : String,
-    /// The type-constructor function's `func_id` (→ `g_comptime_fn_caches`).
-    func_id : String,
-    /// The argument values of the in-progress instantiation (for exact match).
-    arg_values : ArrayList(EvalValue)
-  )
+RecursiveTypeRef :: struct(
+  /// The placeholder `SomeT`'s `id` — the lookup key.
+  some_id : String,
+  /// The type-constructor function's `func_id` (→ `g_comptime_fn_caches`).
+  func_id : String,
+  /// The argument values of the in-progress instantiation (for exact match).
+  arg_values : ArrayList(EvalValue)
 );
 derive(RecursiveTypeRef, Clone);
 (g_recursive_type_refs : RefCell(ArrayList(RecursiveTypeRef))) = RefCell(ArrayList(RecursiveTypeRef)).new(ArrayList(RecursiveTypeRef).new());
@@ -506,14 +504,14 @@ canonicalize_instantiation_via_ctfe_memo :: (fn(ty : &TypeValue) -> TypeValue)({
     .Some(bucket) => {
       for(&bucket.caches, cache => {
         if(_arg_vals_equal(&cache.arg_values, &want_args), {
-            match(
-              _resolved_type_of(&cache.value),
-              .Some(rt) => if(is_struct_type(&rt), {
-                return(rt);
-              }),
-              .None => ()
-            );
-          });
+          match(
+            _resolved_type_of(&cache.value),
+            .Some(rt) => if(is_struct_type(&rt), {
+              return(rt);
+            }),
+            .None => ()
+          );
+        });
       });
     },
     .None => ()
@@ -565,12 +563,12 @@ resolve_recursive_type_ref :: (fn(some_ty : &TypeValue, ctx : &EvalContext) -> O
   {
     for(&bucket.caches, cache => {
       if(_arg_vals_equal(&cache.arg_values, &rref.arg_values), {
-          match(
-            _resolved_type_of(&cache.value),
-            .Some(rt) => return(Option(TypeValue).Some(rt)),
-            .None => ()
-          );
-        });
+        match(
+          _resolved_type_of(&cache.value),
+          .Some(rt) => return(Option(TypeValue).Some(rt)),
+          .None => ()
+        );
+      });
     });
   };
   // Strategy 2: ctx.self_type when it is a struct/object.
@@ -585,10 +583,10 @@ resolve_recursive_type_ref :: (fn(some_ty : &TypeValue, ctx : &EvalContext) -> O
   {
     for(&bucket.caches, cache => {
       match(
-          _resolved_type_of(&cache.value),
-          .Some(rt) => return(Option(TypeValue).Some(rt)),
-          .None => ()
-        );
+        _resolved_type_of(&cache.value),
+        .Some(rt) => return(Option(TypeValue).Some(rt)),
+        .None => ()
+      );
     });
   };
   Option(TypeValue).None
@@ -1096,32 +1094,32 @@ evaluate_comptime_fn_call :: (
       .Some(entry) => {
         for(&entry.caches, cache => {
           if(cached_result.is_none(), {
-              if(cache.arg_values.len() == all_arg_vals.len(), {
-                (args_match : bool) = true;
-                (ami : usize) = usize(0);
-                n_av := all_arg_vals.len();
-                while((ami < n_av) && args_match, {
-                  match(
-                    cache.arg_values.get(ami),
-                    .Some(cached_av) => match(
-                      all_arg_vals.get(ami),
-                      .Some(given_av) => {
-                        args_match = _ctfe_args_equal(&cached_av, &given_av);
-                      },
-                      .None => {
-                        args_match = false;
-                      }
-                    ),
+            if(cache.arg_values.len() == all_arg_vals.len(), {
+              (args_match : bool) = true;
+              (ami : usize) = usize(0);
+              n_av := all_arg_vals.len();
+              while((ami < n_av) && args_match, {
+                match(
+                  cache.arg_values.get(ami),
+                  .Some(cached_av) => match(
+                    all_arg_vals.get(ami),
+                    .Some(given_av) => {
+                      args_match = _ctfe_args_equal(&cached_av, &given_av);
+                    },
                     .None => {
                       args_match = false;
                     }
-                  );
-                  ami = (ami + usize(1));
-                });
-                if(args_match, {
-                  cached_result = Option(EvalValue).Some(cache.value);
-                });
+                  ),
+                  .None => {
+                    args_match = false;
+                  }
+                );
+                ami = (ami + usize(1));
               });
+              if(args_match, {
+                cached_result = Option(EvalValue).Some(cache.value);
+              });
+            });
           });
         });
       },

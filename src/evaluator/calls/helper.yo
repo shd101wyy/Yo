@@ -527,24 +527,22 @@ _h_get_fn_call_args :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
 // ---------------------------------------------------------------------------
 // CheckParamResult — result of check_if_function_parameter_matches_argument
 // ---------------------------------------------------------------------------
-CheckParamResult :: (
-  struct(
-    callee_env : Environment,
-    caller_env : Environment,
-    arg_value : Option(EvalValue),
-    arg_type : TypeValue,
-    resolved_param_type : TypeValue,
-    /// Aliasing Stage 0: the synthesized `___drop(<dup temp>)` balancing this
-    /// argument's projection dup — the CALLER attaches it to the call node's
-    /// deferred drops (single post-call emission; scope-end machinery emits
-    /// on non-exclusive exits, see the marker's note in utils.yo).
-    s0_drop : Option(AstExpr),
-    /// Aliasing Stage 1: the evaluated argument expr that received the
-    /// Stage-0 dup — the caller UNMARKS it (removes the deferred dup and
-    /// discards `s0_drop`) when the callee specialization proves read-only
-    /// (evaluator/effects/mutation_summary.yo).
-    s0_marked_arg : Option(AstExpr)
-  )
+CheckParamResult :: struct(
+  callee_env : Environment,
+  caller_env : Environment,
+  arg_value : Option(EvalValue),
+  arg_type : TypeValue,
+  resolved_param_type : TypeValue,
+  /// Aliasing Stage 0: the synthesized `___drop(<dup temp>)` balancing this
+  /// argument's projection dup — the CALLER attaches it to the call node's
+  /// deferred drops (single post-call emission; scope-end machinery emits
+  /// on non-exclusive exits, see the marker's note in utils.yo).
+  s0_drop : Option(AstExpr),
+  /// Aliasing Stage 1: the evaluated argument expr that received the
+  /// Stage-0 dup — the caller UNMARKS it (removes the deferred dup and
+  /// discards `s0_drop`) when the callee specialization proves read-only
+  /// (evaluator/effects/mutation_summary.yo).
+  s0_marked_arg : Option(AstExpr)
 );
 // ---------------------------------------------------------------------------
 // check_if_function_parameter_matches_argument
@@ -2484,128 +2482,128 @@ _find_specialization_cache :: (
           (ci : usize) = usize(0);
           for(&entry.caches, cache => {
             if(result.is_none(), {
-                // Check compile-time arg values match
-                n_ct := cache.compile_time_arg_values.len();
-                n_cur_ct := compile_time_arg_values.len();
-                ct_match := (n_ct == n_cur_ct);
-                if(ct_match, {
-                  (cti : usize) = usize(0);
-                  while((cti < n_ct) && ct_match, {
-                    cached_v := match(cache.compile_time_arg_values.get(cti), .Some(v) => v, .None => EvalValue.UnitVal);
-                    current_v := match(compile_time_arg_values.get(cti), .Some(v) => v, .None => EvalValue.UnitVal);
-                    if(!eval_value_eq(&cached_v, &current_v), {
-                      ct_match = false;
-                    });
-                    cti = (cti + usize(1));
+              // Check compile-time arg values match
+              n_ct := cache.compile_time_arg_values.len();
+              n_cur_ct := compile_time_arg_values.len();
+              ct_match := (n_ct == n_cur_ct);
+              if(ct_match, {
+                (cti : usize) = usize(0);
+                while((cti < n_ct) && ct_match, {
+                  cached_v := match(cache.compile_time_arg_values.get(cti), .Some(v) => v, .None => EvalValue.UnitVal);
+                  current_v := match(compile_time_arg_values.get(cti), .Some(v) => v, .None => EvalValue.UnitVal);
+                  if(!eval_value_eq(&cached_v, &current_v), {
+                    ct_match = false;
                   });
+                  cti = (cti + usize(1));
                 });
-                if(ct_match, {
-                  if(debug_knob(`YO_DEBUG_CLFID`).is_some(), {
-                    eprintln(`[clf-hit] fid=${func_id} ci=${ci.to_string()} of ${n_caches.to_string()}`);
-                  });
-                  // Check runtime parameter types match (exact match)
-                  n_rt := cache.runtime_parameter_types.len();
-                  n_cur_rt := runtime_parameter_types.len();
-                  rt_match := (n_rt == n_cur_rt);
-                  if(rt_match, {
-                    (rti : usize) = usize(0);
-                    while((rti < n_rt) && rt_match, {
-                      cached_ty := match(cache.runtime_parameter_types.get_cloned(rti), .Some(t) => t, .None => t_unit());
-                      current_ty := match(runtime_parameter_types.get_cloned(rti), .Some(t) => t, .None => t_unit());
-                      // ABSTRACT-vs-CONCRETE never matches: the compat check
-                      // accepts an existential SomeT against a concrete type
-                      // (trait subsumption), which returned the def-era
-                      // TYPE-ERASED spec (param minted from the bare declared
-                      // SomeT → void*) to a caller whose arg RESOLVES to the
-                      // concrete capture struct — `(void*)(<struct value>)`,
-                      // the stage-2 dyn-capture cluster. Runtime param types
-                      // here are post-_spec_resolve_arg_ty, so requiring the
-                      // same SomeT-ness keeps def-era reuse (bare↔bare) and
-                      // concrete reuse (struct↔struct) intact.
-                      cached_is_some := is_some_type(&cached_ty);
-                      current_is_some := is_some_type(&current_ty);
-                      // A closure's CAPTURE STRUCT is its identity: two closures
-                      // capturing the same variables have structurally identical
-                      // (anonymous) capture structs that `are_types_compatible_exact`
-                      // cannot tell apart, so a forwarded closure param hit the
-                      // FIRST closure's specialization
-                      // (issues/fixed/forwarded-closure-param-shares-specialization.md).
-                      cap_ids_differ := match(
-                        &cached_ty,
-                        Rc(.Struct({ id : cap_cid })) => match(
-                          &current_ty,
-                          Rc(.Struct({ id : cap_nid })) => ((cap_cid.starts_with("capture_") || cap_nid.starts_with("capture_")) && (cap_cid != cap_nid)),
-                          _ => false
-                        ),
+              });
+              if(ct_match, {
+                if(debug_knob(`YO_DEBUG_CLFID`).is_some(), {
+                  eprintln(`[clf-hit] fid=${func_id} ci=${ci.to_string()} of ${n_caches.to_string()}`);
+                });
+                // Check runtime parameter types match (exact match)
+                n_rt := cache.runtime_parameter_types.len();
+                n_cur_rt := runtime_parameter_types.len();
+                rt_match := (n_rt == n_cur_rt);
+                if(rt_match, {
+                  (rti : usize) = usize(0);
+                  while((rti < n_rt) && rt_match, {
+                    cached_ty := match(cache.runtime_parameter_types.get_cloned(rti), .Some(t) => t, .None => t_unit());
+                    current_ty := match(runtime_parameter_types.get_cloned(rti), .Some(t) => t, .None => t_unit());
+                    // ABSTRACT-vs-CONCRETE never matches: the compat check
+                    // accepts an existential SomeT against a concrete type
+                    // (trait subsumption), which returned the def-era
+                    // TYPE-ERASED spec (param minted from the bare declared
+                    // SomeT → void*) to a caller whose arg RESOLVES to the
+                    // concrete capture struct — `(void*)(<struct value>)`,
+                    // the stage-2 dyn-capture cluster. Runtime param types
+                    // here are post-_spec_resolve_arg_ty, so requiring the
+                    // same SomeT-ness keeps def-era reuse (bare↔bare) and
+                    // concrete reuse (struct↔struct) intact.
+                    cached_is_some := is_some_type(&cached_ty);
+                    current_is_some := is_some_type(&current_ty);
+                    // A closure's CAPTURE STRUCT is its identity: two closures
+                    // capturing the same variables have structurally identical
+                    // (anonymous) capture structs that `are_types_compatible_exact`
+                    // cannot tell apart, so a forwarded closure param hit the
+                    // FIRST closure's specialization
+                    // (issues/fixed/forwarded-closure-param-shares-specialization.md).
+                    cap_ids_differ := match(
+                      &cached_ty,
+                      Rc(.Struct({ id : cap_cid })) => match(
+                        &current_ty,
+                        Rc(.Struct({ id : cap_nid })) => ((cap_cid.starts_with("capture_") || cap_nid.starts_with("capture_")) && (cap_cid != cap_nid)),
                         _ => false
-                      );
-                      // Two FUTURE WRAPPERS are one argument type only when
-                      // their resolution chains end in one future: two
-                      // producers' `Impl(Future(i32, Io))` results are
-                      // compat-equal by traits, but one may borrow (§3.13 A2)
-                      // and the other not. A combinator specialized for the
-                      // first-class one never registered its future as
-                      // borrowing the operand, so reusing that spec for a
-                      // borrowing operand skipped every check on the call's
-                      // future: a later argument could move or overwrite the
-                      // lent place (E0910), and the combinator's future could
-                      // be bound
-                      // (issues/fixed/2026-10-20-a-combinator-specialized-for-a-first-class-future-skips-the-borrow-checks-of-a-borrowing-one.md).
-                      fw_ends_differ := (
-                        cached_is_some && current_is_some &&
-                          extract_future_trait_from_type(&cached_ty).is_some() &&
-                            extract_future_trait_from_type(&current_ty).is_some() &&
-                              !(type_key(&resolution_chain_end(&cached_ty)) == type_key(&resolution_chain_end(&current_ty)))
-                      );
-                      if((cached_is_some && !current_is_some) || (!cached_is_some && current_is_some) || cap_ids_differ || fw_ends_differ, {
+                      ),
+                      _ => false
+                    );
+                    // Two FUTURE WRAPPERS are one argument type only when
+                    // their resolution chains end in one future: two
+                    // producers' `Impl(Future(i32, Io))` results are
+                    // compat-equal by traits, but one may borrow (§3.13 A2)
+                    // and the other not. A combinator specialized for the
+                    // first-class one never registered its future as
+                    // borrowing the operand, so reusing that spec for a
+                    // borrowing operand skipped every check on the call's
+                    // future: a later argument could move or overwrite the
+                    // lent place (E0910), and the combinator's future could
+                    // be bound
+                    // (issues/fixed/2026-10-20-a-combinator-specialized-for-a-first-class-future-skips-the-borrow-checks-of-a-borrowing-one.md).
+                    fw_ends_differ := (
+                      cached_is_some && current_is_some &&
+                        extract_future_trait_from_type(&cached_ty).is_some() &&
+                          extract_future_trait_from_type(&current_ty).is_some() &&
+                            !(type_key(&resolution_chain_end(&cached_ty)) == type_key(&resolution_chain_end(&current_ty)))
+                    );
+                    if((cached_is_some && !current_is_some) || (!cached_is_some && current_is_some) || cap_ids_differ || fw_ends_differ, {
+                      rt_match = false;
+                    }, {
+                      if(!are_types_compatible_exact(&cached_ty, &current_ty), {
                         rt_match = false;
                       }, {
-                        if(!are_types_compatible_exact(&cached_ty, &current_ty), {
-                          rt_match = false;
-                        }, {
-                          // A nominal instantiation whose type_arguments carry a
-                          // SomeT (`IterFilter(CountIter, F)` — the per-call
-                          // closure-`F` family) compares compat-EQUAL across
-                          // calls: the shared def-era `F` matches by id while the
-                          // per-call resolution lives in its resolution chain. codegen's
-                          // type_key resolves that chain (`_tk_resolve_arg_slot`),
-                          // so two receivers with different capture structs get
-                          // DIFFERENT C types — sharing one spec across them
-                          // passes `__yo_t14*` to a `__yo_t2*` param (2 clang
-                          // diagnostics on native, hard errors on emcc 6: the
-                          // iter_filter_closure wasm-leg break; only the blanket
-                          // `next` collapsed — `filter` itself is protected by
-                          // the clfid cache-key extras, which cover closure
-                          // ARGUMENTS but not closures buried in a receiver's
-                          // type arguments).
-                          // Require type_key equality — the exact identity the
-                          // emitted C is keyed by — before reusing the spec.
-                          //
-                          // The same holds for any instantiation with type
-                          // arguments: substitution keeps an instance's
-                          // def-era struct id, and `are_types_compatible_exact`
-                          // judges two instances of one id equal without
-                          // their arguments, so `StreamMap(StreamMap(…), …)`
-                          // reused the spec built for `StreamMap(Channel, …)`
-                          // and a third `map` in a chain returned the second's
-                          // type (issues/fixed/a-stream-combinator-used-twice-in-one-chain-emits-two-c-types.md).
-                          ck_tyargs := ArrayList(TypeValue).new();
-                          _collect_type_arg_somes(&cached_ty, &mut ck_tyargs, ArrayList(String).new());
-                          ck_has_args := match(&cached_ty, Rc(.Struct({ type_arguments : ck_tas })) => (ck_tas.len() > usize(0)), _ => false);
-                          if((ck_tyargs.len() > usize(0)) || ck_has_args, {
-                            if(!(type_key(&cached_ty) == type_key(&current_ty)), {
-                              rt_match = false;
-                            });
+                        // A nominal instantiation whose type_arguments carry a
+                        // SomeT (`IterFilter(CountIter, F)` — the per-call
+                        // closure-`F` family) compares compat-EQUAL across
+                        // calls: the shared def-era `F` matches by id while the
+                        // per-call resolution lives in its resolution chain. codegen's
+                        // type_key resolves that chain (`_tk_resolve_arg_slot`),
+                        // so two receivers with different capture structs get
+                        // DIFFERENT C types — sharing one spec across them
+                        // passes `__yo_t14*` to a `__yo_t2*` param (2 clang
+                        // diagnostics on native, hard errors on emcc 6: the
+                        // iter_filter_closure wasm-leg break; only the blanket
+                        // `next` collapsed — `filter` itself is protected by
+                        // the clfid cache-key extras, which cover closure
+                        // ARGUMENTS but not closures buried in a receiver's
+                        // type arguments).
+                        // Require type_key equality — the exact identity the
+                        // emitted C is keyed by — before reusing the spec.
+                        //
+                        // The same holds for any instantiation with type
+                        // arguments: substitution keeps an instance's
+                        // def-era struct id, and `are_types_compatible_exact`
+                        // judges two instances of one id equal without
+                        // their arguments, so `StreamMap(StreamMap(…), …)`
+                        // reused the spec built for `StreamMap(Channel, …)`
+                        // and a third `map` in a chain returned the second's
+                        // type (issues/fixed/a-stream-combinator-used-twice-in-one-chain-emits-two-c-types.md).
+                        ck_tyargs := ArrayList(TypeValue).new();
+                        _collect_type_arg_somes(&cached_ty, &mut ck_tyargs, ArrayList(String).new());
+                        ck_has_args := match(&cached_ty, Rc(.Struct({ type_arguments : ck_tas })) => (ck_tas.len() > usize(0)), _ => false);
+                        if((ck_tyargs.len() > usize(0)) || ck_has_args, {
+                          if(!(type_key(&cached_ty) == type_key(&current_ty)), {
+                            rt_match = false;
                           });
                         });
                       });
-                      rti = (rti + usize(1));
                     });
-                  });
-                  if(rt_match, {
-                    result = Option(EvalValue).Some(cache.specialized_func_value);
+                    rti = (rti + usize(1));
                   });
                 });
+                if(rt_match, {
+                  result = Option(EvalValue).Some(cache.specialized_func_value);
+                });
+              });
             });
             ci = (ci + usize(1));
           });
@@ -2759,12 +2757,12 @@ specialization_capture_value_count :: (fn() -> usize)({
       .Some(entry) => {
         for(&entry.caches, c => {
           match(
-              c.specialized_func_value,
-              .FuncVal(_, __scv) => {
-                n = (n + __scv.len());
-              },
-              _ => ()
-            );
+            c.specialized_func_value,
+            .FuncVal(_, __scv) => {
+              n = (n + __scv.len());
+            },
+            _ => ()
+          );
         });
       },
       .None => ()
@@ -2785,12 +2783,12 @@ specialization_flat_capture_count :: (fn() -> usize)({
       .Some(entry) => {
         for(&entry.caches, c => {
           match(
-              c.specialized_func_value,
-              .FuncVal(__sfd, _) => {
-                n = (n + __sfd.*.cap_names.len());
-              },
-              _ => ()
-            );
+            c.specialized_func_value,
+            .FuncVal(__sfd, _) => {
+              n = (n + __sfd.*.cap_names.len());
+            },
+            _ => ()
+          );
         });
       },
       .None => ()

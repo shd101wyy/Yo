@@ -241,13 +241,11 @@ impl(ImplConcreteTypeInfo, Clone(clone : (fn(self : &Self) -> Self)(self)));
 ///
 /// Holds no `env` (callerEnv is used at lookup time) and no `body`
 /// (ExprInfoTable makes AST re-evaluation safe).
-CalledComptimeFnCache :: (
-  struct(
-    func_id : String,
-    arg_values : ArrayList(EvalValue),
-    /// `UnknownVal(ty)` for an in-progress recursive call; actual return value when done.
-    value : EvalValue
-  )
+CalledComptimeFnCache :: struct(
+  func_id : String,
+  arg_values : ArrayList(EvalValue),
+  /// `UnknownVal(ty)` for an in-progress recursive call; actual return value when done.
+  value : EvalValue
 );
 /// Per-function CTFE cache bucket, keyed by `func_id`.
 ///
@@ -268,25 +266,23 @@ impl(ComptimeFnCacheEntry, Clone(clone : (fn(self : &Self) -> Self)(self)));
 /// Stored in the module-global `g_specialized_fn_caches` (calls/helper.yo,
 /// keyed by `func_id`) rather than on `FuncVal`, to avoid updating ~24
 /// pattern-match sites; the cache lives for the whole process.
-SpecializedFunctionCache :: (
-  struct(
-    /// The compile-time argument values (generic + implicit + comptime params)
-    /// used to create this specialization.
-    compile_time_arg_values : ArrayList(EvalValue),
-    /// The concrete runtime parameter types that distinguish this specialization
-    /// from others with the same compile-time args.
-    runtime_parameter_types : ArrayList(TypeValue),
-    /// The specialized function value (EvalValue.FuncVal with updated func_id).
-    /// (A retained `env : Environment` field used to sit here; it was never
-    /// read back — plans/EVALUATOR_MEMORY_REDUCTION.md F2a.)
-    specialized_func_value : EvalValue,
-    /// The loading key of the module whose evaluation requested this
-    /// specialization (`registration_owner()`, `""` outside any module load).
-    /// `purge_specialization_caches_owned_by` drops the entry when that
-    /// module is invalidated: its types are re-minted by the re-evaluation,
-    /// so the entry could only ever be a stale duplicate.
-    owner : String
-  )
+SpecializedFunctionCache :: struct(
+  /// The compile-time argument values (generic + implicit + comptime params)
+  /// used to create this specialization.
+  compile_time_arg_values : ArrayList(EvalValue),
+  /// The concrete runtime parameter types that distinguish this specialization
+  /// from others with the same compile-time args.
+  runtime_parameter_types : ArrayList(TypeValue),
+  /// The specialized function value (EvalValue.FuncVal with updated func_id).
+  /// (A retained `env : Environment` field used to sit here; it was never
+  /// read back — plans/EVALUATOR_MEMORY_REDUCTION.md F2a.)
+  specialized_func_value : EvalValue,
+  /// The loading key of the module whose evaluation requested this
+  /// specialization (`registration_owner()`, `""` outside any module load).
+  /// `purge_specialization_caches_owned_by` drops the entry when that
+  /// module is invalidated: its types are re-minted by the re-evaluation,
+  /// so the entry could only ever be a stale duplicate.
+  owner : String
 );
 /// Per-function bucket of specialization caches, keyed by `func_id`.
 SpecializedFunctionCacheEntry :: ref(
@@ -551,114 +547,94 @@ impl(ArgValues, Clone(clone : (fn(self : &Self) -> Self)(self)));
 // ---------------------------------------------------------------------------
 // FunctionCallResult
 // ---------------------------------------------------------------------------
-FuncCallResult :: (
-  struct(
-    callee_env : Environment,
-    caller_env : Environment,
-    path_collection : PathCollection,
-    return_type : TypeValue,
-    return_value : Option(EvalValue),
-    arg_values : ArgValues,
-    runtime_arg_exprs_in_order : ArrayList(AstExpr),
-    /// The specialized FuncVal, if the function had compile-time parameters.
-    specialized_function_value : Option(EvalValue),
-    /// Drop expressions for RC cleanup of temporary function arguments.
-    deferred_drop_expressions : Option(ArrayList(AstExpr))
-  )
+FuncCallResult :: struct(
+  callee_env : Environment,
+  caller_env : Environment,
+  path_collection : PathCollection,
+  return_type : TypeValue,
+  return_value : Option(EvalValue),
+  arg_values : ArgValues,
+  runtime_arg_exprs_in_order : ArrayList(AstExpr),
+  /// The specialized FuncVal, if the function had compile-time parameters.
+  specialized_function_value : Option(EvalValue),
+  /// Drop expressions for RC cleanup of temporary function arguments.
+  deferred_drop_expressions : Option(ArrayList(AstExpr))
 );
 derive(FuncCallResult, Clone);
 // ---------------------------------------------------------------------------
 // ComptimeFnCallResult
 // ---------------------------------------------------------------------------
 /// Result from `evaluate_comptime_fn_call`.
-ComptimeFnCallResult :: (
-  struct(
-    value : EvalValue,
-    caller_env : Environment,
-    callee_env : Environment,
-    /// ComptimeRef from the evaluated function body, so callers (e.g. the
-    /// ComptimeIndex dispatch) can treat the result as a comptime place.
-    comptime_ref : Option(ComptimeRef)
-  )
+ComptimeFnCallResult :: struct(
+  value : EvalValue,
+  caller_env : Environment,
+  callee_env : Environment,
+  /// ComptimeRef from the evaluated function body, so callers (e.g. the
+  /// ComptimeIndex dispatch) can treat the result as a comptime place.
+  comptime_ref : Option(ComptimeRef)
 );
 // ---------------------------------------------------------------------------
 // TypeCallResult
 // ---------------------------------------------------------------------------
-TypeCallResult :: (
-  struct(
-    values : ArrayList(Option(EvalValue)),
-    path_collection : PathCollection,
-    runtime_arg_exprs_in_order : ArrayList(AstExpr),
-    /// Each field's argument type as checked (`.None` for a field filled by
-    /// its default): the struct arm instantiates the constructed type over
-    /// the closure identities passed to `Impl(Fn)`-typed fields.
-    arg_types : ArrayList(Option(TypeValue)),
-    caller_env : Environment
-  )
+TypeCallResult :: struct(
+  values : ArrayList(Option(EvalValue)),
+  path_collection : PathCollection,
+  runtime_arg_exprs_in_order : ArrayList(AstExpr),
+  /// Each field's argument type as checked (`.None` for a field filled by
+  /// its default): the struct arm instantiates the constructed type over
+  /// the closure identities passed to `Impl(Fn)`-typed fields.
+  arg_types : ArrayList(Option(TypeValue)),
+  caller_env : Environment
 );
 derive(TypeCallResult, Clone);
 // ---------------------------------------------------------------------------
 // Module / trait / macro / numeric / pointer / index call results
 // ---------------------------------------------------------------------------
-ModuleTypeCallResult :: (
-  struct(
-    module_value : EvalValue,
-    caller_env : Environment
-  )
+ModuleTypeCallResult :: struct(
+  module_value : EvalValue,
+  caller_env : Environment
 );
 derive(ModuleTypeCallResult, Clone);
-TraitTypeCallResult :: (
-  struct(
-    trait_value : EvalValue,
-    caller_env : Environment
-  )
+TraitTypeCallResult :: struct(
+  trait_value : EvalValue,
+  caller_env : Environment
 );
 derive(TraitTypeCallResult, Clone);
-TraitSpecializationResult :: (
-  struct(
-    specialized_trait_type : TypeValue,
-    caller_env : Environment
-  )
+TraitSpecializationResult :: struct(
+  specialized_trait_type : TypeValue,
+  caller_env : Environment
 );
-MacroFuncCallResult :: (
-  struct(
-    callee_env : Environment,
-    caller_env : Environment,
-    return_expr : AstExpr
-  )
+MacroFuncCallResult :: struct(
+  callee_env : Environment,
+  caller_env : Environment,
+  return_expr : AstExpr
 );
-NumericTypeCallResult :: (
-  struct(
-    expr : AstExpr,
-    env : Environment
-  )
+NumericTypeCallResult :: struct(
+  expr : AstExpr,
+  env : Environment
 );
-PointerTypeCallResult :: (
-  struct(
-    expr : AstExpr,
-    env : Environment
-  )
+PointerTypeCallResult :: struct(
+  expr : AstExpr,
+  env : Environment
 );
 derive(PointerTypeCallResult, Clone);
-IndexCallResult :: (
-  struct(
-    /// Auto-dereferenced value (Output type, not *(Output)).
-    value : Option(EvalValue),
-    /// Auto-dereferenced type (Output).
-    ty : TypeValue,
-    /// Pointer type before auto-deref: *(Output).
-    ptr_type : TypeValue,
-    /// Specialised function type of the index method.
-    index_method_type : Option(TypeValue),
-    /// Specialised function value of the index method.
-    index_method_value : Option(EvalValue),
-    caller_env : Environment,
-    /// Compile-time index, if known (for array element assignment).
-    index : Option(usize),
-    /// Compile-time element/field reference produced by a ComptimeIndex
-    /// dispatch, enabling `p(0) = v` and `&(p(0))` at compile time.
-    comptime_ref : Option(ComptimeRef)
-  )
+IndexCallResult :: struct(
+  /// Auto-dereferenced value (Output type, not *(Output)).
+  value : Option(EvalValue),
+  /// Auto-dereferenced type (Output).
+  ty : TypeValue,
+  /// Pointer type before auto-deref: *(Output).
+  ptr_type : TypeValue,
+  /// Specialised function type of the index method.
+  index_method_type : Option(TypeValue),
+  /// Specialised function value of the index method.
+  index_method_value : Option(EvalValue),
+  caller_env : Environment,
+  /// Compile-time index, if known (for array element assignment).
+  index : Option(usize),
+  /// Compile-time element/field reference produced by a ComptimeIndex
+  /// dispatch, enabling `p(0) = v` and `&(p(0))` at compile time.
+  comptime_ref : Option(ComptimeRef)
 );
 derive(IndexCallResult, Clone);
 // ---------------------------------------------------------------------------
@@ -691,13 +667,11 @@ CallResultKind :: enum(
   /// An error occurred during call dispatch.
   ErrorResult(message : String)
 );
-FunctionToCall :: (
-  struct(
-    ty : TypeValue,
-    args : Option(ArrayList(AstExpr)),
-    value : Option(EvalValue),
-    result : CallResultKind
-  )
+FunctionToCall :: struct(
+  ty : TypeValue,
+  args : Option(ArrayList(AstExpr)),
+  value : Option(EvalValue),
+  result : CallResultKind
 );
 // ---------------------------------------------------------------------------
 // Convenience extractors

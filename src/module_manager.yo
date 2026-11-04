@@ -1612,15 +1612,13 @@ mm_revalidate_plan :: (fn(fs_path : &String) -> Option(RevalPlan))({
   )
 });
 /// Result of applying a plan.
-RevalOutcome :: (
-  struct(
-    applied : bool,
-    failures : ArrayList(String),
-    /// Modules found unpatchable DURING apply (aliased exports) — the caller
-    /// drops these at file level too, after the fact.
-    fallback_modules : ArrayList(String),
-    revalidated : usize
-  )
+RevalOutcome :: struct(
+  applied : bool,
+  failures : ArrayList(String),
+  /// Modules found unpatchable DURING apply (aliased exports) — the caller
+  /// drops these at file level too, after the fact.
+  fallback_modules : ArrayList(String),
+  revalidated : usize
 );
 /// Apply the plan: reset + graft + re-force the changed defs and their
 /// dependents in dependency order, patch the cached module slots in place.

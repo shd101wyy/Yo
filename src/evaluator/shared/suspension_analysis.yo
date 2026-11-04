@@ -56,35 +56,33 @@ pragma(Pragma.AllowUnsafe);
 ///
 /// Design note: `Impl(Fn)` is rejected in object/struct/enum fields in Yo;
 /// `Dyn(Fn)` is the correct approach. Construct with `dyn(closure_expr)`.
-SuspensionPointDetector :: (
-  struct(
-    /// Detect suspension point(s) in a FnCall expression and RETURN them; the
-    /// walk appends them to its `points`. (Returned rather than pushed into a
-    /// `points` argument: a callback writing a list it was handed by value
-    /// writes its own copy once collections are values.)
-    /// The detector is responsible for constructing the full SuspensionPoint including
-    /// system-specific fields. Use `extract_target_variable_id` for the common
-    /// parent `:=` assignment pattern.
-    ///
-    /// Typed side-channel lists (e.g. ArrayList(AwaitPoint)) are typically maintained
-    /// inside this closure by the caller; see the Phase 2m/2n implementation notes.
-    detect : Dyn(
-      Fn(
-        expr : &AstExpr,
-        parent_expr : &Option(AstExpr)
-      ) -> ArrayList(SuspensionPoint)
-    ),
-    /// Return true if this FnCall expression's body should be skipped
-    /// (no recursion into func/args). Used for nested async blocks that
-    /// have their own analysis. Deferred dup expressions are still walked.
-    should_skip_body : Dyn(Fn(expr : &AstExpr) -> bool),
-    /// Walk EVERY macro call through its expansion, not only `if`: the async
-    /// lowering generates the expansion, so an await that only a user macro
-    /// contains is a suspension point like any other
-    /// (issues/fixed/io-await-inside-a-macro-expansion-is-emitted-as-a-blocking-await.md).
-    /// The effect lowering splits only `if`, and keeps the old rule.
-    follow_macro_expansions : bool
-  )
+SuspensionPointDetector :: struct(
+  /// Detect suspension point(s) in a FnCall expression and RETURN them; the
+  /// walk appends them to its `points`. (Returned rather than pushed into a
+  /// `points` argument: a callback writing a list it was handed by value
+  /// writes its own copy once collections are values.)
+  /// The detector is responsible for constructing the full SuspensionPoint including
+  /// system-specific fields. Use `extract_target_variable_id` for the common
+  /// parent `:=` assignment pattern.
+  ///
+  /// Typed side-channel lists (e.g. ArrayList(AwaitPoint)) are typically maintained
+  /// inside this closure by the caller; see the Phase 2m/2n implementation notes.
+  detect : Dyn(
+    Fn(
+      expr : &AstExpr,
+      parent_expr : &Option(AstExpr)
+    ) -> ArrayList(SuspensionPoint)
+  ),
+  /// Return true if this FnCall expression's body should be skipped
+  /// (no recursion into func/args). Used for nested async blocks that
+  /// have their own analysis. Deferred dup expressions are still walked.
+  should_skip_body : Dyn(Fn(expr : &AstExpr) -> bool),
+  /// Walk EVERY macro call through its expansion, not only `if`: the async
+  /// lowering generates the expansion, so an await that only a user macro
+  /// contains is a suspension point like any other
+  /// (issues/fixed/io-await-inside-a-macro-expansion-is-emitted-as-a-blocking-await.md).
+  /// The effect lowering splits only `if`, and keeps the old rule.
+  follow_macro_expansions : bool
 );
 // ---------------------------------------------------------------------------
 // extract_target_variable_id

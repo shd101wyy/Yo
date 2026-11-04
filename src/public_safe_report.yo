@@ -25,52 +25,44 @@ fs_walker :: import("std/fs/walker");
 { Exception, IoExn } :: import("std/error");
 { cwd : env_cwd } :: import("std/env");
 { is_class1_panic_method_name } :: import("./evaluator/memory_safety.yo");
-PublicSafeFinding :: (
-  struct(
-    file : String,
-    /// 1-based.
-    line : usize,
-    /// 1-based, of the `*(`.
-    column : usize,
-    /// The exported / public top-level identifier this signature belongs to.
-    decl_name : String,
-    /// "parameter" or "return" — which slot exposes the pointer.
-    slot : String,
-    /// The raw pointer type as it appears, e.g. `*(u8)`.
-    pointer_type : String,
-    /// The surrounding signature text, whitespace-collapsed and trimmed.
-    snippet : String
-  )
+PublicSafeFinding :: struct(
+  file : String,
+  /// 1-based.
+  line : usize,
+  /// 1-based, of the `*(`.
+  column : usize,
+  /// The exported / public top-level identifier this signature belongs to.
+  decl_name : String,
+  /// "parameter" or "return" — which slot exposes the pointer.
+  slot : String,
+  /// The raw pointer type as it appears, e.g. `*(u8)`.
+  pointer_type : String,
+  /// The surrounding signature text, whitespace-collapsed and trimmed.
+  snippet : String
 );
 /// An `Option`/`Result` method whose body reaches `__yo_panic`.
-Class1Extraction :: (
-  struct(
-    file : String,
-    /// 1-based line of the method's signature.
-    line : usize,
-    /// `Option` or `Result`.
-    receiver : String,
-    method : String,
-    /// `gated`: the class-1 ban rejects the call in safe files.
-    /// `comptime`: a `comptime(self)` method, so the panic is a compile error.
-    /// `UNGATED`: it traps at runtime and the ban does not know its name.
-    status : String
-  )
+Class1Extraction :: struct(
+  file : String,
+  /// 1-based line of the method's signature.
+  line : usize,
+  /// `Option` or `Result`.
+  receiver : String,
+  method : String,
+  /// `gated`: the class-1 ban rejects the call in safe files.
+  /// `comptime`: a `comptime(self)` method, so the panic is a compile error.
+  /// `UNGATED`: it traps at runtime and the ban does not know its name.
+  status : String
 );
-PublicSafeTotals :: (
-  struct(
-    files_scanned : usize,
-    public_decls_scanned : usize,
-    findings : usize,
-    class1_ungated : usize
-  )
+PublicSafeTotals :: struct(
+  files_scanned : usize,
+  public_decls_scanned : usize,
+  findings : usize,
+  class1_ungated : usize
 );
-PublicSafeReport :: (
-  struct(
-    findings : ArrayList(PublicSafeFinding),
-    class1 : ArrayList(Class1Extraction),
-    totals : PublicSafeTotals
-  )
+PublicSafeReport :: struct(
+  findings : ArrayList(PublicSafeFinding),
+  class1 : ArrayList(Class1Extraction),
+  totals : PublicSafeTotals
 );
 /// Byte span [s, e) — named because two anonymous `struct(...)` mentions do
 /// not unify as the same type.
@@ -91,15 +83,13 @@ _LineCol :: struct(
 );
 derive(_LineCol, Copy, Clone);
 /// One extracted top-level `name :: (fn(...) -> R)` declaration.
-_FnDecl :: (
-  struct(
-    name : String,
-    param_text : String,
-    return_text : String,
-    /// Absolute byte offset in the file where the parameter text begins
-    /// (right after the `fn(`), for line/column mapping.
-    params_start : usize
-  )
+_FnDecl :: struct(
+  name : String,
+  param_text : String,
+  return_text : String,
+  /// Absolute byte offset in the file where the parameter text begins
+  /// (right after the `fn(`), for line/column mapping.
+  params_start : usize
 );
 _psr_is_ident_byte :: (fn(b : u8) -> bool)(
   ((b >= u8(97)) && (b <= u8(122))) || ((b >= u8(65)) && (b <= u8(90))) || ((b >= u8(48)) && (b <= u8(57))) || (b == u8(95))

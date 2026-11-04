@@ -24,53 +24,45 @@ fs_walker :: import("std/fs/walker");
 /// Sub-classification for `unsafe(...)` sites: "extern-call", "deref",
 /// "arith", "addr-of", or "other". Plain `String` here so the JSON
 /// serialization is literal.
-UnsafeFinding :: (
-  struct(
-    file : String,
-    /// 1-based.
-    line : usize,
-    /// 1-based.
-    column : usize,
-    /// "unsafe" | "asm" | "extern" | "pragma".
-    kind : String,
-    /// Only set for kind == "unsafe".
-    sub_kind : Option(String),
-    /// Only set for sub_kind == "extern-call".
-    callee_name : Option(String),
-    /// The full source line where the match occurred, trimmed.
-    snippet : String,
-    /// Closest preceding `// SAFETY:` comment within the scan-back window.
-    safety_comment : Option(String)
-  )
+UnsafeFinding :: struct(
+  file : String,
+  /// 1-based.
+  line : usize,
+  /// 1-based.
+  column : usize,
+  /// "unsafe" | "asm" | "extern" | "pragma".
+  kind : String,
+  /// Only set for kind == "unsafe".
+  sub_kind : Option(String),
+  /// Only set for sub_kind == "extern-call".
+  callee_name : Option(String),
+  /// The full source line where the match occurred, trimmed.
+  snippet : String,
+  /// Closest preceding `// SAFETY:` comment within the scan-back window.
+  safety_comment : Option(String)
 );
-UnsafeTotals :: (
-  struct(
-    files_scanned : usize,
-    privileged : usize,
-    unsafe_sites : usize,
-    unsafe_extern_call : usize,
-    unsafe_deref : usize,
-    unsafe_arith : usize,
-    unsafe_addr_of : usize,
-    unsafe_other : usize,
-    asm_sites : usize,
-    extern_sites : usize
-  )
+UnsafeTotals :: struct(
+  files_scanned : usize,
+  privileged : usize,
+  unsafe_sites : usize,
+  unsafe_extern_call : usize,
+  unsafe_deref : usize,
+  unsafe_arith : usize,
+  unsafe_addr_of : usize,
+  unsafe_other : usize,
+  asm_sites : usize,
+  extern_sites : usize
 );
-ExternCallee :: (
-  struct(
-    callee : String,
-    count : usize
-  )
+ExternCallee :: struct(
+  callee : String,
+  count : usize
 );
-UnsafeReport :: (
-  struct(
-    privileged_files : ArrayList(String),
-    findings : ArrayList(UnsafeFinding),
-    totals : UnsafeTotals,
-    /// Top extern callees by call-site count, descending.
-    top_extern_callees : ArrayList(ExternCallee)
-  )
+UnsafeReport :: struct(
+  privileged_files : ArrayList(String),
+  findings : ArrayList(UnsafeFinding),
+  totals : UnsafeTotals,
+  /// Top extern callees by call-site count, descending.
+  top_extern_callees : ArrayList(ExternCallee)
 );
 _is_ident_byte :: (fn(b : u8) -> bool)(
   ((b >= u8(97)) && (b <= u8(122))) || ((b >= u8(65)) && (b <= u8(90))) || ((b >= u8(48)) && (b <= u8(57))) || (b == u8(95))
