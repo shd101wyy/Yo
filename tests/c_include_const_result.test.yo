@@ -11,17 +11,17 @@ pragma(Pragma.AllowUnsafe);
 c_include(
   "\"c_include_const_result.h\"",
   yo_test_const_name :
-    (fn(which : i32) -> *(char)),
+    (fn(which : i32) -> *char),
   yo_test_const_bytes :
-    (fn() -> *(u8)),
+    (fn() -> *u8),
   yo_test_const_len :
-    (fn(s : *(char)) -> usize),
+    (fn(s : *char) -> usize),
   yo_test_const_first :
-    (fn(b : *(u8)) -> i32),
+    (fn(b : *u8) -> i32),
   yo_test_const_maybe :
-    (fn(which : i32) -> ?*(char))
+    (fn(which : i32) -> ?*char)
 );
-_ccr_name :: (fn(which : i32) -> *(char))(unsafe(yo_test_const_name(which)));
+_ccr_name :: (fn(which : i32) -> *char)(unsafe(yo_test_const_name(which)));
 test("a const char* result binds to a local", {
   p := unsafe(yo_test_const_name(i32(1)));
   assert(unsafe(yo_test_const_len(p)) == usize(12), "the local holds the C string");
