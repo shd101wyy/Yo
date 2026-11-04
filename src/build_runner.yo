@@ -190,7 +190,7 @@ ExecutionContext :: ref(
 /// for any reason (not a repo, no git, non-zero exit, empty output) — the
 /// version is decoration on the "Building …"
 /// line, never a reason to fail a build.
-_git_output_task :: (fn(cmd : &Command, io : Io) -> Impl(Future(Output, IoExn)))(
+_git_output_task :: (fn(sink(cmd) : Command, io : Io) -> Impl(Future(Output, IoExn)))(
   io.async((e : IoExn) => {
     // Local swallow handler: a missing git / spawn failure must unwind THIS
     // task (read as `.None` at the JoinHandle below), never reach the
@@ -233,7 +233,7 @@ _git_version :: (
     cmd = cmd.arg(String.from("describe"));
     cmd = cmd.arg(String.from("--tags"));
     cmd = cmd.arg(String.from("--always"));
-    t := e.io.spawn(_git_output_task(&cmd, e.io), e);
+    t := e.io.spawn(_git_output_task(cmd, e.io), e);
     out_opt := e.io.await(t.join(e.io), e.io);
     out := match(out_opt, .Some(o) => o, .None => return(Option(String).None));
     if(!out.status.success(), return(Option(String).None));

@@ -11050,7 +11050,7 @@ run_test :: (
           // --test-name-pattern match against the quote characters.
           tname := match(extract_test_name(&e), .Some(n) => n, .None => String.from("unnamed_test"));
           tbody := match(extract_test_body(&e), .Some(b) => b, .None => make_err_expr());
-          keep := match(name_regex, .Some(nre) => nre.is_match(tname.clone()), .None => true);
+          keep := match(&name_regex, .Some(nre) => nre.is_match(tname.clone()), .None => true);
           if(keep, {
             tests.push(TestDecl(name : tname, body_src : ast_expr_to_string(&tbody)));
           });
