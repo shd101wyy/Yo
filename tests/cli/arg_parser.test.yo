@@ -95,10 +95,11 @@ test("ArgParser simple subcommand", {
   sub := parsed.get_subcommand();
   assert(sub.is_some(), "subcommand should be set");
   assert(sub.clone().unwrap() == `commit`, "subcommand should be commit");
-  sub_args_opt := parsed.get_subcommand_args();
-  assert(sub_args_opt.is_some(), "should have subcommand args");
-  sub_args := sub_args_opt.unwrap();
-  assert(sub_args.get_flag(`--amend`), "amend flag should be set");
+  match(
+    parsed.get_subcommand_args(),
+    .Some(sub_args) => assert(sub_args.get_flag(`--amend`), "amend flag should be set"),
+    .None => assert(false, "should have subcommand args")
+  );
 });
 test("ArgParser subcommand with option", {
   mut(parser) := ArgParser.new(`tool`, `Tool`);
@@ -116,10 +117,15 @@ test("ArgParser subcommand with option", {
   sub := parsed.get_subcommand();
   assert(sub.is_some(), "should have subcommand");
   assert(sub.clone().unwrap() == `build`, "subcommand should be build");
-  sub_args := parsed.get_subcommand_args().unwrap();
-  target := sub_args.get_option(`--target`);
-  assert(target.is_some(), "target should be set");
-  assert(target.unwrap() == `release`, "target should be release");
+  match(
+    parsed.get_subcommand_args(),
+    .Some(sub_args) => {
+      target := sub_args.get_option(`--target`);
+      assert(target.is_some(), "target should be set");
+      assert(target.unwrap() == `release`, "target should be release");
+    },
+    .None => assert(false, "should have subcommand args")
+  );
 });
 test("ArgParser subcommand default option", {
   mut(parser) := ArgParser.new(`tool`, `Tool`);
@@ -132,10 +138,15 @@ test("ArgParser subcommand default option", {
   result := parser.parse(&args);
   assert(result.is_ok(), "should parse with sub default");
   parsed := result.unwrap();
-  sub_args := parsed.get_subcommand_args().unwrap();
-  target := sub_args.get_option(`--target`);
-  assert(target.is_some(), "should have default");
-  assert(target.unwrap() == `debug`, "target default should be debug");
+  match(
+    parsed.get_subcommand_args(),
+    .Some(sub_args) => {
+      target := sub_args.get_option(`--target`);
+      assert(target.is_some(), "should have default");
+      assert(target.unwrap() == `debug`, "target default should be debug");
+    },
+    .None => assert(false, "should have subcommand args")
+  );
 });
 test("ArgParser nested subcommand", {
   mut(parser) := ArgParser.new(`docker`, `Docker CLI`);
@@ -154,11 +165,19 @@ test("ArgParser nested subcommand", {
   parsed := result.unwrap();
   sub1 := parsed.get_subcommand().clone().unwrap();
   assert(sub1 == `container`, "first level should be container");
-  inner := parsed.get_subcommand_args().unwrap();
-  sub2 := inner.get_subcommand().clone().unwrap();
-  assert(sub2 == `ls`, "second level should be ls");
-  inner2 := inner.get_subcommand_args().unwrap();
-  assert(inner2.get_flag(`--all`), "all flag should be set");
+  match(
+    parsed.get_subcommand_args(),
+    .Some(inner) => {
+      sub2 := inner.get_subcommand().clone().unwrap();
+      assert(sub2 == `ls`, "second level should be ls");
+      match(
+        inner.get_subcommand_args(),
+        .Some(inner2) => assert(inner2.get_flag(`--all`), "all flag should be set"),
+        .None => assert(false, "should have nested subcommand args")
+      );
+    },
+    .None => assert(false, "should have subcommand args")
+  );
 });
 test("ArgParser no subcommand chosen", {
   mut(parser) := ArgParser.new(`tool`, `Tool`);

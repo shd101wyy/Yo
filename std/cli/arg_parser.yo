@@ -84,9 +84,6 @@ ParsedArgs :: struct(
   /// boxed: a `ParsedArgs` cannot hold another by value.
   _subcommand_args : Option(Box(Self))
 );
-// `get_subcommand_args` returns a copy until an `Option(&ParsedArgs)`
-// payload is usable (see that method).
-derive(ParsedArgs, Clone);
 /// Command-line argument parser.
 ArgParser :: struct(
   /// Application name shown in help text.
@@ -126,14 +123,12 @@ impl(
   ),
   /// Returns the name of the chosen subcommand, if any.
   get_subcommand : (fn(self : &Self) -> &Option(String))(&self._subcommand),
-  /// Returns a copy of the parsed arguments of the chosen subcommand, if
-  /// any. Interim: VERDICTS-20 §3 lends them (`Option(&ParsedArgs)`), which
-  /// waits for
-  /// issues/2026-11-05-an-option-of-a-reference-cannot-reach-its-payloads-methods.md.
-  get_subcommand_args : (fn(self : &Self) -> Option(Self))(
+  /// Lends the parsed arguments of the chosen subcommand, if any. Read them
+  /// through a `match`: `.Some(sub) => sub.get_flag(...)`.
+  get_subcommand_args : (fn(self : &Self) -> Option(&Self))(
     match(
       &self._subcommand_args,
-      .Some(b) => .Some(b.*.clone()),
+      .Some(b) => .Some(&b.*),
       .None => .None
     )
   ),
