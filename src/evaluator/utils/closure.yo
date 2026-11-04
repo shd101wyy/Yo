@@ -90,7 +90,7 @@
   register_capture_field_decl_site
 } :: import("../types/field.yo");
 { fnv1a64, debug_knob } :: import("../../utils.yo");
-{ type_contains_rc_type, type_requires_explicit_copy, type_holds_counted_handle_ignoring_migration, is_closure_capture_struct, is_bound_closure_identity, resolve_cell_chain, resolution_chain_end, type_first_mut_borrow } :: import("../../types/utils.yo");
+{ type_contains_rc_type, type_requires_explicit_copy, type_holds_counted_handle_ignoring_migration, is_closure_capture_struct, is_bound_closure_identity, resolve_cell_chain, resolution_chain_end, type_first_mut_borrow, capture_struct_is_fnmut, capture_struct_typed_fnmut } :: import("../../types/utils.yo");
 { move_captured_explicit_copy_variable, set_expr_as_needs_to_call_dup, attach_temp_variable_to_expr } :: import("../utils.yo");
 { generate_expr_from_code } :: import("../../parser.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
@@ -453,6 +453,8 @@ _declares_marker :: (fn(ty : &TypeValue, marker : &TypeValue) -> bool)(
     _ => false
   )
 );
+/// Why an `FnMut` closure is not `Sync` (decision 37, decision 43 N1f).
+_FNMUT_NOT_SYNC :: "it is an `FnMut(...)` closure (it holds a `&mut` capture or is typed `FnMut`), whose call borrows it exclusively, and a `Sync` slot may call it from several threads at once — pass a closure that only reads its captures, or keep the state in an atomic or a `Mutex`";
 /// Why the function value `fid` does not hold `marker`, or `.None`. The
 /// captured state first (D4), then — for `Send` — what its code reaches (D1).
 /// `body` is walked only when no verdict was memoized: a closure's own is
@@ -461,6 +463,20 @@ _function_value_offense :: (
   fn(fid : &String, body : &Option(AstExpr), marker : &TypeValue, env : &Environment, ctx : &EvalContext) -> Option(String)
 )({
   mname := type_to_string(marker);
+  // A `Sync` slot (`Impl(Fn(...), Sync)`) may call the closure from several
+  // threads at once, and an `FnMut(...)` closure's call is exclusive
+  // (decision 37): one holding a `&mut` capture, or typed `FnMut(...)`, is
+  // rejected naming `FnMut` before its captures are judged (decision 43 N1f;
+  // not covered by `fn_slot_admits_capture_fnmut`, VERDICTS-15 Q4).
+  if(mname == "Sync", {
+    match(
+      get_closure_capture_info(fid.clone()),
+      .Some(sci) => if(capture_struct_is_fnmut(&sci.capture_type), {
+        return(Option(String).Some(String.from(_FNMUT_NOT_SYNC)));
+      }),
+      .None => ()
+    );
+  });
   // The captures: the verdict taken at the closure's creation, per captured
   // variable; without one, the capture struct as a type.
   cap_hint := "a closure has a marker trait only when every value it captures does; capture an atomic object (Arc(T), Mutex(T), Atomic*) instead";
@@ -514,6 +530,9 @@ _function_value_offense :: (
 _closure_copy_offense :: (fn(ty : &TypeValue, trait_name : &String, env : &Environment) -> String)({
   if(type_first_mut_borrow(ty).is_some(), {
     return(String.from("the closure has a `&mut` capture, and two copies of one exclusive borrow would alias (plans/VALUES_BY_DEFAULT.md decision 38 A)"));
+  });
+  if(capture_struct_typed_fnmut(ty), {
+    return(String.from("the closure is typed `FnMut(...)`: its call writes its state, so a copy would fork it (plans/VALUES_BY_DEFAULT.md decision 37)"));
   });
   trait_tt := get_trait_type_from_env(env, trait_name.clone());
   match(
@@ -829,6 +848,12 @@ validate_capture_trait_requirements :: (
               error_token,
               `This closure does not implement Send: ${_borrowed_captures_offense}. A closure that crosses threads must own its captures: pass it to an owning (sink) parameter, which moves them in (issues/fixed/a-move-only-value-cannot-be-moved-into-thread-spawn.md).`
             );
+          });
+          // An `FnMut` closure's call is exclusive, and a `Sync` slot may
+          // call it from several threads at once (decision 37, N1f): named
+          // before its captures are judged one by one.
+          if((trait_name == "Sync") && capture_struct_is_fnmut(capture_type), {
+            _raise_capture_trait_violation(ctx, exn, error_token, `This closure does not implement Sync: ${_FNMUT_NOT_SYNC}.`);
           });
           // Per-variable first: each offending capture gets its own error at
           // the capture site, not the closure site.

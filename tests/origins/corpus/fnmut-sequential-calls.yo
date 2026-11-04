@@ -1,0 +1,14 @@
+// N0 corpus row `fnmut-sequential-calls` (plans/backlog/REFERENCES_AND_ORIGINS.md §8 N0;
+// manifest tests/origins/corpus.tsv): the positive control of `fnmut-two-live-calls` — the lend's last use comes before the owner's call, so the two exclusive borrows of the closure never overlap (O3 step 2; decision 43 N1f).
+// Expected once decision 43's rules land: accepted.
+main :: (fn() -> unit)({
+  (mut(f) : Impl(FnMut() -> i32)) = ({ n : i32(0) }() => {
+    n = (n + i32(1));
+    n
+  });
+  r := &mut f;
+  _a := r();
+  _b := f();
+  ()
+});
+export(main);
