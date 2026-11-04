@@ -515,7 +515,7 @@ _link_store_trees :: (
     entries := e.io.await(read_dir(Path.new(deps_dir.clone()), e.io), e);
     (pi : usize) = usize(0);
     while(pi < lock.packages.len(), {
-      entry := lock.packages(pi);
+      entry := lock.packages(pi).clone();
       pi = (pi + usize(1));
       tree := if(entry.integrity.len() == usize(0), String.new(), match(store_tree_dir(cache_root.clone(), entry.integrity.clone()), .Ok(d) => d, .Err(_) => String.new()));
       link := `${deps_dir}/${entry.name}`;

@@ -904,11 +904,7 @@ _run_contract_verification :: (
     _ := record_elidable_guard_sites(&reports);
   });
   (all_ok : bool) = true;
-  (ri : usize) = usize(0);
-  while(ri < reports.len(), {
-    match(
-      reports.get(ri),
-      .Some(rp) => {
+  for(&reports, rp => {
         _print_verify_fn_report(&rp, false);
         // The pass/fail rule lives in the driver so this site, `yo verify`
         // and the self-verification sweep cannot disagree. `check`/`compile`
@@ -921,11 +917,7 @@ _run_contract_verification :: (
             eprintln(`           (verify+ fallback: the runtime assert stays)`);
           });
         });
-      },
-      .None => ()
-    );
-    ri = (ri + usize(1));
-  });
+      });
   all_ok
 });
 check_single_file :: (
@@ -5632,40 +5624,28 @@ run_verify_cmd :: (
   // a concrete counter-example (guards against a solver that answers
   // garbage, or an encoding that proves by being wrong).
   (harness_ok : bool) = true;
-  match(
-    results.get(usize(0)),
-    .Some(r1) => {
-      match(
-        &r1.verdict,
-        .Proved(_) => (),
-        _ => {
+  if(results.len() < usize(2), {
+    harness_ok = false;
+  }, {
+    match(
+      &results(usize(0)).verdict,
+      .Proved(_) => (),
+      _ => {
+        harness_ok = false;
+      }
+    );
+    match(
+      &results(usize(1)).verdict,
+      .Refuted(ce) => {
+        if(ce.len() == usize(0), {
           harness_ok = false;
-        }
-      );
-    },
-    .None => {
-      harness_ok = false;
-    }
-  );
-  match(
-    results.get(usize(1)),
-    .Some(r2) => {
-      match(
-        &r2.verdict,
-        .Refuted(ce) => {
-          if(ce.len() == usize(0), {
-            harness_ok = false;
-          });
-        },
-        _ => {
-          harness_ok = false;
-        }
-      );
-    },
-    .None => {
-      harness_ok = false;
-    }
-  );
+        });
+      },
+      _ => {
+        harness_ok = false;
+      }
+    );
+  });
   // V3: evaluate the target set with the mode override and target paths
   // armed, so the evaluator records one VerifyTask per verifiable
   // function (evaluator/builtins/contracts.yo). Targets carry BOTH the
@@ -5734,16 +5714,10 @@ run_verify_cmd :: (
   match(
     &explain_fn,
     .Some(pat) => {
-      (xi : usize) = usize(0);
-      while(xi < all_reports.len(), {
-        match(
-          all_reports.get(xi),
-          .Some(rp) => if(rp.fn_id.contains(pat.clone()), {
+      for(&all_reports, rp => {
+        if(rp.fn_id.contains(pat.clone()), {
             reports.push(rp);
-          }),
-          .None => ()
-        );
-        xi = (xi + usize(1));
+          });
       });
       if(reports.len() == usize(0), {
         exn.throw(dyn(`verify: --explain '${pat}' matched no verified function (of ${all_reports.len().to_string()})`));
@@ -5756,11 +5730,7 @@ run_verify_cmd :: (
   // Aggregate the exit status: every report must be `ok`.
   (bad : usize) = usize(0);
   (refuted_n : usize) = usize(0);
-  (ri3 : usize) = usize(0);
-  while(ri3 < reports.len(), {
-    match(
-      reports.get(ri3),
-      .Some(rp) => {
+  for(&reports, rp => {
         // Same driver-side rule, now consulting `--deny` / `--strict`.
         if(verify_report_is_failure(&rp, denied.clone()), {
           bad = (bad + usize(1));
@@ -5768,24 +5738,12 @@ run_verify_cmd :: (
             refuted_n = (refuted_n + usize(1));
           });
         });
-      },
-      .None => ()
-    );
-    ri3 = (ri3 + usize(1));
-  });
+      });
   if(format_json, {
     fn_entries := ArrayList(JsonValue).new();
-    (rj : usize) = usize(0);
-    while(rj < reports.len(), {
-      match(
-        reports.get(rj),
-        .Some(rp) => {
+    for(&reports, rp => {
           fn_entries.push(_verify_fn_report_json(&rp));
-        },
-        .None => ()
-      );
-      rj = (rj + usize(1));
-    });
+        });
     ks2 := ArrayList(String).new();
     ks2.push(String.from("solver"));
     ks2.push(String.from("z3_pin"));
@@ -5815,17 +5773,9 @@ run_verify_cmd :: (
     println(
       `verify: target: ${target_path} (${files.len().to_string()} .yo file(s), mode ${mode_str})`
     );
-    (rk : usize) = usize(0);
-    while(rk < reports.len(), {
-      match(
-        reports.get(rk),
-        .Some(rp) => {
+    for(&reports, rp => {
           _print_verify_fn_report(&rp, explain_fn.is_some());
-        },
-        .None => ()
-      );
-      rk = (rk + usize(1));
-    });
+        });
     if(reports.len() == usize(0), {
       println(
         tr(
@@ -5939,11 +5889,7 @@ _verify_summary_json :: (
 /// One function report as JSON (the verify subcommand's V3 shape).
 _verify_fn_report_json :: (fn(rp : &VerifyFnReport) -> JsonValue)({
   obl_entries := ArrayList(JsonValue).new();
-  (i : usize) = usize(0);
-  while(i < rp.obligations.len(), {
-    match(
-      rp.obligations.get(i),
-      .Some(obl) => {
+  for(&rp.obligations, obl => {
         model := match(
           &obl.verdict,
           .Refuted(ce) => _verify_json_strs(&ce),
@@ -6000,11 +5946,7 @@ _verify_fn_report_json :: (fn(rp : &VerifyFnReport) -> JsonValue)({
           vs.push(JsonValue.Bool(true));
         });
         obl_entries.push(JsonValue.Object(keys : ks, values : vs));
-      },
-      .None => ()
-    );
-    i = (i + usize(1));
-  });
+      });
   ks2 := ArrayList(String).new();
   ks2.push(String.from("fn_id"));
   ks2.push(String.from("mode"));
@@ -6030,11 +5972,7 @@ _verify_fn_report_json :: (fn(rp : &VerifyFnReport) -> JsonValue)({
 /// The self-test results as JSON (the V2 shape, kept verbatim).
 _verify_self_test_json :: (fn(results : &ArrayList(VerifyResult)) -> ArrayList(JsonValue))({
   entries := ArrayList(JsonValue).new();
-  (ri : usize) = usize(0);
-  while(ri < results.len(), {
-    match(
-      results.get(ri),
-      .Some(r) => {
+  for(&results, r => {
         verdict_json := match(
           &r.verdict,
           .Proved(_) => JsonValue.Str(String.from("proved")),
@@ -6051,11 +5989,7 @@ _verify_self_test_json :: (fn(results : &ArrayList(VerifyResult)) -> ArrayList(J
         vs.push(verdict_json);
         vs.push(JsonValue.Bool(r.cached));
         entries.push(JsonValue.Object(keys : ks, values : vs));
-      },
-      .None => ()
-    );
-    ri = (ri + usize(1));
-  });
+      });
   entries
 });
 /// How many of a report's obligations proved.
@@ -6115,10 +6049,7 @@ _print_verify_fn_report :: (fn(rp : &VerifyFnReport, detailed : bool) -> unit)(
     true => {
       println(`  ${rp.outcome}  ${rp.fn_id} [${rp.mode}]`);
       (i : usize) = usize(0);
-      while(i < rp.obligations.len(), {
-        match(
-          rp.obligations.get(i),
-          .Some(obl) => {
+      for(&rp.obligations, obl => {
             bad := match(
               &obl.verdict,
               .Proved(_) => false,
@@ -6150,11 +6081,7 @@ _print_verify_fn_report :: (fn(rp : &VerifyFnReport, detailed : bool) -> unit)(
                 println(`      goal: ${obl.goal}`);
               });
             });
-          },
-          .None => ()
-        );
-        i = (i + usize(1));
-      });
+          });
       ()
     }
   )

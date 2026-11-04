@@ -1426,12 +1426,12 @@ _lock_diff :: (fn(old : &LockFile, new : &LockFile) -> String)({
 resolve_and_fetch :: (
   fn(
     manifest : &Manifest,
-    options : &ResolveOptions,
+    sink(options) : ResolveOptions,
     io : Io,
     exn : Exception
   ) -> Impl(Future(LockFile, IoExn))
 )(
-  io.async({ &manifest, &options }(e : IoExn) => {
+  io.async({ manifest, options }(e : IoExn) => {
     root_dir := manifest.dir.clone();
     cache_root := e.io.await(ensure_cache_layout(e.io, e.exn), e);
     read := e.io.await(read_lock_file(Path.new(root_dir.clone()), e.io, e.exn), e);

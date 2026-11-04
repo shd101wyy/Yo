@@ -235,7 +235,7 @@ install_dependencies :: (
   owned_mode := mode.clone();
   io.async((e : IoExn) => {
     options := ResolveOptions(mode : owned_mode.clone(), locked : locked, offline : offline, verbose : verbose);
-    lock := e.io.await(resolve_and_fetch(manifest, &options, e.io, e.exn), e);
+    lock := e.io.await(resolve_and_fetch(manifest, options, e.io, e.exn), e);
     for(&lock.packages, p => {
       where_ := cond(
         p.is_git() => `${p.ref()} (${p.commit.substring(usize(0), usize(12))})`,
@@ -269,12 +269,12 @@ AddOptions :: (
 /// and fetch every git dependency and write `yo.lock`.
 run_add :: (
   fn(
-    options : &AddOptions,
+    sink(options) : AddOptions,
     io : Io,
     exn : Exception
   ) -> Impl(Future(unit, IoExn))
 )(
-  io.async({ &options }(e : IoExn) => {
+  io.async({ options }(e : IoExn) => {
     manifest := load_project_manifest(e.exn);
     parsed := match(
       parse_package_specifier(options.package_spec.clone()),
@@ -638,12 +638,12 @@ _bump_ranges_to_latest :: (
 /// is empty); `--latest` first raises their ranges to the newest release.
 run_install :: (
   fn(
-    options : &InstallOptions,
+    sink(options) : InstallOptions,
     io : Io,
     exn : Exception
   ) -> Impl(Future(unit, IoExn))
 )(
-  io.async({ &options }(e : IoExn) => {
+  io.async({ options }(e : IoExn) => {
     manifest := load_project_manifest(e.exn);
     (ni : usize) = usize(0);
     while(ni < options.names.len(), {

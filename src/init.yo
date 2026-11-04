@@ -326,12 +326,12 @@ install_agent_files :: (
 /// scaffolding against it.
 init_project :: (
   fn(
-    options : &InitOptions,
+    sink(options) : InitOptions,
     io : Io,
     exn : Exception
   ) -> Impl(Future(Path, IoExn))
 )(
-  io.async({ &options }(e : IoExn) => {
+  io.async({ options }(e : IoExn) => {
     // Resolve user CWD (yo-cli overrides this env var when it changes directory)
     user_cwd_str := match(
       env.get(String.from("YO_ORIGINAL_CWD")),

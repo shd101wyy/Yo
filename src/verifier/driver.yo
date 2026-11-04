@@ -99,7 +99,7 @@ VerifyVerdict :: enum(
 // copies and b4-1a's deferred sites can spell `.clone()`.
 derive(VerifyVerdict, Clone);
 /// One obligation result: what was asked and what came back.
-VerifyResult :: ref(
+VerifyResult :: (
   struct(
     query_name : String,
     verdict : VerifyVerdict,
@@ -557,7 +557,7 @@ verifier_harness_self_test :: (fn(cfg : &VerifyRunConfig, binary : &String) -> A
 // The per-function verification pass (V3)
 // ============================================================================
 /// One obligation's outcome inside a function report.
-VerifyFnObligation :: ref(
+VerifyFnObligation :: (
   struct(
     name : String,
     verdict : VerifyVerdict,
@@ -581,7 +581,7 @@ VerifyFnObligation :: ref(
   )
 );
 /// The verification report for one function.
-VerifyFnReport :: ref(
+VerifyFnReport :: (
   struct(
     fn_id : String,
     /// "verify" | "verify+" (the mode the file resolved to).
@@ -715,11 +715,7 @@ summarize_verify_reports :: (fn(reports : &ArrayList(VerifyFnReport)) -> VerifyS
   (queries : usize) = usize(0);
   (cached : usize) = usize(0);
   (folded : usize) = usize(0);
-  (i : usize) = usize(0);
-  while(i < reports.len(), {
-    match(
-      reports.get(i),
-      .Some(rp) => {
+  for(&reports, rp => {
         (ci : usize) = usize(0);
         while(ci < names.len(), {
           match(
@@ -736,11 +732,7 @@ summarize_verify_reports :: (fn(reports : &ArrayList(VerifyFnReport)) -> VerifyS
         if(verify_report_is_vacuous(&rp), {
           vacuous = (vacuous + usize(1));
         });
-        (oi : usize) = usize(0);
-        while(oi < rp.obligations.len(), {
-          match(
-            rp.obligations.get(oi),
-            .Some(obl) => {
+        for(&rp.obligations, obl => {
               if(obl.folded, {
                 folded = (folded + usize(1));
               }, {
@@ -749,16 +741,8 @@ summarize_verify_reports :: (fn(reports : &ArrayList(VerifyFnReport)) -> VerifyS
               if(obl.cached, {
                 cached = (cached + usize(1));
               });
-            },
-            .None => ()
-          );
-          oi = (oi + usize(1));
-        });
-      },
-      .None => ()
-    );
-    i = (i + usize(1));
-  });
+            });
+      });
   VerifySummary(
     total : reports.len(),
     counts : counts,
@@ -799,11 +783,7 @@ verify_registered_functions :: (fn(cfg : &VerifyRunConfig, binary : &String) -> 
 /// default to NOT proved (conservative: keep the assert).
 _proved_ensures :: (fn(obligations : &ArrayList(VerifyFnObligation)) -> ArrayList(bool))({
   marks := ArrayList(bool).new();
-  (i : usize) = usize(0);
-  while(i < obligations.len(), {
-    match(
-      obligations.get(i),
-      .Some(obl) => {
+  for(&obligations, obl => {
         match(
           &obl.verdict,
           .Proved(_) => {
@@ -823,11 +803,7 @@ _proved_ensures :: (fn(obligations : &ArrayList(VerifyFnObligation)) -> ArrayLis
           },
           _ => ()
         );
-      },
-      .None => ()
-    );
-    i = (i + usize(1));
-  });
+      });
   marks
 });
 /// Parse the `N` of an obligation name ending in `/ensures#N` (`.None` for
@@ -864,13 +840,9 @@ record_elidable_guard_sites :: (fn(reports : &ArrayList(VerifyFnReport)) -> usiz
     return(usize(0));
   });
   (n : usize) = usize(0);
-  (ri : usize) = usize(0);
-  while(ri < reports.len(), {
-    rp := reports(ri);
+  for(&reports, rp => {
     if(rp.outcome == "ok", {
-      (oi : usize) = usize(0);
-      while(oi < rp.obligations.len(), {
-        obl := rp.obligations(oi);
+      for(&rp.obligations, obl => {
         proved := match(&obl.verdict, .Proved(_) => true, _ => false);
         match(
           &obl.site,
@@ -880,10 +852,8 @@ record_elidable_guard_sites :: (fn(reports : &ArrayList(VerifyFnReport)) -> usiz
           }),
           .None => ()
         );
-        oi = (oi + usize(1));
       });
     });
-    ri = (ri + usize(1));
   });
   n
 });
