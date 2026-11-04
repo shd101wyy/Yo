@@ -75,7 +75,7 @@ is_unlabeled_ensures_atom :: (fn(id : ExprId) -> bool)(
 // LoadModuleFn result
 // ---------------------------------------------------------------------------
 /// Return value of a `load_module` callback.
-LoadModuleResult :: (
+LoadModuleResult :: ref(
   struct(
     module_value : EvalValue,
     /// The source-namespace STRUCT TYPE with real member field types.
@@ -100,7 +100,7 @@ FuncOrAsyncBlockKind :: enum(
 );
 derive(FuncOrAsyncBlockKind, Copy, Clone);
 /// Evaluation sub-context for a function body or async / test block.
-FuncOrAsyncBlockCtx :: (
+FuncOrAsyncBlockCtx :: ref(
   struct(
     kind : FuncOrAsyncBlockKind,
     /// The type of the function being evaluated (meaningless for async/test blocks).
@@ -137,7 +137,7 @@ LoopFlowSnapshot :: struct(
   consumed : ArrayList(Option(Token))
 );
 derive(LoopFlowSnapshot, Clone);
-LoopBodyCtx :: (
+LoopBodyCtx :: ref(
   struct(
     kind : LoopKind,
     env : Environment,
@@ -172,7 +172,7 @@ CaptureUsage :: enum(Read, Write, Own);
 derive(CaptureUsage, Copy, Clone);
 /// Information about a variable captured from an outer scope inside a closure
 /// or async block.
-CapturedVarInfo :: (
+CapturedVarInfo :: ref(
   struct(
     frame_level : usize,
     usage : CaptureUsage,
@@ -183,7 +183,7 @@ CapturedVarInfo :: (
 // Specializing function state
 // ---------------------------------------------------------------------------
 /// Tracks a single in-progress generic function specialization.
-SpecializingFunctionInfo :: (
+SpecializingFunctionInfo :: ref(
   struct(
     original_func_id : String,
     specialized_func_id : String,
@@ -226,7 +226,7 @@ sync_mut_decl_census_untrusted :: (fn(ctx : &EvalContext) -> unit)({
 // Impl concrete-type return tracking
 // ---------------------------------------------------------------------------
 /// One return-site's concrete type for `Impl(...)` return-type unification.
-ImplConcreteTypeInfo :: (
+ImplConcreteTypeInfo :: ref(
   struct(
     concrete_type : TypeValue,
     env : Environment,

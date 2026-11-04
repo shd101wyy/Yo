@@ -23,6 +23,7 @@
 { Path } :: import("std/path");
 { Exception, IoExn } :: import("std/error");
 { ArrayList } :: import("std/collections/array_list");
+{ replace } :: import("std/mem");
 { ensure_cache_layout } :: import("./cache.yo");
 { fetch_package, git_command, git_remote_url, read_tags_index, write_tags_index, record_project } :: import("./fetch.yo");
 {
@@ -548,14 +549,11 @@ _comparator_matches :: (fn(c : &_Comparator, v : &SemVer) -> bool)({
 version_req_matches :: (fn(req : &VersionReq, v : &SemVer) -> bool)({
   if(v.pre.len() > usize(0), {
     (allowed : bool) = false;
-    (i : usize) = usize(0);
-    while(i < req.comparators.len(), {
-      c := req.comparators(i);
+    for(&req.comparators, c => {
       same := ((c.pre.len() > usize(0)) && (c.major == v.major) && match(c.minor, .Some(m) => (m == v.minor), .None => false) && match(c.patch, .Some(p) => (p == v.patch), .None => false));
       if(same, {
         allowed = true;
       });
-      i = (i + usize(1));
     });
     if(!allowed, return(false));
   });
@@ -678,7 +676,7 @@ resolve_latest_tag :: (
     latest := latest_release(semver_tags_from_ls_remote(&text));
     if(verbose, {
       match(
-        latest,
+        &latest,
         .Some(t) => println(`  Found semver tags, latest: ${t.tag}`),
         .None => println("  No semver tags found")
       );
@@ -742,11 +740,8 @@ _requirement_text :: (fn(r : &GitRequirement) -> String)(
 );
 _requirements_text :: (fn(reqs : &ArrayList(Requirement)) -> String)({
   out := String.new();
-  (i : usize) = usize(0);
-  while(i < reqs.len(), {
-    r := reqs(i);
+  for(&reqs, r => {
     out.push_string(`\n  - ${r.requirer} requires ${_requirement_text(&r.requirement)}`);
-    i = (i + usize(1));
   });
   out
 });
@@ -915,6 +910,7 @@ ResolveOptions :: (
     verbose : bool
   )
 );
+derive(ResolveOptions, Clone);
 /// One package of the graph while it is being resolved.
 _Package :: ref(
   struct(
@@ -1023,18 +1019,16 @@ _add_requirement :: (
         true => ((existing.url == url) && (existing.subdir == subdir))
       );
       if(!same, {
-        first_via := match(existing.requirements.get(usize(0)), .Some(r) => r.requirer.clone(), .None => String.from("<root>"));
+        first_via := if(existing.requirements.len() > usize(0), existing.requirements(usize(0)).requirer.clone(), String.from("<root>"));
         existing_text := if(existing.is_path, `path ${existing.dir}`, if(existing.subdir.len() > usize(0), `${existing.url} (path ${existing.subdir})`, existing.url.clone()));
         exn.throw(dyn(`Error: dependency name "${dep.name}" refers to two different packages: ${existing_text} (via ${first_via}) and ${_source_text(dep)} (via ${requirer}). One import name means one package.`));
       });
       // Replace this requirer's earlier requirement (a re-expansion).
       kept := ArrayList(Requirement).new();
-      (i : usize) = usize(0);
-      while(i < existing.requirements.len(), {
-        if(existing.requirements(i).requirer != requirer, {
-          kept.push(existing.requirements(i));
+      for(replace(&mut existing.requirements, ArrayList(Requirement).new()), r => {
+        if(r.requirer != requirer, {
+          kept.push(r);
         });
-        i = (i + usize(1));
       });
       kept.push(Requirement(requirer : requirer.clone(), requirement : requirement));
       existing.requirements = kept;
@@ -1068,12 +1062,10 @@ _drop_requirements_of :: (fn(state : &_State, requirer : &String) -> unit)({
   while(pi < state.packages.len(), {
     p := state.packages(pi);
     kept := ArrayList(Requirement).new();
-    (i : usize) = usize(0);
-    while(i < p.requirements.len(), {
-      if(p.requirements(i).requirer != requirer, {
-        kept.push(p.requirements(i));
+    for(replace(&mut p.requirements, ArrayList(Requirement).new()), r => {
+      if(r.requirer != requirer, {
+        kept.push(r);
       });
-      i = (i + usize(1));
     });
     p.requirements = kept;
     pi = (pi + usize(1));
@@ -1412,9 +1404,7 @@ _lock_uses_store :: (fn(lock : &LockFile) -> bool)({
 /// Names whose entries differ between `old` and `new` — the `--locked` report.
 _lock_diff :: (fn(old : &LockFile, new : &LockFile) -> String)({
   out := String.new();
-  (i : usize) = usize(0);
-  while(i < new.packages.len(), {
-    n := new.packages(i);
+  for(&new.packages, n => {
     match(
       find_lock_entry(old, n.name.clone()),
       .None => out.push_string(`\n  + ${n.name} ${n.source}`),
@@ -1422,15 +1412,11 @@ _lock_diff :: (fn(old : &LockFile, new : &LockFile) -> String)({
         out.push_string(`\n  ~ ${n.name}: ${o.source} @ ${o.commit} → ${n.source} @ ${n.commit}`);
       })
     );
-    i = (i + usize(1));
   });
-  (j : usize) = usize(0);
-  while(j < old.packages.len(), {
-    o := old.packages(j);
+  for(&old.packages, o => {
     if(find_lock_entry(new, o.name.clone()).is_none(), {
       out.push_string(`\n  - ${o.name} ${o.source}`);
     });
-    j = (j + usize(1));
   });
   out
 });
@@ -1466,9 +1452,9 @@ resolve_and_fetch :: (
     });
     state := _State(
       manifest : manifest,
-      options : options,
+      options : options.clone(),
       cache_root : cache_root.clone(),
-      old_lock : read.lock,
+      old_lock : read.lock.clone(),
       packages : ArrayList(_Package).new(),
       tag_urls : ArrayList(String).new(),
       tag_texts : ArrayList(String).new(),

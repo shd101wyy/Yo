@@ -464,11 +464,7 @@ _search_dup_calls :: (fn(expr : &AstExpr, res : &mut DupCallsResult, ctx : &Eval
         .Some(vid) => {
           all_branch_dups := ArrayList(AstExpr).new();
           (branches_with_dup : usize) = usize(0);
-          (bci : usize) = usize(0);
-          while(bci < branch_results.len(), {
-            match(
-              branch_results.get(bci),
-              .Some(br2) => {
+          for(&branch_results, br2 => {
                 match(
                   br2.dup_calls.get_cloned(vid.clone()),
                   .Some(bdups) => if(bdups.len() > usize(0), {
@@ -487,11 +483,7 @@ _search_dup_calls :: (fn(expr : &AstExpr, res : &mut DupCallsResult, ctx : &Eval
                   }),
                   .None => ()
                 );
-              },
-              .None => ()
-            );
-            bci = (bci + usize(1));
-          });
+              });
           if(branches_with_dup == branch_results.len(), {
             // Every arm dups the variable — expose them to the optimizer.
             (fdi : usize) = usize(0);
