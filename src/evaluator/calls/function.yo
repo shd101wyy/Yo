@@ -3623,7 +3623,7 @@ _resolve_future_borrow_modes :: (fn(bs : &mut ArrayList(CaptureBorrow), expr : &
         (pi : usize) = usize(0);
         while(pi < rm_m.*.param_labels.len(), pi = (pi + usize(1)), {
           if(match(rm_m.*.param_labels.get_cloned(pi), .Some(l) => (l == b.root_name), .None => false), {
-            b.is_mut = match(rm_pts.get_cloned(pi), .Some(slot) => t_slot_is_mut_ref(&slot), .None => false);
+            b.is_mut = match(rm_pts.get(pi), .Some(slot) => t_slot_is_mut_ref(&slot), .None => false);
           });
         });
         resolved.push(b);
