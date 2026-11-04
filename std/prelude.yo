@@ -9696,8 +9696,9 @@ export(Result);
 /// only one.
 ///
 /// The payload is `Escapable` (decision 43, plans/backlog/REFERENCES_AND_ORIGINS.md
-/// O9): its drop runs when the last handle goes, where no borrow it holds
-/// could be checked, so a type that holds a reference is E0909.
+/// O9): a type that holds a reference is E0909. The bound is kept until
+/// origin propagation through counted cells; its collector reason went with
+/// W6b (O9).
 ///
 /// ```yo
 /// a := Rc.new(i32(42));
@@ -10301,9 +10302,9 @@ export(Box);
 ///
 /// Use `Arc.new(value)` to allocate. Access the inner value with `a.*`.
 ///
-/// The payload must be `Send` and `Sync`, as Rust's `Arc<T>` requires; it
-/// need not be `Acyclic` (plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §2). An
-/// atomic cell is never cycle-collected, so a cycle of `Arc` handles leaks,
+/// The payload must be `Send` and `Sync`, as Rust's `Arc<T>` requires, and
+/// `Escapable`: kept until origin propagation through counted cells; its
+/// collector reason went with W6b (O9). A cycle of `Arc` handles leaks,
 /// as in Rust: break it by clearing a back edge before the last handle that
 /// reaches it is dropped. `--allocator fixed --debug-heap` counts the leaked
 /// cells at exit.
@@ -13554,6 +13555,8 @@ impl(
 /// plans/backlog/STATIC_ARGUMENT_INFERENCE.md §5, H1 fallback (a); Fable
 /// consultation #7). Its body builds through `__yo_cell`, as `Rc.new`'s does
 /// (V5 cells Generation B); the constructor itself stays until that S3 is fixed.
+/// The `Escapable` bound is `Rc`'s: kept until origin propagation through
+/// counted cells; its collector reason went with W6b (O9).
 __yo_rc_cell :: (fn(generic(V : Type), sink(value) : V, (alloc : Option(Allocator)) ?= .None, where(V <: Escapable)) -> Rc(V))({
   // `Rc.new`'s body, kept as `dyn(...)`'s own constructor: a closure
   // literal's payload type is the `Dyn`'s open payload wrapper, and only a
@@ -13565,7 +13568,9 @@ __yo_rc_cell :: (fn(generic(V : Type), sink(value) : V, (alloc : Option(Allocato
 });
 /// `dyn(...)`'s atomically counted cell constructor, for a `Dyn(..., Send)`
 /// target (and a recognized `dyn(Arc.new(<closure>, alloc : a))`):
-/// `__yo_rc_cell`'s twin. Compiler-internal, not exported.
+/// `__yo_rc_cell`'s twin. Compiler-internal, not exported. The `Escapable`
+/// bound is `Arc`'s: kept until origin propagation through counted cells; its
+/// collector reason went with W6b (O9).
 __yo_arc_cell :: (fn(generic(V : Type), sink(value) : V, (alloc : Option(Allocator)) ?= .None, where(V <: (Send, Sync)), where(V <: Escapable)) -> Arc(V))({
   // `Arc.new`'s body, kept as `dyn(...)`'s constructor for a Send target, for
   // `__yo_rc_cell`'s reason.

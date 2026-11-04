@@ -753,9 +753,6 @@ impl(
   /// Number of negative constraints, read in place.
   negative_len : (fn(self : &Self) -> usize)(self.*.with(b => b.negative.len()))
 );
-// The bounds hold trait types; a SomeT's bounds do not reach the SomeT
-// itself (recursive bounds recur through ids, as every `TypeValue` does).
-impl(SomeTBounds(TypeValue), Acyclic());
 /// A fresh trait body cell holding these lists (a NEW trait identity).
 trait_t_body :: (
   fn(sink(assoc_type_names) : ArrayList(String), sink(field_labels) : ArrayList(String), sink(field_types) : ArrayList(TypeValue), sink(self_constraints) : ArrayList(TypeValue), sink(neg_self_constraints) : ArrayList(TypeValue)) -> TraitTBody(TypeValue)
@@ -789,13 +786,6 @@ impl(
     self.*.with(b => trait_t_body(b.assoc_type_names.clone(), b.field_labels.clone(), b.field_types.clone(), b.self_constraints.clone(), b.neg_self_constraints.clone()))
   )
 );
-// SAFETY (as for `TypeValue`, whose audit this cell is the exception to): a
-// member type that names the trait itself (`Dyn(SelfTrait)`) reaches the
-// trait's node through this cell, so that one trait's node can be on a
-// cycle. It was before the cell too (the lists were shared handles), and a
-// trait node lives as long as its module's evaluation; declaring `Acyclic`
-// keeps the cell out of the cycle collector like every other type node.
-impl(TraitTBody(TypeValue), Acyclic());
 // ---------------------------------------------------------------------------
 // Parameter slots (plans/VALUES_BY_DEFAULT.md decision 43 step 1).
 // ---------------------------------------------------------------------------
