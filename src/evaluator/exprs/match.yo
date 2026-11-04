@@ -874,7 +874,7 @@ _decide_match_mode :: (
 });
 /// The hidden bindings a consuming arm adds to its pattern
 /// (`_augment_consuming_pattern`), and the user's bindings below a cell.
-_ArmOwnership :: ref(
+_ArmOwnership :: (
   struct(
     /// Each part the pattern does not bind: a hidden binding dropped when
     /// the arm is entered.
@@ -894,26 +894,26 @@ _ArmOwnership :: ref(
     is_mut : bool
   )
 );
-_ownership_hidden_bind :: (fn(own : &_ArmOwnership, ty : &TypeValue, env : &Environment) -> BindInfo)({
+_ownership_hidden_bind :: (fn(own : &mut _ArmOwnership, ty : &TypeValue, env : &Environment) -> BindInfo)({
   tok := own.tok;
   name := generate_new_temp_variable_name(&env.module_path.*, usize(tok.row), usize(tok.column), Option(String).Some(`mv${own.counter.to_string()}`), Option(String).Some(tok.module_path.*.clone()));
   own.counter = (own.counter + usize(1));
   atok := Token(kind : TokenKind.Identifier, value : Rc.new(name.clone()), row : tok.row, column : tok.column, character : tok.character, byte_offset : tok.byte_offset, module_path : Rc.clone(tok.module_path), input : Rc.clone(tok.input));
   BindInfo(name : name, ty : Rc.clone(ty), value : Option(EvalValue).None, atom : AstExpr.Atom(alloc_global_expr_id(), atok))
 });
-_ownership_unbound :: (fn(own : &_ArmOwnership, ty : &TypeValue, env : &Environment) -> Pattern)({
+_ownership_unbound :: (fn(own : &mut _ArmOwnership, ty : &TypeValue, env : &Environment) -> Pattern)({
   b := _ownership_hidden_bind(own, ty, env);
   own.unbound.push(b);
   Pattern.Bind(name : b.name.clone(), token : ast_expr_token(&b.atom), atom : b.atom)
 });
-_ownership_keep :: (fn(own : &_ArmOwnership, ty : &TypeValue, p : Pattern, env : &Environment) -> Pattern)({
+_ownership_keep :: (fn(own : &mut _ArmOwnership, ty : &TypeValue, p : Pattern, env : &Environment) -> Pattern)({
   b := _ownership_hidden_bind(own, ty, env);
   own.keeps.push(b);
   Pattern.At(name : b.name.clone(), token : ast_expr_token(&b.atom), atom : b.atom, sub : Box.new(p))
 });
 /// A part with a drop of its own (a counted cell or a move-only value).
 _part_has_drop :: (fn(ty : &TypeValue) -> bool)(type_contains_rc_cell_or_move_only(ty));
-_bind_ty_of :: (fn(own : &_ArmOwnership, name : &String) -> Option(TypeValue))({
+_bind_ty_of :: (fn(own : &mut _ArmOwnership, name : &String) -> Option(TypeValue))({
   (i : usize) = usize(0);
   while(i < own.bind_tys.len(), {
     match(
@@ -934,7 +934,7 @@ _bind_ty_of :: (fn(own : &_ArmOwnership, name : &String) -> Option(TypeValue))({
 /// one that keeps it to the arm's end; the user's bindings below a cell are
 /// recorded as borrows. Coverage is unchanged: a hidden binding sits where a
 /// `_` or an unlisted field was.
-_augment_arm_pattern :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, own : &_ArmOwnership, env : &Environment, exn : Exception) -> Pattern)(
+_augment_arm_pattern :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, own : &mut _ArmOwnership, env : &Environment, exn : Exception) -> Pattern)(
   match(
     p,
     .Wildcard => cond(
@@ -1546,7 +1546,7 @@ evaluate_match :: (
       &pattern_ast,
       &position_type,
       cond(ct_known => scrutinee_val_opt, true => Option(EvalValue).None),
-      &pc,
+      &mut pc,
       &env,
       ctx,
       exn
@@ -1568,7 +1568,7 @@ evaluate_match :: (
     // forced onto the general lowering, which needs a consuming or `mut` match.
     (arm_pat : Option(Pattern)) = Option(Pattern).None;
     if(consuming || mut_places, {
-      arm_pat = Option(Pattern).Some(_augment_arm_pattern(&pat, &position_type, false, &own, &env, exn));
+      arm_pat = Option(Pattern).Some(_augment_arm_pattern(&pat, &position_type, false, &mut own, &env, exn));
     });
     // `yo fix --migrate rc-clone` suspends decision 17's rule, so this match
     // borrows; under the rule a binding below a cell is a borrow whatever the
@@ -1585,7 +1585,7 @@ evaluate_match :: (
         counter : usize(0),
         is_mut : false
       );
-      _probe_pat := _augment_arm_pattern(&pat, &position_type, false, &probe, &env, exn);
+      _probe_pat := _augment_arm_pattern(&pat, &position_type, false, &mut probe, &env, exn);
       rc_cell_borrowed = probe.borrowed.clone();
     });
     owned_vars := ArrayList(Variable).new();

@@ -194,7 +194,7 @@ _transform_template :: (fn(template : &String) -> String)({
 // ---------------------------------------------------------------------------
 // ParsedOperand
 // ---------------------------------------------------------------------------
-ParsedOperand :: ref(
+ParsedOperand :: (
   struct(
     kind : String,
     name : Option(String),
@@ -205,6 +205,7 @@ ParsedOperand :: ref(
     is_variable_target : bool
   )
 );
+derive(ParsedOperand, Clone);
 _atom_value_cg :: (fn(e : &AstExpr) -> String)(
   match(e, .Atom(_, tok) => tok.value.*.clone(), _ => String.from(""))
 );
@@ -612,7 +613,7 @@ generate_asm :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenera
     (oi : usize) = usize(0);
     while(oi < operands.len(), {
       match(
-        operands.get(oi),
+        operands.get_cloned(oi),
         .Some(op) => if(op.kind == String.from("const_val"), {
           // Replace {name}/{N} (with optional :modifier) with the bare value.
           // Byte-scan replace: rebuild the template.
@@ -688,7 +689,7 @@ generate_asm :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenera
     (oi : usize) = usize(0);
     while(oi < operands.len(), {
       match(
-        operands.get(oi),
+        operands.get_cloned(oi),
         .Some(op) => {
           cond(
             op.is_discarded => {
@@ -744,7 +745,7 @@ generate_asm :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenera
     (oi : usize) = usize(0);
     while(oi < operands.len(), {
       match(
-        operands.get(oi),
+        operands.get_cloned(oi),
         .Some(op) => {
           skip := ((op.kind == String.from("in")) || (op.kind == String.from("const_val")) || (op.kind == String.from("sym")));
           if(!skip, {
@@ -789,7 +790,7 @@ generate_asm :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenera
     (oi : usize) = usize(0);
     while(oi < operands.len(), {
       match(
-        operands.get(oi),
+        operands.get_cloned(oi),
         .Some(op) => if((op.kind == String.from("in")) || (op.kind == String.from("sym")), {
           part := String.new();
           match(
@@ -876,7 +877,7 @@ generate_asm :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenera
     (oi : usize) = usize(0);
     while(oi < operands.len(), {
       match(
-        operands.get(oi),
+        operands.get_cloned(oi),
         .Some(op) => {
           skip := (
             op.is_discarded || op.is_variable_target ||

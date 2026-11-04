@@ -38,7 +38,7 @@
 /// header's file name). NOTE the field is `header_text`, not `header`: a ref
 /// struct field named `header` collides with the RC header member in the
 /// emitted C (issues/fixed/ref-struct-field-named-header-collides-with-rc-header.md).
-ChunkAssembly :: ref(struct(header_text : String, chunks : ArrayList(String)));
+ChunkAssembly :: struct(header_text : String, chunks : ArrayList(String));
 /// True iff `b` is a C identifier byte: [A-Za-z0-9_].
 _ca_is_ident_byte :: (fn(b : u8) -> bool)(
   ((b >= u8(48)) && (b <= u8(57))) || ((b >= u8(65)) && (b <= u8(90))) || ((b >= u8(97)) && (b <= u8(122))) || (b == u8(95))
@@ -255,11 +255,8 @@ _ca_is_rc_helper :: (fn(name : &String) -> bool)(
 _ca_decl_line_is_qualified :: (fn(bytes : &ArrayList(u8), ls : usize) -> bool)(
   _ca_matches(bytes, ls, String.from("static ")) || _ca_matches(bytes, ls, String.from("extern ")) || _ca_matches(bytes, ls, String.from("typedef ")) || _ca_matches(bytes, ls, String.from("inline ")) || _ca_matches(bytes, ls, String.from("struct ")) || _ca_matches(bytes, ls, String.from("union ")) || _ca_matches(bytes, ls, String.from("enum "))
 );
-/// Result of `_ca_split_decl_defs`. A REF struct return, not two `String`
-/// out-parameters: `String` is a VALUE type whose buffer is lazily allocated
-/// (`_bytes : .None` until first push), so pushing into a `String` parameter
-/// mutates a copy and the caller sees nothing.
-DeclSplit :: ref(struct(header_part : String, moved_part : String));
+/// Result of `_ca_split_decl_defs`: the two parts, returned by value.
+DeclSplit :: struct(header_part : String, moved_part : String);
 /// Split the declarations text into the part that stays in the SHARED HEADER
 /// and the EXTERNAL function DEFINITIONS that must be relocated to chunk 0.
 ///

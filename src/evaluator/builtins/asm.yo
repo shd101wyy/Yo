@@ -72,7 +72,7 @@ _asm_option_flags :: (fn() -> ArrayList(String))({
 // ---------------------------------------------------------------------------
 // AsmOperand
 // ---------------------------------------------------------------------------
-AsmOperand :: ref(
+AsmOperand :: (
   struct(
     kind : String,
     name : Option(String),
@@ -83,6 +83,7 @@ AsmOperand :: ref(
     discarded : bool
   )
 );
+derive(AsmOperand, Clone);
 /// Check whether a Yo type is valid for asm operands.
 _is_valid_asm_operand_type :: (fn(t : &TypeValue) -> bool)(
   is_integer_type(t) || is_float_type(t) || is_pointer_type(t) || is_bool_type(t)
@@ -535,7 +536,7 @@ _validate_template_placeholders :: (
     (i : usize) = usize(0);
     while(i < operands.len(), {
       match(
-        operands.get(i),
+        operands.get_cloned(i),
         .Some(op) => match(
           &op.name,
           .Some(nm) => {
@@ -846,7 +847,7 @@ evaluate_asm :: (
     (oi : usize) = usize(0);
     while(oi < operands.len(), {
       match(
-        operands.get(oi),
+        operands.get_cloned(oi),
         .Some(op) => match(
           &op.target_var_name,
           .Some(tvn) => if((op.kind == String.from("out")) || (op.kind == String.from("lateout")), {
@@ -878,7 +879,7 @@ evaluate_asm :: (
     (oi : usize) = usize(0);
     while(oi < operands.len(), {
       match(
-        operands.get(oi),
+        operands.get_cloned(oi),
         .Some(op) => {
           keep := (!op.discarded && op.target_var_name.is_none() && !_is_special_kind(&op.kind) && !(op.kind == String.from("in")));
           if(keep, {

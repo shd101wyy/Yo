@@ -76,7 +76,7 @@ _did_you_mean :: (fn(lbl : &String, labels : &ArrayList(String)) -> Option(Strin
 /// A binding the pattern introduces, collected during compilation and added
 /// to the arm's env frame by the caller once the WHOLE pattern is compiled
 /// (an or-pattern compiles every alternative but binds each name once).
-BindInfo :: ref(
+BindInfo :: (
   struct(
     name : String,
     ty : TypeValue,
@@ -86,7 +86,7 @@ BindInfo :: ref(
 );
 derive(BindInfo, Clone);
 /// Per-arm compilation state.
-PatternCtx :: ref(
+PatternCtx :: (
   struct(
     /// The `=>` node's id — the hidden subject names are derived from it.
     arm_id : usize,
@@ -268,7 +268,7 @@ _bind_subject_and_eval_test :: (
     value_opt : &Option(EvalValue),
     test : &AstExpr,
     src : &AstExpr,
-    pc : &PatternCtx,
+    pc : &mut PatternCtx,
     env : &Environment,
     ctx : &EvalContext,
     exn : Exception
@@ -327,7 +327,7 @@ _bind_subject_and_eval_test :: (
     }
   );
 });
-_next_subject :: (fn(pc : &PatternCtx) -> String)({
+_next_subject :: (fn(pc : &mut PatternCtx) -> String)({
   name := String.from("__yo_pat_s");
   name.push_string(pc.arm_id.to_string());
   name.push_str("_");
@@ -342,7 +342,7 @@ _make_const_test :: (
     src : &AstExpr,
     position_ty : &TypeValue,
     value_opt : &Option(EvalValue),
-    pc : &PatternCtx,
+    pc : &mut PatternCtx,
     env : &Environment,
     ctx : &EvalContext,
     exn : Exception
@@ -460,7 +460,7 @@ _compile_const_expr :: (
     e : &AstExpr,
     position_ty : &TypeValue,
     value_opt : &Option(EvalValue),
-    pc : &PatternCtx,
+    pc : &mut PatternCtx,
     env : &Environment,
     ctx : &EvalContext,
     exn : Exception
@@ -499,7 +499,7 @@ _compile_range :: (
     inclusive : bool,
     position_ty : &TypeValue,
     value_opt : &Option(EvalValue),
-    pc : &PatternCtx,
+    pc : &mut PatternCtx,
     env : &Environment,
     ctx : &EvalContext,
     exn : Exception
@@ -689,7 +689,7 @@ _compile_variant :: (
     params : &ArrayList(AstExpr),
     position_ty_in : &TypeValue,
     value_opt : &Option(EvalValue),
-    pc : &PatternCtx,
+    pc : &mut PatternCtx,
     env : &Environment,
     ctx : &EvalContext,
     exn : Exception
@@ -1011,7 +1011,7 @@ _compile_tuple :: (
     e : &AstExpr,
     position_ty : &TypeValue,
     value_opt : &Option(EvalValue),
-    pc : &PatternCtx,
+    pc : &mut PatternCtx,
     env : &Environment,
     ctx : &EvalContext,
     exn : Exception
@@ -1074,7 +1074,7 @@ _compile_struct :: (
     params : &ArrayList(AstExpr),
     position_ty : &TypeValue,
     value_opt : &Option(EvalValue),
-    pc : &PatternCtx,
+    pc : &mut PatternCtx,
     env : &Environment,
     ctx : &EvalContext,
     exn : Exception
@@ -1326,7 +1326,7 @@ compile_pattern :: (
     e : &AstExpr,
     position_ty : &TypeValue,
     value_opt : &Option(EvalValue),
-    pc : &PatternCtx,
+    pc : &mut PatternCtx,
     env : &Environment,
     ctx : &EvalContext,
     exn : Exception

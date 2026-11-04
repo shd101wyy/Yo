@@ -69,7 +69,7 @@ json :: import("std/encoding/json");
 /// (issues/fixed/lsp-analysis-state-lost-on-parse-and-eval-errors.md).
 /// Positions are matched against `text` by token (value, row, column), so a
 /// stale outcome answers only where the two still agree, never wrongly.
-DocState :: ref(
+DocState :: (
   struct(
     text : String,
     lines : ArrayList(String),
@@ -262,9 +262,8 @@ _ANALYSIS_DEBOUNCE_MS :: i64(300);
 /// The pending half of the debounce: which documents changed since the last
 /// analysis (in first-change order) and when the idle window closes
 /// (`deadline` is meaningless while `uris` is empty). One per server,
-/// threaded through the message loop. A `ref` struct so the scheduling and
-/// flushing helpers mutate the same list.
-PendingAnalysis :: ref(
+/// threaded through the message loop as `&mut`.
+PendingAnalysis :: (
   struct(
     uris : ArrayList(String),
     deadline : Instant
@@ -286,7 +285,7 @@ _new_pending_analysis :: (fn() -> PendingAnalysis)(
 /// `didOpen`) falls back to an immediate analysis: there is no outcome to
 /// serve requests from in the meantime.
 _note_document_change :: (
-  fn(uri : &String, text : &String, std_path : &String, docs : &mut HashMap(String, DocState), pending : &PendingAnalysis, io : Io) -> unit
+  fn(uri : &String, text : &String, std_path : &String, docs : &mut HashMap(String, DocState), pending : &mut PendingAnalysis, io : Io) -> unit
 )(
   match(
     docs.get(uri.clone()),
@@ -325,7 +324,7 @@ _note_document_change :: (
 /// document closed inside the window is skipped: its state is gone and
 /// `didClose` already cleared its diagnostics.
 _flush_pending_analyses :: (
-  fn(std_path : &String, docs : &mut HashMap(String, DocState), pending : &PendingAnalysis, io : Io) -> unit
+  fn(std_path : &String, docs : &mut HashMap(String, DocState), pending : &mut PendingAnalysis, io : Io) -> unit
 )({
   if(pending.uris.len() == usize(0), {
     return(());
@@ -602,7 +601,7 @@ _handle_message :: (
     body : &String,
     docs : &mut HashMap(String, DocState),
     std_path : &String,
-    pending : &PendingAnalysis,
+    pending : &mut PendingAnalysis,
     io : Io
   ) -> i32
 )({
@@ -1345,7 +1344,7 @@ run_lsp_server :: (fn(io : Io, exn : Exception) -> unit)({
     if(pending.uris.len() > usize(0), {
       match(
         wait_lsp_input(&reader, pending.deadline),
-        .Idle => _flush_pending_analyses(std_path.clone(), &mut docs, &pending, io),
+        .Idle => _flush_pending_analyses(std_path.clone(), &mut docs, &mut pending, io),
         .Readable => ()
       );
     });
@@ -1357,7 +1356,7 @@ run_lsp_server :: (fn(io : Io, exn : Exception) -> unit)({
         running = false;
       },
       .Some(body) => {
-        action := _handle_message(&body, &mut docs, std_path.clone(), &pending, io);
+        action := _handle_message(&body, &mut docs, std_path.clone(), &mut pending, io);
         if(action == i32(10), {
           running = false;
         });
@@ -1373,7 +1372,7 @@ run_lsp_server :: (fn(io : Io, exn : Exception) -> unit)({
   // diagnostics before the server goes — a redirected/piped client reads
   // stdout to the end.
   if(pending.uris.len() > usize(0), {
-    _flush_pending_analyses(std_path.clone(), &mut docs, &pending, io);
+    _flush_pending_analyses(std_path.clone(), &mut docs, &mut pending, io);
   });
   if(exit_code != i32(0), {
     exn.throw(dyn(`lsp: exit notification received without a shutdown request`));

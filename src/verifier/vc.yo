@@ -691,7 +691,7 @@ _guard_site :: (fn(e : &AstExpr, class : &String) -> Option(GuardSite))({
     )
   )
 });
-VcObligation :: ref(
+VcObligation :: (
   struct(
     name : String,
     query : VcQuery,
@@ -715,14 +715,14 @@ VcObligation :: ref(
 VcPreVerdict :: enum(PreProved, PreRefuted);
 derive(VcPreVerdict, Copy, Clone);
 /// Why a function could not be verified (subset gate).
-VcSubsetError :: ref(
+VcSubsetError :: (
   struct(
     construct : String,
     source : String
   )
 );
 /// Symbolic execution result for one function.
-VcBodyResult :: ref(
+VcBodyResult :: (
   struct(
     obligations : ArrayList(VcObligation),
     /// The body's value as a term (for ensures binding); `.None` when a
@@ -739,7 +739,7 @@ VcBodyResult :: ref(
 /// index `idx_name` from 0 to `len(list)`, `x` is `list[idx]`, and
 /// `produced(<coll_name>)` is the list cut at the index.
 ForFrame :: struct(idx_name : String, coll_name : String, list : VcTerm, elem : VcSort, elem_name : String);
-VcCtx :: ref(
+VcCtx :: (
   struct(
     table : ExprInfoTable,
     fn_name : String,
@@ -2624,7 +2624,7 @@ _match_arm_conditioned_ir :: (
 /// `dead` marks an arm whose walk exited the loop (break/continue): it
 /// never reaches the code after the match
 /// (issues/fixed/2026-10-23-a-break-in-a-match-arm-ends-the-walk-of-the-enclosing-block.md).
-_MatchPhi :: ref(
+_MatchPhi :: (
   struct(
     names : ArrayList(String),
     pre : ArrayList(Option(VcTerm)),
@@ -7404,7 +7404,7 @@ _term_width :: (fn(t : &VcTerm) -> usize)(
 // The per-function entry point
 // ============================================================================
 /// VerifyInput: everything the definition site knows.
-VerifyFnInput :: ref(
+VerifyFnInput :: (
   struct(
     fn_name : String,
     /// The FuncVal's `func_id` (recursion detection; the re-keyed

@@ -272,7 +272,7 @@ _select_best_variable :: (
 // Atom roles
 /// Expression ids of the atoms that are member names or labels (see the
 /// module header).
-AtomRoles :: ref(
+AtomRoles :: (
   struct(
     members : HashSet(usize),
     labels : HashSet(usize)
@@ -290,7 +290,7 @@ _is_declaring_callee :: (fn(callee : &String) -> bool)(
 /// Mark the member position `a` of a `.` call: a bare atom (`p.x`, `.Red`)
 /// or a call whose callee is the member (`p.dist()`, `.Some(v)`) — the
 /// call's ARGUMENTS are ordinary expressions and are classified normally.
-_mark_member :: (fn(a : &AstExpr, roles : &AtomRoles) -> unit)({
+_mark_member :: (fn(a : &AstExpr, roles : &mut AtomRoles) -> unit)({
   match(
     a,
     .Atom(id, _) => {
@@ -316,7 +316,7 @@ _mark_member :: (fn(a : &AstExpr, roles : &AtomRoles) -> unit)({
     }
   );
 });
-_classify_roles :: (fn(e : &AstExpr, roles : &AtomRoles) -> unit)({
+_classify_roles :: (fn(e : &AstExpr, roles : &mut AtomRoles) -> unit)({
   match(
     e,
     .Atom(_, _) => (),
@@ -406,7 +406,7 @@ classify_atom_roles :: (fn(exprs : &ArrayList(AstExpr)) -> AtomRoles)({
   while(i < exprs.len(), {
     match(
       exprs.get(i),
-      .Some(e) => _classify_roles(&e, &roles),
+      .Some(e) => _classify_roles(&e, &mut roles),
       .None => ()
     );
     i = (i + usize(1));

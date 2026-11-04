@@ -25,7 +25,7 @@
 // Data types
 // ---------------------------------------------------------------------------
 /// Options for `init_project`.
-InitOptions :: ref(
+InitOptions :: (
   struct(
     /// Directory to initialize (may be relative).
     dir : String,
@@ -331,7 +331,7 @@ init_project :: (
     exn : Exception
   ) -> Impl(Future(Path, IoExn))
 )(
-  io.async(e => {
+  io.async({ &options }(e : IoExn) => {
     // Resolve user CWD (yo-cli overrides this env var when it changes directory)
     user_cwd_str := match(
       env.get(String.from("YO_ORIGINAL_CWD")),

@@ -44,7 +44,7 @@ hex :: import("std/encoding/hex");
 // Data types
 // ---------------------------------------------------------------------------
 /// What fetching one package into the store yields.
-FetchedPackage :: ref(
+FetchedPackage :: (
   struct(
     /// The commit the package's tree is at.
     commit : String,
@@ -178,7 +178,7 @@ _push_string_bytes :: (fn(buf : &mut ArrayList(u8), s : &String) -> unit)({
   });
 });
 /// Internal item type for the iterative DFS hash stack.
-_HashWorkItem :: ref(
+_HashWorkItem :: (
   struct(
     abs_path : String,
     rel_path : String,
@@ -972,7 +972,7 @@ fetch_package :: (
 // yo cache gc
 // ---------------------------------------------------------------------------
 /// What `yo cache gc` found and did.
-GcReport :: ref(
+GcReport :: (
   struct(
     projects_kept : usize,
     projects_forgotten : usize,
@@ -989,8 +989,7 @@ GcReport :: ref(
 _lock_references :: (fn(lock : &LockFile, project_dir : &String, tree_names : &mut ArrayList(String), remote_keys : &mut ArrayList(String)) -> unit)({
   prefix := String.from("sha256-");
   (i : usize) = usize(0);
-  while(i < lock.packages.len(), {
-    entry := lock.packages(i);
+  for(&lock.packages, entry => {
     if(entry.integrity.starts_with(prefix.clone()), {
       tree_names.push(entry.integrity.substring(prefix.len(), entry.integrity.len()));
     });
@@ -1001,7 +1000,6 @@ _lock_references :: (fn(lock : &LockFile, project_dir : &String, tree_names : &m
       },
       .None => ()
     );
-    i = (i + usize(1));
   });
 });
 /// The entries of `dir` whose base name (before `strip`) is not in `keep`,

@@ -25,7 +25,7 @@ fs_walker :: import("std/fs/walker");
 { Exception, IoExn } :: import("std/error");
 { cwd : env_cwd } :: import("std/env");
 { is_class1_panic_method_name } :: import("./evaluator/memory_safety.yo");
-PublicSafeFinding :: ref(
+PublicSafeFinding :: (
   struct(
     file : String,
     /// 1-based.
@@ -43,7 +43,7 @@ PublicSafeFinding :: ref(
   )
 );
 /// An `Option`/`Result` method whose body reaches `__yo_panic`.
-Class1Extraction :: ref(
+Class1Extraction :: (
   struct(
     file : String,
     /// 1-based line of the method's signature.
@@ -57,7 +57,7 @@ Class1Extraction :: ref(
     status : String
   )
 );
-PublicSafeTotals :: ref(
+PublicSafeTotals :: (
   struct(
     files_scanned : usize,
     public_decls_scanned : usize,
@@ -65,7 +65,7 @@ PublicSafeTotals :: ref(
     class1_ungated : usize
   )
 );
-PublicSafeReport :: ref(
+PublicSafeReport :: (
   struct(
     findings : ArrayList(PublicSafeFinding),
     class1 : ArrayList(Class1Extraction),
@@ -91,7 +91,7 @@ _LineCol :: struct(
 );
 derive(_LineCol, Copy, Clone);
 /// One extracted top-level `name :: (fn(...) -> R)` declaration.
-_FnDecl :: ref(
+_FnDecl :: (
   struct(
     name : String,
     param_text : String,
@@ -576,9 +576,7 @@ _scan_file :: (fn(file : &String, src_str : &String, findings : &mut ArrayList(P
   src := src_str.to_bytes();
   extern_spans := _find_extern_spans(&src);
   decls := _extract_top_level_fn_decls(&src);
-  (di : usize) = usize(0);
-  while(di < decls.len(), {
-    decl := decls(di);
+  for(&decls, decl => {
     keep := (!decl.name.starts_with(`_`) && !_name_is_raw_pointer_api(decl.name.clone()));
     if(keep && !_position_inside_spans(decl.params_start, &extern_spans), {
       param_bytes := decl.param_text.to_bytes();
@@ -636,7 +634,6 @@ _scan_file :: (fn(file : &String, src_str : &String, findings : &mut ArrayList(P
         });
       });
     });
-    di = (di + usize(1));
   });
 });
 /// `<ident> : (fn(` at the start of `body` → the method name.
@@ -796,13 +793,10 @@ generate_public_safe_report :: (fn(root_path : &String, io : Io, exn : Exception
         files_scanned = (files_scanned + usize(1));
         src := e.io.await(fs_file.read_to_string(Path.new(file.clone()), e.io), e);
         decls := _extract_top_level_fn_decls(src.to_bytes());
-        (di : usize) = usize(0);
-        while(di < decls.len(), {
-          decl := decls(di);
+        for(&decls, decl => {
           if(!decl.name.starts_with(`_`) && !_name_is_raw_pointer_api(decl.name.clone()), {
             public_decls_scanned = (public_decls_scanned + usize(1));
           });
-          di = (di + usize(1));
         });
         _scan_file(file.clone(), &src, &mut findings);
         scan_class1_extractions(file.clone(), &src, &mut class1);
@@ -842,11 +836,8 @@ _format_class1_section :: (fn(report : &PublicSafeReport) -> String)({
     return(out.to_string());
   });
   out.write_str("\n\nClass-1 extraction methods (Option/Result methods that trap on the failure case):\n");
-  (i : usize) = usize(0);
-  while(i < report.class1.len(), {
-    c := report.class1(i);
+  for(&report.class1, c => {
     out.write_string(`  ${c.file}:${c.line}: ${c.receiver}.${c.method} — ${c.status}\n`);
-    i = (i + usize(1));
   });
   out.write_string(`  ungated: ${report.totals.class1_ungated}`);
   if(report.totals.class1_ungated > usize(0), {
@@ -869,11 +860,8 @@ format_public_safe_report :: (fn(report : &PublicSafeReport) -> String)({
     return(out.to_string());
   });
   out.write_str("Findings (file:line:col):\n");
-  (i : usize) = usize(0);
-  while(i < report.findings.len(), {
-    f := report.findings(i);
+  for(&report.findings, f => {
     out.write_string(`  ${f.file}:${f.line}:${f.column}: ${f.decl_name} ${f.slot} exposes ${f.pointer_type} — ${f.snippet}\n`);
-    i = (i + usize(1));
   });
   out.write_str("\n");
   out.write_str("These public signatures expose raw pointer types. Migrate to value types (e.g. Slice(u8), ref(name) : T) where the raw pointer is not part of the API contract. Names ending in _cstr, _ptr, _raw, or from_raw_parts / as_ptr are exempt — they signal raw-pointer use by contract. A parameter named witness / written / spare is exempt too — it is a safe-mode privilege token (a pointer only unsafe-capable code can produce), not API surface.");
@@ -916,8 +904,7 @@ public_safe_report_to_json :: (fn(report : &PublicSafeReport) -> String)({
   out := StringBuilder.new();
   out.write_str("{\n  \"findings\": [");
   (i : usize) = usize(0);
-  while(i < report.findings.len(), {
-    f := report.findings(i);
+  for(&report.findings, f => {
     if(i > usize(0), {
       out.write_str(",");
     });
@@ -929,8 +916,7 @@ public_safe_report_to_json :: (fn(report : &PublicSafeReport) -> String)({
   });
   out.write_str("],\n  \"class1Extractions\": [");
   (ci : usize) = usize(0);
-  while(ci < report.class1.len(), {
-    c := report.class1(ci);
+  for(&report.class1, c => {
     if(ci > usize(0), {
       out.write_str(",");
     });

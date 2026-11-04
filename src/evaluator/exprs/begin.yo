@@ -141,7 +141,7 @@ pragma(Pragma.AllowUnsafe);
 // ---------------------------------------------------------------------------
 // DupCallsResult — result type for collect_dup_calls_conservatively.
 // ---------------------------------------------------------------------------
-DupCallsResult :: ref(
+DupCallsResult :: (
   struct(
     /// Maps variable id → list of `___dup(...)` call expressions.
     dup_calls : HashMap(String, ArrayList(AstExpr)),
@@ -228,7 +228,7 @@ _dup_call_target_name :: (fn(e : &AstExpr) -> Option(String))(
   )
 );
 /// Record a dup call for `var_id`, deduplicating by expr id.
-_push_dup_call :: (fn(res : &DupCallsResult, var_id : &String, e : &AstExpr) -> unit)({
+_push_dup_call :: (fn(res : &mut DupCallsResult, var_id : &String, e : &AstExpr) -> unit)({
   match(
     res.dup_calls.get_cloned(var_id.clone()),
     .Some(found_lst) => {
@@ -272,7 +272,7 @@ _push_dup_call :: (fn(res : &DupCallsResult, var_id : &String, e : &AstExpr) -> 
 /// return broke the stage-2 self-compile; the `undeclared result` class of
 /// that failure was a missed expansion-internal `return` and is owned by
 /// `_contains_return_for_opt` below.
-_search_dup_calls :: (fn(expr : &AstExpr, res : &DupCallsResult, ctx : &EvalContext) -> unit)({
+_search_dup_calls :: (fn(expr : &AstExpr, res : &mut DupCallsResult, ctx : &EvalContext) -> unit)({
   // Skip io.async captures entirely: the SM path needs BOTH
   // the dup and the scope-exit drop; cancelling them would leak.
   if(ast_expr_is_fn_call(expr) && is_io_async_call(expr), {
@@ -410,7 +410,7 @@ _search_dup_calls :: (fn(expr : &AstExpr, res : &DupCallsResult, ctx : &EvalCont
               sargs.get(usize(1)),
               .Some(body) => {
                 bres := _new_dup_calls_result();
-                recur(&body, &bres, ctx);
+                recur(&body, &mut bres, ctx);
                 branch_results.push(bres);
               },
               .None => ()
@@ -424,11 +424,7 @@ _search_dup_calls :: (fn(expr : &AstExpr, res : &DupCallsResult, ctx : &EvalCont
     });
     // Union of var ids with dups in ANY branch; merge nested partials.
     all_vars := ArrayList(String).new();
-    (bri : usize) = usize(0);
-    while(bri < branch_results.len(), {
-      match(
-        branch_results.get(bri),
-        .Some(br) => {
+    for(&branch_results, br => {
           (ki : usize) = usize(0);
           while(ki < br.dup_call_var_ids.len(), {
             match(
@@ -451,11 +447,7 @@ _search_dup_calls :: (fn(expr : &AstExpr, res : &DupCallsResult, ctx : &EvalCont
             );
             pi = (pi + usize(1));
           });
-        },
-        .None => ()
-      );
-      bri = (bri + usize(1));
-    });
+        });
     // Per-variable branch categorization:
     // a branch-arm dup executes only when that arm is taken, so it may be
     // exposed to the optimizer ONLY when EVERY arm dups the variable (with
@@ -549,7 +541,7 @@ _search_dup_calls :: (fn(expr : &AstExpr, res : &DupCallsResult, ctx : &EvalCont
 /// the variable id they dup, with conservative cross-branch analysis.
 collect_dup_calls_conservatively :: (fn(expr : &AstExpr, ctx : &EvalContext) -> DupCallsResult)({
   res := _new_dup_calls_result();
-  _search_dup_calls(expr, &res, ctx);
+  _search_dup_calls(expr, &mut res, ctx);
   res
 });
 // ---------------------------------------------------------------------------
@@ -1455,7 +1447,7 @@ _optimize_dup_drop_pairs :: (
                   match(
                     dups.get(di),
                     .Some(d) => {
-                      _push_dup_call(&merged, vid.clone(), &d);
+                      _push_dup_call(&mut merged, vid.clone(), &d);
                       if(dup_child_idx.get(ast_expr_id(&d)).is_none(), {
                         dup_child_idx.insert(ast_expr_id(&d), ci);
                       });
@@ -1822,7 +1814,7 @@ _optimize_dup_drop_pairs :: (
 // The implicit-copy recorder: is the copied variable used again?
 // ---------------------------------------------------------------------------
 /// What `_ic_scan` found for one pending copy site.
-_ICScan :: ref(
+_ICScan :: (
   struct(
     /// A node at the site's position was visited.
     site_seen : bool,
@@ -1863,7 +1855,7 @@ _ic_sub_scan :: (fn(acc : &_ICScan) -> _ICScan)(
 );
 /// Fold a nested scan's reads into `acc` (whether its end ends `acc`'s path
 /// is the caller's call).
-_ic_merge :: (fn(acc : &_ICScan, sub : &_ICScan) -> unit)({
+_ic_merge :: (fn(acc : &mut _ICScan, sub : &_ICScan) -> unit)({
   acc.reads = (acc.reads + sub.reads);
   if(sub.site_seen, {
     acc.site_seen = true;
@@ -1877,7 +1869,7 @@ _ic_merge :: (fn(acc : &_ICScan, sub : &_ICScan) -> unit)({
 });
 /// Fold a nested scan's jumps out of the innermost loop into `acc`: a path
 /// that reached one is a path of `acc`'s region too.
-_ic_merge_jumps :: (fn(acc : &_ICScan, sub : &_ICScan) -> unit)({
+_ic_merge_jumps :: (fn(acc : &mut _ICScan, sub : &_ICScan) -> unit)({
   if(sub.broke, {
     acc.broke = true;
   });
@@ -1887,10 +1879,10 @@ _ic_merge_jumps :: (fn(acc : &_ICScan, sub : &_ICScan) -> unit)({
 });
 /// `tok` lies after the site on a path through it: the scan starts past the
 /// site, or `tok` follows it in the source.
-_ic_after_site :: (fn(tok : &Token, site : &ImplicitCopyPending, acc : &_ICScan) -> bool)(
+_ic_after_site :: (fn(tok : &Token, site : &ImplicitCopyPending, acc : &mut _ICScan) -> bool)(
   acc.post_site || ((tok.module_path.* == site.module_path) && (tok.byte_offset > site.byte_offset))
 );
-_ic_read :: (fn(tok : &Token, site : &ImplicitCopyPending, acc : &_ICScan) -> unit)({
+_ic_read :: (fn(tok : &Token, site : &ImplicitCopyPending, acc : &mut _ICScan) -> unit)({
   acc.reads = (acc.reads + usize(1));
   if(_ic_after_site(tok, site, acc), {
     acc.later = true;
@@ -1901,7 +1893,7 @@ _ic_read :: (fn(tok : &Token, site : &ImplicitCopyPending, acc : &_ICScan) -> un
 });
 /// A `break` or `continue` at `tok` (`is_break`: which): a path through the
 /// site that reaches it leaves the rest of the loop body.
-_ic_jump :: (fn(is_break : bool, tok : &Token, site : &ImplicitCopyPending, acc : &_ICScan) -> unit)({
+_ic_jump :: (fn(is_break : bool, tok : &Token, site : &ImplicitCopyPending, acc : &mut _ICScan) -> unit)({
   if(acc.site_seen || _ic_after_site(tok, site, acc), {
     if(is_break, {
       acc.broke = true;
@@ -1932,7 +1924,7 @@ _ic_while_runs_body :: (fn(args : &ArrayList(AstExpr)) -> bool)(
 /// from its start in `post_site` mode (step, condition, body): true when it
 /// reads the variable before a write or an exit ends every path, which
 /// includes reaching the site itself again.
-_ic_next_iteration_reads :: (fn(args : &ArrayList(AstExpr), v : &Variable, site : &ImplicitCopyPending, acc : &_ICScan, ctx : &EvalContext) -> bool)({
+_ic_next_iteration_reads :: (fn(args : &ArrayList(AstExpr), v : &Variable, site : &ImplicitCopyPending, acc : &mut _ICScan, ctx : &EvalContext) -> bool)({
   next := _ic_sub_scan(acc);
   next.post_site = true;
   order := ArrayList(AstExpr).new();
@@ -1951,7 +1943,7 @@ _ic_next_iteration_reads :: (fn(args : &ArrayList(AstExpr), v : &Variable, site 
   );
   (ni : usize) = usize(0);
   while((ni < order.len()) && !(next.later || next.done), ni = (ni + usize(1)), {
-    _ic_scan(&order(ni), v, site, &next, ctx);
+    _ic_scan(&order(ni), v, site, &mut next, ctx);
   });
   next.later
 });
@@ -1963,7 +1955,7 @@ _ic_next_iteration_reads :: (fn(args : &ArrayList(AstExpr), v : &Variable, site 
 /// again when a path through the site reaches the next iteration (`!done`, or
 /// a `continue`) and that iteration reads `v` before writing it. Follows
 /// `macro_expansion` as the dup collector does.
-_ic_scan :: (fn(e : &AstExpr, v : &Variable, site : &ImplicitCopyPending, acc : &_ICScan, ctx : &EvalContext) -> unit)({
+_ic_scan :: (fn(e : &AstExpr, v : &Variable, site : &ImplicitCopyPending, acc : &mut _ICScan, ctx : &EvalContext) -> unit)({
   if(acc.later || acc.done, {
     return(());
   });
@@ -2081,7 +2073,7 @@ _ic_scan :: (fn(e : &AstExpr, v : &Variable, site : &ImplicitCopyPending, acc : 
                 });
                 recur(&arm_head, v, site, acc, ctx);
                 body_scan := _ic_sub_scan(acc);
-                recur(&arm_body, v, site, &body_scan, ctx);
+                recur(&arm_body, v, site, &mut body_scan, ctx);
                 _ic_merge(acc, &body_scan);
                 _ic_merge_jumps(acc, &body_scan);
                 n_arms = (n_arms + usize(1));
@@ -2122,11 +2114,21 @@ _ic_scan :: (fn(e : &AstExpr, v : &Variable, site : &ImplicitCopyPending, acc : 
       // the site runs.
       is_exit := (ast_expr_is_fn_call_of(e, BK_RETURN, Option(usize).None) || ast_expr_is_fn_call_of(e, BF_UNWIND, Option(usize).None) || ast_expr_is_fn_call_of(e, "panic", Option(usize).None));
       is_while := ast_expr_is_fn_call_of(e, BK_WHILE, Option(usize).None);
-      scan := cond((is_while || is_exit) => _ic_sub_scan(acc), true => acc);
-      recur(&f, v, site, &scan, ctx);
+      // Any other call scans its callee and arguments into `acc` itself.
+      if(!(is_while || is_exit), {
+        recur(&f, v, site, acc, ctx);
+        (aj : usize) = usize(0);
+        while((aj < args.len()) && !(acc.later || acc.done), {
+          match(args.get(aj), .Some(a) => recur(&a, v, site, acc, ctx), .None => ());
+          aj = (aj + usize(1));
+        });
+        return(());
+      });
+      scan := _ic_sub_scan(acc);
+      recur(&f, v, site, &mut scan, ctx);
       (ai : usize) = usize(0);
       while((ai < args.len()) && !(scan.later || scan.done), {
-        match(args.get(ai), .Some(a) => recur(&a, v, site, &scan, ctx), .None => ());
+        match(args.get(ai), .Some(a) => recur(&a, v, site, &mut scan, ctx), .None => ());
         ai = (ai + usize(1));
       });
       if(is_exit, {
@@ -2190,7 +2192,7 @@ _audit_judge_implicit_copies :: (fn(frame : &Frame, begin_args : &ArrayList(AstE
                 acc.stop_at_write = migrate_rc_clone_on();
                 (ci : usize) = usize(0);
                 while((ci < begin_args.len()) && !acc.later, {
-                  match(begin_args.get(ci), .Some(c) => _ic_scan(&c, &v, &site, &acc, ctx), .None => ());
+                  match(begin_args.get(ci), .Some(c) => _ic_scan(&c, &v, &site, &mut acc, ctx), .None => ());
                   ci = (ci + usize(1));
                 });
                 if(acc.later, {
@@ -2234,7 +2236,7 @@ judge_dyn_copies :: (fn(frame : &Frame, scanned : &ArrayList(AstExpr), ctx : &Ev
                 acc.stop_at_write = true;
                 (ci : usize) = usize(0);
                 while((ci < scanned.len()) && !acc.later && !acc.done, ci = (ci + usize(1)), {
-                  match(scanned.get(ci), .Some(c) => _ic_scan(&c, &v, &p.site, &acc, ctx), .None => ());
+                  match(scanned.get(ci), .Some(c) => _ic_scan(&c, &v, &p.site, &mut acc, ctx), .None => ());
                 });
                 if(acc.later, {
                   raise_flow_violation(dyn_copy_used_again_error(&p, acc.later_tok), ctx, exn);
@@ -2293,7 +2295,7 @@ _migrate_judge_scrutinee_borrows :: (fn(frame : &Frame, begin_args : &ArrayList(
               );
               (ci : usize) = usize(0);
               while((ci < begin_args.len()) && !acc.later, {
-                match(begin_args.get(ci), .Some(c) => _ic_scan(&c, &v, &site, &acc, ctx), .None => ());
+                match(begin_args.get(ci), .Some(c) => _ic_scan(&c, &v, &site, &mut acc, ctx), .None => ());
                 ci = (ci + usize(1));
               });
               if(acc.later, {
