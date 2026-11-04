@@ -129,8 +129,8 @@ pragma(Pragma.AllowUnsafe);
 { get_func_type, is_fn_ctfe_clone, is_closure_fn, is_io_async_sm_closure } :: import("../function_value.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../types/compatibility.yo");
 { type_to_string, type_to_string_for_message } :: import("../types/string.yo");
-{ type_is_bitwise_copy, type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_holds_counted_handle, type_holds_counted_handle_ignoring_migration, set_counted_handle_rule, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow, is_bound_closure_identity, is_closure_capture_struct, resolve_cell_chain, is_future_value_type, is_bare_callable_into_dyn_fn, type_contains_some_type_deep, type_holds_dyn_by_value, dyn_type_lists_clone, fn_trait_call_func_type, type_carries_origin, type_is_typed_fnmut_closure, capture_struct_is_fnmut } :: import("../types/utils.yo");
-{ expr_info_table_set, migrate_match_scrutinee_on, record_migrate_edit, migrate_dyn_spelling_on, record_dyn_spelling_site, is_mut_global, is_thread_local, migrate_mutable_globals_on, record_mutable_global_site, migrate_mut_bindings_on, record_mut_binding_site, record_mut_binding_site_pending, record_mut_param_site, record_mut_param_site_pending, record_mut_judged, migrate_deref_on, audit_deref_on, deref_rule_suspended, record_deref_site, record_deref_edit_site } :: import("../expr_info.yo");
+{ type_is_bitwise_copy, type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_holds_counted_handle, type_holds_counted_handle_ignoring_migration, set_counted_handle_rule, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow, is_bound_closure_identity, is_closure_capture_struct, resolve_cell_chain, is_future_value_type, is_bare_callable_into_dyn_fn, type_contains_some_type_deep, type_holds_dyn_by_value, dyn_type_lists_clone, fn_trait_call_func_type, type_carries_origin, type_is_typed_fnmut_closure, capture_struct_is_fnmut, future_unreturnable_borrow, future_origin_names } :: import("../types/utils.yo");
+{ expr_info_table_set, migrate_match_scrutinee_on, record_migrate_edit, migrate_dyn_spelling_on, record_dyn_spelling_site, is_mut_global, is_thread_local, migrate_mutable_globals_on, record_mutable_global_site, migrate_mut_bindings_on, record_mut_binding_site, record_mut_binding_site_pending, record_mut_param_site, record_mut_param_site_pending, record_mut_judged, migrate_deref_on, audit_deref_on, deref_rule_suspended, record_deref_site, record_deref_edit_site, lookup_macro_expansion } :: import("../expr_info.yo");
 { is_global_mut_rule_exempt, is_deref_rule_exempt } :: import("./memory_safety.yo");
 // `set_expr_as_needs_to_call_dup` builds + evaluates a `___dup(name)` call.
 // `parser.yo` is upstream (no cycle); `exprs/expr.yo` is the cycle-free
@@ -1267,6 +1267,11 @@ _capture_borrow_note :: (fn(b : &CaptureBorrow) -> String)({
   if(b.assumed, {
     return(`the place lent to \`${b.label}\` (\`${sig}\` at ${b.site}: the call goes through a function value, whose future may keep what it is lent)`);
   });
+  // An entry read off a future's origin (decision 43 step 4): a place, with
+  // no capture site and no mode.
+  if(b.site.is_empty(), {
+    return(`\`${capture_borrow_place_string(b)}\` (a place in the future's origin)`);
+  });
   `\`${capture_borrow_place_string(b)}\` (the capture \`${b.label} : ${sig}${capture_borrow_place_string(b)}\` at ${b.site})`
 });
 /// The first token of `e` as written: the receiver of a `.` access or the
@@ -1637,43 +1642,30 @@ reject_second_class_return :: (fn(ty : &TypeValue, tok : &Token, env : &Environm
   if(!type_is_second_class(ty), {
     return(());
   });
+  // A borrowing future (decision 43 step 4, VERDICTS-18 §B) is returned
+  // under the return rule over its origin: `reject_composite_result_local_roots`
+  // rejects a local in it (E0912) where the result is written.
   if(is_future_value_type(ty), {
-    bs := ArrayList(CaptureBorrow).new();
-    collect_type_borrows(ty, &mut bs);
-    (all_params : bool) = true;
-    (bi : usize) = usize(0);
-    while(bi < bs.len(), bi = (bi + usize(1)), {
-      b := match(bs.get_cloned(bi), .Some(x) => x, .None => return(()));
-      // A `&T` parameter is copied into the future only through the body's
-      // own `{ &p }` entry; a borrowing closure the body captures points at
-      // the parameter's slot in the frame that returns.
-      if(b.through_value && b.root_is_value_param, {
-        raise_flow_violation(
-          with_code(
-            format_error_message_with_help(
-              tok,
-              `This future borrows the \`&\` parameter \`${b.root_name}\` through a closure it captures (${_capture_borrow_note(&b)}), so it cannot be returned: C passes \`${b.root_name}\` by value, in the frame that returns, and a returned future keeps its own copy of a \`&\` parameter only when its own capture list borrows it (plans/VALUES_BY_DEFAULT.md §3.13 A2).`,
-              Option(String).Some(`borrow the parameter in the \`io.async\` body's own capture list (\`io.async({ &${b.root_name} }(io : Io) => ...)\`) and read it there, or await the future inside this function`)
-            ),
-            E_BORROW_ESCAPES
+    // A `&T` parameter is copied into the future only through the body's
+    // own `{ &p }` entry; a borrowing closure the body captures points at
+    // the parameter's slot in the frame that returns.
+    match(
+      future_unreturnable_borrow(ty),
+      .Some(b) => raise_flow_violation(
+        with_code(
+          format_error_message_with_help(
+            tok,
+            `This future borrows the \`&\` parameter \`${b.root_name}\` through a closure it captures (${_capture_borrow_note(&b)}), so it cannot be returned: C passes \`${b.root_name}\` by value, in the frame that returns, and a returned future keeps its own copy of a \`&\` parameter only when its own capture list borrows it (plans/VALUES_BY_DEFAULT.md §3.13 A2).`,
+            Option(String).Some(`borrow the parameter in the \`io.async\` body's own capture list (\`io.async({ &${b.root_name} }(io : Io) => ...)\`) and read it there, or await the future inside this function`)
           ),
-          ctx,
-          exn
-        );
-        return(());
-      });
-      rooted := match(
-        _find_var_by_id(env, b.root_id),
-        .Some(root_at) => (variable_is_borrow_parameter(&root_at.0) || variable_is_future_operand_parameter(&root_at.0)),
-        .None => false
-      );
-      if(!rooted, {
-        all_params = false;
-      });
-    });
-    if(all_params, {
-      return(());
-    });
+          E_BORROW_ESCAPES
+        ),
+        ctx,
+        exn
+      ),
+      .None => ()
+    );
+    return(());
   });
   reject_second_class_escape(ty, String.from("returned"), tok, ctx, exn);
 });
@@ -1728,7 +1720,20 @@ derive(_CaptureFreeze, Clone);
 /// is second-class, check that every place it borrows outlives the holder
 /// (decision 38 A: a binding may not outlive any place its value borrows),
 /// and freeze those places for the holder's scope.
-note_second_class_binding :: (fn(holder : &Variable, ty : &TypeValue, tok : &Token, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
+note_second_class_binding :: (
+  fn(
+    holder : &Variable,
+    ty : &TypeValue,
+    tok : &Token,
+    env : &Environment,
+    ctx : &EvalContext,
+    exn : Exception,
+    /// The holder is a `:=` binding: a borrowing future bound there freezes
+    /// the places of its origin (`freeze_origin_carrying_binding`, decision
+    /// 43 step 4), so it is not rejected.
+    (bound_by_init : bool) ?= false
+  ) -> unit
+)({
   if(!type_is_second_class(ty), {
     return(());
   });
@@ -1754,6 +1759,11 @@ note_second_class_binding :: (fn(holder : &Variable, ty : &TypeValue, tok : &Tok
       );
       return(());
     });
+    // Decision 43 step 4 (VERDICTS-18 §B): a `:=` binding holds the future
+    // with the places of its origin frozen until its last use.
+    if(bound_by_init, {
+      return(());
+    });
     raise_flow_violation(
       with_code(
         format_error_message_with_help(
@@ -1772,6 +1782,12 @@ note_second_class_binding :: (fn(holder : &Variable, ty : &TypeValue, tok : &Tok
   (bi : usize) = usize(0);
   while(bi < bs.len(), {
     b := match(bs.get_cloned(bi), .Some(x) => x, .None => return(()));
+    // A place read off a borrowing future's origin (decision 43 step 4): the
+    // future's own binding freezes it.
+    if(b.site.is_empty(), {
+      bi = (bi + usize(1));
+      continue;
+    });
     outlives := match(
       _find_var_by_id(env, b.root_id),
       .Some(root_at) => match(
@@ -8007,6 +8023,89 @@ OriginRootPlace :: struct(
   is_mut : bool
 );
 derive(OriginRootPlace, Clone);
+/// One place a borrowing future holds, by the caller's name for it (decision
+/// 43 step 4, VERDICTS-18 §B): the root binding's name, the field hops, and
+/// the mode of the reference that put it into the future's origin (an
+/// `io.async` capture-list entry, or the `&`/`&mut` lend of the call that
+/// made the future). The origin itself carries no mode.
+FutureRoot :: struct(name : String, path : ArrayList(String), is_mut : bool);
+derive(FutureRoot, Clone);
+/// The places each future-producing expression holds (an `io.async` call,
+/// a call whose result is a borrowing future), keyed by node id: recorded
+/// where the future is made (`calls/function.yo`), read by the binding
+/// freeze and the return rule (`origin_carrying_value_roots`).
+(g_future_roots : RefCell(HashMap(usize, ArrayList(FutureRoot)))) = RefCell(HashMap(usize, ArrayList(FutureRoot))).new(HashMap(usize, ArrayList(FutureRoot)).new());
+note_future_roots :: (fn(id : usize, roots : &ArrayList(FutureRoot)) -> unit)({
+  v := roots.clone();
+  g_future_roots.with_mut({ v }(m) => {
+    _old := m.insert(id, v);
+  });
+});
+future_roots_of :: (fn(id : usize) -> Option(ArrayList(FutureRoot)))(g_future_roots.with(m => m.get_cloned(&id)));
+/// The places the borrowing future `e` holds, through any `cond`/`match`
+/// arm or block tail: a leaf made where it is written reads its recorded
+/// roots, and a name reads its holder's frozen places.
+_future_value_roots_into :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, out : &mut ArrayList(OriginRootPlace), depth : u32) -> unit)({
+  if(depth > u32(16), {
+    return(());
+  });
+  stripped := ast_expr_strip_borrow_marker(e);
+  match(
+    lookup_macro_expansion(ast_expr_id(&stripped)),
+    .Some(expanded) => {
+      _future_value_roots_into(&expanded, env, ctx, out, depth + u32(1));
+      return(());
+    },
+    .None => ()
+  );
+  match(
+    future_roots_of(ast_expr_id(&stripped)),
+    .Some(frs) => {
+      (fi : usize) = usize(0);
+      while(fi < frs.len(), fi = (fi + usize(1)), {
+        fr := frs(fi).clone();
+        match(
+          get_variables_from_env(env, fr.name.clone()).last(),
+          .Some(rv) => {
+            place := local_borrow_place_of_variable(&rv);
+            (pi : usize) = usize(0);
+            while(pi < fr.path.len(), pi = (pi + usize(1)), {
+              place.steps.push(fr.path(pi).clone());
+              place.text.push_str(".");
+              place.text.push_string(&fr.path(pi));
+            });
+            out.push(OriginRootPlace(place : place, is_mut : fr.is_mut));
+          },
+          .None => ()
+        );
+      });
+      return(());
+    },
+    .None => ()
+  );
+  cond(
+    ast_expr_is_atom(&stripped) => _holder_roots_into(&stripped, env, ctx, out),
+    (ast_expr_is_fn_call_of(&stripped, BK_COND, Option(usize).None) || ast_expr_is_fn_call_of(&stripped, BK_MATCH, Option(usize).None)) => match(
+      stripped,
+      .FnCall(_, _, Rc(b_args), _, _) => {
+        (ai : usize) = usize(0);
+        while(ai < b_args.len(), ai = (ai + usize(1)), {
+          arm := b_args(ai).clone();
+          if(ast_expr_is_fn_call_of(&arm, "=>", Option(usize).Some(usize(2))), {
+            match(arm, .FnCall(_, _, Rc(arm_args), _, _) => match(arm_args.get_cloned(usize(1)), .Some(v) => _future_value_roots_into(&v, env, ctx, out, depth + u32(1)), .None => ()), .Atom(_, _) => ());
+          });
+        });
+      },
+      .Atom(_, _) => ()
+    ),
+    ast_expr_is_fn_call_of(&stripped, BK_BEGIN, Option(usize).None) => match(
+      stripped,
+      .FnCall(_, _, Rc(s_args), _, _) => match(s_args.last(), .Some(tail) => _future_value_roots_into(&tail, env, ctx, out, depth + u32(1)), .None => ()),
+      .Atom(_, _) => ()
+    ),
+    true => ()
+  );
+});
 /// The ground places a value of an origin-carrying INLINE COMPOSITE (N2b)
 /// freezes: the places its producing call lent — every argument whose type
 /// is a reference (`&x`, `&mut xs`, a struct constructor's `&` field, a
@@ -8019,6 +8118,12 @@ derive(OriginRootPlace, Clone);
 origin_carrying_value_roots :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext) -> ArrayList(OriginRootPlace))({
   out := ArrayList(OriginRootPlace).new();
   stripped := ast_expr_strip_borrow_marker(e);
+  // A borrowing future (decision 43 step 4): the places recorded where it
+  // was made, with the mode of the reference that lent each one.
+  if(match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&stripped)), .Some(fi) => is_future_value_type(&fi.ty), .None => false), {
+    _future_value_roots_into(&stripped, env, ctx, &mut out, u32(0));
+    return(out);
+  });
   if(ast_expr_is_atom(&stripped), {
     _holder_roots_into(&stripped, env, ctx, &mut out);
     return(out);
@@ -8258,6 +8363,7 @@ reject_composite_result_local_roots :: (fn(e : &AstExpr, env : &Environment, ctx
     .None => ()
   );
 });
+export(FutureRoot, note_future_roots, future_roots_of);
 export(projection_call_mode_of, ProjectionRootArg, projection_call_root_args, projection_call_callee_type, OriginRootPlace, origin_carrying_value_roots, freeze_origin_carrying_binding, reject_composite_result_local_roots);
 export(record_pending_scrutinee_borrow, take_pending_scrutinee_borrows, PendingScrutineeBorrow, note_migrate_mut_scrutinee, migrate_mut_scrutinee_at, clear_migrate_mut_scrutinees, drop_owned_match_binding_at_arm_end, match_scrutinee_is_capture, local_borrow_register_match_place, local_borrow_note_match_place, note_consuming_match_scrutinee, consuming_match_scrutinee_at, moved_value_help, migrate_borrowed_match_at, _lb_arrow_shadows, _lb_fn_literal_binds, _lb_mentions);
 export(
