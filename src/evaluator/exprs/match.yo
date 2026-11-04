@@ -97,7 +97,7 @@ pragma(Pragma.AllowUnsafe);
 { type_to_string } :: import("../../types/string.yo");
 { format_error_message, format_error_message_with_help, warning_diagnostic_of_token } :: import("../../error.yo");
 { emit_warning } :: import("../../diagnostics.yo");
-{ owning_param_binding_beside, move_through_sink_shadow } :: import("../utils.yo");
+{ owning_param_binding_beside, move_through_sink_shadow, note_ref_payload_source, origin_carrying_value_roots } :: import("../utils.yo");
 { merge_and_check_envs, reject_mixed_closure_arms, consume_case_body_temp_var, attach_temp_variable_to_expr, adopt_never_type, reset_sibling_flow_state, keep_last_arm_moves, audit_pending_copies_enabled, dyn_copy_pending_exists, dyn_copy_rule_applies, note_dyn_copy_pending, audit_note_match_binding, migrate_rc_clone_on, migrate_rc_clone_borrow_scrutinee, note_migrate_mut_scrutinee, LocalBorrowInfo, local_borrows_active, local_borrow_scrutinee_source, local_borrow_note_pattern_binding, note_second_class_binding, reject_malformed_pattern_mut_markers, reject_malformed_mut_marker, place_require_mut, reject_write_through_rc, _lb_arrow_shadows, _lb_fn_literal_binds, _lb_mentions, record_pending_scrutinee_borrow } :: import("../utils.yo");
 { throw_if_mut_lend_through_atomic_object } :: import("./assignment.yo");
 { set_expr_as_consumed, deref_exempt_mark, deref_exempt_clear, variable_is_reference_binding, deref_rule_applies, reject_reference_without_deref, drop_owned_match_binding_at_arm_end, match_scrutinee_is_capture, local_borrow_register_match_place, local_borrow_note_match_place, note_consuming_match_scrutinee, LocalBorrowPlace, LocalBorrowAccess, local_borrow_place_of, local_borrow_access, local_borrow_require_writable, variable_is_mut_borrow, variable_is_imm_borrow, local_borrow_info_of_variable, deref_operand_is_raw_pointer } :: import("../utils.yo");
@@ -1618,10 +1618,24 @@ evaluate_match :: (
       match(
         pc.binds.get(bi),
         .Some(b) => {
+          // A payload whose type is a reference (`.Some(r)` over an
+          // `Option(&T)`, decision 43 step 3) binds a REFERENCE BINDING, as
+          // `r := &x` and a `-> &T` projection's result do: the name has the
+          // pointee's type and its C slot holds the pointer (`is_ref`), so
+          // `r.f`, `r.m()`, `r.*` and a lend of `r` read through it. A `&`
+          // payload is read-only (`is_imm_borrow`, a `r : &T` parameter's
+          // flag).
+          // A `mut` match's place binding of a reference payload stays the
+          // payload slot itself (re-pointing it is decision 25's).
+          (ref_payload : Option(bool)) = cond(
+            (ct_known || mut_places) => Option(bool).None,
+            true => match(&b.ty, Rc(.Reference(_, rp_mut, _)) => Option(bool).Some(rp_mut), _ => Option(bool).None)
+          );
+          bind_ty := match(&ref_payload, .Some(_) => t_slot_pointee(&b.ty), .None => Rc.clone(b.ty));
           _added := add_variable_to_env(
             &env,
             b.name.clone(),
-            &b.ty,
+            &bind_ty,
             cond(ct_known => b.value, true => Option(EvalValue).None),
             ct_known,
             false,
@@ -1629,7 +1643,24 @@ evaluate_match :: (
             false,
             ast_expr_token(&b.atom)
           );
-          expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&b.atom), new_expr_info(&env, &b.ty));
+          match(
+            ref_payload,
+            .Some(rp_is_mut) => match(
+              _added,
+              .Some(rp_var) => {
+                rp_var.is_ref = true;
+                rp_var.is_imm_borrow = !rp_is_mut;
+                // A writable reference binding is the reassignable `is_ref`
+                // one (`r := &mut x`); a `&` one is not (a write through it
+                // is E0908).
+                rp_var.is_reassignable = rp_is_mut;
+                note_ref_payload_source(rp_var.id, &scrutinee_expr);
+              },
+              .None => ()
+            ),
+            .None => ()
+          );
+          expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&b.atom), new_expr_info(&env, &bind_ty));
           scope_release_note_binding(ast_expr_id(&b.atom), &env, b.name.clone());
           // A `mut(name)` pattern binding may be reassigned (decision 47).
           b_tok := ast_expr_token(&b.atom);
@@ -1724,6 +1755,22 @@ evaluate_match :: (
           match(
             &imm_place,
             .Some(ip) => local_borrow_register_match_place(b.name.clone(), ast_expr_token(&b.atom), &ip, &body_ast, false),
+            .None => ()
+          );
+          // A reference payload binding points where the scrutinee's
+          // references do (decision 43 step 3, O3 step 2): those places are
+          // frozen — exclusively for a `&mut` payload — while it is live in
+          // the arm, as a `r := &x` borrow freezes `x`.
+          match(
+            ref_payload,
+            .Some(rf_is_mut) => {
+              rf_roots := origin_carrying_value_roots(&scrutinee_expr, &env, ctx);
+              (rfi : usize) = usize(0);
+              while(rfi < rf_roots.len(), {
+                local_borrow_register_match_place(b.name.clone(), ast_expr_token(&b.atom), &rf_roots(rfi).place, &body_ast, rf_is_mut);
+                rfi = (rfi + usize(1));
+              });
+            },
             .None => ()
           );
           // Below a cell a binding borrows whatever the mode (decision 26).

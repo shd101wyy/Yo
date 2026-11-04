@@ -140,7 +140,8 @@ pragma(Pragma.AllowUnsafe);
   variable_is_reference_binding,
   deref_rule_applies,
   deref_rule_recording,
-  reject_reference_without_deref
+  reject_reference_without_deref,
+  ref_payload_source
 } :: import("../utils.yo");
 { parse_raw_int, debug_knob } :: import("../../utils.yo");
 { eprintln } :: import("std/fmt");
@@ -504,12 +505,18 @@ _check_capture_borrow_write :: (fn(lhs : &AstExpr, tok : &Token, env : &Environm
           with_code(
             format_error_message_with_help(
               tok,
-              if(
-                rv.is_parameter,
-                `Cannot write through \`${rv.name}\`: it is a \`&T\` parameter, a read-only borrow of the caller's place.`,
-                `Cannot write through \`${rv.name}\`: it is a \`&\` capture, a read-only borrow of the place the closure was given.`
+              cond(
+                rv.is_parameter => `Cannot write through \`${rv.name}\`: it is a \`&T\` parameter, a read-only borrow of the caller's place.`,
+                ref_payload_source(rv.id).is_some() => `Cannot write through \`${rv.name}\`: it binds a \`&T\` payload, a read-only borrow of the place the reference names.`,
+                true => `Cannot write through \`${rv.name}\`: it is a \`&\` capture, a read-only borrow of the place the closure was given.`
               ),
-              Option(String).Some(if(rv.is_parameter, `declare it \`${rv.name} : &mut T\` to write the caller's place`, `capture it \`${rv.name} : &mut ...\` to write the place (a non-escaping closure only), or write a local copy`))
+              Option(String).Some(
+                cond(
+                  rv.is_parameter => `declare it \`${rv.name} : &mut T\` to write the caller's place`,
+                  ref_payload_source(rv.id).is_some() => String.from("produce a `&mut T` payload to write the place, or write a local copy"),
+                  true => `capture it \`${rv.name} : &mut ...\` to write the place (a non-escaping closure only), or write a local copy`
+                )
+              )
             ),
             E_WRITE_THROUGH_BORROW
           ),

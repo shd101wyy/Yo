@@ -43,3 +43,19 @@ When codegen stores the result of a `c_include`d function into a temporary or a 
 Until then, a project that binds such functions adds `-Wno-incompatible-pointer-types-discards-qualifiers` to its executable's C flags (tetris_yo's `build.yo` does).
 
 A test belongs in `tests/` once the fix lands: the reproducer above, compiled with clang, run, and its output checked.
+
+## Fix
+
+Fixed on branch `fix/c-include-const-result`. Codegen reads the call of a `c_include`d function whose result is a data pointer `*(T)` (or a nullable `?*(T)`, laid out as that pointer) as its declared type, through a const-qualified compound literal (`src/codegen/exprs/other_fn_call.yo`, `_c_pointer_result_as_declared`):
+
+```c
+char* tmp = ((char*)(char const*){ gai_strerror(-2) });
+```
+
+A plain cast, as recommended above, would also turn a real mismatch into silence: a binding that says `-> *(i32)` for a function returning `const char *` would compile. The compound literal is initialized like a `const T *`, so it accepts a `T *` or a `const T *` and nothing else; a mismatched pointee stays a C error under clang and gcc (`initializing 'const int *' with an expression of type 'const char *'`). The outer cast then drops only the qualifier. The cast covers every use of the value (a temporary, a local, a `return`, an argument), because it is part of the call expression.
+
+Only `c_include`d functions are cast: a plain `extern("c")` function is declared from its Yo type, so its prototype already matches. A pointer whose C spelling is not its pointee's followed by `*` is left as it is.
+
+Not covered: taking such a function as a function-pointer value. The header's `const char *(*)(int)` and the binding's `char *(*)(int)` are different function types, and nothing in this fix changes that.
+
+Test: `tests/c_include_const_result.test.yo` with the fixture `tests/c_include_const_result.h`. The fixture's pragmas make a discarded qualifier an error under gcc as well as clang, so the test fails before the fix on either compiler. Before the fix there were 6 errors: a local, an argument, a return, a `uint8_t` pointee and a nullable result.
