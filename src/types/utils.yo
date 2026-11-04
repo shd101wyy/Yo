@@ -566,7 +566,7 @@ future_unreturnable_borrow :: (fn(ty : &TypeValue) -> Option(CaptureBorrow))({
     match(
       &cur,
       Rc(.SomeT({ id : fu_id, resolution : fu_res })) => {
-        match(g_unreturnable_futures.with(m => m.get_cloned(fu_id)), .Some(b) => return(Option(CaptureBorrow).Some(b)), .None => ());
+        match(g_unreturnable_futures.with(m => m.get_cloned(&fu_id)), .Some(b) => return(Option(CaptureBorrow).Some(b)), .None => ());
         match(fu_res, .Some(r) => {
           cur = Rc.clone(r);
         }, .None => return(Option(CaptureBorrow).None));

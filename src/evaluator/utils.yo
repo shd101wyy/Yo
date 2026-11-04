@@ -182,6 +182,11 @@ pragma(Pragma.AllowUnsafe);
 /// (`make_deref_expr`, N1e-1), by id: every other `*` of a `.*` was written,
 /// in the source or in a batch the test runner printed from it.
 (g_synthesized_deref_stars : RefCell(HashSet(usize))) = RefCell(HashSet(usize)).new(HashSet(usize).new());
+/// The places each future-producing expression holds (an `io.async` call,
+/// a call whose result is a borrowing future), keyed by node id: recorded
+/// where the future is made (`calls/function.yo`), read by the binding
+/// freeze and the return rule (`origin_carrying_value_roots`).
+(g_future_roots : RefCell(HashMap(usize, ArrayList(FutureRoot)))) = RefCell(HashMap(usize, ArrayList(FutureRoot))).new(HashMap(usize, ArrayList(FutureRoot)).new());
 /// The block statements after a borrow binding, for its live range: set by
 /// `evaluate_begin_expression` just before it evaluates the binding.
 // A RefCell, not a mut binding: the staged list is move-only since the
@@ -8078,11 +8083,6 @@ derive(OriginRootPlace, Clone);
 /// made the future). The origin itself carries no mode.
 FutureRoot :: struct(name : String, path : ArrayList(String), is_mut : bool);
 derive(FutureRoot, Clone);
-/// The places each future-producing expression holds (an `io.async` call,
-/// a call whose result is a borrowing future), keyed by node id: recorded
-/// where the future is made (`calls/function.yo`), read by the binding
-/// freeze and the return rule (`origin_carrying_value_roots`).
-(g_future_roots : RefCell(HashMap(usize, ArrayList(FutureRoot)))) = RefCell(HashMap(usize, ArrayList(FutureRoot))).new(HashMap(usize, ArrayList(FutureRoot)).new());
 note_future_roots :: (fn(id : usize, roots : &ArrayList(FutureRoot)) -> unit)({
   v := roots.clone();
   g_future_roots.with_mut({ v }(m) => {
