@@ -84,7 +84,7 @@ _reports_dump :: (fn(reports : &ArrayList(VerifyFnReport)) -> String)({
   (mut(i) : usize) = usize(0);
   while(i < reports.len(), {
     match(
-      reports.get(i),
+      reports.get_cloned(i),
       .Some(rp) => {
         ids.push(`${rp.fn_id}=${rp.outcome} [${rp.subset_construct}: ${rp.subset_source}]`);
       },
@@ -113,7 +113,7 @@ test("match + enum datatypes verify (binding, bare-variant, construction)", {
   (mut(i) : usize) = usize(0);
   while(i < reports.len(), {
     rp := match(
-      reports.get(i),
+      reports.get_cloned(i),
       .Some(r) => r,
       .None => {
         assert(false, "report missing");
@@ -173,23 +173,15 @@ test("the SMT encoding of a match query declares the datatype (solver-free)", {
   assert(res.error.is_none(), `no subset error expected for the match fixture`);
   assert(res.obligations.len() > usize(0), "the ensures obligation exists");
   (mut(dt_count) : usize) = usize(0);
-  (mut(oi) : usize) = usize(0);
-  while(oi < res.obligations.len(), {
-    match(
-      res.obligations.get(oi),
-      .Some(obl) => {
+  for(&res.obligations, obl => {
         (mut(di) : usize) = usize(0);
         while(di < obl.query.datatypes.len(), {
           dt_count = (dt_count + usize(1));
           di = (di + usize(1));
         });
-      },
-      .None => ()
-    );
-    oi = (oi + usize(1));
-  });
+      });
   assert(dt_count > usize(0), "the query carries the enum's datatype declaration");
-  script := encode_script(res.obligations.get(usize(0)).unwrap().query, default_encode_options());
+  script := encode_script(&res.obligations(usize(0)).query, default_encode_options());
   assert(script.contains(String.from("declare-datatypes")), "the emitted SMT declares the datatype");
   assert(script.contains(String.from("is-")), "the emitted SMT carries the match testers");
 });
@@ -243,7 +235,7 @@ test("the match walk has its arms under check's settings (codegen-only tables of
       )
     );
     match(
-      res.error,
+      &res.error,
       .Some(se) => {
         assert(false, `${t.fn_id}: subset error under check's settings: ${se.construct}`);
       },

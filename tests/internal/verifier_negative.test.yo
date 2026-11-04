@@ -104,7 +104,7 @@ _count_outcome :: (fn(reports : &ArrayList(VerifyFnReport), want : &String) -> u
   (mut(i) : usize) = usize(0);
   while(i < reports.len(), {
     match(
-      reports.get(i),
+      reports.get_cloned(i),
       .Some(rp) => if(rp.outcome == want.*, {
         n = (n + usize(1));
       }),
@@ -120,7 +120,7 @@ _first_outcome :: (fn(reports : &ArrayList(VerifyFnReport), want : &String, what
   (mut(i) : usize) = usize(0);
   while(i < reports.len(), {
     match(
-      reports.get(i),
+      reports.get_cloned(i),
       .Some(rp) => if((rp.outcome == want.*) && found.is_none(), {
         found = Option(VerifyFnReport).Some(rp);
       }),
@@ -136,7 +136,7 @@ _first_outcome :: (fn(reports : &ArrayList(VerifyFnReport), want : &String, what
       (mut(j) : usize) = usize(0);
       while(j < reports.len(), {
         match(
-          reports.get(j),
+          reports.get_cloned(j),
           .Some(dr) => {
             ids.push(`${dr.fn_id}=${dr.outcome} [${dr.subset_construct}: ${dr.subset_source}]`);
           },
@@ -145,7 +145,7 @@ _first_outcome :: (fn(reports : &ArrayList(VerifyFnReport), want : &String, what
         j = (j + usize(1));
       });
       assert(false, `expected a '${want}' report (${what}), got: [${_join(&ids, String.from(", "))}]`);
-      reports.get(usize(0)).unwrap()
+      reports.get_cloned(usize(0)).unwrap()
     }
   )
 });
@@ -156,7 +156,7 @@ _refuted_with :: (fn(rp : &VerifyFnReport, name_prefix : &String, needle : &Stri
   (mut(i) : usize) = usize(0);
   while(i < rp.obligations.len(), {
     match(
-      rp.obligations.get(i),
+      rp.obligations.get_cloned(i),
       .Some(obl) => {
         name_ok := obl.name.contains(name_prefix.clone());
         match(
@@ -201,7 +201,7 @@ test("subset error: while loop outside the V3 verifiable subset (no solver neede
   (mut(di) : usize) = usize(0);
   while(di < reports.len(), {
     match(
-      reports.get(di),
+      reports.get_cloned(di),
       .Some(dr) => {
         ids.push(`${dr.fn_id}=${dr.outcome} [${dr.subset_construct}]`);
       },
@@ -252,14 +252,10 @@ test("positive battery: every function in verify_straight_line proves", {
   (mut(bi) : usize) = usize(0);
   while(bi < reports.len(), {
     match(
-      reports.get(bi),
+      reports.get_cloned(bi),
       .Some(br) => {
         ids.push(`${br.fn_id}=${br.outcome}`);
-        (mut(oj) : usize) = usize(0);
-        while(oj < br.obligations.len(), {
-          match(
-            br.obligations.get(oj),
-            .Some(obl) => {
+        for(&br.obligations, obl => {
               match(
                 &obl.verdict,
                 .Refuted(ce) => {
@@ -267,11 +263,7 @@ test("positive battery: every function in verify_straight_line proves", {
                 },
                 _ => ()
               );
-            },
-            .None => ()
-          );
-          oj = (oj + usize(1));
-        });
+            });
       },
       .None => ()
     );
@@ -289,7 +281,7 @@ test("positive battery: every function in verify_straight_line proves", {
 _fn_report_named :: (fn(reports : &ArrayList(VerifyFnReport), fn_suffix : &String) -> Option(VerifyFnReport))({
   (mut(i) : usize) = usize(0);
   while(i < reports.len(), {
-    rp := reports(i);
+    rp := reports(i).clone();
     if(rp.fn_id.ends_with(fn_suffix.clone()), {
       return(Option(VerifyFnReport).Some(rp));
     });
@@ -330,7 +322,7 @@ test("obligation names are unique and guard obligations carry their site", {
       (mut(rows) : ArrayList(usize)) = ArrayList(usize).new();
       (mut(i) : usize) = usize(0);
       while(i < rp.obligations.len(), {
-        obl := rp.obligations(i);
+        obl := rp.obligations(i).clone();
         if(obl.name.contains("divisor-nonzero"), {
           match(
             &obl.site,
@@ -360,7 +352,7 @@ test("obligation names are unique and guard obligations carry their site", {
       (mut(ri) : usize) = usize(0);
       (mut(n_req) : usize) = usize(0);
       while(ri < rp2.obligations.len(), {
-        o2 := rp2.obligations(ri);
+        o2 := rp2.obligations(ri).clone();
         if(o2.name.contains("requires#0"), {
           n_req = (n_req + usize(1));
           assert(o2.site.is_none(), "a contract obligation has no guard site");

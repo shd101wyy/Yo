@@ -111,7 +111,7 @@ test("SuspensionCapturedVariable self-referential field (Option(Self))", {
   assert(has_alias, "outer has alias");
 });
 test("SuspensionAnalysisResult can hold suspension points", {
-  r := suspension_analysis_result_empty();
+  mut(r) := suspension_analysis_result_empty();
   sp := SuspensionPoint(
     index : usize(0),
     expr : make_atom_expr("await_call"),
@@ -130,7 +130,7 @@ test("SuspensionAnalysisResult can hold suspension points", {
   assert(r.suspension_points.len() == usize(1), "one suspension point");
 });
 test("SuspensionAnalysisResult variable_id_remapping", {
-  r := suspension_analysis_result_empty();
+  mut(r) := suspension_analysis_result_empty();
   r.variable_id_remapping.insert(String.from("old_v0"), String.from("new_v0"));
   got := r.variable_id_remapping.get_cloned(&String.from("old_v0"));
   result := match(got, .Some(v) => v, .None => String.from(""));

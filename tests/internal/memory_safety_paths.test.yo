@@ -117,9 +117,8 @@ fs_file :: import("std/fs/file");
 _class1_status :: (fn(found : &ArrayList(Class1Extraction), receiver : str, method : str) -> String)({
   (mut(i) : usize) = usize(0);
   while(i < found.len(), {
-    c := found(i);
-    if((c.receiver == receiver) && (c.method == method), {
-      return(c.status.clone());
+    if((found(i).receiver == receiver) && (found(i).method == method), {
+      return(found(i).status.clone());
     });
     i = (i + usize(1));
   });
@@ -178,14 +177,11 @@ test("class-1 scan: every trapping Option/Result extraction in the prelude is ga
   mut(found) := ArrayList(Class1Extraction).new();
   scan_class1_extractions(String.from("std/prelude.yo"), &src, &mut found);
   (mut(ungated) : usize) = usize(0);
-  (mut(i) : usize) = usize(0);
-  while(i < found.len(), {
-    c := found(i);
+  for(&found, c => {
     if(c.status == "UNGATED", {
       println(`  UNGATED: ${c.receiver}.${c.method} (std/prelude.yo:${c.line})`);
       ungated = (ungated + usize(1));
     });
-    i = (i + usize(1));
   });
   assert(ungated == usize(0), "a trapping Option/Result extraction is missing from is_class1_panic_method_name (see above)");
   // The scan must SEE the known methods, or a zero above is vacuous.

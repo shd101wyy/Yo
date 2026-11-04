@@ -122,7 +122,7 @@ _count_outcome :: (fn(reports : &ArrayList(VerifyFnReport), want : &String) -> u
   (mut(i) : usize) = usize(0);
   while(i < reports.len(), {
     match(
-      reports.get(i),
+      reports.get_cloned(i),
       .Some(rp) => if(rp.outcome == want.*, {
         n = (n + usize(1));
       }),
@@ -138,7 +138,7 @@ _first_law :: (fn(reports : &ArrayList(VerifyFnReport)) -> Option(VerifyFnReport
   (mut(i) : usize) = usize(0);
   while(i < reports.len(), {
     match(
-      reports.get(i),
+      reports.get_cloned(i),
       .Some(rp) => if(rp.fn_id.contains(String.from("law@")) && found.is_none(), {
         found = Option(VerifyFnReport).Some(rp);
       }),
@@ -233,7 +233,7 @@ test("contracts: an ensures that calls an IMPORTED contracted fn proves", {
   (mut(i) : usize) = usize(0);
   while(i < reports.len(), {
     match(
-      reports.get(i),
+      reports.get_cloned(i),
       .Some(rp) => if(rp.fn_id.contains(String.from("ensures_imported_callee.yo")), {
         seen = true;
         assert(rp.outcome == "ok", `plus_abs must prove, got '${rp.outcome}': ${rp.subset_construct}`);
@@ -253,7 +253,7 @@ test("contracts: a callee fact in the right operand of && is kept", {
   (mut(i) : usize) = usize(0);
   while(i < reports.len(), {
     match(
-      reports.get(i),
+      reports.get_cloned(i),
       .Some(rp) => if(rp.fn_id.contains(String.from("ensures_call_in_and.yo")), {
         seen = (seen + usize(1));
         assert(rp.outcome == "ok", `${rp.fn_id} must prove, got '${rp.outcome}'`);
@@ -277,7 +277,7 @@ test("law: a false law REFUTES with a counter-example", {
       (mut(i) : usize) = usize(0);
       while(i < rp.obligations.len(), {
         match(
-          rp.obligations.get(i),
+          rp.obligations.get_cloned(i),
           .Some(obl) => match(
             &obl.verdict,
             .Refuted(ce) => {
