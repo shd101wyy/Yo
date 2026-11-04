@@ -1544,10 +1544,19 @@ _generate_runtime_enum_construct :: (
             while(i < n, {
               fty := match(vftys.get(i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
               if(!is_unit_type(&fty), {
-                fcode_v := match(rt_args.get(i), .Some(a) => sequence_operand(&a, emit_deferred_dup_or_code(&a, _call_generate_expr(&a, indent.clone(), context), indent.clone(), context), rt_args, i, false, indent, context), .None => String.from(""));
                 // A reference payload (decision 43 step 3) takes a lend: the
-                // argument is the place, the C field its address.
-                fcode := if(t_slot_is_borrow(&fty), `(&(${fcode_v}))`, fcode_v);
+                // argument is the place, the C field its address, which a
+                // later operand cannot invalidate (no temporary: a copy of
+                // the place would be what the address named).
+                f_is_ref := t_slot_is_borrow(&fty);
+                fcode := match(
+                  rt_args.get(i),
+                  .Some(a) => {
+                    f_code := emit_deferred_dup_or_code(&a, _call_generate_expr(&a, indent.clone(), context), indent.clone(), context);
+                    sequence_operand(&a, if(f_is_ref, `(&(${f_code}))`, f_code), rt_args, i, f_is_ref, indent, context)
+                  },
+                  .None => String.from("")
+                );
                 if(any_field, {
                   inits.push_str(", ");
                   positional.push_str(", ");
