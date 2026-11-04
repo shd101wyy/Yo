@@ -1,0 +1,67 @@
+// issues/fixed/2026-11-04-the-verifier-walks-past-a-panic-so-a-diverging-path-refutes-or-is-ill-sorted.md:
+// a path that reaches `panic` never returns, so `ensures` is owed only on
+// the paths that do. Every function here verifies. Before the fix the walk
+// gave `panic` the value `true` and kept going: k2, kb, kn and kd were
+// refuted with a counter-example that takes the panic path, and k3 and km
+// were solver errors (an ite mixing `(_ BitVec 32)` and `Bool`).
+pragma(Pragma.Verify);
+{ panic } :: import("std/assert");
+
+Dir :: enum(Up, Down);
+
+// Statement position: the panic arm is the only path where x <= 0.
+k2 :: (fn(x : i32, ensures(r > i32(0))) -> (r : i32))({
+  if(x <= i32(0), {
+    panic("reachable");
+  });
+  x
+});
+
+// Value position, i32-sorted sibling arm.
+k3 :: (fn(x : i32, ensures(r > i32(0))) -> (r : i32))(
+  cond(
+    (x > i32(0)) => x,
+    true => panic("neg")
+  )
+);
+
+// Value position, bool-sorted sibling arm.
+kb :: (fn(x : i32, ensures(r == false)) -> (r : bool))(
+  cond(
+    (x > i32(0)) => panic("pos"),
+    true => false
+  )
+);
+
+// A match whose final arm panics, in value position.
+km :: (fn(d : Dir, x : i32, requires(x > i32(0)), ensures(r > i32(0))) -> (r : i32))(
+  match(
+    d,
+    .Up => x,
+    .Down => panic("down")
+  )
+);
+
+// Nested: the inner panic cuts only the path through the outer arm, and the
+// outer else arm panics too, so only x > 0 && y > 0 returns.
+kn :: (fn(x : i32, y : i32, ensures(r > i32(0))) -> (r : i32))({
+  if(x > i32(0), {
+    if(y <= i32(0), {
+      panic("y");
+    });
+  }, {
+    panic("x");
+  });
+  y
+});
+
+// Every arm panics: no path returns, so the `ensures` is owed nowhere.
+kd :: (fn(x : i32, ensures(r == i32(1))) -> (r : i32))({
+  if(x > i32(0), {
+    panic("pos");
+  }, {
+    panic("nonpos");
+  });
+  x
+});
+export(k2, k3, kb, km, kn, kd);

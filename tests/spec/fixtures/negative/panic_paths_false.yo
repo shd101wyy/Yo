@@ -1,0 +1,44 @@
+// The bugged twins of tests/spec/fixtures/valid/panic_paths.yo: a `panic`
+// cuts only the path that reaches it, so a path that returns past it still
+// owes the `ensures`. Every function here must refute.
+pragma(Pragma.Verify);
+{ panic } :: import("std/assert");
+
+Dir :: enum(Up, Down);
+
+// x == 0 skips the panic and returns 0.
+b2 :: (fn(x : i32, ensures(r > i32(0))) -> (r : i32))({
+  if(x < i32(0), {
+    panic("neg");
+  });
+  x
+});
+
+// x == 0 takes the live arm and returns 0.
+b3 :: (fn(x : i32, ensures(r > i32(0))) -> (r : i32))(
+  cond(
+    (x >= i32(0)) => x,
+    true => panic("neg")
+  )
+);
+
+// .Up returns x, unconstrained.
+bm :: (fn(d : Dir, x : i32, ensures(r > i32(0))) -> (r : i32))(
+  match(
+    d,
+    .Up => x,
+    .Down => panic("down")
+  )
+);
+
+// The inner panic says nothing about the path where x <= 0: x == 0 and
+// y == 0 return 0.
+bn :: (fn(x : i32, y : i32, ensures(r > i32(0))) -> (r : i32))({
+  if(x > i32(0), {
+    if(y <= i32(0), {
+      panic("y");
+    });
+  });
+  y
+});
+export(b2, b3, bm, bn);

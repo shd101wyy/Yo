@@ -2742,7 +2742,8 @@ _match_phi_merge :: (fn(ctx : &mut VcCtx, ph : &_MatchPhi) -> unit)({
       taken := _match_arm_taken(ph, gk);
       (fi : usize) = usize(0);
       while(fi < fs2.len(), {
-        ctx.path.push(_app2(VcOp.ImpOp, &taken, fs2.get_cloned(fi).unwrap()));
+        gf := _guarded_fact(ctx, &taken, fs2.get_cloned(fi).unwrap());
+        ctx.path.push(gf);
         fi = (fi + usize(1));
       });
     });
@@ -3089,12 +3090,33 @@ _pop_guard_keep_facts :: (fn(ctx : &mut VcCtx, mark : usize) -> unit)({
   });
   (fj : usize) = usize(0);
   while(fj < facts.len(), {
-    ctx.path.push(_app2(VcOp.ImpOp, &guard, facts.get_cloned(fj).unwrap()));
+    gf := _guarded_fact(ctx, &guard, facts.get_cloned(fj).unwrap());
+    ctx.path.push(gf);
     fj = (fj + usize(1));
   });
   if(diverged, {
     ctx.path.push(_app1(VcOp.NotOp, &guard));
   });
+});
+/// `guard ==> fact` for a fact a branch's walk learned, kept on the path
+/// after the branch. An unenforced fact (`VcCtx.unenforced`) stays
+/// unenforced under its guard: the elision check matches path entries by
+/// their encoding, and the wrapped term would otherwise pass it.
+_guarded_fact :: (fn(ctx : &mut VcCtx, guard : &VcTerm, fact : &VcTerm) -> VcTerm)({
+  wrapped := _app2(VcOp.ImpOp, guard, fact);
+  if(ctx.unenforced.len() > usize(0), {
+    key := encode_term(fact);
+    (ui : usize) = usize(0);
+    (found : bool) = false;
+    while((ui < ctx.unenforced.len()) && !found, {
+      found = (encode_term(&ctx.unenforced.get_cloned(ui).unwrap()) == key);
+      ui = (ui + usize(1));
+    });
+    if(found, {
+      ctx.unenforced.push(Rc.clone(wrapped));
+    });
+  });
+  wrapped
 });
 /// Conjoin a non-empty term list with AndOp (single terms pass through).
 _and_terms :: (fn(ts : &ArrayList(VcTerm)) -> VcTerm)({
@@ -5587,13 +5609,14 @@ _unwind_path_guards :: (fn(ctx : &mut VcCtx, base : usize, guard_count : usize) 
     r = (r - usize(1));
     match(
       keep.get_cloned(r),
-      .Some(t) => ctx.path.push(
-        match(
+      .Some(t) => {
+        kt := match(
           &guard,
-          .Some(gt) => _app2(VcOp.ImpOp, gt, &t),
+          .Some(gt) => _guarded_fact(ctx, &gt, &t),
           .None => t
-        )
-      ),
+        );
+        ctx.path.push(kt);
+      },
       .None => ()
     );
   });
