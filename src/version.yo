@@ -165,7 +165,7 @@ read_yo_version :: (
     exn : Exception
   ) -> Impl(Future(Option(String), IoExn))
 )(
-  io.async((e : IoExn) => {
+  io.async({ &start_dir }(e : IoExn) => {
     path_opt := e.io.await(find_yo_version_file(start_dir, e.io), e.io);
     match(
       path_opt,
