@@ -400,7 +400,7 @@ remove_dir_all :: (fn(path : &Path, io : Io) -> Impl(Future(unit, IoExn)))({
   path_owned := path.clone();
   io.async((e : IoExn) => {
     opts := WalkOptions(max_depth : .None, follow_symlinks : false, include_dirs : true, pattern : .None);
-    entries := e.io.await(walk_with(path_owned, &opts, e.io), e);
+    entries := e.io.await(walk_with(&path_owned, &opts, e.io), e);
     mut(n) := entries.len();
     // Delete deepest entries first (reverse order from walk output).
     while(n > usize(0), {
@@ -420,7 +420,7 @@ remove_dir_all :: (fn(path : &Path, io : Io) -> Impl(Future(unit, IoExn)))({
           )
       );
     });
-    e.io.await(remove_dir(path_owned, e.io), e);
+    e.io.await(remove_dir(&path_owned, e.io), e);
   })
 });
 /// `remove_dir_all` (`str` path variant).

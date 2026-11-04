@@ -437,7 +437,7 @@ impl(
 read_to_string :: (fn(path : &Path, io : Io) -> Impl(Future(String, IoExn)))({
   path_owned := path.clone();
   io.async(e => {
-    file := e.io.await(File.open(path_owned, .Read, io), e);
+    file := e.io.await(File.open(&path_owned, .Read, io), e);
     content := e.io.await(file.read_to_string(io), e);
     e.io.await(file.close(io), e);
     return(content);
@@ -455,7 +455,7 @@ read_to_string_cstr :: (fn(path : *u8, io : Io) -> Impl(Future(String, IoExn)))(
 read :: (fn(path : &Path, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))({
   path_owned := path.clone();
   io.async(e => {
-    file := e.io.await(File.open(path_owned, .Read, io), e);
+    file := e.io.await(File.open(&path_owned, .Read, io), e);
     content := e.io.await(file.read_to_end(io), e);
     e.io.await(file.close(io), e);
     return(content);
@@ -471,9 +471,10 @@ read_cstr :: (fn(path : *u8, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))(
 );
 /// Write a `String` to a file, creating or truncating it.
 write_string :: (fn(path : &Path, data : &String, io : Io) -> Impl(Future(unit, IoExn)))({
+  path_owned := path.clone();
   data_owned := data.clone();
   io.async(e => {
-    file := e.io.await(File.open(path, .Write, io), e);
+    file := e.io.await(File.open(&path_owned, .Write, io), e);
     e.io.await(file.write_string(&data_owned, io), e);
     e.io.await(file.close(io), e);
   })
@@ -488,18 +489,20 @@ write_string_cstr :: (fn(path : *u8, data : str, io : Io) -> Impl(Future(unit, I
 );
 /// Write bytes to a file, creating or truncating it.
 write :: (fn(path : &Path, data : &ArrayList(u8), io : Io) -> Impl(Future(unit, IoExn)))({
+  path_owned := path.clone();
   data_owned := data.clone();
   io.async(e => {
-    file := e.io.await(File.open(path, .Write, io), e);
+    file := e.io.await(File.open(&path_owned, .Write, io), e);
     e.io.await(file.write_bytes(&data_owned, io), e);
     e.io.await(file.close(io), e);
   })
 });
 /// Append a `String` to a file, creating it if it does not exist.
 append_file :: (fn(path : &Path, data : &String, io : Io) -> Impl(Future(unit, IoExn)))({
+  path_owned := path.clone();
   data_owned := data.clone();
   io.async(e => {
-    file := e.io.await(File.open(path, .Append, io), e);
+    file := e.io.await(File.open(&path_owned, .Append, io), e);
     e.io.await(file.write_string(&data_owned, io), e);
     e.io.await(file.close(io), e);
   })
@@ -592,10 +595,10 @@ copy :: (fn(from : &Path, to : &Path, io : Io) -> Impl(Future(u64, IoExn)))({
   from_owned := from.clone();
   to_owned := to.clone();
   io.async(e => {
-    bytes := e.io.await(read(from_owned, e.io), e);
-    e.io.await(write(to_owned, &bytes, e.io), e);
-    md := e.io.await(metadata(from_owned, e.io), e);
-    e.io.await(set_permissions(to_owned, FilePermission(mode : (md.mode() & u32(4095))), e.io), e);
+    bytes := e.io.await(read(&from_owned, e.io), e);
+    e.io.await(write(&to_owned, &bytes, e.io), e);
+    md := e.io.await(metadata(&from_owned, e.io), e);
+    e.io.await(set_permissions(&to_owned, FilePermission(mode : (md.mode() & u32(4095))), e.io), e);
     u64(bytes.len())
   })
 });
