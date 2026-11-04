@@ -29,6 +29,7 @@
 { _call_generate_expr, call_projection_mode } :: import("./_expr.yo");
 { emit_effect_unwind_check, generate_call_deferred_drops } :: import("./return.yo");
 { generate_thread_spawn_call, generate_worker_spawn_call } :: import("./parallelism.yo");
+{ get_c_include_for_extern } :: import("../../evaluator/exprs/c_include.yo");
 { assert, panic } :: import("std/assert");
 /// Monotonic counter for ref-spill temporaries (`__yo_ref_spill_N`). Must be
 /// unique per generated C function body, not per call's arg index — two
@@ -488,6 +489,31 @@ _is_inside_object_method :: (fn(context : &FunctionGenerationContext) -> bool)(
 _current_self_param_is_ref :: (fn(context : &FunctionGenerationContext) -> bool)(
   match(&context.current_function_type, .Some(ft) => match(ft, Rc(.Func({ result : _ })) => match(fn_param_mut_ref_at(&ft, usize(0)), .Some(b) => b, .None => false), _ => false), .None => false)
 );
+/// The call `call` of a `c_include`d function whose result `r` is a data
+/// pointer `T*` (or a nullable `?*T`, laid out as that pointer), read as its
+/// declared type: `((T*)(T const*){ call })`. Yo has no const pointer, so a
+/// binding spells a C `const T*` result as `*(T)`, and a `T*` temporary,
+/// local, return or argument initialized from it drops the qualifier, which
+/// clang's `-Werror=incompatible-pointer-types` rejects. The compound literal
+/// accepts exactly what a `const T*` accepts (a `T*` or a `const T*`), so a
+/// result whose pointee differs from the binding's stays a C error; the cast
+/// then drops only the `const`
+/// (issues/fixed/2026-11-05-a-c-include-function-returning-a-const-pointer-fails-the-clang-build.md).
+/// A pointer whose C spelling is not its pointee's followed by `*` is left as
+/// it is.
+_c_pointer_result_as_declared :: (fn(r : &TypeValue, call : String, context : &FunctionGenerationContext) -> String)({
+  ptr := match(
+    r,
+    Rc(.Pointer(_)) => Rc.clone(r),
+    _ => match(can_optimize_as_nullable_pointer(r), .Some(p) => p, .None => return(call))
+  );
+  pointee := match(&ptr, Rc(.Pointer(inner)) => Rc.clone(inner), _ => return(call));
+  pointee_str := get_type_string(&pointee, &context.base);
+  cond(
+    (get_type_string(&ptr, &context.base) == `${pointee_str}*`) => `((${get_type_string(r, &context.base)})(${pointee_str} const*){ ${call} })`,
+    true => call
+  )
+});
 /// Auto-emit `__yo_borrow_assert_unborrowed((void*)self)` before a realloc/free
 /// inside an RC-managed object method.
 _maybe_emit_auto_borrow_assert :: (fn(extern_func_name : &String, indent : &String, context : &FunctionGenerationContext) -> unit)(
@@ -2900,6 +2926,10 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
       r := t_slot_pointee(&r_slot6);
       ie := __fm6.*.is_extern.clone();
       en := __fm6.*.extern_name.clone();
+      // A `c_include`d function's prototype is the header's, so its result
+      // can be a `const T*` the binding spells `*(T)`; a plain `extern("c")`
+      // function is declared from its Yo type and needs no cast.
+      is_c := match(&ie, .Some(lang) => (lang == "c"), .None => false);
       // extern "yo" AND extern "c" both lower to a direct `<extern_name>(<args>)`
       // C call (no per-arg cast). For extern "c" the symbol is a C library
       // function (e.g. `exit`, `fwrite`); the unsafe(...) gate is enforced in the
@@ -2932,6 +2962,9 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
           out.push_str("(");
           out.push_string(args_list.clone());
           out.push_str(")");
+          if(is_c && get_c_include_for_extern(&name).is_some(), {
+            out = _c_pointer_result_as_declared(&r, out, context);
+          });
           // An RC result the evaluator gave an owning temp (an I/O future
           // from `__yo_async_*_start`) is declared under that temp, as the
           // ordinary call path does: its scope-end drop is skipped for a temp
