@@ -26,7 +26,7 @@ println("plain str is also fine");
 | -------------- | -------------------------------------------- | -------------------------------------- |
 | `str`          | `"hello"` in runtime contexts                | View of STATIC bytes, no constraints   |
 | `String`       | Template strings `` `hello` ``               | Owned UTF-8, `clone()` copies the bytes |
-| `comptime_str` | `"hello"` inside `comptime` functions/macros | Compile-time only, distinct from `str` |
+| `comptime_str` | `"hello"` inside `comptime` functions | Compile-time only, distinct from `str` |
 
 Key rules:
 
@@ -148,7 +148,7 @@ mut(counts) := HashMap(String, i32).new();
 counts.insert(`yo`, i32(1));
 
 // From a fixed-size array (Rust's `Vec::from([..])`): the array is consumed and
-// its elements move in. There are no collection literal macros.
+// its elements move in. There are no collection literals.
 primes := ArrayList(i32).from([i32(2), i32(3), i32(5)]);
 ages := HashMap(String, i32).from([(`ann`, i32(31)), (`bo`, i32(27))]);
 tags := HashSet(String).from([`a`, `b`]);

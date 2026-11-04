@@ -161,7 +161,7 @@ Yo 追求**简洁**与**高效**（性能约为 C 语言的 0% - 15% 以内）�
   - [使用引用语义类型进行测试](#使用引用语义类型进行测试)
   - [测试文件](#测试文件)
 - [元编程](#元编程)
-  - [宏函数](#宏函数)
+  - [没有宏层](#没有宏层)
 - [派生特征（Derive Traits）](#派生特征derive-traits)
   - [内置派生](#内置派生)
   - [用户自定义派生规则（`derive_rule`）](#用户自定义派生规则derive_rule)
@@ -415,7 +415,7 @@ begin(
 - `comptime_float`（编译期已知的浮点类型）
 - `comptime_str`（编译期已知的字符串类型）
 - `ComptimeList`（编译期已知的列表类型）
-- `Expr`（编译期已知的表达式类型，用于宏和编译期求值）
+- `Expr`（编译期已知的表达式类型：引用的代码，供编译期函数、派生规则和编译期求值使用）
 
 #### C 兼容类型：
 
@@ -1744,38 +1744,24 @@ use_cond :: (fn(x : i32) -> unit)(
 
 `if(condition, then, else)`
 
-`if` 是 `cond` 的语法糖：编译器在解析阶段将每个 `if(...)` 调用脱糖为
-`cond(condition => then, true => else)`，因此后续所有编译阶段（包括
-async 状态机）看到的是真正的 `cond` 节点。prelude 中仍保留等价的宏定义，
-作为语义规范以及动态构造 AST 的回退路径（参见 `std/prelude.yo` 与
-`plans/reference/MACRO_POLICY.md`）：
+`if` 是内建形式，是 `cond` 的语法糖：编译器在解析阶段将每个 `if(...)` 调用
+脱糖为 `cond(condition => then, true => else)`，因此后续所有编译阶段（包括
+async 状态机）看到的是真正的 `cond` 节点。`else` 分支可省略，默认为 `()`。
 
-```yo ignore
-// prelude.yo 中的定义（规范/回退 —— 正常情况下在解析阶段脱糖）
-if :: (fn(
-        quote(condition): Expr,
-        quote(then): Expr,
-        (quote(else): Expr) ?= quote(())
-      ) -> unquote(Expr))(
-  quote(
-    cond(
-      unquote(condition) => unquote(then),
-      true => unquote(else)
-    )
-  )
-);
-
-// 使用
+```yo
 main :: (fn() -> unit)({
   // 如果没有返回类型，则为 unit
   number := 3;
 
-  if number < 5, then: {
-    println("condition was true");
-  },
-  else: {
-    println("condition was false");
-  };
+  if(
+    number < 5,
+    then : {
+      println("condition was true");
+    },
+    else : {
+      println("condition was false");
+    }
+  );
 
   if(number < 5, println("condition was true"), println("condition was false"));
 });
@@ -1852,7 +1838,7 @@ IntoIterator :: trait(
 );
 ```
 
-`for` 宏提供了迭代的语法糖。它在循环中调用 `.next()` 并对 `Option` 进行模式匹配：
+`for` 是用于迭代的内建形式：解析器把它脱糖为一个调用 `.next()` 并对 `Option` 进行模式匹配的循环。其他形状的 `for(...)` 调用（缺少处理器，或处理器不是 `x => body`）是 E0011：
 
 ```yo
 // for 循环语法
@@ -1861,7 +1847,7 @@ for(iter_expr, variable => {
 });
 ```
 
-`for` 宏**按值**迭代 —— `for(coll, (x) => body)` 展开为 `coll.into_iter()` 后接标准的 `next()` 循环。`into_iter` 按值接收集合，所以值形式会**消耗** `coll`：迭代器拥有它。循环之后还要读取的集合，用下文的 `for(&coll, x => body)` 就地遍历，或迭代一份副本 `for(coll.clone(), x => body)`。其他持有源的迭代器同理：`String` 的 `chars()`、`bytes()`、`char_indices()` 与 `lines()`，映射的 `keys()` 与 `values()`，列表的 `chunks(n)` 与 `windows(n)`。`String` 与 `ArrayList` 是值类型（`plans/VALUES_BY_DEFAULT.md` B8），因此之后再使用被循环消耗的那一个是 E0901；其他集合在各自的步骤（B9–B11）之前仍是共享句柄，按值传递只是共享。集合的 `iter()` 产出指向其存储的裸指针，持有的是存储而非集合本身：它只用于 `pragma(Pragma.AllowUnsafe)` 代码，且集合必须比遍历活得更久。对引用语义元素类型（`ref(struct(...))`），`x` 是指向元素的句柄，在循环体中变异 `x` 即就地变异元素。值类型的元素是借用的：通过 `x` 写入其中的引用计数数据（`String` 元素、结构体元素的 `String` 字段）是 E0908。值类型元素的就地变异使用下文的借用形式 `for(&mut coll, x => body)`，或索引循环 + 索引写：
+`for` 循环**按值**迭代 —— `for(coll, (x) => body)` 展开为 `coll.into_iter()` 后接标准的 `next()` 循环。`into_iter` 按值接收集合，所以值形式会**消耗** `coll`：迭代器拥有它。循环之后还要读取的集合，用下文的 `for(&coll, x => body)` 就地遍历，或迭代一份副本 `for(coll.clone(), x => body)`。其他持有源的迭代器同理：`String` 的 `chars()`、`bytes()`、`char_indices()` 与 `lines()`，映射的 `keys()` 与 `values()`，列表的 `chunks(n)` 与 `windows(n)`。`String` 与 `ArrayList` 是值类型（`plans/VALUES_BY_DEFAULT.md` B8），因此之后再使用被循环消耗的那一个是 E0901；其他集合在各自的步骤（B9–B11）之前仍是共享句柄，按值传递只是共享。集合的 `iter()` 产出指向其存储的裸指针，持有的是存储而非集合本身：它只用于 `pragma(Pragma.AllowUnsafe)` 代码，且集合必须比遍历活得更久。对引用语义元素类型（`ref(struct(...))`），`x` 是指向元素的句柄，在循环体中变异 `x` 即就地变异元素。值类型的元素是借用的：通过 `x` 写入其中的引用计数数据（`String` 元素、结构体元素的 `String` 字段）是 E0908。值类型元素的就地变异使用下文的借用形式 `for(&mut coll, x => body)`，或索引循环 + 索引写：
 
 ```yo
 // 值形式 — 每个 `x` 按值产出。
@@ -4342,65 +4328,34 @@ list2 :: quote((1, x, 3)); // 元组 (1, x, 3)
 quote((0, unquote_splicing(list.get_args()), 4)); // 元组 (0, 1, 2, 3, 4)
 ```
 
-### 宏函数
+### 没有宏层
 
-宏函数使用 `quote` 和 `unquote` 进行代码生成。宏就是带有两个签名标记之一
-（或两者）的普通 comptime 函数：`quote(name) : Expr` 参数（调用方的原始
-AST 不经求值直接绑定）和 `-> unquote(Expr)` 返回类型（返回的 AST 拼接回
-调用点）。实际示例请参阅 `std/prelude.yo`，例如 `if` 宏。
+Yo 没有用户自定义宏（`plans/backlog/MACRO_AND_ISO_REMOVAL.md`）。它的扩展机制是
+编译期函数、类型层以及上文的 quote/反射层：
 
-- `quote(...)` : 引用一个表达式
-- `unquote(...)` : 在引用的表达式中取消引用
-- `gensym(...)` : 生成唯一符号
+- `if(...)` 和 `for(...)` 是由解析器脱糖的内建形式。
+- 编译期函数以 `Expr` 值接收并返回引用的代码：
+  `fn(comptime(e) : Expr) -> comptime(Expr)`。`quote`、`unquote`、
+  `unquote_splicing`、`gensym` 以及 `__yo_expr_*` 反射内建函数都作用于这些值。
+- 派生规则（下文的 `derive_rule`）拼接它返回的 `impl(...)` 条目；它不能拼接
+  语句或表达式。
 
-`unquote` 只能在 `quote` 内部使用。
-
-**定义宏需要在文件顶部声明 `pragma(Pragma.AllowMacroDef);`** —— 与指针
-操作的 `Pragma.AllowUnsafe` 一样，定义宏是按文件粒度的显式选择（宏不
-卫生、且会向调用方拼接代码，因此定义能力受门控；参见
-`plans/reference/MACRO_POLICY.md`）。*调用*宏（`if`、`for`、集合字面量）不需要该
-pragma；在 comptime 函数中操作引用的 `Expr` 值（`derive_rule` 使用的机
-制）同样不需要。
+声明宏的签名 —— `quote(p) : Expr` 参数（或带引用的可变参数）或
+`-> unquote(Expr)` 返回类型 —— 是 E0010。
 
 ```yo
-pragma(Pragma.AllowMacroDef);
-
-// 自定义宏示例 —— 惰性求值 body 的 `unless`
-unless :: (fn(quote(condition) : Expr, quote(do) : Expr) -> unquote(Expr))(
-  quote(
-    cond(unquote(condition) => (), true => unquote(do))
-  )
+// 一个作用于引用代码的编译期函数，而不是宏。
+twice :: (fn(comptime(e) : Expr) -> comptime(Expr))(
+  quote(unquote(e) + unquote(e))
 );
-```
-
-prelude 的 `if` 宏是标准示例（当前编译器在解析阶段将 `if(...)` 调用脱糖
-为 `cond(...)`，该定义作为规范/回退保留）：
-
-```yo
-if :: (
-  fn(
-    quote(condition) : Expr,
-    quote(then) : Expr,
-    (quote(else) : Expr) ?= quote(())
-  ) -> unquote(Expr)
-)(
-  quote(
-    cond(
-      unquote(condition) => unquote(then),
-      true => unquote(else)
-    )
-  )
-);
-
-// 用法
-if(true, {
-  println("true");
+main :: (fn() -> unit)({
+  comptime_assert(twice(quote(x)) == quote(x + x));
 });
+export(main);
 ```
 
 > std 的 `try` 宏已移除（它隐藏了调用方栈帧内的 `return`，且在概念上与
-> 代数效应系统冲突）。请改用对 `Result` 的 `match`。用户自定义宏也正在被移除
-> （`plans/backlog/MACRO_AND_ISO_REMOVAL.md`），因此不要在本地把它重新定义为宏。
+> 代数效应系统冲突）。请改用对 `Result` 的 `match`。
 
 ## 派生特征（Derive Traits）
 
@@ -4427,10 +4382,10 @@ export(main);
 
 ### 用户自定义派生规则（`derive_rule`）
 
-特征作者可以使用 `derive_rule` 注册自定义派生规则。派生规则**不是宏** ——
-它是返回 `comptime(Expr)` 的普通 comptime 函数，用 `quote`/`unquote` 构
-造 `impl` 块，由 `derive` 内建函数显式求值（因此不需要
-`Pragma.AllowMacroDef`）：
+特征作者可以使用 `derive_rule` 注册自定义派生规则。派生规则是返回
+`comptime(Expr)` 的普通 comptime 函数，用 `quote`/`unquote` 构造 `impl` 块，
+由 `derive` 内建函数在派生所在模块中求值。结果必须是 `impl(...)` 条目（用
+`ctx.make_impl` 构造）：其他结果都会被拒绝，因此派生规则不能向调用方拼接语句或表达式：
 
 ```yo
 MyEq :: (fn(comptime(Rhs) : Type) -> comptime(Trait))(

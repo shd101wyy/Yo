@@ -161,7 +161,7 @@ Our goal is to be a practical language that is easy to use and easy to learn.
   - [Testing with Reference-Semantics Types](#testing-with-reference-semantics-types)
   - [Test Files](#test-files)
 - [Meta-programming](#meta-programming)
-  - [Macro functions](#macro-functions)
+  - [No macro layer](#no-macro-layer)
 - [Derive Traits](#derive-traits)
   - [Built-in derives](#built-in-derives)
   - [User-defined derive rules with `derive_rule`](#user-defined-derive-rules-with-derive_rule)
@@ -428,7 +428,7 @@ A type can have the following **Kind**:
 - `comptime_float` (compile-time known float type)
 - `comptime_str` (compile-time known string type)
 - `ComptimeList` (compile-time known list type)
-- `Expr` (compile-time known expression type, used for macros and compile-time evaluation)
+- `Expr` (compile-time known expression type: quoted code, used by comptime functions, derive rules and compile-time evaluation)
 
 #### C compatible types:
 
@@ -1803,31 +1803,12 @@ use_cond :: (fn(x : i32) -> unit)(
 
 `if(condition, then, else)`
 
-`if` is sugar for `cond`: the compiler desugars every `if(...)` call to
-`cond(condition => then, true => else)` at parse time, so downstream
-passes (including the async state machine) see a real `cond` node. The
-prelude still carries the equivalent macro definition as the
-specification and as a fallback for dynamically constructed ASTs (see
-`std/prelude.yo` and `plans/reference/MACRO_POLICY.md`):
+`if` is a builtin form, sugar for `cond`: the compiler desugars every
+`if(...)` call to `cond(condition => then, true => else)` at parse time, so
+downstream passes (including the async state machine) see a real `cond`
+node. The `else` branch is optional and defaults to `()`.
 
 ```yo
-// Definition in prelude.yo (spec/fallback — normally desugared at parse time)
-if :: (
-  fn(
-    quote(condition) : Expr,
-    quote(then) : Expr,
-    (quote(else) : Expr) ?= quote(())
-  ) -> unquote(Expr)
-)(
-  quote(
-    cond(
-      unquote(condition) => unquote(then),
-      true => unquote(else)
-    )
-  )
-);
-
-// Usage
 main :: (fn() -> unit)({
   // If no return type, it is unit
   number := 3;
@@ -1917,7 +1898,7 @@ IntoIterator :: trait(
 );
 ```
 
-The `for` macro provides syntactic sugar for iterating. It calls `.next()` in a loop and pattern-matches on `Option`:
+`for` is a builtin form for iterating: the parser desugars it to a loop that calls `.next()` and pattern-matches on `Option`. A `for(...)` call of any other shape (no handle, a handle that is not `x => body`) is E0011:
 
 ```yo
 // for loop syntax
@@ -1926,7 +1907,7 @@ for(iter_expr, variable => {
 });
 ```
 
-The `for` macro iterates **by value** — `for(coll, (x) => body)` lowers to `coll.into_iter()` followed by a standard `next()`-loop. `into_iter` takes the collection by value, so the value form **consumes** `coll`: the iterator owns it. A collection that is read again after the loop is walked in place with `for(&coll, x => body)` (below), or iterated as a copy, `for(coll.clone(), x => body)`. The same holds for the other iterators that hold their source: `chars()`, `bytes()`, `char_indices()` and `lines()` on a `String`, `keys()` and `values()` on a map, `chunks(n)` and `windows(n)` on a list. `String` and `ArrayList` are values (`plans/VALUES_BY_DEFAULT.md` B8), so a later use of one the loop consumed is E0901; the other collections are still shared handles until their own steps (B9–B11), and passing one by value shares it. A collection's `iter()` yields raw pointers into its storage and holds the storage, not the collection: it is for `pragma(Pragma.AllowUnsafe)` code, and the collection must outlive the walk. For reference-semantics element types (`ref(struct(...))`), `x` is a handle to the element, so mutating `x` in the body mutates the element in place. A value element is borrowed: writing its reference-counted data through `x` (a `String` element, a struct element's `String` field) is E0908. In-place mutation of value elements uses the borrow form `for(&mut coll, x => body)` below, or an index loop with index writes:
+The `for` loop iterates **by value** — `for(coll, (x) => body)` lowers to `coll.into_iter()` followed by a standard `next()`-loop. `into_iter` takes the collection by value, so the value form **consumes** `coll`: the iterator owns it. A collection that is read again after the loop is walked in place with `for(&coll, x => body)` (below), or iterated as a copy, `for(coll.clone(), x => body)`. The same holds for the other iterators that hold their source: `chars()`, `bytes()`, `char_indices()` and `lines()` on a `String`, `keys()` and `values()` on a map, `chunks(n)` and `windows(n)` on a list. `String` and `ArrayList` are values (`plans/VALUES_BY_DEFAULT.md` B8), so a later use of one the loop consumed is E0901; the other collections are still shared handles until their own steps (B9–B11), and passing one by value shares it. A collection's `iter()` yields raw pointers into its storage and holds the storage, not the collection: it is for `pragma(Pragma.AllowUnsafe)` code, and the collection must outlive the walk. For reference-semantics element types (`ref(struct(...))`), `x` is a handle to the element, so mutating `x` in the body mutates the element in place. A value element is borrowed: writing its reference-counted data through `x` (a `String` element, a struct element's `String` field) is E0908. In-place mutation of value elements uses the borrow form `for(&mut coll, x => body)` below, or an index loop with index writes:
 
 ```yo
 // Value form — each `x` is yielded by value.
@@ -4592,71 +4573,37 @@ list2 :: quote((1, x, 3)); // tuple (1, x, 3)
 quote((0, unquote_splicing(list.get_args()), 4)); // tuple (0, 1, 2, 3, 4)
 ```
 
-### Macro functions
+### No macro layer
 
-Macro functions use `quote` and `unquote` for code generation. A macro is
-an ordinary comptime function with one or both of two signature flags: a
-`quote(name) : Expr` parameter (the caller's raw AST is bound without
-being evaluated) and an `-> unquote(Expr)` return type (the returned AST
-is spliced into the call site). See `std/prelude.yo` for real examples
-like the `if` macro.
+Yo has no user-defined macros (`plans/backlog/MACRO_AND_ISO_REMOVAL.md`).
+Its extension mechanisms are comptime functions, the type layer and the
+quote/reflection layer above:
 
-- `quote(...)` : Quote an expression
-- `unquote(...)` : Unquote within a quoted expression
-- `gensym(...)` : Generate unique symbol
+- `if(...)` and `for(...)` are builtin forms the parser desugars.
+- A comptime function takes and returns quoted code as `Expr` values:
+  `fn(comptime(e) : Expr) -> comptime(Expr)`. `quote`, `unquote`,
+  `unquote_splicing`, `gensym` and the `__yo_expr_*` reflection builtins
+  work on those values.
+- A derive rule (`derive_rule`, below) splices the `impl(...)` items it
+  returns; it cannot splice a statement or an expression.
 
-`unquote` can only be used within `quote`.
-
-**Defining a macro requires `pragma(Pragma.AllowMacroDef);`** at the top
-of the file — like `Pragma.AllowUnsafe` for pointer ops, macro definition
-is a per-file opt-in (macros are unhygienic and splice code into their
-callers, so the ability to define them is gated; see
-`plans/reference/MACRO_POLICY.md`). *Calling* macros (`if`, `for`, collection
-literals) never needs the pragma, and neither does working with quoted
-`Expr` values in comptime functions (the mechanism `derive_rule` uses).
+A signature that declares a macro, a `quote(p) : Expr` parameter (or a
+quoted variadic) or an `-> unquote(Expr)` result, is E0010.
 
 ```yo
-pragma(Pragma.AllowMacroDef);
-
-// Custom macro example — a lazy-body `unless`
-unless :: (fn(quote(condition) : Expr, quote(do) : Expr) -> unquote(Expr))(
-  quote(
-    cond(unquote(condition) => (), true => unquote(do))
-  )
+// A comptime function over quoted code, not a macro.
+twice :: (fn(comptime(e) : Expr) -> comptime(Expr))(
+  quote(unquote(e) + unquote(e))
 );
-```
-
-The prelude's `if` macro is the canonical example (current compilers
-desugar `if(...)` calls to `cond(...)` at parse time, keeping this
-definition as the spec/fallback):
-
-```yo
-if :: (
-  fn(
-    quote(condition) : Expr,
-    quote(then) : Expr,
-    (quote(else) : Expr) ?= quote(())
-  ) -> unquote(Expr)
-)(
-  quote(
-    cond(
-      unquote(condition) => unquote(then),
-      true => unquote(else)
-    )
-  )
-);
-
-// Usage
-if(true, {
-  println("true");
+main :: (fn() -> unit)({
+  comptime_assert(twice(quote(x)) == quote(x + x));
 });
+export(main);
 ```
 
 > The std `try` macro was removed (it hid a caller-frame `return` and
 > collided conceptually with algebraic effects). Match on the `Result`
-> instead. User-defined macros are being removed as well
-> (`plans/backlog/MACRO_AND_ISO_REMOVAL.md`), so do not re-create it as a
-> local macro.
+> instead.
 
 ## Derive Traits
 
@@ -4682,7 +4629,7 @@ export(main);
 
 ### User-defined derive rules with `derive_rule`
 
-Trait authors can register custom derive rules using `derive_rule`. A derive rule is **not a macro** — it is a regular comptime function returning `comptime(Expr)` that builds the `impl` block with `quote`/`unquote`; the `derive` builtin evaluates the returned Expr explicitly (so no `Pragma.AllowMacroDef` is needed):
+Trait authors can register custom derive rules using `derive_rule`. A derive rule is a regular comptime function returning `comptime(Expr)` that builds the `impl` block with `quote`/`unquote`; the `derive` builtin evaluates the returned Expr in the deriving module. The result must be an `impl(...)` item (build it with `ctx.make_impl`): any other result is rejected, so a derive rule cannot splice statements or expressions into the caller:
 
 ```yo
 MyEq :: (fn(comptime(Rhs) : Type) -> comptime(Trait))(

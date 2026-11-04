@@ -5,7 +5,7 @@ the VBD campaign (see "Schedule" at the end). **Part A pulled forward to
 v0.2.68 (maintainer, 2026-10-21)**: see "Part A moves to v0.2.68" in §0.2. This is the decision record and
 campaign for two maintainer decisions of 2026-10-20, both approved:
 
-1. **Delete the macro layer.** Reverses `plans/reference/MACRO_POLICY.md`
+1. **Delete the macro layer.** Reverses `plans/archive/MACRO_POLICY.md` (then `plans/reference/`)
    (2026-08-21, "keep, gate, shrink the expansion tax").
 2. **Delete the builtin `Iso(T)` and `^v`.** Supersedes the `Iso` carve-outs in
    `plans/VALUES_BY_DEFAULT.md` §3.6/§3.8 (:631, :695) and the "Iso stays —

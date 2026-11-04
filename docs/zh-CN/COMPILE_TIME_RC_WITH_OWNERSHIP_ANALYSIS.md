@@ -373,8 +373,9 @@ x := match(
   会把变量标记进 `vars_with_partial_branch_dups`，配对被保留 —— 被执行的分支上有 dup，所有
   路径上都有作用域末尾的 drop；
 - 每个分支都有 dup 时按分支各计一次，运行时 dup 计数大于 1 同样保留配对；
-- 沿 `ExprInfo.macro_expansion` 递归，而不是宏调用的原始参数 —— `if(...)` 在 AST 中保留宏调用
-  头，只有记录下来的 `cond` 展开才暴露分支结构。沿原始参数递归会把分支内的 dup 当作
+- 对被降级的节点沿其 `ExprInfo.lowered_to`（内建降级通道）递归，而不是它的原始参数 ——
+  只有记录下来的降级结果才暴露其结构（在 `if` 成为解析期脱糖之前，`if` 宏的 `cond`
+  展开就是如此）。沿原始参数递归会把分支内的 dup 当作
   无条件 dup 并错误地取消它 —— 在所有跳过该分支的路径上各泄漏一个引用
   （`issues/fixed/where-constraints-arraylist-96b-leak.md`，2026-08-06 修复）；
 - 绝不跨 `while` 循环体优化（循环体内的 dup 执行 N 次，作用域末尾的 drop 只执行一次）；

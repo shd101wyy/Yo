@@ -188,7 +188,7 @@ for(&mut scores, (k, v) => {
 }); // maps: key read-only, value borrowed
 ```
 
-The macro takes a local borrow `c := &mut coll` for the whole loop and walks
+The loop takes a local borrow `c := &mut coll` for its whole extent and walks
 a cursor over it (the `BorrowedWalk` trait: a position that holds no handle
 to the collection; plus `BorrowedWalkMut`'s `walk_elem` projection), binding each element as a
 `&mut` local into the collection's own storage

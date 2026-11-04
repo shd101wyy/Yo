@@ -33,7 +33,7 @@ comptime — does that limit Yo's metaprogramming?*
 
 **Verdict: no capability Yo wants is lost, and the audit found that the
 comptime context itself is under-equipped in concrete, fixable ways.** The
-macro layer's four "irreducible powers" (`plans/reference/MACRO_POLICY.md`
+macro layer's four "irreducible powers" (`plans/archive/MACRO_POLICY.md`
 §1.5) each have a landed or scheduled replacement, and none of the nine live
 std macros' jobs returns as a user need:
 

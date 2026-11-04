@@ -1,0 +1,18 @@
+// A derive rule whose result is a statement, not an `impl(...)` item.
+MyRule :: trait();
+_rule :: (
+  fn(
+    comptime(T) : Type,
+    comptime(ctx) : DeriveContext,
+    comptime(trait_params) : ComptimeList(Expr)
+  ) -> comptime(Expr)
+)(
+  quote(_leaked := i32(1))
+);
+derive_rule(MyRule, _rule);
+P :: struct(a : u8);
+derive(P, MyRule());
+main :: (fn() -> unit)({
+  ();
+});
+export(main);

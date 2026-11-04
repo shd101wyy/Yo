@@ -354,7 +354,7 @@ Yo the LANGUAGE is still evolving — language-level breaking changes are accept
 
 ## Compile-time only functions must use `comptime` return types
 
-Functions that only execute at compile time (e.g., build system functions, macro-like utilities) must wrap their return type in `comptime(...)`. If the return type is not wrapped in `comptime`, the evaluator treats it as a runtime function.
+Functions that only execute at compile time (e.g., build system functions, comptime helpers over `Expr` values) must wrap their return type in `comptime(...)`. If the return type is not wrapped in `comptime`, the evaluator treats it as a runtime function.
 
 ```yo
 // WRONG — unit return without comptime means runtime:

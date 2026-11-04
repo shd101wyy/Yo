@@ -3069,12 +3069,23 @@ test("Test parser associtivity", {
 });
 // Moved here from the deleted tests/macro_def_gate.test.yo (2026-10-24,
 // plans/backlog/MACRO_AND_ISO_REMOVAL.md C5): `quote` values and the
-// `__yo_expr_*` reflection methods outlive the macro removal, and this file
-// declares no `pragma(Pragma.AllowMacroDef)`.
-test("quote/Expr values and AST reflection need no macro pragma", {
+// `__yo_expr_*` reflection methods outlive the macro removal.
+test("quote/Expr values and AST reflection outlive the macro layer", {
   q :: quote(1 + 2);
-  assert(q.is_fn_call(), "quote works without the pragma");
-  assert(q.get_callee() == quote(+), "AST reflection works without the pragma");
+  assert(q.is_fn_call(), "quote works");
+  assert(q.get_callee() == quote(+), "AST reflection works");
+});
+// Part C (plans/backlog/MACRO_AND_ISO_REMOVAL.md C1): a macro signature — a
+// quoted parameter, a quoted variadic or an `unquote(...)` result — is E0010,
+// and a comptime function over `Expr` values is the replacement.
+test("a macro signature is E0010", {
+  comptime_expect_error(_m_quoted :: (fn(quote(e) : Expr) -> comptime(Expr))(e), "declares a macro, and Yo has no macros");
+  comptime_expect_error(_m_unquote :: (fn(comptime(e) : Expr) -> unquote(Expr))(e), "declares a macro, and Yo has no macros");
+  comptime_expect_error(_m_variadic :: (fn(...(quote(es) : ExprList)) -> comptime(Expr))(quote(())), "declares a macro, and Yo has no macros");
+});
+_twice_expr :: (fn(comptime(e) : Expr) -> comptime(Expr))(quote(unquote(e) + unquote(e)));
+test("a comptime function over Expr values replaces a macro", {
+  comptime_assert(_twice_expr(quote(x)) == quote(x + x));
 });
 test("Test sizeof", {
   comptime_assert(size_of(Type) == 0);

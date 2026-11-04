@@ -1,5 +1,11 @@
 # Macro Policy — keep, gate, and shrink the expansion tax
 
+> **SUPERSEDED: Yo has no macro layer.** The "keep, gate" decision below was
+> reversed on 2026-10-20 by [`../backlog/MACRO_AND_ISO_REMOVAL.md`](../backlog/MACRO_AND_ISO_REMOVAL.md),
+> whose Part C deleted the gate, the registries and the dispatch: a macro
+> signature is E0010, and `if`/`for` are builtin forms. This doc stays as the
+> 2026-08-21 audit and the record of the `if` desugar and the `try` removal.
+
 **Status:** IMPLEMENTED 2026-08-21 (single PR: the `AllowMacroDef` gate, the
 `if`→`cond` parse-time desugar, and the `try` removal — see "What actually
 landed" at the bottom for the deltas versus the original proposal)

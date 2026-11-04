@@ -1059,15 +1059,17 @@ phase is one PR or one stack with one battery, per AGENTS.md.
   the table below. Each program is spelled in the syntax N1–N3 will land.
   They are plain `.yo` files, so `yo test ./tests` never runs them. The
   manifest `tests/origins/corpus.tsv` gives each row its plan anchor, its
-  kind, the phase whose gate it joins (28 rows N1, 37 N2, 6 N3), the
+  kind, the phase whose gate it joins (29 rows N1, 37 N2, 6 N3 since
+  `macro-ret-local` was deleted with the macro layer), the
   verdict expected once the rules land, and what today's `yo check` does
   with it. `scripts/origins-corpus.sh` is the gate. `today` mode is the N0
   gate: every row must still fail with the recorded code and the recorded
   text in its first error (or pass, if recorded so). `target` mode, with
   `PHASES=N1` and so on, is the later phases' gate. Both modes first
   cross-check the manifest against the fixtures and the model test.
-- **One row per lowering (§4).** Macro expansions: `macro-ret-local`.
-  Closure capture structs: the `closure-*` rows. Async state machines:
+- **One row per lowering (§4).** Macro expansions: none since Part C
+  deleted the macro layer (its row, `macro-ret-local`, went with it;
+  `plans/backlog/MACRO_AND_ISO_REMOVAL.md` C5). Closure capture structs: the `closure-*` rows. Async state machines:
   the `async-*` rows. Effect handlers: `effect-resume-local`,
   `effect-resume-capture`, `effect-resume-param`. `match` and `cond` arms:
   `match-arm-binding-origin`, and `loop-join-push` for a `while` body.

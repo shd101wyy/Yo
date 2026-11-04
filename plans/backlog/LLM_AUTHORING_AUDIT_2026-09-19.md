@@ -105,8 +105,13 @@ carries it).
 
 ### 2.3 `try(expr)` as a prelude macro — reversing the 2026-08-21 removal, knowingly
 
+> **CLOSED, REJECTED** (macro plan Part C, `MACRO_AND_ISO_REMOVAL.md` C5):
+> Yo has no macro layer, so `try` cannot return as a prelude macro, and a
+> `quote(...)` parameter or an `-> unquote(...)` result is E0010. Match on the
+> `Result`. A built-in `try` form would be a new decision of its own.
+
 **History that must be read first.**
-[`../reference/MACRO_POLICY.md`](../reference/MACRO_POLICY.md) records that
+[`../archive/MACRO_POLICY.md`](../archive/MACRO_POLICY.md) records that
 the std `try` macro was **REMOVED by user decision on 2026-08-21**: it had zero
 call sites in `src/`/`std/`, it was the one std macro that injected a hidden
 caller-frame `return`, and its name collided conceptually with algebraic

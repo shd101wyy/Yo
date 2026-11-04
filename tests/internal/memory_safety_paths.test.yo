@@ -3,22 +3,19 @@
 //
 // `_lex_abs_path` used to absolutize with a leading-`/` check only, so every
 // Windows absolute path — `C:/...`, `C:\...`, `file://C:/...` — was
-// cwd-joined into `<cwd>/C:/...` garbage. The std exemptions in
-// `is_macro_def_capable_file` and `is_overload_set_capable_file` then never
-// matched on Windows: `yo compile` / `yo check` with a relative
-// `--std-path ./std` rejected std files that define macros ("requires
-// 'pragma(Pragma.AllowMacroDef);'"), which made every seed-gated build of
-// this tree fail on Windows. See
-// issues/fixed/windows-lex-abs-path-voids-std-exemption.md. The macro-def
-// gate has no std exemption any more (std files declare the pragma,
-// plans/reference/MACRO_POLICY.md Part 2); the overload-set one remains.
+// cwd-joined into `<cwd>/C:/...` garbage. The std exemptions in the
+// macro-definition gate and `is_overload_set_capable_file` then never
+// matched on Windows, which made every seed-gated build of this tree fail on
+// Windows. See issues/fixed/windows-lex-abs-path-voids-std-exemption.md. The
+// macro-definition gate was deleted with the macro layer (a macro signature
+// is E0010, plans/backlog/MACRO_AND_ISO_REMOVAL.md Part C); the overload-set
+// one remains.
 { String } :: import("std/string");
 { assert } :: import("std/assert");
 { cwd } :: import("std/env");
 {
   _lex_abs_path,
   is_global_mut_rule_exempt,
-  is_macro_def_capable_file,
   is_overload_set_capable_file
 } :: import("../../src/evaluator/memory_safety.yo");
 
@@ -60,27 +57,6 @@ test("lex_abs_path: relative path joins the working directory", {
     },
     .Err(_) => assert(true, "no cwd to compare against")
   );
-});
-
-test("macro-def gate: a std file without the pragma is gated like any file", {
-  win := is_macro_def_capable_file(Option(String).Some(String.from("file://C:/prj/std/collections/array_list.yo")));
-  posix := is_macro_def_capable_file(Option(String).Some(String.from("file:///usr/lib/yo/std/prelude.yo")));
-  assert(!win && !posix, "being under a std root is no exemption: std files declare pragma(Pragma.AllowMacroDef)");
-});
-
-test("macro-def gate: non-std file stays gated", {
-  ok := is_macro_def_capable_file(Option(String).Some(String.from("file:///home/u/proj/m.yo")));
-  assert(!ok, "user file without the pragma may not define macros");
-});
-
-test("macro-def gate: a compiler-synthesized expansion inherits its caller's policy", {
-  ok := is_macro_def_capable_file(Option(String).Some(String.from("auto-generated://derive/m.yo")));
-  assert(ok, "auto-generated:// code may define macros");
-});
-
-test("macro-def gate: no module path stays gated", {
-  ok := is_macro_def_capable_file(Option(String).None);
-  assert(!ok, "no module path means no exemption");
 });
 
 test("overload gate: Windows prelude is the overload-set file", {

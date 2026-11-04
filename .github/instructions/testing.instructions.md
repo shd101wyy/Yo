@@ -479,7 +479,7 @@ while the tree was broken. Four classes of call site are structurally invisible:
 
 | invisible in | why |
 | --- | --- |
-| macro `quote(...)` bodies | not evaluated until expansion, so nothing type-checks them at definition time |
+| `quote(...)` templates in comptime functions | not evaluated until they are spliced, so nothing type-checks them at definition time |
 | generic trait-impl bodies | `check` never instantiates them (e.g. `FromIterator.from_iter_add`) |
 | generic helpers in the defining module | same — the six `result_set.add` sites inside hash_set's own set-ops |
 | **async closure bodies** (`io.async((e) => {...})`) | was: the evaluator's deferred trial SWALLOWED the error and codegen emitted `// Failed to transpile` — **no error anywhere**. Now `compile` and `check` both report it; only a body inside a GENERIC fn whose `io` is itself a type variable is still checked only at specialization |
