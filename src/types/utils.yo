@@ -2886,12 +2886,14 @@ fields_have_incompatible_contexts :: (fn(fts : &ArrayList(TypeValue)) -> bool)({
     // A reference-semantics struct (object type) is runtime-only REGARDLESS
     // of its type parameters (`Rc(i32)` instances still carry internal
     // SomeTs from the generic decl, so this must run BEFORE the generic
-    // skip below).
+    // skip below). So is a counted handle: `Rc`/`Arc` are value newtypes over
+    // a cell primitive since V5 cells Generation B, and the cell is a heap
+    // object (issues/fixed/2026-11-04-a-comptime-field-beside-a-cell-handle-rc-is-accepted.md).
     (rt_only : bool) = match(
       &ft,
       Rc(.Struct({ is_reference_semantics : fo_ref, is_source_namespace : fo_ns })) => (fo_ref && !fo_ns),
       _ => false
-    );
+    ) || is_counted_handle_value_type(&ft);
     if(rt_only, {
       has_rt_only = true;
       continue;
