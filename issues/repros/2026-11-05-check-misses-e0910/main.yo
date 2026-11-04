@@ -1,0 +1,19 @@
+{ IoExn, Exception } :: import("std/error");
+{ String } :: import("std/string");
+{ Opts, show } :: import("./lib.yo");
+
+run :: (fn(io : Io, exn : Exception) -> unit)({
+  io.await(show(Opts(name : String.from("x")), io), IoExn(io : io, exn : exn));
+});
+
+main :: (fn(io : Io) -> unit)({
+  exn := Exception(
+    throw : (
+      err -> {
+        unwind(());
+      }
+    )
+  );
+  run(io, exn);
+});
+export(main);
