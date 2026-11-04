@@ -584,17 +584,17 @@ impl(
   /// does not re-derive or validate them.
   ///
   /// Finally extracts the literal prefix, so the returned program is complete:
-  /// after this call the compiler has no more work to do and the program is
-  /// only read.
-  compile : (fn(self : &mut Self, root : &RegexNode, n_groups : usize, group_names : &ArrayList(GroupNameEntry)) -> NfaProgram)({
-    self._program.n_groups = n_groups;
-    self._program.group_names = group_names.clone();
-    self._emit(Instr.save_instr(usize(0)));
-    self._compile_node(root);
-    self._emit(Instr.save_instr(usize(1)));
-    self._emit(Instr.match_instr());
-    self._extract_literal_prefix();
-    self._program
+  /// the call consumes the compiler, and the program is only read.
+  compile : (fn(self : Self, root : &RegexNode, n_groups : usize, group_names : &ArrayList(GroupNameEntry)) -> NfaProgram)({
+    mut(c) := self;
+    c._program.n_groups = n_groups;
+    c._program.group_names = group_names.clone();
+    c._emit(Instr.save_instr(usize(0)));
+    c._compile_node(root);
+    c._emit(Instr.save_instr(usize(1)));
+    c._emit(Instr.match_instr());
+    c._extract_literal_prefix();
+    c._program
   })
 );
 export(

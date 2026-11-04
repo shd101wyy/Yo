@@ -1029,10 +1029,11 @@ fetch_with :: (
     Impl(Future(HttpResponse, IoExn))
 )({
   url_str_owned := url_str.clone();
+  opts_owned := opts.clone();
   io.async(e => {
     // Hoisted: `io.await` directly inside `return(...)` is rejected by the
     // async state-machine codegen (a restriction `yo check` cannot see).
-    resp := e.io.await(_fetch_deadline(&url_str_owned, opts, Option(*_HttpClientState).None, e.io), e);
+    resp := e.io.await(_fetch_deadline(&url_str_owned, &opts_owned, Option(*_HttpClientState).None, e.io), e);
     return(resp);
   })
 });
