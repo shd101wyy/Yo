@@ -966,12 +966,13 @@ _fetch_deadline :: (
     Impl(Future(HttpResponse, IoExn))
 )({
   url_str_owned := url_str.clone();
+  opts_owned := opts.clone();
   io.async(e => {
     (mut(result) : HttpResponse) = HttpResponse.new(StatusCode.OK(), ``);
     match(
-      opts.timeout,
+      opts_owned.timeout,
       .None => {
-        result = e.io.await(_fetch_follow(&url_str_owned, opts, pool, e.io), e);
+        result = e.io.await(_fetch_follow(&url_str_owned, &opts_owned, pool, e.io), e);
       },
       .Some(limit) => {
         // Run the whole exchange as a spawned TASK raced against the
@@ -986,7 +987,7 @@ _fetch_deadline :: (
         //
         // A connection cut off here is owned by the aborted state machine, so
         // its `Drop` closes it — it never reaches the pool.
-        h := e.io.spawn(_fetch_follow(&url_str_owned, opts, pool, e.io), e);
+        h := e.io.spawn(_fetch_follow(&url_str_owned, &opts_owned, pool, e.io), e);
         match(
           e.io.await(_deadline_join(h, limit, e.io), e.io),
           .Done(resp) => {

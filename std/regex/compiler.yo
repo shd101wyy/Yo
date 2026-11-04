@@ -419,26 +419,22 @@ impl(
       .Sequence => {
         mut(i) := usize(0);
         while(i < node.children.len(), i = (i + usize(1)), {
-          child := node.children(i);
-          recur(self, &child);
+          recur(self, &node.children(i));
         });
       },
       .Alternation => {
-        left := node.children(usize(0));
-        right := node.children(usize(1));
         split_pc := self._emit(Instr.split_instr(usize(0), usize(0)));
         left_start := self._current_pc();
         addr_of(self._program.instructions(split_pc)).* = Instr.split_instr(left_start, usize(0));
-        recur(self, &left);
+        recur(self, &node.children(usize(0)));
         jump_pc := self._emit(Instr.jump_instr(usize(0)));
         right_start := self._current_pc();
         addr_of(self._program.instructions(split_pc)).* = Instr.split_instr(left_start, right_start);
-        recur(self, &right);
+        recur(self, &node.children(usize(1)));
         end_pc := self._current_pc();
         addr_of(self._program.instructions(jump_pc)).* = Instr.jump_instr(end_pc);
       },
       .Quantifier => {
-        child := node.children(usize(0));
         min_val := node.q_min;
         max_val := node.q_max;
         greedy := node.q_greedy;
@@ -447,7 +443,7 @@ impl(
         mut(qi) := usize(0);
         while(qi < min_val, qi = (qi + usize(1)), {
           last_body_start = self._current_pc();
-          recur(self, &child);
+          recur(self, &node.children(usize(0)));
         });
         cond(
           ((max_val == usize(0)) && (min_val == usize(0))) => {
@@ -455,7 +451,7 @@ impl(
             l1 := self._current_pc();
             split_pc := self._emit(Instr.split_instr(usize(0), usize(0)));
             l2 := self._current_pc();
-            recur(self, &child);
+            recur(self, &node.children(usize(0)));
             self._emit(Instr.jump_instr(l1));
             l3 := self._current_pc();
             cond(
@@ -487,7 +483,7 @@ impl(
             while(qj < remaining, qj = (qj + usize(1)), {
               split_pc := self._emit(Instr.split_instr(usize(0), usize(0)));
               body_start := self._current_pc();
-              recur(self, &child);
+              recur(self, &node.children(usize(0)));
               after := self._current_pc();
               cond(
                 greedy => {
@@ -502,37 +498,33 @@ impl(
         );
       },
       .Group => {
-        child := node.children(usize(0));
         start_slot := (node.group_index * usize(2));
         end_slot := ((node.group_index * usize(2)) + usize(1));
         self._emit(Instr.save_instr(start_slot));
-        recur(self, &child);
+        recur(self, &node.children(usize(0)));
         self._emit(Instr.save_instr(end_slot));
       },
       .NonCapturingGroup => {
-        child := node.children(usize(0));
-        recur(self, &child);
+        recur(self, &node.children(usize(0)));
       },
       .Backreference => {
         self._emit(Instr.backref_instr(node.group_index));
       },
       .Lookahead => {
-        child := node.children(usize(0));
         positive := !node.negated;
         // Emit lookahead instruction with placeholder sub_end
         la_pc := self._emit(Instr.lookahead_instr(usize(0), usize(0), positive));
         sub_start := self._current_pc();
-        recur(self, &child);
+        recur(self, &node.children(usize(0)));
         self._emit(Instr.match_instr());
         sub_end := self._current_pc();
         addr_of(self._program.instructions(la_pc)).* = Instr.lookahead_instr(sub_start, sub_end, positive);
       },
       .Lookbehind => {
-        child := node.children(usize(0));
         positive := !node.negated;
         lb_pc := self._emit(Instr.lookbehind_instr(usize(0), usize(0), positive));
         sub_start := self._current_pc();
-        recur(self, &child);
+        recur(self, &node.children(usize(0)));
         self._emit(Instr.match_instr());
         sub_end := self._current_pc();
         addr_of(self._program.instructions(lb_pc)).* = Instr.lookbehind_instr(sub_start, sub_end, positive);
