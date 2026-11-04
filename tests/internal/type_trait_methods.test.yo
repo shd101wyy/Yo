@@ -723,7 +723,7 @@ test("clear_type_trait_methods: wipes state", {
 // so every method minted a TraitT with a fresh id and the id-only dedup kept
 // them all — `BTreeMap`'s `K` carried fifteen `Ord(K)`
 // (issues/fixed/2026-10-15-a-generic-impls-type-variable-accumulates-one-copy-of-a-where-bound-per-method.md).
-_WHERE_DOC :: "Wb :: (fn(comptime(Kw) : Type) -> comptime(Type))(struct(k : Kw));\nimpl(\n  generic(Kw : Type),\n  Wb(Kw),\n  lt : (fn(self : &Self, o : &Kw, where(Kw <: Ord(Kw))) -> bool)(self.k < o),\n  gt : (fn(self : &Self, o : &Kw, where(Kw <: Ord(Kw))) -> bool)(self.k > o),\n  le : (fn(self : &Self, o : &Kw, where(Kw <: Ord(Kw))) -> bool)(self.k <= o)\n);\nmain :: (fn() -> unit)({\n  w := Wb(i32)(k : i32(1));\n  _a := w.lt(&i32(2));\n});\nexport(main);\n";
+_WHERE_DOC :: "Wb :: (fn(comptime(Kw) : Type) -> comptime(Type))(struct(k : Kw));\nimpl(\n  generic(Kw : Type),\n  Wb(Kw),\n  lt : (fn(self : &Self, o : &Kw, where(Kw <: Ord(Kw))) -> bool)(self.k < o.*),\n  gt : (fn(self : &Self, o : &Kw, where(Kw <: Ord(Kw))) -> bool)(self.k > o.*),\n  le : (fn(self : &Self, o : &Kw, where(Kw <: Ord(Kw))) -> bool)(self.k <= o.*)\n);\nmain :: (fn() -> unit)({\n  w := Wb(i32)(k : i32(1));\n  _a := w.lt(&i32(2));\n});\nexport(main);\n";
 test("a where-bound restated on each method of a generic impl is recorded once", {
   exn := Exception(
     throw : (

@@ -702,7 +702,7 @@ test("`.*` reads through a borrow parameter and a local borrow", {
   assert(!_deref_of_local_borrow(), "a local borrow reads its referent");
 });
 comptime_expect_error({
-  _bare_borrow_param :: (fn(v : &i32) -> bool)(v.* < i32(20));
+  _bare_borrow_param :: (fn(v : &i32) -> bool)(v < i32(20));
   n := i32(5);
   _bare_borrow_param(&n);
 }, "reading the value it refers to is spelled `v.*`");
