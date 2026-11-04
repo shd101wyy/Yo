@@ -1,6 +1,9 @@
 # Theorem proving after the lemma layer — the remaining surface
 
 > **Status: PROPOSED 2026-10-08 — backlog (written, not started).**
+> **2026-11-04:** [`THEOREM_PROVING_DIRECTION.md`](THEOREM_PROVING_DIRECTION.md) (proposed) re-ranks §10
+> (E1 `assert` assumes, B4 evals first, lemma scoping before T1) and drafts the §8/§9 amendments in
+> `issues/questions/2026-11-04-should-yo-check-externally-proved-lean-theorems-for-obligations-z3-cannot-close.md`.
 > The theorem-proving surface Yo shipped in September–October 2026: `law`
 > (B1), `yo verify --strict` (B0), and the lemma layer — recursive
 > `ghost_fn` with `decreases` as an axiomatized function, lemmas proved by
