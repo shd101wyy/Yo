@@ -939,6 +939,31 @@ test("A write through a reference drops the old value at the write", {
   assert(g_bs_disposed == (before + i32(1)), "a local borrow's write drops the old value");
   assert(t.n == i32(3), "the local borrow wrote the referent");
 });
+// An impl over an origin-parameterized composite (decision 43 step 3's
+// impl-level `generic(p : Origin)`) serves every instance's methods, and an
+// instance built over one place names that place, not the first instance's
+// (issues/fixed/2026-11-03-an-impl-over-an-origin-parameterized-composite-finds-no-method-on-its-instances.md,
+// issues/fixed/2026-11-03-a-second-instance-of-an-origin-parameterized-composite-names-the-first-ones-origin.md).
+BsMV :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(at : &(i32, p), lo : usize));
+impl(generic(p : Origin), BsMV(p), lo_plus : (fn(self : &Self, k : usize) -> usize)(self.lo + k));
+BsMG :: (fn(comptime(T) : Type, comptime(p) : Origin) -> comptime(Type))(struct(at : &(T, p), lo : usize));
+impl(generic(T : Type, p : Origin), BsMG(T, p), lo_twice : (fn(self : &Self) -> usize)(self.lo + self.lo));
+bs_mv_over :: (fn(a : &i32) -> BsMV(a))(BsMV(a)(at : a, lo : usize(1)));
+test("An impl over an origin-parameterized composite serves its instances", {
+  x := i32(1);
+  y := i32(2);
+  v := BsMV(x)(at : &x, lo : usize(2));
+  assert(v.lo_plus(usize(1)) == usize(3), "a method of `impl(generic(p : Origin), BsMV(p), …)`");
+  w := BsMV(y)(at : &y, lo : usize(5));
+  assert(w.lo_plus(usize(1)) == usize(6), "a second instance over another place");
+  g := BsMG(i32, x)(at : &x, lo : usize(4));
+  assert(g.lo_twice() == usize(8), "a method of `impl(generic(T : Type, p : Origin), BsMG(T, p), …)`");
+  assert(bs_mv_over(&y).lo_plus(usize(2)) == usize(3), "a result over a parameter's place");
+});
+comptime_expect_error(
+  bs_mv_wrong_origin :: (fn(a : &i32, b : &i32) -> BsMV(a))(BsMV(b)(at : b, lo : usize(0))),
+  "whose origin does not name `b`"
+);
 // issues/fixed/2026-11-03-a-place-lent-into-a-reference-field-is-never-dropped.md:
 // the holder stores the place's address, and the list is still dropped at
 // its own scope end (the runner's leak check sees a miss).
