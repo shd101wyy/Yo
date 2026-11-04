@@ -60,7 +60,7 @@ test("Test 'ref_count' function", {
   };
   // Reference type
   {
-    b1 := Rc(i32)(3);
+    b1 := Rc(i32).new(3);
     assert(ref_count(b1) == 1, "ref_count(b1) == 1");
     {
       // Decision 17: `Rc.clone` makes a second handle (no dup/drop
@@ -80,7 +80,7 @@ test("Test 'ref_count' function", {
   };
   // Value type containing reference type
   {
-    w1 := Wrapper(Rc(i32)(5));
+    w1 := Wrapper(Rc(i32).new(5));
     assert(ref_count(w1) == 1, "ref_count(w1) == 1");
     assert(ref_count(w1.v) == 1, "ref_count(w1.v) == 1");
     w2 := w1.clone();
@@ -119,13 +119,13 @@ test("Test explicit return and implicit return", {
 test("Test Rc in different data structures", {
   // Anonymous struct
   {
-    x := Rc(i32)(3);
+    x := Rc(i32).new(3);
     mut(y) := { x : Rc.clone(x) };
     z := { y : y.clone() };
     assert(x.* == 3, "x.* == 3");
     assert(y.x.* == 3, "y.x.* == 3");
     assert(z.y.x.* == 3, "z.y.x.* == 3");
-    y.x = Rc(i32)(4);
+    y.x = Rc(i32).new(4);
     assert(y.x.* == 4, "y.x.* == 4");
     assert(z.y.x.* == 3, "z.y.x.* == 3");
   };
@@ -138,7 +138,7 @@ test("Test Rc in different data structures", {
   };
   // Array containing Rc
   {
-    x := Rc(i32)(3);
+    x := Rc(i32).new(3);
     y := [Rc.clone(x),];
     z := [y.clone(),];
     m := [z.clone(),];
@@ -151,7 +151,7 @@ test("Test Rc in different data structures", {
   };
   // Tuple containing Rc
   {
-    x := Rc(i32)(3);
+    x := Rc(i32).new(3);
     y := (Rc.clone(x),);
     mut(z) := (y.clone(),);
     m := (z.clone(),);
@@ -225,7 +225,7 @@ test("Test inline enum construction as match subject - no phantom drop", {
 test("Test array index access - no RC leak for inline use", {
   // Inline access: y(0).* should NOT dup (no ownership transfer)
   {
-    x := Rc(i32)(42);
+    x := Rc(i32).new(42);
     y := [x,];
     assert(y(0).* == 42, "inline y(0).* should read without leak");
     assert(y(0).* == 42, "second inline y(0).* should also not leak");
@@ -233,7 +233,7 @@ test("Test array index access - no RC leak for inline use", {
   };
   // Assigned access: tmp := y(0) should dup exactly once
   {
-    x := Rc(i32)(7);
+    x := Rc(i32).new(7);
     y := [Rc.clone(x),];
     tmp := Rc.clone(y(0));
     assert(tmp.* == 7, "assigned y(0) should work");
@@ -243,9 +243,9 @@ test("Test array index access - no RC leak for inline use", {
   };
   // Multi-element array with inline access
   {
-    a := Rc(i32)(10);
-    b := Rc(i32)(20);
-    c := Rc(i32)(30);
+    a := Rc(i32).new(10);
+    b := Rc(i32).new(20);
+    c := Rc(i32).new(30);
     arr := [a, b, c,];
     assert(arr(0).* == 10, "arr(0).* == 10");
     assert(arr(1).* == 20, "arr(1).* == 20");
@@ -253,7 +253,7 @@ test("Test array index access - no RC leak for inline use", {
   };
   // Nested array access with inline use
   {
-    x := Rc(i32)(99);
+    x := Rc(i32).new(99);
     inner := [x,];
     outer := [inner,];
     assert(outer(0)(0).* == 99, "nested inline access should not leak");
@@ -261,7 +261,7 @@ test("Test array index access - no RC leak for inline use", {
   // Array index used as function argument
   {
     identity :: (fn(b : &Rc(i32)) -> Rc(i32))(Rc.clone(b));
-    x := Rc(i32)(55);
+    x := Rc(i32).new(55);
     y := [x,];
     result := identity(&y(0));
     assert(result.* == 55, "array index as fn arg should dup correctly");
@@ -271,9 +271,9 @@ test("Test ArrayList index access - no RC leak", {
   // ArrayList of Rc(i32) - inline access
   {
     mut(list) := ArrayList(Rc(i32)).new();
-    list.push(Rc(i32)(100));
-    list.push(Rc(i32)(200));
-    list.push(Rc(i32)(300));
+    list.push(Rc(i32).new(100));
+    list.push(Rc(i32).new(200));
+    list.push(Rc(i32).new(300));
     assert(list(usize(0)).* == 100, "list(0).* == 100");
     assert(list(usize(1)).* == 200, "list(1).* == 200");
     assert(list(usize(2)).* == 300, "list(2).* == 300");
@@ -284,7 +284,7 @@ test("Test ArrayList index access - no RC leak", {
   // ArrayList of Rc(i32) - assigned access
   {
     mut(list) := ArrayList(Rc(i32)).new();
-    list.push(Rc(i32)(42));
+    list.push(Rc(i32).new(42));
     elem := Rc.clone(list(usize(0)));
     assert(elem.* == 42, "assigned elem.* should work");
   };
@@ -336,22 +336,22 @@ test("Test array of objects - no RC leak", {
 test("Test array index in expressions - no RC leak", {
   // Array index inside comparison
   {
-    x := Rc(i32)(10);
-    y := Rc(i32)(10);
+    x := Rc(i32).new(10);
+    y := Rc(i32).new(10);
     arr := [x, y,];
     assert(arr(0).* == arr(1).*, "comparing array elements inline");
   };
   // Array index inside arithmetic
   {
-    a := Rc(i32)(5);
-    b := Rc(i32)(3);
+    a := Rc(i32).new(5);
+    b := Rc(i32).new(3);
     arr := [a, b,];
     sum := (arr(0).* + arr(1).*);
     assert(sum == 8, "sum of array elements via inline access");
   };
   // Array index used in cond
   {
-    x := Rc(i32)(42);
+    x := Rc(i32).new(42);
     arr := [x,];
     result := cond(
       (arr(0).* > 0) => true,
@@ -361,7 +361,7 @@ test("Test array index in expressions - no RC leak", {
   };
   // Deeply nested inline access
   {
-    x := Rc(i32)(1);
+    x := Rc(i32).new(1);
     a := [x,];
     b := [a,];
     c := [b,];
@@ -1072,7 +1072,7 @@ test("reassigning after aliasing disposes both objects exactly once", {
 // the highest-traffic instance: the boxed value kept a second reference that
 // nobody owned, so it could never reach zero.
 test("box takes ownership of its argument without retaining an extra reference", {
-  h := Rc(i32)(7);
+  h := Rc(i32).new(7);
   b := Rc.new(h);
   assert(ref_count(b.*) == 1, "the box holds the only reference to its value");
 });
@@ -1970,7 +1970,7 @@ test("ref_count(x) reads the count of every cell shape", {
   };
   assert(ref_count(n1) == usize(1), "ref_count(n1) == 1 after the copies died");
   // Rc
-  b1 := Rc(i32)(3);
+  b1 := Rc(i32).new(3);
   {
     b2 := Rc.clone(b1);
     {

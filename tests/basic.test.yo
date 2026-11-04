@@ -2235,6 +2235,8 @@ test("Test type availability", {
       // Rc `object` can only be used in run-time context.
       // There is no intersection between the two contexts.
     );
+    // The same for the atomic cell handle: `Arc`'s cell is a heap object too.
+    comptime_expect_error(PointArc :: struct(x : comptime_int, y : Arc(i32)));
   };
   {
     Point4 :: struct(x : comptime_int, y : i32); // Point4 can only be used to create compile-time values
