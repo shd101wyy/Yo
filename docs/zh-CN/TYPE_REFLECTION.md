@@ -228,6 +228,8 @@ StructKind :: enum(Struct, Object, AtomicObject, NewType);
 - `AtomicObject` — 原子引用计数引用语义类型（`atomic(ref(struct(...)))`）
 - `NewType` — 单字段包装类型（`newtype(...)`）
 
+`Rc(T)` 与 `Arc(T)` 按其声明的形态反射：一个只有一个字段的 `NewType`，该字段是保存计数单元的实现字段。单元本身的 `Type.get_info` 是 `Object`（`Rc`）或 `AtomicObject`（`Arc`），其唯一字段的类型为载荷类型 `T`。请匹配种类，而不要依赖实现字段的名字：它是 prelude 私有的，可能改变。
+
 ### FunctionInfo
 
 丰富的函数类型元数据：
