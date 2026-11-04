@@ -16,7 +16,7 @@
 //! `sha256` and `sha512`'s one-shots all delegate to their streaming type.
 //! Two code paths compute MD5 in this file and they agree only because
 //! `tests/crypto/digest.test.yo` asserts that they do. Collapsing `md5`
-//! onto `Md5.new().update(data).finish()` is the obvious fix and it
+//! onto a streaming `Md5` (`update`, then `finish`) is the obvious fix and it
 //! changes nothing observable, so it should happen before anything here is
 //! frozen. Beyond that, the same open question as `std/crypto/sha1`: MD5
 //! is broken and the API gives a new caller no signal that it is the
@@ -210,13 +210,11 @@ _md5_block :: (fn(block : *u8, h : *u32) -> unit)({
 // Compute an MD5 digest over `data`.
 /// MD5 streaming state (the Sha256 skeleton; little-endian length +
 /// little-endian digest extraction).
-Md5 :: ref(
-  struct(
-    _h : Array(u32, usize(4)),
-    _buf : Array(u8, usize(64)),
-    _buflen : usize,
-    _total : u64
-  )
+Md5 :: struct(
+  _h : Array(u32, usize(4)),
+  _buf : Array(u8, usize(64)),
+  _buflen : usize,
+  _total : u64
 );
 impl(
   Md5,
@@ -229,10 +227,10 @@ impl(
       _total : u64(0)
     )
   ),
-  /// Absorb `data` and return the same hasher, so calls chain. O(len).
+  /// Absorb `data` in place (`h.update(&a)` on a `mut(h)`). O(len).
   /// Buffers a partial 64-byte block, so how the input is split cannot
   /// change the digest.
-  update : (fn(self : &Self, data : &ArrayList(u8)) -> Self)({
+  update : (fn(self : &mut Self, data : &ArrayList(u8)) -> unit)({
     mut(i) := usize(0);
     while(i < data.len(), i = (i + usize(1)), {
       self._buf(self._buflen) = data(i);
@@ -248,49 +246,49 @@ impl(
         true => ()
       );
     });
-    self
   }),
   /// Append the padding and the little-endian bit length, fold the last
   /// block in, and return the 16-byte digest.
   ///
-  /// **Single use** — the padding is written into the hasher's own buffer,
-  /// so a second `finish` digests the padded state rather than the
-  /// message.
-  finish : (fn(self : &Self) -> Array(u8, usize(16)))({
-    bit_len := (self._total * u64(8));
-    self._buf(self._buflen) = u8(0x80);
-    self._buflen = (self._buflen + usize(1));
+  /// Consumes the hasher, so one hasher hashes one message: a second
+  /// `finish` is a use after move (E0901), as with RustCrypto's
+  /// `finalize(self)`.
+  finish : (fn(self : Self) -> Array(u8, usize(16)))({
+    mut(h) := self;
+    bit_len := (h._total * u64(8));
+    h._buf(h._buflen) = u8(0x80);
+    h._buflen = (h._buflen + usize(1));
     cond(
-      (self._buflen > usize(56)) => {
-        while(self._buflen < usize(64), self._buflen = (self._buflen + usize(1)), {
-          self._buf(self._buflen) = u8(0);
+      (h._buflen > usize(56)) => {
+        while(h._buflen < usize(64), h._buflen = (h._buflen + usize(1)), {
+          h._buf(h._buflen) = u8(0);
         });
-        buf_ptr := addr_of(self._buf(usize(0)));
-        h_ptr := addr_of(self._h(usize(0)));
+        buf_ptr := addr_of(h._buf(usize(0)));
+        h_ptr := addr_of(h._h(usize(0)));
         _md5_block(buf_ptr, h_ptr);
-        self._buflen = usize(0);
+        h._buflen = usize(0);
       },
       true => ()
     );
-    while(self._buflen < usize(56), self._buflen = (self._buflen + usize(1)), {
-      self._buf(self._buflen) = u8(0);
+    while(h._buflen < usize(56), h._buflen = (h._buflen + usize(1)), {
+      h._buf(h._buflen) = u8(0);
     });
     // LITTLE-endian 64-bit bit length (MD5, unlike the SHA family).
-    self._buf(usize(56)) = u8(bit_len);
-    self._buf(usize(57)) = u8(bit_len >> u64(8));
-    self._buf(usize(58)) = u8(bit_len >> u64(16));
-    self._buf(usize(59)) = u8(bit_len >> u64(24));
-    self._buf(usize(60)) = u8(bit_len >> u64(32));
-    self._buf(usize(61)) = u8(bit_len >> u64(40));
-    self._buf(usize(62)) = u8(bit_len >> u64(48));
-    self._buf(usize(63)) = u8(bit_len >> u64(56));
-    buf_ptr := addr_of(self._buf(usize(0)));
-    h_ptr := addr_of(self._h(usize(0)));
+    h._buf(usize(56)) = u8(bit_len);
+    h._buf(usize(57)) = u8(bit_len >> u64(8));
+    h._buf(usize(58)) = u8(bit_len >> u64(16));
+    h._buf(usize(59)) = u8(bit_len >> u64(24));
+    h._buf(usize(60)) = u8(bit_len >> u64(32));
+    h._buf(usize(61)) = u8(bit_len >> u64(40));
+    h._buf(usize(62)) = u8(bit_len >> u64(48));
+    h._buf(usize(63)) = u8(bit_len >> u64(56));
+    buf_ptr := addr_of(h._buf(usize(0)));
+    h_ptr := addr_of(h._h(usize(0)));
     _md5_block(buf_ptr, h_ptr);
     mut(digest) := Array(u8, usize(16)).fill(u8(0));
     mut(k) := usize(0);
     while(k < usize(4), k = (k + usize(1)), {
-      w := self._h(k);
+      w := h._h(k);
       digest(k * usize(4)) = u8(w);
       digest((k * usize(4)) + usize(1)) = u8(w >> u32(8));
       digest((k * usize(4)) + usize(2)) = u8(w >> u32(16));
@@ -305,10 +303,10 @@ impl(
   Md5,
   Digest(
     new : (fn() -> Self)(Self.new()),
-    update : (fn(self : &Self, data : &ArrayList(u8)) -> Self)(self.update(data)),
+    update : (fn(self : &mut Self, data : &ArrayList(u8)) -> unit)(self.update(data)),
     digest_size : (fn() -> usize)(usize(16)),
     block_size : (fn() -> usize)(usize(64)),
-    finish_bytes : (fn(self : &Self) -> ArrayList(u8))({
+    finish_bytes : (fn(self : Self) -> ArrayList(u8))({
       d := self.finish();
       mut(out) := ArrayList(u8).with_capacity(usize(16));
       (mut(fbi) : usize) = usize(0);

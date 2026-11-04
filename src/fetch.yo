@@ -196,7 +196,7 @@ compute_content_hash :: (
 )({
   owned_dir_path := dir_path.clone();
   io.async((e : IoExn) => {
-    hasher := Sha256.new();
+    mut(hasher) := Sha256.new();
     // Bootstrap: push root entries in reversed sorted order so LIFO pop gives forward order
     root_entries := e.io.await(read_dir(Path.new(&owned_dir_path), e.io), e);
     root_sorted := sort_dir_entries(&root_entries);
@@ -253,7 +253,7 @@ compute_content_hash :: (
           _push_str_bytes(&mut prefix_bytes, "dir:");
           _push_string_bytes(&mut prefix_bytes, &item.rel_path);
           prefix_bytes.push(u8(10)); // '\n'
-          hasher = hasher.update(&prefix_bytes);
+          hasher.update(&prefix_bytes);
           // Read and sort subdir entries, push in reversed order
           abs_sub := item.abs_path.clone();
           abs_sub.push_str("/");
@@ -297,14 +297,14 @@ compute_content_hash :: (
         _push_str_bytes(&mut prefix_bytes, "file:");
         _push_string_bytes(&mut prefix_bytes, &item.rel_path);
         prefix_bytes.push(u8(10)); // '\n'
-        hasher = hasher.update(&prefix_bytes);
+        hasher.update(&prefix_bytes);
         // Read file content, normalize line endings, then hash
         abs_file := item.abs_path.clone();
         abs_file.push_str("/");
         abs_file.push_string(&entry_name);
         content := e.io.await(read(Path.new(&abs_file), e.io), e);
         normalized := normalize_line_endings(&content);
-        hasher = hasher.update(&normalized);
+        hasher.update(&normalized);
       });
     });
     // Produce "sha256-<hex>"
