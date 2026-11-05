@@ -4505,21 +4505,16 @@ test("Test same-named pattern bindings in sibling match arms passed to a capturi
 // fallback name scan found the OUTER `parsed`'s slot, stored the inner value
 // there, and clobbered it (a C type error when the two types differed: the
 // compiler's own `run_add`). A binding env resolution finds is a local.
-// The payload stays a `ref` object (`_NpCargo`) for now: with a value payload
-// (`Cargo`, an `Rc`) the shadowing arm binding leaks
-// (issues/2026-11-05-a-match-arm-binding-that-shadows-a-local-is-never-dropped.md);
-// its fix switches this case to `Cargo` and `find_cargo`.
-_NpCargo :: ref(struct(label : String, size : i32));
-_find_np_cargo :: (fn(tag : &String) -> Option(_NpCargo))(
-  Option(_NpCargo).Some(_NpCargo(label : tag.clone(), size : i32(7)))
-);
+// The payload is a value (`Cargo`, an `Rc`), so the arm binding owns it and
+// its arm drops it
+// (issues/fixed/2026-11-05-a-match-arm-binding-that-shadows-a-local-is-never-dropped.md).
 test("Test a nullable-pointer arm binding does not store into a same-named hoisted variable", {
   drive := (fn(rio : Io) -> Impl(Future(String, Io)))(
     rio.async((aio : Io) => {
-      parsed := _NpCargo(label : String.from("outer"), size : i32(1));
+      parsed := Rc.new(_CargoVal(label : String.from("outer"), size : i32(1)));
       aio.await(yield(aio), aio);
       inner := match(
-        _find_np_cargo(String.from("inner")),
+        find_cargo(String.from("inner")),
         .Some(parsed) => parsed.label.clone(),
         .None => String.from("none")
       );

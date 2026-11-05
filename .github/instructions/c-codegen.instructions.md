@@ -189,6 +189,16 @@ name pasted into emitted C (`.${label} =`, `closure_context->${name}`,
 `sm->__capture.${name}`, a hard-coded `self` or `.Some`/`.value`) is a C compile
 error; the stage-2 C of the compiler names any that remain.
 
+A `match` pattern binding may shadow an enclosing local (plain locals cannot),
+so its C local does not always carry the sanitized source name: one whose name
+is already declared in an open enclosing block is declared under a fresh name
+(`shadow_binding_decl_name`), and the arm's reads go through
+`shadow_binding_c_name`. Never paste a binding's sanitized name into emitted C
+yourself. A drop the compiler emits inside an arm resolves its target by
+identity (`_drop_operand`, `src/codegen/exprs/rc_fns.yo`), so an early return
+or an unwind in the arm still releases the enclosing local the binding hides
+(issues/fixed/2026-11-05-a-match-arm-binding-that-shadows-a-local-is-never-dropped.md).
+
 ## A codegen fix does not license the source form until the seed has it
 
 `yo build` compiles the compiler with the SEED (`SEED_VERSION` in

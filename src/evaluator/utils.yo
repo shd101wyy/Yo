@@ -5107,6 +5107,11 @@ _drop_in_arms_that_keep :: (
   // another value: a drop through it moves this binding
   // (`_move_through_sink_shadow`), as every other move through it does
   // (issues/fixed/2026-11-05-a-hashmap-of-a-plain-data-struct-without-copy-cannot-insert.md).
+  // Only a binding declared AFTER the value (deeper, or later in its frame)
+  // captures the name: one the value itself shadows, such as the enclosing
+  // local a `.Some(parsed)` arm binding reuses the name of, is not reachable
+  // through it, so the drop still releases the value
+  // (issues/fixed/2026-11-05-a-match-arm-binding-that-shadows-a-local-is-never-dropped.md).
   (si : usize) = usize(0);
   while(si < bodies.len(), {
     keeps_s := match(consumed_at_tokens.get(si), .Some(.Some(_)) => false, _ => true);
@@ -5116,8 +5121,22 @@ _drop_in_arms_that_keep :: (
         .Some(sb) => match(
           expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&sb)),
           .Some(sbi) => {
+            // Outermost first (`get_variables_from_env`'s order): the scan
+            // starts just past the value when the body's env holds it.
             same_name := get_variables_from_env(&sbi.env, v.name.clone());
             (sni : usize) = usize(0);
+            (vpi : usize) = same_name.len();
+            while(vpi > usize(0), {
+              vpi = (vpi - usize(1));
+              match(
+                same_name.get(vpi),
+                .Some(pv) => if(pv.id == v.id, {
+                  sni = (vpi + usize(1));
+                  vpi = usize(0);
+                }),
+                .None => ()
+              );
+            });
             while(sni < same_name.len(), {
               match(
                 same_name.get(sni),
