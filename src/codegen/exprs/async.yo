@@ -554,6 +554,7 @@ emit_async_block_struct_definition :: (
   fn(info : &AsyncBlockStructInfo, context : &FunctionGenerationContext) -> unit
 )({
   em := context.base.emitter;
+  mut(move_flags) := ArrayList(String).new();
   em.emit_declaration_string_line(`// State machine for async block ${info.async_block_id.clone()} - implements Future(${get_type_string(&info.result_type, &context.base)})`);
   em.emit_declaration_string_line(`struct ${info.struct_name.clone()}_struct {`);
   // The prefix every future shares (types/generation.yo): header, state
@@ -668,6 +669,7 @@ emit_async_block_struct_definition :: (
           if(!is_any_temp_variable_name(variable.base.name.clone()), {
             note_sm_move_flag_field(field_name.clone());
             em.emit_declaration_string_line(`  uint8_t __yo_mv_${field_name};  // ${variable.base.name.clone()} was moved out`);
+            move_flags.push(`__yo_mv_${field_name}`);
           });
         },
         .None => ()
@@ -704,8 +706,21 @@ emit_async_block_struct_definition :: (
   while(iai < irfs.len(), iai = (iai + usize(1)), {
     match(irfs.get_cloned(iai), .Some(rf) => em.emit_declaration_string_line(`  ${get_type_string(&rf.ty, &context.base)} ${rf.name};  // an await's result`), .None => ());
   });
-  _emit_fused_site_fields(fused_await_sites(&info.analysis, context), context);
+  _emit_fused_site_fields(fused_await_sites(&info.analysis, context), &mut move_flags, context);
   em.emit_declaration_line("};");
+  em.emit_declaration_line("");
+  // Every named local's slot starts empty: its move flag is set until the
+  // first store into it clears it, so an abort before the local is
+  // initialized does not drop the slot's zeroes, which are not an empty value
+  // for every type (a `Drop` struct of plain fields)
+  // (issues/fixed/2026-11-05-an-aborted-task-drops-a-local-its-scope-already-dropped.md).
+  em.emit_declaration_string_line(`static inline void ${info.struct_name.clone()}_init_move_flags(struct ${info.struct_name.clone()}_struct* sm) {`);
+  if(move_flags.len() == usize(0), em.emit_declaration_line("  (void)sm;"));
+  (mut(mfi) : usize) = usize(0);
+  while(mfi < move_flags.len(), mfi = (mfi + usize(1)), {
+    match(move_flags.get_cloned(mfi), .Some(mf) => em.emit_declaration_string_line(`  sm->${mf} = 1;`), .None => ());
+  });
+  em.emit_declaration_line("}");
   em.emit_declaration_line("");
 });
 /// The C type string for a dependency check, or `None` to skip the edge — i.e.
@@ -1438,6 +1453,7 @@ generate_async_block_constructor :: (
   em.emit_line("  // Allocate async block state machine (heap-backed, ref-counted)");
   em.emit_string_line(`  ${struct_name.clone()}* sm = (${struct_name.clone()}*)${_sm_alloc_call(struct_name.clone(), dispose_function_name.clone(), context)};`);
   em.emit_string_line(`  memset(sm, 0, sizeof(${struct_name.clone()}));`);
+  em.emit_string_line(`  ${struct_name.clone()}_init_move_flags((struct ${struct_name.clone()}_struct*)sm);`);
   em.emit_line("");
   // Reference-counting header.
   em.emit_line("  // Initialize reference counting header");
@@ -2013,7 +2029,8 @@ _fused_local_fields :: (fn(site : &FusedAwaitSite) -> ArrayList(FusedLocalField)
 });
 /// The fields the fused sites of a state machine add to its struct: each
 /// wrapper block's capture struct, bundle parameter, locals and await results.
-_emit_fused_site_fields :: (fn(sites : &ArrayList(FusedAwaitSite), context : &FunctionGenerationContext) -> unit)({
+/// The locals' move flags are added to `move_flags`.
+_emit_fused_site_fields :: (fn(sites : &ArrayList(FusedAwaitSite), move_flags : &mut ArrayList(String), context : &FunctionGenerationContext) -> unit)({
   em := context.base.emitter;
   // A wrapper block reached at two depths has one set of local fields: its
   // locals' names come from the naming registry, and its sites run one after
@@ -2053,6 +2070,7 @@ _emit_fused_site_fields :: (fn(sites : &ArrayList(FusedAwaitSite), context : &Fu
           if(!is_any_temp_variable_name(lf.name.clone()), {
             note_sm_move_flag_field(lf.field_name.clone());
             em.emit_declaration_string_line(`  uint8_t __yo_mv_${lf.field_name.clone()};  // ${lf.name.clone()} was moved out`);
+            move_flags.push(`__yo_mv_${lf.field_name.clone()}`);
           });
         }),
         .None => ()
@@ -4031,6 +4049,7 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
   var_type_and_name := get_variable_type_string(&future_type, result_var.clone(), &context.base);
   em.emit_string_line(`${indent.clone()}${var_type_and_name} = (${struct_name.clone()}*)${_sm_alloc_call(struct_name.clone(), dispose_function_name.clone(), context)};`);
   em.emit_string_line(`${indent.clone()}memset(${result_var.clone()}, 0, sizeof(${struct_name.clone()}));`);
+  em.emit_string_line(`${indent.clone()}${struct_name.clone()}_init_move_flags((struct ${struct_name.clone()}_struct*)${result_var.clone()});`);
   em.emit_string_line(`${indent.clone()}${result_var.clone()}->header.ref_count = 1u;`);
   tid := context.base.dispose_type_id_for(dispose_function_name.clone());
   em.emit_string_line(`${indent.clone()}${result_var.clone()}->header.type_id = ${tid.to_string()};`);
