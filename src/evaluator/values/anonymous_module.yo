@@ -306,12 +306,12 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
         // that failure at its own position, so the error is attributed here
         // as it would have been without the early force.
         pending_here := match(
-          walk_opt,
+          &walk_opt,
           .Some(w) => walk_pending_def_at(&w, i),
           .None => Option(PendingDef).None
         );
         skip_statement := match(
-          pending_here,
+          &pending_here,
           .Some(def) => match(
             def.state(),
             .Done => true,
@@ -842,7 +842,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
             def.set_state(PendingDefState.Done);
             if(!def.is_impl && def.variable().is_none(), {
               match(
-                walk_opt,
+                &walk_opt,
                 .Some(w) => {
                   def.set_variable(module_frame_variable(&w, def.name.clone()));
                 },
