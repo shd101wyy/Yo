@@ -37,7 +37,8 @@ pragma(Pragma.AllowUnsafe);
   get_variables_from_env,
   add_variable_to_env,
   snapshot_env,
-  env_adopt
+  env_adopt,
+  variable_value_type
 } :: import("../../env.yo");
 {
   EvalContext,
@@ -281,8 +282,8 @@ evaluate_test :: (
   io_module_type := match(
     io_module_var.value.get(usize(0)),
     .Some(.TypeVal(ty)) => Rc.clone(ty),
-    .Some(_) => Rc.clone(io_module_var.ty),
-    .None => Rc.clone(io_module_var.ty)
+    .Some(_) => variable_value_type(&io_module_var),
+    .None => variable_value_type(&io_module_var)
   );
   // Save frame count to restore after the (best-effort) trial evaluation,
   // which may push frames and then unwind on a swallowed error.

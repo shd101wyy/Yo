@@ -45,7 +45,7 @@ pragma(Pragma.AllowUnsafe);
 }
 :: import("../../expr.yo");
 { record_borrow_param_migration, migrate_param_modes_on, ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, expr_info_adopt_env, adopt_receiver_struct_instance, some_resolution, lookup_trait_ctor_fid, lookup_trait_type_args } :: import("../../expr_info.yo");
-{ Environment, Variable, get_variables_from_env, add_variable_to_env, add_where_clause_constraint_for_type_application, snapshot_env, copy_env_frames, env_adopt } :: import("../../env.yo");
+{ Environment, Variable, get_variables_from_env, add_variable_to_env, add_where_clause_constraint_for_type_application, snapshot_env, copy_env_frames, env_adopt, variable_value_type } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx, force_pending_impls_for_type_name, type_head_name_for_impl_forcing, call_function_value_marker } :: import("../context.yo");
 { EvalValue, create_type_value, create_unknown_val, is_type_value, is_runtime_only_unknown_val } :: import("../../value.yo");
 { some_t_bounds, TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, SharedList, t_slot, t_slot_pointee, slot_pointee_at, t_origin_named, t_origin_elided, t_origin_kind, t_reference_with_origin, is_origin_kind, t_reference, t_slot_is_borrow } :: import("../../types/definitions.yo");
@@ -1106,7 +1106,7 @@ _origin_names_into :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, 
     );
   });
   o_var := match(o_vars.get(o_n - usize(1)), .Some(v) => v, .None => return(()));
-  if(is_origin_kind(&o_var.ty), {
+  if(is_origin_kind(&variable_value_type(&o_var)), {
     if(!_names_contain(out, &o_name), {
       out.push(o_name);
     });
@@ -1232,7 +1232,7 @@ _type_origin_names_into :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalCont
   });
   o_var := match(o_vars.get(o_n - usize(1)), .Some(v) => v, .None => return(()));
   o_value := o_var.value.get(usize(0));
-  o_is_type := match(o_value, .Some(.TypeVal(_)) => !is_origin_kind(&o_var.ty), _ => false);
+  o_is_type := match(o_value, .Some(.TypeVal(_)) => !is_origin_kind(&variable_value_type(&o_var)), _ => false);
   if(o_is_type, {
     exn.throw(
       dyn(
@@ -2724,7 +2724,7 @@ use_id :: (fn(generic(T : Type),
         existing_pre_var,
         .Some(pv) => {
           // Pre-added by comptime pre-scan pass — reuse it
-          actual_param_type = Rc.clone(pv.ty);
+          actual_param_type = variable_value_type(&pv);
           match(
             label_expr,
             .Some(le) => {

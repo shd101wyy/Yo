@@ -55,7 +55,9 @@
   variable_set_inout_borrow_root_id,
   variable_mark_inout_borrow_root,
   make_err_variable,
-  env_adopt
+  env_adopt,
+  variable_value_type,
+  variable_set_value_type
 } :: import("../../env.yo");
 {
   EvalContext,
@@ -492,7 +494,7 @@ _evaluate_inout_local_binding :: (
         .Some(ri) => Rc.clone(ri.ty),
         .None => t_unit()
       ),
-      Rc.clone(root_var.ty)
+      variable_value_type(&root_var)
     );
     if(is_counted_handle_type(&recv_type), {
       pin_expr = Option(AstExpr).Some(recv_expr);
@@ -923,12 +925,12 @@ evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx
     // Decision 46 (E0919): an `Rc`'s payload is read-only through the handle.
     reject_write_through_rc(&evaluated_rhs, "mut-borrow", Option(TypeValue).None, ctx, exn);
   });
-  if(!are_types_compatible(&rhs_info.ty, &cur_var.ty), {
+  if(!are_types_compatible(&rhs_info.ty, &variable_value_type(&cur_var)), {
     exn.throw(
       dyn(
         format_error_message(
           ast_expr_token(&rhs),
-          `Cannot re-point \`${name}\` to \`${local_borrow_place_text(&rhs)}\`: \`${name}\` borrows a place of type ${type_to_string(&cur_var.ty)}, and this place has type ${type_to_string(&rhs_info.ty)}.`
+          `Cannot re-point \`${name}\` to \`${local_borrow_place_text(&rhs)}\`: \`${name}\` borrows a place of type ${type_to_string(&variable_value_type(&cur_var))}, and this place has type ${type_to_string(&rhs_info.ty)}.`
         )
       )
     );
@@ -999,7 +1001,7 @@ evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx
       match(hops.get(pk + usize(1)), .Some(h2) => h2.node, .None => make_err_expr()),
       root_atom
     );
-    recv_type := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&recv_expr)), .Some(ri) => Rc.clone(ri.ty), .None => Rc.clone(root_var.ty));
+    recv_type := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&recv_expr)), .Some(ri) => Rc.clone(ri.ty), .None => variable_value_type(&root_var));
     if(is_counted_handle_type(&recv_type), {
       pin_expr = Option(AstExpr).Some(recv_expr);
       pin_type = recv_type;
@@ -1018,15 +1020,15 @@ evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx
           make_err_variable(&env)
         }
       );
-      if(is_unit_type(&sp.ty), {
-        sp.ty = pin_type;
+      if(is_unit_type(&variable_value_type(&sp)), {
+        variable_set_value_type(&sp, pin_type);
       }, {
-        if(!are_types_compatible(&pin_type, &sp.ty), {
+        if(!are_types_compatible(&pin_type, &variable_value_type(&sp)), {
           exn.throw(
             dyn(
               format_error_message(
                 ast_expr_token(&rhs),
-                `Cannot re-point \`${name}\` into a ${type_to_string(&pin_type)} cell: an earlier re-point of \`${name}\` steps into ${type_to_string(&sp.ty)} cells, and the one cell a step holds has one type.`
+                `Cannot re-point \`${name}\` into a ${type_to_string(&pin_type)} cell: an earlier re-point of \`${name}\` steps into ${type_to_string(&variable_value_type(&sp))} cells, and the one cell a step holds has one type.`
               )
             )
           );
@@ -1815,7 +1817,7 @@ Use \`::\` for compile-time definitions inside impl.`
     new_var_opt := match(
       prebound_opt,
       .Some(pb) => {
-        pb.ty = Rc.clone(final_lhs_type);
+        variable_set_value_type(&pb, Rc.clone(final_lhs_type));
         match(
           lhs_value_opt,
           .Some(pb_v) => if(pb.value.len() > usize(0), {

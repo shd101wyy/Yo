@@ -20,7 +20,7 @@
   record_deref_clean_site
 } :: import("../../expr_info.yo");
 { Token, string_is_operator } :: import("../../token.yo");
-{ Environment, Variable, get_variables_from_env, env_candidate_names, find_variable_in_env, find_variable_in_env_at, variable_move_note } :: import("../../env.yo");
+{ Environment, Variable, get_variables_from_env, env_candidate_names, find_variable_in_env, find_variable_in_env_at, variable_move_note, variable_value_type } :: import("../../env.yo");
 { EvalContext, FuncOrAsyncBlockKind, CaptureUsage, track_variable_usage, track_variable_usage_resolved, resolve_pending_definition, adopt_resolved_definition, is_unlabeled_ensures_atom }
 :: import("../context.yo");
 { TypeValue, t_origin_kind } :: import("../../types/definitions.yo");
@@ -437,7 +437,7 @@ evaluate_identifier_and_operator :: (
   );
   // Check initialization (unless it's a function type or type value — mutual recursion)
   if((variable.initialized_at_token == Option(Token).None) && throw_error_on_undefined, {
-    if(!(is_function_type(&variable.ty) || is_type_value(variable.value.get(usize(0)))), {
+    if(!(is_function_type(&variable_value_type(&variable)) || is_type_value(variable.value.get(usize(0)))), {
       exn.throw(
         dyn(
           format_error_message(
@@ -465,7 +465,7 @@ evaluate_identifier_and_operator :: (
         // Through the flow-violation channel, so a definition-time trial
         // (a closure or `io.async` body) re-raises it instead of swallowing
         // it into an abort stub.
-        raise_flow_violation(use_of_moved_value_error(variable.name.clone(), &variable.ty, &token, variable_move_note(&variable, &moved_at)), ctx, exn);
+        raise_flow_violation(use_of_moved_value_error(variable.name.clone(), &variable_value_type(&variable), &token, variable_move_note(&variable, &moved_at)), ctx, exn);
         return(expr);
       });
     },
@@ -506,9 +506,9 @@ evaluate_identifier_and_operator :: (
     local_borrow_access(local_borrow_place_of_variable(&variable), LocalBorrowAccess.Read, &token, ctx, exn);
   });
   // Build ExprInfo
-  info := new_expr_info(env, &variable.ty);
+  info := new_expr_info(env, &variable_value_type(&variable));
   info.value = resolved_value;
-  expr_info_set_origin_type(&info, Option(TypeValue).Some(Rc.clone(variable.ty)));
+  expr_info_set_origin_type(&info, Option(TypeValue).Some(variable_value_type(&variable)));
   info.variable_name = Option(String).Some(variable.name.clone());
   info.source_variable = Option(Variable).Some(variable);
   // path_collection = [[variable.name]], shared per name.
@@ -518,7 +518,7 @@ evaluate_identifier_and_operator :: (
   // `source_variable`; codegen still resolves the symbol by name through
   // the atom, so the scope release records the name (cheap gates first:
   // this path runs for every identifier).
-  if(match(&variable.ty, Rc(.Func({ meta : __xm })) => __xm.*.is_extern.is_some(), _ => false) || (variable.is_compile_time_only && (!is_function_type(&variable.ty) && is_extern_c_global(variable.name.clone()))), {
+  if(match(&variable_value_type(&variable), Rc(.Func({ meta : __xm })) => __xm.*.is_extern.is_some(), _ => false) || (variable.is_compile_time_only && (!is_function_type(&variable_value_type(&variable)) && is_extern_c_global(variable.name.clone()))), {
     scope_release_note_query(ast_expr_id(expr), variable.name.clone());
   });
   // ------------------------------------------------------------------

@@ -43,7 +43,7 @@
 { fn_abi_param_is_ptr } :: import("../../types/utils.yo");
 { resolve_enum_shell, resolve_struct_shell } :: import("../../types/creators.yo");
 { type_key } :: import("../../types/type_key.yo");
-{ Environment, Variable, get_variables_from_env } :: import("../../env.yo");
+{ Environment, Variable, get_variables_from_env, variable_value_type } :: import("../../env.yo");
 { Emitter } :: import("../../emitter.yo");
 { guard_site_is_proved } :: import("../../evaluator/builtins/contracts.yo");
 { is_std_module_path } :: import("../../evaluator/memory_safety.yo");
@@ -2003,7 +2003,7 @@ _codegen_name_of_variables :: (fn(variable_name : &String, variables : &ArrayLis
       // (`stdout`/`stderr` — non-Func, so it can't carry is_extern on its type;
       // tracked in the g_extern_c_globals registry). Either way, keep the REAL
       // C name (skip the `__yo_c_reserved_` reserved-word prefix).
-      is_extern_c_fn := match(&variable.ty, Rc(.Func({ meta : __fm1 })) => match(&__fm1.*.is_extern, .Some(lang) => (lang == "c"), .None => false), _ => false);
+      is_extern_c_fn := match(&variable_value_type(&variable), Rc(.Func({ meta : __fm1 })) => match(&__fm1.*.is_extern, .Some(lang) => (lang == "c"), .None => false), _ => false);
       // The registry is NAME-keyed, but the rule is per-RESOLVED-variable
       // (extern-ness rides the TYPE):
       // a LOCAL binding that merely shares the name (IoError.from_errno's
@@ -2013,7 +2013,7 @@ _codegen_name_of_variables :: (fn(variable_name : &String, variables : &ArrayLis
       // returned Other instead of NotFound). Match the RESOLVED
       // variable's type against the global's DECLARED type to restore the
       // per-variable semantics.
-      is_extern_c_glob := extern_c_global_matches(variable.name.clone(), &variable.ty);
+      is_extern_c_glob := extern_c_global_matches(variable.name.clone(), &variable_value_type(&variable));
       is_extern_c := (is_extern_c_fn || is_extern_c_glob);
       // A global bound under a Yo alias (`{ stdout : out } :: c_include(...)`)
       // is emitted by its C symbol, not by the alias

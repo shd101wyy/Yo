@@ -26,7 +26,7 @@ pragma(Pragma.AllowUnsafe);
 }
 :: import("../../expr.yo");
 { new_expr_info, expr_info_table_get, expr_info_table_set, expr_info_adopt_env } :: import("../../expr_info.yo");
-{ Environment, get_variables_from_env } :: import("../../env.yo");
+{ Environment, get_variables_from_env, variable_value_type } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
 { create_type_value, is_type_value } :: import("../../value.yo");
 { TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
@@ -150,7 +150,7 @@ _is_origin_operand :: (fn(e : &AstExpr, env : &Environment) -> bool)(
     ast_expr_is_fn_call_of(e, BK_TUPLE, .None) => true,
     ast_expr_is_atom(e) => match(
       get_variables_from_env(env, &ast_expr_token(e).value.*).last(),
-      .Some(v) => !is_type_hierarchy_type(&v.ty),
+      .Some(v) => !is_type_hierarchy_type(&variable_value_type(&v)),
       .None => false
     ),
     true => false

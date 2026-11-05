@@ -95,7 +95,8 @@ pragma(Pragma.AllowUnsafe);
   get_variables_from_env,
   mint_funcval_env_key,
   register_funcval_cap_slices,
-  CaptureSlice
+  CaptureSlice,
+  variable_value_type
 } :: import("../../env.yo");
 { Token } :: import("../../token.yo");
 { some_t_bounds, TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, no_levels, no_flags, SharedList, slot_pointee_at, t_slot_pointee, t_slot_with_pointee, fn_param_mut_ref_flags, fn_param_by_value_flags, fn_result_is_ref, fn_result_is_mut_ref, t_slot_is_borrow } :: import("../../types/definitions.yo");
@@ -786,12 +787,12 @@ outcome after the guarded call instead (e.g. a result the handler unwinds past).
                             `Cannot capture the borrow '${k}' in a closure implicitly: '${k}' is a local borrow (\`${k} := &place\`, \`${k} := &mut place\`), a second-class borrow of another place, and an implicit capture would copy the borrow into a closure that may outlive it. Name it in a capture list (\`{ &${k} }(...) => ...\` or \`{ &mut ${k} }(...) => ...\`), which keeps the closure second-class, or read the value into a local first.`
                           );
                         });
-                        if(!v.is_compile_time_only && type_is_control_bound(&v.ty), {
+                        if(!v.is_compile_time_only && type_is_control_bound(&variable_value_type(&v)), {
                           _raise_capture_rejection(
                             ctx,
                             exn,
                             &ci.token,
-                            `Closures cannot capture a value of control-bound type. The captured value \`${k}\` has type \`${type_to_string(&v.ty)}\` which transitively contains a \`ctl(...) -> ret\` function. Closures can escape their enclosing frame, taking the captured control function with them — which would unwind to a dead install frame.
+                            `Closures cannot capture a value of control-bound type. The captured value \`${k}\` has type \`${type_to_string(&variable_value_type(&v))}\` which transitively contains a \`ctl(...) -> ret\` function. Closures can escape their enclosing frame, taking the captured control function with them — which would unwind to a dead install frame.
 
 Pass \`${k}\` as a regular function parameter instead of capturing it in a closure.`
                           );

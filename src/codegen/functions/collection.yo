@@ -33,7 +33,7 @@ pragma(Pragma.AllowUnsafe);
 // the normal codegen->evaluator direction (the evaluator is codegen-free, so no
 // import cycle).
 { Exception } :: import("std/error");
-{ Environment, clone_env } :: import("../../env.yo");
+{ Environment, clone_env, variable_value_type } :: import("../../env.yo");
 { EvalContext } :: import("../../evaluator/context.yo");
 { find_methods_from_generic_impls, get_trait_key, get_base_trait_key } :: import("../../evaluator/values/impl.yo");
 { get_trait_type_from_env } :: import("../../types/env_lookup.yo");
@@ -363,7 +363,7 @@ _register_extern_global_header :: (
   vs := scope_variables(key, &ei.env, name.clone());
   n := vs.len();
   resolved_ty := cond(
-    (n > usize(0)) => match(vs.get(n - usize(1)), .Some(x) => Rc.clone(x.ty), .None => return(())),
+    (n > usize(0)) => match(vs.get(n - usize(1)), .Some(x) => variable_value_type(&x), .None => return(())),
     match(ei.is_accessing_property, .Some(b) => b, .None => false) => Rc.clone(ei.ty),
     true => return(())
   );

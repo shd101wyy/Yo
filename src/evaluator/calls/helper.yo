@@ -75,7 +75,8 @@ pragma(Pragma.AllowUnsafe);
   bind_parameter,
   variable_bound_some_id,
   variable_set_bound_some_id,
-  mark_closure_param_slot_trait
+  mark_closure_param_slot_trait,
+  variable_value_type
 } :: import("../../env.yo");
 // dup-on-store / move for owned fn-call args. utils.yo
 // imports nothing from calls/, so this is acyclic.
@@ -4699,7 +4700,7 @@ create_specialized_function_inline :: (
               match(
                 spec_self_vars.last(),
                 .Some(spec_self_v) => {
-                  ctx.self_type = Option(TypeValue).Some(Rc.clone(spec_self_v.ty));
+                  ctx.self_type = Option(TypeValue).Some(variable_value_type(&spec_self_v));
                   spec_self_src = String.from("b-env-self");
                 },
                 .None => ()
@@ -4991,7 +4992,7 @@ create_specialized_function_inline :: (
                     .Some(v) => {
                       if(!spec_aligned, {
                         new_cap_names.push(label);
-                        new_cap_tys.push(Rc.clone(ev.ty));
+                        new_cap_tys.push(variable_value_type(&ev));
                         new_cap_vals.push(v);
                       });
                       if(have_cap_vars, {
@@ -6033,7 +6034,7 @@ evaluate_ctl_function_body_inline :: (
                     _add_caller_var_res := add_variable_to_env(
                       &specialized_env,
                       caller_var.name.clone(),
-                      &caller_var.ty,
+                      &variable_value_type(&caller_var),
                       caller_var.value.get(usize(0)),
                       true,
                       false,
@@ -6761,7 +6762,7 @@ _evaluated_expr_type :: (
           (e_vars.len() == usize(0)) => Option(TypeValue).None,
           true => match(
             e_vars.last(),
-            .Some(e_v) => Option(TypeValue).Some(Rc.clone(e_v.ty)),
+            .Some(e_v) => Option(TypeValue).Some(variable_value_type(&e_v)),
             .None => Option(TypeValue).None
           )
         )
@@ -8972,7 +8973,7 @@ try_to_call_function_with_arguments :: (
                     ArgEntry(
                       value : .Some(v_out),
                       parameter_type : ftype2,
-                      arg_type : Rc.clone(last_v.ty)
+                      arg_type : variable_value_type(&last_v)
                     )
                   );
                   forall_arg_labels.push(flabel2.clone());
@@ -9504,10 +9505,10 @@ try_to_call_function_with_arguments :: (
             match(
               gv_opt,
               .Some(gv) => {
-                if(gv.is_implicit && gv.is_compile_time_only && are_types_compatible(&gv.ty, &resolved_impl_type), {
+                if(gv.is_implicit && gv.is_compile_time_only && are_types_compatible(&variable_value_type(&gv), &resolved_impl_type), {
                   found_given = true;
                   given_val = gv.value.get(usize(0));
-                  given_ty = Rc.clone(gv.ty);
+                  given_ty = variable_value_type(&gv);
                   given_name = gv.name.clone();
                 });
               },

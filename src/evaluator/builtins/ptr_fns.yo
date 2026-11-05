@@ -24,7 +24,7 @@ pragma(Pragma.AllowUnsafe);
   record_addr_of_site,
   migrate_addr_of_on
 } :: import("../../expr_info.yo");
-{ Variable, Environment, snapshot_env, get_variables_from_env, find_variable_in_env_at } :: import("../../env.yo");
+{ Variable, Environment, snapshot_env, get_variables_from_env, find_variable_in_env_at, variable_value_type } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx, FuncOrAsyncBlockKind } :: import("../context.yo");
 {
   EvalValue,
@@ -565,7 +565,7 @@ evaluate_address_call :: (
       _by_value_borrow_param_root(&eval_arg, env, ctx),
       .Some(bp) => {
         bp_place := ast_place_text(&arg_expr);
-        bp_ty := type_to_string(&bp.ty);
+        bp_ty := type_to_string(&variable_value_type(&bp));
         bp_what := if(match(eval_arg, .Atom(_, _) => true, _ => false), `\`${bp.name}\`, a \`&${bp_ty}\` parameter`, `a place inside \`${bp.name}\`, a \`&${bp_ty}\` parameter`);
         exn.throw(
           dyn(

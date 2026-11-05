@@ -102,7 +102,9 @@ pragma(Pragma.AllowUnsafe);
   is_closure_param_frame,
   variable_note_arm_move,
   variable_move_note,
-  variable_inout_borrow_root_id
+  variable_inout_borrow_root_id,
+  variable_value_type,
+  variable_set_value_type
 } :: import("../env.yo");
 { Token, TokenKind } :: import("../token.yo");
 { EvalContext, LoopBodyCtx, LoopFlowSnapshot, FuncOrAsyncBlockKind, copy_trait_blockers_via_hook, type_head_name_for_impl_forcing } :: import("./context.yo");
@@ -272,7 +274,7 @@ attach_temp_variable_to_expr :: (
               !existing_var.is_owning_the_rc_value => false,
               true => _is_owning_rc
             );
-            existing_var.ty = Rc.clone(effective_ty);
+            variable_set_value_type(&existing_var, Rc.clone(effective_ty));
             existing_var.value = value_cell_of(cond(preserved_rc => Option(EvalValue).None, true => var_value));
             existing_var.is_compile_time_only = cond(preserved_rc => false, true => is_ctonly);
             existing_var.is_owning_the_rc_value = preserved_rc;
@@ -551,7 +553,7 @@ require_expr_not_consumed :: (
           if(same_site || migrate_borrowed_match_at(&consumed_tok), {
             return(());
           });
-          exn.throw(dyn(use_of_moved_value_error(&var_name, &v.ty, ast_expr_token(rhs), variable_move_note(&v, &consumed_tok))));
+          exn.throw(dyn(use_of_moved_value_error(&var_name, &variable_value_type(&v), ast_expr_token(rhs), variable_move_note(&v, &consumed_tok))));
         }
       );
     }
@@ -882,7 +884,7 @@ consume_called_fnonce_closure :: (fn(callee : &AstExpr, v : &Variable, env : &En
   // A closure whose captures hold nothing to release (plain data) is called
   // through any binding harmlessly; one holding an RC or move-only value
   // releases it in the call, so the binding must own the closure.
-  holds_owned := (type_contains_rc_type(&v.ty) || type_requires_explicit_copy(&v.ty));
+  holds_owned := (type_contains_rc_type(&variable_value_type(v)) || type_requires_explicit_copy(&variable_value_type(v)));
   what := cond(
     v.is_module_level => Option(String).Some(String.from("it is a module-level binding, which lives for the whole program and is never moved")),
     v.is_ref => Option(String).Some(String.from("it is a `&mut` borrow, which names storage the caller owns")),
@@ -981,7 +983,7 @@ move_captured_explicit_copy_variable :: (fn(v : &Variable, tok : &Token, env : &
     .Some(ct) => {
       same_site := ((ct.row == tok.row) && ((ct.column == tok.column) && (ct.module_path == tok.module_path)));
       if(!same_site, {
-        raise_flow_violation(use_of_moved_value_error(v.name.clone(), &v.ty, tok, variable_move_note(v, &ct)), ctx, exn);
+        raise_flow_violation(use_of_moved_value_error(v.name.clone(), &variable_value_type(v), tok, variable_move_note(v, &ct)), ctx, exn);
       });
     },
     .None => {
@@ -994,8 +996,8 @@ move_captured_explicit_copy_variable :: (fn(v : &Variable, tok : &Token, env : &
       // (issues/fixed/a-move-only-value-cannot-be-moved-into-thread-spawn.md).
       owner := if(!v.is_owning_the_rc_value && v.is_parameter, _owning_param_binding_for_capture_move(env, v.name.clone()), Option(Variable).None);
       if((!v.is_owning_the_rc_value && owner.is_none()) || (v.is_ref || v.is_module_level), {
-        msg := `use of moved value: the closure captures \`${v.name}\`, whose type \`${type_to_string(&v.ty)}\` ${_explicit_copy_kind(&v.ty)}, so the capture moves it, and \`${v.name}\` cannot be moved: it is borrowed (a by-value parameter, a \`match\`/\`for\` binding, a \`&mut\` borrow or a module-level binding). Take it \`sink(...)\` to own it.`;
-        raise_flow_violation(with_code(format_error_message_with_help(tok, &msg, move_only_help(v.name.clone(), &v.ty)), E_USE_OF_MOVED_VALUE), ctx, exn);
+        msg := `use of moved value: the closure captures \`${v.name}\`, whose type \`${type_to_string(&variable_value_type(v))}\` ${_explicit_copy_kind(&variable_value_type(v))}, so the capture moves it, and \`${v.name}\` cannot be moved: it is borrowed (a by-value parameter, a \`match\`/\`for\` binding, a \`&mut\` borrow or a module-level binding). Take it \`sink(...)\` to own it.`;
+        raise_flow_violation(with_code(format_error_message_with_help(tok, &msg, move_only_help(v.name.clone(), &variable_value_type(v))), E_USE_OF_MOVED_VALUE), ctx, exn);
       });
       moved := match(
         owner,
@@ -1727,7 +1729,7 @@ variable_is_borrow_parameter :: (fn(v : &Variable) -> bool)(
 /// A4): a borrowing future the caller passes there lends its places for the
 /// call's own future, so a borrow re-rooted at `v` is the caller's.
 variable_is_future_operand_parameter :: (fn(v : &Variable) -> bool)(
-  v.is_parameter && (!v.is_ref && (!v.is_imm_borrow && is_future_value_type(&v.ty)))
+  v.is_parameter && (!v.is_ref && (!v.is_imm_borrow && is_future_value_type(&variable_value_type(v))))
 );
 /// Some binding of `env` has the id `id`.
 variable_id_in_scope :: (fn(env : &Environment, id : usize) -> bool)(
@@ -2316,7 +2318,7 @@ set_expr_as_consumed :: (
               // Step 4: throw `use of moved value`.
               migrate_borrowed_match_at(&consumed_tok) => (),
               true => {
-                exn.throw(dyn(use_of_moved_value_error(&name, &v.ty, ast_expr_token(expr), variable_move_note(&v, &consumed_tok))));
+                exn.throw(dyn(use_of_moved_value_error(&name, &variable_value_type(&v), ast_expr_token(expr), variable_move_note(&v, &consumed_tok))));
               }
             )
           );
@@ -2566,7 +2568,7 @@ global_mut_rule_applies :: (fn(tok : &Token, ctx : &EvalContext) -> bool)(
 global_require_mut :: (fn(gv : &Variable, tok : &Token, how : &String, ctx : &EvalContext, exn : Exception) -> unit)({
   marked := is_mut_global(&gv.token.module_path.*, &gv.name);
   if(g_audit_global_lend, {
-    kind := if(_lb_is_cell_type(&gv.ty), "handle", "value");
+    kind := if(_lb_is_cell_type(&variable_value_type(gv)), "handle", "value");
     storage := if(is_thread_local(&gv.token.module_path.*, &gv.name), "thread_local", "static");
     global_lend_audit_print(&`${global_lend_location(tok)} [global-write] how=${how.replace(" ", String.from("-"))} kind=${kind} storage=${storage} marked=${if(marked, "yes", "no")} global=${gv.name} key=${global_lend_key(&gv.token, &gv.name)}`);
   });
@@ -2941,7 +2943,7 @@ _place_root_is_type_variable :: (fn(place : &AstExpr, env : &Environment) -> boo
     );
     cur = next;
   });
-  match(get_variables_from_env(env, ast_expr_token(&cur).value.*.clone()).last(), .Some(v) => is_some_type(&v.ty), .None => false)
+  match(get_variables_from_env(env, ast_expr_token(&cur).value.*.clone()).last(), .Some(v) => is_some_type(&variable_value_type(&v)), .None => false)
 });
 /// Decision 47 step 2: the place `place` (`x`, `x.f`, `x(i)`) is written at
 /// `tok`, by a field or element store, an exclusive lend or a `&mut self`
@@ -2965,7 +2967,7 @@ place_require_mut :: (fn(place : &AstExpr, tok : &Token, how : &String, handle_o
     return(());
   });
   if(handle_ok, {
-    place_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(place)), .Some(pi) => Rc.clone(pi.ty), .None => rv.ty.clone());
+    place_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(place)), .Some(pi) => Rc.clone(pi.ty), .None => variable_value_type(&rv).clone());
     if(_lb_is_cell_type(&place_ty), {
       return(());
     });
@@ -3136,7 +3138,7 @@ audit_note_match_binding :: (
           (canonical_module_path(&sv.token.module_path.*) != canonical_module_path(&binding.token.module_path.*)) => ImplicitCopyRoot(kind : String.from("macro"), root_id : sv.id),
           // A temporary of plain data (no counted value) owns what it
           // holds, as an owning RC temporary does.
-          is_any_temp_variable_name(sv.name.clone()) => ImplicitCopyRoot(kind : cond((sv.is_owning_the_rc_value || !type_contains_rc_type(&sv.ty)) => String.from("temp"), true => String.from("place")), root_id : sv.id),
+          is_any_temp_variable_name(sv.name.clone()) => ImplicitCopyRoot(kind : cond((sv.is_owning_the_rc_value || !type_contains_rc_type(&variable_value_type(&sv))) => String.from("temp"), true => String.from("place")), root_id : sv.id),
           (sv.is_owning_the_rc_value && !sv.is_module_level && !sv.is_ref) => ImplicitCopyRoot(kind : String.from("local"), root_id : sv.id),
           true => ImplicitCopyRoot(kind : String.from("place"), root_id : sv.id)
         )
@@ -3854,10 +3856,10 @@ check_dyn_capture :: (fn(v : &Variable, tok : &Token, env : &Environment, ctx : 
   cond(
     v.is_compile_time_only => (),
     (v.is_ref || v.is_module_level || (v.is_parameter && !v.is_owning_the_rc_value && _owning_param_binding_beside(env, v).is_none())) => {
-      msg := `use of moved value: the closure captures \`${v.name}\`, whose type \`${type_to_string(&v.ty)}\` ${_explicit_copy_kind(&v.ty)}, so the capture moves it, and \`${v.name}\` cannot be moved: it is borrowed (a \`&T\` parameter, a \`&mut\` borrow or a module-level binding).`;
-      raise_flow_violation(with_code(format_error_message_with_help(tok, &msg, move_only_help(v.name.clone(), &v.ty)), E_USE_OF_MOVED_VALUE), ctx, exn);
+      msg := `use of moved value: the closure captures \`${v.name}\`, whose type \`${type_to_string(&variable_value_type(v))}\` ${_explicit_copy_kind(&variable_value_type(v))}, so the capture moves it, and \`${v.name}\` cannot be moved: it is borrowed (a \`&T\` parameter, a \`&mut\` borrow or a module-level binding).`;
+      raise_flow_violation(with_code(format_error_message_with_help(tok, &msg, move_only_help(v.name.clone(), &variable_value_type(v))), E_USE_OF_MOVED_VALUE), ctx, exn);
     },
-    true => note_dyn_copy_pending(v, tok, &v.ty)
+    true => note_dyn_copy_pending(v, tok, &variable_value_type(v))
   )
 );
 /// Hold the copy (or move) of `v`, a value of type `ty`, at `tok` pending
@@ -4938,7 +4940,7 @@ check_loop_flow :: (
               )
             );
             entries.push(TokenAndError(token : v.token, error_message : String.from("declared outside the loop here")));
-            exn.throw(dyn(with_code(format_error_messages_with_help(&entries, moved_value_help(&v.name, &v.ty, &mv_tok)), E_USE_OF_MOVED_VALUE)));
+            exn.throw(dyn(with_code(format_error_messages_with_help(&entries, moved_value_help(&v.name, &variable_value_type(&v), &mv_tok)), E_USE_OF_MOVED_VALUE)));
           });
           // Ways out.
           exit_moved := ArrayList(Token).new();
@@ -4965,7 +4967,7 @@ check_loop_flow :: (
           // Only a value with a drop is at stake: without drop flags its drop
           // after the loop cannot be decided. A value with nothing to drop is
           // simply moved after the loop (a later use is E0901).
-          if((exit_moved.len() > usize(0)) && (exit_live.len() > usize(0)) && type_contains_rc_type(&v.ty) && !migrate_borrowed_match_at(match(exit_moved.get(usize(0)), .Some(t) => t, .None => v.token)), {
+          if((exit_moved.len() > usize(0)) && (exit_live.len() > usize(0)) && type_contains_rc_type(&variable_value_type(&v)) && !migrate_borrowed_match_at(match(exit_moved.get(usize(0)), .Some(t) => t, .None => v.token)), {
             entries2 := ArrayList(TokenAndError).new();
             entries2.push(
               TokenAndError(
@@ -5075,11 +5077,11 @@ _drop_in_arms_that_keep :: (
   // A binding that owns nothing (a `match`/`for` binding, a `mut` place)
   // has nothing of its own to drop: what its move consumed is its holder,
   // whose own join drops it in the arms that keep it.
-  if(!v.is_owning_the_rc_value || v.is_ref || !type_contains_rc_type(&v.ty), {
+  if(!v.is_owning_the_rc_value || v.is_ref || !type_contains_rc_type(&variable_value_type(v)), {
     return(true);
   });
   if(match(
-    &v.ty,
+    &variable_value_type(v),
     Rc(.SomeT({ bounds : s_rtt_bnd, resolution : s_rc })) => {
       s_rtt := s_rtt_bnd.required();
       (s_rc.is_none() && (s_rtt.len() == usize(0)))
@@ -5976,7 +5978,7 @@ _get_last_var_type :: (fn(vars : &ArrayList(Variable)) -> Option(TypeValue))(
     true => match(
       vars.last(),
       .None => Option(TypeValue).None,
-      .Some(last) => Option(TypeValue).Some(Rc.clone(last.ty))
+      .Some(last) => Option(TypeValue).Some(variable_value_type(&last))
     )
   )
 );
@@ -6566,7 +6568,7 @@ reject_reference_without_deref :: (fn(v : &Variable, tok : &Token, kind : u8, ct
     return(());
   });
   name := v.name.clone();
-  ty_text := type_to_string_for_message(&v.ty);
+  ty_text := type_to_string_for_message(&variable_value_type(v));
   ref_ty := `${cond(variable_is_mut_borrow(v) => "&mut ", true => "&")}${ty_text}`;
   msg := cond(
     (kind == u8(1)) => `\`${name}\` is a reference (\`${ref_ty}\`): writing the value it refers to is spelled \`${name}.* = …\``,
@@ -6578,12 +6580,12 @@ reject_reference_without_deref :: (fn(v : &Variable, tok : &Token, kind : u8, ct
     (kind == u8(1)) => `write \`${name}.* = …\`; \`${name} = &place\` re-points the reference (\`yo fix --migrate deref\` inserts the \`.*\`)`,
     (kind == u8(2)) => `write \`&${name}.*\` (or \`&mut ${name}.*\`), or pass \`${name}\` itself to a reference parameter (\`yo fix --migrate deref\` inserts the \`.*\`)`,
     (kind == u8(3)) => `write \`match(${name}, …)\`: its bindings borrow through \`${name}\` with its mutability (\`yo fix --migrate deref\` drops the marker)`,
-    type_requires_explicit_copy(&v.ty) => {
+    type_requires_explicit_copy(&variable_value_type(v)) => {
       repairs := cond(
-        type_lacks_clone(&v.ty) => `read through \`${name}\` there (\`${name}.field\`, \`${name}.method()\`, or a \`&${ty_text}\` parameter that \`${name}\` itself is passed to)`,
+        type_lacks_clone(&variable_value_type(v)) => `read through \`${name}\` there (\`${name}.field\`, \`${name}.method()\`, or a \`&${ty_text}\` parameter that \`${name}\` itself is passed to)`,
         true => `read through \`${name}\` there (\`${name}.field\`, \`${name}.method()\`, or a \`&${ty_text}\` parameter that \`${name}\` itself is passed to), or copy it explicitly, \`${name}.*.clone()\``
       );
-      `write \`${name}.*\` where the value is only read (an operand such as \`${name}.* == other\`); where it would be copied (a by-value parameter, a \`:=\` binding, a return) \`${ty_text}\` ${_explicit_copy_kind(&v.ty)}, so ${repairs} (\`yo fix --migrate deref\` inserts the \`.*\` where the value is only read and lists the copies)`
+      `write \`${name}.*\` where the value is only read (an operand such as \`${name}.* == other\`); where it would be copied (a by-value parameter, a \`:=\` binding, a return) \`${ty_text}\` ${_explicit_copy_kind(&variable_value_type(v))}, so ${repairs} (\`yo fix --migrate deref\` inserts the \`.*\` where the value is only read and lists the copies)`
     },
     true => `write \`${name}.*\`; \`${name}.field\`, \`${name}.method()\` and \`${name}(i)\` read through it, and \`f(${name})\` passes it to a reference parameter (\`yo fix --migrate deref\` inserts the \`.*\`)`
   );
@@ -6739,8 +6741,8 @@ local_borrow_place_of :: (fn(e0 : &AstExpr, env : &Environment, ctx : &EvalConte
     step := match(steps.get_cloned(k), .Some(s) => s, .None => String.from("?"));
     recv_ty := match(
       recvs.get(k),
-      .Some(r) => match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&r)), .Some(ri) => Rc.clone(ri.ty), .None => Rc.clone(root.ty)),
-      .None => Rc.clone(root.ty)
+      .Some(r) => match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&r)), .Some(ri) => Rc.clone(ri.ty), .None => variable_value_type(&root)),
+      .None => variable_value_type(&root)
     );
     cond(
       _lb_is_cell_type(&recv_ty) => {
@@ -6801,7 +6803,7 @@ local_borrow_value_place_of :: (fn(e : &AstExpr, env : &Environment, ctx : &Eval
     return(Option(LocalBorrowPlace).None);
   });
   root := match(get_variables_from_env(env, &p.root_name).last(), .Some(v) => v, .None => return(Option(LocalBorrowPlace).None));
-  if(_lb_is_cell_type(&root.ty) || is_pointer_type(&root.ty), {
+  if(_lb_is_cell_type(&variable_value_type(&root)) || is_pointer_type(&variable_value_type(&root)), {
     return(Option(LocalBorrowPlace).None);
   });
   Option(LocalBorrowPlace).Some(p)
@@ -6895,8 +6897,8 @@ cell_rooted_place_of :: (fn(e0 : &AstExpr, env : &Environment, ctx : &EvalContex
     step := match(steps.get_cloned(k), .Some(s) => s, .None => String.from("?"));
     recv_ty := match(
       recvs.get(k),
-      .Some(r) => match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&r)), .Some(ri) => Rc.clone(ri.ty), .None => Rc.clone(root.ty)),
-      .None => Rc.clone(root.ty)
+      .Some(r) => match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&r)), .Some(ri) => Rc.clone(ri.ty), .None => variable_value_type(&root)),
+      .None => variable_value_type(&root)
     );
     cond(
       _lb_is_cell_type(&recv_ty) => {
@@ -6928,7 +6930,7 @@ cell_rooted_place_of :: (fn(e0 : &AstExpr, env : &Environment, ctx : &EvalContex
     // The place is the cell itself lent whole, only when the root binding
     // is one: `&mut o` for `o` a `ref` object. A value, pointer or field
     // path that stops before any cell is decision 28's to judge.
-    if(!_lb_is_cell_type(&root.ty), {
+    if(!_lb_is_cell_type(&variable_value_type(&root)), {
       return(Option(CellRootedPlace).None);
     });
   });
