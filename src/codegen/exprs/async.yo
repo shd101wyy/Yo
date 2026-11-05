@@ -4049,7 +4049,6 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
   var_type_and_name := get_variable_type_string(&future_type, result_var.clone(), &context.base);
   em.emit_string_line(`${indent.clone()}${var_type_and_name} = (${struct_name.clone()}*)${_sm_alloc_call(struct_name.clone(), dispose_function_name.clone(), context)};`);
   em.emit_string_line(`${indent.clone()}memset(${result_var.clone()}, 0, sizeof(${struct_name.clone()}));`);
-  em.emit_string_line(`${indent.clone()}${struct_name.clone()}_init_move_flags((struct ${struct_name.clone()}_struct*)${result_var.clone()});`);
   em.emit_string_line(`${indent.clone()}${result_var.clone()}->header.ref_count = 1u;`);
   tid := context.base.dispose_type_id_for(dispose_function_name.clone());
   em.emit_string_line(`${indent.clone()}${result_var.clone()}->header.type_id = ${tid.to_string()};`);
