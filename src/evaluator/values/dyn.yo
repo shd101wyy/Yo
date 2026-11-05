@@ -1362,7 +1362,7 @@ evaluate_dyn_value :: (
   // cell type below; marked pre-evaluated around the payload's evaluation.
   (dyn_cell_preset_receiver : Option(usize)) = Option(usize).None;
   match(
-    ctx.expected_type,
+    &ctx.expected_type,
     .Some(et) => match(
       &et.ty,
       Rc(.DynT(_, _, _, _)) => {
@@ -1482,7 +1482,7 @@ evaluate_dyn_value :: (
     // the C compiler on `/* Error: dyn() call missing trait values */`
     // (issues/fixed/dyn-as-a-direct-downcast-argument-reports-got-option.md).
     (ret_type : TypeValue) = match(
-      ctx.expected_type,
+      &ctx.expected_type,
       .Some(et) => match(
         &et.ty,
         Rc(
@@ -1731,7 +1731,7 @@ evaluate_dyn_value :: (
   //   3. From final_value_type when it is a SomeT — build DynT from its traits.
   //   4. Otherwise: unsupported (concrete `.trait` field access is not available).
   expected_dyn_from_ctx := match(
-    ctx.expected_type,
+    &ctx.expected_type,
     .Some(et) => match(
       &et.ty,
       Rc(

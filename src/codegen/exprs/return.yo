@@ -993,7 +993,7 @@ generate_return :: (fn(expr : &AstExpr, indent : &String, context : &mut Functio
         // through the some-registry when abstract).
         (mut(sm_output_rt) : Option(String)) = Option(String).None;
         match(
-          context.in_async_state_machine,
+          &context.in_async_state_machine,
           .Some(_) => match(
             arg_ei_opt,
             .Some(aei_t) => {
@@ -1174,7 +1174,7 @@ generate_return :: (fn(expr : &AstExpr, indent : &String, context : &mut Functio
       // issues/fixed/an-early-return-of-a-hoisted-state-machine-local-completes-with-null.md).
       (mut(sm_result_snapshot) : Option(String)) = Option(String).None;
       match(
-        context.in_async_state_machine,
+        &context.in_async_state_machine,
         .Some(snap_sm) => {
           snap_child := match(
             extract_future_trait_from_type(&snap_sm.future_type),
@@ -1203,7 +1203,7 @@ generate_return :: (fn(expr : &AstExpr, indent : &String, context : &mut Functio
       // `return(x)` emitted NOTHING (the old Phase-5 stub returned "") and the
       // machine never completed (fs/file read_to_string: empty final state).
       match(
-        context.in_async_state_machine,
+        &context.in_async_state_machine,
         .Some(iasm) => {
           child_ty := match(
             extract_future_trait_from_type(&iasm.future_type),
@@ -1330,7 +1330,7 @@ generate_return :: (fn(expr : &AstExpr, indent : &String, context : &mut Functio
       // Async state-machine early unit return: complete the Future.
       // A non-unit future output completes with a zeroed result.
       match(
-        context.in_async_state_machine,
+        &context.in_async_state_machine,
         .Some(iasm_u) => {
           child_ty_u := match(
             extract_future_trait_from_type(&iasm_u.future_type),
@@ -1549,7 +1549,7 @@ emit_effect_unwind_check :: (fn(indent : &String, context : &mut FunctionGenerat
     .Some(ei) => ei.variable_name.clone(),
     .None => Option(String).None
   );
-  is_async := match(context.in_async_state_machine, .Some(_) => true, .None => false);
+  is_async := match(&context.in_async_state_machine, .Some(_) => true, .None => false);
   // One release per variable per escape sequence: the pending channel (just
   // above) flushes the escape expr's own deferred drops, so the consumed
   // channel must not touch those names again (see
@@ -1655,7 +1655,7 @@ _emit_unwind_tail_param_drops :: (fn(expr : &AstExpr, indent : &String, context 
 );
 generate_unwind :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
   arg_opt := match(expr, .FnCall(_, _, Rc(a), _, _) => a.get(usize(0)), _ => Option(AstExpr).None);
-  is_async := match(context.in_async_state_machine, .Some(_) => true, .None => false);
+  is_async := match(&context.in_async_state_machine, .Some(_) => true, .None => false);
   // One release per variable per escape sequence (see
   // collect_names_released_by_escape_sequence): the pending channel just
   // above flushes the unwind expr's own deferred drops.

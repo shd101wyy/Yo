@@ -2850,7 +2850,7 @@ _find_mutual_specializing_info :: (
   fn(ctx : &EvalContext, fid : &String, bindings_sig : &String) -> Option(SpecializingFunctionInfo)
 )({
   top_is_fid := match(
-    ctx.currently_specializing_function,
+    &ctx.currently_specializing_function,
     .Some(si) => ((si.original_func_id == fid) && (si.impl_bindings_sig == bindings_sig)),
     .None => false
   );
@@ -5923,7 +5923,7 @@ evaluate_ctl_function_body_inline :: (
   // otherwise the callee Func type's own return.
   // -------------------------------------------------------------------------
   (concrete_type_for_forall : TypeValue) = match(
-    ctx.is_evaluating_function_body_or_async_block,
+    &ctx.is_evaluating_function_body_or_async_block,
     .Some(fb_ctx) => match(
       fb_ctx.kind,
       .FunctionBody => match(
@@ -7948,7 +7948,7 @@ try_to_call_function_with_arguments :: (
       // call structurally. Guard: only bind a label not already concrete.
       if(is_io_async_call(expr), {
         match(
-          ctx.expected_type,
+          &ctx.expected_type,
           .Some(io_exp) => match(
             extract_future_trait_from_type(&io_exp.ty),
             .Some(io_ftt) => match(
@@ -8465,7 +8465,7 @@ try_to_call_function_with_arguments :: (
       // check_if_function_parameter_matches_argument.
       io_async_has_ret_constraint := (
         is_io_async_call(expr) && match(
-          ctx.expected_type,
+          &ctx.expected_type,
           .Some(io_exp0) => extract_future_trait_from_type(&io_exp0.ty).is_some(),
           .None => false
         )
@@ -9209,7 +9209,7 @@ try_to_call_function_with_arguments :: (
       // Step 10: Synthesize return type against the caller's expected type.
       if(ctx.expected_type.is_some(), {
         match(
-          ctx.expected_type,
+          &ctx.expected_type,
           .Some(et) => {
             checked_ret := ArrayList(TypePair).new();
             // A fn-type EXPECTED belongs to a fn-expression position — a
@@ -9357,13 +9357,13 @@ try_to_call_function_with_arguments :: (
       // (the IoError.check stage-2 family).
       if(is_some_type(&return_type) && match(func_type, Rc(.Func({ meta : __cfm })) => __cfm.*.is_control, _ => false), {
         (ctl_rt_conc : TypeValue) = match(
-          ctx.expected_type,
+          &ctx.expected_type,
           .Some(cet) => Rc.clone(cet.ty),
           .None => Rc.new(TypeValueNode.Unit)
         );
         if(is_some_type(&ctl_rt_conc) || is_unit_type(&ctl_rt_conc), {
           ctl_rt_conc = match(
-            ctx.is_evaluating_function_body_or_async_block,
+            &ctx.is_evaluating_function_body_or_async_block,
             .Some(cfb) => match(
               cfb.kind,
               .FunctionBody => match(
@@ -9710,7 +9710,7 @@ try_to_call_function_with_arguments :: (
         // instantiation): left to the existing skip + `recur` machinery
         // (unchanged behavior).
         is_recursive_spec := match(
-          ctx.currently_specializing_function,
+          &ctx.currently_specializing_function,
           .Some(spec_info) => ((spec_info.original_func_id == callee_fid_g) && (spec_info.impl_bindings_sig == callee_bindings_sig)),
           .None => false
         );
@@ -9770,7 +9770,7 @@ try_to_call_function_with_arguments :: (
             // per-object field is per-call-safe.
             if(is_some_type(&return_type), {
               (ctl_res_conc : TypeValue) = match(
-                ctx.is_evaluating_function_body_or_async_block,
+                &ctx.is_evaluating_function_body_or_async_block,
                 .Some(fb_ctx2) => match(
                   fb_ctx2.kind,
                   .FunctionBody => match(

@@ -209,7 +209,7 @@ generate_assignment :: (fn(expr : &AstExpr, indent : &String, context : &mut Fun
       // into a C local before an awaiting RHS is garbage at the drop, which
       // reads the temp's slot
       // (issues/fixed/a-mut-match-place-binding-cannot-live-across-an-await.md).
-      in_sm := match(context.in_async_state_machine, .Some(_) => (lhs_code.starts_with("sm->") || lhs_code.starts_with("(*sm->")), .None => false);
+      in_sm := match(&context.in_async_state_machine, .Some(_) => (lhs_code.starts_with("sm->") || lhs_code.starts_with("(*sm->")), .None => false);
       if(
         !in_sm,
         if(!is_unit_type(&lhs_type), {
@@ -423,7 +423,7 @@ generate_assignment :: (fn(expr : &AstExpr, indent : &String, context : &mut Fun
     );
     if(!is_unit_type(&lhs_type), {
       c_type_string := get_type_string(&lhs_type, &mut context.base);
-      is_sm_var := match(context.in_async_state_machine, .Some(_) => lhs_code.starts_with("sm->"), .None => false);
+      is_sm_var := match(&context.in_async_state_machine, .Some(_) => lhs_code.starts_with("sm->"), .None => false);
       line := indent.clone();
       if(is_init && !is_sm_var, {
         line.push_string(&c_type_string);

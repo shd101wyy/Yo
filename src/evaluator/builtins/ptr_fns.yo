@@ -86,7 +86,7 @@ _proj_err :: (fn(msg : String, code : Option(str)) -> Option(_ProjRootError))(Op
 /// body (a projection's result is checked against it).
 _enclosing_fn_type :: (fn(ctx : &EvalContext) -> Option(TypeValue))(
   match(
-    ctx.is_evaluating_function_body_or_async_block,
+    &ctx.is_evaluating_function_body_or_async_block,
     .Some(fb) => match(fb.kind, .FunctionBody => match(&fb.func_type, .Some(eft) => Option(TypeValue).Some(Rc.clone(eft)), .None => Option(TypeValue).None), _ => Option(TypeValue).None),
     .None => Option(TypeValue).None
   )
@@ -153,7 +153,7 @@ _field_origin_error :: (fn(field_ty : &TypeValue, ctx : &EvalContext) -> Option(
 /// none) the function type's labels.
 _enclosing_param_names :: (fn(ctx : &EvalContext) -> Option(ArrayList(String)))(
   match(
-    ctx.is_evaluating_function_body_or_async_block,
+    &ctx.is_evaluating_function_body_or_async_block,
     .Some(fb) => match(
       fb.kind,
       .FunctionBody => match(
@@ -332,7 +332,7 @@ _is_by_value_borrow_param :: (fn(v : &Variable, ctx : &EvalContext) -> bool)({
     return(false);
   });
   match(
-    ctx.is_evaluating_function_body_or_async_block,
+    &ctx.is_evaluating_function_body_or_async_block,
     .Some(fb) => match(
       fb.kind,
       .FunctionBody => match(
@@ -448,7 +448,7 @@ evaluate_address_call :: (
   // `.None => __yo_panic(...)` arms fail "Expected u8, Actual *(u8)").
   old_expected := ctx.expected_type.clone();
   match(
-    ctx.expected_type,
+    &ctx.expected_type,
     .Some(ectx) => {
       match(
         &ectx.ty,

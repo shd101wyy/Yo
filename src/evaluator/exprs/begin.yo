@@ -2341,7 +2341,7 @@ export(audit_judge_arm_copies, audit_commit_arm_copies, judge_dyn_copies, discar
 /// capture list (`is_fnonce_closure_fn`).
 _evaluating_fnonce_closure_body :: (fn(ctx : &EvalContext) -> bool)(
   match(
-    ctx.is_evaluating_function_body_or_async_block,
+    &ctx.is_evaluating_function_body_or_async_block,
     .Some(sub) => match(
       sub.func_value,
       .Some(fv) => match(fv, .FuncVal(fvd, _) => is_fnonce_closure_fn(fvd.*.func_id.clone()), _ => false),
@@ -2539,7 +2539,7 @@ _contains_return_of :: (fn(e : &AstExpr, name : &String) -> bool)({
 /// whole-value read (E0926, decision 43 step 2 N1e-1).
 _enclosing_fn_returns_reference :: (fn(ctx : &EvalContext) -> bool)(
   match(
-    ctx.is_evaluating_function_body_or_async_block,
+    &ctx.is_evaluating_function_body_or_async_block,
     .Some(fb_ctx) => match(
       fb_ctx.kind,
       .FunctionBody => match(&fb_ctx.func_type, .Some(Rc(.Func({ result : rr_slot }))) => t_slot_is_borrow(&rr_slot), _ => false),
@@ -2551,7 +2551,7 @@ _enclosing_fn_returns_reference :: (fn(ctx : &EvalContext) -> bool)(
 /// The enclosing function's declared result type, when evaluating a body.
 _enclosing_fn_result_type :: (fn(ctx : &EvalContext) -> Option(TypeValue))(
   match(
-    ctx.is_evaluating_function_body_or_async_block,
+    &ctx.is_evaluating_function_body_or_async_block,
     .Some(fb_ctx) => match(
       fb_ctx.kind,
       .FunctionBody => match(
@@ -2818,7 +2818,7 @@ _evaluate_begin_expression_impl :: (
   cond(
     is_evaluating_function_body_begin_block => {
       is_result_chain_block = match(
-        ctx.is_evaluating_function_body_or_async_block,
+        &ctx.is_evaluating_function_body_or_async_block,
         .Some(chain_fb) => match(chain_fb.kind, .TestBlock => false, _ => true),
         .None => false
       );
@@ -2830,7 +2830,7 @@ _evaluate_begin_expression_impl :: (
           ctx.local_borrow_result_chain_tail = Option(ExprId).None;
           is_result_chain_block = (
             (ast_expr_id(expr) == chain_id) && match(
-              ctx.is_evaluating_function_body_or_async_block,
+              &ctx.is_evaluating_function_body_or_async_block,
               .Some(chain_fb2) => match(chain_fb2.kind, .TestBlock => false, _ => true),
               .None => false
             )
@@ -2971,7 +2971,7 @@ _evaluate_begin_expression_impl :: (
           // single largest def-eval swallow category, 58× in std).
           old_expected := ctx.expected_type.clone();
           ret_expected := match(
-            ctx.is_evaluating_function_body_or_async_block,
+            &ctx.is_evaluating_function_body_or_async_block,
             .Some(fb_ctx) => match(
               fb_ctx.kind,
               .FunctionBody => match(
@@ -3052,7 +3052,7 @@ _evaluate_begin_expression_impl :: (
           // marker is evaluated, `evaluate_address_call`; only the
           // raw-pointer-representation rooting check remains here.)
           match(
-            ctx.is_evaluating_function_body_or_async_block,
+            &ctx.is_evaluating_function_body_or_async_block,
             .Some(rfb_ctx) => match(
               rfb_ctx.kind,
               .FunctionBody => match(
@@ -3099,7 +3099,7 @@ _evaluate_begin_expression_impl :: (
           // and the helper.yo / comptime_fn.yo save-restore sites); each later
           // return must be compatible with it.
           (ir_declared_impl : bool) = match(
-            ctx.is_evaluating_function_body_or_async_block,
+            &ctx.is_evaluating_function_body_or_async_block,
             .Some(ir_fb) => match(
               ir_fb.kind,
               .FunctionBody => match(
@@ -3188,7 +3188,7 @@ _evaluate_begin_expression_impl :: (
           );
         });
         match(
-          ctx.is_evaluating_loop_body,
+          &ctx.is_evaluating_loop_body,
           .Some(brk_lc) => {
             snap := snapshot_loop_flow(&brk_lc, &env, ast_expr_token(&expr_to_eval));
             brk_lc.break_states.push(snap);
@@ -3218,7 +3218,7 @@ _evaluate_begin_expression_impl :: (
           );
         });
         match(
-          ctx.is_evaluating_loop_body,
+          &ctx.is_evaluating_loop_body,
           .Some(cnt_lc) => {
             snap := snapshot_loop_flow(&cnt_lc, &env, ast_expr_token(&expr_to_eval));
             cnt_lc.continue_states.push(snap);
@@ -3554,7 +3554,7 @@ _evaluate_begin_expression_impl :: (
   is_return_ctrl := has_control_flow(last_info.control_flow, .Return);
   if(is_return_ctrl, {
     match(
-      ctx.is_evaluating_function_body_or_async_block,
+      &ctx.is_evaluating_function_body_or_async_block,
       .None => (),
       .Some(fctx) => {
         match(
@@ -3615,7 +3615,7 @@ _evaluate_begin_expression_impl :: (
             // Async-block kind synthesizes against the
             // surrounding EXPECTED type instead of a declared fn return.
             match(
-              ctx.expected_type,
+              &ctx.expected_type,
               .Some(et) => {
                 as_synth_ok := _try_synthesize_return_type(&et.ty, &return_type, &env);
                 if(!as_synth_ok, {
@@ -3766,7 +3766,7 @@ _evaluate_begin_expression_impl :: (
               // the enclosing function's parameter list).
               is_own_param_return := (
                 rv.is_owning_the_rc_value && rv.consumed_at_token.is_none() && match(
-                  ctx.is_evaluating_function_body_or_async_block,
+                  &ctx.is_evaluating_function_body_or_async_block,
                   .Some(fc) => match(
                     fc.kind,
                     .FunctionBody => match(

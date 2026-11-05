@@ -1074,7 +1074,7 @@ _throw_fn_closure_moves_capture :: (fn(rhs : &AstExpr, ty : &TypeValue, var_id :
 /// captures.
 _closure_binding_site :: (fn(v : &Variable, env : &Environment, ctx : &EvalContext) -> u8)(
   match(
-    ctx.is_evaluating_function_body_or_async_block,
+    &ctx.is_evaluating_function_body_or_async_block,
     .Some(sub) => match(
       sub.kind,
       .FunctionBody => {
@@ -6024,7 +6024,7 @@ export(
 /// so a runtime method or closure defined there keeps its `:=`.
 in_compile_time_fn_body :: (fn(ctx : &EvalContext) -> bool)(
   match(
-    ctx.is_evaluating_function_body_or_async_block,
+    &ctx.is_evaluating_function_body_or_async_block,
     .Some(fctx) => match(
       fctx.kind,
       .FunctionBody => match(
@@ -8216,7 +8216,7 @@ reject_composite_result_local_roots :: (fn(e : &AstExpr, env : &Environment, ctx
       // A result type that spells its origins (`-> V(a)`) names only those
       // places: a root at another parameter is outside it (E0923).
       cr_ft := match(
-        ctx.is_evaluating_function_body_or_async_block,
+        &ctx.is_evaluating_function_body_or_async_block,
         .Some(cr_fb) => match(cr_fb.kind, .FunctionBody => match(&cr_fb.func_type, .Some(cr_t) => Option(TypeValue).Some(Rc.clone(cr_t)), .None => Option(TypeValue).None), _ => Option(TypeValue).None),
         .None => Option(TypeValue).None
       );

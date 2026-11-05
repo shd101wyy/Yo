@@ -743,7 +743,7 @@ track_variable_usage_resolved :: (
 )(
   // Only track when we are inside a function body or async block.
   match(
-    context.is_evaluating_function_body_or_async_block,
+    &context.is_evaluating_function_body_or_async_block,
     .None => (),
     .Some(sub_ctx) => {
       eval_env := sub_ctx.eval_env;
@@ -1880,7 +1880,7 @@ call_closure_capture_marker :: (fn(capture_ty : &TypeValue, marker : &String) ->
 /// `comptime(...)` — a body that only ever runs by CTFE?
 fn_ctx_returns_comptime :: (fn(ctx : &EvalContext) -> bool)(
   match(
-    ctx.is_evaluating_function_body_or_async_block,
+    &ctx.is_evaluating_function_body_or_async_block,
     .Some(fc) => match(
       fc.kind,
       .FunctionBody => match(
@@ -3526,7 +3526,7 @@ create_function_body_evaluation_context :: (
   // If the parent is a function body, the enclosing return type is its return type.
   // If the parent is a test/async block, the enclosing return type is unit.
   enclosing_return_type := match(
-    ctx.is_evaluating_function_body_or_async_block,
+    &ctx.is_evaluating_function_body_or_async_block,
     .None => Option(TypeValue).None,
     .Some(block) => match(
       block.kind,

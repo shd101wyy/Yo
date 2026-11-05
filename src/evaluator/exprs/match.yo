@@ -2028,7 +2028,7 @@ evaluate_match :: (
       }, {
         has_case_without_cf_em = true;
         match(
-          ctx.expected_type,
+          &ctx.expected_type,
           .None => (),
           .Some(et) => {
             if(!(are_types_compatible(&body_info.ty, &et.ty)), {
@@ -2558,7 +2558,7 @@ evaluate_match :: (
         });
         if(ret_type_em.is_none(), {
           match(
-            ctx.is_evaluating_function_body_or_async_block,
+            &ctx.is_evaluating_function_body_or_async_block,
             .None => (),
             .Some(fctx) => {
               match(
@@ -2586,7 +2586,7 @@ evaluate_match :: (
         });
         if(ret_type_em.is_none(), {
           match(
-            ctx.expected_type,
+            &ctx.expected_type,
             .None => (),
             .Some(et) => {
               ret_type_em = Option(TypeValue).Some(Rc.clone(et.ty));
@@ -2608,13 +2608,13 @@ evaluate_match :: (
           },
           .Some(rt) => {
             is_fn_body_em := match(
-              ctx.is_evaluating_function_body_or_async_block,
+              &ctx.is_evaluating_function_body_or_async_block,
               .None => false,
               .Some(fctx) => match(fctx.kind, .FunctionBody => true, _ => false)
             );
             is_comptime_ret_em := cond(
               is_fn_body_em => match(
-                ctx.is_evaluating_function_body_or_async_block,
+                &ctx.is_evaluating_function_body_or_async_block,
                 .None => false,
                 .Some(fctx) => match(
                   &fctx.func_type,

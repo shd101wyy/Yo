@@ -674,7 +674,7 @@ evaluate_asm :: (
   });
   // asm can only be called inside a function body or test block.
   in_fn_or_test := match(
-    ctx.is_evaluating_function_body_or_async_block,
+    &ctx.is_evaluating_function_body_or_async_block,
     .Some(fab) => match(fab.kind, .FunctionBody => true, .TestBlock => true, _ => false),
     .None => false
   );
@@ -899,7 +899,7 @@ evaluate_asm :: (
   cond(
     noreturn => {
       return_type = match(
-        ctx.is_evaluating_function_body_or_async_block,
+        &ctx.is_evaluating_function_body_or_async_block,
         .Some(fab) => match(
           fab.kind,
           .FunctionBody => match(

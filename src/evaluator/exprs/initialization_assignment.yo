@@ -232,7 +232,7 @@ _evaluate_inout_local_binding :: (
   // state machine keeps the reference, its pin and the place's root in task
   // slots (codegen/exprs/init_assignment.yo `_generate_inout_local_binding`).
   match(
-    ctx.is_evaluating_function_body_or_async_block,
+    &ctx.is_evaluating_function_body_or_async_block,
     .None => {
       exn.throw(
         dyn(
@@ -1320,7 +1320,7 @@ evaluate_initialization_assignment :: (
     rhs_info_opt,
     .Some(rhs_info) => {
       is_at_module_level := match(
-        ctx.is_evaluating_function_body_or_async_block,
+        &ctx.is_evaluating_function_body_or_async_block,
         .Some(_) => false,
         .None => true
       );

@@ -1219,7 +1219,7 @@ evaluate_anonymous_function_implementation :: (
   // prototype and its body. It also made that file's `comptime_expect_error`
   // for "lambda with unwind needs an explicit ctl annotation" pass vacuously.
   (expected_ty : TypeValue) = match(
-    ctx.expected_type,
+    &ctx.expected_type,
     .Some(etc) => Rc.clone(etc.ty),
     .None => {
       exn.throw(
@@ -1238,7 +1238,7 @@ evaluate_anonymous_function_implementation :: (
   // parameter types can be resolved against those bindings before body
   // evaluation.
   expected_type_env := match(
-    ctx.expected_type,
+    &ctx.expected_type,
     .Some(etc) => snapshot_env(&etc.env),
     .None => env
   );
@@ -2108,7 +2108,7 @@ evaluate_anonymous_function_implementation :: (
   // anonymous function is evaluated inside a function-body context, record
   // the enclosing function's result type for it.
   match(
-    ctx.is_evaluating_function_body_or_async_block,
+    &ctx.is_evaluating_function_body_or_async_block,
     .Some(fb_ctx) => match(
       fb_ctx.kind,
       .FunctionBody => match(

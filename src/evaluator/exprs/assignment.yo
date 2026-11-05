@@ -458,7 +458,7 @@ _reject_runtime_write_of_comptime_binding :: (
 /// of the body's own.
 _captured_root_of_place :: (fn(lhs : &AstExpr, env : &Environment, ctx : &EvalContext) -> Option(Variable))(
   match(
-    ctx.is_evaluating_function_body_or_async_block,
+    &ctx.is_evaluating_function_body_or_async_block,
     .Some(sub) => match(
       _place_root_variable(lhs, env, ctx, true),
       .Some(v) => {
@@ -2485,7 +2485,7 @@ comptime(${variable_name}) : ${dgc_ty_str}
     // frame count — grown past loop entry by the time the gate runs — makes
     // body-locals compare as "outside" (corpus DIFF on arraylist_index_call.yo).
     match(
-      ctx.is_evaluating_loop_body,
+      &ctx.is_evaluating_loop_body,
       .Some(loop_ctx) => {
         if(updated_variable.frame_level < loop_ctx.entry_frame_count, {
           wl_entries := ArrayList(TokenAndError).new();
@@ -2507,7 +2507,7 @@ comptime(${variable_name}) : ${dgc_ty_str}
       .None => ()
     );
     match(
-      ctx.is_evaluating_function_body_or_async_block,
+      &ctx.is_evaluating_function_body_or_async_block,
       .Some(of_ctx) => match(
         of_ctx.kind,
         .FunctionBody => {

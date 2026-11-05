@@ -554,7 +554,7 @@ evaluate_cond :: (
                 });
                 // Check compatibility with the expected type.
                 match(
-                  ctx.expected_type,
+                  &ctx.expected_type,
                   .None => (),
                   .Some(et) => {
                     // For `-> &mut T` enclosing functions the body's expected
@@ -782,7 +782,7 @@ evaluate_cond :: (
             });
             if(return_type.is_none(), {
               match(
-                ctx.is_evaluating_function_body_or_async_block,
+                &ctx.is_evaluating_function_body_or_async_block,
                 .None => (),
                 .Some(fctx) => {
                   match(
@@ -810,7 +810,7 @@ evaluate_cond :: (
             });
             if(return_type.is_none(), {
               match(
-                ctx.expected_type,
+                &ctx.expected_type,
                 .None => (),
                 .Some(et) => {
                   return_type = Option(TypeValue).Some(Rc.clone(et.ty));
@@ -831,13 +831,13 @@ evaluate_cond :: (
               },
               .Some(rt) => {
                 is_fn_body := match(
-                  ctx.is_evaluating_function_body_or_async_block,
+                  &ctx.is_evaluating_function_body_or_async_block,
                   .None => false,
                   .Some(fctx) => match(fctx.kind, .FunctionBody => true, _ => false)
                 );
                 is_comptime_return := cond(
                   is_fn_body => match(
-                    ctx.is_evaluating_function_body_or_async_block,
+                    &ctx.is_evaluating_function_body_or_async_block,
                     .None => false,
                     .Some(fctx) => match(
                       &fctx.func_type,

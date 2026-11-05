@@ -568,7 +568,7 @@ generate_atom :: (fn(expr : &AstExpr, context : &mut FunctionGenerationContext, 
     // Async state machine: early `return` completes the result Future
     // (sm->state = -1 + continuation dispatch) instead of a C return.
     match(
-      context.in_async_state_machine,
+      &context.in_async_state_machine,
       .Some(iasm) => {
         child_type := match(
           extract_future_trait_from_type(&iasm.future_type),
