@@ -4976,9 +4976,9 @@ force_in_flight_field :: (
     .Done => false,
     .Failed => false,
     .Forcing => cond(
-      (!pf.phase_a_registered && pf.def.phase_a_value.is_some()) => {
-        pa_v := match(pf.def.phase_a_value, .Some(v) => v, .None => EvalValue.UnitVal);
-        pa_t := match(&pf.def.phase_a_type, .Some(t) => Rc.clone(t), .None => t_unit());
+      (!pf.phase_a_registered && pf.def.phase_a_value().is_some()) => {
+        pa_v := match(pf.def.phase_a_value(), .Some(v) => v, .None => EvalValue.UnitVal);
+        pa_t := match(&pf.def.phase_a_type(), .Some(t) => Rc.clone(t), .None => t_unit());
         pa_src := cond(
           pf.is_inner => match(&rec.current_trait_ty, .Some(tt) => type_id_or_empty(&tt), .None => String.from("")),
           true => String.from("")

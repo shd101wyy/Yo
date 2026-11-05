@@ -188,9 +188,9 @@ _force_pending_def_impl :: (fn(walk : &ModuleWalk, def : &PendingDef) -> Option(
   // A finished walk of a one-shot command has released its context
   // (`end_module_walk`); nothing forces its definitions afterwards, so
   // reaching this is a broken invariant, reported rather than masked.
-  force_ctx := match(
-    &walk.ctx,
-    .Some(c) => copy_eval_context(&c),
+  mut(force_ctx) := match(
+    walk.ctx_copy(),
+    .Some(c) => c,
     .None => return(
       Option(String).Some(
         `internal error: forcing \`${def.name}\` after module \`${walk.module_path}\` finished its walk and released its evaluation context (only \`check --watch\` and \`yo lsp\` retain it)`
@@ -200,7 +200,7 @@ _force_pending_def_impl :: (fn(walk : &ModuleWalk, def : &PendingDef) -> Option(
   force_ctx.expected_type = .None;
   prev_mod_exprs := get_module_begin_exprs();
   prev_mod_idx := get_module_begin_expr_index();
-  set_module_walk(&walk.begin_exprs);
+  set_module_walk(&walk.begin_exprs_snapshot());
   set_module_walk_index(def.index);
   prev_trial := set_in_def_time_trial(false);
   saved_where := take_active_where_trait_ids();
@@ -219,7 +219,7 @@ _force_pending_def_impl :: (fn(walk : &ModuleWalk, def : &PendingDef) -> Option(
     .Some(k) => set_registration_owner(&k),
     .None => ()
   );
-  _force_eval(&def.expr, &force_env, &mut force_ctx);
+  _force_eval(&def.expr(), &force_env, &mut force_ctx);
   set_registration_owner(&prev_owner);
   truncate_forcing_depths(force_depths);
   restore_active_where_trait_ids(&saved_where);
@@ -229,9 +229,9 @@ _force_pending_def_impl :: (fn(walk : &ModuleWalk, def : &PendingDef) -> Option(
     _take_force_failure(),
     .Some(msg) => Option(String).Some(
       cond(
-        def.is_derive => `${msg}\n  note: \`derive(${def.name}, …)\` (line ${(def.row + usize(1)).to_string()}) was evaluated here because a method or trait of \`${def.name}\` is used before that derive in the source`,
-        def.is_impl => `${msg}\n  note: \`impl(${def.name}, …)\` (line ${(def.row + usize(1)).to_string()}) was evaluated here because a method or trait of \`${def.name}\` is used before that impl in the source`,
-        true => `${msg}\n  note: \`${def.name}\` (line ${(def.row + usize(1)).to_string()}) was evaluated here because it is referenced before its definition in the source`
+        def.is_derive() => `${msg}\n  note: \`derive(${def.name}, …)\` (line ${(def.row() + usize(1)).to_string()}) was evaluated here because a method or trait of \`${def.name}\` is used before that derive in the source`,
+        def.is_impl => `${msg}\n  note: \`impl(${def.name}, …)\` (line ${(def.row() + usize(1)).to_string()}) was evaluated here because a method or trait of \`${def.name}\` is used before that impl in the source`,
+        true => `${msg}\n  note: \`${def.name}\` (line ${(def.row() + usize(1)).to_string()}) was evaluated here because it is referenced before its definition in the source`
       )
     ),
     .None => Option(String).None
@@ -312,10 +312,10 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
         skip_statement := match(
           pending_here,
           .Some(def) => match(
-            def.state,
+            def.state(),
             .Done => true,
             .Failed => {
-              exn.throw(dyn(match(&def.failure, .Some(m) => m.clone(), .None => String.from("definition failed"))));
+              exn.throw(dyn(match(&def.failure(), .Some(m) => m.clone(), .None => String.from("definition failed"))));
               true
             },
             .Forcing => {
@@ -838,12 +838,12 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
         match(
           pending_here,
           .Some(def) => if(!skip_statement, {
-            def.state = PendingDefState.Done;
-            if(!def.is_impl && def.variable.is_none(), {
+            def.set_state(PendingDefState.Done);
+            if(!def.is_impl && def.variable().is_none(), {
               match(
                 walk_opt,
                 .Some(w) => {
-                  def.variable = module_frame_variable(&w, def.name.clone());
+                  def.set_variable(module_frame_variable(&w, def.name.clone()));
                 },
                 .None => ()
               );

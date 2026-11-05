@@ -1206,87 +1206,186 @@ hard_swallow_diagnostic_in_generic_trial :: (fn(msg : &String) -> Option(String)
 // has `exn` in scope, throws it).
 PendingDefState :: enum(Unforced, Forcing, Done, Failed);
 derive(PendingDefState, Copy, Clone);
-/// One deferred module-level statement.
-PendingDef :: ref(
-  struct(
-    /// The bound name (`name :: …`), or the receiver head atom of an `impl`
-    /// (`File` in `impl(File, …)`, `ArrayList` in `impl(generic(T), ArrayList(T), …)`;
-    /// empty when the head is not nameable — such impls force at any miss).
-    /// For an `extern(...)` block: its first member (display only).
-    name : String,
-    /// The names an `extern(...)` block declares — one statement binds them
-    /// all, so a miss on ANY of them forces the block; empty for every other
-    /// statement. Their Variables are read from the module frame by name
-    /// (`variable` below records only `name`'s).
-    members : ArrayList(String),
-    /// The whole statement — evaluated verbatim when forced.
-    expr : AstExpr,
-    /// Position in the walk's begin_exprs (the walker skips a Done entry there).
-    index : usize,
-    row : usize,
-    is_impl : bool,
-    /// A `derive(T, Trait...)` statement: an impl registration of `T`
-    /// (`is_impl` is set too) that declares no member labels — the generated
-    /// impls do, and only once it runs.
-    is_derive : bool,
-    state : PendingDefState,
-    failure : Option(String),
-    /// Phase A (§4.3): the FuncVal + Func type that
-    /// `try_to_implement_function_by_function_type` publishes once the RHS's
-    /// signature head is evaluated and BEFORE the body trial runs. A reference to
-    /// this name from inside its own body (self-recursion) or from a sibling it
-    /// forced (mutual recursion) binds this value instead of erroring.
-    phase_a_value : Option(EvalValue),
-    phase_a_type : Option(TypeValue),
-    /// The module-frame Variable once bound — pre-bound from phase A on a
-    /// re-entrant reference, otherwise the one the definition's own evaluation
-    /// added to the module frame.
-    variable : Option(Variable),
-    /// Phase 3 (plans/reference/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §6): the FNV-1a
-    /// of the definition's canonical rendering (`ast_expr_to_string`) — the
-    /// per-definition source hash the invalidator diffs against. Rendering,
-    /// not the token span: a comment-only or whitespace-only edit produces
-    /// the same rendering and correctly invalidates nothing.
-    src_hash : u64
+/// What a deferred statement's forcing and its re-validation write: one cell
+/// of a `PendingDef` (V5 part B, class S, shape 2).
+PendingDefLive :: struct(
+  /// The names an `extern(...)` block declares — one statement binds them
+  /// all, so a miss on ANY of them forces the block; empty for every other
+  /// statement. Their Variables are read from the module frame by name
+  /// (`variable` below records only `name`'s).
+  members : ArrayList(String),
+  /// The whole statement — evaluated verbatim when forced.
+  expr : AstExpr,
+  row : usize,
+  /// A `derive(T, Trait...)` statement: an impl registration of `T`
+  /// (`is_impl` is set too) that declares no member labels — the generated
+  /// impls do, and only once it runs.
+  is_derive : bool,
+  state : PendingDefState,
+  failure : Option(String),
+  /// Phase A (§4.3): the FuncVal + Func type that
+  /// `try_to_implement_function_by_function_type` publishes once the RHS's
+  /// signature head is evaluated and BEFORE the body trial runs. A reference to
+  /// this name from inside its own body (self-recursion) or from a sibling it
+  /// forced (mutual recursion) binds this value instead of erroring.
+  phase_a_value : Option(EvalValue),
+  phase_a_type : Option(TypeValue),
+  /// The module-frame Variable once bound — pre-bound from phase A on a
+  /// re-entrant reference, otherwise the one the definition's own evaluation
+  /// added to the module frame.
+  variable : Option(Variable),
+  /// Phase 3 (plans/reference/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §6): the FNV-1a
+  /// of the definition's canonical rendering (`ast_expr_to_string`) — the
+  /// per-definition source hash the invalidator diffs against. Rendering,
+  /// not the token span: a comment-only or whitespace-only edit produces
+  /// the same rendering and correctly invalidates nothing.
+  src_hash : u64
+);
+/// One deferred module-level statement. The walk's list, its by-index map,
+/// an impl's pending field and the forcing stack all hold the same entry, and
+/// a force through any of them is seen through the others: a shared `Rc`
+/// whose identity fields are read-only and whose live part is one cell.
+PendingDefData :: struct(
+  /// The bound name (`name :: …`), or the receiver head atom of an `impl`
+  /// (`File` in `impl(File, …)`, `ArrayList` in `impl(generic(T), ArrayList(T), …)`;
+  /// empty when the head is not nameable — such impls force at any miss).
+  /// For an `extern(...)` block: its first member (display only).
+  name : String,
+  /// Position in the walk's begin_exprs (the walker skips a Done entry there).
+  index : usize,
+  is_impl : bool,
+  live : RefCell(PendingDefLive)
+);
+impl(
+  PendingDefData,
+  members : (fn(self : &Self) -> ArrayList(String))(self.live.with(l => l.members.clone())),
+  set_members : (fn(self : &Self, sink(v) : ArrayList(String)) -> unit)(self.live.with_mut({ v }(l) => {
+    l.members = v;
+  })),
+  expr : (fn(self : &Self) -> AstExpr)(self.live.with(l => l.expr)),
+  set_expr : (fn(self : &Self, v : AstExpr) -> unit)(self.live.with_mut(l => {
+    l.expr = v;
+  })),
+  row : (fn(self : &Self) -> usize)(self.live.with(l => l.row)),
+  set_row : (fn(self : &Self, v : usize) -> unit)(self.live.with_mut(l => {
+    l.row = v;
+  })),
+  is_derive : (fn(self : &Self) -> bool)(self.live.with(l => l.is_derive)),
+  set_is_derive : (fn(self : &Self, v : bool) -> unit)(self.live.with_mut(l => {
+    l.is_derive = v;
+  })),
+  state : (fn(self : &Self) -> PendingDefState)(self.live.with(l => l.state)),
+  set_state : (fn(self : &Self, v : PendingDefState) -> unit)(self.live.with_mut(l => {
+    l.state = v;
+  })),
+  failure : (fn(self : &Self) -> Option(String))(self.live.with(l => l.failure.clone())),
+  set_failure : (fn(self : &Self, sink(v) : Option(String)) -> unit)(self.live.with_mut({ v }(l) => {
+    l.failure = v;
+  })),
+  phase_a_value : (fn(self : &Self) -> Option(EvalValue))(self.live.with(l => l.phase_a_value)),
+  set_phase_a_value : (fn(self : &Self, v : Option(EvalValue)) -> unit)(self.live.with_mut(l => {
+    l.phase_a_value = v;
+  })),
+  phase_a_type : (fn(self : &Self) -> Option(TypeValue))(self.live.with(l => l.phase_a_type.clone())),
+  set_phase_a_type : (fn(self : &Self, sink(v) : Option(TypeValue)) -> unit)(self.live.with_mut({ v }(l) => {
+    l.phase_a_type = v;
+  })),
+  variable : (fn(self : &Self) -> Option(Variable))(self.live.with(l => l.variable)),
+  set_variable : (fn(self : &Self, v : Option(Variable)) -> unit)(self.live.with_mut(l => {
+    l.variable = v;
+  })),
+  src_hash : (fn(self : &Self) -> u64)(self.live.with(l => l.src_hash)),
+  set_src_hash : (fn(self : &Self, v : u64) -> unit)(self.live.with_mut(l => {
+    l.src_hash = v;
+  }))
+);
+PendingDef :: Rc(PendingDefData);
+/// A new, unforced entry for statement `expr` at `index` of its walk.
+new_pending_def :: (fn(name : &String, expr : &AstExpr, index : usize, is_impl : bool) -> PendingDef)(
+  Rc.new(
+    PendingDefData(
+      name : name.clone(),
+      index : index,
+      is_impl : is_impl,
+      live : RefCell(PendingDefLive).new(
+        PendingDefLive(
+          members : ArrayList(String).new(),
+          expr : expr,
+          row : usize(ast_expr_token(expr).row),
+          is_derive : false,
+          state : PendingDefState.Unforced,
+          failure : Option(String).None,
+          phase_a_value : Option(EvalValue).None,
+          phase_a_type : Option(TypeValue).None,
+          variable : Option(Variable).None,
+          src_hash : fnv1a64(ast_expr_to_string(expr))
+        )
+      )
+    )
   )
 );
-impl(PendingDef, Clone(clone : (fn(self : &Self) -> Self)(self)));
 /// One active module walk. `ctx` is a COPY of the walker's context taken at
 /// walk start: a forced statement must evaluate as a module-level statement
 /// (no enclosing fn body, no expected type, no impl Self) even when the
 /// reference that forces it sits deep inside a def-time body trial.
-ModuleWalk :: ref(
-  struct(
-    module_path : String,
-    begin_exprs : ArrayList(AstExpr),
-    env : Environment,
-    /// `Frame.id` of the walk's module frame: the forcer truncates the walker's
-    /// live frame list at this frame (a module-level `{ … }` block may have
-    /// pushed frames above it) so the forced definition binds INTO the module
-    /// frame, where every later lookup finds it.
-    module_frame_id : usize,
-    /// The module frame OBJECT. The walker pops it from `env.frames` when the
-    /// module finishes (`keep_frame_at_end = false`), but a Phase 3b
-    /// re-validation re-forces definitions AFTER the walk — the frame (and the
-    /// import bindings living in it) must stay reachable for that, so the walk
-    /// holds the handle and `module_walk_force_env` re-appends it when the
-    /// live list no longer has it.
-    module_frame : Frame,
-    /// The walker's evaluation context, copied at walk start. It is read by
-    /// exactly one thing: forcing a definition of THIS walk after the walk
-    /// finished — the Phase 3b revalidation of `check --watch` and the LSP
-    /// (`revalidate_walk_defs`). One-shot commands never do that, and the copy
-    /// shares the module's whole `ExprInfoTable` (in check mode every module
-    /// has its own), so `end_module_walk` releases it unless
-    /// `set_retain_walk_contexts(true)` was called
-    /// (plans/EVALUATOR_MEMORY_REDUCTION.md F1).
-    ctx : Option(EvalContext),
-    defs : ArrayList(PendingDef),
-    /// index in begin_exprs → its entry (the walker's per-statement check).
-    by_index : HashMap(usize, PendingDef)
-  )
+///
+/// The walk stack, the finished-walk map and the demand loader share one walk
+/// while no caller holds it: a shared `Rc` whose two written parts are cells
+/// (V5 part B, class S, shape 2).
+ModuleWalkData :: struct(
+  module_path : String,
+  /// The walk's statements. A Phase 3b re-validation replaces a changed
+  /// definition's statement in place.
+  begin_exprs : RefCell(ArrayList(AstExpr)),
+  env : Environment,
+  /// `Frame.id` of the walk's module frame: the forcer truncates the walker's
+  /// live frame list at this frame (a module-level `{ … }` block may have
+  /// pushed frames above it) so the forced definition binds INTO the module
+  /// frame, where every later lookup finds it.
+  module_frame_id : usize,
+  /// The module frame OBJECT. The walker pops it from `env.frames` when the
+  /// module finishes (`keep_frame_at_end = false`), but a Phase 3b
+  /// re-validation re-forces definitions AFTER the walk — the frame (and the
+  /// import bindings living in it) must stay reachable for that, so the walk
+  /// holds the handle and `module_walk_force_env` re-appends it when the
+  /// live list no longer has it.
+  module_frame : Frame,
+  /// The walker's evaluation context, copied at walk start. It is read by
+  /// exactly one thing: forcing a definition of THIS walk after the walk
+  /// finished — the Phase 3b revalidation of `check --watch` and the LSP
+  /// (`revalidate_walk_defs`). One-shot commands never do that, and the copy
+  /// shares the module's whole `ExprInfoTable` (in check mode every module
+  /// has its own), so `end_module_walk` releases it unless
+  /// `set_retain_walk_contexts(true)` was called
+  /// (plans/EVALUATOR_MEMORY_REDUCTION.md F1).
+  ctx : RefCell(Option(EvalContext)),
+  defs : ArrayList(PendingDef),
+  /// index in begin_exprs → its entry (the walker's per-statement check).
+  by_index : HashMap(usize, PendingDef)
 );
-impl(ModuleWalk, Clone(clone : (fn(self : &Self) -> Self)(self)));
+impl(
+  ModuleWalkData,
+  begin_exprs_len : (fn(self : &Self) -> usize)(self.begin_exprs.with(xs => xs.len())),
+  begin_expr_at : (fn(self : &Self, i : usize) -> Option(AstExpr))(self.begin_exprs.with(xs => xs.get(i))),
+  /// A copy of the statement list (the AST nodes are shared handles).
+  begin_exprs_snapshot : (fn(self : &Self) -> ArrayList(AstExpr))(self.begin_exprs.with(xs => xs.clone())),
+  set_begin_expr : (fn(self : &Self, i : usize, e : AstExpr) -> unit)(self.begin_exprs.with_mut(xs => {
+    xs(i) = e;
+  })),
+  has_ctx : (fn(self : &Self) -> bool)(self.ctx.with(c => c.is_some())),
+  /// A fresh copy of the walk's context (`copy_eval_context`), if it kept one.
+  ctx_copy : (fn(self : &Self) -> Option(EvalContext))(
+    self.ctx.with(c => match(c, .Some(wc) => Option(EvalContext).Some(copy_eval_context(wc)), .None => Option(EvalContext).None))
+  ),
+  /// The expression-info table of the walk's kept context (a shared handle).
+  ctx_expr_info_table : (fn(self : &Self) -> Option(ExprInfoTable))(
+    self.ctx.with(c => match(c, .Some(wc) => Option(ExprInfoTable).Some(wc.expr_info_table.clone()), .None => Option(ExprInfoTable).None))
+  ),
+  clear_ctx : (fn(self : &Self) -> unit)({
+    ___old := self.ctx.replace(Option(EvalContext).None);
+  })
+);
+ModuleWalk :: Rc(ModuleWalkData);
 (g_module_walks : RefCell(ArrayList(ModuleWalk))) = RefCell(ArrayList(ModuleWalk)).new(ArrayList(ModuleWalk).new());
 /// Entries currently being forced, outermost first — the cycle chain
 /// (`a → b → a`) and the phase-A publication target.
@@ -1338,7 +1437,7 @@ set_walk_context_retained :: (fn(path : &String, keep : bool) -> unit)({
       match(
         wopt,
         .Some(w) => if(canonical_module_path(&w.module_path) == &canon_loop, {
-          w.ctx = Option(EvalContext).None;
+          w.clear_ctx();
         }),
         .None => ()
       );
@@ -1365,7 +1464,7 @@ is_module_ghost_fn_def :: (fn(path : &String, name : &String) -> bool)({
           .Some(d) => {
             return(
               match(
-                d.expr,
+                d.expr(),
                 .FnCall(_, _, Rc(dargs), _, _) => match(
                   dargs.get(usize(1)),
                   .Some(rhs) => ast_expr_is_fn_call_of(&rhs, BF_GHOST_FN, Option(usize).None),
@@ -1393,7 +1492,7 @@ finished_walk_has_context :: (fn(path : &String) -> Option(bool))({
     match(
       wopt,
       .Some(w) => if(canonical_module_path(&w.module_path) == &canon, {
-        return(Option(bool).Some(w.ctx.is_some()));
+        return(Option(bool).Some(w.has_ctx()));
       }),
       .None => ()
     );
@@ -1412,7 +1511,7 @@ finished_walk_expr_info_count :: (fn(path : &String) -> Option(usize))({
     match(
       wopt,
       .Some(w) => if(canonical_module_path(&w.module_path) == &canon, {
-        return(match(&w.ctx, .Some(wc) => Option(usize).Some(wc.expr_info_table.data.with(m => m.len())), .None => Option(usize).None));
+        return(w.ctx.with(c => match(c, .Some(wc) => Option(usize).Some(wc.expr_info_table.data.with(m => m.len())), .None => Option(usize).None)));
       }),
       .None => ()
     );
@@ -1499,7 +1598,7 @@ record_def_dependency :: (fn(dependee : &String) -> unit)({
         .Some(d) => d,
         .None => return(())
       );
-      dk := def_key(&ast_expr_token(&top.expr).module_path.*, top.index, &top.name);
+      dk := def_key(&ast_expr_token(&top.expr()).module_path.*, top.index, &top.name);
       rk := dk.clone();
       deps := match(
         g_def_deps.with_mut({ rk }(m) => m.remove(&rk)),
@@ -1650,11 +1749,11 @@ reset_pending_def :: (fn(walk : &ModuleWalk, def : &PendingDef) -> unit)({
   // frame's entry or lookups read stale positions (env.yo
   // `invalidate_frame_index`).
   invalidate_frame_index(&f);
-  def.state = PendingDefState.Unforced;
-  def.failure = Option(String).None;
-  def.phase_a_value = Option(EvalValue).None;
-  def.phase_a_type = Option(TypeValue).None;
-  def.variable = Option(Variable).None;
+  def.set_state(PendingDefState.Unforced);
+  def.set_failure(Option(String).None);
+  def.set_phase_a_value(Option(EvalValue).None);
+  def.set_phase_a_type(Option(TypeValue).None);
+  def.set_variable(Option(Variable).None);
   ()
 });
 /// Phase 3 (§6): re-point a DESTRUCTURED importer's module-frame binding at a
@@ -1708,11 +1807,11 @@ rebind_destructured_name :: (
 /// the forcer points `set_module_walk` at it and index-consistency is what
 /// the miss hook's walk lookup depends on.
 graft_pending_def :: (fn(walk : &ModuleWalk, def : &PendingDef, fresh : &PendingDef) -> unit)({
-  def.expr = fresh.expr;
-  def.row = fresh.row;
-  def.src_hash = fresh.src_hash;
-  walk.begin_exprs(def.index) = fresh.expr;
-  _ := g_def_hash.with_mut(m => m.insert(def_key(&walk.module_path, def.index, &def.name), fresh.src_hash));
+  def.set_expr(fresh.expr());
+  def.set_row(fresh.row());
+  def.set_src_hash(fresh.src_hash());
+  walk.set_begin_expr(def.index, fresh.expr());
+  _ := g_def_hash.with_mut(m => m.insert(def_key(&walk.module_path, def.index, &def.name), fresh.src_hash()));
   ()
 });
 /// Every def key that transitively DEPENDS on a seed (reverse edges over
@@ -2077,7 +2176,7 @@ force_pending_move_only_impls :: (fn(type_name : &String) -> bool)({
           match(
             walk.defs.get(di),
             .Some(def) => {
-              is_target := (((def.is_impl && match(def.state, .Unforced => true, _ => false)) && ((def.name == type_name) || (def.name.len() == usize(0)))) && _impl_expr_declares_move_only(&def.expr));
+              is_target := (((def.is_impl && match(def.state(), .Unforced => true, _ => false)) && ((def.name == type_name) || (def.name.len() == usize(0)))) && _impl_expr_declares_move_only(&def.expr()));
               if(is_target, {
                 match(
                   force_pending_def(&walk, &def),
@@ -2104,23 +2203,7 @@ _make_pending_def :: (fn(name : &String, e : &AstExpr, index : usize, is_impl : 
     g_pending_move_only_heads.with_mut({ name_owned }(m) => m.insert(name_owned.clone(), true));
     note_move_only_possible();
   });
-  Option(PendingDef).Some(
-    PendingDef(
-      name : name.clone(),
-      members : ArrayList(String).new(),
-      expr : e,
-      index : index,
-      row : usize(ast_expr_token(e).row),
-      is_impl : is_impl,
-      is_derive : false,
-      state : PendingDefState.Unforced,
-      failure : Option(String).None,
-      phase_a_value : Option(EvalValue).None,
-      phase_a_type : Option(TypeValue).None,
-      variable : Option(Variable).None,
-      src_hash : fnv1a64(ast_expr_to_string(e))
-    )
-  )
+  Option(PendingDef).Some(new_pending_def(name, e, index, is_impl))
 });
 /// The member names an `extern(...)` statement declares: the label of each
 /// `label : type` argument (the optional leading language atom is skipped).
@@ -2255,7 +2338,7 @@ classify_pending_def :: (fn(e : &AstExpr, index : usize) -> Option(PendingDef))(
       .Some(target) => match(
         _make_pending_def(impl_receiver_head_name(&target), e, index, true),
         .Some(def) => {
-          def.is_derive = true;
+          def.set_is_derive(true);
           Option(PendingDef).Some(def)
         },
         .None => Option(PendingDef).None
@@ -2271,7 +2354,7 @@ classify_pending_def :: (fn(e : &AstExpr, index : usize) -> Option(PendingDef))(
         true => match(
           _make_pending_def(members(usize(0)).clone(), e, index, false),
           .Some(def) => {
-            def.members = members;
+            def.set_members(members);
             Option(PendingDef).Some(def)
           },
           .None => Option(PendingDef).None
@@ -2285,7 +2368,7 @@ classify_pending_def :: (fn(e : &AstExpr, index : usize) -> Option(PendingDef))(
         true => match(
           _make_pending_def(members(usize(0)).clone(), e, index, false),
           .Some(def) => {
-            def.members = members;
+            def.set_members(members);
             Option(PendingDef).Some(def)
           },
           .None => Option(PendingDef).None
@@ -2424,7 +2507,7 @@ register_module_anchors :: (fn(begin_exprs : &ArrayList(AstExpr)) -> unit)({
         // derive's and its successors' ids, and the next `impl_<T>` too.
         named := match(
           classify_pending_def(&e, i),
-          .Some(def) => if((def.name.len() > usize(0)) && !(def.is_derive), Option(String).Some(if(def.is_impl, `impl_${_anchor_label_chars(&def.name)}`, _anchor_label_chars(&def.name))), Option(String).None),
+          .Some(def) => if((def.name.len() > usize(0)) && !(def.is_derive()), Option(String).Some(if(def.is_impl, `impl_${_anchor_label_chars(&def.name)}`, _anchor_label_chars(&def.name))), Option(String).None),
           .None => Option(String).None
         );
         raw := match(
@@ -2528,15 +2611,17 @@ begin_module_walk :: (
     .Some(f) => f,
     .None => new_frame(false)
   );
-  walk := ModuleWalk(
-    module_path : module_path.clone(),
-    begin_exprs : begin_exprs.clone(),
-    env : env,
-    module_frame_id : module_frame_id,
-    module_frame : module_frame,
-    ctx : Option(EvalContext).Some(copy_eval_context(ctx)),
-    defs : defs.clone(),
-    by_index : by_index
+  walk := Rc.new(
+    ModuleWalkData(
+      module_path : module_path.clone(),
+      begin_exprs : RefCell(ArrayList(AstExpr)).new(begin_exprs.clone()),
+      env : env,
+      module_frame_id : module_frame_id,
+      module_frame : module_frame,
+      ctx : RefCell(Option(EvalContext)).new(Option(EvalContext).Some(copy_eval_context(ctx))),
+      defs : defs.clone(),
+      by_index : by_index
+    )
   );
   // Phase 3 (§6): record each definition's source hash as of THIS walk. A
   // re-walk of the same source recomputes the same values; the invalidator
@@ -2570,7 +2655,7 @@ begin_module_walk :: (
       .Some(d) => {
         // Owned key (`with_mut`'s callback is a sink parameter).
         dh_key := def_key(&module_path, d.index, &d.name);
-        dh_val := d.src_hash;
+        dh_val := d.src_hash();
         _ := g_def_hash.with_mut({ dh_key, dh_val }(m) => m.insert(dh_key, dh_val));
       },
       .None => ()
@@ -2587,7 +2672,7 @@ begin_module_walk :: (
 end_module_walk :: (fn(walk : &ModuleWalk) -> unit)({
   g_module_walks.with_mut(xs => xs.pop());
   if(!walk_context_retained_for(&walk.module_path), {
-    walk.ctx = Option(EvalContext).None;
+    walk.clear_ctx();
   });
   g_finished_walks.with_mut(m => m.insert(walk.module_path.clone(), walk));
   ()
@@ -2600,7 +2685,7 @@ walk_pending_def_at :: (fn(walk : &ModuleWalk, index : usize) -> Option(PendingD
 _def_declares :: (fn(d : &PendingDef, name : &String) -> bool)({
   if(d.name == name, return(true));
   (m : usize) = usize(0);
-  while(m < d.members.len(), {
+  while(m < d.members().len(), {
     if(d.members(m) == name, return(true));
     m = (m + usize(1));
   });
@@ -2626,8 +2711,8 @@ _find_def_by_name :: (fn(defs : &ArrayList(PendingDef), name : &String, is_impl 
 /// block member (the block binds several names; `variable` holds the first).
 _def_variable_for :: (fn(walk : &ModuleWalk, def : &PendingDef, name : &String) -> Option(Variable))(
   cond(
-    (def.members.len() > usize(0)) => module_frame_variable(walk, name),
-    true => def.variable
+    (def.members().len() > usize(0)) => module_frame_variable(walk, name),
+    true => def.variable()
   )
 );
 /// The innermost active walk for `module_path`.
@@ -2655,7 +2740,7 @@ current_forcing_def :: (fn() -> Option(PendingDef))(
   )
 );
 push_forcing_def :: (fn(def : &PendingDef) -> unit)({
-  def.state = PendingDefState.Forcing;
+  def.set_state(PendingDefState.Forcing);
   g_forcing_stack.with_mut(xs => xs.push(def));
 });
 pop_forcing_def :: (fn() -> unit)({
@@ -2665,9 +2750,9 @@ pop_forcing_def :: (fn() -> unit)({
 /// Token rows are 0-based; diagnostics print 1-based lines (error.yo).
 _def_display :: (fn(d : &PendingDef) -> String)(
   cond(
-    d.is_derive => `derive(${d.name}, …) (line ${(d.row + usize(1)).to_string()})`,
-    d.is_impl => `impl(${d.name}, …) (line ${(d.row + usize(1)).to_string()})`,
-    true => `${d.name} (line ${(d.row + usize(1)).to_string()})`
+    d.is_derive() => `derive(${d.name}, …) (line ${(d.row() + usize(1)).to_string()})`,
+    d.is_impl => `impl(${d.name}, …) (line ${(d.row() + usize(1)).to_string()})`,
+    true => `${d.name} (line ${(d.row() + usize(1)).to_string()})`
   )
 );
 /// `cyclic definition: a (line 12) → b (line 40) → a` — the forcing stack from
@@ -2703,13 +2788,13 @@ cyclic_definition_message :: (fn(def : &PendingDef) -> String)({
 publish_pending_phase_a :: (fn(rhs_id : usize, value : &EvalValue, ty : &TypeValue) -> unit)(
   match(
     current_forcing_def(),
-    .Some(def) => if((!(def.is_impl) && def.phase_a_value.is_none()), {
+    .Some(def) => if((!(def.is_impl) && def.phase_a_value().is_none()), {
       // `f :: ghost_fn((fn(...) -> R)(body))` defines a function too: the
       // wrapper evaluates the SAME literal node and returns its FuncVal, so
       // the literal inside it may publish, and a recursive ghost_fn (R2, it
       // carries `decreases`) can name itself.
       def_rhs_id := match(
-        def.expr,
+        def.expr(),
         .FnCall(_, _, Rc(cargs), _, _) => match(
           cargs.get(usize(1)),
           .Some(r) => cond(
@@ -2725,8 +2810,8 @@ publish_pending_phase_a :: (fn(rhs_id : usize, value : &EvalValue, ty : &TypeVal
         .Atom(_, _) => usize(0)
       );
       if(def_rhs_id == rhs_id, {
-        def.phase_a_value = Option(EvalValue).Some(value);
-        def.phase_a_type = Option(TypeValue).Some(Rc.clone(ty));
+        def.set_phase_a_value(Option(EvalValue).Some(value));
+        def.set_phase_a_type(Option(TypeValue).Some(Rc.clone(ty)));
       });
     }),
     .None => ()
@@ -2744,7 +2829,7 @@ publish_pending_phase_a :: (fn(rhs_id : usize, value : &EvalValue, ty : &TypeVal
 publish_pending_member_phase_a :: (fn(rhs_id : usize, value : &EvalValue, ty : &TypeValue) -> unit)(
   match(
     current_forcing_def(),
-    .Some(def) => if(ast_expr_is_fn_call_of(&def.expr, BK_COLON, .Some(usize(2))), {
+    .Some(def) => if(ast_expr_is_fn_call_of(&def.expr(), BK_COLON, .Some(usize(2))), {
       publish_pending_phase_a(rhs_id, value, ty);
     }),
     .None => ()
@@ -2758,7 +2843,7 @@ publish_pending_member_phase_a :: (fn(rhs_id : usize, value : &EvalValue, ty : &
 /// `x := …` while forcing module-level `x`) from being mistaken for it.
 _def_lhs_token_is :: (fn(def : &PendingDef, tok : &Token) -> bool)(
   match(
-    def.expr,
+    def.expr(),
     .FnCall(_, _, Rc(cargs), _, _) => match(
       cargs.get(usize(0)),
       .Some(lhs) => {
@@ -2774,7 +2859,7 @@ pending_prebound_variable :: (fn(name : &String, lhs_tok : &Token) -> Option(Var
   match(
     current_forcing_def(),
     .Some(def) => cond(
-      (((!(def.is_impl) && (def.name == name)) && match(def.state, .Forcing => true, _ => false) && _def_lhs_token_is(&def, lhs_tok))) => def.variable,
+      (((!(def.is_impl) && (def.name == name)) && match(def.state(), .Forcing => true, _ => false) && _def_lhs_token_is(&def, lhs_tok))) => def.variable(),
       true => Option(Variable).None
     ),
     .None => Option(Variable).None
@@ -2785,8 +2870,8 @@ pending_prebound_variable :: (fn(name : &String, lhs_tok : &Token) -> Option(Var
 record_pending_def_variable :: (fn(name : &String, lhs_tok : &Token, var : &Variable) -> unit)(
   match(
     current_forcing_def(),
-    .Some(def) => if(((!(def.is_impl) && (def.name == name)) && def.variable.is_none() && _def_lhs_token_is(&def, lhs_tok)), {
-      def.variable = Option(Variable).Some(var);
+    .Some(def) => if(((!(def.is_impl) && (def.name == name)) && def.variable().is_none() && _def_lhs_token_is(&def, lhs_tok)), {
+      def.set_variable(Option(Variable).Some(var));
     }),
     .None => ()
   )
@@ -2872,8 +2957,8 @@ truncate_forcing_stack :: (fn(depth : usize) -> unit)({
       g_forcing_stack.with_mut(xs => xs.pop()),
       // An entry abandoned mid-force: leave it re-forceable rather than
       // permanently "Forcing" (a later reference would misreport a cycle).
-      .Some(d) => if(match(d.state, .Forcing => true, _ => false), {
-        d.state = PendingDefState.Unforced;
+      .Some(d) => if(match(d.state(), .Forcing => true, _ => false), {
+        d.set_state(PendingDefState.Unforced);
       }),
       .None => ()
     );
@@ -2905,14 +2990,14 @@ force_pending_def :: (fn(walk : &ModuleWalk, def : &PendingDef) -> Option(String
   match(
     &result,
     .None => {
-      def.state = PendingDefState.Done;
-      if((!(def.is_impl) && def.variable.is_none()), {
-        def.variable = module_frame_variable(walk, def.name.clone());
+      def.set_state(PendingDefState.Done);
+      if((!(def.is_impl) && def.variable().is_none()), {
+        def.set_variable(module_frame_variable(walk, def.name.clone()));
       });
     },
     .Some(msg) => {
-      def.state = PendingDefState.Failed;
-      def.failure = Option(String).Some(msg.clone());
+      def.set_state(PendingDefState.Failed);
+      def.set_failure(Option(String).Some(msg.clone()));
     }
   );
   result
@@ -2930,7 +3015,7 @@ revalidate_walk_defs :: (fn(walk : &ModuleWalk, defs : &ArrayList(PendingDef)) -
   while(i < defs.len(), {
     match(
       defs.get(i),
-      .Some(def) => if(match(def.state, .Unforced => true, _ => false), {
+      .Some(def) => if(match(def.state(), .Unforced => true, _ => false), {
         match(
           force_pending_def(walk, &def),
           .Some(msg) => failures.push(msg),
@@ -3013,7 +3098,7 @@ resolve_pending_definition :: (fn(name : &String, module_path : &String) -> Pend
       _find_def_by_name(&walk.defs, name.clone(), false),
       .None => PendingResolution.NotPending,
       .Some(def) => match(
-        def.state,
+        def.state(),
         .Done => match(
           _def_variable_for(&walk, &def, name.clone()),
           .Some(v) => {
@@ -3025,25 +3110,25 @@ resolve_pending_definition :: (fn(name : &String, module_path : &String) -> Pend
           },
           .None => PendingResolution.NotPending
         ),
-        .Failed => PendingResolution.Error(match(&def.failure, .Some(m) => m.clone(), .None => String.from("definition failed"))),
+        .Failed => PendingResolution.Error(match(&def.failure(), .Some(m) => m.clone(), .None => String.from("definition failed"))),
         .Forcing => match(
           _def_variable_for(&walk, &def, name.clone()),
           .Some(v) => PendingResolution.Resolved(v, walk.module_frame_id),
           .None => match(
-            def.phase_a_value,
+            def.phase_a_value(),
             .Some(fv) => {
               // Pre-bind (§4.3): the signature is known, the body is still
               // evaluating — bind the head FuncVal into the module frame now.
-              fty := match(&def.phase_a_type, .Some(t) => Rc.clone(t), .None => t_unit());
+              fty := match(&def.phase_a_type(), .Some(t) => Rc.clone(t), .None => t_unit());
               lhs_tok := match(
-                def.expr,
-                .FnCall(_, _, Rc(cargs), _, _) => match(cargs.get(usize(0)), .Some(l) => ast_expr_token(&l), .None => ast_expr_token(&def.expr)),
-                .Atom(_, _) => ast_expr_token(&def.expr)
+                def.expr(),
+                .FnCall(_, _, Rc(cargs), _, _) => match(cargs.get(usize(0)), .Some(l) => ast_expr_token(&l), .None => ast_expr_token(&def.expr())),
+                .Atom(_, _) => ast_expr_token(&def.expr())
               );
               match(
                 add_variable_to_env(module_walk_force_env(&walk), def.name.clone(), &fty, Option(EvalValue).Some(fv), true, false, false, false, &lhs_tok),
                 .Some(v) => {
-                  def.variable = Option(Variable).Some(v);
+                  def.set_variable(Option(Variable).Some(v));
                   PendingResolution.Resolved(v, walk.module_frame_id)
                 },
                 .None => PendingResolution.Error(String.from("internal error: module frame missing while pre-binding a definition"))
@@ -3147,7 +3232,7 @@ force_pending_impls_for_type_name :: (fn(type_name : &String, missed : &Option(S
     (stack : String) = String.new();
     (si : usize) = usize(0);
     while(si < g_forcing_stack.with(xs => xs.len()), {
-      match(g_forcing_stack.with(xs => xs.get(si)), .Some(fd) => stack.push_string(cond(fd.is_derive => ` derive(${fd.name})`, fd.is_impl => ` impl(${fd.name})`, true => ` ${fd.name}`)), .None => ());
+      match(g_forcing_stack.with(xs => xs.get(si)), .Some(fd) => stack.push_string(cond(fd.is_derive() => ` derive(${fd.name})`, fd.is_impl => ` impl(${fd.name})`, true => ` ${fd.name}`)), .None => ());
       si = (si + usize(1));
     });
     eprintln(`[force-miss] ${type_name}.${m} (forcing stack:${stack})`);
@@ -3173,8 +3258,8 @@ force_pending_impls_for_type_name :: (fn(type_name : &String, missed : &Option(S
   while(fi < g_forcing_stack.with(xs => xs.len()), {
     match(
       g_forcing_stack.with(xs => xs.get(fi)),
-      .Some(fd) => if((fd.is_impl && !(fd.is_derive)) && (fd.name == type_name), {
-        if(match(missed, .Some(m) => _impl_expr_declares(&fd.expr, &m), .None => true), {
+      .Some(fd) => if((fd.is_impl && !(fd.is_derive())) && (fd.name == type_name), {
+        if(match(missed, .Some(m) => _impl_expr_declares(&fd.expr(), &m), .None => true), {
           return(PendingImplOutcome.NoneForced);
         });
         in_own_impl = true;
@@ -3233,7 +3318,7 @@ _force_pending_impls_pass :: (fn(type_name : &String, declaring : &Option(String
           match(
             walk.defs.get(di),
             .Some(def) => {
-              is_target := (def.is_impl && (def.is_derive || !(derives_only)) && match(def.state, .Unforced => true, _ => false) && ((def.name == type_name) || (def.name.len() == usize(0))) && match(declaring, .Some(m) => _impl_expr_declares(&def.expr, &m), .None => true));
+              is_target := (def.is_impl && (def.is_derive() || !(derives_only)) && match(def.state(), .Unforced => true, _ => false) && ((def.name == type_name) || (def.name.len() == usize(0))) && match(declaring, .Some(m) => _impl_expr_declares(&def.expr(), &m), .None => true));
               if(is_target, {
                 match(
                   force_pending_def(&walk, &def),
@@ -3408,21 +3493,7 @@ make_impl_pending_field :: (fn(label : &String, colon_expr : &AstExpr, top_index
     is_inner : is_inner,
     state : ImplFieldState.Unforced,
     failure : Option(String).None,
-    def : PendingDef(
-      name : label.clone(),
-      members : ArrayList(String).new(),
-      expr : colon_expr,
-      index : top_index,
-      row : usize(ast_expr_token(colon_expr).row),
-      is_impl : false,
-      is_derive : false,
-      state : PendingDefState.Unforced,
-      failure : Option(String).None,
-      phase_a_value : Option(EvalValue).None,
-      phase_a_type : Option(TypeValue).None,
-      variable : Option(Variable).None,
-      src_hash : fnv1a64(ast_expr_to_string(colon_expr))
-    ),
+    def : new_pending_def(label, colon_expr, top_index, false),
     result_ty : Option(TypeValue).None,
     result_value : Option(EvalValue).None,
     phase_a_registered : false
@@ -3710,7 +3781,11 @@ export(
   hard_swallow_diagnostic_in_generic_trial,
   PendingDefState,
   PendingDef,
+  PendingDefData,
+  PendingDefLive,
+  new_pending_def,
   ModuleWalk,
+  ModuleWalkData,
   PendingResolution,
   PendingImplOutcome,
   set_force_pending_def_fn,
