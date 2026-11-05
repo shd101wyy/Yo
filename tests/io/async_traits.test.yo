@@ -18,6 +18,7 @@ pragma(Pragma.AllowUnsafe);
 { IoExn, Exception } :: import("std/error");
 { Reader, Writer, copy } :: import("std/io");
 { BufReader } :: import("std/io/bufio");
+{ RefCell } :: import("std/sync/refcell");
 { Stdout, Stderr, stdout, stderr } :: import("std/io/stdio");
 { File, OpenMode } :: import("std/fs/file");
 { TcpStream } :: import("std/net/tcp");
@@ -292,24 +293,27 @@ test("TcpStream carries the Reader and Writer impls", {
 // defaults (`read_to_end`, `read_to_string`) return futures that BORROW the
 // reader, since a move-only `File` cannot be copied into them, and a vtable's
 // future type carries no borrow (plans/VALUES_BY_DEFAULT.md §3.13 A2). So no
-// reader can be erased, not even a `ref` one whose own `read` owns what it
+// reader can be erased, not even one whose own `read` owns what it
 // uses (issues/questions/2026-10-23-a-move-only-file-cannot-be-a-dyn-reader.md).
 // "BufReader wraps ANY Reader" is still true through the generic parameter.
 // ---------------------------------------------------------------------------
-MemSource :: ref(struct(data : ArrayList(u8), pos : usize));
+// `read` lends its receiver (`&Self`), so the one field it writes, the
+// position, is a `RefCell`.
+MemSource :: struct(data : ArrayList(u8), pos : RefCell(usize));
 mem_source :: (fn(text : &String) -> MemSource)(
-  MemSource(data : text.to_bytes(), pos : usize(0))
+  MemSource(data : text.to_bytes(), pos : RefCell(usize).new(usize(0)))
 );
 impl(
   MemSource,
   Reader(
     read : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
-      io.async(e => {
+      io.async({ src : &self.*, buf, size }(e : IoExn) => {
         room := size;
         mut(n) := usize(0);
-        while((n < room) && (self.pos < self.data.len()), {
-          consume((buf.add(n)).* = self.data(self.pos));
-          self.pos = (self.pos + usize(1));
+        while((n < room) && (src.pos.with(p => p.*) < src.data.len()), {
+          at := src.pos.with(p => p.*);
+          consume((buf.add(n)).* = src.data(at));
+          src.pos.replace(at + usize(1));
           n = (n + usize(1));
         });
         n
@@ -336,7 +340,7 @@ test("BufReader wraps a user Reader through its generic parameter", {
   text := `dyn-reader-ok\nline two\n`.to_string();
   m := mem_source(&text);
   rest := io.await(m.read_to_string(io), t_e);
-  assert(rest == text, `read_to_string default over a ref reader, got: ${rest}`);
+  assert(rest == text, `read_to_string default over a user reader, got: ${rest}`);
   br := BufReader(MemSource).new(mem_source(&text));
   l1 := io.await(br.read_line(io), t_e);
   assert(match(l1, .Some(s) => (s == `dyn-reader-ok`), .None => false), "BufReader(MemSource) line 1");

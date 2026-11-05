@@ -65,7 +65,7 @@ test("HashMap.new allocates nothing until the first insert", {
 // (issues/fixed/cond-unit-arm-statement-is-dropped.md). Every value inserted
 // across several growths is released exactly once.
 (mut(g_hm_lazy_disposed) : i32) = i32(0);
-HmLazyTracked :: ref(struct(tag : i32));
+HmLazyTracked :: struct(tag : i32);
 impl(
   HmLazyTracked,
   Drop(
@@ -846,34 +846,36 @@ test("entry.or_insert returns the stored value and inserts only when vacant", {
 });
 // The recorder is a `ref` object: a closure captures a list by VALUE since B8
 // (a capture would move it), while a `ref` handle is shared.
-_HmCalls :: ref(struct(n : i32));
+// The calls are counted in a module-level counter: the closures write it
+// without capturing it.
+(mut(g_hm_calls) : i32) = i32(0);
 test("entry.or_insert_with only calls make on the vacant path", {
   mut(m) := HashMap(i32, i32).new();
-  calls := _HmCalls(n : i32(0));
+  g_hm_calls = i32(0);
   assert(
     m.entry(
       i32(1),
       e =>
         e.or_insert_with(() => {
-          calls.n = (calls.n + i32(1));
+          g_hm_calls = (g_hm_calls + i32(1));
           i32(7)
         })
     ) == i32(7),
     "vacant makes a value"
   );
-  assert(calls.n == i32(1), "make ran once");
+  assert(g_hm_calls == i32(1), "make ran once");
   assert(
     m.entry(
       i32(1),
       e =>
         e.or_insert_with(() => {
-          calls.n = (calls.n + i32(1));
+          g_hm_calls = (g_hm_calls + i32(1));
           i32(9)
         })
     ) == i32(7),
     "occupied returns the stored value"
   );
-  assert(calls.n == i32(1), "make did NOT run again");
+  assert(g_hm_calls == i32(1), "make did NOT run again");
 });
 // A consuming callee: the entry body below can call it only because the body
 // is an `FnOnce` that owns its captures.

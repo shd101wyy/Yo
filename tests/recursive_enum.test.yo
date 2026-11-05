@@ -91,8 +91,9 @@ test("Recursive enum: deeply nested drop terminates", {
 // tagged value enum's drop and dup are one C function per enum type, called at
 // every site, instead of the variant switch inlined at each one. Every payload
 // must still be released exactly once: the probes count their disposals.
+// The payloads are shared `Rc` handles, so a dup is a clone of the handle.
 (mut(g_holder_probe_disposed) : i32) = i32(0);
-HolderProbe :: ref(struct(id : i32));
+HolderProbe :: struct(id : i32);
 impl(
   HolderProbe,
   Drop(
@@ -101,13 +102,12 @@ impl(
     })
   )
 );
-impl(HolderProbe, Clone(clone : (fn(self : &Self) -> Self)(self.*)));
 Holder :: enum(
   HEmpty,
-  HOne(p : HolderProbe),
-  HPair(a : HolderProbe, b : HolderProbe),
+  HOne(p : Rc(HolderProbe)),
+  HPair(a : Rc(HolderProbe), b : Rc(HolderProbe)),
   HNest(inner : Rc(Self)),
-  HMany(xs : ArrayList(HolderProbe))
+  HMany(xs : ArrayList(Rc(HolderProbe)))
 );
 derive(Holder, Clone);
 _holder_weight :: (fn(h : Holder, stop : bool) -> i32)({
@@ -140,12 +140,12 @@ _holder_sum_ids :: (fn(hs : &ArrayList(Holder)) -> i32)({
 test("Value enum: every payload is released once through the per-type drop and dup", {
   before := g_holder_probe_disposed;
   {
-    one := Holder.HOne(p : HolderProbe(id : i32(1)));
-    pair := Holder.HPair(a : HolderProbe(id : i32(2)), b : HolderProbe(id : i32(3)));
-    nest := Holder.HNest(inner : Rc.new(Holder.HOne(p : HolderProbe(id : i32(4)))));
-    mut(probes) := ArrayList(HolderProbe).new();
-    probes.push(HolderProbe(id : i32(5)));
-    probes.push(HolderProbe(id : i32(6)));
+    one := Holder.HOne(p : Rc.new(HolderProbe(id : i32(1))));
+    pair := Holder.HPair(a : Rc.new(HolderProbe(id : i32(2))), b : Rc.new(HolderProbe(id : i32(3))));
+    nest := Holder.HNest(inner : Rc.new(Holder.HOne(p : Rc.new(HolderProbe(id : i32(4))))));
+    mut(probes) := ArrayList(Rc(HolderProbe)).new();
+    probes.push(Rc.new(HolderProbe(id : i32(5))));
+    probes.push(Rc.new(HolderProbe(id : i32(6))));
     many := Holder.HMany(xs : probes);
     assert(_holder_weight(nest, true) == i32(1), "an early return drops its by-value Holder");
     assert(_holder_weight(many, false) == i32(4), "a fall-through drops its by-value Holder");

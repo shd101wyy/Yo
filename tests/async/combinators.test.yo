@@ -905,7 +905,7 @@ test("Test a stream loop suspends its task between items", {
 });
 // issues/fixed/an-io-async-body-never-releases-a-closure-parameter-bound-by-a-type-variable.md
 (mut(g_fe_disposed) : i32) = i32(0);
-_FeThing :: ref(struct(n : i32));
+_FeThing :: struct(n : i32);
 impl(
   _FeThing,
   Drop(
@@ -921,8 +921,9 @@ test("Stream.for_each releases what its body closure captures", {
     total := Rc.new(RefCell(i32).new(0));
     io.await(
       Countdown(_n : i32(3)).for_each({ t, total : Rc.clone(total) }(x) => {
+        k := t.n;
         total.with_mut(cur => {
-          cur.* = (cur.* + (x.* * t.n));
+          cur.* = (cur.* + (x.* * k));
         });
       }, io),
       io

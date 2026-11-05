@@ -34,11 +34,9 @@ test("Impl(Fn) in enum variant field is rejected", {
   });
 });
 // --- Workarounds: confirm Dyn(Fn(...)) and generic-over-F both work ---
-WithDynCb :: ref(
-  struct(
-    value : i32,
-    cb : Dyn(Fn(x : i32) -> i32)
-  )
+WithDynCb :: struct(
+  value : i32,
+  cb : Dyn(Fn(x : i32) -> i32)
 );
 make_dyn_adder :: (fn(n : i32) -> WithDynCb)(
   WithDynCb(
@@ -82,7 +80,7 @@ test("workaround B: each construction keeps its own closure", {
 });
 // --- Argument position (C67) ---
 apply_cb :: (fn(f : &Impl(Fn(x : i32) -> i32)) -> i32)(f(i32(3)));
-Holder :: ref(struct(n : i32));
+Holder :: struct(n : i32);
 impl(
   Holder,
   run : (fn(self : &Self, f : &Impl(Fn(x : i32) -> i32)) -> i32)(f(self.n)),

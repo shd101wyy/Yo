@@ -1,0 +1,27 @@
+// issues/2026-11-05-a-capture-list-in-an-untyped-trait-default-lambda-cannot-borrow-self.md
+{ IoExn, Exception } :: import("std/error");
+{ assert } :: import("std/assert");
+Sink :: trait(
+  put : (fn(self : &Self, v : u8) -> u8),
+  (twice : (fn(self : &Self, v : u8, io : Io) -> Impl(Future(u8, IoExn)))) ?=
+    (
+      (self, v, io) ->
+        io.async({ s : &self.*, v }(e : IoExn) => (Self.put(s, v) + Self.put(s, v)))
+    )
+);
+T :: struct(k : u8);
+impl(T, Sink(put : (fn(self : &Self, v : u8) -> u8)(self.k + v)));
+main :: (fn(io : Io) -> unit)({
+  t := T(k : u8(1));
+  exn := Exception(
+    throw : (
+      err -> {
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  r := io.await(t.twice(u8(2), io), e);
+  assert(r == u8(6), "six");
+});
+export(main);
