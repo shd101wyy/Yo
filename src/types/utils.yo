@@ -4404,22 +4404,27 @@ mark_generic_independent :: (fn(err : &YoError, a : &TypeValue, b : &TypeValue) 
   YoError(diagnostics : entries)
 });
 export(mark_generic_independent);
+/// The result slot `r` may point into a `&T` parameter: a borrow, or a
+/// type that carries an origin (`fn_param_is_ptr_borrow`).
+_result_may_point_into_params :: (fn(r : &TypeValue) -> bool)(t_slot_is_borrow(r) || type_carries_origin(r));
 /// Decision 34's ABI choice, taken for decision 24's projections: a `&T`
-/// parameter of a function whose result is a borrow (`-> &T` / `-> &mut T`)
-/// is passed as a pointer, because the result may point into it; every other
-/// `&T` parameter is passed by value. Parameter `i` of `fn_ty` is such a
-/// pointer-passed shared borrow (`&mut T` parameters are pointers anyway, and
-/// a by-value parameter is never one).
+/// parameter of a function whose result may point into it is passed as a
+/// pointer; every other `&T` parameter is passed by value. The result may
+/// point into a `&T` parameter when it is a borrow (`-> &T` / `-> &mut T`)
+/// or when its type carries an origin (`-> Option(&T)`, a holder: decision
+/// 43 step 3), since a copy of the argument dies with the call. Parameter
+/// `i` of `fn_ty` is such a pointer-passed shared borrow (`&mut T`
+/// parameters are pointers anyway, and a by-value parameter is never one).
 fn_param_is_ptr_borrow :: (fn(fn_ty : &TypeValue, i : usize) -> bool)(
   match(
     fn_ty,
     Rc(.Func({ param_types : pb_pts, result : pb_r })) => (
-      t_slot_is_borrow(&pb_r) && match(pb_pts.get(i), .Some(pb_s) => (t_slot_is_borrow(&pb_s) && !t_slot_is_mut_ref(&pb_s)), .None => false)
+      _result_may_point_into_params(&pb_r) && match(pb_pts.get(i), .Some(pb_s) => (t_slot_is_borrow(&pb_s) && !t_slot_is_mut_ref(&pb_s)), .None => false)
     ),
     // A closure trait returning a reference (`Fn(s : &T) -> &U`, decision
     // 43 step 2, N1c) has the projection's ABI too.
     Rc(.FnTraitT({ call_param_types : pb_cpts, call_result : pb_cr })) => (
-      t_slot_is_borrow(&pb_cr) && match(pb_cpts.get(i), .Some(pb_cs) => (t_slot_is_borrow(&pb_cs) && !t_slot_is_mut_ref(&pb_cs)), .None => false)
+      _result_may_point_into_params(&pb_cr) && match(pb_cpts.get(i), .Some(pb_cs) => (t_slot_is_borrow(&pb_cs) && !t_slot_is_mut_ref(&pb_cs)), .None => false)
     ),
     _ => false
   )
