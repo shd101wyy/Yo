@@ -833,8 +833,9 @@ comptime_expect_error(
   }),
   "Cannot read `n"
 );
-// A by-value `match(cur.*, …)` copies or moves the payload: its binding is
-// not a place in `cur`'s target.
+// A by-value `match(cur.*, …)` would move the payload out of `cur`'s
+// target, which decision 26 rejects at the scrutinee, naming the bare
+// `match(cur, …)` whose binding is a place.
 comptime_expect_error(
   box_walk_through_a_by_value_match_rejected :: (fn() -> unit)({
     mut(l1) := BList(head : .None);
@@ -848,7 +849,7 @@ comptime_expect_error(
     );
     cur.* = .None;
   }),
-  "a by-value `match` copies or moves the payload"
+  "match through the reference: `match(cur, …)` binds the payload as a borrow of the referent"
 );
 // The `Rc` list: the `&` walk steps into each cell (pinning it); the `&mut`
 // walk is E0919, since an `Rc`'s payload is read-only (decision 46). The
