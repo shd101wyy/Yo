@@ -3564,13 +3564,17 @@ preregister_async_blocks_in_expr :: (fn(expr : &AstExpr, context : &mut Function
 /// Pre-register every function body's async-block state-machine types before
 /// function declarations are generated, so prototypes see the right struct names.
 preregister_async_block_types :: (fn(context : &mut FunctionGenerationContext) -> unit)({
+  // The bodies are gathered first: the walk borrows `context` for its whole
+  // extent, and the registration writes it.
+  bodies := ArrayList(AstExpr).new();
   for(&context.base.functions, (_fid, entry) => {
     match(
       entry.value,
-      .FuncVal(__fvd3, _) => preregister_async_blocks_in_expr(&__fvd3.*.body, context),
+      .FuncVal(__fvd3, _) => bodies.push(__fvd3.*.body.clone()),
       _ => ()
     );
   });
+  for(&bodies, body => preregister_async_blocks_in_expr(body, context));
 });
 /// Generate C for `io.async(closure)` as a LAZY synchronous future (no await
 /// points). The closure is NOT called at io.async time; its function pointer +

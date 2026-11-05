@@ -13,24 +13,27 @@
 { emit_debug_allocator_defines, emit_debug_allocator_impl } :: import("./allocator_debug.yo");
 /// Collect C include headers from the collected types and extern functions.
 collect_c_includes :: (fn(context : &mut CodeGenContext) -> unit)({
-  // Collect C includes from all collected types. (Loop via a flag, NOT
-  // `return(())` — a bare return would exit the whole function and skip the
-  // extern-function pass below.)
+  // Collect C includes from all collected types, then from all extern
+  // functions. (Loop via a flag, NOT `return(())` — a bare return would exit
+  // the whole function and skip the extern-function pass below.) The headers
+  // are gathered first and registered after both walks: a walk borrows
+  // `context` for its whole extent.
+  incs := ArrayList(String).new();
   for(&context.types, (_tid, type_entry) => {
     match(
       type_entry.c_include.clone(),
-      .Some(inc) => context.add_c_include(&inc),
+      .Some(inc) => incs.push(inc),
       .None => ()
     );
   });
-  // Collect C includes from all extern functions.
   for(&context.extern_functions, (_fid, fn_entry) => {
     match(
       fn_entry.c_include.clone(),
-      .Some(inc) => context.add_c_include(&inc),
+      .Some(inc) => incs.push(inc),
       .None => ()
     );
   });
+  for(&incs, inc => context.add_c_include(inc));
 });
 /// The C includes to emit, IN ORDER, for one target: the registered set with
 /// platform-incompatible headers filtered out, plus the platform's own file-op
