@@ -19,7 +19,7 @@
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, ast_expr_id, ast_expr_is_atom, ast_expr_token, ast_expr_text } :: import("../../expr.yo");
-{ EvalValue, is_func_val, is_struct_val, is_unknown_val } :: import("../../value.yo");
+{ EvalValue, is_func_val, is_struct_val, is_unknown_val, value_contains_unknown } :: import("../../value.yo");
 { TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
 { is_unit_type, is_struct_type, is_enum_type, is_pointer_type, is_tuple_type, is_dyn_type, is_reference_struct_type, is_reference_enum_type, is_newtype_type, is_module_type, is_unique_box_type, cell_handle_view } :: import("../../types/guards.yo");
 { Environment } :: import("../../env.yo");
@@ -398,8 +398,13 @@ _generate_field_access_raw :: (fn(expr : &AstExpr, indent : &String, context : &
   if(is_unit_type(&ei.ty) && (is_struct_type(&object_type) || is_tuple_type(&object_type) || is_pointer_type(&object_type)), {
     return(String.from(""));
   });
-  // Module namespace / struct-value field access (compile-time field value).
-  if(is_module_type(&object_type) || match(object_value, .Some(v) => is_struct_val(&v), .None => false), {
+  // Module namespace / compile-time struct-value field access. A struct value
+  // with a runtime leaf (`P(x : f(), y : i32(1))`, or a `match` binding of
+  // one) is a runtime construction (`value_contains_unknown`): its field is
+  // read from the object's C value below. Taken down this path, a runtime
+  // field's NAME was resolved as a variable, an undeclared `__yo_v_x`
+  // (issues/fixed/2026-11-05-a-method-on-a-field-of-a-match-binding-over-an-inline-literal-emits-an-undeclared-identifier.md).
+  if(is_module_type(&object_type) || match(object_value, .Some(v) => (is_struct_val(&v) && !value_contains_unknown(&v)), .None => false), {
     match(
       ei.value,
       .Some(fv) => if(
@@ -410,14 +415,19 @@ _generate_field_access_raw :: (fn(expr : &AstExpr, indent : &String, context : &
       ),
       .None => ()
     );
-    // An extern-C GLOBAL read through a bound `c_include` module value
-    // (`c.stdout`): no variable carries it, so resolve it the way the atom
-    // resolver does — by name + declared type — and keep the REAL C name
-    // (no reserved-word prefix). plans/reference/C_INCLUDE_EXTERN_MODULE_VALUE.md §3.4.
-    if(is_module_type(&object_type) && extern_c_global_matches(field_name.clone(), &ei.ty), {
-      return(sanitize_for_c_identifier(field_name.clone(), true));
+    // Only a module's runtime member is a variable of its own, reached by
+    // name; a compile-time struct's struct-valued field is read from the
+    // object's C value below.
+    if(is_module_type(&object_type), {
+      // An extern-C GLOBAL read through a bound `c_include` module value
+      // (`c.stdout`): no variable carries it, so resolve it the way the atom
+      // resolver does — by name + declared type — and keep the REAL C name
+      // (no reserved-word prefix). plans/reference/C_INCLUDE_EXTERN_MODULE_VALUE.md §3.4.
+      if(extern_c_global_matches(field_name.clone(), &ei.ty), {
+        return(sanitize_for_c_identifier(field_name.clone(), true));
+      });
+      return(get_variable_name_for_codegen_at(ast_expr_id(expr), field_name.clone(), Option(Environment).Some(ei.env)));
     });
-    return(get_variable_name_for_codegen_at(ast_expr_id(expr), field_name.clone(), Option(Environment).Some(ei.env)));
   });
   // The bare `Io` effect struct's `.io` member is the IDENTITY projection
   // (evaluator twin in evaluator/exprs/property_access.yo): a bundle-style

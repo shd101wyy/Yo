@@ -4338,11 +4338,10 @@ test("Test a match arm early-returning a freshly built value before an await", {
 // yo-self's `codegen/exprs/match.yo` already had the gate; only `src/` lacked it.
 // See issues/fixed/async-sibling-arm-same-named-locals.md.
 // ---------------------------------------------------------------------------
-// `Task` stays a `ref` object for now: with a value struct the arm's
-// `run_cfg.name` read emits an undeclared C identifier
-// (issues/2026-11-05-a-method-on-a-field-of-a-match-binding-over-an-inline-literal-emits-an-undeclared-identifier.md);
-// its fix makes `Task` a value struct again.
-Task :: ref(struct(name : String));
+// `Task` is a value struct: the arm's `run_cfg.name` read is a field of a
+// runtime construction
+// (issues/fixed/2026-11-05-a-method-on-a-field-of-a-match-binding-over-an-inline-literal-emits-an-undeclared-identifier.md).
+Task :: struct(name : String);
 Job :: enum(Run, Doc);
 derive(Job, Copy, Clone);
 test("Test a reassignment in an awaitless nested arm beside an awaiting arm", {
@@ -4376,6 +4375,22 @@ test("Test a reassignment in an awaitless nested arm beside an awaiting arm", {
   );
   assert(io.await(describe_job(Job.Run, io), io) == `run exe`, "the awaiting arm reassigns");
   assert(io.await(describe_job(Job.Doc, io), io) == `doc book`, "the awaitless arm reassigns");
+});
+test("Test a method on a field of a match binding over an inline literal across an await", {
+  drive := (fn(rio : Io) -> Impl(Future(usize, Io)))(
+    rio.async((aio : Io) => {
+      n := match(
+        Option(Task).Some(Task(name : String.from("exe"))),
+        .Some(t) => {
+          aio.await(yield(aio), aio);
+          t.name.len()
+        },
+        .None => usize(0)
+      );
+      n
+    })
+  );
+  assert(io.await(drive(io), io) == usize(3), "the binding's field after the await");
 });
 // ---------------------------------------------------------------------------
 // An `if` whose branch awaits, as the body of a `while`, in an async body.
