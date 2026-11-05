@@ -639,7 +639,7 @@ _bind_index_place :: (
   place_text := ast_expr_to_string(rhs);
   missing_projection := `Cannot borrow \`${sig}${place_text}\`: \`${type_to_string(&recv_ty)}\` has no \`${method}\` projection, so its elements have no place to lend. A borrowed element is the place an \`Index\` projection yields (decision 24): \`index : fn(self : &Self, i : I) -> &Self.Output\` lends \`&xs(i)\`, and \`IndexMut\`'s \`index_mut : fn(self : &mut Self, i : I) -> &mut Self.Output\` lends \`&mut xs(i)\`. Implement it, or bind a copy of the element with \`y := ${place_text}\`.`;
   if(!has_projection, {
-    exn.throw(dyn(format_error_message(&rhs_tok, missing_projection.clone())));
+    exn.throw(dyn(format_error_message(&rhs_tok, &missing_projection)));
   });
   // `xs.index(i)` / `xs.index_mut(i)`, positioned at the element access.
   dot_tok := Token(
@@ -673,7 +673,7 @@ _bind_index_place :: (
   ev_call := evaluate_expression_raw(&call, env, ctx, exn);
   ctx.expected_type = saved_exp;
   if(match(projection_call_mode_of(&ev_call, ctx), .Some(m) => (m != is_mut), .None => true), {
-    exn.throw(dyn(format_error_message(&rhs_tok, missing_projection)));
+    exn.throw(dyn(format_error_message(&rhs_tok, &missing_projection)));
   });
   match(
     annotation_e,
