@@ -1,0 +1,15 @@
+// issues/2026-11-05-a-projection-with-a-panicking-arm-is-a-raw-pointer-in-safe-code.md
+{ assert, panic } :: import("std/assert");
+{ String } :: import("std/string");
+_Slot :: struct(ok : bool, d : String);
+impl(
+  _Slot,
+  value : (fn(self : &Self) -> &String)(
+    cond(self.ok => &self.d, true => panic("_Slot: not ok"))
+  )
+);
+main :: (fn() -> unit)({
+  s := _Slot(ok : true, d : String.from("d"));
+  assert(s.value().len() == usize(1), "value");
+});
+export(main);
