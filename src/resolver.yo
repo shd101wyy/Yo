@@ -24,6 +24,7 @@
 { Exception, IoExn } :: import("std/error");
 { ArrayList } :: import("std/collections/array_list");
 { replace } :: import("std/mem");
+{ RefCell } :: import("std/sync/refcell");
 { ensure_cache_layout } :: import("./cache.yo");
 { fetch_package, git_command, git_remote_url, read_tags_index, write_tags_index, record_project } :: import("./fetch.yo");
 {
@@ -687,6 +688,7 @@ Requirement :: struct(
   requirer : String,
   requirement : GitRequirement
 );
+derive(Requirement, Clone);
 /// The ref chosen for a git package.
 ChosenRef :: enum(
   /// A semver tag (from a `version` range or an exact `tag` that parses).
@@ -698,6 +700,7 @@ ChosenRef :: enum(
   /// The remote's default branch (resolved to a name by the driver).
   DefaultBranch
 );
+derive(ChosenRef, Clone);
 impl(
   ChosenRef,
   /// The ref text `git` is asked for.
@@ -901,64 +904,69 @@ ResolveOptions :: struct(
   verbose : bool
 );
 derive(ResolveOptions, Clone);
-/// One package of the graph while it is being resolved.
-_Package :: ref(
-  struct(
-    name : String,
-    is_path : bool,
-    /// Git: the repository URL. Path: unused.
-    url : String,
-    /// Git: the package's directory inside the repository ("" = root).
-    subdir : String,
-    /// Path: the absolute directory; git: the cache directory once fetched.
-    dir : String,
-    /// Path: the path as recorded in the lock (relative to the root manifest).
-    lock_path : String,
-    requirements : ArrayList(Requirement),
-    /// The requirer names whose requirements are currently recorded — so a
-    /// re-expanded package can replace exactly its own contributions.
-    chosen : Option(ChosenRef),
-    /// The ref text the tree was fetched at (a resolved default branch name
-    /// for `DefaultBranch`).
-    ref_text : String,
-    commit : String,
-    integrity : String,
-    /// The names of the package's own (non-dev) dependencies, once expanded.
-    dependencies : ArrayList(String),
-    /// The `dir` whose manifest was last expanded ("" = never).
-    expanded_dir : String
-  )
+/// One package of the graph while it is being resolved: an element of
+/// `_State.packages`, read by snapshot and written in place by index.
+_Package :: struct(
+  name : String,
+  is_path : bool,
+  /// Git: the repository URL. Path: unused.
+  url : String,
+  /// Git: the package's directory inside the repository ("" = root).
+  subdir : String,
+  /// Path: the absolute directory; git: the cache directory once fetched.
+  dir : String,
+  /// Path: the path as recorded in the lock (relative to the root manifest).
+  lock_path : String,
+  requirements : ArrayList(Requirement),
+  /// The requirer names whose requirements are currently recorded — so a
+  /// re-expanded package can replace exactly its own contributions.
+  chosen : Option(ChosenRef),
+  /// The ref text the tree was fetched at (a resolved default branch name
+  /// for `DefaultBranch`).
+  ref_text : String,
+  commit : String,
+  integrity : String,
+  /// The names of the package's own (non-dev) dependencies, once expanded.
+  dependencies : ArrayList(String),
+  /// The `dir` whose manifest was last expanded ("" = never).
+  expanded_dir : String
 );
-/// The whole run's state — one record so the async bodies below share it
-/// without capturing many locals.
-_State :: ref(
-  struct(
-    manifest : Manifest,
-    options : ResolveOptions,
-    /// The cache root (`cache.get_global_cache_dir`): the store, the mirrors
-    /// and the tag index live under it.
-    cache_root : String,
-    old_lock : LockFile,
-    packages : ArrayList(_Package),
-    /// `ls-remote --tags` output per URL, fetched once per run.
-    tag_urls : ArrayList(String),
-    tag_texts : ArrayList(String),
-    /// Default-branch names per URL, resolved once per run.
-    branch_urls : ArrayList(String),
-    branch_names : ArrayList(String)
-  )
+derive(_Package, Clone);
+/// What the run learned from the remotes: `ls-remote --tags` output and the
+/// default-branch name per URL, each fetched once per run.
+_RemoteCache :: struct(
+  tag_urls : ArrayList(String),
+  tag_texts : ArrayList(String),
+  branch_urls : ArrayList(String),
+  branch_names : ArrayList(String)
 );
-_find_package :: (fn(state : &_State, name : &String) -> Option(_Package))({
-  (i : usize) = usize(0);
-  while(i < state.packages.len(), {
-    p := state.packages(i);
-    if(p.name == name, {
-      return(Option(_Package).Some(p));
+/// The whole run's state, shared through an `Rc` by the driver and the
+/// `io.async` bodies that resolve packages (each future outlives the call
+/// that made it, so none can borrow it): the inputs are read-only, and the
+/// two parts written during the run are cells (V5 part B, class S).
+_State :: struct(
+  manifest : Manifest,
+  options : ResolveOptions,
+  /// The cache root (`cache.get_global_cache_dir`): the store, the mirrors
+  /// and the tag index live under it.
+  cache_root : String,
+  old_lock : LockFile,
+  packages : RefCell(ArrayList(_Package)),
+  remote : RefCell(_RemoteCache)
+);
+/// The index of the package named `name`.
+_find_package :: (fn(state : &Rc(_State), name : &String) -> Option(usize))(
+  state.packages.with(ps => {
+    (i : usize) = usize(0);
+    while(i < ps.len(), {
+      if(ps(i).name == name, {
+        return(Option(usize).Some(i));
+      });
+      i = (i + usize(1));
     });
-    i = (i + usize(1));
-  });
-  Option(_Package).None
-});
+    Option(usize).None
+  })
+);
 _source_text :: (fn(dep : &ManifestDependency) -> String)(
   match(
     &dep.source,
@@ -966,13 +974,25 @@ _source_text :: (fn(dep : &ManifestDependency) -> String)(
     .Path(p) => `path ${p}`
   )
 );
+/// `requirer`'s requirement `req` replaces the one it recorded before (a
+/// re-expansion) in `reqs`.
+_replace_requirement :: (fn(reqs : &mut ArrayList(Requirement), requirer : &String, sink(req) : Requirement) -> unit)({
+  kept := ArrayList(Requirement).new();
+  for(replace(reqs, ArrayList(Requirement).new()), r => {
+    if(r.requirer != requirer, {
+      kept.push(r);
+    });
+  });
+  kept.push(req);
+  reqs = kept;
+});
 /// Record `requirer`'s dependency `dep`: find or create its package, check
 /// that the name still means the same package, and add the requirement.
 /// `declaring_dir` anchors a path dependency; `root_dir` is what the lock's
 /// path is made relative to.
 _add_requirement :: (
   fn(
-    state : &_State,
+    state : &Rc(_State),
     requirer : &String,
     dep : &ManifestDependency,
     declaring_dir : &String,
@@ -1000,9 +1020,11 @@ _add_requirement :: (
       subdir = s.clone();
     }
   );
+  req := Requirement(requirer : requirer.clone(), requirement : requirement);
   match(
     _find_package(state, dep.name.clone()),
-    .Some(existing) => {
+    .Some(pi) => {
+      existing := state.packages.with(ps => ps(pi).clone());
       same := cond(
         (existing.is_path != is_path) => false,
         is_path => (existing.dir == dir),
@@ -1013,73 +1035,69 @@ _add_requirement :: (
         existing_text := if(existing.is_path, `path ${existing.dir}`, if(existing.subdir.len() > usize(0), `${existing.url} (path ${existing.subdir})`, existing.url.clone()));
         exn.throw(dyn(`Error: dependency name "${dep.name}" refers to two different packages: ${existing_text} (via ${first_via}) and ${_source_text(dep)} (via ${requirer}). One import name means one package.`));
       });
-      // Replace this requirer's earlier requirement (a re-expansion).
-      kept := ArrayList(Requirement).new();
-      for(replace(&mut existing.requirements, ArrayList(Requirement).new()), r => {
-        if(r.requirer != requirer, {
-          kept.push(r);
-        });
-      });
-      kept.push(Requirement(requirer : requirer.clone(), requirement : requirement));
-      existing.requirements = kept;
+      rq := requirer.clone();
+      state.packages.with_mut({ pi, rq, req }(ps) => _replace_requirement(&mut ps(pi).requirements, &rq, req));
     },
     .None => {
       reqs := ArrayList(Requirement).new();
-      reqs.push(Requirement(requirer : requirer.clone(), requirement : requirement));
-      state.packages.push(
-        _Package(
-          name : dep.name.clone(),
-          is_path : is_path,
-          url : url,
-          subdir : subdir,
-          dir : dir,
-          lock_path : lock_path,
-          requirements : reqs,
-          chosen : Option(ChosenRef).None,
-          ref_text : String.new(),
-          commit : String.new(),
-          integrity : String.new(),
-          dependencies : ArrayList(String).new(),
-          expanded_dir : String.new()
-        )
+      reqs.push(req);
+      pkg := _Package(
+        name : dep.name.clone(),
+        is_path : is_path,
+        url : url,
+        subdir : subdir,
+        dir : dir,
+        lock_path : lock_path,
+        requirements : reqs,
+        chosen : Option(ChosenRef).None,
+        ref_text : String.new(),
+        commit : String.new(),
+        integrity : String.new(),
+        dependencies : ArrayList(String).new(),
+        expanded_dir : String.new()
       );
+      state.packages.with_mut({ pkg }(ps) => ps.push(pkg));
     }
   );
 });
 /// Drop every requirement `requirer` contributed (before it is re-expanded).
-_drop_requirements_of :: (fn(state : &_State, requirer : &String) -> unit)({
-  (pi : usize) = usize(0);
-  while(pi < state.packages.len(), {
-    p := state.packages(pi);
-    kept := ArrayList(Requirement).new();
-    for(replace(&mut p.requirements, ArrayList(Requirement).new()), r => {
-      if(r.requirer != requirer, {
-        kept.push(r);
+_drop_requirements_of :: (fn(state : &Rc(_State), requirer : &String) -> unit)({
+  rq := requirer.clone();
+  state.packages.with_mut({ rq }(ps) => {
+    for(&mut ps, p => {
+      kept := ArrayList(Requirement).new();
+      for(replace(&mut p.requirements, ArrayList(Requirement).new()), r => {
+        if(r.requirer != rq, {
+          kept.push(r);
+        });
       });
+      p.requirements = kept;
     });
-    p.requirements = kept;
-    pi = (pi + usize(1));
   });
 });
-/// Read `<dir>/yo.toml` if the package has one. Its dependencies (non-dev;
-/// dev ones only for the root) become requirements; the package's dependency
-/// names are recorded for the lock.
+/// Read `<dir>/yo.toml` of package `pi` if it has one. Its dependencies
+/// (non-dev; dev ones only for the root) become requirements; the package's
+/// dependency names are recorded for the lock.
 _expand_package :: (
   fn(
-    state : &_State,
-    pkg : &_Package,
+    state : &Rc(_State),
+    pi : usize,
     exn : Exception
   ) -> unit
 )({
-  _drop_requirements_of(state, pkg.name.clone());
-  pkg.dependencies = ArrayList(String).new();
-  manifest_path := abs_under(pkg.dir.clone(), String.from(MANIFEST_FILENAME));
+  pkg_name := state.packages.with(ps => ps(pi).name.clone());
+  pkg_dir := state.packages.with(ps => ps(pi).dir.clone());
+  _drop_requirements_of(state, pkg_name.clone());
+  state.packages.with_mut({ pi }(ps) => {
+    ps(pi).dependencies = ArrayList(String).new();
+  });
+  manifest_path := abs_under(pkg_dir.clone(), String.from(MANIFEST_FILENAME));
   if(file_exists_sync(manifest_path.clone()), {
     dep_manifest := match(
       parse_manifest(String.from_bytes(read_file_sync(manifest_path.clone(), exn)), manifest_path.clone()),
       .Ok(m) => m,
       .Err(msg) => {
-        exn.throw(dyn(`Error: dependency "${pkg.name}": ${msg}`));
+        exn.throw(dyn(`Error: dependency "${pkg_name}": ${msg}`));
         state.manifest
       }
     );
@@ -1087,13 +1105,16 @@ _expand_package :: (
     while(i < dep_manifest.dependencies.len(), {
       d := dep_manifest.dependencies(i);
       if(!d.dev, {
-        pkg.dependencies.push(d.name.clone());
-        _add_requirement(state, pkg.name.clone(), &d, dep_manifest.dir.clone(), state.manifest.dir.clone(), exn);
+        dep_name := d.name.clone();
+        state.packages.with_mut({ pi, dep_name }(ps) => ps(pi).dependencies.push(dep_name));
+        _add_requirement(state, pkg_name.clone(), &d, dep_manifest.dir.clone(), state.manifest.dir.clone(), exn);
       });
       i = (i + usize(1));
     });
   });
-  pkg.expanded_dir = pkg.dir.clone();
+  state.packages.with_mut({ pi, pkg_dir }(ps) => {
+    ps(pi).expanded_dir = pkg_dir;
+  });
 });
 /// The choice a reused lock entry stands for: its ref, as a version when
 /// it parses as one (so the lock keeps its `version`), else as an exact ref
@@ -1103,7 +1124,7 @@ _locked_choice :: (fn(ref : &String) -> ChosenRef)(
   match(parse_semver(ref.clone()), .Some(sv) => ChosenRef.Tag(sv), .None => ChosenRef.Exact(ref.clone()))
 );
 /// Is `name` one `yo update` re-resolves?
-_refresh_requested :: (fn(state : &_State, name : &String) -> bool)(
+_refresh_requested :: (fn(state : &Rc(_State), name : &String) -> bool)(
   match(
     &state.options.mode,
     .Install => false,
@@ -1131,19 +1152,27 @@ _cached_text :: (fn(keys : &ArrayList(String), values : &ArrayList(String), key 
   });
   Option(String).None
 });
-/// Resolve and fetch ONE package for this round. Returns true when the
+_cached_tags :: (fn(state : &Rc(_State), url : &String) -> Option(String))(
+  state.remote.with(r => _cached_text(&r.tag_urls, &r.tag_texts, url))
+);
+_cached_branch :: (fn(state : &Rc(_State), url : &String) -> Option(String))(
+  state.remote.with(r => _cached_text(&r.branch_urls, &r.branch_names, url))
+);
+/// Resolve and fetch package `pi` for this round. Returns true when the
 /// package's state changed (a new ref, a fetch, an expansion) — the driver
 /// loops until a round changes nothing. Every await is a top-level
-/// statement.
+/// statement. The body reads a snapshot of the package and writes its
+/// results back by index once the fetch is done.
 _resolve_package :: (
   fn(
-    state : &_State,
-    pkg : &_Package,
+    sink(state) : Rc(_State),
+    pi : usize,
     io : Io,
     exn : Exception
   ) -> Impl(Future(bool, IoExn))
 )(
-  io.async((e : IoExn) => {
+  io.async({ state, pi }(e : IoExn) => {
+    pkg := state.packages.with(ps => ps(pi).clone());
     verbose := state.options.verbose;
     // A path package: its directory is fixed; expand once (or again if the
     // requirements changed nothing about it — the manifest is live, so it is
@@ -1155,10 +1184,10 @@ _resolve_package :: (
       if(pkg.expanded_dir == pkg.dir, {
         return(false);
       });
-      _expand_package(state, pkg, e.exn);
+      _expand_package(&state, pi, e.exn);
       return(true);
     });
-    refresh := _refresh_requested(state, pkg.name.clone());
+    refresh := _refresh_requested(&state, pkg.name.clone());
     // Lock reuse: an entry that still satisfies every requirement is the
     // choice, without the network — unless this package is being updated.
     // ONE match on the entry decides everything the awaits below need (the
@@ -1200,7 +1229,7 @@ _resolve_package :: (
       ri = (ri + usize(1));
     });
     tags_needed := (needs_tags && !reuse);
-    cached_tags := _cached_text(&state.tag_urls, &state.tag_texts, pkg.url.clone());
+    cached_tags := _cached_tags(&state, pkg.url.clone());
     fetch_tags := (tags_needed && cached_tags.is_none());
     // What git is given: a local path made absolute against the root
     // manifest's directory (git resolves paths against the child's cwd).
@@ -1218,8 +1247,12 @@ _resolve_package :: (
       );
     });
     if(fetch_tags && state.options.offline, {
-      state.tag_urls.push(pkg.url.clone());
-      state.tag_texts.push(match(&indexed, .Some(t) => t.clone(), .None => String.new()));
+      t_url := pkg.url.clone();
+      t_text := match(&indexed, .Some(t) => t.clone(), .None => String.new());
+      state.remote.with_mut({ t_url, t_text }(r) => {
+        r.tag_urls.push(t_url);
+        r.tag_texts.push(t_text);
+      });
     });
     if(fetch_tags && !state.options.offline, {
       if(verbose, {
@@ -1235,10 +1268,13 @@ _resolve_package :: (
         }
       );
       e.io.await(write_tags_index(state.cache_root.clone(), remote.clone(), text.clone(), e.io, e.exn), e);
-      state.tag_urls.push(pkg.url.clone());
-      state.tag_texts.push(text);
+      l_url := pkg.url.clone();
+      state.remote.with_mut({ l_url, text }(r) => {
+        r.tag_urls.push(l_url);
+        r.tag_texts.push(text);
+      });
     });
-    tags_text := match(_cached_text(&state.tag_urls, &state.tag_texts, pkg.url.clone()), .Some(t) => t, .None => String.new());
+    tags_text := match(_cached_tags(&state, pkg.url.clone()), .Some(t) => t, .None => String.new());
     tags := semver_tags_from_ls_remote(&tags_text);
     // A reused lock entry IS the choice (its ref already satisfies every
     // requirement — no tag list was fetched for it); otherwise decide from
@@ -1271,7 +1307,7 @@ _resolve_package :: (
     if(is_default && reuse, {
       ref_text = old_ref.clone();
     });
-    cached_branch := _cached_text(&state.branch_urls, &state.branch_names, pkg.url.clone());
+    cached_branch := _cached_branch(&state, pkg.url.clone());
     resolve_branch := (is_default && (ref_text.len() == usize(0)) && cached_branch.is_none());
     if(resolve_branch && state.options.offline, {
       e.exn.throw(
@@ -1280,11 +1316,14 @@ _resolve_package :: (
     });
     if(resolve_branch, {
       branch := e.io.await(resolve_default_branch(remote.clone(), e.io, e.exn), e);
-      state.branch_urls.push(pkg.url.clone());
-      state.branch_names.push(branch);
+      b_url := pkg.url.clone();
+      state.remote.with_mut({ b_url, branch }(r) => {
+        r.branch_urls.push(b_url);
+        r.branch_names.push(branch);
+      });
     });
     if(is_default && (ref_text.len() == usize(0)), {
-      ref_text = match(_cached_text(&state.branch_urls, &state.branch_names, pkg.url.clone()), .Some(b) => b, .None => String.from("main"));
+      ref_text = match(_cached_branch(&state, pkg.url.clone()), .Some(b) => b, .None => String.from("main"));
     });
     // Already fetched at this ref in this run? Nothing to do.
     if((pkg.ref_text == ref_text) && (pkg.commit.len() > usize(0)) && (pkg.expanded_dir == pkg.dir), {
@@ -1313,35 +1352,41 @@ _resolve_package :: (
       ),
       e
     );
-    pkg.chosen = Option(ChosenRef).Some(chosen);
-    pkg.ref_text = ref_text.clone();
-    pkg.commit = fetched.commit.clone();
-    pkg.integrity = fetched.integrity.clone();
-    pkg.dir = if(pkg.subdir.len() > usize(0), abs_under(fetched.dir.clone(), pkg.subdir.clone()), fetched.dir.clone());
-    if(!file_exists_sync(pkg.dir.clone()), {
+    new_dir := if(pkg.subdir.len() > usize(0), abs_under(fetched.dir.clone(), pkg.subdir.clone()), fetched.dir.clone());
+    if(!file_exists_sync(new_dir.clone()), {
       e.exn.throw(dyn(`Error: dependency "${pkg.name}": ${pkg.url} @ ${ref_text} has no directory "${pkg.subdir}"`));
     });
-    _expand_package(state, pkg, e.exn);
+    w_ref := ref_text.clone();
+    w_commit := fetched.commit.clone();
+    w_integrity := fetched.integrity.clone();
+    state.packages.with_mut({ pi, chosen, w_ref, w_commit, w_integrity, new_dir }(ps) => {
+      ps(pi).chosen = Option(ChosenRef).Some(chosen);
+      ps(pi).ref_text = w_ref;
+      ps(pi).commit = w_commit;
+      ps(pi).integrity = w_integrity;
+      ps(pi).dir = new_dir;
+    });
+    _expand_package(&state, pi, e.exn);
     true
   })
 );
 /// One round over every package (its own async body: one loop with awaits).
 _resolve_round :: (
   fn(
-    state : &_State,
+    sink(state) : Rc(_State),
     io : Io,
     exn : Exception
   ) -> Impl(Future(bool, IoExn))
 )(
-  io.async((e : IoExn) => {
+  io.async({ state }(e : IoExn) => {
     (changed : bool) = false;
     (i : usize) = usize(0);
     // `packages` may grow during the round (expansion adds packages); the
     // loop re-reads the length so new entries are visited this round.
-    while(i < state.packages.len(), {
-      pkg := state.packages(i);
+    while(i < state.packages.with(ps => ps.len()), {
+      pi := i;
       i = (i + usize(1));
-      step := e.io.await(_resolve_package(state, &pkg, e.io, e.exn), e);
+      step := e.io.await(_resolve_package(Rc.clone(state), pi, e.io, e.exn), e);
       if(step, {
         changed = true;
       });
@@ -1351,34 +1396,31 @@ _resolve_round :: (
 );
 /// The lock the resolved graph corresponds to: one entry per package that
 /// still has a requirer, sorted by the writer.
-_build_lock :: (fn(state : &_State) -> LockFile)({
-  entries := ArrayList(LockEntry).new();
-  (i : usize) = usize(0);
-  while(i < state.packages.len(), {
-    p := state.packages(i);
-    if(p.requirements.len() > usize(0), {
-      deps := ArrayList(String).new();
-      (d : usize) = usize(0);
-      while(d < p.dependencies.len(), {
-        deps.push(p.dependencies(d).clone());
-        d = (d + usize(1));
+_build_lock :: (fn(state : &Rc(_State)) -> LockFile)(
+  state.packages.with(ps => {
+    entries := ArrayList(LockEntry).new();
+    for(&ps, p => {
+      if(p.requirements.len() > usize(0), {
+        deps := ArrayList(String).new();
+        for(&p.dependencies, d => {
+          deps.push(d.clone());
+        });
+        version := match(&p.chosen, .Some(c) => c.version_text(), .None => String.new());
+        entries.push(
+          LockEntry(
+            name : p.name.clone(),
+            version : version,
+            source : if(p.is_path, path_source(p.lock_path.clone()), git_source(p.url.clone(), p.ref_text.clone())),
+            commit : p.commit.clone(),
+            integrity : p.integrity.clone(),
+            dependencies : deps
+          )
+        );
       });
-      version := match(&p.chosen, .Some(c) => c.version_text(), .None => String.new());
-      entries.push(
-        LockEntry(
-          name : p.name.clone(),
-          version : version,
-          source : if(p.is_path, path_source(p.lock_path.clone()), git_source(p.url.clone(), p.ref_text.clone())),
-          commit : p.commit.clone(),
-          integrity : p.integrity.clone(),
-          dependencies : deps
-        )
-      );
     });
-    i = (i + usize(1));
-  });
-  LockFile(packages : entries)
-});
+    LockFile(packages : entries)
+  })
+);
 /// Does the lock name at least one store tree (a git package with an
 /// integrity hash)?
 _lock_uses_store :: (fn(lock : &LockFile) -> bool)({
@@ -1440,16 +1482,22 @@ resolve_and_fetch :: (
         dyn(format_coded_error(E_LOCK_MISMATCH, String.from("--locked: there is no yo.lock to obey. Run 'yo install' once without --locked.")))
       );
     });
-    state := _State(
-      manifest : manifest,
-      options : options.clone(),
-      cache_root : cache_root.clone(),
-      old_lock : read.lock.clone(),
-      packages : ArrayList(_Package).new(),
-      tag_urls : ArrayList(String).new(),
-      tag_texts : ArrayList(String).new(),
-      branch_urls : ArrayList(String).new(),
-      branch_names : ArrayList(String).new()
+    state := Rc.new(
+      _State(
+        manifest : manifest,
+        options : options.clone(),
+        cache_root : cache_root.clone(),
+        old_lock : read.lock.clone(),
+        packages : RefCell(ArrayList(_Package)).new(ArrayList(_Package).new()),
+        remote : RefCell(_RemoteCache).new(
+          _RemoteCache(
+            tag_urls : ArrayList(String).new(),
+            tag_texts : ArrayList(String).new(),
+            branch_urls : ArrayList(String).new(),
+            branch_names : ArrayList(String).new()
+          )
+        )
+      )
     );
     // The root's requirements (its dev-dependencies included).
     (di : usize) = usize(0);
@@ -1463,7 +1511,7 @@ resolve_and_fetch :: (
     (changed : bool) = true;
     while(changed && (round < usize(64)), {
       round = (round + usize(1));
-      progressed := e.io.await(_resolve_round(&state, e.io, e.exn), e);
+      progressed := e.io.await(_resolve_round(Rc.clone(state), e.io, e.exn), e);
       changed = progressed;
     });
     if(changed, {
