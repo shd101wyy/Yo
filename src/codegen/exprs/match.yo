@@ -845,25 +845,36 @@ _inline_binding_sm_field :: (fn(tok : &Token, context : &mut FunctionGenerationC
     return(Option(String).None);
   });
   site := `${tok.module_path.*}:${tok.row.to_string()}:${tok.column.to_string()}`;
-  match(
+  // The binding id is found first and the context written after: the walk
+  // borrows `context.state_machine_variables` for its whole extent.
+  hit := match(
     &context.state_machine_variables,
     .Some(smv) => {
+      mut(found) := Option(String).None;
       for(&smv, (k, cv) => {
         // A consuming arm's hidden bindings share the arm's token, so the
         // name tells them apart (decision 26).
-        if(match(cv.kind, .Local => true, .Outer => false) && ((cv.base.decl_site == site) && (cv.base.name == tok.value.*)), {
-          note_state_machine_binding_id(context, k.clone());
-          return(
-            Option(String).Some(
-              match(
-                &context.state_machine_field_aliases,
-                .Some(al) => match(al.get_cloned(k.clone()), .Some(af) => af, .None => sm_local_field_name(k.clone())),
-                .None => sm_local_field_name(k.clone())
-              )
-            )
-          );
+        if(found.is_none() && match(cv.kind, .Local => true, .Outer => false) && ((cv.base.decl_site == site) && (cv.base.name == tok.value.*)), {
+          found = Option(String).Some(k.clone());
         });
       });
+      found
+    },
+    .None => Option(String).None
+  );
+  match(
+    hit,
+    .Some(k) => {
+      note_state_machine_binding_id(context, k.clone());
+      return(
+        Option(String).Some(
+          match(
+            &context.state_machine_field_aliases,
+            .Some(al) => match(al.get_cloned(k.clone()), .Some(af) => af, .None => sm_local_field_name(k.clone())),
+            .None => sm_local_field_name(k.clone())
+          )
+        )
+      );
     },
     .None => ()
   );
