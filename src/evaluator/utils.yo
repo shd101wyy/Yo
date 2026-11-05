@@ -6591,6 +6591,12 @@ local_borrow_place_of :: (fn(e0 : &AstExpr, env : &Environment, ctx : &EvalConte
         through_cell = true;
         stop = true;
       },
+      // A unique `Box` owns its payload from the one slot that holds it, so
+      // its auto-deref is a value step, not a cell: no other handle shares
+      // the payload, and nothing needs pinning (VERDICTS-24, decision 25).
+      ((step == "*") && unique_box_payload_type(&recv_ty).is_some()) => {
+        out.push(step);
+      },
       (step == "*") => {
         stop = true;
       },

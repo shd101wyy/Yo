@@ -708,3 +708,186 @@ comptime_expect_error({
 }, "reading the value it refers to is spelled `v.*`");
 // A type's OWN field named `*` keeps its field read (std's atomics; pinned
 // by `check ./std`, which reads `self.*` on `self : &Self` throughout).
+
+// --- Decision 25's cursor walk over `Option(Box(Self))` (VERDICTS-24) --------
+// A binding of a bare `match` over `cur` is a place binding into `cur`'s
+// target (VERDICTS-13 §14), and a unique `Box`'s auto-deref is a value step:
+// the walk re-points through it with no cell and no pin, as in Rust.
+BNode :: struct(value : i32, next : Option(Box(Self)));
+BList :: struct(head : Option(Box(BNode)));
+b_append :: (fn(list : &mut BList, v : i32) -> unit)({
+  cur := &mut list.head;
+  while(cur.is_some(), {
+    match(
+      cur,
+      .Some(n) => {
+        cur = &mut n.next;
+      },
+      .None => ()
+    );
+  });
+  cur.* = .Some(Box.new(BNode(value : v, next : .None)));
+});
+// The `&` walk reads `n` after the re-point: a shared binding stays readable.
+b_sum :: (fn(list : &BList) -> i32)({
+  (mut(total) : i32) = i32(0);
+  cur := &list.head;
+  while(cur.is_some(), {
+    match(
+      cur,
+      .Some(n) => {
+        cur = &n.next;
+        total = (total + n.value);
+      },
+      .None => ()
+    );
+  });
+  total
+});
+// `recur(&mut n.next)` passes the field's address, as a named call does
+// (issues/fixed/2026-11-05-recur-of-a-mut-borrowed-field-of-a-match-binding-passes-the-value-not-its-address.md).
+b_last_value :: (fn(slot : &mut Option(Box(BNode))) -> i32)(
+  match(slot, .Some(n) => cond(n.next.is_some() => recur(&mut n.next), true => n.value), .None => i32(-1))
+);
+// The same recursion writing through the address it was passed.
+b_bump_all :: (fn(slot : &mut Option(Box(BNode))) -> unit)(
+  match(
+    slot,
+    .Some(n) => {
+      n.value = (n.value + i32(10));
+      recur(&mut n.next);
+    },
+    .None => ()
+  )
+);
+test("the cursor walk over Option(Box(Self)) appends at the tail and sums (VERDICTS-24)", {
+  mut(l) := BList(head : .None);
+  b_append(&mut l, i32(1));
+  b_append(&mut l, i32(2));
+  b_append(&mut l, i32(3));
+  assert(b_sum(&l) == i32(6), "three nodes, in order");
+  b_append(&mut l, i32(4));
+  assert(b_sum(&l) == i32(10), "a fourth at the tail");
+});
+test("recur(&mut n.next) through a match binding reaches the last node", {
+  mut(h) := Option(Box(BNode)).Some(Box.new(BNode(value : 1, next : .Some(Box.new(BNode(value : 2, next : .None))))));
+  assert(b_last_value(&mut h) == i32(2), "the last node's value");
+  b_bump_all(&mut h);
+  assert(b_last_value(&mut h) == i32(12), "every node was written through its slot");
+  mut(l) := BList(head : h);
+  assert(b_sum(&l) == i32(23), "11 + 12");
+  b_append(&mut l, i32(7));
+  assert(b_last_value(&mut l.head) == i32(7), "the appended tail");
+});
+comptime_expect_error(
+  box_walk_the_declared_place_stays_frozen_mid_walk :: (fn() -> unit)({
+    mut(l1) := BList(head : .None);
+    cur := &mut l1.head;
+    while(cur.is_some(), {
+      match(
+        cur,
+        .Some(n) => {
+          cur = &mut n.next;
+        },
+        .None => ()
+      );
+      l1.head = .None;
+    });
+    cur = .None;
+  }),
+  "Cannot write `l1.head` here"
+);
+comptime_expect_error(
+  box_walk_repoint_while_a_derived_borrow_is_live_rejected :: (fn() -> unit)({
+    mut(l1) := BList(head : .None);
+    cur := &mut l1.head;
+    match(
+      cur,
+      .Some(n) => {
+        d := &cur.*;
+        cur = &mut n.next;
+        _b := d.is_some();
+      },
+      .None => ()
+    );
+  }),
+  "Cannot re-point `cur` here"
+);
+// `cur = &mut n.next` reborrows `n` mutably for `cur`'s live range, so `n`
+// is frozen after it (Rust's verdict too).
+comptime_expect_error(
+  box_walk_binding_read_after_a_mut_repoint_rejected :: (fn() -> i32)({
+    mut(l1) := BList(head : .Some(Box.new(BNode(value : i32(1), next : .None))));
+    cur := &mut l1.head;
+    (mut(seen) : i32) = i32(0);
+    match(
+      cur,
+      .Some(n) => {
+        cur = &mut n.next;
+        seen = n.value;
+      },
+      .None => ()
+    );
+    cur.* = .None;
+    seen
+  }),
+  "Cannot read `n"
+);
+// A by-value `match(cur.*, …)` copies or moves the payload: its binding is
+// not a place in `cur`'s target.
+comptime_expect_error(
+  box_walk_through_a_by_value_match_rejected :: (fn() -> unit)({
+    mut(l1) := BList(head : .None);
+    cur := &mut l1.head;
+    match(
+      cur.*,
+      .Some(n) => {
+        cur = &mut n.next;
+      },
+      .None => ()
+    );
+    cur.* = .None;
+  }),
+  "a by-value `match` copies or moves the payload"
+);
+// The `Rc` list: the `&` walk steps into each cell (pinning it); the `&mut`
+// walk is E0919, since an `Rc`'s payload is read-only (decision 46). The
+// mutable list is the `Box` one above.
+RNode :: struct(value : i32, next : Option(Rc(Self)));
+RList :: struct(head : Option(Rc(RNode)));
+r_sum :: (fn(list : &RList) -> i32)({
+  (mut(total) : i32) = i32(0);
+  cur := &list.head;
+  while(cur.is_some(), {
+    match(
+      cur,
+      .Some(n) => {
+        total = (total + n.value);
+        cur = &n.next;
+      },
+      .None => ()
+    );
+  });
+  total
+});
+test("the `&` cursor walk over Option(Rc(Self)) steps through each cell", {
+  tail := Rc.new(RNode(value : i32(2), next : .None));
+  l := RList(head : .Some(Rc.new(RNode(value : i32(1), next : .Some(Rc.clone(&tail))))));
+  assert(r_sum(&l) == i32(3), "1 + 2");
+  assert(r_sum(&l) == i32(3), "the walk released each step's pin");
+});
+comptime_expect_error(
+  rc_walk_mut_repoint_rejected :: (fn() -> unit)({
+    mut(l1) := RList(head : .None);
+    cur := &mut l1.head;
+    match(
+      cur,
+      .Some(n) => {
+        cur = &mut n.next;
+      },
+      .None => ()
+    );
+    cur.* = .None;
+  }),
+  "an `Rc`'s payload is shared, so it is read-only through the handle"
+);
