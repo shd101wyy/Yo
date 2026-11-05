@@ -1,0 +1,20 @@
+{ println } :: import("std/fmt");
+pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
+{ sleep } :: import("std/sys/timer");
+// R2 + N3: a future-returning fn whose sibling parameter's value type carries an origin.
+_store_after :: (fn(generic(p : Origin), dst : &mut Option(&(i32, p)), v : &(i32, p), io : Io) -> Impl(Future(unit, Io)))(
+  io.async({ dst : &mut dst.*, v : &v.* }(io : Io) => {
+    io.await(sleep(u64(1)), io);
+    dst.* = .Some(&v.*);
+    ()
+  })
+);
+main :: (fn(io : Io) -> unit)({
+  x := i32(7);
+  mut(slot) := Option(&(i32, x)).None;
+  io.await(_store_after(&mut slot, &x, io), io);
+  match(slot, .Some(r) => assert(addr_of(r.*) == addr_of(x), "points at x"), .None => assert(false, "ran"));
+  println("ok");
+});
+export(main);
