@@ -45,7 +45,8 @@
   expr_info_set_is_compile_time_only_assignment,
   expr_info_set_macro_expansion,
   record_local_borrow_step_pin,
-  record_element_borrow_call
+  record_element_borrow_call,
+  lookup_element_borrow_call
 } :: import("../../expr_info.yo");
 {
   Environment,
@@ -642,33 +643,44 @@ _bind_index_place :: (
   if(!has_projection, {
     exn.throw(dyn(format_error_message(&rhs_tok, &missing_projection)));
   });
-  // `xs.index(i)` / `xs.index_mut(i)`, positioned at the element access.
-  dot_tok := Token(
-    kind : TokenKind.Operator,
-    value : intern_token_str(&String.from(BF_DOT)),
-    row : rhs_tok.row,
-    column : rhs_tok.column,
-    character : rhs_tok.character,
-    byte_offset : rhs_tok.byte_offset,
-    module_path : Rc.clone(rhs_tok.module_path),
-    input : Rc.clone(rhs_tok.input)
+  // `xs.index(i)` / `xs.index_mut(i)`, positioned at the element access. A
+  // statement evaluated again (a def-time trial, a re-check) re-evaluates the
+  // call it built the first time, so every evaluation records its ExprInfo
+  // under the same ids, the ones codegen lowers.
+  call := match(
+    lookup_element_borrow_call(ast_expr_id(expr)),
+    .Some(prev) => prev,
+    .None => {
+      dot_tok := Token(
+        kind : TokenKind.Operator,
+        value : intern_token_str(&String.from(BF_DOT)),
+        row : rhs_tok.row,
+        column : rhs_tok.column,
+        character : rhs_tok.character,
+        byte_offset : rhs_tok.byte_offset,
+        module_path : Rc.clone(rhs_tok.module_path),
+        input : Rc.clone(rhs_tok.input)
+      );
+      method_tok := Token(
+        kind : TokenKind.Identifier,
+        value : intern_token_str(&method),
+        row : rhs_tok.row,
+        column : rhs_tok.column,
+        character : rhs_tok.character,
+        byte_offset : rhs_tok.byte_offset,
+        module_path : Rc.clone(rhs_tok.module_path),
+        input : Rc.clone(rhs_tok.input)
+      );
+      dot_args := ArrayList(AstExpr).new();
+      dot_args.push(recv);
+      dot_args.push(AstExpr.Atom(alloc_global_expr_id(), method_tok));
+      call_args := ArrayList(AstExpr).new();
+      call_args.push(idx);
+      built_call := AstExpr.FnCall(alloc_global_expr_id(), AstExpr.FnCall(alloc_global_expr_id(), AstExpr.Atom(alloc_global_expr_id(), dot_tok.clone()), Rc.new(dot_args), true, dot_tok), Rc.new(call_args), false, rhs_tok.clone());
+      record_element_borrow_call(ast_expr_id(expr), &built_call);
+      built_call
+    }
   );
-  method_tok := Token(
-    kind : TokenKind.Identifier,
-    value : intern_token_str(&method),
-    row : rhs_tok.row,
-    column : rhs_tok.column,
-    character : rhs_tok.character,
-    byte_offset : rhs_tok.byte_offset,
-    module_path : Rc.clone(rhs_tok.module_path),
-    input : Rc.clone(rhs_tok.input)
-  );
-  dot_args := ArrayList(AstExpr).new();
-  dot_args.push(recv);
-  dot_args.push(AstExpr.Atom(alloc_global_expr_id(), method_tok));
-  call_args := ArrayList(AstExpr).new();
-  call_args.push(idx);
-  call := AstExpr.FnCall(alloc_global_expr_id(), AstExpr.FnCall(alloc_global_expr_id(), AstExpr.Atom(alloc_global_expr_id(), dot_tok.clone()), Rc.new(dot_args), true, dot_tok), Rc.new(call_args), false, rhs_tok.clone());
   saved_exp := ctx.expected_type;
   ctx.expected_type = Option(ExpectedTypeCtx).None;
   ev_call := evaluate_expression_raw(&call, env, ctx, exn);
@@ -684,8 +696,6 @@ _bind_index_place :: (
     },
     .None => ()
   );
-  // Codegen lowers the call in the element access's place.
-  record_element_borrow_call(ast_expr_id(expr), &ev_call);
   _bind_projection_result(expr, name_expr, &ev_call, false, env, ctx, exn)
 });
 /// `(y : &T) = &place`: the annotation names the place's type exactly (a
