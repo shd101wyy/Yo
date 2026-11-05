@@ -2314,7 +2314,7 @@ evaluate_function_parameter :: (
       // Use raw evaluator path so throws (e.g. propagated from
       // nested type evaluations) reach the caller's exn cleanly
       // instead of via the panic wrapper.
-      saved_expected := ctx.expected_type;
+      saved_expected := ctx.expected_type.clone();
       ctx.expected_type = match(
         &param_type,
         .Some(pt) => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(Rc.clone(pt), env_mut)),

@@ -8,6 +8,7 @@
 //!
 //! `allow_partial_module` is supported via the inner exception handler.
 pragma(Pragma.AllowUnsafe);
+{ replace } :: import("std/mem");
 { String } :: import("std/string");
 { RefCell } :: import("std/sync/refcell");
 { scope_release_depth, scope_release_set_depth } :: import("../../expr_info.yo");
@@ -365,8 +366,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                       // Optional exclude(...) second arg
                       exclude_expr_opt := spread_args.get(usize(1));
                       // Evaluate the extended module expression
-                      saved_expected := ctx.expected_type;
-                      ctx.expected_type = .None;
+                      saved_expected := replace(&mut ctx.expected_type, .None);
                       eval_ext := evaluate_expression_raw(&ext_mod_expr, &env, ctx, exn);
                       ctx.expected_type = saved_expected;
                       ext_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&eval_ext));
@@ -760,8 +760,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
             });
           }, {
             // Non-export expression: evaluate normally
-            saved_expected := ctx.expected_type;
-            ctx.expected_type = .None;
+            saved_expected := replace(&mut ctx.expected_type, .None);
             evaluated := evaluate_expression_raw(&expr, &env, ctx, exn);
             ctx.expected_type = saved_expected;
             info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated));

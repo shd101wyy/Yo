@@ -47,7 +47,7 @@ try_to_implement_comptime_list_by_comptime_list_type :: (
   while(i < arg_exprs.len(), {
     arg_expr := match(arg_exprs.get(i), .Some(a) => a, .None => make_err_expr());
     // Set expectedType in context for this evaluation, then restore.
-    saved_expected := ctx.expected_type;
+    saved_expected := ctx.expected_type.clone();
     ctx.expected_type = Option(ExpectedTypeCtx).Some(
       ExpectedTypeCtx(
         ty : Rc.clone(expected_element_type),

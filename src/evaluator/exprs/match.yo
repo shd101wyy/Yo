@@ -13,6 +13,7 @@
 //!
 //! Exported symbols: evaluate_match
 pragma(Pragma.AllowUnsafe);
+{ replace } :: import("std/mem");
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 {
@@ -392,8 +393,8 @@ _judge_arm_copies :: (fn(env : &Environment, arm_frame : usize, body : Option(As
 /// type unless a concrete expected type is in force).
 _arm_result_type :: (fn(ctx : &EvalContext, body_ty : &TypeValue) -> TypeValue)(
   cond(
-    match(ctx.expected_type, .Some(et) => (!type_contains_some_type(&et.ty) && !type_mentions_impl_fn_or_future(&et.ty)), .None => false) =>
-      match(ctx.expected_type, .Some(et) => Rc.clone(et.ty), .None => Rc.clone(body_ty)),
+    match(&ctx.expected_type, .Some(et) => (!type_contains_some_type(&et.ty) && !type_mentions_impl_fn_or_future(&et.ty)), .None => false) =>
+      match(&ctx.expected_type, .Some(et) => Rc.clone(et.ty), .None => Rc.clone(body_ty)),
     true => Rc.clone(body_ty)
   )
 );
@@ -1224,8 +1225,7 @@ evaluate_match :: (
     );
   });
   // Evaluate scrutinee with cleared expectedType
-  old_expected_scr := ctx.expected_type;
-  ctx.expected_type = Option(ExpectedTypeCtx).None;
+  old_expected_scr := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
   scr_is_marked_index_place := ((borrowed_match_scrutinee_kind(ast_expr_token(expr)) != u8(0)) && call_is_index_place(&scrutinee_expr, &env, ctx));
   // A reference binding matched bare (`match(r, …)`) is matched through, as
   // a receiver is read through: not a whole-value read; its bindings borrow
@@ -1376,7 +1376,7 @@ evaluate_match :: (
     });
     tca_resolved_em
   };
-  gadt_exp_em := ctx.expected_type;
+  gadt_exp_em := ctx.expected_type.clone();
   is_gadt_match_em := (gadt_va_em.is_some() && gadt_exp_em.is_some() && (gadt_tca_em.len() > usize(0)));
   // Is the scrutinee's value known at compile time? (An enum must be a
   // concrete EnumVal, a primitive a concrete literal.)
@@ -1738,8 +1738,7 @@ evaluate_match :: (
         // Evaluated WITHOUT an expected type: a non-bool guard must reach the
         // type check below with its own type, not fail inside the operator
         // dispatch against an expected `bool`.
-        old_expected_g := ctx.expected_type;
-        ctx.expected_type = Option(ExpectedTypeCtx).None;
+        old_expected_g := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
         evaluated_g_gout := ArrayList(AstExpr).new();
         evaluated_g_gerr := cond(
           ast_expr_is_atom(&g) => evaluate_expression_guarded(&g, &env, ctx, &mut evaluated_g_gout),
@@ -1876,7 +1875,7 @@ evaluate_match :: (
       });
       // Running-result-type as expected type (bare `.None`/`.Variant` inference);
       // (`expectedType: resultType ?? context.expectedType`).
-      old_expected := ctx.expected_type;
+      old_expected := ctx.expected_type.clone();
       match(
         &result_type_em,
         .Some(rt) => {

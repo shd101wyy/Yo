@@ -6,6 +6,7 @@
 //!      creation via `try_to_implement_closure_by_fn_module_type`.
 //!   3. `f(arg1, arg2, ...)` — simple FuncVal call.
 pragma(Pragma.AllowUnsafe);
+{ replace } :: import("std/mem");
 { String } :: import("std/string");
 { eprintln } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
@@ -1601,8 +1602,7 @@ _sai_arg_type :: (
   if(_sai_arg_is_contextual(&place), {
     return(Option(TypeValue).None);
   });
-  saved_et := ctx.expected_type;
-  ctx.expected_type = Option(ExpectedTypeCtx).None;
+  saved_et := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
   // Its slot is not known yet: argument matching judges a bare reference
   // binding (E0926, `_check_reference_argument`).
   deref_exempt_mark(&place);
@@ -1912,8 +1912,7 @@ _sai_instantiate :: (fn(c : &CtorMethodImpl, bindings : &ArrayList(Option(TypeVa
   recv_id := ast_expr_id(recv);
   mark_node_preevaluated(recv_id);
   call := AstExpr.FnCall(alloc_global_expr_id(), recv.clone(), Rc.new(call_args), false, ast_expr_token(recv));
-  saved_et := ctx.expected_type;
-  ctx.expected_type = Option(ExpectedTypeCtx).None;
+  saved_et := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
   built := evaluate_expression_raw(&call, env, ctx, exn);
   ctx.expected_type = saved_et;
   unmark_node_preevaluated(recv_id);
@@ -8839,8 +8838,7 @@ _evaluate_function_call_unanchored :: (
     // Evaluate the first operand with `expected_type` cleared — the
     // operand type must come from the operand itself, not from the
     // bool/etc. type the outer context expects of the operator result.
-    saved_et := ctx.expected_type;
-    ctx.expected_type = Option(ExpectedTypeCtx).None;
+    saved_et := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
     evaluated_first := evaluate_expression_raw(&first_arg, env, ctx, exn);
     ctx.expected_type = saved_et;
     // Evaluated once here to pick the overload; argument matching below must
@@ -8969,8 +8967,7 @@ _evaluate_function_call_unanchored :: (
       (chosen_idx : usize) = usize(0);
       if((op_methods.len() > usize(1)) && (args.len() >= usize(2)), {
         snd_arg := match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
-        snd_saved := ctx.expected_type;
-        ctx.expected_type = Option(ExpectedTypeCtx).None;
+        snd_saved := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
         snd_ty_holder := ArrayList(TypeValue).new();
         _try_eval_operand_type(&snd_arg, env, ctx, &mut snd_ty_holder);
         ctx.expected_type = snd_saved;
@@ -9015,7 +9012,7 @@ _evaluate_function_call_unanchored :: (
       // type supplies it). Hint with the receiver type so the call's
       // synthesize step binds `Self`/`Output` before validation (numeric
       // arithmetic traits all set `Output = Self`).
-      saved_op_et := ctx.expected_type;
+      saved_op_et := ctx.expected_type.clone();
       if(op_ret_has_some && ctx.expected_type.is_none(), {
         ctx.expected_type = Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : Rc.clone(receiver_ty), env : env));
       });
@@ -9281,7 +9278,7 @@ _evaluate_function_call_unanchored :: (
   // declared return against the OUTER expected, e.g.
   // unify(ArrayList(u8), u8).
   callee_is_dot := ast_expr_is_fn_call_of(&func_expr, ".", Option(usize).None);
-  callee_saved_expected := ctx.expected_type;
+  callee_saved_expected := ctx.expected_type.clone();
   if(!callee_is_dot, {
     ctx.expected_type = Option(ExpectedTypeCtx).None;
   });
@@ -11071,7 +11068,7 @@ Fix: wrap the call:
               fv_arg_exp_env = snapshot_env(env);
               _fv_child_frame := fv_arg_exp_env.push_frame(false);
             });
-            arg_saved_expected := ctx.expected_type;
+            arg_saved_expected := ctx.expected_type.clone();
             ctx.expected_type = match(
               vs_override,
               .Some(vs_ovr) => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : Rc.clone(vs_ovr), env : env)),
@@ -11378,7 +11375,7 @@ Fix: wrap the call:
               .Some(de) => {
                 cloned_de := clone_expr_fresh_ids(&de);
                 // Same expected-type policy as the supplied-arg loop above.
-                def_saved_expected := ctx.expected_type;
+                def_saved_expected := ctx.expected_type.clone();
                 ctx.expected_type = match(
                   slot_pointee_at(&resolved_param_types, dpi),
                   .Some(apt) => cond(
@@ -12459,7 +12456,7 @@ Fix: wrap the call:
             )
           );
         });
-        old_fn_ctx := ctx.is_evaluating_function_body_or_async_block;
+        old_fn_ctx := replace(&mut ctx.is_evaluating_function_body_or_async_block, Option(FuncOrAsyncBlockCtx).Some(fn_ctx));
         old_ret_ty := ctx.enclosing_function_return_type.clone();
         fn_ctx := FuncOrAsyncBlockCtx(
           kind : .FunctionBody,
@@ -12467,7 +12464,6 @@ Fix: wrap the call:
           func_value : callee_value,
           eval_env : snapshot_env(&fresh_env)
         );
-        ctx.is_evaluating_function_body_or_async_block = Option(FuncOrAsyncBlockCtx).Some(fn_ctx);
         ctx.enclosing_function_return_type = Option(TypeValue).Some(Rc.clone(ret_type));
         // For a static method call (`Type.method()`), bind `ctx.self_type` to
         // the receiver type so `Self` references inside the body resolve to the
@@ -12486,7 +12482,7 @@ Fix: wrap the call:
         // shorthands like `.Err(...)` / `.None` against the return enum. `begin`
         // forwards this to the last expression only; `match` forwards it to its
         // arms.
-        old_expected_fv := ctx.expected_type;
+        old_expected_fv := ctx.expected_type.clone();
         ctx.expected_type = Option(ExpectedTypeCtx).Some(
           ExpectedTypeCtx(ty : Rc.clone(ret_type), env : fresh_env)
         );

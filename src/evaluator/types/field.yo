@@ -12,6 +12,7 @@
 //! since `TypeValue.Struct` only stores field labels and types (no `TypeField[]`),
 //! to avoid a circular dependency between the types and evaluator layers.
 pragma(Pragma.AllowUnsafe);
+{ replace } :: import("std/mem");
 { String } :: import("std/string");
 import("std/fmt");
 {
@@ -270,7 +271,7 @@ evaluate_type_field :: (
   // --- Determine expected type for this field (from context) ---
   (expected_tuple_element_type : Option(TypeValue)) = Option(TypeValue).None;
   if(ctx.expected_type.is_some(), {
-    expected_type_val := match(ctx.expected_type, .Some(e) => Rc.clone(e.ty), .None => Rc.new(TypeValueNode.Unit));
+    expected_type_val := match(&ctx.expected_type, .Some(e) => Rc.clone(e.ty), .None => Rc.new(TypeValueNode.Unit));
     if(is_tuple_type(&expected_type_val) || is_struct_type(&expected_type_val) || is_module_type(&expected_type_val) || is_trait_type(&expected_type_val), {
       maybe_field_ty := match(
         expected_type_val,
@@ -299,9 +300,9 @@ evaluate_type_field :: (
   // --- Evaluate the type expression ---
   if(type_expr.is_some(), {
     te := match(type_expr, .Some(t) => t, .None => make_err_expr());
-    old_expected := ctx.expected_type;
+    old_expected := ctx.expected_type.clone();
     if(expected_tuple_element_type.is_some(), {
-      elem_env := match(ctx.expected_type, .Some(e) => snapshot_env(&e.env), .None => env);
+      elem_env := match(&ctx.expected_type, .Some(e) => snapshot_env(&e.env), .None => env);
       ctx.expected_type = Option(ExpectedTypeCtx).Some(
         ExpectedTypeCtx(
           ty : match(&expected_tuple_element_type, .Some(t) => Rc.clone(t), .None => Rc.new(TypeValueNode.Unit)),
@@ -389,9 +390,8 @@ evaluate_type_field :: (
         Option(ExpectedTypeCtx).None
       )
     );
-    old_expected := ctx.expected_type;
+    old_expected := replace(&mut ctx.expected_type, field_expected_ctx);
     old_force_ct := ctx.force_compile_time_bindings;
-    ctx.expected_type = field_expected_ctx;
     // Do not propagate forceCompileTimeBindings when evaluating type field values.
     ctx.force_compile_time_bindings = false;
     evaluated_av := evaluate_expression_raw(&av_expr, &env, ctx, exn);
@@ -481,8 +481,7 @@ evaluate_type_field :: (
         Option(ExpectedTypeCtx).None
       )
     );
-    old_expected := ctx.expected_type;
-    ctx.expected_type = field_expected_ctx;
+    old_expected := replace(&mut ctx.expected_type, field_expected_ctx);
     evaluated_dv := evaluate_expression_raw(&dv_expr, &env, ctx, exn);
     ctx.expected_type = old_expected;
     dv_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_dv));

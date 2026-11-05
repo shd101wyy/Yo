@@ -5,6 +5,7 @@
 //!   - Typed binding LHS:         (x : T) = rhs
 //!   - Property / index LHS:      x.a = rhs, arr(0) = rhs
 pragma(Pragma.AllowUnsafe);
+{ replace } :: import("std/mem");
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 {
@@ -423,7 +424,7 @@ _reject_runtime_write_of_comptime_binding :: (
   if(!v.is_compile_time_only || ctx.force_compile_time_bindings || ctx.is_analyzing_ctfe_capability || (ctx.ctfe_depth > usize(0)) || fn_ctx_returns_comptime(ctx) || in_compile_time_fn_body(ctx), {
     return(());
   });
-  sub := match(ctx.is_evaluating_function_body_or_async_block, .Some(s) => s, .None => return(()));
+  sub := match(&ctx.is_evaluating_function_body_or_async_block, .Some(s) => s, .None => return(()));
   // A function body's own parameters sit in the top frame of its `eval_env`;
   // an async or test block has none (as in `_captured_root_of_place`).
   own_floor := match(sub.kind, .FunctionBody => (sub.eval_env.frame_count() - usize(1)), _ => sub.eval_env.frame_count());
@@ -1410,9 +1411,8 @@ evaluate_assignment :: (
     throw_if_write_through_atomic_root(&lhs, &env, String.from("write to field of"), exn);
     _check_capture_borrow_write(&lhs, ast_expr_token(&lhs), &env, ctx, exn);
     // Step 1 — Evaluate LHS with is_lhs_of_assignment = true
-    saved_expected := ctx.expected_type;
+    saved_expected := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
     saved_is_lhs := ctx.is_lhs_of_assignment;
-    ctx.expected_type = Option(ExpectedTypeCtx).None;
     ctx.is_lhs_of_assignment = true;
     // The target's place is judged as a write below, not as a read.
     local_borrow_mark_receiver(&lhs);
@@ -2181,7 +2181,7 @@ Bound type: ${type_to_string(&mcb_v.ty)}`
   });
   // Evaluate the RHS.
   // Pass the variable type as expected type for coercion hints.
-  old_expected := ctx.expected_type;
+  old_expected := ctx.expected_type.clone();
   ctx.expected_type = Option(ExpectedTypeCtx).Some(
     ExpectedTypeCtx(
       ty : Rc.clone(variable.ty),

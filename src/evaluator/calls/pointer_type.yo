@@ -3,6 +3,7 @@
 //! `(*T)(val)` pointer cast: handles comptime_str → *u8 / *char
 //! and runtime pointer → pointer via `__yo_as`.
 pragma(Pragma.AllowUnsafe);
+{ replace } :: import("std/mem");
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 {
@@ -58,8 +59,7 @@ try_to_convert_to_pointer_type :: (
     return(Option(AstExpr).None);
   });
   // Evaluate the argument with no expectedType.
-  saved_expected := ctx.expected_type;
-  ctx.expected_type = .None;
+  saved_expected := replace(&mut ctx.expected_type, .None);
   evaluated_gout := ArrayList(AstExpr).new();
   evaluated_gerr := evaluate_expression_guarded(arg_expr, caller_env, ctx, &mut evaluated_gout);
   ctx.expected_type = saved_expected;

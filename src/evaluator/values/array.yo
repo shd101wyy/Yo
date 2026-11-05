@@ -83,7 +83,7 @@ evaluate_array_value :: (
   while(i < array_len, {
     arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
     // Save/restore expected_type around element evaluation.
-    old_expected := ctx.expected_type;
+    old_expected := ctx.expected_type.clone();
     ctx.expected_type = match(
       &expected_elem_type_opt,
       .Some(et) => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : Rc.clone(et), env : env_loop)),

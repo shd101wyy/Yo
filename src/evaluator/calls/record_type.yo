@@ -7,6 +7,7 @@
 //! - `isFunctionValue` / `specializedType` / `ioBuiltin` propagation omitted (codegen deferred).
 //! - Return type is `ModuleTypeCallResult` (not `Option(AstExpr)` as in stub).
 pragma(Pragma.AllowUnsafe);
+{ replace } :: import("std/mem");
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 {
@@ -171,8 +172,7 @@ try_to_implement_module_with_arguments_by_module_type :: (
       if(field_label == label_tok, {
         found_arg = true;
         // Evaluate the value sub-expression with expected type = field_type.
-        saved_expected := ctx.expected_type;
-        ctx.expected_type = .Some(ExpectedTypeCtx(ty : Rc.clone(field_type), env : caller_env));
+        saved_expected := replace(&mut ctx.expected_type, .Some(ExpectedTypeCtx(ty : Rc.clone(field_type), env : caller_env)));
         evaluated_arg_gout := ArrayList(AstExpr).new();
         evaluated_arg_gerr := evaluate_expression_guarded(&value_sub, &caller_env, ctx, &mut evaluated_arg_gout);
         ctx.expected_type = saved_expected;

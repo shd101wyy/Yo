@@ -8,6 +8,7 @@
 //!   evaluate_comptime_string_to_expr, evaluate_type_join_fields,
 //!   evaluate_type_map_variants.
 pragma(Pragma.AllowUnsafe);
+{ replace } :: import("std/mem");
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, ast_expr_token, ast_expr_id, make_err_expr, alloc_global_expr_id } :: import("../../expr.yo");
@@ -219,9 +220,8 @@ evaluate_yo_are_types_compatible :: (
     }
   );
   // Evaluate expected type (clear expected_type and self_type for arg eval).
-  saved_expected := ctx.expected_type;
+  saved_expected := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
   saved_self := ctx.self_type.clone();
-  ctx.expected_type = Option(ExpectedTypeCtx).None;
   ctx.self_type = Option(TypeValue).None;
   eval_0_gout := ArrayList(AstExpr).new();
   eval_0_gerr := evaluate_expression_guarded(&arg0, env, ctx, &mut eval_0_gout);
@@ -335,9 +335,8 @@ evaluate_yo_are_types_equal :: (
       return(expr);
     }
   );
-  saved_expected := ctx.expected_type;
+  saved_expected := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
   saved_self := ctx.self_type.clone();
-  ctx.expected_type = Option(ExpectedTypeCtx).None;
   ctx.self_type = Option(TypeValue).None;
   eval_0_gout := ArrayList(AstExpr).new();
   eval_0_gerr := evaluate_expression_guarded(&arg0, env, ctx, &mut eval_0_gout);
@@ -1791,9 +1790,8 @@ evaluate_type_join_fields :: (
     call_code := (mapper_name.clone() + String.from("(") + fi_name + String.from(")"));
     call_ast := generate_expr_from_code(call_code.clone(), exn);
     old_force := ctx.force_compile_time_bindings;
-    old_expected := ctx.expected_type;
+    old_expected := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
     ctx.force_compile_time_bindings = true;
-    ctx.expected_type = Option(ExpectedTypeCtx).None;
     call_result_gout := ArrayList(AstExpr).new();
     call_result_gerr := evaluate_expression_guarded(&call_ast, &local_env, ctx, &mut call_result_gout);
     ctx.force_compile_time_bindings = old_force;
@@ -2031,9 +2029,8 @@ evaluate_type_map_variants :: (
     call_code := (mapper_name.clone() + String.from("(") + vi_name + String.from(")"));
     call_ast := generate_expr_from_code(call_code.clone(), exn);
     old_force := ctx.force_compile_time_bindings;
-    old_expected := ctx.expected_type;
+    old_expected := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
     ctx.force_compile_time_bindings = true;
-    ctx.expected_type = Option(ExpectedTypeCtx).None;
     call_result_gout := ArrayList(AstExpr).new();
     call_result_gerr := evaluate_expression_guarded(&call_ast, &local_env, ctx, &mut call_result_gout);
     ctx.force_compile_time_bindings = old_force;

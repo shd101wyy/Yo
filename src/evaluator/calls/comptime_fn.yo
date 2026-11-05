@@ -1166,8 +1166,8 @@ evaluate_comptime_fn_call :: (
   );
   // Set up the context modifications for function body evaluation.
   // Save old values so we can restore after the call.
-  old_fn_ctx := ctx.is_evaluating_function_body_or_async_block;
-  old_loop_ctx := ctx.is_evaluating_loop_body;
+  old_fn_ctx := ctx.is_evaluating_function_body_or_async_block.clone();
+  old_loop_ctx := ctx.is_evaluating_loop_body.clone();
   old_executing := ctx.is_executing;
   old_force_ct := ctx.force_compile_time_bindings;
   // LIVE execution (a panic it reaches is a compile error): every argument

@@ -15,6 +15,7 @@
 //! deliberately-gated rejections):
 //!   - await analysis at this layer (the io.async path runs its own)
 pragma(Pragma.AllowUnsafe);
+{ replace } :: import("std/mem");
 { String } :: import("std/string");
 { eprintln } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
@@ -995,8 +996,7 @@ _evaluate_capture_list :: (
       if(cap_root_is_reference && !deref_rule_recording() && (fields.len() > usize(0)) && (fields(usize(0)) == "*"), {
         _dropped_star := fields.remove(usize(0));
       });
-      saved_bexp := ctx.expected_type;
-      ctx.expected_type = Option(ExpectedTypeCtx).None;
+      saved_bexp := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
       deref_exempt_mark(&place_e);
       ev_place := evaluate_expression_raw(&place_e, env, ctx, exn);
       deref_exempt_clear();
@@ -1055,8 +1055,7 @@ _evaluate_capture_list :: (
     }, {
       // By value: the initializer is stored in the field, the move point of
       // a record field.
-      saved_vexp := ctx.expected_type;
-      ctx.expected_type = Option(ExpectedTypeCtx).None;
+      saved_vexp := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
       // A shorthand `{ r }` of a reference binding copies the referent,
       // spelled `{ r : r.* }`: the `.*` is E0926's, the label is recorded
       // here (decision 43 step 2 N1e-1).
@@ -1111,8 +1110,7 @@ _evaluate_capture_list :: (
           .None => false
         );
         if(!recorded_dup && ast_expr_is_atom(&init_e), {
-          saved_fdexp := ctx.expected_type;
-          ctx.expected_type = Option(ExpectedTypeCtx).None;
+          saved_fdexp := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
           fd_dup := generate_expr_from_code(`___dup(${ast_expr_token(&init_e).value.*.clone()})`, exn);
           field_init = evaluate_expression_raw(&fd_dup, env, ctx, exn);
           ctx.expected_type = saved_fdexp;

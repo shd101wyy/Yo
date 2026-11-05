@@ -1757,7 +1757,7 @@ check_if_function_parameter_matches_argument :: (
   // SomeType parameter — coercion can make synthesis unable to resolve the generic
   // `T` from `Future(T)`. There is no `ioBuiltin` marker on the type, so
   // the caller detects the io-builtin structurally.
-  saved_exp := ctx.expected_type;
+  saved_exp := ctx.expected_type.clone();
   if(skip_expected_type, {
     ctx.expected_type = Option(ExpectedTypeCtx).None;
   }, {
@@ -3918,7 +3918,7 @@ create_specialized_function_inline :: (
               .None => ()
             );
           });
-          prev_spec := ctx.currently_specializing_function;
+          prev_spec := ctx.currently_specializing_function.clone();
           // Push onto the FULL specializing stack BEFORE moving the originals into
           // the single slot. The stack catches MUTUAL recursion (f→g→f) that the
           // single slot — overwritten by the inner sibling g — cannot; without it the
@@ -4008,9 +4008,9 @@ create_specialized_function_inline :: (
           //   * set expected_type to the specialized return type,
           //   * give it a fresh function_return_impl_concrete_type array.
           // All saved and restored around the body eval.
-          prev_fb := ctx.is_evaluating_function_body_or_async_block;
-          prev_loop := ctx.is_evaluating_loop_body;
-          prev_expected := ctx.expected_type;
+          prev_fb := ctx.is_evaluating_function_body_or_async_block.clone();
+          prev_loop := ctx.is_evaluating_loop_body.clone();
+          prev_expected := ctx.expected_type.clone();
           ctx.is_evaluating_function_body_or_async_block = Option(FuncOrAsyncBlockCtx).Some(
             FuncOrAsyncBlockCtx(
               kind : FuncOrAsyncBlockKind.FunctionBody,
@@ -5844,7 +5844,7 @@ create_specialization_at_call :: (
   // The mint restores the in-progress specialization on success only; a
   // body that throws leaves it set, and a probe that catches the error goes
   // on judging its own code as that specialization's.
-  prev_spec := ctx.currently_specializing_function;
+  prev_spec := ctx.currently_specializing_function.clone();
   prev_stack_len := match(&ctx.currently_specializing_function_stack, .Some(st) => st.len(), .None => usize(0));
   // The body is evaluated for real, even when an overload trial asked for
   // the specialization: the specialization outlives the trial and is the one
@@ -6083,11 +6083,9 @@ evaluate_ctl_function_body_inline :: (
     // Snapshot: freeze the entry frame count (see the spec-path ctx above).
     eval_env : snapshot_env(&specialized_env)
   );
-  prev_expected_type := ctx.expected_type;
-  prev_is_eval_fb := ctx.is_evaluating_function_body_or_async_block;
+  prev_expected_type := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
+  prev_is_eval_fb := replace(&mut ctx.is_evaluating_function_body_or_async_block, Option(FuncOrAsyncBlockCtx).Some(handler_fb_ctx));
   prev_enclosing_ret := ctx.enclosing_function_return_type.clone();
-  ctx.expected_type = Option(ExpectedTypeCtx).None;
-  ctx.is_evaluating_function_body_or_async_block = Option(FuncOrAsyncBlockCtx).Some(handler_fb_ctx);
   ctx.enclosing_function_return_type = Option(TypeValue).Some(enclosing_return_ty);
   mut(prev_impl_concrete) := replace(
     &mut ctx.function_return_impl_concrete_type,
@@ -8719,8 +8717,7 @@ try_to_call_function_with_arguments :: (
         (vai : usize) = n_params;
         while(vai < n_args, {
           varg := match(adjusted_args.get(vai), .Some(a) => a, .None => make_err_expr());
-          v_saved_expected := ctx.expected_type;
-          ctx.expected_type = Option(ExpectedTypeCtx).None;
+          v_saved_expected := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
           v_evaled := evaluate_expression_raw(&varg, &caller_env_m, ctx, exn);
           ctx.expected_type = v_saved_expected;
           match(

@@ -2,6 +2,7 @@
 //!
 //! Exported symbols: evaluate_property_access
 pragma(Pragma.AllowUnsafe);
+{ replace } :: import("std/mem");
 { String } :: import("std/string");
 { eprintln } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
@@ -735,8 +736,7 @@ _evaluate_property_access_node :: (
   });
   // Evaluate the object without passing the expected type (it applies to the
   // property result, not the object itself).
-  old_expected_type := ctx.expected_type;
-  ctx.expected_type = Option(ExpectedTypeCtx).None;
+  old_expected_type := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
   // RAW — see the comment at the `is_kind` early-return above.
   local_borrow_mark_receiver(&object_expr);
   deref_exempt_mark(&object_expr);

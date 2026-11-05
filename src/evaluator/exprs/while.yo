@@ -503,7 +503,7 @@ evaluate_while :: (
   });
   // Evaluate the body with the loop-body context set so that break/continue
   // inside the body know they are inside a while loop.
-  old_loop_body := ctx.is_evaluating_loop_body;
+  old_loop_body := ctx.is_evaluating_loop_body.clone();
   loop_ctx := LoopBodyCtx(
     kind : LoopKind.While,
     env : env,
@@ -777,7 +777,7 @@ evaluate_while :: (
       unroll_limit := max_comptime_loop_iterations();
       while(cond_still_true && (unroll_iter < unroll_limit) && !unroll_abort, {
         cloned_body := clone_expr_fresh_ids(&body_expr);
-        old_loop_body_u := ctx.is_evaluating_loop_body;
+        old_loop_body_u := ctx.is_evaluating_loop_body.clone();
         ctx.is_evaluating_loop_body = Option(LoopBodyCtx).Some(
           LoopBodyCtx(
             kind : LoopKind.While,

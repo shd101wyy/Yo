@@ -2,6 +2,7 @@
 //!
 //! Exported symbols: evaluate_cond
 pragma(Pragma.AllowUnsafe);
+{ replace } :: import("std/mem");
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 {
@@ -191,8 +192,7 @@ evaluate_cond :: (
     case_body_expr := pstmt.case_body_expr;
     case_env := pstmt.case_env;
     // Evaluate condition with expected type = bool.
-    old_expected := ctx.expected_type;
-    ctx.expected_type = Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : t_bool(), env : case_env));
+    old_expected := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : t_bool(), env : case_env)));
     evaluated_cond_expr := cond(
       // Raw, like the begin arm below: an atom condition's own error (an
       // unbound name) is the diagnostic, not "Failed to evaluate condition".
@@ -376,8 +376,8 @@ evaluate_cond :: (
         // (issues/fixed/2026-10-23-a-compile-time-collapsed-cond-arm-return-releases-the-returned-value.md).
         consume_case_body_temp_var(&evaluated_body, &expr_info_adopt_env(&body_info), ctx);
         result_ty := cond(
-          match(ctx.expected_type, .Some(et) => (!type_contains_some_type_deep(&et.ty) && !type_mentions_impl_fn_or_future(&et.ty)), .None => false) =>
-            match(ctx.expected_type, .Some(et) => Rc.clone(et.ty), .None => Rc.clone(body_info.ty)),
+          match(&ctx.expected_type, .Some(et) => (!type_contains_some_type_deep(&et.ty) && !type_mentions_impl_fn_or_future(&et.ty)), .None => false) =>
+            match(&ctx.expected_type, .Some(et) => Rc.clone(et.ty), .None => Rc.clone(body_info.ty)),
           true => Rc.clone(body_info.ty)
         );
         out_info := new_expr_info(&body_info.env, &result_ty);
@@ -407,8 +407,8 @@ evaluate_cond :: (
         value_type = Option(ValueTypeState).Some(ValueTypeState(ty : Rc.clone(body_info.ty), env : body_info.env));
         env_adopt(&env, &body_info.env);
         result_ty := cond(
-          match(ctx.expected_type, .Some(et) => (!type_contains_some_type_deep(&et.ty) && !type_mentions_impl_fn_or_future(&et.ty)), .None => false) =>
-            match(ctx.expected_type, .Some(et) => Rc.clone(et.ty), .None => Rc.clone(body_info.ty)),
+          match(&ctx.expected_type, .Some(et) => (!type_contains_some_type_deep(&et.ty) && !type_mentions_impl_fn_or_future(&et.ty)), .None => false) =>
+            match(&ctx.expected_type, .Some(et) => Rc.clone(et.ty), .None => Rc.clone(body_info.ty)),
           true => Rc.clone(body_info.ty)
         );
         out_info := new_expr_info(&env, &result_ty);
@@ -727,8 +727,8 @@ evaluate_cond :: (
           true => Option(EvalValue).Some(create_unknown_val(&vts.ty))
         );
         result_ty := cond(
-          match(ctx.expected_type, .Some(et) => (!type_contains_some_type_deep(&et.ty) && !type_mentions_impl_fn_or_future(&et.ty)), .None => false) =>
-            match(ctx.expected_type, .Some(et) => Rc.clone(et.ty), .None => Rc.clone(vts.ty)),
+          match(&ctx.expected_type, .Some(et) => (!type_contains_some_type_deep(&et.ty) && !type_mentions_impl_fn_or_future(&et.ty)), .None => false) =>
+            match(&ctx.expected_type, .Some(et) => Rc.clone(et.ty), .None => Rc.clone(vts.ty)),
           true => Rc.clone(vts.ty)
         );
         (nb_ai : usize) = usize(0);

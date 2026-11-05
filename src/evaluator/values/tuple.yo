@@ -147,7 +147,7 @@ evaluate_tuple_element_value :: (
     .None => ()
   );
   // Evaluate the rhs expression with `expected_type` updated for this field.
-  saved_expected := ctx.expected_type;
+  saved_expected := ctx.expected_type.clone();
   ctx.expected_type = match(
     &expected_field_type_opt,
     .Some(t) => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : Rc.clone(t), env : env)),

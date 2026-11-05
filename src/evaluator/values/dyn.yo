@@ -6,6 +6,7 @@
 //!   - Concrete `.trait` field access is NOT available; only SomeT, DynT,
 //!     and expected-DynType-from-context are supported.
 pragma(Pragma.AllowUnsafe);
+{ replace } :: import("std/mem");
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, ast_expr_token, ast_expr_id, alloc_global_expr_id, ast_expr_is_fn_call_of, BF_DOT, BK_BORROW_MUT, ast_rewritten_node, note_rewritten_node } :: import("../../expr.yo");
@@ -967,8 +968,7 @@ _generic_impl_method_for_dyn :: (
         // The synthetic call has no expected result: the surrounding
         // context's (the `Dyn` a `dyn(...)` argument is checked against)
         // must not reach it.
-        saved_expected := ctx.expected_type;
-        ctx.expected_type = Option(ExpectedTypeCtx).None;
+        saved_expected := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
         res := try_to_call_function_with_arguments(Option(EvalValue).Some(fv), &pc.method_type, &call_expr, &callee_atom, &call_args, caller_env, ctx, true, false, true, exn);
         ctx.expected_type = saved_expected;
         caller_env.pop_frame();
@@ -1020,8 +1020,7 @@ _dyn_clone_payload_identity :: (fn(payload_ty : &TypeValue, dyn_type : &TypeValu
 _synthesize_dyn_clone_fn :: (fn(payload_in : &TypeValue, dyn_type : &TypeValue, caller_env : &Environment, ctx : &mut EvalContext, exn : Exception) -> Option(EvalValue))({
   payload_ty := _dyn_clone_payload_identity(payload_in, dyn_type, caller_env.frames.len());
   fn_expr := generate_expr_from_code(`(fn(generic(T : Type), v : &T, where(T <: Clone)) -> T)(v.clone())`, exn);
-  saved_expected := ctx.expected_type;
-  ctx.expected_type = Option(ExpectedTypeCtx).None;
+  saved_expected := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
   evaluated := evaluate_expression_raw(&fn_expr, caller_env, ctx, exn);
   ctx.expected_type = saved_expected;
   generic_fv := match(
@@ -1456,8 +1455,7 @@ evaluate_dyn_value :: (
   // unrelated "does not implement Error"
   // (issues/fixed/extern-declarations-are-not-forward-referenceable.md, face 2).
   if(ctx.is_validating_function_definition || !ctx.is_executing, {
-    saved_et_ne := ctx.expected_type;
-    ctx.expected_type = inner_expected;
+    saved_et_ne := replace(&mut ctx.expected_type, inner_expected);
     _mark_preset_receiver(&dyn_cell_preset_receiver, true);
     inner_ne := evaluate_expression_raw(&value_arg, env, ctx, exn);
     _mark_preset_receiver(&dyn_cell_preset_receiver, false);
@@ -1581,8 +1579,7 @@ evaluate_dyn_value :: (
         _create_box_type_via(if(ne_send, String.from("Arc"), String.from(ne_cell.type_name)), &ne_box_inner_ty, env, ctx, exn),
         .Some(box_ty) => {
           (ne_box_call, ne_box_recv) := _synthesized_cell_call(&box_ty, if(ne_send, String.from("Arc"), String.from(ne_cell.type_name)), &ne_box_inner_ty, inner_ne, &expr_tok, env, ctx);
-          saved_bet := ctx.expected_type;
-          ctx.expected_type = Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : box_ty, env : env));
+          saved_bet := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : box_ty, env : env)));
           // The inner value is evaluated once: as the box call's argument it
           // is pre-evaluated, so a closure's capture moves do not run again
           // (issues/fixed/dyn-of-a-closure-capturing-a-move-only-value-is-a-bogus-e0901.md).
@@ -1631,8 +1628,7 @@ evaluate_dyn_value :: (
   });
   // --- Executing path ---
   // Evaluate the inner expression (with the inner-expected computed above).
-  saved_et_ex := ctx.expected_type;
-  ctx.expected_type = inner_expected;
+  saved_et_ex := replace(&mut ctx.expected_type, inner_expected);
   _mark_preset_receiver(&dyn_cell_preset_receiver, true);
   eval_inner := evaluate_expression_raw(&value_arg, env, ctx, exn);
   _mark_preset_receiver(&dyn_cell_preset_receiver, false);

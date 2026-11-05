@@ -721,8 +721,7 @@ _try_comptime_array_index :: (
   // at an index site is the ELEMENT type, which must not leak into the index
   // ARGUMENT's evaluation. `evaluate_expression` is the no-exn
   // wrapper, so no throw can skip the restore.
-  cai_saved_expected := ctx.expected_type;
-  ctx.expected_type = Option(ExpectedTypeCtx).None;
+  cai_saved_expected := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
   evaluated_gout := ArrayList(AstExpr).new();
   evaluated_gerr := evaluate_expression_guarded(arg_expr, env, ctx, &mut evaluated_gout);
   ctx.expected_type = cai_saved_expected;
@@ -945,8 +944,7 @@ _try_comptime_string_index :: (
   ) -> IndexCallResult
 )({
   // expected_type cleared around the arg eval — see _try_comptime_array_index.
-  csi_saved_expected := ctx.expected_type;
-  ctx.expected_type = Option(ExpectedTypeCtx).None;
+  csi_saved_expected := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
   evaluated_gout := ArrayList(AstExpr).new();
   evaluated_gerr := evaluate_expression_guarded(arg_expr, env, ctx, &mut evaluated_gout);
   ctx.expected_type = csi_saved_expected;
@@ -1113,18 +1111,18 @@ _specialize_index_method :: (
   // of the function-body context the specialization installed, and a later
   // `return(...)` in the CALLER's body was then checked against the index
   // method's result type (issues/fixed/a-swallowed-index-specialization-leaks-its-function-context.md).
-  saved_fb := ctx.is_evaluating_function_body_or_async_block;
+  saved_fb := ctx.is_evaluating_function_body_or_async_block.clone();
   // B9: the capture map is a value now, so the save is a snapshot (the same
   // `CapturedVarInfo` handles; the type has no `Clone`): what the trial
   // records is dropped with it. The trial re-evaluates the receiver
   // and index the dispatch already evaluated, so its caller-side capture
   // records repeat ones the dispatch made.
   saved_caps := _clone_captured_variables(&ctx.captured_variables);
-  saved_loop := ctx.is_evaluating_loop_body;
+  saved_loop := ctx.is_evaluating_loop_body.clone();
   saved_fri := ctx.function_return_impl_concrete_type.clone();
   saved_self := ctx.self_type.clone();
   saved_enclosing := ctx.enclosing_function_return_type.clone();
-  saved_spec := ctx.currently_specializing_function;
+  saved_spec := ctx.currently_specializing_function.clone();
   saved_spec_len := match(&ctx.currently_specializing_function_stack, .Some(st) => st.len(), .None => usize(0));
   // The trial re-evaluates the receiver and the index argument inside a
   // whole call, whose argument rules move a move-only named local again.
@@ -1353,8 +1351,7 @@ _try_comptime_custom_type_index :: (
 )({
   // Evaluate the argument; expected_type cleared
   // around the arg eval — see _try_comptime_array_index.
-  cci_saved_expected := ctx.expected_type;
-  ctx.expected_type = Option(ExpectedTypeCtx).None;
+  cci_saved_expected := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
   evaluated_arg := evaluate_expression(arg_expr, caller_env, ctx);
   ctx.expected_type = cci_saved_expected;
   arg_info := match(
@@ -1710,8 +1707,7 @@ try_to_call_with_index_trait :: (
   // into the ARGUMENT's operator call made the `-` overload synthesis throw
   // "Cannot unify incompatible types: usize and u8" (swallowed by the no-exn
   // wrapper — the std/string/string.yo `trim` noise-baseline line).
-  rt_arg_saved_expected := ctx.expected_type;
-  ctx.expected_type = Option(ExpectedTypeCtx).None;
+  rt_arg_saved_expected := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
   evaluated_arg_gout := ArrayList(AstExpr).new();
   evaluated_arg_gerr := evaluate_expression_guarded(&arg_expr, caller_env, ctx, &mut evaluated_arg_gout);
   ctx.expected_type = rt_arg_saved_expected;
@@ -1822,8 +1818,7 @@ try_to_call_with_index_trait :: (
   // ambient expected type is the dereferenced Output) and restored here so a
   // swallowed throw inside the helper cannot leak `None` into later evaluation.
   spec_out := ArrayList(EvalValue).new();
-  saved_idx_exp := ctx.expected_type;
-  ctx.expected_type = Option(ExpectedTypeCtx).None;
+  saved_idx_exp := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
   match(
     method.method_value,
     .Some(_) => _specialize_index_method(&method.method_value, &method.method_type, expr, caller_env, ctx, &arg_expr, &mut spec_out),
@@ -2038,8 +2033,7 @@ _promote_index_call :: (fn(call : &AstExpr, env : &Environment, ctx : &mut EvalC
     .None => ()
   );
   spec_out := ArrayList(EvalValue).new();
-  saved_exp := ctx.expected_type;
-  ctx.expected_type = Option(ExpectedTypeCtx).None;
+  saved_exp := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
   match(
     mut_m.method_value,
     .Some(_) => _specialize_index_method(&mut_m.method_value, &mut_m.method_type, call, env, ctx, &idx, &mut spec_out),

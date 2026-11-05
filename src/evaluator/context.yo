@@ -75,17 +75,16 @@ is_unlabeled_ensures_atom :: (fn(id : ExprId) -> bool)(
 // LoadModuleFn result
 // ---------------------------------------------------------------------------
 /// Return value of a `load_module` callback.
-LoadModuleResult :: ref(
-  struct(
-    module_value : EvalValue,
-    /// The source-namespace STRUCT TYPE with real member field types.
-    /// `type_of_eval_value(module_value)` cannot reconstruct these (FuncVal
-    /// values carry no type — every imported fn member arrived unit-typed,
-    /// so `mod.f(x)` calls typed unit). `.Unit` when unknown (cycle path).
-    module_type : TypeValue,
-    module_error : Option(String)
-  )
+LoadModuleResult :: struct(
+  module_value : EvalValue,
+  /// The source-namespace STRUCT TYPE with real member field types.
+  /// `type_of_eval_value(module_value)` cannot reconstruct these (FuncVal
+  /// values carry no type — every imported fn member arrived unit-typed,
+  /// so `mod.f(x)` calls typed unit). `.Unit` when unknown (cycle path).
+  module_type : TypeValue,
+  module_error : Option(String)
 );
+derive(LoadModuleResult, Clone);
 // ---------------------------------------------------------------------------
 // Sub-context for function / async-block / test-block evaluation
 // ---------------------------------------------------------------------------
@@ -100,27 +99,26 @@ FuncOrAsyncBlockKind :: enum(
 );
 derive(FuncOrAsyncBlockKind, Copy, Clone);
 /// Evaluation sub-context for a function body or async / test block.
-FuncOrAsyncBlockCtx :: ref(
-  struct(
-    kind : FuncOrAsyncBlockKind,
-    /// The type of the function being evaluated (meaningless for async/test blocks).
-    func_type : Option(TypeValue),
-    /// The value of the function being evaluated (meaningless for async/test blocks).
-    func_value : Option(EvalValue),
-    /// The environment at the time the function / async-block body is being evaluated.
-    /// Used to determine the frame level for closure variable capture.
-    eval_env : Environment,
-    /// True when this body is a LIVE compile-time execution: a comptime
-    /// function called with every argument known, not reached through an
-    /// untaken arm of an enclosing comptime body. A `__yo_panic` it reaches
-    /// is a compile error (`evaluate_panic`). Set only by
-    /// `calls/comptime_fn.yo`.
-    (ctfe_live : bool) ?= false,
-    /// `EvalContext.ctfe_untaken_arm_depth` at this body's entry: a panic at
-    /// a deeper count sits in an arm the execution does not take.
-    (ctfe_arm_depth : usize) ?= usize(0)
-  )
+FuncOrAsyncBlockCtx :: struct(
+  kind : FuncOrAsyncBlockKind,
+  /// The type of the function being evaluated (meaningless for async/test blocks).
+  func_type : Option(TypeValue),
+  /// The value of the function being evaluated (meaningless for async/test blocks).
+  func_value : Option(EvalValue),
+  /// The environment at the time the function / async-block body is being evaluated.
+  /// Used to determine the frame level for closure variable capture.
+  eval_env : Environment,
+  /// True when this body is a LIVE compile-time execution: a comptime
+  /// function called with every argument known, not reached through an
+  /// untaken arm of an enclosing comptime body. A `__yo_panic` it reaches
+  /// is a compile error (`evaluate_panic`). Set only by
+  /// `calls/comptime_fn.yo`.
+  (ctfe_live : bool) ?= false,
+  /// `EvalContext.ctfe_untaken_arm_depth` at this body's entry: a panic at
+  /// a deeper count sits in an arm the execution does not take.
+  (ctfe_arm_depth : usize) ?= usize(0)
 );
+derive(FuncOrAsyncBlockCtx, Clone);
 // ---------------------------------------------------------------------------
 // Loop body context
 // ---------------------------------------------------------------------------
@@ -137,33 +135,31 @@ LoopFlowSnapshot :: struct(
   consumed : ArrayList(Option(Token))
 );
 derive(LoopFlowSnapshot, Clone);
-LoopBodyCtx :: ref(
-  struct(
-    kind : LoopKind,
-    env : Environment,
-    // Frame count SNAPSHOT taken at loop entry. `env` is the live shared
-    // Environment whose frames list keeps growing during the body eval, so
-    // frame-level comparisons must use this number, not env's current
-    // length — a live read of the current length makes the while-loop init
-    // gate false-fire on body-locals.
-    entry_frame_count : usize,
-    /// The flow log's length when the body began: the body's events follow it.
-    log_start : usize,
-    /// The move state at each `break` (a way out of the loop) and each
-    /// `continue` (a way back to its condition).
-    break_states : ArrayList(LoopFlowSnapshot),
-    continue_states : ArrayList(LoopFlowSnapshot)
-  )
+LoopBodyCtx :: struct(
+  kind : LoopKind,
+  env : Environment,
+  // Frame count SNAPSHOT taken at loop entry. `env` is the live shared
+  // Environment whose frames list keeps growing during the body eval, so
+  // frame-level comparisons must use this number, not env's current
+  // length — a live read of the current length makes the while-loop init
+  // gate false-fire on body-locals.
+  entry_frame_count : usize,
+  /// The flow log's length when the body began: the body's events follow it.
+  log_start : usize,
+  /// The move state at each `break` (a way out of the loop) and each
+  /// `continue` (a way back to its condition).
+  break_states : ArrayList(LoopFlowSnapshot),
+  continue_states : ArrayList(LoopFlowSnapshot)
 );
+derive(LoopBodyCtx, Clone);
 // ---------------------------------------------------------------------------
 // Expected type hint
 // ---------------------------------------------------------------------------
-ExpectedTypeCtx :: ref(
-  struct(
-    ty : TypeValue,
-    env : Environment
-  )
+ExpectedTypeCtx :: struct(
+  ty : TypeValue,
+  env : Environment
 );
+derive(ExpectedTypeCtx, Clone);
 // ---------------------------------------------------------------------------
 // Captured variable info
 // ---------------------------------------------------------------------------
@@ -172,68 +168,63 @@ CaptureUsage :: enum(Read, Write, Own);
 derive(CaptureUsage, Copy, Clone);
 /// Information about a variable captured from an outer scope inside a closure
 /// or async block.
-CapturedVarInfo :: ref(
-  struct(
-    frame_level : usize,
-    usage : CaptureUsage,
-    token : Token
-  )
+CapturedVarInfo :: struct(
+  frame_level : usize,
+  usage : CaptureUsage,
+  token : Token
 );
+derive(CapturedVarInfo, Clone);
 // ---------------------------------------------------------------------------
 // Specializing function state
 // ---------------------------------------------------------------------------
 /// Tracks a single in-progress generic function specialization.
-SpecializingFunctionInfo :: ref(
-  struct(
-    original_func_id : String,
-    specialized_func_id : String,
-    /// The return type of the specialization in progress.
-    specialized_return_type : TypeValue,
-    /// The original (pre-specialization) function value.
-    original_func_value : EvalValue,
-    /// Signature of the impl generic bindings injected as `TypeVal` captures on
-    /// the method value (`_inject_forall_captures`). Generic-impl method
-    /// instantiations share ONE func_id (the substitutions ride as injected
-    /// captures), so this field carries those bindings and lets the
-    /// recursion guard distinguish `Eq(ArrayList(i32)).==` in progress from
-    /// a nested call to `Eq(i32).==` (same func_id, different
-    /// instantiation). Empty for plain generic functions — their guard stays
-    /// bare-func_id, including for polymorphic recursion.
-    impl_bindings_sig : String,
-    /// The call bound every type variable concretely (its forall bindings and
-    /// runtime parameter types mention none). The body is then judged as
-    /// concrete code: an operator on a `unit` operand with no impl is an
-    /// error there, not the placeholder a generic trial's degraded operand
-    /// leaves.
-    (is_concrete : bool) ?= false,
-    /// The body is generic: the function has `generic`/`comptime` parameters,
-    /// is a generic impl's method, or is a closure specialized inside such a
-    /// body. `yo fix --migrate rc-clone` lists a copy made there, which one
-    /// run sees at one instantiation of many.
-    (is_generic_body : bool) ?= false
-  )
+SpecializingFunctionInfo :: struct(
+  original_func_id : String,
+  specialized_func_id : String,
+  /// The return type of the specialization in progress.
+  specialized_return_type : TypeValue,
+  /// The original (pre-specialization) function value.
+  original_func_value : EvalValue,
+  /// Signature of the impl generic bindings injected as `TypeVal` captures on
+  /// the method value (`_inject_forall_captures`). Generic-impl method
+  /// instantiations share ONE func_id (the substitutions ride as injected
+  /// captures), so this field carries those bindings and lets the
+  /// recursion guard distinguish `Eq(ArrayList(i32)).==` in progress from
+  /// a nested call to `Eq(i32).==` (same func_id, different
+  /// instantiation). Empty for plain generic functions — their guard stays
+  /// bare-func_id, including for polymorphic recursion.
+  impl_bindings_sig : String,
+  /// The call bound every type variable concretely (its forall bindings and
+  /// runtime parameter types mention none). The body is then judged as
+  /// concrete code: an operator on a `unit` operand with no impl is an
+  /// error there, not the placeholder a generic trial's degraded operand
+  /// leaves.
+  (is_concrete : bool) ?= false,
+  /// The body is generic: the function has `generic`/`comptime` parameters,
+  /// is a generic impl's method, or is a closure specialized inside such a
+  /// body. `yo fix --migrate rc-clone` lists a copy made there, which one
+  /// run sees at one instantiation of many.
+  (is_generic_body : bool) ?= false
 );
-impl(SpecializingFunctionInfo, Clone(clone : (fn(self : &Self) -> Self)(self)));
+derive(SpecializingFunctionInfo, Clone);
 /// Point the `--migrate mut-bindings` declaration census at the
 /// specialization `ctx` is in: it records nothing inside a generic body's
 /// specialization (`set_mut_decl_census_untrusted`, env.yo). Called wherever
 /// `ctx.currently_specializing_function` is entered or restored, so an
 /// unwound specialization cannot leave it set.
 sync_mut_decl_census_untrusted :: (fn(ctx : &EvalContext) -> unit)({
-  set_mut_decl_census_untrusted(match(ctx.currently_specializing_function, .Some(s) => s.is_generic_body, .None => false));
+  set_mut_decl_census_untrusted(match(&ctx.currently_specializing_function, .Some(s) => s.is_generic_body, .None => false));
 });
 // ---------------------------------------------------------------------------
 // Impl concrete-type return tracking
 // ---------------------------------------------------------------------------
 /// One return-site's concrete type for `Impl(...)` return-type unification.
-ImplConcreteTypeInfo :: ref(
-  struct(
-    concrete_type : TypeValue,
-    env : Environment,
-    token : Token
-  )
+ImplConcreteTypeInfo :: struct(
+  concrete_type : TypeValue,
+  env : Environment,
+  token : Token
 );
-impl(ImplConcreteTypeInfo, Clone(clone : (fn(self : &Self) -> Self)(self)));
+derive(ImplConcreteTypeInfo, Clone);
 // ---------------------------------------------------------------------------
 // CTFE cache types
 // ---------------------------------------------------------------------------
@@ -1933,13 +1924,13 @@ copy_eval_context :: (fn(ctx : &EvalContext) -> EvalContext)(
     is_validating_function_definition : ctx.is_validating_function_definition,
     ctfe_depth : ctx.ctfe_depth,
     ctfe_untaken_arm_depth : ctx.ctfe_untaken_arm_depth,
-    expected_type : ctx.expected_type,
-    is_evaluating_function_body_or_async_block : ctx.is_evaluating_function_body_or_async_block,
+    expected_type : ctx.expected_type.clone(),
+    is_evaluating_function_body_or_async_block : ctx.is_evaluating_function_body_or_async_block.clone(),
     is_inside_impl_block : ctx.is_inside_impl_block,
     captured_variables : _clone_captured_variables(&ctx.captured_variables),
     own_consumed_captures : ctx.own_consumed_captures.clone(),
     captures_owned_by_body : ctx.captures_owned_by_body,
-    is_evaluating_loop_body : ctx.is_evaluating_loop_body,
+    is_evaluating_loop_body : ctx.is_evaluating_loop_body.clone(),
     self_type : ctx.self_type.clone(),
     self_trait_type : ctx.self_trait_type.clone(),
     self_module_type : ctx.self_module_type.clone(),
@@ -1964,7 +1955,7 @@ copy_eval_context :: (fn(ctx : &EvalContext) -> EvalContext)(
     is_inside_io_async_call : ctx.is_inside_io_async_call,
     is_inside_given_handler : ctx.is_inside_given_handler,
     is_evaluating_generic_impl_specialization : ctx.is_evaluating_generic_impl_specialization,
-    currently_specializing_function : ctx.currently_specializing_function,
+    currently_specializing_function : ctx.currently_specializing_function.clone(),
     currently_specializing_function_stack : ctx.currently_specializing_function_stack.clone(),
     doc_comment_lookup : ctx.doc_comment_lookup.clone(),
     expr_info_table : ctx.expr_info_table.clone(),
@@ -3613,7 +3604,7 @@ create_function_body_evaluation_context :: (
     is_inside_io_async_call : false,
     is_inside_given_handler : ctx.is_inside_given_handler,
     is_evaluating_generic_impl_specialization : ctx.is_evaluating_generic_impl_specialization,
-    currently_specializing_function : ctx.currently_specializing_function,
+    currently_specializing_function : ctx.currently_specializing_function.clone(),
     currently_specializing_function_stack : ctx.currently_specializing_function_stack.clone(),
     doc_comment_lookup : ctx.doc_comment_lookup.clone(),
     // Shared mutable tables — same instance as parent so results are visible

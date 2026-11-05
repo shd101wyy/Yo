@@ -5,6 +5,7 @@
 //!   - `name :: rhs`              — compile-time constant declaration
 //!   - `name := handler`   — implicit parameter declaration
 //!   - `_ := rhs`                 — discard (renamed to a temp var)
+{ replace } :: import("std/mem");
 { String } :: import("std/string");
 { call_promote_index_places_for_write } :: import("../context.yo");
 { ArrayList } :: import("std/collections/array_list");
@@ -355,8 +356,7 @@ _evaluate_inout_local_binding :: (
   });
   // Evaluate the place as an expression (types for every hop), WITHOUT the
   // dup-on-store a value binding performs — nothing is copied.
-  old_expected_type := ctx.expected_type;
-  ctx.expected_type = Option(ExpectedTypeCtx).None;
+  old_expected_type := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
   deref_exempt_mark(rhs);
   evaluated_rhs := evaluate_expression_raw(rhs, env, ctx, exn);
   deref_exempt_clear();
@@ -434,8 +434,7 @@ _evaluate_inout_local_binding :: (
   match(
     annotation_e,
     .Some(ann) => {
-      saved_ann_exp := ctx.expected_type;
-      ctx.expected_type = Option(ExpectedTypeCtx).None;
+      saved_ann_exp := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
       ev_ann := evaluate_expression_raw(&ann, env, ctx, exn);
       ctx.expected_type = saved_ann_exp;
       ann_val := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ev_ann)), .Some(ai) => ai.value, .None => Option(EvalValue).None);
@@ -902,8 +901,7 @@ evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx
     );
     hi = (hi + usize(1));
   });
-  old_expected_type := ctx.expected_type;
-  ctx.expected_type = Option(ExpectedTypeCtx).None;
+  old_expected_type := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
   evaluated_rhs := evaluate_expression_raw(&rhs, &env, ctx, exn);
   ctx.expected_type = old_expected_type;
   rhs_info := match(
@@ -1269,7 +1267,7 @@ evaluate_initialization_assignment :: (
   });
   // Evaluate the rhs expression.
   // Save/restore context fields that are locally overridden.
-  old_expected_type := ctx.expected_type;
+  old_expected_type := ctx.expected_type.clone();
   old_is_inside_given_handler := ctx.is_inside_given_handler;
   // A bare `.Variant(…)` right-hand side — or an `io.async(…)` call whose
   // future the local returns (the call-side machinery unwraps the function's

@@ -10,6 +10,7 @@
 //! were relocated to `src/utils.yo` — that split was safe because those
 //! helpers have no env/value dependencies.
 pragma(Pragma.AllowUnsafe);
+{ replace } :: import("std/mem");
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { HashSet } :: import("std/collections/hash_set");
@@ -3081,7 +3082,7 @@ ICMigrateCtx :: struct(leftmost : Token, in_generic : bool, capture_label : Stri
 /// (`SpecializingFunctionInfo.is_generic_body`), so a copy in a closure body
 /// specialized in plain code is spelled.
 _ic_in_generic :: (fn(ctx : &EvalContext, ty : &TypeValue) -> bool)(
-  type_contains_some_type_deep(ty) || match(ctx.currently_specializing_function, .Some(s) => s.is_generic_body, .None => false)
+  type_contains_some_type_deep(ty) || match(&ctx.currently_specializing_function, .Some(s) => s.is_generic_body, .None => false)
 );
 /// How `yo fix --migrate rc-clone` spells the copy of a value of `ty`
 /// (`ExplicitCopySite.spelling`): `Rc`/`Arc` for a handle, `clone` for a
@@ -3971,8 +3972,7 @@ set_expr_as_needs_to_call_dup :: (
         );
       });
       dup_expr := generate_expr_from_code(`${BF_DUP}(${variable_name})`, exn);
-      saved_expected := ctx.expected_type;
-      ctx.expected_type = .None;
+      saved_expected := replace(&mut ctx.expected_type, .None);
       // Evaluate in a PRIVATE copy of the recorded scope: a recorded snapshot is
       // shared between ExprInfos, and a begin/match inside `dup_expr` pops frames.
       evaluated_dup := evaluate_expression_raw(&dup_expr, expr_info_adopt_env(&ei), ctx, exn);

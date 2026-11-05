@@ -446,7 +446,7 @@ evaluate_address_call :: (
   // one would corrupt the EXPECTED TYPE captured by enclosing
   // expressions (e.g. a match arm's `et.ty` became the pointee, making
   // `.None => __yo_panic(...)` arms fail "Expected u8, Actual *(u8)").
-  old_expected := ctx.expected_type;
+  old_expected := ctx.expected_type.clone();
   match(
     ctx.expected_type,
     .Some(ectx) => {

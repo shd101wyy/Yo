@@ -4421,7 +4421,7 @@ _c3_eval_colon_pair :: (
     }),
     .None => ()
   );
-  saved2 := ctx.expected_type;
+  saved2 := ctx.expected_type.clone();
   ctx.expected_type = match(
     &expected_method_ty_resolved,
     .Some(t) => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : Rc.clone(t), env : st.env)),
@@ -4762,8 +4762,7 @@ _c2_eval_direct_field :: (
   mval_expr := match(mf_colon_args.get(usize(1)), .Some(e) => e, .None => make_err_expr());
   mname_tok := ast_expr_token(&mname_expr);
   mname := mname_tok.value.*.clone();
-  saved3 := ctx.expected_type;
-  ctx.expected_type = .None;
+  saved3 := replace(&mut ctx.expected_type, .None);
   eval_mval := evaluate_expression_raw(&mval_expr, &st.env, ctx, exn);
   ctx.expected_type = saved3;
   match(
@@ -4829,7 +4828,7 @@ _c2_eval_inner_field :: (
     .Some(t) => Option(TypeValue).Some(_substitute_self_in_method_ty(&t, &st.receiver_ty)),
     .None => Option(TypeValue).None
   );
-  saved4 := ctx.expected_type;
+  saved4 := ctx.expected_type.clone();
   ctx.expected_type = match(
     g_expected,
     .Some(t) => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : Rc.clone(t), env : st.env)),
@@ -5014,7 +5013,7 @@ force_in_flight_field :: (
       // to what an in-place evaluation of this member would see.
       prev_trial := set_in_def_time_trial(false);
       saved_where := take_active_where_trait_ids();
-      saved_exp := rec.ctx.expected_type;
+      saved_exp := rec.ctx.expected_type.clone();
       saved_wt_labels := rec.ctx.current_impl_trait_field_labels.clone();
       saved_wt_types := rec.ctx.current_impl_trait_field_types.clone();
       if(!pf.is_inner, {
@@ -5208,8 +5207,7 @@ evaluate_module_value :: (
       .FnCall(_, _, Rc(be), _, _) => be.clone(),
       .Atom(_, _) => ArrayList(AstExpr).new()
     );
-    saved_expected := ctx.expected_type;
-    ctx.expected_type = .None;
+    saved_expected := replace(&mut ctx.expected_type, .None);
     result := evaluate_anonymous_module_begin_exprs(
       &begin_exprs,
       &local_env,
@@ -5363,8 +5361,7 @@ evaluate_module_value :: (
     );
     receiver_type_expr2 := match(args.get(receiver_arg_idx), .Some(a) => a, .None => make_err_expr());
     // Evaluate receiver type with SomeTs in scope.
-    saved_expected2 := ctx.expected_type;
-    ctx.expected_type = .None;
+    saved_expected2 := replace(&mut ctx.expected_type, .None);
     eval_rcv2 := evaluate_expression_raw(&receiver_type_expr2, &forall_env, ctx, exn);
     ctx.expected_type = saved_expected2;
     (receiver_type_pattern : TypeValue) = t_unit();
@@ -5812,8 +5809,7 @@ evaluate_module_value :: (
   });
   // Evaluate the receiver type expression to update env.
   receiver_type_expr := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
-  saved_expected := ctx.expected_type;
-  ctx.expected_type = .None;
+  saved_expected := replace(&mut ctx.expected_type, .None);
   eval_receiver := evaluate_expression_raw(&receiver_type_expr, &local_env, ctx, exn);
   ctx.expected_type = saved_expected;
   // Get receiver type name for qualifying method names.

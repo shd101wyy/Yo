@@ -282,8 +282,7 @@ _bind_subject_and_eval_test :: (
     true,
     ast_expr_token(src)
   );
-  old_expected := ctx.expected_type;
-  ctx.expected_type = Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : t_bool(), env : env));
+  old_expected := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : t_bool(), env : env)));
   flag_before_test := flow_violation_pending();
   _evaluated := evaluate_expression(test, env, ctx);
   ctx.expected_type = old_expected;
@@ -464,8 +463,7 @@ _compile_const_expr :: (
 )({
   is_named := ((ast_expr_is_atom(e) && !_is_literal_atom(e)) || ast_expr_is_fn_call_of(e, ".", Option(usize).Some(usize(2))));
   if(is_named, {
-    old_expected := ctx.expected_type;
-    ctx.expected_type = Option(ExpectedTypeCtx).None;
+    old_expected := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
     evaluated_gout := ArrayList(AstExpr).new();
     evaluated_gerr := evaluate_expression_guarded(e, env, ctx, &mut evaluated_gout);
     ctx.expected_type = old_expected;
@@ -509,8 +507,7 @@ _compile_range :: (
   (bi : usize) = usize(0);
   while(bi < usize(2), {
     b := cond((bi == usize(0)) => lo, true => hi);
-    old_expected := ctx.expected_type;
-    ctx.expected_type = Option(ExpectedTypeCtx).None;
+    old_expected := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
     ev_gout := ArrayList(AstExpr).new();
     ev_gerr := evaluate_expression_guarded(&b, env, ctx, &mut ev_gout);
     ctx.expected_type = old_expected;

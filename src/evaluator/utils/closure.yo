@@ -9,6 +9,7 @@
 //!   - `create_capture_type_and_value`          → simplified inference only;
 //!     explicit capture struct type deferred to Phase 4.
 //!   - `autoDeriveTraitsAndAddRcFunctions…`     → calls auto_derive_traits_for_struct_type
+{ replace } :: import("std/mem");
 { String } :: import("std/string");
 { RefCell } :: import("std/sync/refcell");
 { function_reaches_non_send_global, d1_reach_memo, d1_note_thread_reach } :: import("../effects/mutation_summary.yo");
@@ -1675,8 +1676,7 @@ _eval_clone_template :: (fn(code : &String, recv : &AstExpr, env : &Environment,
   parsed := generate_expr_from_code(code, exn);
   // The template is its own value: the type the enclosing expression expects
   // (a generic `T`, the closure's) is not a field's, nor a record literal's.
-  saved_expected := ctx.expected_type;
-  ctx.expected_type = Option(ExpectedTypeCtx).None;
+  saved_expected := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
   out := evaluate_expression_raw(&_clone_subst_receiver(&parsed, recv), env, ctx, exn);
   ctx.expected_type = saved_expected;
   out

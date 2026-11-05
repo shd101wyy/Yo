@@ -10,6 +10,7 @@
 //! gate on `ctx.is_inside_given_handler` either: a former compensating
 //! control there wrongly threw during definition-time body eval of
 //! plain-`:=` handlers.
+{ replace } :: import("std/mem");
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 import("std/fmt");
@@ -150,8 +151,7 @@ evaluate_unwind :: (
   );
   // Recursively evaluate the argument with the enclosing return type as the
   // expected type.
-  saved_expected := ctx.expected_type;
-  ctx.expected_type = .Some(ExpectedTypeCtx(ty : Rc.clone(enclosing_ret), env : env));
+  saved_expected := replace(&mut ctx.expected_type, .Some(ExpectedTypeCtx(ty : Rc.clone(enclosing_ret), env : env)));
   evaluated_gout := ArrayList(AstExpr).new();
   evaluated_gerr := evaluate_expression_guarded(&arg_expr, env, ctx, &mut evaluated_gout);
   ctx.expected_type = saved_expected;

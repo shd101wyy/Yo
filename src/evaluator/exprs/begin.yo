@@ -2969,7 +2969,7 @@ _evaluate_begin_expression_impl :: (
           // `return(.Variant(...))` shorthand throws "Failed to infer enum
           // variant type" at definition-time body evaluation (this was the
           // single largest def-eval swallow category, 58× in std).
-          old_expected := ctx.expected_type;
+          old_expected := ctx.expected_type.clone();
           ret_expected := match(
             ctx.is_evaluating_function_body_or_async_block,
             .Some(fb_ctx) => match(
@@ -3294,7 +3294,7 @@ _evaluate_begin_expression_impl :: (
             .Atom(_, _) => make_err_expr()
           );
           // Propagate the enclosing function's return type as the expected type.
-          old_expected := ctx.expected_type;
+          old_expected := ctx.expected_type.clone();
           ctx.expected_type = Option(ExpectedTypeCtx).Some(
             ExpectedTypeCtx(ty : Rc.clone(enclosing_ret), env : env)
           );
@@ -3342,7 +3342,7 @@ _evaluate_begin_expression_impl :: (
       // -------------------------------------------------------------------
       true => {
         // Propagate the expectedType hint only to the last expression in the block.
-        old_expected := ctx.expected_type;
+        old_expected := ctx.expected_type.clone();
         is_last_in_loop := (loop_i == (n_args - usize(1)));
         if(!is_last_in_loop, {
           ctx.expected_type = Option(ExpectedTypeCtx).None;
