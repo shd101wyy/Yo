@@ -4379,14 +4379,15 @@ test("Test a reassignment in an awaitless nested arm beside an awaiting arm", {
 test("Test a method on a field of a match binding over an inline literal across an await", {
   drive := (fn(rio : Io) -> Impl(Future(usize, Io)))(
     rio.async((aio : Io) => {
-      match(
+      n := match(
         Option(Task).Some(Task(name : String.from("exe"))),
         .Some(t) => {
           aio.await(yield(aio), aio);
           t.name.len()
         },
         .None => usize(0)
-      )
+      );
+      n
     })
   );
   assert(io.await(drive(io), io) == usize(3), "the binding's field after the await");
