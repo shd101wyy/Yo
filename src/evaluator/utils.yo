@@ -108,6 +108,7 @@ pragma(Pragma.AllowUnsafe);
   variable_slot_type
 } :: import("../env.yo");
 { get_value_of_some_type_from_env } :: import("../types/env_lookup.yo");
+{ extract_fn_trait_from_type } :: import("./trait_checking.yo");
 { Token, TokenKind } :: import("../token.yo");
 { EvalContext, LoopBodyCtx, LoopFlowSnapshot, FuncOrAsyncBlockKind, copy_trait_blockers_via_hook, type_head_name_for_impl_forcing } :: import("./context.yo");
 { atof } :: import("std/libc/stdlib");
@@ -6460,25 +6461,35 @@ binder_read_take :: (fn(e : &AstExpr) -> bool)({
 /// The read rule (decision 43 step 2 N1e-2b, VERDICTS-23 R1): a
 /// reference-typed expression read at `tok` is the reference VALUE where its
 /// position expects a reference — a `&T` slot, payload, field or element, or
-/// a type binder bound to a reference (`T := &U`) — or an unbound type binder
-/// (`at_binder`), which it binds to the reference. Inside the trees that keep
-/// the old reading (`deref_rule_applies`), an unbound binder still takes the
-/// value until the deref adoption deletes the exemption.
-reference_read_wanted :: (fn(tok : &Token, at_binder : bool, ctx : &EvalContext) -> bool)(
-  cond(
-    match(
-      &ctx.expected_type,
-      .Some(rw_et) => cond(
-        t_slot_is_borrow(&rw_et.ty) => true,
-        is_some_type(&rw_et.ty) => t_slot_is_borrow(&get_value_of_some_type_from_env(&rw_et.env, &rw_et.ty)),
-        true => false
-      ),
-      .None => false
-    ) => true,
-    at_binder => deref_rule_applies(tok, ctx),
-    true => false
-  )
-);
+/// a type binder bound to a reference (`T := &U`) — or an unbound type
+/// binder (`v : T`), which it binds to the reference. The unbound binder is
+/// either the expected type itself or, where a call passes no abstract
+/// expected type (`_evaluate_funcval_runtime_call`), the argument it marked
+/// (`at_binder`). A binder that stands for a callable (`Impl(Fn(...))`) is
+/// not one: a callable is called through, not held. Inside the trees that
+/// keep the old reading (`deref_rule_applies`), an unbound binder still
+/// takes the value until the deref adoption deletes the exemption.
+reference_read_wanted :: (fn(tok : &Token, at_binder : bool, ctx : &EvalContext) -> bool)({
+  (unbound : bool) = at_binder;
+  match(
+    &ctx.expected_type,
+    .Some(rw_et) => cond(
+      t_slot_is_borrow(&rw_et.ty) => {
+        return(true);
+      },
+      (is_some_type(&rw_et.ty) && extract_fn_trait_from_type(&rw_et.ty).is_none()) => {
+        rw_b := get_value_of_some_type_from_env(&rw_et.env, &rw_et.ty);
+        if(t_slot_is_borrow(&rw_b), {
+          return(true);
+        });
+        unbound = (unbound || is_some_type(&rw_b));
+      },
+      true => ()
+    ),
+    .None => ()
+  );
+  (unbound && deref_rule_applies(tok, ctx))
+});
 /// The reference VALUE a read of the reference binding `v` is: its stored
 /// reference type, whose elided origin names `v` itself (what `v` lends, as
 /// a lend of `v` records it, T9).
@@ -8513,12 +8524,22 @@ origin_carrying_value_roots :: (fn(e : &AstExpr, env : &Environment, ctx : &Eval
                 },
                 true => match(
                   &vi.ty,
-                  // A reference argument: the place it lends.
-                  Rc(.Reference(_, vr_mut, _)) => match(
-                    local_borrow_place_of(&value_s, env, ctx),
-                    .Some(p) => out.push(OriginRootPlace(place : p, is_mut : vr_mut)),
-                    .None => ()
-                  ),
+                  // A reference argument: the place it lends. A local
+                  // reference binding read as the reference (the read rule,
+                  // decision 43 step 2 N1e-2b: `r := xs.index(i); .Some(r)`)
+                  // lends where it points — the places its own borrow froze —
+                  // not its own slot; a reference parameter, its own place.
+                  Rc(.Reference(_, vr_mut, _)) => {
+                    vr_before := out.len();
+                    _holder_roots_into(&value_s, env, ctx, &mut out);
+                    if(out.len() == vr_before, {
+                      match(
+                        local_borrow_place_of(&value_s, env, ctx),
+                        .Some(p) => out.push(OriginRootPlace(place : p, is_mut : vr_mut)),
+                        .None => ()
+                      );
+                    });
+                  },
                   // A holder passed on: its own frozen places.
                   _ => _holder_roots_into(&value_s, env, ctx, &mut out)
                 )
