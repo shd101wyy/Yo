@@ -37,11 +37,13 @@ The `match` evaluator records each borrowed-match binding's scrutinee place
 binding to that place's own root (`_borrow_match_root_error`). The binding is a shared
 borrow, so a `&mut` result cannot yield it ("is a shared borrow"). The root rule recurses
 into the scrutinee place, so a binding of a temporary scrutinee (`match(&f(), …)`) is still
-E0912.
+E0912. A `mut(name)` binding is a copy of its part
+(`issues/fixed/2026-11-06-a-mut-binding-of-a-borrowed-match-writes-through-the-shared-reference.md`),
+so it is not recorded and stays a local of the projection (E0912).
 
 ## Test
 
 `tests/ref_payload_binding.test.yo`, "a borrowed match binding is yielded as a place of
 `self`" (`_Slot.value_or_fallback -> &String`, `_Slot.peek -> Option(&String)`). It reads the
-yielded reference after the call, and it has `comptime_expect_error`s for a `&mut` result and
-for a temporary scrutinee.
+yielded reference after the call, and it has `comptime_expect_error`s for a `&mut` result, for a temporary
+scrutinee and for a `mut` binding.
