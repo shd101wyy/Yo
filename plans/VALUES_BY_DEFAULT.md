@@ -1979,6 +1979,10 @@ and in git, not a silent edit.
       range, by the same unwind cleanup that releases decision 28's
       call-scoped marks. A panic must not leave the cell flagged.
     - `e := &mut xs(i)` accepts element places once projections land (V2b).
+      As built (decision 43 step 4, 2026-11-05): `e := &xs(i)` /
+      `e := &mut xs(i)` binds `xs.index(i)` / `xs.index_mut(i)`, the
+      projection binder's result (decision 24), so `xs` is frozen while `e`
+      is live; an atom receiver only (`&h.items(i)` stays a lend or a `for`).
     - `y := s.items` is a move (an error under decision 19) or an explicit
       clone. The borrow is `items := &s.items`.
     - Precedent: `plans/archive/INOUT_LOCAL_BINDINGS_AUDIT.md` (2026-09-07)
