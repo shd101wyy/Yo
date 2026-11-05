@@ -58,10 +58,19 @@ lowering. A reference the arm yields to a binding therefore points where the scr
   - A temporary scrutinee is materialized in a C local that outlives the arms.
   - In an `io.async` body, the binding's task slot is `T*`, through the suspension analysis's
     `is_ref` rule, as for a `&mut` place.
-- **Captures.** An implicit closure capture of such a binding copies its part, exactly as it
-  did when the binding was a copy. `anonymous_function.yo` keeps accepting it. The capture
-  initializer reads `(*n)` (`_deref_place_binding`, `closures.yo`), and the closure body reads
-  the field as a value (`atom.yo`). A capture list's `{ &n }` borrows the place.
+- **Captures.** The rule: an implicit capture of a borrowed-match binding captures the
+  referent by value, and a reference capture needs the explicit capture list,
+  `{ x : &s.* }`. The by-value capture obeys the copy rules:
+  - A `Copy` part is copied.
+  - A move-only part (a `String`, a struct with `Drop`) is E0901 ("the closure captures `s`,
+    whose type `String` is move-only"). It is never bitwise-copied and dropped twice.
+  - A closure that would carry a borrow out of the arm is E0912, as before.
+
+  The accepted and rejected sets are exactly develop's. In codegen, `anonymous_function.yo`
+  keeps accepting the implicit capture of a `Copy` part. The capture initializer reads `(*n)`
+  (`_deref_place_binding`, `closures.yo`), and the closure body reads the field as a value
+  (`atom.yo`). `{ x : &s.* }` and `{ c : s.clone() }` are accepted in a closure that stays
+  in the arm, and a `for` body reads the binding directly.
 - **Call operands.** A by-value operand that reads such a binding is not spilled into a
   sequencing temp, because its place is frozen while the binding lives
   (`_value_place_root`). A task slot's `(*sm->…)` read is passed as a slot read
@@ -78,6 +87,8 @@ covers:
 - a borrowed element;
 - a temporary scrutinee;
 - a closure capture;
-- an `await` in the arm.
+- an `await` in the arm;
+- the capture rule: an implicit capture of a `String` or `Drop` part is E0901, and the
+  explicit `&s.*` and `.clone()` captures and a `for` body are accepted.
 
 The reproducer runs clean under ASan.

@@ -99,3 +99,47 @@ test("a binding lives across an await in an io.async arm", {
   io.await(task, io);
   assert(result.with(cur => cur.*) == i32(14), "the bindings read the scrutinee after the await");
 });
+// An implicit capture of a `&` match's binding captures the part BY VALUE,
+// under the copy rules: a `Copy` part is copied (above), and a move-only
+// part — a `String`, a struct with `Drop` — is E0901, never a bitwise copy
+// that both the closure and the scrutinee would drop. A reference capture is
+// spelled with the explicit capture list, `{ x : &s.* }`.
+_MoTok :: struct(v : i32);
+impl(_MoTok, Drop(drop : (fn(self : &mut Self) -> unit)(())));
+test("an implicit capture of a move-only part is E0901", {
+  comptime_expect_error({
+    o := Option(String).Some(String.from("m"));
+    _n := match(&o, .Some(s) => {
+      (f : Impl(Fn() -> usize)) = (() => s.len());
+      f()
+    }, .None => usize(0));
+  }, "the closure captures `s`, whose type `String` is move-only");
+  comptime_expect_error({
+    o := Option(_MoTok).Some(_MoTok(v : i32(3)));
+    _n := match(&o, .Some(t) => {
+      (f : Impl(Fn() -> i32)) = (() => (t.v + i32(1)));
+      f()
+    }, .None => i32(0));
+  }, "the closure captures `t`, whose type `_MoTok` is move-only");
+});
+test("a reference capture of a binding is the explicit capture list, a copy the explicit clone", {
+  o := Option(String).Some(String.from("hello"));
+  n := match(&o, .Some(s) => {
+    (f : Impl(Fn() -> usize)) = ({ x : &s.* }() => x.len());
+    f()
+  }, .None => usize(0));
+  assert(n == usize(5), "the borrowed capture reads the payload");
+  m := match(&o, .Some(s) => {
+    (g : Impl(Fn() -> usize)) = ({ c : s.clone() }() => c.len());
+    g()
+  }, .None => usize(0));
+  assert(m == usize(5), "the cloned capture");
+  mut(xs) := ArrayList(i32).new();
+  xs.push(i32(1));
+  xs.push(i32(2));
+  (mut(total) : usize) = usize(0);
+  match(&o, .Some(s) => for(&xs, e => {
+    total = (total + s.len());
+  }), .None => ());
+  assert(total == usize(10), "a `for` body reads the binding");
+});
