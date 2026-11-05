@@ -44,7 +44,9 @@ pragma(Pragma.AllowUnsafe);
   CaptureSlice,
   bind_parameter,
   find_variable_in_env,
-  variable_value_type
+  variable_value_type,
+  variable_set_is_ref,
+  variable_set_is_imm_borrow
 } :: import("../../env.yo");
 { some_t_bounds, TypeValue, TypeValueNode, shared_list, no_types, no_labels, slot_pointee_at, slot_pointees, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_by_value, t_slot_is_borrow, t_origin_kind, t_origin_named } :: import("../../types/definitions.yo");
 { t_unit, t_some_t, t_ptr, resolve_some_binder_kind, t_with_resolution, t_with_func_result, resolve_enum_shell, register_ctor_phantom_positions } :: import("../../types/creators.yo");
@@ -1681,9 +1683,9 @@ Result type: ${type_to_string(&result_box)}`
                 (pv_var, param_types.get(pv_i)),
                 (.Some(pvv), .Some(pv_slot)) => if(t_slot_is_borrow(&pv_slot), {
                   if(t_slot_is_mut_ref(&pv_slot), {
-                    pvv.is_ref = true;
+                    variable_set_is_ref(&pvv, true);
                   }, {
-                    pvv.is_imm_borrow = true;
+                    variable_set_is_imm_borrow(&pvv, true);
                   });
                 }),
                 _ => ()
