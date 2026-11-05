@@ -552,7 +552,7 @@ generate_atom :: (fn(expr : &AstExpr, context : &mut FunctionGenerationContext, 
   });
   if(tv == "break", {
     match(
-      &context.base.current_loop_label,
+      context.base.current_loop_label.clone(),
       .Some(loop_label) => {
         _emit_loop_body_drops_before_exit(context, indent.clone(), expr);
         generate_early_return_only_deferred_drop_expressions(expr, indent.clone(), context);
