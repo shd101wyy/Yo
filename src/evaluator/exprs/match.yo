@@ -1719,7 +1719,12 @@ evaluate_match :: (
               // (`is_ref` above), holding the payload's own pointer.
               .Some(bm_var) => if(ref_payload.is_none(), {
                 variable_set_is_borrow_match_binding(&bm_var, true);
-                if(!is_unit_type(&bind_ty), {
+                // A `mut(name)` binding binds by value, as Rust 2021's
+                // `mut` resets the default binding mode: a copy of its part
+                // the arm may reassign, which writes neither the scrutinee
+                // nor data its owner holds (E0908)
+                // (issues/fixed/2026-11-06-a-mut-binding-of-a-borrowed-match-writes-through-the-shared-reference.md).
+                if(!is_unit_type(&bind_ty) && !bm_var.is_reassignable, {
                   variable_set_is_ref(&bm_var, true);
                   // `is_ref` says the binding is a pointer; a `&` match
                   // lends read-only.

@@ -15,7 +15,7 @@
 { ArrayList } :: import("std/collections/array_list");
 { HashSet } :: import("std/collections/hash_set");
 { HashMap } :: import("std/collections/hash_map");
-{ AstExpr, ast_expr_id, ast_expr_is_atom, ast_expr_is_fn_call_of, ast_expr_token, ast_expr_text, make_err_expr, BK_BEGIN, BF_DOT } :: import("../../expr.yo");
+{ AstExpr, ast_expr_id, ast_expr_is_atom, ast_expr_is_fn_call_of, ast_expr_token, ast_expr_text, make_err_expr, BK_BEGIN, BF_DOT, is_mut_binding } :: import("../../expr.yo");
 { EvalValue } :: import("../../value.yo");
 { TypeValue, TypeValueNode, no_types, no_labels, SharedList, t_slot_is_borrow, t_slot_pointee } :: import("../../types/definitions.yo");
 {
@@ -39,7 +39,7 @@
 { declare_c_var_name, get_type_string, fresh_local_name, get_variable_name_for_codegen, type_key, sanitize_for_c_identifier, c_field_name, c_variant_member_name, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, get_enum_variant_c_name, get_deferred_dup_target_atom_name, pattern_param_is_literal, pattern_literal_param_code, pattern_literal_arm_guards, arm_variant_name, arm_params, nullable_arm_selects_payload, nullable_arm_payload_binder, get_runtime_struct_fields, note_line_position, get_variable_name_for_codegen_at } :: import("../utils/index.yo");
 { resolve_enum_shell, t_ptr } :: import("../../types/creators.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
-{ Pattern, Arm, lookup_match_arms, pattern_bindings, lookup_match_mode, lookup_arm_entry_drops, pattern_position_is_cell, MATCH_MODE_MUT, MATCH_MODE_BORROW, MATCH_MODE_REF, MATCH_MODE_REF_TEMP, match_mode_binds_refs } :: import("../../pattern.yo");
+{ Pattern, Arm, lookup_match_arms, pattern_bindings, pattern_binding_atoms, lookup_match_mode, lookup_arm_entry_drops, pattern_position_is_cell, MATCH_MODE_MUT, MATCH_MODE_BORROW, MATCH_MODE_REF, MATCH_MODE_REF_TEMP, match_mode_binds_refs } :: import("../../pattern.yo");
 { arm_is_classic } :: import("../../evaluator/exprs/pattern_compile.yo");
 { replace } :: import("std/mem");
 /// True for an ASCII word byte ([A-Za-z0-9_]).
@@ -130,6 +130,13 @@ _emit_place_binding_decl :: (fn(context : &FunctionGenerationContext, indent : &
 /// to the part in a `&` match (`refs`, `match_mode_binds_refs`), read
 /// through like a `mut` match's place binding; else the part's value. A
 /// reference payload's binding holds its reference either way.
+/// Whether the binding `atom` of a `&` match (`refs`) is a pointer to its
+/// part. A `mut(name)` binding binds by value instead, as Rust 2021's `mut`
+/// resets the default binding mode: a copy the arm may reassign, as the
+/// evaluator binds it (`evaluate_match`).
+_binds_by_ref :: (fn(refs : bool, atom : &AstExpr) -> bool)(
+  refs && !is_mut_binding(&ast_expr_token(atom), &ast_expr_token(atom).value.*.clone())
+);
 _emit_arm_binding_decl :: (fn(context : &FunctionGenerationContext, indent : &String, bind : &String, ty : &TypeValue, init : &String, refs : bool) -> unit)(
   if(refs && !t_slot_is_borrow(ty), {
     _emit_place_binding_decl(context, indent, bind, ty, init);
@@ -1051,7 +1058,7 @@ _gen_nullable_ptr_match :: (fn(expr : &AstExpr, indent : &String, context : &Fun
           dvn := sanitize_for_c_identifier(ast_expr_token(&dvar).value.*, false);
           // A `&` match's binding points at the payload: the enum's own
           // storage, which is the pointer.
-          nl_refs := match_mode_binds_refs(lookup_match_mode(ast_expr_id(expr)));
+          nl_refs := _binds_by_ref(match_mode_binds_refs(lookup_match_mode(ast_expr_id(expr))), &dvar);
           _emit_arm_binding_decl(context, body_indent.clone(), dvn.clone(), nullable_inner, if(nl_refs && is_ptr, `(*${matched_value_code})`, matched_value_code.clone()), nl_refs);
           // Shadow-register the binding like _emit_destructure_binds does
           // for tagged-union arms: the arm body must resolve `q` to THIS
@@ -1455,7 +1462,7 @@ _emit_destructure_binds :: (fn(enum_type : &TypeValue, variant_name : &String, p
                           sanitize_for_c_identifier(ast_expr_token(&var_expr).value.*, false),
                           &ftype,
                           &init,
-                          refs
+                          _binds_by_ref(refs, &var_expr)
                         );
                         _bind_pattern_name(context, body_indent.clone(), sanitize_for_c_identifier(ast_expr_token(&var_expr).value.*, false), ast_expr_token(&var_expr), init.clone());
                       });
@@ -1491,7 +1498,7 @@ _emit_destructure_binds :: (fn(enum_type : &TypeValue, variant_name : &String, p
                     sanitize_for_c_identifier(ast_expr_token(&var_expr).value.*, false),
                     &ftype,
                     &init,
-                    refs
+                    _binds_by_ref(refs, &var_expr)
                   );
                   _bind_pattern_name(context, body_indent.clone(), sanitize_for_c_identifier(ast_expr_token(&var_expr).value.*, false), ast_expr_token(&var_expr), init.clone());
                 });
@@ -1986,15 +1993,15 @@ _emit_pattern_chain :: (
   ) -> unit
 )({
   em := context.base.emitter;
-  as_place := ((places && !in_cell) || (refs && !t_slot_is_borrow(ty)));
   match(
     p,
     .Wildcard => (),
-    .Bind(name, btok, _) => {
+    .Bind(name, btok, batom) => {
       if(!is_unit_type(ty), {
         cname := sanitize_for_c_identifier(name.clone(), false);
+        b_place := ((places && !in_cell) || (_binds_by_ref(refs, &batom) && !t_slot_is_borrow(ty)));
         cond(
-          (assign_binds && as_place) => em.emit_string_line(`${indent}${cname.clone()} = &(${path.clone()});`),
+          (assign_binds && b_place) => em.emit_string_line(`${indent}${cname.clone()} = &(${path.clone()});`),
           assign_binds => {
             line := indent.clone();
             line.push_string(cname.clone());
@@ -2003,11 +2010,11 @@ _emit_pattern_chain :: (
             line.push_str(";");
             em.emit_string_line(&line);
           },
-          as_place => _emit_place_binding_decl(context, indent.clone(), cname.clone(), ty, path.clone()),
+          b_place => _emit_place_binding_decl(context, indent.clone(), cname.clone(), ty, path.clone()),
           true => _emit_pattern_binding_decl(context, indent.clone(), cname.clone(), ty, path.clone())
         );
         _bind_pattern_name(context, indent.clone(), cname.clone(), &btok, path.clone());
-        if(as_place, _place_add(context, cname.clone()));
+        if(b_place, _place_add(context, cname.clone()));
         shadows.push(cname);
       });
     },
@@ -2081,11 +2088,28 @@ _emit_pattern_chain :: (
         place_names := ArrayList(String).new();
         cond(
           refs => {
+            // A `mut(name)` binding is a copy (`_binds_by_ref`).
+            by_value := ArrayList(String).new();
+            if(alts.len() > usize(0), {
+              alt_atoms := ArrayList(AstExpr).new();
+              pattern_binding_atoms(&alts(usize(0)), &mut alt_atoms);
+              (ai0 : usize) = usize(0);
+              while(ai0 < alt_atoms.len(), ai0 = (ai0 + usize(1)), {
+                match(
+                  alt_atoms.get_cloned(ai0),
+                  .Some(aa) => if(!_binds_by_ref(true, &aa), by_value.push(ast_expr_token(&aa).value.*.clone())),
+                  .None => ()
+                );
+              });
+            });
             (rni : usize) = usize(0);
             while(rni < names.len(), rni = (rni + usize(1)), {
               match(
                 types.get_cloned(rni),
-                .Some(rt) => if(!t_slot_is_borrow(&rt), place_names.push(match(names.get_cloned(rni), .Some(rn) => rn, .None => String.from("")))),
+                .Some(rt) => if(!t_slot_is_borrow(&rt), {
+                  rn := match(names.get_cloned(rni), .Some(n) => n, .None => String.from(""));
+                  if(!_list_has(&by_value, rn.clone()), place_names.push(rn));
+                }),
                 .None => ()
               );
             });
@@ -2150,11 +2174,12 @@ _emit_pattern_chain :: (
       dl.push_str(": ;");
       em.emit_string_line(&dl);
     },
-    .At(name, atok, _, Box(sub)) => {
+    .At(name, atok, aatom, Box(sub)) => {
       if(!is_unit_type(ty), {
         cname := sanitize_for_c_identifier(name.clone(), false);
+        a_place := ((places && !in_cell) || (_binds_by_ref(refs, &aatom) && !t_slot_is_borrow(ty)));
         cond(
-          (assign_binds && as_place) => em.emit_string_line(`${indent}${cname.clone()} = &(${path.clone()});`),
+          (assign_binds && a_place) => em.emit_string_line(`${indent}${cname.clone()} = &(${path.clone()});`),
           assign_binds => {
             line := indent.clone();
             line.push_string(cname.clone());
@@ -2163,11 +2188,11 @@ _emit_pattern_chain :: (
             line.push_str(";");
             em.emit_string_line(&line);
           },
-          as_place => _emit_place_binding_decl(context, indent.clone(), cname.clone(), ty, path.clone()),
+          a_place => _emit_place_binding_decl(context, indent.clone(), cname.clone(), ty, path.clone()),
           true => _emit_pattern_binding_decl(context, indent.clone(), cname.clone(), ty, path.clone())
         );
         _bind_pattern_name(context, indent.clone(), cname.clone(), &atok, path.clone());
-        if(as_place, _place_add(context, cname.clone()));
+        if(a_place, _place_add(context, cname.clone()));
         shadows.push(cname);
       });
       recur(&sub, path, ty, fail_label, assign_binds, emit_tests, indent, labels, shadows, context, places, refs, in_cell);
