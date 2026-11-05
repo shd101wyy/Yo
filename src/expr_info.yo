@@ -3332,7 +3332,9 @@ export(MarkerSite, set_migrate_markers, migrate_markers_on, record_marker_site, 
 /// `edit` 1 instead inserts `<expect> : ` before the token at `row`/`col`
 /// (a capture-list pun or shorthand `{ &r }` / `{ r }` gains its label:
 /// `{ r : &r.* }`), and `edit` 2 deletes the borrow marker (`&`, `&mut `)
-/// written right before it (`match(&r, …)` → `match(r, …)`).
+/// written right before it (`match(&r, …)` → `match(r, …)`). `edit` 4
+/// records a by-value argument whose referent is not implicitly copyable:
+/// listed, never rewritten (`r.*` would be E0901).
 DerefSite :: struct(path : String, row : usize, col : usize, expect : String, edit : u8);
 derive(DerefSite, Clone);
 (mut(g_migrate_deref) : bool) = false;
@@ -3370,9 +3372,10 @@ record_deref_site :: (fn(tok : &Token, expect : &String) -> unit)({
   site := DerefSite(path : tok.module_path.*.clone(), row : usize(tok.row), col : usize(tok.column), expect : expect.clone(), edit : u8(0));
   g_deref_sites.with_mut({ site }(xs) => xs.push(site));
 });
-/// Record an `edit` 1 (label prefix `text`), 2 (drop the marker) or 3 (append
+/// Record an `edit` 1 (label prefix `text`), 2 (drop the marker), 3 (append
 /// `.*` to an old `r.*` that read the payload of a `Box`/`Rc`/pointer/cell
-/// handle through the reference) site at `tok`. Once per position and edit.
+/// handle through the reference) or 4 (list a by-value argument whose
+/// referent is not implicitly copyable, left as written) site at `tok`. Once per position and edit.
 /// An edit 3 is applied only in a file that shows no new spelling
 /// (`note_deref_migrated_file`): the source cannot tell an old `b.*` (the
 /// payload) from an already-migrated one (the reference's deref).
@@ -3382,7 +3385,7 @@ record_deref_edit_site :: (fn(tok : &Token, text : &String, edit : u8) -> unit)(
     return(());
   });
   if(g_audit_deref, {
-    eprintln(`[deref] ${tok.module_path.*}:${(tok.row + u32(1)).to_string()}:${(tok.column + u32(1)).to_string()} ${if(edit == u8(2), "drop-marker", if(edit == u8(3), "payload", "label"))} ${text}`);
+    eprintln(`[deref] ${tok.module_path.*}:${(tok.row + u32(1)).to_string()}:${(tok.column + u32(1)).to_string()} ${if(edit == u8(2), "drop-marker", if(edit == u8(3), "payload", if(edit == u8(4), "kept", "label")))} ${text}`);
   });
   site := DerefSite(path : tok.module_path.*.clone(), row : usize(tok.row), col : usize(tok.column), expect : text.clone(), edit : edit);
   g_deref_sites.with_mut({ site }(xs) => xs.push(site));

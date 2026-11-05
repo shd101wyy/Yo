@@ -2774,6 +2774,7 @@ _deref_site_reading :: (fn(st : &DerefSite) -> String)(
     (st.edit == u8(1)) => `the label \`${st.expect} : \``,
     (st.edit == u8(2)) => `\`${st.expect}\` without its \`&\` marker`,
     (st.edit == u8(3)) => `\`${st.expect}.*.*\``,
+    (st.edit == u8(4)) => `\`${st.expect}\` as written (a by-value argument whose referent is not implicitly copyable)`,
     true => `\`${st.expect}.*\``
   )
 );
@@ -3154,6 +3155,14 @@ _run_migrate_deref :: (
             println(`fix: ${at}: no \`&\`/\`&mut\` marker written right before \`${st.expect}\`; left as written`);
           }
         );
+        continue;
+      });
+      // A by-value argument whose referent is not implicitly copyable:
+      // `r.*` would copy a move-only (or explicit-copy) value, which is
+      // E0901, so the site is listed and left for a human to choose.
+      if(st.edit == u8(4), {
+        n_skipped = (n_skipped + usize(1));
+        println(`fix: ${at}: \`${st.expect}\` is passed by value, and the value it refers to is not implicitly copyable, so \`${st.expect}.*\` would not compile; take the parameter as a reference and pass \`${st.expect}\`, or pass \`${st.expect}.*.clone()\`; left as written`);
         continue;
       });
       if((st.edit == u8(3)) && migrated.contains(&canon), {

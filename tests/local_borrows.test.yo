@@ -706,5 +706,20 @@ comptime_expect_error({
   n := i32(5);
   _bare_borrow_param(&n);
 }, "reading the value it refers to is spelled `v.*`");
+// A reference passed to a by-value parameter whose type is move-only: `r.*`
+// would copy it, which is E0901, so E0926 names the two repairs instead and
+// `r.*` written anyway is E0901 naming the dereference
+// (issues/fixed/2026-11-05-migrate-deref-copies-a-move-only-referent-into-a-by-value-parameter.md).
+_take_owned_string :: (fn(s : String) -> usize)(s.len());
+comptime_expect_error({
+  _pass_ref_by_value :: (fn(r : &String) -> usize)(_take_owned_string(r));
+  s := String.from("a");
+  _pass_ref_by_value(&s);
+}, "passed to a by-value parameter: `r.*` would copy the value it refers to, and `String` is move-only");
+comptime_expect_error({
+  _pass_deref_by_value :: (fn(r : &String) -> usize)(_take_owned_string(r.*));
+  s := String.from("a");
+  _pass_deref_by_value(&s);
+}, "cannot copy `r.*`, whose type `String` is move-only: `r` is a reference");
 // A type's OWN field named `*` keeps its field read (std's atomics; pinned
 // by `check ./std`, which reads `self.*` on `self : &Self` throughout).
