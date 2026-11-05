@@ -2684,9 +2684,10 @@ walk_pending_def_at :: (fn(walk : &ModuleWalk, index : usize) -> Option(PendingD
 /// block's members.
 _def_declares :: (fn(d : &PendingDef, name : &String) -> bool)({
   if(d.name == name, return(true));
+  ms := d.members();
   (m : usize) = usize(0);
-  while(m < d.members().len(), {
-    if(d.members(m) == name, return(true));
+  while(m < ms.len(), {
+    if(ms(m) == name, return(true));
     m = (m + usize(1));
   });
   false
