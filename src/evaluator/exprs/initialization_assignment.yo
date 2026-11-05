@@ -1975,6 +1975,33 @@ Use \`::\` for compile-time definitions inside impl.`
       exn
     );
     env_adopt(&env, &destr_result.env);
+    // N2b's binding freeze, per destructured name: an element whose type
+    // carries an origin (`(p, q) := pair(&mut x, &mut y)`) holds what the
+    // right-hand side lent, as a `t := pair(...)` binding does. Every root of
+    // the right-hand side is frozen, as for a `match` reference payload.
+    if(!effective_is_compile_time_only && ctx.is_evaluating_function_body_or_async_block.is_some(), {
+      match(
+        &destr_result.runtime_destructurings,
+        .Some(rds) => {
+          (rdi : usize) = usize(0);
+          while(rdi < rds.len(), {
+            match(
+              rds.get_cloned(rdi),
+              .Some(rd) => if(type_carries_origin(&rd.ty) && !(rd.variable_name == ""), {
+                match(
+                  get_variables_from_env(&env, rd.variable_name.clone()).last(),
+                  .Some(rd_var) => freeze_origin_carrying_binding(expr, &rhs, &rd.variable_name, &rd_var.token, &env, ctx, exn),
+                  .None => ()
+                );
+              }),
+              .None => ()
+            );
+            rdi = (rdi + usize(1));
+          });
+        },
+        .None => ()
+      );
+    });
     expr_info := new_expr_info(&env, t_unit());
     expr_info.value = Option(EvalValue).Some(EvalValue.UnitVal);
     expr_info_set_runtime_destructurings(&expr_info, &destr_result.runtime_destructurings);

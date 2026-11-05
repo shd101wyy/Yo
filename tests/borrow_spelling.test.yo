@@ -389,6 +389,17 @@ comptime_expect_error(
   "is still live"
 );
 comptime_expect_error(
+  bs_destructured_lend_freezes :: (fn() -> unit)({
+    mut(x) := i32(1);
+    mut(y) := i32(2);
+    (p, q) := bs_pair_mut(&mut x, &mut y);
+    x = i32(9);
+    p.* = i32(3);
+    q.* = i32(4);
+  }),
+  "is still live"
+);
+comptime_expect_error(
   bs_field_undeclared_origin :: (fn() -> unit)({
     S :: struct(next : &(i32, q));
   }),
