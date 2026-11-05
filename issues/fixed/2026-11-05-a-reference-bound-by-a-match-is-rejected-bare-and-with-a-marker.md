@@ -38,3 +38,12 @@ error[E0926]: `c` is a reference (`&ArrayList(i32)`): borrowing the value it ref
 ## Recommendation
 
 Classify a reference-typed match binding (`variable_is_reference_binding`) as a borrow binding in `_marker_place_of`, so that the bare argument is accepted. Make E0914's help consistent with E0926: never suggest `&r` for an `r` that is already a reference. Test with the two functions above, plus the struct-pattern form `match(&ts(i), T(c : .Some(c)) => total(c), _ => …)`.
+
+## Fix
+
+`_marker_place_of` (src/evaluator/calls/helper.yo) classifies a match binding
+that borrows the part it binds (`is_borrow_match_binding`) as a borrow
+binding. Passed whole to a `&T` parameter, it lends bare, as a `&T` parameter
+does. E0914 no longer fires on it, so the help loop is gone. Test:
+`tests/match_binding_lend.test.yo`, covering the two functions above and the
+struct-pattern form over an element.
