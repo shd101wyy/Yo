@@ -8,9 +8,6 @@
 //! for a different reason, or accepts.
 //!
 //! Exempt from the `bad` half, each with the reason in `_bad_exempt`:
-//!   - E0002: the parser accepts the unclosed-paren shapes today
-//!     (issues/parser-accepts-an-unclosed-call-paren.md); the code is
-//!     reserved for the fix.
 //!   - E0905: reported by `compile` when a swallowed definition-time failure
 //!     reaches codegen; `check` reports the underlying error instead.
 //! Their `good` programs are still required to load clean.
@@ -48,7 +45,7 @@ _toolchain_band :: (fn(code : &String) -> bool)(
 /// N3's std/src sweep retires E0920 and this exemption with it.
 _deref_exempt_only :: (fn(code : &String) -> bool)(code.* == "E0920");
 _bad_exempt :: (fn(code : &String) -> bool)(
-  (code.* == "E0002") || ((code.* == "E0905") || (_toolchain_band(code) || _deref_exempt_only(code)))
+  (code.* == "E0905") || (_toolchain_band(code) || _deref_exempt_only(code))
 );
 /// The `good` half is also a transcript for the toolchain band — there is no
 /// Yo program whose loading demonstrates the fix for a missing yo.toml.

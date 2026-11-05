@@ -1177,6 +1177,30 @@ test("`x =>> body` is rejected with E0008", {
     assert(false, "`(x : i32) =>> { body }` must be rejected with E0008");
   });
 });
+// ─── A parenthesized call ends at its `)` ───────────────────────────────────
+// `;`, `]`, `}` and the end of the input used to end a `f(` argument list as if
+// it were closed
+// (issues/fixed/2026-11-05-a-call-missing-its-closing-paren-before-a-semicolon-parses.md).
+_expect_unclosed_call :: (fn(src : &String, want : &String) -> unit)({
+  s := _parse_error_text(src);
+  if(!(s.contains(`error[E0002]`) && s.contains(want)), {
+    println(`expected E0002 "${want}" for an unclosed call, got: ${s}`);
+    assert(false, "an unclosed call must be E0002");
+  });
+});
+test("a call missing its `)` is E0002 before ; ] } and at the end of the input", {
+  _expect_unclosed_call(`main :: (fn() -> unit)({\n  f(i32(1));\n};\nexport(main);\n`, `not closed before this ;`);
+  _expect_unclosed_call(`x :: f(1;`, `not closed before this ;`);
+  _expect_unclosed_call(`main :: (fn() -> unit)({\n  _r := f(i32(1);\n  _s := f(i32(2));\n});\n`, `not closed before this ;`);
+  _expect_unclosed_call(`x :: [g(1];`, `not closed before this ]`);
+  _expect_unclosed_call(`x :: { g(1 };`, `not closed before this }`);
+  _expect_unclosed_call(`x :: f(1`, `before the end of the file`);
+  // Canaries: a closed call, a `( a; b )` block argument and a multi-line
+  // argument list keep parsing.
+  assert(_parse_error_text(`x :: f(1, g(2));`).len() == usize(0), "a closed call parses");
+  assert(_parse_error_text(`x :: f((a; b));`).len() == usize(0), "a block argument parses");
+  assert(_parse_error_text(`x :: f(\n  1,\n  2\n);`).len() == usize(0), "a multi-line call parses");
+});
 // Every token of one parse holds the module's `input`/`module_path` cells
 // (`Token.input`): the lexer's tokens, the tokens the parser synthesizes for a
 // template's literal parts, and a template interpolation body's sub-parse. A token with no
