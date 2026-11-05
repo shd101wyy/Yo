@@ -1,0 +1,94 @@
+// A closure literal whose only route to emission is a `Drop` impl: in the
+// `drop` body itself, or in a helper only a `drop` calls. Each used to stop
+// the compile with E1301 "Closure implementation function not found in
+// context" (issues/fixed/2026-11-05-a-closure-reached-only-through-a-drop-impl-is-an-internal-compiler-error.md).
+{ assert } :: import("std/assert");
+{ RefCell } :: import("std/sync/refcell");
+Counter :: struct(n : RefCell(i32));
+new_counter :: (fn() -> Rc(Counter))(Rc.new(Counter(n : RefCell(i32).new(i32(0)))));
+read_counter :: (fn(c : &Rc(Counter)) -> i32)(c.n.with(n => n.*));
+// `replace_with` in the `drop` body.
+ByReplaceWith :: struct(c : Rc(Counter));
+impl(
+  ByReplaceWith,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      _old := self.c.n.replace_with(n => (n.* + i32(1)));
+    })
+  )
+);
+// `with_mut` in the `drop` body.
+ByWithMut :: struct(c : Rc(Counter));
+impl(
+  ByWithMut,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      self.c.n.with_mut(n => {
+        n.* = (n.* + i32(10));
+      });
+    })
+  )
+);
+// A helper only a `drop` calls, whose body holds the closure.
+_add_hundred :: (fn(c : &Rc(Counter)) -> unit)({
+  c.n.with_mut(n => {
+    n.* = (n.* + i32(100));
+  });
+});
+ByHelper :: struct(c : Rc(Counter));
+impl(
+  ByHelper,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      _add_hundred(&self.c);
+    })
+  )
+);
+// A helper only a `drop` calls, passing a closure to a function that takes
+// `&Impl(Fn)`, with no cell involved.
+(mut(g_applied) : i32) = i32(0);
+_apply :: (fn(f : &Impl(Fn(x : i32) -> i32)) -> i32)(f(i32(1)));
+_bump_global :: (fn() -> unit)({
+  g_applied = (g_applied + _apply(x => (x + i32(1))));
+});
+ByGlobalHelper :: struct(v : i32);
+impl(
+  ByGlobalHelper,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      _bump_global();
+    })
+  )
+);
+test("a closure in a Drop body: replace_with runs once per drop", {
+  c := new_counter();
+  {
+    _k := ByReplaceWith(c : Rc.clone(&c));
+  };
+  assert(read_counter(&c) == i32(1), "the drop ran replace_with once");
+  {
+    _k := ByReplaceWith(c : Rc.clone(&c));
+  };
+  assert(read_counter(&c) == i32(2), "a second drop counted again");
+});
+test("a closure in a Drop body: with_mut writes the cell", {
+  c := new_counter();
+  {
+    _k := ByWithMut(c : Rc.clone(&c));
+  };
+  assert(read_counter(&c) == i32(10), "the drop ran with_mut once");
+});
+test("a closure in a helper only a Drop body calls", {
+  c := new_counter();
+  {
+    _k := ByHelper(c : Rc.clone(&c));
+  };
+  assert(read_counter(&c) == i32(100), "the helper's with_mut ran once");
+});
+test("a closure argument in a helper only a Drop body calls", {
+  before := g_applied;
+  {
+    _k := ByGlobalHelper(v : i32(1));
+  };
+  assert(g_applied == (before + i32(2)), "the helper applied its closure once");
+});
