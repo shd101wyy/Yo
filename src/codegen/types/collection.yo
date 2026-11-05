@@ -784,7 +784,7 @@ SkipEmissionFn :: (fn(func_id : &String, c_name : &String, value : &EvalValue, c
 /// With `skip`, a function the emission skips is marked walked without a
 /// walk: the dispose synthesis resolves a generic `drop` through its
 /// unspecialized original, whose types are type variables with no C form.
-collect_types_of_registered_functions :: (fn(context : &CodeGenContext, info : &ExprInfoTable, processed : &mut HashSet(String), skip : Option(SkipEmissionFn)) -> unit)({
+collect_types_of_registered_functions :: (fn(context : &mut CodeGenContext, info : &ExprInfoTable, processed : &mut HashSet(String), skip : Option(SkipEmissionFn)) -> unit)({
   // Fixpoint: keep collecting from newly-discovered functions until none are
   // new. Snapshot the keys each pass (the registry grows during collection).
   (found_new : bool) = true;

@@ -435,13 +435,13 @@ typedef enum {
   // A function the emission skips (a generic `drop`'s original) is not walked.
   (mut(dispose_round) : bool) = true;
   while(dispose_round, {
-    fns_before := base.functions.len();
-    types_before := base.types.len();
-    collect_types_of_registered_functions(&base, info, &mut type_walked_fns, Option(SkipEmissionFn).Some(should_skip_function_codegen));
-    collect_dispose_methods(&base, eval_ctx, module_env, info, exn);
-    dispose_round = ((base.functions.len() != fns_before) || (base.types.len() != types_before));
+    fns_before := ctx.base.functions.len();
+    types_before := ctx.base.types.len();
+    collect_types_of_registered_functions(&mut ctx.base, info, &mut type_walked_fns, Option(SkipEmissionFn).Some(should_skip_function_codegen));
+    collect_dispose_methods(&mut ctx.base, eval_ctx, module_env, info, exn);
+    dispose_round = ((ctx.base.functions.len() != fns_before) || (ctx.base.types.len() != types_before));
   });
-  collect_pointer_pointees(&base);
+  collect_pointer_pointees(&mut ctx.base);
   // plans/reference/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §9: how much of what the
   // evaluator FORCED (every top-level definition of every imported module —
   // rule 5) does codegen actually REACH? `forced_defs` counts pending-def
