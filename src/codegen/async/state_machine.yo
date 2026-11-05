@@ -1961,7 +1961,7 @@ generate_async_block_resume_function_inline :: (
     );
     emit_async_future_completion(&mut context.base.emitter, `  `, Option(String).None, Option(String).Some(String.from("Future %p completed")));
   });
-  mut(low) := match(replace(&mut context.sm_inline_lowering, p_low), .Some(l) => l, .None => {
+  mut(done_low) := match(replace(&mut context.sm_inline_lowering, p_low), .Some(l) => l, .None => {
     codegen_fatal(String.from("the single-pass lowering's state was lost"));
     return(ArrayList(String).new());
   });
@@ -1974,9 +1974,9 @@ generate_async_block_resume_function_inline :: (
   context.base.emitter.emit_string_line(`  switch (sm->state) {`);
   context.base.emitter.emit_string_line(`    case 0: goto __yo_state_0;`);
   (i : usize) = usize(0);
-  while(i < low.suspensions.len(), i = (i + usize(1)), {
+  while(i < done_low.suspensions.len(), i = (i + usize(1)), {
     match(
-      low.suspensions.get(i),
+      done_low.suspensions.get(i),
       .Some(sp) => context.base.emitter.emit_string_line(`    case ${sp.state.to_string()}: goto __yo_resume_${sp.state.to_string()};`),
       .None => ()
     );
@@ -1985,7 +1985,7 @@ generate_async_block_resume_function_inline :: (
   context.base.emitter.emit_string_line(`  }`);
   context.base.emitter.emit_string_line(`}`);
   context.base.emitter.emit_string_line(String.from(""));
-  suspensions := replace(&mut low.suspensions, ArrayList(InlineSuspension).new());
+  suspensions := replace(&mut done_low.suspensions, ArrayList(InlineSuspension).new());
   g_inline_suspensions.with_mut({ k : async_block_id.clone(), suspensions }(m) => m.insert(k, suspensions));
   local_var_drop_codes
 });
