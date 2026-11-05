@@ -22,11 +22,11 @@
 { CodeGenContext, set_on_demand_declare_fn, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, std_allocator_abi_is_v2 } :: import("./utils/index.yo");
 { FunctionGenerationContext } :: import("./functions/context.yo");
 { collect_required_functions, collect_module_level_init_functions, collect_dispose_methods, register_find_function_calls_in_expr } :: import("./functions/collection.yo");
-{ collect_type, collect_required_types, collect_types_of_registered_functions, collect_pointer_pointees, register_collect_type } :: import("./types/collection.yo");
+{ collect_type, collect_required_types, collect_types_of_registered_functions, SkipEmissionFn, collect_pointer_pointees, register_collect_type } :: import("./types/collection.yo");
 { collect_c_includes, emit_c_includes } :: import("./c/collection.yo");
 { generate_type_declarations, generate_dyn_box_types, generate_struct_declaration, generate_enum_declaration, generate_tuple_declaration, generate_union_declaration, generate_future_trait_declaration } :: import("./types/generation.yo");
 { fixup_dyn_impl_keys, register_dyn_upcast_targets } :: import("./utils/fixup.yo");
-{ generate_function_declarations } :: import("./functions/declarations.yo");
+{ generate_function_declarations, should_skip_function_codegen } :: import("./functions/declarations.yo");
 { generate_all_functions, generate_main_wrapper, emit_module_level_variable_declarations, emit_thread_local_accessors } :: import("./functions/generation.yo");
 { generate_dyn_box_functions, generate_dyn_wrapper_functions, generate_dyn_vtables, generate_dyn_dup_drop } :: import("./functions/dyn.yo");
 { register_generate_expr } :: import("./exprs/generation.yo");
@@ -435,11 +435,12 @@ typedef enum {
   // registers the closures they construct), and synthesize the disposes of
   // the types that walk adds, until neither adds anything
   // (issues/fixed/2026-11-05-a-closure-reached-only-through-a-drop-impl-is-an-internal-compiler-error.md).
+  // A function the emission skips (a generic `drop`'s original) is not walked.
   (mut(dispose_round) : bool) = true;
   while(dispose_round, {
     fns_before := base.functions.len();
     types_before := base.types.len();
-    collect_types_of_registered_functions(&base, info, &mut type_walked_fns);
+    collect_types_of_registered_functions(&base, info, &mut type_walked_fns, Option(SkipEmissionFn).Some(should_skip_function_codegen));
     collect_dispose_methods(&base, eval_ctx, module_env, info, exn);
     dispose_round = ((base.functions.len() != fns_before) || (base.types.len() != types_before));
   });
