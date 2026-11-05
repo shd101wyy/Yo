@@ -6483,34 +6483,30 @@ _some_type_is_callable :: (fn(ty : &TypeValue) -> bool)(
 /// The read rule (decision 43 step 2 N1e-2b, VERDICTS-23 R1): a
 /// reference-typed expression read at `tok` is the reference VALUE where its
 /// position expects a reference — a `&T` slot, payload, field or element, or
-/// a type binder bound to a reference (`T := &U`) — or an unbound type
-/// binder (`v : T`), which it binds to the reference. The unbound binder is
-/// either the expected type itself or, where a call passes no abstract
-/// expected type (`_evaluate_funcval_runtime_call`), the argument it marked
-/// (`at_binder`). A binder that stands for a callable (`Impl(Fn(...))`) is
-/// not one: a callable is called through, not held. Inside the trees that
-/// keep the old reading (`deref_rule_applies`), an unbound binder still
-/// takes the value until the deref adoption deletes the exemption.
+/// a type binder bound to a reference (`T := &U`) — or where it is a call's
+/// argument for an unbound type binder of the callee (`v : T`), which it
+/// binds to the reference (`at_binder`: the call marked it,
+/// `binder_read_mark`). A type parameter of the function being checked is
+/// not a binder there: in `_h :: (fn(generic(T), t : &T) -> T)(t)` the
+/// result position expects the rigid `T`, and `t` reads as its value. Inside
+/// the trees that keep the old reading (`deref_rule_applies`), an unbound
+/// binder still takes the value until the deref adoption deletes the
+/// exemption.
 reference_read_wanted :: (fn(tok : &Token, at_binder : bool, ctx : &EvalContext) -> bool)({
-  (unbound : bool) = at_binder;
   match(
     &ctx.expected_type,
     .Some(rw_et) => cond(
       t_slot_is_borrow(&rw_et.ty) => {
         return(true);
       },
-      (is_some_type(&rw_et.ty) && !_some_type_is_callable(&rw_et.ty)) => {
-        rw_b := get_value_of_some_type_from_env(&rw_et.env, &rw_et.ty);
-        if(t_slot_is_borrow(&rw_b), {
-          return(true);
-        });
-        unbound = (unbound || is_some_type(&rw_b));
-      },
+      (is_some_type(&rw_et.ty) && !_some_type_is_callable(&rw_et.ty)) => if(t_slot_is_borrow(&get_value_of_some_type_from_env(&rw_et.env, &rw_et.ty)), {
+        return(true);
+      }),
       true => ()
     ),
     .None => ()
   );
-  (unbound && deref_rule_applies(tok, ctx))
+  (at_binder && deref_rule_applies(tok, ctx))
 });
 /// Record whether the node `id` was read as a reference value (the read
 /// rule); a later evaluation of the same node at another position overrides.

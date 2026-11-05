@@ -82,7 +82,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../env.yo");
 // dup-on-store / move for owned fn-call args. utils.yo
 // imports nothing from calls/, so this is acyclic.
-{ set_expr_as_consumed, judge_capture_fnmut_at_fn_slot, deref_exempt_mark, deref_exempt_clear, variable_is_reference_binding, deref_rule_applies, is_reference_deref_site, reject_reference_without_deref, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, borrowed_place_read_only_handle, are_values_equal, require_expr_not_consumed, adopt_never_type, reject_bare_callable_into_dyn_fn, reject_bare_callable_result, bare_callable_recorded_into_dyn_fn, reject_second_class_escape, reject_second_class_return, require_capture_borrow_exclusivity, audit_copy_trait_enabled, audit_record_copy_trait, reject_write_through_rc, _owning_param_binding_for_capture_move, reference_field_read_type, reject_write_through_shared_reference_field, is_reference_read } :: import("../utils.yo");
+{ set_expr_as_consumed, judge_capture_fnmut_at_fn_slot, deref_exempt_mark, deref_exempt_clear, binder_read_mark, binder_read_clear, variable_is_reference_binding, deref_rule_applies, is_reference_deref_site, reject_reference_without_deref, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, borrowed_place_read_only_handle, are_values_equal, require_expr_not_consumed, adopt_never_type, reject_bare_callable_into_dyn_fn, reject_bare_callable_result, bare_callable_recorded_into_dyn_fn, reject_second_class_escape, reject_second_class_return, require_capture_borrow_exclusivity, audit_copy_trait_enabled, audit_record_copy_trait, reject_write_through_rc, _owning_param_binding_for_capture_move, reference_field_read_type, reject_write_through_shared_reference_field, is_reference_read } :: import("../utils.yo");
 { function_may_mutate_rc_storage } :: import("../effects/mutation_summary.yo");
 { some_t_bounds, TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, no_levels, no_flags, SharedList, slot_pointee_at, t_slot_pointee, t_slot, t_slot_like, fn_param_is_mut_ref, fn_param_is_by_value, fn_param_mut_ref_flags, fn_param_by_value_flags, t_slot_with_pointee, fn_result_is_ref, fn_result_is_mut_ref, t_slot_origin_names, is_origin_kind, t_origin_kind, t_origin_named, t_reference_with_origin, fn_trait_base_serves, fn_trait_call_contract, fn_trait_slot_contract, t_slot_is_borrow } :: import("../../types/definitions.yo");
 { Token, TokenKind } :: import("../../token.yo");
@@ -1787,12 +1787,18 @@ check_if_function_parameter_matches_argument :: (
   if(!is_ct_only && (!param_is_owning || (param_label == "self")), {
     deref_exempt_mark(&actual_arg);
   });
+  // The read rule's binder position (decision 43 step 2 N1e-2b): a by-value
+  // parameter typed by the callee's still-unbound type binder (`v : T`).
+  if(!is_ct_only && param_is_owning && !param_is_ref && is_some_type(&resolved_pt) && extract_fn_trait_from_type(&resolved_pt).is_none() && is_some_type(&get_value_of_some_type_from_env(&callee_env_r, &resolved_pt)), {
+    binder_read_mark(&actual_arg);
+  });
   evaled_arg := if(
     is_ct_only && is_origin_kind(&resolved_pt),
     evaluate_origin_argument(&actual_arg, caller_env, ctx, exn),
     evaluate_expression_raw(&actual_arg, caller_env, ctx, exn)
   );
   deref_exempt_clear();
+  binder_read_clear();
   ctx.expected_type = saved_exp;
   // A `&mut` argument or receiver writes the place it names: an element
   // access on it dispatches `IndexMut` (decision 34, V2b).
