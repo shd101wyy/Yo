@@ -3215,7 +3215,7 @@ _emit_one_deferred_async_block :: (fn(block : &DeferredAsyncBlock, context : &mu
       (mut(cp) : usize) = usize(0);
       while(cp < cps.len(), {
         match(
-          cps.get(cp),
+          cps.get_cloned(cp),
           .Some(slot) => {
             slot_var_id := `__closure_param_${cp.to_string()}`;
             filtered.push(_make_sm_captured_variable(&slot_var_id, slot.param_name.clone(), &slot.param_type, CapturedVariableKind.Local));
@@ -3278,7 +3278,7 @@ _emit_one_deferred_async_block :: (fn(block : &DeferredAsyncBlock, context : &mu
       (cp2 : usize) = usize(0);
       while(cp2 < cps.len(), {
         match(
-          cps.get(cp2),
+          cps.get_cloned(cp2),
           .Some(slot) => {
             merged_aliases.insert(`__closure_param_${cp2.to_string()}`, slot.field_name.clone());
           },
@@ -3326,7 +3326,7 @@ _emit_one_deferred_async_block :: (fn(block : &DeferredAsyncBlock, context : &mu
   sync_param_slot := match(
     &block.closure_param_slots,
     .Some(cps) => match(
-      cps.get(usize(0)),
+      cps.get_cloned(usize(0)),
       .Some(slot) => Option(SyncParamSlot).Some(SyncParamSlot(field_name : slot.field_name.clone(), c_type : slot.c_type.clone())),
       .None => Option(SyncParamSlot).None
     ),
