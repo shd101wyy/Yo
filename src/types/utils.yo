@@ -3097,16 +3097,6 @@ _round_up :: (fn(offset : usize, align : usize) -> usize)(
     true => ((((offset + align) - usize(1)) / align) * align)
   )
 );
-/// `ceil(log2(n))` — smallest `b` with `2^b >= n`. `n <= 1 → 0`.
-_ceil_log2 :: (fn(n : usize) -> usize)({
-  (b : usize) = usize(0);
-  (pow : usize) = usize(1);
-  while(pow < n, {
-    pow = (pow * usize(2));
-    b = (b + usize(1));
-  });
-  b
-});
 /// Max alignment (bytes) across a field-type list; `.None` if any is unknown.
 /// Recurses into `get_alignment_of_type` via the `g_alignment_of_type_fn` slot
 /// (set at module top level) to break the mutual forward reference.
@@ -3370,7 +3360,14 @@ _enum_value_size :: (fn(evf : &SharedList(SharedList(TypeValue))) -> Option(usiz
   cond(
     unknown => Option(usize).None,
     true => {
-      tag_bits := _round_up(_ceil_log2(n_v), usize(8));
+      // The tag is the C enum `__yo_tN_tag` (an `int`: 4 bytes on every
+      // supported target), whatever the variant count, so a payload aligned
+      // below 4 starts at offset 4: `Option(bool)` is 8 bytes in C. Sizing the
+      // tag by the variant count made it 4 here, and `Box.new`'s
+      // `size_of(T)`-byte allocation of a struct holding such fields was
+      // shorter than the C struct written into it
+      // (issues/fixed/2026-11-05-an-enum-with-a-payload-aligned-below-4-is-sized-with-a-one-byte-tag.md).
+      tag_bits := usize(32);
       data_align_bits := _max_usize(max_align_bits, usize(8));
       struct_align_bits := _max_usize(usize(32), data_align_bits);
       // Pad tag end up to data alignment, add data, then pad total to
