@@ -28,7 +28,7 @@
 /// that meant a `Pattern.At` with a NULL sub and a SIGSEGV the moment
 /// anything walked it
 /// (issues/fixed/at-pattern-subpattern-error-crashes-check.md).
-generate_recur :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
+generate_recur :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(codegen_fatal_expr(String.from("No arguments for recur call"))));
   match(
     &ei.runtime_arg_exprs_in_order,
@@ -91,12 +91,11 @@ generate_recur :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
                           record_declared_temp_var(context, sanitized_arg_temp.clone());
                           eff_ty := match(expr_info_converted_runtime_type(&aei2), .Some(ct) => ct, .None => Rc.clone(aei2.ty));
                           dline := indent.clone();
-                          dline.push_string(get_variable_type_string(&eff_ty, avn.clone(), &context.base));
+                          dline.push_string(get_variable_type_string(&eff_ty, avn.clone(), &mut context.base));
                           dline.push_str(" = ");
                           dline.push_string(arg_code.clone());
                           dline.push_str(";");
-                          dem := context.base.emitter;
-                          dem.emit_string_line(&dline);
+                          context.base.emitter.emit_string_line(&dline);
                         });
                       });
                     },
@@ -145,13 +144,12 @@ generate_recur :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
       match(
         &ei.variable_name,
         .Some(temp_var) => if(!is_unit_type(&ei.ty), {
-          c_type := get_type_string(&ei.ty, &context.base);
+          c_type := get_type_string(&ei.ty, &mut context.base);
           temp_var_name := get_variable_name_for_codegen_at(ast_expr_id(expr), temp_var.clone(), Option(Environment).Some(ei.env));
           already := match(&context.declared_temp_vars, .Some(s) => s.contains(temp_var_name.clone()), .None => false);
           if(!already, {
             record_declared_temp_var(context, temp_var_name.clone());
-            em := context.base.emitter;
-            em.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);
+            context.base.emitter.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);
             line := indent.clone();
             line.push_string(&c_type);
             line.push_str(" ");
@@ -159,7 +157,7 @@ generate_recur :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
             line.push_str(" = ");
             line.push_string(call_code.clone());
             line.push_str(";");
-            em.emit_string_line(&line);
+            context.base.emitter.emit_string_line(&line);
             // Deferred drops on the recur node — flushed AFTER the call is
             // emitted (aliasing Stage 0 attaches the balancing drop of a
             // projection-arg dup here; flushing BEFORE the call freed the
@@ -184,12 +182,11 @@ generate_recur :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
       // reference per call (`recur(values(i), out)` in std/encoding/json.yo
       // `_stringify_into`; issues/fixed/unit-recur-never-flushes-its-argument-drops.md).
       if(is_unit_type(&ei.ty), {
-        uem := context.base.emitter;
-        uem.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);
+        context.base.emitter.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);
         uline := indent.clone();
         uline.push_string(&call_code);
         uline.push_str(";");
-        uem.emit_string_line(&uline);
+        context.base.emitter.emit_string_line(&uline);
         generate_call_deferred_drops(expr, indent.clone(), context, true);
         emit_effect_unwind_check(indent.clone(), context, false, expr);
         return(String.from(""));
@@ -199,16 +196,15 @@ generate_recur :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
       // named-temp path above).
       fresh := fresh_local_name(String.from("__yo_recur"), context.base.current_function_name.clone());
       record_declared_temp_var(context, fresh.clone());
-      fem := context.base.emitter;
-      fem.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);
+      context.base.emitter.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);
       fline := indent.clone();
-      fline.push_string(get_type_string(&ei.ty, &context.base));
+      fline.push_string(get_type_string(&ei.ty, &mut context.base));
       fline.push_str(" ");
       fline.push_string(fresh.clone());
       fline.push_str(" = ");
       fline.push_string(call_code.clone());
       fline.push_str(";");
-      fem.emit_string_line(&fline);
+      context.base.emitter.emit_string_line(&fline);
       generate_call_deferred_drops(expr, indent.clone(), context, true);
       emit_effect_unwind_check(indent.clone(), context, false, expr);
       fresh

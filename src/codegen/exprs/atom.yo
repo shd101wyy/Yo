@@ -281,7 +281,7 @@ _generate_sm_atom :: (fn(expr : &AstExpr, var_name : &String, context : &Functio
               .None => false
             );
             if(is_ct_const, {
-              return(Option(String).Some(generate_comptime_value(match(ei5.value, .Some(v2) => v2, .None => EvalValue.UnitVal), match(expr_info_converted_runtime_type(&ei5), .Some(crt) => crt, .None => Rc.clone(ei5.ty)), &context.base)));
+              return(Option(String).Some(generate_comptime_value(match(ei5.value, .Some(v2) => v2, .None => EvalValue.UnitVal), match(expr_info_converted_runtime_type(&ei5), .Some(crt) => crt, .None => Rc.clone(ei5.ty)), &mut context.base)));
             });
             // By the SOURCE TOKEN, as the general path below reads a plain
             // identifier: a bare reference used as a cond/match arm value can
@@ -325,7 +325,7 @@ _exit_drop_variables :: (fn(exit_expr : &AstExpr, env : &Environment, var_name :
   });
   rec
 });
-_emit_loop_body_drops_before_exit :: (fn(context : &FunctionGenerationContext, indent : &String, exit_expr : &AstExpr) -> unit)(
+_emit_loop_body_drops_before_exit :: (fn(context : &mut FunctionGenerationContext, indent : &String, exit_expr : &AstExpr) -> unit)(
   match(
     &context.pending_deferred_drops,
     .Some(drops) => match(
@@ -438,8 +438,7 @@ _emit_loop_body_drops_before_exit :: (fn(context : &FunctionGenerationContext, i
                     mut(line) := indent.clone();
                     line.push_string(&drop_code);
                     line.push_str(";");
-                    em := context.base.emitter;
-                    em.emit_string_line(&line);
+                    context.base.emitter.emit_string_line(&line);
                   });
                 });
               });
@@ -521,7 +520,7 @@ _var_read_code :: (fn(key : ExprId, tv : &String, env_opt : &Option(Environment)
 });
 /// Generate C for an atom expression (literal / identifier / control-flow
 /// keyword).
-generate_atom :: (fn(expr : &AstExpr, context : &FunctionGenerationContext, indent : &String) -> String)({
+generate_atom :: (fn(expr : &AstExpr, context : &mut FunctionGenerationContext, indent : &String) -> String)({
   tok := ast_expr_token(expr);
   tv := tok.value.*.clone();
   // --- control flow keywords ---
@@ -571,7 +570,6 @@ generate_atom :: (fn(expr : &AstExpr, context : &FunctionGenerationContext, inde
     match(
       context.in_async_state_machine,
       .Some(iasm) => {
-        em := context.base.emitter;
         child_type := match(
           extract_future_trait_from_type(&iasm.future_type),
           .Some(ftt) => match(ftt, Rc(.FutureTraitT({ output : o })) => Rc.clone(o), _ => t_unit()),
@@ -592,7 +590,7 @@ generate_atom :: (fn(expr : &AstExpr, context : &FunctionGenerationContext, inde
                   .Some(de) => {
                     dc := _call_generate_expr(&de, indent.clone(), context);
                     if((dc.len() > usize(0)) && dc.contains("sm->"), {
-                      em.emit_string_line(`${indent.clone()}${dc.clone()};`);
+                      context.base.emitter.emit_string_line(`${indent.clone()}${dc.clone()};`);
                     });
                   },
                   .None => ()
@@ -608,7 +606,7 @@ generate_atom :: (fn(expr : &AstExpr, context : &FunctionGenerationContext, inde
         match(
           &context.pending_deferred_drops,
           .Some(pdd) => if(pdd.len() > usize(0), {
-            em.emit_string_line(`${indent.clone()}// Drop local variables before early completion`);
+            context.base.emitter.emit_string_line(`${indent.clone()}// Drop local variables before early completion`);
             (pdi : usize) = usize(0);
             while(pdi < pdd.len(), {
               match(
@@ -627,14 +625,14 @@ generate_atom :: (fn(expr : &AstExpr, context : &FunctionGenerationContext, inde
                     match(get_deferred_drop_target_atom(&pe), .Some(ta) => _generate_sm_atom(&ta, &ast_expr_token(&ta).value.*, context), .None => Option(String).None),
                     .Some(slot) => match(
                       sm_move_flag_of(slot.clone(), sm_owns_fnonce_captures(context)),
-                      .Some(flag) => em.emit_string_line(`${indent.clone()}if (${flag}) { memset(&(${slot}), 0, sizeof(${slot})); }`),
+                      .Some(flag) => context.base.emitter.emit_string_line(`${indent.clone()}if (${flag}) { memset(&(${slot}), 0, sizeof(${slot})); }`),
                       .None => ()
                     ),
                     .None => ()
                   );
                   pc := _call_generate_expr(&pe, indent.clone(), context);
                   if((pc.len() > usize(0)) && pc.contains("sm->"), {
-                    em.emit_string_line(`${indent.clone()}${pc.clone()};`);
+                    context.base.emitter.emit_string_line(`${indent.clone()}${pc.clone()};`);
                   });
                 }),
                 .None => ()
@@ -644,13 +642,13 @@ generate_atom :: (fn(expr : &AstExpr, context : &FunctionGenerationContext, inde
           }),
           .None => ()
         );
-        em.emit_string_line(`${indent.clone()}// Early return - complete the result Future`);
+        context.base.emitter.emit_string_line(`${indent.clone()}// Early return - complete the result Future`);
         result_code := if(
           !is_unit_result,
-          Option(String).Some(`(${get_type_string(&child_type, &context.base)}){0}`),
+          Option(String).Some(`(${get_type_string(&child_type, &mut context.base)}){0}`),
           Option(String).None
         );
-        emit_async_future_completion(&em, indent.clone(), &result_code, Option(String).Some(context.base.current_function_name.clone()));
+        emit_async_future_completion(&mut context.base.emitter, indent.clone(), &result_code, Option(String).Some(context.base.current_function_name.clone()));
         return(String.from(""));
       },
       .None => ()
@@ -735,7 +733,7 @@ generate_atom :: (fn(expr : &AstExpr, context : &FunctionGenerationContext, inde
             .None => false
           );
           if(is_comptime_const, {
-            return(match(ei.value, .Some(v) => generate_comptime_value(&v, match(expr_info_converted_runtime_type(&ei), .Some(crt) => crt, .None => Rc.clone(ei.ty)), &context.base), .None => String.from("")));
+            return(match(ei.value, .Some(v) => generate_comptime_value(&v, match(expr_info_converted_runtime_type(&ei), .Some(crt) => crt, .None => Rc.clone(ei.ty)), &mut context.base), .None => String.from("")));
           });
           // Closure-captured variable → access through closure_context.
           //
@@ -793,7 +791,7 @@ generate_atom :: (fn(expr : &AstExpr, context : &FunctionGenerationContext, inde
         // to `*(char)` must emit a bare C string literal, not a `__yo_str`).
         match(ei.value, .Some(v) => !is_unknown_val(&v), .None => false) => match(
           ei.value,
-          .Some(v) => generate_comptime_value(&v, match(expr_info_converted_runtime_type(&ei), .Some(crt) => crt, .None => Rc.clone(ei.ty)), &context.base),
+          .Some(v) => generate_comptime_value(&v, match(expr_info_converted_runtime_type(&ei), .Some(crt) => crt, .None => Rc.clone(ei.ty)), &mut context.base),
           .None => _var_read_code(ast_expr_id(expr), tv.clone(), &env_opt)
         ),
         true => _var_read_code(ast_expr_id(expr), tv.clone(), &env_opt)
@@ -842,7 +840,7 @@ _is_kept_move_site :: (fn(v : &Variable, tok : &Token) -> bool)({
 /// parameter before an await was released again when the task was aborted —
 /// a use-after-free once the new owner freed it. Any other read renders the
 /// slot itself.
-_sm_consuming_read :: (fn(expr : &AstExpr, name : &String, sm_code : &String, context : &FunctionGenerationContext) -> String)({
+_sm_consuming_read :: (fn(expr : &AstExpr, name : &String, sm_code : &String, context : &mut FunctionGenerationContext) -> String)({
   low := match(context.sm_inline_lowering, .Some(l) => l, .None => return(sm_code.clone()));
   if(low.rc_operand || !sm_code.starts_with("sm->"), {
     return(sm_code.clone());
@@ -888,8 +886,7 @@ _sm_consuming_read :: (fn(expr : &AstExpr, name : &String, sm_code : &String, co
     },
     .None => ()
   );
-  em := context.base.emitter;
-  em.defer_move_zero(marker.clone(), &stmts);
+  context.base.emitter.defer_move_zero(marker.clone(), &stmts);
   out := `${sm_code} ${marker}`;
   low.moved_reads.insert(eid, out.clone());
   out

@@ -56,7 +56,7 @@ _upcast_trait_values :: (fn(entry : &DynImplEntry, tgt : &TypeValue) -> ArrayLis
 /// `fixup_dyn_impl_keys`, on the id-keyed map, so the new entries are
 /// re-keyed with the rest. Iterates until no entry is added, so a chain
 /// (`Dyn(A, B, C)` → `Dyn(A, B)` → `Dyn(A)`) reaches every link.
-register_dyn_upcast_targets :: (fn(context : &CodeGenContext) -> unit)({
+register_dyn_upcast_targets :: (fn(context : &mut CodeGenContext) -> unit)({
   if(context.dyn_upcasts.is_empty(), {
     return(());
   });
@@ -100,7 +100,7 @@ register_dyn_upcast_targets :: (fn(context : &CodeGenContext) -> unit)({
   });
 });
 /// Fix up dyn impl keys to use C names instead of ids.
-fixup_dyn_impl_keys :: (fn(context : &CodeGenContext) -> unit)({
+fixup_dyn_impl_keys :: (fn(context : &mut CodeGenContext) -> unit)({
   new_map := HashMap(String, DynImplEntry).new();
   // Drain the current keys (Yo has no for-over-iterator).
   keys := ArrayList(String).new();

@@ -316,7 +316,7 @@ _reference_or_none :: (fn(t : Option(TypeValue)) -> Option(TypeValue))(
 /// pointer (`_apply_ref_amp`). A `&` field's `const T*` is read through a
 /// `T*`: the checker keeps the place read-only, and the place's address
 /// fills the `T*` every `&T` slot and projection result lowers to.
-generate_field_access :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
+generate_field_access :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
   code := _generate_field_access_raw(expr, indent, context);
   args := match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
   ref_ty := match(
@@ -333,12 +333,12 @@ generate_field_access :: (fn(expr : &AstExpr, indent : &String, context : &Funct
     .Some(Rc(.Reference(gf_pointee, gf_mut, _))) => cond(
       (code.len() == usize(0)) => code,
       gf_mut => `(*${code})`,
-      true => `(*((${get_type_string(&gf_pointee, &context.base)}*)${code}))`
+      true => `(*((${get_type_string(&gf_pointee, &mut context.base)}*)${code}))`
     ),
     _ => code
   )
 });
-_generate_field_access_raw :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
+_generate_field_access_raw :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("/* ERROR: field access not evaluated */")));
   args := match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
   if(args.len() != usize(2), {
@@ -405,7 +405,7 @@ _generate_field_access_raw :: (fn(expr : &AstExpr, indent : &String, context : &
       .Some(fv) => if(
         !is_unknown_val(&fv),
         if(!is_struct_val(&fv), {
-          return(generate_comptime_value(&fv, &ei.ty, &context.base));
+          return(generate_comptime_value(&fv, &ei.ty, &mut context.base));
         })
       ),
       .None => ()

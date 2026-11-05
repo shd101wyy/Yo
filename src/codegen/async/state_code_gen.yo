@@ -145,15 +145,14 @@ _await_future_expr_is_borrowed_place :: (fn(e : &AstExpr) -> bool)({
   ast_expr_is_atom(&root)
 });
 emit_future_store_into_slot :: (
-  fn(future_expr : &AstExpr, future_code : &String, slot : &String, indent : &String, context : &FunctionGenerationContext) -> unit
+  fn(future_expr : &AstExpr, future_code : &String, slot : &String, indent : &String, context : &mut FunctionGenerationContext) -> unit
 )({
-  em := context.base.emitter;
-  em.emit_string_line(`${indent}sm->${slot} = (void*)(${future_code});`);
+  context.base.emitter.emit_string_line(`${indent}sm->${slot} = (void*)(${future_code});`);
   if(_await_future_expr_is_borrowed_place(future_expr), {
-    em.emit_string_line(`${indent}// Borrowed future (read out of a field): the slot releases what it`);
-    em.emit_string_line(`${indent}// holds, so it needs a reference of its own — otherwise this await`);
-    em.emit_string_line(`${indent}// frees the field's future out from under its owner.`);
-    em.emit_string_line(`${indent}if (sm->${slot} != NULL) { __yo_incr_rc((void*)sm->${slot}); }`);
+    context.base.emitter.emit_string_line(`${indent}// Borrowed future (read out of a field): the slot releases what it`);
+    context.base.emitter.emit_string_line(`${indent}// holds, so it needs a reference of its own — otherwise this await`);
+    context.base.emitter.emit_string_line(`${indent}// frees the field's future out from under its owner.`);
+    context.base.emitter.emit_string_line(`${indent}if (sm->${slot} != NULL) { __yo_incr_rc((void*)sm->${slot}); }`);
   });
 });
 export(
