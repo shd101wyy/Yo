@@ -186,7 +186,7 @@ register_closure_capture_info :: (fn(func_id : &String, info : &ClosureCaptureIn
       );
       if(src_do_set, {
         src_info := info.clone();
-        g_closure_capture_by_source.with_mut({ src_key1, src_info }(m) => m.insert(src_key1, src_info));
+        g_closure_capture_by_source.with_mut({ src_key1, src_info : src_info.clone() }(m) => m.insert(src_key1, src_info));
       });
     },
     .None => ()
@@ -194,7 +194,7 @@ register_closure_capture_info :: (fn(func_id : &String, info : &ClosureCaptureIn
   // Owned captures (`with_mut`'s callback is a sink parameter).
   cci_key := func_id.clone();
   cci_info := info.clone();
-  g_closure_capture_info.with_mut({ cci_key, cci_info }(m) => m.insert(cci_key, cci_info));
+  g_closure_capture_info.with_mut({ cci_key, cci_info : cci_info.clone() }(m) => m.insert(cci_key, cci_info));
 });
 /// The recorded capture info for `func_id`, if any.
 /// Reverse lookup: capture-struct id → the closure func_id that registered it.
@@ -242,8 +242,8 @@ get_closure_capture_info :: (fn(func_id : &String) -> Option(ClosureCaptureInfo)
     src_info,
     .Some(si) => match(
       fid_info,
-      .Some(fi) => if(_capture_struct_field_count(&si.capture_type) > _capture_struct_field_count(&fi.capture_type), Option(ClosureCaptureInfo).Some(si), Option(ClosureCaptureInfo).Some(fi)),
-      .None => Option(ClosureCaptureInfo).Some(si)
+      .Some(fi) => if(_capture_struct_field_count(&si.capture_type) > _capture_struct_field_count(&fi.capture_type), Option(ClosureCaptureInfo).Some(si.clone()), Option(ClosureCaptureInfo).Some(fi.clone())),
+      .None => Option(ClosureCaptureInfo).Some(si.clone())
     ),
     .None => fid_info
   )
@@ -489,7 +489,7 @@ register_func_parameters_frame :: (fn(func_id : &String, frame : &Frame) -> unit
   // Owned key; `frame` is a `ref` handle, cheap to capture (`with_mut`'s
   // callback is a sink parameter).
   fpf_key := func_id.clone();
-  g_func_parameters_frame.with_mut({ fpf_key, frame }(m) => m.insert(fpf_key, frame));
+  g_func_parameters_frame.with_mut({ fpf_key, frame : Rc.clone(frame) }(m) => m.insert(fpf_key, frame));
 });
 /// Retrieve a function's parameter-bound frame, if captured.
 get_func_parameters_frame :: (fn(func_id : &String) -> Option(Frame))(

@@ -1171,7 +1171,7 @@ _resolve_package :: (
     exn : Exception
   ) -> Impl(Future(bool, IoExn))
 )(
-  io.async({ state, pi }(e : IoExn) => {
+  io.async({ state : Rc.clone(state), pi }(e : IoExn) => {
     pkg := state.packages.with(ps => ps(pi).clone());
     verbose := state.options.verbose;
     // A path package: its directory is fixed; expand once (or again if the
@@ -1378,7 +1378,7 @@ _resolve_round :: (
     exn : Exception
   ) -> Impl(Future(bool, IoExn))
 )(
-  io.async({ state }(e : IoExn) => {
+  io.async({ state : Rc.clone(state) }(e : IoExn) => {
     (changed : bool) = false;
     (i : usize) = usize(0);
     // `packages` may grow during the round (expansion adds packages); the

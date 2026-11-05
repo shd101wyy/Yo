@@ -848,7 +848,7 @@ register_enum_final :: (fn(enum_id : &String, ty : &TypeValue) -> unit)({
     // Owned captures (`with_mut`'s callback is a sink parameter).
     ef_key := enum_id.clone();
     ef_val := Rc.clone(ty);
-    g_enum_finals.with_mut({ ef_key, ef_val }(m) => m.insert(ef_key, ef_val));
+    g_enum_finals.with_mut({ ef_key, ef_val : Rc.clone(ef_val) }(m) => m.insert(ef_key, ef_val));
     bump_type_key_epoch();
   });
 });
@@ -960,7 +960,7 @@ stamp_enum_final_type_arguments :: (fn(enum_id : &String, args : &SharedList(Typ
         efvfs := Rc.clone(fvfs);
         efvfl := Rc.clone(fvfl);
         efdis := Rc.clone(fdis);
-        _ := g_enum_finals.with_mut({ ef_key, ef_fid, efnm, efsvn, efvns, efvfs, efvfl, efdis, firs, fiar, args : Rc.clone(args) }(m) => m.insert(ef_key, Rc.new(TypeValueNode.EnumT(ef_fid, efnm, efvns, efvfs, efsvn, efvfl, efdis, firs, fiar, Rc.clone(args)))));
+        _ := g_enum_finals.with_mut({ ef_key, ef_fid, efnm, efsvn, efvns : Rc.clone(efvns), efvfs : Rc.clone(efvfs), efvfl : Rc.clone(efvfl), efdis : Rc.clone(efdis), firs, fiar, args : Rc.clone(args) }(m) => m.insert(ef_key, Rc.new(TypeValueNode.EnumT(ef_fid, efnm, efvns, efvfs, efsvn, efvfl, efdis, firs, fiar, Rc.clone(args)))));
         bump_type_key_epoch();
       }),
       _ => ()
@@ -988,7 +988,7 @@ register_struct_final :: (fn(struct_id : &String, ty : &TypeValue) -> unit)({
     // Owned captures (`with_mut`'s callback is a sink parameter).
     sf_key := struct_id.clone();
     sf_val := Rc.clone(ty);
-    g_struct_finals.with_mut({ sf_key, sf_val }(m) => m.insert(sf_key, sf_val));
+    g_struct_finals.with_mut({ sf_key, sf_val : Rc.clone(sf_val) }(m) => m.insert(sf_key, sf_val));
     bump_type_key_epoch();
   });
 });
