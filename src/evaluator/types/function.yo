@@ -2318,7 +2318,7 @@ evaluate_function_parameter :: (
       ctx.expected_type = match(
         &param_type,
         .Some(pt) => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(Rc.clone(pt), env_mut)),
-        .None => saved_expected
+        .None => saved_expected.clone()
       );
       evaluated_dve := evaluate_expression_raw(&dve, env_mut, ctx, exn);
       ctx.expected_type = saved_expected;
