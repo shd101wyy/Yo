@@ -621,9 +621,9 @@ _materialize_arg :: (fn(arg : &AstExpr, param_is_ref : bool, expr : &AstExpr, in
         // hand, so neither a C local nor a dup applies. Falling back to the
         // binding's name read a C local that a resumed task never initialized
         // (issues/fixed/a-pattern-binding-moved-after-an-await-in-its-arm-reads-an-uninitialized-local.md).
-        // A place binding's slot holds its pointer: `(*sm->…)` reads through
-        // it, as `sm->…` reads a value slot.
-        is_sm := (arg_code.starts_with("sm->") || arg_code.starts_with("(*sm->"));
+        // A `&` match binding's slot holds its pointer: `(*sm->…)` reads
+        // through it, as `sm->…` reads a value slot.
+        is_sm := (arg_code.starts_with("sm->") || (arg_code.starts_with("(*sm->") && _root_is_borrow_match_binding(arg, context)));
         sanitized := get_variable_name_for_codegen_at(ast_expr_id(arg), vname.clone(), Option(Environment).Some(arg_ei.env));
         // A by-`ref` binding read passed BY VALUE generates `(*name)` (the deref
         // of the same variable). That is a simple read, NOT a fresh temp — do not
