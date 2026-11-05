@@ -204,7 +204,7 @@ comptime_value_allocates_rc_object :: (fn(value : &EvalValue, ty : &TypeValue) -
 // A value that allocates reference-counted objects cannot be a static
 // initializer, and neither can one with an unrenderable part: both keep the
 // placeholder.
-_static_address :: (fn(value : &EvalValue, ty : &TypeValue, path : &String, context : &CodeGenContext) -> String)(
+_static_address :: (fn(value : &EvalValue, ty : &TypeValue, path : &String, context : &mut CodeGenContext) -> String)(
   cond(
     comptime_value_allocates_rc_object(value, ty) => String.from("/* skip generating value */"),
     true => {
@@ -216,7 +216,7 @@ _static_address :: (fn(value : &EvalValue, ty : &TypeValue, path : &String, cont
     }
   )
 );
-generate_comptime_value :: (fn(value : &EvalValue, ty : &TypeValue, context : &CodeGenContext) -> String)(
+generate_comptime_value :: (fn(value : &EvalValue, ty : &TypeValue, context : &mut CodeGenContext) -> String)(
   match(
     value,
     .IntLit(raw) => {

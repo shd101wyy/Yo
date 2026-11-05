@@ -390,7 +390,7 @@ _keep_pending_drop :: (fn(drop_expr : &AstExpr, expr : &AstExpr, already : &Hash
 /// unwound. On that path the callee discarded its continuation instead of
 /// returning, so the temp was never assigned and still holds whatever the ABI
 /// left in the return registers — dropping it dereferences garbage.
-generate_pending_deferred_drops :: (fn(indent : &String, context : &FunctionGenerationContext, expr : &AstExpr, is_completion : bool, skip_already_dropped : bool, skip_env_check : bool, additional_skip : &Option(HashSet(String)), escaped_result : &Option(String)) -> unit)(
+generate_pending_deferred_drops :: (fn(indent : &String, context : &mut FunctionGenerationContext, expr : &AstExpr, is_completion : bool, skip_already_dropped : bool, skip_env_check : bool, additional_skip : &Option(HashSet(String)), escaped_result : &Option(String)) -> unit)(
   match(
     &context.pending_deferred_drops,
     .Some(pending) => if(pending.len() > usize(0), {
@@ -451,10 +451,9 @@ generate_pending_deferred_drops :: (fn(indent : &String, context : &FunctionGene
         i = (i + usize(1));
       });
       if(drops_to_emit.len() > usize(0), {
-        em := context.base.emitter;
         mut(msg) := indent.clone();
         msg.push_str(if(is_completion, "// Drop local variables before early completion", "// Drop local variables before early return"));
-        em.emit_string_line(&msg);
+        context.base.emitter.emit_string_line(&msg);
         m := drops_to_emit.len();
         (mut(j) : usize) = usize(0);
         while(j < m, {
@@ -466,7 +465,7 @@ generate_pending_deferred_drops :: (fn(indent : &String, context : &FunctionGene
                 mut(line) := indent.clone();
                 line.push_string(&code);
                 line.push_str(";");
-                em.emit_string_line(&line);
+                context.base.emitter.emit_string_line(&line);
               });
             },
             .None => ()
@@ -577,7 +576,7 @@ collect_names_released_by_escape_sequence :: (fn(expr : &AstExpr, context : &Fun
 /// sequence (the caller's own deferred drops); re-releasing one here would be a
 /// double free. Yo has no optional parameters, so every call site passes it
 /// explicitly (`.None` when nothing is excluded).
-generate_consumed_var_drops_for_escape :: (fn(indent : &String, context : &FunctionGenerationContext, expr : &AstExpr, skip_env_check : bool, exclude : &Option(HashSet(String)), escaped_result : &Option(String)) -> unit)(
+generate_consumed_var_drops_for_escape :: (fn(indent : &String, context : &mut FunctionGenerationContext, expr : &AstExpr, skip_env_check : bool, exclude : &Option(HashSet(String)), escaped_result : &Option(String)) -> unit)(
   match(
     &context.consumed_var_pending_drops,
     .Some(pending) => if(pending.len() > usize(0), {
@@ -707,10 +706,9 @@ generate_consumed_var_drops_for_escape :: (fn(indent : &String, context : &Funct
         i = (i + usize(1));
       });
       if(drops_to_emit.len() > usize(0), {
-        em := context.base.emitter;
         mut(hdr) := indent.clone();
         hdr.push_str("// Drop consumed variables (unwind propagation)");
-        em.emit_string_line(&hdr);
+        context.base.emitter.emit_string_line(&hdr);
         m := drops_to_emit.len();
         (mut(j) : usize) = usize(0);
         while(j < m, {
@@ -722,7 +720,7 @@ generate_consumed_var_drops_for_escape :: (fn(indent : &String, context : &Funct
                 mut(line) := indent.clone();
                 line.push_string(&code);
                 line.push_str(";");
-                em.emit_string_line(&line);
+                context.base.emitter.emit_string_line(&line);
               });
             },
             .None => ()
@@ -735,7 +733,7 @@ generate_consumed_var_drops_for_escape :: (fn(indent : &String, context : &Funct
   )
 );
 /// Deferred-dup handling for an atom return value.
-handle_atom_deferred_dup :: (fn(expr : &AstExpr, atom_code : String, indent : &String, context : &FunctionGenerationContext) -> String)(
+handle_atom_deferred_dup :: (fn(expr : &AstExpr, atom_code : String, indent : &String, context : &mut FunctionGenerationContext) -> String)(
   match(
     context.base.get_expr_info(expr),
     .Some(ei) => match(
@@ -755,12 +753,11 @@ handle_atom_deferred_dup :: (fn(expr : &AstExpr, atom_code : String, indent : &S
   )
 );
 /// Deferred-dup handling for a function-call return value.
-handle_func_call_deferred_dup :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
+handle_func_call_deferred_dup :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(_call_generate_expr(expr, indent.clone(), context)));
   match(
     expr_info_deferred_dup_expressions(&ei),
     .Some(dups) => if(dups.len() > usize(0), {
-      em := context.base.emitter;
       // The value is generated ONCE. When the evaluator gave the call a temp
       // variable, that temp is what the caller must read back — the tail of
       // `pick :: (fn(rows, r, f) -> String)(rows(r)(f))` used to emit
@@ -787,7 +784,7 @@ handle_func_call_deferred_dup :: (fn(expr : &AstExpr, indent : &String, context 
           value_var = Option(String).Some(if(self_named, raw_code.clone(), expr_temp_var.clone()));
           if(!self_named && !(expr_temp_var == raw_code), {
             mut(line) := indent.clone();
-            rt_ct := get_type_string(&ei.ty, &context.base);
+            rt_ct := get_type_string(&ei.ty, &mut context.base);
             line.push_string(rt_ct.clone());
             line.push_str(" ");
             line.push_string(expr_temp_var.clone());
@@ -804,7 +801,7 @@ handle_func_call_deferred_dup :: (fn(expr : &AstExpr, indent : &String, context 
             });
             line.push_string(&raw_code);
             line.push_str(";");
-            em.emit_string_line(&line);
+            context.base.emitter.emit_string_line(&line);
             // Register the declared temp BEFORE the dup pass below — the dup
             // emitter's undeclared-temp gate silently suppresses the +1 for
             // names not yet in declared_c_var_names (round-3 field-tail UAF).
@@ -816,7 +813,7 @@ handle_func_call_deferred_dup :: (fn(expr : &AstExpr, indent : &String, context 
           mut(line) := indent.clone();
           line.push_string(&raw_code);
           line.push_str(";");
-          em.emit_string_line(&line);
+          context.base.emitter.emit_string_line(&line);
         }
       );
       generate_deferred_dup_expressions(expr, indent.clone(), context);
@@ -839,7 +836,7 @@ handle_func_call_deferred_dup :: (fn(expr : &AstExpr, indent : &String, context 
   )
 });
 /// Generate a `return` statement.
-generate_return :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
+generate_return :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(codegen_fatal_expr(String.from("return expression missing metadata"))));
   args := match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
   // (ctl-handler resume is Phase 5: FGC has no continuation_variables — omitted.)
@@ -897,14 +894,13 @@ generate_return :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGen
           arg_self := is_self_named_atom(&arg, avn.clone());
           if(!is_inout_arg_atom && !arg_self && !(arg_temp_var == raw_arg_code), {
             mut(dline) := indent.clone();
-            dline.push_string(get_type_string(&aei2.ty, &context.base));
+            dline.push_string(get_type_string(&aei2.ty, &mut context.base));
             dline.push_str(" ");
             dline.push_string(arg_temp_var.clone());
             dline.push_str(" = ");
             dline.push_string(raw_arg_code.clone());
             dline.push_str(";");
-            em2 := context.base.emitter;
-            em2.emit_string_line(&dline);
+            context.base.emitter.emit_string_line(&dline);
             declare_c_var_name(&context.base, arg_temp_var.clone());
           });
           arg_code = if(is_inout_arg_atom || arg_self, raw_arg_code, arg_temp_var);
@@ -1003,14 +999,14 @@ generate_return :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGen
             .Some(aei_t) => {
               at := Rc.clone(aei_t.ty);
               if(!is_some_type(&at), {
-                sm_output_rt = Option(String).Some(get_type_string(&at, &context.base));
+                sm_output_rt = Option(String).Some(get_type_string(&at, &mut context.base));
               }, {
                 match(
                   &at,
                   Rc(.SomeT({ id : _ })) => match(
                     some_resolution(&at),
                     .Some(act) => {
-                      sm_output_rt = Option(String).Some(get_type_string(&act, &context.base));
+                      sm_output_rt = Option(String).Some(get_type_string(&act, &mut context.base));
                     },
                     .None => ()
                   ),
@@ -1026,14 +1022,14 @@ generate_return :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGen
           sm_output_rt,
           .Some(srt) => srt,
           .None => {
-            raw_rt := get_type_string(&ei.ty, &context.base);
+            raw_rt := get_type_string(&ei.ty, &mut context.base);
             cond(
               (raw_rt == "void*") => match(
                 &context.current_function_type,
                 .Some(ft) => match(
                   ft,
                   Rc(.Func({ result : r })) => {
-                    fr := get_type_string(&t_slot_pointee(&r), &context.base);
+                    fr := get_type_string(&t_slot_pointee(&r), &mut context.base);
                     cond((fr == "void*") => raw_rt, true => fr)
                   },
                   _ => raw_rt
@@ -1112,8 +1108,7 @@ generate_return :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGen
           });
           line.push_string(arg_code.clone());
           line.push_str(";");
-          em := context.base.emitter;
-          em.emit_string_line(&line);
+          context.base.emitter.emit_string_line(&line);
         }),
         .None => ()
       );
@@ -1193,8 +1188,7 @@ generate_return :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGen
               .None => arg_code.clone()
             );
             snap := fresh_local_name(String.from("__yo_sm_ret"), context.base.current_function_name.clone());
-            snap_em := context.base.emitter;
-            snap_em.emit_string_line(`${indent.clone()}${return_type.clone()} ${snap.clone()} = ${snap_value};`);
+            context.base.emitter.emit_string_line(`${indent.clone()}${return_type.clone()} ${snap.clone()} = ${snap_value};`);
             declare_c_var_name(&context.base, snap.clone());
             sm_result_snapshot = Option(String).Some(snap);
           });
@@ -1218,8 +1212,7 @@ generate_return :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGen
           );
           is_unit_result := is_unit_type(&child_ty);
           generate_pending_deferred_drops(indent.clone(), context, expr, true, false, false, Option(HashSet(String)).None, Option(String).None);
-          em_sm := context.base.emitter;
-          em_sm.emit_string_line(`${indent.clone()}// Final state - complete the result Future`);
+          context.base.emitter.emit_string_line(`${indent.clone()}// Final state - complete the result Future`);
           // `return_temp_var` is derived from the SOURCE-level variable name.
           // Inside a state machine a local of that name does not exist as a C
           // local — it was hoisted into the state struct as `sm->var_<id>` — so
@@ -1243,7 +1236,7 @@ generate_return :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGen
               )
             )
           );
-          emit_async_future_completion(&em_sm, indent.clone(), &result_code, Option(String).Some(context.base.current_function_name.clone()));
+          emit_async_future_completion(&mut context.base.emitter, indent.clone(), &result_code, Option(String).Some(context.base.current_function_name.clone()));
           return(String.from(""));
         },
         .None => ()
@@ -1346,14 +1339,13 @@ generate_return :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGen
           );
           is_unit_result_u := is_unit_type(&child_ty_u);
           generate_pending_deferred_drops(indent.clone(), context, expr, true, false, false, Option(HashSet(String)).None, Option(String).None);
-          em_smu := context.base.emitter;
-          em_smu.emit_string_line(`${indent.clone()}// Final state - complete the result Future (early unit return)`);
+          context.base.emitter.emit_string_line(`${indent.clone()}// Final state - complete the result Future (early unit return)`);
           result_code_u := if(
             is_unit_result_u,
             Option(String).None,
-            Option(String).Some(`(${get_type_string(&child_ty_u, &context.base)}){0}`)
+            Option(String).Some(`(${get_type_string(&child_ty_u, &mut context.base)}){0}`)
           );
-          emit_async_future_completion(&em_smu, indent.clone(), &result_code_u, Option(String).Some(context.base.current_function_name.clone()));
+          emit_async_future_completion(&mut context.base.emitter, indent.clone(), &result_code_u, Option(String).Some(context.base.current_function_name.clone()));
           return(String.from(""));
         },
         .None => ()
@@ -1364,8 +1356,7 @@ generate_return :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGen
   )
 });
 /// Generate an implicit function-body return.
-generate_implicit_return_statement :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> unit)({
-  em := context.base.emitter;
+generate_implicit_return_statement :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> unit)({
   match(
     expr,
     .Atom(_, _) => {
@@ -1379,7 +1370,7 @@ generate_implicit_return_statement :: (fn(expr : &AstExpr, indent : &String, con
       line.push_str("return ");
       line.push_string(&final_code);
       line.push_str(";");
-      em.emit_string_line(&line);
+      context.base.emitter.emit_string_line(&line);
     },
     .FnCall(_, _, _, _, _) => if(ast_expr_is_fn_call_of(expr, BK_RETURN, Option(usize).None) || ast_expr_is_fn_call_of(expr, BF_UNWIND, Option(usize).None), {
       // Control-flow tail (`return(...)` / `unwind(...)`): its generator already emits
@@ -1407,7 +1398,7 @@ generate_implicit_return_statement :: (fn(expr : &AstExpr, indent : &String, con
       mut(line) := indent.clone();
       line.push_string(&code);
       line.push_str(";");
-      em.emit_string_line(&line);
+      context.base.emitter.emit_string_line(&line);
     }, {
       final_code := handle_func_call_deferred_dup(expr, indent.clone(), context);
       // An EMPTY tail render means the expression emitted as STATEMENTS whose
@@ -1434,16 +1425,16 @@ generate_implicit_return_statement :: (fn(expr : &AstExpr, indent : &String, con
         ret_ty := match(&context.current_function_type, .Some(ft) => fn_result_pointee(&ft), .None => t_unit());
         ret_cty := _current_c_result_type(&ret_ty, context);
         if(has_pending_emittable_drop(expr, context) && (!is_unit_type(&ret_ty) || _current_result_is_ref(context)) && !(ret_cty == "void"), {
-          em.emit_string_line(`${indent.clone()}${ret_cty} __yo_scope_ret = ${final_code};`);
+          context.base.emitter.emit_string_line(`${indent.clone()}${ret_cty} __yo_scope_ret = ${final_code};`);
           generate_deferred_drop_expressions(expr, indent.clone(), context);
-          em.emit_string_line(`${indent.clone()}return __yo_scope_ret;`);
+          context.base.emitter.emit_string_line(`${indent.clone()}return __yo_scope_ret;`);
         }, {
           generate_deferred_drop_expressions(expr, indent.clone(), context, false, true);
           line := indent.clone();
           line.push_str("return ");
           line.push_string(&final_code);
           line.push_str(";");
-          em.emit_string_line(&line);
+          context.base.emitter.emit_string_line(&line);
         });
       }, {
         // The empty-render closer: dead in every valid program.
@@ -1451,22 +1442,21 @@ generate_implicit_return_statement :: (fn(expr : &AstExpr, indent : &String, con
         if(!is_unit_type(&eret_ty), {
           etrap := indent.clone();
           etrap.push_str("__yo_abort();  // unreachable: every path through the tail diverges");
-          em.emit_string_line(&etrap);
+          context.base.emitter.emit_string_line(&etrap);
         });
       });
     })
   )
 });
 /// Emit the effect-handler parameter drops (if any) before an escape return.
-_emit_effect_handler_param_drops :: (fn(context : &FunctionGenerationContext, indent : &String) -> unit)(
+_emit_effect_handler_param_drops :: (fn(context : &mut FunctionGenerationContext, indent : &String) -> unit)(
   match(
     &context.effect_handler_param_drops,
     .Some(drops) => {
-      em := context.base.emitter;
       (di : usize) = usize(0);
       while(di < drops.len(), {
         d := match(drops.get_cloned(di), .Some(s) => s, .None => String.from(""));
-        em.emit_string_line(`${indent.clone()}${d};`);
+        context.base.emitter.emit_string_line(`${indent.clone()}${d};`);
         di = (di + usize(1));
       });
     },
@@ -1485,12 +1475,12 @@ _current_result_is_ref :: (fn(context : &FunctionGenerationContext) -> bool)(
 );
 /// The C spelling of the current function's result: the override, else the
 /// declared result's type, as a pointer for a projection.
-_current_c_result_type :: (fn(rt : &TypeValue, context : &FunctionGenerationContext) -> String)(
+_current_c_result_type :: (fn(rt : &TypeValue, context : &mut FunctionGenerationContext) -> String)(
   match(
     &context.override_return_type_str,
     .Some(s) => s.clone(),
     .None => {
-      base := get_type_string(rt, &context.base);
+      base := get_type_string(rt, &mut context.base);
       if(_current_result_is_ref(context), {
         base.push_str("*");
       });
@@ -1502,8 +1492,7 @@ _current_c_result_type :: (fn(rt : &TypeValue, context : &FunctionGenerationCont
 /// functions, so two readings inside one function measure what was emitted
 /// between them.
 _code_position :: (fn(context : &FunctionGenerationContext) -> usize)({
-  em := context.base.emitter;
-  em.code_spilled_bytes + em.code.len()
+  context.base.emitter.code_spilled_bytes + context.base.emitter.code.len()
 });
 /// An escape sequence's drops run destructors, and a destructor is ordinary
 /// code: each may-unwind call in it clears `__yo_effect_escaped` first (the
@@ -1513,23 +1502,21 @@ _code_position :: (fn(context : &FunctionGenerationContext) -> usize)({
 /// value (a `Box` local dropped while an unwind passed through: `Box.drop`
 /// reads its flags word). So the flag is raised again after the drops when
 /// any were emitted (issues/fixed/an-unwind-through-a-frame-whose-destructor-calls-a-function-is-lost.md).
-_reraise_escape_after_drops :: (fn(indent : &String, context : &FunctionGenerationContext, before : usize) -> unit)(
+_reraise_escape_after_drops :: (fn(indent : &String, context : &mut FunctionGenerationContext, before : usize) -> unit)(
   if(_code_position(context) > before, {
-    em := context.base.emitter;
-    em.emit_string_line(`${indent.clone()}__yo_effect_escaped = 1;`);
+    context.base.emitter.emit_string_line(`${indent.clone()}__yo_effect_escaped = 1;`);
   })
 );
-_unwind_dummy_return :: (fn(indent : &String, context : &FunctionGenerationContext) -> String)({
+_unwind_dummy_return :: (fn(indent : &String, context : &mut FunctionGenerationContext) -> String)({
   rt := match(
     &context.current_function_type,
     .Some(ft) => fn_result_pointee(&ft),
     .None => t_unit()
   );
-  em := context.base.emitter;
-  if(is_unit_type(&rt) && !_current_result_is_ref(context), em.emit_string_line(`${indent.clone()}return;`), {
+  if(is_unit_type(&rt) && !_current_result_is_ref(context), context.base.emitter.emit_string_line(`${indent.clone()}return;`), {
     rts := _current_c_result_type(&rt, context);
-    if(rts == "void", em.emit_string_line(`${indent.clone()}return;`), {
-      em.emit_string_line(`${indent.clone()}return (${rts}){0};`);
+    if(rts == "void", context.base.emitter.emit_string_line(`${indent.clone()}return;`), {
+      context.base.emitter.emit_string_line(`${indent.clone()}return (${rts}){0};`);
     })
   });
   String.from("")
@@ -1548,9 +1535,8 @@ _unwind_dummy_return :: (fn(indent : &String, context : &FunctionGenerationConte
 /// abort via `emit_async_future_escape`); only the leak-prevention drop of
 /// segment-local arg temps is omitted (not exercised by the corpus — no
 /// async+effect-unwind fixture).
-emit_effect_unwind_check :: (fn(indent : &String, context : &FunctionGenerationContext, is_handler_installation : bool, expr : &AstExpr) -> unit)({
-  em := context.base.emitter;
-  em.emit_string_line(`${indent.clone()}if (__yo_effect_escaped) {`);
+emit_effect_unwind_check :: (fn(indent : &String, context : &mut FunctionGenerationContext, is_handler_installation : bool, expr : &AstExpr) -> unit)({
+  context.base.emitter.emit_string_line(`${indent.clone()}if (__yo_effect_escaped) {`);
   inner := indent.clone();
   inner.push_str("  ");
   // This call's own result temp must never be dropped on the escape path: the
@@ -1578,10 +1564,10 @@ emit_effect_unwind_check :: (fn(indent : &String, context : &FunctionGenerationC
     generate_pending_deferred_drops(inner.clone(), context, expr, false, true, true, Option(HashSet(String)).None, escaped_result.clone());
     generate_consumed_var_drops_for_escape(inner.clone(), context, expr, false, Option(HashSet(String)).Some(released_here), escaped_result.clone());
     if(is_handler_installation, {
-      em.emit_string_line(`${inner.clone()}__yo_effect_escaped = 0;`);
+      context.base.emitter.emit_string_line(`${inner.clone()}__yo_effect_escaped = 0;`);
     }, _reraise_escape_after_drops(inner.clone(), context, drops_from));
-    emit_sm_unwind_catch(&em, inner.clone(), &context.sm_unwind_catch);
-    emit_async_future_escape(&em, inner.clone(), Option(String).None, Option(String).None);
+    emit_sm_unwind_catch(&mut context.base.emitter, inner.clone(), &context.sm_unwind_catch);
+    emit_async_future_escape(&mut context.base.emitter, inner.clone(), Option(String).None, Option(String).None);
   }, {
     // skip_env_check=true: use the block-scope-stack liveness signal in
     // _keep_pending_drop's !use_env branch (context.declared_scopes), NOT the
@@ -1593,27 +1579,27 @@ emit_effect_unwind_check :: (fn(indent : &String, context : &FunctionGenerationC
     if(!is_handler_installation, _reraise_escape_after_drops(inner.clone(), context, drops_from));
     ret_ty := match(&context.current_function_type, .Some(ft) => fn_result_pointee(&ft), .None => t_unit());
     if(is_handler_installation, {
-      em.emit_string_line(`${inner.clone()}__yo_effect_escaped = 0;`);
-      if(is_unit_type(&ret_ty) && !_current_result_is_ref(context), em.emit_string_line(`${inner.clone()}return;`), {
+      context.base.emitter.emit_string_line(`${inner.clone()}__yo_effect_escaped = 0;`);
+      if(is_unit_type(&ret_ty) && !_current_result_is_ref(context), context.base.emitter.emit_string_line(`${inner.clone()}return;`), {
         cty := _current_c_result_type(&ret_ty, context);
-        if(cty == "void", em.emit_string_line(`${inner.clone()}return;`), {
-          em.emit_string_line(`${inner.clone()}${cty.clone()} _unw_result;`);
-          em.emit_string_line(`${inner.clone()}memcpy(&_unw_result, __yo_unwind_value, sizeof(${cty}));`);
-          em.emit_string_line(`${inner.clone()}return _unw_result;`);
+        if(cty == "void", context.base.emitter.emit_string_line(`${inner.clone()}return;`), {
+          context.base.emitter.emit_string_line(`${inner.clone()}${cty.clone()} _unw_result;`);
+          context.base.emitter.emit_string_line(`${inner.clone()}memcpy(&_unw_result, __yo_unwind_value, sizeof(${cty}));`);
+          context.base.emitter.emit_string_line(`${inner.clone()}return _unw_result;`);
         });
       });
     }, {
-      if(is_unit_type(&ret_ty) && !_current_result_is_ref(context), em.emit_string_line(`${inner.clone()}return;`), {
+      if(is_unit_type(&ret_ty) && !_current_result_is_ref(context), context.base.emitter.emit_string_line(`${inner.clone()}return;`), {
         cty := _current_c_result_type(&ret_ty, context);
         if(
           cty == "void",
-          em.emit_string_line(`${inner.clone()}return;`),
-          em.emit_string_line(`${inner.clone()}return (${cty}){0};`)
+          context.base.emitter.emit_string_line(`${inner.clone()}return;`),
+          context.base.emitter.emit_string_line(`${inner.clone()}return (${cty}){0};`)
         );
       });
     });
   });
-  em.emit_string_line(`${indent.clone()}}`);
+  context.base.emitter.emit_string_line(`${indent.clone()}}`);
 });
 /// Emit the deferred drops a call releases right after it returns, which come
 /// BEFORE the call's unwind check (`emit_effect_unwind_check`). The drops run
@@ -1631,23 +1617,21 @@ emit_effect_unwind_check :: (fn(indent : &String, context : &FunctionGenerationC
 /// between functions, so that position is still in it. The saved flag's name
 /// is a per-function fresh local, so emission is identical across compiles in
 /// one process.
-generate_call_deferred_drops :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext, may_unwind : bool) -> unit)({
-  em := context.base.emitter;
-  drops_at := em.code.len();
+generate_call_deferred_drops :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext, may_unwind : bool) -> unit)({
+  drops_at := context.base.emitter.code.len();
   generate_deferred_drop_expressions(expr, indent.clone(), context, true);
-  if(may_unwind && (em.code.len() > drops_at), {
+  if(may_unwind && (context.base.emitter.code.len() > drops_at), {
     keep := fresh_local_name(String.from("__yo_escaped_keep_"), &context.base.current_function_name);
     save_line := `${indent.clone()}int ${keep.clone()} = __yo_effect_escaped;\n`;
-    em.code.insert_str(drops_at, &save_line);
-    em.emit_string_line(`${indent.clone()}__yo_effect_escaped = (__yo_effect_escaped | ${keep});`);
+    context.base.emitter.code.insert_str(drops_at, &save_line);
+    context.base.emitter.emit_string_line(`${indent.clone()}__yo_effect_escaped = (__yo_effect_escaped | ${keep});`);
   });
 });
 /// Record whose unwind is in flight: the handler being generated. The frame
 /// that installed it (`unwind_catches_of_body`) is the one that catches it.
-_emit_unwind_target :: (fn(indent : &String, context : &FunctionGenerationContext) -> unit)({
+_emit_unwind_target :: (fn(indent : &String, context : &mut FunctionGenerationContext) -> unit)({
   origin := match(&context.current_unwind_origin, .Some(o) => o.clone(), .None => String.from("0"));
-  em := context.base.emitter;
-  em.emit_string_line(`${indent}__yo_unwind_target = ${origin};`);
+  context.base.emitter.emit_string_line(`${indent}__yo_unwind_target = ${origin};`);
 });
 /// `unwind(expr)` — discard the continuation and exit the enclosing control
 /// function. Async-state-machine context routes through
@@ -1659,7 +1643,7 @@ _emit_unwind_target :: (fn(indent : &String, context : &FunctionGenerationContex
 /// body (`unwind_tail_param_drops_id`, set by
 /// generate_implicit_return_statement): emitted with the drop preamble, after
 /// the operand. Once: the field is cleared.
-_emit_unwind_tail_param_drops :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> unit)(
+_emit_unwind_tail_param_drops :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> unit)(
   match(
     context.unwind_tail_param_drops_id,
     .Some(tail_id) => if(tail_id == ast_expr_id(expr), {
@@ -1669,9 +1653,8 @@ _emit_unwind_tail_param_drops :: (fn(expr : &AstExpr, indent : &String, context 
     .None => ()
   )
 );
-generate_unwind :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
+generate_unwind :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
   arg_opt := match(expr, .FnCall(_, _, Rc(a), _, _) => a.get(usize(0)), _ => Option(AstExpr).None);
-  em := context.base.emitter;
   is_async := match(context.in_async_state_machine, .Some(_) => true, .None => false);
   // One release per variable per escape sequence (see
   // collect_names_released_by_escape_sequence): the pending channel just
@@ -1683,7 +1666,7 @@ generate_unwind :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGen
       .Some(arg) => {
         argc := _call_generate_expr(&arg, indent.clone(), context);
         if((argc.len() > usize(0)) && !(argc == "(void)0"), {
-          em.emit_string_line(`${indent.clone()}(void)${argc};`);
+          context.base.emitter.emit_string_line(`${indent.clone()}(void)${argc};`);
         });
       },
       .None => ()
@@ -1693,8 +1676,8 @@ generate_unwind :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGen
     generate_pending_deferred_drops(indent.clone(), context, expr, false, true, true, Option(HashSet(String)).None, Option(String).None);
     generate_consumed_var_drops_for_escape(indent.clone(), context, expr, true, Option(HashSet(String)).Some(released_by_unwind), Option(String).None);
     // No handler's unwind: the abort carries no value for anyone to catch.
-    em.emit_string_line(`${indent.clone()}__yo_unwind_target = 0;`);
-    emit_async_future_escape(&em, indent.clone(), Option(String).None, Option(String).Some(context.base.current_function_name.clone()));
+    context.base.emitter.emit_string_line(`${indent.clone()}__yo_unwind_target = 0;`);
+    emit_async_future_escape(&mut context.base.emitter, indent.clone(), Option(String).None, Option(String).Some(context.base.current_function_name.clone()));
     return(String.from(""));
   });
   // Synchronous effect handler: set the thread-local escape flag. ORDER
@@ -1710,7 +1693,7 @@ generate_unwind :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGen
     arg_opt,
     .None => {
       _emit_unwind_target(indent.clone(), context);
-      em.emit_string_line(`${indent.clone()}__yo_effect_escaped = 1;`);
+      context.base.emitter.emit_string_line(`${indent.clone()}__yo_effect_escaped = 1;`);
       drops_from := _code_position(context);
       _emit_effect_handler_param_drops(context, indent.clone());
       _emit_unwind_tail_param_drops(expr, indent, context);
@@ -1733,11 +1716,11 @@ generate_unwind :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGen
       arg_ty := match(context.base.get_expr_info(&arg), .Some(ei) => Rc.clone(ei.ty), .None => t_unit());
       argc := if(is_unit_type(&arg_ty) || (argc_expr.len() == usize(0)) || (argc_expr == "(void)0"), argc_expr, {
         unw_tmp := fresh_local_name(String.from("__yo_unw_operand_"), &context.base.current_function_name);
-        em.emit_string_line(`${indent.clone()}${get_type_string(&arg_ty, &context.base)} ${unw_tmp.clone()} = ${argc_expr};`);
+        context.base.emitter.emit_string_line(`${indent.clone()}${get_type_string(&arg_ty, &mut context.base)} ${unw_tmp.clone()} = ${argc_expr};`);
         unw_tmp
       });
       _emit_unwind_target(indent.clone(), context);
-      em.emit_string_line(`${indent.clone()}__yo_effect_escaped = 1;`);
+      context.base.emitter.emit_string_line(`${indent.clone()}__yo_effect_escaped = 1;`);
       drops_from := _code_position(context);
       _emit_effect_handler_param_drops(context, indent.clone());
       _emit_unwind_tail_param_drops(expr, indent, context);
@@ -1752,15 +1735,15 @@ generate_unwind :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGen
           &context.current_function_type,
           .Some(_) => {
             if(!is_unit_type(&arg_ty), {
-              ats := get_type_string(&arg_ty, &context.base);
-              em.emit_string_line(`${indent.clone()}{ ${ats.clone()} _unw_val = ${argc.clone()}; memcpy(__yo_unwind_value, &_unw_val, sizeof(${ats})); }`);
+              ats := get_type_string(&arg_ty, &mut context.base);
+              context.base.emitter.emit_string_line(`${indent.clone()}{ ${ats.clone()} _unw_val = ${argc.clone()}; memcpy(__yo_unwind_value, &_unw_val, sizeof(${ats})); }`);
             });
           },
           .None => ()
         );
         _unwind_dummy_return(indent.clone(), context)
       }, {
-        em.emit_string_line(`${indent.clone()}return ${argc.clone()};`);
+        context.base.emitter.emit_string_line(`${indent.clone()}return ${argc.clone()};`);
         String.from("")
       })
     }

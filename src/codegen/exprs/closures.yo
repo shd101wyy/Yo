@@ -28,13 +28,13 @@ closure_capture_counter_reset :: (fn() -> unit)({
 /// (check_variable_is_closure_captured), so a direct import back would be a
 /// cycle — codegen_c.yo installs the fn at codegen init instead (the same
 /// pattern as register_collect_type / register_on_demand_declare).
-SmAtomResolverFn :: (fn(expr : &AstExpr, var_name : &String, context : &FunctionGenerationContext) -> Option(String));
+SmAtomResolverFn :: (fn(expr : &AstExpr, var_name : &String, context : &mut FunctionGenerationContext) -> Option(String));
 (mut(g_sm_atom_resolver) : Option(SmAtomResolverFn)) = Option(SmAtomResolverFn).None;
 set_sm_atom_resolver :: (fn(f : SmAtomResolverFn) -> unit)({
   g_sm_atom_resolver = Option(SmAtomResolverFn).Some(f);
   ()
 });
-_resolve_sm_atom :: (fn(expr : &AstExpr, var_name : &String, context : &FunctionGenerationContext) -> Option(String))(
+_resolve_sm_atom :: (fn(expr : &AstExpr, var_name : &String, context : &mut FunctionGenerationContext) -> Option(String))(
   match(
     g_sm_atom_resolver,
     .Some(f) => f(expr, var_name, context),
@@ -49,14 +49,14 @@ _resolve_sm_atom :: (fn(expr : &AstExpr, var_name : &String, context : &Function
 /// cycle — so codegen_c.yo installs the fn at codegen init, right beside the
 /// SM resolver above. A capture-list field's by-value initializer carries its
 /// RC +1 that way: materialize the initializer, then the dup.
-DeferredDupOrCodeFn :: (fn(expr : &AstExpr, fallback_code : &String, indent : &String, context : &FunctionGenerationContext) -> String);
+DeferredDupOrCodeFn :: (fn(expr : &AstExpr, fallback_code : &String, indent : &String, context : &mut FunctionGenerationContext) -> String);
 (mut(g_deferred_dup_or_code) : Option(DeferredDupOrCodeFn)) = Option(DeferredDupOrCodeFn).None;
 set_deferred_dup_or_code :: (fn(f : DeferredDupOrCodeFn) -> unit)({
   g_deferred_dup_or_code = Option(DeferredDupOrCodeFn).Some(f);
   ()
 });
 _emit_deferred_dup_or_code :: (
-  fn(expr : &AstExpr, fallback_code : &String, indent : &String, context : &FunctionGenerationContext) -> String
+  fn(expr : &AstExpr, fallback_code : &String, indent : &String, context : &mut FunctionGenerationContext) -> String
 )(
   match(
     g_deferred_dup_or_code,
@@ -158,7 +158,7 @@ _is_capture_record_rebuild :: (fn(ei : &ExprInfo) -> bool)(
 );
 /// `__yo_capture_field(c, i)`: field `i` of closure `c`'s capture record, in
 /// place (`(c).<field>`, or `(c)-><field>` through a pointer).
-generate_yo_capture_field :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
+generate_yo_capture_field :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
   cf_args := match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), _ => ArrayList(AstExpr).new());
   recv := match(cf_args.get(usize(0)), .Some(a) => a, .None => return(codegen_fatal_expr(String.from("__yo_capture_field requires 2 arguments"))));
   idx_e := match(cf_args.get(usize(1)), .Some(a) => a, .None => return(codegen_fatal_expr(String.from("__yo_capture_field requires 2 arguments"))));
@@ -203,7 +203,7 @@ generate_yo_capture_field :: (fn(expr : &AstExpr, indent : &String, context : &F
 /// for a moved atom. Otherwise the machine's early-completion and dispose
 /// drops released the value the closure owns
 /// (issues/fixed/2026-10-29-an-early-return-in-an-io-async-body-drops-a-local-it-moved.md).
-_sm_moved_capture_read :: (fn(expr : &AstExpr, label : &String, sm_code : String, ei : &ExprInfo, context : &FunctionGenerationContext) -> String)({
+_sm_moved_capture_read :: (fn(expr : &AstExpr, label : &String, sm_code : String, ei : &ExprInfo, context : &mut FunctionGenerationContext) -> String)({
   if(!sm_code.starts_with("sm->"), {
     return(sm_code);
   });
@@ -253,11 +253,10 @@ _sm_moved_capture_read :: (fn(expr : &AstExpr, label : &String, sm_code : String
     .Some(flag) => `${flag} = 1;  // moved into a closure's capture`,
     .None => `memset(&(${sm_code}), 0, sizeof(${sm_code}));  // moved into a closure's capture`
   );
-  em := context.base.emitter;
-  em.defer_move_zero(marker.clone(), &stmts);
+  context.base.emitter.defer_move_zero(marker.clone(), &stmts);
   `${sm_code} ${marker}`
 });
-generate_closure_construction :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
+generate_closure_construction :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(codegen_fatal_expr(String.from("Missing closure metadata"))));
   // A capture-record rebuild (a closure's clone) has no function value: its
   // code is the receiver's, whose call mapping is already registered.
@@ -376,8 +375,7 @@ generate_closure_construction :: (fn(expr : &AstExpr, indent : &String, context 
                         .Some(ew_e) => {
                           ew_code := _call_generate_expr(&ew_e, indent.clone(), context);
                           if(ew_code.len() > usize(0), {
-                            ew_em := context.base.emitter;
-                            ew_em.emit_string_line(`${indent.clone()}${ew_code};`);
+                            context.base.emitter.emit_string_line(`${indent.clone()}${ew_code};`);
                           });
                         },
                         .None => ()
@@ -456,8 +454,7 @@ generate_closure_construction :: (fn(expr : &AstExpr, indent : &String, context 
     decl.push_str(" = ");
     decl.push_string(&data);
     decl.push_str(";");
-    em := context.base.emitter;
-    em.emit_string_line(&decl);
+    context.base.emitter.emit_string_line(&decl);
     // Rule 1: an owning temp with a task slot is dropped through the slot, so
     // the capture struct goes there too
     // (issues/fixed/a-closure-literal-argument-inside-an-io-async-body-never-releases-its-captures.md).
@@ -468,7 +465,7 @@ generate_closure_construction :: (fn(expr : &AstExpr, indent : &String, context 
           &context.state_machine_variables,
           .Some(smv) => match(
             sm_slot_of(ast_expr_id(expr), &ei.env, &cvn2, &smv, &context.variable_id_remapping, &context.state_machine_field_aliases, &context.sm_capture_slot),
-            .Some(slot) => em.emit_string_line(`${indent.clone()}${slot} = ${temp.clone()};`),
+            .Some(slot) => context.base.emitter.emit_string_line(`${indent.clone()}${slot} = ${temp.clone()};`),
             .None => ()
           ),
           .None => ()
@@ -481,8 +478,7 @@ generate_closure_construction :: (fn(expr : &AstExpr, indent : &String, context 
       return(temp);
     });
     key := match(resolve_some_type_to_concrete(&capture_ty), Rc(.Struct({ id : kid })) => kid.clone(), _ => struct_id.clone());
-    cg_base := context.base;
-    cg_base.impl_closure_call_map.insert(
+    context.base.impl_closure_call_map.insert(
       key,
       ImplClosureCallInfo(
         function_c_name : function_c_name,
@@ -505,16 +501,15 @@ generate_closure_construction :: (fn(expr : &AstExpr, indent : &String, context 
     // `(void){}` / `(void*){}` (incomplete-type C errors).
     concrete_c_name := match(
       get_closure_capture_info(fid.clone()),
-      .Some(nc_cci) => get_type_string(&nc_cci.capture_type, &context.base),
+      .Some(nc_cci) => get_type_string(&nc_cci.capture_type, &mut context.base),
       .None => match(
         context.base.get_type_c_name(concrete_id.clone()),
         .Some(n) => n,
-        .None => get_type_string(&concrete, &context.base)
+        .None => get_type_string(&concrete, &mut context.base)
       )
     );
     key := concrete_id;
-    cg_base := context.base;
-    cg_base.impl_closure_call_map.insert(
+    context.base.impl_closure_call_map.insert(
       key,
       ImplClosureCallInfo(
         function_c_name : function_c_name,
@@ -563,7 +558,7 @@ _enclosing_closure_capture_read :: (fn(key : ExprId, name : &String, env : &Envi
 /// before the closure's construction site (which also registers the map), so the
 /// call-site lookup misses. The capture struct comes from the
 /// get_closure_capture_info side-table (keyed by func_id).
-register_impl_closure_call_mappings :: (fn(context : &FunctionGenerationContext) -> unit)({
+register_impl_closure_call_mappings :: (fn(context : &mut FunctionGenerationContext) -> unit)({
   for(&context.base.functions, (fid, entry) => {
     if(is_closure_fn(fid.clone()), {
       match(
@@ -576,8 +571,7 @@ register_impl_closure_call_mappings :: (fn(context : &FunctionGenerationContext)
             _ => String.from("")
           );
           if(key.len() > usize(0), {
-            cg_base := context.base;
-            cg_base.impl_closure_call_map.insert(
+            context.base.impl_closure_call_map.insert(
               key,
               ImplClosureCallInfo(
                 function_c_name : entry.c_name.clone(),

@@ -163,7 +163,7 @@ resolve_evidence_field_from_given_bindings :: (fn(field_label : &String, context
 /// Inject struct-record effect fields (e.g. Exception.throw) into a Future's
 /// capture struct. Resolves each fn field from SM captures, caller evidence
 /// params, or `given` bindings.
-emit_effect_record_injection :: (fn(source_namespace_type : &TypeValue, future_type : &TypeValue, future_var : &String, indent : &String, context : &FunctionGenerationContext, expr : &AstExpr) -> unit)({
+emit_effect_record_injection :: (fn(source_namespace_type : &TypeValue, future_type : &TypeValue, future_var : &String, indent : &String, context : &mut FunctionGenerationContext, expr : &AstExpr) -> unit)({
   field_labels := match(source_namespace_type, Rc(.Struct({ field_labels : fl })) => Rc.clone(fl), _ => no_labels());
   field_types := match(source_namespace_type, Rc(.Struct({ field_types : ft })) => Rc.clone(ft), _ => no_types());
   (mut(i) : usize) = usize(0);
@@ -218,7 +218,7 @@ emit_effect_record_injection :: (fn(source_namespace_type : &TypeValue, future_t
 });
 /// Inject the effect bundle from `io.spawn(future, bundle)` into the future's SM
 /// through its vtable's bundle slot (`__yo_future_set_bundle`).
-emit_io_spawn_effect_injection :: (fn(expr : &AstExpr, future_var : &String, indent : &String, context : &FunctionGenerationContext) -> unit)({
+emit_io_spawn_effect_injection :: (fn(expr : &AstExpr, future_var : &String, indent : &String, context : &mut FunctionGenerationContext) -> unit)({
   args := match(expr, .FnCall(_, _, _, _, _) => ast_call_args_unmarked(expr), _ => return());
   future_arg := match(args.get(usize(0)), .Some(a) => a, .None => return());
   future_arg_type := match(context.base.get_expr_info(&future_arg), .Some(ei) => Rc.clone(ei.ty), .None => return());
@@ -241,26 +241,24 @@ emit_io_spawn_effect_injection :: (fn(expr : &AstExpr, future_var : &String, ind
     ),
     .None => Rc.clone(effect.ty)
   );
-  bundle_type := get_type_string(&cast_type, &context.base);
+  bundle_type := get_type_string(&cast_type, &mut context.base);
   tmp_name := fresh_local_name(String.from("__yo_eff_bundle_"), &context.base.current_function_name);
-  em := context.base.emitter;
-  em.emit_string_line(`${indent.clone()}${bundle_type} ${tmp_name.clone()} = ${bundle_code};`);
+  context.base.emitter.emit_string_line(`${indent.clone()}${bundle_type} ${tmp_name.clone()} = ${bundle_code};`);
   // `io.spawn` consumes its future (decision 13, §3.13 A1), so the future
   // is cold here and this spawn is the one that starts it: it takes the
   // bundle. (A second spawn of one task, whose bundle rule this replaced,
   // can no longer be written.)
-  em.emit_string_line(`${indent.clone()}__yo_future_set_bundle((void*)${future_var.clone()}, (void*)&${tmp_name});`);
+  context.base.emitter.emit_string_line(`${indent.clone()}__yo_future_set_bundle((void*)${future_var.clone()}, (void*)&${tmp_name});`);
 });
 /// Generate effect-injection code for an `io.await` cold-start.
 /// Early-returns when the future has
 /// no effect (the BASELINE no-effect case).
-emit_effect_injection_for_await :: (fn(expr : &AstExpr, future_var : &String, indent : &String, context : &FunctionGenerationContext) -> unit)({
+emit_effect_injection_for_await :: (fn(expr : &AstExpr, future_var : &String, indent : &String, context : &mut FunctionGenerationContext) -> unit)({
   args := match(expr, .FnCall(_, _, _, _, _) => ast_call_args_unmarked(expr), _ => return());
   future_arg := match(args.get(usize(0)), .Some(a) => a, .None => return());
   future_arg_type := match(context.base.get_expr_info(&future_arg), .Some(ei) => Rc.clone(ei.ty), .None => return());
   ft := match(extract_future_trait_from_type(&future_arg_type), .Some(t) => t, .None => return());
   effect := match(_first_future_effect(&ft), .Some(e) => e, .None => return());
-  em := context.base.emitter;
   cond(
     is_function_type(&effect.ty) => match(
       resolve_effect_field_from_scope(effect.label.clone(), context),
@@ -284,10 +282,10 @@ emit_effect_injection_for_await :: (fn(expr : &AstExpr, future_var : &String, in
           .Some(bae) => if(is_module_type(&bae.ty) || is_struct_type(&bae.ty), Rc.clone(bae.ty), Rc.clone(effect.ty)),
           .None => Rc.clone(effect.ty)
         );
-        bundle_type := get_type_string(&bundle_cast_ty, &context.base);
+        bundle_type := get_type_string(&bundle_cast_ty, &mut context.base);
         tmp_name := fresh_local_name(String.from("__yo_eff_bundle_"), &context.base.current_function_name);
-        em.emit_string_line(`${indent.clone()}${bundle_type} ${tmp_name.clone()} = ${bundle_code};`);
-        em.emit_string_line(`${indent.clone()}__yo_future_set_bundle((void*)${future_var.clone()}, (void*)&${tmp_name});`);
+        context.base.emitter.emit_string_line(`${indent.clone()}${bundle_type} ${tmp_name.clone()} = ${bundle_code};`);
+        context.base.emitter.emit_string_line(`${indent.clone()}__yo_future_set_bundle((void*)${future_var.clone()}, (void*)&${tmp_name});`);
       },
       .None => emit_effect_record_injection(&effect.ty, &future_arg_type, future_var.clone(), indent.clone(), context, expr)
     ),
@@ -297,10 +295,10 @@ emit_effect_injection_for_await :: (fn(expr : &AstExpr, future_var : &String, in
         context.base.get_expr_info(&bundle_arg),
         .Some(bei) => {
           bundle_code := _call_generate_expr(&bundle_arg, indent.clone(), context);
-          bundle_type := get_type_string(&bei.ty, &context.base);
+          bundle_type := get_type_string(&bei.ty, &mut context.base);
           tmp_name := fresh_local_name(String.from("__yo_eff_bundle_"), &context.base.current_function_name);
-          em.emit_string_line(`${indent.clone()}${bundle_type} ${tmp_name.clone()} = ${bundle_code};`);
-          em.emit_string_line(`${indent.clone()}__yo_future_set_bundle((void*)${future_var.clone()}, (void*)&${tmp_name});`);
+          context.base.emitter.emit_string_line(`${indent.clone()}${bundle_type} ${tmp_name.clone()} = ${bundle_code};`);
+          context.base.emitter.emit_string_line(`${indent.clone()}__yo_future_set_bundle((void*)${future_var.clone()}, (void*)&${tmp_name});`);
         },
         .None => ()
       ),
@@ -311,7 +309,7 @@ emit_effect_injection_for_await :: (fn(expr : &AstExpr, future_var : &String, in
 /// `await` — extract a value from a Future. Inside a state machine, returns "" (the
 /// FSM resume generator handles the suspension). For `io.await` outside a state
 /// machine, emits a synchronous blocking wait (cold-start, poll, extract).
-generate_await :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
+generate_await :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
   args := match(expr, .FnCall(_, _, _, _, _) => ast_call_args_unmarked(expr), _ => return(codegen_fatal_expr(String.from("await requires exactly 1 argument"))));
   future_arg := match(args.get(usize(0)), .Some(a) => a, .None => return(codegen_fatal_expr(String.from("await requires exactly 1 argument"))));
   future_type := match(context.base.get_expr_info(&future_arg), .Some(ei) => Rc.clone(ei.ty), .None => return(codegen_fatal_expr(String.from("await argument must be a Future type"))));
@@ -333,7 +331,7 @@ generate_await :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
   expr_ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(codegen_fatal_expr(String.from("await missing ExprInfo"))));
   expr_type := Rc.clone(expr_ei.ty);
   future_code := _call_generate_expr(&future_arg, indent.clone(), context);
-  future_type_name := get_type_string(&future_type, &context.base);
+  future_type_name := get_type_string(&future_type, &mut context.base);
   // Result type (resolve SomeType to concrete): read the await
   // expr's own recorded type, then that type's resolution — never a global.
   // Until Phase 3.7 a SomeT's resolution was a per-LINEAGE shared cell (the
@@ -397,7 +395,6 @@ generate_await :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
       .None => ()
     );
   });
-  em := context.base.emitter;
   // Unit-result detection (output unit, or unresolved-SomeType + unit call type).
   is_result_unit := (is_unit_type(&result_type) || (is_some_type(&result_type) && is_unit_type(&expr_type)));
   // Unique names per io.await call site. When the await result has no bound temp
@@ -407,31 +404,31 @@ generate_await :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
   name_suffix := match(&expr_ei.variable_name, .Some(n) => n.clone(), .None => ast_expr_id(expr).to_string());
   sync_future_var := if(name_suffix.len() > usize(0), `__sync_future_${name_suffix.clone()}`, String.from("__sync_future"));
   pre_await_state_var := if(name_suffix.len() > usize(0), `__pre_await_state_${name_suffix.clone()}`, String.from("__pre_await_state"));
-  em.emit_string_line(`${indent.clone()}// Synchronous await (io.await outside state machine)`);
-  em.emit_string_line(`${indent.clone()}${future_type_name} ${sync_future_var.clone()} = ${future_code};`);
-  em.emit_string_line(`${indent.clone()}int ${pre_await_state_var.clone()} = ${sync_future_var.clone()}->state;`);
+  context.base.emitter.emit_string_line(`${indent.clone()}// Synchronous await (io.await outside state machine)`);
+  context.base.emitter.emit_string_line(`${indent.clone()}${future_type_name} ${sync_future_var.clone()} = ${future_code};`);
+  context.base.emitter.emit_string_line(`${indent.clone()}int ${pre_await_state_var.clone()} = ${sync_future_var.clone()}->state;`);
   // Only cold-start state-machine futures; Io futures are already submitted.
   is_io_future := is_io_future_type(&future_type);
   if(!is_io_future, {
-    em.emit_string_line(`${indent.clone()}if (${pre_await_state_var.clone()} == 0 && ${sync_future_var.clone()}->vt && ${sync_future_var.clone()}->vt->resume) {`);
+    context.base.emitter.emit_string_line(`${indent.clone()}if (${pre_await_state_var.clone()} == 0 && ${sync_future_var.clone()}->vt && ${sync_future_var.clone()}->vt->resume) {`);
     emit_effect_injection_for_await(expr, sync_future_var.clone(), indent.clone(), context);
-    em.emit_string_line(`${indent.clone()}  __yo_incr_rc((void*)${sync_future_var.clone()});  // event loop reference`);
-    em.emit_string_line(`${indent.clone()}  ${sync_future_var.clone()}->vt->resume((void*)${sync_future_var.clone()});`);
-    em.emit_string_line(`${indent.clone()}}`);
+    context.base.emitter.emit_string_line(`${indent.clone()}  __yo_incr_rc((void*)${sync_future_var.clone()});  // event loop reference`);
+    context.base.emitter.emit_string_line(`${indent.clone()}  ${sync_future_var.clone()}->vt->resume((void*)${sync_future_var.clone()});`);
+    context.base.emitter.emit_string_line(`${indent.clone()}}`);
   });
-  em.emit_string_line(`${indent.clone()}{`);
-  em.emit_string_line(`${indent.clone()}  int __await_state = ${sync_future_var.clone()}->state;`);
-  em.emit_string_line(`${indent.clone()}  while (__await_state != -1 && __await_state != -2) {`);
-  em.emit_string_line(`${indent.clone()}    __yo_async_poll_step();`);
-  em.emit_string_line(`${indent.clone()}    __await_state = ${sync_future_var.clone()}->state;`);
-  em.emit_string_line(`${indent.clone()}  }`);
-  em.emit_string_line(`${indent.clone()}  if (__await_state == -2) {`);
+  context.base.emitter.emit_string_line(`${indent.clone()}{`);
+  context.base.emitter.emit_string_line(`${indent.clone()}  int __await_state = ${sync_future_var.clone()}->state;`);
+  context.base.emitter.emit_string_line(`${indent.clone()}  while (__await_state != -1 && __await_state != -2) {`);
+  context.base.emitter.emit_string_line(`${indent.clone()}    __yo_async_poll_step();`);
+  context.base.emitter.emit_string_line(`${indent.clone()}    __await_state = ${sync_future_var.clone()}->state;`);
+  context.base.emitter.emit_string_line(`${indent.clone()}  }`);
+  context.base.emitter.emit_string_line(`${indent.clone()}  if (__await_state == -2) {`);
   // Awaiting an unwind-aborted task observes the abort, so it is not
   // "unhandled", and takes over the unwind that caused it (below: caught here
   // or propagated).
-  em.emit_string_line(`${indent.clone()}    __yo_task_abort_take_unwind((void*)${sync_future_var.clone()});`);
+  context.base.emitter.emit_string_line(`${indent.clone()}    __yo_task_abort_take_unwind((void*)${sync_future_var.clone()});`);
   // The await consumed the future (decision 13): release it on this exit too.
-  em.emit_string_line(`${indent.clone()}    __yo_decr_rc((void*)${sync_future_var.clone()});`);
+  context.base.emitter.emit_string_line(`${indent.clone()}    __yo_decr_rc((void*)${sync_future_var.clone()});`);
   // One abort semantics (plans/ASYNC_IO_API_AUDIT.md A2, decision Q1): an
   // aborted future propagates its abort to this awaiter, whether it was
   // aborted before the await started or while it waited, and whether or not
@@ -478,48 +475,48 @@ generate_await :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
     match(
       match(&context.unwind_catches, .Some(ucs) => unwind_catch_condition(&ucs), .None => Option(String).None),
       .Some(catch_cond) => {
-        em.emit_string_line(`${indent.clone()}    if ${catch_cond} {`);
-        em.emit_string_line(`${indent.clone()}      __yo_unwind_target = 0;`);
-        em.emit_string_line(`${indent.clone()}      __yo_effect_escaped = 0;`);
+        context.base.emitter.emit_string_line(`${indent.clone()}    if ${catch_cond} {`);
+        context.base.emitter.emit_string_line(`${indent.clone()}      __yo_unwind_target = 0;`);
+        context.base.emitter.emit_string_line(`${indent.clone()}      __yo_effect_escaped = 0;`);
         match(
           &return_type,
           .Some(rt) => if(!is_unit_type(&rt), {
-            caller_c_type := get_type_string(&rt, &context.base);
+            caller_c_type := get_type_string(&rt, &mut context.base);
             if(caller_c_type != "void", {
-              em.emit_string_line(`${indent.clone()}      ${caller_c_type.clone()} _unw_result;`);
-              em.emit_string_line(`${indent.clone()}      memcpy(&_unw_result, __yo_unwind_value, sizeof(${caller_c_type}));`);
-              em.emit_string_line(`${indent.clone()}      return _unw_result;`);
+              context.base.emitter.emit_string_line(`${indent.clone()}      ${caller_c_type.clone()} _unw_result;`);
+              context.base.emitter.emit_string_line(`${indent.clone()}      memcpy(&_unw_result, __yo_unwind_value, sizeof(${caller_c_type}));`);
+              context.base.emitter.emit_string_line(`${indent.clone()}      return _unw_result;`);
             }, {
-              em.emit_string_line(`${indent.clone()}      return;`);
+              context.base.emitter.emit_string_line(`${indent.clone()}      return;`);
             });
           }, {
-            em.emit_string_line(`${indent.clone()}      return;`);
+            context.base.emitter.emit_string_line(`${indent.clone()}      return;`);
           }),
-          .None => em.emit_string_line(`${indent.clone()}      return;`)
+          .None => context.base.emitter.emit_string_line(`${indent.clone()}      return;`)
         );
-        em.emit_string_line(`${indent.clone()}    }`);
+        context.base.emitter.emit_string_line(`${indent.clone()}    }`);
       },
       .None => ()
     );
     // Anyone else's unwind (or a cancellation) propagates to this caller.
-    em.emit_string_line(`${indent.clone()}    __yo_effect_escaped = 1;`);
+    context.base.emitter.emit_string_line(`${indent.clone()}    __yo_effect_escaped = 1;`);
     match(
       return_type,
       .Some(rt) => if(!is_unit_type(&rt), {
-        return_type_str := get_type_string(&rt, &context.base);
+        return_type_str := get_type_string(&rt, &mut context.base);
         if(return_type_str != "void", {
-          em.emit_string_line(`${indent.clone()}    return (${return_type_str}){0};`);
+          context.base.emitter.emit_string_line(`${indent.clone()}    return (${return_type_str}){0};`);
         }, {
-          em.emit_string_line(`${indent.clone()}    return;`);
+          context.base.emitter.emit_string_line(`${indent.clone()}    return;`);
         });
       }, {
-        em.emit_string_line(`${indent.clone()}    return;`);
+        context.base.emitter.emit_string_line(`${indent.clone()}    return;`);
       }),
-      .None => em.emit_string_line(`${indent.clone()}    return;`)
+      .None => context.base.emitter.emit_string_line(`${indent.clone()}    return;`)
     );
   };
-  em.emit_string_line(`${indent.clone()}  }`);
-  em.emit_string_line(`${indent.clone()}}`);
+  context.base.emitter.emit_string_line(`${indent.clone()}  }`);
+  context.base.emitter.emit_string_line(`${indent.clone()}}`);
   // The await consumed the future (plans/VALUES_BY_DEFAULT.md decision 13,
   // §3.13 A1): it MOVES the result out, then releases the future. State -3
   // marks the result as taken, so the future's dispose (which drops a
@@ -527,41 +524,40 @@ generate_await :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
   // can observe it: the future was moved into this await.
   if(!is_result_unit, {
     result_var := match(&expr_ei.variable_name, .Some(n) => sanitize_for_c_identifier(&n, false), .None => `__sync_await_result_${ast_expr_id(expr).to_string()}`);
-    var_decl := get_variable_type_string(&result_type, result_var.clone(), &context.base);
+    var_decl := get_variable_type_string(&result_type, result_var.clone(), &mut context.base);
     // Every abort returned above, so the future is Completed here.
-    em.emit_string_line(`${indent.clone()}${var_decl} = ${sync_future_var.clone()}->result;`);
+    context.base.emitter.emit_string_line(`${indent.clone()}${var_decl} = ${sync_future_var.clone()}->result;`);
     if(type_contains_rc_cell_or_move_only(&result_type), {
-      em.emit_string_line(`${indent.clone()}${sync_future_var.clone()}->state = -3;`);
+      context.base.emitter.emit_string_line(`${indent.clone()}${sync_future_var.clone()}->state = -3;`);
     });
-    em.emit_string_line(`${indent.clone()}__yo_decr_rc((void*)${sync_future_var.clone()});`);
+    context.base.emitter.emit_string_line(`${indent.clone()}__yo_decr_rc((void*)${sync_future_var.clone()});`);
     return(result_var);
   });
-  em.emit_string_line(`${indent.clone()}__yo_decr_rc((void*)${sync_future_var.clone()});`);
+  context.base.emitter.emit_string_line(`${indent.clone()}__yo_decr_rc((void*)${sync_future_var.clone()});`);
   String.from("")
 });
 /// `io.state` — read a Future's raw state, mapped to the FutureState enum
 /// (Cold=0, Running=1, Completed=-1, Aborted=-2). A raw I/O future (no vtable)
 /// is submitted when it is created, so its pending state 0 reads as Running,
 /// never Cold (plans/ASYNC_IO_API_AUDIT.md F4).
-generate_state :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
+generate_state :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
   args := match(expr, .FnCall(_, _, _, _, _) => ast_call_args_unmarked(expr), _ => return(codegen_fatal_expr(String.from("io.state requires exactly 1 argument"))));
   future_arg := match(args.get(usize(0)), .Some(a) => a, .None => return(codegen_fatal_expr(String.from("io.state requires exactly 1 argument"))));
   future_type := match(context.base.get_expr_info(&future_arg), .Some(ei) => Rc.clone(ei.ty), .None => return(codegen_fatal_expr(String.from("io.state argument must be a Future type"))));
   if(!type_implements_future(&future_type), {
     return(codegen_fatal_expr(String.from("io.state argument must be a Future type")));
   });
-  em := context.base.emitter;
   future_code := _call_generate_expr(&future_arg, indent.clone(), context);
   expr_ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(codegen_fatal_expr(String.from("io.state missing ExprInfo"))));
   name_suffix := match(&expr_ei.variable_name, .Some(n) => n.clone(), .None => String.from(""));
   raw_var := if(name_suffix.len() > usize(0), `__raw_state_${name_suffix.clone()}`, String.from("__raw_state"));
   result_var := match(&expr_ei.variable_name, .Some(n) => sanitize_for_c_identifier(&n, false), .None => String.from("__io_state_result"));
   fut_var := if(name_suffix.len() > usize(0), `__state_future_${name_suffix.clone()}`, String.from("__state_future"));
-  em.emit_string_line(`${indent.clone()}${get_type_string(&future_type, &context.base)} ${fut_var.clone()} = ${future_code};`);
-  em.emit_string_line(`${indent.clone()}int ${raw_var.clone()} = ${fut_var.clone()}->state;`);
+  context.base.emitter.emit_string_line(`${indent.clone()}${get_type_string(&future_type, &mut context.base)} ${fut_var.clone()} = ${future_code};`);
+  context.base.emitter.emit_string_line(`${indent.clone()}int ${raw_var.clone()} = ${fut_var.clone()}->state;`);
   // Reading Aborted observes an effect-unwind abort (emit_task_abort_registry).
-  em.emit_string_line(`${indent.clone()}if (${raw_var.clone()} == -2) __yo_task_abort_observed((void*)${fut_var.clone()});`);
-  em.emit_string_line(`${indent.clone()}int32_t ${result_var.clone()} = ((${raw_var.clone()} > 0) || ((${raw_var.clone()} == 0) && (((__yo_future_header_t*)(void*)${fut_var.clone()})->vt == NULL))) ? 1 : ${raw_var.clone()};`);
+  context.base.emitter.emit_string_line(`${indent.clone()}if (${raw_var.clone()} == -2) __yo_task_abort_observed((void*)${fut_var.clone()});`);
+  context.base.emitter.emit_string_line(`${indent.clone()}int32_t ${result_var.clone()} = ((${raw_var.clone()} > 0) || ((${raw_var.clone()} == 0) && (((__yo_future_header_t*)(void*)${fut_var.clone()})->vt == NULL))) ? 1 : ${raw_var.clone()};`);
   result_var
 });
 /// The `.Some` variant's first field type of an `Option(T)` enum, if present.
@@ -594,18 +590,17 @@ join_handle_is_value_struct :: (fn(ty : &TypeValue) -> bool)(
   match(ty, Rc(.Struct({ is_reference_semantics : r })) => !r, _ => false)
 );
 /// The C type of a value `JoinHandle`'s `__future` field.
-join_handle_future_field_c_type :: (fn(ty : &TypeValue, context : &FunctionGenerationContext) -> String)(
+join_handle_future_field_c_type :: (fn(ty : &TypeValue, context : &mut FunctionGenerationContext) -> String)(
   match(
     ty,
-    Rc(.Struct({ field_types : fts })) => match(fts.get(usize(0)), .Some(ft) => get_type_string(&ft, &context.base), .None => String.from("void*")),
+    Rc(.Struct({ field_types : fts })) => match(fts.get(usize(0)), .Some(ft) => get_type_string(&ft, &mut context.base), .None => String.from("void*")),
     _ => String.from("void*")
   )
 );
 /// `JoinHandle.await(io)` — poll a spawned task, return Option(T). Casts the
 /// handle's void* future to a common header layout, polls until completed/aborted,
 /// and builds .Some(result)/.None.
-generate_join_handle_await :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
-  em := context.base.emitter;
+generate_join_handle_await :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
   // Method call: expr.func is `.`(handle, "await"); self (JoinHandle) is func.args[0].
   func_expr := match(expr, .FnCall(_, f, _, _, _) => f, _ => return(codegen_fatal_expr(String.from("JoinHandle.await requires a self argument"))));
   func_is_call := match(func_expr, .FnCall(_, _, _, _, _) => true, _ => false);
@@ -626,13 +621,13 @@ generate_join_handle_await :: (fn(expr : &AstExpr, indent : &String, context : &
   if(!is_enum_type(&option_type), {
     return(codegen_fatal_expr(String.from("JoinHandle.await return type must be Option(T)")));
   });
-  option_type_name := get_type_string(&option_type, &context.base);
+  option_type_name := get_type_string(&option_type, &mut context.base);
   // Extract T from Option(T): the .Some variant's first field type.
   result_type_opt := _option_some_field_type(&option_type);
   is_result_unit := match(&result_type_opt, .Some(t) => is_unit_type(&t), .None => true);
   result_type_name := match(
     &result_type_opt,
-    .Some(t) => if(is_unit_type(&t), String.from("uint8_t"), get_type_string(&t, &context.base)),
+    .Some(t) => if(is_unit_type(&t), String.from("uint8_t"), get_type_string(&t, &mut context.base)),
     .None => String.from("uint8_t")
   );
   some_tag := get_enum_variant_c_name(&option_type, String.from("Some"), &context.base);
@@ -648,36 +643,36 @@ generate_join_handle_await :: (fn(expr : &AstExpr, indent : &String, context : &
   header_var := `__jh_header_${unique_suffix.clone()}`;
   result_var := match(&expr_ei.variable_name, .Some(n) => sanitize_for_c_identifier(&n, false), .None => String.from("__jh_result"));
   header_struct_name := `__yo_jh_header_${unique_suffix.clone()}`;
-  em.emit_string_line(`${indent.clone()}// JoinHandle.await — poll spawned task, return Option(T)`);
-  var_decl := get_variable_type_string(&option_type, result_var.clone(), &context.base);
-  em.emit_string_line(`${indent.clone()}${var_decl};`);
-  em.emit_string_line(`${indent.clone()}{`);
-  em.emit_string_line(`${indent.clone()}  void* ${fut_var.clone()} = (void*)(${handle_code})${jh_member};`);
-  em.emit_string_line(`${indent.clone()}  struct ${header_struct_name.clone()} {`);
-  em.emit_string_line(`${indent.clone()}    __YO_FUTURE_PREFIX`);
-  em.emit_string_line(`${indent.clone()}    ${result_type_name.clone()} result;`);
-  em.emit_string_line(`${indent.clone()}  };`);
-  em.emit_string_line(`${indent.clone()}  struct ${header_struct_name.clone()}* ${header_var.clone()} = (struct ${header_struct_name.clone()}*)${fut_var.clone()};`);
-  em.emit_string_line(`${indent.clone()}  int __jh_state = ${header_var.clone()}->state;`);
-  em.emit_string_line(`${indent.clone()}  while (__jh_state != -1 && __jh_state != -2) {`);
-  em.emit_string_line(`${indent.clone()}    __yo_async_poll_step();`);
-  em.emit_string_line(`${indent.clone()}    __jh_state = ${header_var.clone()}->state;`);
-  em.emit_string_line(`${indent.clone()}  }`);
-  em.emit_string_line(`${indent.clone()}  if (__jh_state == -1) {`);
+  context.base.emitter.emit_string_line(`${indent.clone()}// JoinHandle.await — poll spawned task, return Option(T)`);
+  var_decl := get_variable_type_string(&option_type, result_var.clone(), &mut context.base);
+  context.base.emitter.emit_string_line(`${indent.clone()}${var_decl};`);
+  context.base.emitter.emit_string_line(`${indent.clone()}{`);
+  context.base.emitter.emit_string_line(`${indent.clone()}  void* ${fut_var.clone()} = (void*)(${handle_code})${jh_member};`);
+  context.base.emitter.emit_string_line(`${indent.clone()}  struct ${header_struct_name.clone()} {`);
+  context.base.emitter.emit_string_line(`${indent.clone()}    __YO_FUTURE_PREFIX`);
+  context.base.emitter.emit_string_line(`${indent.clone()}    ${result_type_name.clone()} result;`);
+  context.base.emitter.emit_string_line(`${indent.clone()}  };`);
+  context.base.emitter.emit_string_line(`${indent.clone()}  struct ${header_struct_name.clone()}* ${header_var.clone()} = (struct ${header_struct_name.clone()}*)${fut_var.clone()};`);
+  context.base.emitter.emit_string_line(`${indent.clone()}  int __jh_state = ${header_var.clone()}->state;`);
+  context.base.emitter.emit_string_line(`${indent.clone()}  while (__jh_state != -1 && __jh_state != -2) {`);
+  context.base.emitter.emit_string_line(`${indent.clone()}    __yo_async_poll_step();`);
+  context.base.emitter.emit_string_line(`${indent.clone()}    __jh_state = ${header_var.clone()}->state;`);
+  context.base.emitter.emit_string_line(`${indent.clone()}  }`);
+  context.base.emitter.emit_string_line(`${indent.clone()}  if (__jh_state == -1) {`);
   if(is_result_unit, {
-    em.emit_string_line(`${indent.clone()}    ${result_var.clone()} = (${option_type_name.clone()}){ .tag = ${some_tag.clone()} };`);
+    context.base.emitter.emit_string_line(`${indent.clone()}    ${result_var.clone()} = (${option_type_name.clone()}){ .tag = ${some_tag.clone()} };`);
   }, {
     rt := match(result_type_opt, .Some(t) => Rc.clone(t), .None => Rc.new(TypeValueNode.Unit));
     if(handle_is_value && type_contains_rc_cell_or_move_only(&rt), {
       // A value handle is consumed (§3.13 A3): the result moves out of the
       // task, which no longer drops it (`-3`, result taken; the same
       // protocol as `io.await`).
-      em.emit_string_line(`${indent.clone()}    ${result_var.clone()} = ${some_open.clone()}${header_var.clone()}->result${some_close.clone()};`);
-      em.emit_string_line(`${indent.clone()}    ${header_var.clone()}->state = -3;  // result taken`);
+      context.base.emitter.emit_string_line(`${indent.clone()}    ${result_var.clone()} = ${some_open.clone()}${header_var.clone()}->result${some_close.clone()};`);
+      context.base.emitter.emit_string_line(`${indent.clone()}    ${header_var.clone()}->state = -3;  // result taken`);
     }, if(type_contains_rc_cell_or_move_only(&rt), {
       match(
         get_dup_function_for_type(&rt, context),
-        .Some(dup_fn) => em.emit_string_line(`${indent.clone()}    ${result_var.clone()} = ${some_open.clone()}${dup_fn}(${header_var.clone()}->result)${some_close.clone()};`),
+        .Some(dup_fn) => context.base.emitter.emit_string_line(`${indent.clone()}    ${result_var.clone()} = ${some_open.clone()}${dup_fn}(${header_var.clone()}->result)${some_close.clone()};`),
         // INLINE dup, not a bare copy — same trap as generate_await's sync
         // path above: no ___dup methods are synthesized, so `.None` is
         // the ONLY path here, and the bare copy handed out a BORROWED
@@ -690,26 +685,26 @@ generate_join_handle_await :: (fn(expr : &AstExpr, indent : &String, context : &
         // sibling). The dup's side statements go through the same emitter.
         .None => {
           dup_code := generate_dup_code_for_value(`${header_var.clone()}->result`, &rt, context);
-          em.emit_string_line(`${indent.clone()}    ${result_var.clone()} = ${some_open.clone()}${dup_code}${some_close.clone()};`);
+          context.base.emitter.emit_string_line(`${indent.clone()}    ${result_var.clone()} = ${some_open.clone()}${dup_code}${some_close.clone()};`);
         }
       );
     }, {
-      em.emit_string_line(`${indent.clone()}    ${result_var.clone()} = ${some_open.clone()}${header_var.clone()}->result${some_close.clone()};`);
+      context.base.emitter.emit_string_line(`${indent.clone()}    ${result_var.clone()} = ${some_open.clone()}${header_var.clone()}->result${some_close.clone()};`);
     }));
   });
-  em.emit_string_line(`${indent.clone()}  } else {`);
-  em.emit_string_line(`${indent.clone()}    __yo_effect_escaped = 0;`);
+  context.base.emitter.emit_string_line(`${indent.clone()}  } else {`);
+  context.base.emitter.emit_string_line(`${indent.clone()}    __yo_effect_escaped = 0;`);
   // `.None` is the typed observation of the abort: the program handles it.
-  em.emit_string_line(`${indent.clone()}    __yo_task_abort_observed(${fut_var.clone()});`);
-  em.emit_string_line(`${indent.clone()}    ${result_var.clone()} = ${none_code};`);
-  em.emit_string_line(`${indent.clone()}  }`);
+  context.base.emitter.emit_string_line(`${indent.clone()}    __yo_task_abort_observed(${fut_var.clone()});`);
+  context.base.emitter.emit_string_line(`${indent.clone()}    ${result_var.clone()} = ${none_code};`);
+  context.base.emitter.emit_string_line(`${indent.clone()}  }`);
   // A `ref` handle keeps the future referenced (its Drop releases it), so
   // awaiting it neither consumes the handle nor releases the task. A value
   // handle is consumed by the await, which releases its reference here.
   if(handle_is_value, {
-    em.emit_string_line(`${indent.clone()}  __yo_join_handle_release_raw(${fut_var.clone()});  // the consumed handle's reference`);
+    context.base.emitter.emit_string_line(`${indent.clone()}  __yo_join_handle_release_raw(${fut_var.clone()});  // the consumed handle's reference`);
   });
-  em.emit_string_line(`${indent.clone()}}`);
+  context.base.emitter.emit_string_line(`${indent.clone()}}`);
   // Rule 1: a result temp with a task slot is dropped through the slot, so
   // the owned result goes there too
   // (issues/fixed/a-join-handle-await-used-inline-in-a-task-never-releases-its-result.md).
@@ -720,7 +715,7 @@ generate_join_handle_await :: (fn(expr : &AstExpr, indent : &String, context : &
         &context.state_machine_variables,
         .Some(smv) => match(
           sm_slot_of(ast_expr_id(expr), &expr_ei.env, &rvn, &smv, &context.variable_id_remapping, &context.state_machine_field_aliases, &context.sm_capture_slot),
-          .Some(slot) => em.emit_string_line(`${indent.clone()}${slot} = ${result_var.clone()};`),
+          .Some(slot) => context.base.emitter.emit_string_line(`${indent.clone()}${slot} = ${result_var.clone()};`),
           .None => ()
         ),
         .None => ()

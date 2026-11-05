@@ -132,158 +132,156 @@ EvidenceParameter :: ref(
     c_param_name : String
   )
 );
-FunctionGenerationContext :: ref(
-  struct(
-    /// The base codegen context.
-    base : CodeGenContext,
-    /// Type of the current function being generated.
-    current_function_type : Option(TypeValue),
-    /// Variables captured by the current closure function.
-    current_closure_captures : Option(ArrayList(String)),
-    /// Frame level of the captured variables.
-    current_closure_capture_frame_level : Option(usize),
-    /// C name of the capture struct type (e.g. "__yo_struct_abc_capture").
-    current_closure_capture_type_c_name : Option(String),
-    /// Set when generating an effect-record member function (e.g. an
-    /// Exception.throw handler).
-    is_effect_record_member_function : bool,
-    /// `unwind_origin_id` of the function being generated: what an `unwind`
-    /// in its body stores into `__yo_unwind_target`.
-    current_unwind_origin : Option(String),
-    /// The handler literals whose `unwind` exits the frame being generated
-    /// (the function, or the async block inside a state machine's resume
-    /// function): the unwinds this frame catches.
-    unwind_catches : Option(ArrayList(String)),
-    /// Set while a state machine whose body installs unwinding handlers is
-    /// generated: how its abort points catch those handlers' unwinds.
-    sm_unwind_catch : Option(SmUnwindCatch),
-    /// SSA-renamed variable id → original/canonical id (loop reassignment).
-    variable_id_remapping : Option(HashMap(String, String)),
-    /// Pending deferred drops from enclosing begin blocks (run before async
-    /// completion / early return).
-    pending_deferred_drops : Option(ArrayList(AstExpr)),
-    /// Drops for RC vars consumed by return values (emitted on unwind only).
-    consumed_var_pending_drops : Option(ArrayList(AstExpr)),
-    /// Variables locally shadowed (e.g. match destructuring) — use the local C
-    /// var, not the SM field. Keyed by the SANITIZED C name.
-    local_shadowed_variables : Option(HashSet(String)),
-    /// Single-pass async lowering: the state-machine slot a shadowed name
-    /// (a match-arm binding) lives in. A shadowed name renders as that slot,
-    /// or as the C local when it has none; never through the env, whose
-    /// same-named variables are not the binding.
-    shadow_slots : Option(HashMap(String, String)),
-    /// The shadowed names that are a `mut` match's place bindings
-    /// (plans/VALUES_BY_DEFAULT.md decision 26): their C local is a pointer
-    /// to the part, so a read or a write goes through it. Keyed by the
-    /// SANITIZED C name, like `local_shadowed_variables`.
-    place_bindings : Option(HashSet(String)),
-    /// Temp variable names already declared in the C output (avoid duplicates).
-    declared_temp_vars : Option(HashSet(String)),
-    /// Var names whose drops were already emitted inside short-circuit branches.
-    /// CONSUME-ONCE: every reader (begin.yo, while_loop.yo, drop_dup.yo) REMOVES
-    /// the entry on hit, because it means "suppress the next scope-end flush of
-    /// this target, once". It is therefore useless as a dedup signal for a
-    /// SECOND consideration of the same drop inside the short-circuit family —
-    /// that is what `short_circuit_emitted_drop_targets` is for.
-    short_circuit_handled_drop_var_names : Option(HashSet(String)),
-    /// Targets the short-circuit family has already emitted a drop for in this
-    /// function. MONOTONE — never removed, unlike the consume-once set above.
-    /// A chain (`a || b || c` parses as nested binaries) considers the same
-    /// operand temp at two emission points: the INNER node's fall-through and
-    /// the OUTER node's fall-through, both at function scope, and each with a
-    /// DIFFERENT drop-expr identity (the channels carry distinct exprs, so the
-    /// id guard cannot see it). Without a monotone name-keyed signal the second
-    /// consideration double-drops — the failure that sank two earlier attempts
-    /// at the chain fix (issues/fixed/short-circuit-chain-inner-operand-temps-still-leak.md).
-    short_circuit_emitted_drop_targets : Option(HashSet(String)),
-    /// The OUTERMOST `||`/`&&` currently being emitted. A chain's inner node has
-    /// an EMPTY deferred-drop list — its operand temps' scope drops were
-    /// scheduled onto the outermost/body node — so the inner node's emission
-    /// points must read the ROOT's list to find them. Set by the outermost
-    /// short circuit when unset, restored on exit.
-    short_circuit_root_node : Option(AstExpr),
-    /// Drop code strings for effect-handler params (emitted before unwind).
-    effect_handler_param_drops : Option(ArrayList(String)),
-    /// Baseline pendingDeferredDrops count when entering the current loop body.
-    loop_body_drops_baseline_count : Option(usize),
-    /// Override C return-type string (body-derived return types).
-    override_return_type_str : Option(String),
-    /// C type strings of every non-unit `unwind(value)` argument (sizes the
-    /// unwind-value buffer union).
-    unwind_value_c_types : Option(HashSet(String)),
-    /// Set when any io.async/await/spawn is encountered (emit async runtime).
-    uses_async : bool,
-    /// Set when any thread/worker spawn is found (emit parallelism runtime).
-    uses_parallelism : bool,
-    /// Set when generating code inside an async state machine.
-    in_async_state_machine : Option(InAsyncStateMachine),
-    /// Set while an async block is lowered by the single-pass emitter.
-    sm_inline_lowering : Option(InlineSmLowering),
-    /// The state-machine field that holds the capture struct an `Outer`
-    /// variable is read from: `__capture`, or, while a fused wrapper's block
-    /// is emitted into its caller, that site's capture slot
-    /// (plans/backlog/ASYNC_AWAIT_SITE_FUSION.md, F2).
-    sm_capture_slot : String,
-    /// Prefixes the await-result field names while a fused wrapper's block is
-    /// emitted into its caller (its awaits get the site's own fields), and
-    /// keys that block's awaits in `InlineSmLowering.emitted` per site.
-    /// Empty outside a fused block.
-    fusion_field_prefix : String,
-    /// Variables captured in the async state machine (variable id → captured
-    /// variable). Read by atom emission to access `sm->var_<id>` / `sm->__capture.<name>`.
-    state_machine_variables : Option(HashMap(String, CapturedVariable)),
-    /// Phase-1b aliases: temp future variable id → its await_future_N SM field
-    /// name (atom emission redirects SM lookups to the existing await field).
-    state_machine_field_aliases : Option(HashMap(String, String)),
-    /// State-machine variable ids whose slot a match PATTERN BINDING was
-    /// stored into. A binding borrows the scrutinee's payload (no dup, no
-    /// scope-end drop), so the abort dispose must not drop its slot as well as
-    /// the scrutinee's: filled by every binding-store site while the resume
-    /// function is generated, read by the dispose generator
-    /// (issues/fixed/async-abort-dispose-double-drops-moved-enum-payload.md).
-    state_machine_binding_ids : Option(HashSet(String)),
-    /// Effect-evidence parameters in scope (implicit label → evidence param), for
-    /// explicit-effects dispatch / effect injection.
-    current_evidence_params : Option(HashMap(String, EvidenceParameter)),
-    /// Async blocks deferred to after all regular functions are generated.
-    deferred_async_blocks : Option(ArrayList(DeferredAsyncBlock)),
-    /// Raw name of the enclosing assignment's save-old-value temp while its
-    /// RHS is being generated. The temp receives ownership of the old value
-    /// only AFTER the assignment completes, so escape-path pending drops
-    /// emitted inside the RHS must skip it (the local still owns the value;
-    /// dropping both double-frees) — the END-of-scope envs list the
-    /// not-yet-defined temp, so the skip needs this explicit flag.
-    current_assignment_save_temp : Option(String),
-    /// Deferred-drop expression ids (ast_expr_id) already emitted as C — the
-    /// emitted-once guard for the node-list drop flushes (drop_dup.yo
-    /// generate_deferred_drop_expressions, begin.yo _emit_deferred_drops). A
-    /// shared single-expression begin node carries BOTH the begin's scope-end
-    /// drops and the tail call's Stage-0 balancing drops (evaluator begin.yo
-    /// preserves both), and such a node is flushed from more than one point —
-    /// the call emitter's post-call flush and the enclosing arm/body-level
-    /// flush (match.yo's arm flush). The emitters do NOT remove-on-emit:
-    /// node-list membership is the pending path's "the node's own flush
-    /// handles it" signal (return.yo generate_pending_deferred_drops's
-    /// `already` set), which removal-on-emit would break (double emission via
-    /// the pending path — the reverted idempotent-flush attempt). One set per
-    /// COMPILATION is sound because one ExprInfo table maps an expr id to
-    /// exactly one emitted C function (specializations clone bodies with
-    /// fresh ids). Keyed by expr IDENTITY, not target name: two same-named
-    /// locals in sibling C scopes are distinct drop exprs and must each emit
-    /// once.
-    emitted_deferred_drop_ids : HashSet(usize),
-    /// The `unwind(...)` that is a bare-expression function body (a handler
-    /// `e -> unwind(f(e))`). Its shared-id node carries the function's
-    /// own-parameter drops, which `generate_unwind` emits AFTER evaluating
-    /// the operand, not before it: the operand may read the parameter
-    /// (issues/fixed/2026-10-29-a-handler-whose-body-is-a-bare-unwind-releases-its-parameter-before-the-operand-reads-it.md).
-    unwind_tail_param_drops_id : Option(usize)
-  )
+FunctionGenerationContext :: struct(
+  /// The base codegen context.
+  base : CodeGenContext,
+  /// Type of the current function being generated.
+  current_function_type : Option(TypeValue),
+  /// Variables captured by the current closure function.
+  current_closure_captures : Option(ArrayList(String)),
+  /// Frame level of the captured variables.
+  current_closure_capture_frame_level : Option(usize),
+  /// C name of the capture struct type (e.g. "__yo_struct_abc_capture").
+  current_closure_capture_type_c_name : Option(String),
+  /// Set when generating an effect-record member function (e.g. an
+  /// Exception.throw handler).
+  is_effect_record_member_function : bool,
+  /// `unwind_origin_id` of the function being generated: what an `unwind`
+  /// in its body stores into `__yo_unwind_target`.
+  current_unwind_origin : Option(String),
+  /// The handler literals whose `unwind` exits the frame being generated
+  /// (the function, or the async block inside a state machine's resume
+  /// function): the unwinds this frame catches.
+  unwind_catches : Option(ArrayList(String)),
+  /// Set while a state machine whose body installs unwinding handlers is
+  /// generated: how its abort points catch those handlers' unwinds.
+  sm_unwind_catch : Option(SmUnwindCatch),
+  /// SSA-renamed variable id → original/canonical id (loop reassignment).
+  variable_id_remapping : Option(HashMap(String, String)),
+  /// Pending deferred drops from enclosing begin blocks (run before async
+  /// completion / early return).
+  pending_deferred_drops : Option(ArrayList(AstExpr)),
+  /// Drops for RC vars consumed by return values (emitted on unwind only).
+  consumed_var_pending_drops : Option(ArrayList(AstExpr)),
+  /// Variables locally shadowed (e.g. match destructuring) — use the local C
+  /// var, not the SM field. Keyed by the SANITIZED C name.
+  local_shadowed_variables : Option(HashSet(String)),
+  /// Single-pass async lowering: the state-machine slot a shadowed name
+  /// (a match-arm binding) lives in. A shadowed name renders as that slot,
+  /// or as the C local when it has none; never through the env, whose
+  /// same-named variables are not the binding.
+  shadow_slots : Option(HashMap(String, String)),
+  /// The shadowed names that are a `mut` match's place bindings
+  /// (plans/VALUES_BY_DEFAULT.md decision 26): their C local is a pointer
+  /// to the part, so a read or a write goes through it. Keyed by the
+  /// SANITIZED C name, like `local_shadowed_variables`.
+  place_bindings : Option(HashSet(String)),
+  /// Temp variable names already declared in the C output (avoid duplicates).
+  declared_temp_vars : Option(HashSet(String)),
+  /// Var names whose drops were already emitted inside short-circuit branches.
+  /// CONSUME-ONCE: every reader (begin.yo, while_loop.yo, drop_dup.yo) REMOVES
+  /// the entry on hit, because it means "suppress the next scope-end flush of
+  /// this target, once". It is therefore useless as a dedup signal for a
+  /// SECOND consideration of the same drop inside the short-circuit family —
+  /// that is what `short_circuit_emitted_drop_targets` is for.
+  short_circuit_handled_drop_var_names : Option(HashSet(String)),
+  /// Targets the short-circuit family has already emitted a drop for in this
+  /// function. MONOTONE — never removed, unlike the consume-once set above.
+  /// A chain (`a || b || c` parses as nested binaries) considers the same
+  /// operand temp at two emission points: the INNER node's fall-through and
+  /// the OUTER node's fall-through, both at function scope, and each with a
+  /// DIFFERENT drop-expr identity (the channels carry distinct exprs, so the
+  /// id guard cannot see it). Without a monotone name-keyed signal the second
+  /// consideration double-drops — the failure that sank two earlier attempts
+  /// at the chain fix (issues/fixed/short-circuit-chain-inner-operand-temps-still-leak.md).
+  short_circuit_emitted_drop_targets : Option(HashSet(String)),
+  /// The OUTERMOST `||`/`&&` currently being emitted. A chain's inner node has
+  /// an EMPTY deferred-drop list — its operand temps' scope drops were
+  /// scheduled onto the outermost/body node — so the inner node's emission
+  /// points must read the ROOT's list to find them. Set by the outermost
+  /// short circuit when unset, restored on exit.
+  short_circuit_root_node : Option(AstExpr),
+  /// Drop code strings for effect-handler params (emitted before unwind).
+  effect_handler_param_drops : Option(ArrayList(String)),
+  /// Baseline pendingDeferredDrops count when entering the current loop body.
+  loop_body_drops_baseline_count : Option(usize),
+  /// Override C return-type string (body-derived return types).
+  override_return_type_str : Option(String),
+  /// C type strings of every non-unit `unwind(value)` argument (sizes the
+  /// unwind-value buffer union).
+  unwind_value_c_types : Option(HashSet(String)),
+  /// Set when any io.async/await/spawn is encountered (emit async runtime).
+  uses_async : bool,
+  /// Set when any thread/worker spawn is found (emit parallelism runtime).
+  uses_parallelism : bool,
+  /// Set when generating code inside an async state machine.
+  in_async_state_machine : Option(InAsyncStateMachine),
+  /// Set while an async block is lowered by the single-pass emitter.
+  sm_inline_lowering : Option(InlineSmLowering),
+  /// The state-machine field that holds the capture struct an `Outer`
+  /// variable is read from: `__capture`, or, while a fused wrapper's block
+  /// is emitted into its caller, that site's capture slot
+  /// (plans/backlog/ASYNC_AWAIT_SITE_FUSION.md, F2).
+  sm_capture_slot : String,
+  /// Prefixes the await-result field names while a fused wrapper's block is
+  /// emitted into its caller (its awaits get the site's own fields), and
+  /// keys that block's awaits in `InlineSmLowering.emitted` per site.
+  /// Empty outside a fused block.
+  fusion_field_prefix : String,
+  /// Variables captured in the async state machine (variable id → captured
+  /// variable). Read by atom emission to access `sm->var_<id>` / `sm->__capture.<name>`.
+  state_machine_variables : Option(HashMap(String, CapturedVariable)),
+  /// Phase-1b aliases: temp future variable id → its await_future_N SM field
+  /// name (atom emission redirects SM lookups to the existing await field).
+  state_machine_field_aliases : Option(HashMap(String, String)),
+  /// State-machine variable ids whose slot a match PATTERN BINDING was
+  /// stored into. A binding borrows the scrutinee's payload (no dup, no
+  /// scope-end drop), so the abort dispose must not drop its slot as well as
+  /// the scrutinee's: filled by every binding-store site while the resume
+  /// function is generated, read by the dispose generator
+  /// (issues/fixed/async-abort-dispose-double-drops-moved-enum-payload.md).
+  state_machine_binding_ids : Option(HashSet(String)),
+  /// Effect-evidence parameters in scope (implicit label → evidence param), for
+  /// explicit-effects dispatch / effect injection.
+  current_evidence_params : Option(HashMap(String, EvidenceParameter)),
+  /// Async blocks deferred to after all regular functions are generated.
+  deferred_async_blocks : Option(ArrayList(DeferredAsyncBlock)),
+  /// Raw name of the enclosing assignment's save-old-value temp while its
+  /// RHS is being generated. The temp receives ownership of the old value
+  /// only AFTER the assignment completes, so escape-path pending drops
+  /// emitted inside the RHS must skip it (the local still owns the value;
+  /// dropping both double-frees) — the END-of-scope envs list the
+  /// not-yet-defined temp, so the skip needs this explicit flag.
+  current_assignment_save_temp : Option(String),
+  /// Deferred-drop expression ids (ast_expr_id) already emitted as C — the
+  /// emitted-once guard for the node-list drop flushes (drop_dup.yo
+  /// generate_deferred_drop_expressions, begin.yo _emit_deferred_drops). A
+  /// shared single-expression begin node carries BOTH the begin's scope-end
+  /// drops and the tail call's Stage-0 balancing drops (evaluator begin.yo
+  /// preserves both), and such a node is flushed from more than one point —
+  /// the call emitter's post-call flush and the enclosing arm/body-level
+  /// flush (match.yo's arm flush). The emitters do NOT remove-on-emit:
+  /// node-list membership is the pending path's "the node's own flush
+  /// handles it" signal (return.yo generate_pending_deferred_drops's
+  /// `already` set), which removal-on-emit would break (double emission via
+  /// the pending path — the reverted idempotent-flush attempt). One set per
+  /// COMPILATION is sound because one ExprInfo table maps an expr id to
+  /// exactly one emitted C function (specializations clone bodies with
+  /// fresh ids). Keyed by expr IDENTITY, not target name: two same-named
+  /// locals in sibling C scopes are distinct drop exprs and must each emit
+  /// once.
+  emitted_deferred_drop_ids : HashSet(usize),
+  /// The `unwind(...)` that is a bare-expression function body (a handler
+  /// `e -> unwind(f(e))`). Its shared-id node carries the function's
+  /// own-parameter drops, which `generate_unwind` emits AFTER evaluating
+  /// the operand, not before it: the operand may read the parameter
+  /// (issues/fixed/2026-10-29-a-handler-whose-body-is-a-bare-unwind-releases-its-parameter-before-the-operand-reads-it.md).
+  unwind_tail_param_drops_id : Option(usize)
 );
 impl(
   FunctionGenerationContext,
   /// Wrap a base CodeGenContext in a fresh per-function generation context.
-  new : (fn(base : &CodeGenContext) -> Self)(
+  new : (fn(sink(base) : CodeGenContext) -> Self)(
     Self(
       base : base,
       current_function_type : Option(TypeValue).None,
@@ -373,14 +371,14 @@ export(resolve_var_name_in_context);
 // storing it back, never through a `match` binding: a binding is a copy of
 // the set once collections are values (plans/VALUES_BY_DEFAULT.md §6 V2a).
 /// Record `name` in `declared_temp_vars`, creating the set on first use.
-record_declared_temp_var :: (fn(context : &FunctionGenerationContext, name : &String) -> unit)({
+record_declared_temp_var :: (fn(context : &mut FunctionGenerationContext, name : &String) -> unit)({
   names := match(context.declared_temp_vars.take(), .Some(s) => s, .None => HashSet(String).new());
   names.insert(name.clone());
   context.declared_temp_vars = Option(HashSet(String)).Some(names);
 });
 /// Record `name` in `short_circuit_handled_drop_var_names` when that set is
 /// active (a short-circuit family is being lowered).
-note_short_circuit_handled :: (fn(context : &FunctionGenerationContext, name : &String) -> unit)(
+note_short_circuit_handled :: (fn(context : &mut FunctionGenerationContext, name : &String) -> unit)(
   match(
     context.short_circuit_handled_drop_var_names.take(),
     .Some(s) => {
@@ -393,7 +391,7 @@ note_short_circuit_handled :: (fn(context : &FunctionGenerationContext, name : &
 );
 /// Consume `target` from `short_circuit_handled_drop_var_names`: true when it
 /// was there (its drop was already emitted inside a short-circuit branch).
-take_short_circuit_handled :: (fn(context : &FunctionGenerationContext, target : &String) -> bool)(
+take_short_circuit_handled :: (fn(context : &mut FunctionGenerationContext, target : &String) -> bool)(
   match(
     context.short_circuit_handled_drop_var_names.take(),
     .Some(s) => {
@@ -406,7 +404,7 @@ take_short_circuit_handled :: (fn(context : &FunctionGenerationContext, target :
   )
 );
 /// Record `id` in `state_machine_binding_ids` when that set is active.
-note_state_machine_binding_id :: (fn(context : &FunctionGenerationContext, id : &String) -> unit)(
+note_state_machine_binding_id :: (fn(context : &mut FunctionGenerationContext, id : &String) -> unit)(
   match(
     context.state_machine_binding_ids.take(),
     .Some(s) => {

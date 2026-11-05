@@ -51,10 +51,10 @@ pragma(Pragma.AllowUnsafe);
 // types/collection is ONE-WAY (types/collection imports from here). A direct
 // mutual destructuring import cannot be resolved by the circular-import loader.
 // --- mutual-recursion indirection for find_function_calls_in_expr ----------
-FindFunctionCallsFn :: (fn(expr : &AstExpr, context : &CodeGenContext, info : &ExprInfoTable) -> unit);
+FindFunctionCallsFn :: (fn(expr : &AstExpr, context : &mut CodeGenContext, info : &ExprInfoTable) -> unit);
 (mut(g_find_function_calls_in_expr) : Option(FindFunctionCallsFn)) = Option(FindFunctionCallsFn).None;
 // --- indirection for collect_type (defined in types/collection) ------------
-CollectTypeFn :: (fn(type : &TypeValue, context : &CodeGenContext) -> unit);
+CollectTypeFn :: (fn(type : &TypeValue, context : &mut CodeGenContext) -> unit);
 (mut(g_collect_type) : Option(CollectTypeFn)) = Option(CollectTypeFn).None;
 /// Register types/collection's collect_type. Call once at init.
 set_collect_type_fn :: (fn(f : CollectTypeFn) -> unit)({
@@ -62,7 +62,7 @@ set_collect_type_fn :: (fn(f : CollectTypeFn) -> unit)({
   ()
 });
 /// Call the registered collect_type (panics if unregistered).
-_call_collect_type :: (fn(type : &TypeValue, context : &CodeGenContext) -> unit)(
+_call_collect_type :: (fn(type : &TypeValue, context : &mut CodeGenContext) -> unit)(
   match(
     g_collect_type,
     .Some(f) => f(type, context),
@@ -70,7 +70,7 @@ _call_collect_type :: (fn(type : &TypeValue, context : &CodeGenContext) -> unit)
   )
 );
 /// Call the registered find_function_calls_in_expr (panics if unregistered).
-_call_find_function_calls_in_expr :: (fn(expr : &AstExpr, context : &CodeGenContext, info : &ExprInfoTable) -> unit)(
+_call_find_function_calls_in_expr :: (fn(expr : &AstExpr, context : &mut CodeGenContext, info : &ExprInfoTable) -> unit)(
   match(
     g_find_function_calls_in_expr,
     .Some(f) => f(expr, context, info),
@@ -217,7 +217,7 @@ _is_non_control_async_fn :: (fn(func_id : &String) -> bool)(
 /// (import.yo:230 names every module namespace that way) but STILL recurse
 /// into nested StructVal fields — a module-level effect-handler record
 /// (`h :: Exception(throw : ...)`) must keep getting marked.
-collect_effect_record_members :: (fn(mv : &EvalValue, context : &CodeGenContext, info : &ExprInfoTable) -> unit)(
+collect_effect_record_members :: (fn(mv : &EvalValue, context : &mut CodeGenContext, info : &ExprInfoTable) -> unit)(
   match(
     mv,
     .StructVal(cerm_ty_name, _, field_values) => {
@@ -277,7 +277,7 @@ _register_extern_fn_callee :: (
   fn(
     cei_ty : &TypeValue,
     expr : &AstExpr,
-    context : &CodeGenContext
+    context : &mut CodeGenContext
   ) -> unit
 )({
   match(
@@ -346,7 +346,7 @@ _register_extern_fn_callee :: (
 /// alias (`{ stdout : out }`) is registered under its Yo name
 /// (plans/reference/C_INCLUDE_EXTERN_MODULE_VALUE.md §3.4).
 /// `#include` every header in `headers`.
-_add_all_c_includes :: (fn(headers : &ArrayList(String), context : &CodeGenContext) -> unit)({
+_add_all_c_includes :: (fn(headers : &ArrayList(String), context : &mut CodeGenContext) -> unit)({
   (i : usize) = usize(0);
   while(i < headers.len(), {
     match(headers.get_cloned(i), .Some(h) => context.add_c_include(&h), .None => ());
@@ -354,7 +354,7 @@ _add_all_c_includes :: (fn(headers : &ArrayList(String), context : &CodeGenConte
   });
 });
 _register_extern_global_header :: (
-  fn(key : ExprId, name : &String, ei_opt : &Option(ExprInfo), context : &CodeGenContext) -> unit
+  fn(key : ExprId, name : &String, ei_opt : &Option(ExprInfo), context : &mut CodeGenContext) -> unit
 )({
   if(!is_extern_c_global(name.clone()), {
     return(());
@@ -515,7 +515,7 @@ _is_entry_module_path :: (fn(token_path : &String, entry_path : &String) -> bool
 /// applying the main / library / executable C-naming rules, then collect the
 /// functions its body calls.
 _collect_required_function_field :: (
-  fn(label : &String, value : &EvalValue, context : &CodeGenContext, info : &ExprInfoTable, is_top_level_export : bool) -> unit
+  fn(label : &String, value : &EvalValue, context : &mut CodeGenContext, info : &ExprInfoTable, is_top_level_export : bool) -> unit
 )({
   if(!is_func_val(value), {
     return(());
@@ -575,7 +575,7 @@ _collect_required_function_field :: (
 /// First pass: collect all functions that need to be generated, starting from
 /// a module value's exported fields.
 collect_required_functions :: (
-  fn(module_value : &EvalValue, context : &CodeGenContext, info : &ExprInfoTable, is_top_level_export : bool) -> unit
+  fn(module_value : &EvalValue, context : &mut CodeGenContext, info : &ExprInfoTable, is_top_level_export : bool) -> unit
 )(
   match(
     module_value,
@@ -618,7 +618,7 @@ collect_required_functions :: (
 /// declaration (issues/fixed/module-level-init-callees-are-never-collected.md).
 /// The type collector has walked these since the HashMap-global fix; this is
 /// its function-side twin. Idempotent (`has_function`-guarded inside).
-collect_module_level_init_functions :: (fn(context : &CodeGenContext, info : &ExprInfoTable) -> unit)({
+collect_module_level_init_functions :: (fn(context : &mut CodeGenContext, info : &ExprInfoTable) -> unit)({
   inits := get_module_level_init_exprs();
   (i : usize) = usize(0);
   while(i < inits.len(), {
@@ -634,8 +634,8 @@ collect_module_level_init_functions :: (fn(context : &CodeGenContext, info : &Ex
 /// (Phase-3 specialization/dyn-data branches
 /// deferred — see file header). The walk takes each node as an evaluator
 /// rewrite left it (`ast_rewritten_view`): every child goes through here.
-find_function_calls_in_expr :: (fn(expr : &AstExpr, context : &CodeGenContext, info : &ExprInfoTable) -> unit)(_find_function_calls_in_node(&ast_rewritten_view(expr), context, info));
-_find_function_calls_in_node :: (fn(expr : &AstExpr, context : &CodeGenContext, info : &ExprInfoTable) -> unit)({
+find_function_calls_in_expr :: (fn(expr : &AstExpr, context : &mut CodeGenContext, info : &ExprInfoTable) -> unit)(_find_function_calls_in_node(&ast_rewritten_view(expr), context, info));
+_find_function_calls_in_node :: (fn(expr : &AstExpr, context : &mut CodeGenContext, info : &ExprInfoTable) -> unit)({
   ei_opt := expr_info_table_get(info, ast_expr_id(expr));
   // Effect-handler functions living inside compile-time struct-namespace values.
   match(
@@ -1118,7 +1118,7 @@ _destructuring_label_fragment :: (fn(lbl : &String) -> String)(
 /// (so get_drop/dispose_function_for_type resolves it). Shared by the struct-`___dispose`
 /// and value-enum-`___drop` synthesizers.
 _eval_and_register_rc_method :: (
-  fn(base : &CodeGenContext, ctx : &mut EvalContext, module_env : &Environment, info : &ExprInfoTable, exn : Exception, ct : &TypeValue, code : &String, method_label : &String) -> unit
+  fn(base : &mut CodeGenContext, ctx : &mut EvalContext, module_env : &Environment, info : &ExprInfoTable, exn : Exception, ct : &TypeValue, code : &String, method_label : &String) -> unit
 )({
   expr := generate_expr_from_code(code.clone(), exn);
   fresh := clone_env(module_env);
@@ -1227,7 +1227,7 @@ _destructor_call_code :: (fn() -> String)(String.from("(Self <: Drop).drop(self)
 /// (constructors.yo) resolves via get_dispose_function_for_type, and the runtime drops the
 /// fields on free.
 _synthesize_and_register_dispose :: (
-  fn(base : &CodeGenContext, ctx : &mut EvalContext, module_env : &Environment, info : &ExprInfoTable, exn : Exception, ct : &TypeValue) -> unit
+  fn(base : &mut CodeGenContext, ctx : &mut EvalContext, module_env : &Environment, info : &ExprInfoTable, exn : Exception, ct : &TypeValue) -> unit
 )({
   // Skip if a ___dispose is already registered for THIS instantiation (a prior
   // pass). KEY BY type_key (instantiation-precise), NOT the raw struct id: generic
@@ -1346,7 +1346,7 @@ _synthesize_and_register_dispose :: (
 /// `type_id = 0` (no dispose dispatch) and the active variant's RC fields leak on
 /// free.
 _synthesize_and_register_enum_dispose :: (
-  fn(base : &CodeGenContext, ctx : &mut EvalContext, module_env : &Environment, info : &ExprInfoTable, exn : Exception, ct : &TypeValue) -> unit
+  fn(base : &mut CodeGenContext, ctx : &mut EvalContext, module_env : &Environment, info : &ExprInfoTable, exn : Exception, ct : &TypeValue) -> unit
 )({
   // Skip if a ___dispose is already registered for THIS instantiation (type_key —
   // see _synthesize_and_register_dispose for why not the shared enum id).
@@ -1475,7 +1475,7 @@ _synthesize_and_register_enum_dispose :: (
 /// specializes the user `drop` for `ct` (a generic impl included) and
 /// collects it for emission, the same route as the reference types' dispose.
 _synthesize_and_register_value_dispose :: (
-  fn(base : &CodeGenContext, ctx : &mut EvalContext, module_env : &Environment, info : &ExprInfoTable, exn : Exception, ct : &TypeValue) -> unit
+  fn(base : &mut CodeGenContext, ctx : &mut EvalContext, module_env : &Environment, info : &ExprInfoTable, exn : Exception, ct : &TypeValue) -> unit
 )({
   existing := get_type_trait_methods_by_name(type_key(ct), String.from("___dispose"));
   if(existing.len() > usize(0), {
@@ -1521,7 +1521,7 @@ _synthesize_and_register_value_dispose :: (
 /// runs here with the live ctx/exn threaded from run_compile. Must run before constructor emission so
 /// get_dispose_function_for_type resolves.
 collect_dispose_methods :: (
-  fn(base : &CodeGenContext, ctx : &mut EvalContext, module_env : &Environment, info : &ExprInfoTable, exn : Exception) -> unit
+  fn(base : &mut CodeGenContext, ctx : &mut EvalContext, module_env : &Environment, info : &ExprInfoTable, exn : Exception) -> unit
 )({
   // Snapshot the RC struct types needing an auto-derived ___dispose (registering
   // functions during the walk must not perturb the base.types iterator). Value enums

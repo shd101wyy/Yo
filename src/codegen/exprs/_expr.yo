@@ -20,7 +20,7 @@
 { panic, assert } :: import("std/assert");
 /// The expression-emitter dispatch signature: emit C for `expr` at `indent`,
 /// returning the C expression/statement text.
-GenerateExprFn :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String);
+GenerateExprFn :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String);
 /// Module-global dispatch pointer — set once at codegen init.
 (mut(g_generate_expr) : Option(GenerateExprFn)) = Option(GenerateExprFn).None;
 /// Register the expression-emitter dispatch. Call once during codegen init.
@@ -32,7 +32,7 @@ set_generate_expr_fn :: (fn(f : GenerateExprFn) -> unit)({
 /// unregistered). Per-node emitters call this for sub-expression recursion.
 /// A node an evaluator rewrite replaced is emitted as rewritten
 /// (`ast_rewritten_view`).
-_call_generate_expr :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)(
+_call_generate_expr :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)(
   match(
     g_generate_expr,
     .Some(f) => f(&ast_rewritten_view(expr), indent, context),

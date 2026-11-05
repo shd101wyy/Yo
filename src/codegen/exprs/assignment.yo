@@ -117,7 +117,7 @@ _place_evaluation_runs_a_call :: (fn(e : &AstExpr, context : &FunctionGeneration
   runs
 });
 /// Generate an assignment / initialization.
-generate_assignment :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
+generate_assignment :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("")));
   // Compile-time-only assignment (e.g. `p.* = v` where `p` is comptime).
   if(match(expr_info_is_compile_time_only_assignment(&ei), .Some(b) => b, .None => false), {
@@ -189,7 +189,6 @@ generate_assignment :: (fn(expr : &AstExpr, indent : &String, context : &Functio
     place_ptr = Option(String).Some(`__yo_place_ptr_${ast_expr_id(expr).to_string()}`);
   });
   place_read_code := match(&place_ptr, .Some(p) => `(*${p})`, .None => lhs_code.clone());
-  em := context.base.emitter;
   // In a state machine the save is written AFTER the RHS, right before the
   // store: the RHS may suspend, and an abort there disposes every non-null
   // slot — a save written first held the pointer the LHS still owns, and
@@ -222,7 +221,7 @@ generate_assignment :: (fn(expr : &AstExpr, indent : &String, context : &Functio
               // the old value through it — same by-bytes rationale as the
               // `.None` arm below.
               mut(save) := indent.clone();
-              save.push_string(get_variable_type_string(&lhs_type, temp_var_name.clone(), &context.base));
+              save.push_string(get_variable_type_string(&lhs_type, temp_var_name.clone(), &mut context.base));
               save.push_str("; memcpy(&");
               save.push_string(temp_var_name.clone());
               save.push_str(", ");
@@ -235,7 +234,7 @@ generate_assignment :: (fn(expr : &AstExpr, indent : &String, context : &Functio
             },
             .None => {
               mut(save) := indent.clone();
-              save.push_string(get_variable_type_string(&lhs_type, temp_var_name.clone(), &context.base));
+              save.push_string(get_variable_type_string(&lhs_type, temp_var_name.clone(), &mut context.base));
               // Copy the bytes, never a typed load: the destination may be
               // uninitialized (a container's next slot, an `unsafe(p.* = v)` into
               // fresh memory), and a typed load of it is undefined behavior for a
@@ -252,7 +251,7 @@ generate_assignment :: (fn(expr : &AstExpr, indent : &String, context : &Functio
               save.push_str("), sizeof(");
               save.push_string(temp_var_name.clone());
               save.push_str(")); // Save old value by bytes");
-              em.emit_string_line(&save);
+              context.base.emitter.emit_string_line(&save);
               // Put the temp on the block-scope stack, as the typed `T temp = lhs;`
               // did through the emitter's line scan: that scan records only
               // `<type> <name> = …`, and the escape gate skips a pending drop whose
@@ -260,7 +259,7 @@ generate_assignment :: (fn(expr : &AstExpr, indent : &String, context : &Functio
               // escape) release of an RC-bearing old value was silently dropped
               // (issues/fixed/2026-10-15-an-assignments-old-value-save-by-bytes-is-never-released.md).
               saved_c_name := sanitize_for_c_identifier(&temp_var_name, false);
-              em.mark_declared_in_scope(&saved_c_name);
+              context.base.emitter.mark_declared_in_scope(&saved_c_name);
             }
           );
         }),
@@ -317,7 +316,7 @@ generate_assignment :: (fn(expr : &AstExpr, indent : &String, context : &Functio
               declare_c_var_name(&context.base, temp_var_name.clone());
             },
             .None => {
-              save_sm.push_string(get_variable_type_string(&lhs_type, temp_var_name.clone(), &context.base));
+              save_sm.push_string(get_variable_type_string(&lhs_type, temp_var_name.clone(), &mut context.base));
               save_sm.push_str(" = ");
               save_sm.push_string(place_read_code.clone());
               save_sm.push_str("; // Save old value for later use (not an sm-> slot)");
@@ -350,7 +349,7 @@ generate_assignment :: (fn(expr : &AstExpr, indent : &String, context : &Functio
     if(rhs_code.starts_with("// Failed to transpile"), {
       mut(ftl) := indent.clone();
       ftl.push_string(&rhs_code);
-      em.emit_string_line(&ftl);
+      context.base.emitter.emit_string_line(&ftl);
       context.current_assignment_save_temp = prev_save_temp;
       return(match(&ei.variable_name, .Some(v) => sanitize_for_c_identifier(&v, false), .None => String.from("")));
     });
@@ -359,35 +358,35 @@ generate_assignment :: (fn(expr : &AstExpr, indent : &String, context : &Functio
     // store below both read and write through it.
     match(
       &place_ptr,
-      .Some(pp) => em.emit_string_line(`${indent.clone()}${get_type_string(&lhs_type, &context.base)}* ${pp} = &(${lhs_code}); // Evaluate the place once`),
+      .Some(pp) => context.base.emitter.emit_string_line(`${indent.clone()}${get_type_string(&lhs_type, &mut context.base)}* ${pp} = &(${lhs_code}); // Evaluate the place once`),
       .None => ()
     );
-    match(sm_save_line, .Some(sl) => em.emit_string_line(&sl), .None => ());
+    match(sm_save_line, .Some(sl) => context.base.emitter.emit_string_line(&sl), .None => ());
     match(
       deferred_save_line,
       .Some(ds) => {
-        em.emit_string_line(&ds);
+        context.base.emitter.emit_string_line(&ds);
         // The block-scope push of the `.None` arm above, at the deferred
         // emission point.
-        em.mark_declared_in_scope(&deferred_save_c_name);
+        context.base.emitter.mark_declared_in_scope(&deferred_save_c_name);
       },
       .None => ()
     );
     if(is_init, {
-      vt := get_variable_type_string(&lhs_type, _call_generate_expr(&lhs, indent.clone(), context), &context.base);
+      vt := get_variable_type_string(&lhs_type, _call_generate_expr(&lhs, indent.clone(), context), &mut context.base);
       mut(line) := indent.clone();
       line.push_string(&vt);
       line.push_str(" = ");
       line.push_string(&rhs_code);
       line.push_str(";");
-      em.emit_string_line(&line);
+      context.base.emitter.emit_string_line(&line);
     }, {
       mut(line) := indent.clone();
       line.push_string(place_read_code.clone());
       line.push_str(" = ");
       line.push_string(&rhs_code);
       line.push_str(";");
-      em.emit_string_line(&line);
+      context.base.emitter.emit_string_line(&line);
     });
   }, {
     rhs_code := emit_deferred_dup_or_code(&rhs, _call_generate_expr(&rhs, indent.clone(), context), indent.clone(), context);
@@ -399,7 +398,7 @@ generate_assignment :: (fn(expr : &AstExpr, indent : &String, context : &Functio
     if(rhs_code.starts_with("// Failed to transpile"), {
       mut(ftl) := indent.clone();
       ftl.push_string(&rhs_code);
-      em.emit_string_line(&ftl);
+      context.base.emitter.emit_string_line(&ftl);
       context.current_assignment_save_temp = prev_save_temp;
       return(match(&ei.variable_name, .Some(v) => sanitize_for_c_identifier(&v, false), .None => String.from("")));
     });
@@ -408,22 +407,22 @@ generate_assignment :: (fn(expr : &AstExpr, indent : &String, context : &Functio
     // store below both read and write through it.
     match(
       place_ptr,
-      .Some(pp) => em.emit_string_line(`${indent.clone()}${get_type_string(&lhs_type, &context.base)}* ${pp} = &(${lhs_code}); // Evaluate the place once`),
+      .Some(pp) => context.base.emitter.emit_string_line(`${indent.clone()}${get_type_string(&lhs_type, &mut context.base)}* ${pp} = &(${lhs_code}); // Evaluate the place once`),
       .None => ()
     );
-    match(sm_save_line, .Some(sl) => em.emit_string_line(&sl), .None => ());
+    match(sm_save_line, .Some(sl) => context.base.emitter.emit_string_line(&sl), .None => ());
     match(
       deferred_save_line,
       .Some(ds) => {
-        em.emit_string_line(&ds);
+        context.base.emitter.emit_string_line(&ds);
         // The block-scope push of the `.None` arm above, at the deferred
         // emission point.
-        em.mark_declared_in_scope(&deferred_save_c_name);
+        context.base.emitter.mark_declared_in_scope(&deferred_save_c_name);
       },
       .None => ()
     );
     if(!is_unit_type(&lhs_type), {
-      c_type_string := get_type_string(&lhs_type, &context.base);
+      c_type_string := get_type_string(&lhs_type, &mut context.base);
       is_sm_var := match(context.in_async_state_machine, .Some(_) => lhs_code.starts_with("sm->"), .None => false);
       line := indent.clone();
       if(is_init && !is_sm_var, {
@@ -438,9 +437,9 @@ generate_assignment :: (fn(expr : &AstExpr, indent : &String, context : &Functio
       is_future_iface := (type_implements_future(&lhs_type) && c_type_string.ends_with("*"));
       line.push_string(if(is_future_iface, `((${c_type_string})(${rhs_code}))`, rhs_code));
       line.push_str(";");
-      em.emit_string_line(&line);
+      context.base.emitter.emit_string_line(&line);
       // The slot owns its new value: clear a move out of the old one.
-      if(is_sm_var, match(sm_move_flag_of(lhs_code.clone(), sm_owns_fnonce_captures(context) && type_contains_rc_cell_or_move_only(&lhs_type)), .Some(flag) => em.emit_string_line(`${indent.clone()}${flag} = 0;`), .None => ()));
+      if(is_sm_var, match(sm_move_flag_of(lhs_code.clone(), sm_owns_fnonce_captures(context) && type_contains_rc_cell_or_move_only(&lhs_type)), .Some(flag) => context.base.emitter.emit_string_line(`${indent.clone()}${flag} = 0;`), .None => ()));
     });
   });
   context.current_assignment_save_temp = prev_save_temp;
@@ -454,7 +453,7 @@ generate_assignment :: (fn(expr : &AstExpr, indent : &String, context : &Functio
       context.emitted_deferred_drop_ids.insert(ast_expr_id(&drop_expr));
       drop_code := _call_generate_expr(&drop_expr, indent.clone(), context);
       if(drop_code.len() > usize(0), {
-        em.emit_string_line(`${indent.clone()}${drop_code};`);
+        context.base.emitter.emit_string_line(`${indent.clone()}${drop_code};`);
       });
       return(String.from(""));
     }),

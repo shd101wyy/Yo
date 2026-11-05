@@ -29,7 +29,7 @@ _c_function_name_opt :: (fn(context : &FunctionGenerationContext, func_id : &Str
   match(context.base.get_function_entry(func_id), .Some(e) => Option(String).Some(e.c_name.clone()), .None => Option(String).None)
 );
 /// The `&` (address-of) operator generation.
-generate_address_of :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
+generate_address_of :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
   ei := match(
     context.base.get_expr_info(expr),
     .Some(e) => e,
@@ -51,7 +51,7 @@ generate_address_of :: (fn(expr : &AstExpr, indent : &String, context : &Functio
       .Some(av) => {
         if(is_number_val(&av) || is_bool_val(&av), {
           arg_code := _call_generate_expr(&arg, indent.clone(), context);
-          type_name := get_type_string(&arg_ei.ty, &context.base);
+          type_name := get_type_string(&arg_ei.ty, &mut context.base);
           mut(out) := String.from("(&(");
           out.push_string(&type_name);
           out.push_str("){");
@@ -127,7 +127,7 @@ generate_address_of :: (fn(expr : &AstExpr, indent : &String, context : &Functio
               .Some(cei) => {
                 is_already_var := match(&cei.variable_name, .Some(vn) => (callee_code == get_variable_name_for_codegen_at(ast_expr_id(&callee_expr), vn.clone(), Option(Environment).Some(cei.env))), .None => false);
                 if(!is_already_var, {
-                  callee_type := get_type_string(&cei.ty, &context.base);
+                  callee_type := get_type_string(&cei.ty, &mut context.base);
                   callee_tok := ast_expr_token(&callee_expr);
                   temp_name := stable_label_id(String.from("__yo_ptr_idx_tmp_"), &callee_tok.module_path.*, usize(callee_tok.row), usize(callee_tok.column));
                   line := indent.clone();
@@ -137,8 +137,7 @@ generate_address_of :: (fn(expr : &AstExpr, indent : &String, context : &Functio
                   line.push_str(" = ");
                   line.push_string(callee_code.clone());
                   line.push_str(";");
-                  em := context.base.emitter;
-                  em.emit_string_line(&line);
+                  context.base.emitter.emit_string_line(&line);
                   callee_code = temp_name;
                 });
               },
@@ -210,8 +209,7 @@ generate_address_of :: (fn(expr : &AstExpr, indent : &String, context : &Functio
       line.push_str("(void)(");
       line.push_string(&arg_code);
       line.push_str(");");
-      em := context.base.emitter;
-      em.emit_string_line(&line);
+      context.base.emitter.emit_string_line(&line);
     });
     return(String.from("((void*)1)"));
   });
@@ -227,7 +225,7 @@ generate_address_of :: (fn(expr : &AstExpr, indent : &String, context : &Functio
       .Some(arg_ei) => {
         is_already_var := match(&arg_ei.variable_name, .Some(vn) => (arg_code == get_variable_name_for_codegen_at(ast_expr_id(&arg), vn.clone(), Option(Environment).Some(arg_ei.env))), .None => false);
         if(!is_already_var, {
-          arg_type_str := get_type_string(&arg_ei.ty, &context.base);
+          arg_type_str := get_type_string(&arg_ei.ty, &mut context.base);
           temp_name := match(
             &arg_ei.variable_name,
             .Some(vn) => sanitize_for_c_identifier(&vn, false),
@@ -243,8 +241,7 @@ generate_address_of :: (fn(expr : &AstExpr, indent : &String, context : &Functio
           line.push_str(" = ");
           line.push_string(arg_code.clone());
           line.push_str(";");
-          em := context.base.emitter;
-          em.emit_string_line(&line);
+          context.base.emitter.emit_string_line(&line);
           out := String.from("(&");
           out.push_string(&temp_name);
           out.push_str(")");

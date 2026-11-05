@@ -122,7 +122,7 @@ get_evidence_parameters :: (fn(_function_type : &TypeValue) -> ArrayList(Evidenc
 /// branch is omitted (Gap 6); evidence params come from get_evidence_parameters
 /// (currently empty — see above).
 generate_function_prototype :: (
-  fn(function_type : &TypeValue, c_function_name : &String, context : &CodeGenContext, override_return_type : &Option(String), is_closure : bool) -> String
+  fn(function_type : &TypeValue, c_function_name : &String, context : &mut CodeGenContext, override_return_type : &Option(String), is_closure : bool) -> String
 )(
   match(
     function_type,
@@ -248,8 +248,7 @@ _object_decl_has_generic_fields :: (fn(fields : &ArrayList(RuntimeStructField)) 
 });
 /// Emit the per-variant constructor forward declarations for ONE
 /// reference-semantics enum, matching the definitions in constructors.yo.
-_emit_ref_enum_constructor_decls :: (fn(type : &TypeValue, c_name : &String, context : &CodeGenContext) -> unit)({
-  em := context.emitter;
+_emit_ref_enum_constructor_decls :: (fn(type : &TypeValue, c_name : &String, context : &mut CodeGenContext) -> unit)({
   match(
     type,
     Rc(.EnumT({ variant_names, variant_fields, variant_field_labels })) => {
@@ -280,7 +279,7 @@ _emit_ref_enum_constructor_decls :: (fn(type : &TypeValue, c_name : &String, con
           );
           pi = (pi + usize(1));
         });
-        em.emit_declaration_string_line(`static ${c_name}* __yo_new_${c_name}_${vname}(${params}); // Constructor`);
+        context.emitter.emit_declaration_string_line(`static ${c_name}* __yo_new_${c_name}_${vname}(${params}); // Constructor`);
         vi = (vi + usize(1));
       });
     },
@@ -293,14 +292,13 @@ _emit_ref_enum_constructor_decls :: (fn(type : &TypeValue, c_name : &String, con
 /// `get_runtime_struct_fields` (the same source the constructor BODY in
 /// constructors.yo uses) — sharing the source guarantees the forward
 /// declaration's parameter list matches the definition's exactly.
-generate_object_constructor_declarations :: (fn(context : &CodeGenContext) -> unit)({
-  em := context.emitter;
+generate_object_constructor_declarations :: (fn(context : &mut CodeGenContext) -> unit)({
   // Builtin reference counting functions (static — single C file).
-  em.emit_declaration_line("static inline void __yo_decr_rc(void* ptr); // Decrement reference count");
-  em.emit_declaration_line("static inline void* __yo_incr_rc(void* ptr); // Increment reference count");
-  em.emit_declaration_line("static inline void* __yo_dyn_retain(void* data, const void* vtable); // Dyn payload retain through its vtable");
-  em.emit_declaration_line("static inline void __yo_dyn_release(void* data, const void* vtable); // Dyn payload release through its vtable");
-  em.emit_declaration_line("static inline void* __yo_dyn_clone(void* data, const void* vtable); // Dyn payload clone through its vtable");
+  context.emitter.emit_declaration_line("static inline void __yo_decr_rc(void* ptr); // Decrement reference count");
+  context.emitter.emit_declaration_line("static inline void* __yo_incr_rc(void* ptr); // Increment reference count");
+  context.emitter.emit_declaration_line("static inline void* __yo_dyn_retain(void* data, const void* vtable); // Dyn payload retain through its vtable");
+  context.emitter.emit_declaration_line("static inline void __yo_dyn_release(void* data, const void* vtable); // Dyn payload release through its vtable");
+  context.emitter.emit_declaration_line("static inline void* __yo_dyn_clone(void* data, const void* vtable); // Dyn payload clone through its vtable");
   // The ATOMIC pair is defined in the CODE buffer (gc_runtime.yo) and so
   // lands AFTER everything in the declaration buffer. Declaration-buffer
   // code that releases a reference —
@@ -308,9 +306,9 @@ generate_object_constructor_declarations :: (fn(context : &CodeGenContext) -> un
   // two lines that call was an implicit declaration followed by a `static`
   // definition, which is a hard C error
   // (issues/fixed/spawn-closure-captures-never-dropped-leak.md).
-  em.emit_declaration_line("static void __yo_decr_rc_atomic(void* ptr); // Atomic RC decrement (atomic ref objects)");
-  em.emit_declaration_line("static void* __yo_incr_rc_atomic(void* ptr); // Atomic RC increment (atomic ref objects)");
-  em.emit_declaration_line("static void __yo_cleanup_thread(void); // A worker thread's exit: frees its async runtime pools");
+  context.emitter.emit_declaration_line("static void __yo_decr_rc_atomic(void* ptr); // Atomic RC decrement (atomic ref objects)");
+  context.emitter.emit_declaration_line("static void* __yo_incr_rc_atomic(void* ptr); // Atomic RC increment (atomic ref objects)");
+  context.emitter.emit_declaration_line("static void __yo_cleanup_thread(void); // A worker thread's exit: frees its async runtime pools");
   // Per THREAD: the hook frees the exiting thread's own pools, and each
   // thread installs it the first time it allocates one. As a process global
   // every thread's first enqueue wrote it while exiting threads read it — a
@@ -318,7 +316,7 @@ generate_object_constructor_declarations :: (fn(context : &CodeGenContext) -> un
   // cross_thread_wake and spawn_blocking (the value was always the same
   // function, which is not a synchronization).
   thread_local_kw := if(is_target_windows(&context.target_info), String.from("__declspec(thread)"), String.from("_Thread_local"));
-  em.emit_declaration_string_line(`static ${thread_local_kw} void (*__yo_async_thread_exit_hook)(void); // Frees the exiting thread's async runtime pools; installed by the async runtime, called by __yo_cleanup_thread`);
+  context.emitter.emit_declaration_string_line(`static ${thread_local_kw} void (*__yo_async_thread_exit_hook)(void); // Frees the exiting thread's async runtime pools; installed by the async runtime, called by __yo_cleanup_thread`);
   // Per-object constructor declarations.
   // A live cursor walk of the registry, not a borrowed `for`: the body can
   // register a late type (the on-demand hook), which a borrowed walk refuses.
@@ -367,7 +365,7 @@ generate_object_constructor_declarations :: (fn(context : &CodeGenContext) -> un
           });
           line.push_string(&params);
           line.push_str("); // Constructor");
-          em.emit_declaration_string_line(&line);
+          context.emitter.emit_declaration_string_line(&line);
         });
       }),
       .None => ()
@@ -923,7 +921,7 @@ static_dispatch_callee_return_type :: (
 /// `is_exported` is precomputed by the caller via
 /// the SAME predicate the body emitter (generate_function) uses, so the
 /// declaration's linkage matches the definition's.
-generate_function_declaration :: (fn(function_type : &TypeValue, c_function_name : &String, is_extern : bool, is_exported : bool, body : &Option(AstExpr), is_closure : bool, context : &CodeGenContext) -> unit)({
+generate_function_declaration :: (fn(function_type : &TypeValue, c_function_name : &String, is_extern : bool, is_exported : bool, body : &Option(AstExpr), is_closure : bool, context : &mut CodeGenContext) -> unit)({
   override := _return_type_override(function_type, body, context);
   prototype := generate_function_prototype(function_type, c_function_name.clone(), context, &override, is_closure);
   // Three arms, matching generate_function's linkage EXACTLY (see the comment
@@ -966,10 +964,9 @@ generate_closure_vtable_declarations :: (fn(context : &CodeGenContext) -> unit)(
 /// Gap 2 (the FuncVal/Func model lacks these fields): the specialization
 /// skips and closure carve-outs evaluate to false here. The async
 /// runtime forward declaration is gated on uses_async (false for the corpus).
-generate_function_declarations :: (fn(context : &CodeGenContext) -> unit)({
-  em := context.emitter;
-  em.emit_declaration_line("// Function declarations");
-  em.emit_declaration_line("/// Extern functions");
+generate_function_declarations :: (fn(context : &mut CodeGenContext) -> unit)({
+  context.emitter.emit_declaration_line("// Function declarations");
+  context.emitter.emit_declaration_line("/// Extern functions");
   for(&context.extern_functions, (_fid, entry) => {
     cn := entry.c_name.clone();
     tag := _func_extern_tag(&entry.ty);
@@ -984,21 +981,21 @@ generate_function_declarations :: (fn(context : &CodeGenContext) -> unit)({
       }
     );
   });
-  em.emit_declaration_line("");
+  context.emitter.emit_declaration_line("");
   // Async runtime forward declarations are gated on uses_async (deferred — corpus
   // is synchronous; the flag lives on FunctionGenerationContext, not the base).
-  em.emit_declaration_line("/// Object constructors");
+  context.emitter.emit_declaration_line("/// Object constructors");
   generate_object_constructor_declarations(context);
-  em.emit_declaration_line("");
-  em.emit_declaration_line("/// Closure constructors");
+  context.emitter.emit_declaration_line("");
+  context.emitter.emit_declaration_line("/// Closure constructors");
   generate_closure_constructor_declarations(context);
-  em.emit_declaration_line("");
-  em.emit_declaration_line("/// Capture dispose functions");
+  context.emitter.emit_declaration_line("");
+  context.emitter.emit_declaration_line("/// Capture dispose functions");
   generate_capture_dispose_function_declarations(context);
-  em.emit_declaration_line("");
-  em.emit_declaration_line("/// Dyn type constructors");
-  em.emit_declaration_line("");
-  em.emit_declaration_line("/// Regular functions");
+  context.emitter.emit_declaration_line("");
+  context.emitter.emit_declaration_line("/// Dyn type constructors");
+  context.emitter.emit_declaration_line("");
+  context.emitter.emit_declaration_line("/// Regular functions");
   // Registration-only pre-pass: compute the async return-type override for
   // every Future-returning fn BEFORE emitting any prototype. The override's
   // block_sn path registers `type_key(fn.ret) → <block>_(state|sync_fut)_t*`,
@@ -1068,8 +1065,8 @@ generate_function_declarations :: (fn(context : &CodeGenContext) -> unit)({
     );
     fi = (fi + usize(1));
   });
-  em.emit_declaration_line("/// Closure vtable instances");
+  context.emitter.emit_declaration_line("/// Closure vtable instances");
   generate_closure_vtable_declarations(context);
-  em.emit_declaration_line("");
+  context.emitter.emit_declaration_line("");
 });
 export(EvidenceParameter, collect_evidence_from_record, get_evidence_parameters, generate_function_prototype, _return_type_override, fn_value_c_name, generate_function_declaration, generate_object_constructor_declarations, generate_closure_constructor_declarations, generate_capture_dispose_function_declarations, generate_closure_vtable_declarations, generate_function_declarations, should_skip_function_codegen, _async_override_return_type, awaited_future_c_type_override, emitted_return_type_string, static_dispatch_callee_return_type);

@@ -49,7 +49,7 @@
 /// prototypes into the header section. The main wrapper calls the
 /// `__yo_debug_alloc_*` hooks (`functions/generation.yo`), the parallelism
 /// runtime the thread pair (`parallelism/runtime.yo`).
-emit_debug_allocator_defines :: (fn(emitter : &Emitter) -> unit)({
+emit_debug_allocator_defines :: (fn(emitter : &mut Emitter) -> unit)({
   emitter.emit_header_string_line(
     `
 // Debug allocator (--allocator debug): a tracking allocator over the system
@@ -75,8 +75,7 @@ int __yo_debug_alloc_report(void);`
   );
 });
 /// Emit the allocator implementation into the code section.
-emit_debug_allocator_impl :: (fn(context : &CodeGenContext) -> unit)({
-  em := context.emitter;
+emit_debug_allocator_impl :: (fn(context : &mut CodeGenContext) -> unit)({
   // WASM keeps the direct-call main, which calls the report in person and
   // returns its status; hosted targets register it with atexit.
   atexit_line :=
@@ -103,7 +102,7 @@ emit_debug_allocator_impl :: (fn(context : &CodeGenContext) -> unit)({
       true => String.from("    struct timespec ts;\n    ts.tv_sec = 0;\n    ts.tv_nsec = 1000000L;\n    nanosleep(&ts, NULL);")
     );
   time_include := if(is_target_windows(&context.target_info), String.new(), String.from("#include <time.h>"));
-  em.emit_string_line(
+  context.emitter.emit_string_line(
     `
 // ============================================================================
 // Debug allocator - plans/backlog/ZIG_ADOPTION_CANDIDATES.md Z11
