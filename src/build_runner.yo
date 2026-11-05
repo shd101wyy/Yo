@@ -46,9 +46,11 @@ _(env : warm_dbg_env) :: import("std/env");
   BuildRegistry,
   ResolvedDep,
   BuildSystemLibrary,
-  get_build_registry,
+  take_build_registry,
+  seed_build_registry,
   clear_build_registry,
-  swap_build_registry
+  swap_build_registry,
+  restore_build_registry
 } :: import("./evaluator/builtins/build.yo");
 {
   Manifest,
@@ -623,15 +625,14 @@ _evaluate_dependency_build_file :: (
   owned_dep_name := dep_name.clone();
   owned_defines := defines.clone();
   io.async((e : IoExn) => {
-    scratch := BuildRegistry.new();
+    mut(scratch) := BuildRegistry.new();
     scratch.cli_options = _namespaced_defines(owned_dep_name.clone(), &owned_defines);
     dep_manifest_opt := project_manifest(owned_dep_dir.clone(), e.exn);
     scratch.manifest_fields = _manifest_fields(&dep_manifest_opt);
-    prev := swap_build_registry(Option(BuildRegistry).Some(scratch));
+    saved := swap_build_registry(scratch);
     outcome := mm_load_yo_file(owned_build_file.clone(), e.io, e.exn);
     load_error := _take_load_error();
-    evaluated := get_build_registry();
-    swap_build_registry(&prev);
+    evaluated := restore_build_registry(saved);
     if(!outcome.ok, {
       match(
         load_error,
@@ -653,28 +654,28 @@ _evaluate_dependency_build_file :: (
 _evaluate_dependency_builds :: (
   fn(
     manifest : &Manifest,
-    registry : &BuildRegistry,
+    sink(registry) : BuildRegistry,
     defines : &HashMap(String, String),
     io : Io,
     exn : Exception
-  ) -> Impl(Future(unit, IoExn))
+  ) -> Impl(Future(BuildRegistry, IoExn))
 )({
   owned_defines := defines.clone();
-  io.async((e : IoExn) => {
+  io.async({ registry }(e : IoExn) => {
     if(registry.dependency_artifacts.len() == usize(0), {
-      return(());
+      return(registry);
     });
     lock_text := read_lock_text(manifest, e.exn);
     (i : usize) = usize(0);
     while(i < registry.dependency_artifacts.len(), {
-      r := registry.dependency_artifacts(i);
+      r := registry.dependency_artifacts(i).clone();
       i = (i + usize(1));
       dep := match(
         manifest.find_dependency(r.dependency_name.clone()),
         .Some(d) => d,
         .None => {
           e.exn.throw(dyn(`Error: build.dependency("${r.dependency_name}") is not declared in ${manifest.path}. Add it with 'yo add'.`));
-          return(());
+          return(registry);
         }
       );
       dir := match(
@@ -709,7 +710,7 @@ _evaluate_dependency_builds :: (
           .Some(a) => a,
           .None => {
             e.exn.throw(dyn(`Error: dependency "${r.dependency_name}" defines no artifact "${r.artifact_name}" in ${build_file}.`));
-            return(());
+            return(registry);
           }
         );
         is_lib := match(art.kind, .StaticLibrary => true, _ => false);
@@ -760,14 +761,12 @@ _evaluate_dependency_builds :: (
         });
         // The system libraries the dependency's build file declared, so the
         // consumer's link line can resolve what its archive needs.
-        (si : usize) = usize(0);
-        while(si < dep_reg.system_libraries.len(), {
-          registry.system_libraries.push(dep_reg.system_libraries(si));
-          si = (si + usize(1));
+        for(&dep_reg.system_libraries, sl => {
+          registry.system_libraries.push(sl.clone());
         });
       });
     });
-    ()
+    registry
   })
 });
 /// A dependency package's own import closure, as `name=<root file>` lines. Its
@@ -3261,9 +3260,7 @@ evaluate_build_file :: (
     // reads `cli_options` at evaluation time and returns the override in place
     // of its declared default. The manifest's `[package]` table goes in the
     // same way — `build.manifest.name` reads it during evaluation.
-    reg := get_build_registry();
-    reg.cli_options = owned_defines.clone();
-    reg.manifest_fields = _manifest_fields(manifest_opt);
+    seed_build_registry(owned_defines.clone(), _manifest_fields(manifest_opt));
     outcome := mm_load_yo_file(&owned_build_file, e.io, e.exn);
     load_error := _take_load_error();
     // No `mm_reset()` here: the caller resets once, after the manifest's
@@ -3279,7 +3276,7 @@ evaluate_build_file :: (
       );
       e.exn.throw(dyn(`Error: Failed to evaluate build file ${owned_build_file}`));
     });
-    get_build_registry()
+    take_build_registry()
   })
 });
 // ---------------------------------------------------------------------------
@@ -3355,7 +3352,7 @@ run_build :: (
     // evaluator — `load_manifest` parses TOML.
     manifest_opt := project_manifest(project_dir.clone(), e.exn);
     // Evaluate build.yo to populate the registry.
-    registry := e.io.await(
+    mut(registry) := e.io.await(
       evaluate_build_file(
         build_file_path.to_string(),
         &options.defines,
@@ -3388,10 +3385,10 @@ run_build :: (
     // Every `dep.artifact(...)` this build file named becomes a real artifact
     // of ours, built from the dependency's own build.yo (§4.5.2). Runs after
     // the fetch above, so a git dependency's sources are on disk.
-    match(
-      manifest_opt,
-      .Some(m) => e.io.await(_evaluate_dependency_builds(&m, &registry, &options.defines, e.io, e.exn), e),
-      .None => ()
+    registry = match(
+      &manifest_opt,
+      .Some(m) => e.io.await(_evaluate_dependency_builds(m, registry, &options.defines, e.io, e.exn), e),
+      .None => registry
     );
     project_name := match(manifest_opt, .Some(m) => m.name.clone(), .None => String.new());
     // §7 step 2: a watch round's artifact compiles run IN PROCESS against
@@ -3414,78 +3411,48 @@ run_build :: (
     if(registry.system_libraries.len() > usize(0), {
       (sa_i : usize) = usize(0);
       while(sa_i < registry.artifacts.len(), {
-        art_opt := registry.artifacts.get(sa_i);
+        art_i := sa_i;
         sa_i = (sa_i + usize(1));
-        match(
-          art_opt,
-          .Some(art) => if(art.linked_system_libs.len() > usize(0), {
-            linked := ArrayList(BuildSystemLibrary).new();
-            (sl_i : usize) = usize(0);
-            while(sl_i < registry.system_libraries.len(), {
-              match(
-                registry.system_libraries.get(sl_i),
-                .Some(slib) => {
-                  (is_linked : bool) = false;
-                  (ln_i : usize) = usize(0);
-                  while((ln_i < art.linked_system_libs.len()) && !is_linked, {
-                    match(
-                      art.linked_system_libs.get_cloned(ln_i),
-                      .Some(ln) => if(ln == slib.name, {
-                        is_linked = true;
-                      }),
-                      .None => ()
-                    );
-                    ln_i = (ln_i + usize(1));
-                  });
-                  if(is_linked, {
-                    linked.push(slib);
-                  });
-                },
-                .None => ()
-              );
-              sl_i = (sl_i + usize(1));
-            });
-            if(linked.len() > usize(0), {
-              eff_target := match(&options.target_triple, .Some(t) => t.clone(), .None => art.target.clone());
-              eff_ti := match(parse_target(eff_target.clone()), .Ok(t) => t, .Err(_) => host_target());
-              if(is_target_wasm(&eff_ti), {
-                (wl_i : usize) = usize(0);
-                while(wl_i < linked.len(), {
-                  match(
-                    linked.get(wl_i),
-                    .Some(wlib) => {
-                      (already : bool) = false;
-                      (al_i : usize) = usize(0);
-                      while((al_i < art.link_libraries.len()) && !already, {
-                        match(
-                          art.link_libraries.get_cloned(al_i),
-                          .Some(aln) => if(aln == wlib.name, {
-                            already = true;
-                          }),
-                          .None => ()
-                        );
-                        al_i = (al_i + usize(1));
-                      });
-                      if(!already, {
-                        art.link_libraries.push(wlib.name.clone());
-                      });
-                    },
-                    .None => ()
-                  );
-                  wl_i = (wl_i + usize(1));
-                });
-              }, {
-                sys_flags := e.io.await(resolve_all_system_libraries(&linked, options.verbose, e.io, e.exn), e);
-                _push_all_strings(&mut art.include_paths, &sys_flags.include_paths);
-                _push_all_strings(&mut art.library_paths, &sys_flags.library_paths);
-                _push_all_strings(&mut art.link_libraries, &sys_flags.link_libraries);
-                _push_all_strings(&mut art.defines, &sys_flags.defines);
-                _push_all_strings(&mut art.c_flags, &sys_flags.c_flags);
+        mut(art) := registry.artifacts(art_i).clone();
+        if(art.linked_system_libs.len() > usize(0), {
+          linked := ArrayList(BuildSystemLibrary).new();
+          for(&registry.system_libraries, slib => {
+            (is_linked : bool) = false;
+            for(&art.linked_system_libs, ln => {
+              if(ln == slib.name, {
+                is_linked = true;
               });
             });
-          }),
-          .None => ()
-        );
+            if(is_linked, {
+              linked.push(slib.clone());
+            });
+          });
+          if(linked.len() > usize(0), {
+            eff_target := match(&options.target_triple, .Some(t) => t.clone(), .None => art.target.clone());
+            eff_ti := match(parse_target(eff_target.clone()), .Ok(t) => t, .Err(_) => host_target());
+            if(is_target_wasm(&eff_ti), {
+              for(&linked, wlib => {
+                (already : bool) = false;
+                for(&art.link_libraries, aln => {
+                  if(aln == wlib.name, {
+                    already = true;
+                  });
+                });
+                if(!already, {
+                  art.link_libraries.push(wlib.name.clone());
+                });
+              });
+            }, {
+              sys_flags := e.io.await(resolve_all_system_libraries(&linked, options.verbose, e.io, e.exn), e);
+              _push_all_strings(&mut art.include_paths, &sys_flags.include_paths);
+              _push_all_strings(&mut art.library_paths, &sys_flags.library_paths);
+              _push_all_strings(&mut art.link_libraries, &sys_flags.link_libraries);
+              _push_all_strings(&mut art.defines, &sys_flags.defines);
+              _push_all_strings(&mut art.c_flags, &sys_flags.c_flags);
+            });
+            registry.artifacts(art_i) = art;
+          });
+        });
       });
     });
     ctx := ExecutionContext(
