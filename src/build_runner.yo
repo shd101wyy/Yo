@@ -3161,7 +3161,7 @@ print_options :: (fn(registry : &BuildRegistry) -> unit)({
     name := names(i).clone();
     i = (i + usize(1));
     match(
-      registry.declared_options.get(name.clone()),
+      registry.declared_options.get_cloned(name.clone()),
       .Some(opt) => {
         value := match(registry.cli_options.get_cloned(name.clone()), .Some(v) => v, .None => opt.default_value.clone());
         println(`  -D${name}=<value>\t${opt.description} (default: "${opt.default_value}", now: "${value}")`);
