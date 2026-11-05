@@ -7352,12 +7352,38 @@ local_borrow_access_expr :: (fn(e : &AstExpr, kind : &LocalBorrowAccess, tok : &
     );
   })
 );
+/// The binding `place` is rooted at is a shared reference: its slot type is
+/// `&T` (a `y := &x` borrow, a `&` match payload). What
+/// `local_borrow_require_writable` judges a write by.
+local_borrow_root_is_shared_reference :: (fn(place : &LocalBorrowPlace, env : &Environment) -> bool)({
+  vars := get_variables_from_env(env, &place.root_name);
+  (i : usize) = vars.len();
+  while(i > usize(0), {
+    i = (i - usize(1));
+    match(
+      vars.get(i),
+      .Some(v) => if(_lb_same_decl(v.name.clone(), &v.token, place.root_name.clone(), &place.root_decl), {
+        return(match(variable_slot_type(&v), Rc(.Reference(_, rs_mut, _)) => !rs_mut, _ => false));
+      }),
+      .None => ()
+    );
+  });
+  false
+});
 /// A write of `place` at `tok` that goes through an `imm` local borrow is
 /// E0908: the borrow is read-only (decision 18). `what` names the write.
-local_borrow_require_writable :: (fn(place : &LocalBorrowPlace, what : &String, tok : &Token, ctx : &EvalContext, exn : Exception) -> unit)(
+/// Read-only is the ROOT BINDING's own property — its slot is a shared
+/// reference (`variable_slot_type`, decision 43 step 2 N1e-2b) — not the
+/// mode of a record carrying its name: the record of a value holding a `&`
+/// lend (N2b's binding freeze) freezes the lent place and says nothing about
+/// the holder, which its own `mut(...)` governs
+/// (issues/2026-11-05-a-mut-holder-of-a-shared-lend-is-read-only.md).
+/// `root_read_only` is `local_borrow_root_is_shared_reference` of `place`,
+/// taken where the write is found.
+local_borrow_require_writable :: (fn(place : &LocalBorrowPlace, root_read_only : bool, what : &String, tok : &Token, ctx : &EvalContext, exn : Exception) -> unit)(
   match(
     local_borrow_info_of(place.root_name.clone(), &place.root_decl),
-    .Some(info) => if(!info.is_mut, {
+    .Some(info) => if(root_read_only, {
       entries := ArrayList(TokenAndError).new();
       entries.push(
         TokenAndError(
@@ -7391,7 +7417,7 @@ local_borrow_write_expr :: (fn(e : &AstExpr, what : &String, tok : &Token, env :
         if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
           eprintln(`[n2b] write ${p.root_name} at=${tok.character} entries=${g_local_borrows.with(xs => xs.len()).to_string()}`);
         });
-        local_borrow_require_writable(&p, what, tok, ctx, exn);
+        local_borrow_require_writable(&p, local_borrow_root_is_shared_reference(&p, env), what, tok, ctx, exn);
         local_borrow_access(&p, LocalBorrowAccess.Write, tok, ctx, exn);
       },
       .None => ()
@@ -8780,6 +8806,7 @@ export(
   local_borrow_access,
   local_borrow_access_expr,
   local_borrow_require_writable,
+  local_borrow_root_is_shared_reference,
   local_borrow_write_expr,
   local_borrow_note_call,
   local_borrow_note_await,
