@@ -1,0 +1,105 @@
+// The read rule (decision 43 step 2 N1e-2b; VERDICTS-23 R1, VERDICTS-25):
+// a reference-typed expression — a reference binding, a reference field, a
+// projection call — is the reference VALUE where its position expects one:
+// a `&T` payload, field or slot, a type binder already bound to a
+// reference, or an unbound type binder (which it binds `T := &U`).
+// Everywhere else it reads as the place it refers to.
+{ assert } :: import("std/assert");
+{ ArrayList } :: import("std/collections/array_list");
+// A projection's result into a reference payload: `.Some(self.xs.index(self.i))`.
+RrCursor :: (fn(comptime(T) : Type, comptime(p) : Origin) -> comptime(Type))(struct(xs : &(ArrayList(T), p), i : usize));
+rr_next :: (fn(generic(T : Type, p : Origin), self : &mut RrCursor(T, p)) -> Option(&(T, p)))(
+  cond(
+    (self.i < self.xs.len()) => {
+      k := self.i;
+      self.i = (k + usize(1));
+      .Some(self.xs.index(k))
+    },
+    true => .None
+  )
+);
+rr_next_at :: (fn(generic(T : Type, p : Origin), self : &mut RrCursor(T, p)) -> Option(&(T, p)))(.Some(self.xs.index(self.i)));
+// A reference field into a reference payload: `.Some(self.r)`.
+RrHeld :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(r : &(i32, p)));
+rr_held :: (fn(generic(p : Origin), self : &RrHeld(p)) -> Option(&(i32, p)))(.Some(self.r));
+// A reference binding into a reference payload: `.Some(r)`.
+rr_wrap :: (fn(r : &i32) -> Option(&(i32, r)))(.Some(r));
+rr_payload :: (fn(generic(p : Origin), o : Option(&(i32, p))) -> i32)(
+  match(
+    o,
+    .Some(v) => v.*,
+    .None => i32(-1)
+  )
+);
+test("A reference read into a reference payload is the reference", {
+  mut(xs) := ArrayList(i32).new();
+  xs.push(i32(10));
+  xs.push(i32(20));
+  mut(c) := RrCursor(i32, xs)(xs : &xs, i : usize(0));
+  assert(rr_payload(rr_next_at(&mut c)) == i32(10), "`.Some(self.xs.index(self.i))`");
+  assert(rr_payload(rr_next(&mut c)) == i32(10), "the cursor's first item");
+  assert(rr_payload(rr_next(&mut c)) == i32(20), "the cursor's second item");
+  assert(rr_payload(rr_next(&mut c)) == i32(-1), "the cursor is exhausted");
+  x := i32(7);
+  h := RrHeld(x)(r : &x);
+  assert(rr_payload(rr_held(&h)) == i32(7), "`.Some(self.r)` of a reference field");
+  assert(rr_payload(rr_wrap(&x)) == i32(7), "`.Some(r)` of a reference binding");
+});
+// An unbound type binder binds the reference itself: `T := &i32`, so the
+// read is no whole-value read (E0926) of `r`.
+rr_id :: (fn(generic(T : Type), v : T) -> T)(v);
+rr_through_id :: (fn(r : &i32) -> &(i32, r))(rr_id(r));
+rr_read :: (fn(x : &i32) -> i32)(x.* + i32(0));
+test("An unbound type binder binds a reference read as the reference", {
+  x := i32(5);
+  assert(rr_read(rr_through_id(&x)) == i32(5), "`id(r)` binds `T := &i32` and returns the reference");
+  y := i32(6);
+  r := &y;
+  s := rr_id(r);
+  assert(s.* == i32(6), "`id(r)` of a local borrow");
+});
+// A holder of a reference with a Drop impl is dropped like any value: at
+// the statement's end as a temporary, at its scope's end when bound, and
+// when an effect handler unwinds past it. Dropping it never drops the place
+// it refers to.
+(mut(g_rr_dropped) : i32) = i32(0);
+RrHolder :: (fn(comptime(T) : Type, comptime(p) : Origin) -> comptime(Type))(struct(r : &(T, p)));
+impl(
+  generic(T : Type, p : Origin),
+  RrHolder(T, p),
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_rr_dropped = (g_rr_dropped + i32(1));
+    })
+  )
+);
+rr_holder_read :: (fn(generic(p : Origin), h : &RrHolder(i32, p)) -> i32)(h.r.*);
+rr_bound :: (fn(x : &i32) -> i32)({
+  h := RrHolder(i32, x)(r : x);
+  n := h.r.*;
+  assert(g_rr_dropped == i32(1), "a bound holder lives to its scope's end");
+  n
+});
+RrRaise :: (ctl() -> unit);
+rr_raises :: (fn(x : &i32, raise : RrRaise) -> unit)({
+  h := RrHolder(i32, x)(r : x);
+  _n := h.r.*;
+  raise();
+  assert(false, "the handler unwinds");
+});
+rr_unwinds :: (fn(x : &i32) -> unit)({
+  (raise : RrRaise) = (() -> {
+    unwind(());
+  });
+  rr_raises(x, raise);
+});
+test("A holder of a reference with a Drop impl drops at statement end, scope end and unwind", {
+  x := i32(3);
+  assert(rr_holder_read(&RrHolder(i32, x)(r : &x)) == i32(3), "a temporary holder reads its place");
+  assert(g_rr_dropped == i32(1), "a temporary holder drops at its statement's end");
+  assert(rr_bound(&x) == i32(3), "a bound holder reads its place");
+  assert(g_rr_dropped == i32(2), "a bound holder drops at its scope's end");
+  rr_unwinds(&x);
+  assert(g_rr_dropped == i32(3), "an unwind drops the holder it passes");
+  assert(x == i32(3), "dropping a holder leaves its place alone");
+});

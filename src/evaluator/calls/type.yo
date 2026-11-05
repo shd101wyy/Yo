@@ -53,7 +53,7 @@ pragma(Pragma.AllowUnsafe);
 { is_std_module_path } :: import("../memory_safety.yo");
 { EvalValue, value_to_string } :: import("../../value.yo");
 { TypeField } :: import("../types/field.yo");
-{ set_expr_as_needs_to_call_dup, reject_second_class_escape, reject_bare_callable_into_dyn_fn, bare_callable_recorded_into_dyn_fn, deref_exempt_mark, deref_exempt_clear, variable_is_reference_binding, deref_rule_applies, is_reference_deref_site, reject_reference_without_deref } :: import("../utils.yo");
+{ set_expr_as_needs_to_call_dup, reject_second_class_escape, reject_bare_callable_into_dyn_fn, bare_callable_recorded_into_dyn_fn, variable_is_reference_binding, deref_rule_applies, is_reference_deref_site, reject_reference_without_deref } :: import("../utils.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
 { format_error_message, with_code } :: import("../../error.yo");
 { E_INCOMPATIBLE_TYPES, E_ARGUMENT_COUNT_MISMATCH, E_BORROW_MARKER_MISMATCH } :: import("../../diagnostics.yo");
@@ -316,15 +316,13 @@ try_to_call_type_with_arguments :: (
     // in its own swallow, exactly as before.
     saved_expected := ctx.expected_type;
     ctx.expected_type = .Some(ExpectedTypeCtx(ty : Rc.clone(member_element.ty), env : env));
-    // A field typed as a reference (N2b) takes a reference binding bare, as a
-    // reference parameter does (`f(r)`, E0926's exemption, decision 43 step 2
-    // N1e-1); `&r`/`&mut r` there names the referent, spelled `&r.*`.
+    // A field typed as a reference (N2b) takes a reference binding, a
+    // reference field's read or a projection's result bare: the read IS the
+    // reference there (the read rule, decision 43 step 2 N1e-2b — the
+    // expected type is the field's). `&r`/`&mut r` names the referent,
+    // spelled `&r.*`.
     t9_field_is_reference := match(&member_element.ty, Rc(.Reference(_, _, _)) => true, _ => false);
-    if(t9_field_is_reference, {
-      deref_exempt_mark(&actual_arg_expr);
-    });
     evaluated_arg := evaluate_expression_raw(&actual_arg_expr, &env, ctx, exn);
-    deref_exempt_clear();
     ctx.expected_type = saved_expected;
     arg_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_arg));
     if(t9_field_is_reference && (t9_is_mut_marker || t9_is_amp_marker) && ast_expr_is_atom(&evaluated_arg), {

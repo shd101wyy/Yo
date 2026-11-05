@@ -1828,7 +1828,15 @@ check_if_function_parameter_matches_argument :: (
       &resolved_pt,
       Rc(.Reference(_, t9_mut, _)) => match(
         &arg_info.ty,
-        Rc(.Reference(_, _, _)) => (),
+        // A reference VALUE (the read rule, decision 43 step 2 N1e-2b: a
+        // reference binding's read, a projection's result) is the place it
+        // refers to in C: the parameter takes that place's address, as for a
+        // lend.
+        Rc(.Reference(_, _, _)) => {
+          rv_ty := Option(TypeValue).Some(Rc.clone(arg_info.ty));
+          expr_info_set_converted_runtime_type(&arg_info, &rv_ty);
+          expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&evaled_arg), &arg_info);
+        },
         _ => match(
           _lend_place_root_name(&actual_arg),
           .Some(t9_root) => {
