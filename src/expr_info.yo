@@ -1378,7 +1378,7 @@ scope_release_body :: (fn(mark : usize, entry : &Environment) -> unit)({
           av := get_variables_from_env(&info.env(), sv.name.clone());
           ok := ((av.len() == usize(1)) && (av.get_cloned(usize(0)).unwrap().id == sv.id));
           if(!ok, {
-            g_scope_atom_exc.with_mut(m => m.insert_cloned(id, av.clone()));
+            g_scope_atom_exc.with_mut(m => m.insert(id, av.clone()));
           });
         },
         .None => ()
@@ -1444,7 +1444,7 @@ scope_release_body :: (fn(mark : usize, entry : &Environment) -> unit)({
           g_scope_one.with_mut(m => m.insert(id, inner.get_cloned(usize(0)).unwrap()));
         },
         (inner.len() > usize(1)) => {
-          g_scope_inner.with_mut(m => m.insert_cloned(id, inner.clone()));
+          g_scope_inner.with_mut(m => m.insert(id, inner.clone()));
         },
         true => ()
       );
@@ -1462,7 +1462,7 @@ scope_release_body :: (fn(mark : usize, entry : &Environment) -> unit)({
 });
 /// Remove and return `id`'s recorded inner variables.
 _scope_take_inner :: (fn(id : ExprId) -> ArrayList(Variable))({
-  out := match(g_scope_inner.with_mut(m => m.remove_cloned(&id)), .Some(vs) => vs, .None => ArrayList(Variable).new());
+  out := match(g_scope_inner.with_mut(m => m.remove(&id)), .Some(vs) => vs, .None => ArrayList(Variable).new());
   match(g_scope_one.with_mut(m => m.remove(&id)), .Some(v) => out.push(v), .None => ());
   out
 });
