@@ -184,3 +184,20 @@ test("the forms that give the caller's address: *T, &mut T, a ref handle's field
   arr := [usize(1), usize(2), usize(3)];
   assert(arr(1) == usize(2), "the prelude's Array Index takes addr_of of its projection receiver");
 });
+// A `&T` parameter a sibling parameter may store past the call is a pointer
+// (VERDICTS-23 R2): `dst`'s value type carries an origin, so `v` is the
+// caller's place, not a copy that dies with the call — the stored reference
+// points at `x` itself.
+_ao_store :: (fn(generic(p : Origin), dst : &mut Option(&(i32, p)), v : &(i32, p)) -> unit)({
+  dst.* = .Some(v);
+});
+test("a &T parameter a sibling may store is the caller's place", {
+  x := i32(7);
+  mut(slot) := Option(&(i32, x)).None;
+  _ao_store(&mut slot, &x);
+  match(
+    slot,
+    .Some(r) => assert(addr_of(r.*) == addr_of(x), "the stored reference points at `x`, not at the callee's copy"),
+    .None => assert(false, "the store ran")
+  );
+});
