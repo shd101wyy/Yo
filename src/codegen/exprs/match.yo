@@ -70,7 +70,7 @@ _emit_pattern_binding_decl :: (
   // A reference payload's binding is a reference binding: a `T*` local, as
   // `r := &x`'s is, whatever the payload field's `const` (a `&` binding is
   // read-only in the checker, not in C).
-  tstr := if(t_slot_is_borrow(ty), `${get_type_string(&t_slot_pointee(ty), &context.base)}*`, get_type_string(ty, &mut context.base));
+  tstr := if(t_slot_is_borrow(ty), `${get_type_string(&t_slot_pointee(ty), &mut context.base)}*`, get_type_string(ty, &mut context.base));
   init_c := if(t_slot_is_borrow(ty), `((${tstr})(${init_code}))`, init_code.clone());
   if(init_c.contains(bind.clone()), {
     mut(tmp) := String.from("__yo_pat_");
