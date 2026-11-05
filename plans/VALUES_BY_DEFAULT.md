@@ -5807,7 +5807,7 @@ lands after V1 step 2, because its resource cells are the unique `Box`
     `Box`'s `Drop` is a no-op on a zeroed box, which an aborted state machine
     relies on (`issues/fixed/2026-10-23-an-aborted-task-drops-a-box-local-it-never-stored.md`).
     Open: a user `Drop` on a never-stored task slot
-    (`issues/2026-10-23-an-aborted-task-runs-a-user-drop-on-a-local-it-never-stored.md`),
+    (`issues/fixed/2026-10-23-an-aborted-task-runs-a-user-drop-on-a-local-it-never-stored.md`),
     `Option.unwrap` of a move-only payload
     (`issues/questions/2026-10-23-option-unwrap-cannot-move-a-move-only-payload.md`)
     and the loss of `Dyn(Reader)`/`Dyn(Writer)`

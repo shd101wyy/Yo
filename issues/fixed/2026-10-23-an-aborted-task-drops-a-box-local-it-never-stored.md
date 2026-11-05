@@ -73,7 +73,7 @@ The state machine is zero-initialized, and its abort path drops every local slot
 
 `Box`'s `Drop` (`std/prelude.yo`) is a no-op when the cell pointer is null. It reads the pointer as an `Option(*T)`, which has the same representation, with null as `.None`. A zeroed box therefore owns nothing, the way a zeroed reference handle owns nothing. A `Box`-celled resource (`File`, `TcpStream`, …) is covered with no change of its own: its state's `Drop` never runs for a slot that was never stored.
 
-This does not cover a user value type whose own `Drop` runs on a zeroed slot. That is `issues/2026-10-23-an-aborted-task-runs-a-user-drop-on-a-local-it-never-stored.md`, which needs per-slot initialization flags in the state machine.
+This does not cover a user value type whose own `Drop` runs on a zeroed slot. That is `issues/fixed/2026-10-23-an-aborted-task-runs-a-user-drop-on-a-local-it-never-stored.md`, which needs per-slot initialization flags in the state machine.
 
 ## Verification
 

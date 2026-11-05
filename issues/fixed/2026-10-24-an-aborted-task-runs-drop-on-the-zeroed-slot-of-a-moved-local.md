@@ -4,10 +4,10 @@
 all-zero value: a drop counter is off by one, and a file-descriptor wrapper
 would `close(0)`. No memory error (a zero `String` drops as a no-op).
 
-**Status:** open. Found 2026-10-24 while probing
+**Status:** FIXED 2026-11-06 on `fix/aborted-task-match-binding-drop`: the dispose drops a flagged slot only while its flag is clear, instead of zeroing it and dropping the zeroes (`issues/fixed/2026-11-05-an-aborted-task-drops-a-local-its-scope-already-dropped.md`). Test: "move-only: an aborted task does not drop a local it moved" in `tests/move_only.test.yo`. Originally open: Found 2026-10-24 while probing
 `fix/s1-return-before-break-move`. Present on develop `48b8e93a1` and on that
 branch alike. Sibling of
-`issues/2026-10-23-an-exit-inside-an-unmoved-async-locals-own-initializer-drops-its-zeroed-slot.md`
+`issues/fixed/2026-10-23-an-exit-inside-an-unmoved-async-locals-own-initializer-drops-its-zeroed-slot.md`
 (a different trigger, the same phantom value).
 
 ## Reproducer

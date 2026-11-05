@@ -233,16 +233,15 @@ test("two io.async closures that update a module global", {
   assert(g_counter == i32(3), "both tasks ran on the loop's own thread");
 });
 
-// issues/fixed/async-abort-dispose-double-drops-moved-enum-payload.md (the binding pair).
-// The scrutinee stays a `ref` object for now: with a value payload (`Thing`,
-// an `Rc`) the aborted task leaks the binding instead
-// (issues/2026-11-05-an-aborted-task-leaks-a-value-moved-into-a-match-binding-across-an-await.md);
-// its fix switches this case to `Option(Thing)`.
+// issues/fixed/async-abort-dispose-double-drops-moved-enum-payload.md (the binding pair),
+// issues/fixed/2026-11-05-an-aborted-task-leaks-a-value-moved-into-a-match-binding-across-an-await.md:
+// the consuming match moves the payload into the binding, whose slot the
+// abort drops.
 test("an aborted task drops a pattern binding's scrutinee once", {
   before := g_disposed;
   {
     task := io.async((io : Io) => {
-      o := Option(_RefThing).Some(_RefThing(n : i32(5)));
+      o := Option(Thing).Some(_thing(i32(5)));
       match(
         o,
         .Some(q) => {
@@ -264,6 +263,139 @@ test("an aborted task drops a pattern binding's scrutinee once", {
   });
   io.await(yield(io), io);
   assert(g_disposed == (before + i32(1)), "the Thing is disposed exactly once");
+});
+
+// The same with a plain `Drop` struct payload, whose zeroed slot is not an
+// empty value (the counter counts `drop` calls, a call on zeroes included):
+// the abort drops the binding's slot only while it holds the payload, and a
+// local's slot only between its store and its scope's end
+// (issues/fixed/2026-11-05-an-aborted-task-leaks-a-value-moved-into-a-match-binding-across-an-await.md,
+// issues/fixed/2026-11-05-an-aborted-task-drops-a-local-its-scope-already-dropped.md).
+(mut(g_plain_drops) : i32) = i32(0);
+_PlainV :: struct(n : i32);
+impl(
+  _PlainV,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_plain_drops = (g_plain_drops + i32(1));
+    })
+  )
+);
+_plain_n :: (fn() -> i32)(g_plain_drops);
+// `early` aborts before the arm, `late` after it; neither aborts in the arm.
+_plain_match_task :: (fn(io : Io) -> Impl(Future(i32, Io)))(
+  io.async((io : Io) => {
+    o := Option(_PlainV).Some(_PlainV(n : i32(5)));
+    io.await(yield(io), io);
+    k := match(
+      o,
+      .Some(q) => {
+        io.await(yield(io), io);
+        q.n
+      },
+      .None => i32(0)
+    );
+    io.await(yield(io), io);
+    io.await(yield(io), io);
+    k
+  })
+);
+_plain_spins :: (fn(n : i32, io : Io) -> unit)({
+  (mut(spins) : i32) = i32(0);
+  while(spins < n, {
+    io.await(yield(io), io);
+    spins = (spins + i32(1));
+  });
+});
+_plain_abort_after :: (fn(spins : i32, io : Io) -> i32)({
+  g_plain_drops = i32(0);
+  {
+    h := io.spawn(_plain_match_task(io), io);
+    _plain_spins(spins, io);
+    h.abort();
+    r := h.await(io);
+    assert(r.is_none(), "the task was aborted before it completed");
+  };
+  _plain_spins(i32(20), io);
+  _plain_n()
+});
+test("an aborted task drops a plain Drop payload its match binding holds once, wherever it stops", {
+  // Before the first await: the scrutinee holds the payload.
+  assert(_plain_abort_after(i32(0), io) == i32(1), `aborted before the arm, drops=${_plain_n()}`);
+  // Inside the arm: the binding holds it.
+  assert(_plain_abort_after(i32(1), io) == i32(1), `aborted in the arm, drops=${_plain_n()}`);
+  // After the arm: the arm's end dropped it.
+  assert(_plain_abort_after(i32(3), io) == i32(1), `aborted after the arm, drops=${_plain_n()}`);
+  // Completed.
+  g_plain_drops = i32(0);
+  assert(io.await(_plain_match_task(io), io) == i32(5), "the task completes");
+  assert(g_plain_drops == i32(1), `completed, drops=${_plain_n()}`);
+});
+_plain_local_task :: (fn(io : Io) -> Impl(Future(i32, Io)))(
+  io.async((io : Io) => {
+    io.await(yield(io), io);
+    k := {
+      v := _PlainV(n : i32(7));
+      io.await(yield(io), io);
+      v.n
+    };
+    io.await(yield(io), io);
+    io.await(yield(io), io);
+    k
+  })
+);
+_plain_local_abort_after :: (fn(spins : i32, io : Io) -> i32)({
+  g_plain_drops = i32(0);
+  {
+    h := io.spawn(_plain_local_task(io), io);
+    _plain_spins(spins, io);
+    h.abort();
+    r := h.await(io);
+    assert(r.is_none(), "the task was aborted before it completed");
+  };
+  _plain_spins(i32(20), io);
+  _plain_n()
+});
+test("an aborted task drops a plain Drop local only while its slot holds it", {
+  assert(_plain_local_abort_after(i32(0), io) == i32(0), `aborted before the local, drops=${_plain_n()}`);
+  assert(_plain_local_abort_after(i32(1), io) == i32(1), `aborted while the local lives, drops=${_plain_n()}`);
+  assert(_plain_local_abort_after(i32(3), io) == i32(1), `aborted after the local's scope, drops=${_plain_n()}`);
+});
+
+// A `break` inside a task-slot local's own initializer: the slot holds no
+// value of this iteration, and the previous iteration's scope-end drop
+// already released its value (its move flag is set), so the exit drops
+// nothing
+// (issues/fixed/2026-10-23-an-exit-inside-an-unmoved-async-locals-own-initializer-drops-its-zeroed-slot.md).
+_PlainFd :: struct(n : i32, s : String);
+impl(
+  _PlainFd,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_plain_drops = (g_plain_drops + i32(1));
+    })
+  )
+);
+test("a break inside a task-slot local's own initializer drops nothing of it", {
+  g_plain_drops = i32(0);
+  task := io.async((io : Io) => {
+    (mut(total) : i32) = i32(0);
+    (mut(i) : i32) = i32(0);
+    while(i < i32(4), {
+      i = (i + i32(1));
+      x := cond(
+        (i == i32(3)) => {
+          break;
+        },
+        true => _PlainFd(n : i, s : String.from("a heap string"))
+      );
+      io.await(yield(io), io);
+      total = (total + x.n);
+    });
+    total
+  });
+  assert(io.await(task, io) == i32(3), "iterations 1 and 2 ran");
+  assert(g_plain_drops == i32(2), `each iteration's value is dropped once, drops=${_plain_n()}`);
 });
 
 // issues/fixed/reassigned-heap-local-in-an-arm-after-a-loop-await-leaks.md

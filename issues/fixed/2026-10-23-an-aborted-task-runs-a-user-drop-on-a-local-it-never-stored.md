@@ -2,7 +2,7 @@
 
 **Severity:** S1 — when a task unwinds, its abort runs the `Drop` of every value-type local that has a task slot. That includes a local the body never reached, and one it already moved out. The `Drop` runs on zeroed bytes, so a descriptor wrapper whose fields read zero closes fd 0 (stdin).
 
-**Status:** open. Found 2026-10-23 while fixing `issues/fixed/2026-10-23-an-aborted-task-drops-a-box-local-it-never-stored.md`, on develop `5136a2b9d` with the tree binary. That fix covers `Box` and every type whose state sits in a `Box`, which includes the std resources. It does not cover a user type that implements `Drop` on its own fields.
+**Status:** FIXED 2026-11-06 on `fix/aborted-task-match-binding-drop`, as the fix direction below proposed: the move flag is the slot's drop flag (`issues/fixed/2026-11-05-an-aborted-task-drops-a-local-its-scope-already-dropped.md` has the mechanism). Test: "move-only: an aborted task does not drop a local it never stored" in `tests/move_only.test.yo`. Originally open: Found 2026-10-23 while fixing `issues/fixed/2026-10-23-an-aborted-task-drops-a-box-local-it-never-stored.md`, on develop `5136a2b9d` with the tree binary. That fix covers `Box` and every type whose state sits in a `Box`, which includes the std resources. It does not cover a user type that implements `Drop` on its own fields.
 
 ## Reproducer
 
