@@ -966,19 +966,30 @@ generate_closure_vtable_declarations :: (fn(context : &CodeGenContext) -> unit)(
 generate_function_declarations :: (fn(context : &mut CodeGenContext) -> unit)({
   context.emitter.emit_declaration_line("// Function declarations");
   context.emitter.emit_declaration_line("/// Extern functions");
+  // The declarations to emit are gathered first: the walk borrows `context`
+  // for its whole extent, and emitting a declaration writes it.
+  decl_tys := ArrayList(TypeValue).new();
+  decl_names := ArrayList(String).new();
   for(&context.extern_functions, (_fid, entry) => {
     cn := entry.c_name.clone();
     tag := _func_extern_tag(&entry.ty);
     cond(
       match(&tag, .Some(s) => (s == "yo"), .None => false) => if(!_is_threading_macro_function(cn.clone()), {
-        generate_function_declaration(&entry.ty, cn.clone(), true, false, Option(AstExpr).None, false, context);
+        decl_tys.push(Rc.clone(entry.ty));
+        decl_names.push(cn.clone());
       }),
       (match(tag, .Some(s) => (s == "c"), .None => false) && entry.c_include.is_some()) => (),
       (cn.starts_with("__atomic_") || cn.starts_with("__sync_")) => (),
       true => {
-        generate_function_declaration(&entry.ty, cn.clone(), true, false, Option(AstExpr).None, false, context);
+        decl_tys.push(Rc.clone(entry.ty));
+        decl_names.push(cn.clone());
       }
     );
+  });
+  (di : usize) = usize(0);
+  while(di < decl_tys.len(), {
+    generate_function_declaration(&decl_tys(di), decl_names(di).clone(), true, false, Option(AstExpr).None, false, context);
+    di = (di + usize(1));
   });
   context.emitter.emit_declaration_line("");
   // Async runtime forward declarations are gated on uses_async (deferred — corpus
