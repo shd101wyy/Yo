@@ -49,8 +49,10 @@ shared (`Rc(RefCell(S))`, or `Rc(S)` with at most two `RefCell` fields).
 - The three `ref(enum)` trees (`AstExpr`, `EvalValue`, `VcSort`) are V4's
   shared trees: read-only `Rc`, R here.
 - Order (VERDICTS-18 §C): R and L per file first, every L before any S; each
-  S type on the evaluator's path is perf-gated (ABBA `check ./src`, ≤ 3 %
-  wall and max RSS, plus the fixpoint). Part B lands after W6b, so the S
+  S type on the evaluator's path was perf-gated (ABBA `check ./src`, ≤ 3 %
+  wall and max RSS, plus the fixpoint). The maintainer dropped the RSS
+  and wall-time gates for the VBD campaign on 2026-11-05; the gate is
+  correctness only. Part B lands after W6b, so the S
   types (all in `src/env.yo`, `src/expr_info.yo`, `src/codegen/`,
   `src/evaluator/builtins/build.yo` and the module walk) wait for it.
 
@@ -96,8 +98,8 @@ migrating.
   parameter. The 216 alias bindings (`em := context.base.emitter;`,
   `cg := context.base;`) are rewritten to the place. None of the three is
   on the evaluator's path. Their gate is the fixpoint, byte-identical C
-  for `src/main.yo`, and the wall time and RSS of
-  `yo compile src/main.yo --skip-c-compiler`.
+  for `src/main.yo` (the wall time and RSS gate was dropped on
+  2026-11-05).
 - `InProcessCompileSlot`: **removed**, not S. `main.yo` sets the in-process
   compile callback once, before `run_build` builds the `ExecutionContext`,
   and nothing writes it afterwards. The slot is now a plain module global
@@ -131,17 +133,26 @@ migrating.
   is a read-only `Rc(DeferredAsyncBlockData)` (R), and `ClosureParamSlot`
   is a plain value.
 - `Environment`, `Frame`, `FrameNameIndex`, `Variable`, `VariableRare`,
-  `WhereClauseConstraints`, `ExprInfo`, `ExprInfoRare`: **stay `ref`,
-  pending VERDICTS-22**. `RefCell` boxes its slot
-  (`std/sync/refcell.yo`), so each cell costs one more allocation
-  (+31 B per object for shape 2, +47 B for `Rc(RefCell(S))`, measured on
-  4 M Variable-shaped objects under mimalloc). With about 8 M Variables
-  and 3.2 M ExprInfos alive, that is about +15 % `check ./src` RSS, five
-  times the 3 % gate. An inline borrow word costs nothing when the layout
-  stays in its allocator bin. That needs `&T` parameters of cell-containing
-  types to pass by address (decision 34's ABI, `fn_param_is_ptr_borrow`)
-  before `RefCell` can drop the `Box`. The measurement and options are in
-  the consult input for VERDICTS-22.
+  `WhereClauseConstraints`, `ExprInfo`, `ExprInfoRare`, as built
+  (VERDICTS-22, binding): the final shapes on today's boxed `RefCell`.
+  `Variable :: Rc(VariableData)` (shape 2): `id`, `name`, `frame_level`
+  and `token` are read-only, and everything else lives in one
+  `live : RefCell(VariableLive)`, with the bools last.
+  `VariableLive` is `VariableLiveOf(Variable)`: a generic struct breaks
+  the alias cycle through `is_owning_the_same_rc_value_as`.
+  `Environment`, `Frame`, `FrameNameIndex`, `WhereClauseConstraints` and
+  `ExprInfo` are `Rc(RefCell(<Name>Data))` whole cells. Each has a
+  `make_<name>` constructor and getter/`set_<field>` accessor methods.
+  `VariableRare` and `ExprInfoRare` are values in an `Option(Box(...))`
+  inside the cell. `ExprInfo`'s value write is one method,
+  `info.set_value(v)` (VERDICTS-22's `expr_info_set_value`).
+  `RefCell` boxes its slot (`std/sync/refcell.yo`), so each cell costs one
+  more allocation: +31 B per object for shape 2 and +47 B for
+  `Rc(RefCell(S))`, measured on 4 M Variable-shaped objects under
+  mimalloc. Dropping that `Box` (an inline borrow word) is VERDICTS-22's
+  Gen B, the first PR of v0.2.77. The maintainer dropped the RSS and
+  wall-time gates for the VBD campaign (2026-11-05). This batch is gated
+  on correctness only, and the PR body records its RSS and wall time.
 - `Md5`, `Sha1`, `Sha512`, `NfaCompiler`: **L**, not R. They are written
   through `self`, and the syntactic scan does not count receiver writes.
 
