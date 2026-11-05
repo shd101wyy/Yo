@@ -82,6 +82,22 @@ migrating.
   neither Copy nor `ref`.
 - `HttpServer` (`std/http/server.yo`): **S**, not L. A handler calls `stop()` while
   `serve` runs on the same server (VERDICTS-20 §4).
+- `CodeGenContext`, `Emitter`, `ArrayStructInfo`: **L**, not S (step 3,
+  coordinator-approved 2026-11-05). The S verdict assumed one
+  `FunctionGenerationContext` per generated function. There is one per
+  compile: its only construction is `FunctionGenerationContext.new` in
+  `compile_module` (`src/codegen/codegen_c.yo:357`), threaded down through
+  371 `&FunctionGenerationContext` parameters and stored nowhere.
+  `CodeGenContext`'s only store is `FunctionGenerationContext.base`, and
+  `Emitter`'s is `CodeGenContext.emitter`. The other four `Emitter.new()`
+  are scratch emitters swapped into `context.base.emitter` and back
+  (`drop_dup.yo`, three in `async.yo`), which become `replace(&mut …)`
+  pairs. Every stored use therefore has the context on its path as a
+  parameter. The 216 alias bindings (`em := context.base.emitter;`,
+  `cg := context.base;`) are rewritten to the place. None of the three is
+  on the evaluator's path. Their gate is the fixpoint, byte-identical C
+  for `src/main.yo`, and the wall time and RSS of
+  `yo compile src/main.yo --skip-c-compiler`.
 - `Md5`, `Sha1`, `Sha512`, `NfaCompiler`: **L**, not R. They are written
   through `self`, and the syntactic scan does not count receiver writes.
 
