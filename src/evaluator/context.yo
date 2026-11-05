@@ -1594,7 +1594,7 @@ record_def_dependency :: (fn(dependee : &String) -> unit)({
     current_forcing_def(),
     .Some(_) => {
       (top : PendingDef) = match(
-        g_forcing_stack.with(xs => xs.last()),
+        g_forcing_stack.with(xs => xs.last_cloned()),
         .Some(d) => d,
         .None => return(())
       );
@@ -2736,7 +2736,7 @@ _active_walk_for :: (fn(module_path : &String) -> Option(ModuleWalk))({
 /// stack), if any.
 current_forcing_def :: (fn() -> Option(PendingDef))(
   cond(
-    (g_forcing_stack.with(xs => xs.len()) > usize(0)) => g_forcing_stack.with(xs => xs.last()),
+    (g_forcing_stack.with(xs => xs.len()) > usize(0)) => g_forcing_stack.with(xs => xs.last_cloned()),
     true => Option(PendingDef).None
   )
 );
@@ -2764,7 +2764,7 @@ cyclic_definition_message :: (fn(def : &PendingDef) -> String)({
   (i : usize) = usize(0);
   while(i < g_forcing_stack.with(xs => xs.len()), {
     match(
-      g_forcing_stack.with(xs => xs.get(i)),
+      g_forcing_stack.with(xs => xs.get_cloned(i)),
       .Some(d) => {
         if(((!(started) && (d.name == def.name)) && (d.is_impl == def.is_impl)), {
           started = true;
@@ -3233,7 +3233,7 @@ force_pending_impls_for_type_name :: (fn(type_name : &String, missed : &Option(S
     (stack : String) = String.new();
     (si : usize) = usize(0);
     while(si < g_forcing_stack.with(xs => xs.len()), {
-      match(g_forcing_stack.with(xs => xs.get(si)), .Some(fd) => stack.push_string(cond(fd.is_derive() => ` derive(${fd.name})`, fd.is_impl => ` impl(${fd.name})`, true => ` ${fd.name}`)), .None => ());
+      match(g_forcing_stack.with(xs => xs.get_cloned(si)), .Some(fd) => stack.push_string(cond(fd.is_derive() => ` derive(${fd.name})`, fd.is_impl => ` impl(${fd.name})`, true => ` ${fd.name}`)), .None => ());
       si = (si + usize(1));
     });
     eprintln(`[force-miss] ${type_name}.${m} (forcing stack:${stack})`);
@@ -3258,7 +3258,7 @@ force_pending_impls_for_type_name :: (fn(type_name : &String, missed : &Option(S
   (fi : usize) = usize(0);
   while(fi < g_forcing_stack.with(xs => xs.len()), {
     match(
-      g_forcing_stack.with(xs => xs.get(fi)),
+      g_forcing_stack.with(xs => xs.get_cloned(fi)),
       .Some(fd) => if((fd.is_impl && !(fd.is_derive())) && (fd.name == type_name), {
         if(match(missed, .Some(m) => _impl_expr_declares(&fd.expr(), &m), .None => true), {
           return(PendingImplOutcome.NoneForced);

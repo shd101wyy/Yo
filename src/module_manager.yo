@@ -1327,7 +1327,7 @@ mm_revalidate_plan :: (fn(fs_path : &String) -> Option(RevalPlan))({
         match(
           walk,
           .Some(w) => match(
-            w.by_index.get(&fresh.index),
+            w.by_index.get_cloned(&fresh.index),
             .Some(old) => {
               if(!_def_is_per_def_able(&old, &fresh), {
                 allowed = false;
@@ -1389,7 +1389,7 @@ mm_revalidate_plan :: (fn(fs_path : &String) -> Option(RevalPlan))({
           match(
             finished_walk_for(module.clone()),
             .Some(w) => match(
-              w.by_index.get(match(index, .Some(ix) => ix, .None => usize(0))),
+              w.by_index.get_cloned(match(index, .Some(ix) => ix, .None => usize(0))),
               .Some(d) => {
                 // A walk that released its evaluation context (only the watch
                 // modes retain every walk; the LSP retains OPEN documents',
@@ -1698,7 +1698,7 @@ mm_revalidate_apply :: (
                         match(
                           finished_walk_for(m.clone()),
                           .Some(w) => match(
-                            w.by_index.get(&ix),
+                            w.by_index.get_cloned(&ix),
                             .Some(d) => d.name.clone(),
                             .None => String.new()
                           ),
@@ -1780,7 +1780,7 @@ mm_revalidate_apply :: (
               match(
                 idxs.get(pick),
                 .Some(ix) => match(
-                  walk.by_index.get(&ix),
+                  walk.by_index.get_cloned(&ix),
                   .Some(d) => defs.push(d),
                   .None => ()
                 ),
@@ -1802,7 +1802,7 @@ mm_revalidate_apply :: (
                 plan.changed.get_cloned(gi),
                 .Some(fresh) => if(module == plan.module_key, {
                   match(
-                    walk.by_index.get(&fresh.index),
+                    walk.by_index.get_cloned(&fresh.index),
                     .Some(d) => graft_pending_def(&walk, &d, &fresh),
                     .None => ()
                   );
