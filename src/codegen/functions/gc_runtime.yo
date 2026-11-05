@@ -94,27 +94,34 @@ _collect_unwind_value_ctypes_from_expr :: (fn(expr : &AstExpr, context : &mut Fu
 /// program. MUST run before the unwind-value buffer is declared.
 collect_unwind_value_ctypes :: (fn(context : &mut FunctionGenerationContext) -> unit)({
   into := HashSet(String).new();
+  // The bodies are gathered first: the walk borrows `context` for its whole
+  // extent, and the collector takes it `&mut`.
+  bodies := ArrayList(AstExpr).new();
   for(
     &context.base.functions,
     (_fid, entry) => match(
       entry.value,
-      .FuncVal(__fvd1, _) => {
-        found := _collect_unwind_value_ctypes_from_expr(&__fvd1.*.body, context);
-        fnlen := found.len();
-        (fj : usize) = usize(0);
-        while(fj < fnlen, {
-          match(
-            found.get_cloned(fj),
-            .Some(s) => {
-              into.insert(s.clone());
-            },
-            .None => ()
-          );
-          fj = (fj + usize(1));
-        });
-      },
+      .FuncVal(__fvd1, _) => bodies.push(__fvd1.*.body.clone()),
       _ => ()
     )
+  );
+  for(
+    &bodies,
+    body => {
+      found := _collect_unwind_value_ctypes_from_expr(body, context);
+      fnlen := found.len();
+      (fj : usize) = usize(0);
+      while(fj < fnlen, {
+        match(
+          found.get_cloned(fj),
+          .Some(s) => {
+            into.insert(s.clone());
+          },
+          .None => ()
+        );
+        fj = (fj + usize(1));
+      });
+    }
   );
   context.unwind_value_c_types = Option(HashSet(String)).Some(into);
 });
