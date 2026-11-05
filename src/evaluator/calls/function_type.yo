@@ -43,7 +43,8 @@ pragma(Pragma.AllowUnsafe);
   register_funcval_cap_slices,
   CaptureSlice,
   bind_parameter,
-  find_variable_in_env
+  find_variable_in_env,
+  make_frame
 } :: import("../../env.yo");
 { some_t_bounds, TypeValue, TypeValueNode, shared_list, no_types, no_labels, slot_pointee_at, slot_pointees, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_by_value, t_slot_is_borrow, t_origin_kind, t_origin_named } :: import("../../types/definitions.yo");
 { t_unit, t_some_t, t_ptr, resolve_some_binder_kind, t_with_resolution, t_with_func_result, resolve_enum_shell, register_ctor_phantom_positions } :: import("../../types/creators.yo");
@@ -631,7 +632,7 @@ _share_def_time_frames :: (fn(env : &Environment, strip : bool) -> Environment)(
           j = (j + usize(1));
         });
         new_frames.push(
-          Frame(
+          make_frame(
             id : frame.id(),
             variables : new_vars,
             is_begin_block : frame.is_begin_block(),
