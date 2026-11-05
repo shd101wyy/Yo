@@ -1278,7 +1278,7 @@ _scope_same_ids :: (fn(a : &ArrayList(Variable), b : &ArrayList(Variable)) -> bo
   (i : usize) = usize(0);
   (same : bool) = true;
   while(same && (i < a.len()), {
-    same = (a.get_cloned(i).unwrap().id == b.get_cloned(i).unwrap().id);
+    same = (a.get_cloned(i).unwrap().id() == b.get_cloned(i).unwrap().id());
     i = (i + usize(1));
   });
   same
@@ -1376,7 +1376,7 @@ scope_release_body :: (fn(mark : usize, entry : &Environment) -> unit)({
         info.source_variable(),
         .Some(sv) => {
           av := get_variables_from_env(&info.env(), sv.name.clone());
-          ok := ((av.len() == usize(1)) && (av.get_cloned(usize(0)).unwrap().id == sv.id));
+          ok := ((av.len() == usize(1)) && (av.get_cloned(usize(0)).unwrap().id() == sv.id()));
           if(!ok, {
             g_scope_atom_exc.with_mut(m => m.insert(id, av.clone()));
           });
@@ -1421,7 +1421,7 @@ scope_release_body :: (fn(mark : usize, entry : &Environment) -> unit)({
           (bi : usize) = usize(0);
           while(bi < bvars.len(), {
             bv := bvars.get_cloned(bi).unwrap();
-            if(!_scope_has_id(&shared, bv.id) && !_scope_has_id(&inner, bv.id), {
+            if(!_scope_has_id(&shared, bv.id()) && !_scope_has_id(&inner, bv.id()), {
               inner.push(bv);
             });
             bi = (bi + usize(1));
@@ -1471,7 +1471,7 @@ _scope_push_new :: (fn(into : &mut ArrayList(Variable), vs : &ArrayList(Variable
   (i : usize) = usize(0);
   while(i < vs.len(), {
     v := vs.get_cloned(i).unwrap();
-    if(!_scope_has_id(into, v.id), {
+    if(!_scope_has_id(into, v.id()), {
       into.push(v);
     });
     i = (i + usize(1));
@@ -1480,7 +1480,7 @@ _scope_push_new :: (fn(into : &mut ArrayList(Variable), vs : &ArrayList(Variable
 _scope_has_id :: (fn(vs : &ArrayList(Variable), id : usize) -> bool)({
   (i : usize) = usize(0);
   while(i < vs.len(), {
-    if(vs.get_cloned(i).unwrap().id == id, {
+    if(vs.get_cloned(i).unwrap().id() == id, {
       return(true);
     });
     i = (i + usize(1));
@@ -1530,7 +1530,7 @@ _scope_record_answer :: (fn(key : ExprId, husk : &Environment, name : &String) -
   base := match(g_scope_klen.with(m => m.get(&key)), .Some(k) => get_variables_from_env_before(husk, k, name), .None => get_variables_from_env(husk, name));
   match(
     g_scope_one.with(m => m.get_cloned(&key)),
-    .Some(v) => if((v.name == name) && !_scope_has_id(&base, v.id), {
+    .Some(v) => if((v.name == name) && !_scope_has_id(&base, v.id()), {
       g_scope_path = usize(3);
       base.push(v);
     }),
@@ -1542,7 +1542,7 @@ _scope_record_answer :: (fn(key : ExprId, husk : &Environment, name : &String) -
       (vi : usize) = usize(0);
       while(vi < vs.len(), {
         v := vs.get_cloned(vi).unwrap();
-        if((v.name == name) && !_scope_has_id(&base, v.id), {
+        if((v.name == name) && !_scope_has_id(&base, v.id()), {
           g_scope_path = usize(3);
           base.push(v);
         });

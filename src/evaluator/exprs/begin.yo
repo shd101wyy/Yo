@@ -364,7 +364,7 @@ _search_dup_calls :: (fn(expr : &AstExpr, res : &mut DupCallsResult, ctx : &Eval
           if(dvars.len() > usize(0), {
             match(
               dvars.last_cloned(),
-              .Some(dv) => _push_dup_call(res, dv.id.to_string(), expr),
+              .Some(dv) => _push_dup_call(res, dv.id().to_string(), expr),
               .None => ()
             );
           });
@@ -1500,11 +1500,11 @@ _optimize_dup_drop_pairs :: (
             );
           });
           cur := match(
-            consumed_derived.get(cbase.id.to_string()),
+            consumed_derived.get(cbase.id().to_string()),
             .Some(c) => c,
             .None => usize(0)
           );
-          consumed_derived.insert(cbase.id.to_string(), cur + usize(1));
+          consumed_derived.insert(cbase.id().to_string(), cur + usize(1));
         });
       },
       .None => ()
@@ -1575,7 +1575,7 @@ _optimize_dup_drop_pairs :: (
               }
             );
           });
-          base_id := base.id.to_string();
+          base_id := base.id().to_string();
           // Alias candidate (`v := base`): the elision shares ONE count that the
           // BASE keeps and releases. It is sound only while nothing releases
           // that count before the alias's last use — a reassignment of the
@@ -1585,7 +1585,7 @@ _optimize_dup_drop_pairs :: (
           // Keep the dup in both cases and protect the base from the plain
           // move path below.
           (alias_reassigned : bool) = false;
-          if(!(base.id == v.id), {
+          if(!(base.id() == v.id()), {
             (ari : usize) = usize(0);
             while((ari < begin_args.len()) && !alias_reassigned, {
               match(
@@ -1605,7 +1605,7 @@ _optimize_dup_drop_pairs :: (
               variable_mark_keep_alias_dups(&base);
             });
           });
-          base_is_protected := ((base.id == v.id) && (protected_bases.contains(base_id.clone()) || variable_keep_alias_dups(&v)));
+          base_is_protected := ((base.id() == v.id()) && (protected_bases.contains(base_id.clone()) || variable_keep_alias_dups(&v)));
           match(
             merged.dup_calls.get_cloned(base_id.clone()),
             .Some(dups) => if((dups.len() > usize(0)) && (!alias_reassigned && !base_is_protected), {
@@ -1697,12 +1697,12 @@ _optimize_dup_drop_pairs :: (
               // Base variable itself consumed while `v` is a derived copy:
               // the dup is essential for COW correctness.
               (base_consumed : bool) = false;
-              if(!(base.id == v.id), {
+              if(!(base.id() == v.id()), {
                 (bci2 : usize) = usize(0);
                 while(bci2 < fvars.len(), {
                   match(
                     fvars.get_cloned(bci2),
-                    .Some(fv) => if((fv.id.to_string() == base_id) && fv.consumed_at_token().is_some(), {
+                    .Some(fv) => if((fv.id().to_string() == base_id) && fv.consumed_at_token().is_some(), {
                       base_consumed = true;
                     }),
                     .None => ()
@@ -1721,7 +1721,7 @@ _optimize_dup_drop_pairs :: (
               // the count, and the state machine stores the alias in the base's
               // slot (`sm_storage_id`), which is sound only while the alias owns
               // nothing.
-              slot_move := (block_awaits && (base.id == v.id));
+              slot_move := (block_awaits && (base.id() == v.id()));
               gates_ok := (!value_type_with_rc && (!partial && (!nested_dup && (!ret_before_dup && ((consumed_dups == usize(0)) && (!base_consumed && !slot_move))))));
               if(gates_ok, {
                 // Count RUNTIME dups — every collected dup counts.
@@ -2011,7 +2011,7 @@ _ic_scan :: (fn(e : &AstExpr, v : &Variable, site : &ImplicitCopyPending, acc : 
         ei_opt,
         .Some(aei) => match(
           get_variables_from_env(&aei.env(), v.name.clone()).last_cloned(),
-          .Some(rv) => if(rv.id == v.id, {
+          .Some(rv) => if(rv.id() == v.id(), {
             _ic_read(&atok, site, acc);
           }),
           .None => ()
@@ -2167,7 +2167,7 @@ _audit_judge_implicit_copies :: (fn(frame : &Frame, begin_args : &ArrayList(AstE
     match(
       fvars.get_cloned(i),
       .Some(v) => match(
-        audit_take_implicit_copy_pending(v.id),
+        audit_take_implicit_copy_pending(v.id()),
         .Some(sites) => {
           (si : usize) = usize(0);
           while(si < sites.len(), {
@@ -2218,7 +2218,7 @@ judge_dyn_copies :: (fn(frame : &Frame, scanned : &ArrayList(AstExpr), ctx : &Ev
     match(
       fvars.get_cloned(i),
       .Some(v) => match(
-        take_dyn_copy_pending(v.id),
+        take_dyn_copy_pending(v.id()),
         .Some(sites) => {
           (si : usize) = usize(0);
           while(si < sites.len(), si = (si + usize(1)), {
@@ -2255,7 +2255,7 @@ discard_dyn_copies :: (fn(frame : &Frame) -> unit)({
     match(
       fvars.get_cloned(i),
       .Some(v) => {
-        _ := take_dyn_copy_pending(v.id);
+        _ := take_dyn_copy_pending(v.id());
       },
       .None => ()
     );
@@ -2272,7 +2272,7 @@ _migrate_judge_scrutinee_borrows :: (fn(frame : &Frame, begin_args : &ArrayList(
     match(
       fvars.get_cloned(i),
       .Some(v) => {
-        pendings := take_pending_scrutinee_borrows(v.id);
+        pendings := take_pending_scrutinee_borrows(v.id());
         (pi : usize) = usize(0);
         while(pi < pendings.len(), pi = (pi + usize(1)), {
           match(
@@ -2323,7 +2323,7 @@ audit_commit_arm_copies :: (fn(frame : &Frame) -> unit)({
     match(
       fvars.get_cloned(i),
       .Some(v) => match(
-        audit_take_implicit_copy_pending(v.id),
+        audit_take_implicit_copy_pending(v.id()),
         .Some(sites) => {
           (si : usize) = usize(0);
           while(si < sites.len(), si = (si + usize(1)), {
@@ -3803,7 +3803,7 @@ _evaluate_begin_expression_impl :: (
                 // A named variable's transfer is a move (the flow log's
                 // per-path move state, `set_expr_as_consumed`).
                 if(!is_temp_variable_name(&env.module_path().*, &rv.name), {
-                  record_branch_consume(rv.id, ast_expr_token(&last_expr), &rv.initialized_at_token(), Option(Token).None);
+                  record_branch_consume(rv.id(), ast_expr_token(&last_expr), &rv.initialized_at_token(), Option(Token).None);
                 });
                 rv.set_consumed_at_token(Option(Token).Some(ast_expr_token(&last_expr)));
               }, {

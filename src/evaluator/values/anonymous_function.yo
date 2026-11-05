@@ -1046,7 +1046,7 @@ _evaluate_capture_list :: (
           is_mut : is_mut,
           value_ty : place_ty,
           init : ev_place,
-          root_id : root_var.id,
+          root_id : root_var.id(),
           root_name : root_tok.value.*.clone(),
           path : fields,
           root_is_value_param : root_var.is_imm_borrow()
@@ -1667,13 +1667,13 @@ evaluate_anonymous_function_implementation :: (
               if(ce.is_borrow, {
                 cv.set_is_ref(true);
               }, if(!ce_owned, {
-                mark_fn_capture_value_binding(cv.id);
+                mark_fn_capture_value_binding(cv.id());
               }));
               if(!ce.is_borrow, {
-                mark_capture_list_value_binding(cv.id);
+                mark_capture_list_value_binding(cv.id());
               });
               if(ce_fnmut_state, {
-                mark_fnmut_capture_value_binding(cv.id);
+                mark_fnmut_capture_value_binding(cv.id());
               });
             },
             .None => ()

@@ -550,7 +550,7 @@ _evaluate_inout_local_binding :: (
     bound_opt,
     .Some(bound) => {
       bound.set_is_ref(true);
-      variable_set_inout_borrow_root_id(&bound, root_var.id);
+      variable_set_inout_borrow_root_id(&bound, root_var.id());
       if(hops.len() == usize(0), {
         // Whole-variable place: alias the root's value cell so compile-time
         // reads through the binding observe the root (§9 H27).
@@ -751,7 +751,7 @@ _bind_projection_result :: (
     bound_opt,
     .Some(bound) => {
       bound.set_is_ref(true);
-      match(root_vars.get_cloned(usize(0)), .Some(rv0) => variable_set_inout_borrow_root_id(&bound, rv0.id), .None => ());
+      match(root_vars.get_cloned(usize(0)), .Some(rv0) => variable_set_inout_borrow_root_id(&bound, rv0.id()), .None => ());
     },
     .None => ()
   );
@@ -1780,7 +1780,7 @@ Use \`::\` for compile-time definitions inside impl.`
       if(shadow_existing.len() > usize(0), {
         match(
           shadow_existing.last_cloned(),
-          .Some(shadow_var) => if(match(prebound_opt, .Some(pb) => (pb.id == shadow_var.id), .None => false), (), {
+          .Some(shadow_var) => if(match(prebound_opt, .Some(pb) => (pb.id() == shadow_var.id()), .None => false), (), {
             sh_entries := ArrayList(TokenAndError).new();
             sh_entries.push(
               TokenAndError(
@@ -1820,7 +1820,15 @@ Use \`::\` for compile-time definitions inside impl.`
         pb.set_is_reassignable(!is_implicit);
         pb.set_is_owning_the_rc_value(type_contains_rc_type(&final_lhs_type));
         pb.set_is_implicit(is_implicit.clone());
-        pb.token = actual_lhs_tok;
+        // No token write: the pre-binding (`resolve_pending_definition`,
+        // context.yo) declared `pb` at `ast_expr_token` of this definition's
+        // LHS, and
+        // `pending_prebound_variable` matched it on row, column and module
+        // path. A wrapped LHS (`given(x)`, `comptime(x)`) has the wrapper's
+        // token, at another column, so a match means the LHS is the atom
+        // itself and the token is the same handle: every field a reader
+        // uses (module-path spelling, lexeme, kind) is already the one set
+        // here. `token` is one of `Variable`'s read-only fields (VERDICTS-22).
         pb.set_initialized_at_token(Option(Token).Some(actual_lhs_tok));
         Option(Variable).Some(pb)
       },

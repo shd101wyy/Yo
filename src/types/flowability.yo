@@ -591,7 +591,7 @@ is_flowable_expr :: (fn(expr_in : &AstExpr, ctx : &EvalContext, opts : &FlowOpti
 /// (step-capped instead of an identity-set cycle guard).
 alias_group_root :: (fn(variable : &Variable) -> String)({
   (cur : Variable) = variable;
-  (root_id : String) = variable.id.to_string();
+  (root_id : String) = variable.id().to_string();
   (steps : usize) = usize(0);
   (done : bool) = false;
   while(!done && (steps < usize(64)), {
@@ -599,7 +599,7 @@ alias_group_root :: (fn(variable : &Variable) -> String)({
       cur.is_owning_the_same_rc_value_as(),
       .Some(next_box) => {
         cur = next_box;
-        root_id = cur.id.to_string();
+        root_id = cur.id().to_string();
       },
       .None => {
         done = true;
@@ -1145,7 +1145,7 @@ _reject_if_container_reachable :: (
             match(
               frame.variable_at(vi),
               .Some(fv) => {
-                if((fv.id.to_string() == c_root_id) && fv.is_module_level(), {
+                if((fv.id().to_string() == c_root_id) && fv.is_module_level(), {
                   root_module = true;
                 });
               },

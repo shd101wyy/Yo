@@ -810,7 +810,7 @@ _decide_match_mode :: (
       if((!unmovable && plain_local), {
         match(
           root,
-          .Some(rv) => record_pending_scrutinee_borrow(rv.id, &scr, &ty, clone_scrutinee : _scrutinee_written_in_arms(whole, rv.name.clone(), ctx)),
+          .Some(rv) => record_pending_scrutinee_borrow(rv.id(), &scr, &ty, clone_scrutinee : _scrutinee_written_in_arms(whole, rv.name.clone(), ctx)),
           .None => ()
         );
       });
@@ -1607,11 +1607,11 @@ evaluate_match :: (
       // ...)`'s `.Some(x)` arm), rebinds like a parameter.
       m_tok := ast_expr_token(expr);
       if(for_desugar_site_of(&m_tok).is_some(), {
-        match(_added, .Some(me_var) => mark_macro_pattern_binding(me_var.id), .None => ());
+        match(_added, .Some(me_var) => mark_macro_pattern_binding(me_var.id()), .None => ());
       }, {
         if(b_tok.module_path != m_tok.module_path, {
           if(canonical_module_path(&b_tok.module_path.*) != canonical_module_path(&m_tok.module_path.*), {
-            match(_added, .Some(me_var) => mark_macro_pattern_binding(me_var.id), .None => ());
+            match(_added, .Some(me_var) => mark_macro_pattern_binding(me_var.id()), .None => ());
           });
         });
       });
@@ -1677,7 +1677,7 @@ evaluate_match :: (
       ), {
         match(
           _added,
-          .Some(pv) => _record_nested_scrutinee_borrows(&body_ast, b.name.clone(), pv.id, &b.ty),
+          .Some(pv) => _record_nested_scrutinee_borrows(&body_ast, b.name.clone(), pv.id(), &b.ty),
           .None => ()
         );
       });
@@ -1922,7 +1922,7 @@ evaluate_match :: (
               match(
                 mut_root,
                 .Some(rv) => {
-                  variable_set_inout_borrow_root_id(&pv, rv.id);
+                  variable_set_inout_borrow_root_id(&pv, rv.id());
                   variable_mark_inout_borrow_root(&rv);
                 },
                 .None => ()

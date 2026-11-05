@@ -3205,7 +3205,7 @@ _register_borrowing_future :: (fn(fut_ty : &TypeValue, args : &ArrayList(AstExpr
                   CaptureBorrow(
                     label : f_label.clone(),
                     is_mut : b.is_mut,
-                    root_id : pv.id,
+                    root_id : pv.id(),
                     root_name : pv.name.clone(),
                     path : ArrayList(String).new(),
                     root_is_value_param : false,
@@ -8700,7 +8700,7 @@ _callee_slot_is_fnmut :: (fn(callee_info : &ExprInfo, env : &Environment) -> boo
     .Some(sn) => match(
       get_variables_from_env(env, sn.clone()).last_cloned(),
       .Some(sv) => {
-        match(closure_param_slot_trait(sv.id), .Some(sb) => return(sb == "FnMut"), .None => ());
+        match(closure_param_slot_trait(sv.id()), .Some(sb) => return(sb == "FnMut"), .None => ());
         if(closure_fn_trait_of(&sv.ty()).is_some(), {
           return(type_is_typed_fnmut_closure(&sv.ty()));
         });

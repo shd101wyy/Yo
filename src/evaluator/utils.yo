@@ -389,11 +389,11 @@ find_rc_value_owner_relationship :: (
         match(
           candidate_opt,
           .Some(cand) => {
-            if(visited.contains(&cand.id), {
+            if(visited.contains(&cand.id()), {
               candidate_opt = Option(Variable).None;
               return(candidate_opt);
             });
-            visited.insert(cand.id);
+            visited.insert(cand.id());
             candidate_opt = match(
               cand.is_owning_the_same_rc_value_as(),
               .Some(next_box) => Option(Variable).Some(next_box),
@@ -883,7 +883,7 @@ consume_called_fnonce_closure :: (fn(callee : &AstExpr, v : &Variable, env : &En
     v.is_module_level() => Option(String).Some(String.from("it is a module-level binding, which lives for the whole program and is never moved")),
     v.is_ref() => Option(String).Some(String.from("it is a `&mut` borrow, which names storage the caller owns")),
     (v.is_parameter() && !v.is_owning_the_rc_value() && owner.is_none()) => Option(String).Some(String.from("it is a borrowed parameter, and a borrow cannot give the closure away: take the parameter by value, `sink(f) : Impl(FnOnce(...))` (only an API the closure escapes into calls it once)")),
-    (!v.is_parameter() && !v.is_owning_the_rc_value() && holds_owned && !is_fn_capture_value_binding(v.id)) => Option(String).Some(String.from("it is borrowed from the value that holds it (a `match`/`for` binding): move the holder, or match a value you own")),
+    (!v.is_parameter() && !v.is_owning_the_rc_value() && holds_owned && !is_fn_capture_value_binding(v.id())) => Option(String).Some(String.from("it is borrowed from the value that holds it (a `match`/`for` binding): move the holder, or match a value you own")),
     true => Option(String).None
   );
   match(
@@ -901,11 +901,11 @@ consume_called_fnonce_closure :: (fn(callee : &AstExpr, v : &Variable, env : &En
       exn
     ),
     .None => cond(
-      is_fn_capture_value_binding(v.id) => raise_flow_violation(
+      is_fn_capture_value_binding(v.id()) => raise_flow_violation(
         with_code(
           format_error_message_with_help(
             &tok,
-            `Cannot call \`${v.name}\` here: it is a by-value capture of a closure typed \`${if(is_fnmut_capture_value_binding(v.id), "FnMut", "Fn")}(...)\`, whose call borrows its captures, and an \`FnOnce(...)\` call consumes the closure it calls.`,
+            `Cannot call \`${v.name}\` here: it is a by-value capture of a closure typed \`${if(is_fnmut_capture_value_binding(v.id()), "FnMut", "Fn")}(...)\`, whose call borrows its captures, and an \`FnOnce(...)\` call consumes the closure it calls.`,
             Option(String).Some(String.from("type the enclosing closure `FnOnce(...)`, so its body owns its captures"))
           ),
           E_CLOSURE_TRAIT_TOO_WEAK
@@ -944,7 +944,7 @@ _owning_param_binding_beside :: (fn(env : &Environment, v : &Variable) -> Option
         while(vi < fr.variables_len(), {
           match(
             fr.variable_at(vi),
-            .Some(fv) => if(fv.id == v.id, {
+            .Some(fv) => if(fv.id() == v.id(), {
               has_v = true;
             }),
             .None => ()
@@ -956,7 +956,7 @@ _owning_param_binding_beside :: (fn(env : &Environment, v : &Variable) -> Option
           while(oi < fr.variables_len(), {
             match(
               fr.variable_at(oi),
-              .Some(ov) => if((ov.id != v.id) && (ov.name == v.name) && ov.is_parameter() && ov.is_owning_the_rc_value() && (!ov.is_ref() && !ov.is_module_level()) && ov.consumed_at_token().is_none(), {
+              .Some(ov) => if((ov.id() != v.id()) && (ov.name == v.name) && ov.is_parameter() && ov.is_owning_the_rc_value() && (!ov.is_ref() && !ov.is_module_level()) && ov.consumed_at_token().is_none(), {
                 return(Option(Variable).Some(ov));
               }),
               .None => ()
@@ -1108,7 +1108,7 @@ _closure_binding_site :: (fn(v : &Variable, env : &Environment, ctx : &EvalConte
               while(vi < fr.variables_len(), {
                 match(
                   fr.variable_at(vi),
-                  .Some(fv2) => if(fv2.id == v.id, {
+                  .Some(fv2) => if(fv2.id() == v.id(), {
                     return(
                       cond(
                         ((fi >= body_level) || is_own_params) => u8(0),
@@ -1224,7 +1224,7 @@ transfer_explicit_copy_value :: (fn(rhs : &AstExpr, ei : &ExprInfo, variable_nam
       },
       v.is_module_level() => _throw_explicit_copy_violation(rhs, &ei.ty(), String.from("it is a module-level binding, which lives for the whole program and is never moved. Copy it with `.clone()`, or lend it with `&` (a call may borrow a module-level binding only while nothing writes it, plans/VALUES_BY_DEFAULT.md decision 18 rule 3)."), ctx, exn),
       v.is_ref() => _throw_explicit_copy_violation(rhs, &ei.ty(), String.from("it is a `&mut` borrow, which names storage the caller owns. Lend it on with `&mut`, or move the caller's value."), ctx, exn),
-      is_fn_capture_value_binding(v.id) => _throw_fn_closure_moves_capture(rhs, &ei.ty(), v.id, ctx, exn),
+      is_fn_capture_value_binding(v.id()) => _throw_fn_closure_moves_capture(rhs, &ei.ty(), v.id(), ctx, exn),
       _is_implicit_closure_capture(&v, &ei.env(), ctx) => _throw_implicit_capture_move(rhs, &ei.ty(), ctx, exn),
       v.is_owning_the_rc_value() => set_expr_as_consumed(rhs, &ei.env(), false, ctx, exn),
       _move_through_sink_shadow(&v, rhs, &ei.env()) => (),
@@ -1240,7 +1240,7 @@ transfer_explicit_copy_value :: (fn(rhs : &AstExpr, ei : &ExprInfo, variable_nam
 /// compiler temp's "consumed" mark is ownership bookkeeping, not a move.
 _log_user_move :: (fn(v : &Variable, tok : &Token, env : &Environment) -> unit)({
   if(!is_temp_variable_name(&env.module_path().*, &v.name), {
-    record_branch_consume(v.id, tok, &v.initialized_at_token(), match(v.consumed_at_token(), .Some(ct) => Option(Token).Some(ct), .None => Option(Token).None));
+    record_branch_consume(v.id(), tok, &v.initialized_at_token(), match(v.consumed_at_token(), .Some(ct) => Option(Token).Some(ct), .None => Option(Token).None));
   });
 });
 /// Mark the variable backing `expr` as consumed in `env`:
@@ -1705,7 +1705,7 @@ _find_var_by_id :: (fn(env : &Environment, id : usize) -> Option(Tuple(Variable,
         while(vi < frame.variables_len(), {
           match(
             frame.variable_at(vi),
-            .Some(v) => if(v.id == id, {
+            .Some(v) => if(v.id() == id, {
               return(Option(Tuple(Variable, usize, usize)).Some((v, fi, vi)));
             }),
             .None => ()
@@ -1769,7 +1769,7 @@ note_second_class_binding :: (fn(holder : &Variable, ty : &TypeValue, tok : &Tok
     );
     return(());
   });
-  holder_at := _find_var_by_id(env, holder.id);
+  holder_at := _find_var_by_id(env, holder.id());
   (bi : usize) = usize(0);
   while(bi < bs.len(), {
     b := match(bs.get_cloned(bi), .Some(x) => x, .None => return(()));
@@ -1798,7 +1798,7 @@ note_second_class_binding :: (fn(holder : &Variable, ty : &TypeValue, tok : &Tok
         exn
       );
     });
-    fz := _CaptureFreeze(holder_id : holder.id, holder_name : holder.name.clone(), borrow : b.clone());
+    fz := _CaptureFreeze(holder_id : holder.id(), holder_name : holder.name.clone(), borrow : b.clone());
     // The list is a value (B8): take it out, push, and put it back, all
     // inside one `with_mut` — a pushed copy would never reach the registry.
     root_id := b.root_id;
@@ -1853,7 +1853,7 @@ check_capture_freeze_access :: (fn(v : &Variable, is_write : bool, tok : &Token,
     return(());
   });
   match(
-    g_capture_freezes.with(m => m.get_cloned(&v.id)),
+    g_capture_freezes.with(m => m.get_cloned(&v.id())),
     .Some(list) => {
       (fi : usize) = usize(0);
       while(fi < list.len(), {
@@ -1937,7 +1937,7 @@ _arg_places :: (fn(arg : &AstExpr, named : bool, env : &Environment, ctx : &Eval
         text := String.from("`");
         text.push_string(ast_expr_to_string(arg));
         text.push_str("`");
-        out.push(_ArgPlace(root_id : rv.id, path : path, text : text, from_capture : false));
+        out.push(_ArgPlace(root_id : rv.id(), path : path, text : text, from_capture : false));
       }),
       .None => ()
     );
@@ -2166,7 +2166,7 @@ set_expr_as_consumed :: (
           if(local_borrows_active(), {
             local_borrow_access(local_borrow_place_of_variable(&v), LocalBorrowAccess.Move, ast_expr_token(expr), ctx, exn);
           });
-          borrowers := _untracked_inout_borrowers(find_live_inout_borrowers(env, v.id));
+          borrowers := _untracked_inout_borrowers(find_live_inout_borrowers(env, v.id()));
           if(borrowers.len() > usize(0), {
             b := match(borrowers.get_cloned(usize(0)), .Some(x) => x, .None => make_err_variable(env));
             b_entries := ArrayList(TokenAndError).new();
@@ -2656,7 +2656,7 @@ binding_require_mut :: (fn(v : &Variable, tok : &Token, how : &String, ctx : &Ev
   // the record its call borrows exclusively (decision 37, VERDICTS-15 Q1):
   // writing it writes state that persists across calls, and the slot's
   // `FnMut` is the visible marker.
-  if(is_fnmut_capture_value_binding(v.id), {
+  if(is_fnmut_capture_value_binding(v.id()), {
     return(());
   });
   if(is_any_temp_variable_name(&v.name) || v.name.starts_with("__"), {
@@ -2670,8 +2670,8 @@ binding_require_mut :: (fn(v : &Variable, tok : &Token, how : &String, ctx : &Ev
   if(marked, {
     return(());
   });
-  is_macro_elem := is_macro_pattern_binding(v.id);
-  is_param_like := (v.is_parameter() || (is_capture_list_value_binding(v.id) || is_macro_elem));
+  is_macro_elem := is_macro_pattern_binding(v.id());
+  is_param_like := (v.is_parameter() || (is_capture_list_value_binding(v.id()) || is_macro_elem));
   if(migrate_mut_bindings_on(), {
     cond(
       // A write inside a `comptime_expect_error` argument is held until the
@@ -2706,7 +2706,7 @@ binding_require_mut :: (fn(v : &Variable, tok : &Token, how : &String, ctx : &Ev
       is_macro_elem,
       `rebind it to a mutable local and write that (\`mut(${name}_m) := ${name};\`), or loop with \`for(&mut coll, ${name} => ...)\` to write each element in place`,
       cond(
-        is_capture_list_value_binding(v.id) => `rebind it to a mutable local and write that (\`mut(${name}_m) := ${name};\`, a move, not a copy, for an owning value), or type the closure \`FnMut(...)\` if the state should persist across calls`,
+        is_capture_list_value_binding(v.id()) => `rebind it to a mutable local and write that (\`mut(${name}_m) := ${name};\`, a move, not a copy, for an owning value), or type the closure \`FnMut(...)\` if the state should persist across calls`,
         true => `rebind it to a mutable local and write that (\`mut(${name}_m) := ${name};\`, a move, not a copy, for an owning value), or take \`${name} : &mut T\` if the caller's value should change`
       )
     );
@@ -3010,7 +3010,7 @@ audit_note_match_binding :: (
   ) -> unit
 )({
   if(below_cell, {
-    g_implicit_copy_match_roots.with_mut(m => m.insert(binding.id, ImplicitCopyRoot(kind : String.from("place"), root_id : usize(0))));
+    g_implicit_copy_match_roots.with_mut(m => m.insert(binding.id(), ImplicitCopyRoot(kind : String.from("place"), root_id : usize(0))));
     return(());
   });
   root := match(
@@ -3018,22 +3018,22 @@ audit_note_match_binding :: (
     .Some(sn) => match(
       find_variable_in_env(&scr_info.env(), &sn),
       .Some(sv) => match(
-        g_implicit_copy_match_roots.with(m => m.get_cloned(&sv.id)),
+        g_implicit_copy_match_roots.with(m => m.get_cloned(&sv.id())),
         .Some(inherited) => inherited,
         .None => cond(
-          (canonical_module_path(&sv.token.module_path.*) != canonical_module_path(&binding.token.module_path.*)) => ImplicitCopyRoot(kind : String.from("macro"), root_id : sv.id),
+          (canonical_module_path(&sv.token.module_path.*) != canonical_module_path(&binding.token.module_path.*)) => ImplicitCopyRoot(kind : String.from("macro"), root_id : sv.id()),
           // A temporary of plain data (no counted value) owns what it
           // holds, as an owning RC temporary does.
-          is_any_temp_variable_name(sv.name.clone()) => ImplicitCopyRoot(kind : cond((sv.is_owning_the_rc_value() || !type_contains_rc_type(&sv.ty())) => String.from("temp"), true => String.from("place")), root_id : sv.id),
-          (sv.is_owning_the_rc_value() && !sv.is_module_level() && !sv.is_ref()) => ImplicitCopyRoot(kind : String.from("local"), root_id : sv.id),
-          true => ImplicitCopyRoot(kind : String.from("place"), root_id : sv.id)
+          is_any_temp_variable_name(sv.name.clone()) => ImplicitCopyRoot(kind : cond((sv.is_owning_the_rc_value() || !type_contains_rc_type(&sv.ty())) => String.from("temp"), true => String.from("place")), root_id : sv.id()),
+          (sv.is_owning_the_rc_value() && !sv.is_module_level() && !sv.is_ref()) => ImplicitCopyRoot(kind : String.from("local"), root_id : sv.id()),
+          true => ImplicitCopyRoot(kind : String.from("place"), root_id : sv.id())
         )
       ),
       .None => ImplicitCopyRoot(kind : String.from("place"), root_id : usize(0))
     ),
     .None => ImplicitCopyRoot(kind : String.from("place"), root_id : usize(0))
   );
-  g_implicit_copy_match_roots.with_mut(m => m.insert(binding.id, root.clone()));
+  g_implicit_copy_match_roots.with_mut(m => m.insert(binding.id(), root.clone()));
 });
 /// The recorder runs for `yo fix --migrate rc-clone`, which turns its sites
 /// into `Rc.clone` / `.clone()` spellings.
@@ -3422,15 +3422,15 @@ audit_record_implicit_copy :: (
           // closure borrows or dups its captures on each call, so its copies
           // are recorded at once.
           if(ctx.captures_owned_by_body, {
-            pending_id = Option(usize).Some(v.id);
+            pending_id = Option(usize).Some(v.id());
           });
         },
-        (!v.is_owning_the_rc_value() && g_implicit_copy_match_roots.with(m => m.get_cloned(&v.id)).is_some()) => match(
-          g_implicit_copy_match_roots.with(m => m.get_cloned(&v.id)),
+        (!v.is_owning_the_rc_value() && g_implicit_copy_match_roots.with(m => m.get_cloned(&v.id())).is_some()) => match(
+          g_implicit_copy_match_roots.with(m => m.get_cloned(&v.id())),
           .Some(r) => cond(
             (r.kind == "temp") => {
               kind = String.from("temp-payload");
-              temp_binding_id = Option(usize).Some(v.id);
+              temp_binding_id = Option(usize).Some(v.id());
             },
             (r.kind == "macro") => {
               kind = String.from("for-element");
@@ -3474,7 +3474,7 @@ audit_record_implicit_copy :: (
         },
         true => {
           kind = cond(v.is_parameter() => String.from("own-param"), true => String.from("local"));
-          pending_id = Option(usize).Some(v.id);
+          pending_id = Option(usize).Some(v.id());
         }
       );
     },
@@ -3563,7 +3563,7 @@ audit_record_copy_trait :: (
       find_variable_in_env(env, ast_expr_token(source).value.*.clone()),
       .Some(v) => {
         captured := (in_closure_body_check && match(&ctx.captured_variables, .Some(cv) => cv.contains_key(v.name.clone()), .None => false));
-        root := g_implicit_copy_match_roots.with(m => m.get_cloned(&v.id));
+        root := g_implicit_copy_match_roots.with(m => m.get_cloned(&v.id()));
         cond(
           (is_any_temp_variable_name(v.name.clone()) || v.is_compile_time_only()) => {
             return(());
@@ -3622,7 +3622,7 @@ audit_record_copy_trait :: (
           ),
           true => {
             kind = cond(v.is_parameter() => String.from("param"), true => String.from("local"));
-            pending_id = Option(usize).Some(v.id);
+            pending_id = Option(usize).Some(v.id());
           }
         );
       },
@@ -3721,7 +3721,7 @@ check_dyn_copy :: (fn(rhs : &AstExpr, ei : &ExprInfo, variable_name : &String, c
       v.is_compile_time_only() => (),
       v.is_module_level() => _throw_explicit_copy_violation(rhs, &ei.ty(), String.from("it is a module-level binding, which lives for the whole program and is never moved. Lend it with `&` instead (a call may borrow a module-level binding only while nothing writes it, plans/VALUES_BY_DEFAULT.md decision 18 rule 3)."), ctx, exn),
       v.is_ref() => _throw_explicit_copy_violation(rhs, &ei.ty(), String.from("it is a `&mut` borrow, which names storage the caller owns. Lend it on with `&mut`, or move the caller's value."), ctx, exn),
-      is_fn_capture_value_binding(v.id) => _throw_fn_closure_moves_capture(rhs, &ei.ty(), v.id, ctx, exn),
+      is_fn_capture_value_binding(v.id()) => _throw_fn_closure_moves_capture(rhs, &ei.ty(), v.id(), ctx, exn),
       _is_implicit_closure_capture(&v, &ei.env(), ctx) => _throw_implicit_capture_move(rhs, &ei.ty(), ctx, exn),
       (v.is_parameter() && !v.is_owning_the_rc_value() && _owning_param_binding_beside(&ei.env(), &v).is_none()) => _throw_explicit_copy_violation(rhs, &ei.ty(), String.from("it is a `&T` parameter, and a borrow cannot give the value away. Take the parameter by value (`x : T`, without `&`) to own it."), ctx, exn),
       true => {
@@ -3763,10 +3763,10 @@ note_dyn_copy_pending :: (fn(v : &Variable, tok : &Token, ty : &TypeValue) -> un
   );
   // Owned key; the list moves back in (`with_mut`'s callback is a sink
   // parameter).
-  dcp_key := v.id.clone();
+  dcp_key := v.id().clone();
   lst := match(g_dyn_copy_pending.with_mut(({ dcp_key }(m) => m.remove(&dcp_key))), .Some(l) => l, .None => ArrayList(DynCopyPending).new());
   lst.push(entry);
-  dcp_key2 := v.id.clone();
+  dcp_key2 := v.id().clone();
   g_dyn_copy_pending.with_mut(({ dcp_key2, lst }(m) => m.insert(dcp_key2, lst)));
 });
 _next_dyn_copy_seq :: (fn() -> u64)({
@@ -4670,7 +4670,7 @@ snapshot_loop_flow :: (fn(lc : &LoopBodyCtx, env : &Environment, site : &Token) 
     match(
       find_variable_by_id(env, r.var_id),
       .Some(v) => if(v.frame_level < lc.entry_frame_count, {
-        ids.push(v.id);
+        ids.push(v.id());
         states.push(match(v.consumed_at_token(), .Some(ct) => Option(Token).Some(ct), .None => Option(Token).None));
       }),
       .None => ()
@@ -4789,7 +4789,7 @@ check_loop_flow :: (
         while(ci < lc.continue_states.len(), {
           match(
             lc.continue_states.get_cloned(ci),
-            .Some(cs) => match(_snapshot_state_of(&cs, v.id, &pre), .Some(t) => back_moved.push(t), .None => back_live.push(cs.site)),
+            .Some(cs) => match(_snapshot_state_of(&cs, v.id(), &pre), .Some(t) => back_moved.push(t), .None => back_live.push(cs.site)),
             .None => ()
           );
           ci = (ci + usize(1));
@@ -4823,7 +4823,7 @@ check_loop_flow :: (
         while(bi < lc.break_states.len(), {
           match(
             lc.break_states.get_cloned(bi),
-            .Some(bs) => match(_snapshot_state_of(&bs, v.id, &pre), .Some(t) => exit_moved.push(t), .None => exit_live.push(bs.site)),
+            .Some(bs) => match(_snapshot_state_of(&bs, v.id(), &pre), .Some(t) => exit_moved.push(t), .None => exit_live.push(bs.site)),
             .None => ()
           );
           bi = (bi + usize(1));
@@ -4862,7 +4862,7 @@ check_loop_flow :: (
           );
           match(final, .Some(ft) => _mark_moved_at_loop_end(&v, &ft, loop_expr), .None => ());
         });
-        record_flow_event(v.id, Rc.new(TypeValueNode.Unit), Option(TypeValue).None, FlowEventKind.Join, &v.token, &r.before_init, &pre, &v.initialized_at_token(), match(v.consumed_at_token(), .Some(jc) => Option(Token).Some(jc), .None => Option(Token).None));
+        record_flow_event(v.id(), Rc.new(TypeValueNode.Unit), Option(TypeValue).None, FlowEventKind.Join, &v.token, &r.before_init, &pre, &v.initialized_at_token(), match(v.consumed_at_token(), .Some(jc) => Option(Token).Some(jc), .None => Option(Token).None));
       }),
       .None => ()
     );
@@ -4881,7 +4881,7 @@ find_variable_by_id :: (fn(env : &Environment, id : usize) -> Option(Variable))(
           vi = (vi - usize(1));
           match(
             frame.variable_at(vi),
-            .Some(v) => if(v.id == id, {
+            .Some(v) => if(v.id() == id, {
               return(Option(Variable).Some(v));
             }),
             .None => ()
@@ -4972,7 +4972,7 @@ _drop_in_arms_that_keep :: (
             while(sni < same_name.len(), {
               match(
                 same_name.get_cloned(sni),
-                .Some(sv) => if((sv.id != v.id) && !_is_param_rebind_of(&sbi.env(), &sv, v), {
+                .Some(sv) => if((sv.id() != v.id()) && !_is_param_rebind_of(&sbi.env(), &sv, v), {
                   return(false);
                 }),
                 .None => ()
@@ -5043,10 +5043,10 @@ _is_param_rebind_of :: (fn(env : &Environment, sv : &Variable, v : &Variable) ->
           match(
             fr.variable_at(vi),
             .Some(fv) => {
-              if(fv.id == sv.id, {
+              if(fv.id() == sv.id(), {
                 has_sv = true;
               });
-              if(fv.id == v.id, {
+              if(fv.id() == v.id(), {
                 has_v = true;
               });
             },
@@ -5370,7 +5370,7 @@ merge_and_check_envs :: (
               owning_at_tokens.push(owning_token);
             };
             {
-              var_ids.push(case_var.id);
+              var_ids.push(case_var.id());
             };
             ck = (ck + usize(1));
           });
@@ -5399,7 +5399,7 @@ merge_and_check_envs :: (
                   while(cb_ri < cb_e, {
                     match(
                       get_branch_init_record(cb_ri),
-                      .Some(cb_rec) => if((cb_rec.var_id == base_var.id) && match(cb_rec.kind, .Assign => true, _ => false), {
+                      .Some(cb_rec) => if((cb_rec.var_id == base_var.id()) && match(cb_rec.kind, .Assign => true, _ => false), {
                         if(cb_found, {
                           cb_tys(cb_tys.len() - usize(1)) = Rc.clone(cb_rec.ty);
                           cb_caps(cb_caps.len() - usize(1)) = cb_rec.capture.clone();
@@ -5501,7 +5501,7 @@ Conflicting initialization: ${type_to_string(&cb_cur_ty)}`
           (flow_pre_init : Option(Token)) = Option(Token).None;
           (flow_pre_consumed : Option(Token)) = Option(Token).None;
           match(
-            first_flow_record_in(base_var.id, group_log_start, branch_init_log_len()),
+            first_flow_record_in(base_var.id(), group_log_start, branch_init_log_len()),
             .Some(fr) => {
               flow_joined = true;
               flow_pre_init = fr.before_init;
@@ -5520,7 +5520,7 @@ Conflicting initialization: ${type_to_string(&cb_cur_ty)}`
                       fl_s := match(arm_ranges.get(fl_p + usize(1)), .Some(x) => x, .None => usize(0));
                       fl_e := match(arm_ranges.get(fl_p + usize(2)), .Some(x) => x, .None => usize(0));
                       match(
-                        last_flow_record_in(base_var.id, fl_s, fl_e),
+                        last_flow_record_in(base_var.id(), fl_s, fl_e),
                         .Some(fl_last) => {
                           fl_init = fl_last.after_init;
                           fl_consumed = fl_last.after_consumed;
@@ -5729,7 +5729,7 @@ Conflicting initialization: ${type_to_string(&cb_cur_ty)}`
           // The branch's net effect, for an enclosing arm or loop.
           if(flow_joined, {
             record_flow_event(
-              base_var.id,
+              base_var.id(),
               Rc.new(TypeValueNode.Unit),
               Option(TypeValue).None,
               FlowEventKind.Join,
@@ -5784,7 +5784,7 @@ Conflicting initialization: ${type_to_string(&cb_cur_ty)}`
           });
           // ---- Handle variable ID reassignment across branches ----
           // If any branch has a different variable ID, generate a new one.
-          original_id := base_var.id;
+          original_id := base_var.id();
           (has_reassignment : bool) = false;
           (rid_i : usize) = usize(0);
           while(rid_i < n_cases, {
@@ -5796,7 +5796,7 @@ Conflicting initialization: ${type_to_string(&cb_cur_ty)}`
           });
           if(has_reassignment, {
             new_id := generate_variable_id(&env.module_path().*, &var_name);
-            base_var.id = new_id;
+            base_var.set_id(new_id);
             base_var.set_value(value_cell_of(Option(EvalValue).None));
             base_var.set_is_owning_the_same_rc_value_as(Option(Variable).None);
           });
@@ -7865,7 +7865,7 @@ drop_owned_match_binding_at_arm_end :: (fn(v : &Variable, body : &AstExpr, env :
 /// implicit capture of the enclosing function's local)? A `match` cannot
 /// move it out of the closure.
 match_scrutinee_is_capture :: (fn(v : &Variable, env : &Environment, ctx : &EvalContext) -> bool)(
-  is_fn_capture_value_binding(v.id) || _is_implicit_closure_capture(v, env, ctx)
+  is_fn_capture_value_binding(v.id()) || _is_implicit_closure_capture(v, env, ctx)
 );
 /// Register the `mut` place a `match` arm binds (`name`, declared at `decl`)
 /// as an exclusive local borrow of the scrutinee's place, live from the

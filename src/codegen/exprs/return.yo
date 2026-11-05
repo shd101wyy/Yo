@@ -103,7 +103,7 @@ _cleanup_drop_variables :: (fn(expr : &AstExpr, env : &Environment, var_name : &
     truth := get_variables_from_env(env, var_name);
     a := if(truth.len() == usize(0), Option(Variable).None, _resolve_drop_target_in_scope(drop_expr, &truth, ast_expr_token(expr), context));
     b := if(rec.len() == usize(0), Option(Variable).None, _resolve_drop_target_in_scope(drop_expr, &rec, ast_expr_token(expr), context));
-    same := match(a, .Some(x) => match(b, .Some(y) => (x.id == y.id), .None => false), .None => b.is_none());
+    same := match(a, .Some(x) => match(b, .Some(y) => (x.id() == y.id()), .None => false), .None => b.is_none());
     if(!same, {
       scope_release_note_mismatch(String.from("cleanup-drop"));
     });
@@ -188,7 +188,7 @@ _resolve_drop_target_in_scope :: (fn(drop_expr : &AstExpr, variables : &ArrayLis
       while(i < n, {
         match(
           variables.get_cloned(i),
-          .Some(v) => if(v.id == tv.id, {
+          .Some(v) => if(v.id() == tv.id(), {
             by_id = Option(Variable).Some(v);
           }),
           .None => ()
@@ -239,7 +239,7 @@ _drop_target_is_state_machine_field :: (fn(v : &Variable, var_name : &String, co
   if(context.state_machine_variables.is_none(), {
     return(false);
   });
-  (mut(var_id) : String) = match(v.is_owning_the_same_rc_value_as(), .Some(owner_box) => owner_box.id.to_string(), .None => v.id.to_string());
+  (mut(var_id) : String) = match(v.is_owning_the_same_rc_value_as(), .Some(owner_box) => owner_box.id().to_string(), .None => v.id().to_string());
   match(
     &context.variable_id_remapping,
     .Some(rm) => match(
