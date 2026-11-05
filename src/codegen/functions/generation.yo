@@ -589,7 +589,7 @@ generate_function_body :: (fn(body_expr : &AstExpr, function_type : &TypeValue, 
 /// mark is ever set on it, and those header bits are its weak count
 /// (`carries_no_borrow_marks`). Async functions (state machines) and
 /// closures are skipped: their C prototypes do not carry the parameters.
-_maybe_emit_method_entry_borrow_assert :: (fn(function_type : &TypeValue, func_id : &String, body : &AstExpr, em : &mut Emitter, context : &FunctionGenerationContext) -> unit)({
+_maybe_emit_method_entry_borrow_assert :: (fn(function_type : &TypeValue, func_id : &String, body : &AstExpr, context : &mut FunctionGenerationContext) -> unit)({
   if(is_closure_fn(func_id.clone()), return(()));
   // The `index` method of an index-trait call runs while its caller already
   // holds the container's borrow for the interior argument it produces
@@ -664,7 +664,7 @@ _maybe_emit_method_entry_borrow_assert :: (fn(function_type : &TypeValue, func_i
             line.push_string(&pname);
           });
           line.push_str(");");
-          em.emit_string_line(&line);
+          context.base.emitter.emit_string_line(&line);
         });
         i = (i + usize(1));
       });
@@ -795,7 +795,7 @@ generate_function :: (fn(function_value : &EvalValue, c_function_name : &String,
       context.base.emitter.clear_yo_line_position();
       stub_mark_b := context.base.emitter.code.len();
       context.base.emitter.emit_string_line(&open);
-      _maybe_emit_method_entry_borrow_assert(&function_type, func_id.clone(), &body_box, &mut context.base.emitter, context);
+      _maybe_emit_method_entry_borrow_assert(&function_type, func_id.clone(), &body_box, context);
       prev_name := replace(&mut context.base.current_function_name, String.new());
       prev_type := context.current_function_type.clone();
       prev_override := replace(&mut context.override_return_type_str, Option(String).None);
