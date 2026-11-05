@@ -2,7 +2,7 @@
 
 **Severity:** S2 — a spurious `drop` in safe code: aborting a task drops a named local's task slot that was never stored, or whose scope already dropped it. For a `Drop` struct of plain fields the user's `drop` runs on all-zero fields (a file-descriptor wrapper would close fd 0); a pointer-shaped value (`String`, `Rc`, `Box`) is a no-op on zeroes, which is why it went unseen.
 
-**Status:** FIXED 2026-11-05 on `fix/aborted-task-match-binding-drop`. Found while fixing
+**Status:** FIXED 2026-11-06 on `fix/aborted-task-match-binding-drop`. Found while fixing
 `issues/fixed/2026-11-05-an-aborted-task-leaks-a-value-moved-into-a-match-binding-across-an-await.md`:
 once a consuming match's binding slot was dropped by the abort, aborting before the arm ran
 dropped the binding's never-stored slot.
@@ -54,9 +54,16 @@ The move flag now means "the slot holds no value of its own", for every named lo
 - it starts set (`<struct>_init_move_flags`, called at both allocation sites);
 - every store clears it (the existing stores, and now a pattern binding's);
 - a scope-end drop of the slot sets it again (`generate_drop_of_operand`, `src/codegen/exprs/rc_fns.yo`);
-- the abort dispose, a fused site's release and an early completion's pending drops run a
-  flagged slot's drop only while the flag is clear (`_unless_moved_out`, `src/codegen/exprs/async.yo`;
-  `src/codegen/exprs/atom.yo`).
+- the abort dispose, a fused site's release, an early completion's and a loop exit's pending
+  drops run a flagged slot's drop only while the flag is clear (`_unless_moved_out`,
+  `src/codegen/exprs/async.yo`; `src/codegen/exprs/atom.yo`).
+
+Three open docs were this mechanism's other faces and are fixed with it:
+`issues/fixed/2026-10-23-an-aborted-task-runs-a-user-drop-on-a-local-it-never-stored.md` (S1,
+the never-stored slot), `issues/fixed/2026-10-24-an-aborted-task-runs-drop-on-the-zeroed-slot-of-a-moved-local.md`
+(a moved-out slot) and
+`issues/fixed/2026-10-23-an-exit-inside-an-unmoved-async-locals-own-initializer-drops-its-zeroed-slot.md`
+(a `break` inside a loop local's own initializer).
 
 A temporary's slot has no flag and keeps the zero convention, so a temporary of a plain `Drop`
 struct still gets the spurious drop: filed as

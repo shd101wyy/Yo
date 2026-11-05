@@ -342,15 +342,25 @@ source order.
   fields are released only under its `<prefix>live` flag
   (`_emit_fused_sites_dispose`,
   issues/fixed/2026-10-31-a-consuming-match-of-a-call-result-before-an-await-drops-the-moved-payload-twice.md).
-  The abort dispose of a slot that was never stored is still open
-  (issues/2026-10-23-an-aborted-task-runs-a-user-drop-on-a-local-it-never-stored.md).
-- **A moved-from name still reads its value.** `(cur : T) = t` moves `t`
+  A named local's slot gates on its move flag (next item); a temporary's slot
+  still relies on its zeroes
+  (issues/2026-11-05-an-aborted-task-drops-a-temporary-s-slot-before-it-is-stored.md).
+- **A named local's move flag is its drop flag.** `(cur : T) = t` moves `t`
   without a dup, and `t` may still be read while `cur` holds the value (sync
   code keeps the C local as it is). So a named local's slot is NOT emptied by
-  a move: its `uint8_t __yo_mv_<field>` flag (`sm_move_flag_of`) is set, the
-  abort dispose empties a flagged slot before its drops, and every store into
-  the slot (binding, destructuring, reassignment) clears the flag
+  a move: its `uint8_t __yo_mv_<field>` flag (`sm_move_flag_of`) is set
   (issues/fixed/a-local-read-after-it-moves-inside-a-task-reads-an-emptied-slot.md).
+  The flag means "the slot holds no value of its own": it starts set
+  (`<struct>_init_move_flags`, at allocation), every store into the slot
+  (binding, destructuring, reassignment, a pattern binding) clears it, a
+  scope-end drop of the slot sets it again (`generate_drop_of_operand`), and
+  every compiler-emitted drop of a flagged slot (the abort dispose, a fused
+  site's release, an early completion's and a loop exit's pending drops) runs
+  only while it is clear
+  (issues/fixed/2026-11-05-an-aborted-task-drops-a-local-its-scope-already-dropped.md).
+  A consuming `match`'s binding owns its part, so its slot is in the dispose
+  set too; only a borrowing match's binding slots stay out
+  (`note_state_machine_binding_id`).
 - **An alias is read through its owner's slot only when the owner is a body
   local** (`sm_storage_id`). The suspension analysis has no closure boundary:
   for `sb := s` it records the owner `s` as a captured local even when both

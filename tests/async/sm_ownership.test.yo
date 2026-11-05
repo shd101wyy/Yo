@@ -362,6 +362,42 @@ test("an aborted task drops a plain Drop local only while its slot holds it", {
   assert(_plain_local_abort_after(i32(3), io) == i32(1), `aborted after the local's scope, drops=${_plain_n()}`);
 });
 
+// A `break` inside a task-slot local's own initializer: the slot holds no
+// value of this iteration, and the previous iteration's scope-end drop
+// already released its value (its move flag is set), so the exit drops
+// nothing
+// (issues/fixed/2026-10-23-an-exit-inside-an-unmoved-async-locals-own-initializer-drops-its-zeroed-slot.md).
+_PlainFd :: struct(n : i32, s : String);
+impl(
+  _PlainFd,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_plain_drops = (g_plain_drops + i32(1));
+    })
+  )
+);
+test("a break inside a task-slot local's own initializer drops nothing of it", {
+  g_plain_drops = i32(0);
+  task := io.async((io : Io) => {
+    (mut(total) : i32) = i32(0);
+    (mut(i) : i32) = i32(0);
+    while(i < i32(4), {
+      i = (i + i32(1));
+      x := cond(
+        (i == i32(3)) => {
+          break;
+        },
+        true => _PlainFd(n : i, s : String.from("a heap string"))
+      );
+      io.await(yield(io), io);
+      total = (total + x.n);
+    });
+    total
+  });
+  assert(io.await(task, io) == i32(3), "iterations 1 and 2 ran");
+  assert(g_plain_drops == i32(2), `each iteration's value is dropped once, drops=${_plain_n()}`);
+});
+
 // issues/fixed/reassigned-heap-local-in-an-arm-after-a-loop-await-leaks.md
 _reassign_in_arm_after_loop_await :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {

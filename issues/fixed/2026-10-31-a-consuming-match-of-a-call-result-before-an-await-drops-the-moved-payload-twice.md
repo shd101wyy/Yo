@@ -65,7 +65,7 @@ The same premise made a task that unwound AFTER a fused site finished drop the s
 
 `src/codegen/exprs/async.yo`: a fused site whose fields can hold something the dispose releases (`_fused_site_has_releases`: its capture struct, or a local, holds an RC or move-only value) carries a `uint8_t <prefix>live` field. `emit_fused_await` sets it once the site's capture is stored and `_emit_fused_site_end_releases` clears it after the site's own releases at its end. The dispose (`_emit_fused_sites_dispose`) releases a site's capture fields under `if (sm-><prefix>live)`, and each local field once, under the OR of the live flags of the sites that share it (a wrapper block reached at two depths shares its local fields; its sites run one after the other). A site the task died in is still released by the dispose, exactly as before; a site that finished is not touched.
 
-Not covered here, still open: an abort that happens inside a live site before a move-only local is stored runs its `Drop` on the zeroed slot (the `.Err` arm of this reproducer's wrapper, fused or not), which is `issues/2026-10-23-an-aborted-task-runs-a-user-drop-on-a-local-it-never-stored.md`.
+Not covered here, still open: an abort that happens inside a live site before a move-only local is stored runs its `Drop` on the zeroed slot (the `.Err` arm of this reproducer's wrapper, fused or not), which is `issues/fixed/2026-10-23-an-aborted-task-runs-a-user-drop-on-a-local-it-never-stored.md`.
 
 ## Tests
 

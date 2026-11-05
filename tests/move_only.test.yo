@@ -3282,9 +3282,9 @@ test("move-only: in an io.async loop, a `return` before the `break` path moves a
 // An aborted task drops what its slots still own. A move on a `break` path
 // or in a branch arm empties the slot (its move flag), so the abort at a
 // later await does not drop the moved value again. `g_mo_sum` counts each
-// real drop's `n`: an abort releasing a moved-out slot runs the destructor on
+// real drop's `n`: an abort releasing a moved-out slot ran the destructor on
 // an all-zero husk, which adds nothing to it
-// (issues/2026-10-24-an-aborted-task-runs-drop-on-the-zeroed-slot-of-a-moved-local.md).
+// (issues/fixed/2026-10-24-an-aborted-task-runs-drop-on-the-zeroed-slot-of-a-moved-local.md).
 _mo_abort_after :: (fn(shape : i32, k : i32, io : Io) -> unit)({
   h := io.spawn(
     io.async((io : Io) => {
@@ -3581,4 +3581,64 @@ test("move-only: a task that dies after a fused site finished does not drop the 
   assert(_mo_run_fused_once(io, i32(7), false, true) == i32(-1), "the task unwound after the site");
   assert(g_mo_disposed == (before + i32(1)), `the payload is dropped once, dropped ${(g_mo_disposed - before).to_string()}`);
   assert(g_mo_sum == (sum_before + i32(7)), "the dropped payload is the moved one");
+});
+// An aborted task drops a move-only local's slot only while it holds the
+// value: never for a local it had not stored yet, and once for a local it
+// moved before the abort (the move flag says the slot holds nothing of its
+// own; a zeroed `_MoFd` would still run its `Drop`)
+// (issues/fixed/2026-10-23-an-aborted-task-runs-a-user-drop-on-a-local-it-never-stored.md,
+// issues/fixed/2026-10-24-an-aborted-task-runs-drop-on-the-zeroed-slot-of-a-moved-local.md).
+_mo_make_or_throw :: (fn(fail : bool, io : Io) -> Impl(Future(_MoFd, IoExn)))(
+  io.async(e => {
+    if(fail, {
+      e.exn.throw(dyn(String.from("boom")));
+    });
+    _MoFd(n : i32(7))
+  })
+);
+_mo_never_stored :: (fn(fail : bool, io : Io) -> Impl(Future(i32, IoExn)))(
+  io.async(e => {
+    r := e.io.await(_mo_make_or_throw(fail, e.io), e);
+    w := e.io.await(_mo_make_or_throw(false, e.io), e);
+    v := (r.n + (w.n - i32(7)));
+    return(v);
+  })
+);
+_mo_run_never_stored :: (fn(fail : bool, io : Io) -> bool)({
+  exn := Exception(
+    throw : (
+      _err -> {
+        unwind(false);
+      }
+    )
+  );
+  ioe := IoExn(io : io, exn : exn);
+  v := io.await(_mo_never_stored(fail, io), ioe);
+  v == i32(7)
+});
+test("move-only: an aborted task does not drop a local it never stored", {
+  before := g_mo_disposed;
+  assert(!_mo_run_never_stored(true, io), "the task threw");
+  assert(g_mo_disposed == before, `nothing was made, nothing is dropped, dropped ${(g_mo_disposed - before).to_string()}`);
+  before2 := g_mo_disposed;
+  assert(_mo_run_never_stored(false, io), "the task completes");
+  assert(g_mo_disposed == (before2 + i32(2)), `both locals are dropped once, dropped ${(g_mo_disposed - before2).to_string()}`);
+});
+test("move-only: an aborted task does not drop a local it moved", {
+  before := g_mo_disposed;
+  h := io.spawn(
+    io.async((io : Io) => {
+      f := _MoFd(n : i32(7));
+      io.await(yield(io), io);
+      _n := _mo_take(f);
+      io.await(sleep(u64(50)), io);
+    }),
+    io
+  );
+  io.await(yield(io), io);
+  io.await(yield(io), io);
+  io.await(yield(io), io);
+  h.abort();
+  _r := h.await(io);
+  assert(g_mo_disposed == (before + i32(1)), `the moved local is dropped once, by its new owner, dropped ${(g_mo_disposed - before).to_string()}`);
 });

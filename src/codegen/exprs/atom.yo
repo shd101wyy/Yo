@@ -433,14 +433,31 @@ _emit_loop_body_drops_before_exit :: (fn(context : &FunctionGenerationContext, i
                 // scope-end flushes of the normal path would skip their own
                 // release.
                 if(!context.emitted_deferred_drop_ids.contains(ast_expr_id(&drop_expr)), {
+                  // A task slot holds a value only while its move flag is
+                  // clear: one its binding has not stored yet on this
+                  // iteration (the exit lies in the binding's own
+                  // initializer) still has the flag set by the previous
+                  // iteration's scope-end drop, or by the allocation
+                  // (issues/fixed/2026-10-23-an-exit-inside-an-unmoved-async-locals-own-initializer-drops-its-zeroed-slot.md).
+                  em := context.base.emitter;
+                  guard_flag := if(
+                    context.in_async_state_machine.is_some(),
+                    match(
+                      match(get_deferred_drop_target_atom(&drop_expr), .Some(ta) => _generate_sm_atom(&ta, &ast_expr_token(&ta).value.*, context), .None => Option(String).None),
+                      .Some(slot) => sm_move_flag_of(slot.clone(), sm_owns_fnonce_captures(context)),
+                      .None => Option(String).None
+                    ),
+                    Option(String).None
+                  );
+                  match(&guard_flag, .Some(flag) => em.emit_string_line(`${indent.clone()}if (!(${flag})) {`), .None => ());
                   drop_code := _call_generate_expr(&drop_expr, indent.clone(), context);
                   if(drop_code.len() > usize(0), {
                     mut(line) := indent.clone();
                     line.push_string(&drop_code);
                     line.push_str(";");
-                    em := context.base.emitter;
                     em.emit_string_line(&line);
                   });
+                  match(&guard_flag, .Some(_) => em.emit_string_line(`${indent.clone()}}`), .None => ());
                 });
               });
             },
