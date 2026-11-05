@@ -1281,13 +1281,15 @@ evaluate_match :: (
     is_place_expression(&scrutinee_expr, &env) =>
       evaluate_expression(&scrutinee_expr, &env, ctx),
     // A MARKED element-access scrutinee (`match(&xs(i), …)`, `match(&mut
-    // xs(i), …)`) reads the element IN PLACE, exactly as a `&xs(i)`
-    // argument does. The begin route below attaches an OWNING temp for its
+    // xs(i), …)`, and any projection chain through one: `&xs(i).f`,
+    // `&s.xs(i)`, `&p.*.xs(i)`) reads the element IN PLACE, exactly as a
+    // `&xs(i)` argument does. The begin route below attaches an OWNING temp for its
     // tail, and owning a projection's element means COPYING it out — E0901
     // for a move-only element, although `&xs(i)` is the repair E0901 itself
     // names. The expression route leaves the projection's temp non-owning:
     // the borrow-mode arms bind through the place, nothing is copied or
-    // dropped (issues/fixed/2026-10-17-a-match-through-a-borrowed-element-copies-the-element.md).
+    // dropped (issues/fixed/2026-10-17-a-match-through-a-borrowed-element-copies-the-element.md,
+    // issues/fixed/2026-11-05-a-borrowed-element-field-scrutinee-is-e0901.md).
     scr_is_marked_index_place =>
       evaluate_expression(&scrutinee_expr, &env, ctx),
     true =>
