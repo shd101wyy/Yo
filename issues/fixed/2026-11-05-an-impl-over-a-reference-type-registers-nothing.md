@@ -41,14 +41,17 @@ finds `impl(Bag, Name)`, and calls it with a copy of `*r`.
 
 ## Fix
 
-Decision 43 N1f-2 (VERDICTS-25 Q2, R-PROBE):
+Decision 43 N1f-2 (VERDICTS-25 Q2, R-PROBE), branch `vbd/d43-n1f2-impl-ref`:
 
 - `type_id_or_empty`, `_decl_identity_key_of` and `type_key` key a reference as its mode and its
   pointee, the origin erased: `impl(Bag, Tr)`, `impl(&Bag, Tr)` and `impl(&mut Bag, Tr)` are three
-  receivers; `impl(&(Bag, p), Tr)` twice is E0612.
-- Receiver-method lookup probes receiver slot types — the exact type, then `&`/`&mut` of it, then one
-  deref — and the first step with an applicable method wins. A `&Bag` receiver (a `&Bag` parameter or
-  local borrow, or the explicit `(&b).name()`) reaches `impl(&Bag, Name)` at step 0.
+  receivers; `impl(&(Bag, p), Tr)` twice is E0612, and so is a bare-variable blanket beside
+  `impl(&Bag, Tr)`.
+- Receiver-method lookup probes receiver slot types: the exact type, then `&`/`&mut` of it, then one
+  deref; the first step with an applicable method wins. A `&Bag` receiver (a `&Bag` parameter or
+  local borrow, or the explicit `(&b).name()`) reaches `impl(&Bag, Name)` at step 0; an owned `b`
+  reaches `impl(Bag, Name)` at step 0.
 
-Test: `tests/impl_ref.test.yo` ("a `&Bag` receiver dispatches to impl(&Bag, …), an owned Bag to
-impl(Bag, …)"), failing on develop 6ca498191 with the assertion above.
+Test: `tests/impl_ref.test.yo`, "a &Bag receiver dispatches to impl(&Bag, …), an owned Bag to
+impl(Bag, …)". On develop f531eabec the reproducer fails its second assertion (rc 134); on the branch
+it exits 0.
