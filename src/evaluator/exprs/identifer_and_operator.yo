@@ -528,8 +528,8 @@ evaluate_identifier_and_operator :: (
   // Decision 43 step 2 N1e-1 (VERDICTS-13 §11): outside std and the compiler
   // tree a reference binding read as a whole value is spelled `r.*` (E0926);
   // the receiver, reference-slot and re-point positions marked it exempt.
-  if(!reads_reference && variable_is_reference_binding(&variable) && deref_rule_applies(&token, ctx), {
-    if(!deref_is_exempt && !is_reference_deref_site(&token), {
+  if(variable_is_reference_binding(&variable) && deref_rule_applies(&token, ctx), {
+    if(!reads_reference && !deref_is_exempt && !is_reference_deref_site(&token), {
       reject_reference_without_deref(&variable, &token, u8(0), ctx, exn);
     }, {
       // Judged and read as written: an evaluation for another target that
