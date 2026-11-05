@@ -946,11 +946,7 @@ _check_reference_argument :: (fn(written_arg : &AstExpr, place_arg : &AstExpr, b
   });
   cond(
     (ast_expr_is_fn_call_of(written_arg, BK_BORROW_MUT, .Some(usize(1))) || ast_expr_is_fn_call_of(written_arg, BF_ADDRESS_OF, .Some(usize(1)))) => reject_reference_without_deref(&rv, &tok, u8(2), ctx, exn),
-    // `r.*` in a by-value slot copies the referent: a move-only or
-    // explicit-copy referent cannot be copied that way, so E0926 says what
-    // to write instead and `--migrate deref` leaves the site as written
-    // (issues/fixed/2026-11-05-migrate-deref-copies-a-move-only-referent-into-a-by-value-parameter.md).
-    (by_value && !is_receiver) => reject_reference_without_deref(&rv, &tok, if(type_requires_explicit_copy(&rv.ty), u8(4), u8(0)), ctx, exn),
+    (by_value && !is_receiver) => reject_reference_without_deref(&rv, &tok, u8(0), ctx, exn),
     true => ()
   );
 });

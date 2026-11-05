@@ -6456,14 +6456,19 @@ deref_rule_recording :: (fn() -> bool)(migrate_deref_on() || audit_deref_on());
 /// borrowed scrutinee `match(&v, …)` (VERDICTS-13 §14: the marker is
 /// redundant, `match(v, …)` matches through the reference). While the rule
 /// records it notes the edit instead: the `.*` after `tok`, or for 3 the
-/// marker before it dropped.
-reject_reference_without_deref :: (fn(v : &Variable, tok : &Token, kind : u8, ctx : &EvalContext, exn : Exception) -> unit)({
+/// marker before it dropped. A read (0) of a referent that is not implicitly
+/// copyable is kind 4: `v.*` would copy it, which is E0901, so the
+/// diagnostic names the borrowing and cloning repairs and the migration
+/// lists the site instead of writing `.*`
+/// (issues/fixed/2026-11-05-migrate-deref-copies-a-move-only-referent-into-a-by-value-parameter.md).
+reject_reference_without_deref :: (fn(v : &Variable, tok : &Token, written_kind : u8, ctx : &EvalContext, exn : Exception) -> unit)({
   // An overload trial is speculative: the candidate it tries may never be
   // called, and E0926 is not a reason to drop one, so the real call's
   // evaluation judges (and records) its reads.
   if(ctx.is_in_function_call_checking_phase, {
     return(());
   });
+  kind := if((written_kind == u8(0)) && type_requires_explicit_copy(&v.ty), u8(4), written_kind);
   if(deref_rule_recording(), {
     cond(
       (kind == u8(3)) => record_deref_edit_site(tok, &v.name, u8(2)),
@@ -6479,7 +6484,7 @@ reject_reference_without_deref :: (fn(v : &Variable, tok : &Token, kind : u8, ct
     (kind == u8(1)) => `\`${name}\` is a reference (\`${ref_ty}\`): writing the value it refers to is spelled \`${name}.* = …\``,
     (kind == u8(2)) => `\`${name}\` is a reference (\`${ref_ty}\`): borrowing the value it refers to is spelled \`&${name}.*\``,
     (kind == u8(3)) => `\`${name}\` is a reference (\`${ref_ty}\`): a \`match\` matches through it as written, \`match(${name}, …)\`, and the borrow marker is redundant`,
-    (kind == u8(4)) => `\`${name}\` is a reference (\`${ref_ty}\`) passed to a by-value parameter: \`${name}.*\` would copy the value it refers to, and \`${type_to_string_for_message(&v.ty)}\` ${_explicit_copy_kind(&v.ty)}`,
+    (kind == u8(4)) => `\`${name}\` is a reference (\`${ref_ty}\`) read as a whole value: \`${name}.*\` would copy the value it refers to, and \`${type_to_string_for_message(&v.ty)}\` ${_explicit_copy_kind(&v.ty)}`,
     true => `\`${name}\` is a reference (\`${ref_ty}\`): reading the value it refers to is spelled \`${name}.*\``
   );
   help := cond(
@@ -6487,8 +6492,8 @@ reject_reference_without_deref :: (fn(v : &Variable, tok : &Token, kind : u8, ct
     (kind == u8(2)) => `write \`&${name}.*\` (or \`&mut ${name}.*\`), or pass \`${name}\` itself to a reference parameter (\`yo fix --migrate deref\` inserts the \`.*\`)`,
     (kind == u8(3)) => `write \`match(${name}, …)\`: its bindings borrow through \`${name}\` with its mutability (\`yo fix --migrate deref\` drops the marker)`,
     (kind == u8(4)) => cond(
-      type_lacks_clone(&v.ty) => `take the parameter as \`&${type_to_string_for_message(&v.ty)}\` and pass \`${name}\` itself (\`yo fix --migrate deref\` lists this site and leaves it as written)`,
-      true => `take the parameter as \`&${type_to_string_for_message(&v.ty)}\` and pass \`${name}\` itself, or pass a copy, \`${name}.*.clone()\` (\`yo fix --migrate deref\` lists this site and leaves it as written)`
+      type_lacks_clone(&v.ty) => `read through \`${name}\` where the value is used (\`${name}.field\`, \`${name}.method()\`, or a \`&${type_to_string_for_message(&v.ty)}\` parameter that \`${name}\` itself is passed to) (\`yo fix --migrate deref\` lists this site and leaves it as written)`,
+      true => `read through \`${name}\` where the value is used (\`${name}.field\`, \`${name}.method()\`, or a \`&${type_to_string_for_message(&v.ty)}\` parameter that \`${name}\` itself is passed to), or copy it explicitly, \`${name}.*.clone()\` (\`yo fix --migrate deref\` lists this site and leaves it as written)`
     ),
     true => `write \`${name}.*\`; \`${name}.field\`, \`${name}.method()\` and \`${name}(i)\` read through it, and \`f(${name})\` passes it to a reference parameter (\`yo fix --migrate deref\` inserts the \`.*\`)`
   );
