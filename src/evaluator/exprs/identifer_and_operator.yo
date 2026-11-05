@@ -36,7 +36,7 @@
 { suggest_name, lookup_std_exporters, Span, E_VARIABLE_NOT_FOUND } :: import("../../diagnostics.yo");
 { Exception } :: import("std/error");
 { debug_knob, is_temp_variable_name } :: import("../../utils.yo");
-{ use_of_moved_value_error, migrate_borrowed_match_at, check_capture_freeze_access, local_borrow_take_receiver, local_borrows_active, local_borrow_access, local_borrow_place_of_variable, LocalBorrowAccess, deref_exempt_take, is_reference_deref_site, variable_is_reference_binding, deref_rule_applies, reject_reference_without_deref, variable_is_mut_borrow } :: import("../utils.yo");
+{ use_of_moved_value_error, migrate_borrowed_match_at, check_capture_freeze_access, local_borrow_take_receiver, local_borrows_active, local_borrow_access, local_borrow_place_of_variable, LocalBorrowAccess, deref_exempt_take, is_reference_deref_site, variable_is_reference_binding, deref_rule_applies, reject_reference_without_deref, variable_is_mut_borrow, binder_read_take, reference_read_wanted, reference_binding_read_type } :: import("../utils.yo");
 (g_audit_reference_read : bool) = debug_knob(`YO_AUDIT_REFERENCE_READ`).is_some();
 (g_audit_reference_mode : bool) = debug_knob(`YO_AUDIT_VARIABLE_TY`).is_some();
 { raise_flow_violation } :: import("../../types/flowability.yo");
@@ -519,10 +519,16 @@ evaluate_identifier_and_operator :: (
   if(g_audit_reference_mode && variable_is_reference_binding(&variable) && (t_slot_is_mut_ref(&variable_slot_type(&variable)) != (variable_is_mut_borrow(&variable) && !variable.is_borrow_match_binding)), {
     eprintln(`[variable-ty] mode mismatch: ${token.module_path.*}:${(token.row + u32(1)).to_string()}:${(token.column + u32(1)).to_string()} ${variable.name} stored ${type_to_string(&variable_slot_type(&variable))}`);
   });
+  // The read rule (decision 43 step 2 N1e-2b, VERDICTS-23 R1): where its
+  // position expects a reference (`reference_read_wanted`), a reference
+  // binding's read is the reference itself — no whole-value read, so no
+  // E0926 — typed `&U`/`&mut U`.
+  is_binder_arg := binder_read_take(expr);
+  reads_reference := (variable_is_reference_binding(&variable) && reference_read_wanted(&token, is_binder_arg, ctx));
   // Decision 43 step 2 N1e-1 (VERDICTS-13 §11): outside std and the compiler
   // tree a reference binding read as a whole value is spelled `r.*` (E0926);
   // the receiver, reference-slot and re-point positions marked it exempt.
-  if(variable_is_reference_binding(&variable) && deref_rule_applies(&token, ctx), {
+  if(!reads_reference && variable_is_reference_binding(&variable) && deref_rule_applies(&token, ctx), {
     if(!deref_is_exempt && !is_reference_deref_site(&token), {
       reject_reference_without_deref(&variable, &token, u8(0), ctx, exn);
     }, {
@@ -539,8 +545,10 @@ evaluate_identifier_and_operator :: (
     local_borrow_access(local_borrow_place_of_variable(&variable), LocalBorrowAccess.Read, &token, ctx, exn);
   });
   // Build ExprInfo
-  info := new_expr_info(env, &variable_value_type(&variable));
-  info.value = resolved_value;
+  read_ty := if(reads_reference, reference_binding_read_type(&variable), variable_value_type(&variable));
+  info := new_expr_info(env, &read_ty);
+  // A reference is the place's runtime address, never a known value.
+  info.value = if(reads_reference, Option(EvalValue).None, resolved_value);
   expr_info_set_origin_type(&info, Option(TypeValue).Some(variable_value_type(&variable)));
   info.variable_name = Option(String).Some(variable.name.clone());
   info.source_variable = Option(Variable).Some(variable);
