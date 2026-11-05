@@ -410,14 +410,23 @@ _generate_field_access_raw :: (fn(expr : &AstExpr, indent : &String, context : &
       ),
       .None => ()
     );
-    // An extern-C GLOBAL read through a bound `c_include` module value
-    // (`c.stdout`): no variable carries it, so resolve it the way the atom
-    // resolver does — by name + declared type — and keep the REAL C name
-    // (no reserved-word prefix). plans/reference/C_INCLUDE_EXTERN_MODULE_VALUE.md §3.4.
-    if(is_module_type(&object_type) && extern_c_global_matches(field_name.clone(), &ei.ty), {
-      return(sanitize_for_c_identifier(field_name.clone(), true));
+    // Only a module's runtime member is a variable of its own, reached by
+    // name. A struct value the evaluator knows the shape of (a literal
+    // `P(x : f(), y : i32(1))`, or a `match` binding of one) whose field is
+    // not a compile-time constant is a runtime struct like any other: its
+    // field is read from the object's C value below. Resolving the field's
+    // NAME as a variable emitted an undeclared `__yo_v_x`
+    // (issues/fixed/2026-11-05-a-method-on-a-field-of-a-match-binding-over-an-inline-literal-emits-an-undeclared-identifier.md).
+    if(is_module_type(&object_type), {
+      // An extern-C GLOBAL read through a bound `c_include` module value
+      // (`c.stdout`): no variable carries it, so resolve it the way the atom
+      // resolver does — by name + declared type — and keep the REAL C name
+      // (no reserved-word prefix). plans/reference/C_INCLUDE_EXTERN_MODULE_VALUE.md §3.4.
+      if(extern_c_global_matches(field_name.clone(), &ei.ty), {
+        return(sanitize_for_c_identifier(field_name.clone(), true));
+      });
+      return(get_variable_name_for_codegen_at(ast_expr_id(expr), field_name.clone(), Option(Environment).Some(ei.env)));
     });
-    return(get_variable_name_for_codegen_at(ast_expr_id(expr), field_name.clone(), Option(Environment).Some(ei.env)));
   });
   // The bare `Io` effect struct's `.io` member is the IDENTITY projection
   // (evaluator twin in evaluator/exprs/property_access.yo): a bundle-style
