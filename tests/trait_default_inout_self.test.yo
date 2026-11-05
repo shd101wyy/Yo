@@ -100,3 +100,23 @@ test("by-value self default moves a move-only receiver", {
   g := Digester(label : `abc`, n : u64(12));
   assert(g.label_len() == usize(5), "a default reading through a consuming sibling");
 });
+// A default written as an untyped lambda lends its `&Self` receiver to the
+// future it returns with a capture-list borrow, `{ s : &self.* }`. Its
+// per-impl materialization re-evaluates the body with the `self.*` already
+// rewritten to the name, which the capture list read as a bare `&self`
+// (E0926 asking for the spelling already written)
+// (issues/fixed/2026-11-05-a-capture-list-in-an-untyped-trait-default-lambda-cannot-borrow-self.md).
+Sink :: trait(
+  put : (fn(self : &Self, v : u8) -> u8),
+  (twice_later : (fn(self : &Self, v : u8, io : Io) -> Impl(Future(u8, Io)))) ?=
+    (
+      (self, v, io) ->
+        io.async({ s : &self.*, v }(io : Io) => (Self.put(s, v) + Self.put(s, v)))
+    )
+);
+Adder :: struct(k : u8);
+impl(Adder, Sink(put : (fn(self : &Self, v : u8) -> u8)(self.k + v)));
+test("an untyped default lends &self.* to its future through a capture list", {
+  a := Adder(k : u8(1));
+  assert(io.await(a.twice_later(u8(2), io), io) == u8(6), "the future reads the receiver it borrowed");
+});
