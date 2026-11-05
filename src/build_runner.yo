@@ -407,20 +407,23 @@ resolve_build_import_roots :: (
     io : Io,
     exn : Exception
   ) -> Impl(Future(unit, IoExn))
-)(
+)({
+  // The async body outlives the borrow of `registry`, so it owns a copy of
+  // the one list it reads.
+  referenced := registry.referenced_dependencies.clone();
   io.async((e : IoExn) => {
     g_import_lines.with_mut(xs => xs.clear());
     has_manifest := manifest_opt.is_some();
-    if(!has_manifest && (registry.referenced_dependencies.len() > usize(0)), {
-      e.exn.throw(dyn(`Error: build.dependency("${registry.referenced_dependencies(usize(0))}") needs a ${MANIFEST_FILENAME} declaring it, and this project has none.`));
+    if(!has_manifest && (referenced.len() > usize(0)), {
+      e.exn.throw(dyn(`Error: build.dependency("${referenced(usize(0))}") needs a ${MANIFEST_FILENAME} declaring it, and this project has none.`));
     });
     if(!has_manifest, {
       return(());
     });
     manifest := manifest_opt.unwrap();
     (ri : usize) = usize(0);
-    while(ri < registry.referenced_dependencies.len(), {
-      dep_name := registry.referenced_dependencies(ri).clone();
+    while(ri < referenced.len(), {
+      dep_name := referenced(ri).clone();
       if(manifest.find_dependency(dep_name.clone()).is_none(), {
         e.exn.throw(dyn(`Error: build.dependency("${dep_name}") is not declared in ${manifest.path}. Add it with 'yo add'.`));
       });
@@ -455,7 +458,7 @@ resolve_build_import_roots :: (
     e.io.await(_link_store_trees(&manifest, e.io, e.exn), e);
     ()
   })
-);
+});
 /// The editor's view of the store (plans/archive/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md
 /// §4.4): `yo-out/deps/<name>` → the store tree of every git dependency the
 /// lock records, so a dependency's source can be opened by a stable path.
@@ -661,7 +664,7 @@ _evaluate_dependency_builds :: (
   ) -> Impl(Future(BuildRegistry, IoExn))
 )({
   owned_defines := defines.clone();
-  io.async({ registry }(e : IoExn) => {
+  io.async({ registry, &manifest, owned_defines }(e : IoExn) => {
     if(registry.dependency_artifacts.len() == usize(0), {
       return(registry);
     });
@@ -722,7 +725,7 @@ _evaluate_dependency_builds :: (
           );
         });
         _record_package_import_lines(dir.clone(), _dependency_import_lines(dir.clone(), lock_text.clone(), e.exn));
-        registry.register_static_library(
+        link_err := registry.register_static_library(
           BuildArtifact(
             kind : ArtifactKind.StaticLibrary,
             name : art.name.clone(),
@@ -746,9 +749,9 @@ _evaluate_dependency_builds :: (
             linked_system_libs : art.linked_system_libs.clone(),
             package_dir : dir.clone(),
             package_name : r.dependency_name.clone()
-          ),
-          e.exn
+          )
         );
+        match(link_err, .Some(m) => e.exn.throw(dyn(m)), .None => ());
         // A `-D<dep>.<opt>` the dependency does not declare is a typo too.
         dep_unknown := undeclared_options(&dep_reg);
         if(dep_unknown.len() > usize(0), {
@@ -1777,7 +1780,7 @@ level_wants_debug_symbols :: (fn(level : &String) -> bool)(level == "debug");
 export(level_wants_debug_symbols);
 compile_artifact :: (
   fn(
-    artifact : &BuildArtifact,
+    sink(artifact) : BuildArtifact,
     ctx : &ExecutionContext,
     io : Io,
     exn : Exception
@@ -1796,7 +1799,7 @@ compile_artifact :: (
       .Executable => false
     );
     kind_dir := if(is_lib, "lib", "bin");
-    output_dir := _artifact_output_dir(artifact, ctx.project_dir.clone(), effective_target.clone(), kind_dir);
+    output_dir := _artifact_output_dir(&artifact, ctx.project_dir.clone(), effective_target.clone(), kind_dir);
     // Create the output directory before compiling into it.
     // Without this the compiler is handed `-o <missing dir>/<name>` and dies with
     // a bare ENOENT — "file or directory not found" — with nothing to say which
@@ -1947,7 +1950,7 @@ compile_artifact :: (
     // DAG, reach the child's link line the same way C sources do.
     linked_libs := _collect_linked_static_libs(
       &ctx.registry,
-      artifact,
+      &artifact,
       ctx.project_dir.clone(),
       effective_target.clone(),
       &ctx.target_triple
@@ -1965,7 +1968,7 @@ compile_artifact :: (
     shared_names := ArrayList(String).new();
     _collect_linked_shared_libs(
       &ctx.registry,
-      artifact,
+      &artifact,
       ctx.project_dir.clone(),
       effective_target.clone(),
       &mut shared_dirs,
@@ -2299,7 +2302,7 @@ compile_artifact :: (
 // ---------------------------------------------------------------------------
 run_executable :: (
   fn(
-    artifact : &BuildArtifact,
+    sink(artifact) : BuildArtifact,
     args : &ArrayList(String),
     ctx : &ExecutionContext,
     io : Io,
@@ -2532,7 +2535,7 @@ execute_node :: (
               .Executable => "exe"
             );
             description = `compile ${kind_label} ${artifact.name}`;
-            result := e.io.await(compile_artifact(&artifact, ctx, e.io, e.exn), e);
+            result := e.io.await(compile_artifact(artifact.clone(), ctx, e.io, e.exn), e);
             match(
               result,
               .Ok(_) => (),
@@ -2587,7 +2590,7 @@ execute_node :: (
                   run_argv.push(ctx.run_args(ra_i).clone());
                   ra_i = (ra_i + usize(1));
                 });
-                result := e.io.await(run_executable(&artifact, &run_argv, ctx, e.io, e.exn), e);
+                result := e.io.await(run_executable(artifact.clone(), &run_argv, ctx, e.io, e.exn), e);
                 match(
                   result,
                   .Ok(_) => (),

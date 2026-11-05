@@ -237,26 +237,26 @@ query_pkg_config :: (
 /// Tries pkg-config first, then falls back to user-provided paths.
 resolve_system_library :: (
   fn(
-    lib : &BuildSystemLibrary,
+    sink(lib) : BuildSystemLibrary,
     verbose : bool,
     io : Io,
     exn : Exception
   ) -> Impl(Future(PkgConfigResult, IoExn))
 )(
-  io.async((e : IoExn) => {
+  io.async({ lib }(e : IoExn) => {
     pkg_available := e.io.await(is_pkg_config_available(e.io, e.exn), e);
     if(pkg_available, {
       pkg_result := e.io.await(query_pkg_config(&lib.name, e.io, e.exn), e);
       match(
         pkg_result,
         .Some(r) => {
-          return(apply_system_library_metadata(lib, r));
+          return(apply_system_library_metadata(&lib, r));
         },
         .None => ()
       );
     });
     // pkg-config failed or unavailable — use fallback
-    apply_system_library_metadata(lib, build_fallback(lib))
+    apply_system_library_metadata(&lib, build_fallback(&lib))
   })
 );
 /// Resolve all system libraries and merge their flags into a single result.
@@ -269,18 +269,17 @@ resolve_all_system_libraries :: (
   ) -> Impl(Future(PkgConfigResult, IoExn))
 )({
   // The async body cannot capture a borrowed parameter (a closure that
-  // outlives the call), so it owns a list of the library handles: elements
-  // are ref-struct handles, so this copies handles, not the libraries.
+  // outlives the call), so it owns a copy of the libraries.
   mut(libs_own) := ArrayList(BuildSystemLibrary).new();
   for(&libs, l => {
-    libs_own.push(l);
+    libs_own.push(l.clone());
   });
   io.async({ libs_own, verbose }(e : IoExn) => {
     merged := _empty_result();
     mut(k) := usize(0);
     n := libs_own.len();
     while(k < n, {
-      lib_opt := libs_own.get(k);
+      lib_opt := libs_own.get_cloned(k);
       lib := match(
         lib_opt,
         .None => {
@@ -289,7 +288,7 @@ resolve_all_system_libraries :: (
         },
         .Some(p) => p
       );
-      resolved := e.io.await(resolve_system_library(&lib, verbose, e.io, e.exn), e);
+      resolved := e.io.await(resolve_system_library(lib, verbose, e.io, e.exn), e);
       _merge_into(&mut merged, &resolved);
       k = (k + usize(1));
     });

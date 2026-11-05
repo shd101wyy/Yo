@@ -232,9 +232,9 @@ impl(
       manifest_fields : HashMap(String, String).new()
     )
   ),
-  register_executable : (fn(self : &mut Self, artifact : &BuildArtifact, exn : Exception) -> unit)({
-    Self._check_duplicate_artifact_name(self, artifact.name.clone(), exn);
-    Self._check_name_taken(self, artifact.name.clone(), "an artifact", exn);
+  register_executable : (fn(self : &mut Self, artifact : &BuildArtifact) -> Option(String))({
+    match(Self._check_duplicate_artifact_name(self, artifact.name.clone()), .Some(m) => return(Option(String).Some(m)), .None => ());
+    match(Self._check_name_taken(self, artifact.name.clone(), "an artifact"), .Some(m) => return(Option(String).Some(m)), .None => ());
     self.artifacts.push(
       BuildArtifact(
         kind : ArtifactKind.Executable,
@@ -261,10 +261,11 @@ impl(
         package_name : artifact.package_name.clone()
       )
     );
+    Option(String).None
   }),
-  register_static_library : (fn(self : &mut Self, artifact : &BuildArtifact, exn : Exception) -> unit)({
-    Self._check_duplicate_artifact_name(self, artifact.name.clone(), exn);
-    Self._check_name_taken(self, artifact.name.clone(), "an artifact", exn);
+  register_static_library : (fn(self : &mut Self, artifact : &BuildArtifact) -> Option(String))({
+    match(Self._check_duplicate_artifact_name(self, artifact.name.clone()), .Some(m) => return(Option(String).Some(m)), .None => ());
+    match(Self._check_name_taken(self, artifact.name.clone(), "an artifact"), .Some(m) => return(Option(String).Some(m)), .None => ());
     self.artifacts.push(
       BuildArtifact(
         kind : ArtifactKind.StaticLibrary,
@@ -291,10 +292,11 @@ impl(
         package_name : artifact.package_name.clone()
       )
     );
+    Option(String).None
   }),
-  register_shared_library : (fn(self : &mut Self, artifact : &BuildArtifact, exn : Exception) -> unit)({
-    Self._check_duplicate_artifact_name(self, artifact.name.clone(), exn);
-    Self._check_name_taken(self, artifact.name.clone(), "an artifact", exn);
+  register_shared_library : (fn(self : &mut Self, artifact : &BuildArtifact) -> Option(String))({
+    match(Self._check_duplicate_artifact_name(self, artifact.name.clone()), .Some(m) => return(Option(String).Some(m)), .None => ());
+    match(Self._check_name_taken(self, artifact.name.clone(), "an artifact"), .Some(m) => return(Option(String).Some(m)), .None => ());
     self.artifacts.push(
       BuildArtifact(
         kind : ArtifactKind.SharedLibrary,
@@ -321,10 +323,12 @@ impl(
         package_name : artifact.package_name.clone()
       )
     );
+    Option(String).None
   }),
-  register_test : (fn(self : &mut Self, sink(suite) : BuildTestSuite, exn : Exception) -> unit)({
-    Self._check_name_taken(self, suite.name.clone(), "a test suite", exn);
+  register_test : (fn(self : &mut Self, sink(suite) : BuildTestSuite) -> Option(String))({
+    match(Self._check_name_taken(self, suite.name.clone(), "a test suite"), .Some(m) => return(Option(String).Some(m)), .None => ());
     self.test_suites.push(suite);
+    Option(String).None
   }),
   register_run : (fn(self : &mut Self, artifact_name : &String, args : &ArrayList(String)) -> unit)({
     synth_name := `run:${artifact_name}`;
@@ -352,8 +356,8 @@ impl(
     });
     self.run_steps = kept;
   }),
-  register_step : (fn(self : &mut Self, name : &String, description : &String, exn : Exception) -> unit)({
-    Self._check_name_taken(self, name.clone(), "a step", exn);
+  register_step : (fn(self : &mut Self, name : &String, description : &String) -> Option(String))({
+    match(Self._check_name_taken(self, name.clone(), "a step"), .Some(m) => return(Option(String).Some(m)), .None => ());
     self.steps.push(
       BuildStep(
         name : name.clone(),
@@ -361,6 +365,7 @@ impl(
         dependency_names : ArrayList(String).new()
       )
     );
+    Option(String).None
   }),
   add_step_dependency : (fn(self : &mut Self, step_name : &String, dep_name : &String) -> unit)({
     for(&mut self.steps, step => {
@@ -441,13 +446,15 @@ impl(
       });
     });
   }),
-  register_doc : (fn(self : &mut Self, sink(config) : BuildDocConfig, exn : Exception) -> unit)({
-    Self._check_name_taken(self, config.name.clone(), "a documentation step", exn);
+  register_doc : (fn(self : &mut Self, sink(config) : BuildDocConfig) -> Option(String))({
+    match(Self._check_name_taken(self, config.name.clone(), "a documentation step"), .Some(m) => return(Option(String).Some(m)), .None => ());
     self.doc_configs.push(config);
+    Option(String).None
   }),
-  register_verify : (fn(self : &mut Self, sink(config) : BuildVerifyConfig, exn : Exception) -> unit)({
-    Self._check_name_taken(self, config.name.clone(), "a verify step", exn);
+  register_verify : (fn(self : &mut Self, sink(config) : BuildVerifyConfig) -> Option(String))({
+    match(Self._check_name_taken(self, config.name.clone(), "a verify step"), .Some(m) => return(Option(String).Some(m)), .None => ());
     self.verify_configs.push(config);
+    Option(String).None
   }),
   /// Attach a system library to a registered module. No-op when the module is
   /// unknown or the library is already attached.
@@ -612,7 +619,7 @@ impl(
   /// two entities sharing a name make one of them unreachable — `depend_on`
   /// silently built the wrong thing (the plan's B11). Only artifacts were
   /// checked, and only against other artifacts.
-  _check_name_taken : (fn(self : &Self, name : &String, registering : str, exn : Exception) -> unit)({
+  _check_name_taken : (fn(self : &Self, name : &String, registering : str) -> Option(String))({
     taken := cond(
       self.find_artifact(name.clone()).is_some() => "an artifact",
       self.find_test(name.clone()).is_some() => "a test suite",
@@ -622,27 +629,31 @@ impl(
       self.find_step(name.clone()).is_some() => "a step",
       true => ""
     );
-    if(taken.len() > usize(0), {
-      exn.throw(
-        dyn(
-          `Build error: the name "${name}" is already registered as ${taken}; ${registering} cannot reuse it. Build names share one namespace — steps, artifacts, tests, run and doc steps.`
-        )
-      );
-    });
+    cond(
+      (taken.len() > usize(0)) => Option(String).Some(
+        `Build error: the name "${name}" is already registered as ${taken}; ${registering} cannot reuse it. Build names share one namespace — steps, artifacts, tests, run and doc steps.`
+      ),
+      true => Option(String).None
+    )
   }),
-  _check_duplicate_artifact_name : (fn(self : &Self, name : &String, exn : Exception) -> unit)({
-    for(&self.artifacts, a => {
-      if(a.name == name, {
+
+  _check_duplicate_artifact_name : (fn(self : &Self, name : &String) -> Option(String))({
+    (i : usize) = usize(0);
+    while(i < self.artifacts.len(), {
+      if(self.artifacts(i).name == name, {
         kind_str := match(
-          a.kind,
+          self.artifacts(i).kind,
           .Executable => "executable",
           .StaticLibrary => "static_library",
           .SharedLibrary => "shared_library"
         );
-        exn.throw(dyn(`Build error: Artifact "${name}" already registered as ${kind_str}. Use a unique name for each artifact.`));
+        return(Option(String).Some(`Build error: Artifact "${name}" already registered as ${kind_str}. Use a unique name for each artifact.`));
       });
+      i = (i + usize(1));
     });
+    Option(String).None
   })
+
 );
 // ---------------------------------------------------------------------------
 // The global registry
@@ -1165,7 +1176,8 @@ evaluate_yo_build_functions :: (
       _build_extract_string_or(&args, usize(6), "emit_c_to", String.new(), expr, ctx, exn),
       _build_extract_usize_or(&args, usize(7), usize(0), ctx)
     );
-    g_build_registry.with_mut({ new_artifact, exn }(reg) => reg.register_executable(&new_artifact, exn));
+    reg_err := g_build_registry.with_mut({ new_artifact }(reg) => reg.register_executable(&new_artifact));
+    match(reg_err, .Some(m) => exn.throw(dyn(m)), .None => ());
     return(_build_unit_result(expr, env, ctx));
   });
   if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_STATIC_LIBRARY, Option(usize).None), {
@@ -1181,7 +1193,8 @@ evaluate_yo_build_functions :: (
       String.new(),
       usize(0)
     );
-    g_build_registry.with_mut({ new_artifact, exn }(reg) => reg.register_static_library(&new_artifact, exn));
+    reg_err := g_build_registry.with_mut({ new_artifact }(reg) => reg.register_static_library(&new_artifact));
+    match(reg_err, .Some(m) => exn.throw(dyn(m)), .None => ());
     return(_build_unit_result(expr, env, ctx));
   });
   if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_SHARED_LIBRARY, Option(usize).None), {
@@ -1197,7 +1210,8 @@ evaluate_yo_build_functions :: (
       String.new(),
       usize(0)
     );
-    g_build_registry.with_mut({ new_artifact, exn }(reg) => reg.register_shared_library(&new_artifact, exn));
+    reg_err := g_build_registry.with_mut({ new_artifact }(reg) => reg.register_shared_library(&new_artifact));
+    match(reg_err, .Some(m) => exn.throw(dyn(m)), .None => ());
     return(_build_unit_result(expr, env, ctx));
   });
   // Unified link: a name that matches a registered SYSTEM library attaches as
@@ -1251,7 +1265,8 @@ evaluate_yo_build_functions :: (
       parallel : i32(_build_extract_usize_or(&args, usize(6), usize(1), ctx)),
       exclude : exclude_list
     );
-    g_build_registry.with_mut({ new_entry, exn }(reg) => reg.register_test(new_entry, exn));
+    reg_err := g_build_registry.with_mut({ new_entry }(reg) => reg.register_test(new_entry));
+    match(reg_err, .Some(m) => exn.throw(dyn(m)), .None => ());
     return(_build_unit_result(expr, env, ctx));
   });
   if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_RUN, Option(usize).None), {
@@ -1264,7 +1279,8 @@ evaluate_yo_build_functions :: (
     _build_require_args(&args, usize(2), String.from("__yo_build_step expects 2 arguments (name, description)"), expr, exn);
     step_name_new := _build_extract_string(&args, usize(0), "name", expr, ctx, exn);
     step_desc := _build_extract_string(&args, usize(1), "description", expr, ctx, exn);
-    g_build_registry.with_mut({ step_name_new, step_desc, exn }(reg) => reg.register_step(&step_name_new, &step_desc, exn));
+    reg_err := g_build_registry.with_mut({ step_name_new, step_desc }(reg) => reg.register_step(&step_name_new, &step_desc));
+    match(reg_err, .Some(m) => exn.throw(dyn(m)), .None => ());
     return(_build_unit_result(expr, env, ctx));
   });
   if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_DOC, Option(usize).None), {
@@ -1280,7 +1296,8 @@ evaluate_yo_build_functions :: (
       favicon : _build_extract_string(&args, usize(8), "favicon", expr, ctx, exn),
       version : _build_extract_string(&args, usize(9), "version", expr, ctx, exn)
     );
-    g_build_registry.with_mut({ new_entry, exn }(reg) => reg.register_doc(new_entry, exn));
+    reg_err := g_build_registry.with_mut({ new_entry }(reg) => reg.register_doc(new_entry));
+    match(reg_err, .Some(m) => exn.throw(dyn(m)), .None => ());
     return(_build_unit_result(expr, env, ctx));
   });
   if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_VERIFY, Option(usize).None), {
@@ -1291,7 +1308,8 @@ evaluate_yo_build_functions :: (
       mode : _build_extract_string(&args, usize(2), "mode", expr, ctx, exn),
       strict : _build_extract_bool(&args, usize(3), ctx)
     );
-    g_build_registry.with_mut({ new_entry, exn }(reg) => reg.register_verify(new_entry, exn));
+    reg_err := g_build_registry.with_mut({ new_entry }(reg) => reg.register_verify(new_entry));
+    match(reg_err, .Some(m) => exn.throw(dyn(m)), .None => ());
     return(_build_unit_result(expr, env, ctx));
   });
   if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_STEP_DEPEND_ON, Option(usize).None), {

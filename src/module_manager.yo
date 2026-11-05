@@ -1316,7 +1316,7 @@ mm_revalidate_plan :: (fn(fs_path : &String) -> Option(RevalPlan))({
   // A walk that released its evaluation context (a one-shot command — only
   // the watch modes retain it, `set_retain_walk_contexts`) cannot re-force
   // anything: the file-level reload is the only correct path.
-  (allowed : bool) = match(walk, .Some(w) => w.has_ctx(), .None => false);
+  (allowed : bool) = match(&walk, .Some(w) => w.has_ctx(), .None => false);
   changed_names := ArrayList(String).new();
   (ci : usize) = usize(0);
   while((ci < diff.changed.len()) && allowed, {
@@ -1325,7 +1325,7 @@ mm_revalidate_plan :: (fn(fs_path : &String) -> Option(RevalPlan))({
       .Some(fresh) => {
         changed_names.push(fresh.name.clone());
         match(
-          walk,
+          &walk,
           .Some(w) => match(
             w.by_index.get_cloned(&fresh.index),
             .Some(old) => {
