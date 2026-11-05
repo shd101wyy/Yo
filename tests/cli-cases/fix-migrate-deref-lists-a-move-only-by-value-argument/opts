@@ -1,8 +1,10 @@
 # `yo fix --migrate deref` inserts `.*` where a reference is read as a whole
 # value of a `Copy` type (b.yo: `take_i(r.*)`). Where the referent is not
-# implicitly copyable, `r.*` would be E0901, so a.yo's two sites (a by-value
-# argument and a `:=` binding of a `String` reference) are listed and left as
-# written, and `check` reports E0926 with the borrowing and cloning repairs
+# implicitly copyable, `r.*` would be E0901, so the `String` sites (a.yo: a
+# by-value argument, c.yo: a `:=` binding) are listed and left as written, and
+# `check` reports E0926 with the borrowing and cloning repairs
 # (issues/fixed/2026-11-05-migrate-deref-copies-a-move-only-referent-into-a-by-value-parameter.md).
+# One site per file: a file whose evaluation stops (at the E0901 the kept copy
+# still raises) is migrated only up to that point.
 stdout_keep=^(fix:|error|help)
 timeout=240
