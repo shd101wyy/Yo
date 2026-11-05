@@ -1290,8 +1290,8 @@ impl(
   set_phase_a_type : (fn(self : &Self, sink(v) : Option(TypeValue)) -> unit)(self.live.with_mut({ v }(l) => {
     l.phase_a_type = v;
   })),
-  variable : (fn(self : &Self) -> Option(Variable))(self.live.with(l => l.variable)),
-  set_variable : (fn(self : &Self, v : Option(Variable)) -> unit)(self.live.with_mut(l => {
+  variable : (fn(self : &Self) -> Option(Variable))(self.live.with(l => l.variable.clone())),
+  set_variable : (fn(self : &Self, sink(v) : Option(Variable)) -> unit)(self.live.with_mut({ v }(l) => {
     l.variable = v;
   })),
   src_hash : (fn(self : &Self) -> u64)(self.live.with(l => l.src_hash)),
@@ -2878,7 +2878,7 @@ record_pending_def_variable :: (fn(name : &String, lhs_tok : &Token, var : &Vari
   match(
     current_forcing_def(),
     .Some(def) => if(((!(def.is_impl) && (def.name == name)) && def.variable().is_none() && _def_lhs_token_is(&def, lhs_tok)), {
-      def.set_variable(Option(Variable).Some(var));
+      def.set_variable(Option(Variable).Some(Rc.clone(var)));
     }),
     .None => ()
   )
@@ -3136,7 +3136,7 @@ resolve_pending_definition :: (fn(name : &String, module_path : &String) -> Pend
               match(
                 add_variable_to_env(module_walk_force_env(&walk), def.name.clone(), &fty, Option(EvalValue).Some(fv), true, false, false, false, &lhs_tok),
                 .Some(v) => {
-                  def.set_variable(Option(Variable).Some(v));
+                  def.set_variable(Option(Variable).Some(Rc.clone(v)));
                   PendingResolution.Resolved(v, walk.module_frame_id)
                 },
                 .None => PendingResolution.Error(String.from("internal error: module frame missing while pre-binding a definition"))

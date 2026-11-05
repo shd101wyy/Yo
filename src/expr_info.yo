@@ -1729,8 +1729,9 @@ expr_info_table_set :: (fn(table : &ExprInfoTable, id : ExprId, info : &ExprInfo
   if(id == usize(0), {
     return(());
   });
-  table.data.with_mut(m => {
-    m.insert(id, info);
+  stored := Rc.clone(info);
+  table.data.with_mut({ id, stored }(m) => {
+    m.insert(id, stored);
   })
 });
 /// plans/CODEGEN_MEMORY_REDUCTION.md Phase 0 step 3: which shared-table keys
