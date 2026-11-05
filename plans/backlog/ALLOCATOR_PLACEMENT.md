@@ -12,6 +12,11 @@
 > (the scope goes), `plans/backlog/ZIG_STYLE_ALLOCATORS.md` (the catalog is selected by a root declaration) and
 > `plans/VALUES_BY_DEFAULT.md` §3.11 (the containers' `alloc` question is decided).
 >
+> **Superseded 2026-11-05 by `plans/VALUES_BY_DEFAULT.md` decision 49:** `dyn` no longer synthesizes a cell. It
+> erases the type behind a pointer the program built, so placement is that pointer's own argument:
+> `dyn(Box.new(v, alloc : .Some(a))) : Box(Dyn(T))`, `dyn(Rc.new(v, alloc : .Some(a))) : Rc(Dyn(T))`. The
+> correction below and §2.4 describe the model before that decision; there is still no `Dyn.new`.
+>
 > **Coordinator correction (2026-10-24, maintainer-visible): there is no `Dyn.new`.** `dyn(...)` keeps its
 > spelling, and the cell it synthesizes is global. Placement is `dyn(rc(f, alloc : .Some(a)))` today and
 > `dyn(Rc.new(f, alloc : .Some(a)))` after static-argument inference. Today `dyn` wraps a payload that is already

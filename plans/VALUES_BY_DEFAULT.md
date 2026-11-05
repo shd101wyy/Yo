@@ -872,6 +872,12 @@ cannot be copied.
 ### 3.7 `Dyn`, closures, async
 
 - **`Dyn(Trait)`** is a uniquely owned erased cell (decision 7).
+  **Superseded 2026-11-05/06 by decision 49:** `Dyn(Trait)` is an unsized
+  type (beside `[T]`, `str` and unsized struct tails; generics opt in with
+  `generic(T : ?Sized)`) that lives only behind a pointer (`Box`, `Rc`,
+  `Arc`, `Weak`, `ArcWeak`, `&`, `&mut`); `dyn` erases the pointee of a pointer the program built
+  (`dyn(Box.new(v)) : Box(Dyn(Trait))`), and nothing auto-boxes. The
+  bullets below describe the model before that decision.
   - `dyn(v)` moves `v` in. It is explicit-copy with a `clone` vtable slot,
     and move-only otherwise. Today's retain/release slots
     (`docs/en-US/DYN_DESIGN.md`) are what makes a copy alias; V2b removes
@@ -1880,6 +1886,10 @@ and in git, not a silent edit.
    code cannot name it.
 7. **`Dyn(Trait)` is uniquely owned:** explicit-copy with a `clone` slot,
    move-only otherwise. Sharing is `Rc(Dyn(Trait))`.
+   - **Amended 2026-11-05 by decision 49.** A `Dyn` has no ownership of
+     its own: it is an unsized type, and its pointer's ownership
+     applies. `Box(Dyn(Trait))` is the uniquely owned form this decision
+     describes; `Rc(Dyn(Trait))` shares one, in one allocation.
 8. **`Send` is a move; `Sync` is sharing** (§3.8). There is no isolation
    walk.
 9. **`std/imm/` becomes a separate package at V5** (§3.9). Revised
@@ -4074,7 +4084,9 @@ and in git, not a silent edit.
       slot declared `&mut T` it is **reborrowed** (the source frozen for
       the call, usable after; `&mut *r` is spelled `&mut r.*`); passed to
       a generic `T` slot it moves, at its last use.
-    - **`str` is first-class and never takes `&`.** `str` is the `Copy`
+    - **`str` is first-class and never takes `&`.** *Retired 2026-11-06 by
+      decision 49: `str` is unsized and `&str` is an ordinary reference; a
+      literal is `&(str, static)`.* `str` is the `Copy`
       view of static bytes (decision 36): `(x : str) = "Hi";` is the whole
       spelling and `ArrayList(str)` an ordinary list. A view into an owned
       `String`'s interior is the borrowed view of
@@ -4262,6 +4274,19 @@ and in git, not a silent edit.
     is `&Dyn(Trait)`; there is no DST.** Confirmed 2026-10-10 by the
     maintainer (asked whether `Dyn` should become a dynamically sized type
     like Rust's `dyn Trait`; the VBD implementer's recommendation accepted).
+    - **Amended 2026-11-05/06 by decision 49.** "No DST" is REPLACED:
+      `Sized` is a derived marker, a binder opts out with
+      `generic(T : ?Sized)`, and `Dyn(Trait)`, `[T]`, `str` and unsized
+      struct tails are the unsized types. The owned trait object is
+      `Box(Dyn(Trait))`, not a bare `Dyn(Trait)`; `&d` over a `Box(Dyn)` is
+      `&Box(Dyn(Trait))` like every other `&T` (the object is `&d.*`), so
+      the "`&Dyn(Trait)` is the borrowed object, not a pointer to the
+      handle" and "`&dyn(v)` over a temporary" bullets are superseded;
+      `Rc(Dyn(Trait))` in one allocation is the type's layout, not a later
+      optimization; the slice sentence of "No DST" is reversed (`[T]` and
+      `str` are unsized, reached by `unsize` and the range projections).
+      The borrowed object, the spelled erasure and the absence of any
+      implicit route to an unsized value stand.
     - **Today.** `dyn(v)` moves `v` into a heap cell, and a `Dyn(Trait)`
       value is the fat pair (data pointer, vtable pointer). The cell carries
       a count, so copies share the payload (`__yo_dyn_retain` /
@@ -4786,6 +4811,185 @@ and in git, not a silent edit.
     - **Rollout:** the phase "Decision 48: `Weak` and the collector's
       removal" in §6; the release placement is the VBD session's
       (`plans/handover/VBD_RELEASE_SCHEDULE.md`, to be re-evaluated).
+
+49. **`Sized` is a derived marker; a generic binder is `Sized` unless
+    declared `?Sized`; `Dyn(Trait)`, `[T]`, `str` and a struct whose last
+    field is unsized are the unsized types, which live only behind a
+    pointer; the pointer owns, shares or borrows the value; `dyn(p)` and
+    `unsize(p)` are the spelled unsizings** (maintainer, 2026-11-05/06:
+    "`dyn(Box.new(v))` gives `Box(Dyn(T))`, for uniformity … `Dyn(T)` is
+    just like the DST in Rust"; "support `?Sized` bound … I would like
+    [`show(dyn(&v))`] to work"; "make `str` follow Rust's pattern and
+    support `Slice(T)`, aka `[T]`"; "design Yo correct", not for
+    migration cost; the advisor's VERDICTS-26 and VERDICTS-27). It amends
+    decisions 7, 36, 43 and 44, closes `dyn(v)`'s auto-boxing, and
+    reverses `plans/archive/SLICE_REWORK.md`'s deletion of views now that
+    decision 43 rejects the invalidations it deleted them for.
+    - **`Sized` and `?Sized`.** `Sized` is a prelude marker trait derived
+      structurally (never implemented by hand): every type except
+      `Dyn(…)`, `[T]`, `str`, a struct or newtype whose LAST field is
+      unsized, and an open `?Sized` variable. `generic(T : Type)` and
+      `comptime(V) : Type` carry the implicit bound `where(T <: Sized)`;
+      the kind spelling `?Sized` — `generic(T : ?Sized)`,
+      `comptime(V) : ?Sized`, `derive(generic(T : ?Sized), …)` — drops it
+      and is written, never inferred (a binder's kind is part of the
+      function's type). `where(T <: Sized)` re-tightens one method of a
+      `?Sized` impl. A trait's `Self` is `?Sized`; a method whose `self`
+      or result is `Self` by value is callable only where `Self <: Sized`,
+      so it is no vtable slot (E0614 through a `Dyn`, for every payload).
+    - **What a `?Sized` `T` allows:** `&T`, `&mut T`, `*T`, `?*T`,
+      `Box(T)`, `Rc(T)`, `Arc(T)`, `Weak(T)`, any constructor whose own
+      binder is `?Sized`, the last field of a struct, calls through its
+      bounds on a reference receiver, `size_of_val`/`align_of_val`,
+      `drop_in_place`. Everything by value — a local, a parameter, a
+      result, a non-tail field, an element or payload, `size_of(T)`,
+      `r.*` moved or copied whole, `r.* = v`, a `Type` binder at the
+      instantiation — is E0619, raised at the DEFINITION for a `?Sized`
+      binder (the definition-time trial, with E0619 in its hard class)
+      and at the use for a concrete unsized type.
+    - **The unsized types and their metadata.** A pointer to an unsized
+      type is fat, `{ptr, meta}`: a vtable pointer for `Dyn(…)`
+      (`{type_id, size, align, drop_in_place, clone_into, methods…}`), a
+      length for `[T]` and `str`, the tail's metadata for a tail struct.
+      So `Box(Dyn(T))`, `Box([T])`, `Box(str)`, `Rc(Dyn(T))`, `Rc([T])`,
+      `&Dyn(T)`, `&[T]`, `&str` are each two words and one allocation
+      where they allocate, by the one rule; `__yo_cell(V)` and
+      `__yo_atomic_cell(V)` are tail structs.
+    - **The spelled unsizings (decision 44: never a coercion).** `dyn(p)`
+      over `p : P(V)`, `P` one of `Box`/`Rc`/`Arc`/`&`/`&mut`, yields
+      `P(Dyn(…))` with the trait set from the expected type or `V`'s
+      bounds; `V` must implement every listed trait; `dyn(Box.new(v)) :
+      Box(Dyn(T))`, `dyn(Rc.new(v)) : Rc(Dyn(T))`, `dyn(Arc.new(v)) :
+      Arc(Dyn(T, Send, Sync))`, `dyn(&v) : &Dyn(T)`, `dyn(&mut v)`.
+      `unsize(p)` over `P(Array(T, N))` yields `P([T])`, and over a
+      struct whose tail is an array the tail-unsized struct. A bare value
+      in either is E0620 (`dyn(Box.new(v))`, `dyn(&v)`). Placement is the
+      pointer's own `alloc :`; nothing allocates that the program did not
+      spell. `[T]` and `str` are also reached as PLACES: `Index(Range)`,
+      `Index(RangeInclusive)` and `Index(RangeFull)` with `Output : ?Sized`
+      give `xs(a..b)`, `xs(..)`, `s(a..b)` as unsized places, so
+      `&xs(a..b)` and `&mut xs(a..b)` are zero-copy views with origin
+      `xs`; `ArrayList(T)` and `Array(T, N)` implement `Deref(Target :
+      [T])`, `String` implements `Deref(Target : str)` (`Deref.Target :
+      ?Sized`), and R-PROBE's deref step reaches the slice's and `str`'s
+      methods and impls from them.
+    - **`str` and literals.** `str` is `[u8]` under the UTF-8 invariant.
+      The empty origin is spelled `static`: a literal is `&(str, static)`,
+      `Escapable`, `Copy` as every reference is, storable anywhere, and it
+      widens into every origin position (`∅ ⊆ p`). `s.*` is a `String`'s
+      `str` place, `s.as_str() -> &(str, self)`, `String.from(s : &str)`,
+      `push_str(s : &str)`, `s == "lit"` through `Eq(str)` (`rhs : &str`),
+      `s(a..b).to_string()` the copy; `&String → &str` stays refused as a
+      coercion, `&s.*` is the spelling. `str.from_utf8(b : &[u8]) ->
+      Result(&(str, b), Utf8Error)`, `s.as_bytes() -> &([u8], self)`.
+      Decision 36's "`str` is `Copy` on one condition" and decision 43's
+      "`str` is first-class and never takes `&`" are retired: there is no
+      sized `str`. `View(T, p)` (REFERENCES_AND_ORIGINS §3, VERDICTS-25
+      G2) is `&([T], p)` and is not built; `RawSlice(T)` is `*[T]` and is
+      deleted.
+    - **Ownership follows the pointer** (decision 7 restated). `Box`
+      unique and move-only, `Clone` where the pointee is `CloneInto`;
+      `Rc`/`Arc` shared and read-only through the handle (decision 46: a
+      `&mut Self` slot or `&mut xs(a..b)` through them is E0919);
+      `&`/`&mut` borrowed under decision 43, frozen roots and all (a view
+      of `s` makes `s.push_str` E0911 for its live range, which is what
+      makes `as_str` sound). `b.*`/`h.*`/`xs(a..b)` are unsized places:
+      borrowable, never bound, moved, assigned or `size_of`'d — one rule
+      replacing decision 44's `r.* = dyn(other)` and `swap` carve-outs.
+      `&d` on `d : Box(Dyn)` is `&Box(Dyn)`; the object is `&d.*`.
+    - **`CloneInto`** (Rust's `CloneToUninit`): `clone_into : fn(self :
+      &Self, dst : *Self)`. Implemented by the prelude for every sized
+      `Clone` type (a bare blanket), for `[T]` where `T <: Clone`, for
+      `str`, and by a `Dyn` whose list names `Clone` through its vtable
+      slot. `impl(generic(T : ?Sized), where(T <: CloneInto), Box(T),
+      Clone)` and `Rc.make_mut` are ordinary prelude code; the fresh block
+      lands in the source's allocator (decision 12). Coherence rule 3 is
+      refined: a bare-variable blanket over a `Type` binder covers the
+      sized types only and does not overlap an impl on an unsized type.
+    - **The prelude over `?Sized`.** `Box`, `Rc`, `Arc`, `Weak`, `ArcWeak`
+      declare `comptime(V) : ?Sized`; `Box.new`, `into_inner`, `Rc.new`,
+      `Arc.new`, `try_unwrap`, `Default` stay `Sized`; `Drop` (through
+      `drop_in_place`, `size_of_val`, `align_of_val`), `Deref`,
+      `allocator`, `Clone`/`Eq`/`Ord`/`Hash`/`Send`/`Sync`, `get_mut`,
+      `make_mut`, `downgrade`/`upgrade`, `ref_count` are `?Sized`. The
+      blanket `&T` impls of `Eq`/`Ord`/`Hash`/`ToString`, `&T : Send ⇔ T
+      <: Sync`, `&mut T : Send ⇔ T <: Send` are `?Sized`.
+      `drop_in_place :: fn(generic(T : ?Sized), p : *T)`. New builtins:
+      `size_of_val`, `align_of_val`, `unsize`. `[T]`'s impls (`len`,
+      `first`/`last`, `iter -> Cursor(T, self)`, `split_at`/`split_at_mut`,
+      `sort*`, `contains`, `to_list`, `Eq`/`Ord`/`Hash`, `impl(&[T],
+      IntoIterator(Item : &(T, p)))`, `impl(&mut [T], IntoIterator)`);
+      `ArrayList.into_boxed_slice -> Box([T])`, `Rc.from_slice(v : &[T])`.
+    - **`downcast`/`upcast`.** `downcast(r : &Dyn(T), V) -> Option(&V)`,
+      `&mut` → `Option(&mut V)`; `downcast(b : Box(Dyn(T)), V) ->
+      Result(Box(V), Box(Dyn(T)))`, `Rc`/`Arc` likewise — the same block
+      retyped, handed back on failure, no copy and no `Clone`.
+      `upcast(p, Dyn(A))` keeps the pointer kind and narrows the vtable.
+    - **`Send`/`Sync`.** A `Dyn`'s markers are its list's (decision 38 E);
+      `[T]` and `str` follow their element. `Box(T)` is `Send`/`Sync` iff
+      `T`; `Rc(T)` neither; `Arc` only over a `Send, Sync` pointee. The
+      `Sync` demand on a `Dyn(T, Send)` payload and the atomic-payload
+      check are deleted: under `Box` ownership `Send` of `V` suffices.
+    - **Origins.** `Dyn(T, p)` and `&([T], p)` carry origins as pointee
+      and reference attributes; `Dyn(T)` without one is `Escapable`.
+    - **Codegen.** Monomorphized per instantiation as every generic is: a
+      `?Sized` body emits once per `T`, its pointers thin or fat by that
+      `T`; `type_key` gains the slice and `str` arms beside `DynT`; the
+      vtable prefix replaces `{retain, release, clone}` and the `_A` keys.
+    - **Rollout.** S1, the compiler (v0.2.77 target; seed-safe): the kind,
+      the derivation, the four unsized shapes, fat pointers, the builtins,
+      the projections, `static`, `dyn`/`unsize`, `downcast`'s forms,
+      E0619/E0620/E0614, coherence rule 3, `yo fix --migrate unsized`, and
+      the legacy aliases behind `unsized_legacy_spellings` (a value
+      `Dyn(…)` is `Box(Dyn(…))`, a plain `dyn(v)` is `dyn(Box.new(v))`, a
+      value `str` is `&(str, static)`, `&d` into a `&Dyn` slot lends) so
+      the seed's tree and swept tests name one type each; tests, docs,
+      skills and fixtures swept at once. S2, the prelude and std (v0.2.78,
+      on the v0.2.77 seed): the handles over `?Sized`, `CloneInto`, `[T]`
+      and `str`, `Deref`, `as_str`, `into_boxed_slice`, `AnyError ::
+      Box(Dyn(Error))`, `RawSlice` deleted, the blanket impls; then the
+      std/src sweep, regenerated on the tip. S3, Generation B: the aliases
+      and the dead arms deleted (`__yo_dyn_self_copy`,
+      `_create_box_type_via`, `_synthesized_cell_call`,
+      `_dyn_target_requires_send`, `is_boxed_type`'s dyn arms, the
+      `__yo_rc_alloc` dyn box, `slice_copy`); the mode retires one release
+      after its last in-tree use. `__yo_rc_cell`/`__yo_arc_cell`/
+      `__yo_box_cell` stay until the S3 on return adoption is fixed. This decision is part
+      of the VBD campaign (maintainer, 2026-11-05: "include it in our VBD
+      campaign"): the campaign completes with S3, not with v0.2.77's
+      retirement PR, which retires every other mode; G2 loses its
+      `slice`/`View(T, p)` holder.
+    - **As built.** (S1: PRs, dates, the emit-diff and ratchet verdicts.
+      S2: PRs. S3: PR.)
+    - **Tests** (`tests/sized.test.yo`, `tests/dyn.test.yo`,
+      `tests/slice.test.yo`, `tests/str_view.test.yo`,
+      `tests/explicit_allocators.test.yo`, the cli case
+      `fix-migrate-unsized`): `show :: fn(generic(T : ?Sized), x : &T,
+      where(T <: Show))` called at `&p`, `dyn(&p)`, `&d.*`, `&"lit".*`…
+      and at `&xs(..)` with `impl([i32], Show)`; the same with `generic(T
+      : Type)` is E0619 at the call naming `?Sized`; a `?Sized` body that
+      binds `x.*`, returns `T`, puts `T` in `Option(T)` or takes `size_of(T)`
+      is E0619 at the definition; `where(T <: Sized)` on one method of a
+      `?Sized` impl; a struct with an unsized tail built by `unsize`,
+      `size_of_val` of it, its tail offset at an over-aligned tail;
+      `dyn(Box.new(v, alloc : .Some(a)))` one block in `a`, the `Rc`/`Arc`
+      forms one each, `Box(Dyn(T, Clone)).clone()` of a placed box in `a`,
+      `dyn(&v)` none; a plain `dyn(v)` is E0620 with its help and repair;
+      `dyn(h)` over an `Rc(V)` with a second handle is `Rc(Dyn(T))` and a
+      `&mut Self` slot through it is E0919 (the Observation-2 row);
+      `Dyn(LogicalNot)` is E0614 for a `Copy` payload too; `downcast` by
+      the three kinds; `upcast` on a `Box`, an `Rc`, a `&`; `&s.*`,
+      `s.as_str()`, `&s(2..5)` frozen roots (`s.push_str` inside the range
+      E0911; the view returned E0912); a literal stored in a field as
+      `&(str, static)` and returned from a function; `&xs(a..b)` of an
+      `ArrayList`, an `Array` and a view, `&mut xs(a..b)` written in place,
+      `split_at_mut`; `for(&xs, …)` and `for(&xs(1..), …)` through
+      `impl(&[T], IntoIterator)`; `Box([T])` from `into_boxed_slice` and
+      from `unsize(Box.new(arr))`, `Rc([T])`, `Box(str)`; `&xs.*` through
+      an `Rc(ArrayList(T))` with origin `h`; `RawSlice`'s former users on
+      `*[T]`; `Rc(Box(Dyn(T)))` accepted and two blocks; the four `?Sized`
+      blanket impls on `&str`, `&[T]`, `&Dyn`; the migration's rewrites and
+      its hand list on a fixture.
 
 ## 5. Prerequisites, gates and the seed
 
@@ -6363,7 +6567,8 @@ is `Arc(Mutex(T))`, `clone()` or `&mut`, and the error says which.
     `derive(rune, Copy, Clone)` in decision 36's Generation B sweep, and
     the audit's `rune 73` line in §4 counts its copies. `char` is the byte
     type and gets the prelude impl.
-  - **`str` is `Copy` on one condition:** a `str` is a view, and its copy
+  - *Retired 2026-11-06 by decision 49 (there is no sized `str`; `&str` is
+    `Copy` as every `&T` is).* **`str` is `Copy` on one condition:** a `str` is a view, and its copy
     is sound only because the safe surface derives one from a literal or
     from another `str` alone (`from_raw_parts` is the unsafe constructor,
     `std/prelude.yo`), so a view never outlives its bytes. A safe method
@@ -9827,6 +10032,78 @@ once `SEED_VERSION` parses it.
    - The two review rules for handle globals.
    - Comptime `mut(x) :: v` and `comptime(mut(x)) := v` can be reassigned,
      and the plain forms cannot.
+
+### Decision 49: `?Sized`, unsized types, and views
+
+**Status: decided 2026-11-05/06, not started.** The design was settled in two advisor consults, VERDICTS-26 and VERDICTS-27, prompted by these maintainer requests:
+
+- "should we remove the auto-boxing for `dyn(...)`?";
+- the uniform `Box(Dyn(T))` model;
+- "support `?Sized` bound";
+- "make `str` follow Rust's pattern and support `Slice(T)`";
+- "design Yo correct", not for migration cost.
+
+The rule, layout, prelude and tests are in decision 49 (§4).
+
+**Why** (measured on develop `58ec8be03`/`935c6ee69` with v0.2.75):
+
+- **`dyn(x)` had two meanings, chosen by `x`'s type.** It boxed a plain value into a fresh global `Rc` cell (an `Arc` cell for `Send`). It adopted the cell of an `Rc`/`Arc` argument instead.
+  - The adoption is an S2: `issues/2026-11-05-a-dyn-over-a-shared-rc-cell-writes-its-payload-through-a-mut-self-method.md`.
+  - A uniquely owned `Dyn` paid for a count and atomics that nothing read.
+  - `dyn(v)` was the one allocating spelling with no `alloc` argument.
+- **A closed "no `?Sized`" rule would have meant two implementations of `Box`**: the generic one, and a compiler-owned one for `Box(Dyn)`. User generics could not name what the prelude could. `?Sized` makes `Box(Dyn(...))` the one generic `Box` at an unsized argument.
+- **The reason slices were deleted no longer holds.** `plans/archive/SLICE_REWORK.md` (2026-06) deleted `Slice(T)` and `as_str` because a view into heap storage had no static answer to reassignment, growth or `Rc`-alias mutation. Decision 43 is that answer: a view freezes its root (E0911), cannot outlive it (E0912), and is read-only through an `Rc` (decision 46). `str`'s static-only rule was a stand-in for origins; with origins it is the one origin `static`. `View(T, p)` would be `&([T], p)` spelled a second way.
+- **Counts.**
+  - `dyn(`: src 1,797 (1,625 of them throw arguments), std 132, tests 605.
+  - Bare `Dyn(` value spellings: 760.
+  - `: str`: 387.
+  - `RawSlice`: 21.
+
+**Rejected:**
+
+- `Dyn` as the only unsized type, behind a closed rule. `str` and `View` would then be a second mechanism for "a pointer with a length".
+- `where(T <: ?Sized)`. `?X` is `Option(X)` in a type position, and `where` adds obligations, never removes them.
+- An inferred opt-out. A binder's kind is part of the function's type.
+- Uniform auto-boxing with `dyn(v, alloc : …)`.
+- `AnyError.new(e)`, and `throw` boxing for its caller.
+- Building `View(T, p)` in std beside `&[T]`.
+
+**Steps:**
+
+1. **S1, the compiler** (seed-safe; one PR series).
+   - The kinds and types: the `Sized` derivation and the `?Sized` binder kind; `[T]`, `str` and tail structs as unsized types; fat `*T`/`&T`/`?*T`.
+   - The builtins: `size_of_val`, `align_of_val`, `unsize`, and `___drop` of an unsized place.
+   - The places and origins: the `Index(Range…)` projections, and the `static` origin.
+   - `dyn(P(V)) : P(Dyn)`, with the vtable prefix `{type_id, size, align, drop_in_place, clone_into}` and `downcast` by pointer kind.
+   - The errors: E0619 at the definition, E0620, the E0614 extension to every by-value `self` through a `Dyn`, and coherence rule 3's sized-only blanket.
+   - `yo fix <path> --migrate unsized`.
+   - Legacy aliases behind the temporary predicate `unsized_legacy_spellings`: a value `Dyn(…)` means `Box(Dyn(…))`, a plain `dyn(v)` means `dyn(Box.new(v))`, a value `str` means `&(str, static)`, and `&d` into a `&Dyn` slot lends. With these, the seed's tree and the swept tests each name one type.
+   - Tests, docs, skills and cli fixtures are swept when S1 merges.
+2. **S2, the prelude and std** (on the seed that carries S1).
+   - `Box`/`Rc`/`Arc`/`Weak`/`ArcWeak` over `comptime(V) : ?Sized`, with the sized-only methods split out.
+   - `CloneInto`.
+   - `[T]` and `str` impls; `Deref` on `ArrayList`/`Array`/`String`; `as_str`, `into_boxed_slice`, `Rc.from_slice`, `str.from_utf8`.
+   - `AnyError :: Box(Dyn(Error))`; `RawSlice` deleted; the four `?Sized` blanket `&T` impls; `__yo_box_cell`.
+   - Then `yo fix ./std ./src --migrate unsized`, regenerated on the tip.
+3. **S3, Generation B.**
+   - `unsized_legacy_spellings` deleted, so E0619/E0620 apply everywhere.
+   - The dead arms deleted: `__yo_dyn_self_copy`, `_create_box_type_via`, `_synthesized_cell_call`, `_dyn_target_requires_send`, `is_boxed_type`'s dyn arms, the `__yo_rc_alloc` dyn box, the `Sync` demand, the atomic-payload check, `slice_copy`.
+   - `unsized` retires one release after its last in-tree use.
+
+**Placement** (`plans/handover/VBD_RELEASE_SCHEDULE.md` §5f decision 30):
+
+- S1 targets v0.2.77, behind G2, and never ahead of v0.2.76's hard gates.
+- S2 and its sweep come in v0.2.78. S3 comes in v0.2.78 or v0.2.79.
+- It is part of the VBD campaign (maintainer, 2026-11-05). The campaign completes with S3. v0.2.77's retirement PR retires every other mode.
+- G2 drops its `slice`/`View(T, p)` holder.
+
+**Temporary names:**
+
+| Name | Lives from | Until |
+| --- | --- | --- |
+| `unsized_legacy_spellings` | S1 | S3 |
+| `--migrate unsized` | S1 | one release after the S2 sweep |
+| `__yo_box_cell` | S2 | the S3 issue on return adoption is fixed (`issues/2026-10-23-a-generic-constructors-specialization-keeps-its-declared-return-for-a-capture-struct-argument.md`) |
 
 ### V5: remove `ref(...)` and `atomic(...)`
 
