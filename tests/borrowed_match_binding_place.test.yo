@@ -77,21 +77,29 @@ test("a temporary scrutinee's bindings point into its local", {
 });
 test("a binding read by a closure and passed by value reads the part", {
   h := _H(v : .Some(_P(a : i32(3), b : i64(4), c : i64(5))));
-  got := match(&h.v, .Some(s) => {
-    (f : Impl(Fn() -> i32)) = (() => (s.a + i32(1)));
-    copy := s.*;
-    (f() + copy.a)
-  }, .None => i32(0));
+  got := match(
+    &h.v,
+    .Some(s) => {
+      (f : Impl(Fn() -> i32)) = (() => (s.a + i32(1)));
+      copy := s.*;
+      f() + copy.a
+    },
+    .None => i32(0)
+  );
   assert(got == i32(7), "the closure and the copy read the payload");
 });
 test("a binding lives across an await in an io.async arm", {
   result := Rc.new(RefCell(i32).new(0));
   task := io.async({ result : Rc.clone(result) }(io : Io) => {
     e := _Two.Named(s : String.from("async"), k : i32(9));
-    v := match(&e, .Named(s, k) => {
-      io.await(yield(io), io);
-      cond((s.* == String.from("async")) => (k.* + i32(5)), true => i32(0))
-    }, _ => i32(0));
+    v := match(
+      &e,
+      .Named(s, k) => {
+        io.await(yield(io), io);
+        cond((s.* == String.from("async")) => (k.* + i32(5)), true => i32(0))
+      },
+      _ => i32(0)
+    );
     result.with_mut(cur => {
       cur.* = v;
     });
@@ -109,37 +117,57 @@ impl(_MoTok, Drop(drop : (fn(self : &mut Self) -> unit)(())));
 test("an implicit capture of a move-only part is E0901", {
   comptime_expect_error({
     o := Option(String).Some(String.from("m"));
-    _n := match(&o, .Some(s) => {
-      (f : Impl(Fn() -> usize)) = (() => s.len());
-      f()
-    }, .None => usize(0));
+    _n := match(
+      &o,
+      .Some(s) => {
+        (f : Impl(Fn() -> usize)) = (() => s.len());
+        f()
+      },
+      .None => usize(0)
+    );
   }, "the closure captures `s`, whose type `String` is move-only");
   comptime_expect_error({
     o := Option(_MoTok).Some(_MoTok(v : i32(3)));
-    _n := match(&o, .Some(t) => {
-      (f : Impl(Fn() -> i32)) = (() => (t.v + i32(1)));
-      f()
-    }, .None => i32(0));
+    _n := match(
+      &o,
+      .Some(t) => {
+        (f : Impl(Fn() -> i32)) = (() => (t.v + i32(1)));
+        f()
+      },
+      .None => i32(0)
+    );
   }, "the closure captures `t`, whose type `_MoTok` is move-only");
 });
 test("a reference capture of a binding is the explicit capture list, a copy the explicit clone", {
   o := Option(String).Some(String.from("hello"));
-  n := match(&o, .Some(s) => {
-    (f : Impl(Fn() -> usize)) = ({ x : &s.* }() => x.len());
-    f()
-  }, .None => usize(0));
+  n := match(
+    &o,
+    .Some(s) => {
+      (f : Impl(Fn() -> usize)) = ({ x : &s.* }() => x.len());
+      f()
+    },
+    .None => usize(0)
+  );
   assert(n == usize(5), "the borrowed capture reads the payload");
-  m := match(&o, .Some(s) => {
-    (g : Impl(Fn() -> usize)) = ({ c : s.clone() }() => c.len());
-    g()
-  }, .None => usize(0));
+  m := match(
+    &o,
+    .Some(s) => {
+      (g : Impl(Fn() -> usize)) = ({ c : s.clone() }() => c.len());
+      g()
+    },
+    .None => usize(0)
+  );
   assert(m == usize(5), "the cloned capture");
   mut(xs) := ArrayList(i32).new();
   xs.push(i32(1));
   xs.push(i32(2));
   (mut(total) : usize) = usize(0);
-  match(&o, .Some(s) => for(&xs, e => {
-    total = (total + s.len());
-  }), .None => ());
+  match(
+    &o,
+    .Some(s) => for(&xs, e => {
+      total = (total + s.len());
+    }),
+    .None => ()
+  );
   assert(total == usize(10), "a `for` body reads the binding");
 });
