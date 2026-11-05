@@ -19,7 +19,8 @@
 //!
 //! cell := OnceCell(i32).new();
 //! a := cell.get_or_init(() => i32(42)); // runs the closure
-//! b := cell.get_or_init(() => i32(99)); // returns 42, closure not run
+//! b := cell.get_or_init(() => i32(99)); // lends the stored 42, closure not run
+//! assert(b.* == i32(42), "get_or_init returns a &T into the cell");
 //! ```
 //!
 //! ## Stability
@@ -173,10 +174,9 @@ impl(
       )
     )
   ),
-  /// Return the stored value, initializing it with `f` if this is the first
-  /// call. `f` runs at most once across all threads; every other caller blocks
-  /// until it finishes and then sees its value.
-  get_or_init : (fn(self : &Self, f : &Impl(Fn() -> T)) -> T)({
+  /// Store `f()` unless the cell already holds a value. `f` runs at most once
+  /// across all threads; every other caller blocks until it finishes.
+  _init : (fn(self : &Self, f : &Impl(Fn() -> T)) -> unit)({
     // The `Once` handle is copied out first: the closure argument writes
     // through `self`'s cell, and lending the receiver through the same cell
     // root would be decision 28's argument exclusivity (E0910).
@@ -184,14 +184,26 @@ impl(
     once.call(() => {
       self._cell.*._value = Option(T).Some(f());
     });
-    self._cell.*._value.expect("OnceCell: initialized flag published without a value")
   }),
-  /// Return the stored value, or `None` if the cell has not been initialized.
-  /// Never runs an initializer.
-  get : (fn(self : &Self) -> Option(T))(
+  /// Return a reference to the stored value, initializing it with `f` if this
+  /// is the first call. `f` runs at most once across all threads; every other
+  /// caller blocks until it finishes and then sees its value. The value stays
+  /// in the cell, so a move-only `T` is read in place, as Rust's
+  /// `OnceLock::get_or_init` lends it.
+  get_or_init : (fn(self : &Self, f : Impl(Fn() -> T)) -> &T)({
+    self._init(&f);
+    match(
+      &self._cell.*._value,
+      .Some(v) => &v,
+      .None => __yo_panic("OnceCell: initialized flag published without a value")
+    )
+  }),
+  /// Return a reference to the stored value, or `None` if the cell has not
+  /// been initialized. Never runs an initializer.
+  get : (fn(self : &Self) -> Option(&T))(
     cond(
-      self._cell.*._once.is_done() => self._cell.*._value,
-      true => Option(T).None
+      self._cell.*._once.is_done() => match(&self._cell.*._value, .Some(v) => Option(&T).Some(v), .None => Option(&T).None),
+      true => Option(&T).None
     )
   ),
   /// Whether the cell holds a value.
