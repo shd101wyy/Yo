@@ -171,3 +171,75 @@ test("a reference capture of a binding is the explicit capture list, a copy the 
   );
   assert(total == usize(10), "a `for` body reads the binding");
 });
+// A `mut(name)` binding binds by value, as Rust 2021's `mut` resets the
+// default binding mode: a copy the arm may write, never the scrutinee
+// (issues/fixed/2026-11-06-a-mut-binding-of-a-borrowed-match-writes-through-the-shared-reference.md).
+_Q :: struct(n : i32, m : i32);
+_bump :: (fn(o : &Option(_Q)) -> i32)(
+  match(
+    o,
+    .Some(mut(d)) => {
+      d.n = i32(5);
+      d.n
+    },
+    .None => i32(0)
+  )
+);
+_n_of :: (fn(o : &Option(_Q)) -> i32)(match(o, .Some(q) => q.n, .None => i32(-1)));
+test("a mut binding of a borrowed match is a copy of its part", {
+  o := Option(_Q).Some(_Q(n : i32(1), m : i32(2)));
+  r := &o;
+  x := match(
+    r,
+    .Some(mut(d)) => {
+      d.n = i32(7);
+      d.n
+    },
+    .None => i32(0)
+  );
+  assert(x == i32(7), "the arm writes its copy");
+  assert(_n_of(&o) == i32(1), "the scrutinee is untouched");
+  assert(_bump(&o) == i32(5), "a `&T` parameter matched bare");
+  assert(_n_of(&o) == i32(1), "the caller's value is untouched");
+  // Beside a pointer binding, in the switch and the general lowering: the
+  // copy reads its part and the other binding still points into the scrutinee.
+  e := _Two.Two(x : i32(1), y : i32(2));
+  py := match(
+    &e,
+    .Two(mut(x), y) => {
+      assert(x.* == i32(1), "the copy reads its part");
+      addr_of(y.*)
+    },
+    _ => panic("the variant")
+  );
+  py.* = i32(20);
+  assert(match(&e, .Two(x, y) => ((x.* == i32(1)) && (y.* == i32(20))), _ => false), "the pointer binding writes through");
+  pg := match(
+    &e,
+    (.Two(mut(x), y) && (y.* > i32(0))) => {
+      assert(x.* == i32(1), "the copy, under a guard");
+      addr_of(y.*)
+    },
+    _ => panic("the guard")
+  );
+  pg.* = i32(21);
+  po := match(&e, (.One(mut(n)) | .Two(mut(n), _)) => n.*, _ => i32(0));
+  assert(po == i32(1), "an or-pattern's copy");
+  assert(match(&e, .Two(x, y) => ((x.* == i32(1)) && (y.* == i32(21))), _ => false), "under the general lowering");
+});
+_PS :: struct(s : String);
+test("a mut binding of a borrowed match cannot release data its owner holds", {
+  comptime_expect_error({
+    _rename :: (fn(o : &Option(_PS)) -> unit)(
+      match(
+        o,
+        .Some(mut(d)) => {
+          d.s = String.from("new");
+        },
+        .None => ()
+      )
+    );
+    o := Option(_PS).Some(_PS(s : String.from("old")));
+    _rename(&o);
+  }, "which borrows its value");
+});
