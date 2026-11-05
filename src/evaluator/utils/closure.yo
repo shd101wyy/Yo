@@ -1029,7 +1029,7 @@ enrich_captured_variables :: (
 /// capture (a closure-typed `Impl(Fn)` parameter bound to a zero-size capture
 /// struct) was missing from the enclosing capture struct
 /// (issues/fixed/a-closure-capture-reaches-its-enclosing-closure-only-when-it-is-rc.md).
-propagate_captures_to_enclosing :: (fn(caps : &HashMap(String, CapturedVarInfo), ctx : &EvalContext) -> unit)({
+propagate_captures_to_enclosing :: (fn(caps : &HashMap(String, CapturedVarInfo), ctx : &mut EvalContext) -> unit)({
   key_iter := caps.keys_cloned().into_iter();
   (more : bool) = true;
   while(more, {
@@ -1671,7 +1671,7 @@ _clone_template_of :: (fn(read : &String, ft : &TypeValue) -> String)({
 });
 /// Parse `code` (which names the receiver as `_CLONE_RECV_HOLE`), put `recv`
 /// in the hole and evaluate it.
-_eval_clone_template :: (fn(code : &String, recv : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> AstExpr)({
+_eval_clone_template :: (fn(code : &String, recv : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr)({
   parsed := generate_expr_from_code(code, exn);
   // The template is its own value: the type the enclosing expression expects
   // (a generic `T`, the closure's) is not a field's, nor a record literal's.
@@ -1717,7 +1717,7 @@ _expand_clone_to :: (fn(expr : &AstExpr, generated : &AstExpr, ctx : &EvalContex
 /// `{ __yo_clone_src := recv; __yo_clone_src.clone() }`. `.None` when `target`
 /// (the receiver's type, resolved) is neither, or is not `Clone`.
 structural_clone_expansion :: (
-  fn(expr : &AstExpr, recv : &AstExpr, recv_ty : &TypeValue, target : &TypeValue, env : &Environment, ctx : &EvalContext, exn : Exception) -> Option(AstExpr)
+  fn(expr : &AstExpr, recv : &AstExpr, recv_ty : &TypeValue, target : &TypeValue, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> Option(AstExpr)
 )({
   clone_tt := match(
     get_trait_type_from_env(env, String.from("Clone")),

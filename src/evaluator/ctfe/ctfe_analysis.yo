@@ -156,7 +156,7 @@ _eval_body_for_ctfe :: (
     cap_vals : &SharedList(EvalValue),
     func_type : &TypeValue,
     env : &Environment,
-    ctx_p : &EvalContext,
+    ctx_p : &mut EvalContext,
     exn : Exception
   ) -> bool
 )({
@@ -295,7 +295,7 @@ _try_eval_body_swallowing :: (
     cap_vals : &SharedList(EvalValue),
     func_type : &TypeValue,
     env : &Environment,
-    ctx_p : &EvalContext,
+    ctx_p : &mut EvalContext,
     out : &mut ArrayList(bool)
   ) -> unit
 )({
@@ -401,7 +401,7 @@ analyze_ctfe_capability :: (
     func_value : &EvalValue,
     func_type : &TypeValue,
     env : &Environment,
-    ctx : &EvalContext
+    ctx : &mut EvalContext
   ) -> Option(CtfeComptimeFn)
 )({
   // Skip if this is ALREADY a comptime function.

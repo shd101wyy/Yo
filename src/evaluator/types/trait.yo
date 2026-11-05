@@ -106,7 +106,7 @@ _get_or_create_some_ty_for_trait :: (
     lhs_expr : &AstExpr,
     self_type : &TypeValue,
     env_mut : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> _SomeTyResolvedResult
 )({
@@ -266,7 +266,7 @@ _apply_single_constraint_for_trait :: (
     self_type : &TypeValue,
     trait_ty : &TypeValue,
     env_mut : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> bool
 )({
@@ -357,7 +357,7 @@ _parse_trait_where_clauses :: (
     trait_ty : &TypeValue,
     collect_pending : bool,
     env_mut : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> ArrayList(_PendingTraitConstraint)
 )({
@@ -540,7 +540,7 @@ _drop_where_constraint_failures :: (
     self_type : &TypeValue,
     trait_ty : &TypeValue,
     env_mut : &Environment,
-    ctx : &EvalContext
+    ctx : &mut EvalContext
   ) -> unit
 )({
   retry_exn := Exception(
@@ -571,7 +571,7 @@ _evaluate_trait_field :: (
     trait_ty : &TypeValue,
     expected_trait_type_opt : &Option(TypeValue),
     env_mut : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     is_for_evaluating_trait_ty : bool,
     exn : Exception
   ) -> _TraitFieldResult
@@ -1040,7 +1040,7 @@ evaluate_trait_type :: (
   fn(
     expr : &AstExpr,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> AstExpr
 )({

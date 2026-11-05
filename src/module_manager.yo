@@ -2151,7 +2151,7 @@ _eval_module_exprs_capturing_error :: (
   fn(
     mod_exprs : &ArrayList(AstExpr),
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     out : &mut ArrayList(EvalValue),
     out_tys : &mut ArrayList(TypeValue)
   ) -> bool
@@ -2381,7 +2381,7 @@ _load_module_at_abs :: (fn(abs : &String) -> Option(String))({
   // are summarized for later modules' walks first (summarize_function_bodies).
   (per_module_table : bool) = _no_shared_expr_info_table();
   (mint_mark : usize) = if(per_module_table, specialization_recording_begin(), usize(0));
-  _eval_module_exprs_capturing_error(&mod_exprs, &env, &ctx, &mut out_vals, &mut out_tys);
+  _eval_module_exprs_capturing_error(&mod_exprs, &env, &mut ctx, &mut out_vals, &mut out_tys);
   if(per_module_table, {
     minted := specialization_recording_take(mint_mark);
     if(out_vals.len() > usize(0), {
@@ -2589,7 +2589,7 @@ mm_load_prelude_file :: (
   prelude_result := evaluate_anonymous_module_begin_exprs(
     exprs,
     &prelude_env,
-    &prelude_ctx,
+    &mut prelude_ctx,
     false,
     true,
     true,
@@ -2786,7 +2786,7 @@ mm_eval_entry_exprs :: (
   // file of a directory check, but their bodies live in this entry's table.
   (entry_per_module_table : bool) = _no_shared_expr_info_table();
   (entry_mint_mark : usize) = if(entry_per_module_table, specialization_recording_begin(), usize(0));
-  _eval_module_exprs_capturing_error(exprs, &env, &ctx, &mut out_vals, &mut out_tys);
+  _eval_module_exprs_capturing_error(exprs, &env, &mut ctx, &mut out_vals, &mut out_tys);
   if(entry_per_module_table, {
     entry_minted := specialization_recording_take(entry_mint_mark);
     if(out_vals.len() > usize(0), {

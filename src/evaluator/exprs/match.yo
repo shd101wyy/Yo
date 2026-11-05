@@ -312,7 +312,7 @@ _gadt_refined_expected :: (
 /// (issues/fixed/2026-10-24-a-match-guard-that-builds-a-temporary-object-emits-undeclared-c-temps.md).
 /// The error is returned, not thrown, as `evaluate_expression_guarded`
 /// returns it.
-_evaluate_guard_block :: (fn(g : &AstExpr, env : &Environment, ctx : &EvalContext, out : &mut ArrayList(AstExpr)) -> Option(AnyError))({
+_evaluate_guard_block :: (fn(g : &AstExpr, env : &Environment, ctx : &mut EvalContext, out : &mut ArrayList(AstExpr)) -> Option(AnyError))({
   g_guard_block_err.with_mut(xs => xs.clear());
   _evaluate_guard_block_inner(g, env, ctx, out);
   cond(
@@ -321,7 +321,7 @@ _evaluate_guard_block :: (fn(g : &AstExpr, env : &Environment, ctx : &EvalContex
     true => g_guard_block_err.with_mut(xs => xs.pop())
   )
 });
-_evaluate_guard_block_inner :: (fn(g : &AstExpr, env : &Environment, ctx : &EvalContext, out : &mut ArrayList(AstExpr)) -> unit)({
+_evaluate_guard_block_inner :: (fn(g : &AstExpr, env : &Environment, ctx : &mut EvalContext, out : &mut ArrayList(AstExpr)) -> unit)({
   guard_exn := Exception(
     throw : (
       guard_err -> {
@@ -1174,7 +1174,7 @@ evaluate_match :: (
   fn(
     expr : &AstExpr,
     env_in : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> AstExpr
 )({

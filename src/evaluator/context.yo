@@ -295,7 +295,7 @@ SpecializedFunctionCacheEntry :: ref(
 // Main EvaluatorContext
 // ---------------------------------------------------------------------------
 /// The evaluator context threaded through every expression evaluation.
-EvalContext :: ref(
+EvalContext :: (
   struct(
     /// Whether we are currently executing code (`true`) or just type-checking it.
     /// Prevents side effects like `comptime_print` from running during function
@@ -746,7 +746,7 @@ track_variable_usage_resolved :: (
     frame_level : usize,
     usage : CaptureUsage,
     token : &Token,
-    context : &EvalContext,
+    context : &mut EvalContext,
     resolved_is_comptime : Option(bool)
   ) -> unit
 )(
@@ -3631,7 +3631,7 @@ track_variable_usage :: (
     frame_level : usize,
     usage : CaptureUsage,
     token : &Token,
-    context : &EvalContext
+    context : &mut EvalContext
   ) -> unit
 )(
   // Legacy entry: no resolved-binding flag — the compile-time-only gate

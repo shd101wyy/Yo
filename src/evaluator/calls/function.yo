@@ -963,7 +963,7 @@ _try_structural_copy_clone :: (
     callee : &AstExpr,
     arg_count : usize,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> Option(AstExpr)
 )({
@@ -1340,7 +1340,7 @@ derive(_SaiBinding, Clone);
 /// consulted is evaluated once, with no expected type (a labeled one is its
 /// value; a lent one, `&mut h`, the place under its marker).
 _infer_unapplied_ctor_receiver :: (
-  fn(callee : &AstExpr, args : &ArrayList(AstExpr), env : &Environment, ctx : &EvalContext, exn : Exception) -> UnappliedCtorInference
+  fn(callee : &AstExpr, args : &ArrayList(AstExpr), env : &Environment, ctx : &mut EvalContext, exn : Exception) -> UnappliedCtorInference
 )({
   none := UnappliedCtorInference(bound : false, preevaluated : ArrayList(usize).new());
   if(!ast_expr_is_fn_call_of(callee, BF_DOT, Option(usize).Some(usize(2))), {
@@ -1582,7 +1582,7 @@ _sai_is_shorthand_name :: (fn(v : &String) -> bool)(
 /// recording the evaluated node; `.None` for an argument that is not
 /// consulted (absent, contextual) or produced no ExprInfo.
 _sai_arg_type :: (
-  fn(args : &ArrayList(AstExpr), i : usize, nodes : &mut ArrayList(Option(AstExpr)), tys : &mut ArrayList(Option(TypeValue)), env : &Environment, ctx : &EvalContext, exn : Exception) -> Option(TypeValue)
+  fn(args : &ArrayList(AstExpr), i : usize, nodes : &mut ArrayList(Option(AstExpr)), tys : &mut ArrayList(Option(TypeValue)), env : &Environment, ctx : &mut EvalContext, exn : Exception) -> Option(TypeValue)
 )({
   match(
     tys.get_cloned(i),
@@ -1762,7 +1762,7 @@ _sai_try_candidate :: (
     nodes : &mut ArrayList(Option(AstExpr)),
     tys : &mut ArrayList(Option(TypeValue)),
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> _SaiOutcome
 )({
@@ -1871,7 +1871,7 @@ _sai_is_literal_type :: (fn(t : &TypeValue) -> bool)(is_comptime_int_type(t) || 
 /// pattern with type arguments is built by calling the constructor on them
 /// (the receiver node, still the constructor, as the callee), so the type is
 /// the memoized, stamped instance a written `G(A…)` evaluates to.
-_sai_instantiate :: (fn(c : &CtorMethodImpl, bindings : &ArrayList(Option(TypeValue)), recv : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> Option(TypeValue))({
+_sai_instantiate :: (fn(c : &CtorMethodImpl, bindings : &ArrayList(Option(TypeValue)), recv : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> Option(TypeValue))({
   targs := match(&c.receiver_pattern, Rc(.Struct({ type_arguments : ta })) => ta.items.clone(), Rc(.EnumT({ type_arguments : ta })) => ta.items.clone(), _ => ArrayList(TypeValue).new());
   if((targs.len() == usize(0)) || (c.binder_names.len() == usize(0)), {
     return(Option(TypeValue).Some(c.receiver_pattern.clone()));
@@ -2292,7 +2292,7 @@ _trial_call_overload_candidate :: (
     func_expr : &AstExpr,
     args : &ArrayList(AstExpr),
     callee_env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     ok_out : &mut ArrayList(bool)
   ) -> unit
 )({
@@ -2344,7 +2344,7 @@ _run_overload_trial :: (
     func_expr : &AstExpr,
     args : &ArrayList(AstExpr),
     callee_env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     ok_out : &mut ArrayList(bool)
   ) -> unit
 )({
@@ -2458,7 +2458,7 @@ _receiver_type_display :: (fn(recv : &AstExpr, ctx : &EvalContext) -> String)(
   match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(recv)), .Some(ri) => type_to_string(&ri.ty), .None => String.from("the receiver"))
 );
 _select_matching_overload :: (
-  fn(base : &ReceiverMethodResult, args : &ArrayList(AstExpr), func_expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> ReceiverMethodResult
+  fn(base : &ReceiverMethodResult, args : &ArrayList(AstExpr), func_expr : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> ReceiverMethodResult
 )({
   // Collect EVERY candidate whose trial passes (not just the first) so the
   // comptime-priority rule below can run — filter to type-matching
@@ -2682,7 +2682,7 @@ _try_expand_call_overload :: (
     call_expr : &AstExpr,
     args : &ArrayList(AstExpr),
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> unit
 )({
@@ -6757,7 +6757,7 @@ _evaluate_funcval_runtime_call :: (
     func_expr : &AstExpr,
     env : &Environment,
     fresh_env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     ret_type : &TypeValue,
     callee_func_type_opt : &Option(TypeValue),
     cv : &EvalValue,
@@ -8190,7 +8190,7 @@ _evaluate_function_call_trapped :: (
     env : &Environment,
     given_type : &TypeValue,
     given_value : &Option(EvalValue),
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     out : &mut ArrayList(AstExpr)
   ) -> Option(AnyError)
 )({
@@ -8323,7 +8323,7 @@ evaluate_function_call :: (
     env : &Environment,
     given_type : &TypeValue,
     given_value : &Option(EvalValue),
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
@@ -8751,7 +8751,7 @@ _evaluate_function_call_unanchored :: (
     env : &Environment,
     given_type : &TypeValue,
     given_value : &Option(EvalValue),
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> AstExpr
 )({

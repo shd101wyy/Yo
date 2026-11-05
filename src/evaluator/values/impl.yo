@@ -4325,7 +4325,7 @@ _c3_eval_colon_pair :: (
     current_trait_ty : &Option(TypeValue),
     st : &ImplInFlight,
     field_opt : &Option(ImplPendingField),
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> unit
 )({
@@ -4750,7 +4750,7 @@ _c2_register_member :: (
 /// source order, binds the bare label in the impl env, registers the member
 /// provisionally.
 _c2_eval_direct_field :: (
-  fn(pf : &ImplPendingField, st : &ImplInFlight, ctx : &EvalContext, exn : Exception) -> unit
+  fn(pf : &ImplPendingField, st : &ImplInFlight, ctx : &mut EvalContext, exn : Exception) -> unit
 )({
   mf_colon_args := match(
     pf.colon_expr,
@@ -4809,7 +4809,7 @@ _c2_eval_direct_field :: (
 /// (`Trait(name : fn_def, ...)`), with the trait's expected field type (Self
 /// substituted to the receiver pattern) and the entry's working bindings.
 _c2_eval_inner_field :: (
-  fn(pf : &ImplPendingField, st : &ImplInFlight, ctx : &EvalContext, exn : Exception) -> unit
+  fn(pf : &ImplPendingField, st : &ImplInFlight, ctx : &mut EvalContext, exn : Exception) -> unit
 )({
   g_colon_args := match(
     pf.colon_expr,
@@ -4881,7 +4881,7 @@ _c2_eval_inner_field :: (
 /// `try_to_implement_function_by_function_type` publishes the phase-A FuncVal
 /// a re-entrant sibling reference binds.
 _run_impl_field :: (
-  fn(pf : &ImplPendingField, st : &ImplInFlight, ctx : &EvalContext, exn : Exception) -> unit
+  fn(pf : &ImplPendingField, st : &ImplInFlight, ctx : &mut EvalContext, exn : Exception) -> unit
 )({
   push_forcing_def(&pf.def);
   pf.state = ImplFieldState.Forcing;
@@ -4922,7 +4922,7 @@ _force_field_eval :: (fn(pf : &ImplPendingField, st : &ImplInFlight) -> unit)({
       }
     )
   );
-  _run_impl_field(pf, st, &st.ctx, inner_exn);
+  _run_impl_field(pf, st, &mut st.ctx, inner_exn);
   ()
 });
 /// env.yo's lookup-miss hook (plans/reference/LAZY_TOPLEVEL_BINDINGS.md P3): a method
@@ -5150,7 +5150,7 @@ evaluate_module_value :: (
   fn(
     expr : &AstExpr,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> AstExpr
 )({

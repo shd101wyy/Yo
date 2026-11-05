@@ -328,7 +328,7 @@ try_populate_expr_info_table :: (
   _r := evaluate_anonymous_module_begin_exprs(
     exprs,
     &env,
-    &ctx,
+    &mut ctx,
     false,
     false,
     true,
@@ -8937,7 +8937,7 @@ run_compile :: (
     // decision 28's value-root rule rejects once it lands with V2b.
     info_table := ctx.expr_info_table.clone();
     (c_spilled_bytes : usize) = usize(0);
-    c_parts := compile_module(&module_value, &mut info_table, &target, allocator.clone(), heap_size, debug_heap, debug_parallelism, debug_async_await, is_library_build, &ctx, &env, exn, &mut chunk_parts, emit_chunks, chunk_auto_cap, chunk_by_module, code_spill_path.clone(), line_directives, line_c_name.clone(), line_chunk_base.clone(), &mut c_spilled_bytes);
+    c_parts := compile_module(&module_value, &mut info_table, &target, allocator.clone(), heap_size, debug_heap, debug_parallelism, debug_async_await, is_library_build, &mut ctx, &env, exn, &mut chunk_parts, emit_chunks, chunk_auto_cap, chunk_by_module, code_spill_path.clone(), line_directives, line_c_name.clone(), line_chunk_base.clone(), &mut c_spilled_bytes);
     ctx.expr_info_table = info_table;
     // Whether the code spilled is the emitter's own count, never the state of
     // the path: a file that is missing or holds other bytes is a lost part of

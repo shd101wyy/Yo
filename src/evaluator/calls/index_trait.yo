@@ -117,7 +117,7 @@ _try_ctfe_range_ctor :: (
     fn_ty : &TypeValue,
     fn_val : &EvalValue,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     out : &mut ArrayList(TypeValue)
   ) -> unit
 )({
@@ -162,7 +162,7 @@ _try_ctfe_range_ctor :: (
 /// The constructor call is run under a swallowing local exn — a resolve
 /// failure yields `.None`.
 _resolve_prelude_range_type :: (
-  fn(name : &String, env : &Environment, ctx : &EvalContext) -> Option(TypeValue)
+  fn(name : &String, env : &Environment, ctx : &mut EvalContext) -> Option(TypeValue)
 )({
   vars := get_variables_from_env(env, name.clone());
   out := ArrayList(TypeValue).new();
@@ -212,7 +212,7 @@ _ctor_ids_agree :: (fn(a : &TypeValue, b : &TypeValue) -> bool)({
 (g_range_ty_cache : RefCell(ArrayList(TypeValue))) = RefCell(ArrayList(TypeValue)).new(ArrayList(TypeValue).new());
 (g_range_incl_ty_cache : RefCell(ArrayList(TypeValue))) = RefCell(ArrayList(TypeValue)).new(ArrayList(TypeValue).new());
 _cached_range_type :: (
-  fn(inclusive : bool, env : &Environment, ctx : &EvalContext) -> Option(TypeValue)
+  fn(inclusive : bool, env : &Environment, ctx : &mut EvalContext) -> Option(TypeValue)
 )(
   match(
     if(inclusive, g_range_incl_ty_cache.with(xs => xs.get_cloned(usize(0))), g_range_ty_cache.with(xs => xs.get_cloned(usize(0)))),
@@ -245,7 +245,7 @@ _cached_range_type :: (
 /// single-character branch — one swallowed error that hollowed all 49 tests
 /// in tests/index.test.yo.
 _check_range_type :: (
-  fn(arg_type : &TypeValue, env : &Environment, ctx : &EvalContext) -> _RangeCheck
+  fn(arg_type : &TypeValue, env : &Environment, ctx : &mut EvalContext) -> _RangeCheck
 )({
   if(!is_struct_type(arg_type.clone()), {
     return(_RangeCheck(is_range : false, is_inclusive : false));
@@ -713,7 +713,7 @@ _try_comptime_array_index :: (
     array_val : &Option(EvalValue),
     value_type : &TypeValue,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> Option(IndexCallResult)
 )({
@@ -940,7 +940,7 @@ _try_comptime_string_index :: (
     arg_expr : &AstExpr,
     str_value : &String,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> IndexCallResult
 )({
@@ -1107,7 +1107,7 @@ _locals_moved_inside :: (fn(e : &AstExpr, env : &Environment) -> ArrayList(_Move
 /// is saved/cleared/restored at the CALL SITE, not here — a restore line after
 /// the call below would be skipped on the throw path and leak `None`.
 _specialize_index_method :: (
-  fn(mv : &Option(EvalValue), mty : &TypeValue, expr : &AstExpr, caller_env : &Environment, ctx : &EvalContext, idx_expr : &AstExpr, out : &mut ArrayList(EvalValue)) -> unit
+  fn(mv : &Option(EvalValue), mty : &TypeValue, expr : &AstExpr, caller_env : &Environment, ctx : &mut EvalContext, idx_expr : &AstExpr, out : &mut ArrayList(EvalValue)) -> unit
 )({
   // The swallowed throw unwinds out of the trial below, past the restores
   // of the function-body context the specialization installed, and a later
@@ -1191,7 +1191,7 @@ _specialize_index_method :: (
   );
 });
 _specialize_index_method_trial :: (
-  fn(mv : &Option(EvalValue), mty : &TypeValue, expr : &AstExpr, caller_env : &Environment, ctx : &EvalContext, idx_expr : &AstExpr, out : &mut ArrayList(EvalValue)) -> unit
+  fn(mv : &Option(EvalValue), mty : &TypeValue, expr : &AstExpr, caller_env : &Environment, ctx : &mut EvalContext, idx_expr : &AstExpr, out : &mut ArrayList(EvalValue)) -> unit
 )({
   recv := match(expr, .FnCall(_, func, _, _, _) => func, .Atom(_, _) => expr);
   margs := ArrayList(AstExpr).new();
@@ -1347,7 +1347,7 @@ _try_comptime_custom_type_index :: (
     self_value : &EvalValue,
     value_type : &TypeValue,
     caller_env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> Option(IndexCallResult)
 )({
@@ -1599,7 +1599,7 @@ try_to_call_with_index_trait :: (
     self_value : &Option(EvalValue),
     arg_exprs : &ArrayList(AstExpr),
     caller_env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> IndexCallResult
 )({
@@ -1863,7 +1863,7 @@ _record_index_unchecked_twin :: (
     output_ty : &TypeValue,
     expr : &AstExpr,
     caller_env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     idx_expr : &AstExpr,
     /// The twin's trait and method: `IndexUnchecked.index_unchecked` for a
     /// read, `IndexUncheckedMut.index_unchecked_mut` for a write through
@@ -1978,7 +1978,7 @@ _is_index_call :: (fn(e : &AstExpr, ctx : &EvalContext) -> bool)(
 /// Re-dispatch one element access `call` (already dispatched as a read) to
 /// its receiver's `index_mut`, when the read went through a projection
 /// `index`. See `promote_index_places_for_write`.
-_promote_index_call :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
+_promote_index_call :: (fn(call : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> unit)({
   info := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(call)), .Some(i) => i, .None => return(()));
   read_ty := match(expr_info_index_method_type(&info), .Some(t) => t, .None => return(()));
   (recv : AstExpr) = match(call, .FnCall(_, pc_callee, _, _, _) => pc_callee, .Atom(_, _) => return(()));
@@ -2065,7 +2065,7 @@ _promote_index_call :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalConte
 /// a type with no `index_mut` has read-only elements. The pre-V2b method
 /// (`self : &mut Self -> *Self.Output`) serves reads and writes alike and
 /// stays as dispatched.
-promote_index_places_for_write :: (fn(place : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
+promote_index_places_for_write :: (fn(place : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> unit)({
   (cur : AstExpr) = place;
   (walking : bool) = true;
   while(walking, {

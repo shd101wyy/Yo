@@ -604,7 +604,7 @@ _evaluate_assert_ghost_args :: (
   fn(
     expr : &AstExpr,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
@@ -635,7 +635,7 @@ _evaluate_exists_or_call :: (
   fn(
     expr : &AstExpr,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> AstExpr
 )(
@@ -650,7 +650,7 @@ _origin_reference_position_message :: (fn(e : &AstExpr) -> String)(
   `\`${ast_expr_to_string(e)}\` is not a reference type: the two-argument form \`&mut(T, o)\` takes a type and an origin (decision 43, plans/backlog/REFERENCES_AND_ORIGINS.md O1). \`&mut x\` alone lends one place.`
 );
 /// The first argument of a two-argument `&(A, B)` is a type (a soft trial).
-_origin_reference_operand_is_type :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext) -> bool)(
+_origin_reference_operand_is_type :: (fn(e : &AstExpr, env : &Environment, ctx : &mut EvalContext) -> bool)(
   match(
     e,
     .FnCall(_, _, Rc(oa_args), _, _) => match(oa_args.get(usize(0)), .Some(a0) => _borrow_operand_is_type(&a0, env, ctx), .None => false),
@@ -660,7 +660,7 @@ _origin_reference_operand_is_type :: (fn(e : &AstExpr, env : &Environment, ctx :
 /// `&T` / `&mut T` whose operand is a TYPE: decision 42's "a borrow mode,
 /// not a type" (Generation A). The operand is trial-evaluated; the caller
 /// throws either way.
-_borrow_operand_is_type :: (fn(operand : &AstExpr, env : &Environment, ctx : &EvalContext) -> bool)({
+_borrow_operand_is_type :: (fn(operand : &AstExpr, env : &Environment, ctx : &mut EvalContext) -> bool)({
   trial_exn := Exception(throw : (_err -> unwind(false)));
   ev := _evaluate_expression(operand, env, ctx, trial_exn);
   match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ev)), .Some(ti) => is_type_value(&ti.value), .None => false)
@@ -669,7 +669,7 @@ _evaluate_expression :: (
   fn(
     expr : &AstExpr,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
@@ -1531,7 +1531,7 @@ _evaluate_expression_wrapper :: (
   fn(
     expr : &AstExpr,
     env : &Environment,
-    ctx : &EvalContext
+    ctx : &mut EvalContext
   ) -> AstExpr
 )({
   exn := Exception(
@@ -1679,7 +1679,7 @@ _evaluate_expression_raw_wrapper :: (
   fn(
     expr : &AstExpr,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> AstExpr
 )({

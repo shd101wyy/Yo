@@ -1376,7 +1376,7 @@ consume_argument_for_parameter :: (
     param_is_ref : bool,
     callee_is_extern : bool,
     caller_env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception,
     /// `argument_is_aliased_by_inout`: the argument is a whole variable that
     /// the same call also passes `inout`.
@@ -1706,7 +1706,7 @@ check_if_function_parameter_matches_argument :: (
     arg_expr_raw : &AstExpr,
     callee_env : &Environment,
     caller_env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     runtime_arg_exprs_in_order : &mut ArrayList(AstExpr),
     exn : Exception,
     /// The parameter's `= <value>` ASSIGNED value, or `.None`. Appended last
@@ -3196,7 +3196,7 @@ create_specialized_function_inline :: (
     arg_values : &ArgValues,
     callee_env : &Environment,
     caller_env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> EvalValue
 )({
@@ -5762,7 +5762,7 @@ _create_specialization_trapped :: (
     av : &ArgValues,
     callee_env : &Environment,
     caller_env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     out : &mut ArrayList(EvalValue)
   ) -> Option(AnyError)
 )({
@@ -5835,7 +5835,7 @@ create_specialization_at_call :: (
     call_tok : &Token,
     callee_name : &String,
     names : &ArrayList(String),
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> EvalValue
 )({
@@ -5903,7 +5903,7 @@ evaluate_ctl_function_body_inline :: (
     func_type : &TypeValue,
     callee_env : &Environment,
     caller_env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> EvalValue
 )({
@@ -6414,7 +6414,7 @@ reapply_where_clause_exprs_for_call :: (
   fn(
     func_id : &String,
     callee_env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> unit
 )({
@@ -7234,7 +7234,7 @@ try_to_call_function_with_arguments :: (
     callee_expr : &AstExpr,
     arg_exprs : &ArrayList(AstExpr),
     caller_env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     is_method_call : bool,
     skip_specialization : bool,
     skip_ctfe_execution : bool,
@@ -8558,7 +8558,7 @@ try_to_call_function_with_arguments :: (
                 io_async_param_direct,
                 &cloned_de,
                 &callee_env_m,
-                &de_env,
+                &mut de_env,
                 ctx,
                 &mut rt_args,
                 exn

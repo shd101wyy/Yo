@@ -107,7 +107,7 @@ pragma(Pragma.AllowUnsafe);
 /// measure is the `decreases(M1, M2, ...)` call itself (see the signature
 /// parser): each component is evaluated for its ExprInfo and the call node
 /// is kept, so the verifier reads the components back.
-_evaluated_measure_for_verify :: (fn(dm : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> AstExpr)(
+_evaluated_measure_for_verify :: (fn(dm : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr)(
   cond(
     ast_expr_is_fn_call_of(dm, BF_DECREASES, Option(usize).None) => {
       match(
@@ -168,7 +168,7 @@ _pred_eval_failed :: (fn() -> bool)(g_pred_eval_failed);
 /// An unwind also skips `evaluated_for_verify`'s own restore of
 /// `ctx.is_ghost_context`, so this fn restores it on both paths.
 _soft_evaluated_for_verify :: (
-  fn(p : &AstExpr, env : &Environment, ctx : &EvalContext) -> Option(AstExpr)
+  fn(p : &AstExpr, env : &Environment, ctx : &mut EvalContext) -> Option(AstExpr)
 )({
   _reset_pred_eval_failed();
   saved_ghost := ctx.is_ghost_context;
@@ -177,7 +177,7 @@ _soft_evaluated_for_verify :: (
   out
 });
 _soft_evaluated_for_verify_inner :: (
-  fn(p : &AstExpr, env : &Environment, ctx : &EvalContext) -> Option(AstExpr)
+  fn(p : &AstExpr, env : &Environment, ctx : &mut EvalContext) -> Option(AstExpr)
 )({
   soft_exn := Exception(
     throw : (
@@ -341,7 +341,7 @@ generic_trial_independent_error :: (fn(fv_was : bool) -> Option(YoError))({
 // the helpers live in context.yo (module-walk cell + binding-name scan),
 // shared with the anonymous-closure trial in values/anonymous_function.yo.
 _trial_eval_fn_body :: (
-  fn(body : &AstExpr, env : &Environment, ctx : &EvalContext, out : &mut ArrayList(AstExpr)) -> unit
+  fn(body : &AstExpr, env : &Environment, ctx : &mut EvalContext, out : &mut ArrayList(AstExpr)) -> unit
 )({
   // Reset the flow-violation flag so a stale flag from an earlier (propagated,
   // non-def-time) throw can't be mistaken for a violation in THIS body.
@@ -508,7 +508,7 @@ _ctor_binder_some_ids :: (
 });
 /// Record a type constructor's PHANTOM positions from its definition-time
 /// `prepare_callsite_contracts` over each evaluated contract clause.
-_stash_clause_callsite_contracts :: (fn(clauses : &ArrayList(AstExpr), env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
+_stash_clause_callsite_contracts :: (fn(clauses : &ArrayList(AstExpr), env : &Environment, ctx : &mut EvalContext, exn : Exception) -> unit)({
   (i : usize) = usize(0);
   while(i < clauses.len(), {
     match(clauses.get(i), .Some(c) => prepare_callsite_contracts(&c, env, ctx, exn), .None => ());
@@ -1151,7 +1151,7 @@ _rerun_pending_def_evals :: (fn(caller_env : &Environment, ctx : &EvalContext) -
         rp_out := ArrayList(AstExpr).new();
         rp_prev_trial := set_in_def_time_trial(true);
         rp_depths := forcing_depths();
-        _trial_eval_fn_body(pd.body.clone(), &rp_env, &rp_ctx, &mut rp_out);
+        _trial_eval_fn_body(pd.body.clone(), &rp_env, &mut rp_ctx, &mut rp_out);
         truncate_forcing_depths(rp_depths);
         ___rp_tr := set_in_def_time_trial(rp_prev_trial);
         // Every forward declaration this body saw is filled now?
@@ -1212,7 +1212,7 @@ register_rerun_pending_def_evals :: (fn() -> unit)({
   set_evaluate_fn_body_fn(_evaluate_as_fn_body);
 });
 /// `call_evaluate_fn_body`'s implementation (evaluator/context.yo).
-_evaluate_as_fn_body :: (fn(body : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> AstExpr)(
+_evaluate_as_fn_body :: (fn(body : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr)(
   evaluate_begin_expression(body, env, ctx, ArrayList(Variable).new(), true, exn)
 );
 /// Register a function body expression against a function type, producing a
@@ -1236,7 +1236,7 @@ try_to_implement_function_by_function_type :: (
     expr : &AstExpr,
     function_type : &TypeValue,
     caller_env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> AstExpr
 )(
@@ -1961,7 +1961,7 @@ Result type: ${type_to_string(&result_box)}`
           // closure-arg ExprInfo under the wip synthesis loosenings).
           flow_binders := if(is_type_hierarchy_type(&result_box), _ctor_binder_some_ids(&flow_env, &forall_labels.items, &param_labels.items), ArrayList(String).new());
           flow_depths := forcing_depths();
-          _trial_eval_fn_body(&fb, &flow_env, &flow_ctx, &mut flow_out);
+          _trial_eval_fn_body(&fb, &flow_env, &mut flow_ctx, &mut flow_out);
           truncate_forcing_depths(flow_depths);
           pop_active_where_trait_ids();
           if(flow_binders.len() > usize(0), {
@@ -2428,7 +2428,7 @@ Result type: ${type_to_string(&result_box)}`
             // body's nodes, which codegen reads for an `io.async` closure in
             // it (`R` lowered to `void*`, tests/async_generic_future_return).
             dg_binders := if(is_type_hierarchy_type(&result_box), _ctor_binder_some_ids(&dg_env, &forall_labels.items, &param_labels.items), ArrayList(String).new());
-            _trial_eval_fn_body(if(dg_check_result, body_expr.clone(), clone_expr_fresh_ids(&body_expr)), &dg_env, &dg_ctx, &mut dg_out);
+            _trial_eval_fn_body(if(dg_check_result, body_expr.clone(), clone_expr_fresh_ids(&body_expr)), &dg_env, &mut dg_ctx, &mut dg_out);
             truncate_forcing_depths(dg_depths);
             if(dg_binders.len() > usize(0), {
               _record_ctor_phantom_positions(fn_val_id.clone(), &dg_binders, &dg_out, ctx);
