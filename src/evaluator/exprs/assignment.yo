@@ -44,7 +44,8 @@ pragma(Pragma.AllowUnsafe);
   env_adopt,
   UndoneMove,
   variable_record_undone_move,
-  variable_has_undone_move
+  variable_has_undone_move,
+  make_variable
 } :: import("../../env.yo");
 { Token } :: import("../../token.yo");
 { EvalContext, ExpectedTypeCtx, CaptureUsage, track_variable_usage, call_rerun_pending_def_evals, fn_ctx_returns_comptime } :: import("../context.yo");
@@ -250,7 +251,7 @@ make_variable_with_value :: (
     new_value : &Option(EvalValue)
   ) -> Variable
 )(
-  Variable(
+  make_variable(
     id : v.id,
     name : v.name.clone(),
     ty : Rc.clone(v.ty()),
@@ -2579,7 +2580,7 @@ comptime(${variable_name}) : ${dgc_ty_str}
     );
   });
   // Update the variable in the environment.
-  new_variable := Variable(
+  new_variable := make_variable(
     id : updated_variable.id,
     name : updated_variable.name.clone(),
     // A labeled tuple declaration keeps its DECLARED type when a positional

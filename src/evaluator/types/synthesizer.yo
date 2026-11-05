@@ -27,7 +27,8 @@ pragma(Pragma.AllowUnsafe);
   synthetic_token,
   variable_set_bound_some_id,
   variable_bound_some_id,
-  env_adopt
+  env_adopt,
+  make_variable
 } :: import("../../env.yo");
 { Token } :: import("../../token.yo");
 { eprintln } :: import("std/fmt");
@@ -360,7 +361,7 @@ _bind_some_type :: (
       });
       // In-place update keeps the EXISTING variable's declared type — only
       // the value is replaced.
-      new_var := Variable(
+      new_var := make_variable(
         id : old_var.id,
         name : old_var.name.clone(),
         ty : Rc.clone(old_var.ty()),
