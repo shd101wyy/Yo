@@ -717,7 +717,7 @@ comptime_expect_error({
   _pass_ref_by_value :: (fn(r : &String) -> usize)(_take_owned_string(r));
   s := String.from("a");
   _pass_ref_by_value(&s);
-}, "where it would be copied (a by-value parameter, a `:=` binding, a return) `String` is move-only, so read through `r` there");
+}, "Where it would be copied — a by-value parameter, a `:=` binding, a return — `String` is move-only, so pass `r` itself to a `&String` parameter, read through it (`r.field`, `r.method()`), or copy it explicitly with `r.*.clone()`. `yo fix --migrate deref` inserts the `.*` at the reads and lists the copies.");
 comptime_expect_error({
   _bind_ref_whole :: (fn(r : &String) -> usize)({
     x := r;
@@ -725,7 +725,11 @@ comptime_expect_error({
   });
   s := String.from("a");
   _bind_ref_whole(&s);
-}, "write `r.*` where the value is only read (an operand such as `r.* == other`)");
+}, "write `r.*` where the value is only read in place (an operand such as `r.* == other`).");
+comptime_expect_error(
+  (fn(r : &String) -> String)(r.*),
+  "pass `r` itself to a `&String` parameter or read through it where the value is used (`r.field`, `r.method()`), or copy it explicitly with `r.*.clone()`"
+);
 comptime_expect_error({
   _compare_refs_bare :: (fn(r : &String, o : &String) -> bool)(r == o);
   s := String.from("a");
