@@ -1435,7 +1435,7 @@ set_walk_context_retained :: (fn(path : &String, keep : bool) -> unit)({
     canon_loop := canon.clone();
     while(wopt.is_some(), {
       match(
-        wopt,
+        &wopt,
         .Some(w) => if(canonical_module_path(&w.module_path) == &canon_loop, {
           w.clear_ctx();
         }),
@@ -1490,7 +1490,7 @@ finished_walk_has_context :: (fn(path : &String) -> Option(bool))({
   wopt := walk_values.next();
   while(wopt.is_some(), {
     match(
-      wopt,
+      &wopt,
       .Some(w) => if(canonical_module_path(&w.module_path) == &canon, {
         return(Option(bool).Some(w.has_ctx()));
       }),
@@ -1509,7 +1509,7 @@ finished_walk_expr_info_count :: (fn(path : &String) -> Option(usize))({
   wopt := walk_values.next();
   while(wopt.is_some(), {
     match(
-      wopt,
+      &wopt,
       .Some(w) => if(canonical_module_path(&w.module_path) == &canon, {
         return(w.ctx.with(c => match(c, .Some(wc) => Option(usize).Some(wc.expr_info_table.data.with(m => m.len())), .None => Option(usize).None)));
       }),
