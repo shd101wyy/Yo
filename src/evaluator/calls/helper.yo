@@ -76,7 +76,9 @@ pragma(Pragma.AllowUnsafe);
   variable_bound_some_id,
   variable_set_bound_some_id,
   mark_closure_param_slot_trait,
-  variable_value_type
+  variable_value_type,
+  variable_set_is_imm_borrow,
+  variable_set_is_value_rebind
 } :: import("../../env.yo");
 // dup-on-store / move for owned fn-call args. utils.yo
 // imports nothing from calls/, so this is acyclic.
@@ -787,7 +789,7 @@ _mark_value_rebind :: (fn(v : &Option(Variable), func_type : &TypeValue, i : usi
   match(
     v,
     .Some(rv) => if(fn_param_is_by_value(func_type, i), {
-      rv.is_value_rebind = true;
+      variable_set_is_value_rebind(&rv, true);
     }),
     .None => ()
   )
@@ -5349,7 +5351,7 @@ create_specialized_function_inline :: (
                                         // A `&T` parameter: a borrow
                                         // decision 33's markers pass bare.
                                         if(!fn_param_is_mut_ref(&cw_cur, cw_pvi) && !fn_param_is_by_value(&cw_cur, cw_pvi), {
-                                          cwp_var.is_imm_borrow = true;
+                                          variable_set_is_imm_borrow(&cwp_var, true);
                                         });
                                       },
                                       .None => ()

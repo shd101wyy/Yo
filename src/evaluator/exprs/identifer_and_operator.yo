@@ -20,10 +20,11 @@
   record_deref_clean_site
 } :: import("../../expr_info.yo");
 { Token, string_is_operator } :: import("../../token.yo");
-{ Environment, Variable, get_variables_from_env, env_candidate_names, find_variable_in_env, find_variable_in_env_at, variable_move_note, variable_value_type } :: import("../../env.yo");
+{ Environment, Variable, get_variables_from_env, env_candidate_names, find_variable_in_env, find_variable_in_env_at, variable_move_note, variable_value_type, variable_slot_type } :: import("../../env.yo");
 { EvalContext, FuncOrAsyncBlockKind, CaptureUsage, track_variable_usage, track_variable_usage_resolved, resolve_pending_definition, adopt_resolved_definition, is_unlabeled_ensures_atom }
 :: import("../context.yo");
-{ TypeValue, t_origin_kind } :: import("../../types/definitions.yo");
+{ TypeValue, t_origin_kind, t_slot_is_mut_ref } :: import("../../types/definitions.yo");
+{ type_to_string } :: import("../../types/string.yo");
 { t_str, t_unit, t_bool, t_void, t_never, t_i8, t_i16, t_i32, t_i64, t_u8, t_u16, t_u32, t_u64, t_f32, t_f64, t_usize, t_isize, t_comptime_int, t_comptime_float, t_comptime_string, t_type, t_type_1, t_expr_t, t_c_char, t_c_short, t_c_ushort, t_c_int, t_c_uint, t_c_long, t_c_ulong, t_c_longlong, t_c_ulonglong, t_c_longdouble } :: import("../../types/creators.yo");
 { is_some_type, is_function_type } :: import("../../types/guards.yo");
 { type_key } :: import("../../types/type_key.yo");
@@ -35,7 +36,9 @@
 { suggest_name, lookup_std_exporters, Span, E_VARIABLE_NOT_FOUND } :: import("../../diagnostics.yo");
 { Exception } :: import("std/error");
 { debug_knob, is_temp_variable_name } :: import("../../utils.yo");
-{ use_of_moved_value_error, migrate_borrowed_match_at, check_capture_freeze_access, local_borrow_take_receiver, local_borrows_active, local_borrow_access, local_borrow_place_of_variable, LocalBorrowAccess, deref_exempt_take, is_reference_deref_site, variable_is_reference_binding, deref_rule_applies, reject_reference_without_deref } :: import("../utils.yo");
+{ use_of_moved_value_error, migrate_borrowed_match_at, check_capture_freeze_access, local_borrow_take_receiver, local_borrows_active, local_borrow_access, local_borrow_place_of_variable, LocalBorrowAccess, deref_exempt_take, is_reference_deref_site, variable_is_reference_binding, deref_rule_applies, reject_reference_without_deref, variable_is_mut_borrow } :: import("../utils.yo");
+(g_audit_reference_read : bool) = debug_knob(`YO_AUDIT_REFERENCE_READ`).is_some();
+(g_audit_reference_mode : bool) = debug_knob(`YO_AUDIT_VARIABLE_TY`).is_some();
 { raise_flow_violation } :: import("../../types/flowability.yo");
 /// Evaluate an identifier or operator expression.
 ///
@@ -486,6 +489,36 @@ evaluate_identifier_and_operator :: (
   // through the cell, not here, so `x := 1; x = 2;` stays "unread" and the
   // scope-end walk warns — the variable's value never influenced anything.
   variable.was_read = true;
+  // `YO_AUDIT_REFERENCE_READ=1` (decision 43 step 2 N1e-2b, VERDICTS-23 R1):
+  // every runtime read of a reference binding, by what its position expects
+  // — a reference slot, an unbound type binder, a binder bound to a
+  // reference, a concrete type, or nothing — so the read rule's reach is
+  // counted before it lands.
+  if(g_audit_reference_read && variable_is_reference_binding(&variable), {
+    rr_kind := match(
+      &ctx.expected_type,
+      .Some(rr_et) => cond(
+        match(&rr_et.ty, Rc(.Reference(_, _, _)) => true, _ => false) => "reference",
+        is_some_type(&rr_et.ty) => {
+          rr_b := get_value_of_some_type_from_env(&rr_et.env, &rr_et.ty);
+          cond(
+            is_some_type(&rr_b) => "binder-unbound",
+            match(&rr_b, Rc(.Reference(_, _, _)) => true, _ => false) => "binder-reference",
+            true => "binder-concrete"
+          )
+        },
+        true => "concrete"
+      ),
+      .None => "none"
+    );
+    eprintln(`[ref-read] ${token.module_path.*}:${(token.row + u32(1)).to_string()}:${(token.column + u32(1)).to_string()} ${variable.name} ${rr_kind} exempt=${deref_is_exempt}`);
+  });
+  // `YO_AUDIT_VARIABLE_TY=1`: a read reference binding's stored mode is the
+  // mode the access checks give it (`variable_is_mut_borrow`, which reads a
+  // local borrow's `LocalBorrowInfo`; a `&` match's binding is read-only).
+  if(g_audit_reference_mode && variable_is_reference_binding(&variable) && (t_slot_is_mut_ref(&variable_slot_type(&variable)) != (variable_is_mut_borrow(&variable) && !variable.is_borrow_match_binding)), {
+    eprintln(`[variable-ty] mode mismatch: ${token.module_path.*}:${(token.row + u32(1)).to_string()}:${(token.column + u32(1)).to_string()} ${variable.name} stored ${type_to_string(&variable_slot_type(&variable))}`);
+  });
   // Decision 43 step 2 N1e-1 (VERDICTS-13 §11): outside std and the compiler
   // tree a reference binding read as a whole value is spelled `r.*` (E0926);
   // the receiver, reference-slot and re-point positions marked it exempt.

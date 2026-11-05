@@ -55,7 +55,7 @@ pragma(Pragma.AllowUnsafe);
   scope_release_note_binding,
   ExprInfo
 } :: import("../../expr_info.yo");
-{ Environment, Variable, pop_env_frame, snapshot_env, env_adopt, variable_value_type } :: import("../../env.yo");
+{ Environment, Variable, pop_env_frame, snapshot_env, env_adopt, variable_value_type, variable_set_is_ref, variable_set_is_imm_borrow, variable_set_is_borrow_match_binding, variable_set_reference_mut } :: import("../../env.yo");
 { Token, TokenKind, intern_token_str } :: import("../../token.yo");
 { add_variable_to_env, get_variables_from_env, find_variable_in_env, variable_set_inout_borrow_root_id, variable_mark_inout_borrow_root, mark_macro_pattern_binding } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx, fn_ctx_returns_comptime, call_is_index_place } :: import("../context.yo");
@@ -1661,8 +1661,8 @@ evaluate_match :: (
             .Some(rp_is_mut) => match(
               _added,
               .Some(rp_var) => {
-                rp_var.is_ref = true;
-                rp_var.is_imm_borrow = !rp_is_mut;
+                variable_set_is_ref(&rp_var, true);
+                variable_set_is_imm_borrow(&rp_var, !rp_is_mut);
                 // A writable reference binding is the reassignable `is_ref`
                 // one (`r := &mut x`); a `&` one is not (a write through it
                 // is E0908).
@@ -1718,9 +1718,12 @@ evaluate_match :: (
               // reference payload's binding is already a reference binding
               // (`is_ref` above), holding the payload's own pointer.
               .Some(bm_var) => if(ref_payload.is_none(), {
-                bm_var.is_borrow_match_binding = true;
+                variable_set_is_borrow_match_binding(&bm_var, true);
                 if(!is_unit_type(&bind_ty), {
-                  bm_var.is_ref = true;
+                  variable_set_is_ref(&bm_var, true);
+                  // `is_ref` says the binding is a pointer; a `&` match
+                  // lends read-only.
+                  variable_set_reference_mut(&bm_var, false);
                   any_ref_binder = true;
                 });
               }),
@@ -1805,7 +1808,7 @@ evaluate_match :: (
                   // A `mut` place: the binding aliases the part, so reads and
                   // writes go through it (the guard reads it; it becomes
                   // writable for the body).
-                  av.is_ref = true;
+                  variable_set_is_ref(&av, true);
                   place_vars.push(av);
                   any_place_binder = true;
                 });

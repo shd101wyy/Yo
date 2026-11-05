@@ -66,7 +66,9 @@ pragma(Pragma.AllowUnsafe);
   set_find_methods_from_generic_impls_fn,
   set_force_in_flight_field_fn,
   capture_env_for,
-  variable_value_type
+  variable_value_type,
+  variable_set_is_ref,
+  variable_set_is_imm_borrow
 } :: import("../../env.yo");
 {
   MethodEntry,
@@ -6466,19 +6468,19 @@ evaluate_module_value :: (
                               .Some(d_pvar) => {
                                 d_pvar.is_parameter = true;
                                 if(match(d_p_is_ref.get(d_pi), .Some(b) => b, .None => false), {
-                                  d_pvar.is_ref = true;
+                                  variable_set_is_ref(&d_pvar, true);
                                   d_pvar.is_reassignable = true;
                                 });
                                 // A projection's `&T` parameter is passed by
                                 // pointer (`fn_param_is_ptr_borrow`).
                                 if(fn_param_is_ptr_borrow(&d_sub_ty, d_pi), {
-                                  d_pvar.is_ref = true;
+                                  variable_set_is_ref(&d_pvar, true);
                                 });
                                 // A `&T` parameter: a borrow decision 33's
                                 // markers pass bare.
                                 d_by_value := match(match(&d_sub_ty, Rc(.Func({ result : _ })) => fn_param_by_value_at(&d_sub_ty, d_pi), _ => Option(bool).None), .Some(b) => b, .None => false);
                                 if(!match(d_p_is_ref.get(d_pi), .Some(b) => b, .None => false) && !d_by_value, {
-                                  d_pvar.is_imm_borrow = true;
+                                  variable_set_is_imm_borrow(&d_pvar, true);
                                 });
                                 // A by-value parameter OWNS its argument, as
                                 // `bind_parameter` binds it: a default whose

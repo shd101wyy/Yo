@@ -40,7 +40,8 @@ pragma(Pragma.AllowUnsafe);
 {
   Environment,
   add_variable_to_env,
-  synthetic_token
+  synthetic_token,
+  variable_set_is_ref
 } :: import("../../env.yo");
 { TypeValue, TypeValueNode, FuncMeta, no_types, no_labels, no_flags, shared_list, t_slot, slot_pointee_at, fn_param_mut_ref_flags } :: import("../../types/definitions.yo");
 { t_unit, t_with_resolution } :: import("../../types/creators.yo");
@@ -178,7 +179,7 @@ try_to_implement_closure_by_fn_module_type :: (
       match(
         p_var_opt,
         .Some(p_var) => {
-          p_var.is_ref = true;
+          variable_set_is_ref(&p_var, true);
           // is_reassignable mirrors is_ref — see the
           // anonymous_function.yo stamping.
           p_var.is_reassignable = true;

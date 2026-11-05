@@ -49,7 +49,7 @@
 } :: import("../../expr.yo");
 { ExprInfo, ExprInfoTable, new_expr_info, expr_info_table_get, expr_info_table_set }
 :: import("../../expr_info.yo");
-{ snapshot_env, Environment, add_variable_to_env } :: import("../../env.yo");
+{ snapshot_env, Environment, add_variable_to_env, variable_set_is_ref, variable_set_is_imm_borrow } :: import("../../env.yo");
 { EvalContext, note_unlabeled_ensures_atom, is_module_ghost_fn_def } :: import("../context.yo");
 { EvalValue, create_unknown_val } :: import("../../value.yo");
 { TypeValue, TypeValueNode, t_refine_inner, slot_pointee_at, t_slot_pointee, t_slot_is_borrow, t_slot_is_mut_ref } :: import("../../types/definitions.yo");
@@ -2134,9 +2134,9 @@ _stash_callsite_contracts :: (
         (__pv, _callee_param_slot(&get_func_type(&fid), &__pn)),
         (.Some(__pvv), .Some(__ps)) => if(t_slot_is_borrow(&__ps), {
           if(t_slot_is_mut_ref(&__ps), {
-            __pvv.is_ref = true;
+            variable_set_is_ref(&__pvv, true);
           }, {
-            __pvv.is_imm_borrow = true;
+            variable_set_is_imm_borrow(&__pvv, true);
           });
         }),
         _ => ()
