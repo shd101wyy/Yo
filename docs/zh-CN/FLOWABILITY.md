@@ -54,12 +54,13 @@ copy := n.*; // 拷贝被引用的值
 
 **重新指向借用**用来遍历链式结构（决策 25）：`cur = &mut place` /
 `cur = &place` 把 `cur` 移到一个从它可达的位置 —— `cur` 目标的字段，
-或对 `cur` 做 `match` 得到的绑定中进入引用单元的字段。由右侧的符号决定：
+或对 `cur` 直接做 `match` 得到的绑定的字段（该绑定就是 `cur` 目标中的一个
+位置；途经的 `Box` 会被穿过）。由右侧的符号决定：
 不带符号的 `cur = v` 经由借用把 `v` 写入被借出的位置，如下例最后一行：
 
 ```yo
 append :: (fn(list : &mut List, v : i32) -> unit)({
-  cur := &mut list.head; // Option(Rc(Node))
+  cur := &mut list.head; // Option(Box(Node))
   while(cur.is_some(), {
     match(
       cur,
@@ -69,14 +70,17 @@ append :: (fn(list : &mut List, v : i32) -> unit)({
       .None => ()
     );
   });
-  cur.* = .Some(Rc.new(Node(value : v, next : .None))); // 写入尾部槽位
+  cur.* = .Some(Box.new(Node(value : v, next : .None))); // 写入尾部槽位
 });
 ```
 
-兄弟根、模块级位置或调用结果都会被拒绝。声明时的位置（`list.head`）在
+兄弟根、模块级位置、调用结果，或按值 `match(cur.*, …)` 的绑定（载荷的副本）
+都会被拒绝。声明时的位置（`list.head`）在
 `cur` 的整个存活范围内保持冻结；当派生自 `cur` 当前目标的借用仍存活时，
-重新指向是 E0911。每一步进入一个单元时都会钉住它，并释放上一步钉住的单元，
-因此即使别的句柄丢弃了某个节点，遍历也是内存安全的。
+重新指向是 E0911。穿过 `Box` 的一步没有开销。每一步进入一个单元时（对
+`Option(Rc(Node))` 的 `&` 遍历；`Rc` 的载荷是只读的，所以 `&mut` 遍历需要
+`Box`）都会钉住它，并释放上一步钉住的单元，因此即使别的句柄丢弃了某个节点，
+遍历也是内存安全的。
 
 **函数只能以投影的形式返回借用**（`-> &T` / `-> &mut T`，决策 24）：函数体
 产出一个用结果符号书写的位置（`&self.a`、`&mut self.rows(i)`），其根是函数自己

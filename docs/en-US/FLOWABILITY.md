@@ -66,14 +66,15 @@ memory.
 
 **Re-pointing a borrow** walks a linked structure (decision 25):
 `cur = &mut place` / `cur = &place` moves `cur` to a place reached from
-it — a field of `cur`'s target, or a field of a `match` binding over `cur`
-that enters a reference cell. The sigil on the right decides: a bare
+it — a field of `cur`'s target, or a field of a binding of a bare `match`
+over `cur` (the binding is a place in `cur`'s target; a `Box` on the way is
+stepped through). The sigil on the right decides: a bare
 `cur = v` writes `v` through the borrow into the lent place, as the last
 line below does:
 
 ```yo
 append :: (fn(list : &mut List, v : i32) -> unit)({
-  cur := &mut list.head; // Option(Rc(Node))
+  cur := &mut list.head; // Option(Box(Node))
   while(cur.is_some(), {
     match(
       cur,
@@ -83,15 +84,18 @@ append :: (fn(list : &mut List, v : i32) -> unit)({
       .None => ()
     );
   });
-  cur.* = .Some(Rc.new(Node(value : v, next : .None))); // writes the tail slot
+  cur.* = .Some(Box.new(Node(value : v, next : .None))); // writes the tail slot
 });
 ```
 
-A sibling root, a module-level place or a call result is rejected. The
+A sibling root, a module-level place, a call result or a binding of a
+by-value `match(cur.*, …)` (a copy of the payload) is rejected. The
 declared place (`list.head`) stays frozen for `cur`'s whole live range, and a
 re-point is E0911 while a borrow derived from `cur`'s current target is
-live. Each step into a cell pins it and releases the cell the previous step
-pinned, so the walk is memory-safe even when another handle drops a node.
+live. A `Box` step costs nothing. Each step into a cell (`&` walks over
+`Option(Rc(Node))`; an `Rc`'s payload is read-only, so a `&mut` walk needs
+`Box`) pins it and releases the cell the previous step pinned, so the walk is
+memory-safe even when another handle drops a node.
 
 **A function returns a borrow only as a projection** (`-> &T` / `-> &mut T`,
 decision 24): its body yields a place spelled with the result's sigil

@@ -800,11 +800,13 @@ _bind_projection_result :: (
 /// to `place` (plans/VALUES_BY_DEFAULT.md decision 25, the cursor walk).
 ///
 /// `place` must be reached from `cur`: a field chain rooted at `cur` itself,
-/// or one rooted at a `match` binding over `cur` that enters a reference
-/// cell (a `match` binding is a copy of the matched value until decision 26's
-/// place bindings, so only a cell it points to is shared with `cur`'s
-/// target). Anything else is rejected: a sibling root, a module-level place,
-/// a call or index (a projection could yield any place the callee reaches).
+/// or one rooted at a binding of a bare `match` over `cur`. Such a binding
+/// is a place binding, a reference into `cur`'s target (VERDICTS-13 §14), so
+/// the chain may step through a unique `Box` (a value step) or a reference
+/// cell; a by-value `match(cur.*, …)` copies or moves the payload, so its
+/// binding reaches `cur`'s target only through a cell (VERDICTS-24).
+/// Anything else is rejected: a sibling root, a module-level place, a call
+/// or index (a projection could yield any place the callee reaches).
 /// The step through a cell pins it in the binding's step pin, releasing the
 /// cell the previous step pinned (decision 25, "Through an `Rc`"). The
 /// declared place stays frozen for `cur`'s whole live range, and a `match`
@@ -874,7 +876,7 @@ evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx
   _evaluated_name := evaluate_expression_raw(&name_expr, &env, ctx, exn);
   deref_exempt_clear();
   // The new target: a field chain rooted at a variable.
-  not_reached := `A re-point must name a place reached from \`${name}\`: a field of \`${name}\`'s target (\`${name} = ${sig}${name}.next\`), or a field of a \`match\` binding over \`${name}\` that enters a reference cell (\`match(${name}, .Some(n) => { ${name} = ${sig}n.next; }, .None => ())\`).`;
+  not_reached := `A re-point must name a place reached from \`${name}\`: a field of \`${name}\`'s target (\`${name} = ${sig}${name}.next\`), or a field of a binding of a bare \`match\` over \`${name}\` (\`match(${name}, .Some(n) => { ${name} = ${sig}n.next; }, .None => ())\`).`;
   hops := ArrayList(_InoutPlaceHop).new();
   root_atom := match(
     _inout_place_chain(&rhs, &mut hops),
@@ -970,13 +972,17 @@ evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx
       )
     );
   });
-  if(via_pattern && !place.through_cell, {
+  // A binding of a bare `match` over `cur` is a reference into `cur`'s
+  // target (VERDICTS-13 §14), so every place below it is reached; a binding
+  // of a by-value `match` is a copy, which reaches `cur`'s target only
+  // through a cell it points to (VERDICTS-24).
+  if(via_pattern && !(place.through_cell || variable_is_reference_binding(&root_var)), {
     exn.throw(
       dyn(
         format_error_message_with_help(
           ast_expr_token(&rhs),
-          `Cannot re-point \`${name}\` to \`${local_borrow_place_text(&rhs)}\`: \`${root_var.name}\` is a \`match\` binding over \`${name}\`, and a \`match\` binding holds a copy of the matched value, so this place would die with the arm. Only a reference cell the binding points to is shared with \`${name}\`'s target.`,
-          Option(String).Some(`re-point through a cell (\`${root_var.name}.next\` where \`${root_var.name}\` is an \`Rc\` or \`ref\` object), or through \`${name}\` itself (\`${name} = ${sig}${name}.next\`). Binding the matched place itself comes with \`&mut\` scrutinees (decision 26).`)
+          `Cannot re-point \`${name}\` to \`${local_borrow_place_text(&rhs)}\`: \`${root_var.name}\` is a binding of a by-value \`match\`, and a by-value \`match\` copies or moves the payload, so this place would die with the arm.`,
+          Option(String).Some(`match \`${name}\` bare to bind its place (\`match(${name}, .Some(${root_var.name}) => { ${name} = ${sig}${root_var.name}.next; }, .None => ())\`)`)
         )
       )
     );
@@ -1031,9 +1037,12 @@ evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx
     .None => ()
   );
   // A `match` binding the re-point went through stays frozen while `cur` is
-  // live; a step through a cell is what rule 4 keys on.
+  // live; a step through a cell is what rule 4 keys on. Below a cell the
+  // place is the cell's holder; without one it is a place inside the
+  // binding's referent, and the binding is frozen whole, as Rust's reborrow
+  // of `n` for `cur` freezes `n` (VERDICTS-24).
   if(via_pattern, {
-    info.places.push(place.clone());
+    info.places.push(if(place.through_cell, place.clone(), local_borrow_place_of_variable(&root_var)));
   });
   if(place.through_cell, {
     info.crosses_cell = true;
