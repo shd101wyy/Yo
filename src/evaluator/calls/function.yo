@@ -11691,14 +11691,11 @@ Fix: wrap the call:
             // N1e-2b, VERDICTS-23 R1): a by-value parameter typed by a bare
             // type binder (`v : T`) — a reference read there is the
             // reference, and binds `T := &U` (`reference_read_wanted`).
-            if(
-              !match(fv_param_ct.get(ai), .Some(c) => c, .None => false)
-              && match(fv_param_is_owning.get(ai), .Some(o) => o, .None => false)
-              && match(slot_pointee_at(&resolved_param_types, ai), .Some(br_pt) => (is_some_type(&br_pt) && extract_fn_trait_from_type(&br_pt).is_none()), .None => false),
-              {
-                binder_read_mark(&arg_expr_eff);
-              }
-            );
+            if(!match(fv_param_ct.get(ai), .Some(c) => c, .None => false)
+            && match(fv_param_is_owning.get(ai), .Some(o) => o, .None => false)
+            && match(slot_pointee_at(&resolved_param_types, ai), .Some(br_pt) => (is_some_type(&br_pt) && extract_fn_trait_from_type(&br_pt).is_none()), .None => false), {
+              binder_read_mark(&arg_expr_eff);
+            });
             evaled_arg := if(
               fv_takes_origin,
               evaluate_origin_argument(&arg_expr_eff, &arg_eval_env, ctx, exn),

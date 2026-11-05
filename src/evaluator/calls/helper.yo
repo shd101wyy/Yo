@@ -936,11 +936,15 @@ _check_reference_argument :: (fn(written_arg : &AstExpr, place_arg : &AstExpr, b
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(place_arg)),
     // A read typed as the reference itself (the read rule, decision 43
     // step 2 N1e-2b) is no whole-value read.
-    .Some(ai) => if(t_slot_is_borrow(&ai.ty), return(()), match(
-      ai.source_variable,
-      .Some(v) => if(variable_is_reference_binding(&v), v, return(())),
-      .None => return(())
-    )),
+    .Some(ai) => if(
+      t_slot_is_borrow(&ai.ty),
+      return(()),
+      match(
+        ai.source_variable,
+        .Some(v) => if(variable_is_reference_binding(&v), v, return(())),
+        .None => return(())
+      )
+    ),
     .None => return(())
   );
   tok := ast_expr_token(place_arg);
@@ -9283,13 +9287,19 @@ try_to_call_function_with_arguments :: (
             (synth_ret_opts : Option(SynthesizeOptions)) = Option(SynthesizeOptions).Some(
               SynthesizeOptions(token : Option(Token).Some(ast_expr_token(expr)), expected_is_source : true)
             );
+            // A projection call at a reference position IS the reference it
+            // returns (the read rule, decision 43 step 2 N1e-2b): its
+            // pointee return type is synthesized against the expected
+            // reference's pointee (`.Some(xs.index(i))` into
+            // `Option(&(T, p))`).
+            st10_expected := if(fn_result_is_ref(&func_type) && t_slot_is_borrow(&et.ty), t_slot_pointee(&et.ty), Rc.clone(et.ty));
             synth_ret := cond(
               st10_skip => Option(SynthesizeResult).None,
               true => Option(SynthesizeResult).Some(
                 synthesize_types(
                   &return_type,
                   &callee_env_m,
-                  &et.ty,
+                  &st10_expected,
                   &et.env,
                   &mut checked_ret,
                   &synth_ret_opts,

@@ -88,9 +88,11 @@ rr_raises :: (fn(x : &i32, raise : RrRaise) -> unit)({
   assert(false, "the handler unwinds");
 });
 rr_unwinds :: (fn(x : &i32) -> unit)({
-  (raise : RrRaise) = (() -> {
-    unwind(());
-  });
+  (raise : RrRaise) = (
+    () -> {
+      unwind(());
+    }
+  );
   rr_raises(x, raise);
 });
 test("A holder of a reference with a Drop impl drops at statement end, scope end and unwind", {
