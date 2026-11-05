@@ -1393,24 +1393,24 @@ emit_module_level_variable_declarations :: (
 `
                   );
                   if(mg_is_tl, {
-                    em.emit_declaration_string_line(
+                    context.base.emitter.emit_declaration_string_line(
                       `extern ${tl_storage}bool ${c_var_name}__tl_init;`
                     );
-                    em.emit_declaration_string_line(`${c_type_str}* ${c_var_name}__tl_get(void);`);
-                    cgb.chunk_globals.push_string(
+                    context.base.emitter.emit_declaration_string_line(`${c_type_str}* ${c_var_name}__tl_get(void);`);
+                    context.base.chunk_globals.push_string(
                       `${tl_storage}bool ${c_var_name}__tl_init = false;
 `
                     );
                   });
                 }, {
-                  em.emit_declaration_string_line(
+                  context.base.emitter.emit_declaration_string_line(
                     `static ${tl_storage}${c_type_str} ${c_var_name}; // module-level mutable variable`
                   );
                   if(mg_is_tl, {
-                    em.emit_declaration_string_line(
+                    context.base.emitter.emit_declaration_string_line(
                       `static ${tl_storage}bool ${c_var_name}__tl_init = false;`
                     );
-                    em.emit_declaration_string_line(`static ${c_type_str}* ${c_var_name}__tl_get(void);`);
+                    context.base.emitter.emit_declaration_string_line(`static ${c_type_str}* ${c_var_name}__tl_get(void);`);
                   });
                 });
               });
@@ -1635,7 +1635,7 @@ generate_main_wrapper :: (fn(context : &mut FunctionGenerationContext, module_va
     saved_consumed := replace(&mut context.consumed_var_pending_drops, Option(ArrayList(AstExpr)).None);
     context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(ArrayList(AstExpr).new());
     context.consumed_var_pending_drops = Option(ArrayList(AstExpr)).Some(ArrayList(AstExpr).new());
-    em.emit_string(
+    context.base.emitter.emit_string(
       String.from("\n// Module-level mutable variable initialization (runs first).\nstatic void __yo_main_module_init(void) {\n")
     );
     // Under `--allocator debug` every module global is a root of the exit
@@ -1647,7 +1647,7 @@ generate_main_wrapper :: (fn(context : &mut FunctionGenerationContext, module_va
         match(
           module_vars.get_cloned(rti),
           .Some(rv) => if(!rv.is_thread_local, {
-            em.emit_string_line(`  __yo_debug_alloc_root(&${rv.c_var_name}, sizeof(${rv.c_var_name}));`);
+            context.base.emitter.emit_string_line(`  __yo_debug_alloc_root(&${rv.c_var_name}, sizeof(${rv.c_var_name}));`);
           }),
           .None => ()
         );
@@ -1660,7 +1660,7 @@ generate_main_wrapper :: (fn(context : &mut FunctionGenerationContext, module_va
         module_vars.get_cloned(mvi),
         .Some(mv) => if(!mv.is_thread_local, {
           rhs_code := _call_generate_expr(&mv.rhs, String.from("  "), context);
-          em.emit_string_line(`  ${mv.c_var_name} = ${rhs_code};`);
+          context.base.emitter.emit_string_line(`  ${mv.c_var_name} = ${rhs_code};`);
           // The statement's scope-end flush. In a function body the enclosing
           // begin's epilogue releases an initializer's INTERMEDIATE temps (a
           // String literal materialized to lend `&s` to a call in the
@@ -1678,7 +1678,7 @@ generate_main_wrapper :: (fn(context : &mut FunctionGenerationContext, module_va
       );
       mvi = (mvi + usize(1));
     });
-    em.emit_string_line(String.from("}"));
+    context.base.emitter.emit_string_line(String.from("}"));
     context.pending_deferred_drops = saved_pending;
     context.consumed_var_pending_drops = saved_consumed;
   });
@@ -1725,7 +1725,7 @@ ${dbg_init}  __yo_argc = (int32_t)argc;
   return 0;
 }
 `;
-    em.emit_string(&block);
+    context.base.emitter.emit_string(&block);
   }, {
     init_call := if(has_module_vars, String.from("  __yo_main_module_init();\n  if (__yo_effect_escaped) return 0;\n"), String.new());
     // WINDOWS gets the same configurable worker stack the POSIX arm uses.
@@ -1809,7 +1809,7 @@ ${dbg_init}  __yo_argc = (int32_t)argc;
   return 0;
 }
 `;
-      em.emit_string(&block);
+      context.base.emitter.emit_string(&block);
     }, {
       // --debug-heap leak oracle (plans/reference/FIXED_REGION_ALLOCATOR.md
       // §2.4): the hosted arms register the reporter with atexit at
@@ -1833,7 +1833,7 @@ ${init_call}  // Call sync main
 ${abort_report}${belt_block}${dbg_mark}${heap_report_call}  return 0;
 }
 `;
-      em.emit_string(&block);
+      context.base.emitter.emit_string(&block);
     });
   });
 });

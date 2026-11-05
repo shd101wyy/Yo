@@ -273,7 +273,7 @@ static void __yo_task_abort_take_unwind(void* fut) {
 }
 `
   );
-  em.emit_declaration_string_line(
+  context.base.emitter.emit_declaration_string_line(
     `// The task's last reference is gone: nobody can observe the abort any more.
 static void __yo_task_abort_released(void* fut) {
   if (__yo_task_aborts.len != 0 && __yo_task_abort_take(fut)) {
@@ -564,10 +564,10 @@ static inline void __yo_rc_forget_payload(void* ptr) {
   );
   if(context.base.chunk_mode, {
     context.base.chunk_header_ranges.push(
-      ChunkRange(c_name : String.from("__rc_primitives_lightweight"), start_b : rc_lw_start, end_b : em.code.len(), module : String.new())
+      ChunkRange(c_name : String.from("__rc_primitives_lightweight"), start_b : rc_lw_start, end_b : context.base.emitter.code.len(), module : String.new())
     );
   });
-  em.emit_string_line(
+  context.base.emitter.emit_string_line(
     `
 // Atomic reference counting functions for atomic ref objects (Arc; thread-safe)
 // Memory ordering follows the standard Arc pattern (Rust, Swift, C++ shared_ptr):
@@ -642,15 +642,15 @@ static inline void* __yo_dyn_clone(void* data, const void* vtable) {
   );
   // Effect unwind flag and value buffer (always needed).
   if(context.base.chunk_mode, {
-    em.emit_declaration_line("extern _Thread_local int __yo_effect_escaped;  // Thread-local flag for effect record unwind detection");
+    context.base.emitter.emit_declaration_line("extern _Thread_local int __yo_effect_escaped;  // Thread-local flag for effect record unwind detection");
     context.base.chunk_globals.push_string(String.from("_Thread_local int __yo_effect_escaped = 0;\n"));
   }, {
-    em.emit_declaration_line("static _Thread_local int __yo_effect_escaped = 0;  // Thread-local flag for effect record unwind detection");
+    context.base.emitter.emit_declaration_line("static _Thread_local int __yo_effect_escaped = 0;  // Thread-local flag for effect record unwind detection");
   });
   emit_unwind_value_buffer(context);
   emit_task_abort_registry(context);
   // A worker thread's exit: free its async runtime pools.
-  em.emit_string_line(`static void __yo_cleanup_thread(void) { if (__yo_async_thread_exit_hook) __yo_async_thread_exit_hook(); }`);
+  context.base.emitter.emit_string_line(`static void __yo_cleanup_thread(void) { if (__yo_async_thread_exit_hook) __yo_async_thread_exit_hook(); }`);
 });
 // ---------------------------------------------------------------------------
 // generate_atomic_gc_runtime_functions
