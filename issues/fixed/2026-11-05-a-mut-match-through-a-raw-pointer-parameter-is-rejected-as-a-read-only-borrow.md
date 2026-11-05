@@ -69,3 +69,12 @@ error[E0910]: This argument lends `&mut` `p`, which an earlier argument of the s
 ## Recommendation
 
 Stop the root walk at a `.*` whose operand is a raw pointer (a `*(T)`), and do not apply the read-only check past it. Unsafe code that dereferences the pointer already owns the aliasing obligation. Add the reproducer above as a test expecting `1`, and add the `&`-parameter case (`p : &T`, `match(&mut p.*.xs, …)`), which must stay E0908.
+
+## Fix
+
+A place reached through a raw-pointer dereference is not part of the pointer binding's storage. The helper `deref_operand_is_raw_pointer` (`src/evaluator/utils.yo`) reads this from the evaluated operand's type: `operand.*` dereferences a `*T`. Both checks use it:
+
+- **`&mut` match** (`src/evaluator/exprs/match.yo`): `_scrutinee_crosses_raw_pointer` walks the scrutinee's `.` chain. When a step is a raw-pointer `.*`, `_decide_match_mode` returns `MATCH_MODE_MUT` without the read-only-root check, and the arm bindings get no `inout` borrow root, because they borrow nothing of `p`. A `&` reference stays read-only: `p : &T` with `match(&mut p.*.xs, …)` is still E0908, since `p.*` reads the referent, not a pointer.
+- **Argument exclusivity** (`_lent_place_of`, `src/evaluator/calls/function.yo`): a raw-pointer `.*` step stays in the path as `*` instead of clearing it. `p.*.a` and `p.*.b` are therefore disjoint, as `s.a` and `s.b` are. The same field lent twice (`f(&mut p.*.b, &mut p.*.b)`) still overlaps (E0910), and so do the pointer and anything behind it. `_ArgPlace` (`_arg_places`) already kept `*` as a path step.
+
+Tests: `tests/unsafe.test.yo`. "a &mut match and disjoint &mut arguments through a raw pointer" covers this doc's two reproducers and prints the pushed length. Two `comptime_expect_error` canaries cover the `&` reference (E0908) and the same field lent twice (E0910). On the v0.2.74 seed the first reproducer fails with E0908 and the second with E0910; with this branch both compile, and the first prints `1`.

@@ -74,7 +74,7 @@ pragma(Pragma.AllowUnsafe);
 { stable_module_id, stable_func_id, private_member_blocked, debug_knob, parse_raw_int, is_temp_variable_name } :: import("../../utils.yo");
 { type_key } :: import("../../types/type_key.yo");
 { record_await_fusion_candidate } :: import("../../expr_traversal.yo");
-{ attach_temp_variable_to_expr, projection_call_mode_of, deref_exempt_mark, deref_exempt_clear, consume_called_fnonce_closure, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, reject_second_class_escape, reject_write_through_rc, place_cell_hops, PlaceCellHops, handle_payload_is_read_only, require_capture_borrow_exclusivity, local_borrows_active, local_borrow_value_place_of, local_borrow_places_overlap, LocalBorrowPlace, CellRootedPlace, cell_rooted_place_of, cell_rooted_same_cell, cell_rooted_places_overlap, local_borrow_note_runtime_call, local_borrow_enter_macro_site, local_borrow_leave_macro_site, local_borrow_is_macro_await, local_borrow_is_scalar_type, variable_is_borrow_parameter, variable_id_in_scope, reject_bare_callable_into_dyn_fn, bare_callable_recorded_into_dyn_fn, global_lend_audit_enabled, global_lend_audit_print, global_lend_location, global_lend_key, global_place_path, GlobalHandleLend, global_note_handle_mutcall, global_note_handle_lend, global_require_mut, variable_is_future_operand_parameter, place_require_mut, local_borrow_write_expr, check_capture_freeze_access, reference_field_read_mode, RC_CLONE_MIGRATE_HINT } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, projection_call_mode_of, deref_exempt_mark, deref_exempt_clear, consume_called_fnonce_closure, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, reject_second_class_escape, reject_write_through_rc, place_cell_hops, PlaceCellHops, handle_payload_is_read_only, require_capture_borrow_exclusivity, local_borrows_active, local_borrow_value_place_of, local_borrow_places_overlap, LocalBorrowPlace, CellRootedPlace, cell_rooted_place_of, cell_rooted_same_cell, cell_rooted_places_overlap, local_borrow_note_runtime_call, local_borrow_enter_macro_site, local_borrow_leave_macro_site, local_borrow_is_macro_await, local_borrow_is_scalar_type, variable_is_borrow_parameter, variable_id_in_scope, reject_bare_callable_into_dyn_fn, bare_callable_recorded_into_dyn_fn, global_lend_audit_enabled, global_lend_audit_print, global_lend_location, global_lend_key, global_place_path, GlobalHandleLend, global_note_handle_mutcall, global_note_handle_lend, global_require_mut, variable_is_future_operand_parameter, place_require_mut, local_borrow_write_expr, check_capture_freeze_access, reference_field_read_mode, deref_operand_is_raw_pointer, RC_CLONE_MIGRATE_HINT } :: import("../utils.yo");
 {
   EvalContext,
   ExpectedTypeCtx,
@@ -3772,7 +3772,7 @@ _future_call_lends_into :: (
     if(_borrows_root_named(leaf_bs, &self_label), {
       recv := match(leaf_callee, .FnCall(_, _, Rc(d_args), _, _) => match(d_args.get(usize(0)), .Some(r) => r, .None => make_err_expr()), .Atom(_, _) => make_err_expr());
       match(
-        _lent_place_of(&recv),
+        _lent_place_of(&recv, ctx),
         .Some(rp) => out.push(_FutureLend(place : rp, is_mut : _borrows_root_named_mut(leaf_bs, &self_label), via : via.clone())),
         .None => ()
       );
@@ -3786,7 +3786,7 @@ _future_call_lends_into :: (
       match(
         _lent_argument_place(&lent),
         .Some(place) => match(
-          _lent_place_of(&place),
+          _lent_place_of(&place, ctx),
           .Some(lp) => out.push(_FutureLend(place : lp, is_mut : (ast_expr_is_fn_call_of(&lent, "&mut", .Some(usize(1))) || _borrows_root_named_mut(leaf_bs, &label)), via : via.clone())),
           .None => ()
         ),
@@ -3825,7 +3825,7 @@ _check_future_operand_lends :: (fn(op_callee : &AstExpr, op_args : &ArrayList(As
       match(
         _lent_argument_place(&lent),
         .Some(place) => match(
-          _lent_place_of(&place),
+          _lent_place_of(&place, ctx),
           .Some(lp) => arg_lends.push(_FutureLend(place : lp, is_mut : ast_expr_is_fn_call_of(&lent, "&mut", .Some(usize(1))), via : lent.clone())),
           .None => ()
         ),
@@ -3945,7 +3945,7 @@ _check_future_call_global_lends :: (fn(op_callee : &AstExpr, op_args : &ArrayLis
 /// The E0909 for a place lent to a borrowing future whose root binding is a
 /// `mut(G)` module-level (or `thread_local(mut(x))`) runtime binding.
 _reject_global_lend_to_future :: (fn(place : &AstExpr, ctx : &EvalContext, exn : Exception) -> unit)({
-  lp := match(_lent_place_of(place), .Some(p) => p, .None => return(()));
+  lp := match(_lent_place_of(place, ctx), .Some(p) => p, .None => return(()));
   gv := match(_lent_root_variable(&lp.root, ctx), .Some(v) => v, .None => return(()));
   if(!gv.is_module_level || (gv.is_compile_time_only || !is_mut_global(&gv.token.module_path.*, &gv.name)), {
     return(());
@@ -3967,7 +3967,7 @@ _reject_global_lend_to_future :: (fn(place : &AstExpr, ctx : &EvalContext, exn :
 /// the root binding and the field steps from it. A dereference, an index or a
 /// computed member ends the steps, since it overlaps its whole receiver.
 _LentPlace :: struct(root : AstExpr, path : ArrayList(String));
-_lent_place_of :: (fn(e : &AstExpr) -> Option(_LentPlace))({
+_lent_place_of :: (fn(e : &AstExpr, ctx : &EvalContext) -> Option(_LentPlace))({
   rev := ArrayList(String).new();
   (cur : AstExpr) = e;
   while(!ast_expr_is_atom(&cur), {
@@ -3983,12 +3983,21 @@ _lent_place_of :: (fn(e : &AstExpr) -> Option(_LentPlace))({
       cur,
       .FnCall(_, callee, Rc(c_args), _, _) => if(ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))), {
         fld := match(c_args.get(usize(1)), .Some(f) => f, .None => return(Option(_LentPlace).None));
-        if(ast_expr_is_atom(&fld) && !ast_expr_is_atom_of(&fld, "*"), {
-          rev.push(ast_expr_token(&fld).value.*.clone());
-        }, {
-          rev.clear();
-        });
         cur = match(c_args.get(usize(0)), .Some(r) => r, .None => return(Option(_LentPlace).None));
+        cond(
+          (ast_expr_is_atom(&fld) && !ast_expr_is_atom_of(&fld, "*")) => {
+            rev.push(ast_expr_token(&fld).value.*.clone());
+          },
+          // Behind a raw pointer the steps go on as a separate path under
+          // `*`: `p.*.a` and `p.*.b` are disjoint, as `s.a` and `s.b` are
+          // (issues/fixed/2026-11-05-a-mut-match-through-a-raw-pointer-parameter-is-rejected-as-a-read-only-borrow.md).
+          (ast_expr_is_atom_of(&fld, "*") && deref_operand_is_raw_pointer(&cur, ctx)) => {
+            rev.push(String.from("*"));
+          },
+          true => {
+            rev.clear();
+          }
+        );
       }, {
         // An index `xs(i)`: the element overlaps the whole receiver.
         rev.clear();
@@ -4041,7 +4050,7 @@ _lent_places_overlap :: (fn(a : &_LentPlace, b : &_LentPlace, ctx : &EvalContext
 });
 /// `target` names a place overlapping `lent`.
 _lent_place_touched :: (fn(target : &AstExpr, lent : &_LentPlace, ctx : &EvalContext) -> bool)(
-  match(_lent_place_of(target), .Some(tp) => _lent_places_overlap(&tp, lent, ctx), .None => false)
+  match(_lent_place_of(target, ctx), .Some(tp) => _lent_places_overlap(&tp, lent, ctx), .None => false)
 );
 /// The first access in `e` that writes or lends `&mut` a place overlapping
 /// `lent`: an assignment to it, a `&mut` of it, or a call of a `&mut self`
@@ -4101,7 +4110,7 @@ _reject_lent_place_conflict :: (fn(at : &AstExpr, what : &String, lp : &_LentPla
 /// `place`, lent to the future (by the argument `lent_arg`), is not moved,
 /// overwritten or lent `&mut` by `args` from `from` on.
 _check_lent_place_untouched_after :: (fn(place : &AstExpr, lent_arg : &AstExpr, args : &ArrayList(AstExpr), from : usize, ctx : &EvalContext, exn : Exception) -> unit)(
-  match(_lent_place_of(place), .Some(lp) => _check_lent_place_struct_untouched_after(&lp, lent_arg, args, from, ctx, exn), .None => ())
+  match(_lent_place_of(place, ctx), .Some(lp) => _check_lent_place_struct_untouched_after(&lp, lent_arg, args, from, ctx, exn), .None => ())
 );
 /// `_check_lent_place_untouched_after` over a place already taken apart.
 _check_lent_place_struct_untouched_after :: (fn(lp : &_LentPlace, lent_arg : &AstExpr, args : &ArrayList(AstExpr), from : usize, ctx : &EvalContext, exn : Exception) -> unit)({
@@ -4466,7 +4475,7 @@ _bare_borrow_argument_lend :: (fn(arg : &AstExpr, slots : &SharedList(TypeValue)
   if(!t_slot_is_borrow(&slot) || !_is_unmarked_lent_place(arg, ctx), {
     return(Option(bool).None);
   });
-  lp := match(_lent_place_of(arg), .Some(p) => p, .None => return(Option(bool).None));
+  lp := match(_lent_place_of(arg, ctx), .Some(p) => p, .None => return(Option(bool).None));
   match(
     _lent_root_variable(&lp.root, ctx),
     .Some(rv) => if(rv.is_ref || rv.is_imm_borrow, Option(bool).Some(t_slot_is_mut_ref(&slot)), Option(bool).None),
@@ -4736,7 +4745,7 @@ _operator_operand_is_lent :: (fn(call : &AstExpr, ctx : &EvalContext) -> ArrayLi
 _check_call_lent_place :: (
   fn(place : &AstExpr, lent_arg : &AstExpr, args : &ArrayList(AstExpr), from : usize, moved_before : &ArrayList(String), env : &Environment, ctx : &EvalContext, exn : Exception) -> unit
 )({
-  lp := match(_lent_place_of(place), .Some(p) => p, .None => return(()));
+  lp := match(_lent_place_of(place, ctx), .Some(p) => p, .None => return(()));
   root_name := ast_expr_token(&lp.root).value.*.clone();
   (mi : usize) = usize(0);
   while(mi < moved_before.len(), mi = (mi + usize(1)), {
@@ -4807,7 +4816,7 @@ _lent_argument_place :: (fn(lent : &AstExpr) -> Option(AstExpr))(
 /// arguments are evaluated. Only `yo fix --migrate match-scrutinee` reads
 /// such a binding (it evaluates past a by-value `match` it is migrating to
 /// `match(&x, …)`); everywhere else `&x` of a moved binding is E0901.
-_lent_roots_moved_before :: (fn(call : &AstExpr, env : &Environment) -> ArrayList(String))({
+_lent_roots_moved_before :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalContext) -> ArrayList(String))({
   out := ArrayList(String).new();
   op_args := match(call, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => return(out));
   places := ArrayList(AstExpr).new();
@@ -4831,7 +4840,7 @@ _lent_roots_moved_before :: (fn(call : &AstExpr, env : &Environment) -> ArrayLis
     match(
       places.get(pi),
       .Some(p) => match(
-        _lent_place_of(&p),
+        _lent_place_of(&p, ctx),
         .Some(lp) => {
           name := ast_expr_token(&lp.root).value.*.clone();
           if(match(get_variables_from_env(env, &name).last(), .Some(v) => v.consumed_at_token.is_some(), .None => false), {
@@ -8329,7 +8338,7 @@ evaluate_function_call :: (
 )({
   call_tok := ast_expr_token(expr);
   call_mp := call_tok.module_path.*.clone();
-  moved_before := _lent_roots_moved_before(expr, env);
+  moved_before := _lent_roots_moved_before(expr, env, ctx);
   if(is_auto_generated_expansion(Option(String).Some(call_mp.clone())) || is_std_module_path(&call_mp, ctx.std_path.clone()), {
     std_r := _evaluate_function_call_unanchored(expr, env, given_type, given_value, ctx, exn);
     // The wall stands at the user's code: a std body specialized for a type

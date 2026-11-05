@@ -1016,6 +1016,19 @@ _is_deref_place :: (fn(e : &AstExpr) -> bool)(
     .Atom(_, _) => false
   )
 );
+/// `operand.*` dereferences a raw pointer (`p : *T`, a `*T` field): the place
+/// it reaches is not part of the storage of the binding `operand` is rooted
+/// at, so that binding's mutability and its other places say nothing about
+/// it. Unsafe code that dereferences a pointer owns the aliasing obligation
+/// (issues/fixed/2026-11-05-a-mut-match-through-a-raw-pointer-parameter-is-rejected-as-a-read-only-borrow.md).
+/// Read after `operand` is evaluated.
+deref_operand_is_raw_pointer :: (fn(operand : &AstExpr, ctx : &EvalContext) -> bool)(
+  match(
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ast_rewritten_node(operand))),
+    .Some(oi) => is_pointer_type(&t_refine_inner(&oi.ty)),
+    .None => false
+  )
+);
 /// "is move-only" or "is copied explicitly (`.clone()`)": the kind of a type
 /// that is not implicitly copyable, for a message.
 _explicit_copy_kind :: (fn(ty : &TypeValue) -> String)(
@@ -8362,6 +8375,7 @@ export(
   deref_reads_through_pointee,
   deref_payload_type,
   variable_is_reference_binding,
+  deref_operand_is_raw_pointer,
   deref_rule_applies,
   deref_rule_recording,
   reject_reference_without_deref,
