@@ -556,7 +556,7 @@ ${debug_async_define}
   );
   // Thread synchronization — target-specific types + macros.
   if(is_target_windows(&context.target_info), {
-    em.emit_declaration_string_line(
+    context.emitter.emit_declaration_string_line(
       `// Thread synchronization (Windows)
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -615,7 +615,7 @@ static inline bool __yo_cond_timedwait(__YO_COND_TYPE* c, __YO_THREAD_SYNC_TYPE*
     );
   }, {
     macos_includes := if(is_target_macos(&context.target_info), String.from("#include <sys/types.h>\n#include <sys/sysctl.h>"), String.from(""));
-    em.emit_declaration_string_line(
+    context.emitter.emit_declaration_string_line(
       `// Thread synchronization (POSIX)
 #include <pthread.h>
 #include <unistd.h>
@@ -720,7 +720,7 @@ static inline bool __yo_cond_timedwait(__YO_COND_TYPE* c, __YO_THREAD_SYNC_TYPE*
     );
   });
   // Thread handle type, atomic wrappers, mutex/cond constructors.
-  em.emit_declaration_string_line(
+  context.emitter.emit_declaration_string_line(
     `
 // Thread handle type for parallelism - value type, stack allocated
 typedef struct __yo_thread_t {
@@ -935,7 +935,7 @@ static __YO_COND_TYPE __yo_cond_create(void) {
 `
   );
   // Reference-counting header.
-  em.emit_declaration_string_line(
+  context.emitter.emit_declaration_string_line(
     `
 // Reference counting header
 // Uses type_id dispatch instead of function pointer for dispose (faster in WASM: br_table vs call_indirect)
@@ -964,7 +964,7 @@ typedef __yo_ref_header_t __yo_rc_prefix_t;`
   // in the 16 bytes before the owner: a 32-byte prefix, or `max(32, align)`
   // (lookahead D14). The owner stays in the 16 bytes before the object, where
   // version 1 keeps it, so `__yo_scope_of_object` reads one place.
-  em.emit_declaration_string_line(
+  context.emitter.emit_declaration_string_line(
     cond(
       context.alloc_abi_v2 => `
 #define __YO_RC_TAG 0x80000000u
@@ -1079,8 +1079,8 @@ static inline void* __yo_rc_alloc_in(__yo_alloc_scope_t s, size_t size) {
   // global one. There is no thread scope: a creation without an `alloc`
   // argument is global, and a cell constructor takes the allocator as its
   // first parameter (`__yo_rc_alloc_in`).
-  em.emit_declaration_line("typedef __yo_alloc_prefix_t __yo_alloc_scope_t;");
-  em.emit_declaration_string_line(
+  context.emitter.emit_declaration_line("typedef __yo_alloc_prefix_t __yo_alloc_scope_t;");
+  context.emitter.emit_declaration_string_line(
     `// 0, or the tag bit for a block \`__yo_rc_alloc_in\` placed in \`s\`.
 static inline uint32_t __yo_rc_tag_of(__yo_alloc_scope_t s) { return s.vtable ? __YO_RC_TAG : 0u; }
 // The allocator an RC object was placed by: its owner prefix, or the global one.
@@ -1115,14 +1115,14 @@ ${alloc_in_fn}`
   // Whether the program runs on `--allocator debug` (allocator_debug.yo), as
   // the program can read it (extern "Yo"): tests/debug_allocator.test.yo
   // checks the allocator's aborts only when they are armed.
-  em.emit_declaration_line(
+  context.emitter.emit_declaration_line(
     cond(
       (context.allocator == "debug") => "static inline bool __yo_debug_alloc_on(void) { return true; }",
       true => "static inline bool __yo_debug_alloc_on(void) { return false; }"
     )
   );
   // Generic Future + I/O Future struct types.
-  em.emit_declaration_string_line(
+  context.emitter.emit_declaration_string_line(
     `
 // The prefix EVERY future starts with: a state machine, a no-await
 // sync future, an I/O future, the erased \`Impl(Future)\` interface. The

@@ -183,7 +183,7 @@ static int __yo_dispose_dispatch(void* ptr) {
               },
               .None => line.push_str("(ptr); return 0;")
             );
-            em.emit_string_line(&line);
+            context.emitter.emit_string_line(&line);
           },
           .None => ()
         ),
@@ -191,13 +191,13 @@ static int __yo_dispose_dispatch(void* ptr) {
       );
       i = (i + usize(1));
     });
-    em.emit_string_line(
+    context.emitter.emit_string_line(
       `    default: return 0;
   }
 }`
     );
   }, {
-    em.emit_string_line(String.from("static int __yo_dispose_dispatch(void* ptr) { (void)ptr; return 0; }"));
+    context.emitter.emit_string_line(String.from("static int __yo_dispose_dispatch(void* ptr) { (void)ptr; return 0; }"));
   });
 });
 /// The per-type state-machine pools the async runtime declares
@@ -216,7 +216,7 @@ static inline void __yo_sm_pools_drain(void) { }`
     );
     return();
   });
-  em.emit_string_line(
+  context.emitter.emit_string_line(
     `static _Thread_local __yo_sm_pool_t __yo_sm_pools[${n.to_string()}];
 static inline void* __yo_sm_take(size_t pool, size_t size) {
 #if __YO_SM_POOLS
