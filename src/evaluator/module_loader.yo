@@ -76,7 +76,8 @@ register_loading :: (fn(path : &String, env : &Environment) -> unit)({
   g_loading_key_by_canonical.with_mut({ path_owned }(m) => m.insert(_canonical(&path_owned).*.clone(), path_owned.clone()));
   path_owned2 := path.clone();
   g_loading_keys.with_mut({ path_owned2 }(xs) => xs.push(path_owned2.clone()));
-  g_loading_envs.with_mut(xs => xs.push(env));
+  loading_env := Rc.clone(env);
+  g_loading_envs.with_mut({ loading_env }(xs) => xs.push(loading_env));
   _sync_registration_owner();
 });
 /// The loading key (`file://<abs>`, or the entry path as typed) under which
