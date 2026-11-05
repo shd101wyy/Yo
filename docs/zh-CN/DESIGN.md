@@ -720,7 +720,7 @@ bump :: (fn(x : &mut i32) -> unit)({
 
 **Origin**（决策 43 第 2 步的第一部分；[`plans/backlog/REFERENCES_AND_ORIGINS.md`](../../plans/backlog/REFERENCES_AND_ORIGINS.md) O1）。参数的引用可以写出它的 **origin**，即它可能指向的位置集合：`x : &(T, p)` 与 `x : &mut(T, p)`，其中 `p` 在签名的 `generic(...)` 子句中以种类 `Origin` 声明，就像类型参数以 `Type` 声明一样。多个已声明 origin 的并集写成元组：`&(T, (p, q))`。第二个参数按其种类解读，必须是 origin：那里出现类型是错误 E0922（Yo 把元组类型写作 `Tuple(A, B)`，所以指向元组的引用是 `&Tuple(A, B)`），未被任何 `generic(p : Origin)` 声明的名字或另一个参数的名字也是如此。origin 参数不是类型参数，所以只对 origin 抽象的函数不是泛型函数，只编译一次。投影的结果类型（决策 24）也可以写出 origin：`-> &(T, p)` 借自 origin 参数，`-> &(T, xs)` 借自引用参数 `xs`，`-> &(T, (p, xs))` 借自两者之一。按值参数的位置属于被调函数自己的栈帧，所以对 `v : T` 写 `-> &(T, v)` 是错误 E0912。结果的 origin 会被检查（N1c）。一次调用只冻结结果 origin 指名的那些实参：`pick` 返回 `-> &(T, a)` 时，`r := pick(&a, &b)` 之后只要 `r` 还活着，`b` 仍然可写；省略的结果 origin 指名每个引用参数，所以省略 origin 的调用发生冲突时，诊断会附带一条说明，指出是哪个参数以及能释放它的写法。函数体产出的位置必须从 origin 指名的参数出发到达：从另一个参数出发是错误 E0923，从局部绑定或按值参数出发是 E0912。impl 的结果 origin 必须包含在它的 trait 方法的结果 origin 之内（O7：更窄可以接受，更宽，或在 trait 写出 origin 时省略，是 E0923），`Dyn` 调用按 trait 的签名映射结果 origin。origin 不属于类型的身份：`fn(generic(p : Origin), v : &(i32, p)) -> i32` 与 `fn(v : &i32) -> i32` 是同一个函数类型，生成的 C 也相同；`-> &(T, xs)` 与 `-> &T` 亦然。闭包 trait 可以返回引用，`Fn(s : &T) -> &U`（它的 origin 按调用计算，即该次调用的引用实参，从不写出）：具名投影，或函数体产出从自身参数出发到达的 `&place` 的闭包字面量，可以填入这个槽位；产出它所捕获位置的闭包是错误 E0923。投影可以通过任何投影类型的值调用：`fn(...) -> &T` 类型的参数或字段、`Impl(Fn(...) -> &T)`、`Dyn(Fn(...) -> &T)`，以及效应操作 `ctl(...) -> &T`，其处理器以自身参数的位置恢复。引用的被指类型（`&mut &(T, p)`）、局部绑定的标注和闭包 trait 结果上的 origin 参数在后续部分中才能带 origin。`Origin` 与 `Type` 一样是保留的类型名。
 
-**引用类型**（决策 43 第 3 步的第一部分；[`plans/handover/D43_STEP3_N2_DESIGN.md`](../../plans/handover/D43_STEP3_N2_DESIGN.md)）。在槽位之外，`&T`、`&mut T`、`&(T, o)` 与 `&mut(T, o)` 表示引用类型：结构体或枚举的字段（`struct(at : &(i32, p), lo : usize)`）、类型实参（`Option(&i32)`、`ArrayList(&(i32, (x, y)))`）或别名（`R :: &i32`）。类型构造器用 `comptime(p) : Origin` 声明 origin 参数，并应用于一个按名字解读的 origin，`View(x)`：绑定的位置（局部绑定、参数、模块级绑定）、作用域中的 origin 参数，或并集 `(x, y)`。不写 origin 的字段 `&T` 得到它自己的新 origin。类型不能把自己的字段当作 origin（`next : &(i32, self.value)` 是错误 E0924）：值内部的每个引用都指向外部，因此移动值不会使引用悬空。origin 不属于类型的身份：`View(x)` 与 `View(y)`、`Option(&(i32, x))` 与 `Option(&(i32, y))` 是同一个类型、同一个 C 结构体。不接受 origin 的位置以错误 E0909 拒绝带 origin 的类型：`extern` 签名（FFI 使用裸指针）和模块级绑定。本版本给出了第一批值：引用类型之上的**内联复合类型**——值语义的结构体或枚举（包括无字段变体 `Option(&mut i32).None`）、元组、数组——可以构造并按值传递。构造调用借用每个引用字段的位置（`at : &x`、`at : &mut x`），绑定冻结被借用的根（E0911）；返回 origin 指向本函数局部量的值是 E0912。`&T` 字段是 `Copy`（拷贝共享其指针），`&mut T` 字段使持有者只能移动，除非其类型声明 `derive(..., Copy, Clone)`；C 将引用字段_lowering_ 为 `const T*` / `T*`。读取引用字段尚未接受（解引用部分 N1e）；容器或单元（`ArrayList(&T)`、`Rc`、`RefCell`）内部的引用在容器部分之前没有值。
+**引用类型**（决策 43 第 3 步的第一部分；[`plans/handover/D43_STEP3_N2_DESIGN.md`](../../plans/handover/D43_STEP3_N2_DESIGN.md)）。在槽位之外，`&T`、`&mut T`、`&(T, o)` 与 `&mut(T, o)` 表示引用类型：结构体或枚举的字段（`struct(at : &(i32, p), lo : usize)`）、类型实参（`Option(&i32)`、`ArrayList(&(i32, (x, y)))`）或别名（`R :: &i32`）。类型构造器用 `comptime(p) : Origin` 声明 origin 参数，并应用于一个按名字解读的 origin，`View(x)`：绑定的位置（局部绑定、参数、模块级绑定）、作用域中的 origin 参数，或并集 `(x, y)`。不写 origin 的字段 `&T` 得到它自己的新 origin。类型不能把自己的字段当作 origin（`next : &(i32, self.value)` 是错误 E0924）：值内部的每个引用都指向外部，因此移动值不会使引用悬空。origin 不属于类型的身份：`View(x)` 与 `View(y)`、`Option(&(i32, x))` 与 `Option(&(i32, y))` 是同一个类型、同一个 C 结构体。不接受 origin 的位置以错误 E0909 拒绝带 origin 的类型：`extern` 签名（FFI 使用裸指针）和模块级绑定。本版本给出了第一批值：引用类型之上的**内联复合类型**——值语义的结构体或枚举（包括无字段变体 `Option(&mut i32).None`）、元组、数组——可以构造并按值传递。构造调用借用每个引用字段的位置（`at : &x`、`at : &mut x`），绑定冻结被借用的根（E0911）；返回 origin 指向本函数局部量的值是 E0912。`&T` 字段是 `Copy`（拷贝共享其指针），`&mut T` 字段使持有者只能移动，除非其类型声明 `derive(..., Copy, Clone)`；C 将引用字段_lowering_ 为 `const T*` / `T*`。绑定引用载荷的 `match` 分支（在 `Option(&T)` 或 `Option(&Dyn(Trait))` 上的 `.Some(r)`）把 `r` 绑定为引用，与 `r := &x` 相同。`r.f`、`r.m()` 与 `r.*` 经由它读取，`f(r)` 把它直接借给 `&T` 参数，而通过 `&` 载荷写入是 E0908。`r` 存活期间，被匹配值中的引用所指向的位置被冻结（E0911）。结果类型携带 origin 的函数，其 `&T` 参数按指针传递，与投影相同，因此由该参数构造的 `.Some(r)` 指向调用者的位置。读取引用字段尚未接受（解引用部分 N1e）；容器或单元（`ArrayList(&T)`、`Rc`、`RefCell`）内部的引用在容器部分之前没有值。
 
 **`Escapable` 与经由句柄的借用**（决策 43 第 2 步，N1d；[`plans/backlog/REFERENCES_AND_ORIGINS.md`](../../plans/backlog/REFERENCES_AND_ORIGINS.md) O9、O10）。prelude 的标记 trait `Escapable` 对不携带 origin 的类型成立：引用、任何持有引用的类型、带借用捕获的闭包以及借用的 future 都不是 `Escapable`；其他所有类型都是。它像 `Send` 一样由类型的结构推导，从不手写实现（`impl(T, Escapable())` 是错误）。泛型函数用 `where(T <: Escapable)` 声明它，把 `T` 绑定为带 origin 的类型的调用在该调用处报错误 E0909。`Rc(V)` 与 `Arc(V)` 只接受 `Escapable` 的载荷，因此对持有引用的 `v` 调用 `Rc.new(v)` 以同样的消息报 E0909：计数单元的载荷在最后一个句柄消失时才释放，那个时刻无法与任何借用对照检查。共享借用可以穿过句柄的解引用：`r := &h.*.x` 与捕获 `{ x : &h.*.x }` 借用载荷，以句柄的位置为 origin，因此借用存活期间 `h` 被冻结（丢弃、移动或重新赋值它是 E0911；另一个句柄的丢弃没有问题，因为被冻结的 `h` 仍持有载荷）。经由句柄的载荷是只读的（决策 46），所以 `&mut h.*.x` 仍是错误 E0919。
 
@@ -1198,6 +1198,29 @@ s3 := s2; // RC = 3
 // 实际上，我们通过所有权分析消除了许多 RC 操作
 ```
 
+#### 替换 `ref` 声明
+
+`ref(struct(...))` 与 `ref(enum(...))` 正在退役（plans/VALUES_BY_DEFAULT.md
+V5），自 v0.2.76 起 std 中不再有这两种声明。两个问题决定 `ref` 类型的替代形式：
+
+1. 构造之后它会被写入吗？
+2. 它是否被两个所有者需要，而这两个所有者的生存期超出彼此的调用？
+
+都不是：普通 `struct`，按 `&` 传入、按值返回。是、否：一个拥有所有权的值，写入处以
+`&mut` 借出，只读处以 `&` 借出。都是：`Rc(RefCell(S))`。
+
+std 原先的 `ref` 类型展示了方法的形态，每个方法只有一种形态：
+
+- 构建器消耗并返回：链式写 `Command.new(p).arg(a).arg(b)`，或在 `mut(cmd)` 绑定上写
+  `cmd = cmd.arg(a);`。`HttpRequest`/`HttpResponse` 的 `.header`/`.with_body` 以及
+  `FetchOptions.with_*` 也是如此。
+- 修改器借出：`mut(u) := Url.parse(&s).unwrap(); u.set_path(&p);`。`ArgParser.add_*`、
+  `Rng` 的取数方法与 `Interval.tick` 也是如此。
+- 终结方法消耗：哈希器的 `update(&mut self)` 喂入数据，`finish(self)` 结束它，所以第二次
+  `finish` 是移动后使用（E0901）。
+- `HttpServer` 是共享的那一个：它的 `serve` future 拥有一个 `server.clone()`，保留下来的
+  克隆在处理函数或另一个任务中调用 `stop`。
+
 #### 编译期引用计数优化
 
 编译器执行[所有权分析](./COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md)以消除不必要的引用计数操作。
@@ -1559,7 +1582,7 @@ test :: (fn() -> unit)({
   // ... 使用 x ...
   // 作用域结束时，RC 递减
   // 如果 RC 降为 0，内存自动释放
-}
+});
 ```
 
 ## 元组

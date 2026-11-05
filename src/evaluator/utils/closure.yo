@@ -33,7 +33,8 @@
 {
   Variable,
   Environment,
-  get_variables_from_env
+  get_variables_from_env,
+  variable_value_type
 } :: import("../../env.yo");
 { TypeValue, TypeValueNode, shared_list, no_types, slot_pointee_at, t_slot_pointee, t_slot_is_borrow, t_slot_is_mut_ref } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
@@ -616,8 +617,8 @@ function_value_marker :: (
               if(!(v.is_module_level() || v.is_compile_time_only()), {
                 matches := if(
                   want_id.is_empty(),
-                  is_function_type(&v.ty()) && (type_to_string(&v.ty()) == want_str),
-                  _some_id_of(&v.ty()) == want_id
+                  is_function_type(&variable_value_type(&v)) && (type_to_string(&variable_value_type(&v)) == want_str),
+                  _some_id_of(&variable_value_type(&v)) == want_id
                 );
                 if(matches, {
                   match(
@@ -999,7 +1000,7 @@ enrich_captured_variables :: (
                         frame_level : fl,
                         usage : cap_info.usage,
                         token : cap_info.token,
-                        ty : Rc.clone(v.ty()),
+                        ty : variable_value_type(&v),
                         value : v.value().get(usize(0)),
                         is_effect_param : v.is_effect_param(),
                         decl_site : `${v.token.module_path.*}:${v.token.row.to_string()}:${v.token.column.to_string()}`

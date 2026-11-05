@@ -40,7 +40,7 @@ test("Test single-hop forwarded closure param", {
   assert(match(r.get(usize(1)), .Some(v) => v, .None => i32(0)) == i32(101), "second push is get_info(1) = 100 + 1");
 });
 test("Test two-hop forwarded closure param with dyn-capturing detector", {
-  Detector :: ref(struct(detect : Dyn(Fn(k : i32) -> i32)));
+  Detector :: struct(detect : Dyn(Fn(k : i32) -> i32));
   walk2 :: (
     fn(depth : i32, get_info : &Impl(Fn(k : i32) -> i32), det : &Detector, acc : &mut ArrayList(i32)) -> unit
   )({
@@ -137,14 +137,15 @@ test("Test a captured generic callback at T = unit", {
 // bitwise-copyable. The caller kept the closure and the callee bound the
 // parameter non-owning, so a closure holding a `Drop` value could not be
 // moved on (E0901, "Take it `sink(...)`" on a parameter already `sink`).
-// The callee owns it now, and each closure's `Drop` value is dropped once.
-_CpfDrops :: ref(struct(n : i32));
-_CpfTok :: struct(v : i32, drops : _CpfDrops);
+// The callee owns it now, and each closure's `Drop` value is dropped once
+// (counted in `g_cpf_drops`).
+(mut(g_cpf_drops) : i32) = i32(0);
+_CpfTok :: struct(v : i32);
 impl(
   _CpfTok,
   Drop(
     drop : (fn(self : &mut Self) -> unit)({
-      self.drops.n = (self.drops.n + i32(1));
+      g_cpf_drops = (g_cpf_drops + i32(1));
     })
   )
 );
@@ -153,22 +154,22 @@ _cpf_sink_relay :: (fn(generic(T : Type), sink(cb) : Impl(Fn() -> T)) -> T)(_cpf
 _cpf_plain_relay :: (fn(generic(T : Type), cb : Impl(Fn() -> T)) -> T)(_cpf_take(() => cb()));
 _cpf_direct :: (fn(generic(T : Type), sink(cb) : Impl(Fn() -> T)) -> T)(cb());
 test("a generic function's closure parameter owns a closure literal holding a Drop value", {
-  drops := _CpfDrops(n : i32(0));
+  g_cpf_drops = i32(0);
   {
-    t := _CpfTok(v : i32(3), drops : drops);
+    t := _CpfTok(v : i32(3));
     assert(_cpf_sink_relay(() => t.v) == i32(3), "the sink relay ran the moved closure");
   };
-  assert(drops.n == i32(1), "the sink relay's closure is dropped once");
+  assert(g_cpf_drops == i32(1), "the sink relay's closure is dropped once");
   {
-    t := _CpfTok(v : i32(4), drops : drops);
+    t := _CpfTok(v : i32(4));
     assert(_cpf_plain_relay(() => t.v) == i32(4), "the by-value relay ran the moved closure");
   };
-  assert(drops.n == i32(2), "the by-value relay's closure is dropped once");
+  assert(g_cpf_drops == i32(2), "the by-value relay's closure is dropped once");
   {
-    t := _CpfTok(v : i32(5), drops : drops);
+    t := _CpfTok(v : i32(5));
     assert(_cpf_direct(() => t.v) == i32(5), "the callee ran the closure it owns");
   };
-  assert(drops.n == i32(3), "the closure the callee owns is dropped once");
+  assert(g_cpf_drops == i32(3), "the closure the callee owns is dropped once");
 });
 // The counted-capture shape the stopgap took its own references for: the
 // relay now moves the closure on instead, and the caller's `String` is

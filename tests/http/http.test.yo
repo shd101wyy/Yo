@@ -46,14 +46,14 @@ _is_dns_failure :: (fn(err : &AnyError) -> bool)(
 );
 pragma(Pragma.AllowUnsafe);
 test("HttpRequest build GET request", {
-  req := HttpRequest.new(HttpMethod.GET, `/index.html`);
+  mut(req) := HttpRequest.new(HttpMethod.GET, `/index.html`);
   req.set_host(`example.com`);
   s := req.to_string();
   assert(s.contains(`GET /index.html HTTP/1.1`), "should contain request line");
   assert(s.contains(`Host: example.com`), "should contain host header");
 });
 test("HttpRequest build POST with body", {
-  req := HttpRequest.new(HttpMethod.POST, `/api/data`);
+  mut(req) := HttpRequest.new(HttpMethod.POST, `/api/data`);
   req.set_host(`api.example.com`);
   req.set_body(`body_data`);
   s := req.to_string();
@@ -62,7 +62,7 @@ test("HttpRequest build POST with body", {
   assert(s.contains(`body_data`), "should contain body");
 });
 test("HttpRequest set multiple headers", {
-  req := HttpRequest.new(HttpMethod.GET, `/`);
+  mut(req) := HttpRequest.new(HttpMethod.GET, `/`);
   req.set_header(`Accept`, `text/html`);
   req.set_header(`User-Agent`, `YoHTTP/1.0`);
   req.set_header(`Connection`, `close`);
@@ -72,7 +72,7 @@ test("HttpRequest set multiple headers", {
   assert(s.contains(`Connection: close`), "should contain Connection header");
 });
 test("HttpRequest to_string format", {
-  req := HttpRequest.new(HttpMethod.GET, `/path`);
+  mut(req) := HttpRequest.new(HttpMethod.GET, `/path`);
   req.set_host(`host.com`);
   s := req.to_string();
   assert(s.starts_with(`GET /path HTTP/1.1`), "should start with request line");
@@ -903,7 +903,7 @@ test("HeaderMap entries().clone() is the detached snapshot", {
 });
 test("set_header replaces while header() appends", {
   // The distinction is why Host stopped appearing twice: set_host used to push.
-  req := HttpRequest.new(HttpMethod.GET, `/`);
+  mut(req) := HttpRequest.new(HttpMethod.GET, `/`);
   req.set_host(`a.example`);
   req.set_host(`b.example`);
   assert(req.headers.get_all(`Host`).len() == usize(1), "exactly one Host survives");

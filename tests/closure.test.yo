@@ -4,20 +4,19 @@ pragma(Pragma.AllowUnsafe);
 { Channel } :: import("std/sync/channel");
 { ArrayList } :: import("std/collections/array_list");
 { String } :: import("std/string");
+{ RefCell } :: import("std/sync/refcell");
 { printf } :: import("std/libc/stdio.yo");
-MyBox :: ref(
-  struct(
-    (*) : i32
-  )
+// A counter a closure and its builder both hold and write: two owners and
+// writes after construction, so a shared cell (`Rc(RefCell(i32))`).
+MyBox :: Rc(RefCell(i32));
+_my_box :: (fn(v : i32) -> MyBox)(Rc.new(RefCell(i32).new(v)));
+_mb_add :: (fn(b : &MyBox, y : i32) -> i32)(
+  b.with_mut(v => {
+    v.* = (v.* + y);
+    v.*
+  })
 );
-impl(
-  MyBox,
-  Drop(
-    drop : (fn(self : &mut Self) -> unit)({
-      unsafe(printf("Disposing Boxed i32 with value: %d\n", self.*.*));
-    })
-  )
-);
+_mb_get :: (fn(b : &MyBox) -> i32)(b.with(v => v.*));
 test("Test ClosureType({...}) to create closure value", {
   mut(x) := 1;
   ClosureType :: Impl(Fn(y : i32) -> i32);
@@ -149,19 +148,19 @@ test("Test closure with Dyn", {
   assert(result == 5, "Expected final result to be 5");
 });
 test("Test closure with Impl that captures Rc object", {
-  x := MyBox(1);
+  x := _my_box(1);
+  xc := Rc.clone(&x);
   ClosureType :: Impl(Fn(y : i32) -> i32);
   closure := ClosureType({
-    x.* = (x.* + y);
-    return(x.*);
+    return(_mb_add(&xc, y));
   });
   // Not `Copy`: it owns an Rc handle (decision 36, as Rust's), so a copy would move it.
   closure(1); // 2
   closure(1); // 3
   result := closure(2); // 5
   unsafe(printf("Final result: %d\n", result));
-  assert(x.* == 5, "Captured boxed variable should be 5");
-  assert(x.* == result, "Expected final result to be 5");
+  assert(_mb_get(&x) == 5, "Captured boxed variable should be 5");
+  assert(_mb_get(&x) == result, "Expected final result to be 5");
 });
 // A `ClosureType({...})` closure owns its RC captures, like an `=>` one: the
 // box outlives the function that built the closure. It used to capture
@@ -169,10 +168,9 @@ test("Test closure with Impl that captures Rc object", {
 // the closure read freed memory (issues/fixed/a-closuretype-closure-does-not-own-its-rc-captures.md).
 _CounterFn :: Impl(Fn(y : i32) -> i32);
 _make_counter :: (fn() -> _CounterFn)({
-  x := MyBox(40);
+  x := _my_box(40);
   c := _CounterFn({
-    x.* = (x.* + y);
-    return(x.*);
+    return(_mb_add(&x, y));
   });
   c
 });
@@ -182,39 +180,38 @@ test("Test ClosureType closure keeps its Rc capture alive after its builder retu
   assert(c(i32(3)) == i32(45), "and keeps its state between calls");
 });
 test("Test closure captured Rc survives nested early return", {
-  x := MyBox(1);
+  x := _my_box(1);
+  xc := Rc.clone(&x);
   take_return := true;
   ClosureType :: Impl(Fn(y : i32) -> i32);
   closure := ClosureType({
     cond(
       take_return => {
-        x.* = (x.* + y);
-        return(x.*);
+        return(_mb_add(&xc, y));
       },
       true => {
-        x.* = (x.* + i32(100));
-        return(x.*);
+        return(_mb_add(&xc, i32(100)));
       }
     );
     return(i32(-1));
   });
   result := closure(4);
   assert(result == i32(5), "nested early return should return updated value");
-  assert(x.* == i32(5), "captured boxed variable should survive early return");
+  assert(_mb_get(&x) == i32(5), "captured boxed variable should survive early return");
   // A closure owning an Rc handle moves (decision 36): the moved-to closure
   // holds the same box.
   closure2 := closure;
   result2 := closure2(2);
   assert(result2 == i32(7), "the moved closure shares the captured box");
-  assert(x.* == i32(7), "captured box should remain alive after duplicate call");
+  assert(_mb_get(&x) == i32(7), "captured box should remain alive after duplicate call");
 });
 test("Test anonymous closure value with Impl that captures Rc object", {
-  x := MyBox(1);
+  x := _my_box(1);
+  xc := Rc.clone(&x);
   ClosureType :: Impl(Fn(y : i32) -> i32);
   (closure : ClosureType) = (
     y => {
-      x.* = (x.* + y);
-      return(x.*);
+      return(_mb_add(&xc, y));
     }
   );
   // Not `Copy`: it owns an Rc handle (decision 36, as Rust's), so a copy would move it.
@@ -222,16 +219,16 @@ test("Test anonymous closure value with Impl that captures Rc object", {
   closure(1); // 3
   result := closure(2); // 5
   unsafe(printf("Final result: %d\n", result));
-  assert(x.* == 5, "Captured boxed variable should be 5");
-  assert(x.* == result, "Expected final result to be 5");
+  assert(_mb_get(&x) == 5, "Captured boxed variable should be 5");
+  assert(_mb_get(&x) == result, "Expected final result to be 5");
 });
 test("Test anonymous closure value with Dyn that captures Rc object", {
-  x := MyBox(1);
+  x := _my_box(1);
+  xc := Rc.clone(&x);
   (closure : Rc(Dyn(Fn(y : i32) -> i32))) = Rc(Dyn(Fn(y : i32) -> i32)).new(
     dyn(
       Rc.new(y => {
-        x.* = (x.* + y);
-        return(x.*);
+        return(_mb_add(&xc, y));
       })
     )
   );
@@ -242,16 +239,16 @@ test("Test anonymous closure value with Dyn that captures Rc object", {
   closure2.*(1); // 3
   result := closure.*(2); // 5
   unsafe(printf("Final result: %d\n", result));
-  assert(x.* == 5, "Captured boxed variable should be 5");
-  assert(x.* == result, "Expected final result to be 5");
+  assert(_mb_get(&x) == 5, "Captured boxed variable should be 5");
+  assert(_mb_get(&x) == result, "Expected final result to be 5");
 });
 test("Test anonymous closure value with Dyn that captures Rc object with auto boxing", {
-  x := MyBox(1);
+  x := _my_box(1);
+  xc := Rc.clone(&x);
   (closure : Rc(Dyn(Fn(y : i32) -> i32))) = Rc(Dyn(Fn(y : i32) -> i32)).new(
     dyn(y => {
       // without explicitly calling `box`
-      x.* = (x.* + y);
-      return(x.*);
+      return(_mb_add(&xc, y));
     })
   );
   // A Dyn owns its payload (plans/VALUES_BY_DEFAULT.md decision 7): the
@@ -261,8 +258,8 @@ test("Test anonymous closure value with Dyn that captures Rc object with auto bo
   closure2.*(1); // 3
   result := closure.*(2); // 5
   unsafe(printf("Final result: %d\n", result));
-  assert(x.* == 5, "Captured boxed variable should be 5");
-  assert(x.* == result, "Expected final result to be 5");
+  assert(_mb_get(&x) == 5, "Captured boxed variable should be 5");
+  assert(_mb_get(&x) == result, "Expected final result to be 5");
 });
 // Regression (issues/fixed/arrow-fn-literal-result-type-not-inferred.md, C55):
 // a `->` fn literal passed where a result type variable must be inferred
@@ -323,7 +320,7 @@ test("a named module-level fn still reaches the global", {
 // issues/fixed/a-generic-impl-methods-closure-is-emitted-twice.md
 // ---------------------------------------------------------------------------
 GenericHolder :: (fn(comptime(T) : Type) -> comptime(Type))(
-  ref(struct(_slot : Channel(T)))
+  struct(_slot : Channel(T))
 );
 impl(
   generic(T : Type),
@@ -467,7 +464,7 @@ test("a closure-typed field refuses a named function of the same signature", {
 // A closure releases its captures (issues/fixed/a-closure-typed-slot-never-releases-its-captures.md).
 // Every case asserts EXACTLY one dispose: 0 is the leak, 2 an over-release.
 (mut(g_cap_disposed) : i32) = i32(0);
-CapPayload :: ref(struct(n : i32));
+CapPayload :: struct(n : i32);
 impl(
   CapPayload,
   Drop(
@@ -479,13 +476,13 @@ impl(
 _cap_ignore :: (fn(get : &Impl(Fn(x : i32) -> i32)) -> i32)(i32(0));
 _cap_call :: (fn(get : &Impl(Fn(x : i32) -> i32)) -> i32)(get(i32(3)));
 // `_cap_rewrap` and `_cap_boxed` own `get`: their closures capture it by value,
-// and a closure owning a `ref` handle is not `Copy` (plans/VALUES_BY_DEFAULT.md
+// and a closure owning a `Drop` value is not `Copy` (plans/VALUES_BY_DEFAULT.md
 // decision 36), so the capture moves it.
 _cap_rewrap :: (fn(sink(get) : Impl(Fn(x : i32) -> i32)) -> i32)({
   (again : Impl(Fn(x : i32) -> i32)) = ((x : i32) => get(x));
   again(i32(3))
 });
-_CapBox :: ref(struct(f : Dyn(Fn(x : i32) -> i32)));
+_CapBox :: struct(f : Dyn(Fn(x : i32) -> i32));
 _cap_boxed :: (fn(sink(get) : Impl(Fn(x : i32) -> i32)) -> i32)({
   b := _CapBox(f : dyn(x => get(x)));
   b.f(i32(3))
@@ -504,7 +501,7 @@ test("a moved closure releases its captures once", {
   {
     p := CapPayload(n : i32(5));
     (c : Impl(Fn(x : i32) -> i32)) = ((x : i32) => (x + p.n));
-    // A closure owning a `ref` handle is not `Copy` (plans/VALUES_BY_DEFAULT.md
+    // A closure owning a `Drop` value is not `Copy` (plans/VALUES_BY_DEFAULT.md
     // decision 36): `c2 := c` moves it.
     c2 := c;
     comptime_expect_error(c(i32(1)), "use of moved value");
@@ -516,10 +513,11 @@ test("a closure literal passed as an argument releases its captures", {
   before := g_cap_disposed;
   {
     p := CapPayload(n : i32(5));
+    q := CapPayload(n : i32(5));
     assert(_cap_ignore((x : i32) => (x + p.n)) == i32(0), "an unused closure parameter");
-    assert(_cap_call((x : i32) => (x + p.n)) == i32(8), "a called closure parameter");
+    assert(_cap_call((x : i32) => (x + q.n)) == i32(8), "a called closure parameter");
   };
-  assert((g_cap_disposed - before) == i32(1), "the capture is released exactly once");
+  assert((g_cap_disposed - before) == i32(2), "each capture is released exactly once");
 });
 test("a closure local passed as an argument stays owned by the caller", {
   before := g_cap_disposed;
@@ -535,12 +533,13 @@ test("a closure captured by another closure releases the inner captures", {
   before := g_cap_disposed;
   {
     p := CapPayload(n : i32(5));
+    q := CapPayload(n : i32(5));
     assert(_cap_rewrap((x : i32) => (x + p.n)) == i32(8), "the outer closure calls the inner");
-    (inner : Impl(Fn(x : i32) -> i32)) = ((x : i32) => (x + p.n));
+    (inner : Impl(Fn(x : i32) -> i32)) = ((x : i32) => (x + q.n));
     (outer : Impl(Fn(x : i32) -> i32)) = ((x : i32) => inner(x));
     assert(outer(i32(1)) == i32(6), "a local closure capturing a local closure");
   };
-  assert((g_cap_disposed - before) == i32(1), "the capture is released exactly once");
+  assert((g_cap_disposed - before) == i32(2), "each capture is released exactly once");
 });
 test("a closure captured by a Dyn closure field releases its captures", {
   before := g_cap_disposed;
@@ -831,7 +830,6 @@ test("a closure's clone outlives the original", {
 // `dyn(f)`; bare it is E0618, whose note names `dyn(f)`. Before the rule a
 // named closure passed `check` at all four sites and three emitted invalid C
 // (issues/fixed/a-named-closure-flowing-bare-into-a-dyn-fn-slot-passes-check-and-emits-invalid-c.md).
-_d44_hold :: ref(struct(f : Dyn(Fn() -> i32)));
 _d44_value_hold :: struct(f : Dyn(Fn() -> i32));
 _d44_take :: (fn(d : Dyn(Fn() -> i32)) -> i32)(d());
 _d44_nine :: (fn() -> i32)(i32(9));
@@ -843,12 +841,10 @@ _d44_ret :: (fn() -> Dyn(Fn() -> i32))({
 test("decision 44: a named closure bare in a Dyn(Fn) slot is E0618 naming dyn(f)", {
   n := i32(3);
   (f1 : Impl(Fn() -> i32)) = (() => n);
-  (f2 : Impl(Fn() -> i32)) = (() => n);
   (f3 : Impl(Fn() -> i32)) = (() => n);
   (f4 : Impl(Fn() -> i32)) = (() => n);
   (f5 : Impl(Fn() -> i32)) = (() => n);
   comptime_expect_error((d : Dyn(Fn() -> i32)) = f1, "Write `dyn(f1)`");
-  comptime_expect_error(_d44_hold(f : f2), "Write `dyn(f2)`");
   comptime_expect_error(_d44_value_hold(f : f3), "Write `dyn(f3)`");
   comptime_expect_error(_d44_take(f4), "Write `dyn(f4)`");
   comptime_expect_error(Option(Dyn(Fn() -> i32)).Some(f5), "Write `dyn(f5)`");
@@ -881,7 +877,7 @@ test("decision 44: a reassignment or field write of a bare closure into Dyn(Fn) 
   (f2 : Impl(Fn() -> i32)) = (() => n);
   (mut(d) : Dyn(Fn() -> i32)) = dyn(() => i32(1));
   comptime_expect_error(d = f1, "Write `dyn(f1)`");
-  h := _d44_hold(f : dyn(() => i32(1)));
+  mut(h) := _d44_value_hold(f : dyn(() => i32(1)));
   comptime_expect_error(h.f = f2, "Write `dyn(f2)`");
   assert((d() + h.f()) == i32(2), "the Dyn slots keep their values");
 });
@@ -889,7 +885,7 @@ test("decision 44: a named fn or a closure literal bare in a Dyn(Fn) slot is E06
   comptime_expect_error(_d44_take(_d44_nine), "Write `dyn(_d44_nine)`");
   comptime_expect_error((d : Dyn(Fn() -> i32)) = _d44_nine, "Write `dyn(_d44_nine)`");
   comptime_expect_error(_d44_take(() => i32(4)), "is a closure literal");
-  comptime_expect_error(_d44_hold(f : (() => i32(4))), "is a closure literal");
+  comptime_expect_error(_d44_value_hold(f : (() => i32(4))), "is a closure literal");
   comptime_expect_error(_d44_take(() -> i32(4)), "is a function literal");
 });
 test("decision 44: dyn(f) at the binding, field, argument and result compiles and runs", {
@@ -898,7 +894,7 @@ test("decision 44: dyn(f) at the binding, field, argument and result compiles an
   (f2 : Impl(Fn() -> i32)) = (() => n);
   (f3 : Impl(Fn() -> i32)) = (() => n);
   (d : Dyn(Fn() -> i32)) = dyn(f1);
-  h := _d44_hold(f : dyn(f2));
+  h := _d44_value_hold(f : dyn(f2));
   r := _d44_take(dyn(f3));
   q := _d44_ret();
   (s : i32) = (d() + h.f() + r + q());
@@ -909,7 +905,7 @@ test("decision 44: dyn(f) at the binding, field, argument and result compiles an
 _d44_ret_named :: (fn() -> Dyn(Fn() -> i32))(dyn(_d44_nine));
 test("decision 44: dyn(named_fn) at the binding, field, argument and result compiles and runs", {
   (d : Dyn(Fn() -> i32)) = dyn(_d44_nine);
-  h := _d44_hold(f : dyn(_d44_nine));
+  h := _d44_value_hold(f : dyn(_d44_nine));
   v := _d44_value_hold(f : dyn(_d44_nine));
   r := _d44_take(dyn(_d44_nine));
   q := _d44_ret_named();
@@ -936,8 +932,9 @@ test("a closure typed Impl(Fn(...), Clone) clones structurally", {
   d := c.clone();
   assert((c() + d()) == i32(8), "a closure of Copy captures clones by copy");
 });
-// A `&mut` receiver reached through a captured `ref` handle is written in
-// place, not through a spilled copy
+// A `&mut` receiver reached through a captured `&mut` borrow is written in
+// place, not through a spilled copy (the issue's `ref` handle capture is a
+// `&mut` capture since V5)
 // (issues/fixed/2026-10-31-a-mut-receiver-reached-through-a-captured-ref-handle-is-written-to-a-copy.md).
 _SpillCounter :: struct(n : i32);
 impl(
@@ -946,20 +943,17 @@ impl(
     self.n = (self.n + i32(1));
   })
 );
-_SpillBag :: ref(struct(c : _SpillCounter, xs : ArrayList(i32)));
+_SpillBag :: struct(c : _SpillCounter, xs : ArrayList(i32));
 _spill_run :: (fn(act : &Impl(Fn() -> unit)) -> unit)({
   act();
 });
-test("a mut receiver reached through a captured ref handle is written in place", {
-  b := _SpillBag(c : _SpillCounter(n : i32(0)), xs : ArrayList(i32).new());
-  h := b;
+test("a mut receiver reached through a captured &mut borrow is written in place", {
+  mut(b) := _SpillBag(c : _SpillCounter(n : i32(0)), xs : ArrayList(i32).new());
   _spill_run(
-    &(
-      () => {
-        h.c.bump();
-        h.xs.push(i32(7));
-      }
-    )
+    &({ h : &mut b }() => {
+      h.c.bump();
+      h.xs.push(i32(7));
+    })
   );
   assert(b.c.n == i32(1), "the closure's bump reached the handle's counter");
   assert(b.xs.len() == usize(1), "the closure's push reached the handle's list");

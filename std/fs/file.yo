@@ -164,13 +164,13 @@ impl(
       _open_mode_needs_perm(mode) => i32(perm.mode),
       true => i32(0)
     );
+    path_str := path.to_string();
     io.async(e => {
-      path_str := path.to_string();
       cstr_bytes := match(path_str.to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(IoError.InvalidInput)));
       cstr := cstr_bytes.ptr().unwrap();
       result := e.io.await(IO_file.openat(AT_FDCWD, cstr, flags, file_mode), e.io);
       fd := IoError.check(result, e.exn);
-      File._new(fd, path_str)
+      File._new(fd, path_str.clone())
     })
   }),
   /// Open a file from a `str` path with the given mode and custom permissions.
@@ -206,13 +206,14 @@ impl(
       opts.creates() => i32(perm.mode),
       true => i32(0)
     );
+    path_owned := path.to_string();
     io.async(e => {
       flags := match(
         opts.to_flags(),
         .Ok(f) => f,
         .Err(msg) => e.exn.throw(dyn(Context.new(&msg, dyn(IoError.InvalidInput))))
       );
-      path_str := path.to_string();
+      path_str := path_owned.clone();
       cstr_bytes := match(path_str.to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(IoError.InvalidInput)));
       cstr := cstr_bytes.ptr().unwrap();
       result := e.io.await(IO_file.openat(AT_FDCWD, cstr, flags, file_mode), e.io);
@@ -433,14 +434,15 @@ impl(
 // Convenience functions
 // ============================================================================
 /// Read an entire file into a `String`.
-read_to_string :: (fn(path : &Path, io : Io) -> Impl(Future(String, IoExn)))(
+read_to_string :: (fn(path : &Path, io : Io) -> Impl(Future(String, IoExn)))({
+  path_owned := path.clone();
   io.async(e => {
-    file := e.io.await(File.open(path, .Read, io), e);
+    file := e.io.await(File.open(&path_owned, .Read, io), e);
     content := e.io.await(file.read_to_string(io), e);
     e.io.await(file.close(io), e);
     return(content);
   })
-);
+});
 /// Read an entire file into a `String` (`str` path variant).
 read_to_string_str :: (fn(path : str, io : Io) -> Impl(Future(String, IoExn)))(
   read_to_string(Path.new(String.from(path)), io)
@@ -450,14 +452,15 @@ read_to_string_cstr :: (fn(path : *u8, io : Io) -> Impl(Future(String, IoExn)))(
   read_to_string(Path.from_cstr(path), io)
 );
 /// Read an entire file into a byte list (`ArrayList(u8)`).
-read :: (fn(path : &Path, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))(
+read :: (fn(path : &Path, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))({
+  path_owned := path.clone();
   io.async(e => {
-    file := e.io.await(File.open(path, .Read, io), e);
+    file := e.io.await(File.open(&path_owned, .Read, io), e);
     content := e.io.await(file.read_to_end(io), e);
     e.io.await(file.close(io), e);
     return(content);
   })
-);
+});
 /// Read an entire file into bytes (`str` path variant).
 read_str :: (fn(path : str, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))(
   read(Path.new(String.from(path)), io)
@@ -468,9 +471,10 @@ read_cstr :: (fn(path : *u8, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))(
 );
 /// Write a `String` to a file, creating or truncating it.
 write_string :: (fn(path : &Path, data : &String, io : Io) -> Impl(Future(unit, IoExn)))({
+  path_owned := path.clone();
   data_owned := data.clone();
   io.async(e => {
-    file := e.io.await(File.open(path, .Write, io), e);
+    file := e.io.await(File.open(&path_owned, .Write, io), e);
     e.io.await(file.write_string(&data_owned, io), e);
     e.io.await(file.close(io), e);
   })
@@ -485,18 +489,20 @@ write_string_cstr :: (fn(path : *u8, data : str, io : Io) -> Impl(Future(unit, I
 );
 /// Write bytes to a file, creating or truncating it.
 write :: (fn(path : &Path, data : &ArrayList(u8), io : Io) -> Impl(Future(unit, IoExn)))({
+  path_owned := path.clone();
   data_owned := data.clone();
   io.async(e => {
-    file := e.io.await(File.open(path, .Write, io), e);
+    file := e.io.await(File.open(&path_owned, .Write, io), e);
     e.io.await(file.write_bytes(&data_owned, io), e);
     e.io.await(file.close(io), e);
   })
 });
 /// Append a `String` to a file, creating it if it does not exist.
 append_file :: (fn(path : &Path, data : &String, io : Io) -> Impl(Future(unit, IoExn)))({
+  path_owned := path.clone();
   data_owned := data.clone();
   io.async(e => {
-    file := e.io.await(File.open(path, .Append, io), e);
+    file := e.io.await(File.open(&path_owned, .Append, io), e);
     e.io.await(file.write_string(&data_owned, io), e);
     e.io.await(file.close(io), e);
   })
@@ -520,9 +526,10 @@ extern(
 /// `exists(...)` call inside a CONTRACT is the quantifier, and outside ghost
 /// context the evaluator delegates to the ordinary call path — so the
 /// exported `exists` (the alias below) still resolves and works everywhere.
-_exists :: (fn(path : &Path, io : Io) -> Impl(Future(bool, Io)))(
+_exists :: (fn(path : &Path, io : Io) -> Impl(Future(bool, Io)))({
+  path_owned := path.clone();
   io.async(io => {
-    cstr_bytes := match(path.to_string().to_cstr_checked(), .Ok(b) => b, .Err(_) => return(false));
+    cstr_bytes := match(path_owned.to_string().to_cstr_checked(), .Ok(b) => b, .Err(_) => return(false));
     cstr := cstr_bytes.ptr().unwrap();
     buf_size := __yo_statx_buf_size();
     buf := (*u8)(malloc(buf_size).unwrap());
@@ -530,7 +537,7 @@ _exists :: (fn(path : &Path, io : Io) -> Impl(Future(bool, Io)))(
     free(.Some((*void)(buf)));
     result >= i32(0)
   })
-);
+});
 /// Check if a path exists (`str` path variant).
 exists_str :: (fn(path : str, io : Io) -> Impl(Future(bool, Io)))(
   _exists(Path.new(String.from(path)), io)
@@ -544,9 +551,10 @@ exists_cstr :: (fn(path : *u8, io : Io) -> Impl(Future(bool, Io)))(
 /// permission failure or any other error THROWS instead of masquerading as
 /// absence — the honest form `exists` cannot give
 /// (plans/archive/STD_API_AUDIT.md §7 P0).
-try_exists :: (fn(path : &Path, io : Io) -> Impl(Future(bool, IoExn)))(
+try_exists :: (fn(path : &Path, io : Io) -> Impl(Future(bool, IoExn)))({
+  path_owned := path.clone();
   io.async(e => {
-    cstr_bytes := match(path.to_string().to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(IoError.InvalidInput)));
+    cstr_bytes := match(path_owned.to_string().to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(IoError.InvalidInput)));
     cstr := cstr_bytes.ptr().unwrap();
     buf_size := __yo_statx_buf_size();
     buf := (*u8)(malloc(buf_size).unwrap());
@@ -558,15 +566,16 @@ try_exists :: (fn(path : &Path, io : Io) -> Impl(Future(bool, IoExn)))(
       true => e.exn.throw(dyn(IoError.from_errno(i32(0) - result)))
     )
   })
-);
+});
 /// `try_exists` (`str` path variant).
 try_exists_str :: (fn(path : str, io : Io) -> Impl(Future(bool, IoExn)))(
   try_exists(Path.new(String.from(path)), io)
 );
 /// Set a path's POSIX permission bits.
-set_permissions :: (fn(path : &Path, perm : FilePermission, io : Io) -> Impl(Future(unit, IoExn)))(
+set_permissions :: (fn(path : &Path, perm : FilePermission, io : Io) -> Impl(Future(unit, IoExn)))({
+  path_owned := path.clone();
   io.async(e => {
-    cstr_bytes := match(path.to_string().to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(IoError.InvalidInput)));
+    cstr_bytes := match(path_owned.to_string().to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(IoError.InvalidInput)));
     cstr := cstr_bytes.ptr().unwrap();
     r := unsafe(chmod((*char)(cstr), perm.mode));
     cond(
@@ -574,7 +583,7 @@ set_permissions :: (fn(path : &Path, perm : FilePermission, io : Io) -> Impl(Fut
       true => ()
     )
   })
-);
+});
 /// `set_permissions` (`str` path variant).
 set_permissions_str :: (fn(path : str, perm : FilePermission, io : Io) -> Impl(Future(unit, IoExn)))(
   set_permissions(Path.new(String.from(path)), perm, io)
@@ -582,24 +591,27 @@ set_permissions_str :: (fn(path : str, perm : FilePermission, io : Io) -> Impl(F
 /// Copy a file's CONTENTS and permission bits from `from` to `to`
 /// (`std::fs::copy`), resolving to the number of bytes copied. `to` is
 /// created or truncated.
-copy :: (fn(from : &Path, to : &Path, io : Io) -> Impl(Future(u64, IoExn)))(
+copy :: (fn(from : &Path, to : &Path, io : Io) -> Impl(Future(u64, IoExn)))({
+  from_owned := from.clone();
+  to_owned := to.clone();
   io.async(e => {
-    bytes := e.io.await(read(from, e.io), e);
-    e.io.await(write(to, &bytes, e.io), e);
-    md := e.io.await(metadata(from, e.io), e);
-    e.io.await(set_permissions(to, FilePermission(mode : (md.mode() & u32(4095))), e.io), e);
+    bytes := e.io.await(read(&from_owned, e.io), e);
+    e.io.await(write(&to_owned, &bytes, e.io), e);
+    md := e.io.await(metadata(&from_owned, e.io), e);
+    e.io.await(set_permissions(&to_owned, FilePermission(mode : (md.mode() & u32(4095))), e.io), e);
     u64(bytes.len())
   })
-);
+});
 /// `copy` (`str` path variant).
 copy_str :: (fn(from : str, to : str, io : Io) -> Impl(Future(u64, IoExn)))(
   copy(Path.new(String.from(from)), Path.new(String.from(to)), io)
 );
 
 /// Check if a path is a regular file. Returns `false` for any error.
-is_file :: (fn(path : &Path, io : Io) -> Impl(Future(bool, Io)))(
+is_file :: (fn(path : &Path, io : Io) -> Impl(Future(bool, Io)))({
+  path_owned := path.clone();
   io.async(io => {
-    path_str := path.to_string();
+    path_str := path_owned.to_string();
     cstr_bytes := match(path_str.to_cstr_checked(), .Ok(b) => b, .Err(_) => return(false));
     cstr := cstr_bytes.ptr().unwrap();
     buf_size := __yo_statx_buf_size();
@@ -615,7 +627,7 @@ is_file :: (fn(path : &Path, io : Io) -> Impl(Future(bool, Io)))(
     free(.Some((*void)(buf)));
     r
   })
-);
+});
 /// Check if a path is a regular file (`str` path variant).
 is_file_str :: (fn(path : str, io : Io) -> Impl(Future(bool, Io)))(
   is_file(Path.new(String.from(path)), io)
@@ -625,9 +637,10 @@ is_file_cstr :: (fn(path : *u8, io : Io) -> Impl(Future(bool, Io)))(
   is_file(Path.from_cstr(path), io)
 );
 /// Check if a path is a directory. Returns `false` for any error.
-is_dir :: (fn(path : &Path, io : Io) -> Impl(Future(bool, Io)))(
+is_dir :: (fn(path : &Path, io : Io) -> Impl(Future(bool, Io)))({
+  path_owned := path.clone();
   io.async(io => {
-    path_str := path.to_string();
+    path_str := path_owned.to_string();
     cstr_bytes := match(path_str.to_cstr_checked(), .Ok(b) => b, .Err(_) => return(false));
     cstr := cstr_bytes.ptr().unwrap();
     buf_size := __yo_statx_buf_size();
@@ -643,7 +656,7 @@ is_dir :: (fn(path : &Path, io : Io) -> Impl(Future(bool, Io)))(
     free(.Some((*void)(buf)));
     r
   })
-);
+});
 /// Check if a path is a directory (`str` path variant).
 is_dir_str :: (fn(path : str, io : Io) -> Impl(Future(bool, Io)))(
   is_dir(Path.new(String.from(path)), io)
@@ -654,9 +667,10 @@ is_dir_cstr :: (fn(path : *u8, io : Io) -> Impl(Future(bool, Io)))(
 );
 /// Resolve a path to its canonical absolute form (resolves symlinks, `.` and `..`).
 /// Throws if the path does not exist.
-canonicalize :: (fn(path : &Path, io : Io) -> Impl(Future(Path, IoExn)))(
+canonicalize :: (fn(path : &Path, io : Io) -> Impl(Future(Path, IoExn)))({
+  path_owned := path.clone();
   io.async(e => {
-    path_str := path.to_string();
+    path_str := path_owned.to_string();
     cstr_bytes := match(path_str.to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(IoError.InvalidInput)));
     cstr := cstr_bytes.ptr().unwrap();
     // Async stat to verify path exists (provides await point for proper RC cleanup)
@@ -679,7 +693,7 @@ canonicalize :: (fn(path : &Path, io : Io) -> Impl(Future(Path, IoExn)))(
     free(.Some((*void)(resolved_buf)));
     Path.new(&resolved)
   })
-);
+});
 /// Resolve a path to its canonical absolute form (`str` path variant).
 canonicalize_str :: (fn(path : str, io : Io) -> Impl(Future(Path, IoExn)))(
   canonicalize(Path.new(String.from(path)), io)

@@ -513,8 +513,8 @@ is_target_posix :: (fn(target : &TargetInfo) -> bool)(
 // ── Host C compiler discovery ─────────────────────────────────────────
 /// `compiler --version` probe — stdio ignored, availability = exit 0.
 _check_compiler_available :: (fn(compiler : &String, io : Io) -> bool)({
-  probe := Command.new(compiler.clone());
-  probe.arg(String.from("--version"));
+  mut(probe) := Command.new(compiler.clone());
+  probe = probe.arg(String.from("--version"));
   // A spawn failure (missing binary) throws through IoExn — treat it as
   // "not available" rather than propagating.
   inner_exn := Exception(throw : (_e -> unwind(false)));

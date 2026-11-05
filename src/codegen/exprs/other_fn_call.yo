@@ -8,7 +8,7 @@
 { get_type_trait_methods_by_name, type_id_or_empty } :: import("../../evaluator/values/type_trait_methods.yo");
 { get_func_type, is_control_fn, is_effect_record_member, is_io_async_sm_closure } :: import("../../function_value.yo");
 { should_skip_function_codegen, _async_override_return_type, awaited_future_c_type_override, emitted_return_type_string, generate_function_prototype, fn_value_c_name } :: import("../functions/declarations.yo");
-{ TypeValue, TypeValueNode, FuncMeta, no_types, no_labels, no_flags, SharedList, fn_param_mut_ref_at, fn_param_by_value_at, t_slot_pointee, t_slot_is_mut_ref, slot_pointee_at, fn_param_mut_ref_flags, fn_result_pointee, fn_result_is_ref } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, FuncMeta, no_types, no_labels, no_flags, SharedList, fn_param_mut_ref_at, fn_param_by_value_at, t_slot_pointee, t_slot_is_mut_ref, slot_pointee_at, fn_param_mut_ref_flags, fn_result_pointee, fn_result_is_ref, t_slot_is_borrow } :: import("../../types/definitions.yo");
 { t_ptr } :: import("../../types/creators.yo");
 { is_reference_struct_type, is_reference_enum_type, is_function_type, is_unit_type, is_array_type, is_dyn_type, is_struct_type, is_enum_type, is_union_type, is_fn_trait_type, is_some_type, is_cell_primitive_type, is_counted_handle_type, carries_no_borrow_marks, is_atomic_counted_handle_type, is_never_type, is_primitive_type, is_tuple_type } :: import("../../types/guards.yo");
 { type_is_control_bound, dyn_type_has_vtable_slot, dyn_vtable_slot_param_is_ref, dyn_vtable_slot_result_is_ref, type_contains_rc_cell_or_move_only, fn_abi_param_is_ptr, dyn_type_lists_clone } :: import("../../types/utils.yo");
@@ -29,6 +29,7 @@
 { _call_generate_expr, call_projection_mode } :: import("./_expr.yo");
 { emit_effect_unwind_check, generate_call_deferred_drops } :: import("./return.yo");
 { generate_thread_spawn_call, generate_worker_spawn_call } :: import("./parallelism.yo");
+{ get_c_include_for_extern } :: import("../../evaluator/exprs/c_include.yo");
 { assert, panic } :: import("std/assert");
 /// Monotonic counter for ref-spill temporaries (`__yo_ref_spill_N`). Must be
 /// unique per generated C function body, not per call's arg index — two
@@ -485,6 +486,31 @@ _is_inside_object_method :: (fn(context : &FunctionGenerationContext) -> bool)(
 _current_self_param_is_ref :: (fn(context : &FunctionGenerationContext) -> bool)(
   match(&context.current_function_type, .Some(ft) => match(ft, Rc(.Func({ result : _ })) => match(fn_param_mut_ref_at(&ft, usize(0)), .Some(b) => b, .None => false), _ => false), .None => false)
 );
+/// The call `call` of a `c_include`d function whose result `r` is a data
+/// pointer `T*` (or a nullable `?*T`, laid out as that pointer), read as its
+/// declared type: `((T*)(T const*){ call })`. Yo has no const pointer, so a
+/// binding spells a C `const T*` result as `*(T)`, and a `T*` temporary,
+/// local, return or argument initialized from it drops the qualifier, which
+/// clang's `-Werror=incompatible-pointer-types` rejects. The compound literal
+/// accepts exactly what a `const T*` accepts (a `T*` or a `const T*`), so a
+/// result whose pointee differs from the binding's stays a C error; the cast
+/// then drops only the `const`
+/// (issues/fixed/2026-11-05-a-c-include-function-returning-a-const-pointer-fails-the-clang-build.md).
+/// A pointer whose C spelling is not its pointee's followed by `*` is left as
+/// it is.
+_c_pointer_result_as_declared :: (fn(r : &TypeValue, call : String, context : &FunctionGenerationContext) -> String)({
+  ptr := match(
+    r,
+    Rc(.Pointer(_)) => Rc.clone(r),
+    _ => match(can_optimize_as_nullable_pointer(r), .Some(p) => p, .None => return(call))
+  );
+  pointee := match(&ptr, Rc(.Pointer(inner)) => Rc.clone(inner), _ => return(call));
+  pointee_str := get_type_string(&pointee, &context.base);
+  cond(
+    (get_type_string(&ptr, &context.base) == `${pointee_str}*`) => `((${get_type_string(r, &context.base)})(${pointee_str} const*){ ${call} })`,
+    true => call
+  )
+});
 /// Auto-emit `__yo_borrow_assert_unborrowed((void*)self)` before a realloc/free
 /// inside an RC-managed object method.
 _maybe_emit_auto_borrow_assert :: (fn(extern_func_name : &String, indent : &String, context : &mut FunctionGenerationContext) -> unit)(
@@ -1538,7 +1564,19 @@ _generate_runtime_enum_construct :: (
             while(i < n, {
               fty := match(vftys.get(i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
               if(!is_unit_type(&fty), {
-                fcode := match(rt_args.get(i), .Some(a) => sequence_operand(&a, emit_deferred_dup_or_code(&a, _call_generate_expr(&a, indent.clone(), context), indent.clone(), context), rt_args, i, false, indent, context), .None => String.from(""));
+                // A reference payload (decision 43 step 3) takes a lend: the
+                // argument is the place, the C field its address, which a
+                // later operand cannot invalidate (no temporary: a copy of
+                // the place would be what the address named).
+                f_is_ref := t_slot_is_borrow(&fty);
+                fcode := match(
+                  rt_args.get(i),
+                  .Some(a) => {
+                    f_code := emit_deferred_dup_or_code(&a, _call_generate_expr(&a, indent.clone(), context), indent.clone(), context);
+                    sequence_operand(&a, if(f_is_ref, `(&(${f_code}))`, f_code), rt_args, i, f_is_ref, indent, context)
+                  },
+                  .None => String.from("")
+                );
                 if(any_field, {
                   inits.push_str(", ");
                   positional.push_str(", ");
@@ -2879,6 +2917,10 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
       r := t_slot_pointee(&r_slot6);
       ie := __fm6.*.is_extern.clone();
       en := __fm6.*.extern_name.clone();
+      // A `c_include`d function's prototype is the header's, so its result
+      // can be a `const T*` the binding spells `*(T)`; a plain `extern("c")`
+      // function is declared from its Yo type and needs no cast.
+      is_c := match(&ie, .Some(lang) => (lang == "c"), .None => false);
       // extern "yo" AND extern "c" both lower to a direct `<extern_name>(<args>)`
       // C call (no per-arg cast). For extern "c" the symbol is a C library
       // function (e.g. `exit`, `fwrite`); the unsafe(...) gate is enforced in the
@@ -2911,6 +2953,9 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
           out.push_str("(");
           out.push_string(args_list.clone());
           out.push_str(")");
+          if(is_c && get_c_include_for_extern(&name).is_some(), {
+            out = _c_pointer_result_as_declared(&r, out, context);
+          });
           // An RC result the evaluator gave an owning temp (an I/O future
           // from `__yo_async_*_start`) is declared under that temp, as the
           // ordinary call path does: its scope-end drop is skipped for a temp
@@ -3504,4 +3549,4 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
   });
   Option(String).Some(out)
 });
-export(_is_addressable_c_expr, bind_owning_result_temp, _split_top_level_args_list, _resolve_var_name_in_context, _store_temp_var_to_state_machine_if_needed, _get_interior_ref_container_code, _emit_borrow_acquires, _emit_borrow_releases, _is_inside_object_method, _maybe_emit_auto_borrow_assert, generate_other_function_call, ref_spill_counter_reset, sequence_operand);
+export(_is_addressable_c_expr, _apply_ref_amp, bind_owning_result_temp, _split_top_level_args_list, _resolve_var_name_in_context, _store_temp_var_to_state_machine_if_needed, _get_interior_ref_container_code, _emit_borrow_acquires, _emit_borrow_releases, _is_inside_object_method, _maybe_emit_auto_borrow_assert, generate_other_function_call, ref_spill_counter_reset, sequence_operand);

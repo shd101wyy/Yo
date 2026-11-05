@@ -77,20 +77,18 @@ sleep_blocking :: (fn(duration : Duration) -> unit)(
 /// of being added to it.
 ///
 /// ```yo
-/// t := interval(Duration.from_millis(i64(100)), io);
+/// mut(t) := interval(Duration.from_millis(i64(100)), io);
 /// io.await(t.tick(io), io); // completes immediately
 /// io.await(t.tick(io), io); // completes 100ms after the FIRST tick
 /// ```
 ///
 /// The first `tick()` completes immediately, as Tokio's does: an interval is
 /// almost always driving a loop whose first pass should not be delayed.
-Interval :: ref(
-  struct(
-    _period : Duration,
-    /// When the next tick is DUE. Advanced by exactly one period per tick, so
-    /// the schedule is never re-anchored to "now".
-    _next : Instant
-  )
+Interval :: struct(
+  _period : Duration,
+  /// When the next tick is DUE. Advanced by exactly one period per tick, so
+  /// the schedule is never re-anchored to "now".
+  _next : Instant
 );
 impl(
   Interval,
@@ -109,7 +107,7 @@ impl(
   /// deliberately not implemented until something needs it — the choice has
   /// to be made per call site and guessing it here would be worse than
   /// leaving it out.
-  tick : (fn(self : &Self, io : Io) -> Impl(Future(unit)))({
+  tick : (fn(self : &mut Self, io : Io) -> Impl(Future(unit)))({
     due := self._next;
     // Advance BEFORE waiting, so the schedule does not depend on when the
     // sleep actually returns.

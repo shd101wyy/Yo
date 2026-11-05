@@ -31,7 +31,7 @@ test("a raw pointer is neither Send nor Sync, and neither is a struct holding on
 });
 // Decision 48 W5: a raw pointer's `Acyclic` is its pointee's, since an owned
 // buffer is one (issues/fixed/2026-10-22-an-object-holding-a-cyclic-cell-behind-an-option-or-a-pointer-derives-acyclic.md).
-SrpCyclic :: atomic(ref(struct(v : i32, next : Option(Self))));
+SrpCyclic :: struct(v : i32, next : Option(Arc(Self)));
 SrpHoldsCyclic :: struct(p : *SrpCyclic);
 test("a raw pointer to a cyclic cell is not Acyclic, nor a struct holding one", {
   comptime_assert(!Type.impls(*SrpCyclic, Acyclic), "the pointee reaches itself");

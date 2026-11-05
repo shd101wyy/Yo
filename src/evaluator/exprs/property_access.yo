@@ -1980,6 +1980,19 @@ Raw pointer operations may dereference invalid memory.`
       Rc(.Union(pa_uid, _, _)) => pa_uid.clone(),
       _ => String.new()
     );
+    // `YO_AUDIT_VARIABLE_TY=1` (decision 43 step 2 N1e-2b, VERDICTS-23 §4):
+    // every read or write of the compiler's `Variable` binding-type field in
+    // the source being checked, by site. The field is read only through
+    // `variable_value_type` / `variable_slot_type` (src/env.yo), so a site
+    // outside those accessors is a reader the representation flip would
+    // miss.
+    if(ast_expr_is_atom(&property_expr) && debug_knob(`YO_AUDIT_VARIABLE_TY`).is_some(), {
+      vt_field := ast_expr_text(&property_expr).*.clone();
+      if(((vt_field == "ty") || (vt_field == "bound_ty")) && (type_to_string(&base_ty) == "Variable"), {
+        vt_tok := ast_expr_token(&property_expr);
+        eprintln(`[variable-ty] ${vt_tok.module_path.*}:${(vt_tok.row + u32(1)).to_string()}:${(vt_tok.column + u32(1)).to_string()} ${vt_field}`);
+      });
+    });
     if(ast_expr_is_atom(&property_expr), {
       // --- Union member READ gate (safe mode) ------------------------------
       // A write (`u.x = v`, evaluated with is_lhs_of_assignment) stays legal.

@@ -149,7 +149,7 @@ test("root_cause returns the innermost error, and is identity on a lone error", 
 test("error_chain yields every link, outermost first", {
   (base : AnyError) = dyn(_Inner.Boom);
   (top : AnyError) = dyn(Context.new(`while loading`, base));
-  it := error_chain(&top);
+  mut(it) := error_chain(&top);
   (mut(links) : usize) = usize(0);
   (mut(last) : String) = String.new();
   (mut(going) : bool) = true;
@@ -169,7 +169,7 @@ test("error_chain yields every link, outermost first", {
   assert(last == `boom`, `the last link is the root cause, got ${last}`);
 });
 test("error_chain of a lone error yields exactly one link", {
-  it := error_chain(dyn(_Inner.Boom));
+  mut(it) := error_chain(dyn(_Inner.Boom));
   (mut(links) : usize) = usize(0);
   (mut(going) : bool) = true;
   while(going, {

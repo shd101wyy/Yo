@@ -9,7 +9,7 @@
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 
-Item :: ref(struct(name : String));
+Item :: struct(name : String);
 derive(Item, Clone);
 
 pick :: (fn(flag : bool, xs : &ArrayList(Item)) -> ArrayList(Item))({
@@ -28,10 +28,10 @@ main :: (fn() -> unit)({
   mut(xs) := ArrayList(Item).new();
   xs.push(Item(name : String.from("alpha")));
   got := pick(false, &xs);
-  match(got.get(usize(0)), .Some(it) => println(&it.name), .None => println(`missing`));
-  match(xs.get(usize(0)), .Some(it) => println(&it.name), .None => println(`missing`));
+  match(got.get_cloned(usize(0)), .Some(it) => println(&it.name), .None => println(`missing`));
+  match(xs.get_cloned(usize(0)), .Some(it) => println(&it.name), .None => println(`missing`));
   got2 := pick(true, &xs);
-  match(got2.get(usize(0)), .Some(it) => println(&it.name), .None => println(`missing`));
-  match(xs.get(usize(0)), .Some(it) => println(&it.name), .None => println(`missing`));
+  match(got2.get_cloned(usize(0)), .Some(it) => println(&it.name), .None => println(`missing`));
+  match(xs.get_cloned(usize(0)), .Some(it) => println(&it.name), .None => println(`missing`));
 });
 export(main);

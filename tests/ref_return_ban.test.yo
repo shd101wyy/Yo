@@ -83,17 +83,17 @@ test("callback-style ref params remain legal", {
 
 // Positive: returning the VALUE is the idiom. A `String` is a value, so the
 // returned clone is the caller's own; a write reaches the holder only
-// through the handle.
-Holder :: ref(struct(s : String));
+// through the holder's own binding.
+Holder :: struct(s : String);
 test("returning the value instead of a ref", {
   get_s :: (fn(h : &Holder) -> String)(
     h.s.clone()
   );
-  h := Holder(s : String.from("hello"));
+  mut(h) := Holder(s : String.from("hello"));
   mut(s) := get_s(&h);
   s.push_str(" world");
   assert(s == "hello world", "the returned value is the caller's");
   assert(h.s == "hello", "the holder keeps its own string");
   h.s.push_str("!");
-  assert(h.s == "hello!", "a write through the handle reaches the holder");
+  assert(h.s == "hello!", "a write through the holder's binding reaches it");
 });

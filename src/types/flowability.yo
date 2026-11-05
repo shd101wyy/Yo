@@ -39,7 +39,7 @@
 } :: import("../expr.yo");
 { ExprInfo, expr_info_table_get, has_any_control_flow, lookup_method_callee_type, expr_info_closure_function_value }
 :: import("../expr_info.yo");
-{ Variable, Environment, get_variables_from_env, snapshot_env } :: import("../env.yo");
+{ Variable, Environment, get_variables_from_env, snapshot_env, variable_value_type } :: import("../env.yo");
 { format_error_message, error_message_text, YoError } :: import("../error.yo");
 { Exception, AnyError } :: import("std/error");
 { is_type_val } :: import("../value.yo");
@@ -935,7 +935,7 @@ _is_fn_typed :: (fn(ty_in : &TypeValue) -> bool)({
 /// type on the path is unknown.
 _ref_place_holder_types :: (fn(ref_arg : &AstExpr, kind : str, root : &Variable, ctx : &EvalContext) -> Option(HashSet(String)))({
   keys := HashSet(String).new();
-  keys.insert(type_key(&root.ty()));
+  keys.insert(type_key(&variable_value_type(root)));
   (cur : AstExpr) = match(
     ref_arg,
     .FnCall(_, callee, Rc(dargs), _, _) => cond(
@@ -1387,7 +1387,7 @@ require_valid_ref_argument_places :: (
                   match(
                     root_vars.last_cloned(),
                     .Some(rv) => {
-                      root_is_object := is_counted_handle_type(&rv.ty());
+                      root_is_object := is_counted_handle_type(&variable_value_type(&rv));
                       ref_type_contains_rc := match(
                         _info(ctx, &arg),
                         .Some(inf) => type_contains_rc_type(&inf.ty()),

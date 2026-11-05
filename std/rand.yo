@@ -10,7 +10,7 @@
 //!
 //! ```yo
 //! { Rng, rand_range } :: import("std/rand");
-//! rng := Rng.new(u64(42));
+//! mut(rng) := Rng.new(u64(42));
 //! d6 := rng.range(i64(1) .. i64(7)); // uniform in [1, 7), reproducible
 //! d20 := rand_range(i64(1) .. i64(21)); // this thread's generator
 //! ```
@@ -25,11 +25,9 @@
 { random_u64 } :: import("./crypto/random");
 
 _PCG_MULT :: u64(6364136223846793005);
-/// The raw PCG32 words — a plain VALUE struct, so it can live in a
-/// thread-local (`Rng` itself cannot: it is a `ref` type, and a thread-local
-/// may not hold a reference-counted value — C11 thread-local storage has no
-/// destructor hook, so one instance would leak per thread. `Rng`'s refcount is
-/// not atomic either, so it does not implement `Send`).
+/// The raw PCG32 words — a plain `Copy` VALUE struct, so it can live in a
+/// thread-local. `Rng` wraps it without `Copy`, so a generator is never
+/// forked by accident: its draws take `&mut self`.
 _RngState :: struct(state : u64, inc : u64);
 derive(_RngState, Copy, Clone);
 impl(
@@ -82,14 +80,14 @@ _inc_for_stream :: (fn(stream : u64) -> u64)(
 /// PCG's default stream.
 _DEFAULT_STREAM :: u64(54);
 /// Seedable PCG32 generator state.
-Rng :: ref(struct(_st : _RngState));
+Rng :: struct(_st : _RngState);
 impl(
   Rng,
   /// A generator on an explicit stream: distinct `stream` values give
   /// statistically independent sequences for the same seed (the PCG
   /// `initseq` parameter).
   with_stream : (fn(seed : u64, stream : u64) -> Self)({
-    r := Self(_st : _RngState(state : u64(0), inc : _inc_for_stream(stream)));
+    mut(r) := Self(_st : _RngState(state : u64(0), inc : _inc_for_stream(stream)));
     _d1 := r.next_u32();
     r._st.state = r._st.state.wrapping_add(seed);
     _d2 := r.next_u32();
@@ -108,22 +106,22 @@ impl(
     Self.new(_entropy_u64())
   ),
   /// The next 32 uniformly random bits.
-  next_u32 : (fn(self : &Self) -> u32)(self._st.next_u32()),
+  next_u32 : (fn(self : &mut Self) -> u32)(self._st.next_u32()),
   /// The next 64 uniformly random bits (two 32-bit draws).
-  next_u64 : (fn(self : &Self) -> u64)(self._st.next_u64()),
+  next_u64 : (fn(self : &mut Self) -> u64)(self._st.next_u64()),
   /// A uniform float in `[0, 1)` (53 bits of precision — an exact division
   /// by 2^53, not a hand-typed epsilon literal, which parsed LOW).
-  next_f64 : (fn(self : &Self) -> f64)(
+  next_f64 : (fn(self : &mut Self) -> f64)(
     f64(self.next_u64() >> u64(11)) / f64(9007199254740992)
   ),
   /// A fair coin. Reads the TOP bit, which is the best-mixed one in a PCG
   /// output word — `x % 2` on the low bit is a classic weak-bit mistake.
-  next_bool : (fn(self : &Self) -> bool)(
+  next_bool : (fn(self : &mut Self) -> bool)(
     (self.next_u32() >> u32(31)) == u32(1)
   ),
   /// A uniform value below `bound`, rejection-sampled. Panics for
   /// `bound == 0`.
-  next_below : (fn(self : &Self, bound : u64) -> u64)(self._st.next_below(bound)),
+  next_below : (fn(self : &mut Self, bound : u64) -> u64)(self._st.next_below(bound)),
   /// A uniform integer in the half-open range `r` — write it with `..`:
   /// `rng.range(i64(1) .. i64(7))` for a d6. Panics if the range is empty
   /// (`r.end <= r.start`), like Rust's `gen_range` — an empty range has no
@@ -132,7 +130,7 @@ impl(
   /// The range is a `Range(i64)` rather than two `i64` parameters so the
   /// half-open bound is visible AT THE CALL SITE: `range(1, 7)` reads as
   /// either `[1, 7)` or `[1, 7]` and the caller has to remember which.
-  range : (fn(self : &Self, r : Range(i64)) -> i64)(
+  range : (fn(self : &mut Self, r : Range(i64)) -> i64)(
     cond(
       (r.end <= r.start) => __yo_panic("Rng.range: empty range (end <= start)"),
       true => {
@@ -157,7 +155,7 @@ impl(
   /// and the alternative — one `range` over a `SampleRange`-style trait —
   /// would put a trait on the public surface to save one word at the call
   /// site.
-  range_inclusive : (fn(self : &Self, r : RangeInclusive(i64)) -> i64)(
+  range_inclusive : (fn(self : &mut Self, r : RangeInclusive(i64)) -> i64)(
     cond(
       (r.end < r.start) => __yo_panic("Rng.range_inclusive: empty range (end < start)"),
       // `end == i64.MAX` would overflow `end + 1`, so the full-width case
@@ -175,7 +173,7 @@ impl(
     )
   ),
   /// Fisher–Yates shuffle, in place.
-  shuffle : (fn(generic(T : Type), self : &Self, xs : &mut ArrayList(T)) -> unit)({
+  shuffle : (fn(generic(T : Type), self : &mut Self, xs : &mut ArrayList(T)) -> unit)({
     (mut(i) : usize) = xs.len();
     while(i > usize(1), {
       i = (i - usize(1));
@@ -186,7 +184,7 @@ impl(
     });
   }),
   /// A uniformly chosen element, or `.None` for an empty list.
-  choice : (fn(generic(T : Type), self : &Self, xs : &ArrayList(T)) -> Option(T))(
+  choice : (fn(generic(T : Type), self : &mut Self, xs : &ArrayList(T)) -> Option(T))(
     cond(
       (xs.len() == usize(0)) => Option(T).None,
       true => xs.get(usize(self.next_below(u64(xs.len()))))
@@ -218,11 +216,10 @@ _entropy_u64 :: (fn() -> u64)({
 /// OS entropy on that thread's first draw — Rust's `thread_rng`, and what the
 /// `rand_*` functions below draw from.
 ///
-/// `_RngState` rather than `Rng`, because `Rng` is `ref(struct(...))` and a
-/// thread-local may not hold a reference-counted value: C11 thread-local
-/// storage has no destructor hook, so one instance would leak per thread. The
-/// state is a plain two-`u64` struct, which is exactly the case thread-locals
-/// support (plans/reference/THREAD_LOCAL_STORAGE.md, Option 1).
+/// `_RngState` rather than `Rng`: the thread-local holds the bare two-`u64`
+/// state, which is exactly the case thread-locals support
+/// (plans/reference/THREAD_LOCAL_STORAGE.md, Option 1), and `Rng` adds only
+/// the methods.
 ///
 /// Seeding stays lazy: an OS entropy read at module-init time would be paid by
 /// every program that merely LINKS `std/rand`, and now by every thread that

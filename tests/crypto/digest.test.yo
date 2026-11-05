@@ -59,26 +59,42 @@ test("streaming split updates equal the one-shot digest", {
       true => second.push(b)
     );
   });
-  split1 := Sha1.new().update(&first).update(&second).finish_hex();
+  mut(hsplit1) := Sha1.new();
+  hsplit1.update(&first);
+  hsplit1.update(&second);
+  split1 := hsplit1.finish_hex();
   assert(split1 == sha1_hex(whole.to_bytes()), "sha1 split == one-shot");
-  split512 := Sha512.new().update(&first).update(&second).finish_hex();
+  mut(hsplit512) := Sha512.new();
+  hsplit512.update(&first);
+  hsplit512.update(&second);
+  split512 := hsplit512.finish_hex();
   assert(split512 == sha512_hex(whole.to_bytes()), "sha512 split == one-shot");
-  split256 := Sha256.new().update(&first).update(&second).finish_hex();
+  mut(hsplit256) := Sha256.new();
+  hsplit256.update(&first);
+  hsplit256.update(&second);
+  split256 := hsplit256.finish_hex();
   assert(split256 == sha256_hex(whole.to_bytes()), "sha256 split == one-shot");
-  splitmd5 := Md5.new().update(&first).update(&second).finish_hex();
+  mut(hsplitmd5) := Md5.new();
+  hsplitmd5.update(&first);
+  hsplitmd5.update(&second);
+  splitmd5 := hsplitmd5.finish_hex();
   assert(splitmd5 == md5_hex(whole.to_bytes()), "md5 streaming == one-shot");
 });
 test("Md5 streaming type matches RFC 1321 vectors", {
-  assert(Md5.new().update(_b("abc")).finish_hex() == `900150983cd24fb0d6963f7d28e17f72`, "abc");
+  mut(h) := Md5.new();
+  h.update(_b("abc"));
+  assert(h.finish_hex() == `900150983cd24fb0d6963f7d28e17f72`, "abc");
   assert(Md5.new().finish_hex() == `d41d8cd98f00b204e9800998ecf8427e`, "empty");
 });
 // The trait surface: a where-bound generic drives ANY hasher and gets
 // `finish_hex` from the trait DEFAULT.
 _hash_with :: (
   fn(comptime(D) : Type, data : &ArrayList(u8), where(D <: Digest)) -> String
-)(
-  (D <: Digest).finish_hex((D <: Digest).update((D <: Digest).new(), data))
-);
+)({
+  mut(h) := (D <: Digest).new();
+  (D <: Digest).update(&mut h, data);
+  (D <: Digest).finish_hex(h)
+});
 test("Digest trait: generic dispatch + the finish_hex default", {
   assert(_hash_with(Sha1, _b("abc")) == `a9993e364706816aba3e25717850c26c9cd0d89d`, "sha1 through the trait");
   assert(_hash_with(Sha256, _b("abc")) == `ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad`, "sha256 through the trait");

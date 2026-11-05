@@ -1386,12 +1386,17 @@ instead.
     - **Where it may appear.** `io.async`'s body slot and `io.await`'s
       operand accept a second-class argument (`second_class_slot`). Every
       other by-value slot rejects it, `io.spawn` included. Binding one to a
-      local is E0909 (`note_second_class_binding`). A return, whether
+      local was E0909 (`note_second_class_binding`) until decision 43 step 4:
+      since N3-1 (2026-11-05, VERDICTS-18 §B) a `:=` binding is bound with
+      its places frozen until the future's last use (E0911 on a conflicting
+      access); a `match` arm binding and a re-assignment stay E0909. A return, whether
       `return(...)`, a function's tail, a specialized body or a closure's
       tail, goes through `reject_second_class_return`: a borrowing future
       whose every borrow is rooted at a `&`/`&mut` parameter of the
       returning function is accepted.
-    - **Forwarding is not accepted yet.** A function that returns another
+    - **Forwarding was not accepted until decision 43 step 4** (N3-1
+      accepts it: the call's result names the callee's parameters and the
+      return rule maps them to what the call lent). A function that returns another
       function's borrowing future (`f(c : &mut C, io) -> …` returning
       `bump(&mut c, io)`) is rejected, because the call's borrows are rooted at
       the callee's parameters and are not re-rooted at the caller's. Await
@@ -2182,6 +2187,17 @@ and in git, not a silent edit.
       ```
     - **Phase.** It lands with `y := &place` and last-use live ranges, before
       the unique `Box`. The projection step lands with V2b.
+    - **As built (2026-11-05, VERDICTS-24, `fix/cursor-repoint-through-box`).**
+      The walk over `Option(Box(Node))` is accepted in both modes: a binding
+      of a bare `match` over `cur` is a place binding, and the `Box`
+      auto-deref is a value step (no pin), so `cur = &mut n.next` re-points
+      into the payload the declared place owns. `n` is frozen after a `&mut`
+      re-point (E0911, Rust's reborrow); after a `&` one it stays readable.
+      A by-value `match(cur.*, …)` is rejected ("a by-value `match` copies
+      or moves the payload"). `Option(Rc(Node))` is unchanged: the `&` walk
+      pins each cell, the `&mut` walk is E0919 (decision 46), so the mutable
+      list is the `Box` one. `recur(&mut n.next)` passes the field's address
+      through the named call's lowering (`_apply_ref_amp`).
 26. **A `match` takes its scrutinee by value, the way a parameter does; a
     borrowed scrutinee is matched through its borrow.** Revised 2026-10-05
     by the maintainer ("we need to do it right"). This replaces a first
@@ -5520,8 +5536,10 @@ a `SEED_VERSION` carrying Generation A, because the sweep rewrites `src/`,
       conservative: a use that only an earlier arm reaches still extends the
       range over a later arm's access.
     - **Places.** The steps stop at the first step into a reference cell
-      (`ref` objects, `Box`, `Rc`, `Arc`, `Dyn`: the cell is the unit), at an
+      (`ref` objects, `Rc`, `Arc`, `Dyn`: the cell is the unit), at an
       index, a dereference, or a member that is not a value-aggregate field.
+      A unique `Box`'s deref is a value step, not a stop: one slot owns its
+      payload (VERDICTS-24).
       Two places overlap when one is a prefix of the other; roots are
       identified by name and declaration token (a branch reassignment mints a
       new variable id).
@@ -5540,8 +5558,10 @@ a `SEED_VERSION` carrying Generation A, because the sweep rewrites `src/`,
       declared mode):
       the place is a field chain rooted at `cur` or at a
       `match` binding over `cur` (`local_borrow_note_pattern_binding`). A
-      `match` binding is a copy until decision 26's place bindings, so a
-      re-point through one must step into a cell. The declared place stays in
+      borrowed-scrutinee binding is a place binding (VERDICTS-13 §14), so a
+      re-point through it may cross a unique `Box` (a value step) or a cell;
+      a by-value scrutinee's binding is a copy, so a re-point through one
+      must step into a cell (VERDICTS-24). The declared place stays in
       the frozen set, and so does the binding a re-point went through.
     - **The step pin.** When the block re-points the borrow, the binding gets
       a hidden owning local (`record_local_borrow_step_pin`), declared null
@@ -5558,8 +5578,6 @@ a `SEED_VERSION` carrying Generation A, because the sweep rewrites `src/`,
       which brings the marks, the write-site assert and last-use release.
       Until then a conflict through two handles of one cell is not caught.
     - **The projection step** of "reached from `cur`", with V2b.
-    - **Re-points through a `match` binding without a cell step**, with
-      decision 26's `&mut` scrutinees.
   - **Generation B** has nothing to flip: `std/` and `src/` may use
     `y := &place` and re-points once `SEED_VERSION` carries this
     (`plans/backlog/SEED_VERSION_AUTOMATION.md`).

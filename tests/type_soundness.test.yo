@@ -942,41 +942,46 @@ test("soundness: a value struct cannot reach itself by value", {
     _bad_option :: struct(n : i64, memo : Option(Self));
     ()
   }, "recursive value struct");
-  // Reference indirection keeps the working shapes working: a ref struct may
-  // name itself through Option(Self) (pointer-sized), and an Rc cuts the path.
-  _ok_ref :: ref(struct(n : i64, memo : Option(Self)));
-  _ok_box :: struct(n : i64, next : Option(Rc(Self)));
+  // Indirection keeps the working shapes working: a Box or an Rc cuts the
+  // path (both are pointer-sized).
+  _ok_box :: struct(n : i64, memo : Option(Box(Self)));
+  _ok_rc :: struct(n : i64, next : Option(Rc(Self)));
   comptime_assert(true, "the indirect forms still check");
 });
 // issues/fixed/option-self-field-on-environment-splits-into-two-c-types.md:
-// a `ref(struct)` with an `Option(Self)` field, read back through a generic
+// a struct with an `Option(Self)` field (a `ref(struct)` until V5; an
+// `Option(Rc(Self))` field since), read back through a generic
 // specialization (`ArrayList(Env).get`), used to emit the specialization
 // returning the ABSTRACT `Option(T)` while the caller declared
 // `Option(<Env>)` — two C types, clang error. Fixed by the #939–#943 chain;
 // this pins the runtime behavior.
-test("soundness: a ref struct's Option(Self) survives a generic specialization", {
-  _osf_env :: ref(struct(n : i64, memo : Option(Self)));
-  _osf_first :: (fn(l : &ArrayList(_osf_env)) -> Option(_osf_env))(l.get(usize(0)));
+test("soundness: a struct's Option(Rc(Self)) survives a generic specialization", {
+  _osf_first :: (fn(l : &ArrayList(_osf_env)) -> Option(_osf_env))(l.get_cloned(usize(0)));
   mut(l) := ArrayList(_osf_env).new();
-  l.push(_osf_env(n : i64(5), memo : Option(_osf_env).None));
+  l.push(_osf_env(n : i64(5), memo : Option(Rc(_osf_env)).None));
   match(
     _osf_first(&l),
     .Some(e) => assert(e.n == i64(5), "the specialization returns the concrete Env"),
     .None => panic("the Option(Self) field made the read come back None")
   );
 });
+_osf_env :: struct(n : i64, memo : Option(Rc(Self)));
+derive(_osf_env, Clone);
 // ---------------------------------------------------------------------------
 // Phase 5.1/5.2/5.6: per-path move and initialization state
 // (issues/fixed/moving-a-variable-inside-a-loop-body-is-not-rejected.md,
 // issues/fixed/cond-arm-initialization-merge-check-never-fires.md,
 // issues/fixed/borrowed-arg-invalidated-by-aliased-container-mutation.md).
 // Each box counts its releases: a leak or a double release shows as a wrong
-// count.
+// count. A box is a shared handle (`Rc`) because the keeper cases hold a
+// second count of it.
 // ---------------------------------------------------------------------------
 (mut(g_p5_disposed) : i32) = i32(0);
-_P5Box :: ref(struct(tag : i32));
+_P5Val :: struct(tag : i32);
+_P5Box :: Rc(_P5Val);
+_p5_box :: (fn(tag : i32) -> _P5Box)(Rc.new(_P5Val(tag : tag)));
 impl(
-  _P5Box,
+  _P5Val,
   Drop(
     drop : (fn(self : &mut Self) -> unit)({
       g_p5_disposed = (g_p5_disposed + i32(1));
@@ -985,7 +990,7 @@ impl(
 );
 _p5_sink :: (fn(sink(b) : _P5Box) -> i32)(b.tag);
 _p5_early_return :: (fn(c : bool) -> i32)({
-  b := _P5Box(tag : i32(5));
+  b := _p5_box(i32(5));
   if(c, {
     return(_p5_sink(b));
   });
@@ -1002,8 +1007,8 @@ test("soundness: a move in an arm that returns does not reach the code after the
 // dispose the box while the keeper still holds it
 // (issues/fixed/a-move-in-a-returning-arm-is-released-again-at-the-return.md).
 _p5_early_return_kept :: (fn(c : bool, keep : &mut ArrayList(_P5Box)) -> i32)({
-  b := _P5Box(tag : i32(5));
-  keep.push(b);
+  b := _p5_box(i32(5));
+  keep.push(Rc.clone(&b));
   if(c, {
     return(_p5_sink(b));
   });
@@ -1022,8 +1027,8 @@ test("soundness: the returning arm releases its moved value once", {
 // evaluator attaches for a value moved later released it again
 // (issues/fixed/an-early-return-after-an-arm-move-releases-a-value-the-tail-also-moves.md).
 _p5_tail_move_kept :: (fn(c : bool, keep : &mut ArrayList(_P5Box)) -> i32)({
-  b := _P5Box(tag : i32(5));
-  keep.push(b);
+  b := _p5_box(i32(5));
+  keep.push(Rc.clone(&b));
   if(c, {
     return(_p5_sink(b));
   });
@@ -1032,8 +1037,8 @@ _p5_tail_move_kept :: (fn(c : bool, keep : &mut ArrayList(_P5Box)) -> i32)({
 // The arm moves the box in a statement before its return, and a sibling arm
 // returns without moving it: that return still releases the caller's box.
 _p5_tail_move_three_way :: (fn(k : i32, keep : &mut ArrayList(_P5Box)) -> i32)({
-  b := _P5Box(tag : k);
-  keep.push(b);
+  b := _p5_box(k);
+  keep.push(Rc.clone(&b));
   cond(
     (k == i32(0)) => {
       t := _p5_sink(b);
@@ -1109,17 +1114,17 @@ _p5_ret_f :: (fn(sink(h) : _P5Box) -> _P5Box)({
 test("Phase 5: an owning parameter returned from an untaken conditional is dropped once", {
   before := g_p5_disposed;
   {
-    r_a := _p5_ret_a(_P5Box(tag : i32(1)));
-    r_b := _p5_ret_b(_P5Box(tag : i32(1)));
-    r_c := _p5_ret_c(_P5Box(tag : i32(1)));
-    r_d := _p5_ret_d(_P5Box(tag : i32(1)));
-    r_f := _p5_ret_f(_P5Box(tag : i32(1)));
+    r_a := _p5_ret_a(_p5_box(i32(1)));
+    r_b := _p5_ret_b(_p5_box(i32(1)));
+    r_c := _p5_ret_c(_p5_box(i32(1)));
+    r_d := _p5_ret_d(_p5_box(i32(1)));
+    r_f := _p5_ret_f(_p5_box(i32(1)));
     assert((r_a.tag + r_b.tag + r_c.tag + (r_d.tag + r_f.tag)) == i32(5), "every shape returned its box");
   };
   assert(g_p5_disposed == (before + i32(5)), `each box released exactly once, got ${(g_p5_disposed - before).to_string()}`);
 });
 _p5_move_on_break :: (fn(n : i32) -> i32)({
-  b := _P5Box(tag : n);
+  b := _p5_box(n);
   (mut(i) : i32) = i32(0);
   (mut(r) : i32) = i32(0);
   while(true, {
@@ -1170,7 +1175,7 @@ _p5_clobber_list :: (fn(a : &mut ArrayList(_P5Box), b : &ArrayList(_P5Box)) -> u
   (mut(i) : i32) = i32(0);
   while(i < i32(3), {
     a.* = ArrayList(_P5Box).new();
-    a.push(_P5Box(tag : i));
+    a.push(_p5_box(i));
     i = (i + i32(1));
   });
   b.len()
@@ -1178,13 +1183,13 @@ _p5_clobber_list :: (fn(a : &mut ArrayList(_P5Box), b : &ArrayList(_P5Box)) -> u
 test("soundness: a collection lent both &mut and & to one call is E0910", {
   comptime_expect_error({
     mut(xs) := ArrayList(_P5Box).new();
-    xs.push(_P5Box(tag : i32(7)));
+    xs.push(_p5_box(i32(7)));
     _p5_clobber_list(&mut xs, &xs)
   }, "decision 28's value-root rule");
   before := g_p5_disposed;
   {
     mut(xs) := ArrayList(_P5Box).new();
-    xs.push(_P5Box(tag : i32(7)));
+    xs.push(_p5_box(i32(7)));
     ys := ArrayList(_P5Box).new();
     n := _p5_clobber_list(&mut xs, &ys);
     assert(n == usize(0), "the separate list was lent beside it");
@@ -1283,10 +1288,11 @@ test("soundness: an operator unit does not implement is rejected", {
 // ---------------------------------------------------------------------------
 // issues/fixed/a-reference-value-read-after-a-sink-move-reads-freed-memory.md:
 // a `sink` move consumes the name. Reading a moved reference value read the
-// cell its new owner had already released.
+// cell its new owner had already released (a `ref(struct)` until V5; a
+// `Drop` value since, whose move is the same consumption).
 // ---------------------------------------------------------------------------
 (mut(g_sink_read_disposed) : i32) = i32(0);
-_SinkReadBox :: ref(struct(n : i32));
+_SinkReadBox :: struct(n : i32);
 impl(
   _SinkReadBox,
   Drop(

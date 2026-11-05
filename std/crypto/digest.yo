@@ -13,15 +13,12 @@
 //! unstable — the trait works and is exercised generically
 //! (`tests/crypto/digest.test.yo` hashes through a `where(D <: Digest)`
 //! bound and checks `digest_size` / `block_size`), but it is deliberately
-//! the minimum HMAC needed and two shape questions are open. There is no
-//! `reset`, so generic code cannot reuse a hasher and must build a new one
-//! per message; and `finish_bytes` does not CONSUME the hasher (Yo has no
-//! by-value `self` for a `ref` type here), so the trait cannot express
-//! "finalise exactly once" the way RustCrypto's `Digest::finalize(self)`
-//! does — every implementor's `finish` is single-use by convention, and
-//! the convention is documented rather than enforced. Freezing needs both
-//! calls made. Adding a method with a default (as `finish_hex` already is)
-//! stays additive; adding a required one does not.
+//! the minimum HMAC needed. `update` lends the hasher (`&mut Self`) and
+//! `finish_bytes` consumes it, as RustCrypto's `Digest::finalize(self)`
+//! does, so "finalise exactly once" is enforced: a second finish is a use
+//! after move (E0901). There is no `reset`: generic code builds a new
+//! hasher per message. Adding a method with a default (as `finish_hex`
+//! already is) stays additive; adding a required one does not.
 { ArrayList } :: import("../collections/array_list");
 hex :: import("../encoding/hex");
 { String } :: import("../string");
@@ -41,22 +38,23 @@ hex :: import("../encoding/hex");
 /// returns a fixed-size `Array(u8, N)`. Prefer the inherent one when the
 /// algorithm is known at the call site; it does not allocate.
 ///
-/// `finish_bytes` leaves the hasher in its finalised state rather than
-/// consuming it: hash one message per hasher and drop it.
+/// `update` writes the hasher in place (`mut(h) := D.new();
+/// D.update(&mut h, &data);`) and `finish_bytes` consumes it: one hasher,
+/// one message.
 Digest :: trait(
   /// A fresh hasher.
   new : (fn() -> Self),
-  /// Feed more data.
-  update : (fn(self : &Self, data : &ArrayList(u8)) -> Self),
+  /// Feed more data, in place.
+  update : (fn(self : &mut Self, data : &ArrayList(u8)) -> unit),
   /// The digest length in bytes (32/64/20/16).
   digest_size : (fn() -> usize),
   /// The compression block size in bytes (64, or 128 for SHA-512) — what
   /// HMAC pads keys to.
   block_size : (fn() -> usize),
-  /// Finalise and return the digest as bytes.
-  finish_bytes : (fn(self : &Self) -> ArrayList(u8)),
-  /// Finalise and return the lowercase hex digest.
-  (finish_hex : (fn(self : &Self) -> String)) ?=
+  /// Finalise, consuming the hasher, and return the digest as bytes.
+  finish_bytes : (fn(self : Self) -> ArrayList(u8)),
+  /// Finalise, consuming the hasher, and return the lowercase hex digest.
+  (finish_hex : (fn(self : Self) -> String)) ?=
     (self -> hex.encode(Self.finish_bytes(self)))
 );
 export(Digest);

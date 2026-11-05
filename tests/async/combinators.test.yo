@@ -905,7 +905,7 @@ test("Test a stream loop suspends its task between items", {
 });
 // issues/fixed/an-io-async-body-never-releases-a-closure-parameter-bound-by-a-type-variable.md
 (mut(g_fe_disposed) : i32) = i32(0);
-_FeThing :: ref(struct(n : i32));
+_FeThing :: struct(n : i32);
 impl(
   _FeThing,
   Drop(
@@ -921,8 +921,9 @@ test("Stream.for_each releases what its body closure captures", {
     total := Rc.new(RefCell(i32).new(0));
     io.await(
       Countdown(_n : i32(3)).for_each({ t, total : Rc.clone(total) }(x) => {
+        k := t.n;
         total.with_mut(cur => {
-          cur.* = (cur.* + (x.* * t.n));
+          cur.* = (cur.* + (x.* * k));
         });
       }, io),
       io
@@ -1130,10 +1131,12 @@ test("A4: two operands of one combinator may not lend overlapping places with a 
 });
 test("A4: a combinator over a borrowing future is itself second-class", {
   mut(c) := _A4Counter(n : i32(0));
+  // Decision 43 step 4: bound, it freezes what its operand lends.
   comptime_expect_error({
     f := _a4_done(_a4_bump_after(&mut c, u64(1), io), io);
-    ()
-  }, "would hold a borrowing future");
+    c.n = i32(5);
+    io.await(f, io)
+  }, "Cannot write `c.n` here");
   comptime_expect_error(io.spawn(_a4_done(_a4_bump_after(&mut c, u64(1), io), io), io), "spawned or moved into a by-value parameter");
   comptime_expect_error(io.spawn(_a4_bump_after(&mut c, u64(1), io), io), "spawned or moved into a by-value parameter");
   comptime_expect_error(_a4_eat(_a4_bump_after(&mut c, u64(1), io)), "spawned or moved into a by-value parameter");
@@ -1331,6 +1334,45 @@ test("A4: select over two borrowing futures of disjoint places", {
   s2 := io.await(select(_a4_read_after(&a, u64(1), io), _a4_read_after(&a, u64(300), io), io), io);
   assert(match(s2, .Some(.First(v)) => (v == i32(0)), _ => false), "two & operands over one place");
 });
+_A4Pair :: struct(a : _A4Counter, b : _A4Counter);
+// Decision 43 step 4 (VERDICTS-18 §B) canary: a parameter-level origin
+// over-freezes a field capture, but two futures over disjoint fields of one
+// struct are still accepted together, made in place or bound first.
+test("N3-1: select over two borrowing futures of disjoint fields of one struct", {
+  mut(p) := _A4Pair(a : _A4Counter(n : i32(0)), b : _A4Counter(n : i32(100)));
+  s := io.await(select(_a4_bump_after(&mut p.a, u64(300), io), _a4_bump_after(&mut p.b, u64(1), io), io), io);
+  assert(match(s, .Some(.Second(v)) => (v == i32(101)), _ => false), "the faster operand won");
+  fa := _a4_bump_after(&mut p.a, u64(1), io);
+  fb := _a4_read_after(&p.b, u64(300), io);
+  s2 := io.await(select(fa, fb, io), io);
+  assert(match(s2, .Some(.First(v)) => (v == i32(1)), _ => false), "two bound futures over disjoint fields");
+  io.await(sleep(u64(350)), io);
+  assert(p.a.n == i32(1), "the first field took its write");
+  assert(p.b.n == i32(101), "the second field kept the earlier write");
+});
+// A bound borrowing future handed to a combinator: the combinator's future
+// holds what the operand held, so the places stay frozen past the operand's
+// own last use, until the combinator's future is done.
+test("N3-1: a combinator over a bound borrowing future keeps its places frozen", {
+  mut(p) := _A4Pair(a : _A4Counter(n : i32(0)), b : _A4Counter(n : i32(100)));
+  comptime_expect_error({
+    fa := _a4_bump_after(&mut p.a, u64(1), io);
+    s := select(fa, _a4_read_after(&p.b, u64(5), io), io);
+    p.a.n = i32(7);
+    io.await(s, io)
+  }, "Cannot write `p.a.n` here");
+  comptime_expect_error({
+    fb := _a4_read_after(&p.b, u64(1), io);
+    s := select(_a4_bump_after(&mut p.a, u64(5), io), fb, io);
+    p.b.n = i32(7);
+    io.await(s, io)
+  }, "Cannot write `p.b.n` here");
+  fa := _a4_bump_after(&mut p.a, u64(1), io);
+  s := select(fa, _a4_read_after(&p.b, u64(300), io), io);
+  _r := io.await(s, io);
+  p.a.n = i32(7);
+  assert(p.a.n == i32(7), "the freeze ends with the combinator's last use");
+});
 test("A4: select's two operands may not lend overlapping places with a &mut side (decision 38 B)", {
   mut(c) := _A4Counter(n : i32(0));
   comptime_expect_error(
@@ -1357,8 +1399,9 @@ test("A4: timeout over a borrowing future is itself second-class", {
   mut(c) := _A4Counter(n : i32(0));
   comptime_expect_error({
     f := timeout(_a4_bump_after(&mut c, u64(1), io), Duration.from_millis(i64(5)), io);
-    ()
-  }, "would hold a borrowing future");
+    c.n = i32(5);
+    io.await(f, io)
+  }, "Cannot write `c.n` here");
   comptime_expect_error(io.spawn(timeout(_a4_bump_after(&mut c, u64(1), io), Duration.from_millis(i64(5)), io), io), "spawned or moved into a by-value parameter");
 });
 /// `timeout` and `select` inside a task: the lent locals live in the task's
@@ -1435,8 +1478,9 @@ test("A4: a combinator specialized for a first-class operand still checks a borr
   );
   comptime_expect_error({
     f := _a4_with_k(_a4_bump_after(&mut c, u64(1), io), i32(2), io);
-    ()
-  }, "would hold a borrowing future");
+    c.n = i32(5);
+    io.await(f, io)
+  }, "Cannot write `c.n` here");
   assert(io.await(_a4_with_k(_a4_bump_after(&mut c, u64(1), io), i32(2), io), io) == i32(1), "the borrowing operand ran");
   assert(c.n == i32(1), "the operand wrote through its borrow");
 });

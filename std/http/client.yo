@@ -66,24 +66,22 @@ IO_timer :: import("../sys/timer");
 // FetchOptions
 // ============================================================================
 /// Options for configuring an HTTP request.
-FetchOptions :: ref(
-  struct(
-    method : HttpMethod,
-    headers : HeaderMap,
-    body : String,
-    /// Deadline for the WHOLE request, redirects included — `.None` waits
-    /// forever. On expiry the in-flight connection is aborted and `fetch`
-    /// throws `HttpError.Timeout`.
-    timeout : Option(Duration),
-    /// How many 3xx `Location` hops to follow before throwing
-    /// `HttpError.TooManyRedirects`. `0` returns the first 3xx verbatim.
-    max_redirects : usize,
-    /// Ceiling on the raw response bytes (headers + body) buffered into
-    /// memory before `HttpError.ResponseTooLarge` is thrown; `0` = unlimited.
-    /// This client buffers the whole response into a `String`, so the
-    /// default (64 MiB) is what stands between an unbounded server and OOM.
-    max_response_bytes : usize
-  )
+FetchOptions :: struct(
+  method : HttpMethod,
+  headers : HeaderMap,
+  body : String,
+  /// Deadline for the WHOLE request, redirects included — `.None` waits
+  /// forever. On expiry the in-flight connection is aborted and `fetch`
+  /// throws `HttpError.Timeout`.
+  timeout : Option(Duration),
+  /// How many 3xx `Location` hops to follow before throwing
+  /// `HttpError.TooManyRedirects`. `0` returns the first 3xx verbatim.
+  max_redirects : usize,
+  /// Ceiling on the raw response bytes (headers + body) buffered into
+  /// memory before `HttpError.ResponseTooLarge` is thrown; `0` = unlimited.
+  /// This client buffers the whole response into a `String`, so the
+  /// default (64 MiB) is what stands between an unbounded server and OOM.
+  max_response_bytes : usize
 );
 /// Default redirect cap — what browsers and curl use.
 DEFAULT_MAX_REDIRECTS :: usize(10);
@@ -104,36 +102,44 @@ impl(
     )
   ),
   /// Set the HTTP method.
-  with_method : (fn(self : &Self, method : HttpMethod) -> Self)({
-    self.method = method;
-    self
+  with_method : (fn(self : Self, method : HttpMethod) -> Self)({
+    mut(o) := self;
+    o.method = method;
+    o
   }),
   /// Add a request header.
-  with_header : (fn(self : &Self, name : &String, value : &String) -> Self)({
-    self.headers.append(name, value);
-    self
+  with_header : (fn(self : Self, name : &String, value : &String) -> Self)({
+    mut(o) := self;
+    o.headers.append(name, value);
+    o
   }),
   /// Set the request body.
-  with_body : (fn(self : &Self, body : &String) -> Self)({
-    self.body = body.clone();
-    self
+  with_body : (fn(self : Self, body : &String) -> Self)({
+    mut(o) := self;
+    o.body = body.clone();
+    o
   }),
   /// Give the whole request (redirects included) a deadline.
-  with_timeout : (fn(self : &Self, limit : Duration) -> Self)({
-    self.timeout = Option(Duration).Some(limit);
-    self
+  with_timeout : (fn(self : Self, limit : Duration) -> Self)({
+    mut(o) := self;
+    o.timeout = Option(Duration).Some(limit);
+    o
   }),
   /// Cap the number of redirect hops followed (`0` = return 3xx verbatim).
-  with_max_redirects : (fn(self : &Self, n : usize) -> Self)({
-    self.max_redirects = n;
-    self
+  with_max_redirects : (fn(self : Self, n : usize) -> Self)({
+    mut(o) := self;
+    o.max_redirects = n;
+    o
   }),
   /// Cap the raw response bytes buffered into memory (`0` = unlimited).
-  with_max_response_bytes : (fn(self : &Self, n : usize) -> Self)({
-    self.max_response_bytes = n;
-    self
+  with_max_response_bytes : (fn(self : Self, n : usize) -> Self)({
+    mut(o) := self;
+    o.max_response_bytes = n;
+    o
   })
 );
+// A request's future owns a copy of its options (`_fetch_once`).
+derive(FetchOptions, Clone);
 export(FetchOptions, DEFAULT_MAX_REDIRECTS, DEFAULT_MAX_RESPONSE_BYTES);
 // ============================================================================
 // Internal: the transport a request runs over
@@ -561,7 +567,7 @@ _prepare :: (fn(url_str : &String, opts : &FetchOptions, keep_alive : bool, exn 
     },
     .None => ()
   );
-  req := HttpRequest.new(opts.method, &req_path);
+  mut(req) := HttpRequest.new(opts.method, &req_path);
   req.set_host(&host);
   // Add user-provided headers. APPEND, not set: a caller who added the same
   // name twice (two Accept-Encoding values, say) meant both, and `set_header`
@@ -666,9 +672,10 @@ _fetch_once :: (
     Impl(Future(HttpResponse, IoExn))
 )({
   url_str_owned := url_str.clone();
+  opts_owned := opts.clone();
   io.async(e => {
-    prep := _prepare(&url_str_owned, opts, pool.is_some(), e.exn);
-    idempotent := _is_idempotent(opts.method);
+    prep := _prepare(&url_str_owned, &opts_owned, pool.is_some(), e.exn);
+    idempotent := _is_idempotent(opts_owned.method);
     (mut(out) : Option(HttpResponse)) = Option(HttpResponse).None;
     // A `done`/`attempt` pair rather than break/continue: an awaiting loop is
     // a state machine (C24), and every await below sits at most ONE branch
@@ -721,7 +728,7 @@ _fetch_once :: (
       conn := match(conn_opt, .Some(c) => c, .None => __yo_panic("unreachable: no connection"));
       _wn := e.io.await(conn.write_string(&prep.request, e.io), e);
       framed := e.io.await(
-        read_http_message_buffered(&conn, opts.max_response_bytes, prep.kind, &carry, e.io),
+        read_http_message_buffered(&conn, opts_owned.max_response_bytes, prep.kind, &carry, e.io),
         e
       );
       (mut(raw) : String) = String.new();
@@ -862,9 +869,11 @@ _fetch_follow :: (
     Impl(Future(HttpResponse, IoExn))
 )({
   url_str_owned := url_str.clone();
+  opts_owned := opts.clone();
+  max_redirects := opts.max_redirects;
   io.async(e => {
     mut(current) := url_str_owned.clone();
-    mut(hop_opts) := opts;
+    mut(hop_opts) := opts_owned.clone();
     mut(hops) := usize(0);
     (mut(result) : Option(HttpResponse)) = Option(HttpResponse).None;
     // A `done` flag rather than break/continue: the awaiting loop is a
@@ -876,11 +885,11 @@ _fetch_follow :: (
       // `max_redirects == 0` means "do not follow": the first 3xx comes back
       // verbatim (reqwest's `Policy::none`). Otherwise the cap counts hops
       // FOLLOWED, so the (max+1)th 3xx throws.
-      follow := (resp.is_redirect() && !location.is_empty() && (opts.max_redirects > usize(0)));
+      follow := (resp.is_redirect() && !location.is_empty() && (max_redirects > usize(0)));
       cond(
         follow => {
           cond(
-            (hops >= opts.max_redirects) => {
+            (hops >= max_redirects) => {
               e.exn.throw(dyn(HttpError.TooManyRedirects));
             },
             true => ()
@@ -957,12 +966,13 @@ _fetch_deadline :: (
     Impl(Future(HttpResponse, IoExn))
 )({
   url_str_owned := url_str.clone();
+  opts_owned := opts.clone();
   io.async(e => {
     (mut(result) : HttpResponse) = HttpResponse.new(StatusCode.OK(), ``);
     match(
-      opts.timeout,
+      opts_owned.timeout,
       .None => {
-        result = e.io.await(_fetch_follow(&url_str_owned, opts, pool, e.io), e);
+        result = e.io.await(_fetch_follow(&url_str_owned, &opts_owned, pool, e.io), e);
       },
       .Some(limit) => {
         // Run the whole exchange as a spawned TASK raced against the
@@ -977,7 +987,7 @@ _fetch_deadline :: (
         //
         // A connection cut off here is owned by the aborted state machine, so
         // its `Drop` closes it — it never reaches the pool.
-        h := e.io.spawn(_fetch_follow(&url_str_owned, opts, pool, e.io), e);
+        h := e.io.spawn(_fetch_follow(&url_str_owned, &opts_owned, pool, e.io), e);
         match(
           e.io.await(_deadline_join(h, limit, e.io), e.io),
           .Done(resp) => {
@@ -1019,10 +1029,11 @@ fetch_with :: (
     Impl(Future(HttpResponse, IoExn))
 )({
   url_str_owned := url_str.clone();
+  opts_owned := opts.clone();
   io.async(e => {
     // Hoisted: `io.await` directly inside `return(...)` is rejected by the
     // async state-machine codegen (a restriction `yo check` cannot see).
-    resp := e.io.await(_fetch_deadline(&url_str_owned, opts, Option(*_HttpClientState).None, e.io), e);
+    resp := e.io.await(_fetch_deadline(&url_str_owned, &opts_owned, Option(*_HttpClientState).None, e.io), e);
     return(resp);
   })
 });

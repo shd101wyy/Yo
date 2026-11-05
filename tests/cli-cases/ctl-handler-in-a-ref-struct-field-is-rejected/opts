@@ -1,4 +1,5 @@
-# A ref struct cannot hold a `ctl` handler: the object outlives the frame the handler
-# unwinds into (Phase 5.5).
+# A shared cell cannot hold a `ctl` handler: the cell outlives the frame the handler
+# unwinds into (Phase 5.5). The case pinned a `ref(struct)` field until V5; the same
+# rule rejects an `Rc` whose payload holds the handler (a value struct may hold one).
 stdout_keep_match=error(\[E[0-9]+\])?: .*|--> main\.yo:[0-9]+:[0-9]+
 timeout=120

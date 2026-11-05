@@ -10,6 +10,7 @@ log :: import("std/log");
 { env } :: import("std/env");
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
+{ RefCell } :: import("std/sync/refcell");
 /// `LEVEL|target|msg` for the level `l` — built the same way `Recorder` does,
 /// so the expectation does not hardcode `Level.to_string()`'s column padding
 /// (`"INFO "`, note the trailing space). That padding is the DEFAULT
@@ -23,16 +24,17 @@ _row :: (fn(l : log.Level, target : &String, msg : &String) -> String)({
   out.push_string(msg);
   out
 });
-/// A sink that keeps every record, so a test can look at it.
-Recorder :: ref(
-  struct(
-    lines : ArrayList(String)
-  )
+/// A sink that keeps every record, so a test can look at it. The installed
+/// sink and the test both hold the record list, so it is shared: an
+/// `Rc(RefCell(...))` field, and `Recorder` clones the handle.
+Recorder :: struct(
+  lines : Rc(RefCell(ArrayList(String)))
 );
+derive(Recorder, Clone);
 impl(
   Recorder,
   new : (fn() -> Self)(
-    Self(lines : ArrayList(String).new())
+    Self(lines : Rc.new(RefCell(ArrayList(String)).new(ArrayList(String).new())))
   )
 );
 impl(
@@ -44,7 +46,7 @@ impl(
       row.push_string(target);
       row.push_str("|");
       row.push_string(msg);
-      self.lines.push(row);
+      self.lines.with_mut({ row }(l) => l.push(row));
     })
   )
 );
@@ -66,48 +68,48 @@ test("level_from_string rejects anything else", {
 test("a Sink receives the record's parts", {
   log.set_level(log.Level.Trace);
   r := Recorder.new();
-  log.set_sink(dyn(r));
+  log.set_sink(dyn(r.clone()));
   log.info(`plain message`);
   log.log_target(log.Level.Warn, "mymod", `targeted message`);
   log.clear_sink();
   log.set_level(log.Level.Info);
-  assert(r.lines.len() == usize(2), "both records arrived");
-  assert(r.lines(usize(0)) == _row(log.Level.Info, ``, `plain message`), "level, empty target, message");
-  assert(r.lines(usize(1)) == _row(log.Level.Warn, `mymod`, `targeted message`), "and the target when one was given");
+  assert(r.lines.with(l => l.len()) == usize(2), "both records arrived");
+  assert(r.lines.with(l => (l(usize(0)) == _row(log.Level.Info, ``, `plain message`))), "level, empty target, message");
+  assert(r.lines.with(l => (l(usize(1)) == _row(log.Level.Warn, `mymod`, `targeted message`))), "and the target when one was given");
 });
 test("the level filter still applies with a sink installed", {
   log.set_level(log.Level.Warn);
   r := Recorder.new();
-  log.set_sink(dyn(r));
+  log.set_sink(dyn(r.clone()));
   log.debug(`suppressed`);
   log.info(`also suppressed`);
   log.warn(`kept`);
   log.error(`also kept`);
   log.clear_sink();
   log.set_level(log.Level.Info);
-  assert(r.lines.len() == usize(2), "only the two at or above Warn");
-  assert(r.lines(usize(0)) == _row(log.Level.Warn, ``, `kept`), "the warn record");
-  assert(r.lines(usize(1)) == _row(log.Level.Error, ``, `also kept`), "the error record");
+  assert(r.lines.with(l => l.len()) == usize(2), "only the two at or above Warn");
+  assert(r.lines.with(l => (l(usize(0)) == _row(log.Level.Warn, ``, `kept`))), "the warn record");
+  assert(r.lines.with(l => (l(usize(1)) == _row(log.Level.Error, ``, `also kept`))), "the error record");
 });
 test("Off silences a sink completely", {
   log.set_level(log.Level.Off);
   r := Recorder.new();
-  log.set_sink(dyn(r));
+  log.set_sink(dyn(r.clone()));
   log.error(`not delivered`);
   log.clear_sink();
   log.set_level(log.Level.Info);
-  assert(r.lines.len() == usize(0), "nothing reached the sink");
+  assert(r.lines.with(l => l.len()) == usize(0), "nothing reached the sink");
 });
 test("clear_sink stops delivery to the old sink", {
   log.set_level(log.Level.Trace);
   r := Recorder.new();
-  log.set_sink(dyn(r));
+  log.set_sink(dyn(r.clone()));
   log.info(`before`);
   log.clear_sink();
   log.info(`after`);
   log.set_level(log.Level.Info);
-  assert(r.lines.len() == usize(1), "only the record logged while it was installed");
-  assert(r.lines(usize(0)) == _row(log.Level.Info, ``, `before`), "the one before clearing");
+  assert(r.lines.with(l => l.len()) == usize(1), "only the record logged while it was installed");
+  assert(r.lines.with(l => (l(usize(0)) == _row(log.Level.Info, ``, `before`))), "the one before clearing");
 });
 test("init_from_env applies YO_LOG", {
   log.set_level(log.Level.Info);

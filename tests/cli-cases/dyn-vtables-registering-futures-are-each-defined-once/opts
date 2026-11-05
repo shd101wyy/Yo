@@ -1,6 +1,18 @@
-# Both programs must compile. Each trait count puts a type-table resize inside
-# codegen's dyn-declaration walk (36 near the 224-entry threshold, 78 near the
-# 448 one; measured windows 34–38 and 72–84). Before the fix the C failed to
-# compile: vtable and Future structs defined twice (`redefinition of`).
+# Every program must compile. Each trait count N puts a type-table resize
+# inside codegen's pass-5 dyn/future declaration walk; before the fix that walk
+# iterated the live map, revisited the entries a rehash relocated, and defined
+# their vtables and Future structs twice (`redefinition of`).
+#
+# The windows drift with the type count (std changes move them), so they are
+# re-measured, not assumed. Measured 2026-11-05 on develop 68b45b81d, with a
+# scratch build printing context.types' capacity before and after pass 5, for
+# N = 1..128 of this fixture's shape (value `S_i :: struct(n : i32)`, futures
+# capturing `{ n : self.n }`): the capacity changes inside the walk for exactly
+# N = 3 (64 -> 128), 10 (128 -> 256), 22-24 (256 -> 512), 47-52 (512 -> 1024)
+# and 97-108 (1024 -> 2048). One program sits at the centre of each window:
+# w3, w10, w23, w50, w102. (The v0.2.48 windows, 34-38 and 72-84, were for
+# `ref` structs; on 68b45b81d the `ref` shape's are 28-32 and 60-69, so the
+# old w36/w78 pins had already drifted out.) Re-measure when this case can no
+# longer fail on a pre-fix walk.
 stdout_keep_match=^Using .*|.*redefinition of.*
 timeout=300

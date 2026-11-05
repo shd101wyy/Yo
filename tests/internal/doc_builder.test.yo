@@ -75,7 +75,7 @@ test("is_compiler_internal_field_name: temp-LOOKING user names stay documented",
 /// Two types in one file, each documenting a `new` — the exact shape that
 /// crossed prose when the lookup was keyed by bare name.
 _twin_new_source :: (fn() -> String)(
-  `/// A plain value struct.\nVs :: struct(x : i32);\nimpl(\n  Vs,\n  /// Make one.\n  new : (fn(x : i32) -> Self)(Self(x)),\n  /// Read it.\n  get : (fn(self : Self) -> i32)(self.x)\n);\n/// A ref struct.\nRs :: ref(struct(y : i32));\nimpl(\n  Rs,\n  /// Make a ref one.\n  new : (fn(y : i32) -> Self)(Self(y))\n);\n`
+  `/// A plain value struct.\nVs :: struct(x : i32);\nimpl(\n  Vs,\n  /// Make one.\n  new : (fn(x : i32) -> Self)(Self(x)),\n  /// Read it.\n  get : (fn(self : Self) -> i32)(self.x)\n);\n/// A second value struct.\nRs :: struct(y : i32);\nimpl(\n  Rs,\n  /// Make the other one.\n  new : (fn(y : i32) -> Self)(Self(y))\n);\n`
 );
 /// One method's `doc` by name, or `.None` when the list has no such member.
 _method_doc_of :: (fn(methods : &ArrayList(DocFunction), name : &String) -> Option(String))({
@@ -129,7 +129,7 @@ test("a same-named impl member keeps its own receiver's doc comment", {
     .None => ArrayList(DocFunction).new()
   );
   assert(
-    _is_doc(_method_doc_of(&rs_methods, `new`), `Make a ref one.`),
+    _is_doc(_method_doc_of(&rs_methods, `new`), `Make the other one.`),
     "Rs.new keeps its own comment instead of overwriting Vs.new's"
   );
 });
@@ -150,7 +150,7 @@ test("the impl scan records receiver-qualified doc keys for the registry lookups
   mut(lookup) := build_doc_lookup(extract_doc_comments(&tokens));
   extract_impl_info_from_tokens(&tokens, &mut lookup);
   assert(_is_doc(lookup.get_cloned(`Vs.new`), `Make one.`), "a qualified key for Vs.new");
-  assert(_is_doc(lookup.get_cloned(`Rs.new`), `Make a ref one.`), "a qualified key for Rs.new");
+  assert(_is_doc(lookup.get_cloned(`Rs.new`), `Make the other one.`), "a qualified key for Rs.new");
   assert(_is_doc(lookup.get_cloned(`Vs.get`), `Read it.`), "a qualified key for the unique member");
 });
 test("a doc comment separated from the member by a plain note still attaches", {

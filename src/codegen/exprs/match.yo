@@ -17,7 +17,7 @@
 { HashMap } :: import("std/collections/hash_map");
 { AstExpr, ast_expr_id, ast_expr_is_atom, ast_expr_is_fn_call_of, ast_expr_token, ast_expr_text, make_err_expr, BK_BEGIN, BF_DOT } :: import("../../expr.yo");
 { EvalValue } :: import("../../value.yo");
-{ TypeValue, TypeValueNode, no_types, no_labels, SharedList } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, no_types, no_labels, SharedList, t_slot_is_borrow, t_slot_pointee } :: import("../../types/definitions.yo");
 {
   has_any_control_flow,
   expr_info_case_executed,
@@ -67,8 +67,12 @@ _is_word_byte :: (fn(b : u8) -> bool)(
 _emit_pattern_binding_decl :: (
   fn(context : &mut FunctionGenerationContext, indent : &String, bind : &String, ty : &TypeValue, init_code : &String) -> unit
 )({
-  tstr := get_type_string(ty, &mut context.base);
-  if(init_code.contains(bind.clone()), {
+  // A reference payload's binding is a reference binding: a `T*` local, as
+  // `r := &x`'s is, whatever the payload field's `const` (a `&` binding is
+  // read-only in the checker, not in C).
+  tstr := if(t_slot_is_borrow(ty), `${get_type_string(&t_slot_pointee(ty), &context.base)}*`, get_type_string(ty, &mut context.base));
+  init_c := if(t_slot_is_borrow(ty), `((${tstr})(${init_code}))`, init_code.clone());
+  if(init_c.contains(bind.clone()), {
     mut(tmp) := String.from("__yo_pat_");
     tmp.push_string(bind.clone());
     mut(l1) := indent.clone();
@@ -76,7 +80,7 @@ _emit_pattern_binding_decl :: (
     l1.push_str(" ");
     l1.push_string(tmp.clone());
     l1.push_str(" = ");
-    l1.push_string(init_code.clone());
+    l1.push_string(init_c.clone());
     l1.push_str(";");
     context.base.emitter.emit_string_line(&l1);
     mut(l2) := indent.clone();
@@ -93,10 +97,16 @@ _emit_pattern_binding_decl :: (
     l.push_str(" ");
     l.push_string(bind.clone());
     l.push_str(" = ");
-    l.push_string(init_code.clone());
+    l.push_string(init_c.clone());
     l.push_str(";");
     context.base.emitter.emit_string_line(&l);
-  })
+  });
+  // A reference payload's binding holds the pointer and the evaluator binds
+  // it as a reference binding (decision 43 step 3): reads go through it, as
+  // a `mut` match's place binding's do.
+  if(t_slot_is_borrow(ty), {
+    _place_add(context, bind);
+  });
 });
 /// Emit `<T>* bind = &(path);` — a `mut` match's place binding
 /// (plans/VALUES_BY_DEFAULT.md decision 26): the binding points at the part,

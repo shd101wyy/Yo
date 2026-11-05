@@ -10,9 +10,7 @@
 //! { Exception, AnyError } :: import("std/error");
 //!
 //! main :: (fn(io : Io, exn : Exception) -> unit)({
-//!   cmd := Command.new(`echo`);
-//!   cmd.arg(`hello`);
-//!   cmd.arg(`world`);
+//!   cmd := Command.new(`echo`).arg(`hello`).arg(`world`);
 //!   out := io.await(cmd.output(io), { io, exn });
 //!   assert(out.status.success(), "echo should succeed");
 //! });
@@ -29,9 +27,7 @@
 //! { Command, Stdio } :: import("std/process/command");
 //! { BufReader } :: import("std/io/buffered");
 //!
-//! cmd := Command.new(`sort`);
-//! cmd.stdin(Stdio.Piped);
-//! cmd.stdout(Stdio.Piped);
+//! cmd := Command.new(`sort`).stdin(Stdio.Piped).stdout(Stdio.Piped);
 //! child := io.await(cmd.spawn(io), ie);
 //! match(
 //!   child.take_stdin(),
@@ -140,12 +136,10 @@ impl(
 ///
 /// Returned by `Command.output`. Holds the exit status plus the bytes captured
 /// from the child's stdout and stderr.
-Output :: ref(
-  struct(
-    status : ExitStatus,
-    stdout : ArrayList(u8),
-    stderr : ArrayList(u8)
-  )
+Output :: struct(
+  status : ExitStatus,
+  stdout : ArrayList(u8),
+  stderr : ArrayList(u8)
 );
 // ============================================================================
 // Command
@@ -165,22 +159,23 @@ export(Stdio);
 /// Builder for a child-process invocation.
 ///
 /// Construct with `Command.new(program)`, then chain builder methods
-/// (`arg`, `args`, `env`, `env_clear`, `stdin`, `stdout`, `stderr` — each
-/// returns `Self`, and `Command` is a ref type, so chaining and
-/// statement-style calls both work) before `status()` / `output()` /
-/// `spawn()`.
-Command :: ref(
-  struct(
-    _program : String,
-    _args : ArrayList(String),
-    _env_overrides : ArrayList(String),
-    _env_clear : bool,
-    _stdin : Stdio,
-    _stdout : Stdio,
-    _stderr : Stdio,
-    _cwd : Option(String)
-  )
+/// (`arg`, `args`, `env`, `env_clear`, `current_dir`, `stdin`, `stdout`,
+/// `stderr`) before `status()` / `output()` / `spawn()`. Each builder
+/// method consumes the command and returns it, so a chain reads
+/// `Command.new(p).arg(a).arg(b)` and a statement on a `mut(cmd)` binding
+/// reads `cmd = cmd.arg(a);`.
+Command :: struct(
+  _program : String,
+  _args : ArrayList(String),
+  _env_overrides : ArrayList(String),
+  _env_clear : bool,
+  _stdin : Stdio,
+  _stdout : Stdio,
+  _stderr : Stdio,
+  _cwd : Option(String)
 );
+// A copy is what each `status`/`output`/`spawn` future owns.
+derive(Command, Clone);
 impl(
   Command,
   /// Create a new `Command` invoking `program`. The program name is also used
@@ -199,25 +194,27 @@ impl(
     )
   ),
   /// Append a single argument to the argv list.
-  arg : (fn(self : &Self, a : &String) -> Self)({
-    self._args.push(a.clone());
-    self
+  arg : (fn(self : Self, a : &String) -> Self)({
+    mut(c) := self;
+    c._args.push(a.clone());
+    c
   }),
   /// Append multiple arguments to the argv list.
-  args : (fn(self : &Self, more : &ArrayList(String)) -> Self)({
+  args : (fn(self : Self, more : &ArrayList(String)) -> Self)({
+    mut(c) := self;
     n := more.len();
     mut(i) := usize(0);
     while(i < n, {
       match(
         more.get_cloned(i),
         .Some(s) => {
-          self._args.push(s);
+          c._args.push(s);
         },
         .None => ()
       );
       i = (i + usize(1));
     });
-    self
+    c
   }),
   /// The program this command will run — Rust's `Command::get_program`.
   get_program : (fn(self : &Self) -> String)(self._program.clone()),
@@ -226,20 +223,22 @@ impl(
   /// this is how a caller reads back what it assembled.
   get_args : (fn(self : &Self) -> ArrayList(String))(self._args.clone()),
   /// Set an environment variable for the child (overrides an inherited one).
-  env : (fn(self : &Self, key : &String, value : &String) -> Self)({
+  env : (fn(self : Self, key : &String, value : &String) -> Self)({
+    mut(c) := self;
     mut(entry) := key.clone();
     entry.push_str("=");
     entry.push_string(value);
-    self._env_overrides.push(entry);
-    self
+    c._env_overrides.push(entry);
+    c
   }),
   /// Run the child with `dir` as its working directory. POSIX uses
   /// posix_spawn_file_actions_addchdir_np (spawn reports ENOSYS on a libc
   /// without it — macOS 10.15+/glibc 2.29+/musl 1.2.5+ all have it);
   /// Windows passes lpCurrentDirectory.
-  current_dir : (fn(self : &Self, dir : &String) -> Self)({
-    self._cwd = Option(String).Some(dir.clone());
-    self
+  current_dir : (fn(self : Self, dir : &String) -> Self)({
+    mut(c) := self;
+    c._cwd = Option(String).Some(dir.clone());
+    c
   }),
   /// Stop the child inheriting this process's environment, so it starts
   /// from an EMPTY one plus whatever `env()` supplied — Rust's
@@ -254,24 +253,28 @@ impl(
   ///
   /// With neither this nor any `env()` call, no `envp` is constructed at
   /// all and the child inherits by the platform's own mechanism.
-  env_clear : (fn(self : &Self) -> Self)({
-    self._env_clear = true;
-    self
+  env_clear : (fn(self : Self) -> Self)({
+    mut(c) := self;
+    c._env_clear = true;
+    c
   }),
   /// Configure the child's stdin.
-  stdin : (fn(self : &Self, mode : Stdio) -> Self)({
-    self._stdin = mode;
-    self
+  stdin : (fn(self : Self, mode : Stdio) -> Self)({
+    mut(c) := self;
+    c._stdin = mode;
+    c
   }),
   /// Configure the child's stdout.
-  stdout : (fn(self : &Self, mode : Stdio) -> Self)({
-    self._stdout = mode;
-    self
+  stdout : (fn(self : Self, mode : Stdio) -> Self)({
+    mut(c) := self;
+    c._stdout = mode;
+    c
   }),
   /// Configure the child's stderr.
-  stderr : (fn(self : &Self, mode : Stdio) -> Self)({
-    self._stderr = mode;
-    self
+  stderr : (fn(self : Self, mode : Stdio) -> Self)({
+    mut(c) := self;
+    c._stderr = mode;
+    c
   })
 );
 // ============================================================================
@@ -573,26 +576,26 @@ impl(
   Command,
   /// Spawn the child with stdio inherited from the parent, wait for it to
   /// exit, and return its `ExitStatus`.
-  status : (fn(self : &Self, io : Io) -> Impl(Future(ExitStatus, IoExn)))(
-    // `self : Self` is a value-copy of the Rc-counted Command object, so the
-    // closure can freely capture it. (Was `self : &mut Self` previously, which is a
-    // second-class reference and can't be captured across an async boundary.)
-    io.async(e => {
+  status : (fn(self : &Self, io : Io) -> Impl(Future(ExitStatus, IoExn)))({
+    // The future owns a copy of the command, so it borrows nothing: it may be
+    // spawned, and the caller's `Command` is free to change or drop.
+    cmd := self.clone();
+    io.async({ cmd, io }(e : IoExn) => {
       pid := e.io.await(
-        _spawn_with_fds(self, i32(-1), i32(-1), i32(-1), io),
+        _spawn_with_fds(&cmd, i32(-1), i32(-1), i32(-1), io),
         e
       );
       raw := e.io.await(IO_process.waitpid(pid, i32(0)), e.io);
       IoError.check(raw, e.exn);
       ExitStatus(raw : raw)
     })
-  ),
+  }),
   /// Spawn the child with stdout and stderr captured through pipes. Waits for
   /// the child to exit and returns the exit status plus the captured bytes.
-  output : (fn(self : &Self, io : Io) -> Impl(Future(Output, IoExn)))(
-    // `self : Self` is a value-copy of the Rc-counted Command object; the
-    // closure can freely capture it instead of needing `self : &mut Self`.
-    io.async(e => {
+  output : (fn(self : &Self, io : Io) -> Impl(Future(Output, IoExn)))({
+    // The future owns a copy of the command, as `status`'s does.
+    cmd := self.clone();
+    io.async({ cmd, io }(e : IoExn) => {
       // Create stdout and stderr pipes.
       mut(out_fd_buf) := MaybeUninit(Array(i32, usize(2))).new();
       out_fd := (*i32)(out_fd_buf.as_ptr());
@@ -618,7 +621,7 @@ impl(
       _mark_parent_end(err_read, e.exn);
       // Spawn child with the write ends of both pipes.
       pid := e.io.await(
-        _spawn_with_fds(self, i32(-1), out_write, err_write, io),
+        _spawn_with_fds(&cmd, i32(-1), out_write, err_write, io),
         e
       );
       // Close write ends in parent so reads see EOF when child exits.
@@ -655,7 +658,7 @@ impl(
         stderr : stderr_buf
       )
     })
-  )
+  })
 );
 // ============================================================================
 // Child (spawn without waiting)
@@ -1080,13 +1083,15 @@ impl(
   /// pipes whose parent ends live on the returned `Child`; `Inherit` shares
   /// the parent's stream; `Null` redirects to /dev/null. Call `wait()` to
   /// reap.
-  spawn : (fn(self : &Self, io : Io) -> Impl(Future(Child, IoExn)))(
-    io.async(e => {
-      in_pair := _stdio_fds(self._stdin, true, e.exn);
-      out_pair := _stdio_fds(self._stdout, false, e.exn);
-      err_pair := _stdio_fds(self._stderr, false, e.exn);
+  spawn : (fn(self : &Self, io : Io) -> Impl(Future(Child, IoExn)))({
+    // The future owns a copy of the command, as `status`'s does.
+    cmd := self.clone();
+    io.async({ cmd, io }(e : IoExn) => {
+      in_pair := _stdio_fds(cmd._stdin, true, e.exn);
+      out_pair := _stdio_fds(cmd._stdout, false, e.exn);
+      err_pair := _stdio_fds(cmd._stderr, false, e.exn);
       pid := e.io.await(
-        _spawn_with_fds(self, in_pair(usize(0)), out_pair(usize(0)), err_pair(usize(0)), io),
+        _spawn_with_fds(&cmd, in_pair(usize(0)), out_pair(usize(0)), err_pair(usize(0)), io),
         e
       );
       // Close the CHILD ends in the parent (the child holds its own copies).
@@ -1120,6 +1125,6 @@ impl(
         )
       )
     })
-  )
+  })
 );
 export(Command, ExitStatus, Output, Child, ChildStdin, ChildStdout, ChildStderr);

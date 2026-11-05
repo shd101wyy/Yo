@@ -167,13 +167,11 @@ _sha512_block :: (fn(block : *u8, h : *u64) -> unit)({
   (h.add(usize(7))).* = (h.add(usize(7))).*.wrapping_add(hh);
 });
 /// SHA-512 streaming state (the Sha256 skeleton at 64-bit width).
-Sha512 :: ref(
-  struct(
-    _h : Array(u64, usize(8)),
-    _buf : Array(u8, usize(128)),
-    _buflen : usize,
-    _total : u64
-  )
+Sha512 :: struct(
+  _h : Array(u64, usize(8)),
+  _buf : Array(u8, usize(128)),
+  _buflen : usize,
+  _total : u64
 );
 impl(
   Sha512,
@@ -195,10 +193,10 @@ impl(
       _total : u64(0)
     )
   ),
-  /// Absorb `data` and return the same hasher, so calls chain. O(len).
+  /// Absorb `data` in place (`h.update(&a)` on a `mut(h)`). O(len).
   /// Buffers a partial 128-byte block internally, so how the input is
   /// split cannot change the digest.
-  update : (fn(self : &Self, data : &ArrayList(u8)) -> Self)({
+  update : (fn(self : &mut Self, data : &ArrayList(u8)) -> unit)({
     mut(i) := usize(0);
     while(i < data.len(), i = (i + usize(1)), {
       self._buf(self._buflen) = data(i);
@@ -214,48 +212,48 @@ impl(
         true => ()
       );
     });
-    self
   }),
   /// Append the padding and the 128-bit length field, fold the last block
   /// in, and return the 64-byte digest.
   ///
-  /// **Single use** — the padding goes into the hasher's own buffer, so a
-  /// second `finish` returns a digest of the padded state rather than of
-  /// the message. One hasher, one message.
-  finish : (fn(self : &Self) -> Array(u8, usize(64)))({
-    bit_len_low := (self._total << u64(3));
-    bit_len_high := (self._total >> u64(61));
-    self._buf(self._buflen) = u8(0x80);
-    self._buflen = (self._buflen + usize(1));
+  /// Consumes the hasher, so one hasher hashes one message: a second
+  /// `finish` is a use after move (E0901), as with RustCrypto's
+  /// `finalize(self)`.
+  finish : (fn(self : Self) -> Array(u8, usize(64)))({
+    mut(h) := self;
+    bit_len_low := (h._total << u64(3));
+    bit_len_high := (h._total >> u64(61));
+    h._buf(h._buflen) = u8(0x80);
+    h._buflen = (h._buflen + usize(1));
     cond(
-      (self._buflen > usize(112)) => {
-        while(self._buflen < usize(128), self._buflen = (self._buflen + usize(1)), {
-          self._buf(self._buflen) = u8(0);
+      (h._buflen > usize(112)) => {
+        while(h._buflen < usize(128), h._buflen = (h._buflen + usize(1)), {
+          h._buf(h._buflen) = u8(0);
         });
-        buf_ptr := addr_of(self._buf(usize(0)));
-        h_ptr := addr_of(self._h(usize(0)));
+        buf_ptr := addr_of(h._buf(usize(0)));
+        h_ptr := addr_of(h._h(usize(0)));
         _sha512_block(buf_ptr, h_ptr);
-        self._buflen = usize(0);
+        h._buflen = usize(0);
       },
       true => ()
     );
-    while(self._buflen < usize(112), self._buflen = (self._buflen + usize(1)), {
-      self._buf(self._buflen) = u8(0);
+    while(h._buflen < usize(112), h._buflen = (h._buflen + usize(1)), {
+      h._buf(h._buflen) = u8(0);
     });
     // 128-bit big-endian bit length: high word then low word.
     (mut(wi) : usize) = usize(0);
     while(wi < usize(8), wi = (wi + usize(1)), {
       shift := (u64(56) - (u64(8) * u64(wi)));
-      self._buf(usize(112) + wi) = u8(bit_len_high >> shift);
-      self._buf(usize(120) + wi) = u8(bit_len_low >> shift);
+      h._buf(usize(112) + wi) = u8(bit_len_high >> shift);
+      h._buf(usize(120) + wi) = u8(bit_len_low >> shift);
     });
-    buf_ptr := addr_of(self._buf(usize(0)));
-    h_ptr := addr_of(self._h(usize(0)));
+    buf_ptr := addr_of(h._buf(usize(0)));
+    h_ptr := addr_of(h._h(usize(0)));
     _sha512_block(buf_ptr, h_ptr);
     mut(digest) := Array(u8, usize(64)).fill(u8(0));
     mut(j) := usize(0);
     while(j < usize(8), j = (j + usize(1)), {
-      word := self._h(j);
+      word := h._h(j);
       (mut(bi2) : usize) = usize(0);
       while(bi2 < usize(8), bi2 = (bi2 + usize(1)), {
         shift2 := (u64(56) - (u64(8) * u64(bi2)));
@@ -271,10 +269,10 @@ impl(
   Sha512,
   Digest(
     new : (fn() -> Self)(Self.new()),
-    update : (fn(self : &Self, data : &ArrayList(u8)) -> Self)(self.update(data)),
+    update : (fn(self : &mut Self, data : &ArrayList(u8)) -> unit)(self.update(data)),
     digest_size : (fn() -> usize)(usize(64)),
     block_size : (fn() -> usize)(usize(128)),
-    finish_bytes : (fn(self : &Self) -> ArrayList(u8))({
+    finish_bytes : (fn(self : Self) -> ArrayList(u8))({
       d := self.finish();
       mut(out) := ArrayList(u8).with_capacity(usize(64));
       (mut(fbi) : usize) = usize(0);
@@ -289,11 +287,13 @@ impl(
 // ============================================================================
 // Convenience functions
 // ============================================================================
-/// SHA-512 of `data` in one call — the 64-byte digest. Exactly
-/// `Sha512.new().update(data).finish()`.
-sha512 :: (fn(data : &ArrayList(u8)) -> Array(u8, usize(64)))(
-  Sha512.new().update(data).finish()
-);
+/// SHA-512 of `data` in one call — the 64-byte digest. Exactly a
+/// fresh `Sha512`, one `update(data)`, then `finish()`.
+sha512 :: (fn(data : &ArrayList(u8)) -> Array(u8, usize(64)))({
+  mut(h) := Sha512.new();
+  h.update(data);
+  h.finish()
+});
 /// SHA-512 of `data` as 128 lowercase hex characters. Allocates the
 /// `String`; compare security-relevant digests with `constant_time_eq`
 /// (`std/crypto/hmac`).

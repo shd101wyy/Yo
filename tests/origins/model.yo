@@ -78,84 +78,81 @@ single_bit :: (fn(o : u64) -> bool)((o != u64(0)) && ((o & (o - u64(1))) == u64(
 Kind :: enum(Some, Boxed, Cell, Rc, Guard);
 derive(Kind, Copy, Clone);
 derive(Kind, Eq(Kind));
-/// A toy type. Every `u64` is an origin set.
-Ty :: ref(
-  enum(
-    Int,
-    /// A generic type parameter `T` (by index).
-    TParam(id : usize),
-    /// `&(T, o)` / `&mut(T, o)`.
-    Ref(mutable : bool, pointee : Self, origin : u64),
-    /// An inline composite (struct, tuple).
-    Tup(items : ArrayList(Self)),
-    /// `Option`, `Box`, `RefCell`, `Rc`, or a user type with a `Drop` impl.
-    Wrap(kind : Kind, inner : Self),
-    /// A buffer container; `elem`'s origins are its union.
-    List(elem : Self),
-    /// `Impl(Fn(param) -> result)` capturing `shared` / `excl` origins.
-    Func(param : Self, result : Self, shared : u64, excl : u64),
-    /// A future holding `shared` / `excl` borrows.
-    Fut(shared : u64, excl : u64)
-  )
+/// A toy type. Every `u64` is an origin set. A type is shared, never
+/// written after construction: `Ty` is the counted handle.
+TyE :: enum(
+  Int,
+  /// A generic type parameter `T` (by index).
+  TParam(id : usize),
+  /// `&(T, o)` / `&mut(T, o)`.
+  Ref(mutable : bool, pointee : Rc(Self), origin : u64),
+  /// An inline composite (struct, tuple).
+  Tup(items : ArrayList(Rc(Self))),
+  /// `Option`, `Box`, `RefCell`, `Rc`, or a user type with a `Drop` impl.
+  Wrap(kind : Kind, inner : Rc(Self)),
+  /// A buffer container; `elem`'s origins are its union.
+  List(elem : Rc(Self)),
+  /// `Impl(Fn(param) -> result)` capturing `shared` / `excl` origins.
+  Func(param : Rc(Self), result : Rc(Self), shared : u64, excl : u64),
+  /// A future holding `shared` / `excl` borrows.
+  Fut(shared : u64, excl : u64)
 );
-impl(Ty, Clone(clone : (fn(self : &Self) -> Self)(self.*)));
+Ty :: Rc(TyE);
 /// The origins a type carries: `mode` 0 all, 1 the shared loans, 2 the
 /// exclusive ones.
-orig :: (fn(t : Ty, mode : usize) -> u64)(
+orig :: (fn(t : &Ty, mode : usize) -> u64)(
   match(
-    t,
+    &t.*.*,
     .Int => u64(0),
     .TParam(_) => u64(0),
     .Ref(m, p, o) => {
-      own := cond((mode == usize(0)) => o, (mode == usize(1)) => cond(m => u64(0), true => o), true => cond(m => o, true => u64(0)));
-      own | recur(p, mode)
+      own := cond((mode == usize(0)) => o.*, (mode == usize(1)) => cond(m.* => u64(0), true => o.*), true => cond(m.* => o.*, true => u64(0)));
+      own | recur(&p.*, mode)
     },
     .Tup(items) => {
       mut(acc) := u64(0);
       mut(i) := usize(0);
       while(i < items.len(), {
-        acc = (acc | recur(items(i), mode));
+        acc = (acc | recur(&items(i), mode));
         i = (i + usize(1));
       });
       acc
     },
-    .Wrap(_, inner) => recur(inner, mode),
-    .List(elem) => recur(elem, mode),
-    .Func(_, _, s, e) => cond((mode == usize(0)) => (s | e), (mode == usize(1)) => s, true => e),
-    .Fut(s, e) => cond((mode == usize(0)) => (s | e), (mode == usize(1)) => s, true => e)
+    .Wrap(_, inner) => recur(&inner.*, mode),
+    .List(elem) => recur(&elem.*, mode),
+    .Func(_, _, s, e) => cond((mode == usize(0)) => (s.* | e.*), (mode == usize(1)) => s.*, true => e.*),
+    .Fut(s, e) => cond((mode == usize(0)) => (s.* | e.*), (mode == usize(1)) => s.*, true => e.*)
   )
 );
-has_cell :: (fn(t : Ty) -> bool)(
+has_cell :: (fn(t : &Ty) -> bool)(
   match(
-    t,
-    .Ref(_, p, _) => recur(p),
+    &t.*.*,
+    .Ref(_, p, _) => recur(&p.*),
     .Tup(items) => {
       mut(found) := false;
       mut(i) := usize(0);
       while(i < items.len(), {
-        found = (found || recur(items(i)));
+        found = (found || recur(&items(i)));
         i = (i + usize(1));
       });
       found
     },
-    .Wrap(k, inner) => ((k == Kind.Cell) || recur(inner)),
-    .List(elem) => recur(elem),
+    .Wrap(k, inner) => ((k.* == Kind.Cell) || recur(&inner.*)),
+    .List(elem) => recur(&elem.*),
     _ => false
   )
 );
 /// A substitution: origin variables (`vars`) to sets, type parameters to
 /// types. Built by `unify` at a call; `val` is filled by `resolve`.
-Subst :: ref(
-  struct(
-    vars : u64,
-    eq : ArrayList(u64),
-    has_eq : u64,
-    lower : ArrayList(u64),
-    conflict : u64,
-    val : ArrayList(u64),
-    types : ArrayList(Ty),
-    tbound : u64
-  )
+Subst :: struct(
+  vars : u64,
+  eq : ArrayList(u64),
+  has_eq : u64,
+  lower : ArrayList(u64),
+  conflict : u64,
+  val : ArrayList(u64),
+  types : ArrayList(Ty),
+  tbound : u64
 );
 new_subst :: (fn(vars : u64) -> Subst)({
   mut(eq) := ArrayList(u64).new();
@@ -167,7 +164,7 @@ new_subst :: (fn(vars : u64) -> Subst)({
     eq.push(u64(0));
     lower.push(u64(0));
     val.push(u64(0));
-    types.push(Ty.Int);
+    types.push(Rc.new(TyE.Int));
     i = (i + usize(1));
   });
   Subst(vars : vars, eq : eq, has_eq : u64(0), lower : lower, conflict : u64(0), val : val, types : types, tbound : u64(0))
@@ -185,28 +182,28 @@ OP_SET :: usize(6);
 /// `arg`, `OP_UNFLEX` drops `FLEX`, `OP_FRESHEN` gives each `ELIDED` a new
 /// fresh bit from `ck`, `OP_SUBST` applies `sb`, `OP_RESTRICT` intersects
 /// each with `arg`, `OP_SET` replaces each by `arg`.
-map_o :: (fn(ck : Ck, t : Ty, op : usize, arg : u64, sb : Subst) -> Ty)(
+map_o :: (fn(ck : &mut Ck, t : &Ty, op : usize, arg : u64, sb : &Subst) -> Ty)(
   match(
-    t,
-    .Int => t,
-    .TParam(id) => cond(((op == OP_SUBST) && ((sb.tbound & bit(id)) != u64(0))) => sb.types(id), true => t),
-    .Ref(m, p, o) => Ty.Ref(m, recur(ck, p, op, arg, sb), map_one(ck, o, op, arg, sb)),
+    &t.*.*,
+    .Int => Rc.clone(t),
+    .TParam(id) => cond(((op == OP_SUBST) && ((sb.tbound & bit(id.*)) != u64(0))) => Rc.clone(&sb.types(id.*)), true => Rc.clone(t)),
+    .Ref(m, p, o) => Rc.new(TyE.Ref(m.*, recur(ck, &p.*, op, arg, sb), map_one(ck, o.*, op, arg, sb))),
     .Tup(items) => {
       mut(out) := ArrayList(Ty).new();
       mut(i) := usize(0);
       while(i < items.len(), {
-        out.push(recur(ck, items(i), op, arg, sb));
+        out.push(recur(ck, &items(i), op, arg, sb));
         i = (i + usize(1));
       });
-      Ty.Tup(out)
+      Rc.new(TyE.Tup(out))
     },
-    .Wrap(k, inner) => Ty.Wrap(k, recur(ck, inner, op, arg, sb)),
-    .List(elem) => Ty.List(recur(ck, elem, op, arg, sb)),
-    .Func(p, r, s, e) => Ty.Func(recur(ck, p, op, arg, sb), recur(ck, r, op, arg, sb), map_one(ck, s, op, arg, sb), map_one(ck, e, op, arg, sb)),
-    .Fut(s, e) => Ty.Fut(map_one(ck, s, op, arg, sb), map_one(ck, e, op, arg, sb))
+    .Wrap(k, inner) => Rc.new(TyE.Wrap(k.*, recur(ck, &inner.*, op, arg, sb))),
+    .List(elem) => Rc.new(TyE.List(recur(ck, &elem.*, op, arg, sb))),
+    .Func(p, r, s, e) => Rc.new(TyE.Func(recur(ck, &p.*, op, arg, sb), recur(ck, &r.*, op, arg, sb), map_one(ck, s.*, op, arg, sb), map_one(ck, e.*, op, arg, sb))),
+    .Fut(s, e) => Rc.new(TyE.Fut(map_one(ck, s.*, op, arg, sb), map_one(ck, e.*, op, arg, sb)))
   )
 );
-map_one :: (fn(ck : Ck, o : u64, op : usize, arg : u64, sb : Subst) -> u64)(
+map_one :: (fn(ck : &mut Ck, o : u64, op : usize, arg : u64, sb : &Subst) -> u64)(
   cond(
     (op == OP_CLEAR) => u64(0),
     (op == OP_ELIDE_TO) => cond(((o & ELIDED) != u64(0)) => ((o & ~ELIDED) | arg), true => o),
@@ -240,53 +237,53 @@ map_one :: (fn(ck : Ck, o : u64, op : usize, arg : u64, sb : Subst) -> u64)(
   )
 );
 /// The structural join of two flow types: origins unioned.
-join :: (fn(a : Ty, b : Ty) -> Ty)(
+join :: (fn(a : &Ty, b : &Ty) -> Ty)(
   match(
-    a,
-    .Ref(m, p, o) => match(b, .Ref(_, q, ob) => Ty.Ref(m, recur(p, q), o | ob), _ => a),
+    &a.*.*,
+    .Ref(m, p, o) => match(&b.*.*, .Ref(_, q, ob) => Rc.new(TyE.Ref(m.*, recur(&p.*, &q.*), o.* | ob.*)), _ => Rc.clone(a)),
     .Tup(items) => match(
-      b,
+      &b.*.*,
       .Tup(others) => {
         mut(out) := ArrayList(Ty).new();
         mut(i) := usize(0);
         while(i < items.len(), {
-          out.push(cond((i < others.len()) => recur(items(i), others(i)), true => items(i)));
+          out.push(cond((i < others.len()) => recur(&items(i), &others(i)), true => Rc.clone(&items(i))));
           i = (i + usize(1));
         });
-        Ty.Tup(out)
+        Rc.new(TyE.Tup(out))
       },
-      _ => a
+      _ => Rc.clone(a)
     ),
-    .Wrap(k, inner) => match(b, .Wrap(_, other) => Ty.Wrap(k, recur(inner, other)), _ => a),
-    .List(elem) => match(b, .List(other) => Ty.List(recur(elem, other)), _ => a),
-    .Func(p, r, s, e) => match(b, .Func(_, r2, s2, e2) => Ty.Func(p, recur(r, r2), s | s2, e | e2), _ => a),
-    .Fut(s, e) => match(b, .Fut(s2, e2) => Ty.Fut(s | s2, e | e2), _ => a),
-    _ => a
+    .Wrap(k, inner) => match(&b.*.*, .Wrap(_, other) => Rc.new(TyE.Wrap(k.*, recur(&inner.*, &other.*))), _ => Rc.clone(a)),
+    .List(elem) => match(&b.*.*, .List(other) => Rc.new(TyE.List(recur(&elem.*, &other.*))), _ => Rc.clone(a)),
+    .Func(p, r, s, e) => match(&b.*.*, .Func(_, r2, s2, e2) => Rc.new(TyE.Func(Rc.clone(p), recur(&r.*, &r2.*), s.* | s2.*, e.* | e2.*)), _ => Rc.clone(a)),
+    .Fut(s, e) => match(&b.*.*, .Fut(s2, e2) => Rc.new(TyE.Fut(s.* | s2.*, e.* | e2.*)), _ => Rc.clone(a)),
+    _ => Rc.clone(a)
   )
 );
 /// The pointee a `&mut` lend of a declared local exposes: the declared
 /// bound, except at an unbounded (elided) position, where it is the flow
 /// set marked `FLEX` so the callee's unification may widen it.
-flex :: (fn(flow : Ty, decl : Ty) -> Ty)(
+flex :: (fn(flow : &Ty, decl : &Ty) -> Ty)(
   match(
-    decl,
-    .Ref(m, p, o) => match(flow, .Ref(_, q, of) => Ty.Ref(m, recur(q, p), cond((o == TOP) => (of | FLEX), true => o)), _ => decl),
+    &decl.*.*,
+    .Ref(m, p, o) => match(&flow.*.*, .Ref(_, q, of) => Rc.new(TyE.Ref(m.*, recur(&q.*, &p.*), cond((o.* == TOP) => (of.* | FLEX), true => o.*))), _ => Rc.clone(decl)),
     .Tup(items) => match(
-      flow,
+      &flow.*.*,
       .Tup(others) => {
         mut(out) := ArrayList(Ty).new();
         mut(i) := usize(0);
         while(i < items.len(), {
-          out.push(cond((i < others.len()) => recur(others(i), items(i)), true => items(i)));
+          out.push(cond((i < others.len()) => recur(&others(i), &items(i)), true => Rc.clone(&items(i))));
           i = (i + usize(1));
         });
-        Ty.Tup(out)
+        Rc.new(TyE.Tup(out))
       },
-      _ => decl
+      _ => Rc.clone(decl)
     ),
-    .Wrap(k, inner) => match(flow, .Wrap(_, other) => Ty.Wrap(k, recur(other, inner)), _ => decl),
-    .List(elem) => match(flow, .List(other) => Ty.List(recur(other, elem)), _ => decl),
-    _ => decl
+    .Wrap(k, inner) => match(&flow.*.*, .Wrap(_, other) => Rc.new(TyE.Wrap(k.*, recur(&other.*, &inner.*))), _ => Rc.clone(decl)),
+    .List(elem) => match(&flow.*.*, .List(other) => Rc.new(TyE.List(recur(&other.*, &elem.*))), _ => Rc.clone(decl)),
+    _ => Rc.clone(decl)
   )
 );
 /// Origin subset (covariant) or equality (invariant).
@@ -300,117 +297,116 @@ osub :: (fn(a : u64, b : u64, inv : bool) -> bool)(
 /// Is a value of type `a` storable where `b` is expected? Covariant
 /// positions widen (O3-3); a `&mut` pointee and a `RefCell` payload are
 /// invariant. A `Fn` type's parameter is the per-call `FNQ` on both sides.
-sub :: (fn(a : Ty, b : Ty, inv : bool) -> bool)(
+sub :: (fn(a : &Ty, b : &Ty, inv : bool) -> bool)(
   match(
-    b,
-    .Int => match(a, .Int => true, _ => false),
-    .TParam(id) => match(a, .TParam(id2) => (id == id2), _ => false),
-    .Ref(m, p, o) => match(a, .Ref(m2, q, oa) => ((m == m2) && (osub(oa, o, inv) && recur(q, p, inv || m))), _ => false),
+    &b.*.*,
+    .Int => match(&a.*.*, .Int => true, _ => false),
+    .TParam(id) => match(&a.*.*, .TParam(id2) => (id.* == id2.*), _ => false),
+    .Ref(m, p, o) => match(&a.*.*, .Ref(m2, q, oa) => ((m.* == m2.*) && (osub(oa.*, o.*, inv) && recur(&q.*, &p.*, inv || m.*))), _ => false),
     .Tup(items) => match(
-      a,
+      &a.*.*,
       .Tup(others) => {
         mut(ok) := (items.len() == others.len());
         mut(i) := usize(0);
         while(ok && (i < items.len()), {
-          ok = recur(others(i), items(i), inv);
+          ok = recur(&others(i), &items(i), inv);
           i = (i + usize(1));
         });
         ok
       },
       _ => false
     ),
-    .Wrap(k, inner) => match(a, .Wrap(k2, other) => ((k == k2) && recur(other, inner, inv || (k == Kind.Cell))), _ => false),
-    .List(elem) => match(a, .List(other) => recur(other, elem, inv), _ => false),
-    .Func(_, r, s, e) => match(a, .Func(_, r2, s2, e2) => (osub(s2 | e2, s | e, inv) && recur(r2, r, inv)), _ => false),
-    .Fut(s, e) => match(a, .Fut(s2, e2) => osub(s2 | e2, s | e, inv), _ => false)
+    .Wrap(k, inner) => match(&a.*.*, .Wrap(k2, other) => ((k.* == k2.*) && recur(&other.*, &inner.*, inv || (k.* == Kind.Cell))), _ => false),
+    .List(elem) => match(&a.*.*, .List(other) => recur(&other.*, &elem.*, inv), _ => false),
+    .Func(_, r, s, e) => match(&a.*.*, .Func(_, r2, s2, e2) => (osub(s2.* | e2.*, s.* | e.*, inv) && recur(&r2.*, &r.*, inv)), _ => false),
+    .Fut(s, e) => match(&a.*.*, .Fut(s2, e2) => osub(s2.* | e2.*, s.* | e.*, inv), _ => false)
   )
 );
-same :: (fn(a : Ty, b : Ty) -> bool)(sub(a, b, true) && sub(b, a, true));
+same :: (fn(a : &Ty, b : &Ty) -> bool)(sub(a, b, true) && sub(b, a, true));
 // ============================================================================
 // Programs
 // ============================================================================
-/// A toy expression or statement. Places are indices < 40.
-Node :: ref(
-  enum(
-    Lit,
-    /// A read of a local; a value holding a `&mut` moves.
-    Var(p : usize),
-    /// `&p` / `&mut p`: origin `{p}`.
-    Borrow(mutable : bool, p : usize),
-    /// `&r.*` through a reference local `r`: a `&` over `r`'s origin.
-    Reborrow(p : usize),
-    /// The `i`th component of a composite local.
-    Field(p : usize, i : usize),
-    /// `&h.*.x` / `&mut h.*.x` through an `Rc` handle `h` (O9).
-    HandleBorrow(mutable : bool, h : usize),
-    Call(f : usize, args : ArrayList(Self)),
-    Make(kind : Kind, arg : Self),
-    /// A new container whose element type spells (or elides) its union.
-    NewList(elem : Ty),
-    MakeTup(items : ArrayList(Self)),
-    /// A closure literal: one parameter, a capture list of `Let`s
-    /// evaluated at the literal, a body and a result expression.
-    Closure(param : usize, param_ty : Ty, caps : ArrayList(Self), body : ArrayList(Self), result : Self),
-    /// An `io.async` body: its captures, as `Let`s.
-    Async(caps : ArrayList(Self)),
-    Let(p : usize, init : Self, decl : Option(Ty)),
-    Assign(p : usize, value : Self),
-    /// `p.* = value` through a `&mut` local.
-    WriteThrough(p : usize, value : Self),
-    /// `p.push(value)` on a container local or a `&mut` to one.
-    Push(p : usize, value : Self),
-    /// An expression statement; also an `await` (a use).
-    Use(e : Self),
-    Drop(p : usize, implicit : bool),
-    Block(body : ArrayList(Self)),
-    /// Two control-flow paths that join.
-    Branch(a : ArrayList(Self), b : ArrayList(Self)),
-    /// A loop that runs its body zero or more times.
-    Loop(body : ArrayList(Self)),
-    /// `io.spawn` / `Thread.spawn`: a no-origin position (O10).
-    Spawn(e : Self),
-    Return(e : Self)
-  )
+/// A toy expression or statement. Places are indices < 40. A program is
+/// shared, never written after construction: `Node` is the counted handle.
+NodeE :: enum(
+  Lit,
+  /// A read of a local; a value holding a `&mut` moves.
+  Var(p : usize),
+  /// `&p` / `&mut p`: origin `{p}`.
+  Borrow(mutable : bool, p : usize),
+  /// `&r.*` through a reference local `r`: a `&` over `r`'s origin.
+  Reborrow(p : usize),
+  /// The `i`th component of a composite local.
+  Field(p : usize, i : usize),
+  /// `&h.*.x` / `&mut h.*.x` through an `Rc` handle `h` (O9).
+  HandleBorrow(mutable : bool, h : usize),
+  Call(f : usize, args : ArrayList(Rc(Self))),
+  Make(kind : Kind, arg : Rc(Self)),
+  /// A new container whose element type spells (or elides) its union.
+  NewList(elem : Ty),
+  MakeTup(items : ArrayList(Rc(Self))),
+  /// A closure literal: one parameter, a capture list of `Let`s
+  /// evaluated at the literal, a body and a result expression.
+  Closure(param : usize, param_ty : Ty, caps : ArrayList(Rc(Self)), body : ArrayList(Rc(Self)), result : Rc(Self)),
+  /// An `io.async` body: its captures, as `Let`s.
+  Async(caps : ArrayList(Rc(Self))),
+  Let(p : usize, init : Rc(Self), decl : Option(Ty)),
+  Assign(p : usize, value : Rc(Self)),
+  /// `p.* = value` through a `&mut` local.
+  WriteThrough(p : usize, value : Rc(Self)),
+  /// `p.push(value)` on a container local or a `&mut` to one.
+  Push(p : usize, value : Rc(Self)),
+  /// An expression statement; also an `await` (a use).
+  Use(e : Rc(Self)),
+  Drop(p : usize, implicit : bool),
+  Block(body : ArrayList(Rc(Self))),
+  /// Two control-flow paths that join.
+  Branch(a : ArrayList(Rc(Self)), b : ArrayList(Rc(Self))),
+  /// A loop that runs its body zero or more times.
+  Loop(body : ArrayList(Rc(Self))),
+  /// `io.spawn` / `Thread.spawn`: a no-origin position (O10).
+  Spawn(e : Rc(Self)),
+  Return(e : Rc(Self))
 );
-Param :: ref(struct(p : usize, ty : Ty));
+Node :: Rc(NodeE);
+Param :: struct(p : usize, ty : Ty);
 /// A function: `origin_params` are the declared `p : Origin` bits;
 /// `escapable` puts `where(T <: Escapable)` on every type parameter. A
 /// function with `type_params > 0` is checked per instantiation, as Yo
 /// checks a generic body per specialization.
-FnDef :: ref(
-  struct(
-    origin_params : u64,
-    type_params : usize,
-    escapable : bool,
-    params : ArrayList(Param),
-    result : Ty,
-    body : Option(ArrayList(Node)),
-    is_extern : bool
-  )
+FnDef :: struct(
+  origin_params : u64,
+  type_params : usize,
+  escapable : bool,
+  params : ArrayList(Param),
+  result : Ty,
+  body : Option(ArrayList(Node)),
+  is_extern : bool
 );
 /// A type definition: its declared origin parameters and its fields, each
 /// field a place bit (so a field naming a field is visible).
-TypeDef :: ref(struct(origin_params : u64, field_places : u64, fields : ArrayList(Ty)));
+TypeDef :: struct(origin_params : u64, field_places : u64, fields : ArrayList(Ty));
 /// One corpus row: functions (entry first), module-level bindings' types,
 /// type definitions.
-Case :: ref(struct(fns : ArrayList(FnDef), globals : ArrayList(Ty), types : ArrayList(TypeDef)));
+Case :: struct(fns : ArrayList(FnDef), globals : ArrayList(Ty), types : ArrayList(TypeDef));
 // ============================================================================
 // The checker
 // ============================================================================
 /// A function signature after elision: origin variables, parameter types,
 /// result type, by-value parameter places.
-NSig :: ref(struct(vars : u64, params : ArrayList(Ty), result : Ty, byval : u64));
-Ck :: ref(
-  struct(
-    case : Case,
-    sigs : ArrayList(NSig),
-    err : String,
-    why : String,
-    next_fresh : usize,
-    fresh : u64,
-    spec_depth : usize,
-    ablate : u64
-  )
+NSig :: struct(vars : u64, params : ArrayList(Ty), result : Ty, byval : u64);
+/// The checker's state, threaded `&mut` through every rule. The case and
+/// the signatures are counted handles, so a rule reads a function's
+/// definition while it writes the state.
+Ck :: struct(
+  case : Rc(Case),
+  sigs : ArrayList(Rc(NSig)),
+  err : String,
+  why : String,
+  next_fresh : usize,
+  fresh : u64,
+  spec_depth : usize,
+  ablate : u64
 );
 /// The rules `check_ablated` can switch off.
 ABLATE_INVARIANCE :: u64(1);
@@ -418,53 +414,51 @@ ABLATE_LOOP_FIXPOINT :: u64(2);
 ABLATE_USER_DROP :: u64(4);
 ABLATE_CAPTURE_WIDEN :: u64(8);
 ABLATE_HANDLE_ORIGIN :: u64(16);
-ablated :: (fn(ck : Ck, rule : u64) -> bool)((ck.ablate & rule) != u64(0));
+ablated :: (fn(ck : &Ck, rule : u64) -> bool)((ck.ablate & rule) != u64(0));
 /// Records the first error: its rule code and a one-line reason. Inside a
 /// generic instantiation the code gains `@spec`.
-fail :: (fn(ck : Ck, code : str, why : str) -> unit)({
+fail :: (fn(ck : &mut Ck, code : str, why : str) -> unit)({
   if(ck.err.len() == usize(0), {
     ck.err = cond((ck.spec_depth > usize(0)) => `${code}@spec`, true => String.from(code));
     ck.why = String.from(why);
   });
 });
-ok :: (fn(ck : Ck) -> bool)(ck.err.len() == usize(0));
+ok :: (fn(ck : &Ck) -> bool)(ck.err.len() == usize(0));
 /// The flow state of one body: per place, its flow type (what it holds
 /// now) and, if declared, its declared type (the bound).
-Env :: ref(
-  struct(
-    flow : ArrayList(Ty),
-    decl : ArrayList(Ty),
-    has_decl : u64,
-    defined : u64,
-    moved : u64,
-    locals : u64,
-    byval : u64,
-    drop_uses : u64,
-    result : Ty,
-    done : bool
-  )
+Env :: struct(
+  flow : ArrayList(Ty),
+  decl : ArrayList(Ty),
+  has_decl : u64,
+  defined : u64,
+  moved : u64,
+  locals : u64,
+  byval : u64,
+  drop_uses : u64,
+  result : Ty,
+  done : bool
 );
 new_env :: (fn(result : Ty) -> Env)({
   mut(flow) := ArrayList(Ty).new();
   mut(decl) := ArrayList(Ty).new();
   mut(i) := usize(0);
   while(i < usize(64), {
-    flow.push(Ty.Int);
-    decl.push(Ty.Int);
+    flow.push(Rc.new(TyE.Int));
+    decl.push(Rc.new(TyE.Int));
     i = (i + usize(1));
   });
   Env(flow : flow, decl : decl, has_decl : u64(0), defined : u64(0), moved : u64(0), locals : u64(0), byval : u64(0), drop_uses : u64(0), result : result, done : false)
 });
-clone_env :: (fn(e : Env) -> Env)({
-  n := new_env(e.result);
-  assign_env(n, e);
+clone_env :: (fn(e : &Env) -> Env)({
+  mut(n) := new_env(Rc.clone(&e.result));
+  assign_env(&mut n, e);
   n
 });
-assign_env :: (fn(dst : Env, src : Env) -> unit)({
+assign_env :: (fn(dst : &mut Env, src : &Env) -> unit)({
   mut(i) := usize(0);
   while(i < usize(64), {
-    dst.flow(i) = src.flow(i);
-    dst.decl(i) = src.decl(i);
+    dst.flow(i) = Rc.clone(&src.flow(i));
+    dst.decl(i) = Rc.clone(&src.decl(i));
     i = (i + usize(1));
   });
   dst.has_decl = src.has_decl;
@@ -477,15 +471,15 @@ assign_env :: (fn(dst : Env, src : Env) -> unit)({
 });
 /// The join of two paths' states: flow origins unioned, a place moved on
 /// either path counts as moved.
-join_env :: (fn(a : Env, b : Env) -> Env)(
+join_env :: (fn(a : &Env, b : &Env) -> Env)(
   cond(
     a.done => clone_env(b),
     b.done => clone_env(a),
     true => {
-      n := clone_env(a);
+      mut(n) := clone_env(a);
       mut(i) := usize(0);
       while(i < usize(64), {
-        n.flow(i) = join(a.flow(i), b.flow(i));
+        n.flow(i) = join(&a.flow(i), &b.flow(i));
         i = (i + usize(1));
       });
       n.moved = (a.moved | b.moved);
@@ -494,11 +488,11 @@ join_env :: (fn(a : Env, b : Env) -> Env)(
     }
   )
 );
-env_eq :: (fn(a : Env, b : Env) -> bool)({
+env_eq :: (fn(a : &Env, b : &Env) -> bool)({
   mut(eq) := ((a.moved == b.moved) && ((a.defined == b.defined) && (a.done == b.done)));
   mut(i) := usize(0);
   while(eq && (i < usize(64)), {
-    eq = same(a.flow(i), b.flow(i));
+    eq = same(&a.flow(i), &b.flow(i));
     i = (i + usize(1));
   });
   eq
@@ -513,20 +507,20 @@ desugar :: (fn(stmts : &ArrayList(Node)) -> ArrayList(Node))({
   mut(declared) := ArrayList(usize).new();
   mut(i) := usize(0);
   while(i < stmts.len(), {
-    s := stmts(i);
+    s := Rc.clone(&stmts(i));
     out.push(
       match(
-        s,
-        .Block(b) => Node.Block(recur(&b)),
-        .Branch(a, b) => Node.Branch(recur(&a), recur(&b)),
-        .Loop(b) => Node.Loop(recur(&b)),
-        _ => s
+        &s.*,
+        .Block(b) => Rc.new(NodeE.Block(recur(&b.*))),
+        .Branch(a, b) => Rc.new(NodeE.Branch(recur(&a.*), recur(&b.*))),
+        .Loop(b) => Rc.new(NodeE.Loop(recur(&b.*))),
+        _ => Rc.clone(&s)
       )
     );
     match(
-      s,
+      &s.*,
       .Let(p, _, _) => {
-        declared.push(p);
+        declared.push(p.*);
       },
       _ => ()
     );
@@ -535,25 +529,25 @@ desugar :: (fn(stmts : &ArrayList(Node)) -> ArrayList(Node))({
   mut(j) := declared.len();
   while(j > usize(0), {
     j = (j - usize(1));
-    out.push(Node.Drop(declared(j), true));
+    out.push(Rc.new(NodeE.Drop(declared(j), true)));
   });
   out
 });
 /// The places an expression reads, borrows or moves.
-uses :: (fn(e : Node) -> u64)(
+uses :: (fn(e : &Node) -> u64)(
   match(
-    e,
-    .Var(p) => bit(p),
-    .Borrow(_, p) => bit(p),
-    .Reborrow(p) => bit(p),
-    .Field(p, _) => bit(p),
-    .HandleBorrow(_, h) => bit(h),
-    .Call(_, args) => uses_all(&args),
-    .Make(_, a) => recur(a),
-    .MakeTup(items) => uses_all(&items),
-    .Closure(_, _, caps, _, _) => uses_all(&caps),
-    .Async(caps) => uses_all(&caps),
-    .Let(_, init, _) => recur(init),
+    &e.*.*,
+    .Var(p) => bit(p.*),
+    .Borrow(_, p) => bit(p.*),
+    .Reborrow(p) => bit(p.*),
+    .Field(p, _) => bit(p.*),
+    .HandleBorrow(_, h) => bit(h.*),
+    .Call(_, args) => uses_all(&args.*),
+    .Make(_, a) => recur(&a.*),
+    .MakeTup(items) => uses_all(&items.*),
+    .Closure(_, _, caps, _, _) => uses_all(&caps.*),
+    .Async(caps) => uses_all(&caps.*),
+    .Let(_, init, _) => recur(&init.*),
     _ => u64(0)
   )
 );
@@ -561,7 +555,7 @@ uses_all :: (fn(xs : &ArrayList(Node)) -> u64)({
   mut(acc) := u64(0);
   mut(i) := usize(0);
   while(i < xs.len(), {
-    acc = (acc | uses(xs(i)));
+    acc = (acc | uses(&xs(i)));
     i = (i + usize(1));
   });
   acc
@@ -574,28 +568,28 @@ live_list :: (fn(stmts : &ArrayList(Node), from : usize, out : u64, drop_uses : 
   mut(i) := stmts.len();
   while(i > from, {
     i = (i - usize(1));
-    live = live_stmt(stmts(i), live, drop_uses);
+    live = live_stmt(&stmts(i), live, drop_uses);
   });
   live
 });
-live_stmt :: (fn(s : Node, out : u64, drop_uses : u64) -> u64)(
+live_stmt :: (fn(s : &Node, out : u64, drop_uses : u64) -> u64)(
   match(
-    s,
-    .Let(p, init, _) => ((out & ~bit(p)) | uses(init)),
-    .Assign(p, v) => ((out & ~bit(p)) | uses(v)),
-    .WriteThrough(p, v) => (out | bit(p) | uses(v)),
-    .Push(p, v) => (out | bit(p) | uses(v)),
-    .Use(e) => (out | uses(e)),
-    .Spawn(e) => (out | uses(e)),
-    .Return(e) => uses(e),
-    .Drop(p, _) => cond(((drop_uses & bit(p)) != u64(0)) => (out | bit(p)), true => (out & ~bit(p))),
-    .Block(b) => live_list(&b, usize(0), out, drop_uses),
-    .Branch(a, b) => (live_list(&a, usize(0), out, drop_uses) | live_list(&b, usize(0), out, drop_uses)),
+    &s.*.*,
+    .Let(p, init, _) => ((out & ~bit(p.*)) | uses(&init.*)),
+    .Assign(p, v) => ((out & ~bit(p.*)) | uses(&v.*)),
+    .WriteThrough(p, v) => (out | bit(p.*) | uses(&v.*)),
+    .Push(p, v) => (out | bit(p.*) | uses(&v.*)),
+    .Use(e) => (out | uses(&e.*)),
+    .Spawn(e) => (out | uses(&e.*)),
+    .Return(e) => uses(&e.*),
+    .Drop(p, _) => cond(((drop_uses & bit(p.*)) != u64(0)) => (out | bit(p.*)), true => (out & ~bit(p.*))),
+    .Block(b) => live_list(&b.*, usize(0), out, drop_uses),
+    .Branch(a, b) => (live_list(&a.*, usize(0), out, drop_uses) | live_list(&b.*, usize(0), out, drop_uses)),
     .Loop(b) => {
       mut(head) := out;
       mut(go) := true;
       while(go, {
-        next := (out | live_list(&b, usize(0), head, drop_uses));
+        next := (out | live_list(&b.*, usize(0), head, drop_uses));
         go = (next != head);
         head = next;
       });
@@ -609,13 +603,14 @@ scan_guards :: (fn(stmts : &ArrayList(Node)) -> u64)({
   mut(acc) := u64(0);
   mut(i) := usize(0);
   while(i < stmts.len(), {
+    st := Rc.clone(&stmts(i));
     acc = (
       acc | match(
-        stmts(i),
-        .Let(p, init, _) => match(init, .Make(k, _) => cond((k == Kind.Guard) => bit(p), true => u64(0)), _ => u64(0)),
-        .Block(b) => recur(&b),
-        .Branch(a, b) => (recur(&a) | recur(&b)),
-        .Loop(b) => recur(&b),
+        &st.*,
+        .Let(p, init, _) => match(&init.*.*, .Make(k, _) => cond((k.* == Kind.Guard) => bit(p.*), true => u64(0)), _ => u64(0)),
+        .Block(b) => recur(&b.*),
+        .Branch(a, b) => (recur(&a.*) | recur(&b.*)),
+        .Loop(b) => recur(&b.*),
         _ => u64(0)
       )
     );
@@ -632,7 +627,7 @@ ACCESS_WRITE :: usize(1);
 /// live `&mut` loan on `p` conflicts with any access, a live `&` loan with
 /// a write, move, drop or `&mut` borrow. Two loans are never compared to
 /// each other.
-access :: (fn(ck : Ck, env : Env, p : usize, kind : usize, live : u64) -> unit)({
+access :: (fn(ck : &mut Ck, env : &Env, p : usize, kind : usize, live : u64) -> unit)({
   if((env.moved & bit(p)) != u64(0), {
     fail(ck, "E0901", "a use of a moved value");
     return(());
@@ -641,11 +636,11 @@ access :: (fn(ck : Ck, env : Env, p : usize, kind : usize, live : u64) -> unit)(
   mut(v) := usize(0);
   while(v < usize(64), {
     if((holders & bit(v)) != u64(0), {
-      t := env.flow(v);
-      if((orig(t, usize(2)) & bit(p)) != u64(0), {
+      t := Rc.clone(&env.flow(v));
+      if((orig(&t, usize(2)) & bit(p)) != u64(0), {
         fail(ck, "E0911", "an access to a place a live `&mut` loan holds");
       });
-      if((kind == ACCESS_WRITE) && ((orig(t, usize(1)) & bit(p)) != u64(0)), {
+      if((kind == ACCESS_WRITE) && ((orig(&t, usize(1)) & bit(p)) != u64(0)), {
         fail(ck, "E0911", "a write, move or drop of a place a live `&` loan holds");
       });
     });
@@ -655,70 +650,71 @@ access :: (fn(ck : Ck, env : Env, p : usize, kind : usize, live : u64) -> unit)(
 // ---------------------------------------------------------------------------
 // Statements
 // ---------------------------------------------------------------------------
-check_list :: (fn(ck : Ck, env : Env, stmts : &ArrayList(Node), out : u64) -> unit)({
+check_list :: (fn(ck : &mut Ck, env : &mut Env, stmts : &ArrayList(Node), out : u64) -> unit)({
   mut(i) := usize(0);
   while((i < stmts.len()) && !env.done && ok(ck), {
     after := live_list(stmts, i + usize(1), out, env.drop_uses);
-    check_stmt(ck, env, stmts(i), after);
+    check_stmt(ck, env, &stmts(i), after);
     i = (i + usize(1));
   });
 });
-check_stmt :: (fn(ck : Ck, env : Env, s : Node, after : u64) -> unit)(
+check_stmt :: (fn(ck : &mut Ck, env : &mut Env, s : &Node, after : u64) -> unit)(
   match(
-    s,
+    &s.*.*,
     .Let(p, init, decl) => {
-      live := (after | uses(init));
-      t := eval(ck, env, init, live);
+      live := (after | uses(&init.*));
+      t := eval(ck, env, &init.*, live);
       match(
-        decl,
+        &decl.*,
         .Some(d0) => {
-          d := map_o(ck, d0, OP_ELIDE_TO, TOP, new_subst(u64(0)));
-          if((orig(d, usize(0)) & bit(p)) != u64(0), {
+          d := map_o(ck, &d0.*, OP_ELIDE_TO, TOP, &new_subst(u64(0)));
+          if((orig(&d, usize(0)) & bit(p.*)) != u64(0), {
             fail(ck, "WF_SELF", "a binding's type names the binding's own place");
           });
-          if(!sub(t, d, false), {
+          if(!sub(&t, &d, false), {
             fail(ck, "ORIGIN_MISMATCH", "an initializer's origins exceed the declared type");
           });
-          env.decl(p) = d;
-          env.has_decl = (env.has_decl | bit(p));
+          env.decl(p.*) = d;
+          env.has_decl = (env.has_decl | bit(p.*));
         },
         .None => match(
-          implied_decl(ck, init),
+          implied_decl(ck, &init.*),
           .Some(d) => {
-            env.decl(p) = d;
-            env.has_decl = (env.has_decl | bit(p));
+            env.decl(p.*) = d;
+            env.has_decl = (env.has_decl | bit(p.*));
           },
           .None => {
-            env.has_decl = (env.has_decl & ~bit(p));
+            env.has_decl = (env.has_decl & ~bit(p.*));
           }
         )
       );
-      env.flow(p) = t;
-      env.defined = (env.defined | bit(p));
-      env.moved = (env.moved & ~bit(p));
-      env.locals = (env.locals | bit(p));
+      env.flow(p.*) = t;
+      env.defined = (env.defined | bit(p.*));
+      env.moved = (env.moved & ~bit(p.*));
+      env.locals = (env.locals | bit(p.*));
     },
     .Assign(p, v) => {
-      live := (after | uses(v));
-      t := eval(ck, env, v, live);
-      access(ck, env, p, ACCESS_WRITE, live);
-      if(((env.has_decl & bit(p)) != u64(0)) && !sub(t, env.decl(p), false), {
+      live := (after | uses(&v.*));
+      t := eval(ck, env, &v.*, live);
+      access(ck, env, p.*, ACCESS_WRITE, live);
+      if(((env.has_decl & bit(p.*)) != u64(0)) && !sub(&t, &env.decl(p.*), false), {
         fail(ck, "ORIGIN_MISMATCH", "an assignment's origins exceed the declared type");
       });
-      env.flow(p) = t;
-      env.moved = (env.moved & ~bit(p));
+      env.flow(p.*) = t;
+      env.moved = (env.moved & ~bit(p.*));
     },
     .WriteThrough(p, v) => {
-      live := (after | uses(v) | bit(p));
-      t := eval(ck, env, v, live);
-      access(ck, env, p, ACCESS_READ, live);
+      live := (after | uses(&v.*) | bit(p.*));
+      t := eval(ck, env, &v.*, live);
+      access(ck, env, p.*, ACCESS_READ, live);
+      fp := Rc.clone(&env.flow(p.*));
       match(
-        env.flow(p),
+        &fp.*,
         .Ref(m, pointee, _) => {
-          if(!m, {
+          if(!m.*, {
             fail(ck, "TYPE", "a write through a `&`");
           });
-          if(!sub(t, pointee, false), {
+          if(!sub(&t, &pointee.*, false), {
             fail(ck, "ORIGIN_MISMATCH", "a place write whose origins exceed the referent's type");
           });
         },
@@ -726,23 +722,23 @@ check_stmt :: (fn(ck : Ck, env : Env, s : Node, after : u64) -> unit)(
       );
     },
     .Push(p, v) => {
-      live := (after | uses(v) | bit(p));
-      t := eval(ck, env, v, live);
-      check_push(ck, env, p, t, live);
+      live := (after | uses(&v.*) | bit(p.*));
+      t := eval(ck, env, &v.*, live);
+      check_push(ck, env, p.*, &t, live);
     },
     .Use(e) => {
-      _ := eval(ck, env, e, after | uses(e));
+      _ := eval(ck, env, &e.*, after | uses(&e.*));
     },
     .Spawn(e) => {
-      t := eval(ck, env, e, after | uses(e));
-      if(orig(t, usize(0)) != u64(0), {
+      t := eval(ck, env, &e.*, after | uses(&e.*));
+      if(orig(&t, usize(0)) != u64(0), {
         fail(ck, "E0909", "a spawned value carries origins (not Escapable)");
       });
     },
     .Return(e) => {
-      t := eval(ck, env, e, uses(e));
-      if(!sub(t, env.result, false), {
-        excess := (orig(t, usize(0)) & ~orig(env.result, usize(0)));
+      t := eval(ck, env, &e.*, uses(&e.*));
+      if(!sub(&t, &env.result, false), {
+        excess := (orig(&t, usize(0)) & ~orig(&env.result, usize(0)));
         cond(
           ((excess & (env.locals | env.byval)) != u64(0)) => fail(ck, "E0912", "a result names a local's or a by-value parameter's place"),
           true => fail(ck, "ORIGIN_MISMATCH", "a result's origins exceed the declared result")
@@ -751,35 +747,35 @@ check_stmt :: (fn(ck : Ck, env : Env, s : Node, after : u64) -> unit)(
       env.done = true;
     },
     .Drop(p, implicit) => cond(
-      (implicit && (((env.moved & bit(p)) != u64(0)) || ((env.defined & bit(p)) == u64(0)))) => {
-        env.defined = (env.defined & ~bit(p));
+      (implicit.* && (((env.moved & bit(p.*)) != u64(0)) || ((env.defined & bit(p.*)) == u64(0)))) => {
+        env.defined = (env.defined & ~bit(p.*));
       },
       true => {
-        access(ck, env, p, ACCESS_WRITE, after);
-        env.moved = (env.moved | bit(p));
-        if(implicit, {
-          env.defined = (env.defined & ~bit(p));
+        access(ck, env, p.*, ACCESS_WRITE, after);
+        env.moved = (env.moved | bit(p.*));
+        if(implicit.*, {
+          env.defined = (env.defined & ~bit(p.*));
         });
       }
     ),
-    .Block(b) => check_list(ck, env, &b, after),
+    .Block(b) => check_list(ck, env, &b.*, after),
     .Branch(a, b) => {
-      e1 := clone_env(env);
-      check_list(ck, e1, &a, after);
-      e2 := clone_env(env);
-      check_list(ck, e2, &b, after);
-      assign_env(env, join_env(e1, e2));
+      mut(e1) := clone_env(env);
+      check_list(ck, &mut e1, &a.*, after);
+      mut(e2) := clone_env(env);
+      check_list(ck, &mut e2, &b.*, after);
+      assign_env(env, &join_env(&e1, &e2));
     },
     .Loop(b) => {
       head := live_stmt(s, after, env.drop_uses);
       mut(go) := true;
       mut(rounds) := usize(0);
       while(go && ok(ck), {
-        e := clone_env(env);
-        check_list(ck, e, &b, head);
-        j := join_env(env, e);
-        converged := env_eq(j, env);
-        assign_env(env, j);
+        mut(e) := clone_env(env);
+        check_list(ck, &mut e, &b.*, head);
+        j := join_env(env, &e);
+        converged := env_eq(&j, env);
+        assign_env(env, &j);
         rounds = (rounds + usize(1));
         go = (!converged && !ablated(ck, ABLATE_LOOP_FIXPOINT));
         // A body checked only against an environment the loop has not
@@ -796,18 +792,19 @@ check_stmt :: (fn(ck : Ck, env : Env, s : Node, after : u64) -> unit)(
 );
 /// A push into a container local (whose declared union bounds it and whose
 /// flow set grows) or through a `&mut` to one (bounded by its type).
-check_push :: (fn(ck : Ck, env : Env, p : usize, t : Ty, live : u64) -> unit)(
+check_push :: (fn(ck : &mut Ck, env : &mut Env, p : usize, t : &Ty, live : u64) -> unit)({
+  flow := Rc.clone(&env.flow(p));
   match(
-    env.flow(p),
+    &flow.*,
     .Ref(m, pointee, _) => {
       access(ck, env, p, ACCESS_READ, live);
       match(
-        pointee,
+        &pointee.*.*,
         .List(elem) => {
-          if(!m, {
+          if(!m.*, {
             fail(ck, "TYPE", "a push through a `&`");
           });
-          if(!sub(t, elem, false), {
+          if(!sub(t, &elem.*, false), {
             fail(ck, "UNION", "a push outside the container's declared union");
           });
         },
@@ -816,26 +813,27 @@ check_push :: (fn(ck : Ck, env : Env, p : usize, t : Ty, live : u64) -> unit)(
     },
     _ => {
       access(ck, env, p, ACCESS_WRITE, live);
-      bound := cond(((env.has_decl & bit(p)) != u64(0)) => env.decl(p), true => env.flow(p));
-      elem_bound := list_elem(bound);
-      if(!sub(t, elem_bound, false), {
+      bound := cond(((env.has_decl & bit(p)) != u64(0)) => Rc.clone(&env.decl(p)), true => Rc.clone(&env.flow(p)));
+      elem_bound := list_elem(&bound);
+      if(!sub(t, &elem_bound, false), {
         fail(ck, "UNION", "a push outside the container's declared union");
       });
-      env.flow(p) = grow(env.flow(p), t);
+      grown := grow(&env.flow(p), t);
+      env.flow(p) = grown;
     }
-  )
-);
-list_elem :: (fn(t : Ty) -> Ty)(match(t, .List(elem) => elem, .Wrap(_, inner) => recur(inner), _ => Ty.Int));
-grow :: (fn(container : Ty, t : Ty) -> Ty)(
-  match(container, .List(elem) => Ty.List(join(elem, t)), .Wrap(k, inner) => Ty.Wrap(k, recur(inner, t)), _ => container)
+  );
+});
+list_elem :: (fn(t : &Ty) -> Ty)(match(&t.*.*, .List(elem) => Rc.clone(elem), .Wrap(_, inner) => recur(&inner.*), _ => Rc.new(TyE.Int)));
+grow :: (fn(container : &Ty, t : &Ty) -> Ty)(
+  match(&container.*.*, .List(elem) => Rc.new(TyE.List(join(&elem.*, t))), .Wrap(k, inner) => Rc.new(TyE.Wrap(k.*, recur(&inner.*, t))), _ => Rc.clone(container))
 );
 /// The declared bound a container initializer spells (O6): `NewList(elem)`,
 /// possibly inside cells; an elided union in a body is unbounded.
-implied_decl :: (fn(ck : Ck, init : Node) -> Option(Ty))(
+implied_decl :: (fn(ck : &mut Ck, init : &Node) -> Option(Ty))(
   match(
-    init,
-    .NewList(elem) => .Some(Ty.List(map_o(ck, elem, OP_ELIDE_TO, TOP, new_subst(u64(0))))),
-    .Make(k, inner) => match(recur(ck, inner), .Some(d) => .Some(Ty.Wrap(k, d)), .None => .None),
+    &init.*.*,
+    .NewList(elem) => .Some(Rc.new(TyE.List(map_o(ck, &elem.*, OP_ELIDE_TO, TOP, &new_subst(u64(0)))))),
+    .Make(k, inner) => match(recur(ck, &inner.*), .Some(d) => .Some(Rc.new(TyE.Wrap(k.*, d))), .None => .None),
     _ => .None
   )
 );
@@ -843,24 +841,27 @@ implied_decl :: (fn(ck : Ck, init : Node) -> Option(Ty))(
 /// type, or, for an unannotated local, its flow type with every origin
 /// unbounded (`TOP`): a flow-inferred set widens to what the callee's
 /// signature needs (§7, "flow inference at a `&mut` lend").
-lend_bound :: (fn(ck : Ck, env : Env, p : usize) -> Ty)(
-  cond(((env.has_decl & bit(p)) != u64(0)) => env.decl(p), true => map_o(ck, env.flow(p), OP_SET, TOP, new_subst(u64(0))))
+lend_bound :: (fn(ck : &mut Ck, env : &Env, p : usize) -> Ty)(
+  cond(((env.has_decl & bit(p)) != u64(0)) => Rc.clone(&env.decl(p)), true => map_o(ck, &env.flow(p), OP_SET, TOP, &new_subst(u64(0))))
 );
 /// A closure literal or an `io.async` body that captures a declared
 /// container `&mut` may push into it whatever its other captures reach: the
 /// container's flow set grows, at the literal, by its bound restricted to
 /// the captures' origins (§7, "a `&mut` capture of a flow-inferred
 /// container").
-widen_captured :: (fn(ck : Ck, env : Env, caps : &ArrayList(Node), reach : u64) -> unit)({
+widen_captured :: (fn(ck : &mut Ck, env : &mut Env, caps : &ArrayList(Node), reach : u64) -> unit)({
   mut(i) := usize(0);
   while(i < caps.len(), {
+    cap := Rc.clone(&caps(i));
     match(
-      caps(i),
+      &cap.*,
       .Let(_, init, _) => match(
-        init,
+        &init.*.*,
         .Borrow(m, p) => {
-          if(m && ((env.has_decl & bit(p)) != u64(0)), {
-            env.flow(p) = join(env.flow(p), map_o(ck, env.decl(p), OP_RESTRICT, reach, new_subst(u64(0))));
+          if(m.* && ((env.has_decl & bit(p.*)) != u64(0)), {
+            restricted := map_o(ck, &env.decl(p.*), OP_RESTRICT, reach, &new_subst(u64(0)));
+            widened := join(&env.flow(p.*), &restricted);
+            env.flow(p.*) = widened;
           });
         },
         _ => ()
@@ -873,110 +874,114 @@ widen_captured :: (fn(ck : Ck, env : Env, caps : &ArrayList(Node), reach : u64) 
 // ---------------------------------------------------------------------------
 // Expressions
 // ---------------------------------------------------------------------------
-eval :: (fn(ck : Ck, env : Env, e : Node, live : u64) -> Ty)(
+eval :: (fn(ck : &mut Ck, env : &mut Env, e : &Node, live : u64) -> Ty)(
   match(
-    e,
-    .Lit => Ty.Int,
+    &e.*.*,
+    .Lit => Rc.new(TyE.Int),
     .Var(p) => {
-      access(ck, env, p, ACCESS_READ, live);
-      t := env.flow(p);
-      if(orig(t, usize(2)) != u64(0), {
-        env.moved = (env.moved | bit(p));
+      access(ck, env, p.*, ACCESS_READ, live);
+      t := Rc.clone(&env.flow(p.*));
+      if(orig(&t, usize(2)) != u64(0), {
+        env.moved = (env.moved | bit(p.*));
       });
       t
     },
     .Borrow(m, p) => {
-      access(ck, env, p, cond(m => ACCESS_WRITE, true => ACCESS_READ), live);
-      declared := ((env.has_decl & bit(p)) != u64(0));
+      access(ck, env, p.*, cond(m.* => ACCESS_WRITE, true => ACCESS_READ), live);
+      declared := ((env.has_decl & bit(p.*)) != u64(0));
       pointee := cond(
-        m => flex(env.flow(p), lend_bound(ck, env, p)),
-        (declared && has_cell(env.decl(p))) => env.decl(p),
-        true => env.flow(p)
+        m.* => flex(&env.flow(p.*), &lend_bound(ck, env, p.*)),
+        (declared && has_cell(&env.decl(p.*))) => Rc.clone(&env.decl(p.*)),
+        true => Rc.clone(&env.flow(p.*))
       );
-      Ty.Ref(m, pointee, bit(p))
+      Rc.new(TyE.Ref(m.*, pointee, bit(p.*)))
     },
     .Reborrow(p) => {
-      access(ck, env, p, ACCESS_READ, live);
+      access(ck, env, p.*, ACCESS_READ, live);
+      fp := Rc.clone(&env.flow(p.*));
       match(
-        env.flow(p),
-        .Ref(_, pointee, o) => Ty.Ref(false, pointee, o),
+        &fp.*,
+        .Ref(_, pointee, o) => Rc.new(TyE.Ref(false, Rc.clone(pointee), o.*)),
         _ => {
           fail(ck, "TYPE", "a reborrow of a non-reference");
-          Ty.Int
+          Rc.new(TyE.Int)
         }
       )
     },
     .Field(p, i) => {
-      access(ck, env, p, ACCESS_READ, live);
+      access(ck, env, p.*, ACCESS_READ, live);
+      fp := Rc.clone(&env.flow(p.*));
       match(
-        env.flow(p),
-        .Tup(items) => items(i),
+        &fp.*,
+        .Tup(items) => Rc.clone(&items(i.*)),
         _ => {
           fail(ck, "TYPE", "a field of a non-composite");
-          Ty.Int
+          Rc.new(TyE.Int)
         }
       )
     },
     .HandleBorrow(m, h) => cond(
-      m => {
+      m.* => {
         fail(ck, "E0919", "a `&mut` lend through an `Rc` deref");
-        Ty.Int
+        Rc.new(TyE.Int)
       },
       true => {
-        access(ck, env, h, ACCESS_READ, live);
+        access(ck, env, h.*, ACCESS_READ, live);
+        fh := Rc.clone(&env.flow(h.*));
         match(
-          env.flow(h),
+          &fh.*,
           .Wrap(k, payload) => cond(
-            (k == Kind.Rc) => Ty.Ref(false, payload, cond(ablated(ck, ABLATE_HANDLE_ORIGIN) => u64(0), true => bit(h))),
+            (k.* == Kind.Rc) => Rc.new(TyE.Ref(false, Rc.clone(payload), cond(ablated(ck, ABLATE_HANDLE_ORIGIN) => u64(0), true => bit(h.*)))),
             true => {
               fail(ck, "TYPE", "a handle borrow of a non-`Rc`");
-              Ty.Int
+              Rc.new(TyE.Int)
             }
           ),
           _ => {
             fail(ck, "TYPE", "a handle borrow of a non-`Rc`");
-            Ty.Int
+            Rc.new(TyE.Int)
           }
         )
       }
     ),
-    .Call(f, args) => eval_call(ck, env, f, &args, live),
+    .Call(f, args) => eval_call(ck, env, f.*, &args.*, live),
     .Make(k, a) => {
-      t := eval(ck, env, a, live);
-      if((k == Kind.Rc) && (orig(t, usize(0)) != u64(0)), {
+      t := eval(ck, env, &a.*, live);
+      if((k.* == Kind.Rc) && (orig(&t, usize(0)) != u64(0)), {
         fail(ck, "E0909", "an `Rc` payload carries origins (not Escapable)");
       });
-      Ty.Wrap(k, t)
+      Rc.new(TyE.Wrap(k.*, t))
     },
-    .NewList(elem) => Ty.List(map_o(ck, elem, OP_CLEAR, u64(0), new_subst(u64(0)))),
+    .NewList(elem) => Rc.new(TyE.List(map_o(ck, &elem.*, OP_CLEAR, u64(0), &new_subst(u64(0))))),
     .MakeTup(items) => {
       mut(out) := ArrayList(Ty).new();
       mut(i) := usize(0);
       while(i < items.len(), {
-        out.push(recur(ck, env, items(i), live));
+        out.push(recur(ck, env, &items(i), live));
         i = (i + usize(1));
       });
-      Ty.Tup(out)
+      Rc.new(TyE.Tup(out))
     },
-    .Closure(param, pty, caps, body, result) => eval_closure(ck, env, param, pty, &caps, &body, result, live),
+    .Closure(param, pty, caps, body, result) => eval_closure(ck, env, param.*, &pty.*, &caps.*, &body.*, &result.*, live),
     .Async(caps) => {
       mut(shared) := u64(0);
       mut(excl) := u64(0);
       mut(i) := usize(0);
       while(i < caps.len(), {
-        t := match(caps(i), .Let(_, init, _) => eval(ck, env, init, live), _ => Ty.Int);
-        shared = (shared | orig(t, usize(1)));
-        excl = (excl | orig(t, usize(2)));
+        cap := Rc.clone(&caps(i));
+        t := match(&cap.*, .Let(_, init, _) => eval(ck, env, &init.*, live), _ => Rc.new(TyE.Int));
+        shared = (shared | orig(&t, usize(1)));
+        excl = (excl | orig(&t, usize(2)));
         i = (i + usize(1));
       });
       if(!ablated(ck, ABLATE_CAPTURE_WIDEN), {
-        widen_captured(ck, env, &caps, shared | excl);
+        widen_captured(ck, env, &caps.*, shared | excl);
       });
-      Ty.Fut(shared, excl)
+      Rc.new(TyE.Fut(shared, excl))
     },
     _ => {
       fail(ck, "TYPE", "a statement in expression position");
-      Ty.Int
+      Rc.new(TyE.Int)
     }
   )
 );
@@ -984,33 +989,34 @@ eval :: (fn(ck : Ck, env : Env, e : Node, live : u64) -> Ty)(
 /// declared container exposes the whole declared bound (what the body may
 /// push is checked against it); its loans are still the flow's, and
 /// `widen_captured` grows the caller's flow set at the literal.
-expose_capture :: (fn(env : Env, init : Node, t : Ty) -> Ty)(
+expose_capture :: (fn(env : &Env, init : &Node, t : Ty) -> Ty)(
   match(
-    init,
-    .Borrow(m, p) => cond((m && ((env.has_decl & bit(p)) != u64(0))) => Ty.Ref(true, env.decl(p), bit(p)), true => t),
+    &init.*.*,
+    .Borrow(m, p) => cond((m.* && ((env.has_decl & bit(p.*)) != u64(0))) => Rc.new(TyE.Ref(true, Rc.clone(&env.decl(p.*)), bit(p.*))), true => t),
     _ => t
   )
 );
 /// A closure literal: the captures are evaluated (and borrowed) here; the
 /// body is checked in its own frame with the parameter at the per-call
 /// origin `FNQ` (O2) and each capture at its captured type.
-eval_closure :: (fn(ck : Ck, env : Env, param : usize, pty : Ty, caps : &ArrayList(Node), body : &ArrayList(Node), result : Node, live : u64) -> Ty)({
-  inner := new_env(Ty.Int);
-  ptype := map_o(ck, pty, OP_ELIDE_TO, FNQ, new_subst(u64(0)));
-  inner.flow(param) = ptype;
+eval_closure :: (fn(ck : &mut Ck, env : &mut Env, param : usize, pty : &Ty, caps : &ArrayList(Node), body : &ArrayList(Node), result : &Node, live : u64) -> Ty)({
+  mut(inner) := new_env(Rc.new(TyE.Int));
+  ptype := map_o(ck, pty, OP_ELIDE_TO, FNQ, &new_subst(u64(0)));
+  inner.flow(param) = Rc.clone(&ptype);
   inner.defined = bit(param);
   mut(shared) := u64(0);
   mut(excl) := u64(0);
   mut(i) := usize(0);
   while(i < caps.len(), {
+    cap := Rc.clone(&caps(i));
     match(
-      caps(i),
+      &cap.*,
       .Let(cp, init, _) => {
-        t := eval(ck, env, init, live);
-        shared = (shared | orig(t, usize(1)));
-        excl = (excl | orig(t, usize(2)));
-        inner.flow(cp) = expose_capture(env, init, t);
-        inner.defined = (inner.defined | bit(cp));
+        t := eval(ck, env, &init.*, live);
+        shared = (shared | orig(&t, usize(1)));
+        excl = (excl | orig(&t, usize(2)));
+        inner.flow(cp.*) = expose_capture(env, &init.*, t);
+        inner.defined = (inner.defined | bit(cp.*));
       },
       _ => ()
     );
@@ -1021,34 +1027,37 @@ eval_closure :: (fn(ck : Ck, env : Env, param : usize, pty : Ty, caps : &ArrayLi
   });
   stmts := desugar(body);
   inner.drop_uses = cond(ablated(ck, ABLATE_USER_DROP) => u64(0), true => scan_guards(&stmts));
-  check_list(ck, inner, &stmts, uses(result));
-  rt := eval(ck, inner, result, u64(0));
-  Ty.Func(ptype, rt, shared, excl)
+  check_list(ck, &mut inner, &stmts, uses(result));
+  rt := eval(ck, &mut inner, result, u64(0));
+  Rc.new(TyE.Func(ptype, rt, shared, excl))
 });
 /// A call: arguments are evaluated in order (their accesses checked),
 /// overlapping arguments with a `&mut` among them are E0910, the callee's
 /// origin variables are unified against the arguments (O3 step 1), each
 /// argument must fit its substituted parameter, and a generic callee's body
 /// is checked at this instantiation.
-eval_call :: (fn(ck : Ck, env : Env, f : usize, args : &ArrayList(Node), live : u64) -> Ty)({
-  def := ck.case.fns(f);
-  sig := ck.sigs(f);
+eval_call :: (fn(ck : &mut Ck, env : &mut Env, f : usize, args : &ArrayList(Node), live : u64) -> Ty)({
+  case := Rc.clone(&ck.case);
+  def := case.fns.index(f);
+  sig := Rc.clone(&ck.sigs(f));
   mut(types) := ArrayList(Ty).new();
   mut(i) := usize(0);
   while(i < args.len(), {
-    types.push(eval(ck, env, args(i), live));
+    types.push(eval(ck, env, &args(i), live));
     i = (i + usize(1));
   });
   i = usize(0);
   while(i < types.len(), {
     mut(j) := (i + usize(1));
     while(j < types.len(), {
+      ti := Rc.clone(&types(i));
+      tj := Rc.clone(&types(j));
       match(
-        types(i),
+        &ti.*,
         .Ref(mi, _, oi) => match(
-          types(j),
+          &tj.*,
           .Ref(mj, _, oj) => {
-            if((mi || mj) && ((oi & oj) != u64(0)), {
+            if((mi.* || mj.*) && ((oi.* & oj.*) != u64(0)), {
               fail(ck, "E0910", "two arguments of one call overlap and one lends `&mut`");
             });
           },
@@ -1060,17 +1069,17 @@ eval_call :: (fn(ck : Ck, env : Env, f : usize, args : &ArrayList(Node), live : 
     });
     i = (i + usize(1));
   });
-  sb := new_subst(sig.vars);
+  mut(sb) := new_subst(sig.vars);
   i = usize(0);
   while((i < types.len()) && (i < sig.params.len()), {
-    unify(ck, sb, sig.params(i), types(i), false);
+    unify(ck, &mut sb, &sig.params(i), &types(i), false);
     i = (i + usize(1));
   });
-  resolve(ck, sb);
+  resolve(ck, &mut sb);
   i = usize(0);
   while((i < types.len()) && (i < sig.params.len()), {
-    pt := map_o(ck, sig.params(i), OP_SUBST, u64(0), sb);
-    if(!sub(types(i), pt, false) && !ablated(ck, ABLATE_INVARIANCE), {
+    pt := map_o(ck, &sig.params(i), OP_SUBST, u64(0), &sb);
+    if(!sub(&types(i), &pt, false) && !ablated(ck, ABLATE_INVARIANCE), {
       fail(ck, "ORIGIN_MISMATCH", "an argument's origins do not fit its parameter");
     });
     i = (i + usize(1));
@@ -1078,7 +1087,7 @@ eval_call :: (fn(ck : Ck, env : Env, f : usize, args : &ArrayList(Node), live : 
   if(def.escapable, {
     mut(t) := usize(0);
     while(t < def.type_params, {
-      if(orig(sb.types(t), usize(0)) != u64(0), {
+      if(orig(&sb.types(t), usize(0)) != u64(0), {
         fail(ck, "E0909", "a type argument carries origins where `where(T <: Escapable)` is declared");
       });
       t = (t + usize(1));
@@ -1089,7 +1098,7 @@ eval_call :: (fn(ck : Ck, env : Env, f : usize, args : &ArrayList(Node), live : 
       &def.body,
       .Some(_) => {
         ck.spec_depth = (ck.spec_depth + usize(1));
-        check_fn_body(ck, f, sb);
+        check_fn_body(ck, f, &sb);
         ck.spec_depth = (ck.spec_depth - usize(1));
       },
       .None => ()
@@ -1101,14 +1110,17 @@ eval_call :: (fn(ck : Ck, env : Env, f : usize, args : &ArrayList(Node), live : 
   // substituted parameter's pointee allows.
   i = usize(0);
   while((i < args.len()) && (i < sig.params.len()), {
+    arg := Rc.clone(&args(i));
     match(
-      args(i),
+      &arg.*,
       .Borrow(m, p) => {
-        if(m, {
+        if(m.*, {
+          lent := map_o(ck, &sig.params(i), OP_SUBST, u64(0), &sb);
           match(
-            map_o(ck, sig.params(i), OP_SUBST, u64(0), sb),
+            &lent.*,
             .Ref(_, pointee, _) => {
-              env.flow(p) = map_o(ck, flex(pointee, lend_bound(ck, env, p)), OP_UNFLEX, u64(0), sb);
+              written := map_o(ck, &flex(&pointee.*, &lend_bound(ck, env, p.*)), OP_UNFLEX, u64(0), &sb);
+              env.flow(p.*) = written;
             },
             _ => ()
           );
@@ -1118,51 +1130,51 @@ eval_call :: (fn(ck : Ck, env : Env, f : usize, args : &ArrayList(Node), live : 
     );
     i = (i + usize(1));
   });
-  map_o(ck, sig.result, OP_SUBST, u64(0), sb)
+  map_o(ck, &sig.result, OP_SUBST, u64(0), &sb)
 });
 /// Unification of a parameter type against an argument type. An origin
 /// position holding exactly one variable binds it: exactly in an invariant
 /// position (unless the argument's set is `FLEX`), as a lower bound in a
 /// covariant one.
-unify :: (fn(ck : Ck, sb : Subst, pt : Ty, at : Ty, inv : bool) -> unit)(
+unify :: (fn(ck : &mut Ck, sb : &mut Subst, pt : &Ty, at : &Ty, inv : bool) -> unit)(
   match(
-    pt,
+    &pt.*.*,
     .TParam(id) => {
-      if((sb.tbound & bit(id)) == u64(0), {
-        sb.types(id) = at;
-        sb.tbound = (sb.tbound | bit(id));
+      if((sb.tbound & bit(id.*)) == u64(0), {
+        sb.types(id.*) = Rc.clone(at);
+        sb.tbound = (sb.tbound | bit(id.*));
       });
     },
     .Ref(m, p, o) => match(
-      at,
+      &at.*.*,
       .Ref(m2, a, oa) => {
-        if(m != m2, {
+        if(m.* != m2.*, {
           fail(ck, "TYPE", "a `&` where a `&mut` is expected, or the reverse");
         });
-        bind_origin(sb, o, oa, inv);
-        recur(ck, sb, p, a, (inv || m) && !ablated(ck, ABLATE_INVARIANCE));
+        bind_origin(sb, o.*, oa.*, inv);
+        recur(ck, sb, &p.*, &a.*, (inv || m.*) && !ablated(ck, ABLATE_INVARIANCE));
       },
       _ => fail(ck, "TYPE", "a non-reference where a reference is expected")
     ),
     .Tup(items) => match(
-      at,
+      &at.*.*,
       .Tup(others) => {
         mut(i) := usize(0);
         while((i < items.len()) && (i < others.len()), {
-          recur(ck, sb, items(i), others(i), inv);
+          recur(ck, sb, &items(i), &others(i), inv);
           i = (i + usize(1));
         });
       },
       _ => fail(ck, "TYPE", "a composite shape mismatch")
     ),
-    .Wrap(k, p) => match(at, .Wrap(_, a) => recur(ck, sb, p, a, (inv || (k == Kind.Cell)) && !ablated(ck, ABLATE_INVARIANCE)), _ => fail(ck, "TYPE", "a cell shape mismatch")),
-    .List(p) => match(at, .List(a) => recur(ck, sb, p, a, inv), _ => fail(ck, "TYPE", "a container shape mismatch")),
-    .Func(_, _, s, e) => match(at, .Func(_, _, s2, e2) => bind_origin(sb, s | e, s2 | e2, inv), _ => fail(ck, "TYPE", "a non-callable where a `Fn` is expected")),
-    .Fut(s, e) => match(at, .Fut(s2, e2) => bind_origin(sb, s | e, s2 | e2, inv), _ => fail(ck, "TYPE", "a non-future where a future is expected")),
+    .Wrap(k, p) => match(&at.*.*, .Wrap(_, a) => recur(ck, sb, &p.*, &a.*, (inv || (k.* == Kind.Cell)) && !ablated(ck, ABLATE_INVARIANCE)), _ => fail(ck, "TYPE", "a cell shape mismatch")),
+    .List(p) => match(&at.*.*, .List(a) => recur(ck, sb, &p.*, &a.*, inv), _ => fail(ck, "TYPE", "a container shape mismatch")),
+    .Func(_, _, s, e) => match(&at.*.*, .Func(_, _, s2, e2) => bind_origin(sb, s.* | e.*, s2.* | e2.*, inv), _ => fail(ck, "TYPE", "a non-callable where a `Fn` is expected")),
+    .Fut(s, e) => match(&at.*.*, .Fut(s2, e2) => bind_origin(sb, s.* | e.*, s2.* | e2.*, inv), _ => fail(ck, "TYPE", "a non-future where a future is expected")),
     _ => ()
   )
 );
-bind_origin :: (fn(sb : Subst, o : u64, oa : u64, inv : bool) -> unit)({
+bind_origin :: (fn(sb : &mut Subst, o : u64, oa : u64, inv : bool) -> unit)({
   if(single_bit(o) && ((o & sb.vars) == o), {
     i := bit_index(o);
     widenable := ((oa & FLEX) != u64(0));
@@ -1184,7 +1196,7 @@ bind_origin :: (fn(sb : Subst, o : u64, oa : u64, inv : bool) -> unit)({
 /// Fixes each origin variable: its exact binding if an invariant position
 /// gave one (every lower bound must fit inside it), else the union of its
 /// lower bounds.
-resolve :: (fn(ck : Ck, sb : Subst) -> unit)({
+resolve :: (fn(ck : &mut Ck, sb : &mut Subst) -> unit)({
   mut(i) := usize(0);
   while(i < usize(64), {
     b := bit(i);
@@ -1212,7 +1224,7 @@ resolve :: (fn(ck : Ck, sb : Subst) -> unit)({
 // ---------------------------------------------------------------------------
 /// Elision (O2) and the signature rules: undeclared origins, the return
 /// rule over a by-value parameter's place, `extern`'s no-origin position.
-normalize :: (fn(ck : Ck, def : FnDef) -> NSig)({
+normalize :: (fn(ck : &mut Ck, def : &FnDef) -> NSig)({
   mut(params) := ArrayList(Ty).new();
   mut(vars) := def.origin_params;
   mut(byval) := u64(0);
@@ -1220,40 +1232,40 @@ normalize :: (fn(ck : Ck, def : FnDef) -> NSig)({
   ck.fresh = u64(0);
   mut(i) := usize(0);
   while(i < def.params.len(), {
-    prm := def.params(i);
+    prm := def.params.index(i);
     outer := match(
-      prm.ty,
+      &prm.ty.*,
       .Ref(m, p, o) => {
         vars = (vars | bit(prm.p));
-        cond(((o & ELIDED) != u64(0)) => Ty.Ref(m, p, (o & ~ELIDED) | bit(prm.p)), true => prm.ty)
+        cond(((o.* & ELIDED) != u64(0)) => Rc.new(TyE.Ref(m.*, Rc.clone(p), (o.* &~ELIDED) | bit(prm.p))), true => Rc.clone(&prm.ty))
       },
       _ => {
         byval = (byval | bit(prm.p));
-        prm.ty
+        Rc.clone(&prm.ty)
       }
     );
-    t := map_o(ck, outer, OP_FRESHEN, u64(0), new_subst(u64(0)));
-    all = (all | orig(t, usize(0)));
+    t := map_o(ck, &outer, OP_FRESHEN, u64(0), &new_subst(u64(0)));
+    all = (all | orig(&t, usize(0)));
     params.push(t);
     i = (i + usize(1));
   });
   vars = (vars | ck.fresh);
-  result := map_o(ck, def.result, OP_ELIDE_TO, all, new_subst(u64(0)));
+  result := map_o(ck, &def.result, OP_ELIDE_TO, all, &new_subst(u64(0)));
   allowed := (vars | FNQ);
   i = usize(0);
   while(i < params.len(), {
-    if((orig(params(i), usize(0)) & ~allowed) != u64(0), {
+    if((orig(&params(i), usize(0)) & ~allowed) != u64(0), {
       fail(ck, "WF_UNDECLARED", "a signature names an origin it does not declare");
     });
     i = (i + usize(1));
   });
-  excess := (orig(result, usize(0)) & ~allowed);
+  excess := (orig(&result, usize(0)) & ~allowed);
   cond(
     ((excess & byval) != u64(0)) => fail(ck, "E0912", "a result names a by-value parameter's own place"),
     (excess != u64(0)) => fail(ck, "WF_UNDECLARED", "a result names an origin the signature does not declare"),
     true => ()
   );
-  if(def.is_extern && ((all | orig(result, usize(0))) != u64(0)), {
+  if(def.is_extern && ((all | orig(&result, usize(0))) != u64(0)), {
     fail(ck, "E0909", "an `extern` signature carries origins");
   });
   NSig(vars : vars, params : params, result : result, byval : byval)
@@ -1261,17 +1273,18 @@ normalize :: (fn(ck : Ck, def : FnDef) -> NSig)({
 /// Checks a function body against its signature: origin parameters and
 /// lent places are rigid bits; `sb` instantiates the type parameters of a
 /// generic callee (empty otherwise).
-check_fn_body :: (fn(ck : Ck, f : usize, sb : Subst) -> unit)({
-  def := ck.case.fns(f);
-  sig := ck.sigs(f);
-  tsb := new_subst(u64(0));
+check_fn_body :: (fn(ck : &mut Ck, f : usize, sb : &Subst) -> unit)({
+  case := Rc.clone(&ck.case);
+  def := case.fns.index(f);
+  sig := Rc.clone(&ck.sigs(f));
+  mut(tsb) := new_subst(u64(0));
   tsb.types = sb.types.clone();
   tsb.tbound = sb.tbound;
-  env := new_env(map_o(ck, sig.result, OP_SUBST, u64(0), tsb));
+  mut(env) := new_env(map_o(ck, &sig.result, OP_SUBST, u64(0), &tsb));
   mut(i) := usize(0);
   while(i < def.params.len(), {
     p := def.params(i).p;
-    env.flow(p) = map_o(ck, sig.params(i), OP_SUBST, u64(0), tsb);
+    env.flow(p) = map_o(ck, &sig.params(i), OP_SUBST, u64(0), &tsb);
     env.defined = (env.defined | bit(p));
     i = (i + usize(1));
   });
@@ -1281,7 +1294,7 @@ check_fn_body :: (fn(ck : Ck, f : usize, sb : Subst) -> unit)({
     .Some(b) => {
       stmts := desugar(&b.*);
       env.drop_uses = cond(ablated(ck, ABLATE_USER_DROP) => u64(0), true => scan_guards(&stmts));
-      check_list(ck, env, &stmts, u64(0));
+      check_list(ck, &mut env, &stmts, u64(0));
     },
     .None => ()
   );
@@ -1293,43 +1306,44 @@ check_case :: (fn(c : Case) -> Ck)(check_ablated(c, u64(0)));
 /// the corpus must flip when the rule that rejects it is removed, which is
 /// what shows the row tests that rule.
 check_ablated :: (fn(c : Case, ablate : u64) -> Ck)({
-  ck := Ck(case : c, sigs : ArrayList(NSig).new(), err : String.from(""), why : String.from(""), next_fresh : FRESH0, fresh : u64(0), spec_depth : usize(0), ablate : ablate);
+  case := Rc.new(c);
+  mut(ck) := Ck(case : Rc.clone(&case), sigs : ArrayList(Rc(NSig)).new(), err : String.from(""), why : String.from(""), next_fresh : FRESH0, fresh : u64(0), spec_depth : usize(0), ablate : ablate);
   mut(i) := usize(0);
-  while(i < c.types.len(), {
-    td := c.types(i);
+  while(i < case.types.len(), {
     mut(j) := usize(0);
-    while(j < td.fields.len(), {
-      o := orig(td.fields(j), usize(0));
-      if((o & td.field_places) != u64(0), {
-        fail(ck, "WF_SELF", "a type definition names its own field");
+    while(j < case.types(i).fields.len(), {
+      o := orig(&case.types(i).fields(j), usize(0));
+      if((o & case.types(i).field_places) != u64(0), {
+        fail(&mut ck, "WF_SELF", "a type definition names its own field");
       });
-      if((o & ~(td.origin_params | td.field_places)) != u64(0), {
-        fail(ck, "WF_UNDECLARED", "a field names an origin the type does not declare");
+      if((o & ~(case.types(i).origin_params | case.types(i).field_places)) != u64(0), {
+        fail(&mut ck, "WF_UNDECLARED", "a field names an origin the type does not declare");
       });
       j = (j + usize(1));
     });
     i = (i + usize(1));
   });
   i = usize(0);
-  while(i < c.globals.len(), {
-    if(orig(c.globals(i), usize(0)) != u64(0), {
-      fail(ck, "E0909", "a module-level binding carries origins (not Escapable)");
+  while(i < case.globals.len(), {
+    if(orig(&case.globals(i), usize(0)) != u64(0), {
+      fail(&mut ck, "E0909", "a module-level binding carries origins (not Escapable)");
     });
     i = (i + usize(1));
   });
   i = usize(0);
-  while(i < c.fns.len(), {
-    ck.sigs.push(normalize(ck, c.fns(i)));
+  while(i < case.fns.len(), {
+    sig := normalize(&mut ck, &case.fns(i));
+    ck.sigs.push(Rc.new(sig));
     i = (i + usize(1));
   });
   i = usize(0);
-  while((i < c.fns.len()) && ok(ck), {
-    if(c.fns(i).type_params == usize(0), {
-      check_fn_body(ck, i, new_subst(u64(0)));
+  while((i < case.fns.len()) && ok(&ck), {
+    if(case.fns(i).type_params == usize(0), {
+      check_fn_body(&mut ck, i, &new_subst(u64(0)));
     });
     i = (i + usize(1));
   });
-  if(ok(ck), {
+  if(ok(&ck), {
     ck.err = String.from("ACCEPT");
   });
   ck
@@ -1342,7 +1356,9 @@ export(
   ELIDED,
   TOP,
   Kind,
+  TyE,
   Ty,
+  NodeE,
   Node,
   Param,
   FnDef,

@@ -45,7 +45,8 @@ pragma(Pragma.AllowUnsafe);
   bind_parameter,
   find_variable_in_env,
   make_frame,
-  make_environment
+  make_environment,
+  variable_value_type
 } :: import("../../env.yo");
 { some_t_bounds, TypeValue, TypeValueNode, shared_list, no_types, no_labels, slot_pointee_at, slot_pointees, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_by_value, t_slot_is_borrow, t_origin_kind, t_origin_named } :: import("../../types/definitions.yo");
 { t_unit, t_some_t, t_ptr, resolve_some_binder_kind, t_with_resolution, t_with_func_result, resolve_enum_shell, register_ctor_phantom_positions } :: import("../../types/creators.yo");
@@ -1460,11 +1461,11 @@ Result type: ${type_to_string(&result_box)}`
                     // the GATE-4 hole
                     // (issues/fixed/yo-self-check-misses-undefined-variable.md).
                     cv_is_extern_fn := match(
-                      &cv.ty(),
+                      &variable_value_type(&cv),
                       Rc(.Func({ meta : __fcxm })) => __fcxm.*.is_extern.is_some(),
                       _ => false
                     );
-                    if(cv.is_compile_time_only() && cv_unfilled && is_function_type(&cv.ty()) && !cv.name.starts_with("__yo_") && !cv_is_extern_fn, {
+                    if(cv.is_compile_time_only() && cv_unfilled && is_function_type(&variable_value_type(&cv)) && !cv.name.starts_with("__yo_") && !cv_is_extern_fn, {
                       if(!has_fwd_comptime_fn_cap && debug_knob(`YO_DEBUG_SWALLOW`).is_some(), {
                         eprintln(`[fwd-cap] name=${cv.name} frame=${cap_fi.to_string()}`);
                       });

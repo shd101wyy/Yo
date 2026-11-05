@@ -370,9 +370,9 @@ test("Channel implements Send", {
 // cyclic payload is accepted, and a cycle closed through it leaks unless a
 // back edge is cleared.
 test("a cyclic element type is accepted", {
-  // atomic() so the payload is Send: the test reaches the dropped bound, not
-  // the Send one.
-  CyclicNode :: atomic(ref(struct(v : i32, next : Option(Self))));
+  // The cycle goes through an `Arc`, so the payload is Send: the test reaches
+  // the dropped bound, not the Send one.
+  CyclicNode :: struct(v : i32, next : Option(Arc(Self)));
   comptime_assert(Type.impls(CyclicNode, Send), "the payload is Send");
   comptime_assert(!Type.impls(CyclicNode, Acyclic), "the payload is cyclic");
   ch := Channel(CyclicNode).new(usize(1));

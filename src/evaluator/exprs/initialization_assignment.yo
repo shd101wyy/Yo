@@ -56,7 +56,9 @@
   variable_set_inout_borrow_root_id,
   variable_mark_inout_borrow_root,
   make_err_variable,
-  env_adopt
+  env_adopt,
+  variable_value_type,
+  variable_set_value_type
 } :: import("../../env.yo");
 {
   EvalContext,
@@ -491,7 +493,7 @@ _evaluate_inout_local_binding :: (
         .Some(ri) => Rc.clone(ri.ty()),
         .None => t_unit()
       ),
-      Rc.clone(root_var.ty())
+      variable_value_type(&root_var)
     );
     if(is_counted_handle_type(&recv_type), {
       pin_expr = Option(AstExpr).Some(recv_expr);
@@ -799,11 +801,13 @@ _bind_projection_result :: (
 /// to `place` (plans/VALUES_BY_DEFAULT.md decision 25, the cursor walk).
 ///
 /// `place` must be reached from `cur`: a field chain rooted at `cur` itself,
-/// or one rooted at a `match` binding over `cur` that enters a reference
-/// cell (a `match` binding is a copy of the matched value until decision 26's
-/// place bindings, so only a cell it points to is shared with `cur`'s
-/// target). Anything else is rejected: a sibling root, a module-level place,
-/// a call or index (a projection could yield any place the callee reaches).
+/// or one rooted at a binding of a bare `match` over `cur`. Such a binding
+/// is a place binding, a reference into `cur`'s target (VERDICTS-13 §14), so
+/// the chain may step through a unique `Box` (a value step) or a reference
+/// cell; a by-value `match(cur.*, …)` copies or moves the payload, so its
+/// binding reaches `cur`'s target only through a cell (VERDICTS-24).
+/// Anything else is rejected: a sibling root, a module-level place, a call
+/// or index (a projection could yield any place the callee reaches).
 /// The step through a cell pins it in the binding's step pin, releasing the
 /// cell the previous step pinned (decision 25, "Through an `Rc`"). The
 /// declared place stays frozen for `cur`'s whole live range, and a `match`
@@ -873,7 +877,7 @@ evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx
   _evaluated_name := evaluate_expression_raw(&name_expr, &env, ctx, exn);
   deref_exempt_clear();
   // The new target: a field chain rooted at a variable.
-  not_reached := `A re-point must name a place reached from \`${name}\`: a field of \`${name}\`'s target (\`${name} = ${sig}${name}.next\`), or a field of a \`match\` binding over \`${name}\` that enters a reference cell (\`match(${name}, .Some(n) => { ${name} = ${sig}n.next; }, .None => ())\`).`;
+  not_reached := `A re-point must name a place reached from \`${name}\`: a field of \`${name}\`'s target (\`${name} = ${sig}${name}.next\`), or a field of a binding of a bare \`match\` over \`${name}\` (\`match(${name}, .Some(n) => { ${name} = ${sig}n.next; }, .None => ())\`).`;
   hops := ArrayList(_InoutPlaceHop).new();
   root_atom := match(
     _inout_place_chain(&rhs, &mut hops),
@@ -919,12 +923,12 @@ evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx
     // Decision 46 (E0919): an `Rc`'s payload is read-only through the handle.
     reject_write_through_rc(&evaluated_rhs, "mut-borrow", Option(TypeValue).None, ctx, exn);
   });
-  if(!are_types_compatible(&rhs_info.ty(), &cur_var.ty()), {
+  if(!are_types_compatible(&rhs_info.ty(), &variable_value_type(&cur_var)), {
     exn.throw(
       dyn(
         format_error_message(
           ast_expr_token(&rhs),
-          `Cannot re-point \`${name}\` to \`${local_borrow_place_text(&rhs)}\`: \`${name}\` borrows a place of type ${type_to_string(&cur_var.ty())}, and this place has type ${type_to_string(&rhs_info.ty())}.`
+          `Cannot re-point \`${name}\` to \`${local_borrow_place_text(&rhs)}\`: \`${name}\` borrows a place of type ${type_to_string(&variable_value_type(&cur_var))}, and this place has type ${type_to_string(&rhs_info.ty())}.`
         )
       )
     );
@@ -968,13 +972,17 @@ evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx
       )
     );
   });
-  if(via_pattern && !place.through_cell, {
+  // A binding of a bare `match` over `cur` is a reference into `cur`'s
+  // target (VERDICTS-13 §14), so every place below it is reached; a binding
+  // of a by-value `match` is a copy, which reaches `cur`'s target only
+  // through a cell it points to (VERDICTS-24).
+  if(via_pattern && !(place.through_cell || variable_is_reference_binding(&root_var)), {
     exn.throw(
       dyn(
         format_error_message_with_help(
           ast_expr_token(&rhs),
-          `Cannot re-point \`${name}\` to \`${local_borrow_place_text(&rhs)}\`: \`${root_var.name}\` is a \`match\` binding over \`${name}\`, and a \`match\` binding holds a copy of the matched value, so this place would die with the arm. Only a reference cell the binding points to is shared with \`${name}\`'s target.`,
-          Option(String).Some(`re-point through a cell (\`${root_var.name}.next\` where \`${root_var.name}\` is an \`Rc\` or \`ref\` object), or through \`${name}\` itself (\`${name} = ${sig}${name}.next\`). Binding the matched place itself comes with \`&mut\` scrutinees (decision 26).`)
+          `Cannot re-point \`${name}\` to \`${local_borrow_place_text(&rhs)}\`: \`${root_var.name}\` is a binding of a by-value \`match\`, and a by-value \`match\` copies or moves the payload, so this place would die with the arm.`,
+          Option(String).Some(`match \`${name}\` bare to bind its place (\`match(${name}, .Some(${root_var.name}) => { ${name} = ${sig}${root_var.name}.next; }, .None => ())\`)`)
         )
       )
     );
@@ -991,7 +999,7 @@ evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx
       match(hops.get(pk + usize(1)), .Some(h2) => h2.node, .None => make_err_expr()),
       root_atom
     );
-    recv_type := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&recv_expr)), .Some(ri) => Rc.clone(ri.ty()), .None => Rc.clone(root_var.ty()));
+    recv_type := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&recv_expr)), .Some(ri) => Rc.clone(ri.ty()), .None => variable_value_type(&root_var));
     if(is_counted_handle_type(&recv_type), {
       pin_expr = Option(AstExpr).Some(recv_expr);
       pin_type = recv_type;
@@ -1010,15 +1018,15 @@ evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx
           make_err_variable(&env)
         }
       );
-      if(is_unit_type(&sp.ty()), {
-        sp.set_ty(Rc.clone(pin_type));
+      if(is_unit_type(&variable_value_type(&sp)), {
+        variable_set_value_type(&sp, Rc.clone(pin_type));
       }, {
-        if(!are_types_compatible(&pin_type, &sp.ty()), {
+        if(!are_types_compatible(&pin_type, &variable_value_type(&sp)), {
           exn.throw(
             dyn(
               format_error_message(
                 ast_expr_token(&rhs),
-                `Cannot re-point \`${name}\` into a ${type_to_string(&pin_type)} cell: an earlier re-point of \`${name}\` steps into ${type_to_string(&sp.ty())} cells, and the one cell a step holds has one type.`
+                `Cannot re-point \`${name}\` into a ${type_to_string(&pin_type)} cell: an earlier re-point of \`${name}\` steps into ${type_to_string(&variable_value_type(&sp))} cells, and the one cell a step holds has one type.`
               )
             )
           );
@@ -1029,9 +1037,12 @@ evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx
     .None => ()
   );
   // A `match` binding the re-point went through stays frozen while `cur` is
-  // live; a step through a cell is what rule 4 keys on.
+  // live; a step through a cell is what rule 4 keys on. Below a cell the
+  // place is the cell's holder; without one it is a place inside the
+  // binding's referent, and the binding is frozen whole, as Rust's reborrow
+  // of `n` for `cur` freezes `n` (VERDICTS-24).
   if(via_pattern, {
-    info.places.push(place.clone());
+    info.places.push(if(place.through_cell, place.clone(), local_borrow_place_of_variable(&root_var)));
   });
   if(place.through_cell, {
     info.crosses_cell = true;
@@ -1804,7 +1815,7 @@ Use \`::\` for compile-time definitions inside impl.`
     new_var_opt := match(
       prebound_opt,
       .Some(pb) => {
-        pb.set_ty(Rc.clone(final_lhs_type));
+        variable_set_value_type(&pb, Rc.clone(final_lhs_type));
         match(
           lhs_value_opt,
           .Some(pb_v) => if(pb.value().len() > usize(0), {
@@ -1908,7 +1919,7 @@ Use \`::\` for compile-time definitions inside impl.`
         // to a local that does not outlive what it borrows, and freezes those
         // places while the local lives (decision 38 A).
         if(!is_module_level && !effective_is_compile_time_only, {
-          note_second_class_binding(&new_var, &final_lhs_type, &actual_lhs_tok, &env, ctx, exn);
+          note_second_class_binding(&new_var, &final_lhs_type, &actual_lhs_tok, &env, ctx, exn, bound_by_init : true);
         });
         // Set is_owning_the_same_rc_value_as when applicable.
         match(

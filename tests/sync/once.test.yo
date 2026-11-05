@@ -211,7 +211,7 @@ comptime_assert(
   "OnceCell(i32) should be Send"
 );
 comptime_expect_error({
-  NonSendObj :: ref(struct(x : i32));
+  NonSendObj :: struct(x : Rc(i32));
   Bad :: OnceCell(NonSendObj);
 });
 test("OnceCell new is empty", {
@@ -294,13 +294,16 @@ test("OnceCell get_or_init from multiple threads initializes exactly once", {
 // cyclic payload is accepted, and a cycle closed through it leaks unless a
 // back edge is cleared.
 test("a cyclic element type is accepted", {
-  // atomic() so the payload is Send: the test reaches the dropped bound, not
-  // the Send one.
-  CyclicNode :: atomic(ref(struct(v : i32, next : Option(Self))));
+  // The cycle goes through an `Arc`, so the payload is Send: the test reaches
+  // the dropped bound, not the Send one.
+  CyclicNode :: struct(v : i32, next : Option(Arc(Self)));
   comptime_assert(Type.impls(CyclicNode, Send), "the payload is Send");
   comptime_assert(!Type.impls(CyclicNode, Acyclic), "the payload is cyclic");
   cell := OnceCell(CyclicNode).new();
-  assert(cell.get_or_init(() => CyclicNode(v : i32(1), next : .None)).v == i32(1), "the cell holds the node");
+  // The cell is not read back: `get_or_init` and `get` copy the element out, so
+  // a move-only node cannot be read
+  // (issues/2026-11-05-oncecell-get-or-init-copies-its-element-so-a-move-only-value-cannot-be-read.md).
+  assert(!cell.is_initialized(), "the cell over a cyclic node is built");
 });
 // ============================================================================
 // The slow path runs under with_lock

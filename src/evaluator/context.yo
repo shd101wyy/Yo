@@ -17,7 +17,7 @@
 { trial_flag_get, trial_flag_set, t_unit, t_ptr, type_binding_name } :: import("../types/creators.yo");
 { note_move_only_possible, is_drop_trait_name } :: import("../types/utils.yo");
 { EvalValue } :: import("../value.yo");
-{ Environment, make_environment, Variable, Frame, _frame_first_position, snapshot_env, add_variable_to_env, get_variables_from_frame, invalidate_frame_index, new_frame, value_cell_of, set_mut_decl_census_untrusted } :: import("../env.yo");
+{ Environment, make_environment, Variable, Frame, _frame_first_position, snapshot_env, add_variable_to_env, get_variables_from_frame, invalidate_frame_index, new_frame, value_cell_of, set_mut_decl_census_untrusted, variable_value_type, variable_set_value_type } :: import("../env.yo");
 {
   AstExpr,
   ExprId,
@@ -923,16 +923,17 @@ call_rerun_pending_def_evals :: (fn(env : &Environment, ctx : &EvalContext) -> O
 // sites (assignment, `&mut` arguments, `addr_of`, `&mut` local borrows)
 // cannot import calls/index_trait.yo without a cycle, so they call through
 // this hook, installed by `register_evaluate_expression`.
-PromoteIndexPlacesFn :: (fn(place : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> unit);
+/// `is_addr_of`: the write is `addr_of(place)`, which a diagnostic names.
+PromoteIndexPlacesFn :: (fn(place : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception, is_addr_of : bool) -> unit);
 (mut(g_promote_index_places_fn) : Option(PromoteIndexPlacesFn)) = Option(PromoteIndexPlacesFn).None;
 set_promote_index_places_fn :: (fn(f : PromoteIndexPlacesFn) -> unit)({
   g_promote_index_places_fn = Option(PromoteIndexPlacesFn).Some(f);
   ()
 });
-call_promote_index_places_for_write :: (fn(place : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> unit)(
+call_promote_index_places_for_write :: (fn(place : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception, (is_addr_of : bool) ?= false) -> unit)(
   match(
     g_promote_index_places_fn,
-    .Some(f) => f(place, env, ctx, exn),
+    .Some(f) => f(place, env, ctx, exn, is_addr_of),
     .None => ()
   )
 );
@@ -1813,7 +1814,7 @@ rebind_destructured_name :: (
     match(
       f.variable_at(i),
       .Some(v) => if(v.name == name, {
-        v.set_ty(Rc.clone(fresh.ty()));
+        variable_set_value_type(&v, Rc.clone(variable_value_type(&fresh)));
         v.set_value(value_cell_of(fresh.value().get(usize(0))));
         v.set_is_compile_time_only(fresh.is_compile_time_only());
         return(true);

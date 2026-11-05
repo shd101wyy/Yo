@@ -9,7 +9,7 @@
 //! { ArgParser } :: import("std/cli/arg_parser");
 //! { args } :: import("std/env");
 //!
-//! parser := ArgParser.new(`myapp`, `A sample CLI tool`);
+//! mut(parser) := ArgParser.new(`myapp`, `A sample CLI tool`);
 //! parser.add_flag(`--verbose`, `-v`, `Enable verbose output`);
 //! parser.add_option(`--output`, `-o`, `Output file`, `out.txt`);
 //! parsed := parser.parse(args()).unwrap();
@@ -47,62 +47,57 @@ ArgKind :: enum(
 );
 derive(ArgKind, Clone);
 /// Definition of a single command-line argument.
-ArgDef :: ref(
-  struct(
-    /// Primary name, stored exactly as it was registered — WITH its
-    /// dashes for a flag or option (`"--verbose"`), bare for a
-    /// positional (`"input"`). It is both the argv token matched during
-    /// parsing and the key `get_flag`/`get_option`/`get_positional` look
-    /// up, so the two spellings cannot diverge.
-    _long_name : String,
-    /// Alias, also stored with its dash (`"-v"`), or empty for none. It
-    /// matches on the command line but is never recorded as a key.
-    _short_name : String,
-    /// Human-readable description for help text.
-    _description : String,
-    /// Kind of argument (flag, option, or positional).
-    _kind : ArgKind,
-    /// Default value for options. Empty means "no default", and is
-    /// therefore not distinguishable from a default of the empty string.
-    _default_value : String,
-    /// Set by `add_positional`, read by nothing — `parse` does not
-    /// reject a missing positional. Kept for the required-argument check
-    /// that has not been written.
-    _required : bool
-  )
+ArgDef :: struct(
+  /// Primary name, stored exactly as it was registered — WITH its
+  /// dashes for a flag or option (`"--verbose"`), bare for a
+  /// positional (`"input"`). It is both the argv token matched during
+  /// parsing and the key `get_flag`/`get_option`/`get_positional` look
+  /// up, so the two spellings cannot diverge.
+  _long_name : String,
+  /// Alias, also stored with its dash (`"-v"`), or empty for none. It
+  /// matches on the command line but is never recorded as a key.
+  _short_name : String,
+  /// Human-readable description for help text.
+  _description : String,
+  /// Kind of argument (flag, option, or positional).
+  _kind : ArgKind,
+  /// Default value for options. Empty means "no default", and is
+  /// therefore not distinguishable from a default of the empty string.
+  _default_value : String,
+  /// Set by `add_positional`, read by nothing — `parse` does not
+  /// reject a missing positional. Kept for the required-argument check
+  /// that has not been written.
+  _required : bool
 );
-// A value-like record (V5 part B target: a plain struct): `clone` copies it deep.
+// A plain value record: `clone` copies it deep.
 derive(ArgDef, Clone);
 /// Result of parsing command-line arguments.
-ParsedArgs :: ref(
-  struct(
-    _set_flags : ArrayList(String),
-    _option_names : ArrayList(String),
-    _option_values : ArrayList(String),
-    _positionals : ArrayList(String),
-    _positional_names : ArrayList(String),
-    /// Name of the chosen subcommand (`.None` if none was used).
-    _subcommand : Option(String),
-    /// Parsed arguments for the chosen subcommand (`.None` if no subcommand).
-    _subcommand_args : Option(Self)
-  )
+ParsedArgs :: struct(
+  _set_flags : ArrayList(String),
+  _option_names : ArrayList(String),
+  _option_values : ArrayList(String),
+  _positionals : ArrayList(String),
+  _positional_names : ArrayList(String),
+  /// Name of the chosen subcommand (`.None` if none was used).
+  _subcommand : Option(String),
+  /// Parsed arguments for the chosen subcommand (`.None` if no subcommand),
+  /// boxed: a `ParsedArgs` cannot hold another by value.
+  _subcommand_args : Option(Box(Self))
 );
 /// Command-line argument parser.
-ArgParser :: ref(
-  struct(
-    /// Application name shown in help text.
-    _name : String,
-    /// Application description shown in help text.
-    _description : String,
-    /// Registered argument definitions.
-    _args : ArrayList(ArgDef),
-    /// Subcommand names (parallel to `_subcommand_parsers`).
-    _subcommand_names : ArrayList(String),
-    /// Subcommand descriptions (parallel to `_subcommand_parsers`).
-    _subcommand_descriptions : ArrayList(String),
-    /// Subcommand parsers (parallel to `_subcommand_names`).
-    _subcommand_parsers : ArrayList(Self)
-  )
+ArgParser :: struct(
+  /// Application name shown in help text.
+  _name : String,
+  /// Application description shown in help text.
+  _description : String,
+  /// Registered argument definitions.
+  _args : ArrayList(ArgDef),
+  /// Subcommand names (parallel to `_subcommand_parsers`).
+  _subcommand_names : ArrayList(String),
+  /// Subcommand descriptions (parallel to `_subcommand_parsers`).
+  _subcommand_descriptions : ArrayList(String),
+  /// Subcommand parsers (parallel to `_subcommand_names`).
+  _subcommand_parsers : ArrayList(Self)
 );
 impl(
   ParsedArgs,
@@ -128,8 +123,15 @@ impl(
   ),
   /// Returns the name of the chosen subcommand, if any.
   get_subcommand : (fn(self : &Self) -> &Option(String))(&self._subcommand),
-  /// Returns the parsed arguments of the chosen subcommand, if any.
-  get_subcommand_args : (fn(self : &Self) -> Option(Self))(self._subcommand_args),
+  /// Lends the parsed arguments of the chosen subcommand, if any. Read them
+  /// through a `match`: `.Some(sub) => sub.get_flag(...)`.
+  get_subcommand_args : (fn(self : &Self) -> Option(&Self))(
+    match(
+      &self._subcommand_args,
+      .Some(b) => .Some(&b.*),
+      .None => .None
+    )
+  ),
   /// Whether the flag registered under `name` appeared on the command
   /// line.
   ///
@@ -223,15 +225,15 @@ impl(
       _subcommand_parsers : ArrayList(Self).new()
     )
   ),
-  /// Registers a subcommand with the given name and description.
-  /// Returns the new sub-parser, which can be configured with its own
-  /// flags, options, positionals, and nested subcommands.
-  add_subcommand : (fn(self : &Self, name : &String, description : &String) -> Self)({
-    sub := Self.new(name, description);
-    self._subcommand_names.push(name.clone());
-    self._subcommand_descriptions.push(description.clone());
+  /// Registers `sub` as a subcommand, under the name and description it
+  /// was built with (`ArgParser.new(name, description)`). Configure the
+  /// sub-parser's own flags, options, positionals and nested subcommands
+  /// FIRST, then add it: the parser takes ownership, as `clap`'s
+  /// `Command::subcommand` does.
+  add_subcommand : (fn(self : &mut Self, sub : ArgParser) -> unit)({
+    self._subcommand_names.push(sub._name.clone());
+    self._subcommand_descriptions.push(sub._description.clone());
     self._subcommand_parsers.push(sub);
-    return(sub);
   }),
   /// Looks up a subcommand parser by name.
   _find_subcommand : (fn(self : &Self, name : &String) -> Option(usize))({
@@ -263,11 +265,11 @@ impl(
   /// name alone. `--verbose=1` is not a spelling this parser knows; only
   /// the exact token matches.
   ///
-  /// Returns `unit` and mutates the parser in place (`ArgParser` is a
-  /// `ref` struct), so the `add_*` calls are statements rather than a
-  /// chain — deliberately unlike `clap`'s `Command::arg`, which returns
-  /// `Self`.
-  add_flag : (fn(self : &Self, long_name : &String, short_name : &String, description : &String) -> unit)({
+  /// Returns `unit` and mutates the parser in place (`self : &mut Self`,
+  /// on a `mut(p)` binding), so the `add_*` calls are statements rather
+  /// than a chain — deliberately unlike `clap`'s `Command::arg`, which
+  /// returns `Self`.
+  add_flag : (fn(self : &mut Self, long_name : &String, short_name : &String, description : &String) -> unit)({
     self._args.push(
       ArgDef(
         _long_name : long_name.clone(),
@@ -294,7 +296,7 @@ impl(
   /// either way. An EMPTY `default_value` means "no default" — it is
   /// never recorded, so an option defaulted to the empty string is
   /// indistinguishable from one with no default at all.
-  add_option : (fn(self : &Self, long_name : &String, short_name : &String, description : &String, default_value : &String) -> unit)({
+  add_option : (fn(self : &mut Self, long_name : &String, short_name : &String, description : &String, default_value : &String) -> unit)({
     self._args.push(
       ArgDef(
         _long_name : long_name.clone(),
@@ -317,7 +319,7 @@ impl(
   /// internal `_required` flag: nothing reads that flag, and `parse`
   /// succeeds with the slot empty. Check for the `.None` from
   /// `get_positional` yourself.
-  add_positional : (fn(self : &Self, name : &String, description : &String) -> unit)({
+  add_positional : (fn(self : &mut Self, name : &String, description : &String) -> unit)({
     self._args.push(
       ArgDef(
         _long_name : name.clone(),
@@ -538,7 +540,7 @@ impl(
   /// Option defaults are applied last, after the scan succeeds, and the
   /// parent's defaults are applied even when a subcommand ran.
   parse : (fn(self : &Self, args : &ArrayList(String)) -> Result(ParsedArgs, String))({
-    parsed := ParsedArgs.new();
+    mut(parsed) := ParsedArgs.new();
     arg_defs_len := self._args.len();
     mut(idx) := usize(1);
     args_len := args.len();
@@ -603,47 +605,43 @@ impl(
                   match(
                     self._find_subcommand(&current_arg),
                     .Some(sub_idx) => {
-                      match(
-                        self._subcommand_parsers.get(sub_idx),
-                        .Some(sub_parser) => {
-                          // Build new args list: [program_name, ...remaining args after subcommand name].
-                          mut(sub_args) := ArrayList(String).new();
+                      {
+                        // Build new args list: [program_name, ...remaining args after subcommand name].
+                        mut(sub_args) := ArrayList(String).new();
+                        match(
+                          args.get_cloned(usize(0)),
+                          .Some(prog) => {
+                            sub_args.push(prog);
+                          },
+                          .None => {
+                            sub_args.push(self._name.clone());
+                          }
+                        );
+                        mut(j) := (idx + usize(1));
+                        while(j < args_len, j = (j + usize(1)), {
                           match(
-                            args.get_cloned(usize(0)),
-                            .Some(prog) => {
-                              sub_args.push(prog);
+                            args.get_cloned(j),
+                            .Some(a) => {
+                              sub_args.push(a);
                             },
-                            .None => {
-                              sub_args.push(self._name.clone());
-                            }
+                            .None => ()
                           );
-                          mut(j) := (idx + usize(1));
-                          while(j < args_len, j = (j + usize(1)), {
-                            match(
-                              args.get_cloned(j),
-                              .Some(a) => {
-                                sub_args.push(a);
-                              },
-                              .None => ()
-                            );
-                          });
-                          // Recursively parse the subcommand.
-                          match(
-                            recur(&sub_parser, &sub_args),
-                            .Ok(sub_parsed) => {
-                              parsed._subcommand = .Some(current_arg.clone());
-                              parsed._subcommand_args = .Some(sub_parsed);
-                              idx = args_len;
-                              is_subcmd = true;
-                            },
-                            .Err(sub_err) => {
-                              err_msg = .Some(sub_err);
-                              is_subcmd = true;
-                            }
-                          );
-                        },
-                        .None => ()
-                      );
+                        });
+                        // Recursively parse the subcommand.
+                        match(
+                          recur(&self._subcommand_parsers(sub_idx), &sub_args),
+                          .Ok(sub_parsed) => {
+                            parsed._subcommand = .Some(current_arg.clone());
+                            parsed._subcommand_args = .Some(Box.new(sub_parsed));
+                            idx = args_len;
+                            is_subcmd = true;
+                          },
+                          .Err(sub_err) => {
+                            err_msg = .Some(sub_err);
+                            is_subcmd = true;
+                          }
+                        );
+                      };
                     },
                     .None => ()
                   );

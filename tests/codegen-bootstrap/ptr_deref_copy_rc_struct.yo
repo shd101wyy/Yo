@@ -14,45 +14,46 @@
 // yo-self baseline (a ctor-arg dup the dup/drop pair optimizer did not yet
 // cancel) closed when the optimizer was ported (eeb6e00b9) and made sound
 // (ac85f6cfc); see issues/fixed/yo-self-ctor-arg-move-vs-dup.md. Both
-// compilers now print "1 1 1 done".
+// compilers now print "1 1 1 done". Since V5 part B the shared record is an
+// `Rc(Krate)`: the copy out of the buffer is an explicit `clone` (+1, dropped
+// at the probe's scope end), and the count read is the buffer's own handle.
 pragma(Pragma.AllowUnsafe);
 { println, print } :: import("std/fmt");
 import("std/string");
 { GlobalAllocator } :: import("std/allocator");
 
-Krate :: ref(
-  struct(
-    v : i32
-  )
+Krate :: struct(
+  v : i32
 );
 
-MapEntry :: struct(k : Krate, n : i32);
+MapEntry :: struct(k : Rc(Krate), n : i32);
+derive(MapEntry, Clone);
 
 // Repeatedly deref-copy a bucket out of a malloc'd buffer (the
 // HashMap._find_bucket shape) — each copy must +1 the RC field so the
 // local's scope drop cannot steal the buffer's reference.
 probe :: (fn(data_ptr : *MapEntry, i : usize) -> i32)({
-  bucket := (data_ptr.add(i)).*;
+  bucket := (data_ptr.add(i)).*.clone();
   bucket.n
 });
 
 main :: (fn() -> unit)({
-  kk := Krate(v : 7);
+  kk := Rc.new(Krate(v : 7));
   m := unsafe(GlobalAllocator.calloc(usize(2), size_of(MapEntry)));
   pv := match(m, .Some(p2) => p2, .None => __yo_panic("alloc failed"));
   data_ptr := unsafe((*MapEntry)(pv));
   (data_ptr.add(usize(0))).* = MapEntry(k : kk, n : 1);
-  print(ref_count(kk));
+  print(ref_count((data_ptr.add(usize(0))).*.k));
   print(" ");
   (mut(j) : i32) = i32(0);
   while(j < i32(10), {
     _r := probe(data_ptr, usize(0));
     j = (j + i32(1));
   });
-  print(ref_count(kk));
+  print(ref_count((data_ptr.add(usize(0))).*.k));
   print(" ");
   _r2 := probe(data_ptr, usize(0));
-  println(`${ref_count(kk)} done`);
+  println(`${ref_count((data_ptr.add(usize(0))).*.k)} done`);
 });
 
 export(main);

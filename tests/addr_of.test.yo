@@ -104,7 +104,7 @@ test("addr_of a unit place: a non-null pointer, and moves through it touch nothi
 _AoSmall :: struct(n : usize);
 derive(_AoSmall, Copy, Clone);
 _AoBig :: struct(a : usize, b : usize, c : usize, d : usize, e : usize, f : usize, g : usize, h : usize);
-_AoHandle :: ref(struct(n : usize));
+_AoCell :: struct(n : usize);
 test("addr_of of a &T parameter is E0921: small Copy T, large T, self, generic T, a field", {
   s := _AoSmall(n : usize(1));
   comptime_expect_error({
@@ -165,22 +165,39 @@ test("E0921 also covers a tuple element, a fixed-array element, and an async bod
 _ao_ptr_param :: (fn(x : *_AoBig) -> *_AoBig)(x);
 _ao_mut_param :: (fn(x : &mut _AoBig) -> *_AoBig)(addr_of(x.*));
 _ao_mut_field :: (fn(x : &mut _AoBig) -> *usize)(addr_of(x.c));
-_ao_handle_field :: (fn(x : &_AoHandle) -> *usize)(addr_of(x.n));
+_ao_handle_field :: (fn(x : &Rc(_AoCell)) -> *usize)(addr_of(x.n));
 _ao_local :: (fn(x : &_AoSmall) -> usize)({
   (copy : _AoSmall) = x.*;
   p := addr_of(copy);
   p.*.n
 });
 _ao_projection :: (fn(x : &_AoBig) -> &usize)(&x.c);
-test("the forms that give the caller's address: *T, &mut T, a ref handle's field, a local, a projection", {
+test("the forms that give the caller's address: *T, &mut T, an Rc handle's field, a local, a projection", {
   mut(big) := _AoBig(a : usize(1), b : usize(2), c : usize(3), d : usize(4), e : usize(5), f : usize(6), g : usize(7), h : usize(8));
   assert(_ao_ptr_param(addr_of(big)) == addr_of(big), "a *T parameter carries the caller's address");
   assert(_ao_mut_param(&mut big) == addr_of(big), "a &mut T parameter is a pointer");
   assert(_ao_mut_field(&mut big) == addr_of(big.c), "a field of a &mut T parameter is the caller's field");
-  h := _AoHandle(n : usize(4));
-  assert(_ao_handle_field(&h) == addr_of(h.n), "a ref handle's field lives in the shared cell");
+  h := Rc.new(_AoCell(n : usize(4)));
+  assert(_ao_handle_field(&h) == addr_of(h.n), "an Rc handle's field lives in the shared cell");
   assert(_ao_local(&_AoSmall(n : usize(9))) == usize(9), "a local copy has its own address");
   assert(_ao_projection(&big) == usize(3), "a projection's &T parameter is a pointer");
   arr := [usize(1), usize(2), usize(3)];
   assert(arr(1) == usize(2), "the prelude's Array Index takes addr_of of its projection receiver");
+});
+// A `&T` parameter a sibling parameter may store past the call is a pointer
+// (VERDICTS-23 R2): `dst`'s value type carries an origin, so `v` is the
+// caller's place, not a copy that dies with the call — the stored reference
+// points at `x` itself.
+_ao_store :: (fn(generic(p : Origin), dst : &mut Option(&(i32, p)), v : &(i32, p)) -> unit)({
+  dst.* = .Some(v);
+});
+test("a &T parameter a sibling may store is the caller's place", {
+  x := i32(7);
+  mut(slot) := Option(&(i32, x)).None;
+  _ao_store(&mut slot, &x);
+  match(
+    slot,
+    .Some(r) => assert(addr_of(r.*) == addr_of(x), "the stored reference points at `x`, not at the callee's copy"),
+    .None => assert(false, "the store ran")
+  );
 });

@@ -719,7 +719,7 @@ _collect_types_from_node :: (fn(expr : &AstExpr, context : &mut CodeGenContext, 
 /// Collect all user-defined types reachable from a module value: from each
 /// exported function's body, from module-level non-function fields, and then
 /// (fixpoint) from every function discovered along the way.
-collect_required_types :: (fn(module_value : &EvalValue, context : &mut CodeGenContext, info : &ExprInfoTable) -> unit)({
+collect_required_types :: (fn(module_value : &EvalValue, context : &mut CodeGenContext, info : &ExprInfoTable, processed : &mut HashSet(String)) -> unit)({
   match(
     module_value,
     .StructVal(_, _, field_values) => {
@@ -767,9 +767,26 @@ collect_required_types :: (fn(module_value : &EvalValue, context : &mut CodeGenC
     );
     mli = (mli + usize(1));
   });
+  collect_types_of_registered_functions(context, info, processed, Option(SkipEmissionFn).None);
+});
+/// The emission's skip predicate (`should_skip_function_codegen`,
+/// functions/declarations.yo, which this module cannot import): a function
+/// it skips has no C body.
+SkipEmissionFn :: (fn(func_id : &String, c_name : &String, value : &EvalValue, context : &CodeGenContext) -> bool);
+/// Collect the types (signature and body) of every registered function not
+/// yet in `processed`, to a fixpoint: a body walk registers the functions it
+/// reaches (the closures it constructs among them), whose types are walked in
+/// turn. `collect_required_types` runs it over the export walk's functions;
+/// codegen_c runs it again over the functions the dispose synthesis registers
+/// afterwards (a `Drop` body and every function only it reaches), so a
+/// closure built only there is registered too
+/// (issues/fixed/2026-11-05-a-closure-reached-only-through-a-drop-impl-is-an-internal-compiler-error.md).
+/// With `skip`, a function the emission skips is marked walked without a
+/// walk: the dispose synthesis resolves a generic `drop` through its
+/// unspecialized original, whose types are type variables with no C form.
+collect_types_of_registered_functions :: (fn(context : &CodeGenContext, info : &ExprInfoTable, processed : &mut HashSet(String), skip : Option(SkipEmissionFn)) -> unit)({
   // Fixpoint: keep collecting from newly-discovered functions until none are
   // new. Snapshot the keys each pass (the registry grows during collection).
-  processed := HashSet(String).new();
   (found_new : bool) = true;
   while(found_new, {
     found_new = false;
@@ -786,12 +803,12 @@ collect_required_types :: (fn(module_value : &EvalValue, context : &mut CodeGenC
         found_new = true;
         match(
           context.get_function_entry(key.clone()),
-          .Some(entry) => {
+          .Some(entry) => if(!match(skip, .Some(sk) => sk(&key, &entry.c_name, &entry.value, context), .None => false), {
             // Signature types (param + return) in addition to the body — see the
             // module-level branch above.
             collect_types_from_function_type(get_func_type(key.clone()), context);
             collect_types_from_expr(_fv_body(&entry.value), context, info);
-          },
+          }),
           .None => ()
         );
       });
@@ -805,4 +822,4 @@ collect_required_types :: (fn(module_value : &EvalValue, context : &mut CodeGenC
 register_collect_type :: (fn() -> unit)(
   set_collect_type_fn(collect_type)
 );
-export(collect_type, collect_types_from_function_type, collect_types_from_expr, collect_required_types, collect_pointer_pointees, register_collect_type, _has_comptime_only_runtime_field);
+export(collect_type, collect_types_from_function_type, collect_types_from_expr, collect_required_types, collect_types_of_registered_functions, SkipEmissionFn, collect_pointer_pointees, register_collect_type, _has_comptime_only_runtime_field);

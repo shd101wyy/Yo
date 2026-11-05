@@ -17,7 +17,7 @@ YO_VERSION_FILE :: ".yo-version";
 /// version"). It used to have to match the now-deleted root `package.json`.
 ///
 /// Update this constant when the compiler version changes.
-CURRENT_YO_VERSION :: "0.2.74";
+CURRENT_YO_VERSION :: "0.2.75";
 /// Get the current Yo version string.
 current_yo_version :: (fn() -> str)(CURRENT_YO_VERSION);
 // ---------------------------------------------------------------------------
@@ -125,11 +125,14 @@ find_yo_version_file :: (
     start_dir : &Path,
     io : Io
   ) -> Impl(Future(Option(Path), Io))
-)(
-  io.async((io : Io) => {
+)({
+  // The future owns its copy of the start directory, so it borrows nothing
+  // from its caller.
+  start_owned := start_dir.clone();
+  io.async({ start_owned }(io : Io) => {
     result := Option(Path).None;
     keep_going := true;
-    current := start_dir;
+    current := start_owned.clone();
     while(keep_going, {
       candidate := current.join(Path.new(String.from(YO_VERSION_FILE)));
       found := io.await(exists(&candidate, io), io);
@@ -152,7 +155,7 @@ find_yo_version_file :: (
     });
     result
   })
-);
+});
 /// Read and parse the `.yo-version` file by searching upward from `start_dir`.
 ///
 /// Returns `.Some(version_string)` if a valid file was found, or `.None` if
@@ -164,9 +167,10 @@ read_yo_version :: (
     io : Io,
     exn : Exception
   ) -> Impl(Future(Option(String), IoExn))
-)(
-  io.async((e : IoExn) => {
-    path_opt := e.io.await(find_yo_version_file(start_dir, e.io), e.io);
+)({
+  start_owned := start_dir.clone();
+  io.async({ start_owned }(e : IoExn) => {
+    path_opt := e.io.await(find_yo_version_file(&start_owned, e.io), e.io);
     match(
       path_opt,
       .None => Option(String).None,
@@ -180,7 +184,7 @@ read_yo_version :: (
       }
     )
   })
-);
+});
 /// Check whether the pinned version matches the currently running version.
 is_pinned_version_current :: (fn(pinned : &String, current : &String) -> bool)(
   pinned == current

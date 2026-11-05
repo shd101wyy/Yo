@@ -321,7 +321,7 @@ test("Test type auto derive Send", {
   comptime_assert(Type.impls(i32, Send));
   Point :: struct(x : i32, y : i32);
   comptime_assert(Type.impls(Point, Send) == true);
-  MyBox :: ref(struct(v : i32));
+  MyBox :: struct(v : Rc(i32));
   comptime_assert(Type.impls(MyBox, Send) == false);
   GenericPoint :: (fn(comptime(T) : Type) -> comptime(Type))(struct(x : T, y : T));
   derive(generic(T : Type), where(T <: Clone), GenericPoint(T), Clone);
@@ -331,7 +331,7 @@ test("Test type auto derive Send", {
 });
 test("Test Send on pointer-bearing types", {
   // Pre-condition: a non-Send carrier to use as a negative pointee.
-  NonSendCarrier :: ref(struct(v : i32));
+  NonSendCarrier :: struct(v : Rc(i32));
   comptime_assert(Type.impls(NonSendCarrier, Send) == false);
   // *(T) is neither Send nor Sync, whatever T is (plans/VALUES_BY_DEFAULT.md
   // decision 38 E): a type holding one opts in under the pragma.
@@ -365,7 +365,7 @@ test("Test Send on pointer-bearing types", {
 // test above is now a live gate too, but these stay module-level on purpose: a
 // runtime `assert` observing a comptime-folded `::` binding cannot go vacuous
 // again whatever the comptime machinery does, so the two forms guard each other.
-SendWhereNonSend :: ref(struct(v : i32));
+SendWhereNonSend :: struct(v : Rc(i32));
 SEND_BARE_NONSEND :: Type.impls(SendWhereNonSend, Send);
 SEND_PTR_NONSEND :: Type.impls(*SendWhereNonSend, Send);
 SEND_ARRAY_NONSEND :: Type.impls(Array(SendWhereNonSend, 4), Send);
@@ -460,11 +460,11 @@ test("Test type auto derive Acyclic", {
   // Value structs without object fields are Acyclic
   Point :: struct(x : i32, y : i32);
   comptime_assert(Type.impls(Point, Acyclic) == true);
-  // Object types that don't form cycles are Acyclic
-  SimpleBox :: ref(struct(v : i32));
+  // A shared cell that cannot reach itself is Acyclic
+  SimpleBox :: struct(v : Rc(i32));
   comptime_assert(Type.impls(SimpleBox, Acyclic) == true);
-  // Self-referencing object (can form cycle) is NOT Acyclic
-  Node :: ref(struct(value : i32, next : Option(Self)));
+  // A struct reaching itself through a shared cell (can form a cycle) is NOT Acyclic
+  Node :: struct(value : i32, next : Option(Rc(Self)));
   comptime_assert(Type.impls(Node, Acyclic) == false);
   //
   // Generic struct: Acyclic depends on type parameter
@@ -533,8 +533,8 @@ test("Test type auto derive Comptime", {
   // Value structs with comptime-compatible fields are Comptime
   Point :: struct(x : i32, y : i32);
   comptime_assert(Type.impls(Point, Comptime) == true);
-  // Object types are NOT Comptime (reference-counted, runtime-only)
-  MyBox :: ref(struct(v : i32));
+  // A struct holding a shared cell is NOT Comptime (reference-counted, runtime-only)
+  MyBox :: struct(v : Rc(i32));
   comptime_assert(Type.impls(MyBox, Comptime) == false);
   // Generic struct: Comptime depends on type parameter
   GenericPoint :: (fn(comptime(T) : Type) -> comptime(Type))(struct(x : T, y : T));
@@ -615,7 +615,7 @@ test("Test Tuple derives Comptime from its field types", {
   comptime_assert(Type.impls(Tuple(Rc(i32)), Comptime) == false);
 });
 test("Test Tuple derives Send from its field types", {
-  TupleNonSend :: ref(struct(v : i32));
+  TupleNonSend :: struct(v : Rc(i32));
   comptime_assert(Type.impls(Tuple(i32), Send) == true);
   comptime_assert(Type.impls(Tuple(i32, bool), Send) == true);
   // Negative canary: a non-Send element makes the tuple non-Send.
@@ -690,8 +690,8 @@ test("Test type auto derive Runtime", {
   // Value structs with runtime-compatible fields are Runtime
   Point :: struct(x : i32, y : i32);
   comptime_assert(Type.impls(Point, Runtime) == true);
-  // Object types are Runtime
-  MyBox :: ref(struct(v : i32));
+  // A struct holding a shared cell is Runtime
+  MyBox :: struct(v : Rc(i32));
   comptime_assert(Type.impls(MyBox, Runtime) == true);
   // Generic struct: Runtime depends on type parameter
   GenericPoint :: (fn(comptime(T) : Type) -> comptime(Type))(struct(x : T, y : T));
@@ -2609,7 +2609,7 @@ HeaderMacroNamed :: struct(EOF : i32, BUFSIZ : i32, ub_name : i32);
 derive(HeaderMacroNamed, Copy, Clone);
 HeaderMacroPayload :: enum(Code(ub_name : i32, EOF : i32), Empty);
 derive(HeaderMacroPayload, Copy, Clone);
-HeaderMacroObject :: ref(struct(yo_hm_count : i32, obj : i32));
+HeaderMacroObject :: struct(yo_hm_count : i32, obj : i32);
 _header_macro_param :: (fn(EOF : i32, FILENAME_MAX : i32, ub_name : i32) -> i32)(EOF + FILENAME_MAX + ub_name);
 test("locals, parameters and fields named after header macros are plain names", {
   EOF := i32(1);
@@ -2620,7 +2620,7 @@ test("locals, parameters and fields named after header macros are plain names", 
   assert(_header_macro_param(i32(3), i32(4), i32(5)) == i32(12), "parameters named EOF, FILENAME_MAX and ub_name hold their values");
   assert(unsafe(yo_hm_ub_name()) == int(32768), "the header's own macro is untouched");
 });
-test("payload fields, object fields and closure captures named after header macros", {
+test("payload fields, struct fields and closure captures named after header macros", {
   yo_hm_count := i32(7);
   ub_name := i32(8);
   (add : Impl(Fn(k : i32) -> i32)) = (k => (k + yo_hm_count + ub_name));
@@ -2629,7 +2629,7 @@ test("payload fields, object fields and closure captures named after header macr
   got := match(p, .Code(ub_name, EOF) => (ub_name * EOF), .Empty => i32(0));
   assert(got == i32(30), "a match binds payload fields named after macros");
   o := HeaderMacroObject(yo_hm_count : yo_hm_count, obj : i32(9));
-  assert((o.yo_hm_count + o.obj) == i32(16), "a ref struct's fields (one named like its constructor's local) hold their values");
+  assert((o.yo_hm_count + o.obj) == i32(16), "a struct's fields (one named like its constructor's local) hold their values");
   { BUFSIZ } := HeaderMacroNamed(EOF : i32(1), BUFSIZ : i32(10), ub_name : i32(2));
   assert(BUFSIZ == i32(10), "a struct destructure binds a field named after a macro");
 });

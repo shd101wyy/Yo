@@ -30,7 +30,8 @@ pragma(Pragma.AllowUnsafe);
   pop_env_frame,
   get_variables_from_env,
   generate_variable_id,
-  snapshot_env
+  snapshot_env,
+  variable_value_type
 } :: import("../../env.yo");
 { TypeValue, TypeValueNode, t_origin_kind, t_origin_named, shared_list } :: import("../../types/definitions.yo");
 { t_unit, t_type, t_expr_t, t_comptime_list } :: import("../../types/creators.yo");
@@ -200,7 +201,7 @@ _derive_bind_opt :: (
     tmp_vars.last_cloned(),
     .Some(v) => match(
       v.value().get(usize(0)),
-      .Some(ov) => add_comptime_var(env, var_name.clone(), &v.ty(), &ov),
+      .Some(ov) => add_comptime_var(env, var_name.clone(), &variable_value_type(&v), &ov),
       .None => ()
     ),
     .None => ()

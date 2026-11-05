@@ -39,7 +39,7 @@ derive(_ClAcc, Copy, Clone);
 // `run_copy` copies its `Copy` receiver before the call, which reaches nothing.
 impl(_ClAcc, run : (fn(self : &Self, f : &Impl(Fn() -> unit)) -> unit)(f()), run_copy : (fn(self : Self, f : &Impl(Fn() -> unit)) -> unit)(f()));
 (mut(g_cl_rc_disposed) : i32) = i32(0);
-_ClRc :: ref(struct(v : i32));
+_ClRc :: struct(v : i32);
 impl(
   _ClRc,
   Drop(
@@ -92,10 +92,10 @@ test("capture list: a by-value capture of an RC value retains it", {
   // issues/fixed/a-by-value-capture-of-an-rc-value-never-retains-it.md: the
   // capture field must hold its own reference, or the closure's scope-end
   // drop releases the cell under the still-live source binding.
-  t := _ClRc(v : i32(7));
+  t := Rc.new(_ClRc(v : i32(7)));
   s := String.from("abcd");
   {
-    (f : Impl(Fn() -> i32)) = ({ t }() => t.v);
+    (f : Impl(Fn() -> i32)) = ({ c : Rc.clone(&t) }() => c.v);
     // A `String` is a value (B8): the renamed capture takes a clone, so the
     // source stays usable.
     (g : Impl(Fn() -> usize)) = ({ n : s.clone() }() => n.len());
@@ -469,13 +469,11 @@ test("escape: a callee cannot pass on, return or capture its `imm(f)` argument",
 test("escape: an `io.async` body and a thread body", {
   w := i32(1);
   (f : Impl(Fn() -> i32)) = ({ &w }() => w.*);
-  // §3.13 A2: the body may capture `f`; its future then borrows `w` too, so
-  // it is awaited where it is made and never bound to a local.
+  // §3.13 A2: the body may capture `f`; its future then borrows `w` too.
+  // Bound, it freezes `w` until its last use (decision 43 step 4).
   assert(io.await(io.async(e => f()), io) == i32(1), "an awaited `io.async` body may capture a second-class closure");
-  comptime_expect_error({
-    fut := io.async(e => f());
-    ()
-  }, "would hold a borrowing future");
+  fut := io.async(e => f());
+  assert(io.await(fut, io) == i32(1), "a bound future over a second-class closure runs at its await");
   comptime_expect_error(Thread(i32).spawn((tio : Io) => f()), "does not implement Send");
 });
 test("escape: a captured place cannot be moved while the closure lives", {
@@ -610,8 +608,9 @@ test("borrow places: an `io.async` body's capture list may borrow, and its futur
   assert(k == i32(2), "a `&mut` entry writes the caller's place");
   comptime_expect_error({
     f := io.async({ &k }(io : Io) => k.*);
-    ()
-  }, "would hold a borrowing future");
+    k = i32(5);
+    io.await(f, io)
+  }, "Cannot write `k` here");
 });
 // An annotated parameter after a capture list binds the future's context type
 // the way a plain `(e : IoExn) => ...` does, with no expected type to lean on

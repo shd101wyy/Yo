@@ -1362,6 +1362,16 @@ _walk_add_dep :: (fn(deps_set : &mut HashSet(String), dep_ty : &TypeValue, self_
 /// enum/newtype/value-struct/tuple by-value dependency chain.
 _walk_by_value_dep :: (fn(deps_set : &mut HashSet(String), ft : &TypeValue, self_type_id : &String, guard_nullable : bool, cname_to_typeid : &HashMap(String, String), context : &mut CodeGenContext) -> unit)(
   cond(
+    // A reference field (N2b: `Option(&String)`'s payload) lowers to
+    // `const T*` / `T*`: a struct referent needs only its forward
+    // declaration, but a newtype referent is spelled by its typedef, which
+    // cannot be forward-declared, so the field's type follows it, as a
+    // pointer field's does (`_walk_pointee_newtype`).
+    match(ft, Rc(.Reference(_, _, _)) => true, _ => false) => match(
+      ft,
+      Rc(.Reference(ref_pt, _, _)) => match(_pointee_spelling_newtype(&ref_pt), .Some(nt) => _walk_add_dep(deps_set, &nt, self_type_id, cname_to_typeid, context), .None => ()),
+      _ => ()
+    ),
     // A SomeT field with a per-object resolved concrete is EMITTED as that
     // concrete (get_type_string SomeT arm) — order the decl after it
     // (Rc(Impl(Fn)-SomeT) embeds the closure CAPTURE STRUCT by value; without

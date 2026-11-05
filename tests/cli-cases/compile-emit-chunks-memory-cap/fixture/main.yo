@@ -1,7 +1,8 @@
 { String } :: import("std/string");
 { println } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
-Item :: ref(struct(label : String, n : i64));
+Item :: struct(label : String, n : i64);
+derive(Item, Clone);
 main :: (fn() -> unit)({
   mut(xs) := ArrayList(Item).new();
   xs.push(Item(label : String.from("a"), n : i64(2)));
@@ -10,7 +11,7 @@ main :: (fn() -> unit)({
   (mut(i) : usize) = usize(0);
   while(i < xs.len(), {
     match(
-      xs.get(i),
+      xs.get_cloned(i),
       .Some(it) => {
         total = (total + it.n);
       },

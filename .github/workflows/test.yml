@@ -128,7 +128,7 @@ env:
   # firing was rejected by GH013 — RELEASE_PAT lacked the fine-grained
   # "Workflows: read and write" permission, which any push touching
   # .github/workflows/ requires (issues/fixed/release-seed-bump-needs-workflow-scope-pat.md).
-  SEED_VERSION: v0.2.74
+  SEED_VERSION: v0.2.75
 
   # apt-get waits on /var/lib/dpkg/lock-frontend FOREVER by default, and the
   # runner images run unattended-upgrades / apt-daily timers in the background.
@@ -2916,6 +2916,17 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Free runner disk space
+        # The hosted runner died three times with "No space left on device" while
+        # writing its own _diag log, within a minute of starting and right
+        # after the emsdk download (runs 41873995899, 41945982719 twice;
+        # issues/fixed/2026-11-05-the-wasi-leg-runner-runs-out-of-disk-after-the-emsdk-download.md).
+        # Removing toolchains this job never uses frees ~25 GB.
+        run: |
+          df -h / || true
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          df -h / || true
+
       - name: Setup Emscripten
         # Pin the version, for the same reason wasmtime is pinned below: the
         # "latest" alias is resolved at run time and fetches a bundled Node
@@ -3015,6 +3026,17 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
+
+      - name: Free runner disk space
+        # The hosted runner died three times with "No space left on device" while
+        # writing its own _diag log, within a minute of starting and right
+        # after the emsdk download (runs 41873995899, 41945982719 twice;
+        # issues/fixed/2026-11-05-the-wasi-leg-runner-runs-out-of-disk-after-the-emsdk-download.md).
+        # Removing toolchains this job never uses frees ~25 GB.
+        run: |
+          df -h / || true
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          df -h / || true
 
       - name: Setup Emscripten
         # Pin the version, for the same reason wasmtime is pinned below: the

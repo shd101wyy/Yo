@@ -432,6 +432,85 @@ comptime_expect_error(
     });
   })
 );
+// The same for a USER collection that is a value. Naming the iterated
+// collection in the body is E0911 for a field write and for a `&mut self`
+// method, in a read walk and an in-place walk alike. A `ref` collection
+// could also be reached through a second handle, which only the run-time
+// flag caught (tests/for_macro_borrow_user_collection.test.yo, the
+// `inout-*-panics` cli cases). A value has no second handle; shared through
+// `Rc(RefCell(...))`, the cell's own flag panics instead
+// (tests/cli-cases/refcell-user-collection-mutated-while-walked-panics).
+_UserBag :: struct(items : ArrayList(i32), version : i32);
+impl(
+  _UserBag,
+  BorrowedWalk(
+    WalkCursor : usize,
+    WalkElem : i32,
+    walk_start : (fn(self : &Self) -> usize)(usize(0)),
+    walk_valid : (fn(self : &Self, cur : &usize) -> bool)(cur.* < self.items.len()),
+    walk_ref : (fn(self : &Self, cur : &usize) -> &i32)(&self.items(cur.*)),
+    walk_next : (fn(self : &Self, cur : &usize) -> usize)(cur.* + usize(1))
+  )
+);
+impl(
+  _UserBag,
+  BorrowedWalkMut(
+    walk_elem : (fn(self : &mut Self, cur : &usize) -> &mut i32)(&mut self.items(cur.*))
+  )
+);
+impl(
+  _UserBag,
+  bump_version : (fn(self : &mut Self) -> unit)({
+    self.version = (self.version + i32(1));
+  })
+);
+_user_bag :: (fn() -> _UserBag)({
+  mut(b) := _UserBag(items : ArrayList(i32).new(), version : i32(0));
+  b.items.push(i32(1));
+  b.items.push(i32(2));
+  b
+});
+comptime_expect_error(
+  push_into_a_read_walked_user_collection :: (fn() -> unit)({
+    mut(b) := _user_bag();
+    for(&b, x => {
+      b.items.push(x.*);
+    });
+  }),
+  "Cannot write `b.items` here"
+);
+comptime_expect_error(
+  mut_method_on_a_read_walked_user_collection :: (fn() -> unit)({
+    mut(b) := _user_bag();
+    for(&b, x => {
+      b.bump_version();
+    });
+  }),
+  "the borrow lasts for the whole `for` loop"
+);
+comptime_expect_error(
+  mut_method_on_a_mut_walked_user_collection :: (fn() -> unit)({
+    mut(b) := _user_bag();
+    for(&mut b, x => {
+      b.bump_version();
+    });
+  }),
+  "the borrow lasts for the whole `for` loop"
+);
+test("a value user collection is walked in place, then mutated after the loop", {
+  mut(b) := _user_bag();
+  mut(total) := i32(0);
+  for(&b, x => {
+    total = (total + x.*);
+  });
+  for(&mut b, x => {
+    x.* = (x.* * i32(10));
+  });
+  b.bump_version();
+  b.items.push(i32(3));
+  assert((total == i32(3)) && (b.items(usize(1)) == i32(20)), "both walks ran");
+  assert((b.version == i32(1)) && (b.items.len() == usize(3)), "the walks released the collection");
+});
 // `HashSet` and `PriorityQueue` have no `BorrowedWalkMut` (only the read walk
 // `for(&set, …)`, tests/for_read_walk.test.yo): writing a hashed or
 // heap-ordered element in place would break the container.

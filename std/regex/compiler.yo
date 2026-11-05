@@ -46,6 +46,7 @@ pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("std/collections/array_list");
 import("std/string");
 { RegexNode, CharRange, GroupNameEntry } :: import("./node.yo");
+{ replace } :: import("std/mem");
 /// NFA instruction types.
 InstrKind :: enum(
   /// Consume one rune, which must equal `codepoint`. Fails the thread
@@ -327,36 +328,41 @@ ClassEntry :: struct(
 /// A compiled pattern: everything the VM needs and nothing about a particular
 /// input. A `Regex` holds one and runs it against many haystacks, so it must
 /// stay immutable during execution — the VM only reads it.
-NfaProgram :: ref(
-  struct(
-    /// The program. Instruction `i` is at pc `i`; every `Split`/`Jump`/
-    /// lookaround target is an index into this list.
-    instructions : ArrayList(Instr),
-    /// Character classes, referenced by `Instr.class_idx`.
-    classes : ArrayList(ClassEntry),
-    /// How many capturing groups the pattern declared, NOT counting group 0.
-    /// The VM allocates `2 * (n_groups + 1)` capture slots from it.
-    n_groups : usize,
-    /// `(?<name>...)` declarations in source order, passed through to
-    /// `RegexMatch.named_group`.
-    group_names : ArrayList(GroupNameEntry),
-    /// ASCII bytes every match must begin with, or empty when there is no
-    /// such prefix — a `memchr`-style skip that lets the VM reject start
-    /// positions without running the program. `Regex.new_with_flags` CLEARS
-    /// it when the `i` flag is set, because the scan is case-sensitive, and
-    /// the caller ignores it under `y` (sticky), because there is nowhere to
-    /// skip to.
-    literal_prefix : ArrayList(u8)
-  )
+NfaProgram :: struct(
+  /// The program. Instruction `i` is at pc `i`; every `Split`/`Jump`/
+  /// lookaround target is an index into this list.
+  instructions : ArrayList(Instr),
+  /// Character classes, referenced by `Instr.class_idx`.
+  classes : ArrayList(ClassEntry),
+  /// How many capturing groups the pattern declared, NOT counting group 0.
+  /// The VM allocates `2 * (n_groups + 1)` capture slots from it.
+  n_groups : usize,
+  /// `(?<name>...)` declarations in source order, passed through to
+  /// `RegexMatch.named_group`.
+  group_names : ArrayList(GroupNameEntry),
+  /// ASCII bytes every match must begin with, or empty when there is no
+  /// such prefix — a `memchr`-style skip that lets the VM reject start
+  /// positions without running the program. `Regex.new_with_flags` CLEARS
+  /// it when the `i` flag is set, because the scan is case-sensitive, and
+  /// the caller ignores it under `y` (sticky), because there is nowhere to
+  /// skip to.
+  literal_prefix : ArrayList(u8)
 );
 /// The compiler itself: a `NfaProgram` under construction plus the emit
 /// helpers that append to it. SINGLE USE — `compile` returns the program it
 /// has been accumulating into, so a second `compile` on the same instance
 /// would append to a finished program. `Regex.new_with_flags` builds a fresh
 /// one per pattern.
-NfaCompiler :: ref(
-  struct(
-    _program : NfaProgram
+NfaCompiler :: struct(
+  _program : NfaProgram
+);
+_empty_program :: (fn() -> NfaProgram)(
+  NfaProgram(
+    instructions : ArrayList(Instr).new(),
+    classes : ArrayList(ClassEntry).new(),
+    n_groups : usize(0),
+    group_names : ArrayList(GroupNameEntry).new(),
+    literal_prefix : ArrayList(u8).new()
   )
 );
 // Utilities defined first (bottom-up ordering required)
@@ -364,37 +370,26 @@ impl(
   NfaCompiler,
   /// A compiler with an empty program. Use it for exactly one `compile`.
   new : (fn() -> Self)(
-    Self(
-      _program : NfaProgram(
-        instructions : ArrayList(Instr).new(),
-        classes : ArrayList(ClassEntry).new(),
-        n_groups : usize(0),
-        group_names : ArrayList(GroupNameEntry).new(),
-        literal_prefix : ArrayList(u8).new()
-      )
-    )
+    Self(_program : _empty_program())
   ),
-  _emit : (fn(self : &Self, instr : Instr) -> usize)({
+  _emit : (fn(self : &mut Self, instr : Instr) -> usize)({
     idx := self._program.instructions.len();
     self._program.instructions.push(instr);
     idx
   }),
-  _current_pc : (fn(self : &Self) -> usize)(
+  _current_pc : (fn(self : &mut Self) -> usize)(
     self._program.instructions.len()
   ),
-  _add_class : (fn(self : &Self, ranges : &ArrayList(CharRange), negated : bool) -> usize)({
-    // The program is a handle: push through a local of it, so the argument's
-    // `ranges` cannot alias the receiver's container chain.
-    prog := self._program;
-    idx := prog.classes.len();
-    prog.classes.push(ClassEntry(ranges : ranges.clone(), negated : negated));
+  _add_class : (fn(self : &mut Self, ranges : &ArrayList(CharRange), negated : bool) -> usize)({
+    idx := self._program.classes.len();
+    self._program.classes.push(ClassEntry(ranges : ranges.clone(), negated : negated));
     idx
   })
 );
 // Compile methods: _compile_node is self-recursive, quantifier logic inlined
 impl(
   NfaCompiler,
-  _compile_node : (fn(self : &Self, node : &RegexNode) -> unit)({
+  _compile_node : (fn(self : &mut Self, node : &RegexNode) -> unit)({
     match(
       &node.kind,
       .Literal => {
@@ -426,26 +421,22 @@ impl(
       .Sequence => {
         mut(i) := usize(0);
         while(i < node.children.len(), i = (i + usize(1)), {
-          child := node.children(i);
-          recur(self, &child);
+          recur(self, &node.children(i));
         });
       },
       .Alternation => {
-        left := node.children(usize(0));
-        right := node.children(usize(1));
         split_pc := self._emit(Instr.split_instr(usize(0), usize(0)));
         left_start := self._current_pc();
         addr_of(self._program.instructions(split_pc)).* = Instr.split_instr(left_start, usize(0));
-        recur(self, &left);
+        recur(self, &node.children(usize(0)));
         jump_pc := self._emit(Instr.jump_instr(usize(0)));
         right_start := self._current_pc();
         addr_of(self._program.instructions(split_pc)).* = Instr.split_instr(left_start, right_start);
-        recur(self, &right);
+        recur(self, &node.children(usize(1)));
         end_pc := self._current_pc();
         addr_of(self._program.instructions(jump_pc)).* = Instr.jump_instr(end_pc);
       },
       .Quantifier => {
-        child := node.children(usize(0));
         min_val := node.q_min;
         max_val := node.q_max;
         greedy := node.q_greedy;
@@ -454,7 +445,7 @@ impl(
         mut(qi) := usize(0);
         while(qi < min_val, qi = (qi + usize(1)), {
           last_body_start = self._current_pc();
-          recur(self, &child);
+          recur(self, &node.children(usize(0)));
         });
         cond(
           ((max_val == usize(0)) && (min_val == usize(0))) => {
@@ -462,7 +453,7 @@ impl(
             l1 := self._current_pc();
             split_pc := self._emit(Instr.split_instr(usize(0), usize(0)));
             l2 := self._current_pc();
-            recur(self, &child);
+            recur(self, &node.children(usize(0)));
             self._emit(Instr.jump_instr(l1));
             l3 := self._current_pc();
             cond(
@@ -494,7 +485,7 @@ impl(
             while(qj < remaining, qj = (qj + usize(1)), {
               split_pc := self._emit(Instr.split_instr(usize(0), usize(0)));
               body_start := self._current_pc();
-              recur(self, &child);
+              recur(self, &node.children(usize(0)));
               after := self._current_pc();
               cond(
                 greedy => {
@@ -509,37 +500,33 @@ impl(
         );
       },
       .Group => {
-        child := node.children(usize(0));
         start_slot := (node.group_index * usize(2));
         end_slot := ((node.group_index * usize(2)) + usize(1));
         self._emit(Instr.save_instr(start_slot));
-        recur(self, &child);
+        recur(self, &node.children(usize(0)));
         self._emit(Instr.save_instr(end_slot));
       },
       .NonCapturingGroup => {
-        child := node.children(usize(0));
-        recur(self, &child);
+        recur(self, &node.children(usize(0)));
       },
       .Backreference => {
         self._emit(Instr.backref_instr(node.group_index));
       },
       .Lookahead => {
-        child := node.children(usize(0));
         positive := !node.negated;
         // Emit lookahead instruction with placeholder sub_end
         la_pc := self._emit(Instr.lookahead_instr(usize(0), usize(0), positive));
         sub_start := self._current_pc();
-        recur(self, &child);
+        recur(self, &node.children(usize(0)));
         self._emit(Instr.match_instr());
         sub_end := self._current_pc();
         addr_of(self._program.instructions(la_pc)).* = Instr.lookahead_instr(sub_start, sub_end, positive);
       },
       .Lookbehind => {
-        child := node.children(usize(0));
         positive := !node.negated;
         lb_pc := self._emit(Instr.lookbehind_instr(usize(0), usize(0), positive));
         sub_start := self._current_pc();
-        recur(self, &child);
+        recur(self, &node.children(usize(0)));
         self._emit(Instr.match_instr());
         sub_end := self._current_pc();
         addr_of(self._program.instructions(lb_pc)).* = Instr.lookbehind_instr(sub_start, sub_end, positive);
@@ -552,7 +539,7 @@ impl(
   NfaCompiler,
   // Extract literal bytes from the start of the pattern for fast scanning.
   // Walks past Save/AssertStart instructions, then collects Char instructions.
-  _extract_literal_prefix : (fn(self : &Self) -> unit)({
+  _extract_literal_prefix : (fn(self : &mut Self) -> unit)({
     mut(prefix) := ArrayList(u8).new();
     mut(pc) := usize(0);
     instrs := &self._program.instructions;
@@ -599,17 +586,17 @@ impl(
   /// does not re-derive or validate them.
   ///
   /// Finally extracts the literal prefix, so the returned program is complete:
-  /// after this call the compiler has no more work to do and the program is
-  /// only read.
-  compile : (fn(self : &Self, root : &RegexNode, n_groups : usize, group_names : &ArrayList(GroupNameEntry)) -> NfaProgram)({
-    self._program.n_groups = n_groups;
-    self._program.group_names = group_names.clone();
-    self._emit(Instr.save_instr(usize(0)));
-    self._compile_node(root);
-    self._emit(Instr.save_instr(usize(1)));
-    self._emit(Instr.match_instr());
-    self._extract_literal_prefix();
-    self._program
+  /// the call consumes the compiler, and the program is only read.
+  compile : (fn(self : Self, root : &RegexNode, n_groups : usize, group_names : &ArrayList(GroupNameEntry)) -> NfaProgram)({
+    mut(c) := self;
+    c._program.n_groups = n_groups;
+    c._program.group_names = group_names.clone();
+    c._emit(Instr.save_instr(usize(0)));
+    c._compile_node(root);
+    c._emit(Instr.save_instr(usize(1)));
+    c._emit(Instr.match_instr());
+    c._extract_literal_prefix();
+    replace(&mut c._program, _empty_program())
   })
 );
 export(

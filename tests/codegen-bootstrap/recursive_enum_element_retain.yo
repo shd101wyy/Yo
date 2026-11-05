@@ -19,11 +19,11 @@ JV :: enum(
 );
 derive(JV, Clone);
 
-P :: ref(struct(depth : i32));
+P :: struct(depth : i32);
 
 impl(
   P,
-  parse : (fn(self : &Self) -> Result(JV, String))({
+  parse : (fn(self : &mut Self) -> Result(JV, String))({
     cond(
       (self.depth > i32(0)) => {
         self.depth = (self.depth - i32(1));
@@ -50,7 +50,7 @@ impl(
 );
 
 main :: (fn() -> unit)({
-  p := P(depth : i32(1));
+  mut(p) := P(depth : i32(1));
   r := p.parse();
   s0 := match(
     r,

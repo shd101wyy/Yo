@@ -91,6 +91,7 @@ NodeKind :: enum(
   /// from the current position.
   Lookbehind
 );
+derive(NodeKind, Copy, Clone);
 /// One `(?<name>...)` declaration: the name and the group number it refers
 /// to. The parser collects these in declaration order and they travel all the
 /// way out to `RegexMatch.named_group`, which scans the list linearly.
@@ -105,50 +106,47 @@ GroupNameEntry :: struct(
 derive(GroupNameEntry, Clone);
 /// One node of the pattern AST.
 ///
-/// Reference-counted (`ref(struct(...))`) so `children : ArrayList(Self)` can
-/// close the recursion without a `Box`. Which fields carry information
+/// A plain value: `children : ArrayList(Self)` closes the recursion through
+/// the list's heap buffer, so no `Box` is needed. Which fields carry information
 /// depends entirely on `kind`; see `NodeKind`, which documents that per
 /// variant, and the module header for why it is one wide struct instead of
 /// an enum.
-RegexNode :: ref(
-  struct(
-    /// Which node this is. Every other field is only meaningful for the kinds
-    /// `NodeKind` lists it under.
-    kind : NodeKind,
-    /// Sub-patterns, in source order: none for the leaf kinds, one for a
-    /// quantifier / group / lookaround, two for an alternation, any number for
-    /// a sequence.
-    children : ArrayList(Self),
-    /// `Literal`: the code point to match.
-    codepoint : u32,
-    /// `CharClass`: the inclusive code-point ranges the class accepts. Not
-    /// required to be sorted or disjoint.
-    ranges : ArrayList(CharRange),
-    /// `CharClass`: `[^...]` — accept anything OUTSIDE `ranges`.
-    /// `Lookahead`/`Lookbehind`: the assertion is NEGATIVE (`(?!`, `(?<!`).
-    negated : bool,
-    /// `Quantifier`: minimum repetitions, 0 for `*` and `?`.
-    q_min : usize,
-    /// `Quantifier`: maximum repetitions, where **0 means UNBOUNDED** — the
-    /// sentinel for `*`, `+` and `{m,}`. So `q_max == 0` is not "match zero
-    /// times"; `{0,0}` is not expressible here.
-    q_max : usize,
-    /// `Quantifier`: greedy (`a*`) rather than lazy (`a*?`). Decides the order
-    /// the compiler emits the two `Split` targets in, which is the whole of
-    /// what greediness means to this engine.
-    q_greedy : bool,
-    /// `Group`: the 1-based capture number. `Backreference`: the group number
-    /// being referred back to.
-    group_index : usize,
-    /// `Anchor`: which assertion. Constructors leave it `.Start` for every
-    /// other kind, so it is not a reliable "no anchor" signal — check `kind`.
-    anchor : AnchorKind
-  )
+RegexNode :: struct(
+  /// Which node this is. Every other field is only meaningful for the kinds
+  /// `NodeKind` lists it under.
+  kind : NodeKind,
+  /// Sub-patterns, in source order: none for the leaf kinds, one for a
+  /// quantifier / group / lookaround, two for an alternation, any number for
+  /// a sequence.
+  children : ArrayList(Self),
+  /// `Literal`: the code point to match.
+  codepoint : u32,
+  /// `CharClass`: the inclusive code-point ranges the class accepts. Not
+  /// required to be sorted or disjoint.
+  ranges : ArrayList(CharRange),
+  /// `CharClass`: `[^...]` — accept anything OUTSIDE `ranges`.
+  /// `Lookahead`/`Lookbehind`: the assertion is NEGATIVE (`(?!`, `(?<!`).
+  negated : bool,
+  /// `Quantifier`: minimum repetitions, 0 for `*` and `?`.
+  q_min : usize,
+  /// `Quantifier`: maximum repetitions, where **0 means UNBOUNDED** — the
+  /// sentinel for `*`, `+` and `{m,}`. So `q_max == 0` is not "match zero
+  /// times"; `{0,0}` is not expressible here.
+  q_max : usize,
+  /// `Quantifier`: greedy (`a*`) rather than lazy (`a*?`). Decides the order
+  /// the compiler emits the two `Split` targets in, which is the whole of
+  /// what greediness means to this engine.
+  q_greedy : bool,
+  /// `Group`: the 1-based capture number. `Backreference`: the group number
+  /// being referred back to.
+  group_index : usize,
+  /// `Anchor`: which assertion. Constructors leave it `.Start` for every
+  /// other kind, so it is not a reliable "no anchor" signal — check `kind`.
+  anchor : AnchorKind
 );
-// A node is a shared handle (`ref`), so its clone is another handle to the
-// same node, as its implicit copy is: `ArrayList(RegexNode).clone()` (a
-// `sequence` of a borrowed list) needs `Clone` on the element.
-impl(RegexNode, Clone(clone : (fn(self : &Self) -> Self)(self)));
+// A deep copy: `ArrayList(RegexNode).clone()` (a `sequence` of a borrowed
+// list) needs `Clone` on the element.
+derive(RegexNode, Clone);
 impl(
   RegexNode,
   /// A node matching exactly the code point `cp`.
@@ -219,10 +217,10 @@ impl(
   /// A concatenation of `nodes`, matched left to right. Takes the list as
   /// given, including an empty one — which is how the empty pattern and the
   /// empty side of `a|` are represented.
-  sequence : (fn(nodes : &ArrayList(RegexNode)) -> Self)(
+  sequence : (fn(nodes : ArrayList(RegexNode)) -> Self)(
     Self(
       kind : .Sequence,
-      children : nodes.clone(),
+      children : nodes,
       codepoint : u32(0),
       ranges : ArrayList(CharRange).new(),
       negated : false,
@@ -236,7 +234,7 @@ impl(
   /// A `left|right` node. Strictly binary: the parser folds `a|b|c` into
   /// nested alternations, and the compiler's `Split` lowering assumes exactly
   /// two children.
-  alternation : (fn(left : &RegexNode, right : &RegexNode) -> Self)({
+  alternation : (fn(left : RegexNode, right : RegexNode) -> Self)({
     mut(kids) := ArrayList(RegexNode).new();
     kids.push(left);
     kids.push(right);
@@ -258,7 +256,7 @@ impl(
   /// `max_val == 0` means UNBOUNDED — that is the sentinel for `*`, `+` and
   /// `{m,}`, so it does not mean "zero times". `greedy : false` is the `?`
   /// suffix (`a*?`), which only reorders the alternatives the compiler emits.
-  quantifier : (fn(child : &RegexNode, min_val : usize, max_val : usize, greedy : bool) -> Self)({
+  quantifier : (fn(child : RegexNode, min_val : usize, max_val : usize, greedy : bool) -> Self)({
     mut(kids) := ArrayList(RegexNode).new();
     kids.push(child);
     Self(
@@ -277,7 +275,7 @@ impl(
   /// A capturing `(...)` node. `index` is the 1-based capture number the
   /// parser assigned by opening-parenthesis order, which is what `\1`, `$1`
   /// and `RegexMatch.group(i)` all count in.
-  group : (fn(child : &RegexNode, index : usize) -> Self)({
+  group : (fn(child : RegexNode, index : usize) -> Self)({
     mut(kids) := ArrayList(RegexNode).new();
     kids.push(child);
     Self(
@@ -296,7 +294,7 @@ impl(
   /// A `(?:...)` node — grouping for precedence only, consuming no capture
   /// number. Kept as a distinct kind rather than collapsed into its child so
   /// that a quantifier can wrap the group rather than the last atom in it.
-  non_capturing_group : (fn(child : &RegexNode) -> Self)({
+  non_capturing_group : (fn(child : RegexNode) -> Self)({
     mut(kids) := ArrayList(RegexNode).new();
     kids.push(child);
     Self(
@@ -333,7 +331,7 @@ impl(
   /// A `(?=...)` (positive) or `(?!...)` (negative) node. `positive` is
   /// stored INVERTED, as the struct's `negated` field. Zero-width: the VM runs
   /// the child, keeps only the yes/no answer, and resumes where it started.
-  lookahead : (fn(child : &RegexNode, positive : bool) -> Self)({
+  lookahead : (fn(child : RegexNode, positive : bool) -> Self)({
     mut(kids) := ArrayList(RegexNode).new();
     kids.push(child);
     Self(
@@ -352,7 +350,7 @@ impl(
   /// A `(?<=...)` (positive) or `(?<!...)` (negative) node — the same
   /// zero-width contract as `lookahead`, matched backwards from the current
   /// position. `positive` is stored inverted, as `negated`.
-  lookbehind : (fn(child : &RegexNode, positive : bool) -> Self)({
+  lookbehind : (fn(child : RegexNode, positive : bool) -> Self)({
     mut(kids) := ArrayList(RegexNode).new();
     kids.push(child);
     Self(

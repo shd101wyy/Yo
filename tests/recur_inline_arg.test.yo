@@ -8,13 +8,14 @@
 //
 // Without the fix, each recursive `recur(...)` call leaks one String per
 // call because String.concat would inline the recur result without a drop.
-Token :: ref(struct(name : String));
+Token :: struct(name : String);
+derive(Token, Clone);
 to_str :: (fn(toks : &ArrayList(Token), i : usize) -> String)({
   n := toks.len();
   cond(
     (i >= n) => `done`,
     true => match(
-      toks.get(i),
+      toks.get_cloned(i),
       .Some(p) => String.concat(&p.name, recur(toks, i + usize(1))),
       .None => `none`
     )
@@ -70,9 +71,9 @@ test("recur returning RC type bound to local", {
 // reference. std/encoding/json.yo `_stringify_into` was the CI red (the
 // verifier's cache-store `stringify`).
 // Tracking issue: issues/fixed/unit-recur-never-flushes-its-argument-drops.md
-Leaf :: ref(struct(name : String));
+Leaf :: struct(name : String);
 Node :: enum(
-  One(leaf : Leaf),
+  One(leaf : Rc(Leaf)),
   Many(items : ArrayList(Self))
 );
 count_leaves :: (fn(n : &Node, acc : &mut ArrayList(usize)) -> unit)({
@@ -90,10 +91,10 @@ count_leaves :: (fn(n : &Node, acc : &mut ArrayList(usize)) -> unit)({
   );
 });
 test("unit recur releases the dup of a composite argument", {
-  leaf := Leaf(name : `x`);
+  leaf := Rc.new(Leaf(name : `x`));
   mut(items) := ArrayList(Node).new();
-  items.push(Node.One(leaf : leaf));
-  items.push(Node.One(leaf : leaf));
+  items.push(Node.One(leaf : Rc.clone(&leaf)));
+  items.push(Node.One(leaf : Rc.clone(&leaf)));
   root := Node.Many(items : items);
   before := ref_count(leaf);
   mut(acc) := ArrayList(usize).new();

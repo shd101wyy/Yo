@@ -323,9 +323,9 @@ _entry_std_root :: (fn(entry : &String) -> Option(String))({
   ancestors := Path.new(_std_canonicalize(entry.clone())).ancestors();
   (ai : usize) = usize(0);
   while(ai < ancestors.len(), {
-    dir := ancestors(ai);
-    if(_dir_holds_prelude(dir.to_string()), {
-      return(Option(String).Some(dir.to_string()));
+    dir := ancestors(ai).to_string();
+    if(_dir_holds_prelude(&dir), {
+      return(Option(String).Some(dir));
     });
     ai = (ai + usize(1));
   });

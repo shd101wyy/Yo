@@ -34,7 +34,7 @@
 { check_loop_flow, migrate_rc_clone_on } :: import("../utils.yo");
 { expr_contains_loop_terminator } :: import("../../expr_traversal.yo");
 { _record_loop_handle_scrutinee_borrows } :: import("./match.yo");
-{ Environment, snapshot_env, env_adopt } :: import("../../env.yo");
+{ Environment, snapshot_env, env_adopt, variable_value_type } :: import("../../env.yo");
 { get_variables_from_env } :: import("../../env.yo");
 { generate_expr_from_code } :: import("../../parser.yo");
 { type_contains_rc_type } :: import("../../types/utils.yo");
@@ -247,7 +247,7 @@ _append_step_save_drop :: (fn(step : &AstExpr, ctx : &mut EvalContext, exn : Exc
       &si.variable_name(),
       .Some(tname) => match(
         get_variables_from_env(&si.env(), &tname).last_cloned(),
-        .Some(tv) => if(tv.is_owning_the_rc_value() && type_contains_rc_type(&tv.ty()) && tv.consumed_at_token().is_none(), {
+        .Some(tv) => if(tv.is_owning_the_rc_value() && type_contains_rc_type(&variable_value_type(&tv)) && tv.consumed_at_token().is_none(), {
           // Once per step: the loop simulation evaluates the step once per
           // iteration, the begin epilogue rebuilds this list each time, and
           // every synthesized drop would carry a fresh id — a second append

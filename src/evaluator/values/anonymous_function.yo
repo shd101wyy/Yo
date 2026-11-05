@@ -96,7 +96,8 @@ pragma(Pragma.AllowUnsafe);
   get_variables_from_env,
   mint_funcval_env_key,
   register_funcval_cap_slices,
-  CaptureSlice
+  CaptureSlice,
+  variable_value_type
 } :: import("../../env.yo");
 { Token } :: import("../../token.yo");
 { some_t_bounds, TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, no_levels, no_flags, SharedList, slot_pointee_at, t_slot_pointee, t_slot_with_pointee, fn_param_mut_ref_flags, fn_param_by_value_flags, fn_result_is_ref, fn_result_is_mut_ref, t_slot_is_borrow } :: import("../../types/definitions.yo");
@@ -149,7 +150,7 @@ pragma(Pragma.AllowUnsafe);
 { create_function_body_evaluation_context, hard_swallow_diagnostic, hard_swallow_diagnostic_in_generic_trial, forcing_depths, truncate_forcing_depths, publish_pending_member_phase_a, closure_literal_is_borrowed } :: import("../context.yo");
 { evaluated_body_contains_unwind } :: import("../../expr_traversal.yo");
 { get_all_some_types, type_is_control_bound, type_contains_rc_type, type_contains_some_type_deep, type_requires_explicit_copy, type_is_bitwise_copy, mark_fnmut_capture_struct } :: import("../../types/utils.yo");
-{ attach_temp_variable_to_expr, judge_capture_fnmut_at_fn_slot, deref_exempt_mark, deref_exempt_clear, variable_is_reference_binding, deref_rule_applies, deref_rule_recording, reject_reference_without_deref, is_valid_variable_name, require_expr_not_consumed, set_expr_as_needs_to_call_dup, migrate_rc_clone_on, audit_pending_copies_enabled, reject_second_class_return, capture_place_crosses_cell, reject_bare_callable_result, reject_closure_literal_into_dyn_fn, bare_callable_recorded_into_dyn_fn, place_require_mut } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, judge_capture_fnmut_at_fn_slot, deref_exempt_mark, deref_exempt_clear, variable_is_reference_binding, deref_rule_applies, deref_rule_recording, reject_reference_without_deref, is_reference_deref_site, is_valid_variable_name, require_expr_not_consumed, set_expr_as_needs_to_call_dup, migrate_rc_clone_on, audit_pending_copies_enabled, reject_second_class_return, capture_place_crosses_cell, reject_bare_callable_result, reject_closure_literal_into_dyn_fn, bare_callable_recorded_into_dyn_fn, place_require_mut } :: import("../utils.yo");
 { CaptureBorrow, register_capture_borrows, type_is_second_class, fn_param_is_ptr_borrow, reject_origin_carrying_signature } :: import("../../types/utils.yo");
 { is_some_type, is_unit_type, is_void_type, is_never_type, is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_fn_trait_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -787,12 +788,12 @@ outcome after the guarded call instead (e.g. a result the handler unwinds past).
                             `Cannot capture the borrow '${k}' in a closure implicitly: '${k}' is a local borrow (\`${k} := &place\`, \`${k} := &mut place\`), a second-class borrow of another place, and an implicit capture would copy the borrow into a closure that may outlive it. Name it in a capture list (\`{ &${k} }(...) => ...\` or \`{ &mut ${k} }(...) => ...\`), which keeps the closure second-class, or read the value into a local first.`
                           );
                         });
-                        if(!v.is_compile_time_only() && type_is_control_bound(&v.ty()), {
+                        if(!v.is_compile_time_only() && type_is_control_bound(&variable_value_type(&v)), {
                           _raise_capture_rejection(
                             ctx,
                             exn,
                             &ci.token,
-                            `Closures cannot capture a value of control-bound type. The captured value \`${k}\` has type \`${type_to_string(&v.ty())}\` which transitively contains a \`ctl(...) -> ret\` function. Closures can escape their enclosing frame, taking the captured control function with them — which would unwind to a dead install frame.
+                            `Closures cannot capture a value of control-bound type. The captured value \`${k}\` has type \`${type_to_string(&variable_value_type(&v))}\` which transitively contains a \`ctl(...) -> ret\` function. Closures can escape their enclosing frame, taking the captured control function with them — which would unwind to a dead install frame.
 
 Pass \`${k}\` as a regular function parameter instead of capturing it in a closure.`
                           );
@@ -985,8 +986,13 @@ _evaluate_capture_list :: (
       // N1e-1, VERDICTS-13 §11): `{ y : &r }` borrows the referent, spelled
       // `{ y : &r.* }`, and the pun `{ &r }` gains its label,
       // `{ r : &r.* }` (E0926). In `{ y : &r.*… }` the reference's own deref
-      // names the place `r` already borrows, so it is not a field hop.
-      cap_root_is_reference := (variable_is_reference_binding(&root_var) && deref_rule_applies(&root_tok, ctx));
+      // names the place `r` already borrows, so it is not a field hop. A
+      // re-evaluated body (a trait default's per-impl materialization) reads
+      // its `r.*` already rewritten to the name at the `*`
+      // (`note_reference_deref_site`): that name is the written deref, not a
+      // bare `&r`
+      // (issues/fixed/2026-11-05-a-capture-list-in-an-untyped-trait-default-lambda-cannot-borrow-self.md).
+      cap_root_is_reference := (variable_is_reference_binding(&root_var) && deref_rule_applies(&root_tok, ctx) && !is_reference_deref_site(&root_tok));
       if(cap_root_is_reference && (fields.len() == usize(0)), {
         if(is_pun && deref_rule_recording(), {
           record_deref_edit_site(&raw_tok, &label, u8(1));
@@ -1906,8 +1912,10 @@ evaluate_anonymous_function_implementation :: (
     // 24, N1c): its parameters are the roots its place may be reached from
     // (`is_parameter`), and a `&T` one is passed by pointer
     // (`fn_param_is_ptr_borrow`), so it binds as a non-reassignable
-    // reference, as `bind_parameter` binds a named projection's.
-    if(fn_result_is_ref(&function_type), {
+    // reference, as `bind_parameter` binds a named projection's. So is a
+    // `&T` parameter of one whose result carries an origin (decision 43
+    // step 3): the result may point into it.
+    if(fn_result_is_ref(&function_type) || fn_param_is_ptr_borrow(&function_type, rp_i), {
       match(
         rp_v_opt,
         .Some(rp_vp) => {

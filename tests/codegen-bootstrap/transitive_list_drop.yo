@@ -4,7 +4,7 @@
 // `Inner`'s `Drop` counts the instances dropped; main counts the ones made.
 (mut(g_dropped) : i64) = i64(0);
 (mut(g_made) : i64) = i64(0);
-Inner :: ref(struct(x : i32, cyc : Option(Self)));
+Inner :: struct(x : i32, cyc : Option(Box(Self)));
 impl(
   Inner,
   Drop(
@@ -13,14 +13,14 @@ impl(
     })
   )
 );
-// Outer holds an ArrayList(Inner) as an RC field. Dropping Outer transitively
+// Outer holds an ArrayList(Inner) field. Dropping Outer transitively
 // frees the list, which must drop each Inner.
-Outer :: ref(struct(items : ArrayList(Inner)));
+Outer :: struct(items : ArrayList(Inner));
 
 main :: (fn() -> unit)({
   (mut(i) : i32) = i32(0);
   while(i < i32(50), {
-    o := Outer(items : ArrayList(Inner).new());
+    mut(o) := Outer(items : ArrayList(Inner).new());
     o.items.push(Inner(x : i, cyc : .None));
     o.items.push(Inner(x : i, cyc : .None));
     g_made = (g_made + i64(2));

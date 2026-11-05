@@ -19,7 +19,8 @@
   Variable,
   Environment,
   get_variables_from_env,
-  snapshot_env
+  snapshot_env,
+  variable_value_type
 } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
 { EvalValue } :: import("../../value.yo");
@@ -140,7 +141,7 @@ _consume_releases_variable :: (fn(name : &String, env : &Environment, ctx : &Eva
   vars := get_variables_from_env(env, name);
   v := match(vars.last_cloned(), .Some(v) => v, .None => return(false));
   some_undroppable := match(
-    &v.ty(),
+    &variable_value_type(&v),
     Rc(.SomeT({ bounds : s_rtt_bnd, resolution : s_rc })) => {
       s_rtt := s_rtt_bnd.required();
       (s_rc.is_none() && (s_rtt.len() == usize(0)))
@@ -148,7 +149,7 @@ _consume_releases_variable :: (fn(name : &String, env : &Environment, ctx : &Eva
     _ => false
   );
   captured := (match(&ctx.captured_variables, .Some(cv) => cv.contains_key(v.name.clone()), .None => false) && !is_own_fnonce_capture(&v, env, ctx));
-  v.is_owning_the_rc_value() && (type_contains_rc_type(&v.ty()) && (!v.is_module_level() && (!v.is_ref() && (!some_undroppable && (v.consumed_at_token().is_none() && !captured)))))
+  v.is_owning_the_rc_value() && (type_contains_rc_type(&variable_value_type(&v)) && (!v.is_module_level() && (!v.is_ref() && (!some_undroppable && (v.consumed_at_token().is_none() && !captured)))))
 });
 evaluate_consume :: (
   fn(

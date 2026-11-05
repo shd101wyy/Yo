@@ -1,0 +1,11 @@
+// issues/2026-11-05-dereferencing-a-projection-call-result-is-an-internal-error.md
+{ assert } :: import("std/assert");
+Pair :: struct(a : i32, b : i32);
+first :: (fn(p : &Pair) -> &i32)(&p.a);
+main :: (fn() -> unit)({
+  q := Pair(a : i32(1), b : i32(2));
+  r := first(&q);
+  assert(r.* == i32(1), "bound first");
+  assert(first(&q).* == i32(1), "deref of a projection call");
+});
+export(main);

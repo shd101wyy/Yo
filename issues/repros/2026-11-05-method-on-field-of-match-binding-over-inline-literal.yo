@@ -1,0 +1,12 @@
+// A method call on a field of a `match` binding whose scrutinee is an inline
+// `Option(S).Some(S(...))` literal emits the field as a bare C identifier:
+// `use of undeclared identifier '__yo_v_name'`. Expected output: "3"
+// (issues/2026-11-05-a-method-on-a-field-of-a-match-binding-over-an-inline-literal-emits-an-undeclared-identifier.md).
+{ println } :: import("std/fmt");
+{ String } :: import("std/string");
+Task :: struct(name : String);
+main :: (fn() -> unit)({
+  a := match(Option(Task).Some(Task(name : String.from("exe"))), .Some(t) => t.name.len(), .None => usize(0));
+  println(`${a}`);
+});
+export(main);

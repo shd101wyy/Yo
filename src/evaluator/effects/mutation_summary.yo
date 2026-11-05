@@ -40,7 +40,7 @@
   BK_BORROW_MUT,
   ast_expr_strip_borrow_marker
 } :: import("../../expr.yo");
-{ get_variables_from_env, Environment, Variable } :: import("../../env.yo");
+{ get_variables_from_env, Environment, Variable, variable_value_type } :: import("../../env.yo");
 { Token } :: import("../../token.yo");
 {
   ExprInfo,
@@ -3203,7 +3203,7 @@ impl(
                   // (issues/fixed/2026-10-24-a-callee-that-writes-a-scalar-global-is-assumed-to-mutate-every-argument.md).
                   // D1 records the write itself where it happens
                   // (`d1_record_global_write`), not through this mask.
-                  v.is_module_level() => if(_msp_type_may_root(&v.ty()), {
+                  v.is_module_level() => if(_msp_type_may_root(&variable_value_type(&v)), {
                     m.all = true;
                     _msp_debug_all(String.from("walk"), e);
                   }),
@@ -4232,7 +4232,7 @@ _gr_atom :: (fn(e : &AstExpr, ctx : &_GrCtx) -> Option(String))({
   });
   send_ok := match(
     &ctx.send,
-    .Some(st) => type_implements_trait_bool(&v.ty(), &st, &env),
+    .Some(st) => type_implements_trait_bool(&variable_value_type(&v), &st, &env),
     .None => true
   );
   if(send_ok, {
@@ -4242,12 +4242,12 @@ _gr_atom :: (fn(e : &AstExpr, ctx : &_GrCtx) -> Option(String))({
     return(
       match(
         g_d1_written.with(m => m.get_cloned(&key)),
-        .Some(wloc) => Option(String).Some(`references the module-level global '${name}' (type ${type_to_string(&v.ty())}), which is assigned at ${wloc} — a module-level binding is one static every thread shares, so a mutable one may only be touched by one thread. Use thread_local(${name}) for per-thread state or an atomic object (AtomicI32, Mutex(T), Arc(T)) for shared state (at ${_d1_location(&tok)})`),
+        .Some(wloc) => Option(String).Some(`references the module-level global '${name}' (type ${type_to_string(&variable_value_type(&v))}), which is assigned at ${wloc} — a module-level binding is one static every thread shares, so a mutable one may only be touched by one thread. Use thread_local(${name}) for per-thread state or an atomic object (AtomicI32, Mutex(T), Arc(T)) for shared state (at ${_d1_location(&tok)})`),
         .None => Option(String).None
       )
     );
   });
-  Option(String).Some(`references the module-level global '${name}' (type ${type_to_string(&v.ty())}), which is not Sync — a module-level binding is one static every thread shares, so a closure that runs on another thread may only reach Sync globals. Use thread_local(${name}) for per-thread state, an atomic object (Mutex(T), Arc(T), Atomic*) for shared state, or pass the value into the closure (at ${_d1_location(&tok)})`)
+  Option(String).Some(`references the module-level global '${name}' (type ${type_to_string(&variable_value_type(&v))}), which is not Sync — a module-level binding is one static every thread shares, so a closure that runs on another thread may only reach Sync globals. Use thread_local(${name}) for per-thread state, an atomic object (Mutex(T), Arc(T), Atomic*) for shared state, or pass the value into the closure (at ${_d1_location(&tok)})`)
 });
 /// A call whose callee is an atom bound to a compile-time closure value (a
 /// local `(k : Impl(Fn() -> R)) = (() => ...)` binding, or a captured one):

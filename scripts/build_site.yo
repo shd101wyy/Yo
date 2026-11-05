@@ -39,15 +39,15 @@ GITHUB_REPO :: "https://github.com/shd101wyy/Yo";
 /// Run `git <args>` in `root` and return trimmed stdout, or None on any
 /// failure (mirrors the TS try/catch-to-undefined helpers).
 _git :: (fn(root : String, git_args : ArrayList(String), io : Io) -> Option(String))({
-  cmd := Command.new(String.from("git"));
-  cmd.arg(String.from("-C"));
-  cmd.arg(root.clone());
+  mut(cmd) := Command.new(String.from("git"));
+  cmd = cmd.arg(String.from("-C"));
+  cmd = cmd.arg(root.clone());
   (mut(i) : usize) = usize(0);
   while(i < git_args.len(), {
     match(
       git_args.get_cloned(i),
       .Some(a) => {
-        _arg_c := cmd.arg(&a);
+        cmd = cmd.arg(&a);
       },
       .None => ()
     );
@@ -741,16 +741,16 @@ main :: (fn(io : Io) -> unit)({
   // ── Step 3: std library docs (subprocess: `yo doc std/`) ──
   println(String.from("\n[3/3] Generating standard library documentation..."));
   std_out := `${output_dir}/std`;
-  doc_cmd := Command.new(yo_bin.clone());
-  doc_cmd.arg(String.from("doc"));
-  doc_cmd.arg(String.from("std/"));
-  doc_cmd.arg(String.from("--output"));
-  doc_cmd.arg(std_out.clone());
+  mut(doc_cmd) := Command.new(yo_bin.clone());
+  doc_cmd = doc_cmd.arg(String.from("doc"));
+  doc_cmd = doc_cmd.arg(String.from("std/"));
+  doc_cmd = doc_cmd.arg(String.from("--output"));
+  doc_cmd = doc_cmd.arg(std_out.clone());
   match(
     &site_version,
     .Some(v) => {
-      doc_cmd.arg(String.from("--version"));
-      doc_cmd.arg(v.clone());
+      doc_cmd = doc_cmd.arg(String.from("--version"));
+      doc_cmd = doc_cmd.arg(v.clone());
     },
     .None => ()
   );

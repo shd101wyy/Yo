@@ -3661,7 +3661,7 @@ test("Test await as the scrutinee of a bound match on a handle Option", {
 // (the value stayed in a C local while the completion state dropped its
 // never-assigned `sm->` field), 2 an over-release.
 (mut(g_scrut_disposed) : i32) = i32(0);
-ScrutPayload :: ref(struct(n : usize));
+ScrutPayload :: struct(n : usize);
 impl(
   ScrutPayload,
   Drop(
@@ -4272,11 +4272,9 @@ test("Test same-named locals in sibling match arms of an async body", {
 // variable; resolving the name to the other branch's state-machine field made it
 // emit that declaration a second time — `error: redefinition of 'sub'`.
 // ---------------------------------------------------------------------------
-Duo :: ref(
-  struct(
-    a : String,
-    b : String
-  )
+Duo :: struct(
+  a : String,
+  b : String
 );
 test("Test same-named locals in sibling branches used as struct-literal arguments", {
   build_duo := (fn(n : i32, rio : Io) -> Impl(Future(Duo, Io)))(
@@ -4340,6 +4338,10 @@ test("Test a match arm early-returning a freshly built value before an await", {
 // yo-self's `codegen/exprs/match.yo` already had the gate; only `src/` lacked it.
 // See issues/fixed/async-sibling-arm-same-named-locals.md.
 // ---------------------------------------------------------------------------
+// `Task` stays a `ref` object for now: with a value struct the arm's
+// `run_cfg.name` read emits an undeclared C identifier
+// (issues/2026-11-05-a-method-on-a-field-of-a-match-binding-over-an-inline-literal-emits-an-undeclared-identifier.md);
+// its fix makes `Task` a value struct again.
 Task :: ref(struct(name : String));
 Job :: enum(Run, Doc);
 derive(Job, Copy, Clone);
@@ -4427,19 +4429,20 @@ test("Test an if whose branch awaits as a while loop body", {
 // `yo build run`.
 // See issues/fixed/async-sibling-arm-match-bindings-store-to-wrong-slot.md.
 // ---------------------------------------------------------------------------
-Cargo :: ref(
-  struct(
-    label : String,
-    size : i32
-  )
+// A shared handle (`Rc`): `Option(Cargo)` lowers to the nullable pointer the
+// second test below needs.
+_CargoVal :: struct(
+  label : String,
+  size : i32
 );
+Cargo :: Rc(_CargoVal);
 CargoKind :: enum(A, B);
 derive(CargoKind, Copy, Clone);
 find_cargo :: (fn(tag : &String) -> Option(Cargo))(
-  Option(Cargo).Some(Cargo(label : tag.clone(), size : i32(7)))
+  Option(Cargo).Some(Rc.new(_CargoVal(label : tag.clone(), size : i32(7))))
 );
 describe_cargo :: (fn(c : &Cargo, rio : Io) -> Impl(Future(String, Io)))(
-  rio.async((aio : Io) => {
+  rio.async({ c : Rc.clone(c) }(aio : Io) => {
     aio.await(yield(aio), aio);
     return(`${c.label}:${c.size}`)
   })
@@ -4487,13 +4490,21 @@ test("Test same-named pattern bindings in sibling match arms passed to a capturi
 // fallback name scan found the OUTER `parsed`'s slot, stored the inner value
 // there, and clobbered it (a C type error when the two types differed: the
 // compiler's own `run_add`). A binding env resolution finds is a local.
+// The payload stays a `ref` object (`_NpCargo`) for now: with a value payload
+// (`Cargo`, an `Rc`) the shadowing arm binding leaks
+// (issues/2026-11-05-a-match-arm-binding-that-shadows-a-local-is-never-dropped.md);
+// its fix switches this case to `Cargo` and `find_cargo`.
+_NpCargo :: ref(struct(label : String, size : i32));
+_find_np_cargo :: (fn(tag : &String) -> Option(_NpCargo))(
+  Option(_NpCargo).Some(_NpCargo(label : tag.clone(), size : i32(7)))
+);
 test("Test a nullable-pointer arm binding does not store into a same-named hoisted variable", {
   drive := (fn(rio : Io) -> Impl(Future(String, Io)))(
     rio.async((aio : Io) => {
-      parsed := Cargo(label : String.from("outer"), size : i32(1));
+      parsed := _NpCargo(label : String.from("outer"), size : i32(1));
       aio.await(yield(aio), aio);
       inner := match(
-        find_cargo(String.from("inner")),
+        _find_np_cargo(String.from("inner")),
         .Some(parsed) => parsed.label.clone(),
         .None => String.from("none")
       );
@@ -4754,30 +4765,32 @@ test("abort dispose skips awaitless-match pattern bindings (no double-drop)", {
   io.await(_abort_read_and_throw(io, throw_exn), IoExn(io : io, exn : throw_exn));
   assert(false, "expected _abort_read_and_throw to throw");
 });
-/// A ref struct whose payload is itself RC-managed, so a premature drop
+/// A shared handle (`Rc`) whose payload owns heap memory, so a premature drop
 /// corrupts observable data instead of merely unbalancing a counter.
-IndexElem :: ref(struct(name : String, n : usize));
+_IndexElemVal :: struct(name : String, n : usize);
+IndexElem :: Rc(_IndexElemVal);
 /// Reads elements out of an `ArrayList` BY INDEX inside an async loop whose
 /// body contains an await, so each `it := items(i)` binding is lowered into a
 /// state-machine slot (`sm->var_N = (*index(...));`) rather than a C local.
 /// That shape has no RHS temp, and the self-hosted codegen used to skip the
 /// binding's deferred dup there while still emitting the loop-end drop — a
 /// net -1 per element per pass. TWO passes are required: the elements start at
-/// refcount 2, so a single pass only masks the imbalance.
+/// refcount 2, so a single pass only masks the imbalance. (Since V5 the
+/// binding's +1 is the explicit `Rc.clone`.)
 _index_elems_twice :: (fn(items : &ArrayList(IndexElem), io : Io) -> Impl(Future(usize, Io)))({
   items_owned := items.clone();
   io.async((io : Io) => {
     (mut(total) : usize) = usize(0);
     (mut(i) : usize) = usize(0);
     while(i < items_owned.len(), {
-      it := items_owned(i);
+      it := Rc.clone(&items_owned(i));
       total = (total + it.n);
       io.await(yield(io), io);
       i = (i + usize(1));
     });
     (mut(j) : usize) = usize(0);
     while(j < items_owned.len(), {
-      it2 := items_owned(j);
+      it2 := Rc.clone(&items_owned(j));
       total = (total + it2.n);
       io.await(yield(io), io);
       j = (j + usize(1));
@@ -4787,9 +4800,9 @@ _index_elems_twice :: (fn(items : &ArrayList(IndexElem), io : Io) -> Impl(Future
 });
 test("async index binding keeps the element alive (two passes over the list)", {
   mut(items) := ArrayList(IndexElem).new();
-  items.push(IndexElem(name : String.from("alpha"), n : usize(1)));
-  items.push(IndexElem(name : String.from("beta"), n : usize(2)));
-  items.push(IndexElem(name : String.from("gamma"), n : usize(3)));
+  items.push(Rc.new(_IndexElemVal(name : String.from("alpha"), n : usize(1))));
+  items.push(Rc.new(_IndexElemVal(name : String.from("beta"), n : usize(2))));
+  items.push(Rc.new(_IndexElemVal(name : String.from("gamma"), n : usize(3))));
   total := io.await(_index_elems_twice(&items, io), io);
   assert(total == usize(12), "two passes over 1+2+3 should total 12");
   // The list still owns every element. Without the +1 on the state-machine
@@ -5027,7 +5040,6 @@ shape_ten :: (fn(io : Io) -> Impl(Future(i32, Io)))(
     return(i32(10))
   })
 );
-impl(IndexElem, Clone(clone : (fn(self : &Self) -> Self)(self.*)));
 shape_twenty :: (fn(io : Io) -> Impl(Future(i32, Io)))(
   io.async((io : Io) => {
     io.await(yield(io), io);
@@ -5345,7 +5357,7 @@ test("Test spawn inside a loop runs tasks concurrently", {
 // module-level on purpose: module-level mutables have program lifetime, so
 // they stay readable after the handles are gone (same idiom as rc.test.yo).
 (mut(g_async_result_disposed) : i32) = i32(0);
-AsyncMadeProbe :: ref(struct(id : i32));
+AsyncMadeProbe :: struct(id : i32);
 impl(
   AsyncMadeProbe,
   Drop(
@@ -5381,7 +5393,7 @@ test("async-produced ref result is disposed when the last reference drops", {
 // freed memory). Separate counter from the io.await probe above because all
 // tests in this file share one batch binary.
 (mut(g_spawn_result_disposed) : i32) = i32(0);
-SpawnMadeProbe :: ref(struct(id : i32));
+SpawnMadeProbe :: struct(id : i32);
 impl(
   SpawnMadeProbe,
   Drop(
@@ -5416,9 +5428,10 @@ test("spawned task's ref result is dup'd out and disposed exactly once", {
 // keeps its own reference here, so the over-release shows up as a Drop
 // that runs while `shared` is still held.
 (mut(g_branch_local_disposed) : i32) = i32(0);
-BranchLocalProbe :: ref(struct(id : i32));
+_BranchLocalVal :: struct(id : i32);
+BranchLocalProbe :: Rc(_BranchLocalVal);
 impl(
-  BranchLocalProbe,
+  _BranchLocalVal,
   Drop(
     drop : (fn(self : &mut Self) -> unit)({
       g_branch_local_disposed = (g_branch_local_disposed + i32(1));
@@ -5428,11 +5441,11 @@ impl(
 BranchRaise :: (ctl(generic(T : Type), msg : &String) -> T);
 BranchRaiseCtx :: struct(io : Io, raise : BranchRaise);
 throw_after_awaiting_branch :: (fn(shared : &BranchLocalProbe, ctx : &BranchRaiseCtx) -> Impl(Future(i32, BranchRaiseCtx)))(
-  ctx.io.async(c => {
+  ctx.io.async({ shared : Rc.clone(shared) }(c : BranchRaiseCtx) => {
     mut(seen) := i32(0);
     cond(
       runtime(shared.id == i32(7)) => {
-        x := shared.*;
+        x := Rc.clone(&shared);
         c.io.await(yield(c.io), c.io);
         seen = x.id;
       },
@@ -5450,7 +5463,7 @@ test("escape after an awaiting cond branch closed does not re-drop its locals", 
       }
     );
   ctx := BranchRaiseCtx(io : io, raise : raise);
-  shared := BranchLocalProbe(id : i32(7));
+  shared := Rc.new(_BranchLocalVal(id : i32(7)));
   {
     // The handle owns the task's state machine; its dispose (the sweep) runs
     // when this block releases the handle.
@@ -5956,7 +5969,8 @@ _sibling_second_awaits :: (fn(k : &_SibKind, io : Io) -> Impl(Future(String, IoE
 /// (index binding), an inner loop that awaits, an await in the outer body
 /// BEFORE the inner loop and another AFTER it
 /// (issues/fixed/nested-while-loops-in-an-async-body-redefine-c-labels.md).
-_NwArtifact :: ref(struct(name : String, mods : ArrayList(String)));
+_NwArtifact :: struct(name : String, mods : ArrayList(String));
+derive(_NwArtifact, Clone);
 _nw_resolve :: (fn(m : &String, io : Io) -> Impl(Future(Option(String), IoExn)))({
   m_owned := m.clone();
   io.async((e : IoExn) => {
@@ -5972,7 +5986,7 @@ _nested_whiles :: (fn(arts : &ArrayList(_NwArtifact), io : Io) -> Impl(Future(St
     match(pre, .Some(p) => log.push_string(`${p};`), .None => ());
     (mut(ai) : usize) = usize(0);
     while(ai < arts_owned.len(), {
-      artifact := arts_owned(ai);
+      artifact := arts_owned(ai).clone();
       head := e.io.await(_nw_resolve(artifact.name.clone(), e.io), e);
       match(head, .Some(h) => log.push_string(`head-${h};`), .None => ());
       (mut(i) : usize) = usize(0);
@@ -5995,14 +6009,13 @@ _nested_whiles :: (fn(arts : &ArrayList(_NwArtifact), io : Io) -> Impl(Future(St
 /// Shape L — a local named like a struct FIELD read in the same async body,
 /// of a different type, both used after an await
 /// (issues/fixed/async-body-local-shares-its-state-machine-slot-type-with-a-same-named-struct-field.md).
-_FieldRes :: ref(struct(root : Option(String), n : usize));
+_FieldRes :: struct(root : Option(String), n : usize);
 _field_resolve :: (fn(io : Io) -> Impl(Future(_FieldRes, IoExn)))(
   io.async((e : IoExn) => {
     e.io.await(yield(e.io), e.io);
     _FieldRes(root : Option(String).Some(String.from("/dep")), n : usize(1))
   })
 );
-impl(_NwArtifact, Clone(clone : (fn(self : &Self) -> Self)(self.*)));
 _field_named_local :: (fn(io : Io) -> Impl(Future(String, IoExn)))(
   io.async((e : IoExn) => {
     (mut(log) : String) = String.new();
@@ -6295,10 +6308,13 @@ _bp_pick_cond :: (fn(flag : bool, io : Io) -> Impl(Future(String, IoExn)))(
     got
   })
 );
+// A shared handle (`Rc`): the arm hands out a second count of the caller's.
 (mut(g_bp_disposed) : i32) = i32(0);
-_BpHandle :: ref(struct(tag : i32));
+_BpVal :: struct(tag : i32);
+_BpHandle :: Rc(_BpVal);
+_bp_h :: (fn(tag : i32) -> _BpHandle)(Rc.new(_BpVal(tag : tag)));
 impl(
-  _BpHandle,
+  _BpVal,
   Drop(
     drop : (fn(self : &mut Self) -> unit)({
       g_bp_disposed = (g_bp_disposed + i32(1));
@@ -6306,13 +6322,13 @@ impl(
   )
 );
 _bp_make_handle :: (fn(io : Io) -> Impl(Future(_BpHandle, IoExn)))(
-  io.async((e : IoExn) => _BpHandle(tag : i32(9)))
+  io.async((e : IoExn) => _bp_h(i32(9)))
 );
 _bp_pick_handle :: (fn(o : &Option(_BpHandle), io : Io) -> Impl(Future(_BpHandle, IoExn)))(
-  io.async((e : IoExn) => {
+  io.async({ o : o.clone() }(e : IoExn) => {
     got := match(
-      o,
-      .Some(h) => h.*,
+      &o,
+      .Some(h) => Rc.clone(h),
       .None => {
         fresh := e.io.await(_bp_make_handle(e.io), e);
         fresh
@@ -6323,16 +6339,14 @@ _bp_pick_handle :: (fn(o : &Option(_BpHandle), io : Io) -> Impl(Future(_BpHandle
 );
 // The match IS the body's tail (the completion path).
 _bp_pick_handle_tail :: (fn(o : &Option(_BpHandle), io : Io) -> Impl(Future(_BpHandle, IoExn)))(
-  io.async(
-    (e : IoExn) => match(
-      o,
-      .Some(h) => h.*,
-      .None => {
-        fresh := e.io.await(_bp_make_handle(e.io), e);
-        fresh
-      }
-    )
-  )
+  io.async({ o : o.clone() }(e : IoExn) => match(
+    &o,
+    .Some(h) => Rc.clone(h),
+    .None => {
+      fresh := e.io.await(_bp_make_handle(e.io), e);
+      fresh
+    }
+  ))
 );
 test("borrowed arm value: a payload out of the non-awaiting arm of an awaiting match keeps its reference", {
   if(arch == Arch.Wasm32, return(()));
@@ -6358,7 +6372,7 @@ test("borrowed arm value: released exactly once, in the bound and the tail shape
   b := IoExn(io : io, exn : exn);
   before := g_bp_disposed;
   {
-    r := io.await(_bp_pick_handle(Option(_BpHandle).Some(_BpHandle(tag : i32(1))), io), b);
+    r := io.await(_bp_pick_handle(Option(_BpHandle).Some(_bp_h(i32(1))), io), b);
     assert(r.tag == i32(1), "the Some arm's handle");
     assert(g_bp_disposed == before, "nothing disposed while the result is live");
   };
@@ -6369,7 +6383,7 @@ test("borrowed arm value: released exactly once, in the bound and the tail shape
   };
   assert(g_bp_disposed == (before + i32(2)), "the awaited handle is disposed exactly once");
   {
-    r3 := io.await(_bp_pick_handle_tail(Option(_BpHandle).Some(_BpHandle(tag : i32(2))), io), b);
+    r3 := io.await(_bp_pick_handle_tail(Option(_BpHandle).Some(_bp_h(i32(2))), io), b);
     assert(r3.tag == i32(2), "the tail-shape Some arm's handle");
     assert(g_bp_disposed == (before + i32(2)), "nothing disposed while the tail result is live");
   };
@@ -6380,10 +6394,13 @@ test("borrowed arm value: released exactly once, in the bound and the tail shape
 // owns one reference), but neither dispose path dropped it — the sync-future
 // path even rebuilt a borrowed copy and orphaned the dup'd temp. Every async
 // call leaked its captures (issues/fixed/io-async-closure-captures-never-released.md).
+// A shared handle (`Rc`): each future holds its own count of the caller's.
 (mut(g_cap_disposed) : i32) = i32(0);
-_CapHandle :: ref(struct(tag : i32));
+_CapVal :: struct(tag : i32);
+_CapHandle :: Rc(_CapVal);
+_cap_h :: (fn(tag : i32) -> _CapHandle)(Rc.new(_CapVal(tag : tag)));
 impl(
-  _CapHandle,
+  _CapVal,
   Drop(
     drop : (fn(self : &mut Self) -> unit)({
       g_cap_disposed = (g_cap_disposed + i32(1));
@@ -6392,23 +6409,23 @@ impl(
 );
 _cap_tick :: (fn(io : Io) -> Impl(Future(i32, IoExn)))(io.async((e : IoExn) => i32(1)));
 // sync-future body (no await), a ref param captured
-_cap_sync_ref :: (fn(h : &_CapHandle, io : Io) -> Impl(Future(i32, IoExn)))(io.async((e : IoExn) => h.tag));
+_cap_sync_ref :: (fn(h : &_CapHandle, io : Io) -> Impl(Future(i32, IoExn)))(io.async({ h : Rc.clone(h) }(e : IoExn) => h.tag));
 // state-machine body (awaits), a ref param captured
 _cap_sm_ref :: (fn(h : &_CapHandle, io : Io) -> Impl(Future(i32, IoExn)))(
-  io.async((e : IoExn) => {
+  io.async({ h : Rc.clone(h) }(e : IoExn) => {
     k := e.io.await(_cap_tick(e.io), e);
     h.tag + k
   })
 );
 // sync-future body, an Option(ref) param captured
 _cap_sync_opt :: (fn(o : &Option(_CapHandle), io : Io) -> Impl(Future(i32, IoExn)))(
-  io.async((e : IoExn) => match(o, .Some(h) => h.tag, .None => i32(0)))
+  io.async({ o : o.clone() }(e : IoExn) => match(&o, .Some(h) => h.tag, .None => i32(0)))
 );
 // state-machine body, an Option(ref) param captured
 _cap_sm_opt :: (fn(o : &Option(_CapHandle), io : Io) -> Impl(Future(i32, IoExn)))(
-  io.async((e : IoExn) => {
+  io.async({ o : o.clone() }(e : IoExn) => {
     k := e.io.await(_cap_tick(e.io), e);
-    match(o, .Some(h) => (h.tag + k), .None => k)
+    match(&o, .Some(h) => (h.tag + k), .None => k)
   })
 );
 // state-machine body, a String captured and read after an await (a value-shaped capture)
@@ -6427,22 +6444,22 @@ test("an io.async closure releases its captured values when the future dies", {
   // Each await sits in its own block: a temp's release is a scope-end drop, so
   // the count is read after the scope that owned the future has closed.
   {
-    a := io.await(_cap_sync_ref(_CapHandle(tag : i32(1)), io), b);
+    a := io.await(_cap_sync_ref(_cap_h(i32(1)), io), b);
     assert(a == i32(1), "sync body reads the capture");
   };
   assert(g_cap_disposed == (before + i32(1)), `a ref captured by a sync-future body is released (disposed ${(g_cap_disposed - before).to_string()})`);
   {
-    c := io.await(_cap_sm_ref(_CapHandle(tag : i32(2)), io), b);
+    c := io.await(_cap_sm_ref(_cap_h(i32(2)), io), b);
     assert(c == i32(3), "state-machine body reads the capture after an await");
   };
   assert(g_cap_disposed == (before + i32(2)), `a ref captured by a state machine is released (disposed ${(g_cap_disposed - before).to_string()})`);
   {
-    d := io.await(_cap_sync_opt(Option(_CapHandle).Some(_CapHandle(tag : i32(3))), io), b);
+    d := io.await(_cap_sync_opt(Option(_CapHandle).Some(_cap_h(i32(3))), io), b);
     assert(d == i32(3), "sync body matches the captured Option");
   };
   assert(g_cap_disposed == (before + i32(3)), `an Option(ref) captured by a sync-future body is released (disposed ${(g_cap_disposed - before).to_string()})`);
   {
-    f := io.await(_cap_sm_opt(Option(_CapHandle).Some(_CapHandle(tag : i32(4))), io), b);
+    f := io.await(_cap_sm_opt(Option(_CapHandle).Some(_cap_h(i32(4))), io), b);
     assert(f == i32(5), "state-machine body matches the captured Option after an await");
   };
   assert(g_cap_disposed == (before + i32(4)), `an Option(ref) captured by a state machine is released (disposed ${(g_cap_disposed - before).to_string()})`);
@@ -7373,6 +7390,7 @@ _inout_field :: (fn(io : Io) -> Impl(Future(i32, Io)))(
 test("an inout binding of a value-struct field across awaits", {
   assert(io.await(_inout_field(io), io) == i32(13), "the field is written through the binding");
 });
+// A pin exists only for a `ref` object: kept for the v0.2.77 parser PR.
 _InoutObj :: ref(struct(v : i32));
 _inout_pinned :: (fn(io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
@@ -7440,18 +7458,21 @@ test("a for loop's inout element, written after an await in the body", {
   assert(io.await(_inout_for(io), io) == i32(23), "both elements are written in place");
 });
 // issues/fixed/a-local-copied-from-a-captured-value-in-an-io-async-body-does-not-compile.md
-_AliasSrc :: ref(struct(n : i32));
+// `c` is shared with the task and written there: `Rc(RefCell(...))`.
+_AliasSrc :: struct(n : i32);
 test("a local copied from a captured value, written and read across awaits", {
-  c := _AliasSrc(n : i32(5));
-  task := io.async((io : Io) => {
-    s := c;
+  c := Rc.new(RefCell(_AliasSrc).new(_AliasSrc(n : i32(5))));
+  task := io.async({ c : Rc.clone(&c) }(io : Io) => {
+    s := Rc.clone(&c);
     io.await(yield(io), io);
-    s.n = (s.n + i32(1));
+    s.with_mut(v => {
+      v.n = (v.n + i32(1));
+    });
     io.await(yield(io), io);
-    s.n
+    s.with(v => v.n)
   });
   assert(io.await(task, io) == i32(6), "the write through s is read back");
-  assert(c.n == i32(6), "s and c are one object");
+  assert(c.with(v => v.n) == i32(6), "s and c are one object");
 });
 // issues/fixed/a-destructuring-after-an-await-binds-c-locals-its-reads-never-see.md
 _DsPair :: struct(a : usize, b : i32);
@@ -7475,7 +7496,7 @@ test("a destructuring of an await result inside a task binds its slots", {
 // body and its constructor must spell the future's C type the same way
 // (issues/fixed/an-io-async-future-in-a-generic-struct-field-lowers-to-two-c-types.md).
 // ---------------------------------------------------------------------------
-_FutHolder :: (fn(comptime(T) : Type) -> comptime(Type))(ref(struct(r : Option(T))));
+_FutHolder :: (fn(comptime(T) : Type) -> comptime(Type))(struct(r : Option(T)));
 _hold_fut :: (fn(generic(T : Type), sink(x) : T) -> _FutHolder(T))(_FutHolder(T)(r : .Some(x)));
 test("an io.async future in a generic struct field and in an Option", {
   // Awaiting the field's future would move it out of the field, which needs
@@ -7611,8 +7632,45 @@ _a2_items_later :: (fn(items : &ArrayList(i32), io : Io) -> Impl(Future(usize, I
     items.len()
   })
 );
+// A `ref` object reached from an `Rc` payload: kept for the v0.2.77 parser PR.
 _A2Node :: ref(struct(n : i32));
 _A2WithNode :: struct(node : _A2Node);
+// `Future(T, E, p)` spells the places a future borrows (decision 43 step 4,
+// N3-1): the trailing origin is recognized by kind, here the `&mut`
+// parameter's place, and the spelled result is accepted where the elided one
+// is.
+_n3_bump_spelled :: (fn(c : &mut _A2Counter, io : Io) -> Impl(Future(unit, Io, c)))(
+  io.async({ c : &mut c.* }(io : Io) => {
+    c.n = (c.n + i32(1));
+  })
+);
+// A function returns the future another call made over its own `&` and
+// `&mut` parameters (decision 43 step 4, O8): the forwarded future's origin
+// names the caller's places, and the `&` parameter keeps its by-value ABI on
+// both functions.
+_n3_add_from :: (fn(c : &mut _A2Counter, d : &_A2Counter, io : Io) -> Impl(Future(unit, Io)))(
+  io.async({ c : &mut c.*, d : &d.* }(io : Io) => {
+    c.n = (c.n + d.n);
+  })
+);
+_n3_forward_add :: (fn(c : &mut _A2Counter, d : &_A2Counter, io : Io) -> Impl(Future(unit, Io)))(_n3_add_from(&mut c.*, &d.*, io));
+_n3_forward_tenfold :: (fn(c : &_A2Counter, io : Io) -> Impl(Future(i32, Io)))(_a2_tenfold(&c.*, io));
+test("a function forwards a future made over its & and &mut parameters (decision 43 N3-1)", {
+  mut(c) := _A2Counter(n : i32(1));
+  d := _A2Counter(n : i32(4));
+  io.await(_n3_forward_add(&mut c, &d, io), io);
+  assert(c.n == i32(5), "the forwarded future writes through the lent &mut and reads the lent &");
+  f := _n3_forward_add(&mut c, &d, io);
+  io.await(f, io);
+  assert(c.n == i32(9), "bound, then awaited");
+  assert(io.await(_n3_forward_tenfold(&c, io), io) == i32(90), "a & parameter forwarded alone");
+});
+test("a future's result type spells its origin: Future(T, E, p) (decision 43 N3-1)", {
+  mut(c) := _A2Counter(n : i32(0));
+  io.await(_n3_bump_spelled(&mut c, io), io);
+  assert(c.n == i32(1), "the spelled-origin future writes through the lent &mut");
+  comptime_expect_error(Future(unit, Io, i32), "The third argument of `Future(T, E, p)` is an origin");
+});
 test("a borrowing future: a function returns a future over its & or &mut parameter (§3.13 A2)", {
   mut(c) := _A2Counter(n : i32(0));
   io.await(_a2_bump(&mut c, io), io);
@@ -7631,12 +7689,39 @@ test("a borrowing future: a function returns a future over its & or &mut paramet
   );
   assert(x == i32(6), "an io.async body borrows a local for an await in place");
 });
-test("a borrowing future is awaited where it is made: never bound, spawned or carried out of its lender's scope", {
+// Decision 43 step 4 (VERDICTS-18 §B): a borrowing future may be bound; the
+// binding freezes the places of its origin, each in the mode it was lent in,
+// until the future's last use.
+test("a bound borrowing future freezes what it borrows until its last use (decision 43 N3-1)", {
   mut(c) := _A2Counter(n : i32(0));
+  f := _a2_bump(&mut c, io);
+  io.await(f, io);
+  assert(c.n == i32(1), "the bound future ran at its await");
+  g := _a2_tenfold(&c, io);
+  assert(c.n == i32(1), "a & lend leaves the place readable while the future lives");
+  assert(io.await(g, io) == i32(10), "the bound & future reads the place at its await");
+  c.n = i32(2);
+  assert(c.n == i32(2), "the freeze ends with the future's last use");
   comptime_expect_error({
-    f := _a2_bump(&mut c, io);
-    ()
-  }, "would hold a borrowing future");
+    h := _a2_bump(&mut c, io);
+    c.n = i32(5);
+    io.await(h, io)
+  }, "Cannot write `c.n` here");
+  comptime_expect_error({
+    h := _a2_tenfold(&c, io);
+    c.n = i32(5);
+    io.await(h, io)
+  }, "Cannot write `c.n` here");
+  // Moved to another binding, the future keeps its places frozen.
+  comptime_expect_error({
+    h := _a2_bump(&mut c, io);
+    h2 := h;
+    c.n = i32(5);
+    io.await(h2, io)
+  }, "Cannot write `c.n` here");
+});
+test("a borrowing future is never spawned or carried out of its lender's scope", {
+  mut(c) := _A2Counter(n : i32(0));
   comptime_expect_error(io.spawn(_a2_bump(&mut c, io), io), "spawned or moved into a by-value parameter");
   comptime_expect_error({
     y := i32(1);
@@ -7681,6 +7766,7 @@ test("a borrowing future may hold a & place lent through an Rc deref, not a &mut
 // so `r.m(io)` is accepted as the handle spelling `T.m(&r, io)` is. The
 // receiver used to read as an auto-dereferenced one and was E0909
 // (issues/fixed/2026-10-24-a-borrowing-method-future-on-a-ref-receiver-is-rejected-as-a-cell-lend.md).
+// Kept for the v0.2.77 parser PR (a `ref` receiver is its own handle).
 _A2RefCounter :: ref(struct(n : i32));
 impl(
   _A2RefCounter,
@@ -7827,8 +7913,9 @@ test("a future made through a function value is assumed to borrow what the call 
   fp := _a2_bump;
   comptime_expect_error({
     f := fp(&mut c, io);
-    ()
-  }, "would hold a borrowing future");
+    c.n = i32(5);
+    io.await(f, io)
+  }, "Cannot write `c.n` here");
   comptime_expect_error(io.spawn(fp(&mut c, io), io), "spawned or moved into a by-value parameter");
   w := Rc.new(_A2WithNode(node : _A2Node(n : i32(1))));
   gp := _a2_read_i32_later;
@@ -8142,7 +8229,7 @@ test("a local whose address a method call lends lives in the task across a suspe
 // still lends a slot local `&mut` beside a separate `&` list on each call path.
 (mut(g_alias_disposed) : i32) = i32(0);
 (mut(g_alias_seen) : usize) = usize(0);
-_AliasBox :: ref(struct(tag : i32));
+_AliasBox :: struct(tag : i32);
 impl(
   _AliasBox,
   Drop(
@@ -8211,7 +8298,9 @@ test("a slot local lent &mut beside a separate & list in an io.async body", {
 // wrapper's block twice in one C function, and the second copy of the dup
 // passed its result temp undeclared (the first copy's C block had closed)
 // (issues/fixed/2026-10-22-a-dup-temp-in-a-wrapper-awaited-twice-is-undeclared-at-the-second-site.md).
-_AliasLock :: ref(struct(file : ArrayList(_AliasBox)));
+// A shared handle (`Rc`): the task passes it to the wrapper twice.
+_AliasLockVal :: struct(file : ArrayList(_AliasBox));
+_AliasLock :: Rc(_AliasLockVal);
 _alias_peek :: (fn(b : &ArrayList(_AliasBox), io : Io) -> Impl(Future(usize, Io)))({
   n := b.len();
   io.async((io : Io) => {
@@ -8231,8 +8320,8 @@ test("a borrowed projection's share is declared at each fused site of one wrappe
     io.async((io : Io) => {
       mut(xs) := ArrayList(_AliasBox).new();
       xs.push(_AliasBox(tag : i32(1)));
-      lock := _AliasLock(file : xs);
-      a := io.await(_alias_release(lock, io), io);
+      lock := Rc.new(_AliasLockVal(file : xs));
+      a := io.await(_alias_release(Rc.clone(&lock), io), io);
       b := io.await(_alias_release(lock, io), io);
       (a + b)
     }),

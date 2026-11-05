@@ -479,7 +479,7 @@ _ct_need_clone :: (fn(comptime(T) : Type, x : T, where(T <: Clone)) -> T)(x.clon
 // closure is disposed after a rejected `comptime_expect_error` move is what
 // the test below counts (issues/fixed/2026-10-17-a-closure-moved-inside-a-failing-comptime-expect-error-stays-moved-and-leaks.md).
 (mut(g_ct_cee_disposed) : i32) = i32(0);
-_CtOwned :: ref(struct(n : i32));
+_CtOwned :: struct(n : i32);
 impl(
   _CtOwned,
   Drop(
@@ -605,4 +605,39 @@ test("Copy: a generic body moves a plain payload out of a nested Option result",
   match(n.unwrap1(_CtNoClone(n : i32(7))), .Some(p) => assert(p.n == i32(7), "moved out"), .None => assert(false, "present"));
   k := _CtNest(i32)(tag : u8(0));
   assert(k.twice(i32(3)), "a Copy instance copies");
+});
+// An enum instance a generic body builds reports its concrete type
+// arguments: `_CtArgE(Option(V))` at `V := i32` is `_CtArgE(Option(i32))`,
+// which is not `Copy`, so `a := r` moves `r` there as it does in concrete
+// code. Its argument used to keep the definition-era `Option(V)` (open `V`),
+// so the body copied it implicitly
+// (issues/fixed/2026-11-05-a-generic-body-copies-a-non-copy-instance-whose-type-argument-is-compound.md).
+_CtArgE :: (fn(comptime(T) : Type) -> comptime(Type))(enum(A(x : T), B));
+_CtArgN :: (fn(comptime(V) : Type) -> comptime(Type))(struct(tag : u8));
+impl(
+  generic(V : Type),
+  _CtArgN(V),
+  mk : (fn(self : &Self, v : V) -> _CtArgE(Option(V)))(.A(x : .Some(v))),
+  twice : (fn(self : &Self, v : V) -> bool)({
+    r := Self.mk(self, v);
+    a := r;
+    b := r;
+    match(a, .A(_) => true, .B => false) && match(b, .A(_) => true, .B => false)
+  }),
+  once : (fn(self : &Self, v : V) -> bool)({
+    r := Self.mk(self, v);
+    a := r;
+    match(a, .A(_) => true, .B => false)
+  })
+);
+test("Copy: a generic body moves an enum instance without Copy whose type argument is compound", {
+  comptime_assert(!Type.impls(_CtArgE(Option(i32)), Copy), "no Copy without a derive");
+  n := _CtArgN(i32)(tag : u8(0));
+  comptime_expect_error(n.twice(i32(1)), "use of moved value: `r`");
+  assert(n.once(i32(1)), "a single move is accepted");
+  comptime_expect_error({
+    r := _CtArgE(Option(i32)).A(x : .Some(i32(1)));
+    _a := r;
+    _b := r;
+  }, "use of moved value: `r`");
 });

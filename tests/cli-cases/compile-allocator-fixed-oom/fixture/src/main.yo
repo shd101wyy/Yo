@@ -13,15 +13,13 @@
 { String } :: import("std/string");
 { println } :: import("std/fmt");
 { env, args } :: import("std/env");
-/// A user ref struct: every construction lowers to `__yo_new_Node`, whose
-/// allocation goes through `__yo_rc_alloc` — the emitted-runtime panic path
-/// this case pins (std-level growable collections have their own OOM panic
-/// message; a Node chain touches nothing but RC constructors).
-Node :: ref(
-  struct(
-    value : i32,
-    next : Option(Self)
-  )
+/// A chain of `Rc` nodes: every link allocates one cell through
+/// `__yo_rc_alloc`, the emitted-runtime panic path this case pins (std-level
+/// growable collections, and `Box.new`, have their own OOM panic message; a
+/// Node chain touches nothing but `Rc` cells).
+Node :: struct(
+  value : i32,
+  next : Option(Rc(Self))
 );
 main :: (fn(io : Io) -> unit)({
   // exn is bound here, not taken as a parameter: the runtime provides main
@@ -39,10 +37,10 @@ main :: (fn(io : Io) -> unit)({
       // Child: chain 65536 Nodes — far past the 64 KiB region — holding every
       // node alive via `next`, so only Node constructors allocate and the
       // panic that fires is __yo_alloc_fail's.
-      (mut(head) : Option(Node)) = Option(Node).None;
+      (mut(head) : Option(Rc(Node))) = Option(Rc(Node)).None;
       (mut(i) : usize) = usize(0);
       while(i < usize(65536), {
-        head = Option(Node).Some(Node(i32(0), head));
+        head = Option(Rc(Node)).Some(Rc.new(Node(value : i32(0), next : head)));
         i = (i + usize(1));
       });
       // Unreachable inside a 64 KiB heap; reaching it means the oracle broke.

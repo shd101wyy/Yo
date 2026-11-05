@@ -27,7 +27,7 @@ pragma(Pragma.SkipWasm32Wasi); // no pthread support in standalone WASI
 // ============================================================================
 SsPoint :: struct(x : i32, y : i32);
 derive(SsPoint, Copy, Clone);
-SsCell :: ref(struct(v : i32));
+SsCell :: struct(v : Rc(i32));
 SsSpeak :: trait(speak : (fn(self : &Self) -> i32));
 SsDog :: struct(n : i32);
 derive(SsDog, Copy, Clone);
@@ -49,8 +49,8 @@ test("a non-atomic cell is neither Send nor Sync", {
   // (plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §3.5).
   comptime_assert(!Type.impls(Weak(i32), Send), "Weak is not Send");
   comptime_assert(!Type.impls(Weak(i32), Sync), "Weak is not Sync");
-  comptime_assert(!Type.impls(SsCell, Send), "a ref(struct) is not Send");
-  comptime_assert(!Type.impls(SsCell, Sync), "a ref(struct) is not Sync");
+  comptime_assert(!Type.impls(SsCell, Send), "a struct holding an Rc is not Send");
+  comptime_assert(!Type.impls(SsCell, Sync), "a struct holding an Rc is not Sync");
 });
 test("a value String or ArrayList owns its buffer, so it is Send and Sync (B8)", {
   // B8 (plans/VALUES_BY_DEFAULT.md): the buffer has one owner, so moving the
@@ -331,12 +331,12 @@ test("a generic function's move-only closure parameter moves into a closure it p
 // (plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §2)
 // ============================================================================
 // As in Rust, an `Arc` cycle is legal and leaks unless a back edge is
-// cleared. `SsPeer` is an atomic object reaching itself through
+// cleared. `SsPeer` is a struct reaching itself through
 // `Arc(Mutex(Self))`, so it derives no `Acyclic`, and before W2 `Arc` rejected
 // it (E0602). The leak itself, seen by `--debug-heap`, is the cli-case
 // tests/cli-cases/test-debug-heap-sees-an-arc-mutex-cycle. The derivation
-// rows for the value-struct shape are W5's, below.
-SsPeer :: atomic(ref(struct(id : i32, peer : Option(Arc(Mutex(Self))))));
+// rows for the same shape are W5's, below.
+SsPeer :: struct(id : i32, peer : Option(Arc(Mutex(Self))));
 // Recursion with no cell on the back edge is `Acyclic`.
 SsBoxNode :: struct(id : i32, next : Option(Box(Self)));
 test("an Arc(Mutex(Node)) cycle compiles, and clearing the back edge breaks it", {
@@ -353,9 +353,10 @@ test("an Arc(Mutex(Node)) cycle compiles, and clearing the back edge breaks it",
   });
   assert(a.with_lock(v => v.peer.is_none()), "the back edge is cleared");
 });
-// A cyclic atomic payload: `Send` and `Sync`, never `Acyclic`. Each container
-// takes it, and the derived marker on the container still says no.
-SsCyclic :: atomic(ref(struct(v : i32, next : Option(Self))));
+// A cyclic payload (it reaches itself through an `Arc`): `Send` and `Sync`,
+// never `Acyclic`. Each container takes it, and the derived marker on the
+// container still says no.
+SsCyclic :: struct(v : i32, next : Option(Arc(Self)));
 test("Arc, Mutex, RwLock, Channel and Thread take a cyclic payload", {
   comptime_assert(Type.impls(SsCyclic, Send) && Type.impls(SsCyclic, Sync), "the payload may cross threads");
   comptime_assert(!Type.impls(SsCyclic, Acyclic), "the payload reaches itself");
@@ -390,7 +391,7 @@ test("Arc, Mutex, RwLock, Channel and Thread take a cyclic payload", {
 // The children are owned (`Box`), so the parent edge is the only edge back.
 SsWeakParent :: struct(v : i32, first_child : Option(Box(Self)), next_sibling : Option(Box(Self)), parent : Weak(RefCell(Self)));
 SsStrongParent :: struct(v : i32, first_child : Option(Box(Self)), next_sibling : Option(Box(Self)), parent : Option(Rc(RefCell(Self))));
-SsArcWeakPeer :: atomic(ref(struct(id : i32, peer : ArcWeak(Mutex(Self)))));
+SsArcWeakPeer :: struct(id : i32, peer : ArcWeak(Mutex(Self)));
 // `ArrayList` is a value since decision 46's B8, so a recursion through it is
 // a tree: a list owns its elements, and no element can hold the list itself.
 // Before B8 the list was a shared `ref` object, and the row was not Acyclic.
@@ -408,7 +409,7 @@ test("a Weak edge is no edge, and a value or Box recursion is a tree", {
 // each type reaches itself through an atomic cell, so none is `Acyclic`.
 SsArcNode :: struct(id : i32, peer : Option(Arc(Mutex(Self))));
 SsArcNodeDirect :: struct(id : i32, peer : Arc(Self));
-SsPeerDirect :: atomic(ref(struct(id : i32, peer : Option(Arc(Self)))));
+SsPeerDirect :: struct(id : i32, peer : Option(Arc(Self)));
 test("a value struct that reaches itself through an Arc is not Acyclic", {
   comptime_assert(!Type.impls(SsArcNode, Acyclic), "Node through Arc(Mutex(Self))");
   comptime_assert(!Type.impls(Arc(Mutex(SsArcNode)), Acyclic), "Arc(Mutex(Node))");
@@ -422,8 +423,8 @@ test("a value struct that reaches itself through an Arc is not Acyclic", {
 // issues/fixed/2026-10-22-an-object-holding-a-cyclic-cell-behind-an-option-or-a-pointer-derives-acyclic.md:
 // an object that holds a cyclic cell reaches that cycle, however it holds it
 // (the raw-pointer rows are in tests/send_sync_raw_pointer.test.yo).
-SsHoldsDirect :: atomic(ref(struct(x : SsCyclic)));
-SsHoldsOption :: atomic(ref(struct(x : Option(SsCyclic))));
+SsHoldsDirect :: struct(x : SsCyclic);
+SsHoldsOption :: struct(x : Option(SsCyclic));
 test("an object holding a cyclic cell behind an Option or a pointer is not Acyclic", {
   comptime_assert(!Type.impls(SsHoldsDirect, Acyclic), "held directly");
   comptime_assert(!Type.impls(SsHoldsOption, Acyclic), "held in an Option");

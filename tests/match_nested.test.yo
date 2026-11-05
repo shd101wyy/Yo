@@ -109,7 +109,7 @@ test("reference-semantics payloads bound through a nested pattern", {
   assert(total(Pair.Two(Option(String).None, 4)) == usize(4));
   assert(total(Pair.Zero) == usize(0));
 });
-List :: ref(enum(Nil, Cons(head : i32, tail : Rc(Self))));
+List :: enum(Nil, Cons(head : i32, tail : Rc(Self)));
 test("a nested variant pattern through an Rc payload", {
   f :: (fn(l : &List) -> i32)(
     match(
@@ -173,7 +173,7 @@ test("an or-pattern through an Rc payload", {
 test("whole-value binding of the Rc position still binds the Rc", {
   inner_kind :: (fn(b : &Rc(List)) -> i32)(
     match(
-      b.*.*,
+      &b.*.*,
       (rest := .Nil) => i32(100),
       _ => i32(101)
     )
@@ -509,12 +509,10 @@ test("an all-arms-return statement match before a tail leaves the tail emitted",
 // resolved to the field-populated final before it becomes a binding's type
 // (`issues/fixed/2026-10-18-a-method-on-a-self-referential-ref-struct-fails-to-resolve-through-a-match-binding.md`).
 Plain :: (fn(comptime(T) : Type) -> comptime(Type))(
-  ref(
-    struct(
-      value : T,
-      next : Option(Self),
-      prev : Option(Self)
-    )
+  struct(
+    value : T,
+    next : Option(Rc(Self)),
+    prev : Option(Rc(Self))
   )
 );
 impl(
@@ -522,7 +520,7 @@ impl(
   Plain(T),
   probe : (fn(self : &Self) -> usize)(usize(7))
 );
-test("a method on a self-referential ref struct resolves through a match binding", {
+test("a method on a self-referential struct resolves through a match binding", {
   p := Option(Plain(i32)).Some(Plain(i32)(value : i32(1), next : .None, prev : .None));
   assert(match(p, .None => usize(0), .Some(old_head) => old_head.probe()) == usize(7), "the payload binding carries the field-populated struct");
 });

@@ -8,30 +8,30 @@
 // AST parent's reference, and stage-2's next parameter pass read a freed
 // `*(Array(T, N))` type expr (the round-2 rc=139 UAF; see
 // issues/fixed/yo-self-dyn-throw-double-drop.md). Expected output: "2 3 3 done".
+// Since V5 part B the record is an `Rc(Krate)` and the +1 is the explicit
+// `Rc.clone`; the counts are the same.
 { println, print } :: import("std/fmt");
 { String } :: import("std/string");
 
-Krate :: ref(
-  struct(
-    v : i32
-  )
+Krate :: struct(
+  v : i32
 );
 
 // Borrowed param returned as a cond BEGIN-ARM tail (statements before the
 // tail force the begin-block arm path, not the value-arm path).
-pick_begin_arm :: (fn(k : &Krate, flag : bool) -> Krate)(
+pick_begin_arm :: (fn(k : &Rc(Krate), flag : bool) -> Rc(Krate))(
   cond(
     flag => {
       note := String.from("side work in the arm");
       _n := note.len();
-      k.*
+      Rc.clone(k)
     },
-    true => k.*
+    true => Rc.clone(k)
   )
 );
 
 main :: (fn() -> unit)({
-  k := Krate(v : 7);
+  k := Rc.new(Krate(v : 7));
   a := pick_begin_arm(&k, true);
   print(ref_count(k));
   print(" ");

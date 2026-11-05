@@ -112,13 +112,13 @@ test("positional twin of the labeled case still works", {
   assert(result.with(cur => cur.*) == i32(20), "positional binds unchanged");
 });
 // The await-carrying twin of the synchronous nullable-pointer match: a `_` arm
-// on an `Option(<ref>)` was a pattern atom the classifier skipped, so the
+// on an `Option(<ref>)` (here an `Option(Rc(...))`) was a pattern atom the classifier skipped, so the
 // `.None` path ran no arm at all.
-Parcel :: ref(struct(v : i32));
+Parcel :: struct(v : i32);
 test("a wildcard arm on a nullable-pointer Option with awaits", {
   n := runtime_int();
-  empty := cond((n == i32(-1)) => Option(Parcel).Some(Parcel(v : i32(1))), true => Option(Parcel).None);
-  full := Option(Parcel).Some(Parcel(v : n));
+  empty := cond((n == i32(-1)) => Option(Rc(Parcel)).Some(Rc.new(Parcel(v : i32(1)))), true => Option(Rc(Parcel)).None);
+  full := Option(Rc(Parcel)).Some(Rc.new(Parcel(v : n)));
   result := Rc.new(RefCell(i32).new(0));
   task := io.async({ empty, full, result : Rc.clone(result) }(io : Io) => {
     a := match(
@@ -149,15 +149,15 @@ test("a wildcard arm on a nullable-pointer Option with awaits", {
 });
 // The await-carrying twin: a nullable-pointer user enum matched with labeled,
 // curly and bare-variant arms inside an async body.
-Tote :: enum(Bare, Holding(parcel : Parcel));
+Tote :: enum(Bare, Holding(parcel : Rc(Parcel)));
 test("nullable-pointer user enum arms with awaits: labeled, curly, bare", {
   n := runtime_int();
-  holding := Tote.Holding(parcel : Parcel(v : (n + i32(2))));
-  bare := cond((n == i32(-1)) => Tote.Holding(parcel : Parcel(v : i32(0))), true => Tote.Bare);
+  holding := Tote.Holding(parcel : Rc.new(Parcel(v : (n + i32(2)))));
+  bare := cond((n == i32(-1)) => Tote.Holding(parcel : Rc.new(Parcel(v : i32(0)))), true => Tote.Bare);
   result := Rc.new(RefCell(i32).new(0));
   task := io.async({ bare, holding, result : Rc.clone(result) }(io : Io) => {
     a := match(
-      holding,
+      &holding,
       .Holding(parcel : p) => {
         io.await(yield(io), io);
         p.v
@@ -165,7 +165,7 @@ test("nullable-pointer user enum arms with awaits: labeled, curly, bare", {
       .Bare => i32(-100)
     );
     b := match(
-      holding,
+      &holding,
       .Holding({ parcel }) => {
         io.await(yield(io), io);
         parcel.v
@@ -173,7 +173,7 @@ test("nullable-pointer user enum arms with awaits: labeled, curly, bare", {
       .Bare => i32(-100)
     );
     c := match(
-      bare,
+      &bare,
       .Holding => {
         io.await(yield(io), io);
         i32(-100)
@@ -393,7 +393,7 @@ test("a struct pattern with an await", {
   io.await(task, io);
   assert(result.with(cur => cur.*) == i32(19), "Pt(1, 9) must take the general struct arm");
 });
-List2 :: ref(enum(Nil2, Cons2(head : i32, tail : Rc(Self))));
+List2 :: enum(Nil2, Cons2(head : i32, tail : Rc(Self)));
 test("a pattern through an Rc payload with an await", {
   n := runtime_int();
   l := List2.Cons2(1, Rc.new(List2.Cons2(i32(2) + n, Rc.new(List2.Nil2))));
@@ -708,20 +708,20 @@ test("a mut place and a local borrow take an awaited value", {
 // RHS while the drop read the temp's slot, so the old value leaked. The task
 // shares each old value with a handle outside it; once the task is gone, the
 // handle is the only owner left.
-_PlCell :: ref(struct(v : i32));
-_place_fresh_cell :: (fn(io : Io) -> Impl(Future(_PlCell, Io)))(
+_PlCell :: struct(v : i32);
+_place_fresh_cell :: (fn(io : Io) -> Impl(Future(Rc(_PlCell), Io)))(
   io.async((e : Io) => {
     e.await(yield(e), e);
-    _PlCell(v : i32(7))
+    Rc.new(_PlCell(v : i32(7)))
   })
 );
 test("a mut place and a local borrow release the old value an awaited one replaces", {
-  old_p := _PlCell(v : i32(1));
-  old_y := _PlCell(v : i32(2));
+  old_p := Rc.new(_PlCell(v : i32(1)));
+  old_y := Rc.new(_PlCell(v : i32(2)));
   result := Rc.new(RefCell(i32).new(0));
   {
-    task := io.async({ old_p, old_y, result : Rc.clone(result) }(io : Io) => {
-      (mut(op) : Option(_PlCell)) = .Some(old_p);
+    task := io.async({ p0 : Rc.clone(&old_p), y0 : Rc.clone(&old_y), result : Rc.clone(result) }(io : Io) => {
+      (mut(op) : Option(Rc(_PlCell))) = .Some(p0);
       match(
         &mut op,
         .Some(s) => {
@@ -729,7 +729,7 @@ test("a mut place and a local borrow release the old value an awaited one replac
         },
         .None => ()
       );
-      (t : _PlCell) = old_y;
+      (mut(t) : Rc(_PlCell)) = y0;
       y := &mut t;
       y.* = io.await(_place_fresh_cell(io), io);
       result_value := (match(&op, .Some(s) => s.v, .None => i32(0)) + t.v);
