@@ -222,7 +222,7 @@ _eval_body_for_ctfe :: (
   // Save context state.
   (saved_analyzing : bool) = ctx_p.is_analyzing_ctfe_capability;
   (saved_force_ct : bool) = ctx_p.force_compile_time_bindings;
-  (saved_fn_ctx : Option(FuncOrAsyncBlockCtx)) = ctx_p.is_evaluating_function_body_or_async_block;
+  (saved_fn_ctx : Option(FuncOrAsyncBlockCtx)) = ctx_p.is_evaluating_function_body_or_async_block.clone();
   (saved_executing : bool) = ctx_p.is_executing;
   // Set CTFE analysis flags.
   ctx_p.is_analyzing_ctfe_capability = true;
@@ -476,7 +476,7 @@ analyze_ctfe_capability :: (
           (pre_analyzing : bool) = ctx.is_analyzing_ctfe_capability;
           (pre_force_ct : bool) = ctx.force_compile_time_bindings;
           (pre_executing : bool) = ctx.is_executing;
-          (pre_fn_ctx : Option(FuncOrAsyncBlockCtx)) = ctx.is_evaluating_function_body_or_async_block;
+          (pre_fn_ctx : Option(FuncOrAsyncBlockCtx)) = ctx.is_evaluating_function_body_or_async_block.clone();
           _try_eval_body_swallowing(
             func_value,
             &param_labels.items,
