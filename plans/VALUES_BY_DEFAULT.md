@@ -872,6 +872,11 @@ cannot be copied.
 ### 3.7 `Dyn`, closures, async
 
 - **`Dyn(Trait)`** is a uniquely owned erased cell (decision 7).
+  **Superseded 2026-11-05 by decision 49:** `Dyn(Trait)` is an unsized
+  pointee that lives only behind `Box`, `Rc`, `Arc`, `Weak`, `ArcWeak`,
+  `&` or `&mut`; `dyn` erases the pointee of a pointer the program built
+  (`dyn(Box.new(v)) : Box(Dyn(Trait))`), and nothing auto-boxes. The
+  bullets below describe the model before that decision.
   - `dyn(v)` moves `v` in. It is explicit-copy with a `clone` vtable slot,
     and move-only otherwise. Today's retain/release slots
     (`docs/en-US/DYN_DESIGN.md`) are what makes a copy alias; V2b removes
@@ -1880,6 +1885,10 @@ and in git, not a silent edit.
    code cannot name it.
 7. **`Dyn(Trait)` is uniquely owned:** explicit-copy with a `clone` slot,
    move-only otherwise. Sharing is `Rc(Dyn(Trait))`.
+   - **Amended 2026-11-05 by decision 49.** A `Dyn` has no ownership of
+     its own: it is an unsized pointee, and its pointer's ownership
+     applies. `Box(Dyn(Trait))` is the uniquely owned form this decision
+     describes; `Rc(Dyn(Trait))` shares one, in one allocation.
 8. **`Send` is a move; `Sync` is sharing** (§3.8). There is no isolation
    walk.
 9. **`std/imm/` becomes a separate package at V5** (§3.9). Revised
@@ -4262,6 +4271,16 @@ and in git, not a silent edit.
     is `&Dyn(Trait)`; there is no DST.** Confirmed 2026-10-10 by the
     maintainer (asked whether `Dyn` should become a dynamically sized type
     like Rust's `dyn Trait`; the VBD implementer's recommendation accepted).
+    - **Amended 2026-11-05 by decision 49.** "No DST" becomes "one
+      unsized type, confined by a closed rule; no `?Sized`". The owned
+      form is `Box(Dyn(Trait))`, not a bare `Dyn(Trait)`; `&d` over a
+      `Box(Dyn)` is `&Box(Dyn(Trait))` like every other `&T` (the
+      trait-object borrow is `&d.*`), so the "`&Dyn(Trait)` is the borrowed
+      object, not a pointer to the handle" and "`&dyn(v)` over a
+      temporary" bullets are superseded; `Rc(Dyn(Trait))` in one allocation
+      is the type's layout, not a later optimization. The borrowed object,
+      the spelled erasure and the absence of any implicit route to a `Dyn`
+      stand.
     - **Today.** `dyn(v)` moves `v` into a heap cell, and a `Dyn(Trait)`
       value is the fat pair (data pointer, vtable pointer). The cell carries
       a count, so copies share the payload (`__yo_dyn_retain` /
@@ -4786,6 +4805,126 @@ and in git, not a silent edit.
     - **Rollout:** the phase "Decision 48: `Weak` and the collector's
       removal" in §6; the release placement is the VBD session's
       (`plans/handover/VBD_RELEASE_SCHEDULE.md`, to be re-evaluated).
+
+49. **`Dyn(Trait)` is the one unsized type: it lives only behind a
+    pointer, the pointer owns, shares or borrows the erased value, and
+    `dyn` is the spelled unsizing of that pointer** (maintainer,
+    2026-11-05: "`dyn(Box.new(v))` gives `Box(Dyn(T))`, for uniformity.
+    In this case I feel `Dyn(T)` is just like the DST in Rust"; the
+    advisor's VERDICTS-26). It amends decisions 7 and 44 and closes the
+    auto-boxing `dyn(v)` did since Phase 3. The measurements, the S2 it
+    closes and the rejected alternatives are in §6, "Decision 49".
+    - **The rule.** `Dyn(T1, …, Tn[, p])` is a pointee, Rust's `dyn
+      Trait`. It is a legal type only as the immediate argument of `Box`,
+      `Rc`, `Arc`, `Weak`, `ArcWeak`, `&` and `&mut`, as the receiver of
+      an `impl(Dyn(…), …)` whose methods take `self : &Self` or
+      `&mut Self`, and as the type `type_id`, `downcast` and `upcast`
+      name. Anywhere else — a binding, a by-value parameter, a field, an
+      element, a payload, a return type, `size_of`, a type argument of any
+      other constructor, a generic binder at an instantiation — it is
+      E0619. There is no `?Sized`: the confinement is this closed list,
+      because Yo has one unsized type and seven compiler-known pointer
+      kinds; a user generic instantiated at `T = Dyn(…)` is E0619 with
+      the help naming the fat form, as Rust's `T : Sized` default rejects
+      it.
+    - **`dyn(e)`.** `e` must have a pointer type `P(V)` with `P` one of
+      the five constructors or a reference; the result is `P(Dyn(…))`,
+      with the trait set from the expected type or from `V`'s `Impl`
+      bounds, and `V` must implement every listed trait. `dyn(Box.new(v))
+      : Box(Dyn(T))` (Rust's `Box<dyn T>`), `dyn(Rc.new(v)) :
+      Rc(Dyn(T))`, `dyn(Arc.new(v)) : Arc(Dyn(T, Send, Sync))`, `dyn(&v)
+      : &Dyn(T)`, `dyn(&mut v) : &mut Dyn(T)`. A non-pointer argument is
+      E0620, whose help names `dyn(Box.new(v))` and `dyn(&v)`; placement
+      is the pointer's own argument, `dyn(Box.new(v, alloc : .Some(a)))`,
+      and nothing allocates that the program did not spell. `dyn` of a
+      `P(Dyn)` stays the dyn-of-dyn error; the erasure is spelled, never
+      coerced (decision 44); a closure literal inside the constructor is
+      typed from the expected `Dyn(Fn…)`.
+    - **Layout: every form is fat and one allocation.** `Box(Dyn(T))` is
+      `{data, vtable}` over the ordinary `Box` block (its header and owner
+      record in front of `data`); `Rc(Dyn(T))` / `Arc(…)` / `Weak(…)` are
+      `{cell, vtable}`; `&Dyn(T)` is `{data, vtable}`. One vtable per
+      (impl, trait set) serves every pointer kind, with the prefix
+      `{type_id, size, align, drop_in_place, clone_into}` describing `V`
+      alone; the pointer kind manages memory: `Box` drops in place and
+      frees through its header, `Rc`/`Arc` decrement and drop in place at
+      zero, a reference does nothing. `Rc(Dyn(T))` in one allocation is
+      therefore the type's layout, not decision 44's "later
+      optimization". `Rc(Box(Dyn(T)))` is a legal, ordinary,
+      two-allocation instantiation and nothing converts between the two.
+    - **Ownership follows the pointer** (decision 7 restated). `Box(Dyn)`
+      is move-only, `.clone()` only when `Clone` is listed (a fresh `Box`
+      of the vtable's size and align in `Box.allocator(self)`, decision
+      12, filled by `clone_into`); `Rc(Dyn)`/`Arc(Dyn)` are shared and
+      read-only through the handle (decision 46: a `&mut Self` slot
+      through them is E0919; `make_mut` clones through `clone_into`;
+      `try_unwrap` is unavailable); `&Dyn`/`&mut Dyn` borrow under
+      decision 43 and are what `&b.*`, `&h.*` and `&mut b.*` produce.
+      `b.*`/`h.*` are unsized places: borrowable, never bound, moved,
+      assigned or `size_of`'d — one rule replacing decision 44's
+      `r.* = dyn(other)` and `swap` carve-outs. Method and call syntax
+      auto-deref through the pointer to the vtable (R-PROBE's deref
+      step).
+    - **`downcast`, by kind.** `downcast(r : &Dyn(T), V) -> Option(&V)`,
+      `&mut` → `Option(&mut V)`; `downcast(b : Box(Dyn(T)), V) ->
+      Result(Box(V), Box(Dyn(T)))`, `Rc`/`Arc` likewise: the same block
+      retyped, the pointer handed back on failure, no copy and no `Clone`
+      requirement. **`upcast(p, Dyn(A))`** keeps the pointer kind and
+      narrows the vtable, on a shared handle too.
+    - **`Send`/`Sync`.** The markers are the list's (decision 38 E).
+      `Box(Dyn(…, Send))` is `Send`, `Box(Dyn(…, Sync))` is `Sync`;
+      `&Dyn(…, Sync)` and `&mut Dyn(…, Send)` are `Send`; `Rc(Dyn)` is
+      neither; `Arc` takes only a `Send, Sync` list. The `Sync` demand on
+      a `Dyn(T, Send)` payload and the atomic-payload check are deleted:
+      under `Box` ownership `Send` of `V` suffices.
+    - **Origins.** `Dyn(T, p)` stays a pointee attribute (`Box(Dyn(Fn,
+      p))` is `Box<dyn Fn + 'a>`); `Dyn(T)` without one is `Escapable`.
+    - **Rollout.** Generation A (compiler, v0.2.76): the fat forms, the
+      pointer-kinded `dyn`, the vtable and handle codegen, `downcast`'s
+      forms, `yo fix --migrate dyn-box`, and the private
+      `__yo_box_cell`; a bare `Dyn(…)` value spelling and a plain `dyn(v)`
+      survive as aliases of `Box(Dyn(…))` / `dyn(Box.new(v))` behind
+      `dyn_legacy_value_spelling`, so the seed's tree and swept tests name
+      one type; tests, docs, skills and cli fixtures are swept at once.
+      Sweep (v0.2.77, on the v0.2.76 seed): std and src, regenerated on the
+      tip; `AnyError :: Box(Dyn(Error, Clone))` (then `Box(Dyn(Error))`
+      with D43-Q2). Generation B (v0.2.77, before the retirement PR): the
+      predicate deleted, E0619/E0620 raised, the lend-the-payload rule,
+      the adoption arm, `_create_box_type_via`, `_synthesized_cell_call`,
+      `_dyn_target_requires_send`, `is_boxed_type`'s dyn arms,
+      `__yo_dyn_retain/release/clone`, the `__yo_rc_alloc` dyn box and
+      `__yo_dyn_self_copy` deleted. `__yo_rc_cell`, `__yo_arc_cell` and
+      `__yo_box_cell` stay until the open S3 on return adoption is fixed
+      (VERDICTS-7 Q1's exit criterion, now three constructors). If
+      Generation A misses v0.2.76, each step moves one release and
+      `dyn-box` retires in v0.2.78 with the README projects' stage 3.
+    - **As built.** (Generation A: PR, date, the emit-diff verdict and
+      the allocation-ratchet delta. The sweep: PR. Generation B: PR.)
+    - **Tests** (`tests/dyn.test.yo`, `tests/dyn_pointer_kinds.test.yo`
+      new, `tests/explicit_allocators.test.yo`, `tests/rc_cell.test.yo`,
+      the cli case `fix-migrate-dyn-box`), with the counting allocator:
+      `dyn(Box.new(v, alloc : .Some(a)))` puts exactly one block in `a`
+      and none elsewhere; `dyn(Rc.new(v, alloc : .Some(a)))` and
+      `dyn(Arc.new(…))` one block each; `Box(Dyn(T, Clone)).clone()` of a
+      placed box puts its block in `a`; `Rc.clone` of an `Rc(Dyn)` adds
+      none; `dyn(&v)` and `dyn(&mut v)` allocate nothing and call through
+      the vtable; a plain `dyn(v)` is E0620 with its help, and `yo fix`
+      repairs it; a bare `Dyn(T)` binding, field, parameter,
+      `Option(Dyn(T))`, `size_of(Dyn(T))`, `swap` at `Dyn` and
+      `Rc(Dyn(T)).new(…)` are E0619 each with its help; `dyn(h)` over an
+      `Rc(V)` whose cell has a second handle is accepted as `Rc(Dyn(T))`
+      and a `&mut Self` slot through it is E0919 (the Observation-2 row);
+      `&mut d.*` on a `mut` `Box(Dyn(FnMut))` calls and the state persists;
+      `&d` into a `&Dyn` slot is E0601 naming `&d.*`; `downcast(&b.*, V)`
+      borrows without a copy on a move-only payload, `downcast(b, V)` hands
+      `Box(V)` back or the box on failure, `downcast(h, V)` on an `Rc`;
+      `upcast` on a `Box`, an `Rc` and a `&`; `Box(Dyn(T, Send))` crosses
+      a spawn and `Box(Dyn(T))` does not; `Arc(Dyn(T, Send))` without
+      `Sync` is rejected at the `dyn`; a closure literal inside
+      `Box.new`/`Rc.new`/`Arc.new` under `dyn`, with and without `alloc :`,
+      is typed from the `Dyn`; `Rc(Box(Dyn(T)))` is accepted and counts
+      two blocks; the migration's four rewrites and its hand list on a
+      fixture.
 
 ## 5. Prerequisites, gates and the seed
 
@@ -9827,6 +9966,90 @@ once `SEED_VERSION` parses it.
    - The two review rules for handle globals.
    - Comptime `mut(x) :: v` and `comptime(mut(x)) := v` can be reassigned,
      and the plain forms cannot.
+
+### Decision 49: `Dyn` behind a pointer
+
+**Status: decided 2026-11-05 (the maintainer's question "should we remove the
+auto-boxing for `dyn(...)`?", the maintainer's uniform `Box(Dyn(T))` model,
+and the advisor's VERDICTS-26), not started.** Rule, layout, ownership and
+tests: decision 49 in §4.
+
+**Why** (measured on develop `58ec8be03` with v0.2.75):
+
+- `dyn(x)` meant two things decided by `x`'s type: it boxed a plain value
+  into a fresh global `Rc` cell (`Arc` for `Send`), and it adopted the cell
+  of an `Rc`/`Arc` argument (`evaluate_dyn_value`'s `cell_handle_view` arms,
+  `src/evaluator/values/dyn.yo`). The adoption is an S2:
+  `issues/2026-11-05-a-dyn-over-a-shared-rc-cell-writes-its-payload-through-a-mut-self-method.md`
+  (a `&mut Self` vtable method writes the payload of a cell another handle
+  reads, which decision 46 forbids).
+- A uniquely owned `Dyn` (decision 7) paid for a count and, for `Send`,
+  atomics nothing read; the vtable prefix was `{type_id, retain, release,
+  clone}`.
+- `dyn(v)` was the one allocating spelling with no `alloc` argument;
+  placing it meant `dyn(Rc.new(v, alloc : …))`, and the v0.2.75 seed rejects
+  `dyn(Box.new(v))` ("`Box(Sq)` does not implement `Probe`").
+- Counts: `dyn(` src 1,797 (1,625 the argument of a `throw(`), std 132,
+  tests 605; bare `Dyn(` type spellings that gain `Box(`: src 187, std 19,
+  tests 554; live `dyn(Rc.new|Arc.new|Box.new …)` sites: src 0, std 0,
+  tests 40; `downcast(` 103.
+
+**Rejected:** `Dyn(T)` kept as the sized owned value with only `Box`
+accepted by `dyn` (two meanings for one type name; `Rc(Dyn)` stays two
+allocations); uniform auto-boxing with `dyn(v, alloc : …)` (a fourth
+allocating constructor with its own placement spelling); `?Sized` (one
+unsized type does not justify threading a kind through every generic and
+rewriting the prelude's pointer impls over fat raw pointers);
+`AnyError.new(e)`, a boxing `throw(e : Impl(Error))` and `AnyError`-returning
+error helpers (each a second spelling of the erasure or a hidden
+allocation). The error sites spell `exn.throw(dyn(Box.new(e)))`.
+
+**Steps:**
+
+1. **Generation A (compiler; one PR).** The fat forms over `Dyn` as types;
+   `dyn(P(V)) : P(Dyn(…))` for `Box`, `Rc`, `Arc`, `&`, `&mut`; the vtable
+   prefix `{type_id, size, align, drop_in_place, clone_into}`; `Box(Dyn)`
+   drop and clone over the prelude `Box` block; fat `Rc`/`Arc`/`Weak`
+   handles; `downcast` by pointer kind (`&Dyn → Option(&V)`,
+   `Box(Dyn) → Result(Box(V), Box(Dyn))`, `Rc`/`Arc` likewise); `upcast`
+   keeping the pointer kind; the `Box` arm of the closure-literal recognizer
+   and the private `__yo_box_cell`. A bare `Dyn(…)` value spelling and a
+   plain `dyn(v)` stay as aliases of `Box(Dyn(…))` / `dyn(Box.new(v))` behind
+   the temporary predicate `dyn_legacy_value_spelling`, so the seed's tree
+   and the swept tests name one type. The adoption arm is dead from this PR,
+   which closes the S2. `yo fix <path> --migrate dyn-box` rewrites a bare
+   `Dyn(…)` value spelling, `dyn(v)` of a non-pointer, an inline
+   `dyn(Rc.new(…))`/`dyn(Arc.new(…))` into an owning slot, and `&d` of a
+   `Box(Dyn)` into a `&Dyn` slot (`&d.*`); it lists `dyn(h)` over an
+   `Rc`-typed variable, `Rc(Dyn(T)).new(…)`, every `downcast(` and
+   multi-line sites for a hand rewrite.
+2. **Sweep (i), right after Generation A:** tests, docs (both languages;
+   `DYN_DESIGN.md` rewritten), skills, instruction files, cli fixtures.
+3. **Sweep (ii), the first PR on the next seed:** std and src, regenerated
+   on the tip, never hand-merged; `AnyError :: Box(Dyn(Error, Clone))`.
+4. **Generation B (compiler):** `dyn_legacy_value_spelling` deleted; a bare
+   `Dyn(…)` outside a pointer is E0619 and `dyn` of a non-pointer E0620 (each
+   with `yo explain`, en + zh-CN, and a repair); the lend-the-payload rule,
+   the adoption arm, `_create_box_type_via`, `_synthesized_cell_call`,
+   `_dyn_target_requires_send`, the `Sync` demand on a `Dyn(T, Send)`
+   payload, the atomic-payload check, `is_boxed_type`'s dyn arms,
+   `__yo_dyn_retain/release/clone`, the `__yo_rc_alloc` dyn box and
+   `__yo_dyn_self_copy` deleted. `__yo_rc_cell`, `__yo_arc_cell` and
+   `__yo_box_cell` stay until the open S3 on return adoption
+   (`issues/2026-10-23-a-generic-constructors-specialization-keeps-its-declared-return-for-a-capture-struct-argument.md`)
+   is fixed.
+
+**Placement** (`plans/handover/VBD_RELEASE_SCHEDULE.md`): Generation A, the
+mode and sweep (i) in v0.2.76 as a stretch after N1e-2b and N1f-2 (not a
+hard gate); sweep (ii) and Generation B in v0.2.77, before the retirement
+PR, which deletes `dyn-box` with the other modes. If Generation A misses
+v0.2.76, every step moves one release: sweep (ii), Generation B and the
+`dyn-box` retirement ride v0.2.78, and the README projects get a stage 3 on
+v0.2.77 for `dyn-box` alone. The release count stays 10.
+
+**Temporary names:** `dyn_legacy_value_spelling` (Generation A →
+Generation B), `--migrate dyn-box` (Generation A → the retirement PR),
+`__yo_box_cell` (Generation A → the S3 fix).
 
 ### V5: remove `ref(...)` and `atomic(...)`
 
