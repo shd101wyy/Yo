@@ -524,16 +524,23 @@ evaluate_identifier_and_operator :: (
   // ------------------------------------------------------------------
   // Closure capture tracking — function body
   // ------------------------------------------------------------------
-  match(
+  // The body context's kind and env, read out first: the tracking below
+  // writes `ctx`.
+  sub_kind_env := match(
     &ctx.is_evaluating_function_body_or_async_block,
-    .Some(sub_ctx) => {
+    .Some(s) => Option((FuncOrAsyncBlockKind, Environment)).Some((s.kind, s.eval_env)),
+    .None => Option((FuncOrAsyncBlockKind, Environment)).None
+  );
+  match(
+    sub_kind_env,
+    .Some((sub_kind, sub_env)) => {
       match(
-        sub_ctx.kind,
+        sub_kind,
         .FunctionBody => {
           match(
             &ctx.captured_variables,
             .Some(_) => {
-              closure_frame_level := sub_ctx.eval_env.frame_count();
+              closure_frame_level := sub_env.frame_count();
               // Generation-safe INNER test: `variable.frame_level` is stamped
               // at the variable's CREATION env — for the enclosing fn's
               // PARAMS that is a DEEP call-time generation, so comparing it
@@ -563,7 +570,7 @@ evaluate_identifier_and_operator :: (
               );
               if(debug_knob(`YO_DEBUG_CAPTURE`).is_some(), {
                 cap_dbg_fi := match(found_frame_idx_out.get(usize(0)), .Some(v) => v.to_string(), .None => `?`.to_string());
-                cap_dbg_ev_top := match(sub_ctx.eval_env.frames.get(closure_frame_level - usize(1)), .Some(fr) => fr.id.to_string(), .None => `?`.to_string());
+                cap_dbg_ev_top := match(sub_env.frames.get(closure_frame_level - usize(1)), .Some(fr) => fr.id.to_string(), .None => `?`.to_string());
                 cap_dbg_cur_top := match(env.frames.last(), .Some(fr2) => fr2.id.to_string(), .None => `?`.to_string());
                 eprintln(`[cap-fb] name=${variable.name} found_fi=${cap_dbg_fi} closure_fl=${closure_frame_level.to_string()} var_fl=${variable.frame_level.to_string()} inner=${cap_is_inner.to_string()} ev_top=${cap_dbg_ev_top} cur_frames=${env.frames.len().to_string()} cur_top=${cap_dbg_cur_top}`);
               });
@@ -603,7 +610,7 @@ evaluate_identifier_and_operator :: (
           match(
             &ctx.captured_variables,
             .Some(_) => {
-              async_frame_level := sub_ctx.eval_env.frame_count();
+              async_frame_level := sub_env.frame_count();
               // Generation-safe INNER test — the SAME repair the FunctionBody
               // arm above carries (the dyn+Impl(Fn) capture loss), which this
               // arm never got: `variable.frame_level` is stamped at the
