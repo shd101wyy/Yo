@@ -48,15 +48,15 @@ the module-namespace path: a field with a known value was emitted as that consta
 other field by name as a variable of its own, which only a module member is. So the runtime
 field became the bare `__yo_v_name`.
 
-The same path had a second consequence: a known field of a runtime construction was folded to
-its constant without evaluating the object, so `Point(x : f(), y : i32(1)).y` never called
-`f()` (develop 58ec8be03 prints `1 0` for the call count of that read).
+A known field of a runtime construction is a separate matter: the evaluator folds the whole read
+(`Point(x : f(), y : i32(1)).y` is the constant `1`), and the construction's call is never
+emitted (`issues/2026-11-05-a-folded-field-read-of-a-struct-literal-drops-its-calls.md`).
 
 ## Fix
 
 The namespace path takes a module, or a struct value with no runtime leaf (a compile-time
-struct, where folding is exact and has nothing to run). A runtime construction falls through to
-the ordinary value-shape access, `(<object code>).<field>`, which runs the construction once.
+struct, where folding is exact). A runtime construction falls through to the ordinary
+value-shape access, `(<object code>).<field>`.
 Inside the path, only a module's member is resolved by name; a compile-time struct's
 struct-valued field is read from its C value.
 
@@ -64,6 +64,5 @@ struct-valued field is read from its C value.
 
 `tests/match_structs.test.yo`: "a method on a field of a match binding over an inline literal"
 (owned and borrowed scrutinee) and "a field of a struct literal with a runtime field" (the
-runtime field, the folded constant field with the construction's call counted, a method on a
-field). `tests/async_await.test.yo`: `Task` is a value struct again, and "a method on a field of
+runtime field, the constant field, a method on a field). `tests/async_await.test.yo`: `Task` is a value struct again, and "a method on a field of
 a match binding over an inline literal across an await" covers the `io.async` shape.

@@ -1,0 +1,19 @@
+// A read of a compile-time-known field of a struct literal whose other field
+// is a runtime call is folded to the constant, and the call never runs.
+// Expected output: "1 2 calls=2"; develop 58ec8be03 prints "1 2 calls=1" (the
+// tuple's call runs, the struct's does not)
+// (issues/2026-11-05-a-folded-field-read-of-a-struct-literal-drops-its-calls.md).
+{ println } :: import("std/fmt");
+P :: struct(x : i32, y : i32);
+(mut(g) : i32) = i32(0);
+f :: (fn() -> i32)({
+  g = (g + i32(1));
+  i32(4)
+});
+main :: (fn() -> unit)({
+  a := P(x : f(), y : i32(1)).y;
+  b := (f(), i32(2)).1;
+  d := g;
+  println(`${a} ${b} calls=${d}`);
+});
+export(main);
