@@ -239,7 +239,7 @@ _throw_max_iterations_error :: (
 /// `while(n < i32(3), s = mk(n).s, …)` either freed the replaced String
 /// under its new owner or leaked one per iteration
 /// (issues/fixed/2026-10-25-a-temporary-built-in-a-three-argument-while-step-is-dropped-outside-its-c-scope.md).
-_append_step_save_drop :: (fn(step : &AstExpr, ctx : &EvalContext, exn : Exception) -> unit)(
+_append_step_save_drop :: (fn(step : &AstExpr, ctx : &mut EvalContext, exn : Exception) -> unit)(
   match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(step)),
     .Some(si) => match(

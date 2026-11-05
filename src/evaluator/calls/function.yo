@@ -259,7 +259,7 @@ derive(ReceiverMethodResult, Clone);
 /// record) reaches the dispatch UNEVALUATED, unlike a bare-atom receiver
 /// (`io.await`) which the atom eval already stamped.
 _try_eval_receiver_node :: (
-  fn(arg : &AstExpr, env : &Environment, ctx : &EvalContext, out : &mut ArrayList(AstExpr)) -> unit
+  fn(arg : &AstExpr, env : &Environment, ctx : &mut EvalContext, out : &mut ArrayList(AstExpr)) -> unit
 )({
   rcv_exn := Exception(
     throw : (
@@ -897,7 +897,7 @@ _synth_name_atom :: (fn(name : str, at : &Token) -> AstExpr)(
 /// (`__yo_cell(V)(v, alloc)`, plans/VALUES_BY_DEFAULT.md §3.5): the prelude's
 /// own instantiation, evaluated in `env` from names synthesized at `at`. Both
 /// names are prelude exports, which no module can shadow.
-_cell_allocator_type :: (fn(at : &Token, env : &Environment, ctx : &EvalContext, exn : Exception) -> TypeValue)({
+_cell_allocator_type :: (fn(at : &Token, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> TypeValue)({
   ty_args := ArrayList(AstExpr).new();
   ty_args.push(_synth_name_atom("Allocator", at));
   opt_expr := AstExpr.FnCall(alloc_global_expr_id(), _synth_name_atom("Option", at), Rc.new(ty_args), false, at);
@@ -1056,7 +1056,7 @@ _try_find_receiver_method :: (
   fn(
     callee : &AstExpr,
     env : &Environment,
-    ctx : &EvalContext
+    ctx : &mut EvalContext
   ) -> Option(ReceiverMethodResult)
 )(
   // A callee the payload retry below rewrote reads as rewritten
@@ -1067,7 +1067,7 @@ _find_receiver_method_of :: (
   fn(
     callee : &AstExpr,
     env : &Environment,
-    ctx : &EvalContext
+    ctx : &mut EvalContext
   ) -> Option(ReceiverMethodResult)
 )({
   // 1. callee must be `.(receiver, method_name)` — a 2-arg dot call.
@@ -7772,7 +7772,7 @@ _evaluate_funcval_runtime_call :: (
 /// caller falls back to the first overload (the `->` handler is capture-free, so
 /// it unwinds `()` and the result rides out via `out`, like `_trial_eval_fn_body`).
 _try_eval_operand_type :: (
-  fn(arg : &AstExpr, env : &Environment, ctx : &EvalContext, out : &mut ArrayList(TypeValue)) -> unit
+  fn(arg : &AstExpr, env : &Environment, ctx : &mut EvalContext, out : &mut ArrayList(TypeValue)) -> unit
 )({
   // A probe, not the operand's evaluation: the operand is evaluated again for
   // the call, so a move the probe records (`x + take(d)`) would make that
@@ -7825,7 +7825,7 @@ _restore_move_states :: (fn(saved_vars : &ArrayList(Variable), saved_moves : &Ar
 /// The probe itself: a failure unwinds out of THIS function, so the caller's
 /// restore runs on both outcomes.
 _probe_operand_type :: (
-  fn(arg : &AstExpr, env : &Environment, ctx : &EvalContext, out : &mut ArrayList(TypeValue)) -> unit
+  fn(arg : &AstExpr, env : &Environment, ctx : &mut EvalContext, out : &mut ArrayList(TypeValue)) -> unit
 )({
   oe_exn := Exception(throw : (_e -> unwind(())));
   oe_evaled := evaluate_expression_raw(arg, env, ctx, oe_exn);
@@ -8568,7 +8568,7 @@ _fnonce_callee_releases_itself :: (fn(callee_info : &ExprInfo) -> bool)({
 /// built and evaluated BEFORE the callee is consumed (evaluating it afterwards
 /// would read a moved value), exactly as the call machinery's own post-call
 /// drops are (`generate_deferred_drop_expressions`, calls/helper.yo).
-_record_fnonce_callee_release :: (fn(call : &AstExpr, name : &String, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
+_record_fnonce_callee_release :: (fn(call : &AstExpr, name : &String, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> unit)({
   // The drop is a codegen artifact that runs after the call; evaluating it
   // must not consume the callee before the call reads it. Snapshot the
   // consumed state of every binding of the name (a `sink` parameter's
@@ -8618,7 +8618,7 @@ _attach_fnonce_callee_release :: (fn(call : &AstExpr, result : &AstExpr, ctx : &
     .None => ()
   );
 });
-_consume_fnonce_callee :: (fn(callee : &AstExpr, call : &AstExpr, callee_info : &ExprInfo, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
+_consume_fnonce_callee :: (fn(callee : &AstExpr, call : &AstExpr, callee_info : &ExprInfo, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> unit)({
   is_once := match(
     extract_fn_trait_from_type(&callee_info.ty),
     .Some(oft) => match(oft, Rc(.FnTraitT(base_name : ob)) => (ob == "FnOnce"), _ => false),

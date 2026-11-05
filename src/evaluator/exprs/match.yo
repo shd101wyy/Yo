@@ -1155,7 +1155,7 @@ _own_all :: (fn(vs : &ArrayList(Variable)) -> unit)({
 /// After a consuming arm's body: a binding it still owns is dropped at the
 /// arm's end (and at each exit inside it); one it moved is dropped at the
 /// exits before the move.
-_drop_owned_at_arm_end :: (fn(vs : &ArrayList(Variable), body : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
+_drop_owned_at_arm_end :: (fn(vs : &ArrayList(Variable), body : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> unit)({
   (i : usize) = usize(0);
   while(i < vs.len(), {
     match(

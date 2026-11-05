@@ -1048,7 +1048,7 @@ _names_contain :: (fn(names : &ArrayList(String), name : &String) -> bool)({
 });
 /// `e` evaluates to a type (a soft trial: a name that does not resolve is
 /// simply not a type).
-_origin_operand_is_type :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext) -> bool)({
+_origin_operand_is_type :: (fn(e : &AstExpr, env : &Environment, ctx : &mut EvalContext) -> bool)({
   trial_exn := Exception(throw : (_err -> unwind(false)));
   ev := evaluate_expression_raw(e, env, ctx, trial_exn);
   match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ev)), .Some(ti) => is_type_value(&ti.value), .None => false)
@@ -1058,7 +1058,7 @@ _origin_operand_is_type :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalCont
 /// of them (decision 43 step 2, N1a). In a PARAMETER type an origin names
 /// declared origin parameters only; a parameter's own place is an origin in
 /// the result type. Anything else is E0922.
-_origin_names_into :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, out : &mut ArrayList(String), exn : Exception) -> unit)({
+_origin_names_into :: (fn(e : &AstExpr, env : &Environment, ctx : &mut EvalContext, out : &mut ArrayList(String), exn : Exception) -> unit)({
   if(ast_expr_is_fn_call_of(e, BK_TUPLE, Option(usize).None), {
     o_args := _fn_call_args(e);
     (oi : usize) = usize(0);
@@ -1135,7 +1135,7 @@ _origin_names_into :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, 
   );
 });
 /// The origin a parameter type `&(T, o)` spells, as an `OriginSet` of names.
-evaluate_param_origin :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> TypeValue)({
+evaluate_param_origin :: (fn(e : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> TypeValue)({
   names := ArrayList(String).new();
   _origin_names_into(e, env, ctx, &mut names, exn);
   t_origin_named(&shared_list(names))
@@ -1158,7 +1158,7 @@ _origin_place_root :: (fn(e : &AstExpr) -> Option(AstExpr))({
 /// bodies and at module level); a union `(a, b)` collects both. A type
 /// definition naming its own fields (`self.f`) is E0924; anything else is
 /// E0922.
-_type_origin_names_into :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, out : &mut ArrayList(String), exn : Exception) -> unit)({
+_type_origin_names_into :: (fn(e : &AstExpr, env : &Environment, ctx : &mut EvalContext, out : &mut ArrayList(String), exn : Exception) -> unit)({
   if(ast_expr_is_fn_call_of(e, BK_TUPLE, Option(usize).None), {
     o_args := _fn_call_args(e);
     (oi : usize) = usize(0);
@@ -1268,7 +1268,7 @@ _type_origin_names_into :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalCont
 /// is read as an origin (`_type_origin_names_into`), never evaluated as a
 /// value: `x` names the place, whatever `x` holds. The result is an
 /// `Origin`-kinded value, `OriginSet` of the names.
-evaluate_origin_argument :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> AstExpr)({
+evaluate_origin_argument :: (fn(e : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr)({
   names := ArrayList(String).new();
   _type_origin_names_into(e, env, ctx, &mut names, exn);
   origin := t_origin_named(&shared_list(names));
@@ -1284,7 +1284,7 @@ evaluate_origin_argument :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalCon
 /// argument, an alias. The value is the type `Reference(T, mutable,
 /// origin)`; the one-argument form's origin is elided (a fresh origin per
 /// field, O2). A reference to a reference is N1e's.
-evaluate_reference_type :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, is_mut : bool, exn : Exception) -> AstExpr)({
+evaluate_reference_type :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext, is_mut : bool, exn : Exception) -> AstExpr)({
   r_args := _fn_call_args(expr);
   pointee_expr := match(r_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
   ev := evaluate_expression_raw(&pointee_expr, env, ctx, exn);
@@ -1483,7 +1483,7 @@ _get_expr_type :: (
   fn(
     expr : &AstExpr,
     env_mut : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> TypeValue
 )({
@@ -1526,7 +1526,7 @@ _eval_and_update_env :: (
   fn(
     expr : &AstExpr,
     env_mut : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> Option(TypeValue)
 )({
@@ -1561,7 +1561,7 @@ _try_eval_comptime_type :: (
   fn(
     type_expr : &AstExpr,
     env_mut : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> Option(TypeValue)
 )(
@@ -2869,7 +2869,7 @@ validate_concrete_type_constraints :: (
     rhs_expr : &AstExpr,
     constraint_expr : &AstExpr,
     env_mut : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> unit
 )({
@@ -3073,7 +3073,7 @@ apply_single_trait_constraint :: (
     trait_expr : &AstExpr,
     original_constraint_expr : &AstExpr,
     env_mut : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> bool
 )({
@@ -3243,7 +3243,7 @@ parse_where_clause_constraints :: (
   fn(
     constraint_exprs : &ArrayList(AstExpr),
     env_mut : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     collect_pending : bool,
     exn : Exception
   ) -> ArrayList(PendingConstraint)
@@ -3575,7 +3575,7 @@ apply_where_clause_constraints :: (
   fn(
     constraint_exprs : &ArrayList(AstExpr),
     env_mut : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> unit
 )(
@@ -3594,7 +3594,7 @@ prepare_where_clause_variables :: (
   fn(
     constraint_exprs : &ArrayList(AstExpr),
     env_mut : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> ArrayList(PendingConstraint)
 )({
@@ -3677,7 +3677,7 @@ retry_pending_constraints :: (
   fn(
     pending : &ArrayList(PendingConstraint),
     env_mut : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> ArrayList(PendingConstraint)
 )({

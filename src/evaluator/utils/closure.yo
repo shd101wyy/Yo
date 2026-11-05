@@ -1439,7 +1439,7 @@ generate_captured_variable_dup_expressions :: (
   fn(
     captured_vars_with_values : &Option(HashMap(String, FuncCapturedVarInfo)),
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception,
     /// The closure's token: where a capture that is not implicitly copyable
     /// is moved, and the copy site the implicit-copy recorder keeps for each
@@ -1822,7 +1822,7 @@ structural_clone_expansion :: (
 /// `__yo_capture_field(c, i)`: the type of field `i` of closure `c`'s capture
 /// record. The read is in place: a clone template passes it to the field
 /// type's `clone`, or copies a `Copy` field.
-evaluate_yo_capture_field :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> AstExpr)({
+evaluate_yo_capture_field :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr)({
   cf_args := match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), _ => ArrayList(AstExpr).new());
   recv := match(cf_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
   idx_e := match(cf_args.get(usize(1)), .Some(a) => a, .None => make_err_expr());

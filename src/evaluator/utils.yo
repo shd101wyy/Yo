@@ -4921,7 +4921,7 @@ _drop_in_arms_that_keep :: (
     bodies : &ArrayList(AstExpr),
     consumed_at_tokens : &ArrayList(Option(Token)),
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception,
     (branch_expr : &Option(AstExpr)) ?= Option(AstExpr).None
   ) -> bool
@@ -5131,7 +5131,7 @@ merge_and_check_envs :: (
     bodies : &ArrayList(AstExpr),
     group_log_start : usize,
     arm_ranges : &ArrayList(usize),
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception,
     /// The whole `cond`/`match`, every arm included (a returning arm is not
     /// in `bodies`): a value moved in some arms is moved at its end, so the
@@ -7851,7 +7851,7 @@ local_borrow_is_scalar_type :: (fn(t : &TypeValue) -> bool)(
 /// A binding a consuming `match` arm owns, still unmoved after the arm's
 /// body: it is dropped at the arm's end and at each `return` inside the arm,
 /// as a value kept by one arm of a branch is (`_drop_in_arms_that_keep`).
-drop_owned_match_binding_at_arm_end :: (fn(v : &Variable, body : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
+drop_owned_match_binding_at_arm_end :: (fn(v : &Variable, body : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> unit)({
   if(v.consumed_at_token.is_some(), {
     return(());
   });

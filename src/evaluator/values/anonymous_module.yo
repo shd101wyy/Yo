@@ -160,7 +160,7 @@ _take_force_failure :: (fn() -> Option(String))({
   g_force_failure = Option(String).None;
   r
 });
-_force_eval :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext) -> unit)({
+_force_eval :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext) -> unit)({
   inner_exn := Exception(
     throw : (
       _err -> {
@@ -218,7 +218,7 @@ _force_pending_def_impl :: (fn(walk : &ModuleWalk, def : &PendingDef) -> Option(
     .Some(k) => set_registration_owner(&k),
     .None => ()
   );
-  _force_eval(&def.expr, &force_env, &force_ctx);
+  _force_eval(&def.expr, &force_env, &mut force_ctx);
   set_registration_owner(&prev_owner);
   truncate_forcing_depths(force_depths);
   restore_active_where_trait_ids(&saved_where);
@@ -941,7 +941,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
 /// it (each rides its own statement's init expr — a shared snapshot can carry
 /// both), and a compile-time-only temp that never gains a C declaration is
 /// skipped by codegen's undeclared-temp gate.
-_attach_module_init_temp_drops :: (fn(stmt : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
+_attach_module_init_temp_drops :: (fn(stmt : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> unit)({
   stmt_tok := ast_expr_token(stmt);
   rhs_node := match(
     stmt,

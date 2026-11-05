@@ -932,13 +932,13 @@ call_rerun_pending_def_evals :: (fn(env : &Environment, ctx : &EvalContext) -> O
 // sites (assignment, `&mut` arguments, `addr_of`, `&mut` local borrows)
 // cannot import calls/index_trait.yo without a cycle, so they call through
 // this hook, installed by `register_evaluate_expression`.
-PromoteIndexPlacesFn :: (fn(place : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit);
+PromoteIndexPlacesFn :: (fn(place : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> unit);
 (mut(g_promote_index_places_fn) : Option(PromoteIndexPlacesFn)) = Option(PromoteIndexPlacesFn).None;
 set_promote_index_places_fn :: (fn(f : PromoteIndexPlacesFn) -> unit)({
   g_promote_index_places_fn = Option(PromoteIndexPlacesFn).Some(f);
   ()
 });
-call_promote_index_places_for_write :: (fn(place : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)(
+call_promote_index_places_for_write :: (fn(place : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> unit)(
   match(
     g_promote_index_places_fn,
     .Some(f) => f(place, env, ctx, exn),
@@ -968,13 +968,13 @@ call_is_index_place :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext)
 // bare `return(...)` body resolves `return`), for modules that cannot import
 // exprs/begin.yo without a cycle (values/impl.yo's trait-default
 // materialization). Installed by calls/function_type.yo.
-EvaluateFnBodyFn :: (fn(body : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> AstExpr);
+EvaluateFnBodyFn :: (fn(body : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr);
 (mut(g_evaluate_fn_body_fn) : Option(EvaluateFnBodyFn)) = Option(EvaluateFnBodyFn).None;
 set_evaluate_fn_body_fn :: (fn(f : EvaluateFnBodyFn) -> unit)({
   g_evaluate_fn_body_fn = Option(EvaluateFnBodyFn).Some(f);
   ()
 });
-call_evaluate_fn_body :: (fn(body : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> AstExpr)(
+call_evaluate_fn_body :: (fn(body : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr)(
   match(
     g_evaluate_fn_body_fn,
     .Some(f) => f(body, env, ctx, exn),

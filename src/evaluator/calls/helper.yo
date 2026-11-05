@@ -361,7 +361,7 @@ generate_deferred_drop_expressions :: (
   fn(
     variables_to_drop : &ArrayList(Variable),
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> Option(ArrayList(AstExpr))
 )({
@@ -616,7 +616,7 @@ _type_has_array_len_var :: (fn(t : &TypeValue) -> bool)(_type_has_array_len_var_
 /// as the body's own calls — one instantiation lineage (the imm_map
 /// `_alloc_pairs` expected/actual struct-id split).
 _trial_eval_ret_type_expr :: (
-  fn(ret_texpr : &AstExpr, env : &Environment, ctx : &EvalContext, out : &mut ArrayList(TypeValue)) -> unit
+  fn(ret_texpr : &AstExpr, env : &Environment, ctx : &mut EvalContext, out : &mut ArrayList(TypeValue)) -> unit
 )({
   inner_exn := Exception(throw : (_err -> unwind(())));
   evaluated := evaluate_expression_raw(ret_texpr, env, ctx, inner_exn);
@@ -3015,7 +3015,7 @@ _bake_record_slots :: (fn(ty : &TypeValue) -> TypeValue)(
 /// module-level channel), for its caller's re-raise.
 (g_reeval_closure_err : RefCell(ArrayList(YoError))) = RefCell(ArrayList(YoError)).new(ArrayList(YoError).new());
 _reeval_closure_body_swallow :: (
-  fn(body : &AstExpr, benv : &Environment, ctx : &EvalContext) -> unit
+  fn(body : &AstExpr, benv : &Environment, ctx : &mut EvalContext) -> unit
 )({
   g_reeval_closure_err.with_mut(xs => xs.clear());
   // YO_DEBUG_SWALLOW=1 prints `[reeval-swallow] <err>` (Phase 6 census: this
@@ -6633,7 +6633,7 @@ _collect_atom_names_into :: (fn(e : &AstExpr, out : &mut ArrayList(String)) -> u
   )
 );
 _try_apply_early_where_clauses :: (
-  fn(constraint_exprs : &ArrayList(AstExpr), callee_env : &Environment, ctx : &EvalContext) -> unit
+  fn(constraint_exprs : &ArrayList(AstExpr), callee_env : &Environment, ctx : &mut EvalContext) -> unit
 )({
   eaw_exn := Exception(throw : (_eaw_e -> unwind(())));
   apply_where_clause_constraints(constraint_exprs, callee_env, ctx, eaw_exn);

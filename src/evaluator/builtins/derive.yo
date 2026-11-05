@@ -105,7 +105,7 @@ _derive_impl_err_message :: (fn() -> String)(
 /// fault; writing a `derive_rule` was writing blind
 /// (issues/fixed/derive-swallows-the-rule-error.md).
 _derive_eval_guarded :: (
-  fn(step_expr : &AstExpr, env : &Environment, ctx : &EvalContext, out : &mut ArrayList(AstExpr)) -> unit
+  fn(step_expr : &AstExpr, env : &Environment, ctx : &mut EvalContext, out : &mut ArrayList(AstExpr)) -> unit
 )({
   inner_exn := Exception(
     throw : (
@@ -179,7 +179,7 @@ _derive_bind_opt :: (
     env : &Environment,
     prefix : &String,
     arg_opt : &Option(AstExpr),
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> String
 )({

@@ -364,7 +364,7 @@ _evaluate_transparent_unary :: (
   fn(
     expr : &AstExpr,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
@@ -461,7 +461,7 @@ refine_pred_chain_of :: (fn(outer_fid : &String) -> ArrayList(String))(
 /// passing a T. `refine(T)` (one argument) is the bare alias: no
 /// predicate, no obligation.
 evaluate_refine :: (
-  fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> AstExpr
+  fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr
 )({
   args := match(
     expr,
@@ -1034,7 +1034,7 @@ evaluate_implies :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalCont
 });
 /// `old(expr)` — entry-snapshot reference (handled specially inside `ensures`
 /// by the wrapper; transparent pass-through elsewhere).
-evaluate_old :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> AstExpr)({
+evaluate_old :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr)({
   if(!ast_expr_is_fn_call_of(expr, BF_OLD, .Some(usize(1))), {
     exn.throw(
       dyn(

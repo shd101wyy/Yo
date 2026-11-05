@@ -3631,7 +3631,7 @@ _try_lookup_trait_type :: (
   fn(
     trait_expr : &AstExpr,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> Option(TypeValue)
 )({
@@ -4084,7 +4084,7 @@ _materialize_default_body :: (
   // recognises. Evaluated raw, it threw `Variable "return" not found` — once
   // swallowed (the shared default took over), a compile error since the
   // Phase 6 re-raise (tests/async_trait_default_await.test.yo).
-  evaluated := call_evaluate_fn_body(body, env, &body_ctx, inner_exn);
+  evaluated := call_evaluate_fn_body(body, env, &mut body_ctx, inner_exn);
   out.push(evaluated);
 });
 /// Evaluate ONE colon-pair member of a concrete (Case 3) impl — the body the
@@ -5057,7 +5057,7 @@ _collect_impl_where_constraints :: (
     forall_names : &ArrayList(String),
     forall_some_types : &ArrayList(TypeValue),
     forall_env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception,
     out_some_types : &mut ArrayList(TypeValue),
     out_traits : &mut ArrayList(TypeValue)
