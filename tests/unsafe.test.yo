@@ -2,6 +2,7 @@ pragma(Pragma.AllowUnsafe);
 { assert, panic } :: import("std/assert");
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
+{ replace } :: import("std/mem");
 import("std/libc/stdio.yo");
 
 /// Tests for the `unsafe(...)` builtin (Phase A of plans/reference/MEMORY_SAFETY.md).
@@ -149,3 +150,43 @@ test("drop_in_place releases what the pointee owns", {
   unsafe(drop_in_place(slot));
   unsafe(free(.Some((*void)(slot))));
 });
+
+// A place behind a raw pointer is not part of the pointer binding's storage:
+// `match(&mut p.*.xs, …)` writes through `p : *T` (the binding's own
+// mutability says nothing about the pointee), and two disjoint fields behind
+// one pointer are two places for an argument-exclusivity check, as they are
+// through `&mut`. A `&` reference stays read-only
+// (issues/fixed/2026-11-05-a-mut-match-through-a-raw-pointer-parameter-is-rejected-as-a-read-only-borrow.md).
+_RawT :: struct(xs : Option(ArrayList(i32)));
+_raw_push_one :: (fn(p : *_RawT, v : i32) -> unit)(
+  match(&mut p.*.xs, .Some(xs) => xs.push(v), .None => ())
+);
+_RawS :: struct(a : ArrayList(ArrayList(i32)), b : ArrayList(i32));
+_raw_via_ptr :: (fn(p : *_RawS) -> unit)(
+  p.*.a.push(replace(&mut p.*.b, ArrayList(i32).new()))
+);
+test("a &mut match and disjoint &mut arguments through a raw pointer", {
+  mut(t) := _RawT(xs : .Some(ArrayList(i32).new()));
+  _raw_push_one(addr_of(t), i32(7));
+  assert(match(&t.xs, .Some(xs) => xs.len(), .None => usize(0)) == usize(1), "the push through the pointer is visible");
+  mut(s) := _RawS(a : ArrayList(ArrayList(i32)).new(), b : ArrayList(i32).new());
+  s.b.push(i32(3));
+  _raw_via_ptr(addr_of(s));
+  assert(s.a.len() == usize(1), "b moved into a through the pointer");
+  assert(s.b.len() == usize(0), "and b was replaced by an empty list");
+  assert(s.a(usize(0))(usize(0)) == i32(3), "with its element");
+});
+comptime_expect_error(
+  _raw_ref_push_rejected :: (fn(p : &_RawT, v : i32) -> unit)(
+    match(&mut p.*.xs, .Some(xs) => xs.push(v), .None => ())
+  ),
+  "is a `&` borrow, which is read-only"
+);
+// The same field behind one pointer, lent `&mut` twice, still overlaps.
+_raw_two :: (fn(x : &mut ArrayList(i32), y : &mut ArrayList(i32)) -> unit)(());
+comptime_expect_error(
+  _raw_same_field_twice :: (fn(p : *_RawS) -> unit)(
+    _raw_two(&mut p.*.b, &mut p.*.b)
+  ),
+  "which an earlier argument of the same call lends to it"
+);

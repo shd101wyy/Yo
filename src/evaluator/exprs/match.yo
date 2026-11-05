@@ -22,6 +22,7 @@ pragma(Pragma.AllowUnsafe);
   ast_expr_to_string,
   ast_expr_is_atom,
   ast_expr_is_fn_call_of,
+  ast_expr_is_atom_of,
   ast_expr_is_capture_list_params,
   make_err_expr,
   alloc_global_expr_id,
@@ -99,7 +100,7 @@ pragma(Pragma.AllowUnsafe);
 { owning_param_binding_beside, move_through_sink_shadow, note_ref_payload_source, origin_carrying_value_roots } :: import("../utils.yo");
 { merge_and_check_envs, reject_mixed_closure_arms, consume_case_body_temp_var, attach_temp_variable_to_expr, adopt_never_type, reset_sibling_flow_state, keep_last_arm_moves, audit_pending_copies_enabled, dyn_copy_pending_exists, dyn_copy_rule_applies, note_dyn_copy_pending, audit_note_match_binding, migrate_rc_clone_on, migrate_rc_clone_borrow_scrutinee, note_migrate_mut_scrutinee, LocalBorrowInfo, local_borrows_active, local_borrow_scrutinee_source, local_borrow_note_pattern_binding, note_second_class_binding, reject_malformed_pattern_mut_markers, reject_malformed_mut_marker, place_require_mut, reject_write_through_rc, _lb_arrow_shadows, _lb_fn_literal_binds, _lb_mentions, record_pending_scrutinee_borrow } :: import("../utils.yo");
 { throw_if_mut_lend_through_atomic_object } :: import("./assignment.yo");
-{ set_expr_as_consumed, deref_exempt_mark, deref_exempt_clear, variable_is_reference_binding, deref_rule_applies, reject_reference_without_deref, drop_owned_match_binding_at_arm_end, match_scrutinee_is_capture, local_borrow_register_match_place, local_borrow_note_match_place, note_consuming_match_scrutinee, LocalBorrowPlace, LocalBorrowAccess, local_borrow_place_of, local_borrow_access, local_borrow_require_writable, variable_is_mut_borrow, variable_is_imm_borrow, local_borrow_info_of_variable } :: import("../utils.yo");
+{ set_expr_as_consumed, deref_exempt_mark, deref_exempt_clear, variable_is_reference_binding, deref_rule_applies, reject_reference_without_deref, drop_owned_match_binding_at_arm_end, match_scrutinee_is_capture, local_borrow_register_match_place, local_borrow_note_match_place, note_consuming_match_scrutinee, LocalBorrowPlace, LocalBorrowAccess, local_borrow_place_of, local_borrow_access, local_borrow_require_writable, variable_is_mut_borrow, variable_is_imm_borrow, local_borrow_info_of_variable, deref_operand_is_raw_pointer } :: import("../utils.yo");
 { evaluate_begin_expression, attach_consumed_binding_exit_drops, reject_empty_record_arm, audit_judge_arm_copies, audit_commit_arm_copies, judge_dyn_copies, discard_dyn_copies, _migrate_judge_scrutinee_borrows, _subtree_assigns_variable } :: import("./begin.yo");
 { evaluate_expression, evaluate_expression_raw, evaluate_expression_guarded } :: import("./expr.yo");
 {
@@ -406,6 +407,22 @@ _GUARD_HELP :: "an arm with a guard (`p && (guard)`) does not count toward exhau
 // ---------------------------------------------------------------------------
 // How a `match` takes its scrutinee (plans/VALUES_BY_DEFAULT.md decision 26)
 // ---------------------------------------------------------------------------
+/// The place `scr` (evaluated) reads through a raw-pointer dereference
+/// (`p.*.f`, `s.ptr.*`): the binding `_scrutinee_root_variable` reaches owns
+/// none of what lies behind the pointer, so its mutability says nothing
+/// about that place.
+_scrutinee_crosses_raw_pointer :: (fn(scr : &AstExpr, ctx : &EvalContext) -> bool)({
+  (cur : AstExpr) = scr;
+  while(ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))), {
+    (base : AstExpr) = match(cur, .FnCall(_, _, Rc(dargs), _, _) => match(dargs.get(usize(0)), .Some(b) => b, .None => make_err_expr()), .Atom(_, _) => cur);
+    is_deref := match(cur, .FnCall(_, _, Rc(dargs), _, _) => match(dargs.get(usize(1)), .Some(f) => ast_expr_is_atom_of(&f, "*"), .None => false), .Atom(_, _) => false);
+    if(is_deref && deref_operand_is_raw_pointer(&base, ctx), {
+      return(true);
+    });
+    cur = base;
+  });
+  false
+});
 /// The variable a scrutinee place is rooted at: `x`, `x.f.g`, `x.a(i)` → `x`
 /// (the innermost binding of the name). `.None` for a temporary.
 _scrutinee_root_variable :: (fn(scr : &AstExpr, env : &Environment) -> Option(Variable))({
@@ -678,6 +695,11 @@ _decide_match_mode :: (
   ty := Rc.clone(info.ty);
   root := _scrutinee_root_variable(&scr, env);
   is_atom := ast_expr_is_atom(&scr);
+  // `&mut p.*.f` through a raw pointer writes a place `p` does not own: it is
+  // writable whatever `p`'s own binding is.
+  if((marker == u8(2)) && _scrutinee_crosses_raw_pointer(&scr, ctx), {
+    return(MATCH_MODE_MUT);
+  });
   if(marker == u8(2), {
     match(
       root,
@@ -1259,13 +1281,15 @@ evaluate_match :: (
     is_place_expression(&scrutinee_expr, &env) =>
       evaluate_expression(&scrutinee_expr, &env, ctx),
     // A MARKED element-access scrutinee (`match(&xs(i), …)`, `match(&mut
-    // xs(i), …)`) reads the element IN PLACE, exactly as a `&xs(i)`
-    // argument does. The begin route below attaches an OWNING temp for its
+    // xs(i), …)`, and any projection chain through one: `&xs(i).f`,
+    // `&s.xs(i)`, `&p.*.xs(i)`) reads the element IN PLACE, exactly as a
+    // `&xs(i)` argument does. The begin route below attaches an OWNING temp for its
     // tail, and owning a projection's element means COPYING it out — E0901
     // for a move-only element, although `&xs(i)` is the repair E0901 itself
     // names. The expression route leaves the projection's temp non-owning:
     // the borrow-mode arms bind through the place, nothing is copied or
-    // dropped (issues/fixed/2026-10-17-a-match-through-a-borrowed-element-copies-the-element.md).
+    // dropped (issues/fixed/2026-10-17-a-match-through-a-borrowed-element-copies-the-element.md,
+    // issues/fixed/2026-11-05-a-borrowed-element-field-scrutinee-is-e0901.md).
     scr_is_marked_index_place =>
       evaluate_expression(&scrutinee_expr, &env, ctx),
     true =>
@@ -1435,7 +1459,8 @@ evaluate_match :: (
     mut_scr_place := ast_expr_strip_borrow_marker(&evaluated_scrutinee);
     throw_if_mut_lend_through_atomic_object(&mut_scr_place, &env, String.from("lend `&mut` (a `&mut` match scrutinee) a place in"), ctx, exn);
     reject_write_through_rc(&mut_scr_place, "mut-borrow", Option(TypeValue).None, ctx, exn);
-    mut_root = _scrutinee_root_variable(&scrutinee_expr, &env);
+    // Behind a raw pointer the bindings borrow no place of the root binding.
+    mut_root = if(_scrutinee_crosses_raw_pointer(&scrutinee_expr, ctx), Option(Variable).None, _scrutinee_root_variable(&scrutinee_expr, &env));
     mut_place = local_borrow_place_of(&scrutinee_expr, &env, ctx);
     match(
       &mut_place,

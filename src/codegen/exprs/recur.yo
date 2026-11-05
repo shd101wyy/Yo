@@ -10,10 +10,13 @@
 { get_variable_name_for_codegen_at, get_type_string, get_variable_type_string, fresh_local_name, element_wise_dup_target } :: import("../utils/index.yo");
 { Environment } :: import("../../env.yo");
 { is_unit_type } :: import("../../types/guards.yo");
-{ expr_info_converted_runtime_type, expr_info_deferred_dup_expressions, scope_variables } :: import("../../expr_info.yo");
+{ expr_info_converted_runtime_type, expr_info_deferred_dup_expressions } :: import("../../expr_info.yo");
 { generate_deferred_dup_expressions, generate_deferred_drop_expressions } :: import("./drop_dup.yo");
 { emit_effect_unwind_check, generate_call_deferred_drops } :: import("./return.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
+{ _apply_ref_amp } :: import("./other_fn_call.yo");
+{ fn_abi_param_is_ptr } :: import("../../types/utils.yo");
+{ ArrayList } :: import("std/collections/array_list");
 /// Emit a recursive self-call `<currentFunctionName>(<args>)`. If the recur
 /// has a result variable name, emit it into a named temp first (so enclosing
 /// scope drops don't run before the call).
@@ -33,39 +36,14 @@ generate_recur :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
   match(
     &ei.runtime_arg_exprs_in_order,
     .Some(arg_exprs) => {
-      args_list := String.from("");
+      arg_codes := ArrayList(String).new();
       n := arg_exprs.len();
       (i : usize) = usize(0);
       while(i < n, {
         match(
           arg_exprs.get(i),
           .Some(arg) => {
-            if(i > usize(0), {
-              args_list.push_str(", ");
-            });
             arg_code := _call_generate_expr(&arg, indent.clone(), context);
-            // Strip `(*name)` to `name` for ref (inout) params — both the
-            // caller and callee expect a pointer, so the deref is wrong.
-            match(
-              context.base.get_expr_info(&arg),
-              .Some(aei) => match(
-                &aei.variable_name,
-                .Some(vn) => {
-                  arg_vars := scope_variables(ast_expr_id(&arg), &aei.env, vn.clone());
-                  if((arg_vars.len() > usize(0)) && arg_code.starts_with("(*") && arg_code.ends_with(")"), {
-                    match(
-                      arg_vars.last(),
-                      .Some(v) => if(v.is_ref, {
-                        arg_code = arg_code.substring(usize(2), arg_code.len() - usize(1));
-                      }),
-                      .None => ()
-                    );
-                  });
-                },
-                .None => ()
-              ),
-              .None => ()
-            );
             // Deferred `___dup` on a recur argument (aliasing Stage 0
             // projection dups): materialize the argument into its eval temp
             // FIRST — the dup names that temp, and without the declaration
@@ -131,11 +109,28 @@ generate_recur :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
               ),
               .None => ()
             );
-            args_list.push_string(&arg_code);
+            arg_codes.push(arg_code);
           },
           .None => ()
         );
         i = (i + usize(1));
+      });
+      // A parameter the C ABI passes by pointer (`fn_abi_param_is_ptr`: a
+      // `&mut T`, or a `&T` of an origin-carrying type) takes the place's
+      // address, lowered as a named call lowers it (`_apply_ref_amp`): a
+      // `(*p)` read folds to `p`, an lvalue chain such as a field reached
+      // through a `match` binding's pointer is addressed
+      // (issues/fixed/2026-11-05-recur-of-a-mut-borrowed-field-of-a-match-binding-passes-the-value-not-its-address.md).
+      abi_is_ptr := match(&context.current_function_type, .Some(ft) => fn_abi_param_is_ptr(&ft), .None => ArrayList(bool).new());
+      amped := _apply_ref_amp(&arg_codes, &abi_is_ptr, &arg_exprs, indent.clone(), context);
+      args_list := String.from("");
+      (ai : usize) = usize(0);
+      while(ai < amped.len(), {
+        if(ai > usize(0), {
+          args_list.push_str(", ");
+        });
+        match(amped.get_cloned(ai), .Some(c) => args_list.push_string(&c), .None => ());
+        ai = (ai + usize(1));
       });
       call_code := context.base.current_function_name.clone();
       call_code.push_str("(");
