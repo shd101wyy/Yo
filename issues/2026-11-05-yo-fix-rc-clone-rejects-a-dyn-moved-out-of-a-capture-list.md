@@ -33,10 +33,10 @@ export(main);
 
 ```text
 [fix] h.yo: error[E0901]: use of moved value: `err`
-  --> h.yo:8:34
+  --> h.yo:8:31
 help: `err` holds a `Dyn`, which owns its payload alone (plans/VALUES_BY_DEFAULT.md decision 7): ...
 note: value moved here
-  --> h.yo:8:20
+  --> h.yo:8:21
 ```
 
 With `String` in place of `AnyError` (and no `dyn(...)`), the migration evaluates the file and inserts nothing.
