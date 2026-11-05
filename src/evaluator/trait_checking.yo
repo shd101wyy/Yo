@@ -1383,6 +1383,17 @@ type_lacks_copy_for_flip :: (fn(ty_in : &TypeValue) -> bool)({
   while(match(&ty, Rc(.RefineT(_, _)) => true, _ => false), {
     ty = t_refine_inner(&ty);
   });
+  // A reference is plain data: `&T` is `Copy` and `&mut T` is not
+  // (plans/VALUES_BY_DEFAULT.md decision 43, Rust's `&mut T: !Copy`). The
+  // read rule (N1e-2b) makes a reference a value a generic body copies
+  // (`id(r)` binds `T := &U`).
+  match(
+    &ty,
+    Rc(.Reference(_, lc_mut, _)) => {
+      return(lc_mut);
+    },
+    _ => ()
+  );
   // A type still mentioning a type variable is judged per instantiation (a
   // generic body is evaluated again for each), as `type_is_move_only` does.
   // A RESOLVED variable counts too: asking `Copy` of `Option(U)` with `U`

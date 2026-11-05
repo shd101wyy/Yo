@@ -53,7 +53,7 @@ pragma(Pragma.AllowUnsafe);
 { is_std_module_path } :: import("../memory_safety.yo");
 { EvalValue, value_to_string } :: import("../../value.yo");
 { TypeField } :: import("../types/field.yo");
-{ set_expr_as_needs_to_call_dup, reject_second_class_escape, reject_bare_callable_into_dyn_fn, bare_callable_recorded_into_dyn_fn, variable_is_reference_binding, deref_rule_applies, is_reference_deref_site, reject_reference_without_deref } :: import("../utils.yo");
+{ set_expr_as_needs_to_call_dup, reject_second_class_escape, reject_bare_callable_into_dyn_fn, bare_callable_recorded_into_dyn_fn, is_reference_read, variable_is_reference_binding, deref_rule_applies, is_reference_deref_site, reject_reference_without_deref } :: import("../utils.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
 { format_error_message, with_code } :: import("../../error.yo");
 { E_INCOMPATIBLE_TYPES, E_ARGUMENT_COUNT_MISMATCH, E_BORROW_MARKER_MISMATCH } :: import("../../diagnostics.yo");
@@ -358,11 +358,11 @@ try_to_call_type_with_arguments :: (
         // reference binding's read, a projection's result) is still the
         // place it refers to in C: the field takes that place's address, as
         // for a lend.
-        Rc(.Reference(_, _, _)) => {
+        Rc(.Reference(_, _, _)) => if(is_reference_read(ast_expr_id(&evaluated_arg)), {
           rv_lend_ty := Option(TypeValue).Some(Rc.clone(arg_info.ty));
           expr_info_set_converted_runtime_type(&arg_info, &rv_lend_ty);
           expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&evaluated_arg), &arg_info);
-        },
+        }),
         _ => {
           (t9w_cur : AstExpr) = evaluated_arg;
           // A raw pointer's dereference (`p.add(k).*` in unsafe code, a

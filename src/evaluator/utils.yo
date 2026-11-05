@@ -190,6 +190,12 @@ pragma(Pragma.AllowUnsafe);
 /// Field reads of a reference field (N1e-2), with the field's reference
 /// type as the instance declares it (`note_reference_field_read`).
 (g_reference_field_reads : RefCell(HashMap(usize, TypeValue))) = RefCell(HashMap(usize, TypeValue)).new(HashMap(usize, TypeValue).new());
+/// The nodes the read rule (decision 43 step 2 N1e-2b) types as a reference
+/// VALUE — a reference binding's read, a projection's result, a reference
+/// field's read at a position expecting a reference. Their C is still the
+/// place they refer to, so a consumer that stores or passes the reference
+/// takes its address (`note_reference_read` / `is_reference_read`).
+(g_reference_reads : RefCell(HashMap(usize, bool))) = RefCell(HashMap(usize, bool)).new(HashMap(usize, bool).new());
 /// The `*` atoms of the `w.*` derefs the auto-deref hooks synthesize
 /// (`make_deref_expr`, N1e-1), by id: every other `*` of a `.*` was written,
 /// in the source or in a batch the test runner printed from it.
@@ -6490,6 +6496,21 @@ reference_read_wanted :: (fn(tok : &Token, at_binder : bool, ctx : &EvalContext)
   );
   (unbound && deref_rule_applies(tok, ctx))
 });
+/// Record whether the node `id` was read as a reference value (the read
+/// rule); a later evaluation of the same node at another position overrides.
+note_reference_read :: (fn(id : usize, is_reference : bool) -> unit)({
+  if(is_reference, {
+    _old := g_reference_reads.with_mut({ id }(m) => m.insert(id, true));
+  }, {
+    if(g_reference_reads.with(m => m.len()) > usize(0), {
+      _old := g_reference_reads.with_mut({ id }(m) => m.remove(&id));
+    });
+  });
+});
+/// The node `id` is a reference value whose C is the place it refers to.
+is_reference_read :: (fn(id : usize) -> bool)(
+  (g_reference_reads.with(m => m.len()) > usize(0)) && g_reference_reads.with(m => m.get(&id)).is_some()
+);
 /// The reference VALUE a read of the reference binding `v` is: its stored
 /// reference type, whose elided origin names `v` itself (what `v` lends, as
 /// a lend of `v` records it, T9).
@@ -8786,6 +8807,8 @@ export(
   binder_read_clear,
   binder_read_take,
   reference_read_wanted,
+  note_reference_read,
+  is_reference_read,
   reference_binding_read_type,
   note_reference_field_read,
   is_reference_field_read,

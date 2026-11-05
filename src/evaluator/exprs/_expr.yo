@@ -229,7 +229,7 @@ import("std/fmt");
 { format_error_message, format_error_message_with_help, note_eval_attempt, note_swallowed_error, format_eval_failure, warning_diagnostic_of_token } :: import("../../error.yo");
 { emit_warning } :: import("../../diagnostics.yo");
 { TypeValue, t_reference, t_slot_is_borrow } :: import("../../types/definitions.yo");
-{ projection_call_mode_of, binder_read_take, reference_read_wanted, reference_field_read_type } :: import("../utils.yo");
+{ projection_call_mode_of, binder_read_take, reference_read_wanted, reference_field_read_type, note_reference_read } :: import("../utils.yo");
 { t_unit } :: import("../../types/creators.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
 { is_some_type } :: import("../../types/guards.yo");
@@ -1689,6 +1689,7 @@ _projection_result_as_reference :: (fn(expr : &AstExpr, result : &AstExpr, ctx :
     return(());
   });
   at_binder := binder_read_take(expr);
+  note_reference_read(ast_expr_id(result), false);
   if(!reference_read_wanted(ast_expr_token(result), at_binder, ctx), {
     return(());
   });
@@ -1710,6 +1711,7 @@ _projection_result_as_reference :: (fn(expr : &AstExpr, result : &AstExpr, ctx :
       match(
         pr_new_ty,
         .Some(pr_ty) => {
+          note_reference_read(ast_expr_id(result), true);
           pr_info.ty = pr_ty;
           pr_info.value = Option(EvalValue).None;
           expr_info_table_set(&ctx.expr_info_table, ast_expr_id(result), &pr_info);

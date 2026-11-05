@@ -36,7 +36,7 @@
 { suggest_name, lookup_std_exporters, Span, E_VARIABLE_NOT_FOUND } :: import("../../diagnostics.yo");
 { Exception } :: import("std/error");
 { debug_knob, is_temp_variable_name } :: import("../../utils.yo");
-{ use_of_moved_value_error, migrate_borrowed_match_at, check_capture_freeze_access, local_borrow_take_receiver, local_borrows_active, local_borrow_access, local_borrow_place_of_variable, LocalBorrowAccess, deref_exempt_take, is_reference_deref_site, variable_is_reference_binding, deref_rule_applies, reject_reference_without_deref, variable_is_mut_borrow, binder_read_take, reference_read_wanted, reference_binding_read_type } :: import("../utils.yo");
+{ use_of_moved_value_error, migrate_borrowed_match_at, check_capture_freeze_access, local_borrow_take_receiver, local_borrows_active, local_borrow_access, local_borrow_place_of_variable, LocalBorrowAccess, deref_exempt_take, is_reference_deref_site, variable_is_reference_binding, deref_rule_applies, reject_reference_without_deref, variable_is_mut_borrow, binder_read_take, reference_read_wanted, reference_binding_read_type, note_reference_read } :: import("../utils.yo");
 (g_audit_reference_read : bool) = debug_knob(`YO_AUDIT_REFERENCE_READ`).is_some();
 (g_audit_reference_mode : bool) = debug_knob(`YO_AUDIT_VARIABLE_TY`).is_some();
 { raise_flow_violation } :: import("../../types/flowability.yo");
@@ -525,6 +525,9 @@ evaluate_identifier_and_operator :: (
   // E0926 — typed `&U`/`&mut U`.
   is_binder_arg := binder_read_take(expr);
   reads_reference := (variable_is_reference_binding(&variable) && reference_read_wanted(&token, is_binder_arg, ctx));
+  if(variable_is_reference_binding(&variable), {
+    note_reference_read(ast_expr_id(expr), reads_reference);
+  });
   // Decision 43 step 2 N1e-1 (VERDICTS-13 §11): outside std and the compiler
   // tree a reference binding read as a whole value is spelled `r.*` (E0926);
   // the receiver, reference-slot and re-point positions marked it exempt.
