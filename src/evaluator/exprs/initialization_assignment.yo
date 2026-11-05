@@ -27,7 +27,8 @@
   ast_expr_is_local_borrow_mode_call,
   BK_THREAD_LOCAL,
   BF_DOT,
-  ast_expr_is_atom_of
+  ast_expr_is_atom_of,
+  alloc_global_expr_id
 } :: import("../../expr.yo");
 {
   ExprInfo,
@@ -55,17 +56,19 @@
   variable_set_inout_borrow_root_id,
   variable_mark_inout_borrow_root,
   make_err_variable,
-  env_adopt
+  env_adopt,
+  get_receiver_methods_by_name_from_env
 } :: import("../../env.yo");
 {
   EvalContext,
   ExpectedTypeCtx,
   in_def_time_trial,
   pending_prebound_variable,
-  record_pending_def_variable
+  record_pending_def_variable,
+  call_is_index_place
 } :: import("../context.yo");
 { EvalValue, create_unknown_val, is_runtime_only_unknown_val, is_type_value, is_module_val } :: import("../../value.yo");
-{ TypeValue, TypeValueNode, trait_t_body, fn_result_origin_names } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, trait_t_body, fn_result_origin_names, fn_result_is_ref, fn_result_is_mut_ref } :: import("../../types/definitions.yo");
 { t_unit, type_value_tag, register_type_binding_name } :: import("../../types/creators.yo");
 { TypeTag } :: import("../../types/tags.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../../types/compatibility.yo");
@@ -85,7 +88,7 @@
 { check_comptime_int_value_fits } :: import("../values/integer.yo");
 { format_error_message, format_error_message_with_help, format_error_message_with_repair, format_error_messages, TokenAndError, with_code } :: import("../../error.yo");
 { E_COMPTIME_RUNTIME_BINDING } :: import("../../diagnostics.yo");
-{ Token, TokenKind, is_reserved_operator_name, is_reserved_builtin_binding_name, reserved_builtin_binding_message } :: import("../../token.yo");
+{ Token, TokenKind, intern_token_str, is_reserved_operator_name, is_reserved_builtin_binding_name, reserved_builtin_binding_message } :: import("../../token.yo");
 { raise_flow_violation } :: import("../../types/flowability.yo");
 { type_implements_comptime, type_implements_runtime_full } :: import("../trait_checking.yo");
 { evaluate_expression_raw } :: import("./expr.yo");
@@ -297,12 +300,17 @@ _evaluate_inout_local_binding :: (
   });
   // The RHS must be a PLACE: an atom, or a `.` chain rooted at one. Checked
   // on the AST before evaluation so the message names the shape, not a type.
-  place_recipe := `A local borrow (\`y := ${sig}place\`) needs a place: a variable, or a field path rooted at one (\`x\`, \`h.n\`, \`a.b.c\`). To borrow an ELEMENT of a collection, iterate it with \`for(${sig}coll, x => ...)\`; to hold a computed value, bind it with \`:=\` and no sigil.`;
+  place_recipe := `A local borrow (\`y := ${sig}place\`) needs a place: a variable, or a field path rooted at one (\`x\`, \`h.n\`, \`a.b.c\`). An element \`${sig}xs(i)\` borrows through \`xs\`'s \`Index\` projection; to hold a computed value, bind it with \`:=\` and no sigil.`;
   hops := ArrayList(_InoutPlaceHop).new();
   root_atom := match(
     _inout_place_chain(rhs, &mut hops),
     .Some(r) => r,
     .None => {
+      // An element place `xs(i)` borrows through the receiver's `Index`
+      // projection (decision 24): `y := &xs(i)` binds `xs.index(i)`'s result.
+      if(call_is_index_place(rhs, env, ctx), {
+        return(_bind_index_place(expr, lhs, &name_expr, rhs, is_mut, annotation_e, env, ctx, exn));
+      });
       exn.throw(dyn(format_error_message(ast_expr_token(rhs), place_recipe.clone())));
       make_err_expr()
     }
@@ -429,37 +437,7 @@ _evaluate_inout_local_binding :: (
   if(is_unit_type(&place_type), {
     exn.throw(dyn(format_error_message(ast_expr_token(rhs), `Cannot borrow a unit-typed place (\`${sig}...\`): it has no runtime storage to alias.`)));
   });
-  // `(y : &T) = &place`: the annotation names the place's type exactly (a
-  // borrow converts nothing).
-  match(
-    annotation_e,
-    .Some(ann) => {
-      saved_ann_exp := ctx.expected_type;
-      ctx.expected_type = Option(ExpectedTypeCtx).None;
-      ev_ann := evaluate_expression_raw(&ann, env, ctx, exn);
-      ctx.expected_type = saved_ann_exp;
-      ann_val := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ev_ann)), .Some(ai) => ai.value, .None => Option(EvalValue).None);
-      ann_ty := match(
-        ann_val,
-        .Some(.TypeVal(at)) => Rc.clone(at),
-        _ => {
-          exn.throw(dyn(format_error_message(ast_expr_token(&ann), `A local borrow's annotation is a type (\`(y : ${sig}T) = ${sig}place\`), got ${ast_expr_to_string(&ann)}.`)));
-          t_unit()
-        }
-      );
-      if(!are_types_compatible_exact(&place_type, &ann_ty), {
-        exn.throw(
-          dyn(
-            format_error_message(
-              ast_expr_token(rhs),
-              `Incompatible types:\n- Expected: ${type_to_string(&ann_ty)}\n- Given   : ${type_to_string(&place_type)}\nA local borrow \`(y : ${sig}T) = ${sig}place\` lends the place itself, so its type is the annotation's exactly.`
-            )
-          )
-        );
-      });
-    },
-    .None => ()
-  );
+  match(annotation_e, .Some(ann) => _check_local_borrow_annotation(&ann, &place_type, rhs, &sig, env, ctx, exn), .None => ());
   if(type_requires_comptime_modifier(&place_type), {
     exn.throw(
       dyn(
@@ -617,6 +595,128 @@ _join_labels :: (fn(xs : &ArrayList(String)) -> String)({
     i = (i + usize(1));
   });
   out
+});
+/// `y := &xs(i)` / `y := &mut xs(i)`: a local borrow of an element place
+/// (plans/VALUES_BY_DEFAULT.md decision 24). The element is the place the
+/// receiver's `Index` projection yields, so the binding is exactly
+/// `y := xs.index(i)` (`&`) or `y := xs.index_mut(i)` (`&mut`), bound by
+/// `_bind_projection_result`: its origin is `xs`'s place, and `xs` stays
+/// frozen, read-only or exclusively, while `y` is live (whatever the index:
+/// decision 28's index places overlap). A receiver whose `Index` has no
+/// projection of that mode has no element place to lend.
+_bind_index_place :: (
+  fn(
+    expr : &AstExpr,
+    lhs : &AstExpr,
+    name_expr : &AstExpr,
+    rhs : &AstExpr,
+    is_mut : bool,
+    annotation_e : Option(AstExpr),
+    env : &Environment,
+    ctx : &EvalContext,
+    exn : Exception
+  ) -> AstExpr
+)({
+  sig := if(is_mut, String.from("&mut "), String.from("&"));
+  (recv : AstExpr) = match(rhs, .FnCall(_, ip_callee, _, _, _) => ip_callee, .Atom(_, _) => make_err_expr());
+  (idx : AstExpr) = match(rhs, .FnCall(_, _, Rc(ip_args), _, _) => match(ip_args.get(usize(0)), .Some(a) => a, .None => make_err_expr()), .Atom(_, _) => make_err_expr());
+  rhs_tok := ast_expr_token(rhs);
+  method := if(is_mut, String.from("index_mut"), String.from("index"));
+  recv_ty := match(get_variables_from_env(env, ast_expr_token(&recv).value.*.clone()).last(), .Some(rv) => Rc.clone(rv.ty), .None => t_unit());
+  candidates := get_receiver_methods_by_name_from_env(env, &method, &recv_ty, false);
+  (has_projection : bool) = false;
+  (ci : usize) = usize(0);
+  while(ci < candidates.len(), {
+    match(
+      candidates.get(ci),
+      .Some(c) => if(fn_result_is_ref(&c.ty) && (fn_result_is_mut_ref(&c.ty) == is_mut), {
+        has_projection = true;
+      }),
+      .None => ()
+    );
+    ci = (ci + usize(1));
+  });
+  place_text := ast_expr_to_string(rhs);
+  missing_projection := `Cannot borrow \`${sig}${place_text}\`: \`${type_to_string(&recv_ty)}\` has no \`${method}\` projection, so its elements have no place to lend. A borrowed element is the place an \`Index\` projection yields (decision 24): \`index : fn(self : &Self, i : I) -> &Self.Output\` lends \`&xs(i)\`, and \`IndexMut\`'s \`index_mut : fn(self : &mut Self, i : I) -> &mut Self.Output\` lends \`&mut xs(i)\`. Implement it, or bind a copy of the element with \`y := ${place_text}\`.`;
+  if(!has_projection, {
+    exn.throw(dyn(format_error_message(&rhs_tok, missing_projection.clone())));
+  });
+  // `xs.index(i)` / `xs.index_mut(i)`, positioned at the element access.
+  dot_tok := Token(
+    kind : TokenKind.Operator,
+    value : intern_token_str(&String.from(BF_DOT)),
+    row : rhs_tok.row,
+    column : rhs_tok.column,
+    character : rhs_tok.character,
+    byte_offset : rhs_tok.byte_offset,
+    module_path : Rc.clone(rhs_tok.module_path),
+    input : Rc.clone(rhs_tok.input)
+  );
+  method_tok := Token(
+    kind : TokenKind.Identifier,
+    value : intern_token_str(&method),
+    row : rhs_tok.row,
+    column : rhs_tok.column,
+    character : rhs_tok.character,
+    byte_offset : rhs_tok.byte_offset,
+    module_path : Rc.clone(rhs_tok.module_path),
+    input : Rc.clone(rhs_tok.input)
+  );
+  dot_args := ArrayList(AstExpr).new();
+  dot_args.push(recv);
+  dot_args.push(AstExpr.Atom(alloc_global_expr_id(), method_tok));
+  call_args := ArrayList(AstExpr).new();
+  call_args.push(idx);
+  call := AstExpr.FnCall(alloc_global_expr_id(), AstExpr.FnCall(alloc_global_expr_id(), AstExpr.Atom(alloc_global_expr_id(), dot_tok.clone()), Rc.new(dot_args), true, dot_tok), Rc.new(call_args), false, rhs_tok.clone());
+  saved_exp := ctx.expected_type;
+  ctx.expected_type = Option(ExpectedTypeCtx).None;
+  ev_call := evaluate_expression_raw(&call, env, ctx, exn);
+  ctx.expected_type = saved_exp;
+  if(match(projection_call_mode_of(&ev_call, ctx), .Some(m) => (m != is_mut), .None => true), {
+    exn.throw(dyn(format_error_message(&rhs_tok, missing_projection)));
+  });
+  match(
+    annotation_e,
+    .Some(ann) => {
+      place_type := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ev_call)), .Some(ci2) => Rc.clone(ci2.ty), .None => t_unit());
+      _check_local_borrow_annotation(&ann, &place_type, rhs, &sig, env, ctx, exn);
+    },
+    .None => ()
+  );
+  // The statement keeps its id (the binding's look-ahead and codegen key)
+  // and binds the projection call.
+  bind_args := ArrayList(AstExpr).new();
+  bind_args.push(lhs.clone());
+  bind_args.push(ev_call.clone());
+  bound_expr := match(expr, .FnCall(b_id, b_callee, _, b_infix, b_tok) => AstExpr.FnCall(b_id, b_callee.clone(), Rc.new(bind_args), b_infix, b_tok.clone()), .Atom(_, _) => expr.clone());
+  _bind_projection_result(&bound_expr, name_expr, &ev_call, false, env, ctx, exn)
+});
+/// `(y : &T) = &place`: the annotation names the place's type exactly (a
+/// borrow converts nothing).
+_check_local_borrow_annotation :: (fn(ann : &AstExpr, place_type : &TypeValue, rhs : &AstExpr, sig : &String, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
+  saved_ann_exp := ctx.expected_type;
+  ctx.expected_type = Option(ExpectedTypeCtx).None;
+  ev_ann := evaluate_expression_raw(ann, env, ctx, exn);
+  ctx.expected_type = saved_ann_exp;
+  ann_val := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ev_ann)), .Some(ai) => ai.value, .None => Option(EvalValue).None);
+  ann_ty := match(
+    ann_val,
+    .Some(.TypeVal(at)) => Rc.clone(at),
+    _ => {
+      exn.throw(dyn(format_error_message(ast_expr_token(ann), `A local borrow's annotation is a type (\`(y : ${sig}T) = ${sig}place\`), got ${ast_expr_to_string(ann)}.`)));
+      t_unit()
+    }
+  );
+  if(!are_types_compatible_exact(place_type, &ann_ty), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(rhs),
+          `Incompatible types:\n- Expected: ${type_to_string(&ann_ty)}\n- Given   : ${type_to_string(place_type)}\nA local borrow \`(y : ${sig}T) = ${sig}place\` lends the place itself, so its type is the annotation's exactly.`
+        )
+      )
+    );
+  });
 });
 /// `r := t.index(i)` / `r := t.index_mut(i)`: a binding of a projection
 /// call's result (plans/VALUES_BY_DEFAULT.md decision 24) is a local borrow

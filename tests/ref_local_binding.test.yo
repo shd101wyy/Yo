@@ -6,8 +6,8 @@
 /// scope (P1/P2), a field of a value struct (P3), or a field reached through
 /// an RC object (P4 — the innermost object is PINNED for the binding's
 /// scope). Reads go through, writes write back, copies copy the pointee.
-/// Element borrows (`xs(i)`, `p.*`) are rejected here: the borrowed `for`
-/// is the one place they exist.
+/// An element `xs(i)` borrows through the receiver's `Index` projection
+/// (decision 24, below); a deref place `p.*` is rejected here.
 ///
 /// Since plans/VALUES_BY_DEFAULT.md decision 18 a binding is EXCLUSIVE until
 /// its last use (`inout` is `mut`'s synonym): the root is read or written
@@ -263,13 +263,73 @@ comptime_expect_error(
 );
 
 // --- Rejected shapes ------------------------------------------------------
+// --- Element places (decision 24) ------------------------------------------
+// `y := &xs(i)` / `y := &mut xs(i)` borrows the element the receiver's
+// `Index` projection yields: it is `y := xs.index(i)` / `y := xs.index_mut(i)`,
+// so `xs` is frozen (read-only or exclusively) while `y` is live, whatever
+// the index (decision 28's index places overlap).
+test("a local borrow of an element place reads and writes the element in place", {
+  mut(arr) := ArrayList(String).new();
+  arr.push(String.from("a"));
+  arr.push(String.from("x"));
+  r := &arr(usize(0));
+  assert(r.len() == usize(1), "a & element borrow reads the element");
+  m := &mut arr(usize(0));
+  m.push_str("b");
+  assert(arr(usize(0)) == String.from("ab"), "a &mut element borrow writes the element in place");
+  (t : &String) = &arr(usize(1));
+  assert(t.* == String.from("x"), "an annotated element borrow");
+  arr.push(String.from("c"));
+  assert(arr.len() == usize(3), "the freeze ends with the borrow's last use");
+});
 comptime_expect_error(
-  index_place_rejected :: (fn() -> unit)({
+  element_borrow_freezes_the_container :: (fn() -> unit)({
+    mut(arr) := ArrayList(String).new();
+    arr.push(String.from("a"));
+    m := &mut arr(usize(0));
+    arr.push(String.from("c"));
+    m.push_str("b");
+  }),
+  "`m` borrows `arr` with `&mut`"
+);
+comptime_expect_error(
+  element_borrows_overlap_whatever_the_index :: (fn() -> unit)({
     mut(xs) := ArrayList(i32).new();
     xs.push(i32(1));
-    e := &mut xs(usize(0));
-    e = i32(2);
-  })
+    xs.push(i32(2));
+    a := &mut xs(usize(0));
+    b := &mut xs(usize(1));
+    a.* = i32(3);
+    b.* = i32(4);
+  }),
+  "Cannot"
+);
+comptime_expect_error(
+  shared_element_borrow_freezes_writes :: (fn() -> unit)({
+    mut(xs) := ArrayList(i32).new();
+    xs.push(i32(1));
+    r := &xs(usize(0));
+    xs(usize(0)) = i32(5);
+    _v := r.*;
+  }),
+  "Cannot write"
+);
+// A receiver whose `Index` has no projection of the borrow's mode has no
+// element place to lend; the error names the missing projection.
+_RoOnly :: struct(v : i32);
+impl(_RoOnly, Index(usize)(Output : i32, index : (fn(self : &Self, i : usize) -> &Self.Output)(&self.v)));
+test("a read-only Index lends a & element borrow", {
+  o := _RoOnly(v : i32(7));
+  r := &o(usize(0));
+  assert(r.* == i32(7), "the read projection lends the element");
+});
+comptime_expect_error(
+  element_borrow_needs_index_mut :: (fn() -> unit)({
+    mut(o) := _RoOnly(v : i32(7));
+    m := &mut o(usize(0));
+    m.* = i32(8);
+  }),
+  "has no `index_mut` projection"
 );
 comptime_expect_error(
   rvalue_rejected :: (fn() -> unit)({
