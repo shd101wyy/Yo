@@ -1,0 +1,46 @@
+//! A `c_include`d function whose result is a C `const` pointer.
+//!
+//! Yo has no const pointer, so the binding spells a `const char *` result as
+//! `*(char)`. The generated C stored that result in a `char*` temporary,
+//! local or return value, which drops the qualifier: clang rejects it
+//! (`-Werror=incompatible-pointer-types`), so raylib's `TextFormat` and libc's
+//! `gai_strerror` could not be called. The call is now read as its declared
+//! type (issues/fixed/2026-11-05-a-c-include-function-returning-a-const-pointer-fails-the-clang-build.md).
+pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
+c_include(
+  "\"c_include_const_result.h\"",
+  yo_test_const_name :
+    (fn(which : i32) -> *char),
+  yo_test_const_bytes :
+    (fn() -> *u8),
+  yo_test_const_len :
+    (fn(s : *char) -> usize),
+  yo_test_const_first :
+    (fn(b : *u8) -> i32),
+  yo_test_const_maybe :
+    (fn(which : i32) -> ?*char)
+);
+_ccr_name :: (fn(which : i32) -> *char)(unsafe(yo_test_const_name(which)));
+test("a const char* result binds to a local", {
+  p := unsafe(yo_test_const_name(i32(1)));
+  assert(unsafe(yo_test_const_len(p)) == usize(12), "the local holds the C string");
+});
+test("a const char* result passes straight to another C function", {
+  assert(unsafe(yo_test_const_len(yo_test_const_name(i32(0)))) == usize(4), "the temporary holds the C string");
+});
+test("a const char* result is returned from a Yo function", {
+  assert(unsafe(yo_test_const_len(_ccr_name(i32(0)))) == usize(4), "the returned pointer is the C string");
+});
+test("a const result whose pointee is a typedef (uint8_t) binds too", {
+  b := unsafe(yo_test_const_bytes());
+  assert(unsafe(yo_test_const_first(b)) == i32(97), "the first byte is 'a'");
+});
+test("a nullable const char* result binds as ?*(char)", {
+  match(
+    unsafe(yo_test_const_maybe(i32(1))),
+    .Some(p) => assert(unsafe(yo_test_const_len(p)) == usize(5), "the C string"),
+    .None => assert(false, "a non-null result is Some")
+  );
+  assert(unsafe(yo_test_const_maybe(i32(0))).is_none(), "a null result is None");
+});

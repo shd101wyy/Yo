@@ -47,6 +47,7 @@ pragma(Pragma.AllowUnsafe);
   Environment,
   Variable,
   add_variable_to_env,
+  by_value_param_owns,
   get_variables_from_env,
   snapshot_env,
   synthetic_token,
@@ -6435,8 +6436,17 @@ evaluate_module_value :: (
                                 });
                                 // A `&T` parameter: a borrow decision 33's
                                 // markers pass bare.
-                                if(!match(d_p_is_ref.get(d_pi), .Some(b) => b, .None => false) && !match(match(&d_sub_ty, Rc(.Func({ result : _ })) => fn_param_by_value_at(&d_sub_ty, d_pi), _ => Option(bool).None), .Some(b) => b, .None => false), {
+                                d_by_value := match(match(&d_sub_ty, Rc(.Func({ result : _ })) => fn_param_by_value_at(&d_sub_ty, d_pi), _ => Option(bool).None), .Some(b) => b, .None => false);
+                                if(!match(d_p_is_ref.get(d_pi), .Some(b) => b, .None => false) && !d_by_value, {
                                   d_pvar.is_imm_borrow = true;
+                                });
+                                // A by-value parameter OWNS its argument, as
+                                // `bind_parameter` binds it: a default whose
+                                // `self : Self` moves a move-only receiver was
+                                // E0901 "it is borrowed"
+                                // (issues/fixed/2026-11-05-a-trait-default-cannot-move-its-by-value-self.md).
+                                if(d_by_value, {
+                                  d_pvar.is_owning_the_rc_value = by_value_param_owns(&d_pt);
                                 });
                               },
                               .None => ()
