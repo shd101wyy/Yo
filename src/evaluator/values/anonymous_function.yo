@@ -1908,8 +1908,10 @@ evaluate_anonymous_function_implementation :: (
     // 24, N1c): its parameters are the roots its place may be reached from
     // (`is_parameter`), and a `&T` one is passed by pointer
     // (`fn_param_is_ptr_borrow`), so it binds as a non-reassignable
-    // reference, as `bind_parameter` binds a named projection's.
-    if(fn_result_is_ref(&function_type), {
+    // reference, as `bind_parameter` binds a named projection's. So is a
+    // `&T` parameter of one whose result carries an origin (decision 43
+    // step 3): the result may point into it.
+    if(fn_result_is_ref(&function_type) || fn_param_is_ptr_borrow(&function_type, rp_i), {
       match(
         rp_v_opt,
         .Some(rp_vp) => {
