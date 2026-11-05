@@ -134,6 +134,7 @@ json :: import("std/encoding/json");
   mm_resolve_entry_abs,
   mm_invalidate_document,
   mm_eval_entry_exprs,
+  module_load_outcome_ctx,
   mm_load_file,
   mm_preload_prelude,
   _take_load_error
@@ -8870,7 +8871,11 @@ run_compile :: (
       );
       return(());
     });
-    { module_value, env, ctx } := outcome;
+    // `ctx` is written below (codegen takes it `&mut`), so it is moved out of
+    // the outcome rather than bound by the destructuring, which borrows.
+    module_value := outcome.module_value;
+    env := outcome.env;
+    mut(ctx) := module_load_outcome_ctx(outcome);
     // §4.9: the evaluation is what opens files, so the record is complete now.
     // Written before codegen so `--skip-codegen` and `--skip-c-compiler`
     // callers get a depfile too.

@@ -174,6 +174,11 @@ ModuleLoadOutcome :: struct(
   env : Environment,
   ctx : EvalContext
 );
+/// The outcome's evaluation context, moved out (codegen writes it). A struct
+/// is never partly moved, so the outcome is consumed whole.
+module_load_outcome_ctx :: (fn(sink(outcome) : ModuleLoadOutcome) -> EvalContext)(
+  match(outcome, { ok : _ok, module_value : _mv, module_type : _mt, env : _env, ctx : outcome_ctx } => outcome_ctx)
+);
 /// A not-ok outcome with throwaway env/ctx. Written as a FUNCTION because an
 /// effect handler cannot reference outer runtime variables but CAN call a
 /// module-level function — `mm_load_file`'s handler needs to unwind one of
@@ -3118,6 +3123,7 @@ export(
   demand_load_module,
   mm_load_prelude_file,
   mm_eval_entry_exprs,
+  module_load_outcome_ctx,
   mm_load_file,
   mm_preload_prelude,
   mm_load_yo_file
