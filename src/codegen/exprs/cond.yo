@@ -126,7 +126,7 @@ _arg_args :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
 _cond_bool :: (fn(e : &AstExpr, context : &FunctionGenerationContext) -> Option(bool))(
   match(
     context.base.get_expr_info(e),
-    .Some(ei) => match(ei.value, .Some(v) => match(v, .BoolVal(b) => Option(bool).Some(b), _ => Option(bool).None), .None => Option(bool).None),
+    .Some(ei) => match(ei.value(), .Some(v) => match(v, .BoolVal(b) => Option(bool).Some(b), _ => Option(bool).None), .None => Option(bool).None),
     .None => Option(bool).None
   )
 );
@@ -134,7 +134,7 @@ _cond_bool :: (fn(e : &AstExpr, context : &FunctionGenerationContext) -> Option(
 /// this arm value is not already a pointer.
 _maybe_address_of :: (fn(value_expr : &AstExpr, code : String, cond_outer_is_ptr : bool, context : &FunctionGenerationContext) -> String)(
   if(!cond_outer_is_ptr, code, {
-    arm_is_ptr := match(context.base.get_expr_info(value_expr), .Some(ei) => is_pointer_type(&ei.ty), .None => true);
+    arm_is_ptr := match(context.base.get_expr_info(value_expr), .Some(ei) => is_pointer_type(&ei.ty()), .None => true);
     if(arm_is_ptr, code, {
       mut(out) := String.from("&(");
       out.push_string(&code);
@@ -203,7 +203,7 @@ _emit_unassigned_arm_code :: (fn(value : &AstExpr, value_code : &String, indent 
   // already computed.
   is_stmt := match(
     context.base.get_expr_info(value),
-    .Some(vei) => (is_unit_type(&vei.ty) && !is_temp_variable_name(&vei.env.module_path.*, value_code.clone())),
+    .Some(vei) => (is_unit_type(&vei.ty()) && !is_temp_variable_name(&vei.env().module_path().*, value_code.clone())),
     .None => false
   );
   if((value_code.len() > usize(0)) && is_stmt, {
@@ -225,7 +225,7 @@ _emit_value_arm :: (fn(value : &AstExpr, value_indent : &String, temp_var_opt : 
   // instead of after the C block closed
   // (issues/fixed/short-circuit-rhs-temp-in-bare-arm-body-drops-out-of-scope.md).
   vei_pending := context.base.get_expr_info(value);
-  cur_drops := match(vei_pending, .Some(vei) => vei.deferred_drop_expressions.clone(), .None => Option(ArrayList(AstExpr)).None);
+  cur_drops := match(vei_pending, .Some(vei) => vei.deferred_drop_expressions(), .None => Option(ArrayList(AstExpr)).None);
   cur_consumed := match(vei_pending, .Some(vei) => expr_info_consumed_variable_drop_expressions(&vei), .None => Option(ArrayList(AstExpr)).None);
   prev_pending := replace(&mut context.pending_deferred_drops, Option(ArrayList(AstExpr)).None);
   prev_consumed := replace(&mut context.consumed_var_pending_drops, Option(ArrayList(AstExpr)).None);
@@ -286,9 +286,9 @@ _generate_dup_arm_value :: (fn(value : &AstExpr, value_indent : &String, context
   // place and restores it.
   // See issues/fixed/stage2-match-if-else-value-phantom-temp.md.
   saved_arm_vn := replace(&mut vei.variable_name, Option(String).None);
-  vei.variable_name = Option(String).None;
+  vei.set_variable_name(Option(String).None);
   raw_code := _call_generate_expr(value, value_indent.clone(), context);
-  vei.variable_name = saved_arm_vn;
+  vei.set_variable_name(saved_arm_vn);
   if(_is_cf_code(value, raw_code.clone(), context), {
     mut(cfline) := value_indent.clone();
     cfline.push_string(raw_code.clone());
@@ -299,19 +299,19 @@ _generate_dup_arm_value :: (fn(value : &AstExpr, value_indent : &String, context
   (mut(final_code) : String) = raw_code.clone();
   (mut(declared_temp) : bool) = false;
   match(
-    &vei.variable_name,
+    &vei.variable_name(),
     .Some(vvn) => {
-      vtv := get_variable_name_for_codegen_at(ast_expr_id(value), vvn.clone(), Option(Environment).Some(vei.env));
+      vtv := get_variable_name_for_codegen_at(ast_expr_id(value), vvn.clone(), Option(Environment).Some(vei.env()));
       // Skip the temp-var declaration when value is an inout-param atom —
       // `T name = (*name);` would shadow the pointer parameter
       // (issues/fixed/inout-multi-stmt-body-shadow.md).
       (mut(is_inout_atom) : bool) = false;
       if(ast_expr_is_atom(value), {
-        iv_vars := scope_variables(ast_expr_id(value), &vei.env, vvn.clone());
+        iv_vars := scope_variables(ast_expr_id(value), &vei.env(), vvn.clone());
         if(iv_vars.len() > usize(0), {
           match(
-            iv_vars.last(),
-            .Some(iv) => if(iv.is_ref, {
+            iv_vars.last_cloned(),
+            .Some(iv) => if(iv.is_ref(), {
               is_inout_atom = true;
             }),
             .None => ()
@@ -323,7 +323,7 @@ _generate_dup_arm_value :: (fn(value : &AstExpr, value_indent : &String, context
       v_self := is_self_named_atom(value, vvn.clone());
       if(!is_inout_atom && !v_self && !(vtv == raw_code), {
         mut(dline) := value_indent.clone();
-        dline.push_string(get_type_string(&vei.ty, &mut context.base));
+        dline.push_string(get_type_string(&vei.ty(), &mut context.base));
         dline.push_str(" ");
         dline.push_string(vtv.clone());
         dline.push_str(" = ");
@@ -346,15 +346,15 @@ _generate_dup_arm_value :: (fn(value : &AstExpr, value_indent : &String, context
     .Some(vdup0) => match(
       context.base.get_expr_info(&vdup0),
       .Some(vdup_info) => match(
-        &vdup_info.variable_name,
+        &vdup_info.variable_name(),
         .Some(dvn) => {
-          dtv := get_variable_name_for_codegen_at(ast_expr_id(&vdup0), dvn.clone(), Option(Environment).Some(vdup_info.env));
+          dtv := get_variable_name_for_codegen_at(ast_expr_id(&vdup0), dvn.clone(), Option(Environment).Some(vdup_info.env()));
           mut(dline2) := value_indent.clone();
-          dline2.push_string(get_type_string(&vei.ty, &mut context.base));
+          dline2.push_string(get_type_string(&vei.ty(), &mut context.base));
           dline2.push_str(" ");
           dline2.push_string(dtv.clone());
           dline2.push_str(" = ");
-          dline2.push_string(generate_dup_code_for_value(final_code.clone(), &vei.ty, context));
+          dline2.push_string(generate_dup_code_for_value(final_code.clone(), &vei.ty(), context));
           dline2.push_str(";");
           context.base.emitter.emit_string_line(&dline2);
           declare_c_var_name(&context.base, dtv.clone());
@@ -371,7 +371,7 @@ _generate_dup_arm_value :: (fn(value : &AstExpr, value_indent : &String, context
     !dup_named,
     if(declared_temp, {
       mut(fline) := value_indent.clone();
-      fline.push_string(generate_dup_code_for_value(final_code.clone(), &vei.ty, context));
+      fline.push_string(generate_dup_code_for_value(final_code.clone(), &vei.ty(), context));
       fline.push_str(";");
       context.base.emitter.emit_string_line(&fline);
     }, {
@@ -432,7 +432,7 @@ _emit_value_arm_body :: (fn(value : &AstExpr, value_indent : &String, temp_var_o
 _emit_begin_arm :: (fn(value : &AstExpr, value_indent : &String, temp_var_opt : &Option(String), is_unit : bool, cond_outer_is_ptr : bool, context : &mut FunctionGenerationContext) -> unit)({
   begin_args := _arg_args(value);
   vei_opt := context.base.get_expr_info(value);
-  cur_drops := match(vei_opt, .Some(vei) => vei.deferred_drop_expressions.clone(), .None => Option(ArrayList(AstExpr)).None);
+  cur_drops := match(vei_opt, .Some(vei) => vei.deferred_drop_expressions(), .None => Option(ArrayList(AstExpr)).None);
   cur_consumed := match(vei_opt, .Some(vei) => expr_info_consumed_variable_drop_expressions(&vei), .None => Option(ArrayList(AstExpr)).None);
   prev_pending := replace(&mut context.pending_deferred_drops, Option(ArrayList(AstExpr)).None);
   prev_consumed := replace(&mut context.consumed_var_pending_drops, Option(ArrayList(AstExpr)).None);
@@ -451,13 +451,13 @@ _emit_begin_arm :: (fn(value : &AstExpr, value_indent : &String, temp_var_opt : 
           .Some(bei) => {
             note_line_position(&mut context.base.emitter, &barg);
             arg_code := _call_generate_expr(&barg, value_indent.clone(), context);
-            if((arg_code.len() > usize(0)) && !is_temp_variable_name(&bei.env.module_path.*, arg_code.clone()), {
+            if((arg_code.len() > usize(0)) && !is_temp_variable_name(&bei.env().module_path().*, arg_code.clone()), {
               mut(line) := value_indent.clone();
               line.push_string(&arg_code);
               line.push_str(";");
               context.base.emitter.emit_string_line(&line);
             });
-            if(has_any_control_flow(bei.control_flow), {
+            if(has_any_control_flow(bei.control_flow()), {
               stop = true;
             });
           },
@@ -483,22 +483,22 @@ _emit_begin_arm :: (fn(value : &AstExpr, value_indent : &String, temp_var_opt : 
           has_final_dups := match(expr_info_deferred_dup_expressions(&fei), .Some(d) => (d.len() > usize(0)), .None => false);
           if(has_final_dups, {
             match(
-              fei.variable_name.clone(),
+              fei.variable_name(),
               .Some(fvn) => {
-                fei.variable_name = Option(String).None;
+                fei.set_variable_name(Option(String).None);
                 raw_code := _call_generate_expr(&final_expr, value_indent.clone(), context);
-                fei.variable_name = Option(String).Some(fvn.clone());
-                ftv := get_variable_name_for_codegen_at(ast_expr_id(&final_expr), fvn.clone(), Option(Environment).Some(fei.env));
+                fei.set_variable_name(Option(String).Some(fvn.clone()));
+                ftv := get_variable_name_for_codegen_at(ast_expr_id(&final_expr), fvn.clone(), Option(Environment).Some(fei.env()));
                 // Skip the temp-var declaration when final_expr is an inout-param
                 // atom — `T name = (*name);` would shadow the pointer parameter
                 // (issues/fixed/inout-multi-stmt-body-shadow.md).
                 (mut(is_inout_atom) : bool) = false;
                 if(ast_expr_is_atom(&final_expr), {
-                  fv_vars := scope_variables(ast_expr_id(&final_expr), &fei.env, fvn.clone());
+                  fv_vars := scope_variables(ast_expr_id(&final_expr), &fei.env(), fvn.clone());
                   if(fv_vars.len() > usize(0), {
                     match(
-                      fv_vars.last(),
-                      .Some(fv) => if(fv.is_ref, {
+                      fv_vars.last_cloned(),
+                      .Some(fv) => if(fv.is_ref(), {
                         is_inout_atom = true;
                       }),
                       .None => ()
@@ -508,7 +508,7 @@ _emit_begin_arm :: (fn(value : &AstExpr, value_indent : &String, temp_var_opt : 
                 f_self := is_self_named_atom(&final_expr, fvn.clone());
                 if(!is_inout_atom && !f_self && !(ftv == raw_code), {
                   mut(dline) := value_indent.clone();
-                  dline.push_string(get_type_string(&fei.ty, &mut context.base));
+                  dline.push_string(get_type_string(&fei.ty(), &mut context.base));
                   dline.push_str(" ");
                   dline.push_string(ftv.clone());
                   dline.push_str(" = ");
@@ -534,9 +534,9 @@ _emit_begin_arm :: (fn(value : &AstExpr, value_indent : &String, temp_var_opt : 
                 match(
                   context.base.get_expr_info(&fdup0),
                   .Some(fdup_info) => match(
-                    &fdup_info.variable_name,
+                    &fdup_info.variable_name(),
                     .Some(fdvn) => {
-                      fdtv := get_variable_name_for_codegen_at(ast_expr_id(&fdup0), fdvn.clone(), Option(Environment).Some(fdup_info.env));
+                      fdtv := get_variable_name_for_codegen_at(ast_expr_id(&fdup0), fdvn.clone(), Option(Environment).Some(fdup_info.env()));
                       match(
                         temp_var_opt,
                         .Some(tv) => if(!is_unit, {
@@ -627,7 +627,7 @@ _emit_begin_arm :: (fn(value : &AstExpr, value_indent : &String, temp_var_opt : 
 /// condition's drops, then branch on the bool
 /// (issues/fixed/cond-condition-operand-call-temp-is-never-released.md).
 _emit_cond_if_head :: (fn(condition : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> unit)({
-  cnd_drops := match(context.base.get_expr_info(condition), .Some(cnd_ei) => cnd_ei.deferred_drop_expressions.clone(), .None => Option(ArrayList(AstExpr)).None);
+  cnd_drops := match(context.base.get_expr_info(condition), .Some(cnd_ei) => cnd_ei.deferred_drop_expressions(), .None => Option(ArrayList(AstExpr)).None);
   cnd_prev := replace(&mut context.pending_deferred_drops, Option(ArrayList(AstExpr)).None);
   context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(&cnd_drops, &cnd_prev));
   cc := _call_generate_expr(condition, indent.clone(), context);
@@ -648,9 +648,9 @@ _emit_cond_if_head :: (fn(condition : &AstExpr, indent : &String, context : &mut
 /// Generate a conditional (`cond`) expression.
 generate_cond_expression :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("/* \"cond\" expression is not evaluated */")));
-  value_type := Rc.clone(ei.ty);
+  value_type := Rc.clone(ei.ty());
   is_unit := is_unit_type(&value_type);
-  temp_var_opt := ei.variable_name.clone();
+  temp_var_opt := ei.variable_name();
   ret_is_ref := match(&context.current_function_type, .Some(t) => fn_result_is_ref(&t), .None => false);
 
   cond_outer_is_ptr := (ret_is_ref && is_pointer_type(&value_type));

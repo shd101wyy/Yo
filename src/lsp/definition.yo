@@ -369,9 +369,9 @@ _type_decl_token :: (fn(env : &Environment, head : &String) -> Option(Token))({
   (i : usize) = usize(0);
   while(i < vars.len(), {
     match(
-      vars.get(i),
+      vars.get_cloned(i),
       .Some(v) => match(
-        v.initialized_at_token,
+        v.initialized_at_token(),
         .Some(t) => {
           return(Option(Token).Some(t));
         },
@@ -642,9 +642,9 @@ _member_definition :: (
               .FnCall(_, _, _, _, _) => match(
                 expr_info_table_get(info_table, ast_expr_id(&receiver)),
                 .Some(rinfo) => {
-                  owner = Rc.clone(rinfo.ty);
+                  owner = Rc.clone(rinfo.ty());
                   match(
-                    rinfo.value,
+                    rinfo.value(),
                     .Some(.TypeVal(tv)) => {
                       owner = Rc.clone(tv);
                     },
@@ -665,7 +665,7 @@ _member_definition :: (
                     );
                     guard = (guard + usize(1));
                   });
-                  env_opt = Option(Environment).Some(rinfo.env);
+                  env_opt = Option(Environment).Some(rinfo.env());
                 },
                 .None => ()
               )
@@ -677,9 +677,9 @@ _member_definition :: (
           match(
             expr_info_table_get(info_table, ast_expr_id(&acc)),
             .Some(ainfo) => {
-              owner = Rc.clone(ainfo.ty);
-              deref = Rc.clone(ainfo.ty);
-              env_opt = Option(Environment).Some(ainfo.env);
+              owner = Rc.clone(ainfo.ty());
+              deref = Rc.clone(ainfo.ty());
+              env_opt = Option(Environment).Some(ainfo.env());
             },
             .None => ()
           );
@@ -752,7 +752,7 @@ _member_definition :: (
     calls.get(usize(0)),
     .Some(call) => match(
       expr_info_table_get(info_table, ast_expr_id(&call)),
-      .Some(cinfo) => _owner_member_decl(&cinfo.ty, target.value.*.clone(), &cinfo.env, doc_abs, exprs),
+      .Some(cinfo) => _owner_member_decl(&cinfo.ty(), target.value.*.clone(), &cinfo.env(), doc_abs, exprs),
       .None => Option(Token).None
     ),
     .None => Option(Token).None
@@ -822,7 +822,7 @@ handle_definition :: (
       return(match(syntactic_decl_at(exprs, &target), .Some(sd) => Option(JsonValue).Some(_location_of(&sd, doc_abs, lines)), .None => Option(JsonValue).None));
     }
   );
-  vars := get_variables_from_env(&info.env, target.value.*.clone());
+  vars := get_variables_from_env(&info.env(), target.value.*.clone());
   if(vars.len() == usize(0), {
     return(Option(JsonValue).None);
   });
@@ -834,7 +834,7 @@ handle_definition :: (
     }
   );
   def_tok := match(
-    sv.initialized_at_token,
+    sv.initialized_at_token(),
     .Some(t2) => t2,
     .None => {
       return(Option(JsonValue).None);
@@ -937,7 +937,7 @@ handle_type_definition :: (
   // A type-valued expression names a TYPE: go to the binding that
   // declared it (the `Point :: struct(...)` name atom).
   named_type := match(
-    info.value,
+    info.value(),
     .Some(v) => match(
       v,
       .TypeVal(t) => Option(TypeValue).Some(Rc.clone(t)),
@@ -948,16 +948,16 @@ handle_type_definition :: (
   def_tok := match(
     named_type,
     .Some(_) => match(
-      _select_best_variable(get_variables_from_env(&info.env, target.value.*.clone()), &target),
-      .Some(sv) => sv.initialized_at_token,
+      _select_best_variable(get_variables_from_env(&info.env(), target.value.*.clone()), &target),
+      .Some(sv) => sv.initialized_at_token(),
       .None => Option(Token).None
     ),
     .None => {
-      head := _type_head_name(&info.ty);
+      head := _type_head_name(&info.ty());
       if(head.len() == usize(0), {
         return(Option(JsonValue).None);
       });
-      _type_decl_token(&info.env, &head)
+      _type_decl_token(&info.env(), &head)
     }
   );
   match(

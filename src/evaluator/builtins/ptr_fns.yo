@@ -66,8 +66,8 @@ _aggregate_type_of :: (fn(place : &AstExpr, ctx : &EvalContext) -> Option(TypeVa
       while((k < candidates.len()) && found.is_none(), k = (k + usize(1)), {
         match(
           expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&candidates(k))),
-          .Some(ci) => if(is_array_type(&ci.ty) || is_struct_type(&ci.ty) || is_tuple_type(&ci.ty), {
-            found = .Some(Rc.clone(ci.ty));
+          .Some(ci) => if(is_array_type(&ci.ty()) || is_struct_type(&ci.ty()) || is_tuple_type(&ci.ty()), {
+            found = .Some(Rc.clone(ci.ty()));
           }),
           .None => ()
         );
@@ -175,7 +175,7 @@ _enclosing_type_labels :: (fn(ft : &Option(TypeValue)) -> Option(ArrayList(Strin
 /// below the one its own parameters are bound in (both frame indices are
 /// read in the current environment, so they compare within one generation).
 _place_root_is_closure_capture :: (fn(name : &String, v : &Variable, env : &Environment, ctx : &EvalContext) -> bool)(
-  !v.is_module_level && match(
+  !v.is_module_level() && match(
     _enclosing_param_names(ctx),
     .Some(labels) => {
       (mut(own) : bool) = false;
@@ -188,7 +188,7 @@ _place_root_is_closure_capture :: (fn(name : &String, v : &Variable, env : &Envi
       });
       cond(
         own => false,
-        v.is_parameter => true,
+        v.is_parameter() => true,
         true => match(
           labels.get_cloned(usize(0)),
           .Some(first) => {
@@ -234,7 +234,7 @@ _projection_root_error :: (fn(place : &AstExpr, is_mut : bool, env : &Environmen
   match(
     ast_rewritten_node(place),
     .Atom(_, pr_tok) => match(
-      get_variables_from_env(env, pr_tok.value.*.clone()).last(),
+      get_variables_from_env(env, pr_tok.value.*.clone()).last_cloned(),
       .Some(v) => cond(
         // A closure's result origin is per-call (O2): its own reference
         // parameters, never a capture, which outlives the call.
@@ -242,11 +242,11 @@ _projection_root_error :: (fn(place : &AstExpr, is_mut : bool, env : &Environmen
           `A closure's reference result is reached from one of its own \`&\`/\`&mut\` parameters (its origin is per-call, decision 43 O2), and \`${pr_tok.value.*}\` is a binding of the enclosing function, which the closure captures.`,
           Option(str).Some(E_ORIGIN_MISMATCH)
         ),
-        (!v.is_parameter || v.is_compile_time_only || !(v.is_ref || v.is_imm_borrow)) => _proj_err(
-          `A projection yields a place reached from one of its \`&\`/\`&mut\` parameters, and \`${pr_tok.value.*}\` is ${cond(v.is_parameter => "a by-value parameter", v.is_module_level => "a module-level binding", true => "a local")}: its storage ends with the call (decision 24, the single-root rule).`,
-          if(v.is_module_level, Option(str).None, Option(str).Some(E_LOCAL_BORROW_ESCAPES))
+        (!v.is_parameter() || v.is_compile_time_only() || !(v.is_ref() || v.is_imm_borrow())) => _proj_err(
+          `A projection yields a place reached from one of its \`&\`/\`&mut\` parameters, and \`${pr_tok.value.*}\` is ${cond(v.is_parameter() => "a by-value parameter", v.is_module_level() => "a module-level binding", true => "a local")}: its storage ends with the call (decision 24, the single-root rule).`,
+          if(v.is_module_level(), Option(str).None, Option(str).Some(E_LOCAL_BORROW_ESCAPES))
         ),
-        (is_mut && (!v.is_ref || v.is_imm_borrow)) => _proj_err(
+        (is_mut && (!v.is_ref() || v.is_imm_borrow())) => _proj_err(
           `A \`&mut\` projection yields a place reached from a \`&mut\` parameter, and \`${pr_tok.value.*}\` is a shared borrow (\`&T\`).`,
           Option(str).None
         ),
@@ -267,8 +267,8 @@ _projection_root_error :: (fn(place : &AstExpr, is_mut : bool, env : &Environmen
           rb_param := match(
             ast_rewritten_node(&base),
             .Atom(_, rb_tok) => match(
-              get_variables_from_env(env, rb_tok.value.*.clone()).last(),
-              .Some(rb_v) => if(rb_v.is_parameter && !rb_v.is_compile_time_only, Option(String).Some(rb_tok.value.*.clone()), Option(String).None),
+              get_variables_from_env(env, rb_tok.value.*.clone()).last_cloned(),
+              .Some(rb_v) => if(rb_v.is_parameter() && !rb_v.is_compile_time_only(), Option(String).Some(rb_tok.value.*.clone()), Option(String).None),
               .None => Option(String).None
             ),
             _ => Option(String).None
@@ -328,7 +328,7 @@ _projection_call_root_error :: (fn(call : &AstExpr, is_mut : bool, env : &Enviro
 /// re-bind marks every non-`&mut` parameter `is_imm_borrow`
 /// (`create_specialized_function_inline`), a by-value one included.
 _is_by_value_borrow_param :: (fn(v : &Variable, ctx : &EvalContext) -> bool)({
-  if(!v.is_parameter || !v.is_imm_borrow || v.is_ref || v.is_compile_time_only, {
+  if(!v.is_parameter() || !v.is_imm_borrow() || v.is_ref() || v.is_compile_time_only(), {
     return(false);
   });
   match(
@@ -367,7 +367,7 @@ _is_by_value_borrow_param :: (fn(v : &Variable, ctx : &EvalContext) -> bool)({
 _holds_its_places_inline :: (fn(e : &AstExpr, ctx : &EvalContext) -> bool)(
   match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(e)),
-    .Some(hi) => ((is_struct_type(&hi.ty) && !is_reference_struct_type(&hi.ty)) || is_tuple_type(&hi.ty) || is_union_type(&hi.ty) || is_array_type(&hi.ty)),
+    .Some(hi) => ((is_struct_type(&hi.ty()) && !is_reference_struct_type(&hi.ty())) || is_tuple_type(&hi.ty()) || is_union_type(&hi.ty()) || is_array_type(&hi.ty())),
     .None => false
   )
 );
@@ -380,7 +380,7 @@ _by_value_borrow_param_root :: (fn(place : &AstExpr, env : &Environment, ctx : &
   match(
     ast_rewritten_node(place),
     .Atom(_, br_tok) => match(
-      get_variables_from_env(env, br_tok.value.*.clone()).last(),
+      get_variables_from_env(env, br_tok.value.*.clone()).last_cloned(),
       .Some(v) => if(_is_by_value_borrow_param(&v, ctx), Option(Variable).Some(v), Option(Variable).None),
       .None => Option(Variable).None
     ),
@@ -393,7 +393,7 @@ _by_value_borrow_param_root :: (fn(place : &AstExpr, env : &Environment, ctx : &
         }),
         .None => Option(Variable).None
       ),
-      ((br_args.len() == usize(1)) && match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&br_callee)), .Some(ci) => is_array_type(&ci.ty), .None => false)) =>
+      ((br_args.len() == usize(1)) && match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&br_callee)), .Some(ci) => is_array_type(&ci.ty()), .None => false)) =>
         _by_value_borrow_param_root(&br_callee, env, ctx),
       true => Option(Variable).None
     )
@@ -491,7 +491,7 @@ evaluate_address_call :: (
   );
   (cur_env : Environment) = expr_info_adopt_env(&arg_info);
   // Error if the argument is a type value — use * for pointer-to-type.
-  if(is_type_value(&arg_info.value), {
+  if(is_type_value(&arg_info.value()), {
     exn.throw(
       dyn(
         format_error_message(
@@ -532,7 +532,7 @@ evaluate_address_call :: (
       _by_value_borrow_param_root(&eval_arg, env, ctx),
       .Some(bp) => {
         bp_place := ast_place_text(&arg_expr);
-        bp_ty := type_to_string(&bp.ty);
+        bp_ty := type_to_string(&bp.ty());
         bp_what := if(match(eval_arg, .Atom(_, _) => true, _ => false), `\`${bp.name}\`, a \`&${bp_ty}\` parameter`, `a place inside \`${bp.name}\`, a \`&${bp_ty}\` parameter`);
         exn.throw(
           dyn(
@@ -552,7 +552,7 @@ evaluate_address_call :: (
       .None => ()
     );
   });
-  arg_type := Rc.clone(arg_info.ty);
+  arg_type := Rc.clone(arg_info.ty());
   pointer_type := t_ptr(&arg_type);
   // Determine compile-time pointer value from comptimeRef.
   comptime_ref_opt := expr_info_comptime_ref(&arg_info);
@@ -585,7 +585,7 @@ evaluate_address_call :: (
     ptr_val_from_comptime_ref,
     .Some(_) => ptr_val_from_comptime_ref,
     .None => match(
-      arg_info.source_variable,
+      arg_info.source_variable(),
       // Hand the variable's OWN value cell to the pointer
       // — writes through `p.*` land in the SAME list the variable reads,
       // the arm-22 mutable-reference semantics. Empty cell = runtime
@@ -600,8 +600,8 @@ evaluate_address_call :: (
       // (issues/fixed/address-of-a-parameter-in-a-generic-fn-emits-a-placeholder.md).
       // Only an executing (CTFE) evaluation addresses the cell.
       .Some(src_var) => if(
-        (src_var.value.len() > usize(0)) && (!(src_var.is_parameter && !src_var.is_compile_time_only) || ctx.is_executing),
-        Option(EvalValue).Some(EvalValue.PtrVal(Rc.clone(src_var.value), usize(0), .None)),
+        (src_var.value().len() > usize(0)) && (!(src_var.is_parameter() && !src_var.is_compile_time_only()) || ctx.is_executing),
+        Option(EvalValue).Some(EvalValue.PtrVal(Rc.clone(src_var.value()), usize(0), .None)),
         Option(EvalValue).None
       ),
       .None => Option(EvalValue).None
@@ -610,7 +610,7 @@ evaluate_address_call :: (
   // Last arm: the argument itself is a comptime
   // UnknownValue, so `&(arg)` is a comptime unknown pointer too.
   ptr_unknown_val_opt := match(
-    arg_info.value,
+    arg_info.value(),
     .Some(v) => if(
       is_unknown_val(&v),
       Option(EvalValue).Some(create_unknown_val(&pointer_type)),
@@ -631,22 +631,22 @@ evaluate_address_call :: (
   match(
     ptr_place_val_opt,
     .Some(_) => {
-      out_info.value = ptr_place_val_opt;
+      out_info.set_value(ptr_place_val_opt);
     },
     .None => match(
       expr_info_index_trait_ptr_type(&arg_info),
       .Some(itp_ty) => {
         // Use the Index-trait pointer type; value is runtime only.
-        out_info.ty = itp_ty;
+        out_info.set_ty(itp_ty);
         expr_info_set_is_index_trait_address_of(&out_info, Option(bool).Some(true));
       },
       .None => {
-        out_info.value = ptr_unknown_val_opt;
+        out_info.set_value(ptr_unknown_val_opt);
       }
     )
   );
   // Propagate path_collection from arg.
-  out_info.path_collection = arg_info.path_collection.clone();
+  out_info.set_path_collection(arg_info.path_collection());
   // Propagate comptime_ref so callers can mutate through the pointer.
   expr_info_set_comptime_ref(&out_info, &comptime_ref_opt);
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);

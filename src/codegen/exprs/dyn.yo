@@ -92,13 +92,13 @@ generate_dyn_call :: (fn(expr : &AstExpr, indent : &String, context : &mut Funct
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("/* Error: dyn() not evaluated */")));
   trait_values := match(expr_info_dyn_call_trait_values(&ei), .Some(tv) => if(tv.len() == usize(0), return(String.from("/* Error: dyn() call missing trait values */")), tv), .None => return(String.from("/* Error: dyn() call missing trait values */")));
   args0 := match(expr, .FnCall(_, _, Rc(a), _, _) => a.get(usize(0)), .Atom(_, _) => Option(AstExpr).None);
-  value_expr := match(&ei.runtime_arg_exprs_in_order, .Some(rargs) => match(rargs.get(usize(0)), .Some(v) => v, .None => match(args0, .Some(a) => a, .None => return(String.from("/* Error: dyn() requires a value argument */")))), .None => match(args0, .Some(a) => a, .None => return(String.from("/* Error: dyn() requires a value argument */"))));
-  dyn_type := Rc.clone(ei.ty);
+  value_expr := match(&ei.runtime_arg_exprs_in_order(), .Some(rargs) => match(rargs.get(usize(0)), .Some(v) => v, .None => match(args0, .Some(a) => a, .None => return(String.from("/* Error: dyn() requires a value argument */")))), .None => match(args0, .Some(a) => a, .None => return(String.from("/* Error: dyn() requires a value argument */"))));
+  dyn_type := Rc.clone(ei.ty());
   if(!is_dyn_type(&dyn_type), {
     return(String.from("/* Error: dyn() result type is not DynType */"));
   });
   value_ei := match(context.base.get_expr_info(&value_expr), .Some(e) => e, .None => return(String.from("/* Error: dyn() value has no type */")));
-  value_type := Rc.clone(value_ei.ty);
+  value_type := Rc.clone(value_ei.ty());
   // dyn() requires an object type (value types must use Rc.new()). Box is not
   // modeled (is_boxed_type ≡ false), so the Box branch is dead.
   if(!is_counted_handle_type(&value_type) && !is_boxed_type(&value_type), {
@@ -149,7 +149,7 @@ generate_dyn_call :: (fn(expr : &AstExpr, indent : &String, context : &mut Funct
   // `variable_name` is the Yo name itself, whose rendering is already that
   // variable (issues/fixed/emitted-c-identifiers-collide-with-header-macros.md).
   match(
-    &value_ei.variable_name,
+    &value_ei.variable_name(),
     .Some(vn) => {
       vn_c := sanitize_for_c_identifier(vn.clone(), false);
       if(!(value_code == vn_c), {
@@ -177,9 +177,9 @@ generate_dyn_call :: (fn(expr : &AstExpr, indent : &String, context : &mut Funct
         .Some(dup_expr) => match(
           if(element_wise_dup_target(&dup_expr).is_some(), Option(ExprInfo).None, context.base.get_expr_info(&dup_expr)),
           .Some(dei) => match(
-            &dei.variable_name,
+            &dei.variable_name(),
             .Some(dvn) => {
-              value_code = get_variable_name_for_codegen_at(ast_expr_id(&dup_expr), &dvn, Option(Environment).Some(dei.env));
+              value_code = get_variable_name_for_codegen_at(ast_expr_id(&dup_expr), &dvn, Option(Environment).Some(dei.env()));
             },
             .None => ()
           ),
@@ -190,7 +190,7 @@ generate_dyn_call :: (fn(expr : &AstExpr, indent : &String, context : &mut Funct
     }),
     .None => ()
   );
-  temp_var_name := match(&ei.variable_name, .Some(tv) => tv.clone(), .None => return(String.from("/* Error: dyn() expression missing temp variable name */")));
+  temp_var_name := match(&ei.variable_name(), .Some(tv) => tv.clone(), .None => return(String.from("/* Error: dyn() expression missing temp variable name */")));
   vtable_name := String.from("__yo_vtable_");
   vtable_name.push_string(&impl_key);
   // Track the temp var (SM-field routing is Phase 5, gated dead here).

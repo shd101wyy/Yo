@@ -75,7 +75,7 @@ check_variable_is_closure_captured :: (
   cond(
     (n == usize(0)) => false,
     true => {
-      latest := match(variables.get(n - usize(1)), .Some(v) => v, .None => return(false));
+      latest := match(variables.get_cloned(n - usize(1)), .Some(v) => v, .None => return(false));
       latest.frame_level <= closure_capture_frame_level
     }
   )
@@ -142,8 +142,8 @@ is_closure_construction :: (fn(expr : &AstExpr, context : &FunctionGenerationCon
       (
         (
           expr_info_closure_function_value(&ei).is_some()
-          || match(ei.value, .Some(v) => is_func_val(&v), .None => false)
-        ) && (type_implements_fn(&ei.ty) || is_function_type(&ei.ty)) && expr_info_capture_type(&ei).is_some()
+          || match(ei.value(), .Some(v) => is_func_val(&v), .None => false)
+        ) && (type_implements_fn(&ei.ty()) || is_function_type(&ei.ty())) && expr_info_capture_type(&ei).is_some()
       ) || _is_capture_record_rebuild(&ei)
     ),
     .None => false
@@ -154,7 +154,7 @@ is_closure_construction :: (fn(expr : &AstExpr, context : &FunctionGenerationCon
 /// initializers, with no function value of its own. The closure's code is the
 /// receiver's, already registered under the capture struct's id.
 _is_capture_record_rebuild :: (fn(ei : &ExprInfo) -> bool)(
-  expr_info_capture_type(ei).is_some() && expr_info_capture_field_inits(ei).is_some() && expr_info_closure_function_value(ei).is_none() && match(ei.value, .Some(v) => !is_func_val(&v), .None => true)
+  expr_info_capture_type(ei).is_some() && expr_info_capture_field_inits(ei).is_some() && expr_info_closure_function_value(ei).is_none() && match(ei.value(), .Some(v) => !is_func_val(&v), .None => true)
 );
 /// `__yo_capture_field(c, i)`: field `i` of closure `c`'s capture record, in
 /// place (`(c).<field>`, or `(c)-><field>` through a pointer).
@@ -162,7 +162,7 @@ generate_yo_capture_field :: (fn(expr : &AstExpr, indent : &String, context : &m
   cf_args := match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), _ => ArrayList(AstExpr).new());
   recv := match(cf_args.get(usize(0)), .Some(a) => a, .None => return(codegen_fatal_expr(String.from("__yo_capture_field requires 2 arguments"))));
   idx_e := match(cf_args.get(usize(1)), .Some(a) => a, .None => return(codegen_fatal_expr(String.from("__yo_capture_field requires 2 arguments"))));
-  recv_ty := match(context.base.get_expr_info(&recv), .Some(ri) => Rc.clone(ri.ty), .None => return(codegen_fatal_expr(String.from("__yo_capture_field: receiver has no type"))));
+  recv_ty := match(context.base.get_expr_info(&recv), .Some(ri) => Rc.clone(ri.ty()), .None => return(codegen_fatal_expr(String.from("__yo_capture_field: receiver has no type"))));
   (through_ptr : bool) = false;
   (cap : TypeValue) = resolve_some_type_to_concrete(&recv_ty);
   match(
@@ -210,15 +210,15 @@ _sm_moved_capture_read :: (fn(expr : &AstExpr, label : &String, sm_code : String
   tok := ast_expr_token(expr);
   // Every binding of the name: the literal's env also holds the closure's
   // own capture frame, whose binding of `label` shadows the moved one.
-  vs := scope_variables(ast_expr_id(expr), &ei.env, label);
+  vs := scope_variables(ast_expr_id(expr), &ei.env(), label);
   (moved : bool) = false;
   (vi : usize) = usize(0);
   while((vi < vs.len()) && !moved, vi = (vi + usize(1)), {
     match(
-      vs.get(vi),
+      vs.get_cloned(vi),
       .Some(v) => {
         match(
-          v.consumed_at_token,
+          v.consumed_at_token(),
           .Some(ct) => {
             moved = ((ct.module_path == tok.module_path) && ((ct.row == tok.row) && (ct.column == tok.column)));
           },
@@ -265,21 +265,21 @@ generate_closure_construction :: (fn(expr : &AstExpr, indent : &String, context 
     expr_info_closure_function_value(&ei),
     .Some(v) => Option(EvalValue).Some(v),
     // Fallback: anonymous_function.yo records the closure FuncVal on info.value.
-    .None => match(ei.value, .Some(v) => Option(EvalValue).Some(v), .None => if(is_rebuild, Option(EvalValue).None, return(codegen_fatal_expr(String.from("Missing closure_function_value")))))
+    .None => match(ei.value(), .Some(v) => Option(EvalValue).Some(v), .None => if(is_rebuild, Option(EvalValue).None, return(codegen_fatal_expr(String.from("Missing closure_function_value")))))
   );
   // The Fn call signature (for evidence params) — the closure type is recorded
   // as a bare Func/FnTraitT, so the FnTrait may be absent; fall back to the
   // recorded type itself. Only the evidence path needs the precise call type.
-  call_type_opt := extract_fn_trait_from_type(&ei.ty);
+  call_type_opt := extract_fn_trait_from_type(&ei.ty());
   fid := match(closure_fv, .Some(.FuncVal(__fvd1, _)) => __fvd1.*.func_id.clone(), _ => String.from(""));
   function_c_name := match(context.base.functions.get(&fid), .Some(fe) => fe.c_name.clone(), .None => if(is_rebuild, String.new(), return(codegen_fatal_expr(String.from("Closure implementation function not found in context")))));
-  if(is_dyn_type(&ei.ty), {
+  if(is_dyn_type(&ei.ty()), {
     return(codegen_fatal_expr(String.from("Dyn(Fn(...)) closure construction not yet ported")));
   });
   // Resolve the capture struct + its fields.
   capture_ty := match(expr_info_capture_type(&ei), .Some(ct) => ct, .None => Rc.new(TypeValueNode.Unit));
   field_labels := match(&capture_ty, Rc(.Struct({ field_labels : fl })) => Rc.clone(fl), _ => no_labels());
-  call_type_id := type_key(&ei.ty);
+  call_type_id := type_key(&ei.ty());
   if(field_labels.len() > usize(0), {
     // Impl closure WITH captures — stack-allocate the capture struct.
     struct_id := match(&capture_ty, Rc(.Struct({ id : sid })) => sid.clone(), _ => String.from(""));
@@ -414,13 +414,13 @@ generate_closure_construction :: (fn(expr : &AstExpr, indent : &String, context 
             _resolve_sm_atom(expr, label.clone(), context),
             .Some(sm_name) => _sm_moved_capture_read(expr, &label, sm_name, &ei, context),
             .None => match(
-              _enclosing_closure_capture_read(ast_expr_id(expr), label.clone(), &ei.env, context),
+              _enclosing_closure_capture_read(ast_expr_id(expr), label.clone(), &ei.env(), context),
               .Some(cap_read) => cap_read,
               .None => {
                 // A C local of an enclosing state-machine body (phase 6) is
                 // read by its own name while its block is open.
                 local_c := sanitize_for_c_identifier(label.clone(), false);
-                if(match(&context.in_async_state_machine, .Some(_) => (context.base.declared_scopes.with(ds_s => scope_stack_contains(ds_s, local_c.clone())) || context.base.declared_c_var_names.with(dn_s => dn_s.contains(local_c.clone()))), .None => false), local_c, get_variable_name_for_codegen_at(ast_expr_id(expr), label.clone(), Option(Environment).Some(ei.env)))
+                if(match(&context.in_async_state_machine, .Some(_) => (context.base.declared_scopes.with(ds_s => scope_stack_contains(ds_s, local_c.clone())) || context.base.declared_c_var_names.with(dn_s => dn_s.contains(local_c.clone()))), .None => false), local_c, get_variable_name_for_codegen_at(ast_expr_id(expr), label.clone(), Option(Environment).Some(ei.env())))
               }
             )
           )
@@ -434,8 +434,8 @@ generate_closure_construction :: (fn(expr : &AstExpr, indent : &String, context 
     // unique name. Registered as declared either way, so a deferred drop
     // naming it is emitted.
     temp := match(
-      &ei.variable_name,
-      .Some(cvn) => get_variable_name_for_codegen_at(ast_expr_id(expr), &cvn, Option(Environment).Some(ei.env)),
+      &ei.variable_name(),
+      .Some(cvn) => get_variable_name_for_codegen_at(ast_expr_id(expr), &cvn, Option(Environment).Some(ei.env())),
       .None => {
         t := String.from("__capture_");
         t.push_string(fid.clone());
@@ -460,11 +460,11 @@ generate_closure_construction :: (fn(expr : &AstExpr, indent : &String, context 
     // (issues/fixed/a-closure-literal-argument-inside-an-io-async-body-never-releases-its-captures.md).
     if(context.in_async_state_machine.is_some(), {
       match(
-        &ei.variable_name,
+        &ei.variable_name(),
         .Some(cvn2) => match(
           &context.state_machine_variables,
           .Some(smv) => match(
-            sm_slot_of(ast_expr_id(expr), &ei.env, &cvn2, &smv, &context.variable_id_remapping, &context.state_machine_field_aliases, &context.sm_capture_slot),
+            sm_slot_of(ast_expr_id(expr), &ei.env(), &cvn2, &smv, &context.variable_id_remapping, &context.state_machine_field_aliases, &context.sm_capture_slot),
             .Some(slot) => context.base.emitter.emit_string_line(`${indent.clone()}${slot} = ${temp.clone()};`),
             .None => ()
           ),
@@ -492,8 +492,8 @@ generate_closure_construction :: (fn(expr : &AstExpr, indent : &String, context 
   }, {
     // Impl closure WITHOUT captures — empty capture struct value; still static
     // dispatch (register by the resolved concrete capture/SomeT id).
-    concrete := resolve_some_type_to_concrete(&ei.ty);
-    concrete_id := match(&concrete, Rc(.Struct({ id : kid })) => kid.clone(), Rc(.SomeT({ id : sid })) => sid.clone(), _ => type_key(&ei.ty));
+    concrete := resolve_some_type_to_concrete(&ei.ty());
+    concrete_id := match(&concrete, Rc(.Struct({ id : kid })) => kid.clone(), Rc(.SomeT({ id : sid })) => sid.clone(), _ => type_key(&ei.ty()));
     // The compound literal's type must be the CAPTURE STRUCT — take it from
     // the closure's registered capture info (keyed by fid; always present,
     // an empty struct for capture-free closures). The ExprInfo ty here can be

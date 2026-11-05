@@ -377,7 +377,7 @@ evaluate_struct_type :: (
   struct_val := create_type_value(&struct_ty);
   meta_ty := type_of_type(&struct_ty);
   out_info := new_expr_info(&env, &meta_ty);
-  out_info.value = Option(EvalValue).Some(struct_val);
+  out_info.set_value(Option(EvalValue).Some(struct_val));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   // Annotate callee (expr.func) with the same info
   callee_expr := match(expr, .FnCall(_, f_box, _, _, _) => f_box, .Atom(_, _) => expr);
@@ -492,7 +492,7 @@ evaluate_cell_type :: (
     .Some(pi) => {
       env = expr_info_adopt_env(&pi);
       match(
-        pi.value,
+        pi.value(),
         .Some(.TypeVal(pt)) => Option(TypeValue).Some(Rc.clone(pt)),
         _ => Option(TypeValue).None
       )
@@ -580,7 +580,7 @@ evaluate_cell_type :: (
   );
   register_struct_fields(cell_id.clone(), &fields);
   out_info := new_expr_info(&env, &type_of_type(&cell_ty));
-  out_info.value = Option(EvalValue).Some(create_type_value(&cell_ty));
+  out_info.set_value(Option(EvalValue).Some(create_type_value(&cell_ty)));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   callee_expr := match(expr, .FnCall(_, f_box, _, _, _) => f_box, .Atom(_, _) => expr);
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&callee_expr), &out_info);

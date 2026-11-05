@@ -474,7 +474,7 @@ _generate_spawn_wrapper :: (fn(closure_fn_c_name : &String, capture_struct_c_nam
 _generate_spawn_call :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext, is_worker : bool) -> Option(String))({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(Option(String).None));
   cb := match(
-    &ei.runtime_arg_exprs_in_order,
+    &ei.runtime_arg_exprs_in_order(),
     .Some(ra) => if(ra.len() == usize(1), match(ra.get(usize(0)), .Some(c) => c, .None => return(Option(String).None)), return(Option(String).None)),
     .None => return(Option(String).None)
   );
@@ -488,7 +488,7 @@ _generate_spawn_call :: (fn(expr : &AstExpr, indent : &String, context : &mut Fu
   // the param was bound to (callable) — resolve it to the concrete capture struct
   // (via the value's own resolution) so the map key matches what the construction /
   // pre-pass registered (the capture-struct id, not the SomeT id).
-  capture_type := resolve_some_type_to_concrete(match(expr_info_capture_type(&cei), .Some(c) => c, .None => Rc.clone(cei.ty)));
+  capture_type := resolve_some_type_to_concrete(match(expr_info_capture_type(&cei), .Some(c) => c, .None => Rc.clone(cei.ty())));
   // The impl_closure_call_map is keyed by the BARE capture-struct id at every
   // set site (closures.yo — capture-struct sids are unique per closure), NOT
   // by type_key: type_key of a cfid-empty struct with field types is now
@@ -502,11 +502,11 @@ _generate_spawn_call :: (fn(expr : &AstExpr, indent : &String, context : &mut Fu
   mapped_opt := context.base.impl_closure_call_map.get(&cb_map_key);
   capture_c_name := _capture_type_c_name(capture_type.clone(), context);
   closure_fn := match(
-    _closure_fn_c_name(&cei.value, expr_info_closure_function_value(&cei), context),
+    _closure_fn_c_name(&cei.value(), expr_info_closure_function_value(&cei), context),
     .Some(n) => n,
     .None => match(mapped_opt, .Some(m) => m.function_c_name.clone(), .None => return(Option(String).Some(String.from("/* Error: spawn cb has no closure function */"))))
   );
-  closure_fid_direct := _closure_fid(&cei.value, expr_info_closure_function_value(&cei));
+  closure_fid_direct := _closure_fid(&cei.value(), expr_info_closure_function_value(&cei));
   closure_fid := if(
     closure_fid_direct.len() > usize(0),
     closure_fid_direct,
@@ -516,7 +516,7 @@ _generate_spawn_call :: (fn(expr : &AstExpr, indent : &String, context : &mut Fu
   wrapper := _generate_spawn_wrapper(&closure_fn, capture_c_name.clone(), &capture_type, &runtime_args, is_fnonce_closure_fn(&closure_fid), context);
   // The capture-struct VALUE (the cb arg's variable, or its generated code).
   cb_code := _call_generate_expr(&cb, indent.clone(), context);
-  cb_var := match(&cei.variable_name, .Some(vn) => get_variable_name_for_codegen_at(ast_expr_id(&cb), &vn, Option(Environment).Some(cei.env)), .None => cb_code);
+  cb_var := match(&cei.variable_name(), .Some(vn) => get_variable_name_for_codegen_at(ast_expr_id(&cb), &vn, Option(Environment).Some(cei.env())), .None => cb_code);
   heap_var := fresh_local_name(
     String.from(if(is_worker, "_worker_closure_data_", "_thread_closure_data_")),
     &context.base.current_function_name
@@ -563,7 +563,7 @@ _generate_spawn_call :: (fn(expr : &AstExpr, indent : &String, context : &mut Fu
   }, {
     // __yo_thread_t <tv> = __yo_thread_spawn(<wrapper>, <heapVar>);
     tv := match(
-      &ei.variable_name,
+      &ei.variable_name(),
       .Some(v) => v.clone(),
       .None => fresh_local_name(String.from("_thr_"), &context.base.current_function_name)
     );

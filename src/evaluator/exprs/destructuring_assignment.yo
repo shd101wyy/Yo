@@ -98,7 +98,7 @@ _record_destructured_read :: (fn(env : &Environment, rhs_type : &TypeValue, labe
     Rc(.Struct({ id : dr_sns, is_source_namespace : dr_flag })) => if(dr_flag, {
       match(
         sns_module_of(dr_sns.clone()),
-        .Some(dr_target) => record_module_member_read(&env.module_path.*, &dr_target, label),
+        .Some(dr_target) => record_module_member_read(&env.module_path().*, &dr_target, label),
         .None => ()
       );
     }),
@@ -163,7 +163,7 @@ _reject_shadowing :: (fn(env : &Environment, var_name : &String, at : &Token, ct
     return(());
   });
   match(
-    existing.get(n - usize(1)),
+    existing.get_cloned(n - usize(1)),
     .Some(shadow_var) => {
       mut(sh_entries) := ArrayList(TokenAndError).new();
       sh_entries.push(
@@ -419,7 +419,7 @@ handle_member_destructuring :: (
       });
       // Record ExprInfo for the spread expression itself.
       spread_info := new_expr_info(env, rhs_type);
-      spread_info.value = rhs_value;
+      spread_info.set_value(rhs_value);
       expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&lhs_field), &spread_info);
       did_spread = true;
     });
@@ -626,10 +626,10 @@ handle_member_destructuring :: (
             match(
               added_var_opt,
               .Some(added_var) => {
-                added_var.is_created_from_destructuring_atom_variable = is_destructuring_atom_variable;
+                added_var.set_is_created_from_destructuring_atom_variable(is_destructuring_atom_variable);
                 // A `mut(name)` binding may be reassigned (decision 47).
                 if(is_mut_binding(&ast_expr_token(&var_tok_expr), &var_name), {
-                  added_var.is_reassignable = true;
+                  added_var.set_is_reassignable(true);
                 });
               },
               .None => ()
@@ -637,14 +637,14 @@ handle_member_destructuring :: (
           });
           // Record ExprInfo on the lhs field.
           lf_info := new_expr_info(env, &rhs_field_type);
-          lf_info.value = field_value_opt;
+          lf_info.set_value(field_value_opt);
           expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&lhs_field), &lf_info);
           // Record ExprInfo on label_expr if present.
           match(
             label_expr_opt,
             .Some(le) => {
               le_info := new_expr_info(env, &rhs_field_type);
-              le_info.value = field_value_opt;
+              le_info.set_value(field_value_opt);
               expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&le), &le_info);
             },
             .None => ()
@@ -654,7 +654,7 @@ handle_member_destructuring :: (
             rename_expr_opt,
             .Some(re) => {
               re_info := new_expr_info(env, &rhs_field_type);
-              re_info.value = field_value_opt;
+              re_info.set_value(field_value_opt);
               expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&re), &re_info);
             },
             .None => ()
@@ -697,8 +697,8 @@ evaluate_destructuring_assignment :: (
     );
   });
   rhs_info := match(rhs_info_opt, .Some(ri) => ri, .None => new_expr_info(env, Rc.new(TypeValueNode.Unit)));
-  rhs_type := Rc.clone(rhs_info.ty);
-  rhs_value := rhs_info.value;
+  rhs_type := Rc.clone(rhs_info.ty());
+  rhs_value := rhs_info.value();
   is_rhs_atom := ast_expr_is_atom(rhs);
   // -------------------------------------------------------------------
   // Struct / union / module destructuring

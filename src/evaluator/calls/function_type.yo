@@ -498,7 +498,7 @@ _ctor_binder_some_ids :: (
     ids.push(
       match(
         find_variable_in_env(env, &lbl),
-        .Some(v) => match(v.value.get(usize(0)), .Some(.TypeVal(Rc(.SomeT({ id : sid })))) => sid.clone(), _ => String.from("")),
+        .Some(v) => match(v.value().get(usize(0)), .Some(.TypeVal(Rc(.SomeT({ id : sid })))) => sid.clone(), _ => String.from("")),
         .None => String.from("")
       )
     );
@@ -532,7 +532,7 @@ _record_ctor_phantom_positions :: (
     out.get(usize(0)),
     .Some(b) => match(
       expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&b)),
-      .Some(bi) => match(bi.value, .Some(.TypeVal(t)) => resolve_enum_shell(&t), _ => Rc.new(TypeValueNode.Unit)),
+      .Some(bi) => match(bi.value(), .Some(.TypeVal(t)) => resolve_enum_shell(&t), _ => Rc.new(TypeValueNode.Unit)),
       .None => Rc.new(TypeValueNode.Unit)
     ),
     .None => Rc.new(TypeValueNode.Unit)
@@ -602,24 +602,24 @@ _record_ctor_phantom_positions :: (
 /// statement — emitted C referenced an undeclared `fd`.
 _share_def_time_frames :: (fn(env : &Environment, strip : bool) -> Environment)({
   new_frames := ArrayList(Frame).new();
-  n := env.frames.len();
+  n := env.frames_len();
   (i : usize) = usize(0);
   while(i < n, {
     match(
-      env.frames.get(i),
+      env.frame_at(i),
       .Some(frame) => {
         new_vars := ArrayList(Variable).new();
-        m := frame.variables.len();
+        m := frame.variables_len();
         (j : usize) = usize(0);
         while(j < m, {
           match(
-            frame.variables.get(j),
+            frame.variable_at(j),
             .Some(v) => {
               keep := cond(
                 !strip => true,
                 (i == usize(0)) => true,
-                v.is_compile_time_only => true,
-                v.is_module_level => true,
+                v.is_compile_time_only() => true,
+                v.is_module_level() => true,
                 true => false
               );
               if(keep, {
@@ -632,14 +632,14 @@ _share_def_time_frames :: (fn(env : &Environment, strip : bool) -> Environment)(
         });
         new_frames.push(
           Frame(
-            id : frame.id,
+            id : frame.id(),
             variables : new_vars,
-            is_begin_block : frame.is_begin_block,
+            is_begin_block : frame.is_begin_block(),
             // A snapshot of the frame's where-clause map (a value since
             // B9): the entries are handle copies, so a constraint added to
             // an existing entry is still seen; a NEW key added to the live
             // frame later is not, like a later binding (see above).
-            where_clause_constraints : frame.where_clause_constraints.clone(),
+            where_clause_constraints : frame.where_clause_constraints(),
             // Fresh key: this rebuilt frame gets its OWN lazy index
             // entry (see Frame.index_key doc in env.yo).
             index_key : generate_variable_id(String.from(""), String.from("fidx"))
@@ -652,8 +652,8 @@ _share_def_time_frames :: (fn(env : &Environment, strip : bool) -> Environment)(
   });
   Environment(
     frames : Rc.new(new_frames),
-    module_path : Rc.clone(env.module_path),
-    function_declaration_frame_level : env.function_declaration_frame_level,
+    module_path : Rc.clone(env.module_path()),
+    function_declaration_frame_level : env.function_declaration_frame_level(),
     frozen : false
   )
 });
@@ -829,17 +829,17 @@ _build_def_time_body_env :: (
   rk_reassign := ArrayList(bool).new();
   rk_module_level := ArrayList(bool).new();
   (rk_fi : usize) = usize(0);
-  while(rk_fi < fresh_env.frames.len(), {
+  while(rk_fi < fresh_env.frames_len(), {
     match(
-      fresh_env.frames.get(rk_fi),
+      fresh_env.frame_at(rk_fi),
       .Some(rk_frame) => {
         (rk_vi : usize) = usize(0);
-        while(rk_vi < rk_frame.variables.len(), {
+        while(rk_vi < rk_frame.variables_len(), {
           match(
-            rk_frame.variables.get(rk_vi),
+            rk_frame.variable_at(rk_vi),
             .Some(rv) => {
               rv_bty := match(
-                rv.value.get(usize(0)),
+                rv.value().get(usize(0)),
                 .Some(rv_ev) => match(
                   rv_ev,
                   .TypeVal(Rc(.SomeT(_, rv_sname, rv_slvl, _, _, _, _))) =>
@@ -863,16 +863,16 @@ _build_def_time_body_env :: (
                 // recorded one — as a fresh re-kind hit or a cancellation.
                 .Some(at) => {
                   rk_tys(at) = rv_bty;
-                  rk_reassign(at) = rv.is_reassignable;
-                  rk_module_level(at) = rv.is_module_level;
+                  rk_reassign(at) = rv.is_reassignable();
+                  rk_module_level(at) = rv.is_module_level();
                 },
                 .None => match(
                   &rv_bty,
                   .Some(_) => {
                     rk_names.push(rv.name.clone());
                     rk_tys.push(rv_bty.clone());
-                    rk_reassign.push(rv.is_reassignable);
-                    rk_module_level.push(rv.is_module_level);
+                    rk_reassign.push(rv.is_reassignable());
+                    rk_module_level.push(rv.is_module_level());
                   },
                   // A non-hit with no recorded entry needs no cancellation.
                   .None => ()
@@ -888,7 +888,7 @@ _build_def_time_body_env :: (
     );
     rk_fi = (rk_fi + usize(1));
   });
-  ___fr := fresh_env.push_frame(false);
+  ___fr := fresh_env.push_frame()(false);
   // Insert the Family B shadows collected above. `is_reassignable` and
   // `is_module_level` are carried from the shadowed binding (std/log.yo's
   // `_global_level = level` and the flowability gate's module-root check —
@@ -912,12 +912,12 @@ _build_def_time_body_env :: (
             rk_r,
             false,
             false,
-            synthetic_token(&rk_n, &caller_env.module_path.*)
+            synthetic_token(&rk_n, &caller_env.module_path().*)
           );
           match(
             rk_var_opt,
             .Some(rk_var) => {
-              rk_var.is_module_level = rk_ml;
+              rk_var.set_is_module_level(rk_ml);
             },
             .None => ()
           );
@@ -929,7 +929,7 @@ _build_def_time_body_env :: (
     rk_bi = (rk_bi + usize(1));
   });
   // Frame level of the just-pushed parameter frame (for SomeT binding below).
-  pf_level := (fresh_env.frames.len() - usize(1));
+  pf_level := (fresh_env.frames_len() - usize(1));
   // Collect the signature's SomeTs (from param types + result type) so a
   // comptime type param can be bound to the SAME SomeT object the other
   // signature types reference (see doc comment on result_type above).
@@ -1026,7 +1026,7 @@ _build_def_time_body_env :: (
           false,
           false,
           false,
-          synthetic_token(&fa_name, &caller_env.module_path.*)
+          synthetic_token(&fa_name, &caller_env.module_path().*)
         );
       });
       fa_i = (fa_i + usize(1));
@@ -1057,7 +1057,7 @@ _build_def_time_body_env :: (
           false,
           false,
           false,
-          synthetic_token(&o_name, &caller_env.module_path.*)
+          synthetic_token(&o_name, &caller_env.module_path().*)
         );
       });
       o_i = (o_i + usize(1));
@@ -1094,7 +1094,7 @@ _build_def_time_body_env :: (
     );
     // The shared binding rule (calls/helper.yo): the declared comptime,
     // `inout` and `own` flags.
-    bind_parameter(&fresh_env, &pn, &pt, &pv, p_ct || is_type_0(&pt), p_ref, p_own, _param_decl_token(param_decl_tokens, &pn, &caller_env.module_path.*), fn_param_is_ptr_borrow(fn_type_for_foralls, pi));
+    bind_parameter(&fresh_env, &pn, &pt, &pv, p_ct || is_type_0(&pt), p_ref, p_own, _param_decl_token(param_decl_tokens, &pn, &caller_env.module_path().*), fn_param_is_ptr_borrow(fn_type_for_foralls, pi));
     pi = (pi + usize(1));
   });
   fresh_env
@@ -1159,8 +1159,8 @@ _rerun_pending_def_evals :: (fn(caller_env : &Environment, ctx : &EvalContext) -
         (rp_fi : usize) = usize(0);
         while(rp_fi < pd.fwd_vars.len(), {
           match(
-            pd.fwd_vars.get(rp_fi),
-            .Some(fv) => if(match(fv.value.get(usize(0)), .Some(fvv) => is_unknown_val(&fvv), .None => true), {
+            pd.fwd_vars.get_cloned(rp_fi),
+            .Some(fv) => if(match(fv.value().get(usize(0)), .Some(fvv) => is_unknown_val(&fvv), .None => true), {
               rp_all_filled = false;
             }),
             .None => ()
@@ -1410,22 +1410,22 @@ Result type: ${type_to_string(&result_box)}`
       // The forward declarations themselves: the re-run judges its failure
       // only once every one of them is filled.
       fwd_cap_vars := ArrayList(Variable).new();
-      n_cap_fr := caller_env.frames.len();
+      n_cap_fr := caller_env.frames_len();
       (cap_fi : usize) = usize(0);
       while(cap_fi < n_cap_fr, {
         match(
-          caller_env.frames.get(cap_fi),
+          caller_env.frame_at(cap_fi),
           .Some(cap_frame) => {
-            n_cap_v := cap_frame.variables.len();
+            n_cap_v := cap_frame.variables_len();
             (cap_vi : usize) = usize(0);
             (cap_run_start : usize) = usize(0);
             while(cap_vi < n_cap_v, {
               match(
-                cap_frame.variables.get(cap_vi),
+                cap_frame.variable_at(cap_vi),
                 .Some(cv) => {
                   if(cv.name == "__recur_fn", {
                     if(cap_vi > cap_run_start, {
-                      cap_slices.push(CaptureSlice(vars : cap_frame.variables.clone(), start : cap_run_start, end : cap_vi));
+                      cap_slices.push(CaptureSlice(vars : cap_frame.variables(), start : cap_run_start, end : cap_vi));
                     });
                     cap_run_start = (cap_vi + usize(1));
                   });
@@ -1437,7 +1437,7 @@ Result type: ${type_to_string(&result_box)}`
                     // below registers a pending RE-RUN (executed by
                     // assignment.yo once the declaration is filled).
                     cv_unfilled := match(
-                      cv.value.get(usize(0)),
+                      cv.value().get(usize(0)),
                       .Some(cv_v) => is_unknown_val(&cv_v),
                       .None => true
                     );
@@ -1458,11 +1458,11 @@ Result type: ${type_to_string(&result_box)}`
                     // the GATE-4 hole
                     // (issues/fixed/yo-self-check-misses-undefined-variable.md).
                     cv_is_extern_fn := match(
-                      &cv.ty,
+                      &cv.ty(),
                       Rc(.Func({ meta : __fcxm })) => __fcxm.*.is_extern.is_some(),
                       _ => false
                     );
-                    if(cv.is_compile_time_only && cv_unfilled && is_function_type(&cv.ty) && !cv.name.starts_with("__yo_") && !cv_is_extern_fn, {
+                    if(cv.is_compile_time_only() && cv_unfilled && is_function_type(&cv.ty()) && !cv.name.starts_with("__yo_") && !cv_is_extern_fn, {
                       if(!has_fwd_comptime_fn_cap && debug_knob(`YO_DEBUG_SWALLOW`).is_some(), {
                         eprintln(`[fwd-cap] name=${cv.name} frame=${cap_fi.to_string()}`);
                       });
@@ -1476,7 +1476,7 @@ Result type: ${type_to_string(&result_box)}`
               cap_vi = (cap_vi + usize(1));
             });
             if(n_cap_v > cap_run_start, {
-              cap_slices.push(CaptureSlice(vars : cap_frame.variables.clone(), start : cap_run_start, end : n_cap_v));
+              cap_slices.push(CaptureSlice(vars : cap_frame.variables(), start : cap_run_start, end : n_cap_v));
             });
           },
           .None => ()
@@ -1656,7 +1656,7 @@ Result type: ${type_to_string(&result_box)}`
           // the return label as unknown values — exactly the names a
           // predicate may mention.
           pred_env := _share_def_time_frames(caller_env, false);
-          pred_env.push_frame(false);
+          pred_env.push_frame()(false);
           (pv_i : usize) = usize(0);
           while(pv_i < param_labels.len(), {
             pv_name := match(param_labels.get_cloned(pv_i), .Some(l) => l, .None => String.new());
@@ -1680,9 +1680,9 @@ Result type: ${type_to_string(&result_box)}`
                 (pv_var, param_types.get(pv_i)),
                 (.Some(pvv), .Some(pv_slot)) => if(t_slot_is_borrow(&pv_slot), {
                   if(t_slot_is_mut_ref(&pv_slot), {
-                    pvv.is_ref = true;
+                    pvv.set_is_ref(true);
                   }, {
-                    pvv.is_imm_borrow = true;
+                    pvv.set_is_imm_borrow(true);
                   });
                 }),
                 _ => ()
@@ -1848,7 +1848,7 @@ Result type: ${type_to_string(&result_box)}`
       // Build and store ExprInfo for the function definition expression.
       // The type of a function definition is the function type itself.
       info := new_expr_info(caller_env, &final_func_ty);
-      info.value = Option(EvalValue).Some(final_func_val);
+      info.set_value(Option(EvalValue).Some(final_func_val));
       expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
       // Def-time body evaluation for every non-deferred
       // (concrete) function. The flowability *check* on the evaluated final
@@ -1899,7 +1899,7 @@ Result type: ${type_to_string(&result_box)}`
                   false,
                   false,
                   false,
-                  synthetic_token(&vp_entry.label, &caller_env.module_path.*)
+                  synthetic_token(&vp_entry.label, &caller_env.module_path().*)
                 );
               },
               .None => ()
@@ -2125,7 +2125,7 @@ Result type: ${type_to_string(&result_box)}`
             .Some(ub_body) => match(
               expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ub_body)),
               .Some(ub_info) => {
-                ub_ty := Rc.clone(ub_info.ty);
+                ub_ty := Rc.clone(ub_info.ty());
                 // A body that ends in a `never` expression (a panic, a call
                 // to a `-> never` function) adopts the declared result, so
                 // codegen can type its unreachable placeholder (Phase 3.6).
@@ -2135,7 +2135,7 @@ Result type: ${type_to_string(&result_box)}`
                 // An `Impl(Trait)` result is judged by its traits, not by
                 // compatibility (issues/fixed/impl-trait-return-bound-is-not-checked.md);
                 // the deferred-generic twin is below.
-                if(!has_any_control_flow(ub_info.control_flow), {
+                if(!has_any_control_flow(ub_info.control_flow()), {
                   // Decision 44: a callable result into `Dyn(Fn(...))` is
                   // `dyn(f)`; a definition rejected here is not emitted.
                   if(!result_is_ref, {
@@ -2148,7 +2148,7 @@ Result type: ${type_to_string(&result_box)}`
                   reject_second_class_return(&ub_ty, ast_expr_token(&fb), &flow_env, ctx, exn);
                   // A FUNCTION result's marker traits come from the returned
                   // value (rules D4 + D1, `judge_function_argument_markers`).
-                  ub_fam := judge_function_argument_markers(&result_box, &ub_ty, &ub_info.value, &flow_env, ctx);
+                  ub_fam := judge_function_argument_markers(&result_box, &ub_ty, &ub_info.value(), &flow_env, ctx);
                   match(
                     &ub_fam.offense,
                     .Some(ub_fo) => {
@@ -2166,7 +2166,7 @@ Result type: ${type_to_string(&result_box)}`
                     .None => ()
                   );
                 });
-                ub_skip := (has_any_control_flow(ub_info.control_flow) || is_void_type(&result_box) || is_type_hierarchy_type(&result_box) || type_contains_some_type_for_codegen_param(&result_box, ArrayList(String).new()) || type_contains_some_type_for_codegen_param(&ub_ty, ArrayList(String).new()));
+                ub_skip := (has_any_control_flow(ub_info.control_flow()) || is_void_type(&result_box) || is_type_hierarchy_type(&result_box) || type_contains_some_type_for_codegen_param(&result_box, ArrayList(String).new()) || type_contains_some_type_for_codegen_param(&ub_ty, ArrayList(String).new()));
                 // A projection's body yields the place's address
                 // (`rewrite_projection_tails`): `&place` / `&mut place`.
                 ub_place_ptr := t_ptr(&result_box);
@@ -2222,7 +2222,7 @@ Result type: ${type_to_string(&result_box)}`
                 // value-blind (issues/fixed/context-typed-integer-literal-is-not-range-checked.md).
                 if(!ub_skip && !result_is_ref && is_comptime_int_type(&ub_ty), {
                   match(
-                    match(ub_info.value, .Some(ub_v) => match(ub_v, .IntLit(ub_raw) => comptime_int_value_misfit(&ub_raw, &result_box), _ => Option(String).None), .None => Option(String).None),
+                    match(ub_info.value(), .Some(ub_v) => match(ub_v, .IntLit(ub_raw) => comptime_int_value_misfit(&ub_raw, &result_box), _ => Option(String).None), .None => Option(String).None),
                     .Some(ub_fit_msg) => {
                       mark_fn_unemittable(fn_val_id.clone());
                       exn.throw(dyn(format_error_message(ast_expr_token(&fb), &ub_fit_msg)));
@@ -2297,7 +2297,7 @@ Result type: ${type_to_string(&result_box)}`
                 .Some(dts_body) => match(
                   expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&dts_body)),
                   .Some(dts_binfo) => {
-                    dts_bty := Rc.clone(dts_binfo.ty);
+                    dts_bty := Rc.clone(dts_binfo.ty());
                     dts_hidden := cond(
                       !is_some_type(&dts_bty) => Option(TypeValue).Some(dts_bty.clone()),
                       true => some_resolution(&dts_bty)
@@ -2316,7 +2316,7 @@ Result type: ${type_to_string(&result_box)}`
                         // `void*` while the emitted function returns the
                         // concrete type BY VALUE
                         // (issues/fixed/a-local-function-value-returning-an-impl-fn-calls-through-a-void-pointer-signature.md).
-                        info.ty = t_with_func_result(&info.ty, &dts_res);
+                        info.set_ty(t_with_func_result(&info.ty(), &dts_res));
                       },
                       .None => ()
                     );
@@ -2531,7 +2531,7 @@ Result type: ${type_to_string(&result_box)}`
                   .Some(dg_info) => {
                     // Pure-unwind bodies are control functions discarding the
                     // continuation — no return type to check.
-                    dg_skip_cf := (has_control_flow(dg_info.control_flow, .Unwind) && !has_control_flow(dg_info.control_flow, .Return));
+                    dg_skip_cf := (has_control_flow(dg_info.control_flow(), .Unwind) && !has_control_flow(dg_info.control_flow(), .Return));
                     dg_expected := cond(
                       result_is_ref => t_ptr(&result_box),
                       true => Rc.clone(result_box)
@@ -2554,7 +2554,7 @@ Result type: ${type_to_string(&result_box)}`
                       },
                       _ => false
                     );
-                    dg_trial_ty := Rc.clone(dg_info.ty);
+                    dg_trial_ty := Rc.clone(dg_info.ty());
                     // Only a FULLY CONCRETE trial result can convict — a trial
                     // type still carrying SomeTs unifies at specialization time
                     // (the prelude Box-Clone impl false-fired on an
@@ -2581,7 +2581,7 @@ Result type: ${type_to_string(&result_box)}`
                     // `Q` without `Foo` passed `check` and reached codegen as an
                     // ICE (issues/fixed/impl-trait-return-bound-is-not-checked.md).
                     if(dg_own_forall_skip && !dg_skip_cf && !dg_trial_abstract && !dg_trial_degenerate, {
-                      dg_fam := judge_function_argument_markers(&dg_expected, &dg_trial_ty, &dg_info.value, &dg_env, ctx);
+                      dg_fam := judge_function_argument_markers(&dg_expected, &dg_trial_ty, &dg_info.value(), &dg_env, ctx);
                       match(
                         &dg_fam.offense,
                         .Some(dg_fo) => {

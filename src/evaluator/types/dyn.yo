@@ -196,12 +196,12 @@ evaluate_dyn_type :: (
     );
     // Validate it is a TypeVal carrying a TraitT.
     inner_ty := match(
-      trait_info.value,
+      trait_info.value(),
       .Some(.TypeVal(it)) => Rc.clone(it),
       .Some(_) => t_i32(),
       .None => t_i32()
     );
-    if(!is_type_value(&trait_info.value), {
+    if(!is_type_value(&trait_info.value()), {
       exn.throw(
         dyn(
           format_error_message(
@@ -351,7 +351,7 @@ evaluate_dyn_type :: (
   dyn_val := create_type_value(&dyn_ty);
   meta_type := type_of_type(&dyn_ty);
   out_info := new_expr_info(&cur_env, &meta_type);
-  out_info.value = .Some(dyn_val);
+  out_info.set_value(.Some(dyn_val));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   expr
 });

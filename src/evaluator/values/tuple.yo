@@ -179,9 +179,9 @@ evaluate_tuple_element_value :: (
       new_expr_info(&env, Rc.new(TypeValueNode.Unit)) // unreachable
     }
   );
-  env_adopt(&env, &rhs_info.env);
+  env_adopt(&env, &rhs_info.env());
   // Reject `type` values stored as tuple elements.
-  if(is_type_value(&rhs_info.value), {
+  if(is_type_value(&rhs_info.value()), {
     exn.throw(
       dyn(
         format_error_message(
@@ -195,15 +195,15 @@ evaluate_tuple_element_value :: (
   child_type := match(
     expected_field_type_opt,
     .Some(et) => cond(
-      is_comptime_only_type_local(&et) => Rc.clone(rhs_info.ty),
-      true => convert_comptime_type_to_runtime_type(&rhs_info.ty, &env)
+      is_comptime_only_type_local(&et) => Rc.clone(rhs_info.ty()),
+      true => convert_comptime_type_to_runtime_type(&rhs_info.ty(), &env)
     ),
-    .None => convert_comptime_type_to_runtime_type(&rhs_info.ty, &env)
+    .None => convert_comptime_type_to_runtime_type(&rhs_info.ty(), &env)
   );
   runtime_arg_exprs_in_order.push(evaluated_rhs);
   EvalTupleElementResult(
     ty : child_type,
-    value : rhs_info.value,
+    value : rhs_info.value(),
     env : env
   )
 });
@@ -270,7 +270,7 @@ evaluate_tuple_value :: (
   // Empty tuple → unit value.
   if(args.len() == usize(0), {
     info := new_expr_info(env, Rc.new(TypeValueNode.Unit));
-    info.value = Option(EvalValue).Some(EvalValue.UnitVal);
+    info.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
     return(expr);
   });
@@ -321,8 +321,8 @@ evaluate_tuple_value :: (
     tuple_value_opt = Option(EvalValue).Some(EvalValue.TupleVal(value_cell_new(val_list)));
   });
   info := new_expr_info(&result.env, &tuple_ty);
-  info.value = tuple_value_opt;
-  info.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(result.runtime_arg_exprs_in_order.clone());
+  info.set_value(tuple_value_opt);
+  info.set_runtime_arg_exprs_in_order(Option(ArrayList(AstExpr)).Some(result.runtime_arg_exprs_in_order.clone()));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
   // A RUNTIME tuple literal needs a temp to materialize into, exactly as the
   // array-literal path does (values/array.yo) — the former no-op stub here is

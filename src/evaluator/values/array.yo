@@ -112,9 +112,9 @@ evaluate_array_value :: (
       .None => new_expr_info(&env_loop, t_usize()) // unreachable
     );
     env_loop = expr_info_adopt_env(&elem_info);
-    element_values.push(elem_info.value);
+    element_values.push(elem_info.value());
     runtime_arg_exprs.push(evaluated_elem);
-    elem_ty := Rc.clone(elem_info.ty);
+    elem_ty := Rc.clone(elem_info.ty());
     // Determine or type-check the running array element type.
     array_elem_type_opt = match(
       &array_elem_type_opt,
@@ -216,8 +216,8 @@ evaluate_array_value :: (
   );
   // Write ExprInfo into the table.
   info := new_expr_info(&env_loop, &array_type);
-  info.value = array_value_opt;
-  info.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(runtime_arg_exprs);
+  info.set_value(array_value_opt);
+  info.set_runtime_arg_exprs_in_order(Option(ArrayList(AstExpr)).Some(runtime_arg_exprs));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
   attach_temp_variable_to_expr(expr, true, ctx);
   expr

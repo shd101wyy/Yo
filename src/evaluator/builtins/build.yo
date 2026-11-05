@@ -705,7 +705,7 @@ _build_arg_value :: (
     args.get(idx),
     .Some(a) => match(
       expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&a)),
-      .Some(info) => info.value,
+      .Some(info) => info.value(),
       .None => Option(EvalValue).None
     ),
     .None => Option(EvalValue).None
@@ -740,7 +740,7 @@ _build_unit_result :: (
   fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext) -> AstExpr
 )({
   info := new_expr_info(env, t_unit());
-  info.value = Option(EvalValue).Some(EvalValue.UnitVal);
+  info.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
   expr
 });
@@ -755,7 +755,7 @@ _build_bool_result :: (
   // (`creators.yo` has `t_bool` and no comptime variant), and a `BoolVal` in
   // `ExprInfo.value` is what makes it compile-time known.
   info := new_expr_info(env, t_bool());
-  info.value = Option(EvalValue).Some(EvalValue.BoolVal(value));
+  info.set_value(Option(EvalValue).Some(EvalValue.BoolVal(value)));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
   expr
 });
@@ -766,7 +766,7 @@ _build_string_result :: (
 )({
   raw := (String.from("\"") + value.clone() + String.from("\""));
   info := new_expr_info(env, t_comptime_string());
-  info.value = Option(EvalValue).Some(EvalValue.StrLit(raw));
+  info.set_value(Option(EvalValue).Some(EvalValue.StrLit(raw)));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
   expr
 });

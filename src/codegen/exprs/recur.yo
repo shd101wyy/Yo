@@ -31,7 +31,7 @@
 generate_recur :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(codegen_fatal_expr(String.from("No arguments for recur call"))));
   match(
-    &ei.runtime_arg_exprs_in_order,
+    &ei.runtime_arg_exprs_in_order(),
     .Some(arg_exprs) => {
       args_list := String.from("");
       n := arg_exprs.len();
@@ -49,13 +49,13 @@ generate_recur :: (fn(expr : &AstExpr, indent : &String, context : &mut Function
             match(
               context.base.get_expr_info(&arg),
               .Some(aei) => match(
-                &aei.variable_name,
+                &aei.variable_name(),
                 .Some(vn) => {
-                  arg_vars := scope_variables(ast_expr_id(&arg), &aei.env, vn.clone());
+                  arg_vars := scope_variables(ast_expr_id(&arg), &aei.env(), vn.clone());
                   if((arg_vars.len() > usize(0)) && arg_code.starts_with("(*") && arg_code.ends_with(")"), {
                     match(
-                      arg_vars.last(),
-                      .Some(v) => if(v.is_ref, {
+                      arg_vars.last_cloned(),
+                      .Some(v) => if(v.is_ref(), {
                         arg_code = arg_code.substring(usize(2), arg_code.len() - usize(1));
                       }),
                       .None => ()
@@ -82,14 +82,14 @@ generate_recur :: (fn(expr : &AstExpr, indent : &String, context : &mut Function
                 expr_info_deferred_dup_expressions(&aei2),
                 .Some(dups) => if(dups.len() > usize(0), {
                   match(
-                    &aei2.variable_name,
+                    &aei2.variable_name(),
                     .Some(avn) => {
-                      sanitized_arg_temp := get_variable_name_for_codegen_at(ast_expr_id(&arg), avn.clone(), Option(Environment).Some(aei2.env));
+                      sanitized_arg_temp := get_variable_name_for_codegen_at(ast_expr_id(&arg), avn.clone(), Option(Environment).Some(aei2.env()));
                       if(!(arg_code == sanitized_arg_temp), {
                         already_arg := match(&context.declared_temp_vars, .Some(s) => s.contains(sanitized_arg_temp.clone()), .None => false);
                         if(!already_arg, {
                           record_declared_temp_var(context, sanitized_arg_temp.clone());
-                          eff_ty := match(expr_info_converted_runtime_type(&aei2), .Some(ct) => ct, .None => Rc.clone(aei2.ty));
+                          eff_ty := match(expr_info_converted_runtime_type(&aei2), .Some(ct) => ct, .None => Rc.clone(aei2.ty()));
                           dline := indent.clone();
                           dline.push_string(get_variable_type_string(&eff_ty, avn.clone(), &mut context.base));
                           dline.push_str(" = ");
@@ -113,9 +113,9 @@ generate_recur :: (fn(expr : &AstExpr, indent : &String, context : &mut Function
                       match(
                         context.base.get_expr_info(&de),
                         .Some(dei) => match(
-                          &dei.variable_name,
+                          &dei.variable_name(),
                           .Some(dvn) => {
-                            arg_code = get_variable_name_for_codegen_at(ast_expr_id(&de), dvn.clone(), Option(Environment).Some(dei.env));
+                            arg_code = get_variable_name_for_codegen_at(ast_expr_id(&de), dvn.clone(), Option(Environment).Some(dei.env()));
                           },
                           .None => ()
                         ),
@@ -142,10 +142,10 @@ generate_recur :: (fn(expr : &AstExpr, indent : &String, context : &mut Function
       call_code.push_str(")");
       // Result-temp: emit `<cType> <temp> = <call>;` then return the temp.
       match(
-        &ei.variable_name,
-        .Some(temp_var) => if(!is_unit_type(&ei.ty), {
-          c_type := get_type_string(&ei.ty, &mut context.base);
-          temp_var_name := get_variable_name_for_codegen_at(ast_expr_id(expr), temp_var.clone(), Option(Environment).Some(ei.env));
+        &ei.variable_name(),
+        .Some(temp_var) => if(!is_unit_type(&ei.ty()), {
+          c_type := get_type_string(&ei.ty(), &mut context.base);
+          temp_var_name := get_variable_name_for_codegen_at(ast_expr_id(expr), temp_var.clone(), Option(Environment).Some(ei.env()));
           already := match(&context.declared_temp_vars, .Some(s) => s.contains(temp_var_name.clone()), .None => false);
           if(!already, {
             record_declared_temp_var(context, temp_var_name.clone());
@@ -181,7 +181,7 @@ generate_recur :: (fn(expr : &AstExpr, indent : &String, context : &mut Function
       // drop of a by-value composite argument's dup — one leaked interior
       // reference per call (`recur(values(i), out)` in std/encoding/json.yo
       // `_stringify_into`; issues/fixed/unit-recur-never-flushes-its-argument-drops.md).
-      if(is_unit_type(&ei.ty), {
+      if(is_unit_type(&ei.ty()), {
         context.base.emitter.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);
         uline := indent.clone();
         uline.push_string(&call_code);
@@ -198,7 +198,7 @@ generate_recur :: (fn(expr : &AstExpr, indent : &String, context : &mut Function
       record_declared_temp_var(context, fresh.clone());
       context.base.emitter.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);
       fline := indent.clone();
-      fline.push_string(get_type_string(&ei.ty, &mut context.base));
+      fline.push_string(get_type_string(&ei.ty(), &mut context.base));
       fline.push_str(" ");
       fline.push_string(fresh.clone());
       fline.push_str(" = ");

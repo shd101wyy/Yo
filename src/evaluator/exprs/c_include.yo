@@ -117,8 +117,8 @@ _adoptable_type_binding :: (fn(env : &Environment, name : &String) -> Option(Typ
   if(n == usize(0), {
     return(Option(TypeValue).None);
   });
-  v := match(vars.get(n - usize(1)), .Some(x) => x, .None => return(Option(TypeValue).None));
-  val := match(v.value.get(usize(0)), .Some(x) => x, .None => return(Option(TypeValue).None));
+  v := match(vars.get_cloned(n - usize(1)), .Some(x) => x, .None => return(Option(TypeValue).None));
+  val := match(v.value().get(usize(0)), .Some(x) => x, .None => return(Option(TypeValue).None));
   ty := match(val, .TypeVal(t) => Rc.clone(t), _ => return(Option(TypeValue).None));
   match(type_decl_id(&ty), .Some(_) => Option(TypeValue).Some(ty), .None => Option(TypeValue).None)
 });
@@ -216,9 +216,9 @@ User code should normally call stdlib wrappers (e.g. functions in
   evaluated_hdr := evaluate_expression_raw(&c_header_file_arg, &env, ctx, exn);
   hdr_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_hdr));
   hdr_info := match(hdr_info_opt, .Some(i) => i, .None => new_expr_info(&env, t_unit()));
-  env_adopt(&env, &hdr_info.env);
+  env_adopt(&env, &hdr_info.env());
   raw_hdr := match(
-    hdr_info.value,
+    hdr_info.value(),
     .Some(v) => match(
       v,
       .StrLit(s) => s.clone(),
@@ -275,8 +275,8 @@ User code should normally call stdlib wrappers (e.g. functions in
   field_labels := ArrayList(String).new();
   field_types := ArrayList(TypeValue).new();
   field_vals := ArrayList(EvalValue).new();
-  (scratch_frame : Frame) = match(env.frames.last(), .Some(f) => f, .None => new_frame(false));
-  scratch_base := scratch_frame.variables.len();
+  (scratch_frame : Frame) = match(env.last_frame(), .Some(f) => f, .None => new_frame(false));
+  scratch_base := scratch_frame.variables_len();
   (args_idx : usize) = usize(1);
   (field_idx : usize) = usize(0);
   while(args_idx < all_args.len(), {
@@ -476,7 +476,7 @@ User code should normally call stdlib wrappers (e.g. functions in
   // there is no module on disk to attribute member reads to. It IS recorded
   // as a c_include module so the destructurer can alias a renamed global to
   // its C symbol (expr_info.yo, plans/reference/C_INCLUDE_EXTERN_MODULE_VALUE.md §3.4).
-  sns_id := stable_module_id(`source_namespace_extern_${fnv1a64(&env.module_path.*).to_string()}_`, &env.module_path.*);
+  sns_id := stable_module_id(`source_namespace_extern_${fnv1a64(&env.module_path().*).to_string()}_`, &env.module_path().*);
   register_extern_c_module_id(sns_id.clone());
   module_type := Rc.new(
     TypeValueNode.Struct(
@@ -498,7 +498,7 @@ User code should normally call stdlib wrappers (e.g. functions in
     )
   );
   mod_info := new_expr_info(&env, &module_type);
-  mod_info.value = .Some(EvalValue.StructVal(sns_id, shared_list(field_labels), value_cell_new(field_vals)));
+  mod_info.set_value(.Some(EvalValue.StructVal(sns_id, shared_list(field_labels), value_cell_new(field_vals))));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &mod_info);
   // Annotate callee (the "c_include" func node) with same info.
   callee_expr := match(expr, .FnCall(_, fb, _, _, _) => fb, .Atom(_, _) => expr);

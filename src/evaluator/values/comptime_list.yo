@@ -73,7 +73,7 @@ evaluate_comptime_list_value :: (
     // Elements must have a compile-time value.
     has_value := match(
       arg_info_opt,
-      .Some(info) => info.value.is_some(),
+      .Some(info) => info.value().is_some(),
       .None => false
     );
     if(!has_value, {
@@ -93,7 +93,7 @@ evaluate_comptime_list_value :: (
     );
     env_loop = expr_info_adopt_env(&arg_info);
     val := match(
-      arg_info.value,
+      arg_info.value(),
       .Some(v) => v,
       .None => {
         exn.throw(
@@ -108,7 +108,7 @@ evaluate_comptime_list_value :: (
       }
     );
     elements.push(val);
-    arg_ty := Rc.clone(arg_info.ty);
+    arg_ty := Rc.clone(arg_info.ty());
     // Determine or type-check the running child type.
     child_type_opt = match(
       &child_type_opt,
@@ -150,7 +150,7 @@ evaluate_comptime_list_value :: (
   list_type := t_comptime_list(&child_type);
   list_val := EvalValue.ComptimeListVal(value_cell_new(elements));
   info := new_expr_info(&env_loop, &list_type);
-  info.value = Option(EvalValue).Some(list_val);
+  info.set_value(Option(EvalValue).Some(list_val));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
   expr
 });

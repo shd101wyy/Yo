@@ -169,11 +169,11 @@ _resolve_prelude_range_type :: (
   (vi : usize) = usize(0);
   while((vi < vars.len()) && (out.len() == usize(0)), {
     match(
-      vars.get(vi),
+      vars.get_cloned(vi),
       .Some(v) => match(
-        v.value.get(usize(0)),
-        .Some(fv) => if(is_func_val(&fv) && is_function_type(&v.ty), {
-          _try_ctfe_range_ctor(&v.ty, &fv, env, ctx, &mut out);
+        v.value().get(usize(0)),
+        .Some(fv) => if(is_func_val(&fv) && is_function_type(&v.ty()), {
+          _try_ctfe_range_ctor(&v.ty(), &fv, env, ctx, &mut out);
         }),
         .None => ()
       ),
@@ -744,8 +744,8 @@ _try_comptime_array_index :: (
     }
   );
   caller_env := expr_info_adopt_env(&info);
-  arg_type := Rc.clone(info.ty);
-  arg_val := info.value;
+  arg_type := Rc.clone(info.ty());
+  arg_val := info.value();
   range_check := _check_range_type(&arg_type, env, ctx);
   if(range_check.is_range, {
     // Range slicing is no longer a comptime operation — fall through to the
@@ -967,7 +967,7 @@ _try_comptime_string_index :: (
     }
   );
   arg_val := match(
-    info.value,
+    info.value(),
     .Some(v) => v,
     .None => {
       exn.throw(
@@ -982,7 +982,7 @@ _try_comptime_string_index :: (
     }
   );
   caller_env := expr_info_adopt_env(&info);
-  arg_type := Rc.clone(info.ty);
+  arg_type := Rc.clone(info.ty());
   range_check := _check_range_type(&arg_type, env, ctx);
   result_val := _compute_comptime_string_index(
     str_value,
@@ -1052,7 +1052,7 @@ _locals_moved_inside :: (fn(e : &AstExpr, env : &Environment) -> ArrayList(_Move
       .Some(t) => match(
         find_variable_in_env(env, &t.value.*),
         .Some(v) => match(
-          v.consumed_at_token,
+          v.consumed_at_token(),
           .Some(c) => {
             inside := ((c.module_path == module) && (c.character >= lo) && (c.character <= hi));
             (seen : bool) = false;
@@ -1139,7 +1139,7 @@ _specialize_index_method :: (
     match(
       moved.get(mi),
       .Some(m) => {
-        m.variable.consumed_at_token = Option(Token).None;
+        m.variable.set_consumed_at_token(Option(Token).None);
       },
       .None => ()
     );
@@ -1162,7 +1162,7 @@ _specialize_index_method :: (
     match(
       moved.get(mi),
       .Some(m) => {
-        m.variable.consumed_at_token = Option(Token).Some(m.at);
+        m.variable.set_consumed_at_token(Option(Token).Some(m.at));
       },
       .None => ()
     );
@@ -1362,7 +1362,7 @@ _try_comptime_custom_type_index :: (
     }
   );
   arg_value := match(
-    arg_info.value,
+    arg_info.value(),
     .Some(v) => v,
     .None => {
       return(Option(IndexCallResult).None);
@@ -1373,7 +1373,7 @@ _try_comptime_custom_type_index :: (
     return(Option(IndexCallResult).None);
   });
   ct_caller_env := expr_info_adopt_env(&arg_info);
-  arg_type := Rc.clone(arg_info.ty);
+  arg_type := Rc.clone(arg_info.ty());
   // Find a ComptimeIndex method.
   ct_method := match(
     _find_comptime_index_method(value_type, &arg_type, &ct_caller_env),
@@ -1427,7 +1427,7 @@ _try_comptime_custom_type_index :: (
   // push a frame with `self` / `idx` bound.
   ct_cap_src := match(ct_fn_value, .FuncVal(__cifvd2, _) => fv_capture_source(&__cifvd2.*), _ => FvCaptureSource.Flat(ArrayList(String).new(), ArrayList(TypeValue).new()));
   ct_cap_vals := match(ct_fn_value, .FuncVal(__cifvd3, __cicv) => fv_capture_vals(&__cifvd3.*, &__cicv), _ => no_values());
-  ct_module_path := Rc.clone(ct_caller_env.module_path);
+  ct_module_path := Rc.clone(ct_caller_env.module_path());
   ct_callee_env := Environment.new(Rc.clone(ct_module_path));
   (ct_ci : usize) = usize(0);
   while(ct_ci < ct_cap_vals.len(), {
@@ -1448,7 +1448,7 @@ _try_comptime_custom_type_index :: (
     );
     ct_ci = (ct_ci + usize(1));
   });
-  _ct_frame := ct_callee_env.push_frame(false);
+  _ct_frame := ct_callee_env.push_frame()(false);
   ct_param_token := ast_expr_token(
     match(expr, .FnCall(_, ct_func_slot, _, _, _) => ct_func_slot, .Atom(_, _) => expr)
   );
@@ -1752,7 +1752,7 @@ try_to_call_with_index_trait :: (
     );
   });
   // For custom types: find the index method via trait lookup
-  arg_type := Rc.clone(arg_info.ty);
+  arg_type := Rc.clone(arg_info.ty());
   method_opt := _find_index_method(value_type, &arg_type, caller_env);
   method := match(
     method_opt,
@@ -1939,14 +1939,14 @@ _index_receiver_root :: (fn(recv : &AstExpr, env : &Environment, ctx : &EvalCont
     match(
       cur,
       .Atom(_, rr_tok) => {
-        return(get_variables_from_env(env, rr_tok.value.*.clone()).last());
+        return(get_variables_from_env(env, rr_tok.value.*.clone()).last_cloned());
       },
       .FnCall(_, rr_callee, Rc(rr_args), rr_infix, _) => {
         cur = cond(
           ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))) => {
             base := match(rr_args.get(usize(0)), .Some(b) => b, .None => make_err_expr());
             field_is_deref := match(rr_args.get(usize(1)), .Some(f) => ast_expr_is_atom_of(&f, "*"), .None => false);
-            base_is_ref := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&base)), .Some(bi) => (is_pointer_type(&bi.ty) || is_reference_struct_type(&bi.ty)), .None => true);
+            base_is_ref := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&base)), .Some(bi) => (is_pointer_type(&bi.ty()) || is_reference_struct_type(&bi.ty())), .None => true);
             if(field_is_deref || base_is_ref, {
               return(Option(Variable).None);
             });
@@ -1978,8 +1978,8 @@ _promote_index_call :: (fn(call : &AstExpr, env : &Environment, ctx : &mut EvalC
   read_ty := match(expr_info_index_method_type(&info), .Some(t) => t, .None => return(()));
   (recv : AstExpr) = match(call, .FnCall(_, pc_callee, _, _, _) => pc_callee, .Atom(_, _) => return(()));
   (idx : AstExpr) = match(call, .FnCall(_, _, Rc(pc_args), _, _) => match(pc_args.get(usize(0)), .Some(a) => a, .None => return(())), .Atom(_, _) => return(()));
-  recv_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&recv)), .Some(ri) => Rc.clone(ri.ty), .None => return(()));
-  arg_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&idx)), .Some(ai) => Rc.clone(ai.ty), .None => return(()));
+  recv_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&recv)), .Some(ri) => Rc.clone(ri.ty()), .None => return(()));
+  arg_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&idx)), .Some(ai) => Rc.clone(ai.ty()), .None => return(()));
   read_shape := match(_index_shape_of(&read_ty, &arg_ty), .Some(sh) => sh, .None => return(()));
   // The pre-V2b method serves writes itself; an `index_mut` is already one.
   if(!read_shape.is_projection || read_shape.is_mut, {
@@ -2155,10 +2155,10 @@ _is_index_place :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext) -> 
         return(false);
       });
       match(
-        get_variables_from_env(env, ast_expr_token(&isp_callee).value.*.clone()).last(),
+        get_variables_from_env(env, ast_expr_token(&isp_callee).value.*.clone()).last_cloned(),
         .Some(isp_v) => cond(
-          isp_v.is_compile_time_only => false,
-          true => has_index_impl(&isp_v.ty, &isp_args, env, ctx)
+          isp_v.is_compile_time_only() => false,
+          true => has_index_impl(&isp_v.ty(), &isp_args, env, ctx)
         ),
         .None => false
       )

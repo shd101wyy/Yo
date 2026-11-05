@@ -122,7 +122,7 @@ generate_loop_body :: (fn(body_expr : &AstExpr, indent : &String, context : &mut
   cond(
     ast_expr_is_fn_call_of(body_expr, BK_BEGIN, .None) => {
       ei_opt := context.base.get_expr_info(body_expr);
-      current_drops := match(ei_opt, .Some(ei) => ei.deferred_drop_expressions.clone(), .None => .None);
+      current_drops := match(ei_opt, .Some(ei) => ei.deferred_drop_expressions(), .None => .None);
       current_consumed := match(ei_opt, .Some(ei) => expr_info_consumed_variable_drop_expressions(&ei), .None => Option(ArrayList(AstExpr)).None);
       prev_pending := replace(&mut context.pending_deferred_drops, Option(ArrayList(AstExpr)).None);
       prev_consumed := replace(&mut context.consumed_var_pending_drops, Option(ArrayList(AstExpr)).None);
@@ -152,7 +152,7 @@ generate_loop_body :: (fn(body_expr : &AstExpr, indent : &String, context : &mut
               // flag-on).
               is_bare_temp := match(
                 context.base.get_expr_info(&arg),
-                .Some(aei) => is_temp_variable_name(&aei.env.module_path.*, code.clone()),
+                .Some(aei) => is_temp_variable_name(&aei.env().module_path().*, code.clone()),
                 .None => false
               );
               if(!is_bare_temp, {
@@ -189,7 +189,7 @@ generate_loop_body :: (fn(body_expr : &AstExpr, indent : &String, context : &mut
                   get_deferred_drop_target_atom_name(&de),
                   .Some(nm) => {
                     cn := sanitize_for_c_identifier(&nm, false);
-                    (is_temp_variable_name(match(ei_opt, .Some(e2) => e2.env.module_path.*.clone(), .None => String.from("")), cn.clone()) || _looks_like_minted_temp(cn.clone())) && !context.base.declared_c_var_names.with(dn_s => dn_s.contains(&cn))
+                    (is_temp_variable_name(match(ei_opt, .Some(e2) => e2.env().module_path().*.clone(), .None => String.from("")), cn.clone()) || _looks_like_minted_temp(cn.clone())) && !context.base.declared_c_var_names.with(dn_s => dn_s.contains(&cn))
                   },
                   .None => false
                 );
@@ -231,7 +231,7 @@ generate_loop_body :: (fn(body_expr : &AstExpr, indent : &String, context : &mut
       // operand inside the body drops its branch-scoped temps in the branch
       // (issues/fixed/short-circuit-rhs-temp-in-bare-arm-body-drops-out-of-scope.md).
       bei_opt := context.base.get_expr_info(body_expr);
-      body_drops := match(bei_opt, .Some(ei) => ei.deferred_drop_expressions.clone(), .None => .None);
+      body_drops := match(bei_opt, .Some(ei) => ei.deferred_drop_expressions(), .None => .None);
       body_consumed := match(bei_opt, .Some(ei) => expr_info_consumed_variable_drop_expressions(&ei), .None => Option(ArrayList(AstExpr)).None);
       prev_pending := replace(&mut context.pending_deferred_drops, Option(ArrayList(AstExpr)).None);
       prev_consumed := replace(&mut context.consumed_var_pending_drops, Option(ArrayList(AstExpr)).None);
@@ -263,7 +263,7 @@ generate_loop_body :: (fn(body_expr : &AstExpr, indent : &String, context : &mut
 /// early exit inside it. Same shape as `cond.yo`'s `_emit_cond_if_head`
 /// (issues/fixed/2026-10-24-a-temporary-object-built-in-a-while-condition-leaks-once-per-iteration.md).
 _emit_while_cond_break :: (fn(cond_expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> unit)({
-  cnd_drops := match(context.base.get_expr_info(cond_expr), .Some(cnd_ei) => cnd_ei.deferred_drop_expressions.clone(), .None => Option(ArrayList(AstExpr)).None);
+  cnd_drops := match(context.base.get_expr_info(cond_expr), .Some(cnd_ei) => cnd_ei.deferred_drop_expressions(), .None => Option(ArrayList(AstExpr)).None);
   cnd_prev := replace(&mut context.pending_deferred_drops, Option(ArrayList(AstExpr)).None);
   context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(&cnd_drops, &cnd_prev));
   cc := _call_generate_expr(cond_expr, indent.clone(), context);
@@ -355,7 +355,7 @@ generate_while_loop :: (fn(expr : &AstExpr, indent : &String, context : &mut Fun
       step_is_block := ast_expr_is_fn_call_of(&step_expr, BK_BEGIN, .None);
       (step_prev : Option(ArrayList(AstExpr))) = Option(ArrayList(AstExpr)).None;
       if(!step_is_block, {
-        step_drops := match(context.base.get_expr_info(&step_expr), .Some(st_ei) => st_ei.deferred_drop_expressions.clone(), .None => Option(ArrayList(AstExpr)).None);
+        step_drops := match(context.base.get_expr_info(&step_expr), .Some(st_ei) => st_ei.deferred_drop_expressions(), .None => Option(ArrayList(AstExpr)).None);
         step_prev = replace(&mut context.pending_deferred_drops, Option(ArrayList(AstExpr)).None);
         context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(&step_drops, &step_prev));
       });

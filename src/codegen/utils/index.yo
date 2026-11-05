@@ -764,9 +764,9 @@ std_allocator_abi_is_v2 :: (fn(env : &Environment, std_path : &String) -> bool)(
   (mut(vi) : usize) = usize(0);
   while(vi < vars.len(), {
     match(
-      vars.get(vi),
+      vars.get_cloned(vi),
       .Some(var) => match(
-        var.value.get(usize(0)),
+        var.value().get(usize(0)),
         .Some(.TypeVal(t)) => match(
           resolve_struct_shell(&t),
           Rc(.Struct({ id : sid, name : sname })) => {
@@ -1996,12 +1996,12 @@ _codegen_name_of_variables :: (fn(variable_name : &String, variables : &ArrayLis
   n := variables.len();
   cond(
     (n > usize(0)) => {
-      variable := match(variables.get(n - usize(1)), .Some(v) => v, .None => return(sanitize_for_c_identifier(variable_name.clone(), false)));
+      variable := match(variables.get_cloned(n - usize(1)), .Some(v) => v, .None => return(sanitize_for_c_identifier(variable_name.clone(), false)));
       // Extern-C: a Func with is_extern="c", OR a c_include'd GLOBAL symbol
       // (`stdout`/`stderr` — non-Func, so it can't carry is_extern on its type;
       // tracked in the g_extern_c_globals registry). Either way, keep the REAL
       // C name (skip the `__yo_c_reserved_` reserved-word prefix).
-      is_extern_c_fn := match(&variable.ty, Rc(.Func({ meta : __fm1 })) => match(&__fm1.*.is_extern, .Some(lang) => (lang == "c"), .None => false), _ => false);
+      is_extern_c_fn := match(&variable.ty(), Rc(.Func({ meta : __fm1 })) => match(&__fm1.*.is_extern, .Some(lang) => (lang == "c"), .None => false), _ => false);
       // The registry is NAME-keyed, but the rule is per-RESOLVED-variable
       // (extern-ness rides the TYPE):
       // a LOCAL binding that merely shares the name (IoError.from_errno's
@@ -2011,7 +2011,7 @@ _codegen_name_of_variables :: (fn(variable_name : &String, variables : &ArrayLis
       // returned Other instead of NotFound). Match the RESOLVED
       // variable's type against the global's DECLARED type to restore the
       // per-variable semantics.
-      is_extern_c_glob := extern_c_global_matches(variable.name.clone(), &variable.ty);
+      is_extern_c_glob := extern_c_global_matches(variable.name.clone(), &variable.ty());
       is_extern_c := (is_extern_c_fn || is_extern_c_glob);
       // A global bound under a Yo alias (`{ stdout : out } :: c_include(...)`)
       // is emitted by its C symbol, not by the alias
@@ -2035,7 +2035,7 @@ _codegen_name_of_variables :: (fn(variable_name : &String, variables : &ArrayLis
       // must keep theirs.
       // issues/fixed/module-global-c-names-are-not-namespaced.md.
       if(g_debug_mg, {
-        eprintln(`[mg] name=${variable.name} path=${variable.token.module_path.*} param=${variable.is_parameter} hit=${is_module_level_global(&variable.token.module_path.*, &variable.name)}`);
+        eprintln(`[mg] name=${variable.name} path=${variable.token.module_path.*} param=${variable.is_parameter()} hit=${is_module_level_global(&variable.token.module_path.*, &variable.name)}`);
       });
       // Never qualify when ANY match for this name is a PARAMETER: a
       // same-named parameter lexically shadows the global, so the bare
@@ -2050,9 +2050,9 @@ _codegen_name_of_variables :: (fn(variable_name : &String, variables : &ArrayLis
         (mg_i : usize) = usize(0);
         while(mg_i < n, {
           match(
-            variables.get(mg_i),
+            variables.get_cloned(mg_i),
             .Some(mv) => {
-              if(mv.is_parameter, {
+              if(mv.is_parameter(), {
                 mg_any_param = true;
               });
             },
@@ -2248,7 +2248,7 @@ deferred_drop_target_variable :: (fn(drop_expr : &AstExpr, base : &CodeGenContex
     get_deferred_drop_target_atom(drop_expr),
     .Some(atom) => match(
       base.get_expr_info(&atom),
-      .Some(aei) => scope_variables(ast_expr_id(&atom), &aei.env, ast_expr_token(&atom).value.*).last(),
+      .Some(aei) => scope_variables(ast_expr_id(&atom), &aei.env(), ast_expr_token(&atom).value.*).last_cloned(),
       .None => Option(Variable).None
     ),
     .None => Option(Variable).None

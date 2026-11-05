@@ -226,14 +226,14 @@ _select_best_variable :: (
   (mut(i) : usize) = usize(0);
   while(i < vars.len(), {
     v := match(
-      vars.get(i),
+      vars.get_cloned(i),
       .Some(x) => x,
       .None => {
         return(Option(Variable).None);
       }
     );
     match(
-      v.initialized_at_token,
+      v.initialized_at_token(),
       .Some(it) => {
         if(it.module_path == target.module_path, {
           exact := ((it.row == target.row) && (it.column == target.column));
@@ -264,7 +264,7 @@ _select_best_variable :: (
   match(
     best_visible,
     .Some(bv) => Option(Variable).Some(bv),
-    .None => vars.last()
+    .None => vars.last_cloned()
   )
 });
 
@@ -556,10 +556,10 @@ handle_hover :: (
   match(
     info_opt,
     .Some(info) => {
-      ty_opt = Option(String).Some(type_to_string(&info.ty));
-      fn_val = info.value;
+      ty_opt = Option(String).Some(type_to_string(&info.ty()));
+      fn_val = info.value();
       match(
-        info.value,
+        info.value(),
         .Some(v) => {
           vs := value_to_string(&v);
           if(vs != "<runtime value>", {
@@ -573,15 +573,15 @@ handle_hover :: (
       // declared at/nearest the cursor. NOT for a
       // member — `p.x` is the field, never the local `x` in scope.
       if(!is_member, {
-        vars := get_variables_from_env(&info.env, target.value.*.clone());
+        vars := get_variables_from_env(&info.env(), target.value.*.clone());
         if(vars.len() > usize(0), {
           match(
             _select_best_variable(&vars, &target),
             .Some(sv) => {
-              ty_opt = Option(String).Some(type_to_string(&sv.ty));
-              is_comptime = sv.is_compile_time_only;
+              ty_opt = Option(String).Some(type_to_string(&sv.ty()));
+              is_comptime = sv.is_compile_time_only();
               match(
-                sv.value.get(usize(0)),
+                sv.value().get(usize(0)),
                 .Some(vv) => {
                   fn_val = Option(EvalValue).Some(vv);
                   vs2 := value_to_string(&vv);

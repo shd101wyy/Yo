@@ -44,7 +44,7 @@ _indent_n :: (fn(base : &String, n : usize) -> String)({
 _comptime_bool :: (fn(arg : &AstExpr, context : &FunctionGenerationContext) -> Option(bool))(
   match(
     context.base.get_expr_info(arg),
-    .Some(ei) => match(ei.value, .Some(v) => match(v, .BoolVal(b) => Option(bool).Some(b), _ => Option(bool).None), .None => Option(bool).None),
+    .Some(ei) => match(ei.value(), .Some(v) => match(v, .BoolVal(b) => Option(bool).Some(b), _ => Option(bool).None), .None => Option(bool).None),
     .None => Option(bool).None
   )
 );
@@ -52,11 +52,11 @@ _comptime_bool :: (fn(arg : &AstExpr, context : &FunctionGenerationContext) -> O
 /// (a temp declaration or call). Atoms / compile-time values are safe.
 _expr_may_have_side_effects :: (fn(expr : &AstExpr, context : &FunctionGenerationContext) -> bool)({
   ei_opt := context.base.get_expr_info(expr);
-  has_var := match(&ei_opt, .Some(ei) => match(&ei.variable_name, .Some(_) => true, .None => false), .None => false);
+  has_var := match(&ei_opt, .Some(ei) => match(&ei.variable_name(), .Some(_) => true, .None => false), .None => false);
   if(has_var, {
     return(true);
   });
-  has_value := match(ei_opt, .Some(ei) => match(ei.value, .Some(_) => true, .None => false), .None => false);
+  has_value := match(ei_opt, .Some(ei) => match(ei.value(), .Some(_) => true, .None => false), .None => false);
   if(has_value, {
     return(false);
   });
@@ -91,7 +91,7 @@ _collect_created_var_names_from_expr :: (fn(expr : &AstExpr, result : &mut HashS
         context.base.get_expr_info(expr),
         .Some(ei) => {
           match(
-            &ei.variable_name,
+            &ei.variable_name(),
             .Some(vn) => {
               result.insert(vn.clone());
             },
@@ -116,7 +116,7 @@ _collect_created_var_names_from_expr :: (fn(expr : &AstExpr, result : &mut HashS
                   .Some(de) => match(
                     context.base.get_expr_info(&de),
                     .Some(dei) => match(
-                      &dei.variable_name,
+                      &dei.variable_name(),
                       .Some(dvn) => {
                         result.insert(dvn.clone());
                       },
@@ -181,7 +181,7 @@ _emit_node_list_drops :: (
   match(
     context.base.get_expr_info(list_owner),
     .Some(nei) => match(
-      &nei.deferred_drop_expressions,
+      &nei.deferred_drop_expressions(),
       .Some(node_drops) => {
         nd2 := node_drops.len();
         (j : usize) = usize(0);

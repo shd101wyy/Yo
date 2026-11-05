@@ -132,21 +132,21 @@ try_to_implement_array_by_array_type :: (
     });
     arg_info := match(arg_info_opt, .Some(it) => it, .None => new_expr_info(&env, &expected_element_type));
     set_expr_as_needs_to_call_dup(&evaluated_arg, ctx, exn, "element");
-    env_adopt(&env, &arg_info.env);
+    env_adopt(&env, &arg_info.env());
     // For first element: if expected element type is Array with unknown-length child,
     // update expected element type based on actual evaluated type.
     if((i == usize(0)) && is_array_type(&expected_element_type), {
-      if(is_array_type(&arg_info.ty), {
-        expected_element_type = Rc.clone(arg_info.ty);
+      if(is_array_type(&arg_info.ty()), {
+        expected_element_type = Rc.clone(arg_info.ty());
       });
     });
     // Type compatibility check.
-    if(!are_types_compatible(&arg_info.ty, &expected_element_type), {
+    if(!are_types_compatible(&arg_info.ty(), &expected_element_type), {
       exn.throw(
         dyn(
           format_error_message(
             ast_expr_token(&arg_expr),
-            `Array element at index ${i.to_string()} has incompatible type:\n- Expected: ${type_to_string(&expected_element_type)}\n- Given   : ${type_to_string(&arg_info.ty)}`
+            `Array element at index ${i.to_string()} has incompatible type:\n- Expected: ${type_to_string(&expected_element_type)}\n- Given   : ${type_to_string(&arg_info.ty())}`
           )
         )
       );
@@ -158,7 +158,7 @@ try_to_implement_array_by_array_type :: (
     // known, value not" — a RUNTIME element — so an array containing one is
     // not a constant.
     match(
-      arg_info.value,
+      arg_info.value(),
       .Some(v) => if(is_unknown_val(&v), {
         all_elements_are_comptime = false;
       }, {
@@ -183,9 +183,9 @@ try_to_implement_array_by_array_type :: (
   // (values/array.yo) already guarded exactly this way, which is why
   // `[a, b,]` worked while `Array(T, N)(a, b)` did not.
   if(all_elements_are_comptime, {
-    out_info.value = .Some(EvalValue.ArrayVal(value_cell_new(elements)));
+    out_info.set_value(.Some(EvalValue.ArrayVal(value_cell_new(elements))));
   });
-  out_info.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(runtime_arg_exprs);
+  out_info.set_runtime_arg_exprs_in_order(Option(ArrayList(AstExpr)).Some(runtime_arg_exprs));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   if(!all_elements_are_comptime, {
     // Runtime construction needs a temp to materialize into, exactly as the

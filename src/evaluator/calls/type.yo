@@ -126,7 +126,7 @@ try_to_call_type_with_arguments :: (
       .Some(o_f) => if(origin_beyond_n2b(&o_f.ty) && !is_std_module_path(&ast_expr_token(function_callee_expr).module_path.*, ctx.std_path.clone()), {
         o_shown := match(
           expr_info_table_get(&ctx.expr_info_table, ast_expr_id(function_callee_expr)),
-          .Some(ci) => match(&ci.value, .Some(.TypeVal(ct)) => Rc.clone(ct), _ => Rc.clone(o_f.ty)),
+          .Some(ci) => match(&ci.value(), .Some(.TypeVal(ct)) => Rc.clone(ct), _ => Rc.clone(o_f.ty)),
           .None => Rc.clone(o_f.ty)
         );
         exn.throw(dyn(format_error_message(ast_expr_token(function_callee_expr), origin_beyond_n2b_message(&o_shown))));
@@ -329,7 +329,7 @@ try_to_call_type_with_arguments :: (
     arg_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_arg));
     if(t9_field_is_reference && (t9_is_mut_marker || t9_is_amp_marker) && ast_expr_is_atom(&evaluated_arg), {
       match(
-        match(&arg_info_opt, .Some(t9_ai) => t9_ai.source_variable, .None => Option(Variable).None),
+        match(&arg_info_opt, .Some(t9_ai) => t9_ai.source_variable(), .None => Option(Variable).None),
         .Some(t9_rv) => if(variable_is_reference_binding(&t9_rv) && deref_rule_applies(ast_expr_token(&evaluated_arg), ctx) && !is_reference_deref_site(ast_expr_token(&evaluated_arg)), {
           reject_reference_without_deref(&t9_rv, ast_expr_token(&evaluated_arg), u8(2), ctx, exn);
         }),
@@ -355,7 +355,7 @@ try_to_call_type_with_arguments :: (
     match(
       &member_element.ty,
       Rc(.Reference(_, t9w_mut, _)) => match(
-        &arg_info.ty,
+        &arg_info.ty(),
         Rc(.Reference(_, _, _)) => (),
         _ => {
           (t9w_cur : AstExpr) = evaluated_arg;
@@ -371,16 +371,16 @@ try_to_call_type_with_arguments :: (
               .Atom(_, _) => make_err_expr()
             );
             t9w_star := match(&t9w_cur, .FnCall(_, _, t9w_sargs, _, _) => match(t9w_sargs.get(usize(1)), .Some(t9w_l) => ast_expr_is_atom_of(&t9w_l, "*"), .None => false), .Atom(_, _) => false);
-            t9w_raw = (t9w_star && match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&t9w_base)), .Some(t9w_bi) => is_pointer_type(&t9w_bi.ty), .None => false));
+            t9w_raw = (t9w_star && match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&t9w_base)), .Some(t9w_bi) => is_pointer_type(&t9w_bi.ty()), .None => false));
             t9w_cur = t9w_base;
           });
           if(t9w_raw, {
-            t9w_lend_ty = Option(TypeValue).Some(t_reference(&arg_info.ty, t9w_mut));
+            t9w_lend_ty = Option(TypeValue).Some(t_reference(&arg_info.ty(), t9w_mut));
           });
           if(!t9w_raw && ast_expr_is_atom(&t9w_cur), {
             t9w_names := ArrayList(String).new();
             t9w_names.push(ast_expr_token(&t9w_cur).value.*.clone());
-            t9w_lend_ty = Option(TypeValue).Some(t_reference_with_origin(&arg_info.ty, t9w_mut, t_origin_named(&shared_list(t9w_names))));
+            t9w_lend_ty = Option(TypeValue).Some(t_reference_with_origin(&arg_info.ty(), t9w_mut, t_origin_named(&shared_list(t9w_names))));
             // Record the lend on the PLACE's ExprInfo (the converted-runtime
             // type slot, read by no codegen path for a place): the binding
             // freeze reads it back — the marker is peeled out of the tree, so
@@ -393,8 +393,8 @@ try_to_call_type_with_arguments :: (
       _ => ()
     );
     // Decision 44: a callable into a `Dyn(Fn(...))` field is `dyn(f)`.
-    reject_bare_callable_into_dyn_fn(&member_element.ty, &arg_info.ty, &actual_arg_expr, `field "${member_element.label}"`, ctx, exn);
-    reject_second_class_escape(&arg_info.ty, String.from("stored in a field of a named type"), ast_expr_token(&actual_arg_expr), ctx, exn);
+    reject_bare_callable_into_dyn_fn(&member_element.ty, &arg_info.ty(), &actual_arg_expr, `field "${member_element.label}"`, ctx, exn);
+    reject_second_class_escape(&arg_info.ty(), String.from("stored in a field of a named type"), ast_expr_token(&actual_arg_expr), ctx, exn);
     // A reference field stores the place's address (T9): no ownership is
     // copied, so no dup. One recorded here paired with the place's own
     // scope-end drop, and the pair optimizer cancelled both as a move into
@@ -403,7 +403,7 @@ try_to_call_type_with_arguments :: (
     if(!t9_field_is_reference, {
       set_expr_as_needs_to_call_dup(&evaluated_arg, ctx, exn, "field-store");
     });
-    env_adopt(&env, &arg_info.env);
+    env_adopt(&env, &arg_info.env());
     // Convert comptime type → runtime type unless the field type is comptime-only.
     // A comptime numeric bound for a numeric FIELD coerces to the field's
     // type, and an integer value must fit it (E1102) — the rule every slot
@@ -412,11 +412,11 @@ try_to_call_type_with_arguments :: (
     // `k :: 3` constant.
     arg_type := if(
       _is_comptime_only_type_approx(&member_element.ty),
-      Rc.clone(arg_info.ty),
+      Rc.clone(arg_info.ty()),
       match(
-        comptime_numeric_slot_type(&arg_info.ty, &arg_info.value, &member_element.ty, ast_expr_token(&actual_arg_expr), exn),
+        comptime_numeric_slot_type(&arg_info.ty(), &arg_info.value(), &member_element.ty, ast_expr_token(&actual_arg_expr), exn),
         .Some(fct) => fct,
-        .None => convert_comptime_type_to_runtime_type(&arg_info.ty, &env)
+        .None => convert_comptime_type_to_runtime_type(&arg_info.ty(), &env)
       )
     );
     // A T9 lend's argument type is the field's reference over the place.
@@ -429,10 +429,10 @@ try_to_call_type_with_arguments :: (
     );
     // Type compatibility check. A site `yo fix --migrate dyn-spelling`
     // recorded stands for the rewrite's `dyn(value)`, which the field takes.
-    if(!bare_callable_recorded_into_dyn_fn(&member_element.ty, &arg_info.ty) && !are_types_compatible(&arg_type, &member_element.ty), {
+    if(!bare_callable_recorded_into_dyn_fn(&member_element.ty, &arg_info.ty()) && !are_types_compatible(&arg_type, &member_element.ty), {
       if(in_def_time_trial() && debug_knob(`YO_DEBUG_CTFE`).is_some(), {
         eprintln(
-          `[tycall-mismatch] label=${member_element.label} expected=${type_to_string(&member_element.ty)} got=${type_to_string(&arg_type)} argval=${match(arg_info.value, .Some(av) => value_to_string(&av), .None => String.from("<none>"))}`
+          `[tycall-mismatch] label=${member_element.label} expected=${type_to_string(&member_element.ty)} got=${type_to_string(&arg_type)} argval=${match(arg_info.value(), .Some(av) => value_to_string(&av), .None => String.from("<none>"))}`
         );
       });
       // The same mistake as an argument that does not fit its parameter,
@@ -450,7 +450,7 @@ try_to_call_type_with_arguments :: (
       );
     });
     // Store the result.
-    values(member_element_position_index) = arg_info.value;
+    values(member_element_position_index) = arg_info.value();
     runtime_arg_exprs_in_order(member_element_position_index) = evaluated_arg;
     arg_types(member_element_position_index) = Option(TypeValue).Some(arg_type);
     checked_indices.insert(member_element_position_index, true);

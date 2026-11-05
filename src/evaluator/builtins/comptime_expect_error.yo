@@ -113,7 +113,7 @@ evaluate_comptime_expect_error :: (
   // frame and was rejected with "cannot capture outer runtime variables"
   // (the algebraic_effects batch FTT). Restore env frame depth + the ctx
   // mode fields after the arg eval, success or throw.
-  saved_frames_len := env.frames.len();
+  saved_frames_len := env.frames_len();
   // Snapshot the frame LIST OBJECT too. The evaluator threads envs by
   // reassigning `env.frames = <ExprInfo>.env.frames` after a sub-evaluation
   // (initialization_assignment.yo's typed-binding path among others), and
@@ -129,7 +129,7 @@ evaluate_comptime_expect_error :: (
   // own `assert` (measured on `comptime_expect_error((p : *(i32)) = i32(0))`
   // followed by `import("std/async")`). Restoring the depth is not enough;
   // the depth has to be restored ON THE ORIGINAL LIST.
-  saved_frames_list := Rc.clone(env.frames);
+  saved_frames_list := Rc.clone(env.frames());
   // Snapshot the FRAME OBJECTS, not just the depth. The expected throw can
   // unwind past a `pop_frame` and leave the env SHORTER than it started —
   // measured on `cee(begin((p : *(i32)) = i32(0), ()))`: 3 frames in, 2 out,
@@ -141,9 +141,9 @@ evaluate_comptime_expect_error :: (
   mut(saved_frames) := ArrayList(Frame).new();
   {
     (mut(sf_i) : usize) = usize(0);
-    while(sf_i < env.frames.len(), {
+    while(sf_i < env.frames_len(), {
       match(
-        env.frames.get(sf_i),
+        env.frame_at(sf_i),
         .Some(sf) => {
           saved_frames.push(sf);
         },
@@ -161,11 +161,11 @@ evaluate_comptime_expect_error :: (
   mut(saved_frame_var_counts) := ArrayList(usize).new();
   {
     (mut(sfv_i) : usize) = usize(0);
-    while(sfv_i < env.frames.len(), {
+    while(sfv_i < env.frames_len(), {
       match(
-        env.frames.get(sfv_i),
+        env.frame_at(sfv_i),
         .Some(sfv_f) => {
-          saved_frame_var_counts.push(sfv_f.variables.len());
+          saved_frame_var_counts.push(sfv_f.variables_len());
         },
         .None => {
           saved_frame_var_counts.push(usize(0));
@@ -189,16 +189,16 @@ evaluate_comptime_expect_error :: (
   mut(saved_frame_consumed) := ArrayList(ArrayList(Option(Token))).new();
   {
     (mut(sfc_i) : usize) = usize(0);
-    while(sfc_i < env.frames.len(), {
+    while(sfc_i < env.frames_len(), {
       mut(frame_marks) := ArrayList(Option(Token)).new();
       match(
-        env.frames.get(sfc_i),
+        env.frame_at(sfc_i),
         .Some(sfc_f) => {
           (mut(sfc_j) : usize) = usize(0);
-          while(sfc_j < sfc_f.variables.len(), {
+          while(sfc_j < sfc_f.variables_len(), {
             match(
-              sfc_f.variables.get(sfc_j),
-              .Some(sfc_v) => frame_marks.push(match(sfc_v.consumed_at_token, .Some(sfc_ct) => Option(Token).Some(sfc_ct), .None => Option(Token).None)),
+              sfc_f.variable_at(sfc_j),
+              .Some(sfc_v) => frame_marks.push(match(sfc_v.consumed_at_token(), .Some(sfc_ct) => Option(Token).Some(sfc_ct), .None => Option(Token).None)),
               .None => frame_marks.push(Option(Token).None)
             );
             sfc_j = (sfc_j + usize(1));
@@ -290,7 +290,7 @@ evaluate_comptime_expect_error :: (
     record_cee_error_message(&saved_observed_msgs(i));
   });
   truncate_forcing_depths(saved_depths);
-  env.frames = saved_frames_list;
+  env.set_frames(saved_frames_list);
   set_propagate_def_time_errors(saved_propagate);
   ctx.is_executing = saved_is_executing;
   ctx.is_validating_function_definition = saved_is_validating;
@@ -326,15 +326,15 @@ evaluate_comptime_expect_error :: (
   sync_mut_decl_census_untrusted(ctx);
   ctx.current_impl_trait_field_labels = saved_wt_labels;
   ctx.current_impl_trait_field_types = saved_wt_types;
-  while(env.frames.len() > saved_frames_len, {
-    env.pop_frame();
+  while(env.frames_len() > saved_frames_len, {
+    env.pop_frame()();
   });
   // ...and re-push the ones it POPPED (see the snapshot comment above).
   {
-    (rf_i : usize) = env.frames.len();
+    (rf_i : usize) = env.frames_len();
     while(rf_i < saved_frames_len, {
       match(
-        saved_frames.get(rf_i),
+        saved_frames.get_cloned(rf_i),
         .Some(rf) => {
           env_frames_for_write(env);
           Rc.make_mut(&mut env.frames).push(rf);
@@ -348,10 +348,10 @@ evaluate_comptime_expect_error :: (
   // frames — see the snapshot comment above.
   {
     (rfv_i : usize) = usize(0);
-    while(rfv_i < env.frames.len(), {
+    while(rfv_i < env.frames_len(), {
       rfv_saved := match(saved_frame_var_counts.get(rfv_i), .Some(n) => n, .None => usize(0));
       match(
-        env.frames.get(rfv_i),
+        env.frame_at(rfv_i),
         .Some(rfv_f) => {
           // A fresh list, never an in-place pop: a closure the arg eval made may
           // have captured a slice of this one (`CaptureSlice`, memory plan
@@ -369,20 +369,20 @@ evaluate_comptime_expect_error :: (
   // caller binding must not outlive the rejection (see the snapshot comment).
   {
     (rfc_i : usize) = usize(0);
-    while(rfc_i < env.frames.len(), {
+    while(rfc_i < env.frames_len(), {
       rfc_marks := match(saved_frame_consumed.get_cloned(rfc_i), .Some(m) => m, .None => ArrayList(Option(Token)).new());
       rfc_count := match(saved_frame_var_counts.get(rfc_i), .Some(c) => c, .None => usize(0));
       match(
-        env.frames.get(rfc_i),
+        env.frame_at(rfc_i),
         .Some(rfc_f) => {
           (rfc_j : usize) = usize(0);
           while(rfc_j < rfc_count, {
             match(
-              rfc_f.variables.get(rfc_j),
+              rfc_f.variable_at(rfc_j),
               .Some(rfc_v) => match(
                 rfc_marks.get(rfc_j),
                 .Some(rfc_mark) => {
-                  rfc_v.consumed_at_token = rfc_mark;
+                  rfc_v.set_consumed_at_token(rfc_mark);
                 },
                 .None => ()
               ),
@@ -416,7 +416,7 @@ evaluate_comptime_expect_error :: (
         want_eval := evaluate_expression_raw(&want_expr, env, ctx, exn);
         want_text := match(
           expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&want_eval)),
-          .Some(wi) => match(wi.value, .Some(wv) => match(wv, .StrLit(raw) => str_lit_unquote_bytes(&raw), _ => value_to_string(&wv)), .None => String.new()),
+          .Some(wi) => match(wi.value(), .Some(wv) => match(wv, .StrLit(raw) => str_lit_unquote_bytes(&raw), _ => value_to_string(&wv)), .None => String.new()),
           .None => String.new()
         );
         (matched : bool) = (want_text.len() == usize(0));
@@ -442,13 +442,13 @@ evaluate_comptime_expect_error :: (
       .None => ()
     );
     out_unit := new_expr_info(env, t_unit());
-    out_unit.value = Option(EvalValue).Some(EvalValue.UnitVal);
+    out_unit.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_unit);
     return(expr);
   });
   if(mb_held > usize(0), {
     out_unit := new_expr_info(env, t_unit());
-    out_unit.value = Option(EvalValue).Some(EvalValue.UnitVal);
+    out_unit.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_unit);
     return(expr);
   });
@@ -466,7 +466,7 @@ evaluate_comptime_expect_error :: (
         msg_info_opt,
         .Some(msg_info) => {
           match(
-            msg_info.value,
+            msg_info.value(),
             .Some(v) => {
               err_msg := match(v, .StrLit(raw) => raw.clone(), _ => value_to_string(&v));
               exn.throw(dyn(format_error_message(ast_expr_token(expr), &err_msg)));

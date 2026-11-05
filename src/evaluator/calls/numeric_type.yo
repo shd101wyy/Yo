@@ -141,7 +141,7 @@ _make_comptime_info :: (
     is_float_type(target_type) => EvalValue.FloatLit(raw.clone()),
     true => EvalValue.IntLit(raw.clone())
   );
-  out.value = .Some(val);
+  out.set_value(.Some(val));
   out
 });
 /// The integer a comptime float `raw` converts to in `target_type`: truncated
@@ -235,8 +235,8 @@ try_to_convert_to_numeric_type :: (
   });
   arg_info := match(info_opt, .Some(i) => i, .None => new_expr_info(caller_env, target_type));
   env := expr_info_adopt_env(&arg_info);
-  arg_val := arg_info.value;
-  arg_type := Rc.clone(arg_info.ty);
+  arg_val := arg_info.value();
+  arg_type := Rc.clone(arg_info.ty());
   // -----------------------------------------------------------------------
   // Case 0: Enum value → integer discriminant
   // -----------------------------------------------------------------------
@@ -312,7 +312,7 @@ try_to_convert_to_numeric_type :: (
     // specialization that resolves the source converts for real.
     if(is_unit_type(&arg_type) || is_some_type(&arg_type), {
       out_unk := new_expr_info(&env, target_type);
-      out_unk.value = Option(EvalValue).Some(create_unknown_val(target_type));
+      out_unk.set_value(Option(EvalValue).Some(create_unknown_val(target_type)));
       expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_unk);
       return(.Some(expr));
     });
@@ -412,7 +412,7 @@ try_to_convert_to_numeric_type :: (
       },
       .None => {
         out_info := new_expr_info(&env, target_type);
-        out_info.value = .Some(create_unknown_val(target_type));
+        out_info.set_value(.Some(create_unknown_val(target_type)));
         expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
         return(.Some(expr));
       }
@@ -439,7 +439,7 @@ try_to_convert_to_numeric_type :: (
     // loop); its `runtime_arg_exprs_in_order` is the value arg only (not the type).
     yo_as_node := _make_yo_as_node(alloc_global_expr_id(), ast_expr_token(expr), &evaluated, &type_expr);
     yo_as_info := new_expr_info(&env, target_type);
-    yo_as_info.value = .None;
+    yo_as_info.set_value(.None);
     mut(yo_as_rt) := ArrayList(AstExpr).new();
     // `evaluated` is already owned by the __yo_as node's args (above); push an
     // independent handle here so `runtime_arg_exprs` does not share that single
@@ -447,10 +447,10 @@ try_to_convert_to_numeric_type :: (
     // then reused, so both structures owned the one ref → stage-2 UAF). Clone
     // keeps the id (runtime-arg materialization looks up its ExprInfo).
     yo_as_rt.push(evaluated.clone());
-    yo_as_info.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(yo_as_rt);
+    yo_as_info.set_runtime_arg_exprs_in_order(Option(ArrayList(AstExpr)).Some(yo_as_rt));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&yo_as_node), &yo_as_info);
     out_info := new_expr_info(&env, target_type);
-    out_info.value = .None;
+    out_info.set_value(.None);
     // ALSO record in the durable id-keyed side-table: a later eval pass (e.g.
     // a cond-arm re-eval or branch-merge trial) can overwrite this expr's
     // ExprInfo WITHOUT macro_expansion, losing the lowering — codegen then

@@ -204,8 +204,8 @@ is_place_expression :: (fn(e : &AstExpr, env : &Environment) -> bool)({
   });
   return(
     match(
-      root_vars.last(),
-      .Some(rv) => !(rv.is_compile_time_only),
+      root_vars.last_cloned(),
+      .Some(rv) => !(rv.is_compile_time_only()),
       .None => false
     )
   );
@@ -340,12 +340,12 @@ _evaluate_guard_block_inner :: (fn(g : &AstExpr, env : &Environment, ctx : &mut 
 /// binding's last use (`audit_commit_arm_copies`, exprs/begin.yo).
 _commit_guard_copies :: (fn(env : &Environment, arm_frame : usize) -> unit)({
   if(dyn_copy_pending_exists(), {
-    match(env.frames.get(arm_frame), .Some(dfr) => discard_dyn_copies(&dfr), .None => ());
+    match(env.frame_at(arm_frame), .Some(dfr) => discard_dyn_copies(&dfr), .None => ());
   });
   if(!audit_pending_copies_enabled(), {
     return(());
   });
-  match(env.frames.get(arm_frame), .Some(fr) => audit_commit_arm_copies(&fr), .None => ());
+  match(env.frame_at(arm_frame), .Some(fr) => audit_commit_arm_copies(&fr), .None => ());
 });
 /// Judge the copies the arm's pattern bindings hold pending (the arm frame
 /// sits at `arm_frame` in `env`) against the arm's body, before the frame is
@@ -360,26 +360,26 @@ _judge_arm_copies :: (fn(env : &Environment, arm_frame : usize, body : Option(As
   scanned := ArrayList(AstExpr).new();
   match(body, .Some(b) => scanned.push(b), .None => ());
   if(dyn_copy_pending_exists(), {
-    match(env.frames.get(arm_frame), .Some(dfr) => judge_dyn_copies(&dfr, &scanned, ctx, exn), .None => ());
+    match(env.frame_at(arm_frame), .Some(dfr) => judge_dyn_copies(&dfr, &scanned, ctx, exn), .None => ());
   });
   if(audit_pending_copies_enabled(), {
-    match(env.frames.get(arm_frame), .Some(fr) => audit_judge_arm_copies(&fr, &scanned, ctx), .None => ());
+    match(env.frame_at(arm_frame), .Some(fr) => audit_judge_arm_copies(&fr, &scanned, ctx), .None => ());
   });
   // `yo fix --migrate rc-clone` judges its pending scrutinee borrows here
   // too: a single-expression arm has no block epilogue of its own.
   if(migrate_rc_clone_on(), {
-    match(env.frames.get(arm_frame), .Some(fr) => _migrate_judge_scrutinee_borrows(&fr, &scanned, ctx), .None => ());
+    match(env.frame_at(arm_frame), .Some(fr) => _migrate_judge_scrutinee_borrows(&fr, &scanned, ctx), .None => ());
     // An arm that writes through one of its bindings (`xs.push(v)` on a
     // field bound by `{ items : xs }`) needs a `&mut` scrutinee if the
     // migration borrows it: a binding through `&x` is read-only (E0908).
     // Judged here, after the body is evaluated: whether a method writes its
     // receiver is known only from the call's resolved callee.
     match(
-      env.frames.get(arm_frame),
+      env.frame_at(arm_frame),
       .Some(afr) => {
         (bvi : usize) = usize(0);
-        while(bvi < afr.variables.len(), bvi = (bvi + usize(1)), {
-          bname := afr.variables(bvi).name.clone();
+        while(bvi < afr.variables_len(), bvi = (bvi + usize(1)), {
+          bname := afr.variables()(bvi).name.clone();
           if(match(&body, .Some(b) => _subtree_assigns_variable(&b, bname.clone(), ctx), .None => false), {
             note_migrate_mut_scrutinee(scr);
           });
@@ -423,7 +423,7 @@ _scrutinee_root_variable :: (fn(scr : &AstExpr, env : &Environment) -> Option(Va
     );
   });
   cond(
-    (ast_expr_is_atom(&cur) && (ast_expr_token(&cur).kind == TokenKind.Identifier)) => get_variables_from_env(env, ast_expr_token(&cur).value.*.clone()).last(),
+    (ast_expr_is_atom(&cur) && (ast_expr_token(&cur).kind == TokenKind.Identifier)) => get_variables_from_env(env, ast_expr_token(&cur).value.*.clone()).last_cloned(),
     true => Option(Variable).None
   )
 });
@@ -449,14 +449,14 @@ _record_loop_handle_scrutinee_borrows :: (fn(e : &AstExpr, env : &Environment, e
             loop_scr := ast_expr_strip_borrow_marker(&loop_scr_raw);
             if(ast_expr_is_atom(&loop_scr) && (ast_expr_token(&loop_scr).kind == TokenKind.Identifier), {
               match(
-                get_variables_from_env(env, ast_expr_token(&loop_scr).value.*.clone()).last(),
+                get_variables_from_env(env, ast_expr_token(&loop_scr).value.*.clone()).last_cloned(),
                 // A `&`/`&mut` borrow (a `x : &T` parameter) is never
                 // consumed by a match: it already borrows.
-                .Some(rv) => if((rv.frame_level < entry_frames) && !rv.is_module_level && !rv.is_compile_time_only
+                .Some(rv) => if((rv.frame_level < entry_frames) && !rv.is_module_level() && !rv.is_compile_time_only()
                 && !_variable_is_imm_borrow(&rv) && !_variable_is_mut_borrow(&rv)
                 && !match_scrutinee_is_capture(&rv, env, ctx)
-                && type_holds_counted_handle_ignoring_migration(&rv.ty), {
-                  migrate_rc_clone_borrow_scrutinee(&loop_scr, &rv.ty, clone_scrutinee : _scrutinee_written_in_arms(e, rv.name.clone(), ctx));
+                && type_holds_counted_handle_ignoring_migration(&rv.ty()), {
+                  migrate_rc_clone_borrow_scrutinee(&loop_scr, &rv.ty(), clone_scrutinee : _scrutinee_written_in_arms(e, rv.name.clone(), ctx));
                 }),
                 .None => ()
               );
@@ -564,14 +564,14 @@ _scrutinee_written_in_arms :: (fn(whole : &AstExpr, name : &String, ctx : &EvalC
 _scrutinee_is_projection :: (fn(scr : &AstExpr, env : &Environment) -> bool)(
   cond(
     // A `.` access rooted at a runtime variable (`Type.Variant` is a value).
-    ast_expr_is_fn_call_of(scr, BF_DOT, Option(usize).Some(usize(2))) => match(_scrutinee_root_variable(scr, env), .Some(rv) => !rv.is_compile_time_only, .None => false),
+    ast_expr_is_fn_call_of(scr, BF_DOT, Option(usize).Some(usize(2))) => match(_scrutinee_root_variable(scr, env), .Some(rv) => !rv.is_compile_time_only(), .None => false),
     true => match(
       scr,
       // `xs(i)`: a call whose callee is a runtime variable, not a function.
       .FnCall(_, callee, _, _, _) => (
         ast_expr_is_atom(&callee) && match(
-          get_variables_from_env(env, ast_expr_token(&callee).value.*.clone()).last(),
-          .Some(cv) => !cv.is_compile_time_only,
+          get_variables_from_env(env, ast_expr_token(&callee).value.*.clone()).last_cloned(),
+          .Some(cv) => !cv.is_compile_time_only(),
           .None => false
         )
       ),
@@ -583,7 +583,7 @@ _scrutinee_is_projection :: (fn(scr : &AstExpr, env : &Environment) -> bool)(
 _variable_is_mut_borrow :: (fn(v : &Variable) -> bool)(variable_is_mut_borrow(v));
 /// The scrutinee is a reference binding named bare (`match(r, …)`).
 _scrutinee_is_reference_binding :: (fn(scr : &AstExpr, env : &Environment) -> bool)(
-  ast_expr_is_atom(scr) && match(get_variables_from_env(env, ast_expr_token(scr).value.*.clone()).last(), .Some(sv) => variable_is_reference_binding(&sv), .None => false)
+  ast_expr_is_atom(scr) && match(get_variables_from_env(env, ast_expr_token(scr).value.*.clone()).last_cloned(), .Some(sv) => variable_is_reference_binding(&sv), .None => false)
 );
 /// A binding that holds an `imm` borrow (`variable_is_imm_borrow`).
 _variable_is_imm_borrow :: (fn(v : &Variable) -> bool)(variable_is_imm_borrow(v));
@@ -659,7 +659,7 @@ _leftmost_token :: (fn(e : &AstExpr) -> Token)(
 /// then matched by value, moving that binding, as a run-time argument's is
 /// (issues/fixed/2026-10-30-a-generic-functions-match-binding-cannot-move-out-of-a-compile-time-known-argument.md).
 _scrutinee_moves_through_param_shadow :: (fn(rv : &Variable, ty : &TypeValue, env : &Environment) -> bool)(
-  type_requires_explicit_copy(ty) && (rv.is_parameter && (!rv.is_owning_the_rc_value && (!rv.is_ref && owning_param_binding_beside(env, rv).is_some())))
+  type_requires_explicit_copy(ty) && (rv.is_parameter() && (!rv.is_owning_the_rc_value() && (!rv.is_ref() && owning_param_binding_beside(env, rv).is_some())))
 );
 _decide_match_mode :: (
   fn(
@@ -676,7 +676,7 @@ _decide_match_mode :: (
   ) -> u8
 )({
   scr := ast_expr_strip_borrow_marker(scr_raw);
-  ty := Rc.clone(info.ty);
+  ty := Rc.clone(info.ty());
   root := _scrutinee_root_variable(&scr, env);
   is_atom := ast_expr_is_atom(&scr);
   if(marker == u8(2), {
@@ -737,9 +737,9 @@ _decide_match_mode :: (
     match(
       root,
       .Some(rv) => cond(
-        rv.is_module_level => _throw_unmovable_scrutinee(&scr, &ty, String.from("it is a module-level binding, which lives for the whole program and is never moved."), ctx, exn),
+        rv.is_module_level() => _throw_unmovable_scrutinee(&scr, &ty, String.from("it is a module-level binding, which lives for the whole program and is never moved."), ctx, exn),
         match_scrutinee_is_capture(&rv, env, ctx) => _throw_unmovable_scrutinee(&scr, &ty, String.from("it is a closure's capture, which the closure keeps for its next call."), ctx, exn),
-        rv.is_compile_time_only => (),
+        rv.is_compile_time_only() => (),
         true => {
           note_consuming_match_scrutinee(&dyn_tok);
           note_dyn_copy_pending(&rv, &dyn_tok, &ty);
@@ -766,7 +766,7 @@ _decide_match_mode :: (
         match(
           root,
           .Some(rv) => cond(
-            (rv.is_module_level || match_scrutinee_is_capture(&rv, env, ctx)) => true,
+            (rv.is_module_level() || match_scrutinee_is_capture(&rv, env, ctx)) => true,
             // A plain local of a type holding a counted handle: the rule
             // consumes it, so an arm that mentions it again — a read uses a
             // moved value, a write inside a loop leaves the next iteration
@@ -787,7 +787,7 @@ _decide_match_mode :: (
         migrate_rc_clone_borrow_scrutinee(
           &scr,
           &ty,
-          clone_scrutinee : (is_atom && match(root, .Some(rv) => (rv.is_module_level || _scrutinee_written_in_arms(whole, rv.name.clone(), ctx)), .None => false))
+          clone_scrutinee : (is_atom && match(root, .Some(rv) => (rv.is_module_level() || _scrutinee_written_in_arms(whole, rv.name.clone(), ctx)), .None => false))
         );
       });
       // A plain local the rule would consume: the branch below runs only
@@ -799,7 +799,7 @@ _decide_match_mode :: (
         match(
           root,
           .Some(rv) => (
-            !rv.is_module_level && !rv.is_compile_time_only
+            !rv.is_module_level() && !rv.is_compile_time_only()
             && !match_scrutinee_is_capture(&rv, env, ctx)
             && type_holds_counted_handle_ignoring_migration(&ty)
           ),
@@ -822,7 +822,7 @@ _decide_match_mode :: (
     match(
       root,
       .Some(rv) => cond(
-        rv.is_module_level => {
+        rv.is_module_level() => {
           _throw_unmovable_scrutinee(&scr, &ty, String.from("it is a module-level binding, which lives for the whole program and is never moved."), ctx, exn);
           return(MATCH_MODE_BORROW);
         },
@@ -830,7 +830,7 @@ _decide_match_mode :: (
           _throw_unmovable_scrutinee(&scr, &ty, String.from("it is a closure's capture, which the closure keeps for its next call."), ctx, exn);
           return(MATCH_MODE_BORROW);
         },
-        rv.is_compile_time_only => (),
+        rv.is_compile_time_only() => (),
         _scrutinee_moves_through_param_shadow(&rv, &ty, env) => {
           _moved := move_through_sink_shadow(&rv, &scr, env);
           note_consuming_match_scrutinee(&stok);
@@ -854,13 +854,13 @@ _decide_match_mode :: (
   });
   // A temporary: an owned one transfers to the arms.
   match(
-    &info.variable_name,
+    &info.variable_name(),
     .Some(tname) => match(
-      find_variable_in_env(&info.env, tname.clone()),
-      .Some(tv) => if(is_temp_variable_name(&env.module_path.*, &tname), {
-        if(tv.is_owning_the_rc_value, {
-          if(tv.consumed_at_token.is_none(), {
-            tv.consumed_at_token = Option(Token).Some(stok);
+      find_variable_in_env(&info.env(), tname.clone()),
+      .Some(tv) => if(is_temp_variable_name(&env.module_path().*, &tname), {
+        if(tv.is_owning_the_rc_value(), {
+          if(tv.consumed_at_token().is_none(), {
+            tv.set_consumed_at_token(Option(Token).Some(stok));
           });
         }, {
           _throw_unmovable_scrutinee(&scr, &ty, String.from("it is borrowed from the value that holds it (an element, or a binding into another value)."), ctx, exn);
@@ -895,7 +895,7 @@ _ArmOwnership :: struct(
 );
 _ownership_hidden_bind :: (fn(own : &mut _ArmOwnership, ty : &TypeValue, env : &Environment) -> BindInfo)({
   tok := own.tok;
-  name := generate_new_temp_variable_name(&env.module_path.*, usize(tok.row), usize(tok.column), Option(String).Some(`mv${own.counter.to_string()}`), Option(String).Some(tok.module_path.*.clone()));
+  name := generate_new_temp_variable_name(&env.module_path().*, usize(tok.row), usize(tok.column), Option(String).Some(`mv${own.counter.to_string()}`), Option(String).Some(tok.module_path.*.clone()));
   own.counter = (own.counter + usize(1));
   atok := Token(kind : TokenKind.Identifier, value : Rc.new(name.clone()), row : tok.row, column : tok.column, character : tok.character, byte_offset : tok.byte_offset, module_path : Rc.clone(tok.module_path), input : Rc.clone(tok.input));
   BindInfo(name : name, ty : Rc.clone(ty), value : Option(EvalValue).None, atom : AstExpr.Atom(alloc_global_expr_id(), atok))
@@ -1144,9 +1144,9 @@ _own_all :: (fn(vs : &ArrayList(Variable)) -> unit)({
   (i : usize) = usize(0);
   while(i < vs.len(), {
     match(
-      vs.get(i),
+      vs.get_cloned(i),
       .Some(v) => {
-        v.is_owning_the_rc_value = true;
+        v.set_is_owning_the_rc_value(true);
       },
       .None => ()
     );
@@ -1160,9 +1160,9 @@ _drop_owned_at_arm_end :: (fn(vs : &ArrayList(Variable), body : &AstExpr, env : 
   (i : usize) = usize(0);
   while(i < vs.len(), {
     match(
-      vs.get(i),
+      vs.get_cloned(i),
       .Some(v) => cond(
-        v.consumed_at_token.is_some() => attach_consumed_binding_exit_drops(body, &v, env, ctx, exn),
+        v.consumed_at_token().is_some() => attach_consumed_binding_exit_drops(body, &v, env, ctx, exn),
         true => drop_owned_match_binding_at_arm_end(&v, body, env, ctx, exn)
       ),
       .None => ()
@@ -1234,7 +1234,7 @@ evaluate_match :: (
   // redundant, and `yo fix --migrate deref` drops it.
   if(ast_expr_is_atom(&scrutinee_expr) && (borrowed_match_scrutinee_kind(ast_expr_token(expr)) != u8(0)), {
     match(
-      get_variables_from_env(&env, ast_expr_token(&scrutinee_expr).value.*.clone()).last(),
+      get_variables_from_env(&env, ast_expr_token(&scrutinee_expr).value.*.clone()).last_cloned(),
       .Some(sb_v) => if(variable_is_reference_binding(&sb_v) && deref_rule_applies(ast_expr_token(&scrutinee_expr), ctx), {
         reject_reference_without_deref(&sb_v, ast_expr_token(&scrutinee_expr), u8(3), ctx, exn);
       }),
@@ -1264,7 +1264,7 @@ evaluate_match :: (
   scr_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_scrutinee));
   (scr_has_var_name : bool) = match(
     scr_info_opt,
-    .Some(si) => si.variable_name.is_some(),
+    .Some(si) => si.variable_name().is_some(),
     .None => false
   );
   if(!(scr_has_var_name), {
@@ -1311,7 +1311,7 @@ evaluate_match :: (
       new_expr_info(&env, t_unit())
     }
   );
-  env_adopt(&env, &scr_info.env);
+  env_adopt(&env, &scr_info.env());
   // A scrutinee reached from a local borrow: its arms' bindings are places a
   // re-point of that borrow may go through (plans/VALUES_BY_DEFAULT.md
   // decision 25).
@@ -1319,8 +1319,8 @@ evaluate_match :: (
     local_borrows_active() => local_borrow_scrutinee_source(&scrutinee_expr, &env, ctx),
     true => Option(LocalBorrowInfo).None
   );
-  scrutinee_type := Rc.clone(scr_info.ty);
-  scrutinee_val_opt := scr_info.value;
+  scrutinee_type := Rc.clone(scr_info.ty());
+  scrutinee_val_opt := scr_info.value();
   // Check pointer type — dereference one level
   (matched_type : TypeValue) = Rc.clone(scrutinee_type);
   (is_ptr_match : bool) = false;
@@ -1524,8 +1524,8 @@ evaluate_match :: (
     // `base_frame_count` removes both the stray begin frame and the arm frame
     // regardless. Use pop_frame_nonmutating so recorded body-env snapshots
     // (which may alias env.frames) are not corrupted.
-    base_frame_count := env.frames.len();
-    env.push_frame(false);
+    base_frame_count := env.frames_len();
+    env.push_frame()(false);
     // Compile the pattern (its constant tests evaluate in this frame), then
     // bind the names it introduces.
     pc := new_pattern_ctx(ast_expr_id(&arm_expr), ct_known);
@@ -1597,7 +1597,7 @@ evaluate_match :: (
         match(
           _added,
           .Some(mb_var) => {
-            mb_var.is_reassignable = true;
+            mb_var.set_is_reassignable(true);
           },
           .None => ()
         );
@@ -1631,7 +1631,7 @@ evaluate_match :: (
         match(
           _added,
           .Some(bm_var) => {
-            bm_var.is_borrow_match_binding = true;
+            bm_var.set_is_borrow_match_binding(true);
           },
           .None => ()
         );
@@ -1661,7 +1661,7 @@ evaluate_match :: (
       // and the site would be invisible.
       if(migrate_rc_clone_on() && !consuming && !mut_places && !ct_known
       && (borrowed_match_scrutinee_kind(ast_expr_token(expr)) == u8(0))
-      && type_holds_counted_handle_ignoring_migration(&scr_info.ty)
+      && type_holds_counted_handle_ignoring_migration(&scr_info.ty())
       && type_holds_counted_handle_ignoring_migration(&b.ty)
       && !_names_contain(&rc_cell_borrowed, b.name.clone())
       && !(
@@ -1669,7 +1669,7 @@ evaluate_match :: (
           ast_expr_is_atom(&scrutinee_expr)
           && match(
             _scrutinee_root_variable(&scrutinee_expr, &env),
-            .Some(rv0) => (rv0.is_module_level || match_scrutinee_is_capture(&rv0, &env, ctx)),
+            .Some(rv0) => (rv0.is_module_level() || match_scrutinee_is_capture(&rv0, &env, ctx)),
             .None => false
           )
         )
@@ -1698,7 +1698,7 @@ evaluate_match :: (
               // A `mut` place: the binding aliases the part, so reads and
               // writes go through it (the guard reads it; it becomes
               // writable for the body).
-              av.is_ref = true;
+              av.set_is_ref(true);
               place_vars.push(av);
               any_place_binder = true;
             });
@@ -1751,19 +1751,19 @@ evaluate_match :: (
         match(
           expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_g)),
           .Some(gi) => {
-            if(!(are_types_compatible(&gi.ty, t_bool())), {
+            if(!(are_types_compatible(&gi.ty(), t_bool())), {
               exn.throw(
                 dyn(
                   format_error_message(
                     ast_expr_token(&g),
-                    `Match guard must be bool, got ${type_to_string(&gi.ty)}`
+                    `Match guard must be bool, got ${type_to_string(&gi.ty())}`
                   )
                 )
               );
               return(expr);
             });
             match(
-              gi.value,
+              gi.value(),
               .Some(.BoolVal(b)) => {
                 guard_val = Option(bool).Some(b);
               },
@@ -1797,8 +1797,8 @@ evaluate_match :: (
     should_process := ((gadt_reachable && !(ct_variant_miss)) && !(guard_false));
     if(!(should_process), {
       _judge_arm_copies(&env, base_frame_count, Option(AstExpr).None, ctx, exn, &scrutinee_expr);
-      while(env.frames.len() > base_frame_count, {
-        env.pop_frame_nonmutating();
+      while(env.frames_len() > base_frame_count, {
+        env.pop_frame_nonmutating()();
       });
     }, {
       // Stamp the pattern node for codegen: executed, typed as the selected
@@ -1898,11 +1898,11 @@ evaluate_match :: (
         (ui0 : usize) = usize(0);
         while(ui0 < unbound_vars.len(), {
           match(
-            unbound_vars.get(ui0),
+            unbound_vars.get_cloned(ui0),
             .Some(uv) => {
-              uv.is_owning_the_rc_value = true;
+              uv.set_is_owning_the_rc_value(true);
               entry_drops.push(evaluate_expression_raw(generate_expr_from_code(`___drop(${uv.name})`, exn), &env, ctx, exn));
-              uv.consumed_at_token = Option(Token).Some(ast_expr_token(&arm_expr));
+              uv.set_consumed_at_token(Option(Token).Some(ast_expr_token(&arm_expr)));
             },
             .None => ()
           );
@@ -1916,9 +1916,9 @@ evaluate_match :: (
         (pi0 : usize) = usize(0);
         while(pi0 < place_vars.len(), {
           match(
-            place_vars.get(pi0),
+            place_vars.get_cloned(pi0),
             .Some(pv) => {
-              pv.is_reassignable = true;
+              pv.set_is_reassignable(true);
               match(
                 mut_root,
                 .Some(rv) => {
@@ -1966,8 +1966,8 @@ evaluate_match :: (
       ctx.expected_type = old_expected;
       ctx.is_executing = old_executing;
       _judge_arm_copies(&env, base_frame_count, Option(AstExpr).Some(body_ast), ctx, exn, &scrutinee_expr);
-      while(env.frames.len() > base_frame_count, {
-        env.pop_frame_nonmutating();
+      while(env.frames_len() > base_frame_count, {
+        env.pop_frame_nonmutating()();
       });
       body_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_body));
       if(body_info_opt.is_none(), {
@@ -1985,14 +1985,14 @@ evaluate_match :: (
       // Trim the arm body's recorded env to the outer depth on a PRIVATE copy:
       // the recorded snapshot is shared between ExprInfos (`expr_info_env_snapshot`),
       // so popping it in place would rewrite every sharer's recorded scope.
-      if(body_info.env.frames.len() > base_frame_count, {
+      if(body_info.env().frames_len() > base_frame_count, {
         trimmed_env := expr_info_adopt_env(&body_info);
-        while(trimmed_env.frames.len() > base_frame_count, {
+        while(trimmed_env.frames_len() > base_frame_count, {
           pop_env_frame(&trimmed_env);
         });
-        body_info.env = trimmed_env;
+        body_info.set_env(trimmed_env);
       });
-      consume_case_body_temp_var(&evaluated_body, &body_info.env, ctx);
+      consume_case_body_temp_var(&evaluated_body, &body_info.env(), ctx);
       // NOTE: do NOT null body_info.value here for a runtime/unknown
       // scrutinee. `body_info` IS the shared ExprInfo object stored in the
       // table for this arm-body node (ExprInfo is an object → reference);
@@ -2001,27 +2001,27 @@ evaluate_match :: (
       // like `i32(0)` (whose value DID fold to 0). The match RESULT value is
       // already set to None for an unknown scrutinee by the post-loop, so the
       // per-arm nulling was redundant as well as harmful.
-      if(has_any_control_flow(body_info.control_flow), {
+      if(has_any_control_flow(body_info.control_flow()), {
         cf := match(
-          body_info.control_flow,
+          body_info.control_flow(),
           .Some(f) => f,
           .None => ControlFlowFlags(return_flag : false, unwind_flag : false, break_flag : false, continue_flag : false)
         );
         control_flows_em.push(cf);
-        if(has_control_flow(body_info.control_flow, .Return), {
+        if(has_control_flow(body_info.control_flow(), .Return), {
           return_bodies_em.push(evaluated_body);
         });
         // Concrete CT match with CF → set info early
         if(ct_known, {
-          out_cf := new_expr_info(&body_info.env, _arm_result_type(ctx, &body_info.ty));
-          out_cf.value = body_info.value;
-          out_cf.control_flow = body_info.control_flow;
+          out_cf := new_expr_info(&body_info.env(), _arm_result_type(ctx, &body_info.ty()));
+          out_cf.set_value(body_info.value());
+          out_cf.set_control_flow(body_info.control_flow());
           expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_cf);
         }, {
           if(scrutinee_val_opt.is_none(), {
-            out_cf2 := new_expr_info(&body_info.env, _arm_result_type(ctx, &body_info.ty));
-            out_cf2.value = Option(EvalValue).None;
-            out_cf2.control_flow = body_info.control_flow;
+            out_cf2 := new_expr_info(&body_info.env(), _arm_result_type(ctx, &body_info.ty()));
+            out_cf2.set_value(Option(EvalValue).None);
+            out_cf2.set_control_flow(body_info.control_flow());
             expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_cf2);
           });
         });
@@ -2031,12 +2031,12 @@ evaluate_match :: (
           &ctx.expected_type,
           .None => (),
           .Some(et) => {
-            if(!(are_types_compatible(&body_info.ty, &et.ty)), {
+            if(!(are_types_compatible(&body_info.ty(), &et.ty)), {
               exn.throw(
                 dyn(
                   format_error_message(
                     ast_expr_token(&evaluated_body),
-                    `Incompatible type with expected type:\n- Expected: ${type_to_string(&et.ty)}\n- Actual  : ${type_to_string(&body_info.ty)}`
+                    `Incompatible type with expected type:\n- Expected: ${type_to_string(&et.ty)}\n- Actual  : ${type_to_string(&body_info.ty())}`
                   )
                 )
               );
@@ -2070,10 +2070,10 @@ evaluate_match :: (
         });
       });
       // Result type consistency. A `never` arm is the join's identity.
-      if(is_never_type(&body_info.ty) && !(has_any_control_flow(body_info.control_flow)), {
+      if(is_never_type(&body_info.ty()) && !(has_any_control_flow(body_info.control_flow())), {
         never_bodies_em.push(evaluated_body);
       });
-      if(!(has_any_control_flow(body_info.control_flow)) && !(is_never_type(&body_info.ty)), {
+      if(!(has_any_control_flow(body_info.control_flow())) && !(is_never_type(&body_info.ty())), {
         if(is_gadt_match_em, {
           // GADT match: verify each branch body against
           // its GADT-REFINED expected type instead of cross-branch
@@ -2092,16 +2092,16 @@ evaluate_match :: (
             .Some(ge) => {
               if(gadt_gra.len() > usize(0), {
                 refined := _gadt_refined_expected(&ge.ty, &gadt_tca_em, &gadt_gra);
-                if(!(are_types_compatible(&body_info.ty, &refined)), {
+                if(!(are_types_compatible(&body_info.ty(), &refined)), {
                   exn.throw(
                     dyn(
                       mark_generic_independent(
                         format_error_message(
                           ast_expr_token(&evaluated_body),
-                          `GADT type mismatch in branch "${pattern_to_string(&arm.pattern)}":\n- Expected: ${type_to_string(&refined)}\n- Actual  : ${type_to_string(&body_info.ty)}`
+                          `GADT type mismatch in branch "${pattern_to_string(&arm.pattern)}":\n- Expected: ${type_to_string(&refined)}\n- Actual  : ${type_to_string(&body_info.ty())}`
                         ),
                         &refined,
-                        &body_info.ty
+                        &body_info.ty()
                       )
                     )
                   );
@@ -2118,22 +2118,22 @@ evaluate_match :: (
           match(
             result_type_em.clone(),
             .None => {
-              result_type_em = Option(TypeValue).Some(Rc.clone(body_info.ty));
+              result_type_em = Option(TypeValue).Some(Rc.clone(body_info.ty()));
             },
             .Some(rt) => {
-              if(!(are_types_compatible(&body_info.ty, &rt)), {
+              if(!(are_types_compatible(&body_info.ty(), &rt)), {
                 rt_rt := convert_comptime_type_to_runtime_type(&rt, &env);
                 // Symmetric comptime-numeric join, as in exprs/cond.yo: a
                 // previous comptime arm joins at this arm's concrete type
                 // (issues/fixed/cond-arm-type-unification-depends-on-arm-order.md).
-                if((((is_comptime_int_type(&rt) || is_comptime_float_type(&rt)) && are_types_compatible(&rt, &body_info.ty))) || are_types_compatible(&body_info.ty, &rt_rt), {
-                  result_type_em = Option(TypeValue).Some(Rc.clone(body_info.ty));
+                if((((is_comptime_int_type(&rt) || is_comptime_float_type(&rt)) && are_types_compatible(&rt, &body_info.ty()))) || are_types_compatible(&body_info.ty(), &rt_rt), {
+                  result_type_em = Option(TypeValue).Some(Rc.clone(body_info.ty()));
                 }, {
                   exn.throw(
                     dyn(
                       format_error_message(
                         ast_expr_token(&evaluated_body),
-                        `Incompatible types in match branches:\n- Previous: ${type_to_string(&rt)}\n- Current : ${type_to_string(&body_info.ty)}`
+                        `Incompatible types in match branches:\n- Previous: ${type_to_string(&rt)}\n- Current : ${type_to_string(&body_info.ty())}`
                       )
                     )
                   );
@@ -2376,9 +2376,9 @@ evaluate_match :: (
       ci_mb := match(bodies.get(ci_mi), .Some(b2) => b2, .None => make_err_expr());
       match(
         expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ci_mb)),
-        .Some(ci_mbi) => if(is_comptime_int_type(&ci_mbi.ty) && !(has_any_control_flow(ci_mbi.control_flow)), {
+        .Some(ci_mbi) => if(is_comptime_int_type(&ci_mbi.ty()) && !(has_any_control_flow(ci_mbi.control_flow())), {
           match(
-            ci_mbi.value,
+            ci_mbi.value(),
             .Some(ci_mv) => match(ci_mv, .IntLit(ci_mraw) => check_comptime_int_value_fits(&ci_mraw, &rt_em, ast_expr_token(&ci_mb), exn), _ => ()),
             .None => ()
           );
@@ -2399,7 +2399,7 @@ evaluate_match :: (
           // Only the arms that reach the join: a `break`/`continue` arm leaves
           // for the loop (its move state is snapshotted there, `break`/`continue`
           // in begin.yo), like a `return`/`unwind` arm leaves the function.
-          if(!(has_any_control_flow(bi.control_flow)), {
+          if(!(has_any_control_flow(bi.control_flow())), {
             non_return_em.push(b_em);
           });
         }
@@ -2419,11 +2419,11 @@ evaluate_match :: (
           expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&mb)),
           .None => (),
           .Some(mbi) => {
-            env_adopt(&env, &mbi.env);
-            matched_body_val = mbi.value;
+            env_adopt(&env, &mbi.env());
+            matched_body_val = mbi.value();
             did_use_matched_body = true;
             // A diverging matched arm never reaches the join.
-            if(!(has_any_control_flow(mbi.control_flow)), {
+            if(!(has_any_control_flow(mbi.control_flow())), {
               join_arm_em = Option(AstExpr).Some(mb);
             });
           }
@@ -2443,8 +2443,8 @@ evaluate_match :: (
               expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&first_nrem)),
               .None => (),
               .Some(bi) => {
-                env_adopt(&env, &bi.env);
-                matched_body_val = bi.value;
+                env_adopt(&env, &bi.env());
+                matched_body_val = bi.value();
                 did_use_single = true;
                 join_arm_em = Option(AstExpr).Some(first_nrem);
               }
@@ -2457,7 +2457,7 @@ evaluate_match :: (
               expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&first_nrem2)),
               .None => (),
               .Some(bi) => {
-                env_adopt(&env, &bi.env);
+                env_adopt(&env, &bi.env());
                 did_use_single = true;
                 join_arm_em = Option(AstExpr).Some(first_nrem2);
               }
@@ -2513,7 +2513,7 @@ evaluate_match :: (
       nb_mi = (nb_mi + usize(1));
     });
     out_em := new_expr_info(&env, &result_ty_final_em);
-    out_em.value = out_val_em;
+    out_em.set_value(out_val_em);
     if(is_primitive_switch, {
       expr_info_set_is_primitive_match(&out_em, Option(bool).Some(true));
     });
@@ -2551,7 +2551,7 @@ evaluate_match :: (
           match(
             expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&first_rb_em)),
             .Some(bi) => {
-              ret_type_em = Option(TypeValue).Some(Rc.clone(bi.ty));
+              ret_type_em = Option(TypeValue).Some(Rc.clone(bi.ty()));
             },
             .None => ()
           );
@@ -2629,8 +2629,8 @@ evaluate_match :: (
               true => Option(EvalValue).None
             );
             out_ret_em := new_expr_info(&env, &rt);
-            out_ret_em.value = ret_val_em;
-            out_ret_em.control_flow = final_cf_em;
+            out_ret_em.set_value(ret_val_em);
+            out_ret_em.set_control_flow(final_cf_em);
             if(is_primitive_switch, {
               expr_info_set_is_primitive_match(&out_ret_em, Option(bool).Some(true));
             });
@@ -2652,7 +2652,7 @@ evaluate_match :: (
         });
         esc_ty_em := match(&ctx.enclosing_function_return_type, .Some(t) => Rc.clone(t), .None => t_unit());
         out_esc_em := new_expr_info(&env, &esc_ty_em);
-        out_esc_em.control_flow = final_cf_em;
+        out_esc_em.set_control_flow(final_cf_em);
         if(is_primitive_switch, {
           expr_info_set_is_primitive_match(&out_esc_em, Option(bool).Some(true));
         });
@@ -2671,8 +2671,8 @@ evaluate_match :: (
           return(expr);
         });
         out_brk_em := new_expr_info(&env, t_unit());
-        out_brk_em.value = Option(EvalValue).Some(EvalValue.UnitVal);
-        out_brk_em.control_flow = final_cf_em;
+        out_brk_em.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
+        out_brk_em.set_control_flow(final_cf_em);
         if(is_primitive_switch, {
           expr_info_set_is_primitive_match(&out_brk_em, Option(bool).Some(true));
         });
@@ -2691,8 +2691,8 @@ evaluate_match :: (
           return(expr);
         });
         out_cnt_em := new_expr_info(&env, t_unit());
-        out_cnt_em.value = Option(EvalValue).Some(EvalValue.UnitVal);
-        out_cnt_em.control_flow = final_cf_em;
+        out_cnt_em.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
+        out_cnt_em.set_control_flow(final_cf_em);
         if(is_primitive_switch, {
           expr_info_set_is_primitive_match(&out_cnt_em, Option(bool).Some(true));
         });

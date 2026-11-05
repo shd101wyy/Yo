@@ -55,7 +55,7 @@ _throw_assert_failed :: (
       match(
         msg_info_opt,
         .Some(mi) => match(
-          mi.value,
+          mi.value(),
           .Some(mv) => match(
             mv,
             .StrLit(raw) => {
@@ -118,7 +118,7 @@ evaluate_comptime_assert :: (
         match(
           arg_info_opt,
           .Some(ai) => {
-            if(!is_bool_type(&ai.ty) && !is_unknown_val(match(ai.value, .Some(v) => v, .None => EvalValue.UnitVal)), {
+            if(!is_bool_type(&ai.ty()) && !is_unknown_val(match(ai.value(), .Some(v) => v, .None => EvalValue.UnitVal)), {
               exn.throw(
                 dyn(
                   format_error_message(
@@ -140,7 +140,7 @@ evaluate_comptime_assert :: (
             // Nested patterns do not parse (`.Some(.BoolVal(b))` is rejected),
             // so this is two matches.
             (is_false : bool) = match(
-              ai.value,
+              ai.value(),
               .Some(v) => match(v, .BoolVal(b) => !b, _ => false),
               .None => false
             );
@@ -165,7 +165,7 @@ evaluate_comptime_assert :: (
       .Some(create_unknown_val(&ret_type))
     );
     out_info := new_expr_info(env, &ret_type);
-    out_info.value = ret_val;
+    out_info.set_value(ret_val);
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
     return(expr);
   });
@@ -195,7 +195,7 @@ evaluate_comptime_assert :: (
     }
   );
   arg_val := match(
-    arg_info.value,
+    arg_info.value(),
     .Some(v) => v,
     .None => {
       exn.throw(
@@ -223,7 +223,7 @@ evaluate_comptime_assert :: (
   if(bool_val, {
     // Assertion passed — return unit.
     out_info := new_expr_info(env, t_unit());
-    out_info.value = .Some(EvalValue.UnitVal);
+    out_info.set_value(.Some(EvalValue.UnitVal));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   }, {
     _throw_assert_failed(expr, &arg_expr, &msg_expr_opt, env, ctx, exn);

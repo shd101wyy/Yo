@@ -89,12 +89,12 @@ expr_contains_unknown_value :: (fn(expr : &AstExpr, info : &ExprInfoTable) -> bo
   match(
     ei_opt,
     .Some(ei) => match(
-      ei.value,
+      ei.value(),
       .Some(v) => if(is_unknown_val(&v), {
         cond(
-          (is_function_type(&ei.ty) && _type_is_extern(&ei.ty)) => (),
+          (is_function_type(&ei.ty()) && _type_is_extern(&ei.ty())) => (),
           // known extern fn
-          is_unit_type(&ei.ty) => (),
+          is_unit_type(&ei.ty()) => (),
           true => {
             return(true);
           }
@@ -119,7 +119,7 @@ expr_contains_unknown_value :: (fn(expr : &AstExpr, info : &ExprInfoTable) -> bo
           .Some(arg) => {
             arg_is_unit := match(
               expr_info_table_get(info, ast_expr_id(&arg)),
-              .Some(aei) => is_unit_type(&aei.ty),
+              .Some(aei) => is_unit_type(&aei.ty()),
               .None => false
             );
             if(!arg_is_unit && recur(&arg, info), {
@@ -139,7 +139,7 @@ expr_contains_unknown_value :: (fn(expr : &AstExpr, info : &ExprInfoTable) -> bo
     .Some(ei) => match(
       expr_info_macro_expansion(&ei),
       .Some(me) => {
-        if(is_unit_type(&ei.ty), {
+        if(is_unit_type(&ei.ty()), {
           return(false);
         });
         if(recur(&me, info), {
@@ -173,7 +173,7 @@ expr_contains_unknown_value :: (fn(expr : &AstExpr, info : &ExprInfoTable) -> bo
         .None => ()
       );
       match(
-        &ei.deferred_drop_expressions,
+        &ei.deferred_drop_expressions(),
         .Some(drops) => {
           nr := drops.len();
           (ri : usize) = usize(0);
@@ -360,11 +360,11 @@ _register_extern_global_header :: (
     return(());
   });
   ei := match(ei_opt, .Some(e) => e, .None => return(()));
-  vs := scope_variables(key, &ei.env, name.clone());
+  vs := scope_variables(key, &ei.env(), name.clone());
   n := vs.len();
   resolved_ty := cond(
-    (n > usize(0)) => match(vs.get(n - usize(1)), .Some(x) => Rc.clone(x.ty), .None => return(())),
-    match(ei.is_accessing_property, .Some(b) => b, .None => false) => Rc.clone(ei.ty),
+    (n > usize(0)) => match(vs.get_cloned(n - usize(1)), .Some(x) => Rc.clone(x.ty()), .None => return(())),
+    match(ei.is_accessing_property(), .Some(b) => b, .None => false) => Rc.clone(ei.ty()),
     true => return(())
   );
   if(extern_c_global_matches(name.clone(), &resolved_ty), {
@@ -641,7 +641,7 @@ _find_function_calls_in_node :: (fn(expr : &AstExpr, context : &mut CodeGenConte
   match(
     ei_opt,
     .Some(ei) => match(
-      ei.value,
+      ei.value(),
       .Some(v) => if(is_struct_val(&v), {
         collect_effect_record_members(&v, context, info);
       }),
@@ -663,8 +663,8 @@ _find_function_calls_in_node :: (fn(expr : &AstExpr, context : &mut CodeGenConte
         match(expr, .FnCall(_, _, Rc(uargs), _, _) => uargs.get(usize(0)), .Atom(_, _) => Option(AstExpr).None),
         .Some(usrc) => match(
           expr_info_table_get(info, ast_expr_id(&usrc)),
-          .Some(usei) => if(is_dyn_type(&usei.ty) && is_dyn_type(&uei.ty), {
-            context.register_dyn_upcast(&usei.ty, &uei.ty);
+          .Some(usei) => if(is_dyn_type(&usei.ty()) && is_dyn_type(&uei.ty()), {
+            context.register_dyn_upcast(&usei.ty(), &uei.ty());
           }),
           .None => ()
         ),
@@ -762,7 +762,7 @@ _find_function_calls_in_node :: (fn(expr : &AstExpr, context : &mut CodeGenConte
       // trait-value methods).
       if(ast_expr_is_fn_call_of(&callee, BF_DOT, Option(usize).Some(usize(2))), {
         cdot_args := match(callee, .FnCall(_, _, Rc(da), _, _) => da.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
-        recv_ty := match(cdot_args.get(usize(0)), .Some(r) => match(expr_info_table_get(info, ast_expr_id(&r)), .Some(ri) => Rc.clone(ri.ty), .None => Rc.new(TypeValueNode.Unit)), .None => Rc.new(TypeValueNode.Unit));
+        recv_ty := match(cdot_args.get(usize(0)), .Some(r) => match(expr_info_table_get(info, ast_expr_id(&r)), .Some(ri) => Rc.clone(ri.ty()), .None => Rc.new(TypeValueNode.Unit)), .None => Rc.new(TypeValueNode.Unit));
         cmname := match(cdot_args.get(usize(1)), .Some(m) => if(ast_expr_is_atom(&m), ast_expr_text(&m).*.clone(), String.from("")), .None => String.from(""));
         // A STATIC receiver (`Self.method` / `P.method`, no instance — e.g. a
         // forward-referenced `Self.callee`) evaluates to a TypeValue, so recv_ty
@@ -770,7 +770,7 @@ _find_function_calls_in_node :: (fn(expr : &AstExpr, context : &mut CodeGenConte
         // on it misses P's static methods in the registry, leaving the callee
         // uncollected ("call to undeclared function"). Prefer the WRAPPED type's
         // id from the receiver's TypeVal value.
-        recv_static_id := match(cdot_args.get(usize(0)), .Some(r) => match(expr_info_table_get(info, ast_expr_id(&r)), .Some(ri) => match(ri.value, .Some(rv) => match(rv, .TypeVal(t) => type_id_or_empty(&t), _ => String.from("")), .None => String.from("")), .None => String.from("")), .None => String.from(""));
+        recv_static_id := match(cdot_args.get(usize(0)), .Some(r) => match(expr_info_table_get(info, ast_expr_id(&r)), .Some(ri) => match(ri.value(), .Some(rv) => match(rv, .TypeVal(t) => type_id_or_empty(&t), _ => String.from("")), .None => String.from("")), .None => String.from("")), .None => String.from(""));
         // A POINTER receiver (`self : *(Self)`) carries its methods on the
         // POINTEE type. `type_id_or_empty` has no Pointer case, so it returns ""
         // for `*(P)`, skipping the registry lookup below. That lookup is the ONLY
@@ -818,7 +818,7 @@ _find_function_calls_in_node :: (fn(expr : &AstExpr, context : &mut CodeGenConte
         // FuncVal from the receiver's module StructVal by label and register
         // it as a REGULAR function first, before the receiver walk.
         if(cmname.len() > usize(0), {
-          recv_mod_val := match(cdot_args.get(usize(0)), .Some(r) => match(expr_info_table_get(info, ast_expr_id(&r)), .Some(ri) => ri.value, .None => Option(EvalValue).None), .None => Option(EvalValue).None);
+          recv_mod_val := match(cdot_args.get(usize(0)), .Some(r) => match(expr_info_table_get(info, ast_expr_id(&r)), .Some(ri) => ri.value(), .None => Option(EvalValue).None), .None => Option(EvalValue).None);
           match(
             recv_mod_val,
             .Some(rmv) => match(
@@ -875,10 +875,10 @@ _find_function_calls_in_node :: (fn(expr : &AstExpr, context : &mut CodeGenConte
       );
       match(
         expr_info_table_get(info, ast_expr_id(&callee)),
-        .Some(cei) => if(is_function_type(&cei.ty), {
-          is_comptime_only := match(&cei.ty, Rc(.Func({ meta : __fm3 })) => __fm3.*.result_is_comptime_only, _ => false);
+        .Some(cei) => if(is_function_type(&cei.ty()), {
+          is_comptime_only := match(&cei.ty(), Rc(.Func({ meta : __fm3 })) => __fm3.*.result_is_comptime_only, _ => false);
           match(
-            cei.value,
+            cei.value(),
             .Some(fv) => cond(
               // ctl handler: inlined at the call site; recurse body, don't collect.
               (is_func_val(&fv) && is_control_fn(_func_val_id(&fv))) => {
@@ -898,10 +898,10 @@ _find_function_calls_in_node :: (fn(expr : &AstExpr, context : &mut CodeGenConte
               // Callee value present but not a function value (UnknownVal —
               // a c_include/extern symbol): register as an extern function,
               // exactly like the no-value arm below.
-              true => _register_extern_fn_callee(&cei.ty, expr, context)
+              true => _register_extern_fn_callee(&cei.ty(), expr, context)
             ),
             // No callee value → extern "c"/"yo": register as an extern function.
-            .None => _register_extern_fn_callee(&cei.ty, expr, context)
+            .None => _register_extern_fn_callee(&cei.ty(), expr, context)
           );
         }),
         .None => ()
@@ -920,8 +920,8 @@ _find_function_calls_in_node :: (fn(expr : &AstExpr, context : &mut CodeGenConte
   match(
     ei_opt,
     .Some(ei) => match(
-      ei.value,
-      .Some(v) => if(is_func_val(&v) && is_function_type(&ei.ty), {
+      ei.value(),
+      .Some(v) => if(is_func_val(&v) && is_function_type(&ei.ty()), {
         // A control function (ctl handler) used as a fn-pointer value must be a
         // standalone C function marked an effect-record member so `unwind(v)`
         // stashes into __yo_unwind_value. The control-fn side-table can miss
@@ -931,7 +931,7 @@ _find_function_calls_in_node :: (fn(expr : &AstExpr, context : &mut CodeGenConte
         v_is_control := (
           is_control_fn(_func_val_id(&v)) ||
             match(get_func_type(_func_val_id(&v)), Rc(.Func({ meta : __fm5 })) => __fm5.*.is_control, _ => false) ||
-              match(&ei.ty, Rc(.Func({ meta : __fm6 })) => __fm6.*.is_control, _ => false)
+              match(&ei.ty(), Rc(.Func({ meta : __fm6 })) => __fm6.*.is_control, _ => false)
         );
         cond(
           v_is_control => {
@@ -957,8 +957,8 @@ _find_function_calls_in_node :: (fn(expr : &AstExpr, context : &mut CodeGenConte
   // Comptime function call returning a type → collect the type.
   match(
     ei_opt,
-    .Some(ei) => if(is_type_value(&ei.value), {
-      match(ei.value, .Some(v) => match(v, .TypeVal(t) => _call_collect_type(&t, context), _ => ()), .None => ());
+    .Some(ei) => if(is_type_value(&ei.value()), {
+      match(ei.value(), .Some(v) => match(v, .TypeVal(t) => _call_collect_type(&t, context), _ => ()), .None => ());
     }),
     .None => ()
   );
@@ -979,7 +979,7 @@ _find_function_calls_in_node :: (fn(expr : &AstExpr, context : &mut CodeGenConte
         .None => ()
       );
       match(
-        &ei.deferred_drop_expressions,
+        &ei.deferred_drop_expressions(),
         .Some(drops) => {
           nr := drops.len();
           (ri : usize) = usize(0);
@@ -1021,7 +1021,7 @@ _find_function_calls_in_node :: (fn(expr : &AstExpr, context : &mut CodeGenConte
           // names. NOTE: type_key on a cyclic dyn (Dyn(Error)) could loop — the
           // corpus's Dyn(Speak) is acyclic so this is corpus-safe; a cycle-safe
           // key is future work for compiling std's self-referential traits.
-          if((tvs.len() > usize(0)) && is_dyn_type(&ei.ty), {
+          if((tvs.len() > usize(0)) && is_dyn_type(&ei.ty()), {
             // The dyn payload codegen emits is runtime_arg_exprs_in_order[0] —
             // for `dyn(valueStruct)` this is a SYNTHESIZED `Rc(T).new(value)` (auto-box,
             // type Rc(Sq)) that is NOT the source arg `cargs[0]` (the bare value).
@@ -1031,7 +1031,7 @@ _find_function_calls_in_node :: (fn(expr : &AstExpr, context : &mut CodeGenConte
             // emitted in the pre-pass (consistent with the new/dispose). Falls back
             // to the source arg for non-auto-boxed dyns.
             varg_opt := match(
-              &ei.runtime_arg_exprs_in_order,
+              &ei.runtime_arg_exprs_in_order(),
               .Some(ra) => match(ra.get(usize(0)), .Some(p) => Option(AstExpr).Some(p), .None => match(expr, .FnCall(_, _, Rc(cargs), _, _) => cargs.get(usize(0)), .Atom(_, _) => Option(AstExpr).None)),
               .None => match(expr, .FnCall(_, _, Rc(cargs), _, _) => cargs.get(usize(0)), .Atom(_, _) => Option(AstExpr).None)
             );
@@ -1042,7 +1042,7 @@ _find_function_calls_in_node :: (fn(expr : &AstExpr, context : &mut CodeGenConte
                 match(
                   expr_info_table_get(info, ast_expr_id(&varg)),
                   .Some(vei) => {
-                    vty := Rc.clone(vei.ty);
+                    vty := Rc.clone(vei.ty());
                     if(is_reference_struct_type(&vty) || is_boxed_type(&vty), {
                       // A cell handle's payload is its cell's (`cell_handle_view`).
                       concrete := if(is_boxed_type(&vty), match(cell_handle_view(&vty), .Some(hv) => Rc.clone(hv.payload), .None => match(&vty, Rc(.Struct({ field_types })) => match(field_types.get(usize(0)), .Some(ft) => ft, .None => Rc.clone(vty)), _ => Rc.clone(vty))), Rc.clone(vty));
@@ -1055,8 +1055,8 @@ _find_function_calls_in_node :: (fn(expr : &AstExpr, context : &mut CodeGenConte
                       // longer key → a fresh __yo_tN c-name per dyn-impl
                       // registration while the typedef stayed under the first
                       // name (stage-2: 416 "unknown type name" clang errors).
-                      impl_key := `${type_key(concrete.clone())}_${type_key(&ei.ty)}`;
-                      context.register_dyn_impl(&impl_key, DynImplEntry(dyn_type : Rc.clone(ei.ty), concrete_type : concrete, data_type : vty, trait_values : tvs));
+                      impl_key := `${type_key(concrete.clone())}_${type_key(&ei.ty())}`;
+                      context.register_dyn_impl(&impl_key, DynImplEntry(dyn_type : Rc.clone(ei.ty()), concrete_type : concrete, data_type : vty, trait_values : tvs));
                     });
                   },
                   .None => ()
@@ -1126,7 +1126,7 @@ _eval_and_register_rc_method :: (
   ctx.self_type = Option(TypeValue).Some(ct.clone());
   evaluated := evaluate_expression_raw(&expr, &fresh, ctx, exn);
   ctx.self_type = saved_self;
-  fv_opt := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated)), .Some(ei) => ei.value, .None => Option(EvalValue).None);
+  fv_opt := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated)), .Some(ei) => ei.value(), .None => Option(EvalValue).None);
   match(
     fv_opt,
     .Some(fv) => if(is_func_val(&fv), {

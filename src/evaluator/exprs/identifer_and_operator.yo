@@ -175,7 +175,7 @@ evaluate_identifier_and_operator :: (
       if(!shadowed_by_binding, {
         ev := create_type_value(&ty);
         info := new_expr_info(env, t_type());
-        info.value = Option(EvalValue).Some(ev);
+        info.set_value(Option(EvalValue).Some(ev));
         expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
         return(expr);
       });
@@ -198,11 +198,11 @@ evaluate_identifier_and_operator :: (
       if(is_some_type(&bound), self_tv, bound)
     }, self_tv);
     if(debug_knob(`YO_DEBUG_WARM`).is_some(), {
-      eprintln(`[selfatom] resolved=${type_key(&resolved)} mod=${env.module_path.*} loc=${token.module_path.*}:${token.row.to_string()}:${token.column.to_string()}`);
+      eprintln(`[selfatom] resolved=${type_key(&resolved)} mod=${env.module_path().*} loc=${token.module_path.*}:${token.row.to_string()}:${token.column.to_string()}`);
     });
     ev := create_type_value(&resolved);
     info := new_expr_info(env, t_type());
-    info.value = Option(EvalValue).Some(ev);
+    info.set_value(Option(EvalValue).Some(ev));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
     return(expr);
   });
@@ -214,7 +214,7 @@ evaluate_identifier_and_operator :: (
     trait_tv := match(self_trait_opt, .Some(tv) => Rc.clone(tv), .None => t_unit());
     ev := create_type_value(&trait_tv);
     info := new_expr_info(env, t_type());
-    info.value = Option(EvalValue).Some(ev);
+    info.set_value(Option(EvalValue).Some(ev));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
     return(expr);
   });
@@ -226,7 +226,7 @@ evaluate_identifier_and_operator :: (
     module_tv := match(self_module_opt, .Some(tv) => Rc.clone(tv), .None => t_unit());
     ev := create_type_value(&module_tv);
     info := new_expr_info(env, t_type());
-    info.value = Option(EvalValue).Some(ev);
+    info.set_value(Option(EvalValue).Some(ev));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
     return(expr);
   });
@@ -236,7 +236,7 @@ evaluate_identifier_and_operator :: (
   identifier_string := token.value.*.clone();
   if((identifier == "Self") && debug_knob(`YO_DEBUG_WARM`).is_some(), {
     env_self_cnt := get_variables_from_env(env, String.from("Self")).len();
-    eprintln(`[selfatom] path=env-lookup self_vars=${env_self_cnt.to_string()} mod=${env.module_path.*} loc=${token.module_path.*}:${token.row.to_string()}:${token.column.to_string()}`);
+    eprintln(`[selfatom] path=env-lookup self_vars=${env_self_cnt.to_string()} mod=${env.module_path().*} loc=${token.module_path.*}:${token.row.to_string()}:${token.column.to_string()}`);
   });
   mut(found_frame_idx_out) := ArrayList(usize).new();
   variable := match(
@@ -250,7 +250,7 @@ evaluate_identifier_and_operator :: (
       // unrelated binding that merely shares the name (another module, or
       // another function of the same module) stays ordinary
       // (issues/fixed/ghost-binding-escape-gate-is-a-process-global-name-set.md).
-      if(v.is_ghost_binding && !ctx.is_ghost_context, {
+      if(v.is_ghost_binding() && !ctx.is_ghost_context, {
         exn.throw(
           dyn(
             format_error_message(
@@ -284,7 +284,7 @@ evaluate_identifier_and_operator :: (
         // Unresolved OPERATOR names keep the soft fallback.
         if(string_is_operator(identifier_string.clone()), {
           fallback_info := new_expr_info(env, t_unit());
-          fallback_info.value = Option(EvalValue).Some(create_unknown_val(t_unit()));
+          fallback_info.set_value(Option(EvalValue).Some(create_unknown_val(t_unit())));
           expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &fallback_info);
           return(expr);
         });
@@ -296,13 +296,13 @@ evaluate_identifier_and_operator :: (
         // label-the-return hint still applies to unlabeled ensures below.
         if(ctx.is_evaluating_contract_predicate, {
           pred_info := new_expr_info(env, t_unit());
-          pred_info.value = Option(EvalValue).Some(create_unknown_val(t_unit()));
+          pred_info.set_value(Option(EvalValue).Some(create_unknown_val(t_unit())));
           expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &pred_info);
           return(expr);
         });
         // Ordinary identifiers throw.
         if(debug_knob(`YO_DEBUG_SWALLOW`).is_some(), {
-          eprintln(`[var-miss] name=${identifier_string} env_module=${env.module_path.*} frames=${env.frames.len().to_string()}`);
+          eprintln(`[var-miss] name=${identifier_string} env_module=${env.module_path().*} frames=${env.frames_len().to_string()}`);
         });
         // The suggestion doubles as a MECHANICAL REPAIR: the token IS the
         // name to rewrite (plans/archive/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md §2).
@@ -436,8 +436,8 @@ evaluate_identifier_and_operator :: (
     )
   );
   // Check initialization (unless it's a function type or type value — mutual recursion)
-  if((variable.initialized_at_token == Option(Token).None) && throw_error_on_undefined, {
-    if(!(is_function_type(&variable.ty) || is_type_value(variable.value.get(usize(0)))), {
+  if((variable.initialized_at_token() == Option(Token).None) && throw_error_on_undefined, {
+    if(!(is_function_type(&variable.ty()) || is_type_value(variable.value().get(usize(0)))), {
       exn.throw(
         dyn(
           format_error_message(
@@ -458,14 +458,14 @@ evaluate_identifier_and_operator :: (
   // sibling arm or a back edge sees (`reset_sibling_flow_state`,
   // `check_loop_flow`), so a read in another arm is not a read after a move.
   match(
-    variable.consumed_at_token,
+    variable.consumed_at_token(),
     .Some(moved_at) => {
       same_site := ((moved_at.row == token.row) && ((moved_at.column == token.column) && (moved_at.module_path == token.module_path)));
       if(!same_site && _read_after_move_is_checked(&variable, &token, env) && !migrate_borrowed_match_at(&moved_at), {
         // Through the flow-violation channel, so a definition-time trial
         // (a closure or `io.async` body) re-raises it instead of swallowing
         // it into an abort stub.
-        raise_flow_violation(use_of_moved_value_error(variable.name.clone(), &variable.ty, &token, variable_move_note(&variable, &moved_at)), ctx, exn);
+        raise_flow_violation(use_of_moved_value_error(variable.name.clone(), &variable.ty(), &token, variable_move_note(&variable, &moved_at)), ctx, exn);
         return(expr);
       });
     },
@@ -474,18 +474,18 @@ evaluate_identifier_and_operator :: (
   // A place a live capture-list closure borrows `mut` is frozen for every
   // access (decision 18 rule 2); synthesized drops and dups are not accesses
   // of the source.
-  if(!variable.is_compile_time_only && !token.module_path.*.starts_with(String.from("auto-generated://")), {
+  if(!variable.is_compile_time_only() && !token.module_path.*.starts_with(String.from("auto-generated://")), {
     check_capture_freeze_access(&variable, ctx.is_lhs_of_assignment, &token, env, ctx, exn);
   });
   // c_include constants (e.g. O_RDONLY from <fcntl.h>) have UnknownValue.
   // NOTE: `is_extern` is not consulted here; skip the runtime-value
   // special-case and always use the variable's compile-time value.
-  resolved_value := variable.value.get(usize(0));
+  resolved_value := variable.value().get(usize(0));
   // The warnings channel's read marker (D15): an identifier expression that
   // resolved to this binding is a USE of it. Assignment TARGETS resolve
   // through the cell, not here, so `x := 1; x = 2;` stays "unread" and the
   // scope-end walk warns — the variable's value never influenced anything.
-  variable.was_read = true;
+  variable.set_was_read(true);
   // Decision 43 step 2 N1e-1 (VERDICTS-13 §11): outside std and the compiler
   // tree a reference binding read as a whole value is spelled `r.*` (E0926);
   // the receiver, reference-slot and re-point positions marked it exempt.
@@ -506,19 +506,19 @@ evaluate_identifier_and_operator :: (
     local_borrow_access(local_borrow_place_of_variable(&variable), LocalBorrowAccess.Read, &token, ctx, exn);
   });
   // Build ExprInfo
-  info := new_expr_info(env, &variable.ty);
-  info.value = resolved_value;
-  expr_info_set_origin_type(&info, Option(TypeValue).Some(Rc.clone(variable.ty)));
-  info.variable_name = Option(String).Some(variable.name.clone());
-  info.source_variable = Option(Variable).Some(variable);
+  info := new_expr_info(env, &variable.ty());
+  info.set_value(resolved_value);
+  expr_info_set_origin_type(&info, Option(TypeValue).Some(Rc.clone(variable.ty())));
+  info.set_variable_name(Option(String).Some(variable.name.clone()));
+  info.set_source_variable(Option(Variable).Some(variable));
   // path_collection = [[variable.name]], shared per name.
-  info.path_collection = path_collection_of_name(&variable.name);
+  info.set_path_collection(path_collection_of_name(&variable.name));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
   // An extern C symbol's atom can be re-recorded by its call without a
   // `source_variable`; codegen still resolves the symbol by name through
   // the atom, so the scope release records the name (cheap gates first:
   // this path runs for every identifier).
-  if(match(&variable.ty, Rc(.Func({ meta : __xm })) => __xm.*.is_extern.is_some(), _ => false) || (variable.is_compile_time_only && (!is_function_type(&variable.ty) && is_extern_c_global(variable.name.clone()))), {
+  if(match(&variable.ty(), Rc(.Func({ meta : __xm })) => __xm.*.is_extern.is_some(), _ => false) || (variable.is_compile_time_only() && (!is_function_type(&variable.ty()) && is_extern_c_global(variable.name.clone()))), {
     scope_release_note_query(ast_expr_id(expr), variable.name.clone());
   });
   // ------------------------------------------------------------------
@@ -541,7 +541,7 @@ evaluate_identifier_and_operator :: (
           match(
             &ctx.captured_variables,
             .Some(_) => {
-              closure_frame_level := sub_env.frame_count();
+              closure_frame_level := sub_env.frame_count()();
               // Generation-safe INNER test: `variable.frame_level` is stamped
               // at the variable's CREATION env — for the enclosing fn's
               // PARAMS that is a DEEP call-time generation, so comparing it
@@ -571,9 +571,9 @@ evaluate_identifier_and_operator :: (
               );
               if(debug_knob(`YO_DEBUG_CAPTURE`).is_some(), {
                 cap_dbg_fi := match(found_frame_idx_out.get(usize(0)), .Some(v) => v.to_string(), .None => `?`.to_string());
-                cap_dbg_ev_top := match(sub_env.frames.get(closure_frame_level - usize(1)), .Some(fr) => fr.id.to_string(), .None => `?`.to_string());
-                cap_dbg_cur_top := match(env.frames.last(), .Some(fr2) => fr2.id.to_string(), .None => `?`.to_string());
-                eprintln(`[cap-fb] name=${variable.name} found_fi=${cap_dbg_fi} closure_fl=${closure_frame_level.to_string()} var_fl=${variable.frame_level.to_string()} inner=${cap_is_inner.to_string()} ev_top=${cap_dbg_ev_top} cur_frames=${env.frames.len().to_string()} cur_top=${cap_dbg_cur_top}`);
+                cap_dbg_ev_top := match(sub_env.frame_at(closure_frame_level - usize(1)), .Some(fr) => fr.id().to_string(), .None => `?`.to_string());
+                cap_dbg_cur_top := match(env.last_frame(), .Some(fr2) => fr2.id().to_string(), .None => `?`.to_string());
+                eprintln(`[cap-fb] name=${variable.name} found_fi=${cap_dbg_fi} closure_fl=${closure_frame_level.to_string()} var_fl=${variable.frame_level.to_string()} inner=${cap_is_inner.to_string()} ev_top=${cap_dbg_ev_top} cur_frames=${env.frames_len().to_string()} cur_top=${cap_dbg_cur_top}`);
               });
               if(!cap_is_inner && (variable.frame_level < closure_frame_level), {
                 track_variable_usage_resolved(
@@ -582,7 +582,7 @@ evaluate_identifier_and_operator :: (
                   CaptureUsage.Own,
                   &token,
                   ctx,
-                  Option(bool).Some(variable.is_compile_time_only)
+                  Option(bool).Some(variable.is_compile_time_only())
                 );
               });
               if(!cap_is_inner && (variable.frame_level >= closure_frame_level), {
@@ -600,7 +600,7 @@ evaluate_identifier_and_operator :: (
                   CaptureUsage.Own,
                   &token,
                   ctx,
-                  Option(bool).Some(variable.is_compile_time_only)
+                  Option(bool).Some(variable.is_compile_time_only())
                 );
               });
             },
@@ -611,7 +611,7 @@ evaluate_identifier_and_operator :: (
           match(
             &ctx.captured_variables,
             .Some(_) => {
-              async_frame_level := sub_env.frame_count();
+              async_frame_level := sub_env.frame_count()();
               // Generation-safe INNER test — the SAME repair the FunctionBody
               // arm above carries (the dyn+Impl(Fn) capture loss), which this
               // arm never got: `variable.frame_level` is stamped at the
@@ -640,7 +640,7 @@ evaluate_identifier_and_operator :: (
                   CaptureUsage.Own,
                   &token,
                   ctx,
-                  Option(bool).Some(variable.is_compile_time_only)
+                  Option(bool).Some(variable.is_compile_time_only())
                 );
               });
               if(!ab_is_inner && (variable.frame_level >= async_frame_level), {
@@ -658,7 +658,7 @@ evaluate_identifier_and_operator :: (
                   CaptureUsage.Own,
                   &token,
                   ctx,
-                  Option(bool).Some(variable.is_compile_time_only)
+                  Option(bool).Some(variable.is_compile_time_only())
                 );
               });
             },
@@ -691,7 +691,7 @@ _deleted_handle_ctor :: (fn(name : &String) -> Option(String))(
 /// (issues/fixed/a-reference-value-read-after-a-sink-move-reads-freed-memory.md).
 _read_after_move_is_checked :: (fn(variable : &Variable, token : &Token, env : &Environment) -> bool)(
   !token.module_path.*.starts_with(String.from("auto-generated://"))
-  && !is_temp_variable_name(&env.module_path.*, &variable.name)
+  && !is_temp_variable_name(&env.module_path().*, &variable.name)
 );
 /// The row of the first line that is neither blank nor a `//` comment — where
 /// the E0401 import repair inserts its line, so `//!` module docs stay first.

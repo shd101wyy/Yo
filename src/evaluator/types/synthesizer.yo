@@ -234,7 +234,7 @@ _bind_some_type :: (
     exn : Exception
   ) -> unit
 )({
-  token := match(tok, .Some(t) => t, .None => synthetic_token(name, &env.module_path.*));
+  token := match(tok, .Some(t) => t, .None => synthetic_token(name, &env.module_path().*));
   // The bound VARIABLE's declared type is the KIND of the bound value —
   // a type binder `T` always carries `Type`/`Trait` as its variable type.
   // Passing the bound TYPE ITSELF (a SomeT or concrete) made a later read
@@ -289,7 +289,7 @@ _bind_some_type :: (
       // call sees it (innermost-wins).
       last_idx := (n - usize(1));
       old_var := match(
-        vars.get(last_idx),
+        vars.get_cloned(last_idx),
         .Some(v) => v,
         .None => {
           return(());
@@ -307,7 +307,7 @@ _bind_some_type :: (
       // another lineage's `T` shadows it rather than overwriting it
       // (issues/fixed/a-caller-binder-named-t-collides-with-io-async-t.md).
       found_slot_someid := match(
-        old_var.value.get(usize(0)),
+        old_var.value().get(usize(0)),
         .Some(ov) => match(ov, .TypeVal(ovt) => match(ovt, Rc(.SomeT({ id : ovid })) => ovid.clone(), _ => variable_bound_some_id(&old_var)), _ => String.from("")),
         .None => String.from("")
       );
@@ -331,11 +331,11 @@ _bind_some_type :: (
       });
       bind_probe_name := match(debug_knob(`YO_DEBUG_BIND`), .Some(bpn) => bpn, .None => String.from(""));
       if((bind_probe_name.len() > usize(0)) && (name == bind_probe_name) && !val_is_self_marker, {
-        wrote_lvl := if(identity_mismatch || ((env.frames.len() > usize(0)) && (old_var.frame_level != (env.frames.len() - usize(1)))), env.frames.len() - usize(1), old_var.frame_level);
-        wrote_fid := match(env.frames.get(wrote_lvl), .Some(wf) => wf.id, .None => usize(0));
-        eprintln(`[bind-T] val=${value_to_string(val)} slot_lvl=${old_var.frame_level.to_string()} top=${(env.frames.len() - usize(1)).to_string()} wrote_lvl=${wrote_lvl.to_string()} fid=${wrote_fid.to_string()} inplace=${(!(identity_mismatch || ((env.frames.len() > usize(0)) && (old_var.frame_level != (env.frames.len() - usize(1)))))).to_string()}`);
+        wrote_lvl := if(identity_mismatch || ((env.frames_len() > usize(0)) && (old_var.frame_level != (env.frames_len() - usize(1)))), env.frames_len() - usize(1), old_var.frame_level);
+        wrote_fid := match(env.frame_at(wrote_lvl), .Some(wf) => wf.id(), .None => usize(0));
+        eprintln(`[bind-T] val=${value_to_string(val)} slot_lvl=${old_var.frame_level.to_string()} top=${(env.frames_len() - usize(1)).to_string()} wrote_lvl=${wrote_lvl.to_string()} fid=${wrote_fid.to_string()} inplace=${(!(identity_mismatch || ((env.frames_len() > usize(0)) && (old_var.frame_level != (env.frames_len() - usize(1)))))).to_string()}`);
       });
-      if(identity_mismatch || ((env.frames.len() > usize(0)) && (old_var.frame_level != (env.frames.len() - usize(1)))), {
+      if(identity_mismatch || ((env.frames_len() > usize(0)) && (old_var.frame_level != (env.frames_len() - usize(1)))), {
         _record_bound_some_id(
           add_variable_to_env(
             env,
@@ -363,21 +363,21 @@ _bind_some_type :: (
       new_var := Variable(
         id : old_var.id,
         name : old_var.name.clone(),
-        ty : Rc.clone(old_var.ty),
-        is_compile_time_only : old_var.is_compile_time_only,
+        ty : Rc.clone(old_var.ty()),
+        is_compile_time_only : old_var.is_compile_time_only(),
         frame_level : old_var.frame_level,
         value : value_cell_of(Option(EvalValue).Some(val)),
-        is_owning_the_rc_value : old_var.is_owning_the_rc_value,
-        is_owning_the_same_rc_value_as : old_var.is_owning_the_same_rc_value_as,
-        is_reassignable : old_var.is_reassignable,
+        is_owning_the_rc_value : old_var.is_owning_the_rc_value(),
+        is_owning_the_same_rc_value_as : old_var.is_owning_the_same_rc_value_as(),
+        is_reassignable : old_var.is_reassignable(),
         token : old_var.token,
-        initialized_at_token : old_var.initialized_at_token,
-        consumed_at_token : old_var.consumed_at_token,
-        is_implicit : old_var.is_implicit,
-        is_created_from_destructuring_atom_variable : old_var.is_created_from_destructuring_atom_variable,
-        rare : old_var.rare,
-        is_effect_param : old_var.is_effect_param,
-        is_module_level : old_var.is_module_level,
+        initialized_at_token : old_var.initialized_at_token(),
+        consumed_at_token : old_var.consumed_at_token(),
+        is_implicit : old_var.is_implicit(),
+        is_created_from_destructuring_atom_variable : old_var.is_created_from_destructuring_atom_variable(),
+        rare : old_var.rare(),
+        is_effect_param : old_var.is_effect_param(),
+        is_module_level : old_var.is_module_level(),
         is_ref : false,
         is_parameter : false
       );
@@ -1069,7 +1069,7 @@ _synthesize_types_impl :: (
           exn.throw(
             dyn(
               format_error_message(
-                _anchor(&tok, &exp_name, &ee.module_path.*),
+                _anchor(&tok, &exp_name, &ee.module_path().*),
                 `Cannot unify type variable "${exp_name}" with type "${type_to_string(given_ty)}" because it would create an infinite type.`
               )
             )
@@ -1137,7 +1137,7 @@ _synthesize_types_impl :: (
           exn.throw(
             dyn(
               format_error_message(
-                _anchor(&tok, &giv_name, &ge.module_path.*),
+                _anchor(&tok, &giv_name, &ge.module_path().*),
                 `Cannot unify type variable "${giv_name}" with type "${type_to_string(expected_ty)}" because it would create an infinite type.`
               )
             )
@@ -1159,7 +1159,7 @@ _synthesize_types_impl :: (
         dyn(
           mark_generic_independent(
             format_error_message(
-              _anchor(&tok, String.from("tuple"), &ee.module_path.*),
+              _anchor(&tok, String.from("tuple"), &ee.module_path().*),
               `Cannot unify incompatible tuple types: "${type_to_string(expected_ty)}" and "${type_to_string(given_ty)}"`
             ),
             expected_ty,
@@ -1277,14 +1277,14 @@ _synthesize_types_impl :: (
     if((exp_id3 != giv_id3) && !same_constructor3 && !same_shape3, {
       if(debug_knob(`YO_DEBUG_WARM`).is_some(), {
         eprintln(
-          `[unify-struct] exp_id=${exp_id3.clone()} giv_id=${giv_id3.clone()} exp_cfid=${exp_eff_cfid.clone()} giv_cfid=${giv_eff_cfid.clone()} exp_key=${type_key(expected_ty)} giv_key=${type_key(given_ty)} mod=${ee.module_path}`
+          `[unify-struct] exp_id=${exp_id3.clone()} giv_id=${giv_id3.clone()} exp_cfid=${exp_eff_cfid.clone()} giv_cfid=${giv_eff_cfid.clone()} exp_key=${type_key(expected_ty)} giv_key=${type_key(given_ty)} mod=${ee.module_path()}`
         );
       });
       exn.throw(
         dyn(
           mark_generic_independent(
             format_error_message(
-              _anchor(&tok, String.from("struct"), &ee.module_path.*),
+              _anchor(&tok, String.from("struct"), &ee.module_path().*),
               `Cannot unify incompatible struct types: "${type_to_string(expected_ty)}" and "${type_to_string(given_ty)}"`
             ),
             expected_ty,
@@ -1379,7 +1379,7 @@ _synthesize_types_impl :: (
         dyn(
           mark_generic_independent(
             format_error_message(
-              _anchor(&tok, String.from("enum"), &ee.module_path.*),
+              _anchor(&tok, String.from("enum"), &ee.module_path().*),
               `Cannot unify incompatible enum types: "${type_to_string(&exp_en_ty)}" and "${type_to_string(&giv_en_ty)}"`
             ),
             &exp_en_ty,
@@ -1628,9 +1628,9 @@ _synthesize_types_impl :: (
       lvar_vars := get_variables_from_env(&ee, &exp_lvar);
       if(lvar_vars.len() > usize(0), {
         match(
-          lvar_vars.last(),
+          lvar_vars.last_cloned(),
           .Some(lvar_var) => {
-            lvar_var.value = value_cell_of(Option(EvalValue).Some(EvalValue.IntLit(giv_len.to_string())));
+            lvar_var.set_value(value_cell_of(Option(EvalValue).Some(EvalValue.IntLit(giv_len.to_string()))));
           },
           .None => ()
         );
@@ -1644,7 +1644,7 @@ _synthesize_types_impl :: (
           false,
           false,
           false,
-          synthetic_token(&exp_lvar, &ee.module_path.*)
+          synthetic_token(&exp_lvar, &ee.module_path().*)
         );
       });
     });
@@ -1907,7 +1907,7 @@ _synthesize_types_impl :: (
         dyn(
           mark_generic_independent(
             format_error_message(
-              _anchor(&tok, String.from("type"), &ee.module_path.*),
+              _anchor(&tok, String.from("type"), &ee.module_path().*),
               `Cannot unify incompatible types: "${type_to_string(expected_ty)}" and "${type_to_string(given_ty)}"`
             ),
             expected_ty,

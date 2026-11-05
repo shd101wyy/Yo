@@ -135,7 +135,7 @@ evaluate_unwind :: (
       throw_unwind_type_mismatch(ast_expr_token(expr), &enclosing_ret, t_unit(), ctx, exn);
     });
     unit_info := new_expr_info(env, t_unit());
-    unit_info.control_flow = .Some(control_flow_of(.Unwind));
+    unit_info.set_control_flow(.Some(control_flow_of(.Unwind)));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &unit_info);
     return(expr);
   });
@@ -178,12 +178,12 @@ evaluate_unwind :: (
     .None => new_expr_info(env, t_i32())
   );
   // Type-check (skip when enclosing_ret is a SomeType).
-  if(!is_some_type(&enclosing_ret) && !are_types_compatible(&arg_info.ty, &enclosing_ret), {
-    throw_unwind_type_mismatch(ast_expr_token(&arg_expr), &enclosing_ret, &arg_info.ty, ctx, exn);
+  if(!is_some_type(&enclosing_ret) && !are_types_compatible(&arg_info.ty(), &enclosing_ret), {
+    throw_unwind_type_mismatch(ast_expr_token(&arg_expr), &enclosing_ret, &arg_info.ty(), ctx, exn);
   });
   // Emit ExprInfo: type = arg type, value = .None, control_flow = unwind.
-  out_info := new_expr_info(env, &arg_info.ty);
-  out_info.control_flow = .Some(control_flow_of(.Unwind));
+  out_info := new_expr_info(env, &arg_info.ty());
+  out_info.set_control_flow(.Some(control_flow_of(.Unwind)));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   expr
 });

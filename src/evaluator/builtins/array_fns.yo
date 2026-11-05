@@ -86,7 +86,7 @@ evaluate_yo_array_fill :: (
   (cur_env : Environment) = expr_info_adopt_env(&at_info);
   // Validate: must be TypeVal containing an Array type.
   at_tv_opt := match(
-    at_info.value,
+    at_info.value(),
     .Some(v) => match(v, .TypeVal(ty) => Option(TypeValue).Some(Rc.clone(ty)), _ => Option(TypeValue).None),
     .None => Option(TypeValue).None
   );
@@ -148,19 +148,19 @@ evaluate_yo_array_fill :: (
   );
   cur_env = expr_info_adopt_env(&fv_info);
   // Check type compatibility of fill value with element type.
-  if(!are_types_compatible(&fv_info.ty, &element_type), {
+  if(!are_types_compatible(&fv_info.ty(), &element_type), {
     exn.throw(
       dyn(
         format_error_message(
           ast_expr_token(&fill_value_arg),
-          `Fill value type ${type_to_string(&fv_info.ty)} is not compatible with array element type ${type_to_string(&element_type)}`
+          `Fill value type ${type_to_string(&fv_info.ty())} is not compatible with array element type ${type_to_string(&element_type)}`
         )
       )
     );
   });
   // Fill value must be compile-time known.
   fill_value := match(
-    fv_info.value,
+    fv_info.value(),
     .Some(v) => v,
     .None => {
       exn.throw(
@@ -178,7 +178,7 @@ evaluate_yo_array_fill :: (
   if(is_unknown_val(&fill_value), {
     array_val := create_unknown_val(&array_type_tv);
     out_info := new_expr_info(&cur_env, &array_type_tv);
-    out_info.value = Option(EvalValue).Some(array_val);
+    out_info.set_value(Option(EvalValue).Some(array_val));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   }, {
     // Build the array by repeating fill_value `length` times.
@@ -190,7 +190,7 @@ evaluate_yo_array_fill :: (
     });
     array_val := EvalValue.ArrayVal(value_cell_new(elements));
     out_info := new_expr_info(&cur_env, &array_type_tv);
-    out_info.value = Option(EvalValue).Some(array_val);
+    out_info.set_value(Option(EvalValue).Some(array_val));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   });
   expr

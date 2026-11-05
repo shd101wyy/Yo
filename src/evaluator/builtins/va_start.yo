@@ -80,7 +80,7 @@ evaluate_va_start :: (
               )
             );
           });
-          variable_opt := variables.last();
+          variable_opt := variables.last_cloned();
           match(
             variable_opt,
             .None => (),
@@ -88,21 +88,21 @@ evaluate_va_start :: (
               new_var := Variable(
                 id : variable.id,
                 name : variable.name.clone(),
-                ty : Rc.clone(variable.ty),
-                is_compile_time_only : variable.is_compile_time_only,
+                ty : Rc.clone(variable.ty()),
+                is_compile_time_only : variable.is_compile_time_only(),
                 frame_level : variable.frame_level,
-                value : Rc.clone(variable.value),
-                is_owning_the_rc_value : variable.is_owning_the_rc_value,
-                is_owning_the_same_rc_value_as : variable.is_owning_the_same_rc_value_as,
-                is_reassignable : variable.is_reassignable,
+                value : Rc.clone(variable.value()),
+                is_owning_the_rc_value : variable.is_owning_the_rc_value(),
+                is_owning_the_same_rc_value_as : variable.is_owning_the_same_rc_value_as(),
+                is_reassignable : variable.is_reassignable(),
                 token : variable.token,
                 initialized_at_token : .Some(ast_expr_token(&arg)),
-                consumed_at_token : variable.consumed_at_token,
-                is_implicit : variable.is_implicit,
-                is_created_from_destructuring_atom_variable : variable.is_created_from_destructuring_atom_variable,
-                rare : variable.rare,
-                is_effect_param : variable.is_effect_param,
-                is_module_level : variable.is_module_level,
+                consumed_at_token : variable.consumed_at_token(),
+                is_implicit : variable.is_implicit(),
+                is_created_from_destructuring_atom_variable : variable.is_created_from_destructuring_atom_variable(),
+                rare : variable.rare(),
+                is_effect_param : variable.is_effect_param(),
+                is_module_level : variable.is_module_level(),
                 is_ref : false,
                 is_parameter : false
               );
@@ -132,7 +132,7 @@ evaluate_va_start :: (
     );
   });
   info := new_expr_info(env, t_unit());
-  info.value = .Some(EvalValue.UnitVal);
+  info.set_value(.Some(EvalValue.UnitVal));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
   expr
 });

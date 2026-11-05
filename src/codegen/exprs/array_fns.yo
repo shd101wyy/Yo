@@ -19,9 +19,9 @@
 /// not a typed array call (fall-through).
 generate_anonymous_array :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> Option(String))({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(Option(String).None));
-  array_type := Rc.clone(ei.ty);
+  array_type := Rc.clone(ei.ty());
   match(
-    &ei.runtime_arg_exprs_in_order,
+    &ei.runtime_arg_exprs_in_order(),
     .Some(arg_exprs) => if(!is_array_type(&array_type), return(Option(String).None), {
       args_list := String.from("");
       n := arg_exprs.len();
@@ -63,7 +63,7 @@ generate_anonymous_array :: (fn(expr : &AstExpr, indent : &String, context : &mu
         array_value.push_str(" } }");
       });
       match(
-        &ei.variable_name,
+        &ei.variable_name(),
         .Some(temp_var) => {
           decl := indent.clone();
           decl.push_string(get_variable_type_string(&array_type, temp_var.clone(), &mut context.base));
@@ -88,7 +88,7 @@ generate_yo_array_fill :: (fn(expr : &AstExpr, indent : &String, context : &mut 
   // The ArrayType comes from the first argument's compile-time value.
   array_type := match(
     context.base.get_expr_info(&array_type_arg),
-    .Some(aei) => match(aei.value, .Some(v) => match(v, .TypeVal(t) => Rc.clone(t), _ => return(String.from("/* ERROR: __yo_array_fill first argument must be an ArrayType */"))), .None => return(String.from("/* ERROR: __yo_array_fill first argument must be an ArrayType */"))),
+    .Some(aei) => match(aei.value(), .Some(v) => match(v, .TypeVal(t) => Rc.clone(t), _ => return(String.from("/* ERROR: __yo_array_fill first argument must be an ArrayType */"))), .None => return(String.from("/* ERROR: __yo_array_fill first argument must be an ArrayType */"))),
     .None => return(String.from("/* ERROR: __yo_array_fill first argument must be an ArrayType */"))
   );
   if(!is_array_type(&array_type), {
@@ -98,7 +98,7 @@ generate_yo_array_fill :: (fn(expr : &AstExpr, indent : &String, context : &mut 
   array_type_name := get_type_string(&array_type, &mut context.base);
   fill_value_code := _call_generate_expr(&fill_value_arg, indent.clone(), context);
   temp_var_name := match(
-    &ei.variable_name,
+    &ei.variable_name(),
     .Some(v) => v.clone(),
     .None => fresh_local_name(
       String.from("temp_array_"),

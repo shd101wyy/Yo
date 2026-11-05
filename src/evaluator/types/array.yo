@@ -113,7 +113,7 @@ evaluate_array_type :: (
     .Some(info) => info,
     .None => new_expr_info(env, t_usize()) // unreachable
   );
-  if(!is_type_value(&elem_type_info.value), {
+  if(!is_type_value(&elem_type_info.value()), {
     exn.throw(
       dyn(
         format_error_message(
@@ -124,7 +124,7 @@ evaluate_array_type :: (
     );
   });
   child_type := match(
-    elem_type_info.value,
+    elem_type_info.value(),
     .Some(v) => match(
       v,
       .TypeVal(inner) => Rc.clone(inner),
@@ -163,7 +163,7 @@ evaluate_array_type :: (
   // compiler" throw, which emptied every batch main whose test file used
   // `Array(T, _)` (the array-family hollow).
   if(ast_expr_is_atom_of(&length_expr, "_"), {
-    lp_name := stable_module_id(`_array_length_`, &env_after_elem.module_path.*);
+    lp_name := stable_module_id(`_array_length_`, &env_after_elem.module_path().*);
     _lp := add_variable_to_env(
       &env_after_elem,
       lp_name.clone(),
@@ -179,7 +179,7 @@ evaluate_array_type :: (
     u_val := create_type_value(&u_array_type);
     u_meta := type_of_type(&u_array_type);
     u_info := new_expr_info(&env_after_elem, &u_meta);
-    u_info.value = Option(EvalValue).Some(u_val);
+    u_info.set_value(Option(EvalValue).Some(u_val));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &u_info);
     return(expr);
   });
@@ -208,7 +208,7 @@ evaluate_array_type :: (
   // `generic(U : usize)` → `Array(T, U)` and on UnknownVal-fallback
   // shapes; silently accept and continue with `usize(0)` placeholder
   // (set further down). Tracked in §5b/§5c of the gap doc.
-  len_info.ty;
+  len_info.ty();
   if(false, {
     exn.throw(
       dyn(
@@ -220,7 +220,7 @@ evaluate_array_type :: (
     );
   });
   len_value := match(
-    len_info.value,
+    len_info.value(),
     .Some(v) => v,
     // Soft fallback: treat missing length value as UnknownVal of usize
     // so the surrounding type evaluation can continue.
@@ -306,7 +306,7 @@ evaluate_array_type :: (
   meta_ty := type_of_type(&array_type);
   env_final := expr_info_adopt_env(&len_info);
   out_info := new_expr_info(&env_final, &meta_ty);
-  out_info.value = Option(EvalValue).Some(array_type_val);
+  out_info.set_value(Option(EvalValue).Some(array_type_val));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   expr
 });

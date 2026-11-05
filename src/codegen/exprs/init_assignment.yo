@@ -46,14 +46,14 @@ _all_digits :: (fn(s : &String) -> bool)({
 _last_is_compile_time_only :: (fn(key : ExprId, env : &Environment, name : &String) -> bool)({
   vars := scope_variables(key, env, name);
   m := vars.len();
-  if(m == usize(0), false, match(vars.get(m - usize(1)), .Some(v) => v.is_compile_time_only, .None => false))
+  if(m == usize(0), false, match(vars.get_cloned(m - usize(1)), .Some(v) => v.is_compile_time_only(), .None => false))
 });
 /// The last binding for `name` (in node `key`'s recorded scope `env`) is a
 /// module-level global.
 _last_is_module_level :: (fn(key : ExprId, env : &Environment, name : &String) -> bool)({
   vars := scope_variables(key, env, name);
   m := vars.len();
-  if(m == usize(0), false, match(vars.get(m - usize(1)), .Some(v) => v.is_module_level, .None => false))
+  if(m == usize(0), false, match(vars.get_cloned(m - usize(1)), .Some(v) => v.is_module_level(), .None => false))
 });
 /// Tuple positional index for a label, or -1-sentinel (== len) if not found.
 _tuple_index_of :: (fn(rhs_type : &TypeValue, label : &String) -> Option(usize))(
@@ -256,7 +256,7 @@ _generate_inout_local_binding :: (fn(lhs : &AstExpr, rhs : &AstExpr, bind_key : 
     .None => return(Option(String).Some(`// Error: No type information for mut binding ${ast_expr_token(&name_expr).value.*}`))
   );
   var_name := ast_expr_text(&name_expr).*.clone();
-  place_type := resolve_some_type_to_concrete(&name_ei.ty);
+  place_type := resolve_some_type_to_concrete(&name_ei.ty());
   // In an `io.async` state machine the reference and its pin live in their
   // task slots when they are live across a suspension (`_sm_local_slot`);
   // the place's root keeps its slot to the end of its scope, so the address
@@ -266,9 +266,9 @@ _generate_inout_local_binding :: (fn(lhs : &AstExpr, rhs : &AstExpr, bind_key : 
   // empty here, filled by each re-point, released by its scope-end drop.
   match(
     lookup_local_borrow_step_pin(ast_expr_id(lhs)),
-    .Some(sp) => if(!is_unit_type(&sp.ty), {
+    .Some(sp) => if(!is_unit_type(&sp.ty()), {
       mut(sp_decl) := indent.clone();
-      sp_decl.push_string(match(_sm_local_slot(&sp, context), .Some(slot) => slot, .None => get_variable_type_string(&sp.ty, sp.name.clone(), &mut context.base)));
+      sp_decl.push_string(match(_sm_local_slot(&sp, context), .Some(slot) => slot, .None => get_variable_type_string(&sp.ty(), sp.name.clone(), &mut context.base)));
       sp_decl.push_str(" = NULL;");
       context.base.emitter.emit_string_line(&sp_decl);
     }),
@@ -278,15 +278,15 @@ _generate_inout_local_binding :: (fn(lhs : &AstExpr, rhs : &AstExpr, bind_key : 
   match(
     context.base.get_expr_info(lhs),
     .Some(lhs_ei) => match(
-      lhs_ei.source_variable,
+      lhs_ei.source_variable(),
       .Some(pin_var) => match(
         expr_info_macro_expansion(&lhs_ei),
         .Some(pin_expr) => {
           pin_code := _call_generate_expr(&pin_expr, indent.clone(), context);
           mut(pin_decl) := indent.clone();
-          pin_decl.push_string(match(_sm_local_slot(&pin_var, context), .Some(slot) => slot, .None => get_variable_type_string(&pin_var.ty, pin_var.name.clone(), &mut context.base)));
+          pin_decl.push_string(match(_sm_local_slot(&pin_var, context), .Some(slot) => slot, .None => get_variable_type_string(&pin_var.ty(), pin_var.name.clone(), &mut context.base)));
           pin_decl.push_str(" = ");
-          pin_decl.push_string(generate_dup_code_for_value(&pin_code, &pin_var.ty, context));
+          pin_decl.push_string(generate_dup_code_for_value(&pin_code, &pin_var.ty(), context));
           pin_decl.push_str(";");
           context.base.emitter.emit_string_line(&pin_decl);
         },
@@ -316,7 +316,7 @@ _generate_inout_local_binding :: (fn(lhs : &AstExpr, rhs : &AstExpr, bind_key : 
       vs := scope_variables(bind_key, &benv, var_name.clone());
       cond(
         (vs.len() == usize(0)) => Option(String).None,
-        true => match(vs.get(vs.len() - usize(1)), .Some(rv) => _sm_local_slot(&rv, context), .None => Option(String).None)
+        true => match(vs.get_cloned(vs.len() - usize(1)), .Some(rv) => _sm_local_slot(&rv, context), .None => Option(String).None)
       )
     },
     .None => Option(String).None
@@ -380,7 +380,7 @@ generate_local_borrow_repoint :: (fn(expr : &AstExpr, indent : &String, context 
   match(
     context.base.get_expr_info(&lhs),
     .Some(lhs_ei) => match(
-      lhs_ei.source_variable,
+      lhs_ei.source_variable(),
       .Some(sp) => match(
         expr_info_macro_expansion(&lhs_ei),
         .Some(cell_expr) => {
@@ -388,8 +388,8 @@ generate_local_borrow_repoint :: (fn(expr : &AstExpr, indent : &String, context 
           cell_code := _call_generate_expr(&cell_expr, indent.clone(), context);
           tmp := `${sanitize_for_c_identifier(sp.name.clone(), false)}_step`;
           context.base.emitter.emit_string_line(`${indent}{`);
-          context.base.emitter.emit_string_line(`${indent}  ${get_variable_type_string(&sp.ty, tmp.clone(), &mut context.base)} = ${generate_dup_code_for_value(&cell_code, &sp.ty, context)};`);
-          context.base.emitter.emit_string_line(`${indent}  ${generate_drop_code_for_value(sp_slot.clone(), &sp.ty, context)};`);
+          context.base.emitter.emit_string_line(`${indent}  ${get_variable_type_string(&sp.ty(), tmp.clone(), &mut context.base)} = ${generate_dup_code_for_value(&cell_code, &sp.ty(), context)};`);
+          context.base.emitter.emit_string_line(`${indent}  ${generate_drop_code_for_value(sp_slot.clone(), &sp.ty(), context)};`);
           context.base.emitter.emit_string_line(`${indent}  ${sp_slot} = ${tmp};`);
           context.base.emitter.emit_string_line(`${indent}}`);
         },
@@ -430,19 +430,19 @@ generate_initialization_assignment :: (fn(expr : &AstExpr, indent : &String, con
   if(ast_expr_is_local_borrow_mode_call(&lhs, Option(usize).Some(usize(1))), {
     // Keyed by the `inout(name)` name atom: its scope record holds the binding.
     inout_key := match(lhs, .FnCall(_, _, Rc(la), _, _) => match(la.get(usize(0)), .Some(n) => ast_expr_id(&n), .None => ast_expr_id(expr)), .Atom(_, _) => ast_expr_id(expr));
-    return(_generate_inout_local_binding(&lhs, &rhs, inout_key, Option(Environment).Some(ei.env), indent.clone(), context));
+    return(_generate_inout_local_binding(&lhs, &rhs, inout_key, Option(Environment).Some(ei.env()), indent.clone(), context));
   });
   // `r := t.index(i)`: a projection call's result binds as a local borrow
   // (decision 24, `_bind_projection_result`), `T* r = f(...)`.
   if(ast_expr_is_atom(&lhs) && call_projection_mode(&rhs, context).is_some(), {
-    return(_generate_inout_local_binding(&lhs, &rhs, ast_expr_id(&lhs), Option(Environment).Some(ei.env), indent.clone(), context));
+    return(_generate_inout_local_binding(&lhs, &rhs, ast_expr_id(&lhs), Option(Environment).Some(ei.env()), indent.clone(), context));
   });
   // Destructuring binds.
   match(
     expr_info_runtime_destructurings(&ei),
     .Some(destructurings) => {
-      rhs_type := match(context.base.get_expr_info(&rhs), .Some(rei) => Rc.clone(rei.ty), .None => Rc.new(TypeValueNode.Unit));
-      _emit_destructurings(&destructurings, &rhs, &lhs, &rhs_type, &ei.env, indent.clone(), context);
+      rhs_type := match(context.base.get_expr_info(&rhs), .Some(rei) => Rc.clone(rei.ty()), .None => Rc.new(TypeValueNode.Unit));
+      _emit_destructurings(&destructurings, &rhs, &lhs, &rhs_type, &ei.env(), indent.clone(), context);
       return(Option(String).Some(String.from("")));
     },
     .None => ()
@@ -460,18 +460,18 @@ generate_initialization_assignment :: (fn(expr : &AstExpr, indent : &String, con
         Option(String).Some(`// Error: No type information for variable ${ast_expr_token(&lhs).value.*}`)
       )
     );
-    var_name := match(&lhs_ei.variable_name, .Some(vn) => vn.clone(), .None => ast_expr_text(&lhs).*.clone());
+    var_name := match(&lhs_ei.variable_name(), .Some(vn) => vn.clone(), .None => ast_expr_text(&lhs).*.clone());
     // Resolve a SomeT binding type through its concrete resolution BEFORE the
     // unit guards below — a binding typed as an unresolved SomeT that resolves
     // to unit rendered `void x = <rhs>;` (invalid C: the worker batch's
     // `void _temp = ;` class, issues/retired/yo-self-async-emission-cluster.md item 4).
     // Same prototype-agreement rule as generate_function_body's result_is_unit.
-    lhs_type := resolve_some_type_to_concrete(&lhs_ei.ty);
+    lhs_type := resolve_some_type_to_concrete(&lhs_ei.ty());
     // Skip compile-time and module-level globals.
-    if(_last_is_compile_time_only(ast_expr_id(&lhs), &ei.env, var_name.clone()), {
+    if(_last_is_compile_time_only(ast_expr_id(&lhs), &ei.env(), var_name.clone()), {
       return(Option(String).Some(String.from("")));
     });
-    if(_last_is_module_level(ast_expr_id(&lhs), &ei.env, var_name.clone()), {
+    if(_last_is_module_level(ast_expr_id(&lhs), &ei.env(), var_name.clone()), {
       return(Option(String).Some(String.from("")));
     });
     // State-machine variable binding: a local captured in the SM struct is
@@ -482,7 +482,7 @@ generate_initialization_assignment :: (fn(expr : &AstExpr, indent : &String, con
     // atom's env predates the binding and misses the variable.
     if(context.in_async_state_machine.is_some() && context.state_machine_variables.is_some(), {
       match(
-        _sm_binding_slot(ast_expr_id(&lhs), &ei.env, var_name.clone(), context),
+        _sm_binding_slot(ast_expr_id(&lhs), &ei.env(), var_name.clone(), context),
         .Some(sm_slot) => {
           // The RHS must go through the deferred-dup chain before it lands
           // in the slot: compute ONE `rhsCode` through all four
@@ -525,9 +525,9 @@ generate_initialization_assignment :: (fn(expr : &AstExpr, indent : &String, con
         match(
           context.base.get_expr_info(&rhs),
           .Some(rei) => match(
-            &rei.variable_name,
+            &rei.variable_name(),
             .Some(tvn) => {
-              temp_var_name := get_variable_name_for_codegen_at(ast_expr_id(&rhs), &tvn, Option(Environment).Some(rei.env));
+              temp_var_name := get_variable_name_for_codegen_at(ast_expr_id(&rhs), &tvn, Option(Environment).Some(rei.env()));
               rhs_expr_code := _call_generate_expr(&rhs, indent.clone(), context);
               // The spill below exists for an Rc/temp RHS that has to be
               // materialized before the array copy. A PLAIN read of an existing
@@ -546,7 +546,7 @@ generate_initialization_assignment :: (fn(expr : &AstExpr, indent : &String, con
                 (temp_var_name == rhs_expr_code) => temp_var_name,
                 (rhs_expr_code == `(*${temp_var_name})`) => rhs_expr_code,
                 true => {
-                  tv := get_variable_type_string(&rei.ty, temp_var_name.clone(), &mut context.base);
+                  tv := get_variable_type_string(&rei.ty(), temp_var_name.clone(), &mut context.base);
                   line := indent.clone();
                   line.push_string(&tv);
                   line.push_str(" = ");
@@ -575,7 +575,7 @@ generate_initialization_assignment :: (fn(expr : &AstExpr, indent : &String, con
     }, {
       // Non-array scalar initialization.
       // The `:=` node's env: the lhs atom's predates the binding.
-      sanitized_var_name := get_variable_name_for_codegen_at(ast_expr_id(&lhs), var_name.clone(), Option(Environment).Some(ei.env));
+      sanitized_var_name := get_variable_name_for_codegen_at(ast_expr_id(&lhs), var_name.clone(), Option(Environment).Some(ei.env()));
       // A STATIC-dispatch call whose callee's prototype returns `void` has no
       // value, whatever this binding's own types say. They can disagree: a
       // generic `Impl(Fn(...) -> T)` callee specialised at `T = unit` emits a
@@ -597,14 +597,14 @@ generate_initialization_assignment :: (fn(expr : &AstExpr, indent : &String, con
       rhs_code := match(
         context.base.get_expr_info(&rhs),
         .Some(rei) => match(
-          &rei.variable_name,
+          &rei.variable_name(),
           .Some(tvn) => {
-            temp_var_name := get_variable_name_for_codegen_at(ast_expr_id(&rhs), &tvn, Option(Environment).Some(rei.env));
+            temp_var_name := get_variable_name_for_codegen_at(ast_expr_id(&rhs), &tvn, Option(Environment).Some(rei.env()));
             // Same name as the binding, or a bare atom already named — no temp.
-            rhs_is_same_atom := (ast_expr_is_atom(&rhs) && (temp_var_name == get_variable_name_for_codegen_at(ast_expr_id(&rhs), ast_expr_token(&rhs).value.*, Option(Environment).Some(rei.env))));
+            rhs_is_same_atom := (ast_expr_is_atom(&rhs) && (temp_var_name == get_variable_name_for_codegen_at(ast_expr_id(&rhs), ast_expr_token(&rhs).value.*, Option(Environment).Some(rei.env()))));
             if((temp_var_name == sanitized_var_name) || rhs_is_same_atom, emit_deferred_dup_or_code(&rhs, _call_generate_expr(&rhs, indent.clone(), context), indent.clone(), context), {
               rhs_expr_code := _call_generate_expr(&rhs, indent.clone(), context);
-              effective_type := match(expr_info_converted_runtime_type(&rei), .Some(crt) => crt, .None => Rc.clone(rei.ty));
+              effective_type := match(expr_info_converted_runtime_type(&rei), .Some(crt) => crt, .None => Rc.clone(rei.ty()));
               // A UNIT-typed RHS has no value to hold. `_call_generate_expr`
               // has already emitted the call as a STATEMENT (so the side effect
               // is preserved) and returned "", so declaring a temp for it

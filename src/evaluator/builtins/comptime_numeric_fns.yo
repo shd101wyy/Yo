@@ -427,7 +427,7 @@ evaluate_yo_comptime_numeric_functions :: (
       }
     );
     lhs_info := eval_numeric_arg(&arg0, env, ctx, exn);
-    lhs_val := lhs_info.value;
+    lhs_val := lhs_info.value();
     (cur_env : Environment) = expr_info_adopt_env(&lhs_info);
     (result_val : EvalValue) = EvalValue.UnitVal;
     (result_ty : TypeValue) = Rc.clone(numeric_type);
@@ -530,7 +530,7 @@ evaluate_yo_comptime_numeric_functions :: (
       }
     );
     out_info := new_expr_info(&cur_env, &result_ty);
-    out_info.value = .Some(result_val);
+    out_info.set_value(.Some(result_val));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   }, {
     // ---- 6. Binary operations. -------------------------------------------
@@ -556,9 +556,9 @@ evaluate_yo_comptime_numeric_functions :: (
       }
     );
     lhs_info := eval_numeric_arg(&arg0, env, ctx, exn);
-    rhs_info := eval_numeric_arg(&arg1, &lhs_info.env, ctx, exn);
-    lhs_val := lhs_info.value;
-    rhs_val := rhs_info.value;
+    rhs_info := eval_numeric_arg(&arg1, &lhs_info.env(), ctx, exn);
+    lhs_val := lhs_info.value();
+    rhs_val := rhs_info.value();
     (cur_env : Environment) = expr_info_adopt_env(&rhs_info);
     (result_val : EvalValue) = EvalValue.UnitVal;
     (result_ty : TypeValue) = Rc.clone(numeric_type);
@@ -923,7 +923,7 @@ evaluate_yo_comptime_numeric_functions :: (
       );
     });
     out_info := new_expr_info(&cur_env, &result_ty);
-    out_info.value = .Some(result_val);
+    out_info.set_value(.Some(result_val));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   });
   expr

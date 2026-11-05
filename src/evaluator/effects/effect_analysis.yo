@@ -124,7 +124,7 @@ is_effect_call_ :: (
       });
       func_type_opt := match(
         get_info(&func_expr),
-        .Some(info) => Option(TypeValue).Some(Rc.clone(info.ty)),
+        .Some(info) => Option(TypeValue).Some(Rc.clone(info.ty())),
         .None => Option(TypeValue).None
       );
       // When allowMissingType=false: require a function type
@@ -166,7 +166,7 @@ is_effect_call_ :: (
         });
         func_type_opt := match(
           get_info(&func_expr),
-          .Some(info) => Option(TypeValue).Some(Rc.clone(info.ty)),
+          .Some(info) => Option(TypeValue).Some(Rc.clone(info.ty())),
           .None => Option(TypeValue).None
         );
         if(!allow_missing_type, {
@@ -282,7 +282,7 @@ is_effect_call_ :: (
       // Verify the outermost "." expression type is a function
       outer_func_type_opt := match(
         get_info(&func_expr_for_info),
-        .Some(info) => Option(TypeValue).Some(Rc.clone(info.ty)),
+        .Some(info) => Option(TypeValue).Some(Rc.clone(info.ty())),
         .None => Option(TypeValue).None
       );
       if(!allow_missing_type, {
@@ -345,7 +345,7 @@ is_transitive_effect_call_ :: (
     },
     .Some(i) => i
   );
-  func_type := Rc.clone(func_info.ty);
+  func_type := Rc.clone(func_info.ty());
   // --- Path 1: Direct FunctionType ---
   if(is_function_type(func_type.clone()), {
     result := match(
@@ -453,7 +453,7 @@ detect_effect_expr_ :: (
           match(
             get_info(&arg),
             .Some(info) => {
-              operation_arg_types.push(Rc.clone(info.ty));
+              operation_arg_types.push(Rc.clone(info.ty()));
             },
             .None => ()
           );
@@ -491,7 +491,7 @@ detect_effect_expr_ :: (
     // Get result type — fallback to effect_param_fn_type.result
     result_type_opt := match(
       get_info(expr.clone()),
-      .Some(info) => Option(TypeValue).Some(Rc.clone(info.ty)),
+      .Some(info) => Option(TypeValue).Some(Rc.clone(info.ty())),
       .None => Option(TypeValue).None
     );
     if(match(result_type_opt.clone(), .None => true, .Some(_) => false), {
@@ -597,7 +597,7 @@ detect_effect_expr_ :: (
             ),
             true => match(
               get_info(expr.clone()),
-              .Some(info) => Option(TypeValue).Some(Rc.clone(info.ty)),
+              .Some(info) => Option(TypeValue).Some(Rc.clone(info.ty())),
               .None => Option(TypeValue).None
             )
           );

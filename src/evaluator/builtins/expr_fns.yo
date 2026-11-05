@@ -80,7 +80,7 @@ evaluate_yo_expr_is_atom :: (
       return(make_err_expr());
     }
   );
-  if(!is_expr_type(&arg_info.ty), {
+  if(!is_expr_type(&arg_info.ty()), {
     exn.throw(
       dyn(
         format_error_message(
@@ -92,7 +92,7 @@ evaluate_yo_expr_is_atom :: (
     return(make_err_expr());
   });
   bool_val := match(
-    arg_info.value,
+    arg_info.value(),
     .Some(v) => if(
       is_expr_val(&v),
       match(v, .ExprVal(e_box) => EvalValue.BoolVal(ast_expr_is_atom(&e_box)), _ => create_unknown_val(t_bool())),
@@ -110,8 +110,8 @@ evaluate_yo_expr_is_atom :: (
       return(make_err_expr());
     }
   );
-  out_info := new_expr_info(&arg_info.env, t_bool());
-  out_info.value = Option(EvalValue).Some(bool_val);
+  out_info := new_expr_info(&arg_info.env(), t_bool());
+  out_info.set_value(Option(EvalValue).Some(bool_val));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   expr
 });
@@ -155,7 +155,7 @@ evaluate_yo_expr_is_fn_call :: (
       return(make_err_expr());
     }
   );
-  if(!is_expr_type(&arg_info.ty), {
+  if(!is_expr_type(&arg_info.ty()), {
     exn.throw(
       dyn(
         format_error_message(
@@ -167,7 +167,7 @@ evaluate_yo_expr_is_fn_call :: (
     return(make_err_expr());
   });
   bool_val := match(
-    arg_info.value,
+    arg_info.value(),
     .Some(v) => if(
       is_expr_val(&v),
       match(v, .ExprVal(e_box) => EvalValue.BoolVal(ast_expr_is_fn_call(&e_box)), _ => create_unknown_val(t_bool())),
@@ -185,8 +185,8 @@ evaluate_yo_expr_is_fn_call :: (
       return(make_err_expr());
     }
   );
-  out_info := new_expr_info(&arg_info.env, t_bool());
-  out_info.value = Option(EvalValue).Some(bool_val);
+  out_info := new_expr_info(&arg_info.env(), t_bool());
+  out_info.set_value(Option(EvalValue).Some(bool_val));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   expr
 });
@@ -230,7 +230,7 @@ evaluate_yo_expr_get_callee :: (
       return(make_err_expr());
     }
   );
-  if(!is_expr_type(&arg_info.ty), {
+  if(!is_expr_type(&arg_info.ty()), {
     exn.throw(
       dyn(
         format_error_message(
@@ -241,18 +241,18 @@ evaluate_yo_expr_get_callee :: (
     );
     return(make_err_expr());
   });
-  out_info := new_expr_info(&arg_info.env, t_expr_t());
+  out_info := new_expr_info(&arg_info.env(), t_expr_t());
   // Default: unknown value; will be replaced if arg is a known ExprVal FnCall.
-  out_info.value = Option(EvalValue).Some(create_unknown_val(t_expr_t()));
+  out_info.set_value(Option(EvalValue).Some(create_unknown_val(t_expr_t())));
   match(
-    arg_info.value,
+    arg_info.value(),
     .Some(v) => match(
       v,
       .ExprVal(e_box) => {
         if(ast_expr_is_fn_call(&e_box), match(
           e_box,
           .FnCall(_, func_box, _, _, _) => {
-            out_info.value = Option(EvalValue).Some(EvalValue.ExprVal(func_box));
+            out_info.set_value(Option(EvalValue).Some(EvalValue.ExprVal(func_box)));
             ()
           },
           _ => ()
@@ -326,7 +326,7 @@ evaluate_yo_expr_get_args :: (
       return(make_err_expr());
     }
   );
-  if(!is_expr_type(&arg_info.ty), {
+  if(!is_expr_type(&arg_info.ty()), {
     exn.throw(
       dyn(
         format_error_message(
@@ -338,10 +338,10 @@ evaluate_yo_expr_get_args :: (
     return(make_err_expr());
   });
   list_ty := t_comptime_list(t_expr_t());
-  out_info := new_expr_info(&arg_info.env, &list_ty);
-  out_info.value = Option(EvalValue).Some(create_unknown_val(&list_ty));
+  out_info := new_expr_info(&arg_info.env(), &list_ty);
+  out_info.set_value(Option(EvalValue).Some(create_unknown_val(&list_ty)));
   match(
-    arg_info.value,
+    arg_info.value(),
     .Some(v) => match(
       v,
       .ExprVal(e_box) => {
@@ -355,7 +355,7 @@ evaluate_yo_expr_get_args :: (
               elems.push(EvalValue.ExprVal(fn_arg));
               i = (i + usize(1));
             });
-            out_info.value = Option(EvalValue).Some(EvalValue.ComptimeListVal(value_cell_new(elems)));
+            out_info.set_value(Option(EvalValue).Some(EvalValue.ComptimeListVal(value_cell_new(elems))));
             ()
           },
           _ => ()
@@ -429,7 +429,7 @@ evaluate_yo_expr_to_string :: (
       return(make_err_expr());
     }
   );
-  if(!is_expr_type(&arg_info.ty), {
+  if(!is_expr_type(&arg_info.ty()), {
     exn.throw(
       dyn(
         format_error_message(
@@ -440,15 +440,15 @@ evaluate_yo_expr_to_string :: (
     );
     return(make_err_expr());
   });
-  out_info := new_expr_info(&arg_info.env, t_comptime_string());
-  out_info.value = Option(EvalValue).Some(create_unknown_val(t_comptime_string()));
+  out_info := new_expr_info(&arg_info.env(), t_comptime_string());
+  out_info.set_value(Option(EvalValue).Some(create_unknown_val(t_comptime_string())));
   match(
-    arg_info.value,
+    arg_info.value(),
     .Some(v) => match(
       v,
       .ExprVal(e_box) => {
         str_val := ast_expr_to_string(&e_box);
-        out_info.value = Option(EvalValue).Some(EvalValue.StrLit(str_val));
+        out_info.set_value(Option(EvalValue).Some(EvalValue.StrLit(str_val)));
         ()
       },
       _ => ()
@@ -521,7 +521,7 @@ evaluate_yo_expr_eq :: (
       return(make_err_expr());
     }
   );
-  if(!is_expr_type(&first_info.ty), {
+  if(!is_expr_type(&first_info.ty()), {
     exn.throw(
       dyn(
         format_error_message(
@@ -533,7 +533,7 @@ evaluate_yo_expr_eq :: (
     return(make_err_expr());
   });
   first_val := match(
-    first_info.value,
+    first_info.value(),
     .Some(v) => v,
     .None => {
       exn.throw(
@@ -564,7 +564,7 @@ evaluate_yo_expr_eq :: (
       return(make_err_expr());
     }
   );
-  if(!is_expr_type(&second_info.ty), {
+  if(!is_expr_type(&second_info.ty()), {
     exn.throw(
       dyn(
         format_error_message(
@@ -576,7 +576,7 @@ evaluate_yo_expr_eq :: (
     return(make_err_expr());
   });
   second_val := match(
-    second_info.value,
+    second_info.value(),
     .Some(v) => v,
     .None => {
       exn.throw(
@@ -598,7 +598,7 @@ evaluate_yo_expr_eq :: (
     create_unknown_val(t_bool())
   );
   out_info := new_expr_info(&final_env, t_bool());
-  out_info.value = Option(EvalValue).Some(bool_val);
+  out_info.set_value(Option(EvalValue).Some(bool_val));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   expr
 });

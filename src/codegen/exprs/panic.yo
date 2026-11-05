@@ -25,7 +25,7 @@ _strip_panic_quotes :: (fn(raw : &String) -> String)({
 /// (panic never returns).
 generate_panic :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
   ei_opt := context.base.get_expr_info(expr);
-  return_type := match(ei_opt, .Some(ei) => Rc.clone(ei.ty), .None => return(codegen_fatal_expr(String.from("panic() missing type information"))));
+  return_type := match(ei_opt, .Some(ei) => Rc.clone(ei.ty()), .None => return(codegen_fatal_expr(String.from("panic() missing type information"))));
   args := match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
   na := args.len();
   cond(
@@ -38,7 +38,7 @@ generate_panic :: (fn(expr : &AstExpr, indent : &String, context : &mut Function
       msg_arg := match(args.get(usize(0)), .Some(a) => a, .None => return(codegen_fatal_expr(String.from("panic missing argument"))));
       msg_ei := context.base.get_expr_info(&msg_arg);
       // Compile-time string message → fprintf the escaped literal.
-      comptime_msg := match(msg_ei, .Some(mei) => match(mei.value, .Some(v) => match(v, .StrLit(raw) => Option(String).Some(raw.clone()), _ => Option(String).None), .None => .None), .None => .None);
+      comptime_msg := match(msg_ei, .Some(mei) => match(mei.value(), .Some(v) => match(v, .StrLit(raw) => Option(String).Some(raw.clone()), _ => Option(String).None), .None => .None), .None => .None);
       match(
         comptime_msg,
         .Some(raw) => {
@@ -64,8 +64,8 @@ generate_panic :: (fn(expr : &AstExpr, indent : &String, context : &mut Function
           // Runtime message — evaluate it; str uses the fat-pointer fields,
           // *(u8) is a C string pointer.
           msg_code := _call_generate_expr(&msg_arg, indent.clone(), context);
-          msg_ei_ty := match(msg_ei, .Some(mei) => Option(TypeValue).Some(Rc.clone(mei.ty)), .None => .None);
-          msg_is_str := match(msg_ei, .Some(mei) => is_str_type(&mei.ty), .None => false);
+          msg_ei_ty := match(msg_ei, .Some(mei) => Option(TypeValue).Some(Rc.clone(mei.ty())), .None => .None);
+          msg_is_str := match(msg_ei, .Some(mei) => is_str_type(&mei.ty()), .None => false);
           msg_is_ptr_u8 := match(
             msg_ei_ty,
             .Some(Rc(.Pointer(pointee))) => is_u8_type(&pointee),

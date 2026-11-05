@@ -55,14 +55,14 @@ _binding_token_of :: (
       return(Option(Token).None);
     }
   );
-  vars := get_variables_from_env(&info.env, tok.value.*.clone());
+  vars := get_variables_from_env(&info.env(), tok.value.*.clone());
   if(vars.len() == usize(0), {
     return(Option(Token).None);
   });
   match(
     _select_best_variable(&vars, tok),
     .Some(v) => match(
-      v.initialized_at_token,
+      v.initialized_at_token(),
       .Some(it) => Option(Token).Some(it),
       .None => Option(Token).Some(v.token)
     ),

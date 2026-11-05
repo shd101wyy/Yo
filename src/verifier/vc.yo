@@ -155,7 +155,7 @@ _scan_call_edges :: (
           match(
             expr_info_table_get(table, ast_expr_id(&f)),
             .Some(fi) => match(
-              fi.value,
+              fi.value(),
               .Some(v) => match(
                 v,
                 .FuncVal(fvd, _) => {
@@ -333,7 +333,7 @@ _measure_is_signed :: (fn(ctx : &VcCtx, e : &AstExpr) -> bool)(
     _is_lex_measure(e) => false,
     true => match(
       expr_info_table_get(&ctx.table, ast_expr_id(e)),
-      .Some(mi) => _int_is_signed(&mi.ty),
+      .Some(mi) => _int_is_signed(&mi.ty()),
       .None => true
     )
   )
@@ -1857,7 +1857,7 @@ _term_sort_of :: (fn(t : &VcTerm) -> VcSort)(
 /// A comptime str literal's bytes as a right-nested seq.++ of seq.unit.
 _str_bytes_term :: (fn(info : &ExprInfo) -> Option(VcTerm))({
   quoted := match(
-    info.value,
+    info.value(),
     .Some(.StrLit(r)) => r.clone(),
     .Some(_) => String.new(),
     .None => String.new()
@@ -1987,7 +1987,7 @@ _expr_term :: (fn(ctx : &mut VcCtx, e : &AstExpr) -> Option(VcTerm))({
       d_same := match(
         (expr_info_table_get(&ctx.table, ast_expr_id(e)), expr_info_table_get(&ctx.table, ast_expr_id(&d_obj))),
         (.None, _) => true,
-        (.Some(de), .Some(oe)) => (type_key(&de.ty) == type_key(&oe.ty)),
+        (.Some(de), .Some(oe)) => (type_key(&de.ty()) == type_key(&oe.ty())),
         _ => false
       );
       if(d_same, {
@@ -2035,10 +2035,10 @@ _expr_term :: (fn(ctx : &mut VcCtx, e : &AstExpr) -> Option(VcTerm))({
   // across a `return`: a block or branch that returns a constant folds to
   // it, and its value would stand for the path that leaves the function.
   match(
-    info.value,
+    info.value(),
     .Some(v) => if(!_contains_return(e), {
       match(
-        _type_sort(&info.ty),
+        _type_sort(&info.ty()),
         .Some(sort) => {
           match(
             _lit_term(&v, &sort),
@@ -2302,7 +2302,7 @@ _callee_is_atom :: (fn(e : &AstExpr) -> bool)(
 /// second does.
 _qualified_nullary_variant :: (fn(info : &ExprInfo, dot_args : &ArrayList(AstExpr)) -> Option(AstExpr))(
   match(
-    &info.ty,
+    &info.ty(),
     Rc(.EnumT({ variant_names : q_names })) => cond(
       (dot_args.len() != usize(2)) => Option(AstExpr).None,
       !(ast_expr_is_atom(dot_args.get(usize(0)).unwrap()) && ast_expr_is_atom(dot_args.get(usize(1)).unwrap())) => Option(AstExpr).None,
@@ -2372,8 +2372,8 @@ _enum_ctor_named :: (
   fn(ctx : &mut VcCtx, e : &AstExpr, info : &ExprInfo, variant : &String, dot_args : &ArrayList(AstExpr)) -> Option(VcTerm)
 )(
   match(
-    &info.ty,
-    Rc(.EnumT({ id : e_id, variant_names : e_names, variant_fields : e_fields })) => _build_enum_ctor(ctx, e, &info.ty, e_id.clone(), &e_names, &e_fields, variant, dot_args),
+    &info.ty(),
+    Rc(.EnumT({ id : e_id, variant_names : e_names, variant_fields : e_fields })) => _build_enum_ctor(ctx, e, &info.ty(), e_id.clone(), &e_names, &e_fields, variant, dot_args),
     _ => {
       _fail_subset(ctx, String.from("field/method access (outside the V3 core subset)"), e);
       Option(VcTerm).None
@@ -2470,14 +2470,14 @@ _match_term :: (fn(ctx : &mut VcCtx, at : &AstExpr, args : &ArrayList(AstExpr)) 
   // The scrutinee's TYPE names the datatype's CONSTRUCTORS and ACCESSORS
   // (SMT-unique across enums): every Test/Proj the walk builds must use
   // the same spellings the declare-datatypes block declares.
-  e_ty := match(scrut_info, .Some(si) => Rc.clone(si.ty), .None => Rc.new(TypeValueNode.Unit));
+  e_ty := match(scrut_info, .Some(si) => Rc.clone(si.ty()), .None => Rc.new(TypeValueNode.Unit));
   match(
     scrut,
     .Some(s) => {
       // Register the scrutinee's datatype.
       match(
         scrut_info,
-        .Some(si) => _note_enum_datatype(ctx, &si.ty),
+        .Some(si) => _note_enum_datatype(ctx, &si.ty()),
         .None => ()
       );
       match(
@@ -4233,10 +4233,10 @@ _quant_term :: (
     srt := match(
       expr_info_table_get(&ctx.table, ast_expr_id(&ty_arg)),
       .Some(bi2) => match(
-        bi2.value,
+        bi2.value(),
         .Some(.TypeVal(tv)) => _type_sort(&tv),
-        .Some(_) => _type_sort(&bi2.ty),
-        .None => _type_sort(&bi2.ty)
+        .Some(_) => _type_sort(&bi2.ty()),
+        .None => _type_sort(&bi2.ty())
       ),
       .None => Option(VcSort).None
     );
@@ -4312,7 +4312,7 @@ _quant_term :: (
 _list_operand_elem :: (fn(ctx : &mut VcCtx, a : &AstExpr) -> Option(VcSort))(
   match(
     expr_info_table_get(&ctx.table, ast_expr_id(a)),
-    .Some(ai) => _list_elem_sort(&ai.ty),
+    .Some(ai) => _list_elem_sort(&ai.ty()),
     .None => Option(VcSort).None
   )
 );
@@ -4448,8 +4448,8 @@ _call_term :: (
       match(
         src_t,
         .Some(st) => match(
-          _int_width(&arg_info.ty),
-          .Some(src_w) => Option(VcTerm).Some(_widen_or_trunc(&st, src_w, target_w, _int_is_signed(&arg_info.ty))),
+          _int_width(&arg_info.ty()),
+          .Some(src_w) => Option(VcTerm).Some(_widen_or_trunc(&st, src_w, target_w, _int_is_signed(&arg_info.ty()))),
           .None => {
             _fail_subset(ctx, String.from("cast of non-integer operand"), e);
             Option(VcTerm).None
@@ -4532,7 +4532,7 @@ _call_term :: (
       shift_w := match(
         expr_info_table_get(&ctx.table, ast_expr_id(args.get(usize(0)).unwrap())),
         .Some(ai) => match(
-          _int_width(&ai.ty),
+          _int_width(&ai.ty()),
           .Some(w) => w,
           .None => usize(64)
         ),
@@ -4547,7 +4547,7 @@ _call_term :: (
       );
     });
     if(ctx.elision_obligations, {
-      _emit_binop_elision_obligation(ctx, e, op, &at, &bt, &info.ty);
+      _emit_binop_elision_obligation(ctx, e, op, &at, &bt, &info.ty());
     });
     return(Option(VcTerm).Some(_app2(op, &at, &bt)));
   });
@@ -4555,11 +4555,11 @@ _call_term :: (
   if((n == usize(1)) && ((head == "-") || (head == "~") || (head == "!")), {
     a := _expr_term(ctx, args.get(usize(0)).unwrap());
     // 5b Phase 2: a signed negation traps on MIN (elision-only, §6).
-    if(ctx.elision_obligations && (head == "-") && _int_is_signed(&info.ty), {
+    if(ctx.elision_obligations && (head == "-") && _int_is_signed(&info.ty()), {
       match(
         &a,
         .Some(neg_t) => match(
-          _int_width(&info.ty),
+          _int_width(&info.ty()),
           .Some(nw) => {
             _emit(
               ctx,
@@ -4600,7 +4600,7 @@ _call_term :: (
   // error at the callee-call tail. The callee must be the bare `.` atom:
   // a method call `(xs.get)(i)` also reports head `.` (its callee is the
   // `.`-call `xs.get`) and can be Option-typed, but it is no construction.
-  if((head == ".") && _is_value_enum_type(&info.ty), {
+  if((head == ".") && _is_value_enum_type(&info.ty()), {
     if(_callee_is_atom(e), {
       return(_enum_ctor_term(ctx, e, args, info));
     });
@@ -5211,7 +5211,7 @@ _call_term :: (
     asort := match(
       expr_info_table_get(&ctx.table, ast_expr_id(&a0)),
       .Some(ai) => match(
-        _type_sort(&ai.ty),
+        _type_sort(&ai.ty()),
         .Some(srt) => match(
           srt,
           .ArrS(_, _) => Option(VcSort).Some(srt),
@@ -5295,7 +5295,7 @@ _call_term :: (
           if(idx_t.is_none(), {
             return(Option(VcTerm).None);
           });
-          return(_list_option_term(ctx, e, &info.ty, &lr.elem, recv_t.unwrap(), _idx64(idx_t.unwrap()), &len_t));
+          return(_list_option_term(ctx, e, &info.ty(), &lr.elem, recv_t.unwrap(), _idx64(idx_t.unwrap()), &len_t));
         });
         // `xs.pop()` (R1 slice 3): `Some(last)` and the receiver rebound to
         // (contents, len - 1) when non-empty; `None` and unchanged when
@@ -5307,7 +5307,7 @@ _call_term :: (
           zero := Rc.new(VcTermNode.BvLit(value : u64(0), width : usize(64)));
           non_empty := _app2(VcOp.BvUgt, &len_t, &zero);
           last_i := _app2(VcOp.BvSub, &len_t, &one);
-          result := _list_option_term(ctx, e, &info.ty, &lr.elem, &xs_t, &last_i, &len_t);
+          result := _list_option_term(ctx, e, &info.ty(), &lr.elem, &xs_t, &last_i, &len_t);
           if(ast_expr_is_atom(&lr.recv), {
             new_len := _app3(VcOp.IteOp, &non_empty, &last_i, &len_t);
             rebound := Rc.new(VcTermNode.Ctor(name : _list_ctor_name(&lr.elem), args : _two_terms(_list_contents_term(&lr.elem, &xs_t), &new_len)));
@@ -5470,7 +5470,7 @@ _list_receiver :: (fn(ctx : &mut VcCtx, e : &AstExpr) -> Option(ListReceiver))({
   match(
     expr_info_table_get(&ctx.table, ast_expr_id(&recv)),
     .Some(ri) => match(
-      _list_elem_sort(&ri.ty),
+      _list_elem_sort(&ri.ty()),
       .Some(les) => {
         _register_list_datatype(&les);
         Option(ListReceiver).Some(ListReceiver(recv : recv, method : ast_expr_text(&m).*.clone(), elem : les))
@@ -5526,7 +5526,7 @@ _binop_of_ctx :: (fn(ctx : &mut VcCtx, head : &String, args : &ArrayList(AstExpr
     args.get(usize(0)),
     .Some(a) => match(
       expr_info_table_get(&ctx.table, ast_expr_id(&a)),
-      .Some(ai) => _int_is_signed(&ai.ty),
+      .Some(ai) => _int_is_signed(&ai.ty()),
       .None => true
     ),
     .None => true
@@ -5619,7 +5619,7 @@ _dead_value :: (fn(ctx : &mut VcCtx, at : &AstExpr) -> VcTerm)(
   match(
     expr_info_table_get(&ctx.table, ast_expr_id(at)),
     .Some(info) => match(
-      _type_sort(&info.ty),
+      _type_sort(&info.ty()),
       .Some(srt) => Rc.new(VcTermNode.Var(name : `__yo_dead${_next_fresh(ctx).to_string()}`, sort : srt)),
       .None => Rc.new(VcTermNode.BoolLit(true))
     ),
@@ -6006,7 +6006,7 @@ _note_ms_of :: (
 _note_list_alias :: (fn(ctx : &mut VcCtx, name : &String, rhs : &AstExpr) -> unit)(
   match(
     expr_info_table_get(&ctx.table, ast_expr_id(rhs)),
-    .Some(ri) => if(_list_elem_type(&ri.ty).is_some(), {
+    .Some(ri) => if(_list_elem_type(&ri.ty()).is_some(), {
       if(_is_fresh_list_ctor(rhs), {
         if(!ctx.fresh_list_locals.contains(name.clone()), {
           ctx.fresh_list_locals.push(name.clone());
@@ -6113,7 +6113,7 @@ _note_array_binding :: (fn(ctx : &mut VcCtx, name : &String, rhs : &AstExpr) -> 
   match(
     expr_info_table_get(&ctx.table, ast_expr_id(rhs)),
     .Some(ri) => match(
-      _type_sort(&ri.ty),
+      _type_sort(&ri.ty()),
       .Some(rsort) => match(
         rsort,
         .ArrS(_, _) => {
@@ -6472,7 +6472,7 @@ _ghost_fn_app_term :: (
   match(
     expr_info_table_get(&ctx.table, ast_expr_id(&callee_atom)),
     .Some(ci) => match(
-      ci.value,
+      ci.value(),
       .Some(.FuncVal(gfvd, _)) => {
         params = gfvd.*.params.clone();
         body = gfvd.*.body;
@@ -6503,7 +6503,7 @@ _ghost_fn_app_term :: (
     });
     srt := match(
       expr_info_table_get(&ctx.table, ast_expr_id(&a)),
-      .Some(ainf) => _type_sort(&ainf.ty),
+      .Some(ainf) => _type_sort(&ainf.ty()),
       .None => Option(VcSort).None
     );
     srt2 := match(srt, .Some(s1) => Option(VcSort).Some(s1), .None => _term_sort(at_t.clone().unwrap()));
@@ -6517,7 +6517,7 @@ _ghost_fn_app_term :: (
   });
   res_sort := match(
     expr_info_table_get(&ctx.table, ast_expr_id(at)),
-    .Some(rinf) => _type_sort(&rinf.ty),
+    .Some(rinf) => _type_sort(&rinf.ty()),
     .None => Option(VcSort).None
   );
   if(res_sort.is_none(), {
@@ -6637,7 +6637,7 @@ _ghost_fn_inline_term :: (
     expr_info_table_get(&ctx.table, ast_expr_id(&callee_atom)),
     .Some(ci) => {
       match(
-        ci.value,
+        ci.value(),
         .Some(v) => {
           match(
             v,
@@ -6748,7 +6748,7 @@ _callee_call_term :: (
   (callee_id : Option(String)) = match(
     expr_info_table_get(&ctx.table, ast_expr_id(&callee_atom)),
     .Some(ci) => match(
-      ci.value,
+      ci.value(),
       .Some(.FuncVal(fvd, _)) => Option(String).Some(fvd.*.func_id.clone()),
       .Some(_) => Option(String).None,
       .None => Option(String).None
@@ -6789,7 +6789,7 @@ _callee_call_term :: (
   // nothing (it is `unit`), so the call goes through the contracted path:
   // prove the lemma's `requires`, assume its `ensures` at these arguments.
   if(is_ghost_fn(fid.clone()), {
-    is_lemma := (is_unit_type(&info.ty) && (get_func_ensures_exprs(fid.clone()).len() > usize(0)));
+    is_lemma := (is_unit_type(&info.ty()) && (get_func_ensures_exprs(fid.clone()).len() > usize(0)));
     if(!is_lemma, {
       return(_ghost_fn_inline_term(ctx, e, args, fid.clone()));
     });
@@ -6901,7 +6901,7 @@ _callee_call_term :: (
   (callee_params : ArrayList(String)) = match(
     expr_info_table_get(&ctx.table, ast_expr_id(&callee_atom)),
     .Some(ci2) => match(
-      ci2.value,
+      ci2.value(),
       .Some(.FuncVal(fvd2, _)) => fvd2.*.params.clone(),
       .Some(_) => ArrayList(String).new(),
       .None => ArrayList(String).new()
@@ -7120,7 +7120,7 @@ _callee_call_term :: (
           sort_src := match(place, .Some(pa) => pa, .None => ha_arg);
           typed_sort := match(
             expr_info_table_get(&ctx.table, ast_expr_id(&sort_src)),
-            .Some(hinf) => _type_sort(&hinf.ty),
+            .Some(hinf) => _type_sort(&hinf.ty()),
             .None => Option(VcSort).None
           );
           hsort := match(
@@ -7167,7 +7167,7 @@ _callee_call_term :: (
   // the return value through ITS return label (V1 decision D3) — bind that
   // label to the fresh result var while the predicates are evaluated.
   ret_sort := match(
-    _type_sort(&info.ty),
+    _type_sort(&info.ty()),
     .Some(s) => s,
     .None => VcSort.BoolS
   );
@@ -7299,7 +7299,7 @@ _method_effective_args :: (
   // is not an argument.
   recv_is_type := match(
     expr_info_table_get(&ctx.table, ast_expr_id(&recv)),
-    .Some(ri) => match(ri.value, .Some(rv) => match(rv, .TypeVal(_) => true, _ => false), .None => false),
+    .Some(ri) => match(ri.value(), .Some(rv) => match(rv, .TypeVal(_) => true, _ => false), .None => false),
     .None => false
   );
   if(recv_is_type, {
@@ -7836,7 +7836,7 @@ _call_callee_value :: (fn(table : &ExprInfoTable, e : &AstExpr) -> Option(EvalVa
   match(
     expr_info_table_get(table, ast_expr_id(&callee)),
     .Some(ci) => match(
-      ci.value,
+      ci.value(),
       .Some(v) => if(is_func_val(&v), {
         return(Option(EvalValue).Some(v));
       }),

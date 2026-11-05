@@ -2241,11 +2241,11 @@ type_implements_trait :: (
       match(
         get_where_clause_constraints_for_some_type(env, &target),
         .Some(wcc) => {
-          nwr := wcc.required_traits.len();
+          nwr := wcc.required_traits().len();
           (iwr : usize) = usize(0);
           while(iwr < nwr, {
             wr_t := match(
-              wcc.required_traits.get_cloned(iwr),
+              wcc.required_traits().get_cloned(iwr),
               .Some(t) => t,
               .None => {
                 iwr = (iwr + usize(1));
@@ -2257,11 +2257,11 @@ type_implements_trait :: (
             });
             iwr = (iwr + usize(1));
           });
-          nwn := wcc.negative_traits.len();
+          nwn := wcc.negative_traits().len();
           (iwn : usize) = usize(0);
           while(iwn < nwn, {
             wn_t := match(
-              wcc.negative_traits.get_cloned(iwn),
+              wcc.negative_traits().get_cloned(iwn),
               .Some(t) => t,
               .None => {
                 iwn = (iwn + usize(1));
@@ -3546,7 +3546,7 @@ find_some_type_missing_comptime_constraint :: (
               match(
                 get_where_clause_constraints_for_some_type(env, ty.clone()),
                 .Some(wcc) => {
-                  wc_reqs := wcc.required_traits.clone();
+                  wc_reqs := wcc.required_traits();
                   (wi : usize) = usize(0);
                   while(wi < wc_reqs.len(), {
                     match(
@@ -3629,7 +3629,7 @@ _type_implements_trait_full_adapter :: (
   ) -> bool
 )({
   r := type_implements_trait(t, trait_type, env);
-  env.frames = Rc.clone(r.env.frames);
+  env.set_frames(Rc.clone(r.env.frames()));
   r.implemented
 });
 _trait_checking_init := (fn() -> bool)({

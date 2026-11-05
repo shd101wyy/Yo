@@ -275,14 +275,14 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
   // trait or function id.
   register_module_anchors(begin_exprs);
   // Push new frame to the env
-  env.push_frame(false);
+  env.push_frame()(false);
   // Lazy top-level bindings (plans/reference/LAZY_TOPLEVEL_BINDINGS.md §4.1): pre-scan
   // the statements and record every deferrable definition / impl. Nothing is
   // evaluated here — entries are forced on a lookup miss, or at their own
   // position below, whichever comes first.
   module_frame_id := match(
-    env.frames.last(),
-    .Some(mf) => mf.id,
+    env.last_frame(),
+    .Some(mf) => mf.id(),
     .None => usize(0)
   );
   walk_opt := cond(
@@ -382,8 +382,8 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                         );
                       });
                       ext_info := match(ext_info_opt, .Some(it) => it, .None => new_expr_info(&env, Rc.new(TypeValueNode.Unit)));
-                      env_adopt(&env, &ext_info.env);
-                      ext_mod_type := Rc.clone(ext_info.ty);
+                      env_adopt(&env, &ext_info.env());
+                      ext_mod_type := Rc.clone(ext_info.ty());
                       if(!is_module_type(&ext_mod_type), {
                         exn.throw(
                           dyn(
@@ -396,7 +396,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                       });
                       // Extract the source-namespace StructVal if available
                       ext_mod_val_opt := match(
-                        ext_info.value,
+                        ext_info.value(),
                         .Some(.StructVal(sn, ns, vs)) => Option(EvalValue).Some(EvalValue.StructVal(sn.clone(), Rc.clone(ns), Rc.clone(vs))),
                         .Some(_) => Option(EvalValue).None,
                         .None => Option(EvalValue).None
@@ -535,7 +535,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                             if(!_is_excluded_label(&excluded_labels, ext_label.clone()), {
                               match(
                                 &ext_mod_path,
-                                .Some(mp) => record_module_ordered_read(&env.module_path.*, &mp, ext_label.clone()),
+                                .Some(mp) => record_module_ordered_read(&env.module_path().*, &mp, ext_label.clone()),
                                 .None => ()
                               );
                               // Check for duplicate label
@@ -565,7 +565,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                               module_vals.push(ext_val);
                               // Set ExprInfo on export_expr (last field wins).
                               out_info := new_expr_info(&env, &ext_type);
-                              out_info.value = .Some(ext_val);
+                              out_info.set_value(.Some(ext_val));
                               expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&export_expr), &out_info);
                             });
                             k = (k + usize(1));
@@ -676,7 +676,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                         forced_var,
                         .Some(fv2) => fv2,
                         .None => match(
-                          vars.last(),
+                          vars.last_cloned(),
                           .Some(v) => v,
                           .None => {
                             __yo_panic("unreachable: vars.len() was checked above");
@@ -703,7 +703,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                         );
                       });
                       // Only compile-time variables can be exported
-                      if(!the_var.is_compile_time_only, {
+                      if(!the_var.is_compile_time_only(), {
                         exn.throw(
                           dyn(
                             format_error_message(
@@ -713,7 +713,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                           )
                         );
                       });
-                      the_val := match(the_var.value.get(usize(0)), .Some(v) => v, .None => EvalValue.UnitVal);
+                      the_val := match(the_var.value().get(usize(0)), .Some(v) => v, .None => EvalValue.UnitVal);
                       // Overload-set gate: an exported `Call` holding a TUPLE of
                       // two or more candidates is function overloading (the
                       // `_try_expand_call_overload` dispatch trial-calls every
@@ -747,11 +747,11 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                         );
                       });
                       field_labels.push(variable_name.clone());
-                      field_types.push(Rc.clone(the_var.ty));
+                      field_types.push(Rc.clone(the_var.ty()));
                       module_names.push(variable_name.clone());
                       module_vals.push(the_val);
                       // Set ExprInfo on export_expr
-                      out_info := new_expr_info(&env, &the_var.ty);
+                      out_info := new_expr_info(&env, &the_var.ty());
                       expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&export_expr), &out_info);
                     }
                   );
@@ -768,7 +768,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
             match(
               info_opt,
               .Some(info) => {
-                env_adopt(&env, &info.env);
+                env_adopt(&env, &info.env());
               },
               .None => ()
             );
@@ -799,7 +799,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                   lhs_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&init_lhs));
                   match(
                     lhs_info_opt,
-                    .Some(li) => if(li.value.is_none(), {
+                    .Some(li) => if(li.value().is_none(), {
                       record_module_level_init_expr(&evaluated);
                       _attach_module_init_temp_drops(&evaluated, &env, ctx, exn);
                       g_module_level_static_names.with_mut(s => s.insert(ast_expr_text(&init_lhs).*.clone()));
@@ -875,14 +875,14 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
   // module-body bindings live in `env` (e.g. multi-file `check` that
   // caches the prelude env across files); skip the pop.
   if(partial_error.is_none() && !keep_frame_at_end, {
-    env.pop_frame();
+    env.pop_frame()();
   });
   // Source-namespace STRUCT — the module type is a Struct flagged
   // `is_source_namespace`, paired with a StructVal because types and values
   // are kept split (the TypeValue layer cannot reference EvalValue). See
   // plans/archive/MODULE_AS_STRUCT_ALIGNMENT.md.
-  sns_id := stable_sns_module_id(&env.module_path.*);
-  register_sns_module(sns_id.clone(), &env.module_path.*);
+  sns_id := stable_sns_module_id(&env.module_path().*);
+  register_sns_module(sns_id.clone(), &env.module_path().*);
   module_type := Rc.new(
     TypeValueNode.Struct(
       sns_id.clone(),
@@ -950,36 +950,36 @@ _attach_module_init_temp_drops :: (fn(stmt : &AstExpr, env : &Environment, ctx :
   );
   snapshot_env := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&rhs_node)),
-    .Some(ri) => ri.env,
+    .Some(ri) => ri.env(),
     .None => env
   );
   stmt_temps := ArrayList(Variable).new();
-  (fi : usize) = snapshot_env.frames.len();
+  (fi : usize) = snapshot_env.frames_len();
   while(fi > usize(0), {
     fi = (fi - usize(1));
     match(
-      snapshot_env.frames.get(fi),
+      snapshot_env.frame_at(fi),
       .Some(fr) => {
-        fv := fr.variables.clone();
+        fv := fr.variables();
         (i : usize) = usize(0);
         while(i < fv.len(), {
           match(
-            fv.get(i),
+            fv.get_cloned(i),
             .Some(v) => {
               minted_here := match(
-                v.initialized_at_token,
+                v.initialized_at_token(),
                 .Some(it) => ((stmt_tok.module_path == it.module_path) && (stmt_tok.input == it.input) && (stmt_tok.character <= it.character)),
                 .None => false
               );
               some_undroppable := match(
-                &v.ty,
+                &v.ty(),
                 Rc(.SomeT({ bounds : s_rtt_bnd, resolution : s_rc })) => {
                   s_rtt := s_rtt_bnd.required();
                   (s_rc.is_none() && (s_rtt.len() == usize(0)))
                 },
                 _ => false
               );
-              if(minted_here && v.is_owning_the_rc_value && type_contains_rc_type(&v.ty) && !v.is_module_level && !v.is_ref && !some_undroppable && v.consumed_at_token.is_none(), {
+              if(minted_here && v.is_owning_the_rc_value() && type_contains_rc_type(&v.ty()) && !v.is_module_level() && !v.is_ref() && !some_undroppable && v.consumed_at_token().is_none(), {
                 stmt_temps.push(v);
               });
             },
@@ -998,7 +998,7 @@ _attach_module_init_temp_drops :: (fn(stmt : &AstExpr, env : &Environment, ctx :
     while(di > usize(0), {
       di = (di - usize(1));
       match(
-        stmt_temps.get(di),
+        stmt_temps.get_cloned(di),
         .Some(v) => drops.push(evaluate_expression_raw(generate_expr_from_code(`___drop(${v.name})`, exn), env, ctx, exn)),
         .None => ()
       );
@@ -1006,7 +1006,7 @@ _attach_module_init_temp_drops :: (fn(stmt : &AstExpr, env : &Environment, ctx :
     match(
       expr_info_table_get(&ctx.expr_info_table, ast_expr_id(stmt)),
       .Some(si) => {
-        existing := match(&si.deferred_drop_expressions, .Some(l) => l.clone(), .None => ArrayList(AstExpr).new());
+        existing := match(&si.deferred_drop_expressions(), .Some(l) => l.clone(), .None => ArrayList(AstExpr).new());
         (j : usize) = usize(0);
         while(j < drops.len(), {
           match(
@@ -1016,7 +1016,7 @@ _attach_module_init_temp_drops :: (fn(stmt : &AstExpr, env : &Environment, ctx :
           );
           j = (j + usize(1));
         });
-        si.deferred_drop_expressions = Option(ArrayList(AstExpr)).Some(existing);
+        si.set_deferred_drop_expressions(Option(ArrayList(AstExpr)).Some(existing));
         expr_info_table_set(&ctx.expr_info_table, ast_expr_id(stmt), &si);
       },
       .None => ()

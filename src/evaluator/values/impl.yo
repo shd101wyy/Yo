@@ -917,9 +917,9 @@ _resolve_one_forall_binding :: (
   if(n_nvars == usize(0), {
     return(Option(TypeValue).None);
   });
-  last_nvar := match(name_vars.get(n_nvars - usize(1)), .Some(v) => v, .None => return(Option(TypeValue).None));
+  last_nvar := match(name_vars.get_cloned(n_nvars - usize(1)), .Some(v) => v, .None => return(Option(TypeValue).None));
   match(
-    last_nvar.value.get(usize(0)),
+    last_nvar.value().get(usize(0)),
     .Some(ev) => match(
       ev,
       .TypeVal(b) => cond(
@@ -951,7 +951,7 @@ _resolve_one_forall_binding :: (
       // method types that mention `U` in a LENGTH position would need a
       // value substitution, which `substitute()` cannot express; current
       // std impls (e.g. Array fill) don't, they only use `T`/`Self`.
-      .IntLit(_) => Option(TypeValue).Some(Rc.clone(last_nvar.ty)),
+      .IntLit(_) => Option(TypeValue).Some(Rc.clone(last_nvar.ty())),
       _ => Option(TypeValue).None
     ),
     .None => Option(TypeValue).None
@@ -972,7 +972,7 @@ _resolve_one_forall_binding_from :: (
   fn(expected_env : &Environment, fa_some : &TypeValue, fa_name : &String, min_frame : usize) -> Option(TypeValue)
 )({
   fa_some_id := match(fa_some, Rc(.SomeT({ id : __fsi2 })) => __fsi2.clone(), _ => String.from(""));
-  n_frames := expected_env.frames.len();
+  n_frames := expected_env.frames_len();
   (fi : usize) = n_frames;
   while(fi > min_frame, {
     fi = (fi - usize(1));
@@ -980,19 +980,19 @@ _resolve_one_forall_binding_from :: (
       break;
     });
     match(
-      expected_env.frames.get(fi),
+      expected_env.frame_at(fi),
       .Some(frame) => {
-        vars := &frame.variables;
+        vars := &frame.variables();
         // LAST binding of fa_name inside THIS frame.
         (vi : usize) = vars.len();
         while(vi > usize(0), {
           vi = (vi - usize(1));
           match(
-            vars.get(vi),
+            vars.get_cloned(vi),
             .Some(var) =>
               if(var.name == fa_name, {
                 match(
-                  var.value.get(usize(0)),
+                  var.value().get(usize(0)),
                   .Some(ev) =>
                     match(
                       ev,
@@ -1017,7 +1017,7 @@ _resolve_one_forall_binding_from :: (
                         });
                       },
                       .IntLit(_) => {
-                        return(Option(TypeValue).Some(Rc.clone(var.ty)));
+                        return(Option(TypeValue).Some(Rc.clone(var.ty())));
                       },
                       _ => ()
                     ),
@@ -1499,7 +1499,7 @@ try_match_generic_impl :: (
   //    `clone_env` deep-copied every frame's variable list PER CANDIDATE PER
   //    LOOKUP — a top allocation-churn site of a self-emit.
   (unify_env : Environment) = snapshot_env(env);
-  unify_env.push_frame(false);
+  unify_env.push_frame()(false);
   // §7 warm-bug fix anchor: EVERYTHING this match synthesizes binds into
   // this frame or above. The binding extraction below reads ONLY frames
   // >= this index — an entry whose forall params never appear in its
@@ -1515,7 +1515,7 @@ try_match_generic_impl :: (
   // needed). Substitutions
   // are read from the synthesis's own fresh frame only — that is the
   // scoping.
-  (unify_base : usize) = unify_env.frames.len();
+  (unify_base : usize) = unify_env.frames_len();
   (ui : usize) = usize(0);
   (n_forall : usize) = entry.forall_names.len();
   while(ui < n_forall, {
@@ -1545,7 +1545,7 @@ try_match_generic_impl :: (
       false,
       false,
       false,
-      synthetic_token(&fa_name, &env.module_path.*)
+      synthetic_token(&fa_name, &env.module_path().*)
     );
     ui = (ui + usize(1));
   });
@@ -1567,11 +1567,11 @@ try_match_generic_impl :: (
   if(debug_knob(`YO_DEBUG_BIND`).is_some(), {
     (tmf_ids : String) = String.from("");
     (tmf_i : usize) = usize(0);
-    while(tmf_i < unify_env.frames.len(), {
+    while(tmf_i < unify_env.frames_len(), {
       match(
-        unify_env.frames.get(tmf_i),
+        unify_env.frame_at(tmf_i),
         .Some(tmf_f) => {
-          tmf_ids.push_string(tmf_f.id.to_string());
+          tmf_ids.push_string(tmf_f.id().to_string());
           tmf_ids.push_string(String.from(","));
         },
         .None => ()
@@ -1601,7 +1601,7 @@ try_match_generic_impl :: (
   // swallowed ("Failed to evaluate, got ((ctrl_ptr.add)(i).(*))" — the
   // hash_set corpus family, issues/fixed/def-eval-swallow-remaining-roots.md).
   (given_scratch : Environment) = snapshot_env(env);
-  given_scratch.push_frame(false);
+  given_scratch.push_frame()(false);
   synth_result := synthesize_types(
     &entry.receiver_type_pattern,
     &unify_env,
@@ -1750,9 +1750,9 @@ try_match_generic_impl :: (
       fv_vars := get_variables_from_env(&match_env, &fa_name2);
       if(fv_vars.len() > usize(0), {
         match(
-          fv_vars.last(),
+          fv_vars.last_cloned(),
           .Some(fv_var) => match(
-            fv_var.value.get(usize(0)),
+            fv_var.value().get(usize(0)),
             .Some(.IntLit(fv_raw)) => {
               fa_val2 = EvalValue.IntLit(fv_raw.clone());
             },
@@ -2609,7 +2609,7 @@ _inject_forall_captures :: (
                   (pvj : usize) = usize(0);
                   while(pvj < pv.len(), {
                     match(
-                      pv.get(pvj),
+                      pv.get_cloned(pvj),
                       .Some(ph) => {
                         new_cvars.push(ph);
                       },
@@ -3654,9 +3654,9 @@ _try_lookup_trait_type :: (
     vars := get_variables_from_env(env, &name);
     if(vars.len() > usize(0), {
       match(
-        vars.last(),
+        vars.last_cloned(),
         .Some(last_v) => match(
-          last_v.value.get(usize(0)),
+          last_v.value().get(usize(0)),
           .Some(ev) => match(
             ev,
             .TypeVal(tb) => match(
@@ -3698,7 +3698,7 @@ _try_lookup_trait_type :: (
   match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated)),
     .Some(info) => match(
-      info.value,
+      info.value(),
       .Some(ev) => match(
         ev,
         .TypeVal(tb) => match(
@@ -4447,18 +4447,18 @@ _c3_eval_colon_pair :: (
           expected_method_ty_resolved,
           .None => (),
           .Some(conf_exp) => {
-            if((get_all_some_types(&conf_exp).len() == usize(0)) && (get_all_some_types(&fi.ty).len() == usize(0)) && !is_type_hierarchy_type(&conf_exp) && !are_types_compatible(_with_receiver_mode_of(&fi.ty, &conf_exp), &conf_exp) && !(migrate_param_modes_on() && _migrate_imm_for_trait_mismatch(&val_expr, &fi.ty, &conf_exp)), {
+            if((get_all_some_types(&conf_exp).len() == usize(0)) && (get_all_some_types(&fi.ty()).len() == usize(0)) && !is_type_hierarchy_type(&conf_exp) && !are_types_compatible(_with_receiver_mode_of(&fi.ty(), &conf_exp), &conf_exp) && !(migrate_param_modes_on() && _migrate_imm_for_trait_mismatch(&val_expr, &fi.ty(), &conf_exp)), {
               exn.throw(
                 dyn(
                   format_error_message(
                     &name_tok,
-                    `Type "${type_to_string(&st.receiver_ty)}" does not implement required trait "${type_to_string(&conf_tt)}" as written: member "${method_name}" has type ${type_to_string(&fi.ty)}, but the trait requires ${type_to_string(&conf_exp)}`
+                    `Type "${type_to_string(&st.receiver_ty)}" does not implement required trait "${type_to_string(&conf_tt)}" as written: member "${method_name}" has type ${type_to_string(&fi.ty())}, but the trait requires ${type_to_string(&conf_exp)}`
                   )
                 )
               );
             });
             match(
-              _impl_result_origin_wider(&fi.ty, &conf_exp),
+              _impl_result_origin_wider(&fi.ty(), &conf_exp),
               .Some(ro_msg) => {
                 exn.throw(
                   dyn(
@@ -4475,7 +4475,7 @@ _c3_eval_colon_pair :: (
               },
               .None => ()
             );
-            if(_receiver_writes_where_trait_reads(&fi.ty, &conf_exp), {
+            if(_receiver_writes_where_trait_reads(&fi.ty(), &conf_exp), {
               exn.throw(
                 dyn(
                   with_code(
@@ -4501,13 +4501,13 @@ _c3_eval_colon_pair :: (
       match(
         current_trait_ty,
         .Some(dr_tt) => if((method_name == "drop") && (move_only_declaring_trait_name(&dr_tt, &st.env) == "Drop"), {
-          dr_mut := match(&fi.ty, Rc(.Func({ result : _ })) => match(fn_param_mut_ref_at(&fi.ty, usize(0)), .Some(b) => b, .None => false), _ => true);
+          dr_mut := match(&fi.ty(), Rc(.Func({ result : _ })) => match(fn_param_mut_ref_at(&fi.ty(), usize(0)), .Some(b) => b, .None => false), _ => true);
           if(!dr_mut, {
             exn.throw(
               dyn(
                 format_error_message(
                   &name_tok,
-                  `Type "${type_to_string(&st.receiver_ty)}" does not implement required trait "Drop" as written: member "drop" has type ${type_to_string(&fi.ty)}, but the trait requires the receiver \`self : &mut Self\` (Rust's \`drop(&mut self)\`, plans/VALUES_BY_DEFAULT.md decision 45): the destructor may write the value it drops.`
+                  `Type "${type_to_string(&st.receiver_ty)}" does not implement required trait "Drop" as written: member "drop" has type ${type_to_string(&fi.ty())}, but the trait requires the receiver \`self : &mut Self\` (Rust's \`drop(&mut self)\`, plans/VALUES_BY_DEFAULT.md decision 45): the destructor may write the value it drops.`
                 )
               )
             );
@@ -4518,7 +4518,7 @@ _c3_eval_colon_pair :: (
       // Adopt a private copy: the in-flight env is pushed/popped on later
       // and a recorded snapshot is shared between ExprInfos.
       st.env = expr_info_adopt_env(&fi);
-      method_val := match(fi.value, .Some(v) => v, .None => EvalValue.UnitVal);
+      method_val := match(fi.value(), .Some(v) => v, .None => EvalValue.UnitVal);
       // Make this field visible to later fields' `Self.X`
       // within the SAME trait entry. Only TYPE-valued fields
       // (associated types like `Output : u8`) — `Self.X` never
@@ -4535,7 +4535,7 @@ _c3_eval_colon_pair :: (
       _dv := add_variable_to_env(
         &st.env,
         &qualified,
-        &fi.ty,
+        &fi.ty(),
         .Some(method_val),
         true,
         false,
@@ -4551,7 +4551,7 @@ _c3_eval_colon_pair :: (
       _dv_bare := add_variable_to_env(
         &st.env,
         method_name.clone(),
-        &fi.ty,
+        &fi.ty(),
         .Some(method_val),
         true,
         false,
@@ -4568,8 +4568,8 @@ _c3_eval_colon_pair :: (
         // A concrete impl's method on an instance of a type constructor is a
         // candidate of static-argument inference (`G.m(...)`), which the
         // generic registry does not hold.
-        if(!st.is_generic && is_function_type(&fi.ty), {
-          note_concrete_ctor_method(&st.receiver_ty, &method_name, &fi.ty, &_impl_site_string(&name_tok));
+        if(!st.is_generic && is_function_type(&fi.ty()), {
+          note_concrete_ctor_method(&st.receiver_ty, &method_name, &fi.ty(), &_impl_site_string(&name_tok));
         });
         // A phase-A entry for this field is already in the registry (a
         // sibling referenced this method while it was being evaluated —
@@ -4589,9 +4589,9 @@ _c3_eval_colon_pair :: (
                 .Some(pa_e) => {
                   pa_e_fid := match(pa_e.value, .Some(pa_v) => match(pa_v, .FuncVal(__pa_e_fvd, _) => __pa_e_fvd.*.func_id.clone(), _ => String.new()), .None => String.new());
                   if((pa_e_fid.len() > usize(0)) && (pa_e_fid == pa_real_fid), {
-                    pa_e.ty = Rc.clone(fi.ty);
+                    pa_e.ty = Rc.clone(fi.ty());
                     pa_e.value = Option(EvalValue).Some(method_val);
-                    register_func_type(pa_real_fid.clone(), _retype_with_value_param_labels(&fi.ty, &method_val));
+                    register_func_type(pa_real_fid.clone(), _retype_with_value_param_labels(&fi.ty(), &method_val));
                     updated_phase_a = true;
                   });
                 },
@@ -4620,7 +4620,7 @@ _c3_eval_colon_pair :: (
           match(
             method_val,
             .FuncVal(__reg_fvd, _) => {
-              register_func_type(__reg_fvd.*.func_id.clone(), _retype_with_value_param_labels(&fi.ty, &method_val));
+              register_func_type(__reg_fvd.*.func_id.clone(), _retype_with_value_param_labels(&fi.ty(), &method_val));
             },
             _ => ()
           );
@@ -4628,7 +4628,7 @@ _c3_eval_colon_pair :: (
             &st.recv_id,
             MethodEntry(
               label : method_name.clone(),
-              ty : Rc.clone(fi.ty),
+              ty : Rc.clone(fi.ty()),
               value : Option(EvalValue).Some(method_val),
               // INHERENT-FIRST: tag trait-impl methods (current_trait_ty
               // is Some — `impl(T, Trait(...))`) with their trait id, so
@@ -4671,7 +4671,7 @@ _c3_eval_colon_pair :: (
                 type_id_or_empty(&__var_tt),
                 method_name.clone(),
                 &method_val,
-                &fi.ty,
+                &fi.ty(),
                 &name_tok,
                 &st.env,
                 ctx,
@@ -4682,7 +4682,7 @@ _c3_eval_colon_pair :: (
                 method_name.clone(),
                 __var_fvd.*.func_id.clone(),
                 &name_tok,
-                &fi.ty,
+                &fi.ty(),
                 &st.env,
                 ctx,
                 exn
@@ -4772,15 +4772,15 @@ _c2_eval_direct_field :: (
       // Adopt a private copy: the in-flight env is pushed/popped on later
       // and a recorded snapshot is shared between ExprInfos.
       st.env = expr_info_adopt_env(&mfi);
-      mval := match(mfi.value, .Some(v) => v, .None => EvalValue.UnitVal);
-      m_is_macro := _method_ty_skip_stamp(&mfi.ty);
+      mval := match(mfi.value(), .Some(v) => v, .None => EvalValue.UnitVal);
+      m_is_macro := _method_ty_skip_stamp(&mfi.ty());
       (m_to_push : EvalValue) = EvalValue.UnitVal;
       if(m_is_macro, {
         m_to_push = mval;
       }, {
         m_to_push = _stamp_impl_forall_on_method(&mval, &st.forall_names);
       });
-      pf.result_ty = Option(TypeValue).Some(Rc.clone(mfi.ty));
+      pf.result_ty = Option(TypeValue).Some(Rc.clone(mfi.ty()));
       pf.result_value = Option(EvalValue).Some(m_to_push);
       // Bind the bare label so later sibling fields can reference it by
       // name — alias fields like ComptimeList's `first : car`
@@ -4791,7 +4791,7 @@ _c2_eval_direct_field :: (
       _gb := add_variable_to_env(
         &st.env,
         mname.clone(),
-        &mfi.ty,
+        &mfi.ty(),
         Option(EvalValue).Some(mval),
         true,
         false,
@@ -4800,7 +4800,7 @@ _c2_eval_direct_field :: (
         &mname_tok
       );
       if(st.recv_id != "", {
-        _c2_register_member(st, pf, &mname, &mfi.ty, &m_to_push, String.from(""));
+        _c2_register_member(st, pf, &mname, &mfi.ty(), &m_to_push, String.from(""));
       });
     }
   );
@@ -4843,7 +4843,7 @@ _c2_eval_inner_field :: (
       // Adopt a private copy: the in-flight env is pushed/popped on later
       // and a recorded snapshot is shared between ExprInfos.
       st.env = expr_info_adopt_env(&gfi);
-      g_mval := match(gfi.value, .Some(v) => v, .None => EvalValue.UnitVal);
+      g_mval := match(gfi.value(), .Some(v) => v, .None => EvalValue.UnitVal);
       // Make this field visible to later fields' `Self.X`. TYPE-valued
       // fields only — see the Case 3 counterpart.
       match(
@@ -4854,14 +4854,14 @@ _c2_eval_inner_field :: (
         },
         _ => ()
       );
-      g_is_macro := _method_ty_skip_stamp(&gfi.ty);
+      g_is_macro := _method_ty_skip_stamp(&gfi.ty());
       (g_to_push : EvalValue) = EvalValue.UnitVal;
       if(g_is_macro, {
         g_to_push = g_mval;
       }, {
         g_to_push = _stamp_impl_forall_on_method(&g_mval, &st.forall_names);
       });
-      pf.result_ty = Option(TypeValue).Some(Rc.clone(gfi.ty));
+      pf.result_ty = Option(TypeValue).Some(Rc.clone(gfi.ty()));
       pf.result_value = Option(EvalValue).Some(g_to_push);
       // Tagged with the trait's id (Case 3's fresh-registration semantics:
       // inherent-first resolution reads source_trait_id).
@@ -4871,7 +4871,7 @@ _c2_eval_inner_field :: (
           .Some(c2g_tt) => type_id_or_empty(&c2g_tt),
           .None => String.from("")
         );
-        _c2_register_member(st, pf, &g_mname, &gfi.ty, &g_to_push, &c2g_src_tid);
+        _c2_register_member(st, pf, &g_mname, &gfi.ty(), &g_to_push, &c2g_src_tid);
       });
     }
   );
@@ -5222,7 +5222,7 @@ evaluate_module_value :: (
     ctx.expected_type = saved_expected.clone();
     local_env = result.env;
     out_info := new_expr_info(&local_env, &result.module_type);
-    out_info.value = .Some(result.module_value);
+    out_info.set_value(.Some(result.module_value));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
     return(expr);
   });
@@ -5245,8 +5245,8 @@ evaluate_module_value :: (
     // fresh frame to hold the generic SomeTs — writes only touch that frame,
     // so the outer scope stays isolated.
     (forall_env : Environment) = snapshot_env(&local_env);
-    forall_env.push_frame(false);
-    frame_lvl := (forall_env.frames.len() - usize(1));
+    forall_env.push_frame()(false);
+    frame_lvl := (forall_env.frames_len() - usize(1));
     // Forall param names and SomeT TypeValues (parallel arrays).
     (forall_names : ArrayList(String)) = ArrayList(String).new();
     (forall_some_types : ArrayList(TypeValue)) = ArrayList(TypeValue).new();
@@ -5373,7 +5373,7 @@ evaluate_module_value :: (
         // and later pushed on (forall frame below): adopt a private shallow copy.
         forall_env = expr_info_adopt_env(&ri2);
         match(
-          ri2.value,
+          ri2.value(),
           .None => (),
           .Some(.TypeVal(tv2)) => {
             receiver_type_pattern = Rc.clone(tv2);
@@ -5790,7 +5790,7 @@ evaluate_module_value :: (
     register_generic_impl(&entry);
     // Return the original local_env (without the generic frame leaked into scope).
     out_info := new_expr_info(&local_env, t_unit());
-    out_info.value = .Some(EvalValue.UnitVal);
+    out_info.set_value(.Some(EvalValue.UnitVal));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
     return(expr);
   });
@@ -5825,7 +5825,7 @@ evaluate_module_value :: (
       // Same: `local_env` gets the impl frame pushed at the end.
       local_env = expr_info_adopt_env(&ri);
       match(
-        ri.value,
+        ri.value(),
         .None => (),
         .Some(.TypeVal(tv)) => {
           receiver_ty = Rc.clone(tv);
@@ -5887,7 +5887,7 @@ evaluate_module_value :: (
   // Push a frame for the impl's field bindings (popped after the loop)
   // so the per-field
   // BARE-label bindings below don't leak into the module scope.
-  local_env.push_frame(false);
+  local_env.push_frame()(false);
   // Pending members (plans/reference/LAZY_TOPLEVEL_BINDINGS.md P3): each DIRECT
   // colon-pair member is a definition scoped to this block. A sibling body
   // that references it before its position (`caller` calling `self.callee()`
@@ -6406,7 +6406,7 @@ evaluate_module_value :: (
                             &d_cvs,
                             Rc.clone(ast_expr_token(&d_fvd.*.body).module_path)
                           );
-                          ___df := d_env.push_frame(false);
+                          ___df := d_env.push_frame()(false);
                           d_pts := match(&d_sub_ty, Rc(.Func({ param_types : d_ppts })) => Rc.clone(d_ppts), _ => no_types());
                           // The declared `inout` flags, read off the same
                           // Self-substituted type the signature is emitted
@@ -6437,25 +6437,25 @@ evaluate_module_value :: (
                               false,
                               false,
                               false,
-                              synthetic_token(&d_pn, &d_env.module_path.*)
+                              synthetic_token(&d_pn, &d_env.module_path().*)
                             );
                             match(
                               ___dpv,
                               .Some(d_pvar) => {
-                                d_pvar.is_parameter = true;
+                                d_pvar.set_is_parameter(true);
                                 if(match(d_p_is_ref.get(d_pi), .Some(b) => b, .None => false), {
-                                  d_pvar.is_ref = true;
-                                  d_pvar.is_reassignable = true;
+                                  d_pvar.set_is_ref(true);
+                                  d_pvar.set_is_reassignable(true);
                                 });
                                 // A projection's `&T` parameter is passed by
                                 // pointer (`fn_param_is_ptr_borrow`).
                                 if(fn_param_is_ptr_borrow(&d_sub_ty, d_pi), {
-                                  d_pvar.is_ref = true;
+                                  d_pvar.set_is_ref(true);
                                 });
                                 // A `&T` parameter: a borrow decision 33's
                                 // markers pass bare.
                                 if(!match(d_p_is_ref.get(d_pi), .Some(b) => b, .None => false) && !match(match(&d_sub_ty, Rc(.Func({ result : _ })) => fn_param_by_value_at(&d_sub_ty, d_pi), _ => Option(bool).None), .Some(b) => b, .None => false), {
-                                  d_pvar.is_imm_borrow = true;
+                                  d_pvar.set_is_imm_borrow(true);
                                 });
                               },
                               .None => ()
@@ -6467,7 +6467,7 @@ evaluate_module_value :: (
                           g_mat_default_err.with_mut(xs => xs.clear());
                           _materialize_default_body(&d_body_clone, d_sub_ty.clone(), d_fresh_id.clone(), &d_env, ctx, &mut d_out);
                           truncate_forcing_depths(d_depths);
-                          d_env.pop_frame();
+                          d_env.pop_frame()();
                           ctx.self_type = d_saved_self;
                           // Phase 6 step 2 (census site #14): with `Self` this
                           // impl's concrete receiver and a signature with no
@@ -6569,7 +6569,7 @@ evaluate_module_value :: (
   // Pop the impl's field-binding frame (the frame pushed
   // above). The bare/qualified label bindings above are
   // scoped to this impl; dispatch goes through the trait-method registry.
-  local_env.pop_frame();
+  local_env.pop_frame()();
   // Unmark each trait pre-registered above
   // (the finally-style cleanup).
   (postri : usize) = usize(0);
@@ -6594,7 +6594,7 @@ evaluate_module_value :: (
   ctx.self_type = old_self_type;
   // Set ExprInfo on the impl expression and return.
   out_info := new_expr_info(&local_env, t_unit());
-  out_info.value = .Some(EvalValue.UnitVal);
+  out_info.set_value(.Some(EvalValue.UnitVal));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   expr
 });
@@ -7402,13 +7402,13 @@ _collect_generic_ctor_method_impls :: (fn(ctor_fid : &String, method : &String) 
 /// reaches the caller's env.
 synthesize_impl_binders :: (fn(names : &ArrayList(String), somes : &ArrayList(TypeValue), pattern : &TypeValue, given : &TypeValue, env : &Environment) -> Option(ArrayList(Option(TypeValue))))({
   (unify_env : Environment) = snapshot_env(env);
-  unify_env.push_frame(false);
-  (unify_base : usize) = unify_env.frames.len();
+  unify_env.push_frame()(false);
+  (unify_base : usize) = unify_env.frames_len();
   (ui : usize) = usize(0);
   while(ui < names.len(), ui = (ui + usize(1)), {
     nm := match(names.get_cloned(ui), .Some(n) => n, .None => String.new());
     sm := match(somes.get_cloned(ui), .Some(s) => s, .None => t_unit());
-    add_variable_to_env(&unify_env, &nm, t_type(), Option(EvalValue).Some(create_type_value(&sm)), true, false, false, false, synthetic_token(&nm, &env.module_path.*));
+    add_variable_to_env(&unify_env, &nm, t_type(), Option(EvalValue).Some(create_type_value(&sm)), true, false, false, false, synthetic_token(&nm, &env.module_path().*));
   });
   exn_synth := Exception(
     throw : (
@@ -7423,7 +7423,7 @@ synthesize_impl_binders :: (fn(names : &ArrayList(String), somes : &ArrayList(Ty
   checked := ArrayList(TypePair).new();
   opts := Option(SynthesizeOptions).None;
   (given_scratch : Environment) = snapshot_env(env);
-  given_scratch.push_frame(false);
+  given_scratch.push_frame()(false);
   synth := synthesize_types(pattern, &unify_env, given, &given_scratch, &mut checked, &opts, exn_synth);
   out := ArrayList(Option(TypeValue)).new();
   (bi : usize) = usize(0);
@@ -7463,7 +7463,7 @@ first_failed_impl_where :: (fn(entry : &GenericImplEntry, bindings : &ArrayList(
             g_type_implements_trait_full_fn,
             .Some(f) => {
               (w_env : Environment) = snapshot_env(env);
-              w_env.push_frame(false);
+              w_env.push_frame()(false);
               if(!f(&bound, &w_trait, &w_env) && (_is_marker_trait(&w_trait) || _where_trait_mentions_no_forall(&w_trait, &entry.forall_some_types)), {
                 return(Option(Tuple(String, TypeValue, TypeValue)).Some((w_name, bound, w_trait)));
               });

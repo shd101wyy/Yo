@@ -251,13 +251,13 @@ get_future_variable_id_ :: (
     },
     .Some(i) => i
   );
-  vars := scope_variables(ast_expr_id(await_arg), &info.env, await_var_name.clone());
+  vars := scope_variables(ast_expr_id(await_arg), &info.env(), await_var_name.clone());
   n := vars.len();
   if(n == usize(0), {
     return(Option(String).None);
   });
   last_var := match(
-    vars.get(n - usize(1)),
+    vars.get_cloned(n - usize(1)),
     .None => {
       return(Option(String).None);
     },
@@ -265,7 +265,7 @@ get_future_variable_id_ :: (
   );
   // If the variable shares RC with an owner, return the owner's ID
   match(
-    last_var.is_owning_the_same_rc_value_as,
+    last_var.is_owning_the_same_rc_value_as(),
     .Some(owner_box) => Option(String).Some(owner_box.id.to_string()),
     .None => Option(String).Some(last_var.id.to_string())
   )
@@ -316,7 +316,7 @@ detect_await_expr_ :: (
         .Some(i) => i
       );
       // The argument's type must implement the Future trait
-      future_type_val := await_info.ty.clone();
+      future_type_val := await_info.ty();
       if(!type_implements_future(future_type_val.clone()), {
         return(());
       });
@@ -612,7 +612,7 @@ collect_variable_bindings_ :: (
                         get_info(val_arg.clone()),
                         .None => (),
                         .Some(val_info) => {
-                          var_type := val_info.ty.clone();
+                          var_type := val_info.ty();
                           // Look up the variable in the name_arg's environment
                           match(
                             get_info(&name_arg),
@@ -620,20 +620,20 @@ collect_variable_bindings_ :: (
                             .Some(name_info) => {
                               vars := scope_variables(
                                 ast_expr_id(&name_arg),
-                                &name_info.env,
+                                &name_info.env(),
                                 var_name.clone()
                               );
                               n_vars := vars.len();
                               if(n_vars > usize(0), {
                                 match(
-                                  vars.get(n_vars - usize(1)),
+                                  vars.get_cloned(n_vars - usize(1)),
                                   .None => (),
                                   .Some(variable) => {
                                     match(
-                                      variable.is_owning_the_same_rc_value_as,
+                                      variable.is_owning_the_same_rc_value_as(),
                                       .Some(_) => (),
                                       .None => {
-                                        if(!variable.is_compile_time_only &&
+                                        if(!variable.is_compile_time_only() &&
                                           !seen.contains_key(variable.id.to_string()), {
                                           cv := CapturedVariable(
                                             base : SuspensionCapturedVariable(

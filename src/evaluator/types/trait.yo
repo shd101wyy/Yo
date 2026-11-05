@@ -120,7 +120,7 @@ _get_or_create_some_ty_for_trait :: (
     existing_vars := get_variables_from_env(env_mut, &var_name);
     if(existing_vars.len() > usize(0), {
       last_v := match(
-        existing_vars.last(),
+        existing_vars.last_cloned(),
         .Some(v) => v,
         .None => {
           exn.throw(
@@ -135,7 +135,7 @@ _get_or_create_some_ty_for_trait :: (
         }
       );
       match(
-        last_v.value.get(usize(0)),
+        last_v.value().get(usize(0)),
         .Some(ev) => {
           match(
             ev,
@@ -151,7 +151,7 @@ _get_or_create_some_ty_for_trait :: (
       );
     });
     // Create a new SomeType
-    top_frame := env_mut.frames.len();
+    top_frame := env_mut.frames_len();
     if(top_frame == usize(0), {
       exn.throw(
         dyn(
@@ -181,7 +181,7 @@ _get_or_create_some_ty_for_trait :: (
       ast_expr_token(lhs_expr)
     );
     lhs_info := new_expr_info(env_mut, type_of_type(&new_some_ty));
-    lhs_info.value = .Some(tv);
+    lhs_info.set_value(.Some(tv));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(lhs_expr), &lhs_info);
     return(_SomeTyResolvedResult(new_some_ty, false));
   });
@@ -209,7 +209,7 @@ _get_or_create_some_ty_for_trait :: (
       new_expr_info(env_mut, Rc.new(TypeValueNode.Unit))
     }
   );
-  if(!is_type_value(&lhs_info.value), {
+  if(!is_type_value(&lhs_info.value()), {
     exn.throw(
       dyn(
         format_error_message(
@@ -219,9 +219,9 @@ _get_or_create_some_ty_for_trait :: (
       )
     );
   });
-  env_adopt(&env_mut, &lhs_info.env);
+  env_adopt(&env_mut, &lhs_info.env());
   lhs_tv := match(
-    lhs_info.value,
+    lhs_info.value(),
     .Some(v) => match(v, .TypeVal(b) => Rc.clone(b), _ => Rc.new(TypeValueNode.Unit)),
     .None => Rc.new(TypeValueNode.Unit)
   );
@@ -307,12 +307,12 @@ _apply_single_constraint_for_trait :: (
       return(false);
     }
   );
-  if(!is_type_value(&te_info.value), {
+  if(!is_type_value(&te_info.value()), {
     return(false);
   });
-  env_adopt(&env_mut, &te_info.env);
+  env_adopt(&env_mut, &te_info.env());
   trait_ty2 = match(
-    te_info.value,
+    te_info.value(),
     .Some(v) => match(v, .TypeVal(b) => Rc.clone(b), _ => Rc.new(TypeValueNode.Unit)),
     .None => Rc.new(TypeValueNode.Unit)
   );
@@ -460,7 +460,7 @@ _parse_trait_where_clauses :: (
           new_expr_info(env_mut, Rc.new(TypeValueNode.Unit))
         }
       );
-      if(!is_type_value(&te_info.value), {
+      if(!is_type_value(&te_info.value()), {
         if(collect_pending, {
           pending_traits.push(_PendingTraitConstraint(lhs_expr, trait_expr_item, constraint_expr));
           continue;
@@ -475,9 +475,9 @@ _parse_trait_where_clauses :: (
           );
         });
       });
-      env_adopt(&env_mut, &te_info.env);
+      env_adopt(&env_mut, &te_info.env());
       trait_ty2 = match(
-        te_info.value,
+        te_info.value(),
         .Some(v) => match(v, .TypeVal(b) => Rc.clone(b), _ => Rc.new(TypeValueNode.Unit)),
         .None => Rc.new(TypeValueNode.Unit)
       );
@@ -737,8 +737,8 @@ _evaluate_trait_field :: (
       ctx.self_trait_type = old_self_trait_type;
       te_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_te));
       te_info := match(te_info_opt, .Some(i) => i, .None => new_expr_info(env_mut, Rc.new(TypeValueNode.Unit)));
-      env_adopt(&env_mut, &te_info.env);
-      if(!is_type_value(&te_info.value), {
+      env_adopt(&env_mut, &te_info.env());
+      if(!is_type_value(&te_info.value()), {
         exn.throw(
           dyn(
             format_error_message(
@@ -749,7 +749,7 @@ _evaluate_trait_field :: (
         );
       });
       ty := match(
-        te_info.value,
+        te_info.value(),
         .Some(v) => match(v, .TypeVal(b) => Rc.clone(b), _ => Rc.new(TypeValueNode.Unit)),
         .None => Rc.new(TypeValueNode.Unit)
       );
@@ -825,9 +825,9 @@ _evaluate_trait_field :: (
           new_expr_info(env_mut, Rc.new(TypeValueNode.Unit))
         }
       );
-      env_adopt(&env_mut, &av_info.env);
+      env_adopt(&env_mut, &av_info.env());
       av := match(
-        av_info.value,
+        av_info.value(),
         .Some(v) => v,
         .None => {
           exn.throw(
@@ -842,7 +842,7 @@ _evaluate_trait_field :: (
         }
       );
       // Validate type compatibility if expected type is set
-      av_ty := Rc.clone(av_info.ty);
+      av_ty := Rc.clone(av_info.ty());
       match(
         field_expected_ty_opt,
         .Some(fet) => {
@@ -913,9 +913,9 @@ _evaluate_trait_field :: (
           new_expr_info(env_mut, Rc.new(TypeValueNode.Unit))
         }
       );
-      env_adopt(&env_mut, &dv_info.env);
+      env_adopt(&env_mut, &dv_info.env());
       dv := match(
-        dv_info.value,
+        dv_info.value(),
         .Some(v) => v,
         .None => {
           exn.throw(
@@ -930,7 +930,7 @@ _evaluate_trait_field :: (
         }
       );
       // Validate type compatibility
-      dv_ty := Rc.clone(dv_info.ty);
+      dv_ty := Rc.clone(dv_info.ty());
       match(
         field_expected_ty_opt,
         .Some(fet) => {
@@ -976,14 +976,14 @@ _evaluate_trait_field :: (
     .Some(le) => {
       label_val := match(assigned_val_opt, .Some(av) => av, .None => create_unknown_val(&field_ty));
       le_info := new_expr_info(env_mut, &field_ty);
-      le_info.value = .Some(label_val);
+      le_info.set_value(.Some(label_val));
       expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&le), &le_info);
     },
     .None => ()
   );
   // Set expr info on the field expr itself (unit value)
   unit_info := new_expr_info(env_mut, Rc.new(TypeValueNode.Unit));
-  unit_info.value = .Some(EvalValue.UnitVal);
+  unit_info.set_value(.Some(EvalValue.UnitVal));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &unit_info);
   // Phase 7: detect associated type (TypeUni(0) + !assignedValue + isForEvaluatingTraitType)
   (assoc_some_ty_opt : Option(TypeValue)) = Option(TypeValue).None;
@@ -994,10 +994,10 @@ _evaluate_trait_field :: (
     (found_existing : bool) = false;
     if(existing_vars.len() > usize(0), {
       match(
-        existing_vars.last(),
+        existing_vars.last_cloned(),
         .Some(last_v) => {
           match(
-            last_v.value.get(usize(0)),
+            last_v.value().get(usize(0)),
             .Some(ev) => {
               match(
                 ev,
@@ -1017,7 +1017,7 @@ _evaluate_trait_field :: (
       );
     });
     if(!found_existing, {
-      top_frame := env_mut.frames.len();
+      top_frame := env_mut.frames_len();
       if(top_frame > usize(0), {
         new_some_ty := t_some_t(&label_str, top_frame - usize(1));
         assoc_some_ty_opt = .Some(new_some_ty);
@@ -1082,10 +1082,10 @@ evaluate_trait_type :: (
     )
   );
   // Push a scoped env frame for trait evaluation
-  env_mut.push_frame(false);
+  env_mut.push_frame()(false);
   args := match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
   // Create "Self" SomeType for the trait
-  top_frame := env_mut.frames.len();
+  top_frame := env_mut.frames_len();
   self_frame_level := if(top_frame > usize(0), top_frame - usize(1), usize(0));
   self_type := t_some_t(String.from("Self"), self_frame_level);
   // Note: no selfType.trait back-link — SomeT has no `trait` field.
@@ -1215,10 +1215,10 @@ evaluate_trait_type :: (
         (already_bound : bool) = false;
         if(existing_vars.len() > usize(0), {
           match(
-            existing_vars.last(),
+            existing_vars.last_cloned(),
             .Some(last_v) => {
               match(
-                last_v.value.get(usize(0)),
+                last_v.value().get(usize(0)),
                 .Some(ev) => {
                   match(
                     ev,
@@ -1351,11 +1351,11 @@ evaluate_trait_type :: (
     vf_i = (vf_i + usize(1));
   });
   // Pop the scoped env frame
-  env_mut.pop_frame();
+  env_mut.pop_frame()();
   // Build final trait type value and set expr info
   trait_val := create_type_value(&trait_ty);
   out_info := new_expr_info(&env_mut, type_of_type(&trait_ty));
-  out_info.value = .Some(trait_val);
+  out_info.set_value(.Some(trait_val));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   // Also set info on the callee (func) expression
   match(

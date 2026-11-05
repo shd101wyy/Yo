@@ -836,8 +836,8 @@ _drop_target_is_parameter :: (fn(drop_expr : &AstExpr, context : &FunctionGenera
       .Some(atom) => match(
         context.base.get_expr_info(&atom),
         .Some(aei) => {
-          vars := scope_variables(ast_expr_id(&atom), &aei.env, ast_expr_token(&atom).value.*);
-          if(vars.len() == usize(0), false, match(vars.last(), .Some(v) => v.is_parameter, .None => false))
+          vars := scope_variables(ast_expr_id(&atom), &aei.env(), ast_expr_token(&atom).value.*);
+          if(vars.len() == usize(0), false, match(vars.last_cloned(), .Some(v) => v.is_parameter(), .None => false))
         },
         .None => false
       ),
@@ -896,7 +896,7 @@ has_pending_emittable_drop :: (fn(expr : &AstExpr, context : &FunctionGeneration
   match(
     context.base.get_expr_info(expr),
     .Some(ei) => match(
-      &ei.deferred_drop_expressions,
+      &ei.deferred_drop_expressions(),
       .Some(drops) => {
         (found : bool) = false;
         (i : usize) = usize(0);
@@ -911,7 +911,7 @@ has_pending_emittable_drop :: (fn(expr : &AstExpr, context : &FunctionGeneration
                   get_deferred_drop_target_atom_name(&d),
                   .Some(nm) => {
                     cn := sanitize_for_c_identifier(&nm, false);
-                    is_tmp := (is_temp_variable_name(&ei.env.module_path.*, cn.clone()) || _looks_like_minted_temp(cn.clone()));
+                    is_tmp := (is_temp_variable_name(&ei.env().module_path().*, cn.clone()) || _looks_like_minted_temp(cn.clone()));
                     declared := context.base.declared_c_var_names.with(dn_s => dn_s.contains(&cn));
                     !is_tmp || declared
                   },
@@ -948,7 +948,7 @@ generate_deferred_drop_expressions :: (
   match(
     context.base.get_expr_info(expr),
     .Some(ei) => match(
-      &ei.deferred_drop_expressions,
+      &ei.deferred_drop_expressions(),
       .Some(drops) => {
         n := drops.len();
         (i : usize) = usize(0);
@@ -996,7 +996,7 @@ generate_deferred_drop_expressions :: (
                   get_deferred_drop_target_atom_name(&drop_expr),
                   .Some(nm) => {
                     cn := sanitize_for_c_identifier(&nm, false);
-                    (is_temp_variable_name(&ei.env.module_path.*, cn.clone()) || _looks_like_minted_temp(cn.clone())) && !context.base.declared_c_var_names.with(dn_s => dn_s.contains(&cn))
+                    (is_temp_variable_name(&ei.env().module_path().*, cn.clone()) || _looks_like_minted_temp(cn.clone())) && !context.base.declared_c_var_names.with(dn_s => dn_s.contains(&cn))
                   },
                   .None => false
                 );
@@ -1076,7 +1076,7 @@ generate_deferred_dup_expressions :: (fn(expr : &AstExpr, indent : &String, cont
                 get_deferred_dup_target_atom_name(&dup_expr),
                 .Some(dnm) => {
                   dcn := sanitize_for_c_identifier(&dnm, false);
-                  (is_temp_variable_name(&ei.env.module_path.*, dcn.clone()) || _looks_like_minted_temp(dcn.clone())) && !context.base.declared_c_var_names.with(dn_s => dn_s.contains(&dcn))
+                  (is_temp_variable_name(&ei.env().module_path().*, dcn.clone()) || _looks_like_minted_temp(dcn.clone())) && !context.base.declared_c_var_names.with(dn_s => dn_s.contains(&dcn))
                 },
                 .None => false
               );
@@ -1100,10 +1100,10 @@ generate_deferred_dup_expressions :: (fn(expr : &AstExpr, indent : &String, cont
                   dup_result_decl := match(
                     context.base.get_expr_info(&dup_expr),
                     .Some(ddei) => match(
-                      &ddei.variable_name,
+                      &ddei.variable_name(),
                       .Some(ddvn) => {
-                        ddtn := get_variable_name_for_codegen_at(ast_expr_id(&dup_expr), ddvn.clone(), Option(Environment).Some(ddei.env));
-                        if(!(ddtn == code) && !context.base.declared_scopes.with(ds_s => scope_stack_contains(ds_s, &ddtn)), Option(String).Some(get_variable_type_string(&ddei.ty, &ddvn, &mut context.base)), Option(String).None)
+                        ddtn := get_variable_name_for_codegen_at(ast_expr_id(&dup_expr), ddvn.clone(), Option(Environment).Some(ddei.env()));
+                        if(!(ddtn == code) && !context.base.declared_scopes.with(ds_s => scope_stack_contains(ds_s, &ddtn)), Option(String).Some(get_variable_type_string(&ddei.ty(), &ddvn, &mut context.base)), Option(String).None)
                       },
                       .None => Option(String).None
                     ),
@@ -1128,12 +1128,12 @@ generate_deferred_dup_expressions :: (fn(expr : &AstExpr, indent : &String, cont
                     match(
                       context.base.get_expr_info(&dup_expr),
                       .Some(sei) => match(
-                        &sei.variable_name,
+                        &sei.variable_name(),
                         .Some(svn) => match(
                           &context.state_machine_variables,
                           .Some(smv) => match(
-                            sm_slot_of(ast_expr_id(&dup_expr), &sei.env, svn.clone(), &smv, &context.variable_id_remapping, &context.state_machine_field_aliases, &context.sm_capture_slot),
-                            .Some(slot) => context.base.emitter.emit_string_line(`${indent.clone()}${slot} = ${get_variable_name_for_codegen_at(ast_expr_id(&dup_expr), &svn, Option(Environment).Some(sei.env))};`),
+                            sm_slot_of(ast_expr_id(&dup_expr), &sei.env(), svn.clone(), &smv, &context.variable_id_remapping, &context.state_machine_field_aliases, &context.sm_capture_slot),
+                            .Some(slot) => context.base.emitter.emit_string_line(`${indent.clone()}${slot} = ${get_variable_name_for_codegen_at(ast_expr_id(&dup_expr), &svn, Option(Environment).Some(sei.env()))};`),
                             .None => ()
                           ),
                           .None => ()
@@ -1180,13 +1180,13 @@ emit_deferred_dup_or_code :: (fn(expr : &AstExpr, fallback_code : &String, inden
         (fallback_code_2 : String) = fallback_code.clone();
         if(!src_is_closure_ctor, {
           match(
-            &ei.variable_name,
+            &ei.variable_name(),
             .Some(src_vn) => {
               // A self-named atom (its `variable_name` is the variable itself)
               // is no temp: its value is its own rendering, which can be a
               // state-machine slot under the single-pass async lowering.
               src_self := is_self_named_atom(expr, src_vn.clone());
-              src_c_name := get_variable_name_for_codegen_at(ast_expr_id(expr), src_vn.clone(), Option(Environment).Some(ei.env));
+              src_c_name := get_variable_name_for_codegen_at(ast_expr_id(expr), src_vn.clone(), Option(Environment).Some(ei.env()));
               src_deref_read := `(*${src_c_name})`;
               // A by-`ref` binding (`name : &mut T`) READS as `(*name)` while
               // its recorded `variable_name` is the bare `name`. The
@@ -1206,7 +1206,7 @@ emit_deferred_dup_or_code :: (fn(expr : &AstExpr, fallback_code : &String, inden
                   fallback_code_2 = fallback_code.clone();
                 },
                 true => {
-                  eff_ty := match(expr_info_converted_runtime_type(&ei), .Some(crt) => crt, .None => Rc.clone(ei.ty));
+                  eff_ty := match(expr_info_converted_runtime_type(&ei), .Some(crt) => crt, .None => Rc.clone(ei.ty()));
                   decl0 := indent.clone();
                   decl0.push_string(get_variable_type_string(&eff_ty, src_c_name.clone(), &mut context.base));
                   decl0.push_str(" = ");
@@ -1240,10 +1240,10 @@ emit_deferred_dup_or_code :: (fn(expr : &AstExpr, fallback_code : &String, inden
             match(
               context.base.get_expr_info(&dup_expr),
               .Some(dei) => match(
-                &dei.variable_name,
+                &dei.variable_name(),
                 .Some(dvn) => if(
-                  type_key(&dei.ty) == type_key(&ei.ty),
-                  Option(String).Some(get_variable_name_for_codegen_at(ast_expr_id(&dup_expr), &dvn, Option(Environment).Some(dei.env))),
+                  type_key(&dei.ty()) == type_key(&ei.ty()),
+                  Option(String).Some(get_variable_name_for_codegen_at(ast_expr_id(&dup_expr), &dvn, Option(Environment).Some(dei.env()))),
                   Option(String).None
                 ),
                 .None => Option(String).None
@@ -1280,7 +1280,7 @@ emit_deferred_dup_or_code :: (fn(expr : &AstExpr, fallback_code : &String, inden
             // the temp unregistered, so generate_deferred_dup_expressions'
             // undeclared-temp gate suppressed the very dup this materialization
             // exists to enable (ArrayList(ref-struct).get() lost its element +1).
-            decl := get_variable_type_string(&ei.ty, t_name.clone(), &mut context.base);
+            decl := get_variable_type_string(&ei.ty(), t_name.clone(), &mut context.base);
             decl.push_str(" = ");
             decl.push_string(fallback_code_2.clone());
             decl.push_str(";");
@@ -1333,20 +1333,20 @@ arm_value_with_dups :: (fn(body_expr : &AstExpr, indent : &String, context : &mu
   // skipped. Same phantom-temp class as the stage-2 fixpoint blocker in
   // cond.yo; see issues/fixed/stage2-match-if-else-value-phantom-temp.md.
   saved_arm_vn := replace(&mut bei.variable_name, Option(String).None);
-  bei.variable_name = Option(String).None;
+  bei.set_variable_name(Option(String).None);
   raw_code := _call_generate_expr(body_expr, indent.clone(), context);
-  bei.variable_name = saved_arm_vn;
+  bei.set_variable_name(saved_arm_vn);
   (final_code : String) = raw_code.clone();
   match(
-    &bei.variable_name,
+    &bei.variable_name(),
     .Some(bvn) => {
-      btv := get_variable_name_for_codegen_at(ast_expr_id(body_expr), bvn.clone(), Option(Environment).Some(bei.env));
+      btv := get_variable_name_for_codegen_at(ast_expr_id(body_expr), bvn.clone(), Option(Environment).Some(bei.env()));
       // Self-named atom: its value is its own rendering (see
       // handle_atom_deferred_dup in return.yo).
       b_self := is_self_named_atom(body_expr, bvn.clone());
       if(!b_self && !(btv == raw_code), {
         bline := indent.clone();
-        bline.push_string(get_type_string(&bei.ty, &mut context.base));
+        bline.push_string(get_type_string(&bei.ty(), &mut context.base));
         bline.push_str(" ");
         bline.push_string(btv.clone());
         bline.push_str(" = ");
@@ -1367,15 +1367,15 @@ arm_value_with_dups :: (fn(body_expr : &AstExpr, indent : &String, context : &mu
     .Some(bdup0) => match(
       context.base.get_expr_info(&bdup0),
       .Some(bdup_info) => match(
-        &bdup_info.variable_name,
+        &bdup_info.variable_name(),
         .Some(dvn) => {
-          dtv := get_variable_name_for_codegen_at(ast_expr_id(&bdup0), dvn.clone(), Option(Environment).Some(bdup_info.env));
+          dtv := get_variable_name_for_codegen_at(ast_expr_id(&bdup0), dvn.clone(), Option(Environment).Some(bdup_info.env()));
           dline := indent.clone();
-          dline.push_string(get_type_string(&bei.ty, &mut context.base));
+          dline.push_string(get_type_string(&bei.ty(), &mut context.base));
           dline.push_str(" ");
           dline.push_string(dtv.clone());
           dline.push_str(" = ");
-          dline.push_string(generate_dup_code_for_value(final_code.clone(), &bei.ty, context));
+          dline.push_string(generate_dup_code_for_value(final_code.clone(), &bei.ty(), context));
           dline.push_str(";");
           context.base.emitter.emit_string_line(&dline);
           declare_c_var_name(&context.base, dtv.clone());
@@ -1390,10 +1390,10 @@ arm_value_with_dups :: (fn(body_expr : &AstExpr, indent : &String, context : &mu
   );
   if(!dup_named, {
     match(
-      &bei.variable_name,
+      &bei.variable_name(),
       .Some(_) => {
         fdline := indent.clone();
-        fdline.push_string(generate_dup_code_for_value(final_code.clone(), &bei.ty, context));
+        fdline.push_string(generate_dup_code_for_value(final_code.clone(), &bei.ty(), context));
         fdline.push_str(";");
         context.base.emitter.emit_string_line(&fdline);
       },
@@ -1433,8 +1433,8 @@ generate_arg_code_with_deferred_dups :: (
             match(
               context.base.get_expr_info(&ix_dup),
               .Some(ix_dei) => match(
-                &ix_dei.variable_name,
-                .Some(ix_dvn) => get_variable_name_for_codegen_at(ast_expr_id(&ix_dup), &ix_dvn, Option(Environment).Some(ix_dei.env)),
+                &ix_dei.variable_name(),
+                .Some(ix_dvn) => get_variable_name_for_codegen_at(ast_expr_id(&ix_dup), &ix_dvn, Option(Environment).Some(ix_dei.env())),
                 .None => base_code
               ),
               .None => base_code
@@ -1488,7 +1488,7 @@ generate_early_return_only_deferred_drop_expressions :: (fn(expr : &AstExpr, ind
                   cn := sanitize_for_c_identifier(vn.clone(), false);
                   in_slot := match(
                     &context.state_machine_variables,
-                    .Some(smv) => (context.in_async_state_machine.is_some() && sm_slot_of(match(get_deferred_drop_target_atom(&drop_expr), .Some(ta) => ast_expr_id(&ta), .None => ast_expr_id(expr)), &ei.env, &vn, &smv, &context.variable_id_remapping, &context.state_machine_field_aliases, &context.sm_capture_slot).is_some()),
+                    .Some(smv) => (context.in_async_state_machine.is_some() && sm_slot_of(match(get_deferred_drop_target_atom(&drop_expr), .Some(ta) => ast_expr_id(&ta), .None => ast_expr_id(expr)), &ei.env(), &vn, &smv, &context.variable_id_remapping, &context.state_machine_field_aliases, &context.sm_capture_slot).is_some()),
                     .None => false
                   );
                   // Likewise an `FnOnce` closure's owned capture lives in the

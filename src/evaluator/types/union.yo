@@ -163,7 +163,7 @@ evaluate_union_type :: (
   union_val := create_type_value(&union_ty);
   meta_ty := type_of_type(&union_ty);
   out_info := new_expr_info(&env_mut, &meta_ty);
-  out_info.value = Option(EvalValue).Some(union_val);
+  out_info.set_value(Option(EvalValue).Some(union_val));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   // Annotate callee (expr.func) with the same info.
   callee_expr := match(expr, .FnCall(_, fb, _, _, _) => fb, .Atom(_, _) => expr);

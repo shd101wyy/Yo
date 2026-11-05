@@ -120,7 +120,7 @@ loading_env :: (fn(path : &String) -> Option(Environment))({
     match(
       g_loading_keys.with(xs => xs.get_cloned(i)),
       .Some(k) => if(k == path, {
-        return(g_loading_envs.with(xs => xs.get(i)));
+        return(g_loading_envs.with(xs => xs.get_cloned(i)));
       }),
       .None => ()
     );
@@ -414,7 +414,7 @@ update_module_cache_slot :: (fn(path : &String, name : &String, var : &Variable)
                     vals.set(
                       ni,
                       match(
-                        var.value.get(usize(0)),
+                        var.value().get(usize(0)),
                         .Some(v) => v,
                         .None => EvalValue.UnitVal
                       )
@@ -438,7 +438,7 @@ update_module_cache_slot :: (fn(path : &String, name : &String, var : &Variable)
         match(
           g_module_cache_types.with(xs => xs.get_cloned(i)),
           .Some(mt) => match(
-            _module_type_with_field(&mt, name, &var.ty),
+            _module_type_with_field(&mt, name, &var.ty()),
             .Some(rebuilt) => {
               g_module_cache_types.with_mut(xs => {
                 xs(i) = Rc.clone(rebuilt);

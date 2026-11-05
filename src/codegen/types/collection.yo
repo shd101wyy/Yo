@@ -610,10 +610,10 @@ _collect_types_from_node :: (fn(expr : &AstExpr, context : &mut CodeGenContext, 
     ei_opt,
     .Some(ei) => {
       // The expression's own type.
-      collect_type(&ei.ty, context);
+      collect_type(&ei.ty(), context);
       // A function value it resolves to (e.g. method lookups like temp.___drop).
       match(
-        ei.value,
+        ei.value(),
         .Some(v) => if(is_func_val(&v), {
           fid := _fv_id(&v);
           cond(
@@ -631,7 +631,7 @@ _collect_types_from_node :: (fn(expr : &AstExpr, context : &mut CodeGenContext, 
       );
       // Deferred drop expressions.
       match(
-        &ei.deferred_drop_expressions,
+        &ei.deferred_drop_expressions(),
         .Some(drops) => {
           nd := drops.len();
           (di : usize) = usize(0);
@@ -709,8 +709,8 @@ _collect_types_from_node :: (fn(expr : &AstExpr, context : &mut CodeGenContext, 
     },
     .Atom(_, _) => match(
       ei_opt,
-      .Some(ei) => if(is_type_value(&ei.value), {
-        match(ei.value, .Some(v) => match(v, .TypeVal(t) => collect_type(&t, context), _ => ()), .None => ());
+      .Some(ei) => if(is_type_value(&ei.value()), {
+        match(ei.value(), .Some(v) => match(v, .TypeVal(t) => collect_type(&t, context), _ => ()), .None => ());
       }),
       .None => ()
     )

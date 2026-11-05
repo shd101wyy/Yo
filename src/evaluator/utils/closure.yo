@@ -598,30 +598,30 @@ function_value_marker :: (
   want_id := _some_id_of(ty);
   want_str := if(want_id.is_empty(), type_to_string(ty), String.new());
   (found : bool) = false;
-  start := match(env.function_declaration_frame_level, .Some(l) => l, .None => usize(0));
+  start := match(env.function_declaration_frame_level(), .Some(l) => l, .None => usize(0));
   (fi : usize) = start;
-  while(fi < env.frames.len(), {
+  while(fi < env.frames_len(), {
     match(
-      env.frames.get(fi),
+      env.frame_at(fi),
       .Some(fr) => {
         (vi : usize) = usize(0);
-        while(vi < fr.variables.len(), {
+        while(vi < fr.variables_len(), {
           match(
-            fr.variables.get(vi),
+            fr.variable_at(vi),
             .Some(v) => {
               // A `::` function definition (module-level or local) is not a
               // value OF this type: it only shares the signature. Judging
               // every definition of the signature convicted `f := count`
               // for what an unrelated `fill` touches.
-              if(!(v.is_module_level || v.is_compile_time_only), {
+              if(!(v.is_module_level() || v.is_compile_time_only()), {
                 matches := if(
                   want_id.is_empty(),
-                  is_function_type(&v.ty) && (type_to_string(&v.ty) == want_str),
-                  _some_id_of(&v.ty) == want_id
+                  is_function_type(&v.ty()) && (type_to_string(&v.ty()) == want_str),
+                  _some_id_of(&v.ty()) == want_id
                 );
                 if(matches, {
                   match(
-                    v.value.get(usize(0)),
+                    v.value().get(usize(0)),
                     .Some(vv) => match(
                       vv,
                       .FuncVal(fvd, _) => {
@@ -969,15 +969,15 @@ enrich_captured_variables :: (
           .None => (),
           .Some(cap_info) => {
             fl := cap_info.frame_level;
-            n_frames := env.frames.len();
+            n_frames := env.frames_len();
             if(debug_knob(`YO_DEBUG_CAPTURE`).is_some(), {
               enr_found := get_variables_from_env(env, var_name.clone());
               (enr_cto : usize) = usize(0);
               (enr_k : usize) = usize(0);
               while(enr_k < enr_found.len(), enr_k = (enr_k + usize(1)), {
                 match(
-                  enr_found.get(enr_k),
-                  .Some(ev) => if(ev.is_compile_time_only, {
+                  enr_found.get_cloned(enr_k),
+                  .Some(ev) => if(ev.is_compile_time_only(), {
                     enr_cto = (enr_cto + usize(1));
                   }),
                   .None => ()
@@ -991,17 +991,17 @@ enrich_captured_variables :: (
               (j : usize) = usize(0);
               while(j < m, {
                 match(
-                  vars.get(j),
+                  vars.get_cloned(j),
                   .None => (),
                   .Some(v) => {
-                    if(!v.is_compile_time_only, {
+                    if(!v.is_compile_time_only(), {
                       enriched := FuncCapturedVarInfo(
                         frame_level : fl,
                         usage : cap_info.usage,
                         token : cap_info.token,
-                        ty : Rc.clone(v.ty),
-                        value : v.value.get(usize(0)),
-                        is_effect_param : v.is_effect_param,
+                        ty : Rc.clone(v.ty()),
+                        value : v.value().get(usize(0)),
+                        is_effect_param : v.is_effect_param(),
                         decl_site : `${v.token.module_path.*}:${v.token.row.to_string()}:${v.token.column.to_string()}`
                       );
                       result.insert(vn_copy.clone(), enriched);
@@ -1396,7 +1396,7 @@ _runtime_capture_names :: (fn(cvwv_opt : &Option(HashMap(String, FuncCapturedVar
       while(more, {
         match(
           it.next(),
-          .Some(n) => if(match(get_variables_from_env(env, n.clone()).last(), .Some(cv) => !cv.is_compile_time_only, .None => false), {
+          .Some(n) => if(match(get_variables_from_env(env, n.clone()).last_cloned(), .Some(cv) => !cv.is_compile_time_only(), .None => false), {
             names.push(n.clone());
           }),
           .None => {
@@ -1485,8 +1485,8 @@ generate_captured_variable_dup_expressions :: (
               type_requires_explicit_copy(&ci.ty) => {
                 cap_vars := get_variables_from_env(env, var_name.clone());
                 match(
-                  cap_vars.last(),
-                  .Some(cap_v) => if(!cap_v.is_compile_time_only, {
+                  cap_vars.last_cloned(),
+                  .Some(cap_v) => if(!cap_v.is_compile_time_only(), {
                     move_captured_explicit_copy_variable(&cap_v, closure_tok, env, ctx, exn);
                   }),
                   .None => ()
@@ -1496,7 +1496,7 @@ generate_captured_variable_dup_expressions :: (
                 // The unique `Dyn` (`check_dyn_capture`): the capture of a
                 // variable holding a `Dyn` moves it.
                 if(!borrow_captures && dyn_copy_rule_applies(&ci.ty), {
-                  match(get_variables_from_env(env, var_name.clone()).last(), .Some(dyn_cap_v) => check_dyn_capture(&dyn_cap_v, closure_tok, env, ctx, exn), .None => ());
+                  match(get_variables_from_env(env, var_name.clone()).last_cloned(), .Some(dyn_cap_v) => check_dyn_capture(&dyn_cap_v, closure_tok, env, ctx, exn), .None => ());
                 });
                 if(audit_implicit_copy_enabled(), {
                   audit_record_implicit_copy(
@@ -1690,10 +1690,10 @@ _expand_clone_to :: (fn(expr : &AstExpr, generated : &AstExpr, ctx : &EvalContex
   match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(generated)),
     .Some(gen_info) => {
-      out := new_expr_info(&gen_info.env, &gen_info.ty);
-      out.value = gen_info.value;
-      out.control_flow = gen_info.control_flow;
-      out.variable_name = gen_info.variable_name.clone();
+      out := new_expr_info(&gen_info.env(), &gen_info.ty());
+      out.set_value(gen_info.value());
+      out.set_control_flow(gen_info.control_flow());
+      out.set_variable_name(gen_info.variable_name());
       record_macro_expansion(ast_expr_id(expr), generated.clone());
       expr_info_set_macro_expansion(&out, Option(AstExpr).Some(generated));
       expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
@@ -1773,7 +1773,7 @@ structural_clone_expansion :: (
     match(
       expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&record)),
       .Some(rec_info) => {
-        rec_info.ty = target.clone();
+        rec_info.set_ty(target.clone());
         expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&record), &rec_info);
       },
       .None => ()
@@ -1782,9 +1782,9 @@ structural_clone_expansion :: (
     match(
       expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&rec_callee)),
       .Some(rc_info) => match(
-        rc_info.value,
+        rc_info.value(),
         .Some(.TypeVal(_)) => {
-          rc_info.value = Option(EvalValue).Some(EvalValue.TypeVal(target.clone()));
+          rc_info.set_value(Option(EvalValue).Some(EvalValue.TypeVal(target.clone())));
           expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&rec_callee), &rc_info);
         },
         _ => ()
@@ -1828,7 +1828,7 @@ evaluate_yo_capture_field :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut
   idx_e := match(cf_args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
   ev_recv := evaluate_expression_raw(&recv, env, ctx, exn);
   _ := evaluate_expression_raw(&idx_e, env, ctx, exn);
-  recv_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ev_recv)), .Some(ri) => Rc.clone(ri.ty), .None => t_unit());
+  recv_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ev_recv)), .Some(ri) => Rc.clone(ri.ty()), .None => t_unit());
   cap := resolve_cell_chain(match(closure_identity_of(&recv_ty), .Some(cl) => cl, .None => Rc.clone(recv_ty)));
   idx := match(ast_expr_token(&idx_e).value.*.parse_i64(), .Some(n) => usize(n), .None => usize(0));
   field_ty := match(
@@ -1840,7 +1840,7 @@ evaluate_yo_capture_field :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut
     }
   );
   out := new_expr_info(env, &field_ty);
-  out.value = Option(EvalValue).None;
+  out.set_value(Option(EvalValue).None);
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
   expr
 });

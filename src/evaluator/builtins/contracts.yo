@@ -135,7 +135,7 @@ _evaluate_contract_marker :: (
     i = (i + usize(1));
   });
   out_info := new_expr_info(&cur_env, t_unit());
-  out_info.value = Option(EvalValue).Some(EvalValue.UnitVal);
+  out_info.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   expr
 });
@@ -321,8 +321,8 @@ evaluate_ghost :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContex
             ghost_var := add_variable_to_env(
               env,
               nm.clone(),
-              &r_info.ty,
-              &r_info.value,
+              &r_info.ty(),
+              &r_info.value(),
               false,
               false,
               false,
@@ -340,12 +340,12 @@ evaluate_ghost :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContex
             match(
               ghost_var,
               .Some(gv) => {
-                gv.is_ghost_binding = true;
+                gv.set_is_ghost_binding(true);
               },
               .None => ()
             );
-            out_info := new_expr_info(&r_info.env, t_unit());
-            out_info.value = Option(EvalValue).Some(EvalValue.UnitVal);
+            out_info := new_expr_info(&r_info.env(), t_unit());
+            out_info.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
             expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
             return(expr);
           });
@@ -493,7 +493,7 @@ ${ast_expr_to_string(expr)}`
         cur_env = expr_info_adopt_env(&info);
         matched := false;
         match(
-          info.value,
+          info.value(),
           .Some(v) => {
             match(
               v,
@@ -594,7 +594,7 @@ ${ast_expr_to_string(expr)}`
     _ => ()
   );
   out_info := new_expr_info(&cur_env, t_type());
-  out_info.value = Option(EvalValue).Some(EvalValue.TypeVal(refined));
+  out_info.set_value(Option(EvalValue).Some(EvalValue.TypeVal(refined)));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   expr
 });
@@ -634,7 +634,7 @@ evaluate_ghost_fn :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalCon
         expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&inner)),
         .Some(ii) => {
           match(
-            ii.value,
+            ii.value(),
             .Some(gv) => {
               match(
                 gv,
@@ -717,7 +717,7 @@ _evaluate_spec_collection :: (
       match(
         expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&a0)),
         .Some(a0i) => {
-          arg1_ty = Rc.clone(a0i.ty);
+          arg1_ty = Rc.clone(a0i.ty());
         },
         .None => ()
       );
@@ -739,7 +739,7 @@ _evaluate_spec_collection :: (
     true => arg1_ty
   );
   out_info := new_expr_info(&cur_env, res_ty.clone());
-  out_info.value = Option(EvalValue).Some(create_unknown_val(&res_ty));
+  out_info.set_value(Option(EvalValue).Some(create_unknown_val(&res_ty)));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   expr
 });
@@ -896,7 +896,7 @@ _evaluate_quantifier :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut Eval
     // recorded snapshot is shared between ExprInfos (`expr_info_env_snapshot`).
     cur_env = expr_info_adopt_env(&ty_info);
     bt := match(
-      ty_info.value,
+      ty_info.value(),
       .Some(.TypeVal(tv)) => Rc.clone(tv),
       .Some(_) => {
         exn.throw(
@@ -932,7 +932,7 @@ _evaluate_quantifier :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut Eval
   });
   // Pass 2: bind the names to unknowns in a scoped frame and evaluate
   // the body (nested quantifiers stay legal — the flag stays set).
-  _ := cur_env.push_frame(true);
+  _ := cur_env.push_frame()(true);
   (vi : usize) = usize(0);
   while(vi < binder_names.len(), {
     // The loop condition proves the index in [0, len); the panic arms carry
@@ -961,7 +961,7 @@ _evaluate_quantifier :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut Eval
   ctx.is_evaluating_contract_predicate = true;
   evaluated_body := evaluate_expression_raw(&body, &cur_env, ctx, exn);
   ctx.is_evaluating_contract_predicate = prev_pred_flag2;
-  cur_env.pop_frame();
+  cur_env.pop_frame()();
   match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_body)),
     .Some(info2) => {
@@ -970,7 +970,7 @@ _evaluate_quantifier :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut Eval
     .None => ()
   );
   out_info := new_expr_info(&cur_env, t_bool());
-  out_info.value = Option(EvalValue).Some(create_unknown_val(t_bool()));
+  out_info.set_value(Option(EvalValue).Some(create_unknown_val(t_bool())));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   expr
 });
@@ -1028,7 +1028,7 @@ evaluate_implies :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalCont
     i = (i + usize(1));
   });
   out_info := new_expr_info(&cur_env, t_bool());
-  out_info.value = Option(EvalValue).Some(create_unknown_val(t_bool()));
+  out_info.set_value(Option(EvalValue).Some(create_unknown_val(t_bool())));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   expr
 });
@@ -1709,7 +1709,7 @@ register_impl_inheritance_task :: (
         _ => ()
       );
       pred_env := env;
-      pred_env.push_frame(false);
+      pred_env.push_frame()(false);
       (bih : usize) = usize(0);
       while(bih < p_names.len(), {
         __pn := match(p_names.get_cloned(bih), .Some(x) => x, .None => String.new());
@@ -1766,7 +1766,7 @@ register_impl_inheritance_task :: (
         );
         vh2 = (vh2 + usize(1));
       });
-      pred_env.pop_frame();
+      pred_env.pop_frame()();
       register_verify_task(
         VerifyTask(
           fn_id : `impl-inherits@${display_module_path(&name_tok.module_path.*)}:${name_tok.row.to_string()}:${label}`,
@@ -1958,7 +1958,7 @@ _callsite_arg_type :: (
             )
           )
         ),
-        .Some(ai) => Option(TypeValue).Some(ai.ty.clone()),
+        .Some(ai) => Option(TypeValue).Some(ai.ty()),
         .None => Option(TypeValue).None
       ),
       .None => Option(TypeValue).None
@@ -1990,7 +1990,7 @@ _callsite_method_receiver :: (
   );
   recv_is_type := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&recv)),
-    .Some(ri) => match(ri.value, .Some(rv) => match(rv, .TypeVal(_) => true, _ => false), .None => false),
+    .Some(ri) => match(ri.value(), .Some(rv) => match(rv, .TypeVal(_) => true, _ => false), .None => false),
     .None => false
   );
   cond(
@@ -2009,7 +2009,7 @@ _callsite_param_type :: (
     .Some(r) => cond(
       (i == usize(0)) => match(
         expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&r)),
-        .Some(ri) => Option(TypeValue).Some(ri.ty.clone()),
+        .Some(ri) => Option(TypeValue).Some(ri.ty()),
         .None => Option(TypeValue).None
       ),
       true => _callsite_arg_type(ctx, e, i - usize(1))
@@ -2058,7 +2058,7 @@ _stash_callsite_contracts :: (
   callee_val := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(f)),
     .Some(ci) => match(
-      ci.value,
+      ci.value(),
       .Some(v) => match(
         v,
         .FuncVal(_, _) => Option(EvalValue).Some(v),
@@ -2102,11 +2102,11 @@ _stash_callsite_contracts :: (
   recv_expr := _callsite_method_receiver(ctx, f, &fvd_params);
   ret_ty := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(e)),
-    .Some(ei) => ei.ty.clone(),
+    .Some(ei) => ei.ty(),
     .None => t_unit()
   );
   site_env := env;
-  site_env.push_frame(false);
+  site_env.push_frame()(false);
   (bi : usize) = usize(0);
   while(bi < fvd_params.len(), {
     __pn := match(fvd_params.get_cloned(bi), .Some(x) => x, .None => String.new());
@@ -2133,9 +2133,9 @@ _stash_callsite_contracts :: (
         (__pv, _callee_param_slot(&get_func_type(&fid), &__pn)),
         (.Some(__pvv), .Some(__ps)) => if(t_slot_is_borrow(&__ps), {
           if(t_slot_is_mut_ref(&__ps), {
-            __pvv.is_ref = true;
+            __pvv.set_is_ref(true);
           }, {
-            __pvv.is_imm_borrow = true;
+            __pvv.set_is_imm_borrow(true);
           });
         }),
         _ => ()
@@ -2184,19 +2184,19 @@ _stash_callsite_contracts :: (
       raw_enss.get(ei),
       .Some(p) => {
         prev_ghost := ctx.is_ghost_context;
-        depth := site_env.frames.len();
+        depth := site_env.frames_len();
         _callsite_ensures_or_drop(clone_expr_fresh_ids(p.clone()), &site_env, ctx, &mut ev_enss);
         // An unwound evaluation leaves its flag and frames behind.
         ctx.is_ghost_context = prev_ghost;
-        while(site_env.frames.len() > depth, {
-          site_env.pop_frame();
+        while(site_env.frames_len() > depth, {
+          site_env.pop_frame()();
         });
       },
       .None => ()
     );
     ei = (ei + usize(1));
   });
-  site_env.pop_frame();
+  site_env.pop_frame()();
   register_callsite_contracts(ast_expr_id(e).to_string(), &ev_reqs, &ev_enss);
 });
 /// Evaluate one callee ENSURES clause at a call site into `out`, or push
@@ -2343,7 +2343,7 @@ register_impl_variance_task :: (
     return(());
   });
   pred_env := env;
-  pred_env.push_frame(false);
+  pred_env.push_frame()(false);
   // `assert` for the synthetic body: the walk matches the BARE `assert`
   // head (its assert arm), but the fixture need not import std/assert —
   // the obligations are compiler-synthesized, not user-written. Evaluate
@@ -2381,12 +2381,12 @@ register_impl_variance_task :: (
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&__asrt_ev)),
     .Some(__asrt_info) => {
       match(
-        __asrt_info.value,
+        __asrt_info.value(),
         .Some(__asrt_val) => {
           add_variable_to_env(
             &pred_env,
             String.from("assert"),
-            __asrt_info.ty.clone(),
+            __asrt_info.ty(),
             Option(EvalValue).Some(__asrt_val),
             false,
             false,
@@ -2512,7 +2512,7 @@ register_impl_variance_task :: (
     name_tok.clone()
   );
   body_ev := evaluated_for_verify(&body, &pred_env, ctx, exn);
-  pred_env.pop_frame();
+  pred_env.pop_frame()();
   register_verify_task(
     VerifyTask(
       fn_id : `impl-variance@${display_module_path(&name_tok.module_path.*)}:${name_tok.row.to_string()}:${label}`,
@@ -2804,7 +2804,7 @@ _contract_clause_runs :: (fn(pred : &AstExpr, table : &ExprInfoTable, allow_old 
     .Atom(_, _) => match(
       expr_info_table_get(table, ast_expr_id(pred)),
       .Some(ai) => match(
-        ai.value,
+        ai.value(),
         .Some(.FuncVal(afv, _)) => !is_ghost_fn(afv.*.func_id.clone()),
         _ => true
       ),
@@ -3191,12 +3191,12 @@ evaluate_law :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext,
   evaluated := evaluate_expression_raw(&arg, env, ctx, exn);
   // The law node itself is unit — the value the `::` binding takes.
   out_info := new_expr_info(env, t_unit());
-  out_info.value = Option(EvalValue).Some(EvalValue.UnitVal);
+  out_info.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   ft := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated)),
     .Some(info) => match(
-      info.value,
+      info.value(),
       .Some(v) => match(v, .TypeVal(t) => Rc.clone(t), _ => t_unit()),
       .None => t_unit()
     ),
@@ -3277,7 +3277,7 @@ evaluate_law :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext,
     return(expr);
   });
   pred_env := env;
-  pred_env.push_frame(false);
+  pred_env.push_frame()(false);
   (bi : usize) = usize(0);
   while(bi < p_names.len(), {
     pn := match(p_names.get_cloned(bi), .Some(x) => x, .None => String.new());
@@ -3343,7 +3343,7 @@ evaluate_law :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext,
     match(ev_enss.get(cj), .Some(c) => _prepare_callsite_contracts(&c, &pred_env, ctx, exn), .None => ());
     cj = (cj + usize(1));
   });
-  pred_env.pop_frame();
+  pred_env.pop_frame()();
   register_verify_task(
     VerifyTask(
       // Column disambiguates: register_verify_task is first-wins on fn_id, and

@@ -455,10 +455,10 @@ _receiver_at :: (
       return(());
     }
   );
-  (recv : TypeValue) = Rc.clone(info.ty);
+  (recv : TypeValue) = Rc.clone(info.ty());
   (unwrapped : bool) = false;
   match(
-    info.value,
+    info.value(),
     .Some(.TypeVal(t)) => {
       recv = Rc.clone(t);
       unwrapped = true;
@@ -470,14 +470,14 @@ _receiver_at :: (
   // the nearest declaration wins, and a type-valued binding unwraps to the
   // type it names.
   if(!unwrapped && (target.kind == TokenKind.Identifier), {
-    vars := get_variables_from_env(&info.env, target.value.*.clone());
+    vars := get_variables_from_env(&info.env(), target.value.*.clone());
     if(vars.len() > usize(0), {
       match(
         _select_best_variable(&vars, target),
         .Some(sv) => {
           (var_unwrapped : bool) = false;
           match(
-            sv.value.get(usize(0)),
+            sv.value().get(usize(0)),
             .Some(.TypeVal(t2)) => {
               recv = Rc.clone(t2);
               var_unwrapped = true;
@@ -486,7 +486,7 @@ _receiver_at :: (
             .None => ()
           );
           if(!var_unwrapped, {
-            recv = Rc.clone(sv.ty);
+            recv = Rc.clone(sv.ty());
           });
         },
         .None => ()
@@ -509,7 +509,7 @@ _receiver_at :: (
   });
   out_recv.push(recv);
   out_deref.push(deref);
-  out_env.push(info.env);
+  out_env.push(info.env());
 });
 
 _expr_near_line :: (fn(e : &AstExpr, line : usize) -> bool)(
@@ -583,9 +583,9 @@ _expected_enum_at :: (
                     .Some(ty_expr) => match(
                       expr_info_table_get(info_table, ast_expr_id(&ty_expr)),
                       .Some(tinfo) => {
-                        (found : TypeValue) = Rc.clone(tinfo.ty);
+                        (found : TypeValue) = Rc.clone(tinfo.ty());
                         match(
-                          tinfo.value,
+                          tinfo.value(),
                           .Some(.TypeVal(t)) => {
                             found = Rc.clone(t);
                           },
@@ -631,9 +631,9 @@ _expected_enum_at :: (
             .Some(subject) => match(
               expr_info_table_get(info_table, ast_expr_id(&subject)),
               .Some(sinfo) => match(
-                &sinfo.ty,
+                &sinfo.ty(),
                 Rc(.EnumT(_, _, _, _, _, _, _, _, _, _)) => {
-                  out.push(Rc.clone(sinfo.ty));
+                  out.push(Rc.clone(sinfo.ty()));
                 },
                 _ => ()
               ),
@@ -682,14 +682,14 @@ _scan_idents :: (
       match(
         expr_info_table_get(info_table, ast_expr_id(e)),
         .Some(info) => if(at_or_before, {
-          depth := info.env.frames.len();
+          depth := info.env().frames_len();
           best := match(env_depth.get(usize(0)), .Some(d) => d, .None => usize(0));
           if((env_holder.len() == usize(0)) || (depth >= best), {
             if(env_holder.len() == usize(0), {
-              env_holder.push(info.env);
+              env_holder.push(info.env());
               env_depth.push(depth);
             }, {
-              env_holder(usize(0)) = info.env;
+              env_holder(usize(0)) = info.env();
               env_depth(usize(0)) = depth;
             });
           });
@@ -1267,9 +1267,9 @@ handle_completion :: (
       match(
         expr_info_table_get(info_table, eid),
         .Some(info) => {
-          detail = type_to_string(&info.ty);
+          detail = type_to_string(&info.ty());
           match(
-            &info.ty,
+            &info.ty(),
             Rc(.Func(_, _, _, _, _, _, _)) => {
               kind = K_FUNCTION;
             },
@@ -1287,14 +1287,14 @@ handle_completion :: (
   if(env_holder.len() > usize(0), {
     env := env_holder(usize(0));
     (fi : usize) = usize(0);
-    while(fi < env.frames.len(), {
+    while(fi < env.frames_len(), {
       match(
-        env.frames.get(fi),
+        env.frame_at(fi),
         .Some(frame) => {
           (vi2 : usize) = usize(0);
-          while(vi2 < frame.variables.len(), {
+          while(vi2 < frame.variables_len(), {
             match(
-              frame.variables.get(vi2),
+              frame.variable_at(vi2),
               .Some(v) => {
                 vname := v.name.clone();
                 // The evaluator's discarded-binding temporaries
@@ -1308,9 +1308,9 @@ handle_completion :: (
                 );
                 if(fresh, {
                   emitted.insert(vname.clone());
-                  is_fn := match(&v.ty, Rc(.Func(_, _, _, _, _, _, _)) => true, _ => false);
+                  is_fn := match(&v.ty(), Rc(.Func(_, _, _, _, _, _, _)) => true, _ => false);
                   kind2 := cond(is_fn => K_FUNCTION, true => K_VARIABLE);
-                  items.push(_ci(vname.clone(), kind2, type_to_string(&v.ty), _sort_key(vname.clone(), prefix_lower.clone()), String.new()));
+                  items.push(_ci(vname.clone(), kind2, type_to_string(&v.ty()), _sort_key(vname.clone(), prefix_lower.clone()), String.new()));
                 });
               },
               .None => ()

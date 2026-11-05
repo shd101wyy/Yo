@@ -76,21 +76,21 @@ try_to_implement_comptime_list_by_comptime_list_type :: (
       }
     );
     set_expr_as_needs_to_call_dup(&evaluated_arg, ctx, exn, "element");
-    env_adopt(&env, &info.env);
-    if(!are_types_compatible(&info.ty, &expected_element_type), {
+    env_adopt(&env, &info.env());
+    if(!are_types_compatible(&info.ty(), &expected_element_type), {
       exn.throw(
         dyn(
           format_error_message(
             ast_expr_token(&arg_expr),
             `ComptimeList element at index ${i.to_string()} has incompatible type:
 - Expected: ${type_to_string(&expected_element_type)}
-- Given   : ${type_to_string(&info.ty)}`
+- Given   : ${type_to_string(&info.ty())}`
           )
         )
       );
     });
     match(
-      info.value,
+      info.value(),
       .Some(v) => {
         elements.push(v);
         ();
@@ -100,7 +100,7 @@ try_to_implement_comptime_list_by_comptime_list_type :: (
           dyn(
             format_error_message(
               ast_expr_token(&arg_expr),
-              `Expected compile-time known value for ComptimeList element at index ${i.to_string()}, got ${type_to_string(&info.ty)}`
+              `Expected compile-time known value for ComptimeList element at index ${i.to_string()}, got ${type_to_string(&info.ty())}`
             )
           )
         );
@@ -112,7 +112,7 @@ try_to_implement_comptime_list_by_comptime_list_type :: (
   // Build ComptimeList value and annotate ExprInfo.
   list_val := EvalValue.ComptimeListVal(value_cell_new(elements));
   out_info := new_expr_info(&env, comptime_list_type);
-  out_info.value = Option(EvalValue).Some(list_val);
+  out_info.set_value(Option(EvalValue).Some(list_val));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   expr
 });

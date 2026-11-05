@@ -374,7 +374,7 @@ generate_deferred_drop_expressions :: (
   (i : usize) = usize(0);
   while(i < n, {
     match(
-      variables_to_drop.get(i),
+      variables_to_drop.get_cloned(i),
       .Some(variable) => {
         // Build the drop expression: ___drop(varName)
         drop_code := `___drop(${variable.name})`;
@@ -455,10 +455,10 @@ validate_function_return_type :: (
                 nv := all_vars.len();
                 while((j < nv) && !found_transitively, {
                   match(
-                    all_vars.get(j),
+                    all_vars.get_cloned(j),
                     .Some(var) => {
                       match(
-                        var.value.get(usize(0)),
+                        var.value().get(usize(0)),
                         .Some(ev) => {
                           match(
                             ev,
@@ -623,7 +623,7 @@ _trial_eval_ret_type_expr :: (
   match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated)),
     .Some(rte_ei) => match(
-      rte_ei.value,
+      rte_ei.value(),
       .Some(.TypeVal(rte_t)) => {
         out.push(Rc.clone(rte_t));
       },
@@ -784,7 +784,7 @@ _mark_value_rebind :: (fn(v : &Option(Variable), func_type : &TypeValue, i : usi
   match(
     v,
     .Some(rv) => if(fn_param_is_by_value(func_type, i), {
-      rv.is_value_rebind = true;
+      rv.set_is_value_rebind(true);
     }),
     .None => ()
   )
@@ -799,10 +799,10 @@ _marker_place_of :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext) ->
     .Atom(_, tok) => cond(
       (tok.kind != TokenKind.Identifier) => _MarkerPlace.NotAPlace,
       true => match(
-        get_variables_from_env(env, &tok.value.*).last(),
+        get_variables_from_env(env, &tok.value.*).last_cloned(),
         .Some(v) => cond(
-          v.is_compile_time_only => _MarkerPlace.NotAPlace,
-          (v.is_ref || v.is_imm_borrow) => _MarkerPlace.Borrow,
+          v.is_compile_time_only() => _MarkerPlace.NotAPlace,
+          (v.is_ref() || v.is_imm_borrow()) => _MarkerPlace.Borrow,
           true => _MarkerPlace.Place
         ),
         .None => _MarkerPlace.NotAPlace
@@ -930,7 +930,7 @@ _check_reference_argument :: (fn(written_arg : &AstExpr, place_arg : &AstExpr, b
   rv := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(place_arg)),
     .Some(ai) => match(
-      ai.source_variable,
+      ai.source_variable(),
       .Some(v) => if(variable_is_reference_binding(&v), v, return(())),
       .None => return(())
     ),
@@ -1276,7 +1276,7 @@ _is_callable_value_type :: (fn(ty : &TypeValue) -> bool)(
 /// Returns that capture struct when it carries something to own (it is not
 /// bitwise-copyable), `.None` when the argument's own type decides.
 closure_argument_owned_type :: (fn(arg_info : &ExprInfo, decl_pt : &TypeValue, by_value : bool) -> Option(TypeValue))({
-  if(!by_value || !is_function_type(&arg_info.ty) || extract_fn_trait_from_type(decl_pt).is_none(), {
+  if(!by_value || !is_function_type(&arg_info.ty()) || extract_fn_trait_from_type(decl_pt).is_none(), {
     return(Option(TypeValue).None);
   });
   match(
@@ -1319,7 +1319,7 @@ _mark_moved_temp_container_dups :: (fn(arg : &AstExpr, depth : usize, ctx : &Eva
   match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(arg)),
     .Some(ai) => {
-      if(ai.env.frames.len() > depth, {
+      if(ai.env().frames_len() > depth, {
         return(());
       });
       match(
@@ -1395,26 +1395,26 @@ consume_argument_for_parameter :: (
   // (`_param_accepts_second_class`): the future a borrowing body or operand
   // makes is itself second-class, and an await finishes inside the borrow.
   if(param_is_owning && !param_is_ct && !second_class_slot, {
-    reject_second_class_escape(&arg_info.ty, if(is_future_value_type(&arg_info.ty), String.from("spawned or moved into a by-value parameter (a borrowing future is awaited where it is made, §3.13 A2)"), String.from("moved into a by-value (`sink`) parameter")), ast_expr_token(actual_arg), ctx, exn);
+    reject_second_class_escape(&arg_info.ty(), if(is_future_value_type(&arg_info.ty()), String.from("spawned or moved into a by-value parameter (a borrowing future is awaited where it is made, §3.13 A2)"), String.from("moved into a by-value (`sink`) parameter")), ast_expr_token(actual_arg), ctx, exn);
   });
   // A value with nothing to transfer — no counted payload and implicitly
   // copyable, a `Copy` value — is COPIED into a by-value parameter and stays
   // usable: after the flip (decision 30) every plain parameter is by value,
   // and `f(x); x` on a `u64` is two copies, not a move.
-  arg_is_bitwise_copy := type_is_bitwise_copy(Rc.clone(arg_info.ty));
+  arg_is_bitwise_copy := type_is_bitwise_copy(Rc.clone(arg_info.ty()));
   if(param_is_owning && !param_is_ct && !ctx.is_in_function_call_checking_phase && !arg_is_bitwise_copy, {
     match(
-      &arg_info.variable_name,
+      &arg_info.variable_name(),
       .None => (),
       .Some(arg_var_name) => {
         arg_vars := get_variables_from_env(caller_env, &arg_var_name);
         if(arg_vars.len() > usize(0), {
-          arg_var := match(arg_vars.last(), .Some(v) => v, .None => make_err_variable(caller_env));
+          arg_var := match(arg_vars.last_cloned(), .Some(v) => v, .None => make_err_variable(caller_env));
           // A temporary argument is moved into the callee, which drops it at
           // its return: what its construction took from a local must stay
           // a share (`_mark_moved_temp_container_dups`).
-          if(!arg_var.is_ref && is_temp_variable_name(&caller_env.module_path.*, &arg_var_name), {
-            _mark_moved_temp_container_dups(evaled_arg, caller_env.frames.len(), ctx);
+          if(!arg_var.is_ref() && is_temp_variable_name(&caller_env.module_path().*, &arg_var_name), {
+            _mark_moved_temp_container_dups(evaled_arg, caller_env.frames_len(), ctx);
           });
           cond(
             // An argument that is not implicitly copyable (a move-only one,
@@ -1423,21 +1423,21 @@ consume_argument_for_parameter :: (
             // its storage may give it up (an owning local or temp) or the
             // copy is E0901 (a borrow, an `inout` binding, a projection, a
             // module-level binding).
-            type_requires_explicit_copy(&arg_info.ty) => {
+            type_requires_explicit_copy(&arg_info.ty()) => {
               set_expr_as_needs_to_call_dup(evaled_arg, ctx, exn);
             },
             // An `inout` parameter or `name := &mut place` binding names a
             // slot it does not own: the callee gets a COPY (+1) of the
             // referenced handle, and the binding stays usable — nothing is
             // moved (issues/fixed/inout-arg-to-own-param-moves-without-dup.md).
-            arg_var.is_ref => {
+            arg_var.is_ref() => {
               set_expr_as_needs_to_call_dup(evaled_arg, ctx, exn, "param");
             },
             // A `sink(x)` parameter takes the value, and so does every
             // parameter for a closure or function value: sharing an `FnOnce`
             // closure would let it run twice.
-            (param_is_sink || _is_callable_value_type(&arg_info.ty)) => cond(
-              arg_var.is_owning_the_rc_value => {
+            (param_is_sink || _is_callable_value_type(&arg_info.ty())) => cond(
+              arg_var.is_owning_the_rc_value() => {
                 set_expr_as_consumed(evaled_arg, caller_env, true, ctx, exn);
               },
               true => {
@@ -1581,7 +1581,7 @@ check_argument_for_parameter :: (
       )
     );
   });
-  if(param_is_ct && (!in_def_time_trial() && !ctx.is_analyzing_ctfe_capability) && runtime_value_for_comptime_param(arg_ty, &arg_info.value), {
+  if(param_is_ct && (!in_def_time_trial() && !ctx.is_analyzing_ctfe_capability) && runtime_value_for_comptime_param(arg_ty, &arg_info.value()), {
     exn.throw(
       dyn(
         format_error_message_with_help(
@@ -1606,7 +1606,7 @@ check_argument_for_parameter :: (
     });
     if(lit_concrete && is_comptime_int_type(arg_ty), {
       match(
-        match(arg_info.value, .Some(ci_av) => match(ci_av, .IntLit(ci_raw) => comptime_int_value_misfit(&ci_raw, resolved_pt), _ => Option(String).None), .None => Option(String).None),
+        match(arg_info.value(), .Some(ci_av) => match(ci_av, .IntLit(ci_raw) => comptime_int_value_misfit(&ci_raw, resolved_pt), _ => Option(String).None), .None => Option(String).None),
         .Some(fit_msg) => _arg_rule_throw(arg_tok, &fit_msg, ctx, exn),
         .None => ()
       );
@@ -1620,7 +1620,7 @@ check_argument_for_parameter :: (
   if(fn_constrained_param_requires_callable(resolved_pt), {
     nc_callable := (
       type_is_callable_shaped(&lowered) || expr_info_capture_type(arg_info).is_some()
-      || match(arg_info.value, .Some(nc_av) => is_func_val(&nc_av), .None => false)
+      || match(arg_info.value(), .Some(nc_av) => is_func_val(&nc_av), .None => false)
     );
     if(!nc_callable, {
       _arg_rule_throw(arg_tok, fn_argument_not_callable_message(param_label.clone(), resolved_pt, &lowered), ctx, exn);
@@ -1678,7 +1678,7 @@ check_argument_for_parameter :: (
   // captures and what its code reaches (rules D4 + D9,
   // `judge_function_argument_markers`); the type-level check below then
   // skips the markers it judged.
-  fam := judge_function_argument_markers(resolved_pt, &lowered, &arg_info.value, env, ctx);
+  fam := judge_function_argument_markers(resolved_pt, &lowered, &arg_info.value(), env, ctx);
   match(
     &fam.offense,
     .Some(fam_o) => _arg_rule_throw(arg_tok, `Argument for parameter "${param_label}" (type ${type_to_string(&lowered)}) cannot be passed as ${type_to_string(resolved_pt)}: ${fam_o}.`, ctx, exn),
@@ -1820,7 +1820,7 @@ check_if_function_parameter_matches_argument :: (
     match(
       &resolved_pt,
       Rc(.Reference(_, t9_mut, _)) => match(
-        &arg_info.ty,
+        &arg_info.ty(),
         Rc(.Reference(_, _, _)) => (),
         _ => match(
           _lend_place_root_name(&actual_arg),
@@ -1828,7 +1828,7 @@ check_if_function_parameter_matches_argument :: (
             t9_names := ArrayList(String).new();
             t9_names.push(t9_root.clone());
             t9_lend_ty = Option(TypeValue).Some(
-              t_reference_with_origin(&arg_info.ty, t9_mut, t_origin_named(&shared_list(t9_names)));
+              t_reference_with_origin(&arg_info.ty(), t9_mut, t_origin_named(&shared_list(t9_names)));
               // Record the lend on the PLACE's ExprInfo (the converted-runtime
               // type slot): the binding freeze reads it back — the marker was
               // peeled out of the tree, so this is the tree's only record of
@@ -1850,15 +1850,15 @@ check_if_function_parameter_matches_argument :: (
   (arg_type : TypeValue) = match(
     t9_lend_ty,
     .Some(t9_w) => t9_w,
-    .None => check_argument_for_parameter(param_label.clone(), &resolved_pt, is_ct_only, &arg_info.ty, &arg_info, ast_expr_token(&actual_arg), &actual_arg, &caller_env_r, ctx, exn)
+    .None => check_argument_for_parameter(param_label.clone(), &resolved_pt, is_ct_only, &arg_info.ty(), &arg_info, ast_expr_token(&actual_arg), &actual_arg, &caller_env_r, ctx, exn)
   );
   // Record the runtime type a comptime literal lowered to, so codegen renders
   // the right C form (comptime_str → `*(char)` emits a bare string literal,
   // not a `__yo_str` struct). Only the codegen reads this field.
-  if((is_comptime_int_type(&arg_info.ty) || is_comptime_float_type(&arg_info.ty) || is_comptime_string_type(&arg_info.ty)) && !is_ct_only, {
+  if((is_comptime_int_type(&arg_info.ty()) || is_comptime_float_type(&arg_info.ty()) || is_comptime_string_type(&arg_info.ty())) && !is_ct_only, {
     expr_info_set_converted_runtime_type(&arg_info, Option(TypeValue).Some(arg_type.clone()));
   });
-  arg_value := arg_info.value;
+  arg_value := arg_info.value();
   // Step 4: Append to runtime arg list if not comptime-only.
   if(!is_ct_only, {
     runtime_arg_exprs_in_order.push(evaled_arg);
@@ -1871,16 +1871,16 @@ check_if_function_parameter_matches_argument :: (
   // for the transfer only; synthesis and the compatibility check below read
   // the `fn(...)` type.
   owned_cap_ty := closure_argument_owned_type(&arg_info, &resolved_pt, param_is_owning && !is_ct_only && !param_is_ref);
-  arg_ty_as_written := Rc.clone(arg_info.ty);
+  arg_ty_as_written := Rc.clone(arg_info.ty());
   match(
     &owned_cap_ty,
     .Some(oct) => {
-      arg_info.ty = Rc.clone(oct);
+      arg_info.set_ty(Rc.clone(oct));
     },
     .None => ()
   );
   s0_share := consume_argument_for_parameter(&evaled_arg, &actual_arg, &arg_info, param_is_owning, is_ct_only, param_is_ref, callee_is_extern, &caller_env_r, ctx, exn, aliased_by_inout, param_is_sink, second_class_slot);
-  arg_info.ty = arg_ty_as_written;
+  arg_info.set_ty(arg_ty_as_written);
   s0_drop_captured := match(s0_share, .Some(sh) => Option(AstExpr).Some(sh.0), .None => Option(AstExpr).None);
   s0_marked_arg_captured := match(s0_share, .Some(sh) => Option(AstExpr).Some(sh.1), .None => Option(AstExpr).None);
   // Step 5b: assigned-value check — if the parameter has an assigned value,
@@ -1976,7 +1976,7 @@ ${ast_expr_to_string(&actual_arg)}`
             // …and through the arg's RECORDED type, which is what codegen
             // reads: the closure expression's own type must report the
             // concrete result too.
-            arg_info.ty = Rc.clone(arg_type);
+            arg_info.set_ty(Rc.clone(arg_type));
           });
         }),
         .None => ()
@@ -2082,7 +2082,7 @@ ${ast_expr_to_string(&actual_arg)}`
     },
     .None => ()
   );
-  param_tok := synthetic_token(param_label, &callee_env_r.module_path.*);
+  param_tok := synthetic_token(param_label, &callee_env_r.module_path().*);
   // `is_owning_the_rc_value` must carry the DECLARED `own(name) : T` flag —
   // exactly as the def-time body env binds it (function_type.yo's
   // `add_parameter_to_env(..., p_own, ...)`). The callee owns the reference an
@@ -2277,8 +2277,8 @@ compute_compile_time_signature :: (
             cond(
               (n_v > usize(0)) => {
                 env_val := match(
-                  vars.get(n_v - usize(1)),
-                  .Some(vr) => vr.value.get(usize(0)),
+                  vars.get_cloned(n_v - usize(1)),
+                  .Some(vr) => vr.value().get(usize(0)),
                   .None => Option(EvalValue).None
                 );
                 match(
@@ -2419,7 +2419,7 @@ _binding_is_for_call_binder :: (fn(var : &Variable, env : &Environment, label : 
   recorded := variable_bound_some_id(var);
   cond(
     (recorded.len() > usize(0)) => (recorded == _self_marker_id(env, label)),
-    true => ((env.frames.len() > usize(0)) && (var.frame_level == (env.frames.len() - usize(1))))
+    true => ((env.frames_len() > usize(0)) && (var.frame_level == (env.frames_len() - usize(1))))
   )
 });
 /// The id of the SomeT a type binder's self-marker (`T := SomeT(T)`, the
@@ -2430,9 +2430,9 @@ _self_marker_id :: (fn(env : &Environment, label : &String) -> String)({
   while(i > usize(0), {
     i = (i - usize(1));
     match(
-      vars.get(i),
+      vars.get_cloned(i),
       .Some(v) => match(
-        v.value.get(usize(0)),
+        v.value().get(usize(0)),
         .Some(vv) => match(
           vv,
           .TypeVal(Rc(.SomeT({ id : mid }))) => {
@@ -3348,14 +3348,14 @@ create_specialized_function_inline :: (
                     false,
                     false,
                     false,
-                    synthetic_token(&ectp_label, &callee_env.module_path.*)
+                    synthetic_token(&ectp_label, &callee_env.module_path().*)
                   );
                   // This binds a PARAMETER label — flag it (see the
                   // check_if_function_parameter_matches_argument bind).
                   match(
                     _ectp,
                     .Some(ectp_var) => {
-                      ectp_var.is_parameter = true;
+                      ectp_var.set_is_parameter(true);
                     },
                     .None => ()
                   );
@@ -3544,7 +3544,7 @@ create_specialized_function_inline :: (
                         false,
                         false,
                         false,
-                        synthetic_token(&zb_name, &callee_env.module_path.*)
+                        synthetic_token(&zb_name, &callee_env.module_path().*)
                       );
                     }, {
                       // Declared-param bridge, mint-env half: the forall bound to
@@ -3614,7 +3614,7 @@ create_specialized_function_inline :: (
                                   false,
                                   false,
                                   false,
-                                  synthetic_token(&zb_name, &callee_env.module_path.*)
+                                  synthetic_token(&zb_name, &callee_env.module_path().*)
                                 );
                                 zb_done = true;
                               },
@@ -3641,7 +3641,7 @@ create_specialized_function_inline :: (
                             false,
                             false,
                             false,
-                            synthetic_token(&zb_name, &callee_env.module_path.*)
+                            synthetic_token(&zb_name, &callee_env.module_path().*)
                           );
                         });
                       });
@@ -4116,8 +4116,8 @@ create_specialized_function_inline :: (
               cond(
                 (npv == usize(0)) => false,
                 true => match(
-                  pvars.get(npv - usize(1)),
-                  .Some(pv) => match(pv.value.get(usize(0)), .Some(vv) => !is_unknown_val(&vv), .None => false),
+                  pvars.get_cloned(npv - usize(1)),
+                  .Some(pv) => match(pv.value().get(usize(0)), .Some(vv) => !is_unknown_val(&vv), .None => false),
                   .None => false
                 )
               )
@@ -4328,7 +4328,7 @@ create_specialized_function_inline :: (
                   false,
                   match(decl_param_is_ref.get(rbp_i), .Some(b) => b, .None => false),
                   false,
-                  synthetic_token(&p_label, &callee_env.module_path.*)
+                  synthetic_token(&p_label, &callee_env.module_path().*)
                 );
                 _mark_value_rebind(&_fw, &func_type, rbp_i);
               },
@@ -4504,7 +4504,7 @@ create_specialized_function_inline :: (
                                           false,
                                           false,
                                           false,
-                                          synthetic_token(fn_res_nm.clone(), &callee_env.module_path.*)
+                                          synthetic_token(fn_res_nm.clone(), &callee_env.module_path().*)
                                         ),
                                         fn_res_id.clone()
                                       );
@@ -4555,7 +4555,7 @@ create_specialized_function_inline :: (
                   false,
                   false,
                   true,
-                  synthetic_token(&p_label, &callee_env.module_path.*)
+                  synthetic_token(&p_label, &callee_env.module_path().*)
                 );
                 _twin;
               });
@@ -4567,7 +4567,7 @@ create_specialized_function_inline :: (
                 false,
                 match(decl_param_is_ref.get(rbp_i), .Some(b) => b, .None => false),
                 false,
-                synthetic_token(&p_label, &callee_env.module_path.*)
+                synthetic_token(&p_label, &callee_env.module_path().*)
               );
               // The binding takes the call's resolved type, whose closure
               // trait is the ARGUMENT's; the slot's own trait decides how the
@@ -4598,7 +4598,7 @@ create_specialized_function_inline :: (
                     false,
                     match(decl_param_is_ref.get(rbp_i), .Some(b) => b, .None => false),
                     false,
-                    synthetic_token(&p_label, &callee_env.module_path.*)
+                    synthetic_token(&p_label, &callee_env.module_path().*)
                   );
                   _mark_value_rebind(&_rb, &func_type, rbp_i);
                 },
@@ -4681,9 +4681,9 @@ create_specialized_function_inline :: (
             spec_self_vars := get_variables_from_env(callee_env, String.from("self"));
             if(spec_self_vars.len() > usize(0), {
               match(
-                spec_self_vars.last(),
+                spec_self_vars.last_cloned(),
                 .Some(spec_self_v) => {
-                  ctx.self_type = Option(TypeValue).Some(Rc.clone(spec_self_v.ty));
+                  ctx.self_type = Option(TypeValue).Some(Rc.clone(spec_self_v.ty()));
                   spec_self_src = String.from("b-env-self");
                 },
                 .None => ()
@@ -4777,7 +4777,7 @@ create_specialized_function_inline :: (
           match(
             expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&specialized_body)),
             .Some(sb_info) => {
-              sb_ty := Rc.clone(sb_info.ty);
+              sb_ty := Rc.clone(sb_info.ty());
               sb_ret_is_ref := fn_result_is_ref(&func_type);
               // A specialized body ending in a `never` expression adopts the
               // declared result (Phase 3.6; the concrete twin is in
@@ -4787,14 +4787,14 @@ create_specialized_function_inline :: (
               });
               // Decision 38 A: a second-class value is never returned, which a
               // specialization checks per instantiation (`Impl(Fn)` bodies).
-              if(!has_any_control_flow(sb_info.control_flow), {
+              if(!has_any_control_flow(sb_info.control_flow()), {
                 // Decision 44: a callable result into `Dyn(Fn(...))` is `dyn(f)`.
                 if(!sb_ret_is_ref, {
                   reject_bare_callable_result(&spec_ret_ty, &sb_ty, &cloned_body, ctx, exn);
                 });
                 reject_second_class_return(&sb_ty, ast_expr_token(&cloned_body), callee_env, ctx, exn);
               });
-              sb_skip := (has_any_control_flow(sb_info.control_flow) || is_void_type(&spec_ret_ty) || is_type_hierarchy_type(&spec_ret_ty) || (get_all_some_types(&spec_ret_ty).len() > usize(0)) || (get_all_some_types(&sb_ty).len() > usize(0)) || sb_ret_is_ref);
+              sb_skip := (has_any_control_flow(sb_info.control_flow()) || is_void_type(&spec_ret_ty) || is_type_hierarchy_type(&spec_ret_ty) || (get_all_some_types(&spec_ret_ty).len() > usize(0)) || (get_all_some_types(&sb_ty).len() > usize(0)) || sb_ret_is_ref);
               // A tail `yo fix --migrate dyn-spelling` recorded stands for the
               // rewrite's `dyn(value)`, which the result takes.
               if(!sb_skip && !bare_callable_recorded_into_dyn_fn(&spec_ret_ty, &sb_ty) && !are_types_compatible(&sb_ty, &spec_ret_ty), {
@@ -4868,14 +4868,14 @@ create_specialized_function_inline :: (
                   Option(TypeValue).None,
                   Option(HashMap(String, FuncCapturedVarInfo)).Some(enr_caps),
                   callee_env,
-                  synthetic_token(specialized_func_id.clone(), &callee_env.module_path.*),
+                  synthetic_token(specialized_func_id.clone(), &callee_env.module_path().*),
                   &specialized_func_id
                 );
                 match(
                   &spec_cap_res.capture_type,
                   .Some(spec_ct) => register_closure_capture_info(
                     specialized_func_id.clone(),
-                    ClosureCaptureInfo(capture_type : Rc.clone(spec_ct), frame_level : callee_env.frames.len())
+                    ClosureCaptureInfo(capture_type : Rc.clone(spec_ct), frame_level : callee_env.frames_len())
                   ),
                   .None => ()
                 );
@@ -4924,7 +4924,7 @@ create_specialized_function_inline :: (
                 (pvi : usize) = usize(0);
                 while(pvi < pv.len(), {
                   match(
-                    pv.get(pvi),
+                    pv.get_cloned(pvi),
                     .Some(ph) => {
                       new_cap_vars.push(ph);
                     },
@@ -4968,14 +4968,14 @@ create_specialized_function_inline :: (
             n_ev := env_vars.len();
             if(n_ev > usize(0), {
               match(
-                env_vars.get(n_ev - usize(1)),
+                env_vars.get_cloned(n_ev - usize(1)),
                 .Some(ev) => {
                   match(
-                    ev.value.get(usize(0)),
+                    ev.value().get(usize(0)),
                     .Some(v) => {
                       if(!spec_aligned, {
                         new_cap_names.push(label);
-                        new_cap_tys.push(Rc.clone(ev.ty));
+                        new_cap_tys.push(Rc.clone(ev.ty()));
                         new_cap_vals.push(v);
                       });
                       if(have_cap_vars, {
@@ -5266,7 +5266,7 @@ create_specialized_function_inline :: (
                                   // _trial_eval_fn_body; the body nodes are the
                                   // ORIGINAL ones codegen walks, so the fresh
                                   // infos overwrite the stale ones in place.
-                                  cw_benv := Environment.new(Rc.clone(callee_env.module_path));
+                                  cw_benv := Environment.new(Rc.clone(callee_env.module_path()));
                                   (cw_cvi : usize) = usize(0);
                                   cw_src := fv_capture_source(&cc_fvd.*);
                                   (n_cw : usize) = fv_source_count(&cw_src, &cc_capvals);
@@ -5303,11 +5303,11 @@ create_specialized_function_inline :: (
                                       false,
                                       false,
                                       false,
-                                      synthetic_token(&cw_cn, &callee_env.module_path.*)
+                                      synthetic_token(&cw_cn, &callee_env.module_path().*)
                                     );
                                     cw_cvi = (cw_cvi + usize(1));
                                   });
-                                  _cwf := cw_benv.push_frame(false);
+                                  _cwf := cw_benv.push_frame()(false);
                                   (cw_pvi : usize) = usize(0);
                                   while(cw_pvi < cc_fvd.*.params.len(), {
                                     cw_pn := match(cc_fvd.*.params.get_cloned(cw_pvi), .Some(x) => x, .None => String.new());
@@ -5321,18 +5321,18 @@ create_specialized_function_inline :: (
                                       false,
                                       false,
                                       false,
-                                      synthetic_token(&cw_pn, &callee_env.module_path.*)
+                                      synthetic_token(&cw_pn, &callee_env.module_path().*)
                                     );
                                     // Parameter bind — flag it (see the
                                     // check_if_function_parameter_matches_argument bind).
                                     match(
                                       _cwp,
                                       .Some(cwp_var) => {
-                                        cwp_var.is_parameter = true;
+                                        cwp_var.set_is_parameter(true);
                                         // A `&T` parameter: a borrow
                                         // decision 33's markers pass bare.
                                         if(!fn_param_is_mut_ref(&cw_cur, cw_pvi) && !fn_param_is_by_value(&cw_cur, cw_pvi), {
-                                          cwp_var.is_imm_borrow = true;
+                                          cwp_var.set_is_imm_borrow(true);
                                         });
                                       },
                                       .None => ()
@@ -5986,28 +5986,28 @@ evaluate_ctl_function_body_inline :: (
   // of a self-emit (see the handoff doc's memory section).
   // -------------------------------------------------------------------------
   specialized_env := snapshot_env(callee_env);
-  _push_frame_res := specialized_env.push_frame(false);
+  _push_frame_res := specialized_env.push_frame()(false);
   // -------------------------------------------------------------------------
   // Add compile-time bindings from caller's scope that are missing from
   // specializedEnv (types, modules, traits — not plain function values).
   // Same injection loop as the spec path's caller-env handling.
   // -------------------------------------------------------------------------
-  n_caller_frames := caller_env.frames.len();
+  n_caller_frames := caller_env.frames_len();
   (cfi : usize) = usize(0);
   while(cfi < n_caller_frames, {
     match(
-      caller_env.frames.get(cfi),
+      caller_env.frame_at(cfi),
       .Some(caller_frame) => {
-        n_vars := caller_frame.variables.len();
+        n_vars := caller_frame.variables_len();
         (vi : usize) = usize(0);
         while(vi < n_vars, {
           match(
-            caller_frame.variables.get(vi),
+            caller_frame.variable_at(vi),
             .Some(caller_var) => {
-              if(caller_var.is_compile_time_only, {
+              if(caller_var.is_compile_time_only(), {
                 // Skip plain function values (only types, modules, traits need to cross).
                 is_fn_val := match(
-                  caller_var.value.get(usize(0)),
+                  caller_var.value().get(usize(0)),
                   .Some(cv3) => match(cv3, .FuncVal(_, _) => true, _ => false),
                   .None => false
                 );
@@ -6017,12 +6017,12 @@ evaluate_ctl_function_body_inline :: (
                     _add_caller_var_res := add_variable_to_env(
                       &specialized_env,
                       caller_var.name.clone(),
-                      &caller_var.ty,
-                      caller_var.value.get(usize(0)),
+                      &caller_var.ty(),
+                      caller_var.value().get(usize(0)),
                       true,
                       false,
                       false,
-                      caller_var.is_implicit,
+                      caller_var.is_implicit(),
                       &caller_var.token
                     );
                   });
@@ -6056,7 +6056,7 @@ evaluate_ctl_function_body_inline :: (
   while(fi2 < n_forall, {
     fl_label := match(forall_labels.get_cloned(fi2), .Some(s) => s, .None => String.from(""));
     fl_ty := match(forall_types_list.get(fi2), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
-    ctl_tok := synthetic_token(fl_label.clone(), &specialized_env.module_path.*);
+    ctl_tok := synthetic_token(fl_label.clone(), &specialized_env.module_path().*);
     _add_forall_var_res := add_variable_to_env(
       &specialized_env,
       fl_label.clone(),
@@ -6142,7 +6142,7 @@ evaluate_ctl_function_body_inline :: (
         (pvi : usize) = usize(0);
         while(pvi < pv.len(), {
           match(
-            pv.get(pvi),
+            pv.get_cloned(pvi),
             .Some(ph) => {
               ctl_cap_vars.push(ph);
             },
@@ -6179,7 +6179,7 @@ evaluate_ctl_function_body_inline :: (
           fl3.clone(),
           &ft3,
           Option(EvalValue).Some(create_type_value(&concrete_type_for_forall)),
-          &specialized_env.module_path.*
+          &specialized_env.module_path().*
         )
       );
     });
@@ -6296,9 +6296,9 @@ validate_where_constraints_for_call :: (
     lhs_vars := get_variables_from_env(callee_env, &wce.lhs_label);
     if(lhs_vars.len() > usize(0), {
       match(
-        lhs_vars.last(),
+        lhs_vars.last_cloned(),
         .Some(lhs_var) => match(
-          lhs_var.value.get(usize(0)),
+          lhs_var.value().get(usize(0)),
           .Some(lv) => match(
             lv,
             .TypeVal(bound_tb) => {
@@ -6440,9 +6440,9 @@ reapply_where_clause_exprs_for_call :: (
                   wge_vars := get_variables_from_env(callee_env, ast_expr_token(&wge_lhs).value.*);
                   if(wge_vars.len() > usize(0), {
                     match(
-                      wge_vars.last(),
+                      wge_vars.last_cloned(),
                       .Some(wge_var) => match(
-                        wge_var.value.get(usize(0)),
+                        wge_var.value().get(usize(0)),
                         .Some(wge_val) => {
                           if(!is_type_val(&wge_val), {
                             wce_state_ok = false;
@@ -6526,8 +6526,8 @@ resolve_param_types_from_expected :: (
   // Seed every signature SomeT as a self-binding placeholder so
   // `synthesize_types` has a slot to rebind (mirrors the generic-placeholder
   // setup in `try_to_call_function_with_arguments`).
-  synth_env := Environment.new(Rc.clone(caller_env.module_path));
-  synth_env.push_frame(false);
+  synth_env := Environment.new(Rc.clone(caller_env.module_path()));
+  synth_env.push_frame()(false);
   sig_somes := get_all_some_types(func_type);
   (si : usize) = usize(0);
   while(si < sig_somes.len(), {
@@ -6543,7 +6543,7 @@ resolve_param_types_from_expected :: (
         false,
         false,
         false,
-        synthetic_token(&snm, &synth_env.module_path.*)
+        synthetic_token(&snm, &synth_env.module_path().*)
       );
     });
     si = (si + usize(1));
@@ -6729,7 +6729,7 @@ _evaluated_expr_type :: (
 )({
   from_info := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(e)),
-    .Some(ei) => Option(TypeValue).Some(Rc.clone(ei.ty)),
+    .Some(ei) => Option(TypeValue).Some(Rc.clone(ei.ty())),
     .None => Option(TypeValue).None
   );
   match(
@@ -6742,8 +6742,8 @@ _evaluated_expr_type :: (
         cond(
           (e_vars.len() == usize(0)) => Option(TypeValue).None,
           true => match(
-            e_vars.last(),
-            .Some(e_v) => Option(TypeValue).Some(Rc.clone(e_v.ty)),
+            e_vars.last_cloned(),
+            .Some(e_v) => Option(TypeValue).Some(Rc.clone(e_v.ty())),
             .None => Option(TypeValue).None
           )
         )
@@ -7038,9 +7038,9 @@ _forall_binding_now :: (fn(env : &Environment, label : &String) -> Option(TypeVa
     return(Option(TypeValue).None);
   });
   bound := match(
-    vars.last(),
+    vars.last_cloned(),
     .Some(v) => match(
-      v.value.get(usize(0)),
+      v.value().get(usize(0)),
       .Some(ev) => match(
         ev,
         .TypeVal(t) => match(
@@ -7072,9 +7072,9 @@ _forall_binder_unbound :: (fn(env : &Environment, label : &String, sig_id : &Str
     return(false);
   });
   match(
-    vars.last(),
+    vars.last_cloned(),
     .Some(v) => match(
-      v.value.get(usize(0)),
+      v.value().get(usize(0)),
       .Some(ev) => match(
         ev,
         .TypeVal(t) => match(
@@ -7098,9 +7098,9 @@ _forall_len_binding_now :: (fn(env : &Environment, label : &String) -> Option(St
     return(Option(String).None);
   });
   match(
-    vars.last(),
+    vars.last_cloned(),
     .Some(v) => match(
-      v.value.get(usize(0)),
+      v.value().get(usize(0)),
       .Some(ev) => match(ev, .IntLit(raw) => Option(String).Some(raw.clone()), _ => Option(String).None),
       .None => Option(String).None
     ),
@@ -7507,14 +7507,14 @@ try_to_call_function_with_arguments :: (
             &__fvm3.*.cap_names,
             &__fvm3.*.cap_tys,
             &cv,
-            Rc.clone(caller_env.module_path)
+            Rc.clone(caller_env.module_path())
           ),
-          _ => Environment.new(Rc.clone(caller_env.module_path))
+          _ => Environment.new(Rc.clone(caller_env.module_path()))
         ),
-        .None => Environment.new(Rc.clone(caller_env.module_path))
+        .None => Environment.new(Rc.clone(caller_env.module_path()))
       );
       // Step 5: Push a new frame on callee_env for parameter bindings.
-      callee_env.push_frame(false);
+      callee_env.push_frame()(false);
       // Step 5b: Bind `Self` for METHOD calls. The flattened Func type
       // carries no SelfType field, so the method-call site threads the
       // receiver type (resolved by the impl
@@ -7540,7 +7540,7 @@ try_to_call_function_with_arguments :: (
               false,
               false,
               false,
-              synthetic_token(String.from("Self"), &callee_env.module_path.*)
+              synthetic_token(String.from("Self"), &callee_env.module_path().*)
             );
           },
           .None => ()
@@ -7740,7 +7740,7 @@ try_to_call_function_with_arguments :: (
                 false,
                 false,
                 false,
-                synthetic_token(&sg_nm, &callee_env.module_path.*)
+                synthetic_token(&sg_nm, &callee_env.module_path().*)
               );
             });
             if(!sg_is_forall && !sg_already_bound, {
@@ -7754,7 +7754,7 @@ try_to_call_function_with_arguments :: (
                 false,
                 false,
                 false,
-                synthetic_token(&sg_nm, &callee_env.module_path.*)
+                synthetic_token(&sg_nm, &callee_env.module_path().*)
               );
             });
           });
@@ -7868,7 +7868,7 @@ try_to_call_function_with_arguments :: (
                     fa_info_opt,
                     .Some(fa_info) => {
                       match(
-                        fa_info.value,
+                        fa_info.value(),
                         .Some(v) => {
                           forall_val = v;
                         },
@@ -7894,7 +7894,7 @@ try_to_call_function_with_arguments :: (
           false,
           false,
           false,
-          synthetic_token(&flabel, &callee_env.module_path.*)
+          synthetic_token(&flabel, &callee_env.module_path().*)
         );
         fpi = (fpi + usize(1));
       });
@@ -7919,7 +7919,7 @@ try_to_call_function_with_arguments :: (
             false,
             false,
             false,
-            synthetic_token(&o_name, &callee_env.module_path.*)
+            synthetic_token(&o_name, &callee_env.module_path().*)
           );
         });
         o_i = (o_i + usize(1));
@@ -7974,9 +7974,9 @@ try_to_call_function_with_arguments :: (
                       (tb_already : bool) = false;
                       if(tb_existing.len() > usize(0), {
                         match(
-                          tb_existing.last(),
+                          tb_existing.last_cloned(),
                           .Some(tb_var) => match(
-                            tb_var.value.get(usize(0)),
+                            tb_var.value().get(usize(0)),
                             .Some(tb_val) => if(is_type_val(&tb_val), {
                               match(
                                 tb_val,
@@ -8002,7 +8002,7 @@ try_to_call_function_with_arguments :: (
                             false,
                             false,
                             false,
-                            synthetic_token(tb_label.clone(), &callee_env.module_path.*)
+                            synthetic_token(tb_label.clone(), &callee_env.module_path().*)
                           ),
                           _self_marker_id(&callee_env, tb_label.clone())
                         );
@@ -8023,9 +8023,9 @@ try_to_call_function_with_arguments :: (
                         (eb_already : bool) = false;
                         if(eb_existing.len() > usize(0), {
                           match(
-                            eb_existing.last(),
+                            eb_existing.last_cloned(),
                             .Some(eb_var) => match(
-                              eb_var.value.get(usize(0)),
+                              eb_var.value().get(usize(0)),
                               .Some(eb_val) => if(is_type_val(&eb_val), {
                                 match(
                                   eb_val,
@@ -8051,7 +8051,7 @@ try_to_call_function_with_arguments :: (
                               false,
                               false,
                               false,
-                              synthetic_token(eb_label.clone(), &callee_env.module_path.*)
+                              synthetic_token(eb_label.clone(), &callee_env.module_path().*)
                             ),
                             _self_marker_id(&callee_env, eb_label.clone())
                           );
@@ -8099,9 +8099,9 @@ try_to_call_function_with_arguments :: (
                   (ne_already : bool) = false;
                   if(ne_existing.len() > usize(0), {
                     match(
-                      ne_existing.last(),
+                      ne_existing.last_cloned(),
                       .Some(ne_var) => match(
-                        ne_var.value.get(usize(0)),
+                        ne_var.value().get(usize(0)),
                         .Some(ne_val) => if(is_type_val(&ne_val), {
                           match(
                             ne_val,
@@ -8127,7 +8127,7 @@ try_to_call_function_with_arguments :: (
                         false,
                         false,
                         false,
-                        synthetic_token(ne_label.clone(), &callee_env.module_path.*)
+                        synthetic_token(ne_label.clone(), &callee_env.module_path().*)
                       ),
                       _self_marker_id(&callee_env, ne_label.clone())
                     );
@@ -8186,9 +8186,9 @@ try_to_call_function_with_arguments :: (
                             ew_vars := get_variables_from_env(&callee_env, ast_expr_token(&ew_lhs).value.*);
                             if(ew_vars.len() > usize(0), {
                               match(
-                                ew_vars.last(),
+                                ew_vars.last_cloned(),
                                 .Some(ew_var) => match(
-                                  ew_var.value.get(usize(0)),
+                                  ew_var.value().get(usize(0)),
                                   .Some(ew_val) => {
                                     if(is_type_val(&ew_val), {
                                       ew_apply.push(clone_expr_fresh_ids(&ew_e));
@@ -8250,9 +8250,9 @@ try_to_call_function_with_arguments :: (
                     ew_fvars := get_variables_from_env(&callee_env, &ew_fl);
                     (ew_is_unknown : bool) = false;
                     match(
-                      ew_fvars.last(),
+                      ew_fvars.last_cloned(),
                       .Some(ew_fvar) => match(
-                        ew_fvar.value.get(usize(0)),
+                        ew_fvar.value().get(usize(0)),
                         .Some(.UnknownVal(_, _)) => {
                           ew_is_unknown = true;
                         },
@@ -8279,7 +8279,7 @@ try_to_call_function_with_arguments :: (
                                 false,
                                 false,
                                 false,
-                                synthetic_token(ew_fl.clone(), &callee_env.module_path.*)
+                                synthetic_token(ew_fl.clone(), &callee_env.module_path().*)
                               );
                               ew_done = true;
                             });
@@ -8321,9 +8321,9 @@ try_to_call_function_with_arguments :: (
                         ewa_lvars := get_variables_from_env(&callee_env, ast_expr_token(&ewa_lhs).value.*);
                         if(ewa_lvars.len() > usize(0), {
                           match(
-                            ewa_lvars.last(),
+                            ewa_lvars.last_cloned(),
                             .Some(lv) => match(
-                              lv.value.get(usize(0)),
+                              lv.value().get(usize(0)),
                               .Some(.TypeVal(lvt)) => if(!is_some_type(&lvt), {
                                 ewa_target = Option(TypeValue).Some(Rc.clone(lvt));
                               }),
@@ -8361,9 +8361,9 @@ try_to_call_function_with_arguments :: (
                                   ewa_xvars := get_variables_from_env(&callee_env, &ewa_xn);
                                   if(ewa_xvars.len() > usize(0), {
                                     match(
-                                      ewa_xvars.last(),
+                                      ewa_xvars.last_cloned(),
                                       .Some(xv) => match(
-                                        xv.value.get(usize(0)),
+                                        xv.value().get(usize(0)),
                                         .Some(.TypeVal(xvt)) => if(!is_some_type(&xvt), {
                                           ewa_unbound = false;
                                         }),
@@ -8387,7 +8387,7 @@ try_to_call_function_with_arguments :: (
                                         false,
                                         false,
                                         false,
-                                        synthetic_token(ewa_xn.clone(), &callee_env.module_path.*)
+                                        synthetic_token(ewa_xn.clone(), &callee_env.module_path().*)
                                       );
                                     }),
                                     .None => ()
@@ -8434,7 +8434,7 @@ try_to_call_function_with_arguments :: (
       // long-standing layout.
       if(in_def_time_trial(), {
         callee_env_m = snapshot_env(&callee_env);
-        callee_env_m.push_frame(false);
+        callee_env_m.push_frame()(false);
       });
       (caller_env_m : Environment) = caller_env;
       // io.async: evaluate the closure ARGUMENT under async-block context
@@ -8593,7 +8593,7 @@ try_to_call_function_with_arguments :: (
                 false,
                 false,
                 false,
-                synthetic_token(&plabel, &callee_env_m.module_path.*)
+                synthetic_token(&plabel, &callee_env_m.module_path().*)
               );
               arg_vals.push(
                 ArgEntry(
@@ -8735,7 +8735,7 @@ try_to_call_function_with_arguments :: (
               // than `return(...)`) hands its consumer a unit.
               if(callee_is_extern, {
                 match(
-                  &vinfo.ty,
+                  &vinfo.ty(),
                   Rc(.Unit) => {
                     exn.throw(
                       dyn(
@@ -8886,12 +8886,12 @@ try_to_call_function_with_arguments :: (
         vars2 := get_variables_from_env(&callee_env_m, &flabel2);
         n_vars2 := vars2.len();
         if(n_vars2 > usize(0), {
-          last_v_opt := vars2.get(n_vars2 - usize(1));
+          last_v_opt := vars2.get_cloned(n_vars2 - usize(1));
           match(
             last_v_opt,
             .Some(last_v) => {
               match(
-                last_v.value.get(usize(0)),
+                last_v.value().get(usize(0)),
                 .Some(v) => {
                   // Propagate the resolved concrete type from a generic SomeT
                   // back before extraction — the body eval resolves `U` through the
@@ -8943,17 +8943,17 @@ try_to_call_function_with_arguments :: (
                   // frame, so the update pops with the frame instead of becoming
                   // a durable write-through in the mutable env model (the
                   // rule _bind_some_type follows for the same reason).
-                  wb_top_frame := ((callee_env_m.frames.len() > usize(0)) && (last_v.frame_level == (callee_env_m.frames.len() - usize(1))));
+                  wb_top_frame := ((callee_env_m.frames_len() > usize(0)) && (last_v.frame_level == (callee_env_m.frames_len() - usize(1))));
                   if(wb_from_cell && wb_plain && wb_top_frame && !match(v_out, .TypeVal(wb_t) => is_some_type(&wb_t), _ => true), {
                     wb_cell := ArrayList(EvalValue).new();
                     wb_cell.push(v_out);
-                    last_v.value = value_cell_new(wb_cell);
+                    last_v.set_value(value_cell_new(wb_cell));
                   });
                   forall_arg_vals.push(
                     ArgEntry(
                       value : .Some(v_out),
                       parameter_type : ftype2,
-                      arg_type : Rc.clone(last_v.ty)
+                      arg_type : Rc.clone(last_v.ty())
                     )
                   );
                   forall_arg_labels.push(flabel2.clone());
@@ -9425,9 +9425,9 @@ try_to_call_function_with_arguments :: (
                   .Some(ua_info) => {
                     caller_env_m = expr_info_adopt_env(&ua_info);
                     match(
-                      ua_info.value,
+                      ua_info.value(),
                       .Some(ua_val) => {
-                        if(!are_types_compatible(&ua_info.ty, &resolved_impl_type), {
+                        if(!are_types_compatible(&ua_info.ty(), &resolved_impl_type), {
                           exn.throw(
                             dyn(
                               format_error_message(
@@ -9437,7 +9437,7 @@ try_to_call_function_with_arguments :: (
                             )
                           );
                         });
-                        impl_tok := synthetic_token(&impl_label, &callee_env_m.module_path.*);
+                        impl_tok := synthetic_token(&impl_label, &callee_env_m.module_path().*);
                         add_variable_to_env(
                           &callee_env_m,
                           &impl_label,
@@ -9455,7 +9455,7 @@ try_to_call_function_with_arguments :: (
                           ArgEntry(
                             value : .Some(ua_val),
                             parameter_type : Rc.clone(resolved_impl_type),
-                            arg_type : Rc.clone(ua_info.ty)
+                            arg_type : Rc.clone(ua_info.ty())
                           )
                         );
                         resolved = true;
@@ -9481,14 +9481,14 @@ try_to_call_function_with_arguments :: (
           (given_name : String) = String.from("");
           (vi : usize) = usize(0);
           while((vi < n_cenv) && !found_given, {
-            gv_opt := all_cenv_vars.get(vi);
+            gv_opt := all_cenv_vars.get_cloned(vi);
             match(
               gv_opt,
               .Some(gv) => {
-                if(gv.is_implicit && gv.is_compile_time_only && are_types_compatible(&gv.ty, &resolved_impl_type), {
+                if(gv.is_implicit() && gv.is_compile_time_only() && are_types_compatible(&gv.ty(), &resolved_impl_type), {
                   found_given = true;
-                  given_val = gv.value.get(usize(0));
-                  given_ty = Rc.clone(gv.ty);
+                  given_val = gv.value().get(usize(0));
+                  given_ty = Rc.clone(gv.ty());
                   given_name = gv.name.clone();
                 });
               },
@@ -9509,7 +9509,7 @@ try_to_call_function_with_arguments :: (
           match(
             given_val,
             .Some(gv_val) => {
-              impl_tok2 := synthetic_token(&impl_label, &callee_env_m.module_path.*);
+              impl_tok2 := synthetic_token(&impl_label, &callee_env_m.module_path().*);
               add_variable_to_env(
                 &callee_env_m,
                 &impl_label,

@@ -38,14 +38,14 @@
 _last_is_module_level :: (fn(key : ExprId, env : &Environment, name : &String) -> bool)({
   vars := scope_variables(key, env, name);
   m := vars.len();
-  if(m == usize(0), false, match(vars.get(m - usize(1)), .Some(v) => v.is_module_level, .None => false))
+  if(m == usize(0), false, match(vars.get_cloned(m - usize(1)), .Some(v) => v.is_module_level(), .None => false))
 });
 /// The last binding for `name` (in node `key`'s recorded scope `env`) is a
 /// compile-time-only variable.
 _last_is_compile_time_only :: (fn(key : ExprId, env : &Environment, name : &String) -> bool)({
   vars := scope_variables(key, env, name);
   m := vars.len();
-  if(m == usize(0), false, match(vars.get(m - usize(1)), .Some(v) => v.is_compile_time_only, .None => false))
+  if(m == usize(0), false, match(vars.get_cloned(m - usize(1)), .Some(v) => v.is_compile_time_only(), .None => false))
 });
 /// The node of a place expression (`a.b.c`, `a.*`, `a(i)`, `f().x`) that
 /// binds `name`: the root atom when its token is `name`, or the node whose
@@ -55,7 +55,7 @@ _last_is_compile_time_only :: (fn(key : ExprId, env : &Environment, name : &Stri
 _lhs_root_binder :: (fn(lhs : &AstExpr, name : &String, context : &FunctionGenerationContext) -> AstExpr)({
   (mut(cur) : AstExpr) = lhs;
   while(true, {
-    binds := match(context.base.get_expr_info(&cur), .Some(ci) => match(&ci.variable_name, .Some(vn) => (vn == name), .None => false), .None => false);
+    binds := match(context.base.get_expr_info(&cur), .Some(ci) => match(&ci.variable_name(), .Some(vn) => (vn == name), .None => false), .None => false);
     if(binds, {
       return(cur);
     });
@@ -141,7 +141,7 @@ generate_assignment :: (fn(expr : &AstExpr, indent : &String, context : &mut Fun
   );
   // Module-level globals are declared in the main wrapper — skip here.
   if(is_init && ast_expr_is_atom(&lhs), {
-    if(_last_is_module_level(ast_expr_id(&lhs), &lhs_ei.env, ast_expr_token(&lhs).value.*), {
+    if(_last_is_module_level(ast_expr_id(&lhs), &lhs_ei.env(), ast_expr_token(&lhs).value.*), {
       return(String.from(""));
     });
   });
@@ -150,14 +150,14 @@ generate_assignment :: (fn(expr : &AstExpr, indent : &String, context : &mut Fun
     return(String.from(""));
   });
   // LHS is a field/index write whose base variable is compile-time.
-  pc := lhs_ei.path_collection.clone();
+  pc := lhs_ei.path_collection();
   if(pc.len() > usize(0), {
     match(
       pc.get_cloned(usize(0)),
       .Some(path) => if(path.len() >= usize(2), {
         match(
           path.get_cloned(usize(0)),
-          .Some(base_var) => if(_last_is_compile_time_only(ast_expr_id(_lhs_root_binder(&lhs, base_var.clone(), context)), &lhs_ei.env, base_var.clone()), {
+          .Some(base_var) => if(_last_is_compile_time_only(ast_expr_id(_lhs_root_binder(&lhs, base_var.clone(), context)), &lhs_ei.env(), base_var.clone()), {
             return(String.from(""));
           }),
           .None => ()
@@ -168,11 +168,11 @@ generate_assignment :: (fn(expr : &AstExpr, indent : &String, context : &mut Fun
   });
   // LHS is a simple comptime variable name.
   if(ast_expr_is_atom(&lhs), {
-    if(_last_is_compile_time_only(ast_expr_id(&lhs), &lhs_ei.env, ast_expr_token(&lhs).value.*), {
+    if(_last_is_compile_time_only(ast_expr_id(&lhs), &lhs_ei.env(), ast_expr_token(&lhs).value.*), {
       return(String.from(""));
     });
   });
-  lhs_type := Rc.clone(lhs_ei.ty);
+  lhs_type := Rc.clone(lhs_ei.ty());
   lhs_code := _call_generate_expr(&lhs, indent.clone(), context);
   // A place whose evaluation runs a call (`m(k)` through a by-name Index
   // dispatch, or a method/projection call in its base chain) must be
@@ -202,7 +202,7 @@ generate_assignment :: (fn(expr : &AstExpr, indent : &String, context : &mut Fun
   (mut(deferred_save_c_name) : String) = String.from("");
   // Save the old value into the result temp (for a deferred drop of it).
   match(
-    &ei.variable_name,
+    &ei.variable_name(),
     .Some(temp_var_name) => {
       // A place reached through a slot holding its pointer (`(*sm->var_y)`:
       // a local borrow, a `mut` match place) is a slot write too: a save
@@ -336,7 +336,7 @@ generate_assignment :: (fn(expr : &AstExpr, indent : &String, context : &mut Fun
   // the local, never the not-yet-defined temp). Save/restore for nesting.
   prev_save_temp := context.current_assignment_save_temp.clone();
   match(
-    &ei.variable_name,
+    &ei.variable_name(),
     .Some(stn) => {
       context.current_assignment_save_temp = Option(String).Some(stn.clone());
     },
@@ -351,7 +351,7 @@ generate_assignment :: (fn(expr : &AstExpr, indent : &String, context : &mut Fun
       ftl.push_string(&rhs_code);
       context.base.emitter.emit_string_line(&ftl);
       context.current_assignment_save_temp = prev_save_temp;
-      return(match(&ei.variable_name, .Some(v) => sanitize_for_c_identifier(&v, false), .None => String.from("")));
+      return(match(&ei.variable_name(), .Some(v) => sanitize_for_c_identifier(&v, false), .None => String.from("")));
     });
     // A side-effecting place is materialized ONCE here, AFTER the RHS: the
     // pointer temp is the place's single evaluation, and the save and the
@@ -400,7 +400,7 @@ generate_assignment :: (fn(expr : &AstExpr, indent : &String, context : &mut Fun
       ftl.push_string(&rhs_code);
       context.base.emitter.emit_string_line(&ftl);
       context.current_assignment_save_temp = prev_save_temp;
-      return(match(&ei.variable_name, .Some(v) => sanitize_for_c_identifier(&v, false), .None => String.from("")));
+      return(match(&ei.variable_name(), .Some(v) => sanitize_for_c_identifier(&v, false), .None => String.from("")));
     });
     // A side-effecting place is materialized ONCE here, AFTER the RHS: the
     // pointer temp is the place's single evaluation, and the save and the
@@ -459,6 +459,6 @@ generate_assignment :: (fn(expr : &AstExpr, indent : &String, context : &mut Fun
     }),
     .None => ()
   );
-  match(&ei.variable_name, .Some(v) => sanitize_for_c_identifier(&v, false), .None => String.from(""))
+  match(&ei.variable_name(), .Some(v) => sanitize_for_c_identifier(&v, false), .None => String.from(""))
 });
 export(generate_assignment);

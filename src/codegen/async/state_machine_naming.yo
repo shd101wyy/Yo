@@ -109,7 +109,7 @@ sm_storage_id :: (fn(v : &Variable, smv : &HashMap(String, CapturedVariable), re
   );
   own := canon(v.id.to_string(), remap);
   match(
-    v.is_owning_the_same_rc_value_as,
+    v.is_owning_the_same_rc_value_as(),
     .Some(ob) => {
       oid := canon(ob.id.to_string(), remap);
       match(
@@ -133,7 +133,7 @@ sm_slot_of :: (
   // Through node `key`'s recorded scope (scope-exit release,
   // plans/CODEGEN_MEMORY_REDUCTION.md §6.1).
   vs := scope_variables(key, env, name);
-  match(vs.last(), .Some(v) => sm_slot_of_variable(&v, smv, remap, aliases, capture_slot), .None => Option(String).None)
+  match(vs.last_cloned(), .Some(v) => sm_slot_of_variable(&v, smv, remap, aliases, capture_slot), .None => Option(String).None)
 });
 /// `sm_slot_of` for an already resolved binding. An outer (captured)
 /// variable's storage is its capture-struct field,

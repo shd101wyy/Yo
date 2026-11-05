@@ -84,12 +84,12 @@ evaluate_typeof :: (
   );
   // Use the (possibly updated) env from the evaluated arg.
   next_env := expr_info_adopt_env(&info);
-  arg_ty := Rc.clone(info.ty);
+  arg_ty := Rc.clone(info.ty());
   // Wrap the arg's type as a TypeVal compile-time value.
   type_val := create_type_value(&arg_ty);
   meta_type := type_of_type(&arg_ty);
   out_info := new_expr_info(&next_env, &meta_type);
-  out_info.value = .Some(type_val);
+  out_info.set_value(.Some(type_val));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   expr
 });

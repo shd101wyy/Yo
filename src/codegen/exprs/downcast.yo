@@ -45,12 +45,12 @@ _downcast_value :: (fn(expr : &AstExpr, indent : &String, context : &mut Functio
   type_arg := match(args.get(usize(1)), .Some(x) => x, .None => return(String.from("/* ERROR: downcast requires 2 arguments */")));
   // First argument: the dyn value (runtime).
   dyn_ei := match(context.base.get_expr_info(&dyn_arg), .Some(e) => e, .None => return(String.from("/* ERROR: downcast dyn arg not evaluated */")));
-  if(!is_dyn_type(&dyn_ei.ty), {
+  if(!is_dyn_type(&dyn_ei.ty()), {
     return(String.from("/* ERROR: downcast expected Dyn type as first argument */"));
   });
   dyn_code := _call_generate_expr(&dyn_arg, indent.clone(), context);
   // Second argument: the target type T (comptime).
-  target_type := match(context.base.get_expr_info(&type_arg), .Some(tei) => match(tei.value, .Some(v) => match(v, .TypeVal(t) => Rc.clone(t), _ => return(String.from("/* ERROR: downcast expected TypeValue as second argument */"))), .None => return(String.from("/* ERROR: downcast expected TypeValue as second argument */"))), .None => return(String.from("/* ERROR: downcast type arg not evaluated */")));
+  target_type := match(context.base.get_expr_info(&type_arg), .Some(tei) => match(tei.value(), .Some(v) => match(v, .TypeVal(t) => Rc.clone(t), _ => return(String.from("/* ERROR: downcast expected TypeValue as second argument */"))), .None => return(String.from("/* ERROR: downcast expected TypeValue as second argument */"))), .None => return(String.from("/* ERROR: downcast type arg not evaluated */")));
   target_type_c_name := get_type_string(&target_type, &mut context.base);
   // Register the typeid static for the target type (address = canonical id).
   tid := type_key(&target_type);
@@ -103,7 +103,7 @@ _downcast_value :: (fn(expr : &AstExpr, indent : &String, context : &mut Functio
     // Value/newtype target: find the Rc in the dyn_impls (same dyn, concrete ==
     // target), then extract `((Rc*)data)->valueField`.
     tkey := type_key(&target_type);
-    dyn_tkey := type_key(&dyn_ei.ty);
+    dyn_tkey := type_key(&dyn_ei.ty());
     (box_opt : Option(TypeValue)) = Option(TypeValue).None;
     // The payload's `clone`, when the Dyn lists `Clone`: a move-only payload
     // is copied out through it (below).
@@ -208,7 +208,7 @@ _downcast_value :: (fn(expr : &AstExpr, indent : &String, context : &mut Functio
     )
   });
   // Result Option type.
-  option_type := Rc.clone(ei.ty);
+  option_type := Rc.clone(ei.ty());
   if(!is_enum_type(&option_type), {
     return(String.from("/* ERROR: downcast expected Option enum as result type */"));
   });
@@ -307,10 +307,10 @@ _upcast_value :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionG
   dyn_arg := match(args.get(usize(0)), .Some(x) => x, .None => return(String.from("/* ERROR: upcast requires 2 arguments */")));
   dyn_ei := match(context.base.get_expr_info(&dyn_arg), .Some(e) => e, .None => return(String.from("/* ERROR: upcast dyn arg not evaluated */")));
   dyn_code := _call_generate_expr(&dyn_arg, indent.clone(), context);
-  tgt_c := get_type_string(&ei.ty, &mut context.base);
+  tgt_c := get_type_string(&ei.ty(), &mut context.base);
   // Name the source once: a call operand must not run twice.
   src := if(_is_plain_c_identifier(dyn_code.clone()), dyn_code.clone(), {
-    src_c := get_type_string(&dyn_ei.ty, &mut context.base);
+    src_c := get_type_string(&dyn_ei.ty(), &mut context.base);
     uid := fresh_local_name(String.from("u"), &context.base.current_function_name);
     src_var := `__yo_uc_src_${uid}`;
     line := `${indent.clone()}${src_c} ${src_var} = ${dyn_code};`;

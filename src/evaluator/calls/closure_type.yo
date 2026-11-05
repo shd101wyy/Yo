@@ -145,15 +145,15 @@ try_to_implement_closure_by_fn_module_type :: (
   // Outer frame count BEFORE the param frame is pushed — the closure's defining
   // frame level, used by codegen (generate_function) to rewrite captured vars to
   // `closure_context->field`. Mirrors anonymous_function.yo:637 `n_cap_fr`.
-  n_cap_fr := env.frames.len();
-  _fr := env.push_frame(false);
+  n_cap_fr := env.frames_len();
+  _fr := env.push_frame()(false);
   // Add each FnTrait parameter as a runtime variable to the new frame.
   n_params := param_labels.len();
   (pi : usize) = usize(0);
   while(pi < n_params, {
     p_label := match(param_labels.get_cloned(pi), .Some(l) => l, .None => String.from("_p"));
     p_type := match(slot_pointee_at(&param_types, pi), .Some(t) => t, .None => t_unit());
-    p_tok := synthetic_token(p_label.clone(), &env.module_path.*);
+    p_tok := synthetic_token(p_label.clone(), &env.module_path().*);
     p_var_opt := add_variable_to_env(
       &env,
       p_label.clone(),
@@ -178,10 +178,10 @@ try_to_implement_closure_by_fn_module_type :: (
       match(
         p_var_opt,
         .Some(p_var) => {
-          p_var.is_ref = true;
+          p_var.set_is_ref(true);
           // is_reassignable mirrors is_ref — see the
           // anonymous_function.yo stamping.
-          p_var.is_reassignable = true;
+          p_var.set_is_reassignable(true);
         },
         .None => ()
       );
@@ -282,14 +282,14 @@ try_to_implement_closure_by_fn_module_type :: (
   match(
     body_info_opt,
     .Some(bi) => {
-      env_adopt(&env, &bi.env);
+      env_adopt(&env, &bi.env());
     },
     .None => ()
   );
   // Check return type compatibility.
   body_ty := match(
     body_info_opt,
-    .Some(bi) => Rc.clone(bi.ty),
+    .Some(bi) => Rc.clone(bi.ty()),
     .None => t_unit()
   );
   if(!are_types_compatible(&body_ty, &result_type), {
@@ -303,7 +303,7 @@ try_to_implement_closure_by_fn_module_type :: (
     );
   });
   // Pop the env frame.
-  env.pop_frame();
+  env.pop_frame()();
   // Capture variable enrichment. The snapshot is read in place through a
   // borrow of the dying `eval_ctx` — no Option copy out of the context.
   match(&eval_ctx.captured_variables, .Some(nested_caps) => propagate_captures_to_enclosing(&nested_caps, ctx), .None => ());

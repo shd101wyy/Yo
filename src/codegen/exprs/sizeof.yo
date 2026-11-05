@@ -45,7 +45,7 @@ generate_alignof :: (fn(expr : &AstExpr, indent : &String, context : &mut Functi
   // type.
   measured := match(
     context.base.get_expr_info(&arg),
-    .Some(ai) => match(ai.value, .Some(.TypeVal(_)) => _call_generate_expr(&arg, indent, context), _ => get_type_string(&ai.ty, &mut context.base)),
+    .Some(ai) => match(ai.value(), .Some(.TypeVal(_)) => _call_generate_expr(&arg, indent, context), _ => get_type_string(&ai.ty(), &mut context.base)),
     .None => return(codegen_fatal_expr(String.from("align_of argument has no evaluation info")))
   );
   out := String.from("_Alignof(");

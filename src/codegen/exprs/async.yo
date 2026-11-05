@@ -808,7 +808,7 @@ _build_deferred_deps :: (
               .Some(future_expr) => match(
                 context.base.get_expr_info(&future_expr),
                 .Some(ei) => match(
-                  _dep_type_string(&ei.ty, context),
+                  _dep_type_string(&ei.ty(), context),
                   .Some(t) => match(
                     by_struct_name.get(&t),
                     .Some(target) => if(target.struct_name != b.struct_name, {
@@ -1618,7 +1618,7 @@ _build_async_capture_struct_literal :: (
               if(in_special_context, Option(AstExpr).None, matched),
               .Some(dup_expr) => {
                 settled.insert(label.clone());
-                dup_var := match(context.base.get_expr_info(&dup_expr), .Some(dei) => dei.variable_name.clone(), .None => Option(String).None);
+                dup_var := match(context.base.get_expr_info(&dup_expr), .Some(dei) => dei.variable_name(), .None => Option(String).None);
                 match(
                   dup_var,
                   .Some(vname) => {
@@ -1671,7 +1671,7 @@ _build_async_capture_struct_literal :: (
                     // through the call's env could land on an unrelated temp.
                     local_c := sanitize_for_c_identifier(label.clone(), false);
                     cname := if(context.base.declared_scopes.with(ds_s => scope_stack_contains(ds_s, local_c.clone())) || context.base.declared_c_var_names.with(dn_s => dn_s.contains(local_c.clone())), local_c, {
-                      cap_env := match(context.base.get_expr_info(expr), .Some(cei_f) => Option(Environment).Some(cei_f.env), .None => Option(Environment).None);
+                      cap_env := match(context.base.get_expr_info(expr), .Some(cei_f) => Option(Environment).Some(cei_f.env()), .None => Option(Environment).None);
                       get_variable_name_for_codegen_at(ast_expr_id(expr), label.clone(), &cap_env)
                     });
                     parts.push(`.${label_c} = ${cname}`);
@@ -1879,7 +1879,7 @@ fused_await_site :: (fn(await_expr : &AstExpr, report : bool, context : &Functio
   );
   n_args := match(
     context.base.get_expr_info(&future_arg),
-    .Some(cei) => match(&cei.runtime_arg_exprs_in_order, .Some(ra) => ra.len(), .None => usize(0)),
+    .Some(cei) => match(&cei.runtime_arg_exprs_in_order(), .Some(ra) => ra.len(), .None => usize(0)),
     .None => usize(0)
   );
   if(n_args != n_params, {
@@ -1892,7 +1892,7 @@ fused_await_site :: (fn(await_expr : &AstExpr, report : bool, context : &Functio
   bundle_ty := match(&block.closure_param_slots, .Some(s) => match(s.get_cloned(usize(0)), .Some(sl) => Rc.clone(sl.param_type), .None => Rc.new(TypeValueNode.Unit)), .None => Rc.new(TypeValueNode.Unit));
   effects_ty := match(
     await_args.get(usize(1)),
-    .Some(ea) => match(context.base.get_expr_info(&ea), .Some(eei) => Option(TypeValue).Some(Rc.clone(eei.ty)), .None => Option(TypeValue).None),
+    .Some(ea) => match(context.base.get_expr_info(&ea), .Some(eei) => Option(TypeValue).Some(Rc.clone(eei.ty())), .None => Option(TypeValue).None),
     .None => Option(TypeValue).None
   );
   if(match(effects_ty, .Some(et) => (type_key(&et) != type_key(&bundle_ty)), .None => true), {
@@ -2269,7 +2269,7 @@ _emit_fused_statements :: (fn(stmts : &ArrayList(AstExpr), indent : &String, con
         if(is_tail, {
           tail = code;
         }, {
-          skip := ((code.len() == usize(0)) || match(context.base.get_expr_info(&st), .Some(sei) => is_temp_variable_name(&sei.env.module_path.*, code.clone()), .None => true));
+          skip := ((code.len() == usize(0)) || match(context.base.get_expr_info(&st), .Some(sei) => is_temp_variable_name(&sei.env().module_path().*, code.clone()), .None => true));
           if(!skip, {
             context.base.emitter.emit_string_line(`${indent}${code};`);
           });
@@ -2322,9 +2322,9 @@ emit_fused_await :: (fn(await_expr : &AstExpr, indent : &String, context : &mut 
   match(
     context.base.get_expr_info(&site.call),
     .Some(fei) => match(
-      &fei.variable_name,
+      &fei.variable_name(),
       .Some(fvn) => {
-        sm_lowering_note_moved_into_slot(context, get_variable_name_for_codegen_at(ast_expr_id(&site.call), &fvn, Option(Environment).Some(fei.env)));
+        sm_lowering_note_moved_into_slot(context, get_variable_name_for_codegen_at(ast_expr_id(&site.call), &fvn, Option(Environment).Some(fei.env())));
       },
       .None => ()
     ),
@@ -2355,7 +2355,7 @@ emit_fused_await :: (fn(await_expr : &AstExpr, indent : &String, context : &mut 
   // so does an argument carrying a call-scoped share, which the call's own
   // drops below release
   // (issues/fixed/2026-10-21-an-aliased-argument-in-an-async-body-gets-no-caller-owned-share.md).
-  rargs := match(context.base.get_expr_info(&site.call), .Some(cei) => match(&cei.runtime_arg_exprs_in_order, .Some(ra) => ra.clone(), .None => ArrayList(AstExpr).new()), .None => ArrayList(AstExpr).new());
+  rargs := match(context.base.get_expr_info(&site.call), .Some(cei) => match(&cei.runtime_arg_exprs_in_order(), .Some(ra) => ra.clone(), .None => ArrayList(AstExpr).new()), .None => ArrayList(AstExpr).new());
   mut(arg_codes) := ArrayList(String).new();
   // Each argument is sequenced against the later ones (`sequence_operand`,
   // other_fn_call.yo), as at an ordinary call: the parameters below are
@@ -2452,7 +2452,7 @@ emit_fused_await :: (fn(await_expr : &AstExpr, indent : &String, context : &mut 
   context.variable_id_remapping = Option(HashMap(String, String)).Some(site.block.analysis.variable_id_remapping.clone());
   saved_scope := sm_lowering_enter_scope(context, site.block.analysis);
   mut(pdd) := match(&saved_pdd, .Some(p) => _copy_expr_list(&p), .None => ArrayList(AstExpr).new());
-  match(context.base.get_expr_info(&site.block.body_expr), .Some(bei) => match(&bei.deferred_drop_expressions, .Some(d) => _append_expr_list(&mut pdd, &d), .None => ()), .None => ());
+  match(context.base.get_expr_info(&site.block.body_expr), .Some(bei) => match(&bei.deferred_drop_expressions(), .Some(d) => _append_expr_list(&mut pdd, &d), .None => ()), .None => ());
   context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(pdd);
   tail := _emit_fused_statements(_fused_statements(&site.block.body_expr), inner.clone(), context);
   (mut(out) : String) = String.from("");
@@ -2489,7 +2489,7 @@ _emit_fused_statements_no_tail :: (fn(stmts : &ArrayList(AstExpr), indent : &Str
       stmts.get(i),
       .Some(st) => {
         code := _call_generate_expr(&st, indent.clone(), context);
-        skip := ((code.len() == usize(0)) || match(context.base.get_expr_info(&st), .Some(sei) => is_temp_variable_name(&sei.env.module_path.*, code.clone()), .None => true));
+        skip := ((code.len() == usize(0)) || match(context.base.get_expr_info(&st), .Some(sei) => is_temp_variable_name(&sei.env().module_path().*, code.clone()), .None => true));
         if(!skip, {
           context.base.emitter.emit_string_line(`${indent}${code};`);
         });
@@ -2517,7 +2517,7 @@ _append_expr_list :: (fn(dst : &mut ArrayList(AstExpr), src : &ArrayList(AstExpr
 io_async_await_analysis :: (fn(expr : &AstExpr, context : &FunctionGenerationContext) -> Option(AwaitAnalysisResult))({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(Option(AwaitAnalysisResult).None));
   closure_arg := match(
-    &ei.runtime_arg_exprs_in_order,
+    &ei.runtime_arg_exprs_in_order(),
     .Some(rargs) => match(rargs.get(usize(0)), .Some(c) => c, .None => return(Option(AwaitAnalysisResult).None)),
     .None => return(Option(AwaitAnalysisResult).None)
   );
@@ -2525,7 +2525,7 @@ io_async_await_analysis :: (fn(expr : &AstExpr, context : &FunctionGenerationCon
   fv := match(
     expr_info_closure_function_value(&cei),
     .Some(f) => Option(EvalValue).Some(f),
-    .None => match(cei.value, .Some(v) => if(is_func_val(&v), Option(EvalValue).Some(v), Option(EvalValue).None), .None => Option(EvalValue).None)
+    .None => match(cei.value(), .Some(v) => if(is_func_val(&v), Option(EvalValue).Some(v), Option(EvalValue).None), .None => Option(EvalValue).None)
   );
   match(
     fv,
@@ -2579,7 +2579,7 @@ io_async_await_analysis :: (fn(expr : &AstExpr, context : &FunctionGenerationCon
 io_async_closure_body :: (fn(expr : &AstExpr, context : &FunctionGenerationContext) -> Option(AstExpr))({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(Option(AstExpr).None));
   match(
-    &ei.runtime_arg_exprs_in_order,
+    &ei.runtime_arg_exprs_in_order(),
     .Some(rargs) => match(
       rargs.get(usize(0)),
       .Some(carg) => match(
@@ -2588,7 +2588,7 @@ io_async_closure_body :: (fn(expr : &AstExpr, context : &FunctionGenerationConte
           fv_opt := match(
             expr_info_closure_function_value(&cei),
             .Some(f) => Option(EvalValue).Some(f),
-            .None => match(cei.value, .Some(v) => if(is_func_val(&v), Option(EvalValue).Some(v), Option(EvalValue).None), .None => Option(EvalValue).None)
+            .None => match(cei.value(), .Some(v) => if(is_func_val(&v), Option(EvalValue).Some(v), Option(EvalValue).None), .None => Option(EvalValue).None)
           );
           body_opt := match(
             fv_opt,
@@ -2701,14 +2701,14 @@ generate_async_block :: (fn(expr : &AstExpr, io_async_body : &Option(AstExpr), a
       .Some(_) => ()
     );
   });
-  future_type := Rc.clone(ei.ty);
+  future_type := Rc.clone(ei.ty());
   if(!type_implements_future(&future_type), {
     return(codegen_fatal_expr(String.from("async block must have Future type")));
   });
   future_trait_type := match(extract_future_trait_from_type(&future_type), .Some(ft) => ft, .None => return(codegen_fatal_expr(String.from("Could not extract Future trait type"))));
   // State-machine struct name (this struct IS the Future implementation).
   async_block_id := match(
-    &ei.variable_name,
+    &ei.variable_name(),
     .Some(n) => n.clone(),
     .None => {
       // Phase 2: position-derived with MERGE semantics — see the twin above.
@@ -2745,7 +2745,7 @@ generate_async_block :: (fn(expr : &AstExpr, io_async_body : &Option(AstExpr), a
   (mut(fsm_field_inits) : Option(ArrayList(CaptureFieldInit))) = expr_info_capture_field_inits(&ei);
   if(is_io_async, {
     match(
-      &ei.runtime_arg_exprs_in_order,
+      &ei.runtime_arg_exprs_in_order(),
       .Some(rargs) => match(
         rargs.get(usize(0)),
         .Some(carg) => match(
@@ -2885,7 +2885,7 @@ generate_async_block :: (fn(expr : &AstExpr, io_async_body : &Option(AstExpr), a
           match(
             context.base.get_expr_info(&body_expr),
             .Some(bei) => {
-              bt := Rc.clone(bei.ty);
+              bt := Rc.clone(bei.ty());
               if(is_some_type(&bt), {
                 match(
                   some_resolution(&bt),
@@ -2999,7 +2999,7 @@ generate_async_block :: (fn(expr : &AstExpr, io_async_body : &Option(AstExpr), a
   blocks.push(dab);
   context.deferred_async_blocks = Option(ArrayList(DeferredAsyncBlock)).Some(blocks);
   // Emit the constructor call (lazy: the future stays cold until await/spawn).
-  result_var := sanitize_for_c_identifier(match(&ei.variable_name, .Some(n) => n.clone(), .None => String.from("async_result")), false);
+  result_var := sanitize_for_c_identifier(match(&ei.variable_name(), .Some(n) => n.clone(), .None => String.from("async_result")), false);
   constructor_call := match(
     fsm_capture_type,
     .Some(cap_ty) => {
@@ -3416,7 +3416,7 @@ _set_async_sm_struct_name :: (fn(expr : &AstExpr, struct_name : &String, context
 /// parallelism extern detection.
 _called_extern_name :: (fn(expr : &AstExpr, context : &FunctionGenerationContext) -> Option(String))({
   func_expr := match(expr, .FnCall(_, f, _, _, _) => f, _ => return(Option(String).None));
-  ft := match(context.base.get_expr_info(&func_expr), .Some(ei) => Rc.clone(ei.ty), .None => return(Option(String).None));
+  ft := match(context.base.get_expr_info(&func_expr), .Some(ei) => Rc.clone(ei.ty()), .None => return(Option(String).None));
   match(
     ft,
     Rc(.Func({ meta : __fm2 })) => match(
@@ -3437,12 +3437,12 @@ preregister_async_blocks_in_expr :: (fn(expr : &AstExpr, context : &mut Function
   if(is_io_async_call(expr), {
     match(
       ei_opt,
-      .Some(ei) => if(type_implements_future(&ei.ty), {
+      .Some(ei) => if(type_implements_future(&ei.ty()), {
         match(
-          extract_future_trait_from_type(&ei.ty),
+          extract_future_trait_from_type(&ei.ty()),
           .Some(_) => {
             async_block_id := match(
-              &ei.variable_name,
+              &ei.variable_name(),
               .Some(n) => n.clone(),
               .None => {
                 // Phase 2: the unnamed block's identity is its source
@@ -3456,7 +3456,7 @@ preregister_async_blocks_in_expr :: (fn(expr : &AstExpr, context : &mut Function
             );
             struct_name := `${async_block_id}_state_t`;
             _set_async_sm_struct_name(expr, struct_name.clone(), context);
-            context.base.register_type(type_key(&ei.ty), &ei.ty, `${struct_name.clone()}*`, Option(String).None);
+            context.base.register_type(type_key(&ei.ty()), &ei.ty(), `${struct_name.clone()}*`, Option(String).None);
             context.base.emitter.emit_declaration_string_line(`typedef struct ${struct_name.clone()}_struct ${struct_name}; // Forward declaration for async state machine`);
           },
           .None => ()
@@ -3469,12 +3469,12 @@ preregister_async_blocks_in_expr :: (fn(expr : &AstExpr, context : &mut Function
   if(is_io_async_call(expr), {
     match(
       ei_opt,
-      .Some(ei) => if(type_implements_future(&ei.ty), {
+      .Some(ei) => if(type_implements_future(&ei.ty()), {
         match(
-          extract_future_trait_from_type(&ei.ty),
+          extract_future_trait_from_type(&ei.ty()),
           .Some(_) => {
             async_block_id := match(
-              &ei.variable_name,
+              &ei.variable_name(),
               .Some(n) => n.clone(),
               .None => {
                 // Phase 2: position-derived, MERGE semantics (two passes
@@ -3493,7 +3493,7 @@ preregister_async_blocks_in_expr :: (fn(expr : &AstExpr, context : &mut Function
             struct_name := if(has_await_analysis, `${async_block_id}_state_t`, `${async_block_id}_sync_fut_t`);
             kind_label := if(has_await_analysis, String.from("state machine"), String.from("sync future"));
             _set_async_sm_struct_name(expr, struct_name.clone(), context);
-            context.base.register_type(type_key(&ei.ty), &ei.ty, `${struct_name.clone()}*`, Option(String).None);
+            context.base.register_type(type_key(&ei.ty()), &ei.ty(), `${struct_name.clone()}*`, Option(String).None);
             context.base.emitter.emit_declaration_string_line(`typedef struct ${struct_name.clone()}_struct ${struct_name}; // Forward declaration for io.async ${kind_label}`);
           },
           .None => ()
@@ -3582,14 +3582,14 @@ preregister_async_block_types :: (fn(context : &mut FunctionGenerationContext) -
 /// directly.
 generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(codegen_fatal_expr(String.from("io.async missing ExprInfo"))));
-  future_type := Rc.clone(ei.ty);
+  future_type := Rc.clone(ei.ty());
   if(!type_implements_future(&future_type), {
     return(codegen_fatal_expr(String.from("io.async must return a Future type")));
   });
   future_trait_type := match(extract_future_trait_from_type(&future_type), .Some(ft) => ft, .None => return(codegen_fatal_expr(String.from("Could not extract Future trait type"))));
   // Closure argument expression + its info.
   closure_arg := match(
-    &ei.runtime_arg_exprs_in_order,
+    &ei.runtime_arg_exprs_in_order(),
     .Some(rargs) => match(rargs.get(usize(0)), .Some(c) => c, .None => return(codegen_fatal_expr(String.from("Missing closure argument for io.async")))),
     .None => return(codegen_fatal_expr(String.from("Missing closure argument for io.async")))
   );
@@ -3605,7 +3605,7 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
   result_closure_fv := match(
     expr_info_closure_function_value(&cei),
     .Some(fv) => Option(EvalValue).Some(fv),
-    .None => match(cei.value, .Some(v) => if(is_func_val(&v), Option(EvalValue).Some(v), Option(EvalValue).None), .None => Option(EvalValue).None)
+    .None => match(cei.value(), .Some(v) => if(is_func_val(&v), Option(EvalValue).Some(v), Option(EvalValue).None), .None => Option(EvalValue).None)
   );
   (result_type : TypeValue) = match(&future_trait_type, Rc(.FutureTraitT({ output : o })) => o.clone(), _ => Rc.clone(future_type));
   // Capture the future-trait output SomeType id BEFORE resolution. Once we resolve
@@ -3619,7 +3619,7 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
   // the FIRST closure's registration poisons ALL subsequent closures' result
   // types → "assigning from incompatible type" C errors.
   ab_id := match(
-    &cei.variable_name,
+    &cei.variable_name(),
     .Some(n) => n.clone(),
     .None => {
       // Phase 2: position-derived, MERGE semantics — see the twin above.
@@ -3643,7 +3643,7 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
           .FuncVal(__fvd4, _) => match(
             context.base.get_expr_info(&__fvd4.*.body),
             .Some(bei) => {
-              bt := Rc.clone(bei.ty);
+              bt := Rc.clone(bei.ty());
               if(is_some_type(&bt), {
                 match(
                   some_resolution(&bt),
@@ -3711,8 +3711,8 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
     .Some(fv) => Option(EvalValue).Some(fv),
     .None => match(
       orig_closure_ei,
-      .Some(oe) => match(expr_info_closure_function_value(&oe), .Some(fv) => Option(EvalValue).Some(fv), .None => match(cei.value, .Some(v) => if(is_func_val(&v), Option(EvalValue).Some(v), Option(EvalValue).None), .None => Option(EvalValue).None)),
-      .None => match(cei.value, .Some(v) => if(is_func_val(&v), Option(EvalValue).Some(v), Option(EvalValue).None), .None => Option(EvalValue).None)
+      .Some(oe) => match(expr_info_closure_function_value(&oe), .Some(fv) => Option(EvalValue).Some(fv), .None => match(cei.value(), .Some(v) => if(is_func_val(&v), Option(EvalValue).Some(v), Option(EvalValue).None), .None => Option(EvalValue).None)),
+      .None => match(cei.value(), .Some(v) => if(is_func_val(&v), Option(EvalValue).Some(v), Option(EvalValue).None), .None => Option(EvalValue).None)
     )
   );
   // POISON GATE (fully-hollow body, sync-future path): a deferred anon-body
@@ -3750,7 +3750,7 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
   // Discover the closure's runtime parameters (non-comptime; the bundle param e).
   // Func.param_types already excludes comptime params.
   sync_param_slots := ArrayList(SyncParamSlot).new();
-  closure_call_type := Rc.clone(cei.ty);
+  closure_call_type := Rc.clone(cei.ty());
   match(
     &closure_call_type,
     Rc(.Func({ param_types : pts })) => {
@@ -3994,7 +3994,7 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
   context.base.emitter.emit_declaration_line("}");
   context.base.emitter.emit_declaration_line("");
   // Allocation + initialization (body code).
-  result_var := sanitize_for_c_identifier(match(&ei.variable_name, .Some(n) => n.clone(), .None => `__io_async_result_${ast_expr_id(expr).to_string()}`), false);
+  result_var := sanitize_for_c_identifier(match(&ei.variable_name(), .Some(n) => n.clone(), .None => `__io_async_result_${ast_expr_id(expr).to_string()}`), false);
   var_type_and_name := get_variable_type_string(&future_type, result_var.clone(), &mut context.base);
   context.base.emitter.emit_string_line(`${indent.clone()}${var_type_and_name} = (${struct_name.clone()}*)${_sm_alloc_call(struct_name.clone(), dispose_function_name.clone(), context)};`);
   context.base.emitter.emit_string_line(`${indent.clone()}memset(${result_var.clone()}, 0, sizeof(${struct_name.clone()}));`);

@@ -446,8 +446,8 @@ ExprInfo :: ref(
 (mut(g_adopt_env_calls) : usize) = usize(0);
 expr_info_adopt_env :: (fn(info : &ExprInfo) -> Environment)({
   g_adopt_env_calls = (g_adopt_env_calls + usize(1));
-  fresh := snapshot_env(&info.env);
-  info.env = fresh;
+  fresh := snapshot_env(&info.env());
+  info.set_env(fresh);
   fresh
 });
 /// Create an ExprInfo with the three required fields and all optional fields set to `.None`.
@@ -494,15 +494,15 @@ clone_expr_info_for_shared_begin_result :: (fn(src : &ExprInfo, env : &Environme
     env : expr_info_env_snapshot(env),
     ty : Rc.clone(ty),
     path_collection : g_empty_path_collection.clone(),
-    value : src.value,
-    variable_name : src.variable_name.clone(),
-    is_accessing_property : src.is_accessing_property,
-    runtime_arg_exprs_in_order : src.runtime_arg_exprs_in_order.clone(),
-    control_flow : src.control_flow,
-    deferred_drop_expressions : src.deferred_drop_expressions.clone(),
-    origin_type : src.origin_type.clone(),
-    rare : _clone_expr_info_rare(&src.rare),
-    source_variable : src.source_variable
+    value : src.value(),
+    variable_name : src.variable_name(),
+    is_accessing_property : src.is_accessing_property(),
+    runtime_arg_exprs_in_order : src.runtime_arg_exprs_in_order(),
+    control_flow : src.control_flow(),
+    deferred_drop_expressions : src.deferred_drop_expressions(),
+    origin_type : src.origin_type(),
+    rare : _clone_expr_info_rare(&src.rare()),
+    source_variable : src.source_variable()
   )
 );
 // ---------------------------------------------------------------------------
@@ -548,14 +548,14 @@ _clone_expr_info_rare :: (fn(r : &Option(ExprInfoRare)) -> Option(ExprInfoRare))
 );
 expr_info_doc_comment :: (fn(info : &ExprInfo) -> Option(String))(
   match(
-    info.rare,
+    info.rare(),
     .Some(r) => r.doc_comment.clone(),
     .None => Option(String).None
   )
 );
 /// Skip-None setter: writing `.None` into an absent rare group is a no-op.
 expr_info_set_doc_comment :: (fn(info : &ExprInfo, v : &Option(String)) -> unit)({
-  if(v.is_none() && info.rare.is_none(), {
+  if(v.is_none() && info.rare().is_none(), {
     return(());
   });
   r := _expr_info_rare_for_write(info);
@@ -564,14 +564,14 @@ expr_info_set_doc_comment :: (fn(info : &ExprInfo, v : &Option(String)) -> unit)
 });
 expr_info_deferred_dup_expressions :: (fn(info : &ExprInfo) -> Option(ArrayList(AstExpr)))(
   match(
-    info.rare,
+    info.rare(),
     .Some(r) => r.deferred_dup_expressions.clone(),
     .None => Option(ArrayList(AstExpr)).None
   )
 );
 /// Skip-None setter: writing `.None` into an absent rare group is a no-op.
 expr_info_set_deferred_dup_expressions :: (fn(info : &ExprInfo, v : &Option(ArrayList(AstExpr))) -> unit)({
-  if(v.is_none() && info.rare.is_none(), {
+  if(v.is_none() && info.rare().is_none(), {
     return(());
   });
   r := _expr_info_rare_for_write(info);
@@ -580,14 +580,14 @@ expr_info_set_deferred_dup_expressions :: (fn(info : &ExprInfo, v : &Option(Arra
 });
 expr_info_capture_field_inits :: (fn(info : &ExprInfo) -> Option(ArrayList(CaptureFieldInit)))(
   match(
-    info.rare,
+    info.rare(),
     .Some(r) => r.capture_field_inits.clone(),
     .None => Option(ArrayList(CaptureFieldInit)).None
   )
 );
 /// Skip-None setter: writing `.None` into an absent rare group is a no-op.
 expr_info_set_capture_field_inits :: (fn(info : &ExprInfo, v : &Option(ArrayList(CaptureFieldInit))) -> unit)({
-  if(v.is_none() && info.rare.is_none(), {
+  if(v.is_none() && info.rare().is_none(), {
     return(());
   });
   r := _expr_info_rare_for_write(info);
@@ -596,14 +596,14 @@ expr_info_set_capture_field_inits :: (fn(info : &ExprInfo, v : &Option(ArrayList
 });
 expr_info_capture_type :: (fn(info : &ExprInfo) -> Option(TypeValue))(
   match(
-    info.rare,
+    info.rare(),
     .Some(r) => r.capture_type.clone(),
     .None => Option(TypeValue).None
   )
 );
 /// Skip-None setter: writing `.None` into an absent rare group is a no-op.
 expr_info_set_capture_type :: (fn(info : &ExprInfo, v : &Option(TypeValue)) -> unit)({
-  if(v.is_none() && info.rare.is_none(), {
+  if(v.is_none() && info.rare().is_none(), {
     return(());
   });
   r := _expr_info_rare_for_write(info);
@@ -612,14 +612,14 @@ expr_info_set_capture_type :: (fn(info : &ExprInfo, v : &Option(TypeValue)) -> u
 });
 expr_info_macro_expansion :: (fn(info : &ExprInfo) -> Option(AstExpr))(
   match(
-    info.rare,
+    info.rare(),
     .Some(r) => r.macro_expansion,
     .None => Option(AstExpr).None
   )
 );
 /// Skip-None setter: writing `.None` into an absent rare group is a no-op.
 expr_info_set_macro_expansion :: (fn(info : &ExprInfo, v : &Option(AstExpr)) -> unit)({
-  if(v.is_none() && info.rare.is_none(), {
+  if(v.is_none() && info.rare().is_none(), {
     return(());
   });
   r := _expr_info_rare_for_write(info);
@@ -628,14 +628,14 @@ expr_info_set_macro_expansion :: (fn(info : &ExprInfo, v : &Option(AstExpr)) -> 
 });
 expr_info_original_expr :: (fn(info : &ExprInfo) -> Option(AstExpr))(
   match(
-    info.rare,
+    info.rare(),
     .Some(r) => r.original_expr,
     .None => Option(AstExpr).None
   )
 );
 /// Skip-None setter: writing `.None` into an absent rare group is a no-op.
 expr_info_set_original_expr :: (fn(info : &ExprInfo, v : &Option(AstExpr)) -> unit)({
-  if(v.is_none() && info.rare.is_none(), {
+  if(v.is_none() && info.rare().is_none(), {
     return(());
   });
   r := _expr_info_rare_for_write(info);
@@ -644,14 +644,14 @@ expr_info_set_original_expr :: (fn(info : &ExprInfo, v : &Option(AstExpr)) -> un
 });
 expr_info_comptime_ref :: (fn(info : &ExprInfo) -> Option(ComptimeRef))(
   match(
-    info.rare,
+    info.rare(),
     .Some(r) => r.comptime_ref.clone(),
     .None => Option(ComptimeRef).None
   )
 );
 /// Skip-None setter: writing `.None` into an absent rare group is a no-op.
 expr_info_set_comptime_ref :: (fn(info : &ExprInfo, v : &Option(ComptimeRef)) -> unit)({
-  if(v.is_none() && info.rare.is_none(), {
+  if(v.is_none() && info.rare().is_none(), {
     return(());
   });
   r := _expr_info_rare_for_write(info);
@@ -660,14 +660,14 @@ expr_info_set_comptime_ref :: (fn(info : &ExprInfo, v : &Option(ComptimeRef)) ->
 });
 expr_info_index_trait_ptr_type :: (fn(info : &ExprInfo) -> Option(TypeValue))(
   match(
-    info.rare,
+    info.rare(),
     .Some(r) => r.index_trait_ptr_type.clone(),
     .None => Option(TypeValue).None
   )
 );
 /// Skip-None setter: writing `.None` into an absent rare group is a no-op.
 expr_info_set_index_trait_ptr_type :: (fn(info : &ExprInfo, v : &Option(TypeValue)) -> unit)({
-  if(v.is_none() && info.rare.is_none(), {
+  if(v.is_none() && info.rare().is_none(), {
     return(());
   });
   r := _expr_info_rare_for_write(info);
@@ -676,14 +676,14 @@ expr_info_set_index_trait_ptr_type :: (fn(info : &ExprInfo, v : &Option(TypeValu
 });
 expr_info_index_method_type :: (fn(info : &ExprInfo) -> Option(TypeValue))(
   match(
-    info.rare,
+    info.rare(),
     .Some(r) => r.index_method_type.clone(),
     .None => Option(TypeValue).None
   )
 );
 /// Skip-None setter: writing `.None` into an absent rare group is a no-op.
 expr_info_set_index_method_type :: (fn(info : &ExprInfo, v : &Option(TypeValue)) -> unit)({
-  if(v.is_none() && info.rare.is_none(), {
+  if(v.is_none() && info.rare().is_none(), {
     return(());
   });
   r := _expr_info_rare_for_write(info);
@@ -692,14 +692,14 @@ expr_info_set_index_method_type :: (fn(info : &ExprInfo, v : &Option(TypeValue))
 });
 expr_info_index_method_value :: (fn(info : &ExprInfo) -> Option(EvalValue))(
   match(
-    info.rare,
+    info.rare(),
     .Some(r) => r.index_method_value,
     .None => Option(EvalValue).None
   )
 );
 /// Skip-None setter: writing `.None` into an absent rare group is a no-op.
 expr_info_set_index_method_value :: (fn(info : &ExprInfo, v : &Option(EvalValue)) -> unit)({
-  if(v.is_none() && info.rare.is_none(), {
+  if(v.is_none() && info.rare().is_none(), {
     return(());
   });
   r := _expr_info_rare_for_write(info);
@@ -708,14 +708,14 @@ expr_info_set_index_method_value :: (fn(info : &ExprInfo, v : &Option(EvalValue)
 });
 expr_info_is_index_trait_address_of :: (fn(info : &ExprInfo) -> Option(bool))(
   match(
-    info.rare,
+    info.rare(),
     .Some(r) => r.is_index_trait_address_of,
     .None => Option(bool).None
   )
 );
 /// Skip-None setter: writing `.None` into an absent rare group is a no-op.
 expr_info_set_is_index_trait_address_of :: (fn(info : &ExprInfo, v : Option(bool)) -> unit)({
-  if(v.is_none() && info.rare.is_none(), {
+  if(v.is_none() && info.rare().is_none(), {
     return(());
   });
   r := _expr_info_rare_for_write(info);
@@ -724,14 +724,14 @@ expr_info_set_is_index_trait_address_of :: (fn(info : &ExprInfo, v : Option(bool
 });
 expr_info_is_compile_time_only_assignment :: (fn(info : &ExprInfo) -> Option(bool))(
   match(
-    info.rare,
+    info.rare(),
     .Some(r) => r.is_compile_time_only_assignment,
     .None => Option(bool).None
   )
 );
 /// Skip-None setter: writing `.None` into an absent rare group is a no-op.
 expr_info_set_is_compile_time_only_assignment :: (fn(info : &ExprInfo, v : Option(bool)) -> unit)({
-  if(v.is_none() && info.rare.is_none(), {
+  if(v.is_none() && info.rare().is_none(), {
     return(());
   });
   r := _expr_info_rare_for_write(info);
@@ -740,14 +740,14 @@ expr_info_set_is_compile_time_only_assignment :: (fn(info : &ExprInfo, v : Optio
 });
 expr_info_is_anonymous_function_definition :: (fn(info : &ExprInfo) -> Option(bool))(
   match(
-    info.rare,
+    info.rare(),
     .Some(r) => r.is_anonymous_function_definition,
     .None => Option(bool).None
   )
 );
 /// Skip-None setter: writing `.None` into an absent rare group is a no-op.
 expr_info_set_is_anonymous_function_definition :: (fn(info : &ExprInfo, v : Option(bool)) -> unit)({
-  if(v.is_none() && info.rare.is_none(), {
+  if(v.is_none() && info.rare().is_none(), {
     return(());
   });
   r := _expr_info_rare_for_write(info);
@@ -756,14 +756,14 @@ expr_info_set_is_anonymous_function_definition :: (fn(info : &ExprInfo, v : Opti
 });
 expr_info_comptime_unrolled_bodies :: (fn(info : &ExprInfo) -> Option(ArrayList(AstExpr)))(
   match(
-    info.rare,
+    info.rare(),
     .Some(r) => r.comptime_unrolled_bodies.clone(),
     .None => Option(ArrayList(AstExpr)).None
   )
 );
 /// Skip-None setter: writing `.None` into an absent rare group is a no-op.
 expr_info_set_comptime_unrolled_bodies :: (fn(info : &ExprInfo, v : &Option(ArrayList(AstExpr))) -> unit)({
-  if(v.is_none() && info.rare.is_none(), {
+  if(v.is_none() && info.rare().is_none(), {
     return(());
   });
   r := _expr_info_rare_for_write(info);
@@ -772,14 +772,14 @@ expr_info_set_comptime_unrolled_bodies :: (fn(info : &ExprInfo, v : &Option(Arra
 });
 expr_info_early_return_only_deferred_drop_expressions :: (fn(info : &ExprInfo) -> Option(ArrayList(AstExpr)))(
   match(
-    info.rare,
+    info.rare(),
     .Some(r) => r.early_return_only_deferred_drop_expressions.clone(),
     .None => Option(ArrayList(AstExpr)).None
   )
 );
 /// Skip-None setter: writing `.None` into an absent rare group is a no-op.
 expr_info_set_early_return_only_deferred_drop_expressions :: (fn(info : &ExprInfo, v : &Option(ArrayList(AstExpr))) -> unit)({
-  if(v.is_none() && info.rare.is_none(), {
+  if(v.is_none() && info.rare().is_none(), {
     return(());
   });
   r := _expr_info_rare_for_write(info);
@@ -791,7 +791,7 @@ expr_info_set_early_return_only_deferred_drop_expressions :: (fn(info : &ExprInf
 /// Read paths must NOT call this — they would allocate a group for nothing.
 _expr_info_rare_for_write :: (fn(info : &ExprInfo) -> ExprInfoRare)(
   match(
-    info.rare,
+    info.rare(),
     .Some(r) => r,
     .None => {
       fresh := ExprInfoRare(
@@ -823,13 +823,13 @@ _expr_info_rare_for_write :: (fn(info : &ExprInfo) -> ExprInfoRare)(
         early_return_only_deferred_drop_expressions : Option(ArrayList(AstExpr)).None,
         capture_field_inits : Option(ArrayList(CaptureFieldInit)).None
       );
-      info.rare = Option(ExprInfoRare).Some(fresh);
+      info.set_rare(Option(ExprInfoRare).Some(fresh));
       fresh
     }
   )
 );
 expr_info_converted_runtime_type :: (fn(info : &ExprInfo) -> Option(TypeValue))(
-  match(info.rare, .Some(r) => r.converted_runtime_type.clone(), .None => Option(TypeValue).None)
+  match(info.rare(), .Some(r) => r.converted_runtime_type.clone(), .None => Option(TypeValue).None)
 );
 expr_info_set_converted_runtime_type :: (
   fn(info : &ExprInfo, v : &Option(TypeValue)) -> unit
@@ -837,15 +837,15 @@ expr_info_set_converted_runtime_type :: (
   r := _expr_info_rare_for_write(info);
   r.converted_runtime_type = v.clone();
 });
-expr_info_origin_type :: (fn(info : &ExprInfo) -> Option(TypeValue))(info.origin_type.clone());
+expr_info_origin_type :: (fn(info : &ExprInfo) -> Option(TypeValue))(info.origin_type());
 expr_info_set_origin_type :: (fn(info : &ExprInfo, v : &Option(TypeValue)) -> unit)({
-  info.origin_type = v.clone();
+  info.set_origin_type(v.clone());
 });
 expr_info_runtime_destructurings :: (
   fn(info : &ExprInfo) -> Option(ArrayList(RuntimeDestructuring))
 )(
   match(
-    info.rare,
+    info.rare(),
     .Some(r) => r.runtime_destructurings.clone(),
     .None => Option(ArrayList(RuntimeDestructuring)).None
   )
@@ -860,7 +860,7 @@ expr_info_dyn_call_trait_values :: (
   fn(info : &ExprInfo) -> Option(ArrayList(EvalValue))
 )(
   match(
-    info.rare,
+    info.rare(),
     .Some(r) => r.dyn_call_trait_values.clone(),
     .None => Option(ArrayList(EvalValue)).None
   )
@@ -872,14 +872,14 @@ expr_info_set_dyn_call_trait_values :: (
   r.dyn_call_trait_values = v.clone();
 });
 expr_info_case_executed :: (fn(info : &ExprInfo) -> Option(bool))(
-  match(info.rare, .Some(r) => r.case_executed, .None => Option(bool).None)
+  match(info.rare(), .Some(r) => r.case_executed, .None => Option(bool).None)
 );
 expr_info_set_case_executed :: (fn(info : &ExprInfo, v : Option(bool)) -> unit)({
   r := _expr_info_rare_for_write(info);
   r.case_executed = v;
 });
 expr_info_is_primitive_match :: (fn(info : &ExprInfo) -> Option(bool))(
-  match(info.rare, .Some(r) => r.is_primitive_match, .None => Option(bool).None)
+  match(info.rare(), .Some(r) => r.is_primitive_match, .None => Option(bool).None)
 );
 expr_info_set_is_primitive_match :: (fn(info : &ExprInfo, v : Option(bool)) -> unit)({
   r := _expr_info_rare_for_write(info);
@@ -889,7 +889,7 @@ expr_info_primitive_pattern_values :: (
   fn(info : &ExprInfo) -> Option(ArrayList(Option(EvalValue)))
 )(
   match(
-    info.rare,
+    info.rare(),
     .Some(r) => r.primitive_pattern_values.clone(),
     .None => Option(ArrayList(Option(EvalValue))).None
   )
@@ -904,7 +904,7 @@ expr_info_consumed_variable_drop_expressions :: (
   fn(info : &ExprInfo) -> Option(ArrayList(AstExpr))
 )(
   match(
-    info.rare,
+    info.rare(),
     .Some(r) => r.consumed_variable_drop_expressions.clone(),
     .None => Option(ArrayList(AstExpr)).None
   )
@@ -916,7 +916,7 @@ expr_info_set_consumed_variable_drop_expressions :: (
   r.consumed_variable_drop_expressions = v.clone();
 });
 expr_info_async_stack_size :: (fn(info : &ExprInfo) -> Option(AstExpr))(
-  match(info.rare, .Some(r) => r.async_stack_size, .None => Option(AstExpr).None)
+  match(info.rare(), .Some(r) => r.async_stack_size, .None => Option(AstExpr).None)
 );
 expr_info_set_async_stack_size :: (fn(info : &ExprInfo, v : &Option(AstExpr)) -> unit)({
   r := _expr_info_rare_for_write(info);
@@ -924,7 +924,7 @@ expr_info_set_async_stack_size :: (fn(info : &ExprInfo, v : &Option(AstExpr)) ->
 });
 expr_info_async_state_machine_struct_name :: (fn(info : &ExprInfo) -> Option(String))(
   match(
-    info.rare,
+    info.rare(),
     .Some(r) => r.async_state_machine_struct_name.clone(),
     .None => Option(String).None
   )
@@ -937,7 +937,7 @@ expr_info_set_async_state_machine_struct_name :: (
 });
 expr_info_await_analysis :: (fn(info : &ExprInfo) -> Option(AwaitAnalysisResult))(
   match(
-    info.rare,
+    info.rare(),
     .Some(r) => r.await_analysis,
     .None => Option(AwaitAnalysisResult).None
   )
@@ -950,7 +950,7 @@ expr_info_set_await_analysis :: (
 });
 expr_info_effect_analysis :: (fn(info : &ExprInfo) -> Option(EffectAnalysisResult))(
   match(
-    info.rare,
+    info.rare(),
     .Some(r) => r.effect_analysis,
     .None => Option(EffectAnalysisResult).None
   )
@@ -963,7 +963,7 @@ expr_info_set_effect_analysis :: (
 });
 expr_info_closure_function_value :: (fn(info : &ExprInfo) -> Option(EvalValue))(
   match(
-    info.rare,
+    info.rare(),
     .Some(r) => r.closure_function_value,
     .None => Option(EvalValue).None
   )
@@ -1012,7 +1012,7 @@ ScopeBound :: struct(name : String, env : Environment);
 /// lookup knows to answer from the records.
 SCOPE_HUSK_MARK :: usize(987654321);
 _is_scope_husk :: (fn(env : &Environment) -> bool)(
-  match(env.function_declaration_frame_level, .Some(l) => (l == SCOPE_HUSK_MARK), .None => false)
+  match(env.function_declaration_frame_level(), .Some(l) => (l == SCOPE_HUSK_MARK), .None => false)
 );
 derive(ScopeNameRecord, Clone);
 derive(ScopeBound, Clone);
@@ -1206,7 +1206,7 @@ _scope_same_ids :: (fn(a : &ArrayList(Variable), b : &ArrayList(Variable)) -> bo
   (i : usize) = usize(0);
   (same : bool) = true;
   while(same && (i < a.len()), {
-    same = (a.get(i).unwrap().id == b.get(i).unwrap().id);
+    same = (a.get_cloned(i).unwrap().id == b.get_cloned(i).unwrap().id);
     i = (i + usize(1));
   });
   same
@@ -1251,39 +1251,39 @@ _scope_value_installs :: (fn(v : &Option(EvalValue)) -> bool)(
 /// a callee whose type or value installs a handler, or a method call whose
 /// resolved method does.
 _scope_keeps_env :: (fn(id : ExprId, info : &ExprInfo) -> bool)(
-  _scope_type_installs(&info.ty) || _scope_value_installs(&info.value) || _scope_value_installs(lookup_method_callee_value(id))
+  _scope_type_installs(&info.ty()) || _scope_value_installs(&info.value()) || _scope_value_installs(lookup_method_callee_value(id))
 );
 scope_release_body :: (fn(mark : usize, entry : &Environment) -> unit)({
-  husk := Environment(frames : Rc.new(copy_env_frames(entry)), module_path : Rc.clone(entry.module_path), function_declaration_frame_level : Option(usize).Some(SCOPE_HUSK_MARK), frozen : true);
+  husk := Environment(frames : Rc.new(copy_env_frames(entry)), module_path : Rc.clone(entry.module_path()), function_declaration_frame_level : Option(usize).Some(SCOPE_HUSK_MARK), frozen : true);
   (i : usize) = mark;
   while(i < g_scope_log_ids.with(xs => xs.len()), {
     id := g_scope_log_ids.with(xs => xs.get(i)).unwrap();
-    info := g_scope_log_infos.with(xs => xs.get(i)).unwrap();
+    info := g_scope_log_infos.with(xs => xs.get_cloned(i)).unwrap();
     // An env that shares no frame with the husk (a module-level binding
     // forced inside the body, a nested evaluation's own env) has nothing the
     // husk can stand in for: kept. A partial share records its length.
     // The shared prefix is matched by `Frame.index_key`, the frame object
     // itself: a `clone_env` rebuild keeps `id` but its variables can differ.
-    k := env_common_prefix_len(&info.env, &husk);
+    k := env_common_prefix_len(&info.env(), &husk);
     // A call-time capture env (`capture_env_for`: the callee's def scope
     // flattened into frame 0, the call's frames after it) shares no frame
     // with the body's husk. Keeping its capture frame alive costs more than
     // its record: the record covers all its frames, capture frame included
     // (another module's scope when the callee is imported — a call passes
     // the CALLER's module path), and the husk answers the rest.
-    capture_shaped := ((k == usize(0)) && (info.env.frames.len() > usize(0)));
+    capture_shaped := ((k == usize(0)) && (info.env().frames_len() > usize(0)));
     info_husk := husk;
     inner_from := k;
     shares_husk := ((k > usize(0)) || capture_shaped);
     already := cond(
-      (g_scope_mode == usize(2)) => _is_scope_husk(&info.env),
-      true => match(g_scope_shadow_objs.with(m => m.get(&id)), .Some(o) => unsafe(__yo_ptr_eq(&o, &info)), .None => false)
+      (g_scope_mode == usize(2)) => _is_scope_husk(&info.env()),
+      true => match(g_scope_shadow_objs.with(m => m.get_cloned(&id)), .Some(o) => unsafe(__yo_ptr_eq(&o, &info)), .None => false)
     );
     if(already, {
       // This info object was released by an earlier body (logged again
       // there): its records stand.
       g_scope_rereleased = (g_scope_rereleased + usize(1));
-    }, if(!(info.env.module_path.* == entry.module_path.*) || _scope_keeps_env(id, &info) || !shares_husk, {
+    }, if(!(info.env().module_path().* == entry.module_path().*) || _scope_keeps_env(id, &info) || !shares_husk, {
       if(!shares_husk, {
         g_scope_prefix_bad = (g_scope_prefix_bad + usize(1));
       });
@@ -1297,24 +1297,24 @@ scope_release_body :: (fn(mark : usize, entry : &Environment) -> unit)({
         g_scope_shadow_objs.with_mut(m => m.insert(id, info));
       });
       _r_k := g_scope_klen.with_mut(m => m.remove(&id));
-      if(!capture_shaped && (k < husk.frames.len()), {
+      if(!capture_shaped && (k < husk.frames_len()), {
         g_scope_klen.with_mut(m => m.insert(id, k));
       });
       match(
-        info.source_variable,
+        info.source_variable(),
         .Some(sv) => {
-          av := get_variables_from_env(&info.env, sv.name.clone());
-          ok := ((av.len() == usize(1)) && (av.get(usize(0)).unwrap().id == sv.id));
+          av := get_variables_from_env(&info.env(), sv.name.clone());
+          ok := ((av.len() == usize(1)) && (av.get_cloned(usize(0)).unwrap().id == sv.id));
           if(!ok, {
-            g_scope_atom_exc.with_mut(m => m.insert(id, av.clone()));
+            g_scope_atom_exc.with_mut(m => m.insert_cloned(id, av.clone()));
           });
         },
         .None => ()
       );
       names := ArrayList(String).new();
-      sv_name := match(info.source_variable, .Some(sv) => sv.name.clone(), .None => String.new());
-      match(&info.variable_name, .Some(vn) => names.push(vn.clone()), .None => ());
-      _scope_target_names(&info.deferred_drop_expressions, &mut names);
+      sv_name := match(info.source_variable(), .Some(sv) => sv.name.clone(), .None => String.new());
+      match(&info.variable_name(), .Some(vn) => names.push(vn.clone()), .None => ());
+      _scope_target_names(&info.deferred_drop_expressions(), &mut names);
       _scope_target_names(expr_info_deferred_dup_expressions(&info), &mut names);
       _scope_target_names(expr_info_consumed_variable_drop_expressions(&info), &mut names);
       match(g_scope_queried.with_mut(m => m.remove(&id)), .Some(qn) => names.push(qn), .None => ());
@@ -1348,7 +1348,7 @@ scope_release_body :: (fn(mark : usize, entry : &Environment) -> unit)({
           bvars := get_variables_from_env(&br.env, &br.name);
           (bi : usize) = usize(0);
           while(bi < bvars.len(), {
-            bv := bvars.get(bi).unwrap();
+            bv := bvars.get_cloned(bi).unwrap();
             if(!_scope_has_id(&shared, bv.id) && !_scope_has_id(&inner, bv.id), {
               inner.push(bv);
             });
@@ -1363,21 +1363,21 @@ scope_release_body :: (fn(mark : usize, entry : &Environment) -> unit)({
         nm := names.get_cloned(ni).unwrap();
         if(!(nm == sv_name) && (!(nm == bound_name) && !seen.contains(nm.clone())), {
           seen.push(nm.clone());
-          _scope_push_new(&mut inner, get_variables_from_env_after(&info.env, inner_from, &nm));
+          _scope_push_new(&mut inner, get_variables_from_env_after(&info.env(), inner_from, &nm));
         });
         ni = (ni + usize(1));
       });
       cond(
         (inner.len() == usize(1)) => {
-          g_scope_one.with_mut(m => m.insert(id, inner.get(usize(0)).unwrap()));
+          g_scope_one.with_mut(m => m.insert(id, inner.get_cloned(usize(0)).unwrap()));
         },
         (inner.len() > usize(1)) => {
-          g_scope_inner.with_mut(m => m.insert(id, inner.clone()));
+          g_scope_inner.with_mut(m => m.insert_cloned(id, inner.clone()));
         },
         true => ()
       );
       if(g_scope_mode == usize(2), {
-        info.env = info_husk;
+        info.set_env(info_husk);
       }, {
         g_scope_husks.with_mut(m => m.insert(id, info_husk));
       });
@@ -1390,7 +1390,7 @@ scope_release_body :: (fn(mark : usize, entry : &Environment) -> unit)({
 });
 /// Remove and return `id`'s recorded inner variables.
 _scope_take_inner :: (fn(id : ExprId) -> ArrayList(Variable))({
-  out := match(g_scope_inner.with_mut(m => m.remove(&id)), .Some(vs) => vs, .None => ArrayList(Variable).new());
+  out := match(g_scope_inner.with_mut(m => m.remove_cloned(&id)), .Some(vs) => vs, .None => ArrayList(Variable).new());
   match(g_scope_one.with_mut(m => m.remove(&id)), .Some(v) => out.push(v), .None => ());
   out
 });
@@ -1398,7 +1398,7 @@ _scope_take_inner :: (fn(id : ExprId) -> ArrayList(Variable))({
 _scope_push_new :: (fn(into : &mut ArrayList(Variable), vs : &ArrayList(Variable)) -> unit)({
   (i : usize) = usize(0);
   while(i < vs.len(), {
-    v := vs.get(i).unwrap();
+    v := vs.get_cloned(i).unwrap();
     if(!_scope_has_id(into, v.id), {
       into.push(v);
     });
@@ -1408,7 +1408,7 @@ _scope_push_new :: (fn(into : &mut ArrayList(Variable), vs : &ArrayList(Variable
 _scope_has_id :: (fn(vs : &ArrayList(Variable), id : usize) -> bool)({
   (i : usize) = usize(0);
   while(i < vs.len(), {
-    if(vs.get(i).unwrap().id == id, {
+    if(vs.get_cloned(i).unwrap().id == id, {
       return(true);
     });
     i = (i + usize(1));
@@ -1417,11 +1417,11 @@ _scope_has_id :: (fn(vs : &ArrayList(Variable), id : usize) -> bool)({
 });
 /// What the records say for (`key`, `name`); `husk` is the body's entry env.
 _scope_record_answer :: (fn(key : ExprId, husk : &Environment, name : &String) -> ArrayList(Variable))({
-  info_opt := match(g_scope_table.with(st => st.clone()), .Some(t) => t.data.with(m => m.get(&key)), .None => Option(ExprInfo).None);
+  info_opt := match(g_scope_table.with(st => st.clone()), .Some(t) => t.data.with(m => m.get_cloned(&key)), .None => Option(ExprInfo).None);
   match(
     info_opt,
     .Some(info) => match(
-      info.source_variable,
+      info.source_variable(),
       .Some(sv) => if(sv.name == name, {
         return(
           match(
@@ -1469,7 +1469,7 @@ _scope_record_answer :: (fn(key : ExprId, husk : &Environment, name : &String) -
     .Some(vs) => {
       (vi : usize) = usize(0);
       while(vi < vs.len(), {
-        v := vs.get(vi).unwrap();
+        v := vs.get_cloned(vi).unwrap();
         if((v.name == name) && !_scope_has_id(&base, v.id), {
           g_scope_path = usize(3);
           base.push(v);
@@ -1482,7 +1482,7 @@ _scope_record_answer :: (fn(key : ExprId, husk : &Environment, name : &String) -
   base
 });
 type_to_string_short :: (fn(ki : &Option(ExprInfo)) -> String)(
-  match(ki, .Some(k) => match(k.value, .Some(_) => String.from("ct"), .None => String.from("rt")), .None => String.from("none"))
+  match(ki, .Some(k) => match(k.value(), .Some(_) => String.from("ct"), .None => String.from("rt")), .None => String.from("none"))
 );
 _scope_shadow_lookup :: (fn(key : ExprId, env : &Environment, name : &String) -> ArrayList(Variable))({
   truth := get_variables_from_env(env, name);
@@ -1490,9 +1490,9 @@ _scope_shadow_lookup :: (fn(key : ExprId, env : &Environment, name : &String) ->
   // Released only while the table still holds the object that was released:
   // a later unlogged write replaces it with an info that keeps its env (as
   // release mode would read it).
-  cur_info := match(g_scope_table.with(st => st.clone()), .Some(t) => t.data.with(m => m.get(&key)), .None => Option(ExprInfo).None);
+  cur_info := match(g_scope_table.with(st => st.clone()), .Some(t) => t.data.with(m => m.get_cloned(&key)), .None => Option(ExprInfo).None);
   still_released := match(
-    g_scope_shadow_objs.with(m => m.get(&key)),
+    g_scope_shadow_objs.with(m => m.get_cloned(&key)),
     .Some(o) => match(cur_info, .Some(ci) => unsafe(__yo_ptr_eq(&o, &ci)), .None => false),
     .None => false
   );
@@ -1508,7 +1508,7 @@ _scope_shadow_lookup :: (fn(key : ExprId, env : &Environment, name : &String) ->
     });
   });
   match(
-    g_scope_husks.with(m => m.get(&key)),
+    g_scope_husks.with(m => m.get_cloned(&key)),
     .Some(husk) => {
       g_scope_checked = (g_scope_checked + usize(1));
       rec := _scope_record_answer(key, &husk, name);
@@ -1516,11 +1516,11 @@ _scope_shadow_lookup :: (fn(key : ExprId, env : &Environment, name : &String) ->
         g_scope_mismatch = (g_scope_mismatch + usize(1));
         pk := match(g_scope_path, usize(1) => "sv", usize(2) => "exc", usize(3) => "rec", _ => "fallback");
         tk := if(name.starts_with(String.from("_file_")), "temp", "named");
-        kinfo := match(g_scope_table.with(st => st.clone()), .Some(t) => t.data.with(m => m.get(&key)), .None => Option(ExprInfo).None);
-        has_cf := match(kinfo, .Some(ki) => has_any_control_flow(ki.control_flow), .None => false);
-        has_vn := match(kinfo, .Some(ki) => ki.variable_name.is_some(), .None => false);
-        has_pc := match(kinfo, .Some(ki) => (ki.path_collection.len() > usize(0)), .None => false);
-        has_dd := match(kinfo, .Some(ki) => ki.deferred_drop_expressions.is_some(), .None => false);
+        kinfo := match(g_scope_table.with(st => st.clone()), .Some(t) => t.data.with(m => m.get_cloned(&key)), .None => Option(ExprInfo).None);
+        has_cf := match(kinfo, .Some(ki) => has_any_control_flow(ki.control_flow()), .None => false);
+        has_vn := match(kinfo, .Some(ki) => ki.variable_name().is_some(), .None => false);
+        has_pc := match(kinfo, .Some(ki) => (ki.path_collection().len() > usize(0)), .None => false);
+        has_dd := match(kinfo, .Some(ki) => ki.deferred_drop_expressions().is_some(), .None => false);
         tstr := type_to_string_short(&kinfo);
         mk := `${pk}/${tk}/cf=${has_cf.to_string()}/vn=${has_vn.to_string()}/pc=${has_pc.to_string()}/dd=${has_dd.to_string()}/ty=${tstr}`;
         mp := match(g_scope_mm_kinds.with(m => m.get(mk.clone())), .Some(c) => c, .None => usize(0));
@@ -1582,12 +1582,12 @@ expr_info_table_new :: (fn() -> ExprInfoTable)(
 /// a private list. Reads can use the field directly.
 expr_info_paths_for_write :: (fn(info : &ExprInfo) -> PathCollection)({
   cond(
-    unsafe(__yo_ptr_eq(&info.path_collection, &g_empty_path_collection)) => {
-      info.path_collection = path_collection_new();
+    unsafe(__yo_ptr_eq(&info.path_collection(), &g_empty_path_collection)) => {
+      info.set_path_collection(path_collection_new());
     },
     // Shared (`path_collection_of_name`, or aliased by another ExprInfo):
     // write into a private deep copy.
-    (ref_count(info.path_collection) > usize(1)) => {
+    (ref_count(info.path_collection()) > usize(1)) => {
       fresh := path_collection_new();
       (i : usize) = usize(0);
       while(i < info.path_collection.len(), {
@@ -1598,7 +1598,7 @@ expr_info_paths_for_write :: (fn(info : &ExprInfo) -> PathCollection)({
     },
     true => ()
   );
-  info.path_collection.clone()
+  info.path_collection()
 });
 /// The one-path collection `[[name]]`, shared by every ExprInfo that names
 /// `name` (plans/CODEGEN_MEMORY_REDUCTION.md §3 lever 6): identifiers and the
@@ -1647,7 +1647,7 @@ expr_info_table_set :: (fn(table : &ExprInfoTable, id : ExprId, info : &ExprInfo
   // — that one is expression-bodied and wrapping it in a block to make room
   // for a statement costs >=8x on `check`
   // (issues/retired/block-body-on-a-hot-constructor-makes-check-8x-slower.md).
-  type_intern_probe_record(&info.ty);
+  type_intern_probe_record(&info.ty());
   // Id 0 is `make_err_expr`'s: it names no node, and "the evaluation failed" is
   // tested by it having no ExprInfo. A write through a fallback node (a
   // `.Atom => make_err_expr()` arm) must not make that test pass for the next
@@ -1673,7 +1673,7 @@ codegen_read_log_set :: (fn(on : bool) -> unit)({
 codegen_read_keys :: (fn() -> HashSet(usize))(g_codegen_read_keys.take());
 _logged_table_get :: (fn(table : &ExprInfoTable, id : ExprId) -> Option(ExprInfo))({
   _i := g_codegen_read_keys.with_mut(s => s.insert(id));
-  table.data.with(m => m.get(&id))
+  table.data.with(m => m.get_cloned(&id))
 });
 /// Retrieve the ExprInfo for the given expression id, or None. Stays
 /// expression-bodied: a block body on this hot accessor's shape is what
@@ -1681,7 +1681,7 @@ _logged_table_get :: (fn(table : &ExprInfoTable, id : ExprId) -> Option(ExprInfo
 expr_info_table_get :: (fn(table : &ExprInfoTable, id : ExprId) -> Option(ExprInfo))(
   cond(
     g_codegen_read_log_on => _logged_table_get(table, id),
-    true => table.data.with(m => m.get(&id))
+    true => table.data.with(m => m.get_cloned(&id))
   )
 );
 /// Drop every entry whose key `keep` does not hold; returns how many went.
@@ -1815,7 +1815,7 @@ record_local_borrow_step_pin :: (fn(lhs_id : ExprId, pin : &Variable) -> unit)({
   ()
 });
 lookup_local_borrow_step_pin :: (fn(lhs_id : ExprId) -> Option(Variable))(
-  g_local_borrow_step_pins.with(m => m.get(&lhs_id))
+  g_local_borrow_step_pins.with(m => m.get_cloned(&lhs_id))
 );
 // Names of extern-C GLOBAL symbols declared via `c_include` (e.g. `stdout`,
 // `stderr`, `stdin`). `is_extern` is modelled only on the `Func` TypeValue
@@ -3127,8 +3127,8 @@ purge_executed_clone_metadata :: (fn(table : &ExprInfoTable, root : &AstExpr, lo
     return(());
   });
   defines_fn := match(
-    table.data.with(m => m.get(&id)),
-    .Some(info) => match(info.value, .Some(v) => match(v, .FuncVal(_, _) => true, _ => false), .None => false),
+    table.data.with(m => m.get_cloned(&id)),
+    .Some(info) => match(info.value(), .Some(v) => match(v, .FuncVal(_, _) => true, _ => false), .None => false),
     .None => false
   );
   if(defines_fn, {

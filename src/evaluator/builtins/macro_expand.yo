@@ -90,12 +90,12 @@ evaluate_macro_expand :: (
     }
   );
   cur_env := expr_info_adopt_env(&arg_info);
-  if(!is_expr_type(&arg_info.ty), {
+  if(!is_expr_type(&arg_info.ty()), {
     exn.throw(
       dyn(
         format_error_message(
           ast_expr_token(&arg_expr),
-          `The argument expression for "macro_expand" must be an Expr value, but got: ${type_to_string(&arg_info.ty)}`
+          `The argument expression for "macro_expand" must be an Expr value, but got: ${type_to_string(&arg_info.ty())}`
         )
       )
     );
@@ -126,18 +126,18 @@ evaluate_macro_expand :: (
         return(expr);
       }
     );
-    if(!is_comptime_int_type(&level_info.ty), {
+    if(!is_comptime_int_type(&level_info.ty()), {
       exn.throw(
         dyn(
           format_error_message(
             ast_expr_token(&level_arg),
-            `The level argument for "macro_expand" must be a comptime_int value, but got: ${type_to_string(&level_info.ty)}`
+            `The level argument for "macro_expand" must be a comptime_int value, but got: ${type_to_string(&level_info.ty())}`
           )
         )
       );
     });
     // Extract the integer value from IntLit.
-    lv_opt := level_info.value;
+    lv_opt := level_info.value();
     if(!is_int_lit(match(lv_opt, .Some(v) => v, .None => EvalValue.UnitVal)), {
       exn.throw(
         dyn(
@@ -173,7 +173,7 @@ evaluate_macro_expand :: (
   });
   // If the argument has an ExprVal, expand it.
   match(
-    arg_info.value,
+    arg_info.value(),
     .Some(v) => match(
       v,
       .ExprVal(expr_box) => {
@@ -221,7 +221,7 @@ evaluate_macro_expand :: (
               .Some(ei) => {
                 current_env = expr_info_adopt_env(&ei);
                 match(
-                  ei.value,
+                  ei.value(),
                   .Some(ev) => match(
                     ev,
                     .ExprVal(new_expr_box) => {
@@ -253,23 +253,23 @@ evaluate_macro_expand :: (
         // Process unquotes in the final expression.
         final_expr := process_unquotes_in_expr(&current_expr, &current_env, ctx, exn);
         out := new_expr_info(&current_env, t_expr_t());
-        out.value = Option(EvalValue).Some(EvalValue.ExprVal(final_expr));
-        out.path_collection = arg_info.path_collection.clone();
+        out.set_value(Option(EvalValue).Some(EvalValue.ExprVal(final_expr)));
+        out.set_path_collection(arg_info.path_collection());
         expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
       },
       _ => {
         // Unknown value: pass through with original type/value.
-        out := new_expr_info(&cur_env, &arg_info.ty);
-        out.value = arg_info.value;
-        out.path_collection = arg_info.path_collection.clone();
+        out := new_expr_info(&cur_env, &arg_info.ty());
+        out.set_value(arg_info.value());
+        out.set_path_collection(arg_info.path_collection());
         expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
       }
     ),
     .None => {
       // No compile-time value: pass through.
-      out := new_expr_info(&cur_env, &arg_info.ty);
-      out.value = arg_info.value;
-      out.path_collection = arg_info.path_collection.clone();
+      out := new_expr_info(&cur_env, &arg_info.ty());
+      out.set_value(arg_info.value());
+      out.set_path_collection(arg_info.path_collection());
       expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
     }
   );

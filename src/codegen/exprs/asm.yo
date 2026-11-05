@@ -215,7 +215,7 @@ _cg_comptime_str :: (fn(e : &AstExpr, context : &FunctionGenerationContext) -> O
   match(
     context.base.get_expr_info(e),
     .Some(info) => match(
-      info.value,
+      info.value(),
       .Some(.StrLit(s)) => Option(String).Some(_strip_str_delims(decode_str_lit_escapes(s.clone()))),
       .Some(_) => Option(String).None,
       .None => Option(String).None
@@ -227,7 +227,7 @@ _cg_is_type_value :: (fn(e : &AstExpr, context : &FunctionGenerationContext) -> 
   match(
     context.base.get_expr_info(e),
     .Some(info) => match(
-      info.value,
+      info.value(),
       .Some(.TypeVal(t)) => Option(TypeValue).Some(Rc.clone(t)),
       .Some(_) => Option(TypeValue).None,
       .None => Option(TypeValue).None
@@ -368,7 +368,7 @@ _parse_operand_for_codegen :: (
   c_expr := _call_generate_expr(&value_or_type, indent.clone(), context);
   c_type := match(
     context.base.get_expr_info(&value_or_type),
-    .Some(info) => get_type_string(&info.ty, &mut context.base),
+    .Some(info) => get_type_string(&info.ty(), &mut context.base),
     .None => String.from("int32_t")
   );
   is_output_kind := ((kind == String.from("out")) || (kind == String.from("lateout")));
@@ -508,7 +508,7 @@ _next_asm_temp :: (fn() -> usize)({
 generate_asm :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
   return_type := match(
     context.base.get_expr_info(expr),
-    .Some(ei) => Rc.clone(ei.ty),
+    .Some(ei) => Rc.clone(ei.ty()),
     .None => {
       return(String.from("/* Error: asm() missing type information */"));
     }

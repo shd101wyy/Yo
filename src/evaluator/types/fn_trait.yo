@@ -138,7 +138,7 @@ evaluate_fn_trait_type :: (
   return_type := match(
     ret_info_opt,
     .Some(info) => {
-      if(!is_type_value(&info.value), {
+      if(!is_type_value(&info.value()), {
         exn.throw(
           dyn(
             format_error_message(
@@ -149,7 +149,7 @@ evaluate_fn_trait_type :: (
         );
       });
       match(
-        info.value,
+        info.value(),
         .Some(v) => match(v, .TypeVal(b) => Rc.clone(b), _ => Rc.new(TypeValueNode.Unit)),
         .None => Rc.new(TypeValueNode.Unit)
       )
@@ -167,7 +167,7 @@ evaluate_fn_trait_type :: (
     }
   );
   // Pop the parameters frame
-  env_mut.pop_frame();
+  env_mut.pop_frame()();
   // Build the FnTraitT from the params_result
   call_param_labels := ArrayList(String).new();
   // Each parameter's slot: its mode is its type.
@@ -206,7 +206,7 @@ evaluate_fn_trait_type :: (
   fn_trait_type := t_fn_trait(String.from(cond(is_once => BK_FN_ONCE_TRAIT, is_mut => BK_FN_MUT_TRAIT, true => BK_FN_TRAIT)), call_param_labels, call_param_types, &result_slot, implicit_labels, implicit_types);
   // Set expr info
   out_info := new_expr_info(&env_mut, type_of_type(&fn_trait_type));
-  out_info.value = .Some(create_type_value(&fn_trait_type));
+  out_info.set_value(.Some(create_type_value(&fn_trait_type)));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   expr
 });

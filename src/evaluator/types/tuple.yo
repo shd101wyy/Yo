@@ -113,7 +113,7 @@ evaluate_tuple_type :: (
     unit_val := create_type_value(Rc.new(TypeValueNode.Unit));
     meta_ty := type_of_type(Rc.new(TypeValueNode.Unit));
     out_info := new_expr_info(&env, &meta_ty);
-    out_info.value = Option(EvalValue).Some(unit_val);
+    out_info.set_value(Option(EvalValue).Some(unit_val));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
     callee_expr := match(expr, .FnCall(_, f_box, _, _, _) => f_box, .Atom(_, _) => expr);
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&callee_expr), &out_info);
@@ -156,7 +156,7 @@ evaluate_tuple_type :: (
   tuple_val := create_type_value(&tuple_ty);
   meta_ty := type_of_type(&tuple_ty);
   out_info := new_expr_info(&env, &meta_ty);
-  out_info.value = Option(EvalValue).Some(tuple_val);
+  out_info.set_value(Option(EvalValue).Some(tuple_val));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   callee_expr := match(expr, .FnCall(_, f_box, _, _, _) => f_box, .Atom(_, _) => expr);
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&callee_expr), &out_info);

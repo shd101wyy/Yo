@@ -410,15 +410,15 @@ _try_resolve_associated_type :: (
     n_spec := spec_vars.len();
     if(n_spec > usize(0), {
       match(
-        spec_vars.get(n_spec - usize(1)),
+        spec_vars.get_cloned(n_spec - usize(1)),
         .Some(last_spec) => {
-          if(is_type_value(last_spec.value.get(usize(0))), {
+          if(is_type_value(last_spec.value().get(usize(0))), {
             match(
-              last_spec.value.get(usize(0)),
+              last_spec.value().get(usize(0)),
               .Some(spec_tv) => {
                 out_spec := new_expr_info(env, type_of_eval_value(&spec_tv));
-                out_spec.value = Option(EvalValue).Some(spec_tv);
-                out_spec.is_accessing_property = Option(bool).Some(true);
+                out_spec.set_value(Option(EvalValue).Some(spec_tv));
+                out_spec.set_is_accessing_property(Option(bool).Some(true));
                 expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_spec);
                 expr_info_table_set(&ctx.expr_info_table, ast_expr_id(property_expr), &out_spec);
                 return(true);
@@ -463,8 +463,8 @@ _try_resolve_associated_type :: (
           rm.value,
           .Some(rmv) => {
             out_rm := new_expr_info(env, &rm.ty);
-            out_rm.value = Option(EvalValue).Some(rmv);
-            out_rm.is_accessing_property = Option(bool).Some(true);
+            out_rm.set_value(Option(EvalValue).Some(rmv));
+            out_rm.set_is_accessing_property(Option(bool).Some(true));
             expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_rm);
             expr_info_table_set(&ctx.expr_info_table, ast_expr_id(property_expr), &out_rm);
             return(true);
@@ -669,7 +669,7 @@ _evaluate_property_access_node :: (
                   dot_vname_1 := `.${ variant_name_1 }`;
                   ev_1 := EvalValue.EnumVal(dot_vname_1, no_values());
                   out_1 := new_expr_info(&env, &new_en_ty_1);
-                  out_1.value = Option(EvalValue).Some(ev_1);
+                  out_1.set_value(Option(EvalValue).Some(ev_1));
                   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_1);
                   _attach_owned_temp_for_rc_unit_variant(expr, &new_en_ty_1, ctx);
                   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&prop_expr_1), &out_1);
@@ -677,7 +677,7 @@ _evaluate_property_access_node :: (
                   // Variant with fields: Shape.Circle(3)
                   ev_tv_1 := create_type_value(&new_en_ty_1);
                   out_tv_1 := new_expr_info(&env, t_type());
-                  out_tv_1.value = Option(EvalValue).Some(ev_tv_1);
+                  out_tv_1.set_value(Option(EvalValue).Some(ev_tv_1));
                   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_tv_1);
                   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&prop_expr_1), &out_tv_1);
                 });
@@ -760,7 +760,7 @@ _evaluate_property_access_node :: (
   match(
     obj_info_opt,
     .Some(oi) => {
-      env_adopt(&env, &oi.env);
+      env_adopt(&env, &oi.env());
     },
     .None => ()
   );
@@ -772,7 +772,7 @@ _evaluate_property_access_node :: (
   // through to the dispatch-time gate in calls/function.yo; type-value
   // receivers (`Option(i32).unwrap`) are gated in the TypeVal arm below.
   if(ast_expr_is_atom(&property_expr) && is_class1_panic_method_name(ast_expr_token(&property_expr).value.*), {
-    pa_c1_banned := match(obj_info_opt, .Some(oi_c1) => is_class1_panic_receiver_type(&oi_c1.ty), .None => false);
+    pa_c1_banned := match(obj_info_opt, .Some(oi_c1) => is_class1_panic_receiver_type(&oi_c1.ty()), .None => false);
     if(pa_c1_banned && !is_class1_panic_exempt_file(Option(String).Some(ast_expr_token(&property_expr).module_path.*.clone())), {
       raise_flow_violation(
         format_error_message_with_help(
@@ -788,7 +788,7 @@ _evaluate_property_access_node :: (
   if(ast_expr_is_atom(&property_expr) && ast_expr_is_atom_of(&property_expr, "*") && debug_knob(`YO_DEBUG_CTFE`).is_some(), {
     pa_deref_obj_ty := match(
       obj_info_opt,
-      .Some(pd_oi) => type_to_string(&pd_oi.ty),
+      .Some(pd_oi) => type_to_string(&pd_oi.ty()),
       .None => String.from("<no-info>")
     );
     eprintln(`[pa-deref-in] obj=${ast_expr_to_string(&object_expr)} obj_ty=${pa_deref_obj_ty}`);
@@ -797,7 +797,7 @@ _evaluate_property_access_node :: (
   // `.*` dereference
   // -------------------------------------------------------------------------
   if(ast_expr_is_atom(&property_expr) && ast_expr_is_atom_of(&property_expr, "*"), {
-    obj_ty_deref := match(obj_info_opt, .Some(oi) => Option(TypeValue).Some(Rc.clone(oi.ty)), .None => Option(TypeValue).None);
+    obj_ty_deref := match(obj_info_opt, .Some(oi) => Option(TypeValue).Some(Rc.clone(oi.ty())), .None => Option(TypeValue).None);
     // `r.*` on a reference binding `r` (decision 43 step 2 N1e-1,
     // VERDICTS-13 §11): outside std and the compiler tree it is the
     // reference's deref, the value a bare `r` read before, lowered to the
@@ -809,7 +809,7 @@ _evaluate_property_access_node :: (
     match(
       obj_info_opt,
       .Some(rd_oi) => match(
-        rd_oi.source_variable,
+        rd_oi.source_variable(),
         .Some(rd_v) => if(ast_expr_is_atom(&object_expr) && variable_is_reference_binding(&rd_v) && deref_rule_applies(ast_expr_token(&object_expr), ctx) && !is_reference_deref_site(ast_expr_token(&object_expr)) && _is_written_star(&property_expr), {
           // The recorder reads a `.*` through a `Box`, a handle or a pointer
           // the old way (the payload, recorded as `r.*.*`); any other `.*`
@@ -819,11 +819,11 @@ _evaluate_property_access_node :: (
           // reading would read a payload's payload; when the payload is not
           // itself read through by `.*`, that is no old source, and the inner
           // `.*` is the reference's deref an earlier run wrote.
-          rd_chain_new := (deref_rule_recording() && (ast_expr_id(expr) == g_deref_chain_object_id) && match(deref_payload_type(&rd_oi.ty), .Some(rd_pt) => !deref_reads_through_pointee(&rd_pt), .None => false));
+          rd_chain_new := (deref_rule_recording() && (ast_expr_id(expr) == g_deref_chain_object_id) && match(deref_payload_type(&rd_oi.ty()), .Some(rd_pt) => !deref_reads_through_pointee(&rd_pt), .None => false));
           if(ast_expr_id(expr) == g_deref_chain_object_id, {
             g_deref_chain_object_id = usize(0);
           });
-          if(deref_rule_recording() && !rd_chain_new && deref_reads_through_pointee(&rd_oi.ty), {
+          if(deref_rule_recording() && !rd_chain_new && deref_reads_through_pointee(&rd_oi.ty()), {
             record_deref_edit_site(ast_expr_token(&object_expr), &rd_v.name, u8(3));
           }, {
             // A `.*` no old source could write: the file is migrated already.
@@ -853,12 +853,12 @@ _evaluate_property_access_node :: (
               input : Rc.clone(rd_name_tok.input)
             );
             note_reference_deref_site(&rd_tok);
-            out_rd := new_expr_info(&env, &rd_oi.ty);
-            out_rd.value = rd_oi.value;
+            out_rd := new_expr_info(&env, &rd_oi.ty());
+            out_rd.set_value(rd_oi.value());
             expr_info_set_origin_type(&out_rd, expr_info_origin_type(&rd_oi));
-            out_rd.variable_name = rd_oi.variable_name.clone();
-            out_rd.source_variable = rd_oi.source_variable;
-            out_rd.path_collection = rd_oi.path_collection.clone();
+            out_rd.set_variable_name(rd_oi.variable_name());
+            out_rd.set_source_variable(rd_oi.source_variable());
+            out_rd.set_path_collection(rd_oi.path_collection());
             rd_atom := AstExpr.Atom(ast_expr_id(expr), rd_tok);
             note_rewritten_node(&rd_atom);
             expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_rd);
@@ -911,13 +911,13 @@ _evaluate_property_access_node :: (
           match(
             obj_info_opt,
             .Some(rf_oi) => {
-              rf_out := new_expr_info(&env, &rf_oi.ty);
-              rf_out.value = rf_oi.value;
+              rf_out := new_expr_info(&env, &rf_oi.ty());
+              rf_out.set_value(rf_oi.value());
               expr_info_set_origin_type(&rf_out, expr_info_origin_type(&rf_oi));
-              rf_out.is_accessing_property = rf_oi.is_accessing_property;
-              rf_out.path_collection = rf_oi.path_collection.clone();
-              rf_out.variable_name = rf_oi.variable_name.clone();
-              rf_out.source_variable = rf_oi.source_variable;
+              rf_out.set_is_accessing_property(rf_oi.is_accessing_property());
+              rf_out.set_path_collection(rf_oi.path_collection());
+              rf_out.set_variable_name(rf_oi.variable_name());
+              rf_out.set_source_variable(rf_oi.source_variable());
               expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &rf_out);
             },
             .None => ()
@@ -949,17 +949,17 @@ _evaluate_property_access_node :: (
             );
             hv_pc := match(
               obj_info_opt,
-              .Some(oi) => build_field_path_collection(&oi.path_collection, &oi.variable_name, &String.from("*")),
+              .Some(oi) => build_field_path_collection(&oi.path_collection(), &oi.variable_name(), &String.from("*")),
               .None => build_field_path_collection(&ArrayList(ArrayList(String)).new(), &Option(String).None, &String.from("*"))
             );
             out_hv := new_expr_info(&env, &hv_payload);
             expr_info_set_origin_type(&out_hv, Option(TypeValue).Some(hv_origin));
-            out_hv.is_accessing_property = Option(bool).Some(true);
-            out_hv.path_collection = hv_pc;
+            out_hv.set_is_accessing_property(Option(bool).Some(true));
+            out_hv.set_path_collection(hv_pc);
             // A compile-time handle is the handle's struct value over the
             // cell's: the payload is the cell's field.
-            out_hv.value = match(
-              match(obj_info_opt, .Some(oi) => oi.value, .None => Option(EvalValue).None),
+            out_hv.set_value(match(
+              match(obj_info_opt, .Some(oi) => oi.value(), .None => Option(EvalValue).None),
               .Some(.UnknownVal(_, hv_ro)) => Option(EvalValue).Some(if(hv_ro, create_runtime_unknown_val(&hv_payload), create_unknown_val(&hv_payload))),
               .Some(.StructVal(_, _, hv_wf)) => match(
                 hv_wf.get(usize(0)),
@@ -968,7 +968,7 @@ _evaluate_property_access_node :: (
               ),
               .Some(_) => Option(EvalValue).Some(create_unknown_val(&hv_payload)),
               .None => Option(EvalValue).None
-            );
+            ));
             expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_hv);
             expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_hv);
             attach_temp_variable_to_expr(expr, false, ctx);
@@ -1003,7 +1003,7 @@ Raw pointer operations may dereference invalid memory.`
             is_some_type(&base_ty_deref) => get_value_of_some_type_from_env(&env, &base_ty_deref),
             true => base_ty_deref
           );
-          obj_val_deref := match(obj_info_opt, .Some(oi) => oi.value, .None => Option(EvalValue).None);
+          obj_val_deref := match(obj_info_opt, .Some(oi) => oi.value(), .None => Option(EvalValue).None);
           match(
             obj_val_deref,
             .Some(ov_deref) => {
@@ -1042,15 +1042,15 @@ Raw pointer operations may dereference invalid memory.`
                     }
                   );
                   out_ptr := new_expr_info(&env, &resolved_base);
-                  out_ptr.value = Option(EvalValue).Some(deref_val);
+                  out_ptr.set_value(Option(EvalValue).Some(deref_val));
                   expr_info_set_comptime_ref(&out_ptr, &deref_place);
                   expr_info_set_origin_type(&out_ptr, Option(TypeValue).Some(Rc.clone(ot)));
-                  out_ptr.is_accessing_property = Option(bool).Some(true);
-                  out_ptr.source_variable = match(
+                  out_ptr.set_is_accessing_property(Option(bool).Some(true));
+                  out_ptr.set_source_variable(match(
                     obj_info_opt,
-                    .Some(oi) => oi.source_variable,
+                    .Some(oi) => oi.source_variable(),
                     .None => Option(Variable).None
-                  );
+                  ));
                   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_ptr);
                   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_ptr);
                   return(expr);
@@ -1071,9 +1071,9 @@ Raw pointer operations may dereference invalid memory.`
                     // (issues/fixed/2026-10-16-not-on-a-runtime-bool-in-a-comptime-type-parameterized-fn-is-e1101.md).
                     deref_unk := if(ptr_ro, create_runtime_unknown_val(&resolved_base), create_unknown_val(&resolved_base));
                     out_unk := new_expr_info(&env, &resolved_base);
-                    out_unk.value = Option(EvalValue).Some(deref_unk);
+                    out_unk.set_value(Option(EvalValue).Some(deref_unk));
                     expr_info_set_origin_type(&out_unk, Option(TypeValue).Some(Rc.clone(ot)));
-                    out_unk.is_accessing_property = Option(bool).Some(true);
+                    out_unk.set_is_accessing_property(Option(bool).Some(true));
                     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_unk);
                     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_unk);
                     return(expr);
@@ -1087,7 +1087,7 @@ Raw pointer operations may dereference invalid memory.`
           // No compile-time pointer value — runtime dereference.
           out_rt := new_expr_info(&env, &resolved_base);
           expr_info_set_origin_type(&out_rt, Option(TypeValue).Some(Rc.clone(ot)));
-          out_rt.is_accessing_property = Option(bool).Some(true);
+          out_rt.set_is_accessing_property(Option(bool).Some(true));
           expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_rt);
           expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_rt);
           attach_temp_variable_to_expr(expr, false, ctx);
@@ -1110,15 +1110,15 @@ Raw pointer operations may dereference invalid memory.`
     // read as `self.*` on `self : &Self` in std/sync/atomic.yo).
     if(ast_expr_is_atom(&object_expr), {
       match(
-        get_variables_from_env(&env, ast_expr_token(&object_expr).value.*.clone()).last(),
-        .Some(deref_b_v) => if((deref_b_v.is_ref || deref_b_v.is_imm_borrow) &&
+        get_variables_from_env(&env, ast_expr_token(&object_expr).value.*.clone()).last_cloned(),
+        .Some(deref_b_v) => if((deref_b_v.is_ref() || deref_b_v.is_imm_borrow()) &&
           !match(
             obj_ty_deref,
             .Some(deref_b_ot) => find_first_field_index(&_field_labels_of(&deref_b_ot).items, String.from("*")).is_some(),
             .None => false
           ), {
           deref_b_name := ast_expr_token(&object_expr).value.*.clone();
-          deref_b_mode := cond(deref_b_v.is_ref => "&mut", true => "&");
+          deref_b_mode := cond(deref_b_v.is_ref() => "&mut", true => "&");
           exn.throw(
             dyn(
               with_code(
@@ -1140,7 +1140,7 @@ Raw pointer operations may dereference invalid memory.`
   // -------------------------------------------------------------------------
   // TypeVal cases: `EnumType.Variant`, `StructType.field`, etc.
   // -------------------------------------------------------------------------
-  obj_val_opt := match(obj_info_opt, .Some(oi) => oi.value, .None => Option(EvalValue).None);
+  obj_val_opt := match(obj_info_opt, .Some(oi) => oi.value(), .None => Option(EvalValue).None);
   if(is_type_value(&obj_val_opt), {
     type_val_inner := match(
       obj_val_opt,
@@ -1177,8 +1177,8 @@ Raw pointer operations may dereference invalid memory.`
                 pm.value,
                 .Some(pmv) => {
                   out_prim := new_expr_info(&env, &pm.ty);
-                  out_prim.value = Option(EvalValue).Some(pmv);
-                  out_prim.is_accessing_property = Option(bool).Some(true);
+                  out_prim.set_value(Option(EvalValue).Some(pmv));
+                  out_prim.set_is_accessing_property(Option(bool).Some(true));
                   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_prim);
                   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_prim);
                   pm_done = true;
@@ -1231,8 +1231,8 @@ Raw pointer operations may dereference invalid memory.`
           }
         );
         out_gm_pr := new_expr_info(&env, &method_pr.method_type);
-        out_gm_pr.value = method_pr.method_value;
-        out_gm_pr.is_accessing_property = Option(bool).Some(true);
+        out_gm_pr.set_value(method_pr.method_value);
+        out_gm_pr.set_is_accessing_property(Option(bool).Some(true));
         expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_gm_pr);
         expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_gm_pr);
         return(expr);
@@ -1264,8 +1264,8 @@ Raw pointer operations may dereference invalid memory.`
               // (type_of_eval_value) crashes on CYCLIC recursive types
               // like JsonValue.
               out_wt := new_expr_info(&env, t_type());
-              out_wt.value = Option(EvalValue).Some(create_type_value(&wt_ty));
-              out_wt.is_accessing_property = Option(bool).Some(true);
+              out_wt.set_value(Option(EvalValue).Some(create_type_value(&wt_ty)));
+              out_wt.set_is_accessing_property(Option(bool).Some(true));
               expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_wt);
               expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_wt);
               return(expr);
@@ -1343,8 +1343,8 @@ Raw pointer operations may dereference invalid memory.`
                   }
                 );
                 out_gm_en := new_expr_info(&env, &method_en.method_type);
-                out_gm_en.value = method_en.method_value;
-                out_gm_en.is_accessing_property = Option(bool).Some(true);
+                out_gm_en.set_value(method_en.method_value);
+                out_gm_en.set_is_accessing_property(Option(bool).Some(true));
                 expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_gm_en);
                 expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_gm_en);
                 return(expr);
@@ -1393,16 +1393,16 @@ Raw pointer operations may dereference invalid memory.`
                 dot_tv_vname := `.${ variant_name_tv }`;
                 ev_tv_en := EvalValue.EnumVal(dot_tv_vname, no_values());
                 out_tv_en := new_expr_info(&env, &new_en_tv);
-                out_tv_en.value = Option(EvalValue).Some(ev_tv_en);
-                out_tv_en.is_accessing_property = Option(bool).Some(true);
+                out_tv_en.set_value(Option(EvalValue).Some(ev_tv_en));
+                out_tv_en.set_is_accessing_property(Option(bool).Some(true));
                 expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_tv_en);
                 _attach_owned_temp_for_rc_unit_variant(expr, &new_en_tv, ctx);
                 expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_tv_en);
               }, {
                 tv_en_type_val := create_type_value(&new_en_tv);
                 out_tv_en2 := new_expr_info(&env, t_type());
-                out_tv_en2.value = Option(EvalValue).Some(tv_en_type_val);
-                out_tv_en2.is_accessing_property = Option(bool).Some(true);
+                out_tv_en2.set_value(Option(EvalValue).Some(tv_en_type_val));
+                out_tv_en2.set_is_accessing_property(Option(bool).Some(true));
                 expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_tv_en2);
                 expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_tv_en2);
               });
@@ -1457,8 +1457,8 @@ Raw pointer operations may dereference invalid memory.`
         .Some(fi_su) => {
           ft_su := match(su_types.get(fi_su), .Some(t) => t, .None => t_unit());
           out_su := new_expr_info(&env, &ft_su);
-          out_su.value = Option(EvalValue).Some(create_unknown_val(&ft_su));
-          out_su.is_accessing_property = Option(bool).Some(true);
+          out_su.set_value(Option(EvalValue).Some(create_unknown_val(&ft_su)));
+          out_su.set_is_accessing_property(Option(bool).Some(true));
           expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_su);
           expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_su);
           return(expr);
@@ -1479,8 +1479,8 @@ Raw pointer operations may dereference invalid memory.`
           }
         );
         out_gm_su := new_expr_info(&env, &method_su.method_type);
-        out_gm_su.value = method_su.method_value;
-        out_gm_su.is_accessing_property = Option(bool).Some(true);
+        out_gm_su.set_value(method_su.method_value);
+        out_gm_su.set_is_accessing_property(Option(bool).Some(true));
         expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_gm_su);
         expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_gm_su);
         return(expr);
@@ -1491,16 +1491,16 @@ Raw pointer operations may dereference invalid memory.`
         n_spec := spec_vars.len();
         if(n_spec > usize(0), {
           match(
-            spec_vars.get(n_spec - usize(1)),
+            spec_vars.get_cloned(n_spec - usize(1)),
             .Some(last_spec) => {
-              if(is_type_value(last_spec.value.get(usize(0))), {
+              if(is_type_value(last_spec.value().get(usize(0))), {
                 match(
-                  last_spec.value.get(usize(0)),
+                  last_spec.value().get(usize(0)),
                   .Some(spec_tv) => {
                     spec_tv_ty := type_of_eval_value(&spec_tv);
                     out_spec_su := new_expr_info(&env, &spec_tv_ty);
-                    out_spec_su.value = Option(EvalValue).Some(spec_tv);
-                    out_spec_su.is_accessing_property = Option(bool).Some(true);
+                    out_spec_su.set_value(Option(EvalValue).Some(spec_tv));
+                    out_spec_su.set_is_accessing_property(Option(bool).Some(true));
                     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_spec_su);
                     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_spec_su);
                     return(expr);
@@ -1562,8 +1562,8 @@ Raw pointer operations may dereference invalid memory.`
                   .Some(rmv) => {
                     rm_v_ty := type_of_eval_value(&rmv);
                     out_rm := new_expr_info(&env, &rm.ty);
-                    out_rm.value = Option(EvalValue).Some(rmv);
-                    out_rm.is_accessing_property = Option(bool).Some(true);
+                    out_rm.set_value(Option(EvalValue).Some(rmv));
+                    out_rm.set_is_accessing_property(Option(bool).Some(true));
                     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_rm);
                     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_rm);
                     rm_done = true;
@@ -1618,8 +1618,8 @@ Raw pointer operations may dereference invalid memory.`
         .Some(fi_mt) => {
           ft_mt := match(mt_types.get(fi_mt), .Some(t) => t, .None => t_unit());
           out_mt := new_expr_info(&env, &ft_mt);
-          out_mt.value = Option(EvalValue).Some(create_unknown_val(&ft_mt));
-          out_mt.is_accessing_property = Option(bool).Some(true);
+          out_mt.set_value(Option(EvalValue).Some(create_unknown_val(&ft_mt)));
+          out_mt.set_is_accessing_property(Option(bool).Some(true));
           expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_mt);
           expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_mt);
           return(expr);
@@ -1688,8 +1688,8 @@ Raw pointer operations may dereference invalid memory.`
                 tt_conc.get(tt_ki),
                 .Some(tt_km) => if((tt_km.source_trait_id == tt_trait_id) || (tt_km.source_trait_id == tt_trait_key), {
                   out_wc := new_expr_info(&env, &tt_km.ty);
-                  out_wc.value = tt_km.value;
-                  out_wc.is_accessing_property = Option(bool).Some(true);
+                  out_wc.set_value(tt_km.value);
+                  out_wc.set_is_accessing_property(Option(bool).Some(true));
                   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_wc);
                   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_wc);
                   return(expr);
@@ -1715,8 +1715,8 @@ Raw pointer operations may dereference invalid memory.`
             // unrelated trait must not match this witness.
             if(tt_cand.source_trait_id == tt_trait_key, {
               out_w := new_expr_info(&env, &tt_cand.method_type);
-              out_w.value = tt_cand.method_value;
-              out_w.is_accessing_property = Option(bool).Some(true);
+              out_w.set_value(tt_cand.method_value);
+              out_w.set_is_accessing_property(Option(bool).Some(true));
               expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_w);
               expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_w);
               return(expr);
@@ -1742,8 +1742,8 @@ Raw pointer operations may dereference invalid memory.`
         .Some(fi_tt) => {
           ft_tt := match(tt_types.get_cloned(fi_tt), .Some(t) => t, .None => t_unit());
           out_tt := new_expr_info(&env, &ft_tt);
-          out_tt.value = Option(EvalValue).Some(create_unknown_val(&ft_tt));
-          out_tt.is_accessing_property = Option(bool).Some(true);
+          out_tt.set_value(Option(EvalValue).Some(create_unknown_val(&ft_tt)));
+          out_tt.set_is_accessing_property(Option(bool).Some(true));
           expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_tt);
           expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_tt);
           return(expr);
@@ -1839,9 +1839,9 @@ Raw pointer operations may dereference invalid memory.`
                   st_env_vars := get_variables_from_env(&env, &st_prop_name);
                   if(st_env_vars.len() > usize(0), {
                     match(
-                      st_env_vars.last(),
+                      st_env_vars.last_cloned(),
                       .Some(st_ev) => match(
-                        st_ev.value.get(usize(0)),
+                        st_ev.value().get(usize(0)),
                         .Some(.TypeVal(st_evt)) => {
                           if(is_some_type(&st_evt), {
                             st_env_bound = Option(TypeValue).Some(Rc.clone(st_evt));
@@ -1856,7 +1856,7 @@ Raw pointer operations may dereference invalid memory.`
                   placeholder_ty = match(
                     st_env_bound,
                     .Some(st_bt) => Rc.clone(st_bt),
-                    .None => t_some_t(st_prop_name.clone(), env.frames.len())
+                    .None => t_some_t(st_prop_name.clone(), env.frames_len())
                   );
                 });
                 ev_st := if(
@@ -1865,8 +1865,8 @@ Raw pointer operations may dereference invalid memory.`
                   create_unknown_val(&st_ft)
                 );
                 out_st := new_expr_info(&env, &st_ft);
-                out_st.value = Option(EvalValue).Some(ev_st);
-                out_st.is_accessing_property = Option(bool).Some(true);
+                out_st.set_value(Option(EvalValue).Some(ev_st));
+                out_st.set_is_accessing_property(Option(bool).Some(true));
                 expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_st);
                 expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_st);
                 st_found = true;
@@ -1887,7 +1887,7 @@ Raw pointer operations may dereference invalid memory.`
   // -------------------------------------------------------------------------
   // Runtime field access: dereference any pointer chain, then access field.
   // -------------------------------------------------------------------------
-  obj_ty_main := match(obj_info_opt, .Some(oi) => Rc.clone(oi.ty), .None => t_unit());
+  obj_ty_main := match(obj_info_opt, .Some(oi) => Rc.clone(oi.ty()), .None => t_unit());
   original_obj_ty := Rc.clone(obj_ty_main);
   (base_ty : TypeValue) = obj_ty_main;
   // Dereference pointer chain.
@@ -1916,7 +1916,7 @@ Raw pointer operations may dereference invalid memory.`
       base_ty = resolve_struct_shell(&resolved_recv);
     });
   });
-  obj_val_main := match(obj_info_opt, .Some(oi) => oi.value, .None => Option(EvalValue).None);
+  obj_val_main := match(obj_info_opt, .Some(oi) => oi.value(), .None => Option(EvalValue).None);
   // -------------------------------------------------------------------------
   // `.io` on the bare `Io` effect struct is the IDENTITY projection.
   // The bundle-style body form (`e.io.await(f, e.io)`) is written against an
@@ -1934,14 +1934,14 @@ Raw pointer operations may dereference invalid memory.`
     io_proj_sid := match(&base_ty, Rc(.Struct({ id : ips })) => ips.clone(), _ => String.from(""));
     if((io_proj_sid.len() > usize(0)) && lookup_io_builtin_struct_field(io_proj_sid.clone(), String.from("await")).is_some(), {
       out_io := new_expr_info(&env, &base_ty);
-      out_io.value = obj_val_main;
-      out_io.variable_name = match(obj_info_opt, .Some(oi_io) => oi_io.variable_name.clone(), .None => Option(String).None);
-      out_io.path_collection = match(
+      out_io.set_value(obj_val_main);
+      out_io.set_variable_name(match(obj_info_opt, .Some(oi_io) => oi_io.variable_name(), .None => Option(String).None));
+      out_io.set_path_collection(match(
         obj_info_opt,
-        .Some(oi_pc) => oi_pc.path_collection.clone(),
+        .Some(oi_pc) => oi_pc.path_collection(),
         .None => ArrayList(ArrayList(String)).new()
-      );
-      out_io.is_accessing_property = Option(bool).Some(true);
+      ));
+      out_io.set_is_accessing_property(Option(bool).Some(true));
       expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_io);
       expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_io);
       return(expr);
@@ -1984,7 +1984,7 @@ Raw pointer operations may dereference invalid memory.`
       });
       // --- Integer index access (tuple fields only) -----------------------
       if(ast_expr_token(&property_expr).kind == TokenKind.Integer, {
-        if(!is_tuple_type(match(obj_info_opt, .Some(oi) => Rc.clone(oi.ty), .None => t_unit())), {
+        if(!is_tuple_type(match(obj_info_opt, .Some(oi) => Rc.clone(oi.ty()), .None => t_unit())), {
           exn.throw(
             dyn(
               format_error_message(
@@ -2031,13 +2031,13 @@ Raw pointer operations may dereference invalid memory.`
             );
             idx_pc := match(
               obj_info_opt,
-              .Some(oi) => build_field_path_collection(&oi.path_collection, &oi.variable_name, &idx_str),
+              .Some(oi) => build_field_path_collection(&oi.path_collection(), &oi.variable_name(), &idx_str),
               .None => build_field_path_collection(&ArrayList(ArrayList(String)).new(), &Option(String).None, &idx_str)
             );
             out_idx := new_expr_info(&env, &ft_idx);
             expr_info_set_origin_type(&out_idx, Option(TypeValue).Some(field_origin_idx));
-            out_idx.is_accessing_property = Option(bool).Some(true);
-            out_idx.path_collection = idx_pc;
+            out_idx.set_is_accessing_property(Option(bool).Some(true));
+            out_idx.set_path_collection(idx_pc);
             expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_idx);
             expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_idx);
             // Propagate compile-time value if available.
@@ -2050,7 +2050,7 @@ Raw pointer operations may dereference invalid memory.`
                     match(
                       flds_t.get(idx),
                       .Some(fv) => {
-                        out_idx.value = Option(EvalValue).Some(fv);
+                        out_idx.set_value(Option(EvalValue).Some(fv));
                       },
                       .None => ()
                     );
@@ -2059,7 +2059,7 @@ Raw pointer operations may dereference invalid memory.`
                     match(
                       sflds_t.get(idx),
                       .Some(fv) => {
-                        out_idx.value = Option(EvalValue).Some(fv);
+                        out_idx.set_value(Option(EvalValue).Some(fv));
                       },
                       .None => ()
                     );
@@ -2081,7 +2081,7 @@ Raw pointer operations may dereference invalid memory.`
         match(
           field_idx_lbl,
           .None => {
-            if(is_module_type(match(obj_info_opt, .Some(oi) => Rc.clone(oi.ty), .None => t_unit())), {
+            if(is_module_type(match(obj_info_opt, .Some(oi) => Rc.clone(oi.ty()), .None => t_unit())), {
               exn.throw(
                 dyn(
                   format_error_message(
@@ -2238,13 +2238,13 @@ Raw pointer operations may dereference invalid memory.`
             );
             lbl_pc := match(
               obj_info_opt,
-              .Some(oi) => build_field_path_collection(&oi.path_collection, &oi.variable_name, &label_str),
+              .Some(oi) => build_field_path_collection(&oi.path_collection(), &oi.variable_name(), &label_str),
               .None => build_field_path_collection(&ArrayList(ArrayList(String)).new(), &Option(String).None, &label_str)
             );
             out_lbl := new_expr_info(&env, &ft_lbl);
             expr_info_set_origin_type(&out_lbl, Option(TypeValue).Some(field_origin_lbl));
-            out_lbl.is_accessing_property = Option(bool).Some(true);
-            out_lbl.path_collection = lbl_pc;
+            out_lbl.set_is_accessing_property(Option(bool).Some(true));
+            out_lbl.set_path_collection(lbl_pc);
             expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_lbl);
             expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_lbl);
             // Propagate compile-time value if available.
@@ -2255,13 +2255,13 @@ Raw pointer operations may dereference invalid memory.`
                   ov_lbl,
                   // Propagate `is_runtime_only` onto the field's unknown.
                   .UnknownVal(_, ov_lbl_ro) => {
-                    out_lbl.value = Option(EvalValue).Some(
+                    out_lbl.set_value(Option(EvalValue).Some(
                       if(
                         ov_lbl_ro,
                         create_runtime_unknown_val(&ft_lbl),
                         create_unknown_val(&ft_lbl)
                       )
-                    );
+                    ));
                   },
                   _ => {
                     // Dereference through PtrVal before field selection.
@@ -2293,10 +2293,10 @@ Raw pointer operations may dereference invalid memory.`
                         match(
                           flds_l.get(fi_lbl),
                           .Some(fv) => {
-                            out_lbl.value = Option(EvalValue).Some(fv);
+                            out_lbl.set_value(Option(EvalValue).Some(fv));
                           },
                           .None => {
-                            out_lbl.value = Option(EvalValue).Some(create_unknown_val(&ft_lbl));
+                            out_lbl.set_value(Option(EvalValue).Some(create_unknown_val(&ft_lbl)));
                           }
                         );
                         // Field access THROUGH A COMPTIME POINTER is a mutable
@@ -2320,10 +2320,10 @@ Raw pointer operations may dereference invalid memory.`
                         match(
                           sflds_l.get(fi_lbl),
                           .Some(fv) => {
-                            out_lbl.value = Option(EvalValue).Some(fv);
+                            out_lbl.set_value(Option(EvalValue).Some(fv));
                           },
                           .None => {
-                            out_lbl.value = Option(EvalValue).Some(create_unknown_val(&ft_lbl));
+                            out_lbl.set_value(Option(EvalValue).Some(create_unknown_val(&ft_lbl)));
                           }
                         );
                         // See the TupleVal arm above.
@@ -2337,7 +2337,7 @@ Raw pointer operations may dereference invalid memory.`
                         });
                       },
                       _ => {
-                        out_lbl.value = Option(EvalValue).Some(create_unknown_val(&ft_lbl));
+                        out_lbl.set_value(Option(EvalValue).Some(create_unknown_val(&ft_lbl)));
                       }
                     );
                   }
@@ -2380,7 +2380,7 @@ Raw pointer operations may dereference invalid memory.`
           Rc(.Struct({ id : pa3_sns, is_source_namespace : pa3_is_sns })) => if(pa3_is_sns, {
             match(
               sns_module_of(pa3_sns.clone()),
-              .Some(pa3_target) => record_module_member_read(&env.module_path.*, &pa3_target, mod_label.clone()),
+              .Some(pa3_target) => record_module_member_read(&env.module_path().*, &pa3_target, mod_label.clone()),
               .None => ()
             );
           }),
@@ -2400,7 +2400,7 @@ Raw pointer operations may dereference invalid memory.`
         match(
           mod_fidx,
           .None => {
-            if(is_module_type(match(obj_info_opt, .Some(oi) => Rc.clone(oi.ty), .None => t_unit())), {
+            if(is_module_type(match(obj_info_opt, .Some(oi) => Rc.clone(oi.ty()), .None => t_unit())), {
               // (No ModuleVal.isLoading check — there is no such field.)
               exn.throw(
                 dyn(
@@ -2419,12 +2419,12 @@ Raw pointer operations may dereference invalid memory.`
             ft_mod := match(mod_types_rt.get(fi_mod), .Some(t) => t, .None => t_unit());
             mod_pc := match(
               obj_info_opt,
-              .Some(oi) => build_field_path_collection(&oi.path_collection, &oi.variable_name, &mod_label),
+              .Some(oi) => build_field_path_collection(&oi.path_collection(), &oi.variable_name(), &mod_label),
               .None => build_field_path_collection(&ArrayList(ArrayList(String)).new(), &Option(String).None, &mod_label)
             );
             out_mod := new_expr_info(&env, &ft_mod);
-            out_mod.is_accessing_property = Option(bool).Some(true);
-            out_mod.path_collection = mod_pc;
+            out_mod.set_is_accessing_property(Option(bool).Some(true));
+            out_mod.set_path_collection(mod_pc);
             expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_mod);
             expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_mod);
             // Propagate compile-time value.
@@ -2435,27 +2435,27 @@ Raw pointer operations may dereference invalid memory.`
                   ov_mod,
                   // Propagate `is_runtime_only`.
                   .UnknownVal(_, ov_mod_ro) => {
-                    out_mod.value = Option(EvalValue).Some(
+                    out_mod.set_value(Option(EvalValue).Some(
                       if(
                         ov_mod_ro,
                         create_runtime_unknown_val(&ft_mod),
                         create_unknown_val(&ft_mod)
                       )
-                    );
+                    ));
                   },
                   .StructVal(_, _, mvals) => {
                     match(
                       mvals.get(fi_mod),
                       .Some(mfv) => {
-                        out_mod.value = Option(EvalValue).Some(mfv);
+                        out_mod.set_value(Option(EvalValue).Some(mfv));
                       },
                       .None => {
-                        out_mod.value = Option(EvalValue).Some(create_unknown_val(&ft_mod));
+                        out_mod.set_value(Option(EvalValue).Some(create_unknown_val(&ft_mod)));
                       }
                     );
                   },
                   _ => {
-                    out_mod.value = Option(EvalValue).Some(create_unknown_val(&ft_mod));
+                    out_mod.set_value(Option(EvalValue).Some(create_unknown_val(&ft_mod)));
                   }
                 );
               },
@@ -2480,11 +2480,11 @@ Raw pointer operations may dereference invalid memory.`
                   ),
                   .None => ()
                 );
-                out_mod.value = match(
+                out_mod.set_value(match(
                   mod_reg_val,
                   .Some(av) => Option(EvalValue).Some(av),
                   .None => Option(EvalValue).Some(create_unknown_val(&ft_mod))
-                );
+                ));
               }
             );
             return(expr);
@@ -2541,15 +2541,15 @@ Raw pointer operations may dereference invalid memory.`
                       ep_path := ArrayList(String).new();
                       ep_obj_vname := match(
                         obj_info_opt,
-                        .Some(oi) => match(&oi.variable_name, .Some(n) => n.clone(), .None => String.from("?")),
+                        .Some(oi) => match(&oi.variable_name(), .Some(n) => n.clone(), .None => String.from("?")),
                         .None => String.from("?")
                       );
                       ep_path.push(ep_obj_vname);
                       ep_path.push(prop_name_ev);
                       enum_pc.push(ep_path);
                       out_ev := new_expr_info(&env, &ft_ev);
-                      out_ev.path_collection = enum_pc;
-                      out_ev.is_accessing_property = Option(bool).Some(true);
+                      out_ev.set_path_collection(enum_pc);
+                      out_ev.set_is_accessing_property(Option(bool).Some(true));
                       expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_ev);
                       expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_ev);
                       // Propagate compile-time enum value.
@@ -2564,7 +2564,7 @@ Raw pointer operations may dereference invalid memory.`
                                 match(
                                   ev_flds.get(pfi),
                                   .Some(efv) => {
-                                    out_ev.value = Option(EvalValue).Some(efv);
+                                    out_ev.set_value(Option(EvalValue).Some(efv));
                                   },
                                   .None => ()
                                 );
@@ -2617,15 +2617,15 @@ Raw pointer operations may dereference invalid memory.`
                 dv_path := ArrayList(String).new();
                 dv_obj_vname := match(
                   obj_info_opt,
-                  .Some(oi) => match(&oi.variable_name, .Some(n) => n.clone(), .None => String.from("?")),
+                  .Some(oi) => match(&oi.variable_name(), .Some(n) => n.clone(), .None => String.from("?")),
                   .None => String.from("?")
                 );
                 dv_path.push(dv_obj_vname);
                 dv_path.push(prop_name_ev);
                 dv_pc.push(dv_path);
                 dv_out := new_expr_info(&env, &dv_ft);
-                dv_out.path_collection = dv_pc;
-                dv_out.is_accessing_property = Option(bool).Some(true);
+                dv_out.set_path_collection(dv_pc);
+                dv_out.set_is_accessing_property(Option(bool).Some(true));
                 expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &dv_out);
                 expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &dv_out);
                 match(
@@ -2639,7 +2639,7 @@ Raw pointer operations may dereference invalid memory.`
                         match(
                           ev_flds.get(dv_pfi),
                           .Some(efv) => {
-                            dv_out.value = Option(EvalValue).Some(efv);
+                            dv_out.set_value(Option(EvalValue).Some(efv));
                           },
                           .None => ()
                         );
@@ -2665,7 +2665,7 @@ Raw pointer operations may dereference invalid memory.`
   if(debug_knob(`YO_DEBUG_CTFE`).is_some(), {
     pa_obj_ty := match(
       expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&object_expr)),
-      .Some(pa_oi) => type_to_string(&pa_oi.ty),
+      .Some(pa_oi) => type_to_string(&pa_oi.ty()),
       .None => String.from("<no-info>")
     );
     eprintln(`[pa-fallthrough] prop=${ast_expr_token(&property_expr).value.*} obj_ty=${pa_obj_ty}`);

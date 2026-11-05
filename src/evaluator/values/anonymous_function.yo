@@ -232,7 +232,7 @@ _synthesize_default_func_type :: (
 )({
   names := ArrayList(String).new();
   _collect_anon_param_names(param_decl, &mut names);
-  frame_level := env.frames.len();
+  frame_level := env.frames_len();
   param_types := ArrayList(TypeValue).new();
   (i : usize) = usize(0);
   n := names.len();
@@ -441,9 +441,9 @@ _subst_some_types_from_env :: (fn(ty : &TypeValue, env2 : &Environment, allow : 
       while(ss_bi > usize(0), {
         ss_bi = (ss_bi - usize(1));
         match(
-          ss_found.get(ss_bi),
+          ss_found.get_cloned(ss_bi),
           .Some(sv) => match(
-            sv.value.get(usize(0)),
+            sv.value().get(usize(0)),
             .Some(.TypeVal(stv)) => if(!is_some_type(&stv), {
               ss_bound = Option(TypeValue).Some(Rc.clone(stv));
               ss_bi = usize(0);
@@ -661,7 +661,7 @@ _trial_eval_annotation_type :: (
   match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated)),
     .Some(ann_ei) => match(
-      ann_ei.value,
+      ann_ei.value(),
       .Some(.TypeVal(ann_tv)) => if(!is_some_type(&ann_tv), {
         out.push(Rc.clone(ann_tv));
       }),
@@ -771,15 +771,15 @@ outcome after the guarded call instead (e.g. a result the handler unwinds past).
             in_cap_frame := match(cap_frame_idx, .Some(cfi) => (ci.frame_level == cfi), .None => false);
             if(ci.frame_level < outer_frames_len, {
               match(
-                env.frames.get(ci.frame_level),
+                env.frame_at(ci.frame_level),
                 .Some(frame) => {
                   (vi : usize) = usize(0);
-                  n_v := frame.variables.len();
+                  n_v := frame.variables_len();
                   while(vi < n_v, {
                     match(
-                      frame.variables.get(vi),
+                      frame.variable_at(vi),
                       .Some(v) => if(v.name == k, {
-                        if(v.is_ref && !in_cap_frame, {
+                        if(v.is_ref() && !in_cap_frame, {
                           _raise_capture_rejection(
                             ctx,
                             exn,
@@ -787,12 +787,12 @@ outcome after the guarded call instead (e.g. a result the handler unwinds past).
                             `Cannot capture the borrow '${k}' in a closure implicitly: '${k}' is a local borrow (\`${k} := &place\`, \`${k} := &mut place\`), a second-class borrow of another place, and an implicit capture would copy the borrow into a closure that may outlive it. Name it in a capture list (\`{ &${k} }(...) => ...\` or \`{ &mut ${k} }(...) => ...\`), which keeps the closure second-class, or read the value into a local first.`
                           );
                         });
-                        if(!v.is_compile_time_only && type_is_control_bound(&v.ty), {
+                        if(!v.is_compile_time_only() && type_is_control_bound(&v.ty()), {
                           _raise_capture_rejection(
                             ctx,
                             exn,
                             &ci.token,
-                            `Closures cannot capture a value of control-bound type. The captured value \`${k}\` has type \`${type_to_string(&v.ty)}\` which transitively contains a \`ctl(...) -> ret\` function. Closures can escape their enclosing frame, taking the captured control function with them — which would unwind to a dead install frame.
+                            `Closures cannot capture a value of control-bound type. The captured value \`${k}\` has type \`${type_to_string(&v.ty())}\` which transitively contains a \`ctl(...) -> ret\` function. Closures can escape their enclosing frame, taking the captured control function with them — which would unwind to a dead install frame.
 
 Pass \`${k}\` as a regular function parameter instead of capturing it in a closure.`
                           );
@@ -968,17 +968,17 @@ _evaluate_capture_list :: (
       root_tok := ast_expr_token(&root_atom);
       root_vars := get_variables_from_env(env, root_tok.value.*.clone());
       root_var := match(
-        root_vars.last(),
+        root_vars.last_cloned(),
         .Some(v) => v,
         .None => {
           _cap_list_error(ctx, exn, &root_tok, `Variable "${root_tok.value.*}" is not defined.`);
           return(out);
         }
       );
-      if(root_var.is_module_level, {
+      if(root_var.is_module_level(), {
         _cap_list_error(ctx, exn, &root_tok, `A borrow capture cannot name the module-level binding \`${root_tok.value.*}\`: a module-level place has no owner the closure's borrow could be checked against (decision 18, rule 3). Read it inside the body, or capture a copy: \`${label} : ${ast_expr_to_string(&place_e)}\`.`);
       });
-      if(root_var.is_compile_time_only, {
+      if(root_var.is_compile_time_only(), {
         _cap_list_error(ctx, exn, &root_tok, `A borrow capture cannot name \`${root_tok.value.*}\`: it is a compile-time value with no runtime storage.`);
       });
       // A borrow capture of a reference binding `r` (decision 43 step 2
@@ -1002,7 +1002,7 @@ _evaluate_capture_list :: (
       deref_exempt_clear();
       ctx.expected_type = saved_bexp;
       require_expr_not_consumed(&ev_place, env, ctx, exn);
-      place_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ev_place)), .Some(pi) => Rc.clone(pi.ty), .None => t_unit());
+      place_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ev_place)), .Some(pi) => Rc.clone(pi.ty()), .None => t_unit());
       if(is_unit_type(&place_ty), {
         _cap_list_error(ctx, exn, ast_expr_token(&place_e), `A borrow capture cannot name a unit-typed place: it has no runtime storage.`);
       });
@@ -1023,7 +1023,7 @@ _evaluate_capture_list :: (
       // §3.13 A2: a future keeps its own copy of a `&T` parameter it borrows
       // (C receives the parameter by value, in the frame the future may
       // outlive), so it borrows the parameter whole, not a place inside it.
-      if(ctx.is_inside_io_async_call && root_var.is_imm_borrow && (fields.len() > usize(0)), {
+      if(ctx.is_inside_io_async_call && root_var.is_imm_borrow() && (fields.len() > usize(0)), {
         _cap_list_error(ctx, exn, ast_expr_token(&place_e), `An \`io.async\` body borrows a \`&\` parameter whole: \`${ast_expr_to_string(&place_e)}\` is a place inside the parameter \`${root_tok.value.*}\`, which the future copies when it is made (plans/VALUES_BY_DEFAULT.md §3.13 A2). Borrow the parameter, \`{ &${root_tok.value.*} }\`, and read \`${ast_expr_to_string(&place_e)}\` in the body.`);
       });
       if(is_mut, {
@@ -1034,7 +1034,7 @@ _evaluate_capture_list :: (
         // `imm` capture are not. (A cell is never crossed, checked above.)
         // Decision 47 step 2: and its root binding is declared `mut(name)`.
         place_require_mut(&ev_place, ast_expr_token(&place_e), &String.from("lend `&mut` (a `&mut` capture)"), true, env, ctx, exn);
-        if(!root_var.is_reassignable, {
+        if(!root_var.is_reassignable(), {
           _cap_list_error(ctx, exn, ast_expr_token(&place_e), `A \`&mut\` capture needs a writable place, and \`${ast_expr_to_string(&place_e)}\` is not: \`${root_tok.value.*}\` is a read-only binding (a by-value parameter, a \`match\`/\`for\` binding or a \`&\` borrow). Borrow it read-only with \`${label} : &${ast_expr_to_string(&place_e)}\`, or take the parameter \`${root_tok.value.*} : &mut T\`.`);
         });
       });
@@ -1049,7 +1049,7 @@ _evaluate_capture_list :: (
           root_id : root_var.id,
           root_name : root_tok.value.*.clone(),
           path : fields,
-          root_is_value_param : root_var.is_imm_borrow
+          root_is_value_param : root_var.is_imm_borrow()
         )
       );
     }, {
@@ -1061,7 +1061,7 @@ _evaluate_capture_list :: (
       // here (decision 43 step 2 N1e-1).
       if(deref_rule_recording() && _cap_entry_is_shorthand(&label_e, &init_e), {
         match(
-          get_variables_from_env(env, label.clone()).last(),
+          get_variables_from_env(env, label.clone()).last_cloned(),
           .Some(sh_v) => if(variable_is_reference_binding(&sh_v) && deref_rule_applies(ast_expr_token(&init_e), ctx), {
             record_deref_edit_site(ast_expr_token(&init_e), &label, u8(1));
           }),
@@ -1081,7 +1081,7 @@ _evaluate_capture_list :: (
         "field-store",
         copy_capture_label : if(migrate_rc_clone_on() && _cap_entry_is_shorthand(&label_e, &init_e), Option(String).Some(label.clone()), Option(String).None)
       );
-      val_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ev_val)), .Some(vi) => Rc.clone(vi.ty), .None => t_unit());
+      val_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ev_val)), .Some(vi) => Rc.clone(vi.ty()), .None => t_unit());
       // The field must OWN its reference. An owning temp is consumed by the
       // call above (the store moves it) and a move-only atom read moves at
       // the read; but an ATOM read of an RC-typed binding has no temp, so
@@ -1265,7 +1265,7 @@ evaluate_anonymous_function_implementation :: (
   if(match(&expected_ty, Rc(.DynT(_, _, _, _)) => extract_fn_trait_from_type(&expected_ty).is_some(), _ => false), {
     reject_closure_literal_into_dyn_fn(&expected_ty, expr, is_creating_closure, ctx, exn);
     match(
-      t_dyn_payload_wrapper(&expected_ty, env.frames.len()),
+      t_dyn_payload_wrapper(&expected_ty, env.frames_len()),
       .Some(ad_w) => {
         expected_ty = ad_w;
       },
@@ -1532,20 +1532,20 @@ evaluate_anonymous_function_implementation :: (
             ann_out.get_cloned(usize(0)),
             .Some(ann_user_ty) => {
               if(!ann_frame_pushed, {
-                _ann_fr := env.push_frame(false);
+                _ann_fr := env.push_frame()(false);
                 ann_frame_pushed = true;
               });
               // Skip if this generic name was already bound by an earlier
               // annotated param (top-frame duplicate-name check —
               // multi-param closures reusing one generic name).
               ann_already := match(
-                env.frames.last(),
+                env.last_frame(),
                 .Some(ann_top) => {
                   (ann_found : bool) = false;
                   (ann_vi : usize) = usize(0);
-                  while(ann_vi < ann_top.variables.len(), {
+                  while(ann_vi < ann_top.variables_len(), {
                     match(
-                      ann_top.variables.get(ann_vi),
+                      ann_top.variable_at(ann_vi),
                       .Some(av) => if(av.name == ann_nm, {
                         ann_found = true;
                       }),
@@ -1590,7 +1590,7 @@ evaluate_anonymous_function_implementation :: (
       );
     });
     if(ann_frame_pushed, {
-      env.pop_frame();
+      env.pop_frame()();
     });
   });
   // -------------------------------------------------------------------------
@@ -1639,10 +1639,10 @@ evaluate_anonymous_function_implementation :: (
   );
   (cap_frame_idx : Option(usize)) = Option(usize).None;
   if(cap_list_raw.is_some(), {
-    _cap_fr := env.push_frame(false);
-    cap_frame_idx = Option(usize).Some(env.frames.len() - usize(1));
+    _cap_fr := env.push_frame()(false);
+    cap_frame_idx = Option(usize).Some(env.frames_len() - usize(1));
     if(closure_owns_captures, {
-      match(env.frames.get(_cap_fr), .Some(cfr) => mark_fnonce_capture_frame(cfr.id), .None => ());
+      match(env.frame_at(_cap_fr), .Some(cfr) => mark_fnonce_capture_frame(cfr.id()), .None => ());
     });
     (cfe_i : usize) = usize(0);
     while(cfe_i < cap_entries.len(), {
@@ -1665,7 +1665,7 @@ evaluate_anonymous_function_implementation :: (
             ce_v,
             .Some(cv) => {
               if(ce.is_borrow, {
-                cv.is_ref = true;
+                cv.set_is_ref(true);
               }, if(!ce_owned, {
                 mark_fn_capture_value_binding(cv.id);
               }));
@@ -1701,24 +1701,24 @@ evaluate_anonymous_function_implementation :: (
   // are recorded as slices of the frames' own lists (`CaptureSlice`, memory
   // plan §0.14), not copied.
   cap_slices := ArrayList(CaptureSlice).new();
-  n_cap_fr := env.frames.len();
+  n_cap_fr := env.frames_len();
   (cap_fi : usize) = usize(0);
   while(cap_fi < n_cap_fr, {
     match(
-      env.frames.get(cap_fi),
+      env.frame_at(cap_fi),
       .Some(cap_frame) => {
-        n_cap_v := cap_frame.variables.len();
+        n_cap_v := cap_frame.variables_len();
         (cap_vi : usize) = usize(0);
         (cap_run_start : usize) = usize(0);
         while(cap_vi < n_cap_v, {
           match(
-            cap_frame.variables.get(cap_vi),
+            cap_frame.variable_at(cap_vi),
             .Some(cv) => {
               cond(
                 !(cv.name == "__recur_fn") => (),
                 true => {
                   if(cap_vi > cap_run_start, {
-                    cap_slices.push(CaptureSlice(vars : cap_frame.variables.clone(), start : cap_run_start, end : cap_vi));
+                    cap_slices.push(CaptureSlice(vars : cap_frame.variables(), start : cap_run_start, end : cap_vi));
                   });
                   cap_run_start = (cap_vi + usize(1));
                 }
@@ -1729,7 +1729,7 @@ evaluate_anonymous_function_implementation :: (
           cap_vi = (cap_vi + usize(1));
         });
         if(n_cap_v > cap_run_start, {
-          cap_slices.push(CaptureSlice(vars : cap_frame.variables.clone(), start : cap_run_start, end : n_cap_v));
+          cap_slices.push(CaptureSlice(vars : cap_frame.variables(), start : cap_run_start, end : n_cap_v));
         });
       },
       .None => ()
@@ -1741,8 +1741,8 @@ evaluate_anonymous_function_implementation :: (
   // -------------------------------------------------------------------------
   // Push a new environment frame for the function parameters.
   // -------------------------------------------------------------------------
-  _frame_idx := env.push_frame(false);
-  match(env.frames.get(_frame_idx), .Some(pfr) => mark_closure_param_frame(pfr.id), .None => ());
+  _frame_idx := env.push_frame()(false);
+  match(env.frame_at(_frame_idx), .Some(pfr) => mark_closure_param_frame(pfr.id()), .None => ());
   // -------------------------------------------------------------------------
   // Add generic parameters to the environment.
   // Each generic type variable is bound as a compile-time unknown SomeT.
@@ -1754,14 +1754,14 @@ evaluate_anonymous_function_implementation :: (
       TypeValueNode.SomeT(
         fl_name.clone(),
         fl_name.clone(),
-        env.frame_count(),
+        env.frame_count()(),
         Rc.new(TypeValueNode.TypeUni(usize(0))),
         some_t_bounds(ArrayList(TypeValue).new(), ArrayList(usize).new(), ArrayList(TypeValue).new(), ArrayList(usize).new()),
         Option(TypeValue).None,
         Option(TypeValue).None
       )
     );
-    fl_tok := synthetic_token(fl_name.clone(), &env.module_path.*);
+    fl_tok := synthetic_token(fl_name.clone(), &env.module_path().*);
     _fa_v := add_variable_to_env(
       env,
       fl_name.clone(),
@@ -1782,7 +1782,7 @@ evaluate_anonymous_function_implementation :: (
   while(il_env_i < implicit_labels.len(), {
     il_name := match(implicit_labels.get_cloned(il_env_i), .Some(n) => n, .None => String.from(""));
     il_ty := match(implicit_types.get(il_env_i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
-    il_tok := synthetic_token(il_name.clone(), &env.module_path.*);
+    il_tok := synthetic_token(il_name.clone(), &env.module_path().*);
     il_val := create_unknown_val(il_ty.clone());
     _il_v := add_variable_to_env(
       env,
@@ -1823,9 +1823,9 @@ evaluate_anonymous_function_implementation :: (
         while(_st_bi > usize(0), {
           _st_bi = (_st_bi - usize(1));
           match(
-            _st_bind_vars.get(_st_bi),
+            _st_bind_vars.get_cloned(_st_bi),
             .Some(sv) => match(
-              sv.value.get(usize(0)),
+              sv.value().get(usize(0)),
               .Some(.TypeVal(stv)) => if(!is_some_type(&stv), {
                 _st_bound = Option(TypeValue).Some(Rc.clone(stv));
                 _st_bi = usize(0);
@@ -1867,11 +1867,11 @@ evaluate_anonymous_function_implementation :: (
       match(
         rp_v_opt,
         .Some(rp_v_own) => {
-          rp_v_own.is_owning_the_rc_value = true;
+          rp_v_own.set_is_owning_the_rc_value(true);
           // A parameter, so the function-body pass over the parameters
           // frame (`_schedule_scope_end_drops`, params_only) drops it at
           // the end of the body, as it drops a `fn`'s by-value parameter.
-          rp_v_own.is_parameter = true;
+          rp_v_own.set_is_parameter(true);
         },
         .None => ()
       );
@@ -1882,7 +1882,7 @@ evaluate_anonymous_function_implementation :: (
       match(
         rp_v_opt,
         .Some(rp_v_imm) => {
-          rp_v_imm.is_imm_borrow = true;
+          rp_v_imm.set_is_imm_borrow(true);
         },
         .None => ()
       );
@@ -1893,11 +1893,11 @@ evaluate_anonymous_function_implementation :: (
       match(
         rp_v_opt,
         .Some(rp_v) => {
-          rp_v.is_ref = true;
+          rp_v.set_is_ref(true);
           // Reassignable goes with ref:
           // assignment TO an `inout` param is
           // the write-through (`v = i32(99)` in with_lock's closure).
-          rp_v.is_reassignable = true;
+          rp_v.set_is_reassignable(true);
         },
         .None => ()
       );
@@ -1911,9 +1911,9 @@ evaluate_anonymous_function_implementation :: (
       match(
         rp_v_opt,
         .Some(rp_vp) => {
-          rp_vp.is_parameter = true;
+          rp_vp.set_is_parameter(true);
           if(fn_param_is_ptr_borrow(&function_type, rp_i), {
-            rp_vp.is_ref = true;
+            rp_vp.set_is_ref(true);
           });
         },
         .None => ()
@@ -1945,9 +1945,9 @@ evaluate_anonymous_function_implementation :: (
           while(rpr_vi > usize(0), {
             rpr_vi = (rpr_vi - usize(1));
             match(
-              rpr_vars.get(rpr_vi),
+              rpr_vars.get_cloned(rpr_vi),
               .Some(rv) => match(
-                rv.value.get(usize(0)),
+                rv.value().get(usize(0)),
                 .Some(.TypeVal(rvt)) => if(!is_some_type(&rvt), {
                   rpr_conc = true;
                   rpr_vi = usize(0);
@@ -2379,7 +2379,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
       match(
         cap_frame_idx,
         .Some(jcfi) => match(
-          env.frames.get(jcfi),
+          env.frame_at(jcfi),
           .Some(jfr) => audit_judge_arm_copies(&jfr, &anon_body_out, &body_eval_ctx),
           .None => ()
         ),
@@ -2501,21 +2501,21 @@ Result type: ${type_to_string(&decl_result_ty)}`
         match(
           expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&anon_eb)),
           .Some(cr_info) => {
-            cr_body_ty := Rc.clone(cr_info.ty);
+            cr_body_ty := Rc.clone(cr_info.ty());
             // Decision 38 A: a second-class value is never returned, except
             // a borrowing future rooted at the closure's own borrow
             // parameters (§3.13 A2).
             // A projection closure's body is its place's address (the marked
             // `addr_of(place)`, `_closure_projection_body`), a `*(T)`.
             cr_ret_ty := match(&function_type, Rc(.Func({ result : cr_r })) => if(t_slot_is_borrow(&cr_r), t_ptr(&t_slot_pointee(&cr_r)), t_slot_pointee(&cr_r)), _ => t_unit());
-            if(!has_any_control_flow(cr_info.control_flow), {
+            if(!has_any_control_flow(cr_info.control_flow()), {
               // Decision 44: a callable result into `Dyn(Fn(...))` is `dyn(f)`.
               if(!fn_result_is_ref(&function_type), {
                 reject_bare_callable_result(&cr_ret_ty, &cr_body_ty, &body_expr, ctx, exn);
               });
               reject_second_class_return(&cr_body_ty, ast_expr_token(&anon_eb), env, ctx, exn);
             });
-            cr_skip := (has_any_control_flow(cr_info.control_flow) || is_void_type(&cr_ret_ty) || is_type_hierarchy_type(&cr_ret_ty) || (get_all_some_types(&cr_ret_ty).len() > usize(0)) || (get_all_some_types(&cr_body_ty).len() > usize(0)));
+            cr_skip := (has_any_control_flow(cr_info.control_flow()) || is_void_type(&cr_ret_ty) || is_type_hierarchy_type(&cr_ret_ty) || (get_all_some_types(&cr_ret_ty).len() > usize(0)) || (get_all_some_types(&cr_body_ty).len() > usize(0)));
             // A tail `yo fix --migrate dyn-spelling` recorded stands for the
             // rewrite's `dyn(value)`, which the result takes.
             if(!cr_skip && !bare_callable_recorded_into_dyn_fn(&cr_ret_ty, &cr_body_ty) && !are_types_compatible(&cr_body_ty, &cr_ret_ty), {
@@ -2577,12 +2577,12 @@ Result type: ${type_to_string(&decl_result_ty)}`
             rv_e := match(rv_values.get(rv_k), .Some(x) => x, .None => make_err_expr());
             match(
               expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&rv_e)),
-              .Some(rv_info) => if(_is_concrete_resume_type(&rv_info.ty), {
+              .Some(rv_info) => if(_is_concrete_resume_type(&rv_info.ty()), {
                 exn.throw(
                   dyn(
                     format_error_message_with_help(
                       ast_expr_token(&rv_e),
-                      `This handler resumes the throw with a value of type \`${type_to_string(&rv_info.ty)}\`, but its resume type \`${type_to_string(&rv_ret)}\` is chosen by each throw site, so no value of one fixed type can satisfy it.`,
+                      `This handler resumes the throw with a value of type \`${type_to_string(&rv_info.ty())}\`, but its resume type \`${type_to_string(&rv_ret)}\` is chosen by each throw site, so no value of one fixed type can satisfy it.`,
                       Option(String).Some(String.from("a handler of a generic-resume `ctl` (such as `Exception.throw`) must unwind, diverge, or fall through with `()`. To resume with a value, install a `ResumableException(T)`, whose resume type `T` is fixed when the handler is built."))
                     )
                   )
@@ -2612,7 +2612,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
           .Some(nrs_info) => {
             // A projection closure's body is its place's address (`*(T)`);
             // the result it binds is the place's type `T`.
-            nrs_body_ty := if(fn_result_is_ref(&function_type), match(&nrs_info.ty, Rc(.Pointer(nrs_pp)) => Rc.clone(nrs_pp), _ => Rc.clone(nrs_info.ty)), Rc.clone(nrs_info.ty));
+            nrs_body_ty := if(fn_result_is_ref(&function_type), match(&nrs_info.ty(), Rc(.Pointer(nrs_pp)) => Rc.clone(nrs_pp), _ => Rc.clone(nrs_info.ty())), Rc.clone(nrs_info.ty()));
             nrs_ret_ty := match(&function_type, Rc(.Func({ result : nrs_r })) => t_slot_pointee(&nrs_r), _ => t_unit());
             nrs_ret_nested := (!is_some_type(&nrs_ret_ty) && (get_all_some_types(&nrs_ret_ty).len() > usize(0)));
             // BARE-SomeT declared return (`-> B`, map's output forall): the
@@ -2698,7 +2698,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
           match(
             expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&anon_eb)),
             .Some(body_info2) => {
-              (body_ty : TypeValue) = Rc.clone(body_info2.ty);
+              (body_ty : TypeValue) = Rc.clone(body_info2.ty());
               // The body type might be a
               // SomeT whose resolved_concrete was set during evaluation
               // (e.g. when the last expression is a binary op whose result
@@ -2963,7 +2963,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
           .Some(dgc_body) => match(
             expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&dgc_body)),
             .Some(dgc_info) => {
-              dgc_skip_cf := (has_control_flow(dgc_info.control_flow, .Unwind) && !has_control_flow(dgc_info.control_flow, .Return));
+              dgc_skip_cf := (has_control_flow(dgc_info.control_flow(), .Unwind) && !has_control_flow(dgc_info.control_flow(), .Return));
               dgc_is_ref := fn_result_is_ref(&function_type);
 
               dgc_expected := cond(
@@ -2985,7 +2985,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
                 },
                 _ => false
               );
-              dgc_trial_ty := Rc.clone(dgc_info.ty);
+              dgc_trial_ty := Rc.clone(dgc_info.ty());
               dgc_trial_abstract := (get_all_some_types(&dgc_trial_ty).len() > usize(0));
               dgc_trial_degenerate := (is_unit_type(&dgc_trial_ty) && !is_unit_type(&dgc_expected));
               // Parametricity: when the expected return is the fn's OWN forall
@@ -3024,7 +3024,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
   // -------------------------------------------------------------------------
   // Restore the parameter frame.
   // -------------------------------------------------------------------------
-  env.pop_frame();
+  env.pop_frame()();
   // Build the capture struct for an io.async closure (empty for no-capture; works
   // for deferred-generic closures too, which simply have no recorded captures).
   // Same pop-then-create order as closure_type.yo. Set on the ExprInfo below so
@@ -3337,10 +3337,10 @@ Result type: ${type_to_string(&decl_result_ty)}`
     );
   });
   if(cap_frame_idx.is_some(), {
-    env.pop_frame();
+    env.pop_frame()();
   });
   info := new_expr_info(env, &final_lambda_ty);
-  info.value = Option(EvalValue).Some(func_val);
+  info.set_value(Option(EvalValue).Some(func_val));
   expr_info_set_is_anonymous_function_definition(&info, Option(bool).Some(true));
   expr_info_set_capture_field_inits(&info, &cap_field_inits);
   // Phase 3: closure_function_value is not set (EvalValue is not Clone).

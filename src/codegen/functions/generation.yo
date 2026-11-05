@@ -226,7 +226,7 @@ generate_function_body :: (fn(body_expr : &AstExpr, function_type : &TypeValue, 
         // gate in the drop emitters (declared_c_var_names +
         // is_temp/minted-temp check): a not-yet-declared local at an early
         // return is skipped there.
-        context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_copy_expr_list(&ei.deferred_drop_expressions));
+        context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_copy_expr_list(&ei.deferred_drop_expressions()));
         context.consumed_var_pending_drops = Option(ArrayList(AstExpr)).Some(_copy_expr_list(expr_info_consumed_variable_drop_expressions(&ei)));
       },
       .None => ()
@@ -245,7 +245,7 @@ generate_function_body :: (fn(body_expr : &AstExpr, function_type : &TypeValue, 
             });
             note_line_position(&mut context.base.emitter, &arg);
             arg_code := _call_generate_expr(&arg, indent.clone(), context);
-            skip_temp := match(context.base.get_expr_info(&arg), .Some(aei) => is_temp_variable_name(&aei.env.module_path.*, arg_code.clone()), .None => false);
+            skip_temp := match(context.base.get_expr_info(&arg), .Some(aei) => is_temp_variable_name(&aei.env().module_path().*, arg_code.clone()), .None => false);
             if((arg_code.len() > usize(0)) && !skip_temp, {
               mut(line) := indent.clone();
               line.push_string(&arg_code);
@@ -255,7 +255,7 @@ generate_function_body :: (fn(body_expr : &AstExpr, function_type : &TypeValue, 
             if(!find_return, {
               match(
                 context.base.get_expr_info(&arg),
-                .Some(aei) => if(has_any_control_flow(aei.control_flow), {
+                .Some(aei) => if(has_any_control_flow(aei.control_flow()), {
                   find_return = true;
                 }),
                 .None => ()
@@ -280,7 +280,7 @@ generate_function_body :: (fn(body_expr : &AstExpr, function_type : &TypeValue, 
             // issues/retired/yo-self-async-emission-cluster.md item 3).
             if(result_is_unit, {
               u_code := _call_generate_expr(&last_expr, indent.clone(), context);
-              u_skip_temp := match(context.base.get_expr_info(&last_expr), .Some(uei) => is_temp_variable_name(&uei.env.module_path.*, u_code.clone()), .None => false);
+              u_skip_temp := match(context.base.get_expr_info(&last_expr), .Some(uei) => is_temp_variable_name(&uei.env().module_path().*, u_code.clone()), .None => false);
               if((u_code.len() > usize(0)) && !u_skip_temp, {
                 mut(u_line) := indent.clone();
                 u_line.push_string(&u_code);
@@ -323,10 +323,10 @@ generate_function_body :: (fn(body_expr : &AstExpr, function_type : &TypeValue, 
                   // return below yields.
                   (tail_value : Option(String)) = Option(String).None;
                   match(
-                    &lei.variable_name,
+                    &lei.variable_name(),
                     .Some(lvn) => {
                       raw_code := _call_generate_expr(&last_expr, indent.clone(), context);
-                      tail_tmp := get_variable_name_for_codegen_at(ast_expr_id(&last_expr), lvn.clone(), Option(Environment).Some(lei.env));
+                      tail_tmp := get_variable_name_for_codegen_at(ast_expr_id(&last_expr), lvn.clone(), Option(Environment).Some(lei.env()));
                       ret_ty_dup := match(function_type, Rc(.Func({ result : r0 })) => t_slot_pointee(&r0), _ => t_unit());
                       tail_self := is_self_named_atom(&last_expr, lvn.clone());
                       tail_value = Option(String).Some(if(tail_self, raw_code.clone(), tail_tmp.clone()));
@@ -355,12 +355,12 @@ generate_function_body :: (fn(body_expr : &AstExpr, function_type : &TypeValue, 
                       .Some(dup_expr) => match(
                         context.base.get_expr_info(&dup_expr),
                         .Some(dei) => match(
-                          &dei.variable_name,
+                          &dei.variable_name(),
                           .Some(dvn) => {
                             generate_deferred_drop_expressions(body_expr, indent.clone(), context);
                             rdl := indent.clone();
                             rdl.push_str("return ");
-                            rdl.push_string(get_variable_name_for_codegen_at(ast_expr_id(&dup_expr), dvn.clone(), Option(Environment).Some(dei.env)));
+                            rdl.push_string(get_variable_name_for_codegen_at(ast_expr_id(&dup_expr), dvn.clone(), Option(Environment).Some(dei.env())));
                             rdl.push_str(";");
                             context.base.emitter.emit_string_line(&rdl);
                             return(());
@@ -425,7 +425,7 @@ generate_function_body :: (fn(body_expr : &AstExpr, function_type : &TypeValue, 
               context.base.emitter.emit_string_line(&rline);
               return(());
             });
-            has_drops := match(context.base.get_expr_info(body_expr), .Some(bei) => match(&bei.deferred_drop_expressions, .Some(d) => (d.len() > usize(0)), .None => false), .None => false);
+            has_drops := match(context.base.get_expr_info(body_expr), .Some(bei) => match(&bei.deferred_drop_expressions(), .Some(d) => (d.len() > usize(0)), .None => false), .None => false);
             mat_ty := cond(
               (has_drops && !result_is_unit && (expr_code.len() > usize(0))) => ret_ty_opt,
               true => Option(TypeValue).None
@@ -529,7 +529,7 @@ generate_function_body :: (fn(body_expr : &AstExpr, function_type : &TypeValue, 
     match(
       context.base.get_expr_info(body_expr),
       .Some(bei) => {
-        context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_copy_expr_list(&bei.deferred_drop_expressions));
+        context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_copy_expr_list(&bei.deferred_drop_expressions()));
         context.consumed_var_pending_drops = Option(ArrayList(AstExpr)).Some(_copy_expr_list(expr_info_consumed_variable_drop_expressions(&bei)));
       },
       .None => ()
@@ -1307,8 +1307,8 @@ emit_module_level_variable_declarations :: (
           context.base.get_expr_info(&var_atom),
           .None => (),
           .Some(vi) => {
-            var_name := match(&vi.variable_name, .Some(vn) => vn.clone(), .None => ast_expr_text(&var_atom).*.clone());
-            (c_var_name : String) = get_variable_name_for_codegen_at(ast_expr_id(&var_atom), &var_name, Option(Environment).Some(vi.env));
+            var_name := match(&vi.variable_name(), .Some(vn) => vn.clone(), .None => ast_expr_text(&var_atom).*.clone());
+            (c_var_name : String) = get_variable_name_for_codegen_at(ast_expr_id(&var_atom), &var_name, Option(Environment).Some(vi.env()));
             // The recorded env for a `name := rhs` module init can miss the
             // variable (resolution falls back to the bare name and the
             // resolver's registry check never runs), while the READS resolve
@@ -1342,7 +1342,7 @@ emit_module_level_variable_declarations :: (
             if(!seen.contains(dedup_key.clone()), {
               seen.insert(dedup_key.clone());
               mg_is_tl := is_thread_local(mg_decl_path.*.clone(), var_name.clone());
-              c_type_str := get_type_string(&vi.ty, &mut context.base);
+              c_type_str := get_type_string(&vi.ty(), &mut context.base);
               if(!seen.contains(c_var_name.clone()), {
                 seen.insert(c_var_name.clone());
                 // A thread-local's storage carries a per-thread storage class

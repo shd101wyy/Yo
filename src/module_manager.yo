@@ -452,9 +452,9 @@ mm_fresh_module_env :: (fn(module_path : &String) -> Environment)({
   (want_frames : usize) = g_cached_prelude_frame_count;
   match(
     g_cached_prelude_env,
-    .Some(pe) => if(pe.frames.len() != want_frames, {
+    .Some(pe) => if(pe.frames_len() != want_frames, {
       panic(
-        `internal error: the cached prelude env has ${pe.frames.len().to_string()} frames, expected ${want_frames.to_string()} — a live env's frame list aliased the cache and something pushed into it (issues/fixed/comptime-expect-error-re-pushed-the-module-frame-into-the-prelude-env.md)`
+        `internal error: the cached prelude env has ${pe.frames_len().to_string()} frames, expected ${want_frames.to_string()} — a live env's frame list aliased the cache and something pushed into it (issues/fixed/comptime-expect-error-re-pushed-the-module-frame-into-the-prelude-env.md)`
       );
     }),
     .None => ()
@@ -462,7 +462,7 @@ mm_fresh_module_env :: (fn(module_path : &String) -> Environment)({
   env := clone_env(
     match(g_cached_prelude_env, .Some(pe) => pe, .None => Environment.new(Rc.new(module_path.clone())))
   );
-  env.module_path = Rc.new(module_path.clone());
+  env.set_module_path(Rc.new(module_path.clone()));
   env
 });
 /// Resolve `input_path` (as written on the command line) to the `file://`
@@ -2448,7 +2448,7 @@ _walk_def_values :: (fn(defs : &ArrayList(PendingDef)) -> ArrayList(EvalValue))(
       defs.get_cloned(di),
       .Some(d) => match(
         d.variable(),
-        .Some(var) => match(var.value.get(usize(0)), .Some(v) => out.push(v), .None => ()),
+        .Some(var) => match(var.value().get(usize(0)), .Some(v) => out.push(v), .None => ()),
         .None => ()
       ),
       .None => ()
@@ -2634,7 +2634,7 @@ mm_load_prelude_file :: (
     // g_cached_prelude_frame_count doc). The prelude walk is complete here,
     // so the snapshot holds every prelude binding.
     snapshot := clone_env(&prelude_env);
-    g_cached_prelude_frame_count = snapshot.frames.len();
+    g_cached_prelude_frame_count = snapshot.frames_len();
     g_cached_prelude_env = Option(Environment).Some(snapshot);
     // Decision 36's flip asks `Copy` of plain-data types in this environment
     // (`type_lacks_copy_for_flip`, evaluator/trait_checking.yo). Its own

@@ -316,8 +316,8 @@ evaluate_type_field :: (
     ctx.expected_type = old_expected.clone();
     te_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_te));
     te_info := match(te_info_opt, .Some(i) => i, .None => new_expr_info(&env, Rc.new(TypeValueNode.Unit)));
-    env_adopt(&env, &te_info.env);
-    if(!is_type_value(&te_info.value), {
+    env_adopt(&env, &te_info.env());
+    if(!is_type_value(&te_info.value()), {
       exn.throw(
         dyn(
           format_error_message(
@@ -328,7 +328,7 @@ evaluate_type_field :: (
       );
     });
     field_type = match(
-      te_info.value,
+      te_info.value(),
       .Some(.TypeVal(inner)) => Option(TypeValue).Some(Rc.clone(inner)),
       .Some(_) => Option(TypeValue).None,
       .None => Option(TypeValue).None
@@ -413,8 +413,8 @@ evaluate_type_field :: (
         new_expr_info(&env, Rc.new(TypeValueNode.Unit))
       }
     );
-    env_adopt(&env, &av_info.env);
-    if(av_info.value.is_none(), {
+    env_adopt(&env, &av_info.env());
+    if(av_info.value().is_none(), {
       exn.throw(
         dyn(
           format_error_message(
@@ -424,8 +424,8 @@ evaluate_type_field :: (
         )
       );
     });
-    assigned_value = av_info.value;
-    av_type := Rc.clone(av_info.ty);
+    assigned_value = av_info.value();
+    av_type := Rc.clone(av_info.ty());
     // Same UnknownVal hole as the ?= gate above, for the `name = value`
     // comptime-field form: a runtime call is not a compile-time value.
     match(
@@ -500,8 +500,8 @@ evaluate_type_field :: (
         new_expr_info(&env, Rc.new(TypeValueNode.Unit))
       }
     );
-    env_adopt(&env, &dv_info.env);
-    if(dv_info.value.is_none(), {
+    env_adopt(&env, &dv_info.env());
+    if(dv_info.value().is_none(), {
       exn.throw(
         dyn(
           format_error_message(
@@ -511,8 +511,8 @@ evaluate_type_field :: (
         )
       );
     });
-    default_value = dv_info.value;
-    dv_type := Rc.clone(dv_info.ty);
+    default_value = dv_info.value();
+    dv_type := Rc.clone(dv_info.ty());
     // The known-value gate above tests only `.is_none()` — an UnknownVal
     // ("type known, value not") is `.Some` and slips it: a runtime CALL
     // default (`(y : i32) ?= mk()`, `(xs : ArrayList(usize)) ?=
@@ -598,7 +598,7 @@ evaluate_type_field :: (
       )
     );
     le_info := new_expr_info(&env, &final_type);
-    le_info.value = le_val;
+    le_info.set_value(le_val);
     expr_info_set_doc_comment(&le_info, &field_doc_comment);
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&le), &le_info);
   });
@@ -610,7 +610,7 @@ evaluate_type_field :: (
   );
   if(!is_same_as_type_expr, {
     expr_info := new_expr_info(&env, Rc.new(TypeValueNode.Unit));
-    expr_info.value = Option(EvalValue).Some(EvalValue.UnitVal);
+    expr_info.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &expr_info);
   });
   // --- Prohibit void type ---

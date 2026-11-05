@@ -368,7 +368,7 @@ generate_case_body :: (fn(body_expr : &AstExpr, indent : &String, context : &mut
   if(ast_expr_is_fn_call_of(body_expr, BK_BEGIN, Option(usize).None), {
     begin_args := _args(body_expr);
     vei_opt := context.base.get_expr_info(body_expr);
-    cur_drops := match(vei_opt, .Some(vei) => vei.deferred_drop_expressions.clone(), .None => Option(ArrayList(AstExpr)).None);
+    cur_drops := match(vei_opt, .Some(vei) => vei.deferred_drop_expressions(), .None => Option(ArrayList(AstExpr)).None);
     cur_consumed := match(vei_opt, .Some(vei) => expr_info_consumed_variable_drop_expressions(&vei), .None => Option(ArrayList(AstExpr)).None);
     prev_pending := replace(&mut context.pending_deferred_drops, Option(ArrayList(AstExpr)).None);
     prev_consumed := replace(&mut context.consumed_var_pending_drops, Option(ArrayList(AstExpr)).None);
@@ -392,7 +392,7 @@ generate_case_body :: (fn(body_expr : &AstExpr, indent : &String, context : &mut
             // undeclared-identifier C error (SM cond-branch arm class).
             arm_bare_temp := match(
               context.base.get_expr_info(&arg),
-              .Some(aei0) => is_temp_variable_name(&aei0.env.module_path.*, arg_code.clone()),
+              .Some(aei0) => is_temp_variable_name(&aei0.env().module_path().*, arg_code.clone()),
               .None => false
             );
             if((arg_code.len() > usize(0)) && !arm_bare_temp, {
@@ -403,7 +403,7 @@ generate_case_body :: (fn(body_expr : &AstExpr, indent : &String, context : &mut
             });
             match(
               context.base.get_expr_info(&arg),
-              .Some(aei) => if(has_any_control_flow(aei.control_flow), {
+              .Some(aei) => if(has_any_control_flow(aei.control_flow()), {
                 stop = true;
               }),
               .None => ()
@@ -432,7 +432,7 @@ generate_case_body :: (fn(body_expr : &AstExpr, indent : &String, context : &mut
     final_code := if(
       (final_code0.len() > usize(0)) && !_is_control_flow_code(&final_code0) && has_pending_emittable_drop(body_expr, context),
       match(
-        match(context.base.get_expr_info(body_expr), .Some(bei) => Option(TypeValue).Some(Rc.clone(bei.ty)), .None => Option(TypeValue).None),
+        match(context.base.get_expr_info(body_expr), .Some(bei) => Option(TypeValue).Some(Rc.clone(bei.ty())), .None => Option(TypeValue).None),
         .Some(bt) => if(is_unit_type(&bt) || is_never_type(&bt), final_code0, {
           av := fresh_local_name(String.from("__yo_arm_"), &context.base.current_function_name);
           context.base.emitter.emit_string_line(`${indent.clone()}${get_type_string(&bt, &mut context.base)} ${av.clone()} = ${final_code0};`);
@@ -458,7 +458,7 @@ generate_case_body :: (fn(body_expr : &AstExpr, indent : &String, context : &mut
     // closed: an undeclared C identifier
     // (issues/fixed/short-circuit-rhs-temp-in-bare-arm-body-drops-out-of-scope.md).
     vei_opt := context.base.get_expr_info(body_expr);
-    cur_drops := match(vei_opt, .Some(vei) => vei.deferred_drop_expressions.clone(), .None => Option(ArrayList(AstExpr)).None);
+    cur_drops := match(vei_opt, .Some(vei) => vei.deferred_drop_expressions(), .None => Option(ArrayList(AstExpr)).None);
     cur_consumed := match(vei_opt, .Some(vei) => expr_info_consumed_variable_drop_expressions(&vei), .None => Option(ArrayList(AstExpr)).None);
     prev_pending := replace(&mut context.pending_deferred_drops, Option(ArrayList(AstExpr)).None);
     prev_consumed := replace(&mut context.consumed_var_pending_drops, Option(ArrayList(AstExpr)).None);
@@ -482,7 +482,7 @@ generate_case_body :: (fn(body_expr : &AstExpr, indent : &String, context : &mut
     // the value, flush those drops, and hand back the temp
     // (issues/fixed/cond-condition-operand-call-temp-is-never-released.md).
     out := if((code.len() > usize(0)) && !_is_control_flow_code(&code) && has_pending_emittable_drop(body_expr, context), {
-      body_ty := match(context.base.get_expr_info(body_expr), .Some(bei) => Option(TypeValue).Some(Rc.clone(bei.ty)), .None => Option(TypeValue).None);
+      body_ty := match(context.base.get_expr_info(body_expr), .Some(bei) => Option(TypeValue).Some(Rc.clone(bei.ty())), .None => Option(TypeValue).None);
       match(
         body_ty,
         .Some(bt) => if(is_unit_type(&bt), {
@@ -532,7 +532,7 @@ _emit_case_body_no_break :: (fn(case_body : &AstExpr, indent : &String, body_ind
   if(!assigned && (body_code.len() > usize(0)), {
     fb_bare_temp := match(
       context.base.get_expr_info(case_body),
-      .Some(cbei) => is_temp_variable_name(&cbei.env.module_path.*, body_code.clone()),
+      .Some(cbei) => is_temp_variable_name(&cbei.env().module_path().*, body_code.clone()),
       .None => false
     );
     if(!fb_bare_temp, {
@@ -567,7 +567,7 @@ _emit_case_body_and_break :: (fn(case_body : &AstExpr, indent : &String, body_in
     // (the SM cond-branch `sm->var = ...; temp;` class, sys/bufio flag-on).
     fb_bare_temp := match(
       context.base.get_expr_info(case_body),
-      .Some(cbei) => is_temp_variable_name(&cbei.env.module_path.*, body_code.clone()),
+      .Some(cbei) => is_temp_variable_name(&cbei.env().module_path().*, body_code.clone()),
       .None => false
     );
     if(!fb_bare_temp, {
@@ -777,7 +777,7 @@ generate_primitive_match_expression :: (fn(expr : &AstExpr, indent : &String, co
                   .Some(pe) => match(
                     context.base.get_expr_info(&pe),
                     .Some(pei) => match(
-                      pei.value,
+                      pei.value(),
                       .Some(v) => match(
                         _c_literal_from_value(&v),
                         .Some(lit) => {
@@ -1062,14 +1062,14 @@ _gen_nullable_ptr_match :: (fn(expr : &AstExpr, indent : &String, context : &mut
             match(
               context.base.get_expr_info(&dvar),
               .Some(smb_bei) => {
-                smb_vars := scope_variables(ast_expr_id(&dvar), &smb_bei.env, ast_expr_token(&dvar).value.*.to_string());
+                smb_vars := scope_variables(ast_expr_id(&dvar), &smb_bei.env(), ast_expr_token(&dvar).value.*.to_string());
                 if(smb_vars.len() > usize(0), {
                   match(
-                    smb_vars.last(),
+                    smb_vars.last_cloned(),
                     .Some(smb_var) => {
                       smb_env_resolved = true;
                       smb_id = match(
-                        smb_var.is_owning_the_same_rc_value_as,
+                        smb_var.is_owning_the_same_rc_value_as(),
                         .Some(ob) => ob.id.to_string(),
                         .None => smb_var.id.to_string()
                       );
@@ -2411,7 +2411,7 @@ _gen_general_match :: (fn(expr : &AstExpr, arms : &ArrayList(Arm), indent : &Str
 /// unless the body released them right after the subject (emitted-once).
 generate_match_expression :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
   subject_opt := _args(expr).get(usize(0));
-  subj_drops := match(subject_opt, .Some(sj) => match(context.base.get_expr_info(&sj), .Some(sj_ei) => sj_ei.deferred_drop_expressions.clone(), .None => Option(ArrayList(AstExpr)).None), .None => Option(ArrayList(AstExpr)).None);
+  subj_drops := match(subject_opt, .Some(sj) => match(context.base.get_expr_info(&sj), .Some(sj_ei) => sj_ei.deferred_drop_expressions(), .None => Option(ArrayList(AstExpr)).None), .None => Option(ArrayList(AstExpr)).None);
   subj_prev := replace(&mut context.pending_deferred_drops, Option(ArrayList(AstExpr)).None);
   context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(&subj_drops, &subj_prev));
   code := _generate_match_expression_body(expr, indent, context);
@@ -2431,14 +2431,14 @@ generate_match_expression :: (fn(expr : &AstExpr, indent : &String, context : &m
       // construct with a trap: `__yo_abort` is `_Noreturn`, so both compilers
       // treat the fall-through as unreachable and the C function stays
       // well-formed (the trap is dead in every valid program).
-      if(has_any_control_flow(ei.control_flow), {
+      if(has_any_control_flow(ei.control_flow()), {
         trap := indent.clone();
         trap.push_str("__yo_abort();  // unreachable: every arm of this match diverges");
         context.base.emitter.emit_string_line(&trap);
       });
       match(
-        &ei.variable_name,
-        .Some(tv) => if(!is_unit_type(&ei.ty) && (code == tv), {
+        &ei.variable_name(),
+        .Some(tv) => if(!is_unit_type(&ei.ty()) && (code == tv), {
           context.base.emitter.mark_declared_in_scope(&tv);
         }),
         .None => ()
@@ -2450,8 +2450,8 @@ generate_match_expression :: (fn(expr : &AstExpr, indent : &String, context : &m
 });
 _generate_match_expression_body :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("/* \"match\" expression is not evaluated */")));
-  temp_var_opt := ei.variable_name.clone();
-  value_type := Rc.clone(ei.ty);
+  temp_var_opt := ei.variable_name();
+  value_type := Rc.clone(ei.ty());
   is_unit := is_unit_type(&value_type);
   if(
     !is_unit,
@@ -2478,7 +2478,7 @@ _generate_match_expression_body :: (fn(expr : &AstExpr, indent : &String, contex
   args := _args(expr);
   subject := match(args.get(usize(0)), .Some(s) => s, .None => return(codegen_fatal_expr(String.from("\"match\" expression requires a subject"))));
   subject_ei := match(context.base.get_expr_info(&subject), .Some(e) => e, .None => return(codegen_fatal_expr(String.from("\"match\" expression requires a valid type"))));
-  (match_value_type : TypeValue) = Rc.clone(subject_ei.ty);
+  (match_value_type : TypeValue) = Rc.clone(subject_ei.ty());
   (matched_value_code : String) = _call_generate_expr(&subject, indent.clone(), context);
   // Materialize the subject into its temp var when the evaluator assigned one
   // — for a NON-atom subject (a call, a field read) whose value the arms then
@@ -2500,9 +2500,9 @@ _generate_match_expression_body :: (fn(expr : &AstExpr, indent : &String, contex
   is_mut_match := (lookup_match_mode(ast_expr_id(expr)) == MATCH_MODE_MUT);
   (subject_is_own_temp : bool) = false;
   match(
-    &subject_ei.variable_name,
+    &subject_ei.variable_name(),
     .Some(svn) => {
-      subject_var_name := get_variable_name_for_codegen_at(ast_expr_id(&subject), &svn, Option(Environment).Some(subject_ei.env));
+      subject_var_name := get_variable_name_for_codegen_at(ast_expr_id(&subject), &svn, Option(Environment).Some(subject_ei.env()));
       if(!is_mut_match && !ast_expr_is_atom(&subject) && !(matched_value_code == subject_var_name), {
         _emit_pattern_binding_decl(
           context,

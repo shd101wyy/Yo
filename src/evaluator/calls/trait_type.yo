@@ -201,7 +201,7 @@ try_to_specialize_trait_type :: (
     // Evaluate the constraint type expression.
     evaluated := evaluate_expression_raw(&value_sub, &caller_env, ctx, exn);
     evaluated_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated));
-    if(!match(evaluated_info_opt, .Some(info) => is_type_value(&info.value), .None => false), {
+    if(!match(evaluated_info_opt, .Some(info) => is_type_value(&info.value()), .None => false), {
       exn.throw(
         dyn(
           format_error_message(
@@ -217,7 +217,7 @@ try_to_specialize_trait_type :: (
     constraint_ty := match(
       evaluated_info_opt,
       .Some(info) => match(
-        info.value,
+        info.value(),
         .Some(v) => match(v, .TypeVal(tv) => Rc.clone(tv), _ => Rc.new(TypeValueNode.Unit)),
         .None => Rc.new(TypeValueNode.Unit)
       ),
@@ -447,10 +447,10 @@ try_to_implement_trait_with_arguments_by_trait_type :: (
           );
         });
         arg_info := match(arg_info_opt, .Some(it) => it, .None => new_expr_info(&caller_env, &field_type));
-        reject_second_class_escape(&arg_info.ty, String.from("stored in a trait implementation"), ast_expr_token(&value_sub), ctx, exn);
+        reject_second_class_escape(&arg_info.ty(), String.from("stored in a trait implementation"), ast_expr_token(&value_sub), ctx, exn);
         set_expr_as_needs_to_call_dup(&evaluated_arg, ctx, exn, "field-store");
         caller_env = expr_info_adopt_env(&arg_info);
-        arg_type := Rc.clone(arg_info.ty);
+        arg_type := Rc.clone(arg_info.ty());
         if(!are_types_compatible(&arg_type, &field_type), {
           exn.throw(
             dyn(
@@ -462,10 +462,10 @@ try_to_implement_trait_with_arguments_by_trait_type :: (
           );
         });
         // Store the value at position i.
-        field_values(i) = arg_info.value;
+        field_values(i) = arg_info.value();
         // Annotate the label sub-expr.
         label_info := new_expr_info(&caller_env, &arg_type);
-        label_info.value = arg_info.value;
+        label_info.set_value(arg_info.value());
         expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&label_sub), &label_info);
       });
       j = (j + usize(1));

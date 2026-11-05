@@ -669,14 +669,14 @@ _async_override_return_type :: (
         },
         .None => match(
           context.get_expr_info(&b),
-          .Some(ei) => if(is_some_type(&ei.ty) && type_implements_future(&ei.ty), {
+          .Some(ei) => if(is_some_type(&ei.ty()) && type_implements_future(&ei.ty()), {
             // DELEGATE fallback (fn returns another async fn's future; no own
             // block): the body's future C name resolves through the CALLEE's
             // block_sn registration above. When it resolves concretely, also
             // register THIS fn's return key → the same struct, so a further
             // delegate (a delegate-of-a-delegate) and this fn's own callers
             // resolve too (see _preregister_async_return_overrides).
-            del_s := get_type_string(&ei.ty, context);
+            del_s := get_type_string(&ei.ty(), context);
             if(!(del_s == "void*"), {
               context.register_type(type_key(&ret), &ret, del_s.clone(), Option(String).None);
             });
@@ -713,7 +713,7 @@ awaited_future_c_type_override :: (
       future_expr,
       .FnCall(_, af_fx, _, _, _) => match(
         context.get_expr_info(&af_fx),
-        .Some(af_fei) => af_fei.value,
+        .Some(af_fei) => af_fei.value(),
         .None => Option(EvalValue).None
       ),
       _ => Option(EvalValue).None
@@ -749,7 +749,7 @@ _return_type_override :: (
         match(
           context.get_expr_info(&b),
           .Some(ei) => {
-            override = Option(String).Some(get_type_string(&ei.ty, context));
+            override = Option(String).Some(get_type_string(&ei.ty(), context));
           },
           .None => ()
         );
@@ -759,7 +759,7 @@ _return_type_override :: (
           context.get_expr_info(&b),
           .Some(ei) => {
             sig_s := get_type_string(&ret, context);
-            body_s := get_type_string(&ei.ty, context);
+            body_s := get_type_string(&ei.ty(), context);
             if(!(sig_s == body_s), {
               override = Option(String).Some(body_s);
             });
@@ -899,7 +899,7 @@ static_dispatch_callee_return_type :: (
     context.get_expr_info(func_expr),
     .Some(cei) => {
       sd_id := match(
-        resolve_some_type_to_concrete(&cei.ty),
+        resolve_some_type_to_concrete(&cei.ty()),
         Rc(.Struct({ id : i })) => i.clone(),
         Rc(.SomeT({ id : i })) => i.clone(),
         _ => String.from("")
