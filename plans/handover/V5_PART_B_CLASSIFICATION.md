@@ -121,6 +121,27 @@ migrating.
   RefCell(ArrayList(_Package))` and `remote : RefCell(_RemoteCache)`
   (shape 2). `_Package` is a value that the futures read by snapshot and
   write back by index.
+- `PendingDef`, `ModuleWalk` (`src/evaluator/context.yo`), as built:
+  shape 2. `PendingDef :: Rc(PendingDefData)`, with `name`, `index` and
+  `is_impl` read-only and every field the walk writes in one
+  `live : RefCell(PendingDefLive)` read and written through accessor
+  methods. `ModuleWalk :: Rc(ModuleWalkData)`, with `begin_exprs` and `ctx`
+  as its two cells; the frame, env and def lists are read-only after
+  construction. `DeferredAsyncBlock` (`src/codegen/functions/context.yo`)
+  is a read-only `Rc(DeferredAsyncBlockData)` (R), and `ClosureParamSlot`
+  is a plain value.
+- `Environment`, `Frame`, `FrameNameIndex`, `Variable`, `VariableRare`,
+  `WhereClauseConstraints`, `ExprInfo`, `ExprInfoRare`: **stay `ref`,
+  pending VERDICTS-22**. `RefCell` boxes its slot
+  (`std/sync/refcell.yo`), so each cell costs one more allocation
+  (+31 B per object for shape 2, +47 B for `Rc(RefCell(S))`, measured on
+  4 M Variable-shaped objects under mimalloc). With about 8 M Variables
+  and 3.2 M ExprInfos alive, that is about +15 % `check ./src` RSS, five
+  times the 3 % gate. An inline borrow word costs nothing when the layout
+  stays in its allocator bin. That needs `&T` parameters of cell-containing
+  types to pass by address (decision 34's ABI, `fn_param_is_ptr_borrow`)
+  before `RefCell` can drop the `Box`. The measurement and options are in
+  the consult input for VERDICTS-22.
 - `Md5`, `Sha1`, `Sha512`, `NfaCompiler`: **L**, not R. They are written
   through `self`, and the syntactic scan does not count receiver writes.
 
