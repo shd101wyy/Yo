@@ -182,3 +182,11 @@ comptime_expect_error(
   ),
   "is a `&` borrow, which is read-only"
 );
+// The same field behind one pointer, lent `&mut` twice, still overlaps.
+_raw_two :: (fn(x : &mut ArrayList(i32), y : &mut ArrayList(i32)) -> unit)(());
+comptime_expect_error(
+  _raw_same_field_twice :: (fn(p : *_RawS) -> unit)(
+    _raw_two(&mut p.*.b, &mut p.*.b)
+  ),
+  "which an earlier argument of the same call lends to it"
+);
