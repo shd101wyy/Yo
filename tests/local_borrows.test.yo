@@ -706,17 +706,18 @@ comptime_expect_error({
   n := i32(5);
   _bare_borrow_param(&n);
 }, "reading the value it refers to is spelled `v.*`");
-// A reference read as a whole value (passed to a by-value parameter, bound
-// by `:=`) whose referent is move-only: `r.*` would copy it, which is E0901,
-// so E0926 names the borrowing and cloning repairs instead, and `r.*`
-// written anyway is E0901 naming the dereference
+// A bare reference whose referent is move-only, read as a whole value: E0926
+// is judged before the read's consumer, and `r.*` is right where the value is
+// only read (an operand) but E0901 where it would be copied (a by-value
+// parameter, a `:=` binding), so the help names both; `r.*` copied anyway is
+// E0901 naming the dereference
 // (issues/fixed/2026-11-05-migrate-deref-copies-a-move-only-referent-into-a-by-value-parameter.md).
 _take_owned_string :: (fn(s : String) -> usize)(s.len());
 comptime_expect_error({
   _pass_ref_by_value :: (fn(r : &String) -> usize)(_take_owned_string(r));
   s := String.from("a");
   _pass_ref_by_value(&s);
-}, "read as a whole value: `r.*` would copy the value it refers to, and `String` is move-only");
+}, "where it would be copied (a by-value parameter, a `:=` binding, a return) `String` is move-only, so read through `r` there");
 comptime_expect_error({
   _bind_ref_whole :: (fn(r : &String) -> usize)({
     x := r;
@@ -724,7 +725,19 @@ comptime_expect_error({
   });
   s := String.from("a");
   _bind_ref_whole(&s);
-}, "read as a whole value: `r.*` would copy the value it refers to, and `String` is move-only");
+}, "write `r.*` where the value is only read (an operand such as `r.* == other`)");
+comptime_expect_error({
+  _compare_refs_bare :: (fn(r : &String, o : &String) -> bool)(r == o);
+  s := String.from("a");
+  _compare_refs_bare(&s, &s);
+}, "reading the value it refers to is spelled `r.*`");
+_compare_string_refs :: (fn(r : &String, o : &String) -> bool)(r.* == o.*);
+test("local borrows: `r.*` of a move-only referent is an operand, not a copy", {
+  a := String.from("a");
+  b := String.from("a");
+  assert(_compare_string_refs(&a, &b), "the operands read through the references");
+  assert(a.len() == usize(1), "a is untouched");
+});
 comptime_expect_error({
   _pass_deref_by_value :: (fn(r : &String) -> usize)(_take_owned_string(r.*));
   s := String.from("a");

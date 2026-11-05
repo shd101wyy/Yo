@@ -3332,9 +3332,9 @@ export(MarkerSite, set_migrate_markers, migrate_markers_on, record_marker_site, 
 /// `edit` 1 instead inserts `<expect> : ` before the token at `row`/`col`
 /// (a capture-list pun or shorthand `{ &r }` / `{ r }` gains its label:
 /// `{ r : &r.* }`), and `edit` 2 deletes the borrow marker (`&`, `&mut `)
-/// written right before it (`match(&r, …)` → `match(r, …)`). `edit` 4
-/// records a by-value argument whose referent is not implicitly copyable:
-/// listed, never rewritten (`r.*` would be E0901).
+/// written right before it (`match(&r, …)` → `match(r, …)`). `edit` 4 is
+/// an `edit` 0 read the evaluation then copied (`note_reference_read_copied`):
+/// listed, never rewritten (`r.*` would be E0901 there).
 DerefSite :: struct(path : String, row : usize, col : usize, expect : String, edit : u8);
 derive(DerefSite, Clone);
 (mut(g_migrate_deref) : bool) = false;
@@ -3372,10 +3372,9 @@ record_deref_site :: (fn(tok : &Token, expect : &String) -> unit)({
   site := DerefSite(path : tok.module_path.*.clone(), row : usize(tok.row), col : usize(tok.column), expect : expect.clone(), edit : u8(0));
   g_deref_sites.with_mut({ site }(xs) => xs.push(site));
 });
-/// Record an `edit` 1 (label prefix `text`), 2 (drop the marker), 3 (append
+/// Record an `edit` 1 (label prefix `text`), 2 (drop the marker) or 3 (append
 /// `.*` to an old `r.*` that read the payload of a `Box`/`Rc`/pointer/cell
-/// handle through the reference) or 4 (list a by-value argument whose
-/// referent is not implicitly copyable, left as written) site at `tok`. Once per position and edit.
+/// handle through the reference) site at `tok`. Once per position and edit.
 /// An edit 3 is applied only in a file that shows no new spelling
 /// (`note_deref_migrated_file`): the source cannot tell an old `b.*` (the
 /// payload) from an already-migrated one (the reference's deref).
@@ -3385,7 +3384,7 @@ record_deref_edit_site :: (fn(tok : &Token, text : &String, edit : u8) -> unit)(
     return(());
   });
   if(g_audit_deref, {
-    eprintln(`[deref] ${tok.module_path.*}:${(tok.row + u32(1)).to_string()}:${(tok.column + u32(1)).to_string()} ${if(edit == u8(2), "drop-marker", if(edit == u8(3), "payload", if(edit == u8(4), "kept", "label")))} ${text}`);
+    eprintln(`[deref] ${tok.module_path.*}:${(tok.row + u32(1)).to_string()}:${(tok.column + u32(1)).to_string()} ${if(edit == u8(2), "drop-marker", if(edit == u8(3), "payload", "label"))} ${text}`);
   });
   site := DerefSite(path : tok.module_path.*.clone(), row : usize(tok.row), col : usize(tok.column), expect : text.clone(), edit : edit);
   g_deref_sites.with_mut({ site }(xs) => xs.push(site));
@@ -3439,9 +3438,37 @@ take_deref_clean_sites :: (fn() -> ArrayList(DerefSite))({
   g_deref_clean_keys.with_mut(s => s.clear());
   out
 });
+/// The positions of recorded reads (`edit` 0) that the evaluation then
+/// copied as a whole value (a by-value parameter, a `:=` binding, a return):
+/// the referent is not implicitly copyable, so `r.*` there would be E0901,
+/// and `take_deref_sites` hands the site out as an `edit` 4 (listed, left
+/// as written; an operand or a builtin that only reads `r.*` keeps its
+/// `edit` 0). Recorded once per position
+/// (issues/fixed/2026-11-05-migrate-deref-copies-a-move-only-referent-into-a-by-value-parameter.md).
+(g_deref_copied_keys : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
+note_reference_read_copied :: (fn(tok : &Token, name : &String) -> unit)({
+  key := `${tok.module_path.*}:${tok.row.to_string()}:${tok.column.to_string()}`;
+  if(!g_deref_copied_keys.with_mut(s => s.insert(key.clone())), {
+    return(());
+  });
+  if(g_audit_deref, {
+    eprintln(`[deref] ${tok.module_path.*}:${(tok.row + u32(1)).to_string()}:${(tok.column + u32(1)).to_string()} copied ${name}`);
+  });
+});
 take_deref_sites :: (fn() -> ArrayList(DerefSite))({
-  out := g_deref_sites.with_mut(xs => xs.split_off(usize(0)));
+  taken := g_deref_sites.with_mut(xs => xs.split_off(usize(0)));
   g_deref_site_keys.with_mut(s => s.clear());
+  copied := g_deref_copied_keys.with_mut(s => {
+    keys := s.clone();
+    s.clear();
+    keys
+  });
+  out := ArrayList(DerefSite).new();
+  for(&taken, st => {
+    key := `${st.path}:${st.row.to_string()}:${st.col.to_string()}`;
+    edit := if((st.edit == u8(0)) && copied.contains(&key), u8(4), st.edit);
+    out.push(DerefSite(path : st.path.clone(), row : st.row, col : st.col, expect : st.expect.clone(), edit : edit));
+  });
   out
 });
 /// The files `note_deref_migrated_file` saw, as recorded (module paths in
@@ -3453,7 +3480,7 @@ take_deref_migrated_files :: (fn() -> HashSet(String))(
     out
   })
 );
-export(DerefSite, set_migrate_deref, migrate_deref_on, set_deref_rule_suspended, deref_rule_suspended, audit_deref_on, record_deref_site, record_deref_edit_site, note_deref_migrated_file, note_deref_dead_arm_file, record_deref_clean_site, take_deref_sites, take_deref_migrated_files, take_deref_dead_arm_files, take_deref_clean_sites);
+export(DerefSite, set_migrate_deref, migrate_deref_on, set_deref_rule_suspended, deref_rule_suspended, audit_deref_on, record_deref_site, record_deref_edit_site, note_deref_migrated_file, note_deref_dead_arm_file, record_deref_clean_site, note_reference_read_copied, take_deref_sites, take_deref_migrated_files, take_deref_dead_arm_files, take_deref_clean_sites);
 /// One pattern `yo fix --migrate rc-pattern` wraps in `Rc(…)`
 /// (plans/VALUES_BY_DEFAULT.md decision 31, Generation B): a structural
 /// pattern at an `Rc(T)` position, which the compiler no longer looks through
