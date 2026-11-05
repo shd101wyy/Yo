@@ -103,7 +103,7 @@ _emit_zst_dummy :: (fn(context : &mut CodeGenContext) -> unit)(
 /// Emit one array-wrapper typedef.
 _emit_array_wrapper :: (fn(context : &mut CodeGenContext, name : &String) -> unit)({
   match(
-    context.array_struct_types.get(name.clone()),
+    context.array_struct_types.get_cloned(name.clone()),
     .Some(info) => {
       context.emitter.emit_declaration_line("typedef struct { // Array wrapper struct");
       // `Array(unit, N)`: the element is zero-sized, so there is no `data`
@@ -138,7 +138,7 @@ _drain_ready_array_wrappers :: (
     while(i < pending.len(), {
       name := match(pending.get_cloned(i), .Some(k) => k, .None => String.from(""));
       child := match(
-        context.array_struct_types.get(name.clone()),
+        context.array_struct_types.get_cloned(name.clone()),
         .Some(info) => info.child_type.clone(),
         .None => String.from("")
       );
