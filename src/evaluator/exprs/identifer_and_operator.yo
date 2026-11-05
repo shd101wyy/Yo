@@ -526,14 +526,15 @@ evaluate_identifier_and_operator :: (
   // ------------------------------------------------------------------
   // The body context's kind and env, read out first: the tracking below
   // writes `ctx`.
-  sub_kind_env := match(
+  sub_kind_opt := match(
     &ctx.is_evaluating_function_body_or_async_block,
-    .Some(s) => Option((FuncOrAsyncBlockKind, Environment)).Some((s.kind, s.eval_env)),
-    .None => Option((FuncOrAsyncBlockKind, Environment)).None
+    .Some(s) => Option(FuncOrAsyncBlockKind).Some(s.kind),
+    .None => Option(FuncOrAsyncBlockKind).None
   );
+  sub_env := match(&ctx.is_evaluating_function_body_or_async_block, .Some(s) => s.eval_env, .None => env);
   match(
-    sub_kind_env,
-    .Some((sub_kind, sub_env)) => {
+    sub_kind_opt,
+    .Some(sub_kind) => {
       match(
         sub_kind,
         .FunctionBody => {
