@@ -6554,7 +6554,8 @@ reject_reference_without_deref :: (fn(v : &Variable, tok : &Token, kind : u8, ct
     return(());
   });
   name := v.name.clone();
-  ref_ty := `${cond(variable_is_mut_borrow(v) => "&mut ", true => "&")}${type_to_string_for_message(&variable_value_type(&v))}`;
+  ty_text := type_to_string_for_message(&variable_value_type(v));
+  ref_ty := `${cond(variable_is_mut_borrow(v) => "&mut ", true => "&")}${ty_text}`;
   msg := cond(
     (kind == u8(1)) => `\`${name}\` is a reference (\`${ref_ty}\`): writing the value it refers to is spelled \`${name}.* = …\``,
     (kind == u8(2)) => `\`${name}\` is a reference (\`${ref_ty}\`): borrowing the value it refers to is spelled \`&${name}.*\``,
