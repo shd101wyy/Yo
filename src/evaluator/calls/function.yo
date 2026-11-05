@@ -63,7 +63,8 @@ pragma(Pragma.AllowUnsafe);
   fv_source_val,
   bind_parameter,
   generate_variable_id,
-  closure_param_slot_trait
+  closure_param_slot_trait,
+  new_environment
 } :: import("../../env.yo");
 { some_t_bounds, TypeValue, TypeValueNode, FuncMeta, t_refine_inner, shared_list, no_types, no_labels, no_levels, SharedList, no_flags, slot_pointee_at, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_by_value, t_reference, fn_param_mut_ref_flags, fn_param_by_value_flags, t_slot_with_pointee, t_slot_is_borrow, fn_param_slots, is_origin_kind, t_origin_kind, t_origin_named, fn_result_slot } :: import("../../types/definitions.yo");
 { get_func_param_defaults, get_func_param_default_exprs, default_param_eval_env, get_func_param_comptime, register_func_param_comptime, is_param_quoted, is_macro_fn, macro_return_is_unquote, evaluate_function_return_type_again, get_func_return_type_expr, get_func_variadic_param, get_func_param_type_exprs, get_func_where_clause_exprs, evaluate_function_parameter_type_again, _collect_type_arg_somes, _resolve_some_types_deep, collect_wrapper_trait_somes, evaluate_origin_argument } :: import("../types/function.yo");
@@ -5811,7 +5812,7 @@ _fv_refine_closure_expected :: (
         se_opt,
         .Some(e) => e,
         .None => {
-          se_new := Environment.new(Rc.clone(env.module_path()));
+          se_new := new_environment(Rc.clone(env.module_path()));
           (sq : usize) = usize(0);
           while(sq < info_arg_idx.len(), {
             sp := match(info_arg_idx.get(sq), .Some(ix) => ix, .None => usize(0));
@@ -6237,7 +6238,7 @@ _funcval_bind_foralls :: (
         fa_synth_env,
         .Some(e) => e,
         .None => {
-          se_new := Environment.new(Rc.clone(env.module_path()));
+          se_new := new_environment(Rc.clone(env.module_path()));
           n_dp := declared_param_types.len();
           // Per-call consistency for binders reached STRUCTURALLY
           // (`x : Option(A), y : Option(A)`): the synthesizer rebinds in
@@ -6540,7 +6541,7 @@ _funcval_bind_foralls :: (
       if(is_function_type(&cx_info.ty()) || is_fn_trait_type(&cx_info.ty()) || is_some_type(&cx_info.ty()), {
         continue;
       });
-      cx_env := Environment.new(Rc.clone(env.module_path()));
+      cx_env := new_environment(Rc.clone(env.module_path()));
       _funcval_try_synthesize_param(&cx_dpt, &cx_env, &cx_info.ty(), env);
       (cx_b : usize) = usize(0);
       while(cx_b < fa_bound_names.len(), {
@@ -9179,7 +9180,7 @@ _evaluate_function_call_unanchored :: (
       };
       (op_result_val : Option(EvalValue)) = if((is_type_hierarchy_type(&resolved_ret) || op_is_comptime) && op_operands_concrete, {
         op_fv := match(op_eff_m.value, .Some(v) => v, .None => EvalValue.UnitVal);
-        op_env := Environment.new(Rc.clone(call_result_op.callee_env.module_path()));
+        op_env := new_environment(Rc.clone(call_result_op.callee_env.module_path()));
         match(
           op_fv,
           .FuncVal(__fvm4, op_cvals) => {
@@ -10976,7 +10977,7 @@ Fix: wrap the call:
               );
               if(lp_go, {
                 _lpf := env.push_frame(false);
-                lp_se := Environment.new(Rc.clone(env.module_path()));
+                lp_se := new_environment(Rc.clone(env.module_path()));
                 lp_ct_flags := get_func_param_comptime(func_id_fv.clone());
                 (lp_j : usize) = usize(0);
                 while(lp_j < ai, {
@@ -13074,7 +13075,7 @@ Fix: wrap the call:
             // not execution), so passing it to the CTFE would leave `self`
             // unknown in the body. Mirror the inline FuncVal arm, which binds
             // params to `arg_info.value` in a fresh env before CTFE.
-            m_env := Environment.new(Rc.clone(call_result_m.callee_env.module_path()));
+            m_env := new_environment(Rc.clone(call_result_m.callee_env.module_path()));
             match(
               m_fv,
               .FuncVal(__fvm5, m_cvals) => {

@@ -75,7 +75,8 @@ pragma(Pragma.AllowUnsafe);
   bind_parameter,
   variable_bound_some_id,
   variable_set_bound_some_id,
-  mark_closure_param_slot_trait
+  mark_closure_param_slot_trait,
+  new_environment
 } :: import("../../env.yo");
 // dup-on-store / move for owned fn-call args. utils.yo
 // imports nothing from calls/, so this is acyclic.
@@ -5266,7 +5267,7 @@ create_specialized_function_inline :: (
                                   // _trial_eval_fn_body; the body nodes are the
                                   // ORIGINAL ones codegen walks, so the fresh
                                   // infos overwrite the stale ones in place.
-                                  cw_benv := Environment.new(Rc.clone(callee_env.module_path()));
+                                  cw_benv := new_environment(Rc.clone(callee_env.module_path()));
                                   (cw_cvi : usize) = usize(0);
                                   cw_src := fv_capture_source(&cc_fvd.*);
                                   (n_cw : usize) = fv_source_count(&cw_src, &cc_capvals);
@@ -6526,7 +6527,7 @@ resolve_param_types_from_expected :: (
   // Seed every signature SomeT as a self-binding placeholder so
   // `synthesize_types` has a slot to rebind (mirrors the generic-placeholder
   // setup in `try_to_call_function_with_arguments`).
-  synth_env := Environment.new(Rc.clone(caller_env.module_path()));
+  synth_env := new_environment(Rc.clone(caller_env.module_path()));
   synth_env.push_frame(false);
   sig_somes := get_all_some_types(func_type);
   (si : usize) = usize(0);
@@ -7509,9 +7510,9 @@ try_to_call_function_with_arguments :: (
             &cv,
             Rc.clone(caller_env.module_path())
           ),
-          _ => Environment.new(Rc.clone(caller_env.module_path()))
+          _ => new_environment(Rc.clone(caller_env.module_path()))
         ),
-        .None => Environment.new(Rc.clone(caller_env.module_path()))
+        .None => new_environment(Rc.clone(caller_env.module_path()))
       );
       // Step 5: Push a new frame on callee_env for parameter bindings.
       callee_env.push_frame(false);

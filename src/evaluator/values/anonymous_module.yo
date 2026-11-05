@@ -36,7 +36,7 @@ pragma(Pragma.AllowUnsafe);
   restore_active_where_trait_ids
 } :: import("../../expr_info.yo");
 { HashSet } :: import("std/collections/hash_set");
-{ Environment, Variable, get_variables_from_env, env_adopt } :: import("../../env.yo");
+{ Environment, Variable, get_variables_from_env, env_adopt, new_environment } :: import("../../env.yo");
 /// Names of recorded module-level runtime statics — lets a later bare-atom
 /// `name = value;` top-level REASSIGNMENT be collected into the module init
 /// (a per-variable "module-level" flag would be unreliable for imported
@@ -1049,7 +1049,7 @@ _run_module_walk :: (
           AnonModuleResult(
             module_value : EvalValue.UnitVal,
             module_type : Rc.new(TypeValueNode.Unit),
-            env : Environment.new(Rc.new(String.new())),
+            env : new_environment(Rc.new(String.new())),
             partial_module_error : Option(String).None
           )
         );

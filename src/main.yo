@@ -114,7 +114,7 @@ pragma(Pragma.AllowUnsafe);
 { Z3_VERSION } :: import("./verifier/z3.yo");
 json :: import("std/encoding/json");
 { JsonValue } :: import("std/encoding/json");
-{ Environment, set_mut_decl_census, take_mut_decl_facets, take_mut_decl_heads, MUT_FACET_LEND, MUT_FACET_FIELD, MUT_FACET_INDEX, MUT_FACET_DEREF, MUT_FACET_BORROW } :: import("./env.yo");
+{ Environment, set_mut_decl_census, take_mut_decl_facets, take_mut_decl_heads, MUT_FACET_LEND, MUT_FACET_FIELD, MUT_FACET_INDEX, MUT_FACET_DEREF, MUT_FACET_BORROW, new_environment } :: import("./env.yo");
 // The demand-driven module loader, the cached prelude env, the shared codegen
 // ExprInfoTable and std-path resolution all live in `module_manager.yo` so that
 // every subcommand that needs to evaluate a `.yo` file (build, fetch, install,
@@ -317,7 +317,7 @@ try_populate_expr_info_table :: (
   // is resolved from `YO_STD` (or `./std` fallback) so the modular import
   // handler can find `std/...` modules. The local exception unwind catches
   // any evaluator coverage gap (e.g. unimplemented HKT/RC features in prelude).
-  env := Environment.new(Rc.new(module_path.clone()));
+  env := new_environment(Rc.new(module_path.clone()));
   ctx := eval_context_new(resolve_std_path(), module_path);
   ctx.is_executing = true;
   // Wire the proper expression-evaluator function pointer.

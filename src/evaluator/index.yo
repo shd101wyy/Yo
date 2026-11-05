@@ -35,7 +35,7 @@ import("std/fmt");
 { Token, TokenKind } :: import("../token.yo");
 { Parser } :: import("../parser.yo");
 { AstExpr, desugar_program_if_calls } :: import("../expr.yo");
-{ Environment, build_prelude_var_cache } :: import("../env.yo");
+{ Environment, build_prelude_var_cache, new_environment } :: import("../env.yo");
 { TypeValue, TypeValueNode } :: import("../types/definitions.yo");
 { EvalValue } :: import("../value.yo");
 { register_evaluate_expression } :: import("./exprs/_expr.yo");
@@ -168,7 +168,7 @@ impl(
     // parser.yo `parse` (this constructor drives Parser directly).
     program := desugar_program_if_calls(parser.get_program(exn));
     // --- Create base environment ---
-    (env : Environment) = Environment.new(Rc.new(module_path.clone()));
+    (env : Environment) = new_environment(Rc.new(module_path.clone()));
     // NOTE: no module-loader wiring call here. `import("...")` resolves through
     // `load_module_fn` directly (used for the prelude just below) and through
     // `g_evaluator_load_fn`.

@@ -80,7 +80,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../types/utils.yo");
 { type_to_string, type_key_epoch } :: import("../types/string.yo");
 { force_pending_impls_for_type_name, type_head_name_for_impl_forcing, EvalContext, call_function_value_marker, call_closure_capture_marker, set_copy_trait_blockers_fn } :: import("./context.yo");
-{ Environment, get_where_clause_constraints_for_some_type } :: import("../env.yo");
+{ Environment, get_where_clause_constraints_for_some_type, new_environment } :: import("../env.yo");
 { Token } :: import("../token.yo");
 { EvalValue } :: import("../value.yo");
 { YoError, format_error_message } :: import("../error.yo");
@@ -3610,7 +3610,7 @@ unmark_concrete_impl_being_registered :: (fn(type_id : &String, trait_id : &Stri
 /// side-tables and still answer; env-scoped cases degrade to "not implemented"
 /// (fall through to the old strict behavior — never a new false-positive).
 _compat_implements_adapter :: (fn(t : &TypeValue, trait_type : &TypeValue) -> bool)(
-  type_implements_trait_bool(t, trait_type, Environment.new(Rc.new(String.from(""))))
+  type_implements_trait_bool(t, trait_type, new_environment(Rc.new(String.from(""))))
 );
 /// Adapter for impl.yo's env-threading hook: `TraitCheckResult` cannot be
 /// imported there (circular), so the post-constraint bindings are written

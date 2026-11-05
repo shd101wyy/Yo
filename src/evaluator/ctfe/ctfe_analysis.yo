@@ -28,7 +28,8 @@ pragma(Pragma.AllowUnsafe);
   snapshot_env,
   fv_capture_names,
   fv_capture_tys,
-  fv_capture_vals
+  fv_capture_vals,
+  new_environment
 } :: import("../../env.yo");
 {
   EvalContext,
@@ -161,7 +162,7 @@ _eval_body_for_ctfe :: (
   ) -> bool
 )({
   // Build a fresh environment: add captured variables, then push a frame.
-  (ctfe_env : Environment) = Environment.new(Rc.clone(env.module_path()));
+  (ctfe_env : Environment) = new_environment(Rc.clone(env.module_path()));
   n_cap := cap_names.len();
   (cap_i : usize) = usize(0);
   while(cap_i < n_cap, {
