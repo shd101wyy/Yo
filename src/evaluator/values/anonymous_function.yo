@@ -779,7 +779,12 @@ outcome after the guarded call instead (e.g. a result the handler unwinds past).
                     match(
                       frame.variables.get(vi),
                       .Some(v) => if(v.name == k, {
-                        if(v.is_ref && !in_cap_frame, {
+                        // A binding of a `&` match is a pointer into the
+                        // scrutinee, but an implicit capture copies its part
+                        // (the field holds the value, as before the binding
+                        // was a pointer); a reference payload's binding is
+                        // the reference itself.
+                        if(v.is_ref && !in_cap_frame && !(v.is_borrow_match_binding && ref_payload_source(v.id).is_none()), {
                           _raise_capture_rejection(
                             ctx,
                             exn,

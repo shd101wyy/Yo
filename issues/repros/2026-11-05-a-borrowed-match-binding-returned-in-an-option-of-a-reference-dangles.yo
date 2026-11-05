@@ -1,0 +1,13 @@
+// issues/2026-11-05-a-borrowed-match-binding-returned-in-an-option-of-a-reference-dangles.md
+{ assert } :: import("std/assert");
+P :: struct(a : i32, b : i64, c : i64);
+H :: struct(v : Option(P));
+peek :: (fn(h : &H) -> Option(&P))(
+  match(&h.v, .Some(s) => .Some(s), .None => .None)
+);
+main :: (fn() -> unit)({
+  h := H(v : .Some(P(a : i32(7), b : i64(8), c : i64(9))));
+  r := peek(&h);
+  assert(match(r, .Some(p) => (p.a == i32(7)), .None => false), "seven");
+});
+export(main);

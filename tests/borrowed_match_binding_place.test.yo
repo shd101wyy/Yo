@@ -1,0 +1,101 @@
+//! A binding of a `&` match (`match(&x, …)`, or a reference binding matched
+//! bare) is a reference into the scrutinee's place, as a `&mut` match's
+//! binding is (decision 43): a reference the arm yields to it points where
+//! the scrutinee does, and outlives the arm
+//! (issues/fixed/2026-11-05-a-borrowed-match-binding-returned-in-an-option-of-a-reference-dangles.md).
+//!
+//! The oracle is the place itself: an address taken through a binding is
+//! written after the match, and the scrutinee, read by value, must show the
+//! write. A binding that copied its part would carry the write away in the
+//! copy.
+pragma(Pragma.AllowUnsafe);
+{ assert, panic } :: import("std/assert");
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ yield } :: import("std/async");
+{ RefCell } :: import("std/sync/refcell");
+_P :: struct(a : i32, b : i64, c : i64);
+derive(_P, Copy, Clone);
+_H :: struct(v : Option(_P));
+_Two :: enum(One(n : i32), Two(x : i32, y : i32), Named(s : String, k : i32));
+_peek :: (fn(h : &_H) -> Option(&_P))(
+  match(&h.v, .Some(s) => .Some(s), .None => .None)
+);
+_a_of :: (fn(h : &_H) -> i32)(match(h.v, .Some(q) => q.a, .None => i32(-1)));
+test("an Option(&T) built from a borrowed match's binding points into the scrutinee", {
+  h := _H(v : .Some(_P(a : i32(7), b : i64(8), c : i64(9))));
+  r := _peek(&h);
+  pa := match(&r, .Some(p) => addr_of(p.a), .None => panic("the payload"));
+  assert(match(&r, .Some(p) => (p.a == i32(7)), .None => false), "the reference reads the payload");
+  pa.* = i32(70);
+  assert(_a_of(&h) == i32(70), "the reference is the scrutinee's payload, not a copy of it");
+});
+test("a variant arm's bindings point into the scrutinee (the switch lowering)", {
+  e := _Two.Two(x : i32(1), y : i32(2));
+  py := match(&e, .Two(x, y) => addr_of(y.*), _ => panic("the variant"));
+  py.* = i32(20);
+  assert(match(&e, .Two(x, y) => ((x.* == i32(1)) && (y.* == i32(20))), _ => false), "a Copy payload's binding is the payload");
+  named := _Two.Named(s : String.from("n"), k : i32(3));
+  pk := match(&named, .Named(s, k) => addr_of(k.*), _ => panic("the variant"));
+  pk.* = i32(30);
+  assert(match(&named, .Named(s, k) => ((s.* == String.from("n")) && (k.* == i32(30))), _ => false), "a binding beside a String one");
+});
+test("a guarded, nested, or-pattern and named binding points into the scrutinee (the general lowering)", {
+  e := _Two.Two(x : i32(1), y : i32(2));
+  pg := match(&e, (.Two(x, y) && (x.* > i32(0))) => addr_of(y.*), _ => panic("the guard"));
+  pg.* = i32(21);
+  assert(match(&e, .Two(_, y) => (y.* == i32(21)), _ => false), "a guarded arm's binding");
+  po := match(&e, (.One(n) | .Two(n, _)) => addr_of(n.*), _ => panic("the or-pattern"));
+  po.* = i32(11);
+  assert(match(&e, .Two(x, _) => (x.* == i32(11)), _ => false), "an or-pattern's binding");
+  h := _H(v : .Some(_P(a : i32(1), b : i64(2), c : i64(3))));
+  pn := match(&h.v, .Some(_P(a : aa, b : _, c : _)) => addr_of(aa.*), .None => panic("the struct pattern"));
+  pn.* = i32(12);
+  assert(_a_of(&h) == i32(12), "a nested struct pattern's binding");
+  pw := match(&h.v, (w := .Some(_)) => addr_of(w.*), .None => panic("the named pattern"));
+  pw.* = .None;
+  assert(_a_of(&h) == i32(-1), "a named pattern's binding is the whole place");
+});
+test("a reference binding matched bare binds into its referent", {
+  o := Option(_P).Some(_P(a : i32(4), b : i64(5), c : i64(6)));
+  r := &o;
+  pa := match(r, .Some(s) => addr_of(s.a), .None => panic("the payload"));
+  pa.* = i32(40);
+  assert(match(o, .Some(q) => (q.a == i32(40)), .None => false), "the binding is the referent's payload");
+});
+test("a borrowed element's binding points into the collection", {
+  mut(xs) := ArrayList(Option(_P)).new();
+  xs.push(.Some(_P(a : i32(1), b : i64(1), c : i64(1))));
+  pa := match(&xs(usize(0)), .Some(s) => addr_of(s.a), .None => panic("the element"));
+  pa.* = i32(10);
+  assert(match(&xs(usize(0)), .Some(s) => (s.a == i32(10)), .None => false), "the element's payload");
+});
+_mk :: (fn(n : i32) -> Option(_P))(.Some(_P(a : n, b : i64(0), c : i64(0))));
+test("a temporary scrutinee's bindings point into its local", {
+  assert(match(&_mk(i32(5)), .Some(s) => (s.a + i32(1)), .None => i32(0)) == i32(6), "the temporary's payload");
+  assert(match(&_mk(i32(5)), (.Some(s) && (s.a > i32(1))) => s.b, _ => i64(-1)) == i64(0), "under the general lowering");
+});
+test("a binding read by a closure and passed by value reads the part", {
+  h := _H(v : .Some(_P(a : i32(3), b : i64(4), c : i64(5))));
+  got := match(&h.v, .Some(s) => {
+    (f : Impl(Fn() -> i32)) = (() => (s.a + i32(1)));
+    copy := s.*;
+    (f() + copy.a)
+  }, .None => i32(0));
+  assert(got == i32(7), "the closure and the copy read the payload");
+});
+test("a binding lives across an await in an io.async arm", {
+  result := Rc.new(RefCell(i32).new(0));
+  task := io.async({ result : Rc.clone(result) }(io : Io) => {
+    e := _Two.Named(s : String.from("async"), k : i32(9));
+    v := match(&e, .Named(s, k) => {
+      io.await(yield(io), io);
+      cond((s.* == String.from("async")) => (k.* + i32(5)), true => i32(0))
+    }, _ => i32(0));
+    result.with_mut(cur => {
+      cur.* = v;
+    });
+  });
+  io.await(task, io);
+  assert(result.with(cur => cur.*) == i32(14), "the bindings read the scrutinee after the await");
+});
