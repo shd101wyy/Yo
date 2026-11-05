@@ -54,8 +54,7 @@ mk_context :: (fn() -> FunctionGenerationContext)({
 emit_rc_runtime :: (fn() -> String)({
   mut(ctx) := mk_context();
   generate_atomic_gc_runtime_functions(&mut ctx);
-  em := ctx.base.emitter;
-  em.print()
+  ctx.base.emitter.print()
 });
 /// Emit the parallelism runtime (thread + worker pool) for the host target and
 /// return the full C text.
@@ -155,8 +154,7 @@ test("a dispose thunk is a void* forwarder, emitted once per dispose function", 
   assert(first == "__yo_dispose_thunk_yo_id_7", "the thunk is named after its dispose function");
   assert(second == first, "a second request returns the same thunk");
   assert(other == "__yo_dispose_thunk_yo_id_8", "each dispose function gets its own thunk");
-  em := ctx.base.emitter;
-  c := em.print();
+  c := ctx.base.emitter.print();
   thunk := "static inline void __yo_dispose_thunk_yo_id_7(void* ptr) { yo_id_7(ptr); }";
   at := must_find(&c, thunk, usize(0));
   assert(match(c.index_of(&thunk, at + usize(1)), .Some(_) => false, .None => true), "the thunk is emitted exactly once");
@@ -170,8 +168,7 @@ test("a pointer-receiver dispose thunk passes the address of the handle", {
   handle_c := String.from("struct yo_id_10*");
   thunk := dispose_fn_thunk(&id9, &handle_c, &mut ctx);
   assert(thunk == "__yo_dispose_thunk_yo_id_9", "the thunk is named after its dispose function");
-  em := ctx.base.emitter;
-  c := em.print();
+  c := ctx.base.emitter.print();
   assert(c.contains("static inline void __yo_dispose_thunk_yo_id_9(void* ptr) { struct yo_id_10* __yo_self = (struct yo_id_10*)ptr; yo_id_9(&__yo_self); }"), "the thunk passes the handle's address");
 });
 /// The type runtime preamble (the RC header, the allocator prefix and the
@@ -180,8 +177,7 @@ emit_type_preamble :: (fn(alloc_abi_v2 : bool) -> String)({
   mut(ctx) := mk_context();
   ctx.base.alloc_abi_v2 = alloc_abi_v2;
   _emit_type_runtime_preamble(&mut ctx.base);
-  em := ctx.base.emitter;
-  em.print()
+  ctx.base.emitter.print()
 });
 /// A function type of `arity` pointer-sized parameters (the vtable slots'
 /// parameter types do not decide the version; their count does).

@@ -489,13 +489,13 @@ _def_int_value :: (fn(module_key : &String, name : &String) -> String)(
       (mut(i) : usize) = usize(0);
       while(i < w.defs.len(), {
         match(
-          w.defs.get(i),
+          w.defs.get_cloned(i),
           .Some(d) => if(d.name == name.*, {
             return(
               match(
                 d.variable(),
                 .Some(v) => match(
-                  v.value.get(usize(0)),
+                  v.value().get(usize(0)),
                   .Some(val) => match(val, .IntLit(t) => t.clone(), _ => String.from("<not-int>")),
                   .None => String.from("<no-value>")
                 ),
