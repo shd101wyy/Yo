@@ -1811,7 +1811,9 @@ graft_pending_def :: (fn(walk : &ModuleWalk, def : &PendingDef, fresh : &Pending
   def.set_row(fresh.row());
   def.set_src_hash(fresh.src_hash());
   walk.set_begin_expr(def.index, fresh.expr());
-  _ := g_def_hash.with_mut(m => m.insert(def_key(&walk.module_path, def.index, &def.name), fresh.src_hash()));
+  gd_key := def_key(&walk.module_path, def.index, &def.name);
+  gd_val := fresh.src_hash();
+  _ := g_def_hash.with_mut({ gd_key, gd_val }(m) => m.insert(gd_key, gd_val));
   ()
 });
 /// Every def key that transitively DEPENDS on a seed (reverse edges over
@@ -2663,7 +2665,8 @@ begin_module_walk :: (
     hi = (hi + usize(1));
   });
   _ := g_module_def_count.with_mut(m => m.insert(module_path.clone(), defs.len()));
-  g_module_walks.with_mut(xs => xs.push(walk));
+  pushed := Rc.clone(walk);
+  g_module_walks.with_mut({ pushed }(xs) => xs.push(pushed));
   walk
 });
 /// Finish a walk: pop it and keep its definitions for the post-walk miss
@@ -2674,7 +2677,9 @@ end_module_walk :: (fn(walk : &ModuleWalk) -> unit)({
   if(!walk_context_retained_for(&walk.module_path), {
     walk.clear_ctx();
   });
-  g_finished_walks.with_mut(m => m.insert(walk.module_path.clone(), walk));
+  fw_key := walk.module_path.clone();
+  fw_val := Rc.clone(walk);
+  g_finished_walks.with_mut({ fw_key, fw_val }(m) => m.insert(fw_key, fw_val));
   ()
 });
 walk_pending_def_at :: (fn(walk : &ModuleWalk, index : usize) -> Option(PendingDef))(
@@ -2742,7 +2747,8 @@ current_forcing_def :: (fn() -> Option(PendingDef))(
 );
 push_forcing_def :: (fn(def : &PendingDef) -> unit)({
   def.set_state(PendingDefState.Forcing);
-  g_forcing_stack.with_mut(xs => xs.push(def));
+  pushed := Rc.clone(def);
+  g_forcing_stack.with_mut({ pushed }(xs) => xs.push(pushed));
 });
 pop_forcing_def :: (fn() -> unit)({
   g_forcing_stack.with_mut(xs => xs.pop());
@@ -3011,7 +3017,8 @@ force_pending_def :: (fn(walk : &ModuleWalk, def : &PendingDef) -> Option(String
 /// force order.
 revalidate_walk_defs :: (fn(walk : &ModuleWalk, defs : &ArrayList(PendingDef)) -> ArrayList(String))({
   failures := ArrayList(String).new();
-  g_module_walks.with_mut(xs => xs.push(walk));
+  pushed := Rc.clone(walk);
+  g_module_walks.with_mut({ pushed }(xs) => xs.push(pushed));
   (i : usize) = usize(0);
   while(i < defs.len(), {
     match(
