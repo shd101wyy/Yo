@@ -158,7 +158,7 @@ _lookup_by_frame :: (fn(env : &Environment, fl : usize, name : &String, some_id 
       match(
         env.frame_at(fl),
         .Some(frame) => {
-          vars := &frame.variables();
+          vars := frame.variables();
           m := vars.len();
           (result : Option(TypeValue)) = .None;
           (i : usize) = usize(0);
@@ -433,7 +433,7 @@ _last_type_binding_frame :: (fn(env : &Environment, name : &String) -> Option(us
     match(
       env.frame_at(fi),
       .Some(frame) => {
-        vars := &frame.variables();
+        vars := frame.variables();
         (vi : usize) = usize(0);
         while((vi < vars.len()) && !hit, {
           match(
