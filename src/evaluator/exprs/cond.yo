@@ -80,6 +80,7 @@ ParsedStmt :: struct(
   case_body_expr : AstExpr,
   case_env : Environment
 );
+derive(ParsedStmt, Clone);
 /// One evaluated `cond` arm (condition already evaluated, body not yet).
 EvaluatedCond :: struct(
   cond_expr : AstExpr,
@@ -87,6 +88,7 @@ EvaluatedCond :: struct(
   case_env : Environment,
   cond_value : Option(EvalValue)
 );
+derive(EvaluatedCond, Clone);
 /// Tracks the unified value-type across `cond` arms.
 ValueTypeState :: struct(
   ty : TypeValue,
@@ -181,7 +183,7 @@ evaluate_cond :: (
   (ec_i : usize) = usize(0);
   while((ec_i < parsed_stmts.len()) && !done_eval, {
     pstmt := match(
-      parsed_stmts.get(ec_i),
+      parsed_stmts.get_cloned(ec_i),
       .Some(s) => s,
       .None => {
         done_eval = true;
@@ -289,7 +291,7 @@ evaluate_cond :: (
   (fti_done : bool) = false;
   while((fti < evaluated_conds.len()) && !fti_done, {
     ec_here := match(
-      evaluated_conds.get(fti),
+      evaluated_conds.get_cloned(fti),
       .Some(c) => c,
       .None => {
         fti_done = true;
@@ -303,7 +305,7 @@ evaluate_cond :: (
       (j : usize) = usize(0);
       while((j < fti) && all_prev_false, {
         match(
-          evaluated_conds.get(j),
+          evaluated_conds.get_cloned(j),
           .Some(prev) => {
             prev_is_false := match(prev.cond_value, .Some(v) => match(v, .BoolVal(b) => !b, _ => false), .None => false);
             if(!prev_is_false, {
@@ -336,7 +338,7 @@ evaluate_cond :: (
     // ---------------------------------------------------------------------
     .Some(fti_idx) => {
       ec_true := match(
-        evaluated_conds.get(fti_idx),
+        evaluated_conds.get_cloned(fti_idx),
         .Some(c) => c,
         .None => {
           return(expr);
@@ -455,7 +457,7 @@ evaluate_cond :: (
       (prev_arm_body : Option(AstExpr)) = Option(AstExpr).None;
       while(nb_i < evaluated_conds.len(), {
         match(
-          evaluated_conds.get(nb_i),
+          evaluated_conds.get_cloned(nb_i),
           .None => {
             nb_i = evaluated_conds.len();
           },
