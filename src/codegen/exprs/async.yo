@@ -815,7 +815,7 @@ _build_deferred_deps :: (
                 .Some(ei) => match(
                   _dep_type_string(&ei.ty, context),
                   .Some(t) => match(
-                    by_struct_name.get(&t),
+                    by_struct_name.get_cloned(&t),
                     .Some(target) => if(target.struct_name != b.struct_name, {
                       _add_deferred_dep(dependents, indegree, target.struct_name.clone(), b.struct_name.clone());
                     }),
@@ -1837,7 +1837,7 @@ fused_await_site :: (fn(await_expr : &AstExpr, report : bool, context : &Functio
       (mut(bi) : usize) = usize(0);
       while((bi < blocks.len()) && found.is_none(), bi = (bi + usize(1)), {
         match(
-          blocks.get(bi),
+          blocks.get_cloned(bi),
           .Some(b) => if(b.source_call_id == ast_expr_id(&io_call), {
             found = Option(DeferredAsyncBlock).Some(b);
           }),
