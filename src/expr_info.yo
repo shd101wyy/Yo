@@ -1591,10 +1591,10 @@ _scope_shadow_lookup :: (fn(key : ExprId, env : &Environment, name : &String) ->
         pk := match(g_scope_path, usize(1) => "sv", usize(2) => "exc", usize(3) => "rec", _ => "fallback");
         tk := if(name.starts_with(String.from("_file_")), "temp", "named");
         kinfo := match(g_scope_table.with(st => st.clone()), .Some(t) => t.data.with(m => m.get_cloned(&key)), .None => Option(ExprInfo).None);
-        has_cf := match(kinfo, .Some(ki) => has_any_control_flow(ki.control_flow()), .None => false);
-        has_vn := match(kinfo, .Some(ki) => ki.variable_name().is_some(), .None => false);
-        has_pc := match(kinfo, .Some(ki) => (ki.path_collection().len() > usize(0)), .None => false);
-        has_dd := match(kinfo, .Some(ki) => ki.deferred_drop_expressions().is_some(), .None => false);
+        has_cf := match(&kinfo, .Some(ki) => has_any_control_flow(ki.control_flow()), .None => false);
+        has_vn := match(&kinfo, .Some(ki) => ki.variable_name().is_some(), .None => false);
+        has_pc := match(&kinfo, .Some(ki) => (ki.path_collection().len() > usize(0)), .None => false);
+        has_dd := match(&kinfo, .Some(ki) => ki.deferred_drop_expressions().is_some(), .None => false);
         tstr := type_to_string_short(&kinfo);
         mk := `${pk}/${tk}/cf=${has_cf.to_string()}/vn=${has_vn.to_string()}/pc=${has_pc.to_string()}/dd=${has_dd.to_string()}/ty=${tstr}`;
         mp := match(g_scope_mm_kinds.with(m => m.get(mk.clone())), .Some(c) => c, .None => usize(0));
