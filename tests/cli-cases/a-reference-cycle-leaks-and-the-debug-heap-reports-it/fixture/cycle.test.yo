@@ -2,15 +2,20 @@
 // the `--debug-heap` report counts the two cells at exit. A `Weak` on the back
 // edge is the remedy (docs/en-US/WEAK.md).
 { println } :: import("std/fmt");
+{ RefCell } :: import("std/sync/refcell");
 (mut(g_disposed) : i32) = i32(0);
-Pair :: ref(
-  struct(
-    value : i32,
-    other : Option(Self)
-  )
+// Two shared cells written after construction: `Rc` handles, each edge in a
+// `RefCell`.
+_PairVal :: struct(
+  value : i32,
+  other : RefCell(Option(Rc(Self)))
+);
+Pair :: Rc(_PairVal);
+_pair :: (fn(value : i32, other : Option(Pair)) -> Pair)(
+  Rc.new(_PairVal(value : value, other : RefCell(Option(Pair)).new(other)))
 );
 impl(
-  Pair,
+  _PairVal,
   Drop(
     drop : (fn(self : &mut Self) -> unit)({
       g_disposed = (g_disposed + i32(1));
@@ -18,9 +23,9 @@ impl(
   )
 );
 make_cycle :: (fn() -> unit)({
-  a := Pair(1, .None);
-  b := Pair(2, .Some(a));
-  a.other = .Some(b); // a <-> b, unreachable after return
+  a := _pair(i32(1), .None);
+  b := _pair(i32(2), .Some(Rc.clone(&a)));
+  a.other.replace(.Some(b)); // a <-> b, unreachable after return
 });
 test("a garbage cycle", {
   make_cycle();
