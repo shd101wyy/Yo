@@ -492,12 +492,15 @@ sm_lowering_enter_scope :: (fn(context : &mut FunctionGenerationContext, analysi
 sm_lowering_restore_scope :: (fn(context : &mut FunctionGenerationContext, sink(saved) : Option(SmLoweringScope)) -> unit)(
   match(
     saved,
-    .Some({ analysis : analysis, emitted : emitted, moved_reads : moved_reads }) => match(
+    // A binding of the consumed Option is still a borrow under the seed, so
+    // the logs are copied back (they are the few entries one fused site
+    // recorded).
+    .Some(scope) => match(
       &mut context.sm_inline_lowering,
       .Some(low) => {
-        low.analysis = analysis;
-        low.emitted = emitted;
-        low.moved_reads = moved_reads;
+        low.analysis = scope.analysis.clone();
+        low.emitted = scope.emitted.clone();
+        low.moved_reads = scope.moved_reads.clone();
       },
       .None => ()
     ),
