@@ -7,8 +7,16 @@
 { assert } :: import("std/assert");
 { ArrayList } :: import("std/collections/array_list");
 // A projection's result into a reference payload: `.Some(self.xs.index(self.i))`.
+// VERDICTS-25's cursor, generic over the element type: its definition
+// type-checks. A call of it cannot infer `T` through the origin-parameterized
+// composite yet (E0613,
+// issues/2026-11-05-a-type-parameter-is-not-inferred-through-an-origin-parameterized-composite.md),
+// so the runtime checks below walk a cursor over `i32`.
 RrCursor :: (fn(comptime(T) : Type, comptime(p) : Origin) -> comptime(Type))(struct(xs : &(ArrayList(T), p), i : usize));
-rr_next :: (fn(generic(T : Type, p : Origin), self : &mut RrCursor(T, p)) -> Option(&(T, p)))(
+rr_next_at :: (fn(generic(T : Type, p : Origin), self : &mut RrCursor(T, p)) -> Option(&(T, p)))(.Some(self.xs.index(self.i)));
+RrIntCursor :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(xs : &(ArrayList(i32), p), i : usize));
+rr_int_at :: (fn(generic(p : Origin), self : &mut RrIntCursor(p)) -> Option(&(i32, p)))(.Some(self.xs.index(self.i)));
+rr_next :: (fn(generic(p : Origin), self : &mut RrIntCursor(p)) -> Option(&(i32, p)))(
   cond(
     (self.i < self.xs.len()) => {
       k := self.i;
@@ -18,7 +26,6 @@ rr_next :: (fn(generic(T : Type, p : Origin), self : &mut RrCursor(T, p)) -> Opt
     true => .None
   )
 );
-rr_next_at :: (fn(generic(T : Type, p : Origin), self : &mut RrCursor(T, p)) -> Option(&(T, p)))(.Some(self.xs.index(self.i)));
 // A reference field into a reference payload: `.Some(self.r)`.
 RrHeld :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(r : &(i32, p)));
 rr_held :: (fn(generic(p : Origin), self : &RrHeld(p)) -> Option(&(i32, p)))(.Some(self.r));
@@ -35,8 +42,8 @@ test("A reference read into a reference payload is the reference", {
   mut(xs) := ArrayList(i32).new();
   xs.push(i32(10));
   xs.push(i32(20));
-  mut(c) := RrCursor(i32, xs)(xs : &xs, i : usize(0));
-  assert(rr_payload(rr_next_at(&mut c)) == i32(10), "`.Some(self.xs.index(self.i))`");
+  mut(c) := RrIntCursor(xs)(xs : &xs, i : usize(0));
+  assert(rr_payload(rr_int_at(&mut c)) == i32(10), "`.Some(self.xs.index(self.i))`");
   assert(rr_payload(rr_next(&mut c)) == i32(10), "the cursor's first item");
   assert(rr_payload(rr_next(&mut c)) == i32(20), "the cursor's second item");
   assert(rr_payload(rr_next(&mut c)) == i32(-1), "the cursor is exhausted");
