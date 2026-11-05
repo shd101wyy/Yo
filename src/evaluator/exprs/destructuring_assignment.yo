@@ -23,7 +23,7 @@ pragma(Pragma.AllowUnsafe);
   ast_expr_to_string
 } :: import("../../expr.yo");
 { is_union_member_read_capable, union_member_read_error_message } :: import("../memory_safety.yo");
-{ Environment, Variable, add_variable_to_env, get_variables_from_env } :: import("../../env.yo");
+{ Environment, Variable, add_variable_to_env, get_variables_from_env, variable_set_is_ref, variable_set_is_imm_borrow } :: import("../../env.yo");
 { Token, is_reserved_builtin_binding_name, reserved_builtin_binding_message } :: import("../../token.yo");
 { raise_flow_violation } :: import("../../types/flowability.yo");
 { EvalContext, record_module_member_read, sns_module_of } :: import("../context.yo");
@@ -642,8 +642,8 @@ handle_member_destructuring :: (
                 match(
                   ref_elem,
                   .Some(re_is_mut) => {
-                    added_var.is_ref = true;
-                    added_var.is_imm_borrow = !re_is_mut;
+                    variable_set_is_ref(&added_var, true);
+                    variable_set_is_imm_borrow(&added_var, !re_is_mut);
                     // A writable reference binding is the reassignable
                     // `is_ref` one (`r := &mut x`), as a `match` payload's.
                     added_var.is_reassignable = re_is_mut;
