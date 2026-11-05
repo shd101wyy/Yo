@@ -45,7 +45,11 @@ Refresh an instantiated enum's compound type arguments where the instance is bui
 
 `substitute` rewrites every type argument of an enum, as it already did for a struct (`src/types/substitution.yo`, the `EnumT` arm). `_E(Option(V))` at `V := i32` now reports `[Option(i32)]`, so the flip asks `Copy` of the concrete instance and `a := r` moves `r` inside the generic body, as it does in concrete code.
 
-The carve-out's cost no longer applies. The argument and the payload are one node, so the walk's node memo (#1137, which landed after the carve-out's measurement in #1112) answers the second visit. Measured on the same develop tree: the emitted C of `src/main.yo` is byte-identical with and without the change. The emit took 18:33 with the change and 19:18 without; max RSS was 4.24 GB and 4.23 GB.
+The carve-out's cost no longer applies. The argument and the payload are one node, so the walk's node memo (#1137, which landed after the carve-out's measurement in #1112) answers the second visit. Measured on one frozen develop tree (`ac14b5d50`), develop's binary against this branch's:
+
+- The emitted C of `src/main.yo` is byte-identical.
+- `perf stat` of `check ./src` counts 4.9270e12 user instructions on develop and 4.9363e12 with the change: +0.19%.
+- Wall times moved with the machine's load, not with the change. The emit took 20:51 against 19:18, and an interleaved ABBA of `check ./src` gave 745 s and 783 s against 727 s and 757 s. Max RSS was the same, 4.24 GB against 4.23 GB for the emit and 1.80 GB for the check.
 
 #1765's parts walk in `type_lacks_copy_for_flip` (`_flip_part_lacks_copy`) existed only because of the stale argument, so it is removed. The flip again treats a type that mentions a type variable as copyable, as it did before #1765. The HashMap plain-data tests #1765 added (`tests/move_only_collections.test.yo`, `tests/copy_trait.test.yo`) pass without it.
 
