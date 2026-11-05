@@ -244,3 +244,34 @@ test("__yo_cell and __yo_atomic_cell are reserved builtin names", {
   comptime_expect_error(__yo_cell := 1, "names a builtin");
   comptime_expect_error(__yo_atomic_cell :: (fn(x : i32) -> i32)(x), "names a builtin");
 });
+// A projection whose `self : &Self` is passed by pointer writes into a cell
+// it reaches, as a by-value `&Self` method does: the write lands in the
+// cell's shared payload, not in the borrowed value
+// (issues/fixed/2026-11-05-a-cell-write-through-a-projection-s-self-is-e0908.md).
+_Lazy :: struct(h : __yo_cell(i32));
+impl(
+  _Lazy,
+  get_or_set : (fn(self : &Self, v : i32) -> &i32)({
+    if(self.h.* == i32(0), {
+      self.h.* = v;
+    });
+    &self.h.*
+  })
+);
+test("a projection's `&Self` writes a cell it reaches", {
+  l := _Lazy(h : __yo_cell(i32)(i32(0), .None));
+  first := l.get_or_set(i32(4));
+  assert(first.* == i32(4), "the first call stores");
+  second := l.get_or_set(i32(9));
+  assert(second.* == i32(4), "a later call reads the stored value");
+});
+// A write into the borrowed value itself stays E0908.
+comptime_expect_error({
+  _LazyV :: struct(n : i32, h : __yo_cell(i32));
+  _bad :: (fn(x : &_LazyV) -> &i32)({
+    x.n = i32(1);
+    &x.n
+  });
+  w := _LazyV(n : i32(0), h : __yo_cell(i32)(i32(0), .None));
+  _r := _bad(&w);
+}, "is a `&T` parameter, a read-only borrow");

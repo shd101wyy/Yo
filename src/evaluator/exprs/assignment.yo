@@ -499,20 +499,23 @@ _check_capture_borrow_write :: (fn(lhs : &AstExpr, tok : &Token, env : &Environm
     .Some(rv) => {
       check_capture_freeze_access(&rv, true, tok, env, ctx, exn);
       // A projection's `&T` parameter has the same shape (a pointer that is
-      // not reassignable, `bind_parameter`'s `is_ptr_borrow`).
-      if(rv.is_ref && !rv.is_reassignable, {
+      // not reassignable, `bind_parameter`'s `is_ptr_borrow`), but it is a
+      // `&T` parameter like any other (`is_imm_borrow`): the evaluated-place
+      // check (`shared_borrow_param_root_of_place`) judges its writes, which
+      // follows only the steps that stay inside the borrowed value, so a
+      // write into a cell the parameter reaches is not one
+      // (issues/fixed/2026-11-05-a-cell-write-through-a-projection-s-self-is-e0908.md).
+      if(rv.is_ref && !rv.is_reassignable && !(rv.is_parameter && rv.is_imm_borrow), {
         raise_flow_violation(
           with_code(
             format_error_message_with_help(
               tok,
               cond(
-                rv.is_parameter => `Cannot write through \`${rv.name}\`: it is a \`&T\` parameter, a read-only borrow of the caller's place.`,
                 ref_payload_source(rv.id).is_some() => `Cannot write through \`${rv.name}\`: it binds a \`&T\` payload, a read-only borrow of the place the reference names.`,
                 true => `Cannot write through \`${rv.name}\`: it is a \`&\` capture, a read-only borrow of the place the closure was given.`
               ),
               Option(String).Some(
                 cond(
-                  rv.is_parameter => `declare it \`${rv.name} : &mut T\` to write the caller's place`,
                   ref_payload_source(rv.id).is_some() => String.from("produce a `&mut T` payload to write the place, or write a local copy"),
                   true => `capture it \`${rv.name} : &mut ...\` to write the place (a non-escaping closure only), or write a local copy`
                 )

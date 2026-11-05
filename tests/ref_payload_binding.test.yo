@@ -182,3 +182,27 @@ test("ref payload: a borrowing `source` chain walks without cloning", {
   f := _first_cause(&e);
   assert(f.code() == i32(2), "the first cause returned as a borrow");
 });
+// A reference payload or field whose referent is spelled by a typedef (a
+// newtype: `String`, `Box`, `ArrayList`) is declared after that typedef; a
+// struct or enum referent needs only its forward declaration. Each type
+// here is declared after the enum that points at it
+// (issues/fixed/2026-11-05-an-option-of-a-reference-to-a-newtype-is-declared-before-the-newtype.md).
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+_Refs :: enum(ToStruct(r : &_Later), ToString(s : &String), ToBox(b : &Box(_Later)), ToEnum(o : &Option(_Later)), ToList(l : &ArrayList(i32)), Nothing);
+_Later :: struct(n : i32, s : String);
+_name_of :: (fn(x : &_Later) -> Option(&String))(.Some(&x.s));
+_boxed :: (fn(x : &Box(_Later)) -> Option(&Box(_Later)))(.Some(x));
+test("a reference to a later newtype, struct or enum is a valid payload", {
+  v := _Later(n : i32(3), s : String.from("ab"));
+  b := Box.new(_Later(n : i32(4), s : String.from("c")));
+  o := Option(_Later).Some(_Later(n : i32(5), s : String.from("d")));
+  xs := ArrayList(i32).new();
+  assert(match(_name_of(&v), .Some(s) => (s.len() == usize(2)), .None => false), "Option(&String)");
+  assert(match(_boxed(&b), .Some(r) => (r.n == i32(4)), .None => false), "Option(&Box(_Later))");
+  assert(match(_Refs.ToStruct(&v), .ToStruct(r) => (r.n == i32(3)), _ => false), "a struct referent");
+  assert(match(_Refs.ToString(&v.s), .ToString(s) => (s.len() == usize(2)), _ => false), "a String referent");
+  assert(match(_Refs.ToBox(&b), .ToBox(r) => (r.n == i32(4)), _ => false), "a Box referent");
+  assert(match(_Refs.ToEnum(&o), .ToEnum(r) => r.is_some(), _ => false), "an enum referent");
+  assert(match(_Refs.ToList(&xs), .ToList(r) => (r.len() == usize(0)), _ => false), "an ArrayList referent");
+});
