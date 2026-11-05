@@ -8874,7 +8874,7 @@ run_compile :: (
     // `ctx` is written below (codegen takes it `&mut`), so it is moved out of
     // the outcome rather than bound by the destructuring, which borrows.
     module_value := outcome.module_value;
-    env := outcome.env;
+    env := Rc.clone(outcome.env);
     mut(ctx) := module_load_outcome_ctx(outcome);
     // §4.9: the evaluation is what opens files, so the record is complete now.
     // Written before codegen so `--skip-codegen` and `--skip-c-compiler`
