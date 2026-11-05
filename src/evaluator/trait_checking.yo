@@ -20,7 +20,7 @@ pragma(Pragma.AllowUnsafe);
 { HashMap } :: import("std/collections/hash_map");
 { Exception } :: import("std/error");
 { panic } :: import("std/assert");
-{ TypeValue, TypeValueNode, FuncMeta, t_refine_inner, no_types, no_labels, SharedList, shared_list, slot_pointee_at, slot_pointees, fn_param_mut_ref_flags, fn_param_by_value_flags, t_slot_pointee } :: import("../types/definitions.yo");
+{ TypeValue, TypeValueNode, FuncMeta, t_refine_inner, no_types, no_labels, SharedList, shared_list, slot_pointee_at, slot_pointees, fn_param_mut_ref_flags, fn_param_by_value_flags, t_slot_pointee , t_slot_is_borrow, t_slot_is_mut_ref } :: import("../types/definitions.yo");
 {
   is_function_type,
   is_some_type,
@@ -1387,13 +1387,9 @@ type_lacks_copy_for_flip :: (fn(ty_in : &TypeValue) -> bool)({
   // (plans/VALUES_BY_DEFAULT.md decision 43, Rust's `&mut T: !Copy`). The
   // read rule (N1e-2b) makes a reference a value a generic body copies
   // (`id(r)` binds `T := &U`).
-  match(
-    &ty,
-    Rc(.Reference(_, lc_mut, _)) => {
-      return(lc_mut);
-    },
-    _ => ()
-  );
+  if(t_slot_is_borrow(&ty), {
+    return(t_slot_is_mut_ref(&ty));
+  });
   // A type still mentioning a type variable is judged per instantiation (a
   // generic body is evaluated again for each), as `type_is_move_only` does.
   // A RESOLVED variable counts too: asking `Copy` of `Option(U)` with `U`
