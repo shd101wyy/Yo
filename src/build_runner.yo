@@ -2379,7 +2379,7 @@ run_executable :: (
 /// (issues/fixed/verify-by-default-for-a-project.md).
 run_verify_step :: (
   fn(
-    cfg : &BuildVerifyConfig,
+    sink(cfg) : BuildVerifyConfig,
     ctx : &ExecutionContext,
     io : Io,
     exn : Exception
@@ -2418,7 +2418,7 @@ run_verify_step :: (
 // ---------------------------------------------------------------------------
 run_test_suite :: (
   fn(
-    suite : &BuildTestSuite,
+    sink(suite) : BuildTestSuite,
     ctx : &ExecutionContext,
     io : Io,
     exn : Exception
@@ -2553,7 +2553,7 @@ execute_node :: (
           .None => (),
           .Some(suite) => {
             description = `test ${suite.name}`;
-            result := e.io.await(run_test_suite(&suite, ctx, e.io, e.exn), e);
+            result := e.io.await(run_test_suite(suite.clone(), ctx, e.io, e.exn), e);
             match(
               result,
               .Ok(_) => (),
@@ -2611,7 +2611,7 @@ execute_node :: (
           .None => (),
           .Some(vcfg) => {
             description = `verify ${vcfg.name}`;
-            result := e.io.await(run_verify_step(&vcfg, ctx, e.io, e.exn), e);
+            result := e.io.await(run_verify_step(vcfg.clone(), ctx, e.io, e.exn), e);
             match(
               result,
               .Ok(_) => (),
