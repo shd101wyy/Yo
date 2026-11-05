@@ -2,6 +2,8 @@
 
 **Status: DECIDED — see `plans/archive/SLICE_REWORK.md` (branch `feat/slice-rework`).** Decision: NOT snapshot slices (Rc/CoW overhead rejected); instead `str` becomes a static-only immutable view (immortal backing ⇒ trivially safe), `Slice(T)` is demoted to pragma-gated unsafe vocabulary (the `*(T)` rule), `as_str`/`as_slice` leave the safe surface, and safe windowing uses library view structs over the Rc'd owning handle (alias semantics, no CoW). The hole becomes unconstructible rather than gated.
 
+> **Note 2026-11-06:** decision 43's references and origins are the "aliasing XOR mutability" this analysis said a sound borrowed view requires, so `plans/VALUES_BY_DEFAULT.md` decision 49 brings `[T]` and `&str` back as origin-checked views.
+
 Original analysis follows.
 
 **Status when written: OPEN design decision.** The flowability audit

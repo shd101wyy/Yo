@@ -13,7 +13,7 @@
 > `plans/VALUES_BY_DEFAULT.md` §3.11 (the containers' `alloc` question is decided).
 >
 > **Superseded 2026-11-05 by `plans/VALUES_BY_DEFAULT.md` decision 49:** `dyn` no longer synthesizes a cell. It
-> erases the pointee of a pointer the program built, so placement is that pointer's own argument:
+> erases the type behind a pointer the program built, so placement is that pointer's own argument:
 > `dyn(Box.new(v, alloc : .Some(a))) : Box(Dyn(T))`, `dyn(Rc.new(v, alloc : .Some(a))) : Rc(Dyn(T))`. The
 > correction below and §2.4 describe the model before that decision; there is still no `Dyn.new`.
 >

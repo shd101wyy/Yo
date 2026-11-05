@@ -74,6 +74,8 @@ layer).
 
 ### L1. Second-class slice parameters — Rust's `&[T]` / `&str` in argument position
 
+> **Adopted 2026-11-06 by `plans/VALUES_BY_DEFAULT.md` decision 49**, as Rust's model: `[T]` and `str` are unsized, and `&[T]`/`&str` are first-class, origin-carrying references (the `str` question below is answered yes).
+
 ```rust
 // Rust
 fn checksum(bytes: &[u8]) -> u32 { .. }

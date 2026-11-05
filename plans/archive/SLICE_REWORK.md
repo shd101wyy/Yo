@@ -1,5 +1,7 @@
 # Slice rework — static `str`, delete builtin `Slice(T)`, library views
 
+> **Superseded 2026-11-06 by `plans/VALUES_BY_DEFAULT.md` decision 49.** This deletion was right before origins existed. Decision 43 now rejects the three invalidations at compile time (a view freezes its root, cannot outlive it, and is read-only through an `Rc`), so `[T]` and `str` become Rust's unsized types, `&[T]`/`&str` the borrowed views, `as_str()` returns `&(str, self)`, and literals are `&(str, static)`.
+
 **Branch:** `feat/slice-rework`. **Decision** (resolves
 `issues/fixed/slice-invalidation-design.md`): instead of snapshot slices (rejected —
 Rc/CoW overhead on every slice copy to defend against rare misuse), remove
