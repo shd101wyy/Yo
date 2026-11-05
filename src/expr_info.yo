@@ -1345,7 +1345,7 @@ scope_release_body :: (fn(mark : usize, entry : &Environment) -> unit)({
     // (another module's scope when the callee is imported — a call passes
     // the CALLER's module path), and the husk answers the rest.
     capture_shaped := ((k == usize(0)) && (info.env().frames_len() > usize(0)));
-    info_husk := husk;
+    info_husk := Rc.clone(husk);
     inner_from := k;
     shares_husk := ((k > usize(0)) || capture_shaped);
     already := cond(
