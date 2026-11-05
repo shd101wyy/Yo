@@ -53,7 +53,8 @@ compiler pieces first: a projection's `&Self` writing the cell it reaches and a 
 newtype declared after its typedef (#1789), a `&` match binding that is a pointer into its
 scrutinee (#1795), and decision 24's root rule following such a binding to the scrutinee's
 place (`issues/fixed/2026-11-05-a-projection-cannot-yield-a-binding-of-a-borrowed-match.md`).
-The std change needs a seed carrying them, so it lands after the v0.2.76 seed bump.
+The std change needs them in the binary that reads `std/sync/once.yo`. Every CI step that reads it
+runs the stage-1 tree binary, and the compiler does not import it, so no seed bump is needed.
 
 ## Test
 
