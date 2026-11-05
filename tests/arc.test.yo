@@ -46,10 +46,10 @@ test("Test Arc passed to function", {
   // c is still valid after passing to function (Arc copies on pass)
   assert(c.*.count == 50);
 });
-test("Test Arc rejects non-Send object type", {
-  Counter :: ref(struct(count : i32));
+test("Test Arc rejects a non-Send payload type", {
+  Counter :: struct(count : Rc(i32));
   comptime_expect_error(Arc(Counter));
-  comptime_expect_error(Arc.new(Counter(i32(1))));
+  comptime_expect_error(Arc.new(Counter(Rc.new(i32(1)))));
 });
 test("Test Arc multiple copies", {
   a := Arc.new(i32(7));

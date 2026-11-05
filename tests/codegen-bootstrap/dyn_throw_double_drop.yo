@@ -16,7 +16,7 @@
 // fresh call result; the escape path after exn.throw must NOT also drop it.
 (mut(g_dropped) : i64) = i64(0);
 (mut(g_made) : i64) = i64(0);
-ErrObj :: ref(struct(msg : String, next : Option(Self)));
+ErrObj :: struct(msg : String, next : Option(Rc(Self)));
 impl(
   ErrObj,
   Drop(
@@ -35,7 +35,7 @@ impl(
   Clone(
     clone : (fn(self : &Self) -> Self)({
       g_made = (g_made + i64(1));
-      ErrObj(msg : self.msg.clone(), next : self.next)
+      ErrObj(msg : self.msg.clone(), next : self.next.clone())
     })
   )
 );

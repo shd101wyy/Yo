@@ -11,43 +11,41 @@
 // the freed env). Fixed by extracting `_arm_value_with_dups` and applying
 // it to the begin-branch final expression too. See
 // issues/fixed/yo-self-dyn-throw-double-drop.md. Expected output: "2 2 done".
+// Since V5 part B the shared record is an `Rc(Krate)` and the +1 is the
+// explicit `Rc.clone`; the counts are the same.
 { println, print } :: import("std/fmt");
 import("std/string");
 
-Krate :: ref(
-  struct(
-    v : i32
-  )
+Krate :: struct(
+  v : i32
 );
 
-Info :: ref(
-  struct(
-    e : Krate
-  )
+Info :: struct(
+  e : Rc(Krate)
 );
 
 // Begin-body arm tails: borrowed field (.Some) and borrowed param (.None).
-pick_match_tail :: (fn(o : &Option(Info), fallback : &Krate) -> Krate)(
+pick_match_tail :: (fn(o : &Option(Info), fallback : &Rc(Krate)) -> Rc(Krate))(
   match(
     o,
     .Some(info) => {
       x := 1;
       _x := (x + 1);
-      info.e
+      Rc.clone(&info.e)
     },
     .None => {
       y := 2;
       _y := (y + 1);
-      fallback.*
+      Rc.clone(fallback)
     }
   )
 );
 
 main :: (fn() -> unit)({
-  fb := Krate(v : 1);
-  info := Info(e : Krate(v : 2));
-  a := pick_match_tail(.Some(info), &fb);
-  print(ref_count(info.e));
+  fb := Rc.new(Krate(v : 1));
+  o := Option(Info).Some(Info(e : Rc.new(Krate(v : 2))));
+  a := pick_match_tail(&o, &fb);
+  print(ref_count(a));
   print(" ");
   b := pick_match_tail(.None, &fb);
   println(`${ref_count(fb)} done`);
