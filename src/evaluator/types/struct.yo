@@ -60,7 +60,7 @@ evaluate_struct_type :: (
     exn : Exception
   ) -> AstExpr
 )({
-  (env : Environment) = env_in;
+  (env : Environment) = Rc.clone(env_in);
   is_struct_keyword := ast_expr_is_fn_call_of(expr, BK_STRUCT, Option(usize).None);
   is_newtype_keyword := ast_expr_is_fn_call_of(expr, BK_NEWTYPE, Option(usize).None);
   if(!(is_struct_keyword || is_newtype_keyword), {
@@ -458,7 +458,7 @@ evaluate_cell_type :: (
     exn : Exception
   ) -> AstExpr
 )({
-  (env : Environment) = env_in;
+  (env : Environment) = Rc.clone(env_in);
   builtin := if(is_atomic_rc, BK_YO_ATOMIC_CELL, BK_YO_CELL);
   tok := ast_expr_token(expr);
   if(!is_implicitly_unsafe_capable_file(Option(String).Some(tok.module_path.*.clone())), {

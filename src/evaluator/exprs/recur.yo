@@ -178,7 +178,7 @@ evaluate_recur :: (
     // popping here removed the INNERMOST CALLER FRAME — a 3-arg while's
     // loop frame lost its variables and the step expression failed
     // "Variable i not found" (std/regex/compiler.yo's Sequence walk).
-    caller_env := call_result.caller_env;
+    caller_env := Rc.clone(call_result.caller_env);
     // Build an UnknownVal for the return type.
     //
     // When the function being recurred RETURNS AT RUNTIME (its return is not

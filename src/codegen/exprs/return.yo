@@ -197,7 +197,7 @@ _resolve_drop_target_in_scope :: (fn(drop_expr : &AstExpr, variables : &ArrayLis
       });
       match(
         by_id,
-        .Some(v) => Option(Variable).Some(v),
+        .Some(v) => Option(Variable).Some(Rc.clone(v)),
         .None => {
           decl_token := match(tv.initialized_at_token(), .Some(t) => t, .None => tv.token);
           if(_tokens_are_comparable(&decl_token, cleanup_token) && (decl_token.character > cleanup_token.character), Option(Variable).None, if(variables.len() == usize(0), Option(Variable).None, variables.last_cloned()))
@@ -849,7 +849,7 @@ generate_return :: (fn(expr : &AstExpr, indent : &String, context : &mut Functio
         return(codegen_fatal_expr(String.from("return expression missing temporary variable name")));
       });
       arg_ei_opt := context.base.get_expr_info(&arg);
-      arg_has_dup := match(arg_ei_opt, .Some(aei) => match(expr_info_deferred_dup_expressions(&aei), .Some(d) => (d.len() > usize(0)), .None => false), .None => false);
+      arg_has_dup := match(&arg_ei_opt, .Some(aei) => match(expr_info_deferred_dup_expressions(&aei), .Some(d) => (d.len() > usize(0)), .None => false), .None => false);
       // Deferred-dup-with-temp materialization:
       // when the arg has BOTH a variableName and deferred `___dup`s (returning
       // a borrowed FIELD, e.g. `return(p.inner)`), declare the arg's eval temp
@@ -861,13 +861,13 @@ generate_return :: (fn(expr : &AstExpr, indent : &String, context : &mut Functio
       (mut(arg_code) : String) = String.from("");
       arg_vn_with_dup := if(
         arg_has_dup,
-        match(arg_ei_opt, .Some(aei) => aei.variable_name(), .None => Option(String).None),
+        match(&arg_ei_opt, .Some(aei) => aei.variable_name(), .None => Option(String).None),
         Option(String).None
       );
       match(
         arg_vn_with_dup,
         .Some(avn) => {
-          aei2 := match(arg_ei_opt, .Some(a) => a, .None => return(String.from("// unreachable: arg_vn_with_dup implies Some")));
+          aei2 := match(&arg_ei_opt, .Some(a) => Rc.clone(a), .None => return(String.from("// unreachable: arg_vn_with_dup implies Some")));
           aei2.set_variable_name(Option(String).None);
           raw_arg_code := _call_generate_expr(&arg, indent.clone(), context);
           aei2.set_variable_name(Option(String).Some(avn.clone()));
@@ -916,7 +916,7 @@ generate_return :: (fn(expr : &AstExpr, indent : &String, context : &mut Functio
           // evaluator's `source_variable` stamp survives that drift; deref
           // explicitly from it.
           match(
-            arg_ei_opt,
+            &arg_ei_opt,
             .Some(aei_nr) => match(
               aei_nr.source_variable(),
               .Some(asv_nr) => {
@@ -937,7 +937,7 @@ generate_return :: (fn(expr : &AstExpr, indent : &String, context : &mut Functio
       if(arg_has_dup, {
         generate_deferred_dup_expressions(&arg, indent.clone(), context);
         match(
-          arg_ei_opt,
+          &arg_ei_opt,
           .Some(aei) => match(
             expr_info_deferred_dup_expressions(&aei),
             .Some(dups) => match(
@@ -1356,98 +1356,100 @@ generate_return :: (fn(expr : &AstExpr, indent : &String, context : &mut Functio
   )
 });
 /// Generate an implicit function-body return.
-generate_implicit_return_statement :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> unit)((
-  match(
-    expr,
-    .Atom(_, _) => {
-      atom_code := generate_atom(expr, context, indent.clone());
-      final_code := handle_atom_deferred_dup(expr, atom_code, indent.clone(), context);
-      // Own-param scope-end drops (function-scope, excluded from the caller's
-      // flush-first — generation.yo non-begin path): AFTER the tail's dup so a
-      // borrowed value leaving the fn keeps its +1, BEFORE the return.
-      generate_deferred_drop_expressions(expr, indent.clone(), context, false, true);
-      mut(line) := indent.clone();
-      line.push_str("return ");
-      line.push_string(&final_code);
-      line.push_str(";");
-      context.base.emitter.emit_string_line(&line);
-    },
-    .FnCall(_, _, _, _, _) => if(ast_expr_is_fn_call_of(expr, BK_RETURN, Option(usize).None) || ast_expr_is_fn_call_of(expr, BF_UNWIND, Option(usize).None), {
-      // Control-flow tail (`return(...)` / `unwind(...)`): its generator already emits
-      // the full control-flow statement (the escape flag + a `return` for unwind, or the
-      // return itself), so emit as-is — do NOT wrap in another `return` (that produced
-      // `return return (void*){0};`). Unwind is the same control-flow shape as
-      // the `return` tail.
-      // Own-param drops: a RETURN tail flushes its own node drops inside
-      // generate_return (mode-unfiltered), which covers the shared-id body's
-      // param drops. An UNWIND tail has generate_unwind emit them with its
-      // drop preamble, AFTER its operand is evaluated: flushing them here,
-      // first, released a parameter the operand then read (`e ->
-      // unwind(Option(AnyError).Some(e))`, issues/fixed/2026-10-29-a-handler-whose-body-is-a-bare-unwind-releases-its-parameter-before-the-operand-reads-it.md).
-      prev_unwind_tail := context.unwind_tail_param_drops_id;
-      if(ast_expr_is_fn_call_of(expr, BF_UNWIND, Option(usize).None), {
-        context.unwind_tail_param_drops_id = Option(usize).Some(ast_expr_id(expr));
-      });
-      code := _call_generate_expr(expr, indent.clone(), context);
-      // A lowering that did not reach generate_unwind still owes the drops.
-      if(match(context.unwind_tail_param_drops_id, .Some(owed) => (owed == ast_expr_id(expr)), .None => false), {
-        context.unwind_tail_param_drops_id = Option(usize).None;
+generate_implicit_return_statement :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> unit)(
+  (
+    match(
+      expr,
+      .Atom(_, _) => {
+        atom_code := generate_atom(expr, context, indent.clone());
+        final_code := handle_atom_deferred_dup(expr, atom_code, indent.clone(), context);
+        // Own-param scope-end drops (function-scope, excluded from the caller's
+        // flush-first — generation.yo non-begin path): AFTER the tail's dup so a
+        // borrowed value leaving the fn keeps its +1, BEFORE the return.
         generate_deferred_drop_expressions(expr, indent.clone(), context, false, true);
-      });
-      context.unwind_tail_param_drops_id = prev_unwind_tail;
-      mut(line) := indent.clone();
-      line.push_string(&code);
-      line.push_str(";");
-      context.base.emitter.emit_string_line(&line);
-    }, {
-      final_code := handle_func_call_deferred_dup(expr, indent.clone(), context);
-      // An EMPTY tail render means the expression emitted as STATEMENTS whose
-      // every path already returned (e.g. a tail `match` with returning arms)
-      // — a bare `return ;` here is a C constraint violation in a non-void fn
-      // ("non-void function should return a value", the install_command
-      // batch). Emit nothing for the value — but close a NON-VOID function
-      // with a trap: the statement form is not PROVABLY closed to the C
-      // compiler (a switch over a struct's tag member), so gcc's
-      // -Werror=return-type otherwise fires on the fall-off
-      // (issues/fixed/2026-10-18-a-match-in-statement-position-falls-off-the-end-of-a-non-void-function.md).
-      if(final_code.trim().len() > usize(0), {
-        // Scope-end drops of the shared-id body node, before the return: the
-        // own-param releases (the expression-level flushes skip param
-        // targets), and any drop whose temp only became declared while the
-        // tail rendered — the argument temp of a call inside a struct-literal
-        // field (`Frame(id : f(String.from("x")))`), which the pre-body flush
-        // skipped as undeclared and no call's post-flush emits
-        // (issues/fixed/struct-literal-tail-call-argument-temp-is-never-released.md).
-        // The rendered tail may still READ what they release (`a->n`, or the
-        // temp itself), so materialize it first — the begin path's B1
-        // `__yo_scope_ret` order
-        // (issues/fixed/own-param-released-before-a-bare-expression-body-reads-it.md).
-        ret_ty := match(&context.current_function_type, .Some(ft) => fn_result_pointee(&ft), .None => t_unit());
-        ret_cty := _current_c_result_type(&ret_ty, context);
-        if(has_pending_emittable_drop(expr, context) && (!is_unit_type(&ret_ty) || _current_result_is_ref(context)) && !(ret_cty == "void"), {
-          context.base.emitter.emit_string_line(`${indent.clone()}${ret_cty} __yo_scope_ret = ${final_code};`);
-          generate_deferred_drop_expressions(expr, indent.clone(), context);
-          context.base.emitter.emit_string_line(`${indent.clone()}return __yo_scope_ret;`);
-        }, {
+        mut(line) := indent.clone();
+        line.push_str("return ");
+        line.push_string(&final_code);
+        line.push_str(";");
+        context.base.emitter.emit_string_line(&line);
+      },
+      .FnCall(_, _, _, _, _) => if(ast_expr_is_fn_call_of(expr, BK_RETURN, Option(usize).None) || ast_expr_is_fn_call_of(expr, BF_UNWIND, Option(usize).None), {
+        // Control-flow tail (`return(...)` / `unwind(...)`): its generator already emits
+        // the full control-flow statement (the escape flag + a `return` for unwind, or the
+        // return itself), so emit as-is — do NOT wrap in another `return` (that produced
+        // `return return (void*){0};`). Unwind is the same control-flow shape as
+        // the `return` tail.
+        // Own-param drops: a RETURN tail flushes its own node drops inside
+        // generate_return (mode-unfiltered), which covers the shared-id body's
+        // param drops. An UNWIND tail has generate_unwind emit them with its
+        // drop preamble, AFTER its operand is evaluated: flushing them here,
+        // first, released a parameter the operand then read (`e ->
+        // unwind(Option(AnyError).Some(e))`, issues/fixed/2026-10-29-a-handler-whose-body-is-a-bare-unwind-releases-its-parameter-before-the-operand-reads-it.md).
+        prev_unwind_tail := context.unwind_tail_param_drops_id;
+        if(ast_expr_is_fn_call_of(expr, BF_UNWIND, Option(usize).None), {
+          context.unwind_tail_param_drops_id = Option(usize).Some(ast_expr_id(expr));
+        });
+        code := _call_generate_expr(expr, indent.clone(), context);
+        // A lowering that did not reach generate_unwind still owes the drops.
+        if(match(context.unwind_tail_param_drops_id, .Some(owed) => (owed == ast_expr_id(expr)), .None => false), {
+          context.unwind_tail_param_drops_id = Option(usize).None;
           generate_deferred_drop_expressions(expr, indent.clone(), context, false, true);
-          line := indent.clone();
-          line.push_str("return ");
-          line.push_string(&final_code);
-          line.push_str(";");
-          context.base.emitter.emit_string_line(&line);
         });
+        context.unwind_tail_param_drops_id = prev_unwind_tail;
+        mut(line) := indent.clone();
+        line.push_string(&code);
+        line.push_str(";");
+        context.base.emitter.emit_string_line(&line);
       }, {
-        // The empty-render closer: dead in every valid program.
-        eret_ty := match(&context.current_function_type, .Some(ft) => fn_result_pointee(&ft), .None => t_unit());
-        if(!is_unit_type(&eret_ty), {
-          etrap := indent.clone();
-          etrap.push_str("__yo_abort();  // unreachable: every path through the tail diverges");
-          context.base.emitter.emit_string_line(&etrap);
+        final_code := handle_func_call_deferred_dup(expr, indent.clone(), context);
+        // An EMPTY tail render means the expression emitted as STATEMENTS whose
+        // every path already returned (e.g. a tail `match` with returning arms)
+        // — a bare `return ;` here is a C constraint violation in a non-void fn
+        // ("non-void function should return a value", the install_command
+        // batch). Emit nothing for the value — but close a NON-VOID function
+        // with a trap: the statement form is not PROVABLY closed to the C
+        // compiler (a switch over a struct's tag member), so gcc's
+        // -Werror=return-type otherwise fires on the fall-off
+        // (issues/fixed/2026-10-18-a-match-in-statement-position-falls-off-the-end-of-a-non-void-function.md).
+        if(final_code.trim().len() > usize(0), {
+          // Scope-end drops of the shared-id body node, before the return: the
+          // own-param releases (the expression-level flushes skip param
+          // targets), and any drop whose temp only became declared while the
+          // tail rendered — the argument temp of a call inside a struct-literal
+          // field (`Frame(id : f(String.from("x")))`), which the pre-body flush
+          // skipped as undeclared and no call's post-flush emits
+          // (issues/fixed/struct-literal-tail-call-argument-temp-is-never-released.md).
+          // The rendered tail may still READ what they release (`a->n`, or the
+          // temp itself), so materialize it first — the begin path's B1
+          // `__yo_scope_ret` order
+          // (issues/fixed/own-param-released-before-a-bare-expression-body-reads-it.md).
+          ret_ty := match(&context.current_function_type, .Some(ft) => fn_result_pointee(&ft), .None => t_unit());
+          ret_cty := _current_c_result_type(&ret_ty, context);
+          if(has_pending_emittable_drop(expr, context) && (!is_unit_type(&ret_ty) || _current_result_is_ref(context)) && !(ret_cty == "void"), {
+            context.base.emitter.emit_string_line(`${indent.clone()}${ret_cty} __yo_scope_ret = ${final_code};`);
+            generate_deferred_drop_expressions(expr, indent.clone(), context);
+            context.base.emitter.emit_string_line(`${indent.clone()}return __yo_scope_ret;`);
+          }, {
+            generate_deferred_drop_expressions(expr, indent.clone(), context, false, true);
+            line := indent.clone();
+            line.push_str("return ");
+            line.push_string(&final_code);
+            line.push_str(";");
+            context.base.emitter.emit_string_line(&line);
+          });
+        }, {
+          // The empty-render closer: dead in every valid program.
+          eret_ty := match(&context.current_function_type, .Some(ft) => fn_result_pointee(&ft), .None => t_unit());
+          if(!is_unit_type(&eret_ty), {
+            etrap := indent.clone();
+            etrap.push_str("__yo_abort();  // unreachable: every path through the tail diverges");
+            context.base.emitter.emit_string_line(&etrap);
+          });
         });
-      });
-    })
+      })
+    )
   )
-));
+);
 /// Emit the effect-handler parameter drops (if any) before an escape return.
 _emit_effect_handler_param_drops :: (fn(context : &mut FunctionGenerationContext, indent : &String) -> unit)(
   match(
@@ -1491,9 +1493,11 @@ _current_c_result_type :: (fn(rt : &TypeValue, context : &mut FunctionGeneration
 /// Where the code section ends now. The buffer spills to disk only between
 /// functions, so two readings inside one function measure what was emitted
 /// between them.
-_code_position :: (fn(context : &FunctionGenerationContext) -> usize)((
-  context.base.emitter.code_spilled_bytes + context.base.emitter.code.len()
-));
+_code_position :: (fn(context : &FunctionGenerationContext) -> usize)(
+  (
+    context.base.emitter.code_spilled_bytes + context.base.emitter.code.len()
+  )
+);
 /// An escape sequence's drops run destructors, and a destructor is ordinary
 /// code: each may-unwind call in it clears `__yo_effect_escaped` first (the
 /// caller-side protocol `__yo_effect_escaped = 0; <call>; if (...)`). Run on

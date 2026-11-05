@@ -196,7 +196,7 @@ _get_or_create_some_ty_for_trait :: (
   lhs_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_lhs));
   lhs_info := match(
     lhs_info_opt,
-    .Some(i) => i,
+    .Some(i) => Rc.clone(i),
     .None => {
       exn.throw(
         dyn(
@@ -302,7 +302,7 @@ _apply_single_constraint_for_trait :: (
   te_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_te));
   te_info := match(
     te_info_opt,
-    .Some(i) => i,
+    .Some(i) => Rc.clone(i),
     .None => {
       return(false);
     }
@@ -330,7 +330,7 @@ _apply_single_constraint_for_trait :: (
       trait_ty,
       Rc(.TraitT(_, sc_body, _, _, _, _)) => {
         sc_trait := Rc.clone(trait_ty2);
-        sc_body.with_mut({ sc_trait, is_negated }(b) => {
+        sc_body.with_mut({ sc_trait : Rc.clone(sc_trait), is_negated }(b) => {
           if(is_negated, {
             b.neg_self_constraints.push(sc_trait);
           }, {
@@ -442,7 +442,7 @@ _parse_trait_where_clauses :: (
       te_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_te));
       te_info := match(
         te_info_opt,
-        .Some(i) => i,
+        .Some(i) => Rc.clone(i),
         .None => {
           if(collect_pending, {
             pending_traits.push(_PendingTraitConstraint(lhs_expr, trait_expr_item, constraint_expr));
@@ -507,7 +507,7 @@ _parse_trait_where_clauses :: (
           trait_ty,
           Rc(.TraitT(_, sc_body, _, _, _, _)) => {
             sc_trait := Rc.clone(trait_ty2);
-            sc_body.with_mut({ sc_trait, is_neg }(b) => {
+            sc_body.with_mut({ sc_trait : Rc.clone(sc_trait), is_neg }(b) => {
               if(is_neg, {
                 b.neg_self_constraints.push(sc_trait);
               }, {
@@ -716,7 +716,7 @@ _evaluate_trait_field :: (
       match(
         &expected_field_ty_opt,
         .Some(eft) => {
-          ctx.expected_type = .Some(ExpectedTypeCtx(Rc.clone(eft), env_mut));
+          ctx.expected_type = .Some(ExpectedTypeCtx(Rc.clone(eft), Rc.clone(env_mut)));
         },
         .None => {
           ctx.expected_type = Option(ExpectedTypeCtx).None;
@@ -736,7 +736,7 @@ _evaluate_trait_field :: (
       ctx.self_type = old_self_type;
       ctx.self_trait_type = old_self_trait_type;
       te_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_te));
-      te_info := match(te_info_opt, .Some(i) => i, .None => new_expr_info(env_mut, Rc.new(TypeValueNode.Unit)));
+      te_info := match(te_info_opt, .Some(i) => Rc.clone(i), .None => new_expr_info(env_mut, Rc.new(TypeValueNode.Unit)));
       env_adopt(&env_mut, &te_info.env());
       if(!is_type_value(&te_info.value()), {
         exn.throw(
@@ -792,7 +792,7 @@ _evaluate_trait_field :: (
       match(
         &field_expected_ty_opt,
         .Some(fet) => {
-          ctx.expected_type = .Some(ExpectedTypeCtx(Rc.clone(fet), env_mut));
+          ctx.expected_type = .Some(ExpectedTypeCtx(Rc.clone(fet), Rc.clone(env_mut)));
         },
         .None => {
           ctx.expected_type = Option(ExpectedTypeCtx).None;
@@ -812,7 +812,7 @@ _evaluate_trait_field :: (
       av_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_av));
       av_info := match(
         av_info_opt,
-        .Some(i) => i,
+        .Some(i) => Rc.clone(i),
         .None => {
           exn.throw(
             dyn(
@@ -880,7 +880,7 @@ _evaluate_trait_field :: (
       match(
         &field_expected_ty_opt,
         .Some(fet) => {
-          ctx.expected_type = .Some(ExpectedTypeCtx(Rc.clone(fet), env_mut));
+          ctx.expected_type = .Some(ExpectedTypeCtx(Rc.clone(fet), Rc.clone(env_mut)));
         },
         .None => {
           ctx.expected_type = Option(ExpectedTypeCtx).None;
@@ -900,7 +900,7 @@ _evaluate_trait_field :: (
       dv_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_dv));
       dv_info := match(
         dv_info_opt,
-        .Some(i) => i,
+        .Some(i) => Rc.clone(i),
         .None => {
           exn.throw(
             dyn(
@@ -1054,7 +1054,7 @@ evaluate_trait_type :: (
       )
     );
   });
-  (env_mut : Environment) = env;
+  (env_mut : Environment) = Rc.clone(env);
   // Extract trait name from context if available
   // (trait name is set externally via variable binding, not embedded in the trait expr)
   trait_name_str := String.from("");
@@ -1199,7 +1199,7 @@ evaluate_trait_type :: (
     member_label := field_result.label.clone();
     member_ty := Rc.clone(field_result.ty);
     member_is_assoc := field_result.assoc_some_ty.is_some();
-    trait_body.with_mut({ member_label, member_ty, member_is_assoc }(b) => {
+    trait_body.with_mut({ member_label, member_ty : Rc.clone(member_ty), member_is_assoc }(b) => {
       b.field_labels.push(member_label.clone());
       b.field_types.push(member_ty);
       if(member_is_assoc, {

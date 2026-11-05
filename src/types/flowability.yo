@@ -235,7 +235,7 @@ is_flowable_expr :: (fn(expr_in : &AstExpr, ctx : &EvalContext, opts : &FlowOpti
   });
   // Divergent expressions never yield a value here — accept vacuously.
   info_opt := _info(ctx, &expr);
-  has_cf := match(info_opt, .Some(i) => has_any_control_flow(i.control_flow()), .None => false);
+  has_cf := match(&info_opt, .Some(i) => has_any_control_flow(i.control_flow()), .None => false);
   if(has_cf, {
     return(true);
   });
@@ -264,7 +264,7 @@ is_flowable_expr :: (fn(expr_in : &AstExpr, ctx : &EvalContext, opts : &FlowOpti
     });
     info := match(
       info_opt,
-      .Some(i) => i,
+      .Some(i) => Rc.clone(i),
       .None => {
         return(false);
       }
@@ -590,7 +590,7 @@ is_flowable_expr :: (fn(expr_in : &AstExpr, ctx : &EvalContext, opts : &FlowOpti
 /// `is_owning_the_same_rc_value_as` links to the primary owner's id
 /// (step-capped instead of an identity-set cycle guard).
 alias_group_root :: (fn(variable : &Variable) -> String)({
-  (cur : Variable) = variable;
+  (cur : Variable) = Rc.clone(variable);
   (root_id : String) = variable.id().to_string();
   (steps : usize) = usize(0);
   (done : bool) = false;
@@ -706,7 +706,7 @@ require_ref_own_argument_exclusivity :: (
           match(
             root_atom_opt,
             .Some(root_atom) => {
-              root_env := match(_info(ctx, &root_atom), .Some(ri) => expr_info_adopt_env(&ri), .None => env);
+              root_env := match(_info(ctx, &root_atom), .Some(ri) => expr_info_adopt_env(&ri), .None => Rc.clone(env));
               vars := get_variables_from_env(&root_env, ast_expr_text(&root_atom).*);
               if(vars.len() > usize(0), {
                 match(

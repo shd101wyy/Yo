@@ -189,7 +189,7 @@ evaluate_pragma :: (
   // variant. Catches typos, misuse, and shadowed `Pragma` names.
   evaluated := evaluate_expression_raw(&arg, env, ctx, exn);
   info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated));
-  (arg_env : Environment) = env;
+  (arg_env : Environment) = Rc.clone(env);
   (variant : Option(String)) = Option(String).None;
   (got_ty_str : String) = String.from("");
   match(

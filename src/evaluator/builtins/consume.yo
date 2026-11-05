@@ -177,9 +177,9 @@ evaluate_consume :: (
   // wrong environment (issues/fixed/consume-swallows-its-arguments-error-and-its-env.md).
   eval_arg := evaluate_expression_raw(&arg_expr, env, ctx, exn);
   arg_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&eval_arg));
-  (cur_env : Environment) = match(arg_info_opt, .Some(i) => expr_info_adopt_env(&i), .None => env);
+  (cur_env : Environment) = match(&arg_info_opt, .Some(i) => expr_info_adopt_env(&i), .None => Rc.clone(env));
   match(
-    arg_info_opt,
+    &arg_info_opt,
     .Some(_) => (),
     .None => {
       exn.throw(
@@ -194,7 +194,7 @@ evaluate_consume :: (
   );
   // Determine if value is a TypeVal.
   is_tv := match(
-    arg_info_opt,
+    &arg_info_opt,
     .Some(info) => match(
       info.value(),
       .Some(v) => match(v, .TypeVal(_) => true, _ => false),

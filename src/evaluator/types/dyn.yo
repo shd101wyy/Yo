@@ -154,7 +154,7 @@ evaluate_dyn_type :: (
   negative_levels := ArrayList(usize).new();
   required_ids := ArrayList(String).new();
   negative_ids := ArrayList(String).new();
-  cur_env := env;
+  cur_env := Rc.clone(env);
   i := usize(0);
   while(i < args.len(), {
     trait_arg := match(
@@ -181,7 +181,7 @@ evaluate_dyn_type :: (
     info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&eval_trait));
     trait_info := match(
       info_opt,
-      .Some(inf) => inf,
+      .Some(inf) => Rc.clone(inf),
       .None => {
         exn.throw(
           dyn(

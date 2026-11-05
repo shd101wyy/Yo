@@ -123,7 +123,7 @@ is_effect_call_ :: (
         return(false);
       });
       func_type_opt := match(
-        get_info(&func_expr),
+        &get_info(&func_expr),
         .Some(info) => Option(TypeValue).Some(Rc.clone(info.ty())),
         .None => Option(TypeValue).None
       );
@@ -165,7 +165,7 @@ is_effect_call_ :: (
           return(false);
         });
         func_type_opt := match(
-          get_info(&func_expr),
+          &get_info(&func_expr),
           .Some(info) => Option(TypeValue).Some(Rc.clone(info.ty())),
           .None => Option(TypeValue).None
         );
@@ -281,7 +281,7 @@ is_effect_call_ :: (
       });
       // Verify the outermost "." expression type is a function
       outer_func_type_opt := match(
-        get_info(&func_expr_for_info),
+        &get_info(&func_expr_for_info),
         .Some(info) => Option(TypeValue).Some(Rc.clone(info.ty())),
         .None => Option(TypeValue).None
       );
@@ -339,7 +339,7 @@ is_transitive_effect_call_ :: (
     .FnCall(_, fb, _, _, _) => fb
   );
   func_info := match(
-    get_info(func_expr.clone()),
+    &get_info(func_expr.clone()),
     .None => {
       return(Option(bool).None);
     },
@@ -451,7 +451,7 @@ detect_effect_expr_ :: (
             }
           );
           match(
-            get_info(&arg),
+            &get_info(&arg),
             .Some(info) => {
               operation_arg_types.push(Rc.clone(info.ty()));
             },
@@ -490,7 +490,7 @@ detect_effect_expr_ :: (
     });
     // Get result type — fallback to effect_param_fn_type.result
     result_type_opt := match(
-      get_info(expr.clone()),
+      &get_info(expr.clone()),
       .Some(info) => Option(TypeValue).Some(Rc.clone(info.ty())),
       .None => Option(TypeValue).None
     );
@@ -596,7 +596,7 @@ detect_effect_expr_ :: (
               _ => Option(TypeValue).None
             ),
             true => match(
-              get_info(expr.clone()),
+              &get_info(expr.clone()),
               .Some(info) => Option(TypeValue).Some(Rc.clone(info.ty())),
               .None => Option(TypeValue).None
             )

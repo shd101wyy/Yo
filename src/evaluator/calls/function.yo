@@ -3199,7 +3199,7 @@ _register_borrowing_future :: (fn(fut_ty : &TypeValue, args : &ArrayList(AstExpr
           while(bi < f_bs.len(), bi = (bi + usize(1)), {
             b := match(f_bs.get_cloned(bi), .Some(x) => x, .None => return(()));
             match(
-              f_param,
+              &f_param,
               .Some(pv) => if(!variable_id_in_scope(env, b.root_id), {
                 bs.push(
                   CaptureBorrow(
@@ -4490,7 +4490,7 @@ _global_lend_root :: (fn(place : &AstExpr, env : &Environment, ctx : &EvalContex
       cur,
       .Atom(_, root_tok) => {
         found := match(_lent_root_variable(&cur, ctx), .Some(sv) => Option(Variable).Some(sv), .None => get_variables_from_env(env, &root_tok.value.*).last_cloned());
-        return(match(found, .Some(rv) => if(rv.is_module_level() && !rv.is_compile_time_only(), Option(Variable).Some(rv), Option(Variable).None), .None => Option(Variable).None));
+        return(match(found, .Some(rv) => if(rv.is_module_level() && !rv.is_compile_time_only(), Option(Variable).Some(Rc.clone(rv)), Option(Variable).None), .None => Option(Variable).None));
       },
       .FnCall(_, gl_callee, Rc(gl_args), gl_infix, _) => {
         cur = cond(
@@ -5809,8 +5809,8 @@ _fv_refine_closure_expected :: (
     });
     if(f_ty.is_none(), {
       se := match(
-        se_opt,
-        .Some(e) => e,
+        se_opt.clone(),
+        .Some(e) => Rc.clone(e),
         .None => {
           se_new := new_environment(Rc.clone(env.module_path()));
           (sq : usize) = usize(0);
@@ -5825,7 +5825,7 @@ _fv_refine_closure_expected :: (
             });
             sq = (sq + usize(1));
           });
-          se_opt = Option(Environment).Some(se_new);
+          se_opt = Option(Environment).Some(Rc.clone(se_new));
           se_new
         }
       );
@@ -6235,8 +6235,8 @@ _funcval_bind_foralls :: (
     // generic from that env when the inference is CONCRETE.
     if(!fa_bound, {
       se := match(
-        fa_synth_env,
-        .Some(e) => e,
+        fa_synth_env.clone(),
+        .Some(e) => Rc.clone(e),
         .None => {
           se_new := new_environment(Rc.clone(env.module_path()));
           n_dp := declared_param_types.len();
@@ -6296,7 +6296,7 @@ _funcval_bind_foralls :: (
             });
             sp_i = (sp_i + usize(1));
           });
-          fa_synth_env = Option(Environment).Some(se_new);
+          fa_synth_env = Option(Environment).Some(Rc.clone(se_new));
           se_new
         }
       );
@@ -9015,7 +9015,7 @@ _evaluate_function_call_unanchored :: (
       // arithmetic traits all set `Output = Self`).
       saved_op_et := ctx.expected_type.clone();
       if(op_ret_has_some && ctx.expected_type.is_none(), {
-        ctx.expected_type = Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : Rc.clone(receiver_ty), env : env));
+        ctx.expected_type = Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : Rc.clone(receiver_ty), env : Rc.clone(env)));
       });
       // Thread `Self` = the receiver (lhs) type into the call so a trait-default
       // operator lambda (`Eq.!= : (lhs, rhs) -> not(Self.(==)(lhs, rhs))`) that
@@ -9337,7 +9337,7 @@ _evaluate_function_call_unanchored :: (
   _try_expand_call_overload(&evaluated_callee, expr, &args, env, ctx, exn);
   callee_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_callee));
   match(
-    callee_info_opt,
+    &callee_info_opt,
     .Some(once_ci) => {
       _require_exclusive_fnmut_callee(&evaluated_callee, &once_ci, env, ctx, exn);
       _consume_fnonce_callee(&evaluated_callee, expr, &once_ci, env, ctx, exn);
@@ -9369,7 +9369,7 @@ _evaluate_function_call_unanchored :: (
   {
     (iob_marker : String) = String.new();
     match(
-      callee_info_opt,
+      &callee_info_opt,
       .Some(iob_ci) => match(
         &iob_ci.ty(),
         Rc(.Func({ meta : iob_m })) => match(
@@ -9469,7 +9469,7 @@ _evaluate_function_call_unanchored :: (
     });
   };
   callee_value_raw := match(
-    callee_info_opt,
+    &callee_info_opt,
     .Some(ci) => ci.value(),
     .None => Option(EvalValue).None
   );
@@ -9494,9 +9494,9 @@ _evaluate_function_call_unanchored :: (
     .None => Option(EvalValue).None
   );
   callee_env := match(
-    callee_info_opt,
+    &callee_info_opt,
     .Some(ci) => expr_info_adopt_env(&ci),
-    .None => env
+    .None => Rc.clone(env)
   );
   // plans/archive/EXTERN_UNSAFE_WRAP.md Phase A — extern "c" call-site gate.
   //
@@ -9514,7 +9514,7 @@ _evaluate_function_call_unanchored :: (
   // The callee's TYPE carries the FFI marker (extern symbols bind as an
   // `UnknownVal` of the extern `Func` type, not a `FuncVal`), so the gate
   // reads `callee_info_opt.ty`, not the value.
-  callee_ty_for_gate := match(callee_info_opt, .Some(ci) => Rc.clone(ci.ty()), .None => t_unit());
+  callee_ty_for_gate := match(&callee_info_opt, .Some(ci) => Rc.clone(ci.ty()), .None => t_unit());
   gate_is_extern_c := match(
     &callee_ty_for_gate,
     Rc(.Func({ meta : __fm3 })) => match(&__fm3.*.is_extern, .Some(lang) => (lang == "c"), .None => false),
@@ -9633,7 +9633,7 @@ Fix: wrap the call:
                   ta_arg_expr := match(args.get(tai), .Some(a) => a, .None => make_err_expr());
                   ta_evaled := evaluate_expression_raw(&ta_arg_expr, env, ctx, exn);
                   ta_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ta_evaled));
-                  ta_info := match(ta_info_opt, .Some(ii) => ii, .None => new_expr_info(env, t_unit()));
+                  ta_info := match(ta_info_opt, .Some(ii) => Rc.clone(ii), .None => new_expr_info(env, t_unit()));
                   ta_ty := match(
                     ta_info.value(),
                     .Some(v) => match(v, .TypeVal(b) => Rc.clone(b), _ => Rc.new(TypeValueNode.Unit)),
@@ -10276,7 +10276,7 @@ Fix: wrap the call:
         // for every callee but the closure-param/existential-result shape;
         // see `_freshen_generic_closure_callee`.
         fv_callee_ty := _freshen_generic_closure_callee(
-          match(callee_info_opt, .Some(fv_ci0) => Rc.clone(fv_ci0.ty()), .None => t_unit()),
+          match(&callee_info_opt, .Some(fv_ci0) => Rc.clone(fv_ci0.ty()), .None => t_unit()),
           &forall_names
         );
         // V5 task 3: a `ghost_fn(...)` definition is callable ONLY from
@@ -10314,7 +10314,7 @@ Fix: wrap the call:
               pa_i = (pa_i + usize(1));
             });
           };
-          pa_fty := match(callee_info_opt, .Some(pa_ci) => Rc.clone(pa_ci.ty()), .None => t_unit());
+          pa_fty := match(&callee_info_opt, .Some(pa_ci) => Rc.clone(pa_ci.ty()), .None => t_unit());
           pa_ret_ct := match(&pa_fty, Rc(.Func({ meta : __pam1 })) => __pam1.*.result_is_comptime_only, _ => false);
           if(pa_has_hole && pa_ret_ct, {
             pa_pt := match(&pa_fty, Rc(.Func({ param_types : ppt })) => Rc.clone(ppt), _ => no_types());
@@ -10527,7 +10527,7 @@ Fix: wrap the call:
         // Previously hardcoded `false`, which made `n = ...` inside a
         // `comptime(inout(n))` body throw "Cannot reassign n".
         fv_param_labels := match(
-          callee_info_opt,
+          &callee_info_opt,
           .Some(ci) => match(
             &ci.ty(),
             Rc(.Func({ meta : __fm5 })) => Rc.clone(__fm5.*.param_labels),
@@ -10540,7 +10540,7 @@ Fix: wrap the call:
           .None => no_labels()
         );
         fv_param_is_ref := match(
-          callee_info_opt,
+          &callee_info_opt,
           .Some(ci) => match(
             &ci.ty(),
             Rc(.Func({ result : _ })) => fn_param_mut_ref_flags(&ci.ty()),
@@ -10569,7 +10569,7 @@ Fix: wrap the call:
         // (`closure_argument_owned_type`, calls/helper.yo), bound owning below.
         fv_closure_moved_args := ArrayList(usize).new();
         fv_param_is_owning := match(
-          callee_info_opt,
+          &callee_info_opt,
           .Some(ci) => match(
             &ci.ty(),
             Rc(.Func({ result : _ })) => fn_param_by_value_flags(&ci.ty()),
@@ -10582,7 +10582,7 @@ Fix: wrap the call:
           .None => no_flags()
         );
         fv_param_is_sink := match(
-          callee_info_opt,
+          &callee_info_opt,
           .Some(ci_s) => match(
             &ci_s.ty(),
             Rc(.Func({ meta : __fm7s })) => match(&__fm7s.*.param_is_sink, .Some(l) => Rc.clone(l), .None => no_flags()),
@@ -10818,7 +10818,7 @@ Fix: wrap the call:
             // The env the argument is evaluated in: the caller's, except for
             // an `undefined` argument, whose default is evaluated over the
             // DEFINITION's scope (`default_param_eval_env`), never the caller's.
-            (arg_eval_env : Environment) = env;
+            (arg_eval_env : Environment) = Rc.clone(env);
             if((ai < n_p) && ast_expr_is_atom_of(&arg_expr_eff, "undefined"), {
               (du_def : Option(AstExpr)) = Option(AstExpr).None;
               match(
@@ -11064,7 +11064,7 @@ Fix: wrap the call:
             // caller binding visible and drops the argument's bindings with
             // it, as the named-fn path's callee env does
             // (issues/fixed/2026-10-21-generic-arraylist-inference-from-two-clone-arguments-unifies-their-element-types.md).
-            (fv_arg_exp_env : Environment) = env;
+            (fv_arg_exp_env : Environment) = Rc.clone(env);
             if(forall_names.len() > usize(0), {
               fv_arg_exp_env = snapshot_env(env);
               _fv_child_frame := fv_arg_exp_env.push_frame(false);
@@ -11072,7 +11072,7 @@ Fix: wrap the call:
             arg_saved_expected := ctx.expected_type.clone();
             ctx.expected_type = match(
               vs_override,
-              .Some(vs_ovr) => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : Rc.clone(vs_ovr), env : env)),
+              .Some(vs_ovr) => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : Rc.clone(vs_ovr), env : Rc.clone(env))),
               .None => match(
                 cond(
                   (!fv_keeps_source_order && fn_literal_arg_is_deferred(&fv_args, ai, n_p, &resolved_param_types.items, &forall_names)) => match(
@@ -11146,7 +11146,7 @@ Fix: wrap the call:
             arg_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaled_arg));
             arg_info := match(
               arg_info_opt,
-              .Some(i) => i,
+              .Some(i) => Rc.clone(i),
               .None => {
                 exn.throw(
                   dyn(
@@ -11167,7 +11167,7 @@ Fix: wrap the call:
               );
               eprintln(`[arg-eval] expr=${ast_expr_to_string(&arg_expr_eff)} ty=${type_to_string(&arg_info.ty())} val=${ae_val_str}`);
             });
-            evaled_arg_infos.push(arg_info);
+            evaled_arg_infos.push(Rc.clone(arg_info));
             fv_eai_idx.push(ai);
             // A COMPTIME variadic's trailing args (indices >= n_p) are not C
             // arguments either — `rt_ct_flags_args` only covers the FIXED
@@ -11203,7 +11203,7 @@ Fix: wrap the call:
               d3_record_inout_place(&mut fv_d3_pending, ai, &fv_p_label, &arg_expr_eff, env);
             });
             fv_callee_is_extern := match(
-              callee_info_opt,
+              &callee_info_opt,
               .Some(fv_ci_ext) => match(
                 &fv_ci_ext.ty(),
                 Rc(.Func({ meta : __fmext })) => __fmext.*.extern_name.is_some(),
@@ -11383,10 +11383,10 @@ Fix: wrap the call:
                     is_type_hierarchy_type(&apt) => Option(ExpectedTypeCtx).None,
                     is_some_type(&apt) => match(
                       extract_fn_trait_from_type(&apt),
-                      .Some(_) => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : apt, env : def_env)),
+                      .Some(_) => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : apt, env : Rc.clone(def_env))),
                       .None => Option(ExpectedTypeCtx).None
                     ),
-                    true => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : apt, env : def_env))
+                    true => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : apt, env : Rc.clone(def_env)))
                   ),
                   .None => Option(ExpectedTypeCtx).None
                 );
@@ -11397,7 +11397,7 @@ Fix: wrap the call:
                   .Some(i) => i,
                   .None => new_expr_info(&def_env, t_unit())
                 );
-                def_infos.push(de_info);
+                def_infos.push(Rc.clone(de_info));
                 def_rt_exprs.push(evaled_de);
                 // Bind this spliced param so the NEXT param's default sees
                 // it (`(Output : Type) ?= Lhs` after `(Rhs : Type) ?= Lhs`).
@@ -11675,7 +11675,7 @@ Fix: wrap the call:
         // rejection to `_note_future_producing_call` (it owns the places the
         // future's captures name).
         fv_future_callee := match(
-          callee_info_opt,
+          &callee_info_opt,
           .Some(ci) => match(
             &ci.ty(),
             Rc(.Func({ result : fv_fr })) => is_future_value_type(&t_slot_pointee(&fv_fr)),
@@ -11685,7 +11685,7 @@ Fix: wrap the call:
         );
         require_valid_ref_argument_places(&fv_param_is_ref.items, &fv_param_is_owning.items, fv_future_callee, ast_expr_id(expr), &fv_param_labels.items, &fv_args, env, ctx, exn);
         require_capture_borrow_exclusivity(&fv_param_is_ref.items, &fv_param_is_owning.items, &fv_args, Option(AstExpr).Some(evaluated_callee), env, ctx, exn);
-        fv_returns_place := match(callee_info_opt, .Some(rpi) => match(&rpi.ty(), Rc(.Func({ result : fv_res })) => is_pointer_type(&t_slot_pointee(&fv_res)), _ => false), .None => false);
+        fv_returns_place := match(&callee_info_opt, .Some(rpi) => match(&rpi.ty(), Rc(.Func({ result : fv_res })) => is_pointer_type(&t_slot_pointee(&fv_res)), _ => false), .None => false);
         require_no_inout_write_through_borrow(&mut fv_d3_pending, &fv_param_labels.items, &fv_param_is_ref.items, &fv_args, fv_returns_place, env, ctx);
         // Bind regular params. Params at index >= n_supplied_reg were
         // omitted at the call site (they have `?= default`s); bind each to
@@ -11880,11 +11880,11 @@ Fix: wrap the call:
               .None => ()
             );
           });
-          var_opt := bind_parameter(&fresh_env, &pname, &bind_ty, &bind_val, is_ct, p_is_ref, p_is_own, synthetic_token(&pname, &env.module_path().*), match(callee_info_opt, .Some(ci) => fn_param_is_ptr_borrow(&ci.ty(), pi), .None => false));
+          var_opt := bind_parameter(&fresh_env, &pname, &bind_ty, &bind_val, is_ct, p_is_ref, p_is_own, synthetic_token(&pname, &env.module_path().*), match(&callee_info_opt, .Some(ci) => fn_param_is_ptr_borrow(&ci.ty(), pi), .None => false));
           match(
             var_opt,
             .Some(v) => {
-              param_vars.push(v);
+              param_vars.push(Rc.clone(v));
             },
             .None => ()
           );
@@ -12485,7 +12485,7 @@ Fix: wrap the call:
         // arms.
         old_expected_fv := ctx.expected_type.clone();
         ctx.expected_type = Option(ExpectedTypeCtx).Some(
-          ExpectedTypeCtx(ty : Rc.clone(ret_type), env : fresh_env)
+          ExpectedTypeCtx(ty : Rc.clone(ret_type), env : Rc.clone(fresh_env))
         );
         // Evaluate the function body.
         evaled_body := evaluate_begin_expression(

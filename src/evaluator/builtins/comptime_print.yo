@@ -69,7 +69,7 @@ evaluate_comptime_print :: (
     .Atom(_, _) => ArrayList(AstExpr).new()
   );
   (i : usize) = usize(0);
-  (cur_env : Environment) = env;
+  (cur_env : Environment) = Rc.clone(env);
   while(i < args.len(), {
     arg_expr := match(
       args.get(i),
@@ -83,7 +83,7 @@ evaluate_comptime_print :: (
     info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated));
     info := match(
       info_opt,
-      .Some(inf) => inf,
+      .Some(inf) => Rc.clone(inf),
       .None => {
         exn.throw(
           dyn(

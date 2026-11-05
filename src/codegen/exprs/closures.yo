@@ -542,7 +542,7 @@ _enclosing_closure_capture_read :: (fn(key : ExprId, name : &String, env : &Envi
   if(!captured, {
     return(Option(String).None);
   });
-  field := get_variable_name_for_codegen_at(key, name, Option(Environment).Some(env));
+  field := get_variable_name_for_codegen_at(key, name, Option(Environment).Some(Rc.clone(env)));
   Option(String).Some(
     match(
       &context.current_closure_capture_type_c_name,

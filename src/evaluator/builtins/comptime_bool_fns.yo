@@ -51,7 +51,7 @@ eval_bool_arg :: (
   info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated));
   info := match(
     info_opt,
-    .Some(i) => i,
+    .Some(i) => Rc.clone(i),
     .None => {
       exn.throw(
         dyn(

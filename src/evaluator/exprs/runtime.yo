@@ -88,7 +88,7 @@ evaluate_runtime :: (
   // Read the evaluated arg's info.
   info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated));
   match(
-    info_opt,
+    &info_opt,
     .None => {
       exn.throw(
         dyn(
@@ -103,7 +103,7 @@ evaluate_runtime :: (
   );
   arg_info := match(
     info_opt,
-    .Some(i) => i,
+    .Some(i) => Rc.clone(i),
     .None => new_expr_info(env, t_i32())
   );
   // Convert comptime type to runtime type and emit a runtime ExprInfo.
@@ -224,7 +224,7 @@ evaluate_borrow_check :: (
             // (plans/VALUES_BY_DEFAULT.md decision 39): the borrowed
             // collection is the variable `c` borrows, and the aliases are
             // that variable's.
-            (v : Variable) = v0;
+            (v : Variable) = Rc.clone(v0);
             match(
               local_borrow_info_of_variable(&v0),
               .Some(info) => match(
@@ -252,7 +252,7 @@ evaluate_borrow_check :: (
             (hops : usize) = usize(0);
             while(cur.is_some() && (hops < usize(64)), {
               match(
-                cur,
+                cur.clone(),
                 .Some(b) => {
                   borrowed_ids.push(b.id());
                   cur = b.is_owning_the_same_rc_value_as();

@@ -1240,7 +1240,7 @@ evaluate_anonymous_function_implementation :: (
   expected_type_env := match(
     &ctx.expected_type,
     .Some(etc) => snapshot_env(&etc.env),
-    .None => env
+    .None => Rc.clone(env)
   );
   // -------------------------------------------------------------------------
   // Determine whether this is a closure (`=>`) or regular function
@@ -1865,7 +1865,7 @@ evaluate_anonymous_function_implementation :: (
     );
     if(match(param_is_owning.get(rp_i), .Some(b) => b, .None => false) && !match(param_is_ref.get(rp_i), .Some(b) => b, .None => false) && !type_is_bitwise_copy(rp_ty), {
       match(
-        rp_v_opt,
+        &rp_v_opt,
         .Some(rp_v_own) => {
           rp_v_own.set_is_owning_the_rc_value(true);
           // A parameter, so the function-body pass over the parameters
@@ -1880,7 +1880,7 @@ evaluate_anonymous_function_implementation :: (
     // decision 33's call-site markers pass it bare (`is_imm_borrow`).
     if(!match(param_is_owning.get(rp_i), .Some(b) => b, .None => false) && !match(param_is_ref.get(rp_i), .Some(b) => b, .None => false), {
       match(
-        rp_v_opt,
+        &rp_v_opt,
         .Some(rp_v_imm) => {
           rp_v_imm.set_is_imm_borrow(true);
         },
@@ -1891,7 +1891,7 @@ evaluate_anonymous_function_implementation :: (
     // dereference the C pointer (see param_is_ref note above).
     if(match(param_is_ref.get(rp_i), .Some(b) => b, .None => false), {
       match(
-        rp_v_opt,
+        &rp_v_opt,
         .Some(rp_v) => {
           rp_v.set_is_ref(true);
           // Reassignable goes with ref:

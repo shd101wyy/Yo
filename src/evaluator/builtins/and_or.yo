@@ -63,7 +63,7 @@ evaluate_and_or :: (
     return(expr);
   });
   // Short-circuiting evaluation.
-  (cur_env : Environment) = env;
+  (cur_env : Environment) = Rc.clone(env);
   // `short_circuit` is the operand value that decided the result (`false`
   // for `&&`, `true` for `||`) when it came before every runtime operand.
   // A compile-time IDENTITY operand (`true` for `&&`, `false` for `||`)
@@ -84,7 +84,7 @@ evaluate_and_or :: (
         arg_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_arg));
         arg_info := match(
           arg_info_opt,
-          .Some(ai) => ai,
+          .Some(ai) => Rc.clone(ai),
           .None => {
             exn.throw(
               dyn(

@@ -107,7 +107,7 @@ evaluate_cond :: (
     exn : Exception
   ) -> AstExpr
 )({
-  (env : Environment) = env_in;
+  (env : Environment) = Rc.clone(env_in);
   // Validate that the expression is a cond() call.
   if(!ast_expr_is_fn_call_of(expr, BK_COND, .None), {
     exn.throw(
@@ -168,7 +168,7 @@ evaluate_cond :: (
       ParsedStmt(
         cond_expr : cond_expr,
         case_body_expr : case_body_expr,
-        case_env : env
+        case_env : Rc.clone(env)
       )
     );
     pi = (pi + usize(1));
@@ -190,9 +190,9 @@ evaluate_cond :: (
     );
     cond_expr := pstmt.cond_expr;
     case_body_expr := pstmt.case_body_expr;
-    case_env := pstmt.case_env;
+    case_env := Rc.clone(pstmt.case_env);
     // Evaluate condition with expected type = bool.
-    old_expected := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : t_bool(), env : case_env)));
+    old_expected := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : t_bool(), env : Rc.clone(case_env))));
     evaluated_cond_expr := cond(
       // Raw, like the begin arm below: an atom condition's own error (an
       // unbound name) is the diagnostic, not "Failed to evaluate condition".
@@ -216,7 +216,7 @@ evaluate_cond :: (
     });
     cond_info := match(
       cond_info_opt,
-      .Some(ci) => ci,
+      .Some(ci) => Rc.clone(ci),
       .None => {
         return(expr);
       }
@@ -344,7 +344,7 @@ evaluate_cond :: (
       );
       cond_expr_true := ec_true.cond_expr;
       case_body_true := ec_true.case_body_expr;
-      case_env_true := ec_true.case_env;
+      case_env_true := Rc.clone(ec_true.case_env);
       // Mark condition as executed.
       match(
         expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&cond_expr_true)),
@@ -359,12 +359,12 @@ evaluate_cond :: (
       reject_empty_record_arm(&case_body_true, exn);
       evaluated_body := evaluate_begin_expression(&case_body_true, &case_env_true, ctx, ArrayList(Variable).new(), false, exn);
       body_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_body));
-      body_cf := match(body_info_opt, .Some(bi) => bi.control_flow(), .None => Option(ControlFlowFlags).None);
+      body_cf := match(&body_info_opt, .Some(bi) => bi.control_flow(), .None => Option(ControlFlowFlags).None);
       if(has_any_control_flow(body_cf), {
         // Body has control flow — propagate without a value.
         body_info := match(
           body_info_opt,
-          .Some(bi) => bi,
+          .Some(bi) => Rc.clone(bi),
           .None => {
             return(expr);
           }
@@ -390,7 +390,7 @@ evaluate_cond :: (
         // No control flow — use this body's type and value.
         body_info := match(
           body_info_opt,
-          .Some(bi) => bi,
+          .Some(bi) => Rc.clone(bi),
           .None => {
             exn.throw(
               dyn(
@@ -513,11 +513,11 @@ evaluate_cond :: (
               body_env_for_consume := match(
                 expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_case_body)),
                 .Some(bi) => expr_info_adopt_env(&bi),
-                .None => ec_item.case_env
+                .None => Rc.clone(ec_item.case_env)
               );
               consume_case_body_temp_var(&evaluated_case_body, &body_env_for_consume, ctx);
               body_einfo_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_case_body));
-              body_cf2 := match(body_einfo_opt, .Some(bi) => bi.control_flow(), .None => Option(ControlFlowFlags).None);
+              body_cf2 := match(&body_einfo_opt, .Some(bi) => bi.control_flow(), .None => Option(ControlFlowFlags).None);
               if(has_any_control_flow(body_cf2), {
                 cf_flags := match(
                   body_cf2,
@@ -534,7 +534,7 @@ evaluate_cond :: (
                 // Require type information.
                 body_einfo := match(
                   body_einfo_opt,
-                  .Some(bi) => bi,
+                  .Some(bi) => Rc.clone(bi),
                   .None => {
                     exn.throw(
                       dyn(
@@ -650,7 +650,7 @@ evaluate_cond :: (
         // At least one arm produces a value (no diverge).
         // Every value arm diverges: the cond itself is `never`.
         if(value_type.is_none() && (never_bodies.len() > usize(0)), {
-          value_type = Option(ValueTypeState).Some(ValueTypeState(ty : t_never(), env : env));
+          value_type = Option(ValueTypeState).Some(ValueTypeState(ty : t_never(), env : Rc.clone(env)));
         });
         if(has_case_without_control_flow && value_type.is_none(), {
           exn.throw(
@@ -663,9 +663,9 @@ evaluate_cond :: (
           );
         });
         if(value_type.is_none(), {
-          value_type = Option(ValueTypeState).Some(ValueTypeState(ty : t_unit(), env : env));
+          value_type = Option(ValueTypeState).Some(ValueTypeState(ty : t_unit(), env : Rc.clone(env)));
         });
-        vts := match(&value_type, .Some(vt) => vt.clone(), .None => ValueTypeState(ty : t_unit(), env : env));
+        vts := match(&value_type, .Some(vt) => vt.clone(), .None => ValueTypeState(ty : t_unit(), env : Rc.clone(env)));
         // A `comptime_int` arm joined at a fixed-width integer type must fit
         // it: `cond(c => 300, true => u8(1))` would emit a truncated constant.
         (ci_bi : usize) = usize(0);

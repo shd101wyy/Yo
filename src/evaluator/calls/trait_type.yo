@@ -88,7 +88,7 @@ try_to_specialize_trait_type :: (
     Rc(.TraitT(n, _, _, _, _, _)) => n.clone(),
     _ => String.from("unknown")
   );
-  (caller_env : Environment) = caller_env_in;
+  (caller_env : Environment) = Rc.clone(caller_env_in);
   // Collected `Item := X` bindings (associated type constraints).
   atc_labels := ArrayList(String).new();
   atc_types := ArrayList(TypeValue).new();
@@ -201,7 +201,7 @@ try_to_specialize_trait_type :: (
     // Evaluate the constraint type expression.
     evaluated := evaluate_expression_raw(&value_sub, &caller_env, ctx, exn);
     evaluated_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated));
-    if(!match(evaluated_info_opt, .Some(info) => is_type_value(&info.value()), .None => false), {
+    if(!match(&evaluated_info_opt, .Some(info) => is_type_value(&info.value()), .None => false), {
       exn.throw(
         dyn(
           format_error_message(
@@ -212,7 +212,7 @@ try_to_specialize_trait_type :: (
       );
     });
     // Adopt the recorded env by private copy (snapshots are shared between ExprInfos).
-    caller_env = match(evaluated_info_opt, .Some(info) => expr_info_adopt_env(&info), .None => caller_env);
+    caller_env = match(&evaluated_info_opt, .Some(info) => expr_info_adopt_env(&info), .None => caller_env);
     // Store the binding.
     constraint_ty := match(
       evaluated_info_opt,
@@ -348,7 +348,7 @@ try_to_implement_trait_with_arguments_by_trait_type :: (
       pvi = (pvi + usize(1));
     });
   });
-  (caller_env : Environment) = caller_env_in;
+  (caller_env : Environment) = Rc.clone(caller_env_in);
   // For each trait field, find the matching arg by label.
   (i : usize) = usize(0);
   while(i < n_fields, {
@@ -429,7 +429,7 @@ try_to_implement_trait_with_arguments_by_trait_type :: (
       if(field_label == label_tok, {
         found_arg = true;
         // Evaluate value sub-expression with expected type = field_type.
-        saved_expected := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : Rc.clone(field_type), env : caller_env)));
+        saved_expected := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : Rc.clone(field_type), env : Rc.clone(caller_env))));
         evaluated_arg_gout := ArrayList(AstExpr).new();
         evaluated_arg_gerr := evaluate_expression_guarded(&value_sub, &caller_env, ctx, &mut evaluated_arg_gout);
         ctx.expected_type = saved_expected;
@@ -446,7 +446,7 @@ try_to_implement_trait_with_arguments_by_trait_type :: (
             )
           );
         });
-        arg_info := match(arg_info_opt, .Some(it) => it, .None => new_expr_info(&caller_env, &field_type));
+        arg_info := match(arg_info_opt, .Some(it) => Rc.clone(it), .None => new_expr_info(&caller_env, &field_type));
         reject_second_class_escape(&arg_info.ty(), String.from("stored in a trait implementation"), ast_expr_token(&value_sub), ctx, exn);
         set_expr_as_needs_to_call_dup(&evaluated_arg, ctx, exn, "field-store");
         caller_env = expr_info_adopt_env(&arg_info);

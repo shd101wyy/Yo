@@ -123,7 +123,7 @@ User code should normally call stdlib wrappers (e.g. functions in
       )
     );
   });
-  (env : Environment) = env_in;
+  (env : Environment) = Rc.clone(env_in);
   all_args := match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), _ => ArrayList(AstExpr).new());
   // If the first arg is an atom (string literal), treat it as the language tag.
   // Otherwise default to "yo".
@@ -135,7 +135,7 @@ User code should normally call stdlib wrappers (e.g. functions in
     lang_arg := match(first_arg_opt, .Some(a) => a, .None => expr);
     evaluated_lang := evaluate_expression_raw(&lang_arg, &env, ctx, exn);
     lang_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_lang));
-    lang_info := match(lang_info_opt, .Some(i) => i, .None => new_expr_info(&env, t_unit()));
+    lang_info := match(lang_info_opt, .Some(i) => Rc.clone(i), .None => new_expr_info(&env, t_unit()));
     env_adopt(&env, &lang_info.env());
     raw_lang := match(
       lang_info.value(),

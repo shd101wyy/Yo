@@ -74,7 +74,7 @@ evaluate_as :: (
   val_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&eval_val_expr));
   val_info := match(
     val_info_opt,
-    .Some(i) => i,
+    .Some(i) => Rc.clone(i),
     .None => {
       exn.throw(
         dyn(
@@ -94,7 +94,7 @@ evaluate_as :: (
   type_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&eval_type_expr));
   type_info := match(
     type_info_opt,
-    .Some(i) => i,
+    .Some(i) => Rc.clone(i),
     .None => {
       exn.throw(
         dyn(

@@ -233,7 +233,7 @@ try_to_convert_to_numeric_type :: (
       )
     );
   });
-  arg_info := match(info_opt, .Some(i) => i, .None => new_expr_info(caller_env, target_type));
+  arg_info := match(info_opt, .Some(i) => Rc.clone(i), .None => new_expr_info(caller_env, target_type));
   env := expr_info_adopt_env(&arg_info);
   arg_val := arg_info.value();
   arg_type := Rc.clone(arg_info.ty());

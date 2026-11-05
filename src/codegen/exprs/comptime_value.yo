@@ -636,12 +636,12 @@ generate_comptime_value :: (fn(value : &EvalValue, ty : &TypeValue, context : &m
                 &agg_ty,
                 Rc(.Struct({ field_labels : labels })) => match(
                   labels.get(index),
-                  .Some(label) => _static_address(EvalValue.StructVal(String.new(), Rc.clone(labels), elems), &agg_ty, `.${c_field_name(&agg_ty, &label)}`, context),
+                  .Some(label) => _static_address(EvalValue.StructVal(String.new(), Rc.clone(labels), Rc.clone(elems)), &agg_ty, `.${c_field_name(&agg_ty, &label)}`, context),
                   .None => String.from("/* skip generating value */")
                 ),
-                Rc(.Tuple(_, _)) => _static_address(EvalValue.TupleVal(elems), &agg_ty, `._${index}`, context),
+                Rc(.Tuple(_, _)) => _static_address(EvalValue.TupleVal(Rc.clone(elems)), &agg_ty, `._${index}`, context),
                 _ => cond(
-                  is_array_type(&agg_ty) => _static_address(EvalValue.ArrayVal(elems), &agg_ty, `.data[${index}]`, context),
+                  is_array_type(&agg_ty) => _static_address(EvalValue.ArrayVal(Rc.clone(elems)), &agg_ty, `.data[${index}]`, context),
                   true => String.from("/* skip generating value */")
                 )
               )

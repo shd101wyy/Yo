@@ -57,7 +57,7 @@ evaluate_drop :: (
   eval_arg := evaluate_expression_raw(&arg_expr, env, ctx, exn);
   arg_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&eval_arg));
   match(
-    arg_info_opt,
+    &arg_info_opt,
     .Some(_) => (),
     .None => {
       exn.throw(
@@ -72,7 +72,7 @@ evaluate_drop :: (
   );
   arg_info := match(
     arg_info_opt,
-    .Some(i) => i,
+    .Some(i) => Rc.clone(i),
     .None => {
       return(expr);
     }

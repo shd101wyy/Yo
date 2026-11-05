@@ -276,7 +276,7 @@ register_func_variadic_param :: (fn(func_id : &String, label : &String, ty : &Ty
     vp_id := func_id.clone();
     vp_label := label.clone();
     vp_ty := Rc.clone(ty);
-    g_func_variadic_params.with_mut({ vp_id, vp_label, vp_ty }(m) => m.insert(vp_id, VariadicParamEntry(label : vp_label, ty : vp_ty)));
+    g_func_variadic_params.with_mut({ vp_id, vp_label, vp_ty : Rc.clone(vp_ty) }(m) => m.insert(vp_id, VariadicParamEntry(label : vp_label, ty : vp_ty)));
   });
 });
 copy_func_variadic_param :: (fn(from_id : &String, to_id : &String) -> unit)({
@@ -459,7 +459,7 @@ register_func_param_default_exprs :: (fn(func_id : &String, exprs : &ArrayList(O
     record_owned_func_id(func_id.clone());
     func_id_owned := func_id.clone();
     exprs_owned := exprs.clone();
-    g_func_param_default_exprs.with_mut({ func_id_owned, exprs_owned, def_env }(m) => m.insert(func_id_owned.clone(), FuncParamDefaultExprs(exprs : exprs_owned, def_env : def_env)));
+    g_func_param_default_exprs.with_mut({ func_id_owned, exprs_owned, def_env : Rc.clone(def_env) }(m) => m.insert(func_id_owned.clone(), FuncParamDefaultExprs(exprs : exprs_owned, def_env : def_env)));
   });
 });
 copy_func_param_default_exprs :: (fn(from_id : &String, to_id : &String) -> unit)({
@@ -491,7 +491,7 @@ default_param_eval_env :: (fn(func_id : &String, inner : &Option(Environment), f
   out := match(
     g_func_param_default_exprs.with(m => m.get_cloned(func_id)),
     .Some(entry) => {
-      d := entry.def_env;
+      d := Rc.clone(entry.def_env);
       frames := copy_env_frames(&d);
       match(
         inner,
@@ -1491,7 +1491,7 @@ _get_expr_type :: (
   info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated));
   info := match(
     info_opt,
-    .Some(i) => i,
+    .Some(i) => Rc.clone(i),
     .None => {
       exn.throw(
         dyn(
@@ -1765,7 +1765,7 @@ _add_where_clause_constraint :: (
       present := _wcc_has_trait(&cond(is_negated => wcc_bounds.negative(), true => wcc_bounds.required()), trait_ty);
       if(!present, {
         wcc_trait := Rc.clone(trait_ty);
-        wcc_bounds.with_mut({ wcc_trait, is_negated }(b) => {
+        wcc_bounds.with_mut({ wcc_trait : Rc.clone(wcc_trait), is_negated }(b) => {
           if(is_negated, {
             b.negative.push(wcc_trait);
             b.negative_levels.push(usize(0));
@@ -2317,7 +2317,7 @@ evaluate_function_parameter :: (
       saved_expected := ctx.expected_type.clone();
       ctx.expected_type = match(
         &param_type,
-        .Some(pt) => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(Rc.clone(pt), env_mut)),
+        .Some(pt) => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(Rc.clone(pt), Rc.clone(env_mut))),
         .None => saved_expected.clone()
       );
       evaluated_dve := evaluate_expression_raw(&dve, env_mut, ctx, exn);
@@ -2926,7 +2926,7 @@ validate_concrete_type_constraints :: (
     evaled_t;
     info := match(
       info_opt,
-      .Some(i) => i,
+      .Some(i) => Rc.clone(i),
       .None => {
         exn.throw(
           dyn(
@@ -3129,7 +3129,7 @@ apply_single_trait_constraint :: (
     info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated));
     info := match(
       info_opt,
-      .Some(i) => i,
+      .Some(i) => Rc.clone(i),
       .None => {
         return(false);
       }
@@ -3160,7 +3160,7 @@ apply_single_trait_constraint :: (
   info_rhs_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_rhs));
   info_rhs := match(
     info_rhs_opt,
-    .Some(i) => i,
+    .Some(i) => Rc.clone(i),
     .None => {
       return(false);
     }
@@ -3362,7 +3362,7 @@ parse_where_clause_constraints :: (
       lhs_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_lhs));
       lhs_info := match(
         lhs_info_opt,
-        .Some(i) => i,
+        .Some(i) => Rc.clone(i),
         .None => {
           exn.throw(
             dyn(
@@ -3458,7 +3458,7 @@ parse_where_clause_constraints :: (
       (skip_iter : bool) = false;
       trait_info := match(
         trait_info_opt,
-        .Some(i) => i,
+        .Some(i) => Rc.clone(i),
         .None => {
           if(!collect_pending, {
             exn.throw(
@@ -4637,7 +4637,7 @@ evaluate_function_type :: (
     dse_i = (dse_i + usize(1));
   });
   // Evaluate parameters (pushes a new env frame, doesn't pop it)
-  (env_mut : Environment) = env;
+  (env_mut : Environment) = Rc.clone(env);
   params_result := evaluate_function_parameters(&arg_list, &env_mut, ctx, exn);
   // Restore context flag
   ctx.is_evaluating_function_type = prev_is_eval_fn_type;

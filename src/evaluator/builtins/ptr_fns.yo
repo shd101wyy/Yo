@@ -454,7 +454,7 @@ evaluate_address_call :: (
         &ectx.ty,
         Rc(.Pointer(pointee_box)) => {
           ctx.expected_type = Option(ExpectedTypeCtx).Some(
-            ExpectedTypeCtx(ty : Rc.clone(pointee_box), env : ectx.env)
+            ExpectedTypeCtx(ty : Rc.clone(pointee_box), env : Rc.clone(ectx.env))
           );
         },
         _ => ()
@@ -469,7 +469,7 @@ evaluate_address_call :: (
   eval_arg := match(eval_arg_gout.get(usize(0)), .Some(eval_arg_g) => eval_arg_g, .None => make_err_expr());
   arg_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&eval_arg));
   match(
-    arg_info_opt,
+    &arg_info_opt,
     .Some(_) => (),
     .None => {
       exn.throw(
@@ -484,7 +484,7 @@ evaluate_address_call :: (
   );
   arg_info := match(
     arg_info_opt,
-    .Some(i) => i,
+    .Some(i) => Rc.clone(i),
     .None => {
       return(expr);
     }

@@ -58,7 +58,7 @@ evaluate_raw_pointer_call :: (
   // Read the expr info for the evaluated argument
   info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated));
   match(
-    info_opt,
+    &info_opt,
     .None => {
       exn.throw(
         dyn(
@@ -73,7 +73,7 @@ evaluate_raw_pointer_call :: (
   );
   arg_info := match(
     info_opt,
-    .Some(i) => i,
+    .Some(i) => Rc.clone(i),
     .None => new_expr_info(env, t_i32()) // unreachable: guarded by throw above
   );
   // If the argument is a type value, create a pointer type; otherwise error.

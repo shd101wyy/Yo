@@ -716,7 +716,7 @@ _decide_match_mode :: (
   });
   if(is_atom, {
     match(
-      root,
+      &root,
       .Some(rv) => {
         if(_variable_is_mut_borrow(&rv), {
           return(MATCH_MODE_MUT);
@@ -735,7 +735,7 @@ _decide_match_mode :: (
   dyn_tok := ast_expr_token(&scr);
   if(is_atom && !type_requires_explicit_copy(&ty) && dyn_copy_rule_applies(&ty), {
     match(
-      root,
+      &root,
       .Some(rv) => cond(
         rv.is_module_level() => _throw_unmovable_scrutinee(&scr, &ty, String.from("it is a module-level binding, which lives for the whole program and is never moved."), ctx, exn),
         match_scrutinee_is_capture(&rv, env, ctx) => _throw_unmovable_scrutinee(&scr, &ty, String.from("it is a closure's capture, which the closure keeps for its next call."), ctx, exn),
@@ -755,7 +755,7 @@ _decide_match_mode :: (
       arm_mention := if(
         is_atom,
         match(
-          root,
+          &root,
           .Some(rv) => (type_holds_counted_handle_ignoring_migration(&ty) && _scrutinee_mentioned_in_arms(whole, rv.name.clone())),
           .None => false
         ),
@@ -764,7 +764,7 @@ _decide_match_mode :: (
       unmovable := if(
         is_atom,
         match(
-          root,
+          &root,
           .Some(rv) => cond(
             (rv.is_module_level() || match_scrutinee_is_capture(&rv, env, ctx)) => true,
             // A plain local of a type holding a counted handle: the rule
@@ -787,7 +787,7 @@ _decide_match_mode :: (
         migrate_rc_clone_borrow_scrutinee(
           &scr,
           &ty,
-          clone_scrutinee : (is_atom && match(root, .Some(rv) => (rv.is_module_level() || _scrutinee_written_in_arms(whole, rv.name.clone(), ctx)), .None => false))
+          clone_scrutinee : (is_atom && match(&root, .Some(rv) => (rv.is_module_level() || _scrutinee_written_in_arms(whole, rv.name.clone(), ctx)), .None => false))
         );
       });
       // A plain local the rule would consume: the branch below runs only
@@ -797,7 +797,7 @@ _decide_match_mode :: (
       plain_local := if(
         is_atom,
         match(
-          root,
+          &root,
           .Some(rv) => (
             !rv.is_module_level() && !rv.is_compile_time_only()
             && !match_scrutinee_is_capture(&rv, env, ctx)
@@ -1179,7 +1179,7 @@ evaluate_match :: (
     exn : Exception
   ) -> AstExpr
 )({
-  (env : Environment) = env_in;
+  (env : Environment) = Rc.clone(env_in);
   if(!(ast_expr_is_fn_call_of(expr, BK_MATCH, .None)), {
     exn.throw(
       dyn(
@@ -1263,7 +1263,7 @@ evaluate_match :: (
   // Check scrutinee ExprInfo has variable_name
   scr_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_scrutinee));
   (scr_has_var_name : bool) = match(
-    scr_info_opt,
+    &scr_info_opt,
     .Some(si) => si.variable_name().is_some(),
     .None => false
   );
@@ -1298,7 +1298,7 @@ evaluate_match :: (
   });
   scr_info := match(
     scr_info_opt,
-    .Some(si) => si,
+    .Some(si) => Rc.clone(si),
     .None => {
       exn.throw(
         dyn(
@@ -1595,7 +1595,7 @@ evaluate_match :: (
       b_tok := ast_expr_token(&b.atom);
       if(is_mut_binding(&b_tok, &b.name), {
         match(
-          _added,
+          &_added,
           .Some(mb_var) => {
             mb_var.set_is_reassignable(true);
           },
@@ -1607,11 +1607,11 @@ evaluate_match :: (
       // ...)`'s `.Some(x)` arm), rebinds like a parameter.
       m_tok := ast_expr_token(expr);
       if(for_desugar_site_of(&m_tok).is_some(), {
-        match(_added, .Some(me_var) => mark_macro_pattern_binding(me_var.id()), .None => ());
+        match(&_added, .Some(me_var) => mark_macro_pattern_binding(me_var.id()), .None => ());
       }, {
         if(b_tok.module_path != m_tok.module_path, {
           if(canonical_module_path(&b_tok.module_path.*) != canonical_module_path(&m_tok.module_path.*), {
-            match(_added, .Some(me_var) => mark_macro_pattern_binding(me_var.id()), .None => ());
+            match(&_added, .Some(me_var) => mark_macro_pattern_binding(me_var.id()), .None => ());
           });
         });
       });
@@ -1619,7 +1619,7 @@ evaluate_match :: (
       // value it binds freezes what it borrows for the arm, and a
       // borrowing future cannot be bound at all (§3.13 A2).
       if(!ct_known, {
-        match(_added, .Some(sc_var) => note_second_class_binding(&sc_var, &b.ty, ast_expr_token(&b.atom), &env, ctx, exn), .None => ());
+        match(&_added, .Some(sc_var) => note_second_class_binding(&sc_var, &b.ty, ast_expr_token(&b.atom), &env, ctx, exn), .None => ());
       });
       match(lb_scr_source, .Some(lbs) => local_borrow_note_pattern_binding(b.name.clone(), ast_expr_token(&b.atom), &lbs), .None => ());
       // A binding of a `match(&x, …)`, or of a reference binding matched
@@ -1629,7 +1629,7 @@ evaluate_match :: (
       // `is_ref` above).
       if(!ct_known && !consuming && !mut_places && ((borrowed_match_scrutinee_kind(ast_expr_token(expr)) == u8(1)) || _scrutinee_is_reference_binding(&scrutinee_expr, &env)), {
         match(
-          _added,
+          &_added,
           .Some(bm_var) => {
             bm_var.set_is_borrow_match_binding(true);
           },
@@ -1642,7 +1642,7 @@ evaluate_match :: (
         // temporary too, `match(&f(), .Some(x) => …)`), so a copy of it
         // is a copy of a borrow, never a move.
         match(
-          _added,
+          &_added,
           .Some(added_var) => audit_note_match_binding(
             &added_var,
             &scr_info,
@@ -1676,7 +1676,7 @@ evaluate_match :: (
         || _scrutinee_is_projection(&scrutinee_expr, &env)
       ), {
         match(
-          _added,
+          &_added,
           .Some(pv) => _record_nested_scrutinee_borrows(&body_ast, b.name.clone(), pv.id(), &b.ty),
           .None => ()
         );
@@ -1692,14 +1692,14 @@ evaluate_match :: (
           _added,
           .Some(av) => {
             if(consuming, {
-              owned_vars.push(av);
+              owned_vars.push(Rc.clone(av));
             });
             if(mut_places, {
               // A `mut` place: the binding aliases the part, so reads and
               // writes go through it (the guard reads it; it becomes
               // writable for the body).
               av.set_is_ref(true);
-              place_vars.push(av);
+              place_vars.push(Rc.clone(av));
               any_place_binder = true;
             });
           },
@@ -1879,7 +1879,7 @@ evaluate_match :: (
       match(
         &result_type_em,
         .Some(rt) => {
-          ctx.expected_type = Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : Rc.clone(rt), env : env));
+          ctx.expected_type = Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : Rc.clone(rt), env : Rc.clone(env)));
         },
         .None => ()
       );
@@ -1920,7 +1920,7 @@ evaluate_match :: (
             .Some(pv) => {
               pv.set_is_reassignable(true);
               match(
-                mut_root,
+                &mut_root,
                 .Some(rv) => {
                   variable_set_inout_borrow_root_id(&pv, rv.id());
                   variable_mark_inout_borrow_root(&rv);
@@ -1981,7 +1981,7 @@ evaluate_match :: (
         );
         return(expr);
       });
-      body_info := match(body_info_opt, .Some(bi2) => bi2, .None => new_expr_info(&env, t_unit()));
+      body_info := match(body_info_opt, .Some(bi2) => Rc.clone(bi2), .None => new_expr_info(&env, t_unit()));
       // Trim the arm body's recorded env to the outer depth on a PRIVATE copy:
       // the recorded snapshot is shared between ExprInfos (`expr_info_env_snapshot`),
       // so popping it in place would rewrite every sharer's recorded scope.

@@ -88,7 +88,7 @@ try_to_implement_module_with_arguments_by_module_type :: (
     values.push(Option(EvalValue).None);
     i_init = (i_init + usize(1));
   });
-  (caller_env : Environment) = caller_env_in;
+  (caller_env : Environment) = Rc.clone(caller_env_in);
   // For each module field, find the matching arg by label.
   (i : usize) = usize(0);
   while(i < n_fields, {
@@ -172,7 +172,7 @@ try_to_implement_module_with_arguments_by_module_type :: (
       if(field_label == label_tok, {
         found_arg = true;
         // Evaluate the value sub-expression with expected type = field_type.
-        saved_expected := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : Rc.clone(field_type), env : caller_env)));
+        saved_expected := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : Rc.clone(field_type), env : Rc.clone(caller_env))));
         evaluated_arg_gout := ArrayList(AstExpr).new();
         evaluated_arg_gerr := evaluate_expression_guarded(&value_sub, &caller_env, ctx, &mut evaluated_arg_gout);
         ctx.expected_type = saved_expected;
@@ -189,7 +189,7 @@ try_to_implement_module_with_arguments_by_module_type :: (
             )
           );
         });
-        arg_info := match(arg_info_opt, .Some(it) => it, .None => new_expr_info(&caller_env, &field_type));
+        arg_info := match(arg_info_opt, .Some(it) => Rc.clone(it), .None => new_expr_info(&caller_env, &field_type));
         reject_second_class_escape(&arg_info.ty(), String.from("stored in a module member"), ast_expr_token(&value_sub), ctx, exn);
         set_expr_as_needs_to_call_dup(&evaluated_arg, ctx, exn, "field-store");
         caller_env = expr_info_adopt_env(&arg_info);

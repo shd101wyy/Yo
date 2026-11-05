@@ -1088,7 +1088,7 @@ d3_check_pending :: (
       pending.get_cloned(i),
       .Some(entry) => if(entry.borrow_error.is_none() && (entry.lb_place.is_none() && param_mutation_mask_hits(&mask, entry.param_index)), {
         match(
-          entry.global,
+          &entry.global,
           .Some(gv) => _d1_record_write(&gv, ast_expr_token(&entry.place), entry.how.clone(), String.from(", which the callee may write through"), exn),
           .None => {
             (root_text : String) = entry.root_text.clone();
@@ -1291,7 +1291,7 @@ evaluate_assignment :: (
     exn : Exception
   ) -> AstExpr
 )({
-  (env : Environment) = env_in;
+  (env : Environment) = Rc.clone(env_in);
   // Validate shape: "=" with exactly 2 args.
   if(!ast_expr_is_fn_call_of(expr, BK_ASSIGN, .Some(usize(2))), {
     exn.throw(
@@ -1462,7 +1462,7 @@ evaluate_assignment :: (
         )
       );
     });
-    lhs_info := match(lhs_info_opt, .Some(i) => i, .None => new_expr_info(&env, t_unit()));
+    lhs_info := match(lhs_info_opt, .Some(i) => Rc.clone(i), .None => new_expr_info(&env, t_unit()));
     // A plain FUNCTION CALL is not a place: `f(1) = 2` used to be evaluated and
     // its value silently discarded, at check AND at runtime
     // (issues/fixed/assignment-to-call-expression-silently-accepted.md). The
@@ -1492,7 +1492,7 @@ evaluate_assignment :: (
     });
     expected_ty := Rc.clone(lhs_info.ty());
     // Step 2 — Evaluate RHS with expected type from LHS
-    ctx.expected_type = Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : Rc.clone(expected_ty), env : env));
+    ctx.expected_type = Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : Rc.clone(expected_ty), env : Rc.clone(env)));
     prop_rhs := evaluate_expression_raw(&rhs, &env, ctx, exn);
     ctx.expected_type = saved_expected.clone();
     prop_rhs_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&prop_rhs));
@@ -1508,7 +1508,7 @@ evaluate_assignment :: (
     });
     (prop_rhs_info : ExprInfo) = match(
       prop_rhs_info_opt,
-      .Some(i) => i,
+      .Some(i) => Rc.clone(i),
       .None => new_expr_info(&env, t_unit())
     );
     env_adopt(&env, &prop_rhs_info.env());
@@ -2186,7 +2186,7 @@ Bound type: ${type_to_string(&mcb_v.ty())}`
   ctx.expected_type = Option(ExpectedTypeCtx).Some(
     ExpectedTypeCtx(
       ty : Rc.clone(variable.ty()),
-      env : env
+      env : Rc.clone(env)
     )
   );
   (rhs_evaled : AstExpr) = evaluate_expression_raw(&rhs, &env, ctx, exn);
@@ -2202,7 +2202,7 @@ Bound type: ${type_to_string(&mcb_v.ty())}`
       )
     );
   });
-  rhs_info := match(rhs_info_opt, .Some(i) => i, .None => new_expr_info(&env, t_unit()));
+  rhs_info := match(rhs_info_opt, .Some(i) => Rc.clone(i), .None => new_expr_info(&env, t_unit()));
   // E0918: a compile-time binding reassigned by code that runs at runtime.
   if(is_atom_lhs, {
     _reject_runtime_write_of_comptime_binding(&variable, ast_expr_token(&lhs_resolved), rhs_info.value().is_none(), ctx, exn);

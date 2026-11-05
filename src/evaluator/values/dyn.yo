@@ -90,7 +90,7 @@ _create_box_type_via :: (fn(ctor : &String, inner_type : &TypeValue, env : &Envi
     .Some(bfv) => {
       param0_ty := match(&box_ft, Rc(.Func({ param_types : pts })) => match(slot_pointee_at(&pts, usize(0)), .Some(p) => p, .None => t_type()), _ => t_type());
       param0_label := match(&box_ft, Rc(.Func({ meta : bm })) => match(bm.*.param_labels.get(usize(0)), .Some(l) => l, .None => String.from("V")), _ => String.from("V"));
-      (cenv : Environment) = env;
+      (cenv : Environment) = Rc.clone(env);
       _cfr := cenv.push_frame(false);
       vtok := synthetic_token(param0_label.clone(), &cenv.module_path().*);
       add_variable_to_env(&cenv, param0_label.clone(), t_type(), Option(EvalValue).Some(create_type_value(inner_type)), true, false, false, false, &vtok);
@@ -1437,7 +1437,7 @@ evaluate_dyn_value :: (
         inner_expected = Option(ExpectedTypeCtx).Some(
           ExpectedTypeCtx(
             ty : exp_ty,
-            env : et.env
+            env : Rc.clone(et.env)
           )
         );
       },
@@ -1579,7 +1579,7 @@ evaluate_dyn_value :: (
         _create_box_type_via(if(ne_send, String.from("Arc"), String.from(ne_cell.type_name)), &ne_box_inner_ty, env, ctx, exn),
         .Some(box_ty) => {
           (ne_box_call, ne_box_recv) := _synthesized_cell_call(&box_ty, if(ne_send, String.from("Arc"), String.from(ne_cell.type_name)), &ne_box_inner_ty, inner_ne, &expr_tok, env, ctx);
-          saved_bet := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : box_ty, env : env)));
+          saved_bet := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : box_ty, env : Rc.clone(env))));
           // The inner value is evaluated once: as the box call's argument it
           // is pre-evaluated, so a closure's capture moves do not run again
           // (issues/fixed/dyn-of-a-closure-capturing-a-move-only-value-is-a-bogus-e0901.md).
@@ -1636,7 +1636,7 @@ evaluate_dyn_value :: (
   inner_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&eval_inner));
   inner_info := match(
     inner_info_opt,
-    .Some(i) => i,
+    .Some(i) => Rc.clone(i),
     .None => {
       exn.throw(
         dyn(

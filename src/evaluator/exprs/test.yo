@@ -176,7 +176,7 @@ evaluate_test :: (
     exn : Exception
   ) -> AstExpr
 )({
-  (env : Environment) = env_in;
+  (env : Environment) = Rc.clone(env_in);
   // Validate shape: must be "test" call.
   if(!ast_expr_is_fn_call_of(expr, BK_TEST, .None), {
     exn.throw(
@@ -227,7 +227,7 @@ evaluate_test :: (
       )
     );
   });
-  name_info := match(name_info_opt, .Some(i) => i, .None => new_expr_info(&env, t_unit()));
+  name_info := match(name_info_opt, .Some(i) => Rc.clone(i), .None => new_expr_info(&env, t_unit()));
   // Update env from the name evaluation.
   env_adopt(&env, &name_info.env());
   // Validate test name is a comptime string.

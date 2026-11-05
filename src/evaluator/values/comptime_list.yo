@@ -64,7 +64,7 @@ evaluate_comptime_list_value :: (
     .None => Option(TypeValue).None
   );
   (elements : ArrayList(EvalValue)) = ArrayList(EvalValue).new();
-  (env_loop : Environment) = env;
+  (env_loop : Environment) = Rc.clone(env);
   (j : usize) = usize(0);
   while(j < n_args, {
     arg := match(args.get(j), .Some(a) => a, .None => make_err_expr());
@@ -72,7 +72,7 @@ evaluate_comptime_list_value :: (
     arg_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_arg));
     // Elements must have a compile-time value.
     has_value := match(
-      arg_info_opt,
+      &arg_info_opt,
       .Some(info) => info.value().is_some(),
       .None => false
     );
@@ -88,7 +88,7 @@ evaluate_comptime_list_value :: (
     });
     arg_info := match(
       arg_info_opt,
-      .Some(info) => info,
+      .Some(info) => Rc.clone(info),
       .None => new_expr_info(&env_loop, t_usize()) // unreachable
     );
     env_loop = expr_info_adopt_env(&arg_info);

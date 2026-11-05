@@ -87,7 +87,7 @@ _type_is_extern :: (fn(t : &TypeValue) -> bool)(
 expr_contains_unknown_value :: (fn(expr : &AstExpr, info : &ExprInfoTable) -> bool)({
   ei_opt := expr_info_table_get(info, ast_expr_id(expr));
   match(
-    ei_opt,
+    &ei_opt,
     .Some(ei) => match(
       ei.value(),
       .Some(v) => if(is_unknown_val(&v), {
@@ -135,7 +135,7 @@ expr_contains_unknown_value :: (fn(expr : &AstExpr, info : &ExprInfoTable) -> bo
   );
   // Macro expansion.
   match(
-    ei_opt,
+    &ei_opt,
     .Some(ei) => match(
       expr_info_macro_expansion(&ei),
       .Some(me) => {
@@ -359,7 +359,7 @@ _register_extern_global_header :: (
   if(!is_extern_c_global(name.clone()), {
     return(());
   });
-  ei := match(ei_opt, .Some(e) => e, .None => return(()));
+  ei := match(ei_opt, .Some(e) => Rc.clone(e), .None => return(()));
   vs := scope_variables(key, &ei.env(), name.clone());
   n := vs.len();
   resolved_ty := cond(
@@ -639,7 +639,7 @@ _find_function_calls_in_node :: (fn(expr : &AstExpr, context : &mut CodeGenConte
   ei_opt := expr_info_table_get(info, ast_expr_id(expr));
   // Effect-handler functions living inside compile-time struct-namespace values.
   match(
-    ei_opt,
+    &ei_opt,
     .Some(ei) => match(
       ei.value(),
       .Some(v) => if(is_struct_val(&v), {
@@ -658,7 +658,7 @@ _find_function_calls_in_node :: (fn(expr : &AstExpr, context : &mut CodeGenConte
   // impl a (concrete, target) one (`register_dyn_upcast_targets`).
   if(ast_expr_is_fn_call_of(expr, BF_UPCAST, Option(usize).Some(usize(2))), {
     match(
-      ei_opt,
+      &ei_opt,
       .Some(uei) => match(
         match(expr, .FnCall(_, _, Rc(uargs), _, _) => uargs.get(usize(0)), .Atom(_, _) => Option(AstExpr).None),
         .Some(usrc) => match(
@@ -675,7 +675,7 @@ _find_function_calls_in_node :: (fn(expr : &AstExpr, context : &mut CodeGenConte
   });
   // Macro expansion, effect-handler body, closure fn, index method.
   match(
-    ei_opt,
+    &ei_opt,
     .Some(ei) => {
       // Prefer the per-expr macro_expansion; fall back to the durable id-keyed
       // side-table when a later eval pass overwrote this call's ExprInfo WITHOUT
@@ -918,7 +918,7 @@ _find_function_calls_in_node :: (fn(expr : &AstExpr, context : &mut CodeGenConte
   );
   // Anonymous function value bound to this expression.
   match(
-    ei_opt,
+    &ei_opt,
     .Some(ei) => match(
       ei.value(),
       .Some(v) => if(is_func_val(&v) && is_function_type(&ei.ty()), {
@@ -956,7 +956,7 @@ _find_function_calls_in_node :: (fn(expr : &AstExpr, context : &mut CodeGenConte
   );
   // Comptime function call returning a type → collect the type.
   match(
-    ei_opt,
+    &ei_opt,
     .Some(ei) => if(is_type_value(&ei.value()), {
       match(ei.value(), .Some(v) => match(v, .TypeVal(t) => _call_collect_type(&t, context), _ => ()), .None => ());
     }),

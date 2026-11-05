@@ -403,35 +403,35 @@ ExprInfoRare :: (
 );
 derive(ExprInfoRare, Clone);
 ExprInfoData :: struct(
-    // --- Required ---
-    env : Environment,
-    ty : TypeValue,
-    path_collection : ArrayList(ArrayList(String)),
-    // --- Optional ---
-    /// Compile-time value; `.None` for runtime expressions.
-    value : Option(EvalValue),
-    /// Name of the temporary variable holding the value in `env`.
-    variable_name : Option(String),
-    /// True when this expression is a property-access dereference (`p.*`).
-    is_accessing_property : Option(bool),
-    /// Runtime arguments in call order (used by codegen).
-    runtime_arg_exprs_in_order : Option(ArrayList(AstExpr)),
-    /// Control-flow flags (return, unwind, break, continue).
-    control_flow : Option(ControlFlowFlags),
-    /// `___drop` call expressions for variables needing cleanup at scope exit.
-    deferred_drop_expressions : Option(ArrayList(AstExpr)),
-    /// Root object type in a property-access chain (used for mutability analysis).
-    // INLINE ON PURPOSE, and it must stay that way: a measured self-emit calls
-    // `expr_info_set_origin_type` 3,073,159 times out of 3,339,110 total
-    // `_expr_info_rare_for_write` calls, so grouping this one field made 92% of
-    // all ExprInfos allocate an `ExprInfoRare` (1.74 M x 256 B = 446 MB) and
-    // cancelled the saving. Reached through the same accessor pair as the boxed
-    // fields, so which side of the line it sits on is invisible to callers.
-    origin_type : Option(TypeValue),
-    /// The rarely-set fields, allocated on first write. See `ExprInfoRare`.
-    rare : Option(Box(ExprInfoRare)),
-    /// Variable object for identifier expressions (used by compile-time pointer creation).
-    source_variable : Option(Variable)
+  // --- Required ---
+  env : Environment,
+  ty : TypeValue,
+  path_collection : ArrayList(ArrayList(String)),
+  // --- Optional ---
+  /// Compile-time value; `.None` for runtime expressions.
+  value : Option(EvalValue),
+  /// Name of the temporary variable holding the value in `env`.
+  variable_name : Option(String),
+  /// True when this expression is a property-access dereference (`p.*`).
+  is_accessing_property : Option(bool),
+  /// Runtime arguments in call order (used by codegen).
+  runtime_arg_exprs_in_order : Option(ArrayList(AstExpr)),
+  /// Control-flow flags (return, unwind, break, continue).
+  control_flow : Option(ControlFlowFlags),
+  /// `___drop` call expressions for variables needing cleanup at scope exit.
+  deferred_drop_expressions : Option(ArrayList(AstExpr)),
+  /// Root object type in a property-access chain (used for mutability analysis).
+  // INLINE ON PURPOSE, and it must stay that way: a measured self-emit calls
+  // `expr_info_set_origin_type` 3,073,159 times out of 3,339,110 total
+  // `_expr_info_rare_for_write` calls, so grouping this one field made 92% of
+  // all ExprInfos allocate an `ExprInfoRare` (1.74 M x 256 B = 446 MB) and
+  // cancelled the saving. Reached through the same accessor pair as the boxed
+  // fields, so which side of the line it sits on is invisible to callers.
+  origin_type : Option(TypeValue),
+  /// The rarely-set fields, allocated on first write. See `ExprInfoRare`.
+  rare : Option(Box(ExprInfoRare)),
+  /// Variable object for identifier expressions (used by compile-time pointer creation).
+  source_variable : Option(Variable)
 );
 ExprInfo :: Rc(RefCell(ExprInfoData));
 make_expr_info :: (
@@ -450,71 +450,99 @@ make_expr_info :: (
     source_variable : Option(Variable)
   ) -> ExprInfo
 )(
-  Rc.new(RefCell(ExprInfoData).new(ExprInfoData(
-    env : env,
-    ty : ty,
-    path_collection : path_collection,
-    value : value,
-    variable_name : variable_name,
-    is_accessing_property : is_accessing_property,
-    runtime_arg_exprs_in_order : runtime_arg_exprs_in_order,
-    control_flow : control_flow,
-    deferred_drop_expressions : deferred_drop_expressions,
-    origin_type : origin_type,
-    rare : rare,
-    source_variable : source_variable
-  )))
+  Rc.new(
+    RefCell(ExprInfoData).new(
+      ExprInfoData(
+        env : env,
+        ty : ty,
+        path_collection : path_collection,
+        value : value,
+        variable_name : variable_name,
+        is_accessing_property : is_accessing_property,
+        runtime_arg_exprs_in_order : runtime_arg_exprs_in_order,
+        control_flow : control_flow,
+        deferred_drop_expressions : deferred_drop_expressions,
+        origin_type : origin_type,
+        rare : rare,
+        source_variable : source_variable
+      )
+    )
+  )
 );
 impl(
   ExprInfo,
   env : (fn(self : &Self) -> Environment)(self.with(d => Rc.clone(d.env))),
-  set_env : (fn(self : &Self, sink(v) : Environment) -> unit)(self.with_mut({ v }(d) => {
-    d.env = v;
-  })),
+  set_env : (fn(self : &Self, sink(v) : Environment) -> unit)(
+    self.with_mut({ v : Rc.clone(v) }(d) => {
+      d.env = v;
+    })
+  ),
   ty : (fn(self : &Self) -> TypeValue)(self.with(d => Rc.clone(d.ty))),
-  set_ty : (fn(self : &Self, sink(v) : TypeValue) -> unit)(self.with_mut({ v }(d) => {
-    d.ty = v;
-  })),
+  set_ty : (fn(self : &Self, sink(v) : TypeValue) -> unit)(
+    self.with_mut({ v : Rc.clone(v) }(d) => {
+      d.ty = v;
+    })
+  ),
   path_collection : (fn(self : &Self) -> ArrayList(ArrayList(String)))(self.with(d => d.path_collection.clone())),
-  set_path_collection : (fn(self : &Self, sink(v) : ArrayList(ArrayList(String))) -> unit)(self.with_mut({ v }(d) => {
-    d.path_collection = v;
-  })),
+  set_path_collection : (fn(self : &Self, sink(v) : ArrayList(ArrayList(String))) -> unit)(
+    self.with_mut({ v }(d) => {
+      d.path_collection = v;
+    })
+  ),
   value : (fn(self : &Self) -> Option(EvalValue))(self.with(d => d.value.clone())),
-  set_value : (fn(self : &Self, sink(v) : Option(EvalValue)) -> unit)(self.with_mut({ v }(d) => {
-    d.value = v;
-  })),
+  set_value : (fn(self : &Self, sink(v) : Option(EvalValue)) -> unit)(
+    self.with_mut({ v }(d) => {
+      d.value = v;
+    })
+  ),
   variable_name : (fn(self : &Self) -> Option(String))(self.with(d => d.variable_name.clone())),
-  set_variable_name : (fn(self : &Self, sink(v) : Option(String)) -> unit)(self.with_mut({ v }(d) => {
-    d.variable_name = v;
-  })),
+  set_variable_name : (fn(self : &Self, sink(v) : Option(String)) -> unit)(
+    self.with_mut({ v }(d) => {
+      d.variable_name = v;
+    })
+  ),
   is_accessing_property : (fn(self : &Self) -> Option(bool))(self.with(d => d.is_accessing_property)),
-  set_is_accessing_property : (fn(self : &Self, sink(v) : Option(bool)) -> unit)(self.with_mut({ v }(d) => {
-    d.is_accessing_property = v;
-  })),
+  set_is_accessing_property : (fn(self : &Self, sink(v) : Option(bool)) -> unit)(
+    self.with_mut({ v }(d) => {
+      d.is_accessing_property = v;
+    })
+  ),
   runtime_arg_exprs_in_order : (fn(self : &Self) -> Option(ArrayList(AstExpr)))(self.with(d => d.runtime_arg_exprs_in_order.clone())),
-  set_runtime_arg_exprs_in_order : (fn(self : &Self, sink(v) : Option(ArrayList(AstExpr))) -> unit)(self.with_mut({ v }(d) => {
-    d.runtime_arg_exprs_in_order = v;
-  })),
+  set_runtime_arg_exprs_in_order : (fn(self : &Self, sink(v) : Option(ArrayList(AstExpr))) -> unit)(
+    self.with_mut({ v }(d) => {
+      d.runtime_arg_exprs_in_order = v;
+    })
+  ),
   control_flow : (fn(self : &Self) -> Option(ControlFlowFlags))(self.with(d => d.control_flow.clone())),
-  set_control_flow : (fn(self : &Self, sink(v) : Option(ControlFlowFlags)) -> unit)(self.with_mut({ v }(d) => {
-    d.control_flow = v;
-  })),
+  set_control_flow : (fn(self : &Self, sink(v) : Option(ControlFlowFlags)) -> unit)(
+    self.with_mut({ v }(d) => {
+      d.control_flow = v;
+    })
+  ),
   deferred_drop_expressions : (fn(self : &Self) -> Option(ArrayList(AstExpr)))(self.with(d => d.deferred_drop_expressions.clone())),
-  set_deferred_drop_expressions : (fn(self : &Self, sink(v) : Option(ArrayList(AstExpr))) -> unit)(self.with_mut({ v }(d) => {
-    d.deferred_drop_expressions = v;
-  })),
+  set_deferred_drop_expressions : (fn(self : &Self, sink(v) : Option(ArrayList(AstExpr))) -> unit)(
+    self.with_mut({ v }(d) => {
+      d.deferred_drop_expressions = v;
+    })
+  ),
   origin_type : (fn(self : &Self) -> Option(TypeValue))(self.with(d => d.origin_type.clone())),
-  set_origin_type : (fn(self : &Self, sink(v) : Option(TypeValue)) -> unit)(self.with_mut({ v }(d) => {
-    d.origin_type = v;
-  })),
+  set_origin_type : (fn(self : &Self, sink(v) : Option(TypeValue)) -> unit)(
+    self.with_mut({ v : v.clone() }(d) => {
+      d.origin_type = v;
+    })
+  ),
   rare : (fn(self : &Self) -> Option(Box(ExprInfoRare)))(self.with(d => d.rare.clone())),
-  set_rare : (fn(self : &Self, sink(v) : Option(Box(ExprInfoRare))) -> unit)(self.with_mut({ v }(d) => {
-    d.rare = v;
-  })),
+  set_rare : (fn(self : &Self, sink(v) : Option(Box(ExprInfoRare))) -> unit)(
+    self.with_mut({ v }(d) => {
+      d.rare = v;
+    })
+  ),
   source_variable : (fn(self : &Self) -> Option(Variable))(self.with(d => d.source_variable.clone())),
-  set_source_variable : (fn(self : &Self, sink(v) : Option(Variable)) -> unit)(self.with_mut({ v }(d) => {
-    d.source_variable = v;
-  }))
+  set_source_variable : (fn(self : &Self, sink(v) : Option(Variable)) -> unit)(
+    self.with_mut({ v : v.clone() }(d) => {
+      d.source_variable = v;
+    })
+  )
 );
 /// Adopt a recorded env as a LIVE env: copy-on-write. A recorded snapshot is
 /// shared between consecutive ExprInfos (`expr_info_env_snapshot`), so a caller
@@ -590,11 +618,13 @@ clone_expr_info_for_shared_begin_result :: (fn(src : &ExprInfo, env : &Environme
 // ---------------------------------------------------------------------------
 // ExprInfoRare accessors
 expr_info_doc_comment :: (fn(info : &ExprInfo) -> Option(String))(
-  info.with(d => match(
-    &d.rare,
-    .Some(r) => r.doc_comment.clone(),
-    .None => Option(String).None
-  ))
+  info.with(
+    d => match(
+      &d.rare,
+      .Some(r) => r.doc_comment.clone(),
+      .None => Option(String).None
+    )
+  )
 );
 /// Skip-None setter: writing `.None` into an absent rare group is a no-op.
 expr_info_set_doc_comment :: (fn(info : &ExprInfo, v : &Option(String)) -> unit)({
@@ -607,11 +637,13 @@ expr_info_set_doc_comment :: (fn(info : &ExprInfo, v : &Option(String)) -> unit)
   ()
 });
 expr_info_deferred_dup_expressions :: (fn(info : &ExprInfo) -> Option(ArrayList(AstExpr)))(
-  info.with(d => match(
-    &d.rare,
-    .Some(r) => r.deferred_dup_expressions.clone(),
-    .None => Option(ArrayList(AstExpr)).None
-  ))
+  info.with(
+    d => match(
+      &d.rare,
+      .Some(r) => r.deferred_dup_expressions.clone(),
+      .None => Option(ArrayList(AstExpr)).None
+    )
+  )
 );
 /// Skip-None setter: writing `.None` into an absent rare group is a no-op.
 expr_info_set_deferred_dup_expressions :: (fn(info : &ExprInfo, v : &Option(ArrayList(AstExpr))) -> unit)({
@@ -624,11 +656,13 @@ expr_info_set_deferred_dup_expressions :: (fn(info : &ExprInfo, v : &Option(Arra
   ()
 });
 expr_info_capture_field_inits :: (fn(info : &ExprInfo) -> Option(ArrayList(CaptureFieldInit)))(
-  info.with(d => match(
-    &d.rare,
-    .Some(r) => r.capture_field_inits.clone(),
-    .None => Option(ArrayList(CaptureFieldInit)).None
-  ))
+  info.with(
+    d => match(
+      &d.rare,
+      .Some(r) => r.capture_field_inits.clone(),
+      .None => Option(ArrayList(CaptureFieldInit)).None
+    )
+  )
 );
 /// Skip-None setter: writing `.None` into an absent rare group is a no-op.
 expr_info_set_capture_field_inits :: (fn(info : &ExprInfo, v : &Option(ArrayList(CaptureFieldInit))) -> unit)({
@@ -641,11 +675,13 @@ expr_info_set_capture_field_inits :: (fn(info : &ExprInfo, v : &Option(ArrayList
   ()
 });
 expr_info_capture_type :: (fn(info : &ExprInfo) -> Option(TypeValue))(
-  info.with(d => match(
-    &d.rare,
-    .Some(r) => r.capture_type.clone(),
-    .None => Option(TypeValue).None
-  ))
+  info.with(
+    d => match(
+      &d.rare,
+      .Some(r) => r.capture_type.clone(),
+      .None => Option(TypeValue).None
+    )
+  )
 );
 /// Skip-None setter: writing `.None` into an absent rare group is a no-op.
 expr_info_set_capture_type :: (fn(info : &ExprInfo, v : &Option(TypeValue)) -> unit)({
@@ -658,11 +694,13 @@ expr_info_set_capture_type :: (fn(info : &ExprInfo, v : &Option(TypeValue)) -> u
   ()
 });
 expr_info_macro_expansion :: (fn(info : &ExprInfo) -> Option(AstExpr))(
-  info.with(d => match(
-    &d.rare,
-    .Some(r) => r.macro_expansion,
-    .None => Option(AstExpr).None
-  ))
+  info.with(
+    d => match(
+      &d.rare,
+      .Some(r) => r.macro_expansion,
+      .None => Option(AstExpr).None
+    )
+  )
 );
 /// Skip-None setter: writing `.None` into an absent rare group is a no-op.
 expr_info_set_macro_expansion :: (fn(info : &ExprInfo, v : &Option(AstExpr)) -> unit)({
@@ -675,11 +713,13 @@ expr_info_set_macro_expansion :: (fn(info : &ExprInfo, v : &Option(AstExpr)) -> 
   ()
 });
 expr_info_original_expr :: (fn(info : &ExprInfo) -> Option(AstExpr))(
-  info.with(d => match(
-    &d.rare,
-    .Some(r) => r.original_expr,
-    .None => Option(AstExpr).None
-  ))
+  info.with(
+    d => match(
+      &d.rare,
+      .Some(r) => r.original_expr,
+      .None => Option(AstExpr).None
+    )
+  )
 );
 /// Skip-None setter: writing `.None` into an absent rare group is a no-op.
 expr_info_set_original_expr :: (fn(info : &ExprInfo, v : &Option(AstExpr)) -> unit)({
@@ -692,11 +732,13 @@ expr_info_set_original_expr :: (fn(info : &ExprInfo, v : &Option(AstExpr)) -> un
   ()
 });
 expr_info_comptime_ref :: (fn(info : &ExprInfo) -> Option(ComptimeRef))(
-  info.with(d => match(
-    &d.rare,
-    .Some(r) => r.comptime_ref.clone(),
-    .None => Option(ComptimeRef).None
-  ))
+  info.with(
+    d => match(
+      &d.rare,
+      .Some(r) => r.comptime_ref.clone(),
+      .None => Option(ComptimeRef).None
+    )
+  )
 );
 /// Skip-None setter: writing `.None` into an absent rare group is a no-op.
 expr_info_set_comptime_ref :: (fn(info : &ExprInfo, v : &Option(ComptimeRef)) -> unit)({
@@ -709,11 +751,13 @@ expr_info_set_comptime_ref :: (fn(info : &ExprInfo, v : &Option(ComptimeRef)) ->
   ()
 });
 expr_info_index_trait_ptr_type :: (fn(info : &ExprInfo) -> Option(TypeValue))(
-  info.with(d => match(
-    &d.rare,
-    .Some(r) => r.index_trait_ptr_type.clone(),
-    .None => Option(TypeValue).None
-  ))
+  info.with(
+    d => match(
+      &d.rare,
+      .Some(r) => r.index_trait_ptr_type.clone(),
+      .None => Option(TypeValue).None
+    )
+  )
 );
 /// Skip-None setter: writing `.None` into an absent rare group is a no-op.
 expr_info_set_index_trait_ptr_type :: (fn(info : &ExprInfo, v : &Option(TypeValue)) -> unit)({
@@ -726,11 +770,13 @@ expr_info_set_index_trait_ptr_type :: (fn(info : &ExprInfo, v : &Option(TypeValu
   ()
 });
 expr_info_index_method_type :: (fn(info : &ExprInfo) -> Option(TypeValue))(
-  info.with(d => match(
-    &d.rare,
-    .Some(r) => r.index_method_type.clone(),
-    .None => Option(TypeValue).None
-  ))
+  info.with(
+    d => match(
+      &d.rare,
+      .Some(r) => r.index_method_type.clone(),
+      .None => Option(TypeValue).None
+    )
+  )
 );
 /// Skip-None setter: writing `.None` into an absent rare group is a no-op.
 expr_info_set_index_method_type :: (fn(info : &ExprInfo, v : &Option(TypeValue)) -> unit)({
@@ -743,11 +789,13 @@ expr_info_set_index_method_type :: (fn(info : &ExprInfo, v : &Option(TypeValue))
   ()
 });
 expr_info_index_method_value :: (fn(info : &ExprInfo) -> Option(EvalValue))(
-  info.with(d => match(
-    &d.rare,
-    .Some(r) => r.index_method_value,
-    .None => Option(EvalValue).None
-  ))
+  info.with(
+    d => match(
+      &d.rare,
+      .Some(r) => r.index_method_value,
+      .None => Option(EvalValue).None
+    )
+  )
 );
 /// Skip-None setter: writing `.None` into an absent rare group is a no-op.
 expr_info_set_index_method_value :: (fn(info : &ExprInfo, v : &Option(EvalValue)) -> unit)({
@@ -760,11 +808,13 @@ expr_info_set_index_method_value :: (fn(info : &ExprInfo, v : &Option(EvalValue)
   ()
 });
 expr_info_is_index_trait_address_of :: (fn(info : &ExprInfo) -> Option(bool))(
-  info.with(d => match(
-    &d.rare,
-    .Some(r) => r.is_index_trait_address_of,
-    .None => Option(bool).None
-  ))
+  info.with(
+    d => match(
+      &d.rare,
+      .Some(r) => r.is_index_trait_address_of,
+      .None => Option(bool).None
+    )
+  )
 );
 /// Skip-None setter: writing `.None` into an absent rare group is a no-op.
 expr_info_set_is_index_trait_address_of :: (fn(info : &ExprInfo, v : Option(bool)) -> unit)({
@@ -777,11 +827,13 @@ expr_info_set_is_index_trait_address_of :: (fn(info : &ExprInfo, v : Option(bool
   ()
 });
 expr_info_is_compile_time_only_assignment :: (fn(info : &ExprInfo) -> Option(bool))(
-  info.with(d => match(
-    &d.rare,
-    .Some(r) => r.is_compile_time_only_assignment,
-    .None => Option(bool).None
-  ))
+  info.with(
+    d => match(
+      &d.rare,
+      .Some(r) => r.is_compile_time_only_assignment,
+      .None => Option(bool).None
+    )
+  )
 );
 /// Skip-None setter: writing `.None` into an absent rare group is a no-op.
 expr_info_set_is_compile_time_only_assignment :: (fn(info : &ExprInfo, v : Option(bool)) -> unit)({
@@ -794,11 +846,13 @@ expr_info_set_is_compile_time_only_assignment :: (fn(info : &ExprInfo, v : Optio
   ()
 });
 expr_info_is_anonymous_function_definition :: (fn(info : &ExprInfo) -> Option(bool))(
-  info.with(d => match(
-    &d.rare,
-    .Some(r) => r.is_anonymous_function_definition,
-    .None => Option(bool).None
-  ))
+  info.with(
+    d => match(
+      &d.rare,
+      .Some(r) => r.is_anonymous_function_definition,
+      .None => Option(bool).None
+    )
+  )
 );
 /// Skip-None setter: writing `.None` into an absent rare group is a no-op.
 expr_info_set_is_anonymous_function_definition :: (fn(info : &ExprInfo, v : Option(bool)) -> unit)({
@@ -811,11 +865,13 @@ expr_info_set_is_anonymous_function_definition :: (fn(info : &ExprInfo, v : Opti
   ()
 });
 expr_info_comptime_unrolled_bodies :: (fn(info : &ExprInfo) -> Option(ArrayList(AstExpr)))(
-  info.with(d => match(
-    &d.rare,
-    .Some(r) => r.comptime_unrolled_bodies.clone(),
-    .None => Option(ArrayList(AstExpr)).None
-  ))
+  info.with(
+    d => match(
+      &d.rare,
+      .Some(r) => r.comptime_unrolled_bodies.clone(),
+      .None => Option(ArrayList(AstExpr)).None
+    )
+  )
 );
 /// Skip-None setter: writing `.None` into an absent rare group is a no-op.
 expr_info_set_comptime_unrolled_bodies :: (fn(info : &ExprInfo, v : &Option(ArrayList(AstExpr))) -> unit)({
@@ -828,11 +884,13 @@ expr_info_set_comptime_unrolled_bodies :: (fn(info : &ExprInfo, v : &Option(Arra
   ()
 });
 expr_info_early_return_only_deferred_drop_expressions :: (fn(info : &ExprInfo) -> Option(ArrayList(AstExpr)))(
-  info.with(d => match(
-    &d.rare,
-    .Some(r) => r.early_return_only_deferred_drop_expressions.clone(),
-    .None => Option(ArrayList(AstExpr)).None
-  ))
+  info.with(
+    d => match(
+      &d.rare,
+      .Some(r) => r.early_return_only_deferred_drop_expressions.clone(),
+      .None => Option(ArrayList(AstExpr)).None
+    )
+  )
 );
 /// Skip-None setter: writing `.None` into an absent rare group is a no-op.
 expr_info_set_early_return_only_deferred_drop_expressions :: (fn(info : &ExprInfo, v : &Option(ArrayList(AstExpr))) -> unit)({
@@ -905,11 +963,13 @@ expr_info_set_origin_type :: (fn(info : &ExprInfo, v : &Option(TypeValue)) -> un
 expr_info_runtime_destructurings :: (
   fn(info : &ExprInfo) -> Option(ArrayList(RuntimeDestructuring))
 )(
-  info.with(d => match(
-    &d.rare,
-    .Some(r) => r.runtime_destructurings.clone(),
-    .None => Option(ArrayList(RuntimeDestructuring)).None
-  ))
+  info.with(
+    d => match(
+      &d.rare,
+      .Some(r) => r.runtime_destructurings.clone(),
+      .None => Option(ArrayList(RuntimeDestructuring)).None
+    )
+  )
 );
 expr_info_set_runtime_destructurings :: (
   fn(info : &ExprInfo, v : &Option(ArrayList(RuntimeDestructuring))) -> unit
@@ -921,11 +981,13 @@ expr_info_set_runtime_destructurings :: (
 expr_info_dyn_call_trait_values :: (
   fn(info : &ExprInfo) -> Option(ArrayList(EvalValue))
 )(
-  info.with(d => match(
-    &d.rare,
-    .Some(r) => r.dyn_call_trait_values.clone(),
-    .None => Option(ArrayList(EvalValue)).None
-  ))
+  info.with(
+    d => match(
+      &d.rare,
+      .Some(r) => r.dyn_call_trait_values.clone(),
+      .None => Option(ArrayList(EvalValue)).None
+    )
+  )
 );
 expr_info_set_dyn_call_trait_values :: (
   fn(info : &ExprInfo, v : &Option(ArrayList(EvalValue))) -> unit
@@ -953,11 +1015,13 @@ expr_info_set_is_primitive_match :: (fn(info : &ExprInfo, v : Option(bool)) -> u
 expr_info_primitive_pattern_values :: (
   fn(info : &ExprInfo) -> Option(ArrayList(Option(EvalValue)))
 )(
-  info.with(d => match(
-    &d.rare,
-    .Some(r) => r.primitive_pattern_values.clone(),
-    .None => Option(ArrayList(Option(EvalValue))).None
-  ))
+  info.with(
+    d => match(
+      &d.rare,
+      .Some(r) => r.primitive_pattern_values.clone(),
+      .None => Option(ArrayList(Option(EvalValue))).None
+    )
+  )
 );
 expr_info_set_primitive_pattern_values :: (
   fn(info : &ExprInfo, v : &Option(ArrayList(Option(EvalValue)))) -> unit
@@ -969,11 +1033,13 @@ expr_info_set_primitive_pattern_values :: (
 expr_info_consumed_variable_drop_expressions :: (
   fn(info : &ExprInfo) -> Option(ArrayList(AstExpr))
 )(
-  info.with(d => match(
-    &d.rare,
-    .Some(r) => r.consumed_variable_drop_expressions.clone(),
-    .None => Option(ArrayList(AstExpr)).None
-  ))
+  info.with(
+    d => match(
+      &d.rare,
+      .Some(r) => r.consumed_variable_drop_expressions.clone(),
+      .None => Option(ArrayList(AstExpr)).None
+    )
+  )
 );
 expr_info_set_consumed_variable_drop_expressions :: (
   fn(info : &ExprInfo, v : &Option(ArrayList(AstExpr))) -> unit
@@ -991,11 +1057,13 @@ expr_info_set_async_stack_size :: (fn(info : &ExprInfo, v : &Option(AstExpr)) ->
   _expr_info_rare_put(info, r);
 });
 expr_info_async_state_machine_struct_name :: (fn(info : &ExprInfo) -> Option(String))(
-  info.with(d => match(
-    &d.rare,
-    .Some(r) => r.async_state_machine_struct_name.clone(),
-    .None => Option(String).None
-  ))
+  info.with(
+    d => match(
+      &d.rare,
+      .Some(r) => r.async_state_machine_struct_name.clone(),
+      .None => Option(String).None
+    )
+  )
 );
 expr_info_set_async_state_machine_struct_name :: (
   fn(info : &ExprInfo, v : &Option(String)) -> unit
@@ -1005,11 +1073,13 @@ expr_info_set_async_state_machine_struct_name :: (
   _expr_info_rare_put(info, r);
 });
 expr_info_await_analysis :: (fn(info : &ExprInfo) -> Option(AwaitAnalysisResult))(
-  info.with(d => match(
-    &d.rare,
-    .Some(r) => r.await_analysis,
-    .None => Option(AwaitAnalysisResult).None
-  ))
+  info.with(
+    d => match(
+      &d.rare,
+      .Some(r) => r.await_analysis,
+      .None => Option(AwaitAnalysisResult).None
+    )
+  )
 );
 expr_info_set_await_analysis :: (
   fn(info : &ExprInfo, v : &Option(AwaitAnalysisResult)) -> unit
@@ -1019,11 +1089,13 @@ expr_info_set_await_analysis :: (
   _expr_info_rare_put(info, r);
 });
 expr_info_effect_analysis :: (fn(info : &ExprInfo) -> Option(EffectAnalysisResult))(
-  info.with(d => match(
-    &d.rare,
-    .Some(r) => r.effect_analysis,
-    .None => Option(EffectAnalysisResult).None
-  ))
+  info.with(
+    d => match(
+      &d.rare,
+      .Some(r) => r.effect_analysis,
+      .None => Option(EffectAnalysisResult).None
+    )
+  )
 );
 expr_info_set_effect_analysis :: (
   fn(info : &ExprInfo, v : &Option(EffectAnalysisResult)) -> unit
@@ -1033,11 +1105,13 @@ expr_info_set_effect_analysis :: (
   _expr_info_rare_put(info, r);
 });
 expr_info_closure_function_value :: (fn(info : &ExprInfo) -> Option(EvalValue))(
-  info.with(d => match(
-    &d.rare,
-    .Some(r) => r.closure_function_value,
-    .None => Option(EvalValue).None
-  ))
+  info.with(
+    d => match(
+      &d.rare,
+      .Some(r) => r.closure_function_value,
+      .None => Option(EvalValue).None
+    )
+  )
 );
 expr_info_set_closure_function_value :: (
   fn(info : &ExprInfo, v : &Option(EvalValue)) -> unit
@@ -1236,7 +1310,7 @@ scope_release_mark :: (fn() -> usize)(g_scope_log_ids.with(xs => xs.len()));
 _scope_log :: (fn(id : ExprId, info : &ExprInfo) -> unit)(
   if((g_scope_mode != usize(0)) && (g_scope_depth > usize(0)), {
     logged := Rc.clone(info);
-    g_scope_log_infos.with_mut({ logged }(xs) => xs.push(logged));
+    g_scope_log_infos.with_mut({ logged : Rc.clone(logged) }(xs) => xs.push(logged));
     g_scope_log_ids.with_mut(xs => xs.push(id));
     if(g_scope_mode == usize(1), {
       g_scope_logged.with_mut(m => m.insert(id, true));
@@ -1368,7 +1442,7 @@ scope_release_body :: (fn(mark : usize, entry : &Environment) -> unit)({
       _r_prev := _scope_take_inner(id);
       if(g_scope_mode == usize(1), {
         shadow := Rc.clone(info);
-        g_scope_shadow_objs.with_mut({ id, shadow }(m) => m.insert(id, shadow));
+        g_scope_shadow_objs.with_mut({ id, shadow : Rc.clone(shadow) }(m) => m.insert(id, shadow));
       });
       _r_k := g_scope_klen.with_mut(m => m.remove(&id));
       if(!capture_shaped && (k < husk.frames_len()), {
@@ -1453,7 +1527,7 @@ scope_release_body :: (fn(mark : usize, entry : &Environment) -> unit)({
       if(g_scope_mode == usize(2), {
         info.set_env(Rc.clone(info_husk));
       }, {
-        g_scope_husks.with_mut({ id, info_husk }(m) => m.insert(id, info_husk));
+        g_scope_husks.with_mut({ id, info_husk : Rc.clone(info_husk) }(m) => m.insert(id, info_husk));
       });
       g_scope_released = (g_scope_released + usize(1));
     }));
@@ -1731,7 +1805,7 @@ expr_info_table_set :: (fn(table : &ExprInfoTable, id : ExprId, info : &ExprInfo
     return(());
   });
   stored := Rc.clone(info);
-  table.data.with_mut({ id, stored }(m) => {
+  table.data.with_mut({ id, stored : Rc.clone(stored) }(m) => {
     m.insert(id, stored);
   })
 });
@@ -1888,7 +1962,7 @@ lookup_method_callee_value :: (fn(call_id : ExprId) -> Option(EvalValue))(
 record_local_borrow_step_pin :: (fn(lhs_id : ExprId, pin : &Variable) -> unit)({
   record_owned_expr_id(lhs_id);
   pinned := Rc.clone(pin);
-  g_local_borrow_step_pins.with_mut({ lhs_id, pinned }(m) => m.insert(lhs_id, pinned));
+  g_local_borrow_step_pins.with_mut({ lhs_id, pinned : Rc.clone(pinned) }(m) => m.insert(lhs_id, pinned));
   ()
 });
 lookup_local_borrow_step_pin :: (fn(lhs_id : ExprId) -> Option(Variable))(

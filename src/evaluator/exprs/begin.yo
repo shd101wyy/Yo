@@ -297,7 +297,7 @@ _search_dup_calls :: (fn(expr : &AstExpr, res : &mut DupCallsResult, ctx : &Eval
   // runtime_count > 1, and the optimizer only cancels a single dup).
   // See issues/fixed/spawn-closure-captures-never-dropped-leak.md.
   match(
-    ei_opt,
+    &ei_opt,
     .Some(ei_cl) => if(
       match(expr_info_is_anonymous_function_definition(&ei_cl), .Some(b) => b, .None => false)
       && expr_info_deferred_dup_expressions(&ei_cl).is_some(),
@@ -308,7 +308,7 @@ _search_dup_calls :: (fn(expr : &AstExpr, res : &mut DupCallsResult, ctx : &Eval
   );
   // Attached deferred dups first.
   match(
-    ei_opt,
+    &ei_opt,
     .Some(ei) => {
       match(
         expr_info_deferred_dup_expressions(&ei),
@@ -335,7 +335,7 @@ _search_dup_calls :: (fn(expr : &AstExpr, res : &mut DupCallsResult, ctx : &Eval
   // branch-aware handler below, so they are flagged partial (or counted per
   // arm) instead of cancelled as unconditional dups.
   match(
-    ei_opt,
+    &ei_opt,
     .Some(ei_mx) => match(
       expr_info_macro_expansion(&ei_mx),
       .Some(mx) => {
@@ -1562,7 +1562,7 @@ _optimize_dup_drop_pairs :: (
         e8 := (e7 && !_variable_is_captured_by_current_function(&v, ctx));
         if(e8, {
           // Follow the ownership-alias chain to the root base variable.
-          (base : Variable) = v;
+          (base : Variable) = Rc.clone(v);
           (walking : bool) = true;
           while(walking, {
             match(
@@ -1956,7 +1956,7 @@ _ic_scan :: (fn(e : &AstExpr, v : &Variable, site : &ImplicitCopyPending, acc : 
   });
   ei_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(e));
   match(
-    ei_opt,
+    &ei_opt,
     .Some(ei) => {
       match(
         expr_info_macro_expansion(&ei),
@@ -2631,7 +2631,7 @@ _variant_local_hint :: (
     k = (k + usize(1));
   });
   cond(
-    found => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : result_ty, env : env)),
+    found => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : result_ty, env : Rc.clone(env))),
     true => Option(ExpectedTypeCtx).None
   )
 });
@@ -2782,7 +2782,7 @@ _evaluate_begin_expression_impl :: (
     exn : Exception
   ) -> AstExpr
 )({
-  (env : Environment) = env_in;
+  (env : Environment) = Rc.clone(env_in);
   // Extract the list of child expressions from the begin block.
   //
   // If `expr` is NOT a `begin(...)` call (e.g. a function body like
@@ -2988,7 +2988,7 @@ _evaluate_begin_expression_impl :: (
           match(
             ret_expected,
             .Some(rt) => {
-              ctx.expected_type = Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : Rc.clone(rt), env : env));
+              ctx.expected_type = Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : Rc.clone(rt), env : Rc.clone(env)));
             },
             .None => ()
           );
@@ -3016,7 +3016,7 @@ _evaluate_begin_expression_impl :: (
               )
             );
           });
-          ret_info := match(ret_info_opt, .Some(ri) => ri, .None => new_expr_info(&env, Rc.new(TypeValueNode.Unit)));
+          ret_info := match(ret_info_opt, .Some(ri) => Rc.clone(ri), .None => new_expr_info(&env, Rc.new(TypeValueNode.Unit)));
           // Decision 38 A: a second-class value is never returned.
           reject_second_class_return(&ret_info.ty(), ast_expr_token(&ret_arg), &env, ctx, exn);
           env_adopt(&env, &ret_info.env());
@@ -3152,7 +3152,7 @@ _evaluate_begin_expression_impl :: (
                   grown.push(
                     ImplConcreteTypeInfo(
                       concrete_type : Rc.clone(ret_info.ty()),
-                      env : env,
+                      env : Rc.clone(env),
                       token : ast_expr_token(&expr_to_eval)
                     )
                   );
@@ -3296,7 +3296,7 @@ _evaluate_begin_expression_impl :: (
           // Propagate the enclosing function's return type as the expected type.
           old_expected := ctx.expected_type.clone();
           ctx.expected_type = Option(ExpectedTypeCtx).Some(
-            ExpectedTypeCtx(ty : Rc.clone(enclosing_ret), env : env)
+            ExpectedTypeCtx(ty : Rc.clone(enclosing_ret), env : Rc.clone(env))
           );
           evaluated_esc_arg := evaluate_expression_raw(&esc_arg, &env, ctx, exn);
           ctx.expected_type = old_expected.clone();
@@ -3311,7 +3311,7 @@ _evaluate_begin_expression_impl :: (
               )
             );
           });
-          esc_info := match(esc_info_opt, .Some(ei) => ei, .None => new_expr_info(&env, Rc.new(TypeValueNode.Unit)));
+          esc_info := match(esc_info_opt, .Some(ei) => Rc.clone(ei), .None => new_expr_info(&env, Rc.new(TypeValueNode.Unit)));
           // Type-check unwind value against the enclosing return type.
           // Skip when the enclosing return type is an unresolved SomeType.
           esc_compat := are_types_compatible(&esc_info.ty(), &enclosing_ret);
@@ -3407,7 +3407,7 @@ _evaluate_begin_expression_impl :: (
         ctx.expected_type = old_expected.clone();
         ev_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated));
         match(
-          ev_info_opt,
+          &ev_info_opt,
           .Some(ev_info) => {
             env_adopt(&env, &ev_info.env());
           },
@@ -3419,7 +3419,7 @@ _evaluate_begin_expression_impl :: (
         // on the SOURCE form, which still has its `cond` / `=>` arms.
         if(!is_last_in_loop && !_stmt_always_exits(&expr_to_eval), {
           match(
-            ev_info_opt,
+            &ev_info_opt,
             .Some(mu_info) => match(
               _must_use_kind(&evaluated, &mu_info.ty()),
               .Some(mu_kind) => {
@@ -3469,7 +3469,7 @@ _evaluate_begin_expression_impl :: (
         // folded to a compile-time value.
         if(!is_last_in_loop && !has_runtime_side_effects, {
           is_value_none := match(
-            ev_info_opt,
+            &ev_info_opt,
             .Some(ei) => ei.value().is_none(),
             .None => false
           );
@@ -3477,7 +3477,7 @@ _evaluate_begin_expression_impl :: (
           is_init_assign_expr := ast_expr_is_fn_call_of(&evaluated, BK_INIT_ASSIGN, .None);
           is_either_assign := (is_assign_expr || is_init_assign_expr);
           ct_only_assign := match(
-            ev_info_opt,
+            &ev_info_opt,
             .Some(ei) => match(expr_info_is_compile_time_only_assignment(&ei), .Some(b) => b, .None => false),
             .None => false
           );
@@ -3490,7 +3490,7 @@ _evaluate_begin_expression_impl :: (
           // carries a typed unknown during validation
           // (issues/fixed/codegen-block-rhs-drops-nontail-statements.md).
           is_unknown_val := match(
-            ev_info_opt,
+            &ev_info_opt,
             .Some(ei) => match(
               ei.value(),
               .Some(v) => match(v, .UnknownVal(_, _) => true, _ => false),
@@ -3534,7 +3534,7 @@ _evaluate_begin_expression_impl :: (
       )
     );
   });
-  last_info := match(last_info_opt, .Some(li) => li, .None => new_expr_info(&env, Rc.new(TypeValueNode.Unit)));
+  last_info := match(last_info_opt, .Some(li) => Rc.clone(li), .None => new_expr_info(&env, Rc.new(TypeValueNode.Unit)));
   return_type := Rc.clone(last_info.ty());
   // Decision 38 A: the block's result may not carry a borrow of a binding the
   // block declares (this block's own frame is the innermost one).
@@ -3728,7 +3728,7 @@ _evaluate_begin_expression_impl :: (
   (consumed_escape_drops : ArrayList(AstExpr)) = ArrayList(AstExpr).new();
   rv_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&return_value_expr));
   rv_name_opt := match(
-    rv_info_opt,
+    &rv_info_opt,
     .Some(rv_info) => rv_info.variable_name(),
     .None => Option(String).None
   );
@@ -3820,7 +3820,7 @@ _evaluate_begin_expression_impl :: (
   // and, for a function body, of its parameters (plans/VALUES_BY_DEFAULT.md
   // §6, item 1). Read-only.
   if(audit_pending_copies_enabled(), {
-    match(current_frame_opt, .Some(audit_fr) => _audit_judge_implicit_copies(&audit_fr, &begin_args, ctx), .None => ());
+    match(&current_frame_opt, .Some(audit_fr) => _audit_judge_implicit_copies(&audit_fr, &begin_args, ctx), .None => ());
     if(is_evaluating_function_body_begin_block && (env.frames_len() >= usize(2)), {
       match(env.frame_at(env.frames_len() - usize(2)), .Some(audit_pfr) => _audit_judge_implicit_copies(&audit_pfr, &begin_args, ctx), .None => ());
     });
@@ -3828,7 +3828,7 @@ _evaluate_begin_expression_impl :: (
   // The unique `Dyn`, Generation A: judge the pending `Dyn` copies of this
   // block's locals and, for a function body, of its parameters.
   if(dyn_copy_pending_exists(), {
-    match(current_frame_opt, .Some(dyn_fr) => judge_dyn_copies(&dyn_fr, &begin_args, ctx, exn), .None => ());
+    match(&current_frame_opt, .Some(dyn_fr) => judge_dyn_copies(&dyn_fr, &begin_args, ctx, exn), .None => ());
     if(is_evaluating_function_body_begin_block && (env.frames_len() >= usize(2)), {
       match(env.frame_at(env.frames_len() - usize(2)), .Some(dyn_pfr) => judge_dyn_copies(&dyn_pfr, &begin_args, ctx, exn), .None => ());
     });
@@ -3837,7 +3837,7 @@ _evaluate_begin_expression_impl :: (
   // the same way — a scrutinee the rule consumes whose variable the block
   // reads again (`_ic_scan`'s later) borrows: `match(&x, …)`.
   if(migrate_rc_clone_on(), {
-    match(current_frame_opt, .Some(mig_fr) => _migrate_judge_scrutinee_borrows(&mig_fr, &begin_args, ctx), .None => ());
+    match(&current_frame_opt, .Some(mig_fr) => _migrate_judge_scrutinee_borrows(&mig_fr, &begin_args, ctx), .None => ());
     if(is_evaluating_function_body_begin_block && (env.frames_len() >= usize(2)), {
       match(env.frame_at(env.frames_len() - usize(2)), .Some(mig_pfr) => _migrate_judge_scrutinee_borrows(&mig_pfr, &begin_args, ctx), .None => ());
     });
@@ -3847,7 +3847,7 @@ _evaluate_begin_expression_impl :: (
   // are marked consumed HERE so the scheduler's e5 gate skips their drop and
   // the M3 driver below attaches their early-return-only drops.
   match(
-    current_frame_opt,
+    &current_frame_opt,
     // Whether the block awaits decides the local-move case (see `slot_move`).
     .Some(opt_fr) => {
       (awaits : bool) = false;
@@ -3870,7 +3870,7 @@ _evaluate_begin_expression_impl :: (
   // frame is popped (the `___drop(name)` exprs are evaluated against `env` while the
   // names are still in scope). See _schedule_scope_end_drops + plans/archive/YO_SELF_NAMED_LOCAL_DROPS.md.
   (scope_end_drops : Option(ArrayList(AstExpr))) = match(
-    current_frame_opt,
+    &current_frame_opt,
     .Some(fr) => _schedule_scope_end_drops(&fr, &begin_args, &last_info.variable_name(), &last_expr, &env, ctx, exn),
     .None => Option(ArrayList(AstExpr)).None
   );
@@ -4004,7 +4004,7 @@ _evaluate_begin_expression_impl :: (
   // sit here, and every early exit of a derive-generated body skipped the drop
   // (issues/fixed/2026-10-23-an-early-return-in-a-derive-generated-body-skips-the-drop-of-a-value-local.md).
   match(
-    current_frame_opt,
+    &current_frame_opt,
     .Some(fr2) => {
       begin_tok := ast_expr_token(expr);
       (evi : usize) = usize(0);
@@ -4218,33 +4218,35 @@ _evaluate_begin_expression_impl :: (
   // tail's drops AFTER the scope drops; codegen's emitted-once guard
   // (FunctionGenerationContext.emitted_deferred_drop_ids) keeps each drop to
   // a single emission now that one list is flushed from several points.
-  out_info.set_deferred_drop_expressions(if(
-    shared_with_tail,
-    match(
-      &last_info.deferred_drop_expressions(),
-      .Some(tail_drops) => {
-        (merged_drop_list : ArrayList(AstExpr)) = match(
-          scope_end_drops,
-          .Some(existing_drops) => existing_drops,
-          .None => ArrayList(AstExpr).new()
-        );
-        (s0_di : usize) = usize(0);
-        while(s0_di < tail_drops.len(), {
-          match(
-            tail_drops.get(s0_di),
-            .Some(s0_td) => {
-              merged_drop_list.push(s0_td);
-            },
-            .None => ()
+  out_info.set_deferred_drop_expressions(
+    if(
+      shared_with_tail,
+      match(
+        &last_info.deferred_drop_expressions(),
+        .Some(tail_drops) => {
+          (merged_drop_list : ArrayList(AstExpr)) = match(
+            scope_end_drops,
+            .Some(existing_drops) => existing_drops,
+            .None => ArrayList(AstExpr).new()
           );
-          s0_di = (s0_di + usize(1));
-        });
-        Option(ArrayList(AstExpr)).Some(merged_drop_list)
-      },
-      .None => scope_end_drops
-    ),
-    scope_end_drops
-  ));
+          (s0_di : usize) = usize(0);
+          while(s0_di < tail_drops.len(), {
+            match(
+              tail_drops.get(s0_di),
+              .Some(s0_td) => {
+                merged_drop_list.push(s0_td);
+              },
+              .None => ()
+            );
+            s0_di = (s0_di + usize(1));
+          });
+          Option(ArrayList(AstExpr)).Some(merged_drop_list)
+        },
+        .None => scope_end_drops
+      ),
+      scope_end_drops
+    )
+  );
   // Stamp the escape-path drops collected by the M3 driver (and the params
   // pass) above. Concat AFTER anything a shared-id clone carried (mirroring
   // `deferred_drop_expressions` above) so neither channel is lost.

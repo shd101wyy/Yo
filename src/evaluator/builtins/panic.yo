@@ -53,7 +53,7 @@ evaluate_panic :: (
   fn_ctx_opt := ctx.is_evaluating_function_body_or_async_block.clone();
   fn_ctx := match(
     fn_ctx_opt,
-    .Some(c) => c,
+    .Some(c) => c.clone(),
     .None => {
       exn.throw(
         dyn(
@@ -97,7 +97,7 @@ evaluate_panic :: (
     .FnCall(_, _, Rc(a), _, _) => a.clone(),
     .Atom(_, _) => ArrayList(AstExpr).new()
   );
-  (cur_env : Environment) = env;
+  (cur_env : Environment) = Rc.clone(env);
   // The message text when it is compile-time known (a `comptime_str`
   // literal) — the comptime-panic diagnostic below carries it.
   (ct_msg : Option(String)) = .None;

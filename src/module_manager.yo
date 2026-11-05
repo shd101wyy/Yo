@@ -433,8 +433,8 @@ prefer_entry_std_root :: (fn(entries : &ArrayList(String)) -> unit)({
 mm_set_loader_context :: (fn(std_path : &String) -> unit)({
   g_loader_std_path = Option(String).Some(std_path.clone());
 });
-mm_prelude_env :: (fn() -> Option(Environment))(g_cached_prelude_env);
-mm_has_prelude_env :: (fn() -> bool)(match(g_cached_prelude_env, .Some(_) => true, .None => false));
+mm_prelude_env :: (fn() -> Option(Environment))(g_cached_prelude_env.clone());
+mm_has_prelude_env :: (fn() -> bool)(match(g_cached_prelude_env.clone(), .Some(_) => true, .None => false));
 mm_clear_prelude_env :: (fn() -> unit)({
   g_cached_prelude_env = Option(Environment).None;
   g_cached_prelude_module_value = Option(EvalValue).None;
@@ -456,7 +456,7 @@ mm_shared_expr_info_table :: (fn() -> Option(ExprInfoTable))(
 mm_fresh_module_env :: (fn(module_path : &String) -> Environment)({
   (want_frames : usize) = g_cached_prelude_frame_count;
   match(
-    g_cached_prelude_env,
+    g_cached_prelude_env.clone(),
     .Some(pe) => if(pe.frames_len() != want_frames, {
       panic(
         `internal error: the cached prelude env has ${pe.frames_len().to_string()} frames, expected ${want_frames.to_string()} — a live env's frame list aliased the cache and something pushed into it (issues/fixed/comptime-expect-error-re-pushed-the-module-frame-into-the-prelude-env.md)`
@@ -465,7 +465,7 @@ mm_fresh_module_env :: (fn(module_path : &String) -> Environment)({
     .None => ()
   );
   env := clone_env(
-    match(g_cached_prelude_env, .Some(pe) => pe, .None => new_environment(Rc.new(module_path.clone())))
+    match(g_cached_prelude_env.clone(), .Some(pe) => Rc.clone(pe), .None => new_environment(Rc.new(module_path.clone())))
   );
   env.set_module_path(Rc.new(module_path.clone()));
   env
@@ -2860,8 +2860,8 @@ mm_eval_entry_exprs :: (
 /// recorded pair.
 _prelude_load_outcome :: (fn(input_path : &String, std_path : &String) -> ModuleLoadOutcome)({
   prelude_env := match(
-    g_cached_prelude_env,
-    .Some(pe) => pe,
+    g_cached_prelude_env.clone(),
+    .Some(pe) => Rc.clone(pe),
     .None => new_environment(Rc.new(input_path.clone()))
   );
   prelude_val := match(
@@ -2947,7 +2947,7 @@ mm_load_file :: (
         ok : true,
         module_value : mm_hit.module_value,
         module_type : Rc.clone(mm_hit.module_type),
-        env : match(g_cached_prelude_env, .Some(pe) => pe, .None => new_environment(Rc.new(input_path.clone()))),
+        env : match(g_cached_prelude_env.clone(), .Some(pe) => Rc.clone(pe), .None => new_environment(Rc.new(input_path.clone()))),
         ctx : eval_context_new(std_path.clone(), input_path.clone())
       )
     );
@@ -3070,7 +3070,7 @@ mm_preload_prelude :: (
     });
     // Build the O(1) prelude variable cache here rather than inside
     // `mm_load_file`, to avoid interference with the compile path.
-    match(g_cached_prelude_env, .Some(pe) => build_prelude_var_cache(&pe), .None => ());
+    match(g_cached_prelude_env.clone(), .Some(pe) => build_prelude_var_cache(&pe), .None => ());
   });
   ok
 });

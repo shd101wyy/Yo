@@ -78,7 +78,7 @@ _generate_sm_atom :: (fn(expr : &AstExpr, var_name : &String, context : &mut Fun
       ei_opt := context.base.get_expr_info(expr);
       // 1) Env-ID lookup (handles shadowing: same name, different ids).
       match(
-        ei_opt,
+        &ei_opt,
         .Some(ei) => {
           vars := scope_variables(ast_expr_id(expr), &ei.env(), var_name.clone());
           if(vars.len() > usize(0), {
@@ -153,7 +153,7 @@ _generate_sm_atom :: (fn(expr : &AstExpr, var_name : &String, context : &mut Fun
       {
         (mut(read_site) : Option(String)) = Option(String).None;
         match(
-          ei_opt,
+          &ei_opt,
           .Some(ei_s) => {
             svars := scope_variables(ast_expr_id(expr), &ei_s.env(), var_name.clone());
             if(svars.len() > usize(0), {
@@ -210,7 +210,7 @@ _generate_sm_atom :: (fn(expr : &AstExpr, var_name : &String, context : &mut Fun
       };
       // 3) Borrowing variable: the OWNER may be captured instead.
       match(
-        ei_opt,
+        &ei_opt,
         .Some(ei2) => {
           vars2 := scope_variables(ast_expr_id(expr), &ei2.env(), var_name.clone());
           if(vars2.len() > usize(0), {
@@ -368,7 +368,7 @@ _emit_loop_body_drops_before_exit :: (fn(context : &mut FunctionGenerationContex
               skip := match(
                 get_deferred_drop_target_atom_name(&drop_expr),
                 .Some(var_name) => if(share_drop, !context.base.declared_scopes.with(ds_s => scope_stack_contains(ds_s, sanitize_for_c_identifier(&var_name, false))), {
-                  exit_vars := match(exit_env_opt, .Some(xe) => Option(ArrayList(Variable)).Some(_exit_drop_variables(exit_expr, &xe, var_name.clone(), &drop_expr, context)), .None => Option(ArrayList(Variable)).None);
+                  exit_vars := match(&exit_env_opt, .Some(xe) => Option(ArrayList(Variable)).Some(_exit_drop_variables(exit_expr, &xe, var_name.clone(), &drop_expr, context)), .None => Option(ArrayList(Variable)).None);
                   c_name := match(&exit_vars, .Some(xv) => _codegen_name_of_variables(var_name.clone(), &xv), .None => get_variable_name_for_codegen_at(ast_expr_id(exit_expr), var_name.clone(), &exit_env_opt));
                   // A local with a task slot is never declared as a C
                   // variable (its binding writes `sm->…`), so the scope stack
@@ -376,7 +376,7 @@ _emit_loop_body_drops_before_exit :: (fn(context : &mut FunctionGenerationContex
                   // while it owns nothing, so only the liveness test applies
                   // (issues/fixed/a-break-or-continue-in-an-io-async-loop-never-releases-its-slot-locals.md).
                   in_slot := match(
-                    exit_env_opt,
+                    &exit_env_opt,
                     .Some(slot_env) => match(
                       &context.state_machine_variables,
                       .Some(smv) => (context.in_async_state_machine.is_some() && match(match(&exit_vars, .Some(xv) => xv.last_cloned(), .None => Option(Variable).None), .Some(slot_v) => sm_slot_of_variable(&slot_v, &smv, &context.variable_id_remapping, &context.state_machine_field_aliases, &context.sm_capture_slot).is_some(), .None => sm_slot_of(ast_expr_id(exit_expr), &slot_env, var_name.clone(), &smv, &context.variable_id_remapping, &context.state_machine_field_aliases, &context.sm_capture_slot).is_some())),
@@ -608,39 +608,39 @@ generate_atom :: (fn(expr : &AstExpr, context : &mut FunctionGenerationContext, 
         // Pending deferred drops from enclosing scopes (SM fields only). The
         // list is read afresh at each step: emitting a drop writes `context`.
         if(match(&context.pending_deferred_drops, .Some(pdd) => (pdd.len() > usize(0)), .None => false), {
-            context.base.emitter.emit_string_line(`${indent.clone()}// Drop local variables before early completion`);
-            (pdi : usize) = usize(0);
-            while(pdi < match(&context.pending_deferred_drops, .Some(pdd) => pdd.len(), .None => usize(0)), {
-              match(
-                match(&context.pending_deferred_drops, .Some(pdd) => pdd.get_cloned(pdi), .None => Option(AstExpr).None),
-                // An owned capture list's drops belong to the dispose; a
-                // call-scoped share holds its +1 only once its dup is in scope
-                // (`_emit_loop_body_drops_before_exit`).
-                .Some(pe) => if(!(sm_owns_fnonce_captures(context) && is_fnonce_capture_drop(ast_expr_id(&pe))) && (!is_call_scoped_share_drop(ast_expr_id(&pe)) || match(get_deferred_drop_target_atom_name(&pe), .Some(sn) => context.base.declared_scopes.with(ds_s => scope_stack_contains(ds_s, sanitize_for_c_identifier(&sn, false))), .None => false)), {
-                  // A slot whose value was moved out on this path (its move
-                  // flag is set) no longer owns it: empty it first, as the
-                  // abort dispose does, so the drop is a no-op. The drop
-                  // emitter writes its statements as it generates, so the
-                  // guard goes first
-                  // (issues/fixed/2026-10-29-an-early-return-in-an-io-async-body-drops-a-local-it-moved.md).
-                  match(
-                    match(get_deferred_drop_target_atom(&pe), .Some(ta) => _generate_sm_atom(&ta, &ast_expr_token(&ta).value.*, context), .None => Option(String).None),
-                    .Some(slot) => match(
-                      sm_move_flag_of(slot.clone(), sm_owns_fnonce_captures(context)),
-                      .Some(flag) => context.base.emitter.emit_string_line(`${indent.clone()}if (${flag}) { memset(&(${slot}), 0, sizeof(${slot})); }`),
-                      .None => ()
-                    ),
+          context.base.emitter.emit_string_line(`${indent.clone()}// Drop local variables before early completion`);
+          (pdi : usize) = usize(0);
+          while(pdi < match(&context.pending_deferred_drops, .Some(pdd) => pdd.len(), .None => usize(0)), {
+            match(
+              match(&context.pending_deferred_drops, .Some(pdd) => pdd.get_cloned(pdi), .None => Option(AstExpr).None),
+              // An owned capture list's drops belong to the dispose; a
+              // call-scoped share holds its +1 only once its dup is in scope
+              // (`_emit_loop_body_drops_before_exit`).
+              .Some(pe) => if(!(sm_owns_fnonce_captures(context) && is_fnonce_capture_drop(ast_expr_id(&pe))) && (!is_call_scoped_share_drop(ast_expr_id(&pe)) || match(get_deferred_drop_target_atom_name(&pe), .Some(sn) => context.base.declared_scopes.with(ds_s => scope_stack_contains(ds_s, sanitize_for_c_identifier(&sn, false))), .None => false)), {
+                // A slot whose value was moved out on this path (its move
+                // flag is set) no longer owns it: empty it first, as the
+                // abort dispose does, so the drop is a no-op. The drop
+                // emitter writes its statements as it generates, so the
+                // guard goes first
+                // (issues/fixed/2026-10-29-an-early-return-in-an-io-async-body-drops-a-local-it-moved.md).
+                match(
+                  match(get_deferred_drop_target_atom(&pe), .Some(ta) => _generate_sm_atom(&ta, &ast_expr_token(&ta).value.*, context), .None => Option(String).None),
+                  .Some(slot) => match(
+                    sm_move_flag_of(slot.clone(), sm_owns_fnonce_captures(context)),
+                    .Some(flag) => context.base.emitter.emit_string_line(`${indent.clone()}if (${flag}) { memset(&(${slot}), 0, sizeof(${slot})); }`),
                     .None => ()
-                  );
-                  pc := _call_generate_expr(&pe, indent.clone(), context);
-                  if((pc.len() > usize(0)) && pc.contains("sm->"), {
-                    context.base.emitter.emit_string_line(`${indent.clone()}${pc.clone()};`);
-                  });
-                }),
-                .None => ()
-              );
-              pdi = (pdi + usize(1));
-            });
+                  ),
+                  .None => ()
+                );
+                pc := _call_generate_expr(&pe, indent.clone(), context);
+                if((pc.len() > usize(0)) && pc.contains("sm->"), {
+                  context.base.emitter.emit_string_line(`${indent.clone()}${pc.clone()};`);
+                });
+              }),
+              .None => ()
+            );
+            pdi = (pdi + usize(1));
+          });
         });
         context.base.emitter.emit_string_line(`${indent.clone()}// Early return - complete the result Future`);
         result_code := if(
@@ -668,7 +668,7 @@ generate_atom :: (fn(expr : &AstExpr, context : &mut FunctionGenerationContext, 
   // --- unit-typed expression → empty ---
   ei_opt := context.base.get_expr_info(expr);
   match(
-    ei_opt,
+    &ei_opt,
     .Some(ei) => if(is_unit_type(&ei.ty()), {
       return(String.from(""));
     }),
@@ -717,7 +717,7 @@ generate_atom :: (fn(expr : &AstExpr, context : &mut FunctionGenerationContext, 
         .Some(var_name) => {
           // Compile-time-only variable with a known value → inline the value.
           is_comptime_const := match(
-            env_opt,
+            &env_opt,
             .Some(e) => match(
               ei.value(),
               .Some(v) => if(!is_unknown_val(&v), {

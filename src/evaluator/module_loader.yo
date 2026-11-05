@@ -77,7 +77,7 @@ register_loading :: (fn(path : &String, env : &Environment) -> unit)({
   path_owned2 := path.clone();
   g_loading_keys.with_mut({ path_owned2 }(xs) => xs.push(path_owned2.clone()));
   loading_env := Rc.clone(env);
-  g_loading_envs.with_mut({ loading_env }(xs) => xs.push(loading_env));
+  g_loading_envs.with_mut({ loading_env : Rc.clone(loading_env) }(xs) => xs.push(loading_env));
   _sync_registration_owner();
 });
 /// The loading key (`file://<abs>`, or the entry path as typed) under which
@@ -152,7 +152,7 @@ _canonical :: (fn(p : &String) -> Rc(String))(
       c := Rc.new(canonical_module_path(p));
       c_handle := Rc.clone(c);
       p_owned := p.clone();
-      _canonical_memo.with_mut({ p_owned, c_handle }(m) => m.insert(p_owned, c_handle));
+      _canonical_memo.with_mut({ p_owned, c_handle : Rc.clone(c_handle) }(m) => m.insert(p_owned, c_handle));
       c
     }
   )

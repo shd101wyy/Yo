@@ -136,8 +136,8 @@ _synthesize_phantom_type_args :: (
     exn : Exception
   ) -> SynthesizeResult
 )({
-  (pe : Environment) = ee;
-  (pg : Environment) = ge;
+  (pe : Environment) = Rc.clone(ee);
+  (pg : Environment) = Rc.clone(ge);
   if(exp_tas.len() == giv_tas.len(), {
     (j : usize) = usize(0);
     while(j < exp_tas.len(), {
@@ -145,8 +145,8 @@ _synthesize_phantom_type_args :: (
         et := match(exp_tas.get(j), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
         gt := match(giv_tas.get(j), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
         r := _synthesize_types_impl(&et, &pe, &gt, &pg, checked, opts, exn);
-        pe = r.expected_env;
-        pg = r.given_env;
+        pe = Rc.clone(r.expected_env);
+        pg = Rc.clone(r.given_env);
       });
       j = (j + usize(1));
     });
@@ -382,7 +382,7 @@ _bind_some_type :: (
         is_ref : false,
         is_parameter : false
       );
-      _record_bound_some_id(Option(Variable).Some(new_var), name, source_some_id, val);
+      _record_bound_some_id(Option(Variable).Some(Rc.clone(new_var)), name, source_some_id, val);
       update_existing_variable(env, &old_var, &new_var);
     }
   );
@@ -829,8 +829,8 @@ _synthesize_fn_traits :: (
     Rc(.Func({ result : r })) => t_slot_pointee(&r),
     _ => Rc.new(TypeValueNode.Unit)
   );
-  (ee : Environment) = expected_env;
-  (ge : Environment) = given_env;
+  (ee : Environment) = Rc.clone(expected_env);
+  (ge : Environment) = Rc.clone(given_env);
   n := exp_params.len();
   (i : usize) = usize(0);
   while(i < n, {
@@ -851,14 +851,14 @@ _synthesize_fn_traits :: (
       }
     );
     res := _synthesize_types_impl(&et, &ee, &gt, &ge, checked, opts, exn);
-    ee = res.expected_env;
-    ge = res.given_env;
+    ee = Rc.clone(res.expected_env);
+    ge = Rc.clone(res.given_env);
     i = (i + usize(1));
   });
   // Synthesize return type
   res2 := _synthesize_types_impl(&exp_result, &ee, &giv_result, &ge, checked, opts, exn);
-  ee = res2.expected_env;
-  ge = res2.given_env;
+  ee = Rc.clone(res2.expected_env);
+  ge = Rc.clone(res2.given_env);
   SynthesizeResult(expected_env : ee, given_env : ge)
 });
 /// Also handles Func + FnTraitT when given_ty is a Func.
@@ -876,11 +876,11 @@ _synthesize_future_traits :: (
 )({
   exp_out := match(expected_ty, Rc(.FutureTraitT(_, out, _, _)) => Rc.clone(out), _ => Rc.new(TypeValueNode.Unit));
   giv_out := match(given_ty, Rc(.FutureTraitT(_, out, _, _)) => Rc.clone(out), _ => Rc.new(TypeValueNode.Unit));
-  (ee : Environment) = expected_env;
-  (ge : Environment) = given_env;
+  (ee : Environment) = Rc.clone(expected_env);
+  (ge : Environment) = Rc.clone(given_env);
   res := _synthesize_types_impl(&exp_out, &ee, &giv_out, &ge, checked, opts, exn);
-  ee = res.expected_env;
-  ge = res.given_env;
+  ee = Rc.clone(res.expected_env);
+  ge = Rc.clone(res.given_env);
   // Synthesize effects
   exp_et := match(expected_ty, Rc(.FutureTraitT(_, _, _, ets)) => Rc.clone(ets), _ => no_types());
   giv_et := match(given_ty, Rc(.FutureTraitT(_, _, _, ets)) => Rc.clone(ets), _ => no_types());
@@ -911,8 +911,8 @@ _synthesize_types_impl :: (
   ) -> SynthesizeResult
 )({
   exp_id := synthesis_type_id(expected_ty);
-  (ee : Environment) = expected_env;
-  (ge : Environment) = given_env;
+  (ee : Environment) = Rc.clone(expected_env);
+  (ge : Environment) = Rc.clone(given_env);
   giv_id := synthesis_type_id(given_ty);
   // Anti-circularity check
   if(_has_type_pair(checked, &exp_id, &giv_id), {
@@ -1010,8 +1010,8 @@ _synthesize_types_impl :: (
                       );
                       if(is_fn_trait_type(&giv_trait), {
                         res := _synthesize_fn_traits(&exp_trait, &ee, &giv_trait, &ge, checked, opts, exn);
-                        ee = res.expected_env;
-                        ge = res.given_env;
+                        ee = Rc.clone(res.expected_env);
+                        ge = Rc.clone(res.given_env);
                         fi = given_traits.len(); // break
                       });
                       fi = (fi + usize(1));
@@ -1031,8 +1031,8 @@ _synthesize_types_impl :: (
                       );
                       if(is_future_trait_type(&giv_trait), {
                         res := _synthesize_future_traits(&exp_trait, &ee, &giv_trait, &ge, checked, opts, exn);
-                        ee = res.expected_env;
-                        ge = res.given_env;
+                        ee = Rc.clone(res.expected_env);
+                        ge = Rc.clone(res.given_env);
                         fi = given_traits.len(); // break
                       });
                       fi = (fi + usize(1));
@@ -1095,13 +1095,13 @@ _synthesize_types_impl :: (
         cond(
           (is_fn_trait_type(&exp_trait) && is_function_type(given_ty)) => {
             res := _synthesize_fn_traits(&exp_trait, &ee, given_ty, &ge, checked, opts, exn);
-            ee = res.expected_env;
-            ge = res.given_env;
+            ee = Rc.clone(res.expected_env);
+            ge = Rc.clone(res.given_env);
           },
           (is_future_trait_type(&exp_trait) && is_future_trait_type(given_ty)) => {
             res := _synthesize_future_traits(&exp_trait, &ee, given_ty, &ge, checked, opts, exn);
-            ee = res.expected_env;
-            ge = res.given_env;
+            ee = Rc.clone(res.expected_env);
+            ge = Rc.clone(res.given_env);
           },
           true => ()
         );
@@ -1111,8 +1111,8 @@ _synthesize_types_impl :: (
       if(!is_some_type(&bound), {
         // Bound to a concrete type — recurse with the bound type
         res := _synthesize_types_impl(&bound, &ee, given_ty, &ge, checked, opts, exn);
-        ee = res.expected_env;
-        ge = res.given_env;
+        ee = Rc.clone(res.expected_env);
+        ge = Rc.clone(res.given_env);
       });
     });
     return(SynthesizeResult(expected_env : ee, given_env : ge));
@@ -1128,8 +1128,8 @@ _synthesize_types_impl :: (
     if(!is_some_type(&existing_bound), {
       // Given is already bound — recurse
       res := _synthesize_types_impl(expected_ty, &ee, &existing_bound, &ge, checked, opts, exn);
-      ee = res.expected_env;
-      ge = res.given_env;
+      ee = Rc.clone(res.expected_env);
+      ge = Rc.clone(res.given_env);
     }, {
       // Occurs check
       {
@@ -1189,8 +1189,8 @@ _synthesize_types_impl :: (
           }
         );
         res := _synthesize_types_impl(&et, &ee, &gt, &ge, checked, opts, exn);
-        ee = res.expected_env;
-        ge = res.given_env;
+        ee = Rc.clone(res.expected_env);
+        ge = Rc.clone(res.given_env);
         i = (i + usize(1));
       });
     });
@@ -1316,8 +1316,8 @@ _synthesize_types_impl :: (
           }
         );
         res := _synthesize_types_impl(&et, &ee, &gt, &ge, checked, opts, exn);
-        ee = res.expected_env;
-        ge = res.given_env;
+        ee = Rc.clone(res.expected_env);
+        ge = Rc.clone(res.given_env);
         i = (i + usize(1));
       });
     });
@@ -1430,8 +1430,8 @@ _synthesize_types_impl :: (
             }
           );
           res := _synthesize_types_impl(&et, &ee, &gt, &ge, checked, opts, exn);
-          ee = res.expected_env;
-          ge = res.given_env;
+          ee = Rc.clone(res.expected_env);
+          ge = Rc.clone(res.given_env);
           fi = (fi + usize(1));
         });
         vi = (vi + usize(1));
@@ -1462,8 +1462,8 @@ _synthesize_types_impl :: (
         et_sy := match(exp_tca_sy.get_cloned(tci_sy), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
         gt_sy := match(giv_tca_sy.get_cloned(tci_sy), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
         res_sy := _synthesize_types_impl(&et_sy, &ee, &gt_sy, &ge, checked, opts, exn);
-        ee = res_sy.expected_env;
-        ge = res_sy.given_env;
+        ee = Rc.clone(res_sy.expected_env);
+        ge = Rc.clone(res_sy.given_env);
         tci_sy = (tci_sy + usize(1));
       });
       ep_flags := enum_phantom_positions(&exp_enum_id);
@@ -1477,8 +1477,8 @@ _synthesize_types_impl :: (
         opts,
         exn
       );
-      ee = ep_res.expected_env;
-      ge = ep_res.given_env;
+      ee = Rc.clone(ep_res.expected_env);
+      ge = Rc.clone(ep_res.given_env);
     });
     return(SynthesizeResult(expected_env : ee, given_env : ge));
   });
@@ -1509,8 +1509,8 @@ _synthesize_types_impl :: (
           }
         );
         res := _synthesize_types_impl(&et, &ee, &gt, &ge, checked, opts, exn);
-        ee = res.expected_env;
-        ge = res.given_env;
+        ee = Rc.clone(res.expected_env);
+        ge = Rc.clone(res.given_env);
         i = (i + usize(1));
       });
     });
@@ -1522,15 +1522,15 @@ _synthesize_types_impl :: (
   // (issues/fixed/fn-trait-pairs-are-never-synthesized.md).
   if(is_future_trait_type(expected_ty) && is_future_trait_type(given_ty), {
     res := _synthesize_future_traits(expected_ty, &ee, given_ty, &ge, checked, opts, exn);
-    ee = res.expected_env;
-    ge = res.given_env;
+    ee = Rc.clone(res.expected_env);
+    ge = Rc.clone(res.given_env);
     return(SynthesizeResult(expected_env : ee, given_env : ge));
   });
   // Case: FnTraitT + FnTraitT
   if(is_fn_trait_type(expected_ty) && is_fn_trait_type(given_ty), {
     res := _synthesize_fn_traits(expected_ty, &ee, given_ty, &ge, checked, opts, exn);
-    ee = res.expected_env;
-    ge = res.given_env;
+    ee = Rc.clone(res.expected_env);
+    ge = Rc.clone(res.given_env);
     return(SynthesizeResult(expected_env : ee, given_env : ge));
   });
   // Case: TraitT + TraitT (same constructor)
@@ -1560,8 +1560,8 @@ _synthesize_types_impl :: (
           }
         );
         res := _synthesize_types_impl(&et, &ee, &gt, &ge, checked, opts, exn);
-        ee = res.expected_env;
-        ge = res.given_env;
+        ee = Rc.clone(res.expected_env);
+        ge = Rc.clone(res.given_env);
         i = (i + usize(1));
       });
     });
@@ -1572,8 +1572,8 @@ _synthesize_types_impl :: (
     exp_child := match(expected_ty, Rc(.Pointer(c)) => Rc.clone(c), _ => Rc.new(TypeValueNode.Unit));
     giv_child := match(given_ty, Rc(.Pointer(c)) => Rc.clone(c), _ => Rc.new(TypeValueNode.Unit));
     res := _synthesize_types_impl(&exp_child, &ee, &giv_child, &ge, checked, opts, exn);
-    ee = res.expected_env;
-    ge = res.given_env;
+    ee = Rc.clone(res.expected_env);
+    ge = Rc.clone(res.given_env);
     return(SynthesizeResult(expected_env : ee, given_env : ge));
   });
   // Case: Dyn + Dyn. Each expected trait is synthesized against the given
@@ -1604,8 +1604,8 @@ _synthesize_types_impl :: (
         if(same_kind, {
           paired = true;
           res := _synthesize_types_impl(&et, &ee, &gt, &ge, checked, opts, exn);
-          ee = res.expected_env;
-          ge = res.given_env;
+          ee = Rc.clone(res.expected_env);
+          ge = Rc.clone(res.given_env);
         });
       });
     });
@@ -1616,8 +1616,8 @@ _synthesize_types_impl :: (
     exp_elem := match(expected_ty, Rc(.Array(e, _, _)) => Rc.clone(e), _ => Rc.new(TypeValueNode.Unit));
     giv_elem := match(given_ty, Rc(.Array(e, _, _)) => Rc.clone(e), _ => Rc.new(TypeValueNode.Unit));
     res := _synthesize_types_impl(&exp_elem, &ee, &giv_elem, &ge, checked, opts, exn);
-    ee = res.expected_env;
-    ge = res.given_env;
+    ee = Rc.clone(res.expected_env);
+    ge = Rc.clone(res.given_env);
     // Array LENGTH synthesis: when the
     // EXPECTED length is an unresolved generic variable and the GIVEN length
     // is concrete, bind the variable in the expected env to the concrete
@@ -1659,8 +1659,8 @@ _synthesize_types_impl :: (
     exp_elem := match(expected_ty, Rc(.ComptimeListT(e)) => Rc.clone(e), _ => Rc.new(TypeValueNode.Unit));
     giv_elem := match(given_ty, Rc(.ComptimeListT(e)) => Rc.clone(e), _ => Rc.new(TypeValueNode.Unit));
     res := _synthesize_types_impl(&exp_elem, &ee, &giv_elem, &ge, checked, opts, exn);
-    ee = res.expected_env;
-    ge = res.given_env;
+    ee = Rc.clone(res.expected_env);
+    ge = Rc.clone(res.given_env);
     return(SynthesizeResult(expected_env : ee, given_env : ge));
   });
   // Case: Func + Func (same generic+param count)
@@ -1695,8 +1695,8 @@ _synthesize_types_impl :: (
           }
         );
         res := _synthesize_types_impl(&et, &ee, &gt, &ge, checked, opts, exn);
-        ee = res.expected_env;
-        ge = res.given_env;
+        ee = Rc.clone(res.expected_env);
+        ge = Rc.clone(res.given_env);
         fai = (fai + usize(1));
       });
       // Synthesize normal param types
@@ -1720,16 +1720,16 @@ _synthesize_types_impl :: (
           }
         );
         res := _synthesize_types_impl(&et, &ee, &gt, &ge, checked, opts, exn);
-        ee = res.expected_env;
-        ge = res.given_env;
+        ee = Rc.clone(res.expected_env);
+        ge = Rc.clone(res.given_env);
         pi = (pi + usize(1));
       });
       // Synthesize implicit params
       _synthesize_implicit_params(&exp_it.items, &giv_it.items, &ee, &ge, checked, opts, exn);
       // Synthesize return type
       res := _synthesize_types_impl(&exp_ret, &ee, &giv_ret, &ge, checked, opts, exn);
-      ee = res.expected_env;
-      ge = res.given_env;
+      ee = Rc.clone(res.expected_env);
+      ge = Rc.clone(res.given_env);
     });
     return(SynthesizeResult(expected_env : ee, given_env : ge));
   });
@@ -1770,8 +1770,8 @@ _synthesize_types_impl :: (
             hk_e := match(hk_args.get(hk_i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
             hk_g := match(hk_targs.get(hk_i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
             hk_res := _synthesize_types_impl(&hk_e, &ee, &hk_g, &ge, checked, opts, exn);
-            ee = hk_res.expected_env;
-            ge = hk_res.given_env;
+            ee = Rc.clone(hk_res.expected_env);
+            ge = Rc.clone(hk_res.given_env);
             hk_i = (hk_i + usize(1));
           });
           return(SynthesizeResult(expected_env : ee, given_env : ge));
@@ -1788,8 +1788,8 @@ _synthesize_types_impl :: (
     exp_args := match(expected_ty, Rc(.TypeAppT(_, args)) => Rc.clone(args), _ => no_types());
     giv_args := match(given_ty, Rc(.TypeAppT(_, args)) => Rc.clone(args), _ => no_types());
     res := _synthesize_types_impl(&exp_con, &ee, &giv_con, &ge, checked, opts, exn);
-    ee = res.expected_env;
-    ge = res.given_env;
+    ee = Rc.clone(res.expected_env);
+    ge = Rc.clone(res.given_env);
     n_a := exp_args.len();
     (ai : usize) = usize(0);
     while(ai < n_a, {
@@ -1810,8 +1810,8 @@ _synthesize_types_impl :: (
         }
       );
       res2 := _synthesize_types_impl(&et, &ee, &gt, &ge, checked, opts, exn);
-      ee = res2.expected_env;
-      ge = res2.given_env;
+      ee = Rc.clone(res2.expected_env);
+      ge = Rc.clone(res2.given_env);
       ai = (ai + usize(1));
     });
     return(SynthesizeResult(expected_env : ee, given_env : ge));
@@ -1840,8 +1840,8 @@ _synthesize_types_impl :: (
         }
       );
       res := _synthesize_types_impl(&et, &ee, &gt, &ge, checked, opts, exn);
-      ee = res.expected_env;
-      ge = res.given_env;
+      ee = Rc.clone(res.expected_env);
+      ge = Rc.clone(res.given_env);
       i = (i + usize(1));
     });
     return(SynthesizeResult(expected_env : ee, given_env : ge));

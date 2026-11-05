@@ -92,7 +92,7 @@ evaluate_binding :: (
   ) -> BindingResult
 )({
   // Mutable env that we update from rhs ExprInfo.
-  (env : Environment) = env_in;
+  (env : Environment) = Rc.clone(env_in);
   // Validate shape: ":" with exactly 2 args.
   if(!ast_expr_is_fn_call_of(expr, BK_COLON, .Some(usize(2))), {
     exn.throw(
@@ -128,7 +128,7 @@ evaluate_binding :: (
       )
     );
   });
-  rhs_info := match(rhs_info_opt, .Some(i) => i, .None => new_expr_info(&env, t_unit()));
+  rhs_info := match(rhs_info_opt, .Some(i) => Rc.clone(i), .None => new_expr_info(&env, t_unit()));
   // Update env from rhs evaluation.
   env_adopt(&env, &rhs_info.env());
   // Rhs must evaluate to a TypeValue.

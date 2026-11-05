@@ -338,7 +338,7 @@ evaluate_import :: (
     exn : Exception
   ) -> AstExpr
 )({
-  (env : Environment) = env_in;
+  (env : Environment) = Rc.clone(env_in);
   if(!ast_expr_is_fn_call_of(expr, BK_IMPORT, .Some(usize(1))), {
     exn.throw(
       dyn(
@@ -384,7 +384,7 @@ evaluate_import :: (
   arg_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_arg));
   arg_info := match(
     arg_info_opt,
-    .Some(i) => i,
+    .Some(i) => Rc.clone(i),
     .None => {
       exn.throw(
         dyn(

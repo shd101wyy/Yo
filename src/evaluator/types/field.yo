@@ -152,7 +152,7 @@ evaluate_type_field :: (
     exn : Exception
   ) -> EvalTypeFieldResult
 )({
-  (env : Environment) = env_in;
+  (env : Environment) = Rc.clone(env_in);
   (label : Option(String)) = Option(String).None;
   (expr_ : AstExpr) = expr;
   (label_expr : Option(AstExpr)) = Option(AstExpr).None;
@@ -302,7 +302,7 @@ evaluate_type_field :: (
     te := match(type_expr, .Some(t) => t, .None => make_err_expr());
     old_expected := ctx.expected_type.clone();
     if(expected_tuple_element_type.is_some(), {
-      elem_env := match(&ctx.expected_type, .Some(e) => snapshot_env(&e.env), .None => env);
+      elem_env := match(&ctx.expected_type, .Some(e) => snapshot_env(&e.env), .None => Rc.clone(env));
       ctx.expected_type = Option(ExpectedTypeCtx).Some(
         ExpectedTypeCtx(
           ty : match(&expected_tuple_element_type, .Some(t) => Rc.clone(t), .None => Rc.new(TypeValueNode.Unit)),
@@ -315,7 +315,7 @@ evaluate_type_field :: (
     evaluated_te := evaluate_expression_raw(&te, &env, ctx, exn);
     ctx.expected_type = old_expected.clone();
     te_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_te));
-    te_info := match(te_info_opt, .Some(i) => i, .None => new_expr_info(&env, Rc.new(TypeValueNode.Unit)));
+    te_info := match(te_info_opt, .Some(i) => Rc.clone(i), .None => new_expr_info(&env, Rc.new(TypeValueNode.Unit)));
     env_adopt(&env, &te_info.env());
     if(!is_type_value(&te_info.value()), {
       exn.throw(
@@ -376,7 +376,7 @@ evaluate_type_field :: (
       Option(ExpectedTypeCtx).Some(
         ExpectedTypeCtx(
           ty : match(field_type, .Some(t) => Rc.clone(t), .None => Rc.new(TypeValueNode.Unit)),
-          env : env
+          env : Rc.clone(env)
         )
       ),
       if(
@@ -384,7 +384,7 @@ evaluate_type_field :: (
         Option(ExpectedTypeCtx).Some(
           ExpectedTypeCtx(
             ty : match(&expected_tuple_element_type, .Some(t) => Rc.clone(t), .None => Rc.new(TypeValueNode.Unit)),
-            env : env
+            env : Rc.clone(env)
           )
         ),
         Option(ExpectedTypeCtx).None
@@ -400,7 +400,7 @@ evaluate_type_field :: (
     av_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_av));
     av_info := match(
       av_info_opt,
-      .Some(i) => i,
+      .Some(i) => Rc.clone(i),
       .None => {
         exn.throw(
           dyn(
@@ -467,7 +467,7 @@ evaluate_type_field :: (
       Option(ExpectedTypeCtx).Some(
         ExpectedTypeCtx(
           ty : match(field_type, .Some(t) => Rc.clone(t), .None => Rc.new(TypeValueNode.Unit)),
-          env : env
+          env : Rc.clone(env)
         )
       ),
       if(
@@ -475,7 +475,7 @@ evaluate_type_field :: (
         Option(ExpectedTypeCtx).Some(
           ExpectedTypeCtx(
             ty : match(expected_tuple_element_type, .Some(t) => Rc.clone(t), .None => Rc.new(TypeValueNode.Unit)),
-            env : env
+            env : Rc.clone(env)
           )
         ),
         Option(ExpectedTypeCtx).None
@@ -487,7 +487,7 @@ evaluate_type_field :: (
     dv_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_dv));
     dv_info := match(
       dv_info_opt,
-      .Some(i) => i,
+      .Some(i) => Rc.clone(i),
       .None => {
         exn.throw(
           dyn(

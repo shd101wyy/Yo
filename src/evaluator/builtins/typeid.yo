@@ -59,7 +59,7 @@ evaluate_type_id :: (
   type_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_type_expr));
   type_info := match(
     type_info_opt,
-    .Some(ti) => ti,
+    .Some(ti) => Rc.clone(ti),
     .None => {
       exn.throw(
         dyn(

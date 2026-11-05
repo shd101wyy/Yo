@@ -110,7 +110,7 @@ evaluate_array_type :: (
   });
   elem_type_info := match(
     elem_type_info_opt,
-    .Some(info) => info,
+    .Some(info) => Rc.clone(info),
     .None => new_expr_info(env, t_usize()) // unreachable
   );
   if(!is_type_value(&elem_type_info.value()), {
@@ -184,7 +184,7 @@ evaluate_array_type :: (
     return(expr);
   });
   // Evaluate the length expression with expected type usize.
-  old_expected := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : t_usize(), env : env_after_elem)));
+  old_expected := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : t_usize(), env : Rc.clone(env_after_elem))));
   evaluated_length := evaluate_expression_raw(&length_expr, &env_after_elem, ctx, exn);
   ctx.expected_type = old_expected;
   len_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_length));
@@ -200,7 +200,7 @@ evaluate_array_type :: (
   });
   len_info := match(
     len_info_opt,
-    .Some(info) => info,
+    .Some(info) => Rc.clone(info),
     .None => new_expr_info(&env_after_elem, t_usize()) // unreachable
   );
   // Length type / value checks are best-effort under the bootstrap's

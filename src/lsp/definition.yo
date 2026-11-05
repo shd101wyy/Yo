@@ -636,7 +636,7 @@ _member_definition :: (
                 if(out_recv.len() > usize(0), {
                   owner = Rc.clone(out_recv(usize(0)));
                   deref = Rc.clone(out_deref(usize(0)));
-                  env_opt = Option(Environment).Some(out_env(usize(0)));
+                  env_opt = Option(Environment).Some(Rc.clone(out_env(usize(0))));
                 });
               },
               .FnCall(_, _, _, _, _) => match(
@@ -686,7 +686,7 @@ _member_definition :: (
         });
         env := match(
           env_opt,
-          .Some(e) => e,
+          .Some(e) => Rc.clone(e),
           .None => {
             return(Option(Token).None);
           }
@@ -929,7 +929,7 @@ handle_type_definition :: (
   });
   info := match(
     info_opt,
-    .Some(i) => i,
+    .Some(i) => Rc.clone(i),
     .None => {
       return(Option(JsonValue).None);
     }

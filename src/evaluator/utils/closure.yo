@@ -141,7 +141,7 @@ consume_captured_variables :: (
     env : &Environment,
     _closure_token : &Token
   ) -> Environment
-)(env);
+)(Rc.clone(env));
 // ---------------------------------------------------------------------------
 // build_path_collection_from_captured_variables
 // ---------------------------------------------------------------------------
@@ -1122,7 +1122,7 @@ create_capture_type_and_value :: (
       CaptureTypeAndValueResult(
         capture_type : Option(TypeValue).None,
         capture_value : Option(EvalValue).None,
-        env : env
+        env : Rc.clone(env)
       ),
     .None => {
       // Inference case: build struct from captured variables.
@@ -1354,7 +1354,7 @@ create_capture_type_and_value :: (
       CaptureTypeAndValueResult(
         capture_type : Option(TypeValue).Some(capture_ty),
         capture_value : cap_struct_val,
-        env : env
+        env : Rc.clone(env)
       )
     }
   )
@@ -1458,7 +1458,7 @@ generate_captured_variable_dup_expressions :: (
 )({
   dup_exprs := ArrayList(AstExpr).new();
   if(borrow_captures && _captures_require_explicit_copy(captured_vars_with_values), {
-    return(CapturedVarDupResult(dup_exprs : Option(ArrayList(AstExpr)).None, env : env, borrowed : true));
+    return(CapturedVarDupResult(dup_exprs : Option(ArrayList(AstExpr)).None, env : Rc.clone(env), borrowed : true));
   });
   // `yo fix --migrate rc-clone`: a handle copied into this closure while its
   // source is read again becomes a capture-list entry, and a capture list is
@@ -1543,7 +1543,7 @@ generate_captured_variable_dup_expressions :: (
   );
   CapturedVarDupResult(
     dup_exprs : if(dup_exprs.len() > usize(0), Option(ArrayList(AstExpr)).Some(dup_exprs), Option(ArrayList(AstExpr)).None),
-    env : env,
+    env : Rc.clone(env),
     borrowed : false
   )
 });

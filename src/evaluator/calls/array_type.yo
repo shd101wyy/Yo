@@ -101,7 +101,7 @@ try_to_implement_array_by_array_type :: (
   elements := ArrayList(EvalValue).new();
   runtime_arg_exprs := ArrayList(AstExpr).new();
   (all_elements_are_comptime : bool) = true;
-  (env : Environment) = caller_env;
+  (env : Environment) = Rc.clone(caller_env);
   (expected_element_type : TypeValue) = elem_type;
   (i : usize) = usize(0);
   while(i < n_args, {
@@ -113,7 +113,7 @@ try_to_implement_array_by_array_type :: (
       }
     );
     // Evaluate with expected element type set in context.
-    saved_expected := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : Rc.clone(expected_element_type), env : env)));
+    saved_expected := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : Rc.clone(expected_element_type), env : Rc.clone(env))));
     evaluated_arg_gout := ArrayList(AstExpr).new();
     evaluated_arg_gerr := evaluate_expression_guarded(&arg_expr, &env, ctx, &mut evaluated_arg_gout);
     ctx.expected_type = saved_expected;
@@ -130,7 +130,7 @@ try_to_implement_array_by_array_type :: (
         )
       );
     });
-    arg_info := match(arg_info_opt, .Some(it) => it, .None => new_expr_info(&env, &expected_element_type));
+    arg_info := match(arg_info_opt, .Some(it) => Rc.clone(it), .None => new_expr_info(&env, &expected_element_type));
     set_expr_as_needs_to_call_dup(&evaluated_arg, ctx, exn, "element");
     env_adopt(&env, &arg_info.env());
     // For first element: if expected element type is Array with unknown-length child,

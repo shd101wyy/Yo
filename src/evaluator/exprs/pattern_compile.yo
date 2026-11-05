@@ -282,7 +282,7 @@ _bind_subject_and_eval_test :: (
     true,
     ast_expr_token(src)
   );
-  old_expected := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : t_bool(), env : env)));
+  old_expected := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : t_bool(), env : Rc.clone(env))));
   flag_before_test := flow_violation_pending();
   _evaluated := evaluate_expression(test, env, ctx);
   ctx.expected_type = old_expected.clone();

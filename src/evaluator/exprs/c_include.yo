@@ -198,7 +198,7 @@ User code should normally call stdlib wrappers (e.g. functions in
       )
     );
   });
-  (env : Environment) = env_in;
+  (env : Environment) = Rc.clone(env_in);
   all_args := match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), _ => ArrayList(AstExpr).new());
   // First arg must be an atom (the C header file string literal, e.g. "<stdio.h>").
   first_arg_opt := all_args.get(usize(0));
@@ -215,7 +215,7 @@ User code should normally call stdlib wrappers (e.g. functions in
   c_header_file_arg := match(first_arg_opt, .Some(a) => a, .None => expr);
   evaluated_hdr := evaluate_expression_raw(&c_header_file_arg, &env, ctx, exn);
   hdr_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_hdr));
-  hdr_info := match(hdr_info_opt, .Some(i) => i, .None => new_expr_info(&env, t_unit()));
+  hdr_info := match(hdr_info_opt, .Some(i) => Rc.clone(i), .None => new_expr_info(&env, t_unit()));
   env_adopt(&env, &hdr_info.env());
   raw_hdr := match(
     hdr_info.value(),
@@ -294,7 +294,7 @@ User code should normally call stdlib wrappers (e.g. functions in
           .None => String.new()
         ),
         field_type : t_type(),
-        env : env
+        env : Rc.clone(env)
       ),
       .None => evaluate_module_field(&arg, field_idx, &env, ctx, false, exn)
     );

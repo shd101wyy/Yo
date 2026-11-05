@@ -1184,7 +1184,7 @@ handle_completion :: (
         if(out_recv.len() > usize(0), {
           recv := Rc.clone(out_recv(usize(0)));
           deref := Rc.clone(out_deref(usize(0)));
-          env := out_env(usize(0));
+          env := Rc.clone(out_env(usize(0)));
           seen := HashSet(String).new();
           _type_member_items(&deref, &mut items, &mut seen);
           _add_methods(&recv, &deref, &env, &mut items, &mut seen);
@@ -1285,7 +1285,7 @@ handle_completion :: (
   // Env bindings not already emitted: prelude types (Option, Result, …) and
   // imports the document has not referenced yet.
   if(env_holder.len() > usize(0), {
-    env := env_holder(usize(0));
+    env := Rc.clone(env_holder(usize(0)));
     (fi : usize) = usize(0);
     while(fi < env.frames_len(), {
       match(

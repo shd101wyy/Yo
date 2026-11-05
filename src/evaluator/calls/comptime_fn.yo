@@ -723,8 +723,8 @@ evaluate_comptime_fn_call :: (
         return(
           ComptimeFnCallResult(
             value : _ctfe_unknown(&return_type, caller_env),
-            caller_env : caller_env,
-            callee_env : callee_env,
+            caller_env : Rc.clone(caller_env),
+            callee_env : Rc.clone(callee_env),
             comptime_ref : Option(ComptimeRef).None
           )
         );
@@ -753,8 +753,8 @@ evaluate_comptime_fn_call :: (
     return(
       ComptimeFnCallResult(
         value : _ctfe_unknown(&return_type, caller_env),
-        caller_env : caller_env,
-        callee_env : callee_env,
+        caller_env : Rc.clone(caller_env),
+        callee_env : Rc.clone(callee_env),
         comptime_ref : Option(ComptimeRef).None
       )
     );
@@ -790,8 +790,8 @@ evaluate_comptime_fn_call :: (
     return(
       ComptimeFnCallResult(
         value : _ctfe_unknown(&return_type, caller_env),
-        caller_env : caller_env,
-        callee_env : callee_env,
+        caller_env : Rc.clone(caller_env),
+        callee_env : Rc.clone(callee_env),
         comptime_ref : Option(ComptimeRef).None
       )
     );
@@ -950,8 +950,8 @@ evaluate_comptime_fn_call :: (
     return(
       ComptimeFnCallResult(
         value : _ctfe_unknown(&return_type, caller_env),
-        caller_env : caller_env,
-        callee_env : callee_env,
+        caller_env : Rc.clone(caller_env),
+        callee_env : Rc.clone(callee_env),
         comptime_ref : Option(ComptimeRef).None
       )
     );
@@ -1137,8 +1137,8 @@ evaluate_comptime_fn_call :: (
       return(
         ComptimeFnCallResult(
           value : hit_val,
-          caller_env : caller_env,
-          callee_env : callee_env,
+          caller_env : Rc.clone(caller_env),
+          callee_env : Rc.clone(callee_env),
           comptime_ref : Option(ComptimeRef).None
         )
       );
@@ -1238,7 +1238,7 @@ evaluate_comptime_fn_call :: (
   body_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaled_body));
   body_info := match(
     body_info_opt,
-    .Some(i) => i,
+    .Some(i) => Rc.clone(i),
     .None => {
       // Remove the temp cache entry to avoid leaving a stale placeholder.
       match(
@@ -1541,7 +1541,7 @@ evaluate_comptime_fn_call :: (
   purge_executed_clone_metadata(&ctx.expr_info_table, &body_expr, clone_lo, clone_hi);
   ComptimeFnCallResult(
     value : final_return_value,
-    caller_env : caller_env,
+    caller_env : Rc.clone(caller_env),
     callee_env : out_callee_env,
     comptime_ref : body_comptime_ref
   )

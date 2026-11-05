@@ -225,7 +225,7 @@ _evaluate_discriminant :: (
   disc_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_disc));
   disc_info := match(
     disc_info_opt,
-    .Some(i) => i,
+    .Some(i) => Rc.clone(i),
     .None => {
       exn.throw(
         dyn(
@@ -308,7 +308,7 @@ evaluate_enum_type :: (
     exn : Exception
   ) -> AstExpr
 )({
-  (env : Environment) = env_in;
+  (env : Environment) = Rc.clone(env_in);
   if(!ast_expr_is_fn_call_of(expr, BK_ENUM, Option(usize).None), {
     exn.throw(
       dyn(
@@ -652,7 +652,7 @@ evaluate_enum_type :: (
           ra := match(recur_args.get(gi), .Some(a) => a, .None => make_err_expr());
           evaluated_ra := evaluate_expression_raw(&ra, &env, ctx, exn);
           ra_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_ra));
-          ra_info := match(ra_info_opt, .Some(ii) => ii, .None => new_expr_info(&env, Rc.new(TypeValueNode.Unit)));
+          ra_info := match(ra_info_opt, .Some(ii) => Rc.clone(ii), .None => new_expr_info(&env, Rc.new(TypeValueNode.Unit)));
           if(!is_type_value(&ra_info.value()), {
             exn.throw(
               dyn(

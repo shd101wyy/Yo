@@ -87,7 +87,7 @@ _resolve_effect_arg :: (
           )
         )
       );
-      env
+      Rc.clone(env)
     },
     true => {
       // Individual effect type — evaluate it
@@ -125,7 +125,7 @@ _resolve_effect_arg :: (
               )
             )
           );
-          env
+          Rc.clone(env)
         }
       )
     }
@@ -162,7 +162,7 @@ evaluate_future_type :: (
   elem_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_elem_expr));
   elem_info := match(
     elem_info_opt,
-    .Some(i) => i,
+    .Some(i) => Rc.clone(i),
     .None => {
       exn.throw(
         dyn(

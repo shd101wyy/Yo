@@ -844,7 +844,7 @@ _assoc_synth_env :: (
     Option(SynthesizeOptions).None,
     exn_s
   );
-  Option(Environment).Some(sr.expected_env)
+  Option(Environment).Some(Rc.clone(sr.expected_env))
 });
 /// Resolve one associated type (`label`) for `target_type` through the SAME
 /// two channels `_check_associated_type_constraints` uses: the type-trait-
@@ -913,9 +913,9 @@ _check_associated_type_constraints :: (
   );
   n_atc := atc_labels.len();
   if(n_atc == usize(0), {
-    return(AssocTypeCheckResult(satisfied : true, env : env));
+    return(AssocTypeCheckResult(satisfied : true, env : Rc.clone(env)));
   });
-  (cur_env : Environment) = env;
+  (cur_env : Environment) = Rc.clone(env);
   (ok : bool) = true;
   (ci : usize) = usize(0);
   while((ci < n_atc) && ok, {
@@ -1260,7 +1260,7 @@ _copy_without_clone_msg :: (fn(target_type : &TypeValue, env : &Environment) -> 
 /// environment (set by `module_manager.yo` once the prelude is loaded). `Copy`
 /// and its impls are global; the environment only resolves the trait name.
 set_flip_prelude_env :: (fn(env : &Environment) -> unit)({
-  g_flip_env = Option(Environment).Some(env);
+  g_flip_env = Option(Environment).Some(Rc.clone(env));
 });
 /// Mark `ty` as the target of a `derive` that includes `Copy` (see
 /// `g_copy_pending_keys`).
@@ -1278,7 +1278,7 @@ clear_copy_pending :: (fn() -> unit)({
 /// wording says so instead of offering a `.clone()` that does not exist.
 _type_lacks_clone_for_diagnostics :: (fn(ty : &TypeValue) -> bool)(
   match(
-    g_flip_env,
+    g_flip_env.clone(),
     .Some(env) => match(
       get_trait_type_from_env(&env, String.from("Clone")),
       .Some(clone_tt) => {
@@ -1412,8 +1412,8 @@ type_lacks_copy_for_flip :: (fn(ty_in : &TypeValue) -> bool)({
     return(_flip_part_lacks_copy(&ty));
   });
   env := match(
-    g_flip_env,
-    .Some(e) => e,
+    g_flip_env.clone(),
+    .Some(e) => Rc.clone(e),
     .None => {
       return(false);
     }
@@ -1746,7 +1746,7 @@ type_implements_trait :: (
       match(
         call_closure_capture_marker(&target, &ccs_m),
         .Some(ccs_holds) => {
-          return(TraitCheckResult(implemented : ccs_holds, env : env));
+          return(TraitCheckResult(implemented : ccs_holds, env : Rc.clone(env)));
         },
         .None => ()
       );
@@ -1762,10 +1762,10 @@ type_implements_trait :: (
   if(match(&target, Rc(.ExternOpaqueT(_, _)) => true, _ => false), {
     eom := _marker_name_of(trait_type, env);
     if((eom == "Runtime") || (eom == "Send") || (eom == "Sync") || (eom == "Acyclic"), {
-      return(TraitCheckResult(implemented : true, env : env));
+      return(TraitCheckResult(implemented : true, env : Rc.clone(env)));
     });
     if(eom == "Comptime", {
-      return(TraitCheckResult(implemented : false, env : env));
+      return(TraitCheckResult(implemented : false, env : Rc.clone(env)));
     });
   });
   // Copy and Clone are structural for the types no impl can name (decision
@@ -1783,16 +1783,16 @@ type_implements_trait :: (
         // A closure typed `FnMut(...)` is move-only by its trait (decision
         // 37): a copy would fork the state its calls write.
         if(capture_struct_is_fnmut(&target), {
-          return(TraitCheckResult(implemented : false, env : env));
+          return(TraitCheckResult(implemented : false, env : Rc.clone(env)));
         });
         (cp_i : usize) = usize(0);
         while(cp_i < cp_parts.len(), {
           if(!recur(match(cp_parts.get(cp_i), .Some(p) => p, .None => Rc.new(TypeValueNode.Unit)), trait_type, env).implemented, {
-            return(TraitCheckResult(implemented : false, env : env));
+            return(TraitCheckResult(implemented : false, env : Rc.clone(env)));
           });
           cp_i = (cp_i + usize(1));
         });
-        return(TraitCheckResult(implemented : true, env : env));
+        return(TraitCheckResult(implemented : true, env : Rc.clone(env)));
       },
       .None => ()
     );
@@ -1801,7 +1801,7 @@ type_implements_trait :: (
   // structural and nothing else: no impl, negative impl or registry entry
   // decides it (`impl(T, Escapable())` is rejected at the impl).
   if(is_escapable_trait(trait_type, env), {
-    return(TraitCheckResult(implemented : type_is_escapable(&target), env : env));
+    return(TraitCheckResult(implemented : type_is_escapable(&target), env : Rc.clone(env)));
   });
   // 0. Phase N: Negative-impl check — runs first, authoritative. If the type
   // has a registered negative impl for this trait, it does NOT implement the
@@ -1811,10 +1811,10 @@ type_implements_trait :: (
   // (`impl(generic(T), Pattern, !(Trait))`) are matched structurally via
   // `find_matching_negative_generic_impl`.
   if(has_negative_impl(type_id_or_empty(&target), get_trait_key(trait_type)), {
-    return(TraitCheckResult(implemented : false, env : env));
+    return(TraitCheckResult(implemented : false, env : Rc.clone(env)));
   });
   if(find_matching_negative_generic_impl(&target, trait_type, env), {
-    return(TraitCheckResult(implemented : false, env : env));
+    return(TraitCheckResult(implemented : false, env : Rc.clone(env)));
   });
   // 1. Comptime builtin fast path.
   match(
@@ -1825,7 +1825,7 @@ type_implements_trait :: (
         match(
           type_implements_comptime_builtin(&target),
           .Some(b) => {
-            return(TraitCheckResult(implemented : b, env : env));
+            return(TraitCheckResult(implemented : b, env : Rc.clone(env)));
           },
           .None => ()
         );
@@ -1841,7 +1841,7 @@ type_implements_trait :: (
         match(
           type_implements_runtime_builtin(&target),
           .Some(b) => {
-            return(TraitCheckResult(implemented : b, env : env));
+            return(TraitCheckResult(implemented : b, env : Rc.clone(env)));
           },
           .None => ()
         );
@@ -1857,7 +1857,7 @@ type_implements_trait :: (
     match(
       type_implements_send_builtin(&target),
       .Some(b) => {
-        return(TraitCheckResult(implemented : b, env : env));
+        return(TraitCheckResult(implemented : b, env : Rc.clone(env)));
       },
       .None => ()
     );
@@ -1875,14 +1875,14 @@ type_implements_trait :: (
         match(
           type_implements_acyclic_builtin(&target),
           .Some(b) => {
-            return(TraitCheckResult(implemented : b, env : env));
+            return(TraitCheckResult(implemented : b, env : Rc.clone(env)));
           },
           .None => ()
         );
         match(
           _acyclic_by_reach(&target, trait_type, env),
           .Some(b) => {
-            return(TraitCheckResult(implemented : b, env : env));
+            return(TraitCheckResult(implemented : b, env : Rc.clone(env)));
           },
           .None => ()
         );
@@ -1923,11 +1923,11 @@ type_implements_trait :: (
         )
       ),
       _ => {
-        return(TraitCheckResult(implemented : false, env : env));
+        return(TraitCheckResult(implemented : false, env : Rc.clone(env)));
       }
     );
     if(!are_types_compatible(&target, &fn_trait_call_ty), {
-      return(TraitCheckResult(implemented : false, env : env));
+      return(TraitCheckResult(implemented : false, env : Rc.clone(env)));
     });
     // Binding propagation: synthesize the
     // trait's call type against the target fn so SomeTs in parameter/return
@@ -1939,7 +1939,7 @@ type_implements_trait :: (
     syn_env := match(
       _assoc_synth_env(&fn_trait_call_ty, &target, env),
       .Some(se) => se,
-      .None => env
+      .None => Rc.clone(env)
     );
     return(TraitCheckResult(implemented : true, env : syn_env));
   });
@@ -1954,7 +1954,7 @@ type_implements_trait :: (
       // fall through to the later steps rather than rejecting outright.
       assoc_result_reg := _check_associated_type_constraints(&target, trait_type, env);
       if(assoc_result_reg.satisfied, {
-        return(TraitCheckResult(implemented : true, env : assoc_result_reg.env));
+        return(TraitCheckResult(implemented : true, env : Rc.clone(assoc_result_reg.env)));
       });
     });
   });
@@ -2097,7 +2097,7 @@ type_implements_trait :: (
         _ => ()
       );
       if(direct_true, {
-        return(TraitCheckResult(implemented : true, env : env));
+        return(TraitCheckResult(implemented : true, env : Rc.clone(env)));
       });
       match(
         fields_opt,
@@ -2116,7 +2116,7 @@ type_implements_trait :: (
           });
           g_ondemand_marker_guard.with_mut(xs => xs.drain((xs.len() - usize(1)) .. xs.len()));
           if(all_pass, {
-            return(TraitCheckResult(implemented : true, env : env));
+            return(TraitCheckResult(implemented : true, env : Rc.clone(env)));
           });
         },
         .None => ()
@@ -2140,7 +2140,7 @@ type_implements_trait :: (
         );
         // Direct match.
         if(_trait_type_id(&req_trait) == _trait_type_id(trait_type), {
-          return(TraitCheckResult(implemented : true, env : env));
+          return(TraitCheckResult(implemented : true, env : Rc.clone(env)));
         });
         // selfConstraints of the required trait.
         match(
@@ -2159,7 +2159,7 @@ type_implements_trait :: (
                 }
               );
               if(_trait_type_id(&sc) == _trait_type_id(trait_type), {
-                return(TraitCheckResult(implemented : true, env : env));
+                return(TraitCheckResult(implemented : true, env : Rc.clone(env)));
               });
               j = (j + usize(1));
             });
@@ -2181,7 +2181,7 @@ type_implements_trait :: (
           }
         );
         if(_trait_type_id(&neg_trait) == _trait_type_id(trait_type), {
-          return(TraitCheckResult(implemented : false, env : env));
+          return(TraitCheckResult(implemented : false, env : Rc.clone(env)));
         });
         k = (k + usize(1));
       });
@@ -2277,10 +2277,10 @@ type_implements_trait :: (
         .None => ()
       );
       if(found_req, {
-        return(TraitCheckResult(implemented : !found_neg, env : env));
+        return(TraitCheckResult(implemented : !found_neg, env : Rc.clone(env)));
       }, {
         if(found_neg, {
-          return(TraitCheckResult(implemented : false, env : env));
+          return(TraitCheckResult(implemented : false, env : Rc.clone(env)));
         });
       });
     },
@@ -2290,7 +2290,7 @@ type_implements_trait :: (
   if(is_some_type(&target), {
     resolved := get_value_of_some_type_from_env(env, &target);
     if(is_some_type(&resolved), {
-      return(TraitCheckResult(implemented : false, env : env));
+      return(TraitCheckResult(implemented : false, env : Rc.clone(env)));
     });
     target = resolved;
   });
@@ -2299,7 +2299,7 @@ type_implements_trait :: (
     _trait_type_id(&target),
     _trait_type_id(trait_type)
   ), {
-    return(TraitCheckResult(implemented : true, env : env));
+    return(TraitCheckResult(implemented : true, env : Rc.clone(env)));
   });
   // 8. Generic impl registry — delegated to impl.yo via _find_matching_generic_impl.
   // Guard key: `_trait_type_id` renders "" for STRUCT/enum
@@ -2342,7 +2342,7 @@ type_implements_trait :: (
     gi = (gi + usize(1));
   });
   if(already_checking, {
-    return(TraitCheckResult(implemented : false, env : env));
+    return(TraitCheckResult(implemented : false, env : Rc.clone(env)));
   });
   g_trait_check_recursion_guard.with_mut(xs => xs.push(guard_key.clone()));
   result := _find_matching_generic_impl(&target, trait_type, env);
@@ -2350,13 +2350,13 @@ type_implements_trait :: (
   last_idx := (g_trait_check_recursion_guard.with(xs => xs.len()) - usize(1));
   g_trait_check_recursion_guard.with_mut(xs => xs.remove(last_idx));
   if(!result, {
-    return(TraitCheckResult(implemented : false, env : env));
+    return(TraitCheckResult(implemented : false, env : Rc.clone(env)));
   });
   // Associated-type constraints on the matched trait:
   // `Iterator(Item := A)` must resolve the target's `Item` and the
   // returned env carries the `A := <concrete>` binding.
   assoc_result := _check_associated_type_constraints(&target, trait_type, env);
-  TraitCheckResult(implemented : assoc_result.satisfied, env : assoc_result.env)
+  TraitCheckResult(implemented : assoc_result.satisfied, env : Rc.clone(assoc_result.env))
 });
 // ---------------------------------------------------------------------------
 // type_implements_trait_bool

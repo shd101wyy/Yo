@@ -746,7 +746,7 @@ track_variable_usage_resolved :: (
     &context.is_evaluating_function_body_or_async_block,
     .None => (),
     .Some(sub_ctx) => {
-      eval_env := sub_ctx.eval_env;
+      eval_env := Rc.clone(sub_ctx.eval_env);
       // Only track variables from outer scopes.
       if(frame_level >= eval_env.frame_count(), {
         return(());
@@ -1259,45 +1259,65 @@ PendingDefData :: struct(
 impl(
   PendingDefData,
   members : (fn(self : &Self) -> ArrayList(String))(self.live.with(l => l.members.clone())),
-  set_members : (fn(self : &Self, sink(v) : ArrayList(String)) -> unit)(self.live.with_mut({ v }(l) => {
-    l.members = v;
-  })),
+  set_members : (fn(self : &Self, sink(v) : ArrayList(String)) -> unit)(
+    self.live.with_mut({ v }(l) => {
+      l.members = v;
+    })
+  ),
   expr : (fn(self : &Self) -> AstExpr)(self.live.with(l => l.expr)),
-  set_expr : (fn(self : &Self, v : AstExpr) -> unit)(self.live.with_mut(l => {
-    l.expr = v;
-  })),
+  set_expr : (fn(self : &Self, v : AstExpr) -> unit)(
+    self.live.with_mut(l => {
+      l.expr = v;
+    })
+  ),
   row : (fn(self : &Self) -> usize)(self.live.with(l => l.row)),
-  set_row : (fn(self : &Self, v : usize) -> unit)(self.live.with_mut(l => {
-    l.row = v;
-  })),
+  set_row : (fn(self : &Self, v : usize) -> unit)(
+    self.live.with_mut(l => {
+      l.row = v;
+    })
+  ),
   is_derive : (fn(self : &Self) -> bool)(self.live.with(l => l.is_derive)),
-  set_is_derive : (fn(self : &Self, v : bool) -> unit)(self.live.with_mut(l => {
-    l.is_derive = v;
-  })),
+  set_is_derive : (fn(self : &Self, v : bool) -> unit)(
+    self.live.with_mut(l => {
+      l.is_derive = v;
+    })
+  ),
   state : (fn(self : &Self) -> PendingDefState)(self.live.with(l => l.state)),
-  set_state : (fn(self : &Self, v : PendingDefState) -> unit)(self.live.with_mut(l => {
-    l.state = v;
-  })),
+  set_state : (fn(self : &Self, v : PendingDefState) -> unit)(
+    self.live.with_mut(l => {
+      l.state = v;
+    })
+  ),
   failure : (fn(self : &Self) -> Option(String))(self.live.with(l => l.failure.clone())),
-  set_failure : (fn(self : &Self, sink(v) : Option(String)) -> unit)(self.live.with_mut({ v }(l) => {
-    l.failure = v;
-  })),
+  set_failure : (fn(self : &Self, sink(v) : Option(String)) -> unit)(
+    self.live.with_mut({ v }(l) => {
+      l.failure = v;
+    })
+  ),
   phase_a_value : (fn(self : &Self) -> Option(EvalValue))(self.live.with(l => l.phase_a_value)),
-  set_phase_a_value : (fn(self : &Self, v : Option(EvalValue)) -> unit)(self.live.with_mut(l => {
-    l.phase_a_value = v;
-  })),
+  set_phase_a_value : (fn(self : &Self, v : Option(EvalValue)) -> unit)(
+    self.live.with_mut(l => {
+      l.phase_a_value = v;
+    })
+  ),
   phase_a_type : (fn(self : &Self) -> Option(TypeValue))(self.live.with(l => l.phase_a_type.clone())),
-  set_phase_a_type : (fn(self : &Self, sink(v) : Option(TypeValue)) -> unit)(self.live.with_mut({ v }(l) => {
-    l.phase_a_type = v;
-  })),
+  set_phase_a_type : (fn(self : &Self, sink(v) : Option(TypeValue)) -> unit)(
+    self.live.with_mut({ v : v.clone() }(l) => {
+      l.phase_a_type = v;
+    })
+  ),
   variable : (fn(self : &Self) -> Option(Variable))(self.live.with(l => l.variable.clone())),
-  set_variable : (fn(self : &Self, sink(v) : Option(Variable)) -> unit)(self.live.with_mut({ v }(l) => {
-    l.variable = v;
-  })),
+  set_variable : (fn(self : &Self, sink(v) : Option(Variable)) -> unit)(
+    self.live.with_mut({ v : v.clone() }(l) => {
+      l.variable = v;
+    })
+  ),
   src_hash : (fn(self : &Self) -> u64)(self.live.with(l => l.src_hash)),
-  set_src_hash : (fn(self : &Self, v : u64) -> unit)(self.live.with_mut(l => {
-    l.src_hash = v;
-  }))
+  set_src_hash : (fn(self : &Self, v : u64) -> unit)(
+    self.live.with_mut(l => {
+      l.src_hash = v;
+    })
+  )
 );
 PendingDef :: Rc(PendingDefData);
 /// A new, unforced entry for statement `expr` at `index` of its walk.
@@ -1369,9 +1389,11 @@ impl(
   begin_expr_at : (fn(self : &Self, i : usize) -> Option(AstExpr))(self.begin_exprs.with(xs => xs.get(i))),
   /// A copy of the statement list (the AST nodes are shared handles).
   begin_exprs_snapshot : (fn(self : &Self) -> ArrayList(AstExpr))(self.begin_exprs.with(xs => xs.clone())),
-  set_begin_expr : (fn(self : &Self, i : usize, e : AstExpr) -> unit)(self.begin_exprs.with_mut(xs => {
-    xs(i) = e;
-  })),
+  set_begin_expr : (fn(self : &Self, i : usize, e : AstExpr) -> unit)(
+    self.begin_exprs.with_mut(xs => {
+      xs(i) = e;
+    })
+  ),
   has_ctx : (fn(self : &Self) -> bool)(self.ctx.with(c => c.is_some())),
   /// A fresh copy of the walk's context (`copy_eval_context`), if it kept one.
   ctx_copy : (fn(self : &Self) -> Option(EvalContext))(
@@ -2617,7 +2639,7 @@ begin_module_walk :: (
     ModuleWalkData(
       module_path : module_path.clone(),
       begin_exprs : RefCell(ArrayList(AstExpr)).new(begin_exprs.clone()),
-      env : env,
+      env : Rc.clone(env),
       module_frame_id : module_frame_id,
       module_frame : module_frame,
       ctx : RefCell(Option(EvalContext)).new(Option(EvalContext).Some(copy_eval_context(ctx))),
@@ -2666,7 +2688,7 @@ begin_module_walk :: (
   });
   _ := g_module_def_count.with_mut(m => m.insert(module_path.clone(), defs.len()));
   pushed := Rc.clone(walk);
-  g_module_walks.with_mut({ pushed }(xs) => xs.push(pushed));
+  g_module_walks.with_mut({ pushed : Rc.clone(pushed) }(xs) => xs.push(pushed));
   walk
 });
 /// Finish a walk: pop it and keep its definitions for the post-walk miss
@@ -2679,7 +2701,7 @@ end_module_walk :: (fn(walk : &ModuleWalk) -> unit)({
   });
   fw_key := walk.module_path.clone();
   fw_val := Rc.clone(walk);
-  g_finished_walks.with_mut({ fw_key, fw_val }(m) => m.insert(fw_key, fw_val));
+  g_finished_walks.with_mut({ fw_key, fw_val : Rc.clone(fw_val) }(m) => m.insert(fw_key, fw_val));
   ()
 });
 walk_pending_def_at :: (fn(walk : &ModuleWalk, index : usize) -> Option(PendingDef))(
@@ -2748,7 +2770,7 @@ current_forcing_def :: (fn() -> Option(PendingDef))(
 push_forcing_def :: (fn(def : &PendingDef) -> unit)({
   def.set_state(PendingDefState.Forcing);
   pushed := Rc.clone(def);
-  g_forcing_stack.with_mut({ pushed }(xs) => xs.push(pushed));
+  g_forcing_stack.with_mut({ pushed : Rc.clone(pushed) }(xs) => xs.push(pushed));
 });
 pop_forcing_def :: (fn() -> unit)({
   g_forcing_stack.with_mut(xs => xs.pop());
@@ -3018,7 +3040,7 @@ force_pending_def :: (fn(walk : &ModuleWalk, def : &PendingDef) -> Option(String
 revalidate_walk_defs :: (fn(walk : &ModuleWalk, defs : &ArrayList(PendingDef)) -> ArrayList(String))({
   failures := ArrayList(String).new();
   pushed := Rc.clone(walk);
-  g_module_walks.with_mut({ pushed }(xs) => xs.push(pushed));
+  g_module_walks.with_mut({ pushed : Rc.clone(pushed) }(xs) => xs.push(pushed));
   (i : usize) = usize(0);
   while(i < defs.len(), {
     match(
@@ -3639,7 +3661,7 @@ create_function_body_evaluation_context :: (
     ctfe_depth : ctx.ctfe_depth,
     ctfe_untaken_arm_depth : ctx.ctfe_untaken_arm_depth,
     expected_type : Option(ExpectedTypeCtx).Some(
-      ExpectedTypeCtx(ty : return_type, env : env)
+      ExpectedTypeCtx(ty : return_type, env : Rc.clone(env))
     ),
     is_evaluating_function_body_or_async_block : Option(FuncOrAsyncBlockCtx).Some(func_body_ctx),
     is_evaluating_function_type : false,

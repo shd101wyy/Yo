@@ -707,10 +707,14 @@ emit_async_block_struct_definition :: (
   irfs := inline_await_result_fields(&info.analysis, context);
   (mut(iai) : usize) = usize(0);
   while(iai < irfs.len(), iai = (iai + usize(1)), {
-    match(irfs.get_cloned(iai), .Some(rf) => {
-      emit_text3 := `  ${get_type_string(&rf.ty, &mut context.base)} ${rf.name};  // an await's result`;
-      context.base.emitter.emit_declaration_string_line(&emit_text3);
-    }, .None => ());
+    match(
+      irfs.get_cloned(iai),
+      .Some(rf) => {
+        emit_text3 := `  ${get_type_string(&rf.ty, &mut context.base)} ${rf.name};  // an await's result`;
+        context.base.emitter.emit_declaration_string_line(&emit_text3);
+      },
+      .None => ()
+    );
   });
   _emit_fused_site_fields(fused_await_sites(&info.analysis, context), context);
   context.base.emitter.emit_declaration_line("};");
@@ -1847,7 +1851,7 @@ fused_await_site :: (fn(await_expr : &AstExpr, report : bool, context : &Functio
     },
     .None => ()
   );
-  block := match(found, .Some(b) => b, .None => return(_fusion_not_lowered(await_expr, String.from("the wrapper's state machine is not registered"), report)));
+  block := match(found, .Some(b) => Rc.clone(b), .None => return(_fusion_not_lowered(await_expr, String.from("the wrapper's state machine is not registered"), report)));
   // Nested fusion (F3): the enclosing fused blocks are the segments of the
   // prefix in force. A wrapper already on that chain is recursive through the
   // fused path (§3.1 rule 5), and the chain stops at depth 4.
@@ -2057,10 +2061,14 @@ _emit_fused_site_fields :: (fn(sites : &ArrayList(FusedAwaitSite), context : &mu
     context.fusion_field_prefix = saved_prefix;
     (mut(ri) : usize) = usize(0);
     while(ri < rfs.len(), ri = (ri + usize(1)), {
-      match(rfs.get_cloned(ri), .Some(rf) => {
-        emit_text8 := `  ${get_type_string(&rf.ty, &mut context.base)} ${rf.name};  // a fused await's result`;
-        context.base.emitter.emit_declaration_string_line(&emit_text8);
-      }, .None => ());
+      match(
+        rfs.get_cloned(ri),
+        .Some(rf) => {
+          emit_text8 := `  ${get_type_string(&rf.ty, &mut context.base)} ${rf.name};  // a fused await's result`;
+          context.base.emitter.emit_declaration_string_line(&emit_text8);
+        },
+        .None => ()
+      );
     });
   });
 });
@@ -2995,23 +3003,23 @@ generate_async_block :: (fn(expr : &AstExpr, io_async_body : &Option(AstExpr), a
   // Record the deferred-generation request.
   dab := Rc.new(
     DeferredAsyncBlockData(
-    body_expr : body_expr,
-    async_block_id : async_block_id.clone(),
-    struct_name : struct_name.clone(),
-    resume_function_name : resume_function_name.clone(),
-    constructor_name : constructor_name.clone(),
-    dispose_function_name : dispose_function_name.clone(),
-    set_effect_function_name : set_effect_function_name.clone(),
-    future_type : Rc.clone(future_type),
-    future_trait_type : future_trait_type,
-    result_type : result_type,
-    result_type_c_name : result_type_c_name.clone(),
-    capture_type : fsm_capture_type.clone(),
-    capture_dups : match(&fsm_capture_dups, .Some(d) => d.clone(), .None => ArrayList(AstExpr).new()),
-    analysis : analysis_kinded,
-    closure_param_slots : closure_param_slots_opt,
-    source_call_id : if(is_io_async, ast_expr_id(expr), usize(0))
-  )
+      body_expr : body_expr,
+      async_block_id : async_block_id.clone(),
+      struct_name : struct_name.clone(),
+      resume_function_name : resume_function_name.clone(),
+      constructor_name : constructor_name.clone(),
+      dispose_function_name : dispose_function_name.clone(),
+      set_effect_function_name : set_effect_function_name.clone(),
+      future_type : Rc.clone(future_type),
+      future_trait_type : future_trait_type,
+      result_type : result_type,
+      result_type_c_name : result_type_c_name.clone(),
+      capture_type : fsm_capture_type.clone(),
+      capture_dups : match(&fsm_capture_dups, .Some(d) => d.clone(), .None => ArrayList(AstExpr).new()),
+      analysis : analysis_kinded,
+      closure_param_slots : closure_param_slots_opt,
+      source_call_id : if(is_io_async, ast_expr_id(expr), usize(0))
+    )
   );
   mut(blocks) := match(context.deferred_async_blocks.take(), .Some(lst) => lst, .None => ArrayList(DeferredAsyncBlock).new());
   blocks.push(dab);
@@ -3444,7 +3452,7 @@ preregister_async_blocks_in_expr :: (fn(expr : &AstExpr, context : &mut Function
   // Async-block path (struct name always _state_t).
   if(is_io_async_call(expr), {
     match(
-      ei_opt,
+      &ei_opt,
       .Some(ei) => if(type_implements_future(&ei.ty()), {
         match(
           extract_future_trait_from_type(&ei.ty()),
@@ -3722,7 +3730,7 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
     expr_info_closure_function_value(&cei),
     .Some(fv) => Option(EvalValue).Some(fv),
     .None => match(
-      orig_closure_ei,
+      &orig_closure_ei,
       .Some(oe) => match(expr_info_closure_function_value(&oe), .Some(fv) => Option(EvalValue).Some(fv), .None => match(cei.value(), .Some(v) => if(is_func_val(&v), Option(EvalValue).Some(v), Option(EvalValue).None), .None => Option(EvalValue).None)),
       .None => match(cei.value(), .Some(v) => if(is_func_val(&v), Option(EvalValue).Some(v), Option(EvalValue).None), .None => Option(EvalValue).None)
     )

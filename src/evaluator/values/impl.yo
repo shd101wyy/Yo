@@ -1673,7 +1673,7 @@ try_match_generic_impl :: (
   // got a concrete binding — a def-time trial over an unresolved SomeT, say)
   // is NOT a rejection: only a param that IS bound and demonstrably fails
   // its trait removes the impl.
-  (match_env : Environment) = synth_result.expected_env;
+  (match_env : Environment) = Rc.clone(synth_result.expected_env);
   // The receiver pattern fixes every forall it binds; a where clause can only
   // constrain those, and bind the ones the pattern leaves open. So each
   // forall's binding is taken BEFORE the where pass. The pass checks a clause
@@ -4424,7 +4424,7 @@ _c3_eval_colon_pair :: (
   saved2 := ctx.expected_type.clone();
   ctx.expected_type = match(
     &expected_method_ty_resolved,
-    .Some(t) => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : Rc.clone(t), env : st.env)),
+    .Some(t) => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : Rc.clone(t), env : Rc.clone(st.env))),
     .None => Option(ExpectedTypeCtx).None
   );
   eval_val := evaluate_expression_raw(&val_expr, &st.env, ctx, exn);
@@ -4831,7 +4831,7 @@ _c2_eval_inner_field :: (
   saved4 := ctx.expected_type.clone();
   ctx.expected_type = match(
     g_expected,
-    .Some(t) => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : Rc.clone(t), env : st.env)),
+    .Some(t) => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : Rc.clone(t), env : Rc.clone(st.env))),
     .None => Option(ExpectedTypeCtx).None
   );
   eval_gval := evaluate_expression_raw(&g_val_expr, &st.env, ctx, exn);
@@ -5157,7 +5157,7 @@ _stamp_impl_where_bound :: (fn(st : &TypeValue, tr : &TypeValue) -> unit)(
     st,
     Rc(.SomeT(_, _, _, _, stamp_bounds, _, _)) => {
       stamp_trait := Rc.clone(tr);
-      stamp_bounds.with_mut({ stamp_trait }(b) => {
+      stamp_bounds.with_mut({ stamp_trait : Rc.clone(stamp_trait) }(b) => {
         b.required.push(stamp_trait);
         b.required_levels.push(usize(0));
       });
@@ -5173,7 +5173,7 @@ evaluate_module_value :: (
     exn : Exception
   ) -> AstExpr
 )({
-  (local_env : Environment) = env;
+  (local_env : Environment) = Rc.clone(env);
   // Verify it's an `impl(...)` call.
   if(!ast_expr_is_fn_call_of(expr, BK_IMPL_LOWER, .None), {
     exn.throw(
@@ -5220,7 +5220,7 @@ evaluate_module_value :: (
       exn
     );
     ctx.expected_type = saved_expected.clone();
-    local_env = result.env;
+    local_env = Rc.clone(result.env);
     out_info := new_expr_info(&local_env, &result.module_type);
     out_info.set_value(.Some(result.module_value));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
@@ -5444,7 +5444,7 @@ evaluate_module_value :: (
       is_generic : true,
       receiver_ty : Rc.clone(receiver_type_pattern),
       receiver_name : String.new(),
-      env : forall_env,
+      env : Rc.clone(forall_env),
       ctx : copy_eval_context(ctx),
       fields : c2_fields,
       current_top_index : usize(0),
@@ -5496,7 +5496,7 @@ evaluate_module_value :: (
               ArrayList(String).new(),
               ArrayList(TypeValue).new(),
               ArrayList(EvalValue).new(),
-              forall_env,
+              Rc.clone(forall_env),
               impl_where_some_types.clone(),
               impl_where_traits.clone(),
               _impl_site_string(ast_expr_token(expr))
@@ -5539,7 +5539,7 @@ evaluate_module_value :: (
           },
           .None => ()
         );
-        forall_env = c2_rec.env;
+        forall_env = Rc.clone(c2_rec.env);
       });
       // Trait-constructor entry: `Trait(name : fn_def, ...)` or
       // `Trait(args)(name : fn_def, ...)` — e.g. ArrayList's
@@ -5640,7 +5640,7 @@ evaluate_module_value :: (
               },
               .None => ()
             );
-            forall_env = c2_rec.env;
+            forall_env = Rc.clone(c2_rec.env);
           });
         });
         c2_rec.current_trait_ty = Option(TypeValue).None;
@@ -5707,7 +5707,7 @@ evaluate_module_value :: (
           // 7. field_types
           g_method_values,
           // 8. field_values
-          forall_env,
+          Rc.clone(forall_env),
           // 9. definition_env
           impl_where_some_types.clone(),
           // 10. where_constraint_some_types
@@ -5778,7 +5778,7 @@ evaluate_module_value :: (
       // 7. field_types
       method_values,
       // 8. field_values
-      forall_env,
+      Rc.clone(forall_env),
       // 9. definition_env
       impl_where_some_types,
       // 10. where_constraint_some_types
@@ -5952,7 +5952,7 @@ evaluate_module_value :: (
     is_generic : false,
     receiver_ty : Rc.clone(receiver_ty),
     receiver_name : receiver_name.clone(),
-    env : local_env,
+    env : Rc.clone(local_env),
     ctx : copy_eval_context(ctx),
     fields : c3_fields,
     current_top_index : usize(0),
@@ -6276,7 +6276,7 @@ evaluate_module_value :: (
                   _c3_eval_colon_pair(&meth_expr, &current_trait_ty, &c3_rec, Option(ImplPendingField).None, ctx, exn);
                 }
               );
-              local_env = c3_rec.env;
+              local_env = Rc.clone(c3_rec.env);
             }
           );
           mj = (mj + usize(1));
@@ -7089,7 +7089,7 @@ _check_copy_clone_exclusion :: (
 /// (`where(T <: Clone)`, the prelude `Option(T)`'s shape) is allowed: at a
 /// `Copy` instantiation its structural clone reduces to the copy.
 _check_generic_copy_clone_exclusion :: (fn(entry : &GenericImplEntry, trait_tok : &Token, ctx : &EvalContext, exn : Exception) -> unit)({
-  env := entry.definition_env;
+  env := Rc.clone(entry.definition_env);
   match(
     _clone_and_copy_traits(&env),
     .Some(cc) => {

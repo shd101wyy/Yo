@@ -86,7 +86,7 @@ evaluate_tuple_element_value :: (
     exn : Exception
   ) -> EvalTupleElementResult
 )({
-  (env : Environment) = env_in;
+  (env : Environment) = Rc.clone(env_in);
   // Reject labelled fields: `x: rhs`.
   if(ast_expr_is_fn_call_of(expr, ":", Option(usize).Some(usize(2))), {
     args := match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
@@ -150,7 +150,7 @@ evaluate_tuple_element_value :: (
   saved_expected := ctx.expected_type.clone();
   ctx.expected_type = match(
     &expected_field_type_opt,
-    .Some(t) => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : Rc.clone(t), env : env)),
+    .Some(t) => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : Rc.clone(t), env : Rc.clone(env))),
     .None => Option(ExpectedTypeCtx).None
   );
   evaluated_rhs_gout := ArrayList(AstExpr).new();
@@ -166,7 +166,7 @@ evaluate_tuple_element_value :: (
   rhs_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_rhs));
   rhs_info := match(
     rhs_info_opt,
-    .Some(info) => info,
+    .Some(info) => Rc.clone(info),
     .None => {
       exn.throw(
         dyn(
@@ -217,7 +217,7 @@ evaluate_tuple_elements_value :: (
     exn : Exception
   ) -> EvalTupleElementsValueResult
 )({
-  (env : Environment) = env_in;
+  (env : Environment) = Rc.clone(env_in);
   field_labels := ArrayList(String).new();
   field_types := ArrayList(TypeValue).new();
   values := ArrayList(Option(EvalValue)).new();

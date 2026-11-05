@@ -364,7 +364,7 @@ impl(
   )({
     info_opt := expr_info_table_get(table, ast_expr_id(e));
     match(
-      info_opt,
+      &info_opt,
       .Some(info) => {
         // A macro call's raw arguments are not what executes — the expansion is.
         match(
@@ -527,7 +527,7 @@ impl(
     // the mutating call on its right-hand side, and report a mutating function
     // as read-only.
     match(
-      info_opt,
+      &info_opt,
       .Some(vinfo) => match(
         vinfo.value(),
         .Some(v) => if(_msp_value_is_folded(&v), {
@@ -1792,7 +1792,7 @@ impl(
   classify : (fn(e : &AstExpr, ctx : &_MspCtx) -> _MspRoot)({
     info_opt := expr_info_table_get(&ctx.table, ast_expr_id(e));
     match(
-      info_opt,
+      &info_opt,
       .Some(info) => {
         match(
           expr_info_macro_expansion(&info),
@@ -1846,8 +1846,8 @@ impl(
       },
       _ => ()
     );
-    value_is_rc := match(info_opt, .Some(i2) => type_contains_rc_type(&i2.ty()), .None => true);
-    value_is_ptr := match(info_opt, .Some(i3) => is_pointer_type(&i3.ty()), .None => false);
+    value_is_rc := match(&info_opt, .Some(i2) => type_contains_rc_type(&i2.ty()), .None => true);
+    value_is_ptr := match(&info_opt, .Some(i3) => is_pointer_type(&i3.ty()), .None => false);
     // Field read or deref: contents of the base.
     if((head == ".") && (args.len() == usize(2)), {
       base := match(args.get(usize(0)), .Some(b) => b, .None => e);
@@ -2354,7 +2354,7 @@ impl(
   collect : (fn(e : &AstExpr, ctx : &_MspCtx) -> unit)({
     info_opt := expr_info_table_get(&ctx.table, ast_expr_id(e));
     match(
-      info_opt,
+      &info_opt,
       .Some(info) => {
         match(
           expr_info_macro_expansion(&info),
@@ -2782,7 +2782,7 @@ impl(
   strict_walk : (fn(e : &AstExpr, borrowed_ids : &ArrayList(usize), table : &ExprInfoTable, out : &mut ArrayList(TokenAndError)) -> unit)({
     info_opt := expr_info_table_get(table, ast_expr_id(e));
     match(
-      info_opt,
+      &info_opt,
       .Some(info) => {
         match(
           expr_info_macro_expansion(&info),
@@ -3061,7 +3061,7 @@ impl(
     m := param_mutation_mask_new();
     info_opt := expr_info_table_get(&ctx.table, ast_expr_id(e));
     match(
-      info_opt,
+      &info_opt,
       .Some(info) => {
         match(
           expr_info_macro_expansion(&info),
@@ -3596,11 +3596,11 @@ _msp_arg_base_var :: (fn(arg : &AstExpr, table : &ExprInfoTable) -> Option(Varia
 /// Does `v` (or a same-frame alias it shares its count with) belong to the
 /// borrowed set?
 _msp_var_is_borrowed :: (fn(v : &Variable, borrowed_ids : &ArrayList(usize)) -> bool)({
-  (cur : Option(Variable)) = Option(Variable).Some(v);
+  (cur : Option(Variable)) = Option(Variable).Some(Rc.clone(v));
   (hops : usize) = usize(0);
   while(cur.is_some() && (hops < usize(64)), {
     match(
-      cur,
+      cur.clone(),
       .Some(b) => {
         (i : usize) = usize(0);
         while(i < borrowed_ids.len(), {
@@ -4221,7 +4221,7 @@ _gr_atom :: (fn(e : &AstExpr, ctx : &_GrCtx) -> Option(String))({
   // A recorded env is queried through `e`'s record; the fallback `ctx.env`
   // is the walk's own env.
   env_rec := _gr_env_of(e, ctx);
-  env := match(env_rec, .Some(en) => en, .None => ctx.env);
+  env := match(&env_rec, .Some(en) => Rc.clone(en), .None => Rc.clone(ctx.env));
   vars := match(env_rec, .Some(_) => scope_variables(ast_expr_id(e), &env, name.clone()), .None => get_variables_from_env(&env, name.clone()));
   if(vars.len() == usize(0), {
     return(Option(String).None);
@@ -4261,7 +4261,7 @@ _gr_walk_closure_callee :: (fn(f : &AstExpr, ctx : &_GrCtx) -> Option(String))({
     return(Option(String).None);
   });
   env_rec := _gr_env_of(f, ctx);
-  env := match(env_rec, .Some(en) => en, .None => ctx.env);
+  env := match(&env_rec, .Some(en) => Rc.clone(en), .None => Rc.clone(ctx.env));
   vars := match(env_rec, .Some(_) => scope_variables(ast_expr_id(f), &env, &name), .None => get_variables_from_env(&env, &name));
   if(vars.len() == usize(0), {
     return(Option(String).None);
@@ -4514,7 +4514,7 @@ function_reaches_non_send_global :: (
   // A module-level binding is one static every thread shares: the question is
   // sharing, so the global must be `Sync` (Rust's `static: Sync`;
   // plans/VALUES_BY_DEFAULT.md §3.8).
-  ctx := _GrCtx(table : table.clone(), env : env, send : get_trait_type_from_env(env, String.from("Sync")), fid : fid.clone());
+  ctx := _GrCtx(table : table.clone(), env : Rc.clone(env), send : get_trait_type_from_env(env, String.from("Sync")), fid : fid.clone());
   r := _gr_walk(body, &ctx);
   fid_owned5 := fid.clone();
   g_gr_in_progress.with_mut({ fid_owned5 }(m) => m.remove(fid_owned5.clone()));

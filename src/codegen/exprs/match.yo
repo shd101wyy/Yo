@@ -368,7 +368,7 @@ generate_case_body :: (fn(body_expr : &AstExpr, indent : &String, context : &mut
   if(ast_expr_is_fn_call_of(body_expr, BK_BEGIN, Option(usize).None), {
     begin_args := _args(body_expr);
     vei_opt := context.base.get_expr_info(body_expr);
-    cur_drops := match(vei_opt, .Some(vei) => vei.deferred_drop_expressions(), .None => Option(ArrayList(AstExpr)).None);
+    cur_drops := match(&vei_opt, .Some(vei) => vei.deferred_drop_expressions(), .None => Option(ArrayList(AstExpr)).None);
     cur_consumed := match(vei_opt, .Some(vei) => expr_info_consumed_variable_drop_expressions(&vei), .None => Option(ArrayList(AstExpr)).None);
     prev_pending := replace(&mut context.pending_deferred_drops, Option(ArrayList(AstExpr)).None);
     prev_consumed := replace(&mut context.consumed_var_pending_drops, Option(ArrayList(AstExpr)).None);
@@ -459,7 +459,7 @@ generate_case_body :: (fn(body_expr : &AstExpr, indent : &String, context : &mut
     // closed: an undeclared C identifier
     // (issues/fixed/short-circuit-rhs-temp-in-bare-arm-body-drops-out-of-scope.md).
     vei_opt := context.base.get_expr_info(body_expr);
-    cur_drops := match(vei_opt, .Some(vei) => vei.deferred_drop_expressions(), .None => Option(ArrayList(AstExpr)).None);
+    cur_drops := match(&vei_opt, .Some(vei) => vei.deferred_drop_expressions(), .None => Option(ArrayList(AstExpr)).None);
     cur_consumed := match(vei_opt, .Some(vei) => expr_info_consumed_variable_drop_expressions(&vei), .None => Option(ArrayList(AstExpr)).None);
     prev_pending := replace(&mut context.pending_deferred_drops, Option(ArrayList(AstExpr)).None);
     prev_consumed := replace(&mut context.consumed_var_pending_drops, Option(ArrayList(AstExpr)).None);

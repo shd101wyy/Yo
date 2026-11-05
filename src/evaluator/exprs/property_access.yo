@@ -511,7 +511,7 @@ _evaluate_property_access_node :: (
     exn : Exception
   ) -> AstExpr
 )({
-  (env : Environment) = env_in;
+  (env : Environment) = Rc.clone(env_in);
   // The receiver of an enclosing `.` place chain reports no access of its
   // own (local borrows, plans/VALUES_BY_DEFAULT.md decision 18).
   lb_is_receiver := local_borrow_take_receiver(expr);
@@ -758,7 +758,7 @@ _evaluate_property_access_node :: (
   // Update env from the evaluated object's ExprInfo.
   obj_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&object_expr));
   match(
-    obj_info_opt,
+    &obj_info_opt,
     .Some(oi) => {
       env_adopt(&env, &oi.env());
     },
@@ -772,7 +772,7 @@ _evaluate_property_access_node :: (
   // through to the dispatch-time gate in calls/function.yo; type-value
   // receivers (`Option(i32).unwrap`) are gated in the TypeVal arm below.
   if(ast_expr_is_atom(&property_expr) && is_class1_panic_method_name(ast_expr_token(&property_expr).value.*), {
-    pa_c1_banned := match(obj_info_opt, .Some(oi_c1) => is_class1_panic_receiver_type(&oi_c1.ty()), .None => false);
+    pa_c1_banned := match(&obj_info_opt, .Some(oi_c1) => is_class1_panic_receiver_type(&oi_c1.ty()), .None => false);
     if(pa_c1_banned && !is_class1_panic_exempt_file(Option(String).Some(ast_expr_token(&property_expr).module_path.*.clone())), {
       raise_flow_violation(
         format_error_message_with_help(
@@ -787,7 +787,7 @@ _evaluate_property_access_node :: (
   });
   if(ast_expr_is_atom(&property_expr) && ast_expr_is_atom_of(&property_expr, "*") && debug_knob(`YO_DEBUG_CTFE`).is_some(), {
     pa_deref_obj_ty := match(
-      obj_info_opt,
+      &obj_info_opt,
       .Some(pd_oi) => type_to_string(&pd_oi.ty()),
       .None => String.from("<no-info>")
     );
@@ -797,7 +797,7 @@ _evaluate_property_access_node :: (
   // `.*` dereference
   // -------------------------------------------------------------------------
   if(ast_expr_is_atom(&property_expr) && ast_expr_is_atom_of(&property_expr, "*"), {
-    obj_ty_deref := match(obj_info_opt, .Some(oi) => Option(TypeValue).Some(Rc.clone(oi.ty())), .None => Option(TypeValue).None);
+    obj_ty_deref := match(&obj_info_opt, .Some(oi) => Option(TypeValue).Some(Rc.clone(oi.ty())), .None => Option(TypeValue).None);
     // `r.*` on a reference binding `r` (decision 43 step 2 N1e-1,
     // VERDICTS-13 §11): outside std and the compiler tree it is the
     // reference's deref, the value a bare `r` read before, lowered to the
@@ -807,7 +807,7 @@ _evaluate_property_access_node :: (
     // through to the payload), and `yo fix --migrate deref`, which reads old
     // source, records such a `.*` as `r.*.*` and evaluates it the old way.
     match(
-      obj_info_opt,
+      &obj_info_opt,
       .Some(rd_oi) => match(
         rd_oi.source_variable(),
         .Some(rd_v) => if(ast_expr_is_atom(&object_expr) && variable_is_reference_binding(&rd_v) && deref_rule_applies(ast_expr_token(&object_expr), ctx) && !is_reference_deref_site(ast_expr_token(&object_expr)) && _is_written_star(&property_expr), {
@@ -943,12 +943,12 @@ _evaluate_property_access_node :: (
               true => Rc.clone(hv.payload)
             );
             hv_origin := match(
-              match(obj_info_opt, .Some(oi) => expr_info_origin_type(&oi), .None => Option(TypeValue).None),
+              match(&obj_info_opt, .Some(oi) => expr_info_origin_type(&oi), .None => Option(TypeValue).None),
               .Some(o) => o,
               .None => Rc.clone(ot)
             );
             hv_pc := match(
-              obj_info_opt,
+              &obj_info_opt,
               .Some(oi) => build_field_path_collection(&oi.path_collection(), &oi.variable_name(), &String.from("*")),
               .None => build_field_path_collection(&ArrayList(ArrayList(String)).new(), &Option(String).None, &String.from("*"))
             );
@@ -958,17 +958,19 @@ _evaluate_property_access_node :: (
             out_hv.set_path_collection(hv_pc);
             // A compile-time handle is the handle's struct value over the
             // cell's: the payload is the cell's field.
-            out_hv.set_value(match(
-              match(obj_info_opt, .Some(oi) => oi.value(), .None => Option(EvalValue).None),
-              .Some(.UnknownVal(_, hv_ro)) => Option(EvalValue).Some(if(hv_ro, create_runtime_unknown_val(&hv_payload), create_unknown_val(&hv_payload))),
-              .Some(.StructVal(_, _, hv_wf)) => match(
-                hv_wf.get(usize(0)),
-                .Some(.StructVal(_, _, hv_cf)) => match(hv_cf.get(usize(0)), .Some(hv_v) => Option(EvalValue).Some(hv_v), .None => Option(EvalValue).Some(create_unknown_val(&hv_payload))),
-                _ => Option(EvalValue).Some(create_unknown_val(&hv_payload))
-              ),
-              .Some(_) => Option(EvalValue).Some(create_unknown_val(&hv_payload)),
-              .None => Option(EvalValue).None
-            ));
+            out_hv.set_value(
+              match(
+                match(obj_info_opt, .Some(oi) => oi.value(), .None => Option(EvalValue).None),
+                .Some(.UnknownVal(_, hv_ro)) => Option(EvalValue).Some(if(hv_ro, create_runtime_unknown_val(&hv_payload), create_unknown_val(&hv_payload))),
+                .Some(.StructVal(_, _, hv_wf)) => match(
+                  hv_wf.get(usize(0)),
+                  .Some(.StructVal(_, _, hv_cf)) => match(hv_cf.get(usize(0)), .Some(hv_v) => Option(EvalValue).Some(hv_v), .None => Option(EvalValue).Some(create_unknown_val(&hv_payload))),
+                  _ => Option(EvalValue).Some(create_unknown_val(&hv_payload))
+                ),
+                .Some(_) => Option(EvalValue).Some(create_unknown_val(&hv_payload)),
+                .None => Option(EvalValue).None
+              )
+            );
             expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_hv);
             expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_hv);
             attach_temp_variable_to_expr(expr, false, ctx);
@@ -1003,7 +1005,7 @@ Raw pointer operations may dereference invalid memory.`
             is_some_type(&base_ty_deref) => get_value_of_some_type_from_env(&env, &base_ty_deref),
             true => base_ty_deref
           );
-          obj_val_deref := match(obj_info_opt, .Some(oi) => oi.value(), .None => Option(EvalValue).None);
+          obj_val_deref := match(&obj_info_opt, .Some(oi) => oi.value(), .None => Option(EvalValue).None);
           match(
             obj_val_deref,
             .Some(ov_deref) => {
@@ -1046,11 +1048,13 @@ Raw pointer operations may dereference invalid memory.`
                   expr_info_set_comptime_ref(&out_ptr, &deref_place);
                   expr_info_set_origin_type(&out_ptr, Option(TypeValue).Some(Rc.clone(ot)));
                   out_ptr.set_is_accessing_property(Option(bool).Some(true));
-                  out_ptr.set_source_variable(match(
-                    obj_info_opt,
-                    .Some(oi) => oi.source_variable(),
-                    .None => Option(Variable).None
-                  ));
+                  out_ptr.set_source_variable(
+                    match(
+                      obj_info_opt,
+                      .Some(oi) => oi.source_variable(),
+                      .None => Option(Variable).None
+                    )
+                  );
                   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_ptr);
                   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_ptr);
                   return(expr);
@@ -1140,7 +1144,7 @@ Raw pointer operations may dereference invalid memory.`
   // -------------------------------------------------------------------------
   // TypeVal cases: `EnumType.Variant`, `StructType.field`, etc.
   // -------------------------------------------------------------------------
-  obj_val_opt := match(obj_info_opt, .Some(oi) => oi.value(), .None => Option(EvalValue).None);
+  obj_val_opt := match(&obj_info_opt, .Some(oi) => oi.value(), .None => Option(EvalValue).None);
   if(is_type_value(&obj_val_opt), {
     type_val_inner := match(
       obj_val_opt,
@@ -1887,7 +1891,7 @@ Raw pointer operations may dereference invalid memory.`
   // -------------------------------------------------------------------------
   // Runtime field access: dereference any pointer chain, then access field.
   // -------------------------------------------------------------------------
-  obj_ty_main := match(obj_info_opt, .Some(oi) => Rc.clone(oi.ty()), .None => t_unit());
+  obj_ty_main := match(&obj_info_opt, .Some(oi) => Rc.clone(oi.ty()), .None => t_unit());
   original_obj_ty := Rc.clone(obj_ty_main);
   (base_ty : TypeValue) = obj_ty_main;
   // Dereference pointer chain.
@@ -1916,7 +1920,7 @@ Raw pointer operations may dereference invalid memory.`
       base_ty = resolve_struct_shell(&resolved_recv);
     });
   });
-  obj_val_main := match(obj_info_opt, .Some(oi) => oi.value(), .None => Option(EvalValue).None);
+  obj_val_main := match(&obj_info_opt, .Some(oi) => oi.value(), .None => Option(EvalValue).None);
   // -------------------------------------------------------------------------
   // `.io` on the bare `Io` effect struct is the IDENTITY projection.
   // The bundle-style body form (`e.io.await(f, e.io)`) is written against an
@@ -1935,12 +1939,14 @@ Raw pointer operations may dereference invalid memory.`
     if((io_proj_sid.len() > usize(0)) && lookup_io_builtin_struct_field(io_proj_sid.clone(), String.from("await")).is_some(), {
       out_io := new_expr_info(&env, &base_ty);
       out_io.set_value(obj_val_main.clone());
-      out_io.set_variable_name(match(obj_info_opt, .Some(oi_io) => oi_io.variable_name(), .None => Option(String).None));
-      out_io.set_path_collection(match(
-        obj_info_opt,
-        .Some(oi_pc) => oi_pc.path_collection(),
-        .None => ArrayList(ArrayList(String)).new()
-      ));
+      out_io.set_variable_name(match(&obj_info_opt, .Some(oi_io) => oi_io.variable_name(), .None => Option(String).None));
+      out_io.set_path_collection(
+        match(
+          obj_info_opt,
+          .Some(oi_pc) => oi_pc.path_collection(),
+          .None => ArrayList(ArrayList(String)).new()
+        )
+      );
       out_io.set_is_accessing_property(Option(bool).Some(true));
       expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_io);
       expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_io);
@@ -1984,7 +1990,7 @@ Raw pointer operations may dereference invalid memory.`
       });
       // --- Integer index access (tuple fields only) -----------------------
       if(ast_expr_token(&property_expr).kind == TokenKind.Integer, {
-        if(!is_tuple_type(match(obj_info_opt, .Some(oi) => Rc.clone(oi.ty()), .None => t_unit())), {
+        if(!is_tuple_type(match(&obj_info_opt, .Some(oi) => Rc.clone(oi.ty()), .None => t_unit())), {
           exn.throw(
             dyn(
               format_error_message(
@@ -2025,7 +2031,7 @@ Raw pointer operations may dereference invalid memory.`
             });
             ft_idx := _reference_field_read_type(&match(fields_types.get(idx), .Some(t) => t, .None => t_unit()), expr, &property_expr, pa_deref_exempt, ctx, exn);
             field_origin_idx := match(
-              match(obj_info_opt, .Some(oi) => expr_info_origin_type(&oi), .None => Option(TypeValue).None),
+              match(&obj_info_opt, .Some(oi) => expr_info_origin_type(&oi), .None => Option(TypeValue).None),
               .Some(ot) => ot,
               .None => original_obj_ty
             );
@@ -2232,7 +2238,7 @@ Raw pointer operations may dereference invalid memory.`
             });
             ft_lbl := _reference_field_read_type(&match(fields_types.get(fi_lbl), .Some(t) => t, .None => t_unit()), expr, &property_expr, pa_deref_exempt, ctx, exn);
             field_origin_lbl := match(
-              match(obj_info_opt, .Some(oi) => expr_info_origin_type(&oi), .None => Option(TypeValue).None),
+              match(&obj_info_opt, .Some(oi) => expr_info_origin_type(&oi), .None => Option(TypeValue).None),
               .Some(ot) => ot,
               .None => original_obj_ty
             );
@@ -2255,13 +2261,15 @@ Raw pointer operations may dereference invalid memory.`
                   ov_lbl,
                   // Propagate `is_runtime_only` onto the field's unknown.
                   .UnknownVal(_, ov_lbl_ro) => {
-                    out_lbl.set_value(Option(EvalValue).Some(
-                      if(
-                        ov_lbl_ro,
-                        create_runtime_unknown_val(&ft_lbl),
-                        create_unknown_val(&ft_lbl)
+                    out_lbl.set_value(
+                      Option(EvalValue).Some(
+                        if(
+                          ov_lbl_ro,
+                          create_runtime_unknown_val(&ft_lbl),
+                          create_unknown_val(&ft_lbl)
+                        )
                       )
-                    ));
+                    );
                   },
                   _ => {
                     // Dereference through PtrVal before field selection.
@@ -2435,13 +2443,15 @@ Raw pointer operations may dereference invalid memory.`
                   ov_mod,
                   // Propagate `is_runtime_only`.
                   .UnknownVal(_, ov_mod_ro) => {
-                    out_mod.set_value(Option(EvalValue).Some(
-                      if(
-                        ov_mod_ro,
-                        create_runtime_unknown_val(&ft_mod),
-                        create_unknown_val(&ft_mod)
+                    out_mod.set_value(
+                      Option(EvalValue).Some(
+                        if(
+                          ov_mod_ro,
+                          create_runtime_unknown_val(&ft_mod),
+                          create_unknown_val(&ft_mod)
+                        )
                       )
-                    ));
+                    );
                   },
                   .StructVal(_, _, mvals) => {
                     match(
@@ -2480,11 +2490,13 @@ Raw pointer operations may dereference invalid memory.`
                   ),
                   .None => ()
                 );
-                out_mod.set_value(match(
-                  mod_reg_val,
-                  .Some(av) => Option(EvalValue).Some(av),
-                  .None => Option(EvalValue).Some(create_unknown_val(&ft_mod))
-                ));
+                out_mod.set_value(
+                  match(
+                    mod_reg_val,
+                    .Some(av) => Option(EvalValue).Some(av),
+                    .None => Option(EvalValue).Some(create_unknown_val(&ft_mod))
+                  )
+                );
               }
             );
             return(expr);

@@ -649,7 +649,7 @@ _try_comptime_element_access :: (
                     ptr_type : t_ptr(&elem_ty),
                     index_method_type : Option(TypeValue).None,
                     index_method_value : Option(EvalValue).None,
-                    caller_env : caller_env,
+                    caller_env : Rc.clone(caller_env),
                     index : Option(usize).Some(idx_usize),
                     // comptimeRef: { kind: "array",
                     // arrayValue, index } makes `arr(i) = v` a comptime place.
@@ -678,7 +678,7 @@ _try_comptime_element_access :: (
           ptr_type : t_ptr(&elem_ty),
           index_method_type : Option(TypeValue).None,
           index_method_value : Option(EvalValue).None,
-          caller_env : caller_env,
+          caller_env : Rc.clone(caller_env),
           index : Option(usize).None,
           comptime_ref : Option(ComptimeRef).None
         )
@@ -694,7 +694,7 @@ _try_comptime_element_access :: (
           ptr_type : t_ptr(&elem_ty),
           index_method_type : Option(TypeValue).None,
           index_method_value : Option(EvalValue).None,
-          caller_env : caller_env,
+          caller_env : Rc.clone(caller_env),
           index : Option(usize).None,
           comptime_ref : Option(ComptimeRef).None
         )
@@ -730,7 +730,7 @@ _try_comptime_array_index :: (
   info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated));
   info := match(
     info_opt,
-    .Some(i) => i,
+    .Some(i) => Rc.clone(i),
     .None => {
       exn.throw(
         dyn(
@@ -953,7 +953,7 @@ _try_comptime_string_index :: (
   info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated));
   info := match(
     info_opt,
-    .Some(i) => i,
+    .Some(i) => Rc.clone(i),
     .None => {
       exn.throw(
         dyn(
@@ -1657,7 +1657,7 @@ try_to_call_with_index_trait :: (
     match(
       ct_result,
       .Some(r) => {
-        return(r);
+        return(r.clone());
       },
       .None => ()
     );
@@ -1716,7 +1716,7 @@ try_to_call_with_index_trait :: (
   arg_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_arg));
   arg_info := match(
     arg_info_opt,
-    .Some(i) => i,
+    .Some(i) => Rc.clone(i),
     .None => {
       exn.throw(
         dyn(

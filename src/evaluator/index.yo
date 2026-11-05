@@ -231,7 +231,7 @@ impl(
     // evaluates macro bodies without `is_executing` and loses comptime values
     // (issues/fixed/yo-self-expr-eq-macro-body-false.md).
     (module_value : Option(EvalValue)) = .None;
-    (final_env : Option(Environment)) = .Some(env);
+    (final_env : Option(Environment)) = .Some(Rc.clone(env));
     if(module_error.is_none(), {
       g_evaluator_load_fn = .Some(load_module_fn);
       ctx := eval_context_new(std_path.clone(), module_path.clone());
@@ -248,7 +248,7 @@ impl(
       );
       module_value = Option(EvalValue).Some(result.module_value);
       module_error = result.partial_module_error.clone();
-      final_env = Option(Environment).Some(result.env);
+      final_env = Option(Environment).Some(Rc.clone(result.env));
       // Build the O(1) prelude variable cache after evaluating
       // the prelude itself.
       if(module_path.ends_with(String.from("prelude.yo")), {
@@ -269,7 +269,7 @@ impl(
   get_tokens : (fn(self : &Self) -> &ArrayList(Token))(&self.tokens),
   get_module_value : (fn(self : &Self) -> Option(EvalValue))(self.module_value),
   get_module_error : (fn(self : &Self) -> &Option(String))(&self.module_error),
-  get_env : (fn(self : &Self) -> Option(Environment))(self.env)
+  get_env : (fn(self : &Self) -> Option(Environment))(self.env.clone())
 );
 // ---------------------------------------------------------------------------
 // Impl-registry stub re-exports

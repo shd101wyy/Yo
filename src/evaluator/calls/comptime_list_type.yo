@@ -41,7 +41,7 @@ try_to_implement_comptime_list_by_comptime_list_type :: (
     Rc(.ComptimeListT(child)) => Rc.clone(child),
     _ => Rc.new(TypeValueNode.Unit)
   );
-  (env : Environment) = caller_env;
+  (env : Environment) = Rc.clone(caller_env);
   elements := ArrayList(EvalValue).new();
   (i : usize) = usize(0);
   while(i < arg_exprs.len(), {
@@ -51,7 +51,7 @@ try_to_implement_comptime_list_by_comptime_list_type :: (
     ctx.expected_type = Option(ExpectedTypeCtx).Some(
       ExpectedTypeCtx(
         ty : Rc.clone(expected_element_type),
-        env : env
+        env : Rc.clone(env)
       )
     );
     evaluated_arg_gout := ArrayList(AstExpr).new();
@@ -62,7 +62,7 @@ try_to_implement_comptime_list_by_comptime_list_type :: (
     info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_arg));
     info := match(
       info_opt,
-      .Some(it) => it,
+      .Some(it) => Rc.clone(it),
       .None => {
         exn.throw(
           dyn(

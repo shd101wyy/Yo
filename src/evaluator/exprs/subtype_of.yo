@@ -36,7 +36,7 @@ evaluate_subtype_of :: (
     exn : Exception
   ) -> AstExpr
 )({
-  (env : Environment) = env_in;
+  (env : Environment) = Rc.clone(env_in);
   // Validate: `<:` with exactly 2 arguments.
   if(!ast_expr_is_fn_call_of(expr, BK_SUBTYPE_OF, .Some(usize(2))), {
     exn.throw(
@@ -72,7 +72,7 @@ evaluate_subtype_of :: (
   lhs_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_lhs));
   lhs_info := match(
     lhs_info_opt,
-    .Some(i) => i,
+    .Some(i) => Rc.clone(i),
     .None => {
       exn.throw(
         dyn(
@@ -201,7 +201,7 @@ evaluate_subtype_of :: (
     te_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_te));
     te_info := match(
       te_info_opt,
-      .Some(i) => i,
+      .Some(i) => Rc.clone(i),
       .None => {
         exn.throw(
           dyn(

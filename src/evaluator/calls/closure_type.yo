@@ -141,7 +141,7 @@ try_to_implement_closure_by_fn_module_type :: (
     _ => no_flags()
   );
   // Push a new env frame for the closure parameters.
-  (env : Environment) = caller_env;
+  (env : Environment) = Rc.clone(caller_env);
   // Outer frame count BEFORE the param frame is pushed — the closure's defining
   // frame level, used by codegen (generate_function) to rewrite captured vars to
   // `closure_context->field`. Mirrors anonymous_function.yo:637 `n_cap_fr`.
@@ -280,7 +280,7 @@ try_to_implement_closure_by_fn_module_type :: (
   // Update env from the evaluated body.
   body_info_opt := expr_info_table_get(&eval_ctx.expr_info_table, ast_expr_id(&evaluated_body));
   match(
-    body_info_opt,
+    &body_info_opt,
     .Some(bi) => {
       env_adopt(&env, &bi.env());
     },

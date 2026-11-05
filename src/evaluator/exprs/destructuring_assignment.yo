@@ -667,7 +667,7 @@ handle_member_destructuring :: (
     i = (i + usize(1));
   });
   DestructuringResult(
-    env : env,
+    env : Rc.clone(env),
     runtime_destructurings : Option(ArrayList(RuntimeDestructuring)).Some(runtime_destructurings)
   )
 });
@@ -686,7 +686,7 @@ evaluate_destructuring_assignment :: (
   ) -> DestructuringResult
 )({
   rhs_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(rhs));
-  if(match(rhs_info_opt, .None => true, _ => false), {
+  if(match(&rhs_info_opt, .None => true, _ => false), {
     exn.throw(
       dyn(
         format_error_message(
@@ -696,7 +696,7 @@ evaluate_destructuring_assignment :: (
       )
     );
   });
-  rhs_info := match(rhs_info_opt, .Some(ri) => ri, .None => new_expr_info(env, Rc.new(TypeValueNode.Unit)));
+  rhs_info := match(rhs_info_opt, .Some(ri) => Rc.clone(ri), .None => new_expr_info(env, Rc.new(TypeValueNode.Unit)));
   rhs_type := Rc.clone(rhs_info.ty());
   rhs_value := rhs_info.value();
   is_rhs_atom := ast_expr_is_atom(rhs);

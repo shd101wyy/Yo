@@ -48,7 +48,7 @@ evaluate_tuple_elements_type :: (
     exn : Exception
   ) -> EvalTupleElementsResult
 )({
-  (env : Environment) = env_in;
+  (env : Environment) = Rc.clone(env_in);
   field_labels := ArrayList(String).new();
   field_types := ArrayList(TypeValue).new();
   fields := ArrayList(TypeField).new();
@@ -106,7 +106,7 @@ evaluate_tuple_type :: (
     exn : Exception
   ) -> AstExpr
 )({
-  (env : Environment) = env_in;
+  (env : Environment) = Rc.clone(env_in);
   args := match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
   // Empty tuple → unit type.
   if(args.len() == usize(0), {

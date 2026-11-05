@@ -721,7 +721,7 @@ _evaluate_derive_executing :: (
   target_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaled_target));
   target_info := match(
     target_info_opt,
-    .Some(i) => i,
+    .Some(i) => Rc.clone(i),
     .None => {
       exn.throw(
         dyn(
@@ -809,7 +809,7 @@ _evaluate_derive_executing :: (
   // `Copy` requires `Clone` (plans/VALUES_BY_DEFAULT.md decision 36), and its
   // impl checks that a `Clone` impl exists, so `derive(T, Copy, Clone)`
   // registers the `Clone` impl first.
-  (result_env : Environment) = env;
+  (result_env : Environment) = Rc.clone(env);
   trait_args := ArrayList(AstExpr).new();
   copy_args := ArrayList(AstExpr).new();
   while(arg_idx < n_args, {

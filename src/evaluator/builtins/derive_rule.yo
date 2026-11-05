@@ -113,7 +113,7 @@ evaluate_derive_rule :: (
   derive_fn_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaled_derive_fn));
   derive_fn_info := match(
     derive_fn_info_opt,
-    .Some(i) => i,
+    .Some(i) => Rc.clone(i),
     .None => {
       exn.throw(
         dyn(

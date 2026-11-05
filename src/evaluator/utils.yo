@@ -382,16 +382,16 @@ find_rc_value_owner_relationship :: (
       visited := HashSet(usize).new();
       // Follow the chain until we find an owning variable or it breaks.
       while(match(
-        candidate_opt,
+        &candidate_opt,
         .Some(c) => c.is_owning_the_same_rc_value_as().is_some(),
         .None => false
       ), {
         match(
-          candidate_opt,
+          candidate_opt.clone(),
           .Some(cand) => {
             if(visited.contains(&cand.id()), {
               candidate_opt = Option(Variable).None;
-              return(candidate_opt);
+              return(candidate_opt.clone());
             });
             visited.insert(cand.id());
             candidate_opt = match(
@@ -407,7 +407,7 @@ find_rc_value_owner_relationship :: (
         candidate_opt,
         .Some(c) => if(
           c.is_owning_the_rc_value(),
-          Option(Variable).Some(c),
+          Option(Variable).Some(Rc.clone(c)),
           Option(Variable).None
         ),
         .None => Option(Variable).None
@@ -916,7 +916,7 @@ consume_called_fnonce_closure :: (fn(callee : &AstExpr, v : &Variable, env : &En
       owner.is_some() => {
         // Both moves are logged, so a `cond`/`match` join restores the
         // shadow for a sibling arm as it does the owner.
-        o := match(owner, .Some(x) => x, .None => v);
+        o := match(owner, .Some(x) => Rc.clone(x), .None => Rc.clone(v));
         _log_user_move(&o, &tok, env);
         o.set_consumed_at_token(Option(Token).Some(tok.clone()));
         _log_user_move(v, &tok, env);
@@ -994,9 +994,9 @@ move_captured_explicit_copy_variable :: (fn(v : &Variable, tok : &Token, env : &
         raise_flow_violation(with_code(format_error_message_with_help(tok, &msg, move_only_help(v.name.clone(), &v.ty())), E_USE_OF_MOVED_VALUE), ctx, exn);
       });
       moved := match(
-        owner,
-        .Some(o) => o,
-        .None => v
+        &owner,
+        .Some(o) => Rc.clone(o),
+        .None => Rc.clone(v)
       );
       _log_user_move(&moved, tok, env);
       moved.set_consumed_at_token(Option(Token).Some(tok.clone()));
@@ -1776,7 +1776,7 @@ note_second_class_binding :: (fn(holder : &Variable, ty : &TypeValue, tok : &Tok
     outlives := match(
       _find_var_by_id(env, b.root_id),
       .Some(root_at) => match(
-        holder_at,
+        &holder_at,
         .Some(h_at) => ((root_at.1 > h_at.1) || ((root_at.1 == h_at.1) && (root_at.2 > h_at.2))),
         .None => false
       ),
@@ -2026,7 +2026,7 @@ require_capture_borrow_exclusivity :: (
     all_args.push(a);
     is_ref_param := match(param_is_ref.get(ai), .Some(r) => r, .None => false);
     a_info := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&a));
-    carries_mut := match(a_info, .Some(inf) => type_first_mut_borrow(&inf.ty()).is_some(), .None => false);
+    carries_mut := match(&a_info, .Some(inf) => type_first_mut_borrow(&inf.ty()).is_some(), .None => false);
     by_value := match(param_is_owning.get(ai), .Some(o) => o, .None => false);
     copied := (by_value && match(a_info, .Some(inf) => (type_is_bitwise_copy(Rc.clone(inf.ty())) && !type_is_second_class(&inf.ty())), .None => false));
     excl.push(is_ref_param || carries_mut);
@@ -2848,7 +2848,7 @@ place_require_mut :: (fn(place : &AstExpr, tok : &Token, how : &String, handle_o
   if(migrate_mut_bindings_on() && (root.is_some() || !_place_root_is_type_variable(place, env)), {
     record_mut_judged(tok);
   });
-  rv := match(root, .Some(v) => v, .None => return(()));
+  rv := match(root, .Some(v) => Rc.clone(v), .None => return(()));
   if(rv.is_module_level() || (handle_ok && rv.is_compile_time_only()), {
     return(());
   });
@@ -3010,7 +3010,7 @@ audit_note_match_binding :: (
   ) -> unit
 )({
   if(below_cell, {
-    g_implicit_copy_match_roots.with_mut(m => m.insert(binding.id(), ImplicitCopyRoot(kind : String.from("place"), root_id : usize(0))));
+    g_implicit_copy_match_roots.with_mut({ binding : Rc.clone(binding) }(m) => m.insert(binding.id(), ImplicitCopyRoot(kind : String.from("place"), root_id : usize(0))));
     return(());
   });
   root := match(
@@ -3033,7 +3033,7 @@ audit_note_match_binding :: (
     ),
     .None => ImplicitCopyRoot(kind : String.from("place"), root_id : usize(0))
   );
-  g_implicit_copy_match_roots.with_mut(m => m.insert(binding.id(), root.clone()));
+  g_implicit_copy_match_roots.with_mut({ binding : Rc.clone(binding), root }(m) => m.insert(binding.id(), root.clone()));
 });
 /// The recorder runs for `yo fix --migrate rc-clone`, which turns its sites
 /// into `Rc.clone` / `.clone()` spellings.
@@ -5140,14 +5140,14 @@ merge_and_check_envs :: (
   ) -> Environment
 )({
   if(bodies.len() == usize(0), {
-    return(env);
+    return(Rc.clone(env));
   });
   // Zero-frame env guard: `frames.len() - 1` UNDERFLOWS to 2^64-1 and the
   // per-frame loop below spins (effectively) forever calling
   // `frames.get(i)` → `.None` → continue (std/glob.yo never finished one
   // check). An env with no frames must simply do nothing here.
   if(env.frames_len() == usize(0), {
-    return(env);
+    return(Rc.clone(env));
   });
   max_frame_level := (env.frames_len() - usize(1));
   // Collect case environments from the expr_info_table.
@@ -5228,7 +5228,7 @@ merge_and_check_envs :: (
   required_depth := (max_frame_level + usize(1));
   (ci : usize) = usize(0);
   while(ci < case_envs.len(), {
-    case_env := match(case_envs.get_cloned(ci), .Some(e) => e, .None => env);
+    case_env := match(case_envs.get_cloned(ci), .Some(e) => e, .None => Rc.clone(env));
     if(case_env.frames_len() == usize(0), {
       exn.throw(
         dyn(
@@ -5255,7 +5255,7 @@ merge_and_check_envs :: (
         // ---------------------------------------------------------------
         (cj : usize) = usize(0);
         while(cj < case_envs.len(), {
-          case_env := match(case_envs.get_cloned(cj), .Some(e) => e, .None => env);
+          case_env := match(case_envs.get_cloned(cj), .Some(e) => e, .None => Rc.clone(env));
           case_frame := match(case_env.frame_at(frame_i), .Some(f) => f, .None => new_frame(false));
           case_vars_len := case_frame.variables_len();
           base_vars_len := frame.variables_len();
@@ -5319,7 +5319,7 @@ merge_and_check_envs :: (
             // state" — treat a missing case var as the base var rather than a
             // mismatch. (Mirrored in the per-column merge below.) See
             // issues/fixed/yo-self-p1-transpile-tail.md Candidate 3.
-            case_var_k := match(case_frame.variable_at(kk), .Some(v) => v, .None => base_var);
+            case_var_k := match(case_frame.variable_at(kk), .Some(v) => v, .None => Rc.clone(base_var));
             if((base_var.name != case_var_k.name) && !is_temp_variable_name(&env.module_path().*, &base_var.name) && !is_temp_variable_name(&env.module_path().*, &case_var_k.name), {
               exn.throw(
                 dyn(
@@ -5348,14 +5348,14 @@ merge_and_check_envs :: (
           var_ids.clear();
           (ck : usize) = usize(0);
           while(ck < case_envs.len(), {
-            case_env := match(case_envs.get_cloned(ck), .Some(e) => e, .None => env);
+            case_env := match(case_envs.get_cloned(ck), .Some(e) => e, .None => Rc.clone(env));
             case_frame_k := match(case_env.frame_at(frame_i), .Some(f) => f, .None => new_frame(false));
             // Missing case var → retains the base (pre-match) state: a trivial
             // arm that doesn't re-bind an enclosing binding leaves it untouched
             // (init'd before the match). Using base_var (vs make_err_variable)
             // keeps the consume/init merge consistent. See the names-check note
             // above + issues/fixed/yo-self-p1-transpile-tail.md Candidate 3.
-            case_var := match(case_frame_k.variable_at(var_j), .Some(v) => v, .None => base_var);
+            case_var := match(case_frame_k.variable_at(var_j), .Some(v) => v, .None => Rc.clone(base_var));
             {
               initialized_at_tokens.push(case_var.initialized_at_token());
             };
@@ -5806,7 +5806,7 @@ Conflicting initialization: ${type_to_string(&cb_cur_ty)}`
     );
     frame_i = (frame_i + usize(1));
   });
-  env
+  Rc.clone(env)
 });
 // ---------------------------------------------------------------------------
 // are_values_equal  (Phase 2ae prerequisite)
@@ -7778,7 +7778,7 @@ local_borrow_register :: (
     parents : parents.clone(),
     crosses_cell : crosses,
     module_root : module_root,
-    step_pin : step_pin
+    step_pin : step_pin.clone()
   );
   // Transitive freezes: a parent is live while this borrow is.
   (qi : usize) = usize(0);
@@ -8109,7 +8109,7 @@ origin_carrying_value_roots :: (fn(e : &AstExpr, env : &Environment, ctx : &Eval
               // its reference type carries the mode and the place's root.
               v_lend := match(
                 expr_info_converted_runtime_type(&vi),
-                .Some(lt) => match(&lt, Rc(.Reference(_, _, _)) => Option(TypeValue).Some(lt), _ => Option(TypeValue).None),
+                .Some(lt) => match(&lt, Rc(.Reference(_, _, _)) => Option(TypeValue).Some(Rc.clone(lt)), _ => Option(TypeValue).None),
                 .None => Option(TypeValue).None
               );
               cond(

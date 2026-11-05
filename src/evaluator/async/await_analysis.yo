@@ -245,7 +245,7 @@ get_future_variable_id_ :: (
   await_var_name := await_tok.value.*.clone();
   // Get the expression info to access the environment
   info := match(
-    get_info(await_arg),
+    &get_info(await_arg),
     .None => {
       return(Option(String).None);
     },
@@ -309,7 +309,7 @@ detect_await_expr_ :: (
       );
       // Get expression info for the await argument to read its type
       await_info := match(
-        get_info(await_arg.clone()),
+        &get_info(await_arg.clone()),
         .None => {
           return(());
         },
@@ -609,13 +609,13 @@ collect_variable_bindings_ :: (
                     .None => (),
                     .Some(val_arg) => {
                       match(
-                        get_info(val_arg.clone()),
+                        &get_info(val_arg.clone()),
                         .None => (),
                         .Some(val_info) => {
                           var_type := val_info.ty();
                           // Look up the variable in the name_arg's environment
                           match(
-                            get_info(&name_arg),
+                            &get_info(&name_arg),
                             .None => (),
                             .Some(name_info) => {
                               vars := scope_variables(

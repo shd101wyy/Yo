@@ -255,7 +255,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
   ) -> AnonModuleResult
 )({
   // Mutable local copy of the incoming env.
-  (env : Environment) = init_env;
+  (env : Environment) = Rc.clone(init_env);
   // Parallel arrays that together build the source-namespace Struct + StructVal.
   field_labels := ArrayList(String).new();
   field_types := ArrayList(TypeValue).new();
@@ -381,7 +381,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                           )
                         );
                       });
-                      ext_info := match(ext_info_opt, .Some(it) => it, .None => new_expr_info(&env, Rc.new(TypeValueNode.Unit)));
+                      ext_info := match(ext_info_opt, .Some(it) => Rc.clone(it), .None => new_expr_info(&env, Rc.new(TypeValueNode.Unit)));
                       env_adopt(&env, &ext_info.env());
                       ext_mod_type := Rc.clone(ext_info.ty());
                       if(!is_module_type(&ext_mod_type), {
@@ -674,7 +674,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                       });
                       the_var := match(
                         forced_var,
-                        .Some(fv2) => fv2,
+                        .Some(fv2) => Rc.clone(fv2),
                         .None => match(
                           vars.last_cloned(),
                           .Some(v) => v,
@@ -951,7 +951,7 @@ _attach_module_init_temp_drops :: (fn(stmt : &AstExpr, env : &Environment, ctx :
   snapshot_env := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&rhs_node)),
     .Some(ri) => ri.env(),
-    .None => env
+    .None => Rc.clone(env)
   );
   stmt_temps := ArrayList(Variable).new();
   (fi : usize) = snapshot_env.frames_len();

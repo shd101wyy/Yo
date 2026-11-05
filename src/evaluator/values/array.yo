@@ -75,7 +75,7 @@ evaluate_array_value :: (
     .None => Option(TypeValue).None
   );
   // Per-element accumulators.
-  (env_loop : Environment) = env;
+  (env_loop : Environment) = Rc.clone(env);
   (array_elem_type_opt : Option(TypeValue)) = Option(TypeValue).None;
   (element_values : ArrayList(Option(EvalValue))) = ArrayList(Option(EvalValue)).new();
   (runtime_arg_exprs : ArrayList(AstExpr)) = ArrayList(AstExpr).new();
@@ -86,7 +86,7 @@ evaluate_array_value :: (
     old_expected := ctx.expected_type.clone();
     ctx.expected_type = match(
       &expected_elem_type_opt,
-      .Some(et) => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : Rc.clone(et), env : env_loop)),
+      .Some(et) => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : Rc.clone(et), env : Rc.clone(env_loop))),
       .None => Option(ExpectedTypeCtx).None
     );
     evaluated_elem_gout := ArrayList(AstExpr).new();
@@ -108,7 +108,7 @@ evaluate_array_value :: (
     });
     elem_info := match(
       elem_info_opt,
-      .Some(info) => info,
+      .Some(info) => Rc.clone(info),
       .None => new_expr_info(&env_loop, t_usize()) // unreachable
     );
     env_loop = expr_info_adopt_env(&elem_info);

@@ -98,7 +98,7 @@ _evaluate_contract_marker :: (
     .FnCall(_, _, a, _, _) => Rc.clone(a).*.clone(),
     .Atom(_, _) => ArrayList(AstExpr).new()
   );
-  (cur_env : Environment) = env;
+  (cur_env : Environment) = Rc.clone(env);
   (i : usize) = usize(0);
   while(i < args.len(), {
     arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
@@ -480,7 +480,7 @@ ${ast_expr_to_string(expr)}`
     );
   });
   // Evaluate the arguments (a TYPE argument evaluates to a TypeVal).
-  (cur_env : Environment) = env;
+  (cur_env : Environment) = Rc.clone(env);
   (inner_ty : TypeValue) = t_unit();
   (pred_fid : String) = String.from("");
   (ai : usize) = usize(0);
@@ -673,7 +673,7 @@ _evaluate_spec_collection :: (
   fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr
 )({
   _reject_not_ghost_context(expr, ctx, exn);
-  (cur_env : Environment) = env;
+  (cur_env : Environment) = Rc.clone(env);
   args := match(
     expr,
     .FnCall(_, _, a, _, _) => Rc.clone(a).*.clone(),
@@ -840,7 +840,7 @@ _evaluate_quantifier :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut Eval
   });
   // Pass 1: evaluate the BINDER annotations (each `(name : Type)` — a
   // 2-arg `:` call evaluating to a TypeVal) and collect the pairs.
-  (cur_env : Environment) = env;
+  (cur_env : Environment) = Rc.clone(env);
   binder_names := ArrayList(String).new();
   binder_types := ArrayList(TypeValue).new();
   (bi : usize) = usize(0);
@@ -1001,7 +1001,7 @@ evaluate_implies :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalCont
       )
     );
   });
-  (cur_env : Environment) = env;
+  (cur_env : Environment) = Rc.clone(env);
   (i : usize) = usize(0);
   while(i < args.len(), {
     arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
@@ -1708,7 +1708,7 @@ register_impl_inheritance_task :: (
         },
         _ => ()
       );
-      pred_env := env;
+      pred_env := Rc.clone(env);
       pred_env.push_frame(false);
       (bih : usize) = usize(0);
       while(bih < p_names.len(), {
@@ -2105,7 +2105,7 @@ _stash_callsite_contracts :: (
     .Some(ei) => ei.ty(),
     .None => t_unit()
   );
-  site_env := env;
+  site_env := Rc.clone(env);
   site_env.push_frame(false);
   (bi : usize) = usize(0);
   while(bi < fvd_params.len(), {
@@ -2342,7 +2342,7 @@ register_impl_variance_task :: (
   if(p_names.len() != p_types.len(), {
     return(());
   });
-  pred_env := env;
+  pred_env := Rc.clone(env);
   pred_env.push_frame(false);
   // `assert` for the synthetic body: the walk matches the BARE `assert`
   // head (its assert arm), but the fixture need not import std/assert —
@@ -3276,7 +3276,7 @@ evaluate_law :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext,
   if((law_mode != "verify") && (law_mode != "verify+"), {
     return(expr);
   });
-  pred_env := env;
+  pred_env := Rc.clone(env);
   pred_env.push_frame(false);
   (bi : usize) = usize(0);
   while(bi < p_names.len(), {

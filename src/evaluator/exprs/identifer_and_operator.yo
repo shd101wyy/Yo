@@ -510,7 +510,7 @@ evaluate_identifier_and_operator :: (
   info.set_value(resolved_value);
   expr_info_set_origin_type(&info, Option(TypeValue).Some(Rc.clone(variable.ty())));
   info.set_variable_name(Option(String).Some(variable.name.clone()));
-  info.set_source_variable(Option(Variable).Some(variable));
+  info.set_source_variable(Option(Variable).Some(Rc.clone(variable)));
   // path_collection = [[variable.name]], shared per name.
   info.set_path_collection(path_collection_of_name(&variable.name));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
@@ -531,7 +531,7 @@ evaluate_identifier_and_operator :: (
     .Some(s) => Option(FuncOrAsyncBlockKind).Some(s.kind),
     .None => Option(FuncOrAsyncBlockKind).None
   );
-  sub_env := match(&ctx.is_evaluating_function_body_or_async_block, .Some(s) => s.eval_env, .None => env);
+  sub_env := match(&ctx.is_evaluating_function_body_or_async_block, .Some(s) => Rc.clone(s.eval_env), .None => Rc.clone(env));
   match(
     sub_kind_opt,
     .Some(sub_kind) => {

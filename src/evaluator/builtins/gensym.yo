@@ -67,7 +67,7 @@ evaluate_gensym :: (
       prefix_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_prefix));
       prefix_info := match(
         prefix_info_opt,
-        .Some(pi) => pi,
+        .Some(pi) => Rc.clone(pi),
         .None => {
           exn.throw(
             dyn(

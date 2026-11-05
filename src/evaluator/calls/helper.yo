@@ -371,7 +371,7 @@ generate_deferred_drop_expressions :: (
     return(Option(ArrayList(AstExpr)).None);
   });
   deferred := ArrayList(AstExpr).new();
-  (cur_env : Environment) = env;
+  (cur_env : Environment) = Rc.clone(env);
   (i : usize) = usize(0);
   while(i < n, {
     match(
@@ -1744,7 +1744,7 @@ check_if_function_parameter_matches_argument :: (
   // The two bundle-shape corpus files this skip regressed pre-v13 were
   // victims of the SAME stale-binding persistence, since fixed by the
   // call-scoped rebinds (67acb7390) + lineage-identity gate (92b27f68b).
-  (callee_env_r : Environment) = callee_env;
+  (callee_env_r : Environment) = Rc.clone(callee_env);
   resolved_pt := if(
     use_param_type_directly,
     param_type.clone(),
@@ -1762,7 +1762,7 @@ check_if_function_parameter_matches_argument :: (
   if(skip_expected_type, {
     ctx.expected_type = Option(ExpectedTypeCtx).None;
   }, {
-    ctx.expected_type = .Some(ExpectedTypeCtx(ty : Rc.clone(resolved_pt), env : callee_env_r));
+    ctx.expected_type = .Some(ExpectedTypeCtx(ty : Rc.clone(resolved_pt), env : Rc.clone(callee_env_r)));
   });
   if(!param_is_owning && !param_is_ref, {
     note_borrowing_argument(&actual_arg);
@@ -1794,7 +1794,7 @@ check_if_function_parameter_matches_argument :: (
   arg_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaled_arg));
   arg_info := match(
     arg_info_opt,
-    .Some(i) => i,
+    .Some(i) => Rc.clone(i),
     .None => {
       exn.throw(
         dyn(
@@ -1850,7 +1850,7 @@ check_if_function_parameter_matches_argument :: (
   // its check IS the peel's mode match and the pointee compatibility below.
   (arg_type : TypeValue) = match(
     t9_lend_ty,
-    .Some(t9_w) => t9_w,
+    .Some(t9_w) => Rc.clone(t9_w),
     .None => check_argument_for_parameter(param_label.clone(), &resolved_pt, is_ct_only, &arg_info.ty(), &arg_info, ast_expr_token(&actual_arg), &actual_arg, &caller_env_r, ctx, exn)
   );
   // Record the runtime type a comptime literal lowered to, so codegen renders
@@ -2048,7 +2048,7 @@ ${ast_expr_to_string(&actual_arg)}`
     &synth_opts,
     exn
   );
-  callee_env_r = synth.expected_env;
+  callee_env_r = Rc.clone(synth.expected_env);
   // Step 7: Re-evaluate param type with the updated callee_env.
   final_pt := evaluate_function_parameter_type_again(&resolved_pt, &callee_env_r, ctx);
   // Debug hook (like YO_DEBUG_BIND): trace every param compatibility check.
@@ -4052,7 +4052,7 @@ create_specialized_function_inline :: (
           ctx.expected_type = Option(ExpectedTypeCtx).Some(
             ExpectedTypeCtx(
               ty : if(fn_result_is_ref(&func_type), t_ptr(&spec_ret_ty), spec_ret_ty.clone()),
-              env : callee_env
+              env : Rc.clone(callee_env)
             )
           );
           mut(prev_fri) := replace(
@@ -4574,7 +4574,7 @@ create_specialized_function_inline :: (
               // trait is the ARGUMENT's; the slot's own trait decides how the
               // body calls it (decision 37, `closure_param_slot_trait`).
               match(
-                _rbc,
+                &_rbc,
                 .Some(rbc_v) => match(
                   slot_pointee_at(&decl_param_types, rbp_i),
                   .Some(rbc_dt) => match(
@@ -6554,7 +6554,7 @@ resolve_param_types_from_expected :: (
   // Return type against the expected type: (source, destination).
   (rps_opts : Option(SynthesizeOptions)) = Option(SynthesizeOptions).Some(SynthesizeOptions(token : Option(Token).None, expected_is_source : true));
   rps_synth := synthesize_types(&temp_ret, &synth_env, expected_ty, expected_env, &mut rps_checked, &rps_opts, rps_exn);
-  resolved_env := rps_synth.expected_env;
+  resolved_env := Rc.clone(rps_synth.expected_env);
   (fo_i : usize) = usize(0);
   while(fo_i < forall_lbls.len(), {
     fo_lbl := match(forall_lbls.get_cloned(fo_i), .Some(l) => l, .None => String.new());
@@ -8420,7 +8420,7 @@ try_to_call_function_with_arguments :: (
       forall_arg_labels := ArrayList(String).new();
       arg_vals := ArrayList(ArgEntry).new();
       rt_args := ArrayList(AstExpr).new();
-      (callee_env_m : Environment) = callee_env;
+      (callee_env_m : Environment) = Rc.clone(callee_env);
       // Def-time-trial isolation: a nested method call's `callee_env` is the
       // FuncVal's captured DEFINITION env — a SHARED, durable frame stack.
       // Step-6 generic synthesis and Step-9 param binds below write into its
@@ -8437,7 +8437,7 @@ try_to_call_function_with_arguments :: (
         callee_env_m = snapshot_env(&callee_env);
         callee_env_m.push_frame(false);
       });
-      (caller_env_m : Environment) = caller_env;
+      (caller_env_m : Environment) = Rc.clone(caller_env);
       // io.async: evaluate the closure ARGUMENT under async-block context
       // (the OTHER route, function.yo:3369, already sets it; this
       // route previously did not, which is why the flag measured FALSE at
@@ -8541,7 +8541,7 @@ try_to_call_function_with_arguments :: (
               // in the caller's scope.
               de_env := default_param_eval_env(
                 match(func_val, .Some(.FuncVal(__fvd15, _)) => __fvd15.*.func_id.clone(), _ => String.new()),
-                Option(Environment).Some(callee_env_m),
+                Option(Environment).Some(Rc.clone(callee_env_m)),
                 &callee_env_m
               );
               dpr := check_if_function_parameter_matches_argument(
@@ -8562,7 +8562,7 @@ try_to_call_function_with_arguments :: (
                 &mut rt_args,
                 exn
               );
-              callee_env_m = dpr.callee_env;
+              callee_env_m = Rc.clone(dpr.callee_env);
               arg_vals.push(
                 ArgEntry(
                   value : dpr.arg_value,
@@ -8686,8 +8686,8 @@ try_to_call_function_with_arguments :: (
           },
           .None => ()
         );
-        callee_env_m = pr.callee_env;
-        caller_env_m = pr.caller_env;
+        callee_env_m = Rc.clone(pr.callee_env);
+        caller_env_m = Rc.clone(pr.caller_env);
         _check_forall_bindings_after_arg(&fl.items, &callee_env_m, pi, &pl.items, &mut forall_seen, ast_expr_token(&parg), exn);
         arg_vals.push(
           ArgEntry(
@@ -9269,7 +9269,7 @@ try_to_call_function_with_arguments :: (
             match(
               synth_ret,
               .Some(sr) => {
-                callee_env_m = sr.expected_env;
+                callee_env_m = Rc.clone(sr.expected_env);
                 return_type = evaluate_function_return_type_again(&ret_b, &callee_env_m, ctx);
                 if(s9_dbg, {
                   eprintln(`[s10-synth] ret=${type_to_string(&return_type)} expected=${type_to_string(&et.ty)}`);
@@ -9923,8 +9923,8 @@ try_to_call_function_with_arguments :: (
       // evaluator coverage gap in `issues/retired/yo-self-evaluator-gaps.md`.
       tok;
       FuncCallResult(
-        callee_env : caller_env,
-        caller_env : caller_env,
+        callee_env : Rc.clone(caller_env),
+        caller_env : Rc.clone(caller_env),
         path_collection : path_collection_new(),
         return_type : t_unit(),
         return_value : Option(EvalValue).None,
