@@ -1455,7 +1455,7 @@ evaluate_dyn_value :: (
   // unrelated "does not implement Error"
   // (issues/fixed/extern-declarations-are-not-forward-referenceable.md, face 2).
   if(ctx.is_validating_function_definition || !ctx.is_executing, {
-    saved_et_ne := replace(&mut ctx.expected_type, inner_expected);
+    saved_et_ne := replace(&mut ctx.expected_type, inner_expected.clone());
     _mark_preset_receiver(&dyn_cell_preset_receiver, true);
     inner_ne := evaluate_expression_raw(&value_arg, env, ctx, exn);
     _mark_preset_receiver(&dyn_cell_preset_receiver, false);
