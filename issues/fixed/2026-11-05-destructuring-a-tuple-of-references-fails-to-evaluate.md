@@ -49,6 +49,9 @@ Neither the destructuring path nor its caller registered the N2b binding freeze
   (src/evaluator/exprs/initialization_assignment.yo) freezes the right-hand side's
   roots for every runtime name whose element type carries an origin, as the `match`
   reference payload does.
+- `local_borrow_may_bind_projection_stmt` (src/evaluator/utils.yo) hands a
+  destructuring `:=` the block's look-ahead, as it already did for a `name := call(...)`.
+  Without the look-ahead, each name's freeze ended at its own declaration.
 
 Tests: `tests/borrow_spelling.test.yo`, "a tuple literal lends its reference
 elements" (positive) and `bs_destructured_lend_freezes` ("is still live").
