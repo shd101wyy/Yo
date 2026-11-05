@@ -14,13 +14,17 @@ import("std/fmt");
 
 Holder :: ref(struct(s : String, n : i32));
 Wrapper :: ref(struct(inner : Holder));
+// The value record the place rules apply to since V5 (`Holder`/`Wrapper`
+// stay `ref` only for the object-hop, handle-alias and module-object cases,
+// which go with `ref` in v0.2.77).
+Rec :: struct(s : String, n : i32);
 
 bump :: (fn(v : &mut i32) -> unit)({
   v.* = (v.* + i32(1));
 });
 
-test("field of a local object passed to a ref param", {
-  h := Holder(s : String.from("x"), n : i32(41));
+test("field of a local value passed to a &mut param", {
+  mut(h) := Rec(s : String.from("x"), n : i32(41));
   bump(&mut h.n);
   assert(h.n == i32(42), "write-through landed in the field");
 });
@@ -29,7 +33,7 @@ test("String field write-through via a ref param", {
   replace_s :: (fn(v : &mut String, nv : &String) -> unit)({
     v.* = nv.clone();
   });
-  h := Holder(s : String.from("hello"), n : i32(1));
+  mut(h) := Rec(s : String.from("hello"), n : i32(1));
   replace_s(&mut h.s, String.from("rewritten"));
   assert(h.s == "rewritten", "owner sees the write");
 });
@@ -98,22 +102,22 @@ test("a mut module-level variable is copied out for a ref param", {
   assert(g_counter == i32(1), "global slot written back from the local");
 });
 
-// --- Call-site ref/own exclusivity ---
-// `f(h.s, h)` creates the borrow AT the call while `own` moves the
-// caller's count into the callee, which could release it while the
-// borrow is still in use.
+// --- Call-site borrow/sink exclusivity ---
+// `f(&mut h.s, h)` creates the borrow AT the call while the sink moves `h`
+// into the callee, which could drop it while the borrow is still in use.
 comptime_expect_error(
   ref_and_own_same_call :: (fn() -> unit)({
-    use_and_sink :: (fn(x : &mut String, sink(victim) : Holder) -> usize)(
+    use_and_sink :: (fn(x : &mut String, sink(victim) : Rec) -> usize)(
       x.len()
     );
-    h := Holder(s : String.from("element-zero"), n : i32(1));
+    mut(h) := Rec(s : String.from("element-zero"), n : i32(1));
     n := use_and_sink(&mut h.s, h);
     consume(n);
-  })
+  }),
+  "borrows from it"
 );
 
-// An ALIAS of the owner is caught too.
+// An ALIAS of an owning `ref` handle is caught too.
 comptime_expect_error(
   ref_and_own_alias_same_call :: (fn() -> unit)({
     use_and_sink :: (fn(x : &mut String, sink(victim) : Holder) -> usize)(
@@ -126,13 +130,13 @@ comptime_expect_error(
   })
 );
 
-// Positive: ref + own of DISTINCT objects in one call is fine.
+// Positive: a borrow and a sink of DISTINCT values in one call is fine.
 test("ref and own arguments of distinct objects are allowed", {
-  use_and_sink :: (fn(x : &mut String, sink(victim) : Holder) -> usize)(
+  use_and_sink :: (fn(x : &mut String, sink(victim) : Rec) -> usize)(
     x.len()
   );
-  a := Holder(s : String.from("abcde"), n : i32(1));
-  b := Holder(s : String.from("other"), n : i32(2));
+  mut(a) := Rec(s : String.from("abcde"), n : i32(1));
+  b := Rec(s : String.from("other"), n : i32(2));
   n := use_and_sink(&mut a.s, b);
   assert(n == usize(5), "borrow read fine while a distinct object was consumed");
 });
@@ -144,9 +148,9 @@ test("ref and own arguments of distinct objects are allowed", {
 // emitted by BOTH the body-level flush-first (before the read!) and the tail
 // call's post-emit flush — ref_count()==0 double-free (glibc tcache abort in CI).
 test("own param of a single-expression body is released exactly once", {
-  read_and_sink :: (fn(sink(victim) : Holder) -> usize)(victim.s.len());
-  h := Holder(s : String.from("single-expr"), n : i32(3));
-  h2 := h;
+  read_and_sink :: (fn(sink(victim) : Rc(Rec)) -> usize)(victim.s.len());
+  h := Rc.new(Rec(s : String.from("single-expr"), n : i32(3)));
+  h2 := Rc.clone(&h);
   assert(ref_count(h) == 2, "two handles before the sink call");
   n := read_and_sink(h2);
   assert(n == usize(11), "field read before the own release");
@@ -160,11 +164,11 @@ test("own param of a single-expression body is released exactly once", {
 // drop filter treated any referenced own param as closure-captured and
 // skipped its drop — the discard leaked the Holder and its String.
 test("discarding an own param via ___ := releases it exactly once", {
-  sink :: (fn(sink(victim) : Holder) -> unit)({
+  sink :: (fn(sink(victim) : Rc(Rec)) -> unit)({
     ___ := victim;
   });
-  h := Holder(s : String.from("discard-own"), n : i32(7));
-  h2 := h;
+  h := Rc.new(Rec(s : String.from("discard-own"), n : i32(7)));
+  h2 := Rc.clone(&h);
   assert(ref_count(h) == 2, "two handles before the sink call");
   sink(h2);
   assert(ref_count(h) == 1, "own param's reference released by the discard");
@@ -321,11 +325,11 @@ comptime_expect_error(
 // rejected.
 comptime_expect_error(
   box_deref_with_box_arg :: (fn() -> unit)({
-    evil :: (fn(v : &mut i32, victim : &Rc(Holder)) -> unit)({
-      victim.*.* = Holder(s : String.from("replacement"), n : i32(7));
+    evil :: (fn(v : &mut i32, victim : &Rc(Rec)) -> unit)({
+      victim.*.* = Rec(s : String.from("replacement"), n : i32(7));
       v = i32(99);
     });
-    b := Rc.new(Holder(s : String.from("orig"), n : i32(1)));
+    b := Rc.new(Rec(s : String.from("orig"), n : i32(1)));
     evil(&mut b.*.n, &b);
   })
 );
@@ -338,10 +342,10 @@ test("box deref is allowed when the box is unreachable", {
   read_n :: (fn(v : &mut i32) -> unit)({
     v.* = (v.* + i32(1));
   });
-  b := Box.new(Holder(s : String.from("x"), n : i32(5)));
+  mut(b) := Box.new(Rec(s : String.from("x"), n : i32(5)));
   read_n(&mut b.*.n);
   assert(b.*.n == i32(6), "write landed through the deref place");
-  r := Rc.new(Holder(s : String.from("x"), n : i32(5)));
+  r := Rc.new(Rec(s : String.from("x"), n : i32(5)));
   comptime_expect_error(read_n(&mut r.*.n), "read-only through the handle");
 });
 
@@ -415,7 +419,7 @@ test("an element borrow beside a value that cannot reach the container", {
   v := String.from("c");
   old := _put_str(&mut xs(usize(0)), v);
   assert((old == "a") && (xs(usize(0)) == "c"), "the element written in place");
-  h := _StrLists(lists : ArrayList(String).new(), tag : String.from("t"));
+  mut(h) := _ListBox(lists : ArrayList(String).new());
   h.lists.push(String.from("x"));
   old2 := _put_str(&mut h.lists(usize(0)), String.from("y"));
   assert((old2 == "x") && (h.lists(usize(0)) == "y"), "through a field path");

@@ -16,12 +16,16 @@
 /// tests/local_borrows.test.yo).
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
+// `Holder`/`Outer` stay `ref` only for the P4 pin cases, which go with
+// `ref` in v0.2.77; every other case binds into a value record.
 Holder :: ref(struct(s : String, n : i32));
 Outer :: ref(struct(inner : Holder, tag : i32));
+Rec :: struct(s : String, n : i32);
+RecOuter :: struct(inner : Rec, tag : i32);
 Point :: struct(x : i32, y : i32);
 derive(Point, Copy, Clone);
 Shape :: struct(origin : Point, name : String);
-g_holder := Holder(s : String.from("global"), n : i32(0));
+mut(g_rec) := Rec(s : String.from("global"), n : i32(0));
 mut(g_count) := i32(0);
 
 // --- P1: whole variables -------------------------------------------------
@@ -116,13 +120,12 @@ test("inout binding to an object field: write-through, and the pin outlives a ha
   assert(h.n == i32(100), "h names the new object after the binding ended");
   assert(h2.n == i32(42), "final value");
 });
-// Reassigning the borrowed handle while the binding is live is E0911: the
-// object is a reference cell, and below a cell the cell is the unit.
+// Reassigning the borrowed root while the binding is live is E0911.
 comptime_expect_error(
   reassign_the_borrowed_handle :: (fn() -> unit)({
-    mut(h) := Holder(s : String.from("one"), n : i32(1));
+    mut(h) := Rec(s : String.from("one"), n : i32(1));
     n := &mut h.n;
-    h = Holder(s : String.from("other"), n : i32(100));
+    h = Rec(s : String.from("other"), n : i32(100));
     n.* = i32(42);
   }),
   "Cannot write `h` here"
@@ -142,21 +145,21 @@ test("inout binding through an intermediate object hop pins the innermost object
 });
 comptime_expect_error(
   overwrite_the_borrowed_slot :: (fn() -> unit)({
-    o := Outer(inner : Holder(s : String.from("in"), n : i32(5)), tag : i32(0));
+    mut(o) := RecOuter(inner : Rec(s : String.from("in"), n : i32(5)), tag : i32(0));
     n := &mut o.inner.n;
-    o.inner = Holder(s : String.from("replaced"), n : i32(0));
+    o.inner = Rec(s : String.from("replaced"), n : i32(0));
     n = i32(77);
   }),
   "Cannot write `o.inner` here"
 );
-test("inout binding to a field of a module-level object", {
-  n := &mut g_holder.n;
+test("inout binding to a field of a module-level value", {
+  n := &mut g_rec.n;
   n.* = (n.* + i32(3));
-  assert(g_holder.n == i32(3), "write through a global object's field");
-  g_holder.n = i32(0);
+  assert(g_rec.n == i32(3), "write through a global value's field");
+  g_rec.n = i32(0);
 });
 test("RC-typed object field through a binding: dup/drop balance", {
-  h := Holder(s : String.from("s0"), n : i32(0));
+  mut(h) := Rec(s : String.from("s0"), n : i32(0));
   fs := &mut h.s;
   fs.push_str("!");
   assert(fs.* == "s0!", "mutate the field's object in place");
@@ -245,7 +248,7 @@ test("a struct literal reading a borrowed root after the binding's last use copi
   mut(s) := String.from("a");
   r := &mut s;
   r.* = String.from("b");
-  h := Holder(s : s, n : i32(1));
+  h := Rec(s : s, n : i32(1));
   s = String.from("c");
   assert(h.s == "b", "the literal took the value the binding wrote");
   assert(ref_count(h.s) == 1, "the literal's field owns its value once");
@@ -256,7 +259,7 @@ comptime_expect_error(
   literal_reads_a_live_borrowed_root :: (fn() -> unit)({
     mut(s) := String.from("a");
     r := &mut s;
-    _h := Holder(s : s, n : i32(1));
+    _h := Rec(s : s, n : i32(1));
     r = String.from("b");
   }),
   "Cannot read `s` here"
