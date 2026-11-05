@@ -688,12 +688,12 @@ swap_build_registry :: (fn(sink(new_registry) : BuildRegistry) -> SavedBuildRegi
 });
 /// Put back what `swap_build_registry` set aside, and return the registry
 /// the swapped-in evaluation filled.
-restore_build_registry :: (fn(sink(saved) : SavedBuildRegistry) -> BuildRegistry)({
+restore_build_registry :: (fn(sink(saved) : SavedBuildRegistry) -> BuildRegistry)(
   match(saved, { registry : reg, live : was_live } => {
     g_build_registry_live = was_live;
     g_build_registry.replace(reg)
   })
-});
+);
 // ---------------------------------------------------------------------------
 // evaluate_yo_build_functions
 // ---------------------------------------------------------------------------
