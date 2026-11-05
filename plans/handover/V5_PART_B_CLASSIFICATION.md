@@ -135,9 +135,18 @@ migrating.
 - `Environment`, `Frame`, `FrameNameIndex`, `Variable`, `VariableRare`,
   `WhereClauseConstraints`, `ExprInfo`, `ExprInfoRare`, as built
   (VERDICTS-22, binding): the final shapes on today's boxed `RefCell`.
-  `Variable :: Rc(VariableData)` (shape 2): `id`, `name`, `frame_level`
-  and `token` are read-only, and everything else lives in one
-  `live : RefCell(VariableLive)`, with the bools last.
+  `Variable :: Rc(VariableData)` (shape 2): `name`, `frame_level` and
+  `token` are read-only, and everything else lives in one
+  `live : RefCell(VariableLive)`, with the bools last. **Amendment:**
+  VERDICTS-22 also lists `id` as read-only, but `id` is the first field
+  of `VariableLive`. The branch merge in `src/evaluator/utils.yo` renumbers
+  a binding that some arm reassigns, in place, and every handle must see
+  the new id. The census missed this because the consult's read-only set
+  came from the layout's identity fields, not from a census of writes per
+  field. The field-access audit found one write to `id` and one to
+  `token`. The `token` write, a pre-bound definition variable in
+  `initialization_assignment.yo`, wrote the same token handle back, so it
+  is dropped with a comment.
   `VariableLive` is `VariableLiveOf(Variable)`: a generic struct breaks
   the alias cycle through `is_owning_the_same_rc_value_as`.
   `Environment`, `Frame`, `FrameNameIndex`, `WhereClauseConstraints` and
