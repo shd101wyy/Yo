@@ -934,11 +934,13 @@ _check_reference_argument :: (fn(written_arg : &AstExpr, place_arg : &AstExpr, b
   });
   rv := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(place_arg)),
-    .Some(ai) => match(
+    // A read typed as the reference itself (the read rule, decision 43
+    // step 2 N1e-2b) is no whole-value read.
+    .Some(ai) => if(t_slot_is_borrow(&ai.ty), return(()), match(
       ai.source_variable,
       .Some(v) => if(variable_is_reference_binding(&v), v, return(())),
       .None => return(())
-    ),
+    )),
     .None => return(())
   );
   tok := ast_expr_token(place_arg);

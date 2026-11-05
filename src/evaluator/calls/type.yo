@@ -356,7 +356,15 @@ try_to_call_type_with_arguments :: (
       &member_element.ty,
       Rc(.Reference(_, t9w_mut, _)) => match(
         &arg_info.ty,
-        Rc(.Reference(_, _, _)) => (),
+        // A reference VALUE (the read rule, decision 43 step 2 N1e-2b: a
+        // reference binding's read, a projection's result) is still the
+        // place it refers to in C: the field takes that place's address, as
+        // for a lend.
+        Rc(.Reference(_, _, _)) => {
+          rv_lend_ty := Option(TypeValue).Some(Rc.clone(arg_info.ty));
+          expr_info_set_converted_runtime_type(&arg_info, &rv_lend_ty);
+          expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&evaluated_arg), &arg_info);
+        },
         _ => {
           (t9w_cur : AstExpr) = evaluated_arg;
           // A raw pointer's dereference (`p.add(k).*` in unsafe code, a

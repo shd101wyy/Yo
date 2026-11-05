@@ -228,7 +228,8 @@ import("std/fmt");
 { EvalContext, is_dot_callee } :: import("../context.yo");
 { format_error_message, format_error_message_with_help, note_eval_attempt, note_swallowed_error, format_eval_failure, warning_diagnostic_of_token } :: import("../../error.yo");
 { emit_warning } :: import("../../diagnostics.yo");
-{ TypeValue } :: import("../../types/definitions.yo");
+{ TypeValue, t_reference, t_slot_is_borrow } :: import("../../types/definitions.yo");
+{ projection_call_mode_of, binder_read_take, reference_read_wanted } :: import("../utils.yo");
 { t_unit } :: import("../../types/creators.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
 { is_some_type } :: import("../../types/guards.yo");
@@ -1675,6 +1676,34 @@ _is_projection_result_value :: (fn(e : &AstExpr, ctx : &EvalContext) -> bool)(
     true => false
   )
 );
+/// The read rule for a projection's result (decision 43 step 2 N1e-2b,
+/// VERDICTS-23 R1): where the call's position expects a reference
+/// (`reference_read_wanted`: a `&T` slot, payload, field or element, or a
+/// type binder), the call is the reference VALUE it returns, typed
+/// `&U`/`&mut U`, not the place it names (`xs.index(i)` into
+/// `Option(&(T, p))`).
+_projection_result_as_reference :: (fn(expr : &AstExpr, result : &AstExpr, ctx : &EvalContext) -> unit)({
+  if(ast_expr_is_atom(result), {
+    return(());
+  });
+  at_binder := binder_read_take(expr);
+  if(!reference_read_wanted(ast_expr_token(result), at_binder, ctx), {
+    return(());
+  });
+  match(
+    projection_call_mode_of(result, ctx),
+    .Some(pr_mut) => match(
+      expr_info_table_get(&ctx.expr_info_table, ast_expr_id(result)),
+      .Some(pr_info) => if(!t_slot_is_borrow(&pr_info.ty), {
+        pr_info.ty = t_reference(&pr_info.ty, pr_mut);
+        pr_info.value = Option(EvalValue).None;
+        expr_info_table_set(&ctx.expr_info_table, ast_expr_id(result), &pr_info);
+      }),
+      .None => ()
+    ),
+    .None => ()
+  );
+});
 _evaluate_expression_raw_wrapper :: (
   fn(
     expr : &AstExpr,
@@ -1693,6 +1722,7 @@ _evaluate_expression_raw_wrapper :: (
   record_node_eval(ast_expr_id(expr), ast_expr_token(expr));
   result := _evaluate_expression(expr, env, ctx, exn);
   _bridge_expr_info(expr, &result, ctx);
+  _projection_result_as_reference(expr, &result, ctx);
   // Memory-safety gate (plans/archive/INOUT_LOCAL_BINDINGS_AUDIT.md Phase D): a raw
   // pointer VALUE — not only its dereference — exists only in unsafe-capable
   // code. Safe code that could hold `it.next()`'s `Option(*(T))` could pass
