@@ -82,7 +82,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../env.yo");
 // dup-on-store / move for owned fn-call args. utils.yo
 // imports nothing from calls/, so this is acyclic.
-{ set_expr_as_consumed, judge_capture_fnmut_at_fn_slot, deref_exempt_mark, deref_exempt_clear, variable_is_reference_binding, deref_rule_applies, is_reference_deref_site, reject_reference_without_deref, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, borrowed_place_read_only_handle, are_values_equal, require_expr_not_consumed, adopt_never_type, reject_bare_callable_into_dyn_fn, reject_bare_callable_result, bare_callable_recorded_into_dyn_fn, reject_second_class_escape, reject_second_class_return, require_capture_borrow_exclusivity, audit_copy_trait_enabled, audit_record_copy_trait, reject_write_through_rc, _owning_param_binding_for_capture_move, reference_field_read_type, reject_write_through_shared_reference_field } :: import("../utils.yo");
+{ set_expr_as_consumed, judge_capture_fnmut_at_fn_slot, deref_exempt_mark, deref_exempt_clear, binder_read_mark, binder_read_clear, variable_is_reference_binding, deref_rule_applies, is_reference_deref_site, reject_reference_without_deref, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, borrowed_place_read_only_handle, are_values_equal, require_expr_not_consumed, adopt_never_type, reject_bare_callable_into_dyn_fn, reject_bare_callable_result, bare_callable_recorded_into_dyn_fn, reject_second_class_escape, reject_second_class_return, require_capture_borrow_exclusivity, audit_copy_trait_enabled, audit_record_copy_trait, reject_write_through_rc, _owning_param_binding_for_capture_move, reference_field_read_type, reject_write_through_shared_reference_field, is_reference_read } :: import("../utils.yo");
 { function_may_mutate_rc_storage } :: import("../effects/mutation_summary.yo");
 { some_t_bounds, TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, no_levels, no_flags, SharedList, slot_pointee_at, t_slot_pointee, t_slot, t_slot_like, fn_param_is_mut_ref, fn_param_is_by_value, fn_param_mut_ref_flags, fn_param_by_value_flags, t_slot_with_pointee, fn_result_is_ref, fn_result_is_mut_ref, t_slot_origin_names, is_origin_kind, t_origin_kind, t_origin_named, t_reference_with_origin, fn_trait_base_serves, fn_trait_call_contract, fn_trait_slot_contract, t_slot_is_borrow } :: import("../../types/definitions.yo");
 { Token, TokenKind } :: import("../../token.yo");
@@ -934,10 +934,16 @@ _check_reference_argument :: (fn(written_arg : &AstExpr, place_arg : &AstExpr, b
   });
   rv := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(place_arg)),
-    .Some(ai) => match(
-      ai.source_variable,
-      .Some(v) => if(variable_is_reference_binding(&v), v, return(())),
-      .None => return(())
+    // A read typed as the reference itself (the read rule, decision 43
+    // step 2 N1e-2b) is no whole-value read.
+    .Some(ai) => if(
+      t_slot_is_borrow(&ai.ty),
+      return(()),
+      match(
+        ai.source_variable,
+        .Some(v) => if(variable_is_reference_binding(&v), v, return(())),
+        .None => return(())
+      )
     ),
     .None => return(())
   );
@@ -1773,12 +1779,18 @@ check_if_function_parameter_matches_argument :: (
   });
   // A type constructor's `comptime(p) : Origin` parameter takes an origin,
   // read by name rather than evaluated (decision 43 step 3, N2a).
-  // A bare reference binding lent to a reference slot (`f(r)`, a field
-  // typed `&T`, N2b), or a receiver, is not a whole-value read (E0926,
-  // decision 43 step 2 N1e-1); the call judges the other positions
-  // (`_check_reference_argument`).
-  if(!is_ct_only && (!param_is_owning || ((param_label == "self") || t_slot_is_borrow(&resolved_pt))), {
+  // A bare reference binding lent to a `&T`/`&mut T` parameter (`f(r)`), or
+  // a receiver, is not a whole-value read (E0926, decision 43 step 2
+  // N1e-1); the call judges the other positions
+  // (`_check_reference_argument`). At a by-value `&T` slot (a composite's
+  // reference field) the read IS the reference (the read rule, N1e-2b).
+  if(!is_ct_only && (!param_is_owning || (param_label == "self")), {
     deref_exempt_mark(&actual_arg);
+  });
+  // The read rule's binder position (decision 43 step 2 N1e-2b): a by-value
+  // parameter typed by the callee's still-unbound type binder (`v : T`).
+  if(!is_ct_only && param_is_owning && !param_is_ref && is_some_type(&resolved_pt) && extract_fn_trait_from_type(&resolved_pt).is_none() && is_some_type(&get_value_of_some_type_from_env(&callee_env_r, &resolved_pt)), {
+    binder_read_mark(&actual_arg);
   });
   evaled_arg := if(
     is_ct_only && is_origin_kind(&resolved_pt),
@@ -1786,6 +1798,7 @@ check_if_function_parameter_matches_argument :: (
     evaluate_expression_raw(&actual_arg, caller_env, ctx, exn)
   );
   deref_exempt_clear();
+  binder_read_clear();
   ctx.expected_type = saved_exp;
   // A `&mut` argument or receiver writes the place it names: an element
   // access on it dispatches `IndexMut` (decision 34, V2b).
@@ -1847,6 +1860,15 @@ check_if_function_parameter_matches_argument :: (
       ),
       _ => ()
     );
+  });
+  // A reference VALUE passed by value (the read rule, decision 43 step 2
+  // N1e-2b: a reference binding's read, a projection's result, at a `&T`
+  // slot or a binder `T := &U`) is the place it refers to in C: the
+  // parameter takes that place's address, as for a lend.
+  if(!param_is_ref && !is_ct_only && t9_lend_ty.is_none() && t_slot_is_borrow(&arg_info.ty) && is_reference_read(ast_expr_id(&evaled_arg)), {
+    rv_ty := Option(TypeValue).Some(Rc.clone(arg_info.ty));
+    expr_info_set_converted_runtime_type(&arg_info, &rv_ty);
+    expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&evaled_arg), &arg_info);
   });
   // Steps 3a–3c and the comptime-argument gate: the shared rule
   // (`check_argument_for_parameter`), which also lowers a comptime literal to
@@ -9273,13 +9295,19 @@ try_to_call_function_with_arguments :: (
             (synth_ret_opts : Option(SynthesizeOptions)) = Option(SynthesizeOptions).Some(
               SynthesizeOptions(token : Option(Token).Some(ast_expr_token(expr)), expected_is_source : true)
             );
+            // A projection call at a reference position IS the reference it
+            // returns (the read rule, decision 43 step 2 N1e-2b): its
+            // pointee return type is synthesized against the expected
+            // reference's pointee (`.Some(xs.index(i))` into
+            // `Option(&(T, p))`).
+            st10_expected := if(fn_result_is_ref(&func_type) && t_slot_is_borrow(&et.ty), t_slot_pointee(&et.ty), Rc.clone(et.ty));
             synth_ret := cond(
               st10_skip => Option(SynthesizeResult).None,
               true => Option(SynthesizeResult).Some(
                 synthesize_types(
                   &return_type,
                   &callee_env_m,
-                  &et.ty,
+                  &st10_expected,
                   &et.env,
                   &mut checked_ret,
                   &synth_ret_opts,

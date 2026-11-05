@@ -104,8 +104,10 @@ pragma(Pragma.AllowUnsafe);
   variable_move_note,
   variable_inout_borrow_root_id,
   variable_value_type,
-  variable_set_value_type
+  variable_set_value_type,
+  variable_slot_type
 } :: import("../env.yo");
+{ get_value_of_some_type_from_env } :: import("../types/env_lookup.yo");
 { Token, TokenKind } :: import("../token.yo");
 { EvalContext, LoopBodyCtx, LoopFlowSnapshot, FuncOrAsyncBlockKind, copy_trait_blockers_via_hook, type_head_name_for_impl_forcing } :: import("./context.yo");
 { atof } :: import("std/libc/stdlib");
@@ -127,8 +129,8 @@ pragma(Pragma.AllowUnsafe);
 :: import("../utils.yo");
 { eprintln } :: import("std/fmt");
 { EvalValue, is_unknown_val, is_type_value, is_var_ref, is_func_val } :: import("../value.yo");
-{ TypeValue, TypeValueNode, t_refine_inner, SharedList, no_flags, no_types, fn_param_mut_ref_flags, fn_param_by_value_flags, fn_result_is_ref, fn_result_is_mut_ref, fn_result_origin_names, fn_result_composite_origin_names, fn_param_in_result_origin, fn_param_pointee_in_result_origin, fn_result_slot, shared_list, t_slot_is_mut_ref } :: import("../types/definitions.yo");
-{ is_never_type, is_unit_type, is_function_type, is_function_type_and_returns_comptime_value, is_box_type, is_unique_box_type, is_dyn_type, is_future_trait_type, is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type, is_primitive_type, is_pointer_type, is_bool_type, is_array_type, is_struct_type, is_tuple_type, is_some_type, cell_handle_view, is_atomic_counted_handle_type, is_counted_cell_type, is_arc_type, is_counted_handle_value_type, unique_box_payload_type } :: import("../types/guards.yo");
+{ TypeValue, TypeValueNode, t_refine_inner, SharedList, no_flags, no_types, fn_param_mut_ref_flags, fn_param_by_value_flags, fn_result_is_ref, fn_result_is_mut_ref, fn_result_origin_names, fn_result_composite_origin_names, fn_param_in_result_origin, fn_param_pointee_in_result_origin, fn_result_slot, shared_list, t_slot_is_mut_ref, t_slot_is_borrow, t_reference_with_origin, t_origin_named } :: import("../types/definitions.yo");
+{ is_never_type, is_unit_type, is_function_type, is_function_type_and_returns_comptime_value, is_box_type, is_unique_box_type, is_dyn_type, is_future_trait_type, is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type, is_primitive_type, is_pointer_type, is_bool_type, is_array_type, is_struct_type, is_tuple_type, is_some_type, cell_handle_view, is_atomic_counted_handle_type, is_counted_cell_type, is_arc_type, is_counted_handle_value_type, unique_box_payload_type, is_fn_trait_type } :: import("../types/guards.yo");
 { get_func_type, is_fn_ctfe_clone, is_closure_fn, is_io_async_sm_closure } :: import("../function_value.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../types/compatibility.yo");
 { type_to_string, type_to_string_for_message } :: import("../types/string.yo");
@@ -174,6 +176,12 @@ pragma(Pragma.AllowUnsafe);
 /// (`r = &place`). One slot, as the receiver mark above.
 (mut(g_deref_exempt_id) : usize) = usize(0);
 (mut(g_deref_exempt_armed) : bool) = false;
+/// The argument a generic call evaluates for an UNBOUND type binder (`v : T`
+/// before `T` is inferred, decision 43 step 2 N1e-2b, VERDICTS-23 R1):
+/// a reference read there is the reference, so `T := &U`
+/// (`binder_read_mark` / `binder_read_take`).
+(mut(g_binder_read_id) : usize) = usize(0);
+(mut(g_binder_read_armed) : bool) = false;
 /// The receivers `r` of the `r.*` reference derefs rewritten to `r` itself
 /// (N1e-1, `property_access.yo`), by source position: the name there is the
 /// deref, never a whole-value read, in this node and in every clone of it.
@@ -181,6 +189,12 @@ pragma(Pragma.AllowUnsafe);
 /// Field reads of a reference field (N1e-2), with the field's reference
 /// type as the instance declares it (`note_reference_field_read`).
 (g_reference_field_reads : RefCell(HashMap(usize, TypeValue))) = RefCell(HashMap(usize, TypeValue)).new(HashMap(usize, TypeValue).new());
+/// The nodes the read rule (decision 43 step 2 N1e-2b) types as a reference
+/// VALUE — a reference binding's read, a projection's result, a reference
+/// field's read at a position expecting a reference. Their C is still the
+/// place they refer to, so a consumer that stores or passes the reference
+/// takes its address (`note_reference_read` / `is_reference_read`).
+(g_reference_reads : RefCell(HashMap(usize, bool))) = RefCell(HashMap(usize, bool)).new(HashMap(usize, bool).new());
 /// The `*` atoms of the `w.*` derefs the auto-deref hooks synthesize
 /// (`make_deref_expr`, N1e-1), by id: every other `*` of a `.*` was written,
 /// in the source or in a batch the test runner printed from it.
@@ -6429,6 +6443,103 @@ local_borrow_take_receiver :: (fn(e : &AstExpr) -> bool)({
   });
   hit
 });
+/// Before evaluating `e`, a generic call's argument whose parameter is an
+/// unbound type binder (`g_binder_read_id`).
+binder_read_mark :: (fn(e : &AstExpr) -> unit)({
+  g_binder_read_id = ast_expr_id(e);
+  g_binder_read_armed = true;
+});
+binder_read_clear :: (fn() -> unit)({
+  g_binder_read_armed = false;
+});
+/// Whether `e` is the marked binder argument; clears the mark on a hit.
+binder_read_take :: (fn(e : &AstExpr) -> bool)({
+  if(!g_binder_read_armed, {
+    return(false);
+  });
+  hit := (g_binder_read_id == ast_expr_id(e));
+  if(hit, {
+    g_binder_read_armed = false;
+  });
+  hit
+});
+/// A type binder bounded by a closure trait (`F : Impl(Fn(...))`).
+_some_type_is_callable :: (fn(ty : &TypeValue) -> bool)(
+  match(
+    ty,
+    Rc(.SomeT(_, _, _, _, sc_req, _, _)) => {
+      sc_traits := sc_req.required();
+      (sc_i : usize) = usize(0);
+      while(sc_i < sc_traits.len(), sc_i = (sc_i + usize(1)), {
+        if(match(sc_traits.get_cloned(sc_i), .Some(sc_t) => is_fn_trait_type(&sc_t), .None => false), {
+          return(true);
+        });
+      });
+      false
+    },
+    _ => false
+  )
+);
+/// The read rule (decision 43 step 2 N1e-2b, VERDICTS-23 R1): a
+/// reference-typed expression read at `tok` is the reference VALUE where its
+/// position expects a reference — a `&T` slot, payload, field or element, or
+/// a type binder bound to a reference (`T := &U`) — or where it is a call's
+/// argument for an unbound type binder of the callee (`v : T`), which it
+/// binds to the reference (`at_binder`: the call marked it,
+/// `binder_read_mark`). A type parameter of the function being checked is
+/// not a binder there: in `_h :: (fn(generic(T), t : &T) -> T)(t)` the
+/// result position expects the rigid `T`, and `t` reads as its value. Inside
+/// the trees that keep the old reading (`deref_rule_applies`), an unbound
+/// binder still takes the value until the deref adoption deletes the
+/// exemption.
+reference_read_wanted :: (fn(tok : &Token, at_binder : bool, ctx : &EvalContext) -> bool)({
+  match(
+    &ctx.expected_type,
+    .Some(rw_et) => cond(
+      t_slot_is_borrow(&rw_et.ty) => {
+        return(true);
+      },
+      (is_some_type(&rw_et.ty) && !_some_type_is_callable(&rw_et.ty)) => if(t_slot_is_borrow(&get_value_of_some_type_from_env(&rw_et.env, &rw_et.ty)), {
+        return(true);
+      }),
+      true => ()
+    ),
+    .None => ()
+  );
+  (at_binder && deref_rule_applies(tok, ctx))
+});
+/// Record whether the node `id` was read as a reference value (the read
+/// rule); a later evaluation of the same node at another position overrides.
+note_reference_read :: (fn(id : usize, is_reference : bool) -> unit)({
+  if(is_reference, {
+    _old := g_reference_reads.with_mut({ id }(m) => m.insert(id, true));
+  }, {
+    if(g_reference_reads.with(m => m.len()) > usize(0), {
+      _old := g_reference_reads.with_mut({ id }(m) => m.remove(&id));
+    });
+  });
+});
+/// The node `id` is a reference value whose C is the place it refers to.
+is_reference_read :: (fn(id : usize) -> bool)(
+  (g_reference_reads.with(m => m.len()) > usize(0)) && g_reference_reads.with(m => m.get(&id)).is_some()
+);
+/// The reference VALUE a read of the reference binding `v` is: its stored
+/// reference type, whose elided origin names `v` itself (what `v` lends, as
+/// a lend of `v` records it, T9).
+reference_binding_read_type :: (fn(v : &Variable) -> TypeValue)(
+  match(
+    variable_slot_type(v),
+    Rc(.Reference(rb_p, rb_m, rb_o)) => cond(
+      match(&rb_o, Rc(.OriginSet(_, rb_el)) => rb_el, _ => false) => {
+        rb_names := ArrayList(String).new();
+        rb_names.push(v.name.clone());
+        t_reference_with_origin(&rb_p, rb_m, t_origin_named(&shared_list(rb_names)))
+      },
+      true => variable_slot_type(v)
+    ),
+    rb_t => rb_t
+  )
+);
 /// Before evaluating `e` where a bare reference (a binding, or a field read
 /// of a reference field, N1e-2) is not a whole-value read
 /// (`g_deref_exempt_id`).
@@ -8410,6 +8521,21 @@ origin_carrying_value_roots :: (fn(e : &AstExpr, env : &Environment, ctx : &Eval
                 .None => Option(TypeValue).None
               );
               cond(
+                // A reference VALUE the read rule produced (`.Some(r)` with
+                // `r` a reference binding, decision 43 step 2 N1e-2b) points
+                // where `r` does: a local borrow's frozen places, or a
+                // reference parameter's own place.
+                (!v_is_lend_mut && !v_is_lend_amp && is_reference_read(ast_expr_id(&value_s))) => {
+                  rr_before := out.len();
+                  _holder_roots_into(&value_s, env, ctx, &mut out);
+                  if(out.len() == rr_before, {
+                    match(
+                      local_borrow_place_of(&value_s, env, ctx),
+                      .Some(p) => out.push(OriginRootPlace(place : p, is_mut : t_slot_is_mut_ref(&vi.ty))),
+                      .None => ()
+                    );
+                  });
+                },
                 (v_is_lend_mut || v_is_lend_amp || v_lend.is_some()) => {
                   (v_mut : bool) = if(v_is_lend_mut, true, match(v_lend, .Some(Rc(.Reference(_, lm, _))) => lm, _ => false));
                   match(
@@ -8668,6 +8794,13 @@ export(
   deref_exempt_mark,
   deref_exempt_clear,
   deref_exempt_take,
+  binder_read_mark,
+  binder_read_clear,
+  binder_read_take,
+  reference_read_wanted,
+  note_reference_read,
+  is_reference_read,
+  reference_binding_read_type,
   note_reference_field_read,
   is_reference_field_read,
   reference_field_read_mode,

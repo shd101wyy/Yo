@@ -44,7 +44,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../expr.yo");
 { is_auto_generated_expansion, is_implicitly_unsafe_capable_file, is_class1_panic_method_name, is_class1_panic_receiver_type, is_class1_panic_exempt_file, is_std_module_path, is_prelude_or_generated_file } :: import("../memory_safety.yo");
 { D3PendingInout, d3_record_inout_place, d3_check_pending, d3_check_pending_unresolved_callee, require_no_inout_write_through_borrow, shared_borrow_param_root_of_place, reject_write_through_shared_borrow_param } :: import("../exprs/assignment.yo");
-{ ExprInfo, migrate_addr_of_on, is_thread_local, is_mut_global, new_expr_info, expr_info_closure_function_value, expr_info_table_get, expr_info_table_set, record_method_callee_type, lookup_method_callee_type, record_method_callee_value, lookup_method_callee_value, record_io_builtin_struct_field, lookup_io_builtin_struct_field, record_io_builtin_call, record_macro_expansion, lookup_macro_expansion, record_fid_rtcall, active_where_trait_ids, record_fid_spec, lookup_struct_ctor_fid, struct_effective_ctor_fid, struct_fully_concrete_instance, adopt_receiver_struct_instance, mark_node_preevaluated, unmark_node_preevaluated, expr_info_adopt_env, expr_info_capture_type, expr_info_comptime_ref, expr_info_index_method_type, expr_info_index_method_value, expr_info_set_comptime_ref, expr_info_set_deferred_dup_expressions, expr_info_set_index_method_type, expr_info_set_index_method_value, expr_info_set_index_trait_ptr_type, expr_info_set_macro_expansion, some_resolution, purge_executed_clone_metadata, mark_fnonce_post_call_release, migrate_drop_trait_on, record_destructor_site, HandleCtorSite, migrate_handle_ctors_on, record_handle_ctor_site, migrate_mut_bindings_on, record_mut_judged } :: import("../../expr_info.yo");
+{ ExprInfo, migrate_addr_of_on, is_thread_local, is_mut_global, new_expr_info, expr_info_closure_function_value, expr_info_table_get, expr_info_table_set, record_method_callee_type, lookup_method_callee_type, record_method_callee_value, lookup_method_callee_value, record_io_builtin_struct_field, lookup_io_builtin_struct_field, record_io_builtin_call, record_macro_expansion, lookup_macro_expansion, record_fid_rtcall, active_where_trait_ids, record_fid_spec, lookup_struct_ctor_fid, struct_effective_ctor_fid, struct_fully_concrete_instance, adopt_receiver_struct_instance, mark_node_preevaluated, unmark_node_preevaluated, expr_info_adopt_env, expr_info_capture_type, expr_info_comptime_ref, expr_info_index_method_type, expr_info_index_method_value, expr_info_set_comptime_ref, expr_info_set_deferred_dup_expressions, expr_info_set_index_method_type, expr_info_set_index_method_value, expr_info_set_index_trait_ptr_type, expr_info_set_macro_expansion, some_resolution, purge_executed_clone_metadata, mark_fnonce_post_call_release, migrate_drop_trait_on, record_destructor_site, HandleCtorSite, migrate_handle_ctors_on, record_handle_ctor_site, migrate_mut_bindings_on, record_mut_judged, expr_info_converted_runtime_type, expr_info_set_converted_runtime_type } :: import("../../expr_info.yo");
 {
   Variable,
   Environment,
@@ -78,7 +78,7 @@ pragma(Pragma.AllowUnsafe);
 { stable_module_id, stable_func_id, private_member_blocked, debug_knob, parse_raw_int, is_temp_variable_name } :: import("../../utils.yo");
 { type_key } :: import("../../types/type_key.yo");
 { record_await_fusion_candidate } :: import("../../expr_traversal.yo");
-{ attach_temp_variable_to_expr, projection_call_mode_of, deref_exempt_mark, deref_exempt_clear, consume_called_fnonce_closure, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, reject_second_class_escape, reject_write_through_rc, place_cell_hops, PlaceCellHops, handle_payload_is_read_only, require_capture_borrow_exclusivity, local_borrows_active, local_borrow_value_place_of, local_borrow_places_overlap, LocalBorrowPlace, CellRootedPlace, cell_rooted_place_of, cell_rooted_same_cell, cell_rooted_places_overlap, local_borrow_note_runtime_call, local_borrow_enter_macro_site, local_borrow_leave_macro_site, local_borrow_is_macro_await, local_borrow_is_scalar_type, variable_is_borrow_parameter, variable_id_in_scope, reject_bare_callable_into_dyn_fn, bare_callable_recorded_into_dyn_fn, global_lend_audit_enabled, global_lend_audit_print, global_lend_location, global_lend_key, variable_is_reference_binding, variable_is_mut_borrow, global_place_path, GlobalHandleLend, global_note_handle_mutcall, global_note_handle_lend, global_require_mut, variable_is_future_operand_parameter, place_require_mut, local_borrow_write_expr, check_capture_freeze_access, reference_field_read_mode, deref_operand_is_raw_pointer, RC_CLONE_MIGRATE_HINT, FutureRoot, note_future_roots, future_roots_of, holder_future_roots } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, projection_call_mode_of, deref_exempt_mark, deref_exempt_clear, binder_read_mark, binder_read_clear, consume_called_fnonce_closure, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, reject_second_class_escape, reject_write_through_rc, place_cell_hops, PlaceCellHops, handle_payload_is_read_only, require_capture_borrow_exclusivity, local_borrows_active, local_borrow_value_place_of, local_borrow_places_overlap, LocalBorrowPlace, CellRootedPlace, cell_rooted_place_of, cell_rooted_same_cell, cell_rooted_places_overlap, local_borrow_note_runtime_call, local_borrow_enter_macro_site, local_borrow_leave_macro_site, local_borrow_is_macro_await, local_borrow_is_scalar_type, variable_is_borrow_parameter, variable_id_in_scope, reject_bare_callable_into_dyn_fn, bare_callable_recorded_into_dyn_fn, global_lend_audit_enabled, global_lend_audit_print, global_lend_location, global_lend_key, variable_is_reference_binding, variable_is_mut_borrow, global_place_path, GlobalHandleLend, global_note_handle_mutcall, global_note_handle_lend, global_require_mut, variable_is_future_operand_parameter, place_require_mut, local_borrow_write_expr, check_capture_freeze_access, reference_field_read_mode, deref_operand_is_raw_pointer, RC_CLONE_MIGRATE_HINT, FutureRoot, note_future_roots, future_roots_of, holder_future_roots, is_reference_read } :: import("../utils.yo");
 {
   EvalContext,
   ExpectedTypeCtx,
@@ -11687,12 +11687,22 @@ Fix: wrap the call:
             if(!match(fv_param_ct.get(ai), .Some(c) => c, .None => false) && !match(fv_param_is_owning.get(ai), .Some(o) => o, .None => true), {
               deref_exempt_mark(&arg_expr_eff);
             });
+            // The read rule's unbound-binder position (decision 43 step 2
+            // N1e-2b, VERDICTS-23 R1): a by-value parameter typed by a bare
+            // type binder (`v : T`) — a reference read there is the
+            // reference, and binds `T := &U` (`reference_read_wanted`).
+            if(!match(fv_param_ct.get(ai), .Some(c) => c, .None => false)
+            && match(fv_param_is_owning.get(ai), .Some(o) => o, .None => false)
+            && match(slot_pointee_at(&resolved_param_types, ai), .Some(br_pt) => (is_some_type(&br_pt) && extract_fn_trait_from_type(&br_pt).is_none()), .None => false), {
+              binder_read_mark(&arg_expr_eff);
+            });
             evaled_arg := if(
               fv_takes_origin,
               evaluate_origin_argument(&arg_expr_eff, &arg_eval_env, ctx, exn),
               evaluate_expression_raw(&arg_expr_eff, &arg_eval_env, ctx, exn)
             );
             deref_exempt_clear();
+            binder_read_clear();
             ctx.expected_type = arg_saved_expected;
             // A `&mut` argument writes the place it names, as in
             // `check_if_function_parameter_matches_argument`: a bare one is a
@@ -12368,6 +12378,20 @@ Fix: wrap the call:
               env,
               ctx,
               exn
+            );
+          });
+          // A reference VALUE passed by value (the read rule, decision 43
+          // step 2 N1e-2b: `id(r)` binds `T := &U`) is the place it refers to
+          // in C: the parameter takes that place's address, as for a lend.
+          if((pi < n_supplied_reg) && !is_ct && !match(fv_param_is_ref.get(pi), .Some(r) => r, .None => false) && t_slot_is_borrow(&arg_info.ty), {
+            match(
+              fv_args.get(pi),
+              .Some(rv_ae) => if(is_reference_read(ast_expr_id(&rv_ae)) && expr_info_converted_runtime_type(&arg_info).is_none(), {
+                rv_ty := Option(TypeValue).Some(Rc.clone(arg_info.ty));
+                expr_info_set_converted_runtime_type(&arg_info, &rv_ty);
+                expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&rv_ae), &arg_info);
+              }),
+              .None => ()
             );
           });
           if(is_comptime_string_type(&arg_info.ty) && !is_some_type(&resolved_decl_pt) && !is_comptime_string_type(&resolved_decl_pt), {
