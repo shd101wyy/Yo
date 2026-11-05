@@ -777,7 +777,7 @@ _build_deferred_deps :: (
       .Some(v) => match(
         _dep_type_string(&v.base.ty, context),
         .Some(t) => match(
-          by_struct_name.get(&t),
+          by_struct_name.get_cloned(&t),
           .Some(target) => if(target.struct_name != b.struct_name, {
             _add_deferred_dep(dependents, indegree, target.struct_name.clone(), b.struct_name.clone());
           }),
@@ -841,7 +841,7 @@ emit_deferred_async_block_struct_definitions :: (fn(context : &mut FunctionGener
   (mut(i) : usize) = usize(0);
   while(i < blocks.len(), {
     match(
-      blocks.get(i),
+      blocks.get_cloned(i),
       .Some(b) => {
         by_struct_name.insert(b.struct_name.clone(), b);
       },
@@ -855,7 +855,7 @@ emit_deferred_async_block_struct_definitions :: (fn(context : &mut FunctionGener
   (mut(i2) : usize) = usize(0);
   while(i2 < blocks.len(), {
     match(
-      blocks.get(i2),
+      blocks.get_cloned(i2),
       .Some(b) => {
         dependents.insert(b.struct_name.clone(), HashSet(String).new());
         indegree.insert(b.struct_name.clone(), usize(0));
@@ -867,7 +867,7 @@ emit_deferred_async_block_struct_definitions :: (fn(context : &mut FunctionGener
   // Build edges.
   (mut(i3) : usize) = usize(0);
   while(i3 < blocks.len(), {
-    match(blocks.get(i3), .Some(b) => _build_deferred_deps(&b, &by_struct_name, &mut dependents, &mut indegree, context), .None => ());
+    match(blocks.get_cloned(i3), .Some(b) => _build_deferred_deps(&b, &by_struct_name, &mut dependents, &mut indegree, context), .None => ());
     i3 = (i3 + usize(1));
   });
   // Kahn's algorithm: seed the queue with indegree-0 nodes.
@@ -907,7 +907,7 @@ emit_deferred_async_block_struct_definitions :: (fn(context : &mut FunctionGener
       match(
         ordered.get_cloned(oi),
         .Some(name) => match(
-          by_struct_name.get(&name),
+          by_struct_name.get_cloned(&name),
           .Some(b) => {
             ordered_blocks.push(b);
           },
@@ -921,7 +921,7 @@ emit_deferred_async_block_struct_definitions :: (fn(context : &mut FunctionGener
     (mut(bi) : usize) = usize(0);
     while(bi < blocks.len(), {
       match(
-        blocks.get(bi),
+        blocks.get_cloned(bi),
         .Some(b) => {
           ordered_blocks.push(b);
         },
@@ -934,7 +934,7 @@ emit_deferred_async_block_struct_definitions :: (fn(context : &mut FunctionGener
   (mut(ei) : usize) = usize(0);
   while(ei < ordered_blocks.len(), {
     match(
-      ordered_blocks.get(ei),
+      ordered_blocks.get_cloned(ei),
       .Some(b) => {
         cbr := _block_cross_boundary(&b, context);
         osr := compute_overlapping_slots(&cbr.cross_boundary_ids, &cbr.variable_segments, &b.analysis.captured_variables, &cbr.await_future_temp_var_aliases, &cbr.pattern_binding_ids, context);

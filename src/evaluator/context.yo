@@ -1375,7 +1375,7 @@ impl(
   has_ctx : (fn(self : &Self) -> bool)(self.ctx.with(c => c.is_some())),
   /// A fresh copy of the walk's context (`copy_eval_context`), if it kept one.
   ctx_copy : (fn(self : &Self) -> Option(EvalContext))(
-    self.ctx.with(c => match(c, .Some(wc) => Option(EvalContext).Some(copy_eval_context(wc)), .None => Option(EvalContext).None))
+    self.ctx.with(c => match(c, .Some(wc) => Option(EvalContext).Some(copy_eval_context(&wc)), .None => Option(EvalContext).None))
   ),
   /// The expression-info table of the walk's kept context (a shared handle).
   ctx_expr_info_table : (fn(self : &Self) -> Option(ExprInfoTable))(
@@ -1457,7 +1457,7 @@ is_module_ghost_fn_def :: (fn(path : &String, name : &String) -> bool)({
   while(wi > usize(0), {
     wi = (wi - usize(1));
     match(
-      g_module_walks.with(xs => xs.get(wi)),
+      g_module_walks.with(xs => xs.get_cloned(wi)),
       .Some(w) => if(canonical_module_path(&w.module_path) == &canon, {
         match(
           _find_def_by_name(&w.defs, name.clone(), false),
@@ -1650,7 +1650,7 @@ record_module_ordered_read :: (fn(importer : &String, target_module : &String, f
 /// stack) it degrades to the ordered-read table.
 record_module_member_read :: (fn(importer : &String, target_module : &String, field : &String) -> unit)({
   target_def := match(
-    g_finished_walks.with(m => m.get(target_module)),
+    g_finished_walks.with(m => m.get_cloned(target_module)),
     .Some(fwalk) => _find_def_by_name(&fwalk.defs, field, false),
     .None => Option(PendingDef).None
   );
@@ -1714,7 +1714,7 @@ def_key_index :: (fn(key : &String) -> Option(usize))(
 );
 /// The walk a module was finished under, by the def keys' own module segment.
 finished_walk_for :: (fn(module_path : &String) -> Option(ModuleWalk))(
-  g_finished_walks.with(m => m.get(module_path))
+  g_finished_walks.with(m => m.get_cloned(module_path))
 );
 /// Reset one definition for re-evaluation: clear the lazy-binding state and
 /// drop its bindings from the walk's module frame (so a lookup MISSES again
@@ -2169,12 +2169,12 @@ force_pending_move_only_impls :: (fn(type_name : &String) -> bool)({
   while(wi > usize(0), {
     wi = (wi - usize(1));
     match(
-      g_module_walks.with(xs => xs.get(wi)),
+      g_module_walks.with(xs => xs.get_cloned(wi)),
       .Some(walk) => {
         (di : usize) = usize(0);
         while(di < walk.defs.len(), {
           match(
-            walk.defs.get(di),
+            walk.defs.get_cloned(di),
             .Some(def) => {
               is_target := (((def.is_impl && match(def.state(), .Unforced => true, _ => false)) && ((def.name == type_name) || (def.name.len() == usize(0)))) && _impl_expr_declares_move_only(&def.expr()));
               if(is_target, {
@@ -2635,7 +2635,7 @@ begin_module_walk :: (
     while(si < begin_exprs.len(), {
       match(
         begin_exprs.get(si),
-        .Some(se) => if(walk.by_index.get(&si).is_none(), {
+        .Some(se) => if(walk.by_index.get_cloned(&si).is_none(), {
           stmt_hash_state.push_string(ast_expr_to_string(&se));
           stmt_hash_state.push_str("\n");
         }),
@@ -2651,7 +2651,7 @@ begin_module_walk :: (
   (hi : usize) = usize(0);
   while(hi < defs.len(), {
     match(
-      defs.get(hi),
+      defs.get_cloned(hi),
       .Some(d) => {
         // Owned key (`with_mut`'s callback is a sink parameter).
         dh_key := def_key(&module_path, d.index, &d.name);
@@ -2678,7 +2678,7 @@ end_module_walk :: (fn(walk : &ModuleWalk) -> unit)({
   ()
 });
 walk_pending_def_at :: (fn(walk : &ModuleWalk, index : usize) -> Option(PendingDef))(
-  walk.by_index.get(&index)
+  walk.by_index.get_cloned(&index)
 );
 /// True when `def` declares `name`: its own name, or one of an extern
 /// block's members.
@@ -2696,7 +2696,7 @@ _find_def_by_name :: (fn(defs : &ArrayList(PendingDef), name : &String, is_impl 
   (i : usize) = usize(0);
   while((i < defs.len()) && found.is_none(), {
     match(
-      defs.get(i),
+      defs.get_cloned(i),
       .Some(d) => if((d.is_impl == is_impl) && _def_declares(&d, name.clone()), {
         found = Option(PendingDef).Some(d);
       }),
@@ -2722,7 +2722,7 @@ _active_walk_for :: (fn(module_path : &String) -> Option(ModuleWalk))({
   while((i > usize(0)) && found.is_none(), {
     i = (i - usize(1));
     match(
-      g_module_walks.with(xs => xs.get(i)),
+      g_module_walks.with(xs => xs.get_cloned(i)),
       .Some(w) => if(w.module_path == module_path, {
         found = Option(ModuleWalk).Some(w);
       }),
@@ -3014,7 +3014,7 @@ revalidate_walk_defs :: (fn(walk : &ModuleWalk, defs : &ArrayList(PendingDef)) -
   (i : usize) = usize(0);
   while(i < defs.len(), {
     match(
-      defs.get(i),
+      defs.get_cloned(i),
       .Some(def) => if(match(def.state(), .Unforced => true, _ => false), {
         match(
           force_pending_def(walk, &def),
@@ -3149,7 +3149,7 @@ resolve_pending_definition :: (fn(name : &String, module_path : &String) -> Pend
       )
     ),
     .None => match(
-      g_finished_walks.with(m => m.get(module_path)),
+      g_finished_walks.with(m => m.get_cloned(module_path)),
       .Some(fwalk) => match(
         _find_def_by_name(&fwalk.defs, name.clone(), false),
         .Some(def) => match(
@@ -3311,12 +3311,12 @@ _force_pending_impls_pass :: (fn(type_name : &String, declaring : &Option(String
   while((wi > usize(0)) && err.is_none(), {
     wi = (wi - usize(1));
     match(
-      g_module_walks.with(xs => xs.get(wi)),
+      g_module_walks.with(xs => xs.get_cloned(wi)),
       .Some(walk) => if(((wi + usize(1)) == innermost) || _find_def_by_name(&walk.defs, type_name.clone(), false).is_some(), {
         (di : usize) = usize(0);
         while((di < walk.defs.len()) && err.is_none(), {
           match(
-            walk.defs.get(di),
+            walk.defs.get_cloned(di),
             .Some(def) => {
               is_target := (def.is_impl && (def.is_derive() || !(derives_only)) && match(def.state(), .Unforced => true, _ => false) && ((def.name == type_name) || (def.name.len() == usize(0))) && match(declaring, .Some(m) => _impl_expr_declares(&def.expr(), &m), .None => true));
               if(is_target, {

@@ -1097,7 +1097,7 @@ _admit_closure_key :: (
     }
   );
   d := match(
-    w.by_index.get(&index),
+    w.by_index.get_cloned(&index),
     .Some(found) => found,
     .None => {
       fallbacks.push(module);
@@ -1171,7 +1171,7 @@ _defs_mentioning :: (fn(module : &String, names : &ArrayList(String)) -> ArrayLi
       (i : usize) = usize(0);
       while(i < w.defs.len(), {
         match(
-          w.defs.get(i),
+          w.defs.get_cloned(i),
           .Some(d) => if(_expr_mentions(&d.expr(), names), {
             out.push(def_key(module.clone(), d.index, d.name.clone()));
           }),
@@ -1225,7 +1225,7 @@ _revalidation_closure :: (fn(seeds : &ArrayList(String)) -> ArrayList(String))({
             .Some(ix) => match(
               finished_walk_for(module.clone()),
               .Some(w) => match(
-                w.by_index.get(&ix),
+                w.by_index.get_cloned(&ix),
                 .Some(d) => {
                   names := match(
                     names_by_module.get_cloned(module.clone()),
@@ -1321,7 +1321,7 @@ mm_revalidate_plan :: (fn(fs_path : &String) -> Option(RevalPlan))({
   (ci : usize) = usize(0);
   while((ci < diff.changed.len()) && allowed, {
     match(
-      diff.changed.get(ci),
+      diff.changed.get_cloned(ci),
       .Some(fresh) => {
         changed_names.push(fresh.name.clone());
         match(
@@ -1361,7 +1361,7 @@ mm_revalidate_plan :: (fn(fs_path : &String) -> Option(RevalPlan))({
   (si : usize) = usize(0);
   while(si < diff.changed.len(), {
     match(
-      diff.changed.get(si),
+      diff.changed.get_cloned(si),
       .Some(d) => seeds.push(def_key(diff.module_key.clone(), d.index, d.name.clone())),
       .None => ()
     );
@@ -1650,7 +1650,7 @@ mm_revalidate_apply :: (
   (ci : usize) = usize(0);
   while(ci < plan.changed.len(), {
     match(
-      plan.changed.get(ci),
+      plan.changed.get_cloned(ci),
       .Some(d) => _rev_add_index(&mut indexes_by_module, plan.module_key.clone(), d.index),
       .None => ()
     );
@@ -1799,7 +1799,7 @@ mm_revalidate_apply :: (
             (gi : usize) = usize(0);
             while(gi < plan.changed.len(), {
               match(
-                plan.changed.get(gi),
+                plan.changed.get_cloned(gi),
                 .Some(fresh) => if(module == plan.module_key, {
                   match(
                     walk.by_index.get(&fresh.index),
@@ -1815,7 +1815,7 @@ mm_revalidate_apply :: (
             (ci3 : usize) = usize(0);
             while(ci3 < plan.changed.len(), {
               match(
-                plan.changed.get(ci3),
+                plan.changed.get_cloned(ci3),
                 .Some(fresh) => if(module == plan.module_key, {
                   _ := changed_indexes.insert(fresh.index);
                 }),
@@ -1826,7 +1826,7 @@ mm_revalidate_apply :: (
             (di2 : usize) = usize(0);
             while(di2 < defs.len(), {
               match(
-                defs.get(di2),
+                defs.get_cloned(di2),
                 .Some(d) => if(!((module == plan.module_key) && changed_indexes.contains(&d.index)), {
                   cloned := clone_expr_fresh_ids(&d.expr());
                   d.set_expr(cloned);
@@ -1839,7 +1839,7 @@ mm_revalidate_apply :: (
             (ri : usize) = usize(0);
             while(ri < defs.len(), {
               match(
-                defs.get(ri),
+                defs.get_cloned(ri),
                 .Some(d) => reset_pending_def(&walk, &d),
                 .None => ()
               );
@@ -1886,7 +1886,7 @@ mm_revalidate_apply :: (
             (bi : usize) = usize(0);
             while(bi < defs.len(), {
               match(
-                defs.get(bi),
+                defs.get_cloned(bi),
                 .Some(d) => if(
                   !d.is_impl && match(d.state(), .Done => true, _ => false),
                   match(
@@ -1933,7 +1933,7 @@ mm_revalidate_apply :: (
                         (fdi : usize) = usize(0);
                         while(fdi < defs.len(), {
                           match(
-                            defs.get(fdi),
+                            defs.get_cloned(fdi),
                             .Some(d) => if(d.name == nm, {
                               match(
                                 d.variable(),
@@ -2445,7 +2445,7 @@ _walk_def_values :: (fn(defs : &ArrayList(PendingDef)) -> ArrayList(EvalValue))(
   (di : usize) = usize(0);
   while(di < defs.len(), {
     match(
-      defs.get(di),
+      defs.get_cloned(di),
       .Some(d) => match(
         d.variable(),
         .Some(var) => match(var.value.get(usize(0)), .Some(v) => out.push(v), .None => ()),
