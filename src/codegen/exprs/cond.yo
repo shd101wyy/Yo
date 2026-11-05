@@ -285,7 +285,7 @@ _generate_dup_arm_value :: (fn(value : &AstExpr, value_indent : &String, context
   // blocker. ExprInfo is a ref struct, so this mutates the table entry in
   // place and restores it.
   // See issues/fixed/stage2-match-if-else-value-phantom-temp.md.
-  saved_arm_vn := replace(&mut vei.variable_name, Option(String).None);
+  saved_arm_vn := vei.variable_name();
   vei.set_variable_name(Option(String).None);
   raw_code := _call_generate_expr(value, value_indent.clone(), context);
   vei.set_variable_name(saved_arm_vn);
