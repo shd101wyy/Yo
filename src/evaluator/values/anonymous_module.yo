@@ -74,7 +74,8 @@ pragma(Pragma.AllowUnsafe);
   copy_eval_context,
   set_in_def_time_trial,
   forcing_depths,
-  truncate_forcing_depths
+  truncate_forcing_depths,
+  ExpectedTypeCtx
 } :: import("../context.yo");
 { stable_sns_module_id } :: import("../../utils.yo");
 { registration_owner, set_registration_owner } :: import("./type_trait_methods.yo");
@@ -366,7 +367,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                       // Optional exclude(...) second arg
                       exclude_expr_opt := spread_args.get(usize(1));
                       // Evaluate the extended module expression
-                      saved_expected := replace(&mut ctx.expected_type, .None);
+                      saved_expected := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
                       eval_ext := evaluate_expression_raw(&ext_mod_expr, &env, ctx, exn);
                       ctx.expected_type = saved_expected;
                       ext_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&eval_ext));
@@ -760,7 +761,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
             });
           }, {
             // Non-export expression: evaluate normally
-            saved_expected := replace(&mut ctx.expected_type, .None);
+            saved_expected := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
             evaluated := evaluate_expression_raw(&expr, &env, ctx, exn);
             ctx.expected_type = saved_expected;
             info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated));

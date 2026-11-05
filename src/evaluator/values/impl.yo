@@ -4762,7 +4762,7 @@ _c2_eval_direct_field :: (
   mval_expr := match(mf_colon_args.get(usize(1)), .Some(e) => e, .None => make_err_expr());
   mname_tok := ast_expr_token(&mname_expr);
   mname := mname_tok.value.*.clone();
-  saved3 := replace(&mut ctx.expected_type, .None);
+  saved3 := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
   eval_mval := evaluate_expression_raw(&mval_expr, &st.env, ctx, exn);
   ctx.expected_type = saved3;
   match(
@@ -5207,7 +5207,7 @@ evaluate_module_value :: (
       .FnCall(_, _, Rc(be), _, _) => be.clone(),
       .Atom(_, _) => ArrayList(AstExpr).new()
     );
-    saved_expected := replace(&mut ctx.expected_type, .None);
+    saved_expected := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
     result := evaluate_anonymous_module_begin_exprs(
       &begin_exprs,
       &local_env,
@@ -5361,7 +5361,7 @@ evaluate_module_value :: (
     );
     receiver_type_expr2 := match(args.get(receiver_arg_idx), .Some(a) => a, .None => make_err_expr());
     // Evaluate receiver type with SomeTs in scope.
-    saved_expected2 := replace(&mut ctx.expected_type, .None);
+    saved_expected2 := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
     eval_rcv2 := evaluate_expression_raw(&receiver_type_expr2, &forall_env, ctx, exn);
     ctx.expected_type = saved_expected2;
     (receiver_type_pattern : TypeValue) = t_unit();
@@ -5809,7 +5809,7 @@ evaluate_module_value :: (
   });
   // Evaluate the receiver type expression to update env.
   receiver_type_expr := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
-  saved_expected := replace(&mut ctx.expected_type, .None);
+  saved_expected := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
   eval_receiver := evaluate_expression_raw(&receiver_type_expr, &local_env, ctx, exn);
   ctx.expected_type = saved_expected;
   // Get receiver type name for qualifying method names.

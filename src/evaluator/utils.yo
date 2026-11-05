@@ -106,7 +106,7 @@ pragma(Pragma.AllowUnsafe);
   variable_inout_borrow_root_id
 } :: import("../env.yo");
 { Token, TokenKind } :: import("../token.yo");
-{ EvalContext, LoopBodyCtx, LoopFlowSnapshot, FuncOrAsyncBlockKind, copy_trait_blockers_via_hook, type_head_name_for_impl_forcing } :: import("./context.yo");
+{ EvalContext, ExpectedTypeCtx, LoopBodyCtx, LoopFlowSnapshot, FuncOrAsyncBlockKind, copy_trait_blockers_via_hook, type_head_name_for_impl_forcing } :: import("./context.yo");
 { atof } :: import("std/libc/stdlib");
 {
   format_error_message,
@@ -3972,7 +3972,7 @@ set_expr_as_needs_to_call_dup :: (
         );
       });
       dup_expr := generate_expr_from_code(`${BF_DUP}(${variable_name})`, exn);
-      saved_expected := replace(&mut ctx.expected_type, .None);
+      saved_expected := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
       // Evaluate in a PRIVATE copy of the recorded scope: a recorded snapshot is
       // shared between ExprInfos, and a begin/match inside `dup_expr` pops frames.
       evaluated_dup := evaluate_expression_raw(&dup_expr, expr_info_adopt_env(&ei), ctx, exn);

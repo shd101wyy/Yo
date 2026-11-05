@@ -113,7 +113,7 @@ try_to_implement_array_by_array_type :: (
       }
     );
     // Evaluate with expected element type set in context.
-    saved_expected := replace(&mut ctx.expected_type, .Some(ExpectedTypeCtx(ty : Rc.clone(expected_element_type), env : env)));
+    saved_expected := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : Rc.clone(expected_element_type), env : env)));
     evaluated_arg_gout := ArrayList(AstExpr).new();
     evaluated_arg_gerr := evaluate_expression_guarded(&arg_expr, &env, ctx, &mut evaluated_arg_gout);
     ctx.expected_type = saved_expected;

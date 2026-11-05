@@ -32,7 +32,7 @@ pragma(Pragma.AllowUnsafe);
 { is_comptime_string_type, is_u8_type, is_char_type } :: import("../../types/guards.yo");
 { convert_comptime_type_to_runtime_type, convert_comptime_type_to_runtime_type_with_expected } :: import("../../types/env_lookup.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ EvalContext } :: import("../context.yo");
+{ EvalContext, ExpectedTypeCtx } :: import("../context.yo");
 { evaluate_expression_guarded } :: import("../exprs/expr.yo");
 { format_error_message, format_eval_failure } :: import("../../error.yo");
 { Token, TokenKind, intern_token_str } :: import("../../token.yo");
@@ -59,7 +59,7 @@ try_to_convert_to_pointer_type :: (
     return(Option(AstExpr).None);
   });
   // Evaluate the argument with no expectedType.
-  saved_expected := replace(&mut ctx.expected_type, .None);
+  saved_expected := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
   evaluated_gout := ArrayList(AstExpr).new();
   evaluated_gerr := evaluate_expression_guarded(arg_expr, caller_env, ctx, &mut evaluated_gout);
   ctx.expected_type = saved_expected;

@@ -38,7 +38,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../types/guards.yo");
 { IntRange, get_integer_type_range } :: import("../../types/utils.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ EvalContext } :: import("../context.yo");
+{ EvalContext, ExpectedTypeCtx } :: import("../context.yo");
 {
   EvalValue,
   create_unknown_val,
@@ -216,7 +216,7 @@ try_to_convert_to_numeric_type :: (
     return(Option(AstExpr).None);
   });
   // Evaluate the argument with no expectedType (let it resolve its natural type).
-  saved_expected := replace(&mut ctx.expected_type, .None);
+  saved_expected := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
   mut(evaluated_gout) := ArrayList(AstExpr).new();
   evaluated_gerr := evaluate_expression_guarded(arg_expr, caller_env, ctx, &mut evaluated_gout);
   ctx.expected_type = saved_expected;

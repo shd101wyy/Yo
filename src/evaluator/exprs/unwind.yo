@@ -151,7 +151,7 @@ evaluate_unwind :: (
   );
   // Recursively evaluate the argument with the enclosing return type as the
   // expected type.
-  saved_expected := replace(&mut ctx.expected_type, .Some(ExpectedTypeCtx(ty : Rc.clone(enclosing_ret), env : env)));
+  saved_expected := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : Rc.clone(enclosing_ret), env : env)));
   evaluated_gout := ArrayList(AstExpr).new();
   evaluated_gerr := evaluate_expression_guarded(&arg_expr, env, ctx, &mut evaluated_gout);
   ctx.expected_type = saved_expected;
