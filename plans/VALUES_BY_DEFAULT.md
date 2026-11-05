@@ -4091,9 +4091,12 @@ and in git, not a silent edit.
       auto-moves; receivers stay exempt from call-site markers (decision
       33). Nothing else coerces: no `&String → &str` — the one lend that
       changes shape is decision 44's typed-slot unsizing into
-      `&Dyn(Trait)`. Resolution probes
-      the exact receiver type, then `&`/`&mut` of it, then each deref, so
-      `impl(&T, M)` wins over `impl(T, M)` for a `&T` receiver. A `&mut T`
+      `&Dyn(Trait)`. Resolution probes receiver slot types: the exact
+      type, then `&`/`&mut` of it, then each deref; an impl whose
+      method's slot is the exact type wins (R-PROBE, VERDICTS-25 Q2:
+      `impl(&C, Tr(m : fn(self : Self)))` and `impl(C, Tr(m : fn(self :
+      &Self)))` share the slot `&C`, two traits at one step are E0616,
+      `(&c).m()` is the explicit borrow; landed by N1f-2). A `&mut T`
       reached through a `&` path (an element of `&ArrayList(&mut T)`, a
       `&mut` field through `&S`) is read-only, a `&T` whose origin unions
       the path's place (O3's reborrow rule, 2026-10-21).

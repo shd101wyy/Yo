@@ -124,7 +124,9 @@ pragma(Pragma.AllowUnsafe);
   truncate_forcing_depths,
   call_evaluate_fn_body,
   force_pending_move_only_impls,
-  type_head_name_for_impl_forcing
+  type_head_name_for_impl_forcing,
+  note_reference_impl_head,
+  impl_receiver_head_name
 } :: import("../context.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 { evaluate_anonymous_module_begin_exprs } :: import("./anonymous_module.yo");
@@ -1066,6 +1068,9 @@ _root_shape_class :: (fn(t : &TypeValue) -> i32)(
     Rc(.Isize) => i32(9),
     Rc(.Float(_)) => i32(10),
     Rc(.BoolT) => i32(11),
+    // A reference receiver (`impl(&C, …)`, N1f-2): its own class, compared
+    // by mode and pointee below.
+    Rc(.Reference(_, _, _)) => i32(12),
     _ => i32(0)
   )
 );
@@ -1102,6 +1107,22 @@ _root_shapes_could_match :: (fn(pattern : &TypeValue, concrete : &TypeValue) -> 
   // a concrete receiver is `Rc(i32)`; exact equality would reject every
   // specific-generic-pattern impl before synthesis ever ran (synthesis is
   // the real match — base-name comparison keeps this a pure PRE-filter).
+  // Two reference patterns could name one type when their modes agree and
+  // their pointees could match (`&T` covers `&C`; `&C` never names `&mut C`
+  // or `C`).
+  if(pc == i32(12), {
+    return(
+      match(
+        pattern,
+        Rc(.Reference(rp_pointee, rp_mut, _)) => match(
+          concrete,
+          Rc(.Reference(rc_pointee, rc_mut, _)) => ((rp_mut == rc_mut) && _root_shapes_could_match(&rp_pointee, &rc_pointee)),
+          _ => false
+        ),
+        _ => false
+      )
+    );
+  });
   if((pc == i32(1)) || (pc == i32(2)), {
     pn := _root_shape_base_name(_root_shape_name(pattern));
     cn := _root_shape_base_name(_root_shape_name(concrete));
@@ -2226,9 +2247,15 @@ _decl_identity_key_of :: (fn(t : &TypeValue, depth : usize) -> String)(
       },
       Rc(.Func({ param_types : di_fpts, implicit_types : di_fits, result : di_fres, variadic_types : di_fvts })) => `|f(${_decl_identity_key_of_list(&di_fpts.items, depth + usize(1))};${_decl_identity_key_of_list(&di_fits.items, depth + usize(1))};${_decl_identity_key_of_list(&di_fvts.items, depth + usize(1))};${_decl_identity_key_of(&di_fres, depth + usize(1))})`,
       Rc(.Pointer(di_pointee)) => `*(${_decl_identity_key_of(&di_pointee, depth + usize(1))})`,
-      // A parameter slot keys as its pointee: the coherence key never told
-      // parameter modes apart.
-      Rc(.Reference(di_rpointee, _, _)) => _decl_identity_key_of(&di_rpointee, depth),
+      // A reference keys by its mode and its pointee, origin erased
+      // (decision 43, N1f-2; plans/reference/TRAIT_COHERENCE.md): `impl(&C,
+      // Tr)`, `impl(&mut C, Tr)` and `impl(C, Tr)` are three keys, and
+      // `impl(&(C, p), Tr)` is `impl(&C, Tr)`. A method signature's `&Self`
+      // and `Self` slots key apart too.
+      Rc(.Reference(di_rpointee, di_rmut, _)) => cond(
+        di_rmut => `&mut(${_decl_identity_key_of(&di_rpointee, depth + usize(1))})`,
+        true => `&(${_decl_identity_key_of(&di_rpointee, depth + usize(1))})`
+      ),
       Rc(.Array(di_elem, _, _)) => `[${_decl_identity_key_of(&di_elem, depth + usize(1))}]`,
       Rc(.Tuple(_, di_tfts)) => `(${_decl_identity_key_of_list(&di_tfts.items, depth + usize(1))})`,
       Rc(.SomeT({ name : di_sn })) => `$${di_sn.clone()}`,
@@ -5368,6 +5395,11 @@ evaluate_module_value :: (
         );
       }
     );
+    // A blanket over references (`impl(generic(T), &T, Tr)`): receiver
+    // lookup probes references from now on (decision 43 N1f-2).
+    if(t_slot_is_borrow(&receiver_type_pattern), {
+      note_reference_impl_head(&impl_receiver_head_name(&receiver_type_expr2));
+    });
     // Collect method fields: name : fn_def pairs.
     (method_names : ArrayList(String)) = ArrayList(String).new();
     (method_types : ArrayList(TypeValue)) = ArrayList(TypeValue).new();
@@ -5821,6 +5853,12 @@ evaluate_module_value :: (
     .None => ()
   );
   receiver_type_id := type_id_or_empty(&receiver_ty);
+  // `impl(&C, …)` / `impl(&mut C, …)` (decision 43 N1f-2): receiver lookup
+  // probes `C`'s references from now on (an impl evaluated in order, never
+  // classified as pending, is seen here first).
+  if(t_slot_is_borrow(&receiver_ty), {
+    note_reference_impl_head(&impl_receiver_head_name(&receiver_type_expr));
+  });
   // Pre-register each trait name in this impl so that recursive types
   // (e.g. `TreeNode :: enum(Branch(left : Rc(Self)))` with
   // `derive(TreeNode, Clone)`) can find their own Clone impl while
