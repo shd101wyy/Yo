@@ -8604,7 +8604,34 @@ ref_payload_source :: (fn(var_id : usize) -> Option(AstExpr))({
   });
   Option(AstExpr).None
 });
-export(projection_call_mode_of, ProjectionRootArg, projection_call_root_args, projection_call_callee_type, OriginRootPlace, origin_carrying_value_roots, holder_future_roots, freeze_origin_carrying_binding, reject_composite_result_local_roots, note_ref_payload_source, ref_payload_source);
+/// A binding of a borrowed `match` (`match(&self.v, .Some(x) => …)`, or a
+/// reference binding matched bare, VERDICTS-13 §14): the binding's variable
+/// id and the scrutinee place it is a place inside. The projection root rule
+/// follows a yielded binding to that place's own root
+/// (`builtins/ptr_fns.yo`, `_projection_root_error`).
+(g_borrow_match_sources : RefCell(ArrayList(RefPayloadSource))) = RefCell(ArrayList(RefPayloadSource)).new(ArrayList(RefPayloadSource).new());
+/// Record that the binding `var_id` of a borrowed `match` is a place inside
+/// `scrutinee`.
+note_borrow_match_source :: (fn(var_id : usize, scrutinee : &AstExpr) -> unit)({
+  bms_scr := scrutinee.clone();
+  g_borrow_match_sources.with_mut({ var_id, bms_scr }(xs) => xs.push(RefPayloadSource(var_id : var_id, scrutinee : bms_scr.clone())));
+});
+/// The scrutinee place the borrowed-`match` binding `var_id` is inside.
+borrow_match_source :: (fn(var_id : usize) -> Option(AstExpr))({
+  (i : usize) = g_borrow_match_sources.with(xs => xs.len());
+  while(i > usize(0), {
+    i = (i - usize(1));
+    match(
+      g_borrow_match_sources.with(xs => xs.get(i)),
+      .Some(e) => if(e.var_id == var_id, {
+        return(Option(AstExpr).Some(e.scrutinee));
+      }),
+      .None => ()
+    );
+  });
+  Option(AstExpr).None
+});
+export(projection_call_mode_of, ProjectionRootArg, projection_call_root_args, projection_call_callee_type, OriginRootPlace, origin_carrying_value_roots, holder_future_roots, freeze_origin_carrying_binding, reject_composite_result_local_roots, note_ref_payload_source, ref_payload_source, note_borrow_match_source, borrow_match_source);
 export(record_pending_scrutinee_borrow, take_pending_scrutinee_borrows, PendingScrutineeBorrow, note_migrate_mut_scrutinee, migrate_mut_scrutinee_at, clear_migrate_mut_scrutinees, drop_owned_match_binding_at_arm_end, match_scrutinee_is_capture, local_borrow_register_match_place, local_borrow_note_match_place, note_consuming_match_scrutinee, consuming_match_scrutinee_at, moved_value_help, migrate_borrowed_match_at, _lb_arrow_shadows, _lb_fn_literal_binds, _lb_mentions);
 export(
   LocalBorrowPlace,

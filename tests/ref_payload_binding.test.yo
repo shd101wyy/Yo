@@ -206,3 +206,47 @@ test("a reference to a later newtype, struct or enum is a valid payload", {
   assert(match(_Refs.ToEnum(&o), .ToEnum(r) => r.is_some(), _ => false), "an enum referent");
   assert(match(_Refs.ToList(&xs), .ToList(r) => (r.len() == usize(0)), _ => false), "an ArrayList referent");
 });
+// A borrowing reader over an `Option` field, Rust's `Option::as_ref` and
+// `OnceCell::get`/`get_or_init` shapes: a binding of a borrowed `match` is a
+// place inside the scrutinee's place, so `&s.*` is rooted at `self`
+// (issues/fixed/2026-11-05-a-projection-cannot-yield-a-binding-of-a-borrowed-match.md).
+_Slot :: struct(v : Option(String), fallback : String);
+impl(
+  _Slot,
+  peek : (fn(self : &Self) -> Option(&String))(
+    match(&self.v, .Some(s) => .Some(s), .None => .None)
+  ),
+  value_or_fallback : (fn(self : &Self) -> &String)(
+    match(&self.v, .Some(s) => &s.*, .None => &self.fallback)
+  )
+);
+_slot_opt :: (fn() -> Option(String))(.Some(String.from("temp")));
+test("a borrowed match binding is yielded as a place of `self`", {
+  full := _Slot(v : .Some(String.from("hello")), fallback : String.from("-"));
+  empty := _Slot(v : .None, fallback : String.from("-"));
+  assert(match(full.peek(), .Some(s) => (s.len() == usize(5)), .None => false), "peek reads the payload in place");
+  assert(empty.peek().is_none(), "an empty slot peeks None");
+  assert(full.value_or_fallback().len() == usize(5), "the payload, in place");
+  assert(empty.value_or_fallback().len() == usize(1), "the fallback field");
+  assert(full.v.is_some(), "the String stayed in the slot");
+  // The yielded reference is the slot's payload itself, not a copy: it
+  // outlives the call and reads the place.
+  r := full.value_or_fallback();
+  assert(r.* == String.from("hello"), "the reference reads the payload after the call");
+  // A `&mut` result cannot yield a shared borrow, and a binding of a
+  // temporary scrutinee dies with the call.
+  comptime_expect_error({
+    _SlotMut :: struct(v : Option(String), fallback : String);
+    _bad :: (fn(x : &mut _SlotMut) -> &mut String)(
+      match(&x.v, .Some(s) => &mut s.*, .None => &mut x.fallback)
+    );
+    mut(m) := _SlotMut(v : .Some(String.from("a")), fallback : String.from("-"));
+    _r := _bad(&mut m);
+  }, "is a shared borrow");
+  comptime_expect_error({
+    _bad_tmp :: (fn(x : &_Slot) -> &String)(
+      match(&_slot_opt(), .Some(s) => &s.*, .None => &x.fallback)
+    );
+    _r := _bad_tmp(&full);
+  }, "E0912");
+});
