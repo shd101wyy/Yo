@@ -299,7 +299,7 @@ _shift_checked_expr :: (fn(args : &ArrayList(String), expr : &AstExpr, context :
 /// Safe mode Phase 3c (§6, ruling D2): float→int casts SATURATE (out-of-range
 /// → the target's MIN/MAX, NaN → 0) instead of C UB. Returns `.None` for any
 /// non float→int cast, which keeps the existing `((T)(a))` emission.
-_as_saturating_expr :: (fn(args : &ArrayList(String), expr : &AstExpr, context : &FunctionGenerationContext) -> Option(String))({
+_as_saturating_expr :: (fn(args : &ArrayList(String), expr : &AstExpr, context : &mut FunctionGenerationContext) -> Option(String))({
   sty := match(
     expr,
     .FnCall(_, _, Rc(ua), _, _) => match(
@@ -383,7 +383,7 @@ _unop :: (fn(args : &ArrayList(String), op : str) -> String)({
 /// The C type of a one-argument call's OPERAND, when it is a nameable
 /// primitive. Used to narrow a prefix arithmetic operator's result — see
 /// `_unop_narrowed`.
-_unary_operand_c_type :: (fn(expr : &AstExpr, context : &FunctionGenerationContext) -> Option(String))(
+_unary_operand_c_type :: (fn(expr : &AstExpr, context : &mut FunctionGenerationContext) -> Option(String))(
   match(
     expr,
     .FnCall(_, _, Rc(ua), _, _) => match(
@@ -420,7 +420,7 @@ _unary_operand_c_type :: (fn(expr : &AstExpr, context : &FunctionGenerationConte
 ///
 /// `!` does NOT come through here: its result is `bool`, which has no narrower
 /// representation to be promoted out of.
-_unop_narrowed :: (fn(args : &ArrayList(String), op : str, expr : &AstExpr, context : &FunctionGenerationContext) -> String)({
+_unop_narrowed :: (fn(args : &ArrayList(String), op : str, expr : &AstExpr, context : &mut FunctionGenerationContext) -> String)({
   inner := _a(args, usize(0));
   // Same degraded-render guard as `_binop`: `(~())` is invalid C and would
   // break the whole batch rather than this one expression.

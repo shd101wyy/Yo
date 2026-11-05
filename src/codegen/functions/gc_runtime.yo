@@ -24,7 +24,7 @@
 /// Recursively collect the C type strings of every non-unit `unwind(value)`
 /// argument reachable from `expr`.
 /// Returns a flat list (deduped by the caller into a HashSet).
-_collect_unwind_value_ctypes_from_expr :: (fn(expr : &AstExpr, context : &FunctionGenerationContext) -> ArrayList(String))({
+_collect_unwind_value_ctypes_from_expr :: (fn(expr : &AstExpr, context : &mut FunctionGenerationContext) -> ArrayList(String))({
   out := ArrayList(String).new();
   if(ast_expr_is_fn_call_of(expr, BF_UNWIND, Option(usize).None), {
     match(

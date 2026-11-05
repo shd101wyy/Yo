@@ -1496,7 +1496,7 @@ generate_dyn_forward_declarations :: (fn(context : &mut CodeGenContext) -> unit)
 /// struct right there), which must land BEFORE the vtable typedef opens — the
 /// caller collects every member first, then emits the typedef
 /// (issues/fixed/dyn-trait-with-future-returning-method-splices-struct-into-vtable.md).
-_dyn_vtable_method_line :: (fn(label : &String, field_ty : &TypeValue, processed : &mut HashSet(String), context : &CodeGenContext) -> Option(String))({
+_dyn_vtable_method_line :: (fn(label : &String, field_ty : &TypeValue, processed : &mut HashSet(String), context : &mut CodeGenContext) -> Option(String))({
   if((label == "Self") || _is_reserved_dyn_method(label), {
     return(Option(String).None);
   });

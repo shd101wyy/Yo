@@ -107,7 +107,7 @@ resolve_effect_field_from_scope :: (fn(field_label : &String, context : &Functio
 /// Resolve an effect record field (e.g. "throw" from Exception) from `given`
 /// bindings in the call environment. StructVal carries field names + values
 /// directly.
-resolve_evidence_field_from_given_bindings :: (fn(field_label : &String, context : &FunctionGenerationContext, expr : &AstExpr) -> Option(String))({
+resolve_evidence_field_from_given_bindings :: (fn(field_label : &String, context : &mut FunctionGenerationContext, expr : &AstExpr) -> Option(String))({
   call_env := match(
     context.base.get_expr_info(expr),
     .Some(ei) => ei.env,
@@ -140,7 +140,7 @@ resolve_evidence_field_from_given_bindings :: (fn(field_label : &String, context
                   match(
                     fv,
                     .FuncVal(__fvd1, _) => match(
-                      fn_value_c_name(&__fvd1.*.func_id, &context.base),
+                      fn_value_c_name(&__fvd1.*.func_id, &mut context.base),
                       .Some(cn) => return(Option(String).Some(cn)),
                       .None => ()
                     ),

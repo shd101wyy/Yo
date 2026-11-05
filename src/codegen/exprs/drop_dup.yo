@@ -1321,7 +1321,7 @@ emit_deferred_dup_or_code :: (fn(expr : &AstExpr, fallback_code : &String, inden
 /// awaited `Option(String)` local — so the payload was owned twice and
 /// released twice at completion; the string came back empty (or freed) to
 /// the caller (issues/fixed/async-match-arm-borrowed-payload-released-twice.md).
-arm_value_with_dups :: (fn(body_expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> Option(String))({
+arm_value_with_dups :: (fn(body_expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> Option(String))({
   bei := match(context.base.get_expr_info(body_expr), .Some(b) => b, .None => return(Option(String).None));
   bdups := match(expr_info_deferred_dup_expressions(&bei), .Some(d) => d, .None => return(Option(String).None));
   if(bdups.len() == usize(0), {

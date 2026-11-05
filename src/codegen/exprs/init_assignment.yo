@@ -242,7 +242,7 @@ _sm_local_slot :: (fn(v : &Variable, context : &FunctionGenerationContext) -> Op
   )
 );
 /// `bind_env` is the binding node's recorded env.
-_generate_inout_local_binding :: (fn(lhs : &AstExpr, rhs : &AstExpr, bind_key : ExprId, bind_env : &Option(Environment), indent : &String, context : &FunctionGenerationContext) -> Option(String))({
+_generate_inout_local_binding :: (fn(lhs : &AstExpr, rhs : &AstExpr, bind_key : ExprId, bind_env : &Option(Environment), indent : &String, context : &mut FunctionGenerationContext) -> Option(String))({
   // `name := t.index(i)` (a projection call's result, decision 24) binds the
   // bare name; `name := &place` its `__yo_imm(name)` / `__yo_mut(name)` form.
   name_expr := match(
@@ -418,7 +418,7 @@ generate_local_borrow_repoint :: (fn(expr : &AstExpr, indent : &String, context 
   context.base.emitter.emit_string_line(`${indent}${ptr} = ${addr};`);
   String.from("")
 });
-generate_initialization_assignment :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> Option(String))({
+generate_initialization_assignment :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> Option(String))({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(Option(String).None));
   args := match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
   lhs := match(args.get(usize(0)), .Some(x) => x, .None => return(Option(String).None));
@@ -588,7 +588,7 @@ generate_initialization_assignment :: (fn(expr : &AstExpr, indent : &String, con
       rhs_is_void_call := match(
         rhs,
         .FnCall(_, rhs_callee, _, _, _) => match(
-          static_dispatch_callee_return_type(&rhs_callee, &context.base),
+          static_dispatch_callee_return_type(&rhs_callee, &mut context.base),
           .Some(sd_ret) => (sd_ret == `void`),
           .None => false
         ),

@@ -1356,7 +1356,7 @@ generate_return :: (fn(expr : &AstExpr, indent : &String, context : &mut Functio
   )
 });
 /// Generate an implicit function-body return.
-generate_implicit_return_statement :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> unit)({
+generate_implicit_return_statement :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> unit)((
   match(
     expr,
     .Atom(_, _) => {
@@ -1447,7 +1447,7 @@ generate_implicit_return_statement :: (fn(expr : &AstExpr, indent : &String, con
       });
     })
   )
-});
+));
 /// Emit the effect-handler parameter drops (if any) before an escape return.
 _emit_effect_handler_param_drops :: (fn(context : &mut FunctionGenerationContext, indent : &String) -> unit)(
   match(
@@ -1491,9 +1491,9 @@ _current_c_result_type :: (fn(rt : &TypeValue, context : &mut FunctionGeneration
 /// Where the code section ends now. The buffer spills to disk only between
 /// functions, so two readings inside one function measure what was emitted
 /// between them.
-_code_position :: (fn(context : &FunctionGenerationContext) -> usize)({
+_code_position :: (fn(context : &FunctionGenerationContext) -> usize)((
   context.base.emitter.code_spilled_bytes + context.base.emitter.code.len()
-});
+));
 /// An escape sequence's drops run destructors, and a destructor is ordinary
 /// code: each may-unwind call in it clears `__yo_effect_escaped` first (the
 /// caller-side protocol `__yo_effect_escaped = 0; <call>; if (...)`). Run on

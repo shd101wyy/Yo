@@ -248,7 +248,7 @@ _object_decl_has_generic_fields :: (fn(fields : &ArrayList(RuntimeStructField)) 
 });
 /// Emit the per-variant constructor forward declarations for ONE
 /// reference-semantics enum, matching the definitions in constructors.yo.
-_emit_ref_enum_constructor_decls :: (fn(type : &TypeValue, c_name : &String, context : &mut CodeGenContext) -> unit)({
+_emit_ref_enum_constructor_decls :: (fn(type : &TypeValue, c_name : &String, context : &mut CodeGenContext) -> unit)((
   match(
     type,
     Rc(.EnumT({ variant_names, variant_fields, variant_field_labels })) => {
@@ -285,7 +285,7 @@ _emit_ref_enum_constructor_decls :: (fn(type : &TypeValue, c_name : &String, con
     },
     _ => ()
   )
-});
+));
 /// Generate constructor + RC/GC forward declarations for objects.
 ///
 /// Decl/def consistency: the per-object parameter list uses
@@ -624,7 +624,7 @@ should_skip_function_codegen :: (fn(func_id : &String, c_name : &String, value :
 /// "member reference base type 'void'". Returns `.None` for non-Future returns
 /// (callers keep their own non-Future body-type override).
 _async_override_return_type :: (
-  fn(function_type : &TypeValue, body : &Option(AstExpr), context : &CodeGenContext) -> Option(String)
+  fn(function_type : &TypeValue, body : &Option(AstExpr), context : &mut CodeGenContext) -> Option(String)
 )({
   ret := _func_result_type(function_type);
   ret_is_future := type_implements_future(&ret);
@@ -702,7 +702,7 @@ _async_override_return_type :: (
 /// static type equals the dynamic object. Returns `.None` for non-calls and
 /// non-future callees.
 awaited_future_c_type_override :: (
-  fn(future_expr : &AstExpr, context : &CodeGenContext) -> Option(String)
+  fn(future_expr : &AstExpr, context : &mut CodeGenContext) -> Option(String)
 )({
   if(!ast_expr_is_fn_call(future_expr), {
     return(Option(String).None);
@@ -737,7 +737,7 @@ awaited_future_c_type_override :: (
 /// SomeType / SomeType-containing signature. `.None` means the signature's own
 /// result spelling stands.
 _return_type_override :: (
-  fn(function_type : &TypeValue, body : &Option(AstExpr), context : &CodeGenContext) -> Option(String)
+  fn(function_type : &TypeValue, body : &Option(AstExpr), context : &mut CodeGenContext) -> Option(String)
 )({
   ret := _func_result_type(function_type);
   (mut(override) : Option(String)) = Option(String).None;
@@ -788,7 +788,7 @@ _return_type_override :: (
 ///
 /// `.None` for a func_id with no registered entry or no Func type.
 emitted_return_type_string :: (
-  fn(func_id : &String, context : &CodeGenContext) -> Option(String)
+  fn(func_id : &String, context : &mut CodeGenContext) -> Option(String)
 )(
   match(
     context.get_function_entry(func_id.clone()),
@@ -837,7 +837,7 @@ emitted_return_type_string :: (
 /// `dispose_fn_thunk`
 /// (issues/fixed/2026-10-24-two-async-functions-through-one-function-typed-parameter-are-called-through-an-incompatible-pointer-type.md).
 /// `.None` when `func_id` has no registered entry.
-fn_value_c_name :: (fn(func_id : &String, context : &CodeGenContext) -> Option(String))(
+fn_value_c_name :: (fn(func_id : &String, context : &mut CodeGenContext) -> Option(String))(
   match(
     context.get_function_entry(func_id.clone()),
     .None => Option(String).None,
@@ -894,7 +894,7 @@ fn_value_c_name :: (fn(func_id : &String, context : &CodeGenContext) -> Option(S
 /// temp, and the binding itself
 /// (issues/fixed/closure-call-binds-a-void-result-to-a-void-pointer-temp.md).
 static_dispatch_callee_return_type :: (
-  fn(func_expr : &AstExpr, context : &CodeGenContext) -> Option(String)
+  fn(func_expr : &AstExpr, context : &mut CodeGenContext) -> Option(String)
 )(
   match(
     context.get_expr_info(func_expr),

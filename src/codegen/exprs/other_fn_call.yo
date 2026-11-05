@@ -365,7 +365,7 @@ _sm_lent_temp_slot :: (fn(code : &String, context : &FunctionGenerationContext) 
 });
 /// The container-pointer C code for an interior `ref` argument (an Index-trait
 /// expression), or `.None`.
-_get_interior_ref_container_code :: (fn(arg_expr : &AstExpr, param_is_ref : bool, indent : &String, context : &FunctionGenerationContext) -> Option(String))(
+_get_interior_ref_container_code :: (fn(arg_expr : &AstExpr, param_is_ref : bool, indent : &String, context : &mut FunctionGenerationContext) -> Option(String))(
   if(
     !param_is_ref,
     Option(String).None,
@@ -425,7 +425,7 @@ _interior_ref_container_is_atomic :: (fn(arg_expr : &AstExpr, context : &Functio
 );
 /// Emit `__yo_borrow_acquire` for each interior-ref arg's container; returns the
 /// matching release CALLS (caller emits them via `_emit_borrow_releases`).
-_emit_borrow_acquires :: (fn(runtime_arg_exprs : &ArrayList(AstExpr), runtime_param_is_ref : &ArrayList(bool), indent : &String, context : &FunctionGenerationContext) -> ArrayList(String))({
+_emit_borrow_acquires :: (fn(runtime_arg_exprs : &ArrayList(AstExpr), runtime_param_is_ref : &ArrayList(bool), indent : &String, context : &mut FunctionGenerationContext) -> ArrayList(String))({
   mut(containers) := ArrayList(String).new();
   na := runtime_arg_exprs.len();
   np := runtime_param_is_ref.len();
@@ -503,10 +503,10 @@ _c_func_name :: (fn(func_id : &String, context : &FunctionGenerationContext) -> 
 /// value is a registered FuncVal → the C name it is passed as
 /// (`fn_value_c_name`: a future-returning function goes through its
 /// erased-signature thunk).
-_arg_fn_value_c_name :: (fn(key : ExprId, env : &Environment, name : &String, context : &FunctionGenerationContext) -> Option(String))({
+_arg_fn_value_c_name :: (fn(key : ExprId, env : &Environment, name : &String, context : &mut FunctionGenerationContext) -> Option(String))({
   vars := scope_variables(key, env, name);
   m := vars.len();
-  if(m == usize(0), Option(String).None, match(vars.get(m - usize(1)), .Some(v) => match(v.value.get(usize(0)), .Some(val) => if(is_func_val(&val), match(val, .FuncVal(__fvd1, _) => fn_value_c_name(&__fvd1.*.func_id, &context.base), _ => Option(String).None), Option(String).None), .None => Option(String).None), .None => Option(String).None))
+  if(m == usize(0), Option(String).None, match(vars.get(m - usize(1)), .Some(v) => match(v.value.get(usize(0)), .Some(val) => if(is_func_val(&val), match(val, .FuncVal(__fvd1, _) => fn_value_c_name(&__fvd1.*.func_id, &mut context.base), _ => Option(String).None), Option(String).None), .None => Option(String).None), .None => Option(String).None))
 });
 /// Whether the last binding for `name` (in node `key`'s recorded scope `env`)
 /// is compile-time-only.
@@ -1096,7 +1096,7 @@ _operand_may_write :: (fn(e : &AstExpr, context : &FunctionGenerationContext) ->
 /// Apply the auto-`&` wrap to ref-parameter arguments (fold `(*x)`→`x`, wrap
 /// bare literals in a compound literal, address-of addressable exprs, else
 /// spill to a temp).
-_apply_ref_amp :: (fn(args : &ArrayList(String), param_is_ref : &ArrayList(bool), runtime_args : &ArrayList(AstExpr), indent : &String, context : &FunctionGenerationContext) -> ArrayList(String))({
+_apply_ref_amp :: (fn(args : &ArrayList(String), param_is_ref : &ArrayList(bool), runtime_args : &ArrayList(AstExpr), indent : &String, context : &mut FunctionGenerationContext) -> ArrayList(String))({
   mut(out) := ArrayList(String).new();
   na := args.len();
   (mut(i) : usize) = usize(0);
@@ -1731,7 +1731,7 @@ _future_init_cast :: (fn(ty : &TypeValue, context : &mut FunctionGenerationConte
 /// path with evidence; specialization uses the call-site Func type directly
 /// (FuncVal has no specializedType — Gap 2); `ref`-arg atom temp skip
 /// (Variable has no is_ref). The cFuncName direct-call path is the live corpus path.
-generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> Option(String))({
+generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> Option(String))({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(Option(String).None));
   // Compile-time value → generate it directly.
   //
@@ -3069,7 +3069,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
               // residual that the windows-arm cross-emit leg promotes to an
               // error).
               match(
-                awaited_future_c_type_override(expr, &context.base),
+                awaited_future_c_type_override(expr, &mut context.base),
                 .Some(ot_ovr0) => {
                   c_type = ot_ovr0;
                 },
@@ -3077,7 +3077,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
                   _async_override_return_type(
                     &function_type,
                     match(fv, .FuncVal(__ofnb, _) => Option(AstExpr).Some(__ofnb.*.body), _ => Option(AstExpr).None),
-                    &context.base
+                    &mut context.base
                   ),
                   .Some(ot_ovr) => {
                     c_type = ot_ovr;
@@ -3177,7 +3177,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
   // See issues/fixed/closure-call-binds-a-void-result-to-a-void-pointer-temp.md.
   cc_callee_ret := match(
     cc_mapped,
-    .Some(ccm) => emitted_return_type_string(ccm.closure_fid.clone(), &context.base),
+    .Some(ccm) => emitted_return_type_string(ccm.closure_fid.clone(), &mut context.base),
     .None => Option(String).None
   );
   (out : String) = match(
@@ -3267,7 +3267,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
           ctl_generic_ret,
           ctl_callee_ret_str.clone(),
           match(
-            erased_future_result_type_string(&result_type, &context.base),
+            erased_future_result_type_string(&result_type, &mut context.base),
             .Some(er) => er,
             // A projection's result is its place's address (decision 24).
             .None => if(fn_result_is_ref(&function_type), `${get_type_string(&result_type, &mut context.base)}*`, get_type_string(&result_type, &mut context.base))
@@ -3305,7 +3305,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
             sig_ret_override := if(
               ctl_generic_ret,
               Option(String).None,
-              match(&sf, Rc(.Func({ result : sfr })) => erased_future_result_type_string(&t_slot_pointee(&sfr), &context.base), _ => Option(String).None)
+              match(&sf, Rc(.Func({ result : sfr })) => erased_future_result_type_string(&t_slot_pointee(&sfr), &mut context.base), _ => Option(String).None)
             );
             cast = `(${generate_function_prototype(&sf, String.from("(*)"), &mut context.base, &sig_ret_override, false)})`;
           },

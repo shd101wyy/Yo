@@ -713,14 +713,14 @@ emit_async_block_struct_definition :: (
 /// Only the top-level type is guarded (not panics nested inside e.g. Pointer
 /// recursion), which suffices for async dependency graphs (futures are embedded
 /// by value, not behind a pointer).
-_dep_named_type_string :: (fn(t : &TypeValue, context : &FunctionGenerationContext) -> Option(String))(
+_dep_named_type_string :: (fn(t : &TypeValue, context : &mut FunctionGenerationContext) -> Option(String))(
   match(
     context.base.get_type_c_name(type_key(t)),
     .Some(_) => Option(String).Some(get_type_string(t, &mut context.base)),
     .None => Option(String).None
   )
 );
-_dep_type_string :: (fn(t : &TypeValue, context : &FunctionGenerationContext) -> Option(String))(
+_dep_type_string :: (fn(t : &TypeValue, context : &mut FunctionGenerationContext) -> Option(String))(
   match(
     t,
     Rc(.FnTraitT({})) => Option(String).None,
@@ -761,7 +761,7 @@ _add_deferred_dep :: (
 /// or an `await_future_X` field whose type C-string matches another block's
 /// struct name introduces an edge.
 _build_deferred_deps :: (
-  fn(b : &DeferredAsyncBlock, by_struct_name : &HashMap(String, DeferredAsyncBlock), dependents : &mut HashMap(String, HashSet(String)), indegree : &mut HashMap(String, usize), context : &FunctionGenerationContext) -> unit
+  fn(b : &DeferredAsyncBlock, by_struct_name : &HashMap(String, DeferredAsyncBlock), dependents : &mut HashMap(String, HashSet(String)), indegree : &mut HashMap(String, usize), context : &mut FunctionGenerationContext) -> unit
 )({
   // Local variable fields.
   cvs := &b.analysis.captured_variables;
@@ -967,7 +967,7 @@ emit_deferred_async_block_struct_definitions :: (fn(context : &mut FunctionGener
 /// retained — a use-after-free
 /// (issues/fixed/abort-dispose-never-drops-string-option-and-value-struct-locals.md,
 /// issues/fixed/nested-io-async-string-capture-is-not-retained.md).
-_inline_rc_field_line :: (fn(field_ref : &String, field_type : &TypeValue, indent : &String, is_drop : bool, context : &FunctionGenerationContext) -> Option(String))({
+_inline_rc_field_line :: (fn(field_ref : &String, field_type : &TypeValue, indent : &String, is_drop : bool, context : &mut FunctionGenerationContext) -> Option(String))({
   saved := replace(&mut context.base.emitter, Emitter.new());
   code := if(is_drop, generate_drop_code_for_value(field_ref.clone(), field_type, context), generate_dup_code_for_value(field_ref.clone(), field_type, context));
   mut(scratch) := replace(&mut context.base.emitter, saved);
@@ -1009,7 +1009,7 @@ _inline_rc_field_line :: (fn(field_ref : &String, field_type : &TypeValue, inden
 /// machine. The result was an unbalanced drop: a future re-created each
 /// iteration of a loop freed the captured value under the loop (rc=139).
 /// See issues/fixed/await-in-branch-positions-matrix.md.
-_rc_field_retain_line :: (fn(field_ref : &String, field_type : &TypeValue, indent : &String, context : &FunctionGenerationContext) -> Option(String))(
+_rc_field_retain_line :: (fn(field_ref : &String, field_type : &TypeValue, indent : &String, context : &mut FunctionGenerationContext) -> Option(String))(
   cond(
     is_dyn_type(field_type) => Option(String).Some(`${indent.clone()}__yo_dyn_retain((void*)(${field_ref.clone()}).data, (const void*)(${field_ref.clone()}).vtable);`),
     is_atomic_reference_struct_type(field_type) => Option(String).Some(`${indent.clone()}if (${field_ref.clone()} != NULL) { __yo_incr_rc_atomic((void*)${field_ref.clone()}); }`),
@@ -1028,7 +1028,7 @@ _rc_field_retain_line :: (fn(field_ref : &String, field_type : &TypeValue, inden
 );
 /// The drop line for an RC-bearing field/local at `field_ref`, or `None` if the
 /// type needs no drop.
-_rc_field_drop_line :: (fn(field_ref : &String, field_type : &TypeValue, indent : &String, context : &FunctionGenerationContext) -> Option(String))(
+_rc_field_drop_line :: (fn(field_ref : &String, field_type : &TypeValue, indent : &String, context : &mut FunctionGenerationContext) -> Option(String))(
   cond(
     is_dyn_type(field_type) => Option(String).Some(`${indent.clone()}__yo_dyn_release((void*)(${field_ref.clone()}).data, (const void*)(${field_ref.clone()}).vtable);`),
     is_atomic_reference_struct_type(field_type) => Option(String).Some(`${indent.clone()}if (${field_ref.clone()} != NULL) { __yo_decr_rc_atomic((void*)${field_ref.clone()}); }`),
@@ -1909,7 +1909,7 @@ fused_await_site :: (fn(await_expr : &AstExpr, report : bool, context : &Functio
 /// The fused sites of a state machine whose await analysis is `analysis`: one
 /// per wrapper block and depth (sites that share a prefix share fields), and,
 /// through each, the sites nested in its block (F3), under its prefix.
-fused_await_sites :: (fn(analysis : &AwaitAnalysisResult, context : &FunctionGenerationContext) -> ArrayList(FusedAwaitSite))({
+fused_await_sites :: (fn(analysis : &AwaitAnalysisResult, context : &mut FunctionGenerationContext) -> ArrayList(FusedAwaitSite))({
   mut(out) := ArrayList(FusedAwaitSite).new();
   if(!_async_fusion_enabled(), {
     return(out);

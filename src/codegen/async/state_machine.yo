@@ -1709,7 +1709,7 @@ emit_inline_await :: (fn(expr : &AstExpr, indent : &String, context : &mut Funct
   future_code := _call_generate_expr(&future_arg, indent, context);
   (future_c_type : String) = get_type_string(&future_ty, &mut context.base);
   match(
-    awaited_future_c_type_override(&future_arg, &context.base),
+    awaited_future_c_type_override(&future_arg, &mut context.base),
     .Some(o) => {
       future_c_type = o;
     },
@@ -1836,7 +1836,7 @@ generate_async_block_resume_function_inline :: (
     analysis : &AwaitAnalysisResult,
     future_type : &TypeValue,
     capture_type : &Option(TypeValue),
-    context : &FunctionGenerationContext
+    context : &mut FunctionGenerationContext
   ) -> ArrayList(String)
 )({
   is_unit_result := match(
@@ -1979,7 +1979,7 @@ generate_async_block_resume_function_inline :: (
 /// waiters — the phase-2 protocol of generate_async_block_cancel_pending_function,
 /// with the per-state facts the lowering recorded as it emitted each await.
 generate_async_block_cancel_pending_function_inline :: (
-  fn(async_block_id : &String, struct_name : &String, context : &FunctionGenerationContext) -> Option(String)
+  fn(async_block_id : &String, struct_name : &String, context : &mut FunctionGenerationContext) -> Option(String)
 )({
   // Taken out and stored back below: the recorded list is move-only and
   // `InlineSuspension` has no `Clone`.

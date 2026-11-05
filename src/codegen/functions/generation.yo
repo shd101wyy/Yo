@@ -740,7 +740,7 @@ generate_function :: (fn(function_value : &EvalValue, c_function_name : &String,
       // generic_impl_async_self. Same helper AND same inputs, or the invariant
       // is only half restored.
       decl_body := if(is_effect_record_member(func_id.clone()), Option(AstExpr).None, Option(AstExpr).Some(body_box));
-      async_override := _return_type_override(&function_type, &decl_body, &context.base);
+      async_override := _return_type_override(&function_type, &decl_body, &mut context.base);
       prototype := generate_function_prototype(&function_type, c_function_name.clone(), &mut context.base, &async_override, is_closure_fn(func_id.clone()));
       is_exported := ((c_function_name == "__yo_user_main") || context.base.exported_function_labels.contains_key(func_id.clone()));
       // Non-exported functions are `static inline` and exported ones carry no
@@ -1289,7 +1289,7 @@ _module_init_var_atom :: (fn(init_expr : &AstExpr) -> Option(AstExpr))({
 /// carry distinct ids — the C-name dedup here is the definitive guard against
 /// duplicate declarations).
 emit_module_level_variable_declarations :: (
-  fn(context : &FunctionGenerationContext) -> ArrayList(ModuleLevelVarEntry)
+  fn(context : &mut FunctionGenerationContext) -> ArrayList(ModuleLevelVarEntry)
 )({
   result := ArrayList(ModuleLevelVarEntry).new();
   seen := HashSet(String).new();
