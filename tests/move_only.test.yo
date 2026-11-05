@@ -1041,7 +1041,7 @@ impl(
     })
   )
 );
-_MoDropRef :: ref(struct(n : i32));
+_MoDropRef :: struct(n : i32);
 impl(
   _MoDropRef,
   Drop(
@@ -1118,7 +1118,7 @@ test("Drop: an explicit destructor call is E0915", {
   comptime_expect_error(a.drop(), "Explicit call of the destructor");
   comptime_expect_error(_MoDropFd.drop(&a), "Explicit call of the destructor");
   comptime_expect_error((_MoDropFd <: Drop).drop(&a), "Explicit call of the destructor");
-  r := _MoDropRef(n : i32(0));
+  r := Rc.new(_MoDropRef(n : i32(0)));
   comptime_expect_error(r.drop(), "Explicit call of the destructor");
   p := _MoDropPair(i32)(a : i32(0), n : i32(0));
   comptime_expect_error(p.drop(), "Explicit call of the destructor");

@@ -84,13 +84,13 @@ test("a String moves into a by-value parameter, as `t := s` binds it", {
   comptime_expect_error(s.len(), "use of moved value");
 });
 
-_PmHandle :: ref(struct(n : i32));
+_PmHandle :: struct(n : i32);
 test("an io.async body shares a handle into a by-value parameter: the slot keeps its own reference", {
   t := io.async((io : Io) => {
-    mut(xs) := ArrayList(_PmHandle).new();
-    q := _PmHandle(n : i32(2));
+    mut(xs) := ArrayList(Rc(_PmHandle)).new();
+    q := Rc.new(_PmHandle(n : i32(2)));
     io.await(sleep(u64(1)), io);
-    xs.push(q);
+    xs.push(Rc.clone(&q));
     (ref_count(q) * usize(10)) + xs.len()
   });
   r := io.await(t, io);
