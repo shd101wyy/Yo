@@ -1,0 +1,42 @@
+// issues/2026-11-05-a-closure-reached-only-through-a-drop-impl-is-an-internal-compiler-error.md
+// Two shapes: the closure in a helper only the drop calls (`_bump`), and the
+// natural spelling tests/short_circuit_drops.test.yo wants, a closure in the
+// drop body itself (`Tracked`). Each alone is E1301.
+{ assert } :: import("std/assert");
+{ RefCell } :: import("std/sync/refcell");
+(mut(g_n) : i32) = i32(0);
+_apply :: (fn(f : &Impl(Fn(x : i32) -> i32)) -> i32)(f(i32(1)));
+_bump :: (fn() -> unit)({
+  g_n = (g_n + _apply(x => (x + i32(1))));
+});
+T :: struct(v : i32);
+impl(
+  T,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      _bump();
+    })
+  )
+);
+Counter :: struct(n : RefCell(i32));
+Tracked :: struct(c : Rc(Counter), v : i32);
+impl(
+  Tracked,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      self.c.n.replace_with(n => (n.* + i32(1)));
+    })
+  )
+);
+main :: (fn() -> unit)({
+  {
+    t := T(v : i32(1));
+  };
+  assert(g_n == i32(2), "two");
+  c := Rc.new(Counter(n : RefCell(i32).new(i32(0))));
+  {
+    k := Tracked(c : Rc.clone(&c), v : i32(1));
+  };
+  assert(c.n.with(n => n.*) == i32(1), "the drop counted once");
+});
+export(main);

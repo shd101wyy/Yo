@@ -15,11 +15,9 @@ CPayload :: enum(
   Empty,
   Val(s : String)
 );
-CInfo :: ref(
-  struct(
-    label : String,
-    value : CPayload
-  )
+CInfo :: struct(
+  label : String,
+  value : CPayload
 );
 new_cinfo :: (fn(label : &String) -> CInfo)(
   CInfo(label : label.clone(), value : CPayload.Empty)
@@ -72,7 +70,7 @@ test("continue inside match arm with extracted Option payload", {
       kind,
       .Quoted(tag) => {
         if(tag.len() > usize(0), {
-          q_info := new_cinfo(String.from("quoted"));
+          mut(q_info) := new_cinfo(String.from("quoted"));
           q_info.value = CPayload.Val(arg.clone());
           acc.push(q_info.label.clone());
           iter = (iter + i32(1));
@@ -168,14 +166,14 @@ test("a temporary in a three-argument while step is released once per iteration"
 });
 
 (mut(g_sc_step_drops) : i32) = i32(0);
-// An RC-handle place and a move-only place, each replaced by a three-argument
+// An RC-handle place (an `Rc`) and a move-only place, each replaced by a three-argument
 // `while` step INSIDE a state machine (the body suspends between iterations):
 // the assignment generator returns the old-value save's NAME as a statement's
 // value, and in a state machine that save lives in an `sm->var_<name>_<id>`
 // slot — emitting the returned name as a statement was an undeclared
 // identifier (found by the adversarial review; a step now discards the
 // return, `generate_step_expression`).
-_ScCnt :: ref(struct(n : i32));
+_ScCnt :: struct(n : i32);
 impl(
   _ScCnt,
   Drop(
@@ -184,10 +182,10 @@ impl(
     })
   )
 );
-_sc_mk :: (fn(x : i32) -> _ScCnt)(_ScCnt(n : x));
+_sc_mk :: (fn(x : i32) -> Rc(_ScCnt))(Rc.new(_ScCnt(n : x)));
 _sc_run_rc :: (fn(io : Io) -> Impl(Future(i32, Io)))(
   io.async(e => {
-    (mut(t) : _ScCnt) = _sc_mk(i32(50));
+    (mut(t) : Rc(_ScCnt)) = _sc_mk(i32(50));
     (mut(k) : i32) = i32(0);
     while(k < i32(3), t = _sc_mk(k), {
       k = (k + i32(1));

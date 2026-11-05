@@ -28,53 +28,58 @@
 //! `tests/internal` only runs in the differential shard.
 import("std/string");
 { assert } :: import("std/assert");
-// A heap counter the disposed temps can reach through their own field.
-Counter :: ref(struct(n : i32));
-Tracked :: ref(struct(c : Counter, v : i32));
+{ RefCell } :: import("std/sync/refcell");
+// A shared heap counter (an `Rc`) the disposed temps can reach through their
+// own field; the count is its one written field, a `RefCell`.
+Counter :: struct(n : RefCell(i32));
+Tracked :: struct(c : Rc(Counter), v : i32);
 impl(
   Tracked,
   Drop(
     drop : (fn(self : &mut Self) -> unit)({
-      self.c.n = (self.c.n + i32(1));
+      // `replace`, not `replace_with`: a closure reached only from a `Drop`
+      // is E1301 (issues/2026-11-05-a-closure-reached-only-through-a-drop-impl-is-an-internal-compiler-error.md).
+      old := self.c.n.replace(i32(0));
+      self.c.n.replace(old + i32(1));
     })
   )
 );
 // Every call mints ONE owning temp; whether it is dropped is what is under
 // test.
-_mk :: (fn(c : &Counter, v : i32) -> Tracked)(Tracked(c : c.*, v : v));
+_mk :: (fn(c : &Rc(Counter), v : i32) -> Tracked)(Tracked(c : Rc.clone(c), v : v));
 // ── the shapes ─────────────────────────────────────────────────────────────
 // Whole-body `||`, operand 0 FALSE so both operands evaluate: 2 temps.
-_two_or :: (fn(c : &Counter) -> bool)(
+_two_or :: (fn(c : &Rc(Counter)) -> bool)(
   (_mk(c, i32(1)).v == i32(9)) || (_mk(c, i32(2)).v == i32(9))
 );
 // Whole-body `&&`, operand 0 TRUE so both operands evaluate: 2 temps.
-_two_and :: (fn(c : &Counter) -> bool)(
+_two_and :: (fn(c : &Rc(Counter)) -> bool)(
   (_mk(c, i32(1)).v == i32(1)) && (_mk(c, i32(2)).v == i32(9))
 );
 // `||` that ACTUALLY short-circuits: operand 1 is never evaluated, so only 1
 // temp exists. The over-drop canary — a drop emitted unconditionally for
 // operand 1 would release a temp that was never created.
-_or_short :: (fn(c : &Counter) -> bool)(
+_or_short :: (fn(c : &Rc(Counter)) -> bool)(
   (_mk(c, i32(1)).v == i32(1)) || (_mk(c, i32(2)).v == i32(9))
 );
 // `&&` that actually short-circuits: 1 temp.
-_and_short :: (fn(c : &Counter) -> bool)(
+_and_short :: (fn(c : &Rc(Counter)) -> bool)(
   (_mk(c, i32(1)).v == i32(9)) && (_mk(c, i32(2)).v == i32(9))
 );
 // A CHAIN parses as nested binaries `((a || b) || c)`: 3 temps. The inner
 // operand's temps were the remainder left by the first fix
 // (issues/fixed/short-circuit-chain-inner-operand-temps-still-leak.md).
-_chain3 :: (fn(c : &Counter) -> bool)(
+_chain3 :: (fn(c : &Rc(Counter)) -> bool)(
   (_mk(c, i32(1)).v == i32(9)) || (_mk(c, i32(2)).v == i32(9)) || (_mk(c, i32(3)).v == i32(9))
 );
 // Mixed `&&` over two `||`s: 4 temps, all evaluated.
-_mixed :: (fn(c : &Counter) -> bool)(
+_mixed :: (fn(c : &Rc(Counter)) -> bool)(
   ((_mk(c, i32(1)).v == i32(9)) || (_mk(c, i32(2)).v == i32(2))) &&
     ((_mk(c, i32(3)).v == i32(9)) || (_mk(c, i32(4)).v == i32(4)))
 );
 // `||` inside a match arm: 2 temps. Fixed by the same change and covered by
 // no test before.
-_in_match :: (fn(c : &Counter) -> bool)(
+_in_match :: (fn(c : &Rc(Counter)) -> bool)(
   match(
     Option(i32).Some(i32(1)),
     .Some(_) => ((_mk(c, i32(1)).v == i32(9)) || (_mk(c, i32(2)).v == i32(9))),
@@ -83,12 +88,12 @@ _in_match :: (fn(c : &Counter) -> bool)(
 );
 // The begin-opened (statement-position) shape — the pending channel covers
 // it; this pins parity between the two sources.
-_stmt_or :: (fn(c : &Counter) -> bool)({
+_stmt_or :: (fn(c : &Rc(Counter)) -> bool)({
   r := ((_mk(c, i32(1)).v == i32(9)) || (_mk(c, i32(2)).v == i32(9)));
   r
 });
 // `||` in a while body: the loop-scope flush owns these; parity pin.
-_in_while :: (fn(c : &Counter) -> i32)({
+_in_while :: (fn(c : &Rc(Counter)) -> i32)({
   (mut(h) : i32) = i32(0);
   (mut(i) : usize) = usize(0);
   while(i < usize(3), {
@@ -100,14 +105,14 @@ _in_while :: (fn(c : &Counter) -> i32)({
   h
 });
 // Run `f` 100 times and return how many disposes it produced.
-_disposes :: (fn(f : &Impl(Fn(c : &Counter) -> bool)) -> i32)({
-  c := Counter(n : i32(0));
+_disposes :: (fn(f : &Impl(Fn(c : &Rc(Counter)) -> bool)) -> i32)({
+  c := Rc.new(Counter(n : RefCell(i32).new(i32(0))));
   (mut(i) : usize) = usize(0);
   while(i < usize(100), {
     _r := f(&c);
     i = (i + usize(1));
   });
-  c.n
+  c.n.with(n => n.*)
 });
 test("whole-body || drops both operand temps", {
   got := _disposes(_two_or);
@@ -142,11 +147,12 @@ test("statement-position || keeps parity with the whole-body shape", {
   assert(got == i32(200), `2 temps x 100 calls must all dispose, got ${got.to_string()}`);
 });
 test("|| in a while body drops its operand temps every iteration", {
-  c := Counter(n : i32(0));
+  c := Rc.new(Counter(n : RefCell(i32).new(i32(0))));
   (mut(i) : usize) = usize(0);
   while(i < usize(100), {
     _r := _in_while(&c);
     i = (i + usize(1));
   });
-  assert(c.n == i32(600), `2 temps x 3 iterations x 100 calls, got ${c.n.to_string()}`);
+  got := c.n.with(n => n.*);
+  assert(got == i32(600), `2 temps x 3 iterations x 100 calls, got ${got.to_string()}`);
 });

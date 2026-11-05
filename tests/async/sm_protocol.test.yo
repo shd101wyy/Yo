@@ -18,12 +18,13 @@ pragma(Pragma.AllowUnsafe);
 tcp :: import("std/sys/tcp");
 
 (mut(g_disposed) : i32) = i32(0);
-Thing :: ref(struct(n : i32));
-// A second handle: a list of `Thing`s is a value since B8, and copying one
-// clones each handle.
-impl(Thing, Clone(clone : (fn(self : &Self) -> Self)(self.*)));
+// A `Thing` is a shared handle (an `Rc`): copying a list of them clones each
+// handle, and the payload's `Drop` counts its one release.
+_ThingVal :: struct(n : i32);
+Thing :: Rc(_ThingVal);
+_thing :: (fn(n : i32) -> Thing)(Rc.new(_ThingVal(n : n)));
 impl(
-  Thing,
+  _ThingVal,
   Drop(
     drop : (fn(self : &mut Self) -> unit)({
       g_disposed = (g_disposed + i32(1));
@@ -127,7 +128,7 @@ test("cancelling a task blocked on a channel releases it", {
   (mut(i) : i32) = i32(0);
   while(i < i32(3), {
     f := io.async({ ch : ch.clone(), i }(io : Io) => {
-      t := Thing(n : i);
+      t := _thing(i);
       v := io.await(ch.recv(io), io);
       t.n + match(v, .Some(x) => x, .None => i32(0))
     });
@@ -230,7 +231,7 @@ test("a statement-level spawn detaches the task, which frees itself", {
     io.spawn(
       io.async((io : Io) => {
         io.await(yield(io), io);
-        Thing(n : i)
+        _thing(i)
       }),
       io
     );
@@ -288,7 +289,7 @@ _SmWrap :: enum(A(t : Thing), B(t : Thing));
 _sm_make :: (fn(n : i32, io : Io) -> Impl(Future(_SmWrap, IoExn)))(
   io.async(e => {
     e.io.await(yield(e.io), e.io);
-    _SmWrap.A(t : Thing(n : n))
+    _SmWrap.A(t : _thing(n))
   })
 );
 _sm_escape_after_branch :: (fn(io : Io) -> Impl(Future(i32, IoExn)))(
@@ -341,12 +342,12 @@ _sm_throws_thing :: (fn(io : Io) -> Impl(Future(Thing, IoExn)))(
   io.async(e => {
     e.io.await(yield(e.io), e.io);
     e.exn.throw(dyn(`stop`));
-    Thing(n : i32(0))
+    _thing(i32(0))
   })
 );
 _sm_reassign_across_escape :: (fn(io : Io) -> Impl(Future(i32, IoExn)))(
   io.async(e => {
-    (mut(t) : Thing) = Thing(n : i32(1));
+    (mut(t) : Thing) = _thing(i32(1));
     t = e.io.await(_sm_throws_thing(e.io), e);
     t.n
   })
@@ -368,7 +369,7 @@ test("an escape inside a reassignment's await releases the old value once", {
 // It was declared as a C local while its release named the hoisted field,
 // which was never assigned, so every call leaked one reference.
 _sm_hold :: (fn(t : &Thing, io : Io) -> Impl(Future(i32, IoExn)))(
-  io.async(e => {
+  io.async({ t : Rc.clone(t) }(e : IoExn) => {
     e.io.await(yield(e.io), e.io);
     t.n
   })
@@ -396,15 +397,15 @@ test("an index result passed to an async call in a task is released", {
   // Pushed in their own block: a pushed temporary holds its reference until
   // the scope it was made in ends.
   {
-    keep.push(Thing(n : i32(5)));
-    keep.push(Thing(n : i32(6)));
+    keep.push(_thing(i32(5)));
+    keep.push(_thing(i32(6)));
   };
   {
     h := io.spawn(_sm_pass_indexed(&keep, io), IoExn(io : io, exn : Exception(throw : (err -> unwind(())))));
     got := h.await(io);
     assert(match(got, .Some(v) => (v == i32(11)), .None => false), "the task summed both");
   };
-  t0 := keep(usize(0));
+  t0 := Rc.clone(&keep(usize(0)));
   assert(ref_count(t0) == usize(2), `only keep and t0 hold Thing(5), rc ${ref_count(t0)}`);
 });
 
@@ -412,7 +413,7 @@ test("an index result passed to an async call in a task is released", {
 // The error a task throws after an await is a `dyn` temp the state machine
 // hoists; the escape sweep releases its field, which was never assigned, so
 // the error leaked.
-_SmErr :: ref(struct(n : i32));
+_SmErr :: struct(n : i32);
 impl(
   _SmErr,
   ToString(

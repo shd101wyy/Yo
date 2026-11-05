@@ -267,7 +267,7 @@ test("comptime call after exn.throw in a match arm compiles and unwinds", {
 // per-throw leak unbounded, which is what made this the highest-traffic leak in
 // the language. The `Drop` counter observes each payload's release.
 (mut(g_thrown_payload_disposed) : i32) = i32(0);
-ThrownRes :: ref(struct(tag : i32));
+ThrownRes :: struct(tag : i32);
 impl(
   ThrownRes,
   Drop(
@@ -276,17 +276,17 @@ impl(
     })
   )
 );
-ThrownErr :: struct(detail : String, r : ThrownRes);
+ThrownErr :: struct(detail : String, r : Rc(ThrownRes));
 impl(ThrownErr, ToString(to_string : (fn(self : &Self) -> String)(self.detail.clone())));
 impl(ThrownErr, Error());
 impl(
   ThrownErr,
   Clone(
-    clone : (fn(self : &Self) -> Self)(ThrownErr(detail : self.detail.clone(), r : self.r))
+    clone : (fn(self : &Self) -> Self)(ThrownErr(detail : self.detail.clone(), r : Rc.clone(&self.r)))
   )
 );
 _throw_payload :: (fn(exn : Exception) -> i32)(
-  exn.throw(dyn(ThrownErr(detail : `boom`, r : ThrownRes(tag : i32(1)))))
+  exn.throw(dyn(ThrownErr(detail : `boom`, r : Rc.new(ThrownRes(tag : i32(1))))))
 );
 // The handler must `unwind`, which exits THIS function — so the loop below can
 // call it repeatedly.
@@ -321,7 +321,7 @@ test("every AnyError payload thrown in a loop is released", {
 // the parser's own tests, including the 40-byte ArrayList(AstExpr) node the
 // issue names). The `Drop` counter observes the release.
 (mut(g_moved_out_local_disposed) : i32) = i32(0);
-MovedOutRes :: ref(struct(tag : i32));
+MovedOutRes :: struct(tag : i32);
 impl(
   MovedOutRes,
   Drop(

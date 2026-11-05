@@ -3020,16 +3020,13 @@ test("Test mutation", {
     o1.v = 9;
     comptime_assert(o1.v == 9);
   };
-  // Refernce semantics are not allowed to be used in compile-time context
+  // A reference-counted handle (`Rc`) is not allowed in a compile-time context
   {
-    Point :: ref(
-      struct(
-        // Point now uses reference semantics
-        x : i32,
-        y : i32
-      )
+    Point :: struct(
+      x : i32,
+      y : i32
     );
-    comptime_expect_error(p1 :: Point(3, 4));
+    comptime_expect_error(p1 :: Rc.new(Point(3, 4)));
   };
 });
 test("Test parser associtivity", {
@@ -3816,27 +3813,27 @@ test("&& / || over compile-time operands only still fold", {
 // A short circuit AFTER a runtime operand still evaluates that operand: the
 // value is known, the side effect is not optional
 // (issues/fixed/and-or-short-circuit-after-a-runtime-operand-drops-its-side-effects.md).
-_AoHits :: ref(struct(n : i32));
-_ao_hit :: (fn(h : _AoHits, v : bool) -> bool)({
+_AoHits :: struct(n : i32);
+_ao_hit :: (fn(h : &mut _AoHits, v : bool) -> bool)({
   h.n = (h.n + i32(1));
   v
 });
-_ao_hit_and_false :: (fn(h : _AoHits) -> i32)(cond((_ao_hit(h, true) && false) => i32(2), true => i32(3)));
-_ao_hit_or_true :: (fn(h : _AoHits) -> i32)(cond((_ao_hit(h, false) || true) => i32(2), true => i32(3)));
-_ao_hit_value :: (fn(h : _AoHits) -> bool)(_ao_hit(h, true) && false);
-_ao_hit_if :: (fn(h : _AoHits) -> i32)(if(_ao_hit(h, false) || true, i32(2), i32(3)));
+_ao_hit_and_false :: (fn(h : &mut _AoHits) -> i32)(cond((_ao_hit(h, true) && false) => i32(2), true => i32(3)));
+_ao_hit_or_true :: (fn(h : &mut _AoHits) -> i32)(cond((_ao_hit(h, false) || true) => i32(2), true => i32(3)));
+_ao_hit_value :: (fn(h : &mut _AoHits) -> bool)(_ao_hit(h, true) && false);
+_ao_hit_if :: (fn(h : &mut _AoHits) -> i32)(if(_ao_hit(h, false) || true, i32(2), i32(3)));
 test("&& / || short-circuiting after a runtime operand still run it", {
-  h := _AoHits(n : i32(0));
-  assert(_ao_hit_and_false(h) == i32(3), "rt && false is false");
+  mut(h) := _AoHits(n : i32(0));
+  assert(_ao_hit_and_false(&mut h) == i32(3), "rt && false is false");
   assert(h.n == i32(1), "rt && false evaluates rt");
-  assert(_ao_hit_or_true(h) == i32(2), "rt || true is true");
+  assert(_ao_hit_or_true(&mut h) == i32(2), "rt || true is true");
   assert(h.n == i32(2), "rt || true evaluates rt");
-  assert(!_ao_hit_value(h), "rt && false value");
+  assert(!_ao_hit_value(&mut h), "rt && false value");
   assert(h.n == i32(3), "rt && false value evaluates rt");
-  assert(_ao_hit_if(h) == i32(2), "if(rt || true)");
+  assert(_ao_hit_if(&mut h) == i32(2), "if(rt || true)");
   assert(h.n == i32(4), "if(rt || true) evaluates rt");
   // A compile-time short circuit BEFORE the runtime operand skips it.
-  z := (false && _ao_hit(h, true));
+  z := (false && _ao_hit(&mut h, true));
   assert(!z, "false && rt");
   assert(h.n == i32(4), "false && rt does not evaluate rt");
 });
