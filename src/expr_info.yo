@@ -1235,7 +1235,8 @@ scope_release_set_depth :: (fn(d : usize) -> unit)({
 scope_release_mark :: (fn() -> usize)(g_scope_log_ids.with(xs => xs.len()));
 _scope_log :: (fn(id : ExprId, info : &ExprInfo) -> unit)(
   if((g_scope_mode != usize(0)) && (g_scope_depth > usize(0)), {
-    g_scope_log_infos.with_mut(xs => xs.push(info));
+    logged := Rc.clone(info);
+    g_scope_log_infos.with_mut({ logged }(xs) => xs.push(logged));
     g_scope_log_ids.with_mut(xs => xs.push(id));
     if(g_scope_mode == usize(1), {
       g_scope_logged.with_mut(m => m.insert(id, true));
