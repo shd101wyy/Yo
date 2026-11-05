@@ -492,10 +492,9 @@ sm_lowering_enter_scope :: (fn(context : &mut FunctionGenerationContext, analysi
 sm_lowering_restore_scope :: (fn(context : &mut FunctionGenerationContext, sink(saved) : Option(SmLoweringScope)) -> unit)(
   match(
     saved,
-    .Some(scope) => match(
+    .Some({ analysis : analysis, emitted : emitted, moved_reads : moved_reads }) => match(
       &mut context.sm_inline_lowering,
       .Some(low) => {
-        { analysis, emitted, moved_reads } := scope;
         low.analysis = analysis;
         low.emitted = emitted;
         low.moved_reads = moved_reads;
