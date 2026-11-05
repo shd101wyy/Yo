@@ -17,10 +17,8 @@ use_test_dyn :: (
   value.print();
   return(value.return_i32());
 });
-MyBox :: ref(
-  struct(
-    x : i32
-  )
+MyBox :: struct(
+  x : i32
 );
 impl(
   MyBox,
@@ -110,7 +108,8 @@ test("Test Dyn with multiple traits", {
   Run :: trait(
     run : (fn(self : &Self) -> i32)
   );
-  Dog :: ref(struct());
+  Dog :: struct();
+  derive(Dog, Copy, Clone);
   DogSpeak :: impl(
     Dog,
     Speak(
@@ -142,9 +141,10 @@ test("Test Dyn with multiple traits", {
 import("std/string");
 { ToString, print } :: import("std/fmt");
 test("Test downcast success", {
-  Cat :: ref(struct(name : String));
+  Cat :: struct(name : String);
+  derive(Cat, Clone);
   impl(Cat, ToString(to_string : (self -> self.name.clone())));
-  Animal :: Dyn(ToString);
+  Animal :: Dyn(ToString, Clone);
   (animal : Animal) = dyn(Cat(`whiskers`));
   maybe_cat := downcast(animal, Cat);
   match(
@@ -158,11 +158,13 @@ test("Test downcast success", {
   );
 });
 test("Test downcast failure", {
-  Cat :: ref(struct(name : String));
+  Cat :: struct(name : String);
+  derive(Cat, Clone);
   impl(Cat, ToString(to_string : (self -> self.name.clone())));
-  Dog :: ref(struct(name : String));
+  Dog :: struct(name : String);
+  derive(Dog, Clone);
   impl(Dog, ToString(to_string : (self -> self.name.clone())));
-  Animal :: Dyn(ToString);
+  Animal :: Dyn(ToString, Clone);
   (animal : Animal) = dyn(Cat(`whiskers`));
   maybe_dog := downcast(animal, Dog);
   match(
@@ -176,11 +178,13 @@ test("Test downcast failure", {
   );
 });
 test("Test downcast type check via is_some", {
-  Cat :: ref(struct(name : String));
+  Cat :: struct(name : String);
+  derive(Cat, Clone);
   impl(Cat, ToString(to_string : (self -> self.name.clone())));
-  Dog :: ref(struct(name : String));
+  Dog :: struct(name : String);
+  derive(Dog, Clone);
   impl(Dog, ToString(to_string : (self -> self.name.clone())));
-  Animal :: Dyn(ToString);
+  Animal :: Dyn(ToString, Clone);
   (animal : Animal) = dyn(Cat(`whiskers`));
   assert(downcast(animal, Cat).is_some(), "Expected animal to be a Cat");
   assert(downcast(animal, Dog).is_none(), "Expected animal to not be a Dog");
@@ -195,14 +199,15 @@ test("Test downcast type check via is_some", {
 // second was `String` until B8 made it move-only: a downcast to a move-only type
 // needs a Dyn that lists `Clone`, E0901.)
 test("Test downcast to a value type that no dyn() in the program wraps", {
-  Cat :: ref(struct(name : String));
+  Cat :: struct(name : String);
+  derive(Cat, Clone);
   impl(Cat, ToString(to_string : (self -> self.name.clone())));
   // A PAYLOAD variant matters: a fieldless enum lowers to a C integer, and the
   // old object-cast fallback then compiled (as a pointer-to-int cast) instead of
   // failing loudly. The struct-shaped variants are what the C compiler rejects.
   NeverDynnedValue :: enum(Boom(code : i32), Bang);
   impl(NeverDynnedValue, ToString(to_string : (self -> `never`)));
-  Animal :: Dyn(ToString);
+  Animal :: Dyn(ToString, Clone);
   (animal : Animal) = dyn(Cat(`whiskers`));
   assert(downcast(animal, NeverDynnedValue).is_none(), "a never-dyn'd value enum can never be inside a Dyn");
   NeverDynnedPoint :: struct(x : i32, y : i32);
@@ -224,9 +229,10 @@ test("Test downcast to a value type that no dyn() in the program wraps", {
 // token that the Dyn type cannot be inferred; the two spellings that DO
 // supply one (an annotated binding, a declared return type) keep working.
 test("Test downcast rejects a bare dyn() operand it cannot infer a Dyn for", {
-  Cat :: ref(struct(name : String));
+  Cat :: struct(name : String);
+  derive(Cat, Clone);
   impl(Cat, ToString(to_string : (self -> self.name.clone())));
-  Animal :: Dyn(ToString);
+  Animal :: Dyn(ToString, Clone);
   comptime_expect_error(downcast(dyn(Cat(`shadow`)), Cat), "cannot infer the Dyn type");
   // The two accepted spellings from the issue, as over-rejection canaries in
   // the same batch:
@@ -236,11 +242,13 @@ test("Test downcast rejects a bare dyn() operand it cannot infer a Dyn for", {
   assert(downcast(make_animal(), Cat).is_some(), "the declared-return spelling supplies the Dyn");
 });
 test("Test downcast with multiple concrete types", {
-  Cat :: ref(struct(name : String));
+  Cat :: struct(name : String);
+  derive(Cat, Clone);
   impl(Cat, ToString(to_string : (self -> self.name.clone())));
-  Dog :: ref(struct(name : String));
+  Dog :: struct(name : String);
+  derive(Dog, Clone);
   impl(Dog, ToString(to_string : (self -> self.name.clone())));
-  Animal :: Dyn(ToString);
+  Animal :: Dyn(ToString, Clone);
   (cat_animal : Animal) = dyn(Cat(`kitty`));
   (dog_animal : Animal) = dyn(Dog(`buddy`));
   // Downcast cat_animal
@@ -272,24 +280,24 @@ test("Test downcast with multiple concrete types", {
 // clang rejected the program ("field has incomplete type", "unknown type
 // name"). The vtable now collects its member lines before opening the typedef.
 AsyncRead :: trait(read : (fn(self : &Self, io : Io) -> Impl(Future(usize, IoExn))));
-FixedSrc :: ref(struct(n : usize));
+FixedSrc :: struct(n : usize);
 impl(
   FixedSrc,
   AsyncRead(
     read : (fn(self : &Self, io : Io) -> Impl(Future(usize, IoExn)))(
-      io.async(e => {
-        return(self.n);
+      io.async({ n : self.n }(e : IoExn) => {
+        return(n);
       })
     )
   )
 );
-DynReader :: ref(struct(inner : Dyn(AsyncRead)));
+DynReader :: struct(inner : Dyn(AsyncRead));
 impl(
   DynReader,
   read_twice : (fn(self : &Self, io : Io) -> Impl(Future(usize, IoExn)))(
-    io.async(e => {
-      a := e.io.await(self.inner.read(e.io), e);
-      b := e.io.await(self.inner.read(e.io), e);
+    io.async({ s : &self.* }(e : IoExn) => {
+      a := e.io.await(s.inner.read(e.io), e);
+      b := e.io.await(s.inner.read(e.io), e);
       return(a + b);
     })
   )
@@ -303,7 +311,8 @@ test("Dyn(trait) with a Future-returning method dispatches through the vtable", 
     )
   );
   r := DynReader(inner : dyn(FixedSrc(n : usize(21))));
-  v := io.await(r.read_twice(io), IoExn(io : io, exn : exn));
+  b := IoExn(io : io, exn : exn);
+  v := io.await(r.read_twice(io), b);
   assert(v == usize(42), "two dynamic async reads of 21");
 });
 // Regression (issues/fixed/dyn-box-dispose-is-emitted-with-an-empty-body.md):
@@ -315,11 +324,14 @@ test("Dyn(trait) with a Future-returning method dispatches through the vtable", 
 // body's store still emitted the balancing `___dup`. Every value boxed into a
 // `Dyn` therefore kept a reference nobody owned and was never released.
 // `AnyError` is `Dyn(Error)`, so it leaked on every thrown error. The
-// `Drop` counter observes the release directly.
+// `Drop` counter observes the release directly. `DynPayloadRes` is a counted
+// handle (`Rc`) so a downcast copy and the Dyn's box can share it.
 (mut(g_dyn_payload_disposed) : i32) = i32(0);
-DynPayloadRes :: ref(struct(tag : i32));
+_DynPayloadVal :: struct(tag : i32);
+DynPayloadRes :: Rc(_DynPayloadVal);
+_dpr :: (fn(tag : i32) -> DynPayloadRes)(Rc.new(_DynPayloadVal(tag : tag)));
 impl(
-  DynPayloadRes,
+  _DynPayloadVal,
   Drop(
     drop : (fn(self : &mut Self) -> unit)({
       g_dyn_payload_disposed = (g_dyn_payload_disposed + i32(1));
@@ -327,6 +339,7 @@ impl(
   )
 );
 DynStructPayload :: struct(r : DynPayloadRes);
+derive(DynStructPayload, Clone);
 impl(
   DynStructPayload,
   TestDyn(
@@ -367,7 +380,7 @@ impl(
 test("a value STRUCT boxed into Dyn releases its payload", {
   before := g_dyn_payload_disposed;
   {
-    (d : Dyn(TestDyn)) = dyn(DynStructPayload(r : DynPayloadRes(tag : i32(7))));
+    (d : Dyn(TestDyn)) = dyn(DynStructPayload(r : _dpr(i32(7))));
     assert(d.return_i32() == i32(7), "the boxed value is reachable through the vtable");
     assert(g_dyn_payload_disposed == before, "nothing is released while the Dyn is live");
   };
@@ -379,7 +392,7 @@ test("a value STRUCT boxed into Dyn releases its payload", {
 test("a value ENUM boxed into Dyn releases its payload", {
   before := g_dyn_payload_disposed;
   {
-    (d : Dyn(TestDyn)) = dyn(DynEnumPayload.Held(r : DynPayloadRes(tag : i32(8))));
+    (d : Dyn(TestDyn)) = dyn(DynEnumPayload.Held(r : _dpr(i32(8))));
     assert(g_dyn_payload_disposed == before, "nothing is released while the Dyn is live");
   };
   assert(
@@ -396,7 +409,7 @@ test("a value ENUM boxed into Dyn releases its payload", {
 test("downcasting a value payload out of a Dyn dups it", {
   before := g_dyn_payload_disposed;
   {
-    (d : Dyn(TestDyn)) = dyn(DynStructPayload(r : DynPayloadRes(tag : i32(11))));
+    (d : Dyn(TestDyn, Clone)) = dyn(DynStructPayload(r : _dpr(i32(11))));
     match(
       downcast(d, DynStructPayload),
       .Some(p) => {
@@ -415,7 +428,7 @@ test("downcasting a value payload out of a Dyn dups it", {
 test("a Dyn payload that owns heap memory releases it", {
   before := g_dyn_payload_disposed;
   {
-    (d : Dyn(TestDyn)) = dyn(DynHeapPayload(name : `a string on the heap`, r : DynPayloadRes(tag : i32(9))));
+    (d : Dyn(TestDyn)) = dyn(DynHeapPayload(name : `a string on the heap`, r : _dpr(i32(9))));
     assert(g_dyn_payload_disposed == before, "nothing is released while the Dyn is live");
   };
   assert(
@@ -441,7 +454,7 @@ test("a Dyn payload that owns heap memory releases it", {
 test("Test dyn rejects a type that implements none of the Dyn's traits", {
   // No `impl(NoImpls, TestDyn(...))` anywhere: neither `print` nor `return_i32`
   // resolves, so this is symptom 1 — the undeclared-wrapper C failure.
-  NoImpls :: ref(struct());
+  NoImpls :: struct();
   comptime_expect_error(use_test_dyn(dyn(NoImpls())));
   // The same hole through the AUTO-BOX path: a value enum with no impls at all.
   NoImplsValue :: enum(Boom);
@@ -466,7 +479,7 @@ test("Test dyn rejects a type that satisfies only PART of the Dyn's traits", {
 test("Test Dyn(Error) over a trait default the implementor omits", {
   // Neither type overrides `Error.source`, which has a `?=` default — "no impl
   // for this member" must NOT be read as "does not implement the trait".
-  RefErr :: ref(struct(msg : String));
+  RefErr :: struct(msg : String);
   impl(
     RefErr,
     ToString(
@@ -582,7 +595,8 @@ test("Test an Option of a pointer-to-trait-object keeps its payload type", {
 // ---------------------------------------------------------------------------
 _OsSp :: trait(speak : (fn(self : &Self) -> i32), me : (fn(self : &mut Self) -> Self), same : (fn(self : &Self, other : &Self) -> bool));
 _OsGen :: trait(conv : (fn(generic(B : Type), self : &mut Self, b : &B) -> i32));
-_OsCat :: ref(struct(n : i32));
+_OsCat :: struct(n : i32);
+derive(_OsCat, Copy, Clone);
 impl(_OsCat, _OsSp(speak : (self -> self.n), me : (self -> self.*), same : ((self, other) -> (self.n == other.n))));
 impl(_OsCat, _OsGen(conv : (fn(generic(B : Type), self : &mut Self, b : &B) -> i32)(self.n)));
 test("Dyn: a method a Dyn cannot call is E0614, the rest stay callable", {
@@ -632,7 +646,8 @@ test("Dyn: no upcast from Dyn(A, B) to Dyn(A), with a note saying so", {
 // Explicit upcast (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 2.8): the same payload
 // behind a Dyn with fewer traits. The source vtable carries the target
 // vtable, so each concrete type dispatches to its own impl.
-_UpDog :: ref(struct(n : i32));
+_UpDog :: struct(n : i32);
+derive(_UpDog, Copy, Clone);
 impl(_UpDog, _OsSp(speak : (self -> (self.n * i32(10))), me : (self -> self.*), same : ((self, other) -> (self.n == other.n))));
 impl(_UpDog, _OsOt(other_n : (self -> i32(2))));
 _up_both :: (fn(k : i32) -> Dyn(_OsSp, _OsOt))(
@@ -661,10 +676,14 @@ test("Dyn: upcast drops traits and keeps each payload's impls", {
 // the drop was skipped whenever no consumer declared it either: a method
 // receiver (`downcast(d, T).is_some()`) or a discarded statement leaked the
 // payload once per evaluation, and its `Drop` never ran.
+// A downcast copies the payload out (a `clone`), so the cat is a cloneable
+// handle onto one counted payload: a leaked result keeps it alive.
 (mut(g_dc_disposed) : i32) = i32(0);
-_DcCat :: ref(struct(n : i32));
+_DcCatVal :: struct(n : i32);
+_DcCat :: struct(h : Rc(_DcCatVal));
+derive(_DcCat, Clone);
 impl(
-  _DcCat,
+  _DcCatVal,
   Drop(
     drop : (fn(self : &mut Self) -> unit)({
       g_dc_disposed = (g_dc_disposed + i32(1));
@@ -676,7 +695,7 @@ test("Dyn: a downcast or upcast used as a receiver or discarded releases its pay
   before := g_dc_disposed;
   (mut(hits) : i32) = i32(0);
   {
-    (animal : Dyn(ToString)) = dyn(_DcCat(n : i32(1)));
+    (animal : Dyn(ToString, Clone)) = dyn(_DcCat(h : Rc.new(_DcCatVal(n : i32(1)))));
     (mut(i) : i32) = i32(0);
     while(i < i32(3), {
       if(downcast(animal, _DcCat).is_some(), {
@@ -694,7 +713,7 @@ test("Dyn: a downcast or upcast used as a receiver or discarded releases its pay
   // A value target is extracted from its box and dup'd: the copy is released too.
   payload_before := g_dyn_payload_disposed;
   {
-    (d : Dyn(TestDyn)) = dyn(DynStructPayload(r : DynPayloadRes(tag : i32(9))));
+    (d : Dyn(TestDyn)) = dyn(DynStructPayload(r : _dpr(i32(9))));
     assert(downcast(d, DynStructPayload).is_some(), "the boxed struct");
   };
   assert((g_dyn_payload_disposed - payload_before) == i32(1), "the boxed struct's payload is released");
@@ -740,7 +759,7 @@ test("Test an ArrayList of trait objects reads its elements back", {
 // spellings are one C type with one vtable layout.
 _OrdA :: trait(a : (fn(self : &Self) -> i32));
 _OrdB :: trait(b : (fn(self : &Self) -> i32));
-_OrdC :: ref(struct(n : i32));
+_OrdC :: struct(n : i32);
 impl(_OrdC, _OrdA(a : (self -> self.n)));
 impl(_OrdC, _OrdB(b : (self -> (self.n + i32(100)))));
 _ord_take :: (fn(d : &Dyn(_OrdB, _OrdA)) -> i32)(d.a() + (d.b() * i32(1000)));
@@ -752,7 +771,7 @@ test("Dyn: the trait order is not part of the type", {
 // issues/fixed/a-method-call-two-trait-impls-supply-silently-picks-one.md:
 // an unqualified call two trait impls both supply is E0616; the qualified
 // form names the trait.
-_ClC :: ref(struct(n : i32));
+_ClC :: struct(n : i32);
 impl(_ClC, _ClA(get : (self -> i32(1))));
 impl(_ClC, _ClB(get : (self -> i32(2))));
 test("an unqualified call two trait impls supply is ambiguous (E0616)", {
