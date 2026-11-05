@@ -176,7 +176,16 @@ longest :: (fn(generic(q : Origin, r : Origin), a : &(ArrayList(u8), q), b : &(A
   body; substitution happens only at call sites (O3 step 1). Checking a
   body against its first caller's ground places, with the memo hiding
   every later caller, would accept whatever holds for that one
-  substitution.
+  substitution. **A reference receiver's coherence key is the pair (`&` or
+  `&mut`, the pointee's key), with the origin erased** (added 2026-11-05,
+  VERDICTS-25 Q2 §3; built by N1f-2, #1794). So `impl(C, Tr)`,
+  `impl(&C, Tr)` and `impl(&mut C, Tr)` are three keys, and
+  `impl(&(C, p), Tr)` is the same key as `impl(&(C, q), Tr)` and
+  `impl(&C, Tr)` (E0612 on the second). Rule 3's blanket overlap
+  (`TRAIT_COHERENCE.md`) covers reference patterns: both
+  `impl(generic(T), &T, Tr)` and the bare-variable blanket
+  `impl(generic(T), T, Tr)` overlap `impl(&C, Tr)`, which is E0612 in
+  either order.
 - **The empty origin.** A borrow that names no place — `str`'s view of
   static bytes (decision 36), a lend of a never-written module-level
   binding (decision 47: an unmarked module-level binding is never
@@ -1085,7 +1094,7 @@ rows that pin it.
 | N0 | the negative-test corpus (§5's rows) written and failing, AND a **reference checker**: an executable model of O1–O10 over a toy language, a few hundred lines, that the corpus runs through — the cheapest way to find rule interactions a prose argument cannot (2026-10-20). No prerequisite: N0 can start before V2b finishes. **Written 2026-10-21; see "N0 as built" below** | the tests fail for the right reason; the model accepts every positive control and rejects every negative row |
 | N1 | the `Origin` kind and `TypeValue.Reference(T, mutable, origin)` (behavioral identity: every test, the fixpoint, an emit-diff with no C change); Generation A: the `&(T, p)` parse, `generic(p : Origin)`, the elision defaults, O3's checking rules (freeze/exclusivity by origin, the covariant/invariant coercion rule, the return rule, place writes), the `Escapable` marker and its bound at the no-origin positions (O10), the handle-origin rule for borrows through an `Rc`/`Arc` deref (O9), `.*`/auto-deref/auto-borrow, `impl(&T, ...)`, `FnMut`. The storage wall stays as it is today — origins are vocabulary and checking, first-class storage waits for N2, so no build accepts an escape it cannot see | the corpus minus its storage rows, the fast suite, fixpoint |
 | N2 | first-class storage: O4's table — cells (`Box`, `RefCell`, `Dyn(Trait, p)`) and containers carry origin parameters, E0909 becomes the no-origin-position rule, O6's declared unions with the widening `yo fix`. PR split N2a–N2f and inventory: `plans/handover/D43_STEP3_N2_DESIGN.md` (2026-10-30) | the storage rows of the corpus |
-| N3 | std and `src/` adopt (Generation B, on the next seed): `iter`, `slice`, `entry`, the borrowed `for` by `impl(&C, IntoIterator)`, the `FnMut` slots, the `Future(T, p)` spelling replacing A2's registry | the catalog's rewritten sections; CP0's rows for `slice` and `sort` |
+| N3 | std and `src/` adopt (Generation B, on the next seed): `iter`, `slice`, `entry`, the borrowed `for` by `impl(&C, IntoIterator)`, the `FnMut` slots, the `Future(T, p)` spelling replacing A2's registry. **Split by what the seed must compile at stage 1** (VERDICTS-25 Q1, 2026-11-05; `plans/handover/VBD_RELEASE_SCHEDULE.md` §5f decision 31). The borrowing future (`Future(T, E, p)`) landed as N3-1 (#1786). **G1**, v0.2.76: the ~35 `FnMut` slots, with Q10's predicate deleted in the same PR (it needs N1f-1, which v0.2.75 carries). **G2**, v0.2.77, on a seed carrying N1e-2b and N1f-2: the holders (`iter`'s `Cursor(T, p)`, `entry`, the `RefCell` guards, `Rc.get_mut`, the `JsonValue` borrowed accessors; `slice` is decision 49's `&([T], p)`, §5f decision 30), then `impl(&C, IntoIterator)` and `impl(&mut C, IntoIterator)` with the borrowed-`for` desugar retarget as ONE PR, then the blanket `Eq`/`Ord`/`Hash`/`ToString` over `&T`. **G3**, v0.2.78: `BorrowedWalk`/`BorrowedWalkMut`, `__borrow_guard` and `__yo_borrow_check` are deleted, once a seed's parse-time desugar calls `into_iter`. **R-FOR** (VERDICTS-25 Q3), from G2's retarget on: `for(&xs, x => …)` and `for(&mut xs, x => …)` lower to the value form over `(&xs).into_iter()` and `(&mut xs).into_iter()`. The cursor's binding freezes `xs` for the whole loop, so a write to `xs` in the body is E0911, and under `&mut` so is a read. The element is a reference binding `&(T, p)` (`&mut(T, p)` under `&mut`) whose origin is the lent place. A collection without the impl is E0610 naming it, and no built-in walk survives | the catalog's rewritten sections; CP0's rows for `slice` and `sort` |
 
 After decision 42's Generation B and V2b, as before (N0 excepted); each
 phase is one PR or one stack with one battery, per AGENTS.md.
