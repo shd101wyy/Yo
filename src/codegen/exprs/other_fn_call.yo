@@ -498,16 +498,16 @@ _current_self_param_is_ref :: (fn(context : &FunctionGenerationContext) -> bool)
 /// (issues/fixed/2026-11-05-a-c-include-function-returning-a-const-pointer-fails-the-clang-build.md).
 /// A pointer whose C spelling is not its pointee's followed by `*` is left as
 /// it is.
-_c_pointer_result_as_declared :: (fn(r : &TypeValue, call : String, context : &FunctionGenerationContext) -> String)({
+_c_pointer_result_as_declared :: (fn(r : &TypeValue, call : String, context : &mut FunctionGenerationContext) -> String)({
   ptr := match(
     r,
     Rc(.Pointer(_)) => Rc.clone(r),
     _ => match(can_optimize_as_nullable_pointer(r), .Some(p) => p, .None => return(call))
   );
   pointee := match(&ptr, Rc(.Pointer(inner)) => Rc.clone(inner), _ => return(call));
-  pointee_str := get_type_string(&pointee, &context.base);
+  pointee_str := get_type_string(&pointee, &mut context.base);
   cond(
-    (get_type_string(&ptr, &context.base) == `${pointee_str}*`) => `((${get_type_string(r, &context.base)})(${pointee_str} const*){ ${call} })`,
+    (get_type_string(&ptr, &mut context.base) == `${pointee_str}*`) => `((${get_type_string(r, &mut context.base)})(${pointee_str} const*){ ${call} })`,
     true => call
   )
 });
