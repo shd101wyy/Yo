@@ -24,7 +24,19 @@
 { EvalValue } :: import("../../value.yo");
 { Variable, Environment, get_variables_from_env_by_filter } :: import("../../env.yo");
 { type_contains_rc_cell_or_move_only, fn_abi_param_is_ptr } :: import("../../types/utils.yo");
-{ FunctionGenerationContext, EvidenceParameter, InAsyncStateMachine, InlineSmLowering, InlineSuspension, InlineAwaitResultField, sm_owns_fnonce_captures } :: import("../functions/context.yo");
+{
+  FunctionGenerationContext,
+  EvidenceParameter,
+  InAsyncStateMachine,
+  InlineSmLowering,
+  InlineSuspension,
+  InlineAwaitResultField,
+  sm_owns_fnonce_captures,
+  sm_lowering_note_emitted,
+  sm_lowering_next_state,
+  sm_lowering_note_moved_into_slot,
+  sm_lowering_push_suspension
+} :: import("../functions/context.yo");
 { expr_contains_await, expr_contains_while_with_await, await_fusion_candidate } :: import("../../expr_traversal.yo");
 { is_temp_variable_name, is_any_temp_variable_name, debug_knob } :: import("../../utils.yo");
 { eprintln } :: import("std/fmt");
@@ -1658,23 +1670,24 @@ _report_await_fusion :: (fn(await_expr : &AstExpr, future_arg : &AstExpr) -> uni
 /// place and stays with its owner. The suspension itself is the shared core,
 /// continuing at this await's own resume label.
 emit_inline_await :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
-  low := match(
-    context.sm_inline_lowering,
-    .Some(l) => l,
+  // The lowering's read-only facts, taken once; its state is written in
+  // place through the context (sm_lowering_* in functions/context.yo).
+  (low_analysis, low_resume_fn, low_block_id) := match(
+    &context.sm_inline_lowering,
+    .Some(l) => (l.analysis, l.resume_function_name.clone(), l.async_block_id.clone()),
     .None => {
       codegen_fatal(String.from("emit_inline_await outside the single-pass lowering"));
       return(String.from(""));
     }
   );
   eid := ast_expr_id(expr);
-  if(low.emitted.contains(&eid), {
+  if(!sm_lowering_note_emitted(context, eid), {
     codegen_fatal(`the single-pass async lowering emitted await ${eid.to_string()} twice (an emitter generated its expression twice)`);
     return(String.from(""));
   });
-  low.emitted.insert(eid);
   // The result is a C local (not a task field) when no later await in its
   // statement can suspend before it is consumed.
-  out_is_c_local := (inline_await_result_field_of(expr, inline_await_result_fields(&low.analysis, context)).is_none() && inline_await_local_result_type(expr, &low.analysis, context).is_some());
+  out_is_c_local := (inline_await_result_field_of(expr, inline_await_result_fields(&low_analysis, context)).is_none() && inline_await_local_result_type(expr, &low_analysis, context).is_some());
   // An await of a fusable wrapper call runs the wrapper here instead.
   match(
     _call_emit_fused_await(expr, indent.clone(), context),
@@ -1702,8 +1715,7 @@ emit_inline_await :: (fn(expr : &AstExpr, indent : &String, context : &mut Funct
     _report_await_fusion(expr, &future_arg);
   });
   is_io := is_io_future_type(&future_ty);
-  k := low.next_state;
-  low.next_state = (k + usize(1));
+  k := sm_lowering_next_state(context);
   ks := k.to_string();
   label := `__yo_resume_${ks}`;
   future_code := _call_generate_expr(&future_arg, indent, context);
@@ -1728,7 +1740,7 @@ emit_inline_await :: (fn(expr : &AstExpr, indent : &String, context : &mut Funct
     .Some(fei) => match(
       &fei.variable_name,
       .Some(fvn) => {
-        low.moved_into_slot.insert(get_variable_name_for_codegen_at(ast_expr_id(&future_arg), &fvn, Option(Environment).Some(fei.env)));
+        sm_lowering_note_moved_into_slot(context, get_variable_name_for_codegen_at(ast_expr_id(&future_arg), &fvn, Option(Environment).Some(fei.env)));
       },
       .None => ()
     ),
@@ -1737,10 +1749,10 @@ emit_inline_await :: (fn(expr : &AstExpr, indent : &String, context : &mut Funct
   inner := indent.clone();
   inner.push_str("  ");
   context.base.emitter.emit_string_line(`${indent}{`);
-  _emit_await_suspension_core(acc.clone(), is_io, ks.clone(), low.resume_function_name.clone(), expr, inner.clone(), context, label.clone());
+  _emit_await_suspension_core(acc.clone(), is_io, ks.clone(), low_resume_fn.clone(), expr, inner.clone(), context, label.clone());
   context.base.emitter.emit_string_line(`${indent}}`);
   context.base.emitter.emit_string_line(`${indent}${label}: ;`);
-  low.suspensions.push(InlineSuspension(state : k, in_slot : true, is_io : is_io));
+  sm_lowering_push_suspension(context, InlineSuspension(state : k, in_slot : true, is_io : is_io));
   // The awaited future was aborted: this task takes over its unwind, and
   // catches it (its own handler) or escapes too.
   context.base.emitter.emit_string_line(`${indent}if (${acc}->state == -2) {`);
@@ -1748,21 +1760,21 @@ emit_inline_await :: (fn(expr : &AstExpr, indent : &String, context : &mut Funct
   context.base.emitter.emit_string_line(`${inner}__yo_decr_rc(sm->__yo_await_slot);`);
   context.base.emitter.emit_string_line(`${inner}sm->__yo_await_slot = NULL;`);
   emit_sm_unwind_catch(&mut context.base.emitter, inner.clone(), &context.sm_unwind_catch);
-  emit_async_future_escape(&mut context.base.emitter, inner.clone(), Option(String).None, Option(String).Some(low.async_block_id.clone()));
+  emit_async_future_escape(&mut context.base.emitter, inner.clone(), Option(String).None, Option(String).Some(low_block_id.clone()));
   context.base.emitter.emit_string_line(`${indent}}`);
   // The result lives in the task, like every other value of the body: a
   // second await in the same expression suspends before this one's result is
   // read (`f(await a, await b)`), and a C local does not survive the jump.
   (out : String) = String.from("");
   match(
-    inline_await_result_field_of(expr, inline_await_result_fields(&low.analysis, context)),
+    inline_await_result_field_of(expr, inline_await_result_fields(&low_analysis, context)),
     .Some(rf) => {
       field := `sm->${rf.name}`;
       _emit_await_result_store(field.clone(), &acc, &rf.ty, false, indent.clone(), context);
       out = field;
     },
     .None => match(
-      inline_await_local_result_type(expr, &low.analysis, context),
+      inline_await_local_result_type(expr, &low_analysis, context),
       // No suspension between here and the statement's use of it.
       .Some(rty) => {
         local := fresh_local_name(String.from("__yo_await_value"), context.base.current_function_name.clone());
@@ -1771,7 +1783,7 @@ emit_inline_await :: (fn(expr : &AstExpr, indent : &String, context : &mut Funct
         _emit_await_result_store(local.clone(), &acc, &rty, false, indent.clone(), context);
         out = local;
       },
-      .None => if(!_inline_result_is_unit(_inline_await_result_type(expr, Option(AwaitAnalysisResult).Some(low.analysis), context)), {
+      .None => if(!_inline_result_is_unit(_inline_await_result_type(expr, Option(AwaitAnalysisResult).Some(low_analysis), context)), {
         codegen_fatal(`the single-pass async lowering reached await ${eid.to_string()}, which the suspension analysis did not record`);
       })
     )
@@ -1871,12 +1883,11 @@ generate_async_block_resume_function_inline :: (
     rc_operand : false,
     owns_fnonce_captures : match(capture_type, .Some(Rc(.Struct({ id : cs_id }))) => is_fnonce_capture_struct(&cs_id), _ => false)
   );
-  p_low := context.sm_inline_lowering;
-  p_in := context.in_async_state_machine;
+  p_low := replace(&mut context.sm_inline_lowering, Option(InlineSmLowering).Some(low));
+  p_in := context.in_async_state_machine.clone();
   p_smv := replace(&mut context.state_machine_variables, Option(HashMap(String, CapturedVariable)).None);
   p_vr := replace(&mut context.variable_id_remapping, Option(HashMap(String, String)).None);
   p_pdd := replace(&mut context.pending_deferred_drops, Option(ArrayList(AstExpr)).None);
-  context.sm_inline_lowering = Option(InlineSmLowering).Some(low);
   context.in_async_state_machine = Option(InAsyncStateMachine).Some(InAsyncStateMachine(future_type : Rc.clone(future_type)));
   context.variable_id_remapping = Option(HashMap(String, String)).Some(analysis.variable_id_remapping.clone());
   context.state_machine_variables = Option(HashMap(String, CapturedVariable)).Some(_build_combined_sm_variables(analysis, capture_type));
@@ -1948,7 +1959,10 @@ generate_async_block_resume_function_inline :: (
     );
     emit_async_future_completion(&mut context.base.emitter, `  `, Option(String).None, Option(String).Some(String.from("Future %p completed")));
   });
-  context.sm_inline_lowering = p_low;
+  mut(low) := match(replace(&mut context.sm_inline_lowering, p_low), .Some(l) => l, .None => {
+    codegen_fatal(String.from("the single-pass lowering's state was lost"));
+    return(ArrayList(String).new());
+  });
   context.in_async_state_machine = p_in;
   context.state_machine_variables = p_smv;
   context.variable_id_remapping = p_vr;

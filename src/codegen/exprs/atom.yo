@@ -16,7 +16,7 @@
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, ExprId, ast_expr_token, ast_expr_id } :: import("../../expr.yo");
-{ FunctionGenerationContext, sm_owns_fnonce_captures } :: import("../functions/context.yo");
+{ FunctionGenerationContext, sm_owns_fnonce_captures, sm_lowering_note_moved_read } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
 { generate_comptime_value } :: import("./comptime_value.yo");
 { check_variable_is_closure_captured } :: import("./closures.yo");
@@ -841,12 +841,12 @@ _is_kept_move_site :: (fn(v : &Variable, tok : &Token) -> bool)({
 /// a use-after-free once the new owner freed it. Any other read renders the
 /// slot itself.
 _sm_consuming_read :: (fn(expr : &AstExpr, name : &String, sm_code : &String, context : &mut FunctionGenerationContext) -> String)({
-  low := match(context.sm_inline_lowering, .Some(l) => l, .None => return(sm_code.clone()));
-  if(low.rc_operand || !sm_code.starts_with("sm->"), {
+  (low_rc_operand : bool) = match(&context.sm_inline_lowering, .Some(l) => l.rc_operand, .None => return(sm_code.clone()));
+  if(low_rc_operand || !sm_code.starts_with("sm->"), {
     return(sm_code.clone());
   });
   eid := ast_expr_id(expr);
-  match(low.moved_reads.get_cloned(&eid), .Some(t) => return(t), .None => ());
+  match(match(&context.sm_inline_lowering, .Some(l) => l.moved_reads.get_cloned(&eid), .None => Option(String).None), .Some(t) => return(t), .None => ());
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(sm_code.clone()));
   vs := scope_variables(eid, &ei.env, name);
   v := match(vs.last(), .Some(x) => x, .None => return(sm_code.clone()));
@@ -880,7 +880,7 @@ _sm_consuming_read :: (fn(expr : &AstExpr, name : &String, sm_code : &String, co
   // A pattern binding aliases its scrutinee's payload: the value leaves that
   // place too (issues/fixed/async-abort-dispose-double-drops-moved-enum-payload.md).
   match(
-    low.binding_sources.get_cloned(sm_code.clone()),
+    match(&context.sm_inline_lowering, .Some(l) => l.binding_sources.get_cloned(sm_code.clone()), .None => Option(String).None),
     .Some(src) => {
       stmts.push_string(`\nmemset(&(${src}), 0, sizeof(${src}));  // moved out of the scrutinee it was bound from`);
     },
@@ -888,7 +888,7 @@ _sm_consuming_read :: (fn(expr : &AstExpr, name : &String, sm_code : &String, co
   );
   context.base.emitter.defer_move_zero(marker.clone(), &stmts);
   out := `${sm_code} ${marker}`;
-  low.moved_reads.insert(eid, out.clone());
+  sm_lowering_note_moved_read(context, eid, out.clone());
   out
 });
 export(generate_atom, _generate_sm_atom);

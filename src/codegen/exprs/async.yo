@@ -81,7 +81,11 @@
   ClosureParamSlot,
   DeferredAsyncBlock,
   EvidenceParameter,
-  sm_owns_fnonce_captures
+  sm_owns_fnonce_captures,
+  sm_lowering_analysis,
+  sm_lowering_note_moved_into_slot,
+  sm_lowering_enter_scope,
+  sm_lowering_restore_scope
 } :: import("../functions/context.yo");
 {
   CrossBoundaryResult,
@@ -2300,7 +2304,7 @@ _fused_arg_carries_call_share :: (fn(arg : &AstExpr, context : &FunctionGenerati
 /// ordinary suspension. Returns the C code of the await's value.
 emit_fused_await :: (fn(await_expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> Option(String))({
   site := match(fused_await_site(await_expr, true, context), .Some(s) => s, .None => return(Option(String).None));
-  low := match(context.sm_inline_lowering, .Some(l) => l, .None => return(Option(String).None));
+  low_analysis := match(sm_lowering_analysis(context), .Some(a) => a, .None => return(Option(String).None));
   await_args := match(await_expr, .FnCall(_, _, _, _, _) => ast_call_args_unmarked(await_expr), _ => ArrayList(AstExpr).new());
   effects_arg := match(await_args.get(usize(1)), .Some(ea) => ea, .None => return(Option(String).None));
   if(debug_knob(String.from("YO_DEBUG_FUSION")).is_some(), {
@@ -2311,7 +2315,7 @@ emit_fused_await :: (fn(await_expr : &AstExpr, indent : &String, context : &mut 
     eprintln(`fusion: ${tok.module_path.*}:${tok.row.to_string()}:${tok.column.to_string()} fused (callee ${callee_at})`);
   });
   // The await's own result field, under the caller's names.
-  outer_field := inline_await_result_field_of(await_expr, inline_await_result_fields(&low.analysis, context));
+  outer_field := inline_await_result_field_of(await_expr, inline_await_result_fields(&low_analysis, context));
   // No future is built: the temp the evaluator minted for one holds nothing,
   // so its scope-end drop is not emitted.
   match(
@@ -2319,7 +2323,7 @@ emit_fused_await :: (fn(await_expr : &AstExpr, indent : &String, context : &mut 
     .Some(fei) => match(
       &fei.variable_name,
       .Some(fvn) => {
-        low.moved_into_slot.insert(get_variable_name_for_codegen_at(ast_expr_id(&site.call), &fvn, Option(Environment).Some(fei.env)));
+        sm_lowering_note_moved_into_slot(context, get_variable_name_for_codegen_at(ast_expr_id(&site.call), &fvn, Option(Environment).Some(fei.env)));
       },
       .None => ()
     ),
@@ -2333,7 +2337,7 @@ emit_fused_await :: (fn(await_expr : &AstExpr, indent : &String, context : &mut 
     &outer_field,
     .Some(_) => (),
     .None => match(
-      inline_await_local_result_type(await_expr, &low.analysis, context),
+      inline_await_local_result_type(await_expr, &low_analysis, context),
       .Some(rty) => {
         outer_local = fresh_local_name(String.from("__yo_await_value"), context.base.current_function_name.clone());
         context.base.emitter.emit_string_line(`${indent}${get_type_string(&rty, &mut context.base)} ${outer_local};`);
@@ -2439,16 +2443,13 @@ emit_fused_await :: (fn(await_expr : &AstExpr, indent : &String, context : &mut 
   saved_drop_ids2 := replace(&mut context.emitted_deferred_drop_ids, HashSet(usize).new());
   saved_slot := replace(&mut context.sm_capture_slot, `${site.prefix}capture`);
   saved_prefix := replace(&mut context.fusion_field_prefix, site.prefix.clone());
-  saved_analysis := low.analysis;
-  saved_emitted := replace(&mut low.emitted, HashSet(usize).new());
-  saved_moved_reads := replace(&mut low.moved_reads, HashMap(usize, String).new());
   saved_pdd := replace(&mut context.pending_deferred_drops, Option(ArrayList(AstExpr)).None);
   // The map restored above (the wrapper's) is taken out again and put back
   // when the block is done: one map, as the shared handle was.
   saved_smv2 := replace(&mut context.state_machine_variables, Option(HashMap(String, CapturedVariable)).Some(_fused_sm_variables(&site)));
   context.state_machine_field_aliases = Option(HashMap(String, String)).Some(_fused_sm_aliases(&site));
   context.variable_id_remapping = Option(HashMap(String, String)).Some(site.block.analysis.variable_id_remapping.clone());
-  low.analysis = site.block.analysis;
+  saved_scope := sm_lowering_enter_scope(context, site.block.analysis);
   mut(pdd) := match(&saved_pdd, .Some(p) => _copy_expr_list(&p), .None => ArrayList(AstExpr).new());
   match(context.base.get_expr_info(&site.block.body_expr), .Some(bei) => match(&bei.deferred_drop_expressions, .Some(d) => _append_expr_list(&mut pdd, &d), .None => ()), .None => ());
   context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(pdd);
@@ -2475,9 +2476,7 @@ emit_fused_await :: (fn(await_expr : &AstExpr, indent : &String, context : &mut 
   context.variable_id_remapping = saved_remap;
   context.sm_capture_slot = saved_slot;
   context.fusion_field_prefix = saved_prefix;
-  low.analysis = saved_analysis;
-  low.emitted = saved_emitted;
-  low.moved_reads = saved_moved_reads;
+  sm_lowering_restore_scope(context, saved_scope);
   context.pending_deferred_drops = saved_pdd;
   Option(String).Some(out)
 });

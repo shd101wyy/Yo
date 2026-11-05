@@ -18,20 +18,19 @@
 { replace } :: import("std/mem");
 /// One evidence parameter threaded into a function that uses effect-record
 /// evidence passing.
-EvidenceParameter :: ref(
-  struct(
-    /// The label of the implicit parameter (e.g. "raise_mod").
-    implicit_label : String,
-    /// The field label within the module (e.g. "raise", or "errors__raise" for nested).
-    field_label : String,
-    /// Path of field labels for navigating nested evidence records.
-    field_path : ArrayList(String),
-    /// The function type (`Func` TypeValue) of the evidence field.
-    field_function_type : TypeValue,
-    /// The C parameter name: sanitized "{implicit_label}__{field_label}".
-    c_param_name : String
-  )
+EvidenceParameter :: struct(
+  /// The label of the implicit parameter (e.g. "raise_mod").
+  implicit_label : String,
+  /// The field label within the module (e.g. "raise", or "errors__raise" for nested).
+  field_label : String,
+  /// Path of field labels for navigating nested evidence records.
+  field_path : ArrayList(String),
+  /// The function type (`Func` TypeValue) of the evidence field.
+  field_function_type : TypeValue,
+  /// The C parameter name: sanitized "{implicit_label}__{field_label}".
+  c_param_name : String
 );
+derive(EvidenceParameter, Clone);
 /// Join a path of field labels with "__".
 _join_double_underscore :: (fn(parts : &ArrayList(String)) -> String)({
   mut(out) := String.from("");

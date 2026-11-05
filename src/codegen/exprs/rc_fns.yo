@@ -16,7 +16,7 @@
 { is_array_type, is_atomically_counted_rc_type, is_rc_type, is_some_type, is_tuple_type, cell_handle_view, is_atomic_counted_handle_type } :: import("../../types/guards.yo");
 { type_implements_future } :: import("../../evaluator/trait_checking.yo");
 { parse_raw_int } :: import("../../utils.yo");
-{ FunctionGenerationContext, sm_owns_fnonce_captures } :: import("../functions/context.yo");
+{ FunctionGenerationContext, sm_owns_fnonce_captures, sm_lowering_set_rc_operand } :: import("../functions/context.yo");
 { sm_move_flag_of } :: import("../async/state_machine_naming.yo");
 { _call_generate_expr } :: import("./_expr.yo");
 { get_type_string, fresh_local_name, _checked_fixed_array_subscript } :: import("../utils/index.yo");
@@ -38,16 +38,14 @@ _ty :: (fn(expr : &AstExpr, context : &FunctionGenerationContext) -> TypeValue)(
 /// drop's operand as the variable's consuming read, but the drop releases the
 /// slot itself rather than moving the value out of it.
 _rc_operand :: (fn(arg : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)(
-  match(
-    context.sm_inline_lowering,
-    .Some(low) => {
-      saved := low.rc_operand;
-      low.rc_operand = true;
+  cond(
+    context.sm_inline_lowering.is_some() => {
+      saved := sm_lowering_set_rc_operand(context, true);
       code := _call_generate_expr(arg, indent, context);
-      low.rc_operand = saved;
+      sm_lowering_set_rc_operand(context, saved);
       code
     },
-    .None => _call_generate_expr(arg, indent, context)
+    true => _call_generate_expr(arg, indent, context)
   )
 );
 _one_arg_call :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext, wrapper : str, err : str) -> String)(
@@ -152,7 +150,7 @@ generate_drop_of_operand :: (fn(value_arg : &AstExpr, indent : &String, context 
   value_code := _rc_operand(value_arg, indent.clone(), context);
   // Single-pass async lowering: an await moved this temp's future into
   // the task's slot, which releases it.
-  if(match(context.sm_inline_lowering, .Some(low) => low.moved_into_slot.contains(value_code.clone()), .None => false), {
+  if(match(&context.sm_inline_lowering, .Some(low) => low.moved_into_slot.contains(value_code.clone()), .None => false), {
     return(String.new());
   });
   code_len_before := context.base.emitter.code.len();

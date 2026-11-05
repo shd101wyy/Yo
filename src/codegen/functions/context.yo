@@ -9,6 +9,7 @@
 { HashMap } :: import("std/collections/hash_map");
 { AstExpr } :: import("../../expr.yo");
 { TypeValue } :: import("../../types/definitions.yo");
+{ replace } :: import("std/mem");
 { CapturedVariable, AwaitAnalysisResult } :: import("../../evaluator/async/await_analysis_types.yo");
 { CodeGenContext, sanitize_for_c_identifier } :: import("../utils/index.yo");
 { get_state_machine_field_name } :: import("../async/state_machine_naming.yo");
@@ -64,74 +65,71 @@ DeferredAsyncBlock :: ref(
 // the topological sort share one object), so its Clone is the handle copy (VERDICTS-13 §12;
 // V5 part-B target `Rc(struct)`).
 impl(DeferredAsyncBlock, Clone(clone : (fn(self : &Self) -> Self)(self)));
-InAsyncStateMachine :: ref(struct(future_type : TypeValue));
+InAsyncStateMachine :: struct(future_type : TypeValue);
+derive(InAsyncStateMachine, Clone);
 /// One suspension point the single-pass lowering emitted
 /// (plans/ASYNC_STATE_MACHINE_GENERATION.md phase 5): what the abort hook needs
 /// to cancel the future the task is suspended on in state `state`.
 /// A single-pass lowering await's result field in the task struct.
 InlineAwaitResultField :: struct(name : String, ty : TypeValue, expr : AstExpr);
 derive(InlineAwaitResultField, Clone);
-InlineSuspension :: ref(
-  struct(
-    /// The state that resumes after this await (the `__yo_resume_<state>` label).
-    state : usize,
-    /// The awaited future was stored in the task's `__yo_await_slot` (an
-    /// anonymous future the slot owns); a named future is the body's own value.
-    in_slot : bool,
-    /// The slot holds an I/O future (the backend can take it back).
-    is_io : bool
-  )
+InlineSuspension :: struct(
+  /// The state that resumes after this await (the `__yo_resume_<state>` label).
+  state : usize,
+  /// The awaited future was stored in the task's `__yo_await_slot` (an
+  /// anonymous future the slot owns); a named future is the body's own value.
+  in_slot : bool,
+  /// The slot holds an I/O future (the backend can take it back).
+  is_io : bool
 );
+derive(InlineSuspension, Copy, Clone);
 /// The single-pass lowering's state while ONE async block's resume function is
 /// generated: awaits are emitted inline where the expression generator reaches
 /// them (`emit_inline_await`), each allocating the next state.
-InlineSmLowering :: ref(
-  struct(
-    async_block_id : String,
-    resume_function_name : String,
-    next_state : usize,
-    /// The block's await analysis (result types of the awaits it knows).
-    analysis : AwaitAnalysisResult,
-    suspensions : ArrayList(InlineSuspension),
-    /// Await nodes already emitted — each must suspend exactly once.
-    emitted : HashSet(usize),
-    /// C names of the temps whose future an await moved into
-    /// `__yo_await_slot`: the slot releases the future, so the temp's own
-    /// scope-end drop is not emitted.
-    moved_into_slot : HashSet(String),
-    /// A read that MOVES a state-machine field out (the evaluator's
-    /// `consumed_at_token` is that read), by atom id: the C temp the value
-    /// was taken into when its slot was zeroed.
-    moved_reads : HashMap(usize, String),
-    /// A pattern binding's slot (`sm->field`) → the place in another slot it
-    /// was bound from, without a dup (`sm->var_r.data.Err.error`). Moving the
-    /// binding out moves the value out of that place too, so a consuming read
-    /// zeroes both: the abort dispose and the scrutinee's scope-end drop see
-    /// an empty payload instead of releasing the moved value again.
-    binding_sources : HashMap(String, String),
-    /// Set while a drop or RC builtin renders its operand: a drop releases
-    /// the slot's value where it stands and is emitted again on every exit
-    /// path, so its operand is not a move out of the slot.
-    rc_operand : bool,
-    /// The block's capture list is owned by the state machine (an `FnOnce`
-    /// capture struct, decision 37): its dispose drops every capture the body
-    /// did not move (each has a move flag), on every path, so the body's own
-    /// capture drops are not emitted.
-    owns_fnonce_captures : bool
-  )
+InlineSmLowering :: struct(
+  async_block_id : String,
+  resume_function_name : String,
+  next_state : usize,
+  /// The block's await analysis (result types of the awaits it knows).
+  analysis : AwaitAnalysisResult,
+  suspensions : ArrayList(InlineSuspension),
+  /// Await nodes already emitted — each must suspend exactly once.
+  emitted : HashSet(usize),
+  /// C names of the temps whose future an await moved into
+  /// `__yo_await_slot`: the slot releases the future, so the temp's own
+  /// scope-end drop is not emitted.
+  moved_into_slot : HashSet(String),
+  /// A read that MOVES a state-machine field out (the evaluator's
+  /// `consumed_at_token` is that read), by atom id: the C temp the value
+  /// was taken into when its slot was zeroed.
+  moved_reads : HashMap(usize, String),
+  /// A pattern binding's slot (`sm->field`) → the place in another slot it
+  /// was bound from, without a dup (`sm->var_r.data.Err.error`). Moving the
+  /// binding out moves the value out of that place too, so a consuming read
+  /// zeroes both: the abort dispose and the scrutinee's scope-end drop see
+  /// an empty payload instead of releasing the moved value again.
+  binding_sources : HashMap(String, String),
+  /// Set while a drop or RC builtin renders its operand: a drop releases
+  /// the slot's value where it stands and is emitted again on every exit
+  /// path, so its operand is not a move out of the slot.
+  rc_operand : bool,
+  /// The block's capture list is owned by the state machine (an `FnOnce`
+  /// capture struct, decision 37): its dispose drops every capture the body
+  /// did not move (each has a move flag), on every path, so the body's own
+  /// capture drops are not emitted.
+  owns_fnonce_captures : bool
 );
 /// An effect-evidence parameter threaded into a function for explicit-effects
 /// dispatch — the implicit-record label, the field label/path within it, the
 /// field's function type, and the sanitized C parameter name.
-EvidenceParameter :: ref(
-  struct(
-    implicit_label : String,
-    field_label : String,
-    field_path : ArrayList(String),
-    field_function_type : TypeValue,
-    c_param_name : String
-  )
+EvidenceParameter :: struct(
+  implicit_label : String,
+  field_label : String,
+  field_path : ArrayList(String),
+  field_function_type : TypeValue,
+  c_param_name : String
 );
+derive(EvidenceParameter, Clone);
 FunctionGenerationContext :: struct(
   /// The base codegen context.
   base : CodeGenContext,
@@ -418,9 +416,121 @@ note_state_machine_binding_id :: (fn(context : &mut FunctionGenerationContext, i
 /// True while lowering an `io.async` state machine that owns its capture list
 /// (`InlineSmLowering.owns_fnonce_captures`).
 sm_owns_fnonce_captures :: (fn(context : &FunctionGenerationContext) -> bool)(
-  match(context.sm_inline_lowering, .Some(low) => low.owns_fnonce_captures, .None => false)
+  match(&context.sm_inline_lowering, .Some(low) => low.owns_fnonce_captures, .None => false)
 );
-export(record_declared_temp_var, note_short_circuit_handled, take_short_circuit_handled, note_state_machine_binding_id, sm_owns_fnonce_captures);
+// The single-pass lowering's state is a field of the context (`.None`
+// outside a lowering); the emitters read and write it in place through these.
+/// Record that await `eid` was emitted; false when it already was.
+sm_lowering_note_emitted :: (fn(context : &mut FunctionGenerationContext, eid : usize) -> bool)(
+  match(
+    &mut context.sm_inline_lowering,
+    .Some(low) => {
+      fresh := !low.emitted.contains(&eid);
+      low.emitted.insert(eid);
+      fresh
+    },
+    .None => false
+  )
+);
+/// The next resume state, reserved.
+sm_lowering_next_state :: (fn(context : &mut FunctionGenerationContext) -> usize)(
+  match(
+    &mut context.sm_inline_lowering,
+    .Some(low) => {
+      k := low.next_state;
+      low.next_state = (k + usize(1));
+      k
+    },
+    .None => usize(0)
+  )
+);
+/// The C name of a value the task's await slot now owns.
+sm_lowering_note_moved_into_slot :: (fn(context : &mut FunctionGenerationContext, sink(name) : String) -> unit)(
+  match(&mut context.sm_inline_lowering, .Some(low) => {
+    low.moved_into_slot.insert(name);
+  }, .None => ())
+);
+sm_lowering_push_suspension :: (fn(context : &mut FunctionGenerationContext, suspension : InlineSuspension) -> unit)(
+  match(&mut context.sm_inline_lowering, .Some(low) => low.suspensions.push(suspension), .None => ())
+);
+/// Set the "generating a drop/dup operand" flag; returns the previous value.
+sm_lowering_set_rc_operand :: (fn(context : &mut FunctionGenerationContext, value : bool) -> bool)(
+  match(
+    &mut context.sm_inline_lowering,
+    .Some(low) => {
+      prev := low.rc_operand;
+      low.rc_operand = value;
+      prev
+    },
+    .None => false
+  )
+);
+sm_lowering_note_binding_source :: (fn(context : &mut FunctionGenerationContext, sink(slot) : String, sink(source) : String) -> unit)(
+  match(&mut context.sm_inline_lowering, .Some(low) => {
+    low.binding_sources.insert(slot, source);
+  }, .None => ())
+);
+sm_lowering_note_moved_read :: (fn(context : &mut FunctionGenerationContext, eid : usize, sink(code) : String) -> unit)(
+  match(&mut context.sm_inline_lowering, .Some(low) => {
+    low.moved_reads.insert(eid, code);
+  }, .None => ())
+);
+/// What a fused site's body replaced while it lowers under its own analysis
+/// (`sm_lowering_enter_scope` / `sm_lowering_restore_scope`).
+SmLoweringScope :: struct(analysis : AwaitAnalysisResult, emitted : HashSet(usize), moved_reads : HashMap(usize, String));
+/// Lower the next statements under `analysis`, with fresh emitted-await and
+/// moved-read logs; returns what they replaced.
+sm_lowering_enter_scope :: (fn(context : &mut FunctionGenerationContext, analysis : AwaitAnalysisResult) -> Option(SmLoweringScope))(
+  match(
+    &mut context.sm_inline_lowering,
+    .Some(low) => Option(SmLoweringScope).Some(
+      SmLoweringScope(
+        analysis : replace(&mut low.analysis, analysis),
+        emitted : replace(&mut low.emitted, HashSet(usize).new()),
+        moved_reads : replace(&mut low.moved_reads, HashMap(usize, String).new())
+      )
+    ),
+    .None => Option(SmLoweringScope).None
+  )
+);
+sm_lowering_restore_scope :: (fn(context : &mut FunctionGenerationContext, sink(saved) : Option(SmLoweringScope)) -> unit)(
+  match(
+    saved,
+    .Some(scope) => match(
+      &mut context.sm_inline_lowering,
+      .Some(low) => {
+        { analysis, emitted, moved_reads } := scope;
+        low.analysis = analysis;
+        low.emitted = emitted;
+        low.moved_reads = moved_reads;
+      },
+      .None => ()
+    ),
+    .None => ()
+  )
+);
+/// The suspension analysis of the body being lowered.
+sm_lowering_analysis :: (fn(context : &FunctionGenerationContext) -> Option(AwaitAnalysisResult))(
+  match(&context.sm_inline_lowering, .Some(low) => Option(AwaitAnalysisResult).Some(low.analysis), .None => Option(AwaitAnalysisResult).None)
+);
+export(
+  record_declared_temp_var,
+  note_short_circuit_handled,
+  take_short_circuit_handled,
+  note_state_machine_binding_id,
+  sm_owns_fnonce_captures,
+  sm_lowering_note_emitted,
+  sm_lowering_next_state,
+  sm_lowering_note_moved_into_slot,
+  sm_lowering_push_suspension,
+  sm_lowering_set_rc_operand,
+  sm_lowering_note_binding_source,
+  sm_lowering_note_moved_read,
+  sm_lowering_analysis,
+  SmLoweringScope,
+  sm_lowering_enter_scope,
+  sm_lowering_restore_scope
+);
 
 export(
   FunctionGenerationContext,
