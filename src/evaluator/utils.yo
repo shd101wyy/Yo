@@ -8551,6 +8551,21 @@ origin_carrying_value_roots :: (fn(e : &AstExpr, env : &Environment, ctx : &Eval
                 .None => Option(TypeValue).None
               );
               cond(
+                // A reference VALUE the read rule produced (`.Some(r)` with
+                // `r` a reference binding, decision 43 step 2 N1e-2b) points
+                // where `r` does: a local borrow's frozen places, or a
+                // reference parameter's own place.
+                (!v_is_lend_mut && !v_is_lend_amp && is_reference_read(ast_expr_id(&value_s))) => {
+                  rr_before := out.len();
+                  _holder_roots_into(&value_s, env, ctx, &mut out);
+                  if(out.len() == rr_before, {
+                    match(
+                      local_borrow_place_of(&value_s, env, ctx),
+                      .Some(p) => out.push(OriginRootPlace(place : p, is_mut : t_slot_is_mut_ref(&vi.ty))),
+                      .None => ()
+                    );
+                  });
+                },
                 (v_is_lend_mut || v_is_lend_amp || v_lend.is_some()) => {
                   (v_mut : bool) = if(v_is_lend_mut, true, match(v_lend, .Some(Rc(.Reference(_, lm, _))) => lm, _ => false));
                   match(
@@ -8561,22 +8576,12 @@ origin_carrying_value_roots :: (fn(e : &AstExpr, env : &Environment, ctx : &Eval
                 },
                 true => match(
                   &vi.ty,
-                  // A reference argument: the place it lends. A local
-                  // reference binding read as the reference (the read rule,
-                  // decision 43 step 2 N1e-2b: `r := xs.index(i); .Some(r)`)
-                  // lends where it points — the places its own borrow froze —
-                  // not its own slot; a reference parameter, its own place.
-                  Rc(.Reference(_, vr_mut, _)) => {
-                    vr_before := out.len();
-                    _holder_roots_into(&value_s, env, ctx, &mut out);
-                    if(out.len() == vr_before, {
-                      match(
-                        local_borrow_place_of(&value_s, env, ctx),
-                        .Some(p) => out.push(OriginRootPlace(place : p, is_mut : vr_mut)),
-                        .None => ()
-                      );
-                    });
-                  },
+                  // A reference argument: the place it lends.
+                  Rc(.Reference(_, vr_mut, _)) => match(
+                    local_borrow_place_of(&value_s, env, ctx),
+                    .Some(p) => out.push(OriginRootPlace(place : p, is_mut : vr_mut)),
+                    .None => ()
+                  ),
                   // A holder passed on: its own frozen places.
                   _ => _holder_roots_into(&value_s, env, ctx, &mut out)
                 )

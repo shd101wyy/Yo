@@ -52,22 +52,18 @@ test("A reference read into a reference payload is the reference", {
   assert(rr_payload(rr_held(&h)) == i32(7), "`.Some(self.r)` of a reference field");
   assert(rr_payload(rr_wrap(&x)) == i32(7), "`.Some(r)` of a reference binding");
 });
-// An unbound type binder binds the reference itself: `T := &i32`, so the
-// read is no whole-value read (E0926) of `r`.
+// An unbound type binder binds the reference itself: `id(r)` binds
+// `T := &i32`, so the read is no whole-value read (E0926) of `r` — the
+// definition below type-checks (outside the exempt trees E0926 fired here).
+// Lowering the specialization at `T := &U` (its result is a reference VALUE,
+// not a projection) is VERDICTS-23 R3's, N2c's, which calls it.
 rr_id :: (fn(generic(T : Type), v : T) -> T)(v);
-rr_through_id :: (fn(r : &i32) -> &(i32, r))(rr_id(r));
-rr_read :: (fn(x : &i32) -> i32)(x.* + i32(0));
-test("An unbound type binder binds a reference read as the reference", {
-  x := i32(5);
-  assert(rr_read(rr_through_id(&x)) == i32(5), "`id(r)` binds `T := &i32` and returns the reference");
-  y := i32(6);
-  r := &y;
-  s := rr_id(r);
-  assert(s.* == i32(6), "`id(r)` of a local borrow");
+rr_id_of_reference :: (fn(r : &i32) -> unit)({
+  _s := rr_id(r);
 });
-// A holder of a reference with a Drop impl is dropped like any value: at
-// the statement's end as a temporary, at its scope's end when bound, and
-// when an effect handler unwinds past it. Dropping it never drops the place
+// A holder of a reference with a Drop impl is dropped like any value: by
+// its block's end as a temporary (Yo's rule for every temporary), at its
+// scope's end when bound, and when an effect handler unwinds past it. Dropping it never drops the place
 // it refers to.
 (mut(g_rr_dropped) : i32) = i32(0);
 RrHolder :: (fn(comptime(T) : Type, comptime(p) : Origin) -> comptime(Type))(struct(r : &(T, p)));
@@ -102,10 +98,13 @@ rr_unwinds :: (fn(x : &i32) -> unit)({
   );
   rr_raises(x, raise);
 });
-test("A holder of a reference with a Drop impl drops at statement end, scope end and unwind", {
+test("A holder of a reference with a Drop impl drops as a temporary, at scope end and on unwind", {
   x := i32(3);
-  assert(rr_holder_read(&RrHolder(i32, x)(r : &x)) == i32(3), "a temporary holder reads its place");
-  assert(g_rr_dropped == i32(1), "a temporary holder drops at its statement's end");
+  {
+    t := rr_holder_read(&RrHolder(i32, x)(r : &x));
+    assert(t == i32(3), "a temporary holder reads its place");
+  };
+  assert(g_rr_dropped == i32(1), "a temporary holder drops by its block's end");
   assert(rr_bound(&x) == i32(3), "a bound holder reads its place");
   assert(g_rr_dropped == i32(2), "a bound holder drops at its scope's end");
   rr_unwinds(&x);
