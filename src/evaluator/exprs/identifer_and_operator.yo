@@ -515,8 +515,8 @@ evaluate_identifier_and_operator :: (
   });
   // `YO_AUDIT_VARIABLE_TY=1`: a read reference binding's stored mode is the
   // mode the access checks give it (`variable_is_mut_borrow`, which reads a
-  // local borrow's `LocalBorrowInfo`).
-  if(g_audit_reference_mode && variable_is_reference_binding(&variable) && (t_slot_is_mut_ref(&variable_slot_type(&variable)) != variable_is_mut_borrow(&variable)), {
+  // local borrow's `LocalBorrowInfo`; a `&` match's binding is read-only).
+  if(g_audit_reference_mode && variable_is_reference_binding(&variable) && (t_slot_is_mut_ref(&variable_slot_type(&variable)) != (variable_is_mut_borrow(&variable) && !variable.is_borrow_match_binding)), {
     eprintln(`[variable-ty] mode mismatch: ${token.module_path.*}:${(token.row + u32(1)).to_string()}:${(token.column + u32(1)).to_string()} ${variable.name} stored ${type_to_string(&variable_slot_type(&variable))}`);
   });
   // Decision 43 step 2 N1e-1 (VERDICTS-13 §11): outside std and the compiler
