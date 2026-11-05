@@ -79,15 +79,15 @@ test("catch-all on a compile-time scrutinee", {
   );
   assert(r == i32(8));
 });
-// `Option` of a reference handle lowers to the nullable pointer
+// `Option` of a reference handle (an `Rc`) lowers to the nullable pointer
 // (plans/EVALUATOR_MEMORY_REDUCTION.md Phase 3), whose match path classified a
 // `_` arm as the pointer case and let it OVERWRITE the earlier `.Some` arm:
 // `.Some(c) => c.v, _ => fallback` always took the fallback.
-Crate :: ref(struct(v : i32));
+Crate :: struct(v : i32);
 test("a wildcard after .Some on a nullable-pointer Option only covers .None", {
-  pick :: (fn(o : &Option(Crate)) -> i32)(match(o, .Some(c) => c.v, _ => i32(-1)));
-  assert(pick(Option(Crate).Some(Crate(v : i32(7)))) == i32(7), ".Some takes its own arm");
-  assert(pick(Option(Crate).None) == i32(-1), ".None takes the wildcard");
+  pick :: (fn(o : &Option(Rc(Crate))) -> i32)(match(o, .Some(c) => c.v, _ => i32(-1)));
+  assert(pick(Option(Rc(Crate)).Some(Rc.new(Crate(v : i32(7))))) == i32(7), ".Some takes its own arm");
+  assert(pick(Option(Rc(Crate)).None) == i32(-1), ".None takes the wildcard");
 });
 // A match on an owned nullable-pointer Option (a reference-handle payload,
 // plans/EVALUATOR_MEMORY_REDUCTION.md Phase 3) must release its scrutinee: the
@@ -95,7 +95,7 @@ test("a wildcard after .Some on a nullable-pointer Option only covers .None", {
 // `match(xs.get(i), .Some(t) => …)` leaked the reference `.get()` returned
 // (1.26 M objects in `check src/main.yo`).
 (mut(g_tracked_disposed) : i32) = i32(0);
-Tracked :: ref(struct(v : i32));
+Tracked :: struct(v : i32);
 impl(
   Tracked,
   Drop(
@@ -107,9 +107,9 @@ impl(
 test("a match on an owned nullable-pointer Option releases its scrutinee", {
   before := g_tracked_disposed;
   {
-    mut(xs) := ArrayList(Tracked).new();
-    xs.push(Tracked(v : i32(1)));
-    xs.push(Tracked(v : i32(2)));
+    mut(xs) := ArrayList(Rc(Tracked)).new();
+    xs.push(Rc.new(Tracked(v : i32(1))));
+    xs.push(Rc.new(Tracked(v : i32(2))));
     (mut(sum) : i32) = i32(0);
     (mut(i) : usize) = usize(0);
     mut(positions) := ArrayList(usize).new();
@@ -121,7 +121,7 @@ test("a match on an owned nullable-pointer Option releases its scrutinee", {
       match(
         positions.get(i),
         .Some(pos) => match(
-          xs.get(pos),
+          xs.get_cloned(pos),
           .Some(t) => {
             sum = (sum + t.v);
           },

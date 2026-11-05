@@ -105,7 +105,7 @@ test("try_into to a type with no matching impl is a compile error", {
 // Since V3 of plans/VALUES_BY_DEFAULT.md a value type may implement `Drop`:
 // it is then move-only, and the dispose runs once, for its one owner.
 GenericValuePair :: (fn(comptime(T) : Type) -> comptime(Type))(struct(a : T, b : T));
-GenericRefPair :: (fn(comptime(T) : Type) -> comptime(Type))(ref(struct(a : T, b : T)));
+GenericRefPair :: (fn(comptime(T) : Type) -> comptime(Type))(struct(a : T, b : T));
 (mut(g_generic_ref_pair_disposed) : i32) = i32(0);
 (mut(g_generic_value_pair_disposed) : i32) = i32(0);
 impl(
@@ -129,10 +129,10 @@ impl(
 test("Test a generic 'Drop' impl runs once, and a blanket receiver is rejected", {
   before := g_generic_ref_pair_disposed;
   {
-    p := GenericRefPair(i32)(a : i32(1), b : i32(2));
-    q := p;
+    p := Rc.new(GenericRefPair(i32)(a : i32(1), b : i32(2)));
+    q := Rc.clone(&p);
   };
-  assert((g_generic_ref_pair_disposed - before) == i32(1), "a generic Drop on a ref struct runs once");
+  assert((g_generic_ref_pair_disposed - before) == i32(1), "a generic Drop on a payload two Rc handles share runs once");
   value_before := g_generic_value_pair_disposed;
   {
     v := GenericValuePair(i32)(a : i32(1), b : i32(2));
@@ -156,10 +156,8 @@ test("Test a generic 'Drop' impl runs once, and a blanket receiver is rejected",
 // replaced the deleted `Rc` marker trait's `where(Self <: Rc)`,
 // plans/VALUES_BY_DEFAULT.md §3.6, re-scoped by V3).
 test("Test 'Drop' receivers", {
-  MyBox :: ref(
-    struct(
-      value : i32
-    )
+  MyBox :: struct(
+    value : i32
   );
   impl(
     MyBox,

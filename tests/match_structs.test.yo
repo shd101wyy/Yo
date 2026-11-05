@@ -103,8 +103,8 @@ test("a whole-value binding of a struct pattern", {
   assert(n(Point(0, 3)) == i32(0));
   assert(n(Point(4, 1)) == i32(4));
 });
-test("a reference-semantics struct pattern reads through the pointer", {
-  SharedPoint :: ref(struct(x : i32, y : i32));
+test("a struct pattern reads through a borrowed parameter", {
+  SharedPoint :: struct(x : i32, y : i32);
   s :: (fn(p : &SharedPoint) -> i32)(
     match(p, { x : 0, y } => y.*, { x, y } => (x.* + y.*))
   );

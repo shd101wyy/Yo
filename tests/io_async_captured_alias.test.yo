@@ -73,7 +73,7 @@ test("a captured String alias read after the await", {
 // RC oracle: the alias's value is retained by the task and released exactly
 // once, when the task is.
 (mut(g_alias_disposed) : i32) = i32(0);
-AliasSink :: ref(struct(tag : usize));
+AliasSink :: struct(tag : usize);
 impl(
   AliasSink,
   Drop(
@@ -82,20 +82,20 @@ impl(
     })
   )
 );
-alias_of_ref_struct :: (fn(tag : usize, io : Io) -> Impl(Future(usize, IoExn)))({
-  c := AliasSink(tag : tag);
-  cb := c;
+alias_of_rc :: (fn(tag : usize, io : Io) -> Impl(Future(usize, IoExn)))({
+  c := Rc.new(AliasSink(tag : tag));
+  cb := Rc.clone(&c);
   io.async(e => {
     k := e.io.await(give_n(usize(1), e.io), e);
     return(k + cb.tag);
   })
 });
-test("a captured ref-struct alias is retained by the task and released once", {
+test("a captured Rc alias is retained by the task and released once", {
   before := g_alias_disposed;
   {
     exn := Exception(throw : (err -> panic("unexpected io error")));
     e := IoExn(io : io, exn : exn);
-    n := io.await(alias_of_ref_struct(usize(41), io), e);
+    n := io.await(alias_of_rc(usize(41), io), e);
     assert(n == usize(42), `got ${n.to_string()}`);
   };
   assert(g_alias_disposed == (before + i32(1)), `disposed ${(g_alias_disposed - before).to_string()} times, expected once`);
