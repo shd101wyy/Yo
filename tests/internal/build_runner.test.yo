@@ -94,18 +94,8 @@ _resolve_default_or_error :: (fn(io : Io) -> Result(String, String))({
   Result(String, String).Ok(_resolve_c_compiler(&Option(String).None, io, catch_exn))
 });
 test("build_dag: empty step produces a single-node DAG", {
-  // The registries' duplicate-name checks take an Exception; a test that is
-  // not exercising them wants one that fails loudly.
-  exn := Exception(
-    throw : (
-      _err -> {
-        assert(false, "unexpected registry error");
-        unwind(());
-      }
-    )
-  );
   mut(reg) := BuildRegistry.new();
-  reg.register_step(String.from("install"), String.from("Build all"), exn);
+  assert(reg.register_step(String.from("install"), String.from("Build all")).is_none(), "unexpected registry error");
   dag := build_dag(&reg, String.from("install"));
   assert(dag.len() == usize(1), "root step only");
   node := dag(usize(0));
@@ -118,19 +108,11 @@ test("register_executable carries the fixed-allocator heap size", {
   // silently build `fixed` with the default region. The end-to-end path
   // (build.yo -> --heap-size argv -> compile) is pinned by the
   // compile-allocator-fixed cli-case.
-  exn := Exception(
-    throw : (
-      _err -> {
-        assert(false, "unexpected registry error");
-        unwind(());
-      }
-    )
-  );
   mut(reg) := BuildRegistry.new();
   mut(a) := _mk_artifact(ArtifactKind.Executable, String.from("app"), String.from("./src/main.yo"));
   a.allocator = String.from("fixed");
   a.heap_size = usize(65536);
-  reg.register_executable(&a, exn);
+  assert(reg.register_executable(&a).is_none(), "unexpected registry error");
   got := reg.artifacts(usize(0)).clone();
   assert(got.heap_size == usize(65536), "heap_size is copied on registration");
   assert(got.allocator == `fixed`, "allocator is copied on registration");
@@ -162,18 +144,10 @@ test("child compile flags: Debug forwards --debug-symbols, the release levels do
   assert(!level_wants_debug_symbols(String.from("release-small")), "release-small stays lean");
 });
 test("build_dag: step with artifact dependencies", {
-  exn := Exception(
-    throw : (
-      _err -> {
-        assert(false, "unexpected registry error");
-        unwind(());
-      }
-    )
-  );
   mut(reg) := BuildRegistry.new();
-  reg.register_executable(_mk_artifact(ArtifactKind.Executable, String.from("app"), String.from("./src/main.yo")), exn);
-  reg.register_static_library(_mk_artifact(ArtifactKind.StaticLibrary, String.from("lib-a"), String.from("./src/a.yo")), exn);
-  reg.register_step(String.from("install"), String.from("Build all"), exn);
+  assert(reg.register_executable(_mk_artifact(ArtifactKind.Executable, String.from("app"), String.from("./src/main.yo"))).is_none(), "unexpected registry error");
+  assert(reg.register_static_library(_mk_artifact(ArtifactKind.StaticLibrary, String.from("lib-a"), String.from("./src/a.yo"))).is_none(), "unexpected registry error");
+  assert(reg.register_step(String.from("install"), String.from("Build all")).is_none(), "unexpected registry error");
   reg.add_step_dependency(String.from("install"), String.from("app"));
   reg.add_step_dependency(String.from("install"), String.from("lib-a"));
   dag := build_dag(&reg, String.from("install"));
@@ -182,19 +156,11 @@ test("build_dag: step with artifact dependencies", {
   assert(_dag_find(&dag, String.from("lib-a")).is_some(), "lib-a present");
 });
 test("build_dag: linked artifacts create edges", {
-  exn := Exception(
-    throw : (
-      _err -> {
-        assert(false, "unexpected registry error");
-        unwind(());
-      }
-    )
-  );
   mut(reg) := BuildRegistry.new();
-  reg.register_executable(_mk_artifact(ArtifactKind.Executable, String.from("app"), String.from("./src/main.yo")), exn);
-  reg.register_static_library(_mk_artifact(ArtifactKind.StaticLibrary, String.from("mylib"), String.from("./src/lib.yo")), exn);
+  assert(reg.register_executable(_mk_artifact(ArtifactKind.Executable, String.from("app"), String.from("./src/main.yo"))).is_none(), "unexpected registry error");
+  assert(reg.register_static_library(_mk_artifact(ArtifactKind.StaticLibrary, String.from("mylib"), String.from("./src/lib.yo"))).is_none(), "unexpected registry error");
   reg.register_link(String.from("app"), String.from("mylib"));
-  reg.register_step(String.from("install"), String.from("Build all"), exn);
+  assert(reg.register_step(String.from("install"), String.from("Build all")).is_none(), "unexpected registry error");
   reg.add_step_dependency(String.from("install"), String.from("app"));
   dag := build_dag(&reg, String.from("install"));
   match(
@@ -204,18 +170,10 @@ test("build_dag: linked artifacts create edges", {
   );
 });
 test("build_dag: run step depends on its artifact", {
-  exn := Exception(
-    throw : (
-      _err -> {
-        assert(false, "unexpected registry error");
-        unwind(());
-      }
-    )
-  );
   mut(reg) := BuildRegistry.new();
-  reg.register_executable(_mk_artifact(ArtifactKind.Executable, String.from("app"), String.from("./src/main.yo")), exn);
+  assert(reg.register_executable(_mk_artifact(ArtifactKind.Executable, String.from("app"), String.from("./src/main.yo"))).is_none(), "unexpected registry error");
   reg.register_run(String.from("app"), ArrayList(String).new());
-  reg.register_step(String.from("run"), String.from("Run the app"), exn);
+  assert(reg.register_step(String.from("run"), String.from("Run the app")).is_none(), "unexpected registry error");
   reg.add_step_dependency(String.from("run"), String.from("run:app"));
   dag := build_dag(&reg, String.from("run"));
   match(
@@ -228,17 +186,9 @@ test("build_dag: run step depends on its artifact", {
   );
 });
 test("build_dag: a verify step is a leaf Verify node a step can depend on", {
-  exn := Exception(
-    throw : (
-      _err -> {
-        assert(false, "unexpected registry error");
-        unwind(());
-      }
-    )
-  );
   mut(reg) := BuildRegistry.new();
-  reg.register_verify(BuildVerifyConfig(name : String.from("proofs"), root : String.from("./src"), mode : String.from("verify+"), strict : true), exn);
-  reg.register_step(String.from("install"), String.from("Build all"), exn);
+  assert(reg.register_verify(BuildVerifyConfig(name : String.from("proofs"), root : String.from("./src"), mode : String.from("verify+"), strict : true)).is_none(), "unexpected registry error");
+  assert(reg.register_step(String.from("install"), String.from("Build all")).is_none(), "unexpected registry error");
   reg.add_step_dependency(String.from("install"), String.from("proofs"));
   match(
     reg.resolve_dependency(String.from("proofs")),
@@ -267,47 +217,23 @@ test("build_dag: a verify step is a leaf Verify node a step can depend on", {
   });
   assert(found, "verify node present");
 });
-/// Returns true iff registering a verify step named `name` on `reg` throws
-/// (handlers are capture-free, so the outcome rides on `unwind`).
-_register_verify_throws :: (fn(reg : &mut BuildRegistry, name : &String) -> bool)({
-  exn := Exception(
-    throw : (
-      _err -> {
-        unwind(true);
-      }
-    )
-  );
-  reg.register_verify(BuildVerifyConfig(name : name.clone(), root : String.from("./src"), mode : String.from("verify"), strict : false), exn);
-  false
-});
+/// Returns true iff registering a verify step named `name` on `reg` is
+/// rejected (the registration returns its error).
+_register_verify_throws :: (fn(reg : &mut BuildRegistry, name : &String) -> bool)(
+  reg.register_verify(BuildVerifyConfig(name : name.clone(), root : String.from("./src"), mode : String.from("verify"), strict : false)).is_some()
+);
 test("register_verify: the one build namespace rejects a reused name", {
-  quiet := Exception(
-    throw : (
-      _err -> {
-        assert(false, "unexpected registry error");
-        unwind(());
-      }
-    )
-  );
   mut(reg) := BuildRegistry.new();
-  reg.register_step(String.from("verify"), String.from("A custom step"), quiet);
+  assert(reg.register_step(String.from("verify"), String.from("A custom step")).is_none(), "unexpected registry error");
   assert(_register_verify_throws(&mut reg, String.from("verify")), "a verify step cannot reuse a step's name");
   assert(!_register_verify_throws(&mut reg, String.from("proofs")), "a fresh name registers");
 });
 test("build_dag: nested steps are walked transitively", {
-  exn := Exception(
-    throw : (
-      _err -> {
-        assert(false, "unexpected registry error");
-        unwind(());
-      }
-    )
-  );
   mut(reg) := BuildRegistry.new();
-  reg.register_executable(_mk_artifact(ArtifactKind.Executable, String.from("app"), String.from("./src/main.yo")), exn);
-  reg.register_step(String.from("compile"), String.from("Compile step"), exn);
+  assert(reg.register_executable(_mk_artifact(ArtifactKind.Executable, String.from("app"), String.from("./src/main.yo"))).is_none(), "unexpected registry error");
+  assert(reg.register_step(String.from("compile"), String.from("Compile step")).is_none(), "unexpected registry error");
   reg.add_step_dependency(String.from("compile"), String.from("app"));
-  reg.register_step(String.from("install"), String.from("Install step"), exn);
+  assert(reg.register_step(String.from("install"), String.from("Install step")).is_none(), "unexpected registry error");
   reg.add_step_dependency(String.from("install"), String.from("compile"));
   dag := build_dag(&reg, String.from("install"));
   assert(dag.len() == usize(3), "install, compile, app");
@@ -318,21 +244,13 @@ test("build_dag: nested steps are walked transitively", {
   );
 });
 test("build_dag: deduplicates shared dependencies", {
-  exn := Exception(
-    throw : (
-      _err -> {
-        assert(false, "unexpected registry error");
-        unwind(());
-      }
-    )
-  );
   mut(reg) := BuildRegistry.new();
-  reg.register_static_library(_mk_artifact(ArtifactKind.StaticLibrary, String.from("common"), String.from("./src/common.yo")), exn);
-  reg.register_executable(_mk_artifact(ArtifactKind.Executable, String.from("app-a"), String.from("./src/a.yo")), exn);
-  reg.register_executable(_mk_artifact(ArtifactKind.Executable, String.from("app-b"), String.from("./src/b.yo")), exn);
+  assert(reg.register_static_library(_mk_artifact(ArtifactKind.StaticLibrary, String.from("common"), String.from("./src/common.yo"))).is_none(), "unexpected registry error");
+  assert(reg.register_executable(_mk_artifact(ArtifactKind.Executable, String.from("app-a"), String.from("./src/a.yo"))).is_none(), "unexpected registry error");
+  assert(reg.register_executable(_mk_artifact(ArtifactKind.Executable, String.from("app-b"), String.from("./src/b.yo"))).is_none(), "unexpected registry error");
   reg.register_link(String.from("app-a"), String.from("common"));
   reg.register_link(String.from("app-b"), String.from("common"));
-  reg.register_step(String.from("install"), String.from("Build all"), exn);
+  assert(reg.register_step(String.from("install"), String.from("Build all")).is_none(), "unexpected registry error");
   reg.add_step_dependency(String.from("install"), String.from("app-a"));
   reg.add_step_dependency(String.from("install"), String.from("app-b"));
   dag := build_dag(&reg, String.from("install"));
