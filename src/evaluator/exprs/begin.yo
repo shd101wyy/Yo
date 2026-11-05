@@ -3052,7 +3052,7 @@ _evaluate_begin_expression_impl :: (
           // marker is evaluated, `evaluate_address_call`; only the
           // raw-pointer-representation rooting check remains here.)
           match(
-            &ctx.is_evaluating_function_body_or_async_block,
+            ctx.is_evaluating_function_body_or_async_block.clone(),
             .Some(rfb_ctx) => match(
               rfb_ctx.kind,
               .FunctionBody => match(
@@ -3114,7 +3114,7 @@ _evaluate_begin_expression_impl :: (
           );
           if(ir_declared_impl, {
             match(
-              &ctx.function_return_impl_concrete_type,
+              ctx.function_return_impl_concrete_type.clone(),
               .Some(ir_list) => {
                 if(ir_list.len() > usize(0), {
                   match(
@@ -3554,7 +3554,7 @@ _evaluate_begin_expression_impl :: (
   is_return_ctrl := has_control_flow(last_info.control_flow, .Return);
   if(is_return_ctrl, {
     match(
-      &ctx.is_evaluating_function_body_or_async_block,
+      ctx.is_evaluating_function_body_or_async_block.clone(),
       .None => (),
       .Some(fctx) => {
         match(
