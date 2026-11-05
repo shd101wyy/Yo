@@ -17,7 +17,7 @@
 { trial_flag_get, trial_flag_set, t_unit, t_ptr, type_binding_name } :: import("../types/creators.yo");
 { note_move_only_possible, is_drop_trait_name } :: import("../types/utils.yo");
 { EvalValue } :: import("../value.yo");
-{ Environment, Variable, Frame, _frame_first_position, snapshot_env, add_variable_to_env, get_variables_from_frame, invalidate_frame_index, new_frame, value_cell_of, set_mut_decl_census_untrusted } :: import("../env.yo");
+{ Environment, Variable, Frame, _frame_first_position, snapshot_env, add_variable_to_env, get_variables_from_frame, invalidate_frame_index, new_frame, value_cell_of, set_mut_decl_census_untrusted, variable_value_type, variable_set_value_type } :: import("../env.yo");
 {
   AstExpr,
   ExprId,
@@ -1719,7 +1719,7 @@ rebind_destructured_name :: (
     match(
       f.variables.get(i),
       .Some(v) => if(v.name == name, {
-        v.ty = Rc.clone(fresh.ty);
+        variable_set_value_type(&v, variable_value_type(fresh));
         v.value = value_cell_of(fresh.value.get(usize(0)));
         v.is_compile_time_only = fresh.is_compile_time_only;
         return(true);

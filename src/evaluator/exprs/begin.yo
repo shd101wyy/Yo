@@ -74,7 +74,7 @@ pragma(Pragma.AllowUnsafe);
   lookup_method_callee_type
 } :: import("../../expr_info.yo");
 { scope_release_active, scope_release_depth, scope_release_set_depth, scope_release_mark, scope_release_body, is_call_once_capture_dup, is_moved_container_dup, mark_fnonce_capture_drop, record_immediate_old_value_drop, is_by_value_param_share_dup, is_call_scoped_share_dup } :: import("../../expr_info.yo");
-{ Environment, Variable, Frame, add_variable_to_env, get_variables_from_env, variable_is_inout_borrow_root, variable_keep_alias_dups, variable_mark_keep_alias_dups, variable_moved_at_cleanup_point, variable_undone_moves, snapshot_env, is_fnonce_capture_frame, env_adopt } :: import("../../env.yo");
+{ Environment, Variable, Frame, add_variable_to_env, get_variables_from_env, variable_is_inout_borrow_root, variable_keep_alias_dups, variable_mark_keep_alias_dups, variable_moved_at_cleanup_point, variable_undone_moves, snapshot_env, is_fnonce_capture_frame, env_adopt, variable_value_type } :: import("../../env.yo");
 {
   EvalContext,
   ExpectedTypeCtx,
@@ -884,7 +884,7 @@ _drop_unused_old_value_now :: (fn(stmt : &AstExpr, env : &Environment, ctx : &Ev
       .None => (),
       .Some(tname) => match(
         get_variables_from_env(env, tname.clone()).last(),
-        .Some(tv) => if(tv.is_owning_the_rc_value && tv.consumed_at_token.is_none() && type_requires_explicit_copy(&tv.ty), {
+        .Some(tv) => if(tv.is_owning_the_rc_value && tv.consumed_at_token.is_none() && type_requires_explicit_copy(&variable_value_type(&tv)), {
           drop_expr := generate_expr_from_code(`${BF_DROP}(${tname})`, exn);
           evaluated := evaluate_expression_raw(&drop_expr, env, ctx, exn);
           tv.consumed_at_token = Option(Token).Some(ast_expr_token(stmt));
@@ -900,14 +900,14 @@ _variable_can_need_drop_ignoring_consumed :: (fn(v : &Variable) -> bool)({
   if(!v.is_owning_the_rc_value, {
     return(false);
   });
-  if(!type_contains_rc_type(&v.ty), {
+  if(!type_contains_rc_type(&variable_value_type(v)), {
     return(false);
   });
   if(v.is_module_level, {
     return(false);
   });
   some_undroppable := match(
-    &v.ty,
+    &variable_value_type(v),
     Rc(.SomeT({ bounds : s_rtt_bnd, resolution : s_rc })) => {
       s_rtt := s_rtt_bnd.required();
       (s_rc.is_none() && (s_rtt.len() == usize(0)))
@@ -1501,7 +1501,7 @@ _optimize_dup_drop_pairs :: (
     match(
       fvars.get(cdi),
       .Some(cv) => {
-        if(cv.consumed_at_token.is_some() && cv.is_owning_the_same_rc_value_as.is_some() && type_contains_rc_type(&cv.ty), {
+        if(cv.consumed_at_token.is_some() && cv.is_owning_the_same_rc_value_as.is_some() && type_contains_rc_type(&variable_value_type(&cv)), {
           (cbase : Variable) = cv;
           (cwalking : bool) = true;
           while(cwalking, {
@@ -1557,14 +1557,14 @@ _optimize_dup_drop_pairs :: (
     match(
       fvars.get(vi),
       .Some(v) => {
-        e1 := (v.is_owning_the_rc_value && type_contains_rc_type(&v.ty));
+        e1 := (v.is_owning_the_rc_value && type_contains_rc_type(&variable_value_type(&v)));
         e2 := (e1 && !v.is_module_level);
         // A root of an `inout` local binding is used through the alias, which
         // is not a syntactic use: cancelling its dup here would MOVE the count
         // while a binding may still write through the slot (§9 H6).
         e3 := (e2 && !v.is_ref && !variable_is_inout_borrow_root(&v));
         some_undroppable := match(
-          &v.ty,
+          &variable_value_type(&v),
           Rc(.SomeT({ bounds : s_rtt_bounds, resolution : s_rc })) => {
             s_rtt := s_rtt_bounds.required();
             (s_rc.is_none() && (s_rtt.len() == usize(0)))
@@ -1629,7 +1629,7 @@ _optimize_dup_drop_pairs :: (
               // copies need their own drop — never cancel. A cell handle
               // (`cell_handle_view`, V5's `Rc`/`Arc`) is one cell pointer in
               // C, as a `ref` object is, so its pairs cancel like an `Rc`'s.
-              value_type_with_rc := (!(is_reference_struct_type(&base.ty) || cell_handle_view(&base.ty).is_some()) && type_contains_rc_type(&base.ty));
+              value_type_with_rc := (!(is_reference_struct_type(&variable_value_type(&base)) || cell_handle_view(&variable_value_type(&base)).is_some()) && type_contains_rc_type(&variable_value_type(&base)));
               partial := _ids_list_contains(&merged.vars_with_partial_branch_dups, base_id.clone());
               // A dup taken in a DEEPER SCOPE than the candidate's own frame
               // — the body of a nested `{ … }` block — feeds a container whose
@@ -2377,14 +2377,14 @@ _scope_end_drop_eligible :: (
   ) -> bool
 )({
   e0 := (!params_only || v.is_parameter);
-  e1 := (e0 && v.is_owning_the_rc_value && type_contains_rc_type(&v.ty));
+  e1 := (e0 && v.is_owning_the_rc_value && type_contains_rc_type(&variable_value_type(v)));
   e2 := (e1 && !v.is_module_level);
   e3 := (e2 && !v.is_ref);
   // Skip only UNRESOLVED SomeTypes with no required traits (no concrete
   // drop possible). Bounded/resolved SomeTypes keep their drop — matching
   // the resolvedConcreteType/requiredTraits check.
   some_undroppable := match(
-    &v.ty,
+    &variable_value_type(v),
     Rc(.SomeT({ bounds : s_rtt_bounds, resolution : s_rc })) => {
       s_rtt := s_rtt_bounds.required();
       (s_rc.is_none() && (s_rtt.len() == usize(0)))
@@ -2396,7 +2396,7 @@ _scope_end_drop_eligible :: (
   e6 := (e5 && !_name_matches_opt(v.name.clone(), result_var_name));
   e7 := (e6 && !_name_matches_opt(v.name.clone(), tail_atom_name));
   if(g_debug_scope_drops, {
-    eprintln(`[sd] mod=${v.token.module_path.*} var=${v.name} owning=${v.is_owning_the_rc_value.to_string()} ty_rc=${type_contains_rc_type(&v.ty).to_string()} mod=${v.is_module_level.to_string()} ref=${v.is_ref.to_string()} same=${v.is_owning_the_same_rc_value_as.is_some().to_string()} consumed=${v.consumed_at_token.is_some().to_string()} e7=${e7.to_string()}`);
+    eprintln(`[sd] mod=${v.token.module_path.*} var=${v.name} owning=${v.is_owning_the_rc_value.to_string()} ty_rc=${type_contains_rc_type(&variable_value_type(v)).to_string()} mod=${v.is_module_level.to_string()} ref=${v.is_ref.to_string()} same=${v.is_owning_the_same_rc_value_as.is_some().to_string()} consumed=${v.consumed_at_token.is_some().to_string()} e7=${e7.to_string()}`);
   });
   e7
 });
@@ -2869,7 +2869,7 @@ _evaluate_begin_expression_impl :: (
     _added := add_variable_to_env(
       &env,
       &v.name,
-      &v.ty,
+      &variable_value_type(&v),
       v.value.get(usize(0)),
       v.is_compile_time_only,
       v.is_reassignable,
@@ -3762,7 +3762,7 @@ _evaluate_begin_expression_impl :: (
           .Some(rv) => {
             ty_ok := match(
               rv_info_opt,
-              .Some(rv_info_t) => are_types_compatible(&rv.ty, &rv_info_t.ty),
+              .Some(rv_info_t) => are_types_compatible(&variable_value_type(&rv), &rv_info_t.ty),
               .None => false
             );
             if(ty_ok, {

@@ -40,7 +40,7 @@
 { tokenize } :: import("../lexer.yo");
 { AstExpr, ast_expr_id, ast_expr_token } :: import("../expr.yo");
 { ExprInfoTable, expr_info_table_get } :: import("../expr_info.yo");
-{ Environment, Variable, get_variables_from_env } :: import("../env.yo");
+{ Environment, Variable, get_variables_from_env, variable_value_type } :: import("../env.yo");
 { TypeValue, TypeValueNode, no_types, no_labels } :: import("../types/definitions.yo");
 { type_to_string } :: import("../types/string.yo");
 { EvalValue } :: import("../value.yo");
@@ -487,7 +487,7 @@ _receiver_at :: (
             .None => ()
           );
           if(!var_unwrapped, {
-            recv = Rc.clone(sv.ty);
+            recv = variable_value_type(&sv);
           });
         },
         .None => ()
@@ -1309,9 +1309,9 @@ handle_completion :: (
                 );
                 if(fresh, {
                   emitted.insert(vname.clone());
-                  is_fn := match(&v.ty, Rc(.Func(_, _, _, _, _, _, _)) => true, _ => false);
+                  is_fn := match(&variable_value_type(&v), Rc(.Func(_, _, _, _, _, _, _)) => true, _ => false);
                   kind2 := cond(is_fn => K_FUNCTION, true => K_VARIABLE);
-                  items.push(_ci(vname.clone(), kind2, type_to_string(&v.ty), _sort_key(vname.clone(), prefix_lower.clone()), String.new()));
+                  items.push(_ci(vname.clone(), kind2, type_to_string(&variable_value_type(&v)), _sort_key(vname.clone(), prefix_lower.clone()), String.new()));
                 });
               },
               .None => ()

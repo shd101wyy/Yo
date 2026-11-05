@@ -10,7 +10,7 @@
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, ExprId, ast_expr_id, ast_expr_is_atom, ast_expr_is_atom_of, ast_expr_is_fn_call_of, ast_expr_token, ast_expr_text, BK_COMPTIME, BK_ARRAY_VAL, ast_expr_is_local_borrow_mode_call, BF_DOT } :: import("../../expr.yo");
 { RuntimeDestructuring, expr_info_converted_runtime_type, expr_info_runtime_destructurings, expr_info_deferred_dup_expressions, expr_info_macro_expansion, scope_variables, lookup_local_borrow_step_pin } :: import("../../expr_info.yo");
-{ Variable, Environment } :: import("../../env.yo");
+{ Variable, Environment, variable_value_type } :: import("../../env.yo");
 { is_array_type, is_unit_type, is_struct_type, is_reference_struct_type, is_tuple_type, is_newtype_type } :: import("../../types/guards.yo");
 { TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
 { t_ptr } :: import("../../types/creators.yo");
@@ -269,9 +269,9 @@ _generate_inout_local_binding :: (fn(lhs : &AstExpr, rhs : &AstExpr, bind_key : 
   // empty here, filled by each re-point, released by its scope-end drop.
   match(
     lookup_local_borrow_step_pin(ast_expr_id(lhs)),
-    .Some(sp) => if(!is_unit_type(&sp.ty), {
+    .Some(sp) => if(!is_unit_type(&variable_value_type(&sp)), {
       mut(sp_decl) := indent.clone();
-      sp_decl.push_string(match(_sm_local_slot(&sp, context), .Some(slot) => slot, .None => get_variable_type_string(&sp.ty, sp.name.clone(), &context.base)));
+      sp_decl.push_string(match(_sm_local_slot(&sp, context), .Some(slot) => slot, .None => get_variable_type_string(&variable_value_type(&sp), sp.name.clone(), &context.base)));
       sp_decl.push_str(" = NULL;");
       em.emit_string_line(&sp_decl);
     }),
@@ -287,9 +287,9 @@ _generate_inout_local_binding :: (fn(lhs : &AstExpr, rhs : &AstExpr, bind_key : 
         .Some(pin_expr) => {
           pin_code := _call_generate_expr(&pin_expr, indent.clone(), context);
           mut(pin_decl) := indent.clone();
-          pin_decl.push_string(match(_sm_local_slot(&pin_var, context), .Some(slot) => slot, .None => get_variable_type_string(&pin_var.ty, pin_var.name.clone(), &context.base)));
+          pin_decl.push_string(match(_sm_local_slot(&pin_var, context), .Some(slot) => slot, .None => get_variable_type_string(&variable_value_type(&pin_var), pin_var.name.clone(), &context.base)));
           pin_decl.push_str(" = ");
-          pin_decl.push_string(generate_dup_code_for_value(&pin_code, &pin_var.ty, context));
+          pin_decl.push_string(generate_dup_code_for_value(&pin_code, &variable_value_type(&pin_var), context));
           pin_decl.push_str(";");
           em.emit_string_line(&pin_decl);
         },
@@ -392,8 +392,8 @@ generate_local_borrow_repoint :: (fn(expr : &AstExpr, indent : &String, context 
           cell_code := _call_generate_expr(&cell_expr, indent.clone(), context);
           tmp := `${sanitize_for_c_identifier(sp.name.clone(), false)}_step`;
           em.emit_string_line(`${indent}{`);
-          em.emit_string_line(`${indent}  ${get_variable_type_string(&sp.ty, tmp.clone(), &context.base)} = ${generate_dup_code_for_value(&cell_code, &sp.ty, context)};`);
-          em.emit_string_line(`${indent}  ${generate_drop_code_for_value(sp_slot.clone(), &sp.ty, context)};`);
+          em.emit_string_line(`${indent}  ${get_variable_type_string(&variable_value_type(&sp), tmp.clone(), &context.base)} = ${generate_dup_code_for_value(&cell_code, &variable_value_type(&sp), context)};`);
+          em.emit_string_line(`${indent}  ${generate_drop_code_for_value(sp_slot.clone(), &variable_value_type(&sp), context)};`);
           em.emit_string_line(`${indent}  ${sp_slot} = ${tmp};`);
           em.emit_string_line(`${indent}}`);
         },

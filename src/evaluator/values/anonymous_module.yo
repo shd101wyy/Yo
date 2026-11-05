@@ -35,7 +35,7 @@ pragma(Pragma.AllowUnsafe);
   restore_active_where_trait_ids
 } :: import("../../expr_info.yo");
 { HashSet } :: import("std/collections/hash_set");
-{ Environment, Variable, get_variables_from_env, env_adopt } :: import("../../env.yo");
+{ Environment, Variable, get_variables_from_env, env_adopt, variable_value_type } :: import("../../env.yo");
 /// Names of recorded module-level runtime statics — lets a later bare-atom
 /// `name = value;` top-level REASSIGNMENT be collected into the module init
 /// (a per-variable "module-level" flag would be unreliable for imported
@@ -746,11 +746,11 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                         );
                       });
                       field_labels.push(variable_name.clone());
-                      field_types.push(Rc.clone(the_var.ty));
+                      field_types.push(variable_value_type(&the_var));
                       module_names.push(variable_name.clone());
                       module_vals.push(the_val);
                       // Set ExprInfo on export_expr
-                      out_info := new_expr_info(&env, &the_var.ty);
+                      out_info := new_expr_info(&env, &variable_value_type(&the_var));
                       expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&export_expr), &out_info);
                     }
                   );
@@ -972,14 +972,14 @@ _attach_module_init_temp_drops :: (fn(stmt : &AstExpr, env : &Environment, ctx :
                 .None => false
               );
               some_undroppable := match(
-                &v.ty,
+                &variable_value_type(&v),
                 Rc(.SomeT({ bounds : s_rtt_bnd, resolution : s_rc })) => {
                   s_rtt := s_rtt_bnd.required();
                   (s_rc.is_none() && (s_rtt.len() == usize(0)))
                 },
                 _ => false
               );
-              if(minted_here && v.is_owning_the_rc_value && type_contains_rc_type(&v.ty) && !v.is_module_level && !v.is_ref && !some_undroppable && v.consumed_at_token.is_none(), {
+              if(minted_here && v.is_owning_the_rc_value && type_contains_rc_type(&variable_value_type(&v)) && !v.is_module_level && !v.is_ref && !some_undroppable && v.consumed_at_token.is_none(), {
                 stmt_temps.push(v);
               });
             },

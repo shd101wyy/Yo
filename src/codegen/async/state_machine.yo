@@ -22,7 +22,7 @@
 { Token, TokenKind } :: import("../../token.yo");
 { lookup_match_arms, pattern_binding_atoms } :: import("../../pattern.yo");
 { EvalValue } :: import("../../value.yo");
-{ Variable, Environment, get_variables_from_env_by_filter } :: import("../../env.yo");
+{ Variable, Environment, get_variables_from_env_by_filter, variable_value_type } :: import("../../env.yo");
 { type_contains_rc_cell_or_move_only, fn_abi_param_is_ptr } :: import("../../types/utils.yo");
 { FunctionGenerationContext, EvidenceParameter, InAsyncStateMachine, InlineSmLowering, InlineSuspension, InlineAwaitResultField, sm_owns_fnonce_captures } :: import("../functions/context.yo");
 { expr_contains_await, expr_contains_while_with_await, await_fusion_candidate } :: import("../../expr_traversal.yo");
@@ -401,7 +401,7 @@ _lv_walk :: (fn(e : &AstExpr, stmt_end : u64, block_end : u64, w : &_LiveWalk, c
             // to the end of the borrow's scope too.
             match(
               lookup_local_borrow_step_pin(ast_expr_id(lhs.clone())),
-              .Some(sp) => if(!is_unit_type(&sp.ty), {
+              .Some(sp) => if(!is_unit_type(&variable_value_type(&sp)), {
                 sp_id := _lv_id(&sp, w);
                 _lv_declare(sp_id.clone(), sp.name.clone(), _lv_span_end(rhs.clone(), w), block_end, w);
                 match(

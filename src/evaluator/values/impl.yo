@@ -65,7 +65,8 @@ pragma(Pragma.AllowUnsafe);
   mint_funcval_env_key,
   set_find_methods_from_generic_impls_fn,
   set_force_in_flight_field_fn,
-  capture_env_for
+  capture_env_for,
+  variable_value_type
 } :: import("../../env.yo");
 {
   MethodEntry,
@@ -951,7 +952,7 @@ _resolve_one_forall_binding :: (
       // method types that mention `U` in a LENGTH position would need a
       // value substitution, which `substitute()` cannot express; current
       // std impls (e.g. Array fill) don't, they only use `T`/`Self`.
-      .IntLit(_) => Option(TypeValue).Some(Rc.clone(last_nvar.ty)),
+      .IntLit(_) => Option(TypeValue).Some(variable_value_type(&last_nvar)),
       _ => Option(TypeValue).None
     ),
     .None => Option(TypeValue).None
@@ -1017,7 +1018,7 @@ _resolve_one_forall_binding_from :: (
                         });
                       },
                       .IntLit(_) => {
-                        return(Option(TypeValue).Some(Rc.clone(var.ty)));
+                        return(Option(TypeValue).Some(variable_value_type(&var)));
                       },
                       _ => ()
                     ),

@@ -43,7 +43,8 @@ pragma(Pragma.AllowUnsafe);
   env_adopt,
   UndoneMove,
   variable_record_undone_move,
-  variable_has_undone_move
+  variable_has_undone_move,
+  variable_value_type
 } :: import("../../env.yo");
 { Token } :: import("../../token.yo");
 { EvalContext, ExpectedTypeCtx, CaptureUsage, track_variable_usage, call_rerun_pending_def_evals, fn_ctx_returns_comptime } :: import("../context.yo");
@@ -253,7 +254,7 @@ make_variable_with_value :: (
   Variable(
     id : v.id,
     name : v.name.clone(),
-    ty : Rc.clone(v.ty),
+    bound_ty : variable_value_type(v),
     is_compile_time_only : v.is_compile_time_only,
     frame_level : v.frame_level,
     value : value_cell_of(new_value),
@@ -876,7 +877,7 @@ _d1_record_write :: (
         dyn(
           format_error_message(
             write_tok,
-            `Cannot ${how} module-level global '${gv.name}' (type ${type_to_string(&gv.ty)})${note}: a closure that runs on another thread reads it (at ${reach_loc}). A module-level binding is one static shared by every thread, so a mutable one may only be touched by one thread. Use thread_local(${gv.name}) for per-thread state, or an atomic object (AtomicI32, Mutex(T), Arc(T)) for shared state.`
+            `Cannot ${how} module-level global '${gv.name}' (type ${type_to_string(&variable_value_type(gv))})${note}: a closure that runs on another thread reads it (at ${reach_loc}). A module-level binding is one static shared by every thread, so a mutable one may only be touched by one thread. Use thread_local(${gv.name}) for per-thread state, or an atomic object (AtomicI32, Mutex(T), Arc(T)) for shared state.`
           )
         )
       );
@@ -940,7 +941,7 @@ d3_record_inout_place :: (
           how : how,
           noun : String.from("module-level global"),
           root_text : ast_expr_to_string(&root_expr),
-          root_type : type_to_string(&gv.ty),
+          root_type : type_to_string(&variable_value_type(&gv)),
           global : Option(Variable).Some(gv),
           borrow_error : Option(String).None
         )
@@ -1247,7 +1248,7 @@ get_atomic_object_root_type :: (
   });
   (root_type : TypeValue) = match(
     variables.last(),
-    .Some(v) => Rc.clone(v.ty),
+    .Some(v) => variable_value_type(&v),
     .None => return(Option(TypeValue).None)
   );
   // Resolve SomeType (e.g. Self) to its concrete type.
@@ -1613,14 +1614,14 @@ evaluate_assignment :: (
         _borrowed_root_walk(&evaluated_lhs, &env, ctx, true),
         // A root holding no RC data (`w := Array(u32, 80)`) is never "owning",
         // so the walk cannot tell a local from a borrowed binding there.
-        .Some(abv) => if(type_contains_rc_type(&abv.ty) && !_is_dispose_receiver(&abv, ast_expr_token(&lhs)), {
+        .Some(abv) => if(type_contains_rc_type(&variable_value_type(&abv)) && !_is_dispose_receiver(&abv, ast_expr_token(&lhs)), {
           at := ast_expr_token(&lhs);
           anoun := cond(abv.is_parameter => "a `&T` parameter", true => "a `match` or `for` binding");
           eprintln(`[inout-borrow] ${at.module_path.*}:${(at.row + u32(1)).to_string()}:${(at.column + u32(1)).to_string()} ${_place_source_text(&lhs)} = (${abv.name}: ${anoun}, ${type_to_string(&expected_ty)})`);
         }),
         .None => match(
           _captured_root_of_place(&evaluated_lhs, &env, ctx),
-          .Some(acv) => if(type_contains_rc_type(&acv.ty), {
+          .Some(acv) => if(type_contains_rc_type(&variable_value_type(&acv)), {
             at := ast_expr_token(&lhs);
             eprintln(`[inout-borrow-capture] ${at.module_path.*}:${(at.row + u32(1)).to_string()}:${(at.column + u32(1)).to_string()} ${_place_source_text(&lhs)} = (${acv.name}: ${_CAPTURE_NOUN}, ${type_to_string(&expected_ty)})`);
           }),
@@ -1730,7 +1731,7 @@ evaluate_assignment :: (
                 // Find field index in the type.
                 (struct_fi : i64) = i64(-1);
                 match(
-                  &pc_var.ty,
+                  &variable_value_type(&pc_var),
                   Rc(.Struct({ field_labels : s_flabels })) => {
                     n_sf := s_flabels.len();
                     (k_sf : usize) = usize(0);
@@ -1763,7 +1764,7 @@ evaluate_assignment :: (
                   pc_rhs_val := match(prop_rhs_info.value, .Some(v) => v, .None => EvalValue.UnitVal);
                   fi_us := usize(struct_fi);
                   is_ref_sem := match(
-                    &pc_var.ty,
+                    &variable_value_type(&pc_var),
                     Rc(.Struct({ is_reference_semantics : is_ref })) => is_ref,
                     _ => false
                   );
@@ -1845,7 +1846,7 @@ evaluate_assignment :: (
                     // Find variant index, then field index within that variant.
                     (ev_fi : i64) = i64(-1);
                     match(
-                      &pc_var.ty,
+                      &variable_value_type(&pc_var),
                       Rc(.EnumT(_, _, ev_vnames, _, _, ev_vf_labels, _, _, _, _)) => {
                         n_vn := ev_vnames.len();
                         (k_vn : usize) = usize(0);
@@ -2042,12 +2043,12 @@ evaluate_assignment :: (
         )
       );
     });
-    if(type_contains_rc_type(&tl_var.ty), {
+    if(type_contains_rc_type(&variable_value_type(&tl_var)), {
       exn.throw(
         dyn(
           format_error_message(
             &tl_tok,
-            `A thread-local cannot hold a reference-counted type, and "${variable_name}" has type ${type_to_string(&tl_var.ty)}. A thread's instance is released when the thread exits, and the C11 thread-local storage a thread-local lowers to has no hook to run that release — so the value would leak once per thread. Use a reference-counted value owned by the caller and passed in, or a plain (non-RC) type here.`
+            `A thread-local cannot hold a reference-counted type, and "${variable_name}" has type ${type_to_string(&variable_value_type(&tl_var))}. A thread's instance is released when the thread exits, and the C11 thread-local storage a thread-local lowers to has no hook to run that release — so the value would leak once per thread. Use a reference-counted value owned by the caller and passed in, or a plain (non-RC) type here.`
           )
         )
       );
@@ -2074,11 +2075,11 @@ evaluate_assignment :: (
     mcb_vars := get_variables_from_env(&env, variable_name.clone());
     match(
       mcb_vars.last(),
-      .Some(mcb_v) => if(mcb_v.is_module_level && type_carries_origin(&mcb_v.ty), {
+      .Some(mcb_v) => if(mcb_v.is_module_level && type_carries_origin(&variable_value_type(&mcb_v)), {
         exn.throw(
           dyn(
             no_origin_position_error(
-              &mcb_v.ty,
+              &variable_value_type(&mcb_v),
               &String.from("A module-level binding"),
               &String.from("no frame owns the places it would borrow, so it may hold no reference (§7, module-level origins)."),
               &String.from("hold the value itself, or bind the reference in the function that owns the place"),
@@ -2086,14 +2087,14 @@ evaluate_assignment :: (
             )
           )
         );
-      }, if(mcb_v.is_module_level && type_is_control_bound(&mcb_v.ty), {
+      }, if(mcb_v.is_module_level && type_is_control_bound(&variable_value_type(&mcb_v)), {
         exn.throw(
           dyn(
             format_error_message(
               ast_expr_token(&lhs_resolved),
               `Cannot bind a value whose type is control-bound (transitively contains a \`ctl(...) -> ret\` function type) at module level. Module-level bindings outlive every call frame; invoking the contained control-function later would unwind to a dead frame.
 
-Bound type: ${type_to_string(&mcb_v.ty)}`
+Bound type: ${type_to_string(&variable_value_type(&mcb_v))}`
             )
           )
         );
@@ -2194,7 +2195,7 @@ Bound type: ${type_to_string(&mcb_v.ty)}`
   old_expected := ctx.expected_type;
   ctx.expected_type = Option(ExpectedTypeCtx).Some(
     ExpectedTypeCtx(
-      ty : Rc.clone(variable.ty),
+      ty : variable_value_type(&variable),
       env : env
     )
   );
@@ -2243,7 +2244,7 @@ Bound type: ${type_to_string(&mcb_v.ty)}`
   // generic'd return through the C fn pointer, so the ABI mismatch the rule
   // guards against is moot (the `Exception { throw : ctl(generic(ResumeType),
   // …) }` shape as a local binding; async_await "unwind in async closure").
-  if(!variable.is_compile_time_only && (is_function_type(&variable.ty) && is_function_type_generic(&variable.ty)), {
+  if(!variable.is_compile_time_only && (is_function_type(&variable_value_type(&variable)) && is_function_type_generic(&variable_value_type(&variable))), {
     (dgc_proven : bool) = false;
     match(
       rhs_info.value,
@@ -2254,7 +2255,7 @@ Bound type: ${type_to_string(&mcb_v.ty)}`
       .None => ()
     );
     if(!dgc_proven, {
-      dgc_ty_str := type_to_string(&variable.ty);
+      dgc_ty_str := type_to_string(&variable_value_type(&variable));
       exn.throw(
         dyn(
           format_error_message(
@@ -2285,7 +2286,7 @@ comptime(${variable_name}) : ${dgc_ty_str}
   // what those files declare. Same rule as at the binding site, but
   // `:=` is always innermost so only `=` reassignment
   // can invert scope.
-  if(type_representation_contains_raw_ptr(&variable.ty) && !is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(&rhs).module_path.*.clone())), {
+  if(type_representation_contains_raw_ptr(&variable_value_type(&variable)) && !is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(&rhs).module_path.*.clone())), {
     assign_flow_opts := FlowOptions(
       allow_same_frame_local : true,
       allow_parameter_source : true,
@@ -2293,7 +2294,7 @@ comptime(${variable_name}) : ${dgc_ty_str}
       max_local_frame_level : Option(usize).Some(variable.frame_level)
     );
     if(!is_flowable_expr(&rhs_evaled, ctx, &assign_flow_opts), {
-      viol_msg := `Assigning to '${variable_name}' (type '${type_to_string(&variable.ty)}') a value that carries a raw pointer in its representation; the value must be rooted in storage that outlives '${variable_name}'. The assigned expression is not flowable:\n  ${ast_expr_to_string(&rhs)}`;
+      viol_msg := `Assigning to '${variable_name}' (type '${type_to_string(&variable_value_type(&variable))}') a value that carries a raw pointer in its representation; the value must be rooted in storage that outlives '${variable_name}'. The assigned expression is not flowable:\n  ${ast_expr_to_string(&rhs)}`;
       // Flag the violation so a def-time trial-eval swallow re-raises it via the
       // real `exn` (function_type.yo), mirroring the `name := &mut place` binding-site.
       viol_err := format_error_message(ast_expr_token(&rhs), &viol_msg);
@@ -2364,10 +2365,10 @@ comptime(${variable_name}) : ${dgc_ty_str}
     // `*(u8)` / `*(char)` variable becomes that pointer type, not `str`.
     rhs_type = _comptime_numeric_into_slot(
       &rhs_info,
-      &variable.ty,
+      &variable_value_type(&variable),
       convert_comptime_type_to_runtime_type_with_expected(
         &rhs_type,
-        Option(TypeValue).Some(Rc.clone(variable.ty)),
+        Option(TypeValue).Some(variable_value_type(&variable)),
         &env
       ),
       ast_expr_token(&rhs_evaled),
@@ -2401,7 +2402,7 @@ comptime(${variable_name}) : ${dgc_ty_str}
   // consults cond.yo's branch-group windows to exclude sibling-arm records
   // (sibling arms must not count).
   if(is_mutating_defined_variable, {
-    impl_resolved := some_resolution(&updated_variable.ty).is_some();
+    impl_resolved := some_resolution(&variable_value_type(&updated_variable)).is_some();
     if(impl_resolved && has_dominating_branch_init(updated_variable.id), {
       ra_entries := ArrayList(TokenAndError).new();
       ra_entries.push(
@@ -2425,17 +2426,17 @@ comptime(${variable_name}) : ${dgc_ty_str}
   // `Impl(Fn(t : &String) -> usize)` only lends one
   // (`function_value_slot_mismatch`, the rule a call argument meets).
   // Decision 44: a callable into a `Dyn(Fn(...))` variable is `dyn(f)`.
-  reject_bare_callable_into_dyn_fn(&variable.ty, &rhs_type, &rhs, `\`${variable_name}\``, ctx, exn);
+  reject_bare_callable_into_dyn_fn(&variable_value_type(&variable), &rhs_type, &rhs, `\`${variable_name}\``, ctx, exn);
   // Recorded by `yo fix --migrate dyn-spelling`: the value stands for the
   // rewrite's `dyn(value)`, which the slot takes.
-  bind_dyn_recorded := bare_callable_recorded_into_dyn_fn(&variable.ty, &rhs_type);
+  bind_dyn_recorded := bare_callable_recorded_into_dyn_fn(&variable_value_type(&variable), &rhs_type);
   match(
-    if(bind_dyn_recorded, Option(String).None, function_value_slot_mismatch(&variable.ty, &rhs_type)),
+    if(bind_dyn_recorded, Option(String).None, function_value_slot_mismatch(&variable_value_type(&variable), &rhs_type)),
     .Some(fvs_note) => exn.throw(
       dyn(
         mark_generic_independent(
-          format_error_message(ast_expr_token(&lhs_resolved), `Incompatible types:\n- Expected: ${type_to_string(&variable.ty)}\n- Given   : ${type_to_string(&rhs_type)}${fvs_note}`),
-          &variable.ty,
+          format_error_message(ast_expr_token(&lhs_resolved), `Incompatible types:\n- Expected: ${type_to_string(&variable_value_type(&variable))}\n- Given   : ${type_to_string(&rhs_type)}${fvs_note}`),
+          &variable_value_type(&variable),
           &rhs_type
         )
       )
@@ -2443,17 +2444,17 @@ comptime(${variable_name}) : ${dgc_ty_str}
     .None => ()
   );
   // Type-compatibility check.
-  if(!bind_dyn_recorded && !are_types_compatible(&rhs_type, &variable.ty), {
-    var_ty_str := type_to_string(&variable.ty);
+  if(!bind_dyn_recorded && !are_types_compatible(&rhs_type, &variable_value_type(&variable)), {
+    var_ty_str := type_to_string(&variable_value_type(&variable));
     rhs_ty_str := type_to_string(&rhs_type);
     exn.throw(
       dyn(
         mark_generic_independent(
           format_error_message(
             ast_expr_token(&lhs_resolved),
-            `Incompatible types:\n- Expected: ${var_ty_str}\n- Given   : ${rhs_ty_str}${dyn_upcast_note(&variable.ty, &rhs_type)}`
+            `Incompatible types:\n- Expected: ${var_ty_str}\n- Given   : ${rhs_ty_str}${dyn_upcast_note(&variable_value_type(&variable), &rhs_type)}`
           ),
-          &variable.ty,
+          &variable_value_type(&variable),
           &rhs_type
         )
       )
@@ -2463,11 +2464,11 @@ comptime(${variable_name}) : ${dgc_ty_str}
   // on the promise the declaration makes, and nothing later re-judges a
   // declared marker — so the value is judged here, once: what it captures and
   // what its code reaches (`judge_function_argument_markers`).
-  bind_fam := judge_function_argument_markers(&variable.ty, &rhs_type, &rhs_info.value, &env, ctx);
+  bind_fam := judge_function_argument_markers(&variable_value_type(&variable), &rhs_type, &rhs_info.value, &env, ctx);
   match(
     &bind_fam.offense,
     .Some(bind_fo) => {
-      bind_msg := `A value of type ${type_to_string(&rhs_type)} cannot be bound as ${type_to_string(&variable.ty)}: ${bind_fo}.`;
+      bind_msg := `A value of type ${type_to_string(&rhs_type)} cannot be bound as ${type_to_string(&variable_value_type(&variable))}: ${bind_fo}.`;
       // Flag it so a def-time trial swallow re-raises it (as the raw-pointer
       // flow check above does).
       bind_err := format_error_message(ast_expr_token(&lhs_resolved), &bind_msg);
@@ -2597,8 +2598,8 @@ comptime(${variable_name}) : ${dgc_ty_str}
     // the RHS), so `(t2 : Tuple(a : i32, ...)) = (1, ...)` still resolves
     // `t2.a` afterwards. Scoped to tuples — everything else deliberately
     // adopts rhs_type (enum selected-variant, SomeT resolution riders).
-    ty : cond(
-      (is_tuple_type(&updated_variable.ty) && is_tuple_type(&rhs_type)) => Rc.clone(updated_variable.ty),
+    bound_ty : cond(
+      (is_tuple_type(&variable_value_type(&updated_variable)) && is_tuple_type(&rhs_type)) => variable_value_type(&updated_variable),
       true => Rc.clone(rhs_type)
     ),
     is_compile_time_only : updated_variable.is_compile_time_only,
@@ -2648,7 +2649,7 @@ comptime(${variable_name}) : ${dgc_ty_str}
   // valueless (function_type.yo's pending table, via context.yo's hook) so
   // their call-site ExprInfos record the FuncVal before codegen reads them
   // (fn arm 14's mutual recursion).
-  if(updated_variable.is_compile_time_only && is_function_type(&updated_variable.ty), {
+  if(updated_variable.is_compile_time_only && is_function_type(&variable_value_type(&updated_variable)), {
     if(match(value_to_store, .Some(vts) => match(vts, .FuncVal(_, _) => true, _ => false), .None => false), {
       match(
         call_rerun_pending_def_evals(&env, ctx),
@@ -2676,7 +2677,7 @@ comptime(${variable_name}) : ${dgc_ty_str}
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &expr_info);
   }, {
     // NOTE: This should return the original value of lhs.
-    expr_info := new_expr_info(&env, &variable.ty);
+    expr_info := new_expr_info(&env, &variable_value_type(&variable));
     expr_info.value = variable.value.get(usize(0));
     expr_info_set_is_compile_time_only_assignment(&expr_info, .Some(variable.is_compile_time_only));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &expr_info);
