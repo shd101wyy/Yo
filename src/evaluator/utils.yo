@@ -129,8 +129,8 @@ pragma(Pragma.AllowUnsafe);
 { get_func_type, is_fn_ctfe_clone, is_closure_fn, is_io_async_sm_closure } :: import("../function_value.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../types/compatibility.yo");
 { type_to_string, type_to_string_for_message } :: import("../types/string.yo");
-{ type_is_bitwise_copy, type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_holds_counted_handle, type_holds_counted_handle_ignoring_migration, set_counted_handle_rule, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow, is_bound_closure_identity, is_closure_capture_struct, resolve_cell_chain, is_future_value_type, is_bare_callable_into_dyn_fn, type_contains_some_type_deep, type_holds_dyn_by_value, dyn_type_lists_clone, fn_trait_call_func_type, type_carries_origin, type_is_typed_fnmut_closure, capture_struct_is_fnmut } :: import("../types/utils.yo");
-{ expr_info_table_set, migrate_match_scrutinee_on, record_migrate_edit, migrate_dyn_spelling_on, record_dyn_spelling_site, is_mut_global, is_thread_local, migrate_mutable_globals_on, record_mutable_global_site, migrate_mut_bindings_on, record_mut_binding_site, record_mut_binding_site_pending, record_mut_param_site, record_mut_param_site_pending, record_mut_judged, migrate_deref_on, audit_deref_on, deref_rule_suspended, record_deref_site, record_deref_edit_site } :: import("../expr_info.yo");
+{ type_is_bitwise_copy, type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_holds_counted_handle, type_holds_counted_handle_ignoring_migration, set_counted_handle_rule, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow, is_bound_closure_identity, is_closure_capture_struct, resolve_cell_chain, is_future_value_type, is_bare_callable_into_dyn_fn, type_contains_some_type_deep, type_holds_dyn_by_value, dyn_type_lists_clone, fn_trait_call_func_type, type_carries_origin, type_is_typed_fnmut_closure, capture_struct_is_fnmut, future_unreturnable_borrow, future_origin_names } :: import("../types/utils.yo");
+{ expr_info_table_set, migrate_match_scrutinee_on, record_migrate_edit, migrate_dyn_spelling_on, record_dyn_spelling_site, is_mut_global, is_thread_local, migrate_mutable_globals_on, record_mutable_global_site, migrate_mut_bindings_on, record_mut_binding_site, record_mut_binding_site_pending, record_mut_param_site, record_mut_param_site_pending, record_mut_judged, migrate_deref_on, audit_deref_on, deref_rule_suspended, record_deref_site, record_deref_edit_site, note_reference_read_copied, lookup_macro_expansion } :: import("../expr_info.yo");
 { is_global_mut_rule_exempt, is_deref_rule_exempt } :: import("./memory_safety.yo");
 // `set_expr_as_needs_to_call_dup` builds + evaluates a `___dup(name)` call.
 // `parser.yo` is upstream (no cycle); `exprs/expr.yo` is the cycle-free
@@ -182,15 +182,20 @@ pragma(Pragma.AllowUnsafe);
 /// (`make_deref_expr`, N1e-1), by id: every other `*` of a `.*` was written,
 /// in the source or in a batch the test runner printed from it.
 (g_synthesized_deref_stars : RefCell(HashSet(usize))) = RefCell(HashSet(usize)).new(HashSet(usize).new());
-/// The block statements after a borrow binding, for its live range: set by
-/// `evaluate_begin_expression` just before it evaluates the binding.
-// A RefCell, not a mut binding: the staged list is move-only since the
-// flip, and a mutable module-level binding cannot lend itself to `.clone()`
-// (E0916).
-(g_lb_lookahead_stmts : RefCell(ArrayList(AstExpr))) = RefCell(ArrayList(AstExpr)).new(ArrayList(AstExpr).new());
-(mut(g_lb_lookahead_index) : usize) = usize(0);
-(mut(g_lb_lookahead_id) : usize) = usize(0);
-(mut(g_lb_lookahead_armed) : bool) = false;
+/// The places each future-producing expression holds (an `io.async` call,
+/// a call whose result is a borrowing future), keyed by node id: recorded
+/// where the future is made (`calls/function.yo`), read by the binding
+/// freeze and the return rule (`origin_carrying_value_roots`).
+(g_future_roots : RefCell(HashMap(usize, ArrayList(FutureRoot)))) = RefCell(HashMap(usize, ArrayList(FutureRoot))).new(HashMap(usize, ArrayList(FutureRoot)).new());
+/// The block statements after each pending borrow binding, for its live
+/// range: one frame per binding statement, set by `evaluate_begin_expression`
+/// just before it evaluates the binding and read by the binding's range by
+/// statement id, so a stale frame is never read. Frames, not one slot: a
+/// binding whose right-hand side evaluates a function body (a generic
+/// combinator's specialization, a comptime constructor) arms its own nested
+/// blocks' bindings in between, and with one slot the outer binding lost its
+/// range and froze nothing past its own statement.
+(g_lb_lookaheads : RefCell(ArrayList(_LbLookahead))) = RefCell(ArrayList(_LbLookahead)).new(ArrayList(_LbLookahead).new());
 // Phase A.4.1: `generate_temp_variable_name_prefix`,
 // `generate_new_temp_variable_name`, `is_temp_variable_name`, and `random_id`
 // were relocated to `src/utils.yo`.
@@ -1016,6 +1021,19 @@ _is_deref_place :: (fn(e : &AstExpr) -> bool)(
     .Atom(_, _) => false
   )
 );
+/// `operand.*` dereferences a raw pointer (`p : *T`, a `*T` field): the place
+/// it reaches is not part of the storage of the binding `operand` is rooted
+/// at, so that binding's mutability and its other places say nothing about
+/// it. Unsafe code that dereferences a pointer owns the aliasing obligation
+/// (issues/fixed/2026-11-05-a-mut-match-through-a-raw-pointer-parameter-is-rejected-as-a-read-only-borrow.md).
+/// Read after `operand` is evaluated.
+deref_operand_is_raw_pointer :: (fn(operand : &AstExpr, ctx : &EvalContext) -> bool)(
+  match(
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ast_rewritten_node(operand))),
+    .Some(oi) => is_pointer_type(&t_refine_inner(&oi.ty)),
+    .None => false
+  )
+);
 /// "is move-only" or "is copied explicitly (`.clone()`)": the kind of a type
 /// that is not implicitly copyable, for a message.
 _explicit_copy_kind :: (fn(ty : &TypeValue) -> String)(
@@ -1203,6 +1221,16 @@ _throw_implicit_capture_move :: (fn(rhs : &AstExpr, ty : &TypeValue, ctx : &Eval
 /// - anything else is borrowed storage, and the copy is E0901
 ///   (`_throw_explicit_copy_violation`).
 transfer_explicit_copy_value :: (fn(rhs : &AstExpr, ei : &ExprInfo, variable_name : &String, ctx : &EvalContext, exn : Exception) -> unit)({
+  // `yo fix --migrate deref` recorded the bare reference `rhs` as an E0926
+  // read, and this copies it: `rhs.*` would be E0901 here, so the migration
+  // lists the site instead of writing the `.*`.
+  if(deref_rule_recording() && !ctx.is_in_function_call_checking_phase && ast_expr_is_atom(rhs) && !is_reference_deref_site(ast_expr_token(rhs)), {
+    match(
+      find_variable_in_env(&ei.env, variable_name.clone()),
+      .Some(rv) => if(variable_is_reference_binding(&rv), note_reference_read_copied(ast_expr_token(rhs), &rv.name)),
+      .None => ()
+    );
+  });
   match(
     find_variable_in_env(&ei.env, variable_name.clone()),
     .None => (),
@@ -1227,8 +1255,29 @@ transfer_explicit_copy_value :: (fn(rhs : &AstExpr, ei : &ExprInfo, variable_nam
       _is_implicit_closure_capture(&v, &ei.env, ctx) => _throw_implicit_capture_move(rhs, &ei.ty, ctx, exn),
       v.is_owning_the_rc_value => set_expr_as_consumed(rhs, &ei.env, false, ctx, exn),
       _move_through_sink_shadow(&v, rhs, &ei.env) => (),
+      // `r.*` on a reference binding `r` (evaluated as the name `r`): the
+      // copy is of the value `r` refers to, whose owner keeps it.
+      (ast_expr_is_atom(rhs) && is_reference_deref_site(ast_expr_token(rhs))) => _throw_reference_deref_copy(rhs, &ei.ty, ctx, exn),
       true => _throw_explicit_copy_violation(rhs, &ei.ty, String.from("it is borrowed (a `&T` parameter or a `match`/`for` binding), and a borrow cannot give the value away. Take the parameter by value (`x : T`, without `&`) to own it."), ctx, exn)
     )
+  );
+});
+/// E0901 for `r.*` copied out of a reference binding `r` whose referent is
+/// not implicitly copyable: the reference is the parameter's point, so the
+/// repair is to read through `r` where the value is used or to copy explicitly
+/// (issues/fixed/2026-11-05-migrate-deref-copies-a-move-only-referent-into-a-by-value-parameter.md).
+_throw_reference_deref_copy :: (fn(rhs : &AstExpr, ty : &TypeValue, ctx : &EvalContext, exn : Exception) -> unit)({
+  name := _place_text(rhs);
+  ty_text := type_to_string_for_message(ty);
+  msg := `use of moved value: cannot copy \`${name}.*\`, whose type \`${ty_text}\` ${_explicit_copy_kind(ty)}: \`${name}\` is a reference, and the value it refers to stays with its owner.`;
+  help := cond(
+    type_lacks_clone(ty) => `read through \`${name}\` where the value is used (\`${name}.field\`, \`${name}.method()\`, or a \`&${ty_text}\` parameter that \`${name}\` itself is passed to)`,
+    true => `read through \`${name}\` where the value is used (\`${name}.field\`, \`${name}.method()\`, or a \`&${ty_text}\` parameter that \`${name}\` itself is passed to), or copy it explicitly, \`${name}.*.clone()\``
+  );
+  raise_flow_violation(
+    with_code(format_error_message_with_help(ast_expr_token(rhs), &msg, Option(String).Some(help)), E_USE_OF_MOVED_VALUE),
+    ctx,
+    exn
   );
 });
 // ---------------------------------------------------------------------------
@@ -1266,6 +1315,11 @@ _capture_borrow_note :: (fn(b : &CaptureBorrow) -> String)({
   sig := if(b.is_mut, String.from("&mut "), String.from("&"));
   if(b.assumed, {
     return(`the place lent to \`${b.label}\` (\`${sig}\` at ${b.site}: the call goes through a function value, whose future may keep what it is lent)`);
+  });
+  // An entry read off a future's origin (decision 43 step 4): a place, with
+  // no capture site and no mode.
+  if(b.site.is_empty(), {
+    return(`\`${capture_borrow_place_string(b)}\` (a place in the future's origin)`);
   });
   `\`${capture_borrow_place_string(b)}\` (the capture \`${b.label} : ${sig}${capture_borrow_place_string(b)}\` at ${b.site})`
 });
@@ -1637,43 +1691,30 @@ reject_second_class_return :: (fn(ty : &TypeValue, tok : &Token, env : &Environm
   if(!type_is_second_class(ty), {
     return(());
   });
+  // A borrowing future (decision 43 step 4, VERDICTS-18 §B) is returned
+  // under the return rule over its origin: `reject_composite_result_local_roots`
+  // rejects a local in it (E0912) where the result is written.
   if(is_future_value_type(ty), {
-    bs := ArrayList(CaptureBorrow).new();
-    collect_type_borrows(ty, &mut bs);
-    (all_params : bool) = true;
-    (bi : usize) = usize(0);
-    while(bi < bs.len(), bi = (bi + usize(1)), {
-      b := match(bs.get_cloned(bi), .Some(x) => x, .None => return(()));
-      // A `&T` parameter is copied into the future only through the body's
-      // own `{ &p }` entry; a borrowing closure the body captures points at
-      // the parameter's slot in the frame that returns.
-      if(b.through_value && b.root_is_value_param, {
-        raise_flow_violation(
-          with_code(
-            format_error_message_with_help(
-              tok,
-              `This future borrows the \`&\` parameter \`${b.root_name}\` through a closure it captures (${_capture_borrow_note(&b)}), so it cannot be returned: C passes \`${b.root_name}\` by value, in the frame that returns, and a returned future keeps its own copy of a \`&\` parameter only when its own capture list borrows it (plans/VALUES_BY_DEFAULT.md §3.13 A2).`,
-              Option(String).Some(`borrow the parameter in the \`io.async\` body's own capture list (\`io.async({ &${b.root_name} }(io : Io) => ...)\`) and read it there, or await the future inside this function`)
-            ),
-            E_BORROW_ESCAPES
+    // A `&T` parameter is copied into the future only through the body's
+    // own `{ &p }` entry; a borrowing closure the body captures points at
+    // the parameter's slot in the frame that returns.
+    match(
+      future_unreturnable_borrow(ty),
+      .Some(b) => raise_flow_violation(
+        with_code(
+          format_error_message_with_help(
+            tok,
+            `This future borrows the \`&\` parameter \`${b.root_name}\` through a closure it captures (${_capture_borrow_note(&b)}), so it cannot be returned: C passes \`${b.root_name}\` by value, in the frame that returns, and a returned future keeps its own copy of a \`&\` parameter only when its own capture list borrows it (plans/VALUES_BY_DEFAULT.md §3.13 A2).`,
+            Option(String).Some(`borrow the parameter in the \`io.async\` body's own capture list (\`io.async({ &${b.root_name} }(io : Io) => ...)\`) and read it there, or await the future inside this function`)
           ),
-          ctx,
-          exn
-        );
-        return(());
-      });
-      rooted := match(
-        _find_var_by_id(env, b.root_id),
-        .Some(root_at) => (variable_is_borrow_parameter(&root_at.0) || variable_is_future_operand_parameter(&root_at.0)),
-        .None => false
-      );
-      if(!rooted, {
-        all_params = false;
-      });
-    });
-    if(all_params, {
-      return(());
-    });
+          E_BORROW_ESCAPES
+        ),
+        ctx,
+        exn
+      ),
+      .None => ()
+    );
+    return(());
   });
   reject_second_class_escape(ty, String.from("returned"), tok, ctx, exn);
 });
@@ -1728,7 +1769,20 @@ derive(_CaptureFreeze, Clone);
 /// is second-class, check that every place it borrows outlives the holder
 /// (decision 38 A: a binding may not outlive any place its value borrows),
 /// and freeze those places for the holder's scope.
-note_second_class_binding :: (fn(holder : &Variable, ty : &TypeValue, tok : &Token, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
+note_second_class_binding :: (
+  fn(
+    holder : &Variable,
+    ty : &TypeValue,
+    tok : &Token,
+    env : &Environment,
+    ctx : &EvalContext,
+    exn : Exception,
+    /// The holder is a `:=` binding: a borrowing future bound there freezes
+    /// the places of its origin (`freeze_origin_carrying_binding`, decision
+    /// 43 step 4), so it is not rejected.
+    (bound_by_init : bool) ?= false
+  ) -> unit
+)({
   if(!type_is_second_class(ty), {
     return(());
   });
@@ -1754,6 +1808,11 @@ note_second_class_binding :: (fn(holder : &Variable, ty : &TypeValue, tok : &Tok
       );
       return(());
     });
+    // Decision 43 step 4 (VERDICTS-18 §B): a `:=` binding holds the future
+    // with the places of its origin frozen until its last use.
+    if(bound_by_init, {
+      return(());
+    });
     raise_flow_violation(
       with_code(
         format_error_message_with_help(
@@ -1772,6 +1831,12 @@ note_second_class_binding :: (fn(holder : &Variable, ty : &TypeValue, tok : &Tok
   (bi : usize) = usize(0);
   while(bi < bs.len(), {
     b := match(bs.get_cloned(bi), .Some(x) => x, .None => return(()));
+    // A place read off a borrowing future's origin (decision 43 step 4): the
+    // future's own binding freezes it.
+    if(b.site.is_empty(), {
+      bi = (bi + usize(1));
+      continue;
+    });
     outlives := match(
       _find_var_by_id(env, b.root_id),
       .Some(root_at) => match(
@@ -1812,8 +1877,56 @@ note_second_class_binding :: (fn(holder : &Variable, ty : &TypeValue, tok : &Tok
 /// Decision 38 A, "results": a block, arm or `cond` result of type `ty` may
 /// not carry a borrow of a binding declared at or inside frame `scope_frame`
 /// of `env` (the scope the result is leaving).
-reject_second_class_result_outliving :: (fn(ty : &TypeValue, scope_frame : usize, tok : &Token, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
+reject_second_class_result_outliving :: (
+  fn(
+    ty : &TypeValue,
+    scope_frame : usize,
+    tok : &Token,
+    env : &Environment,
+    ctx : &EvalContext,
+    exn : Exception,
+    /// The result expression: a borrowing future's places are the ones
+    /// recorded where it was made (decision 43 step 4).
+    (result_expr : Option(AstExpr)) ?= .None
+  ) -> unit
+)({
   if(!type_is_second_class(ty), {
+    return(());
+  });
+  if(is_future_value_type(ty), {
+    match(
+      result_expr,
+      .Some(re) => {
+        roots := origin_carrying_value_roots(&re, env, ctx);
+        (ri : usize) = usize(0);
+        while(ri < roots.len(), ri = (ri + usize(1)), {
+          rp := roots(ri).place.clone();
+          match(
+            get_variables_from_env(env, rp.root_name.clone()).last(),
+            .Some(rv) => match(
+              _find_var_by_id(env, rv.id),
+              .Some(root_at) => if(root_at.1 >= scope_frame, {
+                raise_flow_violation(
+                  with_code(
+                    format_error_message_with_help(
+                      tok,
+                      `This result borrows \`${rp.text}\`, but \`${rp.root_name}\` is declared inside the block or arm the result leaves, so the borrow would outlive it.`,
+                      Option(String).Some(`declare \`${rp.root_name}\` outside the block, or capture a value instead`)
+                    ),
+                    E_BORROW_ESCAPES
+                  ),
+                  ctx,
+                  exn
+                );
+              }),
+              .None => ()
+            ),
+            .None => ()
+          );
+        });
+      },
+      .None => ()
+    );
     return(());
   });
   bs := ArrayList(CaptureBorrow).new();
@@ -6260,7 +6373,6 @@ local_borrows_truncate :: (fn(mark : LocalBorrowMark) -> unit)({
     ()
   });
   g_lb_receiver_armed = false;
-  g_lb_lookahead_armed = false;
 });
 /// Before a `.` access evaluates its receiver `recv`: `recv` is a prefix of
 /// the place the access names.
@@ -6435,7 +6547,13 @@ deref_rule_recording :: (fn() -> bool)(migrate_deref_on() || audit_deref_on());
 /// borrowed scrutinee `match(&v, …)` (VERDICTS-13 §14: the marker is
 /// redundant, `match(v, …)` matches through the reference). While the rule
 /// records it notes the edit instead: the `.*` after `tok`, or for 3 the
-/// marker before it dropped.
+/// marker before it dropped. A read (0) of a referent that is not implicitly
+/// copyable is judged here before its consumer: `v.*` is right where the
+/// value is only read (an operand such as `v.* == other`) and E0901 where it
+/// would be copied (a by-value parameter, a `:=` binding, a return), so the
+/// help names both, and the migration lists a site the evaluation then
+/// copies (`note_reference_read_copied`) instead of writing `.*`
+/// (issues/fixed/2026-11-05-migrate-deref-copies-a-move-only-referent-into-a-by-value-parameter.md).
 reject_reference_without_deref :: (fn(v : &Variable, tok : &Token, kind : u8, ctx : &EvalContext, exn : Exception) -> unit)({
   // An overload trial is speculative: the candidate it tries may never be
   // called, and E0926 is not a reason to drop one, so the real call's
@@ -6448,7 +6566,8 @@ reject_reference_without_deref :: (fn(v : &Variable, tok : &Token, kind : u8, ct
     return(());
   });
   name := v.name.clone();
-  ref_ty := `${cond(variable_is_mut_borrow(v) => "&mut ", true => "&")}${type_to_string_for_message(&v.ty)}`;
+  ty_text := type_to_string_for_message(&v.ty);
+  ref_ty := `${cond(variable_is_mut_borrow(v) => "&mut ", true => "&")}${ty_text}`;
   msg := cond(
     (kind == u8(1)) => `\`${name}\` is a reference (\`${ref_ty}\`): writing the value it refers to is spelled \`${name}.* = …\``,
     (kind == u8(2)) => `\`${name}\` is a reference (\`${ref_ty}\`): borrowing the value it refers to is spelled \`&${name}.*\``,
@@ -6459,6 +6578,13 @@ reject_reference_without_deref :: (fn(v : &Variable, tok : &Token, kind : u8, ct
     (kind == u8(1)) => `write \`${name}.* = …\`; \`${name} = &place\` re-points the reference (\`yo fix --migrate deref\` inserts the \`.*\`)`,
     (kind == u8(2)) => `write \`&${name}.*\` (or \`&mut ${name}.*\`), or pass \`${name}\` itself to a reference parameter (\`yo fix --migrate deref\` inserts the \`.*\`)`,
     (kind == u8(3)) => `write \`match(${name}, …)\`: its bindings borrow through \`${name}\` with its mutability (\`yo fix --migrate deref\` drops the marker)`,
+    type_requires_explicit_copy(&v.ty) => {
+      repairs := cond(
+        type_lacks_clone(&v.ty) => `read through \`${name}\` there (\`${name}.field\`, \`${name}.method()\`, or a \`&${ty_text}\` parameter that \`${name}\` itself is passed to)`,
+        true => `read through \`${name}\` there (\`${name}.field\`, \`${name}.method()\`, or a \`&${ty_text}\` parameter that \`${name}\` itself is passed to), or copy it explicitly, \`${name}.*.clone()\``
+      );
+      `write \`${name}.*\` where the value is only read (an operand such as \`${name}.* == other\`); where it would be copied (a by-value parameter, a \`:=\` binding, a return) \`${ty_text}\` ${_explicit_copy_kind(&v.ty)}, so ${repairs} (\`yo fix --migrate deref\` inserts the \`.*\` where the value is only read and lists the copies)`
+    },
     true => `write \`${name}.*\`; \`${name}.field\`, \`${name}.method()\` and \`${name}(i)\` read through it, and \`f(${name})\` passes it to a reference parameter (\`yo fix --migrate deref\` inserts the \`.*\`)`
   );
   raise_flow_violation(&with_code(format_error_message_with_help(tok, &msg, Option(String).Some(help)), E_REFERENCE_READ_WITHOUT_DEREF), ctx, exn);
@@ -6472,9 +6598,12 @@ local_borrow_is_binding_stmt :: (fn(stmt : &AstExpr) -> bool)(
   )
 );
 /// `stmt` may bind a projection call's result (`r := t.index(i)`, decision
-/// 24), which is a local borrow: `name := call(...)`. Whether the callee is a
-/// projection is known only once the call is evaluated, so every such
-/// binding is handed the look-ahead; one that binds a value leaves it unused.
+/// 24), which is a local borrow: `name := call(...)`, or move or copy a
+/// holder (`w := v`, an origin-carrying value: decision 43 step 3's N2b
+/// composites and step 4's borrowing futures), whose binding freezes what the
+/// source froze. Whether the value borrows is known only once it is
+/// evaluated, so every such binding is handed the look-ahead; one that binds
+/// a plain value leaves it unused.
 local_borrow_may_bind_projection_stmt :: (fn(stmt : &AstExpr) -> bool)(
   ast_expr_is_fn_call_of(stmt, BK_INIT_ASSIGN, Option(usize).Some(usize(2))) && match(
     stmt,
@@ -6482,6 +6611,7 @@ local_borrow_may_bind_projection_stmt :: (fn(stmt : &AstExpr) -> bool)(
       match(sargs.get(usize(0)), .Some(l) => ast_expr_is_atom(&l), .None => false) && match(
         sargs.get(usize(1)),
         .Some(.FnCall(_, _, _, r_infix, _)) => !r_infix,
+        .Some(.Atom(_, _)) => true,
         _ => false
       )
     ),
@@ -6494,10 +6624,36 @@ local_borrow_set_lookahead :: (fn(stmts : &ArrayList(AstExpr), i : usize, stmt :
   if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
     eprintln(`[n2b] arm lookahead for stmt id=${ast_expr_id(stmt)}`);
   });
-  g_lb_lookahead_stmts.replace(stmts.clone());
-  g_lb_lookahead_index = i;
-  g_lb_lookahead_id = ast_expr_id(stmt);
-  g_lb_lookahead_armed = true;
+  frame := _LbLookahead(id : ast_expr_id(stmt), index : i, stmts : stmts.clone());
+  g_lb_lookaheads.with_mut({ frame }(xs) => {
+    match(
+      _lb_lookahead_index_of(xs, frame.id),
+      .Some(old) => {
+        _stale := xs.remove(old);
+      },
+      .None => ()
+    );
+    // A binding that binds a value leaves its frame unread; only the
+    // innermost frames can still be read.
+    if(xs.len() >= usize(64), {
+      _oldest := xs.remove(usize(0));
+    });
+    xs.push(frame);
+  });
+});
+/// One pending look-ahead (`local_borrow_set_lookahead`).
+_LbLookahead :: struct(id : usize, index : usize, stmts : ArrayList(AstExpr));
+derive(_LbLookahead, Clone);
+/// The index of the frame of statement `id`.
+_lb_lookahead_index_of :: (fn(xs : &ArrayList(_LbLookahead), id : usize) -> Option(usize))({
+  (i : usize) = xs.len();
+  while(i > usize(0), {
+    i = (i - usize(1));
+    if(xs(i).id == id, {
+      return(Option(usize).Some(i));
+    });
+  });
+  Option(usize).None
 });
 /// A reference cell: a step into it leaves the static place model. A cell
 /// handle (`cell_handle_view`, V5's `Rc`/`Arc`) is one, as the `Rc` it
@@ -6590,6 +6746,12 @@ local_borrow_place_of :: (fn(e0 : &AstExpr, env : &Environment, ctx : &EvalConte
       _lb_is_cell_type(&recv_ty) => {
         through_cell = true;
         stop = true;
+      },
+      // A unique `Box` owns its payload from the one slot that holds it, so
+      // its auto-deref is a value step, not a cell: no other handle shares
+      // the payload, and nothing needs pinning (VERDICTS-24, decision 25).
+      ((step == "*") && unique_box_payload_type(&recv_ty).is_some()) => {
+        out.push(step);
       },
       (step == "*") => {
         stop = true;
@@ -7699,40 +7861,36 @@ local_borrow_range_of :: (fn(binding : &AstExpr, name : &String, decl : &Token) 
   (end : Token) = _last_token_of(binding, decl);
   (repoint : bool) = false;
   if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
-    (dbg_armed : bool) = g_lb_lookahead_armed;
-    dbg_have := g_lb_lookahead_id;
-    eprintln(`[n2b] range_of ${name}: armed=${dbg_armed} want=${ast_expr_id(binding)} have=${dbg_have}`);
+    eprintln(`[n2b] range_of ${name}: want=${ast_expr_id(binding)} pending=${g_lb_lookaheads.with(xs => xs.len()).to_string()}`);
   });
-  // The id alone gates the look-ahead (N2b): the armed flag is reset by
-  // `local_borrows_truncate`, which every NESTED begin block runs — a
-  // binding whose RHS evaluates a function body (`v := View(x)(...)`, the
-  // callee a comptime constructor) loses the flag between the arm at its
-  // statement and its own range read. The statement id is unique, so a stale
-  // arm cannot match; a nested block's own arm replaces the id and the
-  // binding falls back to its statement-local range as before.
-  if(g_lb_lookahead_id == ast_expr_id(binding), {
-    g_lb_lookahead_armed = false;
-    // Staged through a local: `.clone()` directly on the `mut(G)` global is
-    // E0916 (the receiver lend), while reading it by name is decision 47's
-    // reassignment case (issues/retired/2026-10-26-explicit-copy-migration-inserts-a-clone-that-lends-a-mut-g-global.md).
-    stmts := g_lb_lookahead_stmts.with(xs => xs.clone());
-    (j : usize) = stmts.len();
-    (found : bool) = false;
-    while((j > (g_lb_lookahead_index + usize(1))) && !found, {
-      j = (j - usize(1));
-      st := match(stmts.get(j), .Some(s) => s, .None => make_err_expr());
-      if(_lb_mentions(&st, name.clone()), {
-        found = true;
-        last = match(_lb_last_mention(&st, name.clone(), Option(Token).None), .Some(t) => t, .None => decl);
-        end = _lb_region_end(&st, name.clone(), decl);
+  // The statement id finds the binding's own frame: a nested block's
+  // bindings (in a function body the right-hand side evaluated) armed their
+  // own frames in between. Without a frame the binding keeps its
+  // statement-local range.
+  bid := ast_expr_id(binding);
+  match(
+    g_lb_lookaheads.with({ bid }(xs) => match(_lb_lookahead_index_of(xs, bid), .Some(fi) => xs.get_cloned(fi), .None => Option(_LbLookahead).None)),
+    .Some(frame) => {
+      stmts := frame.stmts.clone();
+      (j : usize) = stmts.len();
+      (found : bool) = false;
+      while((j > (frame.index + usize(1))) && !found, {
+        j = (j - usize(1));
+        st := match(stmts.get(j), .Some(s) => s, .None => make_err_expr());
+        if(_lb_mentions(&st, name.clone()), {
+          found = true;
+          last = match(_lb_last_mention(&st, name.clone(), Option(Token).None), .Some(t) => t, .None => decl);
+          end = _lb_region_end(&st, name.clone(), decl);
+        });
       });
-    });
-    (k : usize) = (g_lb_lookahead_index + usize(1));
-    while((k < stmts.len()) && !repoint, {
-      repoint = match(stmts.get(k), .Some(s) => _lb_has_repoint(&s, name.clone()), .None => false);
-      k = (k + usize(1));
-    });
-  });
+      (k : usize) = (frame.index + usize(1));
+      while((k < stmts.len()) && !repoint, {
+        repoint = match(stmts.get(k), .Some(s) => _lb_has_repoint(&s, name.clone()), .None => false);
+        k = (k + usize(1));
+      });
+    },
+    .None => ()
+  );
   LocalBorrowRange(last_use : last, end : end, has_repoint : repoint)
 });
 /// Register the local borrow `name` (declared at `decl`) of `place`, live as
@@ -8052,6 +8210,84 @@ OriginRootPlace :: struct(
   is_mut : bool
 );
 derive(OriginRootPlace, Clone);
+/// One place a borrowing future holds, by the caller's name for it (decision
+/// 43 step 4, VERDICTS-18 §B): the root binding's name, the field hops, and
+/// the mode of the reference that put it into the future's origin (an
+/// `io.async` capture-list entry, or the `&`/`&mut` lend of the call that
+/// made the future). The origin itself carries no mode.
+FutureRoot :: struct(name : String, path : ArrayList(String), is_mut : bool);
+derive(FutureRoot, Clone);
+note_future_roots :: (fn(id : usize, roots : &ArrayList(FutureRoot)) -> unit)({
+  v := roots.clone();
+  g_future_roots.with_mut({ id, v }(m) => {
+    _old := m.insert(id, v);
+  });
+});
+future_roots_of :: (fn(id : usize) -> Option(ArrayList(FutureRoot)))(g_future_roots.with(m => m.get_cloned(&id)));
+/// The places the borrowing future `e` holds, through any `cond`/`match`
+/// arm or block tail: a leaf made where it is written reads its recorded
+/// roots, and a name reads its holder's frozen places.
+_future_value_roots_into :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, out : &mut ArrayList(OriginRootPlace), depth : u32) -> unit)({
+  if(depth > u32(16), {
+    return(());
+  });
+  stripped := ast_expr_strip_borrow_marker(e);
+  match(
+    lookup_macro_expansion(ast_expr_id(&stripped)),
+    .Some(expanded) => {
+      _future_value_roots_into(&expanded, env, ctx, out, depth + u32(1));
+      return(());
+    },
+    .None => ()
+  );
+  match(
+    future_roots_of(ast_expr_id(&stripped)),
+    .Some(frs) => {
+      (fi : usize) = usize(0);
+      while(fi < frs.len(), fi = (fi + usize(1)), {
+        fr := frs(fi).clone();
+        match(
+          get_variables_from_env(env, fr.name.clone()).last(),
+          .Some(rv) => {
+            place := local_borrow_place_of_variable(&rv);
+            (pi : usize) = usize(0);
+            while(pi < fr.path.len(), pi = (pi + usize(1)), {
+              place.steps.push(fr.path(pi).clone());
+              place.text.push_str(".");
+              place.text.push_string(&fr.path(pi));
+            });
+            out.push(OriginRootPlace(place : place, is_mut : fr.is_mut));
+          },
+          .None => ()
+        );
+      });
+      return(());
+    },
+    .None => ()
+  );
+  cond(
+    ast_expr_is_atom(&stripped) => _holder_roots_into(&stripped, env, ctx, out),
+    (ast_expr_is_fn_call_of(&stripped, BK_COND, Option(usize).None) || ast_expr_is_fn_call_of(&stripped, BK_MATCH, Option(usize).None)) => match(
+      stripped,
+      .FnCall(_, _, Rc(b_args), _, _) => {
+        (ai : usize) = usize(0);
+        while(ai < b_args.len(), ai = (ai + usize(1)), {
+          arm := b_args(ai).clone();
+          if(ast_expr_is_fn_call_of(&arm, "=>", Option(usize).Some(usize(2))), {
+            match(arm, .FnCall(_, _, Rc(arm_args), _, _) => match(arm_args.get_cloned(usize(1)), .Some(v) => _future_value_roots_into(&v, env, ctx, out, depth + u32(1)), .None => ()), .Atom(_, _) => ());
+          });
+        });
+      },
+      .Atom(_, _) => ()
+    ),
+    ast_expr_is_fn_call_of(&stripped, BK_BEGIN, Option(usize).None) => match(
+      stripped,
+      .FnCall(_, _, Rc(s_args), _, _) => match(s_args.last(), .Some(tail) => _future_value_roots_into(&tail, env, ctx, out, depth + u32(1)), .None => ()),
+      .Atom(_, _) => ()
+    ),
+    true => ()
+  );
+});
 /// The ground places a value of an origin-carrying INLINE COMPOSITE (N2b)
 /// freezes: the places its producing call lent — every argument whose type
 /// is a reference (`&x`, `&mut xs`, a struct constructor's `&` field, a
@@ -8064,6 +8300,12 @@ derive(OriginRootPlace, Clone);
 origin_carrying_value_roots :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext) -> ArrayList(OriginRootPlace))({
   out := ArrayList(OriginRootPlace).new();
   stripped := ast_expr_strip_borrow_marker(e);
+  // A borrowing future (decision 43 step 4): the places recorded where it
+  // was made, with the mode of the reference that lent each one.
+  if(match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&stripped)), .Some(fi) => is_future_value_type(&fi.ty), .None => false), {
+    _future_value_roots_into(&stripped, env, ctx, &mut out, u32(0));
+    return(out);
+  });
   if(ast_expr_is_atom(&stripped), {
     _holder_roots_into(&stripped, env, ctx, &mut out);
     return(out);
@@ -8169,28 +8411,46 @@ origin_carrying_value_roots :: (fn(e : &AstExpr, env : &Environment, ctx : &Eval
   out
 });
 /// The frozen places of the holder named by the atom `a`: its local-borrow
-/// entries' places (an N2b holder binding registers one per root).
+/// entries' places, each with its own entry's mode. An N2b holder binding
+/// registers one entry per root, all together
+/// (`freeze_origin_carrying_binding`), so the holder's roots are the run of
+/// its entries ending at its latest one.
 _holder_roots_into :: (fn(a : &AstExpr, env : &Environment, ctx : &EvalContext, out : &mut ArrayList(OriginRootPlace)) -> unit)({
   a_name := ast_expr_token(a).value.*.clone();
-  match(
-    get_variables_from_env(env, a_name.clone()).last(),
-    .Some(hv) => match(
-      local_borrow_info_of(hv.name.clone(), &hv.token),
-      .Some(info) => {
+  hv := match(get_variables_from_env(env, a_name.clone()).last(), .Some(v) => v, .None => return(()));
+  (i : usize) = g_local_borrows.with(xs => xs.len());
+  (found : bool) = false;
+  (done : bool) = false;
+  while((i > usize(0)) && !done, {
+    i = (i - usize(1));
+    match(
+      g_local_borrows.with(xs => xs.get(i)),
+      .Some(info) => if(_lb_same_decl(info.name.clone(), &info.decl, hv.name.clone(), &hv.token), {
+        found = true;
         (pi : usize) = usize(0);
-        while(pi < info.places.len(), {
-          match(
-            info.places.get_cloned(pi),
-            .Some(p) => out.push(OriginRootPlace(place : p, is_mut : info.is_mut)),
-            .None => ()
-          );
-          pi = (pi + usize(1));
+        while(pi < info.places.len(), pi = (pi + usize(1)), {
+          match(info.places.get_cloned(pi), .Some(p) => out.push(OriginRootPlace(place : p, is_mut : info.is_mut)), .None => ());
         });
-      },
+      }, {
+        done = found;
+      }),
       .None => ()
-    ),
-    .None => ()
-  )
+    );
+  });
+});
+/// The places the holder `a` (a bound borrowing future, decision 43 step 4)
+/// freezes, by the caller's names, each with its mode: a call that takes the
+/// holder by value makes a value holding them too.
+holder_future_roots :: (fn(a : &AstExpr, env : &Environment, ctx : &EvalContext) -> ArrayList(FutureRoot))({
+  places := ArrayList(OriginRootPlace).new();
+  _holder_roots_into(a, env, ctx, &mut places);
+  out := ArrayList(FutureRoot).new();
+  (i : usize) = usize(0);
+  while(i < places.len(), i = (i + usize(1)), {
+    r := places(i).clone();
+    out.push(FutureRoot(name : r.place.root_name.clone(), path : r.place.steps.clone(), is_mut : r.is_mut));
+  });
+  out
 });
 /// N2b's binding freeze (decision 43 step 3, T8/T9): a local bound to a
 /// value whose type carries an origin freezes, from its initialization to
@@ -8303,6 +8563,7 @@ reject_composite_result_local_roots :: (fn(e : &AstExpr, env : &Environment, ctx
     .None => ()
   );
 });
+export(FutureRoot, note_future_roots, future_roots_of);
 /// A `match` pattern binding of a reference payload (decision 43 step 3):
 /// the binding's variable id and the scrutinee its reference came out of.
 /// The projection root rule follows a returned payload binding to that
@@ -8331,7 +8592,7 @@ ref_payload_source :: (fn(var_id : usize) -> Option(AstExpr))({
   });
   Option(AstExpr).None
 });
-export(projection_call_mode_of, ProjectionRootArg, projection_call_root_args, projection_call_callee_type, OriginRootPlace, origin_carrying_value_roots, freeze_origin_carrying_binding, reject_composite_result_local_roots, note_ref_payload_source, ref_payload_source);
+export(projection_call_mode_of, ProjectionRootArg, projection_call_root_args, projection_call_callee_type, OriginRootPlace, origin_carrying_value_roots, holder_future_roots, freeze_origin_carrying_binding, reject_composite_result_local_roots, note_ref_payload_source, ref_payload_source);
 export(record_pending_scrutinee_borrow, take_pending_scrutinee_borrows, PendingScrutineeBorrow, note_migrate_mut_scrutinee, migrate_mut_scrutinee_at, clear_migrate_mut_scrutinees, drop_owned_match_binding_at_arm_end, match_scrutinee_is_capture, local_borrow_register_match_place, local_borrow_note_match_place, note_consuming_match_scrutinee, consuming_match_scrutinee_at, moved_value_help, migrate_borrowed_match_at, _lb_arrow_shadows, _lb_fn_literal_binds, _lb_mentions);
 export(
   LocalBorrowPlace,
@@ -8362,6 +8623,7 @@ export(
   deref_reads_through_pointee,
   deref_payload_type,
   variable_is_reference_binding,
+  deref_operand_is_raw_pointer,
   deref_rule_applies,
   deref_rule_recording,
   reject_reference_without_deref,

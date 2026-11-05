@@ -1021,3 +1021,64 @@ comptime_expect_error(
   }),
   "reading the value it refers to is spelled `v.at.*`"
 );
+// A holder made by a call whose body is evaluated at the call (a
+// `generic(...)` function, specialized there) keeps its binding's live range:
+// the body's own bindings no longer take the range away, so the place stays
+// frozen until the holder's last use
+// (issues/fixed/2026-11-05-a-holder-bound-from-a-generic-call-freezes-nothing-past-its-statement.md).
+bs_mk_view_generic :: (fn(generic(T : Type), x : &i32, t : T) -> BsView(x))({
+  lo := usize(0);
+  BsView(x)(at : x, lo : lo)
+});
+test("a holder bound from a generic call stays frozen until its last use", {
+  mut(a) := i32(1);
+  v := bs_mk_view_generic(&a, u8(0));
+  assert(v.at.* == i32(1), "the holder reads its place");
+  a = i32(2);
+  assert(a == i32(2), "the freeze ends with the holder's last use");
+});
+comptime_expect_error(
+  bs_generic_holder_freezes :: (fn() -> unit)({
+    mut(a) := i32(1);
+    v := bs_mk_view_generic(&a, u8(0));
+    a = i32(2);
+    _r := v.at.*;
+  }),
+  "Cannot write `a` here"
+);
+// A holder moved to another binding hands over every place it froze, each in
+// its own mode, for the new binding's whole live range
+// (issues/fixed/2026-11-05-a-holder-moved-to-another-binding-freezes-nothing.md).
+BsHoldTwo :: (fn(comptime(p) : Origin, comptime(q) : Origin) -> comptime(Type))(struct(a : &(i32, p), b : &(i32, q)));
+test("a holder moved to another binding keeps both its places frozen", {
+  mut(x) := i32(1);
+  mut(y) := i32(2);
+  v := BsHoldTwo(x, y)(a : &x, b : &y);
+  w := v;
+  assert((w.a.* + w.b.*) == i32(3), "the moved holder reads both places");
+  x = i32(5);
+  y = i32(6);
+  assert((x + y) == i32(11), "the freeze ends with the new binding's last use");
+});
+comptime_expect_error(
+  bs_moved_holder_freezes_first :: (fn() -> unit)({
+    mut(x) := i32(1);
+    mut(y) := i32(2);
+    v := BsHoldTwo(x, y)(a : &x, b : &y);
+    w := v;
+    x = i32(5);
+    _r := w.a.*;
+  }),
+  "Cannot write `x` here"
+);
+comptime_expect_error(
+  bs_moved_holder_freezes_second :: (fn() -> unit)({
+    mut(x) := i32(1);
+    mut(y) := i32(2);
+    v := BsHoldTwo(x, y)(a : &x, b : &y);
+    w := v;
+    y = i32(6);
+    _r := w.a.*;
+  }),
+  "Cannot write `y` here"
+);

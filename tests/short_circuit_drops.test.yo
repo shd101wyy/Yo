@@ -37,10 +37,7 @@ impl(
   Tracked,
   Drop(
     drop : (fn(self : &mut Self) -> unit)({
-      // `replace`, not `replace_with`: a closure reached only from a `Drop`
-      // is E1301 (issues/2026-11-05-a-closure-reached-only-through-a-drop-impl-is-an-internal-compiler-error.md).
-      old := self.c.n.replace(i32(0));
-      self.c.n.replace(old + i32(1));
+      _old := self.c.n.replace_with(n => (n.* + i32(1)));
     })
   )
 );

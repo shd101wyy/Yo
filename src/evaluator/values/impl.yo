@@ -423,7 +423,7 @@ get_trait_key :: (fn(trait_ty : &TypeValue) -> String)(
     trait_ty,
     Rc(.TraitT(_, _, id, _, _, _)) => id.clone(),
     Rc(.FnTraitT(base_name, _, _, _, _, _)) => base_name.clone(),
-    Rc(.FutureTraitT(base_name, _, _, _)) => base_name.clone(),
+    Rc(.FutureTraitT(base_name, _, _, _, _)) => base_name.clone(),
     _ => String.from("")
   )
 );
@@ -1299,7 +1299,7 @@ _bind_forall_from_type_args :: (
                     cwi = (cwi + usize(1));
                   });
                   eprintln(`[cellwalk] fa=${fa_name} walked=${cw_ids} res=${cw_res}`);
-                };
+                });
               });
               // Bind the slot itself when `type_key` keys it by its own id (a
               // dyn-coercion wrapper): binding the concrete behind it would
@@ -1341,9 +1341,10 @@ _bind_forall_from_type_args :: (
           if(_is_future_handle_slot(&ct), {
             return(Option(TypeValue).Some(ct));
           });
-        }), .None => ());
-      }
-    );
+        }),
+        .None => ()
+      );
+    });
     j = (j + usize(1));
   });
   Option(TypeValue).None

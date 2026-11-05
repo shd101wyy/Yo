@@ -46,3 +46,17 @@ Every other marked scrutinee falls through to `evaluate_begin_expression`, which
 ## Recommendation
 
 Treat a marked scrutinee as a place whenever it is a projection chain (field accesses, `.*` and index calls) that ends at a variable, and route it through `evaluate_expression` the way `match(&xs(i), …)` already is. A test should cover the three functions above, each returning the length, together with `&mut` variants whose arms push to the matched list and check the caller sees the push.
+
+## Fix
+
+`call_is_index_place` (the hook behind `scr_is_marked_index_place` in `evaluate_match`) is `_is_index_place` in `src/evaluator/calls/index_trait.yo`. It now accepts any projection chain that contains an element access, not only `xs(i)` on a variable. `_place_chain_type` walks the chain statically, before the scrutinee is evaluated, and computes the type of each step:
+
+- a field `.f` of a value struct or labelled tuple, read through a `&T` slot. A `ref` struct, a source namespace or a cell handle ends the place, since their fields lie behind a handle;
+- `.*` through a raw pointer or a reference slot. A reference binding's `r.*` reads the binding's own type;
+- an element access `recv(i)` whose receiver type dispatches `Index`. The element type is the output of the receiver's single `index` method. A receiver with several `index` methods still counts as a place, but no further step may follow it.
+
+The chain must end at a runtime binding. A compile-time binding, a function call or a method call yields `.None`, and `s.m(i)` counts as an element access only when `m` is a field of `s`'s type. `_chain_has_index_step` keeps plain field paths on `is_place_expression`'s route. A marked chain through an element is evaluated in place, like `match(&xs(i), …)`, so nothing is copied and the E0901 is gone.
+
+Test: `tests/match_structs.test.yo`, "a marked match through a field of an element, or an element behind a field or a pointer". It covers the three reproducers and asserts that the element is read in place: it is still there, with its contents, after the match. All three reproducers fail on the v0.2.74 seed with E0901.
+
+The `&mut` variants the Recommendation asks for are not part of this fix. `match(&mut xs(i), …)` is rejected on develop too ("`&mut` lends a place, and `xs(i)` is a temporary"), with or without a projection after the element, as is the local borrow `q := &mut xs(i)`, whose error says to borrow an element through `for(&mut coll, x => …)`. A `&mut` borrow of an element is a separate design question. The "is a temporary" wording for an element access is filed as `issues/2026-11-05-a-mut-match-of-an-element-says-the-element-is-a-temporary.md`.

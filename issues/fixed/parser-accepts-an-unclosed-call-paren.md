@@ -2,8 +2,9 @@
 
 **Severity:** S2 — a missing `)` is silently accepted and the program restructured — the promised E0002 never fires
 
-**Status: open** (found 2026-09-20 while probing the diagnostics registry's
-E0002 example for the toolchain series). Repros:
+**Status: FIXED 2026-11-05** (found 2026-09-20 while probing the diagnostics
+registry's E0002 example for the toolchain series; fixed with
+`issues/fixed/2026-11-05-a-call-missing-its-closing-paren-before-a-semicolon-parses.md`). Repros:
 `issues/repros/unclosed-call-paren-eof.yo`,
 `issues/repros/unclosed-call-paren-in-body.yo`.
 
@@ -11,18 +12,18 @@ E0002 example for the toolchain series). Repros:
 
 All three pass `yo check` (rc=0, "evaluator OK"):
 
-```rust
+```yo ignore
 f :: (fn(a : i32) -> i32)(a);
 _r := f(i32(1)
 ```
 
-```rust
+```yo ignore
 f :: (fn(a : i32) -> i32)(a);
 _r := f(i32(1);
 _s := f(i32(2));
 ```
 
-```rust
+```yo ignore
 f :: (fn(a : i32) -> i32)(a);
 main :: (fn() -> unit)({
   _r := f(i32(1);
@@ -33,13 +34,13 @@ export(main);
 
 The same leniency accepts an unclosed `struct(` at end of input:
 
-```rust
+```yo ignore
 P :: struct(x : i32;
 ```
 
 `yo fmt` on the third shows what the parser built:
 
-```rust
+```yo ignore
 main :: (fn() -> unit)({
   _r := f(
     i32(1);
@@ -69,3 +70,12 @@ the first form) — the message the parser already has at `parser.yo:687-688`.
   multi-line call argument lists must keep parsing, and `yo check ./src ./std`
   + the corpus must stay green (a rejection that fires anywhere in the tree
   means the tree relied on the leniency).
+
+## Fix (2026-11-05)
+
+Fixed together with its README-rehearsal duplicate,
+`issues/fixed/2026-11-05-a-call-missing-its-closing-paren-before-a-semicolon-parses.md`,
+which records the change. The registry's E0002 example now reproduces, and its
+exemption in `tests/internal/diagnostics_registry_examples.test.yo` is removed.
+A fix for the same shape had been written on 2026-09-20
+(`fix/parser-unclosed-call-paren`) and was never merged.

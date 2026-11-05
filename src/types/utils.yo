@@ -37,9 +37,14 @@ pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { HashSet } :: import("std/collections/hash_set");
+/// Set once some future type carries a non-elided origin (decision 43 step 4,
+/// N3-1: an `io.async` that captures a borrow, or a spelled
+/// `Future(T, E, p)`). Until then no future borrows anything and the borrow
+/// walks answer without one. Never cleared: it only gates a fast path.
+(mut(g_future_origins_exist) : bool) = false;
 /// Capture-list borrow entries by capture-struct id (`register_capture_borrows`).
 (g_capture_borrows : RefCell(HashMap(String, ArrayList(CaptureBorrow)))) = RefCell(HashMap(String, ArrayList(CaptureBorrow))).new(HashMap(String, ArrayList(CaptureBorrow)).new());
-{ TypeValue, TypeValueNode, FuncMeta, no_labels, t_refine_inner, no_types, SharedList, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_borrow, fn_result_is_ref } :: import("./definitions.yo");
+{ TypeValue, TypeValueNode, FuncMeta, no_labels, t_refine_inner, no_types, SharedList, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_borrow, fn_result_is_ref, t_origin_spelled_names } :: import("./definitions.yo");
 { type_intern_key } :: import("./intern.yo");
 { type_to_string, type_to_string_for_message } :: import("./string.yo");
 { type_value_tag, resolve_enum_shell, resolve_struct_shell, enum_phantom_positions } :: import("./creators.yo");
@@ -513,7 +518,7 @@ capture_struct_borrows :: (fn(struct_id : &String) -> Option(ArrayList(CaptureBo
 );
 /// Some capture list has recorded a borrow: the fast path of every check that
 /// looks for one.
-capture_borrows_exist :: (fn() -> bool)(g_capture_borrows.with(m => m.len()) > usize(0));
+capture_borrows_exist :: (fn() -> bool)((g_capture_borrows.with(m => m.len()) > usize(0)) || g_future_origins_exist);
 /// The place a borrow entry names, as written: `s.items`.
 capture_borrow_place_string :: (fn(b : &CaptureBorrow) -> String)({
   out := b.root_name.clone();
@@ -533,10 +538,84 @@ capture_borrow_place_string :: (fn(b : &CaptureBorrow) -> String)({
 /// second-class type may not be a generic argument of a type constructor.
 collect_type_borrows :: (fn(ty : &TypeValue, out : &mut ArrayList(CaptureBorrow)) -> unit)(
   cond(
-    (g_capture_borrows.with(m => m.len()) == usize(0)) => (),
+    ((g_capture_borrows.with(m => m.len()) == usize(0)) && !g_future_origins_exist) => (),
     true => _collect_type_borrows_inner(ty, out, u32(0))
   )
 );
+/// The `io.async` futures (by per-call wrapper id) that borrow a `&T`
+/// parameter through a closure they capture (§3.13 A2): C passes that
+/// parameter by value, so the future points into the frame that returns and
+/// cannot be returned. The entry is the borrow, for the message.
+(g_unreturnable_futures : RefCell(HashMap(String, CaptureBorrow))) = RefCell(HashMap(String, CaptureBorrow)).new(HashMap(String, CaptureBorrow).new());
+note_unreturnable_future :: (fn(fut_id : &String, b : &CaptureBorrow) -> unit)({
+  k := fut_id.clone();
+  v := b.clone();
+  g_unreturnable_futures.with_mut({ k, v }(m) => {
+    _old := m.insert(k, v);
+  });
+});
+/// The borrow that keeps the future `ty` from being returned
+/// (`note_unreturnable_future`), through its wrapper and resolution chain.
+future_unreturnable_borrow :: (fn(ty : &TypeValue) -> Option(CaptureBorrow))({
+  if(g_unreturnable_futures.with(m => m.len()) == usize(0), {
+    return(Option(CaptureBorrow).None);
+  });
+  (cur : TypeValue) = Rc.clone(ty);
+  (depth : u32) = u32(0);
+  while(depth < u32(12), depth = (depth + u32(1)), {
+    match(
+      &cur,
+      Rc(.SomeT({ id : fu_id, resolution : fu_res })) => {
+        match(g_unreturnable_futures.with(m => m.get_cloned(&fu_id)), .Some(b) => return(Option(CaptureBorrow).Some(b)), .None => ());
+        match(
+          fu_res,
+          .Some(r) => {
+            cur = Rc.clone(r);
+          },
+          .None => return(Option(CaptureBorrow).None)
+        );
+      },
+      _ => return(Option(CaptureBorrow).None)
+    );
+  });
+  Option(CaptureBorrow).None
+});
+/// The places a future type's origin names (decision 43 step 4, N3-1,
+/// `Future(T, E, p)`; VERDICTS-18 §B: an origin is a set of places and
+/// carries no mode). `ty` is a `FutureTraitT`, or a value type variable
+/// (`Impl(Future(...))`) whose bound or resolution is one. `.None` when the
+/// origin is elided or names nothing: the future borrows nothing.
+future_origin_names :: (fn(ty : &TypeValue) -> Option(SharedList(String)))(
+  if(!g_future_origins_exist, Option(SharedList(String)).None, _future_origin_names_inner(ty, u32(0)))
+);
+_future_origin_names_inner :: (fn(ty : &TypeValue, depth : u32) -> Option(SharedList(String)))({
+  if(depth > u32(12), {
+    return(Option(SharedList(String)).None);
+  });
+  match(
+    ty,
+    Rc(.FutureTraitT(origin : fo)) => match(
+      t_origin_spelled_names(&fo),
+      .Some(ns) => if(ns.len() > usize(0), Option(SharedList(String)).Some(ns), Option(SharedList(String)).None),
+      .None => Option(SharedList(String)).None
+    ),
+    Rc(.SomeT({ bounds : fo_bnd, resolution : fo_res })) => {
+      rtt := fo_bnd.required();
+      (i : usize) = usize(0);
+      while(i < rtt.len(), i = (i + usize(1)), {
+        match(
+          rtt.get_cloned(i),
+          .Some(rt) => if(is_future_trait_type(&rt), {
+            match(_future_origin_names_inner(&rt, depth + u32(1)), .Some(ns) => return(Option(SharedList(String)).Some(ns)), .None => ());
+          }),
+          .None => ()
+        );
+      });
+      match(fo_res, .Some(r) => _future_origin_names_inner(&r, depth + u32(1)), .None => Option(SharedList(String)).None)
+    },
+    _ => Option(SharedList(String)).None
+  )
+});
 _collect_type_borrows_inner :: (fn(ty_in : &TypeValue, out : &mut ArrayList(CaptureBorrow), depth : u32) -> unit)({
   ty := resolve_enum_shell(resolve_struct_shell(ty_in));
   // A borrowing future (§3.13 A2): `io.async` registers its body's
@@ -544,25 +623,36 @@ _collect_type_borrows_inner :: (fn(ty_in : &TypeValue, out : &mut ArrayList(Capt
   // function returning it carries that future as its result's resolution. A
   // future is a counted state machine, so this precedes the reference-type
   // stop below.
-  match(
-    &ty,
-    Rc(.SomeT({ id : st_id, resolution : f_res })) => if(is_future_value_type(&ty) && (depth <= u32(12)), {
-      match(
-        g_capture_borrows.with(m => m.get_cloned(&st_id)),
-        .Some(bs) => {
-          (bi : usize) = usize(0);
-          while(bi < bs.len(), {
-            match(bs.get_cloned(bi), .Some(b) => out.push(b), .None => ());
-            bi = (bi + usize(1));
-          });
-        },
-        .None => ()
-      );
-      match(f_res, .Some(concrete) => recur(&concrete, out, depth + u32(1)), .None => ());
-      return(());
-    }),
-    _ => ()
-  );
+  // A borrowing future (decision 43 step 4, N3-1): its type's origin names
+  // the places it borrows (`Future(T, E, p)`), one entry per place. The
+  // entry has no mode (VERDICTS-18 §B: an origin carries none); a reader that
+  // needs one takes it from the reference that lent the place.
+  if(is_future_value_type(&ty), {
+    match(
+      future_origin_names(&ty),
+      .Some(ns) => {
+        (ni : usize) = usize(0);
+        while(ni < ns.len(), ni = (ni + usize(1)), {
+          n := match(ns.get_cloned(ni), .Some(x) => x, .None => String.new());
+          out.push(
+            CaptureBorrow(
+              label : n.clone(),
+              is_mut : false,
+              root_id : usize(0),
+              root_name : n,
+              path : ArrayList(String).new(),
+              root_is_value_param : false,
+              through_value : false,
+              assumed : false,
+              site : String.new()
+            )
+          );
+        });
+      },
+      .None => ()
+    );
+    return(());
+  });
   if((depth > u32(12)) || is_rc_type(&ty), {
     return(());
   });
@@ -683,7 +773,7 @@ _pointee_second_class_inner :: (fn(ty_in : &TypeValue, depth : u32) -> Option(Ty
 /// constructor's argument.
 type_is_second_class :: (fn(ty : &TypeValue) -> bool)(
   cond(
-    (g_capture_borrows.with(m => m.len()) == usize(0)) => false,
+    ((g_capture_borrows.with(m => m.len()) == usize(0)) && !g_future_origins_exist) => false,
     true => {
       bs := ArrayList(CaptureBorrow).new();
       _collect_type_borrows_inner(ty, &mut bs, u32(0));
@@ -702,6 +792,13 @@ note_origin_types_exist :: (fn() -> unit)({
   // A program that names a reference type may hold a `&mut` one (decision 43
   // step 3, §5 route 3), which is move-only: arm the fast-path knob the
   // move-only walk is gated on (`type_is_move_only`, `move_only_reason`).
+  g_move_only_possible = true;
+});
+/// A future type now carries an origin (decision 43 step 4): arms the
+/// future-origin, origin-type and move-only fast paths.
+note_future_origins_exist :: (fn() -> unit)({
+  g_future_origins_exist = true;
+  g_origin_types_exist = true;
   g_move_only_possible = true;
 });
 /// True if a value of `ty` carries an origin (plans/backlog/REFERENCES_AND_ORIGINS.md
@@ -749,7 +846,12 @@ _carries_origin_inner :: (fn(ty : &TypeValue, seen : &mut ArrayList(String), dep
     Rc(.Array(element : elem)) => _carries_origin_inner(&elem, seen, depth + u32(1)),
     Rc(.RefineT(inner, _)) => _carries_origin_inner(&inner, seen, depth + u32(1)),
     Rc(.Tuple({ field_types : fields })) => _any_carries_origin(&fields, seen, depth),
-    Rc(.SomeT({ resolution : res })) => match(res, .Some(r) => _carries_origin_inner(&r, seen, depth + u32(1)), .None => false),
+    // A borrowing future (decision 43 step 4, N3-1): `Future(T, E, p)`.
+    Rc(.FutureTraitT(base_name : _)) => future_origin_names(ty).is_some(),
+    Rc(.SomeT({ resolution : res })) => cond(
+      is_future_value_type(ty) => future_origin_names(ty).is_some(),
+      true => match(res, .Some(r) => _carries_origin_inner(&r, seen, depth + u32(1)), .None => false)
+    ),
     // An instance's own arguments first (an origin argument is per instance),
     // then its fields once per definition: every instance of one id has the
     // same fields up to their origins.
@@ -2214,7 +2316,7 @@ type_contains_some_type :: (fn(ty : &TypeValue) -> bool)(
               .Some(Rc(.FnTraitT(_, _, _, _, _, _))) => {
                 cst_has_fn_or_fut = true;
               },
-              .Some(Rc(.FutureTraitT(_, _, _, _))) => {
+              .Some(Rc(.FutureTraitT(_, _, _, _, _))) => {
                 cst_has_fn_or_fut = true;
               },
               .Some(_) => (),
@@ -2871,7 +2973,7 @@ type_mentions_impl_fn_or_future :: (fn(ty : &TypeValue) -> bool)({
             .Some(Rc(.FnTraitT(_, _, _, _, _, _))) => {
               return(true);
             },
-            .Some(Rc(.FutureTraitT(_, _, _, _))) => {
+            .Some(Rc(.FutureTraitT(_, _, _, _, _))) => {
               return(true);
             },
             _ => ()
@@ -3799,6 +3901,7 @@ type_may_provide_slice_source :: (fn(ty : &TypeValue) -> bool)({
 });
 export(enum_phantom_type_arg_somes, enum_phantom_type_args_masked);
 export(CaptureBorrow, register_capture_borrows, capture_struct_borrows, capture_borrows_exist, capture_borrow_place_string, collect_type_borrows, type_is_second_class, type_first_mut_borrow, type_pointee_second_class);
+export(future_origin_names, note_future_origins_exist, note_unreturnable_future, future_unreturnable_borrow);
 export(type_carries_origin, type_is_escapable, escapable_bound_error, note_origin_types_exist, origin_value_phase_message, reject_origin_carrying_signature, no_origin_position_error, origin_beyond_n2b, origin_beyond_n2b_message);
 export(set_target_pointer_size);
 export(is_drop_trait_name, is_drop_method_name, is_destructor_trait_member, is_clone_trait_type, dyn_type_lists_clone, type_holds_dyn_by_value);
@@ -4302,26 +4405,47 @@ mark_generic_independent :: (fn(err : &YoError, a : &TypeValue, b : &TypeValue) 
 });
 export(mark_generic_independent);
 /// The result slot `r` may point into a `&T` parameter: a borrow, or a
-/// type that carries an origin (`fn_param_is_ptr_borrow`).
-_result_may_point_into_params :: (fn(r : &TypeValue) -> bool)(t_slot_is_borrow(r) || type_carries_origin(r));
+/// type that carries an origin (`fn_param_is_ptr_borrow`). A borrowing
+/// future is not one: its origin names the caller's places, which the state
+/// machine holds through the lent arguments' own pointers
+/// (`_lent_param_capture_fields`), so its function's `&T` parameters keep the
+/// by-value ABI (decision 43 step 4, VERDICTS-18 §B: codegen unchanged).
+_result_may_point_into_params :: (fn(r : &TypeValue) -> bool)(t_slot_is_borrow(r) || (type_carries_origin(r) && !is_future_value_type(r)));
+/// A parameter of the slots `pts` may store a `&T` argument past the call:
+/// its value type (a reference slot's pointee) carries an origin — a `&mut
+/// ArrayList(&U)`, a by-value `Box(&mut ArrayList(&U))`, a
+/// `&RefCell(ArrayList(&U))` — which are the stores O3-3 admits
+/// (VERDICTS-23 R2). `fn_param_is_ptr_borrow`.
+_params_may_store_a_reference :: (fn(pts : &SharedList(TypeValue)) -> bool)({
+  (i : usize) = usize(0);
+  while(i < pts.len(), {
+    if(match(pts.get(i), .Some(s) => type_carries_origin(&t_slot_pointee(&s)), .None => false), {
+      return(true);
+    });
+    i = (i + usize(1));
+  });
+  false
+});
 /// Decision 34's ABI choice, taken for decision 24's projections: a `&T`
-/// parameter of a function whose result may point into it is passed as a
-/// pointer; every other `&T` parameter is passed by value. The result may
-/// point into a `&T` parameter when it is a borrow (`-> &T` / `-> &mut T`)
-/// or when its type carries an origin (`-> Option(&T)`, a holder: decision
-/// 43 step 3), since a copy of the argument dies with the call. Parameter
-/// `i` of `fn_ty` is such a pointer-passed shared borrow (`&mut T`
-/// parameters are pointers anyway, and a by-value parameter is never one).
+/// parameter that may outlive the call is passed as a pointer; every other
+/// `&T` parameter is passed by value, since a copy of the argument dies
+/// with the call. It may outlive the call when the result may point into it
+/// — a borrow (`-> &T` / `-> &mut T`) or a type that carries an origin
+/// (`-> Option(&T)`, a holder: decision 43 step 3) — or when a parameter
+/// may store it: a parameter's value type carries an origin, the slot's
+/// own included (VERDICTS-23 R2). Parameter `i` of `fn_ty` is such a
+/// pointer-passed shared borrow (`&mut T` parameters are pointers anyway,
+/// and a by-value parameter is never one).
 fn_param_is_ptr_borrow :: (fn(fn_ty : &TypeValue, i : usize) -> bool)(
   match(
     fn_ty,
     Rc(.Func({ param_types : pb_pts, result : pb_r })) => (
-      _result_may_point_into_params(&pb_r) && match(pb_pts.get(i), .Some(pb_s) => (t_slot_is_borrow(&pb_s) && !t_slot_is_mut_ref(&pb_s)), .None => false)
+      (_result_may_point_into_params(&pb_r) || _params_may_store_a_reference(&pb_pts)) && match(pb_pts.get(i), .Some(pb_s) => (t_slot_is_borrow(&pb_s) && !t_slot_is_mut_ref(&pb_s)), .None => false)
     ),
     // A closure trait returning a reference (`Fn(s : &T) -> &U`, decision
     // 43 step 2, N1c) has the projection's ABI too.
     Rc(.FnTraitT({ call_param_types : pb_cpts, call_result : pb_cr })) => (
-      _result_may_point_into_params(&pb_cr) && match(pb_cpts.get(i), .Some(pb_cs) => (t_slot_is_borrow(&pb_cs) && !t_slot_is_mut_ref(&pb_cs)), .None => false)
+      (_result_may_point_into_params(&pb_cr) || _params_may_store_a_reference(&pb_cpts)) && match(pb_cpts.get(i), .Some(pb_cs) => (t_slot_is_borrow(&pb_cs) && !t_slot_is_mut_ref(&pb_cs)), .None => false)
     ),
     _ => false
   )

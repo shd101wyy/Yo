@@ -2,6 +2,7 @@
 //! P4): named `S(label : p, name)` and anonymous `{label : p, name}` forms,
 //! partial destructuring, any sub-pattern per field, on runtime and
 //! compile-time scrutinees.
+pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
@@ -149,6 +150,38 @@ test("a match through a borrowed element of a Box-children enum", {
     .At(Box(s)) => assert(s.v == i32(9), "the boxed leaf's value through the borrowed element")
   );
   assert(xs.len() == usize(2), "the list keeps both elements");
+});
+// A marked scrutinee that is a projection chain THROUGH an element — a field
+// of a borrowed element (`&ts(i).c`), an element of a collection reached
+// through a field (`&s.metas(i)`) or through a raw pointer
+// (`&p.*.metas(i)`) — is a place too: it is read in place, not copied
+// (issues/fixed/2026-11-05-a-borrowed-element-field-scrutinee-is-e0901.md).
+_PcT :: struct(c : Option(ArrayList(i32)));
+_PcS :: struct(metas : ArrayList(Option(ArrayList(i32))));
+_pc_count_field :: (fn(ts : &ArrayList(_PcT)) -> usize)(
+  match(&ts(usize(0)).c, .Some(c) => c.len(), .None => usize(0))
+);
+_pc_count_ref :: (fn(s : &_PcS) -> usize)(
+  match(&s.metas(usize(0)), .Some(m) => m.len(), .None => usize(0))
+);
+_pc_count_ptr :: (fn(p : *_PcS) -> usize)(
+  match(&p.*.metas(usize(0)), .Some(m) => m.len(), .None => usize(0))
+);
+test("a marked match through a field of an element, or an element behind a field or a pointer", {
+  mut(ts) := ArrayList(_PcT).new();
+  mut(one) := ArrayList(i32).new();
+  one.push(i32(1));
+  one.push(i32(2));
+  ts.push(_PcT(c : .Some(one)));
+  assert(_pc_count_field(&ts) == usize(2), "the field of the borrowed element");
+  mut(s) := _PcS(metas : ArrayList(Option(ArrayList(i32))).new());
+  mut(inner) := ArrayList(i32).new();
+  inner.push(i32(3));
+  s.metas.push(.Some(inner));
+  assert(_pc_count_ref(&s) == usize(1), "an element reached through a field");
+  assert(_pc_count_ptr(addr_of(s)) == usize(1), "the same through a raw pointer");
+  assert(s.metas.len() == usize(1), "the list keeps its element");
+  assert(_pc_count_field(&ts) == usize(2), "the element was read in place, not moved out");
 });
 // A newtype's C type IS its single field's type (a transparent typedef), so a
 // struct pattern on a newtype binds the value itself: the arm used to render
