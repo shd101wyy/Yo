@@ -720,7 +720,7 @@ _check_anon_fn_captures :: (
         },
         .Some(k) => {
           match(
-            caps.get(k.clone()),
+            caps.get_cloned(k.clone()),
             .Some(ci) => if(ci.frame_level < outer_frames_len, {
               if(names.len() > usize(0), {
                 names = `${names}, `;
@@ -764,7 +764,7 @@ outcome after the guarded call instead (e.g. a result the handler unwinds past).
       },
       .Some(k) => {
         match(
-          caps.get(k.clone()),
+          caps.get_cloned(k.clone()),
           .Some(ci) => {
             // Only true outer captures are checked:
             // `frame_level < outer_frames_len`.
@@ -2829,7 +2829,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
             match(
               ex_it.next(),
               .Some(ex_name) => match(
-                ex_caps.get(ex_name.clone()),
+                ex_caps.get_cloned(ex_name.clone()),
                 .Some(ex_ci) => if(ex_ci.frame_level < cfi, {
                   _cap_list_error(
                     ctx,

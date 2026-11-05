@@ -963,7 +963,7 @@ enrich_captured_variables :: (
       },
       .Some(var_name) => {
         vn_copy := var_name.clone();
-        cap_info_opt := captured_variables.get(var_name.clone());
+        cap_info_opt := captured_variables.get_cloned(var_name.clone());
         match(
           cap_info_opt,
           .None => (),
@@ -1040,7 +1040,7 @@ propagate_captures_to_enclosing :: (fn(caps : &HashMap(String, CapturedVarInfo),
         more = false;
       },
       .Some(name) => match(
-        caps.get(name.clone()),
+        caps.get_cloned(name.clone()),
         .Some(info) => track_variable_usage_resolved(&name, info.frame_level, info.usage, &info.token, ctx, Option(bool).None),
         .None => ()
       )

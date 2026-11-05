@@ -610,7 +610,7 @@ emit_async_block_struct_definition :: (
       (mut(si) : usize) = usize(0);
       while(si < slots.len(), {
         match(
-          slots.get(si),
+          slots.get_cloned(si),
           .Some(slot) => context.base.emitter.emit_declaration_string_line(`  ${slot.c_type.clone()} ${slot.field_name.clone()};  // ${slot.param_name.clone()}`),
           .None => ()
         );
@@ -1889,7 +1889,7 @@ fused_await_site :: (fn(await_expr : &AstExpr, report : bool, context : &Functio
   if(n_slots != usize(1), {
     return(_fusion_not_lowered(await_expr, String.from("the block does not take exactly one bundle parameter"), report));
   });
-  bundle_ty := match(&block.closure_param_slots, .Some(s) => match(s.get(usize(0)), .Some(sl) => Rc.clone(sl.param_type), .None => Rc.new(TypeValueNode.Unit)), .None => Rc.new(TypeValueNode.Unit));
+  bundle_ty := match(&block.closure_param_slots, .Some(s) => match(s.get_cloned(usize(0)), .Some(sl) => Rc.clone(sl.param_type), .None => Rc.new(TypeValueNode.Unit)), .None => Rc.new(TypeValueNode.Unit));
   effects_ty := match(
     await_args.get(usize(1)),
     .Some(ea) => match(context.base.get_expr_info(&ea), .Some(eei) => Option(TypeValue).Some(Rc.clone(eei.ty)), .None => Option(TypeValue).None),
@@ -2015,7 +2015,7 @@ _emit_fused_site_fields :: (fn(sites : &ArrayList(FusedAwaitSite), context : &mu
       .Some(slots) => {
         (mut(pi) : usize) = usize(0);
         while(pi < slots.len(), pi = (pi + usize(1)), {
-          match(slots.get(pi), .Some(sl) => context.base.emitter.emit_declaration_string_line(`  ${sl.c_type.clone()} ${site.prefix}param_${pi.to_string()};  // ${sl.param_name.clone()}`), .None => ());
+          match(slots.get_cloned(pi), .Some(sl) => context.base.emitter.emit_declaration_string_line(`  ${sl.c_type.clone()} ${site.prefix}param_${pi.to_string()};  // ${sl.param_name.clone()}`), .None => ());
         });
       },
       .None => ()
@@ -2197,7 +2197,7 @@ _fused_sm_variables :: (fn(site : &FusedAwaitSite) -> HashMap(String, CapturedVa
       (mut(pi) : usize) = usize(0);
       while(pi < slots.len(), pi = (pi + usize(1)), {
         match(
-          slots.get(pi),
+          slots.get_cloned(pi),
           .Some(sl) => {
             pid := `__closure_param_${pi.to_string()}`;
             vars.insert(pid.clone(), _make_sm_captured_variable(&pid, sl.param_name.clone(), &sl.param_type, CapturedVariableKind.Local));
@@ -3078,7 +3078,7 @@ _block_cross_boundary :: (fn(block : &DeferredAsyncBlock, context : &FunctionGen
       (mut(psi) : usize) = usize(0);
       while(psi < slots.len(), {
         match(
-          slots.get(psi),
+          slots.get_cloned(psi),
           .Some(sl) => if(sl.decl_site.len() > usize(0), {
             parts := sl.decl_site.split("|");
             (mut(ppi) : usize) = usize(0);
@@ -3150,7 +3150,7 @@ _block_cross_boundary :: (fn(block : &DeferredAsyncBlock, context : &FunctionGen
       .Some(dslots) => {
         (mut(dsi) : usize) = usize(0);
         while(dsi < dslots.len(), dsi = (dsi + usize(1)), {
-          match(dslots.get(dsi), .Some(dsl) => eprintln(`[async-layout] ${block.async_block_id} param ${dsl.param_name} site=${dsl.decl_site}`), .None => ());
+          match(dslots.get_cloned(dsi), .Some(dsl) => eprintln(`[async-layout] ${block.async_block_id} param ${dsl.param_name} site=${dsl.decl_site}`), .None => ());
         });
       },
       .None => ()
@@ -3797,7 +3797,7 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
   (ei2 : usize) = usize(0);
   while(ei2 < eps.len(), {
     match(
-      eps.get(ei2),
+      eps.get_cloned(ei2),
       .Some(ep) => {
         path := _join_dotted(&ep.field_path);
         shim_args.push(`(void*)sm->__capture.${path}`);
