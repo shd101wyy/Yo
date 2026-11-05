@@ -38,7 +38,7 @@ import("std/fmt");
   expr_info_table_set,
   expr_info_table_get
 } :: import("../../expr_info.yo");
-{ Environment, Variable, env_adopt, get_variables_from_env } :: import("../../env.yo");
+{ Environment, Variable, env_adopt } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
 { EvalValue, is_type_value, is_unknown_val, value_cell_new } :: import("../../value.yo");
 { TypeValue, TypeValueNode, shared_list } :: import("../../types/definitions.yo");
@@ -50,7 +50,6 @@ import("std/fmt");
   is_comptime_list_type
 } :: import("../../types/guards.yo");
 { convert_comptime_type_to_runtime_type } :: import("../../types/env_lookup.yo");
-{ type_is_move_only, type_contains_rc_type } :: import("../../types/utils.yo");
 {
   set_expr_as_needs_to_call_dup,
   attach_temp_variable_to_expr,
@@ -398,24 +397,6 @@ evaluate_tuple_value :: (
   // static storage would over-release it.
   if(!all_known, {
     attach_temp_variable_to_expr(expr, true, ctx);
-    // The literal is a fresh value: its temp owns it even when no element
-    // holds a cell, which `attach_temp_variable_to_expr` reads as
-    // non-owning. A tuple of `&mut` lends is move-only (decision 43 §5
-    // route 3), and a move of a non-owning temp is a copy out of borrowed
-    // storage (E0901).
-    if(type_is_move_only(&tuple_ty) && !type_contains_rc_type(&tuple_ty), {
-      match(
-        expr_info_table_get(&ctx.expr_info_table, ast_expr_id(expr)),
-        .Some(ti) => match(
-          &ti.variable_name,
-          .Some(tn) => match(get_variables_from_env(&ti.env, tn.clone()).last(), .Some(tv) => {
-            tv.is_owning_the_rc_value = true;
-          }, .None => ()),
-          .None => ()
-        ),
-        .None => ()
-      );
-    });
   });
   expr
 });
