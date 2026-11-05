@@ -8890,7 +8890,7 @@ _origin_position_pairs :: (fn(p : &TypeValue, a : &TypeValue, out_p : &mut Array
       Rc(.Reference(ap, _, ao)) => {
         out_p.push(Rc.clone(po));
         out_a.push(Rc.clone(ao));
-        _origin_position_pairs(pp, ap, out_p, out_a, depth + u32(1));
+        _origin_position_pairs(&pp, &ap, out_p, out_a, depth + u32(1));
       },
       _ => ()
     ),
@@ -8948,7 +8948,7 @@ _argument_origin_pairs :: (fn(arg : &AstExpr, slot : &TypeValue, env : &Environm
             },
             .None => ()
           );
-          _origin_position_pairs(sp, &a_ty, out_p, out_a, u32(0));
+          _origin_position_pairs(&sp, &a_ty, out_p, out_a, u32(0));
         }
       );
     },
