@@ -60,7 +60,7 @@ pragma(Pragma.AllowUnsafe);
   expr_info_set_index_method_type,
   expr_info_set_index_method_value
 } :: import("../../expr_info.yo");
-{ format_error_message, format_eval_failure, with_code } :: import("../../error.yo");
+{ format_error_message, format_error_message_with_help, format_eval_failure, with_code } :: import("../../error.yo");
 { E_WRITE_THROUGH_BORROW } :: import("../../diagnostics.yo");
 { type_to_string } :: import("../../types/string.yo");
 { variable_is_imm_borrow, projection_call_mode_of, variable_is_reference_binding } :: import("../utils.yo");
@@ -1978,7 +1978,7 @@ _is_index_call :: (fn(e : &AstExpr, ctx : &EvalContext) -> bool)(
 /// Re-dispatch one element access `call` (already dispatched as a read) to
 /// its receiver's `index_mut`, when the read went through a projection
 /// `index`. See `promote_index_places_for_write`.
-_promote_index_call :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
+_promote_index_call :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception, is_addr_of : bool) -> unit)({
   info := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(call)), .Some(i) => i, .None => return(()));
   read_ty := match(expr_info_index_method_type(&info), .Some(t) => t, .None => return(()));
   (recv : AstExpr) = match(call, .FnCall(_, pc_callee, _, _, _) => pc_callee, .Atom(_, _) => return(()));
@@ -2026,9 +2026,19 @@ _promote_index_call :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalConte
       exn.throw(
         dyn(
           with_code(
-            format_error_message(
-              &tok,
-              `Cannot write \`${place_text}\`: \`IndexMut.index_mut\` takes \`self : &mut Self\`, and \`${rv.name}\` is a read-only borrow. Declare it \`${rv.name} : &mut T\` (or borrow it with \`&mut\`) to write its elements.`
+            cond(
+              // `addr_of` yields a `*T`, which can write the element (Yo has
+              // no const pointer), so it takes the element as a write
+              // (issues/fixed/2026-11-05-addr-of-an-element-through-a-read-only-borrow-is-reported-as-a-write.md).
+              is_addr_of => format_error_message_with_help(
+                &tok,
+                `Cannot take \`addr_of(${place_text})\`: it yields a \`*T\`, which can write the element, and \`${rv.name}\` is a read-only borrow.`,
+                Option(String).Some(`to read the element, use it in place: index it (\`${place_text}.f\`), match it through \`&${place_text}\`, or pass \`&${place_text}\` to a \`&T\` parameter; to write it, declare \`${rv.name} : &mut T\` (or borrow it with \`&mut\`)`)
+              ),
+              true => format_error_message(
+                &tok,
+                `Cannot write \`${place_text}\`: \`IndexMut.index_mut\` takes \`self : &mut Self\`, and \`${rv.name}\` is a read-only borrow. Declare it \`${rv.name} : &mut T\` (or borrow it with \`&mut\`) to write its elements.`
+              )
             ),
             E_WRITE_THROUGH_BORROW
           )
@@ -2065,7 +2075,7 @@ _promote_index_call :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalConte
 /// a type with no `index_mut` has read-only elements. The pre-V2b method
 /// (`self : &mut Self -> *Self.Output`) serves reads and writes alike and
 /// stays as dispatched.
-promote_index_places_for_write :: (fn(place : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
+promote_index_places_for_write :: (fn(place : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception, is_addr_of : bool) -> unit)({
   (cur : AstExpr) = place;
   (walking : bool) = true;
   while(walking, {
@@ -2080,7 +2090,7 @@ promote_index_places_for_write :: (fn(place : &AstExpr, env : &Environment, ctx 
           .None => Option(AstExpr).None
         ),
         (!pw_infix && _is_index_call(&cur, ctx)) => {
-          _promote_index_call(&cur, env, ctx, exn);
+          _promote_index_call(&cur, env, ctx, exn, is_addr_of);
           Option(AstExpr).Some(pw_callee)
         },
         // A direct projection call (decision 24): a `&` projection's result

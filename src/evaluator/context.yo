@@ -949,16 +949,17 @@ call_rerun_pending_def_evals :: (fn(env : &Environment, ctx : &EvalContext) -> O
 // sites (assignment, `&mut` arguments, `addr_of`, `&mut` local borrows)
 // cannot import calls/index_trait.yo without a cycle, so they call through
 // this hook, installed by `register_evaluate_expression`.
-PromoteIndexPlacesFn :: (fn(place : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit);
+/// `is_addr_of`: the write is `addr_of(place)`, which a diagnostic names.
+PromoteIndexPlacesFn :: (fn(place : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception, is_addr_of : bool) -> unit);
 (mut(g_promote_index_places_fn) : Option(PromoteIndexPlacesFn)) = Option(PromoteIndexPlacesFn).None;
 set_promote_index_places_fn :: (fn(f : PromoteIndexPlacesFn) -> unit)({
   g_promote_index_places_fn = Option(PromoteIndexPlacesFn).Some(f);
   ()
 });
-call_promote_index_places_for_write :: (fn(place : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)(
+call_promote_index_places_for_write :: (fn(place : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception, (is_addr_of : bool) ?= false) -> unit)(
   match(
     g_promote_index_places_fn,
-    .Some(f) => f(place, env, ctx, exn),
+    .Some(f) => f(place, env, ctx, exn, is_addr_of),
     .None => ()
   )
 );
