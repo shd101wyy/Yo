@@ -3181,19 +3181,9 @@ _block_cross_boundary :: (fn(block : &DeferredAsyncBlock, context : &FunctionGen
   cbr
 });
 _emit_one_deferred_async_block :: (fn(block : &DeferredAsyncBlock, context : &mut FunctionGenerationContext) -> unit)({
-  // A shallow copy (the map is a value since B9; `EvidenceParameter` is a
-  // ref record with no `Clone`, so the copy re-inserts the same handles).
-  saved_evidence_params := match(
-    &context.current_evidence_params,
-    .Some(ep) => {
-      mut(ep_copy) := HashMap(String, EvidenceParameter).new();
-      for(&ep, (k, v) => {
-        ep_copy.insert(k.clone(), v);
-      });
-      Option(HashMap(String, EvidenceParameter)).Some(ep_copy)
-    },
-    .None => Option(HashMap(String, EvidenceParameter)).None
-  );
+  // A copy of the map (a value since B9; `EvidenceParameter` is a value that
+  // derives `Clone`).
+  saved_evidence_params := context.current_evidence_params.clone();
   // Cross-boundary analysis (segment-locals become C locals).
   cbr := _block_cross_boundary(block, context);
   await_future_temp_var_aliases := cbr.await_future_temp_var_aliases.clone();
