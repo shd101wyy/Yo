@@ -4937,7 +4937,12 @@ _force_field_eval :: (fn(pf : &ImplPendingField, st : &ImplInFlight) -> unit)({
       }
     )
   );
-  _run_impl_field(pf, st, &mut st.ctx, inner_exn);
+  // The record's context is lent to the field's evaluation through a copy
+  // (the record itself is lent alongside it), and the copy's end state is
+  // written back, so the record keeps what the evaluation wrote.
+  force_ctx := copy_eval_context(&st.ctx);
+  _run_impl_field(pf, st, &mut force_ctx, inner_exn);
+  st.ctx = force_ctx;
   ()
 });
 /// env.yo's lookup-miss hook (plans/reference/LAZY_TOPLEVEL_BINDINGS.md P3): a method
