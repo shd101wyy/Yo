@@ -1,12 +1,13 @@
 { String } :: import("std/string");
 { println } :: import("std/fmt");
 
-Item :: ref(struct(name : String));
+Item :: struct(name : String);
+derive(Item, Clone);
 
 pass :: (fn(e : &Item) -> Item)({
   (k : usize) = usize(1);
   k;
-  e.*
+  e.clone()
 });
 
 main :: (fn() -> unit)({

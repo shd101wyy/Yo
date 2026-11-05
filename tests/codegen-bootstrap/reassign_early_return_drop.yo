@@ -20,12 +20,13 @@
 //
 // Observable: `Env`'s `Drop` counts the envs dropped against the ones main
 // makes. Pre-fix yo-self leaks both envs per call (20 live); fixed, 0.
+// Since V5 part B the envs are shared `Rc(Env)` handles, as the compiler's are.
 { assert } :: import("std/assert");
 { String } :: import("std/string");
 
 (mut(g_dropped) : i64) = i64(0);
 (mut(g_made) : i64) = i64(0);
-Env :: ref(struct(x : i32, cyc : Option(Self)));
+Env :: struct(x : i32, cyc : Option(Rc(Self)));
 impl(
   Env,
   Drop(
@@ -34,25 +35,25 @@ impl(
     })
   )
 );
-Res :: ref(struct(expected_env : Env, given_env : Env));
+Res :: struct(expected_env : Rc(Env), given_env : Rc(Env));
 
-name_of :: (fn(e : &Env) -> String)(`n${e.x}`);
+name_of :: (fn(e : &Rc(Env)) -> String)(`n${e.x}`);
 has_pair :: (fn(a : &String, b : &String) -> bool)(a.* == b.*);
 
 // Mirrors _synthesize_types_impl's shape: owning locals bound from params,
 // used in an early-return constructor, and REASSIGNED in a later arm.
-f :: (fn(expected_env : &Env, given_env : &Env, deep : bool) -> Res)({
+f :: (fn(expected_env : &Rc(Env), given_env : &Rc(Env), deep : bool) -> Res)({
   exp_id := name_of(expected_env);
-  (mut(ee) : Env) = expected_env.*;
-  (mut(ge) : Env) = given_env.*;
+  (mut(ee) : Rc(Env)) = Rc.clone(expected_env);
+  (mut(ge) : Rc(Env)) = Rc.clone(given_env);
   giv_id := name_of(given_env);
   if(has_pair(&exp_id, &giv_id), {
     return(Res(expected_env : ee, given_env : ge));
   });
   if(deep, {
     res := Res(expected_env : ge, given_env : ee);
-    ee = res.expected_env;
-    ge = res.given_env;
+    ee = Rc.clone(&res.expected_env);
+    ge = Rc.clone(&res.given_env);
   });
   Res(expected_env : ee, given_env : ge)
 });
@@ -60,8 +61,8 @@ f :: (fn(expected_env : &Env, given_env : &Env, deep : bool) -> Res)({
 main :: (fn() -> unit)({
   (mut(i) : i32) = i32(0);
   while(i < i32(10), {
-    e := Env(x : i, cyc : Option(Env).None);
-    e2 := Env(x : i, cyc : Option(Env).None);
+    e := Rc.new(Env(x : i, cyc : Option(Rc(Env)).None));
+    e2 := Rc.new(Env(x : i, cyc : Option(Rc(Env)).None));
     g_made = (g_made + i64(2));
     r := f(&e, &e2, false);
     i = (i + i32(1));

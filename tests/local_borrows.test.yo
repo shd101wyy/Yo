@@ -656,9 +656,9 @@ comptime_expect_error(
 // `if` desugars to a `cond`, the condition is the binding's last use, and
 // the arm body may write a field of the object the scrutinee lives in
 // (`issues/fixed/2026-10-19-borrow-liveness-rejects-the-match-switch-group-lowering.md`).
-GroupArm :: ref(struct(pattern : Option(usize), classic : bool));
+GroupArm :: struct(pattern : Option(usize), classic : bool);
 test("a match binding used only in an if condition ends at the condition", {
-  fa := GroupArm(pattern : .Some(usize(1)), classic : true);
+  mut(fa) := GroupArm(pattern : .Some(usize(1)), classic : true);
   match(
     &fa.pattern,
     .Some(fidx) => if(fidx.* == usize(1), {
@@ -671,9 +671,9 @@ test("a match binding used only in an if condition ends at the condition", {
 // The same shape with a bare-identifier condition: only the `cond`-arm flag
 // of `_lb_region_end` keeps `if(b, …)`'s condition a use (a binding-shaped
 // left side would otherwise read as a closure parameter list).
-GroupFlag :: ref(struct(flag : Option(bool), classic : bool));
+GroupFlag :: struct(flag : Option(bool), classic : bool);
 test("a match binding that is an if condition by itself ends at the condition", {
-  fa := GroupFlag(flag : .Some(true), classic : true);
+  mut(fa) := GroupFlag(flag : .Some(true), classic : true);
   match(
     &fa.flag,
     .Some(b) => if(b.*, {

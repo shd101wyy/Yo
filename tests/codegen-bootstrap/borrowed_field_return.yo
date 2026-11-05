@@ -15,31 +15,29 @@
 // Without the +1 the caller's scope drop stole the struct's own reference —
 // the class behind stage-2's function-body-eval UAF. See
 // issues/fixed/yo-self-dyn-throw-double-drop.md. Expected output: "2 3 done".
+// Since V5 part B the shared record is an `Rc(Krate)` and the +1 is the
+// explicit `Rc.clone`; the counts are the same.
 { println, print } :: import("std/fmt");
 import("std/string");
 
-Krate :: ref(
-  struct(
-    v : i32
-  )
+Krate :: struct(
+  v : i32
 );
 
-Pair :: ref(
-  struct(
-    inner : Krate
-  )
+Pair :: struct(
+  inner : Rc(Krate)
 );
 
-get_field :: (fn(p : &Pair) -> Krate)({
-  return(p.inner);
+get_field :: (fn(p : &Pair) -> Rc(Krate))({
+  return(Rc.clone(&p.inner));
 });
 
-get_field_tail :: (fn(p : &Pair) -> Krate)(
-  p.inner
+get_field_tail :: (fn(p : &Pair) -> Rc(Krate))(
+  Rc.clone(&p.inner)
 );
 
 main :: (fn() -> unit)({
-  p := Pair(inner : Krate(v : 8));
+  p := Pair(inner : Rc.new(Krate(v : 8)));
   f1 := get_field(&p);
   print(ref_count(p.inner));
   print(" ");

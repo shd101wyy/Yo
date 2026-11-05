@@ -8,18 +8,22 @@
 { println } :: import("std/fmt");
 { String } :: import("std/string");
 
-Env :: ref(struct(name : String));
-Info :: ref(struct(env : Env));
+// Since V5 part B the records are values with `Clone`: the arm result is the
+// explicit clone, and the same reads must stay balanced.
+Env :: struct(name : String);
+derive(Env, Clone);
+Info :: struct(env : Env);
+derive(Info, Clone);
 
 pick :: (fn(opt : &Option(Info), fallback : &Env) -> Env)({
-  e := match(opt, .Some(ci) => ci.env, .None => fallback.*);
+  e := match(opt, .Some(ci) => ci.env.clone(), .None => fallback.clone());
   e
 });
 
 main :: (fn() -> unit)({
   env := Env(name : String.from("alpha"));
-  info := Info(env : env);
-  o := Option(Info).Some(info);
+  info := Info(env : env.clone());
+  o := Option(Info).Some(info.clone());
   got := pick(&o, &env);
   println(&got.name);
   println(&info.env.name);

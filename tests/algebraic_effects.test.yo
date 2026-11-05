@@ -102,7 +102,7 @@ test("Test zero-arg unwind exits unit function", {
 // ((T*){0} for a ref result) with the flag DOWN and the raise site treated
 // NULL as the real result — SIGSEGV on first use of the unwound value.
 test("unwind argument built by a may-unwind call", {
-  ErrNode :: ref(enum(Leaf(name : String), Pair(a : String, b : String)));
+  ErrNode :: enum(Leaf(name : String), Pair(a : String, b : String));
   Raise2 :: (ctl(msg : &String) -> ErrNode);
   make_err_node :: (fn() -> ErrNode)(ErrNode.Leaf(name : String.from("__err__")));
   try_eval :: (fn(n : i32, raise : Raise2) -> ErrNode)(
@@ -144,7 +144,8 @@ test("unwind argument built by a may-unwind call", {
 // cannot tell, because a decrement on an already-freed object is silent
 // unless the allocator happens to trap.
 (mut(g_ue_disposed) : i32) = i32(0);
-UeArg :: ref(struct(tag : i32));
+// Each argument is a shared `Rc` handle: the keeper holds a clone.
+UeArg :: struct(tag : i32);
 impl(
   UeArg,
   Drop(
@@ -153,10 +154,10 @@ impl(
     })
   )
 );
-mk_ue :: (fn(n : i32) -> UeArg)(UeArg(tag : n));
-g_ue_keep := RefCell(ArrayList(UeArg)).new(ArrayList(UeArg).new());
+mk_ue :: (fn(n : i32) -> Rc(UeArg))(Rc.new(UeArg(tag : n)));
+g_ue_keep := RefCell(ArrayList(Rc(UeArg))).new(ArrayList(Rc(UeArg)).new());
 test("may-unwind call in a bare cond arm releases its argument temp exactly once", {
-  RaiseUe :: (ctl(arg : &UeArg) -> i32);
+  RaiseUe :: (ctl(arg : &Rc(UeArg)) -> i32);
   step :: (fn(n : i32, raise : RaiseUe) -> i32)(
     cond(
       ((n % i32(2)) == i32(0)) => raise(mk_ue(n)),
@@ -166,7 +167,7 @@ test("may-unwind call in a bare cond arm releases its argument temp exactly once
   run :: (fn(n : i32) -> i32)({
     (raise : RaiseUe) = (
       arg -> {
-        g_ue_keep.with_mut({ a : arg.* }(l) => l.push(a));
+        g_ue_keep.with_mut({ a : Rc.clone(arg) }(l) => l.push(a));
         unwind(arg.tag * i32(10))
       }
     );
@@ -194,9 +195,9 @@ test("may-unwind call in a bare cond arm releases its argument temp exactly once
 // switch drop was written inline and never recorded in the emitted-once set
 // (issues/fixed/escape-path-releases-option-temp-twice.md). The handler here
 // resumes for odd tags and unwinds for even ones, so both paths run.
-mk_ue_opt :: (fn(n : i32) -> Option(UeArg))(Option(UeArg).Some(UeArg(tag : n)));
+mk_ue_opt :: (fn(n : i32) -> Option(Rc(UeArg)))(Option(Rc(UeArg)).Some(Rc.new(UeArg(tag : n))));
 test("may-unwind call in an if condition releases an Option-typed argument temp exactly once", {
-  RaiseOpt :: (ctl(arg : &Option(UeArg)) -> bool);
+  RaiseOpt :: (ctl(arg : &Option(Rc(UeArg))) -> bool);
   step :: (fn(n : i32, raise : RaiseOpt) -> i32)({
     r := if(raise(mk_ue_opt(n)), n * i32(3), n);
     r
@@ -207,7 +208,7 @@ test("may-unwind call in an if condition releases an Option-typed argument temp 
         even := match(
           arg,
           .Some(a) => {
-            g_ue_keep.with_mut({ k : a.* }(l) => l.push(k));
+            g_ue_keep.with_mut({ k : Rc.clone(a) }(l) => l.push(k));
             (a.tag % i32(2)) == i32(0)
           },
           .None => false
@@ -2298,7 +2299,7 @@ test("a plain Exception handler cannot resume the throw with a value", {
 // caller-side `__yo_effect_escaped = 0; <call>; if (...)` protocol). The
 // frame then returned its dummy result as if it had returned normally.
 _EscGuard :: struct(n : i32);
-_EscRefGuard :: ref(struct(n : i32));
+_EscRefGuard :: struct(n : i32);
 (mut(g_esc_drops) : i32) = i32(0);
 _esc_count :: (fn(n : i32) -> i32)(n + i32(1));
 impl(
@@ -2336,7 +2337,7 @@ test("an unwind passes through a frame whose destructors make calls", {
     r
   });
   through_ref_guard :: (fn(n : i32, raise : Raise) -> i32)({
-    g := _EscRefGuard(n : n);
+    g := Rc.new(_EscRefGuard(n : n));
     r := cond(
       (n == i32(0)) => raise(String.from("boom")),
       true => (n + i32(1))
@@ -2594,7 +2595,7 @@ test("an unwind through a type-qualified method call is caught by the installing
 // by-value parameter before it, so an operand reading either read freed
 // memory (ASan: heap-use-after-free). The operand is now evaluated into a
 // temp first, and the parameter drops follow it.
-_UwR :: ref(struct(n : i32));
+_UwR :: struct(n : i32);
 _UwAsk :: (ctl(k : i32) -> _UwR);
 _uw_use_ask :: (fn(ask : _UwAsk) -> i32)({
   a := ask(i32(1));

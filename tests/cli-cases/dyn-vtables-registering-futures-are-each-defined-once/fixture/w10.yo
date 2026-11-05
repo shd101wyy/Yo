@@ -1,0 +1,169 @@
+// issues/fixed/a-type-walk-revisits-entries-after-a-rehash-and-emits-a-vtable-twice.md:
+// each vtable resolves its method's on-demand Future type while codegen walks
+// the type table, so these traits grow it under the walk. The trait count puts
+// a table resize inside that walk; walking the live map then revisited the
+// relocated entries and defined their vtables twice.
+{ println } :: import("std/fmt");
+{ Exception, IoExn } :: import("std/error");
+P0 :: struct(v : i32);
+T0 :: trait(get : (fn(self : &Self, io : Io) -> Impl(Future(P0, IoExn))));
+S0 :: struct(n : i32);
+impl(
+  S0,
+  T0(
+    get : (fn(self : &Self, io : Io) -> Impl(Future(P0, IoExn)))(
+      io.async({ n : self.n }(e : IoExn) => {
+        return(P0(v : n));
+      })
+    )
+  )
+);
+P1 :: struct(v : i32);
+T1 :: trait(get : (fn(self : &Self, io : Io) -> Impl(Future(P1, IoExn))));
+S1 :: struct(n : i32);
+impl(
+  S1,
+  T1(
+    get : (fn(self : &Self, io : Io) -> Impl(Future(P1, IoExn)))(
+      io.async({ n : self.n }(e : IoExn) => {
+        return(P1(v : n));
+      })
+    )
+  )
+);
+P2 :: struct(v : i32);
+T2 :: trait(get : (fn(self : &Self, io : Io) -> Impl(Future(P2, IoExn))));
+S2 :: struct(n : i32);
+impl(
+  S2,
+  T2(
+    get : (fn(self : &Self, io : Io) -> Impl(Future(P2, IoExn)))(
+      io.async({ n : self.n }(e : IoExn) => {
+        return(P2(v : n));
+      })
+    )
+  )
+);
+P3 :: struct(v : i32);
+T3 :: trait(get : (fn(self : &Self, io : Io) -> Impl(Future(P3, IoExn))));
+S3 :: struct(n : i32);
+impl(
+  S3,
+  T3(
+    get : (fn(self : &Self, io : Io) -> Impl(Future(P3, IoExn)))(
+      io.async({ n : self.n }(e : IoExn) => {
+        return(P3(v : n));
+      })
+    )
+  )
+);
+P4 :: struct(v : i32);
+T4 :: trait(get : (fn(self : &Self, io : Io) -> Impl(Future(P4, IoExn))));
+S4 :: struct(n : i32);
+impl(
+  S4,
+  T4(
+    get : (fn(self : &Self, io : Io) -> Impl(Future(P4, IoExn)))(
+      io.async({ n : self.n }(e : IoExn) => {
+        return(P4(v : n));
+      })
+    )
+  )
+);
+P5 :: struct(v : i32);
+T5 :: trait(get : (fn(self : &Self, io : Io) -> Impl(Future(P5, IoExn))));
+S5 :: struct(n : i32);
+impl(
+  S5,
+  T5(
+    get : (fn(self : &Self, io : Io) -> Impl(Future(P5, IoExn)))(
+      io.async({ n : self.n }(e : IoExn) => {
+        return(P5(v : n));
+      })
+    )
+  )
+);
+P6 :: struct(v : i32);
+T6 :: trait(get : (fn(self : &Self, io : Io) -> Impl(Future(P6, IoExn))));
+S6 :: struct(n : i32);
+impl(
+  S6,
+  T6(
+    get : (fn(self : &Self, io : Io) -> Impl(Future(P6, IoExn)))(
+      io.async({ n : self.n }(e : IoExn) => {
+        return(P6(v : n));
+      })
+    )
+  )
+);
+P7 :: struct(v : i32);
+T7 :: trait(get : (fn(self : &Self, io : Io) -> Impl(Future(P7, IoExn))));
+S7 :: struct(n : i32);
+impl(
+  S7,
+  T7(
+    get : (fn(self : &Self, io : Io) -> Impl(Future(P7, IoExn)))(
+      io.async({ n : self.n }(e : IoExn) => {
+        return(P7(v : n));
+      })
+    )
+  )
+);
+P8 :: struct(v : i32);
+T8 :: trait(get : (fn(self : &Self, io : Io) -> Impl(Future(P8, IoExn))));
+S8 :: struct(n : i32);
+impl(
+  S8,
+  T8(
+    get : (fn(self : &Self, io : Io) -> Impl(Future(P8, IoExn)))(
+      io.async({ n : self.n }(e : IoExn) => {
+        return(P8(v : n));
+      })
+    )
+  )
+);
+P9 :: struct(v : i32);
+T9 :: trait(get : (fn(self : &Self, io : Io) -> Impl(Future(P9, IoExn))));
+S9 :: struct(n : i32);
+impl(
+  S9,
+  T9(
+    get : (fn(self : &Self, io : Io) -> Impl(Future(P9, IoExn)))(
+      io.async({ n : self.n }(e : IoExn) => {
+        return(P9(v : n));
+      })
+    )
+  )
+);
+main :: (fn(io : Io) -> unit)({
+  exn := Exception(
+    throw : (
+      err -> {
+        unwind(());
+      }
+    )
+  );
+  (mut(total) : i32) = i32(0);
+  (d0 : Dyn(T0)) = dyn(S0(n : i32(0)));
+  total = (total + io.await(d0.get(io), IoExn(io : io, exn : exn)).v);
+  (d1 : Dyn(T1)) = dyn(S1(n : i32(1)));
+  total = (total + io.await(d1.get(io), IoExn(io : io, exn : exn)).v);
+  (d2 : Dyn(T2)) = dyn(S2(n : i32(2)));
+  total = (total + io.await(d2.get(io), IoExn(io : io, exn : exn)).v);
+  (d3 : Dyn(T3)) = dyn(S3(n : i32(3)));
+  total = (total + io.await(d3.get(io), IoExn(io : io, exn : exn)).v);
+  (d4 : Dyn(T4)) = dyn(S4(n : i32(4)));
+  total = (total + io.await(d4.get(io), IoExn(io : io, exn : exn)).v);
+  (d5 : Dyn(T5)) = dyn(S5(n : i32(5)));
+  total = (total + io.await(d5.get(io), IoExn(io : io, exn : exn)).v);
+  (d6 : Dyn(T6)) = dyn(S6(n : i32(6)));
+  total = (total + io.await(d6.get(io), IoExn(io : io, exn : exn)).v);
+  (d7 : Dyn(T7)) = dyn(S7(n : i32(7)));
+  total = (total + io.await(d7.get(io), IoExn(io : io, exn : exn)).v);
+  (d8 : Dyn(T8)) = dyn(S8(n : i32(8)));
+  total = (total + io.await(d8.get(io), IoExn(io : io, exn : exn)).v);
+  (d9 : Dyn(T9)) = dyn(S9(n : i32(9)));
+  total = (total + io.await(d9.get(io), IoExn(io : io, exn : exn)).v);
+  println(`total: ${total}`);
+});
+export(main);

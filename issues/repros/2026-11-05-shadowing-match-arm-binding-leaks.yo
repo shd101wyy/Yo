@@ -1,0 +1,35 @@
+// A `match` arm binding that shadows an enclosing local of the same name is
+// never dropped: its payload leaks. Expected output: "drops=11" twice. Develop
+// 68b45b81d prints "drops=1" for the shadowing arm (the payload, tag 10, leaks)
+// and "drops=11" for the same match with a distinct binding name
+// (issues/2026-11-05-a-match-arm-binding-that-shadows-a-local-is-never-dropped.md).
+{ println } :: import("std/fmt");
+(mut(g_drops) : i32) = i32(0);
+V :: struct(tag : i32);
+impl(
+  V,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_drops = (g_drops + self.tag);
+    })
+  )
+);
+find_v :: (fn() -> Option(V))(Option(V).Some(V(tag : i32(10))));
+main :: (fn() -> unit)({
+  {
+    parsed := V(tag : i32(1));
+    inner := match(find_v(), .Some(parsed) => parsed.tag, .None => i32(0));
+    println(`${parsed.tag}/${inner}`);
+  };
+  shadowing := g_drops;
+  println(`shadowing arm binding: drops=${shadowing}`);
+  g_drops = i32(0);
+  {
+    parsed := V(tag : i32(1));
+    inner := match(find_v(), .Some(other) => other.tag, .None => i32(0));
+    println(`${parsed.tag}/${inner}`);
+  };
+  distinct := g_drops;
+  println(`distinct names: drops=${distinct}`);
+});
+export(main);

@@ -159,18 +159,18 @@ test("a generic T bound through a caller that forwards the closure", {
   n := _forward_it(() => i32(11));
   assert(n == i32(11), "a value through the same caller");
 });
-// A droppable local makes the body materialize its tail into `__yo_scope_ret`
+// A droppable local (an `Rc` handle) makes the body materialize its tail into `__yo_scope_ret`
 // before the drops. At the future specialization that temporary took the
 // OTHER specialization's return type (`_ScopeLocal*` instead of the state
 // machine), a C type error.
 // issues/fixed/a-tail-return-temporary-takes-another-specializations-return-type.md
-_ScopeLocal :: ref(struct(n : i32));
+_ScopeLocal :: struct(n : i32);
 _call_with_local :: (fn(generic(T : Type), f : &Impl(Fn() -> T)) -> T)({
-  _held := _ScopeLocal(n : i32(1));
+  _held := Rc.new(_ScopeLocal(n : i32(1)));
   f()
 });
 test("a tail temporary keeps each specialization's own return type", {
-  p := _call_with_local(() => _ScopeLocal(n : i32(3)));
+  p := _call_with_local(() => Rc.new(_ScopeLocal(n : i32(3))));
   task := _call_with_local(() => io.async((io : Io) => i32(8)));
   assert((p.n + io.await(task, io)) == i32(11), "both specializations");
 });
@@ -178,7 +178,7 @@ test("a tail temporary keeps each specialization's own return type", {
 // the Future interface's on-demand forward declaration INSIDE the variant
 // union: "type name does not allow storage class to be specified".
 // issues/fixed/an-io-async-future-stored-in-an-enum-payload-emits-a-nested-typedef.md
-_FutureSlot :: (fn(comptime(T) : Type) -> comptime(Type))(ref(struct(r : Option(T))));
+_FutureSlot :: (fn(comptime(T) : Type) -> comptime(Type))(struct(r : Option(T)));
 _call_with_slot :: (fn(generic(T : Type), f : &Impl(Fn() -> T)) -> T)({
   _slot := _FutureSlot(T)(r : .None);
   f()

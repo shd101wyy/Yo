@@ -247,11 +247,12 @@ test("HashMap(K, unit) does not overflow its bucket array", {
 // SIZE_MAX. The counts below are what a `malloc(0)` + `realloc(p, 0)` path
 // would have failed on: glibc and the Windows CRT free `p` and return NULL, so
 // the SECOND growth (element 5) reported "allocation failed".
-_Counter :: ref(struct(n : i32));
-_bump :: (fn(c : &_Counter) -> unit)({
+_Counter :: struct(n : i32);
+_bump :: (fn(c : &mut _Counter) -> unit)({
   c.n = (c.n + i32(1));
 });
-_RefWithUnit :: ref(struct(a : i32, u : unit, s : String));
+// Held in an `Rc` cell below: the cell's payload layout with an erased unit.
+_CellWithUnit :: struct(a : i32, u : unit, s : String);
 // The tag-only enum shape in an ArrayList: on the MSVC ABI its C struct used
 // to be 8 bytes against a model of 4, so 64 elements overran a 256-byte block.
 test("an ArrayList of a unit-payload enum and of Option(unit) round-trips every element", {
@@ -335,10 +336,10 @@ test("a unit field is erased from the C layout but still reads, writes and compa
   // does; the `==`/`derive(Eq)` side is asserted by the unit-operand tests
   // below (issues/fixed/unit-operand-renders-empty-so-binop-reports-ftt.md).
   k4 := k.clone();
-  r := _RefWithUnit(a : i32(9), u : (), s : String.from("nine"));
+  r := Rc.new(_CellWithUnit(a : i32(9), u : (), s : String.from("nine")));
   k2 := r.u;
-  assert(r.a == i32(9), "ref struct: the field after an erased unit is intact");
-  assert(r.s == "nine", "ref struct: the RC field after an erased unit is intact");
+  assert(r.a == i32(9), "Rc cell: the field after an erased unit is intact");
+  assert(r.s == "nine", "Rc cell: the RC field after an erased unit is intact");
   (t : _UnitTuple) = (i32(3), ());
   k3 := t.1;
   assert(t.0 == i32(3), "tuple: the element before an erased unit is intact");
@@ -349,10 +350,10 @@ test("a unit field is erased from the C layout but still reads, writes and compa
   assert(m.get(String.from("a")).is_some(), "HashMap(K, unit) lookup");
 });
 test("a unit-typed constructor argument still runs for its side effects", {
-  c := _Counter(n : i32(0));
-  v := _UnitLast(a : i32(1), u : _bump(&c));
-  r := _RefWithUnit(a : i32(2), u : _bump(&c), s : String.from("s"));
-  (t : _UnitTuple) = (i32(3), _bump(&c));
+  mut(c) := _Counter(n : i32(0));
+  v := _UnitLast(a : i32(1), u : _bump(&mut c));
+  r := Rc.new(_CellWithUnit(a : i32(2), u : _bump(&mut c), s : String.from("s")));
+  (t : _UnitTuple) = (i32(3), _bump(&mut c));
   assert(c.n == i32(3), `each erased unit argument ran once (got ${c.n})`);
   assert((v.a + r.a + t.0) == i32(6), "the non-unit fields are intact");
 });

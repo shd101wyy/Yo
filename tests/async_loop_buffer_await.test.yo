@@ -42,16 +42,25 @@ Reader :: trait(
         })
     )
 );
-TenSrc :: ref(struct(pos : u8));
+// The readers' futures copy their `self` (the trait default and `Wrap`'s
+// methods capture it implicitly), so `TenSrc` is a `Copy` record and the
+// position it advances is module-level; `_ten_src()` rewinds it.
+(mut(g_ten_pos) : u8) = u8(0);
+TenSrc :: struct();
+derive(TenSrc, Copy, Clone);
+_ten_src :: (fn() -> TenSrc)({
+  g_ten_pos = u8(0);
+  TenSrc()
+});
 impl(
   TenSrc,
   Reader(
     read : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
       io.async(e => {
         (mut(n) : usize) = usize(0);
-        while((n < size) && (self.pos < u8(10)), {
-          self.pos = (self.pos + u8(1));
-          (buf.add(n)).* = self.pos;
+        while((n < size) && (g_ten_pos < u8(10)), {
+          g_ten_pos = (g_ten_pos + u8(1));
+          (buf.add(n)).* = g_ten_pos;
           n = (n + usize(1));
         });
         n
@@ -143,7 +152,7 @@ test("generic-impl single buffer-taking await (the shadow-registration face)", {
     )
   );
   t_e := IoExn(io : io, exn : t_exn);
-  w := Wrap(TenSrc)(_inner : TenSrc(pos : u8(0)));
+  w := Wrap(TenSrc)(_inner : _ten_src());
   n := io.await(w.fill_once(io), t_e);
   assert(n == usize(8), "eight bytes on the first fill");
 });
@@ -157,7 +166,7 @@ test("generic-impl loop over a buffer-taking await (the BufReader shape)", {
     )
   );
   t_e := IoExn(io : io, exn : t_exn);
-  w := Wrap(TenSrc)(_inner : TenSrc(pos : u8(0)));
+  w := Wrap(TenSrc)(_inner : _ten_src());
   all := io.await(w.drain(io), t_e);
   assert(all.len() == usize(10), "ten bytes drained");
   assert(all(usize(0)) == u8(1), "first byte");
@@ -173,7 +182,7 @@ test("trait-default read_to_end loops a buffer-taking await", {
     )
   );
   t_e := IoExn(io : io, exn : t_exn);
-  src := TenSrc(pos : u8(0));
+  src := _ten_src();
   all := io.await(src.read_to_end(io), t_e);
   assert(all.len() == usize(10), "ten bytes total");
   assert(all(usize(0)) == u8(1), "first byte");
@@ -189,7 +198,7 @@ test("free generic read_to_end loops a buffer-taking await", {
     )
   );
   t_e := IoExn(io : io, exn : t_exn);
-  src := TenSrc(pos : u8(0));
+  src := _ten_src();
   all := io.await(read_to_end_free(&src, io), t_e);
   assert(all.len() == usize(10), "ten bytes total");
   assert(all(usize(4)) == u8(5), "middle byte");
@@ -203,7 +212,7 @@ test("free generic read_to_end loops a buffer-taking await", {
 // entry's name this way). The Drop count pins "every pushed value is
 // released exactly once when the list dies".
 (mut(g_sm_arg_disposed) : i32) = i32(0);
-SmArgProbe :: ref(struct(n : i32));
+SmArgProbe :: struct(n : i32);
 impl(
   SmArgProbe,
   Drop(

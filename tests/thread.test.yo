@@ -184,7 +184,9 @@ test("std/log configuration and filtering are safe from several threads at once"
 // which is a different bug and would be the thing this test measured.
 // ---------------------------------------------------------------------------
 _spawn_dispose_count := AtomicUsize.new(usize(0));
-_Tracked :: atomic(ref(struct(tag : i32)));
+// The tracked payload is shared across the thread boundary through an `Arc`;
+// its `Drop` counts the payload's one disposal.
+_Tracked :: struct(tag : i32);
 impl(
   _Tracked,
   Drop(
@@ -201,7 +203,7 @@ test("Thread spawn releases its closure's captures", {
     // struct holds the reference. When the thread finishes, the wrapper must
     // release it — and since the capture is a move (the heap copy inherits
     // the call-site struct's references), that release is the last one.
-    tracked := _Tracked(tag : i32(7));
+    tracked := Arc.new(_Tracked(tag : i32(7)));
     t := Thread(unit).spawn(io => {
       assert(tracked.tag == i32(7), "the capture arrived on the thread");
       ()
@@ -230,9 +232,9 @@ test("Thread spawn's captured local is still owned by the caller", {
   // issues/fixed/spawn-closure-captures-never-dropped-leak.md
   _spawn_dispose_count.store(usize(0), MemoryOrder.Release);
   {
-    tracked := _Tracked(tag : i32(9));
-    t := Thread(unit).spawn(io => {
-      _x := tracked.tag;
+    tracked := Arc.new(_Tracked(tag : i32(9)));
+    t := Thread(unit).spawn({ held : Arc.clone(&tracked) }(io) => {
+      _x := held.tag;
       ()
     });
     t.join();
@@ -254,7 +256,7 @@ test("Thread spawn releases captures on every iteration of a loop", {
   _spawn_dispose_count.store(usize(0), MemoryOrder.Release);
   (mut(i) : i32) = i32(0);
   while(i < i32(16), i = (i + i32(1)), {
-    tracked := _Tracked(tag : i);
+    tracked := Arc.new(_Tracked(tag : i));
     t := Thread(unit).spawn(io => {
       _x := tracked.tag;
       ()

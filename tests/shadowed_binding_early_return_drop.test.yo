@@ -15,7 +15,7 @@ import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
 { Exception } :: import("std/error");
 
-Holder :: ref(struct(v : String));
+Holder :: struct(v : String);
 
 // Early return inside a match arm whose binding shadows a later local.
 take_early :: (fn(o : &Option(Holder), flag : bool) -> i32)({
@@ -100,7 +100,7 @@ take_nested :: (
 // the scope end then received an early-return-only drop of `items` — freeing
 // the buffer `w` still owns (this was the residual dispatch-on SIGTRAP:
 // ct_arg_entries moved into ArgValues in yo-self's evaluate_function_call).
-Sack :: ref(struct(items : ArrayList(Holder)));
+Sack :: struct(items : ArrayList(Holder));
 
 take_after_move :: (fn(o : Option(i32)) -> i32)({
   mut(items) := ArrayList(Holder).new();
@@ -152,7 +152,7 @@ test("early return crossing two shadowing arm scopes", {
 // per early exit. The normal path and the never-assigned value are the
 // over-release canaries.
 (mut(g_sv_dropped) : i32) = i32(0);
-_SvTok :: ref(struct(n : i32));
+_SvTok :: struct(n : i32);
 impl(
   _SvTok,
   Drop(
@@ -161,7 +161,7 @@ impl(
     })
   )
 );
-_SvHolder :: ref(struct(tok : Option(_SvTok)));
+_SvHolder :: struct(tok : Option(_SvTok));
 _sv_reassign_then_return :: (fn(early : bool) -> i32)({
   mut(t) := _SvTok(n : i32(1));
   t = _SvTok(n : i32(2));
@@ -170,7 +170,7 @@ _sv_reassign_then_return :: (fn(early : bool) -> i32)({
   });
   t.n + i32(10)
 });
-_sv_field_store_then_return :: (fn(h : _SvHolder, early : bool) -> i32)({
+_sv_field_store_then_return :: (fn(h : &mut _SvHolder, early : bool) -> i32)({
   h.tok = Option(_SvTok).Some(_SvTok(n : i32(3)));
   if(early, {
     return(i32(1));
@@ -186,10 +186,10 @@ test("an early return after an assignment releases the overwritten value once", 
 });
 test("an early return after a field store releases the field's old value once", {
   before := g_sv_dropped;
-  h := _SvHolder(tok : Option(_SvTok).Some(_SvTok(n : i32(0))));
-  assert(_sv_field_store_then_return(h, true) == i32(1), "early path value");
+  mut(h) := _SvHolder(tok : Option(_SvTok).Some(_SvTok(n : i32(0))));
+  assert(_sv_field_store_then_return(&mut h, true) == i32(1), "early path value");
   assert(g_sv_dropped == (before + i32(1)), "the field's old value is released on the early exit");
-  assert(_sv_field_store_then_return(h, false) == i32(2), "normal path value");
+  assert(_sv_field_store_then_return(&mut h, false) == i32(2), "normal path value");
   assert(g_sv_dropped == (before + i32(2)), "and once on the normal path");
   assert(match(&h.tok, .Some(t) => (t.n == i32(3)), .None => false), "the stored value is still alive");
 });

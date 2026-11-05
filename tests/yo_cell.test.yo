@@ -198,14 +198,12 @@ test("the payload moves out of the only handle (V5's try_unwrap)", {
   assert(payload.p == addr_of(drops), "the payload moved out");
   assert(drops == usize(0), "the cell no longer drops it");
 });
-// A cell is a cycle-collector node when its payload can reach a cell
-// (plans/VALUES_BY_DEFAULT.md §3.5): a node that points back at itself
-// through a cell compiles with its traversal and is released.
-_CellNode :: ref(
-  struct(
-    value : i32,
-    next : Option(__yo_cell(Self))
-  )
+// A payload that can reach a cell of its own type (plans/VALUES_BY_DEFAULT.md
+// §3.5): a node that points back at its type through a cell compiles and is
+// released.
+_CellNode :: struct(
+  value : i32,
+  next : Option(__yo_cell(Self))
 );
 test("a cell of a cyclic payload type", {
   n := _CellNode(value : i32(1), next : .None);

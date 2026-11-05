@@ -8,11 +8,13 @@
 // freed the element's String fields while the list still referenced them —
 // the root cause of the stage-2 parser divergence (token values read as
 // empty/garbage after 12 reads; issues/fixed/yo-self-stage2-parser-divergence.md).
-Item :: ref(
-  struct(
-    name : String
-  )
+//
+// Since V5 part B `Item` is a value with `Clone`, and `get_cloned` is the
+// reader that copies the element out: the same balance, as a clone.
+Item :: struct(
+  name : String
 );
+derive(Item, Clone);
 
 main :: (fn() -> unit)({
   mut(items) := ArrayList(Item).new();
@@ -21,14 +23,14 @@ main :: (fn() -> unit)({
   mut(i) := usize(0);
   while(i < usize(6), {
     match(
-      items.get(usize(0)),
+      items.get_cloned(usize(0)),
       .Some(it) => {
         println(&it.name);
       },
       .None => ()
     );
     match(
-      items.get(usize(1)),
+      items.get_cloned(usize(1)),
       .Some(it) => {
         println(&it.name);
       },

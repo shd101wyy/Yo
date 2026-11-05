@@ -13,11 +13,11 @@
 { println } :: import("std/fmt");
 { String } :: import("std/string");
 { Exception } :: import("std/error");
-// A ref struct counted when made and when dropped: an over-drop of the old
-// value would drop it twice.
+// A shared node counted when made and when dropped: an over-drop of the old
+// value would drop it twice. Since V5 part B the handle is an `Rc(Node)`.
 (mut(g_dropped) : i64) = i64(0);
 (mut(g_made) : i64) = i64(0);
-Node :: ref(struct(v : i32, next : Option(Self)));
+Node :: struct(v : i32, next : Option(Rc(Self)));
 impl(
   Node,
   Drop(
@@ -26,16 +26,16 @@ impl(
     })
   )
 );
-make_node :: (fn(v : i32) -> Node)({
+make_node :: (fn(v : i32) -> Rc(Node))({
   g_made = (g_made + i64(1));
-  Node(v : v, next : .None)
+  Rc.new(Node(v : v, next : .None))
 });
 // Throws before producing a value — the caller's reassignment never
 // completes, so the old value must be dropped exactly once (the local's
 // scope drop), not also via the save temp.
-replace_or_throw :: (fn(old : &Node, exn : Exception) -> Node)({
+replace_or_throw :: (fn(old : &Rc(Node), exn : Exception) -> Rc(Node))({
   exn.throw(dyn(String.from("no replacement available")));
-  old.*
+  Rc.clone(old)
 });
 run_once :: (fn(i : i32) -> unit)({
   exn := Exception(
@@ -45,7 +45,7 @@ run_once :: (fn(i : i32) -> unit)({
       }
     )
   );
-  (mut(cur) : Node) = make_node(i);
+  (mut(cur) : Rc(Node)) = make_node(i);
   cur = replace_or_throw(&cur, exn);
   cur;
 });

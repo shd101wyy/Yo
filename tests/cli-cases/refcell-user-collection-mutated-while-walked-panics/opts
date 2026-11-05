@@ -1,0 +1,8 @@
+# A value user collection behind `Rc(RefCell(...))`, mutated through a second
+# `Rc` handle while a `with` body walks it, panics with the RefCell message:
+# the value-shape counterpart of the `ref` collection's run-time borrow flag
+# (tests/cli-cases/inout-self-method-under-borrow-panics, kept for the v0.2.77
+# parser PR). The panic line ends in a machine-specific `(at file:///...)`, so
+# only the diagnostic substring is kept.
+stdout_keep_match=walking 1|RefCell\.with_mut: the value is already borrowed \(a with, with_mut or replace_with body is running\)
+timeout=300

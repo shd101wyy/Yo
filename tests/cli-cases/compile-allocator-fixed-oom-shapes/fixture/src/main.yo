@@ -21,11 +21,9 @@
 
 /// Keeps every spawned thread's handle alive, so the handles accumulate in the
 /// heap instead of being joined and freed.
-ThreadChain :: ref(
-  struct(
-    t : Thread(unit),
-    next : Option(Self)
-  )
+ThreadChain :: struct(
+  t : Thread(unit),
+  next : Option(Box(Self))
 );
 _child_task :: (fn(io : Io) -> unit)({
   // A spawned task runs eagerly until it first suspends, so each one parks on
@@ -45,10 +43,10 @@ _child_task :: (fn(io : Io) -> unit)({
   });
 });
 _child_thread :: (fn() -> unit)({
-  (mut(head) : Option(ThreadChain)) = Option(ThreadChain).None;
+  (mut(head) : Option(Box(ThreadChain))) = Option(Box(ThreadChain)).None;
   (mut(i) : usize) = usize(0);
   while(i < usize(65536), {
-    head = Option(ThreadChain).Some(ThreadChain(t : Thread(unit).spawn(io => ()), next : head));
+    head = Option(Box(ThreadChain)).Some(Box.new(ThreadChain(t : Thread(unit).spawn(io => ()), next : head)));
     i = (i + usize(1));
   });
 });

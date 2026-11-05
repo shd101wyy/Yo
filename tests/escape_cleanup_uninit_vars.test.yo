@@ -14,7 +14,7 @@
 //    )
 //    The `break` inside the .Some arm must NOT try to drop `X`
 //    which is declared after the break in source order.
-ParseError :: ref(struct(message : String));
+ParseError :: struct(message : String);
 impl(
   ParseError,
   ToString(
@@ -28,8 +28,8 @@ impl(
     clone : (fn(self : &Self) -> Self)(ParseError(message : self.message.clone()))
   )
 );
-Token :: ref(struct(name : String));
-ParseResult :: ref(struct(label : String, index : usize));
+Token :: struct(name : String);
+ParseResult :: struct(label : String, index : usize);
 get_opt_token :: (fn(present : bool) -> Option(Token))(
   cond(present => .Some(Token(name : `tok`)), true => .None)
 );

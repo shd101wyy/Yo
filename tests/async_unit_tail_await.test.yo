@@ -23,13 +23,17 @@ Sink :: trait(
         })
     )
 );
-Tally :: ref(struct(count : u8));
+// The default's future copies its `self`, so `Tally` is a `Copy` record and
+// the count it adds to is module-level.
+(mut(g_tally_count) : u8) = u8(0);
+Tally :: struct();
+derive(Tally, Copy, Clone);
 impl(
   Tally,
   Sink(
     put : (fn(self : &Self, v : u8, io : Io) -> Impl(Future(usize, IoExn)))(
       io.async(e => {
-        self.count = (self.count + v);
+        g_tally_count = (g_tally_count + v);
         usize(1)
       })
     )
@@ -65,10 +69,11 @@ test("generic tail await of a unit trait default compiles and runs", {
     )
   );
   t_e := IoExn(io : io, exn : t_exn);
-  t := Tally(count : u8(0));
+  g_tally_count = u8(0);
+  t := Tally();
   io.await(put_all_generic(&t, u8(5), io), t_e);
   io.await(put_all_generic(&t, u8(7), io), t_e);
-  assert(t.count == u8(12), "both puts landed");
+  assert(g_tally_count == u8(12), "both puts landed");
 });
 test("concrete unit tail await control still works", {
   t_exn := Exception(

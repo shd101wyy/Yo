@@ -13,6 +13,7 @@ pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
 { temp_dir, path_join } :: import("./helper");
 { ArrayList } :: import("std/collections/array_list");
+{ RefCell } :: import("std/sync/refcell");
 { IoExn, Exception } :: import("std/error");
 { Reader, Writer } :: import("std/io");
 { File, OpenMode } :: import("std/fs/file");
@@ -31,19 +32,20 @@ write_once_params :: (
 )(io.async({ w : &w.*, buf, size, io }(e : IoExn) => e.io.await(w.write(buf, size, io), e)));
 // The same shape with NO capture list, which is the path the fix repaired:
 // the generic parameters are captured implicitly. A `File`'s future borrows
-// the file, so it needs the list above; a `ref` reader's `read` owns what it
-// uses (`self` is a shared handle), so its future borrows nothing and `r`,
-// `buf`, `size` and `io` are captured by value.
-MemSrc :: ref(struct(data : ArrayList(u8), pos : usize));
+// the file, so it needs the list above; a reader passed BY VALUE (`r : R`)
+// is owned by the future, so `r`, `buf`, `size` and `io` are captured by
+// value. `read` lends its receiver, so the position it writes is a `RefCell`.
+MemSrc :: struct(data : ArrayList(u8), pos : RefCell(usize));
 impl(
   MemSrc,
   Reader(
     read : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
-      io.async(e => {
+      io.async({ src : &self.*, buf, size }(e : IoExn) => {
         mut(n) := usize(0);
-        while((n < size) && (self.pos < self.data.len()), {
-          consume((buf.add(n)).* = self.data(self.pos));
-          self.pos = (self.pos + usize(1));
+        while((n < size) && (src.pos.with(p => p.*) < src.data.len()), {
+          at := src.pos.with(p => p.*);
+          consume((buf.add(n)).* = src.data(at));
+          src.pos.replace(at + usize(1));
           n = (n + usize(1));
         });
         n
@@ -132,7 +134,7 @@ test("generic fn async closure captures the enclosing params implicitly", {
   data.push(u8(0x61));
   data.push(u8(0x62));
   data.push(u8(0x63));
-  src := MemSrc(data : data, pos : usize(0));
+  src := MemSrc(data : data, pos : RefCell(usize).new(usize(0)));
   mut(buf) := ArrayList(u8).with_capacity(usize(8));
   (mut(bi) : usize) = usize(0);
   while(bi < usize(8), bi = (bi + usize(1)), {

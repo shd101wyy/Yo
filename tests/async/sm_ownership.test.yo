@@ -17,9 +17,13 @@ pragma(Pragma.AllowUnsafe);
 { ToString } :: import("std/fmt");
 
 (mut(g_disposed) : i32) = i32(0);
-Thing :: ref(struct(n : i32));
+// A `Thing` is a shared handle (`Rc`): the cases count releases of one
+// payload reached through several names, captures and task slots.
+_ThingVal :: struct(n : i32);
+Thing :: Rc(_ThingVal);
+_thing :: (fn(n : i32) -> Thing)(Rc.new(_ThingVal(n : n)));
 impl(
-  Thing,
+  _ThingVal,
   Drop(
     drop : (fn(self : &mut Self) -> unit)({
       g_disposed = (g_disposed + i32(1));
@@ -38,7 +42,7 @@ _leaf :: (fn(v : i32, io : Io) -> Impl(Future(i32, Io)))(
 // A future is awaited once and moved into the await (§3.13 A1), so a future
 // held in a field cannot be awaited through a borrow of its holder: that
 // would move it out of the field (Yo has no partial moves).
-Holder :: ref(struct(fut : IoFuture));
+Holder :: struct(fut : IoFuture);
 test("awaiting a field-held future through a borrow is E0901", {
   comptime_expect_error(
     (fn(h : &Holder, io : Io) -> i32)(io.await(h.fut, io)),
@@ -71,7 +75,7 @@ test("awaiting an already-running future from a state machine releases it", {
   {
     f := io.async((io : Io) => {
       io.await(sleep(u64(5)), io);
-      Thing(n : i32(7))
+      _thing(i32(7))
     });
     hf := io.spawn(f, io);
     a := io.async({ hf }(io : Io) => match(io.await(hf.join(io), io), .Some(v) => v.n, .None => i32(-1)));
@@ -87,8 +91,8 @@ test("an aborted task drops its Option and value-struct locals", {
   before := g_disposed;
   {
     task := io.async((io : Io) => {
-      o := Option(Thing).Some(Thing(n : i32(1)));
-      p := Pair(t : Thing(n : i32(2)), label : String.from("pair"));
+      o := Option(Thing).Some(_thing(i32(1)));
+      p := Pair(t : _thing(i32(2)), label : String.from("pair"));
       s := `held ${i32(3)}`;
       io.await(yield(io), io);
       match(o, .Some(q) => q.n, .None => i32(0)) + p.t.n + i32(s.len())
@@ -113,7 +117,7 @@ test("a nested io.async capturing a state machine's String retains it", {
   before := g_disposed;
   outer := io.async((io : Io) => {
     s := String.from("abcdef");
-    t := Thing(n : i32(3));
+    t := _thing(i32(3));
     io.await(yield(io), io);
     // The inner future owns its own String (a value since B8) and the Thing.
     s2 := s.clone();
@@ -135,14 +139,14 @@ test("a nested io.async capturing a state machine's String retains it", {
 _mk_thing :: (fn(n : i32, io : Io) -> Impl(Future(Thing, Io)))(
   io.async((io2 : Io) => {
     io2.await(yield(io2), io2);
-    Thing(n : n)
+    _thing(n)
   })
 );
 test("reassigning a heap local from an await releases the old value", {
   before := g_disposed;
   {
     task := io.async((io : Io) => {
-      mut(t) := Thing(n : i32(1));
+      mut(t) := _thing(i32(1));
       t = io.await(_mk_thing(i32(2), io), io);
       t = io.await(_mk_thing(i32(3), io), io);
       t.n
@@ -229,12 +233,16 @@ test("two io.async closures that update a module global", {
   assert(g_counter == i32(3), "both tasks ran on the loop's own thread");
 });
 
-// issues/fixed/async-abort-dispose-double-drops-moved-enum-payload.md (the binding pair)
+// issues/fixed/async-abort-dispose-double-drops-moved-enum-payload.md (the binding pair).
+// The scrutinee stays a `ref` object for now: with a value payload (`Thing`,
+// an `Rc`) the aborted task leaks the binding instead
+// (issues/2026-11-05-an-aborted-task-leaks-a-value-moved-into-a-match-binding-across-an-await.md);
+// its fix switches this case to `Option(Thing)`.
 test("an aborted task drops a pattern binding's scrutinee once", {
   before := g_disposed;
   {
     task := io.async((io : Io) => {
-      o := Option(Thing).Some(Thing(n : i32(5)));
+      o := Option(_RefThing).Some(_RefThing(n : i32(5)));
       match(
         o,
         .Some(q) => {
@@ -262,11 +270,11 @@ test("an aborted task drops a pattern binding's scrutinee once", {
 _reassign_in_arm_after_loop_await :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
     (mut(i) : i32) = i32(0);
-    (mut(last) : Thing) = Thing(n : i32(0));
+    (mut(last) : Thing) = _thing(i32(0));
     while(i < i32(10), {
       e.await(_leaf(i, e), e);
       if(i == n, {
-        last = Thing(n : i32(1));
+        last = _thing(i32(1));
         i = i32(100);
       }, {
         i = (i + i32(1));
@@ -289,7 +297,7 @@ _keep_thing :: (fn(sink(t) : Thing) -> unit)({
 });
 _move_then_sleep :: (fn(io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    t := Thing(n : i32(7));
+    t := _thing(i32(7));
     _keep_thing(t);
     e.await(sleep(u64(50)), e);
     i32(1)
@@ -310,7 +318,7 @@ _bare_block_then_await :: (fn(io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
     (mut(seen) : i32) = i32(-1);
     {
-      a := Thing(n : i32(1));
+      a := _thing(i32(1));
       e.await(yield(e), e);
       seen = a.n;
     };
@@ -332,12 +340,12 @@ _sibling_scope_things :: (fn(nap : u64, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
     (mut(sum) : i32) = i32(0);
     {
-      a := Thing(n : i32(1));
+      a := _thing(i32(1));
       e.await(yield(e), e);
       sum = (sum + a.n);
     };
     {
-      b := Thing(n : i32(2));
+      b := _thing(i32(2));
       e.await(sleep(nap), e);
       sum = (sum + b.n);
     };
@@ -370,13 +378,25 @@ test("aborting a task in the second of two sibling scopes that share a slot", {
 // state machine the pin lives in a task slot, released once at the end of its
 // scope or by the abort dispose. The binding itself ends before the await (a
 // borrow through a reference cell may not be live across one, decision 18
-// rule 4), but its pin holds the first object to the end of the scope.
+// rule 4), but its pin holds the first object to the end of the scope. Pins
+// exist only for `ref` objects, and so does the implicit-copy alias below
+// (`_AliasW`): `_RefThing` stays `ref` for the v0.2.77 parser PR. (It also
+// carries the aborted-binding case above until its leak is fixed.)
+_RefThing :: ref(struct(n : i32));
+impl(
+  _RefThing,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_disposed = (g_disposed + i32(1));
+    })
+  )
+);
 _pin_across_await :: (fn(nap : u64, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    mut(o) := Thing(n : i32(1));
+    mut(o) := _RefThing(n : i32(1));
     r := &mut o.n;
     r.* = (r.* + i32(1));
-    o = Thing(n : i32(5));
+    o = _RefThing(n : i32(5));
     e.await(sleep(nap), e);
     o.n + i32(2)
   })
@@ -399,15 +419,15 @@ test("a pinned object is released once when the task is aborted", {
   assert(g_disposed == i32(2), "the abort disposes the pin and the handle's object once each");
 });
 // issues/fixed/a-local-copied-from-a-captured-value-in-an-io-async-body-does-not-compile.md
-_alias_sleeper :: (fn(t : &Thing, io : Io) -> Impl(Future(i32, Io)))(
+_alias_sleeper :: (fn(sink(t) : Thing, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    s := t.*;
+    s := Rc.clone(&t);
     e.await(sleep(u64(50)), e);
     s.n
   })
 );
 _abort_alias :: (fn(io : Io) -> unit)({
-  h := io.spawn(_alias_sleeper(Thing(n : i32(1)), io), io);
+  h := io.spawn(_alias_sleeper(_thing(i32(1)), io), io);
   io.await(sleep(u64(10)), io);
   h.abort();
   _r := h.await(io);
@@ -418,12 +438,12 @@ test("an aborted task does not release a local copied from its capture", {
   assert(g_disposed == i32(1), "the capture releases it once; the copy owns nothing");
 });
 // issues/fixed/a-cancelled-dup-drop-pair-zeroes-a-state-machine-slot-still-read.md
-ThingHolder :: ref(struct(t : Thing, n : i32));
+ThingHolder :: struct(t : Thing, n : i32);
 _store_then_read :: (fn(io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    t := Thing(n : i32(3));
+    t := _thing(i32(3));
     e.await(yield(e), e);
-    h := ThingHolder(t : t, n : t.n);
+    h := ThingHolder(t : Rc.clone(&t), n : t.n);
     e.await(yield(e), e);
     h.n + t.n
   })
@@ -436,9 +456,9 @@ test("a local stored in a field stays readable across the next await", {
 });
 _store_then_sleep :: (fn(io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    t := Thing(n : i32(3));
+    t := _thing(i32(3));
     e.await(yield(e), e);
-    h := ThingHolder(t : t, n : t.n);
+    h := ThingHolder(t : Rc.clone(&t), n : t.n);
     e.await(sleep(u64(50)), e);
     h.n + t.n
   })
@@ -460,35 +480,35 @@ test("aborting a task after it stored a local in a field releases the local once
 // (issues/fixed/async-abort-dispose-double-drops-moved-enum-payload.md, the
 // move-out pair). `keep` shares the payload's Thing: exactly one release
 // leaves its count at 1, a double drop takes it to 0, a leak leaves it at 2.
-Oops :: ref(struct(thing : Thing));
+Oops :: struct(thing : Thing);
 impl(Oops, ToString(to_string : (self -> String.from("oops"))));
 impl(Oops, Error());
 impl(
   Oops,
   Clone(
-    clone : (fn(self : &Self) -> Self)(Oops(thing : self.thing))
+    clone : (fn(self : &Self) -> Self)(Oops(thing : Rc.clone(&self.thing)))
   )
 );
-_classify :: (fn(t : &Thing) -> Result(i32, Oops))(Result(i32, Oops).Err(Oops(thing : t.*)));
-_move_into_throw :: (fn(t : &Thing, io : Io) -> Impl(Future(i32, IoExn)))(
+_classify :: (fn(t : &Thing) -> Result(i32, Oops))(Result(i32, Oops).Err(Oops(thing : Rc.clone(t))));
+_move_into_throw :: (fn(sink(t) : Thing, io : Io) -> Impl(Future(i32, IoExn)))(
   io.async((e : IoExn) => {
     e.io.await(yield(e.io), e.io);
     match(
-      _classify(t),
+      _classify(&t),
       .Err(o) => e.exn.throw(dyn(o)),
       .Ok(v) => v
     )
   })
 );
-_throw_moved :: (fn(t : &Thing, io : Io) -> bool)({
+_throw_moved :: (fn(sink(t) : Thing, io : Io) -> bool)({
   exn := Exception(throw : (_err -> unwind(true)));
   _v := io.await(_move_into_throw(t, io), IoExn(io : io, exn : exn));
   false
 });
 test("an arm that moves its payload into a thrown dyn: the aborted task releases it once", {
   g_disposed = i32(0);
-  keep := Thing(n : i32(7));
-  assert(_throw_moved(&keep, io), "the throw unwinds to the handler");
+  keep := _thing(i32(7));
+  assert(_throw_moved(Rc.clone(&keep), io), "the throw unwinds to the handler");
   assert(ref_count(keep) == 1, "the thrown payload and the task's scrutinee released it once between them");
   assert(g_disposed == i32(0), "keep is still alive");
 });
@@ -498,7 +518,7 @@ _break_slot_local :: (fn(io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
     (mut(k) : i32) = i32(0);
     while(true, {
-      t := Thing(n : k);
+      t := _thing(k);
       e.await(yield(e), e);
       k = (t.n + i32(1));
       cond(
@@ -523,7 +543,7 @@ _continue_slot_local :: (fn(io : Io) -> Impl(Future(i32, Io)))(
     (mut(sum) : i32) = i32(0);
     while(k < i32(6), {
       k = (k + i32(1));
-      t := Thing(n : k);
+      t := _thing(k);
       e.await(yield(e), e);
       cond(
         ((t.n % i32(2)) == i32(0)) => {
@@ -543,7 +563,7 @@ test("a continue in an awaiting while releases the iteration's slot local", {
   assert((g_disposed - before) == i32(6), `each iteration's Thing was released once, released ${g_disposed - before}`);
 });
 // issues/fixed/an-argument-dup-temp-in-an-io-async-body-is-dropped-through-an-unassigned-slot.md
-_take_n :: (fn(t : &Thing, io : Io) -> Impl(Future(i32, Io)))(
+_take_n :: (fn(sink(t) : Thing, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
     e.await(yield(e), e);
     t.n
@@ -551,7 +571,7 @@ _take_n :: (fn(t : &Thing, io : Io) -> Impl(Future(i32, Io)))(
 );
 _arg_dup_in_task :: (fn(keep : &ArrayList(Thing), io : Io) -> Impl(Future(i32, Io)))(
   io.async({ keep : &keep.* }(e : Io) => {
-    x := e.await(_take_n(&keep(usize(0)), e), e);
+    x := e.await(_take_n(Rc.clone(&keep(usize(0))), e), e);
     x
   })
 );
@@ -559,7 +579,7 @@ test("an argument read out of a container inside a task is released", {
   before := g_disposed;
   {
     mut(keep) := ArrayList(Thing).new();
-    keep.push(Thing(n : i32(7)));
+    keep.push(_thing(i32(7)));
     r := io.await(_arg_dup_in_task(&keep, io), io);
     assert(r == i32(7), "the task's value");
   };
@@ -568,10 +588,10 @@ test("an argument read out of a container inside a task is released", {
 // issues/fixed/an-early-return-from-an-io-async-body-never-releases-a-slot-local-its-tail-moves.md
 _early_return_slot_local :: (fn(early : bool, io : Io) -> Impl(Future(Thing, Io)))(
   io.async((e : Io) => {
-    t := Thing(n : i32(1));
+    t := _thing(i32(1));
     e.await(yield(e), e);
     if(early, {
-      return(Thing(n : i32(2)));
+      return(_thing(i32(2)));
     });
     t
   })
@@ -615,13 +635,13 @@ test("a pattern binding moved after an await in its arm is released once", {
 _run_now :: (fn(f : &Impl(Fn() -> i32)) -> i32)(f());
 _closure_arg_in_sync_task :: (fn(io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    t := Thing(n : i32(4));
+    t := _thing(i32(4));
     _run_now(() => t.n)
   })
 );
 _closure_arg_in_awaiting_task :: (fn(io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    t := Thing(n : i32(6));
+    t := _thing(i32(6));
     e.await(yield(e), e);
     _run_now(() => t.n)
   })
@@ -637,7 +657,7 @@ test("a closure literal passed as an argument inside a task releases its capture
 _spawn_leaf :: (fn(io : Io) -> Impl(Future(Thing, Io)))(
   io.async((e : Io) => {
     e.await(yield(e), e);
-    Thing(n : i32(1))
+    _thing(i32(1))
   })
 );
 _spawn_across_await :: (fn(io : Io) -> Impl(Future(i32, Io)))(
@@ -678,8 +698,8 @@ _count_later :: (fn(io : Io) -> Impl(Future(i32, Io)))(
 _move_then_read :: (fn(io : Io) -> Impl(Future(_MvReport, Io)))(
   io.async((e : Io) => {
     mut(xs) := ArrayList(Thing).new();
-    xs.push(Thing(n : i32(1)));
-    xs.push(Thing(n : i32(2)));
+    xs.push(_thing(i32(1)));
+    xs.push(_thing(i32(2)));
     e.await(yield(e), e);
     // Since B8 a list moves, so its length is read before the move (a read
     // in a later argument is E0901); the await in a later argument stays.
@@ -697,19 +717,19 @@ test("a consuming call moves a slot local, with an await in a later argument", {
   assert((g_disposed - before) == i32(2), `each item was released once, released ${g_disposed - before}`);
 });
 // issues/fixed/a-local-read-after-it-moves-inside-a-task-reads-an-emptied-slot.md
-_bumped :: (fn(t : &Thing, io : Io) -> Impl(Future(Thing, Io)))(
+_bumped :: (fn(sink(t) : Thing, io : Io) -> Impl(Future(Thing, Io)))(
   io.async((e : Io) => {
     e.await(yield(e), e);
-    Thing(n : (t.n + i32(1)))
+    _thing((t.n + i32(1)))
   })
 );
 _rebind_then_read :: (fn(bump : bool, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    t := Thing(n : i32(1));
+    t := _thing(i32(1));
     e.await(yield(e), e);
-    (mut(cur) : Thing) = t;
+    (mut(cur) : Thing) = Rc.clone(&t);
     if(bump, {
-      b := e.await(_bumped(&t, e), e);
+      b := e.await(_bumped(Rc.clone(&t), e), e);
       cur = b;
     });
     cur.n
@@ -731,9 +751,9 @@ test("a local moved to another name inside a task is still readable", {
 });
 _rebind_then_sleep :: (fn(io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    t := Thing(n : i32(5));
+    t := _thing(i32(5));
     e.await(yield(e), e);
-    (cur : Thing) = t;
+    (cur : Thing) = Rc.clone(&t);
     e.await(sleep(u64(200)), e);
     cur.n + t.n
   })
@@ -755,7 +775,7 @@ _move_each_iteration :: (fn(io : Io) -> Impl(Future(i32, Io)))(
     (mut(i) : i32) = i32(0);
     (mut(s) : i32) = i32(0);
     while(i < i32(2), {
-      t := Thing(n : i);
+      t := _thing(i);
       if(i == i32(0), {
         e.await(yield(e), e);
       }, {
@@ -796,7 +816,7 @@ test("an aborted task releases a local re-bound after its previous value moved",
 // machine type is registered before the type declarations, so the aggregate's
 // typedef spells the field with the state machine, as its stores and reads do
 // (issues/fixed/an-io-async-future-in-a-generic-struct-field-lowers-to-two-c-types.md).
-_FutHolder :: (fn(comptime(T) : Type) -> comptime(Type))(ref(struct(r : Option(T))));
+_FutHolder :: (fn(comptime(T) : Type) -> comptime(Type))(struct(r : Option(T)));
 _hold_future :: (fn(generic(T : Type), sink(x) : T) -> _FutHolder(T))(_FutHolder(T)(r : .Some(x)));
 // A future is move-only (§3.13 A1), so awaiting it would move it out of the
 // field; that needs decision 19's `take`/`replace`, which have not landed.
@@ -807,7 +827,7 @@ test("an io.async future stored in a generic struct's Option field is read from 
   st := match(&h.r, .Some(task) => io.state(&task.*), .None => FutureState.Aborted);
   assert(st == FutureState.Cold, "the stored future is still cold");
 });
-_PtrHolder :: (fn(comptime(T) : Type) -> comptime(Type))(ref(struct(r : Option(*T))));
+_PtrHolder :: (fn(comptime(T) : Type) -> comptime(Type))(struct(r : Option(*T)));
 _wrap_future :: (fn(generic(T : Type), f : &Impl(Fn() -> T)) -> T)({
   _h := _PtrHolder(T)(r : .None);
   f()
@@ -821,7 +841,7 @@ test("a generic struct with a pointer-to-future field, built beside the future i
 // the future handle itself
 // (issues/fixed/a-generic-impl-dispose-never-runs-for-a-type-fn-instance-at-a-future.md).
 (mut(g_guards) : i32) = i32(0);
-_Guard :: (fn(comptime(T) : Type) -> comptime(Type))(ref(struct(n : u8)));
+_Guard :: (fn(comptime(T) : Type) -> comptime(Type))(struct(n : u8));
 impl(
   generic(T : Type),
   _Guard(T),
@@ -837,7 +857,7 @@ _guarded :: (fn(generic(T : Type), f : &Impl(Fn() -> T)) -> T)({
 });
 test("a generic Drop impl runs for a guard over a future, as over a ref struct", {
   g_guards = i32(0);
-  t := _guarded(() => Thing(n : i32(1)));
+  t := _guarded(() => _thing(i32(1)));
   task := _guarded(() => io.async((io2 : Io) => i32(8)));
   assert(io.await(task, io) == i32(8), "the future's value");
   assert(t.n == i32(1), "the ref struct's value");
@@ -876,7 +896,7 @@ test("an earlier argument's value survives a suspension in a later argument", {
 _give_back :: (fn(t : Thing, io : Io) -> Impl(Future(Thing, Io)))(
   io.async((io2 : Io) => {
     io2.await(yield(io2), io2);
-    t
+    Rc.clone(&t)
   })
 );
 _give_back_string :: (fn(s : String, io : Io) -> Impl(Future(String, Io)))(
@@ -888,7 +908,7 @@ _give_back_string :: (fn(s : String, io : Io) -> Impl(Future(String, Io)))(
 test("a state machine returning an implicit capture retains it for the result", {
   before := g_disposed;
   {
-    r := io.await(_give_back(Thing(n : i32(5)), io), io);
+    r := io.await(_give_back(_thing(i32(5)), io), io);
     assert(g_disposed == before, "the result is alive while the awaiter holds it");
     assert(r.n == i32(5), "the awaiter reads the captured value");
   };
@@ -904,7 +924,7 @@ test("a state machine returning an implicit capture retains it for the result", 
   // caller's state machine, and its tail takes the same dup.
   before2 := g_disposed;
   f := io.async((io : Io) => {
-    r := io.await(_give_back(Thing(n : i32(6)), io), io);
+    r := io.await(_give_back(_thing(i32(6)), io), io);
     alive := (g_disposed == before2);
     mut(strs) := ArrayList(String).new();
     (mut(j) : i32) = i32(0);
@@ -927,13 +947,13 @@ test("a state machine returning an implicit capture retains it for the result", 
 _pair_later :: (fn(n : i32, io : Io) -> Impl(Future(Tuple(i32, Thing), Io)))(
   io.async((io : Io) => {
     io.await(yield(io), io);
-    (n, Thing(n : n))
+    (n, _thing(n))
   })
 );
 _pair_later_owned :: (fn(n : i32, io : Io) -> Impl(Future(Tuple(i32, Thing), Io)))(
   io.async({ n }(io : Io) => {
     io.await(yield(io), io);
-    (n, Thing(n : n))
+    (n, _thing(n))
   })
 );
 test("a destructured await result is released", {
@@ -956,13 +976,13 @@ _Rec :: struct(n : i32, t : Thing);
 _rec_later :: (fn(n : i32, io : Io) -> Impl(Future(_Rec, Io)))(
   io.async((io : Io) => {
     io.await(yield(io), io);
-    _Rec(n : n, t : Thing(n : n))
+    _Rec(n : n, t : _thing(n))
   })
 );
 _rec_later_owned :: (fn(n : i32, io : Io) -> Impl(Future(_Rec, Io)))(
   io.async({ n }(io : Io) => {
     io.await(yield(io), io);
-    _Rec(n : n, t : Thing(n : n))
+    _Rec(n : n, t : _thing(n))
   })
 );
 test("an await result read by a field-reading match scrutinee is released", {
@@ -995,8 +1015,9 @@ test("an await result read by a while condition is released on every evaluation"
 });
 
 // issues/fixed/a-fused-await-passes-a-named-local-without-the-callers-share.md
-// The wrapper drops its by-value parameter, so a named local passed to it at
-// a fused await site needs the caller's +1, as an ordinary call gives it.
+// The wrapper drops its by-value parameter, so a named local whose share is
+// passed to it at a fused await site (`Rc.clone(&th)`, the `ref` handle's
+// implicit +1 before V5) stays alive in the caller.
 _n_later :: (fn(t : Thing, io : Io) -> Impl(Future(i32, Io)))(
   io.async((io : Io) => {
     io.await(yield(io), io);
@@ -1010,9 +1031,9 @@ test("a fused await keeps a named local passed by value alive", {
     (mut(i) : i32) = i32(0);
     (mut(early) : i32) = i32(0);
     while(i < i32(3), {
-      th := Thing(n : i);
+      th := _thing(i);
       at := g_disposed;
-      total = (total + io.await(_n_later(th, io), io));
+      total = (total + io.await(_n_later(Rc.clone(&th), io), io));
       if(g_disposed != at, {
         early = (early + i32(1));
       });
@@ -1064,11 +1085,12 @@ test("a nested implicit capture moving an enclosing capture is dropped once", {
 // `Receiver.recv`) was retained twice, and a moved future (`{ inner }`) once
 // though its owner no longer drops it.
 _CapCh :: struct(_st : Thing);
+derive(_CapCh, Clone);
 impl(
   _CapCh,
   get : (fn(self : &Self, io : Io) -> Impl(Future(i32)))(
-    io.async((io : Io) => {
-      y := self._st.n;
+    io.async({ st : Rc.clone(&self._st) }(io : Io) => {
+      y := st.n;
       return(y);
     })
   )
@@ -1077,18 +1099,18 @@ _CapRx :: struct(_ch : _CapCh);
 impl(
   _CapRx,
   get : (fn(self : &Self, io : Io) -> Impl(Future(i32)))(
-    io.async({ ch : self._ch }(io : Io) => {
+    io.async({ ch : self._ch.clone() }(io : Io) => {
       got := io.await(ch.get(io), io);
       got
     })
   )
 );
 _cap_field_copy_awaited :: (fn(io : Io) -> i32)({
-  r := _CapRx(_ch : _CapCh(_st : Thing(n : i32(4))));
+  r := _CapRx(_ch : _CapCh(_st : _thing(i32(4))));
   io.await(r.get(io), io)
 });
 _cap_field_copy_dropped :: (fn(io : Io) -> unit)({
-  r := _CapRx(_ch : _CapCh(_st : Thing(n : i32(4))));
+  r := _CapRx(_ch : _CapCh(_st : _thing(i32(4))));
   _f := r.get(io);
 });
 test("a renamed capture copied from a field is retained once when the body awaits through it", {
@@ -1106,9 +1128,9 @@ _cap_renamed_param :: (fn(t : Thing, io : Io) -> Impl(Future(i32, Io)))(
 );
 test("a renamed by-value capture of a parameter or a fresh value is retained once", {
   g_disposed = i32(0);
-  assert(io.await(_cap_renamed_param(Thing(n : i32(5)), io), io) == i32(5), "the capture reads the parameter");
+  assert(io.await(_cap_renamed_param(_thing(i32(5)), io), io) == i32(5), "the capture reads the parameter");
   assert(g_disposed == i32(1), "the parameter's Thing is released once");
-  f := io.async({ m : Thing(n : i32(6)) }(io : Io) => {
+  f := io.async({ m : _thing(i32(6)) }(io : Io) => {
     io.await(yield(io), io);
     m.n
   });
@@ -1117,7 +1139,7 @@ test("a renamed by-value capture of a parameter or a fresh value is retained onc
 });
 test("a future moved into a capture list is released by the future that owns it", {
   g_disposed = i32(0);
-  inner := io.async({ t : Thing(n : i32(7)) }(io : Io) => {
+  inner := io.async({ t : _thing(i32(7)) }(io : Io) => {
     return(t.n);
   });
   outer := io.async({ inner }(io : Io) => {
@@ -1129,13 +1151,13 @@ test("a future moved into a capture list is released by the future that owns it"
 test("a future and a copy captured by a nested io.async inside a state machine are each released once", {
   g_disposed = i32(0);
   outer := io.async((io : Io) => {
-    s := Thing(n : i32(8));
+    s := _thing(i32(8));
     io.await(yield(io), io);
-    th := Thing(n : i32(2));
+    th := _thing(i32(2));
     inner := io.async({ th }(io : Io) => {
       return(th.n);
     });
-    g := io.async({ inner, s }(io : Io) => {
+    g := io.async({ inner, s : Rc.clone(&s) }(io : Io) => {
       x := io.await(inner, io);
       (x + s.n)
     });
@@ -1150,11 +1172,11 @@ test("a future and a copy captured by a nested io.async inside a state machine a
 // an alias of a body local (`wb := w`) is stored in its owner's task slot, so
 // the two names hold ONE reference; the binding retained a second one that
 // the shared slot's single release never dropped.
-_AliasW :: struct(t : Thing);
+_AliasW :: struct(t : _RefThing);
 test("an alias of a local that crosses an await is released with its owner", {
   g_disposed = i32(0);
   f := io.async((io : Io) => {
-    w := _AliasW(t : Thing(n : i32(4)));
+    w := _AliasW(t : _RefThing(n : i32(4)));
     wb := w;
     io.await(yield(io), io);
     (w.t.n + wb.t.n)
@@ -1166,10 +1188,14 @@ test("an alias of a local that crosses an await is released with its owner", {
 // a `downcast` result used as a method receiver or discarded inside an
 // `io.async` body, before and after awaits. Its result temp is declared by the
 // downcast emitter and stored to its task slot, so the scope-end release
-// finds it.
-_DcThing :: ref(struct(n : i32));
+// finds it. A downcast copies the payload out (a `clone`), so the thing is a
+// cloneable handle onto one counted payload: a leaked downcast result keeps
+// the payload alive, and the count below stays 0.
+_DcVal :: struct(n : i32);
+_DcThing :: struct(h : Rc(_DcVal));
+derive(_DcThing, Clone);
 impl(
-  _DcThing,
+  _DcVal,
   Drop(
     drop : (fn(self : &mut Self) -> unit)({
       g_disposed = (g_disposed + i32(1));
@@ -1179,7 +1205,7 @@ impl(
 impl(_DcThing, ToString(to_string : (self -> String.from("thing"))));
 _downcast_across_awaits :: (fn(io : Io) -> Impl(Future(i32, Io)))(
   io.async((io2 : Io) => {
-    (d : Dyn(ToString)) = dyn(_DcThing(n : i32(1)));
+    (d : Dyn(ToString, Clone)) = dyn(_DcThing(h : Rc.new(_DcVal(n : i32(1)))));
     (mut(hits) : i32) = i32(0);
     if(downcast(d, _DcThing).is_some(), {
       hits = (hits + i32(1));

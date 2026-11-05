@@ -168,11 +168,11 @@ test("D3 canary: a struct holding an Arc writes its own fields and reads through
   h.n = i32(2);
   assert((h.n + h.a.*.n) == i32(6), "the field write landed and the payload read through the Arc");
 });
-// Canary: the same three shapes on a NON-atomic ref struct stay legal (they
-// are the ordinary way to mutate a thread-local object).
-Cell :: ref(struct(counter : Counter, slots : Array(i32, usize(2))));
-test("D3 canary: inout receiver, inout argument and index assignment on a plain ref struct", {
-  c := Cell(counter : Counter(n : i32(0)), slots : Array(i32, usize(2))(i32(0), i32(0)));
+// Canary: the same three shapes on a plain value struct stay legal (they are
+// the ordinary way to mutate a thread-local value).
+Cell :: struct(counter : Counter, slots : Array(i32, usize(2)));
+test("D3 canary: inout receiver, inout argument and index assignment on a plain struct", {
+  mut(c) := Cell(counter : Counter(n : i32(0)), slots : Array(i32, usize(2))(i32(0), i32(0)));
   c.counter.bump();
   _bump_by_ten(&mut c.counter);
   c.slots(usize(1)) = i32(3);

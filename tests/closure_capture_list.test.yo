@@ -39,7 +39,7 @@ derive(_ClAcc, Copy, Clone);
 // `run_copy` copies its `Copy` receiver before the call, which reaches nothing.
 impl(_ClAcc, run : (fn(self : &Self, f : &Impl(Fn() -> unit)) -> unit)(f()), run_copy : (fn(self : Self, f : &Impl(Fn() -> unit)) -> unit)(f()));
 (mut(g_cl_rc_disposed) : i32) = i32(0);
-_ClRc :: ref(struct(v : i32));
+_ClRc :: struct(v : i32);
 impl(
   _ClRc,
   Drop(
@@ -92,10 +92,10 @@ test("capture list: a by-value capture of an RC value retains it", {
   // issues/fixed/a-by-value-capture-of-an-rc-value-never-retains-it.md: the
   // capture field must hold its own reference, or the closure's scope-end
   // drop releases the cell under the still-live source binding.
-  t := _ClRc(v : i32(7));
+  t := Rc.new(_ClRc(v : i32(7)));
   s := String.from("abcd");
   {
-    (f : Impl(Fn() -> i32)) = ({ t }() => t.v);
+    (f : Impl(Fn() -> i32)) = ({ c : Rc.clone(&t) }() => c.v);
     // A `String` is a value (B8): the renamed capture takes a clone, so the
     // source stays usable.
     (g : Impl(Fn() -> usize)) = ({ n : s.clone() }() => n.len());

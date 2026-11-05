@@ -91,10 +91,8 @@ test("Test 'ref_count' function", {
   };
 });
 test("Test explicit return and implicit return", {
-  Foo :: ref(
-    struct(
-      data : Rc(i32)
-    )
+  Foo :: struct(
+    data : Rc(i32)
   );
   impl(
     Foo,
@@ -307,12 +305,13 @@ test("Test ArrayList index access - no RC leak", {
   };
 });
 test("Test array of objects - no RC leak", {
-  Container :: ref(struct(value : i32));
+  _ContainerVal :: struct(value : i32);
+  Container :: Rc(_ContainerVal);
   // Inline access to array of objects
   {
-    c1 := Container(i32(1));
-    c2 := Container(i32(2));
-    c3 := Container(i32(3));
+    c1 := Rc.new(_ContainerVal(i32(1)));
+    c2 := Rc.new(_ContainerVal(i32(2)));
+    c3 := Rc.new(_ContainerVal(i32(3)));
     arr := [c1, c2, c3,];
     assert(arr(0).value == i32(1), "arr(0).value == 1");
     assert(arr(1).value == i32(2), "arr(1).value == 2");
@@ -320,14 +319,14 @@ test("Test array of objects - no RC leak", {
   };
   // Assigned access to array of objects
   {
-    c := Container(i32(42));
+    c := Rc.new(_ContainerVal(i32(42)));
     arr := [c,];
-    elem := arr(0);
+    elem := Rc.clone(&arr(0));
     assert(elem.value == i32(42), "assigned object from array should work");
   };
   // Inline access does not increase RC
   {
-    c := Container(i32(77));
+    c := Rc.new(_ContainerVal(i32(77)));
     arr := [c,];
     val := arr(0).value;
     assert(val == i32(77), "inline field read works");
@@ -470,7 +469,7 @@ test("Returning an OWNED RC local from inside a branch is not double-dropped", {
 // still-initialized local on the early path (the counter falls short); an
 // over-attachment double-drops it (the caller then reads a freed object).
 (mut(g_m3_hidden_disposed) : i32) = i32(0);
-M3HiddenRet :: ref(struct(tag : i32));
+M3HiddenRet :: struct(tag : i32);
 impl(
   M3HiddenRet,
   Drop(
@@ -1023,9 +1022,10 @@ test("statement-hidden mutation keeps the borrowed-projection dup", {
 // the handle is not — passing it into the struct hands over ownership, so
 // disposing the handle frees the counter and reading it afterwards is a UAF.
 (mut(g_alias_disposed) : i32) = i32(0);
-AliasHandle :: ref(struct(tag : i32));
+_AliasHandleVal :: struct(tag : i32);
+AliasHandle :: Rc(_AliasHandleVal);
 impl(
-  AliasHandle,
+  _AliasHandleVal,
   Drop(
     drop : (fn(self : &mut Self) -> unit)({
       g_alias_disposed = (g_alias_disposed + i32(1));
@@ -1038,8 +1038,8 @@ impl(
 // single-alias case, this is what fails. The discriminating test is the next one.
 test("aliasing a ref local disposes the object exactly once", {
   {
-    a := AliasHandle(tag : i32(1));
-    b := a;
+    a := Rc.new(_AliasHandleVal(tag : i32(1)));
+    b := Rc.clone(&a);
     assert(b.tag == i32(1), "the alias sees the same object");
     assert(g_alias_disposed == i32(0), "nothing disposed while the scope is live");
   };
@@ -1050,9 +1050,9 @@ test("aliasing a ref local disposes the object exactly once", {
 });
 test("reassigning after aliasing disposes both objects exactly once", {
   {
-    mut(a) := AliasHandle(tag : i32(1));
-    b := a;
-    a = AliasHandle(tag : i32(2));
+    mut(a) := Rc.new(_AliasHandleVal(tag : i32(1)));
+    b := Rc.clone(&a);
+    a = Rc.new(_AliasHandleVal(tag : i32(2)));
     assert(b.tag == i32(1), "b keeps the original object alive");
     assert(a.tag == i32(2), "a points at the replacement");
   };
@@ -1082,7 +1082,7 @@ test("box takes ownership of its argument without retaining an extra reference",
 // the over-drop canary — an over-drop would have freed the buffer before the
 // read.
 (mut(g_own_param_freed) : i32) = i32(0);
-OwnParamRes :: ref(struct(tag : i32));
+OwnParamRes :: struct(tag : i32);
 impl(
   OwnParamRes,
   Drop(
@@ -1096,7 +1096,7 @@ own_via_local :: (fn(generic(V : Type), sink(v) : V) -> V)({
   w := v;
   w
 });
-OwnHolder :: (fn(comptime(V) : Type) -> comptime(Type))(ref(struct(item : V)));
+OwnHolder :: (fn(comptime(V) : Type) -> comptime(Type))(struct(item : V));
 own_hold :: (fn(generic(V : Type), sink(v) : V) -> OwnHolder(V))(OwnHolder(V)(item : v));
 own_discard :: (fn(generic(V : Type), sink(v) : V) -> i32)(i32(1));
 test("an own parameter of a generic function releases its value exactly once", {
@@ -1131,28 +1131,33 @@ test("an own parameter of a generic function releases its value exactly once", {
 // scheduled the old value's drop at that block's end — before the outer alias's
 // last use — so `h2` read freed memory (GuardMalloc SEGV). The optimizer now
 // keeps the dup whenever the base is reassigned anywhere in the block.
-AliasHolder :: ref(struct(n : i32));
+// The holder is shared and written through either handle: `Rc` with a
+// `RefCell` field.
+_AliasHolderVal :: struct(n : RefCell(i32));
+AliasHolder :: Rc(_AliasHolderVal);
+_alias_holder :: (fn(n : i32) -> AliasHolder)(Rc.new(_AliasHolderVal(n : RefCell(i32).new(n))));
+_alias_n :: (fn(h : &AliasHolder) -> i32)(h.n.with(v => v.*));
 test("alias survives a reassignment of its base inside a nested block", {
-  mut(h) := AliasHolder(n : i32(1));
-  h2 := h;
+  mut(h) := _alias_holder(i32(1));
+  h2 := Rc.clone(&h);
   {
-    h.n = i32(7);
-    h = AliasHolder(n : i32(100));
+    h.n.replace(i32(7));
+    h = _alias_holder(i32(100));
   };
-  assert(h2.n == i32(7), "the alias still names the original object");
-  assert(h.n == i32(100), "the base names the replacement");
+  assert(_alias_n(&h2) == i32(7), "the alias still names the original object");
+  assert(_alias_n(&h) == i32(100), "the base names the replacement");
   assert(ref_count(h2) == 1, "the original is owned by the alias alone");
   assert(ref_count(h) == 1, "the replacement is owned by the base alone");
 });
 test("alias made inside a nested block, base reassigned there, base used after", {
-  mut(h) := AliasHolder(n : i32(1));
+  mut(h) := _alias_holder(i32(1));
   {
-    h2 := h;
-    h2.n = i32(9);
-    h = AliasHolder(n : i32(100));
-    assert(h2.n == i32(9), "inner alias reads the original");
+    h2 := Rc.clone(&h);
+    h2.n.replace(i32(9));
+    h = _alias_holder(i32(100));
+    assert(_alias_n(&h2) == i32(9), "inner alias reads the original");
   };
-  assert(h.n == i32(100), "outer base reads the replacement");
+  assert(_alias_n(&h) == i32(100), "outer base reads the replacement");
   assert(ref_count(h) == 1, "one owner");
 });
 // Same optimizer, the two sibling shapes (issues/fixed/alias-elision-base-reassigned-in-nested-block-uaf.md):
@@ -1162,9 +1167,9 @@ test("alias made inside a nested block, base reassigned there, base used after",
 test("reassigning the alias itself disposes both objects exactly once", {
   before := g_alias_disposed;
   {
-    a := AliasHandle(tag : i32(1));
-    mut(b) := a;
-    b = AliasHandle(tag : i32(3));
+    a := Rc.new(_AliasHandleVal(tag : i32(1)));
+    mut(b) := Rc.clone(&a);
+    b = Rc.new(_AliasHandleVal(tag : i32(3)));
     assert(a.tag == i32(1), "a keeps the original");
     assert(b.tag == i32(3), "b names the replacement");
   };
@@ -1173,11 +1178,11 @@ test("reassigning the alias itself disposes both objects exactly once", {
 test("chained aliases with the base reassigned in a nested block", {
   before := g_alias_disposed;
   {
-    mut(a) := AliasHandle(tag : i32(1));
-    b := a;
-    c := b;
+    mut(a) := Rc.new(_AliasHandleVal(tag : i32(1)));
+    b := Rc.clone(&a);
+    c := Rc.clone(&b);
     {
-      a = AliasHandle(tag : i32(2));
+      a = Rc.new(_AliasHandleVal(tag : i32(2)));
     };
     assert((b.tag == i32(1)) && (c.tag == i32(1)), "both aliases still name the original");
     assert(a.tag == i32(2), "the base names the replacement");
@@ -1187,12 +1192,11 @@ test("chained aliases with the base reassigned in a nested block", {
 test("alias made in an inner block, base reassigned there, base used after", {
   before := g_alias_disposed;
   {
-    mut(a) := AliasHandle(tag : i32(1));
+    mut(a) := Rc.new(_AliasHandleVal(tag : i32(1)));
     {
-      b := a;
-      b.tag = i32(9);
-      a = AliasHandle(tag : i32(2));
-      assert(b.tag == i32(9), "the inner alias reads the original");
+      b := Rc.clone(&a);
+      a = Rc.new(_AliasHandleVal(tag : i32(2)));
+      assert(b.tag == i32(1), "the inner alias reads the original");
     };
     assert(a.tag == i32(2), "the outer base reads the replacement");
   };
@@ -1205,9 +1209,10 @@ test("alias made in an inner block, base reassigned there, base used after", {
 // released the shared count and freed the object `a` still named. The drop
 // tally sums the tags: 1 + 10 exactly when each object is dropped once.
 (mut(g_lend_dropped_tags) : i32) = i32(0);
-_LendHandle :: ref(struct(tag : i32));
+_LendHandleVal :: struct(tag : i32);
+_LendHandle :: Rc(_LendHandleVal);
 impl(
-  _LendHandle,
+  _LendHandleVal,
   Drop(
     drop : (fn(self : &mut Self) -> unit)({
       g_lend_dropped_tags = (g_lend_dropped_tags + self.tag);
@@ -1218,17 +1223,17 @@ impl(
   _LendHandle,
   /// Replace the caller's handle with a new object.
   replace_with : (fn(self : &mut Self, tag : i32) -> unit)({
-    self.* = _LendHandle(tag : tag);
+    self.* = Rc.new(_LendHandleVal(tag : tag));
   })
 );
 _lend_replace :: (fn(h : &mut _LendHandle, tag : i32) -> unit)({
-  h.* = _LendHandle(tag : tag);
+  h.* = Rc.new(_LendHandleVal(tag : tag));
 });
 test("an alias lent &mut to a call that replaces it leaves the base its object", {
   before := g_lend_dropped_tags;
   {
-    a := _LendHandle(tag : i32(1));
-    b := a;
+    a := Rc.new(_LendHandleVal(tag : i32(1)));
+    mut(b) := Rc.clone(&a);
     _lend_replace(&mut b, i32(10));
     assert(a.tag == i32(1), "a still names the original");
     assert(b.tag == i32(10), "b names the replacement");
@@ -1239,8 +1244,8 @@ test("an alias lent &mut to a call that replaces it leaves the base its object",
 test("a base lent &mut to a call that replaces it leaves the alias its object", {
   before := g_lend_dropped_tags;
   {
-    a := _LendHandle(tag : i32(1));
-    b := a;
+    mut(a) := Rc.new(_LendHandleVal(tag : i32(1)));
+    b := Rc.clone(&a);
     _lend_replace(&mut a, i32(10));
     assert(b.tag == i32(1), "b still names the original");
     assert(a.tag == i32(10), "a names the replacement");
@@ -1250,8 +1255,8 @@ test("a base lent &mut to a call that replaces it leaves the alias its object", 
 test("an alias whose &mut self method replaces it leaves the base its object", {
   before := g_lend_dropped_tags;
   {
-    a := _LendHandle(tag : i32(1));
-    b := a;
+    a := Rc.new(_LendHandleVal(tag : i32(1)));
+    mut(b) := Rc.clone(&a);
     b.replace_with(i32(10));
     assert(a.tag == i32(1), "a still names the original");
     assert(b.tag == i32(10), "b names the replacement");
@@ -1284,22 +1289,23 @@ test("an alias whose &mut self method replaces it leaves the base its object", {
 // never disposes at all (the over-correction).
 // ---------------------------------------------------------------------------
 (mut(g_nested_disposed) : i32) = i32(0);
-NestedSink :: ref(struct(tag : i32));
+_NestedSinkVal :: struct(tag : i32);
+NestedSink :: Rc(_NestedSinkVal);
 impl(
-  NestedSink,
+  _NestedSinkVal,
   Drop(
     drop : (fn(self : &mut Self) -> unit)({
       g_nested_disposed = (g_nested_disposed + i32(1));
     })
   )
 );
-NestedHolder :: ref(struct(label : i32, sink : NestedSink));
+NestedHolder :: struct(label : i32, sink : NestedSink);
 test("a local stored into a container in a NESTED block outlives that block", {
   before := g_nested_disposed;
   {
-    sink := NestedSink(tag : i32(1));
+    sink := Rc.new(_NestedSinkVal(tag : i32(1)));
     {
-      h := NestedHolder(label : i32(2), sink : sink);
+      h := NestedHolder(label : i32(2), sink : Rc.clone(&sink));
       assert(h.label == i32(2), "the container sees its own field");
     };
     // The container is gone. `sink` must still be alive here — it is a live
@@ -1315,10 +1321,10 @@ test("a local stored into a container in a NESTED block outlives that block", {
 test("a container two blocks deep does not take the outer local either", {
   before := g_nested_disposed;
   {
-    sink := NestedSink(tag : i32(3));
+    sink := Rc.new(_NestedSinkVal(tag : i32(3)));
     {
       {
-        h := NestedHolder(label : i32(4), sink : sink);
+        h := NestedHolder(label : i32(4), sink : Rc.clone(&sink));
         assert(h.label == i32(4), "the container sees its own field");
       };
       ()
@@ -1336,8 +1342,8 @@ test("a container two blocks deep does not take the outer local either", {
 test("a container in the SAME scope still shares one count", {
   before := g_nested_disposed;
   {
-    sink := NestedSink(tag : i32(5));
-    h := NestedHolder(label : i32(6), sink : sink);
+    sink := Rc.new(_NestedSinkVal(tag : i32(5)));
+    h := NestedHolder(label : i32(6), sink : Rc.clone(&sink));
     assert(h.label == i32(6), "the container sees its own field");
     assert(sink.tag == i32(5), "and the local still reads");
     assert(g_nested_disposed == before, "nothing disposed while both are live");
@@ -1347,10 +1353,10 @@ test("a container in the SAME scope still shares one count", {
 test("a container in a cond arm and in a while body behave the same way", {
   before := g_nested_disposed;
   {
-    sink := NestedSink(tag : i32(7));
+    sink := Rc.new(_NestedSinkVal(tag : i32(7)));
     cond(
       true => {
-        h := NestedHolder(label : i32(8), sink : sink);
+        h := NestedHolder(label : i32(8), sink : Rc.clone(&sink));
         assert(h.label == i32(8), "the arm's container sees its field");
       },
       true => ()
@@ -1358,7 +1364,7 @@ test("a container in a cond arm and in a while body behave the same way", {
     assert(sink.tag == i32(7), "readable after the arm");
     (mut(i) : i32) = i32(0);
     while(i < i32(3), i = (i + i32(1)), {
-      w := NestedHolder(label : i, sink : sink);
+      w := NestedHolder(label : i, sink : Rc.clone(&sink));
       assert(w.label == i, "the loop body's container sees its field");
     });
     assert(sink.tag == i32(7), "and after three loop iterations");
@@ -1381,7 +1387,7 @@ _take_holder :: (fn(h : _NestedValHolder) -> unit)({
   assert(match(&kept, .Some(k) => (k.label == i32(10)), .None => false), "the callee sees the container");
 });
 _NestedTag :: trait(tag_of : (fn(self : &Self) -> i32));
-impl(NestedSink, _NestedTag(tag_of : (fn(self : &Self) -> i32)(self.tag)));
+impl(_NestedSinkVal, _NestedTag(tag_of : (fn(self : &Self) -> i32)(self.tag)));
 _take_dyn_tag :: (fn(d : Dyn(_NestedTag)) -> unit)({
   kept := Option(Dyn(_NestedTag)).Some(d);
   assert(match(&kept, .Some(k) => (k.tag_of() == i32(11)), .None => false), "the callee sees the payload");
@@ -1391,8 +1397,8 @@ _take_dyn_tag :: (fn(d : Dyn(_NestedTag)) -> unit)({
 test("a local stored into a temporary struct passed by value outlives the call", {
   before := g_nested_disposed;
   {
-    sink := NestedSink(tag : i32(12));
-    _take_holder(_NestedValHolder(label : i32(10), sink : sink));
+    sink := Rc.new(_NestedSinkVal(tag : i32(12)));
+    _take_holder(_NestedValHolder(label : i32(10), sink : Rc.clone(&sink)));
     assert(g_nested_disposed == before, "the callee's container did not take the caller's local with it");
     assert(sink.tag == i32(12), "and the local still reads correctly");
   };
@@ -1401,8 +1407,8 @@ test("a local stored into a temporary struct passed by value outlives the call",
 test("a local stored into a temporary Dyn passed by value outlives the call", {
   before := g_nested_disposed;
   {
-    sink := NestedSink(tag : i32(11));
-    _take_dyn_tag(dyn(sink));
+    sink := Rc.new(_NestedSinkVal(tag : i32(11)));
+    _take_dyn_tag(dyn(Rc.clone(&sink)));
     assert(g_nested_disposed == before, "the callee's Dyn did not take the caller's local with it");
     assert(sink.tag == i32(11), "and the local still reads correctly");
   };
@@ -1411,7 +1417,7 @@ test("a local stored into a temporary Dyn passed by value outlives the call", {
 test("a temporary passed by value takes a local that is not read again exactly once", {
   before := g_nested_disposed;
   {
-    sink := NestedSink(tag : i32(11));
+    sink := Rc.new(_NestedSinkVal(tag : i32(11)));
     _take_dyn_tag(dyn(sink));
   };
   assert(g_nested_disposed == (before + i32(1)), "disposed exactly once: no leak, no double drop");
@@ -1427,7 +1433,7 @@ test("a temporary passed by value takes a local that is not read again exactly o
 // Drop deltas pin "exactly once" so the in-branch drop is neither missing
 // nor doubled.
 (mut(g_sc_disposed) : i32) = i32(0);
-ScHandle :: ref(struct(tag : i32));
+ScHandle :: struct(tag : i32);
 impl(
   ScHandle,
   Drop(
@@ -1497,9 +1503,10 @@ test("|| chain ending in Option.is_some() inside a match arm inside a cond arm",
 // cases are the over-release canaries: an arm that hands back a caller-owned
 // value must not lose a reference when the temp is dropped.
 (mut(g_at_disposed) : i32) = i32(0);
-ArgTemp :: ref(struct(n : i32));
+_ArgTempVal :: struct(n : i32);
+ArgTemp :: Rc(_ArgTempVal);
 impl(
-  ArgTemp,
+  _ArgTempVal,
   Drop(
     drop : (fn(self : &mut Self) -> unit)({
       g_at_disposed = (g_at_disposed + i32(1));
@@ -1508,17 +1515,17 @@ impl(
 );
 at_read :: (fn(a : &ArgTemp) -> i32)(a.n);
 at_sink :: (fn(sink(a) : ArgTemp) -> i32)(a.n);
-at_pick_match :: (fn(flag : bool, keep : &ArgTemp) -> i32)(at_read(match(flag, true => ArgTemp(n : i32(1)), false => keep.*)));
-at_pick_cond :: (fn(flag : bool, keep : &ArgTemp) -> i32)(at_read(cond(flag => ArgTemp(n : i32(2)), true => keep.*)));
+at_pick_match :: (fn(flag : bool, keep : &ArgTemp) -> i32)(at_read(match(flag, true => Rc.new(_ArgTempVal(n : i32(1))), false => Rc.clone(keep))));
+at_pick_cond :: (fn(flag : bool, keep : &ArgTemp) -> i32)(at_read(cond(flag => Rc.new(_ArgTempVal(n : i32(2))), true => Rc.clone(keep))));
 test("a match passed as a call argument releases its fresh result", {
   before := g_at_disposed;
   flag := (before >= i32(0));
   {
-    _n := at_read(match(flag, true => ArgTemp(n : i32(3)), false => ArgTemp(n : i32(4))));
+    _n := at_read(match(flag, true => Rc.new(_ArgTempVal(n : i32(3))), false => Rc.new(_ArgTempVal(n : i32(4)))));
   };
   assert(g_at_disposed == (before + i32(1)), "the match result is disposed exactly once");
   {
-    at_read(match(flag, true => ArgTemp(n : i32(5)), false => ArgTemp(n : i32(6))));
+    at_read(match(flag, true => Rc.new(_ArgTempVal(n : i32(5))), false => Rc.new(_ArgTempVal(n : i32(6)))));
   };
   assert(g_at_disposed == (before + i32(2)), "also when the call is a bare statement");
 });
@@ -1526,14 +1533,14 @@ test("a cond passed as a call argument releases its fresh result", {
   before := g_at_disposed;
   flag := (before >= i32(0));
   {
-    _n := at_read(cond(flag => ArgTemp(n : i32(7)), true => ArgTemp(n : i32(8))));
+    _n := at_read(cond(flag => Rc.new(_ArgTempVal(n : i32(7))), true => Rc.new(_ArgTempVal(n : i32(8)))));
   };
   assert(g_at_disposed == (before + i32(1)), "the cond result is disposed exactly once");
 });
 test("a match/cond argument arm that returns a borrowed value does not over-release it", {
   before := g_at_disposed;
   {
-    keep := ArgTemp(n : i32(9));
+    keep := Rc.new(_ArgTempVal(n : i32(9)));
     assert(at_pick_match(false, &keep) == i32(9), "borrowed arm (match) reads the caller's value");
     assert(at_pick_cond(false, &keep) == i32(9), "borrowed arm (cond) reads the caller's value");
     assert(g_at_disposed == before, "the caller's value is still alive");
@@ -1554,21 +1561,21 @@ test("a block result that is not moved is released once", {
   before := g_at_disposed;
   {
     _n := at_read({
-      t := ArgTemp(n : i32(20));
+      t := Rc.new(_ArgTempVal(n : i32(20)));
       t
     });
   };
   assert(g_at_disposed == (before + i32(1)), "a block as a call argument");
   {
     {
-      t := ArgTemp(n : i32(21));
+      t := Rc.new(_ArgTempVal(n : i32(21)));
       t
     };
   };
   assert(g_at_disposed == (before + i32(2)), "a block as a discarded statement");
   {
     _m := {
-      t := ArgTemp(n : i32(22));
+      t := Rc.new(_ArgTempVal(n : i32(22)));
       t
     }.n;
   };
@@ -1583,29 +1590,29 @@ test("a block result that is not moved is released once", {
 at_block_of_param :: (fn(keep : &ArgTemp) -> i32)(
   at_read({
     _z := i32(0);
-    keep.*
+    Rc.clone(keep)
   })
 );
 test("a block that yields an outer local or is bound does not over-release", {
   before := g_at_disposed;
   {
-    keep := ArgTemp(n : i32(23));
+    keep := Rc.new(_ArgTempVal(n : i32(23)));
     {
       _k := at_read({
         _z := i32(0);
-        keep
+        Rc.clone(&keep)
       });
       {
         _z := i32(0);
-        keep
+        Rc.clone(&keep)
       };
       _m := {
         _z := i32(0);
-        keep
+        Rc.clone(&keep)
       }.n;
       also := {
         _z := i32(0);
-        keep
+        Rc.clone(&keep)
       };
       assert(also.n == i32(23), "a binding of a block that yields the outer local");
       assert(at_block_of_param(&keep) == i32(23), "a block that yields a borrowed parameter");
@@ -1616,14 +1623,14 @@ test("a block that yields an outer local or is bound does not over-release", {
   assert(g_at_disposed == (before + i32(1)), "the outer local is released once, at its scope end");
   {
     b := {
-      t := ArgTemp(n : i32(24));
+      t := Rc.new(_ArgTempVal(n : i32(24)));
       t
     };
     assert(b.n == i32(24), "the bound block's value");
   };
   assert(g_at_disposed == (before + i32(2)), "the bound block's value is released once");
   {
-    last := ArgTemp(n : i32(25));
+    last := Rc.new(_ArgTempVal(n : i32(25)));
     _l := at_read({
       _z := i32(0);
       last
@@ -1647,12 +1654,12 @@ at_sink_plus :: (fn(sink(a) : ArgTemp) -> i32)(a.n + i32(1));
 test("an own parameter read by a bare-expression body is released after the read", {
   before := g_at_disposed;
   {
-    x := ArgTemp(n : i32(40));
+    x := Rc.new(_ArgTempVal(n : i32(40)));
     _r := at_sink(x);
     assert(_r == i32(40), "the field read happens before the release");
   };
   {
-    y := ArgTemp(n : i32(41));
+    y := Rc.new(_ArgTempVal(n : i32(41)));
     _s := at_sink_plus(y);
     assert(_s == i32(42), "also inside an arithmetic tail");
   };
@@ -1664,15 +1671,15 @@ test("a HashMap that rehashes releases every value once when it dies", {
     mut(m) := HashMap(i32, ArgTemp).new();
     (mut(i) : i32) = i32(0);
     while(i < i32(100), i = (i + i32(1)), {
-      node := ArgTemp(n : i);
+      node := Rc.new(_ArgTempVal(n : i));
       _old := m.insert(i, node);
     });
     assert(m.len() == usize(100), "every key inserted");
   };
   assert(g_at_disposed == (before + i32(100)), "a rehash releases the old slots, so the map's death disposes all 100 values");
 });
-AtHolder :: ref(struct(a : i32));
-at_build_struct_tail :: (fn() -> AtHolder)(AtHolder(a : at_read(ArgTemp(n : i32(20)))));
+AtHolder :: struct(a : i32);
+at_build_struct_tail :: (fn() -> AtHolder)(AtHolder(a : at_read(Rc.new(_ArgTempVal(n : i32(20))))));
 test("a call argument inside a struct-literal tail is released", {
   before := g_at_disposed;
   {
@@ -1686,10 +1693,10 @@ test("a call argument under ! or == in an if condition is released", {
   before := g_at_disposed;
   (mut(y) : i32) = i32(0);
   {
-    if(!at_ok(ArgTemp(n : i32(1))), {
+    if(!at_ok(Rc.new(_ArgTempVal(n : i32(1)))), {
       y = i32(1);
     });
-    if(at_ok(ArgTemp(n : i32(0))) == false, {
+    if(at_ok(Rc.new(_ArgTempVal(n : i32(0)))) == false, {
       y = i32(2);
     });
   };
@@ -1701,12 +1708,12 @@ test("a call argument under an operator in a cond or match arm value is released
   flag := (before >= i32(0));
   {
     a := cond(
-      flag => (at_read(ArgTemp(n : i32(30))) > i32(0)),
+      flag => (at_read(Rc.new(_ArgTempVal(n : i32(30)))) > i32(0)),
       true => false
     );
     b := match(
       flag,
-      true => (at_read(ArgTemp(n : i32(31))) > i32(0)),
+      true => (at_read(Rc.new(_ArgTempVal(n : i32(31)))) > i32(0)),
       false => false
     );
     assert(a && b, "both arms evaluated");
@@ -1717,11 +1724,11 @@ test("a nested match argument and a match moved into an own parameter", {
   before := g_at_disposed;
   flag := (before >= i32(0));
   {
-    _n := at_read(match(flag, true => match(flag, true => ArgTemp(n : i32(10)), false => ArgTemp(n : i32(11))), false => ArgTemp(n : i32(12))));
+    _n := at_read(match(flag, true => match(flag, true => Rc.new(_ArgTempVal(n : i32(10))), false => Rc.new(_ArgTempVal(n : i32(11)))), false => Rc.new(_ArgTempVal(n : i32(12)))));
   };
   assert(g_at_disposed == (before + i32(1)), "nested match result disposed once");
   {
-    _m := at_sink(match(flag, true => ArgTemp(n : i32(13)), false => ArgTemp(n : i32(14))));
+    _m := at_sink(match(flag, true => Rc.new(_ArgTempVal(n : i32(13))), false => Rc.new(_ArgTempVal(n : i32(14)))));
   };
   assert(g_at_disposed == (before + i32(2)), "a match moved into an own param is disposed once (by the callee)");
 });
@@ -1734,13 +1741,13 @@ test("a nested match argument and a match moved into an own parameter", {
 // canary: the caller's value must survive and be disposed exactly once.
 at_ret_nested :: (fn(flag : bool, keep : &Option(ArgTemp)) -> i32)({
   if(flag, {
-    v := at_read(match(keep, .Some(p) => p.*, .None => ArgTemp(n : i32(50))));
+    v := at_read(match(keep, .Some(p) => Rc.clone(p), .None => Rc.new(_ArgTempVal(n : i32(50)))));
     return(v);
   });
   i32(-1)
 });
 at_ret_top :: (fn(keep : &Option(ArgTemp)) -> i32)({
-  v := at_read(cond(keep.is_some() => keep.unwrap(), true => ArgTemp(n : i32(51))));
+  v := at_read(cond(keep.is_some() => keep.clone().unwrap(), true => Rc.new(_ArgTempVal(n : i32(51)))));
   return(v);
 });
 test("a match or cond call argument is released on an explicit return", {
@@ -1752,7 +1759,7 @@ test("a match or cond call argument is released on an explicit return", {
   };
   assert(g_at_disposed == (before + i32(2)), "each fresh argument temp is disposed once despite the early return");
   {
-    keep := ArgTemp(n : i32(52));
+    keep := Rc.new(_ArgTempVal(n : i32(52)));
     ko := Option(ArgTemp).Some(keep);
     assert(at_ret_nested(true, &ko) == i32(52), "borrowed arm (match)");
     assert(at_ret_top(&ko) == i32(52), "borrowed arm (cond)");
@@ -1845,9 +1852,10 @@ test("ref_count: copies of a value holding RC data are counted in every position
 // and the caller's own release then freed the box a second time
 // (issues/fixed/a-field-passed-to-an-own-parameter-of-a-method-call-is-not-retained.md).
 (mut(g_own_m_disposed) : i32) = i32(0);
-_OwnM :: ref(struct(tag : i32));
+_OwnMVal :: struct(tag : i32);
+_OwnM :: Rc(_OwnMVal);
 impl(
-  _OwnM,
+  _OwnMVal,
   Drop(
     drop : (fn(self : &mut Self) -> unit)({
       g_own_m_disposed = (g_own_m_disposed + i32(1));
@@ -1863,14 +1871,14 @@ impl(
 _OwnMWrap :: struct(m : _OwnM, n : i32);
 _OwnMOuter :: struct(w : _OwnMWrap);
 _own_m_plain :: (fn(sink(b) : _OwnM) -> _OwnMHolder)(_OwnMHolder(b : b));
-_own_m_param_field :: (fn(w : &_OwnMWrap) -> _OwnMHolder)(_OwnMHolder.make(w.m));
-_own_m_param :: (fn(m : &_OwnM) -> _OwnMHolder)(_OwnMHolder.make(m.*));
-_own_m_nested_field :: (fn(o : &_OwnMOuter) -> _OwnMHolder)(_OwnMHolder.make(o.w.m));
-_own_m_plain_field :: (fn(w : &_OwnMWrap) -> _OwnMHolder)(_own_m_plain(w.m));
+_own_m_param_field :: (fn(w : &_OwnMWrap) -> _OwnMHolder)(_OwnMHolder.make(Rc.clone(&w.m)));
+_own_m_param :: (fn(m : &_OwnM) -> _OwnMHolder)(_OwnMHolder.make(Rc.clone(m)));
+_own_m_nested_field :: (fn(o : &_OwnMOuter) -> _OwnMHolder)(_OwnMHolder.make(Rc.clone(&o.w.m)));
+_own_m_plain_field :: (fn(w : &_OwnMWrap) -> _OwnMHolder)(_own_m_plain(Rc.clone(&w.m)));
 test("Type.method with an own parameter retains a borrowed parameter's field", {
   before := g_own_m_disposed;
   {
-    w := _OwnMWrap(m : _OwnM(tag : i32(1)), n : i32(1));
+    w := _OwnMWrap(m : Rc.new(_OwnMVal(tag : i32(1))), n : i32(1));
     h := _own_m_param_field(&w);
     assert(ref_count(w.m) == usize(2), `the holder and the caller each hold one, got ${ref_count(w.m).to_string()}`);
     assert((h.b.tag == i32(1)) && (g_own_m_disposed == before), "still live in both");
@@ -1880,8 +1888,8 @@ test("Type.method with an own parameter retains a borrowed parameter's field", {
 test("Type.method with an own parameter retains a local's field", {
   before := g_own_m_disposed;
   {
-    out := _OwnMWrap(m : _OwnM(tag : i32(2)), n : i32(0));
-    h := _OwnMHolder.make(out.m);
+    out := _OwnMWrap(m : Rc.new(_OwnMVal(tag : i32(2))), n : i32(0));
+    h := _OwnMHolder.make(Rc.clone(&out.m));
     assert(ref_count(out.m) == usize(2), `the holder and the local each hold one, got ${ref_count(out.m).to_string()}`);
     assert(h.b.tag == i32(2), "the holder reads it");
   };
@@ -1890,10 +1898,10 @@ test("Type.method with an own parameter retains a local's field", {
 test("Type.method with an own parameter retains a nested field and a borrowed parameter", {
   before := g_own_m_disposed;
   {
-    o := _OwnMOuter(w : _OwnMWrap(m : _OwnM(tag : i32(3)), n : i32(0)));
+    o := _OwnMOuter(w : _OwnMWrap(m : Rc.new(_OwnMVal(tag : i32(3))), n : i32(0)));
     h := _own_m_nested_field(&o);
     assert(ref_count(o.w.m) == usize(2), `nested field: got ${ref_count(o.w.m).to_string()}`);
-    m := _OwnM(tag : i32(4));
+    m := Rc.new(_OwnMVal(tag : i32(4)));
     h2 := _own_m_param(&m);
     assert(ref_count(m) == usize(2), `borrowed parameter: got ${ref_count(m).to_string()}`);
     assert((h.b.tag + h2.b.tag) == i32(7), "both holders read their box");
@@ -1903,9 +1911,9 @@ test("Type.method with an own parameter retains a nested field and a borrowed pa
 test("recv.method with an own parameter retains a field argument", {
   before := g_own_m_disposed;
   {
-    w := _OwnMWrap(m : _OwnM(tag : i32(5)), n : i32(0));
-    holder := _OwnMHolder(b : _OwnM(tag : i32(6)));
-    assert(holder.adopt(w.m) == i32(5), "the callee read its copy");
+    w := _OwnMWrap(m : Rc.new(_OwnMVal(tag : i32(5))), n : i32(0));
+    holder := _OwnMHolder(b : Rc.new(_OwnMVal(tag : i32(6))));
+    assert(holder.adopt(Rc.clone(&w.m)) == i32(5), "the callee read its copy");
     assert(ref_count(w.m) == usize(1), `the callee released only its own copy, got ${ref_count(w.m).to_string()}`);
     assert(g_own_m_disposed == before, "nothing released early");
   };
@@ -1914,7 +1922,7 @@ test("recv.method with an own parameter retains a field argument", {
 test("a plain call with an own parameter still retains a field argument", {
   before := g_own_m_disposed;
   {
-    w := _OwnMWrap(m : _OwnM(tag : i32(8)), n : i32(0));
+    w := _OwnMWrap(m : Rc.new(_OwnMVal(tag : i32(8))), n : i32(0));
     h := _own_m_plain_field(&w);
     assert(ref_count(w.m) == usize(2), `got ${ref_count(w.m).to_string()}`);
     assert(h.b.tag == i32(8), "the holder reads it");
@@ -2021,9 +2029,10 @@ test("ref_count is a reserved builtin name", {
 // A payload the newtype takes over (a fresh local, a call result, a
 // constructor) must still gain no extra reference.
 (mut(g_nt_disposed) : i32) = i32(0);
-_NtBox :: ref(struct(tag : i32));
+_NtBoxVal :: struct(tag : i32);
+_NtBox :: Rc(_NtBoxVal);
 impl(
-  _NtBox,
+  _NtBoxVal,
   Drop(
     drop : (fn(self : &mut Self) -> unit)({
       g_nt_disposed = (g_nt_disposed + i32(1));
@@ -2037,28 +2046,28 @@ _NtPair :: newtype(p : Tuple(_NtBox, i32));
 _NtHolder :: struct(v : _NtV);
 impl(
   _NtV,
-  from_field : (fn(self : &mut Self) -> Self)(Self(b : self.b)),
-  from_field_val : (fn(self : &Self) -> Self)(Self(b : self.b)),
+  from_field : (fn(self : &mut Self) -> Self)(Self(b : Rc.clone(&self.b))),
+  from_field_val : (fn(self : &Self) -> Self)(Self(b : Rc.clone(&self.b))),
   from_local : (fn(self : &mut Self) -> Self)({
-    x := self.b;
+    x := Rc.clone(&self.b);
     Self(b : x)
   })
 );
-impl(_NtOpt, from_field : (fn(self : &mut Self) -> Self)(Self(b : self.b)));
-impl(_NtW, from_field : (fn(self : &mut Self) -> Self)(Self(v : self.v)));
-impl(_NtPair, from_field : (fn(self : &mut Self) -> Self)(Self(p : self.p)));
-_nt_from_param :: (fn(b : &_NtBox) -> _NtV)(_NtV(b : b.*));
+impl(_NtOpt, from_field : (fn(self : &mut Self) -> Self)(Self(b : self.b.clone())));
+impl(_NtW, from_field : (fn(self : &mut Self) -> Self)(Self(v : _NtV(b : Rc.clone(&self.v.b)))));
+impl(_NtPair, from_field : (fn(self : &mut Self) -> Self)(Self(p : (Rc.clone(&self.p.0), self.p.1))));
+_nt_from_param :: (fn(b : &_NtBox) -> _NtV)(_NtV(b : Rc.clone(b)));
 _nt_from_fresh :: (fn(tag : i32) -> _NtV)({
-  b := _NtBox(tag : tag);
+  b := Rc.new(_NtBoxVal(tag : tag));
   _NtV(b : b)
 });
-_nt_mk :: (fn(tag : i32) -> _NtBox)(_NtBox(tag : tag));
+_nt_mk :: (fn(tag : i32) -> _NtBox)(Rc.new(_NtBoxVal(tag : tag)));
 _nt_from_call :: (fn(tag : i32) -> _NtV)(_NtV(b : _nt_mk(tag)));
-_nt_from_holder :: (fn(h : &_NtHolder) -> _NtV)(_NtV(b : h.v.b));
+_nt_from_holder :: (fn(h : &_NtHolder) -> _NtV)(_NtV(b : Rc.clone(&h.v.b)));
 test("a newtype built from a field or a live local retains its payload", {
   before := g_nt_disposed;
   {
-    mut(s) := _NtV(b : _NtBox(tag : i32(1)));
+    mut(s) := _NtV(b : Rc.new(_NtBoxVal(tag : i32(1))));
     t := s.from_field();
     assert(ref_count(s.b) == usize(2), `field projection (inout self): got ${ref_count(s.b).to_string()}`);
     u := s.from_field_val();
@@ -2072,10 +2081,10 @@ test("a newtype built from a field or a live local retains its payload", {
 test("a newtype built from a parameter or a parameter's field retains it", {
   before := g_nt_disposed;
   {
-    b := _NtBox(tag : i32(2));
+    b := Rc.new(_NtBoxVal(tag : i32(2)));
     v := _nt_from_param(&b);
     assert(ref_count(b) == usize(2), `parameter: got ${ref_count(b).to_string()}`);
-    h := _NtHolder(v : _NtV(b : _NtBox(tag : i32(3))));
+    h := _NtHolder(v : _NtV(b : Rc.new(_NtBoxVal(tag : i32(3)))));
     hv := _nt_from_holder(&h);
     assert(ref_count(h.v.b) == usize(2), `nested field of a parameter: got ${ref_count(h.v.b).to_string()}`);
     assert(((v.b.tag + hv.b.tag) == i32(5)) && (g_nt_disposed == before), "both read their box");
@@ -2089,7 +2098,7 @@ test("a newtype that takes over its payload adds no reference", {
     assert(ref_count(f.b) == usize(1), `moved fresh local: got ${ref_count(f.b).to_string()}`);
     c := _nt_from_call(i32(5));
     assert(ref_count(c.b) == usize(1), `call result: got ${ref_count(c.b).to_string()}`);
-    n := _NtV(b : _NtBox(tag : i32(6)));
+    n := _NtV(b : Rc.new(_NtBoxVal(tag : i32(6))));
     assert(ref_count(n.b) == usize(1), `constructor argument: got ${ref_count(n.b).to_string()}`);
   };
   assert(g_nt_disposed == (before + i32(3)), `each box released exactly once, got ${(g_nt_disposed - before).to_string()}`);
@@ -2097,16 +2106,16 @@ test("a newtype that takes over its payload adds no reference", {
 test("a newtype over an Option, a newtype or a tuple retains a field payload", {
   before := g_nt_disposed;
   {
-    mut(o) := _NtOpt(b : .Some(_NtBox(tag : i32(7))));
+    mut(o) := _NtOpt(b : .Some(Rc.new(_NtBoxVal(tag : i32(7)))));
     o2 := o.from_field();
-    assert(match(o.b, .Some(x) => (ref_count(x) == usize(2)), .None => false), "Option payload shared by both");
-    mut(n) := _NtW(v : _NtV(b : _NtBox(tag : i32(8))));
+    assert(match(&o.b, .Some(x) => (ref_count(x.*) == usize(2)), .None => false), "Option payload shared by both");
+    mut(n) := _NtW(v : _NtV(b : Rc.new(_NtBoxVal(tag : i32(8)))));
     n2 := n.from_field();
     assert(ref_count(n.v.b) == usize(2), `nested newtype: got ${ref_count(n.v.b).to_string()}`);
-    mut(p) := _NtPair(p : (_NtBox(tag : i32(9)), i32(0)));
+    mut(p) := _NtPair(p : (Rc.new(_NtBoxVal(tag : i32(9))), i32(0)));
     p2 := p.from_field();
     assert(ref_count(p.p.0) == usize(2), `tuple payload: got ${ref_count(p.p.0).to_string()}`);
-    o2_tag := match(o2.b, .Some(x) => x.tag, .None => i32(0));
+    o2_tag := match(&o2.b, .Some(x) => x.tag, .None => i32(0));
     assert((o2_tag + n2.v.b.tag + p2.p.0.tag) == i32(24), "every copy reads its box");
   };
   assert(g_nt_disposed == (before + i32(3)), `each box released exactly once, got ${(g_nt_disposed - before).to_string()}`);
@@ -2123,9 +2132,10 @@ test("a newtype over an Option, a newtype or a tuple retains a field payload", {
 // freed (48 B / 2 allocations per instance under LSan). The tuple literal now
 // gets an owning temp, so its scope-end drop releases the fields.
 (mut(g_tuple_elem_disposed) : i32) = i32(0);
-TupleElemHandle :: ref(struct(tag : i32));
+_TupleElemHandleVal :: struct(tag : i32);
+TupleElemHandle :: Rc(_TupleElemHandleVal);
 impl(
-  TupleElemHandle,
+  _TupleElemHandleVal,
   Drop(
     drop : (fn(self : &mut Self) -> unit)({
       g_tuple_elem_disposed = (g_tuple_elem_disposed + i32(1));
@@ -2136,7 +2146,7 @@ test("a local moved into a tuple argument of a call is disposed exactly once", {
   before := g_tuple_elem_disposed;
   {
     mut(ys) := ArrayList(Tuple(i32, TupleElemHandle)).new();
-    inner := TupleElemHandle(tag : i32(1));
+    inner := Rc.new(_TupleElemHandleVal(tag : i32(1)));
     ys.push((i32(0), inner));
     // Over-drop canary: the read after the push must still see the object.
     assert(ys(usize(0)).1.tag == i32(1), "the pushed handle is readable after the push");
@@ -2151,7 +2161,7 @@ test("a fresh constructor inside a tuple argument is disposed exactly once", {
   before := g_tuple_elem_disposed;
   {
     mut(ys) := ArrayList(Tuple(i32, TupleElemHandle)).new();
-    ys.push((i32(0), TupleElemHandle(tag : i32(2))));
+    ys.push((i32(0), Rc.new(_TupleElemHandleVal(tag : i32(2)))));
     assert(ys(usize(0)).1.tag == i32(2), "the fresh handle is stored");
   };
   assert(
@@ -2163,8 +2173,8 @@ test("one local pushed in two tuple arguments is disposed exactly once", {
   before := g_tuple_elem_disposed;
   {
     mut(ys) := ArrayList(Tuple(i32, TupleElemHandle)).new();
-    shared := TupleElemHandle(tag : i32(3));
-    ys.push((i32(0), shared));
+    shared := Rc.new(_TupleElemHandleVal(tag : i32(3)));
+    ys.push((i32(0), Rc.clone(&shared)));
     ys.push((i32(1), shared));
     // Over-drop canary: both elements still read the live object.
     assert((ys(usize(0)).1.tag == i32(3)) && (ys(usize(1)).1.tag == i32(3)), "both elements see the shared object");
@@ -2178,7 +2188,7 @@ test("a tuple argument nested inside another tuple argument is disposed exactly 
   before := g_tuple_elem_disposed;
   {
     mut(ys) := ArrayList(Tuple(Tuple(i32, i32), TupleElemHandle)).new();
-    inner := TupleElemHandle(tag : i32(4));
+    inner := Rc.new(_TupleElemHandleVal(tag : i32(4)));
     ys.push(((i32(0), i32(1)), inner));
     assert(ys(usize(0)).1.tag == i32(4), "the nested tuple's handle is stored");
   };
@@ -2195,9 +2205,9 @@ test("a named tuple binding pushed into a container is disposed exactly once", {
   before := g_tuple_elem_disposed;
   {
     mut(ys) := ArrayList(Tuple(i32, TupleElemHandle)).new();
-    inner := TupleElemHandle(tag : i32(5));
+    inner := Rc.new(_TupleElemHandleVal(tag : i32(5)));
     p := (i32(0), inner);
-    ys.push(p);
+    ys.push((p.0, Rc.clone(&p.1)));
     assert(p.1.tag == i32(5), "the named tuple is readable after the push");
   };
   assert(
@@ -2477,7 +2487,7 @@ test("Rc(T) with a Drop payload drops it once, with the last handle", {
 // the call's result exactly once
 // (issues/fixed/rc-value-copied-address-taken-and-returned-is-double-dropped.md).
 (mut(g_rt_disposed) : i32) = i32(0);
-_RtBox :: ref(struct(tag : i32));
+_RtBox :: struct(tag : i32);
 impl(
   _RtBox,
   Drop(
@@ -2608,26 +2618,27 @@ test("Rc.make_mut needs a Clone payload, as Rust's does", {
 // Drop deltas pin "exactly once, at the consume": a missing release counts 0,
 // a release on top of a surviving scope-end drop counts 2.
 (mut(g_consume_disposed) : i32) = i32(0);
-_ConsumeBox :: ref(struct(tag : i32));
+_ConsumeBoxVal :: struct(tag : i32);
+_ConsumeBox :: Rc(_ConsumeBoxVal);
 impl(
-  _ConsumeBox,
+  _ConsumeBoxVal,
   Drop(
     drop : (fn(self : &mut Self) -> unit)({
       g_consume_disposed = (g_consume_disposed + i32(1));
     })
   )
 );
-_consume_make :: (fn(t : i32) -> _ConsumeBox)(_ConsumeBox(tag : t));
+_consume_make :: (fn(t : i32) -> _ConsumeBox)(Rc.new(_ConsumeBoxVal(tag : t)));
 _consume_param :: (fn(b : _ConsumeBox) -> unit)({
   consume(b);
 });
 _consume_borrow :: (fn(b : &_ConsumeBox) -> unit)({
-  consume(b.*);
+  consume(Rc.clone(b));
 });
 test("consume of an owned local releases it at the consume", {
   before := g_consume_disposed;
   {
-    s := _ConsumeBox(tag : i32(1));
+    s := Rc.new(_ConsumeBoxVal(tag : i32(1)));
     assert(s.tag == i32(1), "the local is live before the consume");
     consume(s);
     assert(g_consume_disposed == (before + i32(1)), "released at the consume, not at scope end");
@@ -2644,8 +2655,8 @@ test("consume of a call result releases the result", {
 test("consume of an alias releases only the alias's count", {
   before := g_consume_disposed;
   {
-    a := _ConsumeBox(tag : i32(3));
-    b := a;
+    a := Rc.new(_ConsumeBoxVal(tag : i32(3)));
+    b := Rc.clone(&a);
     consume(b);
     assert(g_consume_disposed == before, "the original still holds the object");
     assert(a.tag == i32(3), "and still reads it");
@@ -2657,7 +2668,7 @@ test("consume in one cond arm releases the local once on either path", {
   while(i < i32(2), {
     before := g_consume_disposed;
     {
-      s := _ConsumeBox(tag : i);
+      s := Rc.new(_ConsumeBoxVal(tag : i));
       cond(
         (s.tag == i32(0)) => consume(s),
         true => ()
@@ -2670,8 +2681,8 @@ test("consume in one cond arm releases the local once on either path", {
 test("consume of an owned parameter releases only the callee's count", {
   before := g_consume_disposed;
   {
-    s := _ConsumeBox(tag : i32(4));
-    _consume_param(s);
+    s := Rc.new(_ConsumeBoxVal(tag : i32(4)));
+    _consume_param(Rc.clone(&s));
     assert(s.tag == i32(4), "the caller's value survives the callee's consume");
   };
   assert(g_consume_disposed == (before + i32(1)), `released exactly once, got ${(g_consume_disposed - before).to_string()}`);
@@ -2679,7 +2690,7 @@ test("consume of an owned parameter releases only the callee's count", {
 test("consume of a borrow releases nothing", {
   before := g_consume_disposed;
   {
-    s := _ConsumeBox(tag : i32(5));
+    s := Rc.new(_ConsumeBoxVal(tag : i32(5)));
     _consume_borrow(&s);
     assert(g_consume_disposed == before, "the borrow's consume left the value alone");
     assert(s.tag == i32(5), "and the owner still reads it");
@@ -2689,13 +2700,13 @@ test("consume of a borrow releases nothing", {
 // An exit after the consume must not release the value again, and an exit
 // before it must still release it: exactly one release on every path.
 _consume_then_exit :: (fn(flag : bool) -> i32)({
-  s := _ConsumeBox(tag : i32(6));
+  s := Rc.new(_ConsumeBoxVal(tag : i32(6)));
   consume(s);
   cond(flag => return(i32(1)), true => ());
   i32(2)
 });
 _exit_then_consume :: (fn(flag : bool) -> i32)({
-  s := _ConsumeBox(tag : i32(7));
+  s := Rc.new(_ConsumeBoxVal(tag : i32(7)));
   cond(flag => return(i32(1)), true => ());
   consume(s);
   i32(2)
@@ -3435,9 +3446,10 @@ test("an exit inside a later argument or its closure keeps the receiver's share"
 // (a value type with `Drop`) under N wrapper levels and checks it is
 // dropped exactly once when the scope ends.
 (mut(g_deep_drops) : i32) = i32(0);
-_DeepTracked :: ref(struct(v : i32));
+_DeepTrackedVal :: struct(v : i32);
+_DeepTracked :: Rc(_DeepTrackedVal);
 impl(
-  _DeepTracked,
+  _DeepTrackedVal,
   Drop(
     drop : (fn(self : &mut Self) -> unit)({
       g_deep_drops = (g_deep_drops + self.v);
@@ -3550,42 +3562,42 @@ _DeepG11 :: struct(f : _DeepGList(_DeepTracked));
 test("a ref with Drop nested 9 struct levels deep is dropped once", {
   before := g_deep_drops;
   {
-    deep := _DeepS31(f : _DeepS32(f : _DeepS33(f : _DeepS34(f : _DeepS35(f : _DeepS36(f : _DeepS37(f : _DeepS38(f : _DeepS39(f : _DeepTracked(v : i32(9)))))))))));
+    deep := _DeepS31(f : _DeepS32(f : _DeepS33(f : _DeepS34(f : _DeepS35(f : _DeepS36(f : _DeepS37(f : _DeepS38(f : _DeepS39(f : Rc.new(_DeepTrackedVal(v : i32(9))))))))))));
   };
   assert(g_deep_drops == (before + i32(9)), `dropped once, got ${(g_deep_drops - before).to_string()}`);
 });
 test("a ref with Drop nested 16 struct levels deep is dropped once", {
   before := g_deep_drops;
   {
-    deep := _DeepS24(f : _DeepS25(f : _DeepS26(f : _DeepS27(f : _DeepS28(f : _DeepS29(f : _DeepS30(f : _DeepS31(f : _DeepS32(f : _DeepS33(f : _DeepS34(f : _DeepS35(f : _DeepS36(f : _DeepS37(f : _DeepS38(f : _DeepS39(f : _DeepTracked(v : i32(16))))))))))))))))));
+    deep := _DeepS24(f : _DeepS25(f : _DeepS26(f : _DeepS27(f : _DeepS28(f : _DeepS29(f : _DeepS30(f : _DeepS31(f : _DeepS32(f : _DeepS33(f : _DeepS34(f : _DeepS35(f : _DeepS36(f : _DeepS37(f : _DeepS38(f : _DeepS39(f : Rc.new(_DeepTrackedVal(v : i32(16)))))))))))))))))));
   };
   assert(g_deep_drops == (before + i32(16)), `dropped once, got ${(g_deep_drops - before).to_string()}`);
 });
 test("a ref with Drop nested 40 struct levels deep is dropped once", {
   before := g_deep_drops;
   {
-    deep := _DeepS0(f : _DeepS1(f : _DeepS2(f : _DeepS3(f : _DeepS4(f : _DeepS5(f : _DeepS6(f : _DeepS7(f : _DeepS8(f : _DeepS9(f : _DeepS10(f : _DeepS11(f : _DeepS12(f : _DeepS13(f : _DeepS14(f : _DeepS15(f : _DeepS16(f : _DeepS17(f : _DeepS18(f : _DeepS19(f : _DeepS20(f : _DeepS21(f : _DeepS22(f : _DeepS23(f : _DeepS24(f : _DeepS25(f : _DeepS26(f : _DeepS27(f : _DeepS28(f : _DeepS29(f : _DeepS30(f : _DeepS31(f : _DeepS32(f : _DeepS33(f : _DeepS34(f : _DeepS35(f : _DeepS36(f : _DeepS37(f : _DeepS38(f : _DeepS39(f : _DeepTracked(v : i32(40))))))))))))))))))))))))))))))))))))))))));
+    deep := _DeepS0(f : _DeepS1(f : _DeepS2(f : _DeepS3(f : _DeepS4(f : _DeepS5(f : _DeepS6(f : _DeepS7(f : _DeepS8(f : _DeepS9(f : _DeepS10(f : _DeepS11(f : _DeepS12(f : _DeepS13(f : _DeepS14(f : _DeepS15(f : _DeepS16(f : _DeepS17(f : _DeepS18(f : _DeepS19(f : _DeepS20(f : _DeepS21(f : _DeepS22(f : _DeepS23(f : _DeepS24(f : _DeepS25(f : _DeepS26(f : _DeepS27(f : _DeepS28(f : _DeepS29(f : _DeepS30(f : _DeepS31(f : _DeepS32(f : _DeepS33(f : _DeepS34(f : _DeepS35(f : _DeepS36(f : _DeepS37(f : _DeepS38(f : _DeepS39(f : Rc.new(_DeepTrackedVal(v : i32(40)))))))))))))))))))))))))))))))))))))))))));
   };
   assert(g_deep_drops == (before + i32(40)), `dropped once, got ${(g_deep_drops - before).to_string()}`);
 });
 test("a ref with Drop nested 9 enum levels deep is dropped once", {
   before := g_deep_drops;
   {
-    deep := _DeepE7.A(f : _DeepE8.A(f : _DeepE9.A(f : _DeepE10.A(f : _DeepE11.A(f : _DeepE12.A(f : _DeepE13.A(f : _DeepE14.A(f : _DeepE15.A(f : _DeepTracked(v : i32(9)))))))))));
+    deep := _DeepE7.A(f : _DeepE8.A(f : _DeepE9.A(f : _DeepE10.A(f : _DeepE11.A(f : _DeepE12.A(f : _DeepE13.A(f : _DeepE14.A(f : _DeepE15.A(f : Rc.new(_DeepTrackedVal(v : i32(9))))))))))));
   };
   assert(g_deep_drops == (before + i32(9)), `dropped once, got ${(g_deep_drops - before).to_string()}`);
 });
 test("a ref with Drop nested 16 enum levels deep is dropped once", {
   before := g_deep_drops;
   {
-    deep := _DeepE0.A(f : _DeepE1.A(f : _DeepE2.A(f : _DeepE3.A(f : _DeepE4.A(f : _DeepE5.A(f : _DeepE6.A(f : _DeepE7.A(f : _DeepE8.A(f : _DeepE9.A(f : _DeepE10.A(f : _DeepE11.A(f : _DeepE12.A(f : _DeepE13.A(f : _DeepE14.A(f : _DeepE15.A(f : _DeepTracked(v : i32(16))))))))))))))))));
+    deep := _DeepE0.A(f : _DeepE1.A(f : _DeepE2.A(f : _DeepE3.A(f : _DeepE4.A(f : _DeepE5.A(f : _DeepE6.A(f : _DeepE7.A(f : _DeepE8.A(f : _DeepE9.A(f : _DeepE10.A(f : _DeepE11.A(f : _DeepE12.A(f : _DeepE13.A(f : _DeepE14.A(f : _DeepE15.A(f : Rc.new(_DeepTrackedVal(v : i32(16)))))))))))))))))));
   };
   assert(g_deep_drops == (before + i32(16)), `dropped once, got ${(g_deep_drops - before).to_string()}`);
 });
 test("a ref with Drop nested 10 Option levels deep is dropped once", {
   before := g_deep_drops;
   {
-    deep := Option(Option(Option(Option(Option(Option(Option(Option(Option(Option(_DeepTracked)))))))))).Some(Option(Option(Option(Option(Option(Option(Option(Option(Option(_DeepTracked))))))))).Some(Option(Option(Option(Option(Option(Option(Option(Option(_DeepTracked)))))))).Some(Option(Option(Option(Option(Option(Option(Option(_DeepTracked))))))).Some(Option(Option(Option(Option(Option(Option(_DeepTracked)))))).Some(Option(Option(Option(Option(Option(_DeepTracked))))).Some(Option(Option(Option(Option(_DeepTracked)))).Some(Option(Option(Option(_DeepTracked))).Some(Option(Option(_DeepTracked)).Some(Option(_DeepTracked).Some(_DeepTracked(v : i32(10))))))))))));
+    deep := Option(Option(Option(Option(Option(Option(Option(Option(Option(Option(_DeepTracked)))))))))).Some(Option(Option(Option(Option(Option(Option(Option(Option(Option(_DeepTracked))))))))).Some(Option(Option(Option(Option(Option(Option(Option(Option(_DeepTracked)))))))).Some(Option(Option(Option(Option(Option(Option(Option(_DeepTracked))))))).Some(Option(Option(Option(Option(Option(Option(_DeepTracked)))))).Some(Option(Option(Option(Option(Option(_DeepTracked))))).Some(Option(Option(Option(Option(_DeepTracked)))).Some(Option(Option(Option(_DeepTracked))).Some(Option(Option(_DeepTracked)).Some(Option(_DeepTracked).Some(Rc.new(_DeepTrackedVal(v : i32(10)))))))))))));
   };
   assert(g_deep_drops == (before + i32(10)), `dropped once, got ${(g_deep_drops - before).to_string()}`);
 });
@@ -3599,28 +3611,33 @@ test("a value type with Drop nested 12 struct levels deep is dropped once", {
 test("a ref with Drop nested 9 tuple levels deep is dropped once", {
   before := g_deep_drops;
   {
-    deep := (((((((((_DeepTracked(v : i32(9)), i32(0)), i32(1)), i32(2)), i32(3)), i32(4)), i32(5)), i32(6)), i32(7)), i32(8));
+    deep := (((((((((Rc.new(_DeepTrackedVal(v : i32(9))), i32(0)), i32(1)), i32(2)), i32(3)), i32(4)), i32(5)), i32(6)), i32(7)), i32(8));
   };
   assert(g_deep_drops == (before + i32(9)), `dropped once, got ${(g_deep_drops - before).to_string()}`);
 });
 test("a ref with Drop nested 40 struct and tuple levels deep is dropped once", {
   before := g_deep_drops;
   {
-    deep := ((((((((((((_DeepS12(f : _DeepS13(f : _DeepS14(f : _DeepS15(f : _DeepS16(f : _DeepS17(f : _DeepS18(f : _DeepS19(f : _DeepS20(f : _DeepS21(f : _DeepS22(f : _DeepS23(f : _DeepS24(f : _DeepS25(f : _DeepS26(f : _DeepS27(f : _DeepS28(f : _DeepS29(f : _DeepS30(f : _DeepS31(f : _DeepS32(f : _DeepS33(f : _DeepS34(f : _DeepS35(f : _DeepS36(f : _DeepS37(f : _DeepS38(f : _DeepS39(f : _DeepTracked(v : i32(40)))))))))))))))))))))))))))))), i32(0)), i32(1)), i32(2)), i32(3)), i32(4)), i32(5)), i32(6)), i32(7)), i32(8)), i32(9)), i32(10)), i32(11));
+    // The cell is bound first: a tuple literal whose element is a struct
+    // literal holding a call emits invalid C
+    // (issues/2026-10-20-an-array-or-tuple-literal-whose-element-holds-a-runtime-field-emits-invalid-c.md);
+    // its fix writes `Rc.new(...)` inline again.
+    cell := Rc.new(_DeepTrackedVal(v : i32(40)));
+    deep := ((((((((((((_DeepS12(f : _DeepS13(f : _DeepS14(f : _DeepS15(f : _DeepS16(f : _DeepS17(f : _DeepS18(f : _DeepS19(f : _DeepS20(f : _DeepS21(f : _DeepS22(f : _DeepS23(f : _DeepS24(f : _DeepS25(f : _DeepS26(f : _DeepS27(f : _DeepS28(f : _DeepS29(f : _DeepS30(f : _DeepS31(f : _DeepS32(f : _DeepS33(f : _DeepS34(f : _DeepS35(f : _DeepS36(f : _DeepS37(f : _DeepS38(f : _DeepS39(f : cell)))))))))))))))))))))))))))), i32(0)), i32(1)), i32(2)), i32(3)), i32(4)), i32(5)), i32(6)), i32(7)), i32(8)), i32(9)), i32(10)), i32(11));
   };
   assert(g_deep_drops == (before + i32(40)), `dropped once, got ${(g_deep_drops - before).to_string()}`);
 });
 test("a recursive enum held 12 struct levels deep drops every node once", {
   before := g_deep_drops;
   {
-    deep := _DeepR0(f : _DeepR1(f : _DeepR2(f : _DeepR3(f : _DeepR4(f : _DeepR5(f : _DeepR6(f : _DeepR7(f : _DeepR8(f : _DeepR9(f : _DeepR10(f : _DeepR11(f : _DeepList.Cons(h : _DeepTracked(v : i32(1)), t : Box.new(_DeepList.Cons(h : _DeepTracked(v : i32(2)), t : Box.new(_DeepList.Nil))))))))))))))));
+    deep := _DeepR0(f : _DeepR1(f : _DeepR2(f : _DeepR3(f : _DeepR4(f : _DeepR5(f : _DeepR6(f : _DeepR7(f : _DeepR8(f : _DeepR9(f : _DeepR10(f : _DeepR11(f : _DeepList.Cons(h : Rc.new(_DeepTrackedVal(v : i32(1))), t : Box.new(_DeepList.Cons(h : Rc.new(_DeepTrackedVal(v : i32(2))), t : Box.new(_DeepList.Nil))))))))))))))));
   };
   assert(g_deep_drops == (before + i32(3)), `dropped once, got ${(g_deep_drops - before).to_string()}`);
 });
 test("a generic recursive enum held 12 struct levels deep drops every node once", {
   before := g_deep_drops;
   {
-    deep := _DeepG0(f : _DeepG1(f : _DeepG2(f : _DeepG3(f : _DeepG4(f : _DeepG5(f : _DeepG6(f : _DeepG7(f : _DeepG8(f : _DeepG9(f : _DeepG10(f : _DeepG11(f : _DeepGList(_DeepTracked).Cons(h : _DeepTracked(v : i32(4)), t : Box.new(_DeepGList(_DeepTracked).Cons(h : _DeepTracked(v : i32(5)), t : Box.new(_DeepGList(_DeepTracked).Nil))))))))))))))));
+    deep := _DeepG0(f : _DeepG1(f : _DeepG2(f : _DeepG3(f : _DeepG4(f : _DeepG5(f : _DeepG6(f : _DeepG7(f : _DeepG8(f : _DeepG9(f : _DeepG10(f : _DeepG11(f : _DeepGList(_DeepTracked).Cons(h : Rc.new(_DeepTrackedVal(v : i32(4))), t : Box.new(_DeepGList(_DeepTracked).Cons(h : Rc.new(_DeepTrackedVal(v : i32(5))), t : Box.new(_DeepGList(_DeepTracked).Nil))))))))))))))));
   };
   assert(g_deep_drops == (before + i32(9)), `dropped once, got ${(g_deep_drops - before).to_string()}`);
 });

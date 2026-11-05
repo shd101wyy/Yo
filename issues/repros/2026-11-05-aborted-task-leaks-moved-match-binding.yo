@@ -1,0 +1,53 @@
+// An aborted task leaks a value moved into a `match` binding across an await.
+// Expected output: "aborted: 1" and "completed: 1". Develop 68b45b81d prints
+// "aborted: 0" (issues/2026-11-05-an-aborted-task-leaks-a-value-moved-into-a-match-binding-across-an-await.md).
+{ println } :: import("std/fmt");
+{ yield } :: import("std/async");
+(mut(g_disposed) : i32) = i32(0);
+V :: struct(n : i32);
+impl(
+  V,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_disposed = (g_disposed + i32(1));
+    })
+  )
+);
+_task :: (fn(io : Io) -> Impl(Future(i32, Io)))(
+  io.async((io : Io) => {
+    o := Option(V).Some(V(n : i32(5)));
+    match(
+      o,
+      .Some(q) => {
+        io.await(yield(io), io);
+        q.n
+      },
+      .None => i32(0)
+    )
+  })
+);
+_settle :: (fn(io : Io) -> unit)({
+  (mut(spins) : i32) = i32(0);
+  while(spins < i32(100), {
+    io.await(yield(io), io);
+    spins = (spins + i32(1));
+  });
+});
+main :: (fn(io : Io) -> unit)({
+  {
+    h := io.spawn(_task(io), io);
+    h.abort();
+    _r := h.await(io);
+  };
+  _settle(io);
+  aborted := g_disposed;
+  println(`aborted: ${aborted}`);
+  g_disposed = i32(0);
+  {
+    _r := io.await(_task(io), io);
+  };
+  _settle(io);
+  completed := g_disposed;
+  println(`completed: ${completed}`);
+});
+export(main);

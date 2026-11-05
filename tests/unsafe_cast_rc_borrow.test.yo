@@ -7,37 +7,48 @@ pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { Thread } :: import("std/thread");
+{ RefCell } :: import("std/sync/refcell");
 Ev :: struct(name : String, kind : i32);
-W :: ref(struct(q : ArrayList(Ev), active : bool, hits : i32));
+// The object is shared (the callbacks and a holder reach it), so it is an
+// `Rc(RefCell(...))` handle; the cast round-trips the handle.
+WState :: struct(q : ArrayList(Ev), active : bool, hits : i32);
+W :: Rc(RefCell(WState));
+_new_w :: (fn() -> W)(Rc.new(RefCell(WState).new(WState(q : ArrayList(Ev).new(), active : true, hits : i32(0)))));
+_hits :: (fn(w : &W) -> i32)(w.with(s => s.hits));
 // A callback-shaped function: the object arrives as an opaque pointer.
 bump_through_cast :: (fn(ud : *u8) -> unit)({
-  w := unsafe.cast(&ud, W);
-  if(w.active, {
-    w.q.push(Ev(name : String.from("x"), kind : i32(2)));
-    w.hits = (w.hits + i32(1));
+  // The cast is a borrowed view: it is used in place, never bound as an owner.
+  unsafe.cast(&ud, W).with_mut(s => {
+    if(s.active, {
+      s.q.push(Ev(name : String.from("x"), kind : i32(2)));
+      s.hits = (s.hits + i32(1));
+    });
   });
 });
 // Round trip through the opaque pointer and hand the handle back.
-identity_through_cast :: (fn(ud : *u8) -> W)(unsafe.cast(&ud, W));
+// The returned handle is the callee's own `Rc.clone` of the borrowed view.
+identity_through_cast :: (fn(ud : *u8) -> W)(Rc.clone(&unsafe.cast(&ud, W)));
 test("the caller's object survives a casting callee", {
-  w := W(q : ArrayList(Ev).new(), active : true, hits : i32(0));
+  w := _new_w();
   bump_through_cast(unsafe.cast(&w, *u8));
   bump_through_cast(unsafe.cast(&w, *u8));
   bump_through_cast(unsafe.cast(&w, *u8));
-  assert(w.hits == i32(3), "three callbacks ran");
-  assert(w.q.len() == usize(3), "three events queued");
-  assert(w.q(usize(0)).name == "x", "the pushed String is intact");
+  assert(_hits(&w) == i32(3), "three callbacks ran");
+  assert(w.with(s => s.q.len()) == usize(3), "three events queued");
+  assert(w.with(s => (s.q(usize(0)).name == "x")), "the pushed String is intact");
 });
 test("a cast-derived handle stored and read later stays valid", {
-  w := W(q : ArrayList(Ev).new(), active : true, hits : i32(0));
+  w := _new_w();
   w2 := identity_through_cast(unsafe.cast(&w, *u8));
-  w2.hits = i32(7);
-  assert(w.hits == i32(7), "same object through the round trip");
+  w2.with_mut(s => {
+    s.hits = i32(7);
+  });
+  assert(_hits(&w) == i32(7), "same object through the round trip");
   mut(holder) := ArrayList(W).new();
   holder.push(w2);
   bump_through_cast(unsafe.cast(&w, *u8));
-  assert(holder(usize(0)).hits == i32(8), "the held handle sees the callback's write");
-  assert(w.q.len() == usize(1), "queue intact after the round trip");
+  assert(_hits(&holder(usize(0))) == i32(8), "the held handle sees the callback's write");
+  assert(w.with(s => s.q.len()) == usize(1), "queue intact after the round trip");
 });
 // P-18 (plans/archive/PARALLELISM_SOUNDNESS.md Phase 6): a user `Index` impl on an
 // object, reached through an interior `inout` argument. The caller takes the
@@ -59,7 +70,7 @@ impl(
     index_mut : (fn(self : &mut Self, idx : usize) -> &mut Self.Output)(__yo_array_index(addr_of(self.items), idx))
   )
 );
-_PlainCell :: ref(struct(items : Array(i32, 4)));
+_PlainCell :: struct(items : Array(i32, 4));
 impl(
   _PlainCell,
   Index(usize)(
@@ -78,8 +89,8 @@ _read_through :: (fn(x : &mut i32) -> i32)(x.*);
 test("a user Index impl reached through an interior inout argument does not trip its own caller's borrow", {
   c := _BorrowCell(items : Array(i32, 4)(i32(1), i32(2), i32(3), i32(4)));
   assert(_read_through(&mut c(usize(1))) == i32(2), "atomic object");
-  p := _PlainCell(items : Array(i32, 4)(i32(5), i32(6), i32(7), i32(8)));
-  assert(_read_through(&mut p(usize(2))) == i32(7), "plain ref object");
+  mut(p) := _PlainCell(items : Array(i32, 4)(i32(5), i32(6), i32(7), i32(8)));
+  assert(_read_through(&mut p(usize(2))) == i32(7), "plain value struct");
 });
 // ...and on an ATOMIC object the borrow counter is shared by every thread that
 // takes an interior reference into it at once: atomic, or a lost update leaves

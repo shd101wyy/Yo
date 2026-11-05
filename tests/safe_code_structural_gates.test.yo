@@ -107,12 +107,12 @@ comptime_expect_error({
 // A manual impl(T, Acyclic()) is rejected: the marker is derived from the
 // type's structure (decision 48 W6b, plans/backlog/WEAK_AND_UNCOLLECTED_RC.md
 // §4), and a negative impl still opts a type out.
-PlainAcyclicNode :: ref(struct(value : i32, next : Option(Self)));
+PlainAcyclicNode :: struct(value : i32, next : Option(Rc(Self)));
 comptime_expect_error(impl(PlainAcyclicNode, Acyclic()), "never implemented by hand");
 PlainLeaf :: struct(value : i32);
 impl(PlainLeaf, !Acyclic);
 test("Acyclic is derived, never declared", {
-  comptime_assert(!Type.impls(PlainAcyclicNode, Acyclic), "a self-referential ref struct is not Acyclic");
+  comptime_assert(!Type.impls(PlainAcyclicNode, Acyclic), "a struct that can reach itself through an Rc is not Acyclic");
   comptime_assert(!Type.impls(PlainLeaf, Acyclic), "a negative impl opts a type out");
 });
 
