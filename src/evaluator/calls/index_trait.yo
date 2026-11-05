@@ -1007,6 +1007,7 @@ _try_comptime_string_index :: (
 });
 /// A named local that `e` moved, and the token it moved at.
 _MovedLocal :: struct(variable : Variable, at : Token);
+derive(_MovedLocal, Clone);
 /// Every identifier token in `e`.
 _atom_tokens_of :: (fn(e : &AstExpr, out : &mut ArrayList(Token)) -> unit)(
   match(
@@ -1059,7 +1060,7 @@ _locals_moved_inside :: (fn(e : &AstExpr, env : &Environment) -> ArrayList(_Move
             (j : usize) = usize(0);
             while(j < out.len(), j = (j + usize(1)), {
               match(
-                out.get(j),
+                out.get_cloned(j),
                 .Some(o) => if(o.variable.id() == v.id(), {
                   seen = true;
                 }),
@@ -1137,7 +1138,7 @@ _specialize_index_method :: (
   (mi : usize) = usize(0);
   while(mi < moved.len(), mi = (mi + usize(1)), {
     match(
-      moved.get(mi),
+      moved.get_cloned(mi),
       .Some(m) => {
         m.variable.set_consumed_at_token(Option(Token).None);
       },
