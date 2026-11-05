@@ -719,7 +719,7 @@ _collect_types_from_node :: (fn(expr : &AstExpr, context : &CodeGenContext, info
 /// Collect all user-defined types reachable from a module value: from each
 /// exported function's body, from module-level non-function fields, and then
 /// (fixpoint) from every function discovered along the way.
-collect_required_types :: (fn(module_value : &EvalValue, context : &CodeGenContext, info : &ExprInfoTable) -> unit)({
+collect_required_types :: (fn(module_value : &EvalValue, context : &CodeGenContext, info : &ExprInfoTable, processed : &mut HashSet(String)) -> unit)({
   match(
     module_value,
     .StructVal(_, _, field_values) => {
@@ -767,9 +767,19 @@ collect_required_types :: (fn(module_value : &EvalValue, context : &CodeGenConte
     );
     mli = (mli + usize(1));
   });
+  collect_types_of_registered_functions(context, info, processed);
+});
+/// Collect the types (signature and body) of every registered function not
+/// yet in `processed`, to a fixpoint: a body walk registers the functions it
+/// reaches (the closures it constructs among them), whose types are walked in
+/// turn. `collect_required_types` runs it over the export walk's functions;
+/// codegen_c runs it again over the functions the dispose synthesis registers
+/// afterwards (a `Drop` body and every function only it reaches), so a
+/// closure built only there is registered too
+/// (issues/fixed/2026-11-05-a-closure-reached-only-through-a-drop-impl-is-an-internal-compiler-error.md).
+collect_types_of_registered_functions :: (fn(context : &CodeGenContext, info : &ExprInfoTable, processed : &mut HashSet(String)) -> unit)({
   // Fixpoint: keep collecting from newly-discovered functions until none are
   // new. Snapshot the keys each pass (the registry grows during collection).
-  processed := HashSet(String).new();
   (found_new : bool) = true;
   while(found_new, {
     found_new = false;
@@ -805,4 +815,4 @@ collect_required_types :: (fn(module_value : &EvalValue, context : &CodeGenConte
 register_collect_type :: (fn() -> unit)(
   set_collect_type_fn(collect_type)
 );
-export(collect_type, collect_types_from_function_type, collect_types_from_expr, collect_required_types, collect_pointer_pointees, register_collect_type, _has_comptime_only_runtime_field);
+export(collect_type, collect_types_from_function_type, collect_types_from_expr, collect_required_types, collect_types_of_registered_functions, collect_pointer_pointees, register_collect_type, _has_comptime_only_runtime_field);
