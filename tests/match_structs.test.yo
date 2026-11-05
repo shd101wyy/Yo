@@ -168,14 +168,14 @@ _pc_count_ptr :: (fn(p : *_PcS) -> usize)(
   match(&p.*.metas(usize(0)), .Some(m) => m.len(), .None => usize(0))
 );
 test("a marked match through a field of an element, or an element behind a field or a pointer", {
-  ts := ArrayList(_PcT).new();
-  one := ArrayList(i32).new();
+  mut(ts) := ArrayList(_PcT).new();
+  mut(one) := ArrayList(i32).new();
   one.push(i32(1));
   one.push(i32(2));
   ts.push(_PcT(c : .Some(one)));
   assert(_pc_count_field(&ts) == usize(2), "the field of the borrowed element");
   mut(s) := _PcS(metas : ArrayList(Option(ArrayList(i32))).new());
-  inner := ArrayList(i32).new();
+  mut(inner) := ArrayList(i32).new();
   inner.push(i32(3));
   s.metas.push(.Some(inner));
   assert(_pc_count_ref(&s) == usize(1), "an element reached through a field");
