@@ -291,7 +291,7 @@ bind_owning_result_temp :: (fn(expr : &AstExpr, code : String, indent : &String,
     .Some(ei) => match(
       &ei.variable_name(),
       .Some(tv) => {
-        emit_text1 := `${indent.clone()}${get_variable_type_string(&ei.ty, tv.clone(), &mut context.base)} = ${code};`;
+        emit_text1 := `${indent.clone()}${get_variable_type_string(&ei.ty(), tv.clone(), &mut context.base)} = ${code};`;
         context.base.emitter.emit_string_line(&emit_text1);
         _store_temp_var_to_state_machine_if_needed(tv.clone(), indent.clone(), context);
         tv.clone()
@@ -2192,7 +2192,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
                 g_ref_spill_counter = (cm_n + usize(1));
                 cm_pt := `__yo_ref_spill_${cm_n.to_string()}`;
                 context.base.emitter.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);
-                emit_text4 := `${indent.clone()}${get_type_string(t_ptr(&ei.ty), &mut context.base)} ${cm_pt.clone()} = ${cm_call};`;
+                emit_text4 := `${indent.clone()}${get_type_string(t_ptr(&ei.ty()), &mut context.base)} ${cm_pt.clone()} = ${cm_call};`;
                 context.base.emitter.emit_string_line(&emit_text4);
                 generate_call_deferred_drops(expr, indent.clone(), context, true);
                 emit_effect_unwind_check(indent.clone(), context, cm_is_install, expr);

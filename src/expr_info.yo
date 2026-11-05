@@ -1663,12 +1663,13 @@ expr_info_paths_for_write :: (fn(info : &ExprInfo) -> PathCollection)({
     // write into a private deep copy.
     (ref_count(info.path_collection()) > usize(1)) => {
       fresh := path_collection_new();
+      shared := info.path_collection();
       (i : usize) = usize(0);
-      while(i < info.path_collection.len(), {
-        match(info.path_collection.get(i), .Some(p) => fresh.push(p.clone()), .None => ());
+      while(i < shared.len(), {
+        match(shared.get(i), .Some(p) => fresh.push(p.clone()), .None => ());
         i = (i + usize(1));
       });
-      info.path_collection = fresh;
+      info.set_path_collection(fresh);
     },
     true => ()
   );
