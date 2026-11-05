@@ -50,11 +50,9 @@ pragma(Pragma.AllowUnsafe);
 IO_file :: import("../sys/file");
 { AT_FDCWD, AT_SYMLINK_NOFOLLOW, AT_STATX_SYNC_AS_STAT, STATX_BASIC_STATS, S_IFMT, S_IFREG, S_IFDIR, S_IFLNK, S_IWUSR, S_IWGRP, S_IWOTH } :: import("../sys/constants");
 /// File metadata wrapper around `Statx`.
-Metadata :: ref(
-  struct(
-    _statx : Statx,
-    _buf_ptr : *u8
-  )
+Metadata :: struct(
+  _statx : Statx,
+  _buf_ptr : *u8
 );
 impl(
   Metadata,
@@ -207,9 +205,10 @@ extern(
 // ============================================================================
 // Internal helper to stat a path
 // ============================================================================
-_stat_path :: (fn(path : &Path, flags : i32, io : Io) -> Impl(Future(Metadata, IoExn)))(
+_stat_path :: (fn(path : &Path, flags : i32, io : Io) -> Impl(Future(Metadata, IoExn)))({
+  path_owned := path.clone();
   io.async(e => {
-    cstr_bytes := match(path.to_string().to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(IoError.InvalidInput)));
+    cstr_bytes := match(path_owned.to_string().to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(IoError.InvalidInput)));
     cstr := cstr_bytes.ptr().unwrap();
     buf_size := __yo_statx_buf_size();
     buf := (*u8)(malloc(buf_size).unwrap());
@@ -225,7 +224,7 @@ _stat_path :: (fn(path : &Path, flags : i32, io : Io) -> Impl(Future(Metadata, I
       }
     )
   })
-);
+});
 /// Get metadata for a path (follows symlinks).
 metadata :: (fn(path : &Path, io : Io) -> Impl(Future(Metadata, IoExn)))(_stat_path(path, AT_STATX_SYNC_AS_STAT, io));
 /// Get metadata for a path given as a raw string (follows symlinks).

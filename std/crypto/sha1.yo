@@ -87,13 +87,11 @@ _sha1_block :: (fn(block : *u8, h : *u32) -> unit)({
   (h.add(usize(4))).* = (h.add(usize(4))).*.wrapping_add(e);
 });
 /// SHA-1 streaming state (the Sha256 skeleton).
-Sha1 :: ref(
-  struct(
-    _h : Array(u32, usize(5)),
-    _buf : Array(u8, usize(64)),
-    _buflen : usize,
-    _total : u64
-  )
+Sha1 :: struct(
+  _h : Array(u32, usize(5)),
+  _buf : Array(u8, usize(64)),
+  _buflen : usize,
+  _total : u64
 );
 impl(
   Sha1,
@@ -106,10 +104,10 @@ impl(
       _total : u64(0)
     )
   ),
-  /// Absorb `data` and return the same hasher, so calls chain. O(len).
+  /// Absorb `data` in place (`h.update(&a)` on a `mut(h)`). O(len).
   /// Buffers a partial 64-byte block, so how the input is split cannot
   /// change the digest.
-  update : (fn(self : &Self, data : &ArrayList(u8)) -> Self)({
+  update : (fn(self : &mut Self, data : &ArrayList(u8)) -> unit)({
     mut(i) := usize(0);
     while(i < data.len(), i = (i + usize(1)), {
       self._buf(self._buflen) = data(i);
@@ -125,48 +123,48 @@ impl(
         true => ()
       );
     });
-    self
   }),
   /// Append the padding and the big-endian bit length, fold the last block
   /// in, and return the 20-byte digest.
   ///
-  /// **Single use** — the padding is written into the hasher's own buffer,
-  /// so a second `finish` digests the padded state rather than the
-  /// message.
-  finish : (fn(self : &Self) -> Array(u8, usize(20)))({
-    bit_len := (self._total * u64(8));
-    self._buf(self._buflen) = u8(0x80);
-    self._buflen = (self._buflen + usize(1));
+  /// Consumes the hasher, so one hasher hashes one message: a second
+  /// `finish` is a use after move (E0901), as with RustCrypto's
+  /// `finalize(self)`.
+  finish : (fn(self : Self) -> Array(u8, usize(20)))({
+    mut(h) := self;
+    bit_len := (h._total * u64(8));
+    h._buf(h._buflen) = u8(0x80);
+    h._buflen = (h._buflen + usize(1));
     cond(
-      (self._buflen > usize(56)) => {
-        while(self._buflen < usize(64), self._buflen = (self._buflen + usize(1)), {
-          self._buf(self._buflen) = u8(0);
+      (h._buflen > usize(56)) => {
+        while(h._buflen < usize(64), h._buflen = (h._buflen + usize(1)), {
+          h._buf(h._buflen) = u8(0);
         });
-        buf_ptr := addr_of(self._buf(usize(0)));
-        h_ptr := addr_of(self._h(usize(0)));
+        buf_ptr := addr_of(h._buf(usize(0)));
+        h_ptr := addr_of(h._h(usize(0)));
         _sha1_block(buf_ptr, h_ptr);
-        self._buflen = usize(0);
+        h._buflen = usize(0);
       },
       true => ()
     );
-    while(self._buflen < usize(56), self._buflen = (self._buflen + usize(1)), {
-      self._buf(self._buflen) = u8(0);
+    while(h._buflen < usize(56), h._buflen = (h._buflen + usize(1)), {
+      h._buf(h._buflen) = u8(0);
     });
-    self._buf(usize(56)) = u8(bit_len >> u64(56));
-    self._buf(usize(57)) = u8(bit_len >> u64(48));
-    self._buf(usize(58)) = u8(bit_len >> u64(40));
-    self._buf(usize(59)) = u8(bit_len >> u64(32));
-    self._buf(usize(60)) = u8(bit_len >> u64(24));
-    self._buf(usize(61)) = u8(bit_len >> u64(16));
-    self._buf(usize(62)) = u8(bit_len >> u64(8));
-    self._buf(usize(63)) = u8(bit_len);
-    buf_ptr := addr_of(self._buf(usize(0)));
-    h_ptr := addr_of(self._h(usize(0)));
+    h._buf(usize(56)) = u8(bit_len >> u64(56));
+    h._buf(usize(57)) = u8(bit_len >> u64(48));
+    h._buf(usize(58)) = u8(bit_len >> u64(40));
+    h._buf(usize(59)) = u8(bit_len >> u64(32));
+    h._buf(usize(60)) = u8(bit_len >> u64(24));
+    h._buf(usize(61)) = u8(bit_len >> u64(16));
+    h._buf(usize(62)) = u8(bit_len >> u64(8));
+    h._buf(usize(63)) = u8(bit_len);
+    buf_ptr := addr_of(h._buf(usize(0)));
+    h_ptr := addr_of(h._h(usize(0)));
     _sha1_block(buf_ptr, h_ptr);
     mut(digest) := Array(u8, usize(20)).fill(u8(0));
     mut(j) := usize(0);
     while(j < usize(5), j = (j + usize(1)), {
-      word := self._h(j);
+      word := h._h(j);
       digest(j * usize(4)) = u8(word >> u32(24));
       digest((j * usize(4)) + usize(1)) = u8(word >> u32(16));
       digest((j * usize(4)) + usize(2)) = u8(word >> u32(8));
@@ -181,10 +179,10 @@ impl(
   Sha1,
   Digest(
     new : (fn() -> Self)(Self.new()),
-    update : (fn(self : &Self, data : &ArrayList(u8)) -> Self)(self.update(data)),
+    update : (fn(self : &mut Self, data : &ArrayList(u8)) -> unit)(self.update(data)),
     digest_size : (fn() -> usize)(usize(20)),
     block_size : (fn() -> usize)(usize(64)),
-    finish_bytes : (fn(self : &Self) -> ArrayList(u8))({
+    finish_bytes : (fn(self : Self) -> ArrayList(u8))({
       d := self.finish();
       mut(out) := ArrayList(u8).with_capacity(usize(20));
       (mut(fbi) : usize) = usize(0);
@@ -199,16 +197,18 @@ impl(
 // ============================================================================
 // Convenience functions
 // ============================================================================
-/// SHA-1 of `data` in one call — the 20-byte digest. Exactly
-/// `Sha1.new().update(data).finish()`.
+/// SHA-1 of `data` in one call — the 20-byte digest. Exactly a
+/// fresh `Sha1`, one `update(data)`, then `finish()`.
 ///
 /// Collision-broken (SHAttered, 2017): never use this to identify or sign
 /// content an attacker can influence. `sha256` is the replacement. This is
 /// here for protocols that specify SHA-1 — git object ids, HMAC-SHA1 in
 /// OAuth 1 and TOTP.
-sha1 :: (fn(data : &ArrayList(u8)) -> Array(u8, usize(20)))(
-  Sha1.new().update(data).finish()
-);
+sha1 :: (fn(data : &ArrayList(u8)) -> Array(u8, usize(20)))({
+  mut(h) := Sha1.new();
+  h.update(data);
+  h.finish()
+});
 /// SHA-1 of `data` as 40 lowercase hex characters — git's object-id
 /// spelling. Same collision caveat as `sha1`.
 sha1_hex :: (fn(data : &ArrayList(u8)) -> String)({

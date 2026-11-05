@@ -63,3 +63,7 @@ than an owned one, so its bindings carry the borrowed flag that E0901's
 Give the destructuring statement the same scrutinee ownership rule as `match`:
 a named owned local or a `sink` parameter is consumed and its bindings own.
 The regression test is the repro above, plus the `sink(self)` newtype case.
+
+## Also: a tuple destructuring (2026-11-05)
+
+A tuple destructuring binds the same way: `(r, n) := (R(s : `ab`), i32(1)); take(r)` is E0901 "it is borrowed", and `{ _program : program } := c; program` is too (develop `ac14b5d50`). V5 part B (`vbd/v5-part-b-std`) worked around both. `HttpServer.serve` matches the `(stream, result)` tuple with a `match` pattern, and `NfaCompiler.compile` takes its program out with `std/mem`'s `replace`.

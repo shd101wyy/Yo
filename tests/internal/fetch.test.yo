@@ -166,17 +166,17 @@ test("commit_from_ls_remote: empty output is None", {
 // ---------------------------------------------------------------------------
 /// Run `git -C <dir> <a> [<b> [<c>]]`, failing the test on a non-zero exit.
 _fm_git :: (fn(dir : &String, io : Io, e : IoExn, (a : str) ?= "", (b : str) ?= "", (c : str) ?= "") -> unit)({
-  cmd := git_command();
-  cmd.arg(String.from("-C"));
-  cmd.arg(dir.clone());
+  mut(cmd) := git_command();
+  cmd = cmd.arg(String.from("-C"));
+  cmd = cmd.arg(dir.clone());
   if(a.len() > usize(0), {
-    cmd.arg(String.from(a));
+    cmd = cmd.arg(String.from(a));
   });
   if(b.len() > usize(0), {
-    cmd.arg(String.from(b));
+    cmd = cmd.arg(String.from(b));
   });
   if(c.len() > usize(0), {
-    cmd.arg(String.from(c));
+    cmd = cmd.arg(String.from(c));
   });
   status := e.io.await(cmd.status(e.io), e);
   if(!status.success(), {
@@ -189,7 +189,7 @@ test("fetch_package: a mutated inner file of a stored tree is detected and the t
   // reuse path trusted the mutated bytes and every project on the machine
   // compiled them. The reuse path must re-hash the tree and re-fetch it
   // (issues/fixed/2026-11-01-a-mutated-store-entry-is-reused-by-install-locked.md).
-  rng := Rng.from_entropy();
+  mut(rng) := Rng.from_entropy();
   root := Path.new(temp_dir()).join(Path.new(`yo_fm_${rng.next_u64().to_string()}`));
   mk := Exception(
     throw : (
@@ -208,11 +208,11 @@ test("fetch_package: a mutated inner file of a stored tree is detected and the t
   io.await(write_string(Path.new(`${repo}/lib.yo`), String.from("VERSION :: `1.0.0`;\n"), io), ioexn);
   _fm_git(&repo, io, ioexn, "add", "lib.yo");
   _fm_git(&repo, io, ioexn, "commit", "--quiet", "-m one");
-  rp := git_command();
-  rp.arg(String.from("-C"));
-  rp.arg(repo.clone());
-  rp.arg(String.from("rev-parse"));
-  rp.arg(String.from("HEAD"));
+  mut(rp) := git_command();
+  rp = rp.arg(String.from("-C"));
+  rp = rp.arg(repo.clone());
+  rp = rp.arg(String.from("rev-parse"));
+  rp = rp.arg(String.from("HEAD"));
   out := io.await(rp.output(io), ioexn);
   sha := String.from_bytes(out.stdout.clone()).trim();
   assert(sha.len() == usize(40), "rev-parse HEAD returned a commit");

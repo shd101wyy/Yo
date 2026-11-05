@@ -40,7 +40,9 @@ hmac :: (
   // K': hash an over-long key, then zero-pad to the block size.
   (mut(k) : ArrayList(u8)) = key.clone();
   if(k.len() > block, {
-    k = (D <: Digest).finish_bytes((D <: Digest).update((D <: Digest).new(), &k));
+    mut(kh) := (D <: Digest).new();
+    (D <: Digest).update(&mut kh, &k);
+    k = (D <: Digest).finish_bytes(kh);
   });
   mut(ikey) := ArrayList(u8).with_capacity(block);
   mut(okey) := ArrayList(u8).with_capacity(block);
@@ -50,9 +52,14 @@ hmac :: (
     ikey.push(kb ^ u8(0x36));
     okey.push(kb ^ u8(0x5c));
   });
-  inner_h := (D <: Digest).update((D <: Digest).update((D <: Digest).new(), &ikey), message);
-  inner := (D <: Digest).finish_bytes(&inner_h);
-  (D <: Digest).finish_bytes((D <: Digest).update((D <: Digest).update((D <: Digest).new(), &okey), &inner))
+  mut(inner_h) := (D <: Digest).new();
+  (D <: Digest).update(&mut inner_h, &ikey);
+  (D <: Digest).update(&mut inner_h, message);
+  inner := (D <: Digest).finish_bytes(inner_h);
+  mut(outer_h) := (D <: Digest).new();
+  (D <: Digest).update(&mut outer_h, &okey);
+  (D <: Digest).update(&mut outer_h, &inner);
+  (D <: Digest).finish_bytes(outer_h)
 });
 /// HMAC-SHA256.
 hmac_sha256 :: (fn(key : &ArrayList(u8), message : &ArrayList(u8)) -> ArrayList(u8))(

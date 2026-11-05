@@ -1237,6 +1237,31 @@ s3 := s2; // RC = 3
 // In practice, we eliminate many RC operations via ownership analysis
 ```
 
+#### Replacing a `ref` declaration
+
+`ref(struct(...))` and `ref(enum(...))` are being retired
+(plans/VALUES_BY_DEFAULT.md V5), and since v0.2.76 std declares neither. Two
+questions pick the replacement for a `ref` type:
+
+1. Is it written after construction?
+2. Is it needed by two owners that outlive each other's calls?
+
+No and no: a plain `struct`, passed by `&` and returned by value. Yes and no: an
+owned value, lent `&mut` where it is written and `&` where it is read. Yes and
+yes: `Rc(RefCell(S))`.
+
+std's former `ref` types show the method shapes. Each method has exactly one:
+
+- A builder consumes and returns: `Command.new(p).arg(a).arg(b)` as a chain, or
+  `cmd = cmd.arg(a);` on a `mut(cmd)` binding. `HttpRequest`/`HttpResponse`
+  `.header`/`.with_body` and `FetchOptions.with_*` work the same way.
+- A mutator lends: `mut(u) := Url.parse(&s).unwrap(); u.set_path(&p);`. So do
+  `ArgParser.add_*`, the `Rng` draws and `Interval.tick`.
+- A finaliser consumes: a hasher's `update(&mut self)` feeds it, and
+  `finish(self)` ends it, so a second `finish` is a use after move (E0901).
+- `HttpServer` is the shared one. Its `serve` future owns a `server.clone()`,
+  and the kept clone calls `stop` from the handler or another task.
+
 #### Compile-Time Reference Counting Optimization
 
 The compiler performs [ownership analysis](./COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md) to eliminate unnecessary reference counting operations.

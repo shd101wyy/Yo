@@ -14,11 +14,10 @@
 //! tested (`tests/crypto/sha256.test.yo`, plus the streaming-equals-
 //! one-shot check in `tests/crypto/digest.test.yo`), so what is unstable is
 //! the SHAPE, not the answer. Every digest is reachable two ways — the
-//! inherent `finish() -> Array(u8, 32)` and the `Digest` trait's
-//! `finish_bytes() -> ArrayList(u8)` — and which is canonical is not
-//! settled; there is no `reset`; and `finish` neither consumes nor resets
-//! the hasher, so a second call silently returns a digest of the padded
-//! state. Freezing follows those decisions in `std/crypto/digest`. A
+//! inherent `finish() -> Array(u8, 32)`, the canonical one, and the
+//! `Digest` trait's allocating `finish_bytes() -> ArrayList(u8)`. Both
+//! consume the hasher, so a second `finish` is a use after move (E0901).
+//! There is no `reset`. A
 //! `Sha224` sibling (the same core with a different IV and a truncated
 //! output) would be additive.
 pragma(Pragma.AllowUnsafe);
@@ -169,16 +168,14 @@ _sha256_block :: (fn(block : *u8, h : *u32) -> unit)({
 /// with `finish`. Splitting the input differently cannot change the
 /// digest; the hasher buffers a partial block internally.
 ///
-/// A `ref` type, so a copy of the value is the same hasher — passing it
-/// around does not fork the state. Use `sha256` / `sha256_hex` when the
+/// A move-only value: `update` lends it (`&mut`), `finish` consumes it,
+/// so one hasher hashes one message. Use `sha256` / `sha256_hex` when the
 /// whole message is already in hand.
-Sha256 :: ref(
-  struct(
-    _h : Array(u32, usize(8)),
-    _buf : Array(u8, usize(64)),
-    _buflen : usize,
-    _total : u64
-  )
+Sha256 :: struct(
+  _h : Array(u32, usize(8)),
+  _buf : Array(u8, usize(64)),
+  _buflen : usize,
+  _total : u64
 );
 impl(
   Sha256,
@@ -200,13 +197,11 @@ impl(
       _total : u64(0)
     )
   ),
-  /// Absorb `data` into the hash and return the same hasher, so calls
-  /// chain: `Sha256.new().update(a).update(b).finish()`.
+  /// Absorb `data` into the hash, in place: `h.update(&a); h.update(&b);`
+  /// on a `mut(h)` binding.
   ///
-  /// O(len(data)). The return value is the receiver, not a copy — the
-  /// hasher is mutated in place either way, so ignoring the result is
-  /// equally correct.
-  update : (fn(self : &Self, data : &ArrayList(u8)) -> Self)({
+  /// O(len(data)).
+  update : (fn(self : &mut Self, data : &ArrayList(u8)) -> unit)({
     mut(i) := usize(0);
     while(i < data.len(), i = (i + usize(1)), {
       self._buf(self._buflen) = data(i);
@@ -222,54 +217,52 @@ impl(
         true => ()
       );
     });
-    self
   }),
   /// Append the FIPS padding and the message-length field, fold the last
   /// block in, and return the 32-byte digest.
   ///
-  /// **Single use.** The padding is written into the hasher's own buffer
-  /// and folded into its state, so calling `finish` twice hashes that
-  /// padding as if it were more message and returns a digest of nothing
-  /// you fed it. RustCrypto's `finalize(self)` makes that a compile error;
-  /// here it is a rule — one hasher, one message.
-  finish : (fn(self : &Self) -> Array(u8, usize(32)))({
+  /// Consumes the hasher, so one hasher hashes one message: a second
+  /// `finish` is a use after move (E0901), as with RustCrypto's
+  /// `finalize(self)`.
+  finish : (fn(self : Self) -> Array(u8, usize(32)))({
+    mut(h) := self;
     // Padding
-    bit_len := (self._total * u64(8));
-    self._buf(self._buflen) = u8(0x80);
-    self._buflen = (self._buflen + usize(1));
+    bit_len := (h._total * u64(8));
+    h._buf(h._buflen) = u8(0x80);
+    h._buflen = (h._buflen + usize(1));
     cond(
-      (self._buflen > usize(56)) => {
+      (h._buflen > usize(56)) => {
         // Fill rest with zeros and process
-        while(self._buflen < usize(64), self._buflen = (self._buflen + usize(1)), {
-          self._buf(self._buflen) = u8(0);
+        while(h._buflen < usize(64), h._buflen = (h._buflen + usize(1)), {
+          h._buf(h._buflen) = u8(0);
         });
-        buf_ptr := addr_of(self._buf(usize(0)));
-        h_ptr := addr_of(self._h(usize(0)));
+        buf_ptr := addr_of(h._buf(usize(0)));
+        h_ptr := addr_of(h._h(usize(0)));
         _sha256_block(buf_ptr, h_ptr);
-        self._buflen = usize(0);
+        h._buflen = usize(0);
       },
       true => ()
     );
-    while(self._buflen < usize(56), self._buflen = (self._buflen + usize(1)), {
-      self._buf(self._buflen) = u8(0);
+    while(h._buflen < usize(56), h._buflen = (h._buflen + usize(1)), {
+      h._buf(h._buflen) = u8(0);
     });
     // Big-endian bit length
-    self._buf(usize(56)) = u8(bit_len >> u64(56));
-    self._buf(usize(57)) = u8(bit_len >> u64(48));
-    self._buf(usize(58)) = u8(bit_len >> u64(40));
-    self._buf(usize(59)) = u8(bit_len >> u64(32));
-    self._buf(usize(60)) = u8(bit_len >> u64(24));
-    self._buf(usize(61)) = u8(bit_len >> u64(16));
-    self._buf(usize(62)) = u8(bit_len >> u64(8));
-    self._buf(usize(63)) = u8(bit_len);
-    buf_ptr := addr_of(self._buf(usize(0)));
-    h_ptr := addr_of(self._h(usize(0)));
+    h._buf(usize(56)) = u8(bit_len >> u64(56));
+    h._buf(usize(57)) = u8(bit_len >> u64(48));
+    h._buf(usize(58)) = u8(bit_len >> u64(40));
+    h._buf(usize(59)) = u8(bit_len >> u64(32));
+    h._buf(usize(60)) = u8(bit_len >> u64(24));
+    h._buf(usize(61)) = u8(bit_len >> u64(16));
+    h._buf(usize(62)) = u8(bit_len >> u64(8));
+    h._buf(usize(63)) = u8(bit_len);
+    buf_ptr := addr_of(h._buf(usize(0)));
+    h_ptr := addr_of(h._h(usize(0)));
     _sha256_block(buf_ptr, h_ptr);
     // Extract digest
     mut(digest) := Array(u8, usize(32)).fill(u8(0));
     mut(j) := usize(0);
     while(j < usize(8), j = (j + usize(1)), {
-      word := self._h(j);
+      word := h._h(j);
       digest(j * usize(4)) = u8(word >> u32(24));
       digest((j * usize(4)) + usize(1)) = u8(word >> u32(16));
       digest((j * usize(4)) + usize(2)) = u8(word >> u32(8));
@@ -284,10 +277,10 @@ impl(
   Sha256,
   Digest(
     new : (fn() -> Self)(Self.new()),
-    update : (fn(self : &Self, data : &ArrayList(u8)) -> Self)(self.update(data)),
+    update : (fn(self : &mut Self, data : &ArrayList(u8)) -> unit)(self.update(data)),
     digest_size : (fn() -> usize)(usize(32)),
     block_size : (fn() -> usize)(usize(64)),
-    finish_bytes : (fn(self : &Self) -> ArrayList(u8))({
+    finish_bytes : (fn(self : Self) -> ArrayList(u8))({
       d := self.finish();
       mut(out) := ArrayList(u8).with_capacity(usize(32));
       (mut(fbi) : usize) = usize(0);
@@ -304,12 +297,14 @@ impl(
 // ============================================================================
 /// SHA-256 of `data` in one call — the 32-byte digest.
 ///
-/// Exactly `Sha256.new().update(data).finish()`, so use it whenever the
-/// whole message is in memory; reach for the `Sha256` type only to hash in
+/// Exactly a fresh `Sha256`, one `update(data)`, then `finish()`, so use it
+/// whenever the whole message is in memory; reach for the `Sha256` type only to hash in
 /// pieces.
-sha256 :: (fn(data : &ArrayList(u8)) -> Array(u8, usize(32)))(
-  Sha256.new().update(data).finish()
-);
+sha256 :: (fn(data : &ArrayList(u8)) -> Array(u8, usize(32)))({
+  mut(h) := Sha256.new();
+  h.update(data);
+  h.finish()
+});
 /// SHA-256 of `data` as 64 lowercase hex characters — the spelling
 /// checksums are usually published in.
 ///

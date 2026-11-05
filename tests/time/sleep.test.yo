@@ -101,7 +101,7 @@ test("interval's schedule advances by exactly one period per tick", {
   // period + however long the body took. A `sleep(period)` loop has no
   // schedule at all, which is exactly what it cannot do.
   period := Duration.from_millis(i64(30));
-  t := interval(period, io);
+  mut(t) := interval(period, io);
   io.await(t.tick(io), io);
   due_after_first := t.next_tick();
   // Burn real time between ticks — more than a whole period.
@@ -125,7 +125,7 @@ test("interval's first tick is due immediately", {
   // Asserted against the SCHEDULE rather than by timing a sleep, because a
   // loaded runner can make even a zero-length sleep take 100ms.
   before := Instant.now();
-  t := interval(Duration.from_millis(i64(40)), io);
+  mut(t) := interval(Duration.from_millis(i64(40)), io);
   // The first tick is due at construction time, so it is already due.
   assert(t.next_tick().duration_since(before).as_millis() < i64(5), "the first tick is due at once");
   io.await(t.tick(io), io);
@@ -140,7 +140,7 @@ test("interval bursts to catch up after an overrun", {
   // windows-11-arm leg measured 19ms for a 30ms wait. Whether `sleep` sleeps
   // long enough is `sleep`'s contract, tested by the sleep cases above; it is
   // not interval's, and re-asserting it here only imports that flakiness.
-  t := interval(Duration.from_millis(i64(30)), io);
+  mut(t) := interval(Duration.from_millis(i64(30)), io);
   io.await(t.tick(io), io);
   // Missed ticks BURST: after an overrun the owed ticks are already due, so
   // the schedule catches up one period at a time rather than re-anchoring to

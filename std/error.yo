@@ -328,7 +328,7 @@ export(root_cause);
 ///
 /// (e : AnyError) = dyn(Context.new(`while loading config`, io_err));
 /// (n : usize) = usize(0);
-/// it := error_chain(e);
+/// mut(it) := error_chain(e);
 /// (going : bool) = true;
 /// while(going, {
 ///   match(
@@ -347,7 +347,7 @@ export(root_cause);
 /// throughout: `Option(Dyn(Trait))` cannot take one — the specialization is
 /// called but never emitted, so the C fails to compile
 /// (issues/fixed/option-of-a-trait-object-never-emits-its-inherent-methods.md).
-ErrorChain :: ref(struct(_cur : Option(AnyError)));
+ErrorChain :: struct(_cur : Option(AnyError));
 /// Start a chain at `err`. The first `next()` returns `err` itself.
 error_chain :: (fn(err : &AnyError) -> ErrorChain)(
   ErrorChain(_cur : Option(AnyError).Some(err.clone()))

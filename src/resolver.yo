@@ -599,11 +599,11 @@ ls_remote_tags :: (
 )({
   owned_url := url.clone();
   io.async((e : IoExn) => {
-    cmd := git_command();
-    cmd.arg(String.from("ls-remote"));
-    cmd.arg(String.from("--tags"));
-    cmd.arg(String.from("--"));
-    cmd.arg(owned_url.clone());
+    mut(cmd) := git_command();
+    cmd = cmd.arg(String.from("ls-remote"));
+    cmd = cmd.arg(String.from("--tags"));
+    cmd = cmd.arg(String.from("--"));
+    cmd = cmd.arg(owned_url.clone());
     // Nonzero exit (repository not found / not accessible) yields Err below;
     // spawn failure (git missing) propagates through the ambient handler.
     out := e.io.await(cmd.output(e.io), e);
@@ -624,12 +624,12 @@ resolve_default_branch :: (
 )({
   owned_url := url.clone();
   io.async((e : IoExn) => {
-    cmd := git_command();
-    cmd.arg(String.from("ls-remote"));
-    cmd.arg(String.from("--symref"));
-    cmd.arg(String.from("--"));
-    cmd.arg(&owned_url);
-    cmd.arg(String.from("HEAD"));
+    mut(cmd) := git_command();
+    cmd = cmd.arg(String.from("ls-remote"));
+    cmd = cmd.arg(String.from("--symref"));
+    cmd = cmd.arg(String.from("--"));
+    cmd = cmd.arg(&owned_url);
+    cmd = cmd.arg(String.from("HEAD"));
     // Nonzero exit (unreachable repo / no HEAD symref) falls back to "main";
     // spawn failure (git missing) propagates through the ambient handler.
     out := e.io.await(cmd.output(e.io), e);

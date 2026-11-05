@@ -1198,6 +1198,29 @@ s3 := s2; // RC = 3
 // 实际上，我们通过所有权分析消除了许多 RC 操作
 ```
 
+#### 替换 `ref` 声明
+
+`ref(struct(...))` 与 `ref(enum(...))` 正在退役（plans/VALUES_BY_DEFAULT.md
+V5），自 v0.2.76 起 std 中不再有这两种声明。两个问题决定 `ref` 类型的替代形式：
+
+1. 构造之后它会被写入吗？
+2. 它是否被两个所有者需要，而这两个所有者的生存期超出彼此的调用？
+
+都不是：普通 `struct`，按 `&` 传入、按值返回。是、否：一个拥有所有权的值，写入处以
+`&mut` 借出，只读处以 `&` 借出。都是：`Rc(RefCell(S))`。
+
+std 原先的 `ref` 类型展示了方法的形态，每个方法只有一种形态：
+
+- 构建器消耗并返回：链式写 `Command.new(p).arg(a).arg(b)`，或在 `mut(cmd)` 绑定上写
+  `cmd = cmd.arg(a);`。`HttpRequest`/`HttpResponse` 的 `.header`/`.with_body` 以及
+  `FetchOptions.with_*` 也是如此。
+- 修改器借出：`mut(u) := Url.parse(&s).unwrap(); u.set_path(&p);`。`ArgParser.add_*`、
+  `Rng` 的取数方法与 `Interval.tick` 也是如此。
+- 终结方法消耗：哈希器的 `update(&mut self)` 喂入数据，`finish(self)` 结束它，所以第二次
+  `finish` 是移动后使用（E0901）。
+- `HttpServer` 是共享的那一个：它的 `serve` future 拥有一个 `server.clone()`，保留下来的
+  克隆在处理函数或另一个任务中调用 `stop`。
+
 #### 编译期引用计数优化
 
 编译器执行[所有权分析](./COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md)以消除不必要的引用计数操作。

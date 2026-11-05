@@ -190,7 +190,7 @@ watch :: (fn(path : &Path, opts : WatchOptions, exn : Exception) -> Watcher)({
     _cell : Box.new(
       _WatcherState(
         _handle : events.fs_event_init(),
-        _root : path,
+        _root : path.clone(),
         _queue : ArrayList(FsEvent).new(),
         _head : usize(0),
         _active : false,
@@ -212,7 +212,7 @@ watch :: (fn(path : &Path, opts : WatchOptions, exn : Exception) -> Watcher)({
 impl(
   Watcher,
   /// The watched path.
-  path : (fn(self : &Self) -> Path)(self._cell._root),
+  path : (fn(self : &Self) -> Path)(self._cell._root.clone()),
   /// Whether the watch is still running.
   is_active : (fn(self : &Self) -> bool)(self._cell._active),
   /// Events queued and not yet read.

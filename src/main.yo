@@ -2915,18 +2915,7 @@ _run_migrate_deref :: (
         (ran : bool) = match(
           current_exe(),
           .Ok(exe) => {
-            cmd := Command.new(exe.to_string());
-            _a0 := cmd.arg(String.from("--std-path"));
-            _a1 := cmd.arg(std_path.clone());
-            _a2 := cmd.arg(String.from("fix"));
-            for(&dead_files, df => {
-              _af := cmd.arg(df.clone());
-            });
-            _a3 := cmd.arg(String.from("--migrate"));
-            _a4 := cmd.arg(String.from("deref"));
-            _a5 := cmd.arg(String.from("--target"));
-            _a6 := cmd.arg(t.triple.clone());
-            _ae := cmd.env(String.from("YO_FIX_DEREF_SITES_OUT"), out_path.clone());
+            cmd := Command.new(exe.to_string()).arg(String.from("--std-path")).arg(std_path.clone()).arg(String.from("fix")).args(&dead_files).arg(String.from("--migrate")).arg(String.from("deref")).arg(String.from("--target")).arg(t.triple.clone()).env(String.from("YO_FIX_DEREF_SITES_OUT"), out_path.clone());
             cst := io.await(cmd.status(io), IoExn(io : io, exn : exn));
             (cst.raw == i32(0)) && io.await(exists(Path.new(out_path.clone()), io), io)
           },
@@ -6661,8 +6650,8 @@ _find_clang_asan_dll_path :: (fn(compiler : &String, io : Io) -> Option(String))
     return(Option(String).None);
   });
   inner_exn := Exception(throw : (_e -> unwind(Option(String).None)));
-  wcmd := Command.new(String.from("where.exe"));
-  wcmd.arg(compiler.clone());
+  mut(wcmd) := Command.new(String.from("where.exe"));
+  wcmd = wcmd.arg(compiler.clone());
   wout := io.await(wcmd.output(io), IoExn(io : io, exn : inner_exn));
   if(wout.status.raw != i32(0), {
     return(Option(String).None);
@@ -6796,10 +6785,10 @@ _probe_openssl :: (fn(io : Io) -> bool)({
     )
   );
   (flags : Option(String)) = Option(String).None;
-  probe := Command.new(String.from("pkg-config"));
-  probe.arg(String.from("--cflags"));
-  probe.arg(String.from("--libs"));
-  probe.arg(String.from("openssl"));
+  mut(probe) := Command.new(String.from("pkg-config"));
+  probe = probe.arg(String.from("--cflags"));
+  probe = probe.arg(String.from("--libs"));
+  probe = probe.arg(String.from("openssl"));
   out := io.await(probe.output(io), IoExn(io : io, exn : probe_exn));
   cond(
     (out.status.raw == i32(0)) => {
@@ -6814,11 +6803,11 @@ _probe_openssl :: (fn(io : Io) -> bool)({
   kegs.push(String.from("/usr/local/opt/openssl/lib/pkgconfig"));
   while((ki < kegs.len()) && flags.is_none(), {
     keg := kegs(ki).clone();
-    kprobe := Command.new(String.from("pkg-config"));
-    kprobe.env(String.from("PKG_CONFIG_PATH"), &keg);
-    kprobe.arg(String.from("--cflags"));
-    kprobe.arg(String.from("--libs"));
-    kprobe.arg(String.from("openssl"));
+    mut(kprobe) := Command.new(String.from("pkg-config"));
+    kprobe = kprobe.env(String.from("PKG_CONFIG_PATH"), &keg);
+    kprobe = kprobe.arg(String.from("--cflags"));
+    kprobe = kprobe.arg(String.from("--libs"));
+    kprobe = kprobe.arg(String.from("openssl"));
     kout := io.await(kprobe.output(io), IoExn(io : io, exn : probe_exn));
     cond(
       (kout.status.raw == i32(0)) => {
@@ -6895,21 +6884,21 @@ _asan_runtime_is_usable :: (fn(base : &String, cc : &String, io : Io) -> bool)({
   probe_src := `${base}.asan_probe.c`;
   probe_bin := `${base}.asan_probe`;
   io.await(write_string(Path.new(probe_src.clone()), String.from("int main(void) { return 0; }\n"), io), IoExn(io : io, exn : probe_exn));
-  cc_cmd := Command.new(cc.clone());
-  cc_cmd.arg(String.from("-x"));
-  cc_cmd.arg(String.from("c"));
-  cc_cmd.arg(String.from("-std=c11"));
-  cc_cmd.arg(String.from("-fsanitize=address"));
-  cc_cmd.arg(String.from("-o"));
-  cc_cmd.arg(probe_bin.clone());
-  cc_cmd.arg(probe_src.clone());
+  mut(cc_cmd) := Command.new(cc.clone());
+  cc_cmd = cc_cmd.arg(String.from("-x"));
+  cc_cmd = cc_cmd.arg(String.from("c"));
+  cc_cmd = cc_cmd.arg(String.from("-std=c11"));
+  cc_cmd = cc_cmd.arg(String.from("-fsanitize=address"));
+  cc_cmd = cc_cmd.arg(String.from("-o"));
+  cc_cmd = cc_cmd.arg(probe_bin.clone());
+  cc_cmd = cc_cmd.arg(probe_src.clone());
   cc_st := io.await(cc_cmd.status(io), IoExn(io : io, exn : probe_exn));
   (usable : bool) = false;
   if(cc_st.success(), {
     // Shell watchdog: `wait $p` yields the probe's own exit status; the
     // backgrounded killer turns an ASan init deadlock into SIGKILL (137,
     // not success). A healthy probe exits 0 long before the 3s fire.
-    run_cmd := Command.new(String.from("sh"));
+    mut(run_cmd) := Command.new(String.from("sh"));
     // Windows + a clang-family driver: the probe binary is linked against
     // clang_rt.asan_dynamic-<arch>.dll, which lives in the LLVM resource
     // dir rather than on PATH — the same discovery the test runner applies
@@ -6924,12 +6913,12 @@ _asan_runtime_is_usable :: (fn(base : &String, cc : &String, io : Io) -> bool)({
       .Some(dll_dir) => _put_asan_dll_dir_on_path(&dll_dir),
       .None => ()
     );
-    run_cmd.arg(String.from("-c"));
-    run_cmd.arg(String.from("ASAN_OPTIONS=detect_leaks=0 \"$0\" & p=$!; { sleep 3; kill -9 $p; } 2>/dev/null & wait $p"));
+    run_cmd = run_cmd.arg(String.from("-c"));
+    run_cmd = run_cmd.arg(String.from("ASAN_OPTIONS=detect_leaks=0 \"$0\" & p=$!; { sleep 3; kill -9 $p; } 2>/dev/null & wait $p"));
     // `"$0"` is a command word, so a slash-free path is looked up in PATH: a
     // bare `-o name` made the probe "command not found" and silently dropped
     // the sanitizer (issues/fixed/sanitize-address-is-silently-dropped-for-a-bare-output-name.md).
-    run_cmd.arg(if(probe_bin.contains("/"), probe_bin.clone(), `./${probe_bin}`));
+    run_cmd = run_cmd.arg(if(probe_bin.contains("/"), probe_bin.clone(), `./${probe_bin}`));
     run_st := io.await(run_cmd.status(io), IoExn(io : io, exn : probe_exn));
     usable = run_st.success();
   });
@@ -6971,13 +6960,13 @@ impl(
 );
 /// Build a runnable `Command` from a recorded argv.
 _cc_command :: (fn(program : &String, argv : &ArrayList(String)) -> Command)({
-  c := Command.new(program.clone());
+  mut(c) := Command.new(program.clone());
   (i : usize) = usize(0);
   while(i < argv.len(), {
     match(
       argv.get_cloned(i),
       .Some(a) => {
-        _arg_c := c.arg(a.clone());
+        c = c.arg(a.clone());
       },
       .None => ()
     );
@@ -7125,11 +7114,11 @@ _compile_chunks_parallel :: (
       while(li < chunk_c_files.len(), {
         cf := match(chunk_c_files.get_cloned(li), .Some(x) => x, .None => String.new());
         obj := match(objs.get_cloned(li), .Some(x) => x, .None => String.new());
-        seq := _cc_command(cc.clone(), flags);
-        seq.arg(String.from("-c"));
-        seq.arg(cf.clone());
-        seq.arg(String.from("-o"));
-        seq.arg(obj.clone());
+        mut(seq) := _cc_command(cc.clone(), flags);
+        seq = seq.arg(String.from("-c"));
+        seq = seq.arg(cf.clone());
+        seq = seq.arg(String.from("-o"));
+        seq = seq.arg(obj.clone());
         sst := io.await(seq.status(io), IoExn(io : io, exn : exn));
         if(sst.raw != i32(0), {
           exn.throw(dyn(`compile: C compiler failed (exit ${sst.code().unwrap_or(i32(-1)).to_string()}) on ${cf}`));
@@ -7157,8 +7146,8 @@ _compile_chunks_parallel :: (
       script.push_str("for p in $pids; do wait $p || rc=1; done\nexit $rc\n");
       script_path := `${out_base}_chunks_compile.sh`;
       io.await(write_string(Path.new(script_path.clone()), &script, io), IoExn(io : io, exn : exn));
-      shcmd := Command.new(String.from("sh"));
-      shcmd.arg(script_path.clone());
+      mut(shcmd) := Command.new(String.from("sh"));
+      shcmd = shcmd.arg(script_path.clone());
       shst := io.await(shcmd.status(io), IoExn(io : io, exn : exn));
       if(shst.raw != i32(0), {
         exn.throw(dyn(`compile: C compiler failed (exit ${shst.code().unwrap_or(i32(-1)).to_string()}) compiling chunks — see ${script_path}`));
@@ -7986,10 +7975,10 @@ _run_cc_plan :: (fn(plan : &CcPlan, io : Io, exn : Exception) -> unit)({
       exn.throw(dyn(`compile: C compiler failed (exit ${cst.code().unwrap_or(i32(-1)).to_string()}) on ${plan.c_path}`));
       return(())
     });
-    arcmd := Command.new(String.from("ar"));
-    arcmd.arg(String.from("rcs"));
-    arcmd.arg(plan.ar_out.clone());
-    arcmd.arg(plan.obj_path.clone());
+    mut(arcmd) := Command.new(String.from("ar"));
+    arcmd = arcmd.arg(String.from("rcs"));
+    arcmd = arcmd.arg(plan.ar_out.clone());
+    arcmd = arcmd.arg(plan.obj_path.clone());
     if(plan.verbose, {
       ar_argv := ArrayList(String).new();
       ar_argv.push(String.from("rcs"));
@@ -11060,7 +11049,7 @@ run_test :: (
           // --test-name-pattern match against the quote characters.
           tname := match(extract_test_name(&e), .Some(n) => n, .None => String.from("unnamed_test"));
           tbody := match(extract_test_body(&e), .Some(b) => b, .None => make_err_expr());
-          keep := match(name_regex, .Some(nre) => nre.is_match(tname.clone()), .None => true);
+          keep := match(&name_regex, .Some(nre) => nre.is_match(tname.clone()), .None => true);
           if(keep, {
             tests.push(TestDecl(name : tname, body_src : ast_expr_to_string(&tbody)));
           });
@@ -11374,13 +11363,13 @@ run_test :: (
         }, {
           // DEFAULT: the proven child-process spawn — one fresh evaluator
           // per batch, no shared state (see the gate note above).
-          ccmd := Command.new(self_exe.clone());
+          mut(ccmd) := Command.new(self_exe.clone());
           (cai : usize) = usize(1);
           while(cai < cargv.len(), {
             match(
               cargv.get_cloned(cai),
               .Some(ca_arg) => {
-                ccmd.arg(ca_arg.clone());
+                ccmd = ccmd.arg(ca_arg.clone());
                 ()
               },
               .None => ()
@@ -11489,35 +11478,35 @@ run_test :: (
           // A wasm batch is not a host executable — see run_is_wasi/run_is_emcc.
           tcmd := cond(
             run_is_wasi => {
-              wc := Command.new(String.from("wasmtime"));
+              mut(wc) := Command.new(String.from("wasmtime"));
               // The guest's default stack is far below what this suite's
               // recursion needs.
-              wc.arg(String.from("-W"));
-              wc.arg(String.from("max-wasm-stack=16777216"));
+              wc = wc.arg(String.from("-W"));
+              wc = wc.arg(String.from("max-wasm-stack=16777216"));
               // WASI is deny-by-default for the filesystem. All three grants
               // are load-bearing: without them file-I/O tests fail in a way
               // that reads as a compiler bug rather than a missing capability.
-              wc.arg(String.from("--dir"));
-              wc.arg(batch_dir.clone());
-              wc.arg(String.from("--dir"));
-              wc.arg(String.from("/tmp"));
-              wc.arg(String.from("--dir"));
-              wc.arg(run_cwd.clone());
+              wc = wc.arg(String.from("--dir"));
+              wc = wc.arg(batch_dir.clone());
+              wc = wc.arg(String.from("--dir"));
+              wc = wc.arg(String.from("/tmp"));
+              wc = wc.arg(String.from("--dir"));
+              wc = wc.arg(run_cwd.clone());
               // --env, NOT proc_env.set: a wasmtime guest does not inherit the
               // host environment, so the process-wide YO_TEST_INDEX set above
               // would leave EVERY test in the batch running as index 0.
-              wc.arg(String.from("--env"));
-              wc.arg(`YO_TEST_INDEX=${(ri - batch_start).to_string()}`);
-              wc.arg(String.from("--env"));
-              wc.arg(`YO_DEBUG_ALLOC_VERDICT=${debug_alloc_verdict}`);
-              wc.arg(tmp_bin.clone());
+              wc = wc.arg(String.from("--env"));
+              wc = wc.arg(`YO_TEST_INDEX=${(ri - batch_start).to_string()}`);
+              wc = wc.arg(String.from("--env"));
+              wc = wc.arg(`YO_DEBUG_ALLOC_VERDICT=${debug_alloc_verdict}`);
+              wc = wc.arg(tmp_bin.clone());
               wc
             },
             // Emscripten emits JS glue plus a sibling .wasm; node runs the
             // glue, which inherits the process env normally.
             run_is_emcc => {
-              nc := Command.new(String.from("node"));
-              nc.arg(tmp_bin.clone());
+              mut(nc) := Command.new(String.from("node"));
+              nc = nc.arg(tmp_bin.clone());
               nc
             },
             true => Command.new(tmp_bin.clone())
@@ -14898,10 +14887,10 @@ main :: (fn(io : Io) -> unit)({
         });
         _e1 := proc_env.set(String.from("YO_VERSION_DISPATCHED"), String.from("1"));
         _e2 := proc_env.set(String.from("YO_ORIGINAL_CWD"), dispatch_cwd.clone());
-        dcmd := Command.new(bin_path.clone());
+        mut(dcmd) := Command.new(bin_path.clone());
         (dai : usize) = usize(1);
         while(dai < argv.len(), {
-          dcmd.arg(&argv(dai));
+          dcmd = dcmd.arg(&argv(dai));
           dai = (dai + usize(1));
         });
         dst := io.await(dcmd.status(io), IoExn(io : io, exn : exn));

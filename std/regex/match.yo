@@ -32,19 +32,17 @@
 { String } :: import("std/string");
 { GroupNameEntry } :: import("./node.yo");
 /// A single regex match result.
-RegexMatch :: ref(
-  struct(
-    _value : String,
-    _index : usize,
-    _end : usize,
-    /// Shared by every match of one search: a copy per match would cost
-    /// O(input) each (B8, plans/VALUES_BY_DEFAULT.md's regex/match.yo row).
-    _input : Rc(String),
-    _groups : ArrayList(Option(String)),
-    _group_spans : ArrayList(Option(Range(usize))),
-    /// The compiled `Regex`'s name table, shared the same way.
-    _group_names : Rc(ArrayList(GroupNameEntry))
-  )
+RegexMatch :: struct(
+  _value : String,
+  _index : usize,
+  _end : usize,
+  /// Shared by every match of one search: a copy per match would cost
+  /// O(input) each (B8, plans/VALUES_BY_DEFAULT.md's regex/match.yo row).
+  _input : Rc(String),
+  _groups : ArrayList(Option(String)),
+  _group_spans : ArrayList(Option(Range(usize))),
+  /// The compiled `Regex`'s name table, shared the same way.
+  _group_names : Rc(ArrayList(GroupNameEntry))
 );
 impl(
   RegexMatch,

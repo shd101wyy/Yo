@@ -56,8 +56,8 @@ test("Sha256 streaming matches one-shot", {
   chunk1 := _bytes_from_str("hello ");
   chunk2 := _bytes_from_str("world");
   mut(h) := Sha256.new();
-  h = h.update(&chunk1);
-  h = h.update(&chunk2);
+  h.update(&chunk1);
+  h.update(&chunk2);
   digest := h.finish();
   // Convert to hex manually and compare
   mut(bytes) := ArrayList(u8).with_capacity(usize(32));
@@ -82,9 +82,9 @@ test("Sha256 streaming single byte at a time", {
   b2.push(u8(98)); // 'b'
   mut(b3) := ArrayList(u8).new();
   b3.push(u8(99)); // 'c'
-  h = h.update(&b1);
-  h = h.update(&b2);
-  h = h.update(&b3);
+  h.update(&b1);
+  h.update(&b2);
+  h.update(&b3);
   digest := h.finish();
   mut(bytes) := ArrayList(u8).with_capacity(usize(32));
   mut(j) := usize(0);
@@ -101,9 +101,9 @@ test("Sha256 streaming empty update", {
   empty := ArrayList(u8).new();
   data := _bytes_from_str("test");
   mut(h) := Sha256.new();
-  h = h.update(&empty);
-  h = h.update(&data);
-  h = h.update(&empty);
+  h.update(&empty);
+  h.update(&data);
+  h.update(&empty);
   digest := h.finish();
   mut(bytes) := ArrayList(u8).with_capacity(usize(32));
   mut(i) := usize(0);

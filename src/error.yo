@@ -688,6 +688,26 @@ with_code :: (fn(err : &YoError, code : str) -> YoError)(_with_primary_code(err,
 with_code_carried :: (fn(err : &YoError, code : &Option(String)) -> YoError)(
   match(code, .Some(_) => _with_primary_code(err, code), .None => err)
 );
+/// `err` with a mechanical repair on its PRIMARY diagnostic: replace
+/// `token`'s own text with `replacement` (`yo fix` applies it,
+/// `--error-format json` carries it). For a raise whose message anchors at
+/// one token (the write) and whose unique fix lands on another (the
+/// declaration E0917 names). Later diagnostics keep their place.
+with_primary_repair_at_token :: (fn(err : &YoError, token : &Token, replacement : &String, description : &String) -> YoError)({
+  mut(out) := YoError(diagnostics : err.diagnostics.clone());
+  match(
+    out.diagnostics.get_cloned(usize(0)),
+    .Some(first) => {
+      mut(primary) := first;
+      primary.repair = Option(Repair).Some(
+        Repair(span : _span_of_token(token), replacement : replacement.clone(), description : description.clone())
+      );
+      out.diagnostics(usize(0)) = primary;
+    },
+    .None => ()
+  );
+  out
+});
 /// `err` with its primary diagnostic's help extended by `more` (a sentence
 /// appended to the existing help, or the help itself when there was none):
 /// the decision-20 accessor guidance rides a re-anchored E0901/E0910 this
@@ -988,7 +1008,7 @@ format_warning_messages :: (
 });
 export(TokenAndError, TokenAndWarning, YoError, ExitWith);
 export(yo_error_from_diagnostics, primary_diagnostic_path, primary_diagnostic_code, reanchor_primary_at, with_code, with_code_carried, _with_primary_help, _with_primary_subject, _without_primary_help_text);
-export(format_error_message_with_repair, format_error_message_with_repair_at);
+export(format_error_message_with_repair, format_error_message_with_repair_at, with_primary_repair_at_token);
 /// The swallowed cause WITHOUT the freshness guard and without clearing —
 /// for `yo fix`, which runs after a whole file's evaluation and wants the
 /// repair-bearing diagnostic even though the attempt counter has moved on.

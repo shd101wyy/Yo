@@ -59,16 +59,14 @@ utf8 :: import("../encoding/utf8.yo");
 /// One live NFA thread — a position in the program plus the captures it has
 /// recorded so far. Reference-counted, but never shared: `fork` copies the
 /// slots, because two threads that diverge must not see each other's captures.
-NfaThread :: ref(
-  struct(
-    /// Index into `NfaProgram.instructions` — the instruction this thread is
-    /// about to execute.
-    pc : usize,
-    /// `2 * (n_groups + 1)` capture positions, `usize.MAX` meaning "unset".
-    /// Slot `2g` is group `g`'s start and `2g+1` its end; 0 and 1 are the
-    /// whole match.
-    slots : ArrayList(usize)
-  )
+NfaThread :: struct(
+  /// Index into `NfaProgram.instructions` — the instruction this thread is
+  /// about to execute.
+  pc : usize,
+  /// `2 * (n_groups + 1)` capture positions, `usize.MAX` meaning "unset".
+  /// Slot `2g` is group `g`'s start and `2g+1` its end; 0 and 1 are the
+  /// whole match.
+  slots : ArrayList(usize)
 );
 impl(
   NfaThread,
@@ -144,15 +142,14 @@ DeferredThread :: struct(
 /// buffers are shared mutable scratch), but `exec_at` may be called repeatedly
 /// on the same instance for different start offsets, which is how `find_all`
 /// walks a string.
-NfaVm :: ref(
-  struct(
-    _program : NfaProgram,
-    _flags : RegexFlags,
-    _bytes : ArrayList(u8),
-    _n_slots : usize,
-    _seen : ArrayList(bool),
-    _next_seen : ArrayList(bool)
-  )
+NfaVm :: struct(
+  /// Shared read-only with the `Regex` that compiled it.
+  _program : Rc(NfaProgram),
+  _flags : RegexFlags,
+  _bytes : ArrayList(u8),
+  _n_slots : usize,
+  _seen : ArrayList(bool),
+  _next_seen : ArrayList(bool)
 );
 // Block 1: Constructor and leaf helpers (no method dependencies)
 impl(
@@ -162,7 +159,7 @@ impl(
   /// bitmaps to the instruction count. Those two allocations are hoisted here,
   /// rather than made per generation, because `exec_at` clears them with a
   /// `memset` on every step.
-  new : (fn(program : &NfaProgram, flags : RegexFlags, input : &String) -> Self)({
+  new : (fn(program : &Rc(NfaProgram), flags : RegexFlags, input : &String) -> Self)({
     n_slots := ((program.n_groups + usize(1)) * usize(2));
     n_instr := program.instructions.len();
     mut(seen) := ArrayList(bool).with_capacity(n_instr);
@@ -170,7 +167,7 @@ impl(
     mut(next_seen) := ArrayList(bool).with_capacity(n_instr);
     next_seen.resize_with_byte(n_instr, int(0));
     Self(
-      _program : program,
+      _program : Rc.clone(program),
       _flags : flags,
       _bytes : input.to_bytes(),
       _n_slots : n_slots,
@@ -303,48 +300,49 @@ impl(
 // Block 3: _add_thread (recursive, depends on Block 1+2)
 impl(
   NfaVm,
-  _add_thread : (fn(self : &Self, list : &mut ArrayList(NfaThread), thread : &NfaThread, byte_pos : usize, seen : &mut ArrayList(bool)) -> unit)({
+  _add_thread : (fn(self : &Self, list : &mut ArrayList(NfaThread), thread : NfaThread, byte_pos : usize, seen : &mut ArrayList(bool)) -> unit)({
+    mut(th) := thread;
     cond(
-      (thread.pc >= self._program.instructions.len()) => {
+      (th.pc >= self._program.instructions.len()) => {
         return(());
       },
       true => ()
     );
     // Already checked bounds above: thread.pc < instructions.len()
-    is_seen := seen(thread.pc);
+    is_seen := seen(th.pc);
     cond(
       is_seen => {
         return(());
       },
       true => ()
     );
-    seen(thread.pc) = true;
-    instr := self._program.instructions(thread.pc);
+    seen(th.pc) = true;
+    instr := self._program.instructions(th.pc);
     match(
       instr.kind,
       .Split => {
-        t1 := thread.fork(instr.target_a);
-        t2 := thread.fork(instr.target_b);
-        recur(self, list, &t1, byte_pos, seen);
-        recur(self, list, &t2, byte_pos, seen);
+        // The thread is owned here: the first branch gets a copy, the
+        // second the thread itself.
+        t1 := th.fork(instr.target_a);
+        th.pc = instr.target_b;
+        recur(self, list, t1, byte_pos, seen);
+        recur(self, list, th, byte_pos, seen);
       },
       .Jump => {
-        new_t := thread.fork(instr.target);
-        recur(self, list, &new_t, byte_pos, seen);
+        th.pc = instr.target;
+        recur(self, list, th, byte_pos, seen);
       },
       .Save => {
         cond(
-          (instr.slot < thread.slots.len()) => {
-            addr_of(thread.slots(instr.slot)).* = byte_pos;
+          (instr.slot < th.slots.len()) => {
+            th.slots(instr.slot) = byte_pos;
           },
           true => ()
         );
-        // The slot list moves on to the thread that follows: the thread
-        // before the Save is dead (no caller reads it after `_add_thread`),
-        // so a copy in the matcher's hot loop would buy nothing (B8,
-        // decision 19's `replace`).
-        new_t := NfaThread(pc : (thread.pc + usize(1)), slots : replace(&mut thread.slots, ArrayList(usize).new()));
-        recur(self, list, &new_t, byte_pos, seen);
+        // The thread is owned here, so it moves on past the Save with its
+        // slots: no copy in the matcher's hot loop.
+        th.pc = (th.pc + usize(1));
+        recur(self, list, th, byte_pos, seen);
       },
       .AssertStart => {
         passes := cond(
@@ -354,8 +352,8 @@ impl(
         );
         cond(
           passes => {
-            new_t := thread.fork(thread.pc + usize(1));
-            recur(self, list, &new_t, byte_pos, seen);
+            th.pc = (th.pc + usize(1));
+            recur(self, list, th, byte_pos, seen);
           },
           true => ()
         );
@@ -368,8 +366,8 @@ impl(
         );
         cond(
           passes => {
-            new_t := thread.fork(thread.pc + usize(1));
-            recur(self, list, &new_t, byte_pos, seen);
+            th.pc = (th.pc + usize(1));
+            recur(self, list, th, byte_pos, seen);
           },
           true => ()
         );
@@ -377,8 +375,8 @@ impl(
       .AssertWordBoundary => {
         cond(
           self._is_word_boundary(byte_pos) => {
-            new_t := thread.fork(thread.pc + usize(1));
-            recur(self, list, &new_t, byte_pos, seen);
+            th.pc = (th.pc + usize(1));
+            recur(self, list, th, byte_pos, seen);
           },
           true => ()
         );
@@ -386,14 +384,14 @@ impl(
       .AssertNonWordBoundary => {
         cond(
           !self._is_word_boundary(byte_pos) => {
-            new_t := thread.fork(thread.pc + usize(1));
-            recur(self, list, &new_t, byte_pos, seen);
+            th.pc = (th.pc + usize(1));
+            recur(self, list, th, byte_pos, seen);
           },
           true => ()
         );
       },
       _ => {
-        list.push(thread);
+        list.push(th);
       }
     );
   })
@@ -410,7 +408,7 @@ impl(
     mut(sub_seen) := ArrayList(bool).with_capacity(self._program.instructions.len());
     sub_seen.resize_with_byte(self._program.instructions.len(), int(0));
     initial := NfaThread.new(sub_start_pc, self._n_slots);
-    self._add_thread(&mut sub_current, &initial, start_byte, &mut sub_seen);
+    self._add_thread(&mut sub_current, initial, start_byte, &mut sub_seen);
     mut(sub_pos) := start_byte;
     input_len := self._bytes.len();
     while(sub_pos <= input_len, {
@@ -423,8 +421,7 @@ impl(
       // Check for Match in current threads
       mut(st) := usize(0);
       while(st < sub_current.len(), st = (st + usize(1)), {
-        st_thread := sub_current(st);
-        st_instr := self._program.instructions(st_thread.pc);
+        st_instr := self._program.instructions(sub_current(st).pc);
         match(
           st_instr.kind,
           .Match => {
@@ -462,15 +459,14 @@ impl(
       // Process consuming instructions
       mut(st2) := usize(0);
       while(st2 < sub_current.len(), st2 = (st2 + usize(1)), {
-        st_thread := sub_current(st2);
-        st_instr := self._program.instructions(st_thread.pc);
+        st_instr := self._program.instructions(sub_current(st2).pc);
         match(
           st_instr.kind,
           .Char => {
             cond(
               self._char_matches(st_instr.codepoint, sub_cp) => {
-                new_t := st_thread.fork(st_thread.pc + usize(1));
-                self._add_thread(&mut sub_next, &new_t, sub_pos + sub_blen, &mut sub_seen);
+                new_t := sub_current(st2).fork(sub_current(st2).pc + usize(1));
+                self._add_thread(&mut sub_next, new_t, sub_pos + sub_blen, &mut sub_seen);
               },
               true => ()
             );
@@ -482,8 +478,8 @@ impl(
             );
             cond(
               should_match => {
-                new_t := st_thread.fork(st_thread.pc + usize(1));
-                self._add_thread(&mut sub_next, &new_t, sub_pos + sub_blen, &mut sub_seen);
+                new_t := sub_current(st2).fork(sub_current(st2).pc + usize(1));
+                self._add_thread(&mut sub_next, new_t, sub_pos + sub_blen, &mut sub_seen);
               },
               true => ()
             );
@@ -494,8 +490,8 @@ impl(
             sub_cls_idx := st_instr.class_idx;
             cond(
               ((sub_cls_idx < self._program.classes.len()) && self._codepoint_in_class(sub_cp, &self._program.classes(sub_cls_idx))) => {
-                new_t := st_thread.fork(st_thread.pc + usize(1));
-                self._add_thread(&mut sub_next, &new_t, sub_pos + sub_blen, &mut sub_seen);
+                new_t := sub_current(st2).fork(sub_current(st2).pc + usize(1));
+                self._add_thread(&mut sub_next, new_t, sub_pos + sub_blen, &mut sub_seen);
               },
               true => ()
             );
@@ -534,7 +530,7 @@ impl(
   ///
   /// `start_byte` is not boundary-checked: a mid-rune offset simply decodes
   /// the bytes it finds there and, for a valid pattern, fails to match.
-  exec_at : (fn(self : &Self, start_byte : usize) -> VmMatch)({
+  exec_at : (fn(self : &mut Self, start_byte : usize) -> VmMatch)({
     // Reuse pre-allocated seen buffers from the VM
     mut(current) := ArrayList(NfaThread).new();
     mut(next) := ArrayList(NfaThread).new();
@@ -547,7 +543,7 @@ impl(
     seen.fill_with_byte(int(0));
     next_seen.fill_with_byte(int(0));
     initial := NfaThread.new(usize(0), self._n_slots);
-    self._add_thread(&mut current, &initial, start_byte, &mut seen);
+    self._add_thread(&mut current, initial, start_byte, &mut seen);
     mut(best_match) := VmMatch(matched : false, slots : ArrayList(usize).new());
     mut(byte_pos) := start_byte;
     input_len := self._bytes.len();
@@ -571,13 +567,15 @@ impl(
       mut(new_deferred) := ArrayList(DeferredThread).new();
       mut(di) := usize(0);
       while(di < deferred.len(), di = (di + usize(1)), {
-        d := deferred(di);
+        // A deferred thread is copied out of the list (`fork` at its own
+        // pc): it lives in `deferred` only for a backreference or a
+        // lookbehind, so the copy is off the matcher's hot path.
         cond(
-          (d.target_byte_pos == byte_pos) => {
-            self._add_thread(&mut current, &d.thread, byte_pos, &mut seen);
+          (deferred(di).target_byte_pos == byte_pos) => {
+            self._add_thread(&mut current, deferred(di).thread.fork(deferred(di).thread.pc), byte_pos, &mut seen);
           },
           true => {
-            new_deferred.push(d);
+            new_deferred.push(DeferredThread(target_byte_pos : deferred(di).target_byte_pos, thread : deferred(di).thread.fork(deferred(di).thread.pc)));
           }
         );
       });
@@ -593,15 +591,14 @@ impl(
       (mut(found_match_in_gen) : bool) = false;
       mut(t) := usize(0);
       while((t < current.len()) && !found_match_in_gen, t = (t + usize(1)), {
-        thread := current(t);
-        instr := self._program.instructions(thread.pc);
+        instr := self._program.instructions(current(t).pc);
         match(
           instr.kind,
           .Char => {
             cond(
               (!at_end && self._char_matches(instr.codepoint, cur_cp)) => {
-                new_thread := thread.fork(thread.pc + usize(1));
-                self._add_thread(&mut next, &new_thread, byte_pos + char_byte_len, &mut next_seen);
+                new_thread := current(t).fork(current(t).pc + usize(1));
+                self._add_thread(&mut next, new_thread, byte_pos + char_byte_len, &mut next_seen);
               },
               true => ()
             );
@@ -615,8 +612,8 @@ impl(
                 );
                 cond(
                   should_match => {
-                    new_thread := thread.fork(thread.pc + usize(1));
-                    self._add_thread(&mut next, &new_thread, byte_pos + char_byte_len, &mut next_seen);
+                    new_thread := current(t).fork(current(t).pc + usize(1));
+                    self._add_thread(&mut next, new_thread, byte_pos + char_byte_len, &mut next_seen);
                   },
                   true => ()
                 );
@@ -631,8 +628,8 @@ impl(
                 cls_idx := instr.class_idx;
                 cond(
                   ((cls_idx < self._program.classes.len()) && self._codepoint_in_class(cur_cp, &self._program.classes(cls_idx))) => {
-                    new_thread := thread.fork(thread.pc + usize(1));
-                    self._add_thread(&mut next, &new_thread, byte_pos + char_byte_len, &mut next_seen);
+                    new_thread := current(t).fork(current(t).pc + usize(1));
+                    self._add_thread(&mut next, new_thread, byte_pos + char_byte_len, &mut next_seen);
                   },
                   true => ()
                 );
@@ -644,9 +641,9 @@ impl(
             group_start_slot := (instr.slot * usize(2));
             group_end_slot := ((instr.slot * usize(2)) + usize(1));
             cond(
-              ((group_start_slot < thread.slots.len()) && (group_end_slot < thread.slots.len())) => {
-                gs := thread.slots(group_start_slot);
-                ge := thread.slots(group_end_slot);
+              ((group_start_slot < current(t).slots.len()) && (group_end_slot < current(t).slots.len())) => {
+                gs := current(t).slots(group_start_slot);
+                ge := current(t).slots(group_end_slot);
                 cond(
                   ((gs != unset) && (ge != unset)) => {
                     captured_len := (ge - gs);
@@ -688,11 +685,11 @@ impl(
                         cond(
                           bytes_match => {
                             new_pos := (byte_pos + captured_len);
-                            new_thread := thread.fork(thread.pc + usize(1));
+                            new_thread := current(t).fork(current(t).pc + usize(1));
                             cond(
                               (captured_len == usize(0)) => {
                                 // Empty capture — epsilon-like, process in current gen
-                                self._add_thread(&mut current, &new_thread, byte_pos, &mut seen);
+                                self._add_thread(&mut current, new_thread, byte_pos, &mut seen);
                               },
                               true => {
                                 // Defer to the target byte position
@@ -720,8 +717,8 @@ impl(
             cond(
               (sub_matched == positive) => {
                 sub_end := instr.target_b;
-                new_thread := thread.fork(sub_end);
-                self._add_thread(&mut current, &new_thread, byte_pos, &mut seen);
+                new_thread := current(t).fork(sub_end);
+                self._add_thread(&mut current, new_thread, byte_pos, &mut seen);
               },
               true => ()
             );
@@ -783,15 +780,15 @@ impl(
             cond(
               (lb_matched == positive) => {
                 sub_end := instr.target_b;
-                new_thread := thread.fork(sub_end);
-                self._add_thread(&mut current, &new_thread, byte_pos, &mut seen);
+                new_thread := current(t).fork(sub_end);
+                self._add_thread(&mut current, new_thread, byte_pos, &mut seen);
               },
               true => ()
             );
           },
           .Match => {
             // Record match and kill lower-priority threads
-            best_match = VmMatch(matched : true, slots : thread.slots.clone());
+            best_match = VmMatch(matched : true, slots : current(t).slots.clone());
             found_match_in_gen = true;
           },
           _ => ()

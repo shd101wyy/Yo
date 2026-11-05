@@ -191,8 +191,8 @@ is_pkg_config_available :: (
   ) -> Impl(Future(bool, IoExn))
 )(
   io.async((e : IoExn) => {
-    cmd := Command.new(String.from("pkg-config"));
-    cmd.arg(String.from("--version"));
+    mut(cmd) := Command.new(String.from("pkg-config"));
+    cmd = cmd.arg(String.from("--version"));
     status := e.io.await(cmd.status(e.io), e);
     status.success()
   })
@@ -211,17 +211,17 @@ query_pkg_config :: (
   name_own := pkg_name.clone();
   io.async({ name_own }(e : IoExn) => {
     // Run pkg-config --cflags
-    cflags_cmd := Command.new(String.from("pkg-config"));
-    cflags_cmd.arg(String.from("--cflags"));
-    cflags_cmd.arg(&name_own);
+    mut(cflags_cmd) := Command.new(String.from("pkg-config"));
+    cflags_cmd = cflags_cmd.arg(String.from("--cflags"));
+    cflags_cmd = cflags_cmd.arg(&name_own);
     cflags_out := e.io.await(cflags_cmd.output(e.io), e);
     if(!cflags_out.status.success(), {
       return(Option(PkgConfigResult).None);
     });
     // Run pkg-config --libs
-    ldflags_cmd := Command.new(String.from("pkg-config"));
-    ldflags_cmd.arg(String.from("--libs"));
-    ldflags_cmd.arg(&name_own);
+    mut(ldflags_cmd) := Command.new(String.from("pkg-config"));
+    ldflags_cmd = ldflags_cmd.arg(String.from("--libs"));
+    ldflags_cmd = ldflags_cmd.arg(&name_own);
     ldflags_out := e.io.await(ldflags_cmd.output(e.io), e);
     if(!ldflags_out.status.success(), {
       return(Option(PkgConfigResult).None);

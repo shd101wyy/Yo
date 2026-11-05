@@ -98,14 +98,14 @@ test("two concurrent yo test runs over one directory both finish green", {
   });
   // Spawn BOTH children before waiting on either — the whole regression is
   // what happens while two runners hold the same directory at the same time.
-  run_a := Command.new(yo_exe.clone());
-  run_a.arg(String.from("test"));
-  run_a.arg(fixture.clone());
-  run_a.arg(String.from("--disable-sanitize"));
-  run_b := Command.new(yo_exe.clone());
-  run_b.arg(String.from("test"));
-  run_b.arg(fixture.clone());
-  run_b.arg(String.from("--disable-sanitize"));
+  mut(run_a) := Command.new(yo_exe.clone());
+  run_a = run_a.arg(String.from("test"));
+  run_a = run_a.arg(fixture.clone());
+  run_a = run_a.arg(String.from("--disable-sanitize"));
+  mut(run_b) := Command.new(yo_exe.clone());
+  run_b = run_b.arg(String.from("test"));
+  run_b = run_b.arg(fixture.clone());
+  run_b = run_b.arg(String.from("--disable-sanitize"));
   child_a := io.await(run_a.spawn(io), e);
   child_b := io.await(run_b.spawn(io), e);
   status_a := io.await(child_a.wait(io), e);
