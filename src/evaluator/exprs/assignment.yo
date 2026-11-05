@@ -1448,7 +1448,7 @@ evaluate_assignment :: (
       );
     });
 
-    ctx.expected_type = saved_expected;
+    ctx.expected_type = saved_expected.clone();
     ctx.is_lhs_of_assignment = saved_is_lhs;
     lhs_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_lhs));
     if(lhs_info_opt.is_none(), {
@@ -1493,7 +1493,7 @@ evaluate_assignment :: (
     // Step 2 — Evaluate RHS with expected type from LHS
     ctx.expected_type = Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : Rc.clone(expected_ty), env : env));
     prop_rhs := evaluate_expression_raw(&rhs, &env, ctx, exn);
-    ctx.expected_type = saved_expected;
+    ctx.expected_type = saved_expected.clone();
     prop_rhs_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&prop_rhs));
     if(prop_rhs_info_opt.is_none(), {
       exn.throw(

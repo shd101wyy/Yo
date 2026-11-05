@@ -369,7 +369,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                       // Evaluate the extended module expression
                       saved_expected := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
                       eval_ext := evaluate_expression_raw(&ext_mod_expr, &env, ctx, exn);
-                      ctx.expected_type = saved_expected;
+                      ctx.expected_type = saved_expected.clone();
                       ext_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&eval_ext));
                       if(ext_info_opt.is_none(), {
                         exn.throw(
@@ -763,7 +763,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
             // Non-export expression: evaluate normally
             saved_expected := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
             evaluated := evaluate_expression_raw(&expr, &env, ctx, exn);
-            ctx.expected_type = saved_expected;
+            ctx.expected_type = saved_expected.clone();
             info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated));
             match(
               info_opt,

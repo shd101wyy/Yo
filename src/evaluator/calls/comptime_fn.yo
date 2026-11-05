@@ -1178,7 +1178,7 @@ evaluate_comptime_fn_call :: (
   // because the value of a comptime call there is needed for codegen either
   // way).
   ctfe_outer_depth := match(
-    old_fn_ctx,
+    old_fn_ctx.clone(),
     .Some(ofc) => cond(
       ofc.ctfe_live => ofc.ctfe_arm_depth,
       true => usize(0)
@@ -1228,7 +1228,7 @@ evaluate_comptime_fn_call :: (
   );
   ctx.ctfe_depth = (ctx.ctfe_depth - usize(1));
   // Restore context.
-  ctx.is_evaluating_function_body_or_async_block = old_fn_ctx;
+  ctx.is_evaluating_function_body_or_async_block = old_fn_ctx.clone();
   ctx.is_evaluating_loop_body = old_loop_ctx;
   swap(&mut ctx.captured_variables, &mut old_cap_vars);
   ctx.is_executing = old_executing;

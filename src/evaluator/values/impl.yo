@@ -5219,7 +5219,7 @@ evaluate_module_value :: (
       false,
       exn
     );
-    ctx.expected_type = saved_expected;
+    ctx.expected_type = saved_expected.clone();
     local_env = result.env;
     out_info := new_expr_info(&local_env, &result.module_type);
     out_info.value = .Some(result.module_value);
@@ -5811,7 +5811,7 @@ evaluate_module_value :: (
   receiver_type_expr := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
   saved_expected := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
   eval_receiver := evaluate_expression_raw(&receiver_type_expr, &local_env, ctx, exn);
-  ctx.expected_type = saved_expected;
+  ctx.expected_type = saved_expected.clone();
   // Get receiver type name for qualifying method names.
   rcv_tok := ast_expr_token(&receiver_type_expr);
   receiver_name := rcv_tok.value.*.clone();

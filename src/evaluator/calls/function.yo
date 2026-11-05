@@ -1608,7 +1608,7 @@ _sai_arg_type :: (
   deref_exempt_mark(&place);
   evaluated := evaluate_expression_raw(&place, env, ctx, exn);
   deref_exempt_clear();
-  ctx.expected_type = saved_et;
+  ctx.expected_type = saved_et.clone();
   match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated)),
     .Some(ai) => {
@@ -1914,7 +1914,7 @@ _sai_instantiate :: (fn(c : &CtorMethodImpl, bindings : &ArrayList(Option(TypeVa
   call := AstExpr.FnCall(alloc_global_expr_id(), recv.clone(), Rc.new(call_args), false, ast_expr_token(recv));
   saved_et := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
   built := evaluate_expression_raw(&call, env, ctx, exn);
-  ctx.expected_type = saved_et;
+  ctx.expected_type = saved_et.clone();
   unmark_node_preevaluated(recv_id);
   (mi : usize) = usize(0);
   while(mi < marked.len(), mi = (mi + usize(1)), {
@@ -8840,7 +8840,7 @@ _evaluate_function_call_unanchored :: (
     // bool/etc. type the outer context expects of the operator result.
     saved_et := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
     evaluated_first := evaluate_expression_raw(&first_arg, env, ctx, exn);
-    ctx.expected_type = saved_et;
+    ctx.expected_type = saved_et.clone();
     // Evaluated once here to pick the overload; argument matching below must
     // reuse that (see `mark_node_preevaluated`). Unmarked after the call. The
     // SECOND operand is only probed (`_try_eval_operand_type`, no expected

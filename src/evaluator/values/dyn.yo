@@ -970,7 +970,7 @@ _generic_impl_method_for_dyn :: (
         // must not reach it.
         saved_expected := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
         res := try_to_call_function_with_arguments(Option(EvalValue).Some(fv), &pc.method_type, &call_expr, &callee_atom, &call_args, caller_env, ctx, true, false, true, exn);
-        ctx.expected_type = saved_expected;
+        ctx.expected_type = saved_expected.clone();
         caller_env.pop_frame();
         res.specialized_function_value
       }, Option(EvalValue).None),
@@ -1022,7 +1022,7 @@ _synthesize_dyn_clone_fn :: (fn(payload_in : &TypeValue, dyn_type : &TypeValue, 
   fn_expr := generate_expr_from_code(`(fn(generic(T : Type), v : &T, where(T <: Clone)) -> T)(v.clone())`, exn);
   saved_expected := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
   evaluated := evaluate_expression_raw(&fn_expr, caller_env, ctx, exn);
-  ctx.expected_type = saved_expected;
+  ctx.expected_type = saved_expected.clone();
   generic_fv := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated)),
     .Some(ei) => match(ei.value, .Some(v) => if(is_func_val(&v), Option(EvalValue).Some(v), Option(EvalValue).None), .None => Option(EvalValue).None),
@@ -1047,7 +1047,7 @@ _synthesize_dyn_clone_fn :: (fn(payload_in : &TypeValue, dyn_type : &TypeValue, 
       call_expr := AstExpr.FnCall(alloc_global_expr_id(), callee_atom, Rc.new(call_args.clone()), false, recv_tok);
       ctx.expected_type = Option(ExpectedTypeCtx).None;
       res := try_to_call_function_with_arguments(Option(EvalValue).Some(fv), &fn_ty, &call_expr, &callee_atom, &call_args, caller_env, ctx, true, false, true, exn);
-      ctx.expected_type = saved_expected;
+      ctx.expected_type = saved_expected.clone();
       caller_env.pop_frame();
       res.specialized_function_value
     },

@@ -2997,7 +2997,7 @@ _evaluate_begin_expression_impl :: (
           });
           evaluated_ret_arg := evaluate_expression_raw(&ret_arg, &env, ctx, exn);
           deref_exempt_clear();
-          ctx.expected_type = old_expected;
+          ctx.expected_type = old_expected.clone();
           // N2b's return rule over composite results (decision 43, O3): an
           // origin-carrying result may name origin parameters or reference
           // parameters' places, never a local's. Judged AFTER the argument
@@ -3299,7 +3299,7 @@ _evaluate_begin_expression_impl :: (
             ExpectedTypeCtx(ty : Rc.clone(enclosing_ret), env : env)
           );
           evaluated_esc_arg := evaluate_expression_raw(&esc_arg, &env, ctx, exn);
-          ctx.expected_type = old_expected;
+          ctx.expected_type = old_expected.clone();
           esc_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_esc_arg));
           if(esc_info_opt.is_none(), {
             exn.throw(
@@ -3404,7 +3404,7 @@ _evaluate_begin_expression_impl :: (
           ctx.local_borrow_result_chain_tail = Option(ExprId).None;
         });
         ctx.local_variant_hint = Option(ExpectedTypeCtx).None;
-        ctx.expected_type = old_expected;
+        ctx.expected_type = old_expected.clone();
         ev_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated));
         match(
           ev_info_opt,

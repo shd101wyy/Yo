@@ -360,7 +360,7 @@ _evaluate_inout_local_binding :: (
   deref_exempt_mark(rhs);
   evaluated_rhs := evaluate_expression_raw(rhs, env, ctx, exn);
   deref_exempt_clear();
-  ctx.expected_type = old_expected_type;
+  ctx.expected_type = old_expected_type.clone();
   rhs_info := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_rhs)),
     .Some(ri) => ri,
@@ -903,7 +903,7 @@ evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx
   });
   old_expected_type := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
   evaluated_rhs := evaluate_expression_raw(&rhs, &env, ctx, exn);
-  ctx.expected_type = old_expected_type;
+  ctx.expected_type = old_expected_type.clone();
   rhs_info := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_rhs)),
     .Some(ri) => ri,
@@ -1292,7 +1292,7 @@ evaluate_initialization_assignment :: (
   // body's trial-evaluation swallow (see `evaluate_test`) actually catch
   // errors raised while evaluating a `:=` rhs.
   rhs = evaluate_expression_raw(&rhs, &env, ctx, exn);
-  ctx.expected_type = old_expected_type;
+  ctx.expected_type = old_expected_type.clone();
   ctx.is_inside_given_handler = old_is_inside_given_handler;
   // Update env from the evaluated rhs.
   rhs_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&rhs));

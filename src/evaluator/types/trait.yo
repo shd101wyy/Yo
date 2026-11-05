@@ -732,7 +732,7 @@ _evaluate_trait_field :: (
       // swallowing non-raw form ate that throw, so `comptime_expect_error` on a
       // `trait(... m : (fn(...) -> &mut T))` saw success (tests/ref_return_ban).
       evaluated_te := evaluate_expression_raw(&type_expr, env_mut, ctx, exn);
-      ctx.expected_type = old_expected_type;
+      ctx.expected_type = old_expected_type.clone();
       ctx.self_type = old_self_type;
       ctx.self_trait_type = old_self_trait_type;
       te_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_te));
@@ -804,7 +804,7 @@ _evaluate_trait_field :: (
       ctx.self_trait_type = .Some(Rc.clone(trait_ty));
       evaluated_av_gout := ArrayList(AstExpr).new();
       evaluated_av_gerr := evaluate_expression_guarded(&av_expr, env_mut, ctx, &mut evaluated_av_gout);
-      ctx.expected_type = old_expected_type;
+      ctx.expected_type = old_expected_type.clone();
       ctx.self_type = old_self_type;
       ctx.self_trait_type = old_self_trait_type;
       match(evaluated_av_gerr, .Some(evaluated_av_ge) => exn.throw(evaluated_av_ge), .None => ());
@@ -892,7 +892,7 @@ _evaluate_trait_field :: (
       ctx.self_trait_type = .Some(Rc.clone(trait_ty));
       evaluated_dv_gout := ArrayList(AstExpr).new();
       evaluated_dv_gerr := evaluate_expression_guarded(&dv_expr, env_mut, ctx, &mut evaluated_dv_gout);
-      ctx.expected_type = old_expected_type;
+      ctx.expected_type = old_expected_type.clone();
       ctx.self_type = old_self_type;
       ctx.self_trait_type = old_self_trait_type;
       match(evaluated_dv_gerr, .Some(evaluated_dv_ge) => exn.throw(evaluated_dv_ge), .None => ());

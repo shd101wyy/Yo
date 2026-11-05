@@ -313,7 +313,7 @@ evaluate_type_field :: (
       ctx.expected_type = Option(ExpectedTypeCtx).None;
     });
     evaluated_te := evaluate_expression_raw(&te, &env, ctx, exn);
-    ctx.expected_type = old_expected;
+    ctx.expected_type = old_expected.clone();
     te_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_te));
     te_info := match(te_info_opt, .Some(i) => i, .None => new_expr_info(&env, Rc.new(TypeValueNode.Unit)));
     env_adopt(&env, &te_info.env);
@@ -395,7 +395,7 @@ evaluate_type_field :: (
     // Do not propagate forceCompileTimeBindings when evaluating type field values.
     ctx.force_compile_time_bindings = false;
     evaluated_av := evaluate_expression_raw(&av_expr, &env, ctx, exn);
-    ctx.expected_type = old_expected;
+    ctx.expected_type = old_expected.clone();
     ctx.force_compile_time_bindings = old_force_ct;
     av_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_av));
     av_info := match(
@@ -483,7 +483,7 @@ evaluate_type_field :: (
     );
     old_expected := replace(&mut ctx.expected_type, field_expected_ctx);
     evaluated_dv := evaluate_expression_raw(&dv_expr, &env, ctx, exn);
-    ctx.expected_type = old_expected;
+    ctx.expected_type = old_expected.clone();
     dv_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_dv));
     dv_info := match(
       dv_info_opt,

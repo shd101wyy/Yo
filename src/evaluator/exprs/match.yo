@@ -2088,7 +2088,7 @@ evaluate_match :: (
             .None => ArrayList(TypeValue).new()
           );
           match(
-            &gadt_exp_em,
+            &gadt_exp_em.clone(),
             .Some(ge) => {
               if(gadt_gra.len() > usize(0), {
                 refined := _gadt_refined_expected(&ge.ty, &gadt_tca_em, &gadt_gra);
@@ -2504,7 +2504,7 @@ evaluate_match :: (
     result_ty_final_em := cond(
       // GADT match: the result IS the (unrefined) expected type even though
       // it contains SomeT.
-      is_gadt_match_em => match(gadt_exp_em, .Some(ge_fin) => Rc.clone(ge_fin.ty), .None => rt_em),
+      is_gadt_match_em => match(gadt_exp_em.clone(), .Some(ge_fin) => Rc.clone(ge_fin.ty), .None => rt_em),
       true => _arm_result_type(ctx, &rt_em)
     );
     (nb_mi : usize) = usize(0);

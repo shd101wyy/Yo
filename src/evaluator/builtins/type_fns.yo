@@ -225,7 +225,7 @@ evaluate_yo_are_types_compatible :: (
   ctx.self_type = Option(TypeValue).None;
   eval_0_gout := ArrayList(AstExpr).new();
   eval_0_gerr := evaluate_expression_guarded(&arg0, env, ctx, &mut eval_0_gout);
-  ctx.expected_type = saved_expected;
+  ctx.expected_type = saved_expected.clone();
   ctx.self_type = saved_self.clone();
   match(eval_0_gerr, .Some(eval_0_ge) => exn.throw(eval_0_ge), .None => ());
   eval_0 := match(eval_0_gout.get(usize(0)), .Some(eval_0_g) => eval_0_g, .None => make_err_expr());
@@ -261,7 +261,7 @@ evaluate_yo_are_types_compatible :: (
   ctx.self_type = Option(TypeValue).None;
   eval_1_gout := ArrayList(AstExpr).new();
   eval_1_gerr := evaluate_expression_guarded(&arg1, &cur_env, ctx, &mut eval_1_gout);
-  ctx.expected_type = saved_expected;
+  ctx.expected_type = saved_expected.clone();
   ctx.self_type = saved_self;
   match(eval_1_gerr, .Some(eval_1_ge) => exn.throw(eval_1_ge), .None => ());
   eval_1 := match(eval_1_gout.get(usize(0)), .Some(eval_1_g) => eval_1_g, .None => make_err_expr());
@@ -340,7 +340,7 @@ evaluate_yo_are_types_equal :: (
   ctx.self_type = Option(TypeValue).None;
   eval_0_gout := ArrayList(AstExpr).new();
   eval_0_gerr := evaluate_expression_guarded(&arg0, env, ctx, &mut eval_0_gout);
-  ctx.expected_type = saved_expected;
+  ctx.expected_type = saved_expected.clone();
   ctx.self_type = saved_self.clone();
   match(eval_0_gerr, .Some(eval_0_ge) => exn.throw(eval_0_ge), .None => ());
   eval_0 := match(eval_0_gout.get(usize(0)), .Some(eval_0_g) => eval_0_g, .None => make_err_expr());
@@ -365,7 +365,7 @@ evaluate_yo_are_types_equal :: (
   ctx.self_type = Option(TypeValue).None;
   eval_1_gout := ArrayList(AstExpr).new();
   eval_1_gerr := evaluate_expression_guarded(&arg1, &cur_env, ctx, &mut eval_1_gout);
-  ctx.expected_type = saved_expected;
+  ctx.expected_type = saved_expected.clone();
   ctx.self_type = saved_self;
   match(eval_1_gerr, .Some(eval_1_ge) => exn.throw(eval_1_ge), .None => ());
   eval_1 := match(eval_1_gout.get(usize(0)), .Some(eval_1_g) => eval_1_g, .None => make_err_expr());
@@ -1795,7 +1795,7 @@ evaluate_type_join_fields :: (
     call_result_gout := ArrayList(AstExpr).new();
     call_result_gerr := evaluate_expression_guarded(&call_ast, &local_env, ctx, &mut call_result_gout);
     ctx.force_compile_time_bindings = old_force;
-    ctx.expected_type = old_expected;
+    ctx.expected_type = old_expected.clone();
     match(call_result_gerr, .Some(call_result_ge) => exn.throw(call_result_ge), .None => ());
     call_result := match(call_result_gout.get(usize(0)), .Some(call_result_g) => call_result_g, .None => make_err_expr());
     call_info := match(
@@ -2034,7 +2034,7 @@ evaluate_type_map_variants :: (
     call_result_gout := ArrayList(AstExpr).new();
     call_result_gerr := evaluate_expression_guarded(&call_ast, &local_env, ctx, &mut call_result_gout);
     ctx.force_compile_time_bindings = old_force;
-    ctx.expected_type = old_expected;
+    ctx.expected_type = old_expected.clone();
     match(call_result_gerr, .Some(call_result_ge) => exn.throw(call_result_ge), .None => ());
     call_result := match(call_result_gout.get(usize(0)), .Some(call_result_g) => call_result_g, .None => make_err_expr());
     call_info := match(
