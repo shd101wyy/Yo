@@ -21,8 +21,8 @@ impl(
 );
 main :: (fn() -> unit)({
   h := Holder(inner : .Some(Box.new(P(s : `abc`))));
-  a := h.get().unwrap().len();                                 // 1
-  b := match(h.get(), .Some(p) => p.len(), .None => usize(0));   // 2
+  a := h.get().unwrap().len(); // 1
+  b := match(h.get(), .Some(p) => p.len(), .None => usize(0)); // 2
   c := match(h.get(), .Some(p) => p.*.len(), .None => usize(0)); // 3
 });
 export(main);

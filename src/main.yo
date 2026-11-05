@@ -2914,16 +2914,7 @@ _run_migrate_deref :: (
         (ran : bool) = match(
           current_exe(),
           .Ok(exe) => {
-            cmd := Command.new(exe.to_string())
-              .arg(String.from("--std-path"))
-              .arg(std_path.clone())
-              .arg(String.from("fix"))
-              .args(&dead_files)
-              .arg(String.from("--migrate"))
-              .arg(String.from("deref"))
-              .arg(String.from("--target"))
-              .arg(t.triple.clone())
-              .env(String.from("YO_FIX_DEREF_SITES_OUT"), out_path.clone());
+            cmd := Command.new(exe.to_string()).arg(String.from("--std-path")).arg(std_path.clone()).arg(String.from("fix")).args(&dead_files).arg(String.from("--migrate")).arg(String.from("deref")).arg(String.from("--target")).arg(t.triple.clone()).env(String.from("YO_FIX_DEREF_SITES_OUT"), out_path.clone());
             cst := io.await(cmd.status(io), IoExn(io : io, exn : exn));
             (cst.raw == i32(0)) && io.await(exists(Path.new(out_path.clone()), io), io)
           },
