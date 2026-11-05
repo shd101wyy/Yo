@@ -263,7 +263,16 @@ generate_drop_of_operand :: (fn(value_arg : &AstExpr, indent : &String, context 
   // `sm->var_…` names a state-machine local and nothing else; `sm->slot_…`
   // is a slot locals with disjoint live ranges share (phase 6).
   in_sm_field := (value_code.starts_with("sm->var_") || value_code.starts_with("sm->slot_"));
-  clear_stmt := `memset(&(${value_code}), 0, sizeof(${value_code}))`;
+  // A named local's slot also sets its move flag: the slot holds no value of
+  // its own any more, and a zeroed value is not empty for every type (a
+  // `Drop` struct of plain fields), so the dispose skips a flagged slot
+  // instead of dropping its zeroes
+  // (issues/fixed/2026-11-05-an-aborted-task-drops-a-local-its-scope-already-dropped.md).
+  clear_stmt := match(
+    if(in_sm_field, sm_move_flag_of(&value_code), Option(String).None),
+    .Some(flag) => `memset(&(${value_code}), 0, sizeof(${value_code})); ${flag} = 1`,
+    .None => `memset(&(${value_code}), 0, sizeof(${value_code}))`
+  );
   // A capture-list field of a state machine that owns its captures
   // (`consume(d)` of an `FnOnce` capture in an `io.async` body) is released
   // here, so its move flag tells the dispose that the field is gone, as a

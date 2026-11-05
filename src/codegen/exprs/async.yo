@@ -1049,6 +1049,20 @@ _rc_field_drop_line :: (fn(field_ref : &String, field_type : &TypeValue, indent 
     true => Option(String).None
   )
 );
+/// The drop `line` of the task slot `field_ref`, run only while the slot
+/// holds a value of its own: a slot with a move flag (`sm_move_flag_of`)
+/// has given its value up once the flag is set, by a move out (the value
+/// stays readable for the moved-from name, and its new owner releases it) or
+/// by the drop at its scope's end. A zeroed slot is not empty for every type:
+/// a `Drop` struct of plain fields would run its `drop` on the zeroes
+/// (issues/fixed/2026-11-05-an-aborted-task-drops-a-local-its-scope-already-dropped.md).
+_unless_moved_out :: (fn(field_ref : &String, line : &String) -> String)(
+  match(
+    sm_move_flag_of(field_ref.clone()),
+    .Some(flag) => `    if (!(${flag})) {\n${line}\n    }`,
+    .None => line.clone()
+  )
+);
 /// True if `capture_type` is registered in `context.types`.
 _capture_type_entry_exists :: (fn(capture_type : &TypeValue, context : &FunctionGenerationContext) -> bool)({
   target_key := type_key(capture_type);
@@ -1321,8 +1335,10 @@ generate_async_block_state_dispose_function :: (
       .Some(v) => {
         is_local := match(v.kind, .Local => true, _ => false);
         is_owning := match(v.is_owning_the_same_rc_value_as, .Some(_) => true, .None => false);
-        // A pattern binding's slot borrows the scrutinee's payload: the
-        // scrutinee's own drop releases it.
+        // A borrowing pattern binding's slot reads the scrutinee's payload:
+        // the scrutinee's own drop releases it. A consuming match's binding
+        // owns its part and is dropped here like a named local
+        // (`note_state_machine_binding_id`).
         is_binding := match(&context.state_machine_binding_ids, .Some(bids) => bids.contains(v.base.id.to_string()), .None => false);
         // A member of a shared slot is dropped through the slot, below.
         is_shared := overlapping_slot_aliases.contains_key(v.base.id.to_string());
@@ -1332,14 +1348,10 @@ generate_async_block_state_dispose_function :: (
           match(
             _rc_field_drop_line(field_ref.clone(), &v.base.ty, String.from("    "), context),
             .Some(line) => {
-              // A slot whose value was moved out still holds it for the
-              // moved-from name's reads; its new owner releases it.
-              match(
-                sm_move_flag_of(field_ref.clone()),
-                .Some(flag) => local_drop_lines.push(`    if (${flag}) { memset(&(${field_ref}), 0, sizeof(${field_ref})); }`),
-                .None => ()
-              );
-              local_drop_lines.push(line);
+              // A flagged slot holds no value of its own: one moved out still
+              // holds it for the moved-from name's reads (its new owner
+              // releases it), and one its scope already dropped is emptied.
+              local_drop_lines.push(_unless_moved_out(&field_ref, &line));
             },
             .None => ()
           );
@@ -2172,14 +2184,9 @@ _emit_fused_local_release :: (fn(lf : &FusedLocalField, indent : &String, zero :
     match(
       _rc_field_drop_line(`sm->${lf.field_name.clone()}`, &lf.ty, indent.clone(), context),
       .Some(line) => {
-        // A slot whose value moved out keeps it for the name's reads; its new
-        // owner releases it.
-        match(
-          sm_move_flag_of(`sm->${lf.field_name.clone()}`),
-          .Some(flag) => em.emit_string_line(`${indent}if (${flag}) { memset(&(sm->${lf.field_name.clone()}), 0, sizeof(sm->${lf.field_name.clone()})); }`),
-          .None => ()
-        );
-        em.emit_string_line(&line);
+        // A slot whose value moved out keeps it for the name's reads (its new
+        // owner releases it), and one its scope dropped is emptied.
+        em.emit_string_line(&_unless_moved_out(&`sm->${lf.field_name.clone()}`, &line));
       },
       .None => ()
     );

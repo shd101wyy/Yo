@@ -251,13 +251,19 @@ FunctionGenerationContext :: ref(
     /// Phase-1b aliases: temp future variable id → its await_future_N SM field
     /// name (atom emission redirects SM lookups to the existing await field).
     state_machine_field_aliases : Option(HashMap(String, String)),
-    /// State-machine variable ids whose slot a match PATTERN BINDING was
-    /// stored into. A binding borrows the scrutinee's payload (no dup, no
-    /// scope-end drop), so the abort dispose must not drop its slot as well as
-    /// the scrutinee's: filled by every binding-store site while the resume
-    /// function is generated, read by the dispose generator
+    /// State-machine variable ids whose slot a BORROWING match pattern
+    /// binding was stored into. Such a binding reads the scrutinee's payload
+    /// (no dup, no scope-end drop), so the abort dispose must not drop its slot
+    /// as well as the scrutinee's: filled by every binding-store site while the
+    /// resume function is generated, read by the dispose generator
     /// (issues/fixed/async-abort-dispose-double-drops-moved-enum-payload.md).
+    /// A consuming match's binding owns its part, so its slot is not recorded
+    /// and the dispose drops it like any named local's (`match_binds_own`).
     state_machine_binding_ids : Option(HashSet(String)),
+    /// True while the arms of a consuming `match` (`MATCH_MODE_CONSUME`) are
+    /// lowered: the bindings own the parts they bind (decision 26)
+    /// (issues/fixed/2026-11-05-an-aborted-task-leaks-a-value-moved-into-a-match-binding-across-an-await.md).
+    match_binds_own : bool,
     /// Effect-evidence parameters in scope (implicit label → evidence param), for
     /// explicit-effects dispatch / effect injection.
     current_evidence_params : Option(HashMap(String, EvidenceParameter)),
@@ -334,6 +340,7 @@ impl(
       state_machine_variables : Option(HashMap(String, CapturedVariable)).None,
       state_machine_field_aliases : Option(HashMap(String, String)).None,
       state_machine_binding_ids : Option(HashSet(String)).None,
+      match_binds_own : false,
       current_evidence_params : Option(HashMap(String, EvidenceParameter)).None,
       deferred_async_blocks : Option(ArrayList(DeferredAsyncBlock)).None,
       current_assignment_save_temp : Option(String).None,
@@ -422,8 +429,12 @@ take_short_circuit_handled :: (fn(context : &FunctionGenerationContext, target :
     .None => false
   )
 );
-/// Record `id` in `state_machine_binding_ids` when that set is active.
-note_state_machine_binding_id :: (fn(context : &FunctionGenerationContext, id : &String) -> unit)(
+/// Record `id` in `state_machine_binding_ids` when that set is active and the
+/// binding borrows (the arms being lowered are not a consuming match's).
+note_state_machine_binding_id :: (fn(context : &FunctionGenerationContext, id : &String) -> unit)({
+  if(context.match_binds_own, {
+    return(());
+  });
   match(
     context.state_machine_binding_ids.take(),
     .Some(s) => {
@@ -432,8 +443,8 @@ note_state_machine_binding_id :: (fn(context : &FunctionGenerationContext, id : 
       context.state_machine_binding_ids = Option(HashSet(String)).Some(ids);
     },
     .None => ()
-  )
-);
+  );
+});
 /// The tokens `a` and `b` are the same source position.
 _same_decl :: (fn(a : &Option(Token), b : &Option(Token)) -> bool)(
   match(

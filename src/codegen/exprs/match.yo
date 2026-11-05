@@ -35,11 +35,11 @@
 { generate_deferred_drop_expressions, generate_deferred_dup_expressions, generate_dup_code_for_value, arm_value_with_dups, has_pending_emittable_drop, _looks_like_minted_temp } :: import("./drop_dup.yo");
 { is_temp_variable_name } :: import("../../utils.yo");
 { _store_temp_var_to_state_machine_if_needed } :: import("./other_fn_call.yo");
-{ sm_local_field_name } :: import("../async/state_machine_naming.yo");
+{ sm_local_field_name, sm_move_flag_of } :: import("../async/state_machine_naming.yo");
 { declare_c_var_name, get_type_string, fresh_local_name, get_variable_name_for_codegen, type_key, sanitize_for_c_identifier, c_field_name, c_variant_member_name, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, get_enum_variant_c_name, get_deferred_dup_target_atom_name, pattern_param_is_literal, pattern_literal_param_code, pattern_literal_arm_guards, arm_variant_name, arm_params, nullable_arm_selects_payload, nullable_arm_payload_binder, get_runtime_struct_fields, note_line_position, get_variable_name_for_codegen_at } :: import("../utils/index.yo");
 { resolve_enum_shell, t_ptr } :: import("../../types/creators.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
-{ Pattern, Arm, lookup_match_arms, pattern_bindings, pattern_binding_atoms, lookup_match_mode, lookup_arm_entry_drops, pattern_position_is_cell, MATCH_MODE_MUT, MATCH_MODE_BORROW, MATCH_MODE_REF, MATCH_MODE_REF_TEMP, match_mode_binds_refs } :: import("../../pattern.yo");
+{ Pattern, Arm, lookup_match_arms, pattern_bindings, pattern_binding_atoms, lookup_match_mode, lookup_arm_entry_drops, pattern_position_is_cell, MATCH_MODE_MUT, MATCH_MODE_BORROW, MATCH_MODE_REF, MATCH_MODE_REF_TEMP, match_mode_binds_refs, MATCH_MODE_CONSUME } :: import("../../pattern.yo");
 { arm_is_classic } :: import("../../evaluator/exprs/pattern_compile.yo");
 { replace } :: import("std/mem");
 /// True for an ASCII word byte ([A-Za-z0-9_]).
@@ -916,6 +916,7 @@ _bind_pattern_name :: (fn(context : &FunctionGenerationContext, indent : &String
     .Some(field) => {
       em := context.base.emitter;
       em.emit_string_line(`${indent}sm->${field} = ${decl_name};`);
+      _clear_binding_move_flag(context, indent, &field);
       _shadow_slot_set(context, cname.clone(), field.clone());
       if(source.starts_with("sm->") || source.starts_with("(sm->"), {
         match(
@@ -931,6 +932,20 @@ _bind_pattern_name :: (fn(context : &FunctionGenerationContext, indent : &String
   );
   _shadow_add(context, cname, decl_name, Option(Token).Some(tok.clone()));
 });
+/// A binding stored into its slot gives the slot a value: clear the move flag
+/// a move out of its previous value set (an arm in a loop binds the name
+/// again on every iteration), as every store into a named local's slot does
+/// (`_clear_sm_move_flag`, init_assignment.yo).
+_clear_binding_move_flag :: (fn(context : &FunctionGenerationContext, indent : &String, field : &String) -> unit)(
+  match(
+    sm_move_flag_of(`sm->${field}`),
+    .Some(flag) => {
+      em := context.base.emitter;
+      em.emit_string_line(`${indent}${flag} = 0;`);
+    },
+    .None => ()
+  )
+);
 /// Record the slot a shadowed name lives in (`shadow_slots`).
 _shadow_slot_set :: (fn(context : &FunctionGenerationContext, name : &String, field : &String) -> unit)({
   // Taken out and stored back: a `match` binding is a copy of the map once
@@ -1186,6 +1201,7 @@ _gen_nullable_ptr_match :: (fn(expr : &AstExpr, indent : &String, context : &Fun
               smb_store.push_string(dvn_c.clone());
               smb_store.push_str(";");
               em.emit_string_line(&smb_store);
+              _clear_binding_move_flag(context, &body_indent, &smb_field);
               if(context.sm_inline_lowering.is_some(), {
                 _shadow_slot_set(context, dvn.clone(), smb_field.clone());
               });
@@ -2520,7 +2536,11 @@ generate_match_expression :: (fn(expr : &AstExpr, indent : &String, context : &F
   subj_drops := match(subject_opt, .Some(sj) => match(context.base.get_expr_info(&sj), .Some(sj_ei) => sj_ei.deferred_drop_expressions.clone(), .None => Option(ArrayList(AstExpr)).None), .None => Option(ArrayList(AstExpr)).None);
   subj_prev := replace(&mut context.pending_deferred_drops, Option(ArrayList(AstExpr)).None);
   context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(&subj_drops, &subj_prev));
+  // A consuming match's bindings own their parts: their task slots are
+  // dropped by an abort like any named local's (`note_state_machine_binding_id`).
+  binds_own_prev := replace(&mut context.match_binds_own, lookup_match_mode(ast_expr_id(expr)) == MATCH_MODE_CONSUME);
   code := _generate_match_expression_body(expr, indent, context);
+  context.match_binds_own = binds_own_prev;
   context.pending_deferred_drops = subj_prev;
   match(subject_opt, .Some(sj) => generate_deferred_drop_expressions(&sj, indent.clone(), context), .None => ());
   match(
