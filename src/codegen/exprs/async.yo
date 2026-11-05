@@ -80,6 +80,7 @@
   FunctionGenerationContext,
   ClosureParamSlot,
   DeferredAsyncBlock,
+  DeferredAsyncBlockData,
   EvidenceParameter,
   sm_owns_fnonce_captures,
   sm_lowering_analysis,
@@ -2974,7 +2975,8 @@ generate_async_block :: (fn(expr : &AstExpr, io_async_body : &Option(AstExpr), a
   });
   closure_param_slots_opt := if(closure_param_slots.len() > usize(0), Option(ArrayList(ClosureParamSlot)).Some(closure_param_slots), Option(ArrayList(ClosureParamSlot)).None);
   // Record the deferred-generation request.
-  dab := DeferredAsyncBlock(
+  dab := Rc.new(
+    DeferredAsyncBlockData(
     body_expr : body_expr,
     async_block_id : async_block_id.clone(),
     struct_name : struct_name.clone(),
@@ -2991,6 +2993,7 @@ generate_async_block :: (fn(expr : &AstExpr, io_async_body : &Option(AstExpr), a
     analysis : analysis_kinded,
     closure_param_slots : closure_param_slots_opt,
     source_call_id : if(is_io_async, ast_expr_id(expr), usize(0))
+  )
   );
   mut(blocks) := match(context.deferred_async_blocks.take(), .Some(lst) => lst, .None => ArrayList(DeferredAsyncBlock).new());
   blocks.push(dab);
