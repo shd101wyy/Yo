@@ -8971,14 +8971,16 @@ _check_call_origin_invariance :: (fn(call : &AstExpr, env : &Environment, ctx : 
     return(());
   });
   op_args := match(call, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => return(()));
-  slots := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&op_callee)), .Some(ci) => _callee_param_slots(&ci.ty), .None => return(()));
-  if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
-    (di : usize) = usize(0);
-    while(di < slots.len(), {
-      eprintln(`[o33] ${ast_expr_to_string(call)} slot ${di.to_string()} = ${match(slots.get(di), .Some(ds) => type_to_string(&ds), .None => String.from("?"))} carries=${match(slots.get(di), .Some(ds) => type_carries_origin(&t_slot_pointee(&ds)), .None => false).to_string()}`);
-      di = (di + usize(1));
-    });
-  });
+  // The DEFINITION's slots: origins never specialize (a specialization over
+  // `generic(T : Type)` re-evaluates its parameter types with their origins
+  // elided), so a named function's spelled origins are read off the
+  // binding's own function value; any other callee off its type.
+  def_slots := match(
+    match(&op_callee, .Atom(_, _) => get_variables_from_env(env, ast_expr_token(&op_callee).value.*.clone()).last(), _ => Option(Variable).None),
+    .Some(cv) => match(cv.value.get(usize(0)), .Some(.FuncVal(cfv, _)) => fn_param_slots(&get_func_type(&cfv.*.func_id)), _ => no_types()),
+    .None => no_types()
+  );
+  slots := if(def_slots.len() > usize(0), def_slots, match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&op_callee)), .Some(ci) => _callee_param_slots(&ci.ty), .None => return(())));
   // 1. The origin parameters a `&mut` argument fixes, with the argument.
   fixed_names := ArrayList(String).new();
   fixed_sets := ArrayList(SharedList(String)).new();
