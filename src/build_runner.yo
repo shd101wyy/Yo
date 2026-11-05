@@ -664,7 +664,7 @@ _evaluate_dependency_builds :: (
   ) -> Impl(Future(BuildRegistry, IoExn))
 )({
   owned_defines := defines.clone();
-  io.async({ registry }(e : IoExn) => {
+  io.async({ registry, &manifest, owned_defines }(e : IoExn) => {
     if(registry.dependency_artifacts.len() == usize(0), {
       return(registry);
     });
