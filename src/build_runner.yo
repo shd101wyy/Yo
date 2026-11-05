@@ -133,23 +133,13 @@ StepResult :: ref(
 // a child `yo compile`, so the warm evaluator universe (module cache,
 // prelude env, shared ExprInfoTable) is reused across watch rounds.
 InProcessCompileFn :: (fn(argv : &ArrayList(String), io : Io, exn : Exception) -> bool);
-/// The callback lives in a MUTABLE REF-STRUCT SLOT, not a bare global
-/// Option: an async fn (`run_build`) reading a global fn-typed Option
-/// minted a temp the state machine carried across a suspension point, and
-/// fn-typed SM fields do not emit ("use of undeclared identifier",
-/// issues/fixed/async-sm-fn-typed-local-across-suspension.md). A ref-struct field
-/// is a supported SM capture (the pointer is), so reads go through the slot
-/// object.
-InProcessCompileSlot :: ref(
-  struct(
-    f : Option(InProcessCompileFn)
-  )
-);
-(g_in_process_compile_slot : InProcessCompileSlot) = InProcessCompileSlot(
-  f : Option(InProcessCompileFn).None
-);
+/// The callback, set once by `main.yo` before the build runs; the execution
+/// context takes its value at construction. (A fn value crossing a
+/// suspension point once failed to emit; fixed 2026-09-29,
+/// issues/fixed/async-sm-fn-typed-local-across-suspension.md.)
+(mut(g_in_process_compile_fn) : Option(InProcessCompileFn)) = Option(InProcessCompileFn).None;
 set_in_process_compile_fn :: (fn(f : InProcessCompileFn) -> unit)({
-  g_in_process_compile_slot.f = Option(InProcessCompileFn).Some(f);
+  g_in_process_compile_fn = Option(InProcessCompileFn).Some(f);
   ()
 });
 ExecutionContext :: ref(
@@ -172,12 +162,9 @@ ExecutionContext :: ref(
     /// `-j N`: how many nodes of one DAG level may run at once (§4.8). 1 keeps
     /// their output in DAG order, which every recorded golden depends on.
     jobs : usize,
-    /// §7 step 2: `.Some(slot)` on build --watch rounds — artifacts compile
-    /// through slot.f in-process against the warm evaluator universe. The
-    /// SLOT REF (a pointer) is stored, never the fn value itself: an
-    /// fn-typed value materializing in an async state machine is the
-    /// issues/fixed/async-sm-fn-typed-local-across-suspension.md bug.
-    in_process_compile_slot : InProcessCompileSlot,
+    /// §7 step 2: `.Some(f)` on build --watch rounds — artifacts compile
+    /// through f in-process against the warm evaluator universe.
+    in_process_compile_fn : Option(InProcessCompileFn),
     /// §7 step 2: true on `build --watch` rounds (`BuildOptions.
     /// watch_in_process`, set by `_build_round_watch`). A failed step must
     /// NOT `exit(1)` — the watch loop's contract is that a failing round is
@@ -2204,7 +2191,7 @@ compile_artifact :: (
     });
     (compile_ok : bool) = false;
     (fail_code : i32) = i32(-1);
-    if(ctx.in_process_compile_slot.f.is_some(), {
+    if(ctx.in_process_compile_fn.is_some(), {
       // §7 step 2: run the artifact compile IN PROCESS against the warm
       // evaluator universe. The argv is the child's exact command line, so
       // both paths run the same flags. The fn value is read and called
@@ -2247,7 +2234,7 @@ compile_artifact :: (
       // call found", issues/fixed/warm-in-process-array-fill-call-stops-matching.md.
       filtered.push(String.from("--compile-watch-mode"));
       compile_ok = match(
-        ctx.in_process_compile_slot.f,
+        ctx.in_process_compile_fn,
         .Some(f) => f(&filtered, e.io, e.exn),
         .None => false
       );
@@ -3513,7 +3500,7 @@ run_build :: (
       summary : options.summary,
       run_args : options.run_args.clone(),
       jobs : options.jobs,
-      in_process_compile_slot : g_in_process_compile_slot,
+      in_process_compile_fn : g_in_process_compile_fn,
       watch_round : options.watch_in_process
     );
     requested := if(options.steps.len() == usize(0), {
