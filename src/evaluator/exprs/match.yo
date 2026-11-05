@@ -2630,7 +2630,7 @@ evaluate_match :: (
             );
             out_ret_em := new_expr_info(&env, &rt);
             out_ret_em.set_value(ret_val_em);
-            out_ret_em.set_control_flow(final_cf_em);
+            out_ret_em.set_control_flow(final_cf_em.clone());
             if(is_primitive_switch, {
               expr_info_set_is_primitive_match(&out_ret_em, Option(bool).Some(true));
             });
@@ -2652,7 +2652,7 @@ evaluate_match :: (
         });
         esc_ty_em := match(&ctx.enclosing_function_return_type, .Some(t) => Rc.clone(t), .None => t_unit());
         out_esc_em := new_expr_info(&env, &esc_ty_em);
-        out_esc_em.set_control_flow(final_cf_em);
+        out_esc_em.set_control_flow(final_cf_em.clone());
         if(is_primitive_switch, {
           expr_info_set_is_primitive_match(&out_esc_em, Option(bool).Some(true));
         });
@@ -2672,7 +2672,7 @@ evaluate_match :: (
         });
         out_brk_em := new_expr_info(&env, t_unit());
         out_brk_em.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
-        out_brk_em.set_control_flow(final_cf_em);
+        out_brk_em.set_control_flow(final_cf_em.clone());
         if(is_primitive_switch, {
           expr_info_set_is_primitive_match(&out_brk_em, Option(bool).Some(true));
         });

@@ -419,7 +419,7 @@ handle_member_destructuring :: (
       });
       // Record ExprInfo for the spread expression itself.
       spread_info := new_expr_info(env, rhs_type);
-      spread_info.set_value(rhs_value);
+      spread_info.set_value(rhs_value.clone());
       expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&lhs_field), &spread_info);
       did_spread = true;
     });
@@ -637,14 +637,14 @@ handle_member_destructuring :: (
           });
           // Record ExprInfo on the lhs field.
           lf_info := new_expr_info(env, &rhs_field_type);
-          lf_info.set_value(field_value_opt);
+          lf_info.set_value(field_value_opt.clone());
           expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&lhs_field), &lf_info);
           // Record ExprInfo on label_expr if present.
           match(
             label_expr_opt,
             .Some(le) => {
               le_info := new_expr_info(env, &rhs_field_type);
-              le_info.set_value(field_value_opt);
+              le_info.set_value(field_value_opt.clone());
               expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&le), &le_info);
             },
             .None => ()

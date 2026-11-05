@@ -529,7 +529,7 @@ impl(
 expr_info_adopt_env :: (fn(info : &ExprInfo) -> Environment)({
   g_adopt_env_calls = (g_adopt_env_calls + usize(1));
   fresh := snapshot_env(&info.env());
-  info.set_env(fresh);
+  info.set_env(Rc.clone(fresh));
   fresh
 });
 /// Create an ExprInfo with the three required fields and all optional fields set to `.None`.
@@ -1449,7 +1449,7 @@ scope_release_body :: (fn(mark : usize, entry : &Environment) -> unit)({
         true => ()
       );
       if(g_scope_mode == usize(2), {
-        info.set_env(info_husk);
+        info.set_env(Rc.clone(info_husk));
       }, {
         g_scope_husks.with_mut(m => m.insert(id, info_husk));
       });

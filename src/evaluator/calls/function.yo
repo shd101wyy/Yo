@@ -9219,7 +9219,7 @@ _evaluate_function_call_unanchored :: (
         Option(EvalValue).Some(op_ctfe.value)
       }, Option(EvalValue).Some(_call_result_unknown(&resolved_ret, env)));
       out_op := new_expr_info(&call_result_op.caller_env, &resolved_ret);
-      out_op.set_value(op_result_val);
+      out_op.set_value(op_result_val.clone());
       op_result_is_runtime := match(op_result_val, .Some(orv) => is_unknown_val(&orv), .None => false);
       // Only a RUNTIME operator result drives a codegen CALL that needs the
       // runtime arg exprs. A COMPTIME-FOLDED result (a concrete value) is emitted

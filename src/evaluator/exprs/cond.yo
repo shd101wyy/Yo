@@ -853,7 +853,7 @@ evaluate_cond :: (
                 );
                 out_ret_info := new_expr_info(&env, &rt);
                 out_ret_info.set_value(return_val);
-                out_ret_info.set_control_flow(final_cf);
+                out_ret_info.set_control_flow(final_cf.clone());
                 expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_ret_info);
               }
             );
@@ -872,7 +872,7 @@ evaluate_cond :: (
             });
             unwind_ty := match(&ctx.enclosing_function_return_type, .Some(t) => Rc.clone(t), .None => t_unit());
             out_esc_info := new_expr_info(&env, &unwind_ty);
-            out_esc_info.set_control_flow(final_cf);
+            out_esc_info.set_control_flow(final_cf.clone());
             expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_esc_info);
           },
           has_control_flow(final_cf, .Break) => {
@@ -889,7 +889,7 @@ evaluate_cond :: (
             });
             out_brk_info := new_expr_info(&env, t_unit());
             out_brk_info.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
-            out_brk_info.set_control_flow(final_cf);
+            out_brk_info.set_control_flow(final_cf.clone());
             expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_brk_info);
           },
           has_control_flow(final_cf, .Continue) => {
