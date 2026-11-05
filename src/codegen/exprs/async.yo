@@ -2298,7 +2298,7 @@ _fused_arg_carries_call_share :: (fn(arg : &AstExpr, context : &FunctionGenerati
 });
 /// Lower `await_expr` as a fused site, or return `.None` to leave it to the
 /// ordinary suspension. Returns the C code of the await's value.
-emit_fused_await :: (fn(await_expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> Option(String))({
+emit_fused_await :: (fn(await_expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> Option(String))({
   site := match(fused_await_site(await_expr, true, context), .Some(s) => s, .None => return(Option(String).None));
   low := match(context.sm_inline_lowering, .Some(l) => l, .None => return(Option(String).None));
   await_args := match(await_expr, .FnCall(_, _, _, _, _) => ast_call_args_unmarked(await_expr), _ => ArrayList(AstExpr).new());

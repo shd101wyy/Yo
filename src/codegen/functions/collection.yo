@@ -51,10 +51,10 @@ pragma(Pragma.AllowUnsafe);
 // types/collection is ONE-WAY (types/collection imports from here). A direct
 // mutual destructuring import cannot be resolved by the circular-import loader.
 // --- mutual-recursion indirection for find_function_calls_in_expr ----------
-FindFunctionCallsFn :: (fn(expr : &AstExpr, context : &CodeGenContext, info : &ExprInfoTable) -> unit);
+FindFunctionCallsFn :: (fn(expr : &AstExpr, context : &mut CodeGenContext, info : &ExprInfoTable) -> unit);
 (mut(g_find_function_calls_in_expr) : Option(FindFunctionCallsFn)) = Option(FindFunctionCallsFn).None;
 // --- indirection for collect_type (defined in types/collection) ------------
-CollectTypeFn :: (fn(type : &TypeValue, context : &CodeGenContext) -> unit);
+CollectTypeFn :: (fn(type : &TypeValue, context : &mut CodeGenContext) -> unit);
 (mut(g_collect_type) : Option(CollectTypeFn)) = Option(CollectTypeFn).None;
 /// Register types/collection's collect_type. Call once at init.
 set_collect_type_fn :: (fn(f : CollectTypeFn) -> unit)({
@@ -62,7 +62,7 @@ set_collect_type_fn :: (fn(f : CollectTypeFn) -> unit)({
   ()
 });
 /// Call the registered collect_type (panics if unregistered).
-_call_collect_type :: (fn(type : &TypeValue, context : &CodeGenContext) -> unit)(
+_call_collect_type :: (fn(type : &TypeValue, context : &mut CodeGenContext) -> unit)(
   match(
     g_collect_type,
     .Some(f) => f(type, context),
@@ -70,7 +70,7 @@ _call_collect_type :: (fn(type : &TypeValue, context : &CodeGenContext) -> unit)
   )
 );
 /// Call the registered find_function_calls_in_expr (panics if unregistered).
-_call_find_function_calls_in_expr :: (fn(expr : &AstExpr, context : &CodeGenContext, info : &ExprInfoTable) -> unit)(
+_call_find_function_calls_in_expr :: (fn(expr : &AstExpr, context : &mut CodeGenContext, info : &ExprInfoTable) -> unit)(
   match(
     g_find_function_calls_in_expr,
     .Some(f) => f(expr, context, info),

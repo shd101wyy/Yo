@@ -28,13 +28,13 @@ closure_capture_counter_reset :: (fn() -> unit)({
 /// (check_variable_is_closure_captured), so a direct import back would be a
 /// cycle — codegen_c.yo installs the fn at codegen init instead (the same
 /// pattern as register_collect_type / register_on_demand_declare).
-SmAtomResolverFn :: (fn(expr : &AstExpr, var_name : &String, context : &FunctionGenerationContext) -> Option(String));
+SmAtomResolverFn :: (fn(expr : &AstExpr, var_name : &String, context : &mut FunctionGenerationContext) -> Option(String));
 (mut(g_sm_atom_resolver) : Option(SmAtomResolverFn)) = Option(SmAtomResolverFn).None;
 set_sm_atom_resolver :: (fn(f : SmAtomResolverFn) -> unit)({
   g_sm_atom_resolver = Option(SmAtomResolverFn).Some(f);
   ()
 });
-_resolve_sm_atom :: (fn(expr : &AstExpr, var_name : &String, context : &FunctionGenerationContext) -> Option(String))(
+_resolve_sm_atom :: (fn(expr : &AstExpr, var_name : &String, context : &mut FunctionGenerationContext) -> Option(String))(
   match(
     g_sm_atom_resolver,
     .Some(f) => f(expr, var_name, context),
@@ -49,14 +49,14 @@ _resolve_sm_atom :: (fn(expr : &AstExpr, var_name : &String, context : &Function
 /// cycle — so codegen_c.yo installs the fn at codegen init, right beside the
 /// SM resolver above. A capture-list field's by-value initializer carries its
 /// RC +1 that way: materialize the initializer, then the dup.
-DeferredDupOrCodeFn :: (fn(expr : &AstExpr, fallback_code : &String, indent : &String, context : &FunctionGenerationContext) -> String);
+DeferredDupOrCodeFn :: (fn(expr : &AstExpr, fallback_code : &String, indent : &String, context : &mut FunctionGenerationContext) -> String);
 (mut(g_deferred_dup_or_code) : Option(DeferredDupOrCodeFn)) = Option(DeferredDupOrCodeFn).None;
 set_deferred_dup_or_code :: (fn(f : DeferredDupOrCodeFn) -> unit)({
   g_deferred_dup_or_code = Option(DeferredDupOrCodeFn).Some(f);
   ()
 });
 _emit_deferred_dup_or_code :: (
-  fn(expr : &AstExpr, fallback_code : &String, indent : &String, context : &FunctionGenerationContext) -> String
+  fn(expr : &AstExpr, fallback_code : &String, indent : &String, context : &mut FunctionGenerationContext) -> String
 )(
   match(
     g_deferred_dup_or_code,
@@ -158,7 +158,7 @@ _is_capture_record_rebuild :: (fn(ei : &ExprInfo) -> bool)(
 );
 /// `__yo_capture_field(c, i)`: field `i` of closure `c`'s capture record, in
 /// place (`(c).<field>`, or `(c)-><field>` through a pointer).
-generate_yo_capture_field :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
+generate_yo_capture_field :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
   cf_args := match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), _ => ArrayList(AstExpr).new());
   recv := match(cf_args.get(usize(0)), .Some(a) => a, .None => return(codegen_fatal_expr(String.from("__yo_capture_field requires 2 arguments"))));
   idx_e := match(cf_args.get(usize(1)), .Some(a) => a, .None => return(codegen_fatal_expr(String.from("__yo_capture_field requires 2 arguments"))));

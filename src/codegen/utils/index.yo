@@ -1514,13 +1514,13 @@ can_optimize_as_simple_enum :: (fn(t : &TypeValue) -> bool)(
 // drifted key to the existing nominal entry (or collects + declares a
 // genuinely-new type into the DECLARATIONS buffer, which the three-buffer
 // emitter places before all function code).
-OnDemandDeclareFn :: (fn(t : &TypeValue, context : &CodeGenContext) -> unit);
+OnDemandDeclareFn :: (fn(t : &TypeValue, context : &mut CodeGenContext) -> unit);
 (mut(g_on_demand_declare_fn) : Option(OnDemandDeclareFn)) = Option(OnDemandDeclareFn).None;
 set_on_demand_declare_fn :: (fn(f : OnDemandDeclareFn) -> unit)({
   g_on_demand_declare_fn = Option(OnDemandDeclareFn).Some(f);
   ()
 });
-_lookup_named_c_type :: (fn(t : &TypeValue, context : &CodeGenContext) -> String)(
+_lookup_named_c_type :: (fn(t : &TypeValue, context : &mut CodeGenContext) -> String)(
   match(
     context.get_type_c_name(type_key(t)),
     .Some(c_name) => c_name,
@@ -1611,7 +1611,7 @@ _extract_future_trait_of_some_t :: (fn(t : &TypeValue) -> Option(TypeValue))(
 /// The C type of the generic Future interface for `ftt` (a `FutureTraitT`):
 /// `__yo_future_trait_*` pointer, minted on demand by the same hook
 /// `_lookup_named_c_type` uses; `__yo_io_future_t*` when even that fails.
-_future_interface_pointer :: (fn(ftt : &TypeValue, context : &CodeGenContext) -> String)(
+_future_interface_pointer :: (fn(ftt : &TypeValue, context : &mut CodeGenContext) -> String)(
   match(
     context.get_type_c_name(type_key(ftt)),
     .Some(cn) => `${cn}*`,

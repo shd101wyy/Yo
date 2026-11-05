@@ -368,7 +368,7 @@ _generate_inline_call :: (fn(expr : &AstExpr, indent : &String, context : &mut F
 });
 /// Lower a transparent wrapper (`unsafe`/`old`/`ghost_fn`/`runtime`) to its
 /// inner expression's code.
-_passthrough_first_arg :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)(
+_passthrough_first_arg :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)(
   match(expr, .FnCall(_, _, Rc(a), _, _) => match(a.get(usize(0)), .Some(inner) => _call_generate_expr(&inner, indent.clone(), context), .None => String.from("")), .Atom(_, _) => String.from(""))
 );
 /// The function-value of an anon-fn/closure node → its comptime C reference.
