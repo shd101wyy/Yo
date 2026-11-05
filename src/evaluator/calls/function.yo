@@ -3135,10 +3135,12 @@ _freshen_io_async_result :: (fn(t : &TypeValue) -> TypeValue)(
 );
 
 /// §3.13 A2: an `io.async` body whose capture list borrows makes its future
-/// second-class. The body's borrows are registered under the future's
-/// per-call wrapper id (`fut_ty`, fresh from `_freshen_io_async_result`), so
-/// decision 38 A's checks see them on the future: it may be awaited or
-/// returned under the parameter rule, and never bound, stored or spawned.
+/// a borrowing future. This walk collects the body's borrows; their place
+/// names become the future's origin (`_stamp_future_origin`), and the
+/// caller's places they lend are recorded for the call (`note_future_roots`).
+/// The future may be awaited, bound with those places frozen until its last
+/// use, or returned when they are all parameters (decision 43 step 4,
+/// VERDICTS-18 §B); it is never stored or spawned.
 ///
 /// The body's own capture-list entries are registered as written. A borrow
 /// that reaches the body through a value it captures (a borrowing closure) is
@@ -3454,9 +3456,10 @@ _is_plain_place_expr :: (fn(e : &AstExpr) -> bool)({
 /// (`collect_type_borrows`). A call through a function value (a local or
 /// parameter of function type, a field holding one) does not: its body is not
 /// visible, so the future it returns is assumed to borrow every place the call
-/// lends with `&`/`&mut`. The assumed borrows are registered under a fresh
-/// wrapper id for this call, and every A2 rule then applies to the future: it
-/// is awaited where it is made, never bound, stored or spawned.
+/// lends with `&`/`&mut`. The assumed borrows are stamped on a fresh wrapper
+/// for this call, and the future then follows the A2 rules as any borrowing
+/// future does: awaited, or bound with the lent places frozen, and never
+/// stored or spawned.
 ///
 /// A borrowing future is then checked here, where it is made, against
 /// decision 38 D (`_check_future_call_lends`), and the caller's places it
