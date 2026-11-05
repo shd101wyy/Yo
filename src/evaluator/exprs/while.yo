@@ -504,7 +504,7 @@ evaluate_while :: (
   // Evaluate the body with the loop-body context set so that break/continue
   // inside the body know they are inside a while loop.
   old_loop_body := ctx.is_evaluating_loop_body.clone();
-  loop_ctx := LoopBodyCtx(
+  mut(loop_ctx) := LoopBodyCtx(
     kind : LoopKind.While,
     env : env,
     entry_frame_count : env.frames.len(),
@@ -512,9 +512,17 @@ evaluate_while :: (
     break_states : ArrayList(LoopFlowSnapshot).new(),
     continue_states : ArrayList(LoopFlowSnapshot).new()
   );
-  ctx.is_evaluating_loop_body = Option(LoopBodyCtx).Some(loop_ctx);
+  ctx.is_evaluating_loop_body = Option(LoopBodyCtx).Some(loop_ctx.clone());
   evaluated_body := evaluate_begin_expression(&body_expr, &env, ctx, ArrayList(Variable).new(), false, exn);
-  ctx.is_evaluating_loop_body = old_loop_body;
+  // The body's `break`/`continue` recorded their move states in the context's
+  // copy: take it back.
+  match(
+    replace(&mut ctx.is_evaluating_loop_body, old_loop_body),
+    .Some(body_lc) => {
+      loop_ctx = body_lc;
+    },
+    .None => ()
+  );
   // `yo fix --migrate rc-clone`: a match on a plain local declared outside a
   // RUNTIME loop borrows (the rule consumes it and the next iteration reads
   // it again), so the migration records the `&` for every such scrutinee in
