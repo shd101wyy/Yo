@@ -725,7 +725,7 @@ _evaluate_dependency_builds :: (
           );
         });
         _record_package_import_lines(dir.clone(), _dependency_import_lines(dir.clone(), lock_text.clone(), e.exn));
-        registry.register_static_library(
+        link_err := registry.register_static_library(
           BuildArtifact(
             kind : ArtifactKind.StaticLibrary,
             name : art.name.clone(),
@@ -749,9 +749,9 @@ _evaluate_dependency_builds :: (
             linked_system_libs : art.linked_system_libs.clone(),
             package_dir : dir.clone(),
             package_name : r.dependency_name.clone()
-          ),
-          e.exn
+          )
         );
+        match(link_err, .Some(m) => e.exn.throw(dyn(m)), .None => ());
         // A `-D<dep>.<opt>` the dependency does not declare is a typo too.
         dep_unknown := undeclared_options(&dep_reg);
         if(dep_unknown.len() > usize(0), {
