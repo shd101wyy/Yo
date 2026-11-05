@@ -44,7 +44,8 @@
   register_mut_global,
   expr_info_set_is_compile_time_only_assignment,
   expr_info_set_macro_expansion,
-  record_local_borrow_step_pin
+  record_local_borrow_step_pin,
+  record_element_borrow_call
 } :: import("../../expr_info.yo");
 {
   Environment,
@@ -313,7 +314,7 @@ _evaluate_inout_local_binding :: (
       // An element place `xs(i)` borrows through the receiver's `Index`
       // projection (decision 24): `y := &xs(i)` binds `xs.index(i)`'s result.
       if(call_is_index_place(rhs, env, ctx), {
-        return(_bind_index_place(expr, lhs, &name_expr, rhs, is_mut, annotation_e, env, ctx, exn));
+        return(_bind_index_place(expr, &name_expr, rhs, is_mut, annotation_e, env, ctx, exn));
       });
       exn.throw(dyn(format_error_message(ast_expr_token(rhs), place_recipe.clone())));
       make_err_expr()
@@ -608,7 +609,6 @@ _join_labels :: (fn(xs : &ArrayList(String)) -> String)({
 _bind_index_place :: (
   fn(
     expr : &AstExpr,
-    lhs : &AstExpr,
     name_expr : &AstExpr,
     rhs : &AstExpr,
     is_mut : bool,
@@ -684,13 +684,9 @@ _bind_index_place :: (
     },
     .None => ()
   );
-  // The statement keeps its id (the binding's look-ahead and codegen key)
-  // and binds the projection call.
-  bind_args := ArrayList(AstExpr).new();
-  bind_args.push(lhs.clone());
-  bind_args.push(ev_call.clone());
-  bound_expr := match(expr, .FnCall(b_id, b_callee, _, b_infix, b_tok) => AstExpr.FnCall(b_id, b_callee.clone(), Rc.new(bind_args), b_infix, b_tok.clone()), .Atom(_, _) => expr.clone());
-  _bind_projection_result(&bound_expr, name_expr, &ev_call, false, env, ctx, exn)
+  // Codegen lowers the call in the element access's place.
+  record_element_borrow_call(ast_expr_id(expr), &ev_call);
+  _bind_projection_result(expr, name_expr, &ev_call, false, env, ctx, exn)
 });
 /// `(y : &T) = &place`: the annotation names the place's type exactly (a
 /// borrow converts nothing).

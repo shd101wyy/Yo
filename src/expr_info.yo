@@ -1063,6 +1063,9 @@ emitted_block_statements :: (fn(stmts : ArrayList(AstExpr)) -> ArrayList(AstExpr
 /// that holds the reference cell its re-points step into (plans/VALUES_BY_DEFAULT.md
 /// decision 25; see `record_local_borrow_step_pin`).
 (g_local_borrow_step_pins : RefCell(HashMap(ExprId, Variable))) = RefCell(HashMap(ExprId, Variable)).new(HashMap(ExprId, Variable).new());
+/// `y := &xs(i)` statement id → the projection call it binds, `xs.index(i)`
+/// or `xs.index_mut(i)` (decision 24; see `record_element_borrow_call`).
+(g_element_borrow_calls : RefCell(HashMap(ExprId, AstExpr))) = RefCell(HashMap(ExprId, AstExpr)).new(HashMap(ExprId, AstExpr).new());
 /// `YO_SCOPE_RELEASE`: `release` (the default) releases each outermost
 /// function body's recorded envs at scope exit; `shadow` keeps them, answers
 /// codegen from the envs and counts where the records would differ (the
@@ -1816,6 +1819,18 @@ record_local_borrow_step_pin :: (fn(lhs_id : ExprId, pin : &Variable) -> unit)({
 });
 lookup_local_borrow_step_pin :: (fn(lhs_id : ExprId) -> Option(Variable))(
   g_local_borrow_step_pins.with(m => m.get(&lhs_id))
+);
+/// `y := &xs(i)` / `y := &mut xs(i)` (statement `stmt_id`) binds the element
+/// through `call`, the receiver's `Index` projection `xs.index(i)` /
+/// `xs.index_mut(i)`, which the evaluator built and evaluated in the
+/// element access's place; codegen lowers that call (`T* y = call`).
+record_element_borrow_call :: (fn(stmt_id : ExprId, call : &AstExpr) -> unit)({
+  record_owned_expr_id(stmt_id);
+  _old := g_element_borrow_calls.with_mut(m => m.insert(stmt_id, call.clone()));
+  ()
+});
+lookup_element_borrow_call :: (fn(stmt_id : ExprId) -> Option(AstExpr))(
+  g_element_borrow_calls.with(m => m.get(&stmt_id))
 );
 // Names of extern-C GLOBAL symbols declared via `c_include` (e.g. `stdout`,
 // `stderr`, `stdin`). `is_extern` is modelled only on the `Func` TypeValue
@@ -2813,7 +2828,7 @@ export(expr_info_closure_function_value, expr_info_set_closure_function_value);
 export(ExprInfoTable, expr_info_table_new, expr_info_table_set, expr_info_table_get, codegen_read_log_set, codegen_read_keys, expr_info_table_retain_keys);
 export(record_method_callee_type, lookup_method_callee_type);
 export(record_io_builtin_struct_field, lookup_io_builtin_struct_field, record_io_builtin_call, lookup_io_builtin_call);
-export(record_method_callee_value, lookup_method_callee_value, record_local_borrow_step_pin, lookup_local_borrow_step_pin, record_immediate_old_value_drop, lookup_immediate_old_value_drop, record_consume_release, is_consume_release);
+export(record_method_callee_value, lookup_method_callee_value, record_local_borrow_step_pin, lookup_local_borrow_step_pin, record_element_borrow_call, lookup_element_borrow_call, record_immediate_old_value_drop, lookup_immediate_old_value_drop, record_consume_release, is_consume_release);
 export(register_extern_c_global, is_extern_c_global, get_extern_c_global_types);
 export(register_extern_c_global_alias, extern_c_global_c_name, register_extern_c_module_id, is_extern_c_module_id);
 export(register_module_level_global, is_module_level_global, module_global_c_suffix);
@@ -3105,6 +3120,7 @@ _purge_expr_side_tables_at :: (fn(id : usize) -> unit)({
   _v := g_method_callee_values.with_mut(m => m.remove(&id));
   _m := g_macro_expansions.with_mut(m => m.remove(&id));
   _p := g_local_borrow_step_pins.with_mut(m => m.remove(&id));
+  _eb := g_element_borrow_calls.with_mut(m => m.remove(&id));
   _d := g_immediate_old_value_drops.with_mut(m => m.remove(&id));
   _c := g_consume_releases.with_mut(s => s.remove(&id));
 });
