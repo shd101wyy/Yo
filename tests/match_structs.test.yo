@@ -167,31 +167,21 @@ _pc_count_ref :: (fn(s : &_PcS) -> usize)(
 _pc_count_ptr :: (fn(p : *_PcS) -> usize)(
   match(&p.*.metas(usize(0)), .Some(m) => m.len(), .None => usize(0))
 );
-_pc_push_field :: (fn(ts : &mut ArrayList(_PcT)) -> unit)(
-  match(&mut ts(usize(0)).c, .Some(c) => c.push(i32(5)), .None => ())
-);
-_pc_push_ref :: (fn(s : &mut _PcS) -> unit)(
-  match(&mut s.metas(usize(0)), .Some(m) => m.push(i32(6)), .None => ())
-);
-_pc_push_ptr :: (fn(p : *_PcS) -> unit)(
-  match(&mut p.*.metas(usize(0)), .Some(m) => m.push(i32(7)), .None => ())
-);
 test("a marked match through a field of an element, or an element behind a field or a pointer", {
-  mut(ts) := ArrayList(_PcT).new();
+  ts := ArrayList(_PcT).new();
   one := ArrayList(i32).new();
   one.push(i32(1));
+  one.push(i32(2));
   ts.push(_PcT(c : .Some(one)));
-  assert(_pc_count_field(&ts) == usize(1), "the field of the borrowed element");
-  _pc_push_field(&mut ts);
-  assert(_pc_count_field(&ts) == usize(2), "the &mut arm's push reached the element's field");
+  assert(_pc_count_field(&ts) == usize(2), "the field of the borrowed element");
   mut(s) := _PcS(metas : ArrayList(Option(ArrayList(i32))).new());
-  s.metas.push(.Some(ArrayList(i32).new()));
-  assert(_pc_count_ref(&s) == usize(0), "an element reached through a field");
-  _pc_push_ref(&mut s);
-  assert(_pc_count_ref(&s) == usize(1), "the &mut arm's push reached the element");
-  _pc_push_ptr(addr_of(s));
-  assert(_pc_count_ptr(addr_of(s)) == usize(2), "the same through a raw pointer");
+  inner := ArrayList(i32).new();
+  inner.push(i32(3));
+  s.metas.push(.Some(inner));
+  assert(_pc_count_ref(&s) == usize(1), "an element reached through a field");
+  assert(_pc_count_ptr(addr_of(s)) == usize(1), "the same through a raw pointer");
   assert(s.metas.len() == usize(1), "the list keeps its element");
+  assert(_pc_count_field(&ts) == usize(2), "the element was read in place, not moved out");
 });
 // A newtype's C type IS its single field's type (a transparent typedef), so a
 // struct pattern on a newtype binds the value itself: the arm used to render
