@@ -101,6 +101,7 @@ pragma(Pragma.AllowUnsafe);
 { EvalValue, FuncValData, create_type_value, create_unknown_val, lookup_enum_cfid, no_values, shared_values } :: import("../../value.yo");
 {
   EvalContext,
+  copy_eval_context,
   ExpectedTypeCtx,
   create_function_body_evaluation_context,
   in_def_time_trial,
@@ -4913,6 +4914,20 @@ _take_field_force_failure :: (fn() -> Option(String))({
   g_field_force_failure = Option(String).None;
   r
 });
+/// The in-flight record holds a COPY of the impl's evaluation context (taken
+/// when the record is pushed): the env lookup hook forces a sibling member
+/// with it while the field loop's own context is lent down the stack. Before
+/// each field the loop runs, the copy takes the loop context's per-field
+/// state, so a force sees what an in-place evaluation would.
+_sync_in_flight_ctx :: (fn(rec : &ImplInFlight, ctx : &EvalContext) -> unit)({
+  rec.ctx.self_type = ctx.self_type.clone();
+  rec.ctx.self_trait_type = ctx.self_trait_type.clone();
+  rec.ctx.self_module_type = ctx.self_module_type.clone();
+  rec.ctx.receiver_type = ctx.receiver_type.clone();
+  rec.ctx.expected_type = ctx.expected_type;
+  rec.ctx.current_impl_trait_field_labels = ctx.current_impl_trait_field_labels.clone();
+  rec.ctx.current_impl_trait_field_types = ctx.current_impl_trait_field_types.clone();
+});
 _force_field_eval :: (fn(pf : &ImplPendingField, st : &ImplInFlight) -> unit)({
   inner_exn := Exception(
     throw : (
@@ -5428,7 +5443,7 @@ evaluate_module_value :: (
       receiver_ty : Rc.clone(receiver_type_pattern),
       receiver_name : String.new(),
       env : forall_env,
-      ctx : ctx,
+      ctx : copy_eval_context(ctx),
       fields : c2_fields,
       current_top_index : usize(0),
       current_trait_ty : Option(TypeValue).None,
@@ -5506,6 +5521,7 @@ evaluate_module_value :: (
                 exn.throw(dyn(format_error_message(ast_expr_token(&mf_expr), `internal error: impl member "${c2_pf.label}" reached by the field loop while it is being forced`)));
               },
               .Unforced => {
+                _sync_in_flight_ctx(&c2_rec, ctx);
                 _run_impl_field(&c2_pf, &c2_rec, ctx, exn);
               }
             );
@@ -5606,6 +5622,7 @@ evaluate_module_value :: (
                     exn.throw(dyn(format_error_message(ast_expr_token(&inner_e2), `internal error: impl member "${c2_ipf.label}" reached by the field loop while it is being forced`)));
                   },
                   .Unforced => {
+                    _sync_in_flight_ctx(&c2_rec, ctx);
                     _run_impl_field(&c2_ipf, &c2_rec, ctx, exn);
                   }
                 );
@@ -5935,7 +5952,7 @@ evaluate_module_value :: (
     receiver_ty : Rc.clone(receiver_ty),
     receiver_name : receiver_name.clone(),
     env : local_env,
-    ctx : ctx,
+    ctx : copy_eval_context(ctx),
     fields : c3_fields,
     current_top_index : usize(0),
     current_trait_ty : Option(TypeValue).None,
@@ -6250,6 +6267,7 @@ evaluate_module_value :: (
                     exn.throw(dyn(format_error_message(ast_expr_token(&meth_expr), `internal error: impl member "${c3_pf.label}" reached by the field loop while it is being forced`)));
                   },
                   .Unforced => {
+                    _sync_in_flight_ctx(&c3_rec, ctx);
                     _run_impl_field(&c3_pf, &c3_rec, ctx, exn);
                   }
                 ),
