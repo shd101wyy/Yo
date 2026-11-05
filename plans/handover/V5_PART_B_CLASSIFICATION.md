@@ -98,6 +98,29 @@ migrating.
   on the evaluator's path. Their gate is the fixpoint, byte-identical C
   for `src/main.yo`, and the wall time and RSS of
   `yo compile src/main.yo --skip-c-compiler`.
+- `InProcessCompileSlot`: **removed**, not S. `main.yo` sets the in-process
+  compile callback once, before `run_build` builds the `ExecutionContext`,
+  and nothing writes it afterwards. The slot is now a plain module global
+  (`g_in_process_compile_fn`), and the execution context takes its value at
+  construction. The slot only existed to keep a fn value out of an async
+  state machine, which was fixed on 2026-09-29
+  (`issues/fixed/async-sm-fn-typed-local-across-suspension.md`).
+- `BuildRegistry`, `BuildArtifact`, `BuildStep`, `BuildModuleEntry`: **L**,
+  not S. The builtins write the registry while a build file is evaluated,
+  and the runner reads it afterwards. It becomes a value in a module cell
+  (`g_build_registry : RefCell(BuildRegistry)`) that the builtins write in
+  place through `with_mut`. The runner `seed`s, `swap`s, `restore`s and
+  `take`s it, and from then on owns it. The future that merges dependency
+  artifacts takes the registry by value and returns it. Whether a build
+  file is being evaluated is now an explicit flag
+  (`g_build_registry_live`); it used to be read off the `Option`. The
+  element types are values written in place by index or name.
+- `_State` (`src/resolver.yo`), as built: `Rc(_State)`. The inputs
+  (`manifest`, `options`, `cache_root`, `old_lock`) are read-only, and the
+  two parts written during the run are cells: `packages :
+  RefCell(ArrayList(_Package))` and `remote : RefCell(_RemoteCache)`
+  (shape 2). `_Package` is a value that the futures read by snapshot and
+  write back by index.
 - `Md5`, `Sha1`, `Sha512`, `NfaCompiler`: **L**, not R. They are written
   through `self`, and the syntactic scan does not count receiver writes.
 
