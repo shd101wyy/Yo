@@ -24,7 +24,7 @@ Reproducer: `issues/repros/2026-11-05-recur-mut-field-of-match-binding-passes-va
 `last_value(&mut n.next)` compiles and returns 2. The same `recur(&mut …)` on a plain
 `&mut` parameter (`recur(&mut q.*, …)`) compiles too.
 
-## Root cause (located in the C, not yet in the codegen)
+## Root cause
 
 The emitted recursion:
 
@@ -33,13 +33,25 @@ __yo_t_3042844248967136054* __yo_v_n = &((*__yo_v_slot));
 yo_id_5996446586942427380000000((*(*__yo_v_n)).__yo_v_next, __yo_v_v);
 ```
 
-The argument is the field's value; the named call emits `&((*(*__yo_v_n)).__yo_v_next)`. So
-`recur`'s argument lowering skips the address-of for a `&mut` place reached through a `match`
-binding over a borrowed scrutinee (a binding that is itself a pointer, `__yo_v_n`). This is the
-`&T`-parameter-by-pointer ABI's recur path (#1771/#1773 changed the neighbouring binding and
-arrow-method paths).
+The argument is the field's value; the named call emits `&((*(*__yo_v_n)).__yo_v_next)`.
+`generate_recur` (`src/codegen/exprs/recur.yo`) lowered each argument with the plain
+expression emitter and then only stripped a `(*name)` read back to `name` when `name` was a
+pointer-bound variable. It never consulted the callee's C ABI, so a `&mut` place that is not
+a bare pointer variable — here a field reached through the `match` binding's pointer and the
+`Box` auto-deref — was passed by value to a `T*` parameter. A named call goes through
+`_apply_ref_amp` (`src/codegen/exprs/other_fn_call.yo`) with the callee's
+`fn_abi_param_is_ptr` flags, which folds `(*p)` to `p` and takes the address of an lvalue
+chain.
+
+## Fix
+
+`generate_recur` lowers its arguments through the same `_apply_ref_amp`, with the current
+function's `fn_abi_param_is_ptr` flags (`recur` calls the function it is in), in place of its
+own `(*name)` strip. The same root decided VERDICTS-24's cursor walk over
+`Option(Box(Node))` (decision 25), which lands in the same change.
 
 ## Test
 
-The fix adds the reproducer as a test case (a recursive `&mut` walk to the last node through
-`recur`) and moves this doc to `issues/fixed/`.
+`tests/local_borrows.test.yo`, "recur(&mut n.next) through a match binding reaches the last
+node": the reproducer (`b_last_value` returns 2), plus a recursion that writes every node
+through the address it was passed (`b_bump_all`). Both ran under `--sanitize address`.
