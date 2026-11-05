@@ -354,6 +354,17 @@ test("a `mut` holder of a `&` reference is lent `&mut`", {
   bs_store(&mut slot, &x);
   assert(match(slot, .Some(r) => (r.* == i32(4)), .None => false), "slot holds `&x`");
 });
+// O3-3: the `&mut` argument fixes `r` to `x` (an origin under a `&mut`
+// pointee is invariant), so `&y` does not widen it (E0923).
+comptime_expect_error(
+  bs_store_widen :: (fn() -> unit)({
+    x := i32(1);
+    mut(slot) := Option(&(i32, x)).None;
+    y := i32(2);
+    bs_store(&mut slot, &y);
+  }),
+  "an origin reached through a `&mut` pointee is invariant"
+);
 // A tuple literal's element `&place` / `&mut place` is a lend, as a struct
 // constructor's reference field is (decision 43 step 3, T9): the element
 // holds the place's address.
