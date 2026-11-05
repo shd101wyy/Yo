@@ -486,13 +486,13 @@ test("move-only: a generic `sink` parameter moves at the instantiation", {
 // ---------------------------------------------------------------------------
 test("move-only: a borrow cannot be copied or moved out", {
   a := _MoFd(n : i32(1));
-  comptime_expect_error((fn(f : &_MoFd) -> _MoFd)(f.*), "it is borrowed");
+  comptime_expect_error((fn(f : &_MoFd) -> _MoFd)(f.*), "the value it refers to stays with its owner");
   comptime_expect_error(
     (fn(f : &_MoFd) -> i32)({
       g := f.*;
       g.n
     }),
-    "it is borrowed"
+    "the value it refers to stays with its owner"
   );
   comptime_expect_error((fn(f : &mut _MoFd) -> i32)(_mo_take(f.*)), "it is a `&mut` borrow");
   comptime_expect_error(
@@ -503,7 +503,7 @@ test("move-only: a borrow cannot be copied or moved out", {
     "the closure captures `f`"
   );
   o := Option(_MoFd).Some(_MoFd(n : i32(2)));
-  comptime_expect_error(match(&o, .Some(f) => _mo_take(f.*), .None => i32(0)), "it is borrowed");
+  comptime_expect_error(match(&o, .Some(f) => _mo_take(f.*), .None => i32(0)), "the value it refers to stays with its owner");
   assert(_mo_peek(&a) == i32(1), "a is untouched");
 });
 test("move-only: no partial moves out of a field", {
@@ -791,7 +791,7 @@ test("consuming match: `match(&x, …)` borrows and keeps `x`", {
         .Some(f) => _mo_take(f.*),
         .None => i32(0)
       ),
-      "it is borrowed"
+      "the value it refers to stays with its owner"
     );
     assert(g_mo_disposed == before, "nothing moved");
     comptime_expect_error(

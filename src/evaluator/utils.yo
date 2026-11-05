@@ -130,7 +130,7 @@ pragma(Pragma.AllowUnsafe);
 { are_types_compatible, are_types_compatible_exact } :: import("../types/compatibility.yo");
 { type_to_string, type_to_string_for_message } :: import("../types/string.yo");
 { type_is_bitwise_copy, type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_holds_counted_handle, type_holds_counted_handle_ignoring_migration, set_counted_handle_rule, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow, is_bound_closure_identity, is_closure_capture_struct, resolve_cell_chain, is_future_value_type, is_bare_callable_into_dyn_fn, type_contains_some_type_deep, type_holds_dyn_by_value, dyn_type_lists_clone, fn_trait_call_func_type, type_carries_origin, type_is_typed_fnmut_closure, capture_struct_is_fnmut } :: import("../types/utils.yo");
-{ expr_info_table_set, migrate_match_scrutinee_on, record_migrate_edit, migrate_dyn_spelling_on, record_dyn_spelling_site, is_mut_global, is_thread_local, migrate_mutable_globals_on, record_mutable_global_site, migrate_mut_bindings_on, record_mut_binding_site, record_mut_binding_site_pending, record_mut_param_site, record_mut_param_site_pending, record_mut_judged, migrate_deref_on, audit_deref_on, deref_rule_suspended, record_deref_site, record_deref_edit_site } :: import("../expr_info.yo");
+{ expr_info_table_set, migrate_match_scrutinee_on, record_migrate_edit, migrate_dyn_spelling_on, record_dyn_spelling_site, is_mut_global, is_thread_local, migrate_mutable_globals_on, record_mutable_global_site, migrate_mut_bindings_on, record_mut_binding_site, record_mut_binding_site_pending, record_mut_param_site, record_mut_param_site_pending, record_mut_judged, migrate_deref_on, audit_deref_on, deref_rule_suspended, record_deref_site, record_deref_edit_site, note_reference_read_copied } :: import("../expr_info.yo");
 { is_global_mut_rule_exempt, is_deref_rule_exempt } :: import("./memory_safety.yo");
 // `set_expr_as_needs_to_call_dup` builds + evaluates a `___dup(name)` call.
 // `parser.yo` is upstream (no cycle); `exprs/expr.yo` is the cycle-free
@@ -1216,6 +1216,16 @@ _throw_implicit_capture_move :: (fn(rhs : &AstExpr, ty : &TypeValue, ctx : &Eval
 /// - anything else is borrowed storage, and the copy is E0901
 ///   (`_throw_explicit_copy_violation`).
 transfer_explicit_copy_value :: (fn(rhs : &AstExpr, ei : &ExprInfo, variable_name : &String, ctx : &EvalContext, exn : Exception) -> unit)({
+  // `yo fix --migrate deref` recorded the bare reference `rhs` as an E0926
+  // read, and this copies it: `rhs.*` would be E0901 here, so the migration
+  // lists the site instead of writing the `.*`.
+  if(deref_rule_recording() && !ctx.is_in_function_call_checking_phase && ast_expr_is_atom(rhs) && !is_reference_deref_site(ast_expr_token(rhs)), {
+    match(
+      find_variable_in_env(&ei.env, variable_name.clone()),
+      .Some(rv) => if(variable_is_reference_binding(&rv), note_reference_read_copied(ast_expr_token(rhs), &rv.name)),
+      .None => ()
+    );
+  });
   match(
     find_variable_in_env(&ei.env, variable_name.clone()),
     .None => (),
@@ -1240,8 +1250,29 @@ transfer_explicit_copy_value :: (fn(rhs : &AstExpr, ei : &ExprInfo, variable_nam
       _is_implicit_closure_capture(&v, &ei.env, ctx) => _throw_implicit_capture_move(rhs, &ei.ty, ctx, exn),
       v.is_owning_the_rc_value => set_expr_as_consumed(rhs, &ei.env, false, ctx, exn),
       _move_through_sink_shadow(&v, rhs, &ei.env) => (),
+      // `r.*` on a reference binding `r` (evaluated as the name `r`): the
+      // copy is of the value `r` refers to, whose owner keeps it.
+      (ast_expr_is_atom(rhs) && is_reference_deref_site(ast_expr_token(rhs))) => _throw_reference_deref_copy(rhs, &ei.ty, ctx, exn),
       true => _throw_explicit_copy_violation(rhs, &ei.ty, String.from("it is borrowed (a `&T` parameter or a `match`/`for` binding), and a borrow cannot give the value away. Take the parameter by value (`x : T`, without `&`) to own it."), ctx, exn)
     )
+  );
+});
+/// E0901 for `r.*` copied out of a reference binding `r` whose referent is
+/// not implicitly copyable: the reference is the parameter's point, so the
+/// repair is to read through `r` where the value is used or to copy explicitly
+/// (issues/fixed/2026-11-05-migrate-deref-copies-a-move-only-referent-into-a-by-value-parameter.md).
+_throw_reference_deref_copy :: (fn(rhs : &AstExpr, ty : &TypeValue, ctx : &EvalContext, exn : Exception) -> unit)({
+  name := _place_text(rhs);
+  ty_text := type_to_string_for_message(ty);
+  msg := `use of moved value: cannot copy \`${name}.*\`, whose type \`${ty_text}\` ${_explicit_copy_kind(ty)}: \`${name}\` is a reference, and the value it refers to stays with its owner.`;
+  help := cond(
+    type_lacks_clone(ty) => `read through \`${name}\` where the value is used (\`${name}.field\`, \`${name}.method()\`, or a \`&${ty_text}\` parameter that \`${name}\` itself is passed to)`,
+    true => `read through \`${name}\` where the value is used (\`${name}.field\`, \`${name}.method()\`, or a \`&${ty_text}\` parameter that \`${name}\` itself is passed to), or copy it explicitly, \`${name}.*.clone()\``
+  );
+  raise_flow_violation(
+    with_code(format_error_message_with_help(ast_expr_token(rhs), &msg, Option(String).Some(help)), E_USE_OF_MOVED_VALUE),
+    ctx,
+    exn
   );
 });
 // ---------------------------------------------------------------------------
@@ -6448,7 +6479,13 @@ deref_rule_recording :: (fn() -> bool)(migrate_deref_on() || audit_deref_on());
 /// borrowed scrutinee `match(&v, …)` (VERDICTS-13 §14: the marker is
 /// redundant, `match(v, …)` matches through the reference). While the rule
 /// records it notes the edit instead: the `.*` after `tok`, or for 3 the
-/// marker before it dropped.
+/// marker before it dropped. A read (0) of a referent that is not implicitly
+/// copyable is judged here before its consumer: `v.*` is right where the
+/// value is only read (an operand such as `v.* == other`) and E0901 where it
+/// would be copied (a by-value parameter, a `:=` binding, a return), so the
+/// help names both, and the migration lists a site the evaluation then
+/// copies (`note_reference_read_copied`) instead of writing `.*`
+/// (issues/fixed/2026-11-05-migrate-deref-copies-a-move-only-referent-into-a-by-value-parameter.md).
 reject_reference_without_deref :: (fn(v : &Variable, tok : &Token, kind : u8, ctx : &EvalContext, exn : Exception) -> unit)({
   // An overload trial is speculative: the candidate it tries may never be
   // called, and E0926 is not a reason to drop one, so the real call's
@@ -6461,7 +6498,8 @@ reject_reference_without_deref :: (fn(v : &Variable, tok : &Token, kind : u8, ct
     return(());
   });
   name := v.name.clone();
-  ref_ty := `${cond(variable_is_mut_borrow(v) => "&mut ", true => "&")}${type_to_string_for_message(&v.ty)}`;
+  ty_text := type_to_string_for_message(&v.ty);
+  ref_ty := `${cond(variable_is_mut_borrow(v) => "&mut ", true => "&")}${ty_text}`;
   msg := cond(
     (kind == u8(1)) => `\`${name}\` is a reference (\`${ref_ty}\`): writing the value it refers to is spelled \`${name}.* = …\``,
     (kind == u8(2)) => `\`${name}\` is a reference (\`${ref_ty}\`): borrowing the value it refers to is spelled \`&${name}.*\``,
@@ -6472,6 +6510,13 @@ reject_reference_without_deref :: (fn(v : &Variable, tok : &Token, kind : u8, ct
     (kind == u8(1)) => `write \`${name}.* = …\`; \`${name} = &place\` re-points the reference (\`yo fix --migrate deref\` inserts the \`.*\`)`,
     (kind == u8(2)) => `write \`&${name}.*\` (or \`&mut ${name}.*\`), or pass \`${name}\` itself to a reference parameter (\`yo fix --migrate deref\` inserts the \`.*\`)`,
     (kind == u8(3)) => `write \`match(${name}, …)\`: its bindings borrow through \`${name}\` with its mutability (\`yo fix --migrate deref\` drops the marker)`,
+    type_requires_explicit_copy(&v.ty) => {
+      repairs := cond(
+        type_lacks_clone(&v.ty) => `read through \`${name}\` there (\`${name}.field\`, \`${name}.method()\`, or a \`&${ty_text}\` parameter that \`${name}\` itself is passed to)`,
+        true => `read through \`${name}\` there (\`${name}.field\`, \`${name}.method()\`, or a \`&${ty_text}\` parameter that \`${name}\` itself is passed to), or copy it explicitly, \`${name}.*.clone()\``
+      );
+      `write \`${name}.*\` where the value is only read (an operand such as \`${name}.* == other\`); where it would be copied (a by-value parameter, a \`:=\` binding, a return) \`${ty_text}\` ${_explicit_copy_kind(&v.ty)}, so ${repairs} (\`yo fix --migrate deref\` inserts the \`.*\` where the value is only read and lists the copies)`
+    },
     true => `write \`${name}.*\`; \`${name}.field\`, \`${name}.method()\` and \`${name}(i)\` read through it, and \`f(${name})\` passes it to a reference parameter (\`yo fix --migrate deref\` inserts the \`.*\`)`
   );
   raise_flow_violation(&with_code(format_error_message_with_help(tok, &msg, Option(String).Some(help)), E_REFERENCE_READ_WITHOUT_DEREF), ctx, exn);
