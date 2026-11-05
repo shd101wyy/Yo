@@ -10,7 +10,8 @@
 { AstExpr } :: import("../../expr.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { CapturedVariable, AwaitAnalysisResult } :: import("../../evaluator/async/await_analysis_types.yo");
-{ CodeGenContext, sanitize_for_c_identifier } :: import("../utils/index.yo");
+{ CodeGenContext, sanitize_for_c_identifier, scope_stack_contains, fresh_local_name } :: import("../utils/index.yo");
+{ Token } :: import("../../token.yo");
 { get_state_machine_field_name } :: import("../async/state_machine_naming.yo");
 { SmUnwindCatch } :: import("../exprs/async_completion.yo");
 /// One closure parameter slot — a bundle value supplied at io.await/io.spawn time
@@ -71,6 +72,11 @@ InAsyncStateMachine :: ref(struct(future_type : TypeValue));
 /// A single-pass lowering await's result field in the task struct.
 InlineAwaitResultField :: struct(name : String, ty : TypeValue, expr : AstExpr);
 derive(InlineAwaitResultField, Clone);
+/// One `match` pattern binding in scope (`shadow_bindings`): the C local it
+/// was declared as and the binding's declaration token (`.None` for a
+/// pattern's hidden subject).
+ShadowBinding :: struct(c_name : String, decl : Option(Token));
+derive(ShadowBinding, Clone);
 InlineSuspension :: ref(
   struct(
     /// The state that resumes after this await (the `__yo_resume_<state>` label).
@@ -167,15 +173,25 @@ FunctionGenerationContext :: ref(
     /// Variables locally shadowed (e.g. match destructuring) — use the local C
     /// var, not the SM field. Keyed by the SANITIZED C name.
     local_shadowed_variables : Option(HashSet(String)),
+    /// The pattern bindings in scope for each shadowed SANITIZED name,
+    /// innermost last. A binding whose source C name is already declared in
+    /// an open enclosing C block (an enclosing local it shadows, or an outer
+    /// arm's binding) is declared under a fresh C name, so a drop the
+    /// compiler emits for the enclosing value inside the arm (an early
+    /// return's, an unwind's) still names it
+    /// (issues/fixed/2026-11-05-a-match-arm-binding-that-shadows-a-local-is-never-dropped.md).
+    shadow_bindings : Option(HashMap(String, ArrayList(ShadowBinding))),
     /// Single-pass async lowering: the state-machine slot a shadowed name
     /// (a match-arm binding) lives in. A shadowed name renders as that slot,
     /// or as the C local when it has none; never through the env, whose
     /// same-named variables are not the binding.
     shadow_slots : Option(HashMap(String, String)),
-    /// The shadowed names that are a `mut` match's place bindings
-    /// (plans/VALUES_BY_DEFAULT.md decision 26): their C local is a pointer
-    /// to the part, so a read or a write goes through it. Keyed by the
-    /// SANITIZED C name, like `local_shadowed_variables`.
+    /// The pattern bindings whose C local is a pointer to the part — a `mut`
+    /// or `&` match's place binding (plans/VALUES_BY_DEFAULT.md decision 26)
+    /// or a reference payload's binding — so a read or a write goes through
+    /// it. Keyed by the binding's C local (`shadow_bindings`), not its source
+    /// name: same-named bindings of nested arms are separate locals, and only
+    /// some of them may be pointers.
     place_bindings : Option(HashSet(String)),
     /// Temp variable names already declared in the C output (avoid duplicates).
     declared_temp_vars : Option(HashSet(String)),
@@ -298,6 +314,7 @@ impl(
       pending_deferred_drops : Option(ArrayList(AstExpr)).None,
       consumed_var_pending_drops : Option(ArrayList(AstExpr)).None,
       local_shadowed_variables : Option(HashSet(String)).None,
+      shadow_bindings : Option(HashMap(String, ArrayList(ShadowBinding))).None,
       shadow_slots : Option(HashMap(String, String)).None,
       place_bindings : Option(HashSet(String)).None,
       declared_temp_vars : Option(HashSet(String)).None,
@@ -417,15 +434,78 @@ note_state_machine_binding_id :: (fn(context : &FunctionGenerationContext, id : 
     .None => ()
   )
 );
+/// The tokens `a` and `b` are the same source position.
+_same_decl :: (fn(a : &Option(Token), b : &Option(Token)) -> bool)(
+  match(
+    a,
+    .Some(ta) => match(b, .Some(tb) => ((ta.module_path.* == tb.module_path.*) && ((ta.row == tb.row) && (ta.column == tb.column))), .None => false),
+    .None => false
+  )
+);
+/// The C name a new pattern binding of the sanitized name `name` is declared
+/// under: `name` itself, or a fresh name when a C local of that name is
+/// declared in an open enclosing block. Declared under `name` the binding
+/// would hide that local from every drop the compiler emits inside the arm
+/// (`shadow_bindings`).
+shadow_binding_decl_name :: (fn(context : &FunctionGenerationContext, name : &String) -> String)(
+  if(context.base.declared_scopes.with(ds => scope_stack_contains(ds, name)), fresh_local_name(`${name}_s`, &context.base.current_function_name), name.clone())
+);
+/// The C local of the innermost pattern binding of the sanitized name `name`,
+/// or `name` when it has none.
+shadow_binding_c_name :: (fn(context : &FunctionGenerationContext, name : &String) -> String)(
+  match(
+    &context.shadow_bindings,
+    .Some(m) => match(m.get_cloned(name.clone()), .Some(st) => match(st.last_cloned(), .Some(b) => b.c_name.clone(), .None => name.clone()), .None => name.clone()),
+    .None => name.clone()
+  )
+);
+/// The bindings of the sanitized name `name` in scope, innermost last.
+shadow_bindings_of :: (fn(context : &FunctionGenerationContext, name : &String) -> ArrayList(ShadowBinding))(
+  match(
+    &context.shadow_bindings,
+    .Some(m) => match(m.get_cloned(name.clone()), .Some(st) => st, .None => ArrayList(ShadowBinding).new()),
+    .None => ArrayList(ShadowBinding).new()
+  )
+);
+/// Bring a pattern binding of `name`, declared as `c_name` at `decl`, into
+/// scope. Registering the same binding again (a binding site that also runs
+/// the generic shadow registration) is a no-op.
+shadow_binding_push :: (fn(context : &FunctionGenerationContext, name : &String, c_name : &String, decl : Option(Token)) -> unit)({
+  stacks := match(context.shadow_bindings.take(), .Some(m) => m, .None => HashMap(String, ArrayList(ShadowBinding)).new());
+  stack := match(stacks.get_cloned(name.clone()), .Some(st) => st, .None => ArrayList(ShadowBinding).new());
+  same := match(stack.last_cloned(), .Some(top) => ((top.c_name == c_name) && _same_decl(&top.decl, &decl)), .None => false);
+  if(!same, {
+    stack.push(ShadowBinding(c_name : c_name.clone(), decl : decl));
+  });
+  stacks.insert(name.clone(), stack);
+  context.shadow_bindings = Option(HashMap(String, ArrayList(ShadowBinding))).Some(stacks);
+});
+/// Take the innermost binding of `name` out of scope; true when an outer one
+/// remains.
+shadow_binding_pop :: (fn(context : &FunctionGenerationContext, name : &String) -> bool)({
+  stacks := match(context.shadow_bindings.take(), .Some(m) => m, .None => return(false));
+  stack := match(stacks.get_cloned(name.clone()), .Some(st) => st, .None => ArrayList(ShadowBinding).new());
+  _top := stack.pop();
+  remains := (stack.len() > usize(0));
+  if(remains, {
+    stacks.insert(name.clone(), stack);
+  }, {
+    _gone := stacks.remove(name.clone());
+  });
+  context.shadow_bindings = Option(HashMap(String, ArrayList(ShadowBinding))).Some(stacks);
+  remains
+});
 /// True while lowering an `io.async` state machine that owns its capture list
 /// (`InlineSmLowering.owns_fnonce_captures`).
 sm_owns_fnonce_captures :: (fn(context : &FunctionGenerationContext) -> bool)(
   match(context.sm_inline_lowering, .Some(low) => low.owns_fnonce_captures, .None => false)
 );
 export(record_declared_temp_var, note_short_circuit_handled, take_short_circuit_handled, note_state_machine_binding_id, sm_owns_fnonce_captures);
+export(shadow_binding_decl_name, shadow_binding_c_name, shadow_bindings_of, shadow_binding_push, shadow_binding_pop);
 
 export(
   FunctionGenerationContext,
+  ShadowBinding,
   InlineSuspension,
   InlineAwaitResultField,
   InlineSmLowering,

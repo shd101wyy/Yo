@@ -16,7 +16,7 @@
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, ExprId, ast_expr_token, ast_expr_id } :: import("../../expr.yo");
-{ FunctionGenerationContext, sm_owns_fnonce_captures } :: import("../functions/context.yo");
+{ FunctionGenerationContext, sm_owns_fnonce_captures, shadow_binding_c_name } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
 { generate_comptime_value } :: import("./comptime_value.yo");
 { check_variable_is_closure_captured } :: import("./closures.yo");
@@ -51,14 +51,14 @@ _shadowed_name_code :: (fn(var_name : &String, context : &FunctionGenerationCont
   match(
     match(&context.shadow_slots, .Some(m) => m.get_cloned(cname.clone()), .None => Option(String).None),
     .Some(field) => `sm->${field}`,
-    .None => cname
+    .None => shadow_binding_c_name(context, &cname)
   )
 });
 /// A `mut` match's place binding (decision 26): a shadowed C local that holds
 /// a pointer to the part. Read from the arm's emission state, not the env: a
 /// single-expression arm body records the env without the arm's frame.
 _is_place_binding :: (fn(var_name : &String, context : &FunctionGenerationContext) -> bool)(
-  match(&context.place_bindings, .Some(s) => s.contains(sanitize_for_c_identifier(var_name, false)), .None => false)
+  match(&context.place_bindings, .Some(s) => s.contains(shadow_binding_c_name(context, &sanitize_for_c_identifier(var_name, false))), .None => false)
 );
 /// A match-arm binding the arm's C block declared under its source name.
 _is_shadowed_name :: (fn(var_name : &String, context : &FunctionGenerationContext) -> bool)(
@@ -713,11 +713,7 @@ generate_atom :: (fn(expr : &AstExpr, context : &FunctionGenerationContext, inde
       // and the body must reference `v`, not the temp). Keyed by the source
       // TOKEN; the matching declaration uses the same sanitized source name.
       if(_is_shadowed_name(tv.clone(), context), {
-        shadowed_code := match(
-          match(&context.shadow_slots, .Some(m) => m.get_cloned(sanitize_for_c_identifier(tv.clone(), false)), .None => Option(String).None),
-          .Some(field) => `sm->${field}`,
-          .None => get_variable_name_for_codegen(tv.clone(), Option(Environment).None)
-        );
+        shadowed_code := _shadowed_name_code(tv.clone(), context);
         // A `mut` match's place binding (decision 26) holds a pointer to the
         // part: a read or a write goes through it.
         return(if(_is_place_binding(tv.clone(), context), `(*${shadowed_code})`, shadowed_code));

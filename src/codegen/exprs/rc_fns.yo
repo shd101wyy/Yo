@@ -10,16 +10,20 @@
 //! concrete; `__yo_sometype_drop`/`_dup`'s non-Future resolvedConcreteType
 //! dispatch becomes a no-op (Phase-3 generics need Gap-6 resolution).
 { String } :: import("std/string");
-{ AstExpr, ast_expr_strip_borrow_marker } :: import("../../expr.yo");
+{ AstExpr, ast_expr_strip_borrow_marker, ast_expr_is_atom, ast_expr_token, ast_expr_id } :: import("../../expr.yo");
+{ HashSet } :: import("std/collections/hash_set");
+{ Token } :: import("../../token.yo");
+{ Variable } :: import("../../env.yo");
+{ scope_variables } :: import("../../expr_info.yo");
 { EvalValue } :: import("../../value.yo");
 { TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
 { is_array_type, is_atomically_counted_rc_type, is_rc_type, is_some_type, is_tuple_type, cell_handle_view, is_atomic_counted_handle_type } :: import("../../types/guards.yo");
 { type_implements_future } :: import("../../evaluator/trait_checking.yo");
 { parse_raw_int } :: import("../../utils.yo");
-{ FunctionGenerationContext, sm_owns_fnonce_captures } :: import("../functions/context.yo");
+{ FunctionGenerationContext, sm_owns_fnonce_captures, shadow_bindings_of } :: import("../functions/context.yo");
 { sm_move_flag_of } :: import("../async/state_machine_naming.yo");
 { _call_generate_expr } :: import("./_expr.yo");
-{ get_type_string, fresh_local_name, _checked_fixed_array_subscript } :: import("../utils/index.yo");
+{ get_type_string, fresh_local_name, _checked_fixed_array_subscript, sanitize_for_c_identifier } :: import("../utils/index.yo");
 { generate_drop_code_for_value, generate_dup_code_for_value, get_drop_function_for_type, get_dup_function_for_type, resolve_some_type_param_type } :: import("./drop_dup.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
 { _has_comptime_only_runtime_field } :: import("../types/collection.yo");
@@ -50,6 +54,85 @@ _rc_operand :: (fn(arg : &AstExpr, indent : &String, context : &FunctionGenerati
     .None => _call_generate_expr(arg, indent, context)
   )
 );
+/// `a` and `b` are one source position.
+_same_position :: (fn(a : &Token, b : &Token) -> bool)(
+  (a.module_path.* == b.module_path.*) && ((a.row == b.row) && (a.column == b.column))
+);
+/// `a` comes before `b` in the same source file.
+_position_before :: (fn(a : &Token, b : &Token) -> bool)(
+  (a.module_path.* == b.module_path.*) && ((a.row < b.row) || ((a.row == b.row) && (a.column < b.column)))
+);
+/// A copy of the optional name set `set` without `name`.
+_set_without :: (fn(set : &Option(HashSet(String)), name : &String) -> Option(HashSet(String)))(
+  match(
+    set,
+    .Some(s) => {
+      rest := s.clone();
+      _gone := rest.remove(name.clone());
+      Option(HashSet(String)).Some(rest)
+    },
+    .None => Option(HashSet(String)).None
+  )
+);
+/// The C operand of a drop of `arg`. A drop the compiler emits names its
+/// target, and inside a `match` arm a pattern binding may shadow that name: a
+/// target that is not the arm's own binding is reached through its own
+/// declaration, a further-out arm's binding through that binding's C local
+/// (`shadow_bindings`) and a value declared before every binding of the name
+/// (the enclosing local an early return or an unwind inside the arm also
+/// releases) by its name as if no arm shadowed it. The drop's operand
+/// resolves through the scope the drop was attached in, which is the
+/// target's own
+/// (issues/fixed/2026-11-05-a-match-arm-binding-that-shadows-a-local-is-never-dropped.md).
+_drop_operand :: (fn(arg : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
+  if(!ast_expr_is_atom(arg), {
+    return(_rc_operand(arg, indent, context));
+  });
+  name := ast_expr_token(arg).value.*.clone();
+  cname := sanitize_for_c_identifier(&name, false);
+  bindings := shadow_bindings_of(context, &cname);
+  innermost := match(bindings.last_cloned(), .Some(b) => b, .None => return(_rc_operand(arg, indent, context)));
+  target := match(
+    context.base.get_expr_info(arg),
+    .Some(ei) => scope_variables(ast_expr_id(arg), &ei.env, name.clone()).last(),
+    .None => Option(Variable).None
+  );
+  tv := match(target, .Some(v) => v, .None => return(_rc_operand(arg, indent, context)));
+  if(match(&innermost.decl, .Some(d) => _same_position(&d, &tv.token), .None => false), {
+    return(_rc_operand(arg, indent, context));
+  });
+  (mut(first_decl) : Option(Token)) = Option(Token).None;
+  (mut(bi) : usize) = usize(0);
+  while(bi < bindings.len(), bi = (bi + usize(1)), {
+    match(
+      bindings.get_cloned(bi),
+      .Some(b) => match(
+        &b.decl,
+        .Some(d) => {
+          if(_same_position(&d, &tv.token), {
+            return(b.c_name.clone());
+          });
+          if(first_decl.is_none(), {
+            first_decl = Option(Token).Some(d.clone());
+          });
+        },
+        .None => ()
+      ),
+      .None => ()
+    );
+  });
+  if(!match(&first_decl, .Some(fd) => _position_before(&tv.token, &fd), .None => false), {
+    return(_rc_operand(arg, indent, context));
+  });
+  saved_shadowed := context.local_shadowed_variables.take();
+  saved_places := context.place_bindings.take();
+  context.local_shadowed_variables = _set_without(&saved_shadowed, &cname);
+  context.place_bindings = _set_without(&saved_places, &innermost.c_name);
+  code := _rc_operand(arg, indent, context);
+  context.local_shadowed_variables = saved_shadowed;
+  context.place_bindings = saved_places;
+  code
+});
 _one_arg_call :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext, wrapper : str, err : str) -> String)(
   match(
     _arg(expr, usize(0)),
@@ -149,7 +232,7 @@ generate_drop_of_operand :: (fn(value_arg : &AstExpr, indent : &String, context 
   if(_has_comptime_only_runtime_field(resolve_struct_shell(resolve_enum_shell(&value_type))), {
     return(String.new());
   });
-  value_code := _rc_operand(value_arg, indent.clone(), context);
+  value_code := _drop_operand(value_arg, indent.clone(), context);
   // Single-pass async lowering: an await moved this temp's future into
   // the task's slot, which releases it.
   if(match(context.sm_inline_lowering, .Some(low) => low.moved_into_slot.contains(value_code.clone()), .None => false), {
