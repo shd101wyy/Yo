@@ -247,44 +247,46 @@ _object_decl_has_generic_fields :: (fn(fields : &ArrayList(RuntimeStructField)) 
 });
 /// Emit the per-variant constructor forward declarations for ONE
 /// reference-semantics enum, matching the definitions in constructors.yo.
-_emit_ref_enum_constructor_decls :: (fn(type : &TypeValue, c_name : &String, context : &mut CodeGenContext) -> unit)((
-  match(
-    type,
-    Rc(.EnumT({ variant_names, variant_fields, variant_field_labels })) => {
-      nv := variant_names.len();
-      (mut(vi) : usize) = usize(0);
-      while(vi < nv, {
-        vname := match(variant_names.get_cloned(vi), .Some(v) => v, .None => String.from(""));
-        fields := match(variant_fields.get(vi), .Some(f) => f, .None => no_types());
-        labels := match(variant_field_labels.get(vi), .Some(l) => l, .None => no_labels());
-        nf := fields.len();
-        mut(params) := String.from("");
-        (mut(emitted) : usize) = usize(0);
-        (mut(pi) : usize) = usize(0);
-        while(pi < nf, {
-          match(
-            fields.get(pi),
-            .Some(ft) => if(!is_unit_type(&ft), {
-              if(emitted > usize(0), {
-                params.push_str(", ");
-              });
-              flabel := match(labels.get_cloned(pi), .Some(l) => l, .None => String.from(""));
-              params.push_string(get_type_string(&ft, context));
-              params.push_str(" ");
-              params.push_string(sanitize_for_c_identifier(&flabel, false));
-              emitted = (emitted + usize(1));
-            }),
-            .None => ()
-          );
-          pi = (pi + usize(1));
+_emit_ref_enum_constructor_decls :: (fn(type : &TypeValue, c_name : &String, context : &mut CodeGenContext) -> unit)(
+  (
+    match(
+      type,
+      Rc(.EnumT({ variant_names, variant_fields, variant_field_labels })) => {
+        nv := variant_names.len();
+        (mut(vi) : usize) = usize(0);
+        while(vi < nv, {
+          vname := match(variant_names.get_cloned(vi), .Some(v) => v, .None => String.from(""));
+          fields := match(variant_fields.get(vi), .Some(f) => f, .None => no_types());
+          labels := match(variant_field_labels.get(vi), .Some(l) => l, .None => no_labels());
+          nf := fields.len();
+          mut(params) := String.from("");
+          (mut(emitted) : usize) = usize(0);
+          (mut(pi) : usize) = usize(0);
+          while(pi < nf, {
+            match(
+              fields.get(pi),
+              .Some(ft) => if(!is_unit_type(&ft), {
+                if(emitted > usize(0), {
+                  params.push_str(", ");
+                });
+                flabel := match(labels.get_cloned(pi), .Some(l) => l, .None => String.from(""));
+                params.push_string(get_type_string(&ft, context));
+                params.push_str(" ");
+                params.push_string(sanitize_for_c_identifier(&flabel, false));
+                emitted = (emitted + usize(1));
+              }),
+              .None => ()
+            );
+            pi = (pi + usize(1));
+          });
+          context.emitter.emit_declaration_string_line(`static ${c_name}* __yo_new_${c_name}_${vname}(${params}); // Constructor`);
+          vi = (vi + usize(1));
         });
-        context.emitter.emit_declaration_string_line(`static ${c_name}* __yo_new_${c_name}_${vname}(${params}); // Constructor`);
-        vi = (vi + usize(1));
-      });
-    },
-    _ => ()
+      },
+      _ => ()
+    )
   )
-));
+);
 /// Generate constructor + RC/GC forward declarations for objects.
 ///
 /// Decl/def consistency: the per-object parameter list uses

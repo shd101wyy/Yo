@@ -442,9 +442,13 @@ sm_lowering_next_state :: (fn(context : &mut FunctionGenerationContext) -> usize
 );
 /// The C name of a value the task's await slot now owns.
 sm_lowering_note_moved_into_slot :: (fn(context : &mut FunctionGenerationContext, sink(name) : String) -> unit)(
-  match(&mut context.sm_inline_lowering, .Some(low) => {
-    low.moved_into_slot.insert(name);
-  }, .None => ())
+  match(
+    &mut context.sm_inline_lowering,
+    .Some(low) => {
+      low.moved_into_slot.insert(name);
+    },
+    .None => ()
+  )
 );
 sm_lowering_push_suspension :: (fn(context : &mut FunctionGenerationContext, suspension : InlineSuspension) -> unit)(
   match(&mut context.sm_inline_lowering, .Some(low) => low.suspensions.push(suspension), .None => ())
@@ -462,14 +466,22 @@ sm_lowering_set_rc_operand :: (fn(context : &mut FunctionGenerationContext, valu
   )
 );
 sm_lowering_note_binding_source :: (fn(context : &mut FunctionGenerationContext, sink(slot) : String, sink(source) : String) -> unit)(
-  match(&mut context.sm_inline_lowering, .Some(low) => {
-    low.binding_sources.insert(slot, source);
-  }, .None => ())
+  match(
+    &mut context.sm_inline_lowering,
+    .Some(low) => {
+      low.binding_sources.insert(slot, source);
+    },
+    .None => ()
+  )
 );
 sm_lowering_note_moved_read :: (fn(context : &mut FunctionGenerationContext, eid : usize, sink(code) : String) -> unit)(
-  match(&mut context.sm_inline_lowering, .Some(low) => {
-    low.moved_reads.insert(eid, code);
-  }, .None => ())
+  match(
+    &mut context.sm_inline_lowering,
+    .Some(low) => {
+      low.moved_reads.insert(eid, code);
+    },
+    .None => ()
+  )
 );
 /// What a fused site's body replaced while it lowers under its own analysis
 /// (`sm_lowering_enter_scope` / `sm_lowering_restore_scope`).

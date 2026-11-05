@@ -212,8 +212,8 @@ test("the encoding emits a raw-spelling SMT forall (solver-free)", {
   assert(res.error.is_none(), `no subset error expected for the quantifier fixture`);
   mut(scripts) := StringBuilder.new();
   for(&res.obligations, obl => {
-        scripts.write_string(encode_script(&obl.query, default_encode_options()));
-      });
+    scripts.write_string(encode_script(&obl.query, default_encode_options()));
+  });
   all := scripts.to_string();
   assert(all.contains(String.from("(forall ((k (_ BitVec 32)))")), `the forall binder appears raw-spelled, got: ${all}`);
   assert(all.contains(String.from("(=> ")), "the ==> implication renders as the SMT => operator");

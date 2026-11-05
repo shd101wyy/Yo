@@ -195,13 +195,15 @@ evaluate_comptime_read_file :: (
     record_input_file(resolved.clone(), &data_hash);
   });
   info := new_expr_info(env, t_comptime_string());
-  info.set_value(if(
-    is_trial,
-    Option(EvalValue).Some(EvalValue.UnknownVal(t_comptime_string(), false)),
-    // `StrLit` keeps its delimiters (codegen strips them positionally and
-    // re-escapes), so the content travels verbatim — quotes, newlines and all.
-    Option(EvalValue).Some(EvalValue.StrLit(`"${content}"`))
-  ));
+  info.set_value(
+    if(
+      is_trial,
+      Option(EvalValue).Some(EvalValue.UnknownVal(t_comptime_string(), false)),
+      // `StrLit` keeps its delimiters (codegen strips them positionally and
+      // re-escapes), so the content travels verbatim — quotes, newlines and all.
+      Option(EvalValue).Some(EvalValue.StrLit(`"${content}"`))
+    )
+  );
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
   expr
 });

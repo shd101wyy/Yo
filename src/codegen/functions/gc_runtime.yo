@@ -105,24 +105,21 @@ collect_unwind_value_ctypes :: (fn(context : &mut FunctionGenerationContext) -> 
       _ => ()
     )
   );
-  for(
-    &bodies,
-    body => {
-      found := _collect_unwind_value_ctypes_from_expr(body, context);
-      fnlen := found.len();
-      (fj : usize) = usize(0);
-      while(fj < fnlen, {
-        match(
-          found.get_cloned(fj),
-          .Some(s) => {
-            into.insert(s.clone());
-          },
-          .None => ()
-        );
-        fj = (fj + usize(1));
-      });
-    }
-  );
+  for(&bodies, body => {
+    found := _collect_unwind_value_ctypes_from_expr(body, context);
+    fnlen := found.len();
+    (fj : usize) = usize(0);
+    while(fj < fnlen, {
+      match(
+        found.get_cloned(fj),
+        .Some(s) => {
+          into.insert(s.clone());
+        },
+        .None => ()
+      );
+      fj = (fj + usize(1));
+    });
+  });
   context.unwind_value_c_types = Option(HashSet(String)).Some(into);
 });
 // ---------------------------------------------------------------------------

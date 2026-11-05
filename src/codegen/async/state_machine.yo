@@ -1961,10 +1961,14 @@ generate_async_block_resume_function_inline :: (
     );
     emit_async_future_completion(&mut context.base.emitter, `  `, Option(String).None, Option(String).Some(String.from("Future %p completed")));
   });
-  mut(done_low) := match(replace(&mut context.sm_inline_lowering, p_low), .Some(l) => l, .None => {
-    codegen_fatal(String.from("the single-pass lowering's state was lost"));
-    return(ArrayList(String).new());
-  });
+  mut(done_low) := match(
+    replace(&mut context.sm_inline_lowering, p_low),
+    .Some(l) => l,
+    .None => {
+      codegen_fatal(String.from("the single-pass lowering's state was lost"));
+      return(ArrayList(String).new());
+    }
+  );
   context.in_async_state_machine = p_in;
   context.state_machine_variables = p_smv;
   context.variable_id_remapping = p_vr;

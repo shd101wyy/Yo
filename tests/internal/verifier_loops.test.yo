@@ -312,8 +312,8 @@ test("the SMT encoding of a loop query havocs the assigned names (solver-free)",
   assert(res.obligations.len() > usize(2), `entry + iterate + ensures obligations exist, got ${res.obligations.len().to_string()}`);
   mut(scripts) := StringBuilder.new();
   for(&res.obligations, obl => {
-        scripts.write_string(encode_script(&obl.query, default_encode_options()));
-      });
+    scripts.write_string(encode_script(&obl.query, default_encode_options()));
+  });
   all := scripts.to_string();
   assert(all.contains(String.from("__yo_hv")), "the havoc constants appear in the encoding");
   // The iterate obligation's goal is the invariant conjunction over the
@@ -421,8 +421,8 @@ test("the exit encoding re-havocs and selects break states (solver-free)", {
   assert(res.error.is_none(), `no subset error expected for the break fixture`);
   mut(scripts) := StringBuilder.new();
   for(&res.obligations, obl => {
-        scripts.write_string(encode_script(&obl.query, default_encode_options()));
-      });
+    scripts.write_string(encode_script(&obl.query, default_encode_options()));
+  });
   all := scripts.to_string();
   assert(all.contains(String.from("__yo_br")), "the break selector constants appear in the encoding");
   assert(all.contains(String.from("__yo_hv2_")), "the exit re-havocs under a second generation");

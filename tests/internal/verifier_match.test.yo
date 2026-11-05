@@ -174,12 +174,12 @@ test("the SMT encoding of a match query declares the datatype (solver-free)", {
   assert(res.obligations.len() > usize(0), "the ensures obligation exists");
   (mut(dt_count) : usize) = usize(0);
   for(&res.obligations, obl => {
-        (mut(di) : usize) = usize(0);
-        while(di < obl.query.datatypes.len(), {
-          dt_count = (dt_count + usize(1));
-          di = (di + usize(1));
-        });
-      });
+    (mut(di) : usize) = usize(0);
+    while(di < obl.query.datatypes.len(), {
+      dt_count = (dt_count + usize(1));
+      di = (di + usize(1));
+    });
+  });
   assert(dt_count > usize(0), "the query carries the enum's datatype declaration");
   script := encode_script(&res.obligations(usize(0)).query, default_encode_options());
   assert(script.contains(String.from("declare-datatypes")), "the emitted SMT declares the datatype");
