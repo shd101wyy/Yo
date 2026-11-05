@@ -1886,7 +1886,8 @@ lookup_method_callee_value :: (fn(call_id : ExprId) -> Option(EvalValue))(
 /// last one on every exit path.
 record_local_borrow_step_pin :: (fn(lhs_id : ExprId, pin : &Variable) -> unit)({
   record_owned_expr_id(lhs_id);
-  g_local_borrow_step_pins.with_mut(m => m.insert(lhs_id, pin));
+  pinned := Rc.clone(pin);
+  g_local_borrow_step_pins.with_mut({ lhs_id, pinned }(m) => m.insert(lhs_id, pinned));
   ()
 });
 lookup_local_borrow_step_pin :: (fn(lhs_id : ExprId) -> Option(Variable))(
