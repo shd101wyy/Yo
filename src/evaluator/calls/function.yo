@@ -8440,7 +8440,7 @@ _check_call_origin_invariance :: (fn(call : &AstExpr, env : &Environment, ctx : 
                   match(
                     t_origin_spelled_names(&a_os(k)),
                     .Some(an) => {
-                      n := match(pn.get(usize(0)), .Some(n0) => n0, .None => String.from(""));
+                      n := match(pn.get_cloned(usize(0)), .Some(n0) => n0, .None => String.from(""));
                       if(!fixed_names.contains(&n), {
                         fixed_names.push(n);
                         fixed_sets.push(an);
@@ -8482,21 +8482,21 @@ _check_call_origin_invariance :: (fn(call : &AstExpr, env : &Environment, ctx : 
             match(
               t_origin_spelled_names(&p_os(k)),
               .Some(pn) => if(pn.len() == usize(1), {
-                n := match(pn.get(usize(0)), .Some(n0) => n0, .None => String.from(""));
+                n := match(pn.get_cloned(usize(0)), .Some(n0) => n0, .None => String.from(""));
                 (fi : usize) = usize(0);
                 while(fi < fixed_names.len(), {
-                  if(match(fixed_names.get(fi), .Some(fnm) => (fnm == n), .None => false), {
+                  if(match(fixed_names.get_cloned(fi), .Some(fnm) => (fnm == n), .None => false), {
                     bound := match(fixed_sets.get(fi), .Some(fs) => fs, .None => shared_list(ArrayList(String).new()));
                     match(
                       t_origin_spelled_names(&a_os(k)),
                       .Some(an) => {
                         (ni : usize) = usize(0);
                         while(ni < an.len(), {
-                          a_name := match(an.get(ni), .Some(x) => x, .None => String.from(""));
+                          a_name := match(an.get_cloned(ni), .Some(x) => x, .None => String.from(""));
                           (inside : bool) = false;
                           (bj : usize) = usize(0);
                           while(bj < bound.len(), {
-                            if(match(bound.get(bj), .Some(b) => (b == a_name), .None => false), {
+                            if(match(bound.get_cloned(bj), .Some(b) => (b == a_name), .None => false), {
                               inside = true;
                             });
                             bj = (bj + usize(1));
@@ -8544,7 +8544,7 @@ _origin_names_text :: (fn(names : &SharedList(String)) -> String)({
     if(i > usize(0), {
       out.push_str(", ");
     });
-    match(names.get(i), .Some(n) => out.push_string(&n), .None => ());
+    match(names.get_cloned(i), .Some(n) => out.push_string(&n), .None => ());
     i = (i + usize(1));
   });
   out
