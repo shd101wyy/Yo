@@ -26,6 +26,11 @@ import("std/fmt");
   ast_expr_is_fn_call,
   ast_expr_is_fn_call_of,
   make_err_expr,
+  ast_expr_is_atom,
+  ast_expr_strip_borrow_marker,
+  ast_place_text,
+  BF_ADDRESS_OF,
+  BK_BORROW_MUT,
   BK_TUPLE
 } :: import("../../expr.yo");
 {
@@ -33,7 +38,7 @@ import("std/fmt");
   expr_info_table_set,
   expr_info_table_get
 } :: import("../../expr_info.yo");
-{ Environment, env_adopt } :: import("../../env.yo");
+{ Environment, Variable, env_adopt } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
 { EvalValue, is_type_value, is_unknown_val, value_cell_new } :: import("../../value.yo");
 { TypeValue, TypeValueNode, shared_list } :: import("../../types/definitions.yo");
@@ -45,7 +50,15 @@ import("std/fmt");
   is_comptime_list_type
 } :: import("../../types/guards.yo");
 { convert_comptime_type_to_runtime_type } :: import("../../types/env_lookup.yo");
-{ set_expr_as_needs_to_call_dup, attach_temp_variable_to_expr } :: import("../utils.yo");
+{
+  set_expr_as_needs_to_call_dup,
+  attach_temp_variable_to_expr,
+  lend_place_reference_type,
+  variable_is_reference_binding,
+  deref_rule_applies,
+  is_reference_deref_site,
+  reject_reference_without_deref
+} :: import("../utils.yo");
 { type_to_string } :: import("../../types/string.yo");
 { format_error_message, format_eval_failure } :: import("../../error.yo");
 { Exception } :: import("std/error");
@@ -146,22 +159,50 @@ evaluate_tuple_element_value :: (
     ),
     .None => ()
   );
+  // A LEND element, `&place` / `&mut place` (decision 43 step 3, T9): the
+  // tuple holds a reference to the place, as a struct constructor's
+  // reference field does. The marker is peeled, the place evaluated against
+  // the expected reference's pointee, and the element typed as the lend.
+  lend_is_mut := ast_expr_is_fn_call_of(expr, BK_BORROW_MUT, Option(usize).Some(usize(1)));
+  is_lend := (lend_is_mut || ast_expr_is_fn_call_of(expr, BF_ADDRESS_OF, Option(usize).Some(usize(1))));
+  elem_expr := if(is_lend, ast_expr_strip_borrow_marker(expr), expr.clone());
+  elem_expected := match(
+    &expected_field_type_opt,
+    .Some(Rc(.Reference(et_pointee, _, _))) => if(is_lend, Option(TypeValue).Some(Rc.clone(et_pointee)), expected_field_type_opt.clone()),
+    _ => expected_field_type_opt.clone()
+  );
   // Evaluate the rhs expression with `expected_type` updated for this field.
   saved_expected := ctx.expected_type;
   ctx.expected_type = match(
-    &expected_field_type_opt,
+    &elem_expected,
     .Some(t) => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : Rc.clone(t), env : env)),
     .None => Option(ExpectedTypeCtx).None
   );
   evaluated_rhs_gout := ArrayList(AstExpr).new();
-  evaluated_rhs_gerr := evaluate_expression_guarded(expr, &env, ctx, &mut evaluated_rhs_gout);
+  evaluated_rhs_gerr := evaluate_expression_guarded(&elem_expr, &env, ctx, &mut evaluated_rhs_gout);
   ctx.expected_type = saved_expected;
   match(evaluated_rhs_gerr, .Some(evaluated_rhs_ge) => exn.throw(evaluated_rhs_ge), .None => ());
   evaluated_rhs := match(evaluated_rhs_gout.get(usize(0)), .Some(evaluated_rhs_g) => evaluated_rhs_g, .None => make_err_expr());
+  // `&r` of a reference binding names the referent, spelled `&r.*` (E0926,
+  // decision 43 step 2 N1e-1), as at a constructor's reference field.
+  if(is_lend && ast_expr_is_atom(&evaluated_rhs), {
+    match(
+      match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_rhs)), .Some(lr_info) => lr_info.source_variable, .None => Option(Variable).None),
+      .Some(lr_var) => if(variable_is_reference_binding(&lr_var) && deref_rule_applies(ast_expr_token(&evaluated_rhs), ctx) && !is_reference_deref_site(ast_expr_token(&evaluated_rhs)), {
+        reject_reference_without_deref(&lr_var, ast_expr_token(&evaluated_rhs), u8(2), ctx, exn);
+      }),
+      .None => ()
+    );
+  });
   // Mark the field value copy-semantics: a named RC value moved into the
   // tuple literal gets a deferred `___dup` (without it the literal aliased
   // the element's refcount and scope-end drops over-released, rc layer 4).
-  set_expr_as_needs_to_call_dup(&evaluated_rhs, ctx, exn, "field-store");
+  // A lend stores the place's address and copies no ownership: a dup paired
+  // with the place's own scope-end drop would be cancelled as a move, and
+  // the place would leak.
+  if(!is_lend, {
+    set_expr_as_needs_to_call_dup(&evaluated_rhs, ctx, exn, "field-store");
+  });
   // Look up the resulting ExprInfo for the rhs.
   rhs_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_rhs));
   rhs_info := match(
@@ -192,18 +233,36 @@ evaluate_tuple_element_value :: (
     );
   });
   // Convert to runtime type unless the expected field type is comptime-only.
+  // A lend's type is its reference over the place.
+  (lend_ty : Option(TypeValue)) = if(is_lend, lend_place_reference_type(&evaluated_rhs, &rhs_info, lend_is_mut, ctx), Option(TypeValue).None);
+  if(is_lend && lend_ty.is_none(), {
+    l_place := ast_place_text(&elem_expr);
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(expr),
+          `\`${if(lend_is_mut, "&mut ", "&")}${l_place}\` cannot be lent into a tuple: a tuple's reference element lends a binding's place (\`&x\`, \`&x.f\`) or a raw pointer's referent (\`&p.*\`). Bind the place to a local first.`
+        )
+      )
+    );
+  });
   child_type := match(
-    expected_field_type_opt,
-    .Some(et) => cond(
-      is_comptime_only_type_local(&et) => Rc.clone(rhs_info.ty),
-      true => convert_comptime_type_to_runtime_type(&rhs_info.ty, &env)
-    ),
-    .None => convert_comptime_type_to_runtime_type(&rhs_info.ty, &env)
+    lend_ty,
+    .Some(lt) => lt,
+    .None => match(
+      expected_field_type_opt,
+      .Some(et) => cond(
+        is_comptime_only_type_local(&et) => Rc.clone(rhs_info.ty),
+        true => convert_comptime_type_to_runtime_type(&rhs_info.ty, &env)
+      ),
+      .None => convert_comptime_type_to_runtime_type(&rhs_info.ty, &env)
+    )
   );
   runtime_arg_exprs_in_order.push(evaluated_rhs);
   EvalTupleElementResult(
     ty : child_type,
-    value : rhs_info.value,
+    // A lend is the place's runtime address, never a known value.
+    value : if(is_lend, Option(EvalValue).None, rhs_info.value),
     env : env
   )
 });
