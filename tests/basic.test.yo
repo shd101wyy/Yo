@@ -2676,6 +2676,30 @@ test("enum tag participates in alignment and struct tail padding", {
     j = (j + usize(1));
   });
 });
+SmallPayloadOptions :: struct(
+  head : Option(bool),
+  narrow : Option(u8),
+  half : Option(u16),
+  wide : i64,
+  last : Option(bool)
+);
+test("an enum tag is int-sized: an option of a payload aligned below 4 is 8 bytes, and a box of a struct of them holds every field", {
+  // issues/fixed/2026-11-05-an-enum-with-a-payload-aligned-below-4-is-sized-with-a-one-byte-tag.md:
+  // the C tag is an `int`, so the payload starts at offset 4. Sized with a
+  // one-byte tag, `Option(bool)` was 4 bytes here and 8 in C, and `Box.new`
+  // allocated `size_of(T)` bytes for a larger C struct (a heap overflow).
+  assert(size_of(Option(bool)) == usize(8), "Option(bool): 4-byte tag + bool, rounded to align 4");
+  assert(size_of(Option(u8)) == usize(8), "Option(u8)");
+  assert(size_of(Option(u16)) == usize(8), "Option(u16)");
+  assert(size_of(Option(i32)) == usize(8), "Option(i32) is unchanged");
+  assert(size_of(SmallPayloadOptions) == usize(40), "struct: 3 x 8 + i64 + 8");
+  b := Box(SmallPayloadOptions).new(SmallPayloadOptions(head : .Some(true), narrow : .Some(u8(7)), half : .Some(u16(300)), wide : i64(-5), last : .Some(false)));
+  assert(match(b.head, .Some(x) => x, .None => false), "head survives");
+  assert(match(b.narrow, .Some(x) => (x == u8(7)), .None => false), "narrow survives");
+  assert(match(b.half, .Some(x) => (x == u16(300)), .None => false), "half survives");
+  assert(b.wide == i64(-5), "wide survives");
+  assert(match(b.last, .Some(x) => !x, .None => false), "last survives");
+});
 // A comptime-TRUE condition in a NON-first `cond` arm is the chain's final
 // `else`; the arms after it are unreachable and must not be emitted. Codegen
 // used to keep going and write the next arm as a second `else` with no `if` —
