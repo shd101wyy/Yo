@@ -4405,8 +4405,12 @@ mark_generic_independent :: (fn(err : &YoError, a : &TypeValue, b : &TypeValue) 
 });
 export(mark_generic_independent);
 /// The result slot `r` may point into a `&T` parameter: a borrow, or a
-/// type that carries an origin (`fn_param_is_ptr_borrow`).
-_result_may_point_into_params :: (fn(r : &TypeValue) -> bool)(t_slot_is_borrow(r) || type_carries_origin(r));
+/// type that carries an origin (`fn_param_is_ptr_borrow`). A borrowing
+/// future is not one: its origin names the caller's places, which the state
+/// machine holds through the lent arguments' own pointers
+/// (`_lent_param_capture_fields`), so its function's `&T` parameters keep the
+/// by-value ABI (decision 43 step 4, VERDICTS-18 §B: codegen unchanged).
+_result_may_point_into_params :: (fn(r : &TypeValue) -> bool)(t_slot_is_borrow(r) || (type_carries_origin(r) && !is_future_value_type(r)));
 /// Decision 34's ABI choice, taken for decision 24's projections: a `&T`
 /// parameter of a function whose result may point into it is passed as a
 /// pointer; every other `&T` parameter is passed by value. The result may

@@ -7622,6 +7622,27 @@ _n3_bump_spelled :: (fn(c : &mut _A2Counter, io : Io) -> Impl(Future(unit, Io, c
     c.n = (c.n + i32(1));
   })
 );
+// A function returns the future another call made over its own `&` and
+// `&mut` parameters (decision 43 step 4, O8): the forwarded future's origin
+// names the caller's places, and the `&` parameter keeps its by-value ABI on
+// both functions.
+_n3_add_from :: (fn(c : &mut _A2Counter, d : &_A2Counter, io : Io) -> Impl(Future(unit, Io)))(
+  io.async({ c : &mut c.*, d : &d.* }(io : Io) => {
+    c.n = (c.n + d.n);
+  })
+);
+_n3_forward_add :: (fn(c : &mut _A2Counter, d : &_A2Counter, io : Io) -> Impl(Future(unit, Io)))(_n3_add_from(&mut c.*, &d.*, io));
+_n3_forward_tenfold :: (fn(c : &_A2Counter, io : Io) -> Impl(Future(i32, Io)))(_a2_tenfold(&c.*, io));
+test("a function forwards a future made over its & and &mut parameters (decision 43 N3-1)", {
+  mut(c) := _A2Counter(n : i32(1));
+  d := _A2Counter(n : i32(4));
+  io.await(_n3_forward_add(&mut c, &d, io), io);
+  assert(c.n == i32(5), "the forwarded future writes through the lent &mut and reads the lent &");
+  f := _n3_forward_add(&mut c, &d, io);
+  io.await(f, io);
+  assert(c.n == i32(9), "bound, then awaited");
+  assert(io.await(_n3_forward_tenfold(&c, io), io) == i32(90), "a & parameter forwarded alone");
+});
 test("a future's result type spells its origin: Future(T, E, p) (decision 43 N3-1)", {
   mut(c) := _A2Counter(n : i32(0));
   io.await(_n3_bump_spelled(&mut c, io), io);
