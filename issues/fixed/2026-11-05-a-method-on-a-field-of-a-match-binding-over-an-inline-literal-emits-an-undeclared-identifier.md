@@ -37,17 +37,33 @@ Measured (develop 68b45b81d):
 | `S :: struct(x : i32, y : i32)` (Copy), `.Some(p) => (p.x + p.y)` | compiles, correct |
 | `S :: ref(struct(name : String))` | compiles, correct |
 
-## Root cause (not yet located)
+## Root cause
 
-The scrutinee is a literal whose variant and payload are known statically, so the match is
-probably resolved early and the arm binding is tied to the constructor's argument list. A field
-read through the binding then resolves to the constructor argument *named* `name` and is emitted
-as a variable reference, `__yo_v_name`. A `ref` payload was a heap handle read through its
-pointer, so it did not take that path.
+Not match-specific: any field read of a struct literal with a runtime field fails the same way
+(`Point(x : f(), y : i32(1)).x` emits `__yo_v_x`). The evaluator records a runtime construction
+as a `StructVal` shell with `UnknownVal` leaves (`value_contains_unknown`, `src/value.yo`), and a
+`match` binding over the literal inherits that value. `_generate_field_access_raw`
+(`src/codegen/exprs/property_access.yo`) took every object whose value is a `StructVal` down
+the module-namespace path: a field with a known value was emitted as that constant, and any
+other field by name as a variable of its own, which only a module member is. So the runtime
+field became the bare `__yo_v_name`.
+
+The same path had a second consequence: a known field of a runtime construction was folded to
+its constant without evaluating the object, so `Point(x : f(), y : i32(1)).y` never called
+`f()` (develop 58ec8be03 prints `1 0` for the call count of that read).
+
+## Fix
+
+The namespace path takes a module, or a struct value with no runtime leaf (a compile-time
+struct, where folding is exact and has nothing to run). A runtime construction falls through to
+the ordinary value-shape access, `(<object code>).<field>`, which runs the construction once.
+Inside the path, only a module's member is resolved by name; a compile-time struct's
+struct-valued field is read from its C value.
 
 ## Test
 
-`tests/async_await.test.yo`'s "a reassignment in an awaitless nested arm beside an awaiting arm"
-keeps a `ref` payload (`Task`) until this is fixed; its comment names this doc. The fix makes
-`Task` a value struct again, adds the reproducer as a test case (a method on a field of the
-binding, sync and inside `io.async`), and moves this doc to `issues/fixed/`.
+`tests/match_structs.test.yo`: "a method on a field of a match binding over an inline literal"
+(owned and borrowed scrutinee) and "a field of a struct literal with a runtime field" (the
+runtime field, the folded constant field with the construction's call counted, a method on a
+field). `tests/async_await.test.yo`: `Task` is a value struct again, and "a method on a field of
+a match binding over an inline literal across an await" covers the `io.async` shape.
