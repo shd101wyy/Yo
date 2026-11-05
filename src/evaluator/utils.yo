@@ -887,7 +887,7 @@ consume_called_fnonce_closure :: (fn(callee : &AstExpr, v : &Variable, env : &En
   holds_owned := (type_contains_rc_type(&variable_value_type(v)) || type_requires_explicit_copy(&variable_value_type(v)));
   what := cond(
     v.is_module_level => Option(String).Some(String.from("it is a module-level binding, which lives for the whole program and is never moved")),
-    v.is_ref => Option(String).Some(String.from("it is a `&mut` borrow, which names storage the caller owns")),
+    (v.is_ref && !v.is_borrow_match_binding) => Option(String).Some(String.from("it is a `&mut` borrow, which names storage the caller owns")),
     (v.is_parameter && !v.is_owning_the_rc_value && owner.is_none()) => Option(String).Some(String.from("it is a borrowed parameter, and a borrow cannot give the closure away: take the parameter by value, `sink(f) : Impl(FnOnce(...))` (only an API the closure escapes into calls it once)")),
     (!v.is_parameter && !v.is_owning_the_rc_value && holds_owned && !is_fn_capture_value_binding(v.id)) => Option(String).Some(String.from("it is borrowed from the value that holds it (a `match`/`for` binding): move the holder, or match a value you own")),
     true => Option(String).None
@@ -1252,7 +1252,7 @@ transfer_explicit_copy_value :: (fn(rhs : &AstExpr, ei : &ExprInfo, variable_nam
         });
       },
       v.is_module_level => _throw_explicit_copy_violation(rhs, &ei.ty, String.from("it is a module-level binding, which lives for the whole program and is never moved. Copy it with `.clone()`, or lend it with `&` (a call may borrow a module-level binding only while nothing writes it, plans/VALUES_BY_DEFAULT.md decision 18 rule 3)."), ctx, exn),
-      v.is_ref => _throw_explicit_copy_violation(rhs, &ei.ty, String.from("it is a `&mut` borrow, which names storage the caller owns. Lend it on with `&mut`, or move the caller's value."), ctx, exn),
+      (v.is_ref && !v.is_borrow_match_binding) => _throw_explicit_copy_violation(rhs, &ei.ty, String.from("it is a `&mut` borrow, which names storage the caller owns. Lend it on with `&mut`, or move the caller's value."), ctx, exn),
       is_fn_capture_value_binding(v.id) => _throw_fn_closure_moves_capture(rhs, &ei.ty, v.id, ctx, exn),
       _is_implicit_closure_capture(&v, &ei.env, ctx) => _throw_implicit_capture_move(rhs, &ei.ty, ctx, exn),
       v.is_owning_the_rc_value => set_expr_as_consumed(rhs, &ei.env, false, ctx, exn),
@@ -1723,7 +1723,7 @@ reject_second_class_return :: (fn(ty : &TypeValue, tok : &Token, env : &Environm
 /// `v` is a `&`/`&mut` parameter (a borrow the caller lent for the call), not
 /// a local borrow binding (`y := &mut x`, which has an inout root).
 variable_is_borrow_parameter :: (fn(v : &Variable) -> bool)(
-  v.is_imm_borrow || (v.is_ref && variable_inout_borrow_root_id(v).is_none())
+  v.is_imm_borrow || (v.is_ref && !v.is_borrow_match_binding && variable_inout_borrow_root_id(v).is_none())
 );
 /// `v` is a by-value future parameter, the operand of a combinator (§3.13
 /// A4): a borrowing future the caller passes there lends its places for the
@@ -3522,7 +3522,7 @@ audit_record_implicit_copy :: (
         v.is_module_level => {
           kind = String.from("global");
         },
-        v.is_ref => {
+        (v.is_ref && !v.is_borrow_match_binding) => {
           kind = String.from("inout-borrow");
         },
         captured => {
@@ -3685,7 +3685,7 @@ audit_record_copy_trait :: (
           v.is_module_level => {
             kind = String.from("global");
           },
-          v.is_ref => {
+          (v.is_ref && !v.is_borrow_match_binding) => {
             kind = String.from("inout-borrow");
           },
           captured => {
@@ -3834,7 +3834,7 @@ check_dyn_copy :: (fn(rhs : &AstExpr, ei : &ExprInfo, variable_name : &String, c
       }),
       v.is_compile_time_only => (),
       v.is_module_level => _throw_explicit_copy_violation(rhs, &ei.ty, String.from("it is a module-level binding, which lives for the whole program and is never moved. Lend it with `&` instead (a call may borrow a module-level binding only while nothing writes it, plans/VALUES_BY_DEFAULT.md decision 18 rule 3)."), ctx, exn),
-      v.is_ref => _throw_explicit_copy_violation(rhs, &ei.ty, String.from("it is a `&mut` borrow, which names storage the caller owns. Lend it on with `&mut`, or move the caller's value."), ctx, exn),
+      (v.is_ref && !v.is_borrow_match_binding) => _throw_explicit_copy_violation(rhs, &ei.ty, String.from("it is a `&mut` borrow, which names storage the caller owns. Lend it on with `&mut`, or move the caller's value."), ctx, exn),
       is_fn_capture_value_binding(v.id) => _throw_fn_closure_moves_capture(rhs, &ei.ty, v.id, ctx, exn),
       _is_implicit_closure_capture(&v, &ei.env, ctx) => _throw_implicit_capture_move(rhs, &ei.ty, ctx, exn),
       (v.is_parameter && !v.is_owning_the_rc_value && _owning_param_binding_beside(&ei.env, &v).is_none()) => _throw_explicit_copy_violation(rhs, &ei.ty, String.from("it is a `&T` parameter, and a borrow cannot give the value away. Take the parameter by value (`x : T`, without `&`) to own it."), ctx, exn),
@@ -7061,10 +7061,10 @@ local_borrow_info_of_variable :: (fn(v : &Variable) -> Option(LocalBorrowInfo))(
 );
 /// A binding that holds a `&mut` place: a `&mut` parameter, a `y := &mut`
 /// local borrow, or a binding of a `&mut` match. A projection's `&T`
-/// parameter is a reference too (`bind_parameter`'s `is_ptr_borrow`), but a
-/// shared one.
+/// parameter is a reference too (`bind_parameter`'s `is_ptr_borrow`), and so
+/// is a `&` match's binding (`is_borrow_match_binding`), but shared ones.
 variable_is_mut_borrow :: (fn(v : &Variable) -> bool)(
-  v.is_ref && !v.is_imm_borrow && match(local_borrow_info_of_variable(v), .Some(info) => info.is_mut, .None => true)
+  v.is_ref && !v.is_imm_borrow && !v.is_borrow_match_binding && match(local_borrow_info_of_variable(v), .Some(info) => info.is_mut, .None => true)
 );
 /// A binding that holds an `imm` borrow: an `imm` parameter, an `imm(y) :=`
 /// local borrow, or a binding of a borrowing match or a `for` loop.

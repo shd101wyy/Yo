@@ -1714,16 +1714,16 @@ evaluate_match :: (
           if(!ct_known && ref_binds, {
             match(
               _added,
-              .Some(bm_var) => {
+              // The binding points at its part, a read-only borrow. A
+              // reference payload's binding is already a reference binding
+              // (`is_ref` above), holding the payload's own pointer.
+              .Some(bm_var) => if(ref_payload.is_none(), {
                 bm_var.is_borrow_match_binding = true;
-                // The binding points at its part (a reference payload's
-                // binding already holds its reference): a read-only borrow.
-                if(ref_payload.is_none() && !is_unit_type(&bind_ty), {
+                if(!is_unit_type(&bind_ty), {
                   bm_var.is_ref = true;
-                  bm_var.is_imm_borrow = true;
                   any_ref_binder = true;
                 });
-              },
+              }),
               .None => ()
             );
           });
