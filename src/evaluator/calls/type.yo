@@ -21,39 +21,33 @@ pragma(Pragma.AllowUnsafe);
   ast_expr_id,
   ast_expr_to_string,
   ast_expr_is_atom,
-  ast_expr_is_atom_of,
   ast_expr_is_fn_call,
   ast_expr_is_fn_call_of,
   ast_expr_strip_borrow_marker,
   ast_place_text,
   BF_ADDRESS_OF,
-  BF_DOT,
-  BK_BORROW_MUT,
-  make_err_expr
+  BK_BORROW_MUT
 } :: import("../../expr.yo");
 {
   ExprInfo,
   new_expr_info,
   expr_info_table_get,
-  expr_info_table_set,
   path_collection_new,
-  expr_info_converted_runtime_type,
-  expr_info_set_converted_runtime_type
+  expr_info_converted_runtime_type
 } :: import("../../expr_info.yo");
 { comptime_numeric_slot_type } :: import("../values/integer.yo");
 { Environment, Variable, env_adopt } :: import("../../env.yo");
-{ TypeValue, t_reference, t_reference_with_origin, t_origin_named, shared_list } :: import("../../types/definitions.yo");
+{ TypeValue } :: import("../../types/definitions.yo");
 { type_to_string } :: import("../../types/string.yo");
 { same_name_note, type_carries_origin, origin_value_phase_message, origin_beyond_n2b, origin_beyond_n2b_message } :: import("../../types/utils.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
-{ is_pointer_type } :: import("../../types/guards.yo");
 { raise_flow_violation } :: import("../../types/flowability.yo");
 { convert_comptime_type_to_runtime_type } :: import("../../types/env_lookup.yo");
 { EvalContext, ExpectedTypeCtx, TypeCallResult, in_def_time_trial } :: import("../context.yo");
 { is_std_module_path } :: import("../memory_safety.yo");
 { EvalValue, value_to_string } :: import("../../value.yo");
 { TypeField } :: import("../types/field.yo");
-{ set_expr_as_needs_to_call_dup, reject_second_class_escape, reject_bare_callable_into_dyn_fn, bare_callable_recorded_into_dyn_fn, is_reference_read, variable_is_reference_binding, deref_rule_applies, is_reference_deref_site, reject_reference_without_deref } :: import("../utils.yo");
+{ set_expr_as_needs_to_call_dup, reject_second_class_escape, reject_bare_callable_into_dyn_fn, bare_callable_recorded_into_dyn_fn, is_reference_read, variable_is_reference_binding, deref_rule_applies, is_reference_deref_site, reject_reference_without_deref, lend_place_reference_type } :: import("../utils.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
 { format_error_message, with_code } :: import("../../error.yo");
 { E_INCOMPATIBLE_TYPES, E_ARGUMENT_COUNT_MISMATCH, E_BORROW_MARKER_MISMATCH } :: import("../../diagnostics.yo");
@@ -364,36 +358,7 @@ try_to_call_type_with_arguments :: (
           expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&evaluated_arg), &arg_info);
         }),
         _ => {
-          (t9w_cur : AstExpr) = evaluated_arg;
-          // A raw pointer's dereference (`p.add(k).*` in unsafe code, a
-          // cursor's item): the place is wherever the pointer points, which
-          // no name roots, so the lend carries the elided origin and the
-          // slot's declared origin is the unsafe code's claim.
-          (t9w_raw : bool) = false;
-          while(!t9w_raw && ast_expr_is_fn_call_of(&t9w_cur, BF_DOT, Option(usize).Some(usize(2))), {
-            t9w_base := match(
-              t9w_cur,
-              .FnCall(_, _, t9w_args, _, _) => match(t9w_args.get(usize(0)), .Some(t9w_b) => t9w_b, .None => make_err_expr()),
-              .Atom(_, _) => make_err_expr()
-            );
-            t9w_star := match(&t9w_cur, .FnCall(_, _, t9w_sargs, _, _) => match(t9w_sargs.get(usize(1)), .Some(t9w_l) => ast_expr_is_atom_of(&t9w_l, "*"), .None => false), .Atom(_, _) => false);
-            t9w_raw = (t9w_star && match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&t9w_base)), .Some(t9w_bi) => is_pointer_type(&t9w_bi.ty), .None => false));
-            t9w_cur = t9w_base;
-          });
-          if(t9w_raw, {
-            t9w_lend_ty = Option(TypeValue).Some(t_reference(&arg_info.ty, t9w_mut));
-          });
-          if(!t9w_raw && ast_expr_is_atom(&t9w_cur), {
-            t9w_names := ArrayList(String).new();
-            t9w_names.push(ast_expr_token(&t9w_cur).value.*.clone());
-            t9w_lend_ty = Option(TypeValue).Some(t_reference_with_origin(&arg_info.ty, t9w_mut, t_origin_named(&shared_list(t9w_names))));
-            // Record the lend on the PLACE's ExprInfo (the converted-runtime
-            // type slot, read by no codegen path for a place): the binding
-            // freeze reads it back — the marker is peeled out of the tree, so
-            // this is the tree's only record of the lend (T9).
-            expr_info_set_converted_runtime_type(&arg_info, &t9w_lend_ty);
-            expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&evaluated_arg), &arg_info);
-          });
+          t9w_lend_ty = lend_place_reference_type(&evaluated_arg, &arg_info, t9w_mut, ctx);
         }
       ),
       _ => ()

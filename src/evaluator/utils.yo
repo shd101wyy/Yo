@@ -129,7 +129,7 @@ pragma(Pragma.AllowUnsafe);
 :: import("../utils.yo");
 { eprintln } :: import("std/fmt");
 { EvalValue, is_unknown_val, is_type_value, is_var_ref, is_func_val } :: import("../value.yo");
-{ TypeValue, TypeValueNode, t_refine_inner, SharedList, no_flags, no_types, fn_param_mut_ref_flags, fn_param_by_value_flags, fn_result_is_ref, fn_result_is_mut_ref, fn_result_origin_names, fn_result_composite_origin_names, fn_param_in_result_origin, fn_param_pointee_in_result_origin, fn_result_slot, shared_list, t_slot_is_mut_ref, t_slot_is_borrow, t_reference_with_origin, t_origin_named } :: import("../types/definitions.yo");
+{ TypeValue, TypeValueNode, t_refine_inner, SharedList, no_flags, no_types, fn_param_mut_ref_flags, fn_param_by_value_flags, fn_result_is_ref, fn_result_is_mut_ref, fn_result_origin_names, fn_result_composite_origin_names, fn_param_in_result_origin, fn_param_pointee_in_result_origin, fn_result_slot, shared_list, t_slot_is_mut_ref, t_slot_is_borrow, t_reference, t_reference_with_origin, t_origin_named } :: import("../types/definitions.yo");
 { is_never_type, is_unit_type, is_function_type, is_function_type_and_returns_comptime_value, is_box_type, is_unique_box_type, is_dyn_type, is_future_trait_type, is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type, is_primitive_type, is_pointer_type, is_bool_type, is_array_type, is_struct_type, is_tuple_type, is_some_type, cell_handle_view, is_atomic_counted_handle_type, is_counted_cell_type, is_arc_type, is_counted_handle_value_type, unique_box_payload_type, is_fn_trait_type } :: import("../types/guards.yo");
 { get_func_type, is_fn_ctfe_clone, is_closure_fn, is_io_async_sm_closure } :: import("../function_value.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../types/compatibility.yo");
@@ -6347,7 +6347,12 @@ LocalBorrowInfo :: ref(
     /// A projection result bound with an ELIDED result origin over several
     /// arguments (O2's union; decision 43 step 2, N1c): what the E0911 note
     /// names when one of those arguments is accessed.
-    (elided_origin : Option(LocalBorrowElidedOrigin)) ?= Option(LocalBorrowElidedOrigin).None
+    (elided_origin : Option(LocalBorrowElidedOrigin)) ?= Option(LocalBorrowElidedOrigin).None,
+    /// N2b's freeze of a value whose type carries an origin (decision 43
+    /// step 3, `freeze_origin_carrying_binding`): the binding HOLDS
+    /// references, it is not one, so a write of the binding itself is not a
+    /// write through a `&` borrow (E0908).
+    (is_holder : bool) ?= false
   )
 );
 /// The call a projection-result borrow came from and the parameters its
@@ -7401,7 +7406,7 @@ local_borrow_access_expr :: (fn(e : &AstExpr, kind : &LocalBorrowAccess, tok : &
 local_borrow_require_writable :: (fn(place : &LocalBorrowPlace, what : &String, tok : &Token, ctx : &EvalContext, exn : Exception) -> unit)(
   match(
     local_borrow_info_of(place.root_name.clone(), &place.root_decl),
-    .Some(info) => if(!info.is_mut, {
+    .Some(info) => if(!info.is_mut && !info.is_holder, {
       entries := ArrayList(TokenAndError).new();
       entries.push(
         TokenAndError(
@@ -8430,6 +8435,44 @@ _future_value_roots_into :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalCon
     true => ()
   );
 });
+/// The type of a LEND `&place` / `&mut place` into a reference slot of a
+/// composite (decision 43 step 3, T9: a struct constructor's reference
+/// field, a tuple literal's element): `&T` / `&mut T` over the place's type
+/// `place_info.ty`, whose origin names the place's root binding. A raw
+/// pointer's dereference (`p.add(k).*` in unsafe code, a cursor's item) is
+/// wherever the pointer points, which no name roots: the lend carries the
+/// elided origin, and the slot's declared origin is the unsafe code's claim.
+/// `.None` for a place of any other shape. A lend rooted at a name is
+/// recorded on the place's ExprInfo (the converted-runtime-type slot, read by
+/// no codegen path for a place): the marker is peeled out of the tree, so
+/// this is the tree's only record of the lend, which the binding freeze
+/// (`origin_carrying_value_roots`) reads back.
+lend_place_reference_type :: (fn(place : &AstExpr, place_info : &ExprInfo, is_mut : bool, ctx : &EvalContext) -> Option(TypeValue))({
+  (cur : AstExpr) = place.clone();
+  (is_raw : bool) = false;
+  while(!is_raw && ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))), {
+    base := match(
+      cur,
+      .FnCall(_, _, b_args, _, _) => match(b_args.get(usize(0)), .Some(b) => b, .None => make_err_expr()),
+      .Atom(_, _) => make_err_expr()
+    );
+    is_star := match(&cur, .FnCall(_, _, s_args, _, _) => match(s_args.get(usize(1)), .Some(l) => ast_expr_is_atom_of(&l, "*"), .None => false), .Atom(_, _) => false);
+    is_raw = (is_star && match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&base)), .Some(bi) => is_pointer_type(&bi.ty), .None => false));
+    cur = base;
+  });
+  cond(
+    is_raw => Option(TypeValue).Some(t_reference(&place_info.ty, is_mut)),
+    ast_expr_is_atom(&cur) => {
+      names := ArrayList(String).new();
+      names.push(ast_expr_token(&cur).value.*.clone());
+      lend_ty := Option(TypeValue).Some(t_reference_with_origin(&place_info.ty, is_mut, t_origin_named(&shared_list(names))));
+      expr_info_set_converted_runtime_type(place_info, &lend_ty);
+      expr_info_table_set(&ctx.expr_info_table, ast_expr_id(place), place_info);
+      lend_ty
+    },
+    true => Option(TypeValue).None
+  )
+});
 /// The ground places a value of an origin-carrying INLINE COMPOSITE (N2b)
 /// freezes: the places its producing call lent — every argument whose type
 /// is a reference (`&x`, `&mut xs`, a struct constructor's `&` field, a
@@ -8630,7 +8673,8 @@ freeze_origin_carrying_binding :: (fn(binding : &AstExpr, rhs : &AstExpr, var_na
     // (the argument marker at the call, T9), and a same-name entry from this
     // binding's own def-time trial pass would self-conflict. The freeze is
     // enforced at every later access against the entry registered below.
-    local_borrow_register(var_name.clone(), name_tok, roots(ri).is_mut, &roots(ri).place, &range, &Option(Variable).None);
+    held := local_borrow_register(var_name.clone(), name_tok, roots(ri).is_mut, &roots(ri).place, &range, &Option(Variable).None);
+    held.is_holder = true;
     ri = (ri + usize(1));
   });
   if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
@@ -8749,6 +8793,7 @@ ref_payload_source :: (fn(var_id : usize) -> Option(AstExpr))({
   });
   Option(AstExpr).None
 });
+export(lend_place_reference_type);
 /// A binding of a borrowed `match` (`match(&self.v, .Some(x) => …)`, or a
 /// reference binding matched bare, VERDICTS-13 §14): the binding's variable
 /// id and the scrutinee place it is a place inside. The projection root rule

@@ -50,6 +50,7 @@ import("std/fmt");
 { type_implements_comptime, type_implements_runtime_full } :: import("../trait_checking.yo");
 { Exception } :: import("std/error");
 { evaluate_expression_raw } :: import("./expr.yo");
+{ reject_annotation_naming_its_binding } :: import("../types/function.yo");
 { is_valid_variable_name, in_compile_time_fn_body, reject_malformed_mut_marker } :: import("../utils.yo");
 /// Deferred-check flag for the generic-fn-type rule (see the gate below and
 /// exprs/assignment.yo). Module-global because EvalContext field additions
@@ -115,6 +116,16 @@ evaluate_binding :: (
     .FnCall(_, _, Rc(args), _, _) => match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr()),
     .Atom(_, _) => make_err_expr()
   );
+  // The annotation may not name the binding it declares as an origin (E0924;
+  // decision 43, O1). The name is under any `comptime(...)` / `given(...)`.
+  (decl_name : AstExpr) = lhs_arg.clone();
+  while(match(&decl_name, .FnCall(_, _, Rc(dargs), _, _) => (dargs.len() == usize(1)), .Atom(_, _) => false), {
+    decl_name = match(decl_name, .FnCall(_, _, Rc(dargs), _, _) => match(dargs.get(usize(0)), .Some(a) => a, .None => make_err_expr()), .Atom(_, _) => make_err_expr());
+  });
+  if(ast_expr_is_atom(&decl_name), {
+    decl_text := ast_expr_text(&decl_name);
+    reject_annotation_naming_its_binding(&rhs, &decl_text.*, &env, exn);
+  });
   // Evaluate the rhs to obtain the declared type.
   evaluated_rhs := evaluate_expression_raw(&rhs, &env, ctx, exn);
   rhs_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_rhs));
