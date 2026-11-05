@@ -3,7 +3,9 @@
 **Status:** decided 2026-10-30 by the maintainer, on Fable consultations #3 (package names, 2026-10-29) and #9
 (module file and directory names, 2026-10-30).
 - Part A is in progress: the package-name tooling and `markdown-yo` land in v0.2.74.
-- Parts B and C wait until the VBD campaign is complete (after v0.2.76; `plans/handover/VBD_RELEASE_SCHEDULE.md` §7).
+- Part B is done (2026-11-05; the maintainer lifted its deferral): the example repositories are renamed and this tree
+  names them in kebab-case. `markdown-it-yo`'s migration PR merges after v0.2.75.
+- Part C waits until the VBD campaign is complete (after v0.2.76; `plans/handover/VBD_RELEASE_SCHEDULE.md` §7).
 
 Until Part C lands, the tree keeps its snake_case module files. The current convention text still says so
 (`.github/skills/yo-syntax/syntax-cheatsheet.md` "Naming conventions", `docs/en-US/DESIGN.md` "Naming Convention",
@@ -71,7 +73,16 @@ Windows accepts `-` in file names. The only shell hazard is the leading `-`, whi
     (markdown-yo #24, the maintainer's choice). `markdown_yo` stays on npm, deprecated with a pointer to it.
   - v0.0.23 exists only as a GitHub release.
 
-## Part B — the other example projects (after VBD)
+## Part B — the other example projects (done 2026-11-05)
+
+**Done.** On 2026-11-05 the repositories were renamed and migrated: `raylib-yo` (released v0.0.8), `tetris-yo` (Pages
+at `https://shd101wyy.github.io/tetris-yo/`), `http-server-demo-yo`, `markdown-it-yo` (its migration PR merges after
+v0.2.75) and, beyond the original scope below, `yo-http-benchmark`. This tree's READMEs, both `BUILD_SYSTEM.md`, the
+`yo add`/`yo remove`/`yo update` help examples, the manifest and lock-file header examples and `AGENTS.md` (a
+"translate as you read" line) use the new names. The test fixtures under `tests/internal/` keep `raylib_yo` as data
+(`toml_edit` tests that an underscore key stays bare).
+
+The original plan:
 
 `raylib_yo` → `raylib-yo`, `tetris_yo` → `tetris-yo`, `markdown_it_yo` → `markdown-it-yo` and `http_server_demo_yo` →
 `http-server-demo-yo`, together with every reference to them in this tree (README in both locales, both
