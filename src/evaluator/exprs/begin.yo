@@ -3545,7 +3545,7 @@ _evaluate_begin_expression_impl :: (
   // Decision 38 A: the block's result may not carry a borrow of a binding the
   // block declares (this block's own frame is the innermost one).
   if(env.frames.len() > usize(0), {
-    reject_second_class_result_outliving(&return_type, env.frames.len() - usize(1), ast_expr_token(&last_expr), &env, ctx, exn);
+    reject_second_class_result_outliving(&return_type, env.frames.len() - usize(1), ast_expr_token(&last_expr), &env, ctx, exn, result_expr : Option(AstExpr).Some(last_expr.clone()));
   });
   // -------------------------------------------------------------------------
   // Return-type compatibility check

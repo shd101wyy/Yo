@@ -355,14 +355,15 @@ export(main);
 
 `io.async` 的函数体可以借用而不是拥有：在捕获列表里写出借用（`{ &x }`、`{ &mut x }`）。这样得到的 Future 是**二等值**（`plans/VALUES_BY_DEFAULT.md` §3.13 A2），与借用的闭包一样：
 
-- 它在创建处被 await，作为 `io.await` 的操作数（直接作为操作数，或作为 `if`/`cond`/`match` 分支的值、块的末尾表达式）；
-- 它可以作为组合器的操作数，即按值参数和结果都是 Future 的泛型函数（`both(a, b, io)`，参数类型为 `Impl(Future(A, Io))` 和 `Impl(Future(B, Io))`）：组合器自己的 Future 随之借用其操作数所借用的位置，并同样在创建处被 await。同一调用的两个操作数在任一方为 `&mut` 时不能借出重叠的位置（E0910，决定 38 B）；对同一位置的两个 `&` 借用是允许的。结果不是 Future 的函数的按值 Future 参数，以及非泛型函数的按值 Future 参数（其函数体只在定义处检查一次，其 Future 无法携带操作数的借用），仍然拒绝它（E0909）。泛型组合器可以返回其操作数的值：仅通过 `Impl(Future(T, E))` 参数绑定的 `T` 会在调用的特化处解析，因此 `io.async({ op }(io : Io) => io.await(op, io))` 会以操作数自己的 `T` 交回其结果（`issues/fixed/2026-10-16-awaiting-a-future-parameter-typed-by-a-generic-binder-emits-a-void-pointer-result.md`）。`std/async` 的 `timeout` 和 `select` 就是这样的组合器（见[借用的 Future 上的超时与 select](#借用的-future-上的超时与-select)）；
+- 它可以在创建处被 await，作为 `io.await` 的操作数（直接作为操作数，或作为 `if`/`cond`/`match` 分支的值、块的末尾表达式）；
+- 它可以作为组合器的操作数，即按值参数和结果都是 Future 的泛型函数（`both(a, b, io)`，参数类型为 `Impl(Future(A, Io))` 和 `Impl(Future(B, Io))`）：组合器自己的 Future 随之借用其操作数所借用的位置，并同样遵守这些规则。操作数可以是已绑定的 Future：`s := select(f, g, io)` 会把 `f` 冻结的位置一直冻结到 `s` 的最后一次使用。同一调用的两个操作数在任一方为 `&mut` 时不能借出重叠的位置（E0910，决定 38 B）；对同一位置的两个 `&` 借用是允许的。结果不是 Future 的函数的按值 Future 参数，以及非泛型函数的按值 Future 参数（其函数体只在定义处检查一次，其 Future 无法携带操作数的借用），仍然拒绝它（E0909）。泛型组合器可以返回其操作数的值：仅通过 `Impl(Future(T, E))` 参数绑定的 `T` 会在调用的特化处解析，因此 `io.async({ op }(io : Io) => io.await(op, io))` 会以操作数自己的 `T` 交回其结果（`issues/fixed/2026-10-16-awaiting-a-future-parameter-typed-by-a-generic-binder-emits-a-void-pointer-result.md`）。`std/async` 的 `timeout` 和 `select` 就是这样的组合器（见[借用的 Future 上的超时与 select](#借用的-future-上的超时与-select)）；
 - 当它借用的每个位置都是某个函数自己的 `&`/`&mut` 参数时，该函数可以返回它，因为调用方借出的位置比它活得久。`&T` 参数要通过函数体自己的捕获列表借用（`{ &c }`）；只通过所捕获的闭包间接借用 `&T` 参数的 Future 被返回时是 E0909。函数经由 `&Impl(Fn(...))` 参数借到的借用闭包算作该参数（`m.with_lock({ &s }(v : &mut i64) => ..., io)`）；
-- 它不能绑定到局部变量（包括 `match` 分支的模式）、用 `_ := ...` 丢弃、存储、被逃逸的闭包捕获或被 spawn（E0909）；
+- 它可以用 `:=` 绑定。与局部借用一样，绑定从声明处到 Future 的最后一次使用冻结 Future 借用的每个位置，每个位置按其被借出时的方式冻结：`f := bump(&mut c, io);` 之后、`io.await(f, io)` 之前写 `c` 是 E0911，先 await 则没有问题（决策 43，`Future(T, E, p)`）。函数也可以返回另一个调用在其自身参数上创建的 Future（`f(c : &mut C, io)` 返回 `bump(&mut c.*, io)`）；
+- 它不能通过 `match` 分支的模式绑定、用 `=` 重新赋值、用 `_ := ...` 丢弃、存储、被逃逸的闭包捕获或被 spawn（E0909），借用了函数局部变量的 Future 不能被返回（E0912）；
 - 它所在 `io.await` 的效应包必须是一个位置（`io`、`self.io`），而不是会运行代码的表达式：效应包在 Future 创建之后求值，否则可能移动或覆盖 Future 借用的位置（E0910）；
 - 调用的接收者和各个参数一经求值，它们借出的位置就由 Future 持有，因此同一调用中靠后的参数不能移动被借出的位置、给它赋值或再次以 `&mut` 借出它（`bump_by(&mut c, take(c), io)`，以及 `touch` 为 `&mut self` 方法时的 `bump_by(&mut c, c.touch(), io)`，都是 E0910）。请在语句之前算好这样的参数。普通调用同样拒绝这三种写法，只是它的借用随调用结束（[FLOWABILITY.md](./FLOWABILITY.md#一条调用点规则)）。
 
-通过函数值（函数类型的局部变量或参数）进行的调用无法显示其 Future 借用了什么，因此假定它的 Future 借用了该调用用 `&`/`&mut` 借出的每个位置：`fp := bump; f := fp(&mut c, io);` 与直接调用一样是 E0909。
+通过函数值（函数类型的局部变量或参数）进行的调用无法显示其 Future 借用了什么，因此假定它的 Future 借用了该调用用 `&`/`&mut` 借出的每个位置：`fp := bump; f := fp(&mut c, io);` 与直接调用一样，在 `f` 最后一次使用之前冻结 `c`。
 
 通过 `Dyn` 的调用经由虚表进行，而虚表中的 Future 类型不携带任何借用，所以如果某个类型的 trait 方法返回借用的 Future，这个类型就不能转换为该 trait 的 `Dyn`：此时 `dyn(v)` 是 E0909。请在具体类型上调用该方法，或通过泛型 `Impl(Trait)` 参数调用，或者让方法里的 `io.async` 按值捕获所需的值；这样通过 `Dyn` 得到的 Future 就是一等值，可以绑定或 spawn。
 
@@ -377,11 +378,14 @@ bump :: (fn(c : &mut Counter, io : Io) -> Impl(Future(unit, Io)))(
 );
 
 main :: (fn(io : Io) -> unit)({
-  c := Counter(n : i32(0));
+  mut(c) := Counter(n : i32(0));
   io.await(bump(&mut c, io), io);
   io.await(bump(&mut c, io), io);
   assert(c.n == i32(2), "each await writes through the lent `&mut`");
-  // f := bump(&mut c, io); // E0909：`f` 会持有一个借用的 Future
+  f := bump(&mut c, io);
+  // c.n = i32(5); // E0911：在 `f` 最后一次使用之前 `c` 被冻结
+  io.await(f, io);
+  assert(c.n == i32(3), "the bound Future ran at its await");
 });
 export(main);
 ```

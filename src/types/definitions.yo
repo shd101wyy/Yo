@@ -596,7 +596,11 @@ TypeValueNode :: enum(
     base_name : String,
     output : Rc(Self),
     effect_labels : SharedList(String),
-    effect_types : SharedList(Rc(Self))
+    effect_types : SharedList(Rc(Self)),
+    /// The places the future borrows (decision 43 step 4, N3-1:
+    /// `Future(T, p)`), an `OriginSet`; elided (O2) when spelled
+    /// `Future(T, E)`.
+    origin : Rc(Self)
   ),
   /// V6 task 3 (FORMAL_VERIFICATION.md §7): `refine(T, p)` — "a `T` that
   /// satisfies `p`". Distinct at the type level (two predicates over the
@@ -971,6 +975,9 @@ _spelled_origins_into :: (fn(t : &TypeValue, out : &mut ArrayList(String), depth
     Rc(.Struct({ type_arguments : so_tas })) => _spelled_origins_in_list(&so_tas, out, depth),
     Rc(.EnumT({ type_arguments : so_etas })) => _spelled_origins_in_list(&so_etas, out, depth),
     Rc(.Tuple({ field_types : so_fts })) => _spelled_origins_in_list(&so_fts, out, depth),
+    // `Impl(Future(T, E, p))` (decision 43 step 4): the future's origin.
+    Rc(.FutureTraitT(origin : so_fo)) => _spelled_origins_into(&so_fo, out, depth + usize(1)),
+    Rc(.SomeT({ bounds : so_bnd })) => _spelled_origins_in_list(&shared_list(so_bnd.required()), out, depth),
     _ => true
   )
 });

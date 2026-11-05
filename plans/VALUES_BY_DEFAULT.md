@@ -1379,12 +1379,17 @@ instead.
     - **Where it may appear.** `io.async`'s body slot and `io.await`'s
       operand accept a second-class argument (`second_class_slot`). Every
       other by-value slot rejects it, `io.spawn` included. Binding one to a
-      local is E0909 (`note_second_class_binding`). A return, whether
+      local was E0909 (`note_second_class_binding`) until decision 43 step 4:
+      since N3-1 (2026-11-05, VERDICTS-18 §B) a `:=` binding is bound with
+      its places frozen until the future's last use (E0911 on a conflicting
+      access); a `match` arm binding and a re-assignment stay E0909. A return, whether
       `return(...)`, a function's tail, a specialized body or a closure's
       tail, goes through `reject_second_class_return`: a borrowing future
       whose every borrow is rooted at a `&`/`&mut` parameter of the
       returning function is accepted.
-    - **Forwarding is not accepted yet.** A function that returns another
+    - **Forwarding was not accepted until decision 43 step 4** (N3-1
+      accepts it: the call's result names the callee's parameters and the
+      return rule maps them to what the call lent). A function that returns another
       function's borrowing future (`f(c : &mut C, io) -> …` returning
       `bump(&mut c, io)`) is rejected, because the call's borrows are rooted at
       the callee's parameters and are not re-rooted at the caller's. Await

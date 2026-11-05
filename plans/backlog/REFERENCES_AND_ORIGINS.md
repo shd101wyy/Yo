@@ -200,7 +200,7 @@ signature that lies fails in the callee, not at a caller far away).
 | a reference parameter | a fresh anonymous origin, per occurrence: `f(xs : &ArrayList(T), key : &T)` is `f[p, q](...)`, two unrelated borrows |
 | the result's origin | the union of every reference-holding parameter's origin (the conservative R3-era default): `longest(a, b) -> View(u8)` elided borrows both |
 | a `&` field of a type definition | a fresh anonymous origin parameter per field: `struct(xs : &ArrayList(T), lo : usize)` binds one; spell them when fields must relate |
-| a local binding or container in a body | flow-inferred by the intraprocedural checker; diagnostics print the inferred set |
+| a local binding or container in a body | flow-inferred by the intraprocedural checker; diagnostics print the inferred set. A future value's set includes the locals its body captures (N3-1, VERDICTS-18 §B), which the return rule then rejects |
 
 - Elision is for simple signatures; the load-bearing ones spell. std's
   `Iterator` trait spells `next`'s origin so every impl is checked against
@@ -513,6 +513,34 @@ parameter):
 - An origin-carrying type is not `Send` (structural), cannot be spawned,
   cannot be captured by an `io.spawn` body. `Arc` stays origin-free and
   read-only across threads (decision 46, D3).
+- **An origin carries no mode** (VERDICTS-18 §B, 2026-11-04). An origin is a
+  set of places; the mode of each borrow comes from the reference that put
+  the place into it: a named `&`/`&mut` parameter's declared mode, a
+  capture-list entry's `&`/`&mut`, or, for an abstract `p : Origin`, the
+  caller's substituted entry. A place cannot enter one origin in two modes
+  (E0910). Rejected: a pair of sets (it doubles the kind and breaks O3's
+  subset lattice) and `mut(p)` (decision 42's deleted mode-word spelling).
+- **`Future(T, p)` and `Future(T, E, p)`.** The origin is the trailing
+  argument, recognized by kind, as in `&(T, p)`, `Cursor(T, p)` and
+  `Dyn(Trait, p)`: `Future(T)`, `Future(T, p)`, `Future(T, E)` and
+  `Future(T, E, p)` are all legal, and there is no `EmptyEffs` type.
+- **As built (N3-1, 2026-11-05).** An `io.async` future's type carries the
+  set of every place its body borrows, the enclosing function's parameters
+  and its locals alike (O2's flow-inferred set for a value). A borrowing
+  future is an origin-carrying value: a `:=` binding of one freezes those
+  places, each in the mode it was lent in, until the future's last use
+  (E0911 on a conflicting access, `async-cold-start-write`; awaiting first is
+  accepted, `async-cold-start-await-first`), and the return rule rejects a
+  local in it (E0912, `async-forward-local`). A call's result future names the
+  callee's parameters, and the binding freeze and the return rule map them to
+  the arguments that call lent, so forwarding is ordinary substitution
+  (`async-forward-param`). A bound future handed by value to a call that
+  makes a future (a combinator operand, `select(f, g, io)`) carries the places
+  it froze into that call's future, so they stay frozen past the operand's own
+  last use. The future half of A2's wrapper-id registry and
+  its checked-call set are deleted; the closure half stays (VERDICTS-14 Q3).
+  A parameter-level origin over-freezes a field capture, which is sound (O3's
+  accepted over-freeze).
 
 ### O9. `Rc`/`Arc`: read-only, borrowable through the handle, never carrying origins inside
 
