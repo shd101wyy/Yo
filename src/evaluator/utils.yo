@@ -260,12 +260,11 @@ attach_temp_variable_to_expr :: (
         .None => Rc.clone(info.ty)
       );
       // Only mark as owning if the effective type actually contains RC, or
-      // is move-only without holding a cell — which only a value carrying a
-      // `&mut` origin is (a `&mut` reference, a tuple of `&mut` lends:
-      // decision 43 §5 route 3): a fresh value's temp owns it,
-      // and a move of a non-owning temp is a copy out of borrowed storage
-      // (E0901).
-      _is_owning_rc := (is_owning_the_rc_value && (type_contains_rc_type(&effective_ty) || (type_carries_origin(&effective_ty) && type_is_move_only(&effective_ty))));
+      // carries an origin and is not implicitly copyable (a `&mut`
+      // reference, a tuple holding a lend: decision 43 §5 route 3): a fresh
+      // value's temp owns it, and a move of a non-owning temp is a copy out
+      // of borrowed storage (E0901).
+      _is_owning_rc := (is_owning_the_rc_value && (type_contains_rc_type(&effective_ty) || (type_carries_origin(&effective_ty) && type_requires_explicit_copy(&effective_ty))));
       // A value whose owner is tracked only because decision 36's flip makes
       // it explicit-copy (plain data, no cell) keeps its compile-time value:
       // only a value holding a cell is runtime-only.
