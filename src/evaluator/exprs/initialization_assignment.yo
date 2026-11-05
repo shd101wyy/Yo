@@ -135,6 +135,10 @@
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { is_io_async_call } :: import("../async/await_analysis.yo");
 { Exception } :: import("std/error");
+/// `YO_AUDIT_ELIDED_ROOTS=1`: the Q2 census of elided-origin projection
+/// bindings (decision 43 step 2, N1c). Above every function that reaches
+/// `_bind_projection_result`: a runtime binding is evaluated in order.
+(_g_audit_elided_roots : bool) = debug_knob(`YO_AUDIT_ELIDED_ROOTS`).is_some();
 // ---------------------------------------------------------------------------
 // evaluate_initialization_assignment
 // ---------------------------------------------------------------------------
@@ -581,9 +585,6 @@ _evaluate_inout_local_binding :: (
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &expr_info);
   expr
 });
-/// `YO_AUDIT_ELIDED_ROOTS=1`: the Q2 census of elided-origin projection
-/// bindings (decision 43 step 2, N1c).
-(_g_audit_elided_roots : bool) = debug_knob(`YO_AUDIT_ELIDED_ROOTS`).is_some();
 _join_labels :: (fn(xs : &ArrayList(String)) -> String)({
   out := String.new();
   (i : usize) = usize(0);
