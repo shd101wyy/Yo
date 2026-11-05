@@ -12456,7 +12456,6 @@ Fix: wrap the call:
             )
           );
         });
-        old_fn_ctx := replace(&mut ctx.is_evaluating_function_body_or_async_block, Option(FuncOrAsyncBlockCtx).Some(fn_ctx));
         old_ret_ty := ctx.enclosing_function_return_type.clone();
         fn_ctx := FuncOrAsyncBlockCtx(
           kind : .FunctionBody,
@@ -12464,6 +12463,7 @@ Fix: wrap the call:
           func_value : callee_value,
           eval_env : snapshot_env(&fresh_env)
         );
+        old_fn_ctx := replace(&mut ctx.is_evaluating_function_body_or_async_block, Option(FuncOrAsyncBlockCtx).Some(fn_ctx));
         ctx.enclosing_function_return_type = Option(TypeValue).Some(Rc.clone(ret_type));
         // For a static method call (`Type.method()`), bind `ctx.self_type` to
         // the receiver type so `Self` references inside the body resolve to the
