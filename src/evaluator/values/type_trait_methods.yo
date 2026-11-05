@@ -150,6 +150,20 @@ type_id_or_empty :: (fn(t : &TypeValue) -> String)(
     // registers under `Dyn(Error)` and `err.is(T)` resolves. Without an id the
     // registration was silently skipped and the method was unreachable.
     Rc(.DynT({ required_trait_types : rtt, negative_trait_types : ntt })) => _dyn_type_id(&rtt.items, &ntt.items),
+    // A reference receiver (`impl(&C, …)`, `impl(&mut C, …)`; decision 43,
+    // N1f-2): keyed by its mode and its pointee's id, origin erased, so
+    // `impl(&C, Tr)`, `impl(&mut C, Tr)` and `impl(C, Tr)` register apart.
+    // Without this arm `impl(&C, …)` registered nothing and a call reached
+    // `C`'s impl instead
+    // (issues/fixed/2026-11-05-an-impl-over-a-reference-type-registers-nothing.md).
+    Rc(.Reference(ref_pointee, ref_mut, _)) => {
+      ref_pid := type_id_or_empty(&ref_pointee);
+      cond(
+        (ref_pid.len() == usize(0)) => String.from(""),
+        ref_mut => `&mut ${ref_pid}`,
+        true => `&${ref_pid}`
+      )
+    },
     _ => String.from("")
   )
 );

@@ -37,11 +37,14 @@ pragma(Pragma.AllowUnsafe);
   BF_YO_AS,
   ast_expr_strip_borrow_marker,
   AUTO_REF_RECEIVER_PATH,
-  is_for_desugar_target
+  is_for_desugar_target,
+  BF_ADDRESS_OF,
+  BK_BORROW_MUT,
+  ast_expr_is_infix_op_fn_call
 } :: import("../../expr.yo");
 { is_auto_generated_expansion, is_implicitly_unsafe_capable_file, is_class1_panic_method_name, is_class1_panic_receiver_type, is_class1_panic_exempt_file, is_std_module_path, is_prelude_or_generated_file } :: import("../memory_safety.yo");
 { D3PendingInout, d3_record_inout_place, d3_check_pending, d3_check_pending_unresolved_callee, require_no_inout_write_through_borrow, shared_borrow_param_root_of_place, reject_write_through_shared_borrow_param } :: import("../exprs/assignment.yo");
-{ ExprInfo, is_thread_local, is_mut_global, new_expr_info, expr_info_closure_function_value, expr_info_table_get, expr_info_table_set, record_method_callee_type, lookup_method_callee_type, record_method_callee_value, lookup_method_callee_value, record_io_builtin_struct_field, lookup_io_builtin_struct_field, record_io_builtin_call, record_macro_expansion, lookup_macro_expansion, record_fid_rtcall, active_where_trait_ids, record_fid_spec, lookup_struct_ctor_fid, struct_effective_ctor_fid, struct_fully_concrete_instance, adopt_receiver_struct_instance, mark_node_preevaluated, unmark_node_preevaluated, expr_info_adopt_env, expr_info_capture_type, expr_info_comptime_ref, expr_info_index_method_type, expr_info_index_method_value, expr_info_set_comptime_ref, expr_info_set_deferred_dup_expressions, expr_info_set_index_method_type, expr_info_set_index_method_value, expr_info_set_index_trait_ptr_type, expr_info_set_macro_expansion, some_resolution, purge_executed_clone_metadata, mark_fnonce_post_call_release, migrate_drop_trait_on, record_destructor_site, HandleCtorSite, migrate_handle_ctors_on, record_handle_ctor_site, migrate_mut_bindings_on, record_mut_judged } :: import("../../expr_info.yo");
+{ ExprInfo, migrate_addr_of_on, is_thread_local, is_mut_global, new_expr_info, expr_info_closure_function_value, expr_info_table_get, expr_info_table_set, record_method_callee_type, lookup_method_callee_type, record_method_callee_value, lookup_method_callee_value, record_io_builtin_struct_field, lookup_io_builtin_struct_field, record_io_builtin_call, record_macro_expansion, lookup_macro_expansion, record_fid_rtcall, active_where_trait_ids, record_fid_spec, lookup_struct_ctor_fid, struct_effective_ctor_fid, struct_fully_concrete_instance, adopt_receiver_struct_instance, mark_node_preevaluated, unmark_node_preevaluated, expr_info_adopt_env, expr_info_capture_type, expr_info_comptime_ref, expr_info_index_method_type, expr_info_index_method_value, expr_info_set_comptime_ref, expr_info_set_deferred_dup_expressions, expr_info_set_index_method_type, expr_info_set_index_method_value, expr_info_set_index_trait_ptr_type, expr_info_set_macro_expansion, some_resolution, purge_executed_clone_metadata, mark_fnonce_post_call_release, migrate_drop_trait_on, record_destructor_site, HandleCtorSite, migrate_handle_ctors_on, record_handle_ctor_site, migrate_mut_bindings_on, record_mut_judged } :: import("../../expr_info.yo");
 {
   Variable,
   Environment,
@@ -75,7 +78,7 @@ pragma(Pragma.AllowUnsafe);
 { stable_module_id, stable_func_id, private_member_blocked, debug_knob, parse_raw_int, is_temp_variable_name } :: import("../../utils.yo");
 { type_key } :: import("../../types/type_key.yo");
 { record_await_fusion_candidate } :: import("../../expr_traversal.yo");
-{ attach_temp_variable_to_expr, projection_call_mode_of, deref_exempt_mark, deref_exempt_clear, consume_called_fnonce_closure, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, reject_second_class_escape, reject_write_through_rc, place_cell_hops, PlaceCellHops, handle_payload_is_read_only, require_capture_borrow_exclusivity, local_borrows_active, local_borrow_value_place_of, local_borrow_places_overlap, LocalBorrowPlace, CellRootedPlace, cell_rooted_place_of, cell_rooted_same_cell, cell_rooted_places_overlap, local_borrow_note_runtime_call, local_borrow_enter_macro_site, local_borrow_leave_macro_site, local_borrow_is_macro_await, local_borrow_is_scalar_type, variable_is_borrow_parameter, variable_id_in_scope, reject_bare_callable_into_dyn_fn, bare_callable_recorded_into_dyn_fn, global_lend_audit_enabled, global_lend_audit_print, global_lend_location, global_lend_key, global_place_path, GlobalHandleLend, global_note_handle_mutcall, global_note_handle_lend, global_require_mut, variable_is_future_operand_parameter, place_require_mut, local_borrow_write_expr, check_capture_freeze_access, reference_field_read_mode, deref_operand_is_raw_pointer, RC_CLONE_MIGRATE_HINT, FutureRoot, note_future_roots, future_roots_of, holder_future_roots } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, projection_call_mode_of, deref_exempt_mark, deref_exempt_clear, consume_called_fnonce_closure, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, reject_second_class_escape, reject_write_through_rc, place_cell_hops, PlaceCellHops, handle_payload_is_read_only, require_capture_borrow_exclusivity, local_borrows_active, local_borrow_value_place_of, local_borrow_places_overlap, LocalBorrowPlace, CellRootedPlace, cell_rooted_place_of, cell_rooted_same_cell, cell_rooted_places_overlap, local_borrow_note_runtime_call, local_borrow_enter_macro_site, local_borrow_leave_macro_site, local_borrow_is_macro_await, local_borrow_is_scalar_type, variable_is_borrow_parameter, variable_id_in_scope, reject_bare_callable_into_dyn_fn, bare_callable_recorded_into_dyn_fn, global_lend_audit_enabled, global_lend_audit_print, global_lend_location, global_lend_key, variable_is_reference_binding, variable_is_mut_borrow, global_place_path, GlobalHandleLend, global_note_handle_mutcall, global_note_handle_lend, global_require_mut, variable_is_future_operand_parameter, place_require_mut, local_borrow_write_expr, check_capture_freeze_access, reference_field_read_mode, deref_operand_is_raw_pointer, RC_CLONE_MIGRATE_HINT, FutureRoot, note_future_roots, future_roots_of, holder_future_roots } :: import("../utils.yo");
 {
   EvalContext,
   ExpectedTypeCtx,
@@ -97,7 +100,9 @@ pragma(Pragma.AllowUnsafe);
   take_pending_impl_force_error,
   mark_dot_callee,
   unmark_dot_callee,
-  call_promote_index_places_for_write
+  call_promote_index_places_for_write,
+  reference_impls_seen,
+  reference_impl_head_noted
 } :: import("../context.yo");
 { is_pointer_type, is_dyn_type, is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_some_type, is_array_type, is_function_type, is_function_type_generic, is_expr_list_type, is_comptime_list_type, is_fn_trait_type, is_unit_type, is_primitive_type, is_type_0, type_decl_module, is_module_type, is_cell_primitive_type, is_counted_handle_type } :: import("../../types/guards.yo");
 { convert_comptime_type_to_runtime_type, get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
@@ -182,7 +187,7 @@ _call_result_unknown :: (fn(ty : &TypeValue, env : &Environment) -> EvalValue)({
   create_runtime_unknown_val_with_name(ty, &nm)
 });
 { format_error_message, format_error_message_with_help, format_error_message_with_repair_at, YoError, primary_diagnostic_path, primary_diagnostic_code, reanchor_primary_at, with_code, _with_primary_help, _with_primary_subject, _without_primary_help_text } :: import("../../error.yo");
-{ E_EXPLICIT_DESTRUCTOR_CALL, E_TRAIT_NOT_IMPLEMENTED, E_INCOMPATIBLE_TYPES, E_GLOBAL_LENT_TO_CALL, E_NOT_CALLABLE, E_NO_MATCHING_CALL, E_AMBIGUOUS_METHOD, E_CANNOT_INFER, E_USE_OF_MOVED_VALUE, E_BORROW_ESCAPES, E_BORROW_CONFLICT, Repair, Span } :: import("../../diagnostics.yo");
+{ E_EXPLICIT_DESTRUCTOR_CALL, E_WRITE_THROUGH_BORROW, E_TRAIT_NOT_IMPLEMENTED, E_INCOMPATIBLE_TYPES, E_GLOBAL_LENT_TO_CALL, E_NOT_CALLABLE, E_NO_MATCHING_CALL, E_AMBIGUOUS_METHOD, E_CANNOT_INFER, E_USE_OF_MOVED_VALUE, E_BORROW_ESCAPES, E_BORROW_CONFLICT, Repair, Span } :: import("../../diagnostics.yo");
 { require_ref_own_argument_exclusivity, require_valid_ref_argument_places, take_deferred_sibling_rules, raise_flow_violation, flow_violation_error, flag_flow_violation } :: import("../../types/flowability.yo");
 { Exception, AnyError } :: import("std/error");
 { SynthesizeOptions, TypePair, synthesize_types } :: import("../types/synthesizer.yo");
@@ -202,6 +207,14 @@ _call_result_unknown :: (fn(ty : &TypeValue, env : &Environment) -> EvalValue)({
 /// quiet in a dry run) exactly as before.
 _SaiMemo :: struct(epoch : u64, arg_keys : ArrayList(Option(String)), receiver : TypeValue);
 (g_sai_memo : RefCell(HashMap(usize, _SaiMemo))) = RefCell(HashMap(usize, _SaiMemo)).new(HashMap(usize, _SaiMemo).new());
+/// `(&x).m(…)` / `(&mut x).m(…)`, the explicit borrowed receiver, by the
+/// `.` callee's id (true for `&mut`): `_strip_explicit_ref_receiver`
+/// records the callee as `x.m` and the receiver's mode here, and the probe
+/// starts from `&C` / `&mut C`.
+(g_explicit_ref_receivers : RefCell(HashMap(usize, bool))) = RefCell(HashMap(usize, bool)).new(HashMap(usize, bool).new());
+/// The receiver slot types R-PROBE tried for a `.` callee whose lookup found
+/// no method, by the callee's id: E0610's "probed" line.
+(g_probed_receiver_slots : RefCell(HashMap(usize, String))) = RefCell(HashMap(usize, String)).new(HashMap(usize, String).new());
 // ---------------------------------------------------------------------------
 // ReceiverMethodResult — carries the resolved method info when a property-
 // access callee (`.`) is matched to a registered impl method.
@@ -234,7 +247,18 @@ ReceiverMethodResult :: struct(
   // case); when `all_hits.len() > 1` the call site trial-calls each and picks
   // the one whose parameters match the arguments — the full candidate
   // array is kept for overload resolution.
-  all_hits : ArrayList(MethodEntry)
+  all_hits : ArrayList(MethodEntry),
+  // R-PROBE (decision 43 N1f-2): each hit's probe step, parallel to
+  // `all_hits`; empty when the probe did not run (no reference receiver and
+  // no reference impl in the program), and then every hit is one step.
+  probe_ranks : ArrayList(usize),
+  // Each hit's impl receiver as the probe found it (`C`, `&C`, `&mut C`),
+  // parallel to `probe_ranks`: what E0616 names.
+  probe_receivers : ArrayList(TypeValue),
+  // The receiver's reference mode as the probe saw it (`.None` owned), and
+  // whether it was the explicit `(&x)` / `(&mut x)`.
+  probe_ref : Option(bool),
+  probe_explicit : bool
 );
 derive(_SaiMemo, Clone);
 derive(ReceiverMethodResult, Clone);
@@ -654,6 +678,54 @@ reject_destructor_member_read :: (fn(dot : &AstExpr, env : &Environment, ctx : &
 /// `where(T <: Clone)`) is the bound's method, never ambiguous, so the check
 /// is off while a generic function or impl is specialized (the same gate as
 /// `match`'s GADT exactness).
+/// `(&x).m()` / `(&mut x).m()` resolved by R-PROBE to a method whose slot
+/// the borrow cannot serve (VERDICTS-25 Q2 §1, §3): a `&mut Self` method
+/// through `(&x)` writes through a shared borrow (E0908), and a by-value
+/// `self` on a type that is not implicitly copyable would move out of what
+/// the borrow refers to (E0901). Calls on an owned or reference-bound
+/// receiver are judged by the ordinary argument checks.
+_reject_explicit_ref_receiver_slot :: (
+  fn(mi_opt : &Option(ReceiverMethodResult), callee : &AstExpr, ctx : &EvalContext, exn : Exception) -> unit
+)(
+  match(mi_opt, .Some(mi) => _reject_explicit_ref_receiver_slot_of(&mi, callee, ctx, exn), .None => ())
+);
+_reject_explicit_ref_receiver_slot_of :: (
+  fn(mi : &ReceiverMethodResult, callee : &AstExpr, ctx : &EvalContext, exn : Exception) -> unit
+)({
+  if(!mi.probe_explicit || mi.is_static, {
+    return(());
+  });
+  slot := match(fn_param_slots(&mi.method_ty).get(usize(0)), .Some(sl) => sl, .None => return(()));
+  recv_text := ast_expr_to_string(&mi.receiver_expr);
+  method_name := match(callee, .FnCall(_, _, Rc(cargs), _, _) => match(cargs.get(usize(1)), .Some(m) => ast_expr_to_string(&m), .None => String.new()), .Atom(_, _) => String.new());
+  recv_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&mi.receiver_expr)), .Some(ri) => Rc.clone(ri.ty), .None => return(()));
+  slot_is_single_mut := match(&slot, Rc(.Reference(sp_inner, sp_mut, _)) => (sp_mut && !t_slot_is_borrow(&sp_inner)), _ => false);
+  cond(
+    (match(mi.probe_ref, .Some(pm) => !pm, .None => false) && slot_is_single_mut) => exn.throw(
+      dyn(
+        with_code(
+          format_error_message(
+            ast_expr_token(callee),
+            `\`${method_name}\` takes \`&mut Self\`, and \`(&${recv_text})\` lends \`${recv_text}\` shared: the call would write through a shared borrow. Lend it exclusively: \`(&mut ${recv_text}).${method_name}(...)\`.`
+          ),
+          E_WRITE_THROUGH_BORROW
+        )
+      )
+    ),
+    (t_slot_is_by_value(&slot) && type_requires_explicit_copy(&recv_ty)) => exn.throw(
+      dyn(
+        with_code(
+          format_error_message(
+            ast_expr_token(callee),
+            `\`${method_name}\` takes \`${type_to_string(&recv_ty)}\` by value, and \`(&${recv_text})\` only lends \`${recv_text}\`: the call would move out of what the borrow refers to. Call it on the owned value: \`${recv_text}.${method_name}(...)\`.`
+          ),
+          E_USE_OF_MOVED_VALUE
+        )
+      )
+    ),
+    true => ()
+  );
+});
 _reject_wrapper_payload_clash :: (
   fn(
     method_info_opt : &Option(ReceiverMethodResult),
@@ -1064,6 +1136,243 @@ _try_find_receiver_method :: (
   // (`ast_rewritten_node`).
   _find_receiver_method_of(&ast_rewritten_node(callee), env, ctx)
 );
+// ---------------------------------------------------------------------------
+// R-PROBE (decision 43 N1f-2, VERDICTS-25 Q2): receiver-method resolution
+// probes RECEIVER-SLOT TYPES. For a receiver of type `R` the candidates are
+// `R`, then `&R` and `&mut R` (autoref), then one deref of `R` and its
+// autorefs; the first candidate some applicable method's receiver slot
+// equals wins, origins erased. `impl(&C, Tr(m : fn(self : Self)))` and
+// `impl(C, Tr(m : fn(self : &Self)))` both have the slot `&C`: an owned `c`
+// reaches either by autoref, a `&C` receiver at step 0. Nothing auto-moves:
+// a by-value `self` on `C` comes first for an owned `c`, and a `&C` receiver
+// reaches it only after its reference steps.
+// ---------------------------------------------------------------------------
+/// `callee` with an explicit borrowed receiver read through: `.(&x, m)` /
+/// `.(&mut x, m)` becomes `.(x, m)` under the same id (`note_rewritten_node`,
+/// so codegen and every later reader see the plain receiver; the slot of the
+/// method resolution picks lends it), and the receiver's mode is recorded in
+/// `g_explicit_ref_receivers`. A `&T` whose operand is not a runtime place
+/// (a type: `(&C).m` is a static call on the reference type) is left alone.
+_strip_explicit_ref_receiver :: (fn(callee : &AstExpr, env : &Environment) -> AstExpr)({
+  if(!ast_expr_is_fn_call_of(callee, BF_DOT, Option(usize).Some(usize(2))), {
+    return(callee);
+  });
+  sx_id := ast_expr_id(callee);
+  sx_args := match(callee, .FnCall(_, _, Rc(c), _, _) => c.clone(), .Atom(_, _) => return(callee));
+  sx_recv := match(sx_args.get(usize(0)), .Some(r) => r, .None => return(callee));
+  sx_shared := (ast_expr_is_fn_call_of(&sx_recv, BF_ADDRESS_OF, Option(usize).Some(usize(1))) && !ast_expr_is_infix_op_fn_call(&sx_recv));
+  sx_mut := ast_expr_is_fn_call_of(&sx_recv, BK_BORROW_MUT, Option(usize).Some(usize(1)));
+  // `yo fix --migrate addr-of` evaluates old code, where `&x` was the
+  // address-of and `(&x).m()` a pointer receiver.
+  if(!(sx_shared || sx_mut) || migrate_addr_of_on(), {
+    return(callee);
+  });
+  sx_operand := ast_expr_strip_borrow_marker(&sx_recv);
+  if(!_is_runtime_place_expr(&sx_operand, env), {
+    return(callee);
+  });
+  sx_new_args := ArrayList(AstExpr).new();
+  sx_new_args.push(sx_operand);
+  match(sx_args.get(usize(1)), .Some(m) => sx_new_args.push(m), .None => ());
+  stripped := match(callee, .FnCall(_, sx_fb, _, sx_infix, sx_tok) => AstExpr.FnCall(sx_id, sx_fb, Rc.new(sx_new_args), sx_infix, sx_tok), .Atom(_, _) => return(callee));
+  note_rewritten_node(&stripped);
+  g_explicit_ref_receivers.with_mut({ sx_id, sx_mut }(m) => m.insert(sx_id, sx_mut));
+  stripped
+});
+/// A place rooted in a runtime binding: an identifier naming a runtime
+/// variable, or a field access `p.f` of such a place.
+_is_runtime_place_expr :: (fn(e : &AstExpr, env : &Environment) -> bool)(
+  cond(
+    ast_expr_is_atom(e) => match(
+      get_variables_from_env(env, &ast_expr_token(e).value.*).last(),
+      .Some(v) => !v.is_compile_time_only,
+      .None => false
+    ),
+    ast_expr_is_fn_call_of(e, BF_DOT, Option(usize).Some(usize(2))) => match(
+      e,
+      .FnCall(_, _, Rc(pargs), _, _) => match(pargs.get(usize(0)), .Some(obj) => recur(&obj, env), .None => false),
+      .Atom(_, _) => false
+    ),
+    true => false
+  )
+);
+/// The reference mode of a receiver: `.Some(is_mut)` for `(&x)` /
+/// `(&mut x)`, for a receiver typed `&C` / `&mut C`, and for an identifier
+/// bound as a reference (a `&C` parameter, a local borrow); `.None` for an
+/// owned receiver.
+_receiver_reference_mode :: (fn(callee_id : usize, receiver : &AstExpr, receiver_type : &TypeValue, env : &Environment) -> Option(bool))(
+  match(
+    g_explicit_ref_receivers.with(m => m.get(&callee_id)),
+    .Some(explicit_mut) => Option(bool).Some(explicit_mut),
+    .None => cond(
+      t_slot_is_borrow(receiver_type) => Option(bool).Some(t_slot_is_mut_ref(receiver_type)),
+      ast_expr_is_atom(receiver) => match(
+        get_variables_from_env(env, &ast_expr_token(receiver).value.*).last(),
+        .Some(rv) => cond(
+          variable_is_reference_binding(&rv) => Option(bool).Some(variable_is_mut_borrow(&rv)),
+          true => Option(bool).None
+        ),
+        .None => Option(bool).None
+      ),
+      true => Option(bool).None
+    )
+  )
+);
+/// The probe step of a method for a receiver of reference mode `ref_mode`
+/// (`.None` owned): the position of the method's receiver slot (its first
+/// parameter's slot, `Self` substituted) in the candidate order. Owned `C`:
+/// `C` 0, `&C` 1, `&mut C` 2, `&&C` 3 (the autoref of the implied borrow),
+/// `&mut &C` 4. `&C`: `&C` 0, `&&C` 1, `&mut &C` 2, `C` 3, `&mut C` 5.
+/// `&mut C`: `&mut C` 0, `&&mut C` 1, `&mut &mut C` 2, `C` 3, `&C` 4. A slot
+/// none of these is last.
+_r_probe_rank :: (fn(e : &MethodEntry, ref_mode : Option(bool)) -> usize)({
+  slot := match(fn_param_slots(&e.ty).get(usize(0)), .Some(s) => s, .None => return(usize(9)));
+  // 0: by value; 1: `&`; 2: `&mut`; 3: `& &`; 4: `&mut &`; 5: `& &mut`;
+  // 6: `&mut &mut`; 7: deeper.
+  shape := match(
+    &slot,
+    Rc(.Reference(rp_inner, rp_mut, _)) => match(
+      rp_inner,
+      Rc(.Reference(rp_inner2, rp_mut2, _)) => cond(
+        t_slot_is_borrow(&rp_inner2) => usize(7),
+        (!rp_mut && !rp_mut2) => usize(3),
+        (rp_mut && !rp_mut2) => usize(4),
+        (!rp_mut && rp_mut2) => usize(5),
+        true => usize(6)
+      ),
+      _ => cond(rp_mut => usize(2), true => usize(1))
+    ),
+    _ => usize(0)
+  );
+  match(
+    ref_mode,
+    .None => cond(
+      (shape == usize(0)) => usize(0),
+      (shape == usize(1)) => usize(1),
+      (shape == usize(2)) => usize(2),
+      (shape == usize(3)) => usize(3),
+      (shape == usize(4)) => usize(4),
+      true => usize(8)
+    ),
+    .Some(false) => cond(
+      (shape == usize(1)) => usize(0),
+      (shape == usize(3)) => usize(1),
+      (shape == usize(4)) => usize(2),
+      (shape == usize(0)) => usize(3),
+      (shape == usize(2)) => usize(5),
+      true => usize(8)
+    ),
+    .Some(true) => cond(
+      (shape == usize(2)) => usize(0),
+      (shape == usize(5)) => usize(1),
+      (shape == usize(6)) => usize(2),
+      (shape == usize(0)) => usize(3),
+      (shape == usize(1)) => usize(4),
+      true => usize(8)
+    )
+  )
+});
+/// The candidate receiver slot types of a receiver whose value type is
+/// `base`, in probe order: E0610's "probed" line.
+_r_probe_slots_text :: (fn(base : &TypeValue, ref_mode : Option(bool)) -> String)({
+  b := type_to_string(base);
+  match(
+    ref_mode,
+    .None => `${b}, &${b}, &mut ${b}, &&${b}`,
+    .Some(false) => `&${b}, &&${b}, &mut &${b}, ${b}, &mut ${b}`,
+    .Some(true) => `&mut ${b}, &&mut ${b}, &mut &mut ${b}, ${b}, &${b}`
+  )
+});
+/// One method candidate's identity: its trait, its impl's receiver and its
+/// signature (the same impl reached through two lookups is one candidate).
+_method_entry_identity :: (fn(e : &MethodEntry) -> String)(
+  `${e.source_trait_id}|${match(&e.self_type, .Some(st) => type_key(&st), .None => String.new())}|${type_to_string(&e.ty)}`
+);
+/// The R-PROBE candidates of `method_name` on a receiver of value type
+/// `base` and reference mode `ref_mode`: `base_hits` (the methods registered
+/// on `base`) and the methods of `&base` and `&mut base`, each once, sorted
+/// by probe step (`_r_probe_rank`, stable). `ranks` is parallel to `hits`.
+_RProbe :: struct(hits : ArrayList(MethodEntry), ranks : ArrayList(usize), receivers : ArrayList(TypeValue));
+_r_probe_candidates :: (
+  fn(base_hits : &ArrayList(MethodEntry), base : &TypeValue, ref_mode : Option(bool), method_name : &String, env : &Environment) -> _RProbe
+)({
+  pool := ArrayList(MethodEntry).new();
+  pool_receivers := ArrayList(TypeValue).new();
+  seen := ArrayList(String).new();
+  (bi : usize) = usize(0);
+  while(bi < base_hits.len(), {
+    match(
+      base_hits.get(bi),
+      .Some(h) => {
+        seen.push(_method_entry_identity(&h));
+        pool.push(h);
+        pool_receivers.push(base.clone());
+      },
+      .None => ()
+    );
+    bi = (bi + usize(1));
+  });
+  (mi : usize) = usize(0);
+  while(mi < usize(2), {
+    ref_ty := t_reference(base, (mi == usize(1)));
+    ref_hits := get_receiver_methods_by_name_from_env(env, method_name.clone(), &ref_ty, false);
+    (ri : usize) = usize(0);
+    while(ri < ref_hits.len(), {
+      match(
+        ref_hits.get(ri),
+        .Some(h) => {
+          hid := _method_entry_identity(&h);
+          (dup : bool) = false;
+          (si : usize) = usize(0);
+          while(si < seen.len(), {
+            if(match(seen.get_cloned(si), .Some(s) => (s == hid), .None => false), {
+              dup = true;
+            });
+            si = (si + usize(1));
+          });
+          if(!dup, {
+            seen.push(hid);
+            pool.push(h);
+            pool_receivers.push(ref_ty.clone());
+          });
+        },
+        .None => ()
+      );
+      ri = (ri + usize(1));
+    });
+    mi = (mi + usize(1));
+  });
+  // Stable sort by step: emit every rank in order.
+  out_hits := ArrayList(MethodEntry).new();
+  out_ranks := ArrayList(usize).new();
+  out_receivers := ArrayList(TypeValue).new();
+  pool_ranks := ArrayList(usize).new();
+  (pi : usize) = usize(0);
+  while(pi < pool.len(), {
+    match(pool.get(pi), .Some(h) => pool_ranks.push(_r_probe_rank(&h, ref_mode)), .None => pool_ranks.push(usize(9)));
+    pi = (pi + usize(1));
+  });
+  (rank : usize) = usize(0);
+  while(rank <= usize(9), {
+    (qi : usize) = usize(0);
+    while(qi < pool.len(), {
+      if(match(pool_ranks.get(qi), .Some(r) => (r == rank), .None => false), {
+        match(
+          pool.get(qi),
+          .Some(h) => {
+            out_hits.push(h);
+            out_ranks.push(rank);
+            match(pool_receivers.get_cloned(qi), .Some(pr) => out_receivers.push(pr), .None => out_receivers.push(base.clone()));
+          },
+          .None => ()
+        );
+      });
+      qi = (qi + usize(1));
+    });
+    rank = (rank + usize(1));
+  });
+  _RProbe(hits : out_hits, ranks : out_ranks, receivers : out_receivers)
+});
 _find_receiver_method_of :: (
   fn(
     callee : &AstExpr,
@@ -1196,6 +1505,49 @@ _find_receiver_method_of :: (
       .NoneForced => ()
     );
   });
+  // R-PROBE: every instance call ranks its candidates by receiver slot, and
+  // `_select_matching_overload` judges only the earliest step that has an
+  // applicable one. An explicit `(&x)` receiver, or any receiver once the
+  // program has a reference impl, also gathers the methods of the value
+  // type's references (`_r_probe_candidates`); otherwise no reference impl
+  // can apply and the lookup above holds every candidate.
+  callee_id := ast_expr_id(callee);
+  probe_ref := cond(is_static => Option(bool).None, true => _receiver_reference_mode(callee_id, &receiver_expr_r, &receiver_type, env));
+  probe_explicit := g_explicit_ref_receivers.with(m => m.get(&callee_id)).is_some();
+  (probe_ranks : ArrayList(usize)) = ArrayList(usize).new();
+  (probe_receivers : ArrayList(TypeValue)) = ArrayList(TypeValue).new();
+  if(!is_static && (probe_explicit || reference_impls_seen()), {
+    probe_base := t_slot_pointee(&receiver_type);
+    probe_head := type_head_name_for_impl_forcing(&probe_base);
+    if(reference_impl_head_noted(&probe_head), {
+      match(
+        force_pending_impls_for_type_name(&probe_head, Option(String).Some(method_name.clone())),
+        .Error({ msg : probe_force_msg }) => flag_pending_impl_force_error(&probe_force_msg),
+        _ => ()
+      );
+    });
+    probe_base_hits := cond(
+      t_slot_is_borrow(&receiver_type) => get_receiver_methods_by_name_from_env(env, method_name.clone(), &probe_base, false),
+      true => get_receiver_methods_by_name_from_env(env, method_name.clone(), &receiver_type, false)
+    );
+    probed := _r_probe_candidates(&probe_base_hits, &probe_base, probe_ref, &method_name, env);
+    hits = probed.hits.clone();
+    probe_ranks = probed.ranks.clone();
+    probe_receivers = probed.receivers.clone();
+    if(hits.len() == usize(0), {
+      slots_text := _r_probe_slots_text(&probe_base, probe_ref);
+      g_probed_receiver_slots.with_mut({ callee_id, slots_text }(m) => m.insert(callee_id, slots_text.clone()));
+    });
+  }, if(!is_static, {
+    // No reference impl can apply: the hits are the receiver type's own,
+    // ranked in place by their receiver slots.
+    (pr_i : usize) = usize(0);
+    while(pr_i < hits.len(), {
+      match(hits.get(pr_i), .Some(h) => probe_ranks.push(_r_probe_rank(&h, probe_ref)), .None => probe_ranks.push(usize(9)));
+      probe_receivers.push(t_slot_pointee(&receiver_type));
+      pr_i = (pr_i + usize(1));
+    });
+  }));
   if(hits.len() == usize(0), {
     // Auto-dereference (plans/VALUES_BY_DEFAULT.md §3.3): a `Deref` wrapper
     // (`Box`, `Rc`, `Arc`) without the method forwards the call to its payload —
@@ -1273,7 +1625,11 @@ _find_receiver_method_of :: (
       is_static : is_static,
       needs_pointer_conversion : first.needs_pointer_conversion,
       receiver_value : receiver_value,
-      all_hits : hits
+      all_hits : hits,
+      probe_ranks : probe_ranks,
+      probe_receivers : probe_receivers,
+      probe_ref : probe_ref,
+      probe_explicit : probe_explicit
     )
   )
 });
@@ -2458,6 +2814,71 @@ _trait_display_name :: (fn(tid : &String, env : &Environment) -> String)({
 _receiver_type_display :: (fn(recv : &AstExpr, ctx : &EvalContext) -> String)(
   match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(recv)), .Some(ri) => type_to_string(&ri.ty), .None => String.from("the receiver"))
 );
+/// E0616's text (VERDICTS-25 Q2 §3): each candidate as its impl and its
+/// receiver parameter (`impl(&C, A) (m : fn(self : Self))`), the receiver
+/// slot they share (`both take the receiver as &C`), and the repair naming
+/// each impl's trait.
+_ambiguous_method_message :: (
+  fn(base : &ReceiverMethodResult, amb_name : &String, amb_traits : &ArrayList(String), amb_entries : &ArrayList(usize), env : &Environment, ctx : &EvalContext) -> String
+)({
+  amb_list := String.new();
+  repair_list := String.new();
+  (first_slot : String) = String.new();
+  (slots_agree : bool) = true;
+  recv_text := cond(
+    base.probe_explicit => cond(match(base.probe_ref, .Some(pm) => pm, .None => false) => `&mut ${ast_expr_to_string(&base.receiver_expr)}`, true => `&${ast_expr_to_string(&base.receiver_expr)}`),
+    true => ast_expr_to_string(&base.receiver_expr)
+  );
+  (an : usize) = usize(0);
+  while(an < amb_traits.len(), {
+    tn := _trait_display_name(match(amb_traits.get_cloned(an), .Some(t) => t, .None => String.new()), env);
+    entry_opt := match(amb_entries.get(an), .Some(ei) => base.all_hits.get(ei), .None => Option(MethodEntry).None);
+    (impl_text, impl_recv_text, slot_text) := match(
+      entry_opt,
+      .Some(ae) => {
+        ae_self := match(
+          match(amb_entries.get(an), .Some(ei) => base.probe_receivers.get_cloned(ei), .None => Option(TypeValue).None),
+          .Some(pr) => Option(TypeValue).Some(pr),
+          .None => ae.self_type.clone()
+        );
+        ae_recv := match(&ae_self, .Some(st) => type_to_string(&st), .None => String.from("T"));
+        ae_slot := match(fn_param_slots(&ae.ty).get(usize(0)), .Some(sl) => sl, .None => Rc.new(TypeValueNode.Unit));
+        ae_label := match(&ae.ty, Rc(.Func({ meta : ae_meta })) => match(ae_meta.*.param_labels.get(usize(0)), .Some(l) => l, .None => String.from("self")), _ => String.from("self"));
+        ae_mode := match(
+          &ae_self,
+          .Some(st) => cond(
+            (type_key(&ae_slot) == type_key(&st)) => String.from("Self"),
+            (type_key(&ae_slot) == type_key(&t_reference(&st, false))) => String.from("&Self"),
+            (type_key(&ae_slot) == type_key(&t_reference(&st, true))) => String.from("&mut Self"),
+            true => type_to_string(&ae_slot)
+          ),
+          .None => type_to_string(&ae_slot)
+        );
+        (`impl(${ae_recv}, ${tn}) (${amb_name} : fn(${ae_label} : ${ae_mode}))`, ae_recv, type_to_string(&ae_slot))
+      },
+      .None => (tn.clone(), String.from("T"), String.new())
+    );
+    cond(
+      (an == usize(0)) => {
+        first_slot = slot_text.clone();
+      },
+      (first_slot != slot_text) => {
+        slots_agree = false;
+      },
+      true => ()
+    );
+    amb_list = cond((an == usize(0)) => impl_text.clone(), true => `${amb_list} and ${impl_text}`);
+    repair := `(${impl_recv_text} <: ${tn}).${amb_name}(${recv_text}, ...)`;
+    repair_list = cond((an == usize(0)) => repair, true => `${repair_list} or ${repair}`);
+    an = (an + usize(1));
+  });
+  verb := cond((amb_traits.len() == usize(2)) => String.from("both"), true => String.from("all"));
+  how := cond(
+    (slots_agree && (first_slot.len() > usize(0))) => `${verb} take the receiver as ${first_slot}`,
+    true => `${verb} supply a "${amb_name}" for ${match(base.receiver_value, .Some(_) => _receiver_type_display(&base.receiver_expr, ctx), .None => String.from("the receiver"))}`
+  );
+  `The call to "${amb_name}" is ambiguous: ${amb_list} ${how}, and nothing says which one is meant.\nName the trait: ${repair_list}, or call it where a where(T <: Trait) bound selects one.`
+});
 _select_matching_overload :: (
   fn(base : &ReceiverMethodResult, args : &ArrayList(AstExpr), func_expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> ReceiverMethodResult
 )({
@@ -2470,7 +2891,7 @@ _select_matching_overload :: (
   // UnknownVal, and every `NAME :: <ctfe call>` whose body used a prefix
   // operator bound an unknown — the batch-arm undeclared-identifier family
   // (issues/fixed/yo-self-comptime-const-batch-undeclared.md).
-  matching := ArrayList(usize).new();
+  (matching : ArrayList(usize)) = ArrayList(usize).new();
   // Mark the dry-runs on ctx — every dry-run must be flagged;
   // the Call-overload loop already
   // does the same externally. These trials previously ran WITHOUT it,
@@ -2505,6 +2926,33 @@ _select_matching_overload :: (
   ctx.is_in_function_call_checking_phase = smo_checking_was;
   if(matching.len() == usize(0), {
     return(base.clone());
+  });
+  // R-PROBE: only the earliest probe step with an applicable method is
+  // consulted (VERDICTS-25 Q2 §1); inherent-over-trait and E0616 below
+  // judge that step alone.
+  if(base.probe_ranks.len() == base.all_hits.len(), {
+    (min_rank : usize) = usize(99);
+    (mr_i : usize) = usize(0);
+    while(mr_i < matching.len(), {
+      mr_rank := match(base.probe_ranks.get(match(matching.get(mr_i), .Some(i) => i, .None => usize(0))), .Some(r) => r, .None => usize(99));
+      if(mr_rank < min_rank, {
+        min_rank = mr_rank;
+      });
+      mr_i = (mr_i + usize(1));
+    });
+    at_step := ArrayList(usize).new();
+    (ms_i : usize) = usize(0);
+    while(ms_i < matching.len(), {
+      ms_idx := match(matching.get(ms_i), .Some(i) => i, .None => usize(0));
+      if(match(base.probe_ranks.get(ms_idx), .Some(r) => (r == min_rank), .None => false), {
+        at_step.push(ms_idx);
+      });
+      ms_i = (ms_i + usize(1));
+    });
+    if((at_step.len() != matching.len()) && debug_knob(`YO_DEBUG_RPROBE`).is_some(), {
+      eprintln(`[rprobe] ${ast_expr_to_string(func_expr)} at ${ast_expr_token(func_expr).module_path.*}:${ast_expr_token(func_expr).row.to_string()}: ${matching.len().to_string()} applicable, ${at_step.len().to_string()} at step ${min_rank.to_string()}`);
+    });
+    matching = at_step;
   });
   (winner_hi : usize) = match(matching.get(usize(0)), .Some(i) => i, .None => usize(0));
   // WHERE-CONSTRAINT preference: when the enclosing SPECIALIZATION carries
@@ -2593,6 +3041,7 @@ _select_matching_overload :: (
   if((matching.len() > usize(1)) && !aw_chosen && !ct_chosen, {
     (inh_hi : Option(usize)) = Option(usize).None;
     amb_traits := ArrayList(String).new();
+    amb_entries := ArrayList(usize).new();
     (ami : usize) = usize(0);
     while(ami < matching.len(), {
       am_idx := match(matching.get(ami), .Some(i) => i, .None => usize(0));
@@ -2616,6 +3065,7 @@ _select_matching_overload :: (
               });
               if(!seen_t, {
                 amb_traits.push(amc.source_trait_id.clone());
+                amb_entries.push(am_idx);
               });
             }
           );
@@ -2631,25 +3081,7 @@ _select_matching_overload :: (
       },
       .None => if(amb_traits.len() > usize(1), {
         amb_name := match(base.all_hits.get(winner_hi), .Some(w) => w.label.clone(), .None => String.new());
-        amb_list := String.new();
-        (an : usize) = usize(0);
-        while(an < amb_traits.len(), {
-          tn := _trait_display_name(match(amb_traits.get_cloned(an), .Some(t) => t, .None => String.new()), env);
-          amb_list = cond((an == usize(0)) => tn, true => `${amb_list} and ${tn}`);
-          an = (an + usize(1));
-        });
-        recv_ty_s := match(base.receiver_value, .Some(_) => _receiver_type_display(&base.receiver_expr, ctx), .None => String.from("the receiver"));
-        exn.throw(
-          dyn(
-            with_code(
-              format_error_message(
-                ast_expr_token(func_expr),
-                `The call to "${amb_name}" is ambiguous: ${amb_list} both supply a "${amb_name}" for ${recv_ty_s}, and nothing says which one is meant.\nName the trait: (T <: Trait).${amb_name}(value, ...), or call it where a where(T <: Trait) bound selects one.`
-              ),
-              E_AMBIGUOUS_METHOD
-            )
-          )
-        );
+        exn.throw(dyn(with_code(format_error_message(ast_expr_token(func_expr), _ambiguous_method_message(base, &amb_name, &amb_traits, &amb_entries, env, ctx)), E_AMBIGUOUS_METHOD)));
       })
     );
   });
@@ -2662,7 +3094,11 @@ _select_matching_overload :: (
       is_static : base.is_static,
       needs_pointer_conversion : w_cand.needs_pointer_conversion,
       receiver_value : base.receiver_value,
-      all_hits : base.all_hits.clone()
+      all_hits : base.all_hits.clone(),
+      probe_ranks : base.probe_ranks.clone(),
+      probe_receivers : base.probe_receivers.clone(),
+      probe_ref : base.probe_ref,
+      probe_explicit : base.probe_explicit
     ),
     .None => base.clone()
   )
@@ -8053,7 +8489,15 @@ _no_method_message :: (fn(func_expr : &AstExpr, ctx : &EvalContext) -> String)({
     (method_name == "walk_elem") => ` \`for(&mut xs, …)\` writes each element in place and needs \`BorrowedWalkMut\`; ${recv_ty_str} has only the read walk \`for(&xs, …)\` (writing a \`HashSet\` or \`PriorityQueue\` element in place would break its order).`,
     true => String.new()
   );
-  `No method "${method_name}" on ${recv_ty_str}: the type has no field or method with that name.${deref_note}${walk_note}`
+  // R-PROBE ran (a reference receiver, or a program with reference impls):
+  // name the receiver slot types it tried (VERDICTS-25 Q2 §3).
+  nm_callee_id := ast_expr_id(func_expr);
+  probed_note := match(
+    g_probed_receiver_slots.with(m => m.get_cloned(&nm_callee_id)),
+    .Some(slots) => `\nReceiver slot types probed: ${slots}.`,
+    .None => String.new()
+  );
+  `No method "${method_name}" on ${recv_ty_str}: the type has no field or method with that name.${deref_note}${walk_note}${probed_note}`
 });
 /// A method miss inside auto-generated code (a derive's generated body) on a
 /// receiver whose type holds no type variable is generic-independent: no
@@ -8870,12 +9314,15 @@ _evaluate_function_call_unanchored :: (
 )({
   given_type;
   tok := ast_expr_token(expr);
-  // Decompose the call: func_expr = callee, args = argument list.
-  func_expr := match(
+  // Decompose the call: func_expr = callee, args = argument list. An
+  // explicit borrowed receiver `(&x).m(…)` / `(&mut x).m(…)` reads as
+  // `x.m(…)` with its mode recorded for R-PROBE (decision 43 N1f-2).
+  written_callee := match(
     expr,
     .FnCall(_, func_box, _, _, _) => func_box,
     .Atom(_, _) => make_err_expr()
   );
+  func_expr := _strip_explicit_ref_receiver(&written_callee, env);
   args := match(
     expr,
     .FnCall(_, _, Rc(a), _, _) => a.clone(),
@@ -12890,6 +13337,7 @@ Fix: wrap the call:
       _reject_class1_panic_method_call(&method_info_opt, &m_callee, ctx, exn);
       _reject_dyn_uncallable_method_call(&method_info_opt, &m_callee, ctx, exn);
       _reject_wrapper_payload_clash(&method_info_opt, &m_callee, args.len(), &callee_env, ctx, exn);
+      _reject_explicit_ref_receiver_slot(&method_info_opt, &m_callee, ctx, exn);
       match(
         method_info_opt,
         // Method found: build the arg list and call it. Instance methods

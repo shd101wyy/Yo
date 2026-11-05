@@ -41,6 +41,8 @@
   BK_WHERE,
   BK_BEGIN,
   BF_DOT,
+  BF_ADDRESS_OF,
+  BK_BORROW_MUT,
   BF_DERIVE,
   BF_GHOST_FN
 } :: import("../expr.yo");
@@ -1994,9 +1996,17 @@ copy_eval_context :: (fn(ctx : &EvalContext) -> EvalContext)(
 );
 /// The syntactic head name of an `impl` receiver: the atom itself, the callee
 /// atom of a type application (`ArrayList(T)` → `ArrayList`), the member of a
-/// property access (`Mod.Ty` → `Ty`). Empty when none applies.
+/// property access (`Mod.Ty` → `Ty`), the pointee's head of a reference
+/// receiver (`&C`, `&mut C`, `&(C, p)` → `C`'s; decision 43 N1f-2: a method
+/// miss on `C` forces the impls of its references too). Empty when none
+/// applies.
 impl_receiver_head_name :: (fn(recv : &AstExpr) -> String)(
   cond(
+    _is_reference_impl_receiver(recv) => match(
+      recv,
+      .FnCall(_, _, Rc(rargs), _, _) => match(rargs.get(usize(0)), .Some(pointee) => recur(&pointee), .None => String.new()),
+      .Atom(_, _) => String.new()
+    ),
     ast_expr_is_atom(recv) => ast_expr_token(recv).value.*.clone(),
     ast_expr_is_fn_call_of(recv, BF_DOT, .Some(usize(2))) =>
       match(
@@ -2020,6 +2030,32 @@ impl_receiver_head_name :: (fn(recv : &AstExpr) -> String)(
     true => String.new()
   )
 );
+/// An `impl` receiver spelled as a reference: `&C`, `&mut C`, `&(C, p)`,
+/// `&mut(C, p)` (decision 43 N1f-2).
+_is_reference_impl_receiver :: (fn(recv : &AstExpr) -> bool)(
+  (ast_expr_is_fn_call_of(recv, BF_ADDRESS_OF, .None) || ast_expr_is_fn_call_of(recv, BK_BORROW_MUT, .None))
+);
+/// The head names (`impl_receiver_head_name`) of the `impl(&C, …)` /
+/// `impl(&mut C, …)` receivers this compilation has seen, pending or
+/// registered (decision 43 N1f-2). Receiver-method lookup probes a
+/// reference's impls only once one exists (`reference_impls_seen`), and a
+/// pending one of the receiver's head is forced first
+/// (`reference_impl_head_noted`): a program without reference impls resolves
+/// exactly as before.
+(g_reference_impl_heads : RefCell(HashMap(String, bool))) = RefCell(HashMap(String, bool)).new(HashMap(String, bool).new());
+/// Record a reference impl receiver's head name.
+note_reference_impl_head :: (fn(head : &String) -> unit)({
+  head_owned := head.clone();
+  g_reference_impl_heads.with_mut({ head_owned }(m) => m.insert(head_owned.clone(), true));
+  ()
+});
+/// Whether any `impl(&C, …)` / `impl(&mut C, …)` has been seen.
+reference_impls_seen :: (fn() -> bool)(g_reference_impl_heads.with(m => (m.len() > usize(0))));
+/// Whether a reference impl of the head name `head` has been seen.
+reference_impl_head_noted :: (fn(head : &String) -> bool)({
+  head_owned := head.clone();
+  g_reference_impl_heads.with({ head_owned }(m) => m.contains_key(head_owned.clone()))
+});
 /// AST ids of closure literals evaluated as the DIRECT argument of a call to a
 /// borrowing parameter (neither `sink` nor `inout`): such a closure cannot
 /// outlive the call, so it borrows its captures instead of owning them
@@ -2354,6 +2390,9 @@ classify_pending_def :: (fn(e : &AstExpr, index : usize) -> Option(PendingDef))(
               ast_expr_is_fn_call_of(&a0, BK_GENERIC, .None) => match(iargs.get(usize(1)), .Some(a) => a, .None => e),
               true => a0
             );
+            if(_is_reference_impl_receiver(&recv), {
+              note_reference_impl_head(&impl_receiver_head_name(&recv));
+            });
             _make_pending_def(impl_receiver_head_name(&recv), e, index, true)
           }
         )
@@ -3660,6 +3699,7 @@ track_variable_usage :: (
 
 export(
   _clone_captured_variables,
+  impl_receiver_head_name,
   is_module_ghost_fn_def,
   record_module_member_read,
   record_module_ordered_read,
@@ -3800,6 +3840,9 @@ export(
   flag_pending_impl_force_error,
   take_pending_impl_force_error,
   force_pending_impls_for_type_name,
+  note_reference_impl_head,
+  reference_impls_seen,
+  reference_impl_head_noted,
   force_pending_move_only_impls,
   note_borrowing_argument,
   closure_literal_is_borrowed,
