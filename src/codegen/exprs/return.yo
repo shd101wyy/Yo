@@ -1716,7 +1716,8 @@ generate_unwind :: (fn(expr : &AstExpr, indent : &String, context : &mut Functio
       arg_ty := match(context.base.get_expr_info(&arg), .Some(ei) => Rc.clone(ei.ty), .None => t_unit());
       argc := if(is_unit_type(&arg_ty) || (argc_expr.len() == usize(0)) || (argc_expr == "(void)0"), argc_expr, {
         unw_tmp := fresh_local_name(String.from("__yo_unw_operand_"), &context.base.current_function_name);
-        context.base.emitter.emit_string_line(`${indent.clone()}${get_type_string(&arg_ty, &mut context.base)} ${unw_tmp.clone()} = ${argc_expr};`);
+        emit_text1 := `${indent.clone()}${get_type_string(&arg_ty, &mut context.base)} ${unw_tmp.clone()} = ${argc_expr};`;
+        context.base.emitter.emit_string_line(&emit_text1);
         unw_tmp
       });
       _emit_unwind_target(indent.clone(), context);

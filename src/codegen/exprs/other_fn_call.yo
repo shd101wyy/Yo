@@ -291,7 +291,8 @@ bind_owning_result_temp :: (fn(expr : &AstExpr, code : String, indent : &String,
     .Some(ei) => match(
       &ei.variable_name,
       .Some(tv) => {
-        context.base.emitter.emit_string_line(`${indent.clone()}${get_variable_type_string(&ei.ty, tv.clone(), &mut context.base)} = ${code};`);
+        emit_text1 := `${indent.clone()}${get_variable_type_string(&ei.ty, tv.clone(), &mut context.base)} = ${code};`;
+        context.base.emitter.emit_string_line(&emit_text1);
         _store_temp_var_to_state_machine_if_needed(tv.clone(), indent.clone(), context);
         tv.clone()
       },
@@ -791,7 +792,8 @@ sequence_operand :: (fn(arg : &AstExpr, code : String, operands : &ArrayList(Ast
     return(code);
   });
   tmp := fresh_local_name(String.from("__yo_seq_"), &context.base.current_function_name);
-  context.base.emitter.emit_string_line(`${indent}${get_variable_type_string(&ty, tmp.clone(), &mut context.base)} = ${code};`);
+  emit_text2 := `${indent}${get_variable_type_string(&ty, tmp.clone(), &mut context.base)} = ${code};`;
+  context.base.emitter.emit_string_line(&emit_text2);
   tmp
 });
 /// Whether `code`, the rendering of operand `arg`, is a value no later
@@ -1482,7 +1484,8 @@ _cell_alloc_scope :: (fn(alloc_arg : &AstExpr, call : &AstExpr, indent : &String
     alloc_ty,
     .Some(a_ty) => {
       tmp := `__yo_cell_alloc_${ast_expr_id(call).to_string()}`;
-      context.base.emitter.emit_string_line(`${indent}${get_type_string(&opt_ty, &mut context.base)} ${tmp} = ${code};`);
+      emit_text3 := `${indent}${get_type_string(&opt_ty, &mut context.base)} ${tmp} = ${code};`;
+      context.base.emitter.emit_string_line(&emit_text3);
       some_tag := get_enum_variant_c_name(&opt_ty, String.from("Some"), &context.base);
       payload := `${tmp}.data.${c_variant_member_name(String.from("Some"))}.${sanitize_for_c_identifier(String.from("value"), false)}`;
       `((${tmp}.tag == ${some_tag}) ? (__yo_alloc_scope_t){ (void*)${payload}.${c_field_name(&a_ty, String.from("ctx"))}, (const void*)${payload}.${c_field_name(&a_ty, String.from("vtable"))} } : (__yo_alloc_scope_t){ 0, 0 })`
@@ -2189,7 +2192,8 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
                 g_ref_spill_counter = (cm_n + usize(1));
                 cm_pt := `__yo_ref_spill_${cm_n.to_string()}`;
                 context.base.emitter.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);
-                context.base.emitter.emit_string_line(`${indent.clone()}${get_type_string(t_ptr(&ei.ty), &mut context.base)} ${cm_pt.clone()} = ${cm_call};`);
+                emit_text4 := `${indent.clone()}${get_type_string(t_ptr(&ei.ty), &mut context.base)} ${cm_pt.clone()} = ${cm_call};`;
+                context.base.emitter.emit_string_line(&emit_text4);
                 generate_call_deferred_drops(expr, indent.clone(), context, true);
                 emit_effect_unwind_check(indent.clone(), context, cm_is_install, expr);
                 return(Option(String).Some(`(*${cm_pt})`));
@@ -2550,7 +2554,8 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
             if(ctor_list.len() > usize(0), {
               payload_ty := match(ctor_fields.get(usize(0)), .Some(f) => Rc.clone(f.ty), .None => Rc.new(TypeValueNode.Unit));
               payload_tmp := `__yo_cell_payload_${ast_expr_id(expr).to_string()}`;
-              context.base.emitter.emit_string_line(`${indent}${get_type_string(&payload_ty, &mut context.base)} ${payload_tmp} = ${ctor_list};`);
+              emit_text5 := `${indent}${get_type_string(&payload_ty, &mut context.base)} ${payload_tmp} = ${ctor_list};`;
+              context.base.emitter.emit_string_line(&emit_text5);
               ctor_list = payload_tmp;
             });
             scope := match(ctor_args.get(usize(1)), .Some(alloc_arg) => _cell_alloc_scope(&alloc_arg, expr, indent, context), .None => codegen_fatal_expr(String.from("a cell primitive's constructor call reached codegen without its allocator argument")));
@@ -2918,7 +2923,8 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
               if(!already, {
                 record_declared_temp_var(context, tv.clone());
                 declare_c_var_name(&context.base, tv.clone());
-                context.base.emitter.emit_string_line(`${indent}${get_type_string(&r, &mut context.base)} ${tv} = ${out};`);
+                emit_text6 := `${indent}${get_type_string(&r, &mut context.base)} ${tv} = ${out};`;
+                context.base.emitter.emit_string_line(&emit_text6);
                 _store_temp_var_to_state_machine_if_needed(tv.clone(), indent.clone(), context);
               });
               return(Option(String).Some(tv.clone()));
@@ -3010,7 +3016,8 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
               g_ref_spill_counter = (proj_n + usize(1));
               proj_tmp := `__yo_ref_spill_${proj_n.to_string()}`;
               context.base.emitter.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);
-              context.base.emitter.emit_string_line(`${indent.clone()}${get_type_string(t_ptr(&result_type), &mut context.base)} ${proj_tmp.clone()} = ${proj_call};`);
+              emit_text7 := `${indent.clone()}${get_type_string(t_ptr(&result_type), &mut context.base)} ${proj_tmp.clone()} = ${proj_call};`;
+              context.base.emitter.emit_string_line(&emit_text7);
               generate_call_deferred_drops(expr, indent.clone(), context, true);
               emit_effect_unwind_check(indent.clone(), context, ou_is_install, expr);
               return(Option(String).Some(`(*${proj_tmp})`));
@@ -3370,7 +3377,8 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
       g_ref_spill_counter = (fpj_n + usize(1));
       fpj_tmp := `__yo_ref_spill_${fpj_n.to_string()}`;
       context.base.emitter.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);
-      context.base.emitter.emit_string_line(`${indent.clone()}${get_type_string(t_ptr(&result_type), &mut context.base)} ${fpj_tmp.clone()} = ${out.clone()};`);
+      emit_text8 := `${indent.clone()}${get_type_string(t_ptr(&result_type), &mut context.base)} ${fpj_tmp.clone()} = ${out.clone()};`;
+      context.base.emitter.emit_string_line(&emit_text8);
       generate_call_deferred_drops(expr, indent.clone(), context, true);
       emit_effect_unwind_check(indent.clone(), context, ou_is_install, expr);
       return(Option(String).Some(`(*${fpj_tmp})`));

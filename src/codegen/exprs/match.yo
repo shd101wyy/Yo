@@ -435,7 +435,8 @@ generate_case_body :: (fn(body_expr : &AstExpr, indent : &String, context : &mut
         match(context.base.get_expr_info(body_expr), .Some(bei) => Option(TypeValue).Some(Rc.clone(bei.ty)), .None => Option(TypeValue).None),
         .Some(bt) => if(is_unit_type(&bt) || is_never_type(&bt), final_code0, {
           av := fresh_local_name(String.from("__yo_arm_"), &context.base.current_function_name);
-          context.base.emitter.emit_string_line(`${indent.clone()}${get_type_string(&bt, &mut context.base)} ${av.clone()} = ${final_code0};`);
+          emit_text1 := `${indent.clone()}${get_type_string(&bt, &mut context.base)} ${av.clone()} = ${final_code0};`;
+          context.base.emitter.emit_string_line(&emit_text1);
           av
         }),
         .None => final_code0
@@ -491,7 +492,8 @@ generate_case_body :: (fn(body_expr : &AstExpr, indent : &String, context : &mut
           String.from("")
         }, {
           av := fresh_local_name(String.from("__yo_arm_"), &context.base.current_function_name);
-          context.base.emitter.emit_string_line(`${indent.clone()}${get_type_string(&bt, &mut context.base)} ${av.clone()} = ${code};`);
+          emit_text2 := `${indent.clone()}${get_type_string(&bt, &mut context.base)} ${av.clone()} = ${code};`;
+          context.base.emitter.emit_string_line(&emit_text2);
           generate_deferred_drop_expressions(body_expr, indent.clone(), context);
           av
         }),

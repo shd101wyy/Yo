@@ -1778,7 +1778,8 @@ emit_inline_await :: (fn(expr : &AstExpr, indent : &String, context : &mut Funct
       // No suspension between here and the statement's use of it.
       .Some(rty) => {
         local := fresh_local_name(String.from("__yo_await_value"), context.base.current_function_name.clone());
-        context.base.emitter.emit_string_line(`${indent}${get_type_string(&rty, &mut context.base)} ${local};`);
+        emit_text1 := `${indent}${get_type_string(&rty, &mut context.base)} ${local};`;
+        context.base.emitter.emit_string_line(&emit_text1);
         declare_c_var_name(&context.base, local.clone());
         _emit_await_result_store(local.clone(), &acc, &rty, false, indent.clone(), context);
         out = local;
@@ -1817,7 +1818,8 @@ _bind_await_result_to_temp :: (fn(expr : &AstExpr, out : &String, out_is_c_local
   if(out_is_c_local && type_contains_rc_cell_or_move_only(&ei.ty), {
     cname := get_variable_name_for_codegen_at(ast_expr_id(expr), &vn, Option(Environment).Some(ei.env));
     if(!(cname == out), {
-      context.base.emitter.emit_string_line(`${indent}${get_variable_type_string(&ei.ty, &cname, &mut context.base)} = ${out};`);
+      emit_text2 := `${indent}${get_variable_type_string(&ei.ty, &cname, &mut context.base)} = ${out};`;
+      context.base.emitter.emit_string_line(&emit_text2);
       code = cname;
     });
   });

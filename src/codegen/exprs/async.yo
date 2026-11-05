@@ -557,7 +557,8 @@ _join_dotted :: (fn(parts : &ArrayList(String)) -> String)({
 emit_async_block_struct_definition :: (
   fn(info : &AsyncBlockStructInfo, context : &mut FunctionGenerationContext) -> unit
 )({
-  context.base.emitter.emit_declaration_string_line(`// State machine for async block ${info.async_block_id.clone()} - implements Future(${get_type_string(&info.result_type, &mut context.base)})`);
+  emit_text1 := `// State machine for async block ${info.async_block_id.clone()} - implements Future(${get_type_string(&info.result_type, &mut context.base)})`;
+  context.base.emitter.emit_declaration_string_line(&emit_text1);
   context.base.emitter.emit_declaration_string_line(`struct ${info.struct_name.clone()}_struct {`);
   // The prefix every future shares (types/generation.yo): header, state
   // (0 = cold, 1..N = intermediate, -1 = completed, -2 = aborted), the type's
@@ -569,7 +570,8 @@ emit_async_block_struct_definition :: (
   if(is_unit_type(&info.result_type), {
     context.base.emitter.emit_declaration_line("  uint8_t result;  // Dummy result for unit type");
   }, {
-    context.base.emitter.emit_declaration_string_line(`  ${info.result_type_c_name.clone()} result;  // The result value of type ${get_type_string(&info.result_type, &mut context.base)}`);
+    emit_text2 := `  ${info.result_type_c_name.clone()} result;  // The result value of type ${get_type_string(&info.result_type, &mut context.base)}`;
+    context.base.emitter.emit_declaration_string_line(&emit_text2);
   });
   context.base.emitter.emit_declaration_line("");
   // Resume function pointer for lazy start at await.
@@ -705,7 +707,10 @@ emit_async_block_struct_definition :: (
   irfs := inline_await_result_fields(&info.analysis, context);
   (mut(iai) : usize) = usize(0);
   while(iai < irfs.len(), iai = (iai + usize(1)), {
-    match(irfs.get_cloned(iai), .Some(rf) => context.base.emitter.emit_declaration_string_line(`  ${get_type_string(&rf.ty, &mut context.base)} ${rf.name};  // an await's result`), .None => ());
+    match(irfs.get_cloned(iai), .Some(rf) => {
+      emit_text3 := `  ${get_type_string(&rf.ty, &mut context.base)} ${rf.name};  // an await's result`;
+      context.base.emitter.emit_declaration_string_line(&emit_text3);
+    }, .None => ());
   });
   _emit_fused_site_fields(fused_await_sites(&info.analysis, context), context);
   context.base.emitter.emit_declaration_line("};");
@@ -1212,7 +1217,10 @@ _emit_lent_param_slots :: (fn(capture_type : &TypeValue, context : &mut Function
       lent.get_cloned(i),
       .Some(f) => match(
         &f.ty,
-        Rc(.Pointer(pointee)) => context.base.emitter.emit_declaration_string_line(`  ${get_type_string(&pointee, &mut context.base)} __yo_lent_${sanitize_for_c_identifier(f.label.clone(), false)};  // the future's copy of the lent parameter ${f.label.clone()}`),
+        Rc(.Pointer(pointee)) => {
+          emit_text4 := `  ${get_type_string(&pointee, &mut context.base)} __yo_lent_${sanitize_for_c_identifier(f.label.clone(), false)};  // the future's copy of the lent parameter ${f.label.clone()}`;
+          context.base.emitter.emit_declaration_string_line(&emit_text4);
+        },
         _ => ()
       ),
       .None => ()
@@ -1420,7 +1428,8 @@ generate_async_block_constructor :: (
   );
   // Allocate + zero-init the state machine.
   context.base.emitter.emit_line("  // Allocate async block state machine (heap-backed, ref-counted)");
-  context.base.emitter.emit_string_line(`  ${struct_name.clone()}* sm = (${struct_name.clone()}*)${_sm_alloc_call(struct_name.clone(), dispose_function_name.clone(), context)};`);
+  emit_text5 := `  ${struct_name.clone()}* sm = (${struct_name.clone()}*)${_sm_alloc_call(struct_name.clone(), dispose_function_name.clone(), context)};`;
+  context.base.emitter.emit_string_line(&emit_text5);
   context.base.emitter.emit_string_line(`  memset(sm, 0, sizeof(${struct_name.clone()}));`);
   context.base.emitter.emit_line("");
   // Reference-counting header.
@@ -2007,7 +2016,10 @@ _emit_fused_site_fields :: (fn(sites : &ArrayList(FusedAwaitSite), context : &mu
     });
     match(
       &site.block.capture_type,
-      .Some(ct) => context.base.emitter.emit_declaration_string_line(`  ${_find_capture_type_c_name(&ct, context)} ${site.prefix}capture;`),
+      .Some(ct) => {
+        emit_text6 := `  ${_find_capture_type_c_name(&ct, context)} ${site.prefix}capture;`;
+        context.base.emitter.emit_declaration_string_line(&emit_text6);
+      },
       .None => ()
     );
     match(
@@ -2027,7 +2039,8 @@ _emit_fused_site_fields :: (fn(sites : &ArrayList(FusedAwaitSite), context : &mu
         lfs.get_cloned(li),
         .Some(lf) => if(!local_names.contains(lf.field_name.clone()), {
           local_names.insert(lf.field_name.clone());
-          context.base.emitter.emit_declaration_string_line(`  ${get_type_string(&lf.ty, &mut context.base)} ${lf.field_name.clone()};`);
+          emit_text7 := `  ${get_type_string(&lf.ty, &mut context.base)} ${lf.field_name.clone()};`;
+          context.base.emitter.emit_declaration_string_line(&emit_text7);
           // A named local's move flag, as in the wrapper's own struct: the
           // fused body's moves and stores name the same field
           // (`note_sm_move_flag_field`).
@@ -2044,7 +2057,10 @@ _emit_fused_site_fields :: (fn(sites : &ArrayList(FusedAwaitSite), context : &mu
     context.fusion_field_prefix = saved_prefix;
     (mut(ri) : usize) = usize(0);
     while(ri < rfs.len(), ri = (ri + usize(1)), {
-      match(rfs.get_cloned(ri), .Some(rf) => context.base.emitter.emit_declaration_string_line(`  ${get_type_string(&rf.ty, &mut context.base)} ${rf.name};  // a fused await's result`), .None => ());
+      match(rfs.get_cloned(ri), .Some(rf) => {
+        emit_text8 := `  ${get_type_string(&rf.ty, &mut context.base)} ${rf.name};  // a fused await's result`;
+        context.base.emitter.emit_declaration_string_line(&emit_text8);
+      }, .None => ());
     });
   });
 });
@@ -2341,7 +2357,8 @@ emit_fused_await :: (fn(await_expr : &AstExpr, indent : &String, context : &mut 
       inline_await_local_result_type(await_expr, &low_analysis, context),
       .Some(rty) => {
         outer_local = fresh_local_name(String.from("__yo_await_value"), context.base.current_function_name.clone());
-        context.base.emitter.emit_string_line(`${indent}${get_type_string(&rty, &mut context.base)} ${outer_local};`);
+        emit_text9 := `${indent}${get_type_string(&rty, &mut context.base)} ${outer_local};`;
+        context.base.emitter.emit_string_line(&emit_text9);
         declare_c_var_name(&context.base, outer_local.clone());
       },
       .None => ()
@@ -2400,7 +2417,8 @@ emit_fused_await :: (fn(await_expr : &AstExpr, indent : &String, context : &mut 
         label := match(wmeta.*.param_labels.get(pi), .Some(l) => l, .None => `param${pi.to_string()}`);
         cname := sanitize_for_c_identifier(&label, false);
         code := match(arg_codes.get_cloned(pi), .Some(c) => c, .None => String.from("0"));
-        context.base.emitter.emit_string_line(`${inner}${get_variable_type_string(&pt, cname.clone(), &mut context.base)} = ${code};`);
+        emit_text10 := `${inner}${get_variable_type_string(&pt, cname.clone(), &mut context.base)} = ${code};`;
+        context.base.emitter.emit_string_line(&emit_text10);
         context.base.emitter.emit_string_line(`${inner}(void)${cname.clone()};`);
         declare_c_var_name(&context.base, &cname);
       });
@@ -4000,7 +4018,8 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
   // Allocation + initialization (body code).
   result_var := sanitize_for_c_identifier(match(&ei.variable_name, .Some(n) => n.clone(), .None => `__io_async_result_${ast_expr_id(expr).to_string()}`), false);
   var_type_and_name := get_variable_type_string(&future_type, result_var.clone(), &mut context.base);
-  context.base.emitter.emit_string_line(`${indent.clone()}${var_type_and_name} = (${struct_name.clone()}*)${_sm_alloc_call(struct_name.clone(), dispose_function_name.clone(), context)};`);
+  emit_text11 := `${indent.clone()}${var_type_and_name} = (${struct_name.clone()}*)${_sm_alloc_call(struct_name.clone(), dispose_function_name.clone(), context)};`;
+  context.base.emitter.emit_string_line(&emit_text11);
   context.base.emitter.emit_string_line(`${indent.clone()}memset(${result_var.clone()}, 0, sizeof(${struct_name.clone()}));`);
   context.base.emitter.emit_string_line(`${indent.clone()}${result_var.clone()}->header.ref_count = 1u;`);
   tid := context.base.dispose_type_id_for(dispose_function_name.clone());

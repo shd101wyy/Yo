@@ -358,7 +358,10 @@ generate_assignment :: (fn(expr : &AstExpr, indent : &String, context : &mut Fun
     // store below both read and write through it.
     match(
       &place_ptr,
-      .Some(pp) => context.base.emitter.emit_string_line(`${indent.clone()}${get_type_string(&lhs_type, &mut context.base)}* ${pp} = &(${lhs_code}); // Evaluate the place once`),
+      .Some(pp) => {
+        emit_text1 := `${indent.clone()}${get_type_string(&lhs_type, &mut context.base)}* ${pp} = &(${lhs_code}); // Evaluate the place once`;
+        context.base.emitter.emit_string_line(&emit_text1);
+      },
       .None => ()
     );
     match(sm_save_line, .Some(sl) => context.base.emitter.emit_string_line(&sl), .None => ());
@@ -407,7 +410,10 @@ generate_assignment :: (fn(expr : &AstExpr, indent : &String, context : &mut Fun
     // store below both read and write through it.
     match(
       place_ptr,
-      .Some(pp) => context.base.emitter.emit_string_line(`${indent.clone()}${get_type_string(&lhs_type, &mut context.base)}* ${pp} = &(${lhs_code}); // Evaluate the place once`),
+      .Some(pp) => {
+        emit_text2 := `${indent.clone()}${get_type_string(&lhs_type, &mut context.base)}* ${pp} = &(${lhs_code}); // Evaluate the place once`;
+        context.base.emitter.emit_string_line(&emit_text2);
+      },
       .None => ()
     );
     match(sm_save_line, .Some(sl) => context.base.emitter.emit_string_line(&sl), .None => ());
