@@ -149,7 +149,7 @@ _is_origin_operand :: (fn(e : &AstExpr, env : &Environment) -> bool)(
     ast_expr_is_fn_call_of(e, "origin", .None) => true,
     ast_expr_is_fn_call_of(e, BK_TUPLE, .None) => true,
     ast_expr_is_atom(e) => match(
-      get_variables_from_env(env, &ast_expr_token(e).value.*).last(),
+      get_variables_from_env(env, &ast_expr_token(e).value.*).last_cloned(),
       .Some(v) => !is_type_hierarchy_type(&variable_value_type(&v)),
       .None => false
     ),
@@ -176,7 +176,7 @@ evaluate_future_type :: (
     o_ev := evaluate_origin_argument(&last_arg, env, ctx, exn);
     origin_type = match(
       expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&o_ev)),
-      .Some(oi) => match(oi.value, .Some(.TypeVal(ot)) => Rc.clone(ot), _ => t_origin_elided()),
+      .Some(oi) => match(oi.value(), .Some(.TypeVal(ot)) => Rc.clone(ot), _ => t_origin_elided()),
       .None => t_origin_elided()
     );
     _dropped := expr_args.pop();

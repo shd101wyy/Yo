@@ -1906,7 +1906,7 @@ reject_second_class_result_outliving :: (
         while(ri < roots.len(), ri = (ri + usize(1)), {
           rp := roots(ri).place.clone();
           match(
-            get_variables_from_env(env, rp.root_name.clone()).last(),
+            get_variables_from_env(env, rp.root_name.clone()).last_cloned(),
             .Some(rv) => match(
               _find_var_by_id(env, rv.id()),
               .Some(root_at) => if(root_at.1 >= scope_frame, {
@@ -8234,7 +8234,7 @@ _future_value_roots_into :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalCon
       while(fi < frs.len(), fi = (fi + usize(1)), {
         fr := frs(fi).clone();
         match(
-          get_variables_from_env(env, fr.name.clone()).last(),
+          get_variables_from_env(env, fr.name.clone()).last_cloned(),
           .Some(rv) => {
             place := local_borrow_place_of_variable(&rv);
             (pi : usize) = usize(0);

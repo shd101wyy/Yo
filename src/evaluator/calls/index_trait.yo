@@ -2232,7 +2232,7 @@ _place_chain_type :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext) -
   match(
     e,
     .Atom(_, pc_tok) => match(
-      get_variables_from_env(env, pc_tok.value.*.clone()).last(),
+      get_variables_from_env(env, pc_tok.value.*.clone()).last_cloned(),
       .Some(pc_v) => cond(
         pc_v.is_compile_time_only() => Option(TypeValue).None,
         true => Option(TypeValue).Some(variable_value_type(&pc_v))
@@ -2292,7 +2292,7 @@ _is_index_place :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext) -> 
 _is_reference_binding_atom :: (fn(e : &AstExpr, env : &Environment) -> bool)(
   match(
     e,
-    .Atom(_, rb_tok) => match(get_variables_from_env(env, rb_tok.value.*.clone()).last(), .Some(rb_v) => variable_is_reference_binding(&rb_v), .None => false),
+    .Atom(_, rb_tok) => match(get_variables_from_env(env, rb_tok.value.*.clone()).last_cloned(), .Some(rb_v) => variable_is_reference_binding(&rb_v), .None => false),
     .FnCall(_, _, _, _, _) => false
   )
 );
