@@ -14,7 +14,14 @@ dropped the binding's never-stored slot.
 { yield } :: import("std/async");
 (mut(g_disposed) : i32) = i32(0);
 V :: struct(n : i32);
-impl(V, Drop(drop : (fn(self : &mut Self) -> unit)({ g_disposed = (g_disposed + i32(1)); })));
+impl(
+  V,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_disposed = (g_disposed + i32(1));
+    })
+  )
+);
 _task :: (fn(io : Io) -> Impl(Future(i32, Io)))(
   io.async((io : Io) => {
     io.await(yield(io), io); // abort here: `v` was never stored
