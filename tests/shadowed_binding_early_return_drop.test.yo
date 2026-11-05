@@ -381,6 +381,104 @@ test("nested shadowing arm bindings are each dropped once", {
   };
   assert(g_sh_drops == i32(20), `each payload is dropped once, drops=${_sh_n()}`);
 });
+// The outer arm's binding is read again after the inner arm that shadows it
+// closed: the read is the outer binding's, not the enclosing local's.
+test("an arm binding read after a nested arm that shadows it is its own", {
+  g_sh_drops = i32(0);
+  {
+    parsed := _ShV(tag : i32(1));
+    inner := match(
+      _sh_find(),
+      .Some(parsed) => {
+        nested := match(_sh_find(), .Some(parsed) => (parsed.tag * i32(10)), .None => i32(0));
+        nested + parsed.tag
+      },
+      .None => i32(0)
+    );
+    assert(inner == i32(110), `each arm reads its own binding, inner=${inner.to_string()}`);
+    assert(parsed.tag == i32(1), "the enclosing local is untouched");
+  };
+  assert(g_sh_drops == i32(21), `each value is dropped once, drops=${_sh_n()}`);
+});
+// An early return from a nested arm whose binding shadows the outer arm's
+// and the enclosing local: all three are dropped once.
+_sh_early_nested :: (fn(flag : bool) -> i32)({
+  parsed := _ShV(tag : i32(1));
+  inner := match(
+    _sh_find(),
+    .Some(parsed) => match(
+      _sh_find(),
+      .Some(parsed) => {
+        if(flag, {
+          return(parsed.tag + i32(100));
+        });
+        parsed.tag
+      },
+      .None => i32(0)
+    ),
+    .None => i32(0)
+  );
+  parsed.tag + inner
+});
+test("an early return from a nested shadowing arm drops every value once", {
+  g_sh_drops = i32(0);
+  assert(_sh_early_nested(true) == i32(110), "the early path");
+  assert(g_sh_drops == i32(21), `the early path drops each value once, drops=${_sh_n()}`);
+  g_sh_drops = i32(0);
+  assert(_sh_early_nested(false) == i32(11), "the normal path");
+  assert(g_sh_drops == i32(21), `the normal path drops each value once, drops=${_sh_n()}`);
+});
+// An unwind out of a shadowing arm drops the binding and the enclosing local.
+_sh_check :: (fn(fail : bool, exn : Exception) -> i32)({
+  if(fail, {
+    exn.throw(dyn(String.from("unwind")));
+  });
+  i32(0)
+});
+_sh_unwind :: (fn(fail : bool, exn : Exception) -> i32)({
+  parsed := _ShV(tag : i32(1));
+  inner := match(_sh_find(), .Some(parsed) => (parsed.tag + _sh_check(fail, exn)), .None => i32(0));
+  parsed.tag + inner
+});
+_sh_unwind_run :: (fn(fail : bool) -> i32)({
+  exn := Exception(throw : (_err -> unwind(i32(99))));
+  _sh_unwind(fail, exn)
+});
+test("an unwind out of a shadowing arm drops the binding and the local once", {
+  g_sh_drops = i32(0);
+  assert(_sh_unwind_run(true) == i32(99), "the call unwound");
+  assert(g_sh_drops == i32(11), `the unwind drops each value once, drops=${_sh_n()}`);
+  g_sh_drops = i32(0);
+  assert(_sh_unwind_run(false) == i32(11), "no unwind");
+  assert(g_sh_drops == i32(11), `the normal path drops each value once, drops=${_sh_n()}`);
+});
+// An early return from a shadowing arm inside an async body, across awaits.
+test("an early return from a shadowing arm in an async body drops each value once", {
+  g_sh_drops = i32(0);
+  drive := (fn(flag : bool, rio : Io) -> Impl(Future(i32, Io)))(
+    rio.async((aio : Io) => {
+      parsed := Rc.new(_ShV(tag : i32(1)));
+      aio.await(yield(aio), aio);
+      inner := match(
+        _sh_find_cargo(),
+        .Some(parsed) => {
+          if(flag, {
+            return(parsed.tag + i32(100));
+          });
+          parsed.tag
+        },
+        .None => i32(0)
+      );
+      aio.await(yield(aio), aio);
+      parsed.tag + inner
+    })
+  );
+  assert(io.await(drive(true, io), io) == i32(110), "the early path");
+  assert(g_sh_drops == i32(11), `the early path drops each value once, drops=${_sh_n()}`);
+  g_sh_drops = i32(0);
+  assert(io.await(drive(false, io), io) == i32(11), "the normal path");
+  assert(g_sh_drops == i32(11), `the normal path drops each value once, drops=${_sh_n()}`);
+});
 // A String payload: the leak verdict (LeakSanitizer) is the oracle.
 _sh_find_label :: (fn() -> Option(String))(Option(String).Some(String.from("inner-label")));
 test("a shadowing arm binding of a String payload is released", {
