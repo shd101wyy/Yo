@@ -505,3 +505,30 @@ test("a shadowing nullable-pointer arm binding in an async body is dropped once"
   assert(io.await(drive(io), io) == i32(11), "each binding reads its own value");
   assert(g_sh_drops == i32(11), `each value is dropped once, drops=${_sh_n()}`);
 });
+// A `&` match's binding is a pointer into the scrutinee (decision 43), read
+// through. One that shadows an enclosing local is declared under its own C
+// name, and it is still read through that pointer.
+_ShTwo :: enum(Two(x : i32, y : i32), One(n : i32));
+test("a shadowing binding of a borrowed match reads through its pointer", {
+  y := i32(5);
+  e := _ShTwo.Two(x : i32(1), y : i32(2));
+  got := match(&e, .Two(_, y) => (y.* + i32(10)), _ => i32(-1));
+  assert(got == i32(12), `the binding reads the payload, got=${got}`);
+  assert(y == i32(5), "the enclosing local is untouched");
+});
+// Only the outer binding of a nested same-named pair is a pointer: the inner
+// by-value binding is read as a value, and the outer one through its pointer
+// again once the inner arm closes.
+test("nested same-named borrowed and by-value bindings each read their own way", {
+  e := _ShTwo.Two(x : i32(1), y : i32(2));
+  o := Option(i32).Some(i32(9));
+  got := match(
+    &e,
+    .Two(v, _) => {
+      inner := match(o, .Some(v) => (v + i32(100)), .None => i32(0));
+      (inner + v.*)
+    },
+    _ => i32(-1)
+  );
+  assert(got == i32(110), `inner reads 9, outer reads 1, got=${got}`);
+});
