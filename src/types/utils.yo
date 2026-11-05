@@ -1126,8 +1126,8 @@ capture_struct_typed_fnmut :: (fn(ty : &TypeValue) -> bool)(
 /// "writes a `&mut` capture" read structurally as "holds one" (VERDICTS-15
 /// Q4′; decision 38's "a `FnMut` closure (one holding a `&mut` capture)") —
 /// or the closure is typed `FnMut(...)`. The one predicate behind the
-/// `Fn`-slot exemption, `YO_AUDIT_FNMUT`, the `Sync`-slot rejection, `Dyn`
-/// boxing and the closure's `Copy`/`Clone`.
+/// `Fn`-slot rejection (E0913), the `Sync`-slot rejection, `Dyn` boxing and
+/// the closure's `Copy`/`Clone`.
 capture_struct_is_fnmut :: (fn(ty : &TypeValue) -> bool)(
   type_first_mut_borrow(ty).is_some() || capture_struct_typed_fnmut(ty)
 );
@@ -4557,9 +4557,8 @@ fn_trait_call_func_type :: (fn(ty : &TypeValue) -> Option(TypeValue))(
 /// so (an `Impl(FnMut(...))` value, a `Dyn(FnMut(...))`, a type variable
 /// bounded by `FnMut`), or its capture record is a typed `FnMut` closure's.
 /// Its call is a `&mut self` receiver call. A closure that is `FnMut` only by
-/// its `&mut` captures (`capture_struct_is_fnmut`) and was typed against an
-/// `Fn(...)` slot is still called through that slot's shared borrow until N3
-/// (`fn_slot_admits_capture_fnmut`).
+/// its `&mut` captures (`capture_struct_is_fnmut`) never reaches an `Fn(...)`
+/// slot: that is E0913 (`judge_capture_fnmut_at_fn_slot`, decision 43 N3).
 ///
 /// The trait a slot gives the value decides first: an `FnMut` closure moved
 /// into an `Impl(FnOnce(...))` parameter is called there as an `FnOnce`,

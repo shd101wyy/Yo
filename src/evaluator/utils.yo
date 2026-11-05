@@ -2653,34 +2653,18 @@ global_require_mut :: (fn(gv : &Variable, tok : &Token, how : &String, ctx : &Ev
 (g_audit_mut_bindings : bool) = debug_knob(`YO_AUDIT_MUT_BINDINGS`).is_some();
 mut_binding_audit_enabled :: (fn() -> bool)(g_audit_mut_bindings);
 // ---------------------------------------------------------------------------
-// Decision 43 N1f: a closure that is `FnMut` by its captures at an `Fn` slot
+// Decision 43 N1f/N3: a closure that is `FnMut` by its captures at an `Fn` slot
 // ---------------------------------------------------------------------------
-/// The census knob for N1f's one-release exemption, `YO_AUDIT_FNMUT=1`
-/// (VERDICTS-15 Q5): each closure the exemption admits prints one stderr
-/// line, `file:line:col [fnmut] slot=<the slot's type> captures=<names>`,
-/// once per site; nothing is rejected either way. Its count over std and
-/// src sizes N3's switch of std's slots to `FnMut(...)`.
-(g_audit_fnmut : bool) = debug_knob(`YO_AUDIT_FNMUT`).is_some();
 /// A closure holding a `&mut` capture is `FnMut` by decision 37 (its call
 /// writes through the capture, decision 38's "a `FnMut` closure (one holding
 /// a `&mut` capture)"), and an `Fn(...)` slot calls through a shared borrow.
-/// Until std's call-repeatedly slots take `FnMut(...)` (decision 43 N3), a
-/// closure whose trait came from an `Fn(...)` slot — a literal at the slot,
-/// or an unannotated closure value reaching one — and is `FnMut` only by its
-/// captures is still admitted, as it was before `FnMut` existed: the write
-/// goes through the capture's pointer (decision 37's phase note; VERDICTS-1
-/// Q10, VERDICTS-15 Q4). This is that exemption, the one predicate N3
-/// deletes in the PR that switches std's slots
-/// (plans/backlog/SEED_VERSION_AUTOMATION.md). It does not cover a value
-/// TYPED `FnMut(...)` reaching an `Fn(...)` slot or a `Dyn(Fn(...))`
-/// (E0913), a write of a by-value entry under an `Fn(...)` slot (E0917), or
-/// a `Sync` slot (rejected naming `FnMut`, `utils/closure.yo`).
-fn_slot_admits_capture_fnmut :: (fn() -> bool)(true);
 /// The closure `closure_ty` reaches the `Fn(...)` slot `slot` (a parameter,
-/// an annotation, a `Dyn(Fn(...))`) and is `FnMut` by its captures alone
-/// (`capture_struct_is_fnmut`, VERDICTS-15 Q4′). `fn_slot_admits_capture_fnmut`
-/// admits it (the census line is printed); past the exemption it is E0913.
-/// Nothing happens for any other closure.
+/// an annotation, a `Dyn(Fn(...))`, a type variable bounded by `Fn(...)`) and
+/// is `FnMut` by its captures alone (`capture_struct_is_fnmut`, VERDICTS-15
+/// Q4′): E0913. std's call-repeatedly slots take `FnMut(...)` since N3, which
+/// deleted N1f's one-release exemption (VERDICTS-1 Q10). Nothing happens for
+/// any other closure; a value TYPED `FnMut(...)` at an `Fn(...)` slot is the
+/// argument check's E0913, a `Sync` slot is `utils/closure.yo`'s.
 judge_capture_fnmut_at_fn_slot :: (fn(tok : &Token, slot : &TypeValue, closure_ty : &TypeValue, ctx : &EvalContext, exn : Exception) -> unit)({
   if(!capture_struct_is_fnmut(closure_ty), {
     return(());
@@ -2700,12 +2684,6 @@ judge_capture_fnmut_at_fn_slot :: (fn(tok : &Token, slot : &TypeValue, closure_t
       }),
       .None => ()
     );
-  });
-  if(g_audit_fnmut, {
-    global_lend_audit_print(&`${global_lend_location(tok)} [fnmut] slot=${type_to_string(slot)} captures=${names}`);
-  });
-  if(fn_slot_admits_capture_fnmut(), {
-    return(());
   });
   raise_flow_violation(
     with_code(
@@ -8967,4 +8945,4 @@ export(
 );
 export(global_lend_audit_enabled, global_lend_audit_print, global_lend_location, global_lend_key);
 export(GlobalPlacePath, global_place_path, GlobalHandleLend, global_note_handle_mutcall, global_note_handle_write, global_note_handle_lend, global_mut_rule_applies, global_require_mut);
-export(judge_capture_fnmut_at_fn_slot, fn_slot_admits_capture_fnmut, mut_binding_audit_enabled, reject_malformed_mut_marker, reject_malformed_pattern_mut_markers, binding_require_mut, place_require_mut);
+export(judge_capture_fnmut_at_fn_slot, mut_binding_audit_enabled, reject_malformed_mut_marker, reject_malformed_pattern_mut_markers, binding_require_mut, place_require_mut);
