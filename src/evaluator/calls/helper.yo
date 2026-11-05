@@ -3940,7 +3940,7 @@ create_specialized_function_inline :: (
           push_bindings_sig := _impl_type_captures_sig(original_func_val);
           // A closure's body is generic when the body it is specialized in is.
           spec_generic_body := cond(
-            is_closure_fn(func_id.clone()) => match(prev_spec, .Some(ps) => ps.is_generic_body, .None => false),
+            is_closure_fn(func_id.clone()) => match(&prev_spec, .Some(ps) => ps.is_generic_body, .None => false),
             true => ((forall_names.len() > usize(0)) || !push_bindings_sig.is_empty())
           );
           spec_stack.push(
