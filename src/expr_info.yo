@@ -54,7 +54,7 @@ pragma(Pragma.AllowUnsafe);
   BK_BREAK
 } :: import("./expr.yo");
 { cloned_expr_node_count, ast_expr_token } :: import("./expr.yo");
-{ Environment, Variable, expr_info_env_snapshot, snapshot_env, snapshot_ring_stats, Frame, get_variables_from_env, get_variables_from_env_after, env_frames_extend, env_common_prefix_len, env_common_prefix_len_by_id, get_variables_from_env_before, copy_env_frames, mut_census_trusted, mut_census_key } :: import("./env.yo");
+{ Environment, Variable, expr_info_env_snapshot, snapshot_env, snapshot_ring_stats, Frame, get_variables_from_env, get_variables_from_env_after, env_frames_extend, env_common_prefix_len, env_common_prefix_len_by_id, get_variables_from_env_before, copy_env_frames, mut_census_trusted, mut_census_key, make_environment } :: import("./env.yo");
 { Token } :: import("./token.yo");
 { record_owned_expr_id } :: import("./evaluator/values/type_trait_methods.yo");
 { AwaitAnalysisResult } :: import("./evaluator/async/await_analysis_types.yo");
@@ -1326,7 +1326,7 @@ _scope_keeps_env :: (fn(id : ExprId, info : &ExprInfo) -> bool)(
   _scope_type_installs(&info.ty()) || _scope_value_installs(&info.value()) || _scope_value_installs(lookup_method_callee_value(id))
 );
 scope_release_body :: (fn(mark : usize, entry : &Environment) -> unit)({
-  husk := Environment(frames : Rc.new(copy_env_frames(entry)), module_path : Rc.clone(entry.module_path()), function_declaration_frame_level : Option(usize).Some(SCOPE_HUSK_MARK), frozen : true);
+  husk := make_environment(frames : Rc.new(copy_env_frames(entry)), module_path : Rc.clone(entry.module_path()), function_declaration_frame_level : Option(usize).Some(SCOPE_HUSK_MARK), frozen : true);
   (i : usize) = mark;
   while(i < g_scope_log_ids.with(xs => xs.len()), {
     id := g_scope_log_ids.with(xs => xs.get(i)).unwrap();
