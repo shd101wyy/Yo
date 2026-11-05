@@ -68,3 +68,7 @@ that some emitter renders correctly today would switch to the runtime path.
 The four shapes above, as a local, a struct field and a module-level global, added to
 `tests/array.test.yo` (the array shapes) and `tests/basic.test.yo` (the tuple shape). Before the
 fix the batch fails in the C compiler with `expected expression`.
+
+V5 part B (2026-11-05) met the tuple shape once `ref` constructors became calls:
+`tests/rc.test.yo`'s "a ref with Drop nested 40 struct and tuple levels deep is dropped once" binds
+its `Rc.new(...)` cell to a local before the literal. The fix writes it inline again.
