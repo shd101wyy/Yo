@@ -20,6 +20,7 @@ pragma(Pragma.AllowUnsafe);
   ast_expr_id,
   ast_expr_is_atom,
   ast_expr_is_atom_of,
+  ast_expr_is_fn_call,
   ast_expr_is_fn_call_of,
   ast_expr_to_string,
   make_err_expr,
@@ -6756,11 +6757,14 @@ local_borrow_is_binding_stmt :: (fn(stmt : &AstExpr) -> bool)(
 /// source froze. Whether the value borrows is known only once it is
 /// evaluated, so every such binding is handed the look-ahead; one that binds
 /// a plain value leaves it unused.
+/// A destructuring `(p, q) := call(...)` is handed it too: each name whose
+/// element carries an origin freezes what the call lent until its own last
+/// use (N2b's binding freeze).
 local_borrow_may_bind_projection_stmt :: (fn(stmt : &AstExpr) -> bool)(
   ast_expr_is_fn_call_of(stmt, BK_INIT_ASSIGN, Option(usize).Some(usize(2))) && match(
     stmt,
     .FnCall(_, _, Rc(sargs), _, _) => (
-      match(sargs.get(usize(0)), .Some(l) => ast_expr_is_atom(&l), .None => false) && match(
+      match(sargs.get(usize(0)), .Some(l) => (ast_expr_is_atom(&l) || ast_expr_is_fn_call(&l)), .None => false) && match(
         sargs.get(usize(1)),
         .Some(.FnCall(_, _, _, r_infix, _)) => !r_infix,
         .Some(.Atom(_, _)) => true,
