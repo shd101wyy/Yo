@@ -32,7 +32,7 @@ import("std/fmt");
   ControlFlowFlags,
   control_flow_of
 } :: import("../../src/expr_info.yo");
-{ Environment, add_variable_to_env } :: import("../../src/env.yo");
+{ Environment, add_variable_to_env, new_environment } :: import("../../src/env.yo");
 { EvalContext, eval_context_new } :: import("../../src/evaluator/context.yo");
 { EvalValue } :: import("../../src/value.yo");
 { TypeValue } :: import("../../src/types/definitions.yo");
@@ -90,7 +90,7 @@ stub_eval_bool :: (
   ) -> AstExpr
 )({
   info := new_expr_info(env, t_bool());
-  info.value = .Some(EvalValue.BoolVal(true));
+  info.set_value(.Some(EvalValue.BoolVal(true)));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
   expr.*
 });
@@ -103,7 +103,7 @@ stub_eval_i32 :: (
   ) -> AstExpr
 )({
   info := new_expr_info(env, t_i32());
-  info.value = .Some(EvalValue.IntLit(String.from("42")));
+  info.set_value(.Some(EvalValue.IntLit(String.from("42"))));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
   expr.*
 });
@@ -120,7 +120,7 @@ stub_eval_bool_raw :: (
 )({
   exn;
   info := new_expr_info(env, t_bool());
-  info.value = .Some(EvalValue.BoolVal(true));
+  info.set_value(.Some(EvalValue.BoolVal(true)));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
   expr.*
 });
@@ -134,7 +134,7 @@ stub_eval_i32_raw :: (
 )({
   exn;
   info := new_expr_info(env, t_i32());
-  info.value = .Some(EvalValue.IntLit(String.from("42")));
+  info.set_value(.Some(EvalValue.IntLit(String.from("42"))));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
   expr.*
 });
@@ -192,7 +192,7 @@ test("evaluate_assignment: atom LHS — ExprInfo set with unit type", {
     )
   );
   ctx := eval_context_new(String.from("/std"), String.from("test"));
-  (env : Environment) = Environment.new(Rc.new(String.from("test")));
+  (env : Environment) = new_environment(Rc.new(String.from("test")));
   env.push_frame(false);
   tok := mk_token(TokenKind.Identifier, "x");
   _v := add_variable_to_env(
@@ -225,7 +225,7 @@ test("evaluate_assignment: atom LHS reassignment — ExprInfo carries old value/
     )
   );
   ctx := eval_context_new(String.from("/std"), String.from("test"));
-  (env : Environment) = Environment.new(Rc.new(String.from("test")));
+  (env : Environment) = new_environment(Rc.new(String.from("test")));
   env.push_frame(false);
   tok := mk_token(TokenKind.Identifier, "x");
   _v := add_variable_to_env(
@@ -252,11 +252,11 @@ test("evaluate_assignment: atom LHS reassignment — ExprInfo carries old value/
     info_opt,
     .Some(info) => {
       assert(
-        match(info.value, .Some(_) => false, .None => true),
+        match(info.value(), .Some(_) => false, .None => true),
         "reassignment info carries the (absent) old value, not UnitVal"
       );
       assert(
-        match(&info.ty, Rc(.BoolT) => true, _ => false),
+        match(&info.ty(), Rc(.BoolT) => true, _ => false),
         "reassignment info type is the variable's type"
       );
     },
@@ -278,7 +278,7 @@ test_assign_missing_var_throws :: (fn() -> bool)({
     )
   );
   ctx := eval_context_new(String.from("/std"), String.from("test"));
-  (env : Environment) = Environment.new(Rc.new(String.from("test")));
+  (env : Environment) = new_environment(Rc.new(String.from("test")));
   env.push_frame(false);
   // No variable added — "missing_var" will not be found.
   lhs := mk_ident(usize(50), "missing_var");
@@ -302,7 +302,7 @@ test_assign_non_reassignable_throws :: (fn() -> bool)({
     )
   );
   ctx := eval_context_new(String.from("/std"), String.from("test"));
-  (env : Environment) = Environment.new(Rc.new(String.from("test")));
+  (env : Environment) = new_environment(Rc.new(String.from("test")));
   env.push_frame(false);
   tok := mk_token(TokenKind.Identifier, "x");
   _v := add_variable_to_env(
@@ -338,7 +338,7 @@ test_assign_type_mismatch_throws :: (fn() -> bool)({
     )
   );
   ctx := eval_context_new(String.from("/std"), String.from("test"));
-  (env : Environment) = Environment.new(Rc.new(String.from("test")));
+  (env : Environment) = new_environment(Rc.new(String.from("test")));
   env.push_frame(false);
   tok := mk_token(TokenKind.Identifier, "x");
   _v := add_variable_to_env(

@@ -12,7 +12,7 @@ import("std/fmt");
 { AstExpr, ast_expr_id } :: import("../../src/expr.yo");
 { ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set }
 :: import("../../src/expr_info.yo");
-{ Environment, add_variable_to_env } :: import("../../src/env.yo");
+{ Environment, add_variable_to_env, new_environment } :: import("../../src/env.yo");
 { EvalContext, eval_context_new } :: import("../../src/evaluator/context.yo");
 { EvalValue, is_type_val } :: import("../../src/value.yo");
 { TypeValue } :: import("../../src/types/definitions.yo");
@@ -60,7 +60,7 @@ test("evaluate_identifier_and_operator: builtin keyword i32 → TypeVal", {
       }
     )
   );
-  env := Environment.new(Rc.new(String.from("test")));
+  env := new_environment(Rc.new(String.from("test")));
   ctx := eval_context_new(String.from(""), String.from("test"));
   expr := mk_ident(usize(1), "i32");
   evaluate_identifier_and_operator(&expr, &env, &ctx, true, exn);
@@ -69,9 +69,9 @@ test("evaluate_identifier_and_operator: builtin keyword i32 → TypeVal", {
   match(
     info_opt,
     .Some(info) => {
-      assert(info.value.is_some(), "value is present for i32");
+      assert(info.value().is_some(), "value is present for i32");
       match(
-        info.value,
+        info.value(),
         .Some(v) => assert(is_type_val(&v), "value is TypeVal for i32"),
         .None => assert(false, "no value for i32 keyword")
       );
@@ -89,7 +89,7 @@ test("evaluate_identifier_and_operator: builtin keyword bool → TypeVal", {
       }
     )
   );
-  env := Environment.new(Rc.new(String.from("test")));
+  env := new_environment(Rc.new(String.from("test")));
   ctx := eval_context_new(String.from(""), String.from("test"));
   expr := mk_ident(usize(2), "bool");
   evaluate_identifier_and_operator(&expr, &env, &ctx, true, exn);
@@ -97,7 +97,7 @@ test("evaluate_identifier_and_operator: builtin keyword bool → TypeVal", {
   assert(info_opt.is_some(), "ExprInfo set for bool");
   match(
     info_opt,
-    .Some(info) => assert(info.value.is_some(), "value is TypeVal for bool"),
+    .Some(info) => assert(info.value().is_some(), "value is TypeVal for bool"),
     .None => assert(false, "no ExprInfo for bool")
   );
 });
@@ -111,7 +111,7 @@ test("evaluate_identifier_and_operator: defined variable returns type and value"
       }
     )
   );
-  env := Environment.new(Rc.new(String.from("test")));
+  env := new_environment(Rc.new(String.from("test")));
   tok := mk_ident_token("x");
   add_variable_to_env(
     &env,
@@ -138,7 +138,7 @@ test("evaluate_identifier_and_operator: defined variable returns type and value"
     .Some(info) => {
       // Value should be IntLit("42")
       match(
-        info.value,
+        info.value(),
         .Some(v) => match(
           v,
           .IntLit(s) => assert(s == "42", "value is IntLit 42"),
@@ -159,7 +159,7 @@ test("evaluate_identifier_and_operator: undefined variable throws", {
       }
     )
   );
-  env := Environment.new(Rc.new(String.from("test")));
+  env := new_environment(Rc.new(String.from("test")));
   ctx := eval_context_new(String.from(""), String.from("test"));
   expr := mk_ident(usize(4), "undefined_var");
   evaluate_identifier_and_operator(&expr, &env, &ctx, true, exn);
@@ -176,7 +176,7 @@ test("evaluate_identifier_and_operator: throw_error_on_undefined=false on uninit
       }
     )
   );
-  env := Environment.new(Rc.new(String.from("test")));
+  env := new_environment(Rc.new(String.from("test")));
   tok := mk_ident_token("y");
   // Add variable with no value (simulate uninitialized / forward reference)
   add_variable_to_env(

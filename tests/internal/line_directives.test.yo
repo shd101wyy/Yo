@@ -56,7 +56,7 @@ _line_directive_number :: (fn(line : &String) -> usize)({
   )
 });
 test("emitter emits a #line per position change and none for a repeat", {
-  em := Emitter.new();
+  mut(em) := Emitter.new();
   em.line_directives = true;
   em.line_c_name = String.from("out.c");
   em.emit_string_line(String.from("c1"));
@@ -84,7 +84,7 @@ test("emitter emits a #line per position change and none for a repeat", {
   assert(directives == usize(1), "exactly one user directive");
 });
 test("off by default: no directives without the flag", {
-  em := Emitter.new();
+  mut(em) := Emitter.new();
   em.emit_string_line(String.from("c1"));
   em.set_yo_line_position(String.from("app.yo"), u32(4));
   em.clear_yo_line_position();
@@ -93,7 +93,7 @@ test("off by default: no directives without the flag", {
   assert(!text.contains(String.from("#line")), "flag-off emission carries no directives");
 });
 test("restore directive numbers the NEXT physical line honestly", {
-  em := Emitter.new();
+  mut(em) := Emitter.new();
   em.line_directives = true;
   em.line_c_name = String.from("out.c");
   em.emit_header_line("h1");
@@ -129,7 +129,7 @@ test("restore directive numbers the NEXT physical line honestly", {
   assert(checked == usize(1), "exactly one restore");
 });
 test("file:// module paths print as plain paths", {
-  em := Emitter.new();
+  mut(em) := Emitter.new();
   em.line_directives = true;
   em.line_c_name = String.from("out.c");
   em.set_yo_line_position(String.from("file:///home/u/src/app.yo"), u32(41));

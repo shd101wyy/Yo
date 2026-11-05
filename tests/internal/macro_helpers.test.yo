@@ -14,7 +14,7 @@ import("std/fmt");
 { assert, panic } :: import("std/assert");
 { AstExpr, ast_expr_id, ast_expr_token } :: import("../../src/expr.yo");
 { expr_info_table_get } :: import("../../src/expr_info.yo");
-{ Environment } :: import("../../src/env.yo");
+{ Environment, new_environment } :: import("../../src/env.yo");
 { eval_context_new } :: import("../../src/evaluator/context.yo");
 { evaluate_gensym } :: import("../../src/evaluator/builtins/gensym.yo");
 noop_loader :: (fn(_path : &String) -> Option(EvalValue))(
@@ -243,13 +243,13 @@ test("macro helpers: a gensym'd token shares its source token's input", {
     input : Rc.clone(source)
   );
   call := AstExpr.FnCall(usize(900001), AstExpr.Atom(usize(900002), tok), Rc.new(ArrayList(AstExpr).new()), false, tok);
-  env := Environment.new(Rc.new(String.from("gensym_share_test.yo")));
+  env := new_environment(Rc.new(String.from("gensym_share_test.yo")));
   ctx := eval_context_new(String.from(""), String.from("gensym_share_test.yo"));
   _r := evaluate_gensym(&call, &env, &ctx, exn);
   match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&call)),
     .Some(info) => match(
-      info.value,
+      info.value(),
       .Some(v) => match(
         v,
         .ExprVal(atom) => {

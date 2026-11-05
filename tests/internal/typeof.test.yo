@@ -9,7 +9,7 @@ import("std/fmt");
 { AstExpr, ast_expr_id, BF_TYPE_OF } :: import("../../src/expr.yo");
 { ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set }
 :: import("../../src/expr_info.yo");
-{ Environment } :: import("../../src/env.yo");
+{ Environment, new_environment } :: import("../../src/env.yo");
 { EvalContext, eval_context_new } :: import("../../src/evaluator/context.yo");
 { EvalValue, create_type_value } :: import("../../src/value.yo");
 { TypeValue } :: import("../../src/types/definitions.yo");
@@ -70,7 +70,7 @@ test("evaluate_typeof: writes TypeVal(i32) into the side table for typeof(x)", {
     )
   );
   ctx := eval_context_new(String.from("/std"), String.from("test"));
-  env := Environment.new(Rc.new(String.from("test")));
+  env := new_environment(Rc.new(String.from("test")));
   call := mk_typeof_call(usize(7), "x", usize(42));
   result := evaluate_typeof(&call, &env, &ctx, exn);
   // Side-effect: typeof's own ExprInfo is set with TypeVal(i32) and meta-type Type.
@@ -83,7 +83,7 @@ test("evaluate_typeof: writes TypeVal(i32) into the side table for typeof(x)", {
   );
   // value should be Some(TypeVal(i32))
   match(
-    info.value,
+    info.value(),
     .Some(v) => match(
       v,
       .TypeVal(ty) => match(
@@ -100,7 +100,7 @@ test("evaluate_typeof: writes TypeVal(i32) into the side table for typeof(x)", {
   );
   // Meta type stored in info.ty should equal type_of_type(i32) = TypeUni(0)
   match(
-    &info.ty,
+    &info.ty(),
     Rc(.TypeUni(_)) => (),
     _ => assert(false, "expected meta type = TypeUni")
   );
