@@ -1,0 +1,47 @@
+// An aborted task drops a temporary's task slot before the temporary is
+// stored: the plain `Drop` struct's `drop` runs on zeroes. Expected output:
+// "aborted before the temp: 0"; develop 58ec8be03 prints 1
+// (issues/2026-11-05-an-aborted-task-drops-a-temporary-s-slot-before-it-is-stored.md).
+{ println } :: import("std/fmt");
+{ yield } :: import("std/async");
+(mut(g_disposed) : i32) = i32(0);
+V :: struct(n : i32);
+impl(
+  V,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_disposed = (g_disposed + i32(1));
+    })
+  )
+);
+take2 :: (fn(v : V, k : i32) -> i32)(v.n + k);
+_leaf :: (fn(io : Io) -> Impl(Future(i32, Io)))(
+  io.async((io2 : Io) => {
+    io2.await(yield(io2), io2);
+    i32(1)
+  })
+);
+_task :: (fn(io : Io) -> Impl(Future(i32, Io)))(
+  io.async((io : Io) => {
+    io.await(yield(io), io);
+    take2(V(n : i32(3)), io.await(_leaf(io), io))
+  })
+);
+_settle :: (fn(io : Io) -> unit)({
+  (mut(spins) : i32) = i32(0);
+  while(spins < i32(50), {
+    io.await(yield(io), io);
+    spins = (spins + i32(1));
+  });
+});
+main :: (fn(io : Io) -> unit)({
+  {
+    h := io.spawn(_task(io), io);
+    h.abort();
+    _r := h.await(io);
+  };
+  _settle(io);
+  d := g_disposed;
+  println(`aborted before the temp: ${d}`);
+});
+export(main);
