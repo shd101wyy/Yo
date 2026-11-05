@@ -326,8 +326,11 @@ _exit_drop_variables :: (fn(exit_expr : &AstExpr, env : &Environment, var_name :
   rec
 });
 _emit_loop_body_drops_before_exit :: (fn(context : &mut FunctionGenerationContext, indent : &String, exit_expr : &AstExpr) -> unit)(
+  // A copy of the list (AST handles): emitting a drop writes `context`. The
+  // count is fixed before the loop, so drops pushed while emitting are not
+  // read either way.
   match(
-    &context.pending_deferred_drops,
+    context.pending_deferred_drops.clone(),
     .Some(drops) => match(
       context.loop_body_drops_baseline_count,
       .Some(baseline) => {
@@ -526,7 +529,7 @@ generate_atom :: (fn(expr : &AstExpr, context : &mut FunctionGenerationContext, 
   // --- control flow keywords ---
   if(tv == "continue", {
     match(
-      &context.base.current_continue_label,
+      context.base.current_continue_label.clone(),
       .Some(label) => {
         _emit_loop_body_drops_before_exit(context, indent.clone(), expr);
         generate_early_return_only_deferred_drop_expressions(expr, indent.clone(), context);
@@ -602,15 +605,14 @@ generate_atom :: (fn(expr : &AstExpr, context : &mut FunctionGenerationContext, 
           ),
           .None => ()
         );
-        // Pending deferred drops from enclosing scopes (SM fields only).
-        match(
-          &context.pending_deferred_drops,
-          .Some(pdd) => if(pdd.len() > usize(0), {
+        // Pending deferred drops from enclosing scopes (SM fields only). The
+        // list is read afresh at each step: emitting a drop writes `context`.
+        if(match(&context.pending_deferred_drops, .Some(pdd) => (pdd.len() > usize(0)), .None => false), {
             context.base.emitter.emit_string_line(`${indent.clone()}// Drop local variables before early completion`);
             (pdi : usize) = usize(0);
-            while(pdi < pdd.len(), {
+            while(pdi < match(&context.pending_deferred_drops, .Some(pdd) => pdd.len(), .None => usize(0)), {
               match(
-                pdd.get(pdi),
+                match(&context.pending_deferred_drops, .Some(pdd) => pdd.get_cloned(pdi), .None => Option(AstExpr).None),
                 // An owned capture list's drops belong to the dispose; a
                 // call-scoped share holds its +1 only once its dup is in scope
                 // (`_emit_loop_body_drops_before_exit`).
@@ -639,9 +641,7 @@ generate_atom :: (fn(expr : &AstExpr, context : &mut FunctionGenerationContext, 
               );
               pdi = (pdi + usize(1));
             });
-          }),
-          .None => ()
-        );
+        });
         context.base.emitter.emit_string_line(`${indent.clone()}// Early return - complete the result Future`);
         result_code := if(
           !is_unit_result,
