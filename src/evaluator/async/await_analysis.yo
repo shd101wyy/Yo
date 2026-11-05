@@ -249,7 +249,7 @@ get_future_variable_id_ :: (
     .None => {
       return(Option(String).None);
     },
-    .Some(i) => i
+    .Some(i) => Rc.clone(i)
   );
   vars := scope_variables(ast_expr_id(await_arg), &info.env(), await_var_name.clone());
   n := vars.len();
@@ -313,7 +313,7 @@ detect_await_expr_ :: (
         .None => {
           return(());
         },
-        .Some(i) => i
+        .Some(i) => Rc.clone(i)
       );
       // The argument's type must implement the Future trait
       future_type_val := await_info.ty();

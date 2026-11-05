@@ -1750,7 +1750,7 @@ finished_walk_for :: (fn(module_path : &String) -> Option(ModuleWalk))(
 reset_pending_def :: (fn(walk : &ModuleWalk, def : &PendingDef) -> unit)({
   // The walk's saved module frame — the live env may already have popped it
   // (the module finished), but the re-force re-binds through this very object.
-  f := walk.module_frame;
+  f := Rc.clone(walk.module_frame);
   // A FRESH list without the def's bindings, never an in-place drain: FuncVals
   // defined in this module captured slices of the old list (`CaptureSlice`,
   // memory plan §0.14), and a slice must not see its tail shift.
@@ -1806,7 +1806,7 @@ rebind_destructured_name :: (
     .Some(w) => w,
     .None => return(false)
   );
-  f := rw.module_frame;
+  f := Rc.clone(rw.module_frame);
   (i : usize) = f.variables_len();
   while(i > usize(0), {
     i = (i - usize(1));
@@ -2949,7 +2949,7 @@ module_walk_force_env :: (fn(walk : &ModuleWalk) -> Environment)({
     .None => ()
   );
   if(!has_module_frame, {
-    frames.push(walk.module_frame);
+    frames.push(Rc.clone(walk.module_frame));
   });
   make_environment(
     frames : Rc.new(frames),
