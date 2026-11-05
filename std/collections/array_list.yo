@@ -1355,7 +1355,7 @@ impl(
 /// written inline in both phases: a nested named fn cannot capture `ptr`/
 /// `less`, and a bare closure binding has no target type to infer from.
 _heapsort_by :: (
-  fn(generic(T : Type), ptr : &*T, n : usize, less : &Impl(Fn(a : &T, b : &T) -> bool)) -> unit
+  fn(generic(T : Type), ptr : &*T, n : usize, less : &mut Impl(FnMut(a : &T, b : &T) -> bool)) -> unit
 )({
   // Phase 1: heapify (sift-down from the last parent to the root).
   (mut(i) : usize) = (n / usize(2));
@@ -1456,7 +1456,7 @@ _merge_sort_indices :: (
     scratch : &mut ArrayList(usize),
     ptr : &*T,
     n : usize,
-    less : &Impl(Fn(a : &T, b : &T) -> bool)
+    less : &mut Impl(FnMut(a : &T, b : &T) -> bool)
   ) -> unit
 )({
   (mut(width) : usize) = usize(1);
@@ -1499,7 +1499,7 @@ _merge_sort_indices :: (
   });
 });
 _stable_sort_by :: (
-  fn(generic(T : Type), ptr : &*T, n : usize, less : &Impl(Fn(a : &T, b : &T) -> bool)) -> unit
+  fn(generic(T : Type), ptr : &*T, n : usize, less : &mut Impl(FnMut(a : &T, b : &T) -> bool)) -> unit
 )({
   mut(order) := ArrayList(usize).new();
   mut(scratch) := ArrayList(usize).new();
@@ -1774,7 +1774,7 @@ impl(
   /// must come before `b`. STABLE: equal elements keep their input order,
   /// matching Rust's `sort_by`. Use `sort_unstable_by` for the
   /// allocation-free heapsort.
-  sort_by : (fn(self : &mut Self, less : &Impl(Fn(a : &T, b : &T) -> bool)) -> unit)({
+  sort_by : (fn(self : &mut Self, less : &mut Impl(FnMut(a : &T, b : &T) -> bool)) -> unit)({
     cond(
       (self._length <= usize(1)) => (),
       true => match(
@@ -1794,11 +1794,11 @@ impl(
     fn(
       generic(K : Type),
       self : &mut Self,
-      key : &Impl(Fn(v : &T) -> K),
+      key : &mut Impl(FnMut(v : &T) -> K),
       where(K <: Ord(K))
     ) -> unit
   )(
-    self.sort_by((a, b) => (key(a) < key(b)))
+    self.sort_by({ &mut key }(a, b) => (key(a) < key(b)))
   ),
   /// Binary search over a list ordered by `cmp` — Rust's `binary_search_by`.
   ///
@@ -1807,7 +1807,7 @@ impl(
   /// `T` to compare against — which is the whole reason to reach for this
   /// over `binary_search`. `.Ok(index)` of a match (any one of an equal run),
   /// or `.Err(insertion_index)`.
-  binary_search_by : (fn(self : &Self, cmp : &Impl(Fn(v : &T) -> Ordering)) -> Result(usize, usize))({
+  binary_search_by : (fn(self : &Self, cmp : &mut Impl(FnMut(v : &T) -> Ordering)) -> Result(usize, usize))({
     (mut(lo) : usize) = usize(0);
     (mut(hi) : usize) = self._length;
     (mut(found) : Option(usize)) = Option(usize).None;
@@ -1856,7 +1856,7 @@ impl(
   }),
   /// Sort by a caller-supplied strict "less" WITHOUT preserving the order of
   /// equal elements (heapsort). Rust's `sort_unstable_by`.
-  sort_unstable_by : (fn(self : &mut Self, less : &Impl(Fn(a : &T, b : &T) -> bool)) -> unit)({
+  sort_unstable_by : (fn(self : &mut Self, less : &mut Impl(FnMut(a : &T, b : &T) -> bool)) -> unit)({
     cond(
       (self._length <= usize(1)) => (),
       true => match(
@@ -1874,7 +1874,7 @@ impl(
   /// its elements' only owner (B8), so the move is exact for a move-only `T`;
   /// the old copy-then-`clear` shape was a copy of every element
   /// (issues/fixed/array-list-retain-is-quadratic.md has the earlier cuts).
-  retain : (fn(self : &mut Self, pred : &Impl(Fn(v : &T) -> bool)) -> unit)({
+  retain : (fn(self : &mut Self, pred : &mut Impl(FnMut(v : &T) -> bool)) -> unit)({
     n := self._length;
     mut(kept) := Self.with_capacity(n);
     match(

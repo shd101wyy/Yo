@@ -11450,7 +11450,7 @@ derive(generic(I : Type, B : Type, F : Type), where(I <: Clone, F <: Clone), Ite
 derive(generic(I : Type, B : Type, F : Type), where(I <: Copy, F <: Copy), IterMap(I, B, F), Copy);
 impl(
   generic(I : Type, A : Type, B : Type, F : Type),
-  where(I <: Iterator(Item := A), F <: (Fn(item : &A) -> B)),
+  where(I <: Iterator(Item := A), F <: (FnMut(item : &A) -> B)),
   IterMap(I, B, F),
   Iterator(
     Item : B,
@@ -11480,7 +11480,7 @@ derive(generic(I : Type, F : Type), where(I <: Clone, F <: Clone), IterFilter(I,
 derive(generic(I : Type, F : Type), where(I <: Copy, F <: Copy), IterFilter(I, F), Copy);
 impl(
   generic(I : Type, A : Type, F : Type),
-  where(I <: Iterator(Item := A), F <: (Fn(item : &A) -> bool)),
+  where(I <: Iterator(Item := A), F <: (FnMut(item : &A) -> bool)),
   IterFilter(I, F),
   Iterator(
     Item : A,
@@ -11699,7 +11699,7 @@ derive(generic(I : Type, F : Type), where(I <: Clone, F <: Clone), IterTakeWhile
 derive(generic(I : Type, F : Type), where(I <: Copy, F <: Copy), IterTakeWhile(I, F), Copy);
 impl(
   generic(I : Type, A : Type, F : Type),
-  where(I <: Iterator(Item := A), F <: (Fn(item : &A) -> bool)),
+  where(I <: Iterator(Item := A), F <: (FnMut(item : &A) -> bool)),
   IterTakeWhile(I, F),
   Iterator(
     Item : A,
@@ -11744,7 +11744,7 @@ derive(generic(I : Type, F : Type), where(I <: Clone, F <: Clone), IterSkipWhile
 derive(generic(I : Type, F : Type), where(I <: Copy, F <: Copy), IterSkipWhile(I, F), Copy);
 impl(
   generic(I : Type, A : Type, F : Type),
-  where(I <: Iterator(Item := A), F <: (Fn(item : &A) -> bool)),
+  where(I <: Iterator(Item := A), F <: (FnMut(item : &A) -> bool)),
   IterSkipWhile(I, F),
   Iterator(
     Item : A,
@@ -11787,7 +11787,7 @@ derive(generic(I : Type, B : Type, F : Type), where(I <: Clone, F <: Clone), Ite
 derive(generic(I : Type, B : Type, F : Type), where(I <: Copy, F <: Copy), IterFilterMap(I, B, F), Copy);
 impl(
   generic(I : Type, A : Type, B : Type, F : Type),
-  where(I <: Iterator(Item := A), F <: (Fn(item : &A) -> Option(B))),
+  where(I <: Iterator(Item := A), F <: (FnMut(item : &A) -> Option(B))),
   IterFilterMap(I, B, F),
   Iterator(
     Item : B,
@@ -12875,7 +12875,7 @@ impl(
       generic(A : Type, B : Type, F : Type),
       sink(self) : Self,
       sink(f) : F,
-      where(Self <: Iterator(Item := A), F <: (Fn(item : &A) -> B))
+      where(Self <: Iterator(Item := A), F <: (FnMut(item : &A) -> B))
     ) -> IterMap(Self, B, F)
   )(
     IterMap(Self, B, F)(_inner : self, _f : f)
@@ -12888,7 +12888,7 @@ impl(
       generic(A : Type, F : Type),
       sink(self) : Self,
       sink(f) : F,
-      where(Self <: Iterator(Item := A), F <: (Fn(item : &A) -> bool))
+      where(Self <: Iterator(Item := A), F <: (FnMut(item : &A) -> bool))
     ) -> IterFilter(Self, F)
   )(
     IterFilter(Self, F)(_inner : self, _f : f)
@@ -12942,8 +12942,8 @@ impl(
       generic(A : Type, Acc : Type, F : Type),
       sink(self) : Self,
       init : Acc,
-      f : &F,
-      where(Self <: Iterator(Item := A), F <: (Fn(acc : &Acc, item : &A) -> Acc))
+      f : &mut F,
+      where(Self <: Iterator(Item := A), F <: (FnMut(acc : &Acc, item : &A) -> Acc))
     ) -> Acc
   )({
     mut(acc) := init;
@@ -12966,8 +12966,8 @@ impl(
     fn(
       generic(A : Type, F : Type),
       sink(self) : Self,
-      f : &F,
-      where(Self <: Iterator(Item := A), F <: (Fn(item : &A) -> unit))
+      f : &mut F,
+      where(Self <: Iterator(Item := A), F <: (FnMut(item : &A) -> unit))
     ) -> unit
   )({
     mut(iter) := self;
@@ -13011,8 +13011,8 @@ impl(
     fn(
       generic(A : Type, F : Type),
       sink(self) : Self,
-      pred : &F,
-      where(Self <: Iterator(Item := A), F <: (Fn(item : &A) -> bool))
+      pred : &mut F,
+      where(Self <: Iterator(Item := A), F <: (FnMut(item : &A) -> bool))
     ) -> bool
   )({
     mut(result) := false;
@@ -13041,8 +13041,8 @@ impl(
     fn(
       generic(A : Type, F : Type),
       sink(self) : Self,
-      pred : &F,
-      where(Self <: Iterator(Item := A), F <: (Fn(item : &A) -> bool))
+      pred : &mut F,
+      where(Self <: Iterator(Item := A), F <: (FnMut(item : &A) -> bool))
     ) -> bool
   )({
     mut(result) := true;
@@ -13071,8 +13071,8 @@ impl(
     fn(
       generic(A : Type, F : Type),
       sink(self) : Self,
-      pred : &F,
-      where(Self <: Iterator(Item := A), F <: (Fn(item : &A) -> bool))
+      pred : &mut F,
+      where(Self <: Iterator(Item := A), F <: (FnMut(item : &A) -> bool))
     ) -> Option(A)
   )({
     (mut(found) : Option(A)) = .None;
@@ -13101,8 +13101,8 @@ impl(
     fn(
       generic(A : Type, F : Type),
       sink(self) : Self,
-      pred : &F,
-      where(Self <: Iterator(Item := A), F <: (Fn(item : &A) -> bool))
+      pred : &mut F,
+      where(Self <: Iterator(Item := A), F <: (FnMut(item : &A) -> bool))
     ) -> Option(usize)
   )({
     (mut(found) : Option(usize)) = .None;
@@ -13285,7 +13285,7 @@ impl(
       generic(A : Type, F : Type),
       sink(self) : Self,
       sink(f) : F,
-      where(Self <: Iterator(Item := A), F <: (Fn(item : &A) -> bool))
+      where(Self <: Iterator(Item := A), F <: (FnMut(item : &A) -> bool))
     ) -> IterTakeWhile(Self, F)
   )(
     IterTakeWhile(Self, F)(_inner : self, _f : f, _done : false)
@@ -13296,7 +13296,7 @@ impl(
       generic(A : Type, F : Type),
       sink(self) : Self,
       sink(f) : F,
-      where(Self <: Iterator(Item := A), F <: (Fn(item : &A) -> bool))
+      where(Self <: Iterator(Item := A), F <: (FnMut(item : &A) -> bool))
     ) -> IterSkipWhile(Self, F)
   )(
     IterSkipWhile(Self, F)(_inner : self, _f : f, _skipping : true)
@@ -13307,7 +13307,7 @@ impl(
       generic(A : Type, B : Type, F : Type),
       sink(self) : Self,
       sink(f) : F,
-      where(Self <: Iterator(Item := A), F <: (Fn(item : &A) -> Option(B)))
+      where(Self <: Iterator(Item := A), F <: (FnMut(item : &A) -> Option(B)))
     ) -> IterFilterMap(Self, B, F)
   )(
     IterFilterMap(Self, B, F)(_inner : self, _f : f)

@@ -807,7 +807,7 @@ impl(
   /// returns the text to splice in. The callback IS the interpretation
   /// layer — its output is inserted verbatim, with no `$1` reference
   /// processing.
-  replace_with : (fn(self : &Self, input : &String, f : &Impl(Fn(m : &RegexMatch) -> String)) -> String)({
+  replace_with : (fn(self : &Self, input : &String, f : &mut Impl(FnMut(m : &RegexMatch) -> String)) -> String)({
     result := self.find(input);
     match(
       result,
@@ -836,7 +836,7 @@ impl(
   /// `replace_all` with the replacement computed per match by `f` — same
   /// non-overlapping-match walk as `replace_all`, same verbatim insertion
   /// rule as `replace_with`.
-  replace_all_with : (fn(self : &Self, input : &String, f : &Impl(Fn(m : &RegexMatch) -> String)) -> String)({
+  replace_all_with : (fn(self : &Self, input : &String, f : &mut Impl(FnMut(m : &RegexMatch) -> String)) -> String)({
     all_matches := self.find_all(input);
     cond(
       (all_matches.len() == usize(0)) => input.clone(),
