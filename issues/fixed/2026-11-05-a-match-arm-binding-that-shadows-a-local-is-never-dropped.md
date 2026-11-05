@@ -33,18 +33,28 @@ Measured shapes (develop 68b45b81d):
 | `ref(struct)` payloads (the binding is a dup) | yes |
 | inside an `io.async` body, across awaits | no |
 
-## Root cause (not yet located)
+## Root cause
 
-The arm binding owns the moved-out payload, so the arm's scope end must drop it. The drop is
-attached by name, and the name resolves to the enclosing local of the same name. That local is
-dropped once at its own scope end, so the arm's value is never released. The binding needs its
-own identity (the pattern-binding node or a fresh symbol) for drop scheduling, not its spelling.
-Before V5, most payloads in this shape were `ref` handles, where the binding is a dup of the
-scrutinee's count and the scrutinee's drop released it.
+A consuming arm's binding that still owns its payload after the arm's body gets a
+`___drop(parsed)` attached to the end of the arm (`drop_owned_match_binding_at_arm_end` →
+`_drop_in_arms_that_keep`, `src/evaluator/utils.yo`). The drop names the value, so that helper
+refuses to attach it when another binding of the same name could capture the name in the arm
+(a `.Some(x)` pattern in an arm that keeps an outer `x`). Its check scanned EVERY same-named
+binding visible in the arm body's env, including the bindings the value itself shadows: the
+enclosing local `parsed` counted as "another binding", so the helper returned without attaching
+the drop, and nothing else releases the payload.
+
+A name resolves to its innermost binding, so only a same-named binding declared after the value
+(deeper, or later in its own frame) can capture the drop. `get_variables_from_env` lists
+bindings outermost first, so the check now starts the scan just past the value's own entry.
+The by-value join (`Case 3`, a value moved in some arms) runs the same helper and keeps its
+behavior: there the value is the outer local, so an arm's same-named pattern binding still lies
+after it and still blocks the drop.
 
 ## Test
 
-`tests/async_await.test.yo`'s "nullable-pointer arm binding" case keeps a `ref` payload
-(`_NpCargo`) until this is fixed; its comment names this doc. The fix switches that case to
-`Cargo` (an `Rc`, so the nullable-pointer lowering still applies), adds the reproducer's value
-and `String` shapes as test cases, and moves this doc to `issues/fixed/`.
+`tests/shadowed_binding_early_return_drop.test.yo`: the reproducer's value shape, the named
+scrutinee, an early return from the shadowing arm, nested shadowing arms, a `String` payload
+(the LeakSanitizer verdict) and the async nullable-pointer (`Rc`) shape. The
+"nullable-pointer arm binding" case of `tests/async_await.test.yo` is back on `Cargo` (an
+`Rc` value payload), as before V5 part B moved it to a `ref` object.
