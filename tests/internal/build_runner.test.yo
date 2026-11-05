@@ -104,7 +104,7 @@ test("build_dag: empty step produces a single-node DAG", {
       }
     )
   );
-  reg := BuildRegistry.new();
+  mut(reg) := BuildRegistry.new();
   reg.register_step(String.from("install"), String.from("Build all"), exn);
   dag := build_dag(&reg, String.from("install"));
   assert(dag.len() == usize(1), "root step only");
@@ -126,12 +126,12 @@ test("register_executable carries the fixed-allocator heap size", {
       }
     )
   );
-  reg := BuildRegistry.new();
+  mut(reg) := BuildRegistry.new();
   mut(a) := _mk_artifact(ArtifactKind.Executable, String.from("app"), String.from("./src/main.yo"));
   a.allocator = String.from("fixed");
   a.heap_size = usize(65536);
   reg.register_executable(&a, exn);
-  got := reg.artifacts(usize(0));
+  got := reg.artifacts(usize(0)).clone();
   assert(got.heap_size == usize(65536), "heap_size is copied on registration");
   assert(got.allocator == `fixed`, "allocator is copied on registration");
 });
@@ -170,7 +170,7 @@ test("build_dag: step with artifact dependencies", {
       }
     )
   );
-  reg := BuildRegistry.new();
+  mut(reg) := BuildRegistry.new();
   reg.register_executable(_mk_artifact(ArtifactKind.Executable, String.from("app"), String.from("./src/main.yo")), exn);
   reg.register_static_library(_mk_artifact(ArtifactKind.StaticLibrary, String.from("lib-a"), String.from("./src/a.yo")), exn);
   reg.register_step(String.from("install"), String.from("Build all"), exn);
@@ -190,7 +190,7 @@ test("build_dag: linked artifacts create edges", {
       }
     )
   );
-  reg := BuildRegistry.new();
+  mut(reg) := BuildRegistry.new();
   reg.register_executable(_mk_artifact(ArtifactKind.Executable, String.from("app"), String.from("./src/main.yo")), exn);
   reg.register_static_library(_mk_artifact(ArtifactKind.StaticLibrary, String.from("mylib"), String.from("./src/lib.yo")), exn);
   reg.register_link(String.from("app"), String.from("mylib"));
@@ -212,7 +212,7 @@ test("build_dag: run step depends on its artifact", {
       }
     )
   );
-  reg := BuildRegistry.new();
+  mut(reg) := BuildRegistry.new();
   reg.register_executable(_mk_artifact(ArtifactKind.Executable, String.from("app"), String.from("./src/main.yo")), exn);
   reg.register_run(String.from("app"), ArrayList(String).new());
   reg.register_step(String.from("run"), String.from("Run the app"), exn);
@@ -236,7 +236,7 @@ test("build_dag: a verify step is a leaf Verify node a step can depend on", {
       }
     )
   );
-  reg := BuildRegistry.new();
+  mut(reg) := BuildRegistry.new();
   reg.register_verify(BuildVerifyConfig(name : String.from("proofs"), root : String.from("./src"), mode : String.from("verify+"), strict : true), exn);
   reg.register_step(String.from("install"), String.from("Build all"), exn);
   reg.add_step_dependency(String.from("install"), String.from("proofs"));
@@ -269,7 +269,7 @@ test("build_dag: a verify step is a leaf Verify node a step can depend on", {
 });
 /// Returns true iff registering a verify step named `name` on `reg` throws
 /// (handlers are capture-free, so the outcome rides on `unwind`).
-_register_verify_throws :: (fn(reg : &BuildRegistry, name : &String) -> bool)({
+_register_verify_throws :: (fn(reg : &mut BuildRegistry, name : &String) -> bool)({
   exn := Exception(
     throw : (
       _err -> {
@@ -289,10 +289,10 @@ test("register_verify: the one build namespace rejects a reused name", {
       }
     )
   );
-  reg := BuildRegistry.new();
+  mut(reg) := BuildRegistry.new();
   reg.register_step(String.from("verify"), String.from("A custom step"), quiet);
-  assert(_register_verify_throws(&reg, String.from("verify")), "a verify step cannot reuse a step's name");
-  assert(!_register_verify_throws(&reg, String.from("proofs")), "a fresh name registers");
+  assert(_register_verify_throws(&mut reg, String.from("verify")), "a verify step cannot reuse a step's name");
+  assert(!_register_verify_throws(&mut reg, String.from("proofs")), "a fresh name registers");
 });
 test("build_dag: nested steps are walked transitively", {
   exn := Exception(
@@ -303,7 +303,7 @@ test("build_dag: nested steps are walked transitively", {
       }
     )
   );
-  reg := BuildRegistry.new();
+  mut(reg) := BuildRegistry.new();
   reg.register_executable(_mk_artifact(ArtifactKind.Executable, String.from("app"), String.from("./src/main.yo")), exn);
   reg.register_step(String.from("compile"), String.from("Compile step"), exn);
   reg.add_step_dependency(String.from("compile"), String.from("app"));
@@ -326,7 +326,7 @@ test("build_dag: deduplicates shared dependencies", {
       }
     )
   );
-  reg := BuildRegistry.new();
+  mut(reg) := BuildRegistry.new();
   reg.register_static_library(_mk_artifact(ArtifactKind.StaticLibrary, String.from("common"), String.from("./src/common.yo")), exn);
   reg.register_executable(_mk_artifact(ArtifactKind.Executable, String.from("app-a"), String.from("./src/a.yo")), exn);
   reg.register_executable(_mk_artifact(ArtifactKind.Executable, String.from("app-b"), String.from("./src/b.yo")), exn);
