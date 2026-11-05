@@ -1,0 +1,64 @@
+// issues/fixed/a-type-walk-revisits-entries-after-a-rehash-and-emits-a-vtable-twice.md:
+// each vtable resolves its method's on-demand Future type while codegen walks
+// the type table, so these traits grow it under the walk. The trait count puts
+// a table resize inside that walk; walking the live map then revisited the
+// relocated entries and defined their vtables twice.
+{ println } :: import("std/fmt");
+{ Exception, IoExn } :: import("std/error");
+P0 :: struct(v : i32);
+T0 :: trait(get : (fn(self : &Self, io : Io) -> Impl(Future(P0, IoExn))));
+S0 :: struct(n : i32);
+impl(
+  S0,
+  T0(
+    get : (fn(self : &Self, io : Io) -> Impl(Future(P0, IoExn)))(
+      io.async({ n : self.n }(e : IoExn) => {
+        return(P0(v : n));
+      })
+    )
+  )
+);
+P1 :: struct(v : i32);
+T1 :: trait(get : (fn(self : &Self, io : Io) -> Impl(Future(P1, IoExn))));
+S1 :: struct(n : i32);
+impl(
+  S1,
+  T1(
+    get : (fn(self : &Self, io : Io) -> Impl(Future(P1, IoExn)))(
+      io.async({ n : self.n }(e : IoExn) => {
+        return(P1(v : n));
+      })
+    )
+  )
+);
+P2 :: struct(v : i32);
+T2 :: trait(get : (fn(self : &Self, io : Io) -> Impl(Future(P2, IoExn))));
+S2 :: struct(n : i32);
+impl(
+  S2,
+  T2(
+    get : (fn(self : &Self, io : Io) -> Impl(Future(P2, IoExn)))(
+      io.async({ n : self.n }(e : IoExn) => {
+        return(P2(v : n));
+      })
+    )
+  )
+);
+main :: (fn(io : Io) -> unit)({
+  exn := Exception(
+    throw : (
+      err -> {
+        unwind(());
+      }
+    )
+  );
+  (mut(total) : i32) = i32(0);
+  (d0 : Dyn(T0)) = dyn(S0(n : i32(0)));
+  total = (total + io.await(d0.get(io), IoExn(io : io, exn : exn)).v);
+  (d1 : Dyn(T1)) = dyn(S1(n : i32(1)));
+  total = (total + io.await(d1.get(io), IoExn(io : io, exn : exn)).v);
+  (d2 : Dyn(T2)) = dyn(S2(n : i32(2)));
+  total = (total + io.await(d2.get(io), IoExn(io : io, exn : exn)).v);
+  println(`total: ${total}`);
+});
+export(main);
