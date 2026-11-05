@@ -268,15 +268,12 @@ test("a projection's `&Self` writes a cell it reaches", {
   assert(second.* == i32(4), "a later call reads the stored value");
 });
 // A write into the borrowed value itself stays E0908.
-comptime_expect_error(
-  {
-    _LazyV :: struct(n : i32, h : __yo_cell(i32));
-    _bad :: (fn(x : &_LazyV) -> &i32)({
-      x.n = i32(1);
-      &x.n
-    });
-    w := _LazyV(n : i32(0), h : __yo_cell(i32)(i32(0), .None));
-    _r := _bad(&w);
-  },
-  "is a `&T` parameter, a read-only borrow"
-);
+comptime_expect_error({
+  _LazyV :: struct(n : i32, h : __yo_cell(i32));
+  _bad :: (fn(x : &_LazyV) -> &i32)({
+    x.n = i32(1);
+    &x.n
+  });
+  w := _LazyV(n : i32(0), h : __yo_cell(i32)(i32(0), .None));
+  _r := _bad(&w);
+}, "is a `&T` parameter, a read-only borrow");
