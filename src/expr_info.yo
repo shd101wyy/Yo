@@ -1368,7 +1368,7 @@ scope_release_body :: (fn(mark : usize, entry : &Environment) -> unit)({
       _r_prev := _scope_take_inner(id);
       if(g_scope_mode == usize(1), {
         shadow := Rc.clone(info);
-        g_scope_shadow_objs.with_mut({ shadow }(m) => m.insert(id, shadow));
+        g_scope_shadow_objs.with_mut({ id, shadow }(m) => m.insert(id, shadow));
       });
       _r_k := g_scope_klen.with_mut(m => m.remove(&id));
       if(!capture_shaped && (k < husk.frames_len()), {
@@ -1453,7 +1453,7 @@ scope_release_body :: (fn(mark : usize, entry : &Environment) -> unit)({
       if(g_scope_mode == usize(2), {
         info.set_env(Rc.clone(info_husk));
       }, {
-        g_scope_husks.with_mut({ info_husk }(m) => m.insert(id, info_husk));
+        g_scope_husks.with_mut({ id, info_husk }(m) => m.insert(id, info_husk));
       });
       g_scope_released = (g_scope_released + usize(1));
     }));
