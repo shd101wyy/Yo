@@ -1,10 +1,10 @@
-// issues/2026-11-05-oncecell-get-or-init-copies-its-element-so-a-move-only-value-cannot-be-read.md
+// issues/fixed/2026-11-05-oncecell-get-or-init-copies-its-element-so-a-move-only-value-cannot-be-read.md
 { assert } :: import("std/assert");
 { String } :: import("std/string");
 { OnceCell } :: import("std/sync/once");
 main :: (fn() -> unit)({
   cell := OnceCell(String).new();
   s := cell.get_or_init(() => String.from("hello"));
-  assert(s == "hello", "the stored string");
+  assert(s.* == String.from("hello"), "the stored string");
 });
 export(main);

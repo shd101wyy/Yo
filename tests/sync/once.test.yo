@@ -4,6 +4,7 @@ pragma(Pragma.SkipWasm32Wasi); // no pthread support in standalone WASI
 import("std/libc/stdio");
 { Once, OnceCell } :: import("std/sync/once");
 { ArrayList } :: import("std/collections/array_list");
+{ String } :: import("std/string");
 { Thread, ThreadPool, spawn } :: import("std/thread");
 { WaitGroup } :: import("std/sync/waitgroup");
 { AtomicI32, MemoryOrder } :: import("std/sync/atomic");
@@ -222,9 +223,9 @@ test("OnceCell new is empty", {
 test("OnceCell get_or_init stores and returns the value", {
   cell := OnceCell(i32).new();
   got := cell.get_or_init(() => i32(42));
-  assert(got == i32(42), "get_or_init returns the initializer's value");
+  assert(got.* == i32(42), "get_or_init returns the initializer's value");
   assert(cell.is_initialized(), "the cell is initialized afterwards");
-  assert(cell.get().unwrap() == i32(42), "get returns the stored value");
+  assert(match(cell.get(), .Some(v) => (v.* == i32(42)), .None => false), "get returns the stored value");
 });
 test("OnceCell get_or_init runs the initializer exactly once", {
   cell := OnceCell(i32).new();
@@ -242,9 +243,9 @@ test("OnceCell get_or_init runs the initializer exactly once", {
     i32(3)
   });
   assert(runs.load(MemoryOrder.Acquire) == i32(1), "only the first initializer runs");
-  assert(first == i32(1), "the first call returns its own value");
-  assert(second == i32(1), "the second call returns the stored value");
-  assert(third == i32(1), "the third call returns the stored value");
+  assert(first.* == i32(1), "the first call returns its own value");
+  assert(second.* == i32(1), "the second call returns the stored value");
+  assert(third.* == i32(1), "the third call returns the stored value");
 });
 test("OnceCell holds a value struct", {
   Point :: struct(x : i32, y : i32);
@@ -266,7 +267,7 @@ test("OnceCell get_or_init from multiple threads initializes exactly once", {
         inits.fetch_add(i32(1), MemoryOrder.AcqRel);
         i32(7)
       });
-      if(got != i32(7), {
+      if(got.* != i32(7), {
         mismatches.fetch_add(i32(1), MemoryOrder.AcqRel);
       });
     }
@@ -287,7 +288,7 @@ test("OnceCell get_or_init from multiple threads initializes exactly once", {
   assert(inits.load(MemoryOrder.Acquire) == i32(1), "the initializer must run exactly once across 5 racing threads");
   assert(mismatches.load(MemoryOrder.Acquire) == i32(0), "every thread must see the same value");
   assert(cell.is_initialized(), "the cell is initialized");
-  assert(cell.get().unwrap() == i32(7), "the stored value survives the race");
+  assert(match(cell.get(), .Some(v) => (v.* == i32(7)), .None => false), "the stored value survives the race");
 });
 // Decision 48 W2 (plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §2) dropped the
 // O7 `Acyclic` requirement (plans/archive/STD_API_AUDIT.md §8): as in Rust, a
@@ -300,10 +301,20 @@ test("a cyclic element type is accepted", {
   comptime_assert(Type.impls(CyclicNode, Send), "the payload is Send");
   comptime_assert(!Type.impls(CyclicNode, Acyclic), "the payload is cyclic");
   cell := OnceCell(CyclicNode).new();
-  // The cell is not read back: `get_or_init` and `get` copy the element out, so
-  // a move-only node cannot be read
-  // (issues/2026-11-05-oncecell-get-or-init-copies-its-element-so-a-move-only-value-cannot-be-read.md).
-  assert(!cell.is_initialized(), "the cell over a cyclic node is built");
+  node := cell.get_or_init(() => CyclicNode(v : i32(1), next : .None));
+  assert(node.v == i32(1), "the cell holds the node");
+  assert(match(cell.get(), .Some(n) => n.next.is_none(), .None => false), "get reads the node in place");
+});
+// `get` and `get_or_init` return references into the cell, as Rust's do, so a
+// move-only value is read in place and never copied out.
+test("OnceCell holds a move-only value and lends it", {
+  cell := OnceCell(String).new();
+  assert(cell.get().is_none(), "a fresh cell is empty");
+  s := cell.get_or_init(() => String.from("a move-only payload"));
+  assert(s.* == String.from("a move-only payload"), "get_or_init lends the stored String");
+  t := cell.get_or_init(() => String.from("never stored"));
+  assert(t.len() == s.len(), "a later call lends the same String");
+  assert(match(cell.get(), .Some(g) => (g.* == String.from("a move-only payload")), .None => false), "get lends it too");
 });
 // ============================================================================
 // The slow path runs under with_lock
