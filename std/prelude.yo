@@ -8022,6 +8022,10 @@ impl(
   is_pointer : (fn(comptime(self) : TypeInfo) -> comptime(bool))(
     match(self, .Ptr(_) => true, _ => false)
   ),
+  /// `&T` / `&mut T` (decision 43): a reference field or type argument.
+  is_reference : (fn(comptime(self) : TypeInfo) -> comptime(bool))(
+    match(self, .Reference(_, _, _) => true, _ => false)
+  ),
   is_trait : (fn(comptime(self) : TypeInfo) -> comptime(bool))(
     match(self, .Trait(_, _) => true, _ => false)
   ),
@@ -8644,6 +8648,13 @@ derive_rule(Eq, __derive_eq);
 // is registered.
 derive(Pragma, Eq(Pragma));
 // --- derive_rule for Clone ---
+/// A field's type is a reference (`&T`, `&mut T`; decision 43 step 3). Read
+/// off the type's display, whose reference arm renders the sigil first:
+/// `Type.get_info` cannot decide a type-variable field (`Range(T)`'s `T`),
+/// so a `cond` over it fails a generic derive.
+__derive_field_is_reference :: (fn(comptime(t) : Type) -> comptime(bool))(
+  (Type.to_comptime_string(t).slice(0, 1) == "&")
+);
 __derive_clone :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(trait_params) : ComptimeList(Expr)) -> comptime(Expr))({
   info :: Type.get_info(T);
   cond(
@@ -8659,6 +8670,10 @@ __derive_clone :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptim
           // `Clone` impl by name: `self.f.clone()` would be decision 32's
           // wrapper/payload clash (E0616) when the payload is `Clone` too.
           part :: cond(
+            // A reference field (decision 43 step 3): the clone lends the
+            // same referent (`&T` is `Copy`; a `&mut T` field makes the
+            // holder move-only, and its lend is the type error).
+            __derive_field_is_reference(fields.get(fi).field_type) => __s2("self.", fname),
             Type.impls(fields.get(fi).field_type, Deref) => __s5("(type_of(self.", fname, ") <: Clone).clone(&self.", fname, ")"),
             true => __s3("self.", fname, ".clone()")
           );
@@ -8709,6 +8724,7 @@ __derive_clone :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptim
                 (fn(comptime(a) : comptime_str, comptime(fi) : usize) -> comptime(comptime_str))({
                   fname :: v.fields.get(fi).name;
                   part :: cond(
+                    __derive_field_is_reference(v.fields.get(fi).field_type) => __s2("__v_", fname),
                     Type.impls(v.fields.get(fi).field_type, Deref) => __s5("(type_of(__v_", fname, ") <: Clone).clone(&__v_", fname, ")"),
                     true => __s3("__v_", fname, ".clone()")
                   );
