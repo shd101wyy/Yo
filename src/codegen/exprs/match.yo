@@ -39,7 +39,7 @@
 { declare_c_var_name, get_type_string, fresh_local_name, get_variable_name_for_codegen, type_key, sanitize_for_c_identifier, c_field_name, c_variant_member_name, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, get_enum_variant_c_name, get_deferred_dup_target_atom_name, pattern_param_is_literal, pattern_literal_param_code, pattern_literal_arm_guards, arm_variant_name, arm_params, nullable_arm_selects_payload, nullable_arm_payload_binder, get_runtime_struct_fields, note_line_position, get_variable_name_for_codegen_at } :: import("../utils/index.yo");
 { resolve_enum_shell, t_ptr } :: import("../../types/creators.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
-{ Pattern, Arm, lookup_match_arms, pattern_bindings, lookup_match_mode, lookup_arm_entry_drops, pattern_position_is_cell, MATCH_MODE_MUT, MATCH_MODE_BORROW } :: import("../../pattern.yo");
+{ Pattern, Arm, lookup_match_arms, pattern_bindings, lookup_match_mode, lookup_arm_entry_drops, pattern_position_is_cell, MATCH_MODE_MUT, MATCH_MODE_BORROW, MATCH_MODE_REF, MATCH_MODE_REF_TEMP, match_mode_binds_refs } :: import("../../pattern.yo");
 { arm_is_classic } :: import("../../evaluator/exprs/pattern_compile.yo");
 { replace } :: import("std/mem");
 /// True for an ASCII word byte ([A-Za-z0-9_]).
@@ -126,6 +126,16 @@ _emit_place_binding_decl :: (fn(context : &FunctionGenerationContext, indent : &
     em.emit_string_line(`${indent}${pstr} ${bind} = ${addr};`);
   });
 });
+/// Declare a classic arm's binding `bind` of the part at `init`: a C pointer
+/// to the part in a `&` match (`refs`, `match_mode_binds_refs`), read
+/// through like a `mut` match's place binding; else the part's value. A
+/// reference payload's binding holds its reference either way.
+_emit_arm_binding_decl :: (fn(context : &FunctionGenerationContext, indent : &String, bind : &String, ty : &TypeValue, init : &String, refs : bool) -> unit)(
+  if(refs && !t_slot_is_borrow(ty), {
+    _emit_place_binding_decl(context, indent, bind, ty, init);
+    _place_add(context, bind);
+  }, _emit_pattern_binding_decl(context, indent, bind, ty, init))
+);
 /// The names `p` binds as `mut` places at a position of type `ty`: every
 /// binding not below a reference cell or a raw pointer (those stay copies).
 _collect_place_names :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, out : &mut ArrayList(String)) -> unit)(
@@ -1039,7 +1049,10 @@ _gen_nullable_ptr_match :: (fn(expr : &AstExpr, indent : &String, context : &Fun
         nullable_arm_payload_binder(&pat),
         .Some(dvar) => {
           dvn := sanitize_for_c_identifier(ast_expr_token(&dvar).value.*, false);
-          _emit_pattern_binding_decl(context, body_indent.clone(), dvn.clone(), nullable_inner, matched_value_code.clone());
+          // A `&` match's binding points at the payload: the enum's own
+          // storage, which is the pointer.
+          nl_refs := match_mode_binds_refs(lookup_match_mode(ast_expr_id(expr)));
+          _emit_arm_binding_decl(context, body_indent.clone(), dvn.clone(), nullable_inner, if(nl_refs && is_ptr, `(*${matched_value_code})`, matched_value_code.clone()), nl_refs);
           // Shadow-register the binding like _emit_destructure_binds does
           // for tagged-union arms: the arm body must resolve `q` to THIS
           // local C declaration. Without it, a GENERIC-IMPL materialized
@@ -1353,7 +1366,7 @@ _remove_arm_shadows :: (fn(params : &ArrayList(AstExpr), context : &FunctionGene
 /// Each bound var's source name is added to local_shadowed_variables so the
 /// arm body resolves it to the local C declaration (not the evaluator temp);
 /// the caller removes them after the body. (SM storage is Phase 5 — gated.)
-_emit_destructure_binds :: (fn(enum_type : &TypeValue, variant_name : &String, params : &ArrayList(AstExpr), matched_value_code : &String, access : str, body_indent : &String, context : &FunctionGenerationContext) -> unit)(
+_emit_destructure_binds :: (fn(enum_type : &TypeValue, variant_name : &String, params : &ArrayList(AstExpr), matched_value_code : &String, access : str, body_indent : &String, refs : bool, context : &FunctionGenerationContext) -> unit)(
   match(
     enum_type,
     Rc(.EnumT({ variant_names : vns, variant_fields : vfs, variant_field_labels : vfls })) => {
@@ -1436,12 +1449,13 @@ _emit_destructure_binds :: (fn(enum_type : &TypeValue, variant_name : &String, p
                         init.push_string(c_variant_member_name(cvariant.clone()));
                         init.push_str(".");
                         init.push_string(sanitize_for_c_identifier(label.clone(), false));
-                        _emit_pattern_binding_decl(
+                        _emit_arm_binding_decl(
                           context,
                           body_indent.clone(),
                           sanitize_for_c_identifier(ast_expr_token(&var_expr).value.*, false),
                           &ftype,
-                          &init
+                          &init,
+                          refs
                         );
                         _bind_pattern_name(context, body_indent.clone(), sanitize_for_c_identifier(ast_expr_token(&var_expr).value.*, false), ast_expr_token(&var_expr), init.clone());
                       });
@@ -1471,12 +1485,13 @@ _emit_destructure_binds :: (fn(enum_type : &TypeValue, variant_name : &String, p
                   init.push_string(c_variant_member_name(cvariant.clone()));
                   init.push_str(".");
                   init.push_string(sanitize_for_c_identifier(&field_label, false));
-                  _emit_pattern_binding_decl(
+                  _emit_arm_binding_decl(
                     context,
                     body_indent.clone(),
                     sanitize_for_c_identifier(ast_expr_token(&var_expr).value.*, false),
                     &ftype,
-                    &init
+                    &init,
+                    refs
                   );
                   _bind_pattern_name(context, body_indent.clone(), sanitize_for_c_identifier(ast_expr_token(&var_expr).value.*, false), ast_expr_token(&var_expr), init.clone());
                 });
@@ -1508,6 +1523,7 @@ _emit_variant_arm_body :: (
     body_indent : &String,
     temp_var_opt : &Option(String),
     is_unit : bool,
+    refs : bool,
     context : &FunctionGenerationContext
   ) -> unit
 )({
@@ -1531,7 +1547,7 @@ _emit_variant_arm_body :: (
     gi
   }, body_indent.clone());
   if(params.len() > usize(0), {
-    _emit_destructure_binds(enum_type, variant_name, params, matched_value_code.clone(), access, arm_body_indent.clone(), context);
+    _emit_destructure_binds(enum_type, variant_name, params, matched_value_code.clone(), access, arm_body_indent.clone(), refs, context);
   });
   _emit_case_body_and_break(cb0, arm_indent.clone(), arm_body_indent.clone(), temp_var_opt, is_unit, context);
   _remove_arm_shadows(params, context);
@@ -1703,7 +1719,7 @@ _gen_tagged_union_match :: (fn(expr : &AstExpr, indent : &String, context : &Fun
                                       arm_cb := match(arm_cargs.get(usize(1)), .Some(x) => x, .None => make_err_expr());
                                       arm_ps := arm_params(&_unwrap_rc_pattern(&arm_cv));
                                       guards := pattern_literal_arm_guards(enum_type, &variant_name, &arm_ps, matched_value_code.clone(), access);
-                                      _emit_variant_arm_body(&arm_cb, &arm_ps, &variant_name, &guards, enum_type, matched_value_code.clone(), access, indent.clone(), body_indent.clone(), temp_var_opt, is_unit, context);
+                                      _emit_variant_arm_body(&arm_cb, &arm_ps, &variant_name, &guards, enum_type, matched_value_code.clone(), access, indent.clone(), body_indent.clone(), temp_var_opt, is_unit, match_mode_binds_refs(lookup_match_mode(ast_expr_id(expr))), context);
                                     }),
                                     .None => ()
                                   );
@@ -1962,11 +1978,15 @@ _emit_pattern_chain :: (
     /// A `mut` match (decision 26): bindings are C pointers to their parts,
     /// except below a reference cell or a raw pointer (`in_cell`).
     places : bool,
+    /// A `&` match (`match_mode_binds_refs`): every binding is a C pointer
+    /// to its part, below a cell too (a reference payload's binding holds
+    /// its reference already).
+    refs : bool,
     in_cell : bool
   ) -> unit
 )({
   em := context.base.emitter;
-  as_place := (places && !in_cell);
+  as_place := ((places && !in_cell) || (refs && !t_slot_is_borrow(ty)));
   match(
     p,
     .Wildcard => (),
@@ -2045,7 +2065,7 @@ _emit_pattern_chain :: (
         fty := match(ftys.get(fi), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
         flabel := match(labels_v.get_cloned(fi), .Some(l) => l, .None => String.from(""));
         fcode := _variant_field_code(&enum_ty, vname.clone(), &flabel, path.clone(), ptrish, is_raw_ptr);
-        recur(&subs(i), &fcode, &fty, fail_label.clone(), assign_binds, emit_tests, indent.clone(), labels, shadows, context, places, v_cell);
+        recur(&subs(i), &fcode, &fty, fail_label.clone(), assign_binds, emit_tests, indent.clone(), labels, shadows, context, places, refs, v_cell);
         i = (i + usize(1));
       });
     },
@@ -2059,9 +2079,20 @@ _emit_pattern_chain :: (
           _collect_bind_decls(&alts(usize(0)), ty, &mut names, &mut types);
         });
         place_names := ArrayList(String).new();
-        if(places, {
-          if(alts.len() > usize(0), _collect_place_names(&alts(usize(0)), ty, in_cell, &mut place_names));
-        });
+        cond(
+          refs => {
+            (rni : usize) = usize(0);
+            while(rni < names.len(), rni = (rni + usize(1)), {
+              match(
+                types.get_cloned(rni),
+                .Some(rt) => if(!t_slot_is_borrow(&rt), place_names.push(match(names.get_cloned(rni), .Some(rn) => rn, .None => String.from("")))),
+                .None => ()
+              );
+            });
+          },
+          places => if(alts.len() > usize(0), _collect_place_names(&alts(usize(0)), ty, in_cell, &mut place_names)),
+          true => ()
+        );
         (ni : usize) = usize(0);
         while(ni < names.len(), {
           nm := match(names.get_cloned(ni), .Some(n) => n, .None => String.from(""));
@@ -2090,7 +2121,7 @@ _emit_pattern_chain :: (
         open := indent.clone();
         open.push_str("{");
         em.emit_string_line(&open);
-        recur(&alts(ai), path.clone(), ty, alt_fail.clone(), true, !alt_is_final, inner_indent.clone(), labels, shadows, context, places, in_cell);
+        recur(&alts(ai), path.clone(), ty, alt_fail.clone(), true, !alt_is_final, inner_indent.clone(), labels, shadows, context, places, refs, in_cell);
         jump := inner_indent.clone();
         jump.push_str("goto ");
         jump.push_string(done_label.clone());
@@ -2139,7 +2170,7 @@ _emit_pattern_chain :: (
         if(as_place, _place_add(context, cname.clone()));
         shadows.push(cname);
       });
-      recur(&sub, path, ty, fail_label, assign_binds, emit_tests, indent, labels, shadows, context, places, in_cell);
+      recur(&sub, path, ty, fail_label, assign_binds, emit_tests, indent, labels, shadows, context, places, refs, in_cell);
     },
     .ThroughBox(box_ty, inner_ty, Box(sub)) => {
       // An Rc value in C is a pointer to a reference-semantics struct whose
@@ -2175,7 +2206,7 @@ _emit_pattern_chain :: (
         r.push_string(&label);
         r
       });
-      recur(&sub, &fcode, &inner_ty, fail_label, assign_binds, emit_tests, indent, labels, shadows, context, places, true);
+      recur(&sub, &fcode, &inner_ty, fail_label, assign_binds, emit_tests, indent, labels, shadows, context, places, refs, true);
     },
     .Tuple(subs, elem_tys) => {
       // A tuple is a value struct in C; elements are `._N`. A pointer to a
@@ -2193,7 +2224,7 @@ _emit_pattern_chain :: (
         fcode := base.clone();
         fcode.push_str("._");
         fcode.push_string(i.to_string());
-        recur(&subs(i), &fcode, &ety, fail_label, assign_binds, emit_tests, indent, labels, shadows, context, places, in_cell || is_pointer_type(ty));
+        recur(&subs(i), &fcode, &ety, fail_label, assign_binds, emit_tests, indent, labels, shadows, context, places, refs, in_cell || is_pointer_type(ty));
         i = (i + usize(1));
       });
     },
@@ -2222,7 +2253,7 @@ _emit_pattern_chain :: (
             f
           }
         );
-        recur(&subs(i), &fcode, &fty, fail_label, assign_binds, emit_tests, indent, labels, shadows, context, places, in_cell || ptrish);
+        recur(&subs(i), &fcode, &fty, fail_label, assign_binds, emit_tests, indent, labels, shadows, context, places, refs, in_cell || ptrish);
         i = (i + usize(1));
       });
     }
@@ -2323,6 +2354,7 @@ _gen_general_match :: (fn(expr : &AstExpr, arms : &ArrayList(Arm), indent : &Str
   end_label := prefix.clone();
   end_label.push_str("_end");
   places := (lookup_match_mode(ast_expr_id(expr)) == MATCH_MODE_MUT);
+  refs := match_mode_binds_refs(lookup_match_mode(ast_expr_id(expr)));
   n := arms.len();
   (k : usize) = usize(0);
   while(k < n, {
@@ -2340,7 +2372,7 @@ _gen_general_match :: (fn(expr : &AstExpr, arms : &ArrayList(Arm), indent : &Str
           shadows := ArrayList(String).new();
           // The last unguarded arm of an exhaustive match needs no tests.
           is_last := ((k + usize(1)) == n);
-          _emit_pattern_chain(&arm.pattern, matched_value_code.clone(), match_value_type, fail_label.clone(), false, !(is_last && arm.guard.is_none()), body_indent.clone(), &labels, &mut shadows, context, places, false);
+          _emit_pattern_chain(&arm.pattern, matched_value_code.clone(), match_value_type, fail_label.clone(), false, !(is_last && arm.guard.is_none()), body_indent.clone(), &labels, &mut shadows, context, places, refs, false);
           match(
             arm.guard,
             .Some(g) => {
@@ -2532,13 +2564,17 @@ _generate_match_expression_body :: (fn(expr : &AstExpr, indent : &String, contex
   // is never copied, or the arm writes the copy, and replacing a counted
   // payload releases the scrutinee's own value
   // (issues/fixed/2026-10-16-a-mut-match-on-a-field-or-a-dereference-writes-a-copy.md).
-  is_mut_match := (lookup_match_mode(ast_expr_id(expr)) == MATCH_MODE_MUT);
+  // A `&` match over a place binds references into it the same way
+  // (decision 43): a copy would be what its bindings point at, and a
+  // reference an arm yields would dangle once the copy dies.
+  match_mode := lookup_match_mode(ast_expr_id(expr));
+  binds_in_place := ((match_mode == MATCH_MODE_MUT) || (match_mode == MATCH_MODE_REF));
   (subject_is_own_temp : bool) = false;
   match(
     &subject_ei.variable_name,
     .Some(svn) => {
       subject_var_name := get_variable_name_for_codegen_at(ast_expr_id(&subject), &svn, Option(Environment).Some(subject_ei.env));
-      if(!is_mut_match && !ast_expr_is_atom(&subject) && !(matched_value_code == subject_var_name), {
+      if(!binds_in_place && !ast_expr_is_atom(&subject) && !(matched_value_code == subject_var_name), {
         _emit_pattern_binding_decl(
           context,
           indent.clone(),
@@ -2573,9 +2609,16 @@ _generate_match_expression_body :: (fn(expr : &AstExpr, indent : &String, contex
         }),
         .None => ()
       );
-      subject_is_own_temp = (!is_mut_match && (matched_value_code == subject_var_name) && !is_pointer_type(&match_value_type));
+      subject_is_own_temp = (!binds_in_place && (matched_value_code == subject_var_name) && !is_pointer_type(&match_value_type));
     },
-    .None => ()
+    // A `&` match over a temporary the evaluator gave no temp: its bindings
+    // point into a C local holding it, never into an rvalue.
+    .None => if((match_mode == MATCH_MODE_REF_TEMP) && !ast_expr_is_atom(&subject), {
+      scr_tmp := fresh_local_name(String.from("__yo_scr_"), &context.base.current_function_name);
+      _emit_pattern_binding_decl(context, indent.clone(), scr_tmp.clone(), &match_value_type, matched_value_code.clone());
+      declare_c_var_name(&context.base, scr_tmp.clone());
+      matched_value_code = scr_tmp;
+    })
   );
   // A non-place scrutinee is a one-expression block in the evaluator: its
   // temporaries (the `mk(i32(7))` of `match(mk(i32(7)).n, …)`) have their own
@@ -2614,7 +2657,7 @@ _generate_match_expression_body :: (fn(expr : &AstExpr, indent : &String, contex
   // payload field (`h->_u42_`), and the classic emitters below see a plain
   // enum value.
   (through_switch : bool) = false;
-  if(lookup_match_mode(ast_expr_id(expr)) == MATCH_MODE_BORROW, {
+  if((match_mode == MATCH_MODE_BORROW) || match_mode_binds_refs(match_mode), {
     match(
       lookup_match_arms(ast_expr_id(expr)),
       .Some(lt_arms) => match(

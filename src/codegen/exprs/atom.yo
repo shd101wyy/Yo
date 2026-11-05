@@ -492,6 +492,15 @@ _scope_var_is_ref :: (fn(key : ExprId, name : &String, env_opt : &Option(Environ
     .None => false
   )
 );
+/// The binding `name` resolves to at node `key` is a binding of a `&` match
+/// (`is_borrow_match_binding`).
+_scope_var_is_borrow_match_binding :: (fn(key : ExprId, name : &String, env_opt : &Option(Environment)) -> bool)(
+  match(
+    env_opt,
+    .Some(e) => match(scope_variables(key, &e, name).last(), .Some(v) => v.is_borrow_match_binding, .None => false),
+    .None => false
+  )
+);
 /// Resolve a plain identifier read to its C code: the variable's C name, wrapped
 /// in `(*name)` when the binding is a by-`ref` borrow (`name : &mut T` param — at
 /// the C level `name` is `T*`, so a read dereferences). The deref here means a by-ref RECEIVER passed/used as a value
@@ -785,8 +794,9 @@ generate_atom :: (fn(expr : &AstExpr, context : &FunctionGenerationContext, inde
             }
           );
           // A capture-list borrow (`imm(y)`, `mut(z)`, decision 35) is a
-          // pointer field: a read or a write goes through it.
-          if(_scope_var_is_ref(ast_expr_id(expr), cap_name.clone(), &env_opt), `(*${field_read})`, field_read)
+          // pointer field: a read or a write goes through it. A `&` match's
+          // binding captured implicitly is a copy of its part.
+          if(_scope_var_is_ref(ast_expr_id(expr), cap_name.clone(), &env_opt) && !_scope_var_is_borrow_match_binding(ast_expr_id(expr), cap_name.clone(), &env_opt), `(*${field_read})`, field_read)
         },
         // Non-variable atom with a comptime value → inline it. Use the
         // coerced runtime type when present (e.g. a comptime_str arg coerced

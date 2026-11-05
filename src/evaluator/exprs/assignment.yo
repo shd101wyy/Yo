@@ -506,7 +506,9 @@ _check_capture_borrow_write :: (fn(lhs : &AstExpr, tok : &Token, env : &Environm
       // follows only the steps that stay inside the borrowed value, so a
       // write into a cell the parameter reaches is not one
       // (issues/fixed/2026-11-05-a-cell-write-through-a-projection-s-self-is-e0908.md).
-      if(rv.is_ref && !rv.is_reassignable && !(rv.is_parameter && rv.is_imm_borrow), {
+      // A `&` match's binding is one too, and the same check judges its
+      // writes.
+      if(rv.is_ref && !rv.is_reassignable && !(rv.is_parameter && rv.is_imm_borrow) && !rv.is_borrow_match_binding, {
         raise_flow_violation(
           with_code(
             format_error_message_with_help(

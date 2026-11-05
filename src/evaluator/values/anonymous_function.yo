@@ -779,7 +779,11 @@ outcome after the guarded call instead (e.g. a result the handler unwinds past).
                     match(
                       frame.variables.get(vi),
                       .Some(v) => if(v.name == k, {
-                        if(v.is_ref && !in_cap_frame, {
+                        // A binding of a `&` match is a pointer into the
+                        // scrutinee, but an implicit capture copies its part
+                        // (the field holds the value), as it did when the
+                        // binding was a copy.
+                        if(v.is_ref && !in_cap_frame && !v.is_borrow_match_binding, {
                           _raise_capture_rejection(
                             ctx,
                             exn,

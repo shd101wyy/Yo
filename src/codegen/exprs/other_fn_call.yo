@@ -621,7 +621,9 @@ _materialize_arg :: (fn(arg : &AstExpr, param_is_ref : bool, expr : &AstExpr, in
         // hand, so neither a C local nor a dup applies. Falling back to the
         // binding's name read a C local that a resumed task never initialized
         // (issues/fixed/a-pattern-binding-moved-after-an-await-in-its-arm-reads-an-uninitialized-local.md).
-        is_sm := arg_code.starts_with("sm->");
+        // A `&` match binding's slot holds its pointer: `(*sm->…)` reads
+        // through it, as `sm->…` reads a value slot.
+        is_sm := (arg_code.starts_with("sm->") || (arg_code.starts_with("(*sm->") && _root_is_borrow_match_binding(arg, context)));
         sanitized := get_variable_name_for_codegen_at(ast_expr_id(arg), vname.clone(), Option(Environment).Some(arg_ei.env));
         // A by-`ref` binding read passed BY VALUE generates `(*name)` (the deref
         // of the same variable). That is a simple read, NOT a fresh temp — do not
@@ -977,12 +979,55 @@ _is_c_identifier :: (fn(s : &String) -> bool)({
 /// `ref` struct's or an `Rc`'s field, a closure capture) has aliases no name
 /// reveals and gets `.None`, as does every other expression.
 _operand_local_root :: (fn(arg : &AstExpr, code : &String, context : &FunctionGenerationContext) -> Option(String))({
-  body := if(code.starts_with("sm->"), code.substring(usize(4), code.len()), code.clone());
+  // A `&` match's binding reads through its pointer, `(*n)…`: its place is
+  // judged as the binding's own value was, from the read after the deref.
+  code0 := if(_root_is_borrow_match_binding(arg, context) && code.starts_with("(*"), _strip_leading_deref(code), code.clone());
+  body := if(code0.starts_with("sm->"), code0.substring(usize(4), code0.len()), code0.clone());
   if(body.contains("->") || body.contains("(*"), {
     return(Option(String).None);
   });
   _value_place_root(arg, context)
 });
+/// `(*X)rest` → `Xrest`: the leading dereference of a read, up to its
+/// matching parenthesis.
+_strip_leading_deref :: (fn(code : &String) -> String)({
+  (depth : usize) = usize(0);
+  (i : usize) = usize(0);
+  n := code.len();
+  while(i < n, {
+    b := code.byte_at(i);
+    cond(
+      (b == u8(40)) => {
+        depth = (depth + usize(1));
+      },
+      (b == u8(41)) => {
+        depth = (depth - usize(1));
+        if(depth == usize(0), {
+          inner := code.substring(usize(2), i);
+          rest := code.substring(i + usize(1), n);
+          return(`${inner}${rest}`);
+        });
+      },
+      true => ()
+    );
+    i = (i + usize(1));
+  });
+  code.clone()
+});
+/// The root atom of a field chain `e` is a binding of a `&` match.
+_root_is_borrow_match_binding :: (fn(e : &AstExpr, context : &FunctionGenerationContext) -> bool)(
+  match(
+    ast_rewritten_node(e),
+    .Atom(_, tok) => (
+      (tok.kind == TokenKind.Identifier) && match(
+        context.base.get_expr_info(e),
+        .Some(ei) => match(scope_variables(ast_expr_id(e), &ei.env, &tok.value.*).last(), .Some(v) => v.is_borrow_match_binding, .None => false),
+        .None => false
+      )
+    ),
+    .FnCall(_, _, Rc(pargs), _, _) => if(ast_expr_is_fn_call_of(e, BF_DOT, Option(usize).Some(usize(2))), match(pargs.get(usize(0)), .Some(b) => recur(&b, context), .None => false), false)
+  )
+);
 _value_place_root :: (fn(e : &AstExpr, context : &FunctionGenerationContext) -> Option(String))(
   match(
     ast_rewritten_node(e),
@@ -998,7 +1043,9 @@ _value_place_root :: (fn(e : &AstExpr, context : &FunctionGenerationContext) -> 
             Option(String).None,
             match(
               vars.get(m - usize(1)),
-              .Some(v) => if(v.is_module_level || v.is_ref || v.is_imm_borrow, Option(String).None, Option(String).Some(tok.value.*.clone())),
+              // A `&` match's binding is a pointer into a place frozen while
+              // it lives: its value is its own, as a copy's was.
+              .Some(v) => if((v.is_module_level || v.is_ref || v.is_imm_borrow) && !v.is_borrow_match_binding, Option(String).None, Option(String).Some(tok.value.*.clone())),
               .None => Option(String).None
             )
           )

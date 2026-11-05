@@ -80,7 +80,8 @@ pragma(Pragma.AllowUnsafe);
   is_comptime_float_type,
   is_comptime_string_type,
   is_function_type_and_returns_comptime_value,
-  is_never_type
+  is_never_type,
+  is_unit_type
 } :: import("../../types/guards.yo");
 { type_contains_some_type, type_mentions_impl_fn_or_future, mark_generic_independent, type_requires_explicit_copy, type_contains_rc_cell_or_move_only, type_is_bitwise_copy, type_holds_counted_handle_ignoring_migration } :: import("../../types/utils.yo");
 { raise_flow_violation, propagate_def_time_errors } :: import("../../types/flowability.yo");
@@ -120,6 +121,8 @@ pragma(Pragma.AllowUnsafe);
   register_match_mode,
   register_arm_entry_drops,
   MATCH_MODE_BORROW,
+  MATCH_MODE_REF,
+  MATCH_MODE_REF_TEMP,
   MATCH_MODE_CONSUME,
   MATCH_MODE_MUT
 } :: import("../../pattern.yo");
@@ -1440,6 +1443,14 @@ evaluate_match :: (
   // which only the general lowering's per-arm bindings can express.
   consume_drops := (consuming && type_contains_rc_cell_or_move_only(&scrutinee_type));
   (any_place_binder : bool) = false;
+  // A `&` match (`match(&x, …)`, or a reference binding matched bare,
+  // VERDICTS-13 §14): every binding is a reference into the scrutinee's
+  // place, a C pointer to its part read through (`is_ref`), as a `&mut`
+  // match's place binding is. A copy would be a part of its own: a reference
+  // the arm yields to it (`.Some(s)` as an `Option(&T)`) would dangle once
+  // the arm ends.
+  ref_binds := (!consuming && !mut_places && ((borrowed_match_scrutinee_kind(ast_expr_token(expr)) == u8(1)) || _scrutinee_is_reference_binding(&scrutinee_expr, &env)));
+  (any_ref_binder : bool) = false;
   // The arms codegen lowers when the match needs the general lowering: the
   // patterns with their hidden bindings (the checks below read the user's).
   cg_arms := ArrayList(Arm).new();
@@ -1700,12 +1711,19 @@ evaluate_match :: (
           // binds: outside std and src it reads as a whole value with `.*`
           // (E0926, decision 43 step 2 N1e-1; a `&mut` match's binding is
           // `is_ref` above).
-          if(!ct_known && !consuming && !mut_places && ((borrowed_match_scrutinee_kind(ast_expr_token(expr)) == u8(1)) || _scrutinee_is_reference_binding(&scrutinee_expr, &env)), {
+          if(!ct_known && ref_binds, {
             match(
               _added,
-              .Some(bm_var) => {
+              // The binding points at its part, a read-only borrow. A
+              // reference payload's binding is already a reference binding
+              // (`is_ref` above), holding the payload's own pointer.
+              .Some(bm_var) => if(ref_payload.is_none(), {
                 bm_var.is_borrow_match_binding = true;
-              },
+                if(!is_unit_type(&bind_ty), {
+                  bm_var.is_ref = true;
+                  any_ref_binder = true;
+                });
+              }),
               .None => ()
             );
           });
@@ -2249,7 +2267,19 @@ evaluate_match :: (
   if(force_general, {
     all_classic = false;
   });
-  register_match_mode(ast_expr_id(expr), cond((mut_places && !(any_place_binder)) => MATCH_MODE_BORROW, true => match_mode));
+  // A `&` match that binds: its bindings point into the scrutinee's place,
+  // or into the C local a temporary scrutinee is materialized in.
+  register_match_mode(
+    ast_expr_id(expr),
+    cond(
+      (mut_places && !(any_place_binder)) => MATCH_MODE_BORROW,
+      any_ref_binder => cond(
+        (is_place_expression(&scrutinee_expr, &env) || scr_is_marked_index_place) => MATCH_MODE_REF,
+        true => MATCH_MODE_REF_TEMP
+      ),
+      true => match_mode
+    )
+  );
   // ---------------------------------------------------------------------------
   // Variant-tag group coverage (soundness of the classic `case TAG:` shape)
   //
