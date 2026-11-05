@@ -1304,6 +1304,15 @@ _future_field_upcast :: (fn(field_ty : &Option(TypeValue), code : String, contex
     .None => code
   )
 );
+/// The argument `a` is a recorded LEND (its converted runtime type is a
+/// `Reference`, T9): the C field takes the place's address.
+_is_recorded_lend :: (fn(a : &AstExpr, context : &FunctionGenerationContext) -> bool)(
+  match(
+    context.base.get_expr_info(a),
+    .Some(lei) => match(expr_info_converted_runtime_type(&lei), .Some(Rc(.Reference(_, _, _))) => true, _ => false),
+    .None => false
+  )
+);
 /// N2b (decision 43 step 3, T9): the field's argument is a recorded LEND
 /// (its converted runtime type is a `Reference` — the marker was peeled out
 /// of the tree), so the C field takes the PLACE'S ADDRESS.
@@ -2819,7 +2828,11 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
                     .Some(a) => {
                       vs_fv := _future_field_upcast(
                         match(rt_fields.get(rfi), .Some(f) => Option(TypeValue).Some(Rc.clone(f.ty)), .None => Option(TypeValue).None),
-                        _lend_field_addr(&a, &sequence_operand(&a, emit_deferred_dup_or_code(&a, _call_generate_expr(&a, indent.clone(), context), indent.clone(), context), &vs_args, rfi, false, indent, context), context),
+                        // A lend's address is taken BEFORE sequencing and
+                        // passed as a pointer operand: a hoisted temporary
+                        // would be a copy of the place, and the field would
+                        // point at it (decision 43 step 3, T9).
+                        sequence_operand(&a, _lend_field_addr(&a, &emit_deferred_dup_or_code(&a, _call_generate_expr(&a, indent.clone(), context), indent.clone(), context), context), &vs_args, rfi, _is_recorded_lend(&a, context), indent, context),
                         context
                       );
                       cl_out.push_string(&vs_fv);
