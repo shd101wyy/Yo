@@ -37,7 +37,7 @@ pragma(Pragma.AllowUnsafe);
 { TypeValue, TypeValueNode, SharedList, fn_param_is_mut_ref, fn_param_is_by_value, fn_result_origin_names, fn_param_in_result_origin, t_slot_origin_names, origin_names_contain } :: import("../../types/definitions.yo");
 { t_ptr } :: import("../../types/creators.yo");
 { format_error_message, format_error_message_with_help, with_code } :: import("../../error.yo");
-{ attach_temp_variable_to_expr, projection_call_mode_of, projection_call_root_args, reference_field_read_type } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, projection_call_mode_of, projection_call_root_args, reference_field_read_type, ref_payload_source } :: import("../utils.yo");
 { evaluate_expression_guarded } :: import("../exprs/expr.yo");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { call_promote_index_places_for_write } :: import("../context.yo");
@@ -242,6 +242,9 @@ _projection_root_error :: (fn(place : &AstExpr, is_mut : bool, env : &Environmen
           `A closure's reference result is reached from one of its own \`&\`/\`&mut\` parameters (its origin is per-call, decision 43 O2), and \`${pr_tok.value.*}\` is a binding of the enclosing function, which the closure captures.`,
           Option(str).Some(E_ORIGIN_MISMATCH)
         ),
+        // A `match` binding of a reference payload (decision 43 step 3):
+        // the place is wherever the scrutinee's reference points.
+        (!v.is_parameter && (!v.is_compile_time_only && ref_payload_source(v.id).is_some())) => _ref_payload_root_error(&pr_tok.value.*, &v, is_mut, env, ctx),
         (!v.is_parameter || v.is_compile_time_only || !(v.is_ref || v.is_imm_borrow)) => _proj_err(
           `A projection yields a place reached from one of its \`&\`/\`&mut\` parameters, and \`${pr_tok.value.*}\` is ${cond(v.is_parameter => "a by-value parameter", v.is_module_level => "a module-level binding", true => "a local")}: its storage ends with the call (decision 24, the single-root rule).`,
           if(v.is_module_level, Option(str).None, Option(str).Some(E_LOCAL_BORROW_ESCAPES))
@@ -293,6 +296,36 @@ _projection_root_error :: (fn(place : &AstExpr, is_mut : bool, env : &Environmen
     )
   )
 );
+/// The root rule through a `match` binding `name` of a reference payload
+/// (decision 43 step 3, `note_ref_payload_source`): the reference came out
+/// of the scrutinee's value, which a call computed from its borrowed
+/// arguments (`projection_call_root_args`: the result's spelled origins, or
+/// every reference argument for an elided one), so each of them must be
+/// rooted at this projection's own borrow parameters. A scrutinee that is
+/// not a call keeps the local rule's error.
+_ref_payload_root_error :: (fn(name : &String, v : &Variable, is_mut : bool, env : &Environment, ctx : &EvalContext) -> Option(_ProjRootError))({
+  if(is_mut && v.is_imm_borrow, {
+    return(_proj_err(`A \`&mut\` projection yields a place reached from a \`&mut\` parameter, and \`${name}\` is a shared borrow (\`&T\`).`, Option(str).None));
+  });
+  scr := match(ref_payload_source(v.id), .Some(e) => e, .None => make_err_expr());
+  roots := projection_call_root_args(&scr, ctx);
+  (checked : usize) = usize(0);
+  (i : usize) = usize(0);
+  while(i < roots.len(), {
+    if(!is_mut || roots(i).is_mut, {
+      match(_projection_root_error(&roots(i).arg, is_mut, env, ctx), .Some(e) => return(Option(_ProjRootError).Some(e)), .None => ());
+      checked = (checked + usize(1));
+    });
+    i = (i + usize(1));
+  });
+  cond(
+    (checked == usize(0)) => _proj_err(
+      `A projection yields a place reached from one of its \`&\`/\`&mut\` parameters, and \`${name}\` binds a reference out of \`${ast_expr_to_string(&scr)}\`, which borrows none of them: its storage ends with the call (decision 24, the single-root rule).`,
+      Option(str).Some(E_LOCAL_BORROW_ESCAPES)
+    ),
+    true => Option(_ProjRootError).None
+  )
+});
 /// A projection that yields another projection's result (decision 24): the
 /// inner call's place is rooted at its borrowed arguments
 /// (`projection_call_root_args`, narrowed to a spelled result origin), so

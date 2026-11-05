@@ -153,6 +153,15 @@ spill, by its byte count, and removes dead compiles' spills", and every
 failure is `Memory leak detected:`. With `YO_TEST_LEAK_VERDICT=0`, CI's
 setting, all 6 pass. That run was not repeated on plain develop.
 
+## Also `module_invalidation.test.yo` B2 (2026-11-05)
+
+`tests/internal/module_invalidation.test.yo`'s "B2: re-analysis keeps the
+memo and trait-default registries flat" fails the same way locally:
+`Memory leak detected:`, the other 11 tests pass. Develop `ac14b5d50`, built
+as a tree binary and run in a clean snapshot of that commit with
+`--test-name-pattern "trait-default registries flat"`, fails identically, so
+it is develop's. Found gating `fix/trait-default-by-value-self`.
+
 ## Test
 
 The four cases above, run locally with the default leak verdict, are the

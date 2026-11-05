@@ -146,6 +146,21 @@ chain walks bind `&Dyn` links), i.e. the v0.2.74 seed, and lands in the v0.2.75 
 N3 piece (one std PR: `std/error.yo`, its tests, the golden, `docs/*/DYN_DESIGN.md`). The
 schedule's v0.2.74 row ("with it, or in a small std PR right after") must move it (Q2).
 
+**N2g-0, the part the std half needs from the seed (2026-11-05, before the v0.2.75 cut).** A probe of
+§3.2's end state on the N1e-2a tree and on the v0.2.74 seed found that both already accept the trait
+signature (`source : fn(self : &Self) -> Option(&Dyn(SelfTrait))`) and an impl returning
+`.Some(&self.cause)`. What neither accepted was using the payload. A `match` binding of a reference payload
+had the type `Reference(T)`, which no reader handles: field reads, method calls, `.*` and lends all failed.
+A function building one from its own `&T` parameter also emitted invalid C, because the parameter was a
+by-value copy. N2g-0 fixes both:
+- the binding is a reference binding;
+- it freezes the scrutinee's roots while live;
+- the projection root rule follows it to the scrutinee;
+- `fn_param_is_ptr_borrow` passes a `&T` parameter by pointer when the result carries an origin.
+
+That is enough for a borrowing `source`/`root_cause` walk in std on a seed that carries it. `Option(T)`'s
+inherent methods at `T := &U` (`unwrap`) remain N2c's.
+
 ## 4. N2a in detail
 
 **Lands.** (1) The `&`/`&mut` arms in `evaluator/exprs/_expr.yo` return `TypeVal(Reference(T,
