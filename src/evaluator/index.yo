@@ -188,7 +188,7 @@ impl(
             pval,
             .StructVal(_, pnames, pvalues) => {
               // Push a dedicated prelude frame so user code can shadow prelude names.
-              env.push_frame()(true);
+              env.push_frame(true);
               (pi : usize) = usize(0);
               pn := pnames.len();
               while(pi < pn, {
@@ -198,7 +198,7 @@ impl(
                     match(
                       pvalues.get(pi),
                       .Some(pval_item) => {
-                        env.define_val()(&pname, Rc.new(TypeValueNode.Unit), true, .Some(pval_item));
+                        env.define_val(&pname, Rc.new(TypeValueNode.Unit), true, .Some(pval_item));
                         ()
                       },
                       .None => ()

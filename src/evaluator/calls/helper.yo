@@ -5307,7 +5307,7 @@ create_specialized_function_inline :: (
                                     );
                                     cw_cvi = (cw_cvi + usize(1));
                                   });
-                                  _cwf := cw_benv.push_frame()(false);
+                                  _cwf := cw_benv.push_frame(false);
                                   (cw_pvi : usize) = usize(0);
                                   while(cw_pvi < cc_fvd.*.params.len(), {
                                     cw_pn := match(cc_fvd.*.params.get_cloned(cw_pvi), .Some(x) => x, .None => String.new());
@@ -5986,7 +5986,7 @@ evaluate_ctl_function_body_inline :: (
   // of a self-emit (see the handoff doc's memory section).
   // -------------------------------------------------------------------------
   specialized_env := snapshot_env(callee_env);
-  _push_frame_res := specialized_env.push_frame()(false);
+  _push_frame_res := specialized_env.push_frame(false);
   // -------------------------------------------------------------------------
   // Add compile-time bindings from caller's scope that are missing from
   // specializedEnv (types, modules, traits — not plain function values).
@@ -6527,7 +6527,7 @@ resolve_param_types_from_expected :: (
   // `synthesize_types` has a slot to rebind (mirrors the generic-placeholder
   // setup in `try_to_call_function_with_arguments`).
   synth_env := Environment.new(Rc.clone(caller_env.module_path()));
-  synth_env.push_frame()(false);
+  synth_env.push_frame(false);
   sig_somes := get_all_some_types(func_type);
   (si : usize) = usize(0);
   while(si < sig_somes.len(), {
@@ -7514,7 +7514,7 @@ try_to_call_function_with_arguments :: (
         .None => Environment.new(Rc.clone(caller_env.module_path()))
       );
       // Step 5: Push a new frame on callee_env for parameter bindings.
-      callee_env.push_frame()(false);
+      callee_env.push_frame(false);
       // Step 5b: Bind `Self` for METHOD calls. The flattened Func type
       // carries no SelfType field, so the method-call site threads the
       // receiver type (resolved by the impl
@@ -8434,7 +8434,7 @@ try_to_call_function_with_arguments :: (
       // long-standing layout.
       if(in_def_time_trial(), {
         callee_env_m = snapshot_env(&callee_env);
-        callee_env_m.push_frame()(false);
+        callee_env_m.push_frame(false);
       });
       (caller_env_m : Environment) = caller_env;
       // io.async: evaluate the closure ARGUMENT under async-block context

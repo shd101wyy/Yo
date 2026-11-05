@@ -1082,7 +1082,7 @@ evaluate_trait_type :: (
     )
   );
   // Push a scoped env frame for trait evaluation
-  env_mut.push_frame()(false);
+  env_mut.push_frame(false);
   args := match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
   // Create "Self" SomeType for the trait
   top_frame := env_mut.frames_len();
@@ -1351,7 +1351,7 @@ evaluate_trait_type :: (
     vf_i = (vf_i + usize(1));
   });
   // Pop the scoped env frame
-  env_mut.pop_frame()();
+  env_mut.pop_frame();
   // Build final trait type value and set expr info
   trait_val := create_type_value(&trait_ty);
   out_info := new_expr_info(&env_mut, type_of_type(&trait_ty));

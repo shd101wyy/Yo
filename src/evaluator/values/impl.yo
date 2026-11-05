@@ -1499,7 +1499,7 @@ try_match_generic_impl :: (
   //    `clone_env` deep-copied every frame's variable list PER CANDIDATE PER
   //    LOOKUP — a top allocation-churn site of a self-emit.
   (unify_env : Environment) = snapshot_env(env);
-  unify_env.push_frame()(false);
+  unify_env.push_frame(false);
   // §7 warm-bug fix anchor: EVERYTHING this match synthesizes binds into
   // this frame or above. The binding extraction below reads ONLY frames
   // >= this index — an entry whose forall params never appear in its
@@ -1601,7 +1601,7 @@ try_match_generic_impl :: (
   // swallowed ("Failed to evaluate, got ((ctrl_ptr.add)(i).(*))" — the
   // hash_set corpus family, issues/fixed/def-eval-swallow-remaining-roots.md).
   (given_scratch : Environment) = snapshot_env(env);
-  given_scratch.push_frame()(false);
+  given_scratch.push_frame(false);
   synth_result := synthesize_types(
     &entry.receiver_type_pattern,
     &unify_env,
@@ -5245,7 +5245,7 @@ evaluate_module_value :: (
     // fresh frame to hold the generic SomeTs — writes only touch that frame,
     // so the outer scope stays isolated.
     (forall_env : Environment) = snapshot_env(&local_env);
-    forall_env.push_frame()(false);
+    forall_env.push_frame(false);
     frame_lvl := (forall_env.frames_len() - usize(1));
     // Forall param names and SomeT TypeValues (parallel arrays).
     (forall_names : ArrayList(String)) = ArrayList(String).new();
@@ -5887,7 +5887,7 @@ evaluate_module_value :: (
   // Push a frame for the impl's field bindings (popped after the loop)
   // so the per-field
   // BARE-label bindings below don't leak into the module scope.
-  local_env.push_frame()(false);
+  local_env.push_frame(false);
   // Pending members (plans/reference/LAZY_TOPLEVEL_BINDINGS.md P3): each DIRECT
   // colon-pair member is a definition scoped to this block. A sibling body
   // that references it before its position (`caller` calling `self.callee()`
@@ -6406,7 +6406,7 @@ evaluate_module_value :: (
                             &d_cvs,
                             Rc.clone(ast_expr_token(&d_fvd.*.body).module_path)
                           );
-                          ___df := d_env.push_frame()(false);
+                          ___df := d_env.push_frame(false);
                           d_pts := match(&d_sub_ty, Rc(.Func({ param_types : d_ppts })) => Rc.clone(d_ppts), _ => no_types());
                           // The declared `inout` flags, read off the same
                           // Self-substituted type the signature is emitted
@@ -6467,7 +6467,7 @@ evaluate_module_value :: (
                           g_mat_default_err.with_mut(xs => xs.clear());
                           _materialize_default_body(&d_body_clone, d_sub_ty.clone(), d_fresh_id.clone(), &d_env, ctx, &mut d_out);
                           truncate_forcing_depths(d_depths);
-                          d_env.pop_frame()();
+                          d_env.pop_frame();
                           ctx.self_type = d_saved_self;
                           // Phase 6 step 2 (census site #14): with `Self` this
                           // impl's concrete receiver and a signature with no
@@ -6569,7 +6569,7 @@ evaluate_module_value :: (
   // Pop the impl's field-binding frame (the frame pushed
   // above). The bare/qualified label bindings above are
   // scoped to this impl; dispatch goes through the trait-method registry.
-  local_env.pop_frame()();
+  local_env.pop_frame();
   // Unmark each trait pre-registered above
   // (the finally-style cleanup).
   (postri : usize) = usize(0);
@@ -7402,7 +7402,7 @@ _collect_generic_ctor_method_impls :: (fn(ctor_fid : &String, method : &String) 
 /// reaches the caller's env.
 synthesize_impl_binders :: (fn(names : &ArrayList(String), somes : &ArrayList(TypeValue), pattern : &TypeValue, given : &TypeValue, env : &Environment) -> Option(ArrayList(Option(TypeValue))))({
   (unify_env : Environment) = snapshot_env(env);
-  unify_env.push_frame()(false);
+  unify_env.push_frame(false);
   (unify_base : usize) = unify_env.frames_len();
   (ui : usize) = usize(0);
   while(ui < names.len(), ui = (ui + usize(1)), {
@@ -7423,7 +7423,7 @@ synthesize_impl_binders :: (fn(names : &ArrayList(String), somes : &ArrayList(Ty
   checked := ArrayList(TypePair).new();
   opts := Option(SynthesizeOptions).None;
   (given_scratch : Environment) = snapshot_env(env);
-  given_scratch.push_frame()(false);
+  given_scratch.push_frame(false);
   synth := synthesize_types(pattern, &unify_env, given, &given_scratch, &mut checked, &opts, exn_synth);
   out := ArrayList(Option(TypeValue)).new();
   (bi : usize) = usize(0);
@@ -7463,7 +7463,7 @@ first_failed_impl_where :: (fn(entry : &GenericImplEntry, bindings : &ArrayList(
             g_type_implements_trait_full_fn,
             .Some(f) => {
               (w_env : Environment) = snapshot_env(env);
-              w_env.push_frame()(false);
+              w_env.push_frame(false);
               if(!f(&bound, &w_trait, &w_env) && (_is_marker_trait(&w_trait) || _where_trait_mentions_no_forall(&w_trait, &entry.forall_some_types)), {
                 return(Option(Tuple(String, TypeValue, TypeValue)).Some((w_name, bound, w_trait)));
               });

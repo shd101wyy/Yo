@@ -932,7 +932,7 @@ _evaluate_quantifier :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut Eval
   });
   // Pass 2: bind the names to unknowns in a scoped frame and evaluate
   // the body (nested quantifiers stay legal — the flag stays set).
-  _ := cur_env.push_frame()(true);
+  _ := cur_env.push_frame(true);
   (vi : usize) = usize(0);
   while(vi < binder_names.len(), {
     // The loop condition proves the index in [0, len); the panic arms carry
@@ -961,7 +961,7 @@ _evaluate_quantifier :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut Eval
   ctx.is_evaluating_contract_predicate = true;
   evaluated_body := evaluate_expression_raw(&body, &cur_env, ctx, exn);
   ctx.is_evaluating_contract_predicate = prev_pred_flag2;
-  cur_env.pop_frame()();
+  cur_env.pop_frame();
   match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_body)),
     .Some(info2) => {
@@ -1709,7 +1709,7 @@ register_impl_inheritance_task :: (
         _ => ()
       );
       pred_env := env;
-      pred_env.push_frame()(false);
+      pred_env.push_frame(false);
       (bih : usize) = usize(0);
       while(bih < p_names.len(), {
         __pn := match(p_names.get_cloned(bih), .Some(x) => x, .None => String.new());
@@ -1766,7 +1766,7 @@ register_impl_inheritance_task :: (
         );
         vh2 = (vh2 + usize(1));
       });
-      pred_env.pop_frame()();
+      pred_env.pop_frame();
       register_verify_task(
         VerifyTask(
           fn_id : `impl-inherits@${display_module_path(&name_tok.module_path.*)}:${name_tok.row.to_string()}:${label}`,
@@ -2106,7 +2106,7 @@ _stash_callsite_contracts :: (
     .None => t_unit()
   );
   site_env := env;
-  site_env.push_frame()(false);
+  site_env.push_frame(false);
   (bi : usize) = usize(0);
   while(bi < fvd_params.len(), {
     __pn := match(fvd_params.get_cloned(bi), .Some(x) => x, .None => String.new());
@@ -2189,14 +2189,14 @@ _stash_callsite_contracts :: (
         // An unwound evaluation leaves its flag and frames behind.
         ctx.is_ghost_context = prev_ghost;
         while(site_env.frames_len() > depth, {
-          site_env.pop_frame()();
+          site_env.pop_frame();
         });
       },
       .None => ()
     );
     ei = (ei + usize(1));
   });
-  site_env.pop_frame()();
+  site_env.pop_frame();
   register_callsite_contracts(ast_expr_id(e).to_string(), &ev_reqs, &ev_enss);
 });
 /// Evaluate one callee ENSURES clause at a call site into `out`, or push
@@ -2343,7 +2343,7 @@ register_impl_variance_task :: (
     return(());
   });
   pred_env := env;
-  pred_env.push_frame()(false);
+  pred_env.push_frame(false);
   // `assert` for the synthetic body: the walk matches the BARE `assert`
   // head (its assert arm), but the fixture need not import std/assert —
   // the obligations are compiler-synthesized, not user-written. Evaluate
@@ -2512,7 +2512,7 @@ register_impl_variance_task :: (
     name_tok.clone()
   );
   body_ev := evaluated_for_verify(&body, &pred_env, ctx, exn);
-  pred_env.pop_frame()();
+  pred_env.pop_frame();
   register_verify_task(
     VerifyTask(
       fn_id : `impl-variance@${display_module_path(&name_tok.module_path.*)}:${name_tok.row.to_string()}:${label}`,
@@ -3277,7 +3277,7 @@ evaluate_law :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext,
     return(expr);
   });
   pred_env := env;
-  pred_env.push_frame()(false);
+  pred_env.push_frame(false);
   (bi : usize) = usize(0);
   while(bi < p_names.len(), {
     pn := match(p_names.get_cloned(bi), .Some(x) => x, .None => String.new());
@@ -3343,7 +3343,7 @@ evaluate_law :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext,
     match(ev_enss.get(cj), .Some(c) => _prepare_callsite_contracts(&c, &pred_env, ctx, exn), .None => ());
     cj = (cj + usize(1));
   });
-  pred_env.pop_frame()();
+  pred_env.pop_frame();
   register_verify_task(
     VerifyTask(
       // Column disambiguates: register_verify_task is first-wins on fn_id, and

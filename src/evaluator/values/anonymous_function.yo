@@ -1532,7 +1532,7 @@ evaluate_anonymous_function_implementation :: (
             ann_out.get_cloned(usize(0)),
             .Some(ann_user_ty) => {
               if(!ann_frame_pushed, {
-                _ann_fr := env.push_frame()(false);
+                _ann_fr := env.push_frame(false);
                 ann_frame_pushed = true;
               });
               // Skip if this generic name was already bound by an earlier
@@ -1590,7 +1590,7 @@ evaluate_anonymous_function_implementation :: (
       );
     });
     if(ann_frame_pushed, {
-      env.pop_frame()();
+      env.pop_frame();
     });
   });
   // -------------------------------------------------------------------------
@@ -1639,7 +1639,7 @@ evaluate_anonymous_function_implementation :: (
   );
   (cap_frame_idx : Option(usize)) = Option(usize).None;
   if(cap_list_raw.is_some(), {
-    _cap_fr := env.push_frame()(false);
+    _cap_fr := env.push_frame(false);
     cap_frame_idx = Option(usize).Some(env.frames_len() - usize(1));
     if(closure_owns_captures, {
       match(env.frame_at(_cap_fr), .Some(cfr) => mark_fnonce_capture_frame(cfr.id()), .None => ());
@@ -1741,7 +1741,7 @@ evaluate_anonymous_function_implementation :: (
   // -------------------------------------------------------------------------
   // Push a new environment frame for the function parameters.
   // -------------------------------------------------------------------------
-  _frame_idx := env.push_frame()(false);
+  _frame_idx := env.push_frame(false);
   match(env.frame_at(_frame_idx), .Some(pfr) => mark_closure_param_frame(pfr.id()), .None => ());
   // -------------------------------------------------------------------------
   // Add generic parameters to the environment.
@@ -1754,7 +1754,7 @@ evaluate_anonymous_function_implementation :: (
       TypeValueNode.SomeT(
         fl_name.clone(),
         fl_name.clone(),
-        env.frame_count()(),
+        env.frame_count(),
         Rc.new(TypeValueNode.TypeUni(usize(0))),
         some_t_bounds(ArrayList(TypeValue).new(), ArrayList(usize).new(), ArrayList(TypeValue).new(), ArrayList(usize).new()),
         Option(TypeValue).None,
@@ -3024,7 +3024,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
   // -------------------------------------------------------------------------
   // Restore the parameter frame.
   // -------------------------------------------------------------------------
-  env.pop_frame()();
+  env.pop_frame();
   // Build the capture struct for an io.async closure (empty for no-capture; works
   // for deferred-generic closures too, which simply have no recorded captures).
   // Same pop-then-create order as closure_type.yo. Set on the ExprInfo below so
@@ -3337,7 +3337,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
     );
   });
   if(cap_frame_idx.is_some(), {
-    env.pop_frame()();
+    env.pop_frame();
   });
   info := new_expr_info(env, &final_lambda_ty);
   info.set_value(Option(EvalValue).Some(func_val));

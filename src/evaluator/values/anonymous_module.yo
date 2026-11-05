@@ -275,7 +275,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
   // trait or function id.
   register_module_anchors(begin_exprs);
   // Push new frame to the env
-  env.push_frame()(false);
+  env.push_frame(false);
   // Lazy top-level bindings (plans/reference/LAZY_TOPLEVEL_BINDINGS.md §4.1): pre-scan
   // the statements and record every deferrable definition / impl. Nothing is
   // evaluated here — entries are forced on a lookup miss, or at their own
@@ -875,7 +875,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
   // module-body bindings live in `env` (e.g. multi-file `check` that
   // caches the prelude env across files); skip the pop.
   if(partial_error.is_none() && !keep_frame_at_end, {
-    env.pop_frame()();
+    env.pop_frame();
   });
   // Source-namespace STRUCT — the module type is a Struct flagged
   // `is_source_namespace`, paired with a StructVal because types and values

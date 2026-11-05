@@ -91,7 +91,7 @@ _create_box_type_via :: (fn(ctor : &String, inner_type : &TypeValue, env : &Envi
       param0_ty := match(&box_ft, Rc(.Func({ param_types : pts })) => match(slot_pointee_at(&pts, usize(0)), .Some(p) => p, .None => t_type()), _ => t_type());
       param0_label := match(&box_ft, Rc(.Func({ meta : bm })) => match(bm.*.param_labels.get(usize(0)), .Some(l) => l, .None => String.from("V")), _ => String.from("V"));
       (cenv : Environment) = env;
-      _cfr := cenv.push_frame()(false);
+      _cfr := cenv.push_frame(false);
       vtok := synthetic_token(param0_label.clone(), &cenv.module_path().*);
       add_variable_to_env(&cenv, param0_label.clone(), t_type(), Option(EvalValue).Some(create_type_value(inner_type)), true, false, false, false, &vtok);
       bargs := ArrayList(ArgEntry).new();
@@ -114,7 +114,7 @@ _create_box_type_via :: (fn(ctor : &String, inner_type : &TypeValue, env : &Envi
       b_callee_tok := synthetic_token(ctor.clone(), &cenv.module_path().*);
       b_callee := AstExpr.Atom(alloc_global_expr_id(), b_callee_tok);
       bres := evaluate_comptime_fn_call(Option(AstExpr).Some(b_callee), &box_ft, &bfv, &bav, env, &cenv, ctx, exn);
-      cenv.pop_frame()();
+      cenv.pop_frame();
       // The cell is a `ref` object, or a cell handle (`cell_handle_view`): V5's
       // `Rc`/`Arc`, a newtype over `__yo_cell`/`__yo_atomic_cell`.
       match(bres.value, .TypeVal(bt) => if(is_reference_struct_type(&bt) || cell_handle_view(&bt).is_some(), Option(TypeValue).Some(Rc.clone(bt)), Option(TypeValue).None), _ => Option(TypeValue).None)
@@ -816,7 +816,7 @@ _monomorphize_default_fv :: (
       sub_is_ref := match(&sub_ft, Rc(.Func({ result : _ })) => fn_param_mut_ref_flags(&sub_ft), _ => no_flags());
       param_labels := match(fv, .FuncVal(__plfv, _) => __plfv.*.params.clone(), _ => ArrayList(String).new());
       spec_args := ArrayList(ArgEntry).new();
-      ___mdf := caller_env.push_frame()(false);
+      ___mdf := caller_env.push_frame(false);
       (spi : usize) = usize(0);
       while(spi < param_labels.len(), {
         sp_label := match(param_labels.get_cloned(spi), .Some(l) => l, .None => String.new());
@@ -865,7 +865,7 @@ _monomorphize_default_fv :: (
       ctx.self_type = Option(TypeValue).Some(value_type.clone());
       spec_fv := create_specialized_function_inline(fv, &default_ft, &spec_argvals, caller_env, caller_env, ctx, exn);
       ctx.self_type = saved_self_ty;
-      caller_env.pop_frame()();
+      caller_env.pop_frame();
       spec_fv
     },
     true => fv
@@ -907,7 +907,7 @@ _generic_impl_method_for_dyn :: (
       pc.method_value,
       .Some(fv) => if(is_func_val(&fv), {
         recv_name := `__yo_dyn_receiver_${fname}`;
-        caller_env.push_frame()(false);
+        caller_env.push_frame(false);
         recv_tok := synthetic_token(recv_name.clone(), &caller_env.module_path().*);
         _recv_var := add_variable_to_env(caller_env, recv_name.clone(), receiver_type.clone(), Option(EvalValue).Some(create_unknown_val(receiver_type.clone())), false, true, false, false, recv_tok.clone());
         recv_atom := AstExpr.Atom(alloc_global_expr_id(), recv_tok.clone());
@@ -971,7 +971,7 @@ _generic_impl_method_for_dyn :: (
         saved_expected := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
         res := try_to_call_function_with_arguments(Option(EvalValue).Some(fv), &pc.method_type, &call_expr, &callee_atom, &call_args, caller_env, ctx, true, false, true, exn);
         ctx.expected_type = saved_expected.clone();
-        caller_env.pop_frame()();
+        caller_env.pop_frame();
         res.specialized_function_value
       }, Option(EvalValue).None),
       .None => Option(EvalValue).None
@@ -1034,7 +1034,7 @@ _synthesize_dyn_clone_fn :: (fn(payload_in : &TypeValue, dyn_type : &TypeValue, 
       fid := match(fv, .FuncVal(sfd, _) => sfd.*.func_id.clone(), _ => String.new());
       fn_ty := get_func_type(&fid);
       recv_name := String.from("__yo_dyn_clone_source");
-      caller_env.push_frame()(false);
+      caller_env.push_frame(false);
       recv_tok := synthetic_token(recv_name.clone(), &caller_env.module_path().*);
       _recv_var := add_variable_to_env(caller_env, recv_name.clone(), payload_ty.clone(), Option(EvalValue).Some(create_unknown_val(payload_ty.clone())), false, true, false, false, recv_tok.clone());
       recv_atom := AstExpr.Atom(alloc_global_expr_id(), recv_tok.clone());
@@ -1048,7 +1048,7 @@ _synthesize_dyn_clone_fn :: (fn(payload_in : &TypeValue, dyn_type : &TypeValue, 
       ctx.expected_type = Option(ExpectedTypeCtx).None;
       res := try_to_call_function_with_arguments(Option(EvalValue).Some(fv), &fn_ty, &call_expr, &callee_atom, &call_args, caller_env, ctx, true, false, true, exn);
       ctx.expected_type = saved_expected.clone();
-      caller_env.pop_frame()();
+      caller_env.pop_frame();
       res.specialized_function_value
     },
     .None => Option(EvalValue).None

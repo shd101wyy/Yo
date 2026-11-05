@@ -428,7 +428,7 @@ _reject_runtime_write_of_comptime_binding :: (
   sub := match(&ctx.is_evaluating_function_body_or_async_block, .Some(s) => s.clone(), .None => return(()));
   // A function body's own parameters sit in the top frame of its `eval_env`;
   // an async or test block has none (as in `_captured_root_of_place`).
-  own_floor := match(sub.kind, .FunctionBody => (sub.eval_env.frame_count()() - usize(1)), _ => sub.eval_env.frame_count()());
+  own_floor := match(sub.kind, .FunctionBody => (sub.eval_env.frame_count() - usize(1)), _ => sub.eval_env.frame_count());
   outside := (v.frame_level < own_floor);
   if(!outside && !rhs_is_runtime, {
     return(());
@@ -465,7 +465,7 @@ _captured_root_of_place :: (fn(lhs : &AstExpr, env : &Environment, ctx : &EvalCo
       .Some(v) => {
         // A function body's own parameters sit in the top frame of its
         // `eval_env`; an async block has none (track_variable_usage_resolved).
-        own_floor := match(sub.kind, .FunctionBody => (sub.eval_env.frame_count()() - usize(1)), _ => sub.eval_env.frame_count()());
+        own_floor := match(sub.kind, .FunctionBody => (sub.eval_env.frame_count() - usize(1)), _ => sub.eval_env.frame_count());
         cond(
           (v.is_ref() || v.is_compile_time_only() || v.is_module_level() || (v.frame_level >= own_floor)) => Option(Variable).None,
           true => Option(Variable).Some(v)

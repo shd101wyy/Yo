@@ -614,7 +614,7 @@ _evaluate_derive_executing :: (
       .FnCall(_, _, Rc(fps), _, _) => fps.clone(),
       .Atom(_, _) => ArrayList(AstExpr).new()
     );
-    _fr := env.push_frame()(false);
+    _fr := env.push_frame(false);
     (fpi : usize) = usize(0);
     while(fpi < forall_params.len(), {
       fp := match(forall_params.get(fpi), .Some(a) => a, .None => make_err_expr());
@@ -792,7 +792,7 @@ _evaluate_derive_executing :: (
   });
   // Pop the generic frame before processing trait args.
   if(forall_arg_opt.is_some(), {
-    env.pop_frame()();
+    env.pop_frame();
   });
   n_args := args.len();
   if(arg_idx >= n_args, {

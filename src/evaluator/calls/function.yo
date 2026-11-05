@@ -9194,7 +9194,7 @@ _evaluate_function_call_unanchored :: (
               _oac := add_variable_to_env(&op_env, &ocn, &oct, &ocv, match(ocv, .Some(_) => true, .None => false), false, false, false, synthetic_token(&ocn, &op_env.module_path().*));
               oci = (oci + usize(1));
             });
-            _ofr := op_env.push_frame()(false);
+            _ofr := op_env.push_frame(false);
             (opi : usize) = usize(0);
             while(opi < op_pnames.len(), {
               opn := match(op_pnames.get_cloned(opi), .Some(n) => n, .None => String.from(""));
@@ -10975,7 +10975,7 @@ Fix: wrap the call:
                 && (get_all_some_types(&lp_decl).len() > usize(0))
               );
               if(lp_go, {
-                _lpf := env.push_frame()(false);
+                _lpf := env.push_frame(false);
                 lp_se := Environment.new(Rc.clone(env.module_path()));
                 lp_ct_flags := get_func_param_comptime(func_id_fv.clone());
                 (lp_j : usize) = usize(0);
@@ -11037,7 +11037,7 @@ Fix: wrap the call:
                   lp_k = (lp_k + usize(1));
                 });
                 lp_res := evaluate_function_parameter_type_again(&lp_decl, env, ctx);
-                env.pop_frame()();
+                env.pop_frame();
                 if(is_function_type(&lp_res) && (get_all_some_types(&lp_res).len() == usize(0)), {
                   vs_override = Option(TypeValue).Some(lp_res);
                 });
@@ -11066,7 +11066,7 @@ Fix: wrap the call:
             (fv_arg_exp_env : Environment) = env;
             if(forall_names.len() > usize(0), {
               fv_arg_exp_env = snapshot_env(env);
-              _fv_child_frame := fv_arg_exp_env.push_frame()(false);
+              _fv_child_frame := fv_arg_exp_env.push_frame(false);
             });
             arg_saved_expected := ctx.expected_type.clone();
             ctx.expected_type = match(
@@ -11520,7 +11520,7 @@ Fix: wrap the call:
         // minted from the CALL's source position: unique per mint
         // via the occurrence ordinal, stable across unrelated edits.
         recur_tok := ast_expr_token(expr);
-        _fr := fresh_env.push_frame()(false);
+        _fr := fresh_env.push_frame(false);
         fv_for_recur := EvalValue.FuncVal(
           Rc.new(
             FuncValData(
@@ -13089,7 +13089,7 @@ Fix: wrap the call:
                   _mac := add_variable_to_env(&m_env, &mcn, &mct, &mcv, match(mcv, .Some(_) => true, .None => false), false, false, false, synthetic_token(&mcn, &m_env.module_path().*));
                   mci = (mci + usize(1));
                 });
-                _mfr := m_env.push_frame()(false);
+                _mfr := m_env.push_frame(false);
                 (mpi : usize) = usize(0);
                 while(mpi < m_pnames.len(), {
                   mpn := match(m_pnames.get_cloned(mpi), .Some(n) => n, .None => String.from(""));

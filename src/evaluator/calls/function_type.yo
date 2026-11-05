@@ -651,7 +651,7 @@ _share_def_time_frames :: (fn(env : &Environment, strip : bool) -> Environment)(
     );
     i = (i + usize(1));
   });
-  Environment(
+  make_environment(
     frames : Rc.new(new_frames),
     module_path : Rc.clone(env.module_path()),
     function_declaration_frame_level : env.function_declaration_frame_level(),
@@ -889,7 +889,7 @@ _build_def_time_body_env :: (
     );
     rk_fi = (rk_fi + usize(1));
   });
-  ___fr := fresh_env.push_frame()(false);
+  ___fr := fresh_env.push_frame(false);
   // Insert the Family B shadows collected above. `is_reassignable` and
   // `is_module_level` are carried from the shadowed binding (std/log.yo's
   // `_global_level = level` and the flowability gate's module-root check —
@@ -1657,7 +1657,7 @@ Result type: ${type_to_string(&result_box)}`
           // the return label as unknown values — exactly the names a
           // predicate may mention.
           pred_env := _share_def_time_frames(caller_env, false);
-          pred_env.push_frame()(false);
+          pred_env.push_frame(false);
           (pv_i : usize) = usize(0);
           while(pv_i < param_labels.len(), {
             pv_name := match(param_labels.get_cloned(pv_i), .Some(l) => l, .None => String.new());

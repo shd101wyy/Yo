@@ -379,7 +379,7 @@ _judge_arm_copies :: (fn(env : &Environment, arm_frame : usize, body : Option(As
       .Some(afr) => {
         (bvi : usize) = usize(0);
         while(bvi < afr.variables_len(), bvi = (bvi + usize(1)), {
-          bname := afr.variables()(bvi).name.clone();
+          bname := match(afr.variable_at(bvi), .Some(bv) => bv.name.clone(), .None => String.new());
           if(match(&body, .Some(b) => _subtree_assigns_variable(&b, bname.clone(), ctx), .None => false), {
             note_migrate_mut_scrutinee(scr);
           });
@@ -1525,7 +1525,7 @@ evaluate_match :: (
     // regardless. Use pop_frame_nonmutating so recorded body-env snapshots
     // (which may alias env.frames) are not corrupted.
     base_frame_count := env.frames_len();
-    env.push_frame()(false);
+    env.push_frame(false);
     // Compile the pattern (its constant tests evaluate in this frame), then
     // bind the names it introduces.
     pc := new_pattern_ctx(ast_expr_id(&arm_expr), ct_known);
@@ -1798,7 +1798,7 @@ evaluate_match :: (
     if(!(should_process), {
       _judge_arm_copies(&env, base_frame_count, Option(AstExpr).None, ctx, exn, &scrutinee_expr);
       while(env.frames_len() > base_frame_count, {
-        env.pop_frame_nonmutating()();
+        env.pop_frame_nonmutating();
       });
     }, {
       // Stamp the pattern node for codegen: executed, typed as the selected
@@ -1967,7 +1967,7 @@ evaluate_match :: (
       ctx.is_executing = old_executing;
       _judge_arm_copies(&env, base_frame_count, Option(AstExpr).Some(body_ast), ctx, exn, &scrutinee_expr);
       while(env.frames_len() > base_frame_count, {
-        env.pop_frame_nonmutating()();
+        env.pop_frame_nonmutating();
       });
       body_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_body));
       if(body_info_opt.is_none(), {

@@ -146,7 +146,7 @@ try_to_implement_closure_by_fn_module_type :: (
   // frame level, used by codegen (generate_function) to rewrite captured vars to
   // `closure_context->field`. Mirrors anonymous_function.yo:637 `n_cap_fr`.
   n_cap_fr := env.frames_len();
-  _fr := env.push_frame()(false);
+  _fr := env.push_frame(false);
   // Add each FnTrait parameter as a runtime variable to the new frame.
   n_params := param_labels.len();
   (pi : usize) = usize(0);
@@ -303,7 +303,7 @@ try_to_implement_closure_by_fn_module_type :: (
     );
   });
   // Pop the env frame.
-  env.pop_frame()();
+  env.pop_frame();
   // Capture variable enrichment. The snapshot is read in place through a
   // borrow of the dying `eval_ctx` — no Option copy out of the context.
   match(&eval_ctx.captured_variables, .Some(nested_caps) => propagate_captures_to_enclosing(&nested_caps, ctx), .None => ());

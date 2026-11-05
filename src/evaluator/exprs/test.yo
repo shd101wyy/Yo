@@ -288,7 +288,7 @@ evaluate_test :: (
   // which may push frames and then unwind on a swallowed error.
   saved_frames_len := env.frames_len();
   // Push a new frame for the test body (isolates io variable from outer scope).
-  _frame_idx := env.push_frame()(false);
+  _frame_idx := env.push_frame(false);
   // Add the implicit `io : Io` variable to the new frame.
   io_unknown_val := create_unknown_val(&io_module_type);
   _io_var_opt := add_variable_to_env(
@@ -342,7 +342,7 @@ evaluate_test :: (
   // Restore env to its pre-test frame state: pops the implicit-io frame and
   // any frames left behind by a trial evaluation that unwound on error.
   while(env.frames_len() > saved_frames_len, {
-    env.pop_frame()();
+    env.pop_frame();
   });
   // NOTE: Don't propagate env.
   // Return unit — test has no compile-time value.

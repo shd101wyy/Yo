@@ -748,7 +748,7 @@ track_variable_usage_resolved :: (
     .Some(sub_ctx) => {
       eval_env := sub_ctx.eval_env;
       // Only track variables from outer scopes.
-      if(frame_level >= eval_env.frame_count()(), {
+      if(frame_level >= eval_env.frame_count(), {
         return(());
       });
       // Find the variable in the evaluation environment: the INNERMOST
@@ -819,10 +819,10 @@ track_variable_usage_resolved :: (
           // referenced (issues/fixed/own-param-discard-leak.md).
           is_fn_body := match(sub_ctx.kind, .FunctionBody => true, _ => false);
           if(debug_knob(`YO_DEBUG_CAPTURE`).is_some(), {
-            trk_top := (is_fn_body && (actual_frame_level == (eval_env.frame_count()() - usize(1))));
-            eprintln(`[cap-track] name=${variable_name} actual_fl=${actual_frame_level.to_string()} ev_count=${eval_env.frame_count()().to_string()} top_excl=${trk_top.to_string()} cto=${v.is_compile_time_only().to_string()}`);
+            trk_top := (is_fn_body && (actual_frame_level == (eval_env.frame_count() - usize(1))));
+            eprintln(`[cap-track] name=${variable_name} actual_fl=${actual_frame_level.to_string()} ev_count=${eval_env.frame_count().to_string()} top_excl=${trk_top.to_string()} cto=${v.is_compile_time_only().to_string()}`);
           });
-          if(is_fn_body && (actual_frame_level == (eval_env.frame_count()() - usize(1))), {
+          if(is_fn_body && (actual_frame_level == (eval_env.frame_count() - usize(1))), {
             return(());
           });
           // A MODULE-level global is not a capture: it lowers to a
@@ -2929,7 +2929,7 @@ module_walk_force_env :: (fn(walk : &ModuleWalk) -> Environment)({
   if(!has_module_frame, {
     frames.push(walk.module_frame);
   });
-  Environment(
+  make_environment(
     frames : Rc.new(frames),
     module_path : Rc.clone(walk.env.module_path()),
     function_declaration_frame_level : walk.env.function_declaration_frame_level(),

@@ -504,7 +504,7 @@ default_param_eval_env :: (fn(func_id : &String, inner : &Option(Environment), f
         },
         .None => ()
       );
-      Environment(
+      make_environment(
         frames : Rc.new(frames),
         module_path : Rc.clone(d.module_path()),
         function_declaration_frame_level : d.function_declaration_frame_level(),
@@ -513,7 +513,7 @@ default_param_eval_env :: (fn(func_id : &String, inner : &Option(Environment), f
     },
     .None => snapshot_env(fallback)
   );
-  _f := out.push_frame()(false);
+  _f := out.push_frame(false);
   out
 });
 /// Per-parameter declared TYPE expressions (the raw AST right of `:`), keyed
@@ -3734,7 +3734,7 @@ evaluate_function_parameters :: (
     exn : Exception
   ) -> FuncParamsResult
 )({
-  env_mut.push_frame()(false);
+  env_mut.push_frame(false);
   params := ArrayList(FuncParam).new();
   forall_params := ArrayList(FuncParam).new();
   origin_params := ArrayList(String).new();
@@ -5046,7 +5046,7 @@ evaluate_function_type :: (
     wcp_i = (wcp_i + usize(1));
   });
   // Pop the parameters frame
-  env_mut.pop_frame()();
+  env_mut.pop_frame();
   // Build TypeValue.Func from collected parameters
   forall_labels := ArrayList(String).new();
   forall_types := ArrayList(TypeValue).new();
