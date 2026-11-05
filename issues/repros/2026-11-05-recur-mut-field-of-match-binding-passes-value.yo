@@ -1,0 +1,11 @@
+// issues/fixed/2026-11-05-recur-of-a-mut-borrowed-field-of-a-match-binding-passes-the-value-not-its-address.md
+{ assert } :: import("std/assert");
+Node :: struct(value : i32, next : Option(Box(Self)));
+last_value :: (fn(slot : &mut Option(Box(Node))) -> i32)(
+  match(slot, .Some(n) => cond(n.next.is_some() => recur(&mut n.next), true => n.value), .None => i32(-1))
+);
+main :: (fn() -> unit)({
+  mut(h) := Option(Box(Node)).Some(Box.new(Node(value : 1, next : .Some(Box.new(Node(value : 2, next : .None))))));
+  assert(last_value(&mut h) == i32(2), "last");
+});
+export(main);

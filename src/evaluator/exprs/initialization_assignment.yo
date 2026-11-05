@@ -1037,9 +1037,12 @@ evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx
     .None => ()
   );
   // A `match` binding the re-point went through stays frozen while `cur` is
-  // live; a step through a cell is what rule 4 keys on.
+  // live; a step through a cell is what rule 4 keys on. Below a cell the
+  // place is the cell's holder; without one it is a place inside the
+  // binding's referent, and the binding is frozen whole, as Rust's reborrow
+  // of `n` for `cur` freezes `n` (VERDICTS-24).
   if(via_pattern, {
-    info.places.push(place.clone());
+    info.places.push(if(place.through_cell, place.clone(), local_borrow_place_of_variable(&root_var)));
   });
   if(place.through_cell, {
     info.crosses_cell = true;
