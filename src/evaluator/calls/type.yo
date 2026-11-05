@@ -39,7 +39,7 @@ pragma(Pragma.AllowUnsafe);
 { Environment, Variable, env_adopt } :: import("../../env.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ same_name_note, type_carries_origin, origin_value_phase_message, origin_beyond_n2b, origin_beyond_n2b_message } :: import("../../types/utils.yo");
+{ same_name_note, type_carries_origin, origin_value_phase_message, origin_beyond_n2c, origin_beyond_n2c_message } :: import("../../types/utils.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { raise_flow_violation } :: import("../../types/flowability.yo");
 { convert_comptime_type_to_runtime_type } :: import("../../types/env_lookup.yo");
@@ -116,13 +116,13 @@ try_to_call_type_with_arguments :: (
   while(o_fi < n_fields, {
     match(
       type_fields.get_cloned(o_fi),
-      .Some(o_f) => if(origin_beyond_n2b(&o_f.ty) && !is_std_module_path(&ast_expr_token(function_callee_expr).module_path.*, ctx.std_path.clone()), {
+      .Some(o_f) => if(origin_beyond_n2c(&o_f.ty) && !is_std_module_path(&ast_expr_token(function_callee_expr).module_path.*, ctx.std_path.clone()), {
         o_shown := match(
           expr_info_table_get(&ctx.expr_info_table, ast_expr_id(function_callee_expr)),
           .Some(ci) => match(&ci.value, .Some(.TypeVal(ct)) => Rc.clone(ct), _ => Rc.clone(o_f.ty)),
           .None => Rc.clone(o_f.ty)
         );
-        exn.throw(dyn(format_error_message(ast_expr_token(function_callee_expr), origin_beyond_n2b_message(&o_shown))));
+        exn.throw(dyn(format_error_message(ast_expr_token(function_callee_expr), origin_beyond_n2c_message(&o_shown))));
       }),
       .None => ()
     );

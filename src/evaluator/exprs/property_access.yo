@@ -54,7 +54,7 @@ pragma(Pragma.AllowUnsafe);
 { private_member_blocked, is_private_member_name, debug_knob } :: import("../../utils.yo");
 { get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ unknown_field_message, unknown_field_code, unknown_variant_message, unknown_field_through_deref_message, type_carries_origin, origin_value_phase_message, origin_beyond_n2b, origin_beyond_n2b_message } :: import("../../types/utils.yo");
+{ unknown_field_message, unknown_field_code, unknown_variant_message, unknown_field_through_deref_message, type_carries_origin, origin_value_phase_message, origin_beyond_n2c, origin_beyond_n2c_message } :: import("../../types/utils.yo");
 { format_error_message, format_error_message_with_help, with_code } :: import("../../error.yo");
 { suggest_name, E_AMBIGUOUS_METHOD, E_DEREF_OF_BORROW } :: import("../../diagnostics.yo");
 { attach_temp_variable_to_expr, local_borrow_take_receiver, local_borrow_mark_receiver, local_borrow_clear_receiver, local_borrows_active, local_borrow_access_expr, LocalBorrowAccess, deref_exempt_mark, deref_exempt_clear, variable_is_reference_binding, deref_rule_applies, deref_rule_recording, note_reference_deref_site, is_reference_deref_site, note_synthesized_deref_star, is_synthesized_deref_star, deref_reads_through_pointee, deref_payload_type, deref_exempt_take, note_reference_field_read, reference_field_read_type, reject_reference_field_without_deref, local_borrow_place_text } :: import("../utils.yo");
@@ -75,14 +75,14 @@ pragma(Pragma.AllowUnsafe);
 // Local helpers
 // ---------------------------------------------------------------------------
 /// The value wall at a fieldless variant of an enum whose type holds a
-/// reference (decision 43 step 3): an INLINE composite (O4 row 2) is N2b's
-/// and builds; a container or a cell stays named-only
-/// (`origin_beyond_n2b_message`).
+/// reference (decision 43 step 3): an inline composite (N2b) or a
+/// container (N2c) builds; a cell stays named-only
+/// (`origin_beyond_n2c_message`).
 _reject_origin_carrying_unit_variant :: (fn(en_ty : &TypeValue, at : &AstExpr, ctx : &EvalContext, exn : Exception) -> unit)(
   // In a std body (specialized for a type holding a reference) the user's
   // call that reached it is walled instead, naming the user's type.
-  if(origin_beyond_n2b(en_ty) && !is_std_module_path(&ast_expr_token(at).module_path.*, ctx.std_path.clone()), {
-    exn.throw(dyn(format_error_message(ast_expr_token(at), origin_beyond_n2b_message(en_ty))));
+  if(origin_beyond_n2c(en_ty) && !is_std_module_path(&ast_expr_token(at).module_path.*, ctx.std_path.clone()), {
+    exn.throw(dyn(format_error_message(ast_expr_token(at), origin_beyond_n2c_message(en_ty))));
   })
 );
 /// A read of a reference FIELD (decision 43 step 2, N1e-2): `v.at` with
@@ -1429,14 +1429,13 @@ Raw pointer operations may dereference invalid memory.`
         return(expr);
       });
       prop_name_su := ast_expr_text(&property_expr).*.clone();
-      // A member of a type holding a reference beyond N2b (a container or a
-      // cell: `RefCell(&i32).new`, `ArrayList(&i32).new` — decision 43 step
-      // 3) would run or build a value of it; stop at the user's member
-      // access, before a std body specialized for it. A member of an INLINE
-      // composite is N2b's and passes (a variant constructor, a user
-      // static).
-      if(origin_beyond_n2b(&type_val_inner) && !is_std_module_path(&ast_expr_token(expr).module_path.*, ctx.std_path.clone()), {
-        exn.throw(dyn(format_error_message(ast_expr_token(&property_expr), origin_beyond_n2b_message(&type_val_inner))));
+      // A member of a type holding a reference inside a cell
+      // (`RefCell(&i32).new` — decision 43 step 3, N2d) would run or build a
+      // value of it; stop at the user's member access, before a std body
+      // specialized for it. A member of an inline composite (N2b) or a
+      // container (`ArrayList(&i32).new`, N2c) passes.
+      if(origin_beyond_n2c(&type_val_inner) && !is_std_module_path(&ast_expr_token(expr).module_path.*, ctx.std_path.clone()), {
+        exn.throw(dyn(format_error_message(ast_expr_token(&property_expr), origin_beyond_n2c_message(&type_val_inner))));
       });
       su_labels := match(
         &type_val_inner,
