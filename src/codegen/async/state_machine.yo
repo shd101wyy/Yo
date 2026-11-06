@@ -1589,7 +1589,7 @@ inline_await_result_fields :: (fn(analysis : &AwaitAnalysisResult, context : &Fu
   out := ArrayList(InlineAwaitResultField).new();
   seen := HashSet(usize).new();
   add := (fn(e : &AstExpr, t : &TypeValue, out : &mut ArrayList(InlineAwaitResultField), seen : &mut HashSet(usize), prefix : &String) -> unit)({
-    if(!seen.contains(ast_expr_id(e)) && !_inline_result_is_unit(t) && !g_local_await_results.with(s => s.contains(_site_of(ast_expr_token(e.clone())))), {
+    if(!seen.contains(ast_expr_id(e)) && !_inline_result_is_unit(t) && !g_local_await_results.with({&e}(s) => s.contains(_site_of(ast_expr_token(e.clone())))), {
       seen.insert(ast_expr_id(e));
       out.push(InlineAwaitResultField(name : `${prefix}__yo_await_result_${out.len().to_string()}`, ty : Rc.clone(t), expr : e));
     });
@@ -1623,7 +1623,7 @@ inline_await_local_result_type :: (fn(expr : &AstExpr, analysis : &AwaitAnalysis
   rty := _inline_await_result_type(expr, Option(AwaitAnalysisResult).Some(analysis), context);
   cond(
     _inline_result_is_unit(&rty) => Option(TypeValue).None,
-    g_local_await_results.with(s => s.contains(_site_of(ast_expr_token(expr.clone())))) => Option(TypeValue).Some(rty),
+    g_local_await_results.with({&expr}(s) => s.contains(_site_of(ast_expr_token(expr.clone())))) => Option(TypeValue).Some(rty),
     true => Option(TypeValue).None
   )
 });

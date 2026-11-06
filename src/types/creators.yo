@@ -857,7 +857,7 @@ _patch_self_shell :: (
 /// 21's "As built" note), as the struct registry below was before it.
 (g_enum_finals : RefCell(HashMap(String, TypeValue))) = RefCell(HashMap(String, TypeValue)).new(HashMap(String, TypeValue).new());
 register_enum_final :: (fn(enum_id : &String, ty : &TypeValue) -> unit)({
-  if((enum_id.len() > usize(0)) && g_enum_finals.with(m => m.get_cloned(enum_id)).is_none(), {
+  if((enum_id.len() > usize(0)) && g_enum_finals.with({&enum_id}(m) => m.get_cloned(enum_id)).is_none(), {
     // Owned captures (`with_mut`'s callback is a sink parameter).
     ef_key := enum_id.clone();
     ef_val := Rc.clone(ty);
@@ -874,7 +874,7 @@ resolve_enum_shell :: (fn(t : &TypeValue) -> TypeValue)(
       if(vns.len() > usize(0), {
         return(Rc.clone(t));
       });
-      match(g_enum_finals.with(m => m.get_cloned(&eid)), .Some(f) => f, .None => Rc.clone(t))
+      match(g_enum_finals.with({ &eid }(m) => m.get_cloned(eid)), .Some(f) => f, .None => Rc.clone(t))
     },
     _ => Rc.clone(t)
   )
@@ -898,7 +898,7 @@ resolve_enum_shell :: (fn(t : &TypeValue) -> TypeValue)(
 /// Record a type constructor's phantom positions (see
 /// `g_ctor_phantom_positions`); the first record wins.
 register_ctor_phantom_positions :: (fn(func_id : &String, phantom : &ArrayList(bool)) -> unit)({
-  if((func_id.len() > usize(0)) && !g_ctor_phantom_positions.with(m => m.contains_key(func_id)), {
+  if((func_id.len() > usize(0)) && !g_ctor_phantom_positions.with({&func_id}(m) => m.contains_key(func_id)), {
     // Owned captures (`with_mut`'s callback is a sink parameter).
     cp_key := func_id.clone();
     cp_val := phantom.clone();
@@ -911,7 +911,7 @@ register_ctor_phantom_positions :: (fn(func_id : &String, phantom : &ArrayList(b
 /// position the payloads already determine only adds a redundant key part;
 /// leaving a phantom one unkeyed makes two instantiations one C type.
 ctor_phantom_flags :: (fn(func_id : &String, n_args : usize) -> ArrayList(bool))({
-  rec := g_ctor_phantom_positions.with(m => m.get_cloned(func_id));
+  rec := g_ctor_phantom_positions.with({&func_id}(m) => m.get_cloned(func_id));
   out := ArrayList(bool).new();
   (i : usize) = usize(0);
   while(i < n_args, {
@@ -931,7 +931,7 @@ ctor_phantom_flags :: (fn(func_id : &String, n_args : usize) -> ArrayList(bool))
 // instantiation with at least one phantom position is recorded.
 (g_enum_phantom_positions : RefCell(HashMap(String, ArrayList(bool)))) = RefCell(HashMap(String, ArrayList(bool))).new(HashMap(String, ArrayList(bool)).new());
 _register_enum_phantom_positions :: (fn(enum_id : &String, phantom : &ArrayList(bool)) -> unit)({
-  if((enum_id.len() > usize(0)) && phantom.contains(true) && !g_enum_phantom_positions.with(m => m.contains_key(enum_id)), {
+  if((enum_id.len() > usize(0)) && phantom.contains(true) && !g_enum_phantom_positions.with({&enum_id}(m) => m.contains_key(enum_id)), {
     enum_id_owned := enum_id.clone();
     phantom_owned := phantom.clone();
     _prev := g_enum_phantom_positions.with_mut({ enum_id_owned, phantom_owned }(m) => m.insert(enum_id_owned.clone(), phantom_owned));
@@ -941,7 +941,7 @@ _register_enum_phantom_positions :: (fn(enum_id : &String, phantom : &ArrayList(
 /// The phantom-position flags recorded for an enum instantiation (see
 /// `g_enum_phantom_positions`), or an empty list when it has none.
 enum_phantom_positions :: (fn(enum_id : &String) -> ArrayList(bool))(
-  match(g_enum_phantom_positions.with(m => m.get_cloned(enum_id)), .Some(m) => m, .None => ArrayList(bool).new())
+  match(g_enum_phantom_positions.with({&enum_id}(m) => m.get_cloned(enum_id)), .Some(m) => m, .None => ArrayList(bool).new())
 );
 /// Stamp an enum instantiation's type arguments onto its finalized form in the
 /// enum-final registry (keyed by the self-shell id), so a leaked self-shell
@@ -958,7 +958,7 @@ stamp_enum_final_type_arguments :: (fn(enum_id : &String, args : &SharedList(Typ
   _register_enum_phantom_positions(enum_id.clone(), phantom.clone());
   shell_key := `${enum_id}__self_shell`;
   match(
-    g_enum_finals.with(m => m.get_cloned(&shell_key)),
+    g_enum_finals.with({ &shell_key }(m) => m.get_cloned(shell_key)),
     .Some(final_ty) => match(
       final_ty,
       Rc(.EnumT(fid, fnm, fvns, fvfs, fsvn, fvfl, fdis, firs, fiar, ftas)) => if(ftas.len() == usize(0), {
@@ -997,7 +997,7 @@ stamp_enum_final_type_arguments :: (fn(enum_id : &String, args : &SharedList(Typ
 /// resolves shells on every comparison (plans/reference/TYPE_IDENTITY.md).
 (g_struct_finals : RefCell(HashMap(String, TypeValue))) = RefCell(HashMap(String, TypeValue)).new(HashMap(String, TypeValue).new());
 register_struct_final :: (fn(struct_id : &String, ty : &TypeValue) -> unit)({
-  if((struct_id.len() > usize(0)) && g_struct_finals.with(m => m.get_cloned(struct_id)).is_none(), {
+  if((struct_id.len() > usize(0)) && g_struct_finals.with({&struct_id}(m) => m.get_cloned(struct_id)).is_none(), {
     // Owned captures (`with_mut`'s callback is a sink parameter).
     sf_key := struct_id.clone();
     sf_val := Rc.clone(ty);
@@ -1012,7 +1012,7 @@ resolve_struct_shell :: (fn(t : &TypeValue) -> TypeValue)(
     t,
     Rc(.Struct({ id : sid, field_types : fts })) => cond(
       (fts.len() > usize(0)) => Rc.clone(t),
-      true => match(g_struct_finals.with(m => m.get_cloned(&sid)), .Some(f) => f, .None => Rc.clone(t))
+      true => match(g_struct_finals.with({ &sid }(m) => m.get_cloned(sid)), .Some(f) => f, .None => Rc.clone(t))
     ),
     _ => Rc.clone(t)
   )
@@ -1029,14 +1029,14 @@ resolve_struct_shell :: (fn(t : &TypeValue) -> TypeValue)(
 /// alias `Y :: X` does not rename X).
 (g_type_binding_names : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
 register_type_binding_name :: (fn(type_id : &String, name : &String) -> unit)({
-  if((type_id.len() > usize(0)) && g_type_binding_names.with(m => m.get_cloned(type_id)).is_none(), {
+  if((type_id.len() > usize(0)) && g_type_binding_names.with({&type_id}(m) => m.get_cloned(type_id)).is_none(), {
     name_owned := name.clone();
     type_id_owned := type_id.clone();
     g_type_binding_names.with_mut({ name_owned, type_id_owned }(m) => m.insert(type_id_owned, name_owned.clone()));
   });
 });
 type_binding_name :: (fn(type_id : &String) -> Option(String))(
-  g_type_binding_names.with(m => m.get_cloned(type_id))
+  g_type_binding_names.with({&type_id}(m) => m.get_cloned(type_id))
 );
 /// Drop every binding name (a reset of the evaluator universe).
 clear_type_binding_names :: (fn() -> unit)({
@@ -1089,7 +1089,7 @@ trial_flag_set :: (fn(v : bool) -> bool)({
 /// registers, so type binders are unaffected.
 resolve_some_binder_kind :: (fn(name : &String, lvl : usize) -> Option(TypeValue))(
   match(
-    _some_binder_kinds.with(m => m.get_cloned(`${name}@${lvl.to_string()}`)),
+    _some_binder_kinds.with({ &name, lvl }(m) => m.get_cloned(`${name}@${lvl.to_string()}`)),
     .Some(kind_name) => cond(
       (kind_name == "usize") => Option(TypeValue).Some(t_usize()),
       (kind_name == "isize") => Option(TypeValue).Some(t_isize()),

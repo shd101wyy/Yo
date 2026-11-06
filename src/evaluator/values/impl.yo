@@ -339,7 +339,7 @@ type_has_user_clone_impl :: (fn(ty : &TypeValue, clone_tt : &TypeValue) -> bool)
   if(!tid.is_empty(), {
     match(
       trait_impl_site_of(&tid, &get_trait_key(clone_tt)),
-      .Some(site) => if(g_user_clone_sites.with(m => m.contains_key(&site)), {
+      .Some(site) => if(g_user_clone_sites.with({ &site }(m) => m.contains_key(site)), {
         return(true);
       }),
       .None => ()
@@ -350,7 +350,7 @@ type_has_user_clone_impl :: (fn(ty : &TypeValue, clone_tt : &TypeValue) -> bool)
   while(bi < bucket.len(), bi = (bi + usize(1)), {
     match(
       bucket.get_cloned(bi),
-      .Some(ce) => if(g_user_clone_sites.with(m => m.contains_key(ce.site.clone())) && _root_shapes_could_match(&ce.receiver_type_pattern, ty), {
+      .Some(ce) => if(g_user_clone_sites.with({ &ce }(m) => m.contains_key(ce.site.clone())) && _root_shapes_could_match(&ce.receiver_type_pattern, ty), {
         return(true);
       }),
       .None => ()
@@ -407,7 +407,7 @@ _concrete_impl_key :: (fn(type_id : &String, trait_id : &String) -> String)(
 is_concrete_impl_being_registered :: (fn(type_id : &String, trait_id : &String) -> bool)({
   k := _concrete_impl_key(type_id, trait_id);
   match(
-    _currently_registering_concrete_impls.with(m => m.get(&k)),
+    _currently_registering_concrete_impls.with({ &k }(m) => m.get(k)),
     .Some(_) => true,
     .None => false
   )
@@ -460,7 +460,7 @@ register_generic_impl :: (fn(entry : &GenericImplEntry) -> unit)({
   (ki : usize) = usize(0);
   (n_keys : usize) = g_impl_registry_keys.with(xs => xs.len());
   while(ki < n_keys, {
-    existing_key := match(g_impl_registry_keys.with(xs => xs.get_cloned(ki)), .Some(k) => k, .None => String.from(""));
+    existing_key := match(g_impl_registry_keys.with({ ki }(xs) => xs.get_cloned(ki)), .Some(k) => k, .None => String.from(""));
     if(existing_key == key, {
       key_idx = Option(usize).Some(ki);
       ki = n_keys; // break
@@ -476,7 +476,7 @@ register_generic_impl :: (fn(entry : &GenericImplEntry) -> unit)({
       // the stored list once collections are values, and emptying the slot
       // first leaves the taken list the only holder of its buffer.
       if(idx < g_impl_registry_entry_lists.with(xs => xs.len()), {
-        list := g_impl_registry_entry_lists.with(xs => xs(idx).clone());
+        list := g_impl_registry_entry_lists.with({ idx }(xs) => xs(idx).clone());
         g_impl_registry_entry_lists.with_mut(xs => {
           xs(idx) = ArrayList(GenericImplEntry).new();
         });
@@ -486,7 +486,7 @@ register_generic_impl :: (fn(entry : &GenericImplEntry) -> unit)({
         });
       });
       if(idx < g_impl_registry_entry_owners.with(xs => xs.len()), {
-        olist := g_impl_registry_entry_owners.with(xs => xs(idx).clone());
+        olist := g_impl_registry_entry_owners.with({ idx }(xs) => xs(idx).clone());
         g_impl_registry_entry_owners.with_mut(xs => {
           xs(idx) = ArrayList(String).new();
         });
@@ -527,7 +527,7 @@ _undo_generic_impl_registration :: (fn(entry : &GenericImplEntry) -> unit)({
   (ki : usize) = usize(0);
   (n_keys : usize) = g_impl_registry_keys.with(xs => xs.len());
   while(ki < n_keys, {
-    existing_key := match(g_impl_registry_keys.with(xs => xs.get_cloned(ki)), .Some(k) => k, .None => String.from(""));
+    existing_key := match(g_impl_registry_keys.with({ ki }(xs) => xs.get_cloned(ki)), .Some(k) => k, .None => String.from(""));
     if(existing_key == entry.trait_key, {
       key_idx = Option(usize).Some(ki);
       ki = n_keys; // break
@@ -538,11 +538,11 @@ _undo_generic_impl_registration :: (fn(entry : &GenericImplEntry) -> unit)({
     key_idx,
     .Some(idx) => {
       if((idx < g_impl_registry_entry_lists.with(xs => xs.len())) && (idx < g_impl_registry_entry_owners.with(xs => xs.len())), {
-        list := g_impl_registry_entry_lists.with(xs => xs(idx).clone());
+        list := g_impl_registry_entry_lists.with({ idx }(xs) => xs(idx).clone());
         g_impl_registry_entry_lists.with_mut(xs => {
           xs(idx) = ArrayList(GenericImplEntry).new();
         });
-        olist := g_impl_registry_entry_owners.with(xs => xs(idx).clone());
+        olist := g_impl_registry_entry_owners.with({ idx }(xs) => xs(idx).clone());
         g_impl_registry_entry_owners.with_mut(xs => {
           xs(idx) = ArrayList(String).new();
         });
@@ -620,8 +620,8 @@ purge_generic_impls_owned_by :: (fn(owner : &String) -> unit)({
     if(ki < g_impl_registry_entry_owners.with(xs => xs.len()), {
       // Taken out of their slots, filtered, and stored back (see
       // `register_generic_impl`).
-      list := g_impl_registry_entry_lists.with(xs => xs(ki).clone());
-      olist := g_impl_registry_entry_owners.with(xs => xs(ki).clone());
+      list := g_impl_registry_entry_lists.with({ ki }(xs) => xs(ki).clone());
+      olist := g_impl_registry_entry_owners.with({ ki }(xs) => xs(ki).clone());
       g_impl_registry_entry_lists.with_mut(xs => {
         xs(ki) = ArrayList(GenericImplEntry).new();
       });
@@ -660,7 +660,7 @@ purge_concrete_trait_impls_owned_by :: (fn(owner : &String) -> unit)({
   (i : usize) = g_concrete_trait_impl_owners.with(xs => xs.len());
   while(i > usize(0), {
     i = (i - usize(1));
-    if(match(g_concrete_trait_impl_owners.with(xs => xs.get_cloned(i)), .Some(o) => (o == owner), .None => false) && (i < g_concrete_trait_impls.with(xs => xs.len())), {
+    if(match(g_concrete_trait_impl_owners.with({ i }(xs) => xs.get_cloned(i)), .Some(o) => (o == owner), .None => false) && (i < g_concrete_trait_impls.with(xs => xs.len())), {
       g_concrete_trait_impls.with_mut(xs => xs.drain(i .. (i + usize(1))));
       g_concrete_trait_impl_owners.with_mut(xs => xs.drain(i .. (i + usize(1))));
     });
@@ -677,7 +677,7 @@ purge_move_only_decls_owned_by :: (fn(owner : &String) -> unit)({
   (changed : bool) = false;
   while(i > usize(0), {
     i = (i - usize(1));
-    if(match(g_move_only_decls.with(xs => xs.get_cloned(i)), .Some(d) => (d.owner == owner), .None => false), {
+    if(match(g_move_only_decls.with({ i }(xs) => xs.get_cloned(i)), .Some(d) => (d.owner == owner), .None => false), {
       g_move_only_decls.with_mut(xs => xs.drain(i .. (i + usize(1))));
       changed = true;
     });
@@ -692,7 +692,7 @@ generic_impl_entry_count :: (fn() -> usize)({
   (ki : usize) = usize(0);
   while(ki < g_impl_registry_entry_lists.with(xs => xs.len()), {
     match(
-      g_impl_registry_entry_lists.with(xs => xs.get_cloned(ki)),
+      g_impl_registry_entry_lists.with({ ki }(xs) => xs.get_cloned(ki)),
       .Some(list) => {
         total = (total + list.len());
       },
@@ -712,7 +712,7 @@ generic_impl_binder_bound_counts :: (fn(binder_name : &String) -> ArrayList(usiz
   (ki : usize) = usize(0);
   while(ki < g_impl_registry_entry_lists.with(xs => xs.len()), {
     match(
-      g_impl_registry_entry_lists.with(xs => xs.get_cloned(ki)),
+      g_impl_registry_entry_lists.with({ ki }(xs) => xs.get_cloned(ki)),
       .Some(list) => {
         (ei : usize) = usize(0);
         while(ei < list.len(), {
@@ -759,7 +759,7 @@ has_negative_impl :: (fn(type_id : &String, trait_id : &String) -> bool)({
   (found : bool) = false;
   while((i < g_negative_impl_registry.with(xs => xs.len())) && !found, {
     match(
-      g_negative_impl_registry.with(xs => xs.get_cloned(i)),
+      g_negative_impl_registry.with({ i }(xs) => xs.get_cloned(i)),
       .Some(k) => if(k == key, {
         found = true;
       }),
@@ -2010,9 +2010,9 @@ find_matching_generic_impl :: (
   (ki : usize) = usize(0);
   (n_keys : usize) = g_impl_registry_keys.with(xs => xs.len());
   while(ki < n_keys, {
-    k := match(g_impl_registry_keys.with(xs => xs.get_cloned(ki)), .Some(k) => k, .None => String.from(""));
+    k := match(g_impl_registry_keys.with({ ki }(xs) => xs.get_cloned(ki)), .Some(k) => k, .None => String.from(""));
     if(k == key, {
-      entry_list_opt = g_impl_registry_entry_lists.with(xs => xs.get_cloned(ki));
+      entry_list_opt = g_impl_registry_entry_lists.with({ ki }(xs) => xs.get_cloned(ki));
       ki = n_keys; // break
     });
     ki = (ki + usize(1));
@@ -2171,8 +2171,8 @@ _trait_instances_agree :: (fn(entry : &GenericImplEntry, bindings : &ArrayList(T
 _generic_impl_bucket :: (fn(key : &String) -> ArrayList(GenericImplEntry))({
   (ki : usize) = usize(0);
   while(ki < g_impl_registry_keys.with(xs => xs.len()), {
-    if(match(g_impl_registry_keys.with(xs => xs.get_cloned(ki)), .Some(k) => (k == key), .None => false), {
-      return(match(g_impl_registry_entry_lists.with(xs => xs.get_cloned(ki)), .Some(l) => l, .None => ArrayList(GenericImplEntry).new()));
+    if(match(g_impl_registry_keys.with({ ki }(xs) => xs.get_cloned(ki)), .Some(k) => (k == key), .None => false), {
+      return(match(g_impl_registry_entry_lists.with({ ki }(xs) => xs.get_cloned(ki)), .Some(l) => l, .None => ArrayList(GenericImplEntry).new()));
     });
     ki = (ki + usize(1));
   });
@@ -2436,7 +2436,7 @@ _check_generic_impl_coherence :: (fn(entry : &GenericImplEntry, env : &Environme
   (ci : usize) = usize(0);
   while(ci < g_concrete_trait_impls.with(xs => xs.len()), {
     match(
-      g_concrete_trait_impls.with(xs => xs.get_cloned(ci)),
+      g_concrete_trait_impls.with({ ci }(xs) => xs.get_cloned(ci)),
       .Some(cr) => if((cr.base_key == entry.trait_key) && (cr.site != entry.site), {
         match(
           try_match_generic_impl(&cr.receiver_ty, entry, env, true),
@@ -2482,7 +2482,7 @@ find_matching_negative_generic_impl :: (
   (found : bool) = false;
   while((i < n) && !found, {
     entry := match(
-      g_negative_generic_impl_entries.with(xs => xs.get_cloned(i)),
+      g_negative_generic_impl_entries.with({ i }(xs) => xs.get_cloned(i)),
       .Some(e) => e,
       .None => {
         i = (i + usize(1));
@@ -2611,7 +2611,7 @@ _inject_forall_captures :: (
           );
         };
         match(
-          g_ifc_memo.with(m => m.get(memo_key.clone())),
+          g_ifc_memo.with({ &memo_key }(m) => m.get(memo_key.clone())),
           .Some(cached) => Option(EvalValue).Some(cached),
           .None => {
             new_cns := ArrayList(String).new();
@@ -2778,7 +2778,7 @@ _find_methods_from_generic_impls_scan :: (
     // No `continue` in these registry loops — see
     // issues/fixed/codegen-continue-in-while-heap-corruption.md.
     entry_list := match(
-      g_impl_registry_entry_lists.with(xs => xs.get_cloned(ki)),
+      g_impl_registry_entry_lists.with({ ki }(xs) => xs.get_cloned(ki)),
       .Some(l) => l,
       .None => ArrayList(GenericImplEntry).new()
     );
@@ -3099,7 +3099,7 @@ _fmg_cache_record_fast :: (
   if(g_fmg_fast.with(xs => xs.len()) >= TYPE_IDENTITY_CACHE_CAP, {
     _fmg_cache_clear_fast();
   });
-  at := g_fmg_fast.with(xs => type_identity_slot(xs, resolved));
+  at := g_fmg_fast.with({ &resolved }(xs) => type_identity_slot(xs, resolved));
   g_fmg_fast.with_mut({ at, resolved : Rc.clone(resolved) }(xs) => xs.insert(at, Rc.clone(resolved)));
   method_name_owned := method_name.clone();
   g_fmg_fast_names.with_mut({ method_name_owned, at : at.clone() }(xs) => xs.insert(at, method_name_owned.clone()));
@@ -3115,8 +3115,8 @@ _fmg_cache_get :: (
     g_fmg_fast_epoch = epoch;
   });
   // Front: same receiver handle, same name, same owner.
-  slot := g_fmg_fast.with(xs => type_identity_slot(xs, resolved));
-  if(g_fmg_fast.with(xs => type_identity_slot_holds(xs, slot, resolved))
+  slot := g_fmg_fast.with({ &resolved }(xs) => type_identity_slot(xs, resolved));
+  if(g_fmg_fast.with({ &resolved, slot }(xs) => type_identity_slot_holds(xs, slot, resolved))
   && match(g_fmg_fast_names.with(xs => xs.get_cloned(slot)), .Some(n) => (n == method_name), .None => false)
   && match(g_fmg_fast_owners.with(xs => xs.get_cloned(slot)), .Some(o) => (o == owner), .None => false), {
     return(g_fmg_fast_lists.with(xs => xs.get_cloned(slot)));
@@ -3281,7 +3281,7 @@ find_associated_type_from_generic_impls :: (
     // No `continue` in these registry loops — see
     // issues/fixed/codegen-continue-in-while-heap-corruption.md.
     entry_list := match(
-      g_impl_registry_entry_lists.with(xs => xs.get_cloned(ki)),
+      g_impl_registry_entry_lists.with({ ki }(xs) => xs.get_cloned(ki)),
       .Some(l) => l,
       .None => ArrayList(GenericImplEntry).new()
     );
@@ -3479,7 +3479,7 @@ find_generic_impl_method_value :: (
   (ki : usize) = usize(0);
   while(ki < n_keys, {
     entry_list := match(
-      g_impl_registry_entry_lists.with(xs => xs.get_cloned(ki)),
+      g_impl_registry_entry_lists.with({ ki }(xs) => xs.get_cloned(ki)),
       .Some(l) => l,
       .None => ArrayList(GenericImplEntry).new()
     );
@@ -3554,7 +3554,7 @@ get_generic_impl_doc_entries :: (
     // No `continue` in these registry loops — see
     // issues/fixed/codegen-continue-in-while-heap-corruption.md.
     entry_list := match(
-      g_impl_registry_entry_lists.with(xs => xs.get_cloned(ki)),
+      g_impl_registry_entry_lists.with({ ki }(xs) => xs.get_cloned(ki)),
       .Some(l) => l,
       .None => ArrayList(GenericImplEntry).new()
     );
@@ -6735,11 +6735,11 @@ nominal_declares_move_only :: (fn(ty : &TypeValue) -> String)({
     g_move_only_fast_answers.with_mut(xs => xs.clear());
     g_move_only_fast_epoch = type_key_epoch();
   });
-  (slot : usize) = g_move_only_fast.with(xs => type_identity_slot(xs, ty));
-  if(g_move_only_fast.with(xs => type_identity_slot_holds(xs, slot, ty)), {
+  (slot : usize) = g_move_only_fast.with({&ty}(xs) => type_identity_slot(xs, ty));
+  if(g_move_only_fast.with({ &ty, slot }(xs) => type_identity_slot_holds(xs, slot, ty)), {
     fast := match(g_move_only_fast_answers.with(xs => xs.get_cloned(slot)), .Some(a) => a, .None => String.new());
     if(type_key_memo_check_enabled(), {
-      slow := g_move_only_memo.with(m => m.get_cloned(type_key(ty)));
+      slow := g_move_only_memo.with({&ty}(m) => m.get_cloned(type_key(ty)));
       if(match(&slow, .Some(m) => (m != fast), .None => true), {
         panic(`YO_DEBUG_TYPE_KEY_MEMO_CHECK: nominal_declares_move_only(${type_to_string(ty)}): the identity cache answers "${fast}", the type_key memo ${match(slow, .Some(m) => `answers "${m}"`, .None => String.from("has no entry"))}`);
       });
@@ -6749,14 +6749,14 @@ nominal_declares_move_only :: (fn(ty : &TypeValue) -> String)({
   key_epoch := type_key_epoch();
   key := type_key(ty);
   match(
-    g_move_only_memo.with(m => m.get_cloned(key.clone())),
+    g_move_only_memo.with({ &key }(m) => m.get_cloned(key.clone())),
     .Some(m) => {
       _record_move_only_fast(ty, key_epoch, &m);
       return(m);
     },
     .None => ()
   );
-  if(g_move_only_in_flight.with(m => m.contains_key(key.clone())), {
+  if(g_move_only_in_flight.with({ &key }(m) => m.contains_key(key.clone())), {
     return(String.new());
   });
   mark_key := key.clone();
@@ -6766,7 +6766,7 @@ nominal_declares_move_only :: (fn(ty : &TypeValue) -> String)({
   (i : usize) = usize(0);
   while((i < g_move_only_decls.with(xs => xs.len())) && found.is_empty(), {
     match(
-      g_move_only_decls.with(xs => xs.get_cloned(i)),
+      g_move_only_decls.with({ i }(xs) => xs.get_cloned(i)),
       .Some(d) => {
         hit := match(
           &d.generic,
@@ -6816,7 +6816,7 @@ generic_instantiation_declares_drop :: (fn(ty : &TypeValue) -> bool)({
   (i : usize) = usize(0);
   while(i < g_move_only_decls.with(xs => xs.len()), i = (i + usize(1)), {
     match(
-      g_move_only_decls.with(xs => xs.get_cloned(i)),
+      g_move_only_decls.with({ i }(xs) => xs.get_cloned(i)),
       .Some(d) => match(
         &d.generic,
         .Some(ge) => if(_generic_drop_impl_covers(&ge, &cfid, &args), {
@@ -6992,8 +6992,8 @@ _record_move_only_fast :: (fn(ty : &TypeValue, key_epoch : u64, answer : &String
     g_move_only_fast.with_mut(xs => xs.clear());
     g_move_only_fast_answers.with_mut(xs => xs.clear());
   });
-  (slot : usize) = g_move_only_fast.with(xs => type_identity_slot(xs, ty));
-  if(!g_move_only_fast.with(xs => type_identity_slot_holds(xs, slot, ty)), {
+  (slot : usize) = g_move_only_fast.with({&ty}(xs) => type_identity_slot(xs, ty));
+  if(!g_move_only_fast.with({ &ty, slot }(xs) => type_identity_slot_holds(xs, slot, ty)), {
     g_move_only_fast.with_mut({ slot, ty : Rc.clone(ty) }(xs) => xs.insert(slot, Rc.clone(ty)));
     answer_owned := answer.clone();
     g_move_only_fast_answers.with_mut({ answer_owned, slot : slot.clone() }(xs) => xs.insert(slot, answer_owned.clone()));
@@ -7111,7 +7111,7 @@ _check_copy_clone_exclusion :: (
       if(key == get_trait_key(&cc.copy_tt), {
         match(
           trait_impl_site_of(receiver_type_id, &clone_key),
-          .Some(clone_site) => if(g_hand_written_clone_sites.with(m => m.contains_key(clone_site.clone())), {
+          .Some(clone_site) => if(g_hand_written_clone_sites.with({ &clone_site }(m) => m.contains_key(clone_site.clone())), {
             exn.throw(dyn(format_error_message(trait_tok, _hand_written_clone_on_copy_msg(receiver_ty, Option(String).Some(clone_site)))));
           }),
           .None => ()
@@ -7161,7 +7161,7 @@ _check_generic_copy_clone_exclusion :: (fn(entry : &GenericImplEntry, trait_tok 
         while(bi < bucket.len(), {
           match(
             bucket.get_cloned(bi),
-            .Some(ce) => if(g_hand_written_clone_sites.with(m => m.contains_key(ce.site.clone())) && _receiver_patterns_could_overlap(&ce.receiver_type_pattern, &entry.receiver_type_pattern) && _pattern_implements_via_hook(&ce.receiver_type_pattern, &cc.copy_tt, &ce.definition_env), {
+            .Some(ce) => if(g_hand_written_clone_sites.with({ &ce }(m) => m.contains_key(ce.site.clone())) && _receiver_patterns_could_overlap(&ce.receiver_type_pattern, &entry.receiver_type_pattern) && _pattern_implements_via_hook(&ce.receiver_type_pattern, &cc.copy_tt, &ce.definition_env), {
               exn.throw(dyn(format_error_message(trait_tok, _hand_written_clone_on_copy_msg(&entry.receiver_type_pattern, Option(String).Some(ce.site.clone())))));
             }),
             .None => ()
@@ -7370,7 +7370,7 @@ impls_of_constructor_method :: (fn(ctor_fid : &String, method : &String) -> Arra
   key := `${ctor_fid}.${method}`;
   epoch := trait_impl_epoch();
   // Read the entry in place: its impls list is copied below only once.
-  fresh := g_ctor_method_cache.with(m => (m.contains_key(&key) && (m(key.clone()).epoch == epoch)));
+  fresh := g_ctor_method_cache.with({ &key, epoch }(m) => (m.contains_key(key) && (m(key.clone()).epoch == epoch)));
   if(!fresh, {
     collected := _collect_generic_ctor_method_impls(ctor_fid, method);
     cache_key := key.clone();

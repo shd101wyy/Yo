@@ -98,7 +98,7 @@ register_struct_fields :: (fn(id : &String, fields : &ArrayList(TypeField)) -> u
   g_struct_field_registry.with_mut({ key_own, fields_own }(m) => m.insert(key_own, fields_own));
 });
 get_struct_fields :: (fn(id : &String) -> Option(ArrayList(TypeField)))(
-  g_struct_field_registry.with(m => m.get_cloned(id))
+  g_struct_field_registry.with({&id}(m) => m.get_cloned(id))
 );
 /// The bindings a closure capture struct's fields hold, by declaration site:
 /// `<struct id>|<label>|<decl site>` per field, and every struct id with a
@@ -119,11 +119,11 @@ register_capture_field_decl_site :: (fn(struct_id : &String, label : &String, de
 /// Whether field `label` of capture struct `struct_id` holds the binding
 /// declared at `decl_site`.
 is_capture_field_binding :: (fn(struct_id : &String, label : &String, decl_site : &String) -> bool)(
-  g_capture_field_decl_sites.with(s => s.contains(`${struct_id}|${label}|${decl_site}`))
+  g_capture_field_decl_sites.with({ &struct_id, &label, &decl_site }(s) => s.contains(`${struct_id}|${label}|${decl_site}`))
 );
 /// Whether capture struct `struct_id` recorded its fields' declaration sites.
 capture_struct_has_decl_sites :: (fn(struct_id : &String) -> bool)(
-  g_capture_structs_with_sites.with(s => s.contains(struct_id))
+  g_capture_structs_with_sites.with({&struct_id}(s) => s.contains(struct_id))
 );
 // ---------------------------------------------------------------------------
 // evaluate_type_field

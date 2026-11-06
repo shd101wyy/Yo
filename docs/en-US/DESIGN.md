@@ -3394,12 +3394,15 @@ twice({ n : i32(10) }() => {
 - **A `Sync` slot rejects it.** `Impl(Fn(...), Sync)` may call the closure
   from several threads at once, so a closure that writes a `&mut` capture or
   its own state is rejected there, naming `FnMut`.
-- **This release still admits a `&mut`-capturing literal at an `Fn(...)`
-  slot.** std's call-repeatedly callbacks (`for_each`, `retain`, `sort_by`,
-  the `with_lock` bodies) take `f : &Impl(Fn(...))` until the next release
-  switches them to `FnMut(...)`; until then a literal holding a `&mut`
-  capture passed to an `Fn(...)` slot keeps working, the write going through
-  the capture's pointer. `YO_AUDIT_FNMUT=1` lists every such site.
+- **A `&mut`-capturing literal at an `Fn(...)` slot is E0913.** A literal
+  that holds a `&mut` capture is `FnMut(...)` by its captures alone, and the
+  one-release exemption that admitted it is gone: every std non-escaping
+  callback — call-repeatedly (`for_each`, `retain`, `sort_by`, the
+  `with_lock` bodies) and call-once alike (the `Option`/`Result`
+  combinators, `RefCell.with`, `Once.call`, the `*_lazy` loggers) — takes
+  `f : &mut Impl(FnMut(...))`, so the write goes through the capture's
+  pointer at an `FnMut` slot instead. `Fn` survives only where the callback
+  is shared, stored beyond the call, or called from another thread.
 
 ### Closure Type Restrictions
 

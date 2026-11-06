@@ -2253,8 +2253,8 @@ _type_signature_string :: (fn(t : &TypeValue) -> String)({
     g_type_sig_fast_strings.with_mut(xs => xs.clear());
     g_type_sig_fast_epoch = type_key_epoch();
   });
-  (slot : usize) = g_type_sig_fast.with(xs => type_identity_slot(xs, t));
-  if(g_type_sig_fast.with(xs => type_identity_slot_holds(xs, slot, t)), {
+  (slot : usize) = g_type_sig_fast.with({&t}(xs) => type_identity_slot(xs, t));
+  if(g_type_sig_fast.with({ &t, slot }(xs) => type_identity_slot_holds(xs, slot, t)), {
     fast := match(g_type_sig_fast_strings.with(xs => xs.get_cloned(slot)), .Some(s) => s, .None => String.new());
     if(type_key_memo_check_enabled(), {
       slow := `${type_to_string(t)}_id_${type_key(t)}`;
@@ -2271,7 +2271,7 @@ _type_signature_string :: (fn(t : &TypeValue) -> String)({
       g_type_sig_fast.with_mut(xs => xs.clear());
       g_type_sig_fast_strings.with_mut(xs => xs.clear());
     });
-    (at : usize) = g_type_sig_fast.with(xs => type_identity_slot(xs, t));
+    (at : usize) = g_type_sig_fast.with({&t}(xs) => type_identity_slot(xs, t));
     g_type_sig_fast.with_mut({ at, t : Rc.clone(t) }(xs) => xs.insert(at, Rc.clone(t)));
     g_type_sig_fast_strings.with_mut({ at, sig : sig.clone() }(xs) => xs.insert(at, sig));
   });

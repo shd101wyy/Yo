@@ -1670,7 +1670,7 @@ _build_async_capture_struct_literal :: (
                     // C local of the body) hands back the value itself.
                     dup_code := _call_generate_expr(&dup_expr, indent.clone(), context);
                     vname_c := sanitize_for_c_identifier(vname.clone(), false);
-                    declared := (context.base.declared_c_var_names.with(dn_s => dn_s.contains(vname.clone())) || context.base.declared_scopes.with(ds_s => scope_stack_contains(ds_s, &vname_c)));
+                    declared := (context.base.declared_c_var_names.with({ &vname }(dn_s) => dn_s.contains(vname.clone())) || context.base.declared_scopes.with({ &vname_c }(ds_s) => scope_stack_contains(ds_s, vname_c)));
                     parts.push(`.${label_c} = ${if((declared || (dup_code.len() == usize(0))), vname_c, dup_code)}`);
                   },
                   .None => {
@@ -1713,7 +1713,7 @@ _build_async_capture_struct_literal :: (
                     // own name while its block is open; the name lookup
                     // through the call's env could land on an unrelated temp.
                     local_c := sanitize_for_c_identifier(label.clone(), false);
-                    cname := if(context.base.declared_scopes.with(ds_s => scope_stack_contains(ds_s, local_c.clone())) || context.base.declared_c_var_names.with(dn_s => dn_s.contains(local_c.clone())), local_c, {
+                    cname := if(context.base.declared_scopes.with({ &local_c }(ds_s) => scope_stack_contains(ds_s, local_c.clone())) || context.base.declared_c_var_names.with(dn_s => dn_s.contains(local_c.clone())), local_c, {
                       cap_env := match(context.base.get_expr_info(expr), .Some(cei_f) => Option(Environment).Some(cei_f.env()), .None => Option(Environment).None);
                       get_variable_name_for_codegen_at(ast_expr_id(expr), label.clone(), &cap_env)
                     });
@@ -2984,7 +2984,7 @@ generate_async_block :: (fn(expr : &AstExpr, io_async_body : &Option(AstExpr), a
   _per_clone_rsid.push_string(async_block_id.clone());
   if(is_some_type(&result_type), {
     match(
-      g_async_block_result_types.with(m => m.get_cloned(_per_clone_rsid.clone())),
+      g_async_block_result_types.with({ &_per_clone_rsid }(m) => m.get_cloned(_per_clone_rsid.clone())),
       .Some(rct) => {
         result_type = rct;
       },
@@ -3755,7 +3755,7 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
   per_clone_key.push_string(ab_id.clone());
   if(is_some_type(&result_type), {
     match(
-      g_async_block_result_types.with(m => m.get_cloned(per_clone_key.clone())),
+      g_async_block_result_types.with({ &per_clone_key }(m) => m.get_cloned(per_clone_key.clone())),
       .Some(rct) => {
         result_type = rct;
       },
@@ -4168,7 +4168,7 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
       // IN-SCOPE C local/param wins — the captures side-table can hold names
       // that are REAL C parameters of the current fn (the SM bundle param
       // `e`), and rewriting those referenced a nonexistent capture field.
-      lbl_in_scope := context.base.declared_scopes.with(ds_s => scope_stack_contains(ds_s, lbl_c.clone()));
+      lbl_in_scope := context.base.declared_scopes.with({ &lbl_c }(ds_s) => scope_stack_contains(ds_s, lbl_c.clone()));
       lbl_read := cond(
         lbl_in_scope => lbl_c.clone(),
         match(

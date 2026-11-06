@@ -513,7 +513,7 @@ register_capture_borrows :: (fn(struct_id : &String, borrows : &ArrayList(Captur
 capture_struct_borrows :: (fn(struct_id : &String) -> Option(ArrayList(CaptureBorrow)))(
   cond(
     (g_capture_borrows.with(m => m.len()) == usize(0)) => Option(ArrayList(CaptureBorrow)).None,
-    true => g_capture_borrows.with(m => m.get_cloned(struct_id))
+    true => g_capture_borrows.with({&struct_id}(m) => m.get_cloned(struct_id))
   )
 );
 /// Some capture list has recorded a borrow: the fast path of every check that
@@ -566,7 +566,7 @@ future_unreturnable_borrow :: (fn(ty : &TypeValue) -> Option(CaptureBorrow))({
     match(
       &cur,
       Rc(.SomeT({ id : fu_id, resolution : fu_res })) => {
-        match(g_unreturnable_futures.with(m => m.get_cloned(&fu_id)), .Some(b) => return(Option(CaptureBorrow).Some(b)), .None => ());
+        match(g_unreturnable_futures.with({ &fu_id }(m) => m.get_cloned(fu_id)), .Some(b) => return(Option(CaptureBorrow).Some(b)), .None => ());
         match(
           fu_res,
           .Some(r) => {
@@ -668,7 +668,7 @@ _collect_type_borrows_inner :: (fn(ty_in : &TypeValue, out : &mut ArrayList(Capt
     },
     Rc(.Struct({ id : sid, field_types : fields })) => {
       match(
-        g_capture_borrows.with(m => m.get_cloned(&sid)),
+        g_capture_borrows.with({ &sid }(m) => m.get_cloned(sid)),
         .Some(bs) => {
           (bi : usize) = usize(0);
           while(bi < bs.len(), {
@@ -1083,7 +1083,7 @@ _capture_struct_declares_mut :: (fn(ty : &TypeValue) -> bool)(
     true => match(
       ty,
       Rc(.Struct({ id : sid })) => match(
-        g_capture_borrows.with(m => m.get_cloned(&sid)),
+        g_capture_borrows.with({ &sid }(m) => m.get_cloned(sid)),
         .Some(bs) => {
           (found : bool) = false;
           (i : usize) = usize(0);
@@ -1118,7 +1118,7 @@ mark_fnmut_capture_struct :: (fn(struct_id : &String) -> unit)({
 capture_struct_typed_fnmut :: (fn(ty : &TypeValue) -> bool)(
   cond(
     (g_fnmut_capture_struct_ids.with(m => m.len()) == usize(0)) => false,
-    true => match(resolution_chain_end(ty), Rc(.Struct({ id : cf_sid })) => g_fnmut_capture_struct_ids.with(m => m.contains_key(&cf_sid)), _ => false)
+    true => match(resolution_chain_end(ty), Rc(.Struct({ id : cf_sid })) => g_fnmut_capture_struct_ids.with({ &cf_sid }(m) => m.contains_key(cf_sid)), _ => false)
   )
 );
 /// `ty` is an `FnMut` closure (decision 37, decision 43 N1f): its capture
@@ -1564,7 +1564,7 @@ _plain_data_lacks_copy :: (fn(ty_in : &TypeValue) -> bool)({
   lacks := match(g_type_lacks_copy_fn, .Some(f) => f(&ty), .None => false);
   if(lacks && g_flip_report, {
     shown := type_to_string(&ty);
-    if(g_flip_reported.with(m => m.get(shown.clone())).is_none(), {
+    if(g_flip_reported.with({ &shown }(m) => m.get(shown.clone())).is_none(), {
       eprintln(`[flip] ${shown}`);
       _ := g_flip_reported.with_mut(m => m.insert(shown.clone(), true));
     });
@@ -3325,7 +3325,7 @@ get_alignment_of_type :: (fn(ty_in : &TypeValue) -> Option(usize))({
 // was bypassed (yield unknown, never overflow the stack).
 // issues/fixed/plain-recursive-enum-segfaults-the-evaluator.md.
 (g_size_walk_stack : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
-_size_walk_stack_has :: (fn(id : &String) -> bool)(g_size_walk_stack.with(xs => xs.contains(id)));
+_size_walk_stack_has :: (fn(id : &String) -> bool)(g_size_walk_stack.with({&id}(xs) => xs.contains(id)));
 /// The value-enum size computation (tag + largest variant payload), factored
 /// out of `get_size_of_type`'s `.EnumT` arm so the arm can bracket it with the
 /// cycle stack push/pop.
@@ -3579,7 +3579,7 @@ derive(_ReprMemoEntry, Clone);
 _repr_path_contains :: (fn(ty : &TypeValue) -> bool)({
   (i : usize) = usize(0);
   while(i < g_repr_path.with(xs => xs.len()), {
-    if(match(g_repr_path.with(xs => xs.get_cloned(i)), .Some(p) => __yo_ptr_eq(&p, ty), .None => false), {
+    if(match(g_repr_path.with({ i }(xs) => xs.get_cloned(i)), .Some(p) => __yo_ptr_eq(&p, ty), .None => false), {
       return(true);
     });
     i = (i + usize(1));
@@ -3587,7 +3587,7 @@ _repr_path_contains :: (fn(ty : &TypeValue) -> bool)({
   false
 });
 _repr_memo_lookup :: (fn(key : &String, ty : &TypeValue) -> Option(bool))({
-  bucket := match(g_repr_memo.with(m => m.get_cloned(key)), .Some(b) => b, .None => return(Option(bool).None));
+  bucket := match(g_repr_memo.with({&key}(m) => m.get_cloned(key)), .Some(b) => b, .None => return(Option(bool).None));
   (i : usize) = usize(0);
   while(i < bucket.len(), {
     match(
@@ -3602,7 +3602,7 @@ _repr_memo_lookup :: (fn(key : &String, ty : &TypeValue) -> Option(bool))({
   Option(bool).None
 });
 _repr_memo_store :: (fn(key : &String, ty : &TypeValue, answer : bool) -> unit)({
-  bucket := match(g_repr_memo.with(m => m.get_cloned(key.clone())), .Some(b) => b, .None => ArrayList(_ReprMemoEntry).new());
+  bucket := match(g_repr_memo.with({&key}(m) => m.get_cloned(key.clone())), .Some(b) => b, .None => ArrayList(_ReprMemoEntry).new());
   bucket.push(_ReprMemoEntry(ty : Rc.clone(ty), answer : answer));
   key_owned := key.clone();
   bucket_owned := bucket.clone();

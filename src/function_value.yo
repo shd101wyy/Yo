@@ -37,7 +37,7 @@ mark_as_control_fn :: (fn(func_id : &String) -> unit)({
 /// Returns true if the function identified by `func_id` is a control function.
 is_control_fn :: (fn(func_id : &String) -> bool)(
   match(
-    g_control_fn_registry.with(m => m.get(func_id.clone())),
+    g_control_fn_registry.with({&func_id}(m) => m.get(func_id.clone())),
     .Some(_) => true,
     .None => false
   )
@@ -61,7 +61,7 @@ mark_as_closure_fn :: (fn(func_id : &String) -> unit)({
 /// context as its first C parameter).
 is_closure_fn :: (fn(func_id : &String) -> bool)(
   match(
-    g_closure_fn_registry.with(m => m.get(func_id.clone())),
+    g_closure_fn_registry.with({&func_id}(m) => m.get(func_id.clone())),
     .Some(_) => true,
     .None => false
   )
@@ -86,12 +86,12 @@ mark_fnonce_capture_struct :: (fn(struct_id : &String) -> unit)({
   struct_id_owned := struct_id.clone();
   g_fnonce_capture_struct_ids.with_mut({ struct_id_owned }(m) => m.insert(struct_id_owned.clone(), true));
 });
-is_fnonce_capture_struct :: (fn(struct_id : &String) -> bool)(g_fnonce_capture_struct_ids.with(m => m.get(struct_id)).is_some());
+is_fnonce_capture_struct :: (fn(struct_id : &String) -> bool)(g_fnonce_capture_struct_ids.with({&struct_id}(m) => m.get(struct_id)).is_some());
 /// True if the closure identified by `func_id` owns its captures (its body
 /// was typed against `FnOnce(...)` with a capture list).
 is_fnonce_closure_fn :: (fn(func_id : &String) -> bool)(
   match(
-    g_fnonce_closure_fn_registry.with(m => m.get(func_id.clone())),
+    g_fnonce_closure_fn_registry.with({&func_id}(m) => m.get(func_id.clone())),
     .Some(_) => true,
     .None => false
   )
@@ -154,7 +154,7 @@ register_closure_capture_info :: (fn(func_id : &String, info : &ClosureCaptureIn
       },
       _ => ()
     );
-    reg_src := match(g_closure_fid_source.with(m => m.get_cloned(func_id.clone())), .Some(sv) => sv, .None => `NO-SRC`.to_string());
+    reg_src := match(g_closure_fid_source.with({&func_id}(m) => m.get_cloned(func_id.clone())), .Some(sv) => sv, .None => `NO-SRC`.to_string());
     eprintln(`[cap-reg] fid=${func_id} src=${reg_src} fields=${reg_flds}`);
   });
   // KEEP-LARGER: a closure definition can be re-evaluated (def-time trial,
@@ -166,7 +166,7 @@ register_closure_capture_info :: (fn(func_id : &String, info : &ClosureCaptureIn
   // def-time eval HAD captured them). Last-writer-wins let the smaller set
   // clobber the complete one; keep the registration with MORE fields.
   match(
-    g_closure_capture_info.with(m => m.get_cloned(func_id.clone())),
+    g_closure_capture_info.with({ &func_id }(m) => m.get_cloned(func_id.clone())),
     .Some(prev_cci) => if(_capture_struct_field_count(&prev_cci.capture_type) > _capture_struct_field_count(&info.capture_type), {
       return(());
     }),
@@ -174,11 +174,11 @@ register_closure_capture_info :: (fn(func_id : &String, info : &ClosureCaptureIn
   );
   // Source-keyed keep-larger (cross-generation merge — see the note above).
   match(
-    g_closure_fid_source.with(m => m.get_cloned(func_id.clone())),
+    g_closure_fid_source.with({&func_id}(m) => m.get_cloned(func_id.clone())),
     .Some(src_key1) => {
       (src_do_set : bool) = true;
       match(
-        g_closure_capture_by_source.with(m => m.get_cloned(src_key1.clone())),
+        g_closure_capture_by_source.with({ &src_key1 }(m) => m.get_cloned(src_key1.clone())),
         .Some(prev_src) => if(_capture_struct_field_count(&prev_src.capture_type) > _capture_struct_field_count(&info.capture_type), {
           src_do_set = false;
         }),
@@ -211,7 +211,7 @@ find_closure_fid_by_capture_struct_id :: (fn(struct_id : &String) -> Option(Stri
     match(
       it.next(),
       .Some(fid) => match(
-        g_closure_capture_info.with(m => m.get_cloned(fid.clone())),
+        g_closure_capture_info.with({ &fid }(m) => m.get_cloned(fid.clone())),
         .Some(ci) => match(
           &ci.capture_type,
           Rc(.Struct({ id : csid })) => if(csid == struct_id, {
@@ -230,12 +230,12 @@ find_closure_fid_by_capture_struct_id :: (fn(struct_id : &String) -> Option(Stri
   out
 });
 get_closure_capture_info :: (fn(func_id : &String) -> Option(ClosureCaptureInfo))({
-  fid_info := g_closure_capture_info.with(m => m.get_cloned(func_id.clone()));
+  fid_info := g_closure_capture_info.with({ &func_id }(m) => m.get_cloned(func_id.clone()));
   // Cross-generation fallback: prefer the LARGEST capture struct any
   // generation of this SOURCE closure recorded (see g_closure_capture_by_source).
   src_info := match(
-    g_closure_fid_source.with(m => m.get_cloned(func_id.clone())),
-    .Some(sk) => g_closure_capture_by_source.with(m => m.get_cloned(&sk)),
+    g_closure_fid_source.with({ &func_id }(m) => m.get_cloned(func_id.clone())),
+    .Some(sk) => g_closure_capture_by_source.with({ &sk }(m) => m.get_cloned(&sk)),
     .None => Option(ClosureCaptureInfo).None
   );
   match(
@@ -279,7 +279,7 @@ mark_as_index_entry_method :: (fn(func_id : &String) -> unit)({
   g_index_entry_method_registry.with_mut({ func_id_owned }(m) => m.insert(func_id_owned.clone(), true));
 });
 is_index_entry_method :: (fn(func_id : &String) -> bool)(
-  g_index_entry_method_registry.with(m => m.get(func_id)).is_some()
+  g_index_entry_method_registry.with({&func_id}(m) => m.get(func_id)).is_some()
 );
 // ---------------------------------------------------------------------------
 // isIoAsyncStateMachineClosure side-table (codegen)
@@ -300,7 +300,7 @@ mark_io_async_sm_closure :: (fn(func_id : &String) -> unit)({
 /// Returns true if `func_id` is an io.async state-machine closure.
 is_io_async_sm_closure :: (fn(func_id : &String) -> bool)(
   match(
-    g_io_async_sm_closure_registry.with(m => m.get(func_id.clone())),
+    g_io_async_sm_closure_registry.with({&func_id}(m) => m.get(func_id.clone())),
     .Some(_) => true,
     .None => false
   )
@@ -321,12 +321,12 @@ register_io_async_closure_fid :: (fn(expr_id : &String, func_id : &String) -> un
 });
 /// Look up the closure func_id recorded for an io.async call expr.
 lookup_io_async_closure_fid :: (fn(expr_id : &String) -> Option(String))(
-  g_io_async_closure_fid_by_expr.with(m => m.get_cloned(expr_id.clone()))
+  g_io_async_closure_fid_by_expr.with({&expr_id}(m) => m.get_cloned(expr_id.clone()))
 );
 /// Returns true if the function identified by `func_id` is an effect-record member.
 is_effect_record_member :: (fn(func_id : &String) -> bool)(
   match(
-    g_effect_record_member_registry.with(m => m.get(func_id.clone())),
+    g_effect_record_member_registry.with({&func_id}(m) => m.get(func_id.clone())),
     .Some(_) => true,
     .None => false
   )
@@ -362,7 +362,7 @@ register_definition_site_return :: (fn(func_id : &String, return_ty : &TypeValue
 /// body (e.g., top-level definitions, handlers defined in test blocks).
 get_definition_site_return :: (fn(func_id : &String) -> TypeValue)(
   match(
-    g_definition_site_return_registry.with(m => m.get_cloned(func_id.clone())),
+    g_definition_site_return_registry.with({&func_id}(m) => m.get_cloned(func_id.clone())),
     .Some(ty) => ty,
     .None => t_unit()
   )
@@ -387,7 +387,7 @@ register_closure_body_type :: (fn(func_id : &String, body_ty : &TypeValue) -> un
   g_closure_body_type_registry.with_mut({ body_ty : Rc.clone(body_ty), cbt_key }(m) => m.insert(cbt_key, Rc.clone(body_ty)));
 });
 get_closure_body_type :: (fn(func_id : &String) -> Option(TypeValue))(
-  g_closure_body_type_registry.with(m => m.get_cloned(func_id.clone()))
+  g_closure_body_type_registry.with({&func_id}(m) => m.get_cloned(func_id.clone()))
 );
 /// Record a function's own resolved `Func` type by func_id (called when the
 /// FuncVal is created). Resolves Gap 10 for the codegen function-emission driver.
@@ -415,7 +415,7 @@ mark_fn_unemittable :: (fn(func_id : &String) -> unit)({
   g_unemittable_fns.with_mut({ func_id_owned }(s) => s.insert(func_id_owned.clone()));
 });
 is_fn_unemittable :: (fn(func_id : &String) -> bool)(
-  g_unemittable_fns.with(s => s.contains(func_id.clone()))
+  g_unemittable_fns.with({&func_id}(s) => s.contains(func_id.clone()))
 );
 // ---------------------------------------------------------------------------
 // CTFE-clone side-table
@@ -432,7 +432,7 @@ mark_fn_ctfe_clone :: (fn(func_id : &String) -> unit)({
   g_ctfe_clone_fns.with_mut({ func_id_owned }(s) => s.insert(func_id_owned.clone()));
 });
 is_fn_ctfe_clone :: (fn(func_id : &String) -> bool)(
-  g_ctfe_clone_fns.with(s => s.contains(func_id.clone()))
+  g_ctfe_clone_fns.with({&func_id}(s) => s.contains(func_id.clone()))
 );
 // ---------------------------------------------------------------------------
 // Specialized-original side-table
@@ -450,7 +450,7 @@ mark_fn_specialized :: (fn(func_id : &String) -> unit)({
   g_specialized_originals.with_mut({ func_id_owned }(s) => s.insert(func_id_owned.clone()));
 });
 fn_has_specializations :: (fn(func_id : &String) -> bool)(
-  g_specialized_originals.with(s => s.contains(func_id.clone()))
+  g_specialized_originals.with({&func_id}(s) => s.contains(func_id.clone()))
 );
 /// The recorded `Func` type for `func_id`, or `t_unit()` if none was registered.
 /// Every function the evaluator registered a type for (std included) — the
@@ -458,7 +458,7 @@ fn_has_specializations :: (fn(func_id : &String) -> bool)(
 registered_func_type_count :: (fn() -> usize)(g_func_type_registry.with(m => m.len()));
 get_func_type :: (fn(func_id : &String) -> TypeValue)(
   match(
-    g_func_type_registry.with(m => m.get_cloned(func_id.clone())),
+    g_func_type_registry.with({&func_id}(m) => m.get_cloned(func_id.clone())),
     .Some(ty) => ty,
     .None => t_unit()
   )
@@ -493,7 +493,7 @@ register_func_parameters_frame :: (fn(func_id : &String, frame : &Frame) -> unit
 });
 /// Retrieve a function's parameter-bound frame, if captured.
 get_func_parameters_frame :: (fn(func_id : &String) -> Option(Frame))(
-  g_func_parameters_frame.with(m => m.get_cloned(func_id.clone()))
+  g_func_parameters_frame.with({ &func_id }(m) => m.get_cloned(func_id.clone()))
 );
 /// Drop the given function ids from this module's per-function registries
 /// (see `purge_function_side_tables`, plans/EVALUATOR_MEMORY_REDUCTION.md

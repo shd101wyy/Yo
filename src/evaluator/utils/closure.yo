@@ -320,7 +320,7 @@ note_closure_for_some_id :: (fn(sid : &String, fid : &String) -> unit)(_note_fid
 /// fresh binder for a closure argument) names the same closures.
 alias_closure_some_id :: (fn(new_id : &String, of_id : &String) -> unit)({
   match(
-    g_closure_fids_by_some.with(m => m.get_cloned(of_id)),
+    g_closure_fids_by_some.with({ &of_id }(m) => m.get_cloned(of_id)),
     .Some(fids) => {
       (ai : usize) = usize(0);
       while(ai < fids.len(), {
@@ -483,7 +483,7 @@ _function_value_offense :: (
   // variable; without one, the capture struct as a type.
   cap_hint := "a closure has a marker trait only when every value it captures does; capture an atomic object (Arc(T), Mutex(T), Atomic*) instead";
   match(
-    g_closure_capture_offense.with(m => m.get_cloned(`${fid}|${mname}`)),
+    g_closure_capture_offense.with({ &fid, &mname }(m) => m.get_cloned(`${fid}|${mname}`)),
     .Some(.Some(co)) => {
       return(Option(String).Some(`${co} — ${cap_hint}`));
     },
@@ -657,7 +657,7 @@ function_value_marker :: (
   want_cap := _capture_id_of(if(is_bound_closure_identity(ty), resolve_cell_chain(ty), Rc.clone(ty)));
   if(!want_cap.is_empty(), {
     match(
-      g_closure_fids_by_capture.with(m => m.get_cloned(&want_cap)),
+      g_closure_fids_by_capture.with({ &want_cap }(m) => m.get_cloned(want_cap)),
       .Some(cfids) => {
         (cci : usize) = usize(0);
         while(cci < cfids.len(), {
@@ -683,7 +683,7 @@ function_value_marker :: (
   });
   if(!want_id.is_empty(), {
     match(
-      g_closure_fids_by_some.with(m => m.get_cloned(&want_id)),
+      g_closure_fids_by_some.with({ &want_id }(m) => m.get_cloned(want_id)),
       .Some(fids) => {
         (ci : usize) = usize(0);
         while(ci < fids.len(), {
@@ -718,7 +718,7 @@ closure_capture_struct_marker :: (fn(capture_ty : &TypeValue, marker : &String) 
     return(Option(bool).None);
   });
   match(
-    g_closure_fids_by_capture.with(m => m.get_cloned(&cap_id)),
+    g_closure_fids_by_capture.with({ &cap_id }(m) => m.get_cloned(cap_id)),
     .Some(ccm_fids) => {
       (judged : bool) = false;
       (ci : usize) = usize(0);
@@ -726,7 +726,7 @@ closure_capture_struct_marker :: (fn(capture_ty : &TypeValue, marker : &String) 
         match(
           ccm_fids.get_cloned(ci),
           .Some(ccm_fid) => match(
-            g_closure_capture_offense.with(m => m.get_cloned(`${ccm_fid}|${marker}`)),
+            g_closure_capture_offense.with({ &ccm_fid, &marker }(m) => m.get_cloned(`${ccm_fid}|${marker}`)),
             .Some(.Some(_)) => {
               return(Option(bool).Some(false));
             },
@@ -1228,7 +1228,7 @@ create_capture_type_and_value :: (
         csi = (csi + usize(1));
       });
       struct_id := match(
-        g_capture_struct_ids.with(m => m.get_cloned(cap_key.clone())),
+        g_capture_struct_ids.with({ &cap_key }(m) => m.get_cloned(cap_key.clone())),
         .Some(existing) => existing,
         .None => {
           // Phase 2: content-addressed (hash of the cap_key, which is itself
@@ -1240,7 +1240,7 @@ create_capture_type_and_value :: (
           loop_ok := runtime(true);
           while(loop_ok, {
             match(
-              g_capture_struct_ids_r.with(m => m.get_cloned(fresh.clone())),
+              g_capture_struct_ids_r.with({ &fresh }(m) => m.get_cloned(fresh.clone())),
               .Some(owner) => {
                 if(owner == cap_key, {
                   loop_ok = false;

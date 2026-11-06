@@ -1482,7 +1482,7 @@ is_module_ghost_fn_def :: (fn(path : &String, name : &String) -> bool)({
   while(wi > usize(0), {
     wi = (wi - usize(1));
     match(
-      g_module_walks.with(xs => xs.get_cloned(wi)),
+      g_module_walks.with({ wi }(xs) => xs.get_cloned(wi)),
       .Some(w) => if(canonical_module_path(&w.module_path) == &canon, {
         match(
           _find_def_by_name(&w.defs, name.clone(), false),
@@ -1546,7 +1546,7 @@ finished_walk_expr_info_count :: (fn(path : &String) -> Option(usize))({
 });
 /// Whether a walk of the module at `module_path` keeps its context when it finishes.
 walk_context_retained_for :: (fn(module_path : &String) -> bool)(
-  g_retain_walk_contexts || ((g_retained_walk_paths.with(s => s.len()) > usize(0)) && g_retained_walk_paths.with(s => s.contains(canonical_module_path(module_path))))
+  g_retain_walk_contexts || ((g_retained_walk_paths.with({ &module_path }(s) => s.len()) > usize(0)) && g_retained_walk_paths.with({ &module_path }(s) => s.contains(canonical_module_path(module_path))))
 );
 /// Phase 3 (§6) — per-definition dependency tracking.
 ///
@@ -1585,19 +1585,19 @@ register_sns_module :: (fn(struct_id : &String, module_path : &String) -> unit)(
 });
 /// The module behind a source-namespace struct id, if known.
 sns_module_of :: (fn(struct_id : &String) -> Option(String))(
-  g_sns_module.with(m => m.get_cloned(struct_id))
+  g_sns_module.with({&struct_id}(m) => m.get_cloned(struct_id))
 );
 /// The stored source hash of one definition, for the parse-only differ.
 stored_def_hash :: (fn(module_path : &String, index : usize, name : &String) -> Option(u64))(
-  g_def_hash.with(m => m.get(def_key(module_path, index, name)))
+  g_def_hash.with({ &module_path, &name, index }(m) => m.get(def_key(module_path, index, name)))
 );
 /// The stored ordered-statement sequence hash of a module.
 stored_stmt_hash :: (fn(module_path : &String) -> Option(u64))(
-  g_module_stmt_hash.with(m => m.get(module_path))
+  g_module_stmt_hash.with({&module_path}(m) => m.get(module_path))
 );
 /// The stored definition count of a module's last walk.
 stored_def_count :: (fn(module_path : &String) -> Option(usize))(
-  g_module_def_count.with(m => m.get(module_path))
+  g_module_def_count.with({&module_path}(m) => m.get(module_path))
 );
 /// def key helper. `index` (the statement's position in the walk's
 /// begin_exprs) + name — deliberately ROW-FREE: inserting a comment or a
@@ -1675,7 +1675,7 @@ record_module_ordered_read :: (fn(importer : &String, target_module : &String, f
 /// stack) it degrades to the ordered-read table.
 record_module_member_read :: (fn(importer : &String, target_module : &String, field : &String) -> unit)({
   target_def := match(
-    g_finished_walks.with(m => m.get_cloned(target_module)),
+    g_finished_walks.with({ &target_module }(m) => m.get_cloned(target_module)),
     .Some(fwalk) => _find_def_by_name(&fwalk.defs, field, false),
     .None => Option(PendingDef).None
   );
@@ -1739,7 +1739,7 @@ def_key_index :: (fn(key : &String) -> Option(usize))(
 );
 /// The walk a module was finished under, by the def keys' own module segment.
 finished_walk_for :: (fn(module_path : &String) -> Option(ModuleWalk))(
-  g_finished_walks.with(m => m.get_cloned(module_path))
+  g_finished_walks.with({ &module_path }(m) => m.get_cloned(module_path))
 );
 /// Reset one definition for re-evaluation: clear the lazy-binding state and
 /// drop its bindings from the walk's module frame (so a lookup MISSES again
@@ -1877,7 +1877,7 @@ def_dependents_closure :: (fn(seeds : &ArrayList(String)) -> ArrayList(String))(
         kopt,
         .Some(dep) => if(!reached.contains(dep.clone()), {
           match(
-            g_def_deps.with(m => m.get_cloned(dep.clone())),
+            g_def_deps.with({ &dep }(m) => m.get_cloned(dep.clone())),
             .Some(deps) => if(deps.contains(seed.clone()), {
               _ := reached.insert(dep.clone());
               work.push(dep.clone());
@@ -1905,7 +1905,7 @@ ordered_readers_of :: (fn(target_module : &String, names : &ArrayList(String)) -
     match(
       iopt,
       .Some(importer) => match(
-        g_module_ordered_reads.with(m => m.get_cloned(importer.clone())),
+        g_module_ordered_reads.with({ &importer }(m) => m.get_cloned(importer.clone())),
         .Some(by_target) => match(
           by_target.get_cloned(target_module.clone()),
           .Some(fields) => {
@@ -1938,7 +1938,7 @@ ordered_readers_of :: (fn(target_module : &String, names : &ArrayList(String)) -
 /// The dependees recorded for one def key (the forward edges of
 /// `g_def_deps`), for the invalidator's cross-module ordering.
 def_key_dependees :: (fn(key : &String) -> Option(HashSet(String)))(
-  g_def_deps.with(m => m.get_cloned(key))
+  g_def_deps.with({&key}(m) => m.get_cloned(key))
 );
 /// The forcer slot. Returns `.None` on success, `.Some(message)` on failure.
 ForcePendingDefFn :: (fn(walk : &ModuleWalk, def : &PendingDef) -> Option(String));
@@ -2168,7 +2168,7 @@ note_borrowing_argument :: (fn(arg : &AstExpr) -> unit)({
 });
 /// True when the closure literal `e` is the direct argument of a borrowing
 /// parameter (`note_borrowing_argument`).
-closure_literal_is_borrowed :: (fn(e : &AstExpr) -> bool)(g_borrowing_closure_args.with(m => m.contains_key(ast_expr_id(e))));
+closure_literal_is_borrowed :: (fn(e : &AstExpr) -> bool)(g_borrowing_closure_args.with({&e}(m) => m.contains_key(ast_expr_id(e))));
 /// `YO_AUDIT_COPY_TRAIT`'s question, answered by trait_checking.yo (installed
 /// at init, which this module cannot import): the named types `ty` is not
 /// `Copy` through, the types decision 36's sweep must give `Copy` before a
@@ -2219,7 +2219,7 @@ force_pending_move_only_impls :: (fn(type_name : &String) -> bool)({
   if(g_pending_move_only_heads.with(m => m.len()) == usize(0), {
     return(false);
   });
-  if(!(g_pending_move_only_heads.with(m => m.contains_key(type_name.clone())) || g_pending_move_only_heads.with(m => m.contains_key(String.new()))), {
+  if(!(g_pending_move_only_heads.with({ &type_name }(m) => m.contains_key(type_name.clone())) || g_pending_move_only_heads.with(m => m.contains_key(String.new()))), {
     return(false);
   });
   type_name_owned := type_name.clone();
@@ -2230,7 +2230,7 @@ force_pending_move_only_impls :: (fn(type_name : &String) -> bool)({
   while(wi > usize(0), {
     wi = (wi - usize(1));
     match(
-      g_module_walks.with(xs => xs.get_cloned(wi)),
+      g_module_walks.with({ wi }(xs) => xs.get_cloned(wi)),
       .Some(walk) => {
         (di : usize) = usize(0);
         while(di < walk.defs.len(), {
@@ -2626,7 +2626,7 @@ is_dot_callee :: (fn(id : usize) -> bool)({
   (i : usize) = g_dot_callee_ids.with(xs => xs.len());
   while(i > usize(0), {
     i = (i - usize(1));
-    if(match(g_dot_callee_ids.with(xs => xs.get(i)), .Some(v) => (v == id), .None => false), {
+    if(match(g_dot_callee_ids.with({ i }(xs) => xs.get(i)), .Some(v) => (v == id), .None => false), {
       return(true);
     });
   });
@@ -3040,7 +3040,7 @@ force_pending_def :: (fn(walk : &ModuleWalk, def : &PendingDef) -> Option(String
   // read when a program's evaluation order (and so its emitted C) differs
   // from the in-order baseline.
   if(debug_knob(`YO_DEBUG_LAZY`).is_some(), {
-    eprintln(`[force] ${_def_display(def)} in ${walk.module_path} (walk index ${def.index.to_string()}, forcing depth ${g_forcing_stack.with(xs => xs.len()).to_string()})`);
+    eprintln(`[force] ${_def_display(def)} in ${walk.module_path} (walk index ${def.index.to_string()}, forcing depth ${g_forcing_stack.with({&walk}(xs) => xs.len()).to_string()})`);
   });
   // Phase 3b: the watch tests' oracle — only the changed definition (+ its
   // dependents) may re-evaluate in a per-def round.
@@ -3219,7 +3219,7 @@ resolve_pending_definition :: (fn(name : &String, module_path : &String) -> Pend
       )
     ),
     .None => match(
-      g_finished_walks.with(m => m.get_cloned(module_path)),
+      g_finished_walks.with({ &module_path }(m) => m.get_cloned(module_path)),
       .Some(fwalk) => match(
         _find_def_by_name(&fwalk.defs, name.clone(), false),
         .Some(def) => match(
@@ -3381,7 +3381,7 @@ _force_pending_impls_pass :: (fn(type_name : &String, declaring : &Option(String
   while((wi > usize(0)) && err.is_none(), {
     wi = (wi - usize(1));
     match(
-      g_module_walks.with(xs => xs.get_cloned(wi)),
+      g_module_walks.with({ wi }(xs) => xs.get_cloned(wi)),
       .Some(walk) => if(((wi + usize(1)) == innermost) || _find_def_by_name(&walk.defs, type_name.clone(), false).is_some(), {
         (di : usize) = usize(0);
         while((di < walk.defs.len()) && err.is_none(), {

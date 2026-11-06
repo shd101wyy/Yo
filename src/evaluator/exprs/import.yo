@@ -99,7 +99,7 @@ clear_import_roots :: (fn() -> unit)({
 lookup_import_unavailable :: (fn(name : &String) -> Option(String))({
   (i : usize) = usize(0);
   while(i < g_import_unavailable_names.with(xs => xs.len()), {
-    matches := match(g_import_unavailable_names.with(xs => xs.get_cloned(i)), .Some(n) => (n == name), .None => false);
+    matches := match(g_import_unavailable_names.with({ i }(xs) => xs.get_cloned(i)), .Some(n) => (n == name), .None => false);
     if(matches, {
       match(
         g_import_unavailable_reasons.with(xs => xs.get_cloned(i)),
@@ -118,7 +118,7 @@ lookup_import_root :: (fn(name : &String) -> Option(String))({
   while(i < g_import_root_names.with(xs => xs.len()), {
     // `.get(i)` copies the element out: indexing a module-level container
     // for a `ref` argument is rejected (a callee could reallocate it).
-    matches := match(g_import_root_names.with(xs => xs.get_cloned(i)), .Some(n) => (n == name), .None => false);
+    matches := match(g_import_root_names.with({ i }(xs) => xs.get_cloned(i)), .Some(n) => (n == name), .None => false);
     if(matches, {
       match(
         g_import_root_paths.with(xs => xs.get_cloned(i)),

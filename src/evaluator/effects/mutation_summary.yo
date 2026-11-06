@@ -255,7 +255,7 @@ impl(
     ) -> bool
   )({
     match(
-      g_ms_summary_by_fid.with(m => m.get(fid.clone())),
+      g_ms_summary_by_fid.with({&fid}(m) => m.get(fid.clone())),
       .Some(m) => if(m.body_id == ast_expr_id(body), {
         return(m.mutates);
       }),
@@ -264,7 +264,7 @@ impl(
     if(_ms_body_dups_first_param(fid, body), {
       return(false);
     });
-    if(g_ms_in_progress.with(m => m.get(fid.clone())).is_some(), {
+    if(g_ms_in_progress.with({&fid}(m) => m.get(fid.clone())).is_some(), {
       _ms_touched_add(touched, fid.clone());
       return(false);
     });
@@ -1553,7 +1553,7 @@ impl(
     fn(fid : &String, body : &AstExpr, table : &ExprInfoTable, touched : &mut ArrayList(String)) -> _MspAnalysis
   )({
     match(
-      g_msp_by_fid.with(m => m.get(fid.clone())),
+      g_msp_by_fid.with({ &fid }(m) => m.get(fid.clone())),
       .Some(m) => if(m.body_id == ast_expr_id(body), {
         return(m.analysis);
       }),
@@ -1562,7 +1562,7 @@ impl(
     if(_ms_body_dups_first_param(fid, body), {
       return(_MspAnalysis(mask : param_mutation_mask_new(), ret : _msp_param_root(usize(0), false)));
     });
-    if(g_msp_in_progress.with(m => m.get(fid.clone())).is_some(), {
+    if(g_msp_in_progress.with({ &fid }(m) => m.get(fid.clone())).is_some(), {
       _ms_touched_add(touched, fid.clone());
       return(_MspAnalysis(mask : param_mutation_mask_new(), ret : _msp_root(MSP_ROOTED)));
     });
@@ -1699,7 +1699,7 @@ impl(
         match(
           expr_info_macro_expansion(&info),
           .Some(mx) => {
-            _MsP.return_exprs(mx, table, out, is_tail);
+            _MsP.return_exprs(&mx, table, out, is_tail);
             return(());
           },
           .None => ()
@@ -1797,7 +1797,7 @@ impl(
         match(
           expr_info_macro_expansion(&info),
           .Some(mx) => {
-            return(_MsP.classify(mx, ctx));
+            return(_MsP.classify(&mx, ctx));
           },
           .None => ()
         );
@@ -1899,7 +1899,7 @@ impl(
     });
     // Aggregate literals build fresh storage holding their arguments.
     if((head == "tuple") || (head == "array"), {
-      return(_MsP.ctor_root(args, ctx, value_is_ptr, false));
+      return(_MsP.ctor_root(&args, ctx, value_is_ptr, false));
     });
     if(_MsP.is_index_call(e, &ctx.table), {
       return(_msp_extract(_MsP.classify(&func_expr, ctx), value_is_rc));
@@ -4086,7 +4086,7 @@ _d1_location :: (fn(t : &Token) -> String)(
 d1_record_global_write :: (fn(decl : &Token, name : &String, write_tok : &Token) -> Option(String))({
   key := _d1_global_key(decl, name);
   match(
-    g_d1_written.with(m => m.get_cloned(key.clone())),
+    g_d1_written.with({ &key }(m) => m.get_cloned(key.clone())),
     .Some(_) => (),
     .None => {
       loc := _d1_location(write_tok);
@@ -4151,7 +4151,7 @@ d1_note_thread_reach :: (fn(fid : &String) -> Option(String))({
     if(!seen.contains(f.clone()), {
       seen.insert(f.clone());
       match(
-        g_gr_reads_by_fid.with(m => m.get_cloned(&f)),
+        g_gr_reads_by_fid.with({ &f }(m) => m.get_cloned(f)),
         .Some(reads) => {
           it := reads.keys_cloned().into_iter();
           (go : bool) = true;
@@ -4161,7 +4161,7 @@ d1_note_thread_reach :: (fn(fid : &String) -> Option(String))({
               .Some(k) => {
                 if(violation.is_none(), {
                   match(
-                    g_d1_written.with(m => m.get_cloned(k.clone())),
+                    g_d1_written.with({ &k }(m) => m.get_cloned(k.clone())),
                     .Some(wloc) => {
                       rloc := match(reads.get_cloned(k.clone()), .Some(l) => l, .None => String.new());
                       gname := match(k.last_index_of(":"), .Some(ci) => k.substring(ci + usize(1), k.len()), .None => k.clone());
@@ -4170,7 +4170,7 @@ d1_note_thread_reach :: (fn(fid : &String) -> Option(String))({
                     .None => ()
                   );
                 });
-                if(!g_d1_reached.with(m => m.contains_key(k.clone())), {
+                if(!g_d1_reached.with({ &k }(m) => m.contains_key(k.clone())), {
                   match(
                     reads.get_cloned(k.clone()),
                     .Some(loc) => {
@@ -4189,7 +4189,7 @@ d1_note_thread_reach :: (fn(fid : &String) -> Option(String))({
         .None => ()
       );
       match(
-        g_gr_callees_by_fid.with(m => m.get_cloned(&f)),
+        g_gr_callees_by_fid.with({ &f }(m) => m.get_cloned(f)),
         .Some(cs) => {
           // A read walk: `cs` shares the registry's set, whose entries a
           // consuming iterator cannot move out.
@@ -4468,14 +4468,14 @@ function_reaches_non_send_global :: (
 )({
   body_id := ast_expr_id(body);
   match(
-    g_gr_by_fid.with(m => m.get_cloned(fid.clone())),
+    g_gr_by_fid.with({ &fid }(m) => m.get_cloned(fid.clone())),
     .Some(m) => if(m.body_id == body_id, {
       return(m.reach.clone());
     }),
     .None => ()
   );
   match(
-    g_gr_in_progress.with(m => m.get(fid.clone())),
+    g_gr_in_progress.with({ &fid }(m) => m.get(fid.clone())),
     .Some(d) => {
       _gr_note_low(d);
       return(Option(String).None);
@@ -4483,7 +4483,7 @@ function_reaches_non_send_global :: (
     .None => ()
   );
   match(
-    g_gr_pending.with(m => m.get(fid.clone())),
+    g_gr_pending.with({ &fid }(m) => m.get(fid.clone())),
     .Some(pe) => if(pe.body_id == body_id, {
       _gr_note_low(pe.low);
       return(Option(String).None);
@@ -4550,9 +4550,9 @@ function_reaches_non_send_global :: (
       (pi : usize) = pending_start;
       while(pi < g_gr_pending_order.with(xs => xs.len()), {
         match(
-          g_gr_pending_order.with(xs => xs.get_cloned(pi)),
+          g_gr_pending_order.with({ pi }(xs) => xs.get_cloned(pi)),
           .Some(pf) => match(
-            g_gr_pending.with(m => m.get(pf.clone())),
+            g_gr_pending.with({ &pf }(m) => m.get(pf.clone())),
             .Some(pe) => if(pe.low >= my_depth, {
               g_gr_pending.with_mut(m => m.insert(pf.clone(), _GrPend(body_id : pe.body_id, low : al)));
             }),
@@ -4644,6 +4644,6 @@ mutation_summary_entry_count :: (fn() -> usize)(
 /// where it is created — `validate_send_closure_global_reach`), for a later
 /// judgement that holds only the closure's type.
 d1_reach_memo :: (fn(fid : &String) -> Option(Option(String)))(
-  match(g_gr_by_fid.with(m => m.get_cloned(fid)), .Some(m) => Option(Option(String)).Some(m.reach.clone()), .None => Option(Option(String)).None)
+  match(g_gr_by_fid.with({&fid}(m) => m.get_cloned(fid)), .Some(m) => Option(Option(String)).Some(m.reach.clone()), .None => Option(Option(String)).None)
 );
 export(summarize_function_bodies, purge_mutation_summaries, rc_write_audit_enabled, audit_rc_writes, mutation_summary_entry_count, function_may_mutate_rc_storage, function_param_mutation_mask, ParamMutationMask, param_mutation_mask_hits, param_mutation_mask_is_empty, strict_borrow_violations, function_reaches_non_send_global, d1_record_global_write, d1_reach_memo, d1_note_thread_reach);

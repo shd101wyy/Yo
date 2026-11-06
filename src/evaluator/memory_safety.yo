@@ -234,7 +234,7 @@ is_std_module_path :: (fn(mp : &String, std_path : &String) -> bool)({
     g_std_path_memo_root.with_mut({ std_path_owned }(xs) => xs.push(std_path_owned.clone()));
   });
   match(
-    g_std_path_memo.with(m => m.get(mp)),
+    g_std_path_memo.with({&mp}(m) => m.get(mp)),
     .Some(b) => b,
     .None => {
       b := _is_std_module_path(mp.clone(), std_path);
@@ -261,7 +261,7 @@ is_std_module_path :: (fn(mp : &String, std_path : &String) -> bool)({
 (g_mut_rule_exempt_memo : RefCell(HashMap(String, bool))) = RefCell(HashMap(String, bool)).new(HashMap(String, bool).new());
 is_global_mut_rule_exempt :: (fn(mp : &String, std_path : &String) -> bool)(
   match(
-    g_mut_rule_exempt_memo.with(m => m.get(mp)),
+    g_mut_rule_exempt_memo.with({&mp}(m) => m.get(mp)),
     .Some(b) => b,
     .None => {
       (sp : String) = std_path.clone();
@@ -298,7 +298,7 @@ is_global_mut_rule_exempt :: (fn(mp : &String, std_path : &String) -> bool)(
 (g_deref_rule_exempt_memo : RefCell(HashMap(String, bool))) = RefCell(HashMap(String, bool)).new(HashMap(String, bool).new());
 is_deref_rule_exempt :: (fn(mp : &String, std_path : &String) -> bool)(
   match(
-    g_deref_rule_exempt_memo.with(m => m.get(mp)),
+    g_deref_rule_exempt_memo.with({&mp}(m) => m.get(mp)),
     .Some(b) => b,
     .None => {
       (sp : String) = std_path.clone();

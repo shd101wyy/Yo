@@ -939,11 +939,13 @@ fresh_local_counts_reset :: (fn() -> unit)({
 fresh_local_name :: (fn(prefix : &String, current_function_name : &String) -> String)({
   key := `${prefix}@${current_function_name}`;
   k := match(
-    g_fresh_local_counts.with(m => m.get(&key)),
+    g_fresh_local_counts.with({ &key }(m) => m.get(key)),
     .Some(n) => n,
     .None => usize(0)
   );
-  g_fresh_local_counts.with_mut(m => m.insert(key.clone(), k + usize(1)));
+  flc_key := key.clone();
+  flc_val := (k + usize(1));
+  g_fresh_local_counts.with_mut({ flc_key, flc_val }(m) => m.insert(flc_key, flc_val));
   `${prefix}${k.to_string()}`
 });
 /// Pattern-payload literal classification, shared by the sync match emitter
@@ -1667,7 +1669,7 @@ _gts_stack_contains :: (fn(sid : &String) -> bool)({
   n := g_gts_some_stack.with(xs => xs.len());
   while((i < n) && !found, {
     match(
-      g_gts_some_stack.with(xs => xs.get_cloned(i)),
+      g_gts_some_stack.with({ i }(xs) => xs.get_cloned(i)),
       .Some(x) => if(x == sid, {
         found = true;
       }),

@@ -182,13 +182,13 @@ module_cache_hit :: (fn(key : &String) -> unit)({
   g_replaying = false;
 });
 _replay_module :: (fn(key : &String) -> unit)({
-  if(g_replayed_modules.with(s => s.contains(key)), {
+  if(g_replayed_modules.with({ &key }(s) => s.contains(key)), {
     return(());
   });
   key_owned := key.clone();
   g_replayed_modules.with_mut({ key_owned }(s) => s.insert(key_owned.clone()));
   match(
-    g_module_touches.with(m => m.get_cloned(key)),
+    g_module_touches.with({ &key }(m) => m.get_cloned(key)),
     .Some(list) => {
       (i : usize) = usize(0);
       while(i < list.len(), {

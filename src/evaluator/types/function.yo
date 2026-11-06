@@ -132,7 +132,7 @@ register_macro_return_is_unquote :: (fn(func_id : &String) -> unit)({
 /// Returns the list of quoted parameter indices, or an empty list if none.
 get_macro_quoted_param_indices :: (fn(func_id : &String) -> ArrayList(usize))(
   match(
-    g_macro_quoted_param_indices.with(m => m.get_cloned(func_id.clone())),
+    g_macro_quoted_param_indices.with({&func_id}(m) => m.get_cloned(func_id.clone())),
     .Some(idxs) => idxs,
     .None => ArrayList(usize).new()
   )
@@ -140,7 +140,7 @@ get_macro_quoted_param_indices :: (fn(func_id : &String) -> ArrayList(usize))(
 /// Returns true if the function's return type is `unquote(...)`.
 macro_return_is_unquote :: (fn(func_id : &String) -> bool)(
   match(
-    g_macro_return_is_unquote.with(m => m.get(func_id.clone())),
+    g_macro_return_is_unquote.with({&func_id}(m) => m.get(func_id.clone())),
     .Some(_) => true,
     .None => false
   )
@@ -150,7 +150,7 @@ is_macro_fn :: (fn(func_id : &String) -> bool)(
   cond(
     macro_return_is_unquote(func_id) => true,
     true => match(
-      g_macro_quoted_param_indices.with(m => m.get_cloned(func_id.clone())),
+      g_macro_quoted_param_indices.with({&func_id}(m) => m.get_cloned(func_id.clone())),
       .Some(idxs) => (idxs.len() > usize(0)),
       .None => false
     )
@@ -159,7 +159,7 @@ is_macro_fn :: (fn(func_id : &String) -> bool)(
 /// Returns true if the parameter at `param_index` is quoted for `func_id`.
 is_param_quoted :: (fn(func_id : &String, param_index : usize) -> bool)(
   match(
-    g_macro_quoted_param_indices.with(m => m.get_cloned(func_id.clone())),
+    g_macro_quoted_param_indices.with({&func_id}(m) => m.get_cloned(func_id.clone())),
     .Some(idxs) => {
       (found : bool) = false;
       (i : usize) = usize(0);
@@ -190,7 +190,7 @@ is_param_quoted :: (fn(func_id : &String, param_index : usize) -> bool)(
 /// has no entries.
 copy_macro_registration :: (fn(from_id : &String, to_id : &String) -> unit)({
   match(
-    g_macro_quoted_param_indices.with(m => m.get_cloned(from_id.clone())),
+    g_macro_quoted_param_indices.with({&from_id}(m) => m.get_cloned(from_id.clone())),
     .Some(idxs) => {
       to_id_owned := to_id.clone();
       idxs_owned := idxs.clone();
@@ -199,7 +199,7 @@ copy_macro_registration :: (fn(from_id : &String, to_id : &String) -> unit)({
     .None => ()
   );
   match(
-    g_macro_return_is_unquote.with(m => m.get(from_id.clone())),
+    g_macro_return_is_unquote.with({&from_id}(m) => m.get(from_id.clone())),
     .Some(_) => {
       to_id_owned2 := to_id.clone();
       g_macro_return_is_unquote.with_mut({ to_id_owned2 }(m) => m.insert(to_id_owned2.clone(), true));
@@ -251,7 +251,7 @@ register_func_param_defaults :: (fn(func_id : &String, defaults : &ArrayList(Opt
 /// when `from_id` has no entry.
 copy_func_param_defaults :: (fn(from_id : &String, to_id : &String) -> unit)({
   match(
-    g_func_param_defaults.with(m => m.get_cloned(from_id.clone())),
+    g_func_param_defaults.with({&from_id}(m) => m.get_cloned(from_id.clone())),
     .Some(defaults) => {
       to_id_owned := to_id.clone();
       defaults_owned := defaults.clone();
@@ -281,7 +281,7 @@ register_func_variadic_param :: (fn(func_id : &String, label : &String, ty : &Ty
 });
 copy_func_variadic_param :: (fn(from_id : &String, to_id : &String) -> unit)({
   match(
-    g_func_variadic_params.with(m => m.get_cloned(from_id.clone())),
+    g_func_variadic_params.with({&from_id}(m) => m.get_cloned(from_id.clone())),
     .Some(entry) => {
       to_id_owned := to_id.clone();
       entry_owned := entry.clone();
@@ -291,13 +291,13 @@ copy_func_variadic_param :: (fn(from_id : &String, to_id : &String) -> unit)({
   );
 });
 get_func_variadic_param :: (fn(func_id : &String) -> Option(VariadicParamEntry))(
-  g_func_variadic_params.with(m => m.get_cloned(func_id.clone()))
+  g_func_variadic_params.with({&func_id}(m) => m.get_cloned(func_id.clone()))
 );
 /// Return the per-parameter default values for `func_id`, or an empty
 /// list when none are registered (i.e. all parameters required).
 get_func_param_defaults :: (fn(func_id : &String) -> ArrayList(Option(EvalValue)))(
   match(
-    g_func_param_defaults.with(m => m.get_cloned(func_id.clone())),
+    g_func_param_defaults.with({&func_id}(m) => m.get_cloned(func_id.clone())),
     .Some(defaults) => defaults,
     .None => ArrayList(Option(EvalValue)).new()
   )
@@ -337,7 +337,7 @@ register_func_param_assigned_values :: (fn(func_id : &String, assigned : &ArrayL
 });
 copy_func_param_assigned_values :: (fn(from_id : &String, to_id : &String) -> unit)({
   match(
-    g_func_param_assigned_values.with(m => m.get_cloned(from_id.clone())),
+    g_func_param_assigned_values.with({&from_id}(m) => m.get_cloned(from_id.clone())),
     .Some(assigned) => {
       to_id_owned := to_id.clone();
       assigned_owned := assigned.clone();
@@ -348,7 +348,7 @@ copy_func_param_assigned_values :: (fn(from_id : &String, to_id : &String) -> un
 });
 get_func_param_assigned_values :: (fn(func_id : &String) -> ArrayList(Option(EvalValue)))(
   match(
-    g_func_param_assigned_values.with(m => m.get_cloned(func_id.clone())),
+    g_func_param_assigned_values.with({&func_id}(m) => m.get_cloned(func_id.clone())),
     .Some(assigned) => assigned,
     .None => ArrayList(Option(EvalValue)).new()
   )
@@ -387,7 +387,7 @@ register_func_param_comptime :: (fn(func_id : &String, flags : &ArrayList(bool))
 });
 copy_func_param_comptime :: (fn(from_id : &String, to_id : &String) -> unit)({
   match(
-    g_func_param_comptime.with(m => m.get_cloned(from_id.clone())),
+    g_func_param_comptime.with({&from_id}(m) => m.get_cloned(from_id.clone())),
     .Some(flags) => {
       to_id_owned := to_id.clone();
       flags_owned := flags.clone();
@@ -412,7 +412,7 @@ register_func_return_type_expr :: (fn(func_id : &String, e : &AstExpr) -> unit)(
 });
 copy_func_return_type_expr :: (fn(from_id : &String, to_id : &String) -> unit)({
   match(
-    g_func_return_type_expr.with(m => m.get(from_id.clone())),
+    g_func_return_type_expr.with({&from_id}(m) => m.get(from_id.clone())),
     .Some(e) => {
       to_id_owned := to_id.clone();
       e_owned := e.clone();
@@ -422,10 +422,10 @@ copy_func_return_type_expr :: (fn(from_id : &String, to_id : &String) -> unit)({
   );
 });
 get_func_return_type_expr :: (fn(func_id : &String) -> Option(AstExpr))(
-  g_func_return_type_expr.with(m => m.get(func_id.clone()))
+  g_func_return_type_expr.with({&func_id}(m) => m.get(func_id.clone()))
 );
 get_func_param_comptime :: (fn(func_id : &String) -> ArrayList(bool))(
-  match(g_func_param_comptime.with(m => m.get_cloned(func_id.clone())), .Some(f) => f, .None => ArrayList(bool).new())
+  match(g_func_param_comptime.with({&func_id}(m) => m.get_cloned(func_id.clone())), .Some(f) => f, .None => ArrayList(bool).new())
 );
 // Parallel side-table: per-parameter default-value EXPRESSIONS (the `?= EXPR`
 // AST). The value table above suffices for the call-site count check and the
@@ -464,7 +464,7 @@ register_func_param_default_exprs :: (fn(func_id : &String, exprs : &ArrayList(O
 });
 copy_func_param_default_exprs :: (fn(from_id : &String, to_id : &String) -> unit)({
   match(
-    g_func_param_default_exprs.with(m => m.get_cloned(from_id.clone())),
+    g_func_param_default_exprs.with({&from_id}(m) => m.get_cloned(from_id.clone())),
     .Some(entry) => {
       to_id_owned := to_id.clone();
       entry_owned := entry.clone();
@@ -475,7 +475,7 @@ copy_func_param_default_exprs :: (fn(from_id : &String, to_id : &String) -> unit
 });
 get_func_param_default_exprs :: (fn(func_id : &String) -> ArrayList(Option(AstExpr)))(
   match(
-    g_func_param_default_exprs.with(m => m.get_cloned(func_id.clone())),
+    g_func_param_default_exprs.with({&func_id}(m) => m.get_cloned(func_id.clone())),
     .Some(entry) => entry.exprs.clone(),
     .None => ArrayList(Option(AstExpr)).new()
   )
@@ -489,7 +489,7 @@ derive(FuncParamDefaultExprs, Clone);
 /// `fallback` and `inner` are never mutated: the frame lists are copied.
 default_param_eval_env :: (fn(func_id : &String, inner : &Option(Environment), fallback : &Environment) -> Environment)({
   out := match(
-    g_func_param_default_exprs.with(m => m.get_cloned(func_id)),
+    g_func_param_default_exprs.with({&func_id}(m) => m.get_cloned(func_id)),
     .Some(entry) => {
       d := Rc.clone(entry.def_env);
       frames := copy_env_frames(&d);
@@ -548,7 +548,7 @@ register_func_param_type_exprs :: (fn(func_id : &String, exprs : &ArrayList(Opti
 });
 copy_func_param_type_exprs :: (fn(from_id : &String, to_id : &String) -> unit)({
   match(
-    g_func_param_type_exprs.with(m => m.get_cloned(from_id.clone())),
+    g_func_param_type_exprs.with({&from_id}(m) => m.get_cloned(from_id.clone())),
     .Some(exprs) => {
       to_id_owned := to_id.clone();
       exprs_owned := exprs.clone();
@@ -559,7 +559,7 @@ copy_func_param_type_exprs :: (fn(from_id : &String, to_id : &String) -> unit)({
 });
 get_func_param_type_exprs :: (fn(func_id : &String) -> ArrayList(Option(AstExpr)))(
   match(
-    g_func_param_type_exprs.with(m => m.get_cloned(func_id.clone())),
+    g_func_param_type_exprs.with({&func_id}(m) => m.get_cloned(func_id.clone())),
     .Some(exprs) => exprs,
     .None => ArrayList(Option(AstExpr)).new()
   )
@@ -611,7 +611,7 @@ register_func_where_clause_exprs :: (fn(func_id : &String, exprs : &ArrayList(As
 /// Return the where-clause constraint expressions for `func_id` (empty when none).
 get_func_where_clause_exprs :: (fn(func_id : &String) -> ArrayList(AstExpr))(
   match(
-    g_func_where_clause_exprs.with(m => m.get_cloned(func_id.clone())),
+    g_func_where_clause_exprs.with({&func_id}(m) => m.get_cloned(func_id.clone())),
     .Some(exprs) => exprs,
     .None => ArrayList(AstExpr).new()
   )
@@ -621,7 +621,7 @@ get_func_where_clause_exprs :: (fn(func_id : &String) -> ArrayList(AstExpr))(
 /// Also re-keys the where-clause EXPRESSIONS table (the two travel together).
 copy_func_where_constraints :: (fn(from_id : &String, to_id : &String) -> unit)({
   match(
-    g_func_where_constraints.with(m => m.get_cloned(from_id.clone())),
+    g_func_where_constraints.with({&from_id}(m) => m.get_cloned(from_id.clone())),
     .Some(entries) => {
       to_id_owned := to_id.clone();
       entries_owned := entries.clone();
@@ -630,7 +630,7 @@ copy_func_where_constraints :: (fn(from_id : &String, to_id : &String) -> unit)(
     .None => ()
   );
   match(
-    g_func_where_clause_exprs.with(m => m.get_cloned(from_id.clone())),
+    g_func_where_clause_exprs.with({&from_id}(m) => m.get_cloned(from_id.clone())),
     .Some(exprs) => {
       to_id_owned2 := to_id.clone();
       exprs_owned := exprs.clone();
@@ -642,7 +642,7 @@ copy_func_where_constraints :: (fn(from_id : &String, to_id : &String) -> unit)(
 /// Return the where-clause constraints for `func_id` (empty when none).
 get_func_where_constraints :: (fn(func_id : &String) -> ArrayList(WhereConstraintEntry))(
   match(
-    g_func_where_constraints.with(m => m.get_cloned(func_id.clone())),
+    g_func_where_constraints.with({&func_id}(m) => m.get_cloned(func_id.clone())),
     .Some(entries) => entries,
     .None => ArrayList(WhereConstraintEntry).new()
   )
@@ -710,7 +710,7 @@ get_func_refined_params :: (
   fn(func_id : &String) -> ArrayList(String)
 )(
   match(
-    g_func_refined_params.with(m => m.get_cloned(func_id.clone())),
+    g_func_refined_params.with({&func_id}(m) => m.get_cloned(func_id.clone())),
     .Some(preds) => preds,
     .None => ArrayList(String).new()
   )
@@ -786,19 +786,19 @@ register_func_assumed_body :: (fn(func_id : &String, assumed : bool) -> unit)({
 /// the verifiable subset; contracts still gate callers).
 has_func_assumed_body :: (fn(func_id : &String) -> bool)(
   match(
-    g_func_assumed_body.with(m => m.get(func_id.clone())),
+    g_func_assumed_body.with({&func_id}(m) => m.get(func_id.clone())),
     .Some(_) => true,
     .None => false
   )
 );
 /// Return the `decreases(M)` measure for `func_id` (None when absent).
 get_func_decreases_expr :: (fn(func_id : &String) -> Option(AstExpr))(
-  g_func_decreases_expr.with(m => m.get(func_id.clone()))
+  g_func_decreases_expr.with({&func_id}(m) => m.get(func_id.clone()))
 );
 /// Re-key both contract tables from the fn-type-expr id to the FuncVal id.
 copy_func_contract_exprs :: (fn(from_id : &String, to_id : &String) -> unit)({
   match(
-    g_func_requires_exprs.with(m => m.get_cloned(from_id.clone())),
+    g_func_requires_exprs.with({&from_id}(m) => m.get_cloned(from_id.clone())),
     .Some(preds) => {
       to_id_owned := to_id.clone();
       preds_owned := preds.clone();
@@ -807,7 +807,7 @@ copy_func_contract_exprs :: (fn(from_id : &String, to_id : &String) -> unit)({
     .None => ()
   );
   match(
-    g_func_ensures_exprs.with(m => m.get_cloned(from_id.clone())),
+    g_func_ensures_exprs.with({&from_id}(m) => m.get_cloned(from_id.clone())),
     .Some(preds) => {
       to_id_owned2 := to_id.clone();
       preds_owned2 := preds.clone();
@@ -816,7 +816,7 @@ copy_func_contract_exprs :: (fn(from_id : &String, to_id : &String) -> unit)({
     .None => ()
   );
   match(
-    g_func_decreases_expr.with(m => m.get(from_id.clone())),
+    g_func_decreases_expr.with({&from_id}(m) => m.get(from_id.clone())),
     .Some(m) => {
       to_id_owned3 := to_id.clone();
       g_func_decreases_expr.with_mut({ to_id_owned3, m }(tbl) => tbl.insert(to_id_owned3.clone(), m));
@@ -824,7 +824,7 @@ copy_func_contract_exprs :: (fn(from_id : &String, to_id : &String) -> unit)({
     .None => ()
   );
   match(
-    g_func_assumed_body.with(m => m.get(from_id.clone())),
+    g_func_assumed_body.with({&from_id}(m) => m.get(from_id.clone())),
     .Some(a) => {
       to_id_owned4 := to_id.clone();
       g_func_assumed_body.with_mut({ to_id_owned4, a : a.clone() }(m) => m.insert(to_id_owned4.clone(), a));
@@ -832,7 +832,7 @@ copy_func_contract_exprs :: (fn(from_id : &String, to_id : &String) -> unit)({
     .None => ()
   );
   match(
-    g_func_refined_params.with(m => m.get_cloned(from_id.clone())),
+    g_func_refined_params.with({&from_id}(m) => m.get_cloned(from_id.clone())),
     .Some(preds) => {
       to_id_owned5 := to_id.clone();
       preds_owned3 := preds.clone();
@@ -841,7 +841,7 @@ copy_func_contract_exprs :: (fn(from_id : &String, to_id : &String) -> unit)({
     .None => ()
   );
   match(
-    g_func_return_label.with(m => m.get_cloned(from_id.clone())),
+    g_func_return_label.with({&from_id}(m) => m.get_cloned(from_id.clone())),
     .Some(label) => {
       to_id_owned6 := to_id.clone();
       label_owned := label.clone();
@@ -853,7 +853,7 @@ copy_func_contract_exprs :: (fn(from_id : &String, to_id : &String) -> unit)({
 /// Return the `requires(...)` predicates for `func_id` (empty when none).
 get_func_requires_exprs :: (fn(func_id : &String) -> ArrayList(AstExpr))(
   match(
-    g_func_requires_exprs.with(m => m.get_cloned(func_id.clone())),
+    g_func_requires_exprs.with({&func_id}(m) => m.get_cloned(func_id.clone())),
     .Some(preds) => preds,
     .None => ArrayList(AstExpr).new()
   )
@@ -861,7 +861,7 @@ get_func_requires_exprs :: (fn(func_id : &String) -> ArrayList(AstExpr))(
 /// Return the `ensures(...)` predicates for `func_id` (empty when none).
 get_func_ensures_exprs :: (fn(func_id : &String) -> ArrayList(AstExpr))(
   match(
-    g_func_ensures_exprs.with(m => m.get_cloned(func_id.clone())),
+    g_func_ensures_exprs.with({&func_id}(m) => m.get_cloned(func_id.clone())),
     .Some(preds) => preds,
     .None => ArrayList(AstExpr).new()
   )
@@ -884,7 +884,7 @@ register_func_return_label :: (
 });
 /// Return the labeled-return name for `func_id` (None when unlabeled).
 get_func_return_label :: (fn(func_id : &String) -> Option(String))(
-  g_func_return_label.with(m => m.get_cloned(func_id.clone()))
+  g_func_return_label.with({&func_id}(m) => m.get_cloned(func_id.clone()))
 );
 /// Register all three contract artifacts under one id (V6 task 1: the
 /// trait-contract INHERITANCE writer, reached through the hook below).

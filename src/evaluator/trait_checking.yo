@@ -203,7 +203,7 @@ _trait_type_id :: (fn(ty : &TypeValue) -> String)(
 /// mutually compatible — wrongly reporting e.g. a plain object as `Send`.
 is_type_registered_as_trait :: (fn(type_id : &String, query_trait : &TypeValue, env : &Environment) -> bool)(
   match(
-    g_type_trait_registry.with(m => m.get_cloned(type_id)),
+    g_type_trait_registry.with({&type_id}(m) => m.get_cloned(type_id)),
     .None => false,
     .Some(list) => {
       n := list.len();
@@ -297,7 +297,7 @@ _ondemand_guard_contains :: (fn(key : &String) -> bool)({
   (found : bool) = false;
   while((i < g_ondemand_marker_guard.with(xs => xs.len())) && !found, {
     match(
-      g_ondemand_marker_guard.with(xs => xs.get_cloned(i)),
+      g_ondemand_marker_guard.with({ i }(xs) => xs.get_cloned(i)),
       .Some(k) => if(k == key, {
         found = true;
       }),
@@ -540,7 +540,7 @@ _acy_memo_get :: (fn(key : &String) -> Option(bool))({
     g_acy_memo.with_mut(m => m.clear());
     g_acy_memo_epoch = trait_impl_epoch();
   });
-  g_acy_memo.with(m => m.get(key))
+  g_acy_memo.with({&key}(m) => m.get(key))
 });
 /// The nominal types and leaves `t` holds, seen through the structural types.
 _acy_expand :: (fn(t_in : &TypeValue, nodes : &mut ArrayList(TypeValue), leaves : &mut ArrayList(TypeValue)) -> unit)({
@@ -1430,11 +1430,11 @@ type_lacks_copy_for_flip :: (fn(ty_in : &TypeValue) -> bool)({
       g_lacks_copy_fast_answers.with_mut(xs => xs.clear());
       g_lacks_copy_fast_epoch = type_key_epoch();
     });
-    (slot : usize) = g_lacks_copy_fast.with(xs => type_identity_slot(xs, &ty));
-    if(g_lacks_copy_fast.with(xs => type_identity_slot_holds(xs, slot, &ty)), {
-      fast := match(g_lacks_copy_fast_answers.with(xs => xs.get(slot)), .Some(a) => a, .None => false);
+    (slot : usize) = g_lacks_copy_fast.with({ &ty }(xs) => type_identity_slot(xs, ty));
+    if(g_lacks_copy_fast.with({ &ty, slot }(xs) => type_identity_slot_holds(xs, slot, ty)), {
+      fast := match(g_lacks_copy_fast_answers.with({ slot }(xs) => xs.get(slot)), .Some(a) => a, .None => false);
       if(type_key_memo_check_enabled(), {
-        slow := g_lacks_copy_memo.with(m => m.get(type_key(&ty)));
+        slow := g_lacks_copy_memo.with({ &ty }(m) => m.get(type_key(&ty)));
         if(match(slow, .Some(m) => (m != fast), .None => true), {
           panic(`YO_DEBUG_TYPE_KEY_MEMO_CHECK: type_lacks_copy_for_flip(${type_to_string(&ty)}): the identity cache answers ${if(fast, "true", "false")}, the type_key memo ${match(slow, .Some(m) => if(m, "answers true", "answers false"), .None => "has no entry")}`);
         });
@@ -1447,13 +1447,13 @@ type_lacks_copy_for_flip :: (fn(ty_in : &TypeValue) -> bool)({
   // Not memoized: the answer changes once the derive registers `Copy`.
   (pi : usize) = usize(0);
   while(pi < g_copy_pending_keys.with(xs => xs.len()), {
-    if(match(g_copy_pending_keys.with(xs => xs.get_cloned(pi)), .Some(pk) => (pk == key), .None => false), {
+    if(match(g_copy_pending_keys.with({ pi }(xs) => xs.get_cloned(pi)), .Some(pk) => (pk == key), .None => false), {
       return(false);
     });
     pi = (pi + usize(1));
   });
   match(
-    g_lacks_copy_memo.with(m => m.get(key.clone())),
+    g_lacks_copy_memo.with({ &key }(m) => m.get(key.clone())),
     .Some(known) => {
       _record_lacks_copy_fast(&ty, key_epoch, known);
       return(known);
@@ -1462,7 +1462,7 @@ type_lacks_copy_for_flip :: (fn(ty_in : &TypeValue) -> bool)({
   );
   (ipi : usize) = usize(0);
   while(ipi < g_lacks_copy_in_progress.with(xs => xs.len()), {
-    if(match(g_lacks_copy_in_progress.with(xs => xs.get_cloned(ipi)), .Some(ik) => (ik == key), .None => false), {
+    if(match(g_lacks_copy_in_progress.with({ ipi }(xs) => xs.get_cloned(ipi)), .Some(ik) => (ik == key), .None => false), {
       return(false);
     });
     ipi = (ipi + usize(1));
@@ -1508,8 +1508,8 @@ _record_lacks_copy_fast :: (fn(ty : &TypeValue, key_epoch : u64, answer : bool) 
     g_lacks_copy_fast.with_mut(xs => xs.clear());
     g_lacks_copy_fast_answers.with_mut(xs => xs.clear());
   });
-  (slot : usize) = g_lacks_copy_fast.with(xs => type_identity_slot(xs, ty));
-  if(!g_lacks_copy_fast.with(xs => type_identity_slot_holds(xs, slot, ty)), {
+  (slot : usize) = g_lacks_copy_fast.with({&ty}(xs) => type_identity_slot(xs, ty));
+  if(!g_lacks_copy_fast.with({ &ty, slot }(xs) => type_identity_slot_holds(xs, slot, ty)), {
     g_lacks_copy_fast.with_mut({ slot, ty : Rc.clone(ty) }(xs) => xs.insert(slot, Rc.clone(ty)));
     g_lacks_copy_fast_answers.with_mut(xs => xs.insert(slot, answer));
   });
@@ -2277,7 +2277,7 @@ type_implements_trait :: (
   (gi : usize) = usize(0);
   while(gi < gn, {
     entry := match(
-      g_trait_check_recursion_guard.with(xs => xs.get_cloned(gi)),
+      g_trait_check_recursion_guard.with({ gi }(xs) => xs.get_cloned(gi)),
       .Some(s) => s,
       .None => {
         gi = (gi + usize(1));
@@ -2552,7 +2552,7 @@ end_send_derivation :: (fn(type_id : &String) -> unit)({
   (found_idx : Option(usize)) = Option(usize).None;
   while(i < n, {
     entry := match(
-      g_send_derivation_in_progress.with(xs => xs.get_cloned(i)),
+      g_send_derivation_in_progress.with({ i }(xs) => xs.get_cloned(i)),
       .Some(s) => s,
       .None => {
         i = (i + usize(1));

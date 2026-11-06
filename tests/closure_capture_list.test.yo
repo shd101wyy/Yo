@@ -19,7 +19,7 @@
 (g_cl_total : i32) = i32(0);
 _cl_call0 :: (fn(f : &Impl(Fn() -> i32)) -> i32)(f());
 _cl_call1 :: (fn(f : &Impl(Fn(x : i32) -> i32), x : i32) -> i32)(f(x));
-_cl_each :: (fn(n : i32, f : &Impl(Fn(i : i32) -> unit)) -> unit)({
+_cl_each :: (fn(n : i32, f : &mut Impl(FnMut(i : i32) -> unit)) -> unit)({
   (mut(i) : i32) = i32(0);
   while(i < n, {
     f(i);
@@ -32,12 +32,12 @@ _cl_with_mut :: (fn(f : &Impl(Fn() -> i32), z : &mut i32) -> i32)({
   z.* = (z.* + i32(1));
   f()
 });
-_cl_reentry :: (fn(a : &Impl(Fn() -> i32), b : &Impl(Fn() -> i32)) -> i32)(a() + b());
+_cl_reentry :: (fn(a : &mut Impl(FnMut() -> i32), b : &mut Impl(FnMut() -> i32)) -> i32)(a() + b());
 _ClAcc :: struct(total : i32, other : i32);
 derive(_ClAcc, Copy, Clone);
 // `run` lends its receiver, so a `&mut` capture of the receiver overlaps it;
 // `run_copy` copies its `Copy` receiver before the call, which reaches nothing.
-impl(_ClAcc, run : (fn(self : &Self, f : &Impl(Fn() -> unit)) -> unit)(f()), run_copy : (fn(self : Self, f : &Impl(Fn() -> unit)) -> unit)(f()));
+impl(_ClAcc, run : (fn(self : &Self, f : &mut Impl(FnMut() -> unit)) -> unit)(f()), run_copy : (fn(self : Self, f : &mut Impl(FnMut() -> unit)) -> unit)(f()));
 (mut(g_cl_rc_disposed) : i32) = i32(0);
 _ClRc :: struct(v : i32);
 impl(
@@ -141,7 +141,7 @@ test("capture list: `mut(z)` and `mut(z) : &mut p` write the caller's place", {
   mut(z) := i32(100);
   mut(acc) := _ClAcc(total : i32(0), other : i32(5));
   {
-    (f : Impl(Fn(m : i32) -> i32)) = ({ &mut z, t : &mut acc.total }(m : i32) => {
+    (mut(f) : Impl(FnMut(m : i32) -> i32)) = ({ &mut z, t : &mut acc.total }(m : i32) => {
       z.* = (z.* + m);
       t.* = (t.* + i32(1));
       z.*
@@ -268,11 +268,11 @@ test("second-class: a copy of an `imm`-capturing closure is second-class too", {
 test("second-class: copying a `mut`-capturing closure moves it (E0901)", {
   mut(n) := i32(0);
   {
-    (t : Impl(Fn() -> i32)) = ({ &mut n }() => {
+    (mut(t) : Impl(FnMut() -> i32)) = ({ &mut n }() => {
       n.* = (n.* + i32(1));
       n.*
     });
-    t2 := t;
+    mut(t2) := t;
     assert(t2() == i32(1), "the moved-to closure calls");
     comptime_expect_error(t(), "use of moved value");
   };
@@ -282,7 +282,7 @@ test("second-class: a borrowed place is frozen while the closure lives", {
   mut(z) := i32(0);
   y := i32(5);
   {
-    (f : Impl(Fn() -> i32)) = ({ &mut z }() => {
+    (mut(f) : Impl(FnMut() -> i32)) = ({ &mut z }() => {
       z.* = (z.* + i32(1));
       z.*
     });
@@ -303,11 +303,11 @@ test("second-class: a borrowed place is frozen while the closure lives", {
 test("second-class: freezes are transitive through a capturing closure", {
   mut(z) := i32(0);
   {
-    (f : Impl(Fn() -> i32)) = ({ &mut z }() => {
+    (mut(f) : Impl(FnMut() -> i32)) = ({ &mut z }() => {
       z.* = (z.* + i32(1));
       z.*
     });
-    (g : Impl(Fn() -> i32)) = ({ &f }() => f());
+    (mut(g) : Impl(FnMut() -> i32)) = ({ &mut f }() => f());
     assert(g() == i32(1), "g calls f");
     comptime_expect_error(z, "borrows `z`");
   };
@@ -419,11 +419,14 @@ test("escape: a by-value parameter, plain or generic, and a tuple or array argum
   comptime_expect_error(_cl_own(Array(type_of(f), 1)(f)), "cannot be moved into a by-value");
   mut(n) := i32(0);
   {
-    (t : Impl(Fn() -> i32)) = ({ &mut n }() => {
+    (mut(t) : Impl(FnMut() -> i32)) = ({ &mut n }() => {
       n.* = (n.* + i32(1));
       n.*
     });
-    comptime_expect_error(_cl_keep(t), "cannot be moved into a by-value");
+    // `_cl_keep`'s slot is `Impl(Fn(...))` by value, so an `FnMut`-typed
+    // closure is rejected at the slot (E0913) before the second-class move
+    // the shared-capturing `f` cases above pin.
+    comptime_expect_error(_cl_keep(t), "is an `FnMut(...)` closure");
   };
 });
 test("escape: an implicit capture by an escaping closure", {
@@ -523,12 +526,12 @@ test("exclusivity: re-entry through a closure that reaches the callee", {
     // body, so the parameter cannot be specialized per call;
     // issues/fixed/a-closure-value-with-an-impl-fn-parameter-emits-invalid-c.md),
     // so the call that overlaps `f` and `g` goes through a NAMED function.
-    (f : Impl(Fn() -> i32)) = ({ &mut n }() => {
+    (mut(f) : Impl(FnMut() -> i32)) = ({ &mut n }() => {
       n.* = (n.* + i32(1));
       n.*
     });
-    (g : Impl(Fn() -> i32)) = ({ &f }() => i32(1));
-    comptime_expect_error(_cl_reentry(&f, &g), "lent exclusively");
+    (mut(g) : Impl(FnMut() -> i32)) = ({ &mut f }() => i32(1));
+    comptime_expect_error(_cl_reentry(&mut f, &mut g), "lent exclusively");
   };
   assert(n == i32(0), "nothing ran");
 });

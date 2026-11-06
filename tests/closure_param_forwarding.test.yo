@@ -114,11 +114,11 @@ test("Test a captured generic callback at T = unit", {
   // binding's spill), for a program `yo check` accepts.
   // See issues/fixed/closure-call-binds-a-void-result-to-a-void-pointer-temp.md.
   mut(hits) := ArrayList(i32).new();
-  call_unit4 :: (fn(f : &Impl(Fn(n : i32) -> unit)) -> unit)({
+  call_unit4 :: (fn(f : &mut Impl(FnMut(n : i32) -> unit)) -> unit)({
     f(i32(7));
   });
-  run4 :: (fn(generic(T : Type), cb : &Impl(Fn(n : i32) -> T)) -> unit)({
-    call_unit4((k : i32) => {
+  run4 :: (fn(generic(T : Type), cb : &mut Impl(FnMut(n : i32) -> T)) -> unit)({
+    call_unit4({ &mut cb }((k : i32)) => {
       _v := cb(k);
       ()
     });

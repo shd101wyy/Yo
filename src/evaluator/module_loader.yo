@@ -146,7 +146,7 @@ loading_env :: (fn(path : &String) -> Option(Environment))({
 /// touches every edge endpoint).
 _canonical :: (fn(p : &String) -> Rc(String))(
   match(
-    _canonical_memo.with(m => m.get_cloned(p)),
+    _canonical_memo.with({&p}(m) => m.get_cloned(p)),
     .Some(c) => c,
     .None => {
       c := Rc.new(canonical_module_path(p));
@@ -179,7 +179,7 @@ mark_owner_always_visible :: (fn(module : &String) -> unit)({
 import_closure_of :: (fn(module : &String) -> Rc(HashSet(String)))({
   start := _canonical(module);
   match(
-    g_import_closure_memo.with(m => m.get_cloned(&start.*)),
+    g_import_closure_memo.with({ &start }(m) => m.get_cloned(&start.*)),
     .Some(s) => {
       return(s);
     },
@@ -190,7 +190,7 @@ import_closure_of :: (fn(module : &String) -> Rc(HashSet(String)))({
   (ai : usize) = usize(0);
   while(ai < g_always_visible_owners.with(xs => xs.len()), {
     match(
-      g_always_visible_owners.with(xs => xs.get_cloned(ai)),
+      g_always_visible_owners.with({ ai }(xs) => xs.get_cloned(ai)),
       .Some(o) => {
         _ := seen.insert(o);
       },
@@ -232,7 +232,7 @@ record_import_edge :: (fn(importer : &String, imported : &String) -> unit)({
   n := g_import_edge_importers.with(xs => xs.len());
   while(i < n, {
     same := (
-      match(g_import_edge_importers.with(xs => xs.get_cloned(i)), .Some(a) => (a == importer), .None => false) &&
+      match(g_import_edge_importers.with({ i }(xs) => xs.get_cloned(i)), .Some(a) => (a == importer), .None => false) &&
         match(g_import_edge_imports.with(xs => xs.get_cloned(i)), .Some(b) => (b == imported), .None => false)
     );
     if(same, {
@@ -253,7 +253,7 @@ _drop_edges_from :: (fn(importer : &String) -> unit)({
   (i : usize) = g_import_edge_importers.with(xs => xs.len());
   while(i > usize(0), {
     i = (i - usize(1));
-    same := match(g_import_edge_importers.with(xs => xs.get_cloned(i)), .Some(a) => (a == importer), .None => false);
+    same := match(g_import_edge_importers.with({ i }(xs) => xs.get_cloned(i)), .Some(a) => (a == importer), .None => false);
     if(same, {
       g_import_edge_importers.with_mut(xs => xs.drain(i .. (i + usize(1))));
       g_import_edge_imports.with_mut(xs => xs.drain(i .. (i + usize(1))));

@@ -285,7 +285,7 @@ _keep_pending_drop :: (fn(drop_expr : &AstExpr, expr : &AstExpr, already : &Hash
   // Skipping an undeclared temp's drop cannot double-free or leak (no C variable exists).
   // See issues/fixed/yo-self-fixpoint-eval-phase-leak.md.
   guard_cn := sanitize_for_c_identifier(var_name.clone(), false);
-  if(guard_cn.contains(String.from("_temp_")) && !context.base.declared_c_var_names.with(dn_s => dn_s.contains(guard_cn.clone())), {
+  if(guard_cn.contains(String.from("_temp_")) && !context.base.declared_c_var_names.with({ &guard_cn }(dn_s) => dn_s.contains(guard_cn.clone())), {
     return(false);
   });
   // A call-scoped share's drop is pending only while its call's arguments
@@ -295,7 +295,7 @@ _keep_pending_drop :: (fn(drop_expr : &AstExpr, expr : &AstExpr, already : &Hash
   // the dup's C declaration is in an open block
   // (issues/fixed/2026-10-24-a-caller-owned-share-leaks-when-a-later-argument-exits-early.md).
   if(is_call_scoped_share_drop(ast_expr_id(drop_expr)), {
-    return(context.base.declared_scopes.with(ds_s => scope_stack_contains(ds_s, guard_cn.clone())));
+    return(context.base.declared_scopes.with({ &guard_cn }(ds_s) => scope_stack_contains(ds_s, guard_cn.clone())));
   });
   if(!use_env, {
     // Escape path (skip_env_check=true): the recorded env is END-of-scope,
@@ -337,7 +337,7 @@ _keep_pending_drop :: (fn(drop_expr : &AstExpr, expr : &AstExpr, already : &Hash
     // An `FnOnce` closure's owned capture lives in the closure context from
     // the body's entry (decision 37): it has no C declaration on the stack,
     // and the consumption check above already ruled out a moved one.
-    return(is_fnonce_capture_drop(ast_expr_id(drop_expr)) || context.base.declared_scopes.with(ds_s => scope_stack_contains(ds_s, guard_cn.clone())));
+    return(is_fnonce_capture_drop(ast_expr_id(drop_expr)) || context.base.declared_scopes.with({ &guard_cn }(ds_s) => scope_stack_contains(ds_s, guard_cn.clone())));
   });
   env := match(context.base.get_expr_info(expr), .Some(ei) => ei.env(), .None => return(true));
   variables := _cleanup_drop_variables(expr, &env, &var_name, drop_expr, context);
@@ -375,7 +375,7 @@ _keep_pending_drop :: (fn(drop_expr : &AstExpr, expr : &AstExpr, already : &Hash
   c_name := sanitize_for_c_identifier(&var_name, false);
   // An `FnOnce` closure's owned capture lives in the closure context, never
   // a C local, so the stack cannot vouch for it (decision 37).
-  if(!is_fnonce_capture_drop(ast_expr_id(drop_expr)) && !_drop_target_is_state_machine_field(&latest_var, var_name.clone(), context) && !context.base.declared_scopes.with(ds_s => scope_stack_contains(ds_s, &c_name)), {
+  if(!is_fnonce_capture_drop(ast_expr_id(drop_expr)) && !_drop_target_is_state_machine_field(&latest_var, var_name.clone(), context) && !context.base.declared_scopes.with({ &c_name }(ds_s) => scope_stack_contains(ds_s, c_name)), {
     return(false);
   });
   match(
@@ -682,7 +682,7 @@ generate_consumed_var_drops_for_escape :: (fn(indent : &String, context : &mut F
                                 ) => false,
                                 // An `FnOnce` closure's owned capture lives in
                                 // the closure context, never a C local.
-                                true => (is_fnonce_capture_drop(ast_expr_id(&de)) || _drop_target_is_state_machine_field(&lv, var_name.clone(), context) || context.base.declared_scopes.with(ds_s => scope_stack_contains(ds_s, &lv_c_name)))
+                                true => (is_fnonce_capture_drop(ast_expr_id(&de)) || _drop_target_is_state_machine_field(&lv, var_name.clone(), context) || context.base.declared_scopes.with({ &lv_c_name }(ds_s) => scope_stack_contains(ds_s, lv_c_name)))
                               )
                             },
                             .None => false

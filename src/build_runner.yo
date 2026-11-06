@@ -549,10 +549,10 @@ _package_import_lines :: (fn(package_dir : &String) -> ArrayList(String))({
   });
   (i : usize) = usize(0);
   while(i < g_dep_import_dirs.with(xs => xs.len()), {
-    dir := g_dep_import_dirs.with(xs => xs(i).clone());
+    dir := g_dep_import_dirs.with({ i }(xs) => xs(i).clone());
     if(dir == package_dir, {
       out := ArrayList(String).new();
-      lines := g_dep_import_texts.with(xs => xs(i).clone());
+      lines := g_dep_import_texts.with({ i }(xs) => xs(i).clone());
       (j : usize) = usize(0);
       while(j < lines.len(), {
         out.push(lines(j).clone());
@@ -568,7 +568,7 @@ _package_import_lines :: (fn(package_dir : &String) -> ArrayList(String))({
 _record_package_import_lines :: (fn(package_dir : &String, lines : &ArrayList(String)) -> unit)({
   (i : usize) = usize(0);
   while(i < g_dep_import_dirs.with(xs => xs.len()), {
-    dir := g_dep_import_dirs.with(xs => xs(i).clone());
+    dir := g_dep_import_dirs.with({ i }(xs) => xs(i).clone());
     if(dir == package_dir, {
       return(());
     });

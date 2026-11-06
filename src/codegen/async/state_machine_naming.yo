@@ -71,7 +71,7 @@ register_sm_captured_names :: (
 /// was empty).
 sm_local_field_name :: (fn(variable_id : &String) -> String)(
   match(
-    g_sm_local_field_names.with(m => m.get_cloned(variable_id.clone())),
+    g_sm_local_field_names.with({&variable_id}(m) => m.get_cloned(variable_id.clone())),
     .Some(stable) => stable,
     .None => {
       pre := String.from("var_");
@@ -166,7 +166,7 @@ note_await_consumed_temp :: (fn(name : &String) -> unit)({
   g_await_consumed_temps.with_mut({ name_owned }(s) => s.insert(name_owned));
 });
 is_await_consumed_temp :: (fn(name : &String) -> bool)(
-  g_await_consumed_temps.with(s => s.contains(name))
+  g_await_consumed_temps.with({&name}(s) => s.contains(name))
 );
 /// The task-slot fields of NAMED locals, each with a move flag
 /// (`uint8_t __yo_mv_<field>`) beside it in its state-machine struct. A move
@@ -197,7 +197,7 @@ sm_move_flag_of :: (fn(sm_code : &String, (owns_captures : bool) ?= false) -> Op
     return(Option(String).None);
   });
   field := sm_code.substring(usize(4), sm_code.len());
-  if(!g_sm_move_flag_fields.with(s => s.contains(field.clone())), {
+  if(!g_sm_move_flag_fields.with({ &field }(s) => s.contains(field.clone())), {
     return(Option(String).None);
   });
   if(field.starts_with("__capture."), {

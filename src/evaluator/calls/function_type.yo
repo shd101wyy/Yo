@@ -313,7 +313,7 @@ _trial_swallow_diagnostics :: (fn() -> Option(ArrayList(Diagnostic)))(
       tsd_out := ArrayList(Diagnostic).new();
       (tsd_i : usize) = usize(0);
       while(tsd_i < g_trial_swallow_diags.with(xs => xs.len()), {
-        match(g_trial_swallow_diags.with(xs => xs.get_cloned(tsd_i)), .Some(tsd_d) => tsd_out.push(tsd_d), .None => ());
+        match(g_trial_swallow_diags.with({ tsd_i }(xs) => xs.get_cloned(tsd_i)), .Some(tsd_d) => tsd_out.push(tsd_d), .None => ());
         tsd_i = (tsd_i + usize(1));
       });
       Option(ArrayList(Diagnostic)).Some(tsd_out)
@@ -1120,7 +1120,7 @@ _rerun_pending_def_evals :: (fn(caller_env : &Environment, ctx : &EvalContext) -
   (rp_i : usize) = usize(0);
   while(rp_i < g_pending_def_evals.with(xs => xs.len()), {
     match(
-      g_pending_def_evals.with(xs => xs.get(rp_i)),
+      g_pending_def_evals.with({ rp_i }(xs) => xs.get(rp_i)),
       .Some(pd) => {
         rp_env := _build_def_time_body_env(
           caller_env,
@@ -2356,7 +2356,7 @@ Result type: ${type_to_string(&result_box)}`
           // is not re-run.
           dg_memo_eligible := (!dg_check_result && !is_type_hierarchy_type(&result_box));
           dg_memo_key := if(dg_memo_eligible, `${tok.module_path.*}:${tok.row}:${tok.column}|${type_to_string(function_type)}|${ast_expr_to_string(&body_expr)}`, String.new());
-          if(!(dg_memo_eligible && g_deferred_trial_clean.with(s => s.contains(&dg_memo_key))), {
+          if(!(dg_memo_eligible && g_deferred_trial_clean.with({ &dg_memo_key }(s) => s.contains(dg_memo_key))), {
             dg_where := match(
               expr,
               .FnCall(_, dg_ft_box, _, _, _) => get_func_where_constraints(ast_expr_id(&dg_ft_box).to_string()),

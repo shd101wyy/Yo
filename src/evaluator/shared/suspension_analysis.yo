@@ -407,7 +407,7 @@ _capture_pattern_bindings :: (
 /// C local was set. Names are unique in a program.
 (g_arg_temps_across_suspension : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
 is_arg_temp_across_suspension :: (fn(name : &String) -> bool)(
-  g_arg_temps_across_suspension.with(s => s.contains(name))
+  g_arg_temps_across_suspension.with({&name}(s) => s.contains(name))
 );
 /// Capture the temp an argument's value is held in (a labeled argument
 /// `name : v` holds `v`'s): it is read when the call runs, after the later

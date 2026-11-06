@@ -26,7 +26,7 @@ _borrowed_match_site_key :: (fn(tok : &Token) -> String)(`${tok.module_path.*}:$
 borrowed_match_scrutinee_kind :: (fn(tok : &Token) -> u8)(
   cond(
     (g_borrowed_match_sites.with(m => m.len()) == usize(0)) => u8(0),
-    true => match(g_borrowed_match_sites.with(m => m.get(_borrowed_match_site_key(tok))), .Some(k) => k, .None => u8(0))
+    true => match(g_borrowed_match_sites.with({&tok}(m) => m.get(_borrowed_match_site_key(tok))), .Some(k) => k, .None => u8(0))
   )
 );
 export(borrowed_match_scrutinee_kind);
@@ -2289,7 +2289,7 @@ _wrap_glob_destructure :: (fn(decl : &AstExpr) -> AstExpr)({
 for_desugar_site_of :: (fn(tok : &Token) -> Option(AstExpr))(
   cond(
     (g_for_desugar_sites.with(m => m.len()) == usize(0)) => Option(AstExpr).None,
-    true => g_for_desugar_sites.with(m => m.get(_borrowed_match_site_key(tok)))
+    true => g_for_desugar_sites.with({&tok}(m) => m.get(_borrowed_match_site_key(tok)))
   )
 );
 export(for_desugar_site_of, is_for_desugar_target);

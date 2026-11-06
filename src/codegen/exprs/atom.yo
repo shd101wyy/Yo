@@ -367,7 +367,7 @@ _emit_loop_body_drops_before_exit :: (fn(context : &mut FunctionGenerationContex
               share_drop := is_call_scoped_share_drop(ast_expr_id(&drop_expr));
               skip := match(
                 get_deferred_drop_target_atom_name(&drop_expr),
-                .Some(var_name) => if(share_drop, !context.base.declared_scopes.with(ds_s => scope_stack_contains(ds_s, sanitize_for_c_identifier(&var_name, false))), {
+                .Some(var_name) => if(share_drop, !context.base.declared_scopes.with({ &var_name }(ds_s) => scope_stack_contains(ds_s, sanitize_for_c_identifier(&var_name, false))), {
                   exit_vars := match(&exit_env_opt, .Some(xe) => Option(ArrayList(Variable)).Some(_exit_drop_variables(exit_expr, &xe, var_name.clone(), &drop_expr, context)), .None => Option(ArrayList(Variable)).None);
                   c_name := match(&exit_vars, .Some(xv) => _codegen_name_of_variables(var_name.clone(), &xv), .None => get_variable_name_for_codegen_at(ast_expr_id(exit_expr), var_name.clone(), &exit_env_opt));
                   // A local with a task slot is never declared as a C
@@ -401,7 +401,7 @@ _emit_loop_body_drops_before_exit :: (fn(context : &mut FunctionGenerationContex
                   );
                   if(moved_here, {
                     sk = true;
-                  }, if(!in_slot && !context.base.declared_scopes.with(ds_s => scope_stack_contains(ds_s, &c_name)), {
+                  }, if(!in_slot && !context.base.declared_scopes.with({ &c_name }(ds_s) => scope_stack_contains(ds_s, c_name)), {
                     sk = true;
                   }, {
                     // env-liveness: skip drops for variables not yet in
@@ -642,7 +642,7 @@ generate_atom :: (fn(expr : &AstExpr, context : &mut FunctionGenerationContext, 
               // An owned capture list's drops belong to the dispose; a
               // call-scoped share holds its +1 only once its dup is in scope
               // (`_emit_loop_body_drops_before_exit`).
-              .Some(pe) => if(!(sm_owns_fnonce_captures(context) && is_fnonce_capture_drop(ast_expr_id(&pe))) && (!is_call_scoped_share_drop(ast_expr_id(&pe)) || match(get_deferred_drop_target_atom_name(&pe), .Some(sn) => context.base.declared_scopes.with(ds_s => scope_stack_contains(ds_s, sanitize_for_c_identifier(&sn, false))), .None => false)), {
+              .Some(pe) => if(!(sm_owns_fnonce_captures(context) && is_fnonce_capture_drop(ast_expr_id(&pe))) && (!is_call_scoped_share_drop(ast_expr_id(&pe)) || match(get_deferred_drop_target_atom_name(&pe), .Some(sn) => context.base.declared_scopes.with({ &sn }(ds_s) => scope_stack_contains(ds_s, sanitize_for_c_identifier(&sn, false))), .None => false)), {
                 // A slot whose value was moved out on this path (its move
                 // flag is set) no longer owns it, as the abort dispose
                 // reads the flag: the drop runs only while it is clear. The

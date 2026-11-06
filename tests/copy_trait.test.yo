@@ -545,7 +545,7 @@ test("Copy: a closure moved inside a failing comptime_expect_error is disposed, 
 test("Copy: a &mut capture makes a closure neither Copy nor Clone", {
   mut(n) := i32(0);
   {
-    (t : Impl(Fn() -> i32)) = ({ &mut n }() => {
+    (mut(t) : Impl(FnMut() -> i32)) = ({ &mut n }() => {
       n.* = (n.* + i32(1));
       n.*
     });

@@ -40,7 +40,7 @@ type_key_epoch :: (fn() -> u64)(g_type_key_epoch);
 /// Record `display` (`Ctor(Arg, …)`) for the type with id `type_id`. The
 /// first registration wins — one id is minted by one constructor call.
 register_type_display_name :: (fn(type_id : &String, display : &String) -> unit)({
-  if(!g_type_display_names.with(m => m.contains_key(type_id.clone())), {
+  if(!g_type_display_names.with({&type_id}(m) => m.contains_key(type_id.clone())), {
     // Owned captures (`with_mut`'s callback is a sink parameter).
     tdn_key := type_id.clone();
     tdn_val := display.clone();
@@ -50,7 +50,7 @@ register_type_display_name :: (fn(type_id : &String, display : &String) -> unit)
 });
 /// The registered display name for `type_id`, if any.
 type_display_name :: (fn(type_id : &String) -> Option(String))(
-  g_type_display_names.with(m => m.get_cloned(type_id))
+  g_type_display_names.with({&type_id}(m) => m.get_cloned(type_id))
 );
 /// One id serves every origin of a constructor instance (decision 43 step 3,
 /// N2a T3: the memo erases origins), so the first call's display names the
@@ -60,7 +60,7 @@ type_display_name :: (fn(type_id : &String) -> Option(String))(
 DISPLAY_ORIGIN_MARK :: "<<origin>>";
 (g_type_display_origin_templates : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
 register_type_display_origin_template :: (fn(type_id : &String, template : &String) -> unit)({
-  if(!g_type_display_origin_templates.with(m => m.contains_key(type_id)), {
+  if(!g_type_display_origin_templates.with({&type_id}(m) => m.contains_key(type_id)), {
     key_owned := type_id.clone();
     tpl_owned := template.clone();
     _prev := g_type_display_origin_templates.with_mut({ key_owned, tpl_owned }(m) => m.insert(key_owned, tpl_owned));
@@ -70,7 +70,7 @@ register_type_display_origin_template :: (fn(type_id : &String, template : &Stri
 /// The display of the instance `id` with its own origin arguments `tas`, when
 /// its constructor registered an origin template.
 _display_with_own_origins :: (fn(id : &String, tas : &SharedList(TypeValue)) -> Option(String))({
-  tpl := match(g_type_display_origin_templates.with(m => m.get_cloned(id)), .Some(t) => t, .None => return(Option(String).None));
+  tpl := match(g_type_display_origin_templates.with({&id}(m) => m.get_cloned(id)), .Some(t) => t, .None => return(Option(String).None));
   mark := String.from(DISPLAY_ORIGIN_MARK);
   (out : String) = tpl;
   (ti : usize) = usize(0);

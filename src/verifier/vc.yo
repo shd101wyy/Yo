@@ -111,7 +111,7 @@ _same_recursion_clique :: (fn(a : &String, b : &String) -> bool)({
   (ci : usize) = usize(0);
   while((ci < g_recursion_cliques.with(xs => xs.len())) && !found, {
     match(
-      g_recursion_cliques.with(xs => xs.get_cloned(ci)),
+      g_recursion_cliques.with({ ci }(xs) => xs.get_cloned(ci)),
       .Some(clique) => {
         if(clique.contains(a.clone()) && clique.contains(b.clone()), {
           found = true;
@@ -424,7 +424,7 @@ _list_sort_elem :: (fn(s : &VcSort) -> Option(VcSort))(
       (li : usize) = usize(0);
       while((li < g_list_elem_sorts.with(xs => xs.len())) && found.is_none(), {
         match(
-          g_list_elem_sorts.with(xs => xs.get(li)),
+          g_list_elem_sorts.with({ li }(xs) => xs.get(li)),
           .Some(es) => if(_list_dt_name(&es) == ds_name, {
             found = Option(VcSort).Some(es);
           }),
@@ -445,7 +445,7 @@ _register_list_datatype :: (fn(elem : &VcSort) -> unit)({
   (i : usize) = usize(0);
   while((i < g_list_datatypes.with(xs => xs.len())) && !found, {
     match(
-      g_list_datatypes.with(xs => xs.get_cloned(i)),
+      g_list_datatypes.with({ i }(xs) => xs.get_cloned(i)),
       .Some(entry) => {
         bar := entry.index_of(String.from("|"));
         nm := match(
@@ -478,7 +478,7 @@ _is_list_len_acc :: (fn(acc : &String) -> bool)({
   (li : usize) = usize(0);
   while((li < g_list_elem_sorts.with(xs => xs.len())) && !found, {
     match(
-      g_list_elem_sorts.with(xs => xs.get(li)),
+      g_list_elem_sorts.with({ li }(xs) => xs.get(li)),
       .Some(es) => if(_list_len_acc(&es) == acc, {
         found = true;
       }),
@@ -494,7 +494,7 @@ _list_elem_of_contents_acc :: (fn(acc : &String) -> Option(VcSort))({
   (li : usize) = usize(0);
   while((li < g_list_elem_sorts.with(xs => xs.len())) && found.is_none(), {
     match(
-      g_list_elem_sorts.with(xs => xs.get(li)),
+      g_list_elem_sorts.with({ li }(xs) => xs.get(li)),
       .Some(es) => if(_list_contents_acc(&es) == acc, {
         found = Option(VcSort).Some(es);
       }),
@@ -510,7 +510,7 @@ _list_sort_of_ctor :: (fn(name : &String) -> Option(VcSort))({
   (li : usize) = usize(0);
   while((li < g_list_elem_sorts.with(xs => xs.len())) && found.is_none(), {
     match(
-      g_list_elem_sorts.with(xs => xs.get(li)),
+      g_list_elem_sorts.with({ li }(xs) => xs.get(li)),
       .Some(es) => if(_list_ctor_name(&es) == name, {
         found = Option(VcSort).Some(VcSort.DataS(name : _list_dt_name(&es)));
       }),
@@ -6398,7 +6398,7 @@ _sorts_copy :: (fn(src : &ArrayList(VcSort)) -> ArrayList(VcSort))({
 _transparent_call_term :: (
   fn(ctx : &mut VcCtx, e : &AstExpr, args : &ArrayList(AstExpr), fid : &String) -> Option(VcTerm)
 )({
-  if(g_transparent_defining.with(xs => xs.contains(fid.clone())) && get_func_decreases_expr(fid.clone()).is_none(), {
+  if(g_transparent_defining.with({ &fid }(xs) => xs.contains(fid.clone())) && get_func_decreases_expr(fid.clone()).is_none(), {
     g_transparent_reason = String.from("it calls itself without decreases(...), so its definition need not terminate");
     return(Option(VcTerm).None);
   });
@@ -7918,20 +7918,20 @@ _callee_frame_open :: (fn(fv : &EvalValue, table : &ExprInfoTable) -> bool)({
     return(false);
   });
   match(
-    g_frame_open_memo.with(m => m.get(fid.clone())),
+    g_frame_open_memo.with({ &fid }(m) => m.get(fid.clone())),
     .Some(memo) => {
       return(memo);
     },
     .None => ()
   );
-  if(g_frame_in_progress.with(xs => xs.contains(fid.clone())), {
+  if(g_frame_in_progress.with({ &fid }(xs) => xs.contains(fid.clone())), {
     g_frame_cycle_hit = true;
     return(false);
   });
   task := match(
-    g_frame_tasks.with(m => m.get(fid.clone())),
+    g_frame_tasks.with({ &fid }(m) => m.get(fid.clone())),
     .Some(t) => Option(VerifyTask).Some(t),
-    .None => g_frame_tasks.with(m => m.get(base.clone()))
+    .None => g_frame_tasks.with({ &base }(m) => m.get(base.clone()))
   );
   // Only a body THIS run verifies is checked: a verify-mode function in an
   // imported file outside the targets (`yo compile` verifies the targets
