@@ -1,0 +1,38 @@
+// A binding of a `match` that borrows the part it binds — `match(&o, …)`, or
+// a reference matched bare (`match(o, …)` with `o : &Option(T)`) — is a
+// reference (decision 43 step 2, N1e-1): passed whole to a `&T` parameter it
+// lends what it already borrows, bare, as a `&T` parameter does
+// (issues/fixed/2026-11-05-a-reference-bound-by-a-match-is-rejected-bare-and-with-a-marker.md).
+{ assert } :: import("std/assert");
+{ ArrayList } :: import("std/collections/array_list");
+_total :: (fn(xs : &ArrayList(i32)) -> usize)(xs.len());
+_through_param :: (fn(o : &Option(ArrayList(i32))) -> usize)(
+  match(o, .Some(c) => _total(c), .None => usize(0))
+);
+_through_local :: (fn() -> usize)({
+  mut(xs) := ArrayList(i32).new();
+  xs.push(i32(1));
+  o := Option(ArrayList(i32)).Some(xs);
+  match(&o, .Some(c) => _total(c), .None => usize(0))
+});
+_Tok :: struct(children : Option(ArrayList(i32)));
+_through_element :: (fn(ts : &ArrayList(_Tok)) -> usize)(
+  match(&ts(usize(0)), _Tok(children : .Some(c)) => _total(c), _ => usize(0))
+);
+test("match binding lend: a binding of a `&` parameter's payload lends bare", {
+  mut(xs) := ArrayList(i32).new();
+  xs.push(i32(1));
+  xs.push(i32(2));
+  o := Option(ArrayList(i32)).Some(xs);
+  assert(_through_param(&o) == usize(2), "_total(c)");
+});
+test("match binding lend: a binding of a `&` scrutinee lends bare", {
+  assert(_through_local() == usize(1), "_total(c)");
+});
+test("match binding lend: a struct pattern over an element lends bare", {
+  mut(kids) := ArrayList(i32).new();
+  kids.push(i32(7));
+  mut(ts) := ArrayList(_Tok).new();
+  ts.push(_Tok(children : Option(ArrayList(i32)).Some(kids)));
+  assert(_through_element(&ts) == usize(1), "_total(c)");
+});

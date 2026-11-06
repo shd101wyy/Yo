@@ -296,10 +296,11 @@ test("a marker that does not fit the parameter is an error", {
   (c : i32) = i32(0);
   comptime_expect_error(_pm_len(&mut s), "is not `&mut T`");
   comptime_expect_error(_pm_inc(&c), "lend the place with `&mut c`");
-  // `p := &mut c` is a local borrow since decision 42; outside a slot the
-  // marker is still not an expression.
+  // `p := &mut c` is a local borrow since decision 42, and a tuple element
+  // lends since decision 43 step 3; outside a slot the marker is still not
+  // an expression.
   comptime_expect_error({
-    _q := (&mut c, i32(1));
+    _q := { &mut c };
   }, "is not an expression of its own");
   comptime_expect_error({
     y := &c;

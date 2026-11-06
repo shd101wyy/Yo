@@ -1263,6 +1263,61 @@ _type_origin_names_into :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalCont
     out.push(o_name);
   });
 });
+/// E0924 for a binding's annotation that names the binding itself as an
+/// origin, `(xs : ArrayList(&(i32, xs))) = …` (decision 43;
+/// plans/backlog/REFERENCES_AND_ORIGINS.md O1 well-formedness). The binding
+/// is not in scope while its own annotation is read, so without this check
+/// the name is E0922's undeclared origin. An outer binding of the same name
+/// is in scope, and the annotation names THAT place, which is well formed.
+reject_annotation_naming_its_binding :: (fn(ann : &AstExpr, name : &String, env : &Environment, exn : Exception) -> unit)(
+  if(get_variables_from_env(env, name).len() == usize(0), _reject_origin_naming_binding_in(ann, name, exn))
+);
+_reject_origin_naming_binding_in :: (fn(e : &AstExpr, name : &String, exn : Exception) -> unit)(
+  match(
+    e,
+    .FnCall(_, _, Rc(args), _, _) => {
+      if(is_origin_qualified_reference_expr(e), {
+        match(args.get(usize(1)), .Some(o) => _reject_origin_union_naming(&o, name, exn), .None => ());
+      });
+      (ai : usize) = usize(0);
+      while(ai < args.len(), {
+        match(args.get(ai), .Some(a) => _reject_origin_naming_binding_in(&a, name, exn), .None => ());
+        ai = (ai + usize(1));
+      });
+    },
+    .Atom(_, _) => ()
+  )
+);
+/// One origin position `o` (a name, a field path, or a union `(a, b)`).
+_reject_origin_union_naming :: (fn(o : &AstExpr, name : &String, exn : Exception) -> unit)({
+  if(ast_expr_is_fn_call_of(o, BK_TUPLE, Option(usize).None), {
+    u_args := _fn_call_args(o);
+    (ui : usize) = usize(0);
+    while(ui < u_args.len(), {
+      match(u_args.get(ui), .Some(ua) => _reject_origin_union_naming(&ua, name, exn), .None => ());
+      ui = (ui + usize(1));
+    });
+    return(());
+  });
+  match(
+    _origin_place_root(o),
+    .Some(r) => if(ast_expr_text(&r).* == name, {
+      exn.throw(
+        dyn(
+          with_code(
+            format_error_message_with_help(
+              ast_expr_token(o),
+              `\`${ast_place_text(o)}\` names the binding being declared: a binding's type may not name its own place as an origin (decision 43, plans/backlog/REFERENCES_AND_ORIGINS.md O1), because a value that points into itself could not be moved.`,
+              Option(String).Some(`name the place the references point into (\`&(T, y)\`), or elide it (\`&T\`): the binding's flow set then records what it points into`)
+            ),
+            E_ORIGIN_NAMES_ITSELF
+          )
+        )
+      );
+    }),
+    .None => ()
+  );
+});
 /// The argument of a type constructor's `comptime(p) : Origin` parameter
 /// (decision 43 step 3, N2a): `_View(x)`, `Cursor(T, p)`, `Log((x, y))`. It
 /// is read as an origin (`_type_origin_names_into`), never evaluated as a
@@ -6116,7 +6171,7 @@ export(evaluate_function_type, _resolve_some_types_deep);
 /// Total entries across the per-function side tables (the B2 plateau test's probe).
 function_side_table_entry_count :: (fn() -> usize)(g_macro_quoted_param_indices.with(m => m.len()) + g_macro_return_is_unquote.with(m => m.len()) + g_func_param_defaults.with(m => m.len()) + g_func_variadic_params.with(m => m.len()) + g_func_param_assigned_values.with(m => m.len()) + g_func_param_comptime.with(m => m.len()) + g_func_return_type_expr.with(m => m.len()) + g_func_param_default_exprs.with(m => m.len()) + g_func_param_type_exprs.with(m => m.len()) + g_func_where_constraints.with(m => m.len()) + g_func_where_clause_exprs.with(m => m.len()) + g_func_requires_exprs.with(m => m.len()) + g_func_ensures_exprs.with(m => m.len()) + g_func_decreases_expr.with(m => m.len()) + g_func_assumed_body.with(m => m.len()) + g_func_refined_params.with(m => m.len()) + g_func_return_label.with(m => m.len()));
 export(purge_function_side_tables, function_side_table_entry_count);
-export(evaluate_function_parameters, is_origin_qualified_reference_expr, evaluate_reference_type, evaluate_origin_argument);
+export(evaluate_function_parameters, is_origin_qualified_reference_expr, evaluate_reference_type, evaluate_origin_argument, reject_annotation_naming_its_binding);
 export(apply_where_clause_constraints);
 export(evaluate_function_parameter_type_again);
 export(evaluate_function_return_type_again);

@@ -7,7 +7,7 @@
 # overflows its stack on `&mut(A, B)` and the tree binary's fix gives the recorded
 # diagnostic. Verified 71/71 with the tree binary.
 # id	anchor	kind	phase	expect	today
-wf-self-binding	O1 well-formedness	neg	N2	WF_SELF	E0922|is not declared
+wf-self-binding	O1 well-formedness	neg	N2	WF_SELF	E0924|names the binding being declared
 wf-self-field	O1 well-formedness, O5	neg	N2	WF_SELF	E0924|names the value being defined
 wf-undeclared-origin	O1 declare-before-use	neg	N1	WF_UNDECLARED	E0922|is not declared
 wf-outward-field	O1, O4	pos	N2	ACCEPT	accept
@@ -16,13 +16,13 @@ ret-byvalue-param	O3 return rule (E0912's rule)	neg	N1	E0912	E0912|a by-value pa
 ret-param-place	O3 return rule	pos	N1	ACCEPT	-|a projection (decision 24)
 words	§3 words, O6	pos	N2	ACCEPT	-|carries an origin
 words-then-write	O3 step 2	neg	N2	E0911	-|carries an origin
-get2-mut-pair	O3 step 2	pos	N2	ACCEPT	-|lends a place to a `&mut T` parameter
+get2-mut-pair	O3 step 2	pos	N2	ACCEPT	accept
 get2-mut-twice	O3 step 2	neg	N1	E0911	E0911|Cannot read `xs` here
 cursor-two-items	O3 step 2	pos	N2	ACCEPT	accept
 copy-mut-holder	§5 route 3	neg	N2	E0901	E0901|use of moved value: `it`
 call-arg-overlap	O3 step 2, decision 28	neg	N1	E0910	E0910
 drop-root-while-borrowed	§5 route 6	neg	N1	E0911	E0911|Cannot move `x` here
-store-widen-mut-pointee	O3-3, §5 route 2	neg	N2	ORIGIN_MISMATCH	E0908|`slot` is a `&` borrow, which is read-only
+store-widen-mut-pointee	O3-3, §5 route 2	neg	N2	ORIGIN_MISMATCH	E0923|an origin reached through a `&mut` pointee is invariant
 store-same-origin	O3-3	pos	N2	ACCEPT	accept
 store-widen-refcell	O3-3, §5 route 2	neg	N2	ORIGIN_MISMATCH	-|carries an origin
 swap-different-origins	O7 swap	neg	N1	ORIGIN_MISMATCH	-|a reference to a reference
@@ -76,7 +76,7 @@ index-mut-twice	O3 step 2, decision 28 index overlap (superseded row)	neg	N1	E09
 place-write-join	O3 place writes, O6 (superseded row)	neg	N2	E0911	-|carries an origin
 match-arm-binding-origin	O3, §4 match lowering (superseded row)	neg	N2	E0911	E0911|`r` borrows `x` with `&` and is still live
 list-mut-two-pushes	O3 step 2, O6 (superseded row)	neg	N2	E0911	-|carries an origin
-copy-shared-holder	§5 route 3 (superseded row)	pos	N2	ACCEPT	E0601|Cannot unify incompatible types: "i32" and "&i32"
+copy-shared-holder	§5 route 3 (superseded row)	pos	N2	ACCEPT	accept
 ret-byvalue-carried	O3 return rule (superseded row)	pos	N2	ACCEPT	accept
 fnmut-two-live-calls	decision 37 FnMut call, O3 step 2 (N1f)	neg	N1	E0911	E0911|
 fnmut-sequential-calls	decision 37 FnMut call, O3 step 2 (N1f)	pos	N1	ACCEPT	accept

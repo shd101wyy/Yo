@@ -12,8 +12,9 @@
 // Reference+Reference arm,
 // issues/fixed/2026-11-05-a-type-parameter-is-not-inferred-through-an-origin-parameterized-composite.md),
 // so the runtime checks walk the GENERIC cursor through `&mut` — the N1e-2b
-// acceptance test. A `mut` holder of a bare `&` lend staying read-only is
-// O3-3's (issues/2026-11-05-a-mut-holder-of-a-shared-lend-is-read-only.md).
+// acceptance test. Walking it needs a `mut` holder of a `&` lend to be
+// writable, which this change makes it
+// (issues/fixed/2026-11-05-a-mut-holder-of-a-shared-lend-is-read-only.md).
 RrCursor :: (fn(comptime(T) : Type, comptime(p) : Origin) -> comptime(Type))(struct(xs : &(ArrayList(T), p), i : usize));
 rr_next_at :: (fn(generic(T : Type, p : Origin), self : &mut RrCursor(T, p)) -> Option(&(T, p)))(.Some(self.xs.index(self.i)));
 // A reference field into a reference payload: `.Some(self.r)`.
@@ -100,3 +101,37 @@ test("A holder of a reference with a Drop impl drops as a temporary, at scope en
   assert(g_rr_dropped == i32(3), "an unwind drops the holder it passes");
   assert(x == i32(3), "dropping a holder leaves its place alone");
 });
+// A `mut` holder of a `&` lend is writable: read-only is a property of a
+// reference binding (its slot is `&T`), not of the freeze the holder puts on
+// the place it lends (issues/fixed/2026-11-05-a-mut-holder-of-a-shared-lend-is-read-only.md).
+RrCounted :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(r : &(i32, p), n : i32));
+rr_bump :: (fn(generic(p : Origin), h : &mut RrCounted(p)) -> unit)({
+  h.n = (h.n + i32(1));
+});
+rr_clear :: (fn(generic(p : Origin), dst : &mut Option(&(i32, p))) -> unit)({
+  dst.* = .None;
+});
+test("A mut holder of a shared lend is writable", {
+  x := i32(7);
+  mut(slot) := Option(&i32).Some(&x);
+  slot = .None;
+  assert(slot.is_none(), "a holder reassigned");
+  mut(kept) := Option(&(i32, x)).Some(&x);
+  rr_clear(&mut kept);
+  assert(kept.is_none(), "a holder passed `&mut`");
+  mut(h) := RrCounted(x)(r : &x, n : i32(0));
+  rr_bump(&mut h);
+  h.n = (h.n + i32(5));
+  assert(h.n == i32(6), "a holder's own field written");
+  assert(h.r.* == i32(7), "the lent place is unchanged");
+});
+comptime_expect_error(
+  rr_holder_still_freezes :: (fn() -> unit)({
+    mut(x) := i32(1);
+    mut(h) := RrCounted(x)(r : &x, n : i32(0));
+    rr_bump(&mut h);
+    x = i32(2);
+    h.n = i32(3);
+  }),
+  "`h` borrows `x` with `&` and is still live"
+);

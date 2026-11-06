@@ -334,6 +334,71 @@ comptime_expect_error(
   }),
   "names the value being defined"
 );
+// A binding's annotation naming the binding itself is the same rule (O1
+// well-formedness, E0924), not an undeclared origin (E0922).
+comptime_expect_error(
+  bs_binding_self_origin :: (fn() -> unit)({
+    (o : Option(&(i32, o))) = .None;
+  }),
+  "names the binding being declared"
+);
+// A `mut` binding whose value holds a `&` reference HOLDS it: lent `&mut`,
+// it is written, which is no write through a `&` borrow
+// (issues/fixed/2026-11-05-a-mut-holder-of-a-shared-lend-is-read-only.md).
+bs_store :: (fn(generic(T : Type, r : Origin), dst : &mut Option(&(T, r)), v : &(T, r)) -> unit)({
+  dst.* = .Some(v);
+});
+test("a `mut` holder of a `&` reference is lent `&mut`", {
+  x := i32(4);
+  mut(slot) := Option(&(i32, x)).None;
+  bs_store(&mut slot, &x);
+  assert(match(slot, .Some(r) => (r.* == i32(4)), .None => false), "slot holds `&x`");
+});
+// O3-3: the `&mut` argument fixes `r` to `x` (an origin under a `&mut`
+// pointee is invariant), so `&y` does not widen it (E0923).
+comptime_expect_error(
+  bs_store_widen :: (fn() -> unit)({
+    x := i32(1);
+    mut(slot) := Option(&(i32, x)).None;
+    y := i32(2);
+    bs_store(&mut slot, &y);
+  }),
+  "an origin reached through a `&mut` pointee is invariant"
+);
+// A tuple literal's element `&place` / `&mut place` is a lend, as a struct
+// constructor's reference field is (decision 43 step 3, T9): the element
+// holds the place's address.
+bs_pair_mut :: (fn(a : &mut i32, b : &mut i32) -> Tuple(&mut(i32, a), &mut(i32, b)))((&mut a.*, &mut b.*));
+test("a tuple literal lends its reference elements", {
+  mut(x) := i32(1);
+  mut(y) := i32(2);
+  (p, q) := bs_pair_mut(&mut x, &mut y);
+  p.* = i32(3);
+  q.* = i32(4);
+  assert((x + y) == i32(7), "the elements point at `x` and `y`");
+  t := (&x, &y, i32(5));
+  assert(((t.0.* + t.1.*) + t.2) == i32(12), "a shared lend reads its place");
+});
+comptime_expect_error(
+  bs_tuple_lend_freezes :: (fn() -> unit)({
+    mut(x) := i32(1);
+    t := (&x, i32(0));
+    x = i32(2);
+    _ := t.1;
+  }),
+  "is still live"
+);
+comptime_expect_error(
+  bs_destructured_lend_freezes :: (fn() -> unit)({
+    mut(x) := i32(1);
+    mut(y) := i32(2);
+    (p, q) := bs_pair_mut(&mut x, &mut y);
+    x = i32(9);
+    p.* = i32(3);
+    q.* = i32(4);
+  }),
+  "is still live"
+);
 comptime_expect_error(
   bs_field_undeclared_origin :: (fn() -> unit)({
     S :: struct(next : &(i32, q));
