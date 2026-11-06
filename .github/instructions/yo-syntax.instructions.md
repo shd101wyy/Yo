@@ -1017,6 +1017,11 @@ A `match` takes its scrutinee the way a parameter takes its argument (Rust's def
 - **A match payload binding's type is shell-resolved**: a self-referential producer's own field `Option(Self)` evaluates against the struct's empty SHELL, and the enum instance a match reads can be the one carrying that shell — until 2026-10-18 the binding then had 0 fields and a method call on it failed E0610 while a free function resolved (`issues/fixed/2026-10-18-a-method-on-a-self-referential-ref-struct-fails-to-resolve-through-a-match-binding.md`; `variant_field_types` now resolves every payload through `resolve_enum_shell(resolve_struct_shell(·))`). `match(self.head, .Some(n) => n.m())` resolves.
 - **Never lend a match binding `&mut` when the arm can drop the last reference to its cell**: `f(&mut n)` plants a borrow assert on the cell, and unlinking first frees the cell before the assert reads it (an ASan heap-use-after-free; the shape of a doubly linked `pop_front` that matches `.Some(n)` on the head and relinks `self.head` from `n.next`). Take what you need through direct field reads/writes BEFORE the assignments that drop handles.
 
+### Reference bindings: two open pitfalls (decision 43, 2026-11-06)
+
+- **Inside std, `&v.*` on a `&`-match binding is E0920; std spells it `&v`.** std (and src) is exempt from the deref rule (`is_deref_rule_exempt`, `src/evaluator/memory_safety.yo`): a borrow there still reads as its value, and `.*` on a borrow is E0920. So std lends the binding of `match(&x, .Some(v) => …)` as `f(&v)`, where user code under the rule writes `f(&v.*)` (or `f(v)`). The exemption goes with the `--migrate deref` adoption over std and src in v0.2.76, which rewrites these sites.
+- **`Option(&T).unwrap()` cannot reach the payload's methods yet** (open S2, `issues/2026-11-05-an-option-of-a-reference-cannot-reach-its-payloads-methods.md`): `h.get().unwrap().len()` with `get -> Option(&P)` is E0601 inside the prelude's `unwrap`. Read through a `match` until it is fixed: `match(h.get(), .Some(p) => p.len(), .None => usize(0))`. The payload binding is a reference binding and auto-derefs.
+
 ## Pattern forms in `match` (real pattern matching, 2026-09-19)
 
 Patterns are ordinary expressions the parser already produces; the evaluator
