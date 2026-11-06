@@ -90,6 +90,10 @@
 _c_len_1 :: (fn(xs : &ArrayList(String)) -> usize)(xs.len());
 /// `HashMap(String, _MsMemo)` (1 use)
 _c_len_2 :: (fn(m : &HashMap(String, _MsMemo)) -> usize)(m.len());
+_c_len_3 :: (fn(m : &HashMap(String, _MspMemo)) -> usize)(m.len());
+_c_len_4 :: (fn(m : &HashMap(String, _GrMemo)) -> usize)(m.len());
+_c_len_5 :: (fn(m : &HashMap(String, HashMap(String, String))) -> usize)(m.len());
+_c_len_6 :: (fn(m : &HashMap(String, HashSet(String))) -> usize)(m.len());
 /// func_id → may-mutate verdict (true = may mutate), with the id of the body
 /// it was computed from.
 ///
@@ -4646,7 +4650,7 @@ purge_mutation_summaries :: (fn(fids : &ArrayList(String)) -> unit)({
 });
 /// Total memo entries (the LSP plateau probe).
 mutation_summary_entry_count :: (fn() -> usize)(
-  g_ms_summary_by_fid.with(_c_len_2) + g_msp_by_fid.with(m => m.len()) + g_gr_by_fid.with(m => m.len()) + g_gr_reads_by_fid.with(m => m.len()) + g_gr_callees_by_fid.with(m => m.len())
+  g_ms_summary_by_fid.with(_c_len_2) + g_msp_by_fid.with(_c_len_3) + g_gr_by_fid.with(_c_len_4) + g_gr_reads_by_fid.with(_c_len_5) + g_gr_callees_by_fid.with(_c_len_6)
 );
 /// The memoized reach verdict of function `fid`, if one was computed: the
 /// closure's own, taken with its DEFINING env (a closure literal is walked

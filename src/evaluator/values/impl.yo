@@ -173,6 +173,7 @@ _c_len_9 :: (fn(xs : &ArrayList(TypeValue)) -> usize)(xs.len());
 _c_len_10 :: (fn(m : &HashMap(String, EvalValue)) -> usize)(m.len());
 /// `ArrayList(_CtorConcreteMethod)` (2 uses)
 _c_len_11 :: (fn(xs : &ArrayList(_CtorConcreteMethod)) -> usize)(xs.len());
+_c_len_12 :: (fn(xs : &ArrayList(ArrayList(String))) -> usize)(xs.len());
 /// Stamp a generic impl's `generic(T)` names onto a method's FuncVal so the call
 /// site recognizes the method as generic and SPECIALIZES it. A method defined in
 /// `impl(generic(T), C(T), m : (fn(self : Self) -> T))` is evaluated to a FuncVal
@@ -568,7 +569,7 @@ _undo_generic_impl_registration :: (fn(entry : &GenericImplEntry) -> unit)({
   match(
     key_idx,
     .Some(idx) => {
-      if((idx < g_impl_registry_entry_lists.with(_c_len_3)) && (idx < g_impl_registry_entry_owners.with(xs => xs.len())), {
+      if((idx < g_impl_registry_entry_lists.with(_c_len_3)) && (idx < g_impl_registry_entry_owners.with(_c_len_12)), {
         list := g_impl_registry_entry_lists.with({ idx }(xs) => xs(idx).clone());
         g_impl_registry_entry_lists.with_mut(xs => {
           xs(idx) = ArrayList(GenericImplEntry).new();
