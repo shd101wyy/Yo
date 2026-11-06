@@ -100,7 +100,7 @@ impl(
   /// Run `body` with the value lent read-only, and return its result —
   /// Rust's `borrow()` with the guard's scope. Panics if a `with_mut` body
   /// of this cell is running.
-  with : (fn(generic(R : Type), self : &Self, body : &Impl(Fn(v : &T) -> R)) -> R)({
+  with : (fn(generic(R : Type), self : &Self, body : &mut Impl(FnMut(v : &T) -> R)) -> R)({
     slot := addr_of(self._slot.*);
     // SAFETY: `slot` is the cell's live slot, and this thread is the only
     // one that reaches it (`RefCell` is not `Sync`).
@@ -119,7 +119,9 @@ impl(
   /// the body runs exactly once per call, so the closure is moved in and may
   /// move what it captured out of its body (`{ k, v }(m) => m.insert(k, v)`)
   /// instead of copying each capture. An `Fn` closure is accepted too. `with`
-  /// stays `&Impl(Fn(...))`: it only reads.
+  /// is `&mut Impl(FnMut(...))`: the callee never stores the closure, so
+  /// mutable access through a reference is exactly its obligation (VERDICTS-28
+  /// Q1), and a body that only reads is simply an `FnMut` that writes nothing.
   with_mut : (fn(generic(R : Type), self : &Self, sink(body) : Impl(FnOnce(v : &mut T) -> R)) -> R)({
     slot := addr_of(self._slot.*);
     // SAFETY: as in `with`.
@@ -151,8 +153,9 @@ impl(
   /// any `with` or `with_mut` body of this cell is running.
   ///
   /// Unlike Rust's `replace_with`, whose `f` is an `FnOnce(&mut T) -> T`,
-  /// `f` is an `Fn` lent `&T`, as a `with` body is: it cannot move a
-  /// captured move-only value into its result (E0913). Until V2b gives a
+  /// `f` is an `FnMut` lent `&mut` as a non-escaping callback (it may write a
+  /// capture, but not move one out of its body — E0913, since second-class
+  /// closures cannot be passed by value). Until V2b gives a
   /// `String` or a collection its own buffer, an `f` that returns its
   /// argument unchanged (`v => v`) returns a value sharing storage with the
   /// old one, so a write through either reaches the other; return
@@ -163,7 +166,7 @@ impl(
   /// hits := RefCell(i32).new(i32(4));
   /// old := hits.replace_with(n => (n + i32(1))); // old is 4, the cell holds 5
   /// ```
-  replace_with : (fn(self : &Self, f : &Impl(Fn(v : &T) -> T)) -> T)({
+  replace_with : (fn(self : &Self, f : &mut Impl(FnMut(v : &T) -> T)) -> T)({
     slot := addr_of(self._slot.*);
     // SAFETY: as in `with`.
     if(unsafe(slot.*._borrow) != isize(0), {

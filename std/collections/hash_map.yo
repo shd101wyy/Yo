@@ -1007,9 +1007,22 @@ impl(
   ),
   /// The value for `key`, inserting `make()`'s result first when absent —
   /// use over `get_or_insert` when constructing the default is costly.
-  get_or_insert_with : (fn(self : &mut Self, key : &K, make : &Impl(Fn() -> V), where(K <: Clone, V <: Clone)) -> V)(
-    self.entry(key, { &make }(e) => e.or_insert_with(make))
-  ),
+  ///
+  /// One probe, no entry, like `update_with`: a closure holding `make` would
+  /// borrow it exclusively and could not be moved into `entry`'s by-value
+  /// body, so the vacant insert is spelled over `_probe`/`_insert_at` the
+  /// way `HashMapEntry.or_insert_with` spells it.
+  get_or_insert_with : (fn(self : &mut Self, key : &K, make : &mut Impl(FnMut() -> V), where(K <: Clone, V <: Clone)) -> V)({
+    hash := self._hash(key);
+    match(
+      Self._probe(self, key, hash),
+      .Occupied(index) => (Self._data_ptr(self).add(index)).*.value.clone(),
+      .Vacant(index) => {
+        slot := Self._insert_at(self, index, hash, key.clone(), make());
+        (Self._data_ptr(self).add(slot)).*.value.clone()
+      }
+    )
+  }),
   /// Update the value for `key` through `f` when present; no-op when absent.
   /// Returns true when an update happened. One probe, no entry: a closure
   /// holding `f` would borrow it exclusively and could not be moved into
@@ -1157,7 +1170,7 @@ impl(
   /// use over `or_insert` when constructing the default is costly. As
   /// `or_insert`: the slot flips to `.Occupied`, and the value comes back as
   /// a clone (see the `&mut V` note there); `make()`'s result moves in.
-  or_insert_with : (fn(self : &mut Self, make : &Impl(Fn() -> V), where(K <: Clone, V <: Clone)) -> V)(
+  or_insert_with : (fn(self : &mut Self, make : &mut Impl(FnMut() -> V), where(K <: Clone, V <: Clone)) -> V)(
     match(
       self._slot,
       .Occupied(index) => (self._map.*._data_ptr().add(index)).*.value.clone(),
