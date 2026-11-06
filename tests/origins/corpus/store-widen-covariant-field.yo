@@ -1,0 +1,21 @@
+// O-2 corpus row `store-widen-covariant-field` (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §8;
+// manifest tests/origins/corpus.tsv): a covariant FIELD of a `&mut`-lent named
+// composite widens the same way: `put(&mut s, &y)` with `s : S(p)` whose field is
+// `Option(&(i32, p))` — the origin through the `&mut` pointee is invariant even when
+// the field's own position is covariant.
+// Expected once O-2 lands: rejected: E0923 at `&y`.
+_S :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(o : Option(&(i32, p))));
+_put :: (fn(generic(p : Origin), s : &mut _S(p), v : &(i32, p)) -> unit)({
+  s.o = .Some(v);
+});
+main :: (fn() -> unit)({
+  x := i32(1);
+  mut(s) := _S(x)(o : Option(&(i32, x)).Some(&x));
+  {
+    y := i32(2);
+    _put(&mut s, &y);
+  };
+  _ := s.o.*.is_some();
+  ()
+});
+export(main);

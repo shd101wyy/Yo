@@ -1,0 +1,20 @@
+// expect: E0911
+// (bb) The borrowed-for element stored into an outer slot, then the collection grown.
+{ ArrayList } :: import("std/collections/array_list");
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(i32).new();
+  xs.push(i32(1));
+  mut(slot) := Option(&i32).None;
+  for(&xs, x => {
+    slot = .Some(x);
+  });
+  mut(i) := usize(0);
+  while(i < usize(1000), {
+    xs.push(i32(7));
+    i = (i + usize(1));
+  });
+  match(slot, .Some(r) => println(`OUT: ${r.*.to_string()}`), .None => println("none"));
+  ()
+});
+export(main);

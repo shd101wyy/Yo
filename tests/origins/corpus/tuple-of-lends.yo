@@ -1,0 +1,13 @@
+// O-1 corpus row `tuple-of-lends` (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §8;
+// manifest tests/origins/corpus.tsv): a `&place` operand as a tuple component (R-LEND
+// under R-COMP, N2b-r): the tuple's binding freezes every component's place.
+// Expected once O-1 lands: rejected: E0911 at the write to `x` while `t` is live.
+main :: (fn() -> unit)({
+  mut(x) := i32(1);
+  t := (&x, i32(0));
+  x = i32(2);
+  (r0, _) := t;
+  _ := r0.*;
+  ()
+});
+export(main);

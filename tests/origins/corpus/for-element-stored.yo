@@ -1,0 +1,22 @@
+// O-1 corpus row `for-element-stored` (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §8;
+// manifest tests/origins/corpus.tsv): the borrowed-`for` element stored into an outer
+// slot must freeze the collection past the loop (the element binding's `bind` with the
+// cursor's origin, and the `=` join into the slot).
+// Expected once O-1 lands: rejected: E0911 at `xs.push` while `slot` is live.
+{ ArrayList } :: import("std/collections/array_list");
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(i32).new();
+  xs.push(i32(1));
+  mut(slot) := Option(&i32).None;
+  for(&xs, x => {
+    slot = .Some(x);
+  });
+  xs.push(i32(7));
+  match(
+    slot,
+    .Some(r) => { _ := r.*; },
+    .None => ()
+  );
+  ()
+});
+export(main);

@@ -1,0 +1,21 @@
+// O-2 corpus row `store-widen-named-holder` (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §8;
+// manifest tests/origins/corpus.tsv): O3-3 invariance through a `&mut`-lent NAMED
+// composite: `put(&mut s, &y)` with `s : Slot(p)` substitutes `p` from the argument's
+// type, so a wider `v` is E0923 at the argument.
+// Expected once O-2 lands: rejected: E0923 at `&y`.
+_Slot :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(dst : &mut Option(&(i32, p))));
+_put :: (fn(generic(p : Origin), s : &mut _Slot(p), v : &(i32, p)) -> unit)({
+  s.dst.* = .Some(v);
+});
+main :: (fn() -> unit)({
+  x := i32(1);
+  mut(slot) := Option(&(i32, x)).Some(&x);
+  mut(s) := _Slot(x)(dst : &mut slot);
+  {
+    y := i32(2);
+    _put(&mut s, &y);
+  };
+  _ := slot.is_some();
+  ()
+});
+export(main);

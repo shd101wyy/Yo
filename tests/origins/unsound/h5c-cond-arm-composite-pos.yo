@@ -1,0 +1,16 @@
+// expect: accept
+// h5c's positive twin: `y` is reassigned AFTER `m`'s last use.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+flag :: (fn(n : i32) -> bool)(n > i32(2));
+main :: (fn() -> unit)({
+  x := Rc.new(X(s : String.from("x")));
+  mut(y) := Rc.new(X(s : String.from("y")));
+  c := flag(i32(1));
+  m := cond(c => Option(&String).Some(&x.*.s), true => Option(&String).Some(&y.*.s));
+  match(m, .Some(r) => println(`OUT: ${r.*.len().to_string()}`), .None => println("none"));
+  y = Rc.new(X(s : String.from("z")));
+  ()
+});
+export(main);

@@ -1,0 +1,16 @@
+// expect: E0911
+// H5 (ASan form): the arms borrow INTO the cells; the second root's reassignment frees its old cell.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+flag :: (fn(n : i32) -> bool)(n > i32(2));
+main :: (fn() -> unit)({
+  x := Rc.new(X(s : String.from("x")));
+  mut(y) := Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz")));
+  c := flag(i32(1));
+  m := cond(c => Option(&String).Some(&x.*.s), true => Option(&String).Some(&y.*.s));
+  y = Rc.new(X(s : String.from("z")));
+  match(m, .Some(r) => println(`OUT: ${r.*.len().to_string()}`), .None => println("none"));
+  ()
+});
+export(main);

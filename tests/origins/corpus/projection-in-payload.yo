@@ -1,0 +1,19 @@
+// O-1 corpus row `projection-in-payload` (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §8;
+// manifest tests/origins/corpus.tsv): a projection call inside a payload
+// (`Option(&i32).Some(xs.index(0))`) bound to a local must freeze the collection
+// (R-CALL under R-COMP: a constructor wrapping a call).
+// Expected once O-1 lands: rejected: E0911 at `xs.push` while `slot` is live.
+{ ArrayList } :: import("std/collections/array_list");
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(i32).new();
+  xs.push(i32(1));
+  slot := Option(&i32).Some(xs.index(usize(0)));
+  xs.push(i32(7));
+  match(
+    slot,
+    .Some(r) => { _ := r.*; },
+    .None => ()
+  );
+  ()
+});
+export(main);

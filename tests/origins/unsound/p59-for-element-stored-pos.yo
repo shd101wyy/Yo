@@ -1,0 +1,16 @@
+// expect: accept
+// p59's positive twin: the collection grows AFTER `slot`'s last use.
+{ ArrayList } :: import("std/collections/array_list");
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(i32).new();
+  xs.push(i32(1));
+  mut(slot) := Option(&i32).None;
+  for(&xs, x => {
+    slot = .Some(x);
+  });
+  match(slot, .Some(r) => println(`OUT: ${r.*.to_string()}`), .None => println("none"));
+  xs.push(i32(7));
+  ()
+});
+export(main);
