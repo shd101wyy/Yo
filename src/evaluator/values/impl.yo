@@ -178,7 +178,7 @@ _method_ty_skip_stamp :: (fn(ty : &TypeValue) -> bool)(
       (i : usize) = usize(0);
       while((i < pts.len()) && !found, {
         match(
-          slot_pointee_at(&pts, i),
+          slot_pointee_at(&pts.*, i),
           .Some(pt) => if(is_expr_type(&pt), {
             found = true;
           }),
@@ -194,15 +194,15 @@ _method_ty_skip_stamp :: (fn(ty : &TypeValue) -> bool)(
 _stamp_impl_forall_on_method :: (fn(v : &EvalValue, names : &ArrayList(String)) -> EvalValue)(
   if(
     names.len() == usize(0),
-    v,
+    v.*,
     match(
       v,
       .FuncVal(__fvm8, cv) => if(
         __fvm8.*.forall_names.len() > usize(0),
-        v,
+        v.*,
         EvalValue.FuncVal(Rc.new(FuncValData(forall_names : names.clone(), params : __fvm8.*.params.clone(), param_type_names : __fvm8.*.param_type_names.clone(), evidence_params : __fvm8.*.evidence_params.clone(), body : __fvm8.*.body, cap_names : __fvm8.*.cap_names.clone(), cap_tys : __fvm8.*.cap_tys.clone(), func_id : __fvm8.*.func_id.clone(), env_key : __fvm8.*.env_key)), Rc.clone(cv))
       ),
-      _ => v
+      _ => v.*
     )
   )
 );
@@ -444,7 +444,7 @@ get_base_trait_key :: (fn(trait_ty : &TypeValue) -> String)(
   match(
     trait_ty,
     Rc(.TraitT(_, _, gb_id, _, _, _)) => match(
-      lookup_trait_ctor_fid(&gb_id),
+      lookup_trait_ctor_fid(&gb_id.*),
       .Some(gb_fid) => gb_fid,
       .None => gb_id.clone()
     ),
@@ -631,7 +631,7 @@ purge_generic_impls_owned_by :: (fn(owner : &String) -> unit)({
       (i : usize) = olist.len();
       while(i > usize(0), {
         i = (i - usize(1));
-        hit := match(olist.get_cloned(i), .Some(o) => (o == owner), .None => false);
+        hit := match(olist.get_cloned(i), .Some(o) => (o == owner.*), .None => false);
         if(hit && (i < list.len()), {
           list.drain(i .. (i + usize(1)));
           olist.drain(i .. (i + usize(1)));
@@ -660,7 +660,7 @@ purge_concrete_trait_impls_owned_by :: (fn(owner : &String) -> unit)({
   (i : usize) = g_concrete_trait_impl_owners.with(xs => xs.len());
   while(i > usize(0), {
     i = (i - usize(1));
-    if(match(g_concrete_trait_impl_owners.with(xs => xs.get_cloned(i)), .Some(o) => (o == owner), .None => false) && (i < g_concrete_trait_impls.with(xs => xs.len())), {
+    if(match(g_concrete_trait_impl_owners.with(xs => xs.get_cloned(i)), .Some(o) => (o == owner.*), .None => false) && (i < g_concrete_trait_impls.with(xs => xs.len())), {
       g_concrete_trait_impls.with_mut(xs => xs.drain(i .. (i + usize(1))));
       g_concrete_trait_impl_owners.with_mut(xs => xs.drain(i .. (i + usize(1))));
     });
@@ -677,7 +677,7 @@ purge_move_only_decls_owned_by :: (fn(owner : &String) -> unit)({
   (changed : bool) = false;
   while(i > usize(0), {
     i = (i - usize(1));
-    if(match(g_move_only_decls.with(xs => xs.get_cloned(i)), .Some(d) => (d.owner == owner), .None => false), {
+    if(match(g_move_only_decls.with(xs => xs.get_cloned(i)), .Some(d) => (d.owner == owner.*), .None => false), {
       g_move_only_decls.with_mut(xs => xs.drain(i .. (i + usize(1))));
       changed = true;
     });
@@ -725,7 +725,7 @@ generic_impl_binder_bound_counts :: (fn(binder_name : &String) -> ArrayList(usiz
                   entry.forall_some_types.get_cloned(fi),
                   .Some(Rc(.SomeT({ name : bn, bounds : brts_bnd }))) => {
                     brts := brts_bnd.required();
-                    if(bn == binder_name, {
+                    if(bn.* == binder_name, {
                       out.push(brts.len());
                     })
                   },
@@ -1119,7 +1119,7 @@ _root_shapes_could_match :: (fn(pattern : &TypeValue, concrete : &TypeValue) -> 
         pattern,
         Rc(.Reference(rp_pointee, rp_mut, _)) => match(
           concrete,
-          Rc(.Reference(rc_pointee, rc_mut, _)) => ((rp_mut == rc_mut) && _root_shapes_could_match(&rp_pointee, &rc_pointee)),
+          Rc(.Reference(rc_pointee, rc_mut, _)) => ((rp_mut.* == rc_mut.*) && _root_shapes_could_match(&rp_pointee.*, &rc_pointee.*)),
           _ => false
         ),
         _ => false
@@ -1137,7 +1137,7 @@ _root_shapes_could_match :: (fn(pattern : &TypeValue, concrete : &TypeValue) -> 
         pattern,
         Rc(.Int(p_bits, p_signed)) => match(
           concrete,
-          Rc(.Int(c_bits, c_signed)) => ((p_bits == c_bits) && (p_signed == c_signed)),
+          Rc(.Int(c_bits, c_signed)) => ((p_bits.* == c_bits.*) && (p_signed.* == c_signed.*)),
           _ => false
         ),
         _ => false
@@ -1150,7 +1150,7 @@ _root_shapes_could_match :: (fn(pattern : &TypeValue, concrete : &TypeValue) -> 
         pattern,
         Rc(.Float(p_fbits)) => match(
           concrete,
-          Rc(.Float(c_fbits)) => (p_fbits == c_fbits),
+          Rc(.Float(c_fbits)) => (p_fbits.* == c_fbits.*),
           _ => false
         ),
         _ => false
@@ -1220,7 +1220,7 @@ _bind_forall_from_type_args :: (
     is_match := (
       position_ok && match(
         pj,
-        Rc(.SomeT({ name : pn, frame_level : pl })) => ((pn == fa_name) && (pl == fa_lvl)),
+        Rc(.SomeT({ name : pn, frame_level : pl })) => ((pn.* == fa_name) && (pl.* == fa_lvl)),
         _ => false
       )
     );
@@ -1468,7 +1468,7 @@ _where_trait_mentions_no_forall :: (fn(ty : &TypeValue, foralls : &ArrayList(Typ
           (wf_n, wf_l) := match(somes.get_cloned(wf_k), .Some(Rc(.SomeT({ name : n, frame_level : l }))) => (n.clone(), l), _ => (String.new(), usize(0)));
           (wf_f : usize) = usize(0);
           while(wf_f < foralls.len(), wf_f = (wf_f + usize(1)), {
-            hit := match(foralls.get_cloned(wf_f), .Some(Rc(.SomeT({ name : fn_n, frame_level : fn_l }))) => ((fn_n == wf_n) && (fn_l == wf_l)), _ => false);
+            hit := match(foralls.get_cloned(wf_f), .Some(Rc(.SomeT({ name : fn_n, frame_level : fn_l }))) => ((fn_n.* == wf_n) && (fn_l.* == wf_l)), _ => false);
             if(hit, {
               return(false);
             });
@@ -1834,7 +1834,7 @@ try_match_generic_impl :: (
                       wcr_cty := match(wcr_atypes.get(wcr_k), .Some(t) => t, .None => t_unit());
                       wcr_is_this_forall := match(
                         wcr_cty,
-                        Rc(.SomeT(name : wcr_cnm)) => (wcr_cnm == fa_name2),
+                        Rc(.SomeT(name : wcr_cnm)) => (wcr_cnm.* == fa_name2),
                         _ => false
                       );
                       if(wcr_is_this_forall, {
@@ -2171,7 +2171,7 @@ _trait_instances_agree :: (fn(entry : &GenericImplEntry, bindings : &ArrayList(T
 _generic_impl_bucket :: (fn(key : &String) -> ArrayList(GenericImplEntry))({
   (ki : usize) = usize(0);
   while(ki < g_impl_registry_keys.with(xs => xs.len()), {
-    if(match(g_impl_registry_keys.with(xs => xs.get_cloned(ki)), .Some(k) => (k == key), .None => false), {
+    if(match(g_impl_registry_keys.with(xs => xs.get_cloned(ki)), .Some(k) => (k == key.*), .None => false), {
       return(match(g_impl_registry_entry_lists.with(xs => xs.get_cloned(ki)), .Some(l) => l, .None => ArrayList(GenericImplEntry).new()));
     });
     ki = (ki + usize(1));
@@ -2236,7 +2236,7 @@ _decl_identity_key_of :: (fn(t : &TypeValue, depth : usize) -> String)(
     true => match(
       t,
       Rc(.Struct({ id : di_sid, type_arguments : di_tas, is_source_namespace : di_sns })) => cond(
-        di_sns => `|ns:${di_sid.clone()}`,
+        di_sns.* => `|ns:${di_sid.clone()}`,
         true => `|s:${match(_nominal_root_identity(t), .Some(rid) => rid, .None => di_sid.clone())}${_decl_identity_key_of_list(&di_tas.items, depth + usize(1))}`
       ),
       Rc(.EnumT(id : di_eid, type_arguments : di_etas)) => `|e:${match(_nominal_root_identity(t), .Some(rid) => rid, .None => di_eid.clone())}${_decl_identity_key_of_list(&di_etas.items, depth + usize(1))}`,
@@ -2248,18 +2248,18 @@ _decl_identity_key_of :: (fn(t : &TypeValue, depth : usize) -> String)(
         di_trfts := di_trfts_body.field_types();
         `|t:${get_base_trait_key(t)}${_decl_identity_key_of_list(&di_trfts, depth + usize(1))}`
       },
-      Rc(.Func({ param_types : di_fpts, implicit_types : di_fits, result : di_fres, variadic_types : di_fvts })) => `|f(${_decl_identity_key_of_list(&di_fpts.items, depth + usize(1))};${_decl_identity_key_of_list(&di_fits.items, depth + usize(1))};${_decl_identity_key_of_list(&di_fvts.items, depth + usize(1))};${_decl_identity_key_of(&di_fres, depth + usize(1))})`,
-      Rc(.Pointer(di_pointee)) => `*(${_decl_identity_key_of(&di_pointee, depth + usize(1))})`,
+      Rc(.Func({ param_types : di_fpts, implicit_types : di_fits, result : di_fres, variadic_types : di_fvts })) => `|f(${_decl_identity_key_of_list(&di_fpts.items, depth + usize(1))};${_decl_identity_key_of_list(&di_fits.items, depth + usize(1))};${_decl_identity_key_of_list(&di_fvts.items, depth + usize(1))};${_decl_identity_key_of(&di_fres.*, depth + usize(1))})`,
+      Rc(.Pointer(di_pointee)) => `*(${_decl_identity_key_of(&di_pointee.*, depth + usize(1))})`,
       // A reference keys by its mode and its pointee, origin erased
       // (decision 43, N1f-2; plans/reference/TRAIT_COHERENCE.md): `impl(&C,
       // Tr)`, `impl(&mut C, Tr)` and `impl(C, Tr)` are three keys, and
       // `impl(&(C, p), Tr)` is `impl(&C, Tr)`. A method signature's `&Self`
       // and `Self` slots key apart too.
       Rc(.Reference(di_rpointee, di_rmut, _)) => cond(
-        di_rmut => `&mut(${_decl_identity_key_of(&di_rpointee, depth + usize(1))})`,
-        true => `&(${_decl_identity_key_of(&di_rpointee, depth + usize(1))})`
+        di_rmut.* => `&mut(${_decl_identity_key_of(&di_rpointee.*, depth + usize(1))})`,
+        true => `&(${_decl_identity_key_of(&di_rpointee.*, depth + usize(1))})`
       ),
-      Rc(.Array(di_elem, _, _)) => `[${_decl_identity_key_of(&di_elem, depth + usize(1))}]`,
+      Rc(.Array(di_elem, _, _)) => `[${_decl_identity_key_of(&di_elem.*, depth + usize(1))}]`,
       Rc(.Tuple(_, di_tfts)) => `(${_decl_identity_key_of_list(&di_tfts.items, depth + usize(1))})`,
       Rc(.SomeT({ name : di_sn })) => `$${di_sn.clone()}`,
       _ => type_to_string(t)
@@ -2300,10 +2300,10 @@ _nominal_root_identity :: (fn(t : &TypeValue) -> Option(String))(
   match(
     t,
     Rc(.Struct({ id : nr_sid, is_source_namespace : nr_sns })) => cond(
-      nr_sns => Option(String).None,
-      true => _decl_identity_of(struct_effective_ctor_fid(t), &nr_sid, `struct_decl_`)
+      nr_sns.* => Option(String).None,
+      true => _decl_identity_of(struct_effective_ctor_fid(t), &nr_sid.*, `struct_decl_`)
     ),
-    Rc(.EnumT(id : nr_eid)) => _decl_identity_of(lookup_enum_cfid(&nr_eid), &nr_eid, `enum_decl_`),
+    Rc(.EnumT(id : nr_eid)) => _decl_identity_of(lookup_enum_cfid(&nr_eid.*), &nr_eid.*, `enum_decl_`),
     _ => Option(String).None
   )
 );
@@ -3118,7 +3118,7 @@ _fmg_cache_get :: (
   slot := g_fmg_fast.with(xs => type_identity_slot(xs, resolved));
   if(g_fmg_fast.with(xs => type_identity_slot_holds(xs, slot, resolved))
   && match(g_fmg_fast_names.with(xs => xs.get_cloned(slot)), .Some(n) => (n == method_name), .None => false)
-  && match(g_fmg_fast_owners.with(xs => xs.get_cloned(slot)), .Some(o) => (o == owner), .None => false), {
+  && match(g_fmg_fast_owners.with(xs => xs.get_cloned(slot)), .Some(o) => (o == owner.*), .None => false), {
     return(g_fmg_fast_lists.with(xs => xs.get_cloned(slot)));
   });
   // Slow: structural key. A map from a previous epoch is cleared wholesale —
@@ -6960,7 +6960,7 @@ _same_type_var :: (fn(a : &TypeValue, b : &TypeValue) -> bool)(
     a,
     Rc(.SomeT({ name : an, frame_level : al })) => match(
       b,
-      Rc(.SomeT({ name : bn, frame_level : bl })) => ((an == bn) && (al == bl)),
+      Rc(.SomeT({ name : bn, frame_level : bl })) => ((an.* == bn.*) && (al.* == bl.*)),
       _ => false
     ),
     _ => false

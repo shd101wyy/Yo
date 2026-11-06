@@ -521,39 +521,39 @@ _borrow_operand_has_flag :: (fn(expr : &AstExpr, context : &FunctionGenerationCo
 /// Generate a Yo operator / inline-builtin function call.
 generate_yo_inline_function_call :: (fn(function_name : &String, args : &ArrayList(String), expr : &AstExpr, context : &mut FunctionGenerationContext, indent : &String) -> String)(
   cond(
-    (function_name == BF_YO_OP_ADD) => _arith_checked_expr(args, expr, context, "+"),
-    (function_name == BF_YO_OP_SUB) => _arith_checked_expr(args, expr, context, "-"),
-    (function_name == BF_YO_OP_MUL) => _arith_checked_expr(args, expr, context, "*"),
-    (function_name == BF_YO_OP_DIV) => _div_checked_expr(args, expr, context, "/"),
-    (function_name == BF_YO_OP_MOD) => _mod_op(args, expr, context),
-    (function_name == BF_YO_OP_NEG) => _neg_checked_expr(args, expr, context),
+    (function_name.* == BF_YO_OP_ADD) => _arith_checked_expr(args, expr, context, "+"),
+    (function_name.* == BF_YO_OP_SUB) => _arith_checked_expr(args, expr, context, "-"),
+    (function_name.* == BF_YO_OP_MUL) => _arith_checked_expr(args, expr, context, "*"),
+    (function_name.* == BF_YO_OP_DIV) => _div_checked_expr(args, expr, context, "/"),
+    (function_name.* == BF_YO_OP_MOD) => _mod_op(args, expr, context),
+    (function_name.* == BF_YO_OP_NEG) => _neg_checked_expr(args, expr, context),
     // Wrapping arithmetic (safe mode Phase 3a-i): modular at the result's
     // width (see `_wrap_binop`). Never trapped.
-    (function_name == BF_YO_OP_ADD_WRAP) => _wrap_binop(args, expr, context, "+"),
-    (function_name == BF_YO_OP_SUB_WRAP) => _wrap_binop(args, expr, context, "-"),
-    (function_name == BF_YO_OP_MUL_WRAP) => _wrap_binop(args, expr, context, "*"),
-    (function_name == BF_YO_OP_EQ) => _binop(args, "=="),
-    (function_name == BF_YO_OP_NEQ) => _binop(args, "!="),
-    (function_name == BF_YO_OP_LT) => _binop(args, "<"),
-    (function_name == BF_YO_OP_LTE) => _binop(args, "<="),
-    (function_name == BF_YO_OP_GT) => _binop(args, ">"),
-    (function_name == BF_YO_OP_GTE) => _binop(args, ">="),
-    (function_name == BF_YO_OP_NOT) => _unop(args, "!"),
-    (function_name == BF_YO_OP_BIT_AND) => _binop(args, "&"),
-    (function_name == BF_YO_OP_BIT_OR) => _binop(args, "|"),
-    (function_name == BF_YO_OP_BIT_XOR) => _binop(args, "^"),
-    (function_name == BF_YO_OP_BIT_COMPLEMENT) => _unop_narrowed(args, "~", expr, context),
-    (function_name == BF_YO_OP_BIT_LEFT_SHIFT) => _shift_checked_expr(args, expr, context, "<<"),
-    (function_name == BF_YO_OP_BIT_RIGHT_SHIFT) => _shift_checked_expr(args, expr, context, ">>"),
-    (function_name == BF_YO_NOOP) => String.from(""),
-    (function_name == BF_YO_RETURN_SELF) => {
+    (function_name.* == BF_YO_OP_ADD_WRAP) => _wrap_binop(args, expr, context, "+"),
+    (function_name.* == BF_YO_OP_SUB_WRAP) => _wrap_binop(args, expr, context, "-"),
+    (function_name.* == BF_YO_OP_MUL_WRAP) => _wrap_binop(args, expr, context, "*"),
+    (function_name.* == BF_YO_OP_EQ) => _binop(args, "=="),
+    (function_name.* == BF_YO_OP_NEQ) => _binop(args, "!="),
+    (function_name.* == BF_YO_OP_LT) => _binop(args, "<"),
+    (function_name.* == BF_YO_OP_LTE) => _binop(args, "<="),
+    (function_name.* == BF_YO_OP_GT) => _binop(args, ">"),
+    (function_name.* == BF_YO_OP_GTE) => _binop(args, ">="),
+    (function_name.* == BF_YO_OP_NOT) => _unop(args, "!"),
+    (function_name.* == BF_YO_OP_BIT_AND) => _binop(args, "&"),
+    (function_name.* == BF_YO_OP_BIT_OR) => _binop(args, "|"),
+    (function_name.* == BF_YO_OP_BIT_XOR) => _binop(args, "^"),
+    (function_name.* == BF_YO_OP_BIT_COMPLEMENT) => _unop_narrowed(args, "~", expr, context),
+    (function_name.* == BF_YO_OP_BIT_LEFT_SHIFT) => _shift_checked_expr(args, expr, context, "<<"),
+    (function_name.* == BF_YO_OP_BIT_RIGHT_SHIFT) => _shift_checked_expr(args, expr, context, ">>"),
+    (function_name.* == BF_YO_NOOP) => String.from(""),
+    (function_name.* == BF_YO_RETURN_SELF) => {
       out := String.from("(*");
       out.push_string(_a(args, usize(0)));
       out.push_str(")");
       out
     },
-    ((function_name == BF_YO_BORROW_ASSERT_UNBORROWED) && !_borrow_operand_has_flag(expr, context)) => String.from(""),
-    (function_name == BF_YO_BORROW_ASSERT_UNBORROWED) => {
+    ((function_name.* == BF_YO_BORROW_ASSERT_UNBORROWED) && !_borrow_operand_has_flag(expr, context)) => String.from(""),
+    (function_name.* == BF_YO_BORROW_ASSERT_UNBORROWED) => {
       line := indent.clone();
       line.push_str("__yo_borrow_assert_unborrowed((void*)(");
       line.push_string(_a(args, usize(0)));
@@ -561,8 +561,8 @@ generate_yo_inline_function_call :: (fn(function_name : &String, args : &ArrayLi
       context.base.emitter.emit_string_line(&line);
       String.from("")
     },
-    ((function_name == BF_YO_BORROW_ACQUIRE) && !_borrow_operand_has_flag(expr, context)) => String.from(""),
-    (function_name == BF_YO_BORROW_ACQUIRE) => {
+    ((function_name.* == BF_YO_BORROW_ACQUIRE) && !_borrow_operand_has_flag(expr, context)) => String.from(""),
+    (function_name.* == BF_YO_BORROW_ACQUIRE) => {
       line := indent.clone();
       line.push_str("__yo_borrow_acquire((void*)(");
       line.push_string(_a(args, usize(0)));
@@ -570,8 +570,8 @@ generate_yo_inline_function_call :: (fn(function_name : &String, args : &ArrayLi
       context.base.emitter.emit_string_line(&line);
       String.from("")
     },
-    ((function_name == BF_YO_BORROW_RELEASE) && !_borrow_operand_has_flag(expr, context)) => String.from(""),
-    (function_name == BF_YO_BORROW_RELEASE) => {
+    ((function_name.* == BF_YO_BORROW_RELEASE) && !_borrow_operand_has_flag(expr, context)) => String.from(""),
+    (function_name.* == BF_YO_BORROW_RELEASE) => {
       line := indent.clone();
       line.push_str("__yo_borrow_release((void*)(");
       line.push_string(_a(args, usize(0)));
@@ -579,7 +579,7 @@ generate_yo_inline_function_call :: (fn(function_name : &String, args : &ArrayLi
       context.base.emitter.emit_string_line(&line);
       String.from("")
     },
-    (function_name == BF_YO_MS_SLEEP) => if(is_target_windows(&context.base.target_info), {
+    (function_name.* == BF_YO_MS_SLEEP) => if(is_target_windows(&context.base.target_info), {
       out := String.from("Sleep(");
       out.push_string(_a(args, usize(0)));
       out.push_str(")");
@@ -590,13 +590,13 @@ generate_yo_inline_function_call :: (fn(function_name : &String, args : &ArrayLi
       out.push_str(") * 1000)");
       out
     }),
-    (function_name == BF_YO_DECR_RC) => {
+    (function_name.* == BF_YO_DECR_RC) => {
       out := String.from("__yo_decr_rc((void*)(");
       out.push_string(_a(args, usize(0)));
       out.push_str("))");
       out
     },
-    (function_name == BF_YO_AS) => match(
+    (function_name.* == BF_YO_AS) => match(
       _as_saturating_expr(args, expr, context),
       .Some(sat) => sat,
       .None => {
@@ -618,21 +618,21 @@ generate_yo_inline_function_call :: (fn(function_name : &String, args : &ArrayLi
         })
       }
     ),
-    (function_name == BF_YO_PTR_ADD) => _ptr_binop(args, "+"),
-    (function_name == BF_YO_PTR_SUB) => _ptr_binop(args, "-"),
-    (function_name == BF_YO_PTR_DIFF) => _ptr_binop(args, "-"),
-    (function_name == BF_YO_PTR_EQ) => _ptr_binop(args, "=="),
-    (function_name == BF_YO_PTR_NEQ) => _ptr_binop(args, "!="),
-    (function_name == BF_YO_PTR_LT) => _ptr_binop(args, "<"),
-    (function_name == BF_YO_PTR_LTE) => _ptr_binop(args, "<="),
-    (function_name == BF_YO_PTR_GT) => _ptr_binop(args, ">"),
-    (function_name == BF_YO_PTR_GTE) => _ptr_binop(args, ">="),
+    (function_name.* == BF_YO_PTR_ADD) => _ptr_binop(args, "+"),
+    (function_name.* == BF_YO_PTR_SUB) => _ptr_binop(args, "-"),
+    (function_name.* == BF_YO_PTR_DIFF) => _ptr_binop(args, "-"),
+    (function_name.* == BF_YO_PTR_EQ) => _ptr_binop(args, "=="),
+    (function_name.* == BF_YO_PTR_NEQ) => _ptr_binop(args, "!="),
+    (function_name.* == BF_YO_PTR_LT) => _ptr_binop(args, "<"),
+    (function_name.* == BF_YO_PTR_LTE) => _ptr_binop(args, "<="),
+    (function_name.* == BF_YO_PTR_GT) => _ptr_binop(args, ">"),
+    (function_name.* == BF_YO_PTR_GTE) => _ptr_binop(args, ">="),
     // A bitwise move out of the pointee (Rust's `ptr::read`): no dup, so the
     // pointee no longer owns the value — its storage must not drop it again.
     // A `unit` pointee has no storage (`*unit` is a `void*`, and a unit
     // value emits no C), so the move reads nothing: only the pointer operand
     // is evaluated.
-    (function_name == BF_YO_PTR_READ) => cond(
+    (function_name.* == BF_YO_PTR_READ) => cond(
       match(context.base.get_expr_info(expr), .Some(rei) => is_unit_type(&rei.ty()), .None => false) => _void_effects(args),
       true => {
         out := String.from("(*(");
@@ -644,7 +644,7 @@ generate_yo_inline_function_call :: (fn(function_name : &String, args : &ArrayLi
     // A bitwise move into the pointee (Rust's `ptr::write`): the old value is
     // not dropped, so it must have been moved out (or never initialized). A
     // `unit` value writes nothing; both operands are still evaluated.
-    (function_name == BF_YO_PTR_WRITE) => cond(
+    (function_name.* == BF_YO_PTR_WRITE) => cond(
       _arg_is_unit(expr, usize(1), context) => _void_effects(args),
       true => {
         out := String.from("(*(");
@@ -655,19 +655,19 @@ generate_yo_inline_function_call :: (fn(function_name : &String, args : &ArrayLi
         out
       }
     ),
-    (function_name == BF_YO_STR_LEN) => {
+    (function_name.* == BF_YO_STR_LEN) => {
       out := String.from("(");
       out.push_string(_a(args, usize(0)));
       out.push_str(".len)");
       out
     },
-    (function_name == BF_YO_STR_PTR) => {
+    (function_name.* == BF_YO_STR_PTR) => {
       out := String.from("((uint8_t*)");
       out.push_string(_a(args, usize(0)));
       out.push_str(".ptr)");
       out
     },
-    (function_name == BF_YO_STR_BYTE) => {
+    (function_name.* == BF_YO_STR_BYTE) => {
       // Safe mode Phase 1: `s.bytes(i)` is bounds-checked against the str's
       // runtime length (plans/SAFE_MODE.md §4, closes H2).
       str_idx := _checked_index_expr(_a(args, usize(1)), `(${_a(args, usize(0))}).len`, expr);
@@ -678,7 +678,7 @@ generate_yo_inline_function_call :: (fn(function_name : &String, args : &ArrayLi
       out.push_str("])");
       out
     },
-    (function_name == BF_YO_STR_FROM_RAW_PARTS) => {
+    (function_name.* == BF_YO_STR_FROM_RAW_PARTS) => {
       out := String.from("(__yo_str){ .ptr = (const uint8_t*)");
       out.push_string(_a(args, usize(0)));
       out.push_str(", .len = ");
@@ -686,7 +686,7 @@ generate_yo_inline_function_call :: (fn(function_name : &String, args : &ArrayLi
       out.push_str(" }");
       out
     },
-    (function_name == BF_YO_GETRANDOM) => {
+    (function_name.* == BF_YO_GETRANDOM) => {
       out := String.from("getrandom(");
       out.push_string(_a(args, usize(0)));
       out.push_str(", ");
@@ -699,8 +699,8 @@ generate_yo_inline_function_call :: (fn(function_name : &String, args : &ArrayLi
     // BF_YO_ERRNO emits the bare macro: on glibc `errno` is
     // `(*__errno_location())` — an int LVALUE, not a pointer; `(*errno)`
     // fails to compile (the PR #122 Linux legs).
-    (function_name == BF_YO_ERRNO) => String.from("errno"),
-    (function_name == BF_YO_ARC4RANDOM_BUF) => {
+    (function_name.* == BF_YO_ERRNO) => String.from("errno"),
+    (function_name.* == BF_YO_ARC4RANDOM_BUF) => {
       out := String.from("(arc4random_buf(");
       out.push_string(_a(args, usize(0)));
       out.push_str(", ");
@@ -708,7 +708,7 @@ generate_yo_inline_function_call :: (fn(function_name : &String, args : &ArrayLi
       out.push_str("), (void)0)");
       out
     },
-    (function_name == BF_YO_BCRYPT_GEN_RANDOM) => {
+    (function_name.* == BF_YO_BCRYPT_GEN_RANDOM) => {
       out := String.from("(int32_t)BCryptGenRandom(NULL, ");
       out.push_string(_a(args, usize(0)));
       out.push_str(", ");
@@ -716,7 +716,7 @@ generate_yo_inline_function_call :: (fn(function_name : &String, args : &ArrayLi
       out.push_str(", BCRYPT_USE_SYSTEM_PREFERRED_RNG)");
       out
     },
-    (function_name == BF_YO_GETENTROPY) => {
+    (function_name.* == BF_YO_GETENTROPY) => {
       out := String.from("getentropy(");
       out.push_string(_a(args, usize(0)));
       out.push_str(", ");
@@ -724,7 +724,7 @@ generate_yo_inline_function_call :: (fn(function_name : &String, args : &ArrayLi
       out.push_str(")");
       out
     },
-    (function_name == BF_YO_MAYBE_UNINIT_NEW) => {
+    (function_name.* == BF_YO_MAYBE_UNINIT_NEW) => {
       self_c_type := get_type_string(ei_ty(expr, context), &mut context.base);
       uninit_tok := ast_expr_token(expr);
       uninit_var := stable_label_id(String.from("__yo_uninit_"), &uninit_tok.module_path.*, usize(uninit_tok.row), usize(uninit_tok.column));
@@ -753,7 +753,7 @@ generate_yo_inline_function_call :: (fn(function_name : &String, args : &ArrayLi
       context.base.emitter.emit_string_line(&line);
       uninit_var
     },
-    (function_name == BF_YO_MAYBE_UNINIT_AS_PTR) => {
+    (function_name.* == BF_YO_MAYBE_UNINIT_AS_PTR) => {
       return_c_type := get_type_string(ei_ty(expr, context), &mut context.base);
       out := String.from("((");
       out.push_string(&return_c_type);
@@ -762,13 +762,13 @@ generate_yo_inline_function_call :: (fn(function_name : &String, args : &ArrayLi
       out.push_str("))");
       out
     },
-    (function_name == BF_YO_MAYBE_UNINIT_ASSUME_INIT) => {
+    (function_name.* == BF_YO_MAYBE_UNINIT_ASSUME_INIT) => {
       out := String.from("(");
       out.push_string(_a(args, usize(0)));
       out.push_str(")");
       out
     },
-    (function_name == BF_YO_ARRAY_INDEX) => {
+    (function_name.* == BF_YO_ARRAY_INDEX) => {
       // Safe mode Phase 1: the fixed-array subscript is bounds-checked; the
       // first argument's ExprInfo names the concrete Array(T, N) whose N is
       // the bound (plans/SAFE_MODE.md §4, closes H1).

@@ -157,7 +157,7 @@ impl(
     metas.push(u8(123));
     metas.push(u8(125));
     mut(out) := ArrayList(u8).new();
-    b := &s;
+    b := &s.*;
     (mut(i) : usize) = usize(0);
     while(i < b.len(), {
       c := b.byte_at(i);
@@ -234,14 +234,14 @@ impl(
   /// instead of a copy of the input each (B8).
   _build_match : (fn(self : &Self, slots : &ArrayList(usize), input : &String, shared : &mut Option(Rc(String))) -> RegexMatch)({
     if(shared.is_none(), {
-      shared = .Some(Rc.new(input.clone()));
+      shared.* = .Some(Rc.new(input.clone()));
     });
-    shared_input := match(&shared, .Some(r) => Rc.clone(r), .None => Rc.new(input.clone()));
-    bytes := &input;
+    shared_input := match(shared, .Some(r) => Rc.clone(r), .None => Rc.new(input.clone()));
+    bytes := &input.*;
     unset := usize.MAX;
     match_start_byte := slots(usize(0));
     match_end_byte := slots(usize(1));
-    match_text := self._extract_substring(&bytes, match_start_byte, match_end_byte);
+    match_text := self._extract_substring(&bytes.*, match_start_byte, match_end_byte);
     mut(groups) := ArrayList(Option(String)).new();
     mut(group_spans) := ArrayList(Option(Range(usize))).new();
     mut(g) := usize(1);
@@ -254,7 +254,7 @@ impl(
           ge := slots(end_slot);
           cond(
             ((gs != unset) && (ge != unset)) => {
-              group_text := self._extract_substring(&bytes, gs, ge);
+              group_text := self._extract_substring(&bytes.*, gs, ge);
               groups.push(.Some(group_text));
               group_spans.push(.Some(gs .. ge));
             },
@@ -282,7 +282,7 @@ impl(
   /// `from_byte` on, with the same literal-prefix jump `exec` uses.
   _find_from : (fn(self : &Self, input : &String, from_byte : usize) -> Option(RegexMatch))({
     (mut(shared) : Option(Rc(String))) = .None;
-    bytes := &input;
+    bytes := &input.*;
     input_len := bytes.len();
     mut(vm) := NfaVm.new(&self._program, self._flags, input);
     cond(
@@ -296,7 +296,7 @@ impl(
       true => {
         has_prefix := (self._program.literal_prefix.len() > usize(0));
         mut(byte_pos) := cond(
-          ((has_prefix && (from_byte <= input_len))) => self._find_prefix_pos(&bytes, from_byte),
+          ((has_prefix && (from_byte <= input_len))) => self._find_prefix_pos(&bytes.*, from_byte),
           true => from_byte
         );
         while(byte_pos <= input_len, {
@@ -316,7 +316,7 @@ impl(
               char_len := utf8.step_len(b);
               next_pos := (byte_pos + char_len);
               byte_pos = cond(
-                has_prefix => self._find_prefix_pos(&bytes, next_pos),
+                has_prefix => self._find_prefix_pos(&bytes.*, next_pos),
                 true => next_pos
               );
             }
@@ -340,7 +340,7 @@ impl(
   find_all : (fn(self : &Self, input : &String) -> ArrayList(RegexMatch))({
     mut(matches) := ArrayList(RegexMatch).new();
     (mut(shared) : Option(Rc(String))) = .None;
-    bytes := &input;
+    bytes := &input.*;
     input_len := bytes.len();
     mut(vm) := NfaVm.new(&self._program, self._flags, input);
     cond(
@@ -383,7 +383,7 @@ impl(
       true => {
         has_prefix := (self._program.literal_prefix.len() > usize(0));
         mut(byte_pos) := cond(
-          has_prefix => self._find_prefix_pos(&bytes, usize(0)),
+          has_prefix => self._find_prefix_pos(&bytes.*, usize(0)),
           true => usize(0)
         );
         while(byte_pos <= input_len, {
@@ -405,7 +405,7 @@ impl(
                       char_len := utf8.step_len(b);
                       next_pos := (byte_pos + char_len);
                       byte_pos = cond(
-                        has_prefix => self._find_prefix_pos(&bytes, next_pos),
+                        has_prefix => self._find_prefix_pos(&bytes.*, next_pos),
                         true => next_pos
                       );
                     }
@@ -413,7 +413,7 @@ impl(
                 },
                 true => {
                   byte_pos = cond(
-                    has_prefix => self._find_prefix_pos(&bytes, match_end),
+                    has_prefix => self._find_prefix_pos(&bytes.*, match_end),
                     true => match_end
                   );
                 }
@@ -429,7 +429,7 @@ impl(
                   char_len := utf8.step_len(b);
                   next_pos := (byte_pos + char_len);
                   byte_pos = cond(
-                    has_prefix => self._find_prefix_pos(&bytes, next_pos),
+                    has_prefix => self._find_prefix_pos(&bytes.*, next_pos),
                     true => next_pos
                   );
                 }
@@ -572,7 +572,7 @@ impl(
   // Process replacement patterns: $& (full match), $1-$9 (groups),
   // ${name} (named groups), $` (pre-match), $' (post-match), $$ (literal $)
   _apply_replacement : (fn(self : &Self, replacement : &String, m : &RegexMatch) -> String)({
-    rep_bytes := &replacement;
+    rep_bytes := &replacement.*;
     rep_len := rep_bytes.len();
     mut(result) := ArrayList(u8).new();
     mut(i) := usize(0);
@@ -730,7 +730,7 @@ impl(
       result,
       .None => input.clone(),
       .Some(m) => {
-        input_bytes := &input;
+        input_bytes := &input.*;
         // m.index() is the match's start BYTE offset
         match_start_byte := m.index();
         match_end_byte := (match_start_byte + m.value().len());
@@ -771,7 +771,7 @@ impl(
     cond(
       (all_matches.len() == usize(0)) => input.clone(),
       true => {
-        input_bytes := &input;
+        input_bytes := &input.*;
         mut(out) := ArrayList(u8).new();
         (mut(last_end_byte) : usize) = usize(0);
         mut(mi) := usize(0);
@@ -813,7 +813,7 @@ impl(
       result,
       .None => input.clone(),
       .Some(m) => {
-        input_bytes := &input;
+        input_bytes := &input.*;
         mut(out) := ArrayList(u8).new();
         mut(pi) := usize(0);
         while(pi < m.index(), pi = (pi + usize(1)), {
@@ -841,7 +841,7 @@ impl(
     cond(
       (all_matches.len() == usize(0)) => input.clone(),
       true => {
-        input_bytes := &input;
+        input_bytes := &input.*;
         mut(out) := ArrayList(u8).new();
         (mut(last_end_byte) : usize) = usize(0);
         mut(mi) := usize(0);
@@ -899,7 +899,7 @@ impl(
         parts.push(input.clone());
       },
       true => {
-        input_bytes := &input;
+        input_bytes := &input.*;
         (mut(last_end_byte) : usize) = usize(0);
         mut(mi) := usize(0);
         while(mi < all_matches.len(), mi = (mi + usize(1)), {

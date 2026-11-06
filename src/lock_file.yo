@@ -270,7 +270,7 @@ read_lock_file :: (
     exn : Exception
   ) -> Impl(Future(LockRead, IoExn))
 )(
-  io.async({ &project_dir }(e : IoExn) => {
+  io.async({ project_dir : &project_dir.* }(e : IoExn) => {
     lock_path := project_dir.join(Path.new(String.from(LOCK_FILE_NAME)));
     file_exists := e.io.await(exists(&lock_path, e.io), e.io);
     if(!file_exists, {
@@ -293,7 +293,7 @@ save_lock_file :: (
     exn : Exception
   ) -> Impl(Future(unit, IoExn))
 )(
-  io.async({ &project_dir, &lock }(e : IoExn) => {
+  io.async({ project_dir : &project_dir.*, lock : &lock.* }(e : IoExn) => {
     lock_path := project_dir.join(Path.new(String.from(LOCK_FILE_NAME)));
     tmp_path := project_dir.join(Path.new(String.from("yo.lock.tmp")));
     content := write_lock_file_content(lock);
@@ -308,7 +308,7 @@ save_lock_file :: (
 find_lock_entry :: (fn(lock : &LockFile, name : &String) -> Option(LockEntry))({
   (i : usize) = usize(0);
   while(i < lock.packages.len(), {
-    if(lock.packages(i).name == name, {
+    if(lock.packages(i).name == name.*, {
       return(Option(LockEntry).Some(lock.packages(i).clone()));
     });
     i = (i + usize(1));

@@ -71,7 +71,7 @@ try_to_specialize_trait_type :: (
     exn : Exception
   ) -> TraitSpecializationResult
 )({
-  trait_expr;
+  trait_expr.*;
   // Extract field labels and assoc_type_names from TraitT.
   field_labels := match(
     trait_type,
@@ -101,7 +101,7 @@ try_to_specialize_trait_type :: (
       .Some(a) => a,
       .None => {
         j = (j + usize(1));
-        trait_expr
+        trait_expr.*
       }
     );
     if(!ast_expr_is_fn_call_of(&arg, ":=", .Some(usize(2))), {
@@ -212,7 +212,7 @@ try_to_specialize_trait_type :: (
       );
     });
     // Adopt the recorded env by private copy (snapshots are shared between ExprInfos).
-    caller_env = match(&evaluated_info_opt, .Some(info) => expr_info_adopt_env(&info), .None => caller_env);
+    caller_env = match(&evaluated_info_opt, .Some(info) => expr_info_adopt_env(&info.*), .None => caller_env);
     // Store the binding.
     constraint_ty := match(
       evaluated_info_opt,
@@ -360,7 +360,7 @@ try_to_implement_trait_with_arguments_by_trait_type :: (
     (j : usize) = usize(0);
     while(j < n_args, {
       arg_expr_opt := arg_exprs.get(j);
-      arg_expr := match(arg_expr_opt, .Some(a) => a, .None => trait_expr);
+      arg_expr := match(arg_expr_opt, .Some(a) => a, .None => trait_expr.*);
       // Each arg must be a `label: value` colon call.
       if(!ast_expr_is_fn_call_of(&arg_expr, ":", .Some(usize(2))), {
         exn.throw(

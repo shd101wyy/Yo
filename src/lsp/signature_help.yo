@@ -45,8 +45,8 @@ _find_enclosing_call :: (
       // often a type-constructor argument like `i32(41)`, whose callee is
       // a Type, not a fn (this bit the first draft: null inside
       // `add_one(i32(41))`).
-      if(!is_infix && (tok.kind == TokenKind.Identifier), {
-        if(_at_or_after(&tok, row, col), {
+      if(!is_infix.* && (tok.kind == TokenKind.Identifier), {
+        if(_at_or_after(&tok.*, row, col), {
           (mut(active) : usize) = usize(0);
           (mut(ai) : usize) = usize(0);
           while(ai < args.len(), {
@@ -62,13 +62,13 @@ _find_enclosing_call :: (
             );
             ai = (ai + usize(1));
           });
-          best_callee.push(func_box);
+          best_callee.push(func_box.*);
           best_active.push(cond((active > usize(0)) => (active - usize(1)), true => usize(0)));
           best_row.push(usize(tok.row));
           best_col.push(usize(tok.column));
         });
       });
-      recur(&func_box, row, col, best_callee, best_active, best_row, best_col);
+      recur(&func_box.*, row, col, best_callee, best_active, best_row, best_col);
       (mut(i) : usize) = usize(0);
       while(i < args.len(), {
         match(
@@ -170,7 +170,7 @@ handle_signature_help :: (
         sh_unit := Rc.new(TypeValueNode.Unit);
         p_slot := match(param_types.get(pi), .Some(t) => t, .None => t_reference(&sh_unit, false));
         pt := t_slot_pointee(&p_slot);
-        plabel := match(meta.*.param_labels.get(pi), .Some(l) => l, .None => `arg${pi}`);
+        plabel := match(meta.*.*.param_labels.get(pi), .Some(l) => l, .None => `arg${pi}`);
         // Spelled as the signature label spells it (decision 42), so the
         // client finds the parameter inside the signature.
         p_ref := t_slot_is_mut_ref(&p_slot);

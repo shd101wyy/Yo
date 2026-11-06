@@ -115,8 +115,8 @@ impl(
   // size and alignment.
   _buf_free : (fn(self : &Self, p : &*T) -> unit)(
     cond(
-      self._owned() => Allocator.free(.Some((*void)(p)), self._buf_bytes(), align_of(T)),
-      true => free(.Some((*void)(p)))
+      self._owned() => Allocator.free(.Some((*void)(p.*)), self._buf_bytes(), align_of(T)),
+      true => free(.Some((*void)(p.*)))
     )
   ),
   /// The allocator the buffer belongs to: the one given to `new` /
@@ -175,7 +175,7 @@ impl(
   )({
     at_end := match(
       self._ptr,
-      .Some(p) => (p.add(self._length) == spare),
+      .Some(p) => (p.add(self._length) == spare.*),
       .None => false
     );
     cond(
@@ -393,7 +393,7 @@ impl(
       // loop of pushes built.
       ensures(
         self.len() == (old(self.len()) + usize(1)),
-        forall(k : usize, (k < self.len()) ==> cond((k == old(self.len())) => (self(k) == value), true => (self(k) == old(self)(k))))
+        forall(k : usize, (k < self.len()) ==> cond((k == old(self.len())) => (self(k) == value), true => (self(k) == old(self.*)(k))))
       ),
       assumed()
     ) -> unit
@@ -833,7 +833,7 @@ impl(
           self._ptr,
           .Some(dst_base) => {
             dst := (*void)(dst_base.add(self._length));
-            unsafe(memcpy(dst, (*void)(src), count * size_of(T)));
+            unsafe(memcpy(dst, (*void)(src.*), count * size_of(T)));
             self._length = (self._length + count);
           },
           .None => __yo_panic("ArrayList.extend_from_ptr: no ptr after ensure_total_capacity")
@@ -1174,14 +1174,14 @@ impl(
     WalkCursor : usize,
     WalkElem : T,
     walk_start : (fn(self : &Self) -> usize)(usize(0)),
-    walk_valid : (fn(self : &Self, cur : &usize) -> bool)(cur < self._length),
+    walk_valid : (fn(self : &Self, cur : &usize) -> bool)(cur.* < self._length),
     walk_ref : (fn(self : &Self, cur : &usize) -> &T)({
-      if(cur >= self._length, {
+      if(cur.* >= self._length, {
         __yo_panic("ArrayList: walk cursor out of bounds");
       });
-      self._ptr.unwrap().add(cur)
+      self._ptr.unwrap().add(cur.*)
     }),
-    walk_next : (fn(self : &Self, cur : &usize) -> usize)(cur + usize(1))
+    walk_next : (fn(self : &Self, cur : &usize) -> usize)(cur.* + usize(1))
   )
 );
 impl(
@@ -1189,10 +1189,10 @@ impl(
   ArrayList(T),
   BorrowedWalkMut(
     walk_elem : (fn(self : &mut Self, cur : &usize) -> &mut T)({
-      if(cur >= self._length, {
+      if(cur.* >= self._length, {
         __yo_panic("ArrayList: walk cursor out of bounds");
       });
-      self._ptr.unwrap().add(cur)
+      self._ptr.unwrap().add(cur.*)
     })
   )
 );
@@ -1280,7 +1280,7 @@ impl(
         mut(i) := usize(0);
         while((i < self._length) && !found, i = (i + usize(1)), {
           cond(
-            ((_ptr.add(i)).* == value) => {
+            ((_ptr.add(i)).* == value.*) => {
               found = true;
             },
             true => ()
@@ -1303,7 +1303,7 @@ impl(
         mut(i) := usize(0);
         while((i < self._length) && !found, i = (i + usize(1)), {
           cond(
-            ((_ptr.add(i)).* == value) => {
+            ((_ptr.add(i)).* == value.*) => {
               result = .Some(i);
               found = true;
             },
@@ -1553,7 +1553,7 @@ impl(
       true =>
         match(
           self._ptr,
-          .Some(_ptr) => _stable_sort_by(_ptr, self._length, (a, b) => (a < b)),
+          .Some(_ptr) => _stable_sort_by(_ptr, self._length, (a, b) => (a.* < b.*)),
           .None => ()
         )
     );
@@ -1567,7 +1567,7 @@ impl(
       true =>
         match(
           self._ptr,
-          .Some(_ptr) => _heapsort_by(_ptr, self._length, (a, b) => (a < b)),
+          .Some(_ptr) => _heapsort_by(_ptr, self._length, (a, b) => (a.* < b.*)),
           .None => ()
         )
     );
@@ -1757,7 +1757,7 @@ impl(
     ),
     from_iter_add : (fn(sink(acc) : Self, item : &T) -> Self)({
       mut(out) := acc;
-      out.push(item);
+      out.push(item.*);
       out
     })
   )
@@ -2061,10 +2061,10 @@ impl(
       mid := (lo + ((hi - lo) / usize(2)));
       // Compared in place: a copy of the element would clone it.
       cond(
-        (self(mid) < value) => {
+        (self(mid) < value.*) => {
           lo = (mid + usize(1));
         },
-        (value < self(mid)) => {
+        (value.* < self(mid)) => {
           hi = mid;
         },
         true => {

@@ -38,7 +38,7 @@ pragma(Pragma.AllowUnsafe);
 /// assert((old == i32(1)) && (x == i32(2)), "replace hands back the old value");
 /// ```
 replace :: (fn(generic(T : Type), dst : &mut T, v : T) -> T)({
-  p := addr_of(dst);
+  p := addr_of(dst.*);
   // SAFETY: `p` is the caller's live, initialized place, borrowed
   // exclusively for this call. The old contents move out bitwise before `v`
   // moves in, so the place holds exactly one owned value when the call
@@ -60,7 +60,7 @@ replace :: (fn(generic(T : Type), dst : &mut T, v : T) -> T)({
 /// assert((ys.len() == usize(1)) && (xs.len() == usize(0)), "take leaves the default");
 /// ```
 take :: (fn(generic(T : Type), dst : &mut T, where(T <: Default)) -> T)({
-  p := addr_of(dst);
+  p := addr_of(dst.*);
   // SAFETY: as in `replace`, with `T`'s default as the value moved in. The
   // moves are spelled out rather than forwarded to `replace`, so that the
   // v0.2.68 seed builds it too: there, a generic body whose tail is a call
@@ -81,8 +81,8 @@ take :: (fn(generic(T : Type), dst : &mut T, where(T <: Default)) -> T)({
 /// assert((a == i32(2)) && (b == i32(1)), "swap exchanges the values");
 /// ```
 swap :: (fn(generic(T : Type), a : &mut T, b : &mut T) -> unit)({
-  pa := addr_of(a);
-  pb := addr_of(b);
+  pa := addr_of(a.*);
+  pb := addr_of(b.*);
   // SAFETY: `a` and `b` are the caller's live, initialized places, each
   // borrowed exclusively, so they do not overlap. `a`'s value moves out
   // bitwise, `b`'s moves into `a`, and the first moves into `b`: each place

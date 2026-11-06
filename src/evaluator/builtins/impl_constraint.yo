@@ -48,7 +48,7 @@ evaluate_impl_constraint :: (
     expr,
     .FnCall(_, _, Rc(a), _, _) => a.clone(),
     _ => {
-      return(expr);
+      return(expr.*);
     }
   );
   if(args.len() == usize(0), {
@@ -200,6 +200,6 @@ evaluate_impl_constraint :: (
   out_info := new_expr_info(&cur_env, Rc.new(TypeValueNode.TypeUni(usize(0))));
   out_info.set_value(Option(EvalValue).Some(type_val));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-  expr
+  expr.*
 });
 export(evaluate_impl_constraint);

@@ -444,7 +444,7 @@ release_store_lock :: (
     exn : Exception
   ) -> Impl(Future(unit, IoExn))
 )(
-  io.async({ &lock }(e : IoExn) => {
+  io.async({ lock : &lock.* }(e : IoExn) => {
     _ := flock(lock.file.fd(), LOCK_UN);
     e.io.await(lock.file.close(e.io), e);
   })
@@ -763,7 +763,7 @@ _write_projects :: (
 _contains_string :: (fn(list : &ArrayList(String), item : &String) -> bool)({
   (i : usize) = usize(0);
   while(i < list.len(), {
-    if(list(i) == item, {
+    if(list(i) == item.*, {
       return(true);
     });
     i = (i + usize(1));

@@ -54,7 +54,7 @@ _future_args :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
 _effect_label_for :: (fn(effect_type : &TypeValue, effect_expr : &AstExpr) -> String)(
   match(
     effect_type,
-    Rc(.Struct({ name, is_source_namespace : fl_sns })) => cond(fl_sns => name.clone(), true => ast_expr_to_string(effect_expr)),
+    Rc(.Struct({ name, is_source_namespace : fl_sns })) => cond(fl_sns.* => name.clone(), true => ast_expr_to_string(effect_expr)),
     Rc(.SomeT(_, name, _, _, _, _, _)) => name.clone(),
     _ => ast_expr_to_string(effect_expr)
   )
@@ -260,6 +260,6 @@ evaluate_future_type :: (
   out_info := new_expr_info(&env_mut, type_of_type(&future_type));
   out_info.set_value(.Some(create_type_value(&future_type)));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-  expr
+  expr.*
 });
 export(evaluate_future_type);

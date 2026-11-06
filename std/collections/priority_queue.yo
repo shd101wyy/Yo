@@ -262,14 +262,14 @@ impl(
     WalkCursor : usize,
     WalkElem : T,
     walk_start : (fn(self : &Self) -> usize)(usize(0)),
-    walk_valid : (fn(self : &Self, cur : &usize) -> bool)(cur < self._data.len()),
+    walk_valid : (fn(self : &Self, cur : &usize) -> bool)(cur.* < self._data.len()),
     walk_ref : (fn(self : &Self, cur : &usize) -> &T)({
-      if(cur >= self._data.len(), {
+      if(cur.* >= self._data.len(), {
         __yo_panic("PriorityQueue: walk cursor out of bounds");
       });
-      self._data._ptr.unwrap().add(cur)
+      self._data._ptr.unwrap().add(cur.*)
     }),
-    walk_next : (fn(self : &Self, cur : &usize) -> usize)(cur + usize(1))
+    walk_next : (fn(self : &Self, cur : &usize) -> usize)(cur.* + usize(1))
   )
 );
 /// `Default` — the empty queue.

@@ -31,9 +31,9 @@ _int_suffix :: (fn(ty : &TypeValue) -> str)(
   match(
     ty,
     Rc(.Int(bits, signed)) => cond(
-      ((bits == u8(64)) && !signed) => "ULL",
-      ((bits == u8(64)) && signed) => "LL",
-      ((bits == u8(32)) && !signed) => "U",
+      ((bits.* == u8(64)) && !signed.*) => "ULL",
+      ((bits.* == u8(64)) && signed.*) => "LL",
+      ((bits.* == u8(32)) && !signed.*) => "U",
       true => ""
     ),
     Rc(.Usize) => "ULL",
@@ -43,7 +43,7 @@ _int_suffix :: (fn(ty : &TypeValue) -> str)(
 );
 /// True if the type is a 32-bit float (needs the `f` suffix).
 _is_f32 :: (fn(ty : &TypeValue) -> bool)(
-  match(ty, Rc(.Float(bits)) => (bits == u8(32)), _ => false)
+  match(ty, Rc(.Float(bits)) => (bits.* == u8(32)), _ => false)
 );
 /// True if `ty` is the comptime_string type.
 _is_comptime_string :: (fn(ty : &TypeValue) -> bool)(
@@ -122,7 +122,7 @@ _enum_variant_index :: (fn(enum_ty : &TypeValue, name : &String) -> Option(usize
       while(i < n, {
         match(
           variant_names.get(i),
-          .Some(vn) => if(vn == name, {
+          .Some(vn) => if(vn == name.*, {
             found = .Some(i);
           }),
           .None => ()
@@ -143,16 +143,16 @@ _is_io_builtin_fn_type :: (fn(t : &TypeValue) -> bool)(
   match(
     t,
     Rc(.Func({ meta : __ibm1 })) => match(
-      &__ibm1.*.is_extern,
+      &__ibm1.*.*.is_extern,
       .Some(lang) => if(
-        lang == "yo",
+        lang.* == "yo",
         match(
-          &__ibm1.*.extern_name,
+          &__ibm1.*.*.extern_name,
           .Some(en) => (
-            (en == "__yo_io_async") || (en == "__yo_io_await") ||
-              (en == "__yo_io_state") || (en == "__yo_io_spawn")
+            (en.* == "__yo_io_async") || (en.* == "__yo_io_await") ||
+              (en.* == "__yo_io_state") || (en.* == "__yo_io_spawn")
               ||
-                (en == "__yo_join_handle_await")
+                (en.* == "__yo_join_handle_await")
           ),
           .None => false
         ),
@@ -189,8 +189,8 @@ comptime_value_allocates_rc_object :: (fn(value : &EvalValue, ty : &TypeValue) -
       ty,
       Rc(.Struct({ field_types, is_reference_semantics, is_newtype })) => cond(
         // A newtype renders as a cast over its single underlying field.
-        (is_newtype && (field_types.len() == usize(1)) && (field_values.len() == usize(1))) => false,
-        true => is_reference_semantics
+        (is_newtype.* && (field_types.len() == usize(1)) && (field_values.len() == usize(1))) => false,
+        true => is_reference_semantics.*
       ),
       _ => false
     ),
@@ -228,7 +228,7 @@ generate_comptime_value :: (fn(value : &EvalValue, ty : &TypeValue, context : &m
       // `isize(3) - isize(1)`, making the self-hosted binary reject EVERY
       // comptime signed subtraction. Emit the portable INT64_MIN idiom.
       suffix := _int_suffix(ty);
-      if((suffix == "LL") && (raw == "-9223372036854775808"), {
+      if((suffix == "LL") && (raw.* == "-9223372036854775808"), {
         return(String.from("(-9223372036854775807LL - 1)"));
       });
       out := raw.clone();
@@ -294,11 +294,11 @@ generate_comptime_value :: (fn(value : &EvalValue, ty : &TypeValue, context : &m
       });
       base
     },
-    .BoolVal(b) => if(b, String.from("true"), String.from("false")),
+    .BoolVal(b) => if(b.*, String.from("true"), String.from("false")),
     .StrLit(raw_with_delims) => {
       // StrLit keeps the surrounding `"` delimiters; codegen emits
       // the CONTENT, so strip them before re-escaping / length computation.
-      raw := _strip_str_delims(&raw_with_delims);
+      raw := _strip_str_delims(&raw_with_delims.*);
       cond(
         (is_str_type(ty) || _is_comptime_string(ty)) => {
           lit := String.from("(__yo_str){ .ptr = (const uint8_t*)");
@@ -436,7 +436,7 @@ generate_comptime_value :: (fn(value : &EvalValue, ty : &TypeValue, context : &m
       ty,
       // `Array(unit, N)` is zero-sized: its wrapper has no `data` member
       // (types/generation.yo), so the literal is the empty struct.
-      Rc(.Array({ element })) => if(is_unit_type(&element), {
+      Rc(.Array({ element })) => if(is_unit_type(&element.*), {
         out := String.from("(");
         out.push_string(get_type_string(ty, context));
         out.push_str("){ }");
@@ -451,7 +451,7 @@ generate_comptime_value :: (fn(value : &EvalValue, ty : &TypeValue, context : &m
           if(i > usize(0), {
             out.push_str(", ");
           });
-          match(elements.get(i), .Some(ev) => out.push_string(recur(&ev, &element, context)), .None => ());
+          match(elements.get(i), .Some(ev) => out.push_string(recur(&ev, &element.*, context)), .None => ());
           i = (i + usize(1));
         });
         out.push_str(" } }");
@@ -476,7 +476,7 @@ generate_comptime_value :: (fn(value : &EvalValue, ty : &TypeValue, context : &m
         // "Phase 1: comptime-only struct fields are erased from C layout").
         ct_flags := get_struct_field_comptime_flags(id.clone());
         cond(
-          (is_newtype && (field_types.len() == usize(1)) && (field_values.len() == usize(1))) => {
+          (is_newtype.* && (field_types.len() == usize(1)) && (field_values.len() == usize(1))) => {
             uty := match(field_types.get(usize(0)), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
             uval := match(field_values.get(usize(0)), .Some(v) => v, .None => EvalValue.UnitVal);
             out := String.from("((");
@@ -486,7 +486,7 @@ generate_comptime_value :: (fn(value : &EvalValue, ty : &TypeValue, context : &m
             out.push_str("))");
             out
           },
-          is_reference_semantics => {
+          is_reference_semantics.* => {
             out := String.from("__yo_new_");
             out.push_string(&c_name);
             out.push_str("(");
@@ -560,23 +560,23 @@ generate_comptime_value :: (fn(value : &EvalValue, ty : &TypeValue, context : &m
     // whose `int` width is not folded reaches here as a runtime
     // `sizeof(<TypeVal>)` (issues/fixed/sizeof-of-a-c-platform-type-has-no-c-type-name.md).
     .TypeVal(t) => cond(
-      is_str_type(&t) => String.from("__yo_str"),
-      (is_primitive_type(&t) && !is_unit_type(&t)) => get_type_string(&t, context),
+      is_str_type(&t.*) => String.from("__yo_str"),
+      (is_primitive_type(&t.*) && !is_unit_type(&t.*)) => get_type_string(&t.*, context),
       // A SomeT is never in the collected-type registry either: it lowers
       // through its resolution — `IoFuture`, an `Impl(Concrete(
       // __yo_io_future_t), …)`, to `__yo_io_future_t*`
       // (issues/fixed/sizeof-of-a-resolved-impl-type-has-no-c-type-name.md).
-      is_some_type(&t) => get_type_string(&t, context),
+      is_some_type(&t.*) => get_type_string(&t.*, context),
       // Nor is an extern opaque type (`atomic_int`, `FILE`): its C name is its
       // C spelling, so `sizeof(atomic_int)` lowers to `sizeof(atomic_int)`
       // (issues/fixed/2026-10-28-sizeof-of-an-extern-opaque-type-has-no-c-type-name.md).
-      match(t, Rc(.ExternOpaqueT(_, _)) => true, _ => false) => get_type_string(&t, context),
+      match(t, Rc(.ExternOpaqueT(_, _)) => true, _ => false) => get_type_string(&t.*, context),
       true => match(
-        context.get_type_c_name(type_key(&t)),
+        context.get_type_c_name(type_key(&t.*)),
         .Some(cn) => cn,
         .None => {
           c := String.from("/* Error: no C type name for ");
-          c.push_string(type_to_string(&t));
+          c.push_string(type_to_string(&t.*));
           c.push_str(" */");
           c
         }
@@ -587,11 +587,11 @@ generate_comptime_value :: (fn(value : &EvalValue, ty : &TypeValue, context : &m
     // thunk when the function returns a concrete future. The
     // function must have been collected for codegen; if not, emit a diagnostic.
     .FuncVal(__fvd1, _) => match(
-      fn_value_c_name(&__fvd1.*.func_id, context),
+      fn_value_c_name(&__fvd1.*.*.func_id, context),
       .Some(cn) => cn,
       .None => {
         c := String.from("/* Error: no C function name for func value ");
-        c.push_string(&__fvd1.*.func_id);
+        c.push_string(&__fvd1.*.*.func_id);
         c.push_str(" */");
         c
       }
@@ -603,7 +603,7 @@ generate_comptime_value :: (fn(value : &EvalValue, ty : &TypeValue, context : &m
     // extern("Yo") name on the CARRIED type (the
     // declared field type on the Io struct is a plain unmarked Func).
     .UnknownVal(unk_ty, _) => if(
-      _is_io_builtin_fn_type(&unk_ty) || _is_io_builtin_fn_type(ty),
+      _is_io_builtin_fn_type(&unk_ty.*) || _is_io_builtin_fn_type(ty),
       String.from("NULL"),
       String.from("/* skip generating value */")
     ),
@@ -624,8 +624,8 @@ generate_comptime_value :: (fn(value : &EvalValue, ty : &TypeValue, context : &m
           // A whole value. An element list with no recorded aggregate type
           // cannot be told apart from its siblings: keep the placeholder.
           .None => cond(
-            (match(target, .ArrayVal(_) => true, .ComptimeListVal(_) => true, _ => false) && !is_array_type(&pointee)) => String.from("/* skip generating value */"),
-            true => _static_address(&target, &pointee, String.new(), context)
+            (match(target, .ArrayVal(_) => true, .ComptimeListVal(_) => true, _ => false) && !is_array_type(&pointee.*)) => String.from("/* skip generating value */"),
+            true => _static_address(&target, &pointee.*, String.new(), context)
           ),
           .Some(agg_ty) => {
             parts := match(target, .ArrayVal(elems) => Option(ValueCell).Some(Rc.clone(elems)), .ComptimeListVal(elems) => .Some(Rc.clone(elems)), _ => .None);
@@ -633,15 +633,15 @@ generate_comptime_value :: (fn(value : &EvalValue, ty : &TypeValue, context : &m
               parts,
               .None => String.from("/* skip generating value */"),
               .Some(elems) => match(
-                &agg_ty,
+                agg_ty,
                 Rc(.Struct({ field_labels : labels })) => match(
-                  labels.get(index),
-                  .Some(label) => _static_address(EvalValue.StructVal(String.new(), Rc.clone(labels), Rc.clone(elems)), &agg_ty, `.${c_field_name(&agg_ty, &label)}`, context),
+                  labels.get(index.*),
+                  .Some(label) => _static_address(EvalValue.StructVal(String.new(), Rc.clone(labels), Rc.clone(elems)), &agg_ty.*, `.${c_field_name(&agg_ty.*, &label)}`, context),
                   .None => String.from("/* skip generating value */")
                 ),
-                Rc(.Tuple(_, _)) => _static_address(EvalValue.TupleVal(Rc.clone(elems)), &agg_ty, `._${index}`, context),
+                Rc(.Tuple(_, _)) => _static_address(EvalValue.TupleVal(Rc.clone(elems)), &agg_ty.*, `._${index}`, context),
                 _ => cond(
-                  is_array_type(&agg_ty) => _static_address(EvalValue.ArrayVal(Rc.clone(elems)), &agg_ty, `.data[${index}]`, context),
+                  is_array_type(&agg_ty.*) => _static_address(EvalValue.ArrayVal(Rc.clone(elems)), &agg_ty.*, `.data[${index}]`, context),
                   true => String.from("/* skip generating value */")
                 )
               )

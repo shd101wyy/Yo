@@ -51,7 +51,7 @@ evaluate_and_or :: (
     expr,
     .FnCall(_, _, Rc(a), _, _) => a.clone(),
     _ => {
-      return(expr);
+      return(expr.*);
     }
   );
   // Empty and → true, empty or → false.
@@ -60,7 +60,7 @@ evaluate_and_or :: (
     out_info := new_expr_info(env, t_bool());
     out_info.set_value(.Some(EvalValue.BoolVal(bool_result)));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-    return(expr);
+    return(expr.*);
   });
   // Short-circuiting evaluation.
   (cur_env : Environment) = Rc.clone(env);
@@ -166,6 +166,6 @@ evaluate_and_or :: (
   out_info := new_expr_info(&cur_env, t_bool());
   out_info.set_value(final_val);
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-  expr
+  expr.*
 });
 export(evaluate_and_or);

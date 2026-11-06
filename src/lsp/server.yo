@@ -564,7 +564,7 @@ _format_document :: (fn(text : &String, doc_abs : &String) -> JsonValue)({
     )
   );
   formatted := format_yo_source(text.clone(), doc_abs.clone(), fmt_exn);
-  if(formatted == text, {
+  if(formatted == text.*, {
     return(JsonValue.Array(items : ArrayList(JsonValue).new()));
   });
   lines := text.split(String.from("\n"));
@@ -587,7 +587,7 @@ _format_document :: (fn(text : &String, doc_abs : &String) -> JsonValue)({
 _respond :: (fn(id_opt : &Option(JsonValue), result : &JsonValue) -> unit)({
   match(
     id_opt,
-    .Some(id) => write_lsp_message(json.stringify(j_response(&id, result))),
+    .Some(id) => write_lsp_message(json.stringify(j_response(&id.*, result))),
     .None => ()
   );
 });
@@ -871,7 +871,7 @@ _handle_message :: (
           query := _jfield_str(&params, "query");
           ws_docs := ArrayList(WorkspaceDoc).new();
           // The read walk borrows each entry in place: no copy of the map.
-          for(&docs, entry => {
+          for(&docs.*, entry => {
             ws_docs.push(
               WorkspaceDoc(
                 uri : entry.key.clone(),
@@ -985,7 +985,7 @@ _handle_message :: (
                 &id_opt,
                 .Some(id) => write_lsp_message(
                   json.stringify(
-                    j_error_response(&id, i64(0) - i64(32803), `rename rejected: ${reason}`)
+                    j_error_response(&id.*, i64(0) - i64(32803), `rename rejected: ${reason}`)
                   )
                 ),
                 .None => ()
@@ -1237,7 +1237,7 @@ _handle_message :: (
                   changed_fs := uri_to_fs_path(_jfield_str(&ch, "uri"));
                   if(changed_fs.len() > usize(0), {
                     is_open := false;
-                    for(&docs, entry => {
+                    for(&docs.*, entry => {
                       if(entry.value.entry_abs == changed_fs, {
                         is_open = true;
                       });
@@ -1255,7 +1255,7 @@ _handle_message :: (
             // the open buffer's own text stays authoritative for its file.
             open_uris := ArrayList(String).new();
             open_texts := ArrayList(String).new();
-            for(&docs, entry => {
+            for(&docs.*, entry => {
               open_uris.push(entry.key.clone());
             });
             (oi : usize) = usize(0);

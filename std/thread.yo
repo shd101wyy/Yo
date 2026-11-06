@@ -304,7 +304,7 @@ impl(
 /// `RawMutex.held_by_current_thread` is exact for the caller, which is all the
 /// re-entry needs.
 _lock_for_submission :: (fn(pool : &ThreadPool) -> bool)({
-  pool;
+  pool.*;
   cond(
     _submissions.held_by_current_thread() => false,
     true => {
@@ -314,7 +314,7 @@ _lock_for_submission :: (fn(pool : &ThreadPool) -> bool)({
   )
 });
 _unlock_after_submission :: (fn(pool : &ThreadPool, took : bool) -> unit)({
-  pool;
+  pool.*;
   cond(
     took => _submissions.unlock(),
     true => ()

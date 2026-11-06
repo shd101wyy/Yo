@@ -209,7 +209,7 @@ _func_snippet :: (fn(name : &String, ty : &TypeValue) -> String)(
       (n : usize) = usize(0);
       (i : usize) = usize(0);
       while(i < param_types.len(), {
-        label := match(meta.*.param_labels.get(i), .Some(l) => l, .None => `arg${i}`);
+        label := match(meta.*.*.param_labels.get(i), .Some(l) => l, .None => `arg${i}`);
         if(label != "self", {
           n = (n + usize(1));
           if(n > usize(1), {
@@ -285,9 +285,9 @@ _type_member_items :: (
         if(!hidden && !seen.contains(label.clone()), {
           seen.insert(label.clone());
           is_fn := match(&fty, Rc(.Func(_, _, _, _, _, _, _)) => true, _ => false);
-          is_mod := match(&fty, Rc(.Struct({ is_source_namespace : ns })) => ns, _ => false);
+          is_mod := match(&fty, Rc(.Struct({ is_source_namespace : ns })) => ns.*, _ => false);
           kind := cond(
-            is_fn => cond(is_source_namespace => K_FUNCTION, true => K_METHOD),
+            is_fn => cond(is_source_namespace.* => K_FUNCTION, true => K_METHOD),
             is_mod => K_MODULE,
             true => K_FIELD
           );
@@ -529,7 +529,7 @@ _expr_near_line :: (fn(e : &AstExpr, line : usize) -> bool)(
       if(usize(tok2.row) == line, {
         return(true);
       });
-      if(recur(&func_box, line), {
+      if(recur(&func_box.*, line), {
         return(true);
       });
       (i : usize) = usize(0);
@@ -643,7 +643,7 @@ _expected_enum_at :: (
           );
         });
       });
-      recur(&func_box, info_table, line, out);
+      recur(&func_box.*, info_table, line, out);
       (i : usize) = usize(0);
       while(i < args.len(), {
         match(
@@ -722,7 +722,7 @@ _scan_idents :: (
       });
     },
     .FnCall(_, func_box, Rc(args), _, _) => {
-      recur(&func_box, info_table, line, character, names, name_rows, name_cols, name_expr_ids, name_index, env_holder, env_depth);
+      recur(&func_box.*, info_table, line, character, names, name_rows, name_cols, name_expr_ids, name_index, env_holder, env_depth);
       (i : usize) = usize(0);
       while(i < args.len(), {
         match(
@@ -1045,7 +1045,7 @@ _import_member_items :: (
         );
         if(keep, {
           is_fn := match(&fty, Rc(.Func(_, _, _, _, _, _, _)) => true, _ => false);
-          is_mod := match(&fty, Rc(.Struct({ is_source_namespace : ns })) => ns, _ => false);
+          is_mod := match(&fty, Rc(.Struct({ is_source_namespace : ns })) => ns.*, _ => false);
           kind := cond(is_fn => K_FUNCTION, is_mod => K_MODULE, true => K_VARIABLE);
           items.push(_ci(label.clone(), kind, type_to_string(&fty), _sort_key(label.clone(), prefix_lower.clone()), String.new()));
         });

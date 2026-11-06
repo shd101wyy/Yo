@@ -25,14 +25,14 @@
 { type_contains_rc_cell_or_move_only, dyn_member_is_method, dyn_member_unsafe_reason, is_destructor_trait_member, fn_abi_param_is_ptr, dyn_type_lists_clone } :: import("../../types/utils.yo");
 /// func_id of a FuncVal EvalValue (same as collection.yo's _func_val_id).
 _func_val_id :: (fn(v : &EvalValue) -> String)(
-  match(v, .FuncVal(__fvd1, _) => __fvd1.*.func_id.clone(), _ => String.from(""))
+  match(v, .FuncVal(__fvd1, _) => __fvd1.*.*.func_id.clone(), _ => String.from(""))
 );
 /// True for the reserved dyn-method labels (___dup/___drop/___dispose), and
 /// for the destructor trait's own method (`drop` of the prelude `Drop`,
 /// decision 45), which the box's `___dispose` runs. A method of another trait
 /// named `drop` keeps its slot.
 _is_reserved_dyn_label :: (fn(label : &String, trait_ty : Option(TypeValue)) -> bool)(
-  (label == "___dup") || (label == "___drop") || (label == "___dispose") || match(trait_ty, .Some(t) => is_destructor_trait_member(&t, label), .None => false)
+  (label.* == "___dup") || (label.* == "___drop") || (label.* == "___dispose") || match(trait_ty, .Some(t) => is_destructor_trait_member(&t, label), .None => false)
 );
 /// The heap object a Dyn's data pointer points at: a cell handle's cell
 /// (`cell_handle_view`; the handle is a C-transparent newtype, so its value
@@ -285,7 +285,7 @@ _resolve_box_payload :: (fn(t : &TypeValue) -> TypeValue)(
         rbp_new_ta.push(rbp_r2);
         rbp_j = (rbp_j + usize(1));
       });
-      Rc.new(TypeValueNode.Struct(rbp_id.clone(), rbp_nm.clone(), Rc.clone(rbp_fl), shared_list(rbp_new_ft), rbp_irs, rbp_iar, rbp_inw, rbp_cfid.clone(), shared_list(rbp_new_ta), rbp_isn))
+      Rc.new(TypeValueNode.Struct(rbp_id.clone(), rbp_nm.clone(), Rc.clone(rbp_fl), shared_list(rbp_new_ft), rbp_irs.*, rbp_iar.*, rbp_inw.*, rbp_cfid.clone(), shared_list(rbp_new_ta), rbp_isn.*))
     },
     _ => Rc.clone(t)
   )
@@ -677,7 +677,7 @@ generate_dyn_wrapper_functions :: (fn(context : &mut FunctionGenerationContext) 
                                   // differs: the impl returns its concrete future,
                                   // the trait the Future interface pointer.
                                   slot_params_tys := match(&slot_ty, .Some(Rc(.Func({ param_types : spt }))) => Rc.clone(spt), _ => param_types.clone());
-                                  slot_ret := match(&slot_ty, .Some(sft) => dyn_slot_result_abi_string(&sft, &mut context.base), .None => return_str.clone());
+                                  slot_ret := match(&slot_ty, .Some(sft) => dyn_slot_result_abi_string(&sft.*, &mut context.base), .None => return_str.clone());
                                   slot_fn_ty := match(&slot_ty, .Some(sft) => Rc.clone(sft), .None => impl_fn_ty.clone());
 
                                   params := _wrapper_params_abi(&slot_fn_ty, slot_params_tys.len(), usize(1), context);

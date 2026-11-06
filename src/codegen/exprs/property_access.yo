@@ -77,7 +77,7 @@ _c_function_name :: (fn(context : &FunctionGenerationContext, func_id : String) 
 );
 /// Whether `object_value` is a TypeValue wrapping an enum type.
 _is_typevalue_enum :: (fn(object_value : &Option(EvalValue)) -> bool)(
-  match(object_value, .Some(v) => match(v, .TypeVal(t) => is_enum_type(&t), _ => false), .None => false)
+  match(object_value, .Some(v) => match(v, .TypeVal(t) => is_enum_type(&t.*), _ => false), .None => false)
 );
 /// Enum field access: nullable-pointer optimization returns the pointer; else
 /// resolve `object.data.<Variant>.<field>` by locating the variant declaring it.
@@ -99,7 +99,7 @@ _enum_field_access :: (fn(object_type : &TypeValue, object_code : &String, field
               while(li < nl, {
                 match(
                   lbls.get(li),
-                  .Some(lbl) => if(lbl == field_name, {
+                  .Some(lbl) => if(lbl == field_name.*, {
                     vname := match(vnames.get_cloned(vi), .Some(v) => v, .None => String.from(""));
                     out := object_code.clone();
                     // A reference-semantics enum (`ref(enum(…))`) value is a pointer,
@@ -126,7 +126,7 @@ _enum_field_access :: (fn(object_type : &TypeValue, object_code : &String, field
         err := String.from("/* ERROR: field ");
         err.push_string(field_name);
         err.push_str(" not found in enum ");
-        err.push_string(&ename);
+        err.push_string(&ename.*);
         err.push_str(" */");
         err
       },
@@ -150,7 +150,7 @@ _typevalue_enum_access :: (fn(object_value : &Option(EvalValue), field_name : &S
             while(vi < nv, {
               match(
                 vnames.get(vi),
-                .Some(vn) => if(vn == field_name, {
+                .Some(vn) => if(vn == field_name.*, {
                   fields_empty := match(vfields.get(vi), .Some(fs) => (fs.len() == usize(0)), .None => true);
                   // A nullable-pointer enum's fieldless variant is NULL.
                   if(fields_empty && can_optimize_as_nullable_pointer(&et).is_some(), {
@@ -190,7 +190,7 @@ _typevalue_enum_access :: (fn(object_value : &Option(EvalValue), field_name : &S
 /// Pointer/reference field access: dereference to the value type (extra level
 /// for ref-semantics objects), then `->`/`.` as appropriate.
 _ptr_field_access :: (fn(object_type : &TypeValue, object_code : &String, field_name : &String) -> String)(
-  if(field_name == "*", {
+  if(field_name.* == "*", {
     out := String.from("(*");
     out.push_string(object_code);
     out.push_str(")");
@@ -203,12 +203,12 @@ _ptr_field_access :: (fn(object_type : &TypeValue, object_code : &String, field_
       deref_level = (deref_level + usize(1));
     });
     // Reference-semantics structs are already pointers in C — one more deref.
-    ref_sem := match(&current_type, Rc(.Struct({ is_reference_semantics : rs })) => rs, _ => false);
+    ref_sem := match(&current_type, Rc(.Struct({ is_reference_semantics : rs })) => rs.*, _ => false);
     if((deref_level > usize(0)) && ref_sem, {
       deref_level = (deref_level + usize(1));
     });
     // Newtype field through a pointer is just the dereference.
-    nt_match := if(is_newtype_type(&current_type), match(&current_type, Rc(.Struct({ field_labels : fls })) => if(fls.len() == usize(1), match(fls.get(usize(0)), .Some(lbl) => (lbl == field_name), .None => false), false), _ => false), false);
+    nt_match := if(is_newtype_type(&current_type), match(&current_type, Rc(.Struct({ field_labels : fls })) => if(fls.len() == usize(1), match(fls.get(usize(0)), .Some(lbl) => (lbl == field_name.*), .None => false), false), _ => false), false);
     if(nt_match, {
       res := if(deref_level == usize(1), {
         out := String.from("(*");
@@ -262,7 +262,7 @@ _tuple_field_access :: (fn(object_type : &TypeValue, object_code : &String, fiel
       while((i < n) && !found, {
         match(
           fls.get(i),
-          .Some(lbl) => if(lbl == field_name, {
+          .Some(lbl) => if(lbl == field_name.*, {
             idx = i;
             found = true;
           }),
@@ -296,7 +296,7 @@ _field_reference_type :: (fn(object_type : &TypeValue, field_name : &String) -> 
   types := match(&t, Rc(.Struct({ field_types : ft })) => Rc.clone(ft), Rc(.Tuple(_, tt)) => Rc.clone(tt), _ => return(Option(TypeValue).None));
   (i : usize) = usize(0);
   while(i < labels.len(), {
-    if(match(labels.get(i), .Some(l) => (l == field_name), .None => false), {
+    if(match(labels.get(i), .Some(l) => (l == field_name.*), .None => false), {
       return(_reference_or_none(types.get(i)));
     });
     i = (i + usize(1));
@@ -332,8 +332,8 @@ generate_field_access :: (fn(expr : &AstExpr, indent : &String, context : &mut F
     ref_ty,
     .Some(Rc(.Reference(gf_pointee, gf_mut, _))) => cond(
       (code.len() == usize(0)) => code,
-      gf_mut => `(*${code})`,
-      true => `(*((${get_type_string(&gf_pointee, &mut context.base)}*)${code}))`
+      gf_mut.* => `(*${code})`,
+      true => `(*((${get_type_string(&gf_pointee.*, &mut context.base)}*)${code}))`
     ),
     _ => code
   )

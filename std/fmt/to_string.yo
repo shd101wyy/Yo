@@ -93,7 +93,7 @@ _SNPRINTF_BUFFER_SIZE :: usize(32);
 _snprintf_to_string :: (fn(comptime(fmt) : str, comptime(T) : Type, v : &T) -> String)({
   buffer := Array(u8, _SNPRINTF_BUFFER_SIZE).fill(0);
   buffer_ptr := addr_of(buffer(0));
-  unsafe(snprintf((*char)(buffer_ptr), _SNPRINTF_BUFFER_SIZE, fmt, v));
+  unsafe(snprintf((*char)(buffer_ptr), _SNPRINTF_BUFFER_SIZE, fmt, v.*));
   String.from_cstr(buffer_ptr).unwrap()
 });
 
@@ -226,9 +226,9 @@ impl(
   ToString(
     to_string : (fn(self : &Self) -> String)(
       match(
-        _non_finite_str(f64(self)),
+        _non_finite_str(f64(self.*)),
         .Some(t) => String.from(t),
-        .None => _snprintf_to_string("%g", f64, f64(self))
+        .None => _snprintf_to_string("%g", f64, f64(self.*))
       )
     )
   )
@@ -239,7 +239,7 @@ impl(
   ToString(
     to_string : (fn(self : &Self) -> String)(
       match(
-        _non_finite_str(self),
+        _non_finite_str(self.*),
         .Some(t) => String.from(t),
         .None => _snprintf_to_string("%g", f64, self)
       )
@@ -318,7 +318,7 @@ impl(
       buffer := Array(u8, _FLOAT_BUFFER_SIZE).fill(0);
       buffer_ptr := addr_of(buffer(0));
       // Use %Lg for general format (removes trailing zeros)
-      unsafe(snprintf((*char)(buffer_ptr), _FLOAT_BUFFER_SIZE, "%Lg", self));
+      unsafe(snprintf((*char)(buffer_ptr), _FLOAT_BUFFER_SIZE, "%Lg", self.*));
       String.from_cstr(buffer_ptr).unwrap()
     })
   )
@@ -329,7 +329,7 @@ impl(
   ToString(
     to_string : (fn(self : &Self) -> String)(
       cond(
-        self => String.from("true"),
+        self.* => String.from("true"),
         true => String.from("false")
       )
     )
@@ -342,7 +342,7 @@ impl(
     to_string : (fn(self : &Self) -> String)({
       // char is a single byte, create a 2-byte buffer (char + null)
       mut(buffer) := Array(u8, usize(2)).fill(0);
-      buffer(0) = u8(self);
+      buffer(0) = u8(self.*);
       buffer_ptr := addr_of(buffer(0));
       String.from_cstr(buffer_ptr).unwrap()
     })
@@ -370,9 +370,9 @@ impl(
   ToString(
     to_string : (fn(self : &Self) -> String)({
       // Convert byte array to String assuming UTF-8
-      return(String.from(self));
+      return(String.from(self.*));
     }),
-    append_to : (fn(self : &Self, out : &mut String) -> unit)(out.push_str(self))
+    append_to : (fn(self : &Self, out : &mut String) -> unit)(out.push_str(self.*))
   )
 );
 // === Unit ===

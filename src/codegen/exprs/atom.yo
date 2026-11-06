@@ -87,7 +87,7 @@ _generate_sm_atom :: (fn(expr : &AstExpr, var_name : &String, context : &mut Fun
               .Some(variable) => {
                 // The owner's slot for a local sharing a body local's value, else
                 // its own (SSA-renamed ids resolve to the canonical id).
-                (var_id : String) = sm_storage_id(&variable, &smv, &context.variable_id_remapping);
+                (var_id : String) = sm_storage_id(&variable, &smv.*, &context.variable_id_remapping);
                 match(
                   smv.get(var_id.clone()),
                   .Some(cv) => {
@@ -111,9 +111,9 @@ _generate_sm_atom :: (fn(expr : &AstExpr, var_name : &String, context : &mut Fun
                     match(
                       &context.state_machine_field_aliases,
                       .Some(aliases2) => {
-                        for(&smv, (e_key, e_val) => {
-                          if(!(e_key == var_id), {
-                            if((e_val.base.name == var_name) && (e_val.base.decl_site.len() == usize(0)), {
+                        for(&smv.*, (e_key, e_val) => {
+                          if(!(e_key.* == var_id), {
+                            if((e_val.base.name == var_name.*) && (e_val.base.decl_site.len() == usize(0)), {
                               match(
                                 aliases2.get_cloned(e_key.clone()),
                                 .Some(other_alias) => return(Option(String).Some(`sm->${other_alias.clone()}`)),
@@ -170,8 +170,8 @@ _generate_sm_atom :: (fn(expr : &AstExpr, var_name : &String, context : &mut Fun
         );
         (mut(fallback_key) : String) = String.from("");
         (mut(fallback_found) : bool) = false;
-        for(&smv, (e_key, e_val) => {
-          name_hit := (e_val.base.name == var_name);
+        for(&smv.*, (e_key, e_val) => {
+          name_hit := (e_val.base.name == var_name.*);
           site_ok := match(
             read_site.clone(),
             .Some(rs) => ((e_val.base.decl_site == rs) || (e_val.base.decl_site.len() == usize(0))),
@@ -221,11 +221,11 @@ _generate_sm_atom :: (fn(expr : &AstExpr, var_name : &String, context : &mut Fun
                 .Some(owner_box2) => {
                   owner_name := owner_box2.name.clone();
                   owner_id := owner_box2.id().to_string();
-                  for(&smv, (e3_key, e3_val) => {
+                  for(&smv.*, (e3_key, e3_val) => {
                     // An owner from outside the body is a capture, not this
                     // local's storage: the local has its own (step 1 or 5).
                     is_outer_owner := match(e3_val.kind, .Outer => true, .Local => false);
-                    if(((e3_val.base.name == owner_name) || (e3_key == owner_id)) && !is_outer_owner, {
+                    if(((e3_val.base.name == owner_name) || (e3_key.* == owner_id)) && !is_outer_owner, {
                       field_name3 := match(
                         e3_val.kind,
                         .Outer => `${context.sm_capture_slot}.${sanitize_for_c_identifier(owner_name.clone(), false)}`,
@@ -259,7 +259,7 @@ _generate_sm_atom :: (fn(expr : &AstExpr, var_name : &String, context : &mut Fun
       //    `expr` itself binds, so this holds only when `expr` IS the atom: a
       //    capture read on behalf of an `io.async(...)` call would get the call's
       //    own temp.
-      is_the_atom := match(expr, .Atom(_, atok) => (atok.value.* == var_name), _ => false);
+      is_the_atom := match(expr, .Atom(_, atok) => (atok.value.* == var_name.*), _ => false);
       if(!is_the_atom, {
         return(Option(String).None);
       });
@@ -368,8 +368,8 @@ _emit_loop_body_drops_before_exit :: (fn(context : &mut FunctionGenerationContex
               skip := match(
                 get_deferred_drop_target_atom_name(&drop_expr),
                 .Some(var_name) => if(share_drop, !context.base.declared_scopes.with(ds_s => scope_stack_contains(ds_s, sanitize_for_c_identifier(&var_name, false))), {
-                  exit_vars := match(&exit_env_opt, .Some(xe) => Option(ArrayList(Variable)).Some(_exit_drop_variables(exit_expr, &xe, var_name.clone(), &drop_expr, context)), .None => Option(ArrayList(Variable)).None);
-                  c_name := match(&exit_vars, .Some(xv) => _codegen_name_of_variables(var_name.clone(), &xv), .None => get_variable_name_for_codegen_at(ast_expr_id(exit_expr), var_name.clone(), &exit_env_opt));
+                  exit_vars := match(&exit_env_opt, .Some(xe) => Option(ArrayList(Variable)).Some(_exit_drop_variables(exit_expr, &xe.*, var_name.clone(), &drop_expr, context)), .None => Option(ArrayList(Variable)).None);
+                  c_name := match(&exit_vars, .Some(xv) => _codegen_name_of_variables(var_name.clone(), &xv.*), .None => get_variable_name_for_codegen_at(ast_expr_id(exit_expr), var_name.clone(), &exit_env_opt));
                   // A local with a task slot is never declared as a C
                   // variable (its binding writes `sm->…`), so the scope stack
                   // cannot vouch for it. The slot always exists and is zero
@@ -379,7 +379,7 @@ _emit_loop_body_drops_before_exit :: (fn(context : &mut FunctionGenerationContex
                     &exit_env_opt,
                     .Some(slot_env) => match(
                       &context.state_machine_variables,
-                      .Some(smv) => (context.in_async_state_machine.is_some() && match(match(&exit_vars, .Some(xv) => xv.last_cloned(), .None => Option(Variable).None), .Some(slot_v) => sm_slot_of_variable(&slot_v, &smv, &context.variable_id_remapping, &context.state_machine_field_aliases, &context.sm_capture_slot).is_some(), .None => sm_slot_of(ast_expr_id(exit_expr), &slot_env, var_name.clone(), &smv, &context.variable_id_remapping, &context.state_machine_field_aliases, &context.sm_capture_slot).is_some())),
+                      .Some(smv) => (context.in_async_state_machine.is_some() && match(match(&exit_vars, .Some(xv) => xv.last_cloned(), .None => Option(Variable).None), .Some(slot_v) => sm_slot_of_variable(&slot_v, &smv.*, &context.variable_id_remapping, &context.state_machine_field_aliases, &context.sm_capture_slot).is_some(), .None => sm_slot_of(ast_expr_id(exit_expr), &slot_env.*, var_name.clone(), &smv.*, &context.variable_id_remapping, &context.state_machine_field_aliases, &context.sm_capture_slot).is_some())),
                       .None => false
                     ),
                     .None => false
@@ -489,7 +489,7 @@ _is_captured_here :: (fn(key : ExprId, name : &String, env_opt : &Option(Environ
       context.current_closure_capture_frame_level,
       .Some(level) => (
         caps.contains(name.clone()) &&
-          match(env_opt, .Some(e) => check_variable_is_closure_captured(key, name.clone(), &e, level), .None => true)
+          match(env_opt, .Some(e) => check_variable_is_closure_captured(key, name.clone(), &e.*, level), .None => true)
       ),
       .None => false
     ),
@@ -502,7 +502,7 @@ _scope_var_is_ref :: (fn(key : ExprId, name : &String, env_opt : &Option(Environ
   match(
     env_opt,
     .Some(e) => {
-      vs := scope_variables(key, &e, name);
+      vs := scope_variables(key, &e.*, name);
       cond(
         (vs.len() == usize(0)) => false,
         true => match(vs.last_cloned(), .Some(v) => v.is_ref(), .None => false)
@@ -529,7 +529,7 @@ _var_read_code :: (fn(key : ExprId, tv : &String, env_opt : &Option(Environment)
   is_ref := match(
     env_opt,
     .Some(e) => {
-      vs := scope_variables(key, &e, tv.clone());
+      vs := scope_variables(key, &e.*, tv.clone());
       cond(
         (vs.len() == usize(0)) => false,
         true => match(vs.last_cloned(), .Some(v) => v.is_ref(), .None => false)
@@ -742,7 +742,7 @@ generate_atom :: (fn(expr : &AstExpr, context : &mut FunctionGenerationContext, 
             .Some(e) => match(
               ei.value(),
               .Some(v) => if(!is_unknown_val(&v), {
-                vars := scope_variables(ast_expr_id(expr), &e, var_name.clone());
+                vars := scope_variables(ast_expr_id(expr), &e.*, var_name.clone());
                 nv := vars.len();
                 cond(
                   (nv == usize(0)) => false,
@@ -792,7 +792,7 @@ generate_atom :: (fn(expr : &AstExpr, context : &mut FunctionGenerationContext, 
             &context.current_closure_capture_type_c_name,
             .Some(cap_ty) => {
               out := String.from("((");
-              out.push_string(&cap_ty);
+              out.push_string(&cap_ty.*);
               out.push_str("*)closure_context)->");
               out.push_string(get_variable_name_for_codegen_at(ast_expr_id(expr), cap_name.clone(), &env_opt));
               out

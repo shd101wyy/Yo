@@ -119,7 +119,7 @@ _parse_quietly :: (fn(src : &String, module_path : &String) -> ArrayList(AstExpr
 /// True iff `e` is an Atom spelled `name` (a `String`-argument twin of
 /// `ast_expr_is_atom_of`, whose parameter is a `str` literal).
 _atom_is :: (fn(e : &AstExpr, name : &String) -> bool)(
-  match(e, .Atom(_, t) => (t.value.* == name), .FnCall(_, _, _, _, _) => false)
+  match(e, .Atom(_, t) => (t.value.* == name.*), .FnCall(_, _, _, _, _) => false)
 );
 /// The `name :: value` top-level binding named `head` in `exprs`: its VALUE
 /// expression, or `.None`.
@@ -213,7 +213,7 @@ _find_field_label :: (fn(e : &AstExpr, member : &String, out : &mut ArrayList(To
           i = (i + usize(1));
         });
       });
-      recur(&func_box, member, out);
+      recur(&func_box.*, member, out);
       (j : usize) = usize(0);
       while(j < args.len(), {
         match(
@@ -238,7 +238,7 @@ _find_variant_decl :: (fn(e : &AstExpr, variant : &String, out : &mut ArrayList(
         while(i < args.len(), {
           match(
             args.get(i),
-            .Some(.Atom(_, at)) => if(at.value.* == variant, {
+            .Some(.Atom(_, at)) => if(at.value.* == variant.*, {
               out.push(at);
             }),
             .Some(.FnCall(_, vf, _, _, _)) => if(_atom_is(&vf, variant.clone()), {
@@ -249,7 +249,7 @@ _find_variant_decl :: (fn(e : &AstExpr, variant : &String, out : &mut ArrayList(
           i = (i + usize(1));
         });
       });
-      recur(&func_box, variant, out);
+      recur(&func_box.*, variant, out);
       (j : usize) = usize(0);
       while(j < args.len(), {
         match(
@@ -272,7 +272,7 @@ _subtree_has_position :: (fn(e : &AstExpr, at : &Token) -> bool)({
     e,
     .Atom(_, _) => false,
     .FnCall(_, func_box, Rc(args), _, _) => {
-      if(recur(&func_box, at), {
+      if(recur(&func_box.*, at), {
         return(true);
       });
       (i : usize) = usize(0);
@@ -313,7 +313,7 @@ _find_method_label :: (
           );
         });
       });
-      recur(&func_box, member, body_at, out);
+      recur(&func_box.*, member, body_at, out);
       (i : usize) = usize(0);
       while(i < args.len(), {
         match(
@@ -445,7 +445,7 @@ _method_decl :: (
     while((ei < entries.len()) && value.is_none(), {
       match(
         entries.get(ei),
-        .Some(en) => if(en.label == member, {
+        .Some(en) => if(en.label == member.*, {
           value = en.value;
         }),
         .None => ()
@@ -573,7 +573,7 @@ _find_label_call :: (fn(e : &AstExpr, target : &Token, out : &mut ArrayList(AstE
                   .Some(lhs) => {
                     lt := ast_expr_token(&lhs);
                     if((lt.row == target.row) && (lt.column == target.column) && (lt.value.* == target.value.*), {
-                      out.push(e);
+                      out.push(e.*);
                     });
                   },
                   .None => ()
@@ -587,7 +587,7 @@ _find_label_call :: (fn(e : &AstExpr, target : &Token, out : &mut ArrayList(AstE
         );
         i = (i + usize(1));
       });
-      recur(&func_box, target, out);
+      recur(&func_box.*, target, out);
     }
   );
 });
@@ -695,7 +695,7 @@ _member_definition :: (
         match(
           &deref,
           Rc(.Struct({ field_labels, is_source_namespace })) => {
-            if(is_source_namespace, {
+            if(is_source_namespace.*, {
               return(_module_member_decl(&receiver_name, &member, doc_abs, exprs, std_path));
             });
             (is_field : bool) = false;

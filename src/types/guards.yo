@@ -82,7 +82,7 @@ enum_decl_identity :: (fn(enum_id : &String) -> Option(String))(
 /// An id without a recorded declaration answers `false` (no evidence).
 enum_decls_differ :: (fn(a_id : &String, e_id : &String) -> bool)(
   cond(
-    (a_id == e_id) => false,
+    (a_id.* == e_id.*) => false,
     true => match(
       g_enum_decl_identities.with(m => m.get_cloned(a_id)),
       .Some(ad) => match(g_enum_decl_identities.with(m => m.get_cloned(e_id)), .Some(ed) => (ad != ed), .None => false),
@@ -98,7 +98,7 @@ is_prelude_io_struct :: (fn(t : &TypeValue) -> bool)(
   match(
     t,
     Rc(.Struct({ id : sid, name : sname })) => (
-      (sname == "Io")
+      (sname.* == "Io")
       && match(type_decl_module(sid.clone()), .Some(m) => m.ends_with("prelude.yo"), .None => false)
     ),
     _ => false
@@ -113,7 +113,7 @@ is_prelude_allocator_struct :: (fn(t : &TypeValue) -> bool)(
   match(
     t,
     Rc(.Struct({ id : sid, name : sname })) => (
-      (sname == "Allocator")
+      (sname.* == "Allocator")
       && match(type_decl_module(sid.clone()), .Some(m) => m.ends_with("prelude.yo"), .None => false)
     ),
     _ => false
@@ -350,7 +350,7 @@ is_atomic_reference_struct_type :: (fn(t : &TypeValue) -> bool)(
   match(
     t,
     Rc(.Struct({ is_reference_semantics : is_ref, is_atomic_rc : is_atomic })) =>
-      (is_ref && is_atomic),
+      (is_ref.* && is_atomic.*),
     _ => false
   )
 );
@@ -363,7 +363,7 @@ is_atomic_reference_enum_type :: (fn(t : &TypeValue) -> bool)(
   match(
     t,
     Rc(.EnumT({ is_reference_semantics : is_ref, is_atomic_rc : is_atomic })) =>
-      (is_ref && is_atomic),
+      (is_ref.* && is_atomic.*),
     _ => false
   )
 );
@@ -419,7 +419,7 @@ is_shared_cell_type_name :: (fn(name : &String) -> bool)({
     match(
       shared_cell_names_at(i),
       .Some(n) => {
-        found = (name == n.type_name);
+        found = (name.* == n.type_name);
       },
       .None => {
         break;
@@ -461,9 +461,9 @@ is_box_type :: (fn(t : &TypeValue) -> bool)(
   match(
     t,
     Rc(.Struct({ name, field_labels, is_reference_semantics : is_ref })) => cond(
-      !is_ref => match(cell_handle_view(t), .Some(v) => !v.is_atomic, .None => false),
+      !is_ref.* => match(cell_handle_view(t), .Some(v) => !v.is_atomic, .None => false),
       (field_labels.len() != usize(1)) => false,
-      !_is_shared_cell_instance_name(&name) => false,
+      !_is_shared_cell_instance_name(&name.*) => false,
       true => match(
         field_labels.get(usize(0)),
         .Some(label) => (label == "*"),
@@ -503,8 +503,8 @@ is_arc_type :: (fn(t : &TypeValue) -> bool)(
   match(
     t,
     Rc(.Struct({ name, field_labels, is_reference_semantics : is_ref, is_atomic_rc : is_atomic })) => cond(
-      !is_ref => match(cell_handle_view(t), .Some(v) => v.is_atomic, .None => false),
-      !is_atomic => false,
+      !is_ref.* => match(cell_handle_view(t), .Some(v) => v.is_atomic, .None => false),
+      !is_atomic.* => false,
       !name.starts_with("Arc(") => false,
       (field_labels.len() != usize(1)) => false,
       true => match(field_labels.get(usize(0)), .Some(label) => (label == "*"), .None => false)
@@ -640,7 +640,7 @@ is_fn_trait_type :: (fn(t : &TypeValue) -> bool)(
 is_function_type_and_is_type_function :: (fn(t : &TypeValue) -> bool)(
   match(
     t,
-    Rc(.Func({ result : r })) => match(t_slot_pointee(&r), Rc(.TypeUni(_)) => true, _ => false),
+    Rc(.Func({ result : r })) => match(t_slot_pointee(&r.*), Rc(.TypeUni(_)) => true, _ => false),
     _ => false
   )
 );
@@ -660,7 +660,7 @@ is_comptime_only_type_simple :: (fn(t : &TypeValue) -> bool)(
     Rc(.TypeUni(_)) => true,
     // Source-namespace structs (anonymous modules / imports) are
     // comptime-only; ordinary structs are not.
-    Rc(.Struct({ is_source_namespace : sns2 })) => sns2,
+    Rc(.Struct({ is_source_namespace : sns2 })) => sns2.*,
     Rc(.TraitT(name : _)) => true,
     Rc(.FnTraitT(base_name : _)) => true,
     Rc(.FutureTraitT(base_name : _)) => true,
@@ -680,7 +680,7 @@ is_function_type_and_returns_comptime_value :: (fn(t : &TypeValue) -> bool)(
     // result type with the comptime-ness carried in the meta flag. The
     // type-based test alone made every "runtime binding in a comptime-only
     // fn body" gate silently never fire (tests/fn.test.yo).
-    Rc(.Func({ result : r, meta : __gm })) => (__gm.*.result_is_comptime_only || is_comptime_only_type_simple(&t_slot_pointee(&r))),
+    Rc(.Func({ result : r, meta : __gm })) => (__gm.*.*.result_is_comptime_only || is_comptime_only_type_simple(&t_slot_pointee(&r.*))),
     _ => false
   )
 );
@@ -733,7 +733,7 @@ is_integer_type :: (fn(t : &TypeValue) -> bool)(
 is_unsigned_integer_type :: (fn(t : &TypeValue) -> bool)(
   match(
     t,
-    Rc(.Int(_, signed)) => !signed,
+    Rc(.Int(_, signed)) => !signed.*,
     Rc(.Usize) => true,
     _ => false
   )
@@ -812,13 +812,13 @@ is_rc_type :: (fn(t : &TypeValue) -> bool)(
     Rc(.Struct({ is_reference_semantics : is_ref })) => match(
       resolve_struct_shell(t),
       Rc(.Struct({ is_reference_semantics : r_res })) => r_res,
-      _ => is_ref
+      _ => is_ref.*
     ),
     // Reference-semantics enums (`ref(enum(…))`) are RC-managed like objects.
     Rc(.EnumT({ is_reference_semantics : is_ref })) => match(
       resolve_enum_shell(t),
       Rc(.EnumT({ is_reference_semantics : r_res })) => r_res,
-      _ => is_ref
+      _ => is_ref.*
     ),
     Rc(.DynT(required_trait_types : _)) => true,
     Rc(.SomeT(bounds : req_traits_bnd)) => {
@@ -900,8 +900,8 @@ is_function_type_generic :: (fn(t : &TypeValue) -> bool)(
     t,
     Rc(.Func({ param_types : pts, meta : __fm1 })) =>
       cond(
-        (__fm1.*.forall_labels.len() > usize(0)) => true,
-        (__fm1.*.implicit_labels.len() > usize(0)) => true,
+        (__fm1.*.*.forall_labels.len() > usize(0)) => true,
+        (__fm1.*.*.implicit_labels.len() > usize(0)) => true,
         // Check if any param is SomeT; Future-implementing SomeTs are exempt.
         true => {
           found := false;
@@ -909,7 +909,7 @@ is_function_type_generic :: (fn(t : &TypeValue) -> bool)(
           n := pts.len();
           while(i < n, {
             match(
-              slot_pointee_at(&pts, i),
+              slot_pointee_at(&pts.*, i),
               .Some(pt) => match(
                 &pt,
                 // Future-implementing SomeT params are exempt.
@@ -939,7 +939,7 @@ is_function_type_hard_generic :: (fn(t : &TypeValue) -> bool)(
     t,
     Rc(.Func({ param_types : pts, meta : __fm2 })) =>
       cond(
-        (__fm2.*.forall_labels.len() > usize(0)) => true,
+        (__fm2.*.*.forall_labels.len() > usize(0)) => true,
         // A SomeType param makes the unspecialized form hard-generic — UNLESS it
         // has a resolved concrete type, in which case codegen can lower it via the
         // concrete (e.g. a closure-typed param `cb : Impl(Fn(...))` resolved to its
@@ -950,7 +950,7 @@ is_function_type_hard_generic :: (fn(t : &TypeValue) -> bool)(
           n := pts.len();
           while(i < n, {
             match(
-              slot_pointee_at(&pts, i),
+              slot_pointee_at(&pts.*, i),
               .Some(pt) => match(
                 &pt,
                 Rc(.SomeT({ resolution : hg_res })) => {
@@ -1025,7 +1025,7 @@ _is_boxed_cell_object_type :: (fn(t : &TypeValue) -> bool)(
       Rc(.Struct({ name, field_labels, field_types })) =>
         (
           (field_labels.len() == usize(1)) && match(field_labels.get(usize(0)), .Some(l) => (l == "*"), .None => false) && (
-            _is_shared_cell_instance_name(&name)
+            _is_shared_cell_instance_name(&name.*)
             // A value boxed ATOMICALLY for a `Dyn(..., Send)` (`dyn(...)` boxes
             // with `arc` there; issues/fixed/a-send-dyn-shares-a-non-atomic-box-across-threads.md).
             // An Arc of an OBJECT is an object in its own right, not a box.
@@ -1081,7 +1081,7 @@ _nullable_shape_payload :: (fn(t : &TypeValue) -> Option(TypeValue))(
   match(
     t,
     Rc(.EnumT({ variant_fields, is_reference_semantics })) => {
-      if(is_reference_semantics || (variant_fields.len() != usize(2)), {
+      if(is_reference_semantics.* || (variant_fields.len() != usize(2)), {
         return(.None);
       });
       (empty_found : bool) = false;
@@ -1165,7 +1165,7 @@ _nullable_payload_reaches_enum :: (fn(payload : &TypeValue, enum_id : &String, h
         true => match(
           &target,
           Rc(.EnumT({ id })) => cond(
-            (_enum_identity(&id) == enum_id) => true,
+            (_enum_identity(&id.*) == enum_id.*) => true,
             true => match(_nullable_shape_payload(&target), .Some(inner) => recur(&inner, enum_id, hops - usize(1)), .None => false)
           ),
           _ => false

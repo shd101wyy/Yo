@@ -542,8 +542,8 @@ impl(
   }),
   /// Append a raw `String` value + newline to the code section.
   emit_string_line : (fn(self : &mut Self, c : &String) -> unit)({
-    match(&self.declared_ref, .Some(s) => s.with_mut({ &c }(set) => _emitter_record_declared_temp(set, c.clone())), .None => ());
-    match(&self.scope_ref, .Some(st) => st.with_mut({ &c }(stack) => _emitter_track_scope(stack, c.clone())), .None => ());
+    match(&self.declared_ref, .Some(s) => s.with_mut({ c : &c.* }(set) => _emitter_record_declared_temp(set, c.clone())), .None => ());
+    match(&self.scope_ref, .Some(st) => st.with_mut({ c : &c.* }(stack) => _emitter_track_scope(stack, c.clone())), .None => ());
     self.code.push_string(c.clone());
     self.code.push_str("\n");
     if(self.move_zeroes.len() > usize(0), {
@@ -584,7 +584,7 @@ impl(
     // and macro/derive expansions carry `auto-generated://` pseudo-paths
     // (which embed the expansion TEXT, newlines included — unusable in a
     // directive, and the position is not a real source location anyway).
-    if((path.len() == usize(0)) || (path == String.from("_")) || (path == String.from("drop")) || path.starts_with(String.from("auto-generated://")), {
+    if((path.len() == usize(0)) || (path.* == String.from("_")) || (path.* == String.from("drop")) || path.starts_with(String.from("auto-generated://")), {
       return(());
     });
     if(path.contains(String.from("\n")), {
@@ -592,7 +592,7 @@ impl(
     });
     match(
       &self.line_last_path,
-      .Some(last) => if((last == path) && (self.line_last_row == usize(row)), {
+      .Some(last) => if((last.* == path.*) && (self.line_last_row == usize(row)), {
         return(());
       }),
       .None => ()

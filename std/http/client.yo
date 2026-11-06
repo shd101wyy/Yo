@@ -152,15 +152,15 @@ _Transport :: enum(Plain(stream : TcpStream), Secure(stream : TlsStream));
 impl(
   _Transport,
   write_string : (fn(self : &Self, data : &String, io : Io) -> Impl(Future(usize, IoExn)))(
-    io.async({ &self, &data }(e : IoExn) => {
+    io.async({ self : &self.*, data : &data.* }(e : IoExn) => {
       (mut(n) : usize) = usize(0);
       match(
         self,
         .Plain(stream) => {
-          n = e.io.await(stream.write_string(&data, e.io), e);
+          n = e.io.await(stream.write_string(&data.*, e.io), e);
         },
         .Secure(stream) => {
-          n = e.io.await(stream.write_string(&data, e.io), e);
+          n = e.io.await(stream.write_string(&data.*, e.io), e);
         }
       );
       n
@@ -168,7 +168,7 @@ impl(
   ),
   /// Graceful close: a TLS transport also gets its `close_notify` flushed.
   close : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))(
-    io.async({ &self }(e : IoExn) => {
+    io.async({ self : &self.* }(e : IoExn) => {
       match(
         self,
         .Plain(stream) => {
@@ -198,7 +198,7 @@ impl(
   _Transport,
   Reader(
     read : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
-      io.async({ &self, buf, size }(e : IoExn) => {
+      io.async({ self : &self.*, buf, size }(e : IoExn) => {
         (mut(n) : usize) = usize(0);
         match(
           self,
@@ -327,7 +327,7 @@ impl(
           self._idle(i).transport.close_sync();
           _dropped := self._idle.remove(i);
         },
-        (found.is_none() && (self._idle(i).key == key)) => {
+        (found.is_none() && (self._idle(i).key == key.*)) => {
           found = Option(_Idle).Some(self._idle.remove(i));
         },
         true => {
@@ -410,7 +410,7 @@ _value_has_token :: (fn(value : &String, token : &String) -> bool)({
   while(i < parts.len(), {
     trimmed := parts(i).trim();
     cond(
-      (trimmed.to_lowercase() == token) => {
+      (trimmed.to_lowercase() == token.*) => {
         found = true;
       },
       true => ()
@@ -531,8 +531,8 @@ _prepare :: (fn(url_str : &String, opts : &FetchOptions, keep_alive : bool, exn 
   // scope, so it uses the _exn wrapper.
   url := Url.parse_exn(url_str, exn);
   scheme := url.scheme();
-  is_http := (scheme == `http`);
-  is_https := (scheme == `https`);
+  is_http := (scheme.* == `http`);
+  is_https := (scheme.* == `https`);
   // Only http/https. https speaks real TLS (std/crypto/tls, D6); other
   // schemes are refused before any DNS or socket work.
   cond(
@@ -1072,7 +1072,7 @@ impl(
   /// The future borrows the client (the exchange reaches its pool): await it
   /// where it is made.
   fetch : (fn(self : &Self, url_str : &String, io : Io) -> Impl(Future(HttpResponse, IoExn)))(
-    io.async({ &self, &url_str }(e : IoExn) => {
+    io.async({ self : &self.*, url_str : &url_str.* }(e : IoExn) => {
       resp := e.io.await(
         _fetch_deadline(url_str, FetchOptions.new(), Option(*_HttpClientState).Some(self._pool()), e.io),
         e
@@ -1085,7 +1085,7 @@ impl(
     fn(self : &Self, url_str : &String, opts : &FetchOptions, io : Io) ->
       Impl(Future(HttpResponse, IoExn))
   )(
-    io.async({ &self, &url_str, &opts }(e : IoExn) => {
+    io.async({ self : &self.*, url_str : &url_str.*, opts : &opts.* }(e : IoExn) => {
       resp := e.io.await(_fetch_deadline(url_str, opts, Option(*_HttpClientState).Some(self._pool()), e.io), e);
       return(resp);
     })

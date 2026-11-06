@@ -296,14 +296,14 @@ impl(
   /// when the stream drops.
   write_str : (fn(self : &Self, data : str, io : Io) -> Impl(Future(usize, IoExn)))({
     s := String.from(data);
-    io.async({ &self, s }(e : IoExn) => {
+    io.async({ self : &self.*, s }(e : IoExn) => {
       n := e.io.await(_tls_write(self._io(), s.ptr().unwrap(), s.len(), e.io), e);
       return(n);
     })
   }),
   /// Write a `String` (matches TcpStream.write_string); byte count written.
   write_string : (fn(self : &Self, data : &String, io : Io) -> Impl(Future(usize, IoExn)))(
-    io.async({ &self, &data }(e : IoExn) => {
+    io.async({ self : &self.*, data : &data.* }(e : IoExn) => {
       n := e.io.await(_tls_write(self._io(), data.ptr().unwrap(), data.len(), e.io), e);
       return(n);
     })
@@ -311,7 +311,7 @@ impl(
   /// Close: best-effort close_notify, then the socket. Frees the OpenSSL
   /// objects — the stream must not be used afterwards.
   close : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))(
-    io.async({ &self }(e : IoExn) => {
+    io.async({ self : &self.* }(e : IoExn) => {
       cond(
         self._cell._closed => (),
         true => {
@@ -466,7 +466,7 @@ impl(
   IoTraits.Reader(
     /// Read decrypted bytes into `buf`. 0 = the peer closed the session.
     read : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
-      io.async({ &self, buf, size, io }(e : IoExn) => e.io.await(_tls_read(self._io(), buf, size, io), e))
+      io.async({ self : &self.*, buf, size, io }(e : IoExn) => e.io.await(_tls_read(self._io(), buf, size, io), e))
     )
   )
 );
@@ -476,11 +476,11 @@ impl(
     /// Write plaintext; returns the byte count accepted (all of `size` on
     /// success — SSL_write is all-or-nothing by default).
     write : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
-      io.async({ &self, buf, size, io }(e : IoExn) => e.io.await(_tls_write(self._io(), buf, size, io), e))
+      io.async({ self : &self.*, buf, size, io }(e : IoExn) => e.io.await(_tls_write(self._io(), buf, size, io), e))
     ),
     /// Push the ciphertext OpenSSL has produced to the socket.
     flush : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))(
-      io.async({ &self, io }(e : IoExn) => e.io.await(_flush_wbio(self._io(), io), e))
+      io.async({ self : &self.*, io }(e : IoExn) => e.io.await(_flush_wbio(self._io(), io), e))
     )
   )
 );

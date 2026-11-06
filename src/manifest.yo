@@ -198,7 +198,7 @@ impl(
     (i : usize) = usize(0);
     while(i < self.dependencies.len(), {
       d := self.dependencies(i);
-      if(d.name == name, {
+      if(d.name == name.*, {
         return(Option(ManifestDependency).Some(d));
       });
       i = (i + usize(1));
@@ -210,7 +210,7 @@ impl(
     (i : usize) = usize(0);
     while(i < self.modules.len(), {
       m := self.modules(i);
-      if(m.name == name, {
+      if(m.name == name.*, {
         return(Option(ManifestModule).Some(m));
       });
       i = (i + usize(1));
@@ -698,7 +698,7 @@ dependency_dir :: (
       lock := match(
         root_lock_text,
         .Some(t) => match(
-          parse_lock_file(&t),
+          parse_lock_file(&t.*),
           .Ok(l) => l,
           .Err(msg) => {
             return(Result(String, UnavailableImport).Err(_unavailable(dep.name.clone(), `git dependency "${dep.name}": ${msg} — run \`yo install\``, true)));
@@ -752,8 +752,8 @@ _add_root :: (
   (i : usize) = usize(0);
   while(i < roots.len(), {
     existing := roots(i);
-    if(existing.name == name, {
-      if(existing.root == root, {
+    if(existing.name == name.*, {
+      if(existing.root == root.*, {
         return(Result(unit, String).Ok(()));
       });
       return(Result(unit, String).Err(`import name "${name}" reaches two different modules: ${existing.root} and ${root} (via ${via}). Rename one dependency.`));
@@ -837,7 +837,7 @@ resolve_import_roots :: (
   ) -> Result(ImportRoots, String)
 )({
   out := ImportRoots(roots : ArrayList(ImportRoot).new(), unavailable : ArrayList(UnavailableImport).new());
-  root_entry := _ClosureEntry(name : manifest.name.clone(), dir : manifest.dir.clone(), manifest : Option(Manifest).Some(manifest));
+  root_entry := _ClosureEntry(name : manifest.name.clone(), dir : manifest.dir.clone(), manifest : Option(Manifest).Some(manifest.*));
   match(
     _register_package_roots(&root_entry, true, &out, manifest.path.clone()),
     .Ok(_) => (),

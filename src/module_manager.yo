@@ -402,7 +402,7 @@ prefer_entry_std_root :: (fn(entries : &ArrayList(String)) -> unit)({
         return(());
       },
       .Some(r) => {
-        agrees := match(&shared, .None => true, .Some(s) => (s == r));
+        agrees := match(&shared, .None => true, .Some(s) => (s.* == r));
         if(!agrees, {
           return(());
         });
@@ -510,7 +510,7 @@ _open_doc_index :: (fn(fs_path : &String) -> Option(usize))({
   while(i < n, {
     match(
       g_open_doc_paths.with(xs => xs.get_cloned(i)),
-      .Some(p) => if(p == fs_path, {
+      .Some(p) => if(p == fs_path.*, {
         return(Option(usize).Some(i));
       }),
       .None => ()
@@ -829,9 +829,9 @@ _def_fn_head :: (fn(rhs : &AstExpr) -> Option(AstExpr))(
     .FnCall(_, callee, Rc(cargs), _, _) => {
       // The fn-type head renders as `fn(...) -> T` (a leading source paren
       // is not part of the callee). `fn(` specifically — not any `fn…` name.
-      head := ast_expr_to_string(&callee);
+      head := ast_expr_to_string(&callee.*);
       cond(
-        (head.starts_with(String.from("fn(")) || head.starts_with(String.from("(fn("))) => Option(AstExpr).Some(callee),
+        (head.starts_with(String.from("fn(")) || head.starts_with(String.from("(fn("))) => Option(AstExpr).Some(callee.*),
         true => Option(AstExpr).None
       )
     },
@@ -893,7 +893,7 @@ _expr_mentions :: (fn(e : &AstExpr, names : &ArrayList(String)) -> bool)(
       _,
       _
     ) => {
-      (hit : bool) = _expr_mentions(&func, names);
+      (hit : bool) = _expr_mentions(&func.*, names);
       (ai : usize) = usize(0);
       while((ai < args.len()) && !hit, {
         match(
@@ -951,7 +951,7 @@ _export_aliases_name :: (fn(exprs : &ArrayList(AstExpr), name : &String) -> bool
                     arg,
                     .FnCall(_, _, Rc(pair), _, _) => match(
                       pair.get(usize(1)),
-                      .Some(orig) => if(ast_expr_is_atom(&orig) && (ast_expr_token(&orig).value.* == name), {
+                      .Some(orig) => if(ast_expr_is_atom(&orig) && (ast_expr_token(&orig).value.* == name.*), {
                         hit = true;
                       }),
                       .None => ()
@@ -980,7 +980,7 @@ _list_contains :: (fn(list : &ArrayList(String), item : &String) -> bool)({
   while((i < list.len()) && !found, {
     match(
       list.get_cloned(i),
-      .Some(x) => if(x == item, {
+      .Some(x) => if(x == item.*, {
         found = true;
       }),
       .None => ()
@@ -1009,7 +1009,7 @@ _rev_add_module :: (fn(modules : &mut ArrayList(String), excluded : &HashSet(Str
     while((mi < modules.len()) && !skip, {
       match(
         modules.get_cloned(mi),
-        .Some(m) => if(m == module, {
+        .Some(m) => if(m == module.*, {
           skip = true;
         }),
         .None => ()
@@ -1062,7 +1062,7 @@ _rebinds_contain :: (fn(rebinds : &ArrayList(RebindEntry), module : &String) -> 
   while(i < rebinds.len(), {
     match(
       rebinds.get(i),
-      .Some(e) => if(e.reader_module == module, {
+      .Some(e) => if(e.reader_module == module.*, {
         return(true);
       }),
       .None => ()
@@ -2286,7 +2286,7 @@ _scan_import_literals :: (
           .None => ()
         );
       });
-      _scan_import_literals(&func, importer.clone(), current_dir.clone(), std_path.clone());
+      _scan_import_literals(&func.*, importer.clone(), current_dir.clone(), std_path.clone());
       (ai : usize) = usize(0);
       while(ai < args.len(), {
         match(
@@ -2694,7 +2694,7 @@ _reject_non_unit_main :: (fn(module_value : &EvalValue, exn : Exception) -> unit
                 main_fty := get_func_type(__main_fvd.*.func_id.clone());
                 main_result := match(
                   &main_fty,
-                  Rc(.Func({ result : __main_res })) => t_slot_pointee(&__main_res),
+                  Rc(.Func({ result : __main_res })) => t_slot_pointee(&__main_res.*),
                   _ => t_unit()
                 );
                 if(!is_unit_type(&main_result), {
@@ -2724,7 +2724,7 @@ _reject_non_unit_main :: (fn(module_value : &EvalValue, exn : Exception) -> unit
                         .Some(pt) => {
                           pt_is_io := match(
                             &pt,
-                            Rc(.Struct({ name : __pt_name, is_source_namespace : __pt_sns })) => ((__pt_name == "Io") && !__pt_sns),
+                            Rc(.Struct({ name : __pt_name, is_source_namespace : __pt_sns })) => ((__pt_name.* == "Io") && !__pt_sns.*),
                             _ => false
                           );
                           if(!pt_is_io, {

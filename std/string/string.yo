@@ -1127,7 +1127,7 @@ impl(
       )
     }),
     (!=) : (fn(self : &Self, other : &str) -> bool)({
-      return(!(self == other));
+      return(!(self.* == other.*));
     })
   )
 );
@@ -1157,7 +1157,7 @@ impl(
       )
     }),
     (!=) : (fn(self : &Self, other : &String) -> bool)({
-      return(!(self == other));
+      return(!(self.* == other.*));
     })
   )
 );
@@ -1186,13 +1186,13 @@ impl(
       lhs_len < rhs_len
     }),
     (<=) : (fn(lhs : &Self, rhs : &Self) -> bool)({
-      return(!(rhs < lhs));
+      return(!(rhs.* < lhs.*));
     }),
     (>) : (fn(lhs : &Self, rhs : &Self) -> bool)({
-      return(rhs < lhs);
+      return(rhs.* < lhs.*);
     }),
     (>=) : (fn(lhs : &Self, rhs : &Self) -> bool)({
-      return(!(lhs < rhs));
+      return(!(lhs.* < rhs.*));
     })
   )
 );
@@ -1313,7 +1313,7 @@ impl(
       bytes := &haystack._bytes;
       mut(pos) := usize(0);
       while(pos < eff, {
-        d := utf8.decode_lossy(&bytes, pos);
+        d := utf8.decode_lossy(&bytes.*, pos);
         cond(
           ((d.code == self) && ((pos + d.width) == eff)) => {
             return(true);
@@ -1332,7 +1332,7 @@ impl(
       // next boundary before scanning.
       while((pos < n) && !haystack.is_char_boundary(pos), pos = (pos + usize(1)), ());
       while(pos < n, {
-        d := utf8.decode_lossy(&bytes, pos);
+        d := utf8.decode_lossy(&bytes.*, pos);
         cond(
           (d.code == self) => {
             return(.Some(pos));
@@ -1357,7 +1357,7 @@ impl(
       mut(pos) := usize(0);
       (mut(last) : Option(usize)) = .None;
       while(pos < n, {
-        d := utf8.decode_lossy(&bytes, pos);
+        d := utf8.decode_lossy(&bytes.*, pos);
         cond(
           ((d.code == self) && (pos <= lim)) => {
             last = .Some(pos);
@@ -1373,7 +1373,7 @@ impl(
       cond(
         (at < bytes.len()) =>
           match(
-            utf8.decode(&bytes, at),
+            utf8.decode(&bytes.*, at),
             .Ok(d) => cond(
               (d.code == self) => d.width,
               true => usize(0)
@@ -1390,7 +1390,7 @@ impl(
       mut(seg_start) := usize(0);
       mut(pos) := usize(0);
       while(pos < n, {
-        d := utf8.decode_lossy(&bytes, pos);
+        d := utf8.decode_lossy(&bytes.*, pos);
         cond(
           (d.code == self) => {
             parts.push(haystack.substring(seg_start, pos));
@@ -1817,7 +1817,7 @@ impl(
                     pos = (after + usize(1));
                   },
                   true => {
-                    d := utf8.decode_lossy(&self_bytes, after);
+                    d := utf8.decode_lossy(&self_bytes.*, after);
                     pos = (after + d.width);
                   }
                 );
@@ -2311,7 +2311,7 @@ impl(
             (i < stop) => (i + usize(1)),
             true => stop
           );
-          .Some(_line_slice(&al, start, i))
+          .Some(_line_slice(&al.*, start, i))
         }
       )
     })
@@ -2356,7 +2356,7 @@ impl(
             (line_start > self._byte_index) => (line_start - usize(1)),
             true => self._byte_index
           );
-          Option(String).Some(_line_slice(&al, line_start, stop))
+          Option(String).Some(_line_slice(&al.*, line_start, stop))
         }
       )
     })

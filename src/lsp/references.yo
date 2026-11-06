@@ -100,7 +100,7 @@ _top_level_decl_token :: (fn(exprs : &ArrayList(AstExpr), name : &String) -> Opt
               .Some(lhs) => match(
                 lhs,
                 .Atom(_, t) => {
-                  if(t.value.* == name, {
+                  if(t.value.* == name.*, {
                     return(Option(Token).Some(t));
                   });
                 },
@@ -125,7 +125,7 @@ _top_level_decl_token :: (fn(exprs : &ArrayList(AstExpr), name : &String) -> Opt
                       .Some(name_expr) => {
                         if(ast_expr_is_atom(&name_expr), {
                           name_tok := ast_expr_token(&name_expr);
-                          if(name_tok.value.* == name, {
+                          if(name_tok.value.* == name.*, {
                             return(Option(Token).Some(name_tok));
                           });
                         });
@@ -161,7 +161,7 @@ _ScopedAtom :: struct(atom : AstExpr, scope : Option(Token));
 _decl_atom :: (fn(e : &AstExpr, name : &String) -> Option(Token))(
   match(
     e,
-    .Atom(_, t) => if((t.value.* == name) && (t.kind == TokenKind.Identifier), Option(Token).Some(t), Option(Token).None),
+    .Atom(_, t) => if((t.value.* == name.*) && (t.kind == TokenKind.Identifier), Option(Token).Some(t.*), Option(Token).None),
     .FnCall(_, _, Rc(args), _, _) => cond(
       ast_expr_is_fn_call_of(e, "where", Option(usize).None) => Option(Token).None,
       (ast_expr_is_fn_call_of(e, ":", Option(usize).Some(usize(2))) || ast_expr_is_fn_call_of(e, "=", Option(usize).Some(usize(2))) || ast_expr_is_fn_call_of(e, "?=", Option(usize).Some(usize(2))) || ast_expr_is_fn_call_of(e, "&&", Option(usize).Some(usize(2)))) => recur(&args(usize(0)), name),
@@ -182,7 +182,7 @@ _fn_literal_decl :: (fn(e : &AstExpr, name : &String) -> Option(Token))(
   match(
     e,
     .FnCall(_, callee, _, _, _) => cond(
-      ast_expr_is_fn_call_of(&callee, "->", Option(usize).Some(usize(2))) => match(
+      ast_expr_is_fn_call_of(&callee.*, "->", Option(usize).Some(usize(2))) => match(
         callee,
         .FnCall(_, _, Rc(ft_args), _, _) => {
           head := ft_args(usize(0));
@@ -242,7 +242,7 @@ _scoped_atoms :: (fn(e : &AstExpr, name : &String, scope : &Option(Token), out :
   match(
     e,
     .Atom(_, tok) => {
-      if(tok.value.* == name, {
+      if(tok.value.* == name.*, {
         out.push(_ScopedAtom(atom : e.clone(), scope : scope.clone()));
       });
     },
@@ -277,7 +277,7 @@ _scoped_atoms :: (fn(e : &AstExpr, name : &String, scope : &Option(Token), out :
       });
       if(ast_expr_is_fn_call_of(e, "match", Option(usize).None) || ast_expr_is_fn_call_of(e, "cond", Option(usize).None), {
         is_match := ast_expr_is_fn_call_of(e, "match", Option(usize).None);
-        recur(&callee, name, scope, out);
+        recur(&callee.*, name, scope, out);
         (k : usize) = usize(0);
         while(k < args.len(), k = (k + usize(1)), {
           arm := args(k);
@@ -309,7 +309,7 @@ _scoped_atoms :: (fn(e : &AstExpr, name : &String, scope : &Option(Token), out :
         true => _fn_literal_decl(e, name)
       );
       inner := match(own, .Some(d) => Option(Token).Some(d), .None => scope.clone());
-      recur(&callee, name, &inner, out);
+      recur(&callee.*, name, &inner, out);
       (k : usize) = usize(0);
       while(k < args.len(), k = (k + usize(1)), {
         recur(&args(k), name, &inner, out);

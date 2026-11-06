@@ -566,7 +566,7 @@ generate_dup_code_for_value :: (fn(value_code : &String, value_type : &TypeValue
         elem_ref.push_str(".data[");
         elem_ref.push_string(loop_var.clone());
         elem_ref.push_str("]");
-        elem_dup := recur(elem_ref.clone(), &element, context);
+        elem_dup := recur(elem_ref.clone(), &element.*, context);
         mut(asn) := String.from("  ");
         asn.push_string(&elem_ref);
         asn.push_str(" = ");
@@ -803,7 +803,7 @@ _dd_drop_target_atom :: (fn(drop_expr : &AstExpr) -> Option(AstExpr))(
       args.len() == usize(0),
       match(
         func,
-        .FnCall(_, _, Rc(fargs), _, _) => if(ast_expr_is_fn_call_of(&func, BF_DOT, Option(usize).Some(usize(2))), {
+        .FnCall(_, _, Rc(fargs), _, _) => if(ast_expr_is_fn_call_of(&func.*, BF_DOT, Option(usize).Some(usize(2))), {
           a1_is_drop := match(fargs.get(usize(1)), .Some(a1) => if(ast_expr_is_atom(&a1), ast_expr_token(&a1).value.* == BF_DROP, false), .None => false);
           if(a1_is_drop, match(fargs.get(usize(0)), .Some(a0) => if(ast_expr_is_atom(&a0), Option(AstExpr).Some(a0), Option(AstExpr).None), .None => Option(AstExpr).None), Option(AstExpr).None)
         }, Option(AstExpr).None),
@@ -1103,7 +1103,7 @@ generate_deferred_dup_expressions :: (fn(expr : &AstExpr, indent : &String, cont
                       &ddei.variable_name(),
                       .Some(ddvn) => {
                         ddtn := get_variable_name_for_codegen_at(ast_expr_id(&dup_expr), ddvn.clone(), Option(Environment).Some(ddei.env()));
-                        if(!(ddtn == code) && !context.base.declared_scopes.with(ds_s => scope_stack_contains(ds_s, &ddtn)), Option(String).Some(get_variable_type_string(&ddei.ty(), &ddvn, &mut context.base)), Option(String).None)
+                        if(!(ddtn == code) && !context.base.declared_scopes.with(ds_s => scope_stack_contains(ds_s, &ddtn)), Option(String).Some(get_variable_type_string(&ddei.ty(), &ddvn.*, &mut context.base)), Option(String).None)
                       },
                       .None => Option(String).None
                     ),
@@ -1113,7 +1113,7 @@ generate_deferred_dup_expressions :: (fn(expr : &AstExpr, indent : &String, cont
                   match(
                     &dup_result_decl,
                     .Some(dr_decl) => {
-                      line.push_string(&dr_decl);
+                      line.push_string(&dr_decl.*);
                       line.push_str(" = ");
                     },
                     .None => ()
@@ -1132,8 +1132,8 @@ generate_deferred_dup_expressions :: (fn(expr : &AstExpr, indent : &String, cont
                         .Some(svn) => match(
                           &context.state_machine_variables,
                           .Some(smv) => match(
-                            sm_slot_of(ast_expr_id(&dup_expr), &sei.env(), svn.clone(), &smv, &context.variable_id_remapping, &context.state_machine_field_aliases, &context.sm_capture_slot),
-                            .Some(slot) => context.base.emitter.emit_string_line(`${indent.clone()}${slot} = ${get_variable_name_for_codegen_at(ast_expr_id(&dup_expr), &svn, Option(Environment).Some(sei.env()))};`),
+                            sm_slot_of(ast_expr_id(&dup_expr), &sei.env(), svn.clone(), &smv.*, &context.variable_id_remapping, &context.state_machine_field_aliases, &context.sm_capture_slot),
+                            .Some(slot) => context.base.emitter.emit_string_line(`${indent.clone()}${slot} = ${get_variable_name_for_codegen_at(ast_expr_id(&dup_expr), &svn.*, Option(Environment).Some(sei.env()))};`),
                             .None => ()
                           ),
                           .None => ()
@@ -1243,7 +1243,7 @@ emit_deferred_dup_or_code :: (fn(expr : &AstExpr, fallback_code : &String, inden
                 &dei.variable_name(),
                 .Some(dvn) => if(
                   type_key(&dei.ty()) == type_key(&ei.ty()),
-                  Option(String).Some(get_variable_name_for_codegen_at(ast_expr_id(&dup_expr), &dvn, Option(Environment).Some(dei.env()))),
+                  Option(String).Some(get_variable_name_for_codegen_at(ast_expr_id(&dup_expr), &dvn.*, Option(Environment).Some(dei.env()))),
                   Option(String).None
                 ),
                 .None => Option(String).None
@@ -1434,7 +1434,7 @@ generate_arg_code_with_deferred_dups :: (
               context.base.get_expr_info(&ix_dup),
               .Some(ix_dei) => match(
                 &ix_dei.variable_name(),
-                .Some(ix_dvn) => get_variable_name_for_codegen_at(ast_expr_id(&ix_dup), &ix_dvn, Option(Environment).Some(ix_dei.env())),
+                .Some(ix_dvn) => get_variable_name_for_codegen_at(ast_expr_id(&ix_dup), &ix_dvn.*, Option(Environment).Some(ix_dei.env())),
                 .None => base_code
               ),
               .None => base_code
@@ -1488,7 +1488,7 @@ generate_early_return_only_deferred_drop_expressions :: (fn(expr : &AstExpr, ind
                   cn := sanitize_for_c_identifier(vn.clone(), false);
                   in_slot := match(
                     &context.state_machine_variables,
-                    .Some(smv) => (context.in_async_state_machine.is_some() && sm_slot_of(match(get_deferred_drop_target_atom(&drop_expr), .Some(ta) => ast_expr_id(&ta), .None => ast_expr_id(expr)), &ei.env(), &vn, &smv, &context.variable_id_remapping, &context.state_machine_field_aliases, &context.sm_capture_slot).is_some()),
+                    .Some(smv) => (context.in_async_state_machine.is_some() && sm_slot_of(match(get_deferred_drop_target_atom(&drop_expr), .Some(ta) => ast_expr_id(&ta), .None => ast_expr_id(expr)), &ei.env(), &vn, &smv.*, &context.variable_id_remapping, &context.state_machine_field_aliases, &context.sm_capture_slot).is_some()),
                     .None => false
                   );
                   // Likewise an `FnOnce` closure's owned capture lives in the

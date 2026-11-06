@@ -71,11 +71,11 @@ evaluate_downcast :: (
       fargs.get(usize(0)),
       .Some(x) => x,
       .None => {
-        return(expr);
+        return(expr.*);
       }
     ),
     _ => {
-      return(expr);
+      return(expr.*);
     }
   );
   eval_dyn_expr := evaluate_expression_raw(&dyn_expr, &cur_env, ctx, exn);
@@ -110,11 +110,11 @@ evaluate_downcast :: (
       fargs.get(usize(1)),
       .Some(x) => x,
       .None => {
-        return(expr);
+        return(expr.*);
       }
     ),
     _ => {
-      return(expr);
+      return(expr.*);
     }
   );
   eval_type_expr := evaluate_expression_raw(&type_expr, &cur_env, ctx, exn);
@@ -171,7 +171,7 @@ evaluate_downcast :: (
   out_info.set_value(Option(EvalValue).Some(result_value));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   attach_temp_variable_to_expr(expr, true, ctx);
-  expr
+  expr.*
 });
 /// Is `t` one of `list` (the identity relation on trait types)?
 _trait_in :: (fn(t : &TypeValue, list : &ArrayList(TypeValue)) -> bool)({
@@ -205,11 +205,11 @@ evaluate_upcast :: (
       fargs.get(usize(0)),
       .Some(x) => x,
       .None => {
-        return(expr);
+        return(expr.*);
       }
     ),
     _ => {
-      return(expr);
+      return(expr.*);
     }
   );
   eval_dyn_expr := evaluate_expression_raw(&dyn_expr, &cur_env, ctx, exn);
@@ -225,7 +225,7 @@ evaluate_upcast :: (
           )
         )
       );
-      return(expr);
+      return(expr.*);
     }
   );
   cur_env = expr_info_adopt_env(&dyn_info);
@@ -246,11 +246,11 @@ evaluate_upcast :: (
       fargs.get(usize(1)),
       .Some(x) => x,
       .None => {
-        return(expr);
+        return(expr.*);
       }
     ),
     _ => {
-      return(expr);
+      return(expr.*);
     }
   );
   eval_type_expr := evaluate_expression_raw(&type_expr, &cur_env, ctx, exn);
@@ -266,7 +266,7 @@ evaluate_upcast :: (
           )
         )
       );
-      return(expr);
+      return(expr.*);
     }
   );
   cur_env = expr_info_adopt_env(&type_info);
@@ -330,6 +330,6 @@ evaluate_upcast :: (
   out_info.set_value(Option(EvalValue).Some(result_value));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   attach_temp_variable_to_expr(expr, true, ctx);
-  expr
+  expr.*
 });
 export(evaluate_downcast, evaluate_upcast);

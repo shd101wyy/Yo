@@ -128,7 +128,7 @@ impl(
   get_subcommand_args : (fn(self : &Self) -> Option(&Self))(
     match(
       &self._subcommand_args,
-      .Some(b) => .Some(&b.*),
+      .Some(b) => .Some(&b.*.*),
       .None => .None
     )
   ),
@@ -157,7 +157,7 @@ impl(
         names.get_cloned(i),
         .Some(n) => {
           cond(
-            (n == name) => {
+            (n == name.*) => {
               result = values.get_cloned(i);
               i = len;
             },
@@ -245,7 +245,7 @@ impl(
         self._subcommand_names.get_cloned(i),
         .Some(n) => {
           cond(
-            (n == name) => {
+            (n == name.*) => {
               result = .Some(i);
             },
             true => ()
@@ -340,7 +340,7 @@ impl(
         self._args.get_cloned(i),
         .Some(arg_def) => {
           cond(
-            ((arg_def._long_name == name) || (arg_def._short_name == name)) => {
+            ((arg_def._long_name == name.*) || (arg_def._short_name == name.*)) => {
               result = .Some(i);
               i = len;
             },

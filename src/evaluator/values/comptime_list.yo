@@ -114,9 +114,9 @@ evaluate_comptime_list_value :: (
       &child_type_opt,
       .None => Option(TypeValue).Some(arg_ty),
       .Some(ct) => {
-        compat := are_types_compatible(&arg_ty, &ct);
+        compat := are_types_compatible(&arg_ty, &ct.*);
         if(!compat, {
-          ct_str := type_to_string(&ct);
+          ct_str := type_to_string(&ct.*);
           arg_str := type_to_string(&arg_ty);
           exn.throw(
             dyn(
@@ -152,6 +152,6 @@ evaluate_comptime_list_value :: (
   info := new_expr_info(&env_loop, &list_type);
   info.set_value(Option(EvalValue).Some(list_val));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
-  expr
+  expr.*
 });
 export(evaluate_comptime_list_value);

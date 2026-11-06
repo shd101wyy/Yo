@@ -25,40 +25,40 @@
 // Constraint tables
 // ---------------------------------------------------------------------------
 _is_register_class :: (fn(name : &String) -> bool)(
-  (name == "reg") || (name == "reg_byte") || (name == "reg_abcd") || (name == "xmm_reg") ||
-    (name == "ymm_reg") || (name == "imm")
-    || (name == "mem")
+  (name.* == "reg") || (name.* == "reg_byte") || (name.* == "reg_abcd") || (name.* == "xmm_reg") ||
+    (name.* == "ymm_reg") || (name.* == "imm")
+    || (name.* == "mem")
 );
 _explicit_register_constraint :: (fn(name : &String) -> Option(String))(
   cond(
-    ((name == "rax") || (name == "eax") || (name == "ax") || (name == "al")) => Option(String).Some(String.from("a")),
-    ((name == "rbx") || (name == "ebx") || (name == "bx") || (name == "bl")) => Option(String).Some(String.from("b")),
-    ((name == "rcx") || (name == "ecx") || (name == "cx") || (name == "cl")) => Option(String).Some(String.from("c")),
-    ((name == "rdx") || (name == "edx") || (name == "dx") || (name == "dl")) => Option(String).Some(String.from("d")),
-    ((name == "rsi") || (name == "esi") || (name == "si")) => Option(String).Some(String.from("S")),
-    ((name == "rdi") || (name == "edi") || (name == "di")) => Option(String).Some(String.from("D")),
+    ((name.* == "rax") || (name.* == "eax") || (name.* == "ax") || (name.* == "al")) => Option(String).Some(String.from("a")),
+    ((name.* == "rbx") || (name.* == "ebx") || (name.* == "bx") || (name.* == "bl")) => Option(String).Some(String.from("b")),
+    ((name.* == "rcx") || (name.* == "ecx") || (name.* == "cx") || (name.* == "cl")) => Option(String).Some(String.from("c")),
+    ((name.* == "rdx") || (name.* == "edx") || (name.* == "dx") || (name.* == "dl")) => Option(String).Some(String.from("d")),
+    ((name.* == "rsi") || (name.* == "esi") || (name.* == "si")) => Option(String).Some(String.from("S")),
+    ((name.* == "rdi") || (name.* == "edi") || (name.* == "di")) => Option(String).Some(String.from("D")),
     true => Option(String).None
   )
 );
 _register_class_to_gcc :: (fn(class_name : &String, arch : Arch) -> String)(
   cond(
-    (class_name == "reg") => String.from("r"),
-    (class_name == "reg_byte") => String.from("q"),
-    (class_name == "reg_abcd") => String.from("Q"),
-    (class_name == "xmm_reg") => match(arch, .Aarch64 => String.from("w"), _ => String.from("x")),
-    (class_name == "ymm_reg") => String.from("x"),
-    (class_name == "imm") => String.from("i"),
-    (class_name == "mem") => String.from("m"),
+    (class_name.* == "reg") => String.from("r"),
+    (class_name.* == "reg_byte") => String.from("q"),
+    (class_name.* == "reg_abcd") => String.from("Q"),
+    (class_name.* == "xmm_reg") => match(arch, .Aarch64 => String.from("w"), _ => String.from("x")),
+    (class_name.* == "ymm_reg") => String.from("x"),
+    (class_name.* == "imm") => String.from("i"),
+    (class_name.* == "mem") => String.from("m"),
     true => String.from("r")
   )
 );
 _template_modifier :: (fn(m : &String) -> String)(
   cond(
-    (m == "e") => String.from("k"),
-    (m == "x") => String.from("w"),
-    (m == "l") => String.from("b"),
-    (m == "h") => String.from("h"),
-    (m == "w") => String.from("w"),
+    (m.* == "e") => String.from("k"),
+    (m.* == "x") => String.from("w"),
+    (m.* == "l") => String.from("b"),
+    (m.* == "h") => String.from("h"),
+    (m.* == "w") => String.from("w"),
     true => m.clone()
   )
 );
@@ -267,7 +267,7 @@ _parse_operand_for_codegen :: (
 )({
   args := _fn_call_args_cg(operand_expr);
   arch := context.base.target_info.arch;
-  kind := cond((kind_in == String.from("ref")) => String.from("inout"), true => kind_in.clone());
+  kind := cond((kind_in.* == String.from("ref")) => String.from("inout"), true => kind_in.clone());
   if((kind == String.from("const_val")) || (kind == String.from("sym")), {
     (mut(name) : Option(String)) = Option(String).None;
     (mut(value_idx) : usize) = usize(0);
@@ -386,7 +386,7 @@ _parse_operand_for_codegen :: (
 /// Clobber list from clobber()/clobber_abi().
 _parse_clobbers :: (fn(clobber_expr : &AstExpr, context : &FunctionGenerationContext) -> ArrayList(String))({
   clobbers := ArrayList(String).new();
-  kind := match(clobber_expr, .FnCall(_, f, _, _, _) => _atom_value_cg(&f), _ => String.from("clobber"));
+  kind := match(clobber_expr, .FnCall(_, f, _, _, _) => _atom_value_cg(&f.*), _ => String.from("clobber"));
   if(kind == String.from("clobber_abi"), {
     arch := context.base.target_info.arch;
     match(
@@ -650,7 +650,7 @@ generate_asm :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGe
                     k = (k + usize(1));
                   });
                 };
-                name_match := match(&op.name, .Some(nm) => (ref_str == nm), .None => false);
+                name_match := match(&op.name, .Some(nm) => (ref_str == nm.*), .None => false);
                 idx_match := (ref_str == oi.to_string());
                 if(name_match || idx_match, {
                   rebuilt.push_string(op.c_expr.clone());
@@ -917,7 +917,7 @@ generate_asm :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGe
 });
 /// Generate C code for global_asm().
 generate_global_asm :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
-  indent;
+  indent.*;
   if(is_target_wasm(&context.base.target_info), {
     return(String.from("/* global_asm skipped: not supported on this target */"));
   });

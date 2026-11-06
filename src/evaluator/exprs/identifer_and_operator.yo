@@ -180,7 +180,7 @@ evaluate_identifier_and_operator :: (
         info := new_expr_info(env, t_type());
         info.set_value(Option(EvalValue).Some(ev));
         expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
-        return(expr);
+        return(expr.*);
       });
     },
     .None => ()
@@ -207,7 +207,7 @@ evaluate_identifier_and_operator :: (
     info := new_expr_info(env, t_type());
     info.set_value(Option(EvalValue).Some(ev));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
-    return(expr);
+    return(expr.*);
   });
   // ------------------------------------------------------------------
   // SelfTrait — refers to the trait type currently being defined
@@ -219,7 +219,7 @@ evaluate_identifier_and_operator :: (
     info := new_expr_info(env, t_type());
     info.set_value(Option(EvalValue).Some(ev));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
-    return(expr);
+    return(expr.*);
   });
   // ------------------------------------------------------------------
   // SelfModule — refers to the module type currently being defined
@@ -231,7 +231,7 @@ evaluate_identifier_and_operator :: (
     info := new_expr_info(env, t_type());
     info.set_value(Option(EvalValue).Some(ev));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
-    return(expr);
+    return(expr.*);
   });
   // ------------------------------------------------------------------
   // Variable lookup
@@ -262,7 +262,7 @@ evaluate_identifier_and_operator :: (
             )
           )
         );
-        return(expr);
+        return(expr.*);
       });
       v
     },
@@ -281,7 +281,7 @@ evaluate_identifier_and_operator :: (
       },
       .Error({ msg : pending_msg }) => {
         exn.throw(dyn(pending_msg));
-        return(expr);
+        return(expr.*);
       },
       .NotPending => {
         // Unresolved OPERATOR names keep the soft fallback.
@@ -289,7 +289,7 @@ evaluate_identifier_and_operator :: (
           fallback_info := new_expr_info(env, t_unit());
           fallback_info.set_value(Option(EvalValue).Some(create_unknown_val(t_unit())));
           expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &fallback_info);
-          return(expr);
+          return(expr.*);
         });
         // Phase V3: a `requires(...)`/`ensures(...)` predicate references
         // the signature's parameters and the return label — names with NO
@@ -301,7 +301,7 @@ evaluate_identifier_and_operator :: (
           pred_info := new_expr_info(env, t_unit());
           pred_info.set_value(Option(EvalValue).Some(create_unknown_val(t_unit())));
           expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &pred_info);
-          return(expr);
+          return(expr.*);
         });
         // Ordinary identifiers throw.
         if(debug_knob(`YO_DEBUG_SWALLOW`).is_some(), {
@@ -434,7 +434,7 @@ evaluate_identifier_and_operator :: (
             )
           )
         );
-        return(expr);
+        return(expr.*);
       }
     )
   );
@@ -469,7 +469,7 @@ evaluate_identifier_and_operator :: (
         // (a closure or `io.async` body) re-raises it instead of swallowing
         // it into an abort stub.
         raise_flow_violation(use_of_moved_value_error(variable.name.clone(), &variable_value_type(&variable), &token, variable_move_note(&variable, &moved_at)), ctx, exn);
-        return(expr);
+        return(expr.*);
       });
     },
     .None => ()
@@ -562,7 +562,7 @@ evaluate_identifier_and_operator :: (
   // `source_variable`; codegen still resolves the symbol by name through
   // the atom, so the scope release records the name (cheap gates first:
   // this path runs for every identifier).
-  if(match(&variable_value_type(&variable), Rc(.Func({ meta : __xm })) => __xm.*.is_extern.is_some(), _ => false) || (variable.is_compile_time_only() && (!is_function_type(&variable_value_type(&variable)) && is_extern_c_global(variable.name.clone()))), {
+  if(match(&variable_value_type(&variable), Rc(.Func({ meta : __xm })) => __xm.*.*.is_extern.is_some(), _ => false) || (variable.is_compile_time_only() && (!is_function_type(&variable_value_type(&variable)) && is_extern_c_global(variable.name.clone()))), {
     scope_release_note_query(ast_expr_id(expr), variable.name.clone());
   });
   // ------------------------------------------------------------------
@@ -714,16 +714,16 @@ evaluate_identifier_and_operator :: (
     },
     .None => ()
   );
-  expr
+  expr.*
 });
 /// The handle constructor that replaced the deleted prelude builtin `name`
 /// (`rc` → `Rc.new`, `box` → `Box.new`, `arc` → `Arc.new`); `.None` for any
 /// other name.
 _deleted_handle_ctor :: (fn(name : &String) -> Option(String))(
   cond(
-    (name == "rc") => .Some(String.from("Rc.new")),
-    (name == "box") => .Some(String.from("Box.new")),
-    (name == "arc") => .Some(String.from("Arc.new")),
+    (name.* == "rc") => .Some(String.from("Rc.new")),
+    (name.* == "box") => .Some(String.from("Box.new")),
+    (name.* == "arc") => .Some(String.from("Arc.new")),
     true => .None
   )
 );

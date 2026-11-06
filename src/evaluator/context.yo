@@ -250,7 +250,7 @@ ComptimeFnCacheEntry :: ref(
     caches : ArrayList(CalledComptimeFnCache)
   )
 );
-impl(ComptimeFnCacheEntry, Clone(clone : (fn(self : &Self) -> Self)(self)));
+impl(ComptimeFnCacheEntry, Clone(clone : (fn(self : &Self) -> Self)(self.*)));
 // ---------------------------------------------------------------------------
 // Specialization cache types
 // ---------------------------------------------------------------------------
@@ -536,7 +536,7 @@ ArgValues :: ref(
 );
 /// A handle copy: `ArgValues` is still a `ref` (its `ArgEntry` elements are
 /// written in place), so a clone shares the record.
-impl(ArgValues, Clone(clone : (fn(self : &Self) -> Self)(self)));
+impl(ArgValues, Clone(clone : (fn(self : &Self) -> Self)(self.*)));
 // ---------------------------------------------------------------------------
 // FunctionCallResult
 // ---------------------------------------------------------------------------
@@ -792,7 +792,7 @@ track_variable_usage_resolved :: (
                   match(
                     frame.variable_at(vi),
                     .Some(v) => {
-                      if(v.name == variable_name, {
+                      if(v.name == variable_name.*, {
                         var_found = Option(Variable).Some(v);
                         actual_frame_level = fi;
                         vi = n_vars; // break inner loop
@@ -876,7 +876,7 @@ track_variable_usage_resolved :: (
           new_entry := CapturedVarInfo(
             frame_level : actual_frame_level,
             usage : effective_usage,
-            token : token
+            token : token.*
           );
           // Taken out and stored back: a `match` binding is a copy of the
           // map once collections are values.
@@ -1012,7 +1012,7 @@ get_module_begin_expr_index :: (fn() -> usize)(g_module_begin_expr_index);
 /// peeled ITERATIVELY — self-recursion is not visible to a def-time body
 /// trial, the very limitation §4.6 exists to diagnose.)
 lhs_binds_name :: (fn(lhs : &AstExpr, name : &String) -> bool)({
-  (cur : AstExpr) = lhs;
+  (cur : AstExpr) = lhs.*;
   // `mut(name)` and `thread_local(name)` wrap the declared name (decision 47).
   while(ast_expr_is_fn_call_of(&cur, BK_COMPTIME, .Some(usize(1))) || (ast_expr_is_fn_call_of(&cur, BK_COLON, .Some(usize(2))) || (ast_expr_is_fn_call_of(&cur, "mut", .Some(usize(1))) || ast_expr_is_fn_call_of(&cur, "thread_local", .Some(usize(1))))), {
     cur = match(
@@ -1026,8 +1026,8 @@ lhs_binds_name :: (fn(lhs : &AstExpr, name : &String) -> bool)({
     );
   });
   cond(
-    ast_expr_is_atom(&cur) => (ast_expr_token(&cur).value.* == name),
-    true => (ast_expr_to_string(&cur) == name)
+    ast_expr_is_atom(&cur) => (ast_expr_token(&cur).value.* == name.*),
+    true => (ast_expr_to_string(&cur) == name.*)
   )
 });
 /// Does this module-level expression bind `name`? (`X :: rhs` / `X : rhs` /
@@ -1040,7 +1040,7 @@ module_expr_binds_name :: (fn(e : &AstExpr, name : &String) -> bool)(
         e,
         .FnCall(_, _, Rc(iargs), _, _) => match(
           iargs.get(usize(0)),
-          .Some(first) => (ast_expr_to_string(&first) == name),
+          .Some(first) => (ast_expr_to_string(&first) == name.*),
           .None => false
         ),
         .Atom(_, _) => false
@@ -1333,7 +1333,7 @@ new_pending_def :: (fn(name : &String, expr : &AstExpr, index : usize, is_impl :
       live : RefCell(PendingDefLive).new(
         PendingDefLive(
           members : ArrayList(String).new(),
-          expr : expr,
+          expr : expr.*,
           row : usize(ast_expr_token(expr).row),
           is_derive : false,
           state : PendingDefState.Unforced,
@@ -1400,7 +1400,7 @@ impl(
   has_ctx : (fn(self : &Self) -> bool)(self.ctx.with(c => c.is_some())),
   /// A fresh copy of the walk's context (`copy_eval_context`), if it kept one.
   ctx_copy : (fn(self : &Self) -> Option(EvalContext))(
-    self.ctx.with(c => match(c, .Some(wc) => Option(EvalContext).Some(copy_eval_context(&wc)), .None => Option(EvalContext).None))
+    self.ctx.with(c => match(c, .Some(wc) => Option(EvalContext).Some(copy_eval_context(&wc.*)), .None => Option(EvalContext).None))
   ),
   /// The expression-info table of the walk's kept context (a shared handle).
   ctx_expr_info_table : (fn(self : &Self) -> Option(ExprInfoTable))(
@@ -1815,8 +1815,8 @@ rebind_destructured_name :: (
     i = (i - usize(1));
     match(
       f.variable_at(i),
-      .Some(v) => if(v.name == name, {
-        variable_set_value_type(&v, Rc.clone(variable_value_type(&fresh)));
+      .Some(v) => if(v.name == name.*, {
+        variable_set_value_type(&v, Rc.clone(variable_value_type(&fresh.*)));
         v.set_value(value_cell_of(fresh.value().get(usize(0))));
         v.set_is_compile_time_only(fresh.is_compile_time_only());
         return(true);
@@ -2011,7 +2011,7 @@ fn_ctx_returns_comptime :: (fn(ctx : &EvalContext) -> bool)(
       fc.kind,
       .FunctionBody => match(
         &fc.func_type,
-        .Some(Rc(.Func({ meta : fm }))) => fm.*.result_is_comptime_only,
+        .Some(Rc(.Func({ meta : fm }))) => fm.*.*.result_is_comptime_only,
         .Some(_) => false,
         .None => false
       ),
@@ -2030,8 +2030,8 @@ _clone_captured_variables :: (
   match(
     src,
     .Some(m) => {
-      for(&m, (k, v) => {
-        dst.insert(k.clone(), v);
+      for(&m.*, (k, v) => {
+        dst.insert(k.clone(), v.*);
       });
       any = true;
     },
@@ -2119,7 +2119,7 @@ impl_receiver_head_name :: (fn(recv : &AstExpr) -> String)(
       match(
         recv,
         .FnCall(_, callee, _, _, _) => cond(
-          (ast_expr_is_atom(&callee) && !(ast_expr_is_atom_and_operator(&callee))) => ast_expr_token(&callee).value.*.clone(),
+          (ast_expr_is_atom(&callee.*) && !(ast_expr_is_atom_and_operator(&callee.*))) => ast_expr_token(&callee.*).value.*.clone(),
           true => String.new()
         ),
         .Atom(_, _) => String.new()
@@ -2237,7 +2237,7 @@ force_pending_move_only_impls :: (fn(type_name : &String) -> bool)({
           match(
             walk.defs.get_cloned(di),
             .Some(def) => {
-              is_target := (((def.is_impl && match(def.state(), .Unforced => true, _ => false)) && ((def.name == type_name) || (def.name.len() == usize(0)))) && _impl_expr_declares_move_only(&def.expr()));
+              is_target := (((def.is_impl && match(def.state(), .Unforced => true, _ => false)) && ((def.name == type_name.*) || (def.name.len() == usize(0)))) && _impl_expr_declares_move_only(&def.expr()));
               if(is_target, {
                 match(
                   force_pending_def(&walk, &def),
@@ -2330,8 +2330,8 @@ _is_extern_decl_destructure :: (fn(e : &AstExpr) -> bool)(
 _extern_decl_bound_names :: (fn(e : &AstExpr) -> ArrayList(String))({
   names := ArrayList(String).new();
   dargs := match(e, .FnCall(_, _, a, _, _) => Rc.clone(a).*.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
-  lhs := match(dargs.get(usize(0)), .Some(l) => l, .None => e);
-  rhs := match(dargs.get(usize(1)), .Some(r) => r, .None => e);
+  lhs := match(dargs.get(usize(0)), .Some(l) => l, .None => e.*);
+  rhs := match(dargs.get(usize(1)), .Some(r) => r, .None => e.*);
   fields := match(lhs, .FnCall(_, _, fa, _, _) => Rc.clone(fa).*.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
   (i : usize) = usize(0);
   while(i < fields.len(), {
@@ -2439,8 +2439,8 @@ classify_pending_def :: (fn(e : &AstExpr, index : usize) -> Option(PendingDef))(
     ast_expr_is_fn_call_of(e, BK_CONST, .Some(usize(2))) => match(
       e,
       .FnCall(_, _, Rc(cargs), _, _) => {
-        lhs := match(cargs.get(usize(0)), .Some(l) => l, .None => e);
-        rhs := match(cargs.get(usize(1)), .Some(r) => r, .None => e);
+        lhs := match(cargs.get(usize(0)), .Some(l) => l, .None => e.*);
+        rhs := match(cargs.get(usize(1)), .Some(r) => r, .None => e.*);
         lhs_name := ast_expr_token(&lhs).value.*.clone();
         cond(
           !(ast_expr_is_atom(&lhs)) => Option(PendingDef).None,
@@ -2466,9 +2466,9 @@ classify_pending_def :: (fn(e : &AstExpr, index : usize) -> Option(PendingDef))(
           true => {
             // Case 2 (`impl(generic(...), Receiver, ...)`) names the receiver
             // second; Case 3 (`impl(Receiver, ...)`) first.
-            a0 := match(iargs.get(usize(0)), .Some(a) => a, .None => e);
+            a0 := match(iargs.get(usize(0)), .Some(a) => a, .None => e.*);
             recv := cond(
-              ast_expr_is_fn_call_of(&a0, BK_GENERIC, .None) => match(iargs.get(usize(1)), .Some(a) => a, .None => e),
+              ast_expr_is_fn_call_of(&a0, BK_GENERIC, .None) => match(iargs.get(usize(1)), .Some(a) => a, .None => e.*),
               true => a0
             );
             if(_is_reference_impl_receiver(&recv), {
@@ -2750,11 +2750,11 @@ walk_pending_def_at :: (fn(walk : &ModuleWalk, index : usize) -> Option(PendingD
 /// True when `def` declares `name`: its own name, or one of an extern
 /// block's members.
 _def_declares :: (fn(d : &PendingDef, name : &String) -> bool)({
-  if(d.name == name, return(true));
+  if(d.name == name.*, return(true));
   ms := d.members();
   (m : usize) = usize(0);
   while(m < ms.len(), {
-    if(ms(m) == name, return(true));
+    if(ms(m) == name.*, return(true));
     m = (m + usize(1));
   });
   false
@@ -2791,7 +2791,7 @@ _active_walk_for :: (fn(module_path : &String) -> Option(ModuleWalk))({
     i = (i - usize(1));
     match(
       g_module_walks.with(xs => xs.get_cloned(i)),
-      .Some(w) => if(w.module_path == module_path, {
+      .Some(w) => if(w.module_path == module_path.*, {
         found = Option(ModuleWalk).Some(w);
       }),
       .None => ()
@@ -2879,7 +2879,7 @@ publish_pending_phase_a :: (fn(rhs_id : usize, value : &EvalValue, ty : &TypeVal
         .Atom(_, _) => usize(0)
       );
       if(def_rhs_id == rhs_id, {
-        def.set_phase_a_value(Option(EvalValue).Some(value));
+        def.set_phase_a_value(Option(EvalValue).Some(value.*));
         def.set_phase_a_type(Option(TypeValue).Some(Rc.clone(ty)));
       });
     }),
@@ -2928,7 +2928,7 @@ pending_prebound_variable :: (fn(name : &String, lhs_tok : &Token) -> Option(Var
   match(
     current_forcing_def(),
     .Some(def) => cond(
-      (((!(def.is_impl) && (def.name == name)) && match(def.state(), .Forcing => true, _ => false) && _def_lhs_token_is(&def, lhs_tok))) => def.variable(),
+      (((!(def.is_impl) && (def.name == name.*)) && match(def.state(), .Forcing => true, _ => false) && _def_lhs_token_is(&def, lhs_tok))) => def.variable(),
       true => Option(Variable).None
     ),
     .None => Option(Variable).None
@@ -2939,7 +2939,7 @@ pending_prebound_variable :: (fn(name : &String, lhs_tok : &Token) -> Option(Var
 record_pending_def_variable :: (fn(name : &String, lhs_tok : &Token, var : &Variable) -> unit)(
   match(
     current_forcing_def(),
-    .Some(def) => if(((!(def.is_impl) && (def.name == name)) && def.variable().is_none() && _def_lhs_token_is(&def, lhs_tok)), {
+    .Some(def) => if(((!(def.is_impl) && (def.name == name.*)) && def.variable().is_none() && _def_lhs_token_is(&def, lhs_tok)), {
       def.set_variable(Option(Variable).Some(Rc.clone(var)));
     }),
     .None => ()
@@ -3151,7 +3151,7 @@ adopt_resolved_definition :: (fn(env : &Environment, var : &Variable, module_fra
         ei = (ei + usize(1));
       });
       if(!(present), {
-        frame.push_variable(&var);
+        frame.push_variable(&var.*);
       });
     },
     .None => ()
@@ -3255,7 +3255,7 @@ _impl_expr_declares :: (fn(expr : &AstExpr, label : &String) -> bool)(
             a,
             .FnCall(_, _, Rc(inner), _, _) => cond(
               ast_expr_is_fn_call_of(&a, BK_COLON, Option(usize).Some(usize(2))) => {
-                found = match(inner.get(usize(0)), .Some(l) => (ast_expr_token(&l).value.* == label), .None => false);
+                found = match(inner.get(usize(0)), .Some(l) => (ast_expr_token(&l).value.* == label.*), .None => false);
               },
               true => {
                 (j : usize) = usize(0);
@@ -3265,7 +3265,7 @@ _impl_expr_declares :: (fn(expr : &AstExpr, label : &String) -> bool)(
                     .Some(m) => match(
                       m,
                       .FnCall(_, _, Rc(pair), _, _) => if(ast_expr_is_fn_call_of(&m, BK_COLON, Option(usize).Some(usize(2))), {
-                        found = match(pair.get(usize(0)), .Some(l) => (ast_expr_token(&l).value.* == label), .None => false);
+                        found = match(pair.get(usize(0)), .Some(l) => (ast_expr_token(&l).value.* == label.*), .None => false);
                       }),
                       .Atom(_, _) => ()
                     ),
@@ -3298,7 +3298,7 @@ force_pending_impls_for_type_name :: (fn(type_name : &String, missed : &Option(S
     return(PendingImplOutcome.NoneForced);
   });
   if(debug_knob(`YO_DEBUG_LAZY`).is_some(), {
-    (m : String) = match(&missed, .Some(s) => s.clone(), .None => String.from("<bound>"));
+    (m : String) = match(missed, .Some(s) => s.clone(), .None => String.from("<bound>"));
     (stack : String) = String.new();
     (si : usize) = usize(0);
     while(si < g_forcing_stack.with(xs => xs.len()), {
@@ -3328,8 +3328,8 @@ force_pending_impls_for_type_name :: (fn(type_name : &String, missed : &Option(S
   while(fi < g_forcing_stack.with(xs => xs.len()), {
     match(
       g_forcing_stack.with(xs => xs.get_cloned(fi)),
-      .Some(fd) => if((fd.is_impl && !(fd.is_derive())) && (fd.name == type_name), {
-        if(match(missed, .Some(m) => _impl_expr_declares(&fd.expr(), &m), .None => true), {
+      .Some(fd) => if((fd.is_impl && !(fd.is_derive())) && (fd.name == type_name.*), {
+        if(match(missed, .Some(m) => _impl_expr_declares(&fd.expr(), &m.*), .None => true), {
           return(PendingImplOutcome.NoneForced);
         });
         in_own_impl = true;
@@ -3388,7 +3388,7 @@ _force_pending_impls_pass :: (fn(type_name : &String, declaring : &Option(String
           match(
             walk.defs.get_cloned(di),
             .Some(def) => {
-              is_target := (def.is_impl && (def.is_derive() || !(derives_only)) && match(def.state(), .Unforced => true, _ => false) && ((def.name == type_name) || (def.name.len() == usize(0))) && match(declaring, .Some(m) => _impl_expr_declares(&def.expr(), &m), .None => true));
+              is_target := (def.is_impl && (def.is_derive() || !(derives_only)) && match(def.state(), .Unforced => true, _ => false) && ((def.name == type_name.*) || (def.name.len() == usize(0))) && match(declaring, .Some(m) => _impl_expr_declares(&def.expr(), &m.*), .None => true));
               if(is_target, {
                 match(
                   force_pending_def(&walk, &def),
@@ -3427,15 +3427,15 @@ type_head_name_for_impl_forcing :: (fn(ty : &TypeValue) -> String)({
     ty,
     Rc(.Struct({ id : sid, name : sn })) => cond(
       (sn.len() > usize(0)) => sn.clone(),
-      true => match(type_binding_name(&sid), .Some(b) => b, .None => String.new())
+      true => match(type_binding_name(&sid.*), .Some(b) => b, .None => String.new())
     ),
     Rc(.EnumT(eid, en, _, _, _, _, _, _, _, _)) => cond(
       (en.len() > usize(0)) => en.clone(),
-      true => match(type_binding_name(&eid), .Some(b) => b, .None => String.new())
+      true => match(type_binding_name(&eid.*), .Some(b) => b, .None => String.new())
     ),
     Rc(.Union(un, _, _)) => un.clone(),
     Rc(.TraitT(tn, _, _, _, _, _)) => tn.clone(),
-    Rc(.Pointer(pointee)) => recur(&pointee),
+    Rc(.Pointer(pointee)) => recur(&pointee.*),
     _ => String.new()
   );
   match(
@@ -3508,7 +3508,7 @@ ImplInFlight :: ref(
 );
 (g_impls_in_flight : RefCell(ArrayList(ImplInFlight))) = RefCell(ArrayList(ImplInFlight)).new(ArrayList(ImplInFlight).new());
 push_impl_in_flight :: (fn(rec : &ImplInFlight) -> unit)({
-  g_impls_in_flight.with_mut(xs => xs.push(rec));
+  g_impls_in_flight.with_mut(xs => xs.push(rec.*));
 });
 pop_impl_in_flight :: (fn() -> unit)({
   g_impls_in_flight.with_mut(xs => xs.pop());
@@ -3547,7 +3547,7 @@ newest_impl_in_flight_for :: (fn(recv_id : &String) -> Option(ImplInFlight))({
     i = (i - usize(1));
     match(
       g_impls_in_flight.with(xs => xs.get(i)),
-      .Some(r) => if(r.recv_id == recv_id, {
+      .Some(r) => if(r.recv_id == recv_id.*, {
         found = Option(ImplInFlight).Some(r);
       }),
       .None => ()
@@ -3558,7 +3558,7 @@ newest_impl_in_flight_for :: (fn(recv_id : &String) -> Option(ImplInFlight))({
 make_impl_pending_field :: (fn(label : &String, colon_expr : &AstExpr, top_index : usize, is_inner : bool) -> ImplPendingField)(
   ImplPendingField(
     label : label.clone(),
-    colon_expr : colon_expr,
+    colon_expr : colon_expr.*,
     top_index : top_index,
     is_inner : is_inner,
     state : ImplFieldState.Unforced,
@@ -3593,7 +3593,7 @@ impl_inner_field_at :: (fn(rec : &ImplInFlight, top_index : usize, label : &Stri
   while((i < rec.fields.len()) && found.is_none(), {
     match(
       rec.fields.get(i),
-      .Some(f) => if(f.is_inner && (f.top_index == top_index) && (f.label == label), {
+      .Some(f) => if(f.is_inner && (f.top_index == top_index) && (f.label == label.*), {
         found = Option(ImplPendingField).Some(f);
       }),
       .None => ()
@@ -3610,7 +3610,7 @@ impl_forcible_field :: (fn(rec : &ImplInFlight, label : &String) -> Option(ImplP
   while((i < rec.fields.len()) && found.is_none(), {
     match(
       rec.fields.get(i),
-      .Some(f) => if((f.label == label) && (!(f.is_inner) || (f.top_index == rec.current_top_index)), {
+      .Some(f) => if((f.label == label.*) && (!(f.is_inner) || (f.top_index == rec.current_top_index)), {
         found = Option(ImplPendingField).Some(f);
       }),
       .None => ()
@@ -3660,7 +3660,7 @@ create_function_body_evaluation_context :: (
   func_body_ctx := FuncOrAsyncBlockCtx(
     kind : FuncOrAsyncBlockKind.FunctionBody,
     func_type : Option(TypeValue).Some(Rc.clone(function_type)),
-    func_value : Option(EvalValue).Some(function_value),
+    func_value : Option(EvalValue).Some(function_value.*),
     eval_env : snapshot_env(env)
   );
   // Compute enclosing function's return type.
@@ -3673,7 +3673,7 @@ create_function_body_evaluation_context :: (
       block.kind,
       .FunctionBody => match(
         &block.func_type,
-        .Some(Rc(.Func({ result : ret_box }))) => Option(TypeValue).Some(t_slot_pointee(&ret_box)),
+        .Some(Rc(.Func({ result : ret_box }))) => Option(TypeValue).Some(t_slot_pointee(&ret_box.*)),
         .Some(_) => Option(TypeValue).None,
         .None => Option(TypeValue).None
       ),
@@ -3688,8 +3688,8 @@ create_function_body_evaluation_context :: (
   return_type := match(
     function_type,
     Rc(.Func({ result : ret_slot })) => cond(
-      t_slot_is_borrow(&ret_slot) => t_ptr(&t_slot_pointee(&ret_slot)),
-      true => Rc.clone(t_slot_pointee(&ret_slot))
+      t_slot_is_borrow(&ret_slot.*) => t_ptr(&t_slot_pointee(&ret_slot.*)),
+      true => Rc.clone(t_slot_pointee(&ret_slot.*))
     ),
     _ => t_unit()
   );
