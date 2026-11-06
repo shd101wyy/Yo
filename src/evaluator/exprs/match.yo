@@ -137,7 +137,14 @@ pragma(Pragma.AllowUnsafe);
   pattern_const_values
 } :: import("./pattern_compile.yo");
 { Exception, AnyError } :: import("std/error");
-{ RefCell, cell_list_len } :: import("std/sync/refcell");
+{ RefCell } :: import("std/sync/refcell");
+/// (seed window) Concrete per-payload variants of refcell.yo's generic
+/// fillers: a fn value generic over its element keeps the variable abstract
+/// through the slot and its specializations COLLAPSE across element types
+/// (see refcell.yo's filler block). Inline the literals back once
+/// `SEED_VERSION` carries the ref-spill fix.
+/// `ArrayList(AnyError)` (1 use)
+_c_len_1 :: (fn(xs : &ArrayList(AnyError)) -> usize)(xs.len());
 // ---------------------------------------------------------------------------
 // Local helpers
 // ---------------------------------------------------------------------------
@@ -323,7 +330,7 @@ _evaluate_guard_block :: (fn(g : &AstExpr, env : &Environment, ctx : &mut EvalCo
   _evaluate_guard_block_inner(g, env, ctx, out);
   cond(
     (out.len() > usize(0)) => Option(AnyError).None,
-    (g_guard_block_err.with(cell_list_len) == usize(0)) => Option(AnyError).None,
+    (g_guard_block_err.with(_c_len_1) == usize(0)) => Option(AnyError).None,
     true => g_guard_block_err.with_mut(xs => xs.pop())
   )
 });

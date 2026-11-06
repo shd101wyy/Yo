@@ -36,7 +36,14 @@ pragma(Pragma.AllowUnsafe);
 { stat } :: import("std/libc/sys/stat");
 { GlobalAllocator } :: import("std/allocator");
 { evaluate_expression_raw } :: import("./expr.yo");
-{ RefCell, cell_list_len } :: import("std/sync/refcell");
+{ RefCell } :: import("std/sync/refcell");
+/// (seed window) Concrete per-payload variants of refcell.yo's generic
+/// fillers: a fn value generic over its element keeps the variable abstract
+/// through the slot and its specializations COLLAPSE across element types
+/// (see refcell.yo's filler block). Inline the literals back once
+/// `SEED_VERSION` carries the ref-spill fix.
+/// `ArrayList(String)` (2 uses)
+_c_len_1 :: (fn(xs : &ArrayList(String)) -> usize)(xs.len());
 // ---------------------------------------------------------------------------
 // _file_exists_sync
 // ---------------------------------------------------------------------------
@@ -98,7 +105,7 @@ clear_import_roots :: (fn() -> unit)({
 });
 lookup_import_unavailable :: (fn(name : &String) -> Option(String))({
   (i : usize) = usize(0);
-  while(i < g_import_unavailable_names.with(cell_list_len), {
+  while(i < g_import_unavailable_names.with(_c_len_1), {
     matches := match(g_import_unavailable_names.with({ i }(xs) => xs.get_cloned(i)), .Some(n) => (n == name), .None => false);
     if(matches, {
       match(
@@ -115,7 +122,7 @@ lookup_import_unavailable :: (fn(name : &String) -> Option(String))({
 });
 lookup_import_root :: (fn(name : &String) -> Option(String))({
   (i : usize) = usize(0);
-  while(i < g_import_root_names.with(cell_list_len), {
+  while(i < g_import_root_names.with(_c_len_1), {
     // `.get(i)` copies the element out: indexing a module-level container
     // for a `ref` argument is rejected (a callee could reallocate it).
     matches := match(g_import_root_names.with({ i }(xs) => xs.get_cloned(i)), .Some(n) => (n == name), .None => false);

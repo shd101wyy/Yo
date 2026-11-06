@@ -109,7 +109,18 @@ pragma(Pragma.AllowUnsafe);
   SynthesizeOptions
 } :: import("./types/synthesizer.yo");
 { type_id_or_empty, get_type_trait_methods_by_name, get_assoc_type_entries } :: import("./values/type_trait_methods.yo");
-{ RefCell, cell_list_len, cell_list_is_empty } :: import("std/sync/refcell");
+{ RefCell } :: import("std/sync/refcell");
+/// (seed window) Concrete per-payload variants of refcell.yo's generic
+/// fillers: a fn value generic over its element keeps the variable abstract
+/// through the slot and its specializations COLLAPSE across element types
+/// (see refcell.yo's filler block). Inline the literals back once
+/// `SEED_VERSION` carries the ref-spill fix.
+/// `ArrayList(String)` (7 uses)
+_c_len_1 :: (fn(xs : &ArrayList(String)) -> usize)(xs.len());
+/// `ArrayList(String)` (1 use)
+_c_is_empty_2 :: (fn(xs : &ArrayList(String)) -> bool)(xs.is_empty());
+/// `ArrayList(TypeValue)` (1 use)
+_c_len_3 :: (fn(xs : &ArrayList(TypeValue)) -> usize)(xs.len());
 // ---------------------------------------------------------------------------
 // Auto-derived trait registry (folded from former
 // `evaluator/types/trait_registry.yo`).
@@ -295,7 +306,7 @@ _is_thread_marker :: (fn(trait_type : &TypeValue, env : &Environment) -> bool)({
 _ondemand_guard_contains :: (fn(key : &String) -> bool)({
   (i : usize) = usize(0);
   (found : bool) = false;
-  while((i < g_ondemand_marker_guard.with(cell_list_len)) && !found, {
+  while((i < g_ondemand_marker_guard.with(_c_len_1)) && !found, {
     match(
       g_ondemand_marker_guard.with({ i }(xs) => xs.get_cloned(i)),
       .Some(k) => if(k == key, {
@@ -1424,7 +1435,7 @@ type_lacks_copy_for_flip :: (fn(ty_in : &TypeValue) -> bool)({
   });
   // The identity cache answers only while no derive is pending: the pending
   // check below needs the key.
-  if(g_copy_pending_keys.with(cell_list_is_empty), {
+  if(g_copy_pending_keys.with(_c_is_empty_2), {
     if(g_lacks_copy_fast_epoch != type_key_epoch(), {
       g_lacks_copy_fast.with_mut(xs => xs.clear());
       g_lacks_copy_fast_answers.with_mut(xs => xs.clear());
@@ -1446,7 +1457,7 @@ type_lacks_copy_for_flip :: (fn(ty_in : &TypeValue) -> bool)({
   key := type_key(&ty);
   // Not memoized: the answer changes once the derive registers `Copy`.
   (pi : usize) = usize(0);
-  while(pi < g_copy_pending_keys.with(cell_list_len), {
+  while(pi < g_copy_pending_keys.with(_c_len_1), {
     if(match(g_copy_pending_keys.with({ pi }(xs) => xs.get_cloned(pi)), .Some(pk) => (pk == key), .None => false), {
       return(false);
     });
@@ -1461,7 +1472,7 @@ type_lacks_copy_for_flip :: (fn(ty_in : &TypeValue) -> bool)({
     .None => ()
   );
   (ipi : usize) = usize(0);
-  while(ipi < g_lacks_copy_in_progress.with(cell_list_len), {
+  while(ipi < g_lacks_copy_in_progress.with(_c_len_1), {
     if(match(g_lacks_copy_in_progress.with({ ipi }(xs) => xs.get_cloned(ipi)), .Some(ik) => (ik == key), .None => false), {
       return(false);
     });
@@ -1504,7 +1515,7 @@ _record_lacks_copy_fast :: (fn(ty : &TypeValue, key_epoch : u64, answer : bool) 
     g_lacks_copy_fast_answers.with_mut(xs => xs.clear());
     g_lacks_copy_fast_epoch = key_epoch;
   });
-  if(g_lacks_copy_fast.with(cell_list_len) >= TYPE_IDENTITY_CACHE_CAP, {
+  if(g_lacks_copy_fast.with(_c_len_3) >= TYPE_IDENTITY_CACHE_CAP, {
     g_lacks_copy_fast.with_mut(xs => xs.clear());
     g_lacks_copy_fast_answers.with_mut(xs => xs.clear());
   });
@@ -2273,7 +2284,7 @@ type_implements_trait :: (
   ).concat(`:`).concat(_trait_type_id(trait_type));
   // Recursion guard: return false if already checking this pair.
   (already_checking : bool) = false;
-  gn := g_trait_check_recursion_guard.with(cell_list_len);
+  gn := g_trait_check_recursion_guard.with(_c_len_1);
   (gi : usize) = usize(0);
   while(gi < gn, {
     entry := match(
@@ -2295,7 +2306,7 @@ type_implements_trait :: (
   g_trait_check_recursion_guard.with_mut(xs => xs.push(guard_key.clone()));
   result := _find_matching_generic_impl(&target, trait_type, env);
   // Pop the guard key.
-  last_idx := (g_trait_check_recursion_guard.with(cell_list_len) - usize(1));
+  last_idx := (g_trait_check_recursion_guard.with(_c_len_1) - usize(1));
   g_trait_check_recursion_guard.with_mut(xs => xs.remove(last_idx));
   if(!result, {
     return(TraitCheckResult(implemented : false, env : Rc.clone(env)));
@@ -2547,7 +2558,7 @@ begin_send_derivation :: (fn(type_id : &String) -> unit)({
 ///
 ///
 end_send_derivation :: (fn(type_id : &String) -> unit)({
-  n := g_send_derivation_in_progress.with(cell_list_len);
+  n := g_send_derivation_in_progress.with(_c_len_1);
   (i : usize) = usize(0);
   (found_idx : Option(usize)) = Option(usize).None;
   while(i < n, {
@@ -2586,7 +2597,7 @@ _type_implements_thread_marker :: (fn(ty : &TypeValue, marker : str, env : &Envi
   // optimistically assume it implements the marker.
   ty_id := _type_id_for_trait_check(ty);
   (in_derivation : bool) = false;
-  nd := g_send_derivation_in_progress.with(cell_list_len);
+  nd := g_send_derivation_in_progress.with(_c_len_1);
   (id : usize) = usize(0);
   while(id < nd, {
     entry := match(

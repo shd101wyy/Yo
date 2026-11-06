@@ -80,7 +80,16 @@
 } :: import("../async/await_analysis.yo");
 { debug_knob, display_module_path } :: import("../../utils.yo");
 { box_inner_type } :: import("../../pattern.yo");
-{ RefCell, cell_list_len, cell_map_len } :: import("std/sync/refcell");
+{ RefCell } :: import("std/sync/refcell");
+/// (seed window) Concrete per-payload variants of refcell.yo's generic
+/// fillers: a fn value generic over its element keeps the variable abstract
+/// through the slot and its specializations COLLAPSE across element types
+/// (see refcell.yo's filler block). Inline the literals back once
+/// `SEED_VERSION` carries the ref-spill fix.
+/// `ArrayList(String)` (3 uses)
+_c_len_1 :: (fn(xs : &ArrayList(String)) -> usize)(xs.len());
+/// `HashMap(String, _MsMemo)` (1 use)
+_c_len_2 :: (fn(m : &HashMap(String, _MsMemo)) -> usize)(m.len());
 /// func_id → may-mutate verdict (true = may mutate), with the id of the body
 /// it was computed from.
 ///
@@ -4049,7 +4058,7 @@ _gr_note_low :: (fn(d : usize) -> unit)({
 /// Retire the verdicts parked since `start`; `memoize` makes each final
 /// (clean), otherwise they are dropped.
 _gr_settle_pending :: (fn(start : usize, memoize : bool) -> unit)({
-  while(g_gr_pending_order.with(cell_list_len) > start, {
+  while(g_gr_pending_order.with(_c_len_1) > start, {
     match(
       g_gr_pending_order.with_mut(xs => xs.pop()),
       .Some(pf) => match(
@@ -4503,7 +4512,7 @@ function_reaches_non_send_global :: (
   g_gr_depth = (my_depth + usize(1));
   saved_low := g_gr_low;
   g_gr_low = Option(usize).None;
-  pending_start := g_gr_pending_order.with(cell_list_len);
+  pending_start := g_gr_pending_order.with(_c_len_1);
   fid_owned2 := fid.clone();
   g_gr_in_progress.with_mut({ fid_owned2, my_depth : my_depth.clone() }(m) => m.insert(fid_owned2.clone(), my_depth));
   // This walk records the function's reads and callees afresh.
@@ -4548,7 +4557,7 @@ function_reaches_non_send_global :: (
       // What was parked under this walk was conditional on THIS walk (or
       // deeper ones, all finished); it now hangs on this walk's ancestor.
       (pi : usize) = pending_start;
-      while(pi < g_gr_pending_order.with(cell_list_len), {
+      while(pi < g_gr_pending_order.with(_c_len_1), {
         match(
           g_gr_pending_order.with({ pi }(xs) => xs.get_cloned(pi)),
           .Some(pf) => match(
@@ -4637,7 +4646,7 @@ purge_mutation_summaries :: (fn(fids : &ArrayList(String)) -> unit)({
 });
 /// Total memo entries (the LSP plateau probe).
 mutation_summary_entry_count :: (fn() -> usize)(
-  g_ms_summary_by_fid.with(cell_map_len) + g_msp_by_fid.with(m => m.len()) + g_gr_by_fid.with(m => m.len()) + g_gr_reads_by_fid.with(m => m.len()) + g_gr_callees_by_fid.with(m => m.len())
+  g_ms_summary_by_fid.with(_c_len_2) + g_msp_by_fid.with(m => m.len()) + g_gr_by_fid.with(m => m.len()) + g_gr_reads_by_fid.with(m => m.len()) + g_gr_callees_by_fid.with(m => m.len())
 );
 /// The memoized reach verdict of function `fid`, if one was computed: the
 /// closure's own, taken with its DEFINING env (a closure literal is walked

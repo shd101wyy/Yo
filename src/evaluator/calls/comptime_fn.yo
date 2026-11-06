@@ -57,7 +57,14 @@ pragma(Pragma.AllowUnsafe);
 { note_ctfe_reference_params } :: import("../utils.yo");
 { format_error_message } :: import("../../error.yo");
 { Exception } :: import("std/error");
-{ RefCell, cell_list_len } :: import("std/sync/refcell");
+{ RefCell } :: import("std/sync/refcell");
+/// (seed window) Concrete per-payload variants of refcell.yo's generic
+/// fillers: a fn value generic over its element keeps the variable abstract
+/// through the slot and its specializations COLLAPSE across element types
+/// (see refcell.yo's filler block). Inline the literals back once
+/// `SEED_VERSION` carries the ref-spill fix.
+/// `ArrayList(ComptimeFnCacheEntry)` (4 uses)
+_c_len_2 :: (fn(xs : &ArrayList(ComptimeFnCacheEntry)) -> usize)(xs.len());
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
 // Global CTFE cache.
@@ -488,7 +495,7 @@ canonicalize_instantiation_via_ctfe_memo :: (fn(ty : &TypeValue) -> TypeValue)({
   (canon_bucket : Option(ComptimeFnCacheEntry)) = Option(ComptimeFnCacheEntry).None;
   {
     (bi : usize) = usize(0);
-    n_b := g_comptime_fn_caches.with(cell_list_len);
+    n_b := g_comptime_fn_caches.with(_c_len_2);
     while((bi < n_b) && canon_bucket.is_none(), {
       match(
         g_comptime_fn_caches.with(xs => xs.get(bi)),
@@ -541,7 +548,7 @@ resolve_recursive_type_ref :: (fn(some_ty : &TypeValue, ctx : &EvalContext) -> O
   (bucket_opt : Option(ComptimeFnCacheEntry)) = Option(ComptimeFnCacheEntry).None;
   {
     (ci : usize) = usize(0);
-    n_c := g_comptime_fn_caches.with(cell_list_len);
+    n_c := g_comptime_fn_caches.with(_c_len_2);
     while((ci < n_c) && match(bucket_opt, .None => true, .Some(_) => false), {
       match(
         g_comptime_fn_caches.with(xs => xs.get(ci)),
@@ -1062,7 +1069,7 @@ evaluate_comptime_fn_call :: (
   (entry_idx_opt : Option(usize)) = Option(usize).None;
   {
     (ci : usize) = usize(0);
-    n_c := g_comptime_fn_caches.with(cell_list_len);
+    n_c := g_comptime_fn_caches.with(_c_len_2);
     while((ci < n_c) && match(entry_idx_opt, .None => true, .Some(_) => false), {
       match(
         g_comptime_fn_caches.with(xs => xs.get(ci)),
@@ -1082,7 +1089,7 @@ evaluate_comptime_fn_call :: (
         caches : ArrayList(CalledComptimeFnCache).new()
       );
       g_comptime_fn_caches.with_mut({ new_entry }(xs) => xs.push(new_entry));
-      entry_idx_opt = Option(usize).Some(g_comptime_fn_caches.with(cell_list_len) - usize(1));
+      entry_idx_opt = Option(usize).Some(g_comptime_fn_caches.with(_c_len_2) - usize(1));
     },
     .Some(_) => ()
   );

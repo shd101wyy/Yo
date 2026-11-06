@@ -105,7 +105,21 @@ env_mod :: import("std/env");
 { is_unit_type } :: import("./types/guards.yo");
 { t_unit, clear_type_binding_names } :: import("./types/creators.yo");
 { emit_rendered_text, emit_chatter } :: import("./diagnostics.yo");
-{ RefCell, cell_list_len, cell_value_clone, cell_opt_is_none } :: import("std/sync/refcell");
+{ RefCell } :: import("std/sync/refcell");
+/// (seed window) Concrete variants of refcell.yo's fillers: a fn value
+/// generic over its element keeps the variable abstract through the slot, so
+/// uses of the result needing methods fail (see refcell.yo's filler block).
+_c_clone_exprinfo_table :: (fn(v : &Option(ExprInfoTable)) -> Option(ExprInfoTable))(v.clone());
+_c_clone_opt_type :: (fn(v : &Option(TypeValue)) -> Option(TypeValue))(v.clone());
+/// (seed window) Concrete per-payload variants of refcell.yo's generic
+/// fillers: a fn value generic over its element keeps the variable abstract
+/// through the slot and its specializations COLLAPSE across element types
+/// (see refcell.yo's filler block). Inline the literals back once
+/// `SEED_VERSION` carries the ref-spill fix.
+/// `Option(ExprInfoTable)` (1 use)
+_c_is_none_1 :: (fn(o : &Option(ExprInfoTable)) -> bool)(o.is_none());
+/// `ArrayList(String)` (1 use)
+_c_len_2 :: (fn(xs : &ArrayList(String)) -> usize)(xs.len());
 // ---------------------------------------------------------------------------
 // State
 // ---------------------------------------------------------------------------
@@ -149,7 +163,7 @@ env_mod :: import("std/env");
 // binding (E0916).
 (g_shared_expr_info_table : RefCell(Option(ExprInfoTable))) = RefCell(Option(ExprInfoTable)).new(Option(ExprInfoTable).None);
 /// No shared table is installed: each module evaluation keeps its own.
-_no_shared_expr_info_table :: (fn() -> bool)(g_shared_expr_info_table.with(cell_opt_is_none));
+_no_shared_expr_info_table :: (fn() -> bool)(g_shared_expr_info_table.with(_c_is_none_1));
 /// Message slot for a module-eval error captured inside
 /// `_eval_module_exprs_capturing_error`'s handler. Handlers cannot reference
 /// outer runtime variables, but they CAN call module-level FUNCTIONS — so the
@@ -450,7 +464,7 @@ mm_set_shared_expr_info_table :: (fn(t : &ExprInfoTable) -> unit)({
   scope_release_set_table(Option(ExprInfoTable).Some(t.clone()));
 });
 mm_shared_expr_info_table :: (fn() -> Option(ExprInfoTable))(
-  g_shared_expr_info_table.with(cell_value_clone)
+  g_shared_expr_info_table.with(_c_clone_exprinfo_table)
 );
 /// Clone the cached prelude env, or start a fresh one keyed on `module_path`
 /// when no prelude has been loaded yet.
@@ -506,7 +520,7 @@ mm_resolve_import_abs :: (fn(input_path : &String, base_dir : &String, std_path 
 (g_open_doc_texts : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
 _open_doc_index :: (fn(fs_path : &String) -> Option(usize))({
   (i : usize) = usize(0);
-  n := g_open_doc_paths.with(cell_list_len);
+  n := g_open_doc_paths.with(_c_len_2);
   while(i < n, {
     match(
       g_open_doc_paths.with(xs => xs.get_cloned(i)),
@@ -2373,7 +2387,7 @@ _load_module_at_abs :: (fn(abs : &String) -> Option(String))({
   // Codegen: route this module's per-expression metadata into the shared table
   // (see g_shared_expr_info_table). No-op during check/test.
   match(
-    g_shared_expr_info_table.with(cell_value_clone),
+    g_shared_expr_info_table.with(_c_clone_exprinfo_table),
     .Some(t) => {
       ctx.expr_info_table = t.clone();
     },
@@ -2560,7 +2574,7 @@ mm_load_prelude_file :: (
   // functions emitted directly (e.g. `assert`). No-op for `check`/`test`
   // (g_shared is None there → the prelude uses its own throwaway table).
   match(
-    g_shared_expr_info_table.with(cell_value_clone),
+    g_shared_expr_info_table.with(_c_clone_exprinfo_table),
     .Some(t) => {
       prelude_ctx.expr_info_table = t.clone();
     },
@@ -2773,7 +2787,7 @@ mm_eval_entry_exprs :: (
   ctx.is_executing = true;
   ctx.load_module = Option((fn(path : &String) -> LoadModuleResult)).Some(demand_load_module);
   match(
-    g_shared_expr_info_table.with(cell_value_clone),
+    g_shared_expr_info_table.with(_c_clone_exprinfo_table),
     .Some(t) => {
       ctx.expr_info_table = t.clone();
     },
@@ -2871,7 +2885,7 @@ _prelude_load_outcome :: (fn(input_path : &String, std_path : &String) -> Module
     .None => _build_module_val_from_env(&prelude_env)
   );
   prelude_ty := match(
-    g_cached_prelude_module_type.with(cell_value_clone),
+    g_cached_prelude_module_type.with(_c_clone_opt_type),
     .Some(mt) => Rc.clone(mt),
     .None => type_of_eval_value(&prelude_val)
   );

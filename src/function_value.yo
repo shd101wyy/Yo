@@ -21,7 +21,14 @@
 { t_unit } :: import("./types/creators.yo");
 { debug_knob } :: import("./utils.yo");
 { record_owned_func_id } :: import("./evaluator/values/type_trait_methods.yo");
-{ RefCell, cell_map_keys_cloned, cell_map_len } :: import("std/sync/refcell");
+{ RefCell } :: import("std/sync/refcell");
+/// (seed window) Concrete per-payload variants of refcell.yo's generic
+/// fillers: a fn value generic over its element keeps the variable abstract
+/// through the slot and its specializations COLLAPSE across element types
+/// (see refcell.yo's filler block). Inline the literals back once
+/// `SEED_VERSION` carries the ref-spill fix.
+/// `HashMap(String, TypeValue)` (1 use)
+_c_len_1 :: (fn(m : &HashMap(String, TypeValue)) -> usize)(m.len());
 /// (seed window) See refcell.yo's filler block; concrete K for the `.into_iter()` chain.
 _capture_info_keys :: (fn(m : &HashMap(String, ClosureCaptureInfo)) -> ArrayList(String))(m.keys_cloned());
 // ---------------------------------------------------------------------------
@@ -457,7 +464,7 @@ fn_has_specializations :: (fn(func_id : &String) -> bool)(
 /// The recorded `Func` type for `func_id`, or `t_unit()` if none was registered.
 /// Every function the evaluator registered a type for (std included) — the
 /// denominator of plans/reference/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §9's number.
-registered_func_type_count :: (fn() -> usize)(g_func_type_registry.with(cell_map_len));
+registered_func_type_count :: (fn() -> usize)(g_func_type_registry.with(_c_len_1));
 get_func_type :: (fn(func_id : &String) -> TypeValue)(
   match(
     g_func_type_registry.with({&func_id}(m) => m.get_cloned(func_id.clone())),

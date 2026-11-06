@@ -157,7 +157,20 @@ pragma(Pragma.AllowUnsafe);
 { is_some_type, is_unit_type, is_void_type, is_never_type, is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_fn_trait_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
 { synthesize_types, SynthesizeOptions, TypePair } :: import("../types/synthesizer.yo");
-{ RefCell, cell_list_clone, cell_list_len, cell_list_first_cloned } :: import("std/sync/refcell");
+{ RefCell } :: import("std/sync/refcell");
+/// (seed window) Concrete variants of refcell.yo's fillers: a fn value
+/// generic over its element keeps the variable abstract through the slot, so
+/// uses of the result needing methods fail (see refcell.yo's filler block).
+_c_first_cloned_str :: (fn(xs : &ArrayList(String)) -> Option(String))(xs.get_cloned(usize(0)));
+_c_first_cloned_diag :: (fn(xs : &ArrayList(Diagnostic)) -> Option(Diagnostic))(xs.get_cloned(usize(0)));
+_c_clone_diags :: (fn(xs : &ArrayList(Diagnostic)) -> ArrayList(Diagnostic))(xs.clone());
+/// (seed window) Concrete per-payload variants of refcell.yo's generic
+/// fillers: a fn value generic over its element keeps the variable abstract
+/// through the slot and its specializations COLLAPSE across element types
+/// (see refcell.yo's filler block). Inline the literals back once
+/// `SEED_VERSION` carries the ref-spill fix.
+/// `ArrayList(String)` (1 use)
+_c_len_1 :: (fn(xs : &ArrayList(String)) -> usize)(xs.len());
 {
   clear_flow_violation,
   flow_violation_pending,
@@ -513,10 +526,10 @@ _clear_anon_swallow :: (fn() -> unit)({
   g_anon_swallow_code.with_mut(xs => xs.clear());
   g_anon_swallow_diags.with_mut(xs => xs.clear());
 });
-_anon_swallow_pending :: (fn() -> bool)(g_anon_swallow_msg.with(cell_list_len) > usize(0));
-_anon_swallow_code :: (fn() -> Option(String))(g_anon_swallow_code.with(cell_list_first_cloned));
+_anon_swallow_pending :: (fn() -> bool)(g_anon_swallow_msg.with(_c_len_1) > usize(0));
+_anon_swallow_code :: (fn() -> Option(String))(g_anon_swallow_code.with(_c_first_cloned_str));
 _anon_swallow_message :: (fn() -> String)(
-  match(g_anon_swallow_msg.with(cell_list_first_cloned), .Some(m) => m.clone(), .None => String.from(""))
+  match(g_anon_swallow_msg.with(_c_first_cloned_str), .Some(m) => m.clone(), .None => String.from(""))
 );
 /// Trial-evaluate an anonymous-function body at definition time, swallowing
 /// any eval error. Replicates `_trial_eval_fn_body` (calls/function_type.yo)
@@ -2379,7 +2392,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
     hb_tok := ast_expr_token(&body_for_def_eval);
     hb_site := `${hb_tok.module_path.*}:${hb_tok.row.to_string()}:${hb_tok.column.to_string()}`;
     if(_anon_swallow_pending() && (anon_body_out.len() == usize(0)), {
-      record_hollow_body_error(&hb_site, _anon_swallow_message(), g_anon_swallow_diags.with(cell_list_clone));
+      record_hollow_body_error(&hb_site, _anon_swallow_message(), g_anon_swallow_diags.with(_c_clone_diags));
     }, {
       clear_hollow_body_error(&hb_site);
     });
@@ -2440,7 +2453,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
     // swallow: they are typed again where their parameters resolve.
     if(body_params_concrete && !propagate_def_time_errors() && (_anon_swallow_pending() && (anon_body_out.len() == usize(0))), {
       c3_msg := _anon_swallow_message();
-      c3_diags := g_anon_swallow_diags.with(cell_list_clone);
+      c3_diags := g_anon_swallow_diags.with(_c_clone_diags);
       _clear_anon_swallow();
       if(c3_diags.len() > usize(0), {
         exn.throw(dyn(yo_error_from_diagnostics(&c3_diags)));
@@ -2461,7 +2474,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
       // match its text (a capture-list rule raised inside the body).
       if(_anon_swallow_pending(), {
         c2_msg := _anon_swallow_message();
-        c2_diags := g_anon_swallow_diags.with(cell_list_clone);
+        c2_diags := g_anon_swallow_diags.with(_c_clone_diags);
         _clear_anon_swallow();
         if(c2_diags.len() > usize(0), {
           exn.throw(dyn(yo_error_from_diagnostics(&c2_diags)));
@@ -2932,8 +2945,8 @@ Result type: ${type_to_string(&decl_result_ty)}`
       // as for concrete-parameter closures above (`body_has_ct_param`).
       if(!propagate_def_time_errors() && !body_has_ct_param, {
         (dgc_indep : Option(YoError)) = Option(YoError).None;
-        if(match(g_anon_swallow_diags.with(cell_list_first_cloned), .Some(d) => d.generic_independent, .None => false), {
-          dgc_indep = Option(YoError).Some(yo_error_from_diagnostics(g_anon_swallow_diags.with(cell_list_clone)));
+        if(match(g_anon_swallow_diags.with(_c_first_cloned_diag), .Some(d) => d.generic_independent, .None => false), {
+          dgc_indep = Option(YoError).Some(yo_error_from_diagnostics(g_anon_swallow_diags.with(_c_clone_diags)));
         });
         if(dgc_indep.is_none() && !dgc_fv_was, {
           match(
@@ -2961,7 +2974,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
       // that reaches codegen hollow.
       dgc_site := trial_body_site(&body_for_def_eval);
       if(_anon_swallow_pending() && (dgc_out.len() == usize(0)), {
-        record_generic_trial_error(&dgc_site, _anon_swallow_message(), g_anon_swallow_diags.with(cell_list_clone));
+        record_generic_trial_error(&dgc_site, _anon_swallow_message(), g_anon_swallow_diags.with(_c_clone_diags));
         if(_g_anon_dbg_swallow, {
           eprintln(`[kept] site=dgc code=${match(_anon_swallow_code(), .Some(c) => c, .None => String.from("-"))} owner=${dgc_site}`);
         });

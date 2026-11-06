@@ -51,7 +51,18 @@ pragma(Pragma.AllowUnsafe);
 { Exception, AnyError } :: import("std/error");
 { type_to_string } :: import("../../types/string.yo");
 { push_copy_pending, clear_copy_pending } :: import("../trait_checking.yo");
-{ RefCell, cell_list_len, cell_list_first_cloned } :: import("std/sync/refcell");
+{ RefCell } :: import("std/sync/refcell");
+/// (seed window) Concrete variants of refcell.yo's fillers: a fn value
+/// generic over its element keeps the variable abstract through the slot, so
+/// uses of the result needing methods fail (see refcell.yo's filler block).
+_c_first_cloned_str :: (fn(xs : &ArrayList(String)) -> Option(String))(xs.get_cloned(usize(0)));
+/// (seed window) Concrete per-payload variants of refcell.yo's generic
+/// fillers: a fn value generic over its element keeps the variable abstract
+/// through the slot and its specializations COLLAPSE across element types
+/// (see refcell.yo's filler block). Inline the literals back once
+/// `SEED_VERSION` carries the ref-spill fix.
+/// `ArrayList(AnyError)` (3 uses)
+_c_len_1 :: (fn(xs : &ArrayList(AnyError)) -> usize)(xs.len());
 // ---------------------------------------------------------------------------
 // Derive-impl failure channel
 //
@@ -86,7 +97,7 @@ _clear_derive_impl_err :: (fn() -> unit)({
 });
 _derive_impl_err_message :: (fn() -> String)(
   match(
-    g_derive_impl_err.with(cell_list_first_cloned),
+    g_derive_impl_err.with(_c_first_cloned_str),
     .Some(m) => m,
     .None => String.from("the generated impl failed to evaluate")
   )
@@ -398,7 +409,7 @@ call_registered_derive_rule :: (
   _derive_eval_guarded(desugar_if_calls(&result_expr), caller_env, ctx, &mut impl_out);
   if(impl_out.len() == usize(0), {
     raw_msg := _derive_impl_err_message();
-    impl_code := g_derive_impl_code.with(cell_list_first_cloned);
+    impl_code := g_derive_impl_code.with(_c_first_cloned_str);
     _clear_derive_impl_err();
     msg := _derive_strip_error_prefix(&raw_msg);
     exn.throw(
@@ -543,7 +554,7 @@ evaluate_derive :: (
   ctx.is_validating_function_definition = false;
   ctx.is_analyzing_ctfe_capability = false;
   ctx.is_executing = true;
-  err_mark := g_derive_eval_err.with(cell_list_len);
+  err_mark := g_derive_eval_err.with(_c_len_1);
   out := ArrayList(AstExpr).new();
   _evaluate_derive_guarded(expr, env, ctx, &mut out);
   clear_copy_pending();
@@ -554,11 +565,11 @@ evaluate_derive :: (
     out.get(usize(0)),
     .Some(done) => done,
     .None => {
-      if(g_derive_eval_err.with(cell_list_len) > err_mark, {
+      if(g_derive_eval_err.with(_c_len_1) > err_mark, {
         match(
           g_derive_eval_err.with_mut(xs => xs.pop()),
           .Some(d_err) => {
-            while(g_derive_eval_err.with(cell_list_len) > err_mark, {
+            while(g_derive_eval_err.with(_c_len_1) > err_mark, {
               _ := g_derive_eval_err.with_mut(xs => xs.pop());
             });
             exn.throw(d_err);

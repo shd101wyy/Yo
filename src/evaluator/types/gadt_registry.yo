@@ -19,7 +19,16 @@ pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { TypeValue } :: import("../../types/definitions.yo");
-{ RefCell, cell_list_len } :: import("std/sync/refcell");
+{ RefCell } :: import("std/sync/refcell");
+/// (seed window) Concrete per-payload variants of refcell.yo's generic
+/// fillers: a fn value generic over its element keeps the variable abstract
+/// through the slot and its specializations COLLAPSE across element types
+/// (see refcell.yo's filler block). Inline the literals back once
+/// `SEED_VERSION` carries the ref-spill fix.
+/// `ArrayList(GadtEntry)` (1 use)
+_c_len_1 :: (fn(xs : &ArrayList(GadtEntry)) -> usize)(xs.len());
+/// `ArrayList(GadtTcaEntry)` (1 use)
+_c_len_2 :: (fn(xs : &ArrayList(GadtTcaEntry)) -> usize)(xs.len());
 // ---------------------------------------------------------------------------
 // Per-definition variant args
 // ---------------------------------------------------------------------------
@@ -45,7 +54,7 @@ get_gadt_variant_args :: (
   fn(enum_id : &String) -> Option(ArrayList(ArrayList(TypeValue)))
 )({
   (i : usize) = usize(0);
-  n := g_gadt_entries.with(cell_list_len);
+  n := g_gadt_entries.with(_c_len_1);
   (found : Option(ArrayList(ArrayList(TypeValue)))) = Option(ArrayList(ArrayList(TypeValue))).None;
   while((i < n) && match(&found, .None => true, .Some(_) => false), {
     eid := g_gadt_entries.with(xs => xs(i).enum_id.clone());
@@ -82,7 +91,7 @@ get_gadt_type_constructor_args :: (
   fn(enum_id : &String) -> Option(ArrayList(TypeValue))
 )({
   (i : usize) = usize(0);
-  n := g_gadt_tca_entries.with(cell_list_len);
+  n := g_gadt_tca_entries.with(_c_len_2);
   (found : Option(ArrayList(TypeValue))) = Option(ArrayList(TypeValue)).None;
   while((i < n) && match(&found, .None => true, .Some(_) => false), {
     eid := g_gadt_tca_entries.with(xs => xs(i).enum_id.clone());

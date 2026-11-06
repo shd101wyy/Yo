@@ -37,7 +37,10 @@ import("../string");
 { RefCell } :: import("../sync/refcell");
 { HttpError, HttpHeader, HeaderMap, StatusCode, HttpRequest, HttpResponse, parse_request } :: import("./http.yo");
 { read_http_message, MessageKind } :: import("./wire.yo");
-{ RefCell, cell_value_clone } :: import("std/sync/refcell");
+/// (seed window) Concrete variants of refcell.yo's fillers: a fn value
+/// generic over its element keeps the variable abstract through the slot, so
+/// uses of the result needing methods fail (see refcell.yo's filler block).
+_c_clone_bool :: (fn(b : &bool) -> bool)(b.clone());
 /// Default ceiling on a request (headers + body): 16 MiB.
 DEFAULT_MAX_REQUEST_BYTES :: (usize(16) * (usize(1024) * usize(1024)));
 /// Write `resp` to `stream`, with `Connection: close` unless it names a
@@ -160,7 +163,7 @@ impl(
       Impl(Future(unit, IoExn))
   )(
     io.async(e => {
-      while(!self.stopped.with(cell_value_clone), {
+      while(!self.stopped.with(_c_clone_bool), {
         got := e.io.await(self._accept_request(e.io), e);
         match(
           got,

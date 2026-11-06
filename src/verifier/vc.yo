@@ -64,7 +64,18 @@ pragma(Pragma.AllowUnsafe);
   resolve_verify_mode
 } :: import("../evaluator/builtins/contracts.yo");
 { get_func_type } :: import("../function_value.yo");
-{ RefCell, cell_list_len } :: import("std/sync/refcell");
+{ RefCell } :: import("std/sync/refcell");
+/// (seed window) Concrete per-payload variants of refcell.yo's generic
+/// fillers: a fn value generic over its element keeps the variable abstract
+/// through the slot and its specializations COLLAPSE across element types
+/// (see refcell.yo's filler block). Inline the literals back once
+/// `SEED_VERSION` carries the ref-spill fix.
+/// `ArrayList(ArrayList(String))` (1 use)
+_c_len_1 :: (fn(xs : &ArrayList(ArrayList(String))) -> usize)(xs.len());
+/// `ArrayList(VcSort)` (4 uses)
+_c_len_2 :: (fn(xs : &ArrayList(VcSort)) -> usize)(xs.len());
+/// `ArrayList(String)` (6 uses)
+_c_len_3 :: (fn(xs : &ArrayList(String)) -> usize)(xs.len());
 
 /// V5 task 3 slice 2: the ghost_fn inlining stack (see
 /// `_ghost_fn_inline_term`). Declared at module top so it is initialized
@@ -109,7 +120,7 @@ pragma(Pragma.AllowUnsafe);
 _same_recursion_clique :: (fn(a : &String, b : &String) -> bool)({
   (found : bool) = false;
   (ci : usize) = usize(0);
-  while((ci < g_recursion_cliques.with(cell_list_len)) && !found, {
+  while((ci < g_recursion_cliques.with(_c_len_1)) && !found, {
     match(
       g_recursion_cliques.with({ ci }(xs) => xs.get_cloned(ci)),
       .Some(clique) => {
@@ -422,7 +433,7 @@ _list_sort_elem :: (fn(s : &VcSort) -> Option(VcSort))(
     .DataS(ds_name) => {
       (found : Option(VcSort)) = Option(VcSort).None;
       (li : usize) = usize(0);
-      while((li < g_list_elem_sorts.with(cell_list_len)) && found.is_none(), {
+      while((li < g_list_elem_sorts.with(_c_len_2)) && found.is_none(), {
         match(
           g_list_elem_sorts.with({ li }(xs) => xs.get(li)),
           .Some(es) => if(_list_dt_name(&es) == ds_name, {
@@ -443,7 +454,7 @@ _register_list_datatype :: (fn(elem : &VcSort) -> unit)({
   dt := _list_dt_name(elem);
   (found : bool) = false;
   (i : usize) = usize(0);
-  while((i < g_list_datatypes.with(cell_list_len)) && !found, {
+  while((i < g_list_datatypes.with(_c_len_3)) && !found, {
     match(
       g_list_datatypes.with({ i }(xs) => xs.get_cloned(i)),
       .Some(entry) => {
@@ -476,7 +487,7 @@ _register_list_datatype :: (fn(elem : &VcSort) -> unit)({
 _is_list_len_acc :: (fn(acc : &String) -> bool)({
   (found : bool) = false;
   (li : usize) = usize(0);
-  while((li < g_list_elem_sorts.with(cell_list_len)) && !found, {
+  while((li < g_list_elem_sorts.with(_c_len_2)) && !found, {
     match(
       g_list_elem_sorts.with({ li }(xs) => xs.get(li)),
       .Some(es) => if(_list_len_acc(&es) == acc, {
@@ -492,7 +503,7 @@ _is_list_len_acc :: (fn(acc : &String) -> bool)({
 _list_elem_of_contents_acc :: (fn(acc : &String) -> Option(VcSort))({
   (found : Option(VcSort)) = Option(VcSort).None;
   (li : usize) = usize(0);
-  while((li < g_list_elem_sorts.with(cell_list_len)) && found.is_none(), {
+  while((li < g_list_elem_sorts.with(_c_len_2)) && found.is_none(), {
     match(
       g_list_elem_sorts.with({ li }(xs) => xs.get(li)),
       .Some(es) => if(_list_contents_acc(&es) == acc, {
@@ -508,7 +519,7 @@ _list_elem_of_contents_acc :: (fn(acc : &String) -> Option(VcSort))({
 _list_sort_of_ctor :: (fn(name : &String) -> Option(VcSort))({
   (found : Option(VcSort)) = Option(VcSort).None;
   (li : usize) = usize(0);
-  while((li < g_list_elem_sorts.with(cell_list_len)) && found.is_none(), {
+  while((li < g_list_elem_sorts.with(_c_len_2)) && found.is_none(), {
     match(
       g_list_elem_sorts.with({ li }(xs) => xs.get(li)),
       .Some(es) => if(_list_ctor_name(&es) == name, {
@@ -594,7 +605,7 @@ _enum_dt_name :: (fn(enum_id : &String) -> String)(
 _register_uninterpreted_sort :: (fn(name : &String) -> unit)({
   (found : bool) = false;
   (i : usize) = usize(0);
-  while((i < g_uninterpreted_sorts.with(cell_list_len)) && !found, {
+  while((i < g_uninterpreted_sorts.with(_c_len_3)) && !found, {
     match(
       g_uninterpreted_sorts.with(xs => xs.get_cloned(i)),
       .Some(n) => {
@@ -1444,7 +1455,7 @@ _emit :: (
     dti = (dti + usize(1));
   });
   (ldi : usize) = usize(0);
-  while(ldi < g_list_datatypes.with(cell_list_len), {
+  while(ldi < g_list_datatypes.with(_c_len_3), {
     match(
       g_list_datatypes.with(xs => xs.get_cloned(ldi)),
       .Some(entry) => {
@@ -1455,7 +1466,7 @@ _emit :: (
     ldi = (ldi + usize(1));
   });
   (usi : usize) = usize(0);
-  while(usi < g_uninterpreted_sorts.with(cell_list_len), {
+  while(usi < g_uninterpreted_sorts.with(_c_len_3), {
     match(
       g_uninterpreted_sorts.with(xs => xs.get_cloned(usi)),
       .Some(name) => {
@@ -6618,7 +6629,7 @@ _ghost_fn_inline_term :: (
     return(_ghost_fn_app_term(ctx, at, args, fid));
   });
   (si : usize) = usize(0);
-  while(si < g_ghost_inline_stack.with(cell_list_len), {
+  while(si < g_ghost_inline_stack.with(_c_len_3), {
     if(g_ghost_inline_stack.with(xs => xs.get_cloned(si)).unwrap() == fid, {
       _fail_subset(ctx, String.from("recursive ghost_fn inlining (a spec function must not reach itself)"), at);
       return(Option(VcTerm).None);
@@ -7958,7 +7969,7 @@ _callee_frame_open :: (fn(fv : &EvalValue, table : &ExprInfoTable) -> bool)({
   g_frame_in_progress.with_mut({ fid_push }(xs) => xs.push(fid_push));
   open := _frame_scan_open(&btable, &body);
   _ := g_frame_in_progress.with_mut(xs => xs.pop());
-  outermost := (g_frame_in_progress.with(cell_list_len) == usize(0));
+  outermost := (g_frame_in_progress.with(_c_len_3) == usize(0));
   if(open || !g_frame_cycle_hit || outermost, {
     fid_memo := fid.clone();
     g_frame_open_memo.with_mut({ fid_memo, open }(m) => m.insert(fid_memo, open));

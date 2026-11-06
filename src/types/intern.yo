@@ -56,7 +56,16 @@
 { TypeValue, TypeValueNode, FuncMeta, SharedList, no_types } :: import("./definitions.yo");
 { fnv1a64, debug_knob, OwnedKeys, owned_keys_new, owned_keys_record, owned_keys_take } :: import("../utils.yo");
 { ToString } :: import("std/fmt");
-{ RefCell, cell_map_len, cell_set_len } :: import("std/sync/refcell");
+{ RefCell } :: import("std/sync/refcell");
+/// (seed window) Concrete per-payload variants of refcell.yo's generic
+/// fillers: a fn value generic over its element keeps the variable abstract
+/// through the slot and its specializations COLLAPSE across element types
+/// (see refcell.yo's filler block). Inline the literals back once
+/// `SEED_VERSION` carries the ref-spill fix.
+/// `HashSet(u64)` (1 use)
+_c_len_1 :: (fn(s : &HashSet(u64)) -> usize)(s.len());
+/// `HashMap(String, TypeValue)` (1 use)
+_c_len_2 :: (fn(m : &HashMap(String, TypeValue)) -> usize)(m.len());
 _append_b :: (fn(sb : &mut StringBuilder, x : bool) -> unit)(
   if(x, sb.write_str("1"), sb.write_str("0"))
 );
@@ -829,7 +838,7 @@ type_intern_probe_report :: (fn() -> String)({
   (n_enum : usize) = g_ti_enum;
   (n_some : usize) = g_ti_some;
   (n_other : usize) = g_ti_other;
-  head := `[type-intern] retained_types=${n_total.to_string()} distinct=${g_ti_distinct.with(cell_set_len).to_string()} nodes=${n_nodes.to_string()}`;
+  head := `[type-intern] retained_types=${n_total.to_string()} distinct=${g_ti_distinct.with(_c_len_1).to_string()} nodes=${n_nodes.to_string()}`;
   lists := ` lists=${n_lists.to_string()} empty_lists=${n_lists_empty.to_string()}`;
   kinds := ` func=${n_func.to_string()} struct=${n_struct.to_string()} enum=${n_enum.to_string()}`;
   rest := ` some=${n_some.to_string()} other=${n_other.to_string()}`;
@@ -842,7 +851,7 @@ type_intern_probe_report :: (fn() -> String)({
 /// intern of that shape canonicalises a fresh node (Phase 1 step 5).
 (g_type_intern_owned : OwnedKeys) = owned_keys_new();
 /// Interned shapes (the B2 plateau test's probe).
-type_intern_entry_count :: (fn() -> usize)(g_type_intern.with(cell_map_len));
+type_intern_entry_count :: (fn() -> usize)(g_type_intern.with(_c_len_2));
 /// Drop the intern entries `owner`'s evaluation added.
 purge_type_intern_owned_by :: (fn(owner : &String) -> unit)({
   keys := owned_keys_take(&g_type_intern_owned, owner);

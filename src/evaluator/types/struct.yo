@@ -49,7 +49,14 @@ import("std/fmt");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 { type_is_comptime_only_full } :: import("../trait_checking.yo");
 { _ctfe_args_equal } :: import("../calls/comptime_fn.yo");
-{ RefCell, cell_list_len } :: import("std/sync/refcell");
+{ RefCell } :: import("std/sync/refcell");
+/// (seed window) Concrete per-payload variants of refcell.yo's generic
+/// fillers: a fn value generic over its element keeps the variable abstract
+/// through the slot and its specializations COLLAPSE across element types
+/// (see refcell.yo's filler block). Inline the literals back once
+/// `SEED_VERSION` carries the ref-spill fix.
+/// `ArrayList(_CellInstance)` (1 use)
+_c_len_1 :: (fn(xs : &ArrayList(_CellInstance)) -> usize)(xs.len());
 evaluate_struct_type :: (
   fn(
     expr : &AstExpr,
@@ -411,7 +418,7 @@ derive(_CellInstance, Clone);
 /// `Rc(Node)` do.
 _cell_instance_id :: (fn(is_atomic : bool, v : &TypeValue) -> String)({
   given := EvalValue.TypeVal(v.clone());
-  n := g_cell_instances.with(cell_list_len);
+  n := g_cell_instances.with(_c_len_1);
   (i : usize) = usize(0);
   while(i < n, {
     match(

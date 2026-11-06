@@ -27,7 +27,7 @@ pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { HashSet } :: import("std/collections/hash_set");
-{ RefCell, cell_list_clone, cell_list_last_cloned, cell_list_len, cell_map_keys_cloned, cell_map_len, cell_value_clone, cell_set_is_empty } :: import("std/sync/refcell");
+{ RefCell } :: import("std/sync/refcell");
 { hash_one } :: import("std/hash");
 { cwd } :: import("std/env");
 // `expr_info_paths_for_write` detects the SHARED empty PathCollection before a
@@ -61,6 +61,37 @@ pragma(Pragma.AllowUnsafe);
 { EffectAnalysisResult } :: import("./evaluator/effects/effect_analysis_types.yo");
 { debug_knob } :: import("./utils.yo");
 { Diagnostic } :: import("./diagnostics.yo");
+/// (seed window) Concrete variants of refcell.yo's fillers: a fn value
+/// generic over its element keeps the variable abstract through the slot, so
+/// uses of the result needing methods fail (see refcell.yo's filler block).
+_c_clone_exprinfo_table :: (fn(v : &Option(ExprInfoTable)) -> Option(ExprInfoTable))(v.clone());
+_c_last_cloned_str :: (fn(xs : &ArrayList(String)) -> Option(String))(xs.last_cloned());
+_c_last_cloned_str_lists :: (fn(xs : &ArrayList(ArrayList(String))) -> Option(ArrayList(String)))(xs.last_cloned());
+_c_last_cloned_usize_lists :: (fn(xs : &ArrayList(ArrayList(usize))) -> Option(ArrayList(usize)))(xs.last_cloned());
+_c_clone_exprs :: (fn(xs : &ArrayList(AstExpr)) -> ArrayList(AstExpr))(xs.clone());
+/// (seed window) Concrete per-payload variants of refcell.yo's generic
+/// fillers: a fn value generic over its element keeps the variable abstract
+/// through the slot and its specializations COLLAPSE across element types
+/// (see refcell.yo's filler block). Inline the literals back once
+/// `SEED_VERSION` carries the ref-spill fix.
+/// `HashSet(ExprId)` (1 use)
+_c_is_empty_1 :: (fn(s : &HashSet(ExprId)) -> bool)(s.is_empty());
+/// `ArrayList(ExprId)` (2 uses)
+_c_len_2 :: (fn(xs : &ArrayList(ExprId)) -> usize)(xs.len());
+/// `ArrayList(String)` (4 uses)
+_c_len_3 :: (fn(xs : &ArrayList(String)) -> usize)(xs.len());
+/// `HashMap(ExprId, ArrayList(Variable))` (1 use)
+_c_len_4 :: (fn(m : &HashMap(ExprId, ArrayList(Variable))) -> usize)(m.len());
+/// `ArrayList(BranchInitRecord)` (5 uses)
+_c_len_5 :: (fn(xs : &ArrayList(BranchInitRecord)) -> usize)(xs.len());
+/// `ArrayList(ArrayList(usize))` (3 uses)
+_c_len_6 :: (fn(xs : &ArrayList(ArrayList(usize))) -> usize)(xs.len());
+/// `HashMap(String, HollowBodyError)` (2 uses)
+_c_len_7 :: (fn(m : &HashMap(String, HollowBodyError)) -> usize)(m.len());
+/// `HashMap(ExprId, TypeValue)` (1 use)
+_c_len_8 :: (fn(m : &HashMap(ExprId, TypeValue)) -> usize)(m.len());
+/// `ArrayList(MutableGlobalSite)` (5 uses)
+_c_len_9 :: (fn(xs : &ArrayList(MutableGlobalSite)) -> usize)(xs.len());
 /// (seed window) Concrete-key variants of refcell.yo's `cell_map_keys_cloned`
 /// for the `.into_iter()` chains: a fn value generic over K re-spells K's
 /// bounds and the IntoIterator lookup fails on it (see refcell.yo's filler
@@ -1193,7 +1224,7 @@ is_stripped_statement :: (fn(id : ExprId) -> bool)(
 /// `verify+` strip recorded (`note_stripped_statement`). With no stripped
 /// statement it returns `stmts` itself.
 emitted_block_statements :: (fn(stmts : ArrayList(AstExpr)) -> ArrayList(AstExpr))({
-  if(g_stripped_statement_ids.with(cell_set_is_empty), {
+  if(g_stripped_statement_ids.with(_c_is_empty_1), {
     return(stmts);
   });
   kept := ArrayList(AstExpr).new();
@@ -1313,7 +1344,7 @@ scope_release_depth :: (fn() -> usize)(g_scope_depth);
 scope_release_set_depth :: (fn(d : usize) -> unit)({
   g_scope_depth = d;
 });
-scope_release_mark :: (fn() -> usize)(g_scope_log_ids.with(cell_list_len));
+scope_release_mark :: (fn() -> usize)(g_scope_log_ids.with(_c_len_2));
 _scope_log :: (fn(id : ExprId, info : &ExprInfo) -> unit)(
   if((g_scope_mode != usize(0)) && (g_scope_depth > usize(0)), {
     logged := Rc.clone(info);
@@ -1410,7 +1441,7 @@ _scope_keeps_env :: (fn(id : ExprId, info : &ExprInfo) -> bool)(
 scope_release_body :: (fn(mark : usize, entry : &Environment) -> unit)({
   husk := make_environment(frames : Rc.new(copy_env_frames(entry)), module_path : Rc.clone(entry.module_path()), function_declaration_frame_level : Option(usize).Some(SCOPE_HUSK_MARK), frozen : true);
   (i : usize) = mark;
-  while(i < g_scope_log_ids.with(cell_list_len), {
+  while(i < g_scope_log_ids.with(_c_len_2), {
     id := g_scope_log_ids.with(xs => xs.get(i)).unwrap();
     info := g_scope_log_infos.with(xs => xs.get_cloned(i)).unwrap();
     // An env that shares no frame with the husk (a module-level binding
@@ -1681,7 +1712,7 @@ _scope_shadow_lookup :: (fn(key : ExprId, env : &Environment, name : &String) ->
         mp := match(g_scope_mm_kinds.with({ &mk }(m) => m.get(mk.clone())), .Some(c) => c, .None => usize(0));
         smmk2_key := mk.clone();
         g_scope_mm_kinds.with_mut({ smmk2_key, mp }(m) => m.insert(smmk2_key, mp + usize(1)));
-        if((g_scope_samples.with(cell_list_len) < usize(80)) && ((g_scope_mismatch % usize(1000)) == usize(1)), {
+        if((g_scope_samples.with(_c_len_3) < usize(80)) && ((g_scope_mismatch % usize(1000)) == usize(1)), {
           name_owned := name.clone();
           g_scope_samples.with_mut({ name_owned, key : key.clone(), truth : truth.clone(), rec : rec.clone() }(xs) => xs.push(`key=${key.to_string()} name=${name_owned} truth=${truth.len().to_string()} rec=${rec.len().to_string()}`));
         });
@@ -1703,7 +1734,7 @@ scope_release_report :: (fn() -> unit)(
     (n_calls : usize) = g_scope_calls;
     (n_unlogged : usize) = g_scope_unlogged;
     (n_logged_unreleased : usize) = g_scope_logged_unreleased;
-    eprintln(`[scope-release] mode=${g_scope_mode_wanted.to_string()} released=${n_released.to_string()} kept=${n_kept.to_string()} atom_exc=${g_scope_atom_exc.with(cell_map_len).to_string()} name_recs=${g_scope_names.len().to_string()} one=${g_scope_one.with(m => m.len()).to_string()} inner=${g_scope_inner.with(m => m.len()).to_string()} prefix_bad=${n_prefix_bad.to_string()} klen=${g_scope_klen.with(m => m.len()).to_string()} rereleased=${n_rereleased.to_string()} stale_key=${n_stale_key.to_string()} checked=${n_checked.to_string()} mismatch=${n_mismatch.to_string()} calls=${n_calls.to_string()} unlogged=${n_unlogged.to_string()} logged_unreleased=${n_logged_unreleased.to_string()}`);
+    eprintln(`[scope-release] mode=${g_scope_mode_wanted.to_string()} released=${n_released.to_string()} kept=${n_kept.to_string()} atom_exc=${g_scope_atom_exc.with(_c_len_4).to_string()} name_recs=${g_scope_names.len().to_string()} one=${g_scope_one.with(m => m.len()).to_string()} inner=${g_scope_inner.with(m => m.len()).to_string()} prefix_bad=${n_prefix_bad.to_string()} klen=${g_scope_klen.with(m => m.len()).to_string()} rereleased=${n_rereleased.to_string()} stale_key=${n_stale_key.to_string()} checked=${n_checked.to_string()} mismatch=${n_mismatch.to_string()} calls=${n_calls.to_string()} unlogged=${n_unlogged.to_string()} logged_unreleased=${n_logged_unreleased.to_string()}`);
     // The key iterator CLONES (B8); `into_iter` would copy each move-only
     // entry out of the map's storage. B9: `keys()` consumes the map, so the
     // walk reads a snapshot of the keys; the per-key reads below re-borrow
@@ -1720,7 +1751,7 @@ scope_release_report :: (fn() -> unit)(
       );
     });
     (i : usize) = usize(0);
-    while(i < g_scope_samples.with(cell_list_len), {
+    while(i < g_scope_samples.with(_c_len_3), {
       eprintln(`[scope-release-sample] ${g_scope_samples.with({ i }(xs) => xs.get_cloned(i)).unwrap()}`);
       i = (i + usize(1));
     });
@@ -2176,12 +2207,12 @@ _mg_canon :: (fn(module_path : &String) -> String)({
 (g_mg_recorded_keys : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
 module_global_recording_mark :: (fn() -> usize)({
   g_mg_recording_depth = (g_mg_recording_depth + usize(1));
-  g_mg_recorded_keys.with(cell_list_len)
+  g_mg_recorded_keys.with(_c_len_3)
 });
 rollback_module_level_globals_to :: (fn(mark : usize) -> unit)({
-  while(g_mg_recorded_keys.with(cell_list_len) > mark, {
+  while(g_mg_recorded_keys.with(_c_len_3) > mark, {
     match(
-      g_mg_recorded_keys.with(cell_list_last_cloned),
+      g_mg_recorded_keys.with(_c_last_cloned_str),
       .Some(k) => {
         // Owned key (`with_mut`'s callback is a sink parameter).
         rb_key := k.clone();
@@ -2334,7 +2365,7 @@ record_flow_event :: (
     after_consumed : &Option(Token)
   ) -> unit
 )({
-  idx := g_branch_init_log.with(cell_list_len);
+  idx := g_branch_init_log.with(_c_len_5);
   g_branch_init_log.with_mut({ after_consumed, after_init, before_consumed, before_init, capture : capture.clone(), kind, token, ty : Rc.clone(ty), var_id }(xs) => xs.push(
     BranchInitRecord(
       var_id : var_id,
@@ -2414,8 +2445,8 @@ arm_init_range_in :: (fn(ranges : &ArrayList(usize), arm_expr_id : usize) -> Opt
 (g_branch_group_stack : RefCell(ArrayList(ArrayList(usize)))) = RefCell(ArrayList(ArrayList(usize))).new(ArrayList(ArrayList(usize)).new());
 push_branch_group :: (fn() -> unit)({
   entry := ArrayList(usize).new();
-  entry.push(g_branch_init_log.with(cell_list_len));
-  entry.push(g_branch_init_log.with(cell_list_len));
+  entry.push(g_branch_init_log.with(_c_len_5));
+  entry.push(g_branch_init_log.with(_c_len_5));
   g_branch_group_stack.with_mut(xs => xs.push(entry.clone()));
 });
 /// Mark the start of the NEXT arm in the innermost group: records made so far
@@ -2426,7 +2457,7 @@ begin_branch_group_arm :: (fn() -> unit)({
     .Some(old_entry) => {
       entry := ArrayList(usize).new();
       entry.push(match(old_entry.get(usize(0)), .Some(x) => x, .None => usize(0)));
-      entry.push(g_branch_init_log.with(cell_list_len));
+      entry.push(g_branch_init_log.with(_c_len_5));
       g_branch_group_stack.with_mut(xs => xs.push(entry.clone()));
     },
     .None => ()
@@ -2436,10 +2467,10 @@ pop_branch_group :: (fn() -> unit)({
   g_branch_group_stack.with_mut(xs => xs.pop());
   ()
 });
-branch_group_stack_len :: (fn() -> usize)(g_branch_group_stack.with(cell_list_len));
+branch_group_stack_len :: (fn() -> usize)(g_branch_group_stack.with(_c_len_6));
 /// Drop stack entries stranded by a thrown-through arm evaluation.
 truncate_branch_group_stack :: (fn(depth : usize) -> unit)({
-  while(g_branch_group_stack.with(cell_list_len) > depth, {
+  while(g_branch_group_stack.with(_c_len_6) > depth, {
     g_branch_group_stack.with_mut(xs => xs.pop());
     ()
   });
@@ -2461,7 +2492,7 @@ pop_active_where_trait_ids :: (fn() -> unit)({
 });
 active_where_trait_ids :: (fn() -> ArrayList(String))(
   match(
-    g_active_where_trait_ids.with(cell_list_last_cloned),
+    g_active_where_trait_ids.with(_c_last_cloned_str_lists),
     .Some(top) => top,
     .None => ArrayList(String).new()
   )
@@ -2499,7 +2530,7 @@ has_dominating_branch_init :: (fn(var_id : usize) -> bool)({
         // Only assignments dominate (moves and joins are not inits).
         (excluded : bool) = g_branch_init_log.with(xs => cond((i < xs.len()) => match(xs(i).kind, .Assign => false, _ => true), true => true));
         (gi : usize) = usize(0);
-        while(gi < g_branch_group_stack.with(cell_list_len), {
+        while(gi < g_branch_group_stack.with(_c_len_6), {
           match(
             g_branch_group_stack.with(xs => xs.get_cloned(gi)),
             .Some(g) => {
@@ -2532,7 +2563,7 @@ branch_init_indices_for :: (fn(var_id : usize) -> Option(ArrayList(usize)))(g_br
 sibling_first_flow_records :: (fn() -> ArrayList(BranchInitRecord))({
   out := ArrayList(BranchInitRecord).new();
   match(
-    g_branch_group_stack.with(cell_list_last_cloned),
+    g_branch_group_stack.with(_c_last_cloned_usize_lists),
     .Some(g) => {
       gs := match(g.get(usize(0)), .Some(x) => x, .None => usize(0));
       ga := match(g.get(usize(1)), .Some(x) => x, .None => usize(0));
@@ -2828,7 +2859,7 @@ record_hollow_body_error :: (fn(site : &String, message : &String, diagnostics :
 /// A body's definition succeeded after all (a later trial of the same body):
 /// forget what an earlier trial recorded.
 clear_hollow_body_error :: (fn(site : &String) -> unit)({
-  if(g_hollow_body_errors.with(cell_map_len) > usize(0), {
+  if(g_hollow_body_errors.with(_c_len_7) > usize(0), {
     site_owned := site.clone();
     _removed := g_hollow_body_errors.with_mut({ site_owned }(m) => m.remove(&site_owned));
   });
@@ -2857,7 +2888,7 @@ record_generic_trial_error :: (fn(site : &String, message : &String, diagnostics
 });
 /// A later trial of the same generic body succeeded: forget the record.
 clear_generic_trial_error :: (fn(site : &String) -> unit)({
-  if(g_generic_trial_errors.with(cell_map_len) > usize(0), {
+  if(g_generic_trial_errors.with(_c_len_7) > usize(0), {
     site_owned := site.clone();
     _removed := g_generic_trial_errors.with_mut({ site_owned }(m) => m.remove(&site_owned));
   });
@@ -2918,7 +2949,7 @@ record_module_level_init_expr :: (fn(e : &AstExpr) -> unit)({
 /// clone whose elements are AstExpr handle bumps), so it stays correct after
 /// B8 flips `ArrayList` to a value; callers only iterate.
 get_module_level_init_exprs :: (fn() -> ArrayList(AstExpr))(
-  g_module_level_init_exprs.with(cell_list_clone)
+  g_module_level_init_exprs.with(_c_clone_exprs)
 );
 // `expr_contains_loop_terminator` was relocated to `./expr_traversal.yo`
 /// The Variables named `name` that node `key`'s recorded scope sees, innermost
@@ -3343,7 +3374,7 @@ purge_executed_clone_metadata :: (fn(table : &ExprInfoTable, root : &AstExpr, lo
 });
 /// Total entries across those tables (the B2 plateau test's probe).
 expr_side_table_entry_count :: (fn() -> usize)(
-  g_method_callee_types.with(cell_map_len) + g_io_builtin_calls.with(m => m.len()) + g_method_callee_values.with(m => m.len()) + g_macro_expansions.with(m => m.len()) + g_immediate_old_value_drops.with(m => m.len()) + g_consume_releases.with(s => s.len())
+  g_method_callee_types.with(_c_len_8) + g_io_builtin_calls.with(m => m.len()) + g_method_callee_values.with(m => m.len()) + g_macro_expansions.with(m => m.len()) + g_immediate_old_value_drops.with(m => m.len()) + g_consume_releases.with(s => s.len())
 );
 export(record_module_level_init_expr, get_module_level_init_exprs);
 export(purge_expr_side_tables, purge_executed_clone_metadata, expr_side_table_entry_count);
@@ -3840,7 +3871,7 @@ record_mut_binding_site_pending :: (fn(decl : &Token, name : &String) -> unit)({
   mbp_decl := decl.clone();
   g_mut_binding_pending.with_mut({ mbp_name, mbp_decl }(xs) => xs.push(MutableGlobalSite(path : mbp_decl.module_path.*.clone(), row : usize(mbp_decl.row), col : usize(mbp_decl.column), expect : mbp_name.clone())));
 });
-mut_binding_pending_mark :: (fn() -> usize)(g_mut_binding_pending.with(cell_list_len));
+mut_binding_pending_mark :: (fn() -> usize)(g_mut_binding_pending.with(_c_len_9));
 /// A parameter write held the same way, by the position of the write.
 (g_mut_param_pending : RefCell(ArrayList(MutableGlobalSite))) = RefCell(ArrayList(MutableGlobalSite)).new(ArrayList(MutableGlobalSite).new());
 record_mut_param_site_pending :: (fn(at : &Token, name : &String) -> unit)({
@@ -3849,22 +3880,22 @@ record_mut_param_site_pending :: (fn(at : &Token, name : &String) -> unit)({
   mpp_at := at.clone();
   g_mut_param_pending.with_mut({ mpp_name, mpp_at }(xs) => xs.push(MutableGlobalSite(path : mpp_at.module_path.*.clone(), row : usize(mpp_at.row), col : usize(mpp_at.column), expect : mpp_name.clone())));
 });
-mut_param_pending_mark :: (fn() -> usize)(g_mut_param_pending.with(cell_list_len));
+mut_param_pending_mark :: (fn() -> usize)(g_mut_param_pending.with(_c_len_9));
 /// Settle the writes held since `mark`. `keep` (the argument raised an error
 /// even with the writes accepted) records them: the case expects some OTHER
 /// error, and its binding needs `mut` for that error to stay the one raised.
 /// Otherwise the case expects the immutable-binding write itself, and its
 /// binding stays unmarked. Returns how many writes were held.
 settle_mut_binding_pending :: (fn(mark : usize, pmark : usize, keep : bool) -> usize)({
-  held := ((g_mut_binding_pending.with(cell_list_len) - mark) + (g_mut_param_pending.with(xs => xs.len()) - pmark));
+  held := ((g_mut_binding_pending.with(_c_len_9) - mark) + (g_mut_param_pending.with(xs => xs.len()) - pmark));
   if(keep, {
     (i : usize) = mark;
-    while(i < g_mut_binding_pending.with(cell_list_len), {
+    while(i < g_mut_binding_pending.with(_c_len_9), {
       match(g_mut_binding_pending.with(xs => xs.get_cloned(i)), .Some(site) => _record_mut_binding_site_at(site), .None => ());
       i = (i + usize(1));
     });
     (j : usize) = pmark;
-    while(j < g_mut_param_pending.with(cell_list_len), {
+    while(j < g_mut_param_pending.with(_c_len_9), {
       match(g_mut_param_pending.with(xs => xs.get_cloned(j)), .Some(psite) => _record_mut_param_site_at(psite), .None => ());
       j = (j + usize(1));
     });

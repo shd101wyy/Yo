@@ -20,7 +20,18 @@ pragma(Pragma.AllowUnsafe);
 { TypeValue, t_refine_inner } :: import("../types/definitions.yo");
 { type_to_string } :: import("../types/string.yo");
 { canonical_module_path } :: import("../utils.yo");
-{ RefCell, cell_list_len, cell_list_first_cloned } :: import("std/sync/refcell");
+{ RefCell } :: import("std/sync/refcell");
+/// (seed window) Concrete variants of refcell.yo's fillers: a fn value
+/// generic over its element keeps the variable abstract through the slot, so
+/// uses of the result needing methods fail (see refcell.yo's filler block).
+_c_first_cloned_str :: (fn(xs : &ArrayList(String)) -> Option(String))(xs.get_cloned(usize(0)));
+/// (seed window) Concrete per-payload variants of refcell.yo's generic
+/// fillers: a fn value generic over its element keeps the variable abstract
+/// through the slot and its specializations COLLAPSE across element types
+/// (see refcell.yo's filler block). Inline the literals back once
+/// `SEED_VERSION` carries the ref-spill fix.
+/// `ArrayList(PragmaEntry)` (2 uses)
+_c_len_1 :: (fn(xs : &ArrayList(PragmaEntry)) -> usize)(xs.len());
 // NOTE: the compiler reuses the language's own `Pragma` enum
 // (defined in `std/prelude.yo`, auto-loaded into every module) as the
 // pragma-kind type — one source of truth, no duplicate enum. `Pragma`
@@ -54,7 +65,7 @@ file_has_pragma :: (fn(module_path : &Option(String), kind : Pragma) -> bool)(
       key := canonical_module_path(mp.clone());
       (found : bool) = false;
       (i : usize) = usize(0);
-      n := g_privileged_files.with(cell_list_len);
+      n := g_privileged_files.with(_c_len_1);
       while((i < n) && !found, {
         match(
           g_privileged_files.with(xs => xs.get_cloned(i)),
@@ -87,7 +98,7 @@ _clear_pragma_for_module :: (fn(module_path : &String) -> unit)({
   key := canonical_module_path(module_path);
   kept := ArrayList(PragmaEntry).new();
   (i : usize) = usize(0);
-  n := g_privileged_files.with(cell_list_len);
+  n := g_privileged_files.with(_c_len_1);
   while(i < n, {
     match(
       g_privileged_files.with(xs => xs.get_cloned(i)),
@@ -227,7 +238,7 @@ _is_std_module_path :: (fn(mp : &String, std_path : &String) -> bool)({
 (g_std_path_memo : RefCell(HashMap(String, bool))) = RefCell(HashMap(String, bool)).new(HashMap(String, bool).new());
 (g_std_path_memo_root : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
 is_std_module_path :: (fn(mp : &String, std_path : &String) -> bool)({
-  if(match(g_std_path_memo_root.with(cell_list_first_cloned), .Some(r) => (r != std_path), .None => true), {
+  if(match(g_std_path_memo_root.with(_c_first_cloned_str), .Some(r) => (r != std_path), .None => true), {
     g_std_path_memo.with_mut(m => m.clear());
     g_std_path_memo_root.with_mut(xs => xs.clear());
     std_path_owned := std_path.clone();

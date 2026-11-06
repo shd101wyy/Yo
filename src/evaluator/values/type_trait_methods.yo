@@ -48,7 +48,16 @@
 { AstExpr } :: import("../../expr.yo");
 { canonical_module_path, debug_knob, set_current_owner, owner_logs_enabled, OwnedKeys, owned_keys_new, owned_keys_record, owned_keys_take } :: import("../../utils.yo");
 { eprintln } :: import("std/fmt");
-{ RefCell, cell_map_keys_cloned, cell_map_len } :: import("std/sync/refcell");
+{ RefCell } :: import("std/sync/refcell");
+/// (seed window) Concrete per-payload variants of refcell.yo's generic
+/// fillers: a fn value generic over its element keeps the variable abstract
+/// through the slot and its specializations COLLAPSE across element types
+/// (see refcell.yo's filler block). Inline the literals back once
+/// `SEED_VERSION` carries the ref-spill fix.
+/// `HashMap(String, String)` (1 use)
+_c_len_1 :: (fn(m : &HashMap(String, String)) -> usize)(m.len());
+/// `HashMap(String, EvalValue)` (1 use)
+_c_len_2 :: (fn(m : &HashMap(String, EvalValue)) -> usize)(m.len());
 /// (seed window) See refcell.yo's filler block; concrete K/V for the `.into_iter()` chains.
 _ttm_keys :: (fn(m : &HashMap(String, ArrayList(MethodEntry))) -> ArrayList(String))(m.keys_cloned());
 _ttm_site_owners_keys :: (fn(m : &HashMap(String, String)) -> ArrayList(String))(m.keys_cloned());
@@ -755,7 +764,7 @@ purge_inherent_method_sites_owned_by :: (fn(owner : &String) -> unit)({
   });
 });
 /// Recorded inherent-method sites (the watch-round plateau probe).
-inherent_method_site_count :: (fn() -> usize)(_inherent_method_sites.with(cell_map_len));
+inherent_method_site_count :: (fn() -> usize)(_inherent_method_sites.with(_c_len_1));
 /// TRAIT-IMPL sites (plans/reference/TRAIT_COHERENCE.md rules 1–2), keyed by
 /// `type_id` + newline + the trait's instantiation key, valued by the impl's
 /// `module_path:row:column`. A registration from a DIFFERENT site is a second
@@ -855,7 +864,7 @@ register_trait_default :: (fn(trait_id : &String, label : &String, value : &Eval
   _trait_method_defaults.with_mut({ tmd_key, tmd_val }(m) => m.insert(tmd_key, tmd_val));
 });
 /// Registered trait defaults (the B2 plateau test's probe).
-trait_default_entry_count :: (fn() -> usize)(_trait_method_defaults.with(cell_map_len));
+trait_default_entry_count :: (fn() -> usize)(_trait_method_defaults.with(_c_len_2));
 /// Drop the trait defaults `owner`'s evaluation registered (its traits are
 /// re-minted under fresh ids when it is re-evaluated).
 purge_trait_defaults_owned_by :: (fn(owner : &String) -> unit)({

@@ -231,9 +231,25 @@ impl(
   where(T <: Clone),
   RefCell(T),
   Clone(
-    clone : (fn(self : &Self) -> Self)(
-      RefCell(T).new(self.with(cell_value_clone))
-    )
+    clone : (fn(self : &Self) -> Self)({
+      // (seed window) Spelled over the slot, not `with(v => v.clone())`:
+      // under a seed predating the ref-spill fix a closure literal at
+      // `with`'s generic-`R` slot spills a mistyped C temp, and a generic
+      // fn value's specializations collapse across `T` (this file's filler
+      // block). The borrow accounting is `with`'s own.
+      slot := addr_of(self._slot.*);
+      // SAFETY: as `with`.
+      if(unsafe(slot.*._borrow) < isize(0), {
+        __yo_panic("RefCell.with: the value is mutably borrowed (a with_mut or replace_with body is running)");
+      });
+      unsafe(consume(slot.*._borrow = (slot.*._borrow + isize(1))));
+      _release := _RefCellRelease(_mark : addr_of(slot.*._borrow), _taken : isize(1));
+      Self(
+        _slot : Box.new(
+          _RefCellSlot(T)(_borrow : isize(0), _value : unsafe(slot.*._value.clone()))
+        )
+      )
+    })
   )
 );
 

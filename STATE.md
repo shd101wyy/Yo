@@ -160,3 +160,34 @@ The question is (A) switch only the side-effect call-once slots, (B) switch ever
   fillers once a seed carries the spill fix).
 - check ./src round 33 after rewrites: into_iter chain errors (fixed with
   concrete helpers); round 34 running.
+
+## 2026-11-06 night (2) — coordinator heads-up re borrowed-for E0926 S1
+- AUDITED: no switched std fn contains a borrowed `for` over a `&mut` param
+  (grep over array_list/hash_map/regex/bench/stream/async-mutex/mutex/rwlock/
+  semaphore/once/refcell/log + prelude adapters: zero `for(` loops in the
+  switched bodies; the sort/search helpers are while-loops). The false E0926
+  shape (issues/2026-11-06-a-borrowed-for-over-a-mut-param-...md, deref lane)
+  does NOT occur in G1's std diff, so nothing to work around or re-gate; my
+  tree keeps `is_deref_rule_exempt`, and the S1's fix is reported to merge
+  before this PR — final battery covers it.
+- ALSO this session: 2nd/3rd facets of the fn-value-at-Impl-slot gap found
+  while converting the tree's with-reads to named fns: (a) a GENERIC named
+  fn's type var stays abstract through the slot — uses of its result needing
+  methods fail (`.into_iter()` chains, `.clone()`); (b) its specializations
+  COLLAPSE across element types ("Cannot unify LocalBorrowPatternBinding and
+  LocalBorrowInfo"). ALL tree fillers are now CONCRETE per-payload (_c_*
+  file-local helpers + the generic-but-usize-result cell_* family RETIRED
+  from src use; refcell.yo keeps exporting them but nothing imports them now
+  — candidates for deletion with the seed note). RefCell.Clone is rewritten
+  over the slot (neither literal nor generic fn value is seed-safe there).
+
+## 2026-11-07 — seed checks GREEN after full concrete-helper conversion
+- check ./src 274/274 (tmp/check_src_40.txt), check ./std 170/170
+  (tmp/check_std_4.txt). All tree with-reads now spell CONCRETE named fns
+  (_c_* file-local, ~90 helpers) after the generic-filler facets (abstract
+  type var through slot; specialization collapse) forced the conversion.
+  The generic cell_* family remains exported from refcell.yo but has no
+  importer — delete with the seed note. RefCell.Clone rewritten over the
+  slot. ExprInfo/ExprId/HashMap imports added (context, main, codegen_c);
+  http/server duplicate RefCell import removed.
+- NEXT: rebuild (nix clang) -> expect 0 void* spills in yo.c -> binary.

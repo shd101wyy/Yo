@@ -72,7 +72,11 @@ pragma(Pragma.AllowUnsafe);
 { get_func_param_comptime } :: import("../types/function.yo");
 { evaluate_comptime_fn_call } :: import("./comptime_fn.yo");
 { Exception } :: import("std/error");
-{ RefCell, cell_list_first_cloned } :: import("std/sync/refcell");
+{ RefCell } :: import("std/sync/refcell");
+/// (seed window) Concrete variants of refcell.yo's fillers: a fn value
+/// generic over its element keeps the variable abstract through the slot, so
+/// uses of the result needing methods fail (see refcell.yo's filler block).
+_c_first_cloned_typevalue :: (fn(xs : &ArrayList(TypeValue)) -> Option(TypeValue))(xs.get_cloned(usize(0)));
 // ---------------------------------------------------------------------------
 // Private types
 // ---------------------------------------------------------------------------
@@ -215,7 +219,7 @@ _cached_range_type :: (
   fn(inclusive : bool, env : &Environment, ctx : &mut EvalContext) -> Option(TypeValue)
 )(
   match(
-    if(inclusive, g_range_incl_ty_cache.with(cell_list_first_cloned), g_range_ty_cache.with(cell_list_first_cloned)),
+    if(inclusive, g_range_incl_ty_cache.with(_c_first_cloned_typevalue), g_range_ty_cache.with(_c_first_cloned_typevalue)),
     .Some(hit) => Option(TypeValue).Some(hit),
     .None => {
       name := if(inclusive, String.from("RangeInclusive"), String.from("Range"));

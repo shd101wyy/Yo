@@ -31,7 +31,18 @@
 { HashMap } :: import("std/collections/hash_map");
 { HashSet } :: import("std/collections/hash_set");
 { cwd } :: import("std/env");
-{ RefCell, cell_list_clone, cell_list_len } :: import("std/sync/refcell");
+{ RefCell } :: import("std/sync/refcell");
+/// (seed window) Concrete variants of refcell.yo's fillers: a fn value
+/// generic over its element keeps the variable abstract through the slot, so
+/// uses of the result needing methods fail (see refcell.yo's filler block).
+_c_clone_strings :: (fn(xs : &ArrayList(String)) -> ArrayList(String))(xs.clone());
+/// (seed window) Concrete per-payload variants of refcell.yo's generic
+/// fillers: a fn value generic over its element keeps the variable abstract
+/// through the slot and its specializations COLLAPSE across element types
+/// (see refcell.yo's filler block). Inline the literals back once
+/// `SEED_VERSION` carries the ref-spill fix.
+/// `ArrayList(String)` (5 uses)
+_c_len_1 :: (fn(xs : &ArrayList(String)) -> usize)(xs.len());
 (g_input_files : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
 /// Parallel to `g_input_files`: the sha256 of each input's bytes AS READ.
 ///
@@ -98,7 +109,7 @@ record_input_file :: (fn(path : &String, content_sha256 : &String) -> unit)({
     g_touches.with_mut({ &content_sha256, &fs }(xs) => xs.push(`${_hash_marker(content_sha256)} ${fs}`));
   });
   (i : usize) = usize(0);
-  while(i < g_input_files.with(cell_list_len), {
+  while(i < g_input_files.with(_c_len_1), {
     match(
       g_input_files.with(xs => xs.get_cloned(i)),
       .Some(seen) => if(seen == fs, {
@@ -145,7 +156,7 @@ _hash_marker :: (fn(h : &String) -> String)(
   )
 );
 /// Start observing a module load; pass the result to `module_load_end`.
-module_load_begin :: (fn() -> usize)(g_touches.with(cell_list_len));
+module_load_begin :: (fn() -> usize)(g_touches.with(_c_len_1));
 /// Remember what the load of `key` touched since `mark`.
 module_load_end :: (fn(key : &String, mark : usize) -> unit)({
   // Only a compile that writes a depfile (hashing on) needs the log; `check`,
@@ -155,7 +166,7 @@ module_load_end :: (fn(key : &String, mark : usize) -> unit)({
   });
   out := ArrayList(String).new();
   (i : usize) = mark;
-  while(i < g_touches.with(cell_list_len), {
+  while(i < g_touches.with(_c_len_1), {
     match(
       g_touches.with(xs => xs.get_cloned(i)),
       .Some(t) => out.push(t),
@@ -222,7 +233,7 @@ _replay_touch :: (fn(t : &String) -> unit)({
   );
 });
 /// The files read so far, in first-open order.
-input_files :: (fn() -> ArrayList(String))(g_input_files.with(cell_list_clone));
+input_files :: (fn() -> ArrayList(String))(g_input_files.with(_c_clone_strings));
 /// The inputs as `<sha256> <absolute path>` lines, in first-open order — the
 /// depfile's format. The hash comes FIRST so a path containing spaces still
 /// parses by splitting at the first space.
@@ -232,7 +243,7 @@ input_files :: (fn() -> ArrayList(String))(g_input_files.with(cell_list_clone));
 input_file_entries :: (fn() -> ArrayList(String))({
   out := ArrayList(String).new();
   (i : usize) = usize(0);
-  while(i < g_input_files.with(cell_list_len), {
+  while(i < g_input_files.with(_c_len_1), {
     path := match(g_input_files.with(xs => xs.get_cloned(i)), .Some(p) => p, .None => String.new());
     h := match(g_input_hashes.with(xs => xs.get_cloned(i)), .Some(x) => x, .None => String.new());
     marker := cond(
@@ -259,7 +270,7 @@ input_file_entries :: (fn() -> ArrayList(String))({
 record_env_read :: (fn(name : &String, rendered : &String) -> unit)({
   entry := `${name}=${rendered}`;
   (i : usize) = usize(0);
-  while(i < g_env_reads.with(cell_list_len), {
+  while(i < g_env_reads.with(_c_len_1), {
     match(
       g_env_reads.with(xs => xs.get_cloned(i)),
       .Some(seen) => if(seen == entry, {
@@ -275,7 +286,7 @@ record_env_read :: (fn(name : &String, rendered : &String) -> unit)({
 /// B4-1b (the ArrayList identity accessor): returns a SNAPSHOT (an owned
 /// clone), so it stays correct after B8 flips `ArrayList` to a value; the
 /// one caller (`build_runner`'s stamp) only reads it.
-env_reads :: (fn() -> ArrayList(String))(g_env_reads.with(cell_list_clone));
+env_reads :: (fn() -> ArrayList(String))(g_env_reads.with(_c_clone_strings));
 export(
   record_input_file,
   reset_input_files,

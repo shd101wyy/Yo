@@ -12,7 +12,14 @@
 { HashMap } :: import("std/collections/hash_map");
 { Path } :: import("std/path");
 { cwd, env } :: import("std/env");
-{ RefCell, cell_list_len } :: import("std/sync/refcell");
+{ RefCell } :: import("std/sync/refcell");
+/// (seed window) Concrete per-payload variants of refcell.yo's generic
+/// fillers: a fn value generic over its element keeps the variable abstract
+/// through the slot and its specializations COLLAPSE across element types
+/// (see refcell.yo's filler block). Inline the literals back once
+/// `SEED_VERSION` carries the ref-spill fix.
+/// `ArrayList(String)` (5 uses)
+_c_len_1 :: (fn(xs : &ArrayList(String)) -> usize)(xs.len());
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
 // Unicode escape scanning — shared by the lexer (template strings, and
@@ -704,7 +711,7 @@ profile_memory_mark :: (fn(label : str) -> unit)({
   g_prof_mark_rss_mb.with_mut(xs => xs.push(_prof_sample(g_prof_rss_probe)));
   g_prof_mark_peak_mb.with_mut(xs => xs.push(_prof_sample(g_prof_peak_probe)));
 });
-profile_mark_count :: (fn() -> usize)(g_prof_mark_labels.with(cell_list_len));
+profile_mark_count :: (fn() -> usize)(g_prof_mark_labels.with(_c_len_1));
 profile_mark_line_at :: (fn(i : usize) -> String)(
   `profile: mark ${match(g_prof_mark_labels.with(xs => xs.get_cloned(i)), .Some(l) => l, .None => String.new())} rss=${match(g_prof_mark_rss_mb.with(xs => xs.get(i)), .Some(n) => n, .None => usize(0)).to_string()}MB peak=${match(g_prof_mark_peak_mb.with(xs => xs.get(i)), .Some(n) => n, .None => usize(0)).to_string()}MB`
 );
@@ -718,7 +725,7 @@ profile_record_phase :: (fn(name : &String, nanos : i64) -> unit)({
   rss := _prof_sample(g_prof_rss_probe);
   entries := _prof_sample(g_prof_table_probe);
   (i : usize) = usize(0);
-  while(i < g_prof_phase_names.with(cell_list_len), {
+  while(i < g_prof_phase_names.with(_c_len_1), {
     // A copy: an element of a handle global that is pushed to elsewhere is
     // not lent to a call (rule A, decision 47).
     phase := g_prof_phase_names.with({ i }(xs) => xs(i).clone());
@@ -743,7 +750,7 @@ profile_record_phase :: (fn(name : &String, nanos : i64) -> unit)({
   g_prof_phase_rss_mb.with_mut(xs => xs.push(rss));
   g_prof_phase_table_entries.with_mut(xs => xs.push(entries));
 });
-profile_phase_count :: (fn() -> usize)(g_prof_phase_names.with(cell_list_len));
+profile_phase_count :: (fn() -> usize)(g_prof_phase_names.with(_c_len_1));
 profile_phase_name_at :: (fn(i : usize) -> String)(
   match(
     g_prof_phase_names.with(xs => xs.get_cloned(i)),
@@ -776,7 +783,7 @@ profile_record_module :: (fn(path : &String, parse_ns : i64, eval_ns : i64) -> u
     return(());
   });
   (i : usize) = usize(0);
-  while(i < g_prof_mod_paths.with(cell_list_len), {
+  while(i < g_prof_mod_paths.with(_c_len_1), {
     mod_path := g_prof_mod_paths.with({ i }(xs) => xs(i).clone());
     if(mod_path == path, {
       g_prof_mod_parse_ns.with_mut(xs => {
@@ -797,7 +804,7 @@ profile_record_module :: (fn(path : &String, parse_ns : i64, eval_ns : i64) -> u
   g_prof_mod_parse_ns.with_mut(xs => xs.push(parse_ns));
   g_prof_mod_eval_ns.with_mut(xs => xs.push(eval_ns));
 });
-profile_module_count :: (fn() -> usize)(g_prof_mod_paths.with(cell_list_len));
+profile_module_count :: (fn() -> usize)(g_prof_mod_paths.with(_c_len_1));
 profile_module_path_at :: (fn(i : usize) -> String)(
   match(
     g_prof_mod_paths.with(xs => xs.get_cloned(i)),

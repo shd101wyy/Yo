@@ -146,7 +146,35 @@ pragma(Pragma.AllowUnsafe);
 { generate_expr_from_code } :: import("../parser.yo");
 { evaluate_expression_raw } :: import("./exprs/expr.yo");
 { panic, assert } :: import("std/assert");
-{ RefCell, cell_list_last_cloned, cell_list_len, cell_map_keys_cloned, cell_map_len } :: import("std/sync/refcell");
+{ RefCell } :: import("std/sync/refcell");
+/// (seed window) Concrete variants of refcell.yo's fillers: a fn value
+/// generic over its element keeps the variable abstract through the slot, so
+/// uses of the result needing methods fail (see refcell.yo's filler block).
+_c_keys_usize :: (fn(m : &HashMap(usize, ArrayList(DynCopyPending))) -> ArrayList(usize))(m.keys_cloned());
+_c_last_cloned_lbm :: (fn(xs : &ArrayList(LocalBorrowMacroSite)) -> Option(LocalBorrowMacroSite))(xs.last_cloned());
+/// (seed window) Concrete per-payload variants of refcell.yo's generic
+/// fillers: a fn value generic over its element keeps the variable abstract
+/// through the slot and its specializations COLLAPSE across element types
+/// (see refcell.yo's filler block). Inline the literals back once
+/// `SEED_VERSION` carries the ref-spill fix.
+/// `HashMap(usize, ArrayList(_CaptureFreeze))` (1 use)
+_c_len_1 :: (fn(m : &HashMap(usize, ArrayList(_CaptureFreeze))) -> usize)(m.len());
+/// `HashMap(usize, TypeValue)` (2 uses)
+_c_len_2 :: (fn(m : &HashMap(usize, TypeValue)) -> usize)(m.len());
+/// `HashMap(usize, ArrayList(ImplicitCopyPending))` (1 use)
+_c_len_3 :: (fn(m : &HashMap(usize, ArrayList(ImplicitCopyPending))) -> usize)(m.len());
+/// `HashMap(usize, ArrayList(DynCopyPending))` (3 uses)
+_c_len_4 :: (fn(m : &HashMap(usize, ArrayList(DynCopyPending))) -> usize)(m.len());
+/// `ArrayList(LocalBorrowInfo)` (10 uses)
+_c_len_5 :: (fn(xs : &ArrayList(LocalBorrowInfo)) -> usize)(xs.len());
+/// `ArrayList(LocalBorrowPatternBinding)` (3 uses)
+_c_len_6 :: (fn(xs : &ArrayList(LocalBorrowPatternBinding)) -> usize)(xs.len());
+/// `ArrayList(LocalBorrowMatchPlace)` (3 uses)
+_c_len_7 :: (fn(xs : &ArrayList(LocalBorrowMatchPlace)) -> usize)(xs.len());
+/// `ArrayList(LocalBorrowMacroSite)` (4 uses)
+_c_len_8 :: (fn(xs : &ArrayList(LocalBorrowMacroSite)) -> usize)(xs.len());
+/// `ArrayList(RefPayloadSource)` (2 uses)
+_c_len_9 :: (fn(xs : &ArrayList(RefPayloadSource)) -> usize)(xs.len());
 /// Live capture-list freezes by borrowed root id (`note_second_class_binding`).
 (g_capture_freezes : RefCell(HashMap(usize, ArrayList(_CaptureFreeze)))) = RefCell(HashMap(usize, ArrayList(_CaptureFreeze))).new(HashMap(usize, ArrayList(_CaptureFreeze)).new());
 
@@ -1994,7 +2022,7 @@ reject_second_class_result_outliving :: (
 /// A field of `v` is the same root. A no-op unless some capture-list closure
 /// borrows `v`.
 check_capture_freeze_access :: (fn(v : &Variable, is_write : bool, tok : &Token, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
-  if(g_capture_freezes.with(cell_map_len) == usize(0), {
+  if(g_capture_freezes.with(_c_len_1) == usize(0), {
     return(());
   });
   match(
@@ -2910,7 +2938,7 @@ place_root_binding :: (fn(place : &AstExpr, env : &Environment, ctx : &EvalConte
 /// 43 step 2 N1e-2). The field lends the place it refers to read-only, as a
 /// `&T` parameter does; a `&mut` field lends it writable.
 reject_write_through_shared_reference_field :: (fn(place : &AstExpr, tok : &Token, ctx : &EvalContext, exn : Exception) -> unit)({
-  if(g_reference_field_reads.with(cell_map_len) == usize(0), {
+  if(g_reference_field_reads.with(_c_len_2) == usize(0), {
     return(());
   });
   (cur : AstExpr) = ast_rewritten_node(&ast_expr_strip_borrow_marker(place));
@@ -3174,7 +3202,7 @@ audit_implicit_copy_enabled :: (fn() -> bool)(g_migrate_rc_clone);
 /// judges them), or none.
 audit_take_implicit_copy_pending :: (fn(id : usize) -> Option(ArrayList(ImplicitCopyPending)))(
   cond(
-    (g_implicit_copy_pending.with(cell_map_len) == usize(0)) => Option(ArrayList(ImplicitCopyPending)).None,
+    (g_implicit_copy_pending.with(_c_len_3) == usize(0)) => Option(ArrayList(ImplicitCopyPending)).None,
     true => g_implicit_copy_pending.with_mut(m => m.remove(&id))
   )
 );
@@ -3912,10 +3940,10 @@ dyn_copy_mark :: (fn() -> u64)(g_dyn_copy_seq);
 /// made them was abandoned (a `comptime_expect_error` argument), so none of
 /// those copies happens.
 dyn_copy_rollback :: (fn(mark : u64) -> unit)({
-  if(g_dyn_copy_pending.with(cell_map_len) == usize(0), {
+  if(g_dyn_copy_pending.with(_c_len_4) == usize(0), {
     return(());
   });
-  ids := g_dyn_copy_pending.with(cell_map_keys_cloned);
+  ids := g_dyn_copy_pending.with(_c_keys_usize);
   (i : usize) = usize(0);
   while(i < ids.len(), i = (i + usize(1)), {
     id := match(ids.get(i), .Some(x) => x, .None => usize(0));
@@ -3945,11 +3973,11 @@ dyn_copy_rollback :: (fn(mark : u64) -> unit)({
   });
 });
 /// Whether any `Dyn` copy waits for its frame's epilogue.
-dyn_copy_pending_exists :: (fn() -> bool)(g_dyn_copy_pending.with(cell_map_len) > usize(0));
+dyn_copy_pending_exists :: (fn() -> bool)(g_dyn_copy_pending.with(_c_len_4) > usize(0));
 /// Remove and return the pending `Dyn` copies of variable `id`, or none.
 take_dyn_copy_pending :: (fn(id : usize) -> Option(ArrayList(DynCopyPending)))(
   cond(
-    (g_dyn_copy_pending.with(cell_map_len) == usize(0)) => Option(ArrayList(DynCopyPending)).None,
+    (g_dyn_copy_pending.with(_c_len_4) == usize(0)) => Option(ArrayList(DynCopyPending)).None,
     true => g_dyn_copy_pending.with_mut(m => m.remove(&id))
   )
 );
@@ -6331,7 +6359,7 @@ impl(LocalBorrowInfo, Clone(clone : (fn(self : &Self) -> Self)(self)));
 /// `decl`, when `decl` is template code of that macro (another module).
 _lb_macro_site_of :: (fn(decl : &Token) -> Option(LocalBorrowMacroSite))(
   match(
-    g_lb_macro_sites.with(cell_list_last_cloned),
+    g_lb_macro_sites.with(_c_last_cloned_lbm),
     .Some(site) => cond(
       (site.site.module_path != decl.module_path) => Option(LocalBorrowMacroSite).Some(site),
       true => Option(LocalBorrowMacroSite).None
@@ -6354,35 +6382,35 @@ derive(LocalBorrowMacroSite, Clone);
 /// How an access touches a place.
 LocalBorrowAccess :: enum(Read, Write, Move, Exclusive);
 /// Any local borrow in scope: the fast gate every access hook checks first.
-local_borrows_active :: (fn() -> bool)(g_local_borrows.with(cell_list_len) > usize(0));
+local_borrows_active :: (fn() -> bool)(g_local_borrows.with(_c_len_5) > usize(0));
 /// The lengths a begin block restores when it ends (`local_borrows_truncate`).
 LocalBorrowMark :: struct(borrows : usize, patterns : usize, match_places : usize, macro_sites : usize);
 derive(LocalBorrowMark, Copy, Clone);
 local_borrows_mark :: (fn() -> LocalBorrowMark)(
   LocalBorrowMark(
-    borrows : g_local_borrows.with(cell_list_len),
-    patterns : g_local_borrow_patterns.with(cell_list_len),
-    match_places : g_local_borrow_match_places.with(cell_list_len),
-    macro_sites : g_lb_macro_sites.with(cell_list_len)
+    borrows : g_local_borrows.with(_c_len_5),
+    patterns : g_local_borrow_patterns.with(_c_len_6),
+    match_places : g_local_borrow_match_places.with(_c_len_7),
+    macro_sites : g_lb_macro_sites.with(_c_len_8)
   )
 );
 derive(LocalBorrowMatchPlace, Clone);
 derive(LocalBorrowPatternBinding, Clone);
 derive(LocalBorrowMacroSite, Clone);
 local_borrows_truncate :: (fn(mark : LocalBorrowMark) -> unit)({
-  while(g_local_borrows.with(cell_list_len) > mark.borrows, {
+  while(g_local_borrows.with(_c_len_5) > mark.borrows, {
     g_local_borrows.with_mut(xs => xs.pop());
     ()
   });
-  while(g_local_borrow_patterns.with(cell_list_len) > mark.patterns, {
+  while(g_local_borrow_patterns.with(_c_len_6) > mark.patterns, {
     g_local_borrow_patterns.with_mut(xs => xs.pop());
     ()
   });
-  while(g_local_borrow_match_places.with(cell_list_len) > mark.match_places, {
+  while(g_local_borrow_match_places.with(_c_len_7) > mark.match_places, {
     g_local_borrow_match_places.with_mut(xs => xs.pop());
     ()
   });
-  while(g_lb_macro_sites.with(cell_list_len) > mark.macro_sites, {
+  while(g_lb_macro_sites.with(_c_len_8) > mark.macro_sites, {
     g_lb_macro_sites.with_mut(xs => xs.pop());
     ()
   });
@@ -6528,7 +6556,7 @@ note_reference_field_read :: (fn(id : usize, ref_ty : &TypeValue) -> unit)({
 });
 /// The field's reference type when the node `id` reads a reference field.
 reference_field_read_type :: (fn(id : usize) -> Option(TypeValue))(
-  if(g_reference_field_reads.with(cell_map_len) == usize(0), Option(TypeValue).None, g_reference_field_reads.with(m => m.get_cloned(&id)))
+  if(g_reference_field_reads.with(_c_len_2) == usize(0), Option(TypeValue).None, g_reference_field_reads.with(m => m.get_cloned(&id)))
 );
 /// `.Some(is_mut)` when the node `id` reads a reference field.
 reference_field_read_mode :: (fn(id : usize) -> Option(bool))(
@@ -7170,7 +7198,7 @@ _lb_verb :: (fn(kind : &LocalBorrowAccess) -> str)(
 _lb_is_read :: (fn(kind : &LocalBorrowAccess) -> bool)(match(kind, .Read => true, _ => false));
 /// The local borrow named `name` and declared at `decl`, newest first.
 local_borrow_info_of :: (fn(name : &String, decl : &Token) -> Option(LocalBorrowInfo))({
-  (i : usize) = g_local_borrows.with(cell_list_len);
+  (i : usize) = g_local_borrows.with(_c_len_5);
   while(i > usize(0), {
     i = (i - usize(1));
     match(
@@ -7229,7 +7257,7 @@ variable_is_imm_borrow :: (fn(v : &Variable) -> bool)(
 /// The local borrow a `match` binding named `name` (declared at `decl`) was
 /// reached from.
 local_borrow_pattern_source :: (fn(name : &String, decl : &Token) -> Option(LocalBorrowInfo))({
-  (i : usize) = g_local_borrow_patterns.with(cell_list_len);
+  (i : usize) = g_local_borrow_patterns.with(_c_len_6);
   while(i > usize(0), {
     i = (i - usize(1));
     match(
@@ -7371,7 +7399,7 @@ _lb_tok_after :: (fn(a : &Token, b : &Token) -> bool)((a.module_path == b.module
 /// borrow (decision 18, rule 2). A read conflicts with a live `mut` borrow;
 /// a write, a move or an exclusive borrow with any live borrow.
 local_borrow_access :: (fn(place : &LocalBorrowPlace, kind : &LocalBorrowAccess, tok : &Token, ctx : &EvalContext, exn : Exception) -> unit)({
-  (i : usize) = g_local_borrows.with(cell_list_len);
+  (i : usize) = g_local_borrows.with(_c_len_5);
   while(i > usize(0), {
     i = (i - usize(1));
     match(
@@ -7559,7 +7587,7 @@ local_borrow_reject_result_borrow :: (fn(info : &LocalBorrowInfo, tok : &Token, 
 /// Rule 3 (decision 18): a borrow of a module-level place may not be live
 /// across a call, which could reach the place by name. `tok` is the call.
 local_borrow_note_call :: (fn(tok : &Token, callee_text : &String, ctx : &EvalContext, exn : Exception) -> unit)({
-  (i : usize) = g_local_borrows.with(cell_list_len);
+  (i : usize) = g_local_borrows.with(_c_len_5);
   while(i > usize(0), {
     i = (i - usize(1));
     match(
@@ -7606,10 +7634,10 @@ local_borrow_note_await :: (fn(tok : &Token, ctx : &EvalContext, exn : Exception
   sites := ArrayList(Token).new();
   sites.push(tok);
   (si : usize) = usize(0);
-  while(si < g_lb_macro_sites.with(cell_list_len), si = (si + usize(1)), {
+  while(si < g_lb_macro_sites.with(_c_len_8), si = (si + usize(1)), {
     match(g_lb_macro_sites.with(xs => xs.get_cloned(si)), .Some(ms) => sites.push(ms.site), .None => ());
   });
-  (i : usize) = g_local_borrows.with(cell_list_len);
+  (i : usize) = g_local_borrows.with(_c_len_5);
   while(i > usize(0), {
     i = (i - usize(1));
     match(
@@ -7624,7 +7652,7 @@ local_borrow_note_await :: (fn(tok : &Token, ctx : &EvalContext, exn : Exception
       .None => ()
     );
   });
-  (pi : usize) = g_local_borrow_match_places.with(cell_list_len);
+  (pi : usize) = g_local_borrow_match_places.with(_c_len_7);
   while(pi > usize(0), {
     pi = (pi - usize(1));
     match(
@@ -7755,7 +7783,7 @@ local_borrow_leave_macro_site :: (fn() -> unit)({
 /// it (`evaluate_function_call`).
 local_borrow_is_macro_await :: (fn(id : usize) -> bool)({
   (i : usize) = usize(0);
-  while(i < g_lb_macro_sites.with(cell_list_len), i = (i + usize(1)), {
+  while(i < g_lb_macro_sites.with(_c_len_8), i = (i + usize(1)), {
     match(
       g_lb_macro_sites.with(xs => xs.get_cloned(i)),
       .Some(ms) => {
@@ -8161,7 +8189,7 @@ local_borrow_register :: (
 /// Decision 38 A: re-pointing `info` at `tok` is an error while a borrow
 /// derived from its current target is live.
 local_borrow_require_no_live_derived :: (fn(info : &LocalBorrowInfo, tok : &Token, ctx : &EvalContext, exn : Exception) -> unit)({
-  (i : usize) = g_local_borrows.with(cell_list_len);
+  (i : usize) = g_local_borrows.with(_c_len_5);
   while(i > usize(0), {
     i = (i - usize(1));
     match(
@@ -8716,7 +8744,7 @@ freeze_origin_carrying_binding :: (fn(binding : &AstExpr, rhs : &AstExpr, var_na
     ri = (ri + usize(1));
   });
   if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
-    eprintln(`[n2b]   registered; range last_use=${range.last_use.character} end=${range.end.character} decl=${name_tok.character} entries=${g_local_borrows.with(cell_list_len).to_string()}`);
+    eprintln(`[n2b]   registered; range last_use=${range.last_use.character} end=${range.end.character} decl=${name_tok.character} entries=${g_local_borrows.with(_c_len_5).to_string()}`);
   });
 });
 /// N2b's return rule over composite results (decision 43, O3): an origin in
@@ -8818,7 +8846,7 @@ note_ref_payload_source :: (fn(var_id : usize, scrutinee : &AstExpr) -> unit)({
 });
 /// The scrutinee the reference payload binding `var_id` came out of.
 ref_payload_source :: (fn(var_id : usize) -> Option(AstExpr))({
-  (i : usize) = g_ref_payload_sources.with(cell_list_len);
+  (i : usize) = g_ref_payload_sources.with(_c_len_9);
   while(i > usize(0), {
     i = (i - usize(1));
     match(
@@ -8846,7 +8874,7 @@ note_borrow_match_source :: (fn(var_id : usize, scrutinee : &AstExpr) -> unit)({
 });
 /// The scrutinee place the borrowed-`match` binding `var_id` is inside.
 borrow_match_source :: (fn(var_id : usize) -> Option(AstExpr))({
-  (i : usize) = g_borrow_match_sources.with(cell_list_len);
+  (i : usize) = g_borrow_match_sources.with(_c_len_9);
   while(i > usize(0), {
     i = (i - usize(1));
     match(

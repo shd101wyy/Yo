@@ -258,7 +258,22 @@ pragma(Pragma.AllowUnsafe);
 { Exception, AnyError } :: import("std/error");
 { debug_knob, is_temp_variable_name } :: import("../../utils.yo");
 { registration_owner } :: import("../values/type_trait_methods.yo");
-{ RefCell, cell_list_len, cell_list_first } :: import("std/sync/refcell");
+{ RefCell } :: import("std/sync/refcell");
+/// (seed window) Concrete variants of refcell.yo's fillers: a fn value
+/// generic over its element keeps the variable abstract through the slot, so
+/// uses of the result needing methods fail (see refcell.yo's filler block).
+_c_first_yoerror :: (fn(xs : &ArrayList(YoError)) -> Option(YoError))(xs.get(usize(0)));
+/// (seed window) Concrete per-payload variants of refcell.yo's generic
+/// fillers: a fn value generic over its element keeps the variable abstract
+/// through the slot and its specializations COLLAPSE across element types
+/// (see refcell.yo's filler block). Inline the literals back once
+/// `SEED_VERSION` carries the ref-spill fix.
+/// `ArrayList(TypeValue)` (1 use)
+_c_len_1 :: (fn(xs : &ArrayList(TypeValue)) -> usize)(xs.len());
+/// `ArrayList(SpecializedFunctionCacheEntry)` (6 uses)
+_c_len_2 :: (fn(xs : &ArrayList(SpecializedFunctionCacheEntry)) -> usize)(xs.len());
+/// `ArrayList(EvalValue)` (3 uses)
+_c_len_3 :: (fn(xs : &ArrayList(EvalValue)) -> usize)(xs.len());
 // ---------------------------------------------------------------------------
 // extract_function_value
 // ---------------------------------------------------------------------------
@@ -2267,7 +2282,7 @@ _type_signature_string :: (fn(t : &TypeValue) -> String)({
   key_epoch := type_key_epoch();
   sig := `${type_to_string(t)}_id_${type_key(t)}`;
   if((key_epoch == type_key_epoch()) && type_identity_cacheable(t), {
-    if(g_type_sig_fast.with(cell_list_len) >= TYPE_IDENTITY_CACHE_CAP, {
+    if(g_type_sig_fast.with(_c_len_1) >= TYPE_IDENTITY_CACHE_CAP, {
       g_type_sig_fast.with_mut(xs => xs.clear());
       g_type_sig_fast_strings.with_mut(xs => xs.clear());
     });
@@ -2522,7 +2537,7 @@ _find_specialization_cache :: (
     runtime_parameter_types : &ArrayList(TypeValue)
   ) -> Option(EvalValue)
 )({
-  n_entries := g_specialized_fn_caches.with(cell_list_len);
+  n_entries := g_specialized_fn_caches.with(_c_len_2);
   (ei : usize) = usize(0);
   (result : Option(EvalValue)) = Option(EvalValue).None;
   while((ei < n_entries) && result.is_none(), {
@@ -2685,7 +2700,7 @@ _store_specialization_cache :: (
     owner : registration_owner()
   );
   // Find existing entry for this func_id
-  n_entries := g_specialized_fn_caches.with(cell_list_len);
+  n_entries := g_specialized_fn_caches.with(_c_len_2);
   (ei : usize) = usize(0);
   (found : Option(SpecializedFunctionCacheEntry)) = Option(SpecializedFunctionCacheEntry).None;
   while((ei < n_entries) && found.is_none(), {
@@ -2728,17 +2743,17 @@ _store_specialization_cache :: (
 /// Open a recording; returns its start mark for `specialization_recording_take`.
 specialization_recording_begin :: (fn() -> usize)({
   g_mint_recordings_open = (g_mint_recordings_open + usize(1));
-  g_minted_specializations.with(cell_list_len)
+  g_minted_specializations.with(_c_len_3)
 });
 /// Close the recording opened at `start`: the specializations minted since.
 specialization_recording_take :: (fn(start : usize) -> ArrayList(EvalValue))({
   out := ArrayList(EvalValue).new();
   (i : usize) = start;
-  while(i < g_minted_specializations.with(cell_list_len), {
+  while(i < g_minted_specializations.with(_c_len_3), {
     match(g_minted_specializations.with(xs => xs.get(i)), .Some(v) => out.push(v), .None => ());
     i = (i + usize(1));
   });
-  while(g_minted_specializations.with(cell_list_len) > start, {
+  while(g_minted_specializations.with(_c_len_3) > start, {
     _p := g_minted_specializations.with_mut(xs => xs.pop());
   });
   if(g_mint_recordings_open > usize(0), {
@@ -2762,7 +2777,7 @@ purge_specialization_caches_owned_by :: (fn(owner : &String) -> unit)({
     return(());
   });
   (ei : usize) = usize(0);
-  while(ei < g_specialized_fn_caches.with(cell_list_len), {
+  while(ei < g_specialized_fn_caches.with(_c_len_2), {
     match(
       g_specialized_fn_caches.with(xs => xs.get(ei)),
       .Some(entry) => {
@@ -2785,7 +2800,7 @@ purge_specialization_caches_owned_by :: (fn(owner : &String) -> unit)({
 specialization_cache_count :: (fn() -> usize)({
   (n : usize) = usize(0);
   (ei : usize) = usize(0);
-  while(ei < g_specialized_fn_caches.with(cell_list_len), {
+  while(ei < g_specialized_fn_caches.with(_c_len_2), {
     match(
       g_specialized_fn_caches.with(xs => xs.get(ei)),
       .Some(entry) => {
@@ -2804,7 +2819,7 @@ specialization_cache_count :: (fn() -> usize)({
 specialization_capture_value_count :: (fn() -> usize)({
   (n : usize) = usize(0);
   (ei : usize) = usize(0);
-  while(ei < g_specialized_fn_caches.with(cell_list_len), {
+  while(ei < g_specialized_fn_caches.with(_c_len_2), {
     match(
       g_specialized_fn_caches.with(xs => xs.get(ei)),
       .Some(entry) => {
@@ -2830,7 +2845,7 @@ specialization_capture_value_count :: (fn() -> usize)({
 specialization_flat_capture_count :: (fn() -> usize)({
   (n : usize) = usize(0);
   (ei : usize) = usize(0);
-  while(ei < g_specialized_fn_caches.with(cell_list_len), {
+  while(ei < g_specialized_fn_caches.with(_c_len_2), {
     match(
       g_specialized_fn_caches.with(xs => xs.get(ei)),
       .Some(entry) => {
@@ -5399,7 +5414,7 @@ create_specialized_function_inline :: (
                                   // between two variable-free types in the
                                   // closure body is the program's error.
                                   match(
-                                    g_reeval_closure_err.with(cell_list_first),
+                                    g_reeval_closure_err.with(_c_first_yoerror),
                                     .Some(rc_err) => if(!propagate_def_time_errors() && match(rc_err.diagnostics.get_cloned(usize(0)), .Some(d) => d.generic_independent, .None => false), {
                                       g_reeval_closure_err.with_mut(xs => xs.clear());
                                       exn.throw(dyn(rc_err));
@@ -5410,7 +5425,7 @@ create_specialized_function_inline :: (
                                   // kept, by whether the parameters were concrete.
                                   if(debug_knob(`YO_DEBUG_SWALLOW`).is_some(), {
                                     match(
-                                      g_reeval_closure_err.with(cell_list_first),
+                                      g_reeval_closure_err.with(_c_first_yoerror),
                                       .Some(rk_err) => {
                                         (rk_some : usize) = usize(0);
                                         (rk_i : usize) = usize(0);
