@@ -69,16 +69,24 @@ pass with no leak.
 
 ## Suspect
 
-`Variable`'s `is_owning_the_same_rc_value_as : Option(V)` (V = `Variable` =
-`Rc(VariableData)`) is a mutual handle between variables that own shares of one
-RC object — under plain `Rc` a pair (or self) link is an unbreakable cycle,
-and the part B migration moved exactly this field into `VariableLive`
-(VERDICTS-22 shape 2). Develop's `ref`-shaped `Variable` does not leak the same
-cluster, so either the cycle is new to the shapes or the old drop path cleared
-the field where the new one does not. A fix must either clear the links at
-scope end (where the dup/drop optimizer stops needing them) or make the link
-weak — both touch the dup/drop optimizer's bookkeeping and need the
-emit-diff gate, so it is not rushed into the part B PR.
+Not `Variable`: no `Rc(VariableData)` constructor appears in any leak stack.
+The cluster — an `EnvironmentData` cell, `ExprInfoData` cells and `AstExpr`
+trees together — is the field set of a retained `ModuleWalk`
+(`Rc(ModuleWalkData)` with `begin_exprs` and the ctx cell that holds the
+evaluation context: its environments and the `ExprInfoTable`). The leaked
+graphs are UNREACHABLE, so either a reference cycle among those shapes or —
+the likelier family, given the exact field match — a MISSING DROP when a
+retained walk (or a per-round container of the re-force path) is replaced:
+the dup/drop pair optimizer cancels a `___dup`/`___drop` pair it must not
+when the container outlives the local
+(`issues/fixed/spawn-closure-captures-never-dropped-leak.md`,
+`issues/fixed/a-local-stored-in-a-struct-field-is-dangling-after-the-container-dies.md`
+document the two known unsoundnesses of exactly this cancellation). The part B
+migration reworked `ModuleWalk`/`PendingDef`/the ctx cells into those shapes.
+Pinning the site needs the emitted-C drop walk of the re-force round (the LSan
+stacks are anonymized `yo_id_*` names; the emitted C carries no per-fn name
+comments); the fix then needs the dup/drop emit-diff gate plus an
+over-cancellation canary before it lands.
 
 ## Impact
 
