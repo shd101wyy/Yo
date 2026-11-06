@@ -1050,7 +1050,7 @@ bs_borrow_in_generic :: (fn(generic(T : Type), m : &mut ArrayList(String), d : T
     n = (n + usize(1));
   });
   y := &m.*;
-  assert((y.len() == n), "the loop and the local borrow see the same list");
+  assert(y.len() == n, "the loop and the local borrow see the same list");
   d
 });
 test("a borrowed for over a &mut param beside an Impl Fn param reads it", {
@@ -1059,13 +1059,10 @@ test("a borrowed for over a &mut param beside an Impl Fn param reads it", {
   xs.push(String.from("cde"));
   assert(bs_count_beside_fn(&mut xs, bs_id_read) == i32(2), "beside `&Impl(Fn(...))`: both elements counted");
   assert(
-    bs_lens_beside_fn_mut(
-      &mut xs,
-      { calls : usize(0) }(x : usize) => {
-        calls = (calls + usize(1));
-        (x * calls)
-      }
-    ) == usize(8),
+    bs_lens_beside_fn_mut(&mut xs, { calls : usize(0) }(x : usize) => {
+      calls = (calls + usize(1));
+      x * calls
+    }) == usize(8),
     "beside `&mut Impl(FnMut(...))`: 2 * 1 + 3 * 2"
   );
   assert(bs_count_plain(&mut xs) == i32(2), "the sibling-free control");

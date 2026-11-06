@@ -162,6 +162,33 @@ evaluator with its `*` hop again, `match(m.*, …)` reaches the match evaluator
 as a by-value match of the referent, and `(&t).who()` re-runs the strip and
 re-records its mode under the clone's callee id.
 
+### CTFE leaned on the copied rewrite
+
+Cloning the written tree exposed one place that only worked because of the
+copied rewrite: compile-time function evaluation. CTFE binds a `&T` / `&mut T`
+parameter as a compile-time value of its pointee, both in the capability
+analysis (`_eval_body_for_ctfe`, `src/evaluator/ctfe/ctfe_analysis.yo`) and in
+a compile-time call (whose callers bind the comptime version's parameters). A
+compile-time binding is not a reference binding
+(`variable_is_reference_binding`), so a written `y.*` fell through to the old
+payload reading and failed on an `i32`
+(`[pa-fallthrough] prop=* obj_ty=i32` under `YO_DEBUG_CTFE=1`). On the clone
+alone, `comptime_fn(outer)` over a nested `helper :: (fn(y : &i32) -> i32)(y.* + i32(1))`
+emitted an undeclared `__yo_v_r`, and `comptime_fn(add1)` over the same
+function at module level was rejected ("Failed to create compile-time
+version"). Both fold to 21 on develop, and only because the clone carried the
+definition-time `y.*` → `y`. A generic nested helper, whose trial never
+rewrote the original ids, failed the same way on develop.
+
+CTFE now records each compile-time binding of a reference parameter
+(`note_ctfe_reference_params`, called by `_eval_body_for_ctfe` and by
+`evaluate_comptime_fn_call`, into `g_ctfe_reference_params` in
+`src/evaluator/utils.yo`). N1e-1's `.*` reading accepts such a binding beside
+a reference binding (`is_ctfe_reference_param`,
+`src/evaluator/exprs/property_access.yo`). `variable_is_reference_binding`
+and the E0926 judgments are unchanged: a compile-time binding is still judged
+as one.
+
 ## Follow-up
 
 The deref-adoption lane's workaround in
@@ -189,3 +216,8 @@ the borrowed `for` once this fix is on its base.
   The same fixture fails a `check --watch-once` round on the develop-tip binary
   (`watch: …/lib.yo — FAILED`, the E0926 above), and the round is clean with
   the fix.
+- `tests/comptime_fn_nested.test.yo`, "comptime_fn: a reference parameter read
+  with .* folds". It covers both CTFE shapes above, each asserting `21`. It
+  passes on the develop-tip binary (where the copied rewrite hid the gap),
+  fails on the clone change alone (the batch does not compile: "Failed to
+  create compile-time version of function"), and passes with the whole fix.

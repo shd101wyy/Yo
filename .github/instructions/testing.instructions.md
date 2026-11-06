@@ -1009,6 +1009,13 @@ heavy_take "<who>: check-time A/B" exclusive  # runs alone
   (~1 min, throwaway lock root) checks a change to the script.
 - **Never hold a slot while idle.** A gate is one script with no waits inside;
   `trap heavy_drop EXIT` releases the slot when the script fails.
+- **Take the slot in the process that outlives the job.** The owner line
+  records `$$`, and in a `( … ) &` subshell `$$` is the PARENT shell's pid. A
+  background job started as `(heavy_take …; job; heavy_drop) &` from a command
+  that returns at once leaves a slot whose owner is already dead, so the next
+  waiter reclaims it while the job still runs. Put the gate in a script and
+  start that (`nohup bash gate.sh &`): its `$$` is its own (2026-11-07,
+  `issues/2026-11-07-two-waiters-that-reclaim-the-same-orphaned-heavy-lock-slot-can-both-hold-it.md`).
 - **Never backdate a ticket** (overriding `_heavy_now_ns` to keep an older queue
   position). An `exclusive` waiter claims slots only while it is the oldest
   ticket, so a backdated weight-1 ticket that cannot start beside held
