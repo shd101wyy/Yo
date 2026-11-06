@@ -1702,18 +1702,18 @@ _projection_result_as_reference :: (fn(expr : &AstExpr, result : &AstExpr, ctx :
   );
   match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(result)),
-    .Some(pr_info) => if(!t_slot_is_borrow(&pr_info.ty), {
+    .Some(pr_info) => if(!t_slot_is_borrow(&pr_info.ty()), {
       (pr_new_ty : Option(TypeValue)) = match(
         pr_ref_ty,
         .Some(rf_ty) => Option(TypeValue).Some(rf_ty),
-        .None => match(projection_call_mode_of(result, ctx), .Some(pr_mut) => Option(TypeValue).Some(t_reference(&pr_info.ty, pr_mut)), .None => Option(TypeValue).None)
+        .None => match(projection_call_mode_of(result, ctx), .Some(pr_mut) => Option(TypeValue).Some(t_reference(&pr_info.ty(), pr_mut)), .None => Option(TypeValue).None)
       );
       match(
         pr_new_ty,
         .Some(pr_ty) => {
           note_reference_read(ast_expr_id(result), true);
-          pr_info.ty = pr_ty;
-          pr_info.value = Option(EvalValue).None;
+          pr_info.set_ty(pr_ty);
+          pr_info.set_value(Option(EvalValue).None);
           expr_info_table_set(&ctx.expr_info_table, ast_expr_id(result), &pr_info);
         },
         .None => ()
