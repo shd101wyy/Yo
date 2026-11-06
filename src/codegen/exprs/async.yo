@@ -718,9 +718,9 @@ emit_async_block_struct_definition :: (
       .None => ()
     );
   });
+  _emit_fused_site_fields(fused_await_sites(&info.analysis, context), &mut move_flags, context);
   context.base.emitter.emit_declaration_line("};");
   context.base.emitter.emit_declaration_line("");
-  _emit_fused_site_fields(fused_await_sites(&info.analysis, context), &mut move_flags, context);
   // Every named local's slot starts empty: its move flag is set until the
   // first store into it clears it, so an abort before the local is
   // initialized does not drop the slot's zeroes, which are not an empty value
