@@ -488,6 +488,10 @@ test("move-only: a borrow cannot be copied or moved out", {
   a := _MoFd(n : i32(1));
   comptime_expect_error((fn(f : &_MoFd) -> _MoFd)(f.*), "the value it refers to stays with its owner");
   comptime_expect_error(
+    (fn(f : &_MoFd) -> _MoFd)(f.*),
+    "pass `f` itself to a `&_MoFd` parameter or read through it where the value is used (`f.field`, `f.method()`); `_MoFd` has no `Clone`"
+  );
+  comptime_expect_error(
     (fn(f : &_MoFd) -> i32)({
       g := f.*;
       g.n
