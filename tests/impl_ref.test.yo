@@ -27,6 +27,26 @@ test("a &Bag receiver dispatches to impl(&Bag, …), an owned Bag to impl(Bag, �
   assert((&b).name() == i32(2), "explicit (&b): impl(&_RbBag, _RbName)");
   assert(_rb_via_ref(&b) == i32(2), "a &_RbBag parameter: impl(&_RbBag, _RbName)");
 });
+// A function with an `&Impl(Fn(...))` parameter is specialized per call, and
+// the specialization evaluates a fresh-id clone of the body as written:
+// `(&b).name()` is the explicit borrow and `r.*.name()` the referent, as in a
+// function with no such parameter. Before the fix, the clone carried the
+// definition-time rewrites (`(&b).name` to `b.name` without its borrow mark,
+// `r.*` to the name `r`), so both calls picked the other impl
+// (issues/fixed/2026-11-06-a-borrowed-for-over-a-mut-param-is-rejected-when-the-fn-also-takes-an-impl-fn-param.md).
+_rb_unit :: (fn(x : &i32) -> i32)(x.*);
+_rb_explicit_beside_fn :: (fn(n : i32, g : &Impl(Fn(x : &i32) -> i32)) -> i32)({
+  b := _RbBag(n : n);
+  (&b).name()
+});
+_rb_deref_beside_fn :: (fn(r : &_RbBag, g : &Impl(Fn(x : &i32) -> i32)) -> i32)(r.*.name());
+_rb_ref_beside_fn :: (fn(r : &_RbBag, g : &Impl(Fn(x : &i32) -> i32)) -> i32)(r.name());
+test("a specialized body dispatches (&b).m() and r.*.m() as written", {
+  b := _RbBag(n : i32(0));
+  assert(_rb_explicit_beside_fn(i32(0), _rb_unit) == i32(2), "(&b).name(): impl(&_RbBag, …) in a specialized body");
+  assert(_rb_deref_beside_fn(&b, _rb_unit) == i32(1), "r.*.name(): the referent's impl(_RbBag, …)");
+  assert(_rb_ref_beside_fn(&b, _rb_unit) == i32(2), "r.name(): the reference's impl(&_RbBag, …)");
+});
 // (i) The value form consumes, the explicit borrow reads in place.
 _IiBag :: struct(xs : ArrayList(i32));
 _IiDrain :: struct(bag : _IiBag, i : usize);

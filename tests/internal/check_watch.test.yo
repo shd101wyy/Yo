@@ -289,6 +289,42 @@ test("Phase 3b: a body edit re-evaluates only the changed def + its dependents",
   failed_f := _round(lib_path.clone(), &files, std_path.clone(), io, exn);
   assert(failed_f == usize(0), `fixed body must clean the round, failed=${failed_f.to_string()}`);
 });
+// A per-def round re-evaluates a dependent from a fresh-id clone of its
+// definition, and the clone is the definition as written: its `&m.*` reads as
+// `&m.*`. Before the fix the clone carried the first pass's rewrite of `m.*`
+// to the name `m`, so the unchanged `walk` failed the round with E0926 on the
+// `&m.*` it asks for
+// (issues/fixed/2026-11-06-a-borrowed-for-over-a-mut-param-is-rejected-when-the-fn-also-takes-an-impl-fn-param.md).
+_DEREF_LIB_V1 :: "{ ArrayList } :: import(\"std/collections/array_list\");\nhelper :: (fn() -> usize)(usize(1));\nwalk :: (fn(m : &mut ArrayList(i32)) -> usize)({\n  y := &m.*;\n  (y.len() + helper())\n});\nexport(walk, helper);\n";
+_DEREF_LIB_V2 :: "{ ArrayList } :: import(\"std/collections/array_list\");\nhelper :: (fn() -> usize)(usize(2));\nwalk :: (fn(m : &mut ArrayList(i32)) -> usize)({\n  y := &m.*;\n  (y.len() + helper())\n});\nexport(walk, helper);\n";
+_DEREF_APP :: "{ walk } :: import(\"./lib.yo\");\n{ ArrayList } :: import(\"std/collections/array_list\");\nmain :: (fn() -> unit)({\n  mut(xs) := ArrayList(i32).new();\n  _n := walk(&mut xs);\n});\nexport(main);\n";
+test("Phase 3b: a re-forced dependent reads its reference with .* as written", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `test io failed: ${err}`);
+      }
+    )
+  );
+  ioexn := IoExn(io : io, exn : exn);
+  set_retain_walk_contexts(true);
+  dir := `/tmp/yo_check_watch_fixture_p3b_deref`;
+  io.await(create_dir_all(Path.new(dir.clone()), io), ioexn);
+  lib_path := `${dir}/lib.yo`;
+  app_path := `${dir}/app.yo`;
+  io.await(write_string(Path.new(lib_path.clone()), String.from(_DEREF_LIB_V1), io), ioexn);
+  io.await(write_string(Path.new(app_path.clone()), String.from(_DEREF_APP), io), ioexn);
+  std_path := resolve_std_path();
+  _pre1 := mm_invalidate_document(lib_path.clone());
+  _pre2 := mm_invalidate_document(app_path.clone());
+  mut(files) := ArrayList(String).new();
+  files.push(app_path.clone());
+  assert(mm_load_file(app_path.clone(), std_path.clone(), true, io, exn).ok, "initial app check should pass");
+  // Body edit of `helper`: the round re-forces `walk`, which reads it.
+  io.await(write_string(Path.new(lib_path.clone()), String.from(_DEREF_LIB_V2), io), ioexn);
+  failed := _round(lib_path.clone(), &files, std_path.clone(), io, exn);
+  assert(failed == usize(0), `the re-forced walk must read &m.* as written, failed=${failed.to_string()}`);
+});
 
 test("Phase 3b: a signature edit takes the per-def path and the re-forced dependent fails on arity", {
   exn := Exception(
