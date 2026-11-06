@@ -77,7 +77,7 @@ test("evaluate_unwind: writes ExprInfo with Unwind control flow", {
   call := mk_escape_call(usize(21), "0", usize(22));
   result := evaluate_unwind(&call, &env, &mut ctx, exn);
   info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&result));
-  assert(match(info_opt, .Some(_) => true, .None => false), "unwind(did not record an ExprInfo)");
+  assert(match(&info_opt, .Some(_) => true, .None => false), "unwind(did not record an ExprInfo)");
   info := match(
     info_opt,
     .Some(i) => i,

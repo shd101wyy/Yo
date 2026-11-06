@@ -1864,8 +1864,8 @@ check_if_function_parameter_matches_argument :: (
   // N1e-2b: a reference binding's read, a projection's result, at a `&T`
   // slot or a binder `T := &U`) is the place it refers to in C: the
   // parameter takes that place's address, as for a lend.
-  if(!param_is_ref && !is_ct_only && t9_lend_ty.is_none() && t_slot_is_borrow(&arg_info.ty) && is_reference_read(ast_expr_id(&evaled_arg)), {
-    rv_ty := Option(TypeValue).Some(Rc.clone(arg_info.ty));
+  if(!param_is_ref && !is_ct_only && t9_lend_ty.is_none() && t_slot_is_borrow(&arg_info.ty()) && is_reference_read(ast_expr_id(&evaled_arg)), {
+    rv_ty := Option(TypeValue).Some(arg_info.ty());
     expr_info_set_converted_runtime_type(&arg_info, &rv_ty);
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&evaled_arg), &arg_info);
   });

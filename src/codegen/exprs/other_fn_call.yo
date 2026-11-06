@@ -1016,7 +1016,7 @@ _root_is_borrow_match_binding :: (fn(e : &AstExpr, context : &FunctionGeneration
     .Atom(_, tok) => (
       (tok.kind == TokenKind.Identifier) && match(
         context.base.get_expr_info(e),
-        .Some(ei) => match(scope_variables(ast_expr_id(e), &ei.env, &tok.value.*).last(), .Some(v) => v.is_borrow_match_binding, .None => false),
+        .Some(ei) => match(scope_variables(ast_expr_id(e), &ei.env(), &tok.value.*).last_cloned(), .Some(v) => v.is_borrow_match_binding(), .None => false),
         .None => false
       )
     ),

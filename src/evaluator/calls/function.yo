@@ -700,7 +700,7 @@ _reject_explicit_ref_receiver_slot_of :: (
   slot := match(fn_param_slots(&mi.method_ty).get(usize(0)), .Some(sl) => sl, .None => return(()));
   recv_text := ast_expr_to_string(&mi.receiver_expr);
   method_name := match(callee, .FnCall(_, _, Rc(cargs), _, _) => match(cargs.get(usize(1)), .Some(m) => ast_expr_to_string(&m), .None => String.new()), .Atom(_, _) => String.new());
-  recv_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&mi.receiver_expr)), .Some(ri) => Rc.clone(ri.ty), .None => return(()));
+  recv_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&mi.receiver_expr)), .Some(ri) => ri.ty(), .None => return(()));
   slot_is_single_mut := match(&slot, Rc(.Reference(sp_inner, sp_mut, _)) => (sp_mut && !t_slot_is_borrow(&sp_inner)), _ => false);
   cond(
     (match(mi.probe_ref, .Some(pm) => !pm, .None => false) && slot_is_single_mut) => exn.throw(
@@ -1186,8 +1186,8 @@ _strip_explicit_ref_receiver :: (fn(callee : &AstExpr, env : &Environment) -> As
 _is_runtime_place_expr :: (fn(e : &AstExpr, env : &Environment) -> bool)(
   cond(
     ast_expr_is_atom(e) => match(
-      get_variables_from_env(env, &ast_expr_token(e).value.*).last(),
-      .Some(v) => !v.is_compile_time_only,
+      get_variables_from_env(env, &ast_expr_token(e).value.*).last_cloned(),
+      .Some(v) => !v.is_compile_time_only(),
       .None => false
     ),
     ast_expr_is_fn_call_of(e, BF_DOT, Option(usize).Some(usize(2))) => match(
@@ -12392,6 +12392,7 @@ Fix: wrap the call:
               .None => ()
             );
           });
+          if(is_comptime_string_type(&arg_info.ty()) && !is_some_type(&resolved_decl_pt) && !is_comptime_string_type(&resolved_decl_pt), {
             bind_ty = resolved_decl_pt.clone();
             bind_val = Option(EvalValue).Some(create_unknown_val(&resolved_decl_pt));
             is_ct = false;

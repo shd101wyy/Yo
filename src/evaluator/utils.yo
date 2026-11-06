@@ -5119,8 +5119,8 @@ _drop_in_arms_that_keep :: (
             while(vpi > usize(0), {
               vpi = (vpi - usize(1));
               match(
-                same_name.get(vpi),
-                .Some(pv) => if(pv.id == v.id, {
+                same_name.get_cloned(vpi),
+                .Some(pv) => if(pv.id() == v.id(), {
                   sni = (vpi + usize(1));
                   vpi = usize(0);
                 }),
@@ -8507,7 +8507,7 @@ origin_carrying_value_roots :: (fn(e : &AstExpr, env : &Environment, ctx : &Eval
                   if(out.len() == rr_before, {
                     match(
                       local_borrow_place_of(&value_s, env, ctx),
-                      .Some(p) => out.push(OriginRootPlace(place : p, is_mut : t_slot_is_mut_ref(&vi.ty))),
+                      .Some(p) => out.push(OriginRootPlace(place : p, is_mut : t_slot_is_mut_ref(&vi.ty()))),
                       .None => ()
                     );
                   });

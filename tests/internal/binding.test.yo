@@ -158,7 +158,7 @@ test("evaluate_binding: (found : bool) — records ExprInfo with UnitVal", {
   expr := mk_binding_expr(usize(110), usize(111), "x", usize(112), "i32");
   result := evaluate_binding(&expr, &env, &mut ctx, exn);
   info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&result.expr));
-  assert(match(info_opt, .Some(_) => true, .None => false), "ExprInfo not set for binding expr");
+  assert(match(&info_opt, .Some(_) => true, .None => false), "ExprInfo not set for binding expr");
   match(
     info_opt,
     .Some(i) => {
