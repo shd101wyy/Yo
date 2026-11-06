@@ -4825,6 +4825,19 @@ and in git, not a silent edit.
     decisions 7, 36, 43 and 44, closes `dyn(v)`'s auto-boxing, and
     reverses `plans/archive/SLICE_REWORK.md`'s deletion of views now that
     decision 43 rejects the invalidations it deleted them for.
+    - **`Slice(T)` is `[T]`** (maintainer, 2026-11-06). The slice type has
+      two spellings, as the fixed-size array has `Array(T, N)` and
+      `[T; N]` and the tuple `Tuple(T1, T2)` and `(T1; T2)`: `Slice(T)` is
+      the builtin type constructor (a builtin keyword beside `Array`, not a
+      prelude alias), and `[T]` in a type position is parse-time sugar
+      for it, so `&Slice(u8)` and `&[u8]`, `Box(Slice(T))` and `Box([T])`
+      are one type and compare equal. Diagnostics, `yo context` and LSP
+      hovers print the named form, as they print `Array(i32, 3)` for
+      `[i32; 3]`. `Slice(T)` is unsized like `[T]`: a by-value use is
+      E0619, and it lives behind a pointer. The name is free again: the
+      sized `Slice(T)` value that `plans/archive/SLICE_REWORK.md` deleted
+      in 2026-06 was a different type (a copied pointer and length), so no
+      program changes meaning.
     - **`Sized` and `?Sized`.** `Sized` is a prelude marker trait derived
       structurally (never implemented by hand): every type except
       `Dyn(…)`, `[T]`, `str`, a struct or newtype whose LAST field is
@@ -10091,7 +10104,7 @@ The rule, layout, prelude and tests are in decision 49 (§4).
 **Steps:**
 
 1. **S1, the compiler** (seed-safe; one PR series).
-   - The kinds and types: the `Sized` derivation and the `?Sized` binder kind; `[T]`, `str` and tail structs as unsized types; fat `*T`/`&T`/`?*T`.
+   - The kinds and types: the `Sized` derivation and the `?Sized` binder kind; `[T]`, `str` and tail structs as unsized types; `Slice(T)` as the builtin keyword `[T]` parses to (as `[T; N]` parses to `Array(T, N)`); fat `*T`/`&T`/`?*T`.
    - The builtins: `size_of_val`, `align_of_val`, `unsize`, and `___drop` of an unsized place.
    - The places and origins: the `Index(Range…)` projections, and the `static` origin.
    - `dyn(P(V)) : P(Dyn)`, with the vtable prefix `{type_id, size, align, drop_in_place, clone_into}` and `downcast` by pointer kind.
