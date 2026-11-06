@@ -644,6 +644,25 @@ _throw_unmovable_scrutinee :: (fn(scr : &AstExpr, ty : &TypeValue, why : &String
     exn
   );
 });
+/// E0901 for a `mut(name)` binding of a `&` match whose part holds data the
+/// scrutinee's owner also holds (VERDICTS-28 Q2): the binding is a by-value
+/// copy of its part, and such a value cannot be copied out of the borrow —
+/// never a bitwise copy whose drop would release data the owner holds
+/// (#1798's hazard). Bind the reference instead and read or write through
+/// it where the lend allows.
+_throw_mut_match_copy :: (fn(b_atom : &AstExpr, ty : &TypeValue, ctx : &EvalContext, exn : Exception) -> unit)({
+  name := ast_expr_token(b_atom).value.*.clone();
+  msg := `use of moved value: cannot copy \`${name}\` out of the match's borrow: a \`mut(name)\` binding of a \`&\` match copies its part by value, and its type \`${type_to_string(ty)}\` holds data the scrutinee's owner still holds.`;
+  help := `bind the reference instead: the same arm without \`mut\` binds \`${name}\` as a reference into the scrutinee, read and written through \`${name}.*\` where the lend allows, or match a value you own`;
+  raise_flow_violation(
+    with_code(
+      format_error_message_with_help(ast_expr_token(b_atom), &msg, Option(String).Some(help)),
+      E_USE_OF_MOVED_VALUE
+    ),
+    ctx,
+    exn
+  );
+});
 /// The first token of `e` as written: the receiver of a `.` access, the
 /// callee of a call.
 _leftmost_token :: (fn(e : &AstExpr) -> Token)(
@@ -1710,7 +1729,10 @@ evaluate_match :: (
           // bare (`match(r, …)`, VERDICTS-13 §14), borrows the part it
           // binds: outside std and src it reads as a whole value with `.*`
           // (E0926, decision 43 step 2 N1e-1; a `&mut` match's binding is
-          // `is_ref` above).
+          // `is_ref` above). A `mut(name)` binding is none of that: it is a
+          // by-value binding of type T, a copy of its part (VERDICTS-28 Q2,
+          // issues/retired/2026-11-06-a-mut-binding-of-a-borrowed-match-reads-as-a-reference.md),
+          // under both spellings of a borrowed scrutinee.
           if(!ct_known && ref_binds, {
             match(
               _added,
@@ -1718,22 +1740,35 @@ evaluate_match :: (
               // reference payload's binding is already a reference binding
               // (`is_ref` above), holding the payload's own pointer.
               .Some(bm_var) => if(ref_payload.is_none(), {
-                variable_set_is_borrow_match_binding(&bm_var, true);
-                // A `mut(name)` binding binds by value, as Rust 2021's
-                // `mut` resets the default binding mode: a copy of its part
-                // the arm may reassign, which writes neither the scrutinee
-                // nor data its owner holds (E0908)
-                // (issues/fixed/2026-11-06-a-mut-binding-of-a-borrowed-match-writes-through-the-shared-reference.md).
-                if(!is_unit_type(&bind_ty) && !bm_var.is_reassignable, {
-                  // The projection root rule follows the binding to the
-                  // scrutinee's place (decision 24); a `mut` copy stays a
-                  // local.
-                  note_borrow_match_source(bm_var.id, &scrutinee_expr);
-                  variable_set_is_ref(&bm_var, true);
-                  // `is_ref` says the binding is a pointer; a `&` match
-                  // lends read-only.
-                  variable_set_reference_mut(&bm_var, false);
-                  any_ref_binder = true;
+                if(!is_unit_type(&bind_ty) && is_mut_binding(&b_tok, &b.name), {
+                  // A `mut(name)` binding is a by-value binding of type T:
+                  // read and written without `.*`, reassignable, and a
+                  // write changes only the copy (#1798's runtime; the typing
+                  // follows, VERDICTS-28 Q2). `is_borrow_match_binding`
+                  // stays unset, so the deref rule does not read it as a
+                  // reference. A part holding data the scrutinee's owner
+                  // also holds (an RC cell, an owned buffer —
+                  // `type_contains_rc_cell_or_move_only`, true of every
+                  // move-only type too, false of plain data merely lacking
+                  // `Copy`, whose bitwise copy is sound) cannot be copied
+                  // out of the borrow: E0901, never a bitwise copy whose
+                  // drop would release that data (#1798's hazard).
+                  if(type_contains_rc_cell_or_move_only(&bind_ty), {
+                    _throw_mut_match_copy(&b.atom, &bind_ty, ctx, exn);
+                  });
+                }, {
+                  variable_set_is_borrow_match_binding(&bm_var, true);
+                  if(!is_unit_type(&bind_ty), {
+                    // The projection root rule follows the binding to the
+                    // scrutinee's place (decision 24); a `mut` copy stays a
+                    // local.
+                    note_borrow_match_source(bm_var.id, &scrutinee_expr);
+                    variable_set_is_ref(&bm_var, true);
+                    // `is_ref` says the binding is a pointer; a `&` match
+                    // lends read-only.
+                    variable_set_reference_mut(&bm_var, false);
+                    any_ref_binder = true;
+                  });
                 });
               }),
               .None => ()
