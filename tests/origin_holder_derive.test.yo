@@ -1,0 +1,37 @@
+// `derive(Clone)` (and `Copy`) over a holder whose field or payload is a `&T`
+// (decision 43 step 3; VERDICTS-12 Q4: an all-`&` holder MAY be `Copy`, by
+// declaration). The clone passes the field bare, lending the same referent
+// (`&T` is `Copy`), and the field is the place's address in C, never a
+// temporary's
+// (issues/fixed/2026-11-05-derive-clone-over-a-reference-field-clones-the-referent.md,
+// issues/fixed/2026-11-05-a-lend-into-a-struct-field-beside-a-later-operand-points-at-a-temporary.md).
+{ assert } :: import("std/assert");
+_View :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(r : &(i32, p), n : i32));
+derive(generic(p : Origin), _View(p), Copy, Clone);
+_Pick :: (fn(comptime(p) : Origin) -> comptime(Type))(enum(One(r : &(i32, p)), Zero));
+derive(generic(p : Origin), _Pick(p), Clone);
+_bump :: (fn(n : i32) -> i32)(n + i32(1));
+_Two :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(r : &(i32, p), n : i32));
+_two :: (fn(x : &i32) -> _Two(x))(_Two(x)(r : x, n : _bump(x.*)));
+test("origin holder derive: a `Copy` holder copies its reference", {
+  x := i32(3);
+  v := _View(x)(r : &x, n : i32(0));
+  w := v;
+  u := v.clone();
+  assert(v.r.* == i32(3), "v");
+  assert(w.r.* == i32(3), "a copy shares the referent");
+  assert(u.r.* == i32(3), "a clone shares the referent");
+});
+test("origin holder derive: an enum payload clones its reference", {
+  x := i32(5);
+  o := _Pick(x).One(r : &x);
+  c := o.clone();
+  v := match(c, .One(r) => r.*, .Zero => i32(0));
+  assert(v == i32(5), "the clone's payload points at `x`");
+});
+test("origin holder derive: a lend beside a later operand is the place's address", {
+  x := i32(7);
+  t := _two(&x);
+  assert(t.r.* == i32(7), "r points at `x`");
+  assert(t.n == i32(8), "n read it");
+});

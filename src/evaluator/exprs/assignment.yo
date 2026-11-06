@@ -117,6 +117,7 @@ pragma(Pragma.AllowUnsafe);
   local_borrow_place_of_variable,
   local_borrow_place_text,
   local_borrow_require_writable,
+  local_borrow_root_is_shared_reference,
   local_borrow_access,
   local_borrow_write_expr,
   local_borrow_mark_receiver,
@@ -653,7 +654,8 @@ require_no_inout_write_through_borrow :: (
                 root_type : type_to_string(&arg_ty),
                 global : Option(Variable).None,
                 borrow_error : Option(String).None,
-                lb_place : Option(LocalBorrowPlace).Some(lbp)
+                lb_place : Option(LocalBorrowPlace).Some(lbp.clone()),
+                lb_read_only : local_borrow_root_is_shared_reference(&lbp, env)
               )
             );
           },
@@ -836,6 +838,9 @@ D3PendingInout :: struct(
   global : Option(Variable),
   borrow_error : Option(String),
   (lb_place : Option(LocalBorrowPlace)) ?= Option(LocalBorrowPlace).None,
+  /// `lb_place`'s root binding is a shared reference
+  /// (`local_borrow_root_is_shared_reference`), judged where the place is.
+  (lb_read_only : bool) ?= false,
   /// The root is not an atomic object, but an inner hop may be one
   /// (`s.a.*`, `t.0.*`): decided by `d3_check_pending` on the evaluated
   /// place's types, where `root_text`/`root_type` are filled in.
@@ -1059,7 +1064,7 @@ d3_check_pending :: (
       .Some(entry) => match(
         &entry.lb_place,
         .Some(lbp) => if(match(borrow_mask, .Some(bm) => param_mutation_mask_hits(&bm, entry.param_index), .None => false), {
-          local_borrow_require_writable(&lbp, entry.how.clone(), ast_expr_token(&entry.place), ctx, exn);
+          local_borrow_require_writable(&lbp, entry.lb_read_only, entry.how.clone(), ast_expr_token(&entry.place), ctx, exn);
           local_borrow_access(&lbp, LocalBorrowAccess.Write, ast_expr_token(&entry.place), ctx, exn);
         }),
         .None => ()
@@ -2328,7 +2333,7 @@ comptime(${variable_name}) : ${dgc_ty_str}
   // `mut` borrow's own assignment writes its target, which it holds.
   if(local_borrows_active() && !is_typed_binding_lhs, {
     lb_target := local_borrow_place_of_variable(&variable);
-    local_borrow_require_writable(&lb_target, `assign to \`${variable_name}\``, ast_expr_token(&lhs_resolved), ctx, exn);
+    local_borrow_require_writable(&lb_target, local_borrow_root_is_shared_reference(&lb_target, &env), `assign to \`${variable_name}\``, ast_expr_token(&lhs_resolved), ctx, exn);
     local_borrow_access(&lb_target, LocalBorrowAccess.Write, ast_expr_token(&lhs_resolved), ctx, exn);
   });
   // Under the new ownership model, all assignments transfer ownership, so we

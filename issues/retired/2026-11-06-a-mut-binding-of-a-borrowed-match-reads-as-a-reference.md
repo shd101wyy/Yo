@@ -1,8 +1,12 @@
 # A `mut(name)` binding of a borrowed `match` is a copy, but it reads as a reference
 
-**Kind:** design question — an open decision, not a defect.
+**Kind:** design question (decided; retired into `plans/VALUES_BY_DEFAULT.md` decision 43's match-binding rule).
 
-**Status:** OPEN. Filed 2026-11-06 with
+**Status:** DECIDED 2026-11-06 (VERDICTS-28 Q2): option 1, Rust's reading — a
+`mut(name)` binding of a `&` match is a by-value binding of type `T` under
+both spellings of a borrowed scrutinee; `is_borrow_match_binding` stays
+unset on it, and a move-only part is E0901. Implemented by PR
+`vbd/d43-mut-binding-value`. Filed 2026-11-06 with
 `issues/fixed/2026-11-06-a-mut-binding-of-a-borrowed-match-writes-through-the-shared-reference.md`,
 which made the binding a copy again and left its typing as it was before #1795.
 

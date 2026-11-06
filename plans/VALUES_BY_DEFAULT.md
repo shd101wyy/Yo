@@ -9630,6 +9630,22 @@ rules, step 3 the `Dyn` storage.
 - **`str` in borrow position** stays parked with
   `RUST_ADOPTION_CANDIDATES.md` L1. Nothing in steps 1–4 depends on it.
 
+**Decided 2026-11-06 (VERDICTS-28 Q2), the match-binding rule of step 2:**
+
+> **A `mut(name)` binding of a `&` match is a by-value binding of type `T`**
+> — a copy of its part, as Rust 2021's `mut` resets the default binding
+> mode: it is read and written without `.*`, it is reassignable, and a write
+> changes only the copy. The deref rule does not apply to it. The rule is
+> the same under both spellings of a borrowed scrutinee (`match(&x, …)` and
+> a reference binding matched bare). A `Copy` `T` is a plain copy; a
+> move-only `T` is E0901 (cannot copy a move-only value out of a borrow) —
+> bind the reference instead. The non-`mut` bindings of a `&` match remain
+> references into the scrutinee's place.
+
+No `yo fix` migration: under `match(&x, …)` both whole-value spellings were
+errors before the rule (E0926 on the bare write, E0908 on the `.*` write),
+so only error pins change, to pins of the new behavior.
+
 ### Decision 46: `Rc` is read-only
 
 Decision 46 (§4) is the design. Each step is its own PR. Every write

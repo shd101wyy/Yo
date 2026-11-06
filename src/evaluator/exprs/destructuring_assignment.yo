@@ -23,7 +23,7 @@ pragma(Pragma.AllowUnsafe);
   ast_expr_to_string
 } :: import("../../expr.yo");
 { is_union_member_read_capable, union_member_read_error_message } :: import("../memory_safety.yo");
-{ Environment, Variable, add_variable_to_env, get_variables_from_env } :: import("../../env.yo");
+{ Environment, Variable, add_variable_to_env, get_variables_from_env, variable_set_is_ref, variable_set_is_imm_borrow } :: import("../../env.yo");
 { Token, is_reserved_builtin_binding_name, reserved_builtin_binding_message } :: import("../../token.yo");
 { raise_flow_violation } :: import("../../types/flowability.yo");
 { EvalContext, record_module_member_read, sns_module_of } :: import("../context.yo");
@@ -38,7 +38,7 @@ pragma(Pragma.AllowUnsafe);
   is_extern_c_global,
   register_extern_c_global_alias
 } :: import("../../expr_info.yo");
-{ TypeValue, TypeValueNode, no_types, no_labels, no_type_lists, SharedList } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, no_types, no_labels, no_type_lists, SharedList, t_slot_pointee } :: import("../../types/definitions.yo");
 { is_tuple_type, is_struct_type, is_union_type, is_module_type, is_enum_type, get_adopted_extern_c_type, type_decl_module } :: import("../../types/guards.yo");
 { private_member_blocked } :: import("../../utils.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -608,10 +608,20 @@ handle_member_destructuring :: (
           if(!adopted_in_place, {
             _reject_shadowing(env, var_name.clone(), ast_expr_token(&var_tok_expr), ctx, exn);
             _record_extern_c_alias(rhs_type, rhs_field_label.clone(), var_name.clone(), &rhs_field_type);
+            // An element whose type is a reference (a tuple of lends,
+            // decision 43 step 3) binds a REFERENCE BINDING, as a `match`
+            // payload of one does: the name has the pointee's type and its C
+            // slot holds the pointer, so `a.*`, `a.f` and a lend of `a` read
+            // through it.
+            (ref_elem : Option(bool)) = cond(
+              is_compile_time_only => Option(bool).None,
+              true => match(&rhs_field_type, Rc(.Reference(_, re_mut, _)) => Option(bool).Some(re_mut), _ => Option(bool).None)
+            );
+            bind_field_type := match(&ref_elem, .Some(_) => t_slot_pointee(&rhs_field_type), .None => Rc.clone(rhs_field_type));
             added_var_opt := add_variable_to_env(
               env,
               var_name.clone(),
-              &rhs_field_type,
+              &bind_field_type,
               match(field_value_opt, .Some(fv) => Option(EvalValue).Some(clone_value(&fv, true)), .None => Option(EvalValue).None),
               is_compile_time_only,
               false,
@@ -627,6 +637,17 @@ handle_member_destructuring :: (
               added_var_opt,
               .Some(added_var) => {
                 added_var.set_is_created_from_destructuring_atom_variable(is_destructuring_atom_variable);
+                match(
+                  ref_elem,
+                  .Some(re_is_mut) => {
+                    variable_set_is_ref(&added_var, true);
+                    variable_set_is_imm_borrow(&added_var, !re_is_mut);
+                    // A writable reference binding is the reassignable
+                    // `is_ref` one (`r := &mut x`), as a `match` payload's.
+                    added_var.set_is_reassignable(re_is_mut);
+                  },
+                  .None => ()
+                );
                 // A `mut(name)` binding may be reassigned (decision 47).
                 if(is_mut_binding(&ast_expr_token(&var_tok_expr), &var_name), {
                   added_var.set_is_reassignable(true);

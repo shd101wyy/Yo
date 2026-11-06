@@ -806,7 +806,10 @@ _marker_place_of :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext) ->
         get_variables_from_env(env, &tok.value.*).last_cloned(),
         .Some(v) => cond(
           v.is_compile_time_only() => _MarkerPlace.NotAPlace,
-          (v.is_ref() || v.is_imm_borrow()) => _MarkerPlace.Borrow,
+          // A `match` binding that borrows the part it binds (`match(&o, …)`,
+          // or a reference matched bare) is a reference (N1e-1): passed whole
+          // it lends what it already borrows, as a `&T` parameter does.
+          (v.is_ref() || (v.is_imm_borrow() || v.is_borrow_match_binding())) => _MarkerPlace.Borrow,
           true => _MarkerPlace.Place
         ),
         .None => _MarkerPlace.NotAPlace

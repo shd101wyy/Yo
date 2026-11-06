@@ -14,7 +14,7 @@
 { _call_generate_expr } :: import("./_expr.yo");
 { type_key, get_variable_type_string } :: import("../utils/index.yo");
 { is_unit_type } :: import("../../types/guards.yo");
-{ TypeValue, no_types } :: import("../../types/definitions.yo");
+{ TypeValue, no_types, t_slot_is_borrow } :: import("../../types/definitions.yo");
 { emit_deferred_dup_or_code } :: import("./drop_dup.yo");
 { _store_temp_var_to_state_machine_if_needed, sequence_operand } :: import("./other_fn_call.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
@@ -62,10 +62,14 @@ _build_tuple :: (fn(arg_exprs : &ArrayList(AstExpr), c_name : &String, expr : &A
         // and keeps the source for an element-wise dup, whose temp is one
         // element of it.
         elem_code := emit_deferred_dup_or_code(&arg, _call_generate_expr(&arg, indent.clone(), context), indent.clone(), context);
+        // A reference element (decision 43 step 3) holds a lend: the
+        // argument is the place, the C member its address, taken before
+        // sequencing (a hoisted temporary would be a copy of the place).
+        e_is_ref := match(elem_types.get(i), .Some(et) => t_slot_is_borrow(&et), .None => false);
         // Sequenced against the later elements (`sequence_operand`,
         // other_fn_call.yo): C leaves initializers unordered, and a later
         // element's statements run before this literal.
-        args_list.push_string(sequence_operand(&arg, elem_code, arg_exprs, i, false, indent, context));
+        args_list.push_string(sequence_operand(&arg, if(e_is_ref, `(&(${elem_code}))`, elem_code), arg_exprs, i, e_is_ref, indent, context));
       }),
       .None => ()
     );

@@ -2,7 +2,7 @@
 
 **Status: ACTIVE** (2026-11-04). The table that drives V5 part B, the
 `ref`-declaration migration (`plans/VALUES_BY_DEFAULT.md` V5, "Part B: the
-three classes"; schedule §5f decision 31). Measured on develop `5aa0e1800`.
+three classes"; schedule §5f decision 32). Measured on develop `5aa0e1800`.
 It is regenerated on the tip before each batch; the class column changes only
 with a reason recorded here.
 

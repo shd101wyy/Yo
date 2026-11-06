@@ -52,30 +52,32 @@ check is right. For a holder, a write rooted at `slot` writes the holder
 itself, which the holder's own `mut(...)` already governs. The freeze record
 cannot tell the two apart.
 
-## Fix (written, lands after O3-3)
-
-The fix is written and parked as `wip/d43-holder-e0908-exact`:
+## Fix
 
 - Read-only is a property of a REFERENCE binding. A binding is read-only
   exactly when its slot type (`variable_slot_type`) is `Reference(_, imm, _)`.
   `local_borrow_require_writable` now decides from the written root binding's
-  slot type (`local_borrow_root_is_shared_reference`), instead of the `is_mut`
-  of whichever `LocalBorrowInfo` carries the binding's name.
-- A holder's record is a FREEZE of the place it lends. It keeps driving E0911
-  over that place.
+  slot type (`local_borrow_root_is_shared_reference`), not from the `is_mut`
+  of whichever `LocalBorrowInfo` carries the binding's name. A `&mut`
+  argument records that verdict where it finds the place
+  (`D3PendingInout.lb_read_only`).
+- A holder's record stays a FREEZE of the place it lends, and it keeps
+  driving E0911 over that place. No record kind or skip flag is needed.
+  N2b-r's first version added a `LocalBorrowInfo.is_holder` flag, which this
+  fix replaces.
 
-The fix cannot land on its own. Today this bug also masks a missing check:
-the corpus row `store-widen-mut-pointee` (`_store(&mut slot, &y)` widening an
-`Option(&(i32, x))` holder to `y`) is rejected by this E0908 for the wrong
-reason. Its target verdict is O3-3's ORIGIN_MISMATCH. With the fix alone the
-row is accepted, which is unsound. The fix therefore lands with N2b-r, which
-implements O3-3, and replaces N2b-r's `LocalBorrowInfo.is_holder` flag
-version.
+The fix landed with N2b-r, together with O3-3. Alone, it accepted the corpus
+row `store-widen-mut-pointee` (`_store(&mut slot, &y)`, which widens an
+`Option(&(i32, x))` holder to `y`). Today's E0908 rejected that row for the
+wrong reason. With O3-3 in the same change, the row is ORIGIN_MISMATCH
+(E0923), its target verdict.
 
-Tests, in `tests/origins/`:
+Tests:
 
-- `slot = .None` on an `Option(&i32)` holder is accepted.
-- `bump(&mut h)` and `h.n = 5` on a `mut` holder of a `&` field are accepted.
-- Writing `x` while `h` is still live remains E0911.
-- VERDICTS-25's cursor walk through `self : &mut Cursor(p)`, which needs a
-  `mut` holder of a `&` lend to be writable, runs.
+- `tests/origins/reference_read_rule.test.yo`, "A mut holder of a shared lend
+  is writable": `slot = .None`, a holder passed `&mut`, and `bump(&mut h)`
+  plus `h.n = ...` on a `mut` holder of a `&` field. `rr_holder_still_freezes`
+  checks that writing `x` while `h` is live stays E0911. VERDICTS-25's cursor
+  walk through `self : &mut RrIntCursor(p)` (`rr_next`) runs.
+- `tests/borrow_spelling.test.yo`, "a `mut` holder of a `&` reference is lent
+  `&mut`".
