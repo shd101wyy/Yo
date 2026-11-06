@@ -5,7 +5,9 @@
 - Part A is in progress: the package-name tooling and `markdown-yo` land in v0.2.74.
 - Part B is done (2026-11-05; the maintainer lifted its deferral): the example repositories are renamed and this tree
   names them in kebab-case. `markdown-it-yo`'s migration PR merges after v0.2.75.
-- Part C waits until the VBD campaign is complete (after v0.2.76; `plans/handover/VBD_RELEASE_SCHEDULE.md` §7).
+- Part C is part of the VBD campaign (maintainer, 2026-11-06; until then it waited for the campaign's end): it is
+  the last PR of the v0.2.78 window, and `--migrate module-names` retires in v0.2.79
+  (`plans/handover/VBD_RELEASE_SCHEDULE.md` §5f decision 32).
 
 Until Part C lands, the tree keeps its snake_case module files. The current convention text still says so
 (`.github/skills/yo-syntax/syntax-cheatsheet.md` "Naming conventions", `docs/en-US/DESIGN.md` "Naming Convention",
@@ -95,10 +97,12 @@ were deferred on 2026-10-30 by the maintainer ("rename them to kebab-case after 
 
 `yo_http_benchmark` is out of scope: it is not a `_yo` package.
 
-## Part C — module file and directory names (after VBD)
+## Part C — module file and directory names (v0.2.78, inside VBD)
 
-**Timing:** one PR after v0.2.76. Renaming about 120 `src/` files during VBD would conflict with every open campaign
-branch; that is the only reason to wait.
+**Timing (2026-11-06):** the last PR of the v0.2.78 window, after decision 49's S2 sweep, S3 and G3 have merged
+(`plans/handover/VBD_RELEASE_SCHEDULE.md` §5f decision 32). Renaming about 120 `src/` files conflicts with every open
+branch, so it lands once the campaign's last large sweeps are on develop and nothing is stacked on it. Until
+2026-11-06 it was planned as one PR after the campaign.
 
 **No Generation A/B split is needed:** imports are strings, and stage 1 builds with `--std-path ./std`, so std and
 src renames land in one commit.
