@@ -338,18 +338,77 @@ window).**
 - `HashMap._alloc_with_capacity_in(alloc, n)` became `_alloc_with_capacity(n, alloc)`, the one private constructor
   (the sibling tests call it).
 
-### Related: `Box`'s layout (the verdict's §7, maintainer decision 2026-10-24)
+### Related: `Box`'s layout (the verdict's §7, maintainer decision 2026-10-24; revised by VERDICTS-29, 2026-11-06)
 
-Not a placement step, recorded here because the verdict carries it. Today every `Box` cell carries the 16-byte
-owner prefix `{ctx, vtable}` (`_BoxOwner`, `_BOX_PREFIX_SIZE`, `std/prelude.yo:9945-9950`), with a `.None` vtable
-for the global allocator. `Rc`/`Arc` instead keep their count header with the `__YO_RC_TAG` bit and pay the prefix
-only when placed. **Decision:** `Box` adopts `Rc`'s scheme. An 8-byte flags word sits in front of the payload (at
-`max(8, align_of(V))`), with the tag bit set only when the box is placed, and only a placed `Box` carries the owner
-prefix. A global `Box` goes from 16 bytes of header to 8 (or the payload's alignment). It lands as its own PR right
-after allocator v2 Generation B, in the v0.2.72 window, measured (Box allocations, malloc size classes, the
-check/compile RSS ratchets) with its own emit-diff. It is std-only if the compiler's `Box` predicate and drop paths
-need no change (`unique_box_payload_type` in `src/types/guards.yo`, `src/codegen/exprs/drop_dup.yo`); that is to
-be verified in the PR.
+**The rule (2026-11-06; maintainer-requested advisor consult VERDICTS-29).** Whether a block is placed is one bit, and
+every owner stores it in a word it already has: `_capacity`'s top bit for a container, `ref_count`'s top bit for a
+counted cell, **bit 0 of the cell pointer for a `Box`**. A global block carries nothing. A placed block carries
+`Allocator.alloc`'s layout — a `max(16, align)` prefix ending in the owner record `{ctx, vtable}` — whoever owns
+it; its drop reads the bit, then the record, and frees through the owner, telling it the block's size and alignment.
+
+- **`Box(T) :: newtype(_cell : *V)`, 8 bytes.** Every cell is at least 16-byte aligned by construction
+  (`__yo_malloc` and the aligned family for a global cell; `a.alloc(…, max(16, align))` for a placed one, whose
+  contract is a result aligned to `max(align, 16)`), so bit 0 of the address is free. `Box.new(v)` stores the
+  payload address; `Box.new(v, alloc : .Some(a))` stores it with bit 0 set. The payload is `_cell & ~1`, which
+  codegen emits at every projection (`b.*`, `b.field`, `&b.*`, `addr_of(b.*)`, a `Box` pattern) and the prelude
+  reads in `Drop`, `into_inner`, `allocator` and `Clone`. `Option(Box(T))` keeps the null niche. Under decision 49
+  the handle of an unsized `V` is `{ptr, meta}`, the bit in `ptr`, the extent from `meta`.
+- **Global cell: `[payload]`, exactly `size_of(T)` bytes** (Rust's allocation). A zero-sized payload allocates
+  nothing: the handle is the dangling constant `16` (not the unit-place constant `(void*)1`, whose bit 0 is set),
+  the drop runs the payload's `Drop` and frees nothing, and `allocator` is `.None`. `dyn(Box.new(f))` over a
+  captureless closure therefore allocates nothing.
+- **Placed cell: `[max(16, align) prefix ending in {ctx, vtable}][payload]`**, `max(16, align) + size_of(T)` bytes
+  (24 for an `i64`, against 32 with the flags word). The drop frees `span + size_of(T)` at alignment `span` through
+  the owner; no extent is stored, the size is static (`size_of_val` for an unsized payload). A placed zero-sized
+  payload allocates the 16-byte prefix alone, so that `allocator` can answer — the rule a placed empty `ArrayList`
+  follows.
+- **A counted cell keeps its 8-byte count header and `__YO_RC_TAG`.** Its placed form also carries a 16-byte extent
+  `{size, align}` before the owner (a 32-byte prefix) because `__yo_rc_free(void*)` is type-erased; once decision
+  49 S2 types every release path (the handles' `Drop`, `Weak`, `try_unwrap`, `make_mut`) the extent is dropped (L3).
+- **Raw round trips.** None exist. When one is added it is `Box.into_raw(b) -> (*T, Option(Allocator))` and
+  `Box.from_raw(p, alloc)`; a bare `into_raw -> *T` would lose the owner of a placed box and is rejected.
+- **Rejected:**
+  - the in-cell flags word (the 2026-10-29 layout below): 8–16 bytes per global cell, 2× for small payloads under
+    mimalloc, +50 % for a 24 B payload under glibc;
+  - asking the global allocator `owns(ptr)` at drop: libc has no such query, mimalloc's (`mi_check_owned`,
+    `mi_is_in_heap_region`) is deprecated in the vendored header and answers "in some mimalloc region", and a
+    wrong answer corrupts the heap;
+  - a registry of placed allocators: every drop pays, and malloc-backed allocators cannot answer;
+  - an address-masked arena header: allocator-specific, and it answers "which" only after "whether";
+  - `Box(T, A)`: it reverses placement by argument;
+  - a fat handle carrying the allocator: paid by every box, placed or not;
+  - a smaller in-cell header: still 8 bytes for an 8-aligned payload;
+  - a high tag bit: breaks on 32-bit, wasm32 and pointer-authentication ABIs.
+- **Schedule** (VERDICTS-29 Q5; inside the campaign with decision 49, `plans/handover/VBD_RELEASE_SCHEDULE.md` §5f
+  decision 30; no `--migrate` mode, since the layout is invisible to source):
+  - **L1, compiler:** codegen masks bit 0 at every `Box` payload projection (`src/codegen/exprs/property_access.yo`,
+    `src/codegen/exprs/match.yo` and every other `(*cell)` projection of a unique `Box`). v0.2.77, beside decision
+    49 S1. Seed-safe: the bit is clear today, so the mask is the identity. Gates: `check ./src`, an emit-diff of the
+    compiler's own C showing only the projection sites, the fixpoint, the `Box`/`dyn`/`explicit_allocators`/`rc`
+    tests.
+  - **L2, std:** the placed bit moves to the handle, a global cell becomes the payload, a ZST box allocates nothing,
+    and the `Box` doc comment's layout paragraph is rewritten. It lands INSIDE decision 49 S2's rewrite of `Box`
+    over `?Sized` (v0.2.78, Generation B on the v0.2.77 seed), so `Box` is rewritten once: S2 already replaces
+    `size_of(T)`/`_align()` with `size_of_val`/`align_of_val` in the same code. Gates: through a recording
+    allocator, a placed `Box(i64)` asks `16 + 8` at alignment 16 and a placed `Box(unit)` asks 16; a global
+    `Box(i64)` asks 8 and a global `Box(unit)` asks nothing; `dyn(Box.new(<captureless closure>))` allocates
+    nothing; the probe below rerun and recorded here; the memory ratchet moves down or holds.
+  - **L3, compiler:** a placed `Rc`/`Arc` cell drops its extent once S2 has typed every release path. v0.2.79, or
+    with the cycle collector's deletion if its sweep still needs a type-erased free.
+
+**Measured (2026-11-06, v0.2.75 seed against rustc 1.97.1; 4,000,000 live global boxes, peak RSS including the
+32 MB handle list).** Under mimalloc, `Box(i64)` 100.6 MB against Rust's ≈ 64 MB (Yo's 16-byte request against
+Rust's 8-byte bin), a 24-byte payload 164.1 MB against ≈ 160 MB, a 64-byte payload 352.6 MB against ≈ 288 MB
+(80-byte against 64-byte requests). Under glibc, 159.9 / 222.1 / 347.1 MB against Rust's 158.5 / 158.5 / 346.0 MB.
+Per cell: a global `Box(i64)` asks 16 bytes (Rust 8) and a placed one 32 (owner 16 + flags 8 + payload 8); a global
+`Rc(i64)` asks 16 (Rust's `Rc<i64>` 24) and a placed one 48; a global `Box(unit)` asks 8 (Rust allocates nothing).
+`ArrayList`/`String`/`HashMap` are at parity with Rust's global containers; a placed buffer adds the 16-byte prefix.
+
+The 2026-10-24 decision and the 2026-10-29 build below are superseded by the rule above and kept as the record of
+the layout v0.2.73–v0.2.77 ship. The 2026-10-24 decision: every `Box` cell then carried the 16-byte owner prefix
+`{ctx, vtable}` with a `.None` vtable for the global allocator, and `Box` adopted `Rc`'s scheme — an 8-byte flags
+word in front of the payload (at `max(8, align_of(V))`) with the tag bit set only when placed, and the owner prefix
+only on a placed `Box` — taking a global `Box` from 16 bytes of header to 8.
 
 **As built (2026-10-29, branch `vbd/box-layout`, stacked on allocator v2 Generation B).** std only: the compiler
 knows `Box` through `unique_box_payload_type` (the stamped name and the `_cell : *V` newtype shape, unchanged),

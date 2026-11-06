@@ -4920,6 +4920,10 @@ and in git, not a silent edit.
       `sort*`, `contains`, `to_list`, `Eq`/`Ord`/`Hash`, `impl(&[T],
       IntoIterator(Item : &(T, p)))`, `impl(&mut [T], IntoIterator)`);
       `ArrayList.into_boxed_slice -> Box([T])`, `Rc.from_slice(v : &[T])`.
+      `Box`'s `Drop` reads the placed bit from the handle's pointer word and
+      the extent from `size_of_val`/`align_of_val`; a global cell is the
+      payload alone, and a `size_of_val` of 0 frees nothing (VERDICTS-29,
+      `plans/backlog/ALLOCATOR_PLACEMENT.md` "Related: `Box`'s layout").
     - **`downcast`/`upcast`.** `downcast(r : &Dyn(T), V) -> Option(&V)`,
       `&mut` → `Option(&mut V)`; `downcast(b : Box(Dyn(T)), V) ->
       Result(Box(V), Box(Dyn(T)))`, `Rc`/`Arc` likewise — the same block
