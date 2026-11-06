@@ -1116,6 +1116,11 @@ Raw pointer operations may dereference invalid memory.`
     // A type that DECLARES a field named `*` keeps the field read: that is
     // the atomic idiom (`AtomicBool :: atomic(ref(struct((*) : atomic_bool)))`
     // read as `self.*` on `self : &Self` in std/sync/atomic.yo).
+    // N3's adoption sweep (2026-11-06) deleted the PATH exemption (std, src,
+    // scripts/, build.yo, the store): in every SPELLED file the
+    // reference-binding branch above reads `v.*` as the reference's own
+    // deref, so this fires only for compiler-synthesized `auto-generated://`
+    // code, which keeps the old reading (see `deref_rule_applies`).
     if(ast_expr_is_atom(&object_expr), {
       match(
         get_variables_from_env(&env, ast_expr_token(&object_expr).value.*.clone()).last_cloned(),
