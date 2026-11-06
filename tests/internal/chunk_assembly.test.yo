@@ -243,14 +243,14 @@ test("chunked emission: --chunk-by module keeps a module's functions in one unit
 _spill_read :: (fn(path : &String) -> String)(
   String.from_bytes(read_file_sync(path, Exception(throw : (err -> panic(`reading the spill failed: ${err.to_string()}`)))))
 );
-_spill_emit_function :: (fn(em : &Emitter, i : usize) -> unit)({
+_spill_emit_function :: (fn(em : &mut Emitter, i : usize) -> unit)({
   em.emit_declaration_string_line(`static int f${i.to_string()}(void);`);
   em.emit_string_line(`static int f${i.to_string()}(void) {`);
   em.emit_string_line(`  return ${i.to_string()};`);
   em.emit_line("}");
 });
 test("a code spill spliced before the code tail is the unspilled C", {
-  plain := Emitter.new();
+  mut(plain) := Emitter.new();
   mut(spilled) := Emitter.new();
   path := String.from(".yo_emitter_spill_test.c.spill");
   spilled.start_code_spill(path.clone());
@@ -259,8 +259,8 @@ test("a code spill spliced before the code tail is the unspilled C", {
   spilled.emit_header_line("#include <stdint.h>");
   (mut(i) : usize) = usize(0);
   while(i < usize(5), {
-    _spill_emit_function(&plain, i);
-    _spill_emit_function(&spilled, i);
+    _spill_emit_function(&mut plain, i);
+    _spill_emit_function(&mut spilled, i);
     spilled.spill_code_if_large();
     i = (i + usize(1));
   });

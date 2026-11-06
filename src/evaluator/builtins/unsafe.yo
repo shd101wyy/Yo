@@ -37,7 +37,7 @@ evaluate_unsafe :: (
   fn(
     expr : &AstExpr,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
@@ -84,7 +84,7 @@ evaluate_unsafe :: (
   ctx.unsafe_context = old_unsafe;
   info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_arg));
   match(
-    info_opt,
+    &info_opt,
     .None => {
       exn.throw(
         dyn(
@@ -97,7 +97,7 @@ evaluate_unsafe :: (
     },
     .Some(_) => ()
   );
-  arg_info := match(info_opt, .Some(i) => i, .None => new_expr_info(env, t_i32()));
+  arg_info := match(info_opt, .Some(i) => Rc.clone(i), .None => new_expr_info(env, t_i32()));
   // `unsafe(...)` is transparent — propagate the inner expression's full
   // ExprInfo (value, type, env, variable name, ownership fields) to the outer
   // call so downstream bindings, dup/drop scheduling, and consumption tracking

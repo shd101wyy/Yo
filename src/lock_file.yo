@@ -41,22 +41,21 @@ LOCK_FILE_NAME :: "yo.lock";
 // Data types
 // ---------------------------------------------------------------------------
 /// One resolved package.
-LockEntry :: ref(
-  struct(
-    /// The import name (the `[dependencies]` key).
-    name : String,
-    /// The semver of the chosen tag ("" for a branch, a commit, or a path).
-    version : String,
-    /// `git+<url>#<ref>` or `path+<path relative to the root manifest>`.
-    source : String,
-    /// The fetched commit ("" for a path package).
-    commit : String,
-    /// `sha256-…` of the fetched tree ("" for a path package — it is live).
-    integrity : String,
-    /// The names of the package's own (non-dev) dependencies.
-    dependencies : ArrayList(String)
-  )
+LockEntry :: struct(
+  /// The import name (the `[dependencies]` key).
+  name : String,
+  /// The semver of the chosen tag ("" for a branch, a commit, or a path).
+  version : String,
+  /// `git+<url>#<ref>` or `path+<path relative to the root manifest>`.
+  source : String,
+  /// The fetched commit ("" for a path package).
+  commit : String,
+  /// `sha256-…` of the fetched tree ("" for a path package — it is live).
+  integrity : String,
+  /// The names of the package's own (non-dev) dependencies.
+  dependencies : ArrayList(String)
 );
+derive(LockEntry, Clone);
 impl(
   LockEntry,
   /// True for a `git+…` source.
@@ -97,11 +96,10 @@ path_source :: (fn(path : &String) -> String)(
   `path+${path}`
 );
 /// In-memory representation of a `yo.lock` file.
-LockFile :: ref(
-  struct(
-    packages : ArrayList(LockEntry)
-  )
+LockFile :: struct(
+  packages : ArrayList(LockEntry)
 );
+derive(LockFile, Clone);
 impl(
   LockFile,
   /// An empty lock file (no packages).
@@ -202,12 +200,7 @@ parse_lock_file :: (fn(content : &String) -> Result(LockFile, String))({
 // ---------------------------------------------------------------------------
 /// The packages sorted by name (insertion sort — a lock holds a handful).
 _sorted :: (fn(packages : &ArrayList(LockEntry)) -> ArrayList(LockEntry))({
-  out := ArrayList(LockEntry).new();
-  (i : usize) = usize(0);
-  while(i < packages.len(), {
-    out.push(packages(i));
-    i = (i + usize(1));
-  });
+  out := packages.clone();
   (a : usize) = usize(1);
   while(a < out.len(), {
     (b : usize) = a;
@@ -226,9 +219,7 @@ write_lock_file_content :: (fn(lock : &LockFile) -> String)({
   _ := root.insert(String.from("version"), TomlValue.Int(LOCK_VERSION));
   items := ArrayList(TomlValue).new();
   sorted := _sorted(&lock.packages);
-  (i : usize) = usize(0);
-  while(i < sorted.len(), {
-    p := sorted(i);
+  for(&sorted, p => {
     t := TomlValue.new_table();
     _ := t.insert(String.from("name"), TomlValue.Str(p.name.clone()));
     if(p.version.len() > usize(0), {
@@ -251,7 +242,6 @@ write_lock_file_content :: (fn(lock : &LockFile) -> String)({
       _ := t.insert(String.from("dependencies"), TomlValue.Array(deps));
     });
     items.push(t);
-    i = (i + usize(1));
   });
   if(items.len() > usize(0), {
     _ := root.insert(String.from("package"), TomlValue.Array(items));
@@ -263,15 +253,13 @@ write_lock_file_content :: (fn(lock : &LockFile) -> String)({
 // Disk I/O
 // ---------------------------------------------------------------------------
 /// What reading the lock found.
-LockRead :: ref(
-  struct(
-    lock : LockFile,
-    /// True when the file was absent.
-    absent : bool,
-    /// The parse problem of a present-but-unusable file (a v1 lock, or
-    /// corruption); the resolver regenerates such a lock.
-    problem : Option(String)
-  )
+LockRead :: struct(
+  lock : LockFile,
+  /// True when the file was absent.
+  absent : bool,
+  /// The parse problem of a present-but-unusable file (a v1 lock, or
+  /// corruption); the resolver regenerates such a lock.
+  problem : Option(String)
 );
 /// Read `<project_dir>/yo.lock`. Absent or unusable → an empty lock, with
 /// the flags telling which.
@@ -320,9 +308,8 @@ save_lock_file :: (
 find_lock_entry :: (fn(lock : &LockFile, name : &String) -> Option(LockEntry))({
   (i : usize) = usize(0);
   while(i < lock.packages.len(), {
-    p := lock.packages(i);
-    if(p.name == name, {
-      return(Option(LockEntry).Some(p));
+    if(lock.packages(i).name == name, {
+      return(Option(LockEntry).Some(lock.packages(i).clone()));
     });
     i = (i + usize(1));
   });
@@ -335,15 +322,13 @@ lock_files_equal :: (fn(a : &LockFile, b : &LockFile) -> bool)({
   sa := _sorted(&a.packages);
   sb := _sorted(&b.packages);
   (i : usize) = usize(0);
-  while(i < sa.len(), {
-    x := sa(i);
-    y := sb(i);
-    same := ((x.name == y.name) && (x.source == y.source) && (x.commit == y.commit) && (x.integrity == y.integrity) && (x.version == y.version));
+  for(&sa, x => {
+    same := ((x.name == sb(i).name) && (x.source == sb(i).source) && (x.commit == sb(i).commit) && (x.integrity == sb(i).integrity) && (x.version == sb(i).version));
     if(!same, return(false));
-    if(x.dependencies.len() != y.dependencies.len(), return(false));
+    if(x.dependencies.len() != sb(i).dependencies.len(), return(false));
     (d : usize) = usize(0);
     while(d < x.dependencies.len(), {
-      if(x.dependencies(d) != y.dependencies(d), return(false));
+      if(x.dependencies(d) != sb(i).dependencies(d), return(false));
       d = (d + usize(1));
     });
     i = (i + usize(1));

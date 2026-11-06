@@ -89,7 +89,7 @@ _reports_dump :: (fn(reports : &ArrayList(VerifyFnReport)) -> String)({
   (mut(i) : usize) = usize(0);
   while(i < reports.len(), {
     match(
-      reports.get(i),
+      reports.get_cloned(i),
       .Some(rp) => {
         ids.push(`${rp.fn_id}=${rp.outcome} [${rp.subset_construct}: ${rp.subset_source}]`);
       },
@@ -109,7 +109,7 @@ _reports_dump :: (fn(reports : &ArrayList(VerifyFnReport)) -> String)({
   sb.to_string()
 });
 _first :: (fn(reports : &ArrayList(VerifyFnReport)) -> VerifyFnReport)(
-  reports.get(usize(0)).unwrap()
+  reports.get_cloned(usize(0)).unwrap()
 );
 
 test("a universally-quantified post-condition proves (positive_floor)", {
@@ -211,16 +211,8 @@ test("the encoding emits a raw-spelling SMT forall (solver-free)", {
   );
   assert(res.error.is_none(), `no subset error expected for the quantifier fixture`);
   mut(scripts) := StringBuilder.new();
-  (mut(oi) : usize) = usize(0);
-  while(oi < res.obligations.len(), {
-    match(
-      res.obligations.get(oi),
-      .Some(obl) => {
-        scripts.write_string(encode_script(&obl.query, default_encode_options()));
-      },
-      .None => ()
-    );
-    oi = (oi + usize(1));
+  for(&res.obligations, obl => {
+    scripts.write_string(encode_script(&obl.query, default_encode_options()));
   });
   all := scripts.to_string();
   assert(all.contains(String.from("(forall ((k (_ BitVec 32)))")), `the forall binder appears raw-spelled, got: ${all}`);

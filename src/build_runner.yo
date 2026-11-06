@@ -46,9 +46,11 @@ _(env : warm_dbg_env) :: import("std/env");
   BuildRegistry,
   ResolvedDep,
   BuildSystemLibrary,
-  get_build_registry,
+  take_build_registry,
+  seed_build_registry,
   clear_build_registry,
-  swap_build_registry
+  swap_build_registry,
+  restore_build_registry
 } :: import("./evaluator/builtins/build.yo");
 {
   Manifest,
@@ -133,23 +135,13 @@ StepResult :: ref(
 // a child `yo compile`, so the warm evaluator universe (module cache,
 // prelude env, shared ExprInfoTable) is reused across watch rounds.
 InProcessCompileFn :: (fn(argv : &ArrayList(String), io : Io, exn : Exception) -> bool);
-/// The callback lives in a MUTABLE REF-STRUCT SLOT, not a bare global
-/// Option: an async fn (`run_build`) reading a global fn-typed Option
-/// minted a temp the state machine carried across a suspension point, and
-/// fn-typed SM fields do not emit ("use of undeclared identifier",
-/// issues/fixed/async-sm-fn-typed-local-across-suspension.md). A ref-struct field
-/// is a supported SM capture (the pointer is), so reads go through the slot
-/// object.
-InProcessCompileSlot :: ref(
-  struct(
-    f : Option(InProcessCompileFn)
-  )
-);
-(g_in_process_compile_slot : InProcessCompileSlot) = InProcessCompileSlot(
-  f : Option(InProcessCompileFn).None
-);
+/// The callback, set once by `main.yo` before the build runs; the execution
+/// context takes its value at construction. (A fn value crossing a
+/// suspension point once failed to emit; fixed 2026-09-29,
+/// issues/fixed/async-sm-fn-typed-local-across-suspension.md.)
+(mut(g_in_process_compile_fn) : Option(InProcessCompileFn)) = Option(InProcessCompileFn).None;
 set_in_process_compile_fn :: (fn(f : InProcessCompileFn) -> unit)({
-  g_in_process_compile_slot.f = Option(InProcessCompileFn).Some(f);
+  g_in_process_compile_fn = Option(InProcessCompileFn).Some(f);
   ()
 });
 ExecutionContext :: ref(
@@ -172,12 +164,9 @@ ExecutionContext :: ref(
     /// `-j N`: how many nodes of one DAG level may run at once (§4.8). 1 keeps
     /// their output in DAG order, which every recorded golden depends on.
     jobs : usize,
-    /// §7 step 2: `.Some(slot)` on build --watch rounds — artifacts compile
-    /// through slot.f in-process against the warm evaluator universe. The
-    /// SLOT REF (a pointer) is stored, never the fn value itself: an
-    /// fn-typed value materializing in an async state machine is the
-    /// issues/fixed/async-sm-fn-typed-local-across-suspension.md bug.
-    in_process_compile_slot : InProcessCompileSlot,
+    /// §7 step 2: `.Some(f)` on build --watch rounds — artifacts compile
+    /// through f in-process against the warm evaluator universe.
+    in_process_compile_fn : Option(InProcessCompileFn),
     /// §7 step 2: true on `build --watch` rounds (`BuildOptions.
     /// watch_in_process`, set by `_build_round_watch`). A failed step must
     /// NOT `exit(1)` — the watch loop's contract is that a failing round is
@@ -418,20 +407,23 @@ resolve_build_import_roots :: (
     io : Io,
     exn : Exception
   ) -> Impl(Future(unit, IoExn))
-)(
+)({
+  // The async body outlives the borrow of `registry`, so it owns a copy of
+  // the one list it reads.
+  referenced := registry.referenced_dependencies.clone();
   io.async((e : IoExn) => {
     g_import_lines.with_mut(xs => xs.clear());
     has_manifest := manifest_opt.is_some();
-    if(!has_manifest && (registry.referenced_dependencies.len() > usize(0)), {
-      e.exn.throw(dyn(`Error: build.dependency("${registry.referenced_dependencies(usize(0))}") needs a ${MANIFEST_FILENAME} declaring it, and this project has none.`));
+    if(!has_manifest && (referenced.len() > usize(0)), {
+      e.exn.throw(dyn(`Error: build.dependency("${referenced(usize(0))}") needs a ${MANIFEST_FILENAME} declaring it, and this project has none.`));
     });
     if(!has_manifest, {
       return(());
     });
     manifest := manifest_opt.unwrap();
     (ri : usize) = usize(0);
-    while(ri < registry.referenced_dependencies.len(), {
-      dep_name := registry.referenced_dependencies(ri).clone();
+    while(ri < referenced.len(), {
+      dep_name := referenced(ri).clone();
       if(manifest.find_dependency(dep_name.clone()).is_none(), {
         e.exn.throw(dyn(`Error: build.dependency("${dep_name}") is not declared in ${manifest.path}. Add it with 'yo add'.`));
       });
@@ -466,7 +458,7 @@ resolve_build_import_roots :: (
     e.io.await(_link_store_trees(&manifest, e.io, e.exn), e);
     ()
   })
-);
+});
 /// The editor's view of the store (plans/archive/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md
 /// §4.4): `yo-out/deps/<name>` → the store tree of every git dependency the
 /// lock records, so a dependency's source can be opened by a stable path.
@@ -515,7 +507,7 @@ _link_store_trees :: (
     entries := e.io.await(read_dir(Path.new(deps_dir.clone()), e.io), e);
     (pi : usize) = usize(0);
     while(pi < lock.packages.len(), {
-      entry := lock.packages(pi);
+      entry := lock.packages(pi).clone();
       pi = (pi + usize(1));
       tree := if(entry.integrity.len() == usize(0), String.new(), match(store_tree_dir(cache_root.clone(), entry.integrity.clone()), .Ok(d) => d, .Err(_) => String.new()));
       link := `${deps_dir}/${entry.name}`;
@@ -636,15 +628,14 @@ _evaluate_dependency_build_file :: (
   owned_dep_name := dep_name.clone();
   owned_defines := defines.clone();
   io.async((e : IoExn) => {
-    scratch := BuildRegistry.new();
+    mut(scratch) := BuildRegistry.new();
     scratch.cli_options = _namespaced_defines(owned_dep_name.clone(), &owned_defines);
     dep_manifest_opt := project_manifest(owned_dep_dir.clone(), e.exn);
     scratch.manifest_fields = _manifest_fields(&dep_manifest_opt);
-    prev := swap_build_registry(Option(BuildRegistry).Some(scratch));
+    saved := swap_build_registry(scratch);
     outcome := mm_load_yo_file(owned_build_file.clone(), e.io, e.exn);
     load_error := _take_load_error();
-    evaluated := get_build_registry();
-    swap_build_registry(&prev);
+    evaluated := restore_build_registry(saved);
     if(!outcome.ok, {
       match(
         load_error,
@@ -666,28 +657,28 @@ _evaluate_dependency_build_file :: (
 _evaluate_dependency_builds :: (
   fn(
     manifest : &Manifest,
-    registry : &BuildRegistry,
+    sink(registry) : BuildRegistry,
     defines : &HashMap(String, String),
     io : Io,
     exn : Exception
-  ) -> Impl(Future(unit, IoExn))
+  ) -> Impl(Future(BuildRegistry, IoExn))
 )({
   owned_defines := defines.clone();
-  io.async((e : IoExn) => {
+  io.async({ registry, &manifest, owned_defines }(e : IoExn) => {
     if(registry.dependency_artifacts.len() == usize(0), {
-      return(());
+      return(registry);
     });
     lock_text := read_lock_text(manifest, e.exn);
     (i : usize) = usize(0);
     while(i < registry.dependency_artifacts.len(), {
-      r := registry.dependency_artifacts(i);
+      r := registry.dependency_artifacts(i).clone();
       i = (i + usize(1));
       dep := match(
         manifest.find_dependency(r.dependency_name.clone()),
         .Some(d) => d,
         .None => {
           e.exn.throw(dyn(`Error: build.dependency("${r.dependency_name}") is not declared in ${manifest.path}. Add it with 'yo add'.`));
-          return(());
+          return(registry);
         }
       );
       dir := match(
@@ -722,7 +713,7 @@ _evaluate_dependency_builds :: (
           .Some(a) => a,
           .None => {
             e.exn.throw(dyn(`Error: dependency "${r.dependency_name}" defines no artifact "${r.artifact_name}" in ${build_file}.`));
-            return(());
+            return(registry);
           }
         );
         is_lib := match(art.kind, .StaticLibrary => true, _ => false);
@@ -734,7 +725,7 @@ _evaluate_dependency_builds :: (
           );
         });
         _record_package_import_lines(dir.clone(), _dependency_import_lines(dir.clone(), lock_text.clone(), e.exn));
-        registry.register_static_library(
+        link_err := registry.register_static_library(
           BuildArtifact(
             kind : ArtifactKind.StaticLibrary,
             name : art.name.clone(),
@@ -758,9 +749,9 @@ _evaluate_dependency_builds :: (
             linked_system_libs : art.linked_system_libs.clone(),
             package_dir : dir.clone(),
             package_name : r.dependency_name.clone()
-          ),
-          e.exn
+          )
         );
+        match(link_err, .Some(m) => e.exn.throw(dyn(m)), .None => ());
         // A `-D<dep>.<opt>` the dependency does not declare is a typo too.
         dep_unknown := undeclared_options(&dep_reg);
         if(dep_unknown.len() > usize(0), {
@@ -773,14 +764,12 @@ _evaluate_dependency_builds :: (
         });
         // The system libraries the dependency's build file declared, so the
         // consumer's link line can resolve what its archive needs.
-        (si : usize) = usize(0);
-        while(si < dep_reg.system_libraries.len(), {
-          registry.system_libraries.push(dep_reg.system_libraries(si));
-          si = (si + usize(1));
+        for(&dep_reg.system_libraries, sl => {
+          registry.system_libraries.push(sl.clone());
         });
       });
     });
-    ()
+    registry
   })
 });
 /// A dependency package's own import closure, as `name=<root file>` lines. Its
@@ -1791,7 +1780,7 @@ level_wants_debug_symbols :: (fn(level : &String) -> bool)(level == "debug");
 export(level_wants_debug_symbols);
 compile_artifact :: (
   fn(
-    artifact : &BuildArtifact,
+    sink(artifact) : BuildArtifact,
     ctx : &ExecutionContext,
     io : Io,
     exn : Exception
@@ -1810,7 +1799,7 @@ compile_artifact :: (
       .Executable => false
     );
     kind_dir := if(is_lib, "lib", "bin");
-    output_dir := _artifact_output_dir(artifact, ctx.project_dir.clone(), effective_target.clone(), kind_dir);
+    output_dir := _artifact_output_dir(&artifact, ctx.project_dir.clone(), effective_target.clone(), kind_dir);
     // Create the output directory before compiling into it.
     // Without this the compiler is handed `-o <missing dir>/<name>` and dies with
     // a bare ENOENT — "file or directory not found" — with nothing to say which
@@ -1961,7 +1950,7 @@ compile_artifact :: (
     // DAG, reach the child's link line the same way C sources do.
     linked_libs := _collect_linked_static_libs(
       &ctx.registry,
-      artifact,
+      &artifact,
       ctx.project_dir.clone(),
       effective_target.clone(),
       &ctx.target_triple
@@ -1979,7 +1968,7 @@ compile_artifact :: (
     shared_names := ArrayList(String).new();
     _collect_linked_shared_libs(
       &ctx.registry,
-      artifact,
+      &artifact,
       ctx.project_dir.clone(),
       effective_target.clone(),
       &mut shared_dirs,
@@ -2204,7 +2193,7 @@ compile_artifact :: (
     });
     (compile_ok : bool) = false;
     (fail_code : i32) = i32(-1);
-    if(ctx.in_process_compile_slot.f.is_some(), {
+    if(ctx.in_process_compile_fn.is_some(), {
       // §7 step 2: run the artifact compile IN PROCESS against the warm
       // evaluator universe. The argv is the child's exact command line, so
       // both paths run the same flags. The fn value is read and called
@@ -2247,7 +2236,7 @@ compile_artifact :: (
       // call found", issues/fixed/warm-in-process-array-fill-call-stops-matching.md.
       filtered.push(String.from("--compile-watch-mode"));
       compile_ok = match(
-        ctx.in_process_compile_slot.f,
+        ctx.in_process_compile_fn,
         .Some(f) => f(&filtered, e.io, e.exn),
         .None => false
       );
@@ -2313,7 +2302,7 @@ compile_artifact :: (
 // ---------------------------------------------------------------------------
 run_executable :: (
   fn(
-    artifact : &BuildArtifact,
+    sink(artifact) : BuildArtifact,
     args : &ArrayList(String),
     ctx : &ExecutionContext,
     io : Io,
@@ -2390,7 +2379,7 @@ run_executable :: (
 /// (issues/fixed/verify-by-default-for-a-project.md).
 run_verify_step :: (
   fn(
-    cfg : &BuildVerifyConfig,
+    sink(cfg) : BuildVerifyConfig,
     ctx : &ExecutionContext,
     io : Io,
     exn : Exception
@@ -2429,7 +2418,7 @@ run_verify_step :: (
 // ---------------------------------------------------------------------------
 run_test_suite :: (
   fn(
-    suite : &BuildTestSuite,
+    sink(suite) : BuildTestSuite,
     ctx : &ExecutionContext,
     io : Io,
     exn : Exception
@@ -2546,7 +2535,7 @@ execute_node :: (
               .Executable => "exe"
             );
             description = `compile ${kind_label} ${artifact.name}`;
-            result := e.io.await(compile_artifact(&artifact, ctx, e.io, e.exn), e);
+            result := e.io.await(compile_artifact(artifact.clone(), ctx, e.io, e.exn), e);
             match(
               result,
               .Ok(_) => (),
@@ -2564,7 +2553,7 @@ execute_node :: (
           .None => (),
           .Some(suite) => {
             description = `test ${suite.name}`;
-            result := e.io.await(run_test_suite(&suite, ctx, e.io, e.exn), e);
+            result := e.io.await(run_test_suite(suite.clone(), ctx, e.io, e.exn), e);
             match(
               result,
               .Ok(_) => (),
@@ -2601,7 +2590,7 @@ execute_node :: (
                   run_argv.push(ctx.run_args(ra_i).clone());
                   ra_i = (ra_i + usize(1));
                 });
-                result := e.io.await(run_executable(&artifact, &run_argv, ctx, e.io, e.exn), e);
+                result := e.io.await(run_executable(artifact.clone(), &run_argv, ctx, e.io, e.exn), e);
                 match(
                   result,
                   .Ok(_) => (),
@@ -2622,7 +2611,7 @@ execute_node :: (
           .None => (),
           .Some(vcfg) => {
             description = `verify ${vcfg.name}`;
-            result := e.io.await(run_verify_step(&vcfg, ctx, e.io, e.exn), e);
+            result := e.io.await(run_verify_step(vcfg.clone(), ctx, e.io, e.exn), e);
             match(
               result,
               .Ok(_) => (),
@@ -3172,7 +3161,7 @@ print_options :: (fn(registry : &BuildRegistry) -> unit)({
     name := names(i).clone();
     i = (i + usize(1));
     match(
-      registry.declared_options.get(name.clone()),
+      registry.declared_options.get_cloned(name.clone()),
       .Some(opt) => {
         value := match(registry.cli_options.get_cloned(name.clone()), .Some(v) => v, .None => opt.default_value.clone());
         println(`  -D${name}=<value>\t${opt.description} (default: "${opt.default_value}", now: "${value}")`);
@@ -3274,9 +3263,7 @@ evaluate_build_file :: (
     // reads `cli_options` at evaluation time and returns the override in place
     // of its declared default. The manifest's `[package]` table goes in the
     // same way — `build.manifest.name` reads it during evaluation.
-    reg := get_build_registry();
-    reg.cli_options = owned_defines.clone();
-    reg.manifest_fields = _manifest_fields(manifest_opt);
+    seed_build_registry(owned_defines.clone(), _manifest_fields(manifest_opt));
     outcome := mm_load_yo_file(&owned_build_file, e.io, e.exn);
     load_error := _take_load_error();
     // No `mm_reset()` here: the caller resets once, after the manifest's
@@ -3292,7 +3279,7 @@ evaluate_build_file :: (
       );
       e.exn.throw(dyn(`Error: Failed to evaluate build file ${owned_build_file}`));
     });
-    get_build_registry()
+    take_build_registry()
   })
 });
 // ---------------------------------------------------------------------------
@@ -3368,7 +3355,7 @@ run_build :: (
     // evaluator — `load_manifest` parses TOML.
     manifest_opt := project_manifest(project_dir.clone(), e.exn);
     // Evaluate build.yo to populate the registry.
-    registry := e.io.await(
+    mut(registry) := e.io.await(
       evaluate_build_file(
         build_file_path.to_string(),
         &options.defines,
@@ -3401,10 +3388,10 @@ run_build :: (
     // Every `dep.artifact(...)` this build file named becomes a real artifact
     // of ours, built from the dependency's own build.yo (§4.5.2). Runs after
     // the fetch above, so a git dependency's sources are on disk.
-    match(
-      manifest_opt,
-      .Some(m) => e.io.await(_evaluate_dependency_builds(&m, &registry, &options.defines, e.io, e.exn), e),
-      .None => ()
+    registry = match(
+      &manifest_opt,
+      .Some(m) => e.io.await(_evaluate_dependency_builds(&m, registry, &options.defines, e.io, e.exn), e),
+      .None => registry
     );
     project_name := match(manifest_opt, .Some(m) => m.name.clone(), .None => String.new());
     // §7 step 2: a watch round's artifact compiles run IN PROCESS against
@@ -3427,78 +3414,48 @@ run_build :: (
     if(registry.system_libraries.len() > usize(0), {
       (sa_i : usize) = usize(0);
       while(sa_i < registry.artifacts.len(), {
-        art_opt := registry.artifacts.get(sa_i);
+        art_i := sa_i;
         sa_i = (sa_i + usize(1));
-        match(
-          art_opt,
-          .Some(art) => if(art.linked_system_libs.len() > usize(0), {
-            linked := ArrayList(BuildSystemLibrary).new();
-            (sl_i : usize) = usize(0);
-            while(sl_i < registry.system_libraries.len(), {
-              match(
-                registry.system_libraries.get(sl_i),
-                .Some(slib) => {
-                  (is_linked : bool) = false;
-                  (ln_i : usize) = usize(0);
-                  while((ln_i < art.linked_system_libs.len()) && !is_linked, {
-                    match(
-                      art.linked_system_libs.get_cloned(ln_i),
-                      .Some(ln) => if(ln == slib.name, {
-                        is_linked = true;
-                      }),
-                      .None => ()
-                    );
-                    ln_i = (ln_i + usize(1));
-                  });
-                  if(is_linked, {
-                    linked.push(slib);
-                  });
-                },
-                .None => ()
-              );
-              sl_i = (sl_i + usize(1));
-            });
-            if(linked.len() > usize(0), {
-              eff_target := match(&options.target_triple, .Some(t) => t.clone(), .None => art.target.clone());
-              eff_ti := match(parse_target(eff_target.clone()), .Ok(t) => t, .Err(_) => host_target());
-              if(is_target_wasm(&eff_ti), {
-                (wl_i : usize) = usize(0);
-                while(wl_i < linked.len(), {
-                  match(
-                    linked.get(wl_i),
-                    .Some(wlib) => {
-                      (already : bool) = false;
-                      (al_i : usize) = usize(0);
-                      while((al_i < art.link_libraries.len()) && !already, {
-                        match(
-                          art.link_libraries.get_cloned(al_i),
-                          .Some(aln) => if(aln == wlib.name, {
-                            already = true;
-                          }),
-                          .None => ()
-                        );
-                        al_i = (al_i + usize(1));
-                      });
-                      if(!already, {
-                        art.link_libraries.push(wlib.name.clone());
-                      });
-                    },
-                    .None => ()
-                  );
-                  wl_i = (wl_i + usize(1));
-                });
-              }, {
-                sys_flags := e.io.await(resolve_all_system_libraries(&linked, options.verbose, e.io, e.exn), e);
-                _push_all_strings(&mut art.include_paths, &sys_flags.include_paths);
-                _push_all_strings(&mut art.library_paths, &sys_flags.library_paths);
-                _push_all_strings(&mut art.link_libraries, &sys_flags.link_libraries);
-                _push_all_strings(&mut art.defines, &sys_flags.defines);
-                _push_all_strings(&mut art.c_flags, &sys_flags.c_flags);
+        mut(art) := registry.artifacts(art_i).clone();
+        if(art.linked_system_libs.len() > usize(0), {
+          linked := ArrayList(BuildSystemLibrary).new();
+          for(&registry.system_libraries, slib => {
+            (is_linked : bool) = false;
+            for(&art.linked_system_libs, ln => {
+              if(ln == slib.name, {
+                is_linked = true;
               });
             });
-          }),
-          .None => ()
-        );
+            if(is_linked, {
+              linked.push(slib.clone());
+            });
+          });
+          if(linked.len() > usize(0), {
+            eff_target := match(&options.target_triple, .Some(t) => t.clone(), .None => art.target.clone());
+            eff_ti := match(parse_target(eff_target.clone()), .Ok(t) => t, .Err(_) => host_target());
+            if(is_target_wasm(&eff_ti), {
+              for(&linked, wlib => {
+                (already : bool) = false;
+                for(&art.link_libraries, aln => {
+                  if(aln == wlib.name, {
+                    already = true;
+                  });
+                });
+                if(!already, {
+                  art.link_libraries.push(wlib.name.clone());
+                });
+              });
+            }, {
+              sys_flags := e.io.await(resolve_all_system_libraries(&linked, options.verbose, e.io, e.exn), e);
+              _push_all_strings(&mut art.include_paths, &sys_flags.include_paths);
+              _push_all_strings(&mut art.library_paths, &sys_flags.library_paths);
+              _push_all_strings(&mut art.link_libraries, &sys_flags.link_libraries);
+              _push_all_strings(&mut art.defines, &sys_flags.defines);
+              _push_all_strings(&mut art.c_flags, &sys_flags.c_flags);
+            });
+            registry.artifacts(art_i) = art;
+          });
+        });
       });
     });
     ctx := ExecutionContext(
@@ -3513,7 +3470,7 @@ run_build :: (
       summary : options.summary,
       run_args : options.run_args.clone(),
       jobs : options.jobs,
-      in_process_compile_slot : g_in_process_compile_slot,
+      in_process_compile_fn : g_in_process_compile_fn,
       watch_round : options.watch_in_process
     );
     requested := if(options.steps.len() == usize(0), {

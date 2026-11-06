@@ -94,12 +94,12 @@ evaluate_tuple_element_value :: (
     expr : &AstExpr,
     tuple_field_index : usize,
     env_in : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     runtime_arg_exprs_in_order : &mut ArrayList(AstExpr),
     exn : Exception
   ) -> EvalTupleElementResult
 )({
-  (env : Environment) = env_in;
+  (env : Environment) = Rc.clone(env_in);
   // Reject labelled fields: `x: rhs`.
   if(ast_expr_is_fn_call_of(expr, ":", Option(usize).Some(usize(2))), {
     args := match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
@@ -116,7 +116,7 @@ evaluate_tuple_element_value :: (
   // Compute the expected element type from the tuple-shaped expected_type, if any.
   (expected_field_type_opt : Option(TypeValue)) = Option(TypeValue).None;
   match(
-    ctx.expected_type,
+    &ctx.expected_type,
     .Some(et) => cond(
       is_tuple_type(&et.ty) => {
         match(
@@ -172,10 +172,10 @@ evaluate_tuple_element_value :: (
     _ => expected_field_type_opt.clone()
   );
   // Evaluate the rhs expression with `expected_type` updated for this field.
-  saved_expected := ctx.expected_type;
+  saved_expected := ctx.expected_type.clone();
   ctx.expected_type = match(
     &elem_expected,
-    .Some(t) => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : Rc.clone(t), env : env)),
+    .Some(t) => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : Rc.clone(t), env : Rc.clone(env))),
     .None => Option(ExpectedTypeCtx).None
   );
   evaluated_rhs_gout := ArrayList(AstExpr).new();
@@ -187,7 +187,7 @@ evaluate_tuple_element_value :: (
   // decision 43 step 2 N1e-1), as at a constructor's reference field.
   if(is_lend && ast_expr_is_atom(&evaluated_rhs), {
     match(
-      match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_rhs)), .Some(lr_info) => lr_info.source_variable, .None => Option(Variable).None),
+      match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_rhs)), .Some(lr_info) => lr_info.source_variable(), .None => Option(Variable).None),
       .Some(lr_var) => if(variable_is_reference_binding(&lr_var) && deref_rule_applies(ast_expr_token(&evaluated_rhs), ctx) && !is_reference_deref_site(ast_expr_token(&evaluated_rhs)), {
         reject_reference_without_deref(&lr_var, ast_expr_token(&evaluated_rhs), u8(2), ctx, exn);
       }),
@@ -207,7 +207,7 @@ evaluate_tuple_element_value :: (
   rhs_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_rhs));
   rhs_info := match(
     rhs_info_opt,
-    .Some(info) => info,
+    .Some(info) => Rc.clone(info),
     .None => {
       exn.throw(
         dyn(
@@ -220,9 +220,9 @@ evaluate_tuple_element_value :: (
       new_expr_info(&env, Rc.new(TypeValueNode.Unit)) // unreachable
     }
   );
-  env_adopt(&env, &rhs_info.env);
+  env_adopt(&env, &rhs_info.env());
   // Reject `type` values stored as tuple elements.
-  if(is_type_value(&rhs_info.value), {
+  if(is_type_value(&rhs_info.value()), {
     exn.throw(
       dyn(
         format_error_message(
@@ -252,17 +252,17 @@ evaluate_tuple_element_value :: (
     .None => match(
       expected_field_type_opt,
       .Some(et) => cond(
-        is_comptime_only_type_local(&et) => Rc.clone(rhs_info.ty),
-        true => convert_comptime_type_to_runtime_type(&rhs_info.ty, &env)
+        is_comptime_only_type_local(&et) => Rc.clone(rhs_info.ty()),
+        true => convert_comptime_type_to_runtime_type(&rhs_info.ty(), &env)
       ),
-      .None => convert_comptime_type_to_runtime_type(&rhs_info.ty, &env)
+      .None => convert_comptime_type_to_runtime_type(&rhs_info.ty(), &env)
     )
   );
   runtime_arg_exprs_in_order.push(evaluated_rhs);
   EvalTupleElementResult(
     ty : child_type,
     // A lend is the place's runtime address, never a known value.
-    value : if(is_lend, Option(EvalValue).None, rhs_info.value),
+    value : if(is_lend, Option(EvalValue).None, rhs_info.value()),
     env : env
   )
 });
@@ -272,11 +272,11 @@ evaluate_tuple_elements_value :: (
   fn(
     args : &ArrayList(AstExpr),
     env_in : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> EvalTupleElementsValueResult
 )({
-  (env : Environment) = env_in;
+  (env : Environment) = Rc.clone(env_in);
   field_labels := ArrayList(String).new();
   field_types := ArrayList(TypeValue).new();
   values := ArrayList(Option(EvalValue)).new();
@@ -311,7 +311,7 @@ evaluate_tuple_value :: (
   fn(
     expr : &AstExpr,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
@@ -329,7 +329,7 @@ evaluate_tuple_value :: (
   // Empty tuple → unit value.
   if(args.len() == usize(0), {
     info := new_expr_info(env, Rc.new(TypeValueNode.Unit));
-    info.value = Option(EvalValue).Some(EvalValue.UnitVal);
+    info.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
     return(expr);
   });
@@ -380,8 +380,8 @@ evaluate_tuple_value :: (
     tuple_value_opt = Option(EvalValue).Some(EvalValue.TupleVal(value_cell_new(val_list)));
   });
   info := new_expr_info(&result.env, &tuple_ty);
-  info.value = tuple_value_opt;
-  info.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(result.runtime_arg_exprs_in_order.clone());
+  info.set_value(tuple_value_opt);
+  info.set_runtime_arg_exprs_in_order(Option(ArrayList(AstExpr)).Some(result.runtime_arg_exprs_in_order.clone()));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
   // A RUNTIME tuple literal needs a temp to materialize into, exactly as the
   // array-literal path does (values/array.yo) — the former no-op stub here is

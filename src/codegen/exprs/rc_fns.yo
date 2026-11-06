@@ -20,7 +20,7 @@
 { is_array_type, is_atomically_counted_rc_type, is_rc_type, is_some_type, is_tuple_type, cell_handle_view, is_atomic_counted_handle_type } :: import("../../types/guards.yo");
 { type_implements_future } :: import("../../evaluator/trait_checking.yo");
 { parse_raw_int } :: import("../../utils.yo");
-{ FunctionGenerationContext, sm_owns_fnonce_captures, shadow_bindings_of } :: import("../functions/context.yo");
+{ FunctionGenerationContext, sm_owns_fnonce_captures, sm_lowering_set_rc_operand, shadow_bindings_of } :: import("../functions/context.yo");
 { sm_move_flag_of } :: import("../async/state_machine_naming.yo");
 { _call_generate_expr } :: import("./_expr.yo");
 { get_type_string, fresh_local_name, _checked_fixed_array_subscript, sanitize_for_c_identifier } :: import("../utils/index.yo");
@@ -34,24 +34,22 @@ _arg :: (fn(expr : &AstExpr, i : usize) -> Option(AstExpr))(
 );
 /// The result type of an expression (Unit when it has no ExprInfo).
 _ty :: (fn(expr : &AstExpr, context : &FunctionGenerationContext) -> TypeValue)(
-  match(context.base.get_expr_info(expr), .Some(ei) => Rc.clone(ei.ty), .None => Rc.new(TypeValueNode.Unit))
+  match(context.base.get_expr_info(expr), .Some(ei) => Rc.clone(ei.ty()), .None => Rc.new(TypeValueNode.Unit))
 );
 /// `<wrapper>(<self>)` for a single-arg RC builtin. `err` when the arg is missing.
 /// Render a drop or RC builtin's operand. In a state machine the operand is
 /// read in place (`InlineSmLowering.rc_operand`): the evaluator records a
 /// drop's operand as the variable's consuming read, but the drop releases the
 /// slot itself rather than moving the value out of it.
-_rc_operand :: (fn(arg : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)(
-  match(
-    context.sm_inline_lowering,
-    .Some(low) => {
-      saved := low.rc_operand;
-      low.rc_operand = true;
+_rc_operand :: (fn(arg : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)(
+  cond(
+    context.sm_inline_lowering.is_some() => {
+      saved := sm_lowering_set_rc_operand(context, true);
       code := _call_generate_expr(arg, indent, context);
-      low.rc_operand = saved;
+      sm_lowering_set_rc_operand(context, saved);
       code
     },
-    .None => _call_generate_expr(arg, indent, context)
+    true => _call_generate_expr(arg, indent, context)
   )
 );
 /// `a` and `b` are one source position.
@@ -84,7 +82,7 @@ _set_without :: (fn(set : &Option(HashSet(String)), name : &String) -> Option(Ha
 /// resolves through the scope the drop was attached in, which is the
 /// target's own
 /// (issues/fixed/2026-11-05-a-match-arm-binding-that-shadows-a-local-is-never-dropped.md).
-_drop_operand :: (fn(arg : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
+_drop_operand :: (fn(arg : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
   if(!ast_expr_is_atom(arg), {
     return(_rc_operand(arg, indent, context));
   });
@@ -94,7 +92,7 @@ _drop_operand :: (fn(arg : &AstExpr, indent : &String, context : &FunctionGenera
   innermost := match(bindings.last_cloned(), .Some(b) => b, .None => return(_rc_operand(arg, indent, context)));
   target := match(
     context.base.get_expr_info(arg),
-    .Some(ei) => scope_variables(ast_expr_id(arg), &ei.env, name.clone()).last(),
+    .Some(ei) => scope_variables(ast_expr_id(arg), &ei.env(), name.clone()).last_cloned(),
     .None => Option(Variable).None
   );
   tv := match(target, .Some(v) => v, .None => return(_rc_operand(arg, indent, context)));
@@ -133,7 +131,7 @@ _drop_operand :: (fn(arg : &AstExpr, indent : &String, context : &FunctionGenera
   context.place_bindings = saved_places;
   code
 });
-_one_arg_call :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext, wrapper : str, err : str) -> String)(
+_one_arg_call :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext, wrapper : str, err : str) -> String)(
   match(
     _arg(expr, usize(0)),
     .Some(self_arg) => {
@@ -147,23 +145,23 @@ _one_arg_call :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGener
   )
 );
 /// `__yo_decr_rc(<self>)`.
-generate_yo_decr_rc :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)(
+generate_yo_decr_rc :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)(
   _one_arg_call(expr, indent, context, "__yo_decr_rc", "__yo_decr_rc requires exactly 1 argument")
 );
 /// `__yo_incr_rc(<self>)`.
-generate_yo_incr_rc :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)(
+generate_yo_incr_rc :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)(
   _one_arg_call(expr, indent, context, "__yo_incr_rc", "__yo_incr_rc requires exactly 1 argument")
 );
 /// `__yo_decr_rc_atomic(<self>)`.
-generate_yo_decr_rc_atomic :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)(
+generate_yo_decr_rc_atomic :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)(
   _one_arg_call(expr, indent, context, "__yo_decr_rc_atomic", "__yo_decr_rc_atomic requires exactly 1 argument")
 );
 /// `__yo_incr_rc_atomic(<self>)`.
-generate_yo_incr_rc_atomic :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)(
+generate_yo_incr_rc_atomic :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)(
   _one_arg_call(expr, indent, context, "__yo_incr_rc_atomic", "__yo_incr_rc_atomic requires exactly 1 argument")
 );
 /// `__yo_rc_own(<self>)` — ownership transfer; emits the argument as-is.
-generate_yo_rc_own :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)(
+generate_yo_rc_own :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)(
   match(_arg(expr, usize(0)), .Some(self_arg) => _call_generate_expr(&self_arg, indent, context), .None => codegen_fatal_expr(String.from("__yo_rc_own requires exactly 1 argument")))
 );
 /// `__yo_rc_forget_payload(<handle>)` — the cell of an `Rc`/`Arc` handle
@@ -172,7 +170,7 @@ generate_yo_rc_own :: (fn(expr : &AstExpr, indent : &String, context : &Function
 /// release frees the cell alone. The same helper serves both counts. The
 /// handle is lent (`__yo_rc_forget_payload(&self)`), so the operand is the
 /// handle under the borrow marker.
-generate_yo_rc_forget_payload :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)(
+generate_yo_rc_forget_payload :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)(
   match(
     _arg(expr, usize(0)),
     .Some(lent) => {
@@ -186,7 +184,7 @@ generate_yo_rc_forget_payload :: (fn(expr : &AstExpr, indent : &String, context 
   )
 );
 /// `__yo_dyn_drop(<self>)` → decr the Dyn's `.data` pointer.
-generate_yo_dyn_drop :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)(
+generate_yo_dyn_drop :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)(
   match(
     _arg(expr, usize(0)),
     .Some(self_arg) => {
@@ -199,7 +197,7 @@ generate_yo_dyn_drop :: (fn(expr : &AstExpr, indent : &String, context : &Functi
   )
 );
 /// `__yo_dyn_dup(<self>)` → incr the Dyn's `.data` pointer.
-generate_yo_dyn_dup :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)(
+generate_yo_dyn_dup :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)(
   match(
     _arg(expr, usize(0)),
     .Some(self_arg) => {
@@ -212,7 +210,7 @@ generate_yo_dyn_dup :: (fn(expr : &AstExpr, indent : &String, context : &Functio
   )
 );
 /// `___drop(<value>)` generic drop hook.
-generate_drop :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)(
+generate_drop :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)(
   match(
     _arg(expr, usize(0)),
     .Some(value_arg) => generate_drop_of_operand(&value_arg, indent, context),
@@ -221,7 +219,7 @@ generate_drop :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGener
 );
 /// Release the value `value_arg` evaluates to: the body of `___drop(<value>)`,
 /// shared with `consume(x)` of an owned value (`generate_consume`).
-generate_drop_of_operand :: (fn(value_arg : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
+generate_drop_of_operand :: (fn(value_arg : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
   value_type := resolve_some_type_param_type(value_arg, _ty(value_arg, context), context);
   // A value of a comptime-only record (the reflection `TypeInfo` family) has
   // no C form: `collect_type` registers no C type for it, so its operand
@@ -235,15 +233,14 @@ generate_drop_of_operand :: (fn(value_arg : &AstExpr, indent : &String, context 
   value_code := _drop_operand(value_arg, indent.clone(), context);
   // Single-pass async lowering: an await moved this temp's future into
   // the task's slot, which releases it.
-  if(match(context.sm_inline_lowering, .Some(low) => low.moved_into_slot.contains(value_code.clone()), .None => false), {
+  if(match(&context.sm_inline_lowering, .Some(low) => low.moved_into_slot.contains(value_code.clone()), .None => false), {
     return(String.new());
   });
-  em := context.base.emitter;
-  code_len_before := em.code.len();
+  code_len_before := context.base.emitter.code.len();
   drop_code := generate_drop_code_for_value(value_code.clone(), &value_type, context);
   // An enum/Option-typed drop is a multi-line `switch` the generator writes
   // to the emitter itself, handing back "".
-  drop_written := (em.code.len() > code_len_before);
+  drop_written := (context.base.emitter.code.len() > code_len_before);
   // A local that lives in an async state machine (`sm->var_N`) is dropped
   // inline when its scope ends, but the state machine's dispose function
   // ALSO sweeps every cross-boundary local when the body escaped
@@ -287,7 +284,7 @@ generate_drop_of_operand :: (fn(value_arg : &AstExpr, indent : &String, context 
         cond(
           (drop_code.len() > usize(0)) => `${drop_code}; ${flag_stmt}`,
           drop_written => {
-            em.emit_string_line(`${indent.clone()}${flag_stmt};`);
+            context.base.emitter.emit_string_line(`${indent.clone()}${flag_stmt};`);
             drop_code
           },
           true => drop_code
@@ -300,14 +297,14 @@ generate_drop_of_operand :: (fn(value_arg : &AstExpr, indent : &String, context 
     !in_sm_field => drop_code,
     (drop_code.len() > usize(0)) => `${drop_code}; ${clear_stmt}`,
     drop_written => {
-      em.emit_string_line(`${indent.clone()}${clear_stmt};`);
+      context.base.emitter.emit_string_line(`${indent.clone()}${clear_stmt};`);
       drop_code
     },
     true => drop_code
   )
 });
 /// `___dup(<value>)` generic dup hook.
-generate_dup :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)(
+generate_dup :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)(
   match(
     _arg(expr, usize(0)),
     .Some(value_arg) => {
@@ -319,7 +316,7 @@ generate_dup :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenera
   )
 );
 /// `__yo_drop_array_element(<array>, <index>)`.
-generate_yo_drop_array_element :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
+generate_yo_drop_array_element :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
   array_arg := match(_arg(expr, usize(0)), .Some(a) => a, .None => return(codegen_fatal_expr(String.from("__yo_drop_array_element requires exactly 2 arguments"))));
   index_arg := match(_arg(expr, usize(1)), .Some(a) => a, .None => return(codegen_fatal_expr(String.from("__yo_drop_array_element requires exactly 2 arguments"))));
   array_code := _call_generate_expr(&array_arg, indent.clone(), context);
@@ -336,7 +333,6 @@ generate_yo_drop_array_element :: (fn(expr : &AstExpr, indent : &String, context
       if(nlvar.len() > usize(0), {
         return(codegen_fatal_expr(String.from("array element has non-constant length")));
       });
-      em := context.base.emitter;
       loop_var := fresh_local_name(String.from("i_"), &context.base.current_function_name);
       hdr := String.from("for (size_t ");
       hdr.push_string(loop_var.clone());
@@ -347,7 +343,7 @@ generate_yo_drop_array_element :: (fn(expr : &AstExpr, indent : &String, context
       hdr.push_str("; ");
       hdr.push_string(loop_var.clone());
       hdr.push_str("++) {");
-      em.emit_string_line(&hdr);
+      context.base.emitter.emit_string_line(&hdr);
       nested := String.from("(");
       nested.push_string(array_code.clone());
       nested.push_str(").data[");
@@ -355,16 +351,16 @@ generate_yo_drop_array_element :: (fn(expr : &AstExpr, indent : &String, context
       nested.push_str("].data[");
       nested.push_string(loop_var.clone());
       nested.push_str("]");
-      em.emit_string_line(String.from("  { // drop nested array element"));
+      context.base.emitter.emit_string_line(String.from("  { // drop nested array element"));
       drop_code := generate_drop_code_for_value(&nested, &child, context);
       if(drop_code.len() > usize(0), {
         line := String.from("    ");
         line.push_string(&drop_code);
         line.push_str(";");
-        em.emit_string_line(&line);
+        context.base.emitter.emit_string_line(&line);
       });
-      em.emit_string_line(String.from("  }"));
-      em.emit_string_line(String.from("}"));
+      context.base.emitter.emit_string_line(String.from("  }"));
+      context.base.emitter.emit_string_line(String.from("}"));
       return(String.from(""));
     },
     _ => ()
@@ -384,7 +380,7 @@ generate_yo_drop_array_element :: (fn(expr : &AstExpr, indent : &String, context
   )
 });
 /// `__yo_dup_array_element(<array>, <index>)`.
-generate_yo_dup_array_element :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
+generate_yo_dup_array_element :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
   array_arg := match(_arg(expr, usize(0)), .Some(a) => a, .None => return(codegen_fatal_expr(String.from("__yo_dup_array_element requires exactly 2 arguments"))));
   index_arg := match(_arg(expr, usize(1)), .Some(a) => a, .None => return(codegen_fatal_expr(String.from("__yo_dup_array_element requires exactly 2 arguments"))));
   array_code := _call_generate_expr(&array_arg, indent.clone(), context);
@@ -400,10 +396,9 @@ generate_yo_dup_array_element :: (fn(expr : &AstExpr, indent : &String, context 
       if(nlvar.len() > usize(0), {
         return(codegen_fatal_expr(String.from("array element has non-constant length")));
       });
-      em := context.base.emitter;
       temp_var := fresh_local_name(String.from("temp_array_"), &context.base.current_function_name);
       loop_var := fresh_local_name(String.from("i_"), &context.base.current_function_name);
-      element_c_name := get_type_string(&element_type, &context.base);
+      element_c_name := get_type_string(&element_type, &mut context.base);
       // Safe mode Phase 1: the element copy reads through a guarded subscript
       // (plans/SAFE_MODE.md §4); N is this array's comptime length.
       guarded_idx := _checked_fixed_array_subscript(index_code.clone(), &array_type, expr);
@@ -415,7 +410,7 @@ generate_yo_dup_array_element :: (fn(expr : &AstExpr, indent : &String, context 
       decl.push_str(").data[");
       decl.push_string(&guarded_idx);
       decl.push_str("];");
-      em.emit_string_line(&decl);
+      context.base.emitter.emit_string_line(&decl);
       hdr := String.from("for (size_t ");
       hdr.push_string(loop_var.clone());
       hdr.push_str(" = 0; ");
@@ -425,7 +420,7 @@ generate_yo_dup_array_element :: (fn(expr : &AstExpr, indent : &String, context 
       hdr.push_str("; ");
       hdr.push_string(loop_var.clone());
       hdr.push_str("++) {");
-      em.emit_string_line(&hdr);
+      context.base.emitter.emit_string_line(&hdr);
       elem_ref := temp_var.clone();
       elem_ref.push_str(".data[");
       elem_ref.push_string(loop_var.clone());
@@ -436,8 +431,8 @@ generate_yo_dup_array_element :: (fn(expr : &AstExpr, indent : &String, context 
       asn.push_str(" = ");
       asn.push_string(&dup_code);
       asn.push_str(";");
-      em.emit_string_line(&asn);
-      em.emit_string_line(String.from("}"));
+      context.base.emitter.emit_string_line(&asn);
+      context.base.emitter.emit_string_line(String.from("}"));
       return(temp_var);
     },
     _ => ()
@@ -470,7 +465,7 @@ generate_yo_dup_array_element :: (fn(expr : &AstExpr, indent : &String, context 
   )
 });
 /// `__yo_drop_tuple_element(<tuple>, <index>)`.
-generate_yo_drop_tuple_element :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
+generate_yo_drop_tuple_element :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
   tuple_arg := match(_arg(expr, usize(0)), .Some(a) => a, .None => return(codegen_fatal_expr(String.from("__yo_drop_tuple_element requires exactly 2 arguments"))));
   index_arg := match(_arg(expr, usize(1)), .Some(a) => a, .None => return(codegen_fatal_expr(String.from("__yo_drop_tuple_element requires exactly 2 arguments"))));
   tuple_code := _call_generate_expr(&tuple_arg, indent.clone(), context);
@@ -479,7 +474,7 @@ generate_yo_drop_tuple_element :: (fn(expr : &AstExpr, indent : &String, context
   if(!is_tuple_type(&tuple_type), {
     return(codegen_fatal_expr(String.from("__yo_drop_tuple_element requires a tuple type")));
   });
-  raw := match(context.base.get_expr_info(&index_arg), .Some(iei) => match(iei.value, .Some(v) => match(v, .IntLit(r) => r.clone(), _ => return(codegen_fatal_expr(String.from("__yo_drop_tuple_element requires a constant index")))), .None => return(codegen_fatal_expr(String.from("__yo_drop_tuple_element requires a constant index")))), .None => return(codegen_fatal_expr(String.from("__yo_drop_tuple_element requires a constant index"))));
+  raw := match(context.base.get_expr_info(&index_arg), .Some(iei) => match(iei.value(), .Some(v) => match(v, .IntLit(r) => r.clone(), _ => return(codegen_fatal_expr(String.from("__yo_drop_tuple_element requires a constant index")))), .None => return(codegen_fatal_expr(String.from("__yo_drop_tuple_element requires a constant index")))), .None => return(codegen_fatal_expr(String.from("__yo_drop_tuple_element requires a constant index"))));
   index_i64 := match(parse_raw_int(raw.clone()), .Some(n) => n, .None => return(codegen_fatal_expr(String.from("__yo_drop_tuple_element requires a constant index"))));
   field_types := match(tuple_type, Rc(.Tuple({ field_types : fts })) => Rc.clone(fts), _ => return(codegen_fatal_expr(String.from("__yo_drop_tuple_element requires a tuple type"))));
   if(index_i64 < i64(0), {
@@ -507,7 +502,7 @@ generate_yo_drop_tuple_element :: (fn(expr : &AstExpr, indent : &String, context
   )
 });
 /// `__yo_dup_tuple_element(<tuple>, <index>)`.
-generate_yo_dup_tuple_element :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
+generate_yo_dup_tuple_element :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
   tuple_arg := match(_arg(expr, usize(0)), .Some(a) => a, .None => return(codegen_fatal_expr(String.from("__yo_dup_tuple_element requires exactly 2 arguments"))));
   index_arg := match(_arg(expr, usize(1)), .Some(a) => a, .None => return(codegen_fatal_expr(String.from("__yo_dup_tuple_element requires exactly 2 arguments"))));
   tuple_code := _call_generate_expr(&tuple_arg, indent.clone(), context);
@@ -516,7 +511,7 @@ generate_yo_dup_tuple_element :: (fn(expr : &AstExpr, indent : &String, context 
   if(!is_tuple_type(&tuple_type), {
     return(codegen_fatal_expr(String.from("__yo_dup_tuple_element requires a tuple type")));
   });
-  raw := match(context.base.get_expr_info(&index_arg), .Some(iei) => match(iei.value, .Some(v) => match(v, .IntLit(r) => r.clone(), _ => return(codegen_fatal_expr(String.from("__yo_dup_tuple_element requires a constant index")))), .None => return(codegen_fatal_expr(String.from("__yo_dup_tuple_element requires a constant index")))), .None => return(codegen_fatal_expr(String.from("__yo_dup_tuple_element requires a constant index"))));
+  raw := match(context.base.get_expr_info(&index_arg), .Some(iei) => match(iei.value(), .Some(v) => match(v, .IntLit(r) => r.clone(), _ => return(codegen_fatal_expr(String.from("__yo_dup_tuple_element requires a constant index")))), .None => return(codegen_fatal_expr(String.from("__yo_dup_tuple_element requires a constant index")))), .None => return(codegen_fatal_expr(String.from("__yo_dup_tuple_element requires a constant index"))));
   index_i64 := match(parse_raw_int(raw.clone()), .Some(n) => n, .None => return(codegen_fatal_expr(String.from("__yo_dup_tuple_element requires a constant index"))));
   field_types := match(tuple_type, Rc(.Tuple({ field_types : fts })) => Rc.clone(fts), _ => return(codegen_fatal_expr(String.from("__yo_dup_tuple_element requires a tuple type"))));
   if(index_i64 < i64(0), {
@@ -550,7 +545,7 @@ generate_yo_dup_tuple_element :: (fn(expr : &AstExpr, indent : &String, context 
 /// `__yo_sometype_drop(<self>)`. The Future
 /// case decrements the heap-backed state machine; the non-Future concrete
 /// dispatch is Gap-6-deferred (→ no-op).
-generate_yo_sometype_drop :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)(
+generate_yo_sometype_drop :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)(
   match(
     _arg(expr, usize(0)),
     .Some(self_arg) => {
@@ -570,7 +565,7 @@ generate_yo_sometype_drop :: (fn(expr : &AstExpr, indent : &String, context : &F
   )
 );
 /// `__yo_sometype_dup(<self>)`.
-generate_yo_sometype_dup :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)(
+generate_yo_sometype_dup :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)(
   match(
     _arg(expr, usize(0)),
     .Some(self_arg) => {
@@ -588,7 +583,7 @@ generate_yo_sometype_dup :: (fn(expr : &AstExpr, indent : &String, context : &Fu
   )
 );
 /// `ref_count(<value>)` → the value's reference count (or 1 for value types).
-generate_ref_count_call :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
+generate_ref_count_call :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
   arg_expr := match(_arg(expr, usize(0)), .Some(a) => a, .None => return(codegen_fatal_expr(String.from("ref_count requires exactly 1 argument"))));
   arg_type := _ty(&arg_expr, context);
   arg_code := _call_generate_expr(&arg_expr, indent.clone(), context);

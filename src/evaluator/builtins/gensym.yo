@@ -31,7 +31,7 @@ evaluate_gensym :: (
   fn(
     expr : &AstExpr,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
@@ -67,7 +67,7 @@ evaluate_gensym :: (
       prefix_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_prefix));
       prefix_info := match(
         prefix_info_opt,
-        .Some(pi) => pi,
+        .Some(pi) => Rc.clone(pi),
         .None => {
           exn.throw(
             dyn(
@@ -82,7 +82,7 @@ evaluate_gensym :: (
       );
       // Prefix must be a comptime string (StrLit).
       match(
-        prefix_info.value,
+        prefix_info.value(),
         .Some(pv) => {
           if(!is_str_lit(&pv), {
             exn.throw(
@@ -122,7 +122,7 @@ evaluate_gensym :: (
     }
   );
   // Generate a unique symbol: prefix + a per-(prefix, module) ordinal.
-  symbol := stable_module_id(prefix.clone(), &env.module_path.*);
+  symbol := stable_module_id(prefix.clone(), &env.module_path().*);
   // Build a new Atom expression representing the generated identifier.
   tok := ast_expr_token(expr);
   // Fresh id — id-0 synthesized atoms all collide in the ExprInfo table
@@ -143,7 +143,7 @@ evaluate_gensym :: (
   // Wrap the atom as an ExprVal.
   val := EvalValue.ExprVal(atom_expr);
   info := new_expr_info(env, t_expr_t());
-  info.value = .Some(val);
+  info.set_value(.Some(val));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
   expr
 });

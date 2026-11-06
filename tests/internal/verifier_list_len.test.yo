@@ -87,7 +87,7 @@ _reports_dump :: (fn(reports : &ArrayList(VerifyFnReport)) -> String)({
   (mut(i) : usize) = usize(0);
   while(i < reports.len(), {
     match(
-      reports.get(i),
+      reports.get_cloned(i),
       .Some(rp) => {
         ids.push(`${rp.fn_id}=${rp.outcome} [${rp.subset_construct}]`);
       },
@@ -111,7 +111,7 @@ _count_outcome :: (fn(reports : &ArrayList(VerifyFnReport), outcome : &String) -
   (mut(i) : usize) = usize(0);
   while(i < reports.len(), {
     match(
-      reports.get(i),
+      reports.get_cloned(i),
       .Some(rp) => {
         if(rp.outcome == outcome.*, {
           n = (n + usize(1));
@@ -798,11 +798,11 @@ _count_obligations :: (fn(reports : &ArrayList(VerifyFnReport), want_proved : bo
   (mut(n) : usize) = usize(0);
   (mut(i) : usize) = usize(0);
   while(i < reports.len(), {
-    rp := reports.get(i).unwrap();
+    rp := reports.get_cloned(i).unwrap();
     (mut(j) : usize) = usize(0);
     while(j < rp.obligations.len(), {
       match(
-        rp.obligations.get(j),
+        rp.obligations.get_cloned(j),
         .Some(obl) => {
           hit := match(
             &obl.verdict,

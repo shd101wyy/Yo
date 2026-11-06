@@ -114,7 +114,7 @@ _reports_dump :: (fn(reports : &ArrayList(VerifyFnReport)) -> String)({
   (mut(i) : usize) = usize(0);
   while(i < reports.len(), {
     match(
-      reports.get(i),
+      reports.get_cloned(i),
       .Some(rp) => {
         ids.push(`${rp.fn_id}=${rp.outcome} [${rp.subset_construct}]`);
       },
@@ -138,7 +138,7 @@ _count_outcome :: (fn(reports : &ArrayList(VerifyFnReport), outcome : &String) -
   (mut(i) : usize) = usize(0);
   while(i < reports.len(), {
     match(
-      reports.get(i),
+      reports.get_cloned(i),
       .Some(rp) => {
         if(rp.outcome == outcome.*, {
           n = (n + usize(1));
@@ -159,13 +159,13 @@ _first_refuted_with :: (
   (mut(i) : usize) = usize(0);
   while((i < reports.len()) && found.is_none(), {
     match(
-      reports.get(i),
+      reports.get_cloned(i),
       .Some(rp) => {
         if(rp.outcome == "refuted", {
           (mut(j) : usize) = usize(0);
           while((j < rp.obligations.len()) && found.is_none(), {
             match(
-              rp.obligations.get(j),
+              rp.obligations.get_cloned(j),
               .Some(obl) => {
                 match(
                   &obl.verdict,
@@ -177,7 +177,7 @@ _first_refuted_with :: (
                           ce.get_cloned(k),
                           .Some(pair) => {
                             if(pair.contains(ce_needle.clone()), {
-                              found = Option(VerifyFnReport).Some(rp);
+                              found = Option(VerifyFnReport).Some(rp.clone());
                             });
                           },
                           .None => ()
@@ -204,7 +204,7 @@ _first_refuted_with :: (
     .Some(rp) => rp,
     .None => {
       assert(false, `no refuted report with obligation '${name_needle}' and '${ce_needle}' in: [${_reports_dump(reports)}]`);
-      reports.get(usize(0)).unwrap()
+      reports.get_cloned(usize(0)).unwrap()
     }
   )
 });
@@ -282,7 +282,7 @@ test("an uncontracted fn whose body fails the subset degrades to the passing out
     `exactly one function reports, got ${reports.len().to_string()}: [${_reports_dump(&reports)}]`
   );
   rp := match(
-    reports.get(usize(0)),
+    reports.get_cloned(usize(0)),
     .Some(r0) => r0,
     .None => {
       assert(false, "unreachable");

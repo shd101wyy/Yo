@@ -69,11 +69,10 @@ _concat_drops :: (fn(current : &Option(ArrayList(AstExpr)), prev : &Option(Array
 });
 /// Emit this block's scope-end deferred drops: skip drops for closure captures
 /// and drops already emitted inside a short-circuit conditional branch.
-_emit_deferred_drops :: (fn(ei : &ExprInfo, indent : &String, context : &FunctionGenerationContext) -> unit)(
+_emit_deferred_drops :: (fn(ei : &ExprInfo, indent : &String, context : &mut FunctionGenerationContext) -> unit)(
   match(
-    &ei.deferred_drop_expressions,
+    &ei.deferred_drop_expressions(),
     .Some(drops) => {
-      em := context.base.emitter;
       nd := drops.len();
       (di : usize) = usize(0);
       while(di < nd, {
@@ -104,7 +103,7 @@ _emit_deferred_drops :: (fn(ei : &ExprInfo, indent : &String, context : &Functio
                 get_deferred_drop_target_atom_name(&drop_expr),
                 .Some(nm) => {
                   cn := sanitize_for_c_identifier(&nm, false);
-                  (is_temp_variable_name(&ei.env.module_path.*, cn.clone()) || _looks_like_minted_temp(cn.clone())) && !context.base.declared_c_var_names.with(dn_s => dn_s.contains(&cn))
+                  (is_temp_variable_name(&ei.env().module_path().*, cn.clone()) || _looks_like_minted_temp(cn.clone())) && !context.base.declared_c_var_names.with(dn_s => dn_s.contains(&cn))
                 },
                 .None => false
               );
@@ -122,7 +121,7 @@ _emit_deferred_drops :: (fn(ei : &ExprInfo, indent : &String, context : &Functio
                 get_deferred_drop_target_atom_name(&drop_expr),
                 .Some(nm2) => {
                   cn2 := sanitize_for_c_identifier(&nm2, false);
-                  (is_temp_variable_name(&ei.env.module_path.*, cn2.clone()) || _looks_like_minted_temp(cn2.clone())) && !context.base.declared_scopes.with(ds_s => scope_stack_contains(ds_s, &cn2))
+                  (is_temp_variable_name(&ei.env().module_path().*, cn2.clone()) || _looks_like_minted_temp(cn2.clone())) && !context.base.declared_scopes.with(ds_s => scope_stack_contains(ds_s, &cn2))
                 },
                 .None => false
               );
@@ -138,7 +137,7 @@ _emit_deferred_drops :: (fn(ei : &ExprInfo, indent : &String, context : &Functio
                     line := indent.clone();
                     line.push_string(&drop_code);
                     line.push_str(";");
-                    em.emit_string_line(&line);
+                    context.base.emitter.emit_string_line(&line);
                   });
                 });
               });
@@ -153,27 +152,26 @@ _emit_deferred_drops :: (fn(ei : &ExprInfo, indent : &String, context : &Functio
   )
 );
 /// The `begin` block generation.
-generate_begin :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
+generate_begin :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("")));
-  value_type := Rc.clone(ei.ty);
-  em := context.base.emitter;
+  value_type := Rc.clone(ei.ty());
   indent2 := indent.clone();
   indent2.push_str("  ");
   args := emitted_block_statements(match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new()));
   match(
-    &ei.variable_name,
+    &ei.variable_name(),
     .Some(temp_var) => {
       // Expression form: begin block that returns a value.
       is_unit := is_unit_type(&value_type);
-      has_cf := has_any_control_flow(ei.control_flow);
+      has_cf := has_any_control_flow(ei.control_flow());
       is_returning := (!is_unit && !has_cf);
       if(is_returning, {
         d := indent.clone();
-        d.push_string(get_type_string(&value_type, &context.base));
+        d.push_string(get_type_string(&value_type, &mut context.base));
         d.push_str(" ");
         d.push_string(temp_var.clone());
         d.push_str(";");
-        em.emit_string_line(&d);
+        context.base.emitter.emit_string_line(&d);
         // Register the bare declaration, as cond and match do: the
         // deferred-drop passes skip a temp they never saw declared, so the
         // evaluator's scope-end drop of a block result that is not moved
@@ -184,9 +182,9 @@ generate_begin :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
       });
       hdr := indent.clone();
       hdr.push_str("{ // begin block");
-      em.emit_string_line(&hdr);
+      context.base.emitter.emit_string_line(&hdr);
       prev_pending := replace(&mut context.pending_deferred_drops, Option(ArrayList(AstExpr)).None);
-      context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(&ei.deferred_drop_expressions, &prev_pending));
+      context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(&ei.deferred_drop_expressions(), &prev_pending));
       prev_consumed := replace(&mut context.consumed_var_pending_drops, Option(ArrayList(AstExpr)).None);
       context.consumed_var_pending_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(expr_info_consumed_variable_drop_expressions(&ei), &prev_consumed));
       n := args.len();
@@ -202,7 +200,7 @@ generate_begin :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
               stop = true;
             },
             .Some(arg_ei) => {
-              note_line_position(&em, &arg);
+              note_line_position(&mut context.base.emitter, &arg);
               is_last := (idx == (n - usize(1)));
               // The value a block yields carries the evaluator's balancing
               // `___dup` when it is shared out of a binding the block does not
@@ -221,17 +219,17 @@ generate_begin :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
               if(
                 !(is_last && is_returning),
                 if(result.len() > usize(0), {
-                  is_temp := is_temp_variable_name(&arg_ei.env.module_path.*, result.clone());
+                  is_temp := is_temp_variable_name(&arg_ei.env().module_path().*, result.clone());
                   if(!is_temp, {
                     line := indent2.clone();
                     line.push_string(result.clone());
                     line.push_str(";");
-                    em.emit_string_line(&line);
+                    context.base.emitter.emit_string_line(&line);
                   });
                 })
               );
               last_arg_code = result;
-              if(has_any_control_flow(arg_ei.control_flow), {
+              if(has_any_control_flow(arg_ei.control_flow()), {
                 stop = true;
               });
             }
@@ -248,17 +246,17 @@ generate_begin :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
         line.push_str(" = ");
         line.push_string(&last_arg_code);
         line.push_str(";");
-        em.emit_string_line(&line);
+        context.base.emitter.emit_string_line(&line);
       });
       _emit_deferred_drops(&ei, indent2.clone(), context);
       ftr := indent.clone();
       ftr.push_str("} // end begin block");
-      em.emit_string_line(&ftr);
+      context.base.emitter.emit_string_line(&ftr);
       // The result temp is assigned inside the block; once it is closed, put
       // it on the block-scope stack so an explicit `return` / escape after the
       // block releases it (see generate_match_expression).
       if(is_returning, {
-        em.mark_declared_in_scope(&temp_var);
+        context.base.emitter.mark_declared_in_scope(&temp_var);
       });
       context.pending_deferred_drops = prev_pending;
       context.consumed_var_pending_drops = prev_consumed;
@@ -268,9 +266,9 @@ generate_begin :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
       // Statement form: begin block without returning a value.
       hdr := indent.clone();
       hdr.push_str("{ // begin block");
-      em.emit_string_line(&hdr);
+      context.base.emitter.emit_string_line(&hdr);
       prev_pending := replace(&mut context.pending_deferred_drops, Option(ArrayList(AstExpr)).None);
-      context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(&ei.deferred_drop_expressions, &prev_pending));
+      context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(&ei.deferred_drop_expressions(), &prev_pending));
       prev_consumed := replace(&mut context.consumed_var_pending_drops, Option(ArrayList(AstExpr)).None);
       context.consumed_var_pending_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(expr_info_consumed_variable_drop_expressions(&ei), &prev_consumed));
       n := args.len();
@@ -279,13 +277,13 @@ generate_begin :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
         match(
           args.get(idx),
           .Some(arg) => {
-            note_line_position(&em, &arg);
+            note_line_position(&mut context.base.emitter, &arg);
             arg_code := _call_generate_expr(&arg, indent2.clone(), context);
             if(arg_code.len() > usize(0), {
               line := indent2.clone();
               line.push_string(&arg_code);
               line.push_str(";");
-              em.emit_string_line(&line);
+              context.base.emitter.emit_string_line(&line);
             });
           },
           .None => ()
@@ -295,7 +293,7 @@ generate_begin :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
       _emit_deferred_drops(&ei, indent2.clone(), context);
       ftr := indent.clone();
       ftr.push_str("} // end begin block");
-      em.emit_string_line(&ftr);
+      context.base.emitter.emit_string_line(&ftr);
       context.pending_deferred_drops = prev_pending;
       context.consumed_var_pending_drops = prev_consumed;
       String.from("")

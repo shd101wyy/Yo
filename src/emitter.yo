@@ -285,64 +285,62 @@ line_restore_marker :: (fn() -> String)(String.from("#line 00000000 \""));
 /// Three buffers are maintained separately so that forward declarations
 /// and type definitions can be emitted out-of-order and still appear
 /// before function bodies in the final output.
-Emitter :: ref(
-  struct(
-    headers : String,
-    declarations : String,
-    code : String,
-    /// When `.Some`, points at the current function's `declared_c_var_names`
-    /// (set by generate_function). `emit_*` code-section writes record any
-    /// minted-temp declaration into it so the drop-emission gate has the
-    /// C-emission-order ground truth. See `_emitter_record_declared_temp`.
-    declared_ref : Option(Rc(RefCell(HashSet(String)))),
-    /// When `.Some`, points at the current function's block-scope stack
-    /// (declared_scopes). Each emitted body line pushes/pops `"{"` frames on every
-    /// C brace and records named-local + temp decls — the escape gate's
-    /// block-scope-aware liveness signal. See `_emitter_track_scope`.
-    scope_ref : Option(Rc(RefCell(ArrayList(String)))),
-    /// Code spill (plans/CODEGEN_MEMORY_REDUCTION.md §3 lever 3): with a
-    /// `code_spill_path`, finished code past `CODE_SPILL_BYTES` is written
-    /// to that file between functions and the `code` buffer is cleared, so
-    /// the ~117 MB of C bodies never sit in memory at once.
-    /// `code_spilled_bytes` is how much of the code section is on disk,
-    /// ahead of `code`.
-    code_spill_fd : i32,
-    code_spill_path : String,
-    code_spilled_bytes : usize,
-    /// Spill once `code` holds this many bytes (`CODE_SPILL_BYTES`; tests
-    /// lower it to spill after every function).
-    code_spill_threshold : usize,
-    /// `#line` directives (plans/reference/LINE_DIRECTIVES.md): ON = the
-    /// statement flush points map the emitted C back to its `.yo` position and
-    /// compiler-generated regions restore honest C numbering, so a C debugger
-    /// or a C-compiler diagnostic steps through Yo. OFF (default) keeps the
-    /// emission byte-identical to the pre-directive compiler.
-    line_directives : bool,
-    /// The C file name restore directives attribute generated code to (the
-    /// `<output>.c` sidecar). Chunked emission rewrites the name per chunk at
-    /// assembly time (chunk_assembly.yo): the emitter cannot know which chunk
-    /// a function lands in.
-    line_c_name : String,
-    /// The RAW `.yo` path spelling of the last directive (the comparison key —
-    /// a module's tokens always carry one spelling), with its 0-based token
-    /// row. `.None` = honest C numbering (no user directive active). Adjacent
-    /// statements from one `.yo` line pay zero directives.
-    line_last_path : Option(String),
-    line_last_row : usize,
-    /// Deferred moves out of a task slot, marker → the statements that empty
-    /// the slot. A consuming read of a slot renders the slot itself plus a
-    /// unique `/*yo_mv:…*/` marker; the move happens where the line holding
-    /// that marker runs (the consuming call, binding or store), so the slot is
-    /// emptied right after that line. Emptied at the read, a later argument
-    /// of the same call read the empty slot (`S(a : xs, n : xs.len())`), and
-    /// a C temp holding the value did not survive an await in a later
-    /// argument (issues/fixed/a-move-out-of-a-task-slot-empties-it-before-the-consuming-call-runs.md).
-    move_zeroes : HashMap(String, String),
-    /// The code-section text written since the last newline, while a move is
-    /// pending: a line assembled from `emit`/`emit_string` pieces is checked
-    /// whole when its newline arrives.
-    partial_line : String
-  )
+Emitter :: struct(
+  headers : String,
+  declarations : String,
+  code : String,
+  /// When `.Some`, points at the current function's `declared_c_var_names`
+  /// (set by generate_function). `emit_*` code-section writes record any
+  /// minted-temp declaration into it so the drop-emission gate has the
+  /// C-emission-order ground truth. See `_emitter_record_declared_temp`.
+  declared_ref : Option(Rc(RefCell(HashSet(String)))),
+  /// When `.Some`, points at the current function's block-scope stack
+  /// (declared_scopes). Each emitted body line pushes/pops `"{"` frames on every
+  /// C brace and records named-local + temp decls — the escape gate's
+  /// block-scope-aware liveness signal. See `_emitter_track_scope`.
+  scope_ref : Option(Rc(RefCell(ArrayList(String)))),
+  /// Code spill (plans/CODEGEN_MEMORY_REDUCTION.md §3 lever 3): with a
+  /// `code_spill_path`, finished code past `CODE_SPILL_BYTES` is written
+  /// to that file between functions and the `code` buffer is cleared, so
+  /// the ~117 MB of C bodies never sit in memory at once.
+  /// `code_spilled_bytes` is how much of the code section is on disk,
+  /// ahead of `code`.
+  code_spill_fd : i32,
+  code_spill_path : String,
+  code_spilled_bytes : usize,
+  /// Spill once `code` holds this many bytes (`CODE_SPILL_BYTES`; tests
+  /// lower it to spill after every function).
+  code_spill_threshold : usize,
+  /// `#line` directives (plans/reference/LINE_DIRECTIVES.md): ON = the
+  /// statement flush points map the emitted C back to its `.yo` position and
+  /// compiler-generated regions restore honest C numbering, so a C debugger
+  /// or a C-compiler diagnostic steps through Yo. OFF (default) keeps the
+  /// emission byte-identical to the pre-directive compiler.
+  line_directives : bool,
+  /// The C file name restore directives attribute generated code to (the
+  /// `<output>.c` sidecar). Chunked emission rewrites the name per chunk at
+  /// assembly time (chunk_assembly.yo): the emitter cannot know which chunk
+  /// a function lands in.
+  line_c_name : String,
+  /// The RAW `.yo` path spelling of the last directive (the comparison key —
+  /// a module's tokens always carry one spelling), with its 0-based token
+  /// row. `.None` = honest C numbering (no user directive active). Adjacent
+  /// statements from one `.yo` line pay zero directives.
+  line_last_path : Option(String),
+  line_last_row : usize,
+  /// Deferred moves out of a task slot, marker → the statements that empty
+  /// the slot. A consuming read of a slot renders the slot itself plus a
+  /// unique `/*yo_mv:…*/` marker; the move happens where the line holding
+  /// that marker runs (the consuming call, binding or store), so the slot is
+  /// emptied right after that line. Emptied at the read, a later argument
+  /// of the same call read the empty slot (`S(a : xs, n : xs.len())`), and
+  /// a C temp holding the value did not survive an await in a later
+  /// argument (issues/fixed/a-move-out-of-a-task-slot-empties-it-before-the-consuming-call-runs.md).
+  move_zeroes : HashMap(String, String),
+  /// The code-section text written since the last newline, while a move is
+  /// pending: a line assembled from `emit`/`emit_string` pieces is checked
+  /// whole when its newline arrives.
+  partial_line : String
 );
 /// The code buffer is spilled once it holds this much (8 MiB).
 CODE_SPILL_BYTES :: usize(8388608);

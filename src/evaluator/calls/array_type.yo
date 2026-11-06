@@ -8,6 +8,7 @@
 //! Note: `Array(T, _)` length inference is NOT supported
 //! because `TypeValue.Array` stores a concrete `usize` length.
 pragma(Pragma.AllowUnsafe);
+{ replace } :: import("std/mem");
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, ast_expr_token, ast_expr_id, make_err_expr } :: import("../../expr.yo");
@@ -42,7 +43,7 @@ try_to_implement_array_by_array_type :: (
     array_type : &TypeValue,
     arg_exprs : &ArrayList(AstExpr),
     caller_env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
@@ -100,7 +101,7 @@ try_to_implement_array_by_array_type :: (
   elements := ArrayList(EvalValue).new();
   runtime_arg_exprs := ArrayList(AstExpr).new();
   (all_elements_are_comptime : bool) = true;
-  (env : Environment) = caller_env;
+  (env : Environment) = Rc.clone(caller_env);
   (expected_element_type : TypeValue) = elem_type;
   (i : usize) = usize(0);
   while(i < n_args, {
@@ -112,8 +113,7 @@ try_to_implement_array_by_array_type :: (
       }
     );
     // Evaluate with expected element type set in context.
-    saved_expected := ctx.expected_type;
-    ctx.expected_type = .Some(ExpectedTypeCtx(ty : Rc.clone(expected_element_type), env : env));
+    saved_expected := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : Rc.clone(expected_element_type), env : Rc.clone(env))));
     evaluated_arg_gout := ArrayList(AstExpr).new();
     evaluated_arg_gerr := evaluate_expression_guarded(&arg_expr, &env, ctx, &mut evaluated_arg_gout);
     ctx.expected_type = saved_expected;
@@ -130,23 +130,23 @@ try_to_implement_array_by_array_type :: (
         )
       );
     });
-    arg_info := match(arg_info_opt, .Some(it) => it, .None => new_expr_info(&env, &expected_element_type));
+    arg_info := match(arg_info_opt, .Some(it) => Rc.clone(it), .None => new_expr_info(&env, &expected_element_type));
     set_expr_as_needs_to_call_dup(&evaluated_arg, ctx, exn, "element");
-    env_adopt(&env, &arg_info.env);
+    env_adopt(&env, &arg_info.env());
     // For first element: if expected element type is Array with unknown-length child,
     // update expected element type based on actual evaluated type.
     if((i == usize(0)) && is_array_type(&expected_element_type), {
-      if(is_array_type(&arg_info.ty), {
-        expected_element_type = Rc.clone(arg_info.ty);
+      if(is_array_type(&arg_info.ty()), {
+        expected_element_type = Rc.clone(arg_info.ty());
       });
     });
     // Type compatibility check.
-    if(!are_types_compatible(&arg_info.ty, &expected_element_type), {
+    if(!are_types_compatible(&arg_info.ty(), &expected_element_type), {
       exn.throw(
         dyn(
           format_error_message(
             ast_expr_token(&arg_expr),
-            `Array element at index ${i.to_string()} has incompatible type:\n- Expected: ${type_to_string(&expected_element_type)}\n- Given   : ${type_to_string(&arg_info.ty)}`
+            `Array element at index ${i.to_string()} has incompatible type:\n- Expected: ${type_to_string(&expected_element_type)}\n- Given   : ${type_to_string(&arg_info.ty())}`
           )
         )
       );
@@ -158,7 +158,7 @@ try_to_implement_array_by_array_type :: (
     // known, value not" — a RUNTIME element — so an array containing one is
     // not a constant.
     match(
-      arg_info.value,
+      arg_info.value(),
       .Some(v) => if(is_unknown_val(&v), {
         all_elements_are_comptime = false;
       }, {
@@ -183,9 +183,9 @@ try_to_implement_array_by_array_type :: (
   // (values/array.yo) already guarded exactly this way, which is why
   // `[a, b,]` worked while `Array(T, N)(a, b)` did not.
   if(all_elements_are_comptime, {
-    out_info.value = .Some(EvalValue.ArrayVal(value_cell_new(elements)));
+    out_info.set_value(.Some(EvalValue.ArrayVal(value_cell_new(elements))));
   });
-  out_info.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(runtime_arg_exprs);
+  out_info.set_runtime_arg_exprs_in_order(Option(ArrayList(AstExpr)).Some(runtime_arg_exprs));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   if(!all_elements_are_comptime, {
     // Runtime construction needs a temp to materialize into, exactly as the

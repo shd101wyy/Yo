@@ -80,8 +80,13 @@
   FunctionGenerationContext,
   ClosureParamSlot,
   DeferredAsyncBlock,
+  DeferredAsyncBlockData,
   EvidenceParameter,
-  sm_owns_fnonce_captures
+  sm_owns_fnonce_captures,
+  sm_lowering_analysis,
+  sm_lowering_note_moved_into_slot,
+  sm_lowering_enter_scope,
+  sm_lowering_restore_scope
 } :: import("../functions/context.yo");
 {
   CrossBoundaryResult,
@@ -412,11 +417,10 @@ generate_future_effect_setter :: (
     set_effect_function_name : &String,
     future_trait_type : &TypeValue,
     capture_type : &Option(TypeValue),
-    context : &FunctionGenerationContext,
+    context : &mut FunctionGenerationContext,
     sync_param_slot : &Option(SyncParamSlot)
   ) -> String
 )({
-  em := context.base.emitter;
   mappings := get_injectable_future_effect_field_mappings(future_trait_type, capture_type, &context.state_machine_variables, &context.state_machine_field_aliases);
   bundle_field := find_bundle_field_name(future_trait_type, &context.state_machine_variables, &context.state_machine_field_aliases);
   has_effect := match(future_trait_type, Rc(.FutureTraitT({ effect_labels : el })) => (el.len() > usize(0)), _ => false);
@@ -430,12 +434,12 @@ generate_future_effect_setter :: (
     .None => if(has_bundle_case && _first_struct_effect_type(future_trait_type).is_some(), bundle_field, Option(String).None)
   );
   vt_bundle := match(bundle_slot, .Some(f) => `offsetof(${struct_name}, ${f}), sizeof(((${struct_name}*)0)->${f})`, .None => String.from("0, 0"));
-  em.emit_declaration_string_line(`void ${set_effect_function_name}(void* ptr, const char* field, void* value) {`);
-  em.emit_declaration_string_line(`  ${struct_name}* sm = (${struct_name}*)ptr;`);
+  context.base.emitter.emit_declaration_string_line(`void ${set_effect_function_name}(void* ptr, const char* field, void* value) {`);
+  context.base.emitter.emit_declaration_string_line(`  ${struct_name}* sm = (${struct_name}*)ptr;`);
   if(mappings.len() == usize(0), {
-    em.emit_declaration_string_line(`  (void)sm;`);
-    em.emit_declaration_string_line(`  (void)field;`);
-    em.emit_declaration_string_line(`  (void)value;`);
+    context.base.emitter.emit_declaration_string_line(`  (void)sm;`);
+    context.base.emitter.emit_declaration_string_line(`  (void)field;`);
+    context.base.emitter.emit_declaration_string_line(`  (void)value;`);
   }, {
     (mut(first_case) : bool) = true;
     (mut(mi) : usize) = usize(0);
@@ -459,16 +463,16 @@ generate_future_effect_setter :: (
             cond.push_str(" || ");
             cond.push_string(`strcmp(field, ${_c_string_literal(&cap_last)}) == 0`);
           });
-          em.emit_declaration_string_line(`  ${keyword} (${cond}) {`);
-          em.emit_declaration_string_line(`    sm->${m.access_path} = value;`);
-          em.emit_declaration_string_line(`  }`);
+          context.base.emitter.emit_declaration_string_line(`  ${keyword} (${cond}) {`);
+          context.base.emitter.emit_declaration_string_line(`    sm->${m.access_path} = value;`);
+          context.base.emitter.emit_declaration_string_line(`  }`);
         },
         .None => ()
       );
       mi = (mi + usize(1));
     });
   });
-  em.emit_declaration_string_line(`}`);
+  context.base.emitter.emit_declaration_string_line(`}`);
   vt_bundle
 });
 /// The full description of one async-block state machine, passed to the struct /
@@ -551,34 +555,35 @@ _join_dotted :: (fn(parts : &ArrayList(String)) -> String)({
 /// → await-result temporaries → await-future fields → cond_branch fields →
 /// while_loop_X_active fields.
 emit_async_block_struct_definition :: (
-  fn(info : &AsyncBlockStructInfo, context : &FunctionGenerationContext) -> unit
+  fn(info : &AsyncBlockStructInfo, context : &mut FunctionGenerationContext) -> unit
 )({
-  em := context.base.emitter;
   mut(move_flags) := ArrayList(String).new();
-  em.emit_declaration_string_line(`// State machine for async block ${info.async_block_id.clone()} - implements Future(${get_type_string(&info.result_type, &context.base)})`);
-  em.emit_declaration_string_line(`struct ${info.struct_name.clone()}_struct {`);
+  emit_text1 := `// State machine for async block ${info.async_block_id.clone()} - implements Future(${get_type_string(&info.result_type, &mut context.base)})`;
+  context.base.emitter.emit_declaration_string_line(&emit_text1);
+  context.base.emitter.emit_declaration_string_line(`struct ${info.struct_name.clone()}_struct {`);
   // The prefix every future shares (types/generation.yo): header, state
   // (0 = cold, 1..N = intermediate, -1 = completed, -2 = aborted), the type's
   // operations (`vt`), and the waiter slot. JoinHandle and the runtime read
   // only this.
-  em.emit_declaration_line("  __YO_FUTURE_PREFIX");
+  context.base.emitter.emit_declaration_line("  __YO_FUTURE_PREFIX");
   // Always include a result field, at the offset the erased interface reads
   // it from. For unit, a uint8_t dummy (cannot use void).
   if(is_unit_type(&info.result_type), {
-    em.emit_declaration_line("  uint8_t result;  // Dummy result for unit type");
+    context.base.emitter.emit_declaration_line("  uint8_t result;  // Dummy result for unit type");
   }, {
-    em.emit_declaration_string_line(`  ${info.result_type_c_name.clone()} result;  // The result value of type ${get_type_string(&info.result_type, &context.base)}`);
+    emit_text2 := `  ${info.result_type_c_name.clone()} result;  // The result value of type ${get_type_string(&info.result_type, &mut context.base)}`;
+    context.base.emitter.emit_declaration_string_line(&emit_text2);
   });
-  em.emit_declaration_line("");
+  context.base.emitter.emit_declaration_line("");
   // Resume function pointer for lazy start at await.
-  em.emit_declaration_line("");
+  context.base.emitter.emit_declaration_line("");
   // Capture struct field.
   match(
     &info.capture_type,
     .Some(cap_ty) => {
       capture_struct_name := _find_capture_type_c_name(&cap_ty, context);
-      em.emit_declaration_line("  // Captured variables from outer scope");
-      em.emit_declaration_string_line(`  ${capture_struct_name} __capture;`);
+      context.base.emitter.emit_declaration_line("  // Captured variables from outer scope");
+      context.base.emitter.emit_declaration_string_line(`  ${capture_struct_name} __capture;`);
       // A capture list the state machine owns (decision 37): a move out of a
       // capture sets its flag, and the dispose drops only unflagged captures.
       owned_caps := _owned_capture_fields(&cap_ty);
@@ -589,13 +594,13 @@ emit_async_block_struct_definition :: (
           .Some(cf) => {
             label := sanitize_for_c_identifier(cf.label.clone(), false);
             note_sm_move_flag_field(`__capture.${label.clone()}`);
-            em.emit_declaration_string_line(`  uint8_t ${sm_capture_move_flag_name(label.clone())};  // capture ${cf.label.clone()} was moved out`);
+            context.base.emitter.emit_declaration_string_line(`  uint8_t ${sm_capture_move_flag_name(label.clone())};  // capture ${cf.label.clone()} was moved out`);
           },
           .None => ()
         );
       });
       _emit_lent_param_slots(&cap_ty, context);
-      em.emit_declaration_line("");
+      context.base.emitter.emit_declaration_line("");
     },
     .None => ()
   );
@@ -604,17 +609,17 @@ emit_async_block_struct_definition :: (
   match(
     &info.closure_param_slots,
     .Some(slots) => if(slots.len() > usize(0), {
-      em.emit_declaration_line("  // Closure parameter slots");
+      context.base.emitter.emit_declaration_line("  // Closure parameter slots");
       (mut(si) : usize) = usize(0);
       while(si < slots.len(), {
         match(
-          slots.get(si),
-          .Some(slot) => em.emit_declaration_string_line(`  ${slot.c_type.clone()} ${slot.field_name.clone()};  // ${slot.param_name.clone()}`),
+          slots.get_cloned(si),
+          .Some(slot) => context.base.emitter.emit_declaration_string_line(`  ${slot.c_type.clone()} ${slot.field_name.clone()};  // ${slot.param_name.clone()}`),
           .None => ()
         );
         si = (si + usize(1));
       });
-      em.emit_declaration_line("");
+      context.base.emitter.emit_declaration_line("");
     }),
     .None => ()
   );
@@ -655,20 +660,20 @@ emit_async_block_struct_definition :: (
     ci = (ci + usize(1));
   });
   if(local_variables.len() > usize(0), {
-    em.emit_declaration_line("  // Local variables");
+    context.base.emitter.emit_declaration_line("  // Local variables");
     (mut(li) : usize) = usize(0);
     while(li < local_variables.len(), {
       match(
         local_variables.get(li),
         .Some(variable) => {
-          var_type_c_name := get_type_string(&variable.base.ty, &context.base);
+          var_type_c_name := get_type_string(&variable.base.ty, &mut context.base);
           field_name := get_state_machine_field_name(variable.base.id.to_string(), Option(HashMap(String, String)).None);
-          em.emit_declaration_string_line(`  ${var_type_c_name} ${field_name};  // ${variable.base.name.clone()}`);
+          context.base.emitter.emit_declaration_string_line(`  ${var_type_c_name} ${field_name};  // ${variable.base.name.clone()}`);
           // A named local's move flag (`note_sm_move_flag_field`): set by a
           // move out of the slot, which keeps the value readable.
           if(!is_any_temp_variable_name(variable.base.name.clone()), {
             note_sm_move_flag_field(field_name.clone());
-            em.emit_declaration_string_line(`  uint8_t __yo_mv_${field_name};  // ${variable.base.name.clone()} was moved out`);
+            context.base.emitter.emit_declaration_string_line(`  uint8_t __yo_mv_${field_name};  // ${variable.base.name.clone()} was moved out`);
             move_flags.push(`__yo_mv_${field_name}`);
           });
         },
@@ -676,52 +681,59 @@ emit_async_block_struct_definition :: (
       );
       li = (li + usize(1));
     });
-    em.emit_declaration_line("");
+    context.base.emitter.emit_declaration_line("");
   });
   // Phase 2: Overlapping storage slots — variables of the same non-RC type with
   // non-overlapping live ranges share a single struct field.
   match(
     &info.overlapping_slots,
     .Some(slots) => if(slots.len() > usize(0), {
-      em.emit_declaration_line("  // Overlapping storage slots (Phase 2)");
+      context.base.emitter.emit_declaration_line("  // Overlapping storage slots (Phase 2)");
       (mut(oi) : usize) = usize(0);
       while(oi < slots.len(), {
         match(
           slots.get(oi),
-          .Some(slot) => em.emit_declaration_string_line(`  ${slot.c_type.clone()} ${slot.field_name.clone()};  // shared: ${_join_names(&slot.variable_names)}`),
+          .Some(slot) => context.base.emitter.emit_declaration_string_line(`  ${slot.c_type.clone()} ${slot.field_name.clone()};  // shared: ${_join_names(&slot.variable_names)}`),
           .None => ()
         );
         oi = (oi + usize(1));
       });
-      em.emit_declaration_line("");
+      context.base.emitter.emit_declaration_line("");
     }),
     .None => ()
   );
   // ONE owned slot for the pending await (a task has at most one), and one
   // field per await expression for its result
   // (plans/ASYNC_STATE_MACHINE_GENERATION.md phase 5).
-  em.emit_declaration_line("  void* __yo_await_slot;  // the future the task is suspended on (owned)");
+  context.base.emitter.emit_declaration_line("  void* __yo_await_slot;  // the future the task is suspended on (owned)");
   irfs := inline_await_result_fields(&info.analysis, context);
   (mut(iai) : usize) = usize(0);
   while(iai < irfs.len(), iai = (iai + usize(1)), {
-    match(irfs.get_cloned(iai), .Some(rf) => em.emit_declaration_string_line(`  ${get_type_string(&rf.ty, &context.base)} ${rf.name};  // an await's result`), .None => ());
+    match(
+      irfs.get_cloned(iai),
+      .Some(rf) => {
+        emit_text3 := `  ${get_type_string(&rf.ty, &mut context.base)} ${rf.name};  // an await's result`;
+        context.base.emitter.emit_declaration_string_line(&emit_text3);
+      },
+      .None => ()
+    );
   });
   _emit_fused_site_fields(fused_await_sites(&info.analysis, context), &mut move_flags, context);
-  em.emit_declaration_line("};");
-  em.emit_declaration_line("");
+  context.base.emitter.emit_declaration_line("};");
+  context.base.emitter.emit_declaration_line("");
   // Every named local's slot starts empty: its move flag is set until the
   // first store into it clears it, so an abort before the local is
   // initialized does not drop the slot's zeroes, which are not an empty value
   // for every type (a `Drop` struct of plain fields)
   // (issues/fixed/2026-11-05-an-aborted-task-drops-a-local-its-scope-already-dropped.md).
-  em.emit_declaration_string_line(`static inline void ${info.struct_name.clone()}_init_move_flags(struct ${info.struct_name.clone()}_struct* sm) {`);
-  if(move_flags.len() == usize(0), em.emit_declaration_line("  (void)sm;"));
+  context.base.emitter.emit_declaration_string_line(`static inline void ${info.struct_name.clone()}_init_move_flags(struct ${info.struct_name.clone()}_struct* sm) {`);
+  if(move_flags.len() == usize(0), context.base.emitter.emit_declaration_line("  (void)sm;"));
   (mut(mfi) : usize) = usize(0);
   while(mfi < move_flags.len(), mfi = (mfi + usize(1)), {
-    match(move_flags.get_cloned(mfi), .Some(mf) => em.emit_declaration_string_line(`  sm->${mf} = 1;`), .None => ());
+    match(move_flags.get_cloned(mfi), .Some(mf) => context.base.emitter.emit_declaration_string_line(`  sm->${mf} = 1;`), .None => ());
   });
-  em.emit_declaration_line("}");
-  em.emit_declaration_line("");
+  context.base.emitter.emit_declaration_line("}");
+  context.base.emitter.emit_declaration_line("");
 });
 /// The C type string for a dependency check, or `None` to skip the edge — i.e.
 /// when the type isn't registered yet (it's from an external function, not an
@@ -730,14 +742,14 @@ emit_async_block_struct_definition :: (
 /// Only the top-level type is guarded (not panics nested inside e.g. Pointer
 /// recursion), which suffices for async dependency graphs (futures are embedded
 /// by value, not behind a pointer).
-_dep_named_type_string :: (fn(t : &TypeValue, context : &FunctionGenerationContext) -> Option(String))(
+_dep_named_type_string :: (fn(t : &TypeValue, context : &mut FunctionGenerationContext) -> Option(String))(
   match(
     context.base.get_type_c_name(type_key(t)),
-    .Some(_) => Option(String).Some(get_type_string(t, &context.base)),
+    .Some(_) => Option(String).Some(get_type_string(t, &mut context.base)),
     .None => Option(String).None
   )
 );
-_dep_type_string :: (fn(t : &TypeValue, context : &FunctionGenerationContext) -> Option(String))(
+_dep_type_string :: (fn(t : &TypeValue, context : &mut FunctionGenerationContext) -> Option(String))(
   match(
     t,
     Rc(.FnTraitT({})) => Option(String).None,
@@ -747,11 +759,11 @@ _dep_type_string :: (fn(t : &TypeValue, context : &FunctionGenerationContext) ->
     Rc(.Struct({})) => _dep_named_type_string(t, context),
     Rc(.EnumT({})) => match(
       can_optimize_as_nullable_pointer(t),
-      .Some(_) => Option(String).Some(get_type_string(t, &context.base)),
+      .Some(_) => Option(String).Some(get_type_string(t, &mut context.base)),
       .None => _dep_named_type_string(t, context)
     ),
     Rc(.DynT({})) => _dep_named_type_string(t, context),
-    _ => Option(String).Some(get_type_string(t, &context.base))
+    _ => Option(String).Some(get_type_string(t, &mut context.base))
   )
 );
 /// Record that `dep_struct_name` must be emitted before `b_struct_name`: add the
@@ -778,7 +790,7 @@ _add_deferred_dep :: (
 /// or an `await_future_X` field whose type C-string matches another block's
 /// struct name introduces an edge.
 _build_deferred_deps :: (
-  fn(b : &DeferredAsyncBlock, by_struct_name : &HashMap(String, DeferredAsyncBlock), dependents : &mut HashMap(String, HashSet(String)), indegree : &mut HashMap(String, usize), context : &FunctionGenerationContext) -> unit
+  fn(b : &DeferredAsyncBlock, by_struct_name : &HashMap(String, DeferredAsyncBlock), dependents : &mut HashMap(String, HashSet(String)), indegree : &mut HashMap(String, usize), context : &mut FunctionGenerationContext) -> unit
 )({
   // Local variable fields.
   cvs := &b.analysis.captured_variables;
@@ -789,7 +801,7 @@ _build_deferred_deps :: (
       .Some(v) => match(
         _dep_type_string(&v.base.ty, context),
         .Some(t) => match(
-          by_struct_name.get(&t),
+          by_struct_name.get_cloned(&t),
           .Some(target) => if(target.struct_name != b.struct_name, {
             _add_deferred_dep(dependents, indegree, target.struct_name.clone(), b.struct_name.clone());
           }),
@@ -820,9 +832,9 @@ _build_deferred_deps :: (
               .Some(future_expr) => match(
                 context.base.get_expr_info(&future_expr),
                 .Some(ei) => match(
-                  _dep_type_string(&ei.ty, context),
+                  _dep_type_string(&ei.ty(), context),
                   .Some(t) => match(
-                    by_struct_name.get(&t),
+                    by_struct_name.get_cloned(&t),
                     .Some(target) => if(target.struct_name != b.struct_name, {
                       _add_deferred_dep(dependents, indegree, target.struct_name.clone(), b.struct_name.clone());
                     }),
@@ -845,7 +857,7 @@ _build_deferred_deps :: (
 /// Emit struct definitions for all deferred async blocks in dependency order
 /// (Kahn's topological sort over by-value embedding edges; falls back to input
 /// order on cycles).
-emit_deferred_async_block_struct_definitions :: (fn(context : &FunctionGenerationContext) -> unit)({
+emit_deferred_async_block_struct_definitions :: (fn(context : &mut FunctionGenerationContext) -> unit)({
   blocks := match(&context.deferred_async_blocks, .Some(b) => b.clone(), .None => return());
   if(blocks.len() == usize(0), return());
   // byStructName.
@@ -853,7 +865,7 @@ emit_deferred_async_block_struct_definitions :: (fn(context : &FunctionGeneratio
   (mut(i) : usize) = usize(0);
   while(i < blocks.len(), {
     match(
-      blocks.get(i),
+      blocks.get_cloned(i),
       .Some(b) => {
         by_struct_name.insert(b.struct_name.clone(), b);
       },
@@ -867,7 +879,7 @@ emit_deferred_async_block_struct_definitions :: (fn(context : &FunctionGeneratio
   (mut(i2) : usize) = usize(0);
   while(i2 < blocks.len(), {
     match(
-      blocks.get(i2),
+      blocks.get_cloned(i2),
       .Some(b) => {
         dependents.insert(b.struct_name.clone(), HashSet(String).new());
         indegree.insert(b.struct_name.clone(), usize(0));
@@ -879,7 +891,7 @@ emit_deferred_async_block_struct_definitions :: (fn(context : &FunctionGeneratio
   // Build edges.
   (mut(i3) : usize) = usize(0);
   while(i3 < blocks.len(), {
-    match(blocks.get(i3), .Some(b) => _build_deferred_deps(&b, &by_struct_name, &mut dependents, &mut indegree, context), .None => ());
+    match(blocks.get_cloned(i3), .Some(b) => _build_deferred_deps(&b, &by_struct_name, &mut dependents, &mut indegree, context), .None => ());
     i3 = (i3 + usize(1));
   });
   // Kahn's algorithm: seed the queue with indegree-0 nodes.
@@ -919,7 +931,7 @@ emit_deferred_async_block_struct_definitions :: (fn(context : &FunctionGeneratio
       match(
         ordered.get_cloned(oi),
         .Some(name) => match(
-          by_struct_name.get(&name),
+          by_struct_name.get_cloned(&name),
           .Some(b) => {
             ordered_blocks.push(b);
           },
@@ -933,7 +945,7 @@ emit_deferred_async_block_struct_definitions :: (fn(context : &FunctionGeneratio
     (mut(bi) : usize) = usize(0);
     while(bi < blocks.len(), {
       match(
-        blocks.get(bi),
+        blocks.get_cloned(bi),
         .Some(b) => {
           ordered_blocks.push(b);
         },
@@ -946,7 +958,7 @@ emit_deferred_async_block_struct_definitions :: (fn(context : &FunctionGeneratio
   (mut(ei) : usize) = usize(0);
   while(ei < ordered_blocks.len(), {
     match(
-      ordered_blocks.get(ei),
+      ordered_blocks.get_cloned(ei),
       .Some(b) => {
         cbr := _block_cross_boundary(&b, context);
         osr := compute_overlapping_slots(&cbr.cross_boundary_ids, &cbr.variable_segments, &b.analysis.captured_variables, &cbr.await_future_temp_var_aliases, &cbr.pattern_binding_ids, context);
@@ -984,12 +996,10 @@ emit_deferred_async_block_struct_definitions :: (fn(context : &FunctionGeneratio
 /// retained — a use-after-free
 /// (issues/fixed/abort-dispose-never-drops-string-option-and-value-struct-locals.md,
 /// issues/fixed/nested-io-async-string-capture-is-not-retained.md).
-_inline_rc_field_line :: (fn(field_ref : &String, field_type : &TypeValue, indent : &String, is_drop : bool, context : &FunctionGenerationContext) -> Option(String))({
-  saved := context.base.emitter;
-  scratch := Emitter.new();
-  context.base.emitter = scratch;
+_inline_rc_field_line :: (fn(field_ref : &String, field_type : &TypeValue, indent : &String, is_drop : bool, context : &mut FunctionGenerationContext) -> Option(String))({
+  saved := replace(&mut context.base.emitter, Emitter.new());
   code := if(is_drop, generate_drop_code_for_value(field_ref.clone(), field_type, context), generate_dup_code_for_value(field_ref.clone(), field_type, context));
-  context.base.emitter = saved;
+  mut(scratch) := replace(&mut context.base.emitter, saved);
   mut(out) := String.from("");
   pre := scratch.print().trim();
   if(pre.len() > usize(0), {
@@ -1028,7 +1038,7 @@ _inline_rc_field_line :: (fn(field_ref : &String, field_type : &TypeValue, inden
 /// machine. The result was an unbalanced drop: a future re-created each
 /// iteration of a loop freed the captured value under the loop (rc=139).
 /// See issues/fixed/await-in-branch-positions-matrix.md.
-_rc_field_retain_line :: (fn(field_ref : &String, field_type : &TypeValue, indent : &String, context : &FunctionGenerationContext) -> Option(String))(
+_rc_field_retain_line :: (fn(field_ref : &String, field_type : &TypeValue, indent : &String, context : &mut FunctionGenerationContext) -> Option(String))(
   cond(
     is_dyn_type(field_type) => Option(String).Some(`${indent.clone()}__yo_dyn_retain((void*)(${field_ref.clone()}).data, (const void*)(${field_ref.clone()}).vtable);`),
     is_atomic_reference_struct_type(field_type) => Option(String).Some(`${indent.clone()}if (${field_ref.clone()} != NULL) { __yo_incr_rc_atomic((void*)${field_ref.clone()}); }`),
@@ -1047,7 +1057,7 @@ _rc_field_retain_line :: (fn(field_ref : &String, field_type : &TypeValue, inden
 );
 /// The drop line for an RC-bearing field/local at `field_ref`, or `None` if the
 /// type needs no drop.
-_rc_field_drop_line :: (fn(field_ref : &String, field_type : &TypeValue, indent : &String, context : &FunctionGenerationContext) -> Option(String))(
+_rc_field_drop_line :: (fn(field_ref : &String, field_type : &TypeValue, indent : &String, context : &mut FunctionGenerationContext) -> Option(String))(
   cond(
     is_dyn_type(field_type) => Option(String).Some(`${indent.clone()}__yo_dyn_release((void*)(${field_ref.clone()}).data, (const void*)(${field_ref.clone()}).vtable);`),
     is_atomic_reference_struct_type(field_type) => Option(String).Some(`${indent.clone()}if (${field_ref.clone()} != NULL) { __yo_decr_rc_atomic((void*)${field_ref.clone()}); }`),
@@ -1133,8 +1143,7 @@ _capture_struct_fields :: (fn(capture_type : &TypeValue) -> ArrayList(TypeField)
 });
 /// Inline RC-field drops for a capture struct whose `___drop` function was not
 /// generated (e.g. it holds unresolved SomeType fields).
-_emit_inline_capture_field_drops :: (fn(capture_type : &TypeValue, context : &FunctionGenerationContext) -> unit)({
-  em := context.base.emitter;
+_emit_inline_capture_field_drops :: (fn(capture_type : &TypeValue, context : &mut FunctionGenerationContext) -> unit)({
   struct_id := match(capture_type, Rc(.Struct({ id : sid })) => sid.clone(), _ => String.from(""));
   fields := _capture_struct_fields(capture_type);
   owns_captures := is_fnonce_capture_struct(&struct_id);
@@ -1148,10 +1157,10 @@ _emit_inline_capture_field_drops :: (fn(capture_type : &TypeValue, context : &Fu
         // Only a counted or move-only capture has a flag
         // (`_owned_capture_fields`).
         move_flag := sm_move_flag_of(field_ref.clone(), owns_captures && type_contains_rc_cell_or_move_only(&field.ty));
-        match(&move_flag, .Some(flag) => em.emit_string_line(`  if (!${flag}) {`), .None => ());
+        match(&move_flag, .Some(flag) => context.base.emitter.emit_string_line(`  if (!${flag}) {`), .None => ());
         match(
           _rc_field_drop_line(field_ref.clone(), &field.ty, String.from("  "), context),
-          .Some(line) => em.emit_string_line(&line),
+          .Some(line) => context.base.emitter.emit_string_line(&line),
           // No `___drop` function and not a plain pointer (an Option/String/
           // struct-shaped capture): the general inline generator — the same
           // one the result field uses. Returning nothing here is what left
@@ -1160,11 +1169,11 @@ _emit_inline_capture_field_drops :: (fn(capture_type : &TypeValue, context : &Fu
           .None => {
             drop_code := generate_drop_code_for_value(field_ref.clone(), &field.ty, context);
             if(drop_code.len() > usize(0), {
-              em.emit_string_line(`  ${drop_code};`);
+              context.base.emitter.emit_string_line(`  ${drop_code};`);
             });
           }
         );
-        match(move_flag, .Some(_) => em.emit_line("  }"), .None => ());
+        match(move_flag, .Some(_) => context.base.emitter.emit_line("  }"), .None => ());
       }),
       .None => ()
     );
@@ -1233,8 +1242,7 @@ _lent_param_capture_fields :: (fn(capture_type : &TypeValue) -> ArrayList(TypeFi
 });
 /// The state machine's copy slot for each lent `&T` parameter
 /// (`_lent_param_capture_fields`).
-_emit_lent_param_slots :: (fn(capture_type : &TypeValue, context : &FunctionGenerationContext) -> unit)({
-  em := context.base.emitter;
+_emit_lent_param_slots :: (fn(capture_type : &TypeValue, context : &mut FunctionGenerationContext) -> unit)({
   lent := _lent_param_capture_fields(capture_type);
   (mut(i) : usize) = usize(0);
   while(i < lent.len(), i = (i + usize(1)), {
@@ -1242,7 +1250,10 @@ _emit_lent_param_slots :: (fn(capture_type : &TypeValue, context : &FunctionGene
       lent.get_cloned(i),
       .Some(f) => match(
         &f.ty,
-        Rc(.Pointer(pointee)) => em.emit_declaration_string_line(`  ${get_type_string(&pointee, &context.base)} __yo_lent_${sanitize_for_c_identifier(f.label.clone(), false)};  // the future's copy of the lent parameter ${f.label.clone()}`),
+        Rc(.Pointer(pointee)) => {
+          emit_text4 := `  ${get_type_string(&pointee, &mut context.base)} __yo_lent_${sanitize_for_c_identifier(f.label.clone(), false)};  // the future's copy of the lent parameter ${f.label.clone()}`;
+          context.base.emitter.emit_declaration_string_line(&emit_text4);
+        },
         _ => ()
       ),
       .None => ()
@@ -1252,8 +1263,7 @@ _emit_lent_param_slots :: (fn(capture_type : &TypeValue, context : &FunctionGene
 /// Copy each lent `&T` parameter into the future `sm_ptr` (read through the
 /// capture while the parameter's frame is still live) and point the capture
 /// at the copy.
-_emit_lent_param_installs :: (fn(capture_type : &TypeValue, sm_ptr : &String, indent : &String, context : &FunctionGenerationContext) -> unit)({
-  em := context.base.emitter;
+_emit_lent_param_installs :: (fn(capture_type : &TypeValue, sm_ptr : &String, indent : &String, context : &mut FunctionGenerationContext) -> unit)({
   lent := _lent_param_capture_fields(capture_type);
   (mut(i) : usize) = usize(0);
   while(i < lent.len(), i = (i + usize(1)), {
@@ -1261,8 +1271,8 @@ _emit_lent_param_installs :: (fn(capture_type : &TypeValue, sm_ptr : &String, in
       lent.get_cloned(i),
       .Some(f) => {
         label := sanitize_for_c_identifier(f.label.clone(), false);
-        em.emit_string_line(`${indent.clone()}${sm_ptr.clone()}->__yo_lent_${label.clone()} = *(${sm_ptr.clone()}->__capture.${label.clone()});`);
-        em.emit_string_line(`${indent.clone()}${sm_ptr.clone()}->__capture.${label.clone()} = &${sm_ptr.clone()}->__yo_lent_${label.clone()};`);
+        context.base.emitter.emit_string_line(`${indent.clone()}${sm_ptr.clone()}->__yo_lent_${label.clone()} = *(${sm_ptr.clone()}->__capture.${label.clone()});`);
+        context.base.emitter.emit_string_line(`${indent.clone()}${sm_ptr.clone()}->__capture.${label.clone()} = &${sm_ptr.clone()}->__yo_lent_${label.clone()};`);
       },
       .None => ()
     );
@@ -1274,18 +1284,17 @@ _emit_lent_param_installs :: (fn(capture_type : &TypeValue, sm_ptr : &String, in
 /// at refcount 0 — does NOT free memory. `local_var_drops` is
 /// retained for signature fidelity (unused).
 generate_async_block_state_dispose_function :: (
-  fn(async_block_id : &String, struct_name : &String, dispose_function_name : &String, result_type : &TypeValue, capture_type : &Option(TypeValue), analysis : &AwaitAnalysisResult, local_var_drops : &ArrayList(String), cross_boundary_ids : &HashSet(String), await_future_temp_var_aliases : &HashMap(String, String), overlapping_slot_aliases : &HashMap(String, String), overlapping_slots : &ArrayList(OverlappingSlot), context : &FunctionGenerationContext) -> unit
+  fn(async_block_id : &String, struct_name : &String, dispose_function_name : &String, result_type : &TypeValue, capture_type : &Option(TypeValue), analysis : &AwaitAnalysisResult, local_var_drops : &ArrayList(String), cross_boundary_ids : &HashSet(String), await_future_temp_var_aliases : &HashMap(String, String), overlapping_slot_aliases : &HashMap(String, String), overlapping_slots : &ArrayList(OverlappingSlot), context : &mut FunctionGenerationContext) -> unit
 )({
-  em := context.base.emitter;
-  em.emit_string_line(`// Dispose function for async block ${async_block_id.clone()} state machine`);
-  em.emit_line("// Called by __yo_decr_rc when refcount hits 0 - do NOT call __yo_free here");
-  em.emit_string_line(`void ${dispose_function_name.clone()}(void* sm_ptr) {`);
-  em.emit_string_line(`  ${struct_name.clone()}* sm = (${struct_name.clone()}*)sm_ptr;`);
-  em.emit_string_line(`  ASYNC_DEBUG("${dispose_function_name.clone()}: Disposing state machine\\n");`);
+  context.base.emitter.emit_string_line(`// Dispose function for async block ${async_block_id.clone()} state machine`);
+  context.base.emitter.emit_line("// Called by __yo_decr_rc when refcount hits 0 - do NOT call __yo_free here");
+  context.base.emitter.emit_string_line(`void ${dispose_function_name.clone()}(void* sm_ptr) {`);
+  context.base.emitter.emit_string_line(`  ${struct_name.clone()}* sm = (${struct_name.clone()}*)sm_ptr;`);
+  context.base.emitter.emit_string_line(`  ASYNC_DEBUG("${dispose_function_name.clone()}: Disposing state machine\\n");`);
   // Its last reference is gone: an effect-unwind abort nobody observed is
   // reported now (gc_runtime.yo, emit_task_abort_registry).
-  em.emit_line("  __yo_task_abort_released(sm_ptr);");
-  em.emit_line("");
+  context.base.emitter.emit_line("  __yo_task_abort_released(sm_ptr);");
+  context.base.emitter.emit_line("");
   // Drop the capture struct. The constructor receives it DUP'd (the closure
   // arg's deferred capture dups are applied at the call site — see
   // `fsm_capture_dups` in generate_async_block), so the state machine owns
@@ -1303,8 +1312,8 @@ generate_async_block_state_dispose_function :: (
         match(
           get_drop_function_for_type(&cap_ty, context),
           .Some(drop_fn) => if(_owned_capture_fields(&cap_ty).len() > usize(0), _emit_inline_capture_field_drops(&cap_ty, context), {
-            em.emit_line("  ASYNC_DEBUG(\"  Dropping capture struct\\n\");");
-            em.emit_string_line(`  ${drop_fn}(sm->__capture);`);
+            context.base.emitter.emit_line("  ASYNC_DEBUG(\"  Dropping capture struct\\n\");");
+            context.base.emitter.emit_string_line(`  ${drop_fn}(sm->__capture);`);
           }),
           .None => _emit_inline_capture_field_drops(&cap_ty, context)
         );
@@ -1312,16 +1321,16 @@ generate_async_block_state_dispose_function :: (
     }),
     .None => ()
   );
-  em.emit_line("");
+  context.base.emitter.emit_line("");
   // Drop the result field if it contains GC-managed data (state == -1 = completed).
   if(!is_unit_type(result_type) && type_contains_rc_cell_or_move_only(result_type), {
-    em.emit_line("  // Drop result field if it was set (state == -1 means completed)");
-    em.emit_line("  int final_state = sm->state;");
-    em.emit_line("  if (final_state == -1) {");
-    em.emit_line("    ASYNC_DEBUG(\"  Dropping result field\\n\");");
+    context.base.emitter.emit_line("  // Drop result field if it was set (state == -1 means completed)");
+    context.base.emitter.emit_line("  int final_state = sm->state;");
+    context.base.emitter.emit_line("  if (final_state == -1) {");
+    context.base.emitter.emit_line("    ASYNC_DEBUG(\"  Dropping result field\\n\");");
     match(
       get_drop_function_for_type(result_type, context),
-      .Some(drop_fn) => em.emit_string_line(`    ${drop_fn}(sm->result);`),
+      .Some(drop_fn) => context.base.emitter.emit_string_line(`    ${drop_fn}(sm->result);`),
       // INLINE drop, not a warning comment. No ___drop methods are synthesized
       // (see drop_dup.yo), so `.None` is the ONLY path here — the
       // old warning meant every state machine whose RC result was completed
@@ -1332,13 +1341,13 @@ generate_async_block_state_dispose_function :: (
       .None => {
         drop_code := generate_drop_code_for_value(String.from("sm->result"), result_type, context);
         if(drop_code.len() > usize(0), {
-          em.emit_string_line(`    ${drop_code};`);
+          context.base.emitter.emit_string_line(`    ${drop_code};`);
         });
       }
     );
-    em.emit_line("  }");
+    context.base.emitter.emit_line("  }");
   });
-  em.emit_line("");
+  context.base.emitter.emit_line("");
   // Drop cross-boundary locals when unwind aborted the SM (state == -2). Normal
   // completion drops locals inline in the final state.
   mut(local_drop_lines) := ArrayList(String).new();
@@ -1395,35 +1404,35 @@ generate_async_block_state_dispose_function :: (
     );
   });
   if(local_drop_lines.len() > usize(0), {
-    em.emit_line("  // Drop local variables on escape (state == -2)");
-    em.emit_line("  if (sm->state == -2) {");
-    em.emit_string_line(`    ${dispose_function_name.clone()}_locals(sm_ptr);`);
-    em.emit_line("  }");
+    context.base.emitter.emit_line("  // Drop local variables on escape (state == -2)");
+    context.base.emitter.emit_line("  if (sm->state == -2) {");
+    context.base.emitter.emit_string_line(`    ${dispose_function_name.clone()}_locals(sm_ptr);`);
+    context.base.emitter.emit_line("  }");
   });
   // A fused site's fields (await-site fusion): released only while the site
   // is live (`_emit_fused_sites_dispose`).
   _emit_fused_sites_dispose(&fused_await_sites(analysis, context), context);
-  em.emit_line("  // Memory freed by __yo_decr_rc after this function returns");
-  em.emit_line("}");
+  context.base.emitter.emit_line("  // Memory freed by __yo_decr_rc after this function returns");
+  context.base.emitter.emit_line("}");
   // The locals' drops on their own: the abort dispose above, and a block that
   // catches one of its own handlers' unwinds before completing
   // (`emit_sm_unwind_catch`).
-  em.emit_string_line(`void ${dispose_function_name.clone()}_locals(void* sm_ptr) {`);
+  context.base.emitter.emit_string_line(`void ${dispose_function_name.clone()}_locals(void* sm_ptr) {`);
   if(local_drop_lines.len() > usize(0), {
-    em.emit_string_line(`  ${struct_name.clone()}* sm = (${struct_name.clone()}*)sm_ptr;`);
+    context.base.emitter.emit_string_line(`  ${struct_name.clone()}* sm = (${struct_name.clone()}*)sm_ptr;`);
     (mut(j) : usize) = usize(0);
     while(j < local_drop_lines.len(), {
-      match(local_drop_lines.get_cloned(j), .Some(line) => em.emit_string_line(&line), .None => ());
+      match(local_drop_lines.get_cloned(j), .Some(line) => context.base.emitter.emit_string_line(&line), .None => ());
       j = (j + usize(1));
     });
-  }, em.emit_line("  (void)sm_ptr;"));
-  em.emit_line("}");
+  }, context.base.emitter.emit_line("  (void)sm_ptr;"));
+  context.base.emitter.emit_line("}");
 });
 /// The allocation of a future of type `struct_name`: one from its type's pool
 /// (phase 7; the dispose dispatch gives released ones back). A task is never
 /// placed: it is global, as every creation without an `alloc` argument is
 /// (plans/backlog/ALLOCATOR_PLACEMENT.md §6 B2b). The caller zeroes it.
-_sm_alloc_call :: (fn(struct_name : &String, dispose_function_name : &String, context : &FunctionGenerationContext) -> String)({
+_sm_alloc_call :: (fn(struct_name : &String, dispose_function_name : &String, context : &mut FunctionGenerationContext) -> String)({
   pid := context.base.sm_pool_id_for(dispose_function_name);
   `__yo_sm_take(${pid.to_string()}, sizeof(${struct_name}))`
 });
@@ -1433,63 +1442,63 @@ _sm_alloc_call :: (fn(struct_name : &String, dispose_function_name : &String, co
 /// set_effect fn pointers. Returns a cold (unstarted, RC=1) future.
 /// `async_block_id` and `future_type` are retained for signature fidelity (unused).
 generate_async_block_constructor :: (
-  fn(async_block_id : &String, struct_name : &String, resume_function_name : &String, constructor_name : &String, dispose_function_name : &String, set_effect_function_name : &String, cancel_pending_function_name : &Option(String), vt_bundle : &String, future_type : &TypeValue, result_type : &TypeValue, result_type_c_name : &String, capture_type : &Option(TypeValue), context : &FunctionGenerationContext) -> unit
+  fn(async_block_id : &String, struct_name : &String, resume_function_name : &String, constructor_name : &String, dispose_function_name : &String, set_effect_function_name : &String, cancel_pending_function_name : &Option(String), vt_bundle : &String, future_type : &TypeValue, result_type : &TypeValue, result_type_c_name : &String, capture_type : &Option(TypeValue), context : &mut FunctionGenerationContext) -> unit
 )({
-  em := context.base.emitter;
   // Constructor signature (returns a pointer for a stable Future/SM address).
   // The per-TYPE operations live in one static vtable the prefix points at
   // (`__yo_future_vtable_t`), not in every instance.
   vt_cancel := match(cancel_pending_function_name.clone(), .Some(cpfn) => cpfn, .None => String.from("NULL"));
-  em.emit_string_line(`static const __yo_future_vtable_t ${struct_name.clone()}_vt = { ${resume_function_name.clone()}, ${set_effect_function_name.clone()}, ${vt_cancel}, ${vt_bundle} };`);
+  context.base.emitter.emit_string_line(`static const __yo_future_vtable_t ${struct_name.clone()}_vt = { ${resume_function_name.clone()}, ${set_effect_function_name.clone()}, ${vt_cancel}, ${vt_bundle} };`);
   match(
     capture_type,
     .Some(cap_ty) => {
       capture_struct_name := _find_capture_type_c_name(&cap_ty, context);
-      em.emit_string_line(`${struct_name.clone()}* ${constructor_name.clone()}(${capture_struct_name} __capture) {`);
+      context.base.emitter.emit_string_line(`${struct_name.clone()}* ${constructor_name.clone()}(${capture_struct_name} __capture) {`);
     },
-    .None => em.emit_string_line(`${struct_name.clone()}* ${constructor_name.clone()}() {`)
+    .None => context.base.emitter.emit_string_line(`${struct_name.clone()}* ${constructor_name.clone()}() {`)
   );
   // Allocate + zero-init the state machine.
-  em.emit_line("  // Allocate async block state machine (heap-backed, ref-counted)");
-  em.emit_string_line(`  ${struct_name.clone()}* sm = (${struct_name.clone()}*)${_sm_alloc_call(struct_name.clone(), dispose_function_name.clone(), context)};`);
-  em.emit_string_line(`  memset(sm, 0, sizeof(${struct_name.clone()}));`);
-  em.emit_string_line(`  ${struct_name.clone()}_init_move_flags((struct ${struct_name.clone()}_struct*)sm);`);
-  em.emit_line("");
+  context.base.emitter.emit_line("  // Allocate async block state machine (heap-backed, ref-counted)");
+  emit_text5 := `  ${struct_name.clone()}* sm = (${struct_name.clone()}*)${_sm_alloc_call(struct_name.clone(), dispose_function_name.clone(), context)};`;
+  context.base.emitter.emit_string_line(&emit_text5);
+  context.base.emitter.emit_string_line(`  memset(sm, 0, sizeof(${struct_name.clone()}));`);
+  context.base.emitter.emit_string_line(`  ${struct_name.clone()}_init_move_flags((struct ${struct_name.clone()}_struct*)sm);`);
+  context.base.emitter.emit_line("");
   // Reference-counting header.
-  em.emit_line("  // Initialize reference counting header");
-  em.emit_line("  sm->header.ref_count = 1u;  // Caller owns initial reference");
+  context.base.emitter.emit_line("  // Initialize reference counting header");
+  context.base.emitter.emit_line("  sm->header.ref_count = 1u;  // Caller owns initial reference");
   tid := context.base.dispose_type_id_for(dispose_function_name.clone());
-  em.emit_string_line(`  sm->header.type_id = ${tid.to_string()};`);
-  em.emit_line("");
-  em.emit_line("  sm->state = 0;");
-  em.emit_string_line(`  sm->vt = &${struct_name.clone()}_vt;  // resume, set_effect, abort hook (per type)`);
-  em.emit_line("  sm->continuation_fn = NULL;");
-  em.emit_line("  sm->continuation_sm = NULL;");
-  em.emit_line("");
+  context.base.emitter.emit_string_line(`  sm->header.type_id = ${tid.to_string()};`);
+  context.base.emitter.emit_line("");
+  context.base.emitter.emit_line("  sm->state = 0;");
+  context.base.emitter.emit_string_line(`  sm->vt = &${struct_name.clone()}_vt;  // resume, set_effect, abort hook (per type)`);
+  context.base.emitter.emit_line("  sm->continuation_fn = NULL;");
+  context.base.emitter.emit_line("  sm->continuation_sm = NULL;");
+  context.base.emitter.emit_line("");
   // Capture struct.
   match(
     capture_type,
     .Some(ctor_cap_ty) => {
-      em.emit_line("  // Initialize captured variables");
-      em.emit_line("  sm->__capture = __capture;");
+      context.base.emitter.emit_line("  // Initialize captured variables");
+      context.base.emitter.emit_line("  sm->__capture = __capture;");
       lent_sm := String.from("sm");
       lent_indent := String.from("  ");
       _emit_lent_param_installs(&ctor_cap_ty, &lent_sm, &lent_indent, context);
-      em.emit_line("");
+      context.base.emitter.emit_line("");
     },
     .None => ()
   );
   // Zero-initialize the result.
-  em.emit_line("  // Initialize result (will be set when async block completes)");
+  context.base.emitter.emit_line("  // Initialize result (will be set when async block completes)");
   if(is_unit_type(result_type), {
-    em.emit_line("  // Result is unit type, no initialization needed");
+    context.base.emitter.emit_line("  // Result is unit type, no initialization needed");
   }, {
-    em.emit_string_line(`  memset(&sm->result, 0, sizeof(${result_type_c_name.clone()}));`);
+    context.base.emitter.emit_string_line(`  memset(&sm->result, 0, sizeof(${result_type_c_name.clone()}));`);
   });
-  em.emit_line("");
-  em.emit_line("  return sm;");
-  em.emit_line("}");
-  em.emit_line("");
+  context.base.emitter.emit_line("");
+  context.base.emitter.emit_line("  return sm;");
+  context.base.emitter.emit_line("}");
+  context.base.emitter.emit_line("");
 });
 /// Extract the captured-variable name a deferred `___dup` expression targets:
 /// either the function-call form `___dup(varName)` (args[0] is an atom) or the
@@ -1532,15 +1541,14 @@ _dup_expr_var_name :: (fn(dup_expr : &AstExpr) -> Option(String))({
 /// future's implicit capture moves out of: the slot plus a marker, after whose
 /// line the slot's move flag is set or, with no flag, the slot is emptied, as
 /// `_sm_consuming_read` (exprs/atom.yo) does for a capture-list entry's move.
-_sm_capture_moved_out :: (fn(sm_code : &String, context : &FunctionGenerationContext) -> String)({
+_sm_capture_moved_out :: (fn(sm_code : &String, context : &mut FunctionGenerationContext) -> String)({
   marker := `/*yo_mv:${fresh_local_name(String.from("m"), context.base.current_function_name.clone())}*/`;
   stmts := match(
     sm_move_flag_of(sm_code.clone(), sm_owns_fnonce_captures(context)),
     .Some(flag) => `${flag} = 1;  // moved into a nested future's capture`,
     .None => `memset(&(${sm_code}), 0, sizeof(${sm_code}));  // moved into a nested future's capture`
   );
-  em := context.base.emitter;
-  em.defer_move_zero(marker.clone(), &stmts);
+  context.base.emitter.defer_move_zero(marker.clone(), &stmts);
   `${sm_code} ${marker}`
 });
 /// Build the capture-struct initializer literal for an io.async block:
@@ -1568,14 +1576,14 @@ _build_async_capture_struct_literal :: (
     capture_type : &TypeValue,
     capture_struct_name : &String,
     indent : &String,
-    context : &FunctionGenerationContext,
+    context : &mut FunctionGenerationContext,
     /// A capture list's evaluated entries (decision 35): a borrow entry's
     /// field stores the address of its place (§3.13 A2), and a by-value
     /// entry (`{ k }`, `{ m : k }`) its initializer.
     (field_inits : &Option(ArrayList(CaptureFieldInit))) ?= Option(ArrayList(CaptureFieldInit)).None
   ) -> String
 )({
-  in_special_context := (match(&context.current_closure_captures, .Some(_) => true, .None => false) || match(context.in_async_state_machine, .Some(_) => true, .None => false));
+  in_special_context := (match(&context.current_closure_captures, .Some(_) => true, .None => false) || match(&context.in_async_state_machine, .Some(_) => true, .None => false));
   // Each field's type from the instantiated capture type, not the registry:
   // a closure in a generic body shares one capture struct id across its
   // instantiations, so the registry's field types are another
@@ -1651,7 +1659,7 @@ _build_async_capture_struct_literal :: (
               if(in_special_context, Option(AstExpr).None, matched),
               .Some(dup_expr) => {
                 settled.insert(label.clone());
-                dup_var := match(context.base.get_expr_info(&dup_expr), .Some(dei) => dei.variable_name.clone(), .None => Option(String).None);
+                dup_var := match(context.base.get_expr_info(&dup_expr), .Some(dei) => dei.variable_name(), .None => Option(String).None);
                 match(
                   dup_var,
                   .Some(vname) => {
@@ -1704,7 +1712,7 @@ _build_async_capture_struct_literal :: (
                     // through the call's env could land on an unrelated temp.
                     local_c := sanitize_for_c_identifier(label.clone(), false);
                     cname := if(context.base.declared_scopes.with(ds_s => scope_stack_contains(ds_s, local_c.clone())) || context.base.declared_c_var_names.with(dn_s => dn_s.contains(local_c.clone())), local_c, {
-                      cap_env := match(context.base.get_expr_info(expr), .Some(cei_f) => Option(Environment).Some(cei_f.env), .None => Option(Environment).None);
+                      cap_env := match(context.base.get_expr_info(expr), .Some(cei_f) => Option(Environment).Some(cei_f.env()), .None => Option(Environment).None);
                       get_variable_name_for_codegen_at(ast_expr_id(expr), label.clone(), &cap_env)
                     });
                     parts.push(`.${label_c} = ${cname}`);
@@ -1760,14 +1768,13 @@ _build_async_capture_struct_literal :: (
     ri = (ri + usize(1));
   });
   if(retain_lines.len() > usize(0), {
-    em := context.base.emitter;
-    em.emit_string_line(`${indent.clone()}${capture_struct_name.clone()} ${tmp.clone()} = ${literal.clone()};`);
+    context.base.emitter.emit_string_line(`${indent.clone()}${capture_struct_name.clone()} ${tmp.clone()} = ${literal.clone()};`);
     (mut(li) : usize) = usize(0);
     while(li < retain_lines.len(), {
       match(
         retain_lines.get_cloned(li),
         .Some(line) => {
-          em.emit_string_line(&line);
+          context.base.emitter.emit_string_line(&line);
         },
         .None => ()
       );
@@ -1862,7 +1869,7 @@ fused_await_site :: (fn(await_expr : &AstExpr, report : bool, context : &Functio
       (mut(bi) : usize) = usize(0);
       while((bi < blocks.len()) && found.is_none(), bi = (bi + usize(1)), {
         match(
-          blocks.get(bi),
+          blocks.get_cloned(bi),
           .Some(b) => if(b.source_call_id == ast_expr_id(&io_call), {
             found = Option(DeferredAsyncBlock).Some(b);
           }),
@@ -1872,7 +1879,7 @@ fused_await_site :: (fn(await_expr : &AstExpr, report : bool, context : &Functio
     },
     .None => ()
   );
-  block := match(found, .Some(b) => b, .None => return(_fusion_not_lowered(await_expr, String.from("the wrapper's state machine is not registered"), report)));
+  block := match(found, .Some(b) => Rc.clone(b), .None => return(_fusion_not_lowered(await_expr, String.from("the wrapper's state machine is not registered"), report)));
   // Nested fusion (F3): the enclosing fused blocks are the segments of the
   // prefix in force. A wrapper already on that chain is recursive through the
   // fused path (§3.1 rule 5), and the chain stops at depth 4.
@@ -1913,7 +1920,7 @@ fused_await_site :: (fn(await_expr : &AstExpr, report : bool, context : &Functio
   );
   n_args := match(
     context.base.get_expr_info(&future_arg),
-    .Some(cei) => match(&cei.runtime_arg_exprs_in_order, .Some(ra) => ra.len(), .None => usize(0)),
+    .Some(cei) => match(&cei.runtime_arg_exprs_in_order(), .Some(ra) => ra.len(), .None => usize(0)),
     .None => usize(0)
   );
   if(n_args != n_params, {
@@ -1923,10 +1930,10 @@ fused_await_site :: (fn(await_expr : &AstExpr, report : bool, context : &Functio
   if(n_slots != usize(1), {
     return(_fusion_not_lowered(await_expr, String.from("the block does not take exactly one bundle parameter"), report));
   });
-  bundle_ty := match(&block.closure_param_slots, .Some(s) => match(s.get(usize(0)), .Some(sl) => Rc.clone(sl.param_type), .None => Rc.new(TypeValueNode.Unit)), .None => Rc.new(TypeValueNode.Unit));
+  bundle_ty := match(&block.closure_param_slots, .Some(s) => match(s.get_cloned(usize(0)), .Some(sl) => Rc.clone(sl.param_type), .None => Rc.new(TypeValueNode.Unit)), .None => Rc.new(TypeValueNode.Unit));
   effects_ty := match(
     await_args.get(usize(1)),
-    .Some(ea) => match(context.base.get_expr_info(&ea), .Some(eei) => Option(TypeValue).Some(Rc.clone(eei.ty)), .None => Option(TypeValue).None),
+    .Some(ea) => match(context.base.get_expr_info(&ea), .Some(eei) => Option(TypeValue).Some(Rc.clone(eei.ty())), .None => Option(TypeValue).None),
     .None => Option(TypeValue).None
   );
   if(match(effects_ty, .Some(et) => (type_key(&et) != type_key(&bundle_ty)), .None => true), {
@@ -1940,7 +1947,7 @@ fused_await_site :: (fn(await_expr : &AstExpr, report : bool, context : &Functio
       wrapper_body : wrapper_body,
       prologue : prologue,
       io_async_call : io_call,
-      block : block,
+      block : Rc.clone(block),
       cross_ids : _block_cross_boundary(&block, context).cross_boundary_ids.clone()
     )
   )
@@ -1948,7 +1955,7 @@ fused_await_site :: (fn(await_expr : &AstExpr, report : bool, context : &Functio
 /// The fused sites of a state machine whose await analysis is `analysis`: one
 /// per wrapper block and depth (sites that share a prefix share fields), and,
 /// through each, the sites nested in its block (F3), under its prefix.
-fused_await_sites :: (fn(analysis : &AwaitAnalysisResult, context : &FunctionGenerationContext) -> ArrayList(FusedAwaitSite))({
+fused_await_sites :: (fn(analysis : &AwaitAnalysisResult, context : &mut FunctionGenerationContext) -> ArrayList(FusedAwaitSite))({
   mut(out) := ArrayList(FusedAwaitSite).new();
   if(!_async_fusion_enabled(), {
     return(out);
@@ -1959,7 +1966,7 @@ fused_await_sites :: (fn(analysis : &AwaitAnalysisResult, context : &FunctionGen
 /// `fused_await_sites`' walk: the sites among `analysis`'s awaits under the
 /// prefix in force, then each one's nested sites under its own prefix.
 _collect_fused_sites :: (
-  fn(analysis : &AwaitAnalysisResult, seen : &mut HashSet(String), out : &mut ArrayList(FusedAwaitSite), context : &FunctionGenerationContext) -> unit
+  fn(analysis : &AwaitAnalysisResult, seen : &mut HashSet(String), out : &mut ArrayList(FusedAwaitSite), context : &mut FunctionGenerationContext) -> unit
 )({
   (mut(i) : usize) = usize(0);
   while(i < analysis.await_points.len(), i = (i + usize(1)), {
@@ -2030,20 +2037,22 @@ _fused_local_fields :: (fn(site : &FusedAwaitSite) -> ArrayList(FusedLocalField)
 /// The fields the fused sites of a state machine add to its struct: each
 /// wrapper block's capture struct, bundle parameter, locals and await results.
 /// The locals' move flags are added to `move_flags`.
-_emit_fused_site_fields :: (fn(sites : &ArrayList(FusedAwaitSite), move_flags : &mut ArrayList(String), context : &FunctionGenerationContext) -> unit)({
-  em := context.base.emitter;
+_emit_fused_site_fields :: (fn(sites : &ArrayList(FusedAwaitSite), move_flags : &mut ArrayList(String), context : &mut FunctionGenerationContext) -> unit)({
   // A wrapper block reached at two depths has one set of local fields: its
   // locals' names come from the naming registry, and its sites run one after
   // the other.
   local_names := HashSet(String).new();
   for(&sites, site => {
-    em.emit_declaration_string_line(`  // fused wrapper block ${site.block.async_block_id.clone()} (await-site fusion)`);
+    context.base.emitter.emit_declaration_string_line(`  // fused wrapper block ${site.block.async_block_id.clone()} (await-site fusion)`);
     if(_fused_site_has_releases(&site), {
-      em.emit_declaration_string_line(`  uint8_t ${site.prefix}live;  // the site is running: the dispose releases its fields`);
+      context.base.emitter.emit_declaration_string_line(`  uint8_t ${site.prefix}live;  // the site is running: the dispose releases its fields`);
     });
     match(
       &site.block.capture_type,
-      .Some(ct) => em.emit_declaration_string_line(`  ${_find_capture_type_c_name(&ct, context)} ${site.prefix}capture;`),
+      .Some(ct) => {
+        emit_text6 := `  ${_find_capture_type_c_name(&ct, context)} ${site.prefix}capture;`;
+        context.base.emitter.emit_declaration_string_line(&emit_text6);
+      },
       .None => ()
     );
     match(
@@ -2051,7 +2060,7 @@ _emit_fused_site_fields :: (fn(sites : &ArrayList(FusedAwaitSite), move_flags : 
       .Some(slots) => {
         (mut(pi) : usize) = usize(0);
         while(pi < slots.len(), pi = (pi + usize(1)), {
-          match(slots.get(pi), .Some(sl) => em.emit_declaration_string_line(`  ${sl.c_type.clone()} ${site.prefix}param_${pi.to_string()};  // ${sl.param_name.clone()}`), .None => ());
+          match(slots.get_cloned(pi), .Some(sl) => context.base.emitter.emit_declaration_string_line(`  ${sl.c_type.clone()} ${site.prefix}param_${pi.to_string()};  // ${sl.param_name.clone()}`), .None => ());
         });
       },
       .None => ()
@@ -2063,13 +2072,14 @@ _emit_fused_site_fields :: (fn(sites : &ArrayList(FusedAwaitSite), move_flags : 
         lfs.get_cloned(li),
         .Some(lf) => if(!local_names.contains(lf.field_name.clone()), {
           local_names.insert(lf.field_name.clone());
-          em.emit_declaration_string_line(`  ${get_type_string(&lf.ty, &context.base)} ${lf.field_name.clone()};`);
+          emit_text7 := `  ${get_type_string(&lf.ty, &mut context.base)} ${lf.field_name.clone()};`;
+          context.base.emitter.emit_declaration_string_line(&emit_text7);
           // A named local's move flag, as in the wrapper's own struct: the
           // fused body's moves and stores name the same field
           // (`note_sm_move_flag_field`).
           if(!is_any_temp_variable_name(lf.name.clone()), {
             note_sm_move_flag_field(lf.field_name.clone());
-            em.emit_declaration_string_line(`  uint8_t __yo_mv_${lf.field_name.clone()};  // ${lf.name.clone()} was moved out`);
+            context.base.emitter.emit_declaration_string_line(`  uint8_t __yo_mv_${lf.field_name.clone()};  // ${lf.name.clone()} was moved out`);
             move_flags.push(`__yo_mv_${lf.field_name.clone()}`);
           });
         }),
@@ -2081,7 +2091,14 @@ _emit_fused_site_fields :: (fn(sites : &ArrayList(FusedAwaitSite), move_flags : 
     context.fusion_field_prefix = saved_prefix;
     (mut(ri) : usize) = usize(0);
     while(ri < rfs.len(), ri = (ri + usize(1)), {
-      match(rfs.get_cloned(ri), .Some(rf) => em.emit_declaration_string_line(`  ${get_type_string(&rf.ty, &context.base)} ${rf.name};  // a fused await's result`), .None => ());
+      match(
+        rfs.get_cloned(ri),
+        .Some(rf) => {
+          emit_text8 := `  ${get_type_string(&rf.ty, &mut context.base)} ${rf.name};  // a fused await's result`;
+          context.base.emitter.emit_declaration_string_line(&emit_text8);
+        },
+        .None => ()
+      );
     });
   });
 });
@@ -2114,16 +2131,15 @@ _fused_capture_has_releases :: (fn(site : &FusedAwaitSite) -> bool)(
 /// released while that site is live; a local field is released once, while
 /// any site that has it is live (a wrapper block reached at two depths shares
 /// its local fields, and its sites run one after the other).
-_emit_fused_sites_dispose :: (fn(sites : &ArrayList(FusedAwaitSite), context : &FunctionGenerationContext) -> unit)({
-  em := context.base.emitter;
+_emit_fused_sites_dispose :: (fn(sites : &ArrayList(FusedAwaitSite), context : &mut FunctionGenerationContext) -> unit)({
   locals := ArrayList(FusedLocalField).new();
   local_names := HashSet(String).new();
   for(&sites, site => {
     if(_fused_site_has_releases(&site), {
       if(_fused_capture_has_releases(&site), {
-        em.emit_string_line(`  if (sm->${site.prefix}live) {`);
+        context.base.emitter.emit_string_line(`  if (sm->${site.prefix}live) {`);
         _emit_fused_capture_releases(&site, String.from("    "), false, context);
-        em.emit_line("  }");
+        context.base.emitter.emit_line("  }");
       });
       lfs := _fused_local_fields(&site);
       for(&lfs, lf => {
@@ -2145,14 +2161,14 @@ _emit_fused_sites_dispose :: (fn(sites : &ArrayList(FusedAwaitSite), context : &
         });
       });
     });
-    em.emit_string_line(`  if (${guard}) {`);
+    context.base.emitter.emit_string_line(`  if (${guard}) {`);
     _emit_fused_local_release(&lf, String.from("    "), false, context);
-    em.emit_line("  }");
+    context.base.emitter.emit_line("  }");
   });
 });
 /// Release what a fused site's fields hold at the site's end, zero them, and
 /// clear the site's `live` flag (`_fused_site_has_releases`).
-_emit_fused_site_end_releases :: (fn(site : &FusedAwaitSite, indent : &String, context : &FunctionGenerationContext) -> unit)({
+_emit_fused_site_end_releases :: (fn(site : &FusedAwaitSite, indent : &String, context : &mut FunctionGenerationContext) -> unit)({
   _emit_fused_capture_releases(site, indent, true, context);
   lfs := _fused_local_fields(site);
   for(&lfs, lf => {
@@ -2163,8 +2179,7 @@ _emit_fused_site_end_releases :: (fn(site : &FusedAwaitSite, indent : &String, c
   });
 });
 /// Release a fused site's capture fields (`zero`: then zero the struct).
-_emit_fused_capture_releases :: (fn(site : &FusedAwaitSite, indent : &String, zero : bool, context : &FunctionGenerationContext) -> unit)({
-  em := context.base.emitter;
+_emit_fused_capture_releases :: (fn(site : &FusedAwaitSite, indent : &String, zero : bool, context : &mut FunctionGenerationContext) -> unit)({
   match(
     &site.block.capture_type,
     .Some(ct) => {
@@ -2175,14 +2190,14 @@ _emit_fused_capture_releases :: (fn(site : &FusedAwaitSite, indent : &String, ze
         match(
           fields.get_cloned(fi),
           .Some(f) => if(!f.is_effect_param, {
-            match(_rc_field_drop_line(`sm->${site.prefix}capture.${sanitize_for_c_identifier(f.label.clone(), false)}`, &f.ty, indent.clone(), context), .Some(line) => em.emit_string_line(&line), .None => ());
+            match(_rc_field_drop_line(`sm->${site.prefix}capture.${sanitize_for_c_identifier(f.label.clone(), false)}`, &f.ty, indent.clone(), context), .Some(line) => context.base.emitter.emit_string_line(&line), .None => ());
           }),
           .None => ()
         );
       });
       // Only a field the dispose would release needs zeroing.
       if(zero && type_contains_rc_cell_or_move_only(&ct), {
-        em.emit_string_line(`${indent}memset(&sm->${site.prefix}capture, 0, sizeof(sm->${site.prefix}capture));`);
+        context.base.emitter.emit_string_line(`${indent}memset(&sm->${site.prefix}capture, 0, sizeof(sm->${site.prefix}capture));`);
       });
     },
     .None => ()
@@ -2190,13 +2205,12 @@ _emit_fused_capture_releases :: (fn(site : &FusedAwaitSite, indent : &String, ze
 });
 /// One local field of a fused site, at the site's end (`zero`: the block's
 /// scope-end drops released it, so only zero it) or in the dispose.
-_emit_fused_local_release :: (fn(lf : &FusedLocalField, indent : &String, zero : bool, context : &FunctionGenerationContext) -> unit)({
-  em := context.base.emitter;
+_emit_fused_local_release :: (fn(lf : &FusedLocalField, indent : &String, zero : bool, context : &mut FunctionGenerationContext) -> unit)({
   if(zero, {
     // The block's own scope-end drops released it; zero it when the dispose
     // would release it, so the dispose finds nothing left.
     if(type_contains_rc_cell_or_move_only(&lf.ty), {
-      em.emit_string_line(`${indent}memset(&sm->${lf.field_name.clone()}, 0, sizeof(sm->${lf.field_name.clone()}));`);
+      context.base.emitter.emit_string_line(`${indent}memset(&sm->${lf.field_name.clone()}, 0, sizeof(sm->${lf.field_name.clone()}));`);
     });
   }, {
     match(
@@ -2204,7 +2218,7 @@ _emit_fused_local_release :: (fn(lf : &FusedLocalField, indent : &String, zero :
       .Some(line) => {
         // A slot whose value moved out keeps it for the name's reads (its new
         // owner releases it), and one its scope dropped is emptied.
-        em.emit_string_line(&_unless_moved_out(&`sm->${lf.field_name.clone()}`, &line));
+        context.base.emitter.emit_string_line(&_unless_moved_out(&`sm->${lf.field_name.clone()}`, &line));
       },
       .None => ()
     );
@@ -2232,7 +2246,7 @@ _fused_sm_variables :: (fn(site : &FusedAwaitSite) -> HashMap(String, CapturedVa
       (mut(pi) : usize) = usize(0);
       while(pi < slots.len(), pi = (pi + usize(1)), {
         match(
-          slots.get(pi),
+          slots.get_cloned(pi),
           .Some(sl) => {
             pid := `__closure_param_${pi.to_string()}`;
             vars.insert(pid.clone(), _make_sm_captured_variable(&pid, sl.param_name.clone(), &sl.param_type, CapturedVariableKind.Local));
@@ -2288,8 +2302,7 @@ _fused_statements :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
 );
 derive(FusedLocalField, Clone);
 /// Emit the statements of a body at `indent`, returning the tail's value code.
-_emit_fused_statements :: (fn(stmts : &ArrayList(AstExpr), indent : &String, context : &FunctionGenerationContext) -> String)({
-  em := context.base.emitter;
+_emit_fused_statements :: (fn(stmts : &ArrayList(AstExpr), indent : &String, context : &mut FunctionGenerationContext) -> String)({
   (mut(tail) : String) = String.from("");
   (mut(i) : usize) = usize(0);
   while(i < stmts.len(), i = (i + usize(1)), {
@@ -2305,9 +2318,9 @@ _emit_fused_statements :: (fn(stmts : &ArrayList(AstExpr), indent : &String, con
         if(is_tail, {
           tail = code;
         }, {
-          skip := ((code.len() == usize(0)) || match(context.base.get_expr_info(&st), .Some(sei) => is_temp_variable_name(&sei.env.module_path.*, code.clone()), .None => true));
+          skip := ((code.len() == usize(0)) || match(context.base.get_expr_info(&st), .Some(sei) => is_temp_variable_name(&sei.env().module_path().*, code.clone()), .None => true));
           if(!skip, {
-            em.emit_string_line(`${indent}${code};`);
+            context.base.emitter.emit_string_line(`${indent}${code};`);
           });
         });
       },
@@ -2339,10 +2352,9 @@ _fused_arg_carries_call_share :: (fn(arg : &AstExpr, context : &FunctionGenerati
 });
 /// Lower `await_expr` as a fused site, or return `.None` to leave it to the
 /// ordinary suspension. Returns the C code of the await's value.
-emit_fused_await :: (fn(await_expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> Option(String))({
+emit_fused_await :: (fn(await_expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> Option(String))({
   site := match(fused_await_site(await_expr, true, context), .Some(s) => s, .None => return(Option(String).None));
-  low := match(context.sm_inline_lowering, .Some(l) => l, .None => return(Option(String).None));
-  em := context.base.emitter;
+  low_analysis := match(sm_lowering_analysis(context), .Some(a) => a, .None => return(Option(String).None));
   await_args := match(await_expr, .FnCall(_, _, _, _, _) => ast_call_args_unmarked(await_expr), _ => ArrayList(AstExpr).new());
   effects_arg := match(await_args.get(usize(1)), .Some(ea) => ea, .None => return(Option(String).None));
   if(debug_knob(String.from("YO_DEBUG_FUSION")).is_some(), {
@@ -2353,21 +2365,21 @@ emit_fused_await :: (fn(await_expr : &AstExpr, indent : &String, context : &Func
     eprintln(`fusion: ${tok.module_path.*}:${tok.row.to_string()}:${tok.column.to_string()} fused (callee ${callee_at})`);
   });
   // The await's own result field, under the caller's names.
-  outer_field := inline_await_result_field_of(await_expr, inline_await_result_fields(&low.analysis, context));
+  outer_field := inline_await_result_field_of(await_expr, inline_await_result_fields(&low_analysis, context));
   // No future is built: the temp the evaluator minted for one holds nothing,
   // so its scope-end drop is not emitted.
   match(
     context.base.get_expr_info(&site.call),
     .Some(fei) => match(
-      &fei.variable_name,
+      &fei.variable_name(),
       .Some(fvn) => {
-        low.moved_into_slot.insert(get_variable_name_for_codegen_at(ast_expr_id(&site.call), &fvn, Option(Environment).Some(fei.env)));
+        sm_lowering_note_moved_into_slot(context, get_variable_name_for_codegen_at(ast_expr_id(&site.call), &fvn, Option(Environment).Some(fei.env())));
       },
       .None => ()
     ),
     .None => ()
   );
-  em.emit_string_line(`${indent}// fused await (plans/backlog/ASYNC_AWAIT_SITE_FUSION.md): the wrapper runs here`);
+  context.base.emitter.emit_string_line(`${indent}// fused await (plans/backlog/ASYNC_AWAIT_SITE_FUSION.md): the wrapper runs here`);
   // Or a C local, declared outside the site's block, when no suspension
   // separates the await from its statement's use of the value.
   (mut(outer_local) : String) = String.from("");
@@ -2375,10 +2387,11 @@ emit_fused_await :: (fn(await_expr : &AstExpr, indent : &String, context : &Func
     &outer_field,
     .Some(_) => (),
     .None => match(
-      inline_await_local_result_type(await_expr, &low.analysis, context),
+      inline_await_local_result_type(await_expr, &low_analysis, context),
       .Some(rty) => {
         outer_local = fresh_local_name(String.from("__yo_await_value"), context.base.current_function_name.clone());
-        em.emit_string_line(`${indent}${get_type_string(&rty, &context.base)} ${outer_local};`);
+        emit_text9 := `${indent}${get_type_string(&rty, &mut context.base)} ${outer_local};`;
+        context.base.emitter.emit_string_line(&emit_text9);
         declare_c_var_name(&context.base, outer_local.clone());
       },
       .None => ()
@@ -2392,7 +2405,7 @@ emit_fused_await :: (fn(await_expr : &AstExpr, indent : &String, context : &Func
   // so does an argument carrying a call-scoped share, which the call's own
   // drops below release
   // (issues/fixed/2026-10-21-an-aliased-argument-in-an-async-body-gets-no-caller-owned-share.md).
-  rargs := match(context.base.get_expr_info(&site.call), .Some(cei) => match(&cei.runtime_arg_exprs_in_order, .Some(ra) => ra.clone(), .None => ArrayList(AstExpr).new()), .None => ArrayList(AstExpr).new());
+  rargs := match(context.base.get_expr_info(&site.call), .Some(cei) => match(&cei.runtime_arg_exprs_in_order(), .Some(ra) => ra.clone(), .None => ArrayList(AstExpr).new()), .None => ArrayList(AstExpr).new());
   mut(arg_codes) := ArrayList(String).new();
   // Each argument is sequenced against the later ones (`sequence_operand`,
   // other_fn_call.yo), as at an ordinary call: the parameters below are
@@ -2417,7 +2430,7 @@ emit_fused_await :: (fn(await_expr : &AstExpr, indent : &String, context : &Func
   // read by their C names as in the wrapper's own function. (An EMPTY map is
   // not the same: the atom resolver then falls back to the expression's own
   // temp name, which for the capture literal is the io.async call's.)
-  em.emit_string_line(`${indent}{`);
+  context.base.emitter.emit_string_line(`${indent}{`);
   mut(inner) := indent.clone();
   inner.push_str("  ");
   // The fused nodes are also emitted in the wrapper's own function and state
@@ -2437,8 +2450,9 @@ emit_fused_await :: (fn(await_expr : &AstExpr, indent : &String, context : &Func
         label := match(wmeta.*.param_labels.get(pi), .Some(l) => l, .None => `param${pi.to_string()}`);
         cname := sanitize_for_c_identifier(&label, false);
         code := match(arg_codes.get_cloned(pi), .Some(c) => c, .None => String.from("0"));
-        em.emit_string_line(`${inner}${get_variable_type_string(&pt, cname.clone(), &context.base)} = ${code};`);
-        em.emit_string_line(`${inner}(void)${cname.clone()};`);
+        emit_text10 := `${inner}${get_variable_type_string(&pt, cname.clone(), &mut context.base)} = ${code};`;
+        context.base.emitter.emit_string_line(&emit_text10);
+        context.base.emitter.emit_string_line(`${inner}(void)${cname.clone()};`);
         declare_c_var_name(&context.base, &cname);
       });
     },
@@ -2449,13 +2463,13 @@ emit_fused_await :: (fn(await_expr : &AstExpr, indent : &String, context : &Func
     &site.block.capture_type,
     .Some(ct) => {
       lit := _build_async_capture_struct_literal(&site.io_async_call, &site.block.capture_dups, &ct, _find_capture_type_c_name(&ct, context), inner.clone(), context);
-      em.emit_string_line(`${inner}sm->${site.prefix}capture = ${lit};`);
+      context.base.emitter.emit_string_line(`${inner}sm->${site.prefix}capture = ${lit};`);
     },
     .None => ()
   );
   // From here until the site's end the caller's dispose releases its fields.
   if(_fused_site_has_releases(&site), {
-    em.emit_string_line(`${inner}sm->${site.prefix}live = 1;`);
+    context.base.emitter.emit_string_line(`${inner}sm->${site.prefix}live = 1;`);
   });
   // The wrapper returns here: its scope-end drops, through the ordinary
   // emitter and its gates (a drop of a temp the fused site never declared,
@@ -2466,50 +2480,47 @@ emit_fused_await :: (fn(await_expr : &AstExpr, indent : &String, context : &Func
   context.variable_id_remapping = saved_remap.clone();
   context.declared_temp_vars = saved_temps;
   context.emitted_deferred_drop_ids = saved_drop_ids;
-  em.emit_string_line(`${indent}}`);
+  context.base.emitter.emit_string_line(`${indent}}`);
   // The call's own drops (its argument temps), as after the call.
   generate_deferred_drop_expressions(&site.call, indent.clone(), context);
   // 3. The block's bundle is the await's effects, as set_effect would copy it.
   eff_code := _call_generate_expr(&effects_arg, indent.clone(), context);
-  em.emit_string_line(`${indent}sm->${site.prefix}param_0 = ${eff_code};`);
+  context.base.emitter.emit_string_line(`${indent}sm->${site.prefix}param_0 = ${eff_code};`);
   // 4. The block, with the wrapper block's names over the site's fields, in a
   // C block of its own (two sites of one wrapper would declare the same
   // temps). Its awaits suspend the CALLER; each is keyed and moved-read per
   // site.
-  em.emit_string_line(`${indent}{`);
+  context.base.emitter.emit_string_line(`${indent}{`);
   saved_temps2 := replace(&mut context.declared_temp_vars, Option(HashSet(String)).Some(HashSet(String).new()));
   saved_drop_ids2 := replace(&mut context.emitted_deferred_drop_ids, HashSet(usize).new());
   saved_slot := replace(&mut context.sm_capture_slot, `${site.prefix}capture`);
   saved_prefix := replace(&mut context.fusion_field_prefix, site.prefix.clone());
-  saved_analysis := low.analysis;
-  saved_emitted := replace(&mut low.emitted, HashSet(usize).new());
-  saved_moved_reads := replace(&mut low.moved_reads, HashMap(usize, String).new());
   saved_pdd := replace(&mut context.pending_deferred_drops, Option(ArrayList(AstExpr)).None);
   // The map restored above (the wrapper's) is taken out again and put back
   // when the block is done: one map, as the shared handle was.
   saved_smv2 := replace(&mut context.state_machine_variables, Option(HashMap(String, CapturedVariable)).Some(_fused_sm_variables(&site)));
   context.state_machine_field_aliases = Option(HashMap(String, String)).Some(_fused_sm_aliases(&site));
   context.variable_id_remapping = Option(HashMap(String, String)).Some(site.block.analysis.variable_id_remapping.clone());
-  low.analysis = site.block.analysis;
+  saved_scope := sm_lowering_enter_scope(context, site.block.analysis);
   mut(pdd) := match(&saved_pdd, .Some(p) => _copy_expr_list(&p), .None => ArrayList(AstExpr).new());
-  match(context.base.get_expr_info(&site.block.body_expr), .Some(bei) => match(&bei.deferred_drop_expressions, .Some(d) => _append_expr_list(&mut pdd, &d), .None => ()), .None => ());
+  match(context.base.get_expr_info(&site.block.body_expr), .Some(bei) => match(&bei.deferred_drop_expressions(), .Some(d) => _append_expr_list(&mut pdd, &d), .None => ()), .None => ());
   context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(pdd);
   tail := _emit_fused_statements(_fused_statements(&site.block.body_expr), inner.clone(), context);
   (mut(out) : String) = String.from("");
   match(
     outer_field,
     .Some(rf) => if(tail.len() > usize(0), {
-      em.emit_string_line(`${inner}sm->${rf.name} = ${tail};`);
+      context.base.emitter.emit_string_line(`${inner}sm->${rf.name} = ${tail};`);
       out = `sm->${rf.name}`;
     }),
     .None => if((outer_local.len() > usize(0)) && (tail.len() > usize(0)), {
-      em.emit_string_line(`${inner}${outer_local} = ${tail};`);
+      context.base.emitter.emit_string_line(`${inner}${outer_local} = ${tail};`);
       out = outer_local;
     })
   );
   generate_deferred_drop_expressions(&site.block.body_expr, inner.clone(), context);
   _emit_fused_site_end_releases(&site, &inner, context);
-  em.emit_string_line(`${indent}}`);
+  context.base.emitter.emit_string_line(`${indent}}`);
   context.declared_temp_vars = saved_temps2;
   context.emitted_deferred_drop_ids = saved_drop_ids2;
   context.state_machine_variables = saved_smv2;
@@ -2517,24 +2528,21 @@ emit_fused_await :: (fn(await_expr : &AstExpr, indent : &String, context : &Func
   context.variable_id_remapping = saved_remap;
   context.sm_capture_slot = saved_slot;
   context.fusion_field_prefix = saved_prefix;
-  low.analysis = saved_analysis;
-  low.emitted = saved_emitted;
-  low.moved_reads = saved_moved_reads;
+  sm_lowering_restore_scope(context, saved_scope);
   context.pending_deferred_drops = saved_pdd;
   Option(String).Some(out)
 });
 /// Emit a statement list whose values are all discarded (a wrapper prologue).
-_emit_fused_statements_no_tail :: (fn(stmts : &ArrayList(AstExpr), indent : &String, context : &FunctionGenerationContext) -> unit)({
-  em := context.base.emitter;
+_emit_fused_statements_no_tail :: (fn(stmts : &ArrayList(AstExpr), indent : &String, context : &mut FunctionGenerationContext) -> unit)({
   (mut(i) : usize) = usize(0);
   while(i < stmts.len(), i = (i + usize(1)), {
     match(
       stmts.get(i),
       .Some(st) => {
         code := _call_generate_expr(&st, indent.clone(), context);
-        skip := ((code.len() == usize(0)) || match(context.base.get_expr_info(&st), .Some(sei) => is_temp_variable_name(&sei.env.module_path.*, code.clone()), .None => true));
+        skip := ((code.len() == usize(0)) || match(context.base.get_expr_info(&st), .Some(sei) => is_temp_variable_name(&sei.env().module_path().*, code.clone()), .None => true));
         if(!skip, {
-          em.emit_string_line(`${indent}${code};`);
+          context.base.emitter.emit_string_line(`${indent}${code};`);
         });
       },
       .None => ()
@@ -2560,7 +2568,7 @@ _append_expr_list :: (fn(dst : &mut ArrayList(AstExpr), src : &ArrayList(AstExpr
 io_async_await_analysis :: (fn(expr : &AstExpr, context : &FunctionGenerationContext) -> Option(AwaitAnalysisResult))({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(Option(AwaitAnalysisResult).None));
   closure_arg := match(
-    &ei.runtime_arg_exprs_in_order,
+    &ei.runtime_arg_exprs_in_order(),
     .Some(rargs) => match(rargs.get(usize(0)), .Some(c) => c, .None => return(Option(AwaitAnalysisResult).None)),
     .None => return(Option(AwaitAnalysisResult).None)
   );
@@ -2568,7 +2576,7 @@ io_async_await_analysis :: (fn(expr : &AstExpr, context : &FunctionGenerationCon
   fv := match(
     expr_info_closure_function_value(&cei),
     .Some(f) => Option(EvalValue).Some(f),
-    .None => match(cei.value, .Some(v) => if(is_func_val(&v), Option(EvalValue).Some(v), Option(EvalValue).None), .None => Option(EvalValue).None)
+    .None => match(cei.value(), .Some(v) => if(is_func_val(&v), Option(EvalValue).Some(v), Option(EvalValue).None), .None => Option(EvalValue).None)
   );
   match(
     fv,
@@ -2622,7 +2630,7 @@ io_async_await_analysis :: (fn(expr : &AstExpr, context : &FunctionGenerationCon
 io_async_closure_body :: (fn(expr : &AstExpr, context : &FunctionGenerationContext) -> Option(AstExpr))({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(Option(AstExpr).None));
   match(
-    &ei.runtime_arg_exprs_in_order,
+    &ei.runtime_arg_exprs_in_order(),
     .Some(rargs) => match(
       rargs.get(usize(0)),
       .Some(carg) => match(
@@ -2631,7 +2639,7 @@ io_async_closure_body :: (fn(expr : &AstExpr, context : &FunctionGenerationConte
           fv_opt := match(
             expr_info_closure_function_value(&cei),
             .Some(f) => Option(EvalValue).Some(f),
-            .None => match(cei.value, .Some(v) => if(is_func_val(&v), Option(EvalValue).Some(v), Option(EvalValue).None), .None => Option(EvalValue).None)
+            .None => match(cei.value(), .Some(v) => if(is_func_val(&v), Option(EvalValue).Some(v), Option(EvalValue).None), .None => Option(EvalValue).None)
           );
           body_opt := match(
             fv_opt,
@@ -2718,7 +2726,7 @@ _first_atom_site :: (fn(e : &AstExpr, name : &String) -> String)(
     }
   )
 );
-generate_async_block :: (fn(expr : &AstExpr, io_async_body : &Option(AstExpr), analysis_in : &Option(AwaitAnalysisResult), indent : &String, context : &FunctionGenerationContext) -> String)({
+generate_async_block :: (fn(expr : &AstExpr, io_async_body : &Option(AstExpr), analysis_in : &Option(AwaitAnalysisResult), indent : &String, context : &mut FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(codegen_fatal_expr(String.from("async block missing ExprInfo"))));
   // The io.async closure body is extracted ONCE by the dispatcher (via
   // io_async_closure_body) and passed in — reading `cei.value` is a DESTRUCTIVE
@@ -2744,14 +2752,14 @@ generate_async_block :: (fn(expr : &AstExpr, io_async_body : &Option(AstExpr), a
       .Some(_) => ()
     );
   });
-  future_type := Rc.clone(ei.ty);
+  future_type := Rc.clone(ei.ty());
   if(!type_implements_future(&future_type), {
     return(codegen_fatal_expr(String.from("async block must have Future type")));
   });
   future_trait_type := match(extract_future_trait_from_type(&future_type), .Some(ft) => ft, .None => return(codegen_fatal_expr(String.from("Could not extract Future trait type"))));
   // State-machine struct name (this struct IS the Future implementation).
   async_block_id := match(
-    &ei.variable_name,
+    &ei.variable_name(),
     .Some(n) => n.clone(),
     .None => {
       // Phase 2: position-derived with MERGE semantics — see the twin above.
@@ -2788,7 +2796,7 @@ generate_async_block :: (fn(expr : &AstExpr, io_async_body : &Option(AstExpr), a
   (mut(fsm_field_inits) : Option(ArrayList(CaptureFieldInit))) = expr_info_capture_field_inits(&ei);
   if(is_io_async, {
     match(
-      &ei.runtime_arg_exprs_in_order,
+      &ei.runtime_arg_exprs_in_order(),
       .Some(rargs) => match(
         rargs.get(usize(0)),
         .Some(carg) => match(
@@ -2928,7 +2936,7 @@ generate_async_block :: (fn(expr : &AstExpr, io_async_body : &Option(AstExpr), a
           match(
             context.base.get_expr_info(&body_expr),
             .Some(bei) => {
-              bt := Rc.clone(bei.ty);
+              bt := Rc.clone(bei.ty());
               if(is_some_type(&bt), {
                 match(
                   some_resolution(&bt),
@@ -2954,25 +2962,24 @@ generate_async_block :: (fn(expr : &AstExpr, io_async_body : &Option(AstExpr), a
   if(!is_some_type(&result_type), {
     g_async_block_result_types.with_mut({ _per_clone_rsid, result_type : Rc.clone(result_type) }(m) => m.insert(_per_clone_rsid.clone(), result_type.clone()));
   });
-  result_type_c_name := get_type_string(&result_type, &context.base);
-  em := context.base.emitter;
+  result_type_c_name := get_type_string(&result_type, &mut context.base);
   // Forward declarations.
-  em.emit_declaration_string_line(`void ${dispose_function_name.clone()}(void* sm_ptr);  // Dispose function for state machine`);
-  em.emit_declaration_string_line(`void ${dispose_function_name.clone()}_locals(void* sm_ptr);  // Its locals' drops`);
-  em.emit_declaration_line("");
-  em.emit_declaration_string_line(`void ${resume_function_name.clone()}(void* sm_ptr);`);
-  em.emit_declaration_line("");
-  em.emit_declaration_string_line(`void ${set_effect_function_name.clone()}(void* ptr, const char* field, void* value);`);
-  em.emit_declaration_line("");
+  context.base.emitter.emit_declaration_string_line(`void ${dispose_function_name.clone()}(void* sm_ptr);  // Dispose function for state machine`);
+  context.base.emitter.emit_declaration_string_line(`void ${dispose_function_name.clone()}_locals(void* sm_ptr);  // Its locals' drops`);
+  context.base.emitter.emit_declaration_line("");
+  context.base.emitter.emit_declaration_string_line(`void ${resume_function_name.clone()}(void* sm_ptr);`);
+  context.base.emitter.emit_declaration_line("");
+  context.base.emitter.emit_declaration_string_line(`void ${set_effect_function_name.clone()}(void* ptr, const char* field, void* value);`);
+  context.base.emitter.emit_declaration_line("");
   match(
     &fsm_capture_type,
     .Some(cap_ty) => {
       capture_struct_name := _find_capture_type_c_name(&cap_ty, context);
-      em.emit_declaration_string_line(`${struct_name.clone()}* ${constructor_name.clone()}(${capture_struct_name} __capture);`);
+      context.base.emitter.emit_declaration_string_line(`${struct_name.clone()}* ${constructor_name.clone()}(${capture_struct_name} __capture);`);
     },
-    .None => em.emit_declaration_string_line(`${struct_name.clone()}* ${constructor_name.clone()}();`)
+    .None => context.base.emitter.emit_declaration_string_line(`${struct_name.clone()}* ${constructor_name.clone()}();`)
   );
-  em.emit_declaration_line("");
+  context.base.emitter.emit_declaration_line("");
   // Collect closure parameter slots (io.async closures take a bundle param; the
   // value flows in at io.await time via set_effect). Sourced from the closure
   // FuncVal's OWN type (via the expr→func_id registry + get_func_type) —
@@ -3006,7 +3013,7 @@ generate_async_block :: (fn(expr : &AstExpr, io_async_body : &Option(AstExpr), a
               match(_io_async_call_effect_type(&future_trait_type), .Some(et) => et, .None => pt),
               pt
             );
-            ctype := get_type_string(&pt_slot, &context.base);
+            ctype := get_type_string(&pt_slot, &mut context.base);
             pname := match(pls.get(i), .Some(l) => if(l.len() > usize(0), l, `param_${i.to_string()}`), .None => `param_${i.to_string()}`);
             closure_param_slots.push(ClosureParamSlot(field_name : `__yo_param_${i.to_string()}`, c_type : ctype, param_name : pname.clone(), param_type : pt_slot, decl_site : _closure_param_decl_site(expr, &pname)));
             i = (i + usize(1));
@@ -3019,29 +3026,31 @@ generate_async_block :: (fn(expr : &AstExpr, io_async_body : &Option(AstExpr), a
   });
   closure_param_slots_opt := if(closure_param_slots.len() > usize(0), Option(ArrayList(ClosureParamSlot)).Some(closure_param_slots), Option(ArrayList(ClosureParamSlot)).None);
   // Record the deferred-generation request.
-  dab := DeferredAsyncBlock(
-    body_expr : body_expr,
-    async_block_id : async_block_id.clone(),
-    struct_name : struct_name.clone(),
-    resume_function_name : resume_function_name.clone(),
-    constructor_name : constructor_name.clone(),
-    dispose_function_name : dispose_function_name.clone(),
-    set_effect_function_name : set_effect_function_name.clone(),
-    future_type : Rc.clone(future_type),
-    future_trait_type : future_trait_type,
-    result_type : result_type,
-    result_type_c_name : result_type_c_name.clone(),
-    capture_type : fsm_capture_type.clone(),
-    capture_dups : match(&fsm_capture_dups, .Some(d) => d.clone(), .None => ArrayList(AstExpr).new()),
-    analysis : analysis_kinded,
-    closure_param_slots : closure_param_slots_opt,
-    source_call_id : if(is_io_async, ast_expr_id(expr), usize(0))
+  dab := Rc.new(
+    DeferredAsyncBlockData(
+      body_expr : body_expr,
+      async_block_id : async_block_id.clone(),
+      struct_name : struct_name.clone(),
+      resume_function_name : resume_function_name.clone(),
+      constructor_name : constructor_name.clone(),
+      dispose_function_name : dispose_function_name.clone(),
+      set_effect_function_name : set_effect_function_name.clone(),
+      future_type : Rc.clone(future_type),
+      future_trait_type : future_trait_type,
+      result_type : result_type,
+      result_type_c_name : result_type_c_name.clone(),
+      capture_type : fsm_capture_type.clone(),
+      capture_dups : match(&fsm_capture_dups, .Some(d) => d.clone(), .None => ArrayList(AstExpr).new()),
+      analysis : analysis_kinded,
+      closure_param_slots : closure_param_slots_opt,
+      source_call_id : if(is_io_async, ast_expr_id(expr), usize(0))
+    )
   );
   mut(blocks) := match(context.deferred_async_blocks.take(), .Some(lst) => lst, .None => ArrayList(DeferredAsyncBlock).new());
   blocks.push(dab);
   context.deferred_async_blocks = Option(ArrayList(DeferredAsyncBlock)).Some(blocks);
   // Emit the constructor call (lazy: the future stays cold until await/spawn).
-  result_var := sanitize_for_c_identifier(match(&ei.variable_name, .Some(n) => n.clone(), .None => String.from("async_result")), false);
+  result_var := sanitize_for_c_identifier(match(&ei.variable_name(), .Some(n) => n.clone(), .None => String.from("async_result")), false);
   constructor_call := match(
     fsm_capture_type,
     .Some(cap_ty) => {
@@ -3052,8 +3061,8 @@ generate_async_block :: (fn(expr : &AstExpr, io_async_body : &Option(AstExpr), a
     },
     .None => `${constructor_name.clone()}()`
   );
-  var_type_and_name := get_variable_type_string(&future_type, result_var.clone(), &context.base);
-  em.emit_string_line(`${indent.clone()}${var_type_and_name} = ${constructor_call};`);
+  var_type_and_name := get_variable_type_string(&future_type, result_var.clone(), &mut context.base);
+  context.base.emitter.emit_string_line(`${indent.clone()}${var_type_and_name} = ${constructor_call};`);
   result_var
 });
 /// Build a CapturedVariable for a closure-param / capture-field SM slot.
@@ -3120,7 +3129,7 @@ _block_cross_boundary :: (fn(block : &DeferredAsyncBlock, context : &FunctionGen
       (mut(psi) : usize) = usize(0);
       while(psi < slots.len(), {
         match(
-          slots.get(psi),
+          slots.get_cloned(psi),
           .Some(sl) => if(sl.decl_site.len() > usize(0), {
             parts := sl.decl_site.split("|");
             (mut(ppi) : usize) = usize(0);
@@ -3192,7 +3201,7 @@ _block_cross_boundary :: (fn(block : &DeferredAsyncBlock, context : &FunctionGen
       .Some(dslots) => {
         (mut(dsi) : usize) = usize(0);
         while(dsi < dslots.len(), dsi = (dsi + usize(1)), {
-          match(dslots.get(dsi), .Some(dsl) => eprintln(`[async-layout] ${block.async_block_id} param ${dsl.param_name} site=${dsl.decl_site}`), .None => ());
+          match(dslots.get_cloned(dsi), .Some(dsl) => eprintln(`[async-layout] ${block.async_block_id} param ${dsl.param_name} site=${dsl.decl_site}`), .None => ());
         });
       },
       .None => ()
@@ -3204,21 +3213,10 @@ _block_cross_boundary :: (fn(block : &DeferredAsyncBlock, context : &FunctionGen
   });
   cbr
 });
-_emit_one_deferred_async_block :: (fn(block : &DeferredAsyncBlock, context : &FunctionGenerationContext) -> unit)({
-  em := context.base.emitter;
-  // A shallow copy (the map is a value since B9; `EvidenceParameter` is a
-  // ref record with no `Clone`, so the copy re-inserts the same handles).
-  saved_evidence_params := match(
-    &context.current_evidence_params,
-    .Some(ep) => {
-      mut(ep_copy) := HashMap(String, EvidenceParameter).new();
-      for(&ep, (k, v) => {
-        ep_copy.insert(k.clone(), v);
-      });
-      Option(HashMap(String, EvidenceParameter)).Some(ep_copy)
-    },
-    .None => Option(HashMap(String, EvidenceParameter)).None
-  );
+_emit_one_deferred_async_block :: (fn(block : &DeferredAsyncBlock, context : &mut FunctionGenerationContext) -> unit)({
+  // A copy of the map (a value since B9; `EvidenceParameter` is a value that
+  // derives `Clone`).
+  saved_evidence_params := context.current_evidence_params.clone();
   // Cross-boundary analysis (segment-locals become C locals).
   cbr := _block_cross_boundary(block, context);
   await_future_temp_var_aliases := cbr.await_future_temp_var_aliases.clone();
@@ -3250,7 +3248,7 @@ _emit_one_deferred_async_block :: (fn(block : &DeferredAsyncBlock, context : &Fu
       (mut(cp) : usize) = usize(0);
       while(cp < cps.len(), {
         match(
-          cps.get(cp),
+          cps.get_cloned(cp),
           .Some(slot) => {
             slot_var_id := `__closure_param_${cp.to_string()}`;
             filtered.push(_make_sm_captured_variable(&slot_var_id, slot.param_name.clone(), &slot.param_type, CapturedVariableKind.Local));
@@ -3313,7 +3311,7 @@ _emit_one_deferred_async_block :: (fn(block : &DeferredAsyncBlock, context : &Fu
       (cp2 : usize) = usize(0);
       while(cp2 < cps.len(), {
         match(
-          cps.get(cp2),
+          cps.get_cloned(cp2),
           .Some(slot) => {
             merged_aliases.insert(`__closure_param_${cp2.to_string()}`, slot.field_name.clone());
           },
@@ -3334,14 +3332,14 @@ _emit_one_deferred_async_block :: (fn(block : &DeferredAsyncBlock, context : &Fu
   // (issues/fixed/an-awaited-match-scrutinee-is-never-released.md).
   prev_declared := Rc.clone(context.base.declared_c_var_names);
   prev_scopes := Rc.clone(context.base.declared_scopes);
-  prev_declared_ref := em.declared_ref.clone();
-  prev_scope_ref := em.scope_ref.clone();
+  prev_declared_ref := context.base.emitter.declared_ref.clone();
+  prev_scope_ref := context.base.emitter.scope_ref.clone();
   context.base.declared_c_var_names = Rc.new(RefCell(HashSet(String)).new(HashSet(String).new()));
   declare_c_var_name(&context.base, String.from("sm"));
   context.base.declared_scopes = Rc.new(RefCell(ArrayList(String)).new(ArrayList(String).new()));
   push_declared_scope(&context.base, String.from("sm"));
-  em.declared_ref = Option(Rc(RefCell(HashSet(String)))).Some(Rc.clone(context.base.declared_c_var_names));
-  em.scope_ref = Option(Rc(RefCell(ArrayList(String)))).Some(Rc.clone(context.base.declared_scopes));
+  context.base.emitter.declared_ref = Option(Rc(RefCell(HashSet(String)))).Some(Rc.clone(context.base.declared_c_var_names));
+  context.base.emitter.scope_ref = Option(Rc(RefCell(ArrayList(String)))).Some(Rc.clone(context.base.declared_scopes));
   saved_binding_ids := replace(&mut context.state_machine_binding_ids, Option(HashSet(String)).Some(HashSet(String).new()));
   block_unwind_catch := _sm_unwind_catch_for(block, context);
   saved_sm_unwind_catch := replace(&mut context.sm_unwind_catch, block_unwind_catch);
@@ -3349,19 +3347,19 @@ _emit_one_deferred_async_block :: (fn(block : &DeferredAsyncBlock, context : &Fu
   // switch around the body are compiler-generated; the body's statements set
   // their own `.yo` positions inside. Restore honest C numbering before and
   // after so the setter/dispose/ctor scaffolding that follows reports real C.
-  em.clear_yo_line_position();
+  context.base.emitter.clear_yo_line_position();
   local_var_drops := generate_async_block_resume_function_inline(&block.body_expr, block.async_block_id.clone(), block.struct_name.clone(), block.resume_function_name.clone(), &filtered_analysis, &block.future_type, &block.capture_type, context);
-  em.clear_yo_line_position();
-  em.declared_ref = prev_declared_ref;
-  em.scope_ref = prev_scope_ref;
+  context.base.emitter.clear_yo_line_position();
+  context.base.emitter.declared_ref = prev_declared_ref;
+  context.base.emitter.scope_ref = prev_scope_ref;
   context.base.declared_c_var_names = prev_declared;
   context.base.declared_scopes = prev_scopes;
-  em.emit_string_line(String.from(""));
+  context.base.emitter.emit_string_line(String.from(""));
   // set_effect impl (emitted while SM vars are still in context).
   sync_param_slot := match(
     &block.closure_param_slots,
     .Some(cps) => match(
-      cps.get(usize(0)),
+      cps.get_cloned(usize(0)),
       .Some(slot) => Option(SyncParamSlot).Some(SyncParamSlot(field_name : slot.field_name.clone(), c_type : slot.c_type.clone())),
       .None => Option(SyncParamSlot).None
     ),
@@ -3372,17 +3370,17 @@ _emit_one_deferred_async_block :: (fn(block : &DeferredAsyncBlock, context : &Fu
   context.state_machine_variables = saved_sm_vars;
   context.current_evidence_params = saved_evidence_params;
   context.state_machine_field_aliases = saved_field_aliases;
-  em.emit_string_line(String.from(""));
+  context.base.emitter.emit_string_line(String.from(""));
   // Dispose function.
   generate_async_block_state_dispose_function(block.async_block_id.clone(), block.struct_name.clone(), block.dispose_function_name.clone(), &block.result_type, &block.capture_type, &filtered_analysis, &local_var_drops, &cbr.cross_boundary_ids, &await_future_temp_var_aliases, &overlapping_slot_aliases, &osr.slots, context);
   context.state_machine_binding_ids = saved_binding_ids;
   context.sm_unwind_catch = saved_sm_unwind_catch;
-  em.emit_string_line(String.from(""));
+  context.base.emitter.emit_string_line(String.from(""));
   // Abort hook — cancels the I/O operation the task is suspended in.
   cancel_pending_function_name := generate_async_block_cancel_pending_function_inline(block.async_block_id.clone(), block.struct_name.clone(), context);
   // Constructor.
   generate_async_block_constructor(block.async_block_id.clone(), block.struct_name.clone(), block.resume_function_name.clone(), block.constructor_name.clone(), block.dispose_function_name.clone(), block.set_effect_function_name.clone(), &cancel_pending_function_name, &vt_bundle, &block.future_type, &block.result_type, block.result_type_c_name.clone(), &block.capture_type, context);
-  em.emit_string_line(String.from(""));
+  context.base.emitter.emit_string_line(String.from(""));
 });
 /// Generate all deferred async-block implementations (resume / set_effect / dispose
 /// / constructor), after all regular functions. Index-based loop because emitting a
@@ -3397,12 +3395,11 @@ _deferred_blocks_len :: (fn(context : &FunctionGenerationContext) -> usize)(
 _deferred_block_at :: (fn(context : &FunctionGenerationContext, i : usize) -> Option(DeferredAsyncBlock))(
   match(&context.deferred_async_blocks, .Some(b) => b.get_cloned(i), .None => Option(DeferredAsyncBlock).None)
 );
-generate_deferred_async_blocks :: (fn(context : &FunctionGenerationContext) -> unit)({
+generate_deferred_async_blocks :: (fn(context : &mut FunctionGenerationContext) -> unit)({
   if(_deferred_blocks_len(context) == usize(0), return());
-  em := context.base.emitter;
   // Struct definitions first (dependency-safe order).
   emit_deferred_async_block_struct_definitions(context);
-  em.emit_string_line(String.from("// Deferred async block implementations"));
+  context.base.emitter.emit_string_line(String.from("// Deferred async block implementations"));
   (i : usize) = usize(0);
   while(i < _deferred_blocks_len(context), {
     prev_length := _deferred_blocks_len(context);
@@ -3460,7 +3457,7 @@ _set_async_sm_struct_name :: (fn(expr : &AstExpr, struct_name : &String, context
 /// parallelism extern detection.
 _called_extern_name :: (fn(expr : &AstExpr, context : &FunctionGenerationContext) -> Option(String))({
   func_expr := match(expr, .FnCall(_, f, _, _, _) => f, _ => return(Option(String).None));
-  ft := match(context.base.get_expr_info(&func_expr), .Some(ei) => Rc.clone(ei.ty), .None => return(Option(String).None));
+  ft := match(context.base.get_expr_info(&func_expr), .Some(ei) => Rc.clone(ei.ty()), .None => return(Option(String).None));
   match(
     ft,
     Rc(.Func({ meta : __fm2 })) => match(
@@ -3473,20 +3470,20 @@ _called_extern_name :: (fn(expr : &AstExpr, context : &FunctionGenerationContext
 });
 /// Recursively search `expr` for async blocks and pre-register their state-machine
 /// types (forward-declared struct typedefs), and flag uses_async / uses_parallelism.
-preregister_async_blocks_in_expr :: (fn(expr : &AstExpr, context : &FunctionGenerationContext) -> unit)({
+preregister_async_blocks_in_expr :: (fn(expr : &AstExpr, context : &mut FunctionGenerationContext) -> unit)({
   is_fn_call := match(expr, .FnCall(_, _, _, _, _) => true, _ => false);
   if(!is_fn_call, return());
   ei_opt := context.base.get_expr_info(expr);
   // Async-block path (struct name always _state_t).
   if(is_io_async_call(expr), {
     match(
-      ei_opt,
-      .Some(ei) => if(type_implements_future(&ei.ty), {
+      &ei_opt,
+      .Some(ei) => if(type_implements_future(&ei.ty()), {
         match(
-          extract_future_trait_from_type(&ei.ty),
+          extract_future_trait_from_type(&ei.ty()),
           .Some(_) => {
             async_block_id := match(
-              &ei.variable_name,
+              &ei.variable_name(),
               .Some(n) => n.clone(),
               .None => {
                 // Phase 2: the unnamed block's identity is its source
@@ -3500,9 +3497,8 @@ preregister_async_blocks_in_expr :: (fn(expr : &AstExpr, context : &FunctionGene
             );
             struct_name := `${async_block_id}_state_t`;
             _set_async_sm_struct_name(expr, struct_name.clone(), context);
-            context.base.register_type(type_key(&ei.ty), &ei.ty, `${struct_name.clone()}*`, Option(String).None);
-            em := context.base.emitter;
-            em.emit_declaration_string_line(`typedef struct ${struct_name.clone()}_struct ${struct_name}; // Forward declaration for async state machine`);
+            context.base.register_type(type_key(&ei.ty()), &ei.ty(), `${struct_name.clone()}*`, Option(String).None);
+            context.base.emitter.emit_declaration_string_line(`typedef struct ${struct_name.clone()}_struct ${struct_name}; // Forward declaration for async state machine`);
           },
           .None => ()
         );
@@ -3514,12 +3510,12 @@ preregister_async_blocks_in_expr :: (fn(expr : &AstExpr, context : &FunctionGene
   if(is_io_async_call(expr), {
     match(
       ei_opt,
-      .Some(ei) => if(type_implements_future(&ei.ty), {
+      .Some(ei) => if(type_implements_future(&ei.ty()), {
         match(
-          extract_future_trait_from_type(&ei.ty),
+          extract_future_trait_from_type(&ei.ty()),
           .Some(_) => {
             async_block_id := match(
-              &ei.variable_name,
+              &ei.variable_name(),
               .Some(n) => n.clone(),
               .None => {
                 // Phase 2: position-derived, MERGE semantics (two passes
@@ -3538,9 +3534,8 @@ preregister_async_blocks_in_expr :: (fn(expr : &AstExpr, context : &FunctionGene
             struct_name := if(has_await_analysis, `${async_block_id}_state_t`, `${async_block_id}_sync_fut_t`);
             kind_label := if(has_await_analysis, String.from("state machine"), String.from("sync future"));
             _set_async_sm_struct_name(expr, struct_name.clone(), context);
-            context.base.register_type(type_key(&ei.ty), &ei.ty, `${struct_name.clone()}*`, Option(String).None);
-            em := context.base.emitter;
-            em.emit_declaration_string_line(`typedef struct ${struct_name.clone()}_struct ${struct_name}; // Forward declaration for io.async ${kind_label}`);
+            context.base.register_type(type_key(&ei.ty()), &ei.ty(), `${struct_name.clone()}*`, Option(String).None);
+            context.base.emitter.emit_declaration_string_line(`typedef struct ${struct_name.clone()}_struct ${struct_name}; // Forward declaration for io.async ${kind_label}`);
           },
           .None => ()
         );
@@ -3609,14 +3604,18 @@ preregister_async_blocks_in_expr :: (fn(expr : &AstExpr, context : &FunctionGene
 });
 /// Pre-register every function body's async-block state-machine types before
 /// function declarations are generated, so prototypes see the right struct names.
-preregister_async_block_types :: (fn(context : &FunctionGenerationContext) -> unit)({
+preregister_async_block_types :: (fn(context : &mut FunctionGenerationContext) -> unit)({
+  // The bodies are gathered first: the walk borrows `context` for its whole
+  // extent, and the registration writes it.
+  bodies := ArrayList(AstExpr).new();
   for(&context.base.functions, (_fid, entry) => {
     match(
       entry.value,
-      .FuncVal(__fvd3, _) => preregister_async_blocks_in_expr(&__fvd3.*.body, context),
+      .FuncVal(__fvd3, _) => bodies.push(__fvd3.*.body.clone()),
       _ => ()
     );
   });
+  for(&bodies, body => preregister_async_blocks_in_expr(body, context));
 });
 /// Generate C for `io.async(closure)` as a LAZY synchronous future (no await
 /// points). The closure is NOT called at io.async time; its function pointer +
@@ -3626,16 +3625,16 @@ preregister_async_block_types :: (fn(context : &FunctionGenerationContext) -> un
 /// `closure_function_value` FuncVal func_id (via get_function_entry); the
 /// closure's runtime params + evidence come from the closure-arg's Func type
 /// directly.
-generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
+generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(codegen_fatal_expr(String.from("io.async missing ExprInfo"))));
-  future_type := Rc.clone(ei.ty);
+  future_type := Rc.clone(ei.ty());
   if(!type_implements_future(&future_type), {
     return(codegen_fatal_expr(String.from("io.async must return a Future type")));
   });
   future_trait_type := match(extract_future_trait_from_type(&future_type), .Some(ft) => ft, .None => return(codegen_fatal_expr(String.from("Could not extract Future trait type"))));
   // Closure argument expression + its info.
   closure_arg := match(
-    &ei.runtime_arg_exprs_in_order,
+    &ei.runtime_arg_exprs_in_order(),
     .Some(rargs) => match(rargs.get(usize(0)), .Some(c) => c, .None => return(codegen_fatal_expr(String.from("Missing closure argument for io.async")))),
     .None => return(codegen_fatal_expr(String.from("Missing closure argument for io.async")))
   );
@@ -3651,7 +3650,7 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
   result_closure_fv := match(
     expr_info_closure_function_value(&cei),
     .Some(fv) => Option(EvalValue).Some(fv),
-    .None => match(cei.value, .Some(v) => if(is_func_val(&v), Option(EvalValue).Some(v), Option(EvalValue).None), .None => Option(EvalValue).None)
+    .None => match(cei.value(), .Some(v) => if(is_func_val(&v), Option(EvalValue).Some(v), Option(EvalValue).None), .None => Option(EvalValue).None)
   );
   (result_type : TypeValue) = match(&future_trait_type, Rc(.FutureTraitT({ output : o })) => o.clone(), _ => Rc.clone(future_type));
   // Capture the future-trait output SomeType id BEFORE resolution. Once we resolve
@@ -3665,7 +3664,7 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
   // the FIRST closure's registration poisons ALL subsequent closures' result
   // types → "assigning from incompatible type" C errors.
   ab_id := match(
-    &cei.variable_name,
+    &cei.variable_name(),
     .Some(n) => n.clone(),
     .None => {
       // Phase 2: position-derived, MERGE semantics — see the twin above.
@@ -3689,7 +3688,7 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
           .FuncVal(__fvd4, _) => match(
             context.base.get_expr_info(&__fvd4.*.body),
             .Some(bei) => {
-              bt := Rc.clone(bei.ty);
+              bt := Rc.clone(bei.ty());
               if(is_some_type(&bt), {
                 match(
                   some_resolution(&bt),
@@ -3741,7 +3740,7 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
   if(!is_some_type(&result_type) && !per_clone_key.is_empty(), {
     g_async_block_result_types.with_mut({ per_clone_key, result_type : Rc.clone(result_type) }(m) => m.insert(per_clone_key.clone(), result_type.clone()));
   });
-  result_type_c_name := get_type_string(&result_type, &context.base);
+  result_type_c_name := get_type_string(&result_type, &mut context.base);
   struct_name := match(expr_info_async_state_machine_struct_name(&ei), .Some(s) => s, .None => return(codegen_fatal_expr(String.from("Missing sync future struct name"))));
   dispose_function_name := `${struct_name.clone()}_dispose`;
   resume_function_name := `${struct_name.clone()}_resume`;
@@ -3756,9 +3755,9 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
     expr_info_closure_function_value(&cei),
     .Some(fv) => Option(EvalValue).Some(fv),
     .None => match(
-      orig_closure_ei,
-      .Some(oe) => match(expr_info_closure_function_value(&oe), .Some(fv) => Option(EvalValue).Some(fv), .None => match(cei.value, .Some(v) => if(is_func_val(&v), Option(EvalValue).Some(v), Option(EvalValue).None), .None => Option(EvalValue).None)),
-      .None => match(cei.value, .Some(v) => if(is_func_val(&v), Option(EvalValue).Some(v), Option(EvalValue).None), .None => Option(EvalValue).None)
+      &orig_closure_ei,
+      .Some(oe) => match(expr_info_closure_function_value(&oe), .Some(fv) => Option(EvalValue).Some(fv), .None => match(cei.value(), .Some(v) => if(is_func_val(&v), Option(EvalValue).Some(v), Option(EvalValue).None), .None => Option(EvalValue).None)),
+      .None => match(cei.value(), .Some(v) => if(is_func_val(&v), Option(EvalValue).Some(v), Option(EvalValue).None), .None => Option(EvalValue).None)
     )
   );
   // POISON GATE (fully-hollow body, sync-future path): a deferred anon-body
@@ -3796,7 +3795,7 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
   // Discover the closure's runtime parameters (non-comptime; the bundle param e).
   // Func.param_types already excludes comptime params.
   sync_param_slots := ArrayList(SyncParamSlot).new();
-  closure_call_type := Rc.clone(cei.ty);
+  closure_call_type := Rc.clone(cei.ty());
   match(
     &closure_call_type,
     Rc(.Func({ param_types : pts })) => {
@@ -3812,31 +3811,30 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
           match(_io_async_call_effect_type(&future_trait_type), .Some(et) => et, .None => pt),
           pt
         );
-        ctype := get_type_string(&pt_slot, &context.base);
+        ctype := get_type_string(&pt_slot, &mut context.base);
         sync_param_slots.push(SyncParamSlot(field_name : `__yo_param_${i.to_string()}`, c_type : ctype));
         i = (i + usize(1));
       });
     },
     _ => ()
   );
-  em := context.base.emitter;
   // Struct definition (embeds __capture so it outlives the call).
-  em.emit_declaration_string_line(`struct ${struct_name.clone()}_struct {`);
-  em.emit_declaration_line("  __YO_FUTURE_PREFIX");
+  context.base.emitter.emit_declaration_string_line(`struct ${struct_name.clone()}_struct {`);
+  context.base.emitter.emit_declaration_line("  __YO_FUTURE_PREFIX");
   if(is_unit_type(&result_type), {
-    em.emit_declaration_line("  uint8_t result;");
+    context.base.emitter.emit_declaration_line("  uint8_t result;");
   }, {
-    em.emit_declaration_string_line(`  ${result_type_c_name.clone()} result;`);
+    context.base.emitter.emit_declaration_string_line(`  ${result_type_c_name.clone()} result;`);
   });
-  em.emit_declaration_string_line(`  ${ccn.clone()} __capture;`);
+  context.base.emitter.emit_declaration_string_line(`  ${ccn.clone()} __capture;`);
   match(&eff_capture_type, .Some(slot_cap_ty) => _emit_lent_param_slots(&slot_cap_ty, context), .None => ());
   (si : usize) = usize(0);
   while(si < sync_param_slots.len(), {
-    match(sync_param_slots.get(si), .Some(slot) => em.emit_declaration_string_line(`  ${slot.c_type.clone()} ${slot.field_name.clone()};`), .None => ());
+    match(sync_param_slots.get(si), .Some(slot) => context.base.emitter.emit_declaration_string_line(`  ${slot.c_type.clone()} ${slot.field_name.clone()};`), .None => ());
     si = (si + usize(1));
   });
-  em.emit_declaration_line("};");
-  em.emit_declaration_line("");
+  context.base.emitter.emit_declaration_line("};");
+  context.base.emitter.emit_declaration_line("");
   // Build resume call args: evidence params from __capture, runtime params from slots.
   closure_evidence_args := String.from("");
   shim_args := ArrayList(String).new();
@@ -3844,7 +3842,7 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
   (ei2 : usize) = usize(0);
   while(ei2 < eps.len(), {
     match(
-      eps.get(ei2),
+      eps.get_cloned(ei2),
       .Some(ep) => {
         path := _join_dotted(&ep.field_path);
         shim_args.push(`(void*)sm->__capture.${path}`);
@@ -3882,20 +3880,20 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
   sync_vt_bundle := generate_future_effect_setter(struct_name.clone(), sync_set_effect_function_name.clone(), &future_trait_type, &eff_capture_type, context, match(sync_param_slots.get(usize(0)), .Some(s) => Option(SyncParamSlot).Some(s), .None => Option(SyncParamSlot).None));
   context.state_machine_variables = sync_saved_smv;
   context.state_machine_field_aliases = sync_saved_smfa;
-  em.emit_declaration_line("");
+  context.base.emitter.emit_declaration_line("");
   // Resume function — calls the closure with the embedded capture data.
-  em.emit_declaration_string_line(`void ${resume_function_name.clone()}(void* ptr) {`);
-  em.emit_declaration_string_line(`  ${struct_name.clone()}* sm = (${struct_name.clone()}*)ptr;`);
+  context.base.emitter.emit_declaration_string_line(`void ${resume_function_name.clone()}(void* ptr) {`);
+  context.base.emitter.emit_declaration_string_line(`  ${struct_name.clone()}* sm = (${struct_name.clone()}*)ptr;`);
   if(!is_unit_type(&result_type), {
-    em.emit_declaration_string_line(`  sm->result = ${cfn.clone()}(&sm->__capture${closure_evidence_args.clone()});`);
+    context.base.emitter.emit_declaration_string_line(`  sm->result = ${cfn.clone()}(&sm->__capture${closure_evidence_args.clone()});`);
   }, {
-    em.emit_declaration_string_line(`  ${cfn.clone()}(&sm->__capture${closure_evidence_args.clone()});`);
+    context.base.emitter.emit_declaration_string_line(`  ${cfn.clone()}(&sm->__capture${closure_evidence_args.clone()});`);
   });
   // An effect handler calling unwind() returns the closure early → state -2 (aborted).
   if(closure_evidence_args.len() > usize(0), {
-    em.emit_declaration_line("  if (__yo_effect_escaped) {");
-    em.emit_declaration_line("    __yo_effect_escaped = 0;");
-    em.emit_declaration_line("    sm->state = -2;");
+    context.base.emitter.emit_declaration_line("  if (__yo_effect_escaped) {");
+    context.base.emitter.emit_declaration_line("    __yo_effect_escaped = 0;");
+    context.base.emitter.emit_declaration_line("    sm->state = -2;");
     // Register the abort (gc_runtime.yo, emit_task_abort_registry): a
     // fire-and-forget spawn (the handle discarded) or a handle never awaited
     // prints the unhandled-unwind line when the task is released or the
@@ -3903,20 +3901,20 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
     // silently. Cancellation via `JoinHandle.abort()` (race/timeout) does NOT
     // come through here — it writes -2 in `__yo_task_abort` without an
     // unwind — so only genuine effect escapes are registered.
-    em.emit_declaration_line("    __yo_task_abort_register(ptr);");
-    em.emit_declaration_line("    __yo_decr_rc(ptr);");
-    em.emit_declaration_line("    return;");
-    em.emit_declaration_line("  }");
+    context.base.emitter.emit_declaration_line("    __yo_task_abort_register(ptr);");
+    context.base.emitter.emit_declaration_line("    __yo_decr_rc(ptr);");
+    context.base.emitter.emit_declaration_line("    return;");
+    context.base.emitter.emit_declaration_line("  }");
   });
-  em.emit_declaration_line("  sm->state = -1;");
-  em.emit_declaration_line("  void (*continuation)(void*) = sm->continuation_fn;");
-  em.emit_declaration_line("  if (continuation) {");
-  em.emit_declaration_line("    void* cont_sm = sm->continuation_sm;");
-  em.emit_declaration_line("    continuation(cont_sm);");
-  em.emit_declaration_line("  }");
-  em.emit_declaration_line("  __yo_decr_rc(ptr);");
-  em.emit_declaration_line("}");
-  em.emit_declaration_line("");
+  context.base.emitter.emit_declaration_line("  sm->state = -1;");
+  context.base.emitter.emit_declaration_line("  void (*continuation)(void*) = sm->continuation_fn;");
+  context.base.emitter.emit_declaration_line("  if (continuation) {");
+  context.base.emitter.emit_declaration_line("    void* cont_sm = sm->continuation_sm;");
+  context.base.emitter.emit_declaration_line("    continuation(cont_sm);");
+  context.base.emitter.emit_declaration_line("  }");
+  context.base.emitter.emit_declaration_line("  __yo_decr_rc(ptr);");
+  context.base.emitter.emit_declaration_line("}");
+  context.base.emitter.emit_declaration_line("");
   // Dispose function.
   capture_drop_fn := match(&eff_capture_type, .Some(cap_ty) => if(type_contains_rc_cell_or_move_only(&cap_ty), get_drop_function_for_type(&cap_ty, context), Option(String).None), .None => Option(String).None);
   capture_dup_fn := match(&eff_capture_type, .Some(cap_ty) => if(type_contains_rc_cell_or_move_only(&cap_ty), get_dup_function_for_type(&cap_ty, context), Option(String).None), .None => Option(String).None);
@@ -3933,11 +3931,9 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
   (result_inline_side : String) = String.from("");
   (result_inline_stmt : String) = String.from("");
   if(match(&result_drop_fn, .Some(_) => false, .None => true) && (!is_unit_type(&result_type) && type_contains_rc_cell_or_move_only(&result_type)), {
-    temp_em := Emitter.new();
-    saved_em := context.base.emitter;
-    context.base.emitter = temp_em;
+    saved_em := replace(&mut context.base.emitter, Emitter.new());
     result_inline_stmt = generate_drop_code_for_value(String.from("sm->result"), &result_type, context);
-    context.base.emitter = saved_em;
+    mut(temp_em) := replace(&mut context.base.emitter, saved_em);
     result_inline_side = temp_em.print();
   });
   has_result_inline := ((result_inline_stmt.len() > usize(0)) || (result_inline_side.trim().len() > usize(0)));
@@ -3958,11 +3954,9 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
           match(
             cap_fields.get_cloned(cfi),
             .Some(cf) => if(!cf.is_effect_param && type_contains_rc_cell_or_move_only(&cf.ty), {
-              cap_em := Emitter.new();
-              cap_saved := context.base.emitter;
-              context.base.emitter = cap_em;
+              cap_saved := replace(&mut context.base.emitter, Emitter.new());
               cap_stmt := generate_drop_code_for_value(`sm->__capture.${sanitize_for_c_identifier(cf.label.clone(), false)}`, &cf.ty, context);
-              context.base.emitter = cap_saved;
+              mut(cap_em) := replace(&mut context.base.emitter, cap_saved);
               cap_side := cap_em.print().split("\n");
               (csi : usize) = usize(0);
               while(csi < cap_side.len(), {
@@ -3985,80 +3979,81 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
     );
   });
   has_capture_inline := (capture_inline_lines.len() > usize(0));
-  em.emit_declaration_string_line(`void ${dispose_function_name.clone()}(void* ptr) {`);
+  context.base.emitter.emit_declaration_string_line(`void ${dispose_function_name.clone()}(void* ptr) {`);
   // Its last reference is gone: an effect-unwind abort nobody observed is
   // reported now (gc_runtime.yo, emit_task_abort_registry).
-  em.emit_declaration_line("  __yo_task_abort_released(ptr);");
+  context.base.emitter.emit_declaration_line("  __yo_task_abort_released(ptr);");
   has_drop := (match(&capture_drop_fn, .Some(_) => true, .None => false) || match(&result_drop_fn, .Some(_) => true, .None => false) || has_result_inline || has_capture_inline);
   if(has_drop, {
-    em.emit_declaration_string_line(`  ${struct_name.clone()}* sm = (${struct_name.clone()}*)ptr;`);
+    context.base.emitter.emit_declaration_string_line(`  ${struct_name.clone()}* sm = (${struct_name.clone()}*)ptr;`);
     // A capture list the closure owns (decision 37): once the body has run it
     // dropped or moved every capture itself (a sync future's body runs to its
     // end in one resume), so the future drops them only while still cold.
     owns_caps := match(&eff_capture_type, .Some(oct) => (_owned_capture_fields(&oct).len() > usize(0)), .None => false);
     if(owns_caps && (match(&capture_drop_fn, .Some(_) => true, .None => false) || has_capture_inline), {
-      em.emit_declaration_line("  if (sm->state == 0) {  // never ran: its body did not take the capture list");
+      context.base.emitter.emit_declaration_line("  if (sm->state == 0) {  // never ran: its body did not take the capture list");
     });
     match(
       &capture_drop_fn,
       .Some(drop_fn) => {
-        em.emit_declaration_line("  // Drop captured variables (future owns its references)");
-        em.emit_declaration_string_line(`  ${drop_fn}(sm->__capture);`);
+        context.base.emitter.emit_declaration_line("  // Drop captured variables (future owns its references)");
+        context.base.emitter.emit_declaration_string_line(`  ${drop_fn}(sm->__capture);`);
       },
       .None => if(has_capture_inline, {
-        em.emit_declaration_line("  // Drop captured variables (future owns its references)");
+        context.base.emitter.emit_declaration_line("  // Drop captured variables (future owns its references)");
         (cli2 : usize) = usize(0);
         while(cli2 < capture_inline_lines.len(), {
-          match(capture_inline_lines.get_cloned(cli2), .Some(l) => em.emit_declaration_string_line(`  ${l}`), .None => ());
+          match(capture_inline_lines.get_cloned(cli2), .Some(l) => context.base.emitter.emit_declaration_string_line(`  ${l}`), .None => ());
           cli2 = (cli2 + usize(1));
         });
       })
     );
     if(owns_caps && (match(capture_drop_fn, .Some(_) => true, .None => false) || has_capture_inline), {
-      em.emit_declaration_line("  }");
+      context.base.emitter.emit_declaration_line("  }");
     });
     match(
       result_drop_fn,
       .Some(drop_fn) => {
-        em.emit_declaration_line("  if (sm->state == -1) {");
-        em.emit_declaration_string_line(`    ${drop_fn}(sm->result);`);
-        em.emit_declaration_line("  }");
+        context.base.emitter.emit_declaration_line("  if (sm->state == -1) {");
+        context.base.emitter.emit_declaration_string_line(`    ${drop_fn}(sm->result);`);
+        context.base.emitter.emit_declaration_line("  }");
       },
       .None => if(has_result_inline, {
-        em.emit_declaration_line("  if (sm->state == -1) {");
+        context.base.emitter.emit_declaration_line("  if (sm->state == -1) {");
         side_lines := result_inline_side.split("\n");
         (sli : usize) = usize(0);
         while(sli < side_lines.len(), {
           sline := match(side_lines.get_cloned(sli), .Some(l) => l.trim(), .None => String.from(""));
           if(sline.len() > usize(0), {
-            em.emit_declaration_string_line(`    ${sline}`);
+            context.base.emitter.emit_declaration_string_line(`    ${sline}`);
           });
           sli = (sli + usize(1));
         });
         if(result_inline_stmt.len() > usize(0), {
-          em.emit_declaration_string_line(`    ${result_inline_stmt};`);
+          context.base.emitter.emit_declaration_string_line(`    ${result_inline_stmt};`);
         });
-        em.emit_declaration_line("  }");
+        context.base.emitter.emit_declaration_line("  }");
       })
     );
   });
-  em.emit_declaration_line("}");
-  em.emit_declaration_line("");
+  context.base.emitter.emit_declaration_line("}");
+  context.base.emitter.emit_declaration_line("");
   // Allocation + initialization (body code).
-  result_var := sanitize_for_c_identifier(match(&ei.variable_name, .Some(n) => n.clone(), .None => `__io_async_result_${ast_expr_id(expr).to_string()}`), false);
-  var_type_and_name := get_variable_type_string(&future_type, result_var.clone(), &context.base);
-  em.emit_string_line(`${indent.clone()}${var_type_and_name} = (${struct_name.clone()}*)${_sm_alloc_call(struct_name.clone(), dispose_function_name.clone(), context)};`);
-  em.emit_string_line(`${indent.clone()}memset(${result_var.clone()}, 0, sizeof(${struct_name.clone()}));`);
-  em.emit_string_line(`${indent.clone()}${result_var.clone()}->header.ref_count = 1u;`);
+  result_var := sanitize_for_c_identifier(match(&ei.variable_name(), .Some(n) => n.clone(), .None => `__io_async_result_${ast_expr_id(expr).to_string()}`), false);
+  var_type_and_name := get_variable_type_string(&future_type, result_var.clone(), &mut context.base);
+  emit_text11 := `${indent.clone()}${var_type_and_name} = (${struct_name.clone()}*)${_sm_alloc_call(struct_name.clone(), dispose_function_name.clone(), context)};`;
+  context.base.emitter.emit_string_line(&emit_text11);
+  context.base.emitter.emit_string_line(`${indent.clone()}memset(${result_var.clone()}, 0, sizeof(${struct_name.clone()}));`);
+  context.base.emitter.emit_string_line(`${indent.clone()}${result_var.clone()}->header.ref_count = 1u;`);
   tid := context.base.dispose_type_id_for(dispose_function_name.clone());
-  em.emit_string_line(`${indent.clone()}${result_var.clone()}->header.type_id = ${tid.to_string()};`);
+  context.base.emitter.emit_string_line(`${indent.clone()}${result_var.clone()}->header.type_id = ${tid.to_string()};`);
   // Copy capture data from the stack struct into the heap future, then dup it.
   // For a no-capture closure the capture struct is empty, so the closure value
   // (an anon-fn function reference) is NOT a capture struct — initialize the empty
   // capture directly. With captures, `closure_code` is the capture-struct value
   // (full closure-construction emission is pending — see the gate issue).
   if(capture_field_count == usize(0), {
-    em.emit_string_line(`${indent.clone()}${result_var.clone()}->__capture = (${ccn.clone()}){0};`);
+    context.base.emitter.emit_string_line(`${indent.clone()}${result_var.clone()}->__capture = (${ccn.clone()}){0};`);
   }, {
     // Build the capture-struct literal `(<cap>){ .field = field, ... }` from the
     // capture struct's field labels — each captured field is the same-named
@@ -4133,25 +4128,25 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
     // stays as the fallback for a closure value that is not a capture temp.
     uses_closure_capture := closure_code.starts_with(String.from("__capture_"));
     if(uses_closure_capture, {
-      em.emit_string_line(`${indent.clone()}${result_var.clone()}->__capture = ${closure_code};`);
+      context.base.emitter.emit_string_line(`${indent.clone()}${result_var.clone()}->__capture = ${closure_code};`);
     }, {
-      em.emit_string_line(`${indent.clone()}${result_var.clone()}->__capture = ${lit};`);
+      context.base.emitter.emit_string_line(`${indent.clone()}${result_var.clone()}->__capture = ${lit};`);
       match(
         capture_dup_fn,
-        .Some(dup_fn) => em.emit_string_line(`${indent.clone()}${result_var.clone()}->__capture = ${dup_fn}(${result_var.clone()}->__capture);`),
+        .Some(dup_fn) => context.base.emitter.emit_string_line(`${indent.clone()}${result_var.clone()}->__capture = ${dup_fn}(${result_var.clone()}->__capture);`),
         .None => ()
       );
     });
     match(eff_capture_type, .Some(inst_cap_ty) => _emit_lent_param_installs(&inst_cap_ty, &result_var, indent, context), .None => ());
   });
   // State 0 = not started (lazy); resume executes the closure.
-  em.emit_string_line(`${indent.clone()}${result_var.clone()}->state = 0;`);
+  context.base.emitter.emit_string_line(`${indent.clone()}${result_var.clone()}->state = 0;`);
   // Per-type operations (no await slot, so no abort hook).
   sync_vt := `${result_var.clone()}_vt`;
-  em.emit_string_line(`${indent.clone()}static const __yo_future_vtable_t ${sync_vt.clone()} = { ${resume_function_name.clone()}, ${sync_set_effect_function_name.clone()}, NULL, ${sync_vt_bundle} };`);
-  em.emit_string_line(`${indent.clone()}${result_var.clone()}->vt = &${sync_vt};`);
-  em.emit_string_line(`${indent.clone()}${result_var.clone()}->continuation_fn = NULL;`);
-  em.emit_string_line(`${indent.clone()}${result_var.clone()}->continuation_sm = NULL;`);
+  context.base.emitter.emit_string_line(`${indent.clone()}static const __yo_future_vtable_t ${sync_vt.clone()} = { ${resume_function_name.clone()}, ${sync_set_effect_function_name.clone()}, NULL, ${sync_vt_bundle} };`);
+  context.base.emitter.emit_string_line(`${indent.clone()}${result_var.clone()}->vt = &${sync_vt};`);
+  context.base.emitter.emit_string_line(`${indent.clone()}${result_var.clone()}->continuation_fn = NULL;`);
+  context.base.emitter.emit_string_line(`${indent.clone()}${result_var.clone()}->continuation_sm = NULL;`);
   result_var
 });
 export(

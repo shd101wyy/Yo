@@ -27,7 +27,7 @@ evaluate_ref_count :: (
   fn(
     expr : &AstExpr,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
@@ -62,12 +62,12 @@ evaluate_ref_count :: (
   );
   // The unique `Box` has no count (plans/VALUES_BY_DEFAULT.md §3.2: only
   // `Rc` and `Arc` are counted).
-  if(is_unique_box_type(&arg_info.ty), {
+  if(is_unique_box_type(&arg_info.ty()), {
     exn.throw(
       dyn(
         format_error_message_with_help(
           ast_expr_token(&arg_ast),
-          `ref_count: \`${ast_expr_to_string(&arg_ast)}\` is a ${type_to_string(&arg_info.ty)}, a uniquely owned cell with no count.`,
+          `ref_count: \`${ast_expr_to_string(&arg_ast)}\` is a ${type_to_string(&arg_info.ty())}, a uniquely owned cell with no count.`,
           Option(String).Some(String.from("only `Rc` and `Arc` are counted; a `Box` always has exactly one owner"))
         )
       )
@@ -78,13 +78,13 @@ evaluate_ref_count :: (
   out_info := new_expr_info(&cur_env, t_usize());
   // A cell handle (`cell_handle_view`, V5's `Rc`/`Arc`) is counted by its
   // cell: `is_rc_type` stays false for it, its copies being field-wise.
-  if(is_rc_type(&arg_info.ty) || cell_handle_view(&arg_info.ty).is_some(), {
+  if(is_rc_type(&arg_info.ty()) || cell_handle_view(&arg_info.ty()).is_some(), {
     // RC type: count is only known at runtime → unknown value
-    out_info.value = Option(EvalValue).None;
+    out_info.set_value(Option(EvalValue).None);
     attach_temp_variable_to_expr(expr, true, ctx);
   }, {
     // Value type: reference count is always 1
-    out_info.value = Option(EvalValue).Some(EvalValue.IntLit(String.from("1")));
+    out_info.set_value(Option(EvalValue).Some(EvalValue.IntLit(String.from("1"))));
   });
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   expr

@@ -93,7 +93,7 @@ _is_inside :: (fn(root : &String, child : &String) -> bool)({
   child.starts_with(`${root}/`) || child.starts_with(`${root}\\`)
 });
 evaluate_comptime_read_file :: (
-  fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> AstExpr
+  fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr
 )({
   args := match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), _ => ArrayList(AstExpr).new());
   if(args.len() != usize(1), {
@@ -110,7 +110,7 @@ evaluate_comptime_read_file :: (
   evaluated := evaluate_expression_raw(&arg, env, ctx, exn);
   arg_value := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated)),
-    .Some(info) => info.value,
+    .Some(info) => info.value(),
     .None => Option(EvalValue).None
   );
   // The path must be KNOWN at compile time. A runtime string cannot name a file
@@ -148,7 +148,7 @@ evaluate_comptime_read_file :: (
     }
   );
   // Resolve against the IMPORTING FILE's directory (never the process cwd).
-  module_file := env.module_path.*.replace(String.from("file://"), String.new());
+  module_file := env.module_path().*.replace(String.from("file://"), String.new());
   module_dir := match(Path.new(module_file.clone()).parent(), .Some(d) => d.to_string(), .None => String.from("."));
   resolved := _abs_norm(module_dir.clone(), rel.clone());
   root := _package_root_for(module_dir.clone());
@@ -195,12 +195,14 @@ evaluate_comptime_read_file :: (
     record_input_file(resolved.clone(), &data_hash);
   });
   info := new_expr_info(env, t_comptime_string());
-  info.value = if(
-    is_trial,
-    Option(EvalValue).Some(EvalValue.UnknownVal(t_comptime_string(), false)),
-    // `StrLit` keeps its delimiters (codegen strips them positionally and
-    // re-escapes), so the content travels verbatim — quotes, newlines and all.
-    Option(EvalValue).Some(EvalValue.StrLit(`"${content}"`))
+  info.set_value(
+    if(
+      is_trial,
+      Option(EvalValue).Some(EvalValue.UnknownVal(t_comptime_string(), false)),
+      // `StrLit` keeps its delimiters (codegen strips them positionally and
+      // re-escapes), so the content travels verbatim — quotes, newlines and all.
+      Option(EvalValue).Some(EvalValue.StrLit(`"${content}"`))
+    )
   );
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
   expr

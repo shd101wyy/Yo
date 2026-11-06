@@ -403,20 +403,20 @@ test("captures: a captured frame slice survives the frame shrinking", {
   // truncation, comptime_expect_error's stranded-variable pop) must hand the
   // frame a fresh list instead of shrinking this one in place.
   frame := new_frame(true);
-  frame.variables.push(make_capture_variable(String.from("a"), t_i32(), Option(EvalValue).None, String.from("m.yo")));
-  frame.variables.push(make_capture_variable(String.from("b"), t_i32(), Option(EvalValue).None, String.from("m.yo")));
-  frame.variables.push(make_capture_variable(String.from("c"), t_i32(), Option(EvalValue).None, String.from("m.yo")));
+  frame.push_variable(make_capture_variable(String.from("a"), t_i32(), Option(EvalValue).None, String.from("m.yo")));
+  frame.push_variable(make_capture_variable(String.from("b"), t_i32(), Option(EvalValue).None, String.from("m.yo")));
+  frame.push_variable(make_capture_variable(String.from("c"), t_i32(), Option(EvalValue).None, String.from("m.yo")));
   mut(slices) := ArrayList(CaptureSlice).new();
-  slices.push(CaptureSlice(vars : frame.variables.clone(), start : usize(0), end : frame.variables.len()));
+  slices.push(CaptureSlice(vars : frame.variables(), start : usize(0), end : frame.variables_len()));
   frame_truncate_variables(&frame, usize(1));
-  assert(frame.variables.len() == usize(1), "the frame shrank");
+  assert(frame.variables_len() == usize(1), "the frame shrank");
   captured := cap_slices_materialize(&slices);
   assert(captured.len() == usize(3), "the captured slice still names all three bindings");
-  assert(match(captured.get(usize(2)), .Some(v) => (v.name == "c"), .None => false), "the captured slice's last binding is intact");
+  assert(match(captured.get_cloned(usize(2)), .Some(v) => (v.name == "c"), .None => false), "the captured slice's last binding is intact");
   // Growth after the shrink goes to the frame's new list, never into the slice.
-  frame.variables.push(make_capture_variable(String.from("d"), t_i32(), Option(EvalValue).None, String.from("m.yo")));
+  frame.push_variable(make_capture_variable(String.from("d"), t_i32(), Option(EvalValue).None, String.from("m.yo")));
   again := cap_slices_materialize(&slices);
-  assert(match(again.get(usize(1)), .Some(v) => (v.name == "b"), .None => false), "a later push does not overwrite the captured slice");
+  assert(match(again.get_cloned(usize(1)), .Some(v) => (v.name == "b"), .None => false), "a later push does not overwrite the captured slice");
   // A derivation's prefix is a slice of the same list, not a copy.
   prefix := cap_slices_prefix(&slices, usize(2));
   assert(match(prefix.get_cloned(usize(0)), .Some(sl) => ((sl.start == usize(0)) && (sl.end == usize(2))), .None => false), "a prefix narrows the slice");

@@ -33,7 +33,7 @@ evaluate_comptime_list_type :: (
   fn(
     expr : &AstExpr,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
@@ -62,7 +62,7 @@ evaluate_comptime_list_type :: (
   // Read the expr info for the evaluated element type
   info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated));
   match(
-    info_opt,
+    &info_opt,
     .None => {
       exn.throw(
         dyn(
@@ -77,11 +77,11 @@ evaluate_comptime_list_type :: (
   );
   elem_info := match(
     info_opt,
-    .Some(i) => i,
+    .Some(i) => Rc.clone(i),
     .None => new_expr_info(env, t_i32()) // unreachable: guarded by throw above
   );
   // Validate it's a type value
-  if(!is_type_value(&elem_info.value), {
+  if(!is_type_value(&elem_info.value()), {
     exn.throw(
       dyn(
         format_error_message(
@@ -93,7 +93,7 @@ evaluate_comptime_list_type :: (
   });
   // Extract the inner TypeValue
   child_ty := match(
-    elem_info.value,
+    elem_info.value(),
     .Some(v) => match(
       v,
       .TypeVal(inner) => Rc.clone(inner),
@@ -107,7 +107,7 @@ evaluate_comptime_list_type :: (
   meta_type := type_of_type(&clist_ty);
   next_env := expr_info_adopt_env(&elem_info);
   out_info := new_expr_info(&next_env, &meta_type);
-  out_info.value = .Some(clist_val);
+  out_info.set_value(.Some(clist_val));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   expr
 });

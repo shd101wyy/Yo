@@ -206,8 +206,10 @@ work(&mut db, &cfg); // the sigils say what is lent (V3b)
 Ctx :: struct(db : Rc(Db), cfg : Rc(Config));
 ```
 
-- The stored form is exactly what the compiler's ~60 context objects become at
-  V5 (`Rc(struct(...))`, the plan's V5 list).
+- The stored form is what the compiler's semantically shared contexts become
+  at V5 (class S of the plan's V5 part B: `Rc(RefCell(S))`). The written
+  contexts that one call tree reaches become shape 4 instead (class L: an owned
+  value lent as `&mut`), and read-only records plain structs (class R).
 - Through a handle, `ctx.db.read(...)` auto-derefs (§3.3). A write through
   `Rc(Db)` compiles only where the summaries prove no borrow is live
   (§3.10 outcome (a)); a `Db` that is mutated through the handle in general

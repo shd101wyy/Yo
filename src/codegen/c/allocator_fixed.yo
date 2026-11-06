@@ -25,7 +25,7 @@
 /// Emit the `#define __yo_malloc __yo_fixed_malloc` family and the external
 /// prototypes into the header section. Mirrors the shape of the mimalloc /
 /// system arms in `collection.yo`.
-emit_fixed_allocator_defines :: (fn(emitter : &Emitter) -> unit)({
+emit_fixed_allocator_defines :: (fn(emitter : &mut Emitter) -> unit)({
   emitter.emit_header_string_line(
     `
 // Fixed-region allocator (TLSF): every allocation is served from ONE
@@ -47,8 +47,7 @@ void* __yo_fixed_aligned_alloc(size_t alignment, size_t size);`
 /// Emit the allocator implementation + the fixed-arm `__yo_alloc_fail` into
 /// the code section. `heap_bytes` is validated upstream (granule-aligned,
 /// 64 KiB..4 GiB) and becomes the region size.
-emit_fixed_allocator_impl :: (fn(context : &CodeGenContext) -> unit)({
-  em := context.emitter;
+emit_fixed_allocator_impl :: (fn(context : &mut CodeGenContext) -> unit)({
   debug_heap := context.debug_heap;
   // `static` in library mode — see the non-fixed arm in c/collection.yo.
   alloc_fail_linkage := if(context.is_library, "static ", "");
@@ -64,7 +63,7 @@ emit_fixed_allocator_impl :: (fn(context : &CodeGenContext) -> unit)({
       String.from("  // Leak-oracle reporter: see __yo_fixed_heap_report below.\n  atexit(__yo_fixed_heap_report);\n"),
       String.new()
     );
-  em.emit_string_line(
+  context.emitter.emit_string_line(
     `
 // ============================================================================
 // Fixed-region allocator (TLSF) - plans/reference/FIXED_REGION_ALLOCATOR.md
@@ -222,9 +221,9 @@ static __yo_fixed_free_block_t* __yo_fixed_find_suitable(size_t size) {
   if(debug_heap, {
     // Forward declaration: __yo_fixed_init registers the reporter with
     // atexit, and the reporter's definition is emitted further below.
-    em.emit_line("static void __yo_fixed_heap_report(void);");
+    context.emitter.emit_line("static void __yo_fixed_heap_report(void);");
   });
-  em.emit_string_line(
+  context.emitter.emit_string_line(
     `
 static void __yo_fixed_init(void) {
   __yo_fixed_ctrl_t* c = __yo_fixed_ctrl();
@@ -315,7 +314,7 @@ void* __yo_fixed_calloc(size_t nmemb, size_t size) {
 }
 `
   );
-  em.emit_string_line(
+  context.emitter.emit_string_line(
     `
 void __yo_fixed_free(void* ptr) {
   __yo_fixed_ctrl_t* c;
@@ -439,7 +438,7 @@ void* __yo_fixed_realloc(void* ptr, size_t size) {
 }
 `
   );
-  em.emit_string_line(
+  context.emitter.emit_string_line(
     `
 void* __yo_fixed_aligned_alloc(size_t alignment, size_t size) {
   __yo_fixed_ctrl_t* c;
@@ -510,8 +509,8 @@ ${alloc_fail_linkage}void __yo_alloc_fail(size_t size) {
 `
   );
   if(debug_heap, {
-    em.emit_string_line(emit_heap_format_size("__yo_fixed_format_size"));
-    em.emit_string_line(
+    context.emitter.emit_string_line(emit_heap_format_size("__yo_fixed_format_size"));
+    context.emitter.emit_string_line(
       `
 // Leak oracle (--debug-heap): reports peak/live at exit. Non-zero live at
 // exit is the portable leak signal (no ASan, no mimalloc stats needed).

@@ -45,7 +45,7 @@ evaluate_comptime_fn :: (
   fn(
     expr : &AstExpr,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
@@ -71,7 +71,7 @@ evaluate_comptime_fn :: (
   arg_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaled_arg));
   arg_info := match(
     arg_info_opt,
-    .Some(i) => i,
+    .Some(i) => Rc.clone(i),
     .None => {
       exn.throw(
         dyn(
@@ -86,7 +86,7 @@ evaluate_comptime_fn :: (
   );
   // Require a compile-time function value.
   arg_val := match(
-    arg_info.value,
+    arg_info.value(),
     .Some(v) => v,
     .None => {
       exn.throw(
@@ -110,11 +110,11 @@ evaluate_comptime_fn :: (
       )
     );
   });
-  func_type := Rc.clone(arg_info.ty);
+  func_type := Rc.clone(arg_info.ty());
   // If already a comptime function, return it unchanged.
   if(is_function_type_and_returns_comptime_value(&func_type), {
     out_info := new_expr_info(env, &func_type);
-    out_info.value = Option(EvalValue).Some(arg_val);
+    out_info.set_value(Option(EvalValue).Some(arg_val));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
     return(expr);
   });
@@ -181,7 +181,7 @@ evaluate_comptime_fn :: (
     analyze_ctfe_capability(&arg_val, &func_type, env, ctx),
     .Some(ctfe_ok) => {
       out_info := new_expr_info(env, &ctfe_ok.ty);
-      out_info.value = Option(EvalValue).Some(ctfe_ok.value);
+      out_info.set_value(Option(EvalValue).Some(ctfe_ok.value));
       expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
       expr
     },

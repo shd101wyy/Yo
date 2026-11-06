@@ -76,7 +76,8 @@ register_loading :: (fn(path : &String, env : &Environment) -> unit)({
   g_loading_key_by_canonical.with_mut({ path_owned }(m) => m.insert(_canonical(&path_owned).*.clone(), path_owned.clone()));
   path_owned2 := path.clone();
   g_loading_keys.with_mut({ path_owned2 }(xs) => xs.push(path_owned2.clone()));
-  g_loading_envs.with_mut(xs => xs.push(env));
+  loading_env := Rc.clone(env);
+  g_loading_envs.with_mut({ loading_env : Rc.clone(loading_env) }(xs) => xs.push(loading_env));
   _sync_registration_owner();
 });
 /// The loading key (`file://<abs>`, or the entry path as typed) under which
@@ -120,7 +121,7 @@ loading_env :: (fn(path : &String) -> Option(Environment))({
     match(
       g_loading_keys.with(xs => xs.get_cloned(i)),
       .Some(k) => if(k == path, {
-        return(g_loading_envs.with(xs => xs.get(i)));
+        return(g_loading_envs.with(xs => xs.get_cloned(i)));
       }),
       .None => ()
     );
@@ -151,7 +152,7 @@ _canonical :: (fn(p : &String) -> Rc(String))(
       c := Rc.new(canonical_module_path(p));
       c_handle := Rc.clone(c);
       p_owned := p.clone();
-      _canonical_memo.with_mut({ p_owned, c_handle }(m) => m.insert(p_owned, c_handle));
+      _canonical_memo.with_mut({ p_owned, c_handle : Rc.clone(c_handle) }(m) => m.insert(p_owned, c_handle));
       c
     }
   )
@@ -414,7 +415,7 @@ update_module_cache_slot :: (fn(path : &String, name : &String, var : &Variable)
                     vals.set(
                       ni,
                       match(
-                        var.value.get(usize(0)),
+                        var.value().get(usize(0)),
                         .Some(v) => v,
                         .None => EvalValue.UnitVal
                       )

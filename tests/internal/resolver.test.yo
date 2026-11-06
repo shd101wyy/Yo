@@ -394,7 +394,7 @@ test("resolve_and_fetch --offline with no cached tags fails as error[E1501]", {
     )
   );
   options := ResolveOptions(mode : ResolveMode.Install, locked : false, offline : true, verbose : false);
-  io.await(resolve_and_fetch(&manifest, &options, io, exn), IoExn(io : io, exn : exn));
+  io.await(resolve_and_fetch(&manifest, options, io, exn), IoExn(io : io, exn : exn));
   assert(false, "the offline resolve must throw");
 });
 test("resolve_and_fetch --locked with no yo.lock fails as error[E1503]", {
@@ -426,6 +426,6 @@ test("resolve_and_fetch --locked with no yo.lock fails as error[E1503]", {
     )
   );
   options := ResolveOptions(mode : ResolveMode.Install, locked : true, offline : true, verbose : false);
-  io.await(resolve_and_fetch(&manifest, &options, io, exn), IoExn(io : io, exn : exn));
+  io.await(resolve_and_fetch(&manifest, options, io, exn), IoExn(io : io, exn : exn));
   assert(false, "the locked resolve must throw");
 });

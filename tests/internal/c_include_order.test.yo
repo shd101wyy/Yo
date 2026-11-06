@@ -110,8 +110,8 @@ test("mach-o/dyld.h reaches macOS only", {
 // The CLI refuses a missing vendor/mimalloc before codegen runs, so only this
 // pin sees the emitted C.
 test("mimalloc: a missing <mimalloc.h> is an #error, not a malloc fallback", {
-  em := Emitter.new();
-  emit_mimalloc_allocator_defines(&em);
+  mut(em) := Emitter.new();
+  emit_mimalloc_allocator_defines(&mut em);
   c := em.print();
   assert(c.contains(String.from("#if !__has_include(<mimalloc.h>)")), "the missing-header guard is gone");
   assert(c.contains(String.from("#error \"--allocator mimalloc: mimalloc.h not found.")), "a missing <mimalloc.h> no longer stops at #error");

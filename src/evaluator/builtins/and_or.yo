@@ -41,7 +41,7 @@ evaluate_and_or :: (
   fn(
     expr : &AstExpr,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
@@ -58,12 +58,12 @@ evaluate_and_or :: (
   if(args.len() == usize(0), {
     bool_result := is_and;
     out_info := new_expr_info(env, t_bool());
-    out_info.value = .Some(EvalValue.BoolVal(bool_result));
+    out_info.set_value(.Some(EvalValue.BoolVal(bool_result)));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
     return(expr);
   });
   // Short-circuiting evaluation.
-  (cur_env : Environment) = env;
+  (cur_env : Environment) = Rc.clone(env);
   // `short_circuit` is the operand value that decided the result (`false`
   // for `&&`, `true` for `||`) when it came before every runtime operand.
   // A compile-time IDENTITY operand (`true` for `&&`, `false` for `||`)
@@ -84,7 +84,7 @@ evaluate_and_or :: (
         arg_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_arg));
         arg_info := match(
           arg_info_opt,
-          .Some(ai) => ai,
+          .Some(ai) => Rc.clone(ai),
           .None => {
             exn.throw(
               dyn(
@@ -97,7 +97,7 @@ evaluate_and_or :: (
             new_expr_info(env, t_bool())
           }
         );
-        if(!is_bool_type(&arg_info.ty), {
+        if(!is_bool_type(&arg_info.ty()), {
           exn.throw(
             dyn(
               format_error_message(
@@ -108,7 +108,7 @@ evaluate_and_or :: (
           );
         });
         cur_env = expr_info_adopt_env(&arg_info);
-        arg_val_opt := arg_info.value;
+        arg_val_opt := arg_info.value();
         match(
           arg_val_opt,
           .None => {
@@ -164,7 +164,7 @@ evaluate_and_or :: (
     )
   );
   out_info := new_expr_info(&cur_env, t_bool());
-  out_info.value = final_val;
+  out_info.set_value(final_val);
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   expr
 });

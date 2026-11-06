@@ -49,7 +49,7 @@ evaluate_yo_process_functions :: (
     raw := (String.from("\"") + os_str + String.from("\""));
     val := EvalValue.StrLit(raw);
     info := new_expr_info(env, t_comptime_string());
-    info.value = .Some(val);
+    info.set_value(.Some(val));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
     return(expr);
   });
@@ -59,7 +59,7 @@ evaluate_yo_process_functions :: (
     raw := (String.from("\"") + arch_str + String.from("\""));
     val := EvalValue.StrLit(raw);
     info := new_expr_info(env, t_comptime_string());
-    info.value = .Some(val);
+    info.set_value(.Some(val));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
     return(expr);
   });
@@ -70,7 +70,7 @@ evaluate_yo_process_functions :: (
     bits := pointer_size_for_arch(tgt.arch);
     val := EvalValue.IntLit(bits.to_string());
     info := new_expr_info(env, t_comptime_int());
-    info.value = .Some(val);
+    info.set_value(.Some(val));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
     return(expr);
   });

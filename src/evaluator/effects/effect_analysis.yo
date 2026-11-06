@@ -68,14 +68,14 @@ pragma(Pragma.AllowUnsafe);
 /// because `SuspensionPointDetector` only accepts base `SuspensionPoint` objects.
 ///
 /// Internal — not exported.
-EffectCallPointExtra_ :: ref(
+EffectCallPointExtra_ ::
   struct(
     operation_arg_types : ArrayList(TypeValue),
     operation_result_type : TypeValue,
     is_transitive_effect_call : bool,
     is_transitive_closure_call : bool
-  )
-);
+  );
+derive(EffectCallPointExtra_, Clone);
 // ---------------------------------------------------------------------------
 // is_effect_call_ — checks if expr is a call to the effect parameter
 // ---------------------------------------------------------------------------
@@ -123,8 +123,8 @@ is_effect_call_ :: (
         return(false);
       });
       func_type_opt := match(
-        get_info(&func_expr),
-        .Some(info) => Option(TypeValue).Some(Rc.clone(info.ty)),
+        &get_info(&func_expr),
+        .Some(info) => Option(TypeValue).Some(Rc.clone(info.ty())),
         .None => Option(TypeValue).None
       );
       // When allowMissingType=false: require a function type
@@ -165,8 +165,8 @@ is_effect_call_ :: (
           return(false);
         });
         func_type_opt := match(
-          get_info(&func_expr),
-          .Some(info) => Option(TypeValue).Some(Rc.clone(info.ty)),
+          &get_info(&func_expr),
+          .Some(info) => Option(TypeValue).Some(Rc.clone(info.ty())),
           .None => Option(TypeValue).None
         );
         if(!allow_missing_type, {
@@ -281,8 +281,8 @@ is_effect_call_ :: (
       });
       // Verify the outermost "." expression type is a function
       outer_func_type_opt := match(
-        get_info(&func_expr_for_info),
-        .Some(info) => Option(TypeValue).Some(Rc.clone(info.ty)),
+        &get_info(&func_expr_for_info),
+        .Some(info) => Option(TypeValue).Some(Rc.clone(info.ty())),
         .None => Option(TypeValue).None
       );
       if(!allow_missing_type, {
@@ -339,13 +339,13 @@ is_transitive_effect_call_ :: (
     .FnCall(_, fb, _, _, _) => fb
   );
   func_info := match(
-    get_info(func_expr.clone()),
+    &get_info(func_expr.clone()),
     .None => {
       return(Option(bool).None);
     },
-    .Some(i) => i
+    .Some(i) => Rc.clone(i)
   );
-  func_type := Rc.clone(func_info.ty);
+  func_type := Rc.clone(func_info.ty());
   // --- Path 1: Direct FunctionType ---
   if(is_function_type(func_type.clone()), {
     result := match(
@@ -451,9 +451,9 @@ detect_effect_expr_ :: (
             }
           );
           match(
-            get_info(&arg),
+            &get_info(&arg),
             .Some(info) => {
-              operation_arg_types.push(Rc.clone(info.ty));
+              operation_arg_types.push(Rc.clone(info.ty()));
             },
             .None => ()
           );
@@ -490,8 +490,8 @@ detect_effect_expr_ :: (
     });
     // Get result type — fallback to effect_param_fn_type.result
     result_type_opt := match(
-      get_info(expr.clone()),
-      .Some(info) => Option(TypeValue).Some(Rc.clone(info.ty)),
+      &get_info(expr.clone()),
+      .Some(info) => Option(TypeValue).Some(Rc.clone(info.ty())),
       .None => Option(TypeValue).None
     );
     if(match(result_type_opt.clone(), .None => true, .Some(_) => false), {
@@ -596,8 +596,8 @@ detect_effect_expr_ :: (
               _ => Option(TypeValue).None
             ),
             true => match(
-              get_info(expr.clone()),
-              .Some(info) => Option(TypeValue).Some(Rc.clone(info.ty)),
+              &get_info(expr.clone()),
+              .Some(info) => Option(TypeValue).Some(Rc.clone(info.ty())),
               .None => Option(TypeValue).None
             )
           );
@@ -709,7 +709,7 @@ analyze_effect_call_points :: (
     );
     expr_key := usize(ast_expr_token(sp.expr.clone()).character).to_string();
     match(
-      effect_extras.with(extras => extras.get(expr_key.clone())),
+      effect_extras.with(extras => extras.get_cloned(expr_key.clone())),
       .None => (),
       .Some(extra) => {
         ecp := EffectCallPoint(

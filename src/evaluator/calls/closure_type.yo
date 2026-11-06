@@ -89,7 +89,7 @@ try_to_implement_closure_by_fn_module_type :: (
     fn_module_type : &TypeValue,
     wrapper_type : &TypeValue,
     caller_env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> Option(AstExpr)
 )({
@@ -142,11 +142,11 @@ try_to_implement_closure_by_fn_module_type :: (
     _ => no_flags()
   );
   // Push a new env frame for the closure parameters.
-  (env : Environment) = caller_env;
+  (env : Environment) = Rc.clone(caller_env);
   // Outer frame count BEFORE the param frame is pushed — the closure's defining
   // frame level, used by codegen (generate_function) to rewrite captured vars to
   // `closure_context->field`. Mirrors anonymous_function.yo:637 `n_cap_fr`.
-  n_cap_fr := env.frames.len();
+  n_cap_fr := env.frames_len();
   _fr := env.push_frame(false);
   // Add each FnTrait parameter as a runtime variable to the new frame.
   n_params := param_labels.len();
@@ -154,7 +154,7 @@ try_to_implement_closure_by_fn_module_type :: (
   while(pi < n_params, {
     p_label := match(param_labels.get_cloned(pi), .Some(l) => l, .None => String.from("_p"));
     p_type := match(slot_pointee_at(&param_types, pi), .Some(t) => t, .None => t_unit());
-    p_tok := synthetic_token(p_label.clone(), &env.module_path.*);
+    p_tok := synthetic_token(p_label.clone(), &env.module_path().*);
     p_var_opt := add_variable_to_env(
       &env,
       p_label.clone(),
@@ -182,7 +182,7 @@ try_to_implement_closure_by_fn_module_type :: (
           variable_set_is_ref(&p_var, true);
           // is_reassignable mirrors is_ref — see the
           // anonymous_function.yo stamping.
-          p_var.is_reassignable = true;
+          p_var.set_is_reassignable(true);
         },
         .None => ()
       );
@@ -273,7 +273,7 @@ try_to_implement_closure_by_fn_module_type :: (
   evaluated_body := evaluate_begin_expression(
     &closure_body_for_eval,
     &env,
-    &eval_ctx,
+    &mut eval_ctx,
     ArrayList(Variable).new(),
     true,
     exn
@@ -281,16 +281,16 @@ try_to_implement_closure_by_fn_module_type :: (
   // Update env from the evaluated body.
   body_info_opt := expr_info_table_get(&eval_ctx.expr_info_table, ast_expr_id(&evaluated_body));
   match(
-    body_info_opt,
+    &body_info_opt,
     .Some(bi) => {
-      env_adopt(&env, &bi.env);
+      env_adopt(&env, &bi.env());
     },
     .None => ()
   );
   // Check return type compatibility.
   body_ty := match(
     body_info_opt,
-    .Some(bi) => Rc.clone(bi.ty),
+    .Some(bi) => Rc.clone(bi.ty()),
     .None => t_unit()
   );
   if(!are_types_compatible(&body_ty, &result_type), {

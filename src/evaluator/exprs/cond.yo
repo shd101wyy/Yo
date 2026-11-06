@@ -2,6 +2,7 @@
 //!
 //! Exported symbols: evaluate_cond
 pragma(Pragma.AllowUnsafe);
+{ replace } :: import("std/mem");
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 {
@@ -79,6 +80,7 @@ ParsedStmt :: struct(
   case_body_expr : AstExpr,
   case_env : Environment
 );
+derive(ParsedStmt, Clone);
 /// One evaluated `cond` arm (condition already evaluated, body not yet).
 EvaluatedCond :: struct(
   cond_expr : AstExpr,
@@ -86,6 +88,7 @@ EvaluatedCond :: struct(
   case_env : Environment,
   cond_value : Option(EvalValue)
 );
+derive(EvaluatedCond, Clone);
 /// Tracks the unified value-type across `cond` arms.
 ValueTypeState :: struct(
   ty : TypeValue,
@@ -102,11 +105,11 @@ evaluate_cond :: (
   fn(
     expr : &AstExpr,
     env_in : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
-  (env : Environment) = env_in;
+  (env : Environment) = Rc.clone(env_in);
   // Validate that the expression is a cond() call.
   if(!ast_expr_is_fn_call_of(expr, BK_COND, .None), {
     exn.throw(
@@ -167,7 +170,7 @@ evaluate_cond :: (
       ParsedStmt(
         cond_expr : cond_expr,
         case_body_expr : case_body_expr,
-        case_env : env
+        case_env : Rc.clone(env)
       )
     );
     pi = (pi + usize(1));
@@ -180,7 +183,7 @@ evaluate_cond :: (
   (ec_i : usize) = usize(0);
   while((ec_i < parsed_stmts.len()) && !done_eval, {
     pstmt := match(
-      parsed_stmts.get(ec_i),
+      parsed_stmts.get_cloned(ec_i),
       .Some(s) => s,
       .None => {
         done_eval = true;
@@ -189,10 +192,9 @@ evaluate_cond :: (
     );
     cond_expr := pstmt.cond_expr;
     case_body_expr := pstmt.case_body_expr;
-    case_env := pstmt.case_env;
+    case_env := Rc.clone(pstmt.case_env);
     // Evaluate condition with expected type = bool.
-    old_expected := ctx.expected_type;
-    ctx.expected_type = Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : t_bool(), env : case_env));
+    old_expected := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : t_bool(), env : Rc.clone(case_env))));
     evaluated_cond_expr := cond(
       // Raw, like the begin arm below: an atom condition's own error (an
       // unbound name) is the diagnostic, not "Failed to evaluate condition".
@@ -216,7 +218,7 @@ evaluate_cond :: (
     });
     cond_info := match(
       cond_info_opt,
-      .Some(ci) => ci,
+      .Some(ci) => Rc.clone(ci),
       .None => {
         return(expr);
       }
@@ -226,18 +228,18 @@ evaluate_cond :: (
     // lookup that the bootstrap can't yet resolve). Treat the
     // condition as non-comptime-true and let the rest of the
     // case-selection logic fall through naturally.
-    is_unit_fallback := match(&cond_info.ty, Rc(.Unit) => true, _ => false);
-    if(!is_bool_type(&cond_info.ty) && !is_unit_fallback, {
+    is_unit_fallback := match(&cond_info.ty(), Rc(.Unit) => true, _ => false);
+    if(!is_bool_type(&cond_info.ty()) && !is_unit_fallback, {
       exn.throw(
         dyn(
           format_error_message(
             ast_expr_token(&evaluated_cond_expr),
-            `Expected bool for cond statement, got ${ast_expr_to_string(&evaluated_cond_expr)} of type ${type_to_string(&cond_info.ty)}`
+            `Expected bool for cond statement, got ${ast_expr_to_string(&evaluated_cond_expr)} of type ${type_to_string(&cond_info.ty())}`
           )
         )
       );
     });
-    cond_val := cond_info.value;
+    cond_val := cond_info.value();
     updated_case_env := expr_info_adopt_env(&cond_info);
     // Last condition must be compile-time known `true`.
     is_last := (ec_i == (parsed_stmts.len() - usize(1)));
@@ -289,7 +291,7 @@ evaluate_cond :: (
   (fti_done : bool) = false;
   while((fti < evaluated_conds.len()) && !fti_done, {
     ec_here := match(
-      evaluated_conds.get(fti),
+      evaluated_conds.get_cloned(fti),
       .Some(c) => c,
       .None => {
         fti_done = true;
@@ -303,7 +305,7 @@ evaluate_cond :: (
       (j : usize) = usize(0);
       while((j < fti) && all_prev_false, {
         match(
-          evaluated_conds.get(j),
+          evaluated_conds.get_cloned(j),
           .Some(prev) => {
             prev_is_false := match(prev.cond_value, .Some(v) => match(v, .BoolVal(b) => !b, _ => false), .None => false);
             if(!prev_is_false, {
@@ -336,7 +338,7 @@ evaluate_cond :: (
     // ---------------------------------------------------------------------
     .Some(fti_idx) => {
       ec_true := match(
-        evaluated_conds.get(fti_idx),
+        evaluated_conds.get_cloned(fti_idx),
         .Some(c) => c,
         .None => {
           return(expr);
@@ -344,7 +346,7 @@ evaluate_cond :: (
       );
       cond_expr_true := ec_true.cond_expr;
       case_body_true := ec_true.case_body_expr;
-      case_env_true := ec_true.case_env;
+      case_env_true := Rc.clone(ec_true.case_env);
       // Mark condition as executed.
       match(
         expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&cond_expr_true)),
@@ -359,12 +361,12 @@ evaluate_cond :: (
       reject_empty_record_arm(&case_body_true, exn);
       evaluated_body := evaluate_begin_expression(&case_body_true, &case_env_true, ctx, ArrayList(Variable).new(), false, exn);
       body_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_body));
-      body_cf := match(body_info_opt, .Some(bi) => bi.control_flow, .None => Option(ControlFlowFlags).None);
+      body_cf := match(&body_info_opt, .Some(bi) => bi.control_flow(), .None => Option(ControlFlowFlags).None);
       if(has_any_control_flow(body_cf), {
         // Body has control flow — propagate without a value.
         body_info := match(
           body_info_opt,
-          .Some(bi) => bi,
+          .Some(bi) => Rc.clone(bi),
           .None => {
             return(expr);
           }
@@ -376,21 +378,21 @@ evaluate_cond :: (
         // (issues/fixed/2026-10-23-a-compile-time-collapsed-cond-arm-return-releases-the-returned-value.md).
         consume_case_body_temp_var(&evaluated_body, &expr_info_adopt_env(&body_info), ctx);
         result_ty := cond(
-          match(ctx.expected_type, .Some(et) => (!type_contains_some_type_deep(&et.ty) && !type_mentions_impl_fn_or_future(&et.ty)), .None => false) =>
-            match(ctx.expected_type, .Some(et) => Rc.clone(et.ty), .None => Rc.clone(body_info.ty)),
-          true => Rc.clone(body_info.ty)
+          match(&ctx.expected_type, .Some(et) => (!type_contains_some_type_deep(&et.ty) && !type_mentions_impl_fn_or_future(&et.ty)), .None => false) =>
+            match(&ctx.expected_type, .Some(et) => Rc.clone(et.ty), .None => Rc.clone(body_info.ty())),
+          true => Rc.clone(body_info.ty())
         );
-        out_info := new_expr_info(&body_info.env, &result_ty);
-        out_info.value = body_info.value;
-        out_info.path_collection = body_info.path_collection.clone();
-        out_info.control_flow = body_info.control_flow;
+        out_info := new_expr_info(&body_info.env(), &result_ty);
+        out_info.set_value(body_info.value());
+        out_info.set_path_collection(body_info.path_collection());
+        out_info.set_control_flow(body_info.control_flow());
         expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
         return(expr);
       }, {
         // No control flow — use this body's type and value.
         body_info := match(
           body_info_opt,
-          .Some(bi) => bi,
+          .Some(bi) => Rc.clone(bi),
           .None => {
             exn.throw(
               dyn(
@@ -404,19 +406,19 @@ evaluate_cond :: (
           }
         );
         bodies.push(evaluated_body);
-        value_type = Option(ValueTypeState).Some(ValueTypeState(ty : Rc.clone(body_info.ty), env : body_info.env));
-        env_adopt(&env, &body_info.env);
+        value_type = Option(ValueTypeState).Some(ValueTypeState(ty : Rc.clone(body_info.ty()), env : body_info.env()));
+        env_adopt(&env, &body_info.env());
         result_ty := cond(
-          match(ctx.expected_type, .Some(et) => (!type_contains_some_type_deep(&et.ty) && !type_mentions_impl_fn_or_future(&et.ty)), .None => false) =>
-            match(ctx.expected_type, .Some(et) => Rc.clone(et.ty), .None => Rc.clone(body_info.ty)),
-          true => Rc.clone(body_info.ty)
+          match(&ctx.expected_type, .Some(et) => (!type_contains_some_type_deep(&et.ty) && !type_mentions_impl_fn_or_future(&et.ty)), .None => false) =>
+            match(&ctx.expected_type, .Some(et) => Rc.clone(et.ty), .None => Rc.clone(body_info.ty())),
+          true => Rc.clone(body_info.ty())
         );
         out_info := new_expr_info(&env, &result_ty);
-        out_info.value = body_info.value;
-        out_info.variable_name = body_info.variable_name.clone();
+        out_info.set_value(body_info.value());
+        out_info.set_variable_name(body_info.variable_name());
         expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
         // Only attach a new temp variable if the inner body doesn't have one.
-        if(body_info.variable_name.is_none(), {
+        if(body_info.variable_name().is_none(), {
           attach_temp_variable_to_expr(expr, true, ctx);
         });
         return(expr);
@@ -455,7 +457,7 @@ evaluate_cond :: (
       (prev_arm_body : Option(AstExpr)) = Option(AstExpr).None;
       while(nb_i < evaluated_conds.len(), {
         match(
-          evaluated_conds.get(nb_i),
+          evaluated_conds.get_cloned(nb_i),
           .None => {
             nb_i = evaluated_conds.len();
           },
@@ -513,11 +515,11 @@ evaluate_cond :: (
               body_env_for_consume := match(
                 expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_case_body)),
                 .Some(bi) => expr_info_adopt_env(&bi),
-                .None => ec_item.case_env
+                .None => Rc.clone(ec_item.case_env)
               );
               consume_case_body_temp_var(&evaluated_case_body, &body_env_for_consume, ctx);
               body_einfo_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_case_body));
-              body_cf2 := match(body_einfo_opt, .Some(bi) => bi.control_flow, .None => Option(ControlFlowFlags).None);
+              body_cf2 := match(&body_einfo_opt, .Some(bi) => bi.control_flow(), .None => Option(ControlFlowFlags).None);
               if(has_any_control_flow(body_cf2), {
                 cf_flags := match(
                   body_cf2,
@@ -534,7 +536,7 @@ evaluate_cond :: (
                 // Require type information.
                 body_einfo := match(
                   body_einfo_opt,
-                  .Some(bi) => bi,
+                  .Some(bi) => Rc.clone(bi),
                   .None => {
                     exn.throw(
                       dyn(
@@ -549,12 +551,12 @@ evaluate_cond :: (
                 );
                 bodies.push(evaluated_case_body);
                 // Track whether any body produced a runtime (None) value.
-                if(body_einfo.value.is_none(), {
+                if(body_einfo.value().is_none(), {
                   has_runtime_body_val = true;
                 });
                 // Check compatibility with the expected type.
                 match(
-                  ctx.expected_type,
+                  &ctx.expected_type,
                   .None => (),
                   .Some(et) => {
                     // For `-> &mut T` enclosing functions the body's expected
@@ -565,25 +567,25 @@ evaluate_cond :: (
                     // Accept the raw `T` form here; the flowability rule on the
                     // return expression owns soundness.
                     is_ptr_relaxed_match := cond(
-                      (is_pointer_type(&et.ty) && !is_pointer_type(&body_einfo.ty)) => match(
+                      (is_pointer_type(&et.ty) && !is_pointer_type(&body_einfo.ty())) => match(
                         &et.ty,
-                        Rc(.Pointer(child_box)) => are_types_compatible(&body_einfo.ty, &child_box),
+                        Rc(.Pointer(child_box)) => are_types_compatible(&body_einfo.ty(), &child_box),
                         _ => false
                       ),
                       true => false
                     );
-                    if(!is_ptr_relaxed_match && !are_types_compatible(&body_einfo.ty, &et.ty), {
+                    if(!is_ptr_relaxed_match && !are_types_compatible(&body_einfo.ty(), &et.ty), {
                       // Coerce the arm's comptime type to runtime and re-check
                       // (e.g. a `comptime_str` literal arm against a `str`
                       // expected return), mirroring the value-type unification
                       // fallback below; this path needs the explicit widening.
-                      runtime_arm_ty := convert_comptime_type_to_runtime_type(&body_einfo.ty, &body_einfo.env);
+                      runtime_arm_ty := convert_comptime_type_to_runtime_type(&body_einfo.ty(), &body_einfo.env());
                       if(!are_types_compatible(&runtime_arm_ty, &et.ty), {
                         exn.throw(
                           dyn(
                             format_error_message(
                               ast_expr_token(&evaluated_case_body),
-                              `Incompatible type with expected type:\n- Expected: ${type_to_string(&et.ty)}\n- Actual  : ${type_to_string(&body_einfo.ty)}`
+                              `Incompatible type with expected type:\n- Expected: ${type_to_string(&et.ty)}\n- Actual  : ${type_to_string(&body_einfo.ty())}`
                             )
                           )
                         );
@@ -593,17 +595,17 @@ evaluate_cond :: (
                 );
                 // Update the running value type. A `never` arm is the join's
                 // identity: it does not constrain the result.
-                if(is_never_type(&body_einfo.ty) && !has_any_control_flow(body_cf2), {
+                if(is_never_type(&body_einfo.ty()) && !has_any_control_flow(body_cf2), {
                   never_bodies.push(evaluated_case_body);
                 });
-                if(!has_any_control_flow(body_cf2) && !is_never_type(&body_einfo.ty), {
+                if(!has_any_control_flow(body_cf2) && !is_never_type(&body_einfo.ty()), {
                   match(
                     value_type.clone(),
                     .None => {
-                      value_type = Option(ValueTypeState).Some(ValueTypeState(ty : Rc.clone(body_einfo.ty), env : body_einfo.env));
+                      value_type = Option(ValueTypeState).Some(ValueTypeState(ty : Rc.clone(body_einfo.ty()), env : body_einfo.env()));
                     },
                     .Some(vt) => {
-                      if(!are_types_compatible(&body_einfo.ty, &vt.ty), {
+                      if(!are_types_compatible(&body_einfo.ty(), &vt.ty), {
                         // The join is symmetric for the comptime numerics: a
                         // PREVIOUS `comptime_int`/`comptime_float` arm that
                         // widens into this arm's concrete type joins AT that
@@ -616,16 +618,16 @@ evaluate_cond :: (
                         // The comptime arms' VALUES are range-checked against
                         // the joined type after the loop.
                         runtime_vt_ty := convert_comptime_type_to_runtime_type(&vt.ty, &vt.env);
-                        if((is_comptime_int_type(&vt.ty) || is_comptime_float_type(&vt.ty)) && are_types_compatible(&vt.ty, &body_einfo.ty), {
-                          value_type = Option(ValueTypeState).Some(ValueTypeState(ty : Rc.clone(body_einfo.ty), env : body_einfo.env));
-                        }, if(are_types_compatible(&body_einfo.ty, &runtime_vt_ty), {
-                          value_type = Option(ValueTypeState).Some(ValueTypeState(ty : Rc.clone(body_einfo.ty), env : body_einfo.env));
+                        if((is_comptime_int_type(&vt.ty) || is_comptime_float_type(&vt.ty)) && are_types_compatible(&vt.ty, &body_einfo.ty()), {
+                          value_type = Option(ValueTypeState).Some(ValueTypeState(ty : Rc.clone(body_einfo.ty()), env : body_einfo.env()));
+                        }, if(are_types_compatible(&body_einfo.ty(), &runtime_vt_ty), {
+                          value_type = Option(ValueTypeState).Some(ValueTypeState(ty : Rc.clone(body_einfo.ty()), env : body_einfo.env()));
                         }, {
                           exn.throw(
                             dyn(
                               format_error_message(
                                 ast_expr_token(&evaluated_case_body),
-                                `Incompatible types:\n- Previous: ${type_to_string(&vt.ty)}\n- Current : ${type_to_string(&body_einfo.ty)}`
+                                `Incompatible types:\n- Previous: ${type_to_string(&vt.ty)}\n- Current : ${type_to_string(&body_einfo.ty())}`
                               )
                             )
                           );
@@ -650,7 +652,7 @@ evaluate_cond :: (
         // At least one arm produces a value (no diverge).
         // Every value arm diverges: the cond itself is `never`.
         if(value_type.is_none() && (never_bodies.len() > usize(0)), {
-          value_type = Option(ValueTypeState).Some(ValueTypeState(ty : t_never(), env : env));
+          value_type = Option(ValueTypeState).Some(ValueTypeState(ty : t_never(), env : Rc.clone(env)));
         });
         if(has_case_without_control_flow && value_type.is_none(), {
           exn.throw(
@@ -663,9 +665,9 @@ evaluate_cond :: (
           );
         });
         if(value_type.is_none(), {
-          value_type = Option(ValueTypeState).Some(ValueTypeState(ty : t_unit(), env : env));
+          value_type = Option(ValueTypeState).Some(ValueTypeState(ty : t_unit(), env : Rc.clone(env)));
         });
-        vts := match(&value_type, .Some(vt) => vt.clone(), .None => ValueTypeState(ty : t_unit(), env : env));
+        vts := match(&value_type, .Some(vt) => vt.clone(), .None => ValueTypeState(ty : t_unit(), env : Rc.clone(env)));
         // A `comptime_int` arm joined at a fixed-width integer type must fit
         // it: `cond(c => 300, true => u8(1))` would emit a truncated constant.
         (ci_bi : usize) = usize(0);
@@ -673,9 +675,9 @@ evaluate_cond :: (
           ci_body := match(bodies.get(ci_bi), .Some(b) => b, .None => make_err_expr());
           match(
             expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ci_body)),
-            .Some(ci_info) => if(is_comptime_int_type(&ci_info.ty) && !has_any_control_flow(ci_info.control_flow), {
+            .Some(ci_info) => if(is_comptime_int_type(&ci_info.ty()) && !has_any_control_flow(ci_info.control_flow()), {
               match(
-                ci_info.value,
+                ci_info.value(),
                 .Some(ci_v) => match(ci_v, .IntLit(ci_raw) => check_comptime_int_value_fits(&ci_raw, &vts.ty, ast_expr_token(&ci_body), exn), _ => ()),
                 .None => ()
               );
@@ -694,7 +696,7 @@ evaluate_cond :: (
             body_info_filt_opt,
             .None => (),
             .Some(bi) => {
-              if(!has_control_flow(bi.control_flow, .Return) && !has_control_flow(bi.control_flow, .Unwind), {
+              if(!has_control_flow(bi.control_flow(), .Return) && !has_control_flow(bi.control_flow(), .Unwind), {
                 filtered_bodies.push(body);
               });
             }
@@ -727,8 +729,8 @@ evaluate_cond :: (
           true => Option(EvalValue).Some(create_unknown_val(&vts.ty))
         );
         result_ty := cond(
-          match(ctx.expected_type, .Some(et) => (!type_contains_some_type_deep(&et.ty) && !type_mentions_impl_fn_or_future(&et.ty)), .None => false) =>
-            match(ctx.expected_type, .Some(et) => Rc.clone(et.ty), .None => Rc.clone(vts.ty)),
+          match(&ctx.expected_type, .Some(et) => (!type_contains_some_type_deep(&et.ty) && !type_mentions_impl_fn_or_future(&et.ty)), .None => false) =>
+            match(&ctx.expected_type, .Some(et) => Rc.clone(et.ty), .None => Rc.clone(vts.ty)),
           true => Rc.clone(vts.ty)
         );
         (nb_ai : usize) = usize(0);
@@ -737,7 +739,7 @@ evaluate_cond :: (
           nb_ai = (nb_ai + usize(1));
         });
         out_info := new_expr_info(&env, &result_ty);
-        out_info.value = result_val;
+        out_info.set_value(result_val);
         expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
         attach_temp_variable_to_expr(expr, true, ctx);
         return(expr);
@@ -775,14 +777,14 @@ evaluate_cond :: (
               match(
                 first_rb_info_opt,
                 .Some(bi) => {
-                  return_type = Option(TypeValue).Some(Rc.clone(bi.ty));
+                  return_type = Option(TypeValue).Some(Rc.clone(bi.ty()));
                 },
                 .None => ()
               );
             });
             if(return_type.is_none(), {
               match(
-                ctx.is_evaluating_function_body_or_async_block,
+                &ctx.is_evaluating_function_body_or_async_block,
                 .None => (),
                 .Some(fctx) => {
                   match(
@@ -810,7 +812,7 @@ evaluate_cond :: (
             });
             if(return_type.is_none(), {
               match(
-                ctx.expected_type,
+                &ctx.expected_type,
                 .None => (),
                 .Some(et) => {
                   return_type = Option(TypeValue).Some(Rc.clone(et.ty));
@@ -831,13 +833,13 @@ evaluate_cond :: (
               },
               .Some(rt) => {
                 is_fn_body := match(
-                  ctx.is_evaluating_function_body_or_async_block,
+                  &ctx.is_evaluating_function_body_or_async_block,
                   .None => false,
                   .Some(fctx) => match(fctx.kind, .FunctionBody => true, _ => false)
                 );
                 is_comptime_return := cond(
                   is_fn_body => match(
-                    ctx.is_evaluating_function_body_or_async_block,
+                    &ctx.is_evaluating_function_body_or_async_block,
                     .None => false,
                     .Some(fctx) => match(
                       &fctx.func_type,
@@ -852,8 +854,8 @@ evaluate_cond :: (
                   true => Option(EvalValue).None
                 );
                 out_ret_info := new_expr_info(&env, &rt);
-                out_ret_info.value = return_val;
-                out_ret_info.control_flow = final_cf;
+                out_ret_info.set_value(return_val);
+                out_ret_info.set_control_flow(final_cf.clone());
                 expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_ret_info);
               }
             );
@@ -872,7 +874,7 @@ evaluate_cond :: (
             });
             unwind_ty := match(&ctx.enclosing_function_return_type, .Some(t) => Rc.clone(t), .None => t_unit());
             out_esc_info := new_expr_info(&env, &unwind_ty);
-            out_esc_info.control_flow = final_cf;
+            out_esc_info.set_control_flow(final_cf.clone());
             expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_esc_info);
           },
           has_control_flow(final_cf, .Break) => {
@@ -888,8 +890,8 @@ evaluate_cond :: (
               );
             });
             out_brk_info := new_expr_info(&env, t_unit());
-            out_brk_info.value = Option(EvalValue).Some(EvalValue.UnitVal);
-            out_brk_info.control_flow = final_cf;
+            out_brk_info.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
+            out_brk_info.set_control_flow(final_cf.clone());
             expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_brk_info);
           },
           has_control_flow(final_cf, .Continue) => {
@@ -905,8 +907,8 @@ evaluate_cond :: (
               );
             });
             out_cnt_info := new_expr_info(&env, t_unit());
-            out_cnt_info.value = Option(EvalValue).Some(EvalValue.UnitVal);
-            out_cnt_info.control_flow = final_cf;
+            out_cnt_info.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
+            out_cnt_info.set_control_flow(final_cf);
             expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_cnt_info);
           },
           // Should never be reached.

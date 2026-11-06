@@ -99,14 +99,13 @@ VerifyVerdict :: enum(
 // copies and b4-1a's deferred sites can spell `.clone()`.
 derive(VerifyVerdict, Clone);
 /// One obligation result: what was asked and what came back.
-VerifyResult :: ref(
-  struct(
-    query_name : String,
-    verdict : VerifyVerdict,
-    /// `true` when the verdict came from the cache, not the solver.
-    cached : bool
-  )
+VerifyResult :: struct(
+  query_name : String,
+  verdict : VerifyVerdict,
+  /// `true` when the verdict came from the cache, not the solver.
+  cached : bool
 );
+derive(VerifyResult, Clone);
 // ============================================================================
 // JSON helpers
 // ============================================================================
@@ -557,43 +556,41 @@ verifier_harness_self_test :: (fn(cfg : &VerifyRunConfig, binary : &String) -> A
 // The per-function verification pass (V3)
 // ============================================================================
 /// One obligation's outcome inside a function report.
-VerifyFnObligation :: ref(
-  struct(
-    name : String,
-    verdict : VerifyVerdict,
-    cached : bool,
-    /// Discharged by the literal-construction CTFE folding in `_emit` —
-    /// answered WITHOUT the cache → encode → solve pipeline, so summary
-    /// telemetry counts it as `folded`, never as a solver `query`.
-    (folded : bool) ?= false,
-    /// The obligation's goal term rendered as SMT-LIB (`--explain`'s VC
-    /// display; the JSON report's `goal` field). Empty only if the
-    /// rendering was never requested.
-    goal : String,
-    /// The runtime guard this obligation discharges (`vc.yo`'s `GuardSite`);
-    /// `.None` for contract, loop and assert obligations.
-    (site : Option(GuardSite)) ?= Option(GuardSite).None,
-    /// Proved with no unenforced assumption on its path (`VcObligation.elidable`).
-    (elidable : bool) ?= false,
-    /// Decides a guard only; never counts toward the outcome
-    /// (`VcObligation.elision_only`).
-    (elision_only : bool) ?= false
-  )
+VerifyFnObligation :: struct(
+  name : String,
+  verdict : VerifyVerdict,
+  cached : bool,
+  /// Discharged by the literal-construction CTFE folding in `_emit` —
+  /// answered WITHOUT the cache → encode → solve pipeline, so summary
+  /// telemetry counts it as `folded`, never as a solver `query`.
+  (folded : bool) ?= false,
+  /// The obligation's goal term rendered as SMT-LIB (`--explain`'s VC
+  /// display; the JSON report's `goal` field). Empty only if the
+  /// rendering was never requested.
+  goal : String,
+  /// The runtime guard this obligation discharges (`vc.yo`'s `GuardSite`);
+  /// `.None` for contract, loop and assert obligations.
+  (site : Option(GuardSite)) ?= Option(GuardSite).None,
+  /// Proved with no unenforced assumption on its path (`VcObligation.elidable`).
+  (elidable : bool) ?= false,
+  /// Decides a guard only; never counts toward the outcome
+  /// (`VcObligation.elision_only`).
+  (elision_only : bool) ?= false
 );
+derive(VerifyFnObligation, Clone);
 /// The verification report for one function.
-VerifyFnReport :: ref(
-  struct(
-    fn_id : String,
-    /// "verify" | "verify+" (the mode the file resolved to).
-    mode : String,
-    /// "ok" | "refuted" | "unproven" | "solver-error" | "subset-error".
-    outcome : String,
-    obligations : ArrayList(VerifyFnObligation),
-    /// Populated only for `outcome == "subset-error"`.
-    subset_construct : String,
-    subset_source : String
-  )
+VerifyFnReport :: struct(
+  fn_id : String,
+  /// "verify" | "verify+" (the mode the file resolved to).
+  mode : String,
+  /// "ok" | "refuted" | "unproven" | "solver-error" | "subset-error".
+  outcome : String,
+  obligations : ArrayList(VerifyFnObligation),
+  /// Populated only for `outcome == "subset-error"`.
+  subset_construct : String,
+  subset_source : String
 );
+derive(VerifyFnReport, Clone);
 /// True when a report passed WITHOUT proving anything: outcome `ok` and an
 /// empty obligation list means the body generated no obligation at all (no
 /// index, no division, no shift, no assert, no contract), not that a proof
@@ -685,23 +682,21 @@ verify_report_is_degraded :: (fn(rp : &VerifyFnReport, denied : &ArrayList(Strin
 /// plus the derived tallies the summary line prints. Counting lives here so
 /// the text summary, the JSON summary and the self-verification sweep cannot
 /// disagree about what a run contained.
-VerifySummary :: ref(
-  struct(
-    total : usize,
-    /// Parallel to `verify_outcome_names()`.
-    counts : ArrayList(usize),
-    /// `ok` reports that discharged nothing (see `verify_report_is_vacuous`).
-    vacuous : usize,
-    /// Obligations put through the cache → encode → solve pipeline, and how
-    /// many of those were answered from the verification cache.
-    queries : usize,
-    cached : usize,
-    /// Obligations discharged by the literal-construction CTFE folding
-    /// (`VcObligation.pre`) — never sent to the pipeline, so they are
-    /// counted separately from `queries`: a fold-heavy run must not read
-    /// as solver load.
-    folded : usize
-  )
+VerifySummary :: struct(
+  total : usize,
+  /// Parallel to `verify_outcome_names()`.
+  counts : ArrayList(usize),
+  /// `ok` reports that discharged nothing (see `verify_report_is_vacuous`).
+  vacuous : usize,
+  /// Obligations put through the cache → encode → solve pipeline, and how
+  /// many of those were answered from the verification cache.
+  queries : usize,
+  cached : usize,
+  /// Obligations discharged by the literal-construction CTFE folding
+  /// (`VcObligation.pre`) — never sent to the pipeline, so they are
+  /// counted separately from `queries`: a fold-heavy run must not read
+  /// as solver load.
+  folded : usize
 );
 summarize_verify_reports :: (fn(reports : &ArrayList(VerifyFnReport)) -> VerifySummary)({
   names := verify_outcome_names();
@@ -715,49 +710,33 @@ summarize_verify_reports :: (fn(reports : &ArrayList(VerifyFnReport)) -> VerifyS
   (queries : usize) = usize(0);
   (cached : usize) = usize(0);
   (folded : usize) = usize(0);
-  (i : usize) = usize(0);
-  while(i < reports.len(), {
-    match(
-      reports.get(i),
-      .Some(rp) => {
-        (ci : usize) = usize(0);
-        while(ci < names.len(), {
-          match(
-            names.get_cloned(ci),
-            .Some(nm) => {
-              if(nm == rp.outcome, {
-                counts(ci) = (match(counts.get(ci), .Some(c) => c, .None => usize(0)) + usize(1));
-              });
-            },
-            .None => ()
-          );
-          ci = (ci + usize(1));
-        });
-        if(verify_report_is_vacuous(&rp), {
-          vacuous = (vacuous + usize(1));
-        });
-        (oi : usize) = usize(0);
-        while(oi < rp.obligations.len(), {
-          match(
-            rp.obligations.get(oi),
-            .Some(obl) => {
-              if(obl.folded, {
-                folded = (folded + usize(1));
-              }, {
-                queries = (queries + usize(1));
-              });
-              if(obl.cached, {
-                cached = (cached + usize(1));
-              });
-            },
-            .None => ()
-          );
-          oi = (oi + usize(1));
-        });
-      },
-      .None => ()
-    );
-    i = (i + usize(1));
+  for(&reports, rp => {
+    (ci : usize) = usize(0);
+    while(ci < names.len(), {
+      match(
+        names.get_cloned(ci),
+        .Some(nm) => {
+          if(nm == rp.outcome, {
+            counts(ci) = (match(counts.get(ci), .Some(c) => c, .None => usize(0)) + usize(1));
+          });
+        },
+        .None => ()
+      );
+      ci = (ci + usize(1));
+    });
+    if(verify_report_is_vacuous(&rp), {
+      vacuous = (vacuous + usize(1));
+    });
+    for(&rp.obligations, obl => {
+      if(obl.folded, {
+        folded = (folded + usize(1));
+      }, {
+        queries = (queries + usize(1));
+      });
+      if(obl.cached, {
+        cached = (cached + usize(1));
+      });
+    });
   });
   VerifySummary(
     total : reports.len(),
@@ -799,34 +778,26 @@ verify_registered_functions :: (fn(cfg : &VerifyRunConfig, binary : &String) -> 
 /// default to NOT proved (conservative: keep the assert).
 _proved_ensures :: (fn(obligations : &ArrayList(VerifyFnObligation)) -> ArrayList(bool))({
   marks := ArrayList(bool).new();
-  (i : usize) = usize(0);
-  while(i < obligations.len(), {
+  for(&obligations, obl => {
     match(
-      obligations.get(i),
-      .Some(obl) => {
+      &obl.verdict,
+      .Proved(_) => {
+        idx_opt := _ens_obligation_index(obl.name.clone());
         match(
-          &obl.verdict,
-          .Proved(_) => {
-            idx_opt := _ens_obligation_index(obl.name.clone());
-            match(
-              idx_opt,
-              .Some(n) => {
-                while(marks.len() <= n, {
-                  marks.push(false);
-                });
-                // ArrayList has no set(): write through the raw pointer
-                // (the bounds were just established above).
-                unsafe(((marks.ptr().unwrap()).add(n)).* = true);
-              },
-              .None => ()
-            );
+          idx_opt,
+          .Some(n) => {
+            while(marks.len() <= n, {
+              marks.push(false);
+            });
+            // ArrayList has no set(): write through the raw pointer
+            // (the bounds were just established above).
+            unsafe(((marks.ptr().unwrap()).add(n)).* = true);
           },
-          _ => ()
+          .None => ()
         );
       },
-      .None => ()
+      _ => ()
     );
-    i = (i + usize(1));
   });
   marks
 });
@@ -864,13 +835,9 @@ record_elidable_guard_sites :: (fn(reports : &ArrayList(VerifyFnReport)) -> usiz
     return(usize(0));
   });
   (n : usize) = usize(0);
-  (ri : usize) = usize(0);
-  while(ri < reports.len(), {
-    rp := reports(ri);
+  for(&reports, rp => {
     if(rp.outcome == "ok", {
-      (oi : usize) = usize(0);
-      while(oi < rp.obligations.len(), {
-        obl := rp.obligations(oi);
+      for(&rp.obligations, obl => {
         proved := match(&obl.verdict, .Proved(_) => true, _ => false);
         match(
           &obl.site,
@@ -880,10 +847,8 @@ record_elidable_guard_sites :: (fn(reports : &ArrayList(VerifyFnReport)) -> usiz
           }),
           .None => ()
         );
-        oi = (oi + usize(1));
       });
     });
-    ri = (ri + usize(1));
   });
   n
 });
@@ -975,7 +940,7 @@ verify_and_strip_tasks :: (
         );
         body_res := verify_function_body(&input);
         match(
-          body_res.error,
+          &body_res.error,
           .Some(err) => {
             reports.push(
               VerifyFnReport(
@@ -991,93 +956,85 @@ verify_and_strip_tasks :: (
           .None => {
             obligations := ArrayList(VerifyFnObligation).new();
             (worst : usize) = usize(0);
-            (oi : usize) = usize(0);
-            while(oi < body_res.obligations.len(), {
+            for(&body_res.obligations, obl => {
+              // Literal-construction CTFE folding: a pre-resolved
+              // obligation skips the solver entirely (the verdict came
+              // from constant folding, which is a proof).
+              (pre_done : bool) = false;
+              (pre_is_proved : bool) = false;
               match(
-                body_res.obligations.get(oi),
-                .Some(obl) => {
-                  // Literal-construction CTFE folding: a pre-resolved
-                  // obligation skips the solver entirely (the verdict came
-                  // from constant folding, which is a proof).
-                  (pre_done : bool) = false;
-                  (pre_is_proved : bool) = false;
+                obl.pre,
+                .Some(pv) => {
+                  pre_done = true;
                   match(
-                    obl.pre,
-                    .Some(pv) => {
-                      pre_done = true;
-                      match(
-                        pv,
-                        .PreProved => {
-                          pre_is_proved = true;
-                        },
-                        .PreRefuted => ()
-                      );
+                    pv,
+                    .PreProved => {
+                      pre_is_proved = true;
                     },
-                    .None => ()
+                    .PreRefuted => ()
                   );
-                  if(pre_done, {
-                    pre_verdict := if(
-                      pre_is_proved,
-                      VerifyVerdict.Proved(ArrayList(String).new()),
-                      VerifyVerdict.Refuted(ArrayList(String).new())
-                    );
-                    obligations.push(
-                      VerifyFnObligation(
-                        name : obl.name.clone(),
-                        verdict : pre_verdict,
-                        cached : false,
-                        folded : true,
-                        goal : encode_term(&obl.query.goal),
-                        site : obl.site.clone(),
-                        elidable : obl.elidable,
-                        elision_only : obl.elision_only
-                      )
-                    );
-                    rank := if(pre_is_proved, usize(0), usize(3));
-                    if((rank > worst) && !obl.elision_only, {
-                      worst = rank;
-                    });
-                  });
-                  if(!pre_done, {
-                    r := run_vc_query(&obl.query, cfg, binary.clone());
-                    // Counter-examples carry source names: unmangle the
-                    // model's `__yo_v<fn>_<name> = value` pairs against
-                    // this function's id at report-construction time, so
-                    // every consumer (text, JSON, tests) sees `x = ...`.
-                    clean_verdict := match(
-                      &r.verdict,
-                      .Refuted(ce) => VerifyVerdict.Refuted(_unmangle_pairs(t.fn_id.clone(), &ce)),
-                      .Proved(core) => VerifyVerdict.Proved(core.clone()),
-                      .Unproven(reason) => VerifyVerdict.Unproven(reason.clone()),
-                      .SolverError(msg) => VerifyVerdict.SolverError(msg.clone())
-                    );
-                    obligations.push(
-                      VerifyFnObligation(
-                        name : r.query_name.clone(),
-                        verdict : clean_verdict,
-                        cached : r.cached,
-                        goal : encode_term(&obl.query.goal),
-                        site : obl.site.clone(),
-                        elidable : obl.elidable,
-                        elision_only : obl.elision_only
-                      )
-                    );
-                    // 0 ok < 1 unproven < 2 solver-error < 3 refuted
-                    rank := match(
-                      &r.verdict,
-                      .Proved(_) => usize(0),
-                      .Unproven(_) => usize(1),
-                      .SolverError(_) => usize(2),
-                      .Refuted(_) => usize(3)
-                    );
-                    if((rank > worst) && !obl.elision_only, {
-                      worst = rank;
-                    });
-                  });
                 },
                 .None => ()
               );
-              oi = (oi + usize(1));
+              if(pre_done, {
+                pre_verdict := if(
+                  pre_is_proved,
+                  VerifyVerdict.Proved(ArrayList(String).new()),
+                  VerifyVerdict.Refuted(ArrayList(String).new())
+                );
+                obligations.push(
+                  VerifyFnObligation(
+                    name : obl.name.clone(),
+                    verdict : pre_verdict,
+                    cached : false,
+                    folded : true,
+                    goal : encode_term(&obl.query.goal),
+                    site : obl.site.clone(),
+                    elidable : obl.elidable,
+                    elision_only : obl.elision_only
+                  )
+                );
+                rank := if(pre_is_proved, usize(0), usize(3));
+                if((rank > worst) && !obl.elision_only, {
+                  worst = rank;
+                });
+              });
+              if(!pre_done, {
+                r := run_vc_query(&obl.query, cfg, binary.clone());
+                // Counter-examples carry source names: unmangle the
+                // model's `__yo_v<fn>_<name> = value` pairs against
+                // this function's id at report-construction time, so
+                // every consumer (text, JSON, tests) sees `x = ...`.
+                clean_verdict := match(
+                  &r.verdict,
+                  .Refuted(ce) => VerifyVerdict.Refuted(_unmangle_pairs(t.fn_id.clone(), &ce)),
+                  .Proved(core) => VerifyVerdict.Proved(core.clone()),
+                  .Unproven(reason) => VerifyVerdict.Unproven(reason.clone()),
+                  .SolverError(msg) => VerifyVerdict.SolverError(msg.clone())
+                );
+                obligations.push(
+                  VerifyFnObligation(
+                    name : r.query_name.clone(),
+                    verdict : clean_verdict,
+                    cached : r.cached,
+                    goal : encode_term(&obl.query.goal),
+                    site : obl.site.clone(),
+                    elidable : obl.elidable,
+                    elision_only : obl.elision_only
+                  )
+                );
+                // 0 ok < 1 unproven < 2 solver-error < 3 refuted
+                rank := match(
+                  &r.verdict,
+                  .Proved(_) => usize(0),
+                  .Unproven(_) => usize(1),
+                  .SolverError(_) => usize(2),
+                  .Refuted(_) => usize(3)
+                );
+                if((rank > worst) && !obl.elision_only, {
+                  worst = rank;
+                });
+              });
             });
             outcome := cond(
               (worst == usize(3)) => String.from("refuted"),

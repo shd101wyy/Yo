@@ -132,7 +132,8 @@ ImplClosureCallInfo :: ref(
     closure_fid : String
   )
 );
-ArrayStructInfo :: ref(struct(child_type : String, length : i64));
+ArrayStructInfo :: struct(child_type : String, length : i64);
+derive(ArrayStructInfo, Clone);
 /// A `dyn()` usage: a concrete type used with a specific dyn trait. `dyn_type`
 /// is the DynT; `concrete_type` is the user type; `data_type` is what is
 /// stored in Dyn.data (object/Rc); `trait_values` are the TraitVal evidence
@@ -156,214 +157,212 @@ DynImplEntry :: ref(
 /// translation units by it (plans/reference/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §8).
 ChunkRange :: ref(struct(c_name : String, start_b : usize, end_b : usize, module : String));
 /// The base C code generation context. See header above.
-CodeGenContext :: ref(
-  struct(
-    /// Collected types that need to be generated (keyed by TypeId string).
-    types : HashMap(String, CodegenTypeEntry),
-    /// Collected functions that need to be generated (keyed by func_id).
-    functions : HashMap(String, CodegenFunctionEntry),
-    /// Every C name handed out by register_function — O(1) collision check.
-    registered_c_names : HashSet(String),
-    /// Insertion order of func_ids registered into `functions`. Codegen emits
-    /// functions by iterating THIS list: a HashMap iterates in bucket order,
-    /// which is unstable across compiler stages when the function set changes
-    /// — breaking the stage2≡stage3 fixpoint. See
-    /// issues/fixed/yo-self-emission-order-nondeterminism.md.
-    function_order : ArrayList(String),
-    /// Extern functions (keyed by TypeId string).
-    extern_functions : HashMap(String, CodegenExternFnEntry),
-    /// Array struct types that need to be generated (keyed by C name).
-    array_struct_types : HashMap(String, ArrayStructInfo),
-    /// C header files that need to be included.
-    c_includes : HashSet(String),
-    /// Emitter for generating C code.
-    emitter : Emitter,
-    /// Per-expression evaluation metadata (each node is looked up here by
-    /// ExprId). Read by the emitters for type/value/control-flow.
-    info_table : ExprInfoTable,
-    /// Compilation target info (arch, os, abi).
-    target_info : TargetInfo,
-    /// Memory allocator, already resolved: "mimalloc", "system", "fixed" or
-    /// "debug".
-    allocator : String,
-    /// Fixed-region allocator heap size in bytes (the `--allocator fixed` /
-    /// `--heap-size` pair). Validated upstream: granule-aligned,
-    /// 64 KiB..4 GiB. Ignored by the other allocators.
-    heap_size : usize,
-    /// `--debug-heap`: emit the fixed allocator's at-exit leak-oracle
-    /// reporter (requires `allocator == "fixed"`).
-    debug_heap : bool,
-    /// The current function being generated (for `recur`).
-    current_function_name : String,
-    /// Debug logging flags.
-    debug_parallelism : bool,
-    debug_async_await : bool,
-    /// The allocator interface the runtime speaks: version 2 (aligned
-    /// `alloc`/`realloc`, a sized `free`, the 32-byte cell prefix) when
-    /// std's `AllocatorVTable` has version 2's shape, else version 1.
-    /// Derived from that shape, never a flag (`std_allocator_abi_is_v2`;
-    /// plans/handover/VBD_LOOKAHEAD_2026-10-23.md D30). Set by
-    /// `compile_module` after construction (default false = version 1).
-    alloc_abi_v2 : bool,
-    /// True when compiling as a library (no main() wrapper).
-    is_library : bool,
-    /// True when any asm block uses intel_syntax (`-masm=intel` needed).
-    needs_intel_asm_syntax : bool,
-    /// Current loop label for break/continue in nested match (goto target);
-    /// `.None` outside a loop.
-    current_loop_label : Option(String),
-    /// Current continue label for 3-arg while loops (jump before the step);
-    /// `.None` outside such a loop.
-    current_continue_label : Option(String),
-    /// True while emitting inside a match (a C switch) — break needs goto, not
-    /// plain break.
-    inside_match : bool,
-    /// typeid static declarations: type id → the C static variable name whose
-    /// address is the type's runtime id.
-    type_id_statics : HashMap(String, String),
-    /// C NAMES of already-emitted `__yo_typeid_*` statics. The dedup must key
-    /// on the NAME, not the type_key: two evolved keys ALIAS onto one C name
-    /// (register_type_alias), so key-based dedup emits the SAME static twice
-    /// ("redefinition of __yo_typeid___yo_tN" — the lexer batch). Shared by
-    /// the typeid/downcast expression emitters and the Dyn vtable pass.
-    type_id_static_names : HashSet(String),
-    /// `&(K)` of a compile-time constant in emitted code: the static that
-    /// holds the constant, keyed by `<C type>=<initializer>` so every site
-    /// addressing the same value shares one object → its C name.
-    comptime_pointer_statics : HashMap(String, String),
-    /// C names of type BODIES the on-demand declare hook already emitted
-    /// (_on_demand_collect_and_declare, codegen_c.yo). The declaration passes
-    /// (types/generation.yo) SKIP these — one C name must have exactly one
-    /// definition, and a type first resolved lazily DURING a pass (e.g. a dyn
-    /// method's Future-trait return type minted while its vtable renders) is
-    /// emitted by the hook and would be re-emitted when the pass iteration
-    /// reaches it ("redefinition of __yo_tN_struct", the dyn batch). Populated
-    /// ONLY by the hook — the passes never mark — so on a tree where the hook
-    /// never fires before/during the passes the emitted C is byte-identical
-    /// (dedup must NOT change emission or interning order: a prior fix that
-    /// re-keyed emissions was retracted for renumbering the type table — see
-    /// issues/fixed/dyn-async-future-trait-body-emitted-twice.md).
-    on_demand_body_cnames : HashSet(String),
-    /// Set once generate_type_declarations has run every pass. Before that, a
-    /// Future interface first seen by the hook gets only its forward typedef:
-    /// the body names its result type BY VALUE (`result`), and the pass that
-    /// declares that type may not have run yet — the body waits for pass 5,
-    /// which runs after every other declaration pass
-    /// (issues/fixed/future-interface-body-emitted-before-its-result-type.md).
-    type_declaration_passes_done : bool,
-    /// Future interfaces whose forward typedef the hook emitted while the
-    /// passes were still running, by C name: pass 5 emits their bodies, and
-    /// generate_type_declarations emits any pass 5 did not reach (one the hook
-    /// met DURING pass 5, after its key walk passed it).
-    on_demand_fwd_only : HashMap(String, TypeValue),
-    /// __yo_dyn_box_* typedefs already emitted. Shared between the type-decl
-    /// phase's box pass and the function phase's ctor pass: dyn impls register
-    /// LAZILY (at use sites during body generation), so a box first seen by
-    /// the ctor pass needs its typedef emitted THERE (into the declarations
-    /// section — still assembled before code) or the ctor references an
-    /// unknown type (the suspension_analysis batch).
-    dyn_box_typedefs : HashSet(String),
-    /// dyn() usages → box types / vtables / wrappers (keyed by a
-    /// "<concrete_id>_<dyn_id>" string, fixed up to C names post type-gen).
-    dyn_impls : HashMap(String, DynImplEntry),
-    /// `upcast(d, Dyn(Tgt))` targets per SOURCE Dyn, keyed by the source's
-    /// `type_key` (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 2.8). Filled by the
-    /// collection pass; every vtable of the source carries one
-    /// `__yo_up_<Tgt>` pointer per target, and every (concrete, source) impl
-    /// gets a (concrete, target) impl so that vtable exists.
-    dyn_upcasts : HashMap(String, ArrayList(TypeValue)),
-    /// `file://` path of the ENTRY module being compiled; `.None` until
-    /// `compile_module` sets it. A top-level export whose defining token lives
-    /// in this module gets its plain label as C name with external linkage
-    /// (library exports, emcc `-sEXPORTED_FUNCTIONS`); Yo func ids
-    /// (`fn_yo_id_<N>`) never carry a module prefix
-    /// (issues/fixed/static-library-exports-no-symbols.md).
-    current_module_path : Option(String),
-    /// Exported label names → func_id, for stable non-mangled C names in
-    /// library/executable mode.
-    exported_function_labels : HashMap(String, String),
-    /// Type-tag dispose dispatch: dispose-function C name → its unique type id
-    /// (1-based). The constructor stamps `header.type_id = id`; the dispose
-    /// dispatch switch (deferred) reads the same map.
-    dispose_type_ids : HashMap(String, usize),
-    next_dispose_type_id : usize,
-    /// State-machine types whose released memory goes back to a per-type pool
-    /// (plans/ASYNC_STATE_MACHINE_GENERATION.md phase 7): dispose-function C
-    /// name → pool index (0-based). The dispose dispatch hands those types'
-    /// memory to `__yo_sm_give` instead of freeing it.
-    sm_pool_ids : HashMap(String, usize),
-    /// Cycle-GC `void*` dispose thunks already emitted, by thunk C name
-    /// (`dispose_fn_thunk`, functions/constructors.yo).
-    dispose_thunks : HashSet(String),
-    /// C variable names actually emitted as declarations (recorded by
-    /// get_variable_type_string, the choke-point for every `<Type> <name>`
-    /// declaration). Read by generate_deferred_drop_expressions to skip a drop
-    /// whose target TEMP was never materialized (declaration elided while its
-    /// deferred-drop survived) — emitting `__yo_decr_rc(undeclared_temp)` is an
-    /// undeclared-identifier error. Temp names are globally unique, so this
-    /// accumulates across functions without needing a per-function reset.
-    declared_c_var_names : Rc(RefCell(HashSet(String))),
-    /// Block-scope stack of declared C var names (named locals + temps), encoded
-    /// as a flat list with `"{"` sentinels at block boundaries, maintained by the
-    /// emitter (`_emitter_track_scope`) during function-body emission. Read ONLY by
-    /// the __yo_effect_escaped escape gate (return.yo _keep_pending_drop, !use_env):
-    /// a pending drop is kept iff its target's C name appears in the list (declared-
-    /// before AND still in scope). This is the block-scope-aware C-emission-order
-    /// signal that the flat set and source-token heuristics could not provide. See
-    /// issues/fixed/yo-self-fixpoint-eval-phase-leak.md.
-    declared_scopes : Rc(RefCell(ArrayList(String))),
-    /// Resolved concrete capture-struct type id → its generated closure impl fn.
-    /// Populated at closure construction; read at closure call sites to emit
-    /// `fn(&(cb), args)`.
-    impl_closure_call_map : HashMap(String, ImplClosureCallInfo),
-    // type_key ALIASES: an EVOLVED type_key render of an already-collected
-    // type maps to the FIRST registration's key (collect_type's stable-identity
-    // dedup). Consulted by get_type_entry/get_type_c_name on a primary miss so
-    // value sites keyed under either render resolve to ONE C type.
-    type_key_aliases : HashMap(String, String),
-    /// Chunked C emission (plans/reference/CHUNKED_C_EMISSION.md, `--emit-chunks N`).
-    /// When true, emission records byte ranges + splits file-scope statics so
-    /// `assemble_chunks` can produce N linkable translation units. MUST stay
-    /// false by default: the single-file emission is gated byte-identical.
-    chunk_mode : bool,
-    /// `--chunk-by module`: assign each function to the chunk of its DEFINING
-    /// module (`fnv1a(module) % n`) instead of `fnv1a(c_name) % n`, so an edit
-    /// dirties the units holding the edited module's functions and the `.o`
-    /// cache serves the rest (§8 of the incremental-compilation plan).
-    chunk_by_module : bool,
-    /// Per-function `code`-buffer byte ranges (chunk_mode only), recorded
-    /// around each generate_function call in emission order.
-    chunk_fn_ranges : ArrayList(ChunkRange),
-    /// `code`-buffer byte ranges routed VERBATIM into the shared header
-    /// (chunk_mode only): the constructor/traverse block — per-TU `static`
-    /// copies, called from every chunk.
-    chunk_header_ranges : ArrayList(ChunkRange),
-    /// File-scope definitions for chunk 0 (chunk_mode only): the single-
-    /// definition side of split statics — typeid chars, dyn vtables, TLS
-    /// unwind/effect buffers, the argv shim, module-level vars. Their extern
-    /// declarations go to the declarations section (the shared header).
-    chunk_globals : String,
-    /// C names of the per-type drop / dup functions of tagged value enums
-    /// already generated (`_value_enum_rc_fn`, exprs/drop_dup.yo). Keyed by
-    /// the function's C name, which is derived from the enum's C type name, so
-    /// two type keys aliasing onto one C type share one function.
-    value_enum_rc_fns : HashSet(String),
-    /// Their prototypes, `static inline void f(void*);` one per line. They
-    /// name no type, so `compile_module` appends them to the HEADERS section,
-    /// ahead of every use (function bodies in `code` and the async/spawn
-    /// bodies written into `declarations`).
-    value_enum_rc_protos : String,
-    /// Their definitions, in first-use order. They need the enum's complete
-    /// type, so `compile_module` appends them to the END of `declarations`.
-    value_enum_rc_defs : String
-  )
+CodeGenContext :: struct(
+  /// Collected types that need to be generated (keyed by TypeId string).
+  types : HashMap(String, CodegenTypeEntry),
+  /// Collected functions that need to be generated (keyed by func_id).
+  functions : HashMap(String, CodegenFunctionEntry),
+  /// Every C name handed out by register_function — O(1) collision check.
+  registered_c_names : HashSet(String),
+  /// Insertion order of func_ids registered into `functions`. Codegen emits
+  /// functions by iterating THIS list: a HashMap iterates in bucket order,
+  /// which is unstable across compiler stages when the function set changes
+  /// — breaking the stage2≡stage3 fixpoint. See
+  /// issues/fixed/yo-self-emission-order-nondeterminism.md.
+  function_order : ArrayList(String),
+  /// Extern functions (keyed by TypeId string).
+  extern_functions : HashMap(String, CodegenExternFnEntry),
+  /// Array struct types that need to be generated (keyed by C name).
+  array_struct_types : HashMap(String, ArrayStructInfo),
+  /// C header files that need to be included.
+  c_includes : HashSet(String),
+  /// Emitter for generating C code.
+  emitter : Emitter,
+  /// Per-expression evaluation metadata (each node is looked up here by
+  /// ExprId). Read by the emitters for type/value/control-flow.
+  info_table : ExprInfoTable,
+  /// Compilation target info (arch, os, abi).
+  target_info : TargetInfo,
+  /// Memory allocator, already resolved: "mimalloc", "system", "fixed" or
+  /// "debug".
+  allocator : String,
+  /// Fixed-region allocator heap size in bytes (the `--allocator fixed` /
+  /// `--heap-size` pair). Validated upstream: granule-aligned,
+  /// 64 KiB..4 GiB. Ignored by the other allocators.
+  heap_size : usize,
+  /// `--debug-heap`: emit the fixed allocator's at-exit leak-oracle
+  /// reporter (requires `allocator == "fixed"`).
+  debug_heap : bool,
+  /// The current function being generated (for `recur`).
+  current_function_name : String,
+  /// Debug logging flags.
+  debug_parallelism : bool,
+  debug_async_await : bool,
+  /// The allocator interface the runtime speaks: version 2 (aligned
+  /// `alloc`/`realloc`, a sized `free`, the 32-byte cell prefix) when
+  /// std's `AllocatorVTable` has version 2's shape, else version 1.
+  /// Derived from that shape, never a flag (`std_allocator_abi_is_v2`;
+  /// plans/handover/VBD_LOOKAHEAD_2026-10-23.md D30). Set by
+  /// `compile_module` after construction (default false = version 1).
+  alloc_abi_v2 : bool,
+  /// True when compiling as a library (no main() wrapper).
+  is_library : bool,
+  /// True when any asm block uses intel_syntax (`-masm=intel` needed).
+  needs_intel_asm_syntax : bool,
+  /// Current loop label for break/continue in nested match (goto target);
+  /// `.None` outside a loop.
+  current_loop_label : Option(String),
+  /// Current continue label for 3-arg while loops (jump before the step);
+  /// `.None` outside such a loop.
+  current_continue_label : Option(String),
+  /// True while emitting inside a match (a C switch) — break needs goto, not
+  /// plain break.
+  inside_match : bool,
+  /// typeid static declarations: type id → the C static variable name whose
+  /// address is the type's runtime id.
+  type_id_statics : HashMap(String, String),
+  /// C NAMES of already-emitted `__yo_typeid_*` statics. The dedup must key
+  /// on the NAME, not the type_key: two evolved keys ALIAS onto one C name
+  /// (register_type_alias), so key-based dedup emits the SAME static twice
+  /// ("redefinition of __yo_typeid___yo_tN" — the lexer batch). Shared by
+  /// the typeid/downcast expression emitters and the Dyn vtable pass.
+  type_id_static_names : HashSet(String),
+  /// `&(K)` of a compile-time constant in emitted code: the static that
+  /// holds the constant, keyed by `<C type>=<initializer>` so every site
+  /// addressing the same value shares one object → its C name.
+  comptime_pointer_statics : HashMap(String, String),
+  /// C names of type BODIES the on-demand declare hook already emitted
+  /// (_on_demand_collect_and_declare, codegen_c.yo). The declaration passes
+  /// (types/generation.yo) SKIP these — one C name must have exactly one
+  /// definition, and a type first resolved lazily DURING a pass (e.g. a dyn
+  /// method's Future-trait return type minted while its vtable renders) is
+  /// emitted by the hook and would be re-emitted when the pass iteration
+  /// reaches it ("redefinition of __yo_tN_struct", the dyn batch). Populated
+  /// ONLY by the hook — the passes never mark — so on a tree where the hook
+  /// never fires before/during the passes the emitted C is byte-identical
+  /// (dedup must NOT change emission or interning order: a prior fix that
+  /// re-keyed emissions was retracted for renumbering the type table — see
+  /// issues/fixed/dyn-async-future-trait-body-emitted-twice.md).
+  on_demand_body_cnames : HashSet(String),
+  /// Set once generate_type_declarations has run every pass. Before that, a
+  /// Future interface first seen by the hook gets only its forward typedef:
+  /// the body names its result type BY VALUE (`result`), and the pass that
+  /// declares that type may not have run yet — the body waits for pass 5,
+  /// which runs after every other declaration pass
+  /// (issues/fixed/future-interface-body-emitted-before-its-result-type.md).
+  type_declaration_passes_done : bool,
+  /// Future interfaces whose forward typedef the hook emitted while the
+  /// passes were still running, by C name: pass 5 emits their bodies, and
+  /// generate_type_declarations emits any pass 5 did not reach (one the hook
+  /// met DURING pass 5, after its key walk passed it).
+  on_demand_fwd_only : HashMap(String, TypeValue),
+  /// __yo_dyn_box_* typedefs already emitted. Shared between the type-decl
+  /// phase's box pass and the function phase's ctor pass: dyn impls register
+  /// LAZILY (at use sites during body generation), so a box first seen by
+  /// the ctor pass needs its typedef emitted THERE (into the declarations
+  /// section — still assembled before code) or the ctor references an
+  /// unknown type (the suspension_analysis batch).
+  dyn_box_typedefs : HashSet(String),
+  /// dyn() usages → box types / vtables / wrappers (keyed by a
+  /// "<concrete_id>_<dyn_id>" string, fixed up to C names post type-gen).
+  dyn_impls : HashMap(String, DynImplEntry),
+  /// `upcast(d, Dyn(Tgt))` targets per SOURCE Dyn, keyed by the source's
+  /// `type_key` (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 2.8). Filled by the
+  /// collection pass; every vtable of the source carries one
+  /// `__yo_up_<Tgt>` pointer per target, and every (concrete, source) impl
+  /// gets a (concrete, target) impl so that vtable exists.
+  dyn_upcasts : HashMap(String, ArrayList(TypeValue)),
+  /// `file://` path of the ENTRY module being compiled; `.None` until
+  /// `compile_module` sets it. A top-level export whose defining token lives
+  /// in this module gets its plain label as C name with external linkage
+  /// (library exports, emcc `-sEXPORTED_FUNCTIONS`); Yo func ids
+  /// (`fn_yo_id_<N>`) never carry a module prefix
+  /// (issues/fixed/static-library-exports-no-symbols.md).
+  current_module_path : Option(String),
+  /// Exported label names → func_id, for stable non-mangled C names in
+  /// library/executable mode.
+  exported_function_labels : HashMap(String, String),
+  /// Type-tag dispose dispatch: dispose-function C name → its unique type id
+  /// (1-based). The constructor stamps `header.type_id = id`; the dispose
+  /// dispatch switch (deferred) reads the same map.
+  dispose_type_ids : HashMap(String, usize),
+  next_dispose_type_id : usize,
+  /// State-machine types whose released memory goes back to a per-type pool
+  /// (plans/ASYNC_STATE_MACHINE_GENERATION.md phase 7): dispose-function C
+  /// name → pool index (0-based). The dispose dispatch hands those types'
+  /// memory to `__yo_sm_give` instead of freeing it.
+  sm_pool_ids : HashMap(String, usize),
+  /// Cycle-GC `void*` dispose thunks already emitted, by thunk C name
+  /// (`dispose_fn_thunk`, functions/constructors.yo).
+  dispose_thunks : HashSet(String),
+  /// C variable names actually emitted as declarations (recorded by
+  /// get_variable_type_string, the choke-point for every `<Type> <name>`
+  /// declaration). Read by generate_deferred_drop_expressions to skip a drop
+  /// whose target TEMP was never materialized (declaration elided while its
+  /// deferred-drop survived) — emitting `__yo_decr_rc(undeclared_temp)` is an
+  /// undeclared-identifier error. Temp names are globally unique, so this
+  /// accumulates across functions without needing a per-function reset.
+  declared_c_var_names : Rc(RefCell(HashSet(String))),
+  /// Block-scope stack of declared C var names (named locals + temps), encoded
+  /// as a flat list with `"{"` sentinels at block boundaries, maintained by the
+  /// emitter (`_emitter_track_scope`) during function-body emission. Read ONLY by
+  /// the __yo_effect_escaped escape gate (return.yo _keep_pending_drop, !use_env):
+  /// a pending drop is kept iff its target's C name appears in the list (declared-
+  /// before AND still in scope). This is the block-scope-aware C-emission-order
+  /// signal that the flat set and source-token heuristics could not provide. See
+  /// issues/fixed/yo-self-fixpoint-eval-phase-leak.md.
+  declared_scopes : Rc(RefCell(ArrayList(String))),
+  /// Resolved concrete capture-struct type id → its generated closure impl fn.
+  /// Populated at closure construction; read at closure call sites to emit
+  /// `fn(&(cb), args)`.
+  impl_closure_call_map : HashMap(String, ImplClosureCallInfo),
+  // type_key ALIASES: an EVOLVED type_key render of an already-collected
+  // type maps to the FIRST registration's key (collect_type's stable-identity
+  // dedup). Consulted by get_type_entry/get_type_c_name on a primary miss so
+  // value sites keyed under either render resolve to ONE C type.
+  type_key_aliases : HashMap(String, String),
+  /// Chunked C emission (plans/reference/CHUNKED_C_EMISSION.md, `--emit-chunks N`).
+  /// When true, emission records byte ranges + splits file-scope statics so
+  /// `assemble_chunks` can produce N linkable translation units. MUST stay
+  /// false by default: the single-file emission is gated byte-identical.
+  chunk_mode : bool,
+  /// `--chunk-by module`: assign each function to the chunk of its DEFINING
+  /// module (`fnv1a(module) % n`) instead of `fnv1a(c_name) % n`, so an edit
+  /// dirties the units holding the edited module's functions and the `.o`
+  /// cache serves the rest (§8 of the incremental-compilation plan).
+  chunk_by_module : bool,
+  /// Per-function `code`-buffer byte ranges (chunk_mode only), recorded
+  /// around each generate_function call in emission order.
+  chunk_fn_ranges : ArrayList(ChunkRange),
+  /// `code`-buffer byte ranges routed VERBATIM into the shared header
+  /// (chunk_mode only): the constructor/traverse block — per-TU `static`
+  /// copies, called from every chunk.
+  chunk_header_ranges : ArrayList(ChunkRange),
+  /// File-scope definitions for chunk 0 (chunk_mode only): the single-
+  /// definition side of split statics — typeid chars, dyn vtables, TLS
+  /// unwind/effect buffers, the argv shim, module-level vars. Their extern
+  /// declarations go to the declarations section (the shared header).
+  chunk_globals : String,
+  /// C names of the per-type drop / dup functions of tagged value enums
+  /// already generated (`_value_enum_rc_fn`, exprs/drop_dup.yo). Keyed by
+  /// the function's C name, which is derived from the enum's C type name, so
+  /// two type keys aliasing onto one C type share one function.
+  value_enum_rc_fns : HashSet(String),
+  /// Their prototypes, `static inline void f(void*);` one per line. They
+  /// name no type, so `compile_module` appends them to the HEADERS section,
+  /// ahead of every use (function bodies in `code` and the async/spawn
+  /// bodies written into `declarations`).
+  value_enum_rc_protos : String,
+  /// Their definitions, in first-use order. They need the enum's complete
+  /// type, so `compile_module` appends them to the END of `declarations`.
+  value_enum_rc_defs : String
 );
 impl(
   CodeGenContext,
   /// Create a fresh generation context with empty registries.
   new : (
     fn(
-      emitter : &Emitter,
+      sink(emitter) : Emitter,
       info_table : &ExprInfoTable,
       target_info : &TargetInfo,
       allocator : &String,
@@ -431,7 +430,7 @@ impl(
   /// chunk 0 — because per-TU copies would give the same type a different
   /// address in every chunk (address identity IS the semantics). `comment` is
   /// appended verbatim when non-empty (the dyn vtable pass labels its ids).
-  emit_typeid_static : (fn(self : &Self, static_var_name : &String, comment : &String) -> unit)({
+  emit_typeid_static : (fn(self : &mut Self, static_var_name : &String, comment : &String) -> unit)({
     if(self.chunk_mode, {
       mut(decl) := String.from("extern const char ");
       decl.push_string(static_var_name.clone());
@@ -455,7 +454,7 @@ impl(
   /// static storage that lives for the whole program). Chunked emission
   /// splits it the way `emit_typeid_static` does — `extern` in the header,
   /// one definition in chunk 0 — so every translation unit sees one object.
-  comptime_pointer_static : (fn(self : &Self, c_type : &String, init : &String) -> String)({
+  comptime_pointer_static : (fn(self : &mut Self, c_type : &String, init : &String) -> String)({
     key := `${c_type.clone()}=${init.clone()}`;
     match(
       self.comptime_pointer_statics.get_cloned(key.clone()),
@@ -486,7 +485,7 @@ impl(
     )
   ),
   /// Allocate (or reuse) the type-tag id for a dispose function's C name.
-  dispose_type_id_for : (fn(self : &Self, dispose_c_name : &String) -> usize)(
+  dispose_type_id_for : (fn(self : &mut Self, dispose_c_name : &String) -> usize)(
     match(
       self.dispose_type_ids.get(dispose_c_name.clone()),
       .Some(id) => id,
@@ -500,7 +499,7 @@ impl(
   ),
   /// Allocate (or reuse) the pool index of a state-machine type, keyed by its
   /// dispose function's C name.
-  sm_pool_id_for : (fn(self : &Self, dispose_c_name : &String) -> usize)(
+  sm_pool_id_for : (fn(self : &mut Self, dispose_c_name : &String) -> usize)(
     match(
       self.sm_pool_ids.get(dispose_c_name.clone()),
       .Some(id) => id,
@@ -513,7 +512,7 @@ impl(
   ),
   /// Register a type to be generated.
   register_type : (
-    fn(self : &Self, id : &String, ty : &TypeValue, c_name : &String, c_include : &Option(String)) -> unit
+    fn(self : &mut Self, id : &String, ty : &TypeValue, c_name : &String, c_include : &Option(String)) -> unit
   )({
     self.types.insert(id.clone(), CodegenTypeEntry(ty : Rc.clone(ty), c_name : c_name.clone(), c_include : c_include.clone()));
     ()
@@ -521,7 +520,7 @@ impl(
   /// Alias an EVOLVED type_key render to an already-registered key (the
   /// stable-identity dedup in collect_type). One level only — the target is
   /// always a PRIMARY registered key.
-  register_type_alias : (fn(self : &Self, alias_id : &String, target_id : &String) -> unit)({
+  register_type_alias : (fn(self : &mut Self, alias_id : &String, target_id : &String) -> unit)({
     self.type_key_aliases.insert(alias_id.clone(), target_id.clone());
     ()
   }),
@@ -558,7 +557,7 @@ impl(
   /// C names are content-derived (plans/reference/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §5),
   /// so a sanitization collision between two DIFFERENT functions is possible —
   /// disambiguate with an `_x<k>` suffix rather than emit two definitions of one symbol.
-  register_function : (fn(self : &Self, func_id : &String, value : &EvalValue, c_name : &String) -> unit)({
+  register_function : (fn(self : &mut Self, func_id : &String, value : &EvalValue, c_name : &String) -> unit)({
     // Record first-registration order (insertion order) so codegen emits
     // functions deterministically instead of in HashMap bucket order.
     // Re-registration keeps the original position.
@@ -624,17 +623,17 @@ impl(
     false
   }),
   /// Record an exported function's label → func_id mapping (stable C name).
-  set_exported_function_label : (fn(self : &Self, func_id : &String, label : &String) -> unit)({
+  set_exported_function_label : (fn(self : &mut Self, func_id : &String, label : &String) -> unit)({
     self.exported_function_labels.insert(func_id.clone(), label.clone());
     ()
   }),
   /// Register a dyn() usage (idempotent on key).
-  register_dyn_impl : (fn(self : &Self, key : &String, entry : &DynImplEntry) -> unit)({
+  register_dyn_impl : (fn(self : &mut Self, key : &String, entry : &DynImplEntry) -> unit)({
     self.dyn_impls.insert(key.clone(), entry);
     ()
   }),
   /// Record one `upcast(src, tgt)` (idempotent per target).
-  register_dyn_upcast : (fn(self : &Self, src : &TypeValue, tgt : &TypeValue) -> unit)({
+  register_dyn_upcast : (fn(self : &mut Self, src : &TypeValue, tgt : &TypeValue) -> unit)({
     src_key := type_key(src);
     tgt_key := type_key(tgt.clone());
     mut(targets) := match(self.dyn_upcasts.get_cloned(src_key.clone()), .Some(t) => t, .None => ArrayList(TypeValue).new());
@@ -655,14 +654,14 @@ impl(
   ),
   /// Register an extern function.
   register_extern_function : (
-    fn(self : &Self, id : &String, ty : &TypeValue, c_name : &String, c_include : &Option(String)) -> unit
+    fn(self : &mut Self, id : &String, ty : &TypeValue, c_name : &String, c_include : &Option(String)) -> unit
   )({
     self.extern_functions.insert(id.clone(), CodegenExternFnEntry(ty : Rc.clone(ty), c_name : c_name.clone(), c_include : c_include.clone()));
     ()
   }),
   /// Register an array struct type (idempotent).
   register_array_struct_type : (
-    fn(self : &Self, c_name : &String, child_type : &String, length : i64) -> unit
+    fn(self : &mut Self, c_name : &String, child_type : &String, length : i64) -> unit
   )({
     self.array_struct_types.insert(c_name.clone(), ArrayStructInfo(child_type : child_type.clone(), length : length));
     ()
@@ -672,7 +671,7 @@ impl(
     self.array_struct_types.contains_key(c_name)
   ),
   /// Add a C include header.
-  add_c_include : (fn(self : &Self, include : &String) -> unit)({
+  add_c_include : (fn(self : &mut Self, include : &String) -> unit)({
     self.c_includes.insert(include.clone());
     ()
   })
@@ -766,9 +765,9 @@ std_allocator_abi_is_v2 :: (fn(env : &Environment, std_path : &String) -> bool)(
   (mut(vi) : usize) = usize(0);
   while(vi < vars.len(), {
     match(
-      vars.get(vi),
+      vars.get_cloned(vi),
       .Some(var) => match(
-        var.value.get(usize(0)),
+        var.value().get(usize(0)),
         .Some(.TypeVal(t)) => match(
           resolve_struct_shell(&t),
           Rc(.Struct({ id : sid, name : sname })) => {
@@ -1516,13 +1515,13 @@ can_optimize_as_simple_enum :: (fn(t : &TypeValue) -> bool)(
 // drifted key to the existing nominal entry (or collects + declares a
 // genuinely-new type into the DECLARATIONS buffer, which the three-buffer
 // emitter places before all function code).
-OnDemandDeclareFn :: (fn(t : &TypeValue, context : &CodeGenContext) -> unit);
+OnDemandDeclareFn :: (fn(t : &TypeValue, context : &mut CodeGenContext) -> unit);
 (mut(g_on_demand_declare_fn) : Option(OnDemandDeclareFn)) = Option(OnDemandDeclareFn).None;
 set_on_demand_declare_fn :: (fn(f : OnDemandDeclareFn) -> unit)({
   g_on_demand_declare_fn = Option(OnDemandDeclareFn).Some(f);
   ()
 });
-_lookup_named_c_type :: (fn(t : &TypeValue, context : &CodeGenContext) -> String)(
+_lookup_named_c_type :: (fn(t : &TypeValue, context : &mut CodeGenContext) -> String)(
   match(
     context.get_type_c_name(type_key(t)),
     .Some(c_name) => c_name,
@@ -1613,7 +1612,7 @@ _extract_future_trait_of_some_t :: (fn(t : &TypeValue) -> Option(TypeValue))(
 /// The C type of the generic Future interface for `ftt` (a `FutureTraitT`):
 /// `__yo_future_trait_*` pointer, minted on demand by the same hook
 /// `_lookup_named_c_type` uses; `__yo_io_future_t*` when even that fails.
-_future_interface_pointer :: (fn(ftt : &TypeValue, context : &CodeGenContext) -> String)(
+_future_interface_pointer :: (fn(ftt : &TypeValue, context : &mut CodeGenContext) -> String)(
   match(
     context.get_type_c_name(type_key(ftt)),
     .Some(cn) => `${cn}*`,
@@ -1640,7 +1639,7 @@ _future_interface_pointer :: (fn(ftt : &TypeValue, context : &CodeGenContext) ->
 /// (issues/fixed/2026-10-24-two-async-functions-through-one-function-typed-parameter-are-called-through-an-incompatible-pointer-type.md).
 /// `.None` when `t` is not a future SomeT, or is an extern-backed one
 /// (`IoFuture` lowers to `__yo_io_future_t*` in both places).
-erased_future_result_type_string :: (fn(t : &TypeValue, context : &CodeGenContext) -> Option(String))(
+erased_future_result_type_string :: (fn(t : &TypeValue, context : &mut CodeGenContext) -> Option(String))(
   match(
     _extract_future_trait_of_some_t(t),
     .Some(ftt) => match(
@@ -1678,7 +1677,7 @@ _gts_stack_contains :: (fn(sid : &String) -> bool)({
   });
   found
 });
-get_type_string :: (fn(t : &TypeValue, context : &CodeGenContext) -> String)(
+get_type_string :: (fn(t : &TypeValue, context : &mut CodeGenContext) -> String)(
   match(
     t,
     // A refinement wraps its inner at runtime (the erasure rule) — the C
@@ -1897,7 +1896,7 @@ get_type_string :: (fn(t : &TypeValue, context : &CodeGenContext) -> String)(
 /// REF/`inout` unit parameter keeps `void*`
 /// (issues/fixed/inout-unit-receiver-void-ref-spill.md). Every other type is
 /// unchanged.
-get_storage_type_string :: (fn(t : &TypeValue, context : &CodeGenContext) -> String)({
+get_storage_type_string :: (fn(t : &TypeValue, context : &mut CodeGenContext) -> String)({
   s := get_type_string(t, context);
   if(s == `void`, String.from("uint8_t"), s)
 });
@@ -1931,7 +1930,7 @@ scope_stack_contains :: (fn(stack : &ArrayList(String), cn : &String) -> bool)({
 /// C type string for a variable declaration (`<type> <name>`), sanitizing the
 /// variable name to avoid C reserved words/macros.
 get_variable_type_string :: (
-  fn(t : &TypeValue, var_name : &String, context : &CodeGenContext) -> String
+  fn(t : &TypeValue, var_name : &String, context : &mut CodeGenContext) -> String
 )({
   mut(result) := get_type_string(t, context);
   result.push_str(" ");
@@ -1998,7 +1997,7 @@ _codegen_name_of_variables :: (fn(variable_name : &String, variables : &ArrayLis
   n := variables.len();
   cond(
     (n > usize(0)) => {
-      variable := match(variables.get(n - usize(1)), .Some(v) => v, .None => return(sanitize_for_c_identifier(variable_name.clone(), false)));
+      variable := match(variables.get_cloned(n - usize(1)), .Some(v) => v, .None => return(sanitize_for_c_identifier(variable_name.clone(), false)));
       // Extern-C: a Func with is_extern="c", OR a c_include'd GLOBAL symbol
       // (`stdout`/`stderr` — non-Func, so it can't carry is_extern on its type;
       // tracked in the g_extern_c_globals registry). Either way, keep the REAL
@@ -2037,7 +2036,7 @@ _codegen_name_of_variables :: (fn(variable_name : &String, variables : &ArrayLis
       // must keep theirs.
       // issues/fixed/module-global-c-names-are-not-namespaced.md.
       if(g_debug_mg, {
-        eprintln(`[mg] name=${variable.name} path=${variable.token.module_path.*} param=${variable.is_parameter} hit=${is_module_level_global(&variable.token.module_path.*, &variable.name)}`);
+        eprintln(`[mg] name=${variable.name} path=${variable.token.module_path.*} param=${variable.is_parameter()} hit=${is_module_level_global(&variable.token.module_path.*, &variable.name)}`);
       });
       // Never qualify when ANY match for this name is a PARAMETER: a
       // same-named parameter lexically shadows the global, so the bare
@@ -2052,9 +2051,9 @@ _codegen_name_of_variables :: (fn(variable_name : &String, variables : &ArrayLis
         (mg_i : usize) = usize(0);
         while(mg_i < n, {
           match(
-            variables.get(mg_i),
+            variables.get_cloned(mg_i),
             .Some(mv) => {
-              if(mv.is_parameter, {
+              if(mv.is_parameter(), {
                 mg_any_param = true;
               });
             },
@@ -2250,7 +2249,7 @@ deferred_drop_target_variable :: (fn(drop_expr : &AstExpr, base : &CodeGenContex
     get_deferred_drop_target_atom(drop_expr),
     .Some(atom) => match(
       base.get_expr_info(&atom),
-      .Some(aei) => scope_variables(ast_expr_id(&atom), &aei.env, ast_expr_token(&atom).value.*).last(),
+      .Some(aei) => scope_variables(ast_expr_id(&atom), &aei.env(), ast_expr_token(&atom).value.*).last_cloned(),
       .None => Option(Variable).None
     ),
     .None => Option(Variable).None
@@ -2526,7 +2525,7 @@ dyn_concrete_c_name :: (fn(t : &TypeValue, context : &CodeGenContext) -> Option(
 /// a projection (`-> &T`, decision 34), is `T*`; every other parameter its
 /// value type. Decision 43 step 2 (N1c): a `Dyn` call maps from the trait's
 /// signature, projections included.
-dyn_slot_param_abi_string :: (fn(ft : &TypeValue, i : usize, context : &CodeGenContext) -> String)({
+dyn_slot_param_abi_string :: (fn(ft : &TypeValue, i : usize, context : &mut CodeGenContext) -> String)({
   pts := match(fn_param_slots(ft).get(i), .Some(s) => get_type_string(&t_slot_pointee(&s), context), .None => String.from("void*"));
   if(match(fn_abi_param_is_ptr(ft).get(i), .Some(b) => b, .None => false), {
     pts.push_str("*");
@@ -2535,7 +2534,7 @@ dyn_slot_param_abi_string :: (fn(ft : &TypeValue, i : usize, context : &CodeGenC
 });
 /// The C result type of the method type `ft` in a `Dyn` vtable slot or
 /// wrapper: a projection's (`-> &T`) is `T*`.
-dyn_slot_result_abi_string :: (fn(ft : &TypeValue, context : &CodeGenContext) -> String)({
+dyn_slot_result_abi_string :: (fn(ft : &TypeValue, context : &mut CodeGenContext) -> String)({
   rs := get_type_string(&match(ft, Rc(.FnTraitT({ call_result : dsr_cr })) => t_slot_pointee(&dsr_cr), _ => fn_result_pointee(ft)), context);
   if(fn_result_is_ref(ft), {
     rs.push_str("*");
@@ -2548,7 +2547,7 @@ dyn_slot_result_abi_string :: (fn(ft : &TypeValue, context : &CodeGenContext) ->
 /// `--line-directives` (one bool check inside the emitter), so every begin /
 /// function-body / loop-body / case-body statement loop can call it
 /// unconditionally.
-note_line_position :: (fn(em : &Emitter, expr : &AstExpr) -> unit)({
+note_line_position :: (fn(em : &mut Emitter, expr : &AstExpr) -> unit)({
   tok := ast_expr_token(expr);
   em.set_yo_line_position(&tok.module_path.*, tok.row);
 });

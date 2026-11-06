@@ -49,11 +49,11 @@ evaluate_anonymous_struct_value :: (
   fn(
     expr : &AstExpr,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
-  (cur_env : Environment) = env;
+  (cur_env : Environment) = Rc.clone(env);
   tok := ast_expr_token(expr);
   // Validate: func must be Atom("_")
   func_expr := match(
@@ -182,8 +182,8 @@ evaluate_anonymous_struct_value :: (
       }
     );
     cur_env = expr_info_adopt_env(&arg_info);
-    field_ty := Rc.clone(arg_info.ty);
-    field_val_opt := arg_info.value;
+    field_ty := Rc.clone(arg_info.ty());
+    field_val_opt := arg_info.value();
     // Determine label (use provided or generate)
     label := match(
       label_opt,
@@ -282,7 +282,7 @@ evaluate_anonymous_struct_value :: (
   struct_type_val := create_type_value(&struct_ty);
   meta_ty := type_of_type(&struct_ty);
   func_info := new_expr_info(&cur_env, &meta_ty);
-  func_info.value = Option(EvalValue).Some(struct_type_val);
+  func_info.set_value(Option(EvalValue).Some(struct_type_val));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&func_expr), &func_info);
   // Add struct type to env as a comptime variable named by struct_id
   add_variable_to_env(
@@ -302,8 +302,8 @@ evaluate_anonymous_struct_value :: (
   );
   // Annotate expr: type = struct_ty (instance type), value = struct_val_opt
   out_info := new_expr_info(&cur_env, &struct_ty);
-  out_info.value = struct_val_opt;
-  out_info.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(runtime_arg_exprs);
+  out_info.set_value(struct_val_opt);
+  out_info.set_runtime_arg_exprs_in_order(Option(ArrayList(AstExpr)).Some(runtime_arg_exprs));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   // Attach temp variable (no-op stub in Phase 2bk)
   attach_temp_variable_to_expr(expr, true, ctx);

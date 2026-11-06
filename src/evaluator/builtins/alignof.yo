@@ -31,7 +31,7 @@ evaluate_align_of :: (
   fn(
     expr : &AstExpr,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
@@ -62,7 +62,7 @@ evaluate_align_of :: (
   info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated));
   info := match(
     info_opt,
-    .Some(i) => i,
+    .Some(i) => Rc.clone(i),
     .None => {
       exn.throw(
         dyn(
@@ -78,10 +78,10 @@ evaluate_align_of :: (
   (cur_env : Environment) = expr_info_adopt_env(&info);
   // Determine the type to measure: TypeVal → its wrapped type, otherwise expr type.
   (type_to_check : TypeValue) = match(
-    info.value,
+    info.value(),
     .Some(.TypeVal(ty_box)) => Rc.clone(ty_box),
-    .Some(_) => Rc.clone(info.ty),
-    .None => Rc.clone(info.ty)
+    .Some(_) => Rc.clone(info.ty()),
+    .None => Rc.clone(info.ty())
   );
   // get_alignment_of_type returns bytes directly.
   align_opt := get_alignment_of_type(&type_to_check);
@@ -89,7 +89,7 @@ evaluate_align_of :: (
   match(
     align_opt,
     .Some(bytes) => {
-      out_info.value = .Some(EvalValue.IntLit(bytes.to_string()));
+      out_info.set_value(.Some(EvalValue.IntLit(bytes.to_string())));
     },
     .None => {
       // Unknown alignment (e.g. `alignof(T)` with T a SomeT at def-eval):
@@ -97,7 +97,7 @@ evaluate_align_of :: (
       // typed unknown, NOT a value-less result. Leaving `.None` here made the
       // def-time body eval throw "Incompatible types" downstream (same fix as
       // sizeof.yo:104-112).
-      out_info.value = .Some(create_unknown_val(t_usize()));
+      out_info.set_value(.Some(create_unknown_val(t_usize())));
     }
   );
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);

@@ -16,7 +16,7 @@ import("std/fmt");
   has_control_flow
 }
 :: import("../../src/expr_info.yo");
-{ Environment } :: import("../../src/env.yo");
+{ Environment, new_environment } :: import("../../src/env.yo");
 { EvalContext, eval_context_new } :: import("../../src/evaluator/context.yo");
 { EvalValue } :: import("../../src/value.yo");
 { TypeValue } :: import("../../src/types/definitions.yo");
@@ -48,7 +48,7 @@ stub_evaluate_i32 :: (
   fn(
     expr : &AstExpr,
     env : &Environment,
-    ctx : &EvalContext
+    ctx : &mut EvalContext
   ) -> AstExpr
 )({
   info := new_expr_info(env, t_i32());
@@ -57,7 +57,7 @@ stub_evaluate_i32 :: (
 });
 /// The raw evaluator twin of `stub_evaluate_i32` (the handler is unused): the code under
 /// test evaluates sub-expressions through `evaluate_expression_raw` too.
-stub_evaluate_i32_raw :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> AstExpr)(stub_evaluate_i32(expr, env, ctx));
+stub_evaluate_i32_raw :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr)(stub_evaluate_i32(expr, env, ctx));
 test("evaluate_unwind: writes ExprInfo with Unwind control flow", {
   set_evaluate_expression_fn(stub_evaluate_i32);
   set_evaluate_expression_raw_fn(stub_evaluate_i32_raw);
@@ -69,16 +69,15 @@ test("evaluate_unwind: writes ExprInfo with Unwind control flow", {
       }
     )
   );
-  ctx := eval_context_new(String.from("/std"), String.from("test"));
-  ctx_ptr := ctx;
+  mut(ctx) := eval_context_new(String.from("/std"), String.from("test"));
   i32_ty := t_i32();
-  ctx_ptr.enclosing_function_return_type = .Some(i32_ty);
-  ctx_ptr.is_inside_given_handler = true;
-  env := Environment.new(Rc.new(String.from("test")));
+  ctx.enclosing_function_return_type = .Some(i32_ty);
+  ctx.is_inside_given_handler = true;
+  env := new_environment(Rc.new(String.from("test")));
   call := mk_escape_call(usize(21), "0", usize(22));
-  result := evaluate_unwind(&call, &env, &ctx, exn);
+  result := evaluate_unwind(&call, &env, &mut ctx, exn);
   info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&result));
-  assert(match(info_opt, .Some(_) => true, .None => false), "unwind(did not record an ExprInfo)");
+  assert(match(&info_opt, .Some(_) => true, .None => false), "unwind(did not record an ExprInfo)");
   info := match(
     info_opt,
     .Some(i) => i,
@@ -86,7 +85,7 @@ test("evaluate_unwind: writes ExprInfo with Unwind control flow", {
   );
   // Type should be i32 (from stub).
   match(
-    &info.ty,
+    &info.ty(),
     Rc(.Int(bits, signed)) => {
       assert(bits.* == u8(32), "expected unwind(to inherit i32 bits=32)");
       assert(signed.*, "expected unwind(to inherit i32 signed=true)");
@@ -95,13 +94,13 @@ test("evaluate_unwind: writes ExprInfo with Unwind control flow", {
   );
   // value must be .None
   match(
-    info.value,
+    info.value(),
     .None => (),
     .Some(_) => assert(false, "expected unwind(to leave value = .None)")
   );
   // Control flow flag must include Unwind.
   assert(
-    has_control_flow(info.control_flow, .Unwind),
+    has_control_flow(info.control_flow(), .Unwind),
     "expected unwind(to set control_flow = .Unwind)"
   );
 });

@@ -31,7 +31,7 @@ evaluate_comptime_print :: (
   fn(
     expr : &AstExpr,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
@@ -69,7 +69,7 @@ evaluate_comptime_print :: (
     .Atom(_, _) => ArrayList(AstExpr).new()
   );
   (i : usize) = usize(0);
-  (cur_env : Environment) = env;
+  (cur_env : Environment) = Rc.clone(env);
   while(i < args.len(), {
     arg_expr := match(
       args.get(i),
@@ -83,7 +83,7 @@ evaluate_comptime_print :: (
     info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated));
     info := match(
       info_opt,
-      .Some(inf) => inf,
+      .Some(inf) => Rc.clone(inf),
       .None => {
         exn.throw(
           dyn(
@@ -100,7 +100,7 @@ evaluate_comptime_print :: (
     // Convert to string: comptime strings yield their unquoted content;
     // everything else goes through value_to_string.
     s := match(
-      info.value,
+      info.value(),
       .Some(v) => match(
         v,
         .StrLit(raw) => {
@@ -130,7 +130,7 @@ evaluate_comptime_print :: (
   });
   // Annotate the call expression with unit type.
   info := new_expr_info(&cur_env, t_unit());
-  info.value = .Some(EvalValue.UnitVal);
+  info.set_value(.Some(EvalValue.UnitVal));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
   expr
 });

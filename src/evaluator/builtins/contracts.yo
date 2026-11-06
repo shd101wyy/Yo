@@ -89,7 +89,7 @@ _evaluate_contract_marker :: (
   fn(
     expr : &AstExpr,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
@@ -98,7 +98,7 @@ _evaluate_contract_marker :: (
     .FnCall(_, _, a, _, _) => Rc.clone(a).*.clone(),
     .Atom(_, _) => ArrayList(AstExpr).new()
   );
-  (cur_env : Environment) = env;
+  (cur_env : Environment) = Rc.clone(env);
   (i : usize) = usize(0);
   while(i < args.len(), {
     arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
@@ -135,7 +135,7 @@ _evaluate_contract_marker :: (
     i = (i + usize(1));
   });
   out_info := new_expr_info(&cur_env, t_unit());
-  out_info.value = Option(EvalValue).Some(EvalValue.UnitVal);
+  out_info.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   expr
 });
@@ -192,7 +192,7 @@ _reject_zero_arg_marker :: (fn(expr : &AstExpr, message : &String, exn : Excepti
     exn.throw(dyn(format_error_message(ast_expr_token(expr), message)));
   });
 });
-evaluate_requires :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> AstExpr)({
+evaluate_requires :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr)({
   _reject_zero_arg_marker(
     expr,
     String.from("'requires(...)' with zero arguments is a syntax error. Omit the clause entirely if there is no precondition."),
@@ -201,7 +201,7 @@ evaluate_requires :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext
   _evaluate_contract_marker(expr, env, ctx, exn)
 });
 /// `ensures(...)` in expression position — no-op marker.
-evaluate_ensures :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> AstExpr)({
+evaluate_ensures :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr)({
   _reject_zero_arg_marker(
     expr,
     String.from("'ensures(...)' with zero arguments is a syntax error. Omit the clause entirely if there is no postcondition."),
@@ -211,7 +211,7 @@ evaluate_ensures :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext,
 });
 /// `invariant(...)` — no-op marker (loop placement checked in `while`; SMT
 /// discharge is a later phase).
-evaluate_invariant :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> AstExpr)({
+evaluate_invariant :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr)({
   _reject_zero_arg_marker(
     expr,
     String.from("'invariant(...)' with zero arguments is a syntax error."),
@@ -223,7 +223,7 @@ evaluate_invariant :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContex
 /// statement form (right after `invariant(...)`) is consumed by the V4
 /// verifier's loop encoding; the SIGNATURE clause is extracted by the
 /// function-type evaluator.
-evaluate_decreases :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> AstExpr)({
+evaluate_decreases :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr)({
   _reject_zero_arg_marker(
     expr,
     String.from("'decreases(...)' with zero arguments is a syntax error."),
@@ -235,7 +235,7 @@ evaluate_decreases :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContex
 /// no-op marker, the INVERSE of the others: the zero-argument form is the
 /// only legal one (the signature extraction rejects it anywhere else); any
 /// argument is a syntax error naming the contract clauses it expected.
-evaluate_assumed :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> AstExpr)({
+evaluate_assumed :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr)({
   n := match(
     expr,
     .FnCall(_, _, Rc(a), _, _) => a.len(),
@@ -285,7 +285,7 @@ BF_SET_CONTAINS :: "set_contains";
 /// identifier — the evaluator resolved the name (Phase 0's marker bound it)
 /// while codegen erased the binding. Other `ghost(...)` shapes keep the
 /// transparent no-op marker.
-evaluate_ghost :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> AstExpr)({
+evaluate_ghost :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr)({
   {
     match(
       expr,
@@ -321,8 +321,8 @@ evaluate_ghost :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, e
             ghost_var := add_variable_to_env(
               env,
               nm.clone(),
-              &r_info.ty,
-              &r_info.value,
+              &r_info.ty(),
+              &r_info.value(),
               false,
               false,
               false,
@@ -340,12 +340,12 @@ evaluate_ghost :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, e
             match(
               ghost_var,
               .Some(gv) => {
-                gv.is_ghost_binding = true;
+                gv.set_is_ghost_binding(true);
               },
               .None => ()
             );
-            out_info := new_expr_info(&r_info.env, t_unit());
-            out_info.value = Option(EvalValue).Some(EvalValue.UnitVal);
+            out_info := new_expr_info(&r_info.env(), t_unit());
+            out_info.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
             expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
             return(expr);
           });
@@ -364,7 +364,7 @@ _evaluate_transparent_unary :: (
   fn(
     expr : &AstExpr,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
@@ -411,12 +411,11 @@ is_ghost_fn :: (fn(func_id : &String) -> bool)(
 /// inlines `p(x)` from HERE (type-level refinements have no call node
 /// for the ExprInfo-based inliner to read). Written by evaluate_ghost_fn
 /// next to register_ghost_fn.
-GhostFnDef :: ref(
-  struct(
-    params : ArrayList(String),
-    body : AstExpr
-  )
+GhostFnDef :: struct(
+  params : ArrayList(String),
+  body : AstExpr
 );
+derive(GhostFnDef, Clone);
 (g_ghost_fn_defs : RefCell(HashMap(String, GhostFnDef))) = RefCell(HashMap(String, GhostFnDef)).new(HashMap(String, GhostFnDef).new());
 register_ghost_fn_def :: (fn(func_id : &String, params : &ArrayList(String), body : &AstExpr) -> unit)({
   func_id_owned := func_id.clone();
@@ -427,7 +426,7 @@ register_ghost_fn_def :: (fn(func_id : &String, params : &ArrayList(String), bod
   ()
 });
 ghost_fn_def_of :: (fn(func_id : &String) -> Option(GhostFnDef))(
-  g_ghost_fn_defs.with(m => m.get(func_id))
+  g_ghost_fn_defs.with(m => m.get_cloned(func_id))
 );
 /// The refinement CHAIN registry: an outer predicate's func_id → the
 /// predicates of the refinement it wraps (outermost inner first —
@@ -462,7 +461,7 @@ refine_pred_chain_of :: (fn(outer_fid : &String) -> ArrayList(String))(
 /// passing a T. `refine(T)` (one argument) is the bare alias: no
 /// predicate, no obligation.
 evaluate_refine :: (
-  fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> AstExpr
+  fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr
 )({
   args := match(
     expr,
@@ -481,7 +480,7 @@ ${ast_expr_to_string(expr)}`
     );
   });
   // Evaluate the arguments (a TYPE argument evaluates to a TypeVal).
-  (cur_env : Environment) = env;
+  (cur_env : Environment) = Rc.clone(env);
   (inner_ty : TypeValue) = t_unit();
   (pred_fid : String) = String.from("");
   (ai : usize) = usize(0);
@@ -494,7 +493,7 @@ ${ast_expr_to_string(expr)}`
         cur_env = expr_info_adopt_env(&info);
         matched := false;
         match(
-          info.value,
+          info.value(),
           .Some(v) => {
             match(
               v,
@@ -595,7 +594,7 @@ ${ast_expr_to_string(expr)}`
     _ => ()
   );
   out_info := new_expr_info(&cur_env, t_type());
-  out_info.value = Option(EvalValue).Some(EvalValue.TypeVal(refined));
+  out_info.set_value(Option(EvalValue).Some(EvalValue.TypeVal(refined)));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   expr
 });
@@ -604,7 +603,7 @@ ${ast_expr_to_string(expr)}`
 /// wrapped function is REGISTERED as ghost (calls from non-ghost context
 /// are a compile error — function.yo's FuncVal arm checks the registry);
 /// the marker itself stays a transparent pass-through.
-evaluate_ghost_fn :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> AstExpr)({
+evaluate_ghost_fn :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr)({
   if(!ast_expr_is_fn_call_of(expr, BF_GHOST_FN, .Some(usize(1))), {
     exn.throw(
       dyn(
@@ -635,7 +634,7 @@ evaluate_ghost_fn :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext
         expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&inner)),
         .Some(ii) => {
           match(
-            ii.value,
+            ii.value(),
             .Some(gv) => {
               match(
                 gv,
@@ -671,10 +670,10 @@ evaluate_ghost_fn :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext
 /// these only appear inside one predicate expression, and the VERIFIER's
 /// walk gives them their real SMT semantics (Seq / Array sorts).
 _evaluate_spec_collection :: (
-  fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> AstExpr
+  fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr
 )({
   _reject_not_ghost_context(expr, ctx, exn);
-  (cur_env : Environment) = env;
+  (cur_env : Environment) = Rc.clone(env);
   args := match(
     expr,
     .FnCall(_, _, a, _, _) => Rc.clone(a).*.clone(),
@@ -718,7 +717,7 @@ _evaluate_spec_collection :: (
       match(
         expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&a0)),
         .Some(a0i) => {
-          arg1_ty = Rc.clone(a0i.ty);
+          arg1_ty = Rc.clone(a0i.ty());
         },
         .None => ()
       );
@@ -740,65 +739,65 @@ _evaluate_spec_collection :: (
     true => arg1_ty
   );
   out_info := new_expr_info(&cur_env, res_ty.clone());
-  out_info.value = Option(EvalValue).Some(create_unknown_val(&res_ty));
+  out_info.set_value(Option(EvalValue).Some(create_unknown_val(&res_ty)));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   expr
 });
-evaluate_seq_unit :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> AstExpr)(
+evaluate_seq_unit :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr)(
   _evaluate_spec_collection(expr, env, ctx, exn)
 );
 /// `seq_of(xs)` (R2 task 2): an `ArrayList(T)`'s elements as a ghost Seq.
 /// Typed as the list itself, like every Seq carrier here (Seq is an erased
 /// alias); the verifier keeps it in the list domain.
-evaluate_seq_of :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> AstExpr)(
+evaluate_seq_of :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr)(
   _evaluate_spec_collection(expr, env, ctx, exn)
 );
 /// `produced(xs)` (R2 task 4): inside a `for` over the list `xs`, the prefix
 /// consumed so far. Typed as the list, like `seq_of`; the verifier reads it
 /// from the loop's ghost index.
-evaluate_produced :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> AstExpr)(
+evaluate_produced :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr)(
   _evaluate_spec_collection(expr, env, ctx, exn)
 );
 /// `distinct(a, b)` (R2 task 5): in a `requires`, the two list arguments are
 /// different lists. It lets a body mutate one beside the other; the verifier
 /// proves it at each call from where the arguments came from.
-evaluate_distinct :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> AstExpr)(
+evaluate_distinct :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr)(
   _evaluate_spec_collection(expr, env, ctx, exn)
 );
-evaluate_seq_append :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> AstExpr)(
+evaluate_seq_append :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr)(
   _evaluate_spec_collection(expr, env, ctx, exn)
 );
-evaluate_seq_len :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> AstExpr)(
+evaluate_seq_len :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr)(
   _evaluate_spec_collection(expr, env, ctx, exn)
 );
-evaluate_seq_nth :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> AstExpr)(
+evaluate_seq_nth :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr)(
   _evaluate_spec_collection(expr, env, ctx, exn)
 );
-evaluate_str_bytes :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> AstExpr)(
+evaluate_str_bytes :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr)(
   _evaluate_spec_collection(expr, env, ctx, exn)
 );
-evaluate_ms_single :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> AstExpr)(
+evaluate_ms_single :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr)(
   _evaluate_spec_collection(expr, env, ctx, exn)
 );
-evaluate_ms_add :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> AstExpr)(
+evaluate_ms_add :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr)(
   _evaluate_spec_collection(expr, env, ctx, exn)
 );
-evaluate_ms_count :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> AstExpr)(
+evaluate_ms_count :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr)(
   _evaluate_spec_collection(expr, env, ctx, exn)
 );
 /// `ms_of(a)` (V5 task 6): a fixed-length Array(T, N)'s elements as a
 /// ghost Multiset. The evaluator type-checks only (a carrier of the
 /// array's own type); the verifier's walk folds the count array over N.
-evaluate_ms_of :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> AstExpr)(
+evaluate_ms_of :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr)(
   _evaluate_spec_collection(expr, env, ctx, exn)
 );
-evaluate_set_single :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> AstExpr)(
+evaluate_set_single :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr)(
   _evaluate_spec_collection(expr, env, ctx, exn)
 );
-evaluate_set_add :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> AstExpr)(
+evaluate_set_add :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr)(
   _evaluate_spec_collection(expr, env, ctx, exn)
 );
-evaluate_set_contains :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> AstExpr)(
+evaluate_set_contains :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr)(
   _evaluate_spec_collection(expr, env, ctx, exn)
 );
 /// Ghost-only constructs (V5 §6: forall/exists/==>) have NO
@@ -822,7 +821,7 @@ _reject_not_ghost_context :: (fn(expr : &AstExpr, ctx : &EvalContext, exn : Exce
 /// body's evaluation (the verifier walks the real AST into a Quant
 /// term; runtime-mode files are rejected: the gate above fires in the
 /// splice lowering's evaluation).
-_evaluate_quantifier :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> AstExpr)({
+_evaluate_quantifier :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr)({
   _reject_not_ghost_context(expr, ctx, exn);
   args := match(
     expr,
@@ -841,7 +840,7 @@ _evaluate_quantifier :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalCont
   });
   // Pass 1: evaluate the BINDER annotations (each `(name : Type)` — a
   // 2-arg `:` call evaluating to a TypeVal) and collect the pairs.
-  (cur_env : Environment) = env;
+  (cur_env : Environment) = Rc.clone(env);
   binder_names := ArrayList(String).new();
   binder_types := ArrayList(TypeValue).new();
   (bi : usize) = usize(0);
@@ -897,7 +896,7 @@ _evaluate_quantifier :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalCont
     // recorded snapshot is shared between ExprInfos (`expr_info_env_snapshot`).
     cur_env = expr_info_adopt_env(&ty_info);
     bt := match(
-      ty_info.value,
+      ty_info.value(),
       .Some(.TypeVal(tv)) => Rc.clone(tv),
       .Some(_) => {
         exn.throw(
@@ -971,21 +970,21 @@ _evaluate_quantifier :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalCont
     .None => ()
   );
   out_info := new_expr_info(&cur_env, t_bool());
-  out_info.value = Option(EvalValue).Some(create_unknown_val(t_bool()));
+  out_info.set_value(Option(EvalValue).Some(create_unknown_val(t_bool())));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   expr
 });
 /// forall(...) — ghost-only universal quantifier (V5).
-evaluate_forall :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> AstExpr)(
+evaluate_forall :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr)(
   _evaluate_quantifier(expr, env, ctx, exn)
 );
 /// exists(...) — ghost-only existential quantifier (V5).
-evaluate_exists :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> AstExpr)(
+evaluate_exists :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr)(
   _evaluate_quantifier(expr, env, ctx, exn)
 );
 /// `a ==> b` — ghost-only implication (V5). Exactly two args; evaluates
 /// to an unknown bool like the quantifiers.
-evaluate_implies :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> AstExpr)({
+evaluate_implies :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr)({
   _reject_not_ghost_context(expr, ctx, exn);
   args := match(
     expr,
@@ -1002,7 +1001,7 @@ evaluate_implies :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext,
       )
     );
   });
-  (cur_env : Environment) = env;
+  (cur_env : Environment) = Rc.clone(env);
   (i : usize) = usize(0);
   while(i < args.len(), {
     arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
@@ -1029,13 +1028,13 @@ evaluate_implies :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext,
     i = (i + usize(1));
   });
   out_info := new_expr_info(&cur_env, t_bool());
-  out_info.value = Option(EvalValue).Some(create_unknown_val(t_bool()));
+  out_info.set_value(Option(EvalValue).Some(create_unknown_val(t_bool())));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   expr
 });
 /// `old(expr)` — entry-snapshot reference (handled specially inside `ensures`
 /// by the wrapper; transparent pass-through elsewhere).
-evaluate_old :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> AstExpr)({
+evaluate_old :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr)({
   if(!ast_expr_is_fn_call_of(expr, BF_OLD, .Some(usize(1))), {
     exn.throw(
       dyn(
@@ -1598,7 +1597,7 @@ register_verify_task :: (fn(t : &VerifyTask) -> unit)({
 /// nodes. Unbound names (params, the return label) soft-fall-back to
 /// VarRef exactly as at signature time.
 evaluated_for_verify :: (
-  fn(p : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> AstExpr
+  fn(p : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr
 )({
   // The verifier's diagnostic predicate pass IS ghost context (V5):
   // quantifier builtins inside requires/ensures/decreases evaluate here.
@@ -1644,7 +1643,7 @@ register_impl_inheritance_task :: (
     fn_ty : &TypeValue,
     name_tok : &Token,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> unit
 )({
@@ -1709,7 +1708,7 @@ register_impl_inheritance_task :: (
         },
         _ => ()
       );
-      pred_env := env;
+      pred_env := Rc.clone(env);
       pred_env.push_frame(false);
       (bih : usize) = usize(0);
       while(bih < p_names.len(), {
@@ -1882,7 +1881,7 @@ prepare_callsite_contracts :: (
   fn(
     body : &AstExpr,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> unit
 )({
@@ -1896,7 +1895,7 @@ _prepare_callsite_contracts :: (
   fn(
     e : &AstExpr,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> unit
 )({
@@ -1959,7 +1958,7 @@ _callsite_arg_type :: (
             )
           )
         ),
-        .Some(ai) => Option(TypeValue).Some(ai.ty.clone()),
+        .Some(ai) => Option(TypeValue).Some(ai.ty()),
         .None => Option(TypeValue).None
       ),
       .None => Option(TypeValue).None
@@ -1991,7 +1990,7 @@ _callsite_method_receiver :: (
   );
   recv_is_type := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&recv)),
-    .Some(ri) => match(ri.value, .Some(rv) => match(rv, .TypeVal(_) => true, _ => false), .None => false),
+    .Some(ri) => match(ri.value(), .Some(rv) => match(rv, .TypeVal(_) => true, _ => false), .None => false),
     .None => false
   );
   cond(
@@ -2010,7 +2009,7 @@ _callsite_param_type :: (
     .Some(r) => cond(
       (i == usize(0)) => match(
         expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&r)),
-        .Some(ri) => Option(TypeValue).Some(ri.ty.clone()),
+        .Some(ri) => Option(TypeValue).Some(ri.ty()),
         .None => Option(TypeValue).None
       ),
       true => _callsite_arg_type(ctx, e, i - usize(1))
@@ -2047,7 +2046,7 @@ _stash_callsite_contracts :: (
     e : &AstExpr,
     f : &AstExpr,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> unit
 )({
@@ -2059,7 +2058,7 @@ _stash_callsite_contracts :: (
   callee_val := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(f)),
     .Some(ci) => match(
-      ci.value,
+      ci.value(),
       .Some(v) => match(
         v,
         .FuncVal(_, _) => Option(EvalValue).Some(v),
@@ -2103,10 +2102,10 @@ _stash_callsite_contracts :: (
   recv_expr := _callsite_method_receiver(ctx, f, &fvd_params);
   ret_ty := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(e)),
-    .Some(ei) => ei.ty.clone(),
+    .Some(ei) => ei.ty(),
     .None => t_unit()
   );
-  site_env := env;
+  site_env := Rc.clone(env);
   site_env.push_frame(false);
   (bi : usize) = usize(0);
   while(bi < fvd_params.len(), {
@@ -2185,11 +2184,11 @@ _stash_callsite_contracts :: (
       raw_enss.get(ei),
       .Some(p) => {
         prev_ghost := ctx.is_ghost_context;
-        depth := site_env.frames.len();
+        depth := site_env.frames_len();
         _callsite_ensures_or_drop(clone_expr_fresh_ids(p.clone()), &site_env, ctx, &mut ev_enss);
         // An unwound evaluation leaves its flag and frames behind.
         ctx.is_ghost_context = prev_ghost;
-        while(site_env.frames.len() > depth, {
+        while(site_env.frames_len() > depth, {
           site_env.pop_frame();
         });
       },
@@ -2206,7 +2205,7 @@ _stash_callsite_contracts :: (
 /// `_trial_eval_fn_body` pattern); `YO_DEBUG_SWALLOW=1` prints what was
 /// dropped.
 _callsite_ensures_or_drop :: (
-  fn(p : &AstExpr, env : &Environment, ctx : &EvalContext, out : &mut ArrayList(AstExpr)) -> unit
+  fn(p : &AstExpr, env : &Environment, ctx : &mut EvalContext, out : &mut ArrayList(AstExpr)) -> unit
 )({
   drop_exn := Exception(
     throw : (
@@ -2272,7 +2271,7 @@ register_impl_variance_task :: (
     name_tok : &Token,
     fn_ty : &TypeValue,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> unit
 )({
@@ -2343,7 +2342,7 @@ register_impl_variance_task :: (
   if(p_names.len() != p_types.len(), {
     return(());
   });
-  pred_env := env;
+  pred_env := Rc.clone(env);
   pred_env.push_frame(false);
   // `assert` for the synthetic body: the walk matches the BARE `assert`
   // head (its assert arm), but the fixture need not import std/assert —
@@ -2382,12 +2381,12 @@ register_impl_variance_task :: (
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&__asrt_ev)),
     .Some(__asrt_info) => {
       match(
-        __asrt_info.value,
+        __asrt_info.value(),
         .Some(__asrt_val) => {
           add_variable_to_env(
             &pred_env,
             String.from("assert"),
-            __asrt_info.ty.clone(),
+            __asrt_info.ty(),
             Option(EvalValue).Some(__asrt_val),
             false,
             false,
@@ -2805,7 +2804,7 @@ _contract_clause_runs :: (fn(pred : &AstExpr, table : &ExprInfoTable, allow_old 
     .Atom(_, _) => match(
       expr_info_table_get(table, ast_expr_id(pred)),
       .Some(ai) => match(
-        ai.value,
+        ai.value(),
         .Some(.FuncVal(afv, _)) => !is_ghost_fn(afv.*.func_id.clone()),
         _ => true
       ),
@@ -3148,7 +3147,7 @@ _reject_law_clause :: (
 /// `contract_less` and DEGRADES its subset failures to the passing outcome
 /// `outside-subset`, so a body-asserts law would report green when its claim
 /// could not even be walked.
-evaluate_law :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> AstExpr)({
+evaluate_law :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr)({
   law_tok := ast_expr_token(expr);
   if(!ast_expr_is_fn_call_of(expr, BF_LAW, Option(usize).Some(usize(1))), {
     exn.throw(
@@ -3192,12 +3191,12 @@ evaluate_law :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn
   evaluated := evaluate_expression_raw(&arg, env, ctx, exn);
   // The law node itself is unit — the value the `::` binding takes.
   out_info := new_expr_info(env, t_unit());
-  out_info.value = Option(EvalValue).Some(EvalValue.UnitVal);
+  out_info.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   ft := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated)),
     .Some(info) => match(
-      info.value,
+      info.value(),
       .Some(v) => match(v, .TypeVal(t) => Rc.clone(t), _ => t_unit()),
       .None => t_unit()
     ),
@@ -3277,7 +3276,7 @@ evaluate_law :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn
   if((law_mode != "verify") && (law_mode != "verify+"), {
     return(expr);
   });
-  pred_env := env;
+  pred_env := Rc.clone(env);
   pred_env.push_frame(false);
   (bi : usize) = usize(0);
   while(bi < p_names.len(), {

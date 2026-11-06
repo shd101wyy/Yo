@@ -105,6 +105,7 @@ pragma(Pragma.AllowUnsafe);
 { EvalValue, FuncValData, create_type_value, create_unknown_val, lookup_enum_cfid, no_values, shared_values } :: import("../../value.yo");
 {
   EvalContext,
+  copy_eval_context,
   ExpectedTypeCtx,
   create_function_body_evaluation_context,
   in_def_time_trial,
@@ -922,9 +923,9 @@ _resolve_one_forall_binding :: (
   if(n_nvars == usize(0), {
     return(Option(TypeValue).None);
   });
-  last_nvar := match(name_vars.get(n_nvars - usize(1)), .Some(v) => v, .None => return(Option(TypeValue).None));
+  last_nvar := match(name_vars.get_cloned(n_nvars - usize(1)), .Some(v) => v, .None => return(Option(TypeValue).None));
   match(
-    last_nvar.value.get(usize(0)),
+    last_nvar.value().get(usize(0)),
     .Some(ev) => match(
       ev,
       .TypeVal(b) => cond(
@@ -977,7 +978,7 @@ _resolve_one_forall_binding_from :: (
   fn(expected_env : &Environment, fa_some : &TypeValue, fa_name : &String, min_frame : usize) -> Option(TypeValue)
 )({
   fa_some_id := match(fa_some, Rc(.SomeT({ id : __fsi2 })) => __fsi2.clone(), _ => String.from(""));
-  n_frames := expected_env.frames.len();
+  n_frames := expected_env.frames_len();
   (fi : usize) = n_frames;
   while(fi > min_frame, {
     fi = (fi - usize(1));
@@ -985,19 +986,19 @@ _resolve_one_forall_binding_from :: (
       break;
     });
     match(
-      expected_env.frames.get(fi),
+      expected_env.frame_at(fi),
       .Some(frame) => {
-        vars := &frame.variables;
+        vars := frame.variables();
         // LAST binding of fa_name inside THIS frame.
         (vi : usize) = vars.len();
         while(vi > usize(0), {
           vi = (vi - usize(1));
           match(
-            vars.get(vi),
+            vars.get_cloned(vi),
             .Some(var) =>
               if(var.name == fa_name, {
                 match(
-                  var.value.get(usize(0)),
+                  var.value().get(usize(0)),
                   .Some(ev) =>
                     match(
                       ev,
@@ -1540,7 +1541,7 @@ try_match_generic_impl :: (
   // needed). Substitutions
   // are read from the synthesis's own fresh frame only — that is the
   // scoping.
-  (unify_base : usize) = unify_env.frames.len();
+  (unify_base : usize) = unify_env.frames_len();
   (ui : usize) = usize(0);
   (n_forall : usize) = entry.forall_names.len();
   while(ui < n_forall, {
@@ -1570,7 +1571,7 @@ try_match_generic_impl :: (
       false,
       false,
       false,
-      synthetic_token(&fa_name, &env.module_path.*)
+      synthetic_token(&fa_name, &env.module_path().*)
     );
     ui = (ui + usize(1));
   });
@@ -1592,11 +1593,11 @@ try_match_generic_impl :: (
   if(debug_knob(`YO_DEBUG_BIND`).is_some(), {
     (tmf_ids : String) = String.from("");
     (tmf_i : usize) = usize(0);
-    while(tmf_i < unify_env.frames.len(), {
+    while(tmf_i < unify_env.frames_len(), {
       match(
-        unify_env.frames.get(tmf_i),
+        unify_env.frame_at(tmf_i),
         .Some(tmf_f) => {
-          tmf_ids.push_string(tmf_f.id.to_string());
+          tmf_ids.push_string(tmf_f.id().to_string());
           tmf_ids.push_string(String.from(","));
         },
         .None => ()
@@ -1698,7 +1699,7 @@ try_match_generic_impl :: (
   // got a concrete binding — a def-time trial over an unresolved SomeT, say)
   // is NOT a rejection: only a param that IS bound and demonstrably fails
   // its trait removes the impl.
-  (match_env : Environment) = synth_result.expected_env;
+  (match_env : Environment) = Rc.clone(synth_result.expected_env);
   // The receiver pattern fixes every forall it binds; a where clause can only
   // constrain those, and bind the ones the pattern leaves open. So each
   // forall's binding is taken BEFORE the where pass. The pass checks a clause
@@ -1775,9 +1776,9 @@ try_match_generic_impl :: (
       fv_vars := get_variables_from_env(&match_env, &fa_name2);
       if(fv_vars.len() > usize(0), {
         match(
-          fv_vars.last(),
+          fv_vars.last_cloned(),
           .Some(fv_var) => match(
-            fv_var.value.get(usize(0)),
+            fv_var.value().get(usize(0)),
             .Some(.IntLit(fv_raw)) => {
               fa_val2 = EvalValue.IntLit(fv_raw.clone());
             },
@@ -2640,7 +2641,7 @@ _inject_forall_captures :: (
                   (pvj : usize) = usize(0);
                   while(pvj < pv.len(), {
                     match(
-                      pv.get(pvj),
+                      pv.get_cloned(pvj),
                       .Some(ph) => {
                         new_cvars.push(ph);
                       },
@@ -3662,7 +3663,7 @@ _try_lookup_trait_type :: (
   fn(
     trait_expr : &AstExpr,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> Option(TypeValue)
 )({
@@ -3685,9 +3686,9 @@ _try_lookup_trait_type :: (
     vars := get_variables_from_env(env, &name);
     if(vars.len() > usize(0), {
       match(
-        vars.last(),
+        vars.last_cloned(),
         .Some(last_v) => match(
-          last_v.value.get(usize(0)),
+          last_v.value().get(usize(0)),
           .Some(ev) => match(
             ev,
             .TypeVal(tb) => match(
@@ -3729,7 +3730,7 @@ _try_lookup_trait_type :: (
   match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated)),
     .Some(info) => match(
-      info.value,
+      info.value(),
       .Some(ev) => match(
         ev,
         .TypeVal(tb) => match(
@@ -4115,7 +4116,7 @@ _materialize_default_body :: (
   // recognises. Evaluated raw, it threw `Variable "return" not found` — once
   // swallowed (the shared default took over), a compile error since the
   // Phase 6 re-raise (tests/async_trait_default_await.test.yo).
-  evaluated := call_evaluate_fn_body(body, env, &body_ctx, inner_exn);
+  evaluated := call_evaluate_fn_body(body, env, &mut body_ctx, inner_exn);
   out.push(evaluated);
 });
 /// Evaluate ONE colon-pair member of a concrete (Case 3) impl — the body the
@@ -4357,7 +4358,7 @@ _c3_eval_colon_pair :: (
     current_trait_ty : &Option(TypeValue),
     st : &ImplInFlight,
     field_opt : &Option(ImplPendingField),
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> unit
 )({
@@ -4452,10 +4453,10 @@ _c3_eval_colon_pair :: (
     }),
     .None => ()
   );
-  saved2 := ctx.expected_type;
+  saved2 := ctx.expected_type.clone();
   ctx.expected_type = match(
     &expected_method_ty_resolved,
-    .Some(t) => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : Rc.clone(t), env : st.env)),
+    .Some(t) => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : Rc.clone(t), env : Rc.clone(st.env))),
     .None => Option(ExpectedTypeCtx).None
   );
   eval_val := evaluate_expression_raw(&val_expr, &st.env, ctx, exn);
@@ -4478,18 +4479,18 @@ _c3_eval_colon_pair :: (
           expected_method_ty_resolved,
           .None => (),
           .Some(conf_exp) => {
-            if((get_all_some_types(&conf_exp).len() == usize(0)) && (get_all_some_types(&fi.ty).len() == usize(0)) && !is_type_hierarchy_type(&conf_exp) && !are_types_compatible(_with_receiver_mode_of(&fi.ty, &conf_exp), &conf_exp) && !(migrate_param_modes_on() && _migrate_imm_for_trait_mismatch(&val_expr, &fi.ty, &conf_exp)), {
+            if((get_all_some_types(&conf_exp).len() == usize(0)) && (get_all_some_types(&fi.ty()).len() == usize(0)) && !is_type_hierarchy_type(&conf_exp) && !are_types_compatible(_with_receiver_mode_of(&fi.ty(), &conf_exp), &conf_exp) && !(migrate_param_modes_on() && _migrate_imm_for_trait_mismatch(&val_expr, &fi.ty(), &conf_exp)), {
               exn.throw(
                 dyn(
                   format_error_message(
                     &name_tok,
-                    `Type "${type_to_string(&st.receiver_ty)}" does not implement required trait "${type_to_string(&conf_tt)}" as written: member "${method_name}" has type ${type_to_string(&fi.ty)}, but the trait requires ${type_to_string(&conf_exp)}`
+                    `Type "${type_to_string(&st.receiver_ty)}" does not implement required trait "${type_to_string(&conf_tt)}" as written: member "${method_name}" has type ${type_to_string(&fi.ty())}, but the trait requires ${type_to_string(&conf_exp)}`
                   )
                 )
               );
             });
             match(
-              _impl_result_origin_wider(&fi.ty, &conf_exp),
+              _impl_result_origin_wider(&fi.ty(), &conf_exp),
               .Some(ro_msg) => {
                 exn.throw(
                   dyn(
@@ -4506,7 +4507,7 @@ _c3_eval_colon_pair :: (
               },
               .None => ()
             );
-            if(_receiver_writes_where_trait_reads(&fi.ty, &conf_exp), {
+            if(_receiver_writes_where_trait_reads(&fi.ty(), &conf_exp), {
               exn.throw(
                 dyn(
                   with_code(
@@ -4532,13 +4533,13 @@ _c3_eval_colon_pair :: (
       match(
         current_trait_ty,
         .Some(dr_tt) => if((method_name == "drop") && (move_only_declaring_trait_name(&dr_tt, &st.env) == "Drop"), {
-          dr_mut := match(&fi.ty, Rc(.Func({ result : _ })) => match(fn_param_mut_ref_at(&fi.ty, usize(0)), .Some(b) => b, .None => false), _ => true);
+          dr_mut := match(&fi.ty(), Rc(.Func({ result : _ })) => match(fn_param_mut_ref_at(&fi.ty(), usize(0)), .Some(b) => b, .None => false), _ => true);
           if(!dr_mut, {
             exn.throw(
               dyn(
                 format_error_message(
                   &name_tok,
-                  `Type "${type_to_string(&st.receiver_ty)}" does not implement required trait "Drop" as written: member "drop" has type ${type_to_string(&fi.ty)}, but the trait requires the receiver \`self : &mut Self\` (Rust's \`drop(&mut self)\`, plans/VALUES_BY_DEFAULT.md decision 45): the destructor may write the value it drops.`
+                  `Type "${type_to_string(&st.receiver_ty)}" does not implement required trait "Drop" as written: member "drop" has type ${type_to_string(&fi.ty())}, but the trait requires the receiver \`self : &mut Self\` (Rust's \`drop(&mut self)\`, plans/VALUES_BY_DEFAULT.md decision 45): the destructor may write the value it drops.`
                 )
               )
             );
@@ -4549,7 +4550,7 @@ _c3_eval_colon_pair :: (
       // Adopt a private copy: the in-flight env is pushed/popped on later
       // and a recorded snapshot is shared between ExprInfos.
       st.env = expr_info_adopt_env(&fi);
-      method_val := match(fi.value, .Some(v) => v, .None => EvalValue.UnitVal);
+      method_val := match(fi.value(), .Some(v) => v, .None => EvalValue.UnitVal);
       // Make this field visible to later fields' `Self.X`
       // within the SAME trait entry. Only TYPE-valued fields
       // (associated types like `Output : u8`) — `Self.X` never
@@ -4566,7 +4567,7 @@ _c3_eval_colon_pair :: (
       _dv := add_variable_to_env(
         &st.env,
         &qualified,
-        &fi.ty,
+        &fi.ty(),
         .Some(method_val),
         true,
         false,
@@ -4582,7 +4583,7 @@ _c3_eval_colon_pair :: (
       _dv_bare := add_variable_to_env(
         &st.env,
         method_name.clone(),
-        &fi.ty,
+        &fi.ty(),
         .Some(method_val),
         true,
         false,
@@ -4599,8 +4600,8 @@ _c3_eval_colon_pair :: (
         // A concrete impl's method on an instance of a type constructor is a
         // candidate of static-argument inference (`G.m(...)`), which the
         // generic registry does not hold.
-        if(!st.is_generic && is_function_type(&fi.ty), {
-          note_concrete_ctor_method(&st.receiver_ty, &method_name, &fi.ty, &_impl_site_string(&name_tok));
+        if(!st.is_generic && is_function_type(&fi.ty()), {
+          note_concrete_ctor_method(&st.receiver_ty, &method_name, &fi.ty(), &_impl_site_string(&name_tok));
         });
         // A phase-A entry for this field is already in the registry (a
         // sibling referenced this method while it was being evaluated —
@@ -4620,9 +4621,9 @@ _c3_eval_colon_pair :: (
                 .Some(pa_e) => {
                   pa_e_fid := match(pa_e.value, .Some(pa_v) => match(pa_v, .FuncVal(__pa_e_fvd, _) => __pa_e_fvd.*.func_id.clone(), _ => String.new()), .None => String.new());
                   if((pa_e_fid.len() > usize(0)) && (pa_e_fid == pa_real_fid), {
-                    pa_e.ty = Rc.clone(fi.ty);
+                    pa_e.ty = Rc.clone(fi.ty());
                     pa_e.value = Option(EvalValue).Some(method_val);
-                    register_func_type(pa_real_fid.clone(), _retype_with_value_param_labels(&fi.ty, &method_val));
+                    register_func_type(pa_real_fid.clone(), _retype_with_value_param_labels(&fi.ty(), &method_val));
                     updated_phase_a = true;
                   });
                 },
@@ -4651,7 +4652,7 @@ _c3_eval_colon_pair :: (
           match(
             method_val,
             .FuncVal(__reg_fvd, _) => {
-              register_func_type(__reg_fvd.*.func_id.clone(), _retype_with_value_param_labels(&fi.ty, &method_val));
+              register_func_type(__reg_fvd.*.func_id.clone(), _retype_with_value_param_labels(&fi.ty(), &method_val));
             },
             _ => ()
           );
@@ -4659,7 +4660,7 @@ _c3_eval_colon_pair :: (
             &st.recv_id,
             MethodEntry(
               label : method_name.clone(),
-              ty : Rc.clone(fi.ty),
+              ty : Rc.clone(fi.ty()),
               value : Option(EvalValue).Some(method_val),
               // INHERENT-FIRST: tag trait-impl methods (current_trait_ty
               // is Some — `impl(T, Trait(...))`) with their trait id, so
@@ -4702,7 +4703,7 @@ _c3_eval_colon_pair :: (
                 type_id_or_empty(&__var_tt),
                 method_name.clone(),
                 &method_val,
-                &fi.ty,
+                &fi.ty(),
                 &name_tok,
                 &st.env,
                 ctx,
@@ -4713,7 +4714,7 @@ _c3_eval_colon_pair :: (
                 method_name.clone(),
                 __var_fvd.*.func_id.clone(),
                 &name_tok,
-                &fi.ty,
+                &fi.ty(),
                 &st.env,
                 ctx,
                 exn
@@ -4782,7 +4783,7 @@ _c2_register_member :: (
 /// source order, binds the bare label in the impl env, registers the member
 /// provisionally.
 _c2_eval_direct_field :: (
-  fn(pf : &ImplPendingField, st : &ImplInFlight, ctx : &EvalContext, exn : Exception) -> unit
+  fn(pf : &ImplPendingField, st : &ImplInFlight, ctx : &mut EvalContext, exn : Exception) -> unit
 )({
   mf_colon_args := match(
     pf.colon_expr,
@@ -4793,8 +4794,7 @@ _c2_eval_direct_field :: (
   mval_expr := match(mf_colon_args.get(usize(1)), .Some(e) => e, .None => make_err_expr());
   mname_tok := ast_expr_token(&mname_expr);
   mname := mname_tok.value.*.clone();
-  saved3 := ctx.expected_type;
-  ctx.expected_type = .None;
+  saved3 := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
   eval_mval := evaluate_expression_raw(&mval_expr, &st.env, ctx, exn);
   ctx.expected_type = saved3;
   match(
@@ -4804,15 +4804,15 @@ _c2_eval_direct_field :: (
       // Adopt a private copy: the in-flight env is pushed/popped on later
       // and a recorded snapshot is shared between ExprInfos.
       st.env = expr_info_adopt_env(&mfi);
-      mval := match(mfi.value, .Some(v) => v, .None => EvalValue.UnitVal);
-      m_is_macro := _method_ty_skip_stamp(&mfi.ty);
+      mval := match(mfi.value(), .Some(v) => v, .None => EvalValue.UnitVal);
+      m_is_macro := _method_ty_skip_stamp(&mfi.ty());
       (m_to_push : EvalValue) = EvalValue.UnitVal;
       if(m_is_macro, {
         m_to_push = mval;
       }, {
         m_to_push = _stamp_impl_forall_on_method(&mval, &st.forall_names);
       });
-      pf.result_ty = Option(TypeValue).Some(Rc.clone(mfi.ty));
+      pf.result_ty = Option(TypeValue).Some(Rc.clone(mfi.ty()));
       pf.result_value = Option(EvalValue).Some(m_to_push);
       // Bind the bare label so later sibling fields can reference it by
       // name — alias fields like ComptimeList's `first : car`
@@ -4823,7 +4823,7 @@ _c2_eval_direct_field :: (
       _gb := add_variable_to_env(
         &st.env,
         mname.clone(),
-        &mfi.ty,
+        &mfi.ty(),
         Option(EvalValue).Some(mval),
         true,
         false,
@@ -4832,7 +4832,7 @@ _c2_eval_direct_field :: (
         &mname_tok
       );
       if(st.recv_id != "", {
-        _c2_register_member(st, pf, &mname, &mfi.ty, &m_to_push, String.from(""));
+        _c2_register_member(st, pf, &mname, &mfi.ty(), &m_to_push, String.from(""));
       });
     }
   );
@@ -4841,7 +4841,7 @@ _c2_eval_direct_field :: (
 /// (`Trait(name : fn_def, ...)`), with the trait's expected field type (Self
 /// substituted to the receiver pattern) and the entry's working bindings.
 _c2_eval_inner_field :: (
-  fn(pf : &ImplPendingField, st : &ImplInFlight, ctx : &EvalContext, exn : Exception) -> unit
+  fn(pf : &ImplPendingField, st : &ImplInFlight, ctx : &mut EvalContext, exn : Exception) -> unit
 )({
   g_colon_args := match(
     pf.colon_expr,
@@ -4860,10 +4860,10 @@ _c2_eval_inner_field :: (
     .Some(t) => Option(TypeValue).Some(_substitute_self_in_method_ty(&t, &st.receiver_ty)),
     .None => Option(TypeValue).None
   );
-  saved4 := ctx.expected_type;
+  saved4 := ctx.expected_type.clone();
   ctx.expected_type = match(
     g_expected,
-    .Some(t) => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : Rc.clone(t), env : st.env)),
+    .Some(t) => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : Rc.clone(t), env : Rc.clone(st.env))),
     .None => Option(ExpectedTypeCtx).None
   );
   eval_gval := evaluate_expression_raw(&g_val_expr, &st.env, ctx, exn);
@@ -4875,7 +4875,7 @@ _c2_eval_inner_field :: (
       // Adopt a private copy: the in-flight env is pushed/popped on later
       // and a recorded snapshot is shared between ExprInfos.
       st.env = expr_info_adopt_env(&gfi);
-      g_mval := match(gfi.value, .Some(v) => v, .None => EvalValue.UnitVal);
+      g_mval := match(gfi.value(), .Some(v) => v, .None => EvalValue.UnitVal);
       // Make this field visible to later fields' `Self.X`. TYPE-valued
       // fields only — see the Case 3 counterpart.
       match(
@@ -4886,14 +4886,14 @@ _c2_eval_inner_field :: (
         },
         _ => ()
       );
-      g_is_macro := _method_ty_skip_stamp(&gfi.ty);
+      g_is_macro := _method_ty_skip_stamp(&gfi.ty());
       (g_to_push : EvalValue) = EvalValue.UnitVal;
       if(g_is_macro, {
         g_to_push = g_mval;
       }, {
         g_to_push = _stamp_impl_forall_on_method(&g_mval, &st.forall_names);
       });
-      pf.result_ty = Option(TypeValue).Some(Rc.clone(gfi.ty));
+      pf.result_ty = Option(TypeValue).Some(Rc.clone(gfi.ty()));
       pf.result_value = Option(EvalValue).Some(g_to_push);
       // Tagged with the trait's id (Case 3's fresh-registration semantics:
       // inherent-first resolution reads source_trait_id).
@@ -4903,7 +4903,7 @@ _c2_eval_inner_field :: (
           .Some(c2g_tt) => type_id_or_empty(&c2g_tt),
           .None => String.from("")
         );
-        _c2_register_member(st, pf, &g_mname, &gfi.ty, &g_to_push, &c2g_src_tid);
+        _c2_register_member(st, pf, &g_mname, &gfi.ty(), &g_to_push, &c2g_src_tid);
       });
     }
   );
@@ -4913,7 +4913,7 @@ _c2_eval_inner_field :: (
 /// `try_to_implement_function_by_function_type` publishes the phase-A FuncVal
 /// a re-entrant sibling reference binds.
 _run_impl_field :: (
-  fn(pf : &ImplPendingField, st : &ImplInFlight, ctx : &EvalContext, exn : Exception) -> unit
+  fn(pf : &ImplPendingField, st : &ImplInFlight, ctx : &mut EvalContext, exn : Exception) -> unit
 )({
   push_forcing_def(&pf.def);
   pf.state = ImplFieldState.Forcing;
@@ -4945,6 +4945,20 @@ _take_field_force_failure :: (fn() -> Option(String))({
   g_field_force_failure = Option(String).None;
   r
 });
+/// The in-flight record holds a COPY of the impl's evaluation context (taken
+/// when the record is pushed): the env lookup hook forces a sibling member
+/// with it while the field loop's own context is lent down the stack. Before
+/// each field the loop runs, the copy takes the loop context's per-field
+/// state, so a force sees what an in-place evaluation would.
+_sync_in_flight_ctx :: (fn(rec : &ImplInFlight, ctx : &EvalContext) -> unit)({
+  rec.ctx.self_type = ctx.self_type.clone();
+  rec.ctx.self_trait_type = ctx.self_trait_type.clone();
+  rec.ctx.self_module_type = ctx.self_module_type.clone();
+  rec.ctx.receiver_type = ctx.receiver_type.clone();
+  rec.ctx.expected_type = ctx.expected_type.clone();
+  rec.ctx.current_impl_trait_field_labels = ctx.current_impl_trait_field_labels.clone();
+  rec.ctx.current_impl_trait_field_types = ctx.current_impl_trait_field_types.clone();
+});
 _force_field_eval :: (fn(pf : &ImplPendingField, st : &ImplInFlight) -> unit)({
   inner_exn := Exception(
     throw : (
@@ -4954,7 +4968,12 @@ _force_field_eval :: (fn(pf : &ImplPendingField, st : &ImplInFlight) -> unit)({
       }
     )
   );
-  _run_impl_field(pf, st, &st.ctx, inner_exn);
+  // The record's context is lent to the field's evaluation through a copy
+  // (the record itself is lent alongside it), and the copy's end state is
+  // written back, so the record keeps what the evaluation wrote.
+  force_ctx := copy_eval_context(&st.ctx);
+  _run_impl_field(pf, st, &mut force_ctx, inner_exn);
+  st.ctx = force_ctx;
   ()
 });
 /// env.yo's lookup-miss hook (plans/reference/LAZY_TOPLEVEL_BINDINGS.md P3): a method
@@ -4989,9 +5008,9 @@ force_in_flight_field :: (
     .Done => false,
     .Failed => false,
     .Forcing => cond(
-      (!pf.phase_a_registered && pf.def.phase_a_value.is_some()) => {
-        pa_v := match(pf.def.phase_a_value, .Some(v) => v, .None => EvalValue.UnitVal);
-        pa_t := match(&pf.def.phase_a_type, .Some(t) => Rc.clone(t), .None => t_unit());
+      (!pf.phase_a_registered && pf.def.phase_a_value().is_some()) => {
+        pa_v := match(pf.def.phase_a_value(), .Some(v) => v, .None => EvalValue.UnitVal);
+        pa_t := match(&pf.def.phase_a_type(), .Some(t) => Rc.clone(t), .None => t_unit());
         pa_src := cond(
           pf.is_inner => match(&rec.current_trait_ty, .Some(tt) => type_id_or_empty(&tt), .None => String.from("")),
           true => String.from("")
@@ -5026,7 +5045,7 @@ force_in_flight_field :: (
       // to what an in-place evaluation of this member would see.
       prev_trial := set_in_def_time_trial(false);
       saved_where := take_active_where_trait_ids();
-      saved_exp := rec.ctx.expected_type;
+      saved_exp := rec.ctx.expected_type.clone();
       saved_wt_labels := rec.ctx.current_impl_trait_field_labels.clone();
       saved_wt_types := rec.ctx.current_impl_trait_field_types.clone();
       if(!pf.is_inner, {
@@ -5069,7 +5088,7 @@ _collect_impl_where_constraints :: (
     forall_names : &ArrayList(String),
     forall_some_types : &ArrayList(TypeValue),
     forall_env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception,
     out_some_types : &mut ArrayList(TypeValue),
     out_traits : &mut ArrayList(TypeValue)
@@ -5170,7 +5189,7 @@ _stamp_impl_where_bound :: (fn(st : &TypeValue, tr : &TypeValue) -> unit)(
     st,
     Rc(.SomeT(_, _, _, _, stamp_bounds, _, _)) => {
       stamp_trait := Rc.clone(tr);
-      stamp_bounds.with_mut({ stamp_trait }(b) => {
+      stamp_bounds.with_mut({ stamp_trait : Rc.clone(stamp_trait) }(b) => {
         b.required.push(stamp_trait);
         b.required_levels.push(usize(0));
       });
@@ -5182,11 +5201,11 @@ evaluate_module_value :: (
   fn(
     expr : &AstExpr,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
-  (local_env : Environment) = env;
+  (local_env : Environment) = Rc.clone(env);
   // Verify it's an `impl(...)` call.
   if(!ast_expr_is_fn_call_of(expr, BK_IMPL_LOWER, .None), {
     exn.throw(
@@ -5220,8 +5239,7 @@ evaluate_module_value :: (
       .FnCall(_, _, Rc(be), _, _) => be.clone(),
       .Atom(_, _) => ArrayList(AstExpr).new()
     );
-    saved_expected := ctx.expected_type;
-    ctx.expected_type = .None;
+    saved_expected := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
     result := evaluate_anonymous_module_begin_exprs(
       &begin_exprs,
       &local_env,
@@ -5233,10 +5251,10 @@ evaluate_module_value :: (
       false,
       exn
     );
-    ctx.expected_type = saved_expected;
-    local_env = result.env;
+    ctx.expected_type = saved_expected.clone();
+    local_env = Rc.clone(result.env);
     out_info := new_expr_info(&local_env, &result.module_type);
-    out_info.value = .Some(result.module_value);
+    out_info.set_value(.Some(result.module_value));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
     return(expr);
   });
@@ -5260,7 +5278,7 @@ evaluate_module_value :: (
     // so the outer scope stays isolated.
     (forall_env : Environment) = snapshot_env(&local_env);
     forall_env.push_frame(false);
-    frame_lvl := (forall_env.frames.len() - usize(1));
+    frame_lvl := (forall_env.frames_len() - usize(1));
     // Forall param names and SomeT TypeValues (parallel arrays).
     (forall_names : ArrayList(String)) = ArrayList(String).new();
     (forall_some_types : ArrayList(TypeValue)) = ArrayList(TypeValue).new();
@@ -5375,8 +5393,7 @@ evaluate_module_value :: (
     );
     receiver_type_expr2 := match(args.get(receiver_arg_idx), .Some(a) => a, .None => make_err_expr());
     // Evaluate receiver type with SomeTs in scope.
-    saved_expected2 := ctx.expected_type;
-    ctx.expected_type = .None;
+    saved_expected2 := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
     eval_rcv2 := evaluate_expression_raw(&receiver_type_expr2, &forall_env, ctx, exn);
     ctx.expected_type = saved_expected2;
     (receiver_type_pattern : TypeValue) = t_unit();
@@ -5388,7 +5405,7 @@ evaluate_module_value :: (
         // and later pushed on (forall frame below): adopt a private shallow copy.
         forall_env = expr_info_adopt_env(&ri2);
         match(
-          ri2.value,
+          ri2.value(),
           .None => (),
           .Some(.TypeVal(tv2)) => {
             receiver_type_pattern = Rc.clone(tv2);
@@ -5464,8 +5481,8 @@ evaluate_module_value :: (
       is_generic : true,
       receiver_ty : Rc.clone(receiver_type_pattern),
       receiver_name : String.new(),
-      env : forall_env,
-      ctx : ctx,
+      env : Rc.clone(forall_env),
+      ctx : copy_eval_context(ctx),
       fields : c2_fields,
       current_top_index : usize(0),
       current_trait_ty : Option(TypeValue).None,
@@ -5516,7 +5533,7 @@ evaluate_module_value :: (
               ArrayList(String).new(),
               ArrayList(TypeValue).new(),
               ArrayList(EvalValue).new(),
-              forall_env,
+              Rc.clone(forall_env),
               impl_where_some_types.clone(),
               impl_where_traits.clone(),
               _impl_site_string(ast_expr_token(expr))
@@ -5543,6 +5560,7 @@ evaluate_module_value :: (
                 exn.throw(dyn(format_error_message(ast_expr_token(&mf_expr), `internal error: impl member "${c2_pf.label}" reached by the field loop while it is being forced`)));
               },
               .Unforced => {
+                _sync_in_flight_ctx(&c2_rec, ctx);
                 _run_impl_field(&c2_pf, &c2_rec, ctx, exn);
               }
             );
@@ -5558,7 +5576,7 @@ evaluate_module_value :: (
           },
           .None => ()
         );
-        forall_env = c2_rec.env;
+        forall_env = Rc.clone(c2_rec.env);
       });
       // Trait-constructor entry: `Trait(name : fn_def, ...)` or
       // `Trait(args)(name : fn_def, ...)` — e.g. ArrayList's
@@ -5643,6 +5661,7 @@ evaluate_module_value :: (
                     exn.throw(dyn(format_error_message(ast_expr_token(&inner_e2), `internal error: impl member "${c2_ipf.label}" reached by the field loop while it is being forced`)));
                   },
                   .Unforced => {
+                    _sync_in_flight_ctx(&c2_rec, ctx);
                     _run_impl_field(&c2_ipf, &c2_rec, ctx, exn);
                   }
                 );
@@ -5658,7 +5677,7 @@ evaluate_module_value :: (
               },
               .None => ()
             );
-            forall_env = c2_rec.env;
+            forall_env = Rc.clone(c2_rec.env);
           });
         });
         c2_rec.current_trait_ty = Option(TypeValue).None;
@@ -5725,7 +5744,7 @@ evaluate_module_value :: (
           // 7. field_types
           g_method_values,
           // 8. field_values
-          forall_env,
+          Rc.clone(forall_env),
           // 9. definition_env
           impl_where_some_types.clone(),
           // 10. where_constraint_some_types
@@ -5796,7 +5815,7 @@ evaluate_module_value :: (
       // 7. field_types
       method_values,
       // 8. field_values
-      forall_env,
+      Rc.clone(forall_env),
       // 9. definition_env
       impl_where_some_types,
       // 10. where_constraint_some_types
@@ -5808,7 +5827,7 @@ evaluate_module_value :: (
     register_generic_impl(&entry);
     // Return the original local_env (without the generic frame leaked into scope).
     out_info := new_expr_info(&local_env, t_unit());
-    out_info.value = .Some(EvalValue.UnitVal);
+    out_info.set_value(.Some(EvalValue.UnitVal));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
     return(expr);
   });
@@ -5827,10 +5846,9 @@ evaluate_module_value :: (
   });
   // Evaluate the receiver type expression to update env.
   receiver_type_expr := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
-  saved_expected := ctx.expected_type;
-  ctx.expected_type = .None;
+  saved_expected := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
   eval_receiver := evaluate_expression_raw(&receiver_type_expr, &local_env, ctx, exn);
-  ctx.expected_type = saved_expected;
+  ctx.expected_type = saved_expected.clone();
   // Get receiver type name for qualifying method names.
   rcv_tok := ast_expr_token(&receiver_type_expr);
   receiver_name := rcv_tok.value.*.clone();
@@ -5844,7 +5862,7 @@ evaluate_module_value :: (
       // Same: `local_env` gets the impl frame pushed at the end.
       local_env = expr_info_adopt_env(&ri);
       match(
-        ri.value,
+        ri.value(),
         .None => (),
         .Some(.TypeVal(tv)) => {
           receiver_ty = Rc.clone(tv);
@@ -5977,8 +5995,8 @@ evaluate_module_value :: (
     is_generic : false,
     receiver_ty : Rc.clone(receiver_ty),
     receiver_name : receiver_name.clone(),
-    env : local_env,
-    ctx : ctx,
+    env : Rc.clone(local_env),
+    ctx : copy_eval_context(ctx),
     fields : c3_fields,
     current_top_index : usize(0),
     current_trait_ty : Option(TypeValue).None,
@@ -6293,6 +6311,7 @@ evaluate_module_value :: (
                     exn.throw(dyn(format_error_message(ast_expr_token(&meth_expr), `internal error: impl member "${c3_pf.label}" reached by the field loop while it is being forced`)));
                   },
                   .Unforced => {
+                    _sync_in_flight_ctx(&c3_rec, ctx);
                     _run_impl_field(&c3_pf, &c3_rec, ctx, exn);
                   }
                 ),
@@ -6300,7 +6319,7 @@ evaluate_module_value :: (
                   _c3_eval_colon_pair(&meth_expr, &current_trait_ty, &c3_rec, Option(ImplPendingField).None, ctx, exn);
                 }
               );
-              local_env = c3_rec.env;
+              local_env = Rc.clone(c3_rec.env);
             }
           );
           mj = (mj + usize(1));
@@ -6461,15 +6480,15 @@ evaluate_module_value :: (
                               false,
                               false,
                               false,
-                              synthetic_token(&d_pn, &d_env.module_path.*)
+                              synthetic_token(&d_pn, &d_env.module_path().*)
                             );
                             match(
                               ___dpv,
                               .Some(d_pvar) => {
-                                d_pvar.is_parameter = true;
+                                d_pvar.set_is_parameter(true);
                                 if(match(d_p_is_ref.get(d_pi), .Some(b) => b, .None => false), {
                                   variable_set_is_ref(&d_pvar, true);
-                                  d_pvar.is_reassignable = true;
+                                  d_pvar.set_is_reassignable(true);
                                 });
                                 // A projection's `&T` parameter is passed by
                                 // pointer (`fn_param_is_ptr_borrow`).
@@ -6488,7 +6507,7 @@ evaluate_module_value :: (
                                 // E0901 "it is borrowed"
                                 // (issues/fixed/2026-11-05-a-trait-default-cannot-move-its-by-value-self.md).
                                 if(d_by_value, {
-                                  d_pvar.is_owning_the_rc_value = by_value_param_owns(&d_pt);
+                                  d_pvar.set_is_owning_the_rc_value(by_value_param_owns(&d_pt));
                                 });
                               },
                               .None => ()
@@ -6627,7 +6646,7 @@ evaluate_module_value :: (
   ctx.self_type = old_self_type;
   // Set ExprInfo on the impl expression and return.
   out_info := new_expr_info(&local_env, t_unit());
-  out_info.value = .Some(EvalValue.UnitVal);
+  out_info.set_value(.Some(EvalValue.UnitVal));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   expr
 });
@@ -7122,7 +7141,7 @@ _check_copy_clone_exclusion :: (
 /// (`where(T <: Clone)`, the prelude `Option(T)`'s shape) is allowed: at a
 /// `Copy` instantiation its structural clone reduces to the copy.
 _check_generic_copy_clone_exclusion :: (fn(entry : &GenericImplEntry, trait_tok : &Token, ctx : &EvalContext, exn : Exception) -> unit)({
-  env := entry.definition_env;
+  env := Rc.clone(entry.definition_env);
   match(
     _clone_and_copy_traits(&env),
     .Some(cc) => {
@@ -7436,12 +7455,12 @@ _collect_generic_ctor_method_impls :: (fn(ctor_fid : &String, method : &String) 
 synthesize_impl_binders :: (fn(names : &ArrayList(String), somes : &ArrayList(TypeValue), pattern : &TypeValue, given : &TypeValue, env : &Environment) -> Option(ArrayList(Option(TypeValue))))({
   (unify_env : Environment) = snapshot_env(env);
   unify_env.push_frame(false);
-  (unify_base : usize) = unify_env.frames.len();
+  (unify_base : usize) = unify_env.frames_len();
   (ui : usize) = usize(0);
   while(ui < names.len(), ui = (ui + usize(1)), {
     nm := match(names.get_cloned(ui), .Some(n) => n, .None => String.new());
     sm := match(somes.get_cloned(ui), .Some(s) => s, .None => t_unit());
-    add_variable_to_env(&unify_env, &nm, t_type(), Option(EvalValue).Some(create_type_value(&sm)), true, false, false, false, synthetic_token(&nm, &env.module_path.*));
+    add_variable_to_env(&unify_env, &nm, t_type(), Option(EvalValue).Some(create_type_value(&sm)), true, false, false, false, synthetic_token(&nm, &env.module_path().*));
   });
   exn_synth := Exception(
     throw : (

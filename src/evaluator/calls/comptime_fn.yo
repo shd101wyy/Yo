@@ -348,34 +348,30 @@ _ctfe_args_equal :: (
 // SomeT's unique id. `resolve_recursive_type_ref` (in `function.yo`) reads it.
 // Mutated via `push` (never reassigned), mirroring `impl.yo`'s registry.
 // ---------------------------------------------------------------------------
-RecursiveTypeRef :: ref(
-  struct(
-    /// The placeholder `SomeT`'s `id` — the lookup key.
-    some_id : String,
-    /// The type-constructor function's `func_id` (→ `g_comptime_fn_caches`).
-    func_id : String,
-    /// The argument values of the in-progress instantiation (for exact match).
-    arg_values : ArrayList(EvalValue)
-  )
+RecursiveTypeRef :: struct(
+  /// The placeholder `SomeT`'s `id` — the lookup key.
+  some_id : String,
+  /// The type-constructor function's `func_id` (→ `g_comptime_fn_caches`).
+  func_id : String,
+  /// The argument values of the in-progress instantiation (for exact match).
+  arg_values : ArrayList(EvalValue)
 );
+derive(RecursiveTypeRef, Clone);
 (g_recursive_type_refs : RefCell(ArrayList(RecursiveTypeRef))) = RefCell(ArrayList(RecursiveTypeRef)).new(ArrayList(RecursiveTypeRef).new());
 /// Look up the recursive-type-ref for a placeholder SomeT id, if any.
-lookup_recursive_type_ref :: (fn(some_id : &String) -> Option(RecursiveTypeRef))({
-  (i : usize) = usize(0);
-  n := g_recursive_type_refs.with(xs => xs.len());
-  (found : Option(RecursiveTypeRef)) = Option(RecursiveTypeRef).None;
-  while((i < n) && match(found, .None => true, .Some(_) => false), {
-    match(
-      g_recursive_type_refs.with(xs => xs.get(i)),
-      .Some(r) => if(r.some_id == some_id, {
-        found = Option(RecursiveTypeRef).Some(r);
-      }),
-      .None => ()
-    );
-    i = (i + usize(1));
-  });
-  found
-});
+lookup_recursive_type_ref :: (fn(some_id : &String) -> Option(RecursiveTypeRef))(
+  g_recursive_type_refs.with(xs => {
+    (found : Option(RecursiveTypeRef)) = Option(RecursiveTypeRef).None;
+    (i : usize) = usize(0);
+    while((i < xs.len()) && found.is_none(), {
+      if(xs(i).some_id == some_id, {
+        found = Option(RecursiveTypeRef).Some(xs(i).clone());
+      });
+      i = (i + usize(1));
+    });
+    found
+  })
+);
 /// Is `v` a TypeVal carrying a RESOLVED type (not a recursion placeholder)?
 /// A placeholder is a `SomeT` whose id is registered in the side-table; any
 /// other TypeVal is resolved. Returns the inner type when resolved.
@@ -506,23 +502,16 @@ canonicalize_instantiation_via_ctfe_memo :: (fn(ty : &TypeValue) -> TypeValue)({
   match(
     canon_bucket,
     .Some(bucket) => {
-      (ci : usize) = usize(0);
-      n := bucket.caches.len();
-      while(ci < n, {
-        match(
-          bucket.caches.get(ci),
-          .Some(cache) => if(_arg_vals_equal(&cache.arg_values, &want_args), {
-            match(
-              _resolved_type_of(&cache.value),
-              .Some(rt) => if(is_struct_type(&rt), {
-                return(rt);
-              }),
-              .None => ()
-            );
-          }),
-          .None => ()
-        );
-        ci = (ci + usize(1));
+      for(&bucket.caches, cache => {
+        if(_arg_vals_equal(&cache.arg_values, &want_args), {
+          match(
+            _resolved_type_of(&cache.value),
+            .Some(rt) => if(is_struct_type(&rt), {
+              return(rt);
+            }),
+            .None => ()
+          );
+        });
       });
     },
     .None => ()
@@ -572,21 +561,14 @@ resolve_recursive_type_ref :: (fn(some_ty : &TypeValue, ctx : &EvalContext) -> O
   );
   // Strategy 1: exact-arg-match cache entry with a resolved value.
   {
-    (i : usize) = usize(0);
-    n := bucket.caches.len();
-    while(i < n, {
-      match(
-        bucket.caches.get(i),
-        .Some(cache) => if(_arg_vals_equal(&cache.arg_values, &rref.arg_values), {
-          match(
-            _resolved_type_of(&cache.value),
-            .Some(rt) => return(Option(TypeValue).Some(rt)),
-            .None => ()
-          );
-        }),
-        .None => ()
-      );
-      i = (i + usize(1));
+    for(&bucket.caches, cache => {
+      if(_arg_vals_equal(&cache.arg_values, &rref.arg_values), {
+        match(
+          _resolved_type_of(&cache.value),
+          .Some(rt) => return(Option(TypeValue).Some(rt)),
+          .None => ()
+        );
+      });
     });
   };
   // Strategy 2: ctx.self_type when it is a struct/object.
@@ -599,19 +581,12 @@ resolve_recursive_type_ref :: (fn(some_ty : &TypeValue, ctx : &EvalContext) -> O
   );
   // Strategy 3: any resolved cache entry of the same function.
   {
-    (i : usize) = usize(0);
-    n := bucket.caches.len();
-    while(i < n, {
+    for(&bucket.caches, cache => {
       match(
-        bucket.caches.get(i),
-        .Some(cache) => match(
-          _resolved_type_of(&cache.value),
-          .Some(rt) => return(Option(TypeValue).Some(rt)),
-          .None => ()
-        ),
+        _resolved_type_of(&cache.value),
+        .Some(rt) => return(Option(TypeValue).Some(rt)),
         .None => ()
       );
-      i = (i + usize(1));
     });
   };
   Option(TypeValue).None
@@ -625,7 +600,7 @@ resolve_recursive_type_ref :: (fn(some_ty : &TypeValue, ctx : &EvalContext) -> O
 /// (tests/variadic_comptime.test.yo). Name built without a template
 /// string (hot path — template-string Rc corruption family).
 _ctfe_unknown :: (fn(return_type : &TypeValue, env : &Environment) -> EvalValue)({
-  nm := stable_module_id(String.from("ctfe_result_"), &env.module_path.*);
+  nm := stable_module_id(String.from("ctfe_result_"), &env.module_path().*);
   create_unknown_val_with_name(return_type, &nm)
 });
 /// Build the in-progress recursion placeholder for a type-constructor call.
@@ -713,7 +688,7 @@ evaluate_comptime_fn_call :: (
     arg_values : &ArgValues,
     caller_env : &Environment,
     callee_env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> ComptimeFnCallResult
 )({
@@ -748,8 +723,8 @@ evaluate_comptime_fn_call :: (
         return(
           ComptimeFnCallResult(
             value : _ctfe_unknown(&return_type, caller_env),
-            caller_env : caller_env,
-            callee_env : callee_env,
+            caller_env : Rc.clone(caller_env),
+            callee_env : Rc.clone(callee_env),
             comptime_ref : Option(ComptimeRef).None
           )
         );
@@ -778,8 +753,8 @@ evaluate_comptime_fn_call :: (
     return(
       ComptimeFnCallResult(
         value : _ctfe_unknown(&return_type, caller_env),
-        caller_env : caller_env,
-        callee_env : callee_env,
+        caller_env : Rc.clone(caller_env),
+        callee_env : Rc.clone(callee_env),
         comptime_ref : Option(ComptimeRef).None
       )
     );
@@ -815,8 +790,8 @@ evaluate_comptime_fn_call :: (
     return(
       ComptimeFnCallResult(
         value : _ctfe_unknown(&return_type, caller_env),
-        caller_env : caller_env,
-        callee_env : callee_env,
+        caller_env : Rc.clone(caller_env),
+        callee_env : Rc.clone(callee_env),
         comptime_ref : Option(ComptimeRef).None
       )
     );
@@ -975,8 +950,8 @@ evaluate_comptime_fn_call :: (
     return(
       ComptimeFnCallResult(
         value : _ctfe_unknown(&return_type, caller_env),
-        caller_env : caller_env,
-        callee_env : callee_env,
+        caller_env : Rc.clone(caller_env),
+        callee_env : Rc.clone(callee_env),
         comptime_ref : Option(ComptimeRef).None
       )
     );
@@ -1117,42 +1092,35 @@ evaluate_comptime_fn_call :: (
     match(
       g_comptime_fn_caches.with(xs => xs.get(the_entry_idx)),
       .Some(entry) => {
-        (cfi : usize) = usize(0);
-        n_cc := entry.caches.len();
-        while((cfi < n_cc) && match(cached_result, .None => true, .Some(_) => false), {
-          match(
-            entry.caches.get(cfi),
-            .Some(cache) => {
-              if(cache.arg_values.len() == all_arg_vals.len(), {
-                (args_match : bool) = true;
-                (ami : usize) = usize(0);
-                n_av := all_arg_vals.len();
-                while((ami < n_av) && args_match, {
-                  match(
-                    cache.arg_values.get(ami),
-                    .Some(cached_av) => match(
-                      all_arg_vals.get(ami),
-                      .Some(given_av) => {
-                        args_match = _ctfe_args_equal(&cached_av, &given_av);
-                      },
-                      .None => {
-                        args_match = false;
-                      }
-                    ),
+        for(&entry.caches, cache => {
+          if(cached_result.is_none(), {
+            if(cache.arg_values.len() == all_arg_vals.len(), {
+              (args_match : bool) = true;
+              (ami : usize) = usize(0);
+              n_av := all_arg_vals.len();
+              while((ami < n_av) && args_match, {
+                match(
+                  cache.arg_values.get(ami),
+                  .Some(cached_av) => match(
+                    all_arg_vals.get(ami),
+                    .Some(given_av) => {
+                      args_match = _ctfe_args_equal(&cached_av, &given_av);
+                    },
                     .None => {
                       args_match = false;
                     }
-                  );
-                  ami = (ami + usize(1));
-                });
-                if(args_match, {
-                  cached_result = Option(EvalValue).Some(cache.value);
-                });
+                  ),
+                  .None => {
+                    args_match = false;
+                  }
+                );
+                ami = (ami + usize(1));
               });
-            },
-            .None => ()
-          );
-          cfi = (cfi + usize(1));
+              if(args_match, {
+                cached_result = Option(EvalValue).Some(cache.value);
+              });
+            });
+          });
         });
       },
       .None => ()
@@ -1169,8 +1137,8 @@ evaluate_comptime_fn_call :: (
       return(
         ComptimeFnCallResult(
           value : hit_val,
-          caller_env : caller_env,
-          callee_env : callee_env,
+          caller_env : Rc.clone(caller_env),
+          callee_env : Rc.clone(callee_env),
           comptime_ref : Option(ComptimeRef).None
         )
       );
@@ -1198,8 +1166,8 @@ evaluate_comptime_fn_call :: (
   );
   // Set up the context modifications for function body evaluation.
   // Save old values so we can restore after the call.
-  old_fn_ctx := ctx.is_evaluating_function_body_or_async_block;
-  old_loop_ctx := ctx.is_evaluating_loop_body;
+  old_fn_ctx := ctx.is_evaluating_function_body_or_async_block.clone();
+  old_loop_ctx := ctx.is_evaluating_loop_body.clone();
   old_executing := ctx.is_executing;
   old_force_ct := ctx.force_compile_time_bindings;
   // LIVE execution (a panic it reaches is a compile error): every argument
@@ -1210,7 +1178,7 @@ evaluate_comptime_fn_call :: (
   // because the value of a comptime call there is needed for codegen either
   // way).
   ctfe_outer_depth := match(
-    old_fn_ctx,
+    old_fn_ctx.clone(),
     .Some(ofc) => cond(
       ofc.ctfe_live => ofc.ctfe_arm_depth,
       true => usize(0)
@@ -1260,7 +1228,7 @@ evaluate_comptime_fn_call :: (
   );
   ctx.ctfe_depth = (ctx.ctfe_depth - usize(1));
   // Restore context.
-  ctx.is_evaluating_function_body_or_async_block = old_fn_ctx;
+  ctx.is_evaluating_function_body_or_async_block = old_fn_ctx.clone();
   ctx.is_evaluating_loop_body = old_loop_ctx;
   swap(&mut ctx.captured_variables, &mut old_cap_vars);
   ctx.is_executing = old_executing;
@@ -1270,7 +1238,7 @@ evaluate_comptime_fn_call :: (
   body_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaled_body));
   body_info := match(
     body_info_opt,
-    .Some(i) => i,
+    .Some(i) => Rc.clone(i),
     .None => {
       // Remove the temp cache entry to avoid leaving a stale placeholder.
       match(
@@ -1292,7 +1260,7 @@ evaluate_comptime_fn_call :: (
     }
   );
   return_value := match(
-    body_info.value,
+    body_info.value(),
     .Some(v) => v,
     .None => {
       // Remove the temp cache entry.
@@ -1573,7 +1541,7 @@ evaluate_comptime_fn_call :: (
   purge_executed_clone_metadata(&ctx.expr_info_table, &body_expr, clone_lo, clone_hi);
   ComptimeFnCallResult(
     value : final_return_value,
-    caller_env : caller_env,
+    caller_env : Rc.clone(caller_env),
     callee_env : out_callee_env,
     comptime_ref : body_comptime_ref
   )

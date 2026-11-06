@@ -137,7 +137,7 @@ _bindings_that_may_be_for :: (fn(variables : &ArrayList(Variable), some_id : &St
   (i : usize) = usize(0);
   while(i < variables.len(), {
     match(
-      variables.get(i),
+      variables.get_cloned(i),
       .Some(v) => if(_binding_may_be_for(&v, some_id), {
         out.push(v);
       }),
@@ -151,25 +151,25 @@ _bindings_that_may_be_for :: (fn(variables : &ArrayList(Variable), some_id : &St
 /// holds a TypeVal and may be a binding for the SomeT `some_id`. Returns None
 /// otherwise.
 _lookup_by_frame :: (fn(env : &Environment, fl : usize, name : &String, some_id : &String) -> Option(TypeValue))({
-  n_frames := env.frames.len();
+  n_frames := env.frames_len();
   cond(
     (fl >= n_frames) => Option(TypeValue).None,
     true =>
       match(
-        env.frames.get(fl),
+        env.frame_at(fl),
         .Some(frame) => {
-          vars := &frame.variables;
+          vars := frame.variables();
           m := vars.len();
           (result : Option(TypeValue)) = .None;
           (i : usize) = usize(0);
           while(i < m, {
             match(
-              vars.get(i),
+              vars.get_cloned(i),
               .Some(var) =>
                 cond(
                   ((var.name == name) && _binding_may_be_for(&var, some_id)) =>
                     match(
-                      var.value.get(usize(0)),
+                      var.value().get(usize(0)),
                       .Some(val) =>
                         cond(
                           _is_type_eval_value(&val) => {
@@ -241,9 +241,9 @@ _was_self_bound :: (fn(env : &Environment, name : &String, id_to_find : &String)
   (vi : usize) = usize(0);
   while((vi < n) && !found, {
     match(
-      vars.get(vi),
+      vars.get_cloned(vi),
       .Some(var) => match(
-        var.value.get(usize(0)),
+        var.value().get(usize(0)),
         .Some(val) => if(_is_type_eval_value(&val), {
           if(_same_some_id(_unwrap_type_eval_value(&val), id_to_find), {
             found = true;
@@ -271,14 +271,14 @@ get_trait_type_from_env :: (fn(env : &Environment, trait_name : &String) -> Opti
     (n == usize(0)) => Option(TypeValue).None,
     true => {
       last := match(
-        variables.get(n - usize(1)),
+        variables.get_cloned(n - usize(1)),
         .Some(v) => v,
         .None => {
           return(Option(TypeValue).None);
         }
       );
       match(
-        last.value.get(usize(0)),
+        last.value().get(usize(0)),
         .Some(val) =>
           cond(
             _is_type_eval_value(&val) => {
@@ -325,14 +325,14 @@ _do_chain_resolve :: (fn(env : &Environment, start : &TypeValue, visited_ids : &
           },
           true =>
             match(
-              variables.get(n - usize(1)),
+              variables.get_cloned(n - usize(1)),
               .None => {
                 result = Rc.clone(current);
                 done = true;
               },
               .Some(last_var) =>
                 match(
-                  last_var.value.get(usize(0)),
+                  last_var.value().get(usize(0)),
                   .None => {
                     result = Rc.clone(current);
                     done = true;
@@ -425,19 +425,19 @@ _do_chain_resolve :: (fn(env : &Environment, start : &TypeValue, visited_ids : &
 /// full `_do_chain_resolve` applies — the fast path uses this to verify a
 /// def-frame concrete binding is still the LIVE one.
 _last_type_binding_frame :: (fn(env : &Environment, name : &String) -> Option(usize))({
-  n_frames := env.frames.len();
+  n_frames := env.frames_len();
   (fi : usize) = n_frames;
   while(fi > usize(0), {
     fi = (fi - usize(1));
     (hit : bool) = false;
     match(
-      env.frames.get(fi),
+      env.frame_at(fi),
       .Some(frame) => {
-        vars := &frame.variables;
+        vars := frame.variables();
         (vi : usize) = usize(0);
         while((vi < vars.len()) && !hit, {
           match(
-            vars.get(vi),
+            vars.get_cloned(vi),
             .Some(var) =>
               if((var.name == name) && _is_type_eval_value_or_empty(&var), {
                 hit = true;
@@ -457,7 +457,7 @@ _last_type_binding_frame :: (fn(env : &Environment, name : &String) -> Option(us
 });
 _is_type_eval_value_or_empty :: (fn(var : &Variable) -> bool)(
   match(
-    var.value.get(usize(0)),
+    var.value().get(usize(0)),
     .Some(val) => _is_type_eval_value(&val),
     .None => false
   )

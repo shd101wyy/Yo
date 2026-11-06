@@ -23,14 +23,12 @@ pragma(Pragma.AllowUnsafe);
 // ---------------------------------------------------------------------------
 // Per-definition variant args
 // ---------------------------------------------------------------------------
-GadtEntry :: ref(
-  struct(
-    /// The enum type's `id` — the lookup key.
-    enum_id : String,
-    /// Per-variant type-arg lists, parallel to the enum's variant order.
-    /// An empty inner list means that variant is non-GADT.
-    variant_args : ArrayList(ArrayList(TypeValue))
-  )
+GadtEntry :: struct(
+  /// The enum type's `id` — the lookup key.
+  enum_id : String,
+  /// Per-variant type-arg lists, parallel to the enum's variant order.
+  /// An empty inner list means that variant is non-GADT.
+  variant_args : ArrayList(ArrayList(TypeValue))
 );
 (g_gadt_entries : RefCell(ArrayList(GadtEntry))) = RefCell(ArrayList(GadtEntry)).new(ArrayList(GadtEntry).new());
 /// Record a GADT enum's per-variant return-type args; registering `enum_id`
@@ -50,13 +48,10 @@ get_gadt_variant_args :: (
   n := g_gadt_entries.with(xs => xs.len());
   (found : Option(ArrayList(ArrayList(TypeValue)))) = Option(ArrayList(ArrayList(TypeValue))).None;
   while((i < n) && match(&found, .None => true, .Some(_) => false), {
-    match(
-      g_gadt_entries.with(xs => xs.get(i)),
-      .Some(e) => if(e.enum_id == enum_id, {
-        found = Option(ArrayList(ArrayList(TypeValue))).Some(e.variant_args.clone());
-      }),
-      .None => ()
-    );
+    eid := g_gadt_entries.with(xs => xs(i).enum_id.clone());
+    if(eid == enum_id, {
+      found = Option(ArrayList(ArrayList(TypeValue))).Some(g_gadt_entries.with(xs => xs(i).variant_args.clone()));
+    });
     i = (i + usize(1));
   });
   found
@@ -68,12 +63,11 @@ is_gadt_enum :: (fn(enum_id : &String) -> bool)(
 // ---------------------------------------------------------------------------
 // Per-instantiation type-constructor args
 // ---------------------------------------------------------------------------
-GadtTcaEntry :: ref(
+GadtTcaEntry ::
   struct(
     enum_id : String,
     type_constructor_args : ArrayList(TypeValue)
-  )
-);
+  );
 (g_gadt_tca_entries : RefCell(ArrayList(GadtTcaEntry))) = RefCell(ArrayList(GadtTcaEntry)).new(ArrayList(GadtTcaEntry).new());
 /// Record the type-constructor args for an instantiated GADT enum.
 register_gadt_type_constructor_args :: (
@@ -91,13 +85,10 @@ get_gadt_type_constructor_args :: (
   n := g_gadt_tca_entries.with(xs => xs.len());
   (found : Option(ArrayList(TypeValue))) = Option(ArrayList(TypeValue)).None;
   while((i < n) && match(&found, .None => true, .Some(_) => false), {
-    match(
-      g_gadt_tca_entries.with(xs => xs.get(i)),
-      .Some(e) => if(e.enum_id == enum_id, {
-        found = Option(ArrayList(TypeValue)).Some(e.type_constructor_args.clone());
-      }),
-      .None => ()
-    );
+    eid := g_gadt_tca_entries.with(xs => xs(i).enum_id.clone());
+    if(eid == enum_id, {
+      found = Option(ArrayList(TypeValue)).Some(g_gadt_tca_entries.with(xs => xs(i).type_constructor_args.clone()));
+    });
     i = (i + usize(1));
   });
   found

@@ -155,7 +155,7 @@ _scan_call_edges :: (
           match(
             expr_info_table_get(table, ast_expr_id(&f)),
             .Some(fi) => match(
-              fi.value,
+              fi.value(),
               .Some(v) => match(
                 v,
                 .FuncVal(fvd, _) => {
@@ -333,7 +333,7 @@ _measure_is_signed :: (fn(ctx : &VcCtx, e : &AstExpr) -> bool)(
     _is_lex_measure(e) => false,
     true => match(
       expr_info_table_get(&ctx.table, ast_expr_id(e)),
-      .Some(mi) => _int_is_signed(&mi.ty),
+      .Some(mi) => _int_is_signed(&mi.ty()),
       .None => true
     )
   )
@@ -691,45 +691,40 @@ _guard_site :: (fn(e : &AstExpr, class : &String) -> Option(GuardSite))({
     )
   )
 });
-VcObligation :: ref(
-  struct(
-    name : String,
-    query : VcQuery,
-    /// The runtime guard this obligation discharges; `.None` for contract,
-    /// loop and assert obligations.
-    (site : Option(GuardSite)) ?= Option(GuardSite).None,
-    /// Proved here, may this obligation remove its guard? False when an
-    /// unenforced assumption (`VcCtx.unenforced`) was on the path.
-    (elidable : bool) ?= false,
-    /// 5b Phase 2 (plans/backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md §6):
-    /// an ELISION-ONLY obligation decides its guard and nothing else. Not
-    /// proved, the guard stays and is itself the defined behavior, so it never
-    /// fails the function or counts toward its outcome.
-    (elision_only : bool) ?= false,
-    /// Literal-construction CTFE folding: the goal constant-folded to a
-    /// BoolLit, so the verdict is known WITHOUT an SMT call (`_emit`).
-    (pre : Option(VcPreVerdict)) ?= Option(VcPreVerdict).None
-  )
+VcObligation :: struct(
+  name : String,
+  query : VcQuery,
+  /// The runtime guard this obligation discharges; `.None` for contract,
+  /// loop and assert obligations.
+  (site : Option(GuardSite)) ?= Option(GuardSite).None,
+  /// Proved here, may this obligation remove its guard? False when an
+  /// unenforced assumption (`VcCtx.unenforced`) was on the path.
+  (elidable : bool) ?= false,
+  /// 5b Phase 2 (plans/backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md §6):
+  /// an ELISION-ONLY obligation decides its guard and nothing else. Not
+  /// proved, the guard stays and is itself the defined behavior, so it never
+  /// fails the function or counts toward its outcome.
+  (elision_only : bool) ?= false,
+  /// Literal-construction CTFE folding: the goal constant-folded to a
+  /// BoolLit, so the verdict is known WITHOUT an SMT call (`_emit`).
+  (pre : Option(VcPreVerdict)) ?= Option(VcPreVerdict).None
 );
 /// The pre-resolved verdict for a constant-folded obligation.
 VcPreVerdict :: enum(PreProved, PreRefuted);
 derive(VcPreVerdict, Copy, Clone);
 /// Why a function could not be verified (subset gate).
-VcSubsetError :: ref(
-  struct(
-    construct : String,
-    source : String
-  )
+VcSubsetError :: struct(
+  construct : String,
+  source : String
 );
+derive(VcSubsetError, Clone);
 /// Symbolic execution result for one function.
-VcBodyResult :: ref(
-  struct(
-    obligations : ArrayList(VcObligation),
-    /// The body's value as a term (for ensures binding); `.None` when a
-    /// subset error aborted the walk.
-    value : Option(VcTerm),
-    error : Option(VcSubsetError)
-  )
+VcBodyResult :: struct(
+  obligations : ArrayList(VcObligation),
+  /// The body's value as a term (for ensures binding); `.None` when a
+  /// subset error aborted the walk.
+  value : Option(VcTerm),
+  error : Option(VcSubsetError)
 );
 // ============================================================================
 // The executor context
@@ -739,141 +734,139 @@ VcBodyResult :: ref(
 /// index `idx_name` from 0 to `len(list)`, `x` is `list[idx]`, and
 /// `produced(<coll_name>)` is the list cut at the index.
 ForFrame :: struct(idx_name : String, coll_name : String, list : VcTerm, elem : VcSort, elem_name : String);
-VcCtx :: ref(
-  struct(
-    table : ExprInfoTable,
-    fn_name : String,
-    /// The FuncVal's `func_id` — self-recursion detection at call sites.
-    func_id : String,
-    /// Source-name → current term (SSA by rebinding).
-    vars : HashMap(String, VcTerm),
-    /// Path assumptions (requires, branch conditions), conjoined.
-    path : ArrayList(VcTerm),
-    /// The subset of `path` terms no runtime check enforces: an own requires
-    /// with no entry assert, a `refine` premise, a callee's `ensures`. An
-    /// obligation proved while one of these is on the path is still proved
-    /// for `yo verify`, but must not elide a guard, because a caller the
-    /// verifier never walks can break the assumption
-    /// (plans/backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md §5.1 rule 3).
-    unenforced : ArrayList(VcTerm),
-    /// Generate the elision-only obligations (`VerifyFnInput.elision_obligations`).
-    (elision_obligations : bool) ?= false,
-    /// `VerifyFnInput.body_abstract`: proofs here remove no guards.
-    (body_abstract : bool) ?= false,
-    obligations : ArrayList(VcObligation),
-    subset_error : Option(VcSubsetError),
-    /// Counter for query names and synthetic vars.
-    fresh : usize,
-    /// Havoc-version counter for loop encodings (V4): each `while` gets a
-    /// distinct post-havoc generation so nested/back-to-back loops never
-    /// share a synthetic constant.
-    havoc : usize,
-    /// This function's `decreases(M)` measure (V4 recursion), if any.
-    decreases : Option(AstExpr),
-    /// Break sites of the loop body being walked (V4.2): each `break`
-    /// snapshots the path condition and every binding — the loop's exit
-    /// state is the disjunction of these with the fresh-havoc cond-exit.
-    break_sites : ArrayList(BreakSite),
-    /// The invariant predicates of the loop being walked (V4.2): a
-    /// `continue` site proves them over the state at the statement.
-    loop_invariants : ArrayList(AstExpr),
-    /// The loop being walked's `decreases(M)` AST, if any (V4.2 continue).
-    loop_measure : Option(AstExpr),
-    /// The ghost index of the loop being walked when it is a `for`: a
-    /// `continue` there moves to the next element before the head.
-    loop_for_idx : Option(String),
-    /// The head (havoced) measure TERM of the loop being walked, if any —
-    /// a `continue` site proves its own `M(now) < M(head)` step against it.
-    head_measure : Option(VcTerm),
-    /// The current straight-line path does not continue: it exited the
-    /// loop (break or continue) or diverged (`panic`). Statements after the
-    /// exit are dead and not walked; a branch whose walk ends dead is assumed
-    /// not taken on the path after the branch.
-    path_dead : bool,
-    /// Loop nesting depth during a body walk (0 outside any loop body).
-    loop_depth : usize,
-    /// The FUNCTION-ENTRY binding snapshot (params + module bindings at
-    /// body start, taken before the walk): `old(e)` walks e against it
-    /// (V5 two-state). Body-locals have no entry binding.
-    entry_vars : HashMap(String, VcTerm),
-    /// While a CALLEE's `ensures` is being assumed at a call site (R1 slice
-    /// 2): callee param label → its PRE-call term for every argument the
-    /// call mutates, so the callee's `old(self.len())` reads the state
-    /// before the call and not the caller's function entry.
-    call_pre : Option(HashMap(String, VcTerm)),
-    /// Every NAME a call in this body rebound through the mutation model
-    /// (R1 slice 2) — a parameter here whose own contract never says
-    /// `old(<param>)` is the loud gap of
-    /// issues/questions/modifies-clause-for-callee-side-effects.md.
-    mutated_names : ArrayList(String),
-    /// Every list-typed LOCAL bound from an existing list rather than a
-    /// fresh `ArrayList(T).new()` / `.with_capacity(n)`: ArrayList is a
-    /// reference type, so such a local may be the same list as another
-    /// name, and the model (one value per name) cannot follow the alias.
-    list_alias_locals : ArrayList(String),
-    /// List-typed locals last bound from `ArrayList(T).new()` /
-    /// `with_capacity(n)`: no other name can be the same list (R2 task 5).
-    fresh_list_locals : ArrayList(String),
-    /// Where a `distinct(a, b)` is being walked: 0 = elsewhere (a subset
-    /// error), 1 = the fn's own requires (assumed; the pair is recorded),
-    /// 2 = a callee's requires at a call (proved from the arguments).
-    requires_phase : usize,
-    /// At a call (phase 2): callee parameter -> the caller's argument name
-    /// ("" when the argument is not a plain name).
-    call_arg_names : HashMap(String, String),
-    /// The `distinct(a, b)` pairs of the fn's own requires, both orders.
-    distinct_pairs : ArrayList(String),
-    /// Datatype declaration entries (`<dt-name>|<ctor0> <ctor1> (f0 sort) ...`)
-    /// for every enum sort used so far — merged into each obligation's
-    /// VcQuery.datatypes at `_emit` time so the emitted script declares
-    /// everything the terms mention.
-    datatypes : ArrayList(String),
-    /// The sorts behind the value-enum datatypes above, by SMT name: each
-    /// constructor's datatype and each field accessor's sort. A name bound
-    /// to a constructor or projection term carries no sort of its own
-    /// (`_vc_term_sort`).
-    ctor_sorts : HashMap(String, VcSort),
-    acc_sorts : HashMap(String, VcSort),
-    /// Name → ArrS sort for every bound ARRAY value (V5 task 6). The name's
-    /// current TERM may be a store chain (index writes rebind), which carries
-    /// no sort — this table is where the walk reads the element sort and the
-    /// compile-time length (bounds obligations, `ms_of` folding, havoc).
-    array_sorts : HashMap(String, VcSort),
-    /// > 0 while walking a quantifier BODY (V5 task 6): index-bounds
-    /// obligations are SUPPRESSED there — a bounded index inside `forall(p, g ==> s(p) ...)`
-    /// is the spec's own guard's business; a free-variable bounds goal under
-    /// a binder would be an unprovable non-obligation.
-    quant_depth : usize,
-    /// The `__yo_msof_<elem>` functions used so far (elem sorts) — merged
-    /// into every obligation's VcQuery.fundecls at `_emit` time. Deduped
-    /// through `fundecl_keys`: comparing VcSorts at runtime would call the
-    /// derived Eq, which is HOLLOW for ref enums with Self payloads
-    /// (issues/fixed/derived-eq-ref-enum-self-payload-hollow-at-runtime.md).
-    fundecls : ArrayList(VcSort),
-    fundecl_keys : ArrayList(String),
-    /// Closed definition axioms for the `ms_of` terms walked so far
-    /// (merged into every obligation's VcQuery.axioms at `_emit` time),
-    /// deduped by the encoded array term — the same array term walked
-    /// from several invariants defines the same function application.
-    axioms : ArrayList(VcTerm),
-    ms_axiom_keys : ArrayList(String),
-    /// R2: the uninterpreted function of every recursive `ghost_fn` walked
-    /// so far, and the keys that dedupe their definitional axioms.
-    fun_decls : ArrayList(VcFunDecl),
-    gfn_keys : ArrayList(String),
-    /// The `for` loops being walked, innermost last (`produced(xs)`).
-    for_frames : ArrayList(ForFrame),
-    /// > 0 while a callee's parameter labels are bound over the caller's
-    /// names (its requires, ensures and clique measure at a call): a call
-    /// to an open-frame callee there is a subset error, because the
-    /// restore after it would put back the stale terms of the names the
-    /// labels shadow.
-    label_depth : usize,
-    /// Calls that may change caller state beyond the call's result — an
-    /// open-frame callee, or an argument written through `&mut`. A
-    /// spec-transparent attempt that adds one is not transparent.
-    frame_effects : usize
-  )
+VcCtx :: struct(
+  table : ExprInfoTable,
+  fn_name : String,
+  /// The FuncVal's `func_id` — self-recursion detection at call sites.
+  func_id : String,
+  /// Source-name → current term (SSA by rebinding).
+  vars : HashMap(String, VcTerm),
+  /// Path assumptions (requires, branch conditions), conjoined.
+  path : ArrayList(VcTerm),
+  /// The subset of `path` terms no runtime check enforces: an own requires
+  /// with no entry assert, a `refine` premise, a callee's `ensures`. An
+  /// obligation proved while one of these is on the path is still proved
+  /// for `yo verify`, but must not elide a guard, because a caller the
+  /// verifier never walks can break the assumption
+  /// (plans/backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md §5.1 rule 3).
+  unenforced : ArrayList(VcTerm),
+  /// Generate the elision-only obligations (`VerifyFnInput.elision_obligations`).
+  (elision_obligations : bool) ?= false,
+  /// `VerifyFnInput.body_abstract`: proofs here remove no guards.
+  (body_abstract : bool) ?= false,
+  obligations : ArrayList(VcObligation),
+  subset_error : Option(VcSubsetError),
+  /// Counter for query names and synthetic vars.
+  fresh : usize,
+  /// Havoc-version counter for loop encodings (V4): each `while` gets a
+  /// distinct post-havoc generation so nested/back-to-back loops never
+  /// share a synthetic constant.
+  havoc : usize,
+  /// This function's `decreases(M)` measure (V4 recursion), if any.
+  decreases : Option(AstExpr),
+  /// Break sites of the loop body being walked (V4.2): each `break`
+  /// snapshots the path condition and every binding — the loop's exit
+  /// state is the disjunction of these with the fresh-havoc cond-exit.
+  break_sites : ArrayList(BreakSite),
+  /// The invariant predicates of the loop being walked (V4.2): a
+  /// `continue` site proves them over the state at the statement.
+  loop_invariants : ArrayList(AstExpr),
+  /// The loop being walked's `decreases(M)` AST, if any (V4.2 continue).
+  loop_measure : Option(AstExpr),
+  /// The ghost index of the loop being walked when it is a `for`: a
+  /// `continue` there moves to the next element before the head.
+  loop_for_idx : Option(String),
+  /// The head (havoced) measure TERM of the loop being walked, if any —
+  /// a `continue` site proves its own `M(now) < M(head)` step against it.
+  head_measure : Option(VcTerm),
+  /// The current straight-line path does not continue: it exited the
+  /// loop (break or continue) or diverged (`panic`). Statements after the
+  /// exit are dead and not walked; a branch whose walk ends dead is assumed
+  /// not taken on the path after the branch.
+  path_dead : bool,
+  /// Loop nesting depth during a body walk (0 outside any loop body).
+  loop_depth : usize,
+  /// The FUNCTION-ENTRY binding snapshot (params + module bindings at
+  /// body start, taken before the walk): `old(e)` walks e against it
+  /// (V5 two-state). Body-locals have no entry binding.
+  entry_vars : HashMap(String, VcTerm),
+  /// While a CALLEE's `ensures` is being assumed at a call site (R1 slice
+  /// 2): callee param label → its PRE-call term for every argument the
+  /// call mutates, so the callee's `old(self.len())` reads the state
+  /// before the call and not the caller's function entry.
+  call_pre : Option(HashMap(String, VcTerm)),
+  /// Every NAME a call in this body rebound through the mutation model
+  /// (R1 slice 2) — a parameter here whose own contract never says
+  /// `old(<param>)` is the loud gap of
+  /// issues/questions/modifies-clause-for-callee-side-effects.md.
+  mutated_names : ArrayList(String),
+  /// Every list-typed LOCAL bound from an existing list rather than a
+  /// fresh `ArrayList(T).new()` / `.with_capacity(n)`: ArrayList is a
+  /// reference type, so such a local may be the same list as another
+  /// name, and the model (one value per name) cannot follow the alias.
+  list_alias_locals : ArrayList(String),
+  /// List-typed locals last bound from `ArrayList(T).new()` /
+  /// `with_capacity(n)`: no other name can be the same list (R2 task 5).
+  fresh_list_locals : ArrayList(String),
+  /// Where a `distinct(a, b)` is being walked: 0 = elsewhere (a subset
+  /// error), 1 = the fn's own requires (assumed; the pair is recorded),
+  /// 2 = a callee's requires at a call (proved from the arguments).
+  requires_phase : usize,
+  /// At a call (phase 2): callee parameter -> the caller's argument name
+  /// ("" when the argument is not a plain name).
+  call_arg_names : HashMap(String, String),
+  /// The `distinct(a, b)` pairs of the fn's own requires, both orders.
+  distinct_pairs : ArrayList(String),
+  /// Datatype declaration entries (`<dt-name>|<ctor0> <ctor1> (f0 sort) ...`)
+  /// for every enum sort used so far — merged into each obligation's
+  /// VcQuery.datatypes at `_emit` time so the emitted script declares
+  /// everything the terms mention.
+  datatypes : ArrayList(String),
+  /// The sorts behind the value-enum datatypes above, by SMT name: each
+  /// constructor's datatype and each field accessor's sort. A name bound
+  /// to a constructor or projection term carries no sort of its own
+  /// (`_vc_term_sort`).
+  ctor_sorts : HashMap(String, VcSort),
+  acc_sorts : HashMap(String, VcSort),
+  /// Name → ArrS sort for every bound ARRAY value (V5 task 6). The name's
+  /// current TERM may be a store chain (index writes rebind), which carries
+  /// no sort — this table is where the walk reads the element sort and the
+  /// compile-time length (bounds obligations, `ms_of` folding, havoc).
+  array_sorts : HashMap(String, VcSort),
+  /// > 0 while walking a quantifier BODY (V5 task 6): index-bounds
+  /// obligations are SUPPRESSED there — a bounded index inside `forall(p, g ==> s(p) ...)`
+  /// is the spec's own guard's business; a free-variable bounds goal under
+  /// a binder would be an unprovable non-obligation.
+  quant_depth : usize,
+  /// The `__yo_msof_<elem>` functions used so far (elem sorts) — merged
+  /// into every obligation's VcQuery.fundecls at `_emit` time. Deduped
+  /// through `fundecl_keys`: comparing VcSorts at runtime would call the
+  /// derived Eq, which is HOLLOW for ref enums with Self payloads
+  /// (issues/fixed/derived-eq-ref-enum-self-payload-hollow-at-runtime.md).
+  fundecls : ArrayList(VcSort),
+  fundecl_keys : ArrayList(String),
+  /// Closed definition axioms for the `ms_of` terms walked so far
+  /// (merged into every obligation's VcQuery.axioms at `_emit` time),
+  /// deduped by the encoded array term — the same array term walked
+  /// from several invariants defines the same function application.
+  axioms : ArrayList(VcTerm),
+  ms_axiom_keys : ArrayList(String),
+  /// R2: the uninterpreted function of every recursive `ghost_fn` walked
+  /// so far, and the keys that dedupe their definitional axioms.
+  fun_decls : ArrayList(VcFunDecl),
+  gfn_keys : ArrayList(String),
+  /// The `for` loops being walked, innermost last (`produced(xs)`).
+  for_frames : ArrayList(ForFrame),
+  /// > 0 while a callee's parameter labels are bound over the caller's
+  /// names (its requires, ensures and clique measure at a call): a call
+  /// to an open-frame callee there is a subset error, because the
+  /// restore after it would put back the stale terms of the names the
+  /// labels shadow.
+  label_depth : usize,
+  /// Calls that may change caller state beyond the call's result — an
+  /// open-frame callee, or an argument written through `&mut`. A
+  /// spec-transparent attempt that adds one is not transparent.
+  frame_effects : usize
 );
 derive(ForFrame, Clone);
 _new_vc_ctx :: (fn(table : &ExprInfoTable, fn_name : &String, func_id : &String) -> VcCtx)(
@@ -927,7 +920,7 @@ _next_fresh :: (fn(ctx : &mut VcCtx) -> usize)({
 });
 _fail_subset :: (fn(ctx : &mut VcCtx, construct : &String, at : &AstExpr) -> unit)({
   match(
-    ctx.subset_error,
+    &ctx.subset_error,
     .Some(_) => (),
     .None => {
       ctx.subset_error = Option(VcSubsetError).Some(
@@ -1257,12 +1250,10 @@ _emit :: (
     .None => `${ctx.fn_name}/${label}`
   );
   (dup_count : usize) = usize(0);
-  (oi : usize) = usize(0);
-  while(oi < ctx.obligations.len(), {
-    if(match(ctx.obligations.get(oi), .Some(o) => ((o.name == base_name) || o.name.starts_with(`${base_name}~`)), .None => false), {
+  for(&ctx.obligations, o => {
+    if((o.name == base_name) || o.name.starts_with(`${base_name}~`), {
       dup_count = (dup_count + usize(1));
     });
-    oi = (oi + usize(1));
   });
   obl_name := if(dup_count == usize(0), base_name, `${base_name}~${(dup_count + usize(1)).to_string()}`);
   q := new_vc_query(obl_name.clone());
@@ -1866,7 +1857,7 @@ _term_sort_of :: (fn(t : &VcTerm) -> VcSort)(
 /// A comptime str literal's bytes as a right-nested seq.++ of seq.unit.
 _str_bytes_term :: (fn(info : &ExprInfo) -> Option(VcTerm))({
   quoted := match(
-    info.value,
+    info.value(),
     .Some(.StrLit(r)) => r.clone(),
     .Some(_) => String.new(),
     .None => String.new()
@@ -1996,7 +1987,7 @@ _expr_term :: (fn(ctx : &mut VcCtx, e : &AstExpr) -> Option(VcTerm))({
       d_same := match(
         (expr_info_table_get(&ctx.table, ast_expr_id(e)), expr_info_table_get(&ctx.table, ast_expr_id(&d_obj))),
         (.None, _) => true,
-        (.Some(de), .Some(oe)) => (type_key(&de.ty) == type_key(&oe.ty)),
+        (.Some(de), .Some(oe)) => (type_key(&de.ty()) == type_key(&oe.ty())),
         _ => false
       );
       if(d_same, {
@@ -2044,10 +2035,10 @@ _expr_term :: (fn(ctx : &mut VcCtx, e : &AstExpr) -> Option(VcTerm))({
   // across a `return`: a block or branch that returns a constant folds to
   // it, and its value would stand for the path that leaves the function.
   match(
-    info.value,
+    info.value(),
     .Some(v) => if(!_contains_return(e), {
       match(
-        _type_sort(&info.ty),
+        _type_sort(&info.ty()),
         .Some(sort) => {
           match(
             _lit_term(&v, &sort),
@@ -2311,7 +2302,7 @@ _callee_is_atom :: (fn(e : &AstExpr) -> bool)(
 /// second does.
 _qualified_nullary_variant :: (fn(info : &ExprInfo, dot_args : &ArrayList(AstExpr)) -> Option(AstExpr))(
   match(
-    &info.ty,
+    &info.ty(),
     Rc(.EnumT({ variant_names : q_names })) => cond(
       (dot_args.len() != usize(2)) => Option(AstExpr).None,
       !(ast_expr_is_atom(dot_args.get(usize(0)).unwrap()) && ast_expr_is_atom(dot_args.get(usize(1)).unwrap())) => Option(AstExpr).None,
@@ -2381,8 +2372,8 @@ _enum_ctor_named :: (
   fn(ctx : &mut VcCtx, e : &AstExpr, info : &ExprInfo, variant : &String, dot_args : &ArrayList(AstExpr)) -> Option(VcTerm)
 )(
   match(
-    &info.ty,
-    Rc(.EnumT({ id : e_id, variant_names : e_names, variant_fields : e_fields })) => _build_enum_ctor(ctx, e, &info.ty, e_id.clone(), &e_names, &e_fields, variant, dot_args),
+    &info.ty(),
+    Rc(.EnumT({ id : e_id, variant_names : e_names, variant_fields : e_fields })) => _build_enum_ctor(ctx, e, &info.ty(), e_id.clone(), &e_names, &e_fields, variant, dot_args),
     _ => {
       _fail_subset(ctx, String.from("field/method access (outside the V3 core subset)"), e);
       Option(VcTerm).None
@@ -2479,25 +2470,25 @@ _match_term :: (fn(ctx : &mut VcCtx, at : &AstExpr, args : &ArrayList(AstExpr)) 
   // The scrutinee's TYPE names the datatype's CONSTRUCTORS and ACCESSORS
   // (SMT-unique across enums): every Test/Proj the walk builds must use
   // the same spellings the declare-datatypes block declares.
-  e_ty := match(scrut_info, .Some(si) => Rc.clone(si.ty), .None => Rc.new(TypeValueNode.Unit));
+  e_ty := match(&scrut_info, .Some(si) => Rc.clone(si.ty()), .None => Rc.new(TypeValueNode.Unit));
   match(
     scrut,
     .Some(s) => {
       // Register the scrutinee's datatype.
       match(
         scrut_info,
-        .Some(si) => _note_enum_datatype(ctx, &si.ty),
+        .Some(si) => _note_enum_datatype(ctx, &si.ty()),
         .None => ()
       );
       match(
         lookup_match_arms(ast_expr_id(at)),
         .Some(arms) => {
           ph := _match_phi_new(ctx, &arms);
-          out := _match_arms_ir(ctx, at, &s, &arms, usize(0), &e_ty, &ph);
+          out := _match_arms_ir(ctx, at, &s, &arms, usize(0), &e_ty, &mut ph);
           if(out.is_none(), {
             return(Option(VcTerm).None);
           });
-          _match_phi_merge(ctx, &ph);
+          _match_phi_merge(ctx, &mut ph);
           out
         },
         .None => {
@@ -2514,7 +2505,7 @@ _match_term :: (fn(ctx : &mut VcCtx, at : &AstExpr, args : &ArrayList(AstExpr)) 
 /// arm contributes `ite(test_and_guard, body[binds], tail)`; the final arm
 /// must be unguarded (an exhaustive match's last arm holds when reached).
 _match_arms_ir :: (
-  fn(ctx : &mut VcCtx, at : &AstExpr, scrut : &VcTerm, arms : &ArrayList(Arm), from : usize, e_ty : &TypeValue, ph : &_MatchPhi) -> Option(VcTerm)
+  fn(ctx : &mut VcCtx, at : &AstExpr, scrut : &VcTerm, arms : &ArrayList(Arm), from : usize, e_ty : &TypeValue, ph : &mut _MatchPhi) -> Option(VcTerm)
 )(
   cond(
     (from >= arms.len()) => {
@@ -2539,7 +2530,7 @@ _match_arms_ir :: (
 /// that exits or diverges is the ite tree's base all the same: its value is
 /// `_dead_value` of the match `at`, never read on a live path.
 _match_last_arm_ir :: (
-  fn(ctx : &mut VcCtx, at : &AstExpr, scrut : &VcTerm, arms : &ArrayList(Arm), idx : usize, e_ty : &TypeValue, ph : &_MatchPhi) -> Option(VcTerm)
+  fn(ctx : &mut VcCtx, at : &AstExpr, scrut : &VcTerm, arms : &ArrayList(Arm), idx : usize, e_ty : &TypeValue, ph : &mut _MatchPhi) -> Option(VcTerm)
 )({
   arm := arms.get(idx).unwrap();
   if(arm.guard.is_some(), {
@@ -2568,7 +2559,7 @@ _match_last_arm_ir :: (
 /// to projections of `scrut`, build the conjunctive pattern test, conjoin
 /// the guard, and wrap the body in `ite(test, body, tail)`.
 _match_arm_conditioned_ir :: (
-  fn(ctx : &mut VcCtx, arm : &Arm, scrut : &VcTerm, tail : &VcTerm, e_ty : &TypeValue, ph : &_MatchPhi) -> Option(VcTerm)
+  fn(ctx : &mut VcCtx, arm : &Arm, scrut : &VcTerm, tail : &VcTerm, e_ty : &TypeValue, ph : &mut _MatchPhi) -> Option(VcTerm)
 )({
   _match_phi_reset(ctx, ph);
   (arm_test : VcTerm) = Rc.new(VcTermNode.BoolLit(false));
@@ -2635,16 +2626,14 @@ _match_arm_conditioned_ir :: (
 /// (issues/fixed/2026-10-23-a-break-in-a-match-arm-ends-the-walk-of-the-enclosing-block.md).
 /// `start` is the path length before the first arm, `ends` the length after
 /// each arm: walk index k pushed the path entries `[ends[k-1], ends[k])`.
-_MatchPhi :: ref(
-  struct(
-    names : ArrayList(String),
-    pre : ArrayList(Option(VcTerm)),
-    tests : ArrayList(VcTerm),
-    posts : ArrayList(ArrayList(Option(VcTerm))),
-    dead : ArrayList(bool),
-    start : usize,
-    ends : ArrayList(usize)
-  )
+_MatchPhi :: struct(
+  names : ArrayList(String),
+  pre : ArrayList(Option(VcTerm)),
+  tests : ArrayList(VcTerm),
+  posts : ArrayList(ArrayList(Option(VcTerm))),
+  dead : ArrayList(bool),
+  start : usize,
+  ends : ArrayList(usize)
 );
 _match_phi_new :: (fn(ctx : &mut VcCtx, arms : &ArrayList(Arm)) -> _MatchPhi)({
   names := ArrayList(String).new();
@@ -2676,12 +2665,12 @@ _match_phi_new :: (fn(ctx : &mut VcCtx, arms : &ArrayList(Arm)) -> _MatchPhi)({
   )
 });
 /// Put every arm-written name back to its pre-match term.
-_match_phi_reset :: (fn(ctx : &mut VcCtx, ph : &_MatchPhi) -> unit)({
+_match_phi_reset :: (fn(ctx : &mut VcCtx, ph : &mut _MatchPhi) -> unit)({
   _restore_vars(ctx, &ph.names, &ph.pre);
 });
 /// Record one walked arm: its test, the arm-written names' terms now, and
 /// whether its walk exited the loop (the next arm walks from a live path).
-_match_phi_capture :: (fn(ctx : &mut VcCtx, ph : &_MatchPhi, test : VcTerm) -> unit)({
+_match_phi_capture :: (fn(ctx : &mut VcCtx, ph : &mut _MatchPhi, test : VcTerm) -> unit)({
   post := ArrayList(Option(VcTerm)).new();
   (ni : usize) = usize(0);
   while(ni < ph.names.len(), {
@@ -2715,7 +2704,7 @@ _match_arm_taken :: (fn(ph : &_MatchPhi, k : usize) -> VcTerm)({
 /// dead arm (it exited the loop or diverged) is not taken on the
 /// fall-through path: assume that permanently. When every arm is dead the
 /// match does not continue either (`path_dead`).
-_match_phi_merge :: (fn(ctx : &mut VcCtx, ph : &_MatchPhi) -> unit)({
+_match_phi_merge :: (fn(ctx : &mut VcCtx, ph : &mut _MatchPhi) -> unit)({
   n := ph.tests.len();
   arm_facts := ArrayList(ArrayList(VcTerm)).new();
   (from_i : usize) = ph.start;
@@ -4244,10 +4233,10 @@ _quant_term :: (
     srt := match(
       expr_info_table_get(&ctx.table, ast_expr_id(&ty_arg)),
       .Some(bi2) => match(
-        bi2.value,
+        bi2.value(),
         .Some(.TypeVal(tv)) => _type_sort(&tv),
-        .Some(_) => _type_sort(&bi2.ty),
-        .None => _type_sort(&bi2.ty)
+        .Some(_) => _type_sort(&bi2.ty()),
+        .None => _type_sort(&bi2.ty())
       ),
       .None => Option(VcSort).None
     );
@@ -4323,7 +4312,7 @@ _quant_term :: (
 _list_operand_elem :: (fn(ctx : &mut VcCtx, a : &AstExpr) -> Option(VcSort))(
   match(
     expr_info_table_get(&ctx.table, ast_expr_id(a)),
-    .Some(ai) => _list_elem_sort(&ai.ty),
+    .Some(ai) => _list_elem_sort(&ai.ty()),
     .None => Option(VcSort).None
   )
 );
@@ -4459,8 +4448,8 @@ _call_term :: (
       match(
         src_t,
         .Some(st) => match(
-          _int_width(&arg_info.ty),
-          .Some(src_w) => Option(VcTerm).Some(_widen_or_trunc(&st, src_w, target_w, _int_is_signed(&arg_info.ty))),
+          _int_width(&arg_info.ty()),
+          .Some(src_w) => Option(VcTerm).Some(_widen_or_trunc(&st, src_w, target_w, _int_is_signed(&arg_info.ty()))),
           .None => {
             _fail_subset(ctx, String.from("cast of non-integer operand"), e);
             Option(VcTerm).None
@@ -4543,7 +4532,7 @@ _call_term :: (
       shift_w := match(
         expr_info_table_get(&ctx.table, ast_expr_id(args.get(usize(0)).unwrap())),
         .Some(ai) => match(
-          _int_width(&ai.ty),
+          _int_width(&ai.ty()),
           .Some(w) => w,
           .None => usize(64)
         ),
@@ -4558,7 +4547,7 @@ _call_term :: (
       );
     });
     if(ctx.elision_obligations, {
-      _emit_binop_elision_obligation(ctx, e, op, &at, &bt, &info.ty);
+      _emit_binop_elision_obligation(ctx, e, op, &at, &bt, &info.ty());
     });
     return(Option(VcTerm).Some(_app2(op, &at, &bt)));
   });
@@ -4566,11 +4555,11 @@ _call_term :: (
   if((n == usize(1)) && ((head == "-") || (head == "~") || (head == "!")), {
     a := _expr_term(ctx, args.get(usize(0)).unwrap());
     // 5b Phase 2: a signed negation traps on MIN (elision-only, §6).
-    if(ctx.elision_obligations && (head == "-") && _int_is_signed(&info.ty), {
+    if(ctx.elision_obligations && (head == "-") && _int_is_signed(&info.ty()), {
       match(
         &a,
         .Some(neg_t) => match(
-          _int_width(&info.ty),
+          _int_width(&info.ty()),
           .Some(nw) => {
             _emit(
               ctx,
@@ -4611,7 +4600,7 @@ _call_term :: (
   // error at the callee-call tail. The callee must be the bare `.` atom:
   // a method call `(xs.get)(i)` also reports head `.` (its callee is the
   // `.`-call `xs.get`) and can be Option-typed, but it is no construction.
-  if((head == ".") && _is_value_enum_type(&info.ty), {
+  if((head == ".") && _is_value_enum_type(&info.ty()), {
     if(_callee_is_atom(e), {
       return(_enum_ctor_term(ctx, e, args, info));
     });
@@ -5222,7 +5211,7 @@ _call_term :: (
     asort := match(
       expr_info_table_get(&ctx.table, ast_expr_id(&a0)),
       .Some(ai) => match(
-        _type_sort(&ai.ty),
+        _type_sort(&ai.ty()),
         .Some(srt) => match(
           srt,
           .ArrS(_, _) => Option(VcSort).Some(srt),
@@ -5306,7 +5295,7 @@ _call_term :: (
           if(idx_t.is_none(), {
             return(Option(VcTerm).None);
           });
-          return(_list_option_term(ctx, e, &info.ty, &lr.elem, recv_t.unwrap(), _idx64(idx_t.unwrap()), &len_t));
+          return(_list_option_term(ctx, e, &info.ty(), &lr.elem, recv_t.unwrap(), _idx64(idx_t.unwrap()), &len_t));
         });
         // `xs.pop()` (R1 slice 3): `Some(last)` and the receiver rebound to
         // (contents, len - 1) when non-empty; `None` and unchanged when
@@ -5318,7 +5307,7 @@ _call_term :: (
           zero := Rc.new(VcTermNode.BvLit(value : u64(0), width : usize(64)));
           non_empty := _app2(VcOp.BvUgt, &len_t, &zero);
           last_i := _app2(VcOp.BvSub, &len_t, &one);
-          result := _list_option_term(ctx, e, &info.ty, &lr.elem, &xs_t, &last_i, &len_t);
+          result := _list_option_term(ctx, e, &info.ty(), &lr.elem, &xs_t, &last_i, &len_t);
           if(ast_expr_is_atom(&lr.recv), {
             new_len := _app3(VcOp.IteOp, &non_empty, &last_i, &len_t);
             rebound := Rc.new(VcTermNode.Ctor(name : _list_ctor_name(&lr.elem), args : _two_terms(_list_contents_term(&lr.elem, &xs_t), &new_len)));
@@ -5481,7 +5470,7 @@ _list_receiver :: (fn(ctx : &mut VcCtx, e : &AstExpr) -> Option(ListReceiver))({
   match(
     expr_info_table_get(&ctx.table, ast_expr_id(&recv)),
     .Some(ri) => match(
-      _list_elem_sort(&ri.ty),
+      _list_elem_sort(&ri.ty()),
       .Some(les) => {
         _register_list_datatype(&les);
         Option(ListReceiver).Some(ListReceiver(recv : recv, method : ast_expr_text(&m).*.clone(), elem : les))
@@ -5537,7 +5526,7 @@ _binop_of_ctx :: (fn(ctx : &mut VcCtx, head : &String, args : &ArrayList(AstExpr
     args.get(usize(0)),
     .Some(a) => match(
       expr_info_table_get(&ctx.table, ast_expr_id(&a)),
-      .Some(ai) => _int_is_signed(&ai.ty),
+      .Some(ai) => _int_is_signed(&ai.ty()),
       .None => true
     ),
     .None => true
@@ -5630,7 +5619,7 @@ _dead_value :: (fn(ctx : &mut VcCtx, at : &AstExpr) -> VcTerm)(
   match(
     expr_info_table_get(&ctx.table, ast_expr_id(at)),
     .Some(info) => match(
-      _type_sort(&info.ty),
+      _type_sort(&info.ty()),
       .Some(srt) => Rc.new(VcTermNode.Var(name : `__yo_dead${_next_fresh(ctx).to_string()}`, sort : srt)),
       .None => Rc.new(VcTermNode.BoolLit(true))
     ),
@@ -6017,7 +6006,7 @@ _note_ms_of :: (
 _note_list_alias :: (fn(ctx : &mut VcCtx, name : &String, rhs : &AstExpr) -> unit)(
   match(
     expr_info_table_get(&ctx.table, ast_expr_id(rhs)),
-    .Some(ri) => if(_list_elem_type(&ri.ty).is_some(), {
+    .Some(ri) => if(_list_elem_type(&ri.ty()).is_some(), {
       if(_is_fresh_list_ctor(rhs), {
         if(!ctx.fresh_list_locals.contains(name.clone()), {
           ctx.fresh_list_locals.push(name.clone());
@@ -6124,7 +6113,7 @@ _note_array_binding :: (fn(ctx : &mut VcCtx, name : &String, rhs : &AstExpr) -> 
   match(
     expr_info_table_get(&ctx.table, ast_expr_id(rhs)),
     .Some(ri) => match(
-      _type_sort(&ri.ty),
+      _type_sort(&ri.ty()),
       .Some(rsort) => match(
         rsort,
         .ArrS(_, _) => {
@@ -6413,7 +6402,7 @@ _transparent_call_term :: (
     g_transparent_reason = String.from("it calls itself without decreases(...), so its definition need not terminate");
     return(Option(VcTerm).None);
   });
-  saved_err := ctx.subset_error;
+  saved_err := ctx.subset_error.clone();
   saved_mut := ctx.mutated_names.len();
   saved_effects := ctx.frame_effects;
   saved_ob := ctx.obligations.len();
@@ -6434,7 +6423,7 @@ _transparent_call_term :: (
         (ctx.mutated_names.len() > saved_mut) => String.from("it changes an argument"),
         (ctx.frame_effects > saved_effects) => String.from("it writes through a `&mut` argument or calls a callee whose frame is not checked"),
         (ctx.subset_error.is_some() && saved_err.is_none()) => match(
-          ctx.subset_error,
+          &ctx.subset_error,
           .Some(se) => `its body is outside the verifier subset (${se.construct})`,
           .None => String.from("its body is outside the verifier subset")
         ),
@@ -6483,7 +6472,7 @@ _ghost_fn_app_term :: (
   match(
     expr_info_table_get(&ctx.table, ast_expr_id(&callee_atom)),
     .Some(ci) => match(
-      ci.value,
+      ci.value(),
       .Some(.FuncVal(gfvd, _)) => {
         params = gfvd.*.params.clone();
         body = gfvd.*.body;
@@ -6514,7 +6503,7 @@ _ghost_fn_app_term :: (
     });
     srt := match(
       expr_info_table_get(&ctx.table, ast_expr_id(&a)),
-      .Some(ainf) => _type_sort(&ainf.ty),
+      .Some(ainf) => _type_sort(&ainf.ty()),
       .None => Option(VcSort).None
     );
     srt2 := match(srt, .Some(s1) => Option(VcSort).Some(s1), .None => _term_sort(at_t.clone().unwrap()));
@@ -6528,7 +6517,7 @@ _ghost_fn_app_term :: (
   });
   res_sort := match(
     expr_info_table_get(&ctx.table, ast_expr_id(at)),
-    .Some(rinf) => _type_sort(&rinf.ty),
+    .Some(rinf) => _type_sort(&rinf.ty()),
     .None => Option(VcSort).None
   );
   if(res_sort.is_none(), {
@@ -6648,7 +6637,7 @@ _ghost_fn_inline_term :: (
     expr_info_table_get(&ctx.table, ast_expr_id(&callee_atom)),
     .Some(ci) => {
       match(
-        ci.value,
+        ci.value(),
         .Some(v) => {
           match(
             v,
@@ -6759,7 +6748,7 @@ _callee_call_term :: (
   (callee_id : Option(String)) = match(
     expr_info_table_get(&ctx.table, ast_expr_id(&callee_atom)),
     .Some(ci) => match(
-      ci.value,
+      ci.value(),
       .Some(.FuncVal(fvd, _)) => Option(String).Some(fvd.*.func_id.clone()),
       .Some(_) => Option(String).None,
       .None => Option(String).None
@@ -6800,7 +6789,7 @@ _callee_call_term :: (
   // nothing (it is `unit`), so the call goes through the contracted path:
   // prove the lemma's `requires`, assume its `ensures` at these arguments.
   if(is_ghost_fn(fid.clone()), {
-    is_lemma := (is_unit_type(&info.ty) && (get_func_ensures_exprs(fid.clone()).len() > usize(0)));
+    is_lemma := (is_unit_type(&info.ty()) && (get_func_ensures_exprs(fid.clone()).len() > usize(0)));
     if(!is_lemma, {
       return(_ghost_fn_inline_term(ctx, e, args, fid.clone()));
     });
@@ -6912,7 +6901,7 @@ _callee_call_term :: (
   (callee_params : ArrayList(String)) = match(
     expr_info_table_get(&ctx.table, ast_expr_id(&callee_atom)),
     .Some(ci2) => match(
-      ci2.value,
+      ci2.value(),
       .Some(.FuncVal(fvd2, _)) => fvd2.*.params.clone(),
       .Some(_) => ArrayList(String).new(),
       .None => ArrayList(String).new()
@@ -7131,7 +7120,7 @@ _callee_call_term :: (
           sort_src := match(place, .Some(pa) => pa, .None => ha_arg);
           typed_sort := match(
             expr_info_table_get(&ctx.table, ast_expr_id(&sort_src)),
-            .Some(hinf) => _type_sort(&hinf.ty),
+            .Some(hinf) => _type_sort(&hinf.ty()),
             .None => Option(VcSort).None
           );
           hsort := match(
@@ -7178,7 +7167,7 @@ _callee_call_term :: (
   // the return value through ITS return label (V1 decision D3) — bind that
   // label to the fresh result var while the predicates are evaluated.
   ret_sort := match(
-    _type_sort(&info.ty),
+    _type_sort(&info.ty()),
     .Some(s) => s,
     .None => VcSort.BoolS
   );
@@ -7310,7 +7299,7 @@ _method_effective_args :: (
   // is not an argument.
   recv_is_type := match(
     expr_info_table_get(&ctx.table, ast_expr_id(&recv)),
-    .Some(ri) => match(ri.value, .Some(rv) => match(rv, .TypeVal(_) => true, _ => false), .None => false),
+    .Some(ri) => match(ri.value(), .Some(rv) => match(rv, .TypeVal(_) => true, _ => false), .None => false),
     .None => false
   );
   if(recv_is_type, {
@@ -7537,32 +7526,30 @@ _term_width :: (fn(t : &VcTerm) -> usize)(
 // The per-function entry point
 // ============================================================================
 /// VerifyInput: everything the definition site knows.
-VerifyFnInput :: ref(
-  struct(
-    fn_name : String,
-    /// The FuncVal's `func_id` (recursion detection; the re-keyed
-    /// contract side tables are readable under it).
-    func_id : String,
-    body : AstExpr,
-    param_names : ArrayList(String),
-    param_types : ArrayList(TypeValue),
-    result_type : TypeValue,
-    requires_exprs : ArrayList(AstExpr),
-    ensures_exprs : ArrayList(AstExpr),
-    /// Phase V4 `decreases(M)` termination measure (recursion).
-    (decreases_expr : Option(AstExpr)) ?= Option(AstExpr).None,
-    return_label : Option(String),
-    table : ExprInfoTable,
-    /// Per `requires_exprs` entry: enforced by a runtime entry assert
-    /// (`VerifyTask.requires_enforced`); a missing entry is unenforced.
-    requires_enforced : ArrayList(bool),
-    /// 5b Phase 2: also generate the elision-only obligations (`yo compile`
-    /// when it records guard sites, `yo verify --elision`).
-    (elision_obligations : bool) ?= false,
-    /// The task's body is generic and verified abstractly: no obligation is
-    /// elidable (§5.1 rule 5 of SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md).
-    (body_abstract : bool) ?= false
-  )
+VerifyFnInput :: struct(
+  fn_name : String,
+  /// The FuncVal's `func_id` (recursion detection; the re-keyed
+  /// contract side tables are readable under it).
+  func_id : String,
+  body : AstExpr,
+  param_names : ArrayList(String),
+  param_types : ArrayList(TypeValue),
+  result_type : TypeValue,
+  requires_exprs : ArrayList(AstExpr),
+  ensures_exprs : ArrayList(AstExpr),
+  /// Phase V4 `decreases(M)` termination measure (recursion).
+  (decreases_expr : Option(AstExpr)) ?= Option(AstExpr).None,
+  return_label : Option(String),
+  table : ExprInfoTable,
+  /// Per `requires_exprs` entry: enforced by a runtime entry assert
+  /// (`VerifyTask.requires_enforced`); a missing entry is unenforced.
+  requires_enforced : ArrayList(bool),
+  /// 5b Phase 2: also generate the elision-only obligations (`yo compile`
+  /// when it records guard sites, `yo verify --elision`).
+  (elision_obligations : bool) ?= false,
+  /// The task's body is generic and verified abstractly: no obligation is
+  /// elidable (§5.1 rule 5 of SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md).
+  (body_abstract : bool) ?= false
 );
 /// Symbolically execute one function definition. Always returns a result —
 /// subset violations land in `.error`, never thrown.
@@ -7808,7 +7795,7 @@ verify_function_body :: (fn(input : &VerifyFnInput) -> VcBodyResult)({
   VcBodyResult(
     obligations : replace(&mut ctx.obligations, ArrayList(VcObligation).new()),
     value : body_val,
-    error : ctx.subset_error
+    error : replace(&mut ctx.subset_error, Option(VcSubsetError).None)
   )
 });
 // ---------------------------------------------------------------------------
@@ -7849,7 +7836,7 @@ _call_callee_value :: (fn(table : &ExprInfoTable, e : &AstExpr) -> Option(EvalVa
   match(
     expr_info_table_get(table, ast_expr_id(&callee)),
     .Some(ci) => match(
-      ci.value,
+      ci.value(),
       .Some(v) => if(is_func_val(&v), {
         return(Option(EvalValue).Some(v));
       }),
