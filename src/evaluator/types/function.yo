@@ -45,7 +45,7 @@ pragma(Pragma.AllowUnsafe);
 }
 :: import("../../expr.yo");
 { record_borrow_param_migration, migrate_param_modes_on, ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, expr_info_adopt_env, adopt_receiver_struct_instance, some_resolution, lookup_trait_ctor_fid, lookup_trait_type_args } :: import("../../expr_info.yo");
-{ Environment, Variable, get_variables_from_env, add_variable_to_env, add_where_clause_constraint_for_type_application, snapshot_env, copy_env_frames, env_adopt, variable_value_type } :: import("../../env.yo");
+{ Environment, make_environment, Variable, get_variables_from_env, add_variable_to_env, add_where_clause_constraint_for_type_application, snapshot_env, copy_env_frames, env_adopt, variable_value_type } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx, force_pending_impls_for_type_name, type_head_name_for_impl_forcing, call_function_value_marker } :: import("../context.yo");
 { EvalValue, create_type_value, create_unknown_val, is_type_value, is_runtime_only_unknown_val } :: import("../../value.yo");
 { some_t_bounds, TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, SharedList, t_slot, t_slot_pointee, slot_pointee_at, t_origin_named, t_origin_elided, t_origin_kind, t_reference_with_origin, is_origin_kind, t_reference, t_slot_is_borrow } :: import("../../types/definitions.yo");
@@ -276,7 +276,7 @@ register_func_variadic_param :: (fn(func_id : &String, label : &String, ty : &Ty
     vp_id := func_id.clone();
     vp_label := label.clone();
     vp_ty := Rc.clone(ty);
-    g_func_variadic_params.with_mut({ vp_id, vp_label, vp_ty }(m) => m.insert(vp_id, VariadicParamEntry(label : vp_label, ty : vp_ty)));
+    g_func_variadic_params.with_mut({ vp_id, vp_label, vp_ty : Rc.clone(vp_ty) }(m) => m.insert(vp_id, VariadicParamEntry(label : vp_label, ty : vp_ty)));
   });
 });
 copy_func_variadic_param :: (fn(from_id : &String, to_id : &String) -> unit)({
@@ -459,7 +459,7 @@ register_func_param_default_exprs :: (fn(func_id : &String, exprs : &ArrayList(O
     record_owned_func_id(func_id.clone());
     func_id_owned := func_id.clone();
     exprs_owned := exprs.clone();
-    g_func_param_default_exprs.with_mut({ func_id_owned, exprs_owned, def_env }(m) => m.insert(func_id_owned.clone(), FuncParamDefaultExprs(exprs : exprs_owned, def_env : def_env)));
+    g_func_param_default_exprs.with_mut({ func_id_owned, exprs_owned, def_env : Rc.clone(def_env) }(m) => m.insert(func_id_owned.clone(), FuncParamDefaultExprs(exprs : exprs_owned, def_env : def_env)));
   });
 });
 copy_func_param_default_exprs :: (fn(from_id : &String, to_id : &String) -> unit)({
@@ -491,23 +491,23 @@ default_param_eval_env :: (fn(func_id : &String, inner : &Option(Environment), f
   out := match(
     g_func_param_default_exprs.with(m => m.get_cloned(func_id)),
     .Some(entry) => {
-      d := entry.def_env;
+      d := Rc.clone(entry.def_env);
       frames := copy_env_frames(&d);
       match(
         inner,
         .Some(ie) => {
           (fi : usize) = usize(0);
-          while(fi < ie.frames.len(), {
-            match(ie.frames.get(fi), .Some(f) => frames.push(f), .None => ());
+          while(fi < ie.frames_len(), {
+            match(ie.frame_at(fi), .Some(f) => frames.push(f), .None => ());
             fi = (fi + usize(1));
           });
         },
         .None => ()
       );
-      Environment(
+      make_environment(
         frames : Rc.new(frames),
-        module_path : Rc.clone(d.module_path),
-        function_declaration_frame_level : d.function_declaration_frame_level,
+        module_path : Rc.clone(d.module_path()),
+        function_declaration_frame_level : d.function_declaration_frame_level(),
         frozen : false
       )
     },
@@ -1048,17 +1048,17 @@ _names_contain :: (fn(names : &ArrayList(String), name : &String) -> bool)({
 });
 /// `e` evaluates to a type (a soft trial: a name that does not resolve is
 /// simply not a type).
-_origin_operand_is_type :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext) -> bool)({
+_origin_operand_is_type :: (fn(e : &AstExpr, env : &Environment, ctx : &mut EvalContext) -> bool)({
   trial_exn := Exception(throw : (_err -> unwind(false)));
   ev := evaluate_expression_raw(e, env, ctx, trial_exn);
-  match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ev)), .Some(ti) => is_type_value(&ti.value), .None => false)
+  match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ev)), .Some(ti) => is_type_value(&ti.value()), .None => false)
 });
 /// Collect the origin names `e` spells into `out`: an origin parameter
 /// declared by the signature's `generic(o : Origin)`, or a union `(o1, o2)`
 /// of them (decision 43 step 2, N1a). In a PARAMETER type an origin names
 /// declared origin parameters only; a parameter's own place is an origin in
 /// the result type. Anything else is E0922.
-_origin_names_into :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, out : &mut ArrayList(String), exn : Exception) -> unit)({
+_origin_names_into :: (fn(e : &AstExpr, env : &Environment, ctx : &mut EvalContext, out : &mut ArrayList(String), exn : Exception) -> unit)({
   if(ast_expr_is_fn_call_of(e, BK_TUPLE, Option(usize).None), {
     o_args := _fn_call_args(e);
     (oi : usize) = usize(0);
@@ -1105,14 +1105,14 @@ _origin_names_into :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, 
       )
     );
   });
-  o_var := match(o_vars.get(o_n - usize(1)), .Some(v) => v, .None => return(()));
+  o_var := match(o_vars.get_cloned(o_n - usize(1)), .Some(v) => v, .None => return(()));
   if(is_origin_kind(&variable_value_type(&o_var)), {
     if(!_names_contain(out, &o_name), {
       out.push(o_name);
     });
     return(());
   });
-  o_is_type := match(o_var.value.get(usize(0)), .Some(ov) => match(ov, .TypeVal(_) => true, _ => false), .None => false);
+  o_is_type := match(o_var.value().get(usize(0)), .Some(ov) => match(ov, .TypeVal(_) => true, _ => false), .None => false);
   if(o_is_type, {
     exn.throw(
       dyn(
@@ -1135,7 +1135,7 @@ _origin_names_into :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, 
   );
 });
 /// The origin a parameter type `&(T, o)` spells, as an `OriginSet` of names.
-evaluate_param_origin :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> TypeValue)({
+evaluate_param_origin :: (fn(e : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> TypeValue)({
   names := ArrayList(String).new();
   _origin_names_into(e, env, ctx, &mut names, exn);
   t_origin_named(&shared_list(names))
@@ -1158,7 +1158,7 @@ _origin_place_root :: (fn(e : &AstExpr) -> Option(AstExpr))({
 /// bodies and at module level); a union `(a, b)` collects both. A type
 /// definition naming its own fields (`self.f`) is E0924; anything else is
 /// E0922.
-_type_origin_names_into :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, out : &mut ArrayList(String), exn : Exception) -> unit)({
+_type_origin_names_into :: (fn(e : &AstExpr, env : &Environment, ctx : &mut EvalContext, out : &mut ArrayList(String), exn : Exception) -> unit)({
   if(ast_expr_is_fn_call_of(e, BK_TUPLE, Option(usize).None), {
     o_args := _fn_call_args(e);
     (oi : usize) = usize(0);
@@ -1230,8 +1230,8 @@ _type_origin_names_into :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalCont
       )
     );
   });
-  o_var := match(o_vars.get(o_n - usize(1)), .Some(v) => v, .None => return(()));
-  o_value := o_var.value.get(usize(0));
+  o_var := match(o_vars.get_cloned(o_n - usize(1)), .Some(v) => v, .None => return(()));
+  o_value := o_var.value().get(usize(0));
   o_is_type := match(o_value, .Some(.TypeVal(_)) => !is_origin_kind(&variable_value_type(&o_var)), _ => false);
   if(o_is_type, {
     exn.throw(
@@ -1258,7 +1258,7 @@ _type_origin_names_into :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalCont
   // An origin parameter in scope, or a binding's place: both are named. A
   // place named in an origin is a use of its binding (the warnings
   // channel's read marker, D15).
-  o_var.was_read = true;
+  o_var.set_was_read(true);
   if(!_names_contain(out, &o_name), {
     out.push(o_name);
   });
@@ -1323,13 +1323,13 @@ _reject_origin_union_naming :: (fn(o : &AstExpr, name : &String, exn : Exception
 /// is read as an origin (`_type_origin_names_into`), never evaluated as a
 /// value: `x` names the place, whatever `x` holds. The result is an
 /// `Origin`-kinded value, `OriginSet` of the names.
-evaluate_origin_argument :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> AstExpr)({
+evaluate_origin_argument :: (fn(e : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr)({
   names := ArrayList(String).new();
   _type_origin_names_into(e, env, ctx, &mut names, exn);
   origin := t_origin_named(&shared_list(names));
   note_origin_types_exist();
   out := new_expr_info(env, &t_origin_kind());
-  out.value = Option(EvalValue).Some(create_type_value(&origin));
+  out.set_value(Option(EvalValue).Some(create_type_value(&origin)));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(e), &out);
   e.clone()
 });
@@ -1339,7 +1339,7 @@ evaluate_origin_argument :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalCon
 /// argument, an alias. The value is the type `Reference(T, mutable,
 /// origin)`; the one-argument form's origin is elided (a fresh origin per
 /// field, O2). A reference to a reference is N1e's.
-evaluate_reference_type :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, is_mut : bool, exn : Exception) -> AstExpr)({
+evaluate_reference_type :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext, is_mut : bool, exn : Exception) -> AstExpr)({
   r_args := _fn_call_args(expr);
   pointee_expr := match(r_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
   ev := evaluate_expression_raw(&pointee_expr, env, ctx, exn);
@@ -1349,7 +1349,7 @@ evaluate_reference_type :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalC
     .None => new_expr_info(env, Rc.new(TypeValueNode.Unit))
   );
   pointee := match(
-    ev_info.value,
+    ev_info.value(),
     .Some(.TypeVal(t)) => Rc.clone(t),
     _ => {
       exn.throw(dyn(format_error_message(ast_expr_token(&pointee_expr), `\`${ast_expr_to_string(&pointee_expr)}\` is not a type: a reference type \`&T\` takes a type.`)));
@@ -1378,7 +1378,7 @@ evaluate_reference_type :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalC
   ref_ty := t_reference_with_origin(&pointee, is_mut, &origin);
   note_origin_types_exist();
   out := new_expr_info(&r_env, &type_of_type(&ref_ty));
-  out.value = Option(EvalValue).Some(create_type_value(&ref_ty));
+  out.set_value(Option(EvalValue).Some(create_type_value(&ref_ty)));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
   expr
 });
@@ -1538,7 +1538,7 @@ _get_expr_type :: (
   fn(
     expr : &AstExpr,
     env_mut : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> TypeValue
 )({
@@ -1546,7 +1546,7 @@ _get_expr_type :: (
   info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated));
   info := match(
     info_opt,
-    .Some(i) => i,
+    .Some(i) => Rc.clone(i),
     .None => {
       exn.throw(
         dyn(
@@ -1559,7 +1559,7 @@ _get_expr_type :: (
       new_expr_info(env_mut, Rc.new(TypeValueNode.Unit))
     }
   );
-  if(!is_type_value(&info.value), {
+  if(!is_type_value(&info.value()), {
     exn.throw(
       dyn(
         format_error_message(
@@ -1570,7 +1570,7 @@ _get_expr_type :: (
     );
   });
   match(
-    info.value,
+    info.value(),
     .Some(v) => match(v, .TypeVal(b) => Rc.clone(b), _ => Rc.new(TypeValueNode.Unit)),
     .None => Rc.new(TypeValueNode.Unit)
   )
@@ -1581,7 +1581,7 @@ _eval_and_update_env :: (
   fn(
     expr : &AstExpr,
     env_mut : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> Option(TypeValue)
 )({
@@ -1590,12 +1590,12 @@ _eval_and_update_env :: (
   match(
     info_opt,
     .Some(info) => {
-      env_adopt(&env_mut, &info.env);
+      env_adopt(&env_mut, &info.env());
       if(
-        is_type_value(&info.value),
+        is_type_value(&info.value()),
         .Some(
           match(
-            info.value,
+            info.value(),
             .Some(v) => match(v, .TypeVal(b) => Rc.clone(b), _ => Rc.new(TypeValueNode.Unit)),
             .None => Rc.new(TypeValueNode.Unit)
           )
@@ -1616,7 +1616,7 @@ _try_eval_comptime_type :: (
   fn(
     type_expr : &AstExpr,
     env_mut : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> Option(TypeValue)
 )(
@@ -1820,7 +1820,7 @@ _add_where_clause_constraint :: (
       present := _wcc_has_trait(&cond(is_negated => wcc_bounds.negative(), true => wcc_bounds.required()), trait_ty);
       if(!present, {
         wcc_trait := Rc.clone(trait_ty);
-        wcc_bounds.with_mut({ wcc_trait, is_negated }(b) => {
+        wcc_bounds.with_mut({ wcc_trait : Rc.clone(wcc_trait), is_negated }(b) => {
           if(is_negated, {
             b.negative.push(wcc_trait);
             b.negative_levels.push(usize(0));
@@ -1979,7 +1979,7 @@ evaluate_function_parameter :: (
   fn(
     expr : &AstExpr,
     env_mut : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     is_parameter_comptime_by_default : bool,
     allow_shadowing : bool,
     exn : Exception
@@ -2369,11 +2369,11 @@ evaluate_function_parameter :: (
       // Use raw evaluator path so throws (e.g. propagated from
       // nested type evaluations) reach the caller's exn cleanly
       // instead of via the panic wrapper.
-      saved_expected := ctx.expected_type;
+      saved_expected := ctx.expected_type.clone();
       ctx.expected_type = match(
         &param_type,
-        .Some(pt) => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(Rc.clone(pt), env_mut)),
-        .None => saved_expected
+        .Some(pt) => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(Rc.clone(pt), Rc.clone(env_mut))),
+        .None => saved_expected.clone()
       );
       evaluated_dve := evaluate_expression_raw(&dve, env_mut, ctx, exn);
       ctx.expected_type = saved_expected;
@@ -2381,8 +2381,8 @@ evaluate_function_parameter :: (
       match(
         info_opt,
         .Some(info) => {
-          env_adopt(&env_mut, &info.env);
-          dv_val_opt := info.value;
+          env_adopt(&env_mut, &info.env());
+          dv_val_opt := info.value();
           captured_default_value = dv_val_opt;
           // Coerce comptime types (e.g. comptime_str) to their runtime
           // equivalents when the param has an explicit annotation —
@@ -2390,7 +2390,7 @@ evaluate_function_parameter :: (
           // comptime_str literal coerces to `str` (or `*(u8)`/`*(char)`/
           // `[u8]` if explicitly expected).
           dv_ty := convert_comptime_type_to_runtime_type_with_expected(
-            &info.ty,
+            &info.ty(),
             &param_type,
             env_mut
           );
@@ -2656,7 +2656,7 @@ use_id :: (fn(generic(T : Type),
   while(vi > usize(0), {
     vi = (vi - usize(1));
     v := match(
-      existing_vars.get(vi),
+      existing_vars.get_cloned(vi),
       .Some(x) => x,
       .None => {
         vi = usize(0);
@@ -2664,7 +2664,7 @@ use_id :: (fn(generic(T : Type),
       }
     );
     match(
-      v.value.get(usize(0)),
+      v.value().get(usize(0)),
       .Some(ev) => {
         match(
           ev,
@@ -2683,7 +2683,7 @@ use_id :: (fn(generic(T : Type),
   // Find last pre-added comptime var in current top frame
   if(existing_where_var.is_none() && (n_existing > usize(0)), {
     last_v := match(
-      existing_vars.get(n_existing - usize(1)),
+      existing_vars.get_cloned(n_existing - usize(1)),
       .Some(x) => x,
       .None => return(
         FuncParam(
@@ -2698,8 +2698,8 @@ use_id :: (fn(generic(T : Type),
         )
       )
     );
-    top_frame_level := (env_mut.frames.len() - usize(1));
-    if(last_v.is_compile_time_only && (last_v.frame_level == top_frame_level), {
+    top_frame_level := (env_mut.frames_len() - usize(1));
+    if(last_v.is_compile_time_only() && (last_v.frame_level == top_frame_level), {
       existing_pre_var = .Some(last_v);
     });
   });
@@ -2709,7 +2709,7 @@ use_id :: (fn(generic(T : Type),
     existing_where_var,
     .Some(wv) => {
       // Variable pre-created by where clause — reuse its SomeT
-      existing_some_ty := match(wv.value.get(usize(0)), .Some(ev) => match(ev, .TypeVal(b) => Rc.clone(b), _ => Rc.new(TypeValueNode.Unit)), .None => Rc.new(TypeValueNode.Unit));
+      existing_some_ty := match(wv.value().get(usize(0)), .Some(ev) => match(ev, .TypeVal(b) => Rc.clone(b), _ => Rc.new(TypeValueNode.Unit)), .None => Rc.new(TypeValueNode.Unit));
       // If assigned_value is a SomeT, merge traits from it
       match(
         assigned_value,
@@ -2768,7 +2768,7 @@ use_id :: (fn(generic(T : Type),
         label_expr,
         .Some(le) => {
           le_info := new_expr_info(env_mut, &actual_param_type);
-          le_info.value = .Some(match(wv.value.get(usize(0)), .Some(v) => v, .None => EvalValue.UnitVal));
+          le_info.set_value(.Some(match(wv.value().get(usize(0)), .Some(v) => v, .None => EvalValue.UnitVal)));
           expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&le), &le_info);
         },
         .None => ()
@@ -2784,7 +2784,7 @@ use_id :: (fn(generic(T : Type),
             label_expr,
             .Some(le) => {
               le_info := new_expr_info(env_mut, &actual_param_type);
-              le_info.value = pv.value.get(usize(0));
+              le_info.set_value(pv.value().get(usize(0)));
               expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&le), &le_info);
             },
             .None => ()
@@ -2800,8 +2800,8 @@ use_id :: (fn(generic(T : Type),
           // clauses (`T <: Trait`) and identifier lookups expect to
           // see a TypeVal(SomeT) so they can attach constraints.
           (param_frame_level : usize) = if(
-            env_mut.frames.len() > usize(0),
-            env_mut.frames.len() - usize(1),
+            env_mut.frames_len() > usize(0),
+            env_mut.frames_len() - usize(1),
             usize(0)
           );
           (param_val : Option(EvalValue)) = match(
@@ -2853,7 +2853,7 @@ use_id :: (fn(generic(T : Type),
             label_expr,
             .Some(le) => {
               le_info := new_expr_info(env_mut, &actual_param_type);
-              le_info.value = param_val;
+              le_info.set_value(param_val);
               expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&le), &le_info);
             },
             .None => ()
@@ -2868,7 +2868,7 @@ use_id :: (fn(generic(T : Type),
     .Some(le) => {
       if(ast_expr_id(&le) != ast_expr_id(expr), {
         outer_info := new_expr_info(env_mut, Rc.new(TypeValueNode.Unit));
-        outer_info.value = .Some(EvalValue.UnitVal);
+        outer_info.set_value(.Some(EvalValue.UnitVal));
         expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &outer_info);
       });
     },
@@ -2924,7 +2924,7 @@ validate_concrete_type_constraints :: (
     rhs_expr : &AstExpr,
     constraint_expr : &AstExpr,
     env_mut : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> unit
 )({
@@ -2981,7 +2981,7 @@ validate_concrete_type_constraints :: (
     evaled_t;
     info := match(
       info_opt,
-      .Some(i) => i,
+      .Some(i) => Rc.clone(i),
       .None => {
         exn.throw(
           dyn(
@@ -2994,10 +2994,10 @@ validate_concrete_type_constraints :: (
         new_expr_info(env_mut, t_unit())
       }
     );
-    env_adopt(&env_mut, &info.env);
-    if(is_type_value(&info.value), {
+    env_adopt(&env_mut, &info.env());
+    if(is_type_value(&info.value()), {
       tv := match(
-        info.value,
+        info.value(),
         .Some(.TypeVal(b)) => Rc.clone(b),
         .Some(_) => {
           exn.throw(
@@ -3081,7 +3081,7 @@ validate_concrete_type_constraints :: (
         );
       });
       implemented := tc_res.implemented;
-      env_mut.frames = Rc.clone(tc_res.env.frames);
+      env_mut.set_frames(Rc.clone(tc_res.env.frames()));
       if(negated, {
         if(implemented, {
           exn.throw(
@@ -3128,7 +3128,7 @@ apply_single_trait_constraint :: (
     trait_expr : &AstExpr,
     original_constraint_expr : &AstExpr,
     env_mut : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> bool
 )({
@@ -3151,9 +3151,9 @@ apply_single_trait_constraint :: (
     if(existing_vars.len() == usize(0), {
       return(false);
     });
-    last_var := match(existing_vars.last(), .Some(v) => v, .None => return(false));
+    last_var := match(existing_vars.last_cloned(), .Some(v) => v, .None => return(false));
     match(
-      last_var.value.get(usize(0)),
+      last_var.value().get(usize(0)),
       .Some(ev) => {
         match(
           ev,
@@ -3184,16 +3184,16 @@ apply_single_trait_constraint :: (
     info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated));
     info := match(
       info_opt,
-      .Some(i) => i,
+      .Some(i) => Rc.clone(i),
       .None => {
         return(false);
       }
     );
-    if(!is_type_value(&info.value), {
+    if(!is_type_value(&info.value()), {
       return(false);
     });
-    env_adopt(&env_mut, &info.env);
-    lhs_ty = match(info.value, .Some(v) => match(v, .TypeVal(b) => Rc.clone(b), _ => Rc.new(TypeValueNode.Unit)), .None => Rc.new(TypeValueNode.Unit));
+    env_adopt(&env_mut, &info.env());
+    lhs_ty = match(info.value(), .Some(v) => match(v, .TypeVal(b) => Rc.clone(b), _ => Rc.new(TypeValueNode.Unit)), .None => Rc.new(TypeValueNode.Unit));
     if(is_some_type(&lhs_ty), {
       some_ty_opt = .Some(lhs_ty);
     }, {
@@ -3215,16 +3215,16 @@ apply_single_trait_constraint :: (
   info_rhs_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_rhs));
   info_rhs := match(
     info_rhs_opt,
-    .Some(i) => i,
+    .Some(i) => Rc.clone(i),
     .None => {
       return(false);
     }
   );
-  if(!is_type_value(&info_rhs.value), {
+  if(!is_type_value(&info_rhs.value()), {
     return(false);
   });
-  env_adopt(&env_mut, &info_rhs.env);
-  trait_ty = match(info_rhs.value, .Some(v) => match(v, .TypeVal(b) => Rc.clone(b), _ => Rc.new(TypeValueNode.Unit)), .None => Rc.new(TypeValueNode.Unit));
+  env_adopt(&env_mut, &info_rhs.env());
+  trait_ty = match(info_rhs.value(), .Some(v) => match(v, .TypeVal(b) => Rc.clone(b), _ => Rc.new(TypeValueNode.Unit)), .None => Rc.new(TypeValueNode.Unit));
   if(!is_trait_type(&trait_ty), {
     exn.throw(
       dyn(
@@ -3298,7 +3298,7 @@ parse_where_clause_constraints :: (
   fn(
     constraint_exprs : &ArrayList(AstExpr),
     env_mut : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     collect_pending : bool,
     exn : Exception
   ) -> ArrayList(PendingConstraint)
@@ -3340,9 +3340,9 @@ parse_where_clause_constraints :: (
       var_name := ast_expr_text(&lhs_expr).*.clone();
       existing_vars := get_variables_from_env(env_mut, &var_name);
       if(existing_vars.len() > usize(0), {
-        last_v := match(existing_vars.last(), .Some(v) => v, .None => return(pending_traits));
+        last_v := match(existing_vars.last_cloned(), .Some(v) => v, .None => return(pending_traits));
         match(
-          last_v.value.get(usize(0)),
+          last_v.value().get(usize(0)),
           .Some(ev) => {
             match(
               ev,
@@ -3383,7 +3383,7 @@ parse_where_clause_constraints :: (
         );
       }, {
         // Create new SomeType for this variable
-        top_frame := env_mut.frames.len();
+        top_frame := env_mut.frames_len();
         if(top_frame == usize(0), {
           return(pending_traits);
         });
@@ -3406,7 +3406,7 @@ parse_where_clause_constraints :: (
         );
         // Set expr info on lhs
         lhs_info := new_expr_info(env_mut, type_of_type(&new_some_ty));
-        lhs_info.value = .Some(tv);
+        lhs_info.set_value(.Some(tv));
         expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&lhs_expr), &lhs_info);
         some_ty_opt = .Some(new_some_ty);
       });
@@ -3417,7 +3417,7 @@ parse_where_clause_constraints :: (
       lhs_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_lhs));
       lhs_info := match(
         lhs_info_opt,
-        .Some(i) => i,
+        .Some(i) => Rc.clone(i),
         .None => {
           exn.throw(
             dyn(
@@ -3430,7 +3430,7 @@ parse_where_clause_constraints :: (
           new_expr_info(env_mut, Rc.new(TypeValueNode.Unit))
         }
       );
-      if(!is_type_value(&lhs_info.value), {
+      if(!is_type_value(&lhs_info.value()), {
         exn.throw(
           dyn(
             format_error_message(
@@ -3440,8 +3440,8 @@ parse_where_clause_constraints :: (
           )
         );
       });
-      env_adopt(&env_mut, &lhs_info.env);
-      lhs_tv := match(lhs_info.value, .Some(v) => match(v, .TypeVal(b) => Rc.clone(b), _ => Rc.new(TypeValueNode.Unit)), .None => Rc.new(TypeValueNode.Unit));
+      env_adopt(&env_mut, &lhs_info.env());
+      lhs_tv := match(lhs_info.value(), .Some(v) => match(v, .TypeVal(b) => Rc.clone(b), _ => Rc.new(TypeValueNode.Unit)), .None => Rc.new(TypeValueNode.Unit));
       // HKT TypeApplication case: record `F(A) <: Trait` via the dedicated
       // type-application constraint table
       // (add_where_clause_constraint_for_type_application). The RHS trait parsing
@@ -3513,7 +3513,7 @@ parse_where_clause_constraints :: (
       (skip_iter : bool) = false;
       trait_info := match(
         trait_info_opt,
-        .Some(i) => i,
+        .Some(i) => Rc.clone(i),
         .None => {
           if(!collect_pending, {
             exn.throw(
@@ -3533,7 +3533,7 @@ parse_where_clause_constraints :: (
       if(skip_iter, {
         continue;
       });
-      if(!is_type_value(&trait_info.value), {
+      if(!is_type_value(&trait_info.value()), {
         if(!collect_pending, {
           exn.throw(
             dyn(
@@ -3550,8 +3550,8 @@ parse_where_clause_constraints :: (
       if(skip_iter, {
         continue;
       });
-      env_adopt(&env_mut, &trait_info.env);
-      trait_ty2 = match(trait_info.value, .Some(v) => match(v, .TypeVal(b) => Rc.clone(b), _ => Rc.new(TypeValueNode.Unit)), .None => Rc.new(TypeValueNode.Unit));
+      env_adopt(&env_mut, &trait_info.env());
+      trait_ty2 = match(trait_info.value(), .Some(v) => match(v, .TypeVal(b) => Rc.clone(b), _ => Rc.new(TypeValueNode.Unit)), .None => Rc.new(TypeValueNode.Unit));
       if(!is_trait_type(&trait_ty2), {
         exn.throw(
           dyn(
@@ -3630,7 +3630,7 @@ apply_where_clause_constraints :: (
   fn(
     constraint_exprs : &ArrayList(AstExpr),
     env_mut : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> unit
 )(
@@ -3649,7 +3649,7 @@ prepare_where_clause_variables :: (
   fn(
     constraint_exprs : &ArrayList(AstExpr),
     env_mut : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> ArrayList(PendingConstraint)
 )({
@@ -3676,7 +3676,7 @@ prepare_where_clause_variables :: (
       existing_vars := get_variables_from_env(env_mut, &var_name);
       if(existing_vars.len() == usize(0), {
         // Create new SomeType for this variable
-        top_frame := env_mut.frames.len();
+        top_frame := env_mut.frames_len();
         if(top_frame == usize(0), {
           continue;
         });
@@ -3699,7 +3699,7 @@ prepare_where_clause_variables :: (
         );
         // Set expr info on lhs
         lhs_info := new_expr_info(env_mut, type_of_type(&new_some_ty));
-        lhs_info.value = .Some(tv);
+        lhs_info.set_value(.Some(tv));
         expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&lhs_expr), &lhs_info);
       });
     });
@@ -3732,7 +3732,7 @@ retry_pending_constraints :: (
   fn(
     pending : &ArrayList(PendingConstraint),
     env_mut : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> ArrayList(PendingConstraint)
 )({
@@ -3785,7 +3785,7 @@ evaluate_function_parameters :: (
   fn(
     param_exprs : &ArrayList(AstExpr),
     env_mut : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> FuncParamsResult
 )({
@@ -3992,23 +3992,23 @@ evaluate_function_parameters :: (
       );
       implicit_params.push(impl_param);
       // Mark variable as implicit in env top frame
-      top_frame_idx := (env_mut.frames.len() - usize(1));
+      top_frame_idx := (env_mut.frames_len() - usize(1));
       match(
-        env_mut.frames.get(top_frame_idx),
+        env_mut.frame_at(top_frame_idx),
         .Some(frame) => {
           (fvi : usize) = usize(0);
-          while(fvi < frame.variables.len(), {
+          while(fvi < frame.variables_len(), {
             fv := match(
-              frame.variables.get(fvi),
+              frame.variable_at(fvi),
               .Some(v) => v,
               .None => {
-                fvi = frame.variables.len();
+                fvi = frame.variables_len();
                 break;
               }
             );
             if(fv.name == param.label, {
-              fv.is_implicit = true;
-              fvi = frame.variables.len();
+              fv.set_is_implicit(true);
+              fvi = frame.variables_len();
             });
             fvi = (fvi + usize(1));
           });
@@ -4234,8 +4234,8 @@ evaluate_function_parameters :: (
         // For `comptime(T) : Type` — create TypeVal(SomeT) so where
         // clauses and identifier lookups treat T as a SomeType.
         ct_frame_level := if(
-          env_mut.frames.len() > usize(0),
-          env_mut.frames.len() - usize(1),
+          env_mut.frames_len() > usize(0),
+          env_mut.frames_len() - usize(1),
           usize(0)
         );
         val := if(
@@ -4469,8 +4469,8 @@ evaluate_function_parameters :: (
       // Add to env if named
       if(!(vparam_name == "..."), {
         v_frame_level := if(
-          env_mut.frames.len() > usize(0),
-          env_mut.frames.len() - usize(1),
+          env_mut.frames_len() > usize(0),
+          env_mut.frames_len() - usize(1),
           usize(0)
         );
         vval := if(
@@ -4633,7 +4633,7 @@ evaluate_function_type :: (
   fn(
     expr : &AstExpr,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
@@ -4692,7 +4692,7 @@ evaluate_function_type :: (
     dse_i = (dse_i + usize(1));
   });
   // Evaluate parameters (pushes a new env frame, doesn't pop it)
-  (env_mut : Environment) = env;
+  (env_mut : Environment) = Rc.clone(env);
   params_result := evaluate_function_parameters(&arg_list, &env_mut, ctx, exn);
   // Restore context flag
   ctx.is_evaluating_function_type = prev_is_eval_fn_type;
@@ -5087,9 +5087,9 @@ evaluate_function_type :: (
       ct_vars := get_variables_from_env(&env_mut, &wpp.label);
       if(ct_vars.len() > usize(0), {
         match(
-          ct_vars.last(),
+          ct_vars.last_cloned(),
           .Some(ct_var) => match(
-            ct_var.value.get(usize(0)),
+            ct_var.value().get(usize(0)),
             .Some(.TypeVal(ct_tb)) => _collect_where_constraints_from_some_t(&wpp.label, &ct_tb, &mut where_constraint_entries),
             .Some(_) => (),
             .None => ()
@@ -5430,7 +5430,7 @@ evaluate_function_type :: (
   );
   // Set expr info on the expr
   out_info := new_expr_info(&env_mut, type_of_type(&func_type));
-  out_info.value = .Some(create_type_value(&func_type));
+  out_info.set_value(.Some(create_type_value(&func_type)));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   expr
 });

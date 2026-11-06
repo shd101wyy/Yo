@@ -11,6 +11,7 @@
 //!   function callee expr as a placeholder (acceptable since codegen is not yet done).
 //! - `isComptimeOnlyType` is approximated via `_is_comptime_only_type_approx`.
 pragma(Pragma.AllowUnsafe);
+{ replace } :: import("std/mem");
 { String } :: import("std/string");
 { eprintln } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
@@ -80,7 +81,7 @@ try_to_call_type_with_arguments :: (
     function_callee_expr : &AstExpr,
     arg_exprs : &ArrayList(AstExpr),
     caller_env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     is_union_type : bool,
     exn : Exception
   ) -> TypeCallResult
@@ -121,7 +122,7 @@ try_to_call_type_with_arguments :: (
       .Some(o_f) => if(origin_beyond_n2b(&o_f.ty) && !is_std_module_path(&ast_expr_token(function_callee_expr).module_path.*, ctx.std_path.clone()), {
         o_shown := match(
           expr_info_table_get(&ctx.expr_info_table, ast_expr_id(function_callee_expr)),
-          .Some(ci) => match(&ci.value, .Some(.TypeVal(ct)) => Rc.clone(ct), _ => Rc.clone(o_f.ty)),
+          .Some(ci) => match(&ci.value(), .Some(.TypeVal(ct)) => Rc.clone(ct), _ => Rc.clone(o_f.ty)),
           .None => Rc.clone(o_f.ty)
         );
         exn.throw(dyn(format_error_message(ast_expr_token(function_callee_expr), origin_beyond_n2b_message(&o_shown))));
@@ -145,7 +146,7 @@ try_to_call_type_with_arguments :: (
     arg_types.push(Option(TypeValue).None);
     pre_i = (pre_i + usize(1));
   });
-  (env : Environment) = caller_env;
+  (env : Environment) = Rc.clone(caller_env);
   // Process each provided argument.
   (i : usize) = usize(0);
   while(i < n_args, {
@@ -310,8 +311,7 @@ try_to_call_type_with_arguments :: (
     // lost (issues/fixed/exception-handler-closure-with-box-capture-fails-inference.md).
     // A def-time trial around this call still catches the propagated error
     // in its own swallow, exactly as before.
-    saved_expected := ctx.expected_type;
-    ctx.expected_type = .Some(ExpectedTypeCtx(ty : Rc.clone(member_element.ty), env : env));
+    saved_expected := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : Rc.clone(member_element.ty), env : Rc.clone(env))));
     // A field typed as a reference (N2b) takes a reference binding, a
     // reference field's read or a projection's result bare: the read IS the
     // reference there (the read rule, decision 43 step 2 N1e-2b — the
@@ -323,7 +323,7 @@ try_to_call_type_with_arguments :: (
     arg_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_arg));
     if(t9_field_is_reference && (t9_is_mut_marker || t9_is_amp_marker) && ast_expr_is_atom(&evaluated_arg), {
       match(
-        match(&arg_info_opt, .Some(t9_ai) => t9_ai.source_variable, .None => Option(Variable).None),
+        match(&arg_info_opt, .Some(t9_ai) => t9_ai.source_variable(), .None => Option(Variable).None),
         .Some(t9_rv) => if(variable_is_reference_binding(&t9_rv) && deref_rule_applies(ast_expr_token(&evaluated_arg), ctx) && !is_reference_deref_site(ast_expr_token(&evaluated_arg)), {
           reject_reference_without_deref(&t9_rv, ast_expr_token(&evaluated_arg), u8(2), ctx, exn);
         }),
@@ -340,7 +340,7 @@ try_to_call_type_with_arguments :: (
         )
       );
     });
-    arg_info := match(arg_info_opt, .Some(it) => it, .None => new_expr_info(&env, &member_element.ty));
+    arg_info := match(arg_info_opt, .Some(it) => Rc.clone(it), .None => new_expr_info(&env, &member_element.ty));
     // N2b (decision 43 step 3, T9): the lent place's ARGUMENT type is the
     // field's reference over that place — the origin names the place's root,
     // which the binding freeze reads. The place's own ExprInfo keeps its
@@ -349,13 +349,13 @@ try_to_call_type_with_arguments :: (
     match(
       &member_element.ty,
       Rc(.Reference(_, t9w_mut, _)) => match(
-        &arg_info.ty,
+        &arg_info.ty(),
         // A reference VALUE (the read rule, decision 43 step 2 N1e-2b: a
         // reference binding's read, a projection's result) is still the
         // place it refers to in C: the field takes that place's address, as
         // for a lend.
         Rc(.Reference(_, _, _)) => if(is_reference_read(ast_expr_id(&evaluated_arg)), {
-          rv_lend_ty := Option(TypeValue).Some(Rc.clone(arg_info.ty));
+          rv_lend_ty := Option(TypeValue).Some(arg_info.ty());
           expr_info_set_converted_runtime_type(&arg_info, &rv_lend_ty);
           expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&evaluated_arg), &arg_info);
         }),
@@ -366,8 +366,8 @@ try_to_call_type_with_arguments :: (
       _ => ()
     );
     // Decision 44: a callable into a `Dyn(Fn(...))` field is `dyn(f)`.
-    reject_bare_callable_into_dyn_fn(&member_element.ty, &arg_info.ty, &actual_arg_expr, `field "${member_element.label}"`, ctx, exn);
-    reject_second_class_escape(&arg_info.ty, String.from("stored in a field of a named type"), ast_expr_token(&actual_arg_expr), ctx, exn);
+    reject_bare_callable_into_dyn_fn(&member_element.ty, &arg_info.ty(), &actual_arg_expr, `field "${member_element.label}"`, ctx, exn);
+    reject_second_class_escape(&arg_info.ty(), String.from("stored in a field of a named type"), ast_expr_token(&actual_arg_expr), ctx, exn);
     // A reference field stores the place's address (T9): no ownership is
     // copied, so no dup. One recorded here paired with the place's own
     // scope-end drop, and the pair optimizer cancelled both as a move into
@@ -376,7 +376,7 @@ try_to_call_type_with_arguments :: (
     if(!t9_field_is_reference, {
       set_expr_as_needs_to_call_dup(&evaluated_arg, ctx, exn, "field-store");
     });
-    env_adopt(&env, &arg_info.env);
+    env_adopt(&env, &arg_info.env());
     // Convert comptime type → runtime type unless the field type is comptime-only.
     // A comptime numeric bound for a numeric FIELD coerces to the field's
     // type, and an integer value must fit it (E1102) — the rule every slot
@@ -385,27 +385,27 @@ try_to_call_type_with_arguments :: (
     // `k :: 3` constant.
     arg_type := if(
       _is_comptime_only_type_approx(&member_element.ty),
-      Rc.clone(arg_info.ty),
+      Rc.clone(arg_info.ty()),
       match(
-        comptime_numeric_slot_type(&arg_info.ty, &arg_info.value, &member_element.ty, ast_expr_token(&actual_arg_expr), exn),
+        comptime_numeric_slot_type(&arg_info.ty(), &arg_info.value(), &member_element.ty, ast_expr_token(&actual_arg_expr), exn),
         .Some(fct) => fct,
-        .None => convert_comptime_type_to_runtime_type(&arg_info.ty, &env)
+        .None => convert_comptime_type_to_runtime_type(&arg_info.ty(), &env)
       )
     );
     // A T9 lend's argument type is the field's reference over the place.
     match(
       t9w_lend_ty,
       .Some(t9w_w) => {
-        arg_type = t9w_w;
+        arg_type = Rc.clone(t9w_w);
       },
       .None => ()
     );
     // Type compatibility check. A site `yo fix --migrate dyn-spelling`
     // recorded stands for the rewrite's `dyn(value)`, which the field takes.
-    if(!bare_callable_recorded_into_dyn_fn(&member_element.ty, &arg_info.ty) && !are_types_compatible(&arg_type, &member_element.ty), {
+    if(!bare_callable_recorded_into_dyn_fn(&member_element.ty, &arg_info.ty()) && !are_types_compatible(&arg_type, &member_element.ty), {
       if(in_def_time_trial() && debug_knob(`YO_DEBUG_CTFE`).is_some(), {
         eprintln(
-          `[tycall-mismatch] label=${member_element.label} expected=${type_to_string(&member_element.ty)} got=${type_to_string(&arg_type)} argval=${match(arg_info.value, .Some(av) => value_to_string(&av), .None => String.from("<none>"))}`
+          `[tycall-mismatch] label=${member_element.label} expected=${type_to_string(&member_element.ty)} got=${type_to_string(&arg_type)} argval=${match(arg_info.value(), .Some(av) => value_to_string(&av), .None => String.from("<none>"))}`
         );
       });
       // The same mistake as an argument that does not fit its parameter,
@@ -423,7 +423,7 @@ try_to_call_type_with_arguments :: (
       );
     });
     // Store the result.
-    values(member_element_position_index) = arg_info.value;
+    values(member_element_position_index) = arg_info.value();
     runtime_arg_exprs_in_order(member_element_position_index) = evaluated_arg;
     arg_types(member_element_position_index) = Option(TypeValue).Some(arg_type);
     checked_indices.insert(member_element_position_index, true);

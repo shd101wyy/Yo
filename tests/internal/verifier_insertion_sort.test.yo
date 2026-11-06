@@ -82,7 +82,7 @@ _reports_dump :: (fn(reports : &ArrayList(VerifyFnReport)) -> String)({
   (mut(i) : usize) = usize(0);
   while(i < reports.len(), {
     match(
-      reports.get(i),
+      reports.get_cloned(i),
       .Some(rp) => {
         ids.push(`${rp.fn_id}=${rp.outcome} [${rp.subset_construct}]`);
       },
@@ -102,7 +102,7 @@ _reports_dump :: (fn(reports : &ArrayList(VerifyFnReport)) -> String)({
   sb.to_string()
 });
 _first :: (fn(reports : &ArrayList(VerifyFnReport)) -> VerifyFnReport)(
-  reports.get(usize(0)).unwrap()
+  reports.get_cloned(usize(0)).unwrap()
 );
 
 test("insertion sort proves sorted + permutation (ms_of)", {

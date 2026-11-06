@@ -465,7 +465,7 @@ test("real z3: harness self-test proves 1+1==2 and refutes 1+1==3 (YO_TEST_Z3=1)
     );
     results := verifier_harness_self_test(&cfg, binary.clone());
     match(
-      results.get(usize(0)),
+      results.get_cloned(usize(0)),
       .Some(r1) => {
         match(
           &r1.verdict,
@@ -480,7 +480,7 @@ test("real z3: harness self-test proves 1+1==2 and refutes 1+1==3 (YO_TEST_Z3=1)
       }
     );
     match(
-      results.get(usize(1)),
+      results.get_cloned(usize(1)),
       .Some(r2) => {
         match(
           &r2.verdict,
@@ -520,7 +520,7 @@ test("real z3: second run is a cache hit (YO_TEST_Z3=1)", {
     );
     first := verifier_harness_self_test(&cfg, binary.clone());
     match(
-      first.get(usize(0)),
+      first.get_cloned(usize(0)),
       .Some(r) => {
         assert(!r.cached, "no-cache run must not be cached");
       },
@@ -529,7 +529,7 @@ test("real z3: second run is a cache hit (YO_TEST_Z3=1)", {
     cfg2 := default_verify_run_config();
     second := verifier_harness_self_test(&cfg2, binary.clone());
     match(
-      second.get(usize(0)),
+      second.get_cloned(usize(0)),
       .Some(r2) => {
         assert(r2.cached, "cached run must hit");
         match(

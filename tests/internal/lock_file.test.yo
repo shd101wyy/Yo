@@ -23,17 +23,7 @@ _entry :: (fn(name : str, version : str, source : &String, commit : str, integri
     dependencies : ArrayList(String).new()
   )
 );
-// `LockEntry` is a `ref` type with no `Clone`, so the list is copied one
-// handle at a time.
-_lock_of :: (fn(entries : &ArrayList(LockEntry)) -> LockFile)({
-  mut(packages) := ArrayList(LockEntry).new();
-  (mut(i) : usize) = usize(0);
-  while(i < entries.len(), {
-    packages.push(entries(i));
-    i = (i + usize(1));
-  });
-  LockFile(packages : packages)
-});
+_lock_of :: (fn(entries : &ArrayList(LockEntry)) -> LockFile)(LockFile(packages : entries.clone()));
 _parsed :: (fn(content : &String) -> LockFile)(
   match(
     parse_lock_file(content),
@@ -55,7 +45,7 @@ test("parse_lock_file: one git package with every field", {
   content := String.from("version = 2\n\n[[package]]\nname = \"raylib_yo\"\nversion = \"0.0.6\"\nsource = \"git+https://github.com/shd101wyy/raylib_yo#v0.0.6\"\ncommit = \"973b8cb6c1e362839534df8c16a735aa8a684dc9\"\nintegrity = \"sha256-abc\"\ndependencies = [\"utils\"]\n");
   lock := _parsed(&content);
   assert(lock.packages.len() == usize(1), "one package");
-  p := lock.packages(usize(0));
+  p := lock.packages(usize(0)).clone();
   assert(p.name == "raylib_yo", "name");
   assert(p.version == "0.0.6", "version");
   assert(p.is_git(), "git source");
@@ -70,7 +60,7 @@ test("parse_lock_file: one git package with every field", {
 test("parse_lock_file: a path package has only name and source", {
   content := String.from("version = 2\n[[package]]\nname = \"mylib\"\nsource = \"path+../mylib\"\n");
   lock := _parsed(&content);
-  p := lock.packages(usize(0));
+  p := lock.packages(usize(0)).clone();
   assert(!p.is_git(), "not git");
   assert(p.path() == "../mylib", "path from source");
   assert(p.url().len() == usize(0), "no url");
@@ -81,7 +71,7 @@ test("parse_lock_file: a path package has only name and source", {
 });
 test("parse_lock_file: a URL containing '#' keeps the LAST '#' as the ref separator", {
   content := String.from("version = 2\n[[package]]\nname = \"x\"\nsource = \"git+https://host/a#b/x#main\"\n");
-  p := _parsed(&content).packages(usize(0));
+  p := _parsed(&content).packages(usize(0)).clone();
   assert(p.url() == "https://host/a#b/x", "url keeps its own #");
   assert(p.ref() == "main", "ref after the last #");
 });
@@ -148,7 +138,7 @@ test("write_lock_file_content: round-trips a git package", {
   entries.push(e);
   out := write_lock_file_content(_lock_of(&entries));
   assert(out.contains(String.from("source = \"git+https://github.com/user/mylib.git#v2.0.0\"")), `source line: ${out}`);
-  p := _parsed(&out).packages(usize(0));
+  p := _parsed(&out).packages(usize(0)).clone();
   assert(p.name == "mylib", "name");
   assert(p.version == "2.0.0", "version");
   assert(p.url() == "https://github.com/user/mylib.git", "url");

@@ -309,21 +309,21 @@ _field_reference_type :: (fn(object_type : &TypeValue, field_name : &String) -> 
   )
 });
 _reference_or_none :: (fn(t : Option(TypeValue)) -> Option(TypeValue))(
-  match(t, .Some(rt) => if(match(&rt, Rc(.Reference(_, _, _)) => true, _ => false), Option(TypeValue).Some(rt), Option(TypeValue).None), .None => Option(TypeValue).None)
+  match(t, .Some(rt) => if(match(&rt, Rc(.Reference(_, _, _)) => true, _ => false), Option(TypeValue).Some(Rc.clone(rt)), Option(TypeValue).None), .None => Option(TypeValue).None)
 );
 /// A field access. A reference field (N1e-2) reads as the place it refers
 /// to: its C is the pointer's dereference, which a lend folds back to the
 /// pointer (`_apply_ref_amp`). A `&` field's `const T*` is read through a
 /// `T*`: the checker keeps the place read-only, and the place's address
 /// fills the `T*` every `&T` slot and projection result lowers to.
-generate_field_access :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
+generate_field_access :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
   code := _generate_field_access_raw(expr, indent, context);
   args := match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
   ref_ty := match(
     args.get(usize(0)),
     .Some(obj) => match(
       args.get(usize(1)),
-      .Some(fld) => if(ast_expr_is_atom(&fld), match(context.base.get_expr_info(&obj), .Some(oei) => _field_reference_type(&oei.ty, &ast_expr_text(&fld).*.clone()), .None => Option(TypeValue).None), Option(TypeValue).None),
+      .Some(fld) => if(ast_expr_is_atom(&fld), match(context.base.get_expr_info(&obj), .Some(oei) => _field_reference_type(&oei.ty(), &ast_expr_text(&fld).*.clone()), .None => Option(TypeValue).None), Option(TypeValue).None),
       .None => Option(TypeValue).None
     ),
     .None => Option(TypeValue).None
@@ -333,12 +333,12 @@ generate_field_access :: (fn(expr : &AstExpr, indent : &String, context : &Funct
     .Some(Rc(.Reference(gf_pointee, gf_mut, _))) => cond(
       (code.len() == usize(0)) => code,
       gf_mut => `(*${code})`,
-      true => `(*((${get_type_string(&gf_pointee, &context.base)}*)${code}))`
+      true => `(*((${get_type_string(&gf_pointee, &mut context.base)}*)${code}))`
     ),
     _ => code
   )
 });
-_generate_field_access_raw :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
+_generate_field_access_raw :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("/* ERROR: field access not evaluated */")));
   args := match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
   if(args.len() != usize(2), {
@@ -361,8 +361,8 @@ _generate_field_access_raw :: (fn(expr : &AstExpr, indent : &String, context : &
     object_code_raw
   );
   obj_ei_opt := context.base.get_expr_info(&object_expr);
-  object_type := match(obj_ei_opt, .Some(oei) => Rc.clone(oei.ty), .None => Rc.new(TypeValueNode.Unit));
-  object_value := match(obj_ei_opt, .Some(oei) => oei.value, .None => Option(EvalValue).None);
+  object_type := match(&obj_ei_opt, .Some(oei) => Rc.clone(oei.ty()), .None => Rc.new(TypeValueNode.Unit));
+  object_value := match(obj_ei_opt, .Some(oei) => oei.value(), .None => Option(EvalValue).None);
   // Dyn method access takes PRIORITY over static method resolution: even when
   // the evaluator resolved `obj.method` to a concrete impl FuncVal, a dyn
   // receiver must dispatch through the vtable (`obj.vtable->method`), not call
@@ -379,7 +379,7 @@ _generate_field_access_raw :: (fn(expr : &AstExpr, indent : &String, context : &
   });
   // Method access: the field resolved to a function → emit its C name.
   match(
-    ei.value,
+    ei.value(),
     .Some(v) => if(is_func_val(&v), {
       fid := match(v, .FuncVal(__fvd1, _) => __fvd1.*.func_id.clone(), _ => String.from(""));
       return(_c_function_name(context, fid));
@@ -395,7 +395,7 @@ _generate_field_access_raw :: (fn(expr : &AstExpr, indent : &String, context : &
   // `_call_generate_expr` has already emitted any statement-level side effect
   // it had. Dyn/method/module accesses above are NOT unit-typed values and
   // never reach this rule.
-  if(is_unit_type(&ei.ty) && (is_struct_type(&object_type) || is_tuple_type(&object_type) || is_pointer_type(&object_type)), {
+  if(is_unit_type(&ei.ty()) && (is_struct_type(&object_type) || is_tuple_type(&object_type) || is_pointer_type(&object_type)), {
     return(String.from(""));
   });
   // Module namespace / compile-time struct-value field access. A struct value
@@ -406,11 +406,11 @@ _generate_field_access_raw :: (fn(expr : &AstExpr, indent : &String, context : &
   // (issues/fixed/2026-11-05-a-method-on-a-field-of-a-match-binding-over-an-inline-literal-emits-an-undeclared-identifier.md).
   if(is_module_type(&object_type) || match(object_value, .Some(v) => (is_struct_val(&v) && !value_contains_unknown(&v)), .None => false), {
     match(
-      ei.value,
+      ei.value(),
       .Some(fv) => if(
         !is_unknown_val(&fv),
         if(!is_struct_val(&fv), {
-          return(generate_comptime_value(&fv, &ei.ty, &context.base));
+          return(generate_comptime_value(&fv, &ei.ty(), &mut context.base));
         })
       ),
       .None => ()
@@ -423,10 +423,10 @@ _generate_field_access_raw :: (fn(expr : &AstExpr, indent : &String, context : &
       // (`c.stdout`): no variable carries it, so resolve it the way the atom
       // resolver does — by name + declared type — and keep the REAL C name
       // (no reserved-word prefix). plans/reference/C_INCLUDE_EXTERN_MODULE_VALUE.md §3.4.
-      if(extern_c_global_matches(field_name.clone(), &ei.ty), {
+      if(extern_c_global_matches(field_name.clone(), &ei.ty()), {
         return(sanitize_for_c_identifier(field_name.clone(), true));
       });
-      return(get_variable_name_for_codegen_at(ast_expr_id(expr), field_name.clone(), Option(Environment).Some(ei.env)));
+      return(get_variable_name_for_codegen_at(ast_expr_id(expr), field_name.clone(), Option(Environment).Some(ei.env())));
     });
   });
   // The bare `Io` effect struct's `.io` member is the IDENTITY projection

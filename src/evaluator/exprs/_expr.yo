@@ -605,7 +605,7 @@ _evaluate_assert_ghost_args :: (
   fn(
     expr : &AstExpr,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
@@ -636,7 +636,7 @@ _evaluate_exists_or_call :: (
   fn(
     expr : &AstExpr,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> AstExpr
 )(
@@ -651,7 +651,7 @@ _origin_reference_position_message :: (fn(e : &AstExpr) -> String)(
   `\`${ast_expr_to_string(e)}\` is not a reference type: the two-argument form \`&mut(T, o)\` takes a type and an origin (decision 43, plans/backlog/REFERENCES_AND_ORIGINS.md O1). \`&mut x\` alone lends one place.`
 );
 /// The first argument of a two-argument `&(A, B)` is a type (a soft trial).
-_origin_reference_operand_is_type :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext) -> bool)(
+_origin_reference_operand_is_type :: (fn(e : &AstExpr, env : &Environment, ctx : &mut EvalContext) -> bool)(
   match(
     e,
     .FnCall(_, _, Rc(oa_args), _, _) => match(oa_args.get(usize(0)), .Some(a0) => _borrow_operand_is_type(&a0, env, ctx), .None => false),
@@ -661,16 +661,16 @@ _origin_reference_operand_is_type :: (fn(e : &AstExpr, env : &Environment, ctx :
 /// `&T` / `&mut T` whose operand is a TYPE: decision 42's "a borrow mode,
 /// not a type" (Generation A). The operand is trial-evaluated; the caller
 /// throws either way.
-_borrow_operand_is_type :: (fn(operand : &AstExpr, env : &Environment, ctx : &EvalContext) -> bool)({
+_borrow_operand_is_type :: (fn(operand : &AstExpr, env : &Environment, ctx : &mut EvalContext) -> bool)({
   trial_exn := Exception(throw : (_err -> unwind(false)));
   ev := _evaluate_expression(operand, env, ctx, trial_exn);
-  match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ev)), .Some(ti) => is_type_value(&ti.value), .None => false)
+  match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ev)), .Some(ti) => is_type_value(&ti.value()), .None => false)
 });
 _evaluate_expression :: (
   fn(
     expr : &AstExpr,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
@@ -816,7 +816,7 @@ _evaluate_expression :: (
         // "0 entries" under io.async closures (std/fs/walker) and a C-level
         // undeclared-identifier bail in plain fns.
         ((__dk_len == usize(1)) && ast_expr_is_fn_call_of(expr, BK_ANON_STRUCT, .None)) => match(
-          ctx.expected_type,
+          ctx.expected_type.clone(),
           .Some(et) => {
             et_ty := Rc.clone(et.ty);
             // Scope: reroute for EVERY
@@ -1532,7 +1532,7 @@ _evaluate_expression_wrapper :: (
   fn(
     expr : &AstExpr,
     env : &Environment,
-    ctx : &EvalContext
+    ctx : &mut EvalContext
   ) -> AstExpr
 )({
   exn := Exception(
@@ -1662,7 +1662,7 @@ _is_projection_result_value :: (fn(e : &AstExpr, ctx : &EvalContext) -> bool)(
           if(ast_expr_is_fn_call_of(&a, "=>", Option(usize).Some(usize(2))), {
             any_arm = true;
             arm_body := match(a, .FnCall(_, _, Rc(ab_args), _, _) => match(ab_args.get(usize(1)), .Some(b) => b, .None => a), .Atom(_, _) => a);
-            arm_never := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&arm_body)), .Some(ai) => is_never_type(&ai.ty), .None => false);
+            arm_never := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&arm_body)), .Some(ai) => is_never_type(&ai.ty()), .None => false);
             if(!arm_never && !_is_projection_result_value(&arm_body, ctx), {
               all_arms = false;
             });
@@ -1702,18 +1702,18 @@ _projection_result_as_reference :: (fn(expr : &AstExpr, result : &AstExpr, ctx :
   );
   match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(result)),
-    .Some(pr_info) => if(!t_slot_is_borrow(&pr_info.ty), {
+    .Some(pr_info) => if(!t_slot_is_borrow(&pr_info.ty()), {
       (pr_new_ty : Option(TypeValue)) = match(
         pr_ref_ty,
         .Some(rf_ty) => Option(TypeValue).Some(rf_ty),
-        .None => match(projection_call_mode_of(result, ctx), .Some(pr_mut) => Option(TypeValue).Some(t_reference(&pr_info.ty, pr_mut)), .None => Option(TypeValue).None)
+        .None => match(projection_call_mode_of(result, ctx), .Some(pr_mut) => Option(TypeValue).Some(t_reference(&pr_info.ty(), pr_mut)), .None => Option(TypeValue).None)
       );
       match(
         pr_new_ty,
         .Some(pr_ty) => {
           note_reference_read(ast_expr_id(result), true);
-          pr_info.ty = pr_ty;
-          pr_info.value = Option(EvalValue).None;
+          pr_info.set_ty(pr_ty);
+          pr_info.set_value(Option(EvalValue).None);
           expr_info_table_set(&ctx.expr_info_table, ast_expr_id(result), &pr_info);
         },
         .None => ()
@@ -1726,7 +1726,7 @@ _evaluate_expression_raw_wrapper :: (
   fn(
     expr : &AstExpr,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
@@ -1751,15 +1751,15 @@ _evaluate_expression_raw_wrapper :: (
     match(
       expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&result)),
       .Some(ri) => {
-        is_runtime := match(ri.value, .Some(v) => is_unknown_val(&v), .None => true);
-        if(is_runtime && _surfaces_raw_pointer(&ri.ty) && !_is_projection_result_value(&result, ctx), {
+        is_runtime := match(ri.value(), .Some(v) => is_unknown_val(&v), .None => true);
+        if(is_runtime && _surfaces_raw_pointer(&ri.ty()) && !_is_projection_result_value(&result, ctx), {
           tok := ast_expr_token(&result);
           if(!is_pointer_value_capable_file(Option(String).Some(tok.module_path.*.clone()), ctx.std_path.clone()), {
             exn.throw(
               dyn(
                 format_error_message(
                   &tok,
-                  `Raw pointer values are not available in safe code: '${ast_expr_to_string(&result)}' has type '${type_to_string(&ri.ty)}'.
+                  `Raw pointer values are not available in safe code: '${ast_expr_to_string(&result)}' has type '${type_to_string(&ri.ty())}'.
 
 To borrow the elements of a collection, iterate it with 'for(&coll, x => ...)' (read-only) or 'for(&mut coll, x => ...)' (in place). If this file genuinely needs raw pointers, declare 'pragma(Pragma.AllowUnsafe);'.`
                 )

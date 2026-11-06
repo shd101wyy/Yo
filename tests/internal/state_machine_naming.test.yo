@@ -23,7 +23,7 @@ mk_variable :: (fn(name : str) -> Variable)(
 mk_entry :: (fn(v : &Variable, kind : CapturedVariableKind) -> CapturedVariable)(
   CapturedVariable(
     base : SuspensionCapturedVariable(
-      id : v.id.to_string(),
+      id : v.id().to_string(),
       name : v.name.clone(),
       ty : t_usize(),
       is_owning_the_same_rc_value_as : Option(SuspensionCapturedVariable).None,
@@ -35,7 +35,7 @@ mk_entry :: (fn(v : &Variable, kind : CapturedVariableKind) -> CapturedVariable)
 );
 slot_of :: (fn(v : &Variable, kind : CapturedVariableKind, aliases : &Option(HashMap(String, String)), capture_slot : str) -> String)({
   mut(smv) := HashMap(String, CapturedVariable).new();
-  smv.insert(v.id.to_string(), mk_entry(v, kind));
+  smv.insert(v.id().to_string(), mk_entry(v, kind));
   match(
     sm_slot_of_variable(v, &smv, Option(HashMap(String, String)).None, aliases, String.from(capture_slot)),
     .Some(s) => s,
@@ -54,16 +54,16 @@ test("an outer variable's slot follows the context's capture slot (a fused await
 test("an outer variable ignores a field alias keyed by its id", {
   v := mk_variable("count");
   mut(aliases) := HashMap(String, String).new();
-  aliases.insert(v.id.to_string(), String.from("slot_0"));
+  aliases.insert(v.id().to_string(), String.from("slot_0"));
   got := slot_of(&v, CapturedVariableKind.Outer, Option(HashMap(String, String)).Some(aliases), "__capture");
   assert(got == "sm->__capture.__yo_v_count", `got ${got}`);
 });
 test("controls: a local's slot is its own field or its alias, a variable not in the map has none", {
   v := mk_variable("count");
   local := slot_of(&v, CapturedVariableKind.Local, Option(HashMap(String, String)).None, "__capture");
-  assert(local == `sm->var_${v.id.to_string()}`, `local: got ${local}`);
+  assert(local == `sm->var_${v.id().to_string()}`, `local: got ${local}`);
   mut(aliases) := HashMap(String, String).new();
-  aliases.insert(v.id.to_string(), String.from("slot_0"));
+  aliases.insert(v.id().to_string(), String.from("slot_0"));
   aliased := slot_of(&v, CapturedVariableKind.Local, Option(HashMap(String, String)).Some(aliases), "__capture");
   assert(aliased == "sm->slot_0", `aliased: got ${aliased}`);
   absent := sm_slot_of_variable(&v, HashMap(String, CapturedVariable).new(), Option(HashMap(String, String)).None, Option(HashMap(String, String)).None, String.from("__capture"));

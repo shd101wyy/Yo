@@ -83,7 +83,7 @@ _reports_dump :: (fn(reports : &ArrayList(VerifyFnReport)) -> String)({
   (mut(i) : usize) = usize(0);
   while(i < reports.len(), {
     match(
-      reports.get(i),
+      reports.get_cloned(i),
       .Some(rp) => {
         ids.push(`${rp.fn_id}=${rp.outcome} [${rp.subset_construct}]`);
       },
@@ -110,7 +110,7 @@ _count_outcome :: (fn(reports : &ArrayList(VerifyFnReport), outcome : &String) -
   (mut(i) : usize) = usize(0);
   while(i < reports.len(), {
     match(
-      reports.get(i),
+      reports.get_cloned(i),
       .Some(rp) => {
         if(rp.outcome == outcome.*, {
           n = (n + usize(1));
@@ -148,7 +148,7 @@ test("a generic callee's requires discharges when satisfied", {
     true
   );
   match(
-    reports.get(usize(0)),
+    reports.get_cloned(usize(0)),
     .Some(rp) => {
       assert(rp.outcome == "ok", `flag=true discharges the generic requires, got: [${_reports_dump(&reports)}]`);
     },

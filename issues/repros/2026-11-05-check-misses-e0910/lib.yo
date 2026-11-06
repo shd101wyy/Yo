@@ -1,0 +1,13 @@
+{ IoExn } :: import("std/error");
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+
+Opts :: struct(name : String);
+export(Opts);
+
+show :: (fn(options : &Opts, io : Io) -> Impl(Future(unit, IoExn)))(
+  io.async({ &options }(e : IoExn) => {
+    println(&options.name);
+  })
+);
+export(show);

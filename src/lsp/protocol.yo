@@ -22,16 +22,14 @@
 { JsonValue } :: import("std/encoding/json");
 percent :: import("std/encoding/percent");
 
-/// Chainable JSON object builder.
-JsonObjBuilder :: ref(
-  struct(
-    keys : ArrayList(String),
-    values : ArrayList(JsonValue)
-  )
+/// Chainable JSON object builder: `put` takes the builder and returns it.
+JsonObjBuilder :: struct(
+  keys : ArrayList(String),
+  values : ArrayList(JsonValue)
 );
 impl(
   JsonObjBuilder,
-  put : (fn(self : &Self, key : str, v : &JsonValue) -> Self)({
+  put : (fn(self : Self, key : str, v : &JsonValue) -> Self)({
     self.keys.push(String.from(key));
     self.values.push(v.clone());
     return(self);
@@ -235,7 +233,7 @@ j_diagnostic :: (
   match(
     code,
     .Some(c) => {
-      _b := b.put("code", jstr(&c));
+      b = b.put("code", jstr(&c));
     },
     .None => ()
   );
@@ -244,7 +242,7 @@ j_diagnostic :: (
   match(
     related,
     .Array(items : _) => {
-      _r := b.put("relatedInformation", related);
+      b = b.put("relatedInformation", related);
     },
     _ => ()
   );

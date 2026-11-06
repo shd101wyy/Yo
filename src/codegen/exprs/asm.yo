@@ -194,17 +194,16 @@ _transform_template :: (fn(template : &String) -> String)({
 // ---------------------------------------------------------------------------
 // ParsedOperand
 // ---------------------------------------------------------------------------
-ParsedOperand :: ref(
-  struct(
-    kind : String,
-    name : Option(String),
-    constraint : String,
-    c_expr : String,
-    c_type : String,
-    is_discarded : bool,
-    is_variable_target : bool
-  )
+ParsedOperand :: struct(
+  kind : String,
+  name : Option(String),
+  constraint : String,
+  c_expr : String,
+  c_type : String,
+  is_discarded : bool,
+  is_variable_target : bool
 );
+derive(ParsedOperand, Clone);
 _atom_value_cg :: (fn(e : &AstExpr) -> String)(
   match(e, .Atom(_, tok) => tok.value.*.clone(), _ => String.from(""))
 );
@@ -216,7 +215,7 @@ _cg_comptime_str :: (fn(e : &AstExpr, context : &FunctionGenerationContext) -> O
   match(
     context.base.get_expr_info(e),
     .Some(info) => match(
-      info.value,
+      info.value(),
       .Some(.StrLit(s)) => Option(String).Some(_strip_str_delims(decode_str_lit_escapes(s.clone()))),
       .Some(_) => Option(String).None,
       .None => Option(String).None
@@ -228,7 +227,7 @@ _cg_is_type_value :: (fn(e : &AstExpr, context : &FunctionGenerationContext) -> 
   match(
     context.base.get_expr_info(e),
     .Some(info) => match(
-      info.value,
+      info.value(),
       .Some(.TypeVal(t)) => Option(TypeValue).Some(Rc.clone(t)),
       .Some(_) => Option(TypeValue).None,
       .None => Option(TypeValue).None
@@ -264,7 +263,7 @@ _extract_constraint_string :: (fn(e : &AstExpr, context : &FunctionGenerationCon
 });
 /// Parse an operand sub-call during codegen.
 _parse_operand_for_codegen :: (
-  fn(operand_expr : &AstExpr, indent : &String, context : &FunctionGenerationContext, kind_in : &String) -> ParsedOperand
+  fn(operand_expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext, kind_in : &String) -> ParsedOperand
 )({
   args := _fn_call_args_cg(operand_expr);
   arch := context.base.target_info.arch;
@@ -357,7 +356,7 @@ _parse_operand_for_codegen :: (
           name : name,
           constraint : constraint,
           c_expr : String.new(),
-          c_type : get_type_string(&output_type, &context.base),
+          c_type : get_type_string(&output_type, &mut context.base),
           is_discarded : false,
           is_variable_target : false
         )
@@ -369,7 +368,7 @@ _parse_operand_for_codegen :: (
   c_expr := _call_generate_expr(&value_or_type, indent.clone(), context);
   c_type := match(
     context.base.get_expr_info(&value_or_type),
-    .Some(info) => get_type_string(&info.ty, &context.base),
+    .Some(info) => get_type_string(&info.ty(), &mut context.base),
     .None => String.from("int32_t")
   );
   is_output_kind := ((kind == String.from("out")) || (kind == String.from("lateout")));
@@ -506,11 +505,10 @@ _next_asm_temp :: (fn() -> usize)({
   n
 });
 /// Generate C code for asm().
-generate_asm :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
-  em := context.base.emitter;
+generate_asm :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
   return_type := match(
     context.base.get_expr_info(expr),
-    .Some(ei) => Rc.clone(ei.ty),
+    .Some(ei) => Rc.clone(ei.ty()),
     .None => {
       return(String.from("/* Error: asm() missing type information */"));
     }
@@ -518,12 +516,12 @@ generate_asm :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenera
   if(is_target_wasm(&context.base.target_info), {
     l1 := indent.clone();
     l1.push_str("/* Error: inline assembly is not supported on WebAssembly */");
-    em.emit_string_line(&l1);
+    context.base.emitter.emit_string_line(&l1);
     l2 := indent.clone();
     l2.push_str("__yo_abort();");
-    em.emit_string_line(&l2);
+    context.base.emitter.emit_string_line(&l2);
     out_w := String.from("(*((");
-    out_w.push_string(get_type_string(&return_type, &context.base));
+    out_w.push_string(get_type_string(&return_type, &mut context.base));
     out_w.push_str("*)NULL))");
     return(out_w);
   });
@@ -612,7 +610,7 @@ generate_asm :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenera
     (oi : usize) = usize(0);
     while(oi < operands.len(), {
       match(
-        operands.get(oi),
+        operands.get_cloned(oi),
         .Some(op) => if(op.kind == String.from("const_val"), {
           // Replace {name}/{N} (with optional :modifier) with the bare value.
           // Byte-scan replace: rebuild the template.
@@ -688,7 +686,7 @@ generate_asm :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenera
     (oi : usize) = usize(0);
     while(oi < operands.len(), {
       match(
-        operands.get(oi),
+        operands.get_cloned(oi),
         .Some(op) => {
           cond(
             op.is_discarded => {
@@ -699,7 +697,7 @@ generate_asm :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenera
               l.push_str(" ");
               l.push_string(&vn);
               l.push_str(";");
-              em.emit_string_line(&l);
+              context.base.emitter.emit_string_line(&l);
             },
             ((op.kind == String.from("out")) || (op.kind == String.from("lateout"))) => {
               if(!op.is_variable_target && (op.c_type.len() > usize(0)), {
@@ -710,7 +708,7 @@ generate_asm :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenera
                 l.push_str(" ");
                 l.push_string(&vn);
                 l.push_str(";");
-                em.emit_string_line(&l);
+                context.base.emitter.emit_string_line(&l);
               });
             },
             ((op.kind == String.from("inout")) || (op.kind == String.from("inlateout"))) => {
@@ -723,7 +721,7 @@ generate_asm :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenera
               l.push_str(" = ");
               l.push_string(op.c_expr.clone());
               l.push_str(";");
-              em.emit_string_line(&l);
+              context.base.emitter.emit_string_line(&l);
             },
             true => ()
           );
@@ -744,7 +742,7 @@ generate_asm :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenera
     (oi : usize) = usize(0);
     while(oi < operands.len(), {
       match(
-        operands.get(oi),
+        operands.get_cloned(oi),
         .Some(op) => {
           skip := ((op.kind == String.from("in")) || (op.kind == String.from("const_val")) || (op.kind == String.from("sym")));
           if(!skip, {
@@ -789,7 +787,7 @@ generate_asm :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenera
     (oi : usize) = usize(0);
     while(oi < operands.len(), {
       match(
-        operands.get(oi),
+        operands.get_cloned(oi),
         .Some(op) => if((op.kind == String.from("in")) || (op.kind == String.from("sym")), {
           part := String.new();
           match(
@@ -837,33 +835,33 @@ generate_asm :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenera
     l_open.push_str(" __volatile__");
   });
   l_open.push_str(" (");
-  em.emit_string_line(&l_open);
+  context.base.emitter.emit_string_line(&l_open);
   l_tpl := indent.clone();
   l_tpl.push_str("    ");
   l_tpl.push_string(&escaped_template);
-  em.emit_string_line(&l_tpl);
+  context.base.emitter.emit_string_line(&l_tpl);
   l_out := indent.clone();
   l_out.push_str("    : ");
   l_out.push_string(_join_comma(&output_parts));
-  em.emit_string_line(&l_out);
+  context.base.emitter.emit_string_line(&l_out);
   l_in := indent.clone();
   l_in.push_str("    : ");
   l_in.push_string(_join_comma(&input_parts));
-  em.emit_string_line(&l_in);
+  context.base.emitter.emit_string_line(&l_in);
   l_cl := indent.clone();
   l_cl.push_str("    : ");
   l_cl.push_string(_join_comma(&clobber_parts));
-  em.emit_string_line(&l_cl);
+  context.base.emitter.emit_string_line(&l_cl);
   l_close := indent.clone();
   l_close.push_str(");");
-  em.emit_string_line(&l_close);
+  context.base.emitter.emit_string_line(&l_close);
   // noreturn
   if(opts.noreturn, {
     l_nr := indent.clone();
     l_nr.push_str("__builtin_unreachable();");
-    em.emit_string_line(&l_nr);
+    context.base.emitter.emit_string_line(&l_nr);
     out_nr := String.from("(*((");
-    out_nr.push_string(get_type_string(&return_type, &context.base));
+    out_nr.push_string(get_type_string(&return_type, &mut context.base));
     out_nr.push_str("*)NULL))");
     return(out_nr);
   });
@@ -876,7 +874,7 @@ generate_asm :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenera
     (oi : usize) = usize(0);
     while(oi < operands.len(), {
       match(
-        operands.get(oi),
+        operands.get_cloned(oi),
         .Some(op) => {
           skip := (
             op.is_discarded || op.is_variable_target ||
@@ -899,7 +897,7 @@ generate_asm :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenera
   });
   if(return_exprs.len() > usize(1), {
     out_t := String.from("((");
-    out_t.push_string(get_type_string(&return_type, &context.base));
+    out_t.push_string(get_type_string(&return_type, &mut context.base));
     out_t.push_str("){ ");
     (ri : usize) = usize(0);
     while(ri < return_exprs.len(), {
@@ -918,7 +916,7 @@ generate_asm :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenera
   String.new()
 });
 /// Generate C code for global_asm().
-generate_global_asm :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
+generate_global_asm :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
   indent;
   if(is_target_wasm(&context.base.target_info), {
     return(String.from("/* global_asm skipped: not supported on this target */"));
@@ -931,8 +929,7 @@ generate_global_asm :: (fn(expr : &AstExpr, indent : &String, context : &Functio
       decl := String.from("__asm__(");
       decl.push_string(_c_string_literal(&template));
       decl.push_str(");");
-      em := context.base.emitter;
-      em.emit_declaration_string(&decl);
+      context.base.emitter.emit_declaration_string(&decl);
     },
     .None => ()
   );

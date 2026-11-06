@@ -234,7 +234,7 @@ _has_comptime_only_runtime_field :: (fn(ty : &TypeValue) -> bool)(
     _ => false
   )
 );
-collect_type :: (fn(type_in : &TypeValue, context : &CodeGenContext) -> unit)({
+collect_type :: (fn(type_in : &TypeValue, context : &mut CodeGenContext) -> unit)({
   // Resolve a leaked recursive-enum SELF-SHELL to its final BEFORE collecting, so
   // recursion descends into the FINAL's variant fields (the shell has none) and
   // the empty shell type is never registered/emitted — regardless of whether the
@@ -485,7 +485,7 @@ collect_type :: (fn(type_in : &TypeValue, context : &CodeGenContext) -> unit)({
 /// deep enum recursion) — sufficient for `data : ?(*(MapEntry))` / `?(*(T))` and
 /// guaranteed terminating; `collect_type`'s already-collected guard handles the
 /// rest. (Defined before collect_pointer_pointees — Yo has no forward refs.)
-_collect_field_pointees :: (fn(ft : &TypeValue, context : &CodeGenContext) -> unit)(
+_collect_field_pointees :: (fn(ft : &TypeValue, context : &mut CodeGenContext) -> unit)(
   match(
     ft,
     Rc(.Pointer(p)) => collect_type(&p, context),
@@ -525,7 +525,7 @@ _collect_field_pointees :: (fn(ft : &TypeValue, context : &CodeGenContext) -> un
 /// order-sensitive lazy array-struct registration. Fixpoint loop handles
 /// transitive container nesting. See
 /// issues/fixed/yo-self-p1-uncollected-pointee.md.
-collect_pointer_pointees :: (fn(context : &CodeGenContext) -> unit)({
+collect_pointer_pointees :: (fn(context : &mut CodeGenContext) -> unit)({
   (mut(changed) : bool) = true;
   while(changed, {
     changed = false;
@@ -564,7 +564,7 @@ collect_pointer_pointees :: (fn(context : &CodeGenContext) -> unit)({
 });
 /// Collect types from a function type signature (parameters, generic params,
 /// return).
-collect_types_from_function_type :: (fn(function_type : &TypeValue, context : &CodeGenContext) -> unit)(
+collect_types_from_function_type :: (fn(function_type : &TypeValue, context : &mut CodeGenContext) -> unit)(
   match(
     function_type,
     Rc(.Func({ param_types, forall_types, result })) => {
@@ -603,17 +603,17 @@ _fv_body :: (fn(v : &EvalValue) -> AstExpr)(
 /// function-collection are also omitted (corpus-safe). The walk takes each
 /// node as an evaluator rewrite left it (`ast_rewritten_view`): every child
 /// goes through here.
-collect_types_from_expr :: (fn(expr : &AstExpr, context : &CodeGenContext, info : &ExprInfoTable) -> unit)(_collect_types_from_node(&ast_rewritten_view(expr), context, info));
-_collect_types_from_node :: (fn(expr : &AstExpr, context : &CodeGenContext, info : &ExprInfoTable) -> unit)({
+collect_types_from_expr :: (fn(expr : &AstExpr, context : &mut CodeGenContext, info : &ExprInfoTable) -> unit)(_collect_types_from_node(&ast_rewritten_view(expr), context, info));
+_collect_types_from_node :: (fn(expr : &AstExpr, context : &mut CodeGenContext, info : &ExprInfoTable) -> unit)({
   ei_opt := expr_info_table_get(info, ast_expr_id(expr));
   match(
-    ei_opt,
+    &ei_opt,
     .Some(ei) => {
       // The expression's own type.
-      collect_type(&ei.ty, context);
+      collect_type(&ei.ty(), context);
       // A function value it resolves to (e.g. method lookups like temp.___drop).
       match(
-        ei.value,
+        ei.value(),
         .Some(v) => if(is_func_val(&v), {
           fid := _fv_id(&v);
           cond(
@@ -631,7 +631,7 @@ _collect_types_from_node :: (fn(expr : &AstExpr, context : &CodeGenContext, info
       );
       // Deferred drop expressions.
       match(
-        &ei.deferred_drop_expressions,
+        &ei.deferred_drop_expressions(),
         .Some(drops) => {
           nd := drops.len();
           (di : usize) = usize(0);
@@ -709,8 +709,8 @@ _collect_types_from_node :: (fn(expr : &AstExpr, context : &CodeGenContext, info
     },
     .Atom(_, _) => match(
       ei_opt,
-      .Some(ei) => if(is_type_value(&ei.value), {
-        match(ei.value, .Some(v) => match(v, .TypeVal(t) => collect_type(&t, context), _ => ()), .None => ());
+      .Some(ei) => if(is_type_value(&ei.value()), {
+        match(ei.value(), .Some(v) => match(v, .TypeVal(t) => collect_type(&t, context), _ => ()), .None => ());
       }),
       .None => ()
     )
@@ -719,7 +719,7 @@ _collect_types_from_node :: (fn(expr : &AstExpr, context : &CodeGenContext, info
 /// Collect all user-defined types reachable from a module value: from each
 /// exported function's body, from module-level non-function fields, and then
 /// (fixpoint) from every function discovered along the way.
-collect_required_types :: (fn(module_value : &EvalValue, context : &CodeGenContext, info : &ExprInfoTable, processed : &mut HashSet(String)) -> unit)({
+collect_required_types :: (fn(module_value : &EvalValue, context : &mut CodeGenContext, info : &ExprInfoTable, processed : &mut HashSet(String)) -> unit)({
   match(
     module_value,
     .StructVal(_, _, field_values) => {
@@ -784,7 +784,7 @@ SkipEmissionFn :: (fn(func_id : &String, c_name : &String, value : &EvalValue, c
 /// With `skip`, a function the emission skips is marked walked without a
 /// walk: the dispose synthesis resolves a generic `drop` through its
 /// unspecialized original, whose types are type variables with no C form.
-collect_types_of_registered_functions :: (fn(context : &CodeGenContext, info : &ExprInfoTable, processed : &mut HashSet(String), skip : Option(SkipEmissionFn)) -> unit)({
+collect_types_of_registered_functions :: (fn(context : &mut CodeGenContext, info : &ExprInfoTable, processed : &mut HashSet(String), skip : Option(SkipEmissionFn)) -> unit)({
   // Fixpoint: keep collecting from newly-discovered functions until none are
   // new. Snapshot the keys each pass (the registry grows during collection).
   (found_new : bool) = true;

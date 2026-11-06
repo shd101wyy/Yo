@@ -29,7 +29,7 @@ _c_function_name_opt :: (fn(context : &FunctionGenerationContext, func_id : &Str
   match(context.base.get_function_entry(func_id), .Some(e) => Option(String).Some(e.c_name.clone()), .None => Option(String).None)
 );
 /// The `&` (address-of) operator generation.
-generate_address_of :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
+generate_address_of :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
   ei := match(
     context.base.get_expr_info(expr),
     .Some(e) => e,
@@ -45,13 +45,13 @@ generate_address_of :: (fn(expr : &AstExpr, indent : &String, context : &Functio
   arg_ei_opt := context.base.get_expr_info(&arg);
   // Compile-time literals need a compound literal to be addressable.
   match(
-    arg_ei_opt,
+    &arg_ei_opt,
     .Some(arg_ei) => match(
-      arg_ei.value,
+      arg_ei.value(),
       .Some(av) => {
         if(is_number_val(&av) || is_bool_val(&av), {
           arg_code := _call_generate_expr(&arg, indent.clone(), context);
-          type_name := get_type_string(&arg_ei.ty, &context.base);
+          type_name := get_type_string(&arg_ei.ty(), &mut context.base);
           mut(out) := String.from("(&(");
           out.push_string(&type_name);
           out.push_str("){");
@@ -88,9 +88,9 @@ generate_address_of :: (fn(expr : &AstExpr, indent : &String, context : &Functio
   // fallback, which copies element 0 into a 1-byte temp and addresses THAT
   // (`uint8_t t = arr.data[0]; &t`). snprintf then overflows the temp → SIGTRAP.
   // Emit the address INTO the array buffer directly: `(&((&arr)->data[i]))`.
-  if(ast_expr_is_fn_call(&arg) && match(arg_ei_opt, .Some(aei) => expr_info_index_method_value(&aei).is_none(), .None => true), {
+  if(ast_expr_is_fn_call(&arg) && match(&arg_ei_opt, .Some(aei) => expr_info_index_method_value(&aei).is_none(), .None => true), {
     callee_expr := match(arg, .FnCall(_, func, _, _, _) => func, .Atom(_, _) => arg);
-    callee_is_array := match(context.base.get_expr_info(&callee_expr), .Some(cei) => is_array_type(&cei.ty), .None => false);
+    callee_is_array := match(context.base.get_expr_info(&callee_expr), .Some(cei) => is_array_type(&cei.ty()), .None => false);
     if(callee_is_array, {
       callee_code := _call_generate_expr(&callee_expr, indent.clone(), context);
       index_arg_opt := match(arg, .FnCall(_, _, Rc(a2), _, _) => a2.get(usize(0)), .Atom(_, _) => Option(AstExpr).None);
@@ -99,7 +99,7 @@ generate_address_of :: (fn(expr : &AstExpr, indent : &String, context : &Functio
       // address is taken — an OOB address is already UB.
       arr_idx := match(
         context.base.get_expr_info(&callee_expr),
-        .Some(cei) => _checked_fixed_array_subscript(index_code, &cei.ty, &arg),
+        .Some(cei) => _checked_fixed_array_subscript(index_code, &cei.ty(), &arg),
         .None => index_code
       );
       mut(out) := String.from("(&((&");
@@ -112,7 +112,7 @@ generate_address_of :: (fn(expr : &AstExpr, indent : &String, context : &Functio
   });
   if(is_idx && ast_expr_is_fn_call(&arg), {
     match(
-      arg_ei_opt,
+      &arg_ei_opt,
       .Some(arg_ei) => match(
         expr_info_index_method_value(&arg_ei),
         .Some(mv) => if(is_func_val(&mv), {
@@ -125,9 +125,9 @@ generate_address_of :: (fn(expr : &AstExpr, indent : &String, context : &Functio
             match(
               context.base.get_expr_info(&callee_expr),
               .Some(cei) => {
-                is_already_var := match(&cei.variable_name, .Some(vn) => (callee_code == get_variable_name_for_codegen_at(ast_expr_id(&callee_expr), vn.clone(), Option(Environment).Some(cei.env))), .None => false);
+                is_already_var := match(&cei.variable_name(), .Some(vn) => (callee_code == get_variable_name_for_codegen_at(ast_expr_id(&callee_expr), vn.clone(), Option(Environment).Some(cei.env()))), .None => false);
                 if(!is_already_var, {
-                  callee_type := get_type_string(&cei.ty, &context.base);
+                  callee_type := get_type_string(&cei.ty(), &mut context.base);
                   callee_tok := ast_expr_token(&callee_expr);
                   temp_name := stable_label_id(String.from("__yo_ptr_idx_tmp_"), &callee_tok.module_path.*, usize(callee_tok.row), usize(callee_tok.column));
                   line := indent.clone();
@@ -137,8 +137,7 @@ generate_address_of :: (fn(expr : &AstExpr, indent : &String, context : &Functio
                   line.push_str(" = ");
                   line.push_string(callee_code.clone());
                   line.push_str(";");
-                  em := context.base.emitter;
-                  em.emit_string_line(&line);
+                  context.base.emitter.emit_string_line(&line);
                   callee_code = temp_name;
                 });
               },
@@ -163,7 +162,7 @@ generate_address_of :: (fn(expr : &AstExpr, indent : &String, context : &Functio
               // Safe mode Phase 1: bounds-checked subscript (§4).
               arr_idx2 := match(
                 context.base.get_expr_info(&callee_expr),
-                .Some(cei) => _checked_fixed_array_subscript(index_code.clone(), &cei.ty, &arg),
+                .Some(cei) => _checked_fixed_array_subscript(index_code.clone(), &cei.ty(), &arg),
                 .None => index_code.clone()
               );
               out := String.from("(&((&");
@@ -204,14 +203,13 @@ generate_address_of :: (fn(expr : &AstExpr, indent : &String, context : &Functio
   // read or written through it (`__yo_ptr_read`/`__yo_ptr_write` of a `unit`
   // pointee touch no memory), and non-null keeps `Option(*unit).Some(p)` out
   // of the null niche. The operand still runs for its effects.
-  if(match(arg_ei_opt, .Some(aei) => is_unit_type(&aei.ty), .None => false), {
+  if(match(&arg_ei_opt, .Some(aei) => is_unit_type(&aei.ty()), .None => false), {
     if(arg_code.len() > usize(0), {
       line := indent.clone();
       line.push_str("(void)(");
       line.push_string(&arg_code);
       line.push_str(");");
-      em := context.base.emitter;
-      em.emit_string_line(&line);
+      context.base.emitter.emit_string_line(&line);
     });
     return(String.from("((void*)1)"));
   });
@@ -225,11 +223,11 @@ generate_address_of :: (fn(expr : &AstExpr, indent : &String, context : &Functio
     match(
       arg_ei_opt,
       .Some(arg_ei) => {
-        is_already_var := match(&arg_ei.variable_name, .Some(vn) => (arg_code == get_variable_name_for_codegen_at(ast_expr_id(&arg), vn.clone(), Option(Environment).Some(arg_ei.env))), .None => false);
+        is_already_var := match(&arg_ei.variable_name(), .Some(vn) => (arg_code == get_variable_name_for_codegen_at(ast_expr_id(&arg), vn.clone(), Option(Environment).Some(arg_ei.env()))), .None => false);
         if(!is_already_var, {
-          arg_type_str := get_type_string(&arg_ei.ty, &context.base);
+          arg_type_str := get_type_string(&arg_ei.ty(), &mut context.base);
           temp_name := match(
-            &arg_ei.variable_name,
+            &arg_ei.variable_name(),
             .Some(vn) => sanitize_for_c_identifier(&vn, false),
             .None => {
               arg_tok := ast_expr_token(&arg);
@@ -243,8 +241,7 @@ generate_address_of :: (fn(expr : &AstExpr, indent : &String, context : &Functio
           line.push_str(" = ");
           line.push_string(arg_code.clone());
           line.push_str(";");
-          em := context.base.emitter;
-          em.emit_string_line(&line);
+          context.base.emitter.emit_string_line(&line);
           out := String.from("(&");
           out.push_string(&temp_name);
           out.push_str(")");

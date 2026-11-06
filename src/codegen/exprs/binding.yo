@@ -6,7 +6,7 @@
 /// Emit the C declaration `<type> <name>;` for a binding's left-hand side
 /// (the value is assigned separately). Compile-time bindings emit nothing.
 /// Returns "" (statement).
-generate_binding :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
+generate_binding :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
   lhs := match(expr, .FnCall(_, _, Rc(args), _, _) => match(args.get(usize(0)), .Some(a) => a, .None => return(String.from(""))), .Atom(_, _) => return(String.from("")));
   // Compile-time variable (`comptime(x)`) → no C declaration.
   if(ast_expr_is_fn_call_of(&lhs, BK_COMPTIME, .Some(usize(1))), {
@@ -18,10 +18,9 @@ generate_binding :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGe
       var_name := ast_expr_text(&lhs).*.clone();
       // NOTE: we cannot apply `const` here (the value is assigned afterwards).
       decl := indent.clone();
-      decl.push_string(get_variable_type_string(&ei.ty, &var_name, &context.base));
+      decl.push_string(get_variable_type_string(&ei.ty(), &var_name, &mut context.base));
       decl.push_str(";");
-      em := context.base.emitter;
-      em.emit_string_line(&decl);
+      context.base.emitter.emit_string_line(&decl);
     },
     .None => ()
   );

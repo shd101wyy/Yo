@@ -12,6 +12,7 @@
 //! since `TypeValue.Struct` only stores field labels and types (no `TypeField[]`),
 //! to avoid a circular dependency between the types and evaluator layers.
 pragma(Pragma.AllowUnsafe);
+{ replace } :: import("std/mem");
 { String } :: import("std/string");
 import("std/fmt");
 {
@@ -146,12 +147,12 @@ evaluate_type_field :: (
     expr : &AstExpr,
     tuple_field_index : usize,
     env_in : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     for_type : str,
     exn : Exception
   ) -> EvalTypeFieldResult
 )({
-  (env : Environment) = env_in;
+  (env : Environment) = Rc.clone(env_in);
   (label : Option(String)) = Option(String).None;
   (expr_ : AstExpr) = expr;
   (label_expr : Option(AstExpr)) = Option(AstExpr).None;
@@ -270,7 +271,7 @@ evaluate_type_field :: (
   // --- Determine expected type for this field (from context) ---
   (expected_tuple_element_type : Option(TypeValue)) = Option(TypeValue).None;
   if(ctx.expected_type.is_some(), {
-    expected_type_val := match(ctx.expected_type, .Some(e) => Rc.clone(e.ty), .None => Rc.new(TypeValueNode.Unit));
+    expected_type_val := match(&ctx.expected_type, .Some(e) => Rc.clone(e.ty), .None => Rc.new(TypeValueNode.Unit));
     if(is_tuple_type(&expected_type_val) || is_struct_type(&expected_type_val) || is_module_type(&expected_type_val) || is_trait_type(&expected_type_val), {
       maybe_field_ty := match(
         expected_type_val,
@@ -299,9 +300,9 @@ evaluate_type_field :: (
   // --- Evaluate the type expression ---
   if(type_expr.is_some(), {
     te := match(type_expr, .Some(t) => t, .None => make_err_expr());
-    old_expected := ctx.expected_type;
+    old_expected := ctx.expected_type.clone();
     if(expected_tuple_element_type.is_some(), {
-      elem_env := match(ctx.expected_type, .Some(e) => snapshot_env(&e.env), .None => env);
+      elem_env := match(&ctx.expected_type, .Some(e) => snapshot_env(&e.env), .None => Rc.clone(env));
       ctx.expected_type = Option(ExpectedTypeCtx).Some(
         ExpectedTypeCtx(
           ty : match(&expected_tuple_element_type, .Some(t) => Rc.clone(t), .None => Rc.new(TypeValueNode.Unit)),
@@ -312,11 +313,11 @@ evaluate_type_field :: (
       ctx.expected_type = Option(ExpectedTypeCtx).None;
     });
     evaluated_te := evaluate_expression_raw(&te, &env, ctx, exn);
-    ctx.expected_type = old_expected;
+    ctx.expected_type = old_expected.clone();
     te_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_te));
-    te_info := match(te_info_opt, .Some(i) => i, .None => new_expr_info(&env, Rc.new(TypeValueNode.Unit)));
-    env_adopt(&env, &te_info.env);
-    if(!is_type_value(&te_info.value), {
+    te_info := match(te_info_opt, .Some(i) => Rc.clone(i), .None => new_expr_info(&env, Rc.new(TypeValueNode.Unit)));
+    env_adopt(&env, &te_info.env());
+    if(!is_type_value(&te_info.value()), {
       exn.throw(
         dyn(
           format_error_message(
@@ -327,7 +328,7 @@ evaluate_type_field :: (
       );
     });
     field_type = match(
-      te_info.value,
+      te_info.value(),
       .Some(.TypeVal(inner)) => Option(TypeValue).Some(Rc.clone(inner)),
       .Some(_) => Option(TypeValue).None,
       .None => Option(TypeValue).None
@@ -375,7 +376,7 @@ evaluate_type_field :: (
       Option(ExpectedTypeCtx).Some(
         ExpectedTypeCtx(
           ty : match(field_type, .Some(t) => Rc.clone(t), .None => Rc.new(TypeValueNode.Unit)),
-          env : env
+          env : Rc.clone(env)
         )
       ),
       if(
@@ -383,24 +384,23 @@ evaluate_type_field :: (
         Option(ExpectedTypeCtx).Some(
           ExpectedTypeCtx(
             ty : match(&expected_tuple_element_type, .Some(t) => Rc.clone(t), .None => Rc.new(TypeValueNode.Unit)),
-            env : env
+            env : Rc.clone(env)
           )
         ),
         Option(ExpectedTypeCtx).None
       )
     );
-    old_expected := ctx.expected_type;
+    old_expected := replace(&mut ctx.expected_type, field_expected_ctx.clone());
     old_force_ct := ctx.force_compile_time_bindings;
-    ctx.expected_type = field_expected_ctx;
     // Do not propagate forceCompileTimeBindings when evaluating type field values.
     ctx.force_compile_time_bindings = false;
     evaluated_av := evaluate_expression_raw(&av_expr, &env, ctx, exn);
-    ctx.expected_type = old_expected;
+    ctx.expected_type = old_expected.clone();
     ctx.force_compile_time_bindings = old_force_ct;
     av_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_av));
     av_info := match(
       av_info_opt,
-      .Some(i) => i,
+      .Some(i) => Rc.clone(i),
       .None => {
         exn.throw(
           dyn(
@@ -413,8 +413,8 @@ evaluate_type_field :: (
         new_expr_info(&env, Rc.new(TypeValueNode.Unit))
       }
     );
-    env_adopt(&env, &av_info.env);
-    if(av_info.value.is_none(), {
+    env_adopt(&env, &av_info.env());
+    if(av_info.value().is_none(), {
       exn.throw(
         dyn(
           format_error_message(
@@ -424,8 +424,8 @@ evaluate_type_field :: (
         )
       );
     });
-    assigned_value = av_info.value;
-    av_type := Rc.clone(av_info.ty);
+    assigned_value = av_info.value();
+    av_type := Rc.clone(av_info.ty());
     // Same UnknownVal hole as the ?= gate above, for the `name = value`
     // comptime-field form: a runtime call is not a compile-time value.
     match(
@@ -467,7 +467,7 @@ evaluate_type_field :: (
       Option(ExpectedTypeCtx).Some(
         ExpectedTypeCtx(
           ty : match(field_type, .Some(t) => Rc.clone(t), .None => Rc.new(TypeValueNode.Unit)),
-          env : env
+          env : Rc.clone(env)
         )
       ),
       if(
@@ -475,20 +475,19 @@ evaluate_type_field :: (
         Option(ExpectedTypeCtx).Some(
           ExpectedTypeCtx(
             ty : match(expected_tuple_element_type, .Some(t) => Rc.clone(t), .None => Rc.new(TypeValueNode.Unit)),
-            env : env
+            env : Rc.clone(env)
           )
         ),
         Option(ExpectedTypeCtx).None
       )
     );
-    old_expected := ctx.expected_type;
-    ctx.expected_type = field_expected_ctx;
+    old_expected := replace(&mut ctx.expected_type, field_expected_ctx.clone());
     evaluated_dv := evaluate_expression_raw(&dv_expr, &env, ctx, exn);
-    ctx.expected_type = old_expected;
+    ctx.expected_type = old_expected.clone();
     dv_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_dv));
     dv_info := match(
       dv_info_opt,
-      .Some(i) => i,
+      .Some(i) => Rc.clone(i),
       .None => {
         exn.throw(
           dyn(
@@ -501,8 +500,8 @@ evaluate_type_field :: (
         new_expr_info(&env, Rc.new(TypeValueNode.Unit))
       }
     );
-    env_adopt(&env, &dv_info.env);
-    if(dv_info.value.is_none(), {
+    env_adopt(&env, &dv_info.env());
+    if(dv_info.value().is_none(), {
       exn.throw(
         dyn(
           format_error_message(
@@ -512,8 +511,8 @@ evaluate_type_field :: (
         )
       );
     });
-    default_value = dv_info.value;
-    dv_type := Rc.clone(dv_info.ty);
+    default_value = dv_info.value();
+    dv_type := Rc.clone(dv_info.ty());
     // The known-value gate above tests only `.is_none()` — an UnknownVal
     // ("type known, value not") is `.Some` and slips it: a runtime CALL
     // default (`(y : i32) ?= mk()`, `(xs : ArrayList(usize)) ?=
@@ -599,7 +598,7 @@ evaluate_type_field :: (
       )
     );
     le_info := new_expr_info(&env, &final_type);
-    le_info.value = le_val;
+    le_info.set_value(le_val);
     expr_info_set_doc_comment(&le_info, &field_doc_comment);
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&le), &le_info);
   });
@@ -611,7 +610,7 @@ evaluate_type_field :: (
   );
   if(!is_same_as_type_expr, {
     expr_info := new_expr_info(&env, Rc.new(TypeValueNode.Unit));
-    expr_info.value = Option(EvalValue).Some(EvalValue.UnitVal);
+    expr_info.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &expr_info);
   });
   // --- Prohibit void type ---

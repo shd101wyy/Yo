@@ -26,7 +26,7 @@
 { TypeValue } :: import("../../src/types/definitions.yo");
 { t_unit, t_i32, t_func_simple } :: import("../../src/types/creators.yo");
 { EvalValue } :: import("../../src/value.yo");
-{ Environment, Frame, new_frame } :: import("../../src/env.yo");
+{ Environment, Frame, new_frame, new_environment, make_environment } :: import("../../src/env.yo");
 { AstExpr } :: import("../../src/expr.yo");
 { HashMap } :: import("std/collections/hash_map");
 make_token :: (fn(value : str) -> Token)(
@@ -99,10 +99,10 @@ test("CaptureUsage variants", {
   match(o, .Own => (), _ => assert(false, "expected Own"));
 });
 test("track_variable_usage: no function body context → no-op", {
-  ctx := eval_context_new(String.from("/std"), String.from("a.yo"));
+  mut(ctx) := eval_context_new(String.from("/std"), String.from("a.yo"));
   // is_evaluating_function_body_or_async_block is None → should return early
   tok := make_token("x");
-  track_variable_usage(String.from("x"), usize(0), CaptureUsage.Read, &tok, &ctx);
+  track_variable_usage(String.from("x"), usize(0), CaptureUsage.Read, &tok, &mut ctx);
   // captured_variables should remain None
   match(
     &ctx.captured_variables,
@@ -111,10 +111,10 @@ test("track_variable_usage: no function body context → no-op", {
   );
 });
 test("track_variable_usage: with function body context but var not in env → no-op", {
-  ctx := eval_context_new(String.from("/std"), String.from("a.yo"));
+  mut(ctx) := eval_context_new(String.from("/std"), String.from("a.yo"));
   ctx.captured_variables = .Some(HashMap(String, CapturedVarInfo).new());
   // Create a minimal Environment with no frames
-  env := Environment(frames : Rc.new(ArrayList(Frame).new()), module_path : Rc.new(String.from("test.yo")), function_declaration_frame_level : Option(usize).None, frozen : false);
+  env := make_environment(frames : Rc.new(ArrayList(Frame).new()), module_path : Rc.new(String.from("test.yo")), function_declaration_frame_level : Option(usize).None, frozen : false);
   sub_ctx := FuncOrAsyncBlockCtx(
     kind : FuncOrAsyncBlockKind.FunctionBody,
     func_type : Option(TypeValue).None,
@@ -124,7 +124,7 @@ test("track_variable_usage: with function body context but var not in env → no
   ctx.is_evaluating_function_body_or_async_block = Option(FuncOrAsyncBlockCtx).Some(sub_ctx);
   tok := make_token("notfound");
   // env has no frames, so frame_count()=0; frame_level=0 >= 0 → early return
-  track_variable_usage(String.from("notfound"), usize(0), CaptureUsage.Read, &tok, &ctx);
+  track_variable_usage(String.from("notfound"), usize(0), CaptureUsage.Read, &tok, &mut ctx);
   match(
     &ctx.captured_variables,
     .None => assert(false, "map should still exist"),
@@ -142,8 +142,8 @@ test("track_variable_usage: a parameter shadowing an outer name is not a capture
   // nothing is captured. The search used to go outermost-first and captured
   // the outer `io`
   // (issues/fixed/io-async-param-shadowing-an-outer-name-still-captures-it.md).
-  ctx := eval_context_new(String.from("/std"), String.from("a.yo"));
-  env := Environment.new(Rc.new(`mod`));
+  mut(ctx) := eval_context_new(String.from("/std"), String.from("a.yo"));
+  env := new_environment(Rc.new(`mod`));
   _outer := env.define(`io`, t_i32(), false);
   _pf := env.push_frame(true);
   _param := env.define(`io`, t_i32(), false);
@@ -154,7 +154,7 @@ test("track_variable_usage: a parameter shadowing an outer name is not a capture
     eval_env : env
   );
   ctx.is_evaluating_function_body_or_async_block = Option(FuncOrAsyncBlockCtx).Some(sub_ctx);
-  track_variable_usage(String.from("io"), usize(1), CaptureUsage.Read, make_token("io"), &ctx);
+  track_variable_usage(String.from("io"), usize(1), CaptureUsage.Read, make_token("io"), &mut ctx);
   match(
     &ctx.captured_variables,
     .None => (),
@@ -206,7 +206,7 @@ test("get_type_call_result: returns None for FunctionTypeResult", {
 { create_function_body_evaluation_context } :: import("../../src/evaluator/context.yo");
 test("create_function_body_evaluation_context: basic flags", {
   ctx := eval_context_new(String.from("/std"), String.from("test.yo"));
-  env := Environment.new(Rc.new(`test`));
+  env := new_environment(Rc.new(`test`));
   // Build a simple fn() -> unit type
   func_type := t_func_simple(ArrayList(String).new(), ArrayList(TypeValue).new(), t_unit());
   body_ctx := create_function_body_evaluation_context(
@@ -224,7 +224,7 @@ test("create_function_body_evaluation_context: basic flags", {
 });
 test("create_function_body_evaluation_context: function body context embedded", {
   ctx := eval_context_new(String.from("/std"), String.from("test.yo"));
-  env := Environment.new(Rc.new(`test`));
+  env := new_environment(Rc.new(`test`));
   func_type := t_func_simple(ArrayList(String).new(), ArrayList(TypeValue).new(), t_unit());
   body_ctx := create_function_body_evaluation_context(
     &func_type,
@@ -234,7 +234,7 @@ test("create_function_body_evaluation_context: function body context embedded", 
   );
   // FuncOrAsyncBlockCtx is embedded
   match(
-    body_ctx.is_evaluating_function_body_or_async_block,
+    &body_ctx.is_evaluating_function_body_or_async_block,
     .None => assert(false, "expected Some FuncOrAsyncBlockCtx"),
     .Some(fb) => match(
       fb.kind,
@@ -257,7 +257,7 @@ test("create_function_body_evaluation_context: function body context embedded", 
 });
 test("create_function_body_evaluation_context: expected_type set to return(type)", {
   ctx := eval_context_new(String.from("/std"), String.from("test.yo"));
-  env := Environment.new(Rc.new(`test`));
+  env := new_environment(Rc.new(`test`));
   func_type := t_func_simple(ArrayList(String).new(), ArrayList(TypeValue).new(), t_unit());
   body_ctx := create_function_body_evaluation_context(
     &func_type,
@@ -277,9 +277,9 @@ test("create_function_body_evaluation_context: expected_type set to return(type)
   );
 });
 test("create_function_body_evaluation_context: copies parent context fields", {
-  ctx := eval_context_new(String.from("/custom/std"), String.from("mymod.yo"));
+  mut(ctx) := eval_context_new(String.from("/custom/std"), String.from("mymod.yo"));
   ctx.is_inside_impl_block = true;
-  env := Environment.new(Rc.new(`test`));
+  env := new_environment(Rc.new(`test`));
   func_type := t_func_simple(ArrayList(String).new(), ArrayList(TypeValue).new(), t_unit());
   body_ctx := create_function_body_evaluation_context(
     &func_type,

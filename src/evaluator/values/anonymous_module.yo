@@ -8,6 +8,7 @@
 //!
 //! `allow_partial_module` is supported via the inner exception handler.
 pragma(Pragma.AllowUnsafe);
+{ replace } :: import("std/mem");
 { String } :: import("std/string");
 { RefCell } :: import("std/sync/refcell");
 { scope_release_depth, scope_release_set_depth } :: import("../../expr_info.yo");
@@ -35,7 +36,7 @@ pragma(Pragma.AllowUnsafe);
   restore_active_where_trait_ids
 } :: import("../../expr_info.yo");
 { HashSet } :: import("std/collections/hash_set");
-{ Environment, Variable, get_variables_from_env, env_adopt, variable_value_type } :: import("../../env.yo");
+{ Environment, Variable, get_variables_from_env, env_adopt, new_environment, variable_value_type } :: import("../../env.yo");
 /// Names of recorded module-level runtime statics — lets a later bare-atom
 /// `name = value;` top-level REASSIGNMENT be collected into the module init
 /// (a per-variable "module-level" flag would be unreliable for imported
@@ -73,7 +74,8 @@ pragma(Pragma.AllowUnsafe);
   copy_eval_context,
   set_in_def_time_trial,
   forcing_depths,
-  truncate_forcing_depths
+  truncate_forcing_depths,
+  ExpectedTypeCtx
 } :: import("../context.yo");
 { stable_sns_module_id } :: import("../../utils.yo");
 { registration_owner, set_registration_owner } :: import("./type_trait_methods.yo");
@@ -160,7 +162,7 @@ _take_force_failure :: (fn() -> Option(String))({
   g_force_failure = Option(String).None;
   r
 });
-_force_eval :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext) -> unit)({
+_force_eval :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext) -> unit)({
   inner_exn := Exception(
     throw : (
       _err -> {
@@ -187,9 +189,9 @@ _force_pending_def_impl :: (fn(walk : &ModuleWalk, def : &PendingDef) -> Option(
   // A finished walk of a one-shot command has released its context
   // (`end_module_walk`); nothing forces its definitions afterwards, so
   // reaching this is a broken invariant, reported rather than masked.
-  force_ctx := match(
-    walk.ctx,
-    .Some(c) => copy_eval_context(&c),
+  mut(force_ctx) := match(
+    walk.ctx_copy(),
+    .Some(c) => c,
     .None => return(
       Option(String).Some(
         `internal error: forcing \`${def.name}\` after module \`${walk.module_path}\` finished its walk and released its evaluation context (only \`check --watch\` and \`yo lsp\` retain it)`
@@ -199,7 +201,7 @@ _force_pending_def_impl :: (fn(walk : &ModuleWalk, def : &PendingDef) -> Option(
   force_ctx.expected_type = .None;
   prev_mod_exprs := get_module_begin_exprs();
   prev_mod_idx := get_module_begin_expr_index();
-  set_module_walk(&walk.begin_exprs);
+  set_module_walk(&walk.begin_exprs_snapshot());
   set_module_walk_index(def.index);
   prev_trial := set_in_def_time_trial(false);
   saved_where := take_active_where_trait_ids();
@@ -218,7 +220,7 @@ _force_pending_def_impl :: (fn(walk : &ModuleWalk, def : &PendingDef) -> Option(
     .Some(k) => set_registration_owner(&k),
     .None => ()
   );
-  _force_eval(&def.expr, &force_env, &force_ctx);
+  _force_eval(&def.expr(), &force_env, &mut force_ctx);
   set_registration_owner(&prev_owner);
   truncate_forcing_depths(force_depths);
   restore_active_where_trait_ids(&saved_where);
@@ -228,9 +230,9 @@ _force_pending_def_impl :: (fn(walk : &ModuleWalk, def : &PendingDef) -> Option(
     _take_force_failure(),
     .Some(msg) => Option(String).Some(
       cond(
-        def.is_derive => `${msg}\n  note: \`derive(${def.name}, …)\` (line ${(def.row + usize(1)).to_string()}) was evaluated here because a method or trait of \`${def.name}\` is used before that derive in the source`,
-        def.is_impl => `${msg}\n  note: \`impl(${def.name}, …)\` (line ${(def.row + usize(1)).to_string()}) was evaluated here because a method or trait of \`${def.name}\` is used before that impl in the source`,
-        true => `${msg}\n  note: \`${def.name}\` (line ${(def.row + usize(1)).to_string()}) was evaluated here because it is referenced before its definition in the source`
+        def.is_derive() => `${msg}\n  note: \`derive(${def.name}, …)\` (line ${(def.row() + usize(1)).to_string()}) was evaluated here because a method or trait of \`${def.name}\` is used before that derive in the source`,
+        def.is_impl => `${msg}\n  note: \`impl(${def.name}, …)\` (line ${(def.row() + usize(1)).to_string()}) was evaluated here because a method or trait of \`${def.name}\` is used before that impl in the source`,
+        true => `${msg}\n  note: \`${def.name}\` (line ${(def.row() + usize(1)).to_string()}) was evaluated here because it is referenced before its definition in the source`
       )
     ),
     .None => Option(String).None
@@ -245,7 +247,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
   fn(
     begin_exprs : &ArrayList(AstExpr),
     init_env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     allow_partial_module : bool,
     keep_frame_at_end : bool,
     defer_definitions : bool,
@@ -253,7 +255,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
   ) -> AnonModuleResult
 )({
   // Mutable local copy of the incoming env.
-  (env : Environment) = init_env;
+  (env : Environment) = Rc.clone(init_env);
   // Parallel arrays that together build the source-namespace Struct + StructVal.
   field_labels := ArrayList(String).new();
   field_types := ArrayList(TypeValue).new();
@@ -279,8 +281,8 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
   // evaluated here — entries are forced on a lookup miss, or at their own
   // position below, whichever comes first.
   module_frame_id := match(
-    env.frames.last(),
-    .Some(mf) => mf.id,
+    env.last_frame(),
+    .Some(mf) => mf.id(),
     .None => usize(0)
   );
   walk_opt := cond(
@@ -304,17 +306,17 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
         // that failure at its own position, so the error is attributed here
         // as it would have been without the early force.
         pending_here := match(
-          walk_opt,
+          &walk_opt,
           .Some(w) => walk_pending_def_at(&w, i),
           .None => Option(PendingDef).None
         );
         skip_statement := match(
-          pending_here,
+          &pending_here,
           .Some(def) => match(
-            def.state,
+            def.state(),
             .Done => true,
             .Failed => {
-              exn.throw(dyn(match(&def.failure, .Some(m) => m.clone(), .None => String.from("definition failed"))));
+              exn.throw(dyn(match(&def.failure(), .Some(m) => m.clone(), .None => String.from("definition failed"))));
               true
             },
             .Forcing => {
@@ -365,10 +367,9 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                       // Optional exclude(...) second arg
                       exclude_expr_opt := spread_args.get(usize(1));
                       // Evaluate the extended module expression
-                      saved_expected := ctx.expected_type;
-                      ctx.expected_type = .None;
+                      saved_expected := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
                       eval_ext := evaluate_expression_raw(&ext_mod_expr, &env, ctx, exn);
-                      ctx.expected_type = saved_expected;
+                      ctx.expected_type = saved_expected.clone();
                       ext_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&eval_ext));
                       if(ext_info_opt.is_none(), {
                         exn.throw(
@@ -380,9 +381,9 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                           )
                         );
                       });
-                      ext_info := match(ext_info_opt, .Some(it) => it, .None => new_expr_info(&env, Rc.new(TypeValueNode.Unit)));
-                      env_adopt(&env, &ext_info.env);
-                      ext_mod_type := Rc.clone(ext_info.ty);
+                      ext_info := match(ext_info_opt, .Some(it) => Rc.clone(it), .None => new_expr_info(&env, Rc.new(TypeValueNode.Unit)));
+                      env_adopt(&env, &ext_info.env());
+                      ext_mod_type := Rc.clone(ext_info.ty());
                       if(!is_module_type(&ext_mod_type), {
                         exn.throw(
                           dyn(
@@ -395,7 +396,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                       });
                       // Extract the source-namespace StructVal if available
                       ext_mod_val_opt := match(
-                        ext_info.value,
+                        ext_info.value(),
                         .Some(.StructVal(sn, ns, vs)) => Option(EvalValue).Some(EvalValue.StructVal(sn.clone(), Rc.clone(ns), Rc.clone(vs))),
                         .Some(_) => Option(EvalValue).None,
                         .None => Option(EvalValue).None
@@ -534,7 +535,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                             if(!_is_excluded_label(&excluded_labels, ext_label.clone()), {
                               match(
                                 &ext_mod_path,
-                                .Some(mp) => record_module_ordered_read(&env.module_path.*, &mp, ext_label.clone()),
+                                .Some(mp) => record_module_ordered_read(&env.module_path().*, &mp, ext_label.clone()),
                                 .None => ()
                               );
                               // Check for duplicate label
@@ -564,7 +565,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                               module_vals.push(ext_val);
                               // Set ExprInfo on export_expr (last field wins).
                               out_info := new_expr_info(&env, &ext_type);
-                              out_info.value = .Some(ext_val);
+                              out_info.set_value(.Some(ext_val));
                               expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&export_expr), &out_info);
                             });
                             k = (k + usize(1));
@@ -673,9 +674,9 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                       });
                       the_var := match(
                         forced_var,
-                        .Some(fv2) => fv2,
+                        .Some(fv2) => Rc.clone(fv2),
                         .None => match(
-                          vars.last(),
+                          vars.last_cloned(),
                           .Some(v) => v,
                           .None => {
                             __yo_panic("unreachable: vars.len() was checked above");
@@ -702,7 +703,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                         );
                       });
                       // Only compile-time variables can be exported
-                      if(!the_var.is_compile_time_only, {
+                      if(!the_var.is_compile_time_only(), {
                         exn.throw(
                           dyn(
                             format_error_message(
@@ -712,7 +713,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                           )
                         );
                       });
-                      the_val := match(the_var.value.get(usize(0)), .Some(v) => v, .None => EvalValue.UnitVal);
+                      the_val := match(the_var.value().get(usize(0)), .Some(v) => v, .None => EvalValue.UnitVal);
                       // Overload-set gate: an exported `Call` holding a TUPLE of
                       // two or more candidates is function overloading (the
                       // `_try_expand_call_overload` dispatch trial-calls every
@@ -760,15 +761,14 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
             });
           }, {
             // Non-export expression: evaluate normally
-            saved_expected := ctx.expected_type;
-            ctx.expected_type = .None;
+            saved_expected := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
             evaluated := evaluate_expression_raw(&expr, &env, ctx, exn);
-            ctx.expected_type = saved_expected;
+            ctx.expected_type = saved_expected.clone();
             info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated));
             match(
               info_opt,
               .Some(info) => {
-                env_adopt(&env, &info.env);
+                env_adopt(&env, &info.env());
               },
               .None => ()
             );
@@ -799,7 +799,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                   lhs_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&init_lhs));
                   match(
                     lhs_info_opt,
-                    .Some(li) => if(li.value.is_none(), {
+                    .Some(li) => if(li.value().is_none(), {
                       record_module_level_init_expr(&evaluated);
                       _attach_module_init_temp_drops(&evaluated, &env, ctx, exn);
                       g_module_level_static_names.with_mut(s => s.insert(ast_expr_text(&init_lhs).*.clone()));
@@ -839,12 +839,12 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
         match(
           pending_here,
           .Some(def) => if(!skip_statement, {
-            def.state = PendingDefState.Done;
-            if(!def.is_impl && def.variable.is_none(), {
+            def.set_state(PendingDefState.Done);
+            if(!def.is_impl && def.variable().is_none(), {
               match(
-                walk_opt,
+                &walk_opt,
                 .Some(w) => {
-                  def.variable = module_frame_variable(&w, def.name.clone());
+                  def.set_variable(module_frame_variable(&w, def.name.clone()));
                 },
                 .None => ()
               );
@@ -865,7 +865,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
   // laziness changes order, never coverage). Keep the table for the
   // post-walk miss fallback.
   match(
-    walk_opt,
+    &walk_opt,
     .Some(w) => end_module_walk(&w),
     .None => ()
   );
@@ -881,8 +881,8 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
   // `is_source_namespace`, paired with a StructVal because types and values
   // are kept split (the TypeValue layer cannot reference EvalValue). See
   // plans/archive/MODULE_AS_STRUCT_ALIGNMENT.md.
-  sns_id := stable_sns_module_id(&env.module_path.*);
-  register_sns_module(sns_id.clone(), &env.module_path.*);
+  sns_id := stable_sns_module_id(&env.module_path().*);
+  register_sns_module(sns_id.clone(), &env.module_path().*);
   module_type := Rc.new(
     TypeValueNode.Struct(
       sns_id.clone(),
@@ -941,7 +941,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
 /// it (each rides its own statement's init expr — a shared snapshot can carry
 /// both), and a compile-time-only temp that never gains a C declaration is
 /// skipped by codegen's undeclared-temp gate.
-_attach_module_init_temp_drops :: (fn(stmt : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
+_attach_module_init_temp_drops :: (fn(stmt : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> unit)({
   stmt_tok := ast_expr_token(stmt);
   rhs_node := match(
     stmt,
@@ -950,24 +950,24 @@ _attach_module_init_temp_drops :: (fn(stmt : &AstExpr, env : &Environment, ctx :
   );
   snapshot_env := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&rhs_node)),
-    .Some(ri) => ri.env,
-    .None => env
+    .Some(ri) => ri.env(),
+    .None => Rc.clone(env)
   );
   stmt_temps := ArrayList(Variable).new();
-  (fi : usize) = snapshot_env.frames.len();
+  (fi : usize) = snapshot_env.frames_len();
   while(fi > usize(0), {
     fi = (fi - usize(1));
     match(
-      snapshot_env.frames.get(fi),
+      snapshot_env.frame_at(fi),
       .Some(fr) => {
-        fv := fr.variables.clone();
+        fv := fr.variables();
         (i : usize) = usize(0);
         while(i < fv.len(), {
           match(
-            fv.get(i),
+            fv.get_cloned(i),
             .Some(v) => {
               minted_here := match(
-                v.initialized_at_token,
+                v.initialized_at_token(),
                 .Some(it) => ((stmt_tok.module_path == it.module_path) && (stmt_tok.input == it.input) && (stmt_tok.character <= it.character)),
                 .None => false
               );
@@ -979,7 +979,7 @@ _attach_module_init_temp_drops :: (fn(stmt : &AstExpr, env : &Environment, ctx :
                 },
                 _ => false
               );
-              if(minted_here && v.is_owning_the_rc_value && type_contains_rc_type(&variable_value_type(&v)) && !v.is_module_level && !v.is_ref && !some_undroppable && v.consumed_at_token.is_none(), {
+              if(minted_here && v.is_owning_the_rc_value() && type_contains_rc_type(&variable_value_type(&v)) && !v.is_module_level() && !v.is_ref() && !some_undroppable && v.consumed_at_token().is_none(), {
                 stmt_temps.push(v);
               });
             },
@@ -998,7 +998,7 @@ _attach_module_init_temp_drops :: (fn(stmt : &AstExpr, env : &Environment, ctx :
     while(di > usize(0), {
       di = (di - usize(1));
       match(
-        stmt_temps.get(di),
+        stmt_temps.get_cloned(di),
         .Some(v) => drops.push(evaluate_expression_raw(generate_expr_from_code(`___drop(${v.name})`, exn), env, ctx, exn)),
         .None => ()
       );
@@ -1006,7 +1006,7 @@ _attach_module_init_temp_drops :: (fn(stmt : &AstExpr, env : &Environment, ctx :
     match(
       expr_info_table_get(&ctx.expr_info_table, ast_expr_id(stmt)),
       .Some(si) => {
-        existing := match(&si.deferred_drop_expressions, .Some(l) => l.clone(), .None => ArrayList(AstExpr).new());
+        existing := match(&si.deferred_drop_expressions(), .Some(l) => l.clone(), .None => ArrayList(AstExpr).new());
         (j : usize) = usize(0);
         while(j < drops.len(), {
           match(
@@ -1016,7 +1016,7 @@ _attach_module_init_temp_drops :: (fn(stmt : &AstExpr, env : &Environment, ctx :
           );
           j = (j + usize(1));
         });
-        si.deferred_drop_expressions = Option(ArrayList(AstExpr)).Some(existing);
+        si.set_deferred_drop_expressions(Option(ArrayList(AstExpr)).Some(existing));
         expr_info_table_set(&ctx.expr_info_table, ast_expr_id(stmt), &si);
       },
       .None => ()
@@ -1035,7 +1035,7 @@ _run_module_walk :: (
   fn(
     begin_exprs : &ArrayList(AstExpr),
     init_env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     allow_partial_module : bool,
     keep_frame_at_end : bool,
     defer_definitions : bool
@@ -1049,7 +1049,7 @@ _run_module_walk :: (
           AnonModuleResult(
             module_value : EvalValue.UnitVal,
             module_type : Rc.new(TypeValueNode.Unit),
-            env : Environment.new(Rc.new(String.new())),
+            env : new_environment(Rc.new(String.new())),
             partial_module_error : Option(String).None
           )
         );
@@ -1077,7 +1077,7 @@ evaluate_anonymous_module_begin_exprs :: (
   fn(
     begin_exprs : &ArrayList(AstExpr),
     init_env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     allow_partial_module : bool,
     keep_frame_at_end : bool,
     defer_definitions : bool,

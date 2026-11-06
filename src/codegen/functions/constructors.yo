@@ -48,23 +48,20 @@ _has_generic_fields :: (fn(fields : &ArrayList(RuntimeStructField)) -> bool)({
 /// receiver through a pointer (a `Drop` impl's `self : &mut Self`,
 /// `dispose_function_takes_pointer`): the thunk then passes the address of a
 /// local holding the handle. Empty for a by-value receiver.
-dispose_fn_thunk :: (fn(dispose_c_name : &String, self_c_type : &String, context : &FunctionGenerationContext) -> String)({
+dispose_fn_thunk :: (fn(dispose_c_name : &String, self_c_type : &String, context : &mut FunctionGenerationContext) -> String)({
   thunk := `__yo_dispose_thunk_${dispose_c_name}`;
   if(!context.base.dispose_thunks.contains(thunk.clone()), {
-    cg_base := context.base;
-    cg_base.dispose_thunks.insert(thunk.clone());
-    em := context.base.emitter;
+    context.base.dispose_thunks.insert(thunk.clone());
     if(self_c_type.is_empty(), {
-      em.emit_string_line(`static inline void ${thunk}(void* ptr) { ${dispose_c_name}(ptr); }`);
+      context.base.emitter.emit_string_line(`static inline void ${thunk}(void* ptr) { ${dispose_c_name}(ptr); }`);
     }, {
-      em.emit_string_line(`static inline void ${thunk}(void* ptr) { ${self_c_type} __yo_self = (${self_c_type})ptr; ${dispose_c_name}(&__yo_self); }`);
+      context.base.emitter.emit_string_line(`static inline void ${thunk}(void* ptr) { ${self_c_type} __yo_self = (${self_c_type})ptr; ${dispose_c_name}(&__yo_self); }`);
     });
   });
   thunk
 });
 /// Emit the constructor function for a single concrete object type.
-_generate_one_constructor :: (fn(type : &TypeValue, c_name : &String, context : &FunctionGenerationContext) -> unit)({
-  em := context.base.emitter;
+_generate_one_constructor :: (fn(type : &TypeValue, c_name : &String, context : &mut FunctionGenerationContext) -> unit)({
   runtime_fields := get_runtime_struct_fields(type);
   if(_has_generic_fields(&runtime_fields), {
     return();
@@ -86,7 +83,7 @@ _generate_one_constructor :: (fn(type : &TypeValue, c_name : &String, context : 
           params.push_str(", ");
         });
         any_param = true;
-        params.push_string(get_type_string(&field.ty, &context.base));
+        params.push_string(get_type_string(&field.ty, &mut context.base));
         params.push_str(" ");
         params.push_string(sanitize_for_c_identifier(field.label.clone(), false));
       }),
@@ -98,7 +95,7 @@ _generate_one_constructor :: (fn(type : &TypeValue, c_name : &String, context : 
   // A `Drop` impl's `___dispose` takes `&mut Self` (a pointer): it is always
   // reached through a thunk that passes the handle's address.
   dispose_ptr := dispose_function_takes_pointer(type);
-  dispose_self_c := if(dispose_ptr, get_type_string(type, &context.base), String.new());
+  dispose_self_c := if(dispose_ptr, get_type_string(type, &mut context.base), String.new());
   (dispose_thunk : String) = match(
     &dispose_opt,
     .Some(dn) => if(dispose_ptr, dispose_fn_thunk(&dn, &dispose_self_c, context), String.new()),
@@ -124,7 +121,7 @@ _generate_one_constructor :: (fn(type : &TypeValue, c_name : &String, context : 
   });
   sig.push_string(&params);
   sig.push_str(") {");
-  em.emit_string_line(&sig);
+  context.base.emitter.emit_string_line(&sig);
   mut(alloc) := String.from("  ");
   alloc.push_string(c_name.clone());
   alloc.push_str("* obj = (");
@@ -132,16 +129,16 @@ _generate_one_constructor :: (fn(type : &TypeValue, c_name : &String, context : 
   alloc.push_str("*)");
   alloc.push_string(if(is_cell, context.base.rc_alloc_in_call(&String.from("__yo_sc"), c_name), `__yo_rc_alloc(sizeof(${c_name}))`));
   alloc.push_str(";");
-  em.emit_string_line(&alloc);
+  context.base.emitter.emit_string_line(&alloc);
   // RC header.
-  em.emit_string_line(
+  context.base.emitter.emit_string_line(
     if(
       is_cell,
       String.from("  obj->header.ref_count = 1u | __yo_rc_tag_of(__yo_sc);  // One reference; the tag marks an explicit allocator's block"),
       String.from("  obj->header.ref_count = 1u;  // One reference")
     )
   );
-  em.emit_string_line(String.from("  obj->header.borrow_count = 0;  // Law-of-Exclusivity: no live interior borrows yet"));
+  context.base.emitter.emit_string_line(String.from("  obj->header.borrow_count = 0;  // Law-of-Exclusivity: no live interior borrows yet"));
   // Dispose type-tag.
   match(
     dispose_opt,
@@ -150,9 +147,9 @@ _generate_one_constructor :: (fn(type : &TypeValue, c_name : &String, context : 
       line := String.from("  obj->header.type_id = ");
       line.push_string(dispose_id.to_string());
       line.push_str(";");
-      em.emit_string_line(&line);
+      context.base.emitter.emit_string_line(&line);
     },
-    .None => em.emit_string_line(String.from("  obj->header.type_id = 0;"))
+    .None => context.base.emitter.emit_string_line(String.from("  obj->header.type_id = 0;"))
   );
   // Initialize fields (a `unit` field has no member to store into).
   (fi : usize) = usize(0);
@@ -166,18 +163,18 @@ _generate_one_constructor :: (fn(type : &TypeValue, c_name : &String, context : 
         line.push_str(" = ");
         line.push_string(fname.clone());
         line.push_str(";");
-        em.emit_string_line(&line);
+        context.base.emitter.emit_string_line(&line);
       }),
       .None => ()
     );
     fi = (fi + usize(1));
   });
-  em.emit_string_line(String.from("  return obj;"));
-  em.emit_string_line(String.from("}"));
-  em.emit_string_line(String.from(""));
+  context.base.emitter.emit_string_line(String.from("  return obj;"));
+  context.base.emitter.emit_string_line(String.from("}"));
+  context.base.emitter.emit_string_line(String.from(""));
 });
 /// Generate constructor implementations for every concrete object type.
-generate_ref_struct_constructor_functions :: (fn(context : &FunctionGenerationContext) -> unit)({
+generate_ref_struct_constructor_functions :: (fn(context : &mut FunctionGenerationContext) -> unit)({
   // A live cursor walk of the registry, not a borrowed `for`: the body can
   // register a late type (the on-demand hook), which a borrowed walk refuses.
   vals_cur := context.base.types.walk_start();
@@ -197,8 +194,7 @@ generate_ref_struct_constructor_functions :: (fn(context : &FunctionGenerationCo
 /// initializes the reference-count header (and the dispose type-tag, mirroring
 /// the object path), sets the tag and the active variant's data, and
 /// returns the pointer.
-_generate_one_ref_enum_constructor_set :: (fn(type : &TypeValue, c_name : &String, context : &FunctionGenerationContext) -> unit)({
-  em := context.base.emitter;
+_generate_one_ref_enum_constructor_set :: (fn(type : &TypeValue, c_name : &String, context : &mut FunctionGenerationContext) -> unit)({
   // Skip generic enums that still contain SomeType parameters.
   if(type_contains_some_type(type), {
     return();
@@ -208,7 +204,7 @@ _generate_one_ref_enum_constructor_set :: (fn(type : &TypeValue, c_name : &Strin
   // A `Drop` impl's `___dispose` takes `&mut Self` (a pointer): it is always
   // reached through a thunk that passes the handle's address.
   dispose_ptr := dispose_function_takes_pointer(type);
-  dispose_self_c := if(dispose_ptr, get_type_string(type, &context.base), String.new());
+  dispose_self_c := if(dispose_ptr, get_type_string(type, &mut context.base), String.new());
   (dispose_thunk : String) = match(
     &dispose_opt,
     .Some(dn) => if(dispose_ptr, dispose_fn_thunk(&dn, &dispose_self_c, context), String.new()),
@@ -236,7 +232,7 @@ _generate_one_ref_enum_constructor_set :: (fn(type : &TypeValue, c_name : &Strin
                 params.push_str(", ");
               });
               flabel := match(labels.get_cloned(pi), .Some(l) => l, .None => String.from(""));
-              params.push_string(get_type_string(&ft, &context.base));
+              params.push_string(get_type_string(&ft, &mut context.base));
               params.push_str(" ");
               params.push_string(sanitize_for_c_identifier(&flabel, false));
               emitted = (emitted + usize(1));
@@ -246,22 +242,22 @@ _generate_one_ref_enum_constructor_set :: (fn(type : &TypeValue, c_name : &Strin
           pi = (pi + usize(1));
         });
         // Signature + malloc.
-        em.emit_string_line(`static ${c_name}* __yo_new_${c_name}_${vname}(${params}) {`);
-        em.emit_string_line(`  ${c_name}* obj = (${c_name}*)__yo_rc_alloc(sizeof(${c_name}));`);
-        em.emit_string_line(`  obj->header.ref_count = 1u;  // One reference`);
-        em.emit_string_line(`  obj->header.borrow_count = 0;  // Law-of-Exclusivity: no live interior borrows yet`);
+        context.base.emitter.emit_string_line(`static ${c_name}* __yo_new_${c_name}_${vname}(${params}) {`);
+        context.base.emitter.emit_string_line(`  ${c_name}* obj = (${c_name}*)__yo_rc_alloc(sizeof(${c_name}));`);
+        context.base.emitter.emit_string_line(`  obj->header.ref_count = 1u;  // One reference`);
+        context.base.emitter.emit_string_line(`  obj->header.borrow_count = 0;  // Law-of-Exclusivity: no live interior borrows yet`);
         // Dispose type-tag.
         match(
           dispose_opt.clone(),
           .Some(dispose_c_name) => {
             dispose_id := context.base.dispose_type_id_for(if(dispose_ptr, dispose_thunk.clone(), dispose_c_name.clone()));
-            em.emit_string_line(`  obj->header.type_id = ${dispose_id.to_string()};`);
+            context.base.emitter.emit_string_line(`  obj->header.type_id = ${dispose_id.to_string()};`);
           },
-          .None => em.emit_string_line(`  obj->header.type_id = 0;`)
+          .None => context.base.emitter.emit_string_line(`  obj->header.type_id = 0;`)
         );
         // Tag + active variant's non-unit field assignments.
         tag_c := get_enum_variant_c_name(type, vname.clone(), &context.base);
-        em.emit_string_line(`  obj->tag = ${tag_c};`);
+        context.base.emitter.emit_string_line(`  obj->tag = ${tag_c};`);
         (fi : usize) = usize(0);
         while(fi < nf, {
           match(
@@ -269,15 +265,15 @@ _generate_one_ref_enum_constructor_set :: (fn(type : &TypeValue, c_name : &Strin
             .Some(ft) => if(!is_unit_type(&ft), {
               flabel := match(labels.get_cloned(fi), .Some(l) => l, .None => String.from(""));
               fname := sanitize_for_c_identifier(&flabel, false);
-              em.emit_string_line(`  obj->data.${c_variant_member_name(vname.clone())}.${fname} = ${fname};`);
+              context.base.emitter.emit_string_line(`  obj->data.${c_variant_member_name(vname.clone())}.${fname} = ${fname};`);
             }),
             .None => ()
           );
           fi = (fi + usize(1));
         });
-        em.emit_string_line(`  return obj;`);
-        em.emit_string_line(`}`);
-        em.emit_string_line(``);
+        context.base.emitter.emit_string_line(`  return obj;`);
+        context.base.emitter.emit_string_line(`}`);
+        context.base.emitter.emit_string_line(``);
         vi = (vi + usize(1));
       });
     },
@@ -286,7 +282,7 @@ _generate_one_ref_enum_constructor_set :: (fn(type : &TypeValue, c_name : &Strin
 });
 /// Generate per-variant constructor implementations for every concrete
 /// reference-semantics enum (`ref(enum(…))`).
-generate_ref_enum_constructor_functions :: (fn(context : &FunctionGenerationContext) -> unit)({
+generate_ref_enum_constructor_functions :: (fn(context : &mut FunctionGenerationContext) -> unit)({
   // A live cursor walk of the registry, not a borrowed `for`: the body can
   // register a late type (the on-demand hook), which a borrowed walk refuses.
   vals_cur := context.base.types.walk_start();

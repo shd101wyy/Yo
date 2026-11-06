@@ -115,7 +115,7 @@ _trial_eval_test_body :: (
     body : &AstExpr,
     original_body : &AstExpr,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     outer_exn : Exception,
     /// The `test` keyword and the name as written, for the migration's
     /// listing of a body the trial could not evaluate.
@@ -151,7 +151,7 @@ _trial_eval_test_body :: (
   match(
     body_info_opt,
     .Some(body_info) => {
-      if(is_unit_type(&body_info.ty), {
+      if(is_unit_type(&body_info.ty()), {
         expr_info_set_original_expr(&body_info, Option(AstExpr).Some(original_body));
         expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&evaluated), &body_info);
       });
@@ -173,11 +173,11 @@ evaluate_test :: (
   fn(
     expr : &AstExpr,
     env_in : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
-  (env : Environment) = env_in;
+  (env : Environment) = Rc.clone(env_in);
   // Validate shape: must be "test" call.
   if(!ast_expr_is_fn_call_of(expr, BK_TEST, .None), {
     exn.throw(
@@ -228,12 +228,12 @@ evaluate_test :: (
       )
     );
   });
-  name_info := match(name_info_opt, .Some(i) => i, .None => new_expr_info(&env, t_unit()));
+  name_info := match(name_info_opt, .Some(i) => Rc.clone(i), .None => new_expr_info(&env, t_unit()));
   // Update env from the name evaluation.
-  env_adopt(&env, &name_info.env);
+  env_adopt(&env, &name_info.env());
   // Validate test name is a comptime string.
   name_is_str_lit := match(
-    name_info.value,
+    name_info.value(),
     .Some(v) => is_str_lit(&v),
     .None => false
   );
@@ -262,7 +262,7 @@ evaluate_test :: (
     );
   });
   io_module_var := match(
-    io_vars.get(n_io - usize(1)),
+    io_vars.get_cloned(n_io - usize(1)),
     .Some(v) => v,
     .None => {
       exn.throw(
@@ -280,14 +280,14 @@ evaluate_test :: (
   // Extract the actual module type from Io's TypeVal.
   // Io :: module(...) means io_module_var.value == .Some(.TypeVal(ModuleType)).
   io_module_type := match(
-    io_module_var.value.get(usize(0)),
+    io_module_var.value().get(usize(0)),
     .Some(.TypeVal(ty)) => Rc.clone(ty),
     .Some(_) => variable_value_type(&io_module_var),
     .None => variable_value_type(&io_module_var)
   );
   // Save frame count to restore after the (best-effort) trial evaluation,
   // which may push frames and then unwind on a swallowed error.
-  saved_frames_len := env.frames.len();
+  saved_frames_len := env.frames_len();
   // Push a new frame for the test body (isolates io variable from outer scope).
   _frame_idx := env.push_frame(false);
   // Add the implicit `io : Io` variable to the new frame.
@@ -310,7 +310,7 @@ evaluate_test :: (
   // Clone test body for originalExpr storage (used by test codegen).
   original_test_body_expr := test_body_expr.clone();
   // Save and set context for test block evaluation.
-  old_func_ctx := ctx.is_evaluating_function_body_or_async_block;
+  old_func_ctx := ctx.is_evaluating_function_body_or_async_block.clone();
   ctx.is_evaluating_function_body_or_async_block = Option(FuncOrAsyncBlockCtx).Some(
     FuncOrAsyncBlockCtx(
       kind : FuncOrAsyncBlockKind.TestBlock,
@@ -342,13 +342,13 @@ evaluate_test :: (
   ctx.is_evaluating_function_body_or_async_block = old_func_ctx;
   // Restore env to its pre-test frame state: pops the implicit-io frame and
   // any frames left behind by a trial evaluation that unwound on error.
-  while(env.frames.len() > saved_frames_len, {
+  while(env.frames_len() > saved_frames_len, {
     env.pop_frame();
   });
   // NOTE: Don't propagate env.
   // Return unit — test has no compile-time value.
   result_info := new_expr_info(&env, t_unit());
-  result_info.value = Option(EvalValue).Some(EvalValue.UnitVal);
+  result_info.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &result_info);
   expr
 });

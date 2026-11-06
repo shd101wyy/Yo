@@ -76,28 +76,24 @@ _did_you_mean :: (fn(lbl : &String, labels : &ArrayList(String)) -> Option(Strin
 /// A binding the pattern introduces, collected during compilation and added
 /// to the arm's env frame by the caller once the WHOLE pattern is compiled
 /// (an or-pattern compiles every alternative but binds each name once).
-BindInfo :: ref(
-  struct(
-    name : String,
-    ty : TypeValue,
-    value : Option(EvalValue),
-    atom : AstExpr
-  )
+BindInfo :: struct(
+  name : String,
+  ty : TypeValue,
+  value : Option(EvalValue),
+  atom : AstExpr
 );
 derive(BindInfo, Clone);
 /// Per-arm compilation state.
-PatternCtx :: ref(
-  struct(
-    /// The `=>` node's id — the hidden subject names are derived from it.
-    arm_id : usize,
-    /// Hidden subject counter (unique within the arm).
-    counter : usize,
-    /// The scrutinee's value is known at compile time (bindings become
-    /// compile-time-only, as the pre-IR destructuring did).
-    ct_scrutinee : bool,
-    /// Bindings collected so far.
-    binds : ArrayList(BindInfo)
-  )
+PatternCtx :: struct(
+  /// The `=>` node's id — the hidden subject names are derived from it.
+  arm_id : usize,
+  /// Hidden subject counter (unique within the arm).
+  counter : usize,
+  /// The scrutinee's value is known at compile time (bindings become
+  /// compile-time-only, as the pre-IR destructuring did).
+  ct_scrutinee : bool,
+  /// Bindings collected so far.
+  binds : ArrayList(BindInfo)
 );
 new_pattern_ctx :: (fn(arm_id : usize, ct_scrutinee : bool) -> PatternCtx)(
   PatternCtx(arm_id : arm_id, counter : usize(0), ct_scrutinee : ct_scrutinee, binds : ArrayList(BindInfo).new())
@@ -200,15 +196,15 @@ _constant_in_scope :: (fn(name : &String, env : &Environment) -> bool)({
   if(vars.len() == usize(0), {
     return(false);
   });
-  v := match(vars.last(), .Some(x) => x, .None => return(false));
-  if(!v.is_compile_time_only, {
+  v := match(vars.last_cloned(), .Some(x) => x, .None => return(false));
+  if(!v.is_compile_time_only(), {
     return(false);
   });
-  if(v.value.len() == usize(0), {
+  if(v.value().len() == usize(0), {
     return(false);
   });
   match(
-    v.value.get(usize(0)),
+    v.value().get(usize(0)),
     .Some(.IntLit(_)) => true,
     .Some(.FloatLit(_)) => true,
     .Some(.BoolVal(_)) => true,
@@ -268,9 +264,9 @@ _bind_subject_and_eval_test :: (
     value_opt : &Option(EvalValue),
     test : &AstExpr,
     src : &AstExpr,
-    pc : &PatternCtx,
+    pc : &mut PatternCtx,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> unit
 )({
@@ -286,15 +282,14 @@ _bind_subject_and_eval_test :: (
     true,
     ast_expr_token(src)
   );
-  old_expected := ctx.expected_type;
-  ctx.expected_type = Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : t_bool(), env : env));
+  old_expected := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : t_bool(), env : Rc.clone(env))));
   flag_before_test := flow_violation_pending();
   _evaluated := evaluate_expression(test, env, ctx);
-  ctx.expected_type = old_expected;
+  ctx.expected_type = old_expected.clone();
   match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(test)),
     .Some(ti) => {
-      if(!are_types_compatible(&ti.ty, t_bool()), {
+      if(!are_types_compatible(&ti.ty(), t_bool()), {
         exn.throw(
           dyn(
             format_error_message(
@@ -327,7 +322,7 @@ _bind_subject_and_eval_test :: (
     }
   );
 });
-_next_subject :: (fn(pc : &PatternCtx) -> String)({
+_next_subject :: (fn(pc : &mut PatternCtx) -> String)({
   name := String.from("__yo_pat_s");
   name.push_string(pc.arm_id.to_string());
   name.push_str("_");
@@ -342,9 +337,9 @@ _make_const_test :: (
     src : &AstExpr,
     position_ty : &TypeValue,
     value_opt : &Option(EvalValue),
-    pc : &PatternCtx,
+    pc : &mut PatternCtx,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
@@ -418,7 +413,7 @@ Supported patterns: _, a binding name, a compile-time constant, .Variant, .Varia
     }
   );
   match(
-    info.value,
+    info.value(),
     .Some(v) => {
       if(is_unknown_val(&v), {
         exn.throw(
@@ -460,19 +455,18 @@ _compile_const_expr :: (
     e : &AstExpr,
     position_ty : &TypeValue,
     value_opt : &Option(EvalValue),
-    pc : &PatternCtx,
+    pc : &mut PatternCtx,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> Pattern
 )({
   is_named := ((ast_expr_is_atom(e) && !_is_literal_atom(e)) || ast_expr_is_fn_call_of(e, ".", Option(usize).Some(usize(2))));
   if(is_named, {
-    old_expected := ctx.expected_type;
-    ctx.expected_type = Option(ExpectedTypeCtx).None;
+    old_expected := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
     evaluated_gout := ArrayList(AstExpr).new();
     evaluated_gerr := evaluate_expression_guarded(e, env, ctx, &mut evaluated_gout);
-    ctx.expected_type = old_expected;
+    ctx.expected_type = old_expected.clone();
     match(evaluated_gerr, .Some(evaluated_ge) => exn.throw(evaluated_ge), .None => ());
     evaluated := match(evaluated_gout.get(usize(0)), .Some(evaluated_g) => evaluated_g, .None => make_err_expr());
     value := _const_value_of(e, &evaluated, ctx, exn);
@@ -483,13 +477,13 @@ _compile_const_expr :: (
       },
       .None => ()
     );
-    const_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated)), .Some(i) => Rc.clone(i.ty), .None => Rc.clone(position_ty));
+    const_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated)), .Some(i) => Rc.clone(i.ty()), .None => Rc.clone(position_ty));
     test := _make_const_test(e, position_ty, value_opt, pc, env, ctx, exn);
     return(Pattern.Const(value : value, ty : const_ty, src : e, subject : _test_subject(&test), test : test));
   });
   test := _make_const_test(e, position_ty, value_opt, pc, env, ctx, exn);
   value := _const_value_of(e, e, ctx, exn);
-  const_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(e)), .Some(i) => Rc.clone(i.ty), .None => Rc.clone(position_ty));
+  const_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(e)), .Some(i) => Rc.clone(i.ty()), .None => Rc.clone(position_ty));
   Pattern.Const(value : value, ty : const_ty, src : e, subject : _test_subject(&test), test : test)
 });
 /// Compile a range pattern `(lo..hi)` / `(lo..=hi)`.
@@ -499,9 +493,9 @@ _compile_range :: (
     inclusive : bool,
     position_ty : &TypeValue,
     value_opt : &Option(EvalValue),
-    pc : &PatternCtx,
+    pc : &mut PatternCtx,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> Pattern
 )({
@@ -513,16 +507,15 @@ _compile_range :: (
   (bi : usize) = usize(0);
   while(bi < usize(2), {
     b := cond((bi == usize(0)) => lo, true => hi);
-    old_expected := ctx.expected_type;
-    ctx.expected_type = Option(ExpectedTypeCtx).None;
+    old_expected := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
     ev_gout := ArrayList(AstExpr).new();
     ev_gerr := evaluate_expression_guarded(&b, env, ctx, &mut ev_gout);
-    ctx.expected_type = old_expected;
+    ctx.expected_type = old_expected.clone();
     match(ev_gerr, .Some(ev_ge) => exn.throw(ev_ge), .None => ());
     ev := match(ev_gout.get(usize(0)), .Some(ev_g) => ev_g, .None => make_err_expr());
     known := match(
       expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ev)),
-      .Some(binfo) => match(binfo.value, .Some(v) => !is_unknown_val(&v), .None => false),
+      .Some(binfo) => match(binfo.value(), .Some(v) => !is_unknown_val(&v), .None => false),
       .None => false
     );
     if(!known, {
@@ -536,7 +529,7 @@ _compile_range :: (
       );
       return(Pattern.Wildcard);
     });
-    bound_vals.push(match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ev)), .Some(bv_info) => bv_info.value, .None => Option(EvalValue).None));
+    bound_vals.push(match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ev)), .Some(bv_info) => bv_info.value(), .None => Option(EvalValue).None));
     bi = (bi + usize(1));
   });
   subject := _next_subject(pc);
@@ -598,16 +591,8 @@ _flatten_or :: (fn(e : &AstExpr) -> ArrayList(AstExpr))({
 });
 _bind_names_sorted :: (fn(binds : &ArrayList(BindInfo)) -> ArrayList(String))({
   names := ArrayList(String).new();
-  (i : usize) = usize(0);
-  while(i < binds.len(), {
-    match(
-      binds.get(i),
-      .Some(b) => {
-        names.push(b.name.clone());
-      },
-      .None => ()
-    );
-    i = (i + usize(1));
+  for(&binds, b => {
+    names.push(b.name.clone());
   });
   // Selection sort into a fresh list — the lists are tiny.
   sorted := ArrayList(String).new();
@@ -689,9 +674,9 @@ _compile_variant :: (
     params : &ArrayList(AstExpr),
     position_ty_in : &TypeValue,
     value_opt : &Option(EvalValue),
-    pc : &PatternCtx,
+    pc : &mut PatternCtx,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> Pattern
 )({
@@ -988,15 +973,15 @@ _struct_type_in_scope :: (fn(name : &String, env : &Environment) -> Option(TypeV
   if(vars.len() == usize(0), {
     return(Option(TypeValue).None);
   });
-  v := match(vars.last(), .Some(x) => x, .None => return(Option(TypeValue).None));
-  if(!v.is_compile_time_only, {
+  v := match(vars.last_cloned(), .Some(x) => x, .None => return(Option(TypeValue).None));
+  if(!v.is_compile_time_only(), {
     return(Option(TypeValue).None);
   });
-  if(v.value.len() == usize(0), {
+  if(v.value().len() == usize(0), {
     return(Option(TypeValue).None);
   });
   match(
-    v.value.get(usize(0)),
+    v.value().get(usize(0)),
     .Some(val) => match(
       val,
       .TypeVal(t) => cond(is_struct_type(&t) => Option(TypeValue).Some(Rc.clone(t)), true => Option(TypeValue).None),
@@ -1011,9 +996,9 @@ _compile_tuple :: (
     e : &AstExpr,
     position_ty : &TypeValue,
     value_opt : &Option(EvalValue),
-    pc : &PatternCtx,
+    pc : &mut PatternCtx,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> Pattern
 )({
@@ -1074,9 +1059,9 @@ _compile_struct :: (
     params : &ArrayList(AstExpr),
     position_ty : &TypeValue,
     value_opt : &Option(EvalValue),
-    pc : &PatternCtx,
+    pc : &mut PatternCtx,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> Pattern
 )({
@@ -1268,12 +1253,12 @@ _wrapper_pattern_ctor :: (fn(e : &AstExpr, env : &Environment) -> Option(_Wrappe
     return(.None);
   });
   vars := get_variables_from_env(env, &nm);
-  v := match(vars.last(), .Some(x) => x, .None => return(.None));
-  if(!v.is_compile_time_only, {
+  v := match(vars.last_cloned(), .Some(x) => x, .None => return(.None));
+  if(!v.is_compile_time_only(), {
     return(.None);
   });
   match(
-    v.value.get(usize(0)),
+    v.value().get(usize(0)),
     .Some(.FuncVal(data, _)) => .Some(_WrapperCtor(name : nm, func_id : data.func_id.clone())),
     _ => .None
   )
@@ -1326,9 +1311,9 @@ compile_pattern :: (
     e : &AstExpr,
     position_ty : &TypeValue,
     value_opt : &Option(EvalValue),
-    pc : &PatternCtx,
+    pc : &mut PatternCtx,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> Pattern
 )({
@@ -1617,16 +1602,8 @@ compile_pattern :: (
     match(
       first_binds,
       .Some(fb) => {
-        (bi : usize) = usize(0);
-        while(bi < fb.len(), {
-          match(
-            fb.get(bi),
-            .Some(b) => {
-              pc.binds.push(b);
-            },
-            .None => ()
-          );
-          bi = (bi + usize(1));
+        for(fb, b => {
+          pc.binds.push(b);
         });
       },
       .None => ()
@@ -1662,7 +1639,7 @@ match_value :: (fn(p : &Pattern, value_opt : &Option(EvalValue), ctx : &EvalCont
     .Const(_, _, _, _, test) => match(
       expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&test)),
       .Some(ti) => match(
-        ti.value,
+        ti.value(),
         .Some(v) => match(v, .BoolVal(b) => Option(bool).Some(b), _ => Option(bool).None),
         .None => Option(bool).None
       ),
@@ -1671,7 +1648,7 @@ match_value :: (fn(p : &Pattern, value_opt : &Option(EvalValue), ctx : &EvalCont
     .Range(_, _, test, _, _, _, _) => match(
       expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&test)),
       .Some(ti) => match(
-        ti.value,
+        ti.value(),
         .Some(v) => match(v, .BoolVal(b) => Option(bool).Some(b), _ => Option(bool).None),
         .None => Option(bool).None
       ),

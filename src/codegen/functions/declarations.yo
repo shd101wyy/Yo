@@ -18,20 +18,19 @@
 { replace } :: import("std/mem");
 /// One evidence parameter threaded into a function that uses effect-record
 /// evidence passing.
-EvidenceParameter :: ref(
-  struct(
-    /// The label of the implicit parameter (e.g. "raise_mod").
-    implicit_label : String,
-    /// The field label within the module (e.g. "raise", or "errors__raise" for nested).
-    field_label : String,
-    /// Path of field labels for navigating nested evidence records.
-    field_path : ArrayList(String),
-    /// The function type (`Func` TypeValue) of the evidence field.
-    field_function_type : TypeValue,
-    /// The C parameter name: sanitized "{implicit_label}__{field_label}".
-    c_param_name : String
-  )
+EvidenceParameter :: struct(
+  /// The label of the implicit parameter (e.g. "raise_mod").
+  implicit_label : String,
+  /// The field label within the module (e.g. "raise", or "errors__raise" for nested).
+  field_label : String,
+  /// Path of field labels for navigating nested evidence records.
+  field_path : ArrayList(String),
+  /// The function type (`Func` TypeValue) of the evidence field.
+  field_function_type : TypeValue,
+  /// The C parameter name: sanitized "{implicit_label}__{field_label}".
+  c_param_name : String
 );
+derive(EvidenceParameter, Clone);
 /// Join a path of field labels with "__".
 _join_double_underscore :: (fn(parts : &ArrayList(String)) -> String)({
   mut(out) := String.from("");
@@ -122,7 +121,7 @@ get_evidence_parameters :: (fn(_function_type : &TypeValue) -> ArrayList(Evidenc
 /// branch is omitted (Gap 6); evidence params come from get_evidence_parameters
 /// (currently empty — see above).
 generate_function_prototype :: (
-  fn(function_type : &TypeValue, c_function_name : &String, context : &CodeGenContext, override_return_type : &Option(String), is_closure : bool) -> String
+  fn(function_type : &TypeValue, c_function_name : &String, context : &mut CodeGenContext, override_return_type : &Option(String), is_closure : bool) -> String
 )(
   match(
     function_type,
@@ -248,59 +247,59 @@ _object_decl_has_generic_fields :: (fn(fields : &ArrayList(RuntimeStructField)) 
 });
 /// Emit the per-variant constructor forward declarations for ONE
 /// reference-semantics enum, matching the definitions in constructors.yo.
-_emit_ref_enum_constructor_decls :: (fn(type : &TypeValue, c_name : &String, context : &CodeGenContext) -> unit)({
-  em := context.emitter;
-  match(
-    type,
-    Rc(.EnumT({ variant_names, variant_fields, variant_field_labels })) => {
-      nv := variant_names.len();
-      (mut(vi) : usize) = usize(0);
-      while(vi < nv, {
-        vname := match(variant_names.get_cloned(vi), .Some(v) => v, .None => String.from(""));
-        fields := match(variant_fields.get(vi), .Some(f) => f, .None => no_types());
-        labels := match(variant_field_labels.get(vi), .Some(l) => l, .None => no_labels());
-        nf := fields.len();
-        mut(params) := String.from("");
-        (mut(emitted) : usize) = usize(0);
-        (mut(pi) : usize) = usize(0);
-        while(pi < nf, {
-          match(
-            fields.get(pi),
-            .Some(ft) => if(!is_unit_type(&ft), {
-              if(emitted > usize(0), {
-                params.push_str(", ");
-              });
-              flabel := match(labels.get_cloned(pi), .Some(l) => l, .None => String.from(""));
-              params.push_string(get_type_string(&ft, context));
-              params.push_str(" ");
-              params.push_string(sanitize_for_c_identifier(&flabel, false));
-              emitted = (emitted + usize(1));
-            }),
-            .None => ()
-          );
-          pi = (pi + usize(1));
+_emit_ref_enum_constructor_decls :: (fn(type : &TypeValue, c_name : &String, context : &mut CodeGenContext) -> unit)(
+  (
+    match(
+      type,
+      Rc(.EnumT({ variant_names, variant_fields, variant_field_labels })) => {
+        nv := variant_names.len();
+        (mut(vi) : usize) = usize(0);
+        while(vi < nv, {
+          vname := match(variant_names.get_cloned(vi), .Some(v) => v, .None => String.from(""));
+          fields := match(variant_fields.get(vi), .Some(f) => f, .None => no_types());
+          labels := match(variant_field_labels.get(vi), .Some(l) => l, .None => no_labels());
+          nf := fields.len();
+          mut(params) := String.from("");
+          (mut(emitted) : usize) = usize(0);
+          (mut(pi) : usize) = usize(0);
+          while(pi < nf, {
+            match(
+              fields.get(pi),
+              .Some(ft) => if(!is_unit_type(&ft), {
+                if(emitted > usize(0), {
+                  params.push_str(", ");
+                });
+                flabel := match(labels.get_cloned(pi), .Some(l) => l, .None => String.from(""));
+                params.push_string(get_type_string(&ft, context));
+                params.push_str(" ");
+                params.push_string(sanitize_for_c_identifier(&flabel, false));
+                emitted = (emitted + usize(1));
+              }),
+              .None => ()
+            );
+            pi = (pi + usize(1));
+          });
+          context.emitter.emit_declaration_string_line(`static ${c_name}* __yo_new_${c_name}_${vname}(${params}); // Constructor`);
+          vi = (vi + usize(1));
         });
-        em.emit_declaration_string_line(`static ${c_name}* __yo_new_${c_name}_${vname}(${params}); // Constructor`);
-        vi = (vi + usize(1));
-      });
-    },
-    _ => ()
+      },
+      _ => ()
+    )
   )
-});
+);
 /// Generate constructor + RC/GC forward declarations for objects.
 ///
 /// Decl/def consistency: the per-object parameter list uses
 /// `get_runtime_struct_fields` (the same source the constructor BODY in
 /// constructors.yo uses) — sharing the source guarantees the forward
 /// declaration's parameter list matches the definition's exactly.
-generate_object_constructor_declarations :: (fn(context : &CodeGenContext) -> unit)({
-  em := context.emitter;
+generate_object_constructor_declarations :: (fn(context : &mut CodeGenContext) -> unit)({
   // Builtin reference counting functions (static — single C file).
-  em.emit_declaration_line("static inline void __yo_decr_rc(void* ptr); // Decrement reference count");
-  em.emit_declaration_line("static inline void* __yo_incr_rc(void* ptr); // Increment reference count");
-  em.emit_declaration_line("static inline void* __yo_dyn_retain(void* data, const void* vtable); // Dyn payload retain through its vtable");
-  em.emit_declaration_line("static inline void __yo_dyn_release(void* data, const void* vtable); // Dyn payload release through its vtable");
-  em.emit_declaration_line("static inline void* __yo_dyn_clone(void* data, const void* vtable); // Dyn payload clone through its vtable");
+  context.emitter.emit_declaration_line("static inline void __yo_decr_rc(void* ptr); // Decrement reference count");
+  context.emitter.emit_declaration_line("static inline void* __yo_incr_rc(void* ptr); // Increment reference count");
+  context.emitter.emit_declaration_line("static inline void* __yo_dyn_retain(void* data, const void* vtable); // Dyn payload retain through its vtable");
+  context.emitter.emit_declaration_line("static inline void __yo_dyn_release(void* data, const void* vtable); // Dyn payload release through its vtable");
+  context.emitter.emit_declaration_line("static inline void* __yo_dyn_clone(void* data, const void* vtable); // Dyn payload clone through its vtable");
   // The ATOMIC pair is defined in the CODE buffer (gc_runtime.yo) and so
   // lands AFTER everything in the declaration buffer. Declaration-buffer
   // code that releases a reference —
@@ -308,9 +307,9 @@ generate_object_constructor_declarations :: (fn(context : &CodeGenContext) -> un
   // two lines that call was an implicit declaration followed by a `static`
   // definition, which is a hard C error
   // (issues/fixed/spawn-closure-captures-never-dropped-leak.md).
-  em.emit_declaration_line("static void __yo_decr_rc_atomic(void* ptr); // Atomic RC decrement (atomic ref objects)");
-  em.emit_declaration_line("static void* __yo_incr_rc_atomic(void* ptr); // Atomic RC increment (atomic ref objects)");
-  em.emit_declaration_line("static void __yo_cleanup_thread(void); // A worker thread's exit: frees its async runtime pools");
+  context.emitter.emit_declaration_line("static void __yo_decr_rc_atomic(void* ptr); // Atomic RC decrement (atomic ref objects)");
+  context.emitter.emit_declaration_line("static void* __yo_incr_rc_atomic(void* ptr); // Atomic RC increment (atomic ref objects)");
+  context.emitter.emit_declaration_line("static void __yo_cleanup_thread(void); // A worker thread's exit: frees its async runtime pools");
   // Per THREAD: the hook frees the exiting thread's own pools, and each
   // thread installs it the first time it allocates one. As a process global
   // every thread's first enqueue wrote it while exiting threads read it — a
@@ -318,7 +317,7 @@ generate_object_constructor_declarations :: (fn(context : &CodeGenContext) -> un
   // cross_thread_wake and spawn_blocking (the value was always the same
   // function, which is not a synchronization).
   thread_local_kw := if(is_target_windows(&context.target_info), String.from("__declspec(thread)"), String.from("_Thread_local"));
-  em.emit_declaration_string_line(`static ${thread_local_kw} void (*__yo_async_thread_exit_hook)(void); // Frees the exiting thread's async runtime pools; installed by the async runtime, called by __yo_cleanup_thread`);
+  context.emitter.emit_declaration_string_line(`static ${thread_local_kw} void (*__yo_async_thread_exit_hook)(void); // Frees the exiting thread's async runtime pools; installed by the async runtime, called by __yo_cleanup_thread`);
   // Per-object constructor declarations.
   // A live cursor walk of the registry, not a borrowed `for`: the body can
   // register a late type (the on-demand hook), which a borrowed walk refuses.
@@ -367,7 +366,7 @@ generate_object_constructor_declarations :: (fn(context : &CodeGenContext) -> un
           });
           line.push_string(&params);
           line.push_str("); // Constructor");
-          em.emit_declaration_string_line(&line);
+          context.emitter.emit_declaration_string_line(&line);
         });
       }),
       .None => ()
@@ -626,7 +625,7 @@ should_skip_function_codegen :: (fn(func_id : &String, c_name : &String, value :
 /// "member reference base type 'void'". Returns `.None` for non-Future returns
 /// (callers keep their own non-Future body-type override).
 _async_override_return_type :: (
-  fn(function_type : &TypeValue, body : &Option(AstExpr), context : &CodeGenContext) -> Option(String)
+  fn(function_type : &TypeValue, body : &Option(AstExpr), context : &mut CodeGenContext) -> Option(String)
 )({
   ret := _func_result_type(function_type);
   ret_is_future := type_implements_future(&ret);
@@ -672,14 +671,14 @@ _async_override_return_type :: (
         },
         .None => match(
           context.get_expr_info(&b),
-          .Some(ei) => if(is_some_type(&ei.ty) && type_implements_future(&ei.ty), {
+          .Some(ei) => if(is_some_type(&ei.ty()) && type_implements_future(&ei.ty()), {
             // DELEGATE fallback (fn returns another async fn's future; no own
             // block): the body's future C name resolves through the CALLEE's
             // block_sn registration above. When it resolves concretely, also
             // register THIS fn's return key → the same struct, so a further
             // delegate (a delegate-of-a-delegate) and this fn's own callers
             // resolve too (see _preregister_async_return_overrides).
-            del_s := get_type_string(&ei.ty, context);
+            del_s := get_type_string(&ei.ty(), context);
             if(!(del_s == "void*"), {
               context.register_type(type_key(&ret), &ret, del_s.clone(), Option(String).None);
             });
@@ -704,7 +703,7 @@ _async_override_return_type :: (
 /// static type equals the dynamic object. Returns `.None` for non-calls and
 /// non-future callees.
 awaited_future_c_type_override :: (
-  fn(future_expr : &AstExpr, context : &CodeGenContext) -> Option(String)
+  fn(future_expr : &AstExpr, context : &mut CodeGenContext) -> Option(String)
 )({
   if(!ast_expr_is_fn_call(future_expr), {
     return(Option(String).None);
@@ -716,7 +715,7 @@ awaited_future_c_type_override :: (
       future_expr,
       .FnCall(_, af_fx, _, _, _) => match(
         context.get_expr_info(&af_fx),
-        .Some(af_fei) => af_fei.value,
+        .Some(af_fei) => af_fei.value(),
         .None => Option(EvalValue).None
       ),
       _ => Option(EvalValue).None
@@ -739,7 +738,7 @@ awaited_future_c_type_override :: (
 /// SomeType / SomeType-containing signature. `.None` means the signature's own
 /// result spelling stands.
 _return_type_override :: (
-  fn(function_type : &TypeValue, body : &Option(AstExpr), context : &CodeGenContext) -> Option(String)
+  fn(function_type : &TypeValue, body : &Option(AstExpr), context : &mut CodeGenContext) -> Option(String)
 )({
   ret := _func_result_type(function_type);
   (mut(override) : Option(String)) = Option(String).None;
@@ -752,7 +751,7 @@ _return_type_override :: (
         match(
           context.get_expr_info(&b),
           .Some(ei) => {
-            override = Option(String).Some(get_type_string(&ei.ty, context));
+            override = Option(String).Some(get_type_string(&ei.ty(), context));
           },
           .None => ()
         );
@@ -762,7 +761,7 @@ _return_type_override :: (
           context.get_expr_info(&b),
           .Some(ei) => {
             sig_s := get_type_string(&ret, context);
-            body_s := get_type_string(&ei.ty, context);
+            body_s := get_type_string(&ei.ty(), context);
             if(!(sig_s == body_s), {
               override = Option(String).Some(body_s);
             });
@@ -790,7 +789,7 @@ _return_type_override :: (
 ///
 /// `.None` for a func_id with no registered entry or no Func type.
 emitted_return_type_string :: (
-  fn(func_id : &String, context : &CodeGenContext) -> Option(String)
+  fn(func_id : &String, context : &mut CodeGenContext) -> Option(String)
 )(
   match(
     context.get_function_entry(func_id.clone()),
@@ -839,7 +838,7 @@ emitted_return_type_string :: (
 /// `dispose_fn_thunk`
 /// (issues/fixed/2026-10-24-two-async-functions-through-one-function-typed-parameter-are-called-through-an-incompatible-pointer-type.md).
 /// `.None` when `func_id` has no registered entry.
-fn_value_c_name :: (fn(func_id : &String, context : &CodeGenContext) -> Option(String))(
+fn_value_c_name :: (fn(func_id : &String, context : &mut CodeGenContext) -> Option(String))(
   match(
     context.get_function_entry(func_id.clone()),
     .None => Option(String).None,
@@ -896,13 +895,13 @@ fn_value_c_name :: (fn(func_id : &String, context : &CodeGenContext) -> Option(S
 /// temp, and the binding itself
 /// (issues/fixed/closure-call-binds-a-void-result-to-a-void-pointer-temp.md).
 static_dispatch_callee_return_type :: (
-  fn(func_expr : &AstExpr, context : &CodeGenContext) -> Option(String)
+  fn(func_expr : &AstExpr, context : &mut CodeGenContext) -> Option(String)
 )(
   match(
     context.get_expr_info(func_expr),
     .Some(cei) => {
       sd_id := match(
-        resolve_some_type_to_concrete(&cei.ty),
+        resolve_some_type_to_concrete(&cei.ty()),
         Rc(.Struct({ id : i })) => i.clone(),
         Rc(.SomeT({ id : i })) => i.clone(),
         _ => String.from("")
@@ -923,7 +922,7 @@ static_dispatch_callee_return_type :: (
 /// `is_exported` is precomputed by the caller via
 /// the SAME predicate the body emitter (generate_function) uses, so the
 /// declaration's linkage matches the definition's.
-generate_function_declaration :: (fn(function_type : &TypeValue, c_function_name : &String, is_extern : bool, is_exported : bool, body : &Option(AstExpr), is_closure : bool, context : &CodeGenContext) -> unit)({
+generate_function_declaration :: (fn(function_type : &TypeValue, c_function_name : &String, is_extern : bool, is_exported : bool, body : &Option(AstExpr), is_closure : bool, context : &mut CodeGenContext) -> unit)({
   override := _return_type_override(function_type, body, context);
   prototype := generate_function_prototype(function_type, c_function_name.clone(), context, &override, is_closure);
   // Three arms, matching generate_function's linkage EXACTLY (see the comment
@@ -966,39 +965,49 @@ generate_closure_vtable_declarations :: (fn(context : &CodeGenContext) -> unit)(
 /// Gap 2 (the FuncVal/Func model lacks these fields): the specialization
 /// skips and closure carve-outs evaluate to false here. The async
 /// runtime forward declaration is gated on uses_async (false for the corpus).
-generate_function_declarations :: (fn(context : &CodeGenContext) -> unit)({
-  em := context.emitter;
-  em.emit_declaration_line("// Function declarations");
-  em.emit_declaration_line("/// Extern functions");
+generate_function_declarations :: (fn(context : &mut CodeGenContext) -> unit)({
+  context.emitter.emit_declaration_line("// Function declarations");
+  context.emitter.emit_declaration_line("/// Extern functions");
+  // The declarations to emit are gathered first: the walk borrows `context`
+  // for its whole extent, and emitting a declaration writes it.
+  decl_tys := ArrayList(TypeValue).new();
+  decl_names := ArrayList(String).new();
   for(&context.extern_functions, (_fid, entry) => {
     cn := entry.c_name.clone();
     tag := _func_extern_tag(&entry.ty);
     cond(
       match(&tag, .Some(s) => (s == "yo"), .None => false) => if(!_is_threading_macro_function(cn.clone()), {
-        generate_function_declaration(&entry.ty, cn.clone(), true, false, Option(AstExpr).None, false, context);
+        decl_tys.push(Rc.clone(entry.ty));
+        decl_names.push(cn.clone());
       }),
       (match(tag, .Some(s) => (s == "c"), .None => false) && entry.c_include.is_some()) => (),
       (cn.starts_with("__atomic_") || cn.starts_with("__sync_")) => (),
       true => {
-        generate_function_declaration(&entry.ty, cn.clone(), true, false, Option(AstExpr).None, false, context);
+        decl_tys.push(Rc.clone(entry.ty));
+        decl_names.push(cn.clone());
       }
     );
   });
-  em.emit_declaration_line("");
+  (di : usize) = usize(0);
+  while(di < decl_tys.len(), {
+    generate_function_declaration(&decl_tys(di), decl_names(di).clone(), true, false, Option(AstExpr).None, false, context);
+    di = (di + usize(1));
+  });
+  context.emitter.emit_declaration_line("");
   // Async runtime forward declarations are gated on uses_async (deferred — corpus
   // is synchronous; the flag lives on FunctionGenerationContext, not the base).
-  em.emit_declaration_line("/// Object constructors");
+  context.emitter.emit_declaration_line("/// Object constructors");
   generate_object_constructor_declarations(context);
-  em.emit_declaration_line("");
-  em.emit_declaration_line("/// Closure constructors");
+  context.emitter.emit_declaration_line("");
+  context.emitter.emit_declaration_line("/// Closure constructors");
   generate_closure_constructor_declarations(context);
-  em.emit_declaration_line("");
-  em.emit_declaration_line("/// Capture dispose functions");
+  context.emitter.emit_declaration_line("");
+  context.emitter.emit_declaration_line("/// Capture dispose functions");
   generate_capture_dispose_function_declarations(context);
-  em.emit_declaration_line("");
-  em.emit_declaration_line("/// Dyn type constructors");
-  em.emit_declaration_line("");
-  em.emit_declaration_line("/// Regular functions");
+  context.emitter.emit_declaration_line("");
+  context.emitter.emit_declaration_line("/// Dyn type constructors");
+  context.emitter.emit_declaration_line("");
+  context.emitter.emit_declaration_line("/// Regular functions");
   // Registration-only pre-pass: compute the async return-type override for
   // every Future-returning fn BEFORE emitting any prototype. The override's
   // block_sn path registers `type_key(fn.ret) → <block>_(state|sync_fut)_t*`,
@@ -1068,8 +1077,8 @@ generate_function_declarations :: (fn(context : &CodeGenContext) -> unit)({
     );
     fi = (fi + usize(1));
   });
-  em.emit_declaration_line("/// Closure vtable instances");
+  context.emitter.emit_declaration_line("/// Closure vtable instances");
   generate_closure_vtable_declarations(context);
-  em.emit_declaration_line("");
+  context.emitter.emit_declaration_line("");
 });
 export(EvidenceParameter, collect_evidence_from_record, get_evidence_parameters, generate_function_prototype, _return_type_override, fn_value_c_name, generate_function_declaration, generate_object_constructor_declarations, generate_closure_constructor_declarations, generate_capture_dispose_function_declarations, generate_closure_vtable_declarations, generate_function_declarations, should_skip_function_codegen, _async_override_return_type, awaited_future_c_type_override, emitted_return_type_string, static_dispatch_callee_return_type);

@@ -9,6 +9,7 @@
 //!   - `create_capture_type_and_value`          → simplified inference only;
 //!     explicit capture struct type deferred to Phase 4.
 //!   - `autoDeriveTraitsAndAddRcFunctions…`     → calls auto_derive_traits_for_struct_type
+{ replace } :: import("std/mem");
 { String } :: import("std/string");
 { RefCell } :: import("std/sync/refcell");
 { function_reaches_non_send_global, d1_reach_memo, d1_note_thread_reach } :: import("../effects/mutation_summary.yo");
@@ -141,7 +142,7 @@ consume_captured_variables :: (
     env : &Environment,
     _closure_token : &Token
   ) -> Environment
-)(env);
+)(Rc.clone(env));
 // ---------------------------------------------------------------------------
 // build_path_collection_from_captured_variables
 // ---------------------------------------------------------------------------
@@ -598,22 +599,22 @@ function_value_marker :: (
   want_id := _some_id_of(ty);
   want_str := if(want_id.is_empty(), type_to_string(ty), String.new());
   (found : bool) = false;
-  start := match(env.function_declaration_frame_level, .Some(l) => l, .None => usize(0));
+  start := match(env.function_declaration_frame_level(), .Some(l) => l, .None => usize(0));
   (fi : usize) = start;
-  while(fi < env.frames.len(), {
+  while(fi < env.frames_len(), {
     match(
-      env.frames.get(fi),
+      env.frame_at(fi),
       .Some(fr) => {
         (vi : usize) = usize(0);
-        while(vi < fr.variables.len(), {
+        while(vi < fr.variables_len(), {
           match(
-            fr.variables.get(vi),
+            fr.variable_at(vi),
             .Some(v) => {
               // A `::` function definition (module-level or local) is not a
               // value OF this type: it only shares the signature. Judging
               // every definition of the signature convicted `f := count`
               // for what an unrelated `fill` touches.
-              if(!(v.is_module_level || v.is_compile_time_only), {
+              if(!(v.is_module_level() || v.is_compile_time_only()), {
                 matches := if(
                   want_id.is_empty(),
                   is_function_type(&variable_value_type(&v)) && (type_to_string(&variable_value_type(&v)) == want_str),
@@ -621,7 +622,7 @@ function_value_marker :: (
                 );
                 if(matches, {
                   match(
-                    v.value.get(usize(0)),
+                    v.value().get(usize(0)),
                     .Some(vv) => match(
                       vv,
                       .FuncVal(fvd, _) => {
@@ -963,21 +964,21 @@ enrich_captured_variables :: (
       },
       .Some(var_name) => {
         vn_copy := var_name.clone();
-        cap_info_opt := captured_variables.get(var_name.clone());
+        cap_info_opt := captured_variables.get_cloned(var_name.clone());
         match(
           cap_info_opt,
           .None => (),
           .Some(cap_info) => {
             fl := cap_info.frame_level;
-            n_frames := env.frames.len();
+            n_frames := env.frames_len();
             if(debug_knob(`YO_DEBUG_CAPTURE`).is_some(), {
               enr_found := get_variables_from_env(env, var_name.clone());
               (enr_cto : usize) = usize(0);
               (enr_k : usize) = usize(0);
               while(enr_k < enr_found.len(), enr_k = (enr_k + usize(1)), {
                 match(
-                  enr_found.get(enr_k),
-                  .Some(ev) => if(ev.is_compile_time_only, {
+                  enr_found.get_cloned(enr_k),
+                  .Some(ev) => if(ev.is_compile_time_only(), {
                     enr_cto = (enr_cto + usize(1));
                   }),
                   .None => ()
@@ -991,17 +992,17 @@ enrich_captured_variables :: (
               (j : usize) = usize(0);
               while(j < m, {
                 match(
-                  vars.get(j),
+                  vars.get_cloned(j),
                   .None => (),
                   .Some(v) => {
-                    if(!v.is_compile_time_only, {
+                    if(!v.is_compile_time_only(), {
                       enriched := FuncCapturedVarInfo(
                         frame_level : fl,
                         usage : cap_info.usage,
                         token : cap_info.token,
                         ty : variable_value_type(&v),
-                        value : v.value.get(usize(0)),
-                        is_effect_param : v.is_effect_param,
+                        value : v.value().get(usize(0)),
+                        is_effect_param : v.is_effect_param(),
                         decl_site : `${v.token.module_path.*}:${v.token.row.to_string()}:${v.token.column.to_string()}`
                       );
                       result.insert(vn_copy.clone(), enriched);
@@ -1030,7 +1031,7 @@ enrich_captured_variables :: (
 /// capture (a closure-typed `Impl(Fn)` parameter bound to a zero-size capture
 /// struct) was missing from the enclosing capture struct
 /// (issues/fixed/a-closure-capture-reaches-its-enclosing-closure-only-when-it-is-rc.md).
-propagate_captures_to_enclosing :: (fn(caps : &HashMap(String, CapturedVarInfo), ctx : &EvalContext) -> unit)({
+propagate_captures_to_enclosing :: (fn(caps : &HashMap(String, CapturedVarInfo), ctx : &mut EvalContext) -> unit)({
   key_iter := caps.keys_cloned().into_iter();
   (more : bool) = true;
   while(more, {
@@ -1040,7 +1041,7 @@ propagate_captures_to_enclosing :: (fn(caps : &HashMap(String, CapturedVarInfo),
         more = false;
       },
       .Some(name) => match(
-        caps.get(name.clone()),
+        caps.get_cloned(name.clone()),
         .Some(info) => track_variable_usage_resolved(&name, info.frame_level, info.usage, &info.token, ctx, Option(bool).None),
         .None => ()
       )
@@ -1122,7 +1123,7 @@ create_capture_type_and_value :: (
       CaptureTypeAndValueResult(
         capture_type : Option(TypeValue).None,
         capture_value : Option(EvalValue).None,
-        env : env
+        env : Rc.clone(env)
       ),
     .None => {
       // Inference case: build struct from captured variables.
@@ -1354,7 +1355,7 @@ create_capture_type_and_value :: (
       CaptureTypeAndValueResult(
         capture_type : Option(TypeValue).Some(capture_ty),
         capture_value : cap_struct_val,
-        env : env
+        env : Rc.clone(env)
       )
     }
   )
@@ -1396,7 +1397,7 @@ _runtime_capture_names :: (fn(cvwv_opt : &Option(HashMap(String, FuncCapturedVar
       while(more, {
         match(
           it.next(),
-          .Some(n) => if(match(get_variables_from_env(env, n.clone()).last(), .Some(cv) => !cv.is_compile_time_only, .None => false), {
+          .Some(n) => if(match(get_variables_from_env(env, n.clone()).last_cloned(), .Some(cv) => !cv.is_compile_time_only(), .None => false), {
             names.push(n.clone());
           }),
           .None => {
@@ -1440,7 +1441,7 @@ generate_captured_variable_dup_expressions :: (
   fn(
     captured_vars_with_values : &Option(HashMap(String, FuncCapturedVarInfo)),
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception,
     /// The closure's token: where a capture that is not implicitly copyable
     /// is moved, and the copy site the implicit-copy recorder keeps for each
@@ -1458,7 +1459,7 @@ generate_captured_variable_dup_expressions :: (
 )({
   dup_exprs := ArrayList(AstExpr).new();
   if(borrow_captures && _captures_require_explicit_copy(captured_vars_with_values), {
-    return(CapturedVarDupResult(dup_exprs : Option(ArrayList(AstExpr)).None, env : env, borrowed : true));
+    return(CapturedVarDupResult(dup_exprs : Option(ArrayList(AstExpr)).None, env : Rc.clone(env), borrowed : true));
   });
   // `yo fix --migrate rc-clone`: a handle copied into this closure while its
   // source is read again becomes a capture-list entry, and a capture list is
@@ -1485,8 +1486,8 @@ generate_captured_variable_dup_expressions :: (
               type_requires_explicit_copy(&ci.ty) => {
                 cap_vars := get_variables_from_env(env, var_name.clone());
                 match(
-                  cap_vars.last(),
-                  .Some(cap_v) => if(!cap_v.is_compile_time_only, {
+                  cap_vars.last_cloned(),
+                  .Some(cap_v) => if(!cap_v.is_compile_time_only(), {
                     move_captured_explicit_copy_variable(&cap_v, closure_tok, env, ctx, exn);
                   }),
                   .None => ()
@@ -1496,7 +1497,7 @@ generate_captured_variable_dup_expressions :: (
                 // The unique `Dyn` (`check_dyn_capture`): the capture of a
                 // variable holding a `Dyn` moves it.
                 if(!borrow_captures && dyn_copy_rule_applies(&ci.ty), {
-                  match(get_variables_from_env(env, var_name.clone()).last(), .Some(dyn_cap_v) => check_dyn_capture(&dyn_cap_v, closure_tok, env, ctx, exn), .None => ());
+                  match(get_variables_from_env(env, var_name.clone()).last_cloned(), .Some(dyn_cap_v) => check_dyn_capture(&dyn_cap_v, closure_tok, env, ctx, exn), .None => ());
                 });
                 if(audit_implicit_copy_enabled(), {
                   audit_record_implicit_copy(
@@ -1543,7 +1544,7 @@ generate_captured_variable_dup_expressions :: (
   );
   CapturedVarDupResult(
     dup_exprs : if(dup_exprs.len() > usize(0), Option(ArrayList(AstExpr)).Some(dup_exprs), Option(ArrayList(AstExpr)).None),
-    env : env,
+    env : Rc.clone(env),
     borrowed : false
   )
 });
@@ -1672,12 +1673,11 @@ _clone_template_of :: (fn(read : &String, ft : &TypeValue) -> String)({
 });
 /// Parse `code` (which names the receiver as `_CLONE_RECV_HOLE`), put `recv`
 /// in the hole and evaluate it.
-_eval_clone_template :: (fn(code : &String, recv : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> AstExpr)({
+_eval_clone_template :: (fn(code : &String, recv : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr)({
   parsed := generate_expr_from_code(code, exn);
   // The template is its own value: the type the enclosing expression expects
   // (a generic `T`, the closure's) is not a field's, nor a record literal's.
-  saved_expected := ctx.expected_type;
-  ctx.expected_type = Option(ExpectedTypeCtx).None;
+  saved_expected := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
   out := evaluate_expression_raw(&_clone_subst_receiver(&parsed, recv), env, ctx, exn);
   ctx.expected_type = saved_expected;
   out
@@ -1691,10 +1691,10 @@ _expand_clone_to :: (fn(expr : &AstExpr, generated : &AstExpr, ctx : &EvalContex
   match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(generated)),
     .Some(gen_info) => {
-      out := new_expr_info(&gen_info.env, &gen_info.ty);
-      out.value = gen_info.value;
-      out.control_flow = gen_info.control_flow;
-      out.variable_name = gen_info.variable_name.clone();
+      out := new_expr_info(&gen_info.env(), &gen_info.ty());
+      out.set_value(gen_info.value());
+      out.set_control_flow(gen_info.control_flow());
+      out.set_variable_name(gen_info.variable_name());
       record_macro_expansion(ast_expr_id(expr), generated.clone());
       expr_info_set_macro_expansion(&out, Option(AstExpr).Some(generated));
       expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
@@ -1718,7 +1718,7 @@ _expand_clone_to :: (fn(expr : &AstExpr, generated : &AstExpr, ctx : &EvalContex
 /// `{ __yo_clone_src := recv; __yo_clone_src.clone() }`. `.None` when `target`
 /// (the receiver's type, resolved) is neither, or is not `Clone`.
 structural_clone_expansion :: (
-  fn(expr : &AstExpr, recv : &AstExpr, recv_ty : &TypeValue, target : &TypeValue, env : &Environment, ctx : &EvalContext, exn : Exception) -> Option(AstExpr)
+  fn(expr : &AstExpr, recv : &AstExpr, recv_ty : &TypeValue, target : &TypeValue, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> Option(AstExpr)
 )({
   clone_tt := match(
     get_trait_type_from_env(env, String.from("Clone")),
@@ -1774,7 +1774,7 @@ structural_clone_expansion :: (
     match(
       expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&record)),
       .Some(rec_info) => {
-        rec_info.ty = target.clone();
+        rec_info.set_ty(target.clone());
         expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&record), &rec_info);
       },
       .None => ()
@@ -1783,9 +1783,9 @@ structural_clone_expansion :: (
     match(
       expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&rec_callee)),
       .Some(rc_info) => match(
-        rc_info.value,
+        rc_info.value(),
         .Some(.TypeVal(_)) => {
-          rc_info.value = Option(EvalValue).Some(EvalValue.TypeVal(target.clone()));
+          rc_info.set_value(Option(EvalValue).Some(EvalValue.TypeVal(target.clone())));
           expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&rec_callee), &rc_info);
         },
         _ => ()
@@ -1823,13 +1823,13 @@ structural_clone_expansion :: (
 /// `__yo_capture_field(c, i)`: the type of field `i` of closure `c`'s capture
 /// record. The read is in place: a clone template passes it to the field
 /// type's `clone`, or copies a `Copy` field.
-evaluate_yo_capture_field :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> AstExpr)({
+evaluate_yo_capture_field :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr)({
   cf_args := match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), _ => ArrayList(AstExpr).new());
   recv := match(cf_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
   idx_e := match(cf_args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
   ev_recv := evaluate_expression_raw(&recv, env, ctx, exn);
   _ := evaluate_expression_raw(&idx_e, env, ctx, exn);
-  recv_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ev_recv)), .Some(ri) => Rc.clone(ri.ty), .None => t_unit());
+  recv_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ev_recv)), .Some(ri) => Rc.clone(ri.ty()), .None => t_unit());
   cap := resolve_cell_chain(match(closure_identity_of(&recv_ty), .Some(cl) => cl, .None => Rc.clone(recv_ty)));
   idx := match(ast_expr_token(&idx_e).value.*.parse_i64(), .Some(n) => usize(n), .None => usize(0));
   field_ty := match(
@@ -1841,7 +1841,7 @@ evaluate_yo_capture_field :: (fn(expr : &AstExpr, env : &Environment, ctx : &Eva
     }
   );
   out := new_expr_info(env, &field_ty);
-  out.value = Option(EvalValue).None;
+  out.set_value(Option(EvalValue).None);
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
   expr
 });

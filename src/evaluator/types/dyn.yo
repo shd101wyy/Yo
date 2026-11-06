@@ -129,7 +129,7 @@ evaluate_dyn_type :: (
   fn(
     expr : &AstExpr,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
@@ -154,7 +154,7 @@ evaluate_dyn_type :: (
   negative_levels := ArrayList(usize).new();
   required_ids := ArrayList(String).new();
   negative_ids := ArrayList(String).new();
-  cur_env := env;
+  cur_env := Rc.clone(env);
   i := usize(0);
   while(i < args.len(), {
     trait_arg := match(
@@ -181,7 +181,7 @@ evaluate_dyn_type :: (
     info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&eval_trait));
     trait_info := match(
       info_opt,
-      .Some(inf) => inf,
+      .Some(inf) => Rc.clone(inf),
       .None => {
         exn.throw(
           dyn(
@@ -196,12 +196,12 @@ evaluate_dyn_type :: (
     );
     // Validate it is a TypeVal carrying a TraitT.
     inner_ty := match(
-      trait_info.value,
+      trait_info.value(),
       .Some(.TypeVal(it)) => Rc.clone(it),
       .Some(_) => t_i32(),
       .None => t_i32()
     );
-    if(!is_type_value(&trait_info.value), {
+    if(!is_type_value(&trait_info.value()), {
       exn.throw(
         dyn(
           format_error_message(
@@ -351,7 +351,7 @@ evaluate_dyn_type :: (
   dyn_val := create_type_value(&dyn_ty);
   meta_type := type_of_type(&dyn_ty);
   out_info := new_expr_info(&cur_env, &meta_type);
-  out_info.value = .Some(dyn_val);
+  out_info.set_value(.Some(dyn_val));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   expr
 });

@@ -24,53 +24,45 @@ fs_walker :: import("std/fs/walker");
 /// Sub-classification for `unsafe(...)` sites: "extern-call", "deref",
 /// "arith", "addr-of", or "other". Plain `String` here so the JSON
 /// serialization is literal.
-UnsafeFinding :: ref(
-  struct(
-    file : String,
-    /// 1-based.
-    line : usize,
-    /// 1-based.
-    column : usize,
-    /// "unsafe" | "asm" | "extern" | "pragma".
-    kind : String,
-    /// Only set for kind == "unsafe".
-    sub_kind : Option(String),
-    /// Only set for sub_kind == "extern-call".
-    callee_name : Option(String),
-    /// The full source line where the match occurred, trimmed.
-    snippet : String,
-    /// Closest preceding `// SAFETY:` comment within the scan-back window.
-    safety_comment : Option(String)
-  )
+UnsafeFinding :: struct(
+  file : String,
+  /// 1-based.
+  line : usize,
+  /// 1-based.
+  column : usize,
+  /// "unsafe" | "asm" | "extern" | "pragma".
+  kind : String,
+  /// Only set for kind == "unsafe".
+  sub_kind : Option(String),
+  /// Only set for sub_kind == "extern-call".
+  callee_name : Option(String),
+  /// The full source line where the match occurred, trimmed.
+  snippet : String,
+  /// Closest preceding `// SAFETY:` comment within the scan-back window.
+  safety_comment : Option(String)
 );
-UnsafeTotals :: ref(
-  struct(
-    files_scanned : usize,
-    privileged : usize,
-    unsafe_sites : usize,
-    unsafe_extern_call : usize,
-    unsafe_deref : usize,
-    unsafe_arith : usize,
-    unsafe_addr_of : usize,
-    unsafe_other : usize,
-    asm_sites : usize,
-    extern_sites : usize
-  )
+UnsafeTotals :: struct(
+  files_scanned : usize,
+  privileged : usize,
+  unsafe_sites : usize,
+  unsafe_extern_call : usize,
+  unsafe_deref : usize,
+  unsafe_arith : usize,
+  unsafe_addr_of : usize,
+  unsafe_other : usize,
+  asm_sites : usize,
+  extern_sites : usize
 );
-ExternCallee :: ref(
-  struct(
-    callee : String,
-    count : usize
-  )
+ExternCallee :: struct(
+  callee : String,
+  count : usize
 );
-UnsafeReport :: ref(
-  struct(
-    privileged_files : ArrayList(String),
-    findings : ArrayList(UnsafeFinding),
-    totals : UnsafeTotals,
-    /// Top extern callees by call-site count, descending.
-    top_extern_callees : ArrayList(ExternCallee)
-  )
+UnsafeReport :: struct(
+  privileged_files : ArrayList(String),
+  findings : ArrayList(UnsafeFinding),
+  totals : UnsafeTotals,
+  /// Top extern callees by call-site count, descending.
+  top_extern_callees : ArrayList(ExternCallee)
 );
 _is_ident_byte :: (fn(b : u8) -> bool)(
   ((b >= u8(97)) && (b <= u8(122))) || ((b >= u8(65)) && (b <= u8(90))) || ((b >= u8(48)) && (b <= u8(57))) || (b == u8(95))
@@ -582,15 +574,12 @@ generate_unsafe_report :: (fn(root_path : &String, io : Io, exn : Exception) -> 
       while(li < lines.len(), {
         raw_line := lines(li).clone();
         line_findings := _scan_line(file.clone(), li + usize(1), raw_line.clone(), &prev, &extern_c_fns, &src_bytes, line_start);
-        (lf : usize) = usize(0);
-        while(lf < line_findings.len(), {
-          f := line_findings(lf);
+        for(line_findings, f => {
           if(f.kind == "pragma", {
             has_pragma = true;
           }, {
             findings.push(f);
           });
-          lf = (lf + usize(1));
         });
         prev.push(raw_line.clone());
         if(prev.len() > usize(8), {
@@ -615,9 +604,7 @@ generate_unsafe_report :: (fn(root_path : &String, io : Io, exn : Exception) -> 
     (n_extern : usize) = usize(0);
     callee_names := ArrayList(String).new();
     callee_counts := HashMap(String, usize).new();
-    (ci : usize) = usize(0);
-    while(ci < findings.len(), {
-      f := findings(ci);
+    for(&findings, f => {
       cond(
         (f.kind == "unsafe") => {
           n_unsafe = (n_unsafe + usize(1));
@@ -659,7 +646,6 @@ generate_unsafe_report :: (fn(root_path : &String, io : Io, exn : Exception) -> 
         },
         true => ()
       );
-      ci = (ci + usize(1));
     });
     // Sort callees by count descending; STABLE on the first-seen order for
     // ties. Stable selection sort:
@@ -731,15 +717,14 @@ format_unsafe_report :: (fn(report : &UnsafeReport) -> String)({
     out.write_str("Top extern callees (by unsafe-wrapped call-site count):\n");
     (i : usize) = usize(0);
     while(i < top_n, {
-      entry := report.top_extern_callees(i);
-      count_str := `${entry.count}`;
+      count_str := `${report.top_extern_callees(i).count}`;
       out.write_str("  ");
       (pad : usize) = count_str.len();
       while(pad < usize(4), {
         out.write_str(" ");
         pad = (pad + usize(1));
       });
-      out.write_string(`${count_str}  ${entry.callee}\n`);
+      out.write_string(`${count_str}  ${report.top_extern_callees(i).callee}\n`);
       i = (i + usize(1));
     });
     if(report.top_extern_callees.len() > top_n, {
@@ -749,9 +734,7 @@ format_unsafe_report :: (fn(report : &UnsafeReport) -> String)({
   });
   if(report.findings.len() > usize(0), {
     out.write_str("Findings (file:line:col):\n");
-    (i : usize) = usize(0);
-    while(i < report.findings.len(), {
-      f := report.findings(i);
+    for(&report.findings, f => {
       label := if(
         f.kind == "unsafe",
         match(
@@ -767,7 +750,6 @@ format_unsafe_report :: (fn(report : &UnsafeReport) -> String)({
         .Some(sc) => out.write_string(`    ${sc}\n`),
         .None => ()
       );
-      i = (i + usize(1));
     });
     out.write_str("\n");
   });
@@ -837,8 +819,7 @@ unsafe_report_to_json :: (fn(report : &UnsafeReport) -> String)({
   });
   out.write_str("],\n  \"findings\": [");
   (fi : usize) = usize(0);
-  while(fi < report.findings.len(), {
-    f := report.findings(fi);
+  for(&report.findings, f => {
     if(fi > usize(0), {
       out.write_str(",");
     });
@@ -880,8 +861,7 @@ unsafe_report_to_json :: (fn(report : &UnsafeReport) -> String)({
   out.write_string(`    "externSites": ${report.totals.extern_sites}\n`);
   out.write_str("  },\n  \"topExternCallees\": [");
   (ti : usize) = usize(0);
-  while(ti < report.top_extern_callees.len(), {
-    entry := report.top_extern_callees(ti);
+  for(&report.top_extern_callees, entry => {
     if(ti > usize(0), {
       out.write_str(",");
     });

@@ -55,7 +55,7 @@ evaluate_module_field :: (
     expr : &AstExpr,
     module_field_idx : usize,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     is_for_module_type : bool,
     exn : Exception
   ) -> EvalModuleFieldResult
@@ -121,13 +121,13 @@ evaluate_module_field :: (
     );
   });
   label := ast_expr_text(&label_expr).*.clone();
-  (env_mut : Environment) = env;
+  (env_mut : Environment) = Rc.clone(env);
   // Evaluate type expression
   evaluated_te := evaluate_expression_raw(&type_expr, &env_mut, ctx, exn);
   te_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_te));
-  te_info := match(te_info_opt, .Some(i) => i, .None => new_expr_info(&env_mut, Rc.new(TypeValueNode.Unit)));
-  env_adopt(&env_mut, &te_info.env);
-  if(!is_type_value(&te_info.value), {
+  te_info := match(te_info_opt, .Some(i) => Rc.clone(i), .None => new_expr_info(&env_mut, Rc.new(TypeValueNode.Unit)));
+  env_adopt(&env_mut, &te_info.env());
+  if(!is_type_value(&te_info.value()), {
     exn.throw(
       dyn(
         format_error_message(
@@ -138,18 +138,18 @@ evaluate_module_field :: (
     );
   });
   field_type := match(
-    te_info.value,
+    te_info.value(),
     .Some(.TypeVal(inner)) => Rc.clone(inner),
     .Some(_) => Rc.new(TypeValueNode.Unit),
     .None => Rc.new(TypeValueNode.Unit)
   );
   // Set expr info on label_expr
   label_info := new_expr_info(&env_mut, &field_type);
-  label_info.value = Option(EvalValue).Some(create_unknown_val(&field_type));
+  label_info.set_value(Option(EvalValue).Some(create_unknown_val(&field_type)));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&label_expr), &label_info);
   // Set expr info on the field expr itself
   unit_info := new_expr_info(&env_mut, Rc.new(TypeValueNode.Unit));
-  unit_info.value = Option(EvalValue).Some(EvalValue.UnitVal);
+  unit_info.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &unit_info);
   EvalModuleFieldResult(label, field_type, env_mut)
 });

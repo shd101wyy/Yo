@@ -62,16 +62,16 @@ evaluate_recur :: (
   fn(
     expr : &AstExpr,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
   // ------------------------------------------------------------------
   // Guard 1: must be inside a function body.
   // ------------------------------------------------------------------
-  block_ctx_opt := ctx.is_evaluating_function_body_or_async_block;
+  block_ctx_opt := ctx.is_evaluating_function_body_or_async_block.clone();
   is_function_body := match(
-    block_ctx_opt,
+    block_ctx_opt.clone(),
     .None => false,
     .Some(bc) => match(bc.kind, .FunctionBody => true, _ => false)
   );
@@ -86,7 +86,7 @@ evaluate_recur :: (
     );
   });
   func_body_ctx := match(
-    block_ctx_opt,
+    block_ctx_opt.clone(),
     .Some(bc) => bc,
     .None => FuncOrAsyncBlockCtx(
       kind : FuncOrAsyncBlockKind.FunctionBody,
@@ -178,7 +178,7 @@ evaluate_recur :: (
     // popping here removed the INNERMOST CALLER FRAME — a 3-arg while's
     // loop frame lost its variables and the step expression failed
     // "Variable i not found" (std/regex/compiler.yo's Sequence walk).
-    caller_env := call_result.caller_env;
+    caller_env := Rc.clone(call_result.caller_env);
     // Build an UnknownVal for the return type.
     //
     // When the function being recurred RETURNS AT RUNTIME (its return is not
@@ -201,10 +201,9 @@ evaluate_recur :: (
     );
     // Write ExprInfo for this recur expression.
     out_info := new_expr_info(&caller_env, &return_type);
-    out_info.value = Option(EvalValue).Some(recur_unknown);
-    out_info.runtime_arg_exprs_in_order =
-      Option(ArrayList(AstExpr)).Some(call_result.runtime_arg_exprs_in_order.clone());
-    out_info.deferred_drop_expressions = call_result.deferred_drop_expressions.clone();
+    out_info.set_value(Option(EvalValue).Some(recur_unknown));
+    out_info.set_runtime_arg_exprs_in_order(Option(ArrayList(AstExpr)).Some(call_result.runtime_arg_exprs_in_order.clone()));
+    out_info.set_deferred_drop_expressions(call_result.deferred_drop_expressions.clone());
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
     // Attach a temp variable for RC drop tracking.
     // Stub: no-op for now.

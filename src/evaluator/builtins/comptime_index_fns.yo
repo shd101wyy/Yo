@@ -64,7 +64,7 @@ ci_eval_arg :: (
   fn(
     arg : &AstExpr,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     label : &String,
     exn : Exception
   ) -> ExprInfo
@@ -73,7 +73,7 @@ ci_eval_arg :: (
   info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated));
   match(
     info_opt,
-    .Some(i) => i,
+    .Some(i) => Rc.clone(i),
     .None => {
       exn.throw(
         dyn(
@@ -246,7 +246,7 @@ ci_eval_list_index :: (
   fn(
     expr : &AstExpr,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
@@ -280,8 +280,8 @@ ci_eval_list_index :: (
   (cur_env : Environment) = expr_info_adopt_env(&self_info);
   idx_info := ci_eval_arg(&idx_arg, &cur_env, ctx, String.from("Failed to evaluate index for comptime list index"), exn);
   cur_env = expr_info_adopt_env(&idx_info);
-  list_ev_opt := ci_resolve_comptime_list(&self_info.value);
-  fallback_ty := ci_elem_return_ty(&self_info.ty);
+  list_ev_opt := ci_resolve_comptime_list(&self_info.value());
+  fallback_ty := ci_elem_return_ty(&self_info.ty());
   match(
     list_ev_opt,
     .Some(list_ev) => {
@@ -292,10 +292,10 @@ ci_eval_list_index :: (
           return(expr);
         }
       );
-      elem_ty := ci_child_of_comptime_list_ty(&self_info.ty);
+      elem_ty := ci_child_of_comptime_list_ty(&self_info.ty());
       out_info := new_expr_info(&cur_env, &elem_ty);
       match(
-        idx_info.value,
+        idx_info.value(),
         .Some(iv) => {
           if(is_int_lit(&iv), {
             idx_raw := match(iv, .IntLit(r) => r.clone(), _ => String.from("0"));
@@ -351,21 +351,21 @@ ci_eval_list_index :: (
                 EvalValue.UnitVal
               }
             );
-            out_info.value = Option(EvalValue).Some(elem_val);
+            out_info.set_value(Option(EvalValue).Some(elem_val));
             expr_info_set_comptime_ref(&out_info, Option(ComptimeRef).Some(ComptimeRef.ComptimeListRef(list_elems, idx_usize)));
           }, {
-            out_info.value = Option(EvalValue).Some(create_unknown_val(&elem_ty));
+            out_info.set_value(Option(EvalValue).Some(create_unknown_val(&elem_ty)));
           });
         },
         .None => {
-          out_info.value = Option(EvalValue).Some(create_unknown_val(&elem_ty));
+          out_info.set_value(Option(EvalValue).Some(create_unknown_val(&elem_ty)));
         }
       );
       expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
     },
     .None => {
       out_info := new_expr_info(&cur_env, &fallback_ty);
-      out_info.value = Option(EvalValue).Some(create_unknown_val(&fallback_ty));
+      out_info.set_value(Option(EvalValue).Some(create_unknown_val(&fallback_ty)));
       expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
     }
   );
@@ -378,7 +378,7 @@ ci_eval_list_range_index :: (
   fn(
     expr : &AstExpr,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     is_inclusive : bool,
     exn : Exception
   ) -> AstExpr
@@ -413,21 +413,21 @@ ci_eval_list_range_index :: (
   (cur_env : Environment) = expr_info_adopt_env(&self_info);
   range_info := ci_eval_arg(&range_arg, &cur_env, ctx, String.from("Failed to evaluate range for comptime list range index"), exn);
   cur_env = expr_info_adopt_env(&range_info);
-  fallback_ty := ci_list_range_return_ty(&self_info.ty);
+  fallback_ty := ci_list_range_return_ty(&self_info.ty());
   // Fallback when range value is unknown or not a struct.
   range_is_known := match(
-    range_info.value,
+    range_info.value(),
     .Some(rv) => (is_struct_val(&rv) && !is_unknown_val(&rv)),
     .None => false
   );
   if(!range_is_known, {
     out_info := new_expr_info(&cur_env, &fallback_ty);
-    out_info.value = Option(EvalValue).Some(create_unknown_val(&fallback_ty));
+    out_info.set_value(Option(EvalValue).Some(create_unknown_val(&fallback_ty)));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
     return(expr);
   });
   range_ev := match(
-    range_info.value,
+    range_info.value(),
     .Some(rv) => rv,
     .None => {
       return(expr);
@@ -451,7 +451,7 @@ ci_eval_list_range_index :: (
   );
   start_idx := ci_range.start_idx;
   end_idx := ci_range.end_idx;
-  list_ev_opt := ci_resolve_comptime_list(&self_info.value);
+  list_ev_opt := ci_resolve_comptime_list(&self_info.value());
   match(
     list_ev_opt,
     .Some(list_ev) => {
@@ -462,7 +462,7 @@ ci_eval_list_range_index :: (
           return(expr);
         }
       );
-      elem_ty := ci_child_of_comptime_list_ty(&self_info.ty);
+      elem_ty := ci_child_of_comptime_list_ty(&self_info.ty());
       result_ty := t_comptime_list(&elem_ty);
       list_len := list_elems.len();
       if(start_idx > list_len, {
@@ -509,12 +509,12 @@ ci_eval_list_range_index :: (
       });
       new_list_val := EvalValue.ComptimeListVal(value_cell_new(sliced));
       out_info := new_expr_info(&cur_env, &result_ty);
-      out_info.value = Option(EvalValue).Some(new_list_val);
+      out_info.set_value(Option(EvalValue).Some(new_list_val));
       expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
     },
     .None => {
       out_info := new_expr_info(&cur_env, &fallback_ty);
-      out_info.value = Option(EvalValue).Some(create_unknown_val(&fallback_ty));
+      out_info.set_value(Option(EvalValue).Some(create_unknown_val(&fallback_ty)));
       expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
     }
   );
@@ -527,7 +527,7 @@ ci_eval_array_index :: (
   fn(
     expr : &AstExpr,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
@@ -563,7 +563,7 @@ ci_eval_array_index :: (
   cur_env = expr_info_adopt_env(&idx_info);
   // ----- Array branch -----
   array_ev_opt := match(
-    self_info.value,
+    self_info.value(),
     .Some(sv) => if(is_array_val(&sv), Option(EvalValue).Some(sv), Option(EvalValue).None),
     .None => Option(EvalValue).None
   );
@@ -573,10 +573,10 @@ ci_eval_array_index :: (
       match(
         sv,
         .ArrayVal(elements) => {
-          elem_ty := ci_child_of_array_ty(&self_info.ty);
+          elem_ty := ci_child_of_array_ty(&self_info.ty());
           out_info := new_expr_info(&cur_env, &elem_ty);
           match(
-            idx_info.value,
+            idx_info.value(),
             .Some(iv) => {
               if(is_int_lit(&iv), {
                 idx_raw := match(iv, .IntLit(r) => r.clone(), _ => String.from("0"));
@@ -632,14 +632,14 @@ ci_eval_array_index :: (
                     EvalValue.UnitVal
                   }
                 );
-                out_info.value = Option(EvalValue).Some(elem_val);
+                out_info.set_value(Option(EvalValue).Some(elem_val));
                 expr_info_set_comptime_ref(&out_info, Option(ComptimeRef).Some(ComptimeRef.ArrayRef(Rc.clone(elements), idx_usize)));
               }, {
-                out_info.value = Option(EvalValue).Some(create_unknown_val(&elem_ty));
+                out_info.set_value(Option(EvalValue).Some(create_unknown_val(&elem_ty)));
               });
             },
             .None => {
-              out_info.value = Option(EvalValue).Some(create_unknown_val(&elem_ty));
+              out_info.set_value(Option(EvalValue).Some(create_unknown_val(&elem_ty)));
             }
           );
           expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
@@ -648,7 +648,7 @@ ci_eval_array_index :: (
       );
     },
     .None => {
-      fallback_ty := ci_elem_return_ty(&self_info.ty);
+      fallback_ty := ci_elem_return_ty(&self_info.ty());
       out_info := new_expr_info(&cur_env, &fallback_ty);
       expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
     }
@@ -668,7 +668,7 @@ ci_eval_string_index :: (
   fn(
     expr : &AstExpr,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     is_range : bool,
     is_inclusive : bool,
     exn : Exception
@@ -717,7 +717,7 @@ ci_eval_string_index :: (
   result_ty := t_ptr(t_comptime_string());
   // If self is not a known comptime_str, set no value.
   self_is_str := match(
-    self_info.value,
+    self_info.value(),
     .Some(sv) => is_str_lit(&sv),
     .None => false
   );
@@ -726,12 +726,12 @@ ci_eval_string_index :: (
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
     return(expr);
   });
-  raw := match(self_info.value, .Some(sv) => match(sv, .StrLit(r) => r.clone(), _ => String.new()), .None => String.new());
+  raw := match(self_info.value(), .Some(sv) => match(sv, .StrLit(r) => r.clone(), _ => String.new()), .None => String.new());
   unquoted := ci_str_unquote(&raw);
   if(!is_range, {
     // ----- Single character index -----
     idx_is_known := match(
-      idx_info.value,
+      idx_info.value(),
       .Some(iv) => (is_int_lit(&iv) && !is_unknown_val(&iv)),
       .None => false
     );
@@ -741,7 +741,7 @@ ci_eval_string_index :: (
       return(expr);
     });
     idx_raw := match(
-      idx_info.value,
+      idx_info.value(),
       .Some(iv) => match(iv, .IntLit(r) => r.clone(), _ => String.from("0")),
       .None => String.from("0")
     );
@@ -804,13 +804,13 @@ ci_eval_string_index :: (
       unquoted.ceil_char_boundary(idx_usize + usize(1))
     );
     out_info := new_expr_info(&cur_env, &result_ty);
-    out_info.value = Option(EvalValue).Some(_ci_str_pointer(ci_str_quote(&char_str)));
+    out_info.set_value(Option(EvalValue).Some(_ci_str_pointer(ci_str_quote(&char_str))));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
     return(expr);
   });
   // ----- Range index -----
   range_is_known := match(
-    idx_info.value,
+    idx_info.value(),
     .Some(rv) => (is_struct_val(&rv) && !is_unknown_val(&rv)),
     .None => false
   );
@@ -820,7 +820,7 @@ ci_eval_string_index :: (
     return(expr);
   });
   range_ev := match(
-    idx_info.value,
+    idx_info.value(),
     .Some(rv) => rv,
     .None => {
       return(expr);
@@ -901,7 +901,7 @@ ci_eval_string_index :: (
   });
   sliced := unquoted.substring(start_idx, end_idx);
   out_info := new_expr_info(&cur_env, &result_ty);
-  out_info.value = Option(EvalValue).Some(_ci_str_pointer(ci_str_quote(&sliced)));
+  out_info.set_value(Option(EvalValue).Some(_ci_str_pointer(ci_str_quote(&sliced))));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   expr
 });
@@ -912,7 +912,7 @@ evaluate_yo_comptime_index_functions :: (
   fn(
     expr : &AstExpr,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> AstExpr
 )({

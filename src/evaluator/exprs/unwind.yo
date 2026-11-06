@@ -10,6 +10,7 @@
 //! gate on `ctx.is_inside_given_handler` either: a former compensating
 //! control there wrongly threw during definition-time body eval of
 //! plain-`:=` handlers.
+{ replace } :: import("std/mem");
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 import("std/fmt");
@@ -72,7 +73,7 @@ evaluate_unwind :: (
   fn(
     expr : &AstExpr,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
@@ -134,7 +135,7 @@ evaluate_unwind :: (
       throw_unwind_type_mismatch(ast_expr_token(expr), &enclosing_ret, t_unit(), ctx, exn);
     });
     unit_info := new_expr_info(env, t_unit());
-    unit_info.control_flow = .Some(control_flow_of(.Unwind));
+    unit_info.set_control_flow(.Some(control_flow_of(.Unwind)));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &unit_info);
     return(expr);
   });
@@ -150,8 +151,7 @@ evaluate_unwind :: (
   );
   // Recursively evaluate the argument with the enclosing return type as the
   // expected type.
-  saved_expected := ctx.expected_type;
-  ctx.expected_type = .Some(ExpectedTypeCtx(ty : Rc.clone(enclosing_ret), env : env));
+  saved_expected := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : Rc.clone(enclosing_ret), env : Rc.clone(env))));
   evaluated_gout := ArrayList(AstExpr).new();
   evaluated_gerr := evaluate_expression_guarded(&arg_expr, env, ctx, &mut evaluated_gout);
   ctx.expected_type = saved_expected;
@@ -159,7 +159,7 @@ evaluate_unwind :: (
   evaluated := match(evaluated_gout.get(usize(0)), .Some(evaluated_g) => evaluated_g, .None => make_err_expr());
   info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated));
   match(
-    info_opt,
+    &info_opt,
     .None => {
       exn.throw(
         dyn(
@@ -174,16 +174,16 @@ evaluate_unwind :: (
   );
   arg_info := match(
     info_opt,
-    .Some(i) => i,
+    .Some(i) => Rc.clone(i),
     .None => new_expr_info(env, t_i32())
   );
   // Type-check (skip when enclosing_ret is a SomeType).
-  if(!is_some_type(&enclosing_ret) && !are_types_compatible(&arg_info.ty, &enclosing_ret), {
-    throw_unwind_type_mismatch(ast_expr_token(&arg_expr), &enclosing_ret, &arg_info.ty, ctx, exn);
+  if(!is_some_type(&enclosing_ret) && !are_types_compatible(&arg_info.ty(), &enclosing_ret), {
+    throw_unwind_type_mismatch(ast_expr_token(&arg_expr), &enclosing_ret, &arg_info.ty(), ctx, exn);
   });
   // Emit ExprInfo: type = arg type, value = .None, control_flow = unwind.
-  out_info := new_expr_info(env, &arg_info.ty);
-  out_info.control_flow = .Some(control_flow_of(.Unwind));
+  out_info := new_expr_info(env, &arg_info.ty());
+  out_info.set_control_flow(.Some(control_flow_of(.Unwind)));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   expr
 });

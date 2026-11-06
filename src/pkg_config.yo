@@ -9,7 +9,7 @@
 { ArrayList } :: import("std/collections/array_list");
 { BuildSystemLibrary } :: import("./evaluator/builtins/build.yo");
 /// Resolved compiler and linker flags for a system library.
-PkgConfigResult :: ref(
+PkgConfigResult ::
   struct(
     c_flags : ArrayList(String),
     ld_flags : ArrayList(String),
@@ -17,8 +17,7 @@ PkgConfigResult :: ref(
     library_paths : ArrayList(String),
     link_libraries : ArrayList(String),
     defines : ArrayList(String)
-  )
-);
+  );
 // The system-library entry type is the CANONICAL one from the build builtins
 // — pkg_config previously duplicated the identical shape locally, and the two
 // nominal types could not unify when build_runner wired the resolver in
@@ -99,9 +98,9 @@ parse_cflags :: (fn(raw : &String) -> PkgConfigResult)({
   });
   result
 });
-/// Parse pkg-config `--libs` output and append into an existing PkgConfigResult.
-/// Returns the updated result.
-parse_ldflags_into :: (fn(raw : &String, result : &PkgConfigResult) -> PkgConfigResult)({
+/// Parse pkg-config `--libs` output and append into `result`, which it takes
+/// and returns.
+parse_ldflags_into :: (fn(raw : &String, result : PkgConfigResult) -> PkgConfigResult)({
   tokens := _split_whitespace(raw.trim());
   n := tokens.len();
   mut(k) := usize(0);
@@ -149,8 +148,9 @@ build_fallback :: (fn(lib : &BuildSystemLibrary) -> PkgConfigResult)({
   });
   result
 });
-/// Merge explicit defines from the library config into the result.
-apply_system_library_metadata :: (fn(lib : &BuildSystemLibrary, result : &PkgConfigResult) -> PkgConfigResult)({
+/// Merge explicit defines from the library config into `result`, which it
+/// takes and returns.
+apply_system_library_metadata :: (fn(lib : &BuildSystemLibrary, result : PkgConfigResult) -> PkgConfigResult)({
   mut(k) := usize(0);
   n := lib.defines.len();
   while(k < n, {
@@ -175,7 +175,7 @@ _append_all :: (fn(dst : &mut ArrayList(String), src : &ArrayList(String)) -> un
   });
 });
 /// Merge all fields of `src` into `dst` in-place.
-_merge_into :: (fn(dst : &PkgConfigResult, src : &PkgConfigResult) -> unit)({
+_merge_into :: (fn(dst : &mut PkgConfigResult, src : &PkgConfigResult) -> unit)({
   _append_all(&mut dst.c_flags, &src.c_flags);
   _append_all(&mut dst.ld_flags, &src.ld_flags);
   _append_all(&mut dst.include_paths, &src.include_paths);
@@ -229,7 +229,7 @@ query_pkg_config :: (
     cflags_raw := String.from_bytes(cflags_out.stdout.clone()).trim();
     ldflags_raw := String.from_bytes(ldflags_out.stdout.clone()).trim();
     result := parse_cflags(&cflags_raw);
-    result_with_ld := parse_ldflags_into(&ldflags_raw, &result);
+    result_with_ld := parse_ldflags_into(&ldflags_raw, result);
     Option(PkgConfigResult).Some(result_with_ld)
   })
 });
@@ -237,26 +237,26 @@ query_pkg_config :: (
 /// Tries pkg-config first, then falls back to user-provided paths.
 resolve_system_library :: (
   fn(
-    lib : &BuildSystemLibrary,
+    sink(lib) : BuildSystemLibrary,
     verbose : bool,
     io : Io,
     exn : Exception
   ) -> Impl(Future(PkgConfigResult, IoExn))
 )(
-  io.async((e : IoExn) => {
+  io.async({ lib }(e : IoExn) => {
     pkg_available := e.io.await(is_pkg_config_available(e.io, e.exn), e);
     if(pkg_available, {
       pkg_result := e.io.await(query_pkg_config(&lib.name, e.io, e.exn), e);
       match(
         pkg_result,
         .Some(r) => {
-          return(apply_system_library_metadata(lib, &r));
+          return(apply_system_library_metadata(&lib, r));
         },
         .None => ()
       );
     });
     // pkg-config failed or unavailable — use fallback
-    apply_system_library_metadata(lib, build_fallback(lib))
+    apply_system_library_metadata(&lib, build_fallback(&lib))
   })
 );
 /// Resolve all system libraries and merge their flags into a single result.
@@ -269,18 +269,17 @@ resolve_all_system_libraries :: (
   ) -> Impl(Future(PkgConfigResult, IoExn))
 )({
   // The async body cannot capture a borrowed parameter (a closure that
-  // outlives the call), so it owns a list of the library handles: elements
-  // are ref-struct handles, so this copies handles, not the libraries.
+  // outlives the call), so it owns a copy of the libraries.
   mut(libs_own) := ArrayList(BuildSystemLibrary).new();
   for(&libs, l => {
-    libs_own.push(l);
+    libs_own.push(l.clone());
   });
   io.async({ libs_own, verbose }(e : IoExn) => {
     merged := _empty_result();
     mut(k) := usize(0);
     n := libs_own.len();
     while(k < n, {
-      lib_opt := libs_own.get(k);
+      lib_opt := libs_own.get_cloned(k);
       lib := match(
         lib_opt,
         .None => {
@@ -289,8 +288,8 @@ resolve_all_system_libraries :: (
         },
         .Some(p) => p
       );
-      resolved := e.io.await(resolve_system_library(&lib, verbose, e.io, e.exn), e);
-      _merge_into(&merged, &resolved);
+      resolved := e.io.await(resolve_system_library(lib, verbose, e.io, e.exn), e);
+      _merge_into(&mut merged, &resolved);
       k = (k + usize(1));
     });
     merged
