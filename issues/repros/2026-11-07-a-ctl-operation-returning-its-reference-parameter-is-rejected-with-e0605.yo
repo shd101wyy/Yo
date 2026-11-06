@@ -1,0 +1,17 @@
+Ask :: (ctl(key : &i32) -> &(i32, key));
+use_it :: (fn(ask : Ask) -> i32)({
+  k := i32(1);
+  r := ask(&k);
+  v := r.*;
+  v
+});
+main :: (fn() -> unit)({
+  (ask : Ask) = (
+    key -> {
+      return(key);
+    }
+  );
+  _ := use_it(ask);
+  ()
+});
+export(main);

@@ -1954,6 +1954,11 @@ and in git, not a silent edit.
     so the borrow is spelled. The conditions:
     1. **Second-class** (until decision 43's N1–N2 generalize it to the
        origin positions): no store, return, escaping capture or spawn.
+       **First-class since decision 43 step 3 (N2b; restated 2026-11-07,
+       VERDICTS-31):** a reference binding is a value of type `&(T, p)`
+       with `p` its lent place; its loans are registered by `bind` and
+       checked by `access` (`plans/backlog/BORROW_CHECKER_COMPLETENESS.md` §3). The rule's first
+       text above is kept as history.
     2. **Exclusivity, by place** (amended 2026-10-05 by the maintainer, so
        that it matches decision 28's overlap rule).
        - **What is frozen.** While a `&` borrow `y` is live, the borrowed
@@ -2146,6 +2151,15 @@ and in git, not a silent edit.
     - Phase: V2b's first PR.
 25. **A local borrow can be re-pointed to a place reached from itself.**
     This is the cursor walk over a linked structure.
+    - **Widened 2026-11-07 (VERDICTS-31 P1; lands v0.2.77 after the
+      completeness architecture).** `cur = &place` / `cur = &mut place`
+      re-points to ANY place of the pointee type; the binding's loan set
+      is the join over reaching definitions, so the old target's and the
+      new target's roots are both frozen where either may be live.
+      "Reached from `cur`" remains the rule only for a path through an
+      `Rc`/`Arc` deref (the step pin). The other-variable rejection of the
+      first version is deleted; a re-point to an inner-scoped local is
+      E0911 at that local's drop, not a re-point error.
     - **Spelling.** `cur = &place` and `cur = &mut place`, the borrow
       sigil on the right of `=` (decision 42). Plain `cur = v` writes
       through (for `&mut`; `cur.* = v` once decision 43 lands) or is
@@ -2302,6 +2316,13 @@ and in git, not a silent edit.
       An overwrite or a `&mut` relend in a later argument stayed accepted for
       a plain call (the callee was said to see the new value); a borrowing
       future rejects all three (§3.13 A2).
+    - **Extended 2026-11-07 (VERDICTS-31 P9; v0.2.77):** a `&` LOAN (a
+      reference binding) whose last use lies inside a later argument of
+      the same call does not conflict with the receiver's or an earlier
+      argument's `&mut` activation — the reservation/activation split is
+      stated for loans, not only for by-name places. `r := &xs;
+      xs.push(i32(r.len()))` is accepted; a use of `r` after the call is
+      E0911.
     - **As built (2026-10-14): the two-phase borrow rule.** A `&x.f`
       argument is read before the later arguments run, so an overwrite or a
       `&mut` relend of `x` in a later argument dropped what the callee read.
@@ -3306,6 +3327,15 @@ and in git, not a silent edit.
     D.
 
     **A. Second-class is a structural property of types.**
+    - **Superseded in part 2026-11-07 (VERDICTS-31 P4, with N2d/N2e;
+      v0.2.77).** "Second-class" is no longer a caste: a closure is an
+      origin-carrying value (its captures' origins, O7) and stands
+      wherever they can follow — returned under the return rule, stored in
+      composites and cells, placed in `Dyn(Fn(...), p)`, passed by value.
+      The rules below that say "may not be returned/stored" are the pre-N2
+      wall; what survives is the structural `Escapable` bound at the
+      no-origin positions (O4, O10) and B's exclusivity of a
+      `&mut`-carrying value at a call.
     - **Which types are second-class.** A closure is second-class when its
       capture record holds a borrow (`&`/`&mut`), or holds a second-class
       value, transitively. The same goes for a tuple, a record, an `Option`
@@ -3530,7 +3560,9 @@ and in git, not a silent edit.
     - prefix overlap;
     - `Copy` and `FnOnce`-only never coinciding;
     - a captured `FnOnce` called inside a closure making it `FnOnce`;
-    - effect handlers, which capture nothing;
+    - effect handlers, whose bodies are regular functions that name no
+      runtime local (the evaluator rejects the capture; restated
+      2026-11-07, VERDICTS-30);
     - read-only `Rc` re-entry;
     - a consuming call through a borrow being an error;
     - specialization catching an `Impl` that stores a borrowing literal.
@@ -4077,7 +4109,11 @@ and in git, not a silent edit.
     the adopted and rejected pieces are recorded there (§6).
     - **Types.** `&T` and `&mut T` are bindable (`r := &x`), nameable
       (`IntRef :: &i32`), passable, returnable under the origin return
-      rule (O3), usable as generic arguments (so `&&T` exists and is accepted),
+      rule (O3), usable as generic arguments (so `&&T` exists and is accepted;
+      from VERDICTS-31 P3, v0.2.77, `&r` on a reference binding IS `&&T`,
+      and there is no deref coercion — `&r` into a `&T` slot is a type
+      error naming `r`, the reborrow is `&r.*`; the no-coercion position
+      awaits the maintainer's approval),
       and the subject of impls: `impl(&T, Trait(…))` and the blanket
       `impl(generic(T), &T, Trait(…))`, distinct from `impl(T, …)` under
       `TRAIT_COHERENCE.md`. `&T` is `Copy`. `&mut T` is not: passed to a
@@ -5007,6 +5043,25 @@ and in git, not a silent edit.
       `*[T]`; `Rc(Box(Dyn(T)))` accepted and two blocks; the four `?Sized`
       blanket impls on `&str`, `&[T]`, `&Dyn`; the migration's rewrites and
       its hand list on a fixture.
+
+50. **The borrow checker is complete by construction: one origin per
+    expression, five functions, five gates, and Rust-parity
+    expressiveness** (maintainer goals 2026-11-07, "the same
+    expressiveness as Rust" and a borrow checker "complete without
+    holes"; VERDICTS-30/31). `plans/backlog/BORROW_CHECKER_COMPLETENESS.md` is the plan:
+    - `ExprInfo.origin` on every expression of an origin-carrying type,
+      and `origin_of`, `bind`, `access`, `lend_through`, `return_check` as
+      the only registrar, checker, substitution and return points;
+    - the gates: the corpus `target` set and an ASan must-reject directory
+      as Tier 1 and CI, a totality audit, a rustc differential corpus and
+      a generator;
+    - the fixes O-1…O-6 for the eight S1 holes VERDICTS-30 found, with
+      O-1/O-2 holding v0.2.76's cut (schedule §5f decision 33);
+    - the parity items P1–P16 in v0.2.77–v0.2.79 (decision 34).
+
+    Deliberate differences from Rust: Polonius-only cases are recorded
+    divergences. **Awaiting the maintainer's approval:** no deref coercion
+    (`&&T → &T` is written `&r.*`; P3) and scoped threads (P6).
 
 ## 5. Prerequisites, gates and the seed
 

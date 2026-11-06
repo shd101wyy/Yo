@@ -1,0 +1,19 @@
+// H1b: the same through a generic store at T := &String.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+store_g :: (fn(generic(T : Type), dst : &mut Option(T), v : T) -> unit)({
+  dst.* = .Some(v);
+});
+main :: (fn() -> unit)({
+  mut(slot) := Option(&String).None;
+  {
+    y := String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz");
+    ry := &y;
+    store_g(&mut slot, ry);
+  };
+  z := String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz");
+  match(slot, .Some(r) => println(`OUT: ${r.*.len().to_string()} ${r.*.slice_copy(usize(0) .. usize(5))}`), .None => println("none"));
+  _ := z.len();
+  ()
+});
+export(main);

@@ -1,0 +1,14 @@
+// H3b: through an Rc deref inside the match.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+main :: (fn() -> unit)({
+  mut(o) := Option(Rc(X)).Some(Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"))));
+  m := match(&o, .Some(h) => Option(&String).Some(&h.*.s), .None => Option(&String).None);
+  o = Option(Rc(X)).None;
+  z := String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz");
+  match(m, .Some(r) => println(`OUT: ${r.*.len().to_string()} ${r.*.slice_copy(usize(0) .. usize(5))}`), .None => println("none"));
+  _ := z.len();
+  ()
+});
+export(main);

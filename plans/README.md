@@ -217,6 +217,11 @@ Lean-blaster posture with compensations Lean lacks; D2's reopen condition
 is incident-shaped), and the rejections it adds (in-kernel decision
 procedures like `omega`/`grind`, ambient rewrite automation and simp
 sets, proof-term tiers over the compiler).
+[`BORROW_CHECKER_COMPLETENESS`](backlog/BORROW_CHECKER_COMPLETENESS.md) (2026-11-07) is how the
+compiler enforces that design in one place (an origin set on every expression, five functions), the
+gates that show it has no holes (the corpus `target` set, an ASan must-reject directory, a totality
+audit, a rustc differential corpus, a generator), the fixes for the eight S1 holes VERDICTS-30
+found, and the items that bring origins to Rust's expressiveness.
 [`REFERENCES_AND_ORIGINS`](backlog/REFERENCES_AND_ORIGINS.md) is the design of
 VALUES_BY_DEFAULT decisions 42 and 43 (2026-10-10, amended 2026-10-19 to
 the origin design, #1483): references are first-class types parameterized
