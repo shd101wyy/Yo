@@ -92,11 +92,21 @@ over-cancellation canary before it lands.
 
 Bounded (~45 KB per watch session; the count is a function of the re-forced
 definitions, not of time), watch mode only, no correctness effect observed. It
-fails the one internal test's leak verdict, which is how it was found.
+fails two internal tests' leak verdicts, which is how it was found.
 
 ## Test
 
-`tests/internal/check_watch.test.yo`, "Phase 3b: rule D1 re-judges a re-forced
-body": fails on the part B stage 1 (leak verdict above), passes on develop
-before and at the tip. It stays in the suite as the failing-then-passing
-witness for the fix.
+Two tests in `tests/internal/check_watch.test.yo` fail on the part B stage 1
+with the leak verdict and pass on develop before and at the tip:
+
+- "Phase 3b: rule D1 re-judges a re-forced body — the reach memo answers only
+  for the body it walked" (44,318 B / 677 allocations),
+- "Phase 3b: an edit re-judges the edited definition's same-module callers,
+  transitively" (43,662 B / 671 allocations, standalone reproduction).
+
+Both re-judge a re-forced body whose Thread-spawned closure reaches a non-Send
+global — the reach-memo re-judgment path. The test after them
+("build --watch: invalidate_changed_files") passes standalone; its exit-9 in
+the earlier batch run was an OOM kill under a four-heavy-job load, not the
+leak. They stay in the suite as the failing-then-passing witnesses for the
+fix.
