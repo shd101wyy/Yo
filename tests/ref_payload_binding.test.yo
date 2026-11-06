@@ -249,11 +249,13 @@ test("a borrowed match binding is yielded as a place of `self`", {
     );
     _r := _bad_tmp(&full);
   }, "this is a temporary");
-  // A `mut(name)` binding is a copy of its part, a local of the projection.
+  // A `mut(name)` binding is a by-value copy of its part (VERDICTS-28 Q2):
+  // a `String` part is not implicitly copyable, so the copy out of the
+  // match's borrow is E0901 — bind the reference instead.
   comptime_expect_error({
     _bad_copy :: (fn(x : &_Slot) -> &String)(
       match(&x.v, .Some(mut(s)) => &s.*, .None => &x.fallback)
     );
     _r := _bad_copy(&full);
-  }, "is a local");
+  }, "cannot copy `s` out of the match's borrow");
 });
