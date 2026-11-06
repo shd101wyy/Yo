@@ -352,7 +352,7 @@ _contains_version :: (fn(xs : &ArrayList(String), name : &String) -> bool)({
   while(i < xs.len(), {
     match(
       xs.get_cloned(i),
-      .Some(v) => if(v == name, {
+      .Some(v) => if(v == name.*, {
         return(true);
       }),
       .None => ()
@@ -449,7 +449,7 @@ clean_version_cache :: (
     match(
       &owned_version_opt,
       .Some(version) => {
-        version_dir := get_version_cache_dir(&version);
+        version_dir := get_version_cache_dir(&version.*);
         dir_exists := e.io.await(exists(Path.new(&version_dir), e.io), e.io);
         if(dir_exists, {
           e.io.await(remove_dir_all(Path.new(&version_dir), e.io), e);
@@ -610,7 +610,7 @@ _cleanup_failed_download :: (
   ) -> Impl(Future(unit, IoExn))
 )({
   owned_version_dir := version_dir.clone();
-  io.async({ owned_version_dir, &tmp_path }(e : IoExn) => {
+  io.async({ owned_version_dir, tmp_path : &tmp_path.* }(e : IoExn) => {
     ver_exists := e.io.await(exists(Path.new(&owned_version_dir), e.io), e.io);
     if(ver_exists, {
       e.io.await(remove_dir_all(Path.new(&owned_version_dir), e.io), e);

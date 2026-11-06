@@ -166,10 +166,10 @@ _type_has_computed_array_len_d :: (fn(t : &TypeValue, d : usize) -> bool)(
     true => match(
       t,
       Rc(.Array(cal_elem, _, cal_var)) => cond(
-        is_computed_array_len_var(&cal_var) => true,
-        true => recur(&cal_elem, d + usize(1))
+        is_computed_array_len_var(&cal_var.*) => true,
+        true => recur(&cal_elem.*, d + usize(1))
       ),
-      Rc(.Pointer(cal_p)) => recur(&cal_p, d + usize(1)),
+      Rc(.Pointer(cal_p)) => recur(&cal_p.*, d + usize(1)),
       Rc(.Tuple(_, cal_tts)) => {
         (cal_found0 : bool) = false;
         (cal_ti : usize) = usize(0);
@@ -488,7 +488,7 @@ t_with_resolution :: (fn(t : &TypeValue, concrete : &TypeValue) -> TypeValue)(
         TypeValueNode.SomeT(
           wr_id.clone(),
           wr_nm.clone(),
-          wr_fl,
+          wr_fl.*,
           Rc.clone(wr_pt),
           some_t_bounds(wr_rtt.clone(), wr_rtl.clone(), wr_ntt.clone(), wr_ntl.clone()),
           wr_kft.clone(),
@@ -505,7 +505,7 @@ t_with_resolution :: (fn(t : &TypeValue, concrete : &TypeValue) -> TypeValue)(
 t_with_func_result :: (fn(ft : &TypeValue, result : &TypeValue) -> TypeValue)(
   match(
     ft,
-    Rc(.Func(fr_ft, fr_pt, fr_it, fr_wt, fr_old, fr_meta, fr_vt)) => Rc.new(TypeValueNode.Func(Rc.clone(fr_ft), Rc.clone(fr_pt), Rc.clone(fr_it), Rc.clone(fr_wt), t_slot_with_pointee(&fr_old, result), Rc.clone(fr_meta), Rc.clone(fr_vt))),
+    Rc(.Func(fr_ft, fr_pt, fr_it, fr_wt, fr_old, fr_meta, fr_vt)) => Rc.new(TypeValueNode.Func(Rc.clone(fr_ft), Rc.clone(fr_pt), Rc.clone(fr_it), Rc.clone(fr_wt), t_slot_with_pointee(&fr_old.*, result), Rc.clone(fr_meta), Rc.clone(fr_vt))),
     _ => Rc.clone(ft)
   )
 );
@@ -537,7 +537,7 @@ clone_some_fresh :: (fn(s : &TypeValue) -> TypeValue)(
         TypeValueNode.SomeT(
           generate_some_type_id(),
           snm.clone(),
-          sfl,
+          sfl.*,
           Rc.clone(spt),
           some_t_bounds(sreq.clone(), sreql.clone(), sneg.clone(), snegl.clone()),
           skind.clone(),
@@ -646,7 +646,7 @@ _shell_walk_visited :: (fn(visited : &ArrayList(String), tok : &String) -> bool)
     // shape required — the bool-valued match form miscompiles self-hosted).
     match(
       visited.get_cloned(i),
-      .Some(e) => if(e == tok, {
+      .Some(e) => if(e == tok.*, {
         found = true;
       }),
       .None => ()
@@ -671,7 +671,7 @@ _contains_self_shell :: (
   match(
     t,
     Rc(.EnumT({ id, variant_names, variant_fields, type_arguments })) => cond(
-      ((id == shell_id) && (variant_names.len() == usize(0))) => true,
+      ((id.* == shell_id.*) && (variant_names.len() == usize(0))) => true,
       true => {
         tok := String.from("E:");
         tok.push_string(id.clone());
@@ -701,7 +701,7 @@ _contains_self_shell :: (
       }
     ),
     Rc(.Struct({ id, field_types, type_arguments })) => cond(
-      ((id == shell_id) && (field_types.len() == usize(0))) => true,
+      ((id.* == shell_id.*) && (field_types.len() == usize(0))) => true,
       true => {
         tok := String.from("S:");
         tok.push_string(id.clone());
@@ -725,9 +725,9 @@ _contains_self_shell :: (
         hit
       }
     ),
-    Rc(.Pointer(inner)) => recur(&inner, shell_id, visited),
-    Rc(.Array(el, _, _)) => recur(&el, shell_id, visited),
-    Rc(.ComptimeListT(el)) => recur(&el, shell_id, visited),
+    Rc(.Pointer(inner)) => recur(&inner.*, shell_id, visited),
+    Rc(.Array(el, _, _)) => recur(&el.*, shell_id, visited),
+    Rc(.ComptimeListT(el)) => recur(&el.*, shell_id, visited),
     _ => false
   )
 );
@@ -757,7 +757,7 @@ _patch_self_shell_guarded :: (
   match(
     t,
     Rc(.EnumT({ id, name, variant_names, variant_fields, selected_variant_name, variant_field_labels, variant_discriminants, is_reference_semantics, is_atomic_rc, type_arguments })) => cond(
-      ((id == shell_id) && (variant_names.len() == usize(0))) => Rc.clone(final_ty),
+      ((id.* == shell_id.*) && (variant_names.len() == usize(0))) => Rc.clone(final_ty),
       // Recurse into every variant field so a shell nested inside a generic
       // enum instantiation (e.g. `Option(Self)` / `Result(Self, E)`) is patched
       // too, and into the type arguments, same as the `.Struct` branch below.
@@ -792,14 +792,14 @@ _patch_self_shell_guarded :: (
           new_etas.push(recur(&ta, shell_id, final_ty, visited));
           ti = (ti + usize(1));
         });
-        Rc.new(TypeValueNode.EnumT(id.clone(), name.clone(), Rc.clone(variant_names), shared_list(new_vfs), selected_variant_name.clone(), Rc.clone(variant_field_labels), Rc.clone(variant_discriminants), is_reference_semantics, is_atomic_rc, shared_list(new_etas)))
+        Rc.new(TypeValueNode.EnumT(id.clone(), name.clone(), Rc.clone(variant_names), shared_list(new_vfs), selected_variant_name.clone(), Rc.clone(variant_field_labels), Rc.clone(variant_discriminants), is_reference_semantics.*, is_atomic_rc.*, shared_list(new_etas)))
       }
     ),
-    Rc(.Pointer(inner)) => Rc.new(TypeValueNode.Pointer(recur(&inner, shell_id, final_ty, visited))),
-    Rc(.Array(el, n, lv)) => Rc.new(TypeValueNode.Array(recur(&el, shell_id, final_ty, visited), n, lv.clone())),
-    Rc(.ComptimeListT(el)) => Rc.new(TypeValueNode.ComptimeListT(recur(&el, shell_id, final_ty, visited))),
+    Rc(.Pointer(inner)) => Rc.new(TypeValueNode.Pointer(recur(&inner.*, shell_id, final_ty, visited))),
+    Rc(.Array(el, n, lv)) => Rc.new(TypeValueNode.Array(recur(&el.*, shell_id, final_ty, visited), n.*, lv.clone())),
+    Rc(.ComptimeListT(el)) => Rc.new(TypeValueNode.ComptimeListT(recur(&el.*, shell_id, final_ty, visited))),
     Rc(.Struct({ id, name, field_labels, field_types, is_reference_semantics, is_atomic_rc, is_newtype, constructor_func_id, type_arguments, is_source_namespace })) => cond(
-      ((id == shell_id) && (field_types.len() == usize(0))) => Rc.clone(final_ty),
+      ((id.* == shell_id.*) && (field_types.len() == usize(0))) => Rc.clone(final_ty),
       true => {
         tok := String.from("S:");
         tok.push_string(id.clone());
@@ -822,7 +822,7 @@ _patch_self_shell_guarded :: (
           new_tas.push(recur(&ta, shell_id, final_ty, visited));
           j = (j + usize(1));
         });
-        Rc.new(TypeValueNode.Struct(id.clone(), name.clone(), Rc.clone(field_labels), shared_list(new_fts), is_reference_semantics, is_atomic_rc, is_newtype, constructor_func_id.clone(), shared_list(new_tas), is_source_namespace))
+        Rc.new(TypeValueNode.Struct(id.clone(), name.clone(), Rc.clone(field_labels), shared_list(new_fts), is_reference_semantics.*, is_atomic_rc.*, is_newtype.*, constructor_func_id.clone(), shared_list(new_tas), is_source_namespace.*))
       }
     ),
     _ => Rc.clone(t)
@@ -874,7 +874,7 @@ resolve_enum_shell :: (fn(t : &TypeValue) -> TypeValue)(
       if(vns.len() > usize(0), {
         return(Rc.clone(t));
       });
-      match(g_enum_finals.with({ &eid }(m) => m.get_cloned(eid)), .Some(f) => f, .None => Rc.clone(t))
+      match(g_enum_finals.with({ &eid }(m) => m.get_cloned(eid.*)), .Some(f) => f, .None => Rc.clone(t))
     },
     _ => Rc.clone(t)
   )
@@ -1012,7 +1012,7 @@ resolve_struct_shell :: (fn(t : &TypeValue) -> TypeValue)(
     t,
     Rc(.Struct({ id : sid, field_types : fts })) => cond(
       (fts.len() > usize(0)) => Rc.clone(t),
-      true => match(g_struct_finals.with({ &sid }(m) => m.get_cloned(sid)), .Some(f) => f, .None => Rc.clone(t))
+      true => match(g_struct_finals.with({ &sid }(m) => m.get_cloned(sid.*)), .Some(f) => f, .None => Rc.clone(t))
     ),
     _ => Rc.clone(t)
   )

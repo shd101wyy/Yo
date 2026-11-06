@@ -495,16 +495,16 @@ impl(
     WalkCursor : usize,
     WalkElem : T,
     walk_start : (fn(self : &Self) -> usize)(self._map._walk_from(usize(0))),
-    walk_valid : (fn(self : &Self, cur : &usize) -> bool)(cur < self._map.capacity),
+    walk_valid : (fn(self : &Self, cur : &usize) -> bool)(cur.* < self._map.capacity),
     walk_ref : (fn(self : &Self, cur : &usize) -> &T)({
-      if(cur >= self._map.capacity, {
+      if(cur.* >= self._map.capacity, {
         __yo_panic("HashSet: walk cursor out of bounds");
       });
       // The entry's KEY is the set's element; take its address rather than
       // assuming `MapEntry`'s field order puts it at offset 0.
-      addr_of(self._map._data_ptr().add(cur).*.key)
+      addr_of(self._map._data_ptr().add(cur.*).*.key)
     }),
-    walk_next : (fn(self : &Self, cur : &usize) -> usize)(self._map._walk_from(cur + usize(1)))
+    walk_next : (fn(self : &Self, cur : &usize) -> usize)(self._map._walk_from(cur.* + usize(1)))
   )
 );
 /// `Default` — the empty set.
@@ -537,7 +537,7 @@ impl(
     ),
     from_iter_add : (fn(sink(acc) : Self, item : &T) -> Self)({
       mut(out) := acc;
-      out.insert(item);
+      out.insert(item.*);
       out
     })
   )

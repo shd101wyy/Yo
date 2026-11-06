@@ -271,7 +271,7 @@ resolve_all_system_libraries :: (
   // The async body cannot capture a borrowed parameter (a closure that
   // outlives the call), so it owns a copy of the libraries.
   mut(libs_own) := ArrayList(BuildSystemLibrary).new();
-  for(&libs, l => {
+  for(&libs.*, l => {
     libs_own.push(l.clone());
   });
   io.async({ libs_own, verbose }(e : IoExn) => {

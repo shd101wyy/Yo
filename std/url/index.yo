@@ -641,7 +641,7 @@ impl(
       },
       .Some(h) =>
         match(
-          _validate_component(&h, `host`, `/?#@`),
+          _validate_component(&h.*, `host`, `/?#@`),
           .Err(e) => .Err(e),
           .Ok(_) =>
             cond(
@@ -696,7 +696,7 @@ impl(
       },
       .Some(q) =>
         match(
-          _validate_component(&q, `query`, `#`),
+          _validate_component(&q.*, `query`, `#`),
           .Err(e) => .Err(e),
           .Ok(_) => {
             self._query = Option(String).Some(q.clone());
@@ -718,7 +718,7 @@ impl(
       },
       .Some(f) =>
         match(
-          _validate_component(&f, `fragment`, ``),
+          _validate_component(&f.*, `fragment`, ``),
           .Err(e) => .Err(e),
           .Ok(_) => {
             self._fragment = Option(String).Some(f.clone());
@@ -743,7 +743,7 @@ impl(
       },
       .Some(u) =>
         match(
-          _validate_component(&u, `userinfo`, `/?#@`),
+          _validate_component(&u.*, `userinfo`, `/?#@`),
           .Err(e) => .Err(e),
           .Ok(_) => {
             self._userinfo = Option(String).Some(u.clone());
@@ -851,7 +851,7 @@ _UrlRef :: struct(
 _validate_component :: (
   fn(s : &String, what : &String, forbidden : &String) -> Result(unit, UrlError)
 )({
-  forbidden_b := &forbidden;
+  forbidden_b := &forbidden.*;
   (mut(i) : usize) = usize(0);
   while(i < s.len(), {
     b := s.byte_at(i);
@@ -884,7 +884,7 @@ _validate_component :: (
 /// `1a:b` are not, and a relative path may legally contain a colon after the
 /// first segment (`a/b:c`), which is why the split below stops at `/`.
 _is_scheme :: (fn(s : &String) -> bool)({
-  b := &s;
+  b := &s.*;
   if(b.len() == usize(0), {
     return(false);
   });
@@ -1224,11 +1224,11 @@ impl(
             match(
               &self._userinfo,
               .Some(ui) => {
-                result = result.concat(&ui).concat(`@`);
+                result = result.concat(&ui.*).concat(`@`);
               },
               .None => ()
             );
-            result = result.concat(&h);
+            result = result.concat(&h.*);
             match(
               self._port,
               .Some(p) => {
@@ -1243,14 +1243,14 @@ impl(
         match(
           &self._query,
           .Some(q) => {
-            result = result.concat(`?`).concat(&q);
+            result = result.concat(`?`).concat(&q.*);
           },
           .None => ()
         );
         match(
           &self._fragment,
           .Some(f) => {
-            result = result.concat(`#`).concat(&f);
+            result = result.concat(`#`).concat(&f.*);
           },
           .None => ()
         );

@@ -167,7 +167,7 @@ impl(
   /// follows, because both consult the same `_removed` flag. Async, awaited
   /// on the event loop.
   remove : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))(
-    io.async({ &self, io }(e : IoExn) =>
+    io.async({ self : &self.*, io }(e : IoExn) =>
       cond(
         self._cell._removed => (),
         true => {
@@ -299,7 +299,7 @@ impl(
   /// becomes a no-op. Async, awaited on the event loop; throws `IoExn` if
   /// either step fails.
   remove : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))(
-    io.async({ &self, io }(e : IoExn) =>
+    io.async({ self : &self.*, io }(e : IoExn) =>
       cond(
         self._cell._removed => (),
         true => {

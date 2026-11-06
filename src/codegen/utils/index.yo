@@ -390,7 +390,7 @@ impl(
       c_includes : HashSet(String).new(),
       emitter : emitter,
       info_table : info_table.clone(),
-      target_info : target_info,
+      target_info : target_info.*,
       allocator : allocator.clone(),
       heap_size : heap_size,
       debug_heap : debug_heap,
@@ -593,10 +593,10 @@ impl(
     );
     def_mod := match(
       value,
-      .FuncVal(fvd, _) => ast_expr_token(&fvd.*.body).module_path.*.clone(),
+      .FuncVal(fvd, _) => ast_expr_token(&fvd.*.*.body).module_path.*.clone(),
       _ => String.new()
     );
-    self.functions.insert(func_id.clone(), CodegenFunctionEntry(value : value, c_name : final_name, def_module : def_mod));
+    self.functions.insert(func_id.clone(), CodegenFunctionEntry(value : value.*, c_name : final_name, def_module : def_mod));
     ()
   }),
   /// True if a function with this func_id is already registered.
@@ -623,7 +623,7 @@ impl(
   /// for plain-name exports).
   has_function_with_c_name : (fn(self : &Self, c_name : &String) -> bool)({
     for(&self.functions, (_fid, entry) => {
-      if(entry.c_name == c_name, {
+      if(entry.c_name == c_name.*, {
         return(true);
       });
     });
@@ -636,7 +636,7 @@ impl(
   }),
   /// Register a dyn() usage (idempotent on key).
   register_dyn_impl : (fn(self : &mut Self, key : &String, entry : &DynImplEntry) -> unit)({
-    self.dyn_impls.insert(key.clone(), entry);
+    self.dyn_impls.insert(key.clone(), entry.*);
     ()
   }),
   /// Record one `upcast(src, tgt)` (idempotent per target).
@@ -1000,9 +1000,9 @@ pattern_literal_param_code :: (fn(e : &AstExpr) -> String)({
     .FnCall(_, _, Rc(neg_args), _, _) => match(
       neg_args.get(usize(0)),
       .Some(op) => op,
-      .None => e
+      .None => e.*
     ),
-    .Atom(_, _) => e
+    .Atom(_, _) => e.*
   );
   txt := ast_expr_token(&neg).value.*.clone();
   negated := match(
@@ -1228,11 +1228,11 @@ _fn_call_callee_name :: (fn(e : &AstExpr) -> Option(String))(
 _unwrap_unsafe :: (fn(e : &AstExpr) -> AstExpr)(
   match(
     e,
-    .Atom(_, _) => e,
+    .Atom(_, _) => e.*,
     .FnCall(_, _, Rc(args), _, _) => if(
       ast_expr_is_fn_call_of(e, BF_UNSAFE, .None) && (args.len() == usize(1)),
-      match(args.get(usize(0)), .Some(a) => a, .None => e),
-      e
+      match(args.get(usize(0)), .Some(a) => a, .None => e.*),
+      e.*
     )
   )
 );
@@ -1295,7 +1295,7 @@ _inline_unwrap_transparent :: (fn(e : &AstExpr) -> AstExpr)({
 });
 _inline_body_passes_params_through :: (fn(call : &AstExpr, fv : &EvalValue) -> bool)({
   args := match(call, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => return(false));
-  params := match(fv, .FuncVal(__fvd2, _) => __fvd2.*.params.clone(), _ => return(false));
+  params := match(fv, .FuncVal(__fvd2, _) => __fvd2.*.*.params.clone(), _ => return(false));
   nparams := params.len();
   // Walk the body arguments, dropping type arguments, and require the ones that
   // remain to line up with the parameters in order.
@@ -1343,7 +1343,7 @@ _inline_body_passes_params_through :: (fn(call : &AstExpr, fv : &EvalValue) -> b
 is_function_value_with_only_builtin_yo_inline_function_call :: (
   fn(fv : &EvalValue) -> Option(String)
 )({
-  body_box := match(fv, .FuncVal(__fvd1, _) => __fvd1.*.body, _ => return(.None));
+  body_box := match(fv, .FuncVal(__fvd1, _) => __fvd1.*.*.body, _ => return(.None));
   body := _unwrap_unsafe(&body_box);
   // The call node the operator name comes from — needed by the pass-through
   // check below, which must inspect THAT call's arguments and not the
@@ -1486,7 +1486,7 @@ can_optimize_as_simple_enum :: (fn(t : &TypeValue) -> bool)(
       // switch(obj->tag) — those sites don't follow the collapse, so a
       // payload-free ref enum must NOT collapse to a bare C enum
       // (issues/fixed/fieldless-ref-enum-simple-enum-collapse.md).
-      if(is_reference_semantics, {
+      if(is_reference_semantics.*, {
         return(false);
       });
       (mut(all_empty) : bool) = true;
@@ -1677,7 +1677,7 @@ _gts_stack_contains :: (fn(sid : &String) -> bool)({
   while((i < n) && !found, {
     match(
       g_gts_some_stack.with({ i }(xs) => xs.get_cloned(i)),
-      .Some(x) => if(x == sid, {
+      .Some(x) => if(x == sid.*, {
         found = true;
       }),
       .None => ()
@@ -1693,7 +1693,7 @@ get_type_string :: (fn(t : &TypeValue, context : &mut CodeGenContext) -> String)
     // type IS the inner's. Without this arm the variant reached the
     // `// Unknown type:` fallback INSIDE prototypes and emitted malformed C
     // for every refined-parameter signature (array_list's annotated ops).
-    Rc(.RefineT(inner, _)) => get_type_string(&inner, context),
+    Rc(.RefineT(inner, _)) => get_type_string(&inner.*, context),
     Rc(.Unit) => String.from("void"),
     Rc(.Void) => String.from("void"),
     // `never` has no values; a `-> never` function returns `void` in C.
@@ -1702,13 +1702,13 @@ get_type_string :: (fn(t : &TypeValue, context : &mut CodeGenContext) -> String)
     Rc(.Usize) => String.from("size_t"),
     Rc(.Isize) => String.from("intptr_t"),
     Rc(.Int(bits, signed)) => cond(
-      (bits == u8(8)) => if(signed, String.from("int8_t"), String.from("uint8_t")),
-      (bits == u8(16)) => if(signed, String.from("int16_t"), String.from("uint16_t")),
-      (bits == u8(32)) => if(signed, String.from("int32_t"), String.from("uint32_t")),
-      (bits == u8(64)) => if(signed, String.from("int64_t"), String.from("uint64_t")),
+      (bits.* == u8(8)) => if(signed.*, String.from("int8_t"), String.from("uint8_t")),
+      (bits.* == u8(16)) => if(signed.*, String.from("int16_t"), String.from("uint16_t")),
+      (bits.* == u8(32)) => if(signed.*, String.from("int32_t"), String.from("uint32_t")),
+      (bits.* == u8(64)) => if(signed.*, String.from("int64_t"), String.from("uint64_t")),
       true => String.from("int32_t")
     ),
-    Rc(.Float(bits)) => if(bits == u8(32), String.from("float"), String.from("double")),
+    Rc(.Float(bits)) => if(bits.* == u8(32), String.from("float"), String.from("double")),
     Rc(.ComptimeInt) => String.from("int32_t"),
     Rc(.ComptimeFloat) => String.from("double"),
     // At runtime, comptime_str values materialize as the builtin str.
@@ -1730,7 +1730,7 @@ get_type_string :: (fn(t : &TypeValue, context : &mut CodeGenContext) -> String)
     Rc(.Struct({ is_reference_semantics : is_ref })) => {
       base := _lookup_named_c_type(t, context);
       // Reference-semantics structs (object/atomic object) are pointers in C.
-      if(is_ref, {
+      if(is_ref.*, {
         mut(ptr) := base.clone();
         ptr.push_str("*");
         return(ptr);
@@ -1746,7 +1746,7 @@ get_type_string :: (fn(t : &TypeValue, context : &mut CodeGenContext) -> String)
       .Some(ptr_type) => recur(&ptr_type, context),
       .None => {
         base := _lookup_named_c_type(t, context);
-        if(is_ref, {
+        if(is_ref.*, {
           mut(ptr) := base.clone();
           ptr.push_str("*");
           return(ptr);
@@ -1760,7 +1760,7 @@ get_type_string :: (fn(t : &TypeValue, context : &mut CodeGenContext) -> String)
       // In Yo a PtrType is a borrow `*(T)`. Object types are already pointers
       // in C; for value types a borrow is a pointer to the value. Either way
       // the C type is `<base>*`.
-      mut(base) := recur(&pointee, context);
+      mut(base) := recur(&pointee.*, context);
       base.push_str("*");
       base
     },
@@ -1769,13 +1769,13 @@ get_type_string :: (fn(t : &TypeValue, context : &mut CodeGenContext) -> String)
     // length — falls through to the unknown fallback.)
     Rc(.Array(element, length, length_var)) => cond(
       (length_var.len() == usize(0)) => {
-        element_type_string := recur(&element, context);
+        element_type_string := recur(&element.*, context);
         mut(array_type_name) := String.from("Array_");
         array_type_name.push_string(c_symbol_name(element_type_string.clone()));
         array_type_name.push_str("_");
         array_type_name.push_string(length.to_string());
         if(!context.has_array_struct_type(array_type_name.clone()), {
-          context.register_array_struct_type(array_type_name.clone(), &element_type_string, i64(length));
+          context.register_array_struct_type(array_type_name.clone(), &element_type_string, i64(length.*));
         });
         array_type_name
       },
@@ -1800,7 +1800,7 @@ get_type_string :: (fn(t : &TypeValue, context : &mut CodeGenContext) -> String)
       // The cycle guard (g_gts_some_stack above) demotes a REVISITED SomeT
       // to the unresolved fallback instead of recursing forever.
       cond(
-        _gts_stack_contains(&sid) => Option(TypeValue).None,
+        _gts_stack_contains(&sid.*) => Option(TypeValue).None,
         true => some_resolution(t)
       ),
       .Some(rct) => {
@@ -1860,7 +1860,7 @@ get_type_string :: (fn(t : &TypeValue, context : &mut CodeGenContext) -> String)
     // `IoFuture` in a sync function
     // (issues/fixed/io-future-named-local-declared-by-value.md).
     Rc(.ExternOpaqueT(_, eo_c)) => cond(
-      (eo_c == "__yo_io_future_t") => String.from("__yo_io_future_t*"),
+      (eo_c.* == "__yo_io_future_t") => String.from("__yo_io_future_t*"),
       true => eo_c.clone()
     ),
     // Dynamic dispatch type — a value struct { data ptr, vtable ptr } passed
@@ -1880,9 +1880,9 @@ get_type_string :: (fn(t : &TypeValue, context : &mut CodeGenContext) -> String)
     // parameter slot still takes its pointee first (`t_slot_pointee`), so a
     // slot reaching here remains an internal error at its own call sites.
     Rc(.Reference(ref_pointee, ref_mut, _)) => {
-      pt := get_type_string(&ref_pointee, context);
+      pt := get_type_string(&ref_pointee.*, context);
       cond(
-        ref_mut => `${pt} *`,
+        ref_mut.* => `${pt} *`,
         true => `${pt} const *`
       )
     },
@@ -1927,7 +1927,7 @@ scope_stack_contains :: (fn(stack : &ArrayList(String), cn : &String) -> bool)({
   while((i < n) && !found, {
     match(
       stack.get_cloned(i),
-      .Some(nm) => if(nm == cn, {
+      .Some(nm) => if(nm == cn.*, {
         found = true;
       }),
       .None => ()
@@ -2011,7 +2011,7 @@ _codegen_name_of_variables :: (fn(variable_name : &String, variables : &ArrayLis
       // (`stdout`/`stderr` — non-Func, so it can't carry is_extern on its type;
       // tracked in the g_extern_c_globals registry). Either way, keep the REAL
       // C name (skip the `__yo_c_reserved_` reserved-word prefix).
-      is_extern_c_fn := match(&variable_value_type(&variable), Rc(.Func({ meta : __fm1 })) => match(&__fm1.*.is_extern, .Some(lang) => (lang == "c"), .None => false), _ => false);
+      is_extern_c_fn := match(&variable_value_type(&variable), Rc(.Func({ meta : __fm1 })) => match(&__fm1.*.*.is_extern, .Some(lang) => (lang.* == "c"), .None => false), _ => false);
       // The registry is NAME-keyed, but the rule is per-RESOLVED-variable
       // (extern-ness rides the TYPE):
       // a LOCAL binding that merely shares the name (IoError.from_errno's
@@ -2029,7 +2029,7 @@ _codegen_name_of_variables :: (fn(variable_name : &String, variables : &ArrayLis
       c_symbol := if(is_extern_c_glob, extern_c_global_c_name(variable.name.clone()), variable.name.clone());
       var_name := sanitize_for_c_identifier(&c_symbol, is_extern_c);
       // A generated fn_* name shadowing a local → prefer the original name.
-      if((var_name != variable_name) && var_name.starts_with(String.from("fn_yo_id_")), {
+      if((var_name != variable_name.*) && var_name.starts_with(String.from("fn_yo_id_")), {
         return(sanitize_for_c_identifier(variable_name.clone(), false));
       });
       // Module-qualify module-level globals — without this, same-named
@@ -2093,7 +2093,7 @@ get_variable_name_for_codegen :: (fn(variable_name : &String, env : &Option(Envi
   match(
     env,
     .None => sanitize_for_c_identifier(variable_name.clone(), false),
-    .Some(e) => _codegen_name_of_variables(variable_name, get_variables_from_env(&e, variable_name.clone()))
+    .Some(e) => _codegen_name_of_variables(variable_name, get_variables_from_env(&e.*, variable_name.clone()))
   )
 );
 /// `get_variable_name_for_codegen` through node `key`'s recorded scope: the
@@ -2103,7 +2103,7 @@ get_variable_name_for_codegen_at :: (fn(key : ExprId, variable_name : &String, e
   match(
     env,
     .None => sanitize_for_c_identifier(variable_name.clone(), false),
-    .Some(e) => _codegen_name_of_variables(variable_name, scope_variables(key, &e, variable_name.clone()))
+    .Some(e) => _codegen_name_of_variables(variable_name, scope_variables(key, &e.*, variable_name.clone()))
   )
 );
 /// The variable a one-element dup (`__yo_dup_tuple_element(v, i)` /
@@ -2160,7 +2160,7 @@ element_wise_dup_elements :: (fn(dup_expr : &AstExpr) -> ArrayList(AstExpr))({
         i = (i + usize(1));
       });
     }, {
-      (whole : AstExpr) = dup_expr;
+      (whole : AstExpr) = dup_expr.*;
       out.push(whole);
     }),
     .Atom(_, _) => ()
@@ -2192,7 +2192,7 @@ get_deferred_dup_target_atom_name :: (fn(dup_expr : &AstExpr) -> Option(String))
         match(
           func_box,
           .FnCall(_, _, Rc(dot_args), _, _) => {
-            if(ast_expr_is_fn_call_of(&func_box, BF_DOT, .Some(usize(2))), {
+            if(ast_expr_is_fn_call_of(&func_box.*, BF_DOT, .Some(usize(2))), {
               first_ok := match(dot_args.get(usize(0)), .Some(a) => ast_expr_is_atom(&a), .None => false);
               second_is_dup := match(
                 dot_args.get(usize(1)),
@@ -2223,7 +2223,7 @@ get_deferred_drop_target_atom :: (fn(drop_expr : &AstExpr) -> Option(AstExpr))(
       if(args.len() == usize(0), {
         match(
           func_box,
-          .FnCall(_, _, Rc(dot_args), _, _) => if(ast_expr_is_fn_call_of(&func_box, BF_DOT, .Some(usize(2))), {
+          .FnCall(_, _, Rc(dot_args), _, _) => if(ast_expr_is_fn_call_of(&func_box.*, BF_DOT, .Some(usize(2))), {
             second_is_drop := match(dot_args.get(usize(1)), .Some(a) => match(a, .Atom(_, tok) => (tok.value.* == BF_DROP), .FnCall(_, _, _, _, _) => false), .None => false);
             if(second_is_drop, {
               match(
@@ -2274,7 +2274,7 @@ get_deferred_drop_target_atom_name :: (fn(drop_expr : &AstExpr) -> Option(String
         match(
           func_box,
           .FnCall(_, _, Rc(dot_args), _, _) => {
-            if(ast_expr_is_fn_call_of(&func_box, BF_DOT, .Some(usize(2))), {
+            if(ast_expr_is_fn_call_of(&func_box.*, BF_DOT, .Some(usize(2))), {
               second_is_drop := match(
                 dot_args.get(usize(1)),
                 .Some(a) => match(a, .Atom(_, tok) => (tok.value.* == BF_DROP), .FnCall(_, _, _, _, _) => false),
@@ -2340,8 +2340,8 @@ find_returned_async_block :: (fn(expr : &Option(AstExpr)) -> Option(AstExpr))(
     expr,
     .None => .None,
     .Some(e) => cond(
-      is_io_async_call(&e) => .Some(e),
-      ast_expr_is_fn_call(&e) => match(
+      is_io_async_call(&e.*) => .Some(e.*),
+      ast_expr_is_fn_call(&e.*) => match(
         e,
         .FnCall(_, _, Rc(args), _, _) => {
           (found : Option(AstExpr)) = .None;
@@ -2485,7 +2485,7 @@ _checked_fixed_array_subscript :: (fn(index_code : String, array_type : &TypeVal
 is_self_named_atom :: (fn(expr : &AstExpr, variable_name : &String) -> bool)(
   // Read through an evaluator rewrite: `r.*` on a reference binding is the
   // name `r` itself (decision 43 step 2 N1e-1, `note_rewritten_node`).
-  match(ast_rewritten_node(expr), .Atom(_, sn_tok) => (variable_name == sn_tok.value.*), .FnCall(_, _, _, _, _) => false)
+  match(ast_rewritten_node(expr), .Atom(_, sn_tok) => (variable_name.* == sn_tok.value.*), .FnCall(_, _, _, _, _) => false)
 );
 /// The `fn(...)` type a `dyn(...)` payload's concrete type is, through its
 /// `SomeT` resolutions (an `Impl(Fn(...))` parameter bound to a named `fn`),
@@ -2544,7 +2544,7 @@ dyn_slot_param_abi_string :: (fn(ft : &TypeValue, i : usize, context : &mut Code
 /// The C result type of the method type `ft` in a `Dyn` vtable slot or
 /// wrapper: a projection's (`-> &T`) is `T*`.
 dyn_slot_result_abi_string :: (fn(ft : &TypeValue, context : &mut CodeGenContext) -> String)({
-  rs := get_type_string(&match(ft, Rc(.FnTraitT({ call_result : dsr_cr })) => t_slot_pointee(&dsr_cr), _ => fn_result_pointee(ft)), context);
+  rs := get_type_string(&match(ft, Rc(.FnTraitT({ call_result : dsr_cr })) => t_slot_pointee(&dsr_cr.*), _ => fn_result_pointee(ft)), context);
   if(fn_result_is_ref(ft), {
     rs.push_str("*");
   });

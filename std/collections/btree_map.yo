@@ -73,10 +73,10 @@ impl(
       // Compared in place: a copy of the key would be E0901 for a move-only
       // `K`.
       cond(
-        (self._entries(mid).key < k) => {
+        (self._entries(mid).key < k.*) => {
           lo = (mid + usize(1));
         },
-        (self._entries(mid).key > k) => {
+        (self._entries(mid).key > k.*) => {
           hi = mid;
         },
         true => {
@@ -313,12 +313,12 @@ impl(
     WalkCursor : usize,
     WalkElem : MapEntry(K, V),
     walk_start : (fn(self : &Self) -> usize)(usize(0)),
-    walk_valid : (fn(self : &Self, cur : &usize) -> bool)(cur < self._entries.len()),
+    walk_valid : (fn(self : &Self, cur : &usize) -> bool)(cur.* < self._entries.len()),
     walk_ref : (fn(self : &Self, cur : &usize) -> &MapEntry(K, V))({
-      assert(cur < self._entries.len(), "BTreeMap: walk cursor out of bounds");
-      self._entries._ptr.unwrap().add(cur)
+      assert(cur.* < self._entries.len(), "BTreeMap: walk cursor out of bounds");
+      self._entries._ptr.unwrap().add(cur.*)
     }),
-    walk_next : (fn(self : &Self, cur : &usize) -> usize)(cur + usize(1))
+    walk_next : (fn(self : &Self, cur : &usize) -> usize)(cur.* + usize(1))
   )
 );
 impl(
@@ -326,8 +326,8 @@ impl(
   BTreeMap(K, V),
   BorrowedWalkMut(
     walk_elem : (fn(self : &mut Self, cur : &usize) -> &mut MapEntry(K, V))({
-      assert(cur < self._entries.len(), "BTreeMap: walk cursor out of bounds");
-      self._entries._ptr.unwrap().add(cur)
+      assert(cur.* < self._entries.len(), "BTreeMap: walk cursor out of bounds");
+      self._entries._ptr.unwrap().add(cur.*)
     })
   )
 );

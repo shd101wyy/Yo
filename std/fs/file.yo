@@ -233,8 +233,8 @@ impl(
   /// Write a `String` to the file.
   /// Returns the number of bytes written.
   write_string : (fn(self : &Self, data : &String, io : Io) -> Impl(Future(usize, IoExn)))(
-    io.async({ &self, &data }(e : IoExn) => {
-      data_bytes := &data;
+    io.async({ self : &self.*, data : &data.* }(e : IoExn) => {
+      data_bytes := &data.*;
       cond(
         (data_bytes.len() == usize(0)) => usize(0),
         true => {
@@ -250,7 +250,7 @@ impl(
   /// Write bytes from an `ArrayList(u8)` to the file.
   /// Returns the number of bytes written.
   write_bytes : (fn(self : &Self, data : &ArrayList(u8), io : Io) -> Impl(Future(usize, IoExn)))(
-    io.async({ &self, &data }(e : IoExn) =>
+    io.async({ self : &self.*, data : &data.* }(e : IoExn) =>
       cond(
         (data.len() == usize(0)) => usize(0),
         true => {
@@ -269,7 +269,7 @@ impl(
   /// no-op. Reach for this one only when durability is the point; it is by
   /// far the most expensive call on the type.
   flush : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))(
-    io.async({ &self }(e : IoExn) => {
+    io.async({ self : &self.* }(e : IoExn) => {
       fd := self._cell._fd;
       result := e.io.await(IO_file.fsync(fd), e.io);
       IoError.check(result, e.exn);
@@ -280,7 +280,7 @@ impl(
   /// `File::set_len`). Extending pads with zeroes. Takes effect regardless of
   /// this handle's read/write position.
   set_len : (fn(self : &Self, length : i64, io : Io) -> Impl(Future(unit, IoExn)))(
-    io.async({ &self, length }(e : IoExn) => {
+    io.async({ self : &self.*, length }(e : IoExn) => {
       fd := self._cell._fd;
       result := e.io.await(IO_file.ftruncate(fd, length), e.io);
       IoError.check(result, e.exn);
@@ -339,7 +339,7 @@ impl(
   ),
   /// Close the file descriptor. Safe to call multiple times.
   close : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))(
-    io.async({ &self, io }(e : IoExn) => {
+    io.async({ self : &self.*, io }(e : IoExn) => {
       e.io.await(_close_file_state(self._st(), io), e);
     })
   ),
@@ -371,7 +371,7 @@ impl(
   /// A file renamed, replaced or unlinked after the open had the same
   /// problem. The descriptor names the inode; the path does not.
   metadata : (fn(self : &Self, io : Io) -> Impl(Future(Metadata, IoExn)))(
-    io.async({ &self, io }(e : IoExn) => e.io.await(_metadata_mod.metadata_fd(self._cell._fd, io), e))
+    io.async({ self : &self.*, io }(e : IoExn) => e.io.await(_metadata_mod.metadata_fd(self._cell._fd, io), e))
   )
 );
 export(File, OpenMode, OpenOptions, FilePermission, SeekFrom, _close_file_state);
@@ -387,7 +387,7 @@ impl(
     /// Read up to `size` bytes into the buffer `buf`, at the file's
     /// position, and advance it. Returns the number of bytes actually read.
     read : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
-      io.async({ &self, buf, size }(e : IoExn) => {
+      io.async({ self : &self.*, buf, size }(e : IoExn) => {
         st := self._st();
         result := e.io.await(IO_file.read(self._cell._fd, buf, u32(size), self._cell._pos), e.io);
         n := IoError.check(result, e.exn);
@@ -403,7 +403,7 @@ impl(
     /// Write up to `size` raw bytes from `buf` at the file's current
     /// position, and advance it. Returns the number of bytes written.
     write : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
-      io.async({ &self, buf, size }(e : IoExn) => {
+      io.async({ self : &self.*, buf, size }(e : IoExn) => {
         st := self._st();
         result := e.io.await(IO_file.write(self._cell._fd, buf, u32(size), self._cell._pos), e.io);
         n := IoError.check(result, e.exn);

@@ -65,7 +65,7 @@ _tuple_index_of :: (fn(rhs_type : &TypeValue, label : &String) -> Option(usize))
       while(i < n, {
         match(
           fls.get(i),
-          .Some(lbl) => if(lbl == label, {
+          .Some(lbl) => if(lbl == label.*, {
             return(Option(usize).Some(i));
           }),
           .None => ()
@@ -92,7 +92,7 @@ _sm_binding_slot :: (fn(key : ExprId, env : &Environment, name : &String, contex
   });
   match(
     &context.state_machine_variables,
-    .Some(smv) => sm_slot_of(key, env, name, &smv, &context.variable_id_remapping, &context.state_machine_field_aliases, &context.sm_capture_slot),
+    .Some(smv) => sm_slot_of(key, env, name, &smv.*, &context.variable_id_remapping, &context.state_machine_field_aliases, &context.sm_capture_slot),
     .None => Option(String).None
   )
 });
@@ -112,12 +112,12 @@ _clear_sm_move_flag :: (fn(slot : &String, indent : &String, context : &mut Func
 /// whose scope record holds the bound variable), or the pattern's own id.
 _binding_atom_key :: (fn(pattern : &AstExpr, name : &String) -> ExprId)({
   (mut(stack) : ArrayList(AstExpr)) = ArrayList(AstExpr).new();
-  stack.push(pattern);
+  stack.push(pattern.*);
   while(stack.len() > usize(0), {
-    cur := match(stack.pop(), .Some(x) => x, .None => pattern);
+    cur := match(stack.pop(), .Some(x) => x, .None => pattern.*);
     match(
       cur,
-      .Atom(_, _) => if(ast_expr_token(&cur).value.* == name, {
+      .Atom(_, _) => if(ast_expr_token(&cur).value.* == name.*, {
         return(ast_expr_id(&cur));
       }),
       .FnCall(_, _, Rc(args), _, _) => {
@@ -247,7 +247,7 @@ _generate_inout_local_binding :: (fn(lhs : &AstExpr, rhs : &AstExpr, bind_key : 
   // bare name; `name := &place` its `__yo_imm(name)` / `__yo_mut(name)` form.
   name_expr := match(
     lhs,
-    .Atom(_, _) => lhs,
+    .Atom(_, _) => lhs.*,
     .FnCall(_, _, Rc(lhs_args), _, _) => match(lhs_args.get(usize(0)), .Some(x) => x, .None => return(Option(String).None))
   );
   name_ei := match(
@@ -313,7 +313,7 @@ _generate_inout_local_binding :: (fn(lhs : &AstExpr, rhs : &AstExpr, bind_key : 
   ref_slot := match(
     bind_env,
     .Some(benv) => {
-      vs := scope_variables(bind_key, &benv, var_name.clone());
+      vs := scope_variables(bind_key, &benv.*, var_name.clone());
       cond(
         (vs.len() == usize(0)) => Option(String).None,
         true => match(vs.get_cloned(vs.len() - usize(1)), .Some(rv) => _sm_local_slot(&rv, context), .None => Option(String).None)
@@ -529,7 +529,7 @@ generate_initialization_assignment :: (fn(expr : &AstExpr, indent : &String, con
           .Some(rei) => match(
             &rei.variable_name(),
             .Some(tvn) => {
-              temp_var_name := get_variable_name_for_codegen_at(ast_expr_id(&rhs), &tvn, Option(Environment).Some(rei.env()));
+              temp_var_name := get_variable_name_for_codegen_at(ast_expr_id(&rhs), &tvn.*, Option(Environment).Some(rei.env()));
               rhs_expr_code := _call_generate_expr(&rhs, indent.clone(), context);
               // The spill below exists for an Rc/temp RHS that has to be
               // materialized before the array copy. A PLAIN read of an existing
@@ -601,7 +601,7 @@ generate_initialization_assignment :: (fn(expr : &AstExpr, indent : &String, con
         .Some(rei) => match(
           &rei.variable_name(),
           .Some(tvn) => {
-            temp_var_name := get_variable_name_for_codegen_at(ast_expr_id(&rhs), &tvn, Option(Environment).Some(rei.env()));
+            temp_var_name := get_variable_name_for_codegen_at(ast_expr_id(&rhs), &tvn.*, Option(Environment).Some(rei.env()));
             // Same name as the binding, or a bare atom already named — no temp.
             rhs_is_same_atom := (ast_expr_is_atom(&rhs) && (temp_var_name == get_variable_name_for_codegen_at(ast_expr_id(&rhs), ast_expr_token(&rhs).value.*, Option(Environment).Some(rei.env()))));
             if((temp_var_name == sanitized_var_name) || rhs_is_same_atom, emit_deferred_dup_or_code(&rhs, _call_generate_expr(&rhs, indent.clone(), context), indent.clone(), context), {

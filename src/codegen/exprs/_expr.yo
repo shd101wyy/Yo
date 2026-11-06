@@ -48,14 +48,14 @@ call_projection_mode :: (fn(expr : &AstExpr, context : &FunctionGenerationContex
   match(
     expr,
     .FnCall(_, pc_callee, _, pc_infix, _) => cond(
-      pc_infix => Option(bool).None,
+      pc_infix.* => Option(bool).None,
       match(context.base.get_expr_info(expr), .Some(ci) => expr_info_index_trait_ptr_type(&ci).is_some(), .None => true) => Option(bool).None,
       true => match(
         // A method the receiver-method dispatch resolved (a generic impl's,
         // `xs.index(i)` on `ArrayList(T)`) leaves its `.` callee without a
         // function type; its type is recorded under the call's id.
         match(
-          context.base.get_expr_info(&pc_callee),
+          context.base.get_expr_info(&pc_callee.*),
           // A closure-typed callee whose trait returns a reference (N1c).
           .Some(cei) => if(is_function_type(&cei.ty()), Option(TypeValue).Some(Rc.clone(cei.ty())), match(fn_trait_call_func_type(&cei.ty()), .Some(cft) => if(fn_result_is_ref(&cft), Option(TypeValue).Some(cft), lookup_method_callee_type(ast_expr_id(expr))), .None => lookup_method_callee_type(ast_expr_id(expr)))),
           .None => lookup_method_callee_type(ast_expr_id(expr))

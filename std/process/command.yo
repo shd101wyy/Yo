@@ -781,7 +781,7 @@ impl(
   is_closed : (fn(self : &Self) -> bool)(self._cell._closed),
   /// Close the write end — the child sees EOF. Safe to call multiple times.
   close : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))(
-    io.async({ &self, io }(e : IoExn) => {
+    io.async({ self : &self.*, io }(e : IoExn) => {
       e.io.await(_pipe_close(addr_of(self._cell.*), io), e);
     })
   )
@@ -792,7 +792,7 @@ impl(
     /// Write up to `size` bytes. Returns the number written.
     /// The future borrows the handle, so the fd cannot be closed under it.
     write : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
-      io.async({ &self, buf, size, io }(e : IoExn) => {
+      io.async({ self : &self.*, buf, size, io }(e : IoExn) => {
         raw := cond(self._cell._closed => i32(-1), true => self._cell._fd);
         e.io.await(_pipe_write(raw, buf, size, io), e)
       })
@@ -815,8 +815,8 @@ impl(
   /// Write a `String`, in full. `File.write_string` spells the same
   /// convenience.
   write_string : (fn(self : &Self, data : &String, io : Io) -> Impl(Future(usize, IoExn)))(
-    io.async({ &self, &data }(e : IoExn) => {
-      bytes := &data;
+    io.async({ self : &self.*, data : &data.* }(e : IoExn) => {
+      bytes := &data.*;
       cond(
         (bytes.len() == usize(0)) => usize(0),
         true => {
@@ -835,7 +835,7 @@ impl(
   is_closed : (fn(self : &Self) -> bool)(self._cell._closed),
   /// Close the read end. Safe to call multiple times.
   close : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))(
-    io.async({ &self, io }(e : IoExn) => {
+    io.async({ self : &self.*, io }(e : IoExn) => {
       e.io.await(_pipe_close(addr_of(self._cell.*), io), e);
     })
   )
@@ -846,7 +846,7 @@ impl(
     /// Read up to `size` bytes. Returns the number read; 0 means EOF.
     /// The future borrows the handle, so the fd cannot be closed under it.
     read : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
-      io.async({ &self, buf, size, io }(e : IoExn) => {
+      io.async({ self : &self.*, buf, size, io }(e : IoExn) => {
         raw := cond(self._cell._closed => i32(-1), true => self._cell._fd);
         e.io.await(_pipe_read(raw, buf, size, io), e)
       })
@@ -861,7 +861,7 @@ impl(
   is_closed : (fn(self : &Self) -> bool)(self._cell._closed),
   /// Close the read end. Safe to call multiple times.
   close : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))(
-    io.async({ &self, io }(e : IoExn) => {
+    io.async({ self : &self.*, io }(e : IoExn) => {
       e.io.await(_pipe_close(addr_of(self._cell.*), io), e);
     })
   )
@@ -872,7 +872,7 @@ impl(
     /// Read up to `size` bytes. Returns the number read; 0 means EOF.
     /// The future borrows the handle, so the fd cannot be closed under it.
     read : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
-      io.async({ &self, buf, size, io }(e : IoExn) => {
+      io.async({ self : &self.*, buf, size, io }(e : IoExn) => {
         raw := cond(self._cell._closed => i32(-1), true => self._cell._fd);
         e.io.await(_pipe_read(raw, buf, size, io), e)
       })
@@ -938,7 +938,7 @@ impl(
   /// Write bytes into the child's piped stdin. Requires `stdin(Stdio.Piped)`.
   /// Throws `BadFileDescriptor` once `take_stdin()` has moved the fd out.
   write_stdin : (fn(self : &Self, data : &ArrayList(u8), io : Io) -> Impl(Future(usize, IoExn)))(
-    io.async({ &self, &data }(e : IoExn) => {
+    io.async({ self : &self.*, data : &data.* }(e : IoExn) => {
       fd := match(
         self._cell._stdin_fd,
         .Some(f) => f,
@@ -953,7 +953,7 @@ impl(
   ),
   /// Close the child's stdin pipe — the EOF the child is usually waiting for.
   close_stdin : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))(
-    io.async({ &self }(e : IoExn) => {
+    io.async({ self : &self.* }(e : IoExn) => {
       match(
         self._cell._stdin_fd,
         .Some(f) => {
@@ -969,7 +969,7 @@ impl(
   ),
   /// Read the child's piped stdout to EOF. Requires `stdout(Stdio.Piped)`.
   read_stdout_to_end : (fn(self : &Self, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))(
-    io.async({ &self }(e : IoExn) => {
+    io.async({ self : &self.* }(e : IoExn) => {
       fd := match(
         self._cell._stdout_fd,
         .Some(f) => f,
@@ -984,7 +984,7 @@ impl(
   ),
   /// Read the child's piped stderr to EOF. Requires `stderr(Stdio.Piped)`.
   read_stderr_to_end : (fn(self : &Self, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))(
-    io.async({ &self }(e : IoExn) => {
+    io.async({ self : &self.* }(e : IoExn) => {
       fd := match(
         self._cell._stderr_fd,
         .Some(f) => f,
@@ -1008,7 +1008,7 @@ impl(
   /// Wait for the child to exit and return its status. Closes any pipe fds
   /// still open on this handle.
   wait : (fn(self : &Self, io : Io) -> Impl(Future(ExitStatus, IoExn)))(
-    io.async({ &self }(e : IoExn) => {
+    io.async({ self : &self.* }(e : IoExn) => {
       st := self._st();
       match(
         self._cell._stdin_fd,

@@ -101,23 +101,23 @@ impl(
       match(
         self,
         .Wildcard => Pattern.Wildcard,
-        .Bind(name, token, atom) => Pattern.Bind(name : name.clone(), token : token, atom : atom),
-        .Const(value, ty, src, subject, test) => Pattern.Const(value : value, ty : Rc.clone(ty), src : src, subject : subject.clone(), test : test),
-        .Range(src, subject, test, ty, lo, hi, inclusive) => Pattern.Range(src : src, subject : subject.clone(), test : test, ty : Rc.clone(ty), lo : lo, hi : hi, inclusive : inclusive),
+        .Bind(name, token, atom) => Pattern.Bind(name : name.clone(), token : token.*, atom : atom.*),
+        .Const(value, ty, src, subject, test) => Pattern.Const(value : value.*, ty : Rc.clone(ty), src : src.*, subject : subject.clone(), test : test.*),
+        .Range(src, subject, test, ty, lo, hi, inclusive) => Pattern.Range(src : src.*, subject : subject.clone(), test : test.*, ty : Rc.clone(ty), lo : lo.*, hi : hi.*, inclusive : inclusive.*),
         .Variant(name, idx, field_idx, subs, enum_ty, through_ptr, arity) => Pattern.Variant(
           name : name.clone(),
-          idx : idx,
+          idx : idx.*,
           field_idx : field_idx.clone(),
-          subs : clone_patterns(&subs),
+          subs : clone_patterns(&subs.*),
           enum_ty : Rc.clone(enum_ty),
-          through_ptr : through_ptr,
-          arity : arity
+          through_ptr : through_ptr.*,
+          arity : arity.*
         ),
-        .Or(alts) => Pattern.Or(alts : clone_patterns(&alts)),
-        .At(name, token, atom, sub) => Pattern.At(name : name.clone(), token : token, atom : atom, sub : Box.clone(sub)),
+        .Or(alts) => Pattern.Or(alts : clone_patterns(&alts.*)),
+        .At(name, token, atom, sub) => Pattern.At(name : name.clone(), token : token.*, atom : atom.*, sub : Box.clone(sub)),
         .ThroughBox(box_ty, inner_ty, sub) => Pattern.ThroughBox(box_ty : Rc.clone(box_ty), inner_ty : Rc.clone(inner_ty), sub : Box.clone(sub)),
-        .Tuple(subs, elem_tys) => Pattern.Tuple(subs : clone_patterns(&subs), elem_tys : elem_tys.clone()),
-        .Struct(struct_ty, field_idx, subs, arity) => Pattern.Struct(struct_ty : Rc.clone(struct_ty), field_idx : field_idx.clone(), subs : clone_patterns(&subs), arity : arity)
+        .Tuple(subs, elem_tys) => Pattern.Tuple(subs : clone_patterns(&subs.*), elem_tys : elem_tys.clone()),
+        .Struct(struct_ty, field_idx, subs, arity) => Pattern.Struct(struct_ty : Rc.clone(struct_ty), field_idx : field_idx.clone(), subs : clone_patterns(&subs.*), arity : arity.*)
       )
     )
   )
@@ -155,7 +155,7 @@ Arm :: ref(
     classic : bool
   )
 );
-impl(Arm, Clone(clone : (fn(self : &Self) -> Self)(self)));
+impl(Arm, Clone(clone : (fn(self : &Self) -> Self)(self.*)));
 // ---------------------------------------------------------------------------
 // Registry — arms per match node, keyed by the match expression's id.
 //
@@ -266,10 +266,10 @@ pattern_position_is_cell :: (fn(t : &TypeValue) -> bool)(
 pattern_binding_atoms :: (fn(p : &Pattern, out : &mut ArrayList(AstExpr)) -> unit)(
   match(
     p,
-    .Bind(_, _, atom) => out.push(atom),
+    .Bind(_, _, atom) => out.push(atom.*),
     .At(_, _, atom, Box(sub)) => {
-      out.push(atom);
-      recur(&sub, out);
+      out.push(atom.*);
+      recur(&sub.*, out);
     },
     .Variant(_, _, _, subs, _, _, _) => {
       (mut(i) : usize) = usize(0);
@@ -279,7 +279,7 @@ pattern_binding_atoms :: (fn(p : &Pattern, out : &mut ArrayList(AstExpr)) -> uni
       });
     },
     .Or(alts) => if(alts.len() > usize(0), recur(&alts(usize(0)), out)),
-    .ThroughBox(_, _, Box(sub)) => recur(&sub, out),
+    .ThroughBox(_, _, Box(sub)) => recur(&sub.*, out),
     .Tuple(subs, _) => {
       (mut(i) : usize) = usize(0);
       while(i < subs.len(), {
@@ -504,10 +504,10 @@ _push_names :: (fn(p : &Pattern, out : &mut ArrayList(String)) -> unit)({
     },
     .At(name, _, _, Box(sub)) => {
       out.push(name.clone());
-      recur(&sub, out);
+      recur(&sub.*, out);
     },
     .ThroughBox(_, _, Box(sub)) => {
-      recur(&sub, out);
+      recur(&sub.*, out);
     },
     .Tuple(subs, _) => {
       (mut(i) : usize) = usize(0);
@@ -549,10 +549,10 @@ pattern_is_irrefutable :: (fn(p : &Pattern) -> bool)(
       });
       any_irref
     },
-    .At(_, _, _, Box(sub)) => recur(&sub),
-    .ThroughBox(_, _, Box(sub)) => recur(&sub),
-    .Tuple(subs, _) => _all_subs_irrefutable(&subs),
-    .Struct(_, _, subs, _) => _all_subs_irrefutable(&subs)
+    .At(_, _, _, Box(sub)) => recur(&sub.*),
+    .ThroughBox(_, _, Box(sub)) => recur(&sub.*),
+    .Tuple(subs, _) => _all_subs_irrefutable(&subs.*),
+    .Struct(_, _, subs, _) => _all_subs_irrefutable(&subs.*)
   )
 );
 /// Every sub-pattern of `subs` is irrefutable (a single-constructor
@@ -572,8 +572,8 @@ pattern_to_string :: (fn(p : &Pattern) -> String)(
     p,
     .Wildcard => String.from("_"),
     .Bind(name, _, _) => name.clone(),
-    .Const(_, _, src, _, _) => ast_expr_to_string(&src),
-    .Range(src, _, _, _, _, _, _) => ast_expr_to_string(&src),
+    .Const(_, _, src, _, _) => ast_expr_to_string(&src.*),
+    .Range(src, _, _, _, _, _, _) => ast_expr_to_string(&src.*),
     .Variant(name, _, field_idx, subs, enum_ty, _, arity) => {
       mut(out) := String.from(".");
       out.push_string(name.clone());
@@ -582,7 +582,7 @@ pattern_to_string :: (fn(p : &Pattern) -> String)(
         // Positional rendering over the FULL arity, `_` for fields the
         // pattern leaves open.
         (mut(fi) : usize) = usize(0);
-        while(fi < arity, {
+        while(fi < arity.*, {
           if(fi > usize(0), {
             out.push_str(", ");
           });
@@ -618,11 +618,11 @@ pattern_to_string :: (fn(p : &Pattern) -> String)(
       mut(out) := String.from("(");
       out.push_string(name.clone());
       out.push_str(" := ");
-      out.push_string(recur(&sub));
+      out.push_string(recur(&sub.*));
       out.push_str(")");
       out
     },
-    .ThroughBox(_, _, Box(sub)) => recur(&sub),
+    .ThroughBox(_, _, Box(sub)) => recur(&sub.*),
     .Tuple(subs, _) => {
       mut(out) := String.from("(");
       (mut(i) : usize) = usize(0);
@@ -637,15 +637,15 @@ pattern_to_string :: (fn(p : &Pattern) -> String)(
       out
     },
     .Struct(struct_ty, field_idx, subs, arity) => {
-      mut(out) := _struct_type_name(&struct_ty);
+      mut(out) := _struct_type_name(&struct_ty.*);
       out.push_str("(");
       (mut(fi) : usize) = usize(0);
-      while(fi < arity, {
+      while(fi < arity.*, {
         if(fi > usize(0), {
           out.push_str(", ");
         });
         lbl := match(
-          _struct_field_labels(&struct_ty).get(fi),
+          _struct_field_labels(&struct_ty.*).get(fi),
           .Some(l) => l.clone(),
           .None => String.from("_")
         );
@@ -832,10 +832,10 @@ _expand_row_head :: (fn(head : &Pattern, row : &ArrayList(Pattern), out : &mut A
 _const_key :: (fn(p : &Pattern) -> String)(
   match(
     p,
-    .Const(v, _, _, _, _) => value_to_string(&v),
+    .Const(v, _, _, _, _) => value_to_string(&v.*),
     .Range(src, _, _, _, _, _, _) => {
       mut(k) := String.from("range:");
-      k.push_string(ast_expr_to_string(&src));
+      k.push_string(ast_expr_to_string(&src.*));
       k
     },
     _ => String.new()
@@ -883,8 +883,8 @@ _specialize_variant_row :: (fn(head : &Pattern, row : &ArrayList(Pattern), name 
   match(
     head,
     .Variant(vn, _, fidx, subs, _, _, _) => {
-      if(vn == name, {
-        out.push(_extend_cloned(_variant_full_subs(&fidx, &subs, arity), row, usize(1)));
+      if(vn.* == name.*, {
+        out.push(_extend_cloned(_variant_full_subs(&fidx.*, &subs.*, arity), row, usize(1)));
       });
     },
     .Wildcard => {
@@ -922,10 +922,10 @@ _specialize_aggregate_row :: (fn(head : &Pattern, row : &ArrayList(Pattern), n :
   match(
     head,
     .Tuple(subs, _) => {
-      out.push(_extend_cloned(clone_patterns(&subs), row, usize(1)));
+      out.push(_extend_cloned(clone_patterns(&subs.*), row, usize(1)));
     },
     .Struct(_, fidx, subs, arity) => {
-      out.push(_extend_cloned(_variant_full_subs(&fidx, &subs, arity), row, usize(1)));
+      out.push(_extend_cloned(_variant_full_subs(&fidx.*, &subs.*, arity.*), row, usize(1)));
     },
     .Wildcard => {
       out.push(_extend_cloned(_wildcards(n), row, usize(1)));
@@ -961,7 +961,7 @@ _head_matches_const :: (fn(head : &Pattern, key : &String) -> bool)({
     return(true);
   });
   hk := _const_key(head);
-  (hk.len() > usize(0)) && (hk == key)
+  (hk.len() > usize(0)) && (hk == key.*)
 });
 /// The default matrix: rows whose head matches anything, heads dropped.
 _default_matrix :: (fn(rows : &ArrayList(ArrayList(Pattern))) -> ArrayList(ArrayList(Pattern)))({
@@ -1187,7 +1187,7 @@ _head_variant_name :: (fn(head : &Pattern) -> Option(String))(
 _head_bool_const :: (fn(head : &Pattern) -> Option(bool))(
   match(
     head,
-    .Const(v, _, _, _, _) => match(v, .BoolVal(b) => Option(bool).Some(b), _ => Option(bool).None),
+    .Const(v, _, _, _, _) => match(v, .BoolVal(b) => Option(bool).Some(b.*), _ => Option(bool).None),
     _ => Option(bool).None
   )
 );
@@ -1235,7 +1235,7 @@ derive(_PresentVariant, Clone);
 _present_variant_of :: (fn(head : &Pattern) -> Option(_PresentVariant))(
   match(
     head,
-    .Variant(hn, hidx, _, _, henum, _, harity) => Option(_PresentVariant).Some(_PresentVariant(name : hn.clone(), idx : hidx, enum_ty : Rc.clone(henum), arity : harity)),
+    .Variant(hn, hidx, _, _, henum, _, harity) => Option(_PresentVariant).Some(_PresentVariant(name : hn.clone(), idx : hidx.*, enum_ty : Rc.clone(henum), arity : harity.*)),
     _ => Option(_PresentVariant).None
   )
 );
@@ -1310,7 +1310,7 @@ _int_key :: (fn(v : &EvalValue, d : _IntDomain) -> Option(u64))(
   match(
     v,
     .IntLit(raw) => match(
-      parse_raw_int(&raw),
+      parse_raw_int(&raw.*),
       .Some(bits) => Option(u64).Some(cond(d.signed => (u64(bits) ^ _KEY_SIGN), true => u64(bits))),
       .None => Option(u64).None
     ),
@@ -1331,19 +1331,19 @@ _iv_head :: (fn(p : &Pattern, d : _IntDomain) -> _IvHead)(
   match(
     p,
     .Const(v, _, _, _, _) => match(
-      _int_key(&v, d),
+      _int_key(&v.*, d),
       .Some(k) => _iv_of_keys(k, k, d),
       .None => _IvHead.NotInt
     ),
     .Range(_, _, _, _, lo_v, hi_v, inclusive) => {
-      lo_k := match(lo_v, .Some(v) => _int_key(&v, d), .None => Option(u64).None);
-      hi_k := match(hi_v, .Some(v) => _int_key(&v, d), .None => Option(u64).None);
+      lo_k := match(lo_v, .Some(v) => _int_key(&v.*, d), .None => Option(u64).None);
+      hi_k := match(hi_v, .Some(v) => _int_key(&v.*, d), .None => Option(u64).None);
       match(
         lo_k,
         .Some(l) => match(
           hi_k,
           .Some(h) => cond(
-            inclusive => _iv_of_keys(l, h, d),
+            inclusive.* => _iv_of_keys(l, h, d),
             // `(l..h)` with `h <= l` holds nothing (and `h - 1` would wrap at 0).
             (h <= l) => _IvHead.Empty,
             true => _iv_of_keys(l, h - u64(1), d)
@@ -1658,15 +1658,15 @@ _useful_head :: (
     },
     .Variant(name, idx, fidx, subs, enum_ty, _, arity) => {
       // A variant the scrutinee's GADT index excludes matches no value.
-      if(gadt_exact && !gadt_branch_reachable(_enum_id(norm_position_type(&enum_ty)), idx), {
+      if(gadt_exact && !gadt_branch_reachable(_enum_id(norm_position_type(&enum_ty.*)), idx.*), {
         return(Option(ArrayList(String)).None);
       });
-      spec := _specialize_variant(&rows, name.clone(), arity);
-      ftys := variant_field_types(&enum_ty, idx);
+      spec := _specialize_variant(&rows, name.clone(), arity.*);
+      ftys := variant_field_types(&enum_ty.*, idx.*);
       match(
-        _useful(&spec, _extend_cloned(_variant_full_subs(&fidx, &subs, arity), &q_rest, usize(0)), _concat_types(&ftys, &tys_rest), gadt_exact),
+        _useful(&spec, _extend_cloned(_variant_full_subs(&fidx.*, &subs.*, arity.*), &q_rest, usize(0)), _concat_types(&ftys, &tys_rest), gadt_exact),
         .Some(w) => {
-          return(Option(ArrayList(String)).Some(_render_variant_witness(name.clone(), arity, &w)));
+          return(Option(ArrayList(String)).Some(_render_variant_witness(name.clone(), arity.*, &w)));
         },
         .None => {
           return(Option(ArrayList(String)).None);
@@ -1677,7 +1677,7 @@ _useful_head :: (
       // A tuple is ONE constructor of arity `subs.len()`: specialize by it.
       spec := _specialize_aggregate(&rows, subs.len());
       match(
-        _useful(&spec, _extend_cloned(clone_patterns(&subs), &q_rest, usize(0)), _concat_types(&elem_tys, &tys_rest), gadt_exact),
+        _useful(&spec, _extend_cloned(clone_patterns(&subs.*), &q_rest, usize(0)), _concat_types(&elem_tys.*, &tys_rest), gadt_exact),
         .Some(w) => {
           return(Option(ArrayList(String)).Some(_render_tuple_witness(&w, subs.len())));
         },
@@ -1687,17 +1687,17 @@ _useful_head :: (
       );
     },
     .Struct(struct_ty, fidx, subs, arity) => {
-      ftys := _struct_field_tys(&struct_ty);
-      spec := _specialize_aggregate(&rows, arity);
+      ftys := _struct_field_tys(&struct_ty.*);
+      spec := _specialize_aggregate(&rows, arity.*);
       match(
         _useful(
           &spec,
-          _extend_cloned(_variant_full_subs(&fidx, &subs, arity), &q_rest, usize(0)),
+          _extend_cloned(_variant_full_subs(&fidx.*, &subs.*, arity.*), &q_rest, usize(0)),
           _concat_types(&ftys.items, &tys_rest),
           gadt_exact
         ),
         .Some(w) => {
-          return(Option(ArrayList(String)).Some(_render_struct_witness(&struct_ty, &w, arity)));
+          return(Option(ArrayList(String)).Some(_render_struct_witness(&struct_ty.*, &w, arity.*)));
         },
         .None => {
           return(Option(ArrayList(String)).None);
@@ -1979,7 +1979,7 @@ _top_alternatives :: (fn(p : &Pattern, out : &mut ArrayList(Pattern)) -> unit)(
         i = (i + usize(1));
       });
     },
-    .At(_, _, _, Box(sub)) => recur(&sub, out),
+    .At(_, _, _, Box(sub)) => recur(&sub.*, out),
     _ => ()
   )
 );
@@ -2067,10 +2067,10 @@ pattern_test_exprs :: (fn(p : &Pattern, out : &mut ArrayList(AstExpr)) -> unit)(
     .Wildcard => (),
     .Bind(_, _, _) => (),
     .Const(_, _, _, _, test) => {
-      out.push(test);
+      out.push(test.*);
     },
     .Range(_, _, test, _, _, _, _) => {
-      out.push(test);
+      out.push(test.*);
     },
     .Variant(_, _, _, subs, _, _, _) => {
       (i : usize) = usize(0);
@@ -2087,10 +2087,10 @@ pattern_test_exprs :: (fn(p : &Pattern, out : &mut ArrayList(AstExpr)) -> unit)(
       });
     },
     .At(_, _, _, Box(sub)) => {
-      recur(&sub, out);
+      recur(&sub.*, out);
     },
     .ThroughBox(_, _, Box(sub)) => {
-      recur(&sub, out);
+      recur(&sub.*, out);
     },
     .Tuple(subs, _) => {
       (i : usize) = usize(0);

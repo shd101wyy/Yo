@@ -88,7 +88,7 @@ _c_len_1 :: (fn(xs : &ArrayList(YoError)) -> usize)(xs.len());
 /// caller decides; `raise_flow_violation` is the guarded flag-and-throw).
 flag_flow_violation :: (fn(err : &YoError) -> unit)({
   g_flow_violation_box.with_mut(xs => xs.clear());
-  g_flow_violation_box.with_mut(xs => xs.push(err));
+  g_flow_violation_box.with_mut(xs => xs.push(err.*));
   ()
 });
 /// Reset the flag (called before each def-time body eval and after each catch).
@@ -164,7 +164,7 @@ raise_flow_violation :: (fn(err : &YoError, ctx : &EvalContext, exn : Exception)
   if(!ctx.is_in_function_call_checking_phase && !propagate_def_time_errors() && !flow_violation_pending(), {
     flag_flow_violation(err);
   });
-  exn.throw(dyn(err));
+  exn.throw(dyn(err.*));
 });
 /// Re-raise `err`, the rejection a definition-time trial swallowed, from that
 /// trial's caller: clear the flag the trial left, then raise it again through
@@ -210,7 +210,7 @@ flow_options_default :: (fn() -> FlowOptions)(
 /// Strip outer `begin(...)` wrapper(s) — single-expression bodies after
 /// evaluation often appear as `begin((expr))`.
 _unwrap_begin_blocks :: (fn(expr : &AstExpr) -> AstExpr)({
-  (current : AstExpr) = expr;
+  (current : AstExpr) = expr.*;
   (go : bool) = true;
   while(go, {
     if(ast_expr_is_fn_call(&current) && ast_expr_is_fn_call_of(&current, BK_BEGIN, Option(usize).None), {
@@ -635,7 +635,7 @@ alias_group_root :: (fn(variable : &Variable) -> String)({
 /// Walk a field chain (`h.s`, `a.b.c`) to its base atom; deref hops are
 /// part of the chain. Returns None when the chain roots in a non-atom.
 _place_root_atom :: (fn(expr_in : &AstExpr) -> Option(AstExpr))({
-  (cur : AstExpr) = expr_in;
+  (cur : AstExpr) = expr_in.*;
   (walking : bool) = true;
   while(walking, {
     if(ast_expr_is_fn_call(&cur) && ast_expr_is_fn_call_of(&cur, BF_DOT, .Some(usize(2))), {
@@ -953,7 +953,7 @@ _ref_place_holder_types :: (fn(ref_arg : &AstExpr, kind : str, root : &Variable,
   (cur : AstExpr) = match(
     ref_arg,
     .FnCall(_, callee, Rc(dargs), _, _) => cond(
-      (kind == "index") => callee,
+      (kind == "index") => callee.*,
       true => match(dargs.get(usize(0)), .Some(b) => b, .None => return(.None))
     ),
     .Atom(_, _) => return(.None)
@@ -997,7 +997,7 @@ flag_deferred_sibling_rule :: (fn(call_id : usize, label : &String, err : &YoErr
   label_owned := label.clone();
   // Owned key; `err` is a `ref` handle, cheap to capture (`with_mut`'s
   // callback is a sink parameter).
-  g_deferred_sibling_rules.with_mut({ label_owned, call_id : call_id.clone(), err }(xs) => xs.push(_DeferredSiblingRule(call_id : call_id, label : label_owned.clone(), err : err)));
+  g_deferred_sibling_rules.with_mut({ label_owned, call_id : call_id.clone(), err : err.* }(xs) => xs.push(_DeferredSiblingRule(call_id : call_id, label : label_owned.clone(), err : err)));
   ()
 });
 /// Settle the deferred rule-(b) rejections of call `call_id` now that A2 has
@@ -1194,7 +1194,7 @@ _reject_if_container_reachable :: (
       ref_arg,
       .FnCall(_, idx_callee, _, _, _) => {
         match(
-          expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&idx_callee)),
+          expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&idx_callee.*)),
           .Some(idx_info) => {
             ity := resolve_enum_shell(resolve_struct_shell(&t_refine_inner(&idx_info.ty())));
             match(
@@ -1267,7 +1267,7 @@ _reject_if_container_reachable :: (
                 // place's holder. An unknown mode counts as a borrow.
                 sibling_is_ref := match(param_is_owning.get(j), .Some(o) => !o, .None => true);
                 seen := HashSet(String).new();
-                _type_may_reach_any_of(&oi.ty(), sibling_is_ref, &targets, &mut seen)
+                _type_may_reach_any_of(&oi.ty(), sibling_is_ref, &targets.*, &mut seen)
               })
             },
             .None => (type_contains_rc_type(&oi.ty()) || type_representation_contains_raw_ptr(&oi.ty()))
@@ -1282,7 +1282,7 @@ _reject_if_container_reachable :: (
         );
         match(
           defer_call_id,
-          .Some(did) => flag_deferred_sibling_rule(did, defer_label, &message),
+          .Some(did) => flag_deferred_sibling_rule(did.*, defer_label, &message),
           .None => exn.throw(dyn(message))
         );
       });

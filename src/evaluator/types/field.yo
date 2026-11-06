@@ -154,7 +154,7 @@ evaluate_type_field :: (
 )({
   (env : Environment) = Rc.clone(env_in);
   (label : Option(String)) = Option(String).None;
-  (expr_ : AstExpr) = expr;
+  (expr_ : AstExpr) = expr.*;
   (label_expr : Option(AstExpr)) = Option(AstExpr).None;
   (type_expr : Option(AstExpr)) = Option(AstExpr).None;
   (default_value_expr : Option(AstExpr)) = Option(AstExpr).None;
@@ -338,7 +338,7 @@ evaluate_type_field :: (
     // `fn_type_unrepresentable_impl`).
     if(!is_comptime, {
       match(
-        match(&field_type, .Some(fft) => fn_type_unrepresentable_impl(&fft), .None => Option(TypeValue).None),
+        match(&field_type, .Some(fft) => fn_type_unrepresentable_impl(&fft.*), .None => Option(TypeValue).None),
         .Some(ffi_impl) => {
           exn.throw(
             dyn(

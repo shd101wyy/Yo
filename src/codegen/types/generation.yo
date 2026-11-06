@@ -42,7 +42,7 @@ _array_wrapper_name_lt :: (fn(a : &String, b : &String) -> bool)(
   cond(
     (a.len() < b.len()) => true,
     (a.len() > b.len()) => false,
-    true => (a < b)
+    true => (a.* < b.*)
   )
 );
 /// Generate the array-wrapper struct typedefs collected during type lowering.
@@ -237,7 +237,7 @@ generate_struct_declaration :: (fn(struct_type : &TypeValue, c_name : &String, c
     struct_type,
     Rc(.Struct({ name, field_types, is_reference_semantics, is_atomic_rc, is_newtype })) => {
       // Newtype: zero-cost typedef over the single underlying type.
-      if(is_newtype && (field_types.len() == usize(1)), {
+      if(is_newtype.* && (field_types.len() == usize(1)), {
         underlying := match(field_types.get(usize(0)), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
         uts := get_type_string(&underlying, context);
         // `get_type_string` renders a type that has no C form as the LINE
@@ -268,9 +268,9 @@ generate_struct_declaration :: (fn(struct_type : &TypeValue, c_name : &String, c
       // Before ANY line of this struct is emitted — see the helper's header.
       _prewarm_runtime_field_types(&runtime_fields, context);
       cond(
-        is_reference_semantics => {
-          atomic_word := if(is_atomic_rc, "atomic ", "");
-          header_word := if(is_atomic_rc, "Atomic r", "R");
+        is_reference_semantics.* => {
+          atomic_word := if(is_atomic_rc.*, "atomic ", "");
+          header_word := if(is_atomic_rc.*, "Atomic r", "R");
           context.emitter.emit_declaration_string_line(`struct ${c_name}_struct { // ${name} : ${type_to_string(struct_type)} (${atomic_word}reference counted)`);
           context.emitter.emit_declaration_string_line(`  __yo_ref_header_t header; // ${header_word}eference count header`);
           _rf := _emit_runtime_fields(&runtime_fields, context);
@@ -501,9 +501,9 @@ generate_enum_declaration :: (fn(enum_type : &TypeValue, c_name : &String, conte
       // pointer to this struct (get_type_string returns `${c_name}*`) — the
       // same layout as the struct reference-semantics branch.
       // plans/reference/REF_REFERENCE_SEMANTICS.md.
-      if(is_reference_semantics, {
-        atomic_tag := if(is_atomic_rc, String.from("atomic "), String.from(""));
-        header_tag := if(is_atomic_rc, String.from("Atomic r"), String.from("R"));
+      if(is_reference_semantics.*, {
+        atomic_tag := if(is_atomic_rc.*, String.from("atomic "), String.from(""));
+        header_tag := if(is_atomic_rc.*, String.from("Atomic r"), String.from("R"));
         context.emitter.emit_declaration_string_line(`struct ${c_name}_struct { // ${name} : ${type_to_string(enum_type)} (${atomic_tag}reference counted)`);
         context.emitter.emit_declaration_string_line(`  __yo_ref_header_t header; // ${header_tag}eference count header`);
         context.emitter.emit_declaration_string_line(`  ${tag_enum_name} tag;`);
@@ -1327,7 +1327,7 @@ _pointee_spelling_newtype :: (fn(p : &TypeValue) -> Option(TypeValue))(
 _walk_pointee_newtype :: (fn(ft : &TypeValue) -> Option(TypeValue))(
   match(
     ft,
-    Rc(.Pointer(pointee)) => _pointee_spelling_newtype(&pointee),
+    Rc(.Pointer(pointee)) => _pointee_spelling_newtype(&pointee.*),
     _ => if(
       is_enum_type(ft),
       match(
@@ -1349,7 +1349,7 @@ _walk_add_dep :: (fn(deps_set : &mut HashSet(String), dep_ty : &TypeValue, self_
   dep_cname := get_type_string(dep_ty, context);
   match(
     cname_to_typeid.get_cloned(&dep_cname),
-    .Some(dep_tid) => if(!(dep_tid == self_type_id), {
+    .Some(dep_tid) => if(!(dep_tid == self_type_id.*), {
       deps_set.insert(dep_tid.clone());
     }),
     .None => ()
@@ -1369,7 +1369,7 @@ _walk_by_value_dep :: (fn(deps_set : &mut HashSet(String), ft : &TypeValue, self
     // pointer field's does (`_walk_pointee_newtype`).
     match(ft, Rc(.Reference(_, _, _)) => true, _ => false) => match(
       ft,
-      Rc(.Reference(ref_pt, _, _)) => match(_pointee_spelling_newtype(&ref_pt), .Some(nt) => _walk_add_dep(deps_set, &nt, self_type_id, cname_to_typeid, context), .None => ()),
+      Rc(.Reference(ref_pt, _, _)) => match(_pointee_spelling_newtype(&ref_pt.*), .Some(nt) => _walk_add_dep(deps_set, &nt, self_type_id, cname_to_typeid, context), .None => ()),
       _ => ()
     ),
     // A SomeT field with a per-object resolved concrete is EMITTED as that
@@ -1434,7 +1434,7 @@ _walk_by_value_dep :: (fn(deps_set : &mut HashSet(String), ft : &TypeValue, self
     // wrapper too late — "array has incomplete element type".
     is_array_type(ft) => match(
       ft,
-      Rc(.Array(elem, _, _)) => recur(deps_set, &elem, self_type_id, guard_nullable, cname_to_typeid, context),
+      Rc(.Array(elem, _, _)) => recur(deps_set, &elem.*, self_type_id, guard_nullable, cname_to_typeid, context),
       _ => ()
     ),
     true => ()
@@ -1463,7 +1463,7 @@ _unseen_type_ids :: (fn(context : &CodeGenContext, seen : &mut HashSet(String)) 
 /// dispose are generated separately). The destructor trait's own method is
 /// left out by its trait, not its name (`is_destructor_trait_member`).
 _is_reserved_dyn_method :: (fn(label : &String) -> bool)(
-  (label == BF_DUP) || (label == BF_DROP) || (label == "___dispose")
+  (label.* == BF_DUP) || (label.* == BF_DROP) || (label.* == "___dispose")
 );
 /// Generate forward declarations for Dyn structs (vtable tag fwd-decl + the
 /// fat-pointer struct). Must precede enum/struct decls since enums may contain
@@ -1507,7 +1507,7 @@ generate_dyn_forward_declarations :: (fn(context : &mut CodeGenContext) -> unit)
 /// caller collects every member first, then emits the typedef
 /// (issues/fixed/dyn-trait-with-future-returning-method-splices-struct-into-vtable.md).
 _dyn_vtable_method_line :: (fn(label : &String, field_ty : &TypeValue, processed : &mut HashSet(String), context : &mut CodeGenContext) -> Option(String))({
-  if((label == "Self") || _is_reserved_dyn_method(label), {
+  if((label.* == "Self") || _is_reserved_dyn_method(label), {
     return(Option(String).None);
   });
   if(processed.contains(label.clone()), {
@@ -1519,7 +1519,7 @@ _dyn_vtable_method_line :: (fn(label : &String, field_ty : &TypeValue, processed
     match(
       field_ty,
       Rc(.Func({ param_types, result, meta : __fm1 })) => {
-        param_labels := Rc.clone(__fm1.*.param_labels);
+        param_labels := Rc.clone(__fm1.*.*.param_labels);
         // Only methods whose first param is `self`, and that a Dyn can call
         // (`dyn_member_unsafe_reason`: no `generic(...)`, `Self` only as the
         // receiver), go in the vtable.

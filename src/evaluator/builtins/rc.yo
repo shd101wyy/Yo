@@ -37,11 +37,11 @@ evaluate_ref_count :: (
       fargs.get(usize(0)),
       .Some(x) => x,
       .None => {
-        return(expr);
+        return(expr.*);
       }
     ),
     _ => {
-      return(expr);
+      return(expr.*);
     }
   );
   eval_arg := evaluate_expression_raw(&arg_ast, env, ctx, exn);
@@ -72,7 +72,7 @@ evaluate_ref_count :: (
         )
       )
     );
-    return(expr);
+    return(expr.*);
   });
   cur_env := expr_info_adopt_env(&arg_info);
   out_info := new_expr_info(&cur_env, t_usize());
@@ -87,6 +87,6 @@ evaluate_ref_count :: (
     out_info.set_value(Option(EvalValue).Some(EvalValue.IntLit(String.from("1"))));
   });
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-  expr
+  expr.*
 });
 export(evaluate_ref_count);

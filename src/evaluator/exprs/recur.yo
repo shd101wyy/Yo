@@ -149,7 +149,7 @@ evaluate_recur :: (
     // Extract callee and args from the recur(...) FnCall node.
     callee_expr := match(
       expr,
-      .FnCall(_, func_box, _, _, _) => func_box,
+      .FnCall(_, func_box, _, _, _) => func_box.*,
       _ => make_err_expr()
     );
     arg_exprs := match(
@@ -191,7 +191,7 @@ evaluate_recur :: (
     return_type := Rc.clone(call_result.return_type);
     recur_ret_is_comptime := match(
       &func_body_ctx.func_type,
-      .Some(ft) => match(ft, Rc(.Func({ meta : __rc_fm })) => __rc_fm.*.result_is_comptime_only, _ => false),
+      .Some(ft) => match(ft, Rc(.Func({ meta : __rc_fm })) => __rc_fm.*.*.result_is_comptime_only, _ => false),
       .None => false
     );
     recur_unknown := if(
@@ -208,7 +208,7 @@ evaluate_recur :: (
     // Attach a temp variable for RC drop tracking.
     // Stub: no-op for now.
     attach_temp_variable_to_expr(expr, true, ctx);
-    return(expr);
+    return(expr.*);
   });
   // ------------------------------------------------------------------
   // Normal path: delegate to evaluate_function_call.

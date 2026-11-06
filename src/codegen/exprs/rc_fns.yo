@@ -352,7 +352,7 @@ generate_yo_drop_array_element :: (fn(expr : &AstExpr, indent : &String, context
       nested.push_string(loop_var.clone());
       nested.push_str("]");
       context.base.emitter.emit_string_line(String.from("  { // drop nested array element"));
-      drop_code := generate_drop_code_for_value(&nested, &child, context);
+      drop_code := generate_drop_code_for_value(&nested, &child.*, context);
       if(drop_code.len() > usize(0), {
         line := String.from("    ");
         line.push_string(&drop_code);
@@ -425,7 +425,7 @@ generate_yo_dup_array_element :: (fn(expr : &AstExpr, indent : &String, context 
       elem_ref.push_str(".data[");
       elem_ref.push_string(loop_var.clone());
       elem_ref.push_str("]");
-      dup_code := generate_dup_code_for_value(elem_ref.clone(), &child, context);
+      dup_code := generate_dup_code_for_value(elem_ref.clone(), &child.*, context);
       asn := String.from("  ");
       asn.push_string(&elem_ref);
       asn.push_str(" = ");

@@ -112,7 +112,7 @@ _find_misplaced_invariant :: (fn(expr : &AstExpr) -> Option(AstExpr))({
     .Atom(_, _) => return(Option(AstExpr).None)
   );
   if(ast_expr_is_fn_call_of(expr, BF_INVARIANT, Option(usize).None), {
-    return(Option(AstExpr).Some(expr));
+    return(Option(AstExpr).Some(expr.*));
   });
   if(ast_expr_is_fn_call_of(expr, BK_WHILE, Option(usize).None), {
     return(Option(AstExpr).None);
@@ -145,7 +145,7 @@ _enforce_loop_invariant_placement :: (fn(body_expr : &AstExpr) -> Option(Invaria
     ),
     true => {
       single := ArrayList(AstExpr).new();
-      single.push(body_expr);
+      single.push(body_expr.*);
       single
     }
   );
@@ -246,7 +246,7 @@ _append_step_save_drop :: (fn(step : &AstExpr, ctx : &mut EvalContext, exn : Exc
     .Some(si) => match(
       &si.variable_name(),
       .Some(tname) => match(
-        get_variables_from_env(&si.env(), &tname).last_cloned(),
+        get_variables_from_env(&si.env(), &tname.*).last_cloned(),
         .Some(tv) => if(tv.is_owning_the_rc_value() && type_contains_rc_type(&variable_value_type(&tv)) && tv.consumed_at_token().is_none(), {
           // Once per step: the loop simulation evaluates the step once per
           // iteration, the begin epilogue rebuilds this list each time, and
@@ -265,7 +265,7 @@ _append_step_save_drop :: (fn(step : &AstExpr, ctx : &mut EvalContext, exn : Exc
                     .FnCall(_, _, Rc(dargs), _, _) => match(
                       dargs.get(usize(0)),
                       .Some(dtok_arg) => {
-                        if((ast_expr_token(&d).value.* == BF_DROP) && (ast_expr_token(&dtok_arg).value.* == tname), {
+                        if((ast_expr_token(&d).value.* == BF_DROP) && (ast_expr_token(&dtok_arg).value.* == tname.*), {
                           already = true;
                         });
                       },
@@ -401,7 +401,7 @@ evaluate_while :: (
     cond_info_opt,
     .Some(ci) => Rc.clone(ci),
     .None => {
-      return(expr);
+      return(expr.*);
     }
   );
   // Require bool type for the condition.
@@ -502,7 +502,7 @@ evaluate_while :: (
     // i < 5), ...)`). Semantically identical: zero iterations.
     expr_info_set_comptime_unrolled_bodies(&out_info, Option(ArrayList(AstExpr)).Some(ArrayList(AstExpr).new()));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-    return(expr);
+    return(expr.*);
   });
   // Evaluate the body with the loop-body context set so that break/continue
   // inside the body know they are inside a while loop.
@@ -556,7 +556,7 @@ evaluate_while :: (
     body_info_opt,
     .Some(bi) => Rc.clone(bi),
     .None => {
-      return(expr);
+      return(expr.*);
     }
   );
   // Handle control flow produced by the body.
@@ -593,7 +593,7 @@ evaluate_while :: (
         );
         expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
       });
-      return(expr);
+      return(expr.*);
     });
     // --- break ---
     if(has_control_flow(body_info.control_flow(), .Break), {
@@ -606,7 +606,7 @@ evaluate_while :: (
         )
       );
       expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-      return(expr);
+      return(expr.*);
     });
     // --- continue ---
     if(has_control_flow(body_info.control_flow(), .Continue), {
@@ -656,10 +656,10 @@ evaluate_while :: (
         );
         expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
       });
-      return(expr);
+      return(expr.*);
     });
     // Fallthrough: some other combination of flags — return the expression.
-    return(expr);
+    return(expr.*);
   });
   // --- Static analysis for infinite compile-time `while true` loops ---
   //
@@ -716,7 +716,7 @@ evaluate_while :: (
       out_info := new_expr_info(&body_info.env(), t_unit());
       out_info.set_value(Option(EvalValue).None);
       expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-      return(expr);
+      return(expr.*);
     });
   });
   // The while loop body must return unit.
@@ -856,7 +856,7 @@ evaluate_while :: (
                     out_rt_u.set_value(Option(EvalValue).None);
                     expr_info_set_comptime_unrolled_bodies(&out_rt_u, Option(ArrayList(AstExpr)).Some(unrolled_bodies));
                     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_rt_u);
-                    return(expr);
+                    return(expr.*);
                   }
                 ),
                 .None => {
@@ -864,7 +864,7 @@ evaluate_while :: (
                   out_rt_u2.set_value(Option(EvalValue).None);
                   expr_info_set_comptime_unrolled_bodies(&out_rt_u2, Option(ArrayList(AstExpr)).Some(unrolled_bodies));
                   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_rt_u2);
-                  return(expr);
+                  return(expr.*);
                 }
               );
             });
@@ -878,7 +878,7 @@ evaluate_while :: (
         out_done_u.set_value(Option(EvalValue).None);
         expr_info_set_comptime_unrolled_bodies(&out_done_u, Option(ArrayList(AstExpr)).Some(unrolled_bodies));
         expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_done_u);
-        return(expr);
+        return(expr.*);
       });
     });
     // Unrolling failed: condition stayed comptime true (or a body/step eval
@@ -903,7 +903,7 @@ evaluate_while :: (
       )
     );
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-    return(expr);
+    return(expr.*);
   });
   expr
 });

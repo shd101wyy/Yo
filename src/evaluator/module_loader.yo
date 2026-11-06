@@ -94,7 +94,7 @@ unregister_loading :: (fn(path : &String) -> unit)({
     i = (i - usize(1));
     match(
       g_loading_keys.with(xs => xs.get_cloned(i)),
-      .Some(k) => if(k == path, {
+      .Some(k) => if(k == path.*, {
         g_loading_keys.with_mut(xs => xs.drain(i .. (i + usize(1))));
         g_loading_envs.with_mut(xs => xs.drain(i .. (i + usize(1))));
         _sync_registration_owner();
@@ -120,7 +120,7 @@ loading_env :: (fn(path : &String) -> Option(Environment))({
     i = (i - usize(1));
     match(
       g_loading_keys.with(xs => xs.get_cloned(i)),
-      .Some(k) => if(k == path, {
+      .Some(k) => if(k == path.*, {
         return(g_loading_envs.with(xs => xs.get_cloned(i)));
       }),
       .None => ()
@@ -232,8 +232,8 @@ record_import_edge :: (fn(importer : &String, imported : &String) -> unit)({
   n := g_import_edge_importers.with(_c_len_1);
   while(i < n, {
     same := (
-      match(g_import_edge_importers.with({ i }(xs) => xs.get_cloned(i)), .Some(a) => (a == importer), .None => false) &&
-        match(g_import_edge_imports.with(xs => xs.get_cloned(i)), .Some(b) => (b == imported), .None => false)
+      match(g_import_edge_importers.with({ i }(xs) => xs.get_cloned(i)), .Some(a) => (a == importer.*), .None => false) &&
+        match(g_import_edge_imports.with(xs => xs.get_cloned(i)), .Some(b) => (b == imported.*), .None => false)
     );
     if(same, {
       return(());
@@ -253,7 +253,7 @@ _drop_edges_from :: (fn(importer : &String) -> unit)({
   (i : usize) = g_import_edge_importers.with(_c_len_1);
   while(i > usize(0), {
     i = (i - usize(1));
-    same := match(g_import_edge_importers.with({ i }(xs) => xs.get_cloned(i)), .Some(a) => (a == importer), .None => false);
+    same := match(g_import_edge_importers.with({ i }(xs) => xs.get_cloned(i)), .Some(a) => (a == importer.*), .None => false);
     if(same, {
       g_import_edge_importers.with_mut(xs => xs.drain(i .. (i + usize(1))));
       g_import_edge_imports.with_mut(xs => xs.drain(i .. (i + usize(1))));
@@ -281,7 +281,7 @@ _module_cache_index :: (fn(path : &String) -> Option(usize))({
   while((i < n) && idx.is_none(), {
     match(
       g_module_cache_keys.with(xs => xs.get_cloned(i)),
-      .Some(k) => if(k == path, {
+      .Some(k) => if(k == path.*, {
         idx = Option(usize).Some(i);
       }),
       .None => ()
@@ -318,7 +318,7 @@ register_module :: (fn(path : &String, module_value : &EvalValue, module_type : 
   if(!module_cache_has(path.clone()), {
     path_owned := path.clone();
     g_module_cache_keys.with_mut({ path_owned }(xs) => xs.push(path_owned.clone()));
-    g_module_cache_vals.with_mut(xs => xs.push(module_value));
+    g_module_cache_vals.with_mut(xs => xs.push(module_value.*));
     g_module_cache_types.with_mut({ module_type : Rc.clone(module_type) }(xs) => xs.push(Rc.clone(module_type)));
   });
 });
@@ -359,7 +359,7 @@ _module_type_with_field :: (fn(mt : &TypeValue, name : &String, ty : &TypeValue)
       (ti : usize) = usize(0);
       while(ti < ttypes.len(), {
         ft := match(ttypes.get(ti), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
-        if(match(tlabels.get_cloned(ti), .Some(t) => (t == name), .None => false), {
+        if(match(tlabels.get_cloned(ti), .Some(t) => (t == name.*), .None => false), {
           new_types.push(Rc.clone(ty));
           found = true;
         }, {
@@ -375,12 +375,12 @@ _module_type_with_field :: (fn(mt : &TypeValue, name : &String, ty : &TypeValue)
               name : sname.clone(),
               field_labels : Rc.clone(tlabels),
               field_types : shared_list(new_types),
-              is_reference_semantics : sref,
-              is_atomic_rc : satomic,
-              is_newtype : snt,
+              is_reference_semantics : sref.*,
+              is_atomic_rc : satomic.*,
+              is_newtype : snt.*,
               constructor_func_id : scfid.clone(),
               type_arguments : Rc.clone(stas),
-              is_source_namespace : ssns
+              is_source_namespace : ssns.*
             )
           )
         ),
@@ -422,7 +422,7 @@ update_module_cache_slot :: (fn(path : &String, name : &String, var : &Variable)
               while(ni < names.len(), {
                 match(
                   names.get(ni),
-                  .Some(n) => if(n == name, {
+                  .Some(n) => if(n == name.*, {
                     vals.set(
                       ni,
                       match(

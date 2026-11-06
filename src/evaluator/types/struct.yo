@@ -387,9 +387,9 @@ evaluate_struct_type :: (
   out_info.set_value(Option(EvalValue).Some(struct_val));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   // Annotate callee (expr.func) with the same info
-  callee_expr := match(expr, .FnCall(_, f_box, _, _, _) => f_box, .Atom(_, _) => expr);
+  callee_expr := match(expr, .FnCall(_, f_box, _, _, _) => f_box.*, .Atom(_, _) => expr.*);
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&callee_expr), &out_info);
-  expr
+  expr.*
 });
 /// One instantiation of a cell primitive: its payload type and its struct id.
 _CellInstance :: struct(is_atomic : bool, payload : TypeValue, id : String);
@@ -589,8 +589,8 @@ evaluate_cell_type :: (
   out_info := new_expr_info(&env, &type_of_type(&cell_ty));
   out_info.set_value(Option(EvalValue).Some(create_type_value(&cell_ty)));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-  callee_expr := match(expr, .FnCall(_, f_box, _, _, _) => f_box, .Atom(_, _) => expr);
+  callee_expr := match(expr, .FnCall(_, f_box, _, _, _) => f_box.*, .Atom(_, _) => expr.*);
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&callee_expr), &out_info);
-  expr
+  expr.*
 });
 export(evaluate_struct_type, evaluate_cell_type);

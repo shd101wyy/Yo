@@ -227,7 +227,7 @@ _is_std_module_path :: (fn(mp : &String, std_path : &String) -> bool)({
 (g_std_path_memo : RefCell(HashMap(String, bool))) = RefCell(HashMap(String, bool)).new(HashMap(String, bool).new());
 (g_std_path_memo_root : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
 is_std_module_path :: (fn(mp : &String, std_path : &String) -> bool)({
-  if(match(g_std_path_memo_root.with(xs => xs.get_cloned(usize(0))), .Some(r) => (r != std_path), .None => true), {
+  if(match(g_std_path_memo_root.with(xs => xs.get_cloned(usize(0))), .Some(r) => (r != std_path.*), .None => true), {
     g_std_path_memo.with_mut(m => m.clear());
     g_std_path_memo_root.with_mut(xs => xs.clear());
     std_path_owned := std_path.clone();
@@ -284,13 +284,40 @@ is_global_mut_rule_exempt :: (fn(mp : &String, std_path : &String) -> bool)(
   )
 );
 /// Decision 43 step 2, N1e-1's PATH deref exemption
-/// (`is_deref_rule_exempt`) is DELETED (N3's adoption sweep, 2026-11-06):
-/// std, src, scripts/, build.yo and the store migrated to the `.*` reading
-/// with `yo fix --migrate deref`, so every SPELLED file takes E0926's rule
-/// and the R1 read rule alike. Compiler-synthesized `auto-generated://`
-/// code keeps the old reading inline in `deref_rule_applies` (the capture
-/// and derive machinery does not spell `.*`)
+/// (`is_deref_rule_exempt`) is DELETED for std and src (N3's adoption sweep,
+/// 2026-11-06): both trees migrated to the `.*` reading with
+/// `yo fix --migrate deref`, so their files take E0926's rule and the R1
+/// read rule alike. This residual covers the readers the release's SEED
+/// still compiles with the old reading — the repository's `scripts/` and
+/// build file (the site build runs `scripts/build_site.yo` on the seed) and
+/// a fetched dependency in the content store — plus compiler-synthesized
+/// `auto-generated://` code (the capture and derive machinery does not
+/// spell `.*`). They migrate when a seed that reads `.*` exists
 /// (plans/backlog/SEED_VERSION_AUTOMATION.md).
+(g_deref_rule_legacy_memo : RefCell(HashMap(String, bool))) = RefCell(HashMap(String, bool)).new(HashMap(String, bool).new());
+deref_rule_legacy_reader :: (fn(mp : &String, std_path : &String) -> bool)(
+  match(
+    g_deref_rule_legacy_memo.with(m => m.get(mp)),
+    .Some(b) => b,
+    .None => {
+      (sp : String) = std_path.clone();
+      while(sp.ends_with(`/`), {
+        sp = sp.slice_copy(usize(0) .. (sp.len() - usize(1)));
+      });
+      abs := _lex_abs_path(mp.clone());
+      repo_root := match(Path.new(_lex_abs_path(&sp)).parent(), .Some(pp) => pp.to_string(), .None => String.new());
+      scripts_root := `${repo_root}/scripts/`;
+      build_file := `${repo_root}/build.yo`;
+      store := String.from("/store/sha256/");
+      b := (
+        mp.starts_with(String.from("auto-generated://")) || (abs.starts_with(&scripts_root) || ((abs == build_file) || abs.contains(&store)))
+      );
+      mp_owned := mp.clone();
+      g_deref_rule_legacy_memo.with_mut({ mp_owned, b : b.clone() }(m) => m.insert(mp_owned.clone(), b));
+      b
+    }
+  )
+);
 is_macro_def_capable_file :: (fn(module_path : &Option(String)) -> bool)(
   match(
     module_path,
@@ -375,7 +402,7 @@ is_prelude_or_generated_file :: (fn(module_path : &Option(String), std_path : &S
 /// runs it over the prelude: `expect_err` was missing from this list until
 /// that check existed (issues/fixed/result-expect-err-escapes-the-class-1-ban.md).
 is_class1_panic_method_name :: (fn(name : &String) -> bool)(
-  (name == "unwrap") || (name == "expect") || (name == "unwrap_err") || (name == "expect_err")
+  (name.* == "unwrap") || (name.* == "expect") || (name.* == "unwrap_err") || (name.* == "expect_err")
 );
 /// The receiver types whose extraction methods are class 1: the failure is
 /// IN the type. The value must BE an enum (`Option`/`Result` are enums), and
@@ -445,6 +472,7 @@ export(
   is_auto_generated_expansion,
   is_macro_def_capable_file,
   is_global_mut_rule_exempt,
+  deref_rule_legacy_reader,
   is_pointer_value_capable_file,
   is_overload_set_capable_file,
   is_prelude_or_generated_file,

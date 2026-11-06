@@ -71,7 +71,7 @@ _collect_unwind_value_ctypes_from_expr :: (fn(expr : &AstExpr, context : &mut Fu
           );
           ai = (ai + usize(1));
         });
-        fsub := recur(&func, context);
+        fsub := recur(&func.*, context);
         fn := fsub.len();
         (fk : usize) = usize(0);
         while(fk < fn, {
@@ -157,7 +157,7 @@ emit_unwind_value_buffer :: (fn(context : &mut FunctionGenerationContext) -> uni
     &context.unwind_value_c_types,
     .Some(types) => {
       (idx : usize) = usize(0);
-      for(&types, t => {
+      for(&types.*, t => {
         decl.push_str("    ");
         decl.push_string(t.clone());
         decl.push_str(" __m");

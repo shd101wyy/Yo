@@ -126,12 +126,12 @@ generate_function_prototype :: (
   match(
     function_type,
     Rc(.Func({ param_types, result : result_slot, meta : __fm1 })) => {
-      param_labels := Rc.clone(__fm1.*.param_labels);
+      param_labels := Rc.clone(__fm1.*.*.param_labels);
       // The C pointer flags: a `&mut T` parameter, or a projection's `&T`.
       param_is_ref := fn_abi_param_is_ptr(function_type);
       // A borrowed result (`-> &T`) is the pointee's C type plus `*`.
-      result_is_ref := t_slot_is_borrow(&result_slot);
-      result := t_slot_pointee(&result_slot);
+      result_is_ref := t_slot_is_borrow(&result_slot.*);
+      result := t_slot_pointee(&result_slot.*);
       // Diagnostic context for _lookup_named_c_type panics during PROTOTYPE
       // emission (current_function_name is otherwise only set during body
       // generation) — a decl-phase missing-type panic then names its owner.
@@ -155,7 +155,7 @@ generate_function_prototype :: (
         if(i > usize(0), {
           params.push_str(", ");
         });
-        pt := match(slot_pointee_at(&param_types, i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
+        pt := match(slot_pointee_at(&param_types.*, i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
         // Use the source parameter label (sanitized) so the C signature matches
         // the body's references to that parameter (the atom emitter emits the
         // source name). Falls back to
@@ -395,7 +395,7 @@ _func_result_type :: (fn(ft : &TypeValue) -> TypeValue)(
 /// True when the Func's declared return is `comptime(...)` (compile-time-only
 /// function).
 _func_result_is_comptime_only :: (fn(ft : &TypeValue) -> bool)(
-  match(ft, Rc(.Func({ meta : __fm2 })) => __fm2.*.result_is_comptime_only, _ => false)
+  match(ft, Rc(.Func({ meta : __fm2 })) => __fm2.*.*.result_is_comptime_only, _ => false)
 );
 /// True if any runtime parameter of the Func contains a SomeType at the codegen
 /// ABI level, or the Func has generic type parameters.
@@ -411,7 +411,7 @@ _func_has_expr_param :: (fn(ft : &TypeValue) -> bool)(
       (mut(found) : bool) = false;
       while((i < n) && !found, {
         match(
-          slot_pointee_at(&param_types, i),
+          slot_pointee_at(&param_types.*, i),
           .Some(pt) => if(is_expr_type(&pt), {
             found = true;
           }),
@@ -433,7 +433,7 @@ _func_has_generic_params :: (fn(ft : &TypeValue) -> bool)(
       (mut(found) : bool) = false;
       while((i < n) && !found, {
         match(
-          slot_pointee_at(&param_types, i),
+          slot_pointee_at(&param_types.*, i),
           .Some(pt) => if(type_contains_some_type_for_codegen_param(&pt, ArrayList(String).new()), {
             // A RESOLVABLE top-level wrapper SomeT is NOT generic for
             // codegen: get_type_string lowers it through its own
@@ -473,14 +473,14 @@ _returns_plain_impl :: (fn(ret : &TypeValue) -> bool)(
 );
 /// The body expression of a FuncVal, if any.
 _func_value_body :: (fn(value : &EvalValue) -> Option(AstExpr))(
-  match(value, .FuncVal(__fvd1, _) => Option(AstExpr).Some(__fvd1.*.body), _ => Option(AstExpr).None)
+  match(value, .FuncVal(__fvd1, _) => Option(AstExpr).Some(__fvd1.*.*.body), _ => Option(AstExpr).None)
 );
 /// True when the function body's effect analysis reports effects.
 _body_is_effectful :: (fn(body : &Option(AstExpr), context : &CodeGenContext) -> bool)(
   match(
     body,
     .Some(b) => match(
-      context.get_expr_info(&b),
+      context.get_expr_info(&b.*),
       .Some(ei) => match(expr_info_effect_analysis(&ei), .Some(ea) => ea.has_effects, .None => false),
       .None => false
     ),
@@ -501,7 +501,7 @@ _body_is_effectful :: (fn(body : &Option(AstExpr), context : &CodeGenContext) ->
 ///   - skip2: generic params, or generic return that is not a plain `Impl(...)`
 should_skip_function_codegen :: (fn(func_id : &String, c_name : &String, value : &EvalValue, context : &CodeGenContext) -> bool)({
   function_type := get_func_type(func_id.clone());
-  is_user_main := (c_name == "__yo_user_main");
+  is_user_main := (c_name.* == "__yo_user_main");
   // Io async state-machine closures are generated via the deferred async
   // block system, not as standalone functions (their body would otherwise be
   // emitted TWICE — see mark_io_async_sm_closure); the registry is populated
@@ -553,9 +553,9 @@ should_skip_function_codegen :: (fn(func_id : &String, c_name : &String, value :
       rl_t,
       Rc(.Array(rl_elem, _, rl_var)) => cond(
         (rl_var.len() > usize(0)) => true,
-        true => recur(&rl_elem)
+        true => recur(&rl_elem.*)
       ),
-      Rc(.Pointer(rl_p)) => recur(&rl_p),
+      Rc(.Pointer(rl_p)) => recur(&rl_p.*),
       _ => false
     )
   );
@@ -647,7 +647,7 @@ _async_override_return_type :: (
     .None => Option(String).None,
     .Some(b) => {
       block_sn := match(
-        find_returned_async_block(Option(AstExpr).Some(b)),
+        find_returned_async_block(Option(AstExpr).Some(b.*)),
         .Some(block) => match(
           context.get_expr_info(&block),
           .Some(ei) => expr_info_async_state_machine_struct_name(&ei),
@@ -670,7 +670,7 @@ _async_override_return_type :: (
           Option(String).Some(r)
         },
         .None => match(
-          context.get_expr_info(&b),
+          context.get_expr_info(&b.*),
           .Some(ei) => if(is_some_type(&ei.ty()) && type_implements_future(&ei.ty()), {
             // DELEGATE fallback (fn returns another async fn's future; no own
             // block): the body's future C name resolves through the CALLEE's
@@ -714,7 +714,7 @@ awaited_future_c_type_override :: (
     .None => match(
       future_expr,
       .FnCall(_, af_fx, _, _, _) => match(
-        context.get_expr_info(&af_fx),
+        context.get_expr_info(&af_fx.*),
         .Some(af_fei) => af_fei.value(),
         .None => Option(EvalValue).None
       ),
@@ -749,7 +749,7 @@ _return_type_override :: (
       body,
       .Some(b) => if(is_some_type(&ret), {
         match(
-          context.get_expr_info(&b),
+          context.get_expr_info(&b.*),
           .Some(ei) => {
             override = Option(String).Some(get_type_string(&ei.ty(), context));
           },
@@ -758,7 +758,7 @@ _return_type_override :: (
       }, if(type_contains_some_type(&ret), {
         // Specialized body more specific than a SomeType-containing signature.
         match(
-          context.get_expr_info(&b),
+          context.get_expr_info(&b.*),
           .Some(ei) => {
             sig_s := get_type_string(&ret, context);
             body_s := get_type_string(&ei.ty(), context);
@@ -856,7 +856,7 @@ fn_value_c_name :: (fn(func_id : &String, context : &mut CodeGenContext) -> Opti
             proto := generate_function_prototype(&ft, thunk.clone(), context, Option(String).Some(er.clone()), false);
             // The arguments are the parameter names the prototype generator
             // gave (its label, else `param<i>`).
-            labels := match(&ft, Rc(.Func({ meta : tm })) => Rc.clone(tm.*.param_labels), _ => no_labels());
+            labels := match(&ft, Rc(.Func({ meta : tm })) => Rc.clone(tm.*.*.param_labels), _ => no_labels());
             np := match(ft, Rc(.Func({ param_types : tpts })) => tpts.len(), _ => usize(0));
             mut(args) := String.from("");
             (mut(i) : usize) = usize(0);
@@ -938,11 +938,11 @@ generate_function_declaration :: (fn(function_type : &TypeValue, c_function_name
 /// Functions that are C preprocessor macros or static runtime-preamble
 /// functions: never emit `extern` declarations for these.
 _is_threading_macro_function :: (fn(name : &String) -> bool)(
-  (name == "__yo_mutex_init") || (name == "__yo_mutex_destroy") || (name == "__yo_mutex_lock") || (name == "__yo_mutex_unlock") || (name == "__yo_cond_init") || (name == "__yo_cond_destroy") || (name == "__yo_cond_wait") || (name == "__yo_cond_signal") || (name == "__yo_cond_broadcast") || (name == "__yo_thread_join") || (name == "__yo_thread_detach") || (name == "__yo_thread_self")
+  (name.* == "__yo_mutex_init") || (name.* == "__yo_mutex_destroy") || (name.* == "__yo_mutex_lock") || (name.* == "__yo_mutex_unlock") || (name.* == "__yo_cond_init") || (name.* == "__yo_cond_destroy") || (name.* == "__yo_cond_wait") || (name.* == "__yo_cond_signal") || (name.* == "__yo_cond_broadcast") || (name.* == "__yo_thread_join") || (name.* == "__yo_thread_detach") || (name.* == "__yo_thread_self")
 );
 /// `is_extern` tag of a Func type: `.Some("c")` / `.Some("yo")` / `.None`.
 _func_extern_tag :: (fn(ft : &TypeValue) -> Option(String))(
-  match(ft, Rc(.Func({ meta : __fm3 })) => __fm3.*.is_extern.clone(), _ => Option(String).None)
+  match(ft, Rc(.Func({ meta : __fm3 })) => __fm3.*.*.is_extern.clone(), _ => Option(String).None)
 );
 /// Generate constructor declarations for closures. No-op: Impl(Fn(...)) closures
 /// use concrete capture structs + direct calls; Dyn(Fn(...)) uses dyn
@@ -976,7 +976,7 @@ generate_function_declarations :: (fn(context : &mut CodeGenContext) -> unit)({
     cn := entry.c_name.clone();
     tag := _func_extern_tag(&entry.ty);
     cond(
-      match(&tag, .Some(s) => (s == "yo"), .None => false) => if(!_is_threading_macro_function(cn.clone()), {
+      match(&tag, .Some(s) => (s.* == "yo"), .None => false) => if(!_is_threading_macro_function(cn.clone()), {
         decl_tys.push(Rc.clone(entry.ty));
         decl_names.push(cn.clone());
       }),

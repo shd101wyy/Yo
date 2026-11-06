@@ -147,7 +147,7 @@ _maybe_address_of :: (fn(value_expr : &AstExpr, code : String, cond_outer_is_ptr
 /// Whether the generated arm code is a control-flow statement (continue/break/
 /// goto/return) and should be emitted directly rather than assigned.
 _is_cf_code :: (fn(value_expr : &AstExpr, code : &String, context : &FunctionGenerationContext) -> bool)(
-  (code == "continue") || (code == "break") || code.starts_with("goto") || ast_expr_is_fn_call_of(value_expr, BK_RETURN, Option(usize).None) || _contains_word_return(code)
+  (code.* == "continue") || (code.* == "break") || code.starts_with("goto") || ast_expr_is_fn_call_of(value_expr, BK_RETURN, Option(usize).None) || _contains_word_return(code)
 );
 /// Concatenate `current` then `prev` (both optional) into a fresh drop list.
 _concat_drops :: (fn(current : &Option(ArrayList(AstExpr)), prev : &Option(ArrayList(AstExpr))) -> ArrayList(AstExpr))({
@@ -252,7 +252,7 @@ _emit_value_arm :: (fn(value : &AstExpr, value_indent : &String, temp_var_opt : 
 /// first block's declaration of the same name no longer counts
 /// (issues/fixed/2026-10-22-a-dup-temp-in-a-wrapper-awaited-twice-is-undeclared-at-the-second-site.md).
 _temp_is_declared :: (fn(temp_var_opt : &Option(String), context : &FunctionGenerationContext) -> bool)(
-  match(temp_var_opt, .Some(tv) => context.base.declared_scopes.with({ &tv }(ds_s) => scope_stack_contains(ds_s, tv)), .None => false)
+  match(temp_var_opt, .Some(tv) => context.base.declared_scopes.with({ &tv }(ds_s) => scope_stack_contains(ds_s, tv.*)), .None => false)
 );
 /// Whether an arm value carries deferred `___dup`s: it returns a borrowed or
 /// shared value out of the arm (`true => methods`, `true => q` with `q : &R`),
@@ -657,7 +657,7 @@ generate_cond_expression :: (fn(expr : &AstExpr, indent : &String, context : &mu
   value_type := Rc.clone(ei.ty());
   is_unit := is_unit_type(&value_type);
   temp_var_opt := ei.variable_name();
-  ret_is_ref := match(&context.current_function_type, .Some(t) => fn_result_is_ref(&t), .None => false);
+  ret_is_ref := match(&context.current_function_type, .Some(t) => fn_result_is_ref(&t.*), .None => false);
 
   cond_outer_is_ptr := (ret_is_ref && is_pointer_type(&value_type));
   args := match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
@@ -786,7 +786,7 @@ generate_cond_expression :: (fn(expr : &AstExpr, indent : &String, context : &mu
               &temp_var_opt,
               .Some(tv) => if(!is_unit, {
                 is_cf := _is_cf_code(&value, value_code.clone(), context);
-                if((value_code.len() > usize(0)) && !is_cf && !(tv_declared_by_arm && (value_code == tv)), {
+                if((value_code.len() > usize(0)) && !is_cf && !(tv_declared_by_arm && (value_code == tv.*)), {
                   mut(line) := indent.clone();
                   // The collapse-to-direct path skips this cond's own temp
                   // declaration because the evaluator ADOPTS the arm body's
@@ -804,7 +804,7 @@ generate_cond_expression :: (fn(expr : &AstExpr, indent : &String, context : &mu
                   // tried first and REVERTED — it perturbed var bookkeeping
                   // enough to break the stage2≡stage3 fixpoint. See
                   // issues/retired/yo-self-round7-tail.md, cache.test.yo.)
-                  if(!(value_code == tv) && !tv_declared_by_arm, {
+                  if(!(value_code == tv.*) && !tv_declared_by_arm, {
                     line.push_string(get_type_string(&value_type, &mut context.base));
                     line.push_str(" ");
                     declare_c_var_name(&context.base, tv.clone());

@@ -88,7 +88,7 @@ _intern_type_c_name_fresh :: (fn(key : &String) -> String)({
     match(
       prev_owner,
       .Some(owner) => {
-        if(!(owner == key), {
+        if(!(owner == key.*), {
           ord = (ord + usize(1));
           id = `${base}_${ord.to_string()}`;
           collided = true;
@@ -211,7 +211,7 @@ _enum_some_type_is_only_in_function_fields :: (
 _has_comptime_only_runtime_field :: (fn(ty : &TypeValue) -> bool)(
   match(
     ty,
-    Rc(.Struct({ is_source_namespace })) => if(is_source_namespace, false, {
+    Rc(.Struct({ is_source_namespace })) => if(is_source_namespace.*, false, {
       fs := get_runtime_struct_fields(ty);
       (mut(found) : bool) = false;
       (mut(i) : usize) = usize(0);
@@ -266,7 +266,7 @@ collect_type :: (fn(type_in : &TypeValue, context : &mut CodeGenContext) -> unit
   match(
     &type,
     Rc(.Reference(ref_pt, _, _)) => {
-      return(collect_type(&ref_pt, context));
+      return(collect_type(&ref_pt.*, context));
     },
     _ => ()
   );
@@ -301,7 +301,7 @@ collect_type :: (fn(type_in : &TypeValue, context : &mut CodeGenContext) -> unit
   // collection, so the typedef is emitted before any reference; also collect
   // the element type.
   if(is_array_type(&type), {
-    match(&type, Rc(.Array({ element })) => recur(&element, context), _ => ());
+    match(&type, Rc(.Array({ element })) => recur(&element.*, context), _ => ());
     _gs := get_type_string(&type, context);
     return(());
   });
@@ -366,8 +366,8 @@ collect_type :: (fn(type_in : &TypeValue, context : &mut CodeGenContext) -> unit
     // C name appears as the interface struct's `result` field.
     match(
       &type,
-      Rc(.FutureTraitT({ output : ftc_out })) => if(!is_some_type(&ftc_out), {
-        recur(&ftc_out, context);
+      Rc(.FutureTraitT({ output : ftc_out })) => if(!is_some_type(&ftc_out.*), {
+        recur(&ftc_out.*, context);
       }),
       _ => ()
     );
@@ -467,10 +467,10 @@ collect_type :: (fn(type_in : &TypeValue, context : &mut CodeGenContext) -> unit
               Rc(.Func({ param_types : __mpt, result : __mres })) => {
                 (__mpi : usize) = usize(0);
                 while(__mpi < __mpt.len(), {
-                  match(slot_pointee_at(&__mpt, __mpi), .Some(__pt) => recur(&__pt, context), .None => ());
+                  match(slot_pointee_at(&__mpt.*, __mpi), .Some(__pt) => recur(&__pt, context), .None => ());
                   __mpi = (__mpi + usize(1));
                 });
-                recur(&t_slot_pointee(&__mres), context);
+                recur(&t_slot_pointee(&__mres.*), context);
               },
               _ => recur(&ft, context)
             ),
@@ -492,7 +492,7 @@ collect_type :: (fn(type_in : &TypeValue, context : &mut CodeGenContext) -> unit
 _collect_field_pointees :: (fn(ft : &TypeValue, context : &mut CodeGenContext) -> unit)(
   match(
     ft,
-    Rc(.Pointer(p)) => collect_type(&p, context),
+    Rc(.Pointer(p)) => collect_type(&p.*, context),
     Rc(.EnumT({ variant_fields })) => {
       nv := variant_fields.len();
       (mut(vi) : usize) = usize(0);
@@ -575,7 +575,7 @@ collect_types_from_function_type :: (fn(function_type : &TypeValue, context : &m
       np := param_types.len();
       (mut(pi) : usize) = usize(0);
       while(pi < np, {
-        match(slot_pointee_at(&param_types, pi), .Some(pt) => collect_type(&pt, context), .None => ());
+        match(slot_pointee_at(&param_types.*, pi), .Some(pt) => collect_type(&pt, context), .None => ());
         pi = (pi + usize(1));
       });
       nf := forall_types.len();
@@ -584,18 +584,18 @@ collect_types_from_function_type :: (fn(function_type : &TypeValue, context : &m
         match(forall_types.get(fi), .Some(ft) => collect_type(&ft, context), .None => ());
         fi = (fi + usize(1));
       });
-      collect_type(&t_slot_pointee(&result), context);
+      collect_type(&t_slot_pointee(&result.*), context);
     },
     _ => ()
   )
 );
 /// func_id of a FuncVal EvalValue, or "".
 _fv_id :: (fn(v : &EvalValue) -> String)(
-  match(v, .FuncVal(__fvd1, _) => __fvd1.*.func_id.clone(), _ => String.from(""))
+  match(v, .FuncVal(__fvd1, _) => __fvd1.*.*.func_id.clone(), _ => String.from(""))
 );
 /// body AstExpr of a FuncVal EvalValue, or an error placeholder.
 _fv_body :: (fn(v : &EvalValue) -> AstExpr)(
-  match(v, .FuncVal(__fvd2, _) => __fvd2.*.body, _ => make_err_expr())
+  match(v, .FuncVal(__fvd2, _) => __fvd2.*.*.body, _ => make_err_expr())
 );
 /// Collect types referenced by an expression (its evaluated type, any function
 /// value it resolves to, deferred drops, macro expansion, runtime
@@ -653,7 +653,7 @@ _collect_types_from_node :: (fn(expr : &AstExpr, context : &mut CodeGenContext, 
       // otherwise codegen emits the expansion but its capture/closure structs
       // were never collected → get_type_string panic).
       match(
-        expr_info_macro_expansion(&ei),
+        expr_info_macro_expansion(&ei.*),
         .Some(me) => collect_types_from_expr(&me, context, info),
         .None => match(
           lookup_macro_expansion(ast_expr_id(expr)),
@@ -663,7 +663,7 @@ _collect_types_from_node :: (fn(expr : &AstExpr, context : &mut CodeGenContext, 
       );
       // Runtime destructurings (comptime→runtime conversions).
       match(
-        expr_info_runtime_destructurings(&ei),
+        expr_info_runtime_destructurings(&ei.*),
         .Some(rds) => {
           nr := rds.len();
           (ri : usize) = usize(0);
@@ -676,13 +676,13 @@ _collect_types_from_node :: (fn(expr : &AstExpr, context : &mut CodeGenContext, 
       );
       // Capture struct type for closures / async blocks (registers + recurses
       // into field types via collect_type).
-      match(expr_info_capture_type(&ei), .Some(ct) => collect_type(&ct, context), .None => ());
+      match(expr_info_capture_type(&ei.*), .Some(ct) => collect_type(&ct, context), .None => ());
       // A closure's field-wise clone keeps its field initializers only in its
       // ExprInfo (`structural_clone_expansion`); their types are collected
       // through them.
-      if(expr_info_closure_function_value(&ei).is_none(), {
+      if(expr_info_closure_function_value(&ei.*).is_none(), {
         match(
-          expr_info_capture_field_inits(&ei),
+          expr_info_capture_field_inits(&ei.*),
           .Some(cinits) => {
             (cii : usize) = usize(0);
             while(cii < cinits.len(), {
@@ -703,7 +703,7 @@ _collect_types_from_node :: (fn(expr : &AstExpr, context : &mut CodeGenContext, 
       if(ast_expr_is_fn_call_of(expr, BK_TEST, .None), {
         return(());
       });
-      collect_types_from_expr(&func_box, context, info);
+      collect_types_from_expr(&func_box.*, context, info);
       n := args.len();
       (i : usize) = usize(0);
       while(i < n, {

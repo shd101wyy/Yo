@@ -200,7 +200,7 @@ extract_bare_import_path :: (fn(e : &AstExpr) -> Option(String))(
     e,
     .Atom(_, _) => Option(String).None,
     .FnCall(_, func_box, Rc(fn_imp_args), is_infix, _) => cond(
-      is_infix => Option(String).None,
+      is_infix.* => Option(String).None,
       (fn_imp_args.len() != usize(1)) => Option(String).None,
       !match(
         func_box,
@@ -243,7 +243,7 @@ extract_import_path :: (fn(expr : &AstExpr) -> Option(String))(
       );
       cond(
         // Pattern: { Names } :: import("path") (infix ::)
-        ((fval == "::") && is_infix && (fn_imp_args.len() >= usize(2))) =>
+        ((fval == "::") && is_infix.* && (fn_imp_args.len() >= usize(2))) =>
           match(
             fn_imp_args.get(usize(1)),
             .None => Option(String).None,
@@ -282,7 +282,7 @@ collect_import_paths_recursive :: (
     expr,
     .Atom(_, _) => (),
     .FnCall(_, fb, Rc(walk_args), _, _) => {
-      recur(&fb, out);
+      recur(&fb.*, out);
       (i : usize) = usize(0);
       while(i < walk_args.len(), {
         match(
@@ -353,7 +353,7 @@ extract_test_name :: (fn(expr : &AstExpr) -> Option(String))(
     expr,
     .Atom(_, _) => Option(String).None,
     .FnCall(_, func_box, Rc(fn_args), is_infix, _) => cond(
-      is_infix => Option(String).None,
+      is_infix.* => Option(String).None,
       (fn_args.len() < usize(2)) => Option(String).None,
       !match(
         func_box,
@@ -915,15 +915,15 @@ _run_contract_verification :: (
   });
   (all_ok : bool) = true;
   for(&reports, rp => {
-    _print_verify_fn_report(&rp, false);
+    _print_verify_fn_report(&rp.*, false);
     // The pass/fail rule lives in the driver so this site, `yo verify`
     // and the self-verification sweep cannot disagree. `check`/`compile`
     // pass no deny set: `--strict` belongs to `yo verify`, and silently
     // hardening every build would change what today's code compiles.
-    if(verify_report_is_failure(&rp, ArrayList(String).new()), {
+    if(verify_report_is_failure(&rp.*, ArrayList(String).new()), {
       all_ok = false;
     }, {
-      if(verify_report_is_degraded(&rp, ArrayList(String).new()), {
+      if(verify_report_is_degraded(&rp.*, ArrayList(String).new()), {
         eprintln(`           (verify+ fallback: the runtime assert stays)`);
       });
     });
@@ -1228,7 +1228,7 @@ _modes_walk :: (fn(e : &AstExpr, out : &mut ArrayList(_PendingFix)) -> unit)(
           _ => ()
         );
       });
-      recur(&callee, out);
+      recur(&callee.*, out);
       (i : usize) = usize(0);
       while(i < args.len(), {
         match(args.get(i), .Some(a) => recur(&a, out), .None => ());
@@ -1422,7 +1422,7 @@ _dtm_witness_call_fix :: (fn(line : &String, row : usize, member_col : usize, x 
     }
   );
   arg_text := line.substring(open_at + usize(1), close_at);
-  if((arg_text != x) && (arg_text != `&${x}`), {
+  if((arg_text != x.*) && (arg_text != `&${x}`), {
     return(Option(_PendingFix).None);
   });
   whole := line.substring(s0, close_at + usize(1));
@@ -1631,7 +1631,7 @@ _dtm_walk :: (
           _ => ()
         );
       });
-      recur(&callee, false, lines, o);
+      recur(&callee.*, false, lines, o);
       (i : usize) = usize(0);
       while(i < args.len(), i = (i + usize(1)), {
         match(args.get(i), .Some(a) => recur(&a, callee_word == "Dispose", lines, o), .None => ());
@@ -1796,10 +1796,10 @@ _bsm_args :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
   match(e, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new())
 );
 _bsm_callee :: (fn(e : &AstExpr) -> AstExpr)(
-  match(e, .FnCall(_, f, _, _, _) => f, .Atom(_, _) => e)
+  match(e, .FnCall(_, f, _, _, _) => f.*, .Atom(_, _) => e.*)
 );
 _bsm_is_infix_of :: (fn(e : &AstExpr, op : str) -> bool)(
-  match(e, .FnCall(_, f, Rc(a), infix, _) => (infix && (a.len() == usize(2)) && ast_expr_is_atom_of(&f, op)), .Atom(_, _) => false)
+  match(e, .FnCall(_, f, Rc(a), infix, _) => (infix.* && (a.len() == usize(2)) && ast_expr_is_atom_of(&f.*, op)), .Atom(_, _) => false)
 );
 _bsm_key :: (fn(t : &Token) -> String)(`${t.row.to_string()}:${t.column.to_string()}`);
 _bsm_rune_len :: (fn(s : &String) -> usize)(s.clone().chars().count());
@@ -1931,7 +1931,7 @@ _bsm_unwrap :: (
 _bsm_param :: (
   fn(p : &AstExpr, lines : &ArrayList(String), out : &mut ArrayList(_PendingFix), claimed : &mut HashSet(String)) -> Option(String)
 )({
-  (core : AstExpr) = p;
+  (core : AstExpr) = p.*;
   if(_bsm_is_infix_of(&core, "?=") || _bsm_is_infix_of(&core, "="), {
     core = _bsm_arg(&core, usize(0));
   });
@@ -1990,8 +1990,8 @@ _bsm_is_postfix_chain :: (fn(e : &AstExpr) -> bool)(
     e,
     .Atom(_, t) => (t.kind == TokenKind.Identifier),
     .FnCall(_, f, Rc(a), infix, _) => cond(
-      infix => (ast_expr_is_atom_of(&f, ".") && (a.len() == usize(2)) && recur(match(a.get(usize(0)), .Some(x) => x, .None => make_err_expr()))),
-      true => recur(&f)
+      infix.* => (ast_expr_is_atom_of(&f.*, ".") && (a.len() == usize(2)) && recur(match(a.get(usize(0)), .Some(x) => x, .None => make_err_expr()))),
+      true => recur(&f.*)
     )
   )
 );
@@ -2007,8 +2007,8 @@ _bsm_walk :: (
       if(!in_asm, {
         cond(
           // Declaration heads.
-          (!is_infix && ((word == "fn") || (word == "ctl"))) => _bsm_param_list(&args, usize(0), lines, out, claimed, counts),
-          (!is_infix && ((word == "Fn") || ((word == "FnMut") || (word == "FnOnce")))) => _bsm_param_list(&args, usize(1), lines, out, claimed, counts),
+          (!is_infix.* && ((word == "fn") || (word == "ctl"))) => _bsm_param_list(&args.*, usize(0), lines, out, claimed, counts),
+          (!is_infix.* && ((word == "Fn") || ((word == "FnMut") || (word == "FnOnce")))) => _bsm_param_list(&args.*, usize(1), lines, out, claimed, counts),
           // The result slot.
           _bsm_is_infix_of(e, "->") => {
             lhs_w := match(_bsm_callee(_bsm_arg(e, usize(0))), .Atom(_, lt) => lt.value.*.clone(), _ => String.new());
@@ -2086,7 +2086,7 @@ _bsm_walk :: (
             );
           },
           // The borrowed `for`.
-          (!is_infix && (word == "for") && (args.len() == usize(2))) => {
+          (!is_infix.* && (word == "for") && (args.len() == usize(2))) => {
             h := _bsm_arg(e, usize(1));
             if(_bsm_is_infix_of(&h, "=>"), {
               hv := _bsm_arg(&h, usize(0));
@@ -2103,7 +2103,7 @@ _bsm_walk :: (
               match(
                 hm,
                 .Some(mode_e) => {
-                  ft := ast_expr_token(&callee);
+                  ft := ast_expr_token(&callee.*);
                   src_e := _bsm_arg(e, usize(0));
                   match(
                     _bsm_skip_ws(lines, usize(ft.row), usize(ft.column) + usize(4)),
@@ -2137,7 +2137,7 @@ _bsm_walk :: (
           true => ()
         );
       });
-      recur(&callee, child_asm, lines, out, claimed, counts);
+      recur(&callee.*, child_asm, lines, out, claimed, counts);
       (i : usize) = usize(0);
       while(i < args.len(), i = (i + usize(1)), {
         match(args.get(i), .Some(a) => recur(&a, child_asm, lines, out, claimed, counts), .None => ());
@@ -2155,12 +2155,12 @@ _bsm_unclaimed :: (fn(e : &AstExpr, in_asm : bool, claimed : &HashSet(String), o
       word := match(callee, .Atom(_, ct) => ct.value.*.clone(), _ => String.new());
       child_asm := (in_asm || (word == "asm"));
       if(!in_asm && _bsm_mode_sig(e).is_some(), {
-        ct := ast_expr_token(&callee);
+        ct := ast_expr_token(&callee.*);
         if(!claimed.contains(_bsm_key(&ct)), {
           out.push(`${(usize(ct.row) + usize(1)).to_string()}:${(usize(ct.column) + usize(1)).to_string()} ${ast_expr_to_string(e)}`);
         });
       });
-      recur(&callee, child_asm, claimed, out);
+      recur(&callee.*, child_asm, claimed, out);
       (i : usize) = usize(0);
       while(i < args.len(), i = (i + usize(1)), {
         match(args.get(i), .Some(a) => recur(&a, child_asm, claimed, out), .None => ());
@@ -2350,7 +2350,7 @@ _expr_span_end :: (fn(runes : &ArrayList(rune), col : usize, scan_from : usize, 
       });
       match(
         _parse_or_none(&cand, file.clone()),
-        .Some(asts) => if((asts.len() == usize(1)) && (ast_expr_to_string(&asts(usize(0))) == expect), {
+        .Some(asts) => if((asts.len() == usize(1)) && (ast_expr_to_string(&asts(usize(0))) == expect.*), {
           return(.Some(end));
         }),
         .None => ()
@@ -4257,7 +4257,7 @@ _mbl_declare :: (fn(w : &mut _MblWalk, name_e : &AstExpr, kind : u8) -> unit)(
   match(
     name_e,
     .Atom(_, t) => if((t.kind == TokenKind.Identifier) && (t.value.* != "_"), {
-      w.decls.push(_MblDecl(name : t.value.*.clone(), kind : kind, row : usize(t.row), col : usize(t.column), key : _mbl_key(w, &t), loop_depth : w.loop_depth, fn_depth : w.fn_depth));
+      w.decls.push(_MblDecl(name : t.value.*.clone(), kind : kind, row : usize(t.row), col : usize(t.column), key : _mbl_key(w, &t.*), loop_depth : w.loop_depth, fn_depth : w.fn_depth));
     }),
     .FnCall(_, _, _, _, _) => ()
   )
@@ -4267,7 +4267,7 @@ _mbl_lookup :: (fn(w : &mut _MblWalk, name : &String) -> Option(_MblDecl))({
   while(i > usize(0), {
     i = (i - usize(1));
     d := w.decls(i).clone();
-    if(d.name == name, {
+    if(d.name == name.*, {
       if((d.fn_depth == w.fn_depth) || (d.kind == _MBL_COMPTIME), {
         return(Option(_MblDecl).Some(d));
       });
@@ -4302,17 +4302,17 @@ _mbl_bind_pattern :: (fn(w : &mut _MblWalk, p : &AstExpr, kind : u8) -> unit)(
     }),
     .FnCall(_, pf, Rc(pargs), pinfix, _) => cond(
       ast_expr_is_fn_call_of(p, "mut", Option(usize).Some(usize(1))) => _mbl_declare(w, &_bsm_arg(p, usize(0)), _MBL_MARKED),
-      (pinfix && ast_expr_is_atom_of(&pf, ":=")) => {
+      (pinfix.* && ast_expr_is_atom_of(&pf.*, ":=")) => {
         _mbl_bind_target(w, &_bsm_arg(p, usize(0)), kind);
         recur(w, &_bsm_arg(p, usize(1)), kind);
       },
-      (pinfix && ast_expr_is_atom_of(&pf, "&&")) => recur(w, &_bsm_arg(p, usize(0)), kind),
-      (pinfix && ast_expr_is_atom_of(&pf, "||")) => {
+      (pinfix.* && ast_expr_is_atom_of(&pf.*, "&&")) => recur(w, &_bsm_arg(p, usize(0)), kind),
+      (pinfix.* && ast_expr_is_atom_of(&pf.*, "||")) => {
         recur(w, &_bsm_arg(p, usize(0)), kind);
         recur(w, &_bsm_arg(p, usize(1)), kind);
       },
-      (pinfix && ast_expr_is_atom_of(&pf, ":")) => recur(w, &_bsm_arg(p, usize(1)), kind),
-      pinfix => (),
+      (pinfix.* && ast_expr_is_atom_of(&pf.*, ":")) => recur(w, &_bsm_arg(p, usize(1)), kind),
+      pinfix.* => (),
       true => {
         (pi : usize) = usize(0);
         while(pi < pargs.len(), pi = (pi + usize(1)), {
@@ -4355,15 +4355,15 @@ _mbl_bind_param :: (fn(w : &mut _MblWalk, p : &AstExpr, typed : bool) -> unit)(
 _mbl_place_root :: (fn(e : &AstExpr, ms : &_MblMethods) -> Option(Tuple(Token, u8)))(
   match(
     e,
-    .Atom(_, t) => if(t.kind == TokenKind.Identifier, Option(Tuple(Token, u8)).Some((t, _MBL_S_NONE)), Option(Tuple(Token, u8)).None),
+    .Atom(_, t) => if(t.kind == TokenKind.Identifier, Option(Tuple(Token, u8)).Some((t.*, _MBL_S_NONE)), Option(Tuple(Token, u8)).None),
     .FnCall(_, pf, Rc(pargs), pinfix, _) => cond(
-      (pinfix && ast_expr_is_atom_of(&pf, ".") && (pargs.len() == usize(2))) => {
+      (pinfix.* && ast_expr_is_atom_of(&pf.*, ".") && (pargs.len() == usize(2))) => {
         step := if(ast_expr_is_atom_of(&_bsm_arg(e, usize(1)), "*"), _MBL_S_DEREF, _MBL_S_FIELD);
         match(recur(&_bsm_arg(e, usize(0)), ms), .Some((rt, rs)) => Option(Tuple(Token, u8)).Some((rt, if(rs == _MBL_S_NONE, step, rs))), .None => Option(Tuple(Token, u8)).None)
       },
-      pinfix => Option(Tuple(Token, u8)).None,
-      (_bsm_is_infix_of(&pf, ".") && _mbl_names_method(ms, &_bsm_arg(&pf, usize(1)))) => Option(Tuple(Token, u8)).None,
-      true => match(recur(&pf, ms), .Some((rt, rs)) => Option(Tuple(Token, u8)).Some((rt, if(rs == _MBL_S_NONE, _MBL_S_INDEX, rs))), .None => Option(Tuple(Token, u8)).None)
+      pinfix.* => Option(Tuple(Token, u8)).None,
+      (_bsm_is_infix_of(&pf.*, ".") && _mbl_names_method(ms, &_bsm_arg(&pf.*, usize(1)))) => Option(Tuple(Token, u8)).None,
+      true => match(recur(&pf.*, ms), .Some((rt, rs)) => Option(Tuple(Token, u8)).Some((rt, if(rs == _MBL_S_NONE, _MBL_S_INDEX, rs))), .None => Option(Tuple(Token, u8)).None)
     )
   )
 );
@@ -4502,8 +4502,8 @@ _mbl_walk :: (fn(w : &mut _MblWalk, c : &_MblCtx, e : &AstExpr, stmt : bool) -> 
         // Not code this run migrates: a `quote` template, a
         // `comptime_expect_error` case (its write may be the error it
         // expects; evaluation settles those), inline assembly, an import.
-        (!infix && ((word == "quote") || ((word == "comptime_expect_error") || ((word == "asm") || ((word == "global_asm") || ((word == "import") || (word == "extern"))))))) => (),
-        (!infix && (word == "begin")) => {
+        (!infix.* && ((word == "quote") || ((word == "comptime_expect_error") || ((word == "asm") || ((word == "global_asm") || ((word == "import") || (word == "extern"))))))) => (),
+        (!infix.* && (word == "begin")) => {
           _mbl_push_scope(w);
           (bi : usize) = usize(0);
           while(bi < args.len(), bi = (bi + usize(1)), {
@@ -4511,14 +4511,14 @@ _mbl_walk :: (fn(w : &mut _MblWalk, c : &_MblCtx, e : &AstExpr, stmt : bool) -> 
           });
           _mbl_pop_scope(w);
         },
-        (infix && (word == ":=") && (args.len() == usize(2))) => {
+        (infix.* && (word == ":=") && (args.len() == usize(2))) => {
           rhs := _bsm_arg(e, usize(1));
           kind := _mbl_walk_init(w, c, &rhs);
           if(_mbl_in_body(w), {
             _mbl_bind_target(w, &_bsm_arg(e, usize(0)), kind);
           });
         },
-        (infix && (word == "=") && (args.len() == usize(2))) => {
+        (infix.* && (word == "=") && (args.len() == usize(2))) => {
           lhs := _bsm_arg(e, usize(0));
           rhs := _bsm_arg(e, usize(1));
           if(_bsm_is_infix_of(&lhs, ":"), {
@@ -4533,13 +4533,13 @@ _mbl_walk :: (fn(w : &mut _MblWalk, c : &_MblCtx, e : &AstExpr, stmt : bool) -> 
             _mbl_walk_place_parts(w, c, &lhs);
           });
         },
-        (infix && (word == "::") && (args.len() == usize(2))) => {
+        (infix.* && (word == "::") && (args.len() == usize(2))) => {
           recur(w, c, &_bsm_arg(e, usize(1)), false);
           if(_mbl_in_body(w), {
             _mbl_bind_target(w, &_bsm_arg(e, usize(0)), _MBL_COMPTIME);
           });
         },
-        (infix && (word == ":") && (args.len() == usize(2))) => {
+        (infix.* && (word == ":") && (args.len() == usize(2))) => {
           // `(x : T);` in a block declares `x` without a value; elsewhere a
           // `:` is a label (an argument, a field, an `impl` member).
           if(stmt && _mbl_in_body(w), {
@@ -4548,9 +4548,9 @@ _mbl_walk :: (fn(w : &mut _MblWalk, c : &_MblCtx, e : &AstExpr, stmt : bool) -> 
             recur(w, c, &_bsm_arg(e, usize(1)), false);
           });
         },
-        (infix && (word == "=>") && (args.len() == usize(2))) => _mbl_walk_closure(w, c, e),
-        (!infix && (word == "match") && (args.len() > usize(0))) => _mbl_walk_match(w, c, &args),
-        (!infix && (word == "cond")) => {
+        (infix.* && (word == "=>") && (args.len() == usize(2))) => _mbl_walk_closure(w, c, e),
+        (!infix.* && (word == "match") && (args.len() > usize(0))) => _mbl_walk_match(w, c, &args.*),
+        (!infix.* && (word == "cond")) => {
           (ci : usize) = usize(0);
           while(ci < args.len(), ci = (ci + usize(1)), {
             arm := args(ci).clone();
@@ -4562,7 +4562,7 @@ _mbl_walk :: (fn(w : &mut _MblWalk, c : &_MblCtx, e : &AstExpr, stmt : bool) -> 
             });
           });
         },
-        (!infix && (word == "for") && (args.len() == usize(2)) && _bsm_is_infix_of(&_bsm_arg(e, usize(1)), "=>")) => {
+        (!infix.* && (word == "for") && (args.len() == usize(2)) && _bsm_is_infix_of(&_bsm_arg(e, usize(1)), "=>")) => {
           src := _bsm_arg(e, usize(0));
           recur(w, c, &src, false);
           kind := if(_mbl_is_borrow_type(&src), _MBL_BORROW, _MBL_PARAM);
@@ -4581,7 +4581,7 @@ _mbl_walk :: (fn(w : &mut _MblWalk, c : &_MblCtx, e : &AstExpr, stmt : bool) -> 
           w.loop_depth = (w.loop_depth - usize(1));
           _mbl_pop_scope(w);
         },
-        (!infix && (word == "while")) => {
+        (!infix.* && (word == "while")) => {
           w.loop_depth = (w.loop_depth + usize(1));
           (wi : usize) = usize(0);
           while(wi < args.len(), wi = (wi + usize(1)), {
@@ -4589,12 +4589,12 @@ _mbl_walk :: (fn(w : &mut _MblWalk, c : &_MblCtx, e : &AstExpr, stmt : bool) -> 
           });
           w.loop_depth = (w.loop_depth - usize(1));
         },
-        (!infix && (word == BK_BORROW_MUT) && (args.len() == usize(1))) => {
-          _mbl_write_place(w, c, &_bsm_arg(e, usize(0)), &etok, _MBL_W_LEND);
+        (!infix.* && (word == BK_BORROW_MUT) && (args.len() == usize(1))) => {
+          _mbl_write_place(w, c, &_bsm_arg(e, usize(0)), &etok.*, _MBL_W_LEND);
           recur(w, c, &_bsm_arg(e, usize(0)), false);
         },
-        (!infix && (args.len() > usize(0)) && _mbl_fn_head_params(&callee).is_some()) => {
-          params := match(_mbl_fn_head_params(&callee), .Some(ps) => ps, .None => ArrayList(AstExpr).new());
+        (!infix.* && (args.len() > usize(0)) && _mbl_fn_head_params(&callee.*).is_some()) => {
+          params := match(_mbl_fn_head_params(&callee.*), .Some(ps) => ps, .None => ArrayList(AstExpr).new());
           _mbl_push_scope(w);
           w.fn_depth = (w.fn_depth + usize(1));
           (pi : usize) = usize(0);
@@ -4611,13 +4611,13 @@ _mbl_walk :: (fn(w : &mut _MblWalk, c : &_MblCtx, e : &AstExpr, stmt : bool) -> 
         true => {
           // A method call `recv.m(...)` of a method declared `self : &mut`
           // lends its receiver exclusively.
-          if(!infix && _bsm_is_infix_of(&callee, "."), {
-            m := _bsm_arg(&callee, usize(1));
+          if(!infix.* && _bsm_is_infix_of(&callee.*, "."), {
+            m := _bsm_arg(&callee.*, usize(1));
             if(ast_expr_is_atom(&m), {
-              _mbl_method_call(w, c, &_bsm_arg(&callee, usize(0)), &ast_expr_token(&m).value.*);
+              _mbl_method_call(w, c, &_bsm_arg(&callee.*, usize(0)), &ast_expr_token(&m).value.*);
             });
           });
-          recur(w, c, &callee, false);
+          recur(w, c, &callee.*, false);
           (gi : usize) = usize(0);
           while(gi < args.len(), gi = (gi + usize(1)), {
             recur(w, c, &args(gi), false);
@@ -4659,10 +4659,10 @@ _mbl_walk_place_parts :: (fn(w : &mut _MblWalk, c : &_MblCtx, place : &AstExpr) 
     place,
     .Atom(_, _) => (),
     .FnCall(_, pf, Rc(pargs), pinfix, _) => cond(
-      (pinfix && ast_expr_is_atom_of(&pf, ".")) => recur(w, c, &_bsm_arg(place, usize(0))),
-      pinfix => _mbl_walk(w, c, place, false),
+      (pinfix.* && ast_expr_is_atom_of(&pf.*, ".")) => recur(w, c, &_bsm_arg(place, usize(0))),
+      pinfix.* => _mbl_walk(w, c, place, false),
       true => {
-        recur(w, c, &pf);
+        recur(w, c, &pf.*);
         (ki : usize) = usize(0);
         while(ki < pargs.len(), ki = (ki + usize(1)), {
           _mbl_walk(w, c, &pargs(ki), false);
@@ -4764,14 +4764,14 @@ _mbl_collect_methods :: (fn(e : &AstExpr, head : &String, out : &mut _MblMethods
     e,
     .Atom(_, _) => (),
     .FnCall(_, f, Rc(a), infix, _) => cond(
-      (!infix && ast_expr_is_atom_of(&f, "impl")) => {
-        h := _mbl_impl_head(&a);
+      (!infix.* && ast_expr_is_atom_of(&f.*, "impl")) => {
+        h := _mbl_impl_head(&a.*);
         (ii : usize) = usize(0);
         while(ii < a.len(), ii = (ii + usize(1)), {
           recur(&a(ii), &h, out);
         });
       },
-      (!infix && ast_expr_is_atom_of(&f, "trait")) => {
+      (!infix.* && ast_expr_is_atom_of(&f.*, "trait")) => {
         th := String.from("trait");
         (ti : usize) = usize(0);
         while(ti < a.len(), ti = (ti + usize(1)), {
@@ -4779,10 +4779,10 @@ _mbl_collect_methods :: (fn(e : &AstExpr, head : &String, out : &mut _MblMethods
         });
       },
       true => {
-        if(infix && ast_expr_is_atom_of(&f, ":") && (a.len() == usize(2)) && ast_expr_is_atom(&a(usize(0))), {
+        if(infix.* && ast_expr_is_atom_of(&f.*, ":") && (a.len() == usize(2)) && ast_expr_is_atom(&a(usize(0))), {
           _mbl_note_member(&ast_expr_token(&a(usize(0))).value.*, &a(usize(1)), head, out);
         });
-        recur(&f, head, out);
+        recur(&f.*, head, out);
         (i : usize) = usize(0);
         while(i < a.len(), i = (i + usize(1)), {
           recur(&a(i), head, out);
@@ -4862,7 +4862,7 @@ _mbl_note_member :: (fn(label : &String, value : &AstExpr, head : &String, out :
   });
   trait_head := String.from("trait");
   cond(
-    (trait_head == head) => if(is_mut, {
+    (trait_head == head.*) => if(is_mut, {
       out.trait_mut.insert(label.clone());
     }, {
       out.trait_other.insert(label.clone());
@@ -6071,7 +6071,7 @@ run_verify_cmd :: (
   (refuted_n : usize) = usize(0);
   for(&reports, rp => {
     // Same driver-side rule, now consulting `--deny` / `--strict`.
-    if(verify_report_is_failure(&rp, denied.clone()), {
+    if(verify_report_is_failure(&rp.*, denied.clone()), {
       bad = (bad + usize(1));
       if(rp.outcome == "refuted", {
         refuted_n = (refuted_n + usize(1));
@@ -6081,7 +6081,7 @@ run_verify_cmd :: (
   if(format_json, {
     fn_entries := ArrayList(JsonValue).new();
     for(&reports, rp => {
-      fn_entries.push(_verify_fn_report_json(&rp));
+      fn_entries.push(_verify_fn_report_json(&rp.*));
     });
     ks2 := ArrayList(String).new();
     ks2.push(String.from("solver"));
@@ -6113,7 +6113,7 @@ run_verify_cmd :: (
       `verify: target: ${target_path} (${files.len().to_string()} .yo file(s), mode ${mode_str})`
     );
     for(&reports, rp => {
-      _print_verify_fn_report(&rp, explain_fn.is_some());
+      _print_verify_fn_report(&rp.*, explain_fn.is_some());
     });
     if(reports.len() == usize(0), {
       println(
@@ -6231,7 +6231,7 @@ _verify_fn_report_json :: (fn(rp : &VerifyFnReport) -> JsonValue)({
   for(&rp.obligations, obl => {
     model := match(
       &obl.verdict,
-      .Refuted(ce) => _verify_json_strs(&ce),
+      .Refuted(ce) => _verify_json_strs(&ce.*),
       _ => JsonValue.Array(ArrayList(JsonValue).new())
     );
     verdict_str := match(
@@ -6311,11 +6311,11 @@ _verify_fn_report_json :: (fn(rp : &VerifyFnReport) -> JsonValue)({
 /// The self-test results as JSON (the V2 shape, kept verbatim).
 _verify_self_test_json :: (fn(results : &ArrayList(VerifyResult)) -> ArrayList(JsonValue))({
   entries := ArrayList(JsonValue).new();
-  for(&results, r => {
+  for(&results.*, r => {
     verdict_json := match(
       &r.verdict,
       .Proved(_) => JsonValue.Str(String.from("proved")),
-      .Refuted(ce) => _verify_json_strs(&ce),
+      .Refuted(ce) => _verify_json_strs(&ce.*),
       .Unproven(reason) => JsonValue.Str(`unproven: ${reason}`),
       .SolverError(msg) => JsonValue.Str(`solver-error: ${msg}`)
     );
@@ -6404,7 +6404,7 @@ _print_verify_fn_report :: (fn(rp : &VerifyFnReport, detailed : bool) -> unit)(
             .Refuted(ce) => if(
               ce.len() == usize(0),
               String.from("REFUTED"),
-              `REFUTED  counter-example: ${_verify_join_strs(&ce, String.from(", "))}`
+              `REFUTED  counter-example: ${_verify_join_strs(&ce.*, String.from(", "))}`
             ),
             .Unproven(reason) => `UNPROVEN  ${reason}`,
             .SolverError(msg) => `SOLVER-ERROR  ${msg}`
@@ -6475,7 +6475,7 @@ _opt_step :: (fn(attached : &Option(String)) -> usize)(
 _opt_value :: (
   fn(argv : &ArrayList(String), i : usize, flag : &String, attached : &Option(String), exn : Exception) -> String
 )(
-  match(&attached, .Some(v) => v.clone(), .None => _arg_val_req(argv, i, flag, exn))
+  match(attached, .Some(v) => v.clone(), .None => _arg_val_req(argv, i, flag, exn))
 );
 /// `--heap-size <n>[K|M|G]` (suffix case-insensitive) -> bytes, validated:
 /// 64 KiB minimum (the TLSF control block alone needs ~8 KiB), 4 GiB maximum
@@ -11900,13 +11900,13 @@ _effect_kinds_of_type :: (fn(t : &TypeValue, depth : usize) -> ArrayList(String)
         match(
           &fty,
           Rc(.Func({ meta : fmeta })) => {
-            if(fmeta.*.is_control, {
+            if(fmeta.*.*.is_control, {
               has_ctl = true;
             });
             // The prelude `Io` is the struct whose primitives are named
             // `async`/`await`/`spawn`; naming the type alone would also match
             // a user struct called Io.
-            if(((flabel == "async") || (flabel == "await")) && (name == "Io"), {
+            if(((flabel == "async") || (flabel == "await")) && (name.* == "Io"), {
               has_async = true;
             });
           },
@@ -11962,7 +11962,7 @@ _collect_future_effects :: (
 _push_unique :: (fn(xs : &mut ArrayList(String), x : &String) -> unit)({
   (i : usize) = usize(0);
   while(i < xs.len(), {
-    if(xs(i) == x, {
+    if(xs(i) == x.*, {
       return(());
     });
     i = (i + usize(1));

@@ -86,11 +86,11 @@ evaluate_comptime_expect_error :: (
       fargs.get(usize(0)),
       .Some(a) => a,
       .None => {
-        return(expr);
+        return(expr.*);
       }
     ),
     _ => {
-      return(expr);
+      return(expr.*);
     }
   );
   // Evaluate the argument (a CLONE, so a partial/aborted eval doesn't pollute
@@ -409,7 +409,7 @@ evaluate_comptime_expect_error :: (
       expr,
       .FnCall(_, _, Rc(fargs), _, _) => fargs.clone(),
       _ => {
-        return(expr);
+        return(expr.*);
       }
     );
     match(
@@ -446,13 +446,13 @@ evaluate_comptime_expect_error :: (
     out_unit := new_expr_info(env, t_unit());
     out_unit.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_unit);
-    return(expr);
+    return(expr.*);
   });
   if(mb_held > usize(0), {
     out_unit := new_expr_info(env, t_unit());
     out_unit.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_unit);
-    return(expr);
+    return(expr.*);
   });
   // No error was thrown — evaluate optional message argument for a better diagnostic.
   match(

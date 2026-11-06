@@ -372,7 +372,7 @@ lookup_recursive_type_ref :: (fn(some_id : &String) -> Option(RecursiveTypeRef))
     (found : Option(RecursiveTypeRef)) = Option(RecursiveTypeRef).None;
     (i : usize) = usize(0);
     while((i < xs.len()) && found.is_none(), {
-      if(xs(i).some_id == some_id, {
+      if(xs(i).some_id == some_id.*, {
         found = Option(RecursiveTypeRef).Some(xs(i).clone());
       });
       i = (i + usize(1));
@@ -390,7 +390,7 @@ _resolved_type_of :: (fn(v : &EvalValue) -> Option(TypeValue))(
       t := Rc.clone(tb);
       is_placeholder := match(
         &t,
-        Rc(.SomeT(id : sid2)) => match(lookup_recursive_type_ref(&sid2), .Some(_) => true, .None => false),
+        Rc(.SomeT(id : sid2)) => match(lookup_recursive_type_ref(&sid2.*), .Some(_) => true, .None => false),
         _ => false
       );
       cond(
@@ -582,7 +582,7 @@ resolve_recursive_type_ref :: (fn(some_ty : &TypeValue, ctx : &EvalContext) -> O
   // Strategy 2: ctx.self_type when it is a struct/object.
   match(
     &ctx.self_type,
-    .Some(st) => if(is_struct_type(&st), {
+    .Some(st) => if(is_struct_type(&st.*), {
       return(Option(TypeValue).Some(Rc.clone(st)));
     }),
     .None => ()
@@ -677,12 +677,12 @@ _restamp_instance_origins :: (fn(v : EvalValue, arg_vals : &ArrayList(EvalValue)
     &v,
     .TypeVal(Rc(.Struct({ id : sid, name : sname, field_labels : slabels, field_types : stypes, is_reference_semantics : sref, is_atomic_rc : satomic, is_newtype : snt, constructor_func_id : scfid, type_arguments : stas, is_source_namespace : sns }))) => if(
       stas.len() == arg_vals.len(),
-      EvalValue.TypeVal(Rc.new(TypeValueNode.Struct(sid.clone(), sname.clone(), Rc.clone(slabels), Rc.clone(stypes), sref, satomic, snt, scfid.clone(), _instance_type_args(arg_vals), sns))),
+      EvalValue.TypeVal(Rc.new(TypeValueNode.Struct(sid.clone(), sname.clone(), Rc.clone(slabels), Rc.clone(stypes), sref.*, satomic.*, snt.*, scfid.clone(), _instance_type_args(arg_vals), sns.*))),
       v
     ),
     .TypeVal(Rc(.EnumT(eid, enm, evns, evfs, esvn, evfl, edis, eirs, eiar, etas))) => if(
       etas.len() == arg_vals.len(),
-      EvalValue.TypeVal(Rc.new(TypeValueNode.EnumT(eid.clone(), enm.clone(), Rc.clone(evns), Rc.clone(evfs), esvn.clone(), Rc.clone(evfl), Rc.clone(edis), eirs, eiar, _instance_type_args(arg_vals)))),
+      EvalValue.TypeVal(Rc.new(TypeValueNode.EnumT(eid.clone(), enm.clone(), Rc.clone(evns), Rc.clone(evfs), esvn.clone(), Rc.clone(evfl), Rc.clone(edis), eirs.*, eiar.*, _instance_type_args(arg_vals)))),
       v
     ),
     _ => v
@@ -703,18 +703,18 @@ evaluate_comptime_fn_call :: (
   // Extract the return type from the function type.
   return_type := match(
     function_type,
-    Rc(.Func({ result : result_b })) => t_slot_pointee(&result_b),
+    Rc(.Func({ result : result_b })) => t_slot_pointee(&result_b.*),
     _ => t_unit()
   );
   // Extract func_id and body from the FuncVal.
   func_id_str := match(
     function_value,
-    .FuncVal(__fvd1, _) => __fvd1.*.func_id.clone(),
+    .FuncVal(__fvd1, _) => __fvd1.*.*.func_id.clone(),
     _ => String.from("")
   );
   body_box := match(
     function_value,
-    .FuncVal(__fvd2, _) => __fvd2.*.body,
+    .FuncVal(__fvd2, _) => __fvd2.*.*.body,
     _ => {
       // Inside a DEFINITION-time body trial, a non-FuncVal callee is a
       // dispatch product with no impl value yet (a where-constraint trait
@@ -742,7 +742,7 @@ evaluate_comptime_fn_call :: (
           format_error_message(
             match(
               function_callee_expr,
-              .Some(e) => ast_expr_token(&e),
+              .Some(e) => ast_expr_token(&e.*),
               .None => ast_expr_token(make_err_expr())
             ),
             String.from("evaluate_comptime_fn_call: function_value is not a FuncVal")
@@ -778,12 +778,12 @@ evaluate_comptime_fn_call :: (
   // exponential in nested operator chains (std/glob.yo never finished).
   ctfe_gate_result_is_comptime := match(
     function_type,
-    Rc(.Func({ meta : __fm1 })) => __fm1.*.result_is_comptime_only,
+    Rc(.Func({ meta : __fm1 })) => __fm1.*.*.result_is_comptime_only,
     _ => false
   );
   ctfe_gate_forall_n := match(
     function_type,
-    Rc(.Func({ meta : __fm2 })) => __fm2.*.forall_labels.len(),
+    Rc(.Func({ meta : __fm2 })) => __fm2.*.*.forall_labels.len(),
     _ => usize(0)
   );
   if(ctx.is_in_function_call_checking_phase && ctfe_gate_result_is_comptime &&
@@ -874,7 +874,7 @@ evaluate_comptime_fn_call :: (
         format_error_message(
           match(
             function_callee_expr,
-            .Some(e) => ast_expr_token(&e),
+            .Some(e) => ast_expr_token(&e.*),
             .None => ast_expr_token(make_err_expr())
           ),
           String.from("Failed to call the function for compile-time. Some arguments are not compile-time evaluated correctly.")
@@ -898,7 +898,7 @@ evaluate_comptime_fn_call :: (
     });
     dbge_callee := match(
       function_callee_expr,
-      .Some(fce) => ast_expr_to_string(&fce),
+      .Some(fce) => ast_expr_to_string(&fce.*),
       .None => String.from("<none>")
     );
     eprintln(`[ctfe-in] fid=${func_id_str} callee=${dbge_callee} args=${dbge_args}`);
@@ -1198,7 +1198,7 @@ evaluate_comptime_fn_call :: (
     FuncOrAsyncBlockCtx(
       kind : FuncOrAsyncBlockKind.FunctionBody,
       func_type : Option(TypeValue).Some(Rc.clone(function_type)),
-      func_value : Option(EvalValue).Some(function_value),
+      func_value : Option(EvalValue).Some(function_value.*),
       eval_env : snapshot_env(callee_env),
       ctfe_live : ctfe_live,
       ctfe_arm_depth : ctx.ctfe_untaken_arm_depth
@@ -1357,7 +1357,7 @@ evaluate_comptime_fn_call :: (
   // boxes its payload with `arc`, and `is_boxed_type` must recognise that box
   // (issues/fixed/a-send-dyn-shares-a-non-atomic-box-across-threads.md). It is
   // equally unambiguous: `atomic(ref(struct((*) : V)))`.
-  ctfe_fn_name := match(function_callee_expr, .Some(ce) => ast_expr_token(&ce).value.*.clone(), .None => String.from(""));
+  ctfe_fn_name := match(function_callee_expr, .Some(ce) => ast_expr_token(&ce.*).value.*.clone(), .None => String.from(""));
   // The unique `Box` (V1 step 2) is stamped too: `unique_box_payload_type`
   // (types/guards.yo) identifies it by this name plus its newtype shape, and
   // a prelude name cannot be shadowed, so a `Box` callee is always it.
@@ -1392,7 +1392,7 @@ evaluate_comptime_fn_call :: (
       ce,
       .Atom(_, ca_tok) => ca_tok.value.*.clone(),
       .FnCall(_, ce_fn, Rc(ce_args), ce_infix, _) => cond(
-        (ce_infix && (ce_args.len() == usize(2)) && ast_expr_is_atom_of(&ce_fn, ".")) => match(
+        (ce_infix.* && (ce_args.len() == usize(2)) && ast_expr_is_atom_of(&ce_fn.*, ".")) => match(
           ce_args.get(usize(1)),
           .Some(member) => match(member, .Atom(_, m_tok) => m_tok.value.*.clone(), .FnCall(_, _, _, _, _) => String.from("")),
           .None => String.from("")

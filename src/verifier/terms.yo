@@ -54,7 +54,7 @@ VcSort :: ref(
     Uninterpreted(name : String)
   )
 );
-impl(VcSort, Clone(clone : (fn(self : &Self) -> Self)(self)));
+impl(VcSort, Clone(clone : (fn(self : &Self) -> Self)(self.*)));
 derive(VcSort, Eq(VcSort));
 // A VcSort has no back edges. Its only children are `Self`
 // payloads (`SeqS`, `FunS`, `ArrS`), and it holds no list or cell. The
@@ -265,18 +265,18 @@ impl(
   VcQuery,
   /// Builder: push a declaration.
   declare : (fn(self : &Self, name : &String, sort : &VcSort) -> Self)({
-    self.declarations.push(VcDecl(name : name.clone(), sort : sort));
-    self
+    self.declarations.push(VcDecl(name : name.clone(), sort : sort.*));
+    self.*
   }),
   /// Builder: push an unnamed assumption.
   assume : (fn(self : &Self, term : &VcTerm) -> Self)({
     self.assumptions.push(VcAssumption(name : Option(String).None, term : Rc.clone(term)));
-    self
+    self.*
   }),
   /// Builder: push a named assumption (unsat-core attribution).
   assume_named : (fn(self : &Self, name : &String, term : &VcTerm) -> Self)({
     self.assumptions.push(VcAssumption(name : Option(String).Some(name.clone()), term : Rc.clone(term)));
-    self
+    self.*
   })
 );
 /// Construct an empty query with a diagnostic name.

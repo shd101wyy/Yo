@@ -53,16 +53,16 @@ _last_is_compile_time_only :: (fn(key : ExprId, env : &Environment, name : &Stri
 /// `lhs` itself. Its record resolves the place's base variable (scope-exit
 /// release, plans/backlog/CODEGEN_MEMORY_REDUCTION.md §6).
 _lhs_root_binder :: (fn(lhs : &AstExpr, name : &String, context : &FunctionGenerationContext) -> AstExpr)({
-  (mut(cur) : AstExpr) = lhs;
+  (mut(cur) : AstExpr) = lhs.*;
   while(true, {
-    binds := match(context.base.get_expr_info(&cur), .Some(ci) => match(&ci.variable_name(), .Some(vn) => (vn == name), .None => false), .None => false);
+    binds := match(context.base.get_expr_info(&cur), .Some(ci) => match(&ci.variable_name(), .Some(vn) => (vn.* == name.*), .None => false), .None => false);
     if(binds, {
       return(cur);
     });
     match(
       ast_rewritten_node(&cur),
       .Atom(_, _) => {
-        return(if(ast_expr_token(&cur).value.* == name, cur, lhs));
+        return(if(ast_expr_token(&cur).value.* == name.*, cur, lhs.*));
       },
       .FnCall(_, callee, Rc(args), _, _) => if(ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).None), {
         cur = match(args.get(usize(0)), .Some(a0) => a0, .None => callee);
@@ -71,7 +71,7 @@ _lhs_root_binder :: (fn(lhs : &AstExpr, name : &String, context : &FunctionGener
       })
     );
   });
-  lhs
+  lhs.*
 });
 /// Does evaluating the place `e` run a call? True for a by-name Index
 /// dispatch (every std collection's `index`/`index_mut`: the callee takes
@@ -225,12 +225,12 @@ generate_assignment :: (fn(expr : &AstExpr, indent : &String, context : &mut Fun
               save.push_str("; memcpy(&");
               save.push_string(temp_var_name.clone());
               save.push_str(", ");
-              save.push_string(&pp);
+              save.push_string(&pp.*);
               save.push_str(", sizeof(");
               save.push_string(temp_var_name.clone());
               save.push_str(")); // Save old value by bytes through the place pointer");
               deferred_save_line = Option(String).Some(save);
-              deferred_save_c_name = sanitize_for_c_identifier(&temp_var_name, false);
+              deferred_save_c_name = sanitize_for_c_identifier(&temp_var_name.*, false);
             },
             .None => {
               mut(save) := indent.clone();
@@ -258,7 +258,7 @@ generate_assignment :: (fn(expr : &AstExpr, indent : &String, context : &mut Fun
               // target is not in C scope, so every early-exit (`return`, `exn`
               // escape) release of an RC-bearing old value was silently dropped
               // (issues/fixed/2026-10-15-an-assignments-old-value-save-by-bytes-is-never-released.md).
-              saved_c_name := sanitize_for_c_identifier(&temp_var_name, false);
+              saved_c_name := sanitize_for_c_identifier(&temp_var_name.*, false);
               context.base.emitter.mark_declared_in_scope(&saved_c_name);
             }
           );
@@ -279,9 +279,9 @@ generate_assignment :: (fn(expr : &AstExpr, indent : &String, context : &mut Fun
               if(found_cv.is_none(), {
                 // First-match-by-name reading ENTRY fields — never derive
                 // emitted names from map keys (the PR #92 capture lesson).
-                for(&smv, (_k, cv) => {
-                  if(cv.base.name == temp_var_name, {
-                    found_cv = Option(CapturedVariable).Some(cv);
+                for(&smv.*, (_k, cv) => {
+                  if(cv.base.name == temp_var_name.*, {
+                    found_cv = Option(CapturedVariable).Some(cv.*);
                     break;
                   });
                 });
@@ -351,7 +351,7 @@ generate_assignment :: (fn(expr : &AstExpr, indent : &String, context : &mut Fun
       ftl.push_string(&rhs_code);
       context.base.emitter.emit_string_line(&ftl);
       context.current_assignment_save_temp = prev_save_temp;
-      return(match(&ei.variable_name(), .Some(v) => sanitize_for_c_identifier(&v, false), .None => String.from("")));
+      return(match(&ei.variable_name(), .Some(v) => sanitize_for_c_identifier(&v.*, false), .None => String.from("")));
     });
     // A side-effecting place is materialized ONCE here, AFTER the RHS: the
     // pointer temp is the place's single evaluation, and the save and the
@@ -403,7 +403,7 @@ generate_assignment :: (fn(expr : &AstExpr, indent : &String, context : &mut Fun
       ftl.push_string(&rhs_code);
       context.base.emitter.emit_string_line(&ftl);
       context.current_assignment_save_temp = prev_save_temp;
-      return(match(&ei.variable_name(), .Some(v) => sanitize_for_c_identifier(&v, false), .None => String.from("")));
+      return(match(&ei.variable_name(), .Some(v) => sanitize_for_c_identifier(&v.*, false), .None => String.from("")));
     });
     // A side-effecting place is materialized ONCE here, AFTER the RHS: the
     // pointer temp is the place's single evaluation, and the save and the
@@ -465,6 +465,6 @@ generate_assignment :: (fn(expr : &AstExpr, indent : &String, context : &mut Fun
     }),
     .None => ()
   );
-  match(&ei.variable_name(), .Some(v) => sanitize_for_c_identifier(&v, false), .None => String.from(""))
+  match(&ei.variable_name(), .Some(v) => sanitize_for_c_identifier(&v.*, false), .None => String.from(""))
 });
 export(generate_assignment);

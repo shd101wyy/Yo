@@ -194,7 +194,7 @@ _emit_erm_unit_resume_tail :: (fn(function_type : &TypeValue, indent : &String, 
   if(!context.is_effect_record_member_function, {
     return(());
   });
-  ret_c := match(function_type, Rc(.Func({ result : erm_r })) => get_type_string(&t_slot_pointee(&erm_r), &mut context.base), _ => String.from("void"));
+  ret_c := match(function_type, Rc(.Func({ result : erm_r })) => get_type_string(&t_slot_pointee(&erm_r.*), &mut context.base), _ => String.from("void"));
   if(ret_c.ends_with("*"), {
     erm_line := `${indent.clone()}return (${ret_c.clone()}){0};  // implicit unit resume (ctl handler fall-through)`;
     context.base.emitter.emit_string_line(&erm_line);
@@ -211,7 +211,7 @@ generate_function_body :: (fn(body_expr : &AstExpr, function_type : &TypeValue, 
   // signature while `is_unit_type(SomeT)=false` sent the body down the
   // value-returning tail path — "void function should not return a value"
   // (the async_await/worker void-closure class).
-  result_is_unit := match(function_type, Rc(.Func({ result : r })) => is_unit_type(resolve_some_type_to_concrete(t_slot_pointee(&r))), _ => true);
+  result_is_unit := match(function_type, Rc(.Func({ result : r })) => is_unit_type(resolve_some_type_to_concrete(t_slot_pointee(&r.*))), _ => true);
   if(ast_expr_is_fn_call_of(body_expr, BK_BEGIN, Option(usize).None), {
     match(
       context.base.get_expr_info(body_expr),
@@ -349,7 +349,7 @@ generate_function_body :: (fn(body_expr : &AstExpr, function_type : &TypeValue, 
                     .Some(lvn) => {
                       raw_code := _call_generate_expr(&last_expr, indent.clone(), context);
                       tail_tmp := get_variable_name_for_codegen_at(ast_expr_id(&last_expr), lvn.clone(), Option(Environment).Some(lei.env()));
-                      ret_ty_dup := match(function_type, Rc(.Func({ result : r0 })) => t_slot_pointee(&r0), _ => t_unit());
+                      ret_ty_dup := match(function_type, Rc(.Func({ result : r0 })) => t_slot_pointee(&r0.*), _ => t_unit());
                       tail_self := is_self_named_atom(&last_expr, lvn.clone());
                       tail_value = Option(String).Some(if(tail_self, raw_code.clone(), tail_tmp.clone()));
                       if(!tail_self && !(tail_tmp == raw_code), {
@@ -420,7 +420,7 @@ generate_function_body :: (fn(body_expr : &AstExpr, function_type : &TypeValue, 
             // local the result expression reads (e.g. `i32(xs.len())` after `xs`
             // is dropped → reads freed memory).
             // Only when there are drops + a non-unit return; else `return <expr>`.
-            ret_ty_opt := match(function_type, Rc(.Func({ result : r })) => Option(TypeValue).Some(t_slot_pointee(&r)), _ => Option(TypeValue).None);
+            ret_ty_opt := match(function_type, Rc(.Func({ result : r })) => Option(TypeValue).Some(t_slot_pointee(&r.*)), _ => Option(TypeValue).None);
             // DEGRADED tail return when the tail expression itself failed to
             // transpile (its ExprInfo was dropped by an eval throw inside
             // this definition — e.g. a comptime_expect_error that did not
@@ -631,7 +631,7 @@ _maybe_emit_method_entry_borrow_assert :: (fn(function_type : &TypeValue, func_i
   // skip above makes.
   match(
     function_type,
-    Rc(.Func({ result : sk_r })) => if(t_slot_is_mut_ref(&sk_r), {
+    Rc(.Func({ result : sk_r })) => if(t_slot_is_mut_ref(&sk_r.*), {
       return(());
     }),
     _ => ()
@@ -639,14 +639,14 @@ _maybe_emit_method_entry_borrow_assert :: (fn(function_type : &TypeValue, func_i
   match(
     function_type,
     Rc(.Func({ param_types : pts, result : r, meta : __fm })) => {
-      if(__fm.*.param_labels.len() == usize(0), return(()));
-      if(type_implements_future(&t_slot_pointee(&r)), return(()));
+      if(__fm.*.*.param_labels.len() == usize(0), return(()));
+      if(type_implements_future(&t_slot_pointee(&r.*)), return(()));
       // Any RC-object parameter at all? (Cheap pre-check before the analysis.)
       (has_object_param : bool) = false;
       (pi : usize) = usize(0);
       while(pi < pts.len(), {
         match(
-          slot_pointee_at(&pts, pi),
+          slot_pointee_at(&pts.*, pi),
           .Some(t) => if(is_counted_handle_type(&t) && !carries_no_borrow_marks(&t), {
             has_object_param = true;
           }),
@@ -668,9 +668,9 @@ _maybe_emit_method_entry_borrow_assert :: (fn(function_type : &TypeValue, func_i
       });
       (i : usize) = usize(0);
       while(i < pts.len(), {
-        pt := match(slot_pointee_at(&pts, i), .Some(t) => t, .None => t_unit());
+        pt := match(slot_pointee_at(&pts.*, i), .Some(t) => t, .None => t_unit());
         is_object := (is_counted_handle_type(&pt) && !carries_no_borrow_marks(&pt));
-        label := match(__fm.*.param_labels.get_cloned(i), .Some(l) => l, .None => String.new());
+        label := match(__fm.*.*.param_labels.get_cloned(i), .Some(l) => l, .None => String.new());
         if(is_object && (label.len() > usize(0)) && param_mutation_mask_hits(&mask, i), {
           // An `inout` receiver/parameter is passed as `T** name` (a pointer to
           // the caller's handle slot); the object the flag lives on is `*name`.
@@ -717,8 +717,8 @@ generate_function :: (fn(function_value : &EvalValue, c_function_name : &String,
   match(
     function_value,
     .FuncVal(__fvm6, _) => {
-      body_box := __fvm6.*.body;
-      func_id := __fvm6.*.func_id.clone();
+      body_box := __fvm6.*.*.body;
+      func_id := __fvm6.*.*.func_id.clone();
       function_type := get_func_type(func_id.clone());
       // YO_AUDIT_RC_WRITE: decision 46's census of writes through a cell.
       if(rc_write_audit_enabled(), {
@@ -764,7 +764,7 @@ generate_function :: (fn(function_value : &EvalValue, c_function_name : &String,
       decl_body := if(is_effect_record_member(func_id.clone()), Option(AstExpr).None, Option(AstExpr).Some(body_box));
       async_override := _return_type_override(&function_type, &decl_body, &mut context.base);
       prototype := generate_function_prototype(&function_type, c_function_name.clone(), &mut context.base, &async_override, is_closure_fn(func_id.clone()));
-      is_exported := ((c_function_name == "__yo_user_main") || context.base.exported_function_labels.contains_key(func_id.clone()));
+      is_exported := ((c_function_name.* == "__yo_user_main") || context.base.exported_function_labels.contains_key(func_id.clone()));
       // Non-exported functions are `static inline` and exported ones carry no
       // linkage prefix. A third arm used to give "RC helpers" `always_inline`,
       // keyed on the C name CONTAINING `___drop` / `___dup` / `___dispose`.
@@ -874,7 +874,7 @@ generate_function :: (fn(function_value : &EvalValue, c_function_name : &String,
       match(
         &function_type,
         Rc(.Func({ param_types : _pt, meta : _pm })) => {
-          _pls := Rc.clone(_pm.*.param_labels);
+          _pls := Rc.clone(_pm.*.*.param_labels);
           _pn := _pt.len();
           (_pi : usize) = usize(0);
           while(_pi < _pn, {
@@ -1019,7 +1019,7 @@ generate_function :: (fn(function_value : &EvalValue, c_function_name : &String,
       // of returning whatever was in the return register. Measured: 6 such
       // functions in the tests/ batch corpus today.
       // See issues/fixed/ftt-stub-in-live-closure-falls-off-non-void-function.md.
-      if(stub_found_ftt && (c_function_name == "__yo_user_main"), {
+      if(stub_found_ftt && (c_function_name.* == "__yo_user_main"), {
         codegen_fatal(
           `Failed to transpile part of main's body — the emitted C for "${c_function_name}" contains an untranspiled expression, so the program would run without it`
         );

@@ -830,7 +830,7 @@ expr_info_set_macro_expansion :: (fn(info : &ExprInfo, v : &Option(AstExpr)) -> 
     return(());
   });
   mut(r) := _expr_info_rare_take(info);
-  r.macro_expansion = v;
+  r.macro_expansion = v.*;
   _expr_info_rare_put(info, r);
   ()
 });
@@ -850,7 +850,7 @@ expr_info_set_original_expr :: (fn(info : &ExprInfo, v : &Option(AstExpr)) -> un
     return(());
   });
   mut(r) := _expr_info_rare_take(info);
-  r.original_expr = v;
+  r.original_expr = v.*;
   _expr_info_rare_put(info, r);
   ()
 });
@@ -930,7 +930,7 @@ expr_info_set_index_method_value :: (fn(info : &ExprInfo, v : &Option(EvalValue)
     return(());
   });
   mut(r) := _expr_info_rare_take(info);
-  r.index_method_value = v;
+  r.index_method_value = v.*;
   _expr_info_rare_put(info, r);
   ()
 });
@@ -1218,7 +1218,7 @@ expr_info_async_stack_size :: (fn(info : &ExprInfo) -> Option(AstExpr))(
 );
 expr_info_set_async_stack_size :: (fn(info : &ExprInfo, v : &Option(AstExpr)) -> unit)({
   mut(r) := _expr_info_rare_take(info);
-  r.async_stack_size = v;
+  r.async_stack_size = v.*;
   _expr_info_rare_put(info, r);
 });
 _vh_expr_info_async_state_machine_struct_name :: (fn(d : &ExprInfoData) -> Option(String))(
@@ -1252,7 +1252,7 @@ expr_info_set_await_analysis :: (
   fn(info : &ExprInfo, v : &Option(AwaitAnalysisResult)) -> unit
 )({
   mut(r) := _expr_info_rare_take(info);
-  r.await_analysis = v;
+  r.await_analysis = v.*;
   _expr_info_rare_put(info, r);
 });
 _vh_expr_info_effect_analysis :: (fn(d : &ExprInfoData) -> Option(EffectAnalysisResult))(
@@ -1269,7 +1269,7 @@ expr_info_set_effect_analysis :: (
   fn(info : &ExprInfo, v : &Option(EffectAnalysisResult)) -> unit
 )({
   mut(r) := _expr_info_rare_take(info);
-  r.effect_analysis = v;
+  r.effect_analysis = v.*;
   _expr_info_rare_put(info, r);
 });
 _vh_expr_info_closure_function_value :: (fn(d : &ExprInfoData) -> Option(EvalValue))(
@@ -1286,7 +1286,7 @@ expr_info_set_closure_function_value :: (
   fn(info : &ExprInfo, v : &Option(EvalValue)) -> unit
 )({
   mut(r) := _expr_info_rare_take(info);
-  r.closure_function_value = v;
+  r.closure_function_value = v.*;
   _expr_info_rare_put(info, r);
 });
 // ---------------------------------------------------------------------------
@@ -1537,12 +1537,12 @@ _scope_type_installs :: (fn(t : &TypeValue) -> bool)(
   match(
     t,
     Rc(.Func({ param_types : pts, meta : m })) => {
-      if(m.*.is_control, {
+      if(m.*.*.is_control, {
         return(true);
       });
       (i : usize) = usize(0);
       while(i < pts.len(), {
-        pt := slot_pointee_at(&pts, i).unwrap();
+        pt := slot_pointee_at(&pts.*, i).unwrap();
         if(is_function_type(&pt) || type_is_control_bound(&pt), {
           return(true);
         });
@@ -1558,7 +1558,7 @@ _scope_value_installs :: (fn(v : &Option(EvalValue)) -> bool)(
     v,
     .Some(fv) => match(
       fv,
-      .FuncVal(d, _) => (is_control_fn(&d.*.func_id) || is_effect_record_member(&d.*.func_id) || _scope_type_installs(get_func_type(&d.*.func_id))),
+      .FuncVal(d, _) => (is_control_fn(&d.*.*.func_id) || is_effect_record_member(&d.*.*.func_id) || _scope_type_installs(get_func_type(&d.*.*.func_id))),
       _ => false
     ),
     .None => false
@@ -1740,7 +1740,7 @@ _scope_record_answer :: (fn(key : ExprId, husk : &Environment, name : &String) -
     info_opt,
     .Some(info) => match(
       info.source_variable(),
-      .Some(sv) => if(sv.name == name, {
+      .Some(sv) => if(sv.name == name.*, {
         return(
           match(
             g_scope_atom_exc.with(m => m.get_cloned(&key)),
@@ -1763,7 +1763,7 @@ _scope_record_answer :: (fn(key : ExprId, husk : &Environment, name : &String) -
       (ri : usize) = usize(0);
       while(ri < recs.len(), {
         rec := recs.get_cloned(ri).unwrap();
-        if(rec.name == name, {
+        if(rec.name == name.*, {
           g_scope_path = usize(3);
           return(rec.vars.clone());
         });
@@ -1776,7 +1776,7 @@ _scope_record_answer :: (fn(key : ExprId, husk : &Environment, name : &String) -
   base := match(g_scope_klen.with({ &key }(m) => m.get(key)), .Some(k) => get_variables_from_env_before(husk, k, name), .None => get_variables_from_env(husk, name));
   match(
     g_scope_one.with(m => m.get_cloned(&key)),
-    .Some(v) => if((v.name == name) && !_scope_has_id(&base, v.id()), {
+    .Some(v) => if((v.name == name.*) && !_scope_has_id(&base, v.id()), {
       g_scope_path = usize(3);
       base.push(v);
     }),
@@ -1788,7 +1788,7 @@ _scope_record_answer :: (fn(key : ExprId, husk : &Environment, name : &String) -
       (vi : usize) = usize(0);
       while(vi < vs.len(), {
         v := vs.get_cloned(vi).unwrap();
-        if((v.name == name) && !_scope_has_id(&base, v.id()), {
+        if((v.name == name.*) && !_scope_has_id(&base, v.id()), {
           g_scope_path = usize(3);
           base.push(v);
         });
@@ -2096,7 +2096,7 @@ lookup_io_builtin_call :: (fn(call_id : ExprId) -> Option(String))(
 (g_immediate_old_value_drops : RefCell(HashMap(ExprId, AstExpr))) = RefCell(HashMap(ExprId, AstExpr)).new(HashMap(ExprId, AstExpr).new());
 record_immediate_old_value_drop :: (fn(assign_id : ExprId, drop_expr : &AstExpr) -> unit)({
   record_owned_expr_id(assign_id);
-  g_immediate_old_value_drops.with_mut(m => m.insert(assign_id, drop_expr));
+  g_immediate_old_value_drops.with_mut(m => m.insert(assign_id, drop_expr.*));
   ()
 });
 lookup_immediate_old_value_drop :: (fn(assign_id : ExprId) -> Option(AstExpr))(
@@ -2173,7 +2173,7 @@ is_consume_release :: (fn(consume_id : ExprId) -> bool)(
 /// Record the resolved/specialized method FuncVal for a method-call expr id.
 record_method_callee_value :: (fn(call_id : ExprId, v : &EvalValue) -> unit)({
   record_owned_expr_id(call_id);
-  g_method_callee_values.with_mut(m => m.insert(call_id, v));
+  g_method_callee_values.with_mut(m => m.insert(call_id, v.*));
   ()
 });
 /// Look up the resolved/specialized method FuncVal for a method-call expr id.
@@ -2519,7 +2519,7 @@ record_flow_event :: (
   ) -> unit
 )({
   idx := g_branch_init_log.with(_c_len_5);
-  g_branch_init_log.with_mut({ after_consumed, after_init, before_consumed, before_init, capture : capture.clone(), kind, token, ty : Rc.clone(ty), var_id }(xs) => xs.push(
+  g_branch_init_log.with_mut({ after_consumed : after_consumed.*, after_init : after_init.*, before_consumed : before_consumed.*, before_init : before_init.*, capture : capture.clone(), kind, token : token.*, ty : Rc.clone(ty), var_id }(xs) => xs.push(
     BranchInitRecord(
       var_id : var_id,
       ty : Rc.clone(ty),
@@ -2549,13 +2549,13 @@ record_branch_init :: (
     token.clone(),
     before_init,
     before_consumed,
-    match(before_init, .Some(bi) => Option(Token).Some(bi), .None => Option(Token).Some(token)),
+    match(before_init, .Some(bi) => Option(Token).Some(bi.*), .None => Option(Token).Some(token.*)),
     Option(Token).None
   )
 );
 /// A move of a user-named variable.
 record_branch_consume :: (fn(var_id : usize, token : &Token, before_init : &Option(Token), before_consumed : &Option(Token)) -> unit)(
-  record_flow_event(var_id, Rc.new(TypeValueNode.Unit), Option(TypeValue).None, FlowEventKind.Consume, token.clone(), before_init.clone(), before_consumed, before_init, Option(Token).Some(token))
+  record_flow_event(var_id, Rc.new(TypeValueNode.Unit), Option(TypeValue).None, FlowEventKind.Consume, token.clone(), before_init.clone(), before_consumed, before_init, Option(Token).Some(token.*))
 );
 branch_init_log_len :: (fn() -> usize)(g_branch_init_log.with(_vh_branch_init_log_len));
 get_branch_init_record :: (fn(i : usize) -> Option(BranchInitRecord))(g_branch_init_log.with(xs => xs.get_cloned(i)));
@@ -2862,7 +2862,7 @@ struct_effective_ctor_fid :: (fn(ty : &TypeValue) -> String)(
     ty,
     Rc(.Struct({ id : ec_sid, constructor_func_id : ec_cfid })) => cond(
       (ec_cfid.len() > usize(0)) => ec_cfid.clone(),
-      true => match(lookup_struct_ctor_fid(&ec_sid), .Some(rec) => rec, .None => String.new())
+      true => match(lookup_struct_ctor_fid(&ec_sid.*), .Some(rec) => rec, .None => String.new())
     ),
     _ => String.new()
   )
@@ -3060,7 +3060,7 @@ record_spec_instantiation :: (fn(spec_fid : &String, call_token : &Token, descri
     description_owned := description.clone();
     // `call_token` is a `ref` handle, cheap to capture; the rest are owned
     // (`with_mut`'s callback is a sink parameter).
-    g_spec_instantiations.with_mut({ spec_fid_owned, description_owned, call_token }(m) => m.insert(spec_fid_owned.clone(), SpecInstantiation(call_token : call_token, description : description_owned)));
+    g_spec_instantiations.with_mut({ spec_fid_owned, description_owned, call_token : call_token.* }(m) => m.insert(spec_fid_owned.clone(), SpecInstantiation(call_token : call_token, description : description_owned)));
   });
   ()
 });
@@ -3069,7 +3069,7 @@ lookup_spec_instantiation :: (fn(spec_fid : &String) -> Option(SpecInstantiation
 /// Record the expanded form for a macro-call expr id.
 record_macro_expansion :: (fn(call_id : ExprId, expanded : &AstExpr) -> unit)({
   record_owned_expr_id(call_id);
-  g_macro_expansions.with_mut(m => m.insert(call_id, expanded));
+  g_macro_expansions.with_mut(m => m.insert(call_id, expanded.*));
   ()
 });
 /// Look up the expanded form for a macro-call expr id, if recorded.
@@ -3093,7 +3093,7 @@ record_module_level_init_expr :: (fn(e : &AstExpr) -> unit)({
   already := match(g_module_level_init_seen.with(m => m.get(&eid)), .Some(_) => true, .None => false);
   if(!already, {
     g_module_level_init_seen.with_mut(m => m.insert(eid, true));
-    g_module_level_init_exprs.with_mut(xs => xs.push(e));
+    g_module_level_init_exprs.with_mut(xs => xs.push(e.*));
   });
   ()
 });
@@ -3510,7 +3510,7 @@ purge_executed_clone_metadata :: (fn(table : &ExprInfoTable, root : &AstExpr, lo
   match(
     root,
     .FnCall(_, callee, Rc(args), _, _) => {
-      purge_executed_clone_metadata(table, &callee, lo, hi);
+      purge_executed_clone_metadata(table, &callee.*, lo, hi);
       (ai : usize) = usize(0);
       while(ai < args.len(), {
         match(args.get(ai), .Some(a) => purge_executed_clone_metadata(table, &a, lo, hi), .None => ());
@@ -3614,7 +3614,7 @@ record_addr_of_site :: (fn(amp_tok : &Token, expect : &String, lent : bool) -> u
   expect_owned := expect.clone();
   // Owned captures (`with_mut`'s callback is a sink parameter); `lent` is
   // Copy, `amp_tok` is a `ref` handle.
-  g_addr_of_sites.with_mut({ expect_owned, lent, amp_tok }(xs) => xs.push(AddrOfSite(path : amp_tok.module_path.*.clone(), row : usize(amp_tok.row), col : usize(amp_tok.column), expect : expect_owned.clone(), lent : lent)));
+  g_addr_of_sites.with_mut({ expect_owned, lent, amp_tok : amp_tok.* }(xs) => xs.push(AddrOfSite(path : amp_tok.module_path.*.clone(), row : usize(amp_tok.row), col : usize(amp_tok.column), expect : expect_owned.clone(), lent : lent)));
 });
 take_addr_of_sites :: (fn() -> ArrayList(AddrOfSite))({
   out := g_addr_of_sites.with_mut(xs => xs.split_off(usize(0)));

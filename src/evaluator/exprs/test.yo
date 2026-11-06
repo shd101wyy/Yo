@@ -140,7 +140,7 @@ _trial_eval_test_body :: (
             message := match(trial_err, .Some(te) => render_any_error(&te), .None => String.from("the trial evaluation failed"));
             first_line := match(message.split("\n").get_cloned(usize(0)), .Some(l) => l.trim(), .None => String.new());
             name_own := test_name.clone();
-            g_skipped_test_bodies.with_mut({ name_own, first_line, test_tok }(xs) => xs.push(SkippedTestBody(test_tok : test_tok.clone(), name : name_own, error : first_line.clone())));
+            g_skipped_test_bodies.with_mut({ name_own, first_line, test_tok : test_tok.* }(xs) => xs.push(SkippedTestBody(test_tok : test_tok.clone(), name : name_own, error : first_line.clone())));
           });
           return(());
         }
@@ -152,7 +152,7 @@ _trial_eval_test_body :: (
     body_info_opt,
     .Some(body_info) => {
       if(is_unit_type(&body_info.ty()), {
-        expr_info_set_original_expr(&body_info, Option(AstExpr).Some(original_body));
+        expr_info_set_original_expr(&body_info, Option(AstExpr).Some(original_body.*));
         expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&evaluated), &body_info);
       });
     },
@@ -350,7 +350,7 @@ evaluate_test :: (
   result_info := new_expr_info(&env, t_unit());
   result_info.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &result_info);
-  expr
+  expr.*
 });
 export(evaluate_test);
 export(set_strict_test_bodies, strict_test_bodies);

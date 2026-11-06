@@ -34,7 +34,7 @@ _name_in_visited :: (fn(visited : &ArrayList(String), name : &String) -> bool)({
   while(i < visited.len(), {
     elem := match(visited.get_cloned(i), .Some(s) => s, .None => String.from(""));
     cond(
-      (elem == name) => {
+      (elem == name.*) => {
         result = true;
       },
       true => ()
@@ -166,13 +166,13 @@ _universe_of :: (fn(ty : &TypeValue, visited : &ArrayList(String)) -> TypeValue)
     Rc(.CULongLong) => Rc.new(TypeValueNode.TypeUni(usize(0))),
     Rc(.CLongDouble) => Rc.new(TypeValueNode.TypeUni(usize(0))),
     // Type universes: TypeUni(n) → TypeUni(n+1) -----------------------------
-    Rc(.TypeUni(lvl)) => Rc.new(TypeValueNode.TypeUni(lvl + usize(1))),
+    Rc(.TypeUni(lvl)) => Rc.new(TypeValueNode.TypeUni(lvl.* + usize(1))),
     // Pointer: raw pointers are level-0 types --------------------------------
     Rc(.Pointer(_)) => Rc.new(TypeValueNode.TypeUni(usize(0))),
     // Array: recurse into element type --------------------------------------
     Rc(.Array(elem_box, _, _)) => match(
       g_type_of_type_visited_fn,
-      .Some(f) => f(&elem_box, visited),
+      .Some(f) => f(&elem_box.*, visited),
       .None => Rc.new(TypeValueNode.TypeUni(usize(0)))
     ),
     // Tuple: check all field types ------------------------------------------
@@ -185,8 +185,8 @@ _universe_of :: (fn(ty : &TypeValue, visited : &ArrayList(String)) -> TypeValue)
     // itself is a comptime entity).
     Rc(.Struct({ id : sid, name : sname, field_types : ftypes, is_source_namespace : s_sns })) =>
       cond(
-        s_sns => Rc.new(TypeValueNode.TypeUni(usize(1))),
-        _name_in_visited(visited, &sname) => {
+        s_sns.* => Rc.new(TypeValueNode.TypeUni(usize(1))),
+        _name_in_visited(visited, &sname.*) => {
           g_universe_guard_fired = true;
           Rc.new(TypeValueNode.TypeUni(usize(0)))
         },
@@ -202,7 +202,7 @@ _universe_of :: (fn(ty : &TypeValue, visited : &ArrayList(String)) -> TypeValue)
     // EnumT: flatten all variant field types, then check the universe ------
     Rc(.EnumT(eid, ename, _, variant_fields, _, _, _, _, _, _)) =>
       cond(
-        _name_in_visited(visited, &ename) => {
+        _name_in_visited(visited, &ename.*) => {
           g_universe_guard_fired = true;
           Rc.new(TypeValueNode.TypeUni(usize(0)))
         },
@@ -234,7 +234,7 @@ _universe_of :: (fn(ty : &TypeValue, visited : &ArrayList(String)) -> TypeValue)
     // define same-named unions, so unions are not memoized.
     Rc(.Union(uname, _, ftypes)) =>
       cond(
-        _name_in_visited(visited, &uname) => {
+        _name_in_visited(visited, &uname.*) => {
           g_universe_guard_fired = true;
           Rc.new(TypeValueNode.TypeUni(usize(0)))
         },

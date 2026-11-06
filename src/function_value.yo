@@ -223,7 +223,7 @@ find_closure_fid_by_capture_struct_id :: (fn(struct_id : &String) -> Option(Stri
         g_closure_capture_info.with({ &fid }(m) => m.get_cloned(fid.clone())),
         .Some(ci) => match(
           &ci.capture_type,
-          Rc(.Struct({ id : csid })) => if(csid == struct_id, {
+          Rc(.Struct({ id : csid })) => if(csid.* == struct_id.*, {
             out = Option(String).Some(fid.clone());
             go = false;
           }),

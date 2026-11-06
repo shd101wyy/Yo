@@ -150,11 +150,11 @@ _collect_place_names :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, out :
     .Bind(name, _, _) => if(!in_cell, out.push(name.clone())),
     .At(name, _, _, Box(sub)) => {
       if(!in_cell, out.push(name.clone()));
-      recur(&sub, ty, in_cell, out);
+      recur(&sub.*, ty, in_cell, out);
     },
     .Variant(_, vidx, field_idx, subs, enum_ty, through_ptr, _) => {
-      cell := (in_cell || through_ptr || pattern_position_is_cell(ty));
-      ftys := match(resolve_enum_shell(&enum_ty), Rc(.EnumT({ variant_fields : vfs })) => match(vfs.get(vidx), .Some(f) => f, .None => no_types()), _ => no_types());
+      cell := (in_cell || through_ptr.* || pattern_position_is_cell(ty));
+      ftys := match(resolve_enum_shell(&enum_ty.*), Rc(.EnumT({ variant_fields : vfs })) => match(vfs.get(vidx.*), .Some(f) => f, .None => no_types()), _ => no_types());
       (mut(i) : usize) = usize(0);
       while(i < subs.len(), {
         fi := match(field_idx.get(i), .Some(k) => k, .None => usize(0));
@@ -164,7 +164,7 @@ _collect_place_names :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, out :
       });
     },
     .Or(alts) => if(alts.len() > usize(0), recur(&alts(usize(0)), ty, in_cell, out)),
-    .ThroughBox(_, inner_ty, Box(sub)) => recur(&sub, &inner_ty, true, out),
+    .ThroughBox(_, inner_ty, Box(sub)) => recur(&sub.*, &inner_ty.*, true, out),
     .Tuple(subs, elem_tys) => {
       cell := (in_cell || is_pointer_type(ty));
       (mut(i) : usize) = usize(0);
@@ -176,7 +176,7 @@ _collect_place_names :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, out :
     },
     .Struct(struct_ty, field_idx, subs, _) => {
       cell := (in_cell || pattern_position_is_cell(ty));
-      ftys := _struct_pattern_field_tys(&struct_ty);
+      ftys := _struct_pattern_field_tys(&struct_ty.*);
       (mut(i) : usize) = usize(0);
       while(i < subs.len(), {
         fi := match(field_idx.get(i), .Some(k) => k, .None => usize(0));
@@ -191,7 +191,7 @@ _collect_place_names :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, out :
 _list_has :: (fn(xs : &ArrayList(String), x : &String) -> bool)({
   (mut(i) : usize) = usize(0);
   while(i < xs.len(), {
-    if(match(xs.get_cloned(i), .Some(y) => (y == x), .None => false), {
+    if(match(xs.get_cloned(i), .Some(y) => (y == x.*), .None => false), {
       return(true);
     });
     i = (i + usize(1));
@@ -284,7 +284,7 @@ _contains_word_return :: (fn(s : &String) -> bool)({
 });
 /// Whether generated code is control flow that must NOT be assigned to a temp.
 _is_control_flow_code :: (fn(code : &String) -> bool)(
-  (code.len() == usize(0)) || (code == "break") || (code == "continue") || code.starts_with("goto") || _contains_word_return(code)
+  (code.len() == usize(0)) || (code.* == "break") || (code.* == "continue") || code.starts_with("goto") || _contains_word_return(code)
 );
 /// Args of a FnCall (empty for an Atom).
 _args :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
@@ -298,7 +298,7 @@ _is_or_pattern :: (fn(expr : &AstExpr) -> bool)(
 _flatten_or_pattern :: (fn(expr : &AstExpr) -> ArrayList(AstExpr))(
   if(!_is_or_pattern(expr), {
     mut(out) := ArrayList(AstExpr).new();
-    out.push(expr);
+    out.push(expr.*);
     out
   }, {
     args := _args(expr);
@@ -346,7 +346,7 @@ _flatten_or_pattern :: (fn(expr : &AstExpr) -> ArrayList(AstExpr))(
 );
 /// A C literal for a compile-time value (number / bool).
 _c_literal_from_value :: (fn(value : &EvalValue) -> Option(String))(
-  match(value, .IntLit(r) => Option(String).Some(r.clone()), .FloatLit(r) => Option(String).Some(r.clone()), .BoolVal(b) => Option(String).Some(if(b, String.from("true"), String.from("false"))), _ => Option(String).None)
+  match(value, .IntLit(r) => Option(String).Some(r.clone()), .FloatLit(r) => Option(String).Some(r.clone()), .BoolVal(b) => Option(String).Some(if(b.*, String.from("true"), String.from("false"))), _ => Option(String).None)
 );
 /// Concatenate `current` then `prev` (both optional) into a fresh drop list.
 _concat_drops :: (fn(current : &Option(ArrayList(AstExpr)), prev : &Option(ArrayList(AstExpr))) -> ArrayList(AstExpr))({
@@ -890,7 +890,7 @@ _inline_binding_sm_field :: (fn(tok : &Token, context : &mut FunctionGenerationC
     &context.state_machine_variables,
     .Some(smv) => {
       mut(found) := Option(String).None;
-      for(&smv, (k, cv) => {
+      for(&smv.*, (k, cv) => {
         // A consuming arm's hidden bindings share the arm's token, so the
         // name tells them apart (decision 26).
         if(found.is_none() && match(cv.kind, .Local => true, .Outer => false) && ((cv.base.decl_site == site) && (cv.base.name == tok.value.*)), {
@@ -1180,7 +1180,7 @@ _gen_nullable_ptr_match :: (fn(expr : &AstExpr, indent : &String, context : &mut
               match(
                 &context.state_machine_variables,
                 .Some(smv2) => {
-                  for(&smv2, (smb_k, smb_cv) => {
+                  for(&smv2.*, (smb_k, smb_cv) => {
                     smb_is_local := match(smb_cv.kind, .Local => true, .Outer => false);
                     if(smb_is_local && (smb_cv.base.name == ast_expr_token(&dvar).value.*.to_string()), {
                       smb_id = smb_k.clone();
@@ -1939,7 +1939,7 @@ _collect_bind_decls :: (fn(p : &Pattern, ty : &TypeValue, names : &mut ArrayList
     .Const(_, _, _, _, _) => (),
     .Range(_, _, _, _, _, _, _) => (),
     .Variant(_, vidx, field_idx, subs, enum_ty, _, _) => {
-      ftys := match(enum_ty, Rc(.EnumT({ variant_fields : vfs })) => match(vfs.get(vidx), .Some(f) => f, .None => no_types()), _ => no_types());
+      ftys := match(enum_ty, Rc(.EnumT({ variant_fields : vfs })) => match(vfs.get(vidx.*), .Some(f) => f, .None => no_types()), _ => no_types());
       (i : usize) = usize(0);
       while(i < subs.len(), {
         fi := match(field_idx.get(i), .Some(k) => k, .None => usize(0));
@@ -1956,10 +1956,10 @@ _collect_bind_decls :: (fn(p : &Pattern, ty : &TypeValue, names : &mut ArrayList
     .At(name, _, _, Box(sub)) => {
       names.push(name.clone());
       types.push(Rc.clone(ty));
-      recur(&sub, ty, names, types);
+      recur(&sub.*, ty, names, types);
     },
     .ThroughBox(_, inner_ty, Box(sub)) => {
-      recur(&sub, &inner_ty, names, types);
+      recur(&sub.*, &inner_ty.*, names, types);
     },
     .Tuple(subs, elem_tys) => {
       (i : usize) = usize(0);
@@ -1970,7 +1970,7 @@ _collect_bind_decls :: (fn(p : &Pattern, ty : &TypeValue, names : &mut ArrayList
       });
     },
     .Struct(struct_ty, field_idx, subs, _) => {
-      ftys := _struct_pattern_field_tys(&struct_ty);
+      ftys := _struct_pattern_field_tys(&struct_ty.*);
       (i : usize) = usize(0);
       while(i < subs.len(), {
         fi := match(field_idx.get(i), .Some(k) => k, .None => usize(0));
@@ -2049,7 +2049,7 @@ _emit_pattern_chain :: (
         _emit_pattern_binding_decl(context, indent.clone(), subject_c.clone(), ty, path.clone());
         _shadow_add(context, &cname, &subject_c, Option(Token).None);
         shadows.push(cname);
-        test_code := _call_generate_expr(&test, indent.clone(), context);
+        test_code := _call_generate_expr(&test.*, indent.clone(), context);
         line := indent.clone();
         line.push_str("if (!(");
         line.push_string(&test_code);
@@ -2066,7 +2066,7 @@ _emit_pattern_chain :: (
         _emit_pattern_binding_decl(context, indent.clone(), subject_c.clone(), ty, path.clone());
         _shadow_add(context, &cname, &subject_c, Option(Token).None);
         shadows.push(cname);
-        test_code := _call_generate_expr(&test, indent.clone(), context);
+        test_code := _call_generate_expr(&test.*, indent.clone(), context);
         line := indent.clone();
         line.push_str("if (!(");
         line.push_string(&test_code);
@@ -2077,20 +2077,20 @@ _emit_pattern_chain :: (
       });
     },
     .Variant(vname, vidx, field_idx, subs, enum_ty0, _, _) => {
-      enum_ty := resolve_enum_shell(&enum_ty0);
+      enum_ty := resolve_enum_shell(&enum_ty0.*);
       is_raw_ptr := is_pointer_type(ty);
       ptrish := _position_is_ptrish(ty);
       if(emit_tests, {
         line := indent.clone();
         line.push_str("if (!");
-        line.push_string(_variant_test_code(&enum_ty, vidx, vname.clone(), path.clone(), ptrish, is_raw_ptr, context));
+        line.push_string(_variant_test_code(&enum_ty, vidx.*, vname.clone(), path.clone(), ptrish, is_raw_ptr, context));
         line.push_str(") goto ");
         line.push_string(fail_label.clone());
         line.push_str(";");
         context.base.emitter.emit_string_line(&line);
       });
-      labels_v := match(&enum_ty, Rc(.EnumT({ variant_field_labels : vfls })) => match(vfls.get(vidx), .Some(l) => l, .None => no_labels()), _ => no_labels());
-      ftys := match(&enum_ty, Rc(.EnumT({ variant_fields : vfs })) => match(vfs.get(vidx), .Some(f) => f, .None => no_types()), _ => no_types());
+      labels_v := match(&enum_ty, Rc(.EnumT({ variant_field_labels : vfls })) => match(vfls.get(vidx.*), .Some(l) => l, .None => no_labels()), _ => no_labels());
+      ftys := match(&enum_ty, Rc(.EnumT({ variant_fields : vfs })) => match(vfs.get(vidx.*), .Some(f) => f, .None => no_types()), _ => no_types());
       v_cell := (in_cell || pattern_position_is_cell(ty));
       (i : usize) = usize(0);
       while(i < subs.len(), {
@@ -2231,7 +2231,7 @@ _emit_pattern_chain :: (
         if(a_place, _place_add(context, decl_c.clone()));
         shadows.push(cname);
       });
-      recur(&sub, path, ty, fail_label, assign_binds, emit_tests, indent, labels, shadows, context, places, refs, in_cell);
+      recur(&sub.*, path, ty, fail_label, assign_binds, emit_tests, indent, labels, shadows, context, places, refs, in_cell);
     },
     .ThroughBox(box_ty, inner_ty, Box(sub)) => {
       // An Rc value in C is a pointer to a reference-semantics struct whose
@@ -2250,13 +2250,13 @@ _emit_pattern_chain :: (
       );
       // The unique `Box` is a C-transparent newtype over its cell pointer:
       // the payload is that pointer's dereference.
-      fcode := if(is_unique_box_type(&box_ty), {
+      fcode := if(is_unique_box_type(&box_ty.*), {
         d := String.from("(*");
         d.push_string(&base);
         d.push_str(")");
         d
       }, {
-        fields := get_runtime_struct_fields(&_through_box_cell_type(&box_ty));
+        fields := get_runtime_struct_fields(&_through_box_cell_type(&box_ty.*));
         label := match(
           fields.get(usize(0)),
           .Some(f) => sanitize_for_c_identifier(f.label.clone(), false),
@@ -2267,7 +2267,7 @@ _emit_pattern_chain :: (
         r.push_string(&label);
         r
       });
-      recur(&sub, &fcode, &inner_ty, fail_label, assign_binds, emit_tests, indent, labels, shadows, context, places, refs, true);
+      recur(&sub.*, &fcode, &inner_ty.*, fail_label, assign_binds, emit_tests, indent, labels, shadows, context, places, refs, true);
     },
     .Tuple(subs, elem_tys) => {
       // A tuple is a value struct in C; elements are `._N`. A pointer to a
@@ -2296,9 +2296,9 @@ _emit_pattern_chain :: (
       // value itself (`(*path)` at a pointer position), as a newtype
       // destructuring binds it.
       ptrish := _position_is_ptrish(ty);
-      flabels := _struct_pattern_labels(&struct_ty);
-      newtype := (is_newtype_type(&struct_ty) && (flabels.len() == usize(1)));
-      ftys := _struct_pattern_field_tys(&struct_ty);
+      flabels := _struct_pattern_labels(&struct_ty.*);
+      newtype := (is_newtype_type(&struct_ty.*) && (flabels.len() == usize(1)));
+      ftys := _struct_pattern_field_tys(&struct_ty.*);
       (i : usize) = usize(0);
       while(i < subs.len(), {
         fi := match(field_idx.get(i), .Some(k) => k, .None => usize(0));
@@ -2310,7 +2310,7 @@ _emit_pattern_chain :: (
           true => {
             f := path.clone();
             f.push_str(cond(ptrish => "->", true => "."));
-            f.push_string(c_field_name(&struct_ty, flabel.clone()));
+            f.push_string(c_field_name(&struct_ty.*, flabel.clone()));
             f
           }
         );
@@ -2351,13 +2351,13 @@ _lookthrough_switch_cell :: (fn(arms : &ArrayList(Arm)) -> Option(TypeValue))({
         return(.None);
       }),
       .ThroughBox(bt, _, Box(sub)) => {
-        if(!is_box_type(&bt) || is_unique_box_type(&bt), {
+        if(!is_box_type(&bt.*) || is_unique_box_type(&bt.*), {
           return(.None);
         });
         simple := match(
           sub,
           .Variant(_, _, _, subs, _, through_ptr, _) => {
-            (ok : bool) = !through_ptr;
+            (ok : bool) = !through_ptr.*;
             (k : usize) = usize(0);
             while((k < subs.len()) && ok, k = (k + usize(1)), {
               ok = _pattern_is_binder_or_wild(&subs(k));
@@ -2367,13 +2367,13 @@ _lookthrough_switch_cell :: (fn(arms : &ArrayList(Arm)) -> Option(TypeValue))({
           _ => false
         );
         // An explicit `Rc(p)` arm (decision 31) is classified by its `p`.
-        if(!simple || !arm_is_classic(&_unwrap_rc_pattern(&arm.pattern_expr), &sub, false, false), {
+        if(!simple || !arm_is_classic(&_unwrap_rc_pattern(&arm.pattern_expr), &sub.*, false, false), {
           return(.None);
         });
         // Not `k`: the inner loop's `k` above shares the C name, and an
         // unwind drop of this String would land on that `usize`
         // (issues/fixed/2026-11-03-an-unwind-drop-names-a-shadowing-local-of-another-type.md).
-        bt_key := type_key(&bt);
+        bt_key := type_key(&bt.*);
         cond(
           cell.is_none() => {
             cell = .Some(Rc.clone(bt));
@@ -2566,8 +2566,8 @@ generate_match_expression :: (fn(expr : &AstExpr, indent : &String, context : &m
       });
       match(
         &ei.variable_name(),
-        .Some(tv) => if(!is_unit_type(&ei.ty()) && (code == tv), {
-          context.base.emitter.mark_declared_in_scope(&tv);
+        .Some(tv) => if(!is_unit_type(&ei.ty()) && (code == tv.*), {
+          context.base.emitter.mark_declared_in_scope(&tv.*);
         }),
         .None => ()
       );
@@ -2634,7 +2634,7 @@ _generate_match_expression_body :: (fn(expr : &AstExpr, indent : &String, contex
   match(
     &subject_ei.variable_name(),
     .Some(svn) => {
-      subject_var_name := get_variable_name_for_codegen_at(ast_expr_id(&subject), &svn, Option(Environment).Some(subject_ei.env()));
+      subject_var_name := get_variable_name_for_codegen_at(ast_expr_id(&subject), &svn.*, Option(Environment).Some(subject_ei.env()));
       if(!binds_in_place && !ast_expr_is_atom(&subject) && !(matched_value_code == subject_var_name), {
         _emit_pattern_binding_decl(
           context,

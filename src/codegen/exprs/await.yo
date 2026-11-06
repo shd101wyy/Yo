@@ -80,8 +80,8 @@ resolve_effect_field_from_scope :: (fn(field_label : &String, context : &Functio
   match(
     &context.current_evidence_params,
     .Some(eps) => {
-      for(&eps, (_k, e_val) => {
-        if(e_val.field_label == field_label, {
+      for(&eps.*, (_k, e_val) => {
+        if(e_val.field_label == field_label.*, {
           return(Option(String).Some(e_val.c_param_name.clone()));
         });
       });
@@ -91,9 +91,9 @@ resolve_effect_field_from_scope :: (fn(field_label : &String, context : &Functio
   match(
     &context.state_machine_variables,
     .Some(svs) => {
-      for(&svs, (_k, cv) => {
+      for(&svs.*, (_k, cv) => {
         is_outer := match(cv.kind, .Outer => true, _ => false);
-        if((cv.base.name == field_label) && is_outer, {
+        if((cv.base.name == field_label.*) && is_outer, {
           mut(o) := `sm->${context.sm_capture_slot}.`;
           o.push_string(sanitize_for_c_identifier(field_label.clone(), false));
           return(Option(String).Some(o));
@@ -112,7 +112,7 @@ resolve_evidence_field_from_given_bindings :: (fn(field_label : &String, context
     context.base.get_expr_info(expr),
     .Some(ei) => ei.env(),
     .None => {
-      func_expr := match(expr, .FnCall(_, f, _, _, _) => f, _ => return(Option(String).None));
+      func_expr := match(expr, .FnCall(_, f, _, _, _) => f.*, _ => return(Option(String).None));
       match(context.base.get_expr_info(&func_expr), .Some(fei) => fei.env(), .None => return(Option(String).None))
     }
   );
@@ -133,7 +133,7 @@ resolve_evidence_field_from_given_bindings :: (fn(field_label : &String, context
           (mut(fi) : usize) = usize(0);
           while(fi < field_names.len(), {
             flbl := match(field_names.get_cloned(fi), .Some(l) => l, .None => String.from(""));
-            if(flbl == field_label, {
+            if(flbl == field_label.*, {
               match(
                 field_values.get(fi),
                 .Some(fv) => if(is_func_val(&fv), {
@@ -176,7 +176,7 @@ emit_effect_record_injection :: (fn(source_namespace_type : &TypeValue, future_t
       match(
         &context.state_machine_variables,
         .Some(svs) => {
-          for(&svs, (_k, cv) => {
+          for(&svs.*, (_k, cv) => {
             is_outer := match(cv.kind, .Outer => true, _ => false);
             if((cv.base.name == flbl) && is_outer, {
               mut(o) := `sm->${context.sm_capture_slot}.`;
@@ -193,7 +193,7 @@ emit_effect_record_injection :: (fn(source_namespace_type : &TypeValue, future_t
         match(
           &context.current_evidence_params,
           .Some(eps) => {
-            for(&eps, (_k, e_val) => {
+            for(&eps.*, (_k, e_val) => {
               if(e_val.field_label == flbl, {
                 member_code = Option(String).Some(e_val.c_param_name.clone());
                 break;
@@ -449,7 +449,7 @@ generate_await :: (fn(expr : &AstExpr, indent : &String, context : &mut Function
             drops.get(di),
             .Some(dexpr) => {
               target := get_deferred_drop_target_atom_name(&dexpr);
-              skip := match(&result_var_to_skip, .Some(rv) => match(&target, .Some(t) => (t == rv), .None => false), .None => false);
+              skip := match(&result_var_to_skip, .Some(rv) => match(&target, .Some(t) => (t.* == rv.*), .None => false), .None => false);
               if(!skip, {
                 filtered.push(dexpr);
               });
@@ -464,7 +464,7 @@ generate_await :: (fn(expr : &AstExpr, indent : &String, context : &mut Function
     );
     generate_pending_deferred_drops(`${indent.clone()}    `, context, expr, false, false, false, Option(HashSet(String)).None, Option(String).None);
     context.pending_deferred_drops = saved_drops;
-    return_type := match(&context.current_function_type, .Some(ft) => match(ft, Rc(.Func({ result : r })) => Option(TypeValue).Some(t_slot_pointee(&r)), _ => Option(TypeValue).None), .None => Option(TypeValue).None);
+    return_type := match(&context.current_function_type, .Some(ft) => match(ft, Rc(.Func({ result : r })) => Option(TypeValue).Some(t_slot_pointee(&r.*)), _ => Option(TypeValue).None), .None => Option(TypeValue).None);
 
     // Caught here only when the handler that unwound was installed in THIS
     // function, so the value has this function's return type. Deciding by the
@@ -473,15 +473,15 @@ generate_await :: (fn(expr : &AstExpr, indent : &String, context : &mut Function
     // its own result: type confusion, a SIGSEGV or a silent rc 0
     // (issues/fixed/unwind-from-a-handler-installed-inside-io-async-exits-main-with-rc-0.md).
     match(
-      match(&context.unwind_catches, .Some(ucs) => unwind_catch_condition(&ucs), .None => Option(String).None),
+      match(&context.unwind_catches, .Some(ucs) => unwind_catch_condition(&ucs.*), .None => Option(String).None),
       .Some(catch_cond) => {
         context.base.emitter.emit_string_line(`${indent.clone()}    if ${catch_cond} {`);
         context.base.emitter.emit_string_line(`${indent.clone()}      __yo_unwind_target = 0;`);
         context.base.emitter.emit_string_line(`${indent.clone()}      __yo_effect_escaped = 0;`);
         match(
           &return_type,
-          .Some(rt) => if(!is_unit_type(&rt), {
-            caller_c_type := get_type_string(&rt, &mut context.base);
+          .Some(rt) => if(!is_unit_type(&rt.*), {
+            caller_c_type := get_type_string(&rt.*, &mut context.base);
             if(caller_c_type != "void", {
               context.base.emitter.emit_string_line(`${indent.clone()}      ${caller_c_type.clone()} _unw_result;`);
               context.base.emitter.emit_string_line(`${indent.clone()}      memcpy(&_unw_result, __yo_unwind_value, sizeof(${caller_c_type}));`);
@@ -523,7 +523,7 @@ generate_await :: (fn(expr : &AstExpr, indent : &String, context : &mut Function
   // Completed future's result) leaves it to the awaiter. No other reader
   // can observe it: the future was moved into this await.
   if(!is_result_unit, {
-    result_var := match(&expr_ei.variable_name(), .Some(n) => sanitize_for_c_identifier(&n, false), .None => `__sync_await_result_${ast_expr_id(expr).to_string()}`);
+    result_var := match(&expr_ei.variable_name(), .Some(n) => sanitize_for_c_identifier(&n.*, false), .None => `__sync_await_result_${ast_expr_id(expr).to_string()}`);
     var_decl := get_variable_type_string(&result_type, result_var.clone(), &mut context.base);
     // Every abort returned above, so the future is Completed here.
     context.base.emitter.emit_string_line(`${indent.clone()}${var_decl} = ${sync_future_var.clone()}->result;`);
@@ -551,7 +551,7 @@ generate_state :: (fn(expr : &AstExpr, indent : &String, context : &mut Function
   expr_ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(codegen_fatal_expr(String.from("io.state missing ExprInfo"))));
   name_suffix := match(&expr_ei.variable_name(), .Some(n) => n.clone(), .None => String.from(""));
   raw_var := if(name_suffix.len() > usize(0), `__raw_state_${name_suffix.clone()}`, String.from("__raw_state"));
-  result_var := match(&expr_ei.variable_name(), .Some(n) => sanitize_for_c_identifier(&n, false), .None => String.from("__io_state_result"));
+  result_var := match(&expr_ei.variable_name(), .Some(n) => sanitize_for_c_identifier(&n.*, false), .None => String.from("__io_state_result"));
   fut_var := if(name_suffix.len() > usize(0), `__state_future_${name_suffix.clone()}`, String.from("__state_future"));
   emit_text1 := `${indent.clone()}${get_type_string(&future_type, &mut context.base)} ${fut_var.clone()} = ${future_code};`;
   context.base.emitter.emit_string_line(&emit_text1);
@@ -588,7 +588,7 @@ _option_some_field_type :: (fn(option_type : &TypeValue) -> Option(TypeValue))(
 /// lowers both, so the prelude can switch once a seed carries this
 /// (Generation A; plans/backlog/SEED_VERSION_AUTOMATION.md).
 join_handle_is_value_struct :: (fn(ty : &TypeValue) -> bool)(
-  match(ty, Rc(.Struct({ is_reference_semantics : r })) => !r, _ => false)
+  match(ty, Rc(.Struct({ is_reference_semantics : r })) => !r.*, _ => false)
 );
 /// The C type of a value `JoinHandle`'s `__future` field.
 join_handle_future_field_c_type :: (fn(ty : &TypeValue, context : &mut FunctionGenerationContext) -> String)(
@@ -603,7 +603,7 @@ join_handle_future_field_c_type :: (fn(ty : &TypeValue, context : &mut FunctionG
 /// and builds .Some(result)/.None.
 generate_join_handle_await :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
   // Method call: expr.func is `.`(handle, "await"); self (JoinHandle) is func.args[0].
-  func_expr := match(expr, .FnCall(_, f, _, _, _) => f, _ => return(codegen_fatal_expr(String.from("JoinHandle.await requires a self argument"))));
+  func_expr := match(expr, .FnCall(_, f, _, _, _) => f.*, _ => return(codegen_fatal_expr(String.from("JoinHandle.await requires a self argument"))));
   func_is_call := match(func_expr, .FnCall(_, _, _, _, _) => true, _ => false);
   handle_arg := if(func_is_call, {
     fargs := match(func_expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), _ => ArrayList(AstExpr).new());
@@ -625,10 +625,10 @@ generate_join_handle_await :: (fn(expr : &AstExpr, indent : &String, context : &
   option_type_name := get_type_string(&option_type, &mut context.base);
   // Extract T from Option(T): the .Some variant's first field type.
   result_type_opt := _option_some_field_type(&option_type);
-  is_result_unit := match(&result_type_opt, .Some(t) => is_unit_type(&t), .None => true);
+  is_result_unit := match(&result_type_opt, .Some(t) => is_unit_type(&t.*), .None => true);
   result_type_name := match(
     &result_type_opt,
-    .Some(t) => if(is_unit_type(&t), String.from("uint8_t"), get_type_string(&t, &mut context.base)),
+    .Some(t) => if(is_unit_type(&t.*), String.from("uint8_t"), get_type_string(&t.*, &mut context.base)),
     .None => String.from("uint8_t")
   );
   some_tag := get_enum_variant_c_name(&option_type, String.from("Some"), &context.base);
@@ -642,7 +642,7 @@ generate_join_handle_await :: (fn(expr : &AstExpr, indent : &String, context : &
   unique_suffix := match(&expr_ei.variable_name(), .Some(n) => n.clone(), .None => String.from("jh"));
   fut_var := `__jh_future_${unique_suffix.clone()}`;
   header_var := `__jh_header_${unique_suffix.clone()}`;
-  result_var := match(&expr_ei.variable_name(), .Some(n) => sanitize_for_c_identifier(&n, false), .None => String.from("__jh_result"));
+  result_var := match(&expr_ei.variable_name(), .Some(n) => sanitize_for_c_identifier(&n.*, false), .None => String.from("__jh_result"));
   header_struct_name := `__yo_jh_header_${unique_suffix.clone()}`;
   context.base.emitter.emit_string_line(`${indent.clone()}// JoinHandle.await — poll spawned task, return Option(T)`);
   var_decl := get_variable_type_string(&option_type, result_var.clone(), &mut context.base);
@@ -715,7 +715,7 @@ generate_join_handle_await :: (fn(expr : &AstExpr, indent : &String, context : &
       .Some(rvn) => match(
         &context.state_machine_variables,
         .Some(smv) => match(
-          sm_slot_of(ast_expr_id(expr), &expr_ei.env(), &rvn, &smv, &context.variable_id_remapping, &context.state_machine_field_aliases, &context.sm_capture_slot),
+          sm_slot_of(ast_expr_id(expr), &expr_ei.env(), &rvn.*, &smv.*, &context.variable_id_remapping, &context.state_machine_field_aliases, &context.sm_capture_slot),
           .Some(slot) => context.base.emitter.emit_string_line(`${indent.clone()}${slot} = ${result_var.clone()};`),
           .None => ()
         ),
