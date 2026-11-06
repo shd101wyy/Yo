@@ -338,7 +338,7 @@ _borrow_match_root_error :: (fn(name : &String, v : &Variable, is_mut : bool, en
   if(is_mut, {
     return(_proj_err(`A \`&mut\` projection yields a place reached from a \`&mut\` parameter, and \`${name}\` is a shared borrow (\`&T\`).`, Option(str).None));
   });
-  scr := match(borrow_match_source(v.id), .Some(e) => e, .None => make_err_expr());
+  scr := match(borrow_match_source(v.id()), .Some(e) => e, .None => make_err_expr());
   _projection_root_error(&ast_expr_strip_borrow_marker(&scr), false, env, ctx)
 });
 /// A projection that yields another projection's result (decision 24): the

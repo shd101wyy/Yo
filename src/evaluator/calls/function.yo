@@ -1209,7 +1209,7 @@ _receiver_reference_mode :: (fn(callee_id : usize, receiver : &AstExpr, receiver
     .None => cond(
       t_slot_is_borrow(receiver_type) => Option(bool).Some(t_slot_is_mut_ref(receiver_type)),
       ast_expr_is_atom(receiver) => match(
-        get_variables_from_env(env, &ast_expr_token(receiver).value.*).last(),
+        get_variables_from_env(env, &ast_expr_token(receiver).value.*).last_cloned(),
         .Some(rv) => cond(
           variable_is_reference_binding(&rv) => Option(bool).Some(variable_is_mut_borrow(&rv)),
           true => Option(bool).None
