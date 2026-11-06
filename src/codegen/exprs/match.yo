@@ -135,7 +135,7 @@ _emit_place_binding_decl :: (fn(context : &mut FunctionGenerationContext, indent
 _binds_by_ref :: (fn(refs : bool, atom : &AstExpr) -> bool)(
   refs && !is_mut_binding(&ast_expr_token(atom), &ast_expr_token(atom).value.*.clone())
 );
-_emit_arm_binding_decl :: (fn(context : &FunctionGenerationContext, indent : &String, bind : &String, ty : &TypeValue, init : &String, refs : bool) -> unit)(
+_emit_arm_binding_decl :: (fn(context : &mut FunctionGenerationContext, indent : &String, bind : &String, ty : &TypeValue, init : &String, refs : bool) -> unit)(
   if(refs && !t_slot_is_borrow(ty), {
     _emit_place_binding_decl(context, indent, bind, ty, init);
     _place_add(context, bind);
