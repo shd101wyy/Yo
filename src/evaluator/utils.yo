@@ -9035,6 +9035,59 @@ _local_borrow_binding_stmt_of :: (fn(variable : &Variable) -> Option(AstExpr))({
   });
   Option(AstExpr).None
 });
+/// The origin names a type names, at every origin position (a reference's
+/// origin, a type constructor's origin argument), spelled ones only — for
+/// `bind_join`'s subset check and `lend_through`'s flow solve.
+origin_param_names_of :: (fn(ty : &TypeValue, out : &mut ArrayList(String), depth : u32) -> unit)({
+  if(depth > u32(16), {
+    return(());
+  });
+  match(
+    ty,
+    Rc(.Reference(op_p, _, op_o)) => {
+      match(
+        t_origin_spelled_names(&op_o),
+        .Some(opn) => {
+          (oi : usize) = usize(0);
+          while(oi < opn.len(), {
+            match(
+              opn.get_cloned(oi),
+              .Some(on) => if(!out.contains(&on), {
+                out.push(on);
+              }),
+              .None => ()
+            );
+            oi = (oi + usize(1));
+          });
+        },
+        .None => ()
+      );
+      origin_param_names_of(&op_p, out, (depth + u32(1)));
+    },
+    Rc(.Struct({ type_arguments : ots })) => {
+      (oi : usize) = usize(0);
+      while(oi < ots.len(), {
+        match(ots.get(oi), .Some(ot) => origin_param_names_of(&ot, out, (depth + u32(1))), .None => ());
+        oi = (oi + usize(1));
+      });
+    },
+    Rc(.EnumT({ type_arguments : ots })) => {
+      (oi : usize) = usize(0);
+      while(oi < ots.len(), {
+        match(ots.get(oi), .Some(ot) => origin_param_names_of(&ot, out, (depth + u32(1))), .None => ());
+        oi = (oi + usize(1));
+      });
+    },
+    Rc(.Tuple({ field_types : ots })) => {
+      (oi : usize) = usize(0);
+      while(oi < ots.len(), {
+        match(ots.get(oi), .Some(ot) => origin_param_names_of(&ot, out, (depth + u32(1))), .None => ());
+        oi = (oi + usize(1));
+      });
+    },
+    _ => ()
+  );
+});
 /// O-1's `=` join (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §3, §5's
 /// place-write row): after a whole-holder assignment `h = v` succeeds, the
 /// holder's loan set becomes the join over reaching definitions — the value's
@@ -9058,48 +9111,67 @@ bind_join :: (fn(variable : &Variable, value : &AstExpr, env : &Environment, ctx
     eprintln(`[n2b] join ${variable.name}: roots=${roots.len().to_string()} value=${ast_expr_to_string(value)}`);
   });
   v_tok := variable.token;
-  // A SPELLED target checks the subset: every root's place must be named by
-  // the holder's own declared origin (a place name or a parameter it names).
+  // A SPELLED target checks the subset at the TYPE level: every origin the
+  // VALUE's type names must be named by the holder's own declared origin
+  // (a place name or an origin parameter). A root at a reference-typed
+  // parameter is legal wherever the parameter's origin is (the return
+  // rule's vocabulary), so the comparison is over origin NAMES, never over
+  // the ground places `origin_of` produced.
   match(
     t_origin_spelled_names(&_origin_of_holder_origin(variable)),
     .Some(spelled) => {
-      (si : usize) = usize(0);
-      while(si < roots.len(), {
-        root := roots(si).clone();
-        (inside : bool) = false;
-        (ni : usize) = usize(0);
-        while(ni < spelled.len(), {
-          if(match(spelled.get_cloned(ni), .Some(sn) => (sn == root.place.root_name), .None => false), {
-            inside = true;
+      match(
+        expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&value_bare)),
+        .Some(vi_info) => {
+          v_names := ArrayList(String).new();
+          origin_param_names_of(&vi_info.ty(), &mut v_names, u32(0));
+          (si : usize) = usize(0);
+          while(si < v_names.len(), {
+            v_name := match(v_names.get_cloned(si), .Some(n) => n, .None => String.new());
+            (inside : bool) = false;
+            (ni : usize) = usize(0);
+            while(ni < spelled.len(), {
+              if(match(spelled.get_cloned(ni), .Some(sn) => (sn == v_name), .None => false), {
+                inside = true;
+              });
+              ni = (ni + usize(1));
+            });
+            if(!inside, {
+              raise_flow_violation(
+                with_code(
+                  format_error_message_with_help(
+                    ast_expr_token(value),
+                    `Cannot assign a value holding origin \`${v_name}\` to \`${variable.name}\`: its type is declared over \`${type_to_string(&variable_value_type(variable))}\`, whose origin does not name \`${v_name}\`, and a holder points only into the places its origin lists (decision 43, plans/backlog/REFERENCES_AND_ORIGINS.md O3).`,
+                    Option(String).Some(`declare the holder over \`${v_name}\` too (a union), or assign a value that does not hold it`)
+                  ),
+                  E_ORIGIN_MISMATCH
+                ),
+                ctx,
+                exn
+              );
+            });
+            si = (si + usize(1));
           });
-          ni = (ni + usize(1));
-        });
-        if(!inside, {
-          raise_flow_violation(
-            with_code(
-              format_error_message_with_help(
-                ast_expr_token(value),
-                `Cannot assign a value holding \`${root.place.text}\` to \`${variable.name}\`: its type is declared over \`${type_to_string(&variable_value_type(variable))}\`, whose origin does not name \`${root.place.root_name}\`, and a holder points only into the places its origin lists (decision 43, plans/backlog/REFERENCES_AND_ORIGINS.md O3).`,
-                Option(String).Some(`declare the holder over \`${root.place.root_name}\` too (a union), or assign a value that does not hold it`)
-              ),
-              E_ORIGIN_MISMATCH
-            ),
-            ctx,
-            exn
-          );
-        });
-        si = (si + usize(1));
-      });
+        },
+        .None => ()
+      );
     },
     .None => ()
   );
   // The flow join: register each root not already in the holder's set, with
   // the holder's live range recomputed from its binding statement.
+  bind_join_roots_for(variable, &roots, ast_expr_token(value), env, ctx);
+});
+/// `bind_join`'s registration core, shared with `lend_through`'s flow
+/// write-back: each root not already in the holder's set is registered with
+/// the holder's live range recomputed from its binding statement.
+bind_join_roots_for :: (fn(variable : &Variable, roots : &ArrayList(OriginRootPlace), at : &Token, env : &Environment, ctx : &EvalContext) -> unit)({
+  v_tok := variable.token;
   binding_stmt := _local_borrow_binding_stmt_of(variable);
   range := match(
     &binding_stmt,
     .Some(bs) => local_borrow_range_of(&bs, variable.name.clone(), &v_tok),
-    .None => LocalBorrowRange(last_use : v_tok, end : ast_expr_token(value), has_repoint : false)
+    .None => LocalBorrowRange(last_use : v_tok, end : at.clone(), has_repoint : false)
   );
   existing := ArrayList(OriginRootPlace).new();
   _holder_roots_named_into(variable.name.clone(), &v_tok, &mut existing);
@@ -9134,12 +9206,15 @@ _origin_of_holder_origin :: (fn(variable : &Variable) -> TypeValue)({
     true => vt
   )
 });
-/// N2b's return rule over composite results (decision 43, O3): an origin in
+/// O-2's `return_check` (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §3,
+/// N2b's return rule over composite results, decision 43 O3): an origin in
 /// a result may name origin parameters or reference-typed parameters'
 /// places, never a local's. `e` is the `return(...)` argument or the body's
-/// result tail; each of its frozen roots that is a plain LOCAL of this
-/// function is rejected, naming the place (E0912).
-reject_composite_result_local_roots :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
+/// result tail; each of its frozen roots (`origin_of`, arms and composites
+/// included) that is a plain LOCAL of this function is rejected, naming the
+/// place (E0912), and a root at a parameter the spelled result does not
+/// name is E0923.
+return_check :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
   if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
     eprintln(`[n2b] return-check ${ast_expr_to_string(e)}`);
   });
@@ -9274,7 +9349,7 @@ borrow_match_source :: (fn(var_id : usize) -> Option(AstExpr))({
   });
   Option(AstExpr).None
 });
-export(projection_call_mode_of, ProjectionRootArg, projection_call_root_args, projection_call_callee_type, OriginRootPlace, origin_of, holder_future_roots, bind, bind_join, reject_composite_result_local_roots, note_ref_payload_source, ref_payload_source, note_borrow_match_source, borrow_match_source);
+export(projection_call_mode_of, ProjectionRootArg, projection_call_root_args, projection_call_callee_type, OriginRootPlace, origin_of, origin_param_names_of, holder_future_roots, bind, bind_join, bind_join_roots_for, return_check, note_ref_payload_source, ref_payload_source, note_borrow_match_source, borrow_match_source);
 export(record_pending_scrutinee_borrow, take_pending_scrutinee_borrows, PendingScrutineeBorrow, note_migrate_mut_scrutinee, migrate_mut_scrutinee_at, clear_migrate_mut_scrutinees, drop_owned_match_binding_at_arm_end, match_scrutinee_is_capture, local_borrow_register_match_place, local_borrow_note_match_place, note_consuming_match_scrutinee, consuming_match_scrutinee_at, moved_value_help, migrate_borrowed_match_at, _lb_arrow_shadows, _lb_fn_literal_binds, _lb_mentions);
 export(
   LocalBorrowPlace,

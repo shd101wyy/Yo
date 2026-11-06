@@ -131,7 +131,7 @@ pragma(Pragma.AllowUnsafe);
   local_borrow_set_lookahead,
   local_borrow_result_borrow_of,
   local_borrow_reject_result_borrow,
-  reject_composite_result_local_roots,
+  return_check,
   reject_bare_callable_into_dyn_fn,
   bare_callable_recorded_into_dyn_fn,
   deref_exempt_mark,
@@ -3004,7 +3004,7 @@ _evaluate_begin_expression_impl :: (
           // is evaluated (the check reads its type), not gated on
           // `local_borrows_active()` (the first holder in a body must be
           // checked too).
-          reject_composite_result_local_roots(&evaluated_ret_arg, &env, ctx, exn);
+          return_check(&evaluated_ret_arg, &env, ctx, exn);
           ret_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_ret_arg));
           if(ret_info_opt.is_none(), {
             exn.throw(
@@ -3398,7 +3398,7 @@ _evaluate_begin_expression_impl :: (
         // reads its type), not gated on `local_borrows_active()` (the first
         // holder in a body must be checked too).
         if(is_result_chain_block && is_last_in_loop, {
-          reject_composite_result_local_roots(&evaluated, &env, ctx, exn);
+          return_check(&evaluated, &env, ctx, exn);
         });
         if(chain_tail_armed, {
           ctx.local_borrow_result_chain_tail = Option(ExprId).None;

@@ -80,7 +80,7 @@ pragma(Pragma.AllowUnsafe);
 { stable_module_id, stable_func_id, private_member_blocked, debug_knob, parse_raw_int, is_temp_variable_name } :: import("../../utils.yo");
 { type_key } :: import("../../types/type_key.yo");
 { record_await_fusion_candidate } :: import("../../expr_traversal.yo");
-{ attach_temp_variable_to_expr, projection_call_mode_of, deref_exempt_mark, deref_exempt_clear, binder_read_mark, binder_read_clear, consume_called_fnonce_closure, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, reject_second_class_escape, reject_write_through_rc, place_cell_hops, PlaceCellHops, handle_payload_is_read_only, require_capture_borrow_exclusivity, local_borrows_active, local_borrow_place_of, local_borrow_value_place_of, local_borrow_places_overlap, LocalBorrowPlace, CellRootedPlace, cell_rooted_place_of, cell_rooted_same_cell, cell_rooted_places_overlap, local_borrow_note_runtime_call, local_borrow_enter_macro_site, local_borrow_leave_macro_site, local_borrow_is_macro_await, local_borrow_is_scalar_type, variable_is_borrow_parameter, variable_id_in_scope, reject_bare_callable_into_dyn_fn, bare_callable_recorded_into_dyn_fn, global_lend_audit_enabled, global_lend_audit_print, global_lend_location, global_lend_key, variable_is_reference_binding, variable_is_mut_borrow, global_place_path, GlobalHandleLend, global_note_handle_mutcall, global_note_handle_lend, global_require_mut, variable_is_future_operand_parameter, place_require_mut, local_borrow_write_expr, check_capture_freeze_access, reference_field_read_mode, deref_operand_is_raw_pointer, RC_CLONE_MIGRATE_HINT, local_borrow_place_text, FutureRoot, note_future_roots, future_roots_of, holder_future_roots, is_reference_read } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, projection_call_mode_of, deref_exempt_mark, deref_exempt_clear, binder_read_mark, binder_read_clear, consume_called_fnonce_closure, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, reject_second_class_escape, reject_write_through_rc, place_cell_hops, PlaceCellHops, handle_payload_is_read_only, require_capture_borrow_exclusivity, local_borrows_active, local_borrow_place_of, local_borrow_value_place_of, local_borrow_places_overlap, LocalBorrowPlace, CellRootedPlace, cell_rooted_place_of, cell_rooted_same_cell, cell_rooted_places_overlap, local_borrow_note_runtime_call, local_borrow_enter_macro_site, local_borrow_leave_macro_site, local_borrow_is_macro_await, local_borrow_is_scalar_type, variable_is_borrow_parameter, variable_id_in_scope, reject_bare_callable_into_dyn_fn, bare_callable_recorded_into_dyn_fn, global_lend_audit_enabled, global_lend_audit_print, global_lend_location, global_lend_key, variable_is_reference_binding, variable_is_mut_borrow, global_place_path, GlobalHandleLend, global_note_handle_mutcall, global_note_handle_lend, global_require_mut, variable_is_future_operand_parameter, place_require_mut, local_borrow_write_expr, origin_of, bind_join_roots_for, origin_param_names_of, OriginRootPlace, check_capture_freeze_access, reference_field_read_mode, deref_operand_is_raw_pointer, RC_CLONE_MIGRATE_HINT, local_borrow_place_text, FutureRoot, note_future_roots, future_roots_of, holder_future_roots, is_reference_read } :: import("../utils.yo");
 {
   EvalContext,
   ExpectedTypeCtx,
@@ -8971,7 +8971,17 @@ _lend_text :: (fn(arg : &AstExpr) -> String)(
     true => local_borrow_place_text(arg)
   )
 );
-_check_call_origin_invariance :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
+/// O-2's `lend_through` (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §3):
+/// the one place O3 step 1's substitution and step 3's exact unification are
+/// applied at a call — a `&mut` argument fixes the origin parameters its
+/// pointee reaches (through a bare pointee AND through a named composite's
+/// type arguments, N2b-r), every other argument whose parameter names a
+/// fixed origin must carry origins within it (E0923), and a FLOW-inferred
+/// holder is an inference variable: the solved set — what the call's other
+/// same-parameter arguments carry — is written back to the caller's holder
+/// after the call (§7 "A local's flow set after a `&mut` lend"), so a later
+/// access to the widened places is checked.
+lend_through :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
   op_callee := match(call, .FnCall(_, c, _, _, _) => c, .Atom(_, _) => return(()));
   if(ast_expr_is_fn_call_of(&op_callee, BF_DOT, Option(usize).Some(usize(2))), {
     return(());
@@ -9107,6 +9117,95 @@ _check_call_origin_invariance :: (fn(call : &AstExpr, env : &Environment, ctx : 
     });
     bi = (bi + usize(1));
   });
+  // 3. The flow write-back (§7 "A local's flow set after a `&mut` lend"): a
+  // `&mut`-lent holder whose pointee's origin parameters the argument does
+  // not spell (an elided or flow-inferred position) is an inference
+  // variable — the callee may store anything its parameter type allows, so
+  // the holder's set after the call joins what the call's other arguments
+  // (whose parameters name the same origin parameters) carry.
+  if(ctx.is_evaluating_function_body_or_async_block.is_some(), {
+    (wi : usize) = usize(0);
+    while(wi < op_args.len(), {
+      match(
+        slots.get(wi),
+        .Some(w_slot) => if(t_slot_is_mut_ref(&w_slot) && type_carries_origin(&t_slot_pointee(&w_slot)), {
+          w_arg := _unlabeled_argument(match(op_args.get(wi), .Some(a) => a, .None => make_err_expr()));
+          w_place := ast_expr_strip_borrow_marker(&w_arg);
+          if(ast_expr_is_atom(&w_place), {
+            // The origin parameters the pointee names.
+            w_names := ArrayList(String).new();
+            origin_param_names_of(&t_slot_pointee(&w_slot), &mut w_names, u32(0));
+            // Only the flow case: every named parameter the argument spelled
+            // is already fixed exactly by step 1.
+            (unfixed : bool) = false;
+            (ni : usize) = usize(0);
+            while(ni < w_names.len(), {
+              if(!fixed_names.contains(match(w_names.get_cloned(ni), .Some(n) => n, .None => String.new())), {
+                unfixed = true;
+              });
+              ni = (ni + usize(1));
+            });
+            if(unfixed, {
+              solved := ArrayList(OriginRootPlace).new();
+              (xj : usize) = usize(0);
+              while(xj < op_args.len(), {
+                if(xj != wi, {
+                  match(
+                    slots.get(xj),
+                    .Some(x_slot) => {
+                      x_arg := _unlabeled_argument(match(op_args.get(xj), .Some(a) => a, .None => make_err_expr()));
+                      x_p := ArrayList(TypeValue).new();
+                      x_a := ArrayList(TypeValue).new();
+                      _argument_origin_pairs(&x_arg, &x_slot, env, ctx, &mut x_p, &mut x_a);
+                      (names_it : bool) = false;
+                      (pk : usize) = usize(0);
+                      while(pk < x_p.len(), {
+                        match(
+                          t_origin_spelled_names(&x_p(pk)),
+                          .Some(pn) => {
+                            (qi : usize) = usize(0);
+                            while(qi < pn.len(), {
+                              if(w_names.contains(match(pn.get_cloned(qi), .Some(qn) => qn, .None => String.new())), {
+                                names_it = true;
+                              });
+                              qi = (qi + usize(1));
+                            });
+                          },
+                          .None => ()
+                        );
+                        pk = (pk + usize(1));
+                      });
+                      if(names_it, {
+                        x_roots := origin_of(&x_arg, env, ctx);
+                        (xr : usize) = usize(0);
+                        while(xr < x_roots.len(), {
+                          solved.push(x_roots(xr).clone());
+                          xr = (xr + usize(1));
+                        });
+                      });
+                    },
+                    .None => ()
+                  );
+                });
+                xj = (xj + usize(1));
+              });
+              if(solved.len() > usize(0), {
+                match(
+                  get_variables_from_env(env, ast_expr_token(&w_place).value.*.clone()).last_cloned(),
+                  .Some(hv) => if(!hv.is_module_level() && !hv.is_compile_time_only() && type_carries_origin(&variable_value_type(&hv)), {
+                    bind_join_roots_for(&hv, &solved, ast_expr_token(&w_arg), env, ctx);
+                  }),
+                  .None => ()
+                );
+              });
+            });
+          });
+        }),
+        .None => ()
+      );
+      wi = (wi + usize(1));
+    });
+  });
 });
 /// `a, b` for an origin's names.
 _origin_names_text :: (fn(names : &SharedList(String)) -> String)({
@@ -9177,7 +9276,7 @@ evaluate_function_call :: (
       _check_call_value_root_overlap(&lends, env, ctx, exn);
       _check_call_cell_root_overlap(&lends, env, ctx, exn);
       _check_call_global_lends(expr, &lends, &r, env, ctx, exn);
-      _check_call_origin_invariance(expr, env, ctx, exn);
+      lend_through(expr, env, ctx, exn);
       if(local_borrows_active(), {
         _local_borrow_note_call_site(&r, &call_tok, ctx, exn);
       });
