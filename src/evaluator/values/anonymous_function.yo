@@ -97,7 +97,9 @@ pragma(Pragma.AllowUnsafe);
   mint_funcval_env_key,
   register_funcval_cap_slices,
   CaptureSlice,
-  variable_value_type
+  variable_value_type,
+  variable_set_is_ref,
+  variable_set_is_imm_borrow
 } :: import("../../env.yo");
 { Token } :: import("../../token.yo");
 { some_t_bounds, TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, no_levels, no_flags, SharedList, slot_pointee_at, t_slot_pointee, t_slot_with_pointee, fn_param_mut_ref_flags, fn_param_by_value_flags, fn_result_is_ref, fn_result_is_mut_ref, t_slot_is_borrow } :: import("../../types/definitions.yo");
@@ -780,7 +782,11 @@ outcome after the guarded call instead (e.g. a result the handler unwinds past).
                     match(
                       frame.variable_at(vi),
                       .Some(v) => if(v.name == k, {
-                        if(v.is_ref() && !in_cap_frame, {
+                        // A binding of a `&` match is a pointer into the
+                        // scrutinee, but an implicit capture copies its part
+                        // (the field holds the value), as it did when the
+                        // binding was a copy.
+                        if(v.is_ref() && !in_cap_frame && !v.is_borrow_match_binding(), {
                           _raise_capture_rejection(
                             ctx,
                             exn,
@@ -1671,7 +1677,7 @@ evaluate_anonymous_function_implementation :: (
             ce_v,
             .Some(cv) => {
               if(ce.is_borrow, {
-                cv.set_is_ref(true);
+                variable_set_is_ref(&cv, true);
               }, if(!ce_owned, {
                 mark_fn_capture_value_binding(cv.id());
               }));
@@ -1888,7 +1894,7 @@ evaluate_anonymous_function_implementation :: (
       match(
         &rp_v_opt,
         .Some(rp_v_imm) => {
-          rp_v_imm.set_is_imm_borrow(true);
+          variable_set_is_imm_borrow(&rp_v_imm, true);
         },
         .None => ()
       );
@@ -1899,7 +1905,7 @@ evaluate_anonymous_function_implementation :: (
       match(
         &rp_v_opt,
         .Some(rp_v) => {
-          rp_v.set_is_ref(true);
+          variable_set_is_ref(&rp_v, true);
           // Reassignable goes with ref:
           // assignment TO an `inout` param is
           // the write-through (`v = i32(99)` in with_lock's closure).
@@ -1921,7 +1927,7 @@ evaluate_anonymous_function_implementation :: (
         .Some(rp_vp) => {
           rp_vp.set_is_parameter(true);
           if(fn_param_is_ptr_borrow(&function_type, rp_i), {
-            rp_vp.set_is_ref(true);
+            variable_set_is_ref(&rp_vp, true);
           });
         },
         .None => ()

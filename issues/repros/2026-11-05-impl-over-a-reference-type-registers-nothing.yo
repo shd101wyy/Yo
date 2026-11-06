@@ -1,0 +1,13 @@
+{ assert } :: import("std/assert");
+Bag :: struct(n : i32);
+derive(Bag, Copy, Clone);
+Name :: trait(name : (fn(self : Self) -> i32));
+impl(Bag, Name(name : (fn(self : Self) -> i32)(i32(1))));
+impl(&Bag, Name(name : (fn(self : Self) -> i32)(i32(2))));
+via_ref :: (fn(r : &Bag) -> i32)(r.name());
+main :: (fn() -> unit)({
+  b := Bag(n : i32(0));
+  assert(b.name() == i32(1), "impl(Bag, Name) on an owned Bag");
+  assert(via_ref(&b) == i32(2), "impl(&Bag, Name) on a &Bag");
+});
+export(main);

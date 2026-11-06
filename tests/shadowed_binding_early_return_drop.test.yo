@@ -14,6 +14,7 @@ import("std/fmt");
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { Exception } :: import("std/error");
+{ yield } :: import("std/async");
 
 Holder :: struct(v : String);
 
@@ -299,4 +300,236 @@ test("an unwind before a later same-named local drops the earlier one once", {
   before2 := g_sb_key_drops;
   assert(_sb_twice_run(true, false) == usize(2), "no unwind");
   assert(g_sb_key_drops == (before2 + i32(1)), "the consumed k is dropped once by its consumer");
+});
+// A consuming `match` arm binding that reuses an enclosing local's name owns
+// the payload it moved out of the scrutinee, so the arm's end drops it. The
+// drop was attached only when no other binding of the name was visible, and
+// the enclosing local it shadows counted as one: every such match leaked its
+// payload. Only a binding declared after the value can capture its drop
+// (issues/fixed/2026-11-05-a-match-arm-binding-that-shadows-a-local-is-never-dropped.md).
+// The tag sums tell a payload drop (10) from the outer local's (1).
+(mut(g_sh_drops) : i32) = i32(0);
+_ShV :: struct(tag : i32);
+impl(
+  _ShV,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_sh_drops = (g_sh_drops + self.tag);
+    })
+  )
+);
+_sh_n :: (fn() -> i32)(g_sh_drops);
+_sh_find :: (fn() -> Option(_ShV))(Option(_ShV).Some(_ShV(tag : i32(10))));
+test("a match arm binding that shadows a local is dropped at the arm's end", {
+  g_sh_drops = i32(0);
+  {
+    parsed := _ShV(tag : i32(1));
+    inner := match(_sh_find(), .Some(parsed) => parsed.tag, .None => i32(0));
+    assert(inner == i32(10), "the arm reads its own binding");
+    assert(g_sh_drops == i32(10), `the payload is dropped at the arm's end, drops=${_sh_n()}`);
+    assert(parsed.tag == i32(1), "the enclosing local is untouched");
+  };
+  assert(g_sh_drops == i32(11), `each value is dropped once, drops=${_sh_n()}`);
+});
+test("a shadowing arm binding over a named scrutinee is dropped once", {
+  g_sh_drops = i32(0);
+  {
+    parsed := _ShV(tag : i32(1));
+    o := _sh_find();
+    inner := match(o, .Some(parsed) => parsed.tag, .None => i32(0));
+    assert((inner + parsed.tag) == i32(11), "both bindings read their own value");
+  };
+  assert(g_sh_drops == i32(11), `each value is dropped once, drops=${_sh_n()}`);
+});
+// An early return inside the shadowing arm drops the binding and the local.
+_sh_early :: (fn(flag : bool) -> i32)({
+  parsed := _ShV(tag : i32(1));
+  inner := match(
+    _sh_find(),
+    .Some(parsed) => {
+      if(flag, {
+        return(parsed.tag + i32(100));
+      });
+      parsed.tag
+    },
+    .None => i32(0)
+  );
+  parsed.tag + inner
+});
+test("an early return from a shadowing arm drops the binding and the local once", {
+  g_sh_drops = i32(0);
+  assert(_sh_early(true) == i32(110), "the early path");
+  assert(g_sh_drops == i32(11), `the early path drops each value once, drops=${_sh_n()}`);
+  g_sh_drops = i32(0);
+  assert(_sh_early(false) == i32(11), "the normal path");
+  assert(g_sh_drops == i32(11), `the normal path drops each value once, drops=${_sh_n()}`);
+});
+// A nested arm's binding that shadows the outer arm's binding: each payload
+// is dropped once, by its own arm.
+test("nested shadowing arm bindings are each dropped once", {
+  g_sh_drops = i32(0);
+  {
+    inner := match(
+      _sh_find(),
+      .Some(parsed) => {
+        seen := parsed.tag;
+        seen + match(_sh_find(), .Some(parsed) => (parsed.tag * i32(10)), .None => i32(0))
+      },
+      .None => i32(0)
+    );
+    assert(inner == i32(110), "each arm reads its own binding");
+  };
+  assert(g_sh_drops == i32(20), `each payload is dropped once, drops=${_sh_n()}`);
+});
+// The outer arm's binding is read again after the inner arm that shadows it
+// closed: the read is the outer binding's, not the enclosing local's.
+test("an arm binding read after a nested arm that shadows it is its own", {
+  g_sh_drops = i32(0);
+  {
+    parsed := _ShV(tag : i32(1));
+    inner := match(
+      _sh_find(),
+      .Some(parsed) => {
+        nested := match(_sh_find(), .Some(parsed) => (parsed.tag * i32(10)), .None => i32(0));
+        nested + parsed.tag
+      },
+      .None => i32(0)
+    );
+    assert(inner == i32(110), `each arm reads its own binding, inner=${inner.to_string()}`);
+    assert(parsed.tag == i32(1), "the enclosing local is untouched");
+  };
+  assert(g_sh_drops == i32(21), `each value is dropped once, drops=${_sh_n()}`);
+});
+// An early return from a nested arm whose binding shadows the outer arm's
+// and the enclosing local: all three are dropped once.
+_sh_early_nested :: (fn(flag : bool) -> i32)({
+  parsed := _ShV(tag : i32(1));
+  inner := match(
+    _sh_find(),
+    .Some(parsed) => match(
+      _sh_find(),
+      .Some(parsed) => {
+        if(flag, {
+          return(parsed.tag + i32(100));
+        });
+        parsed.tag
+      },
+      .None => i32(0)
+    ),
+    .None => i32(0)
+  );
+  parsed.tag + inner
+});
+test("an early return from a nested shadowing arm drops every value once", {
+  g_sh_drops = i32(0);
+  assert(_sh_early_nested(true) == i32(110), "the early path");
+  assert(g_sh_drops == i32(21), `the early path drops each value once, drops=${_sh_n()}`);
+  g_sh_drops = i32(0);
+  assert(_sh_early_nested(false) == i32(11), "the normal path");
+  assert(g_sh_drops == i32(21), `the normal path drops each value once, drops=${_sh_n()}`);
+});
+// An unwind out of a shadowing arm drops the binding and the enclosing local.
+_sh_check :: (fn(fail : bool, exn : Exception) -> i32)({
+  if(fail, {
+    exn.throw(dyn(String.from("unwind")));
+  });
+  i32(0)
+});
+_sh_unwind :: (fn(fail : bool, exn : Exception) -> i32)({
+  parsed := _ShV(tag : i32(1));
+  inner := match(_sh_find(), .Some(parsed) => (parsed.tag + _sh_check(fail, exn)), .None => i32(0));
+  parsed.tag + inner
+});
+_sh_unwind_run :: (fn(fail : bool) -> i32)({
+  exn := Exception(throw : (_err -> unwind(i32(99))));
+  _sh_unwind(fail, exn)
+});
+test("an unwind out of a shadowing arm drops the binding and the local once", {
+  g_sh_drops = i32(0);
+  assert(_sh_unwind_run(true) == i32(99), "the call unwound");
+  assert(g_sh_drops == i32(11), `the unwind drops each value once, drops=${_sh_n()}`);
+  g_sh_drops = i32(0);
+  assert(_sh_unwind_run(false) == i32(11), "no unwind");
+  assert(g_sh_drops == i32(11), `the normal path drops each value once, drops=${_sh_n()}`);
+});
+// An early return from a shadowing arm inside an async body, across awaits.
+test("an early return from a shadowing arm in an async body drops each value once", {
+  g_sh_drops = i32(0);
+  drive := (fn(flag : bool, rio : Io) -> Impl(Future(i32, Io)))(
+    rio.async((aio : Io) => {
+      parsed := Rc.new(_ShV(tag : i32(1)));
+      aio.await(yield(aio), aio);
+      inner := match(
+        _sh_find_cargo(),
+        .Some(parsed) => {
+          if(flag, {
+            return(parsed.tag + i32(100));
+          });
+          parsed.tag
+        },
+        .None => i32(0)
+      );
+      aio.await(yield(aio), aio);
+      parsed.tag + inner
+    })
+  );
+  assert(io.await(drive(true, io), io) == i32(110), "the early path");
+  assert(g_sh_drops == i32(11), `the early path drops each value once, drops=${_sh_n()}`);
+  g_sh_drops = i32(0);
+  assert(io.await(drive(false, io), io) == i32(11), "the normal path");
+  assert(g_sh_drops == i32(11), `the normal path drops each value once, drops=${_sh_n()}`);
+});
+// A String payload: the leak verdict (LeakSanitizer) is the oracle.
+_sh_find_label :: (fn() -> Option(String))(Option(String).Some(String.from("inner-label")));
+test("a shadowing arm binding of a String payload is released", {
+  label := String.from("outer-label");
+  n := match(_sh_find_label(), .Some(label) => label.len(), .None => usize(0));
+  assert((n + label.len()) == usize(22), "both strings are read");
+});
+// The async shape: a shared handle (`Rc`) payload, whose `Option` lowers to
+// the nullable pointer, bound by an arm beside a same-named local that lives
+// across awaits.
+_ShCargo :: Rc(_ShV);
+_sh_find_cargo :: (fn() -> Option(_ShCargo))(Option(_ShCargo).Some(Rc.new(_ShV(tag : i32(10)))));
+test("a shadowing nullable-pointer arm binding in an async body is dropped once", {
+  g_sh_drops = i32(0);
+  drive := (fn(rio : Io) -> Impl(Future(i32, Io)))(
+    rio.async((aio : Io) => {
+      parsed := Rc.new(_ShV(tag : i32(1)));
+      aio.await(yield(aio), aio);
+      inner := match(_sh_find_cargo(), .Some(parsed) => parsed.tag, .None => i32(0));
+      aio.await(yield(aio), aio);
+      parsed.tag + inner
+    })
+  );
+  assert(io.await(drive(io), io) == i32(11), "each binding reads its own value");
+  assert(g_sh_drops == i32(11), `each value is dropped once, drops=${_sh_n()}`);
+});
+// A `&` match's binding is a pointer into the scrutinee (decision 43), read
+// through. One that shadows an enclosing local is declared under its own C
+// name, and it is still read through that pointer.
+_ShTwo :: enum(Two(x : i32, y : i32), One(n : i32));
+test("a shadowing binding of a borrowed match reads through its pointer", {
+  y := i32(5);
+  e := _ShTwo.Two(x : i32(1), y : i32(2));
+  got := match(&e, .Two(_, y) => (y.* + i32(10)), _ => i32(-1));
+  assert(got == i32(12), `the binding reads the payload, got=${got}`);
+  assert(y == i32(5), "the enclosing local is untouched");
+});
+// Only the outer binding of a nested same-named pair is a pointer: the inner
+// by-value binding is read as a value, and the outer one through its pointer
+// again once the inner arm closes
+// (issues/fixed/2026-11-06-a-by-value-binding-inside-a-borrowed-arm-of-the-same-name-is-read-through-a-pointer.md).
+test("nested same-named borrowed and by-value bindings each read their own way", {
+  e := _ShTwo.Two(x : i32(1), y : i32(2));
+  o := Option(i32).Some(i32(9));
+  got := match(
+    &e,
+    .Two(v, _) => {
+      inner := match(o, .Some(v) => (v + i32(100)), .None => i32(0));
+      (inner + v.*)
+    },
+    _ => i32(-1)
+  );
+  assert(got == i32(110), `inner reads 9, outer reads 1, got=${got}`);
 });

@@ -10,7 +10,7 @@
 { declare_c_var_name, type_key, get_variable_name_for_codegen_at, ImplClosureCallInfo, get_type_string, get_deferred_dup_target_atom_name, element_wise_dup_target, element_wise_dup_elements, sanitize_for_c_identifier, scope_stack_contains, c_field_name, fresh_local_name } :: import("../utils/index.yo");
 { _call_generate_expr } :: import("./_expr.yo");
 { sm_slot_of, sm_move_flag_of } :: import("../async/state_machine_naming.yo");
-{ FunctionGenerationContext, sm_owns_fnonce_captures } :: import("../functions/context.yo");
+{ FunctionGenerationContext, sm_owns_fnonce_captures, shadow_binding_c_name } :: import("../functions/context.yo");
 { is_closure_fn, get_closure_capture_info } :: import("../../function_value.yo");
 { EvalValue, is_func_val } :: import("../../value.yo");
 { Environment, variable_undone_moves } :: import("../../env.yo");
@@ -40,6 +40,12 @@ _resolve_sm_atom :: (fn(expr : &AstExpr, var_name : &String, context : &mut Func
     .Some(f) => f(expr, var_name, context),
     .None => Option(String).None
   )
+);
+/// `code` read through when `label` is a match arm's place binding (a C
+/// pointer to its part, `place_bindings`): an implicit capture copies the
+/// part.
+_deref_place_binding :: (fn(label : &String, code : String, context : &FunctionGenerationContext) -> String)(
+  if(match(&context.place_bindings, .Some(ps) => ps.contains(shadow_binding_c_name(context, &sanitize_for_c_identifier(label.clone(), false))), .None => false), `(*${code})`, code)
 );
 /// Hook to drop_dup.yo's `emit_deferred_dup_or_code` (the shared dup-on-store
 /// choke point: emit `expr`'s deferred `___dup`s and return the dup-result
@@ -410,9 +416,11 @@ generate_closure_construction :: (fn(expr : &AstExpr, indent : &String, context 
           // one), a captured variable is read through `closure_context`, the
           // way `generate_atom` reads it: a bare name was undeclared there
           // (issues/fixed/impl-fn-param-captured-by-an-async-block-is-not-in-the-capture-struct.md).
+          // A `&` match's binding is a pointer to its part: the field
+          // copies the part.
           .None => match(
             _resolve_sm_atom(expr, label.clone(), context),
-            .Some(sm_name) => _sm_moved_capture_read(expr, &label, sm_name, &ei, context),
+            .Some(sm_name) => _deref_place_binding(&label, _sm_moved_capture_read(expr, &label, sm_name, &ei, context), context),
             .None => match(
               _enclosing_closure_capture_read(ast_expr_id(expr), label.clone(), &ei.env(), context),
               .Some(cap_read) => cap_read,
@@ -420,7 +428,7 @@ generate_closure_construction :: (fn(expr : &AstExpr, indent : &String, context 
                 // A C local of an enclosing state-machine body (phase 6) is
                 // read by its own name while its block is open.
                 local_c := sanitize_for_c_identifier(label.clone(), false);
-                if(match(&context.in_async_state_machine, .Some(_) => (context.base.declared_scopes.with(ds_s => scope_stack_contains(ds_s, local_c.clone())) || context.base.declared_c_var_names.with(dn_s => dn_s.contains(local_c.clone()))), .None => false), local_c, get_variable_name_for_codegen_at(ast_expr_id(expr), label.clone(), Option(Environment).Some(ei.env())))
+                _deref_place_binding(&label, if(match(&context.in_async_state_machine, .Some(_) => (context.base.declared_scopes.with(ds_s => scope_stack_contains(ds_s, local_c.clone())) || context.base.declared_c_var_names.with(dn_s => dn_s.contains(local_c.clone()))), .None => false), local_c, get_variable_name_for_codegen_at(ast_expr_id(expr), label.clone(), Option(Environment).Some(ei.env()))), context)
               }
             )
           )

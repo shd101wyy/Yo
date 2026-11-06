@@ -10,7 +10,7 @@ moved-out value.
 The `return` form double-freed on develop already (`6dee22187`); the branch's
 new `break`/`continue` exit drops added the other two. The unmoved variant (a
 phantom drop of a zeroed slot) is still open:
-`issues/2026-10-23-an-exit-inside-an-unmoved-async-locals-own-initializer-drops-its-zeroed-slot.md`.
+`issues/fixed/2026-10-23-an-exit-inside-an-unmoved-async-locals-own-initializer-drops-its-zeroed-slot.md`.
 
 ## Reproducer
 

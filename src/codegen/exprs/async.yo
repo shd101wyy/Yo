@@ -557,6 +557,7 @@ _join_dotted :: (fn(parts : &ArrayList(String)) -> String)({
 emit_async_block_struct_definition :: (
   fn(info : &AsyncBlockStructInfo, context : &mut FunctionGenerationContext) -> unit
 )({
+  mut(move_flags) := ArrayList(String).new();
   emit_text1 := `// State machine for async block ${info.async_block_id.clone()} - implements Future(${get_type_string(&info.result_type, &mut context.base)})`;
   context.base.emitter.emit_declaration_string_line(&emit_text1);
   context.base.emitter.emit_declaration_string_line(`struct ${info.struct_name.clone()}_struct {`);
@@ -673,6 +674,7 @@ emit_async_block_struct_definition :: (
           if(!is_any_temp_variable_name(variable.base.name.clone()), {
             note_sm_move_flag_field(field_name.clone());
             context.base.emitter.emit_declaration_string_line(`  uint8_t __yo_mv_${field_name};  // ${variable.base.name.clone()} was moved out`);
+            move_flags.push(`__yo_mv_${field_name}`);
           });
         },
         .None => ()
@@ -716,8 +718,21 @@ emit_async_block_struct_definition :: (
       .None => ()
     );
   });
-  _emit_fused_site_fields(fused_await_sites(&info.analysis, context), context);
   context.base.emitter.emit_declaration_line("};");
+  context.base.emitter.emit_declaration_line("");
+  _emit_fused_site_fields(fused_await_sites(&info.analysis, context), &mut move_flags, context);
+  // Every named local's slot starts empty: its move flag is set until the
+  // first store into it clears it, so an abort before the local is
+  // initialized does not drop the slot's zeroes, which are not an empty value
+  // for every type (a `Drop` struct of plain fields)
+  // (issues/fixed/2026-11-05-an-aborted-task-drops-a-local-its-scope-already-dropped.md).
+  context.base.emitter.emit_declaration_string_line(`static inline void ${info.struct_name.clone()}_init_move_flags(struct ${info.struct_name.clone()}_struct* sm) {`);
+  if(move_flags.len() == usize(0), context.base.emitter.emit_declaration_line("  (void)sm;"));
+  (mut(mfi) : usize) = usize(0);
+  while(mfi < move_flags.len(), mfi = (mfi + usize(1)), {
+    match(move_flags.get_cloned(mfi), .Some(mf) => context.base.emitter.emit_declaration_string_line(`  sm->${mf} = 1;`), .None => ());
+  });
+  context.base.emitter.emit_declaration_line("}");
   context.base.emitter.emit_declaration_line("");
 });
 /// The C type string for a dependency check, or `None` to skip the edge — i.e.
@@ -1059,6 +1074,20 @@ _rc_field_drop_line :: (fn(field_ref : &String, field_type : &TypeValue, indent 
     true => Option(String).None
   )
 );
+/// The drop `line` of the task slot `field_ref`, run only while the slot
+/// holds a value of its own: a slot with a move flag (`sm_move_flag_of`)
+/// has given its value up once the flag is set, by a move out (the value
+/// stays readable for the moved-from name, and its new owner releases it) or
+/// by the drop at its scope's end. A zeroed slot is not empty for every type:
+/// a `Drop` struct of plain fields would run its `drop` on the zeroes
+/// (issues/fixed/2026-11-05-an-aborted-task-drops-a-local-its-scope-already-dropped.md).
+_unless_moved_out :: (fn(field_ref : &String, line : &String) -> String)(
+  match(
+    sm_move_flag_of(field_ref.clone()),
+    .Some(flag) => `    if (!(${flag})) {\n${line}\n    }`,
+    .None => line.clone()
+  )
+);
 /// True if `capture_type` is registered in `context.types`.
 _capture_type_entry_exists :: (fn(capture_type : &TypeValue, context : &FunctionGenerationContext) -> bool)({
   target_key := type_key(capture_type);
@@ -1330,8 +1359,10 @@ generate_async_block_state_dispose_function :: (
       .Some(v) => {
         is_local := match(v.kind, .Local => true, _ => false);
         is_owning := match(v.is_owning_the_same_rc_value_as, .Some(_) => true, .None => false);
-        // A pattern binding's slot borrows the scrutinee's payload: the
-        // scrutinee's own drop releases it.
+        // A borrowing pattern binding's slot reads the scrutinee's payload:
+        // the scrutinee's own drop releases it. A consuming match's binding
+        // owns its part and is dropped here like a named local
+        // (`note_state_machine_binding_id`).
         is_binding := match(&context.state_machine_binding_ids, .Some(bids) => bids.contains(v.base.id.to_string()), .None => false);
         // A member of a shared slot is dropped through the slot, below.
         is_shared := overlapping_slot_aliases.contains_key(v.base.id.to_string());
@@ -1341,14 +1372,10 @@ generate_async_block_state_dispose_function :: (
           match(
             _rc_field_drop_line(field_ref.clone(), &v.base.ty, String.from("    "), context),
             .Some(line) => {
-              // A slot whose value was moved out still holds it for the
-              // moved-from name's reads; its new owner releases it.
-              match(
-                sm_move_flag_of(field_ref.clone()),
-                .Some(flag) => local_drop_lines.push(`    if (${flag}) { memset(&(${field_ref}), 0, sizeof(${field_ref})); }`),
-                .None => ()
-              );
-              local_drop_lines.push(line);
+              // A flagged slot holds no value of its own: one moved out still
+              // holds it for the moved-from name's reads (its new owner
+              // releases it), and one its scope already dropped is emptied.
+              local_drop_lines.push(_unless_moved_out(&field_ref, &line));
             },
             .None => ()
           );
@@ -1435,6 +1462,7 @@ generate_async_block_constructor :: (
   emit_text5 := `  ${struct_name.clone()}* sm = (${struct_name.clone()}*)${_sm_alloc_call(struct_name.clone(), dispose_function_name.clone(), context)};`;
   context.base.emitter.emit_string_line(&emit_text5);
   context.base.emitter.emit_string_line(`  memset(sm, 0, sizeof(${struct_name.clone()}));`);
+  context.base.emitter.emit_string_line(`  ${struct_name.clone()}_init_move_flags((struct ${struct_name.clone()}_struct*)sm);`);
   context.base.emitter.emit_line("");
   // Reference-counting header.
   context.base.emitter.emit_line("  // Initialize reference counting header");
@@ -2008,7 +2036,8 @@ _fused_local_fields :: (fn(site : &FusedAwaitSite) -> ArrayList(FusedLocalField)
 });
 /// The fields the fused sites of a state machine add to its struct: each
 /// wrapper block's capture struct, bundle parameter, locals and await results.
-_emit_fused_site_fields :: (fn(sites : &ArrayList(FusedAwaitSite), context : &mut FunctionGenerationContext) -> unit)({
+/// The locals' move flags are added to `move_flags`.
+_emit_fused_site_fields :: (fn(sites : &ArrayList(FusedAwaitSite), move_flags : &mut ArrayList(String), context : &mut FunctionGenerationContext) -> unit)({
   // A wrapper block reached at two depths has one set of local fields: its
   // locals' names come from the naming registry, and its sites run one after
   // the other.
@@ -2051,6 +2080,7 @@ _emit_fused_site_fields :: (fn(sites : &ArrayList(FusedAwaitSite), context : &mu
           if(!is_any_temp_variable_name(lf.name.clone()), {
             note_sm_move_flag_field(lf.field_name.clone());
             context.base.emitter.emit_declaration_string_line(`  uint8_t __yo_mv_${lf.field_name.clone()};  // ${lf.name.clone()} was moved out`);
+            move_flags.push(`__yo_mv_${lf.field_name.clone()}`);
           });
         }),
         .None => ()
@@ -2186,14 +2216,9 @@ _emit_fused_local_release :: (fn(lf : &FusedLocalField, indent : &String, zero :
     match(
       _rc_field_drop_line(`sm->${lf.field_name.clone()}`, &lf.ty, indent.clone(), context),
       .Some(line) => {
-        // A slot whose value moved out keeps it for the name's reads; its new
-        // owner releases it.
-        match(
-          sm_move_flag_of(`sm->${lf.field_name.clone()}`),
-          .Some(flag) => context.base.emitter.emit_string_line(`${indent}if (${flag}) { memset(&(sm->${lf.field_name.clone()}), 0, sizeof(sm->${lf.field_name.clone()})); }`),
-          .None => ()
-        );
-        context.base.emitter.emit_string_line(&line);
+        // A slot whose value moved out keeps it for the name's reads (its new
+        // owner releases it), and one its scope dropped is emptied.
+        context.base.emitter.emit_string_line(&_unless_moved_out(&`sm->${lf.field_name.clone()}`, &line));
       },
       .None => ()
     );

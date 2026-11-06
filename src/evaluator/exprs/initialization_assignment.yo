@@ -58,7 +58,9 @@
   make_err_variable,
   env_adopt,
   variable_value_type,
-  variable_set_value_type
+  variable_set_value_type,
+  variable_set_is_ref,
+  variable_set_reference_mut
 } :: import("../../env.yo");
 {
   EvalContext,
@@ -551,7 +553,8 @@ _evaluate_inout_local_binding :: (
   match(
     bound_opt,
     .Some(bound) => {
-      bound.set_is_ref(true);
+      variable_set_is_ref(&bound, true);
+      variable_set_reference_mut(&bound, is_mut);
       variable_set_inout_borrow_root_id(&bound, root_var.id());
       if(hops.len() == usize(0), {
         // Whole-variable place: alias the root's value cell so compile-time
@@ -752,7 +755,8 @@ _bind_projection_result :: (
   match(
     bound_opt,
     .Some(bound) => {
-      bound.set_is_ref(true);
+      variable_set_is_ref(&bound, true);
+      variable_set_reference_mut(&bound, is_mut);
       match(root_vars.get_cloned(usize(0)), .Some(rv0) => variable_set_inout_borrow_root_id(&bound, rv0.id()), .None => ());
     },
     .None => ()

@@ -1577,6 +1577,19 @@ _synthesize_types_impl :: (
     ge = Rc.clone(res.given_env);
     return(SynthesizeResult(expected_env : ee, given_env : ge));
   });
+  // Case: Reference + Reference of one mode (decision 43 N1f-2): the
+  // pointees synthesize, so a blanket `impl(generic(T), &T, Tr)` binds `T`
+  // from a `&C` receiver. The origin is not part of the match (O1).
+  (exp_ref_mut : Option(bool)) = match(expected_ty, Rc(.Reference(_, erm, _)) => Option(bool).Some(erm), _ => Option(bool).None);
+  (giv_ref_mut : Option(bool)) = match(given_ty, Rc(.Reference(_, grm, _)) => Option(bool).Some(grm), _ => Option(bool).None);
+  if(match(exp_ref_mut, .Some(erm2) => match(giv_ref_mut, .Some(grm2) => (erm2 == grm2), .None => false), .None => false), {
+    exp_pointee := t_slot_pointee(expected_ty);
+    giv_pointee := t_slot_pointee(given_ty);
+    res := _synthesize_types_impl(&exp_pointee, &ee, &giv_pointee, &ge, checked, opts, exn);
+    ee = res.expected_env;
+    ge = res.given_env;
+    return(SynthesizeResult(expected_env : ee, given_env : ge));
+  });
   // Case: Dyn + Dyn. Each expected trait is synthesized against the given
   // trait of the same kind (the same Fn base, a Future, or the same trait
   // id), so `f : Dyn(Fn(x : A) -> B)` given a `Dyn(Fn(y : i32) -> i32)` binds

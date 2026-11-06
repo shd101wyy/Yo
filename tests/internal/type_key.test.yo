@@ -87,6 +87,23 @@ test("type_key: a reference slot keys as its spelling, without its origin", {
   ts.push(t_i32());
   assert(type_key(t_func_simple(ps.clone(), ts.clone(), t_bool())) == `fn(a : &i32) -> bool`, "fn(a : &i32) -> bool");
 });
+// Decision 43 N1f-2: a reference is an impl receiver, keyed by its mode and
+// its pointee's key with the origin erased (VERDICTS-25 Q2 §3): `&(T, x)` and
+// `&(T, y)` are one receiver, `T`, `&T` and `&mut T` three.
+test("type_key: &(T, x) = &(T, y); T, &T and &mut T differ (a composite pointee)", {
+  pointee := t_ptr(t_i32());
+  mut(xs) := ArrayList(String).new();
+  xs.push(`x`);
+  mut(ys) := ArrayList(String).new();
+  ys.push(`y`);
+  r_x := t_reference_with_origin(&pointee, false, t_origin_named(shared_list(xs)));
+  r_y := t_reference_with_origin(&pointee, false, t_origin_named(shared_list(ys)));
+  assert(type_key(&r_x) == type_key(&r_y), "&(T, x) and &(T, y) share a key");
+  assert(type_key(&r_x) == type_key(t_reference(&pointee, false)), "a named origin keys as the elided one");
+  assert(!(type_key(t_reference(&pointee, false)) == type_key(&pointee)), "&T vs T");
+  assert(!(type_key(t_reference(&pointee, false)) == type_key(t_reference(&pointee, true))), "&T vs &mut T");
+  assert(!(type_key(t_reference(&pointee, true)) == type_key(&pointee)), "&mut T vs T");
+});
 // `fn(v : <slot>) -> i32`, the slot as given.
 _fn_one_slot :: (fn(slot : &TypeValue) -> TypeValue)(_fn_slot_result(slot, t_i32()));
 /// `fn(v : <slot>) -> <result>`: one parameter slot and a result slot.

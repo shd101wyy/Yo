@@ -20,7 +20,7 @@ pragma(Pragma.AllowUnsafe);
   mark_node_preevaluated,
   unmark_node_preevaluated
 } :: import("../../expr_info.yo");
-{ Environment, Variable, synthetic_token, get_variables_from_env, add_variable_to_env, by_value_param_owns, snapshot_env, variable_value_type } :: import("../../env.yo");
+{ Environment, Variable, synthetic_token, get_variables_from_env, add_variable_to_env, by_value_param_owns, snapshot_env, variable_value_type, variable_set_is_ref, variable_set_is_imm_borrow } :: import("../../env.yo");
 { Token, TokenKind, intern_token_str } :: import("../../token.yo");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { function_reaches_non_send_global, d1_note_thread_reach } :: import("../effects/mutation_summary.yo");
@@ -841,15 +841,15 @@ _monomorphize_default_fv :: (
           .Some(sp_var) => {
             sp_var.set_is_parameter(true);
             if(sp_is_ref, {
-              sp_var.set_is_ref(true);
+              variable_set_is_ref(&sp_var, true);
               sp_var.set_is_reassignable(true);
             });
             if(fn_param_is_ptr_borrow(&sub_ft, spi), {
-              sp_var.set_is_ref(true);
+              variable_set_is_ref(&sp_var, true);
             });
             sp_by_value := match(match(&sub_ft, Rc(.Func({ result : _ })) => fn_param_by_value_at(&sub_ft, spi), _ => Option(bool).None), .Some(b) => b, .None => false);
             if(!sp_is_ref && !sp_by_value, {
-              sp_var.set_is_imm_borrow(true);
+              variable_set_is_imm_borrow(&sp_var, true);
             });
             // A by-value parameter owns its argument (`bind_parameter`).
             if(sp_by_value, {

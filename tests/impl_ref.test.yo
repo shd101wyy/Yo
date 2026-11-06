@@ -1,0 +1,197 @@
+// `impl(&C, Trait)` and `impl(&mut C, Trait)`: decision 43's N1f-2
+// (plans/backlog/REFERENCES_AND_ORIGINS.md), resolved by R-PROBE.
+//
+// A reference receiver is its own impl receiver: `impl(C, Tr)`,
+// `impl(&C, Tr)` and `impl(&mut C, Tr)` are three keys, the origin is not part
+// of the key. Method resolution probes RECEIVER-SLOT TYPES: for a receiver of
+// type `R`, first `R`, then `&R` and `&mut R`, then one deref; the first
+// candidate some method's receiver slot (its `self` parameter, `Self`
+// substituted) equals wins. `impl(&C, Tr(m : fn(self : Self)))` and
+// `impl(C, Tr(m : fn(self : &Self)))` both have the slot `&C`. An owned
+// receiver auto-borrows; nothing auto-moves: `c.m()` takes a by-value `self`
+// on `C` first, and `(&c).m()` is the explicit borrow.
+{ assert } :: import("std/assert");
+{ ArrayList } :: import("std/collections/array_list");
+// issues/fixed/2026-11-05-an-impl-over-a-reference-type-registers-nothing.md:
+// `impl(&Bag, …)` registered nothing, and a `&Bag` receiver silently called
+// `impl(Bag, …)`.
+_RbBag :: struct(n : i32);
+derive(_RbBag, Copy, Clone);
+_RbName :: trait(name : (fn(self : Self) -> i32));
+impl(_RbBag, _RbName(name : (fn(self : Self) -> i32)(i32(1))));
+impl(&_RbBag, _RbName(name : (fn(self : Self) -> i32)(i32(2))));
+_rb_via_ref :: (fn(r : &_RbBag) -> i32)(r.name());
+test("a &Bag receiver dispatches to impl(&Bag, …), an owned Bag to impl(Bag, …)", {
+  b := _RbBag(n : i32(0));
+  assert(b.name() == i32(1), "owned: impl(_RbBag, _RbName)");
+  assert((&b).name() == i32(2), "explicit (&b): impl(&_RbBag, _RbName)");
+  assert(_rb_via_ref(&b) == i32(2), "a &_RbBag parameter: impl(&_RbBag, _RbName)");
+});
+// (i) The value form consumes, the explicit borrow reads in place.
+_IiBag :: struct(xs : ArrayList(i32));
+_IiDrain :: struct(bag : _IiBag, i : usize);
+impl(
+  _IiDrain,
+  Iterator(
+    Item : i32,
+    next : (fn(self : &mut Self) -> Option(i32))({
+      if(self.i >= self.bag.xs.len(), {
+        return(.None);
+      });
+      at := self.i;
+      self.i = (self.i + usize(1));
+      .Some(self.bag.xs(at))
+    })
+  )
+);
+_IiCount :: struct(left : usize);
+impl(
+  _IiCount,
+  Iterator(
+    Item : usize,
+    next : (fn(self : &mut Self) -> Option(usize))({
+      if(self.left == usize(0), {
+        return(.None);
+      });
+      self.left = (self.left - usize(1));
+      .Some(self.left)
+    })
+  )
+);
+impl(
+  _IiBag,
+  IntoIterator(
+    Item : i32,
+    IntoIter : _IiDrain,
+    into_iter : (fn(self : Self) -> _IiDrain)(_IiDrain(bag : self, i : usize(0)))
+  )
+);
+impl(&_IiBag, IntoIterator(Item : usize, IntoIter : _IiCount, into_iter : (fn(self : Self) -> _IiCount)(_IiCount(left : self.xs.len()))));
+_ii_bag :: (fn() -> _IiBag)({
+  (mut(xs) : ArrayList(i32)) = ArrayList(i32).new();
+  xs.push(i32(5));
+  xs.push(i32(7));
+  _IiBag(xs : xs)
+});
+test("(i) bag.into_iter() consumes; (&bag).into_iter() borrows and bag is usable after", {
+  bag := _ii_bag();
+  (mut(counted) : _IiCount) = (&bag).into_iter();
+  (mut(n) : usize) = usize(0);
+  while(counted.next().is_some(), {
+    n = (n + usize(1));
+  });
+  assert(n == usize(2), "the borrowing impl walked the bag's length");
+  assert(bag.xs.len() == usize(2), "bag is usable after (&bag).into_iter()");
+  (mut(drain) : _IiDrain) = bag.into_iter();
+  (mut(sum) : i32) = i32(0);
+  while(true, {
+    match(
+      drain.next(),
+      .Some(x) => {
+        sum = (sum + x);
+      },
+      .None => break
+    );
+  });
+  assert(sum == i32(12), "the consuming impl owns the elements");
+  comptime_expect_error({
+    b2 := _ii_bag();
+    _d := b2.into_iter();
+    _l := b2.xs.len();
+  }, "use of moved value: `b2`");
+});
+// (ii) Two traits whose methods both take the receiver as `&C`: E0616 names
+// both impls; the qualified call names one.
+_AmC :: struct(n : i32);
+derive(_AmC, Copy, Clone);
+_AmA :: trait(am : (fn(self : Self) -> i32));
+_AmB :: trait(am : (fn(self : &Self) -> i32));
+impl(&_AmC, _AmA(am : (fn(self : Self) -> i32)(i32(10))));
+impl(_AmC, _AmB(am : (fn(self : &Self) -> i32)(i32(20))));
+test("(ii) impl(&C, A(m : Self)) beside impl(C, B(m : &Self)) is E0616; the qualified call dispatches", {
+  c := _AmC(n : i32(0));
+  comptime_expect_error((&c).am(), "impl(&_AmC, _AmA) (am : fn(self : Self))");
+  comptime_expect_error((&c).am(), "impl(_AmC, _AmB) (am : fn(self : &Self))");
+  comptime_expect_error((&c).am(), "both take the receiver as &_AmC");
+  comptime_expect_error(c.am(), "is ambiguous");
+  assert((&_AmC <: _AmA).am(&c) == i32(10), "named: impl(&_AmC, _AmA)");
+  assert((_AmC <: _AmB).am(&c) == i32(20), "named: impl(_AmC, _AmB)");
+});
+// (iv) A move-only owned receiver with a by-value `impl(C, …)` and a
+// by-value `impl(&C, …)`: `c.m()` consumes (step 0); only `(&c).m()` borrows.
+_MoC :: struct(xs : ArrayList(i32));
+_MoTr :: trait(mo : (fn(self : Self) -> usize));
+_MoTr2 :: trait(mo : (fn(self : Self) -> usize));
+impl(_MoC, _MoTr(mo : (fn(self : Self) -> usize)(self.xs.len())));
+impl(&_MoC, _MoTr2(mo : (fn(self : Self) -> usize)(self.xs.len() + usize(100))));
+_mo_make :: (fn() -> _MoC)(_MoC(xs : ArrayList(i32).new()));
+test("(iv) an owned move-only c takes the by-value impl(C, …) and is consumed", {
+  c := _mo_make();
+  assert((&c).mo() == usize(100), "(&c).mo(): impl(&_MoC, _MoTr2) borrows");
+  assert(c.mo() == usize(0), "c.mo(): impl(_MoC, _MoTr) at step 0");
+  comptime_expect_error({
+    c2 := _mo_make();
+    _a := c2.mo();
+    _b := c2.xs.len();
+  }, "use of moved value: `c2`");
+});
+// Two traits whose methods differ only by `self : Self` and `self : &Self`
+// both register on one type; an owned receiver takes the by-value one (step
+// 0), `(&c)` the borrowing one.
+_SvC :: struct(n : i32);
+derive(_SvC, Copy, Clone);
+_SvByValue :: trait(sv : (fn(self : Self) -> i32));
+_SvByRef :: trait(sv : (fn(self : &Self) -> i32));
+impl(_SvC, _SvByValue(sv : (fn(self : Self) -> i32)(i32(1))));
+impl(_SvC, _SvByRef(sv : (fn(self : &Self) -> i32)(i32(2))));
+test("two traits differing only by Self and &Self register and dispatch by probe step", {
+  c := _SvC(n : i32(0));
+  assert(c.sv() == i32(1), "c.sv(): the slot _SvC at step 0");
+  assert((&c).sv() == i32(2), "(&c).sv(): the slot &_SvC at step 0");
+  assert((_SvC <: _SvByValue).sv(c) == i32(1), "named: by value");
+  assert((_SvC <: _SvByRef).sv(&c) == i32(2), "named: by reference");
+});
+// The explicit borrow cannot reach what it does not lend.
+_ExC :: struct(xs : ArrayList(i32));
+_ExTake :: trait(take_all : (fn(self : Self) -> usize));
+_ExGrow :: trait(grow : (fn(self : &mut Self) -> unit));
+impl(_ExC, _ExTake(take_all : (fn(self : Self) -> usize)(self.xs.len())));
+impl(_ExC, _ExGrow(grow : (fn(self : &mut Self) -> unit)(self.xs.push(i32(1)))));
+test("(&c) does not move out of c, nor write through a shared borrow", {
+  (mut(c) : _ExC) = _ExC(xs : ArrayList(i32).new());
+  comptime_expect_error((&c).take_all(), "would move out of what the borrow refers to");
+  comptime_expect_error((&c).grow(), "would write through a shared borrow");
+  comptime_expect_error((&c).shrink(), "Receiver slot types probed: &_ExC, &&_ExC, &mut &_ExC, _ExC, &mut _ExC.");
+  (&mut c).grow();
+  assert(c.xs.len() == usize(1), "(&mut c).grow() wrote c in place");
+});
+// (vii) The std blanket shape over references, spelled by a user: `&T`
+// shows wherever `T` does, its body the type-qualified call on `self.*`.
+// `(&c).show()` takes the blanket (its slot `&_ShC` is step 0); `c.show()`
+// takes `impl(_ShC, …)`.
+_ShShow :: trait(show : (fn(self : Self) -> i32));
+_ShC :: struct(n : i32);
+derive(_ShC, Copy, Clone);
+impl(_ShC, _ShShow(show : (fn(self : Self) -> i32)(self.n)));
+impl(generic(T), where(T <: _ShShow), &T, _ShShow(show : (fn(self : Self) -> i32)(T.show(self.*) + i32(1000))));
+test("(vii) a user blanket impl(generic(T), where(T <: Show), &T, Show(…))", {
+  comptime_assert(Type.impls(&_ShC, _ShShow), "the blanket covers &_ShC");
+  c := _ShC(n : i32(7));
+  assert(c.show() == i32(7), "c.show(): impl(_ShC, _ShShow)");
+  assert((&c).show() == i32(1007), "(&c).show(): the blanket over &T");
+});
+// (viii) Coherence: the origin is not part of a reference receiver's key, and
+// a bare-variable blanket covers `&C` too.
+_CoC :: struct(n : i32);
+_CoTr :: trait(co : (fn(self : Self) -> i32));
+_CoTr2 :: trait(co2 : (fn(self : Self) -> i32));
+impl(generic(p : Origin), &(_CoC, p), _CoTr(co : (fn(self : Self) -> i32)(i32(1))));
+impl(&_CoC, _CoTr2(co2 : (fn(self : Self) -> i32)(i32(1))));
+test("(viii) impl(&(C, p), Tr) twice and a bare blanket beside impl(&C, Tr) are E0612", {
+  c := _CoC(n : i32(0));
+  assert((&c).co() == i32(1), "impl(generic(p : Origin), &(_CoC, p), _CoTr) dispatches");
+  assert((&c).co2() == i32(1), "impl(&_CoC, _CoTr2) dispatches");
+  comptime_expect_error(impl(generic(q : Origin), &(_CoC, q), _CoTr(co : (fn(self : Self) -> i32)(i32(2)))), "is already implemented");
+  comptime_expect_error(impl(&_CoC, _CoTr(co : (fn(self : Self) -> i32)(i32(3)))), "is already implemented");
+  comptime_expect_error(impl(generic(T), T, _CoTr2(co2 : (fn(self : Self) -> i32)(i32(2)))), "is already implemented");
+});

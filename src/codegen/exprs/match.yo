@@ -15,7 +15,7 @@
 { ArrayList } :: import("std/collections/array_list");
 { HashSet } :: import("std/collections/hash_set");
 { HashMap } :: import("std/collections/hash_map");
-{ AstExpr, ast_expr_id, ast_expr_is_atom, ast_expr_is_fn_call_of, ast_expr_token, ast_expr_text, make_err_expr, BK_BEGIN, BF_DOT } :: import("../../expr.yo");
+{ AstExpr, ast_expr_id, ast_expr_is_atom, ast_expr_is_fn_call_of, ast_expr_token, ast_expr_text, make_err_expr, BK_BEGIN, BF_DOT, is_mut_binding } :: import("../../expr.yo");
 { EvalValue } :: import("../../value.yo");
 { TypeValue, TypeValueNode, no_types, no_labels, SharedList, t_slot_is_borrow, t_slot_pointee } :: import("../../types/definitions.yo");
 {
@@ -29,17 +29,17 @@
 } :: import("../../expr_info.yo");
 { is_unit_type, is_never_type, is_pointer_type, is_reference_struct_type, is_reference_enum_type, is_enum_type, is_float_type, is_unique_box_type, is_box_type, is_newtype_type, cell_handle_view } :: import("../../types/guards.yo");
 { Environment } :: import("../../env.yo");
-{ note_state_machine_binding_id, FunctionGenerationContext, sm_lowering_note_binding_source } :: import("../functions/context.yo");
+{ note_state_machine_binding_id, FunctionGenerationContext, sm_lowering_note_binding_source, shadow_binding_decl_name, shadow_binding_c_name, shadow_binding_push, shadow_binding_pop } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
 { Token, TokenKind } :: import("../../token.yo");
 { generate_deferred_drop_expressions, generate_deferred_dup_expressions, generate_dup_code_for_value, arm_value_with_dups, has_pending_emittable_drop, _looks_like_minted_temp } :: import("./drop_dup.yo");
 { is_temp_variable_name } :: import("../../utils.yo");
 { _store_temp_var_to_state_machine_if_needed } :: import("./other_fn_call.yo");
-{ sm_local_field_name } :: import("../async/state_machine_naming.yo");
+{ sm_local_field_name, sm_move_flag_of } :: import("../async/state_machine_naming.yo");
 { declare_c_var_name, get_type_string, fresh_local_name, get_variable_name_for_codegen, type_key, sanitize_for_c_identifier, c_field_name, c_variant_member_name, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, get_enum_variant_c_name, get_deferred_dup_target_atom_name, pattern_param_is_literal, pattern_literal_param_code, pattern_literal_arm_guards, arm_variant_name, arm_params, nullable_arm_selects_payload, nullable_arm_payload_binder, get_runtime_struct_fields, note_line_position, get_variable_name_for_codegen_at } :: import("../utils/index.yo");
 { resolve_enum_shell, t_ptr } :: import("../../types/creators.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
-{ Pattern, Arm, lookup_match_arms, pattern_bindings, lookup_match_mode, lookup_arm_entry_drops, pattern_position_is_cell, MATCH_MODE_MUT, MATCH_MODE_BORROW } :: import("../../pattern.yo");
+{ Pattern, Arm, lookup_match_arms, pattern_bindings, pattern_binding_atoms, lookup_match_mode, lookup_arm_entry_drops, pattern_position_is_cell, MATCH_MODE_MUT, MATCH_MODE_BORROW, MATCH_MODE_REF, MATCH_MODE_REF_TEMP, match_mode_binds_refs, MATCH_MODE_CONSUME } :: import("../../pattern.yo");
 { arm_is_classic } :: import("../../evaluator/exprs/pattern_compile.yo");
 { replace } :: import("std/mem");
 /// True for an ASCII word byte ([A-Za-z0-9_]).
@@ -124,6 +124,23 @@ _emit_place_binding_decl :: (fn(context : &mut FunctionGenerationContext, indent
     context.base.emitter.emit_string_line(`${indent}${pstr} ${bind} = ${addr};`);
   });
 });
+/// Declare a classic arm's binding `bind` of the part at `init`: a C pointer
+/// to the part in a `&` match (`refs`, `match_mode_binds_refs`), read
+/// through like a `mut` match's place binding; else the part's value. A
+/// reference payload's binding holds its reference either way.
+/// Whether the binding `atom` of a `&` match (`refs`) is a pointer to its
+/// part. A `mut(name)` binding binds by value instead, as Rust 2021's `mut`
+/// resets the default binding mode: a copy the arm may reassign, as the
+/// evaluator binds it (`evaluate_match`).
+_binds_by_ref :: (fn(refs : bool, atom : &AstExpr) -> bool)(
+  refs && !is_mut_binding(&ast_expr_token(atom), &ast_expr_token(atom).value.*.clone())
+);
+_emit_arm_binding_decl :: (fn(context : &FunctionGenerationContext, indent : &String, bind : &String, ty : &TypeValue, init : &String, refs : bool) -> unit)(
+  if(refs && !t_slot_is_borrow(ty), {
+    _emit_place_binding_decl(context, indent, bind, ty, init);
+    _place_add(context, bind);
+  }, _emit_pattern_binding_decl(context, indent, bind, ty, init))
+);
 /// The names `p` binds as `mut` places at a position of type `ty`: every
 /// binding not below a reference cell or a raw pointer (those stay copies).
 _collect_place_names :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, out : &mut ArrayList(String)) -> unit)(
@@ -890,18 +907,20 @@ _inline_binding_sm_field :: (fn(tok : &Token, context : &mut FunctionGenerationC
   );
   Option(String).None
 });
-/// Make the just-declared pattern binding `cname` (declared at `tok`) visible
+/// Make the just-declared pattern binding `cname` (declared at `tok`, as the
+/// C local `decl_name`, `shadow_binding_decl_name`) visible
 /// to the arm: the name shadows any same-named state-machine variable, and
 /// under the single-pass lowering it is also stored into, and read from, its
 /// own slot (a C local does not survive an await in the arm).
 /// `source` is the place the binding was initialized from; when it lies in
 /// another slot, the lowering records it (`binding_sources`) so a move of the
 /// binding empties it too.
-_bind_pattern_name :: (fn(context : &mut FunctionGenerationContext, indent : &String, cname : &String, tok : &Token, source : &String) -> unit)({
+_bind_pattern_name :: (fn(context : &mut FunctionGenerationContext, indent : &String, cname : &String, decl_name : &String, tok : &Token, source : &String) -> unit)({
   match(
     _inline_binding_sm_field(tok, context),
     .Some(field) => {
-      context.base.emitter.emit_string_line(`${indent}sm->${field} = ${cname};`);
+      context.base.emitter.emit_string_line(`${indent}sm->${field} = ${decl_name};`);
+      _clear_binding_move_flag(context, indent, &field);
       _shadow_slot_set(context, cname.clone(), field.clone());
       if(source.starts_with("sm->") || source.starts_with("(sm->"), {
         sm_lowering_note_binding_source(context, `sm->${field}`, source.clone());
@@ -909,8 +928,21 @@ _bind_pattern_name :: (fn(context : &mut FunctionGenerationContext, indent : &St
     },
     .None => ()
   );
-  _shadow_add(context, cname);
+  _shadow_add(context, cname, decl_name, Option(Token).Some(tok.clone()));
 });
+/// A binding stored into its slot gives the slot a value: clear the move flag
+/// a move out of its previous value set (an arm in a loop binds the name
+/// again on every iteration), as every store into a named local's slot does
+/// (`_clear_sm_move_flag`, init_assignment.yo).
+_clear_binding_move_flag :: (fn(context : &mut FunctionGenerationContext, indent : &String, field : &String) -> unit)(
+  match(
+    sm_move_flag_of(`sm->${field}`),
+    .Some(flag) => {
+      context.base.emitter.emit_string_line(`${indent}${flag} = 0;`);
+    },
+    .None => ()
+  )
+);
 /// Record the slot a shadowed name lives in (`shadow_slots`).
 _shadow_slot_set :: (fn(context : &mut FunctionGenerationContext, name : &String, field : &String) -> unit)({
   // Taken out and stored back: a `match` binding is a copy of the map once
@@ -919,35 +951,44 @@ _shadow_slot_set :: (fn(context : &mut FunctionGenerationContext, name : &String
   slots.insert(name.clone(), field.clone());
   context.shadow_slots = Option(HashMap(String, String)).Some(slots);
 });
-/// Record that the shadowed name `name` is a `mut` place binding.
+/// Record that the pattern binding declared as the C local `name` holds a
+/// pointer to its part (`place_bindings`).
 _place_add :: (fn(context : &mut FunctionGenerationContext, name : &String) -> unit)({
   places := match(context.place_bindings.take(), .Some(s) => s, .None => HashSet(String).new());
   places.insert(name.clone());
   context.place_bindings = Option(HashSet(String)).Some(places);
 });
-_shadow_add :: (fn(context : &mut FunctionGenerationContext, name : &String) -> unit)({
+/// Shadow the name `name` with a pattern binding declared as the C local
+/// `c_name` at `decl` (`.None`: a pattern's hidden subject).
+_shadow_add :: (fn(context : &mut FunctionGenerationContext, name : &String, c_name : &String, decl : Option(Token)) -> unit)({
   shadowed := match(context.local_shadowed_variables.take(), .Some(s) => s, .None => HashSet(String).new());
   shadowed.insert(name.clone());
   context.local_shadowed_variables = Option(HashSet(String)).Some(shadowed);
+  shadow_binding_push(context, name, c_name, decl);
 });
-/// Remove a name from the local-shadowed-variables set (after an arm body, so
-/// the shadow does not leak to sibling arms / outer scope).
+/// Take the innermost binding of a name out of scope (after an arm body, so
+/// the shadow does not leak to sibling arms / outer scope). The name stays
+/// shadowed while an enclosing arm's binding of it is still in scope.
 _shadow_remove :: (fn(context : &mut FunctionGenerationContext, name : &String) -> unit)({
+  c_name := shadow_binding_c_name(context, name);
+  match(
+    context.place_bindings.take(),
+    .Some(ps) => {
+      places := ps;
+      _rp := places.remove(&c_name);
+      context.place_bindings = Option(HashSet(String)).Some(places);
+    },
+    .None => ()
+  );
+  if(shadow_binding_pop(context, name), {
+    return(());
+  });
   match(
     context.shadow_slots.take(),
     .Some(m) => {
       slots := m;
       _rs := slots.remove(name.clone());
       context.shadow_slots = Option(HashMap(String, String)).Some(slots);
-    },
-    .None => ()
-  );
-  match(
-    context.place_bindings.take(),
-    .Some(ps) => {
-      places := ps;
-      _rp := places.remove(name.clone());
-      context.place_bindings = Option(HashSet(String)).Some(places);
     },
     .None => ()
   );
@@ -1036,7 +1077,11 @@ _gen_nullable_ptr_match :: (fn(expr : &AstExpr, indent : &String, context : &mut
         nullable_arm_payload_binder(&pat),
         .Some(dvar) => {
           dvn := sanitize_for_c_identifier(ast_expr_token(&dvar).value.*, false);
-          _emit_pattern_binding_decl(context, body_indent.clone(), dvn.clone(), nullable_inner, matched_value_code.clone());
+          dvn_c := shadow_binding_decl_name(context, &dvn);
+          // A `&` match's binding points at the payload: the enum's own
+          // storage, which is the pointer.
+          nl_refs := _binds_by_ref(match_mode_binds_refs(lookup_match_mode(ast_expr_id(expr))), &dvar);
+          _emit_arm_binding_decl(context, body_indent.clone(), dvn_c.clone(), nullable_inner, if(nl_refs && is_ptr, `(*${matched_value_code})`, matched_value_code.clone()), nl_refs);
           // Shadow-register the binding like _emit_destructure_binds does
           // for tagged-union arms: the arm body must resolve `q` to THIS
           // local C declaration. Without it, a GENERIC-IMPL materialized
@@ -1068,7 +1113,7 @@ _gen_nullable_ptr_match :: (fn(expr : &AstExpr, indent : &String, context : &mut
           // another C type
           // (issues/fixed/2026-10-17-a-nullable-pointer-match-binding-stores-into-a-same-named-bindings-slot.md).
           if(context.sm_inline_lowering.is_some(), {
-            _bind_pattern_name(context, body_indent.clone(), dvn.clone(), ast_expr_token(&dvar), matched_value_code.clone());
+            _bind_pattern_name(context, body_indent.clone(), dvn.clone(), dvn_c.clone(), ast_expr_token(&dvar), matched_value_code.clone());
           }, if(context.in_async_state_machine.is_some() && context.state_machine_variables.is_some(), {
             (mut(smb_id) : String) = String.new();
             (mut(smb_has) : bool) = false;
@@ -1149,16 +1194,17 @@ _gen_nullable_ptr_match :: (fn(expr : &AstExpr, indent : &String, context : &mut
               smb_store.push_str("sm->");
               smb_store.push_string(smb_field.clone());
               smb_store.push_str(" = ");
-              smb_store.push_string(dvn.clone());
+              smb_store.push_string(dvn_c.clone());
               smb_store.push_str(";");
               context.base.emitter.emit_string_line(&smb_store);
+              _clear_binding_move_flag(context, &body_indent, &smb_field);
               if(context.sm_inline_lowering.is_some(), {
                 _shadow_slot_set(context, dvn.clone(), smb_field.clone());
               });
               note_state_machine_binding_id(context, smb_id.clone());
             });
           }));
-          _shadow_add(context, dvn.clone());
+          _shadow_add(context, dvn.clone(), dvn_c.clone(), Option(Token).Some(ast_expr_token(&dvar).clone()));
         },
         .None => ()
       );
@@ -1349,7 +1395,7 @@ _remove_arm_shadows :: (fn(params : &ArrayList(AstExpr), context : &mut Function
 /// Each bound var's source name is added to local_shadowed_variables so the
 /// arm body resolves it to the local C declaration (not the evaluator temp);
 /// the caller removes them after the body. (SM storage is Phase 5 — gated.)
-_emit_destructure_binds :: (fn(enum_type : &TypeValue, variant_name : &String, params : &ArrayList(AstExpr), matched_value_code : &String, access : str, body_indent : &String, context : &mut FunctionGenerationContext) -> unit)(
+_emit_destructure_binds :: (fn(enum_type : &TypeValue, variant_name : &String, params : &ArrayList(AstExpr), matched_value_code : &String, access : str, body_indent : &String, refs : bool, context : &mut FunctionGenerationContext) -> unit)(
   match(
     enum_type,
     Rc(.EnumT({ variant_names : vns, variant_fields : vfs, variant_field_labels : vfls })) => {
@@ -1431,14 +1477,10 @@ _emit_destructure_binds :: (fn(enum_type : &TypeValue, variant_name : &String, p
                         init.push_string(c_variant_member_name(cvariant.clone()));
                         init.push_str(".");
                         init.push_string(sanitize_for_c_identifier(label.clone(), false));
-                        _emit_pattern_binding_decl(
-                          context,
-                          body_indent.clone(),
-                          sanitize_for_c_identifier(ast_expr_token(&var_expr).value.*, false),
-                          &ftype,
-                          &init
-                        );
-                        _bind_pattern_name(context, body_indent.clone(), sanitize_for_c_identifier(ast_expr_token(&var_expr).value.*, false), ast_expr_token(&var_expr), init.clone());
+                        vcn := sanitize_for_c_identifier(ast_expr_token(&var_expr).value.*, false);
+                        vcn_c := shadow_binding_decl_name(context, &vcn);
+                        _emit_arm_binding_decl(context, body_indent.clone(), &vcn_c, &ftype, &init, _binds_by_ref(refs, &var_expr));
+                        _bind_pattern_name(context, body_indent.clone(), &vcn, &vcn_c, ast_expr_token(&var_expr), init.clone());
                       });
                     });
                   }),
@@ -1466,14 +1508,10 @@ _emit_destructure_binds :: (fn(enum_type : &TypeValue, variant_name : &String, p
                   init.push_string(c_variant_member_name(cvariant.clone()));
                   init.push_str(".");
                   init.push_string(sanitize_for_c_identifier(&field_label, false));
-                  _emit_pattern_binding_decl(
-                    context,
-                    body_indent.clone(),
-                    sanitize_for_c_identifier(ast_expr_token(&var_expr).value.*, false),
-                    &ftype,
-                    &init
-                  );
-                  _bind_pattern_name(context, body_indent.clone(), sanitize_for_c_identifier(ast_expr_token(&var_expr).value.*, false), ast_expr_token(&var_expr), init.clone());
+                  vcn := sanitize_for_c_identifier(ast_expr_token(&var_expr).value.*, false);
+                  vcn_c := shadow_binding_decl_name(context, &vcn);
+                  _emit_arm_binding_decl(context, body_indent.clone(), &vcn_c, &ftype, &init, _binds_by_ref(refs, &var_expr));
+                  _bind_pattern_name(context, body_indent.clone(), &vcn, &vcn_c, ast_expr_token(&var_expr), init.clone());
                 });
               }),
               .None => ()
@@ -1503,6 +1541,7 @@ _emit_variant_arm_body :: (
     body_indent : &String,
     temp_var_opt : &Option(String),
     is_unit : bool,
+    refs : bool,
     context : &mut FunctionGenerationContext
   ) -> unit
 )({
@@ -1525,7 +1564,7 @@ _emit_variant_arm_body :: (
     gi
   }, body_indent.clone());
   if(params.len() > usize(0), {
-    _emit_destructure_binds(enum_type, variant_name, params, matched_value_code.clone(), access, arm_body_indent.clone(), context);
+    _emit_destructure_binds(enum_type, variant_name, params, matched_value_code.clone(), access, arm_body_indent.clone(), refs, context);
   });
   _emit_case_body_and_break(cb0, arm_indent.clone(), arm_body_indent.clone(), temp_var_opt, is_unit, context);
   _remove_arm_shadows(params, context);
@@ -1696,7 +1735,7 @@ _gen_tagged_union_match :: (fn(expr : &AstExpr, indent : &String, context : &mut
                                       arm_cb := match(arm_cargs.get(usize(1)), .Some(x) => x, .None => make_err_expr());
                                       arm_ps := arm_params(&_unwrap_rc_pattern(&arm_cv));
                                       guards := pattern_literal_arm_guards(enum_type, &variant_name, &arm_ps, matched_value_code.clone(), access);
-                                      _emit_variant_arm_body(&arm_cb, &arm_ps, &variant_name, &guards, enum_type, matched_value_code.clone(), access, indent.clone(), body_indent.clone(), temp_var_opt, is_unit, context);
+                                      _emit_variant_arm_body(&arm_cb, &arm_ps, &variant_name, &guards, enum_type, matched_value_code.clone(), access, indent.clone(), body_indent.clone(), temp_var_opt, is_unit, match_mode_binds_refs(lookup_match_mode(ast_expr_id(expr))), context);
                                     }),
                                     .None => ()
                                   );
@@ -1955,39 +1994,48 @@ _emit_pattern_chain :: (
     /// A `mut` match (decision 26): bindings are C pointers to their parts,
     /// except below a reference cell or a raw pointer (`in_cell`).
     places : bool,
+    /// A `&` match (`match_mode_binds_refs`): every binding is a C pointer
+    /// to its part, below a cell too (a reference payload's binding holds
+    /// its reference already).
+    refs : bool,
     in_cell : bool
   ) -> unit
 )({
-  as_place := (places && !in_cell);
   match(
     p,
     .Wildcard => (),
-    .Bind(name, btok, _) => {
+    .Bind(name, btok, batom) => {
       if(!is_unit_type(ty), {
         cname := sanitize_for_c_identifier(name.clone(), false);
+        b_place := ((places && !in_cell) || (_binds_by_ref(refs, &batom) && !t_slot_is_borrow(ty)));
+        // An or-pattern alternative assigns the binding its arm declared
+        // before the alternatives (`.Or` below); any other binding declares
+        // its own.
+        decl_c := if(assign_binds, shadow_binding_c_name(context, &cname), shadow_binding_decl_name(context, &cname));
         cond(
-          (assign_binds && as_place) => context.base.emitter.emit_string_line(`${indent}${cname.clone()} = &(${path.clone()});`),
+          (assign_binds && b_place) => context.base.emitter.emit_string_line(`${indent}${decl_c.clone()} = &(${path.clone()});`),
           assign_binds => {
             line := indent.clone();
-            line.push_string(cname.clone());
+            line.push_string(decl_c.clone());
             line.push_str(" = ");
             line.push_string(path.clone());
             line.push_str(";");
             context.base.emitter.emit_string_line(&line);
           },
-          as_place => _emit_place_binding_decl(context, indent.clone(), cname.clone(), ty, path.clone()),
-          true => _emit_pattern_binding_decl(context, indent.clone(), cname.clone(), ty, path.clone())
+          b_place => _emit_place_binding_decl(context, indent.clone(), decl_c.clone(), ty, path.clone()),
+          true => _emit_pattern_binding_decl(context, indent.clone(), decl_c.clone(), ty, path.clone())
         );
-        _bind_pattern_name(context, indent.clone(), cname.clone(), &btok, path.clone());
-        if(as_place, _place_add(context, cname.clone()));
+        _bind_pattern_name(context, indent.clone(), cname.clone(), decl_c.clone(), &btok, path.clone());
+        if(b_place, _place_add(context, decl_c.clone()));
         shadows.push(cname);
       });
     },
     .Const(_, _, _, subject, test) => {
       if(emit_tests, {
         cname := sanitize_for_c_identifier(subject.clone(), false);
-        _emit_pattern_binding_decl(context, indent.clone(), cname.clone(), ty, path.clone());
-        _shadow_add(context, cname.clone());
+        subject_c := shadow_binding_decl_name(context, &cname);
+        _emit_pattern_binding_decl(context, indent.clone(), subject_c.clone(), ty, path.clone());
+        _shadow_add(context, &cname, &subject_c, Option(Token).None);
         shadows.push(cname);
         test_code := _call_generate_expr(&test, indent.clone(), context);
         line := indent.clone();
@@ -2002,8 +2050,9 @@ _emit_pattern_chain :: (
     .Range(_, subject, test, _, _, _, _) => {
       if(emit_tests, {
         cname := sanitize_for_c_identifier(subject.clone(), false);
-        _emit_pattern_binding_decl(context, indent.clone(), cname.clone(), ty, path.clone());
-        _shadow_add(context, cname.clone());
+        subject_c := shadow_binding_decl_name(context, &cname);
+        _emit_pattern_binding_decl(context, indent.clone(), subject_c.clone(), ty, path.clone());
+        _shadow_add(context, &cname, &subject_c, Option(Token).None);
         shadows.push(cname);
         test_code := _call_generate_expr(&test, indent.clone(), context);
         line := indent.clone();
@@ -2037,7 +2086,7 @@ _emit_pattern_chain :: (
         fty := match(ftys.get(fi), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
         flabel := match(labels_v.get_cloned(fi), .Some(l) => l, .None => String.from(""));
         fcode := _variant_field_code(&enum_ty, vname.clone(), &flabel, path.clone(), ptrish, is_raw_ptr);
-        recur(&subs(i), &fcode, &fty, fail_label.clone(), assign_binds, emit_tests, indent.clone(), labels, shadows, context, places, v_cell);
+        recur(&subs(i), &fcode, &fty, fail_label.clone(), assign_binds, emit_tests, indent.clone(), labels, shadows, context, places, refs, v_cell);
         i = (i + usize(1));
       });
     },
@@ -2051,20 +2100,54 @@ _emit_pattern_chain :: (
           _collect_bind_decls(&alts(usize(0)), ty, &mut names, &mut types);
         });
         place_names := ArrayList(String).new();
-        if(places, {
-          if(alts.len() > usize(0), _collect_place_names(&alts(usize(0)), ty, in_cell, &mut place_names));
-        });
+        cond(
+          refs => {
+            // A `mut(name)` binding is a copy (`_binds_by_ref`).
+            by_value := ArrayList(String).new();
+            if(alts.len() > usize(0), {
+              alt_atoms := ArrayList(AstExpr).new();
+              pattern_binding_atoms(&alts(usize(0)), &mut alt_atoms);
+              (ai0 : usize) = usize(0);
+              while(ai0 < alt_atoms.len(), ai0 = (ai0 + usize(1)), {
+                match(
+                  alt_atoms.get_cloned(ai0),
+                  .Some(aa) => if(!_binds_by_ref(true, &aa), by_value.push(ast_expr_token(&aa).value.*.clone())),
+                  .None => ()
+                );
+              });
+            });
+            (rni : usize) = usize(0);
+            while(rni < names.len(), rni = (rni + usize(1)), {
+              match(
+                types.get_cloned(rni),
+                .Some(rt) => if(!t_slot_is_borrow(&rt), {
+                  rn := match(names.get_cloned(rni), .Some(n) => n, .None => String.from(""));
+                  if(!_list_has(&by_value, rn.clone()), place_names.push(rn));
+                }),
+                .None => ()
+              );
+            });
+          },
+          places => if(alts.len() > usize(0), _collect_place_names(&alts(usize(0)), ty, in_cell, &mut place_names)),
+          true => ()
+        );
         (ni : usize) = usize(0);
         while(ni < names.len(), {
           nm := match(names.get_cloned(ni), .Some(n) => n, .None => String.from(""));
           nt := match(types.get_cloned(ni), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
           if(!is_unit_type(&nt), {
+            // The alternatives assign this declaration (`shadow_binding_c_name`):
+            // it is shadowed from here to the arm's end, like every binding.
+            ncn := sanitize_for_c_identifier(nm.clone(), false);
+            ncn_c := shadow_binding_decl_name(context, &ncn);
             decl := indent.clone();
             decl.push_string(get_type_string(cond(_list_has(&place_names, nm.clone()) => t_ptr(&nt), true => nt), &mut context.base));
             decl.push_str(" ");
-            decl.push_string(sanitize_for_c_identifier(nm.clone(), false));
+            decl.push_string(ncn_c.clone());
             decl.push_str(";");
             context.base.emitter.emit_string_line(&decl);
+            _shadow_add(context, &ncn, &ncn_c, Option(Token).None);
+            shadows.push(ncn);
           });
           ni = (ni + usize(1));
         });
@@ -2082,7 +2165,7 @@ _emit_pattern_chain :: (
         open := indent.clone();
         open.push_str("{");
         context.base.emitter.emit_string_line(&open);
-        recur(&alts(ai), path.clone(), ty, alt_fail.clone(), true, !alt_is_final, inner_indent.clone(), labels, shadows, context, places, in_cell);
+        recur(&alts(ai), path.clone(), ty, alt_fail.clone(), true, !alt_is_final, inner_indent.clone(), labels, shadows, context, places, refs, in_cell);
         jump := inner_indent.clone();
         jump.push_str("goto ");
         jump.push_string(done_label.clone());
@@ -2111,27 +2194,32 @@ _emit_pattern_chain :: (
       dl.push_str(": ;");
       context.base.emitter.emit_string_line(&dl);
     },
-    .At(name, atok, _, Box(sub)) => {
+    .At(name, atok, aatom, Box(sub)) => {
       if(!is_unit_type(ty), {
         cname := sanitize_for_c_identifier(name.clone(), false);
+        a_place := ((places && !in_cell) || (_binds_by_ref(refs, &aatom) && !t_slot_is_borrow(ty)));
+        // An or-pattern alternative assigns the binding its arm declared
+        // before the alternatives (`.Or` below); any other binding declares
+        // its own.
+        decl_c := if(assign_binds, shadow_binding_c_name(context, &cname), shadow_binding_decl_name(context, &cname));
         cond(
-          (assign_binds && as_place) => context.base.emitter.emit_string_line(`${indent}${cname.clone()} = &(${path.clone()});`),
+          (assign_binds && a_place) => context.base.emitter.emit_string_line(`${indent}${decl_c.clone()} = &(${path.clone()});`),
           assign_binds => {
             line := indent.clone();
-            line.push_string(cname.clone());
+            line.push_string(decl_c.clone());
             line.push_str(" = ");
             line.push_string(path.clone());
             line.push_str(";");
             context.base.emitter.emit_string_line(&line);
           },
-          as_place => _emit_place_binding_decl(context, indent.clone(), cname.clone(), ty, path.clone()),
-          true => _emit_pattern_binding_decl(context, indent.clone(), cname.clone(), ty, path.clone())
+          a_place => _emit_place_binding_decl(context, indent.clone(), decl_c.clone(), ty, path.clone()),
+          true => _emit_pattern_binding_decl(context, indent.clone(), decl_c.clone(), ty, path.clone())
         );
-        _bind_pattern_name(context, indent.clone(), cname.clone(), &atok, path.clone());
-        if(as_place, _place_add(context, cname.clone()));
+        _bind_pattern_name(context, indent.clone(), cname.clone(), decl_c.clone(), &atok, path.clone());
+        if(a_place, _place_add(context, decl_c.clone()));
         shadows.push(cname);
       });
-      recur(&sub, path, ty, fail_label, assign_binds, emit_tests, indent, labels, shadows, context, places, in_cell);
+      recur(&sub, path, ty, fail_label, assign_binds, emit_tests, indent, labels, shadows, context, places, refs, in_cell);
     },
     .ThroughBox(box_ty, inner_ty, Box(sub)) => {
       // An Rc value in C is a pointer to a reference-semantics struct whose
@@ -2167,7 +2255,7 @@ _emit_pattern_chain :: (
         r.push_string(&label);
         r
       });
-      recur(&sub, &fcode, &inner_ty, fail_label, assign_binds, emit_tests, indent, labels, shadows, context, places, true);
+      recur(&sub, &fcode, &inner_ty, fail_label, assign_binds, emit_tests, indent, labels, shadows, context, places, refs, true);
     },
     .Tuple(subs, elem_tys) => {
       // A tuple is a value struct in C; elements are `._N`. A pointer to a
@@ -2185,7 +2273,7 @@ _emit_pattern_chain :: (
         fcode := base.clone();
         fcode.push_str("._");
         fcode.push_string(i.to_string());
-        recur(&subs(i), &fcode, &ety, fail_label, assign_binds, emit_tests, indent, labels, shadows, context, places, in_cell || is_pointer_type(ty));
+        recur(&subs(i), &fcode, &ety, fail_label, assign_binds, emit_tests, indent, labels, shadows, context, places, refs, in_cell || is_pointer_type(ty));
         i = (i + usize(1));
       });
     },
@@ -2214,7 +2302,7 @@ _emit_pattern_chain :: (
             f
           }
         );
-        recur(&subs(i), &fcode, &fty, fail_label, assign_binds, emit_tests, indent, labels, shadows, context, places, in_cell || ptrish);
+        recur(&subs(i), &fcode, &fty, fail_label, assign_binds, emit_tests, indent, labels, shadows, context, places, refs, in_cell || ptrish);
         i = (i + usize(1));
       });
     }
@@ -2314,6 +2402,7 @@ _gen_general_match :: (fn(expr : &AstExpr, arms : &ArrayList(Arm), indent : &Str
   end_label := prefix.clone();
   end_label.push_str("_end");
   places := (lookup_match_mode(ast_expr_id(expr)) == MATCH_MODE_MUT);
+  refs := match_mode_binds_refs(lookup_match_mode(ast_expr_id(expr)));
   n := arms.len();
   (k : usize) = usize(0);
   while(k < n, {
@@ -2331,7 +2420,7 @@ _gen_general_match :: (fn(expr : &AstExpr, arms : &ArrayList(Arm), indent : &Str
           shadows := ArrayList(String).new();
           // The last unguarded arm of an exhaustive match needs no tests.
           is_last := ((k + usize(1)) == n);
-          _emit_pattern_chain(&arm.pattern, matched_value_code.clone(), match_value_type, fail_label.clone(), false, !(is_last && arm.guard.is_none()), body_indent.clone(), &labels, &mut shadows, context, places, false);
+          _emit_pattern_chain(&arm.pattern, matched_value_code.clone(), match_value_type, fail_label.clone(), false, !(is_last && arm.guard.is_none()), body_indent.clone(), &labels, &mut shadows, context, places, refs, false);
           match(
             arm.guard,
             .Some(g) => {
@@ -2437,7 +2526,11 @@ generate_match_expression :: (fn(expr : &AstExpr, indent : &String, context : &m
   subj_drops := match(subject_opt, .Some(sj) => match(context.base.get_expr_info(&sj), .Some(sj_ei) => sj_ei.deferred_drop_expressions(), .None => Option(ArrayList(AstExpr)).None), .None => Option(ArrayList(AstExpr)).None);
   subj_prev := replace(&mut context.pending_deferred_drops, Option(ArrayList(AstExpr)).None);
   context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(&subj_drops, &subj_prev));
+  // A consuming match's bindings own their parts: their task slots are
+  // dropped by an abort like any named local's (`note_state_machine_binding_id`).
+  binds_own_prev := replace(&mut context.match_binds_own, lookup_match_mode(ast_expr_id(expr)) == MATCH_MODE_CONSUME);
   code := _generate_match_expression_body(expr, indent, context);
+  context.match_binds_own = binds_own_prev;
   context.pending_deferred_drops = subj_prev;
   match(subject_opt, .Some(sj) => generate_deferred_drop_expressions(&sj, indent.clone(), context), .None => ());
   match(
@@ -2520,13 +2613,17 @@ _generate_match_expression_body :: (fn(expr : &AstExpr, indent : &String, contex
   // is never copied, or the arm writes the copy, and replacing a counted
   // payload releases the scrutinee's own value
   // (issues/fixed/2026-10-16-a-mut-match-on-a-field-or-a-dereference-writes-a-copy.md).
-  is_mut_match := (lookup_match_mode(ast_expr_id(expr)) == MATCH_MODE_MUT);
+  // A `&` match over a place binds references into it the same way
+  // (decision 43): a copy would be what its bindings point at, and a
+  // reference an arm yields would dangle once the copy dies.
+  match_mode := lookup_match_mode(ast_expr_id(expr));
+  binds_in_place := ((match_mode == MATCH_MODE_MUT) || (match_mode == MATCH_MODE_REF));
   (subject_is_own_temp : bool) = false;
   match(
     &subject_ei.variable_name(),
     .Some(svn) => {
       subject_var_name := get_variable_name_for_codegen_at(ast_expr_id(&subject), &svn, Option(Environment).Some(subject_ei.env()));
-      if(!is_mut_match && !ast_expr_is_atom(&subject) && !(matched_value_code == subject_var_name), {
+      if(!binds_in_place && !ast_expr_is_atom(&subject) && !(matched_value_code == subject_var_name), {
         _emit_pattern_binding_decl(
           context,
           indent.clone(),
@@ -2561,9 +2658,16 @@ _generate_match_expression_body :: (fn(expr : &AstExpr, indent : &String, contex
         }),
         .None => ()
       );
-      subject_is_own_temp = (!is_mut_match && (matched_value_code == subject_var_name) && !is_pointer_type(&match_value_type));
+      subject_is_own_temp = (!binds_in_place && (matched_value_code == subject_var_name) && !is_pointer_type(&match_value_type));
     },
-    .None => ()
+    // A `&` match over a temporary the evaluator gave no temp: its bindings
+    // point into a C local holding it, never into an rvalue.
+    .None => if((match_mode == MATCH_MODE_REF_TEMP) && !ast_expr_is_atom(&subject), {
+      scr_tmp := fresh_local_name(String.from("__yo_scr_"), &context.base.current_function_name);
+      _emit_pattern_binding_decl(context, indent.clone(), scr_tmp.clone(), &match_value_type, matched_value_code.clone());
+      declare_c_var_name(&context.base, scr_tmp.clone());
+      matched_value_code = scr_tmp;
+    })
   );
   // A non-place scrutinee is a one-expression block in the evaluator: its
   // temporaries (the `mk(i32(7))` of `match(mk(i32(7)).n, …)`) have their own
@@ -2602,7 +2706,7 @@ _generate_match_expression_body :: (fn(expr : &AstExpr, indent : &String, contex
   // payload field (`h->_u42_`), and the classic emitters below see a plain
   // enum value.
   (through_switch : bool) = false;
-  if(lookup_match_mode(ast_expr_id(expr)) == MATCH_MODE_BORROW, {
+  if((match_mode == MATCH_MODE_BORROW) || match_mode_binds_refs(match_mode), {
     match(
       lookup_match_arms(ast_expr_id(expr)),
       .Some(lt_arms) => match(

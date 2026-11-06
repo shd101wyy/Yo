@@ -1,0 +1,20 @@
+// issues/fixed/2026-11-06-a-mut-binding-of-a-borrowed-match-writes-through-the-shared-reference.md
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+P :: struct(s : String, n : i32);
+rename :: (fn(o : &Option(P)) -> unit)(
+  match(
+    o,
+    .Some(mut(d)) => {
+      d.s = String.from("new value, long enough to be on the heap");
+      d.n = i32(7);
+    },
+    .None => ()
+  )
+);
+main :: (fn() -> unit)({
+  o := Option(P).Some(P(s : String.from("old value, long enough to be on the heap"), n : i32(1)));
+  rename(&o);
+  match(&o, .Some(p) => println(`${p.s} ${p.n}`), .None => ());
+});
+export(main);

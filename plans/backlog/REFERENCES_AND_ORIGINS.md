@@ -969,7 +969,10 @@ it in those words (2026-10-20).
   `await` in the live range) is the checking rule; the open question is
   whether a module-level *binding* may carry origin parameters at all.
   Position: no, initially — no frame owns the roots.
-- **`[T]` as a builtin or `View(T, p)` in std.** Position: std first,
+- **`[T]` as a builtin or `View(T, p)` in std.** *Reversed 2026-11-06 by
+  `plans/VALUES_BY_DEFAULT.md` decision 49: `[T]` is a builtin unsized type,
+  and `&([T], p)` is the view `View(T, p)` described; the empty origin is
+  spelled `static` (a literal is `&(str, static)`).* Position: std first,
   decided in L1's PR, unchanged from the superseded design.
 - **`yo doc` printing elided defaults.** Position: yes, so a reader sees
   the effective origins without reading the body.

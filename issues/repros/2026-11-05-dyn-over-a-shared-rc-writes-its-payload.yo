@@ -1,0 +1,26 @@
+// A `Dyn` built over an `Rc` handle whose cell has a second live handle:
+// a `&mut Self` vtable method writes the shared payload (decision 46 forbids it).
+{ println } :: import("std/fmt");
+Bump :: trait(
+  bump : (fn(self : &mut Self) -> unit),
+  get : (fn(self : &Self) -> i32)
+);
+Counter :: struct(n : i32);
+impl(
+  Counter,
+  Bump(
+    bump : (fn(self : &mut Self) -> unit)({
+      self.n = (self.n + i32(1));
+    }),
+    get : (fn(self : &Self) -> i32)(self.n)
+  )
+);
+main :: (fn() -> unit)({
+  r := Rc.new(Counter(n : i32(0)));
+  r2 := Rc.clone(r);
+  (mut(d) : Dyn(Bump)) = dyn(r);
+  d.bump();
+  d.bump();
+  println(`through d: ${d.get()}; through r2: ${r2.*.n}`);
+});
+export(main);

@@ -4,7 +4,7 @@
 counter is off, and a file-descriptor wrapper would `close(0)`. No memory
 error (a zero `String` drops as a no-op).
 
-**Status:** open. Found 2026-10-23 by the adversarial review of branch
+**Status:** FIXED 2026-11-06 on `fix/aborted-task-match-binding-drop`, by the slot's drop flag rather than the binding-statement stack proposed below: the previous iteration's scope-end drop sets the slot's move flag, the allocation sets it before the first iteration, and the loop exit's pending drops (`_emit_loop_body_drops_before_exit`, `src/codegen/exprs/atom.yo`) run a slot's drop only while the flag is clear (`issues/fixed/2026-11-05-an-aborted-task-drops-a-local-its-scope-already-dropped.md`). Test: "a break inside a task-slot local's own initializer drops nothing of it" in `tests/async/sm_ownership.test.yo`. Originally open: Found 2026-10-23 by the adversarial review of branch
 `fix/derive-early-return-drop`. Present on a develop-built binary
 (`6dee22187`) and on the branch alike. The moved-local variant (the slot still
 holds the previous iteration's moved-out value, a double free) is fixed:

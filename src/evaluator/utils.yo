@@ -105,8 +105,10 @@ pragma(Pragma.AllowUnsafe);
   variable_move_note,
   variable_inout_borrow_root_id,
   variable_value_type,
-  variable_set_value_type
+  variable_set_value_type,
+  variable_slot_type
 } :: import("../env.yo");
+{ get_value_of_some_type_from_env } :: import("../types/env_lookup.yo");
 { Token, TokenKind } :: import("../token.yo");
 { EvalContext, ExpectedTypeCtx, LoopBodyCtx, LoopFlowSnapshot, FuncOrAsyncBlockKind, copy_trait_blockers_via_hook, type_head_name_for_impl_forcing } :: import("./context.yo");
 { atof } :: import("std/libc/stdlib");
@@ -128,8 +130,8 @@ pragma(Pragma.AllowUnsafe);
 :: import("../utils.yo");
 { eprintln } :: import("std/fmt");
 { EvalValue, is_unknown_val, is_type_value, is_var_ref, is_func_val } :: import("../value.yo");
-{ TypeValue, TypeValueNode, t_refine_inner, SharedList, no_flags, no_types, fn_param_mut_ref_flags, fn_param_by_value_flags, fn_result_is_ref, fn_result_is_mut_ref, fn_result_origin_names, fn_result_composite_origin_names, fn_param_in_result_origin, fn_param_pointee_in_result_origin, fn_result_slot, shared_list, t_slot_is_mut_ref } :: import("../types/definitions.yo");
-{ is_never_type, is_unit_type, is_function_type, is_function_type_and_returns_comptime_value, is_box_type, is_unique_box_type, is_dyn_type, is_future_trait_type, is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type, is_primitive_type, is_pointer_type, is_bool_type, is_array_type, is_struct_type, is_tuple_type, is_some_type, cell_handle_view, is_atomic_counted_handle_type, is_counted_cell_type, is_arc_type, is_counted_handle_value_type, unique_box_payload_type } :: import("../types/guards.yo");
+{ TypeValue, TypeValueNode, t_refine_inner, SharedList, no_flags, no_types, fn_param_mut_ref_flags, fn_param_by_value_flags, fn_result_is_ref, fn_result_is_mut_ref, fn_result_origin_names, fn_result_composite_origin_names, fn_param_in_result_origin, fn_param_pointee_in_result_origin, fn_result_slot, shared_list, t_slot_is_mut_ref, t_slot_is_borrow, t_reference_with_origin, t_origin_named } :: import("../types/definitions.yo");
+{ is_never_type, is_unit_type, is_function_type, is_function_type_and_returns_comptime_value, is_box_type, is_unique_box_type, is_dyn_type, is_future_trait_type, is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type, is_primitive_type, is_pointer_type, is_bool_type, is_array_type, is_struct_type, is_tuple_type, is_some_type, cell_handle_view, is_atomic_counted_handle_type, is_counted_cell_type, is_arc_type, is_counted_handle_value_type, unique_box_payload_type, is_fn_trait_type } :: import("../types/guards.yo");
 { get_func_type, is_fn_ctfe_clone, is_closure_fn, is_io_async_sm_closure } :: import("../function_value.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../types/compatibility.yo");
 { type_to_string, type_to_string_for_message } :: import("../types/string.yo");
@@ -175,6 +177,12 @@ pragma(Pragma.AllowUnsafe);
 /// (`r = &place`). One slot, as the receiver mark above.
 (mut(g_deref_exempt_id) : usize) = usize(0);
 (mut(g_deref_exempt_armed) : bool) = false;
+/// The argument a generic call evaluates for an UNBOUND type binder (`v : T`
+/// before `T` is inferred, decision 43 step 2 N1e-2b, VERDICTS-23 R1):
+/// a reference read there is the reference, so `T := &U`
+/// (`binder_read_mark` / `binder_read_take`).
+(mut(g_binder_read_id) : usize) = usize(0);
+(mut(g_binder_read_armed) : bool) = false;
 /// The receivers `r` of the `r.*` reference derefs rewritten to `r` itself
 /// (N1e-1, `property_access.yo`), by source position: the name there is the
 /// deref, never a whole-value read, in this node and in every clone of it.
@@ -182,6 +190,12 @@ pragma(Pragma.AllowUnsafe);
 /// Field reads of a reference field (N1e-2), with the field's reference
 /// type as the instance declares it (`note_reference_field_read`).
 (g_reference_field_reads : RefCell(HashMap(usize, TypeValue))) = RefCell(HashMap(usize, TypeValue)).new(HashMap(usize, TypeValue).new());
+/// The nodes the read rule (decision 43 step 2 N1e-2b) types as a reference
+/// VALUE — a reference binding's read, a projection's result, a reference
+/// field's read at a position expecting a reference. Their C is still the
+/// place they refer to, so a consumer that stores or passes the reference
+/// takes its address (`note_reference_read` / `is_reference_read`).
+(g_reference_reads : RefCell(HashMap(usize, bool))) = RefCell(HashMap(usize, bool)).new(HashMap(usize, bool).new());
 /// The `*` atoms of the `w.*` derefs the auto-deref hooks synthesize
 /// (`make_deref_expr`, N1e-1), by id: every other `*` of a `.*` was written,
 /// in the source or in a batch the test runner printed from it.
@@ -889,7 +903,7 @@ consume_called_fnonce_closure :: (fn(callee : &AstExpr, v : &Variable, env : &En
   holds_owned := (type_contains_rc_type(&variable_value_type(v)) || type_requires_explicit_copy(&variable_value_type(v)));
   what := cond(
     v.is_module_level() => Option(String).Some(String.from("it is a module-level binding, which lives for the whole program and is never moved")),
-    v.is_ref() => Option(String).Some(String.from("it is a `&mut` borrow, which names storage the caller owns")),
+    (v.is_ref() && !v.is_borrow_match_binding()) => Option(String).Some(String.from("it is a `&mut` borrow, which names storage the caller owns")),
     (v.is_parameter() && !v.is_owning_the_rc_value() && owner.is_none()) => Option(String).Some(String.from("it is a borrowed parameter, and a borrow cannot give the closure away: take the parameter by value, `sink(f) : Impl(FnOnce(...))` (only an API the closure escapes into calls it once)")),
     (!v.is_parameter() && !v.is_owning_the_rc_value() && holds_owned && !is_fn_capture_value_binding(v.id())) => Option(String).Some(String.from("it is borrowed from the value that holds it (a `match`/`for` binding): move the holder, or match a value you own")),
     true => Option(String).None
@@ -1254,7 +1268,7 @@ transfer_explicit_copy_value :: (fn(rhs : &AstExpr, ei : &ExprInfo, variable_nam
         });
       },
       v.is_module_level() => _throw_explicit_copy_violation(rhs, &ei.ty(), String.from("it is a module-level binding, which lives for the whole program and is never moved. Copy it with `.clone()`, or lend it with `&` (a call may borrow a module-level binding only while nothing writes it, plans/VALUES_BY_DEFAULT.md decision 18 rule 3)."), ctx, exn),
-      v.is_ref() => _throw_explicit_copy_violation(rhs, &ei.ty(), String.from("it is a `&mut` borrow, which names storage the caller owns. Lend it on with `&mut`, or move the caller's value."), ctx, exn),
+      (v.is_ref() && !v.is_borrow_match_binding()) => _throw_explicit_copy_violation(rhs, &ei.ty(), String.from("it is a `&mut` borrow, which names storage the caller owns. Lend it on with `&mut`, or move the caller's value."), ctx, exn),
       is_fn_capture_value_binding(v.id()) => _throw_fn_closure_moves_capture(rhs, &ei.ty(), v.id(), ctx, exn),
       _is_implicit_closure_capture(&v, &ei.env(), ctx) => _throw_implicit_capture_move(rhs, &ei.ty(), ctx, exn),
       v.is_owning_the_rc_value() => set_expr_as_consumed(rhs, &ei.env(), false, ctx, exn),
@@ -1725,7 +1739,7 @@ reject_second_class_return :: (fn(ty : &TypeValue, tok : &Token, env : &Environm
 /// `v` is a `&`/`&mut` parameter (a borrow the caller lent for the call), not
 /// a local borrow binding (`y := &mut x`, which has an inout root).
 variable_is_borrow_parameter :: (fn(v : &Variable) -> bool)(
-  v.is_imm_borrow() || (v.is_ref() && variable_inout_borrow_root_id(v).is_none())
+  v.is_imm_borrow() || (v.is_ref() && !v.is_borrow_match_binding() && variable_inout_borrow_root_id(v).is_none())
 );
 /// `v` is a by-value future parameter, the operand of a combinator (§3.13
 /// A4): a borrowing future the caller passes there lends its places for the
@@ -3533,7 +3547,7 @@ audit_record_implicit_copy :: (
         v.is_module_level() => {
           kind = String.from("global");
         },
-        v.is_ref() => {
+        (v.is_ref() && !v.is_borrow_match_binding()) => {
           kind = String.from("inout-borrow");
         },
         captured => {
@@ -3696,7 +3710,7 @@ audit_record_copy_trait :: (
           v.is_module_level() => {
             kind = String.from("global");
           },
-          v.is_ref() => {
+          (v.is_ref() && !v.is_borrow_match_binding()) => {
             kind = String.from("inout-borrow");
           },
           captured => {
@@ -3845,7 +3859,7 @@ check_dyn_copy :: (fn(rhs : &AstExpr, ei : &ExprInfo, variable_name : &String, c
       }),
       v.is_compile_time_only() => (),
       v.is_module_level() => _throw_explicit_copy_violation(rhs, &ei.ty(), String.from("it is a module-level binding, which lives for the whole program and is never moved. Lend it with `&` instead (a call may borrow a module-level binding only while nothing writes it, plans/VALUES_BY_DEFAULT.md decision 18 rule 3)."), ctx, exn),
-      v.is_ref() => _throw_explicit_copy_violation(rhs, &ei.ty(), String.from("it is a `&mut` borrow, which names storage the caller owns. Lend it on with `&mut`, or move the caller's value."), ctx, exn),
+      (v.is_ref() && !v.is_borrow_match_binding()) => _throw_explicit_copy_violation(rhs, &ei.ty(), String.from("it is a `&mut` borrow, which names storage the caller owns. Lend it on with `&mut`, or move the caller's value."), ctx, exn),
       is_fn_capture_value_binding(v.id()) => _throw_fn_closure_moves_capture(rhs, &ei.ty(), v.id(), ctx, exn),
       _is_implicit_closure_capture(&v, &ei.env(), ctx) => _throw_implicit_capture_move(rhs, &ei.ty(), ctx, exn),
       (v.is_parameter() && !v.is_owning_the_rc_value() && _owning_param_binding_beside(&ei.env(), &v).is_none()) => _throw_explicit_copy_violation(rhs, &ei.ty(), String.from("it is a `&T` parameter, and a borrow cannot give the value away. Take the parameter by value (`x : T`, without `&`) to own it."), ctx, exn),
@@ -5083,6 +5097,11 @@ _drop_in_arms_that_keep :: (
   // another value: a drop through it moves this binding
   // (`_move_through_sink_shadow`), as every other move through it does
   // (issues/fixed/2026-11-05-a-hashmap-of-a-plain-data-struct-without-copy-cannot-insert.md).
+  // Only a binding declared AFTER the value (deeper, or later in its frame)
+  // captures the name: one the value itself shadows, such as the enclosing
+  // local a `.Some(parsed)` arm binding reuses the name of, is not reachable
+  // through it, so the drop still releases the value
+  // (issues/fixed/2026-11-05-a-match-arm-binding-that-shadows-a-local-is-never-dropped.md).
   (si : usize) = usize(0);
   while(si < bodies.len(), {
     keeps_s := match(consumed_at_tokens.get(si), .Some(.Some(_)) => false, _ => true);
@@ -5092,8 +5111,22 @@ _drop_in_arms_that_keep :: (
         .Some(sb) => match(
           expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&sb)),
           .Some(sbi) => {
+            // Outermost first (`get_variables_from_env`'s order): the scan
+            // starts just past the value when the body's env holds it.
             same_name := get_variables_from_env(&sbi.env(), v.name.clone());
             (sni : usize) = usize(0);
+            (vpi : usize) = same_name.len();
+            while(vpi > usize(0), {
+              vpi = (vpi - usize(1));
+              match(
+                same_name.get(vpi),
+                .Some(pv) => if(pv.id == v.id, {
+                  sni = (vpi + usize(1));
+                  vpi = usize(0);
+                }),
+                .None => ()
+              );
+            });
             while(sni < same_name.len(), {
               match(
                 same_name.get_cloned(sni),
@@ -6386,6 +6419,103 @@ local_borrow_take_receiver :: (fn(e : &AstExpr) -> bool)({
   });
   hit
 });
+/// Before evaluating `e`, a generic call's argument whose parameter is an
+/// unbound type binder (`g_binder_read_id`).
+binder_read_mark :: (fn(e : &AstExpr) -> unit)({
+  g_binder_read_id = ast_expr_id(e);
+  g_binder_read_armed = true;
+});
+binder_read_clear :: (fn() -> unit)({
+  g_binder_read_armed = false;
+});
+/// Whether `e` is the marked binder argument; clears the mark on a hit.
+binder_read_take :: (fn(e : &AstExpr) -> bool)({
+  if(!g_binder_read_armed, {
+    return(false);
+  });
+  hit := (g_binder_read_id == ast_expr_id(e));
+  if(hit, {
+    g_binder_read_armed = false;
+  });
+  hit
+});
+/// A type binder bounded by a closure trait (`F : Impl(Fn(...))`).
+_some_type_is_callable :: (fn(ty : &TypeValue) -> bool)(
+  match(
+    ty,
+    Rc(.SomeT(_, _, _, _, sc_req, _, _)) => {
+      sc_traits := sc_req.required();
+      (sc_i : usize) = usize(0);
+      while(sc_i < sc_traits.len(), sc_i = (sc_i + usize(1)), {
+        if(match(sc_traits.get_cloned(sc_i), .Some(sc_t) => is_fn_trait_type(&sc_t), .None => false), {
+          return(true);
+        });
+      });
+      false
+    },
+    _ => false
+  )
+);
+/// The read rule (decision 43 step 2 N1e-2b, VERDICTS-23 R1): a
+/// reference-typed expression read at `tok` is the reference VALUE where its
+/// position expects a reference — a `&T` slot, payload, field or element, or
+/// a type binder bound to a reference (`T := &U`) — or where it is a call's
+/// argument for an unbound type binder of the callee (`v : T`), which it
+/// binds to the reference (`at_binder`: the call marked it,
+/// `binder_read_mark`). A type parameter of the function being checked is
+/// not a binder there: in `_h :: (fn(generic(T), t : &T) -> T)(t)` the
+/// result position expects the rigid `T`, and `t` reads as its value. Inside
+/// the trees that keep the old reading (`deref_rule_applies`), an unbound
+/// binder still takes the value until the deref adoption deletes the
+/// exemption.
+reference_read_wanted :: (fn(tok : &Token, at_binder : bool, ctx : &EvalContext) -> bool)({
+  match(
+    &ctx.expected_type,
+    .Some(rw_et) => cond(
+      t_slot_is_borrow(&rw_et.ty) => {
+        return(true);
+      },
+      (is_some_type(&rw_et.ty) && !_some_type_is_callable(&rw_et.ty)) => if(t_slot_is_borrow(&get_value_of_some_type_from_env(&rw_et.env, &rw_et.ty)), {
+        return(true);
+      }),
+      true => ()
+    ),
+    .None => ()
+  );
+  (at_binder && deref_rule_applies(tok, ctx))
+});
+/// Record whether the node `id` was read as a reference value (the read
+/// rule); a later evaluation of the same node at another position overrides.
+note_reference_read :: (fn(id : usize, is_reference : bool) -> unit)({
+  if(is_reference, {
+    _old := g_reference_reads.with_mut({ id }(m) => m.insert(id, true));
+  }, {
+    if(g_reference_reads.with(m => m.len()) > usize(0), {
+      _old := g_reference_reads.with_mut({ id }(m) => m.remove(&id));
+    });
+  });
+});
+/// The node `id` is a reference value whose C is the place it refers to.
+is_reference_read :: (fn(id : usize) -> bool)(
+  (g_reference_reads.with(m => m.len()) > usize(0)) && g_reference_reads.with(m => m.get(&id)).is_some()
+);
+/// The reference VALUE a read of the reference binding `v` is: its stored
+/// reference type, whose elided origin names `v` itself (what `v` lends, as
+/// a lend of `v` records it, T9).
+reference_binding_read_type :: (fn(v : &Variable) -> TypeValue)(
+  match(
+    variable_slot_type(v),
+    Rc(.Reference(rb_p, rb_m, rb_o)) => cond(
+      match(&rb_o, Rc(.OriginSet(_, rb_el)) => rb_el, _ => false) => {
+        rb_names := ArrayList(String).new();
+        rb_names.push(v.name.clone());
+        t_reference_with_origin(&rb_p, rb_m, t_origin_named(&shared_list(rb_names)))
+      },
+      true => variable_slot_type(v)
+    ),
+    rb_t => rb_t
+  )
+);
 /// Before evaluating `e` where a bare reference (a binding, or a field read
 /// of a reference field, N1e-2) is not a whole-value read
 /// (`g_deref_exempt_id`).
@@ -7047,10 +7177,10 @@ local_borrow_info_of_variable :: (fn(v : &Variable) -> Option(LocalBorrowInfo))(
 );
 /// A binding that holds a `&mut` place: a `&mut` parameter, a `y := &mut`
 /// local borrow, or a binding of a `&mut` match. A projection's `&T`
-/// parameter is a reference too (`bind_parameter`'s `is_ptr_borrow`), but a
-/// shared one.
+/// parameter is a reference too (`bind_parameter`'s `is_ptr_borrow`), and so
+/// is a `&` match's binding (`is_borrow_match_binding`), but shared ones.
 variable_is_mut_borrow :: (fn(v : &Variable) -> bool)(
-  v.is_ref() && !v.is_imm_borrow() && match(local_borrow_info_of_variable(v), .Some(info) => info.is_mut, .None => true)
+  v.is_ref() && !v.is_imm_borrow() && !v.is_borrow_match_binding() && match(local_borrow_info_of_variable(v), .Some(info) => info.is_mut, .None => true)
 );
 /// A binding that holds an `imm` borrow: an `imm` parameter, an `imm(y) :=`
 /// local borrow, or a binding of a borrowing match or a `for` loop.
@@ -8367,6 +8497,21 @@ origin_carrying_value_roots :: (fn(e : &AstExpr, env : &Environment, ctx : &Eval
                 .None => Option(TypeValue).None
               );
               cond(
+                // A reference VALUE the read rule produced (`.Some(r)` with
+                // `r` a reference binding, decision 43 step 2 N1e-2b) points
+                // where `r` does: a local borrow's frozen places, or a
+                // reference parameter's own place.
+                (!v_is_lend_mut && !v_is_lend_amp && is_reference_read(ast_expr_id(&value_s))) => {
+                  rr_before := out.len();
+                  _holder_roots_into(&value_s, env, ctx, &mut out);
+                  if(out.len() == rr_before, {
+                    match(
+                      local_borrow_place_of(&value_s, env, ctx),
+                      .Some(p) => out.push(OriginRootPlace(place : p, is_mut : t_slot_is_mut_ref(&vi.ty))),
+                      .None => ()
+                    );
+                  });
+                },
                 (v_is_lend_mut || v_is_lend_amp || v_lend.is_some()) => {
                   (v_mut : bool) = if(v_is_lend_mut, true, match(v_lend, .Some(Rc(.Reference(_, lm, _))) => lm, _ => false));
                   match(
@@ -8580,7 +8725,34 @@ ref_payload_source :: (fn(var_id : usize) -> Option(AstExpr))({
   });
   Option(AstExpr).None
 });
-export(projection_call_mode_of, ProjectionRootArg, projection_call_root_args, projection_call_callee_type, OriginRootPlace, origin_carrying_value_roots, holder_future_roots, freeze_origin_carrying_binding, reject_composite_result_local_roots, note_ref_payload_source, ref_payload_source);
+/// A binding of a borrowed `match` (`match(&self.v, .Some(x) => …)`, or a
+/// reference binding matched bare, VERDICTS-13 §14): the binding's variable
+/// id and the scrutinee place it is a place inside. The projection root rule
+/// follows a yielded binding to that place's own root
+/// (`builtins/ptr_fns.yo`, `_projection_root_error`).
+(g_borrow_match_sources : RefCell(ArrayList(RefPayloadSource))) = RefCell(ArrayList(RefPayloadSource)).new(ArrayList(RefPayloadSource).new());
+/// Record that the binding `var_id` of a borrowed `match` is a place inside
+/// `scrutinee`.
+note_borrow_match_source :: (fn(var_id : usize, scrutinee : &AstExpr) -> unit)({
+  bms_scr := scrutinee.clone();
+  g_borrow_match_sources.with_mut({ var_id, bms_scr }(xs) => xs.push(RefPayloadSource(var_id : var_id, scrutinee : bms_scr.clone())));
+});
+/// The scrutinee place the borrowed-`match` binding `var_id` is inside.
+borrow_match_source :: (fn(var_id : usize) -> Option(AstExpr))({
+  (i : usize) = g_borrow_match_sources.with(xs => xs.len());
+  while(i > usize(0), {
+    i = (i - usize(1));
+    match(
+      g_borrow_match_sources.with(xs => xs.get(i)),
+      .Some(e) => if(e.var_id == var_id, {
+        return(Option(AstExpr).Some(e.scrutinee));
+      }),
+      .None => ()
+    );
+  });
+  Option(AstExpr).None
+});
+export(projection_call_mode_of, ProjectionRootArg, projection_call_root_args, projection_call_callee_type, OriginRootPlace, origin_carrying_value_roots, holder_future_roots, freeze_origin_carrying_binding, reject_composite_result_local_roots, note_ref_payload_source, ref_payload_source, note_borrow_match_source, borrow_match_source);
 export(record_pending_scrutinee_borrow, take_pending_scrutinee_borrows, PendingScrutineeBorrow, note_migrate_mut_scrutinee, migrate_mut_scrutinee_at, clear_migrate_mut_scrutinees, drop_owned_match_binding_at_arm_end, match_scrutinee_is_capture, local_borrow_register_match_place, local_borrow_note_match_place, note_consuming_match_scrutinee, consuming_match_scrutinee_at, moved_value_help, migrate_borrowed_match_at, _lb_arrow_shadows, _lb_fn_literal_binds, _lb_mentions);
 export(
   LocalBorrowPlace,
@@ -8598,6 +8770,13 @@ export(
   deref_exempt_mark,
   deref_exempt_clear,
   deref_exempt_take,
+  binder_read_mark,
+  binder_read_clear,
+  binder_read_take,
+  reference_read_wanted,
+  note_reference_read,
+  is_reference_read,
+  reference_binding_read_type,
   note_reference_field_read,
   is_reference_field_read,
   reference_field_read_mode,

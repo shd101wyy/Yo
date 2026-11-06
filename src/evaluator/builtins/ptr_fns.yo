@@ -5,7 +5,7 @@
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr, ast_expr_token, ast_expr_id, make_err_expr, ast_expr_is_fn_call_of, ast_expr_is_atom_of, ast_expr_to_string, ast_place_text, BF_DOT, projection_tail_mode, ast_expr_is_auto_ref_receiver, ast_rewritten_node } :: import("../../expr.yo");
+{ AstExpr, ast_expr_token, ast_expr_id, make_err_expr, ast_expr_is_fn_call_of, ast_expr_is_atom_of, ast_expr_to_string, ast_place_text, BF_DOT, projection_tail_mode, ast_expr_is_auto_ref_receiver, ast_rewritten_node, ast_expr_strip_borrow_marker } :: import("../../expr.yo");
 { is_array_type, is_struct_type, is_tuple_type, is_union_type, is_reference_struct_type } :: import("../../types/guards.yo");
 { fn_param_is_ptr_borrow } :: import("../../types/utils.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -37,7 +37,7 @@ pragma(Pragma.AllowUnsafe);
 { TypeValue, TypeValueNode, SharedList, fn_param_is_mut_ref, fn_param_is_by_value, fn_result_origin_names, fn_param_in_result_origin, t_slot_origin_names, origin_names_contain } :: import("../../types/definitions.yo");
 { t_ptr } :: import("../../types/creators.yo");
 { format_error_message, format_error_message_with_help, with_code } :: import("../../error.yo");
-{ attach_temp_variable_to_expr, projection_call_mode_of, projection_call_root_args, reference_field_read_type, ref_payload_source } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, projection_call_mode_of, projection_call_root_args, reference_field_read_type, ref_payload_source, borrow_match_source } :: import("../utils.yo");
 { evaluate_expression_guarded } :: import("../exprs/expr.yo");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { call_promote_index_places_for_write } :: import("../context.yo");
@@ -245,6 +245,9 @@ _projection_root_error :: (fn(place : &AstExpr, is_mut : bool, env : &Environmen
         // A `match` binding of a reference payload (decision 43 step 3):
         // the place is wherever the scrutinee's reference points.
         (!v.is_parameter() && (!v.is_compile_time_only() && ref_payload_source(v.id()).is_some())) => _ref_payload_root_error(&pr_tok.value.*, &v, is_mut, env, ctx),
+        // A binding of a borrowed `match` (VERDICTS-13 §14): a place inside
+        // the scrutinee's place, so it is rooted where that place is.
+        (!v.is_parameter() && (!v.is_compile_time_only() && (v.is_borrow_match_binding() && borrow_match_source(v.id()).is_some()))) => _borrow_match_root_error(&pr_tok.value.*, &v, is_mut, env, ctx),
         (!v.is_parameter() || v.is_compile_time_only() || !(v.is_ref() || v.is_imm_borrow())) => _proj_err(
           `A projection yields a place reached from one of its \`&\`/\`&mut\` parameters, and \`${pr_tok.value.*}\` is ${cond(v.is_parameter() => "a by-value parameter", v.is_module_level() => "a module-level binding", true => "a local")}: its storage ends with the call (decision 24, the single-root rule).`,
           if(v.is_module_level(), Option(str).None, Option(str).Some(E_LOCAL_BORROW_ESCAPES))
@@ -325,6 +328,18 @@ _ref_payload_root_error :: (fn(name : &String, v : &Variable, is_mut : bool, env
     ),
     true => Option(_ProjRootError).None
   )
+});
+/// The root rule through a binding of a borrowed `match`
+/// (`match(&self.v, .Some(x) => &x, …)`, `note_borrow_match_source`): the
+/// binding is a place inside the scrutinee's place, so the scrutinee place
+/// must be rooted at this projection's own borrow parameters. The binding is
+/// a shared borrow, so a `&mut` result cannot yield it.
+_borrow_match_root_error :: (fn(name : &String, v : &Variable, is_mut : bool, env : &Environment, ctx : &EvalContext) -> Option(_ProjRootError))({
+  if(is_mut, {
+    return(_proj_err(`A \`&mut\` projection yields a place reached from a \`&mut\` parameter, and \`${name}\` is a shared borrow (\`&T\`).`, Option(str).None));
+  });
+  scr := match(borrow_match_source(v.id), .Some(e) => e, .None => make_err_expr());
+  _projection_root_error(&ast_expr_strip_borrow_marker(&scr), false, env, ctx)
 });
 /// A projection that yields another projection's result (decision 24): the
 /// inner call's place is rooted at its borrowed arguments

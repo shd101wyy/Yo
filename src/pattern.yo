@@ -201,8 +201,9 @@ purge_match_arms :: (fn(ids : &ArrayList(usize)) -> unit)({
 // keyed like the arms: the evaluator decides it, codegen reads it.
 // ---------------------------------------------------------------------------
 /// The arms bind read-only copies of the scrutinee's parts and nothing is
-/// moved: an `imm` scrutinee (`&x`, an `imm` binding), and a value that is
-/// copied or shared (`Copy`, or a kind still implicitly copyable).
+/// moved: a value that is copied or shared (`Copy`, or a kind still
+/// implicitly copyable), and a `&` scrutinee whose arms bind nothing (one
+/// whose arms bind is `MATCH_MODE_REF`/`MATCH_MODE_REF_TEMP`).
 MATCH_MODE_BORROW :: u8(0);
 /// The scrutinee is consumed: the selected arm's bindings own their parts,
 /// and the parts it does not bind are dropped when the arm is entered.
@@ -210,6 +211,18 @@ MATCH_MODE_CONSUME :: u8(1);
 /// The arms bind `mut` places into the scrutinee (`&mut x`, a `mut`
 /// binding): C pointers to the parts, written through.
 MATCH_MODE_MUT :: u8(2);
+/// A `&` match (`match(&x, …)`, or a reference binding matched bare) over a
+/// place: the arms bind `&` places into the scrutinee, C pointers to the
+/// parts read through (decision 43; a binding is a reference into the
+/// scrutinee, so a reference it yields points where the scrutinee does). The
+/// scrutinee's code is the place itself and is never copied.
+MATCH_MODE_REF :: u8(3);
+/// A `&` match over a temporary (`match(&f(), …)`): the arms bind `&` places
+/// into the C local the temporary is materialized in, which outlives them.
+MATCH_MODE_REF_TEMP :: u8(4);
+/// The arms of a match in `mode` bind `&` places (`MATCH_MODE_REF`,
+/// `MATCH_MODE_REF_TEMP`).
+match_mode_binds_refs :: (fn(mode : u8) -> bool)((mode == MATCH_MODE_REF) || (mode == MATCH_MODE_REF_TEMP));
 register_match_mode :: (fn(match_id : usize, mode : u8) -> unit)({
   if(!codegen_tables_enabled(), {
     return(());
@@ -2089,7 +2102,7 @@ pattern_test_exprs :: (fn(p : &Pattern, out : &mut ArrayList(AstExpr)) -> unit)(
   );
 });
 export(Pattern, Arm, register_match_arms, lookup_match_arms, purge_match_arms, match_arms_entry_count);
-export(MATCH_MODE_BORROW, MATCH_MODE_CONSUME, MATCH_MODE_MUT, register_match_mode, lookup_match_mode, register_arm_entry_drops, lookup_arm_entry_drops, pattern_position_is_cell, pattern_binding_atoms);
+export(MATCH_MODE_BORROW, MATCH_MODE_CONSUME, MATCH_MODE_MUT, MATCH_MODE_REF, MATCH_MODE_REF_TEMP, match_mode_binds_refs, register_match_mode, lookup_match_mode, register_arm_entry_drops, lookup_arm_entry_drops, pattern_position_is_cell, pattern_binding_atoms);
 export(pattern_bindings, pattern_is_irrefutable, pattern_to_string);
 export(match_missing_witness, ArmReach, arm_reachability, pattern_test_exprs, variant_group_covers);
 export(gadt_branch_reachable, gadt_resolve_tca_entry, norm_position_type, is_pattern_cell_type, variant_field_types);

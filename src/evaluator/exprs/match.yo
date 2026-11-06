@@ -56,7 +56,7 @@ pragma(Pragma.AllowUnsafe);
   scope_release_note_binding,
   ExprInfo
 } :: import("../../expr_info.yo");
-{ Environment, Variable, pop_env_frame, snapshot_env, env_adopt, variable_value_type } :: import("../../env.yo");
+{ Environment, Variable, pop_env_frame, snapshot_env, env_adopt, variable_value_type, variable_set_is_ref, variable_set_is_imm_borrow, variable_set_is_borrow_match_binding, variable_set_reference_mut } :: import("../../env.yo");
 { Token, TokenKind, intern_token_str } :: import("../../token.yo");
 { add_variable_to_env, get_variables_from_env, find_variable_in_env, variable_set_inout_borrow_root_id, variable_mark_inout_borrow_root, mark_macro_pattern_binding } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx, fn_ctx_returns_comptime, call_is_index_place } :: import("../context.yo");
@@ -81,7 +81,8 @@ pragma(Pragma.AllowUnsafe);
   is_comptime_float_type,
   is_comptime_string_type,
   is_function_type_and_returns_comptime_value,
-  is_never_type
+  is_never_type,
+  is_unit_type
 } :: import("../../types/guards.yo");
 { type_contains_some_type, type_mentions_impl_fn_or_future, mark_generic_independent, type_requires_explicit_copy, type_contains_rc_cell_or_move_only, type_is_bitwise_copy, type_holds_counted_handle_ignoring_migration } :: import("../../types/utils.yo");
 { raise_flow_violation, propagate_def_time_errors } :: import("../../types/flowability.yo");
@@ -98,7 +99,7 @@ pragma(Pragma.AllowUnsafe);
 { type_to_string } :: import("../../types/string.yo");
 { format_error_message, format_error_message_with_help, warning_diagnostic_of_token } :: import("../../error.yo");
 { emit_warning } :: import("../../diagnostics.yo");
-{ owning_param_binding_beside, move_through_sink_shadow, note_ref_payload_source, origin_carrying_value_roots } :: import("../utils.yo");
+{ owning_param_binding_beside, move_through_sink_shadow, note_ref_payload_source, note_borrow_match_source, origin_carrying_value_roots } :: import("../utils.yo");
 { merge_and_check_envs, reject_mixed_closure_arms, consume_case_body_temp_var, attach_temp_variable_to_expr, adopt_never_type, reset_sibling_flow_state, keep_last_arm_moves, audit_pending_copies_enabled, dyn_copy_pending_exists, dyn_copy_rule_applies, note_dyn_copy_pending, audit_note_match_binding, migrate_rc_clone_on, migrate_rc_clone_borrow_scrutinee, note_migrate_mut_scrutinee, LocalBorrowInfo, local_borrows_active, local_borrow_scrutinee_source, local_borrow_note_pattern_binding, note_second_class_binding, reject_malformed_pattern_mut_markers, reject_malformed_mut_marker, place_require_mut, reject_write_through_rc, _lb_arrow_shadows, _lb_fn_literal_binds, _lb_mentions, record_pending_scrutinee_borrow } :: import("../utils.yo");
 { throw_if_mut_lend_through_atomic_object } :: import("./assignment.yo");
 { set_expr_as_consumed, deref_exempt_mark, deref_exempt_clear, variable_is_reference_binding, deref_rule_applies, reject_reference_without_deref, drop_owned_match_binding_at_arm_end, match_scrutinee_is_capture, local_borrow_register_match_place, local_borrow_note_match_place, note_consuming_match_scrutinee, LocalBorrowPlace, LocalBorrowAccess, local_borrow_place_of, local_borrow_access, local_borrow_require_writable, variable_is_mut_borrow, variable_is_imm_borrow, local_borrow_info_of_variable, deref_operand_is_raw_pointer } :: import("../utils.yo");
@@ -121,6 +122,8 @@ pragma(Pragma.AllowUnsafe);
   register_match_mode,
   register_arm_entry_drops,
   MATCH_MODE_BORROW,
+  MATCH_MODE_REF,
+  MATCH_MODE_REF_TEMP,
   MATCH_MODE_CONSUME,
   MATCH_MODE_MUT
 } :: import("../../pattern.yo");
@@ -1427,6 +1430,14 @@ evaluate_match :: (
   // which only the general lowering's per-arm bindings can express.
   consume_drops := (consuming && type_contains_rc_cell_or_move_only(&scrutinee_type));
   (any_place_binder : bool) = false;
+  // A `&` match (`match(&x, …)`, or a reference binding matched bare,
+  // VERDICTS-13 §14): every binding is a reference into the scrutinee's
+  // place, a C pointer to its part read through (`is_ref`), as a `&mut`
+  // match's place binding is. A copy would be a part of its own: a reference
+  // the arm yields to it (`.Some(s)` as an `Option(&T)`) would dangle once
+  // the arm ends.
+  ref_binds := (!consuming && !mut_places && ((borrowed_match_scrutinee_kind(ast_expr_token(expr)) == u8(1)) || _scrutinee_is_reference_binding(&scrutinee_expr, &env)));
+  (any_ref_binder : bool) = false;
   // The arms codegen lowers when the match needs the general lowering: the
   // patterns with their hidden bindings (the checks below read the user's).
   cg_arms := ArrayList(Arm).new();
@@ -1629,131 +1640,201 @@ evaluate_match :: (
         ast_expr_token(&b.atom)
       );
       match(
-        ref_payload,
-        .Some(rp_is_mut) => match(
-          &_added,
-          .Some(rp_var) => {
-            rp_var.set_is_ref(true);
-            rp_var.set_is_imm_borrow(!rp_is_mut);
-            // A writable reference binding is the reassignable `is_ref`
-            // one (`r := &mut x`); a `&` one is not (a write through it
-            // is E0908).
-            rp_var.set_is_reassignable(rp_is_mut);
-            note_ref_payload_source(rp_var.id(), &scrutinee_expr);
-          },
-          .None => ()
-        ),
-        .None => ()
-      );
-      expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&b.atom), new_expr_info(&env, &bind_ty));
-      scope_release_note_binding(ast_expr_id(&b.atom), &env, b.name.clone());
-      // A `mut(name)` pattern binding may be reassigned (decision 47).
-      b_tok := ast_expr_token(&b.atom);
-      if(is_mut_binding(&b_tok, &b.name), {
-        match(
-          &_added,
-          .Some(mb_var) => {
-            mb_var.set_is_reassignable(true);
-          },
-          .None => ()
-        );
-      });
-      // A name the caller wrote, bound by a match a macro expansion built
-      // or a desugared `for` (macro plan B1) builds (`for(coll, x =>
-      // ...)`'s `.Some(x)` arm), rebinds like a parameter.
-      m_tok := ast_expr_token(expr);
-      if(for_desugar_site_of(&m_tok).is_some(), {
-        match(&_added, .Some(me_var) => mark_macro_pattern_binding(me_var.id()), .None => ());
-      }, {
-        if(b_tok.module_path != m_tok.module_path, {
-          if(canonical_module_path(&b_tok.module_path.*) != canonical_module_path(&m_tok.module_path.*), {
-            match(&_added, .Some(me_var) => mark_macro_pattern_binding(me_var.id()), .None => ());
+        pc.binds.get(bi),
+        .Some(b) => {
+          // A payload whose type is a reference (`.Some(r)` over an
+          // `Option(&T)`, decision 43 step 3) binds a REFERENCE BINDING, as
+          // `r := &x` and a `-> &T` projection's result do: the name has the
+          // pointee's type and its C slot holds the pointer (`is_ref`), so
+          // `r.f`, `r.m()`, `r.*` and a lend of `r` read through it. A `&`
+          // payload is read-only (`is_imm_borrow`, a `r : &T` parameter's
+          // flag).
+          // A `mut` match's place binding of a reference payload stays the
+          // payload slot itself (re-pointing it is decision 25's).
+          (ref_payload : Option(bool)) = cond(
+            (ct_known || mut_places) => Option(bool).None,
+            true => match(&b.ty, Rc(.Reference(_, rp_mut, _)) => Option(bool).Some(rp_mut), _ => Option(bool).None)
+          );
+          bind_ty := match(&ref_payload, .Some(_) => t_slot_pointee(&b.ty), .None => Rc.clone(b.ty));
+          _added := add_variable_to_env(
+            &env,
+            b.name.clone(),
+            &bind_ty,
+            cond(ct_known => b.value, true => Option(EvalValue).None),
+            ct_known,
+            false,
+            false,
+            false,
+            ast_expr_token(&b.atom)
+          );
+          match(
+            ref_payload,
+            .Some(rp_is_mut) => match(
+              &_added,
+              .Some(rp_var) => {
+                variable_set_is_ref(&rp_var, true);
+                variable_set_is_imm_borrow(&rp_var, !rp_is_mut);
+                // A writable reference binding is the reassignable `is_ref`
+                // one (`r := &mut x`); a `&` one is not (a write through it
+                // is E0908).
+                rp_var.set_is_reassignable(rp_is_mut);
+                note_ref_payload_source(rp_var.id(), &scrutinee_expr);
+              },
+              .None => ()
+            ),
+            .None => ()
+          );
+          expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&b.atom), new_expr_info(&env, &bind_ty));
+          scope_release_note_binding(ast_expr_id(&b.atom), &env, b.name.clone());
+          // A `mut(name)` pattern binding may be reassigned (decision 47).
+          b_tok := ast_expr_token(&b.atom);
+          if(is_mut_binding(&b_tok, &b.name), {
+            match(
+              &_added,
+              .Some(mb_var) => {
+                mb_var.set_is_reassignable(true);
+              },
+              .None => ()
+            );
           });
-        });
-      });
-      // Decision 38 A: a pattern binding is a binding. A second-class
-      // value it binds freezes what it borrows for the arm, and a
-      // borrowing future cannot be bound at all (§3.13 A2).
-      if(!ct_known, {
-        match(&_added, .Some(sc_var) => note_second_class_binding(&sc_var, &b.ty, ast_expr_token(&b.atom), &env, ctx, exn), .None => ());
-      });
-      match(lb_scr_source, .Some(lbs) => local_borrow_note_pattern_binding(b.name.clone(), ast_expr_token(&b.atom), &lbs), .None => ());
-      // A binding of a `match(&x, …)`, or of a reference binding matched
-      // bare (`match(r, …)`, VERDICTS-13 §14), borrows the part it
-      // binds: outside std and src it reads as a whole value with `.*`
-      // (E0926, decision 43 step 2 N1e-1; a `&mut` match's binding is
-      // `is_ref` above).
-      if(!ct_known && !consuming && !mut_places && ((borrowed_match_scrutinee_kind(ast_expr_token(expr)) == u8(1)) || _scrutinee_is_reference_binding(&scrutinee_expr, &env)), {
-        match(
-          &_added,
-          .Some(bm_var) => {
-            bm_var.set_is_borrow_match_binding(true);
-          },
-          .None => ()
-        );
-      });
-      if(audit_pending_copies_enabled(), {
-        // `yo fix --migrate rc-clone`: a binding of a `&`/`&mut`
-        // scrutinee borrows whatever the scrutinee is (a call's
-        // temporary too, `match(&f(), .Some(x) => …)`), so a copy of it
-        // is a copy of a borrow, never a move.
-        match(
-          &_added,
-          .Some(added_var) => audit_note_match_binding(
-            &added_var,
-            &scr_info,
-            below_cell : (_names_contain(&rc_cell_borrowed, b.name.clone()) || (migrate_rc_clone_on() && (borrowed_match_scrutinee_kind(ast_expr_token(expr)) != u8(0))))
-          ),
-          .None => ()
-        );
-      });
-      // `yo fix --migrate rc-clone`: with the rule suspended this match
-      // borrows (its scrutinee's type holds a counted handle), but the
-      // rule consumes it — a temporary transfers to the arms, a plain
-      // local moves — so this binding would be OWNED, and a nested
-      // `match` on it that an arm then reads consumes it first. Record
-      // the `&` for those nested matches now: when the nested match is
-      // evaluated the binding reads as a borrow (this match borrowed),
-      // and the site would be invisible.
-      if(migrate_rc_clone_on() && !consuming && !mut_places && !ct_known
-      && (borrowed_match_scrutinee_kind(ast_expr_token(expr)) == u8(0))
-      && type_holds_counted_handle_ignoring_migration(&scr_info.ty())
-      && type_holds_counted_handle_ignoring_migration(&b.ty)
-      && !_names_contain(&rc_cell_borrowed, b.name.clone())
-      && !(
-        (
-          ast_expr_is_atom(&scrutinee_expr)
-          && match(
-            _scrutinee_root_variable(&scrutinee_expr, &env),
-            .Some(rv0) => (rv0.is_module_level() || match_scrutinee_is_capture(&rv0, &env, ctx)),
-            .None => false
-          )
-        )
-        || _scrutinee_is_projection(&scrutinee_expr, &env)
-      ), {
-        match(
-          &_added,
-          .Some(pv) => _record_nested_scrutinee_borrows(&body_ast, b.name.clone(), pv.id(), &b.ty),
-          .None => ()
-        );
-      });
-      match(
-        &imm_place,
-        .Some(ip) => local_borrow_register_match_place(b.name.clone(), ast_expr_token(&b.atom), &ip, &body_ast, false),
-        .None => ()
-      );
-      // A reference payload binding points where the scrutinee's
-      // references do (decision 43 step 3, O3 step 2): those places are
-      // frozen — exclusively for a `&mut` payload — while it is live in
-      // the arm, as a `r := &x` borrow freezes `x`.
-      match(
-        ref_payload,
-        .Some(rf_is_mut) => {
-          rf_roots := origin_carrying_value_roots(&scrutinee_expr, &env, ctx);
-          (rfi : usize) = usize(0);
-          while(rfi < rf_roots.len(), {
-            local_borrow_register_match_place(b.name.clone(), ast_expr_token(&b.atom), &rf_roots(rfi).place, &body_ast, rf_is_mut);
-            rfi = (rfi + usize(1));
+          // A name the caller wrote, bound by a match a macro expansion built
+          // or a desugared `for` (macro plan B1) builds (`for(coll, x =>
+          // ...)`'s `.Some(x)` arm), rebinds like a parameter.
+          m_tok := ast_expr_token(expr);
+          if(for_desugar_site_of(&m_tok).is_some(), {
+            match(&_added, .Some(me_var) => mark_macro_pattern_binding(me_var.id()), .None => ());
+          }, {
+            if(b_tok.module_path != m_tok.module_path, {
+              if(canonical_module_path(&b_tok.module_path.*) != canonical_module_path(&m_tok.module_path.*), {
+                match(&_added, .Some(me_var) => mark_macro_pattern_binding(me_var.id()), .None => ());
+              });
+            });
+          });
+          // Decision 38 A: a pattern binding is a binding. A second-class
+          // value it binds freezes what it borrows for the arm, and a
+          // borrowing future cannot be bound at all (§3.13 A2).
+          if(!ct_known, {
+            match(&_added, .Some(sc_var) => note_second_class_binding(&sc_var, &b.ty, ast_expr_token(&b.atom), &env, ctx, exn), .None => ());
+          });
+          match(lb_scr_source, .Some(lbs) => local_borrow_note_pattern_binding(b.name.clone(), ast_expr_token(&b.atom), &lbs), .None => ());
+          // A binding of a `match(&x, …)`, or of a reference binding matched
+          // bare (`match(r, …)`, VERDICTS-13 §14), borrows the part it
+          // binds: outside std and src it reads as a whole value with `.*`
+          // (E0926, decision 43 step 2 N1e-1; a `&mut` match's binding is
+          // `is_ref` above).
+          if(!ct_known && ref_binds, {
+            match(
+              &_added,
+              // The binding points at its part, a read-only borrow. A
+              // reference payload's binding is already a reference binding
+              // (`is_ref` above), holding the payload's own pointer.
+              .Some(bm_var) => if(ref_payload.is_none(), {
+                variable_set_is_borrow_match_binding(&bm_var, true);
+                // A `mut(name)` binding binds by value, as Rust 2021's
+                // `mut` resets the default binding mode: a copy of its part
+                // the arm may reassign, which writes neither the scrutinee
+                // nor data its owner holds (E0908)
+                // (issues/fixed/2026-11-06-a-mut-binding-of-a-borrowed-match-writes-through-the-shared-reference.md).
+                if(!is_unit_type(&bind_ty) && !bm_var.is_reassignable(), {
+                  // The projection root rule follows the binding to the
+                  // scrutinee's place (decision 24); a `mut` copy stays a
+                  // local.
+                  note_borrow_match_source(bm_var.id(), &scrutinee_expr);
+                  variable_set_is_ref(&bm_var, true);
+                  // `is_ref` says the binding is a pointer; a `&` match
+                  // lends read-only.
+                  variable_set_reference_mut(&bm_var, false);
+                  any_ref_binder = true;
+                });
+              }),
+              .None => ()
+            );
+          });
+          if(audit_pending_copies_enabled(), {
+            // `yo fix --migrate rc-clone`: a binding of a `&`/`&mut`
+            // scrutinee borrows whatever the scrutinee is (a call's
+            // temporary too, `match(&f(), .Some(x) => …)`), so a copy of it
+            // is a copy of a borrow, never a move.
+            match(
+              &_added,
+              .Some(added_var) => audit_note_match_binding(
+                &added_var,
+                &scr_info,
+                below_cell : (_names_contain(&rc_cell_borrowed, b.name.clone()) || (migrate_rc_clone_on() && (borrowed_match_scrutinee_kind(ast_expr_token(expr)) != u8(0))))
+              ),
+              .None => ()
+            );
+          });
+          // `yo fix --migrate rc-clone`: with the rule suspended this match
+          // borrows (its scrutinee's type holds a counted handle), but the
+          // rule consumes it — a temporary transfers to the arms, a plain
+          // local moves — so this binding would be OWNED, and a nested
+          // `match` on it that an arm then reads consumes it first. Record
+          // the `&` for those nested matches now: when the nested match is
+          // evaluated the binding reads as a borrow (this match borrowed),
+          // and the site would be invisible.
+          if(migrate_rc_clone_on() && !consuming && !mut_places && !ct_known
+          && (borrowed_match_scrutinee_kind(ast_expr_token(expr)) == u8(0))
+          && type_holds_counted_handle_ignoring_migration(&scr_info.ty())
+          && type_holds_counted_handle_ignoring_migration(&b.ty)
+          && !_names_contain(&rc_cell_borrowed, b.name.clone())
+          && !(
+            (
+              ast_expr_is_atom(&scrutinee_expr)
+              && match(
+                _scrutinee_root_variable(&scrutinee_expr, &env),
+                .Some(rv0) => (rv0.is_module_level() || match_scrutinee_is_capture(&rv0, &env, ctx)),
+                .None => false
+              )
+            )
+            || _scrutinee_is_projection(&scrutinee_expr, &env)
+          ), {
+            match(
+              &_added,
+              .Some(pv) => _record_nested_scrutinee_borrows(&body_ast, b.name.clone(), pv.id(), &b.ty),
+              .None => ()
+            );
+          });
+          match(
+            &imm_place,
+            .Some(ip) => local_borrow_register_match_place(b.name.clone(), ast_expr_token(&b.atom), &ip, &body_ast, false),
+            .None => ()
+          );
+          // A reference payload binding points where the scrutinee's
+          // references do (decision 43 step 3, O3 step 2): those places are
+          // frozen — exclusively for a `&mut` payload — while it is live in
+          // the arm, as a `r := &x` borrow freezes `x`.
+          match(
+            ref_payload,
+            .Some(rf_is_mut) => {
+              rf_roots := origin_carrying_value_roots(&scrutinee_expr, &env, ctx);
+              (rfi : usize) = usize(0);
+              while(rfi < rf_roots.len(), {
+                local_borrow_register_match_place(b.name.clone(), ast_expr_token(&b.atom), &rf_roots(rfi).place, &body_ast, rf_is_mut);
+                rfi = (rfi + usize(1));
+              });
+            },
+            .None => ()
+          );
+          // Below a cell a binding borrows whatever the mode (decision 26).
+          if((consuming || mut_places) && !_names_contain(&own.borrowed, b.name.clone()), {
+            match(
+              &_added,
+              .Some(av) => {
+                if(consuming, {
+                  owned_vars.push(av);
+                });
+                if(mut_places, {
+                  // A `mut` place: the binding aliases the part, so reads and
+                  // writes go through it (the guard reads it; it becomes
+                  // writable for the body).
+                  variable_set_is_ref(&av, true);
+                  place_vars.push(av);
+                  any_place_binder = true;
+                });
+              },
+              .None => ()
+            );
           });
         },
         .None => ()
@@ -2227,7 +2308,19 @@ evaluate_match :: (
   if(force_general, {
     all_classic = false;
   });
-  register_match_mode(ast_expr_id(expr), cond((mut_places && !(any_place_binder)) => MATCH_MODE_BORROW, true => match_mode));
+  // A `&` match that binds: its bindings point into the scrutinee's place,
+  // or into the C local a temporary scrutinee is materialized in.
+  register_match_mode(
+    ast_expr_id(expr),
+    cond(
+      (mut_places && !(any_place_binder)) => MATCH_MODE_BORROW,
+      any_ref_binder => cond(
+        (is_place_expression(&scrutinee_expr, &env) || scr_is_marked_index_place) => MATCH_MODE_REF,
+        true => MATCH_MODE_REF_TEMP
+      ),
+      true => match_mode
+    )
+  );
   // ---------------------------------------------------------------------------
   // Variant-tag group coverage (soundness of the classic `case TAG:` shape)
   //

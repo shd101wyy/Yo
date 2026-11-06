@@ -16,7 +16,7 @@
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, ExprId, ast_expr_token, ast_expr_id } :: import("../../expr.yo");
-{ FunctionGenerationContext, sm_owns_fnonce_captures, sm_lowering_note_moved_read } :: import("../functions/context.yo");
+{ FunctionGenerationContext, sm_owns_fnonce_captures, sm_lowering_note_moved_read, shadow_binding_c_name } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
 { generate_comptime_value } :: import("./comptime_value.yo");
 { check_variable_is_closure_captured } :: import("./closures.yo");
@@ -51,14 +51,14 @@ _shadowed_name_code :: (fn(var_name : &String, context : &FunctionGenerationCont
   match(
     match(&context.shadow_slots, .Some(m) => m.get_cloned(cname.clone()), .None => Option(String).None),
     .Some(field) => `sm->${field}`,
-    .None => cname
+    .None => shadow_binding_c_name(context, &cname)
   )
 });
 /// A `mut` match's place binding (decision 26): a shadowed C local that holds
 /// a pointer to the part. Read from the arm's emission state, not the env: a
 /// single-expression arm body records the env without the arm's frame.
 _is_place_binding :: (fn(var_name : &String, context : &FunctionGenerationContext) -> bool)(
-  match(&context.place_bindings, .Some(s) => s.contains(sanitize_for_c_identifier(var_name, false)), .None => false)
+  match(&context.place_bindings, .Some(s) => s.contains(shadow_binding_c_name(context, &sanitize_for_c_identifier(var_name, false))), .None => false)
 );
 /// A match-arm binding the arm's C block declared under its source name.
 _is_shadowed_name :: (fn(var_name : &String, context : &FunctionGenerationContext) -> bool)(
@@ -436,6 +436,22 @@ _emit_loop_body_drops_before_exit :: (fn(context : &mut FunctionGenerationContex
                 // scope-end flushes of the normal path would skip their own
                 // release.
                 if(!context.emitted_deferred_drop_ids.contains(ast_expr_id(&drop_expr)), {
+                  // A task slot holds a value only while its move flag is
+                  // clear: one its binding has not stored yet on this
+                  // iteration (the exit lies in the binding's own
+                  // initializer) still has the flag set by the previous
+                  // iteration's scope-end drop, or by the allocation
+                  // (issues/fixed/2026-10-23-an-exit-inside-an-unmoved-async-locals-own-initializer-drops-its-zeroed-slot.md).
+                  guard_flag := if(
+                    context.in_async_state_machine.is_some(),
+                    match(
+                      match(get_deferred_drop_target_atom(&drop_expr), .Some(ta) => _generate_sm_atom(&ta, &ast_expr_token(&ta).value.*, context), .None => Option(String).None),
+                      .Some(slot) => sm_move_flag_of(slot.clone(), sm_owns_fnonce_captures(context)),
+                      .None => Option(String).None
+                    ),
+                    Option(String).None
+                  );
+                  match(&guard_flag, .Some(flag) => context.base.emitter.emit_string_line(`${indent.clone()}if (!(${flag})) {`), .None => ());
                   drop_code := _call_generate_expr(&drop_expr, indent.clone(), context);
                   if(drop_code.len() > usize(0), {
                     mut(line) := indent.clone();
@@ -443,6 +459,7 @@ _emit_loop_body_drops_before_exit :: (fn(context : &mut FunctionGenerationContex
                     line.push_str(";");
                     context.base.emitter.emit_string_line(&line);
                   });
+                  match(&guard_flag, .Some(_) => context.base.emitter.emit_string_line(`${indent.clone()}}`), .None => ());
                 });
               });
             },
@@ -491,6 +508,15 @@ _scope_var_is_ref :: (fn(key : ExprId, name : &String, env_opt : &Option(Environ
         true => match(vs.last_cloned(), .Some(v) => v.is_ref(), .None => false)
       )
     },
+    .None => false
+  )
+);
+/// The binding `name` resolves to at node `key` is a binding of a `&` match
+/// (`is_borrow_match_binding`).
+_scope_var_is_borrow_match_binding :: (fn(key : ExprId, name : &String, env_opt : &Option(Environment)) -> bool)(
+  match(
+    env_opt,
+    .Some(e) => match(scope_variables(key, &e, name).last(), .Some(v) => v.is_borrow_match_binding, .None => false),
     .None => false
   )
 );
@@ -618,24 +644,23 @@ generate_atom :: (fn(expr : &AstExpr, context : &mut FunctionGenerationContext, 
               // (`_emit_loop_body_drops_before_exit`).
               .Some(pe) => if(!(sm_owns_fnonce_captures(context) && is_fnonce_capture_drop(ast_expr_id(&pe))) && (!is_call_scoped_share_drop(ast_expr_id(&pe)) || match(get_deferred_drop_target_atom_name(&pe), .Some(sn) => context.base.declared_scopes.with(ds_s => scope_stack_contains(ds_s, sanitize_for_c_identifier(&sn, false))), .None => false)), {
                 // A slot whose value was moved out on this path (its move
-                // flag is set) no longer owns it: empty it first, as the
-                // abort dispose does, so the drop is a no-op. The drop
-                // emitter writes its statements as it generates, so the
-                // guard goes first
-                // (issues/fixed/2026-10-29-an-early-return-in-an-io-async-body-drops-a-local-it-moved.md).
-                match(
+                // flag is set) no longer owns it, as the abort dispose
+                // reads the flag: the drop runs only while it is clear. The
+                // drop emitter writes its statements as it generates, so the
+                // guard opens first
+                // (issues/fixed/2026-10-29-an-early-return-in-an-io-async-body-drops-a-local-it-moved.md,
+                // issues/fixed/2026-11-05-an-aborted-task-drops-a-local-its-scope-already-dropped.md).
+                guard_flag := match(
                   match(get_deferred_drop_target_atom(&pe), .Some(ta) => _generate_sm_atom(&ta, &ast_expr_token(&ta).value.*, context), .None => Option(String).None),
-                  .Some(slot) => match(
-                    sm_move_flag_of(slot.clone(), sm_owns_fnonce_captures(context)),
-                    .Some(flag) => context.base.emitter.emit_string_line(`${indent.clone()}if (${flag}) { memset(&(${slot}), 0, sizeof(${slot})); }`),
-                    .None => ()
-                  ),
-                  .None => ()
+                  .Some(slot) => sm_move_flag_of(slot.clone(), sm_owns_fnonce_captures(context)),
+                  .None => Option(String).None
                 );
+                match(&guard_flag, .Some(flag) => context.base.emitter.emit_string_line(`${indent.clone()}if (!(${flag})) {`), .None => ());
                 pc := _call_generate_expr(&pe, indent.clone(), context);
                 if((pc.len() > usize(0)) && pc.contains("sm->"), {
                   context.base.emitter.emit_string_line(`${indent.clone()}${pc.clone()};`);
                 });
+                match(&guard_flag, .Some(_) => context.base.emitter.emit_string_line(`${indent.clone()}}`), .None => ());
               }),
               .None => ()
             );
@@ -702,11 +727,7 @@ generate_atom :: (fn(expr : &AstExpr, context : &mut FunctionGenerationContext, 
       // and the body must reference `v`, not the temp). Keyed by the source
       // TOKEN; the matching declaration uses the same sanitized source name.
       if(_is_shadowed_name(tv.clone(), context), {
-        shadowed_code := match(
-          match(&context.shadow_slots, .Some(m) => m.get_cloned(sanitize_for_c_identifier(tv.clone(), false)), .None => Option(String).None),
-          .Some(field) => `sm->${field}`,
-          .None => get_variable_name_for_codegen(tv.clone(), Option(Environment).None)
-        );
+        shadowed_code := _shadowed_name_code(tv.clone(), context);
         // A `mut` match's place binding (decision 26) holds a pointer to the
         // part: a read or a write goes through it.
         return(if(_is_place_binding(tv.clone(), context), `(*${shadowed_code})`, shadowed_code));
@@ -783,8 +804,9 @@ generate_atom :: (fn(expr : &AstExpr, context : &mut FunctionGenerationContext, 
             }
           );
           // A capture-list borrow (`imm(y)`, `mut(z)`, decision 35) is a
-          // pointer field: a read or a write goes through it.
-          if(_scope_var_is_ref(ast_expr_id(expr), cap_name.clone(), &env_opt), `(*${field_read})`, field_read)
+          // pointer field: a read or a write goes through it. A `&` match's
+          // binding captured implicitly is a copy of its part.
+          if(_scope_var_is_ref(ast_expr_id(expr), cap_name.clone(), &env_opt) && !_scope_var_is_borrow_match_binding(ast_expr_id(expr), cap_name.clone(), &env_opt), `(*${field_read})`, field_read)
         },
         // Non-variable atom with a comptime value → inline it. Use the
         // coerced runtime type when present (e.g. a comptime_str arg coerced

@@ -777,6 +777,13 @@ _type_key_at :: (fn(t : &TypeValue, depth : usize) -> String)(
     // step 3, N2a): origins are erased from every key, so `_View(x)` and
     // `_View(y)` are one C type.
     Rc(.OriginSet(_, _)) => String.from("origin"),
+    // A reference: its mode and its pointee's key, the origin erased
+    // (decision 43, N1f-2): `&(T, x)` and `&(T, y)` are one type here,
+    // `&T`, `&mut T` and `T` three.
+    Rc(.Reference(tk_rp, tk_rmut, _)) => cond(
+      tk_rmut => `&mut ${recur(&tk_rp, depth + usize(1))}`,
+      true => `&${recur(&tk_rp, depth + usize(1))}`
+    ),
     _ => type_to_string(t)
   )
 );
