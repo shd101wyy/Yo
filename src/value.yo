@@ -936,9 +936,9 @@ value_contains_unknown :: (fn(v : &EvalValue) -> bool)(
     v,
     .UnknownVal(_, _) => true,
     .EnumVal(_, fields) => _values_contain_unknown(&fields.*.items),
-    .StructVal(_, _, field_values) => field_values.*.with(xs => _values_contain_unknown(xs)),
-    .TupleVal(fields) => fields.*.with(xs => _values_contain_unknown(xs)),
-    .ArrayVal(elements) => elements.*.with(xs => _values_contain_unknown(xs)),
+    .StructVal(_, _, field_values) => field_values.*.with(_values_contain_unknown),
+    .TupleVal(fields) => fields.*.with(_values_contain_unknown),
+    .ArrayVal(elements) => elements.*.with(_values_contain_unknown),
     _ => false
   )
 );

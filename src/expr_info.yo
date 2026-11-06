@@ -99,6 +99,15 @@ _c_len_13 :: (fn(m : &HashMap(ExprId, EvalValue)) -> usize)(m.len());
 _c_len_14 :: (fn(m : &HashMap(ExprId, AstExpr)) -> usize)(m.len());
 _c_len_15 :: (fn(s : &HashSet(ExprId)) -> usize)(s.len());
 _c_len_16 :: (fn(m : &HashMap(ExprId, String)) -> usize)(m.len());
+/// (seed window) The spec-report call-sum as a named fn (an empty-env
+/// literal at `with`'s generic-`R` slot spills void* under the seed).
+_sum_fid_rtcalls :: (fn(m : &HashMap(String, usize)) -> usize)({
+  (mut(acc) : usize) = usize(0);
+  for(&m, (_k, c) => {
+    acc = (acc + c);
+  });
+  acc
+});
 /// (seed window) Concrete-key variants of refcell.yo's `cell_map_keys_cloned`
 /// for the `.into_iter()` chains: a fn value generic over K re-spells K's
 /// bounds and the IntoIterator lookup fails on it (see refcell.yo's filler
@@ -3230,13 +3239,7 @@ print_spec_report_if_requested :: (fn() -> unit)({
     );
   });
   // Read-only: the counts are summed in place through the borrowed `for`.
-  total_calls = g_fid_rtcalls.with(m => {
-    (mut(acc) : usize) = usize(0);
-    for(&m, (_k, c) => {
-      acc = (acc + c);
-    });
-    acc
-  });
+  total_calls = g_fid_rtcalls.with(_sum_fid_rtcalls);
   eprintln(`[spec-report] cloned_nodes=${cloned_expr_node_count().to_string()} specializations=${total_specs.to_string()} fids=${rows.len().to_string()} runtime_calls=${total_calls.to_string()}`);
   (adopt_calls : usize) = g_adopt_env_calls;
   eprintln(`[spec-report] ${snapshot_ring_stats()} adopt_env_calls=${adopt_calls.to_string()}`);
