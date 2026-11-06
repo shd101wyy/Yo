@@ -64,14 +64,13 @@ pragma(Pragma.AllowUnsafe);
 /// Async-specific fields for a single await expression.
 /// Stored in a side-channel HashMap keyed by `expr.token.character`
 /// because `SuspensionPointDetector` only accepts base `SuspensionPoint` objects.
-AwaitPointExtra :: ref(
-  struct(
-    result_type : TypeValue,
-    future_type : Option(TypeValue),
-    future_variable_id : Option(String),
-    target_is_reassign : bool
-  )
+AwaitPointExtra :: struct(
+  result_type : TypeValue,
+  future_type : Option(TypeValue),
+  future_variable_id : Option(String),
+  target_is_reassign : bool
 );
+derive(AwaitPointExtra, Clone);
 // ---------------------------------------------------------------------------
 // _is_dot_access — structural AST check for `obj.method(...)` calls
 // ---------------------------------------------------------------------------
@@ -246,19 +245,19 @@ get_future_variable_id_ :: (
   await_var_name := await_tok.value.*.clone();
   // Get the expression info to access the environment
   info := match(
-    get_info(await_arg),
+    &get_info(await_arg),
     .None => {
       return(Option(String).None);
     },
-    .Some(i) => i
+    .Some(i) => Rc.clone(i)
   );
-  vars := scope_variables(ast_expr_id(await_arg), &info.env, await_var_name.clone());
+  vars := scope_variables(ast_expr_id(await_arg), &info.env(), await_var_name.clone());
   n := vars.len();
   if(n == usize(0), {
     return(Option(String).None);
   });
   last_var := match(
-    vars.get(n - usize(1)),
+    vars.get_cloned(n - usize(1)),
     .None => {
       return(Option(String).None);
     },
@@ -266,9 +265,9 @@ get_future_variable_id_ :: (
   );
   // If the variable shares RC with an owner, return the owner's ID
   match(
-    last_var.is_owning_the_same_rc_value_as,
-    .Some(owner_box) => Option(String).Some(owner_box.id.to_string()),
-    .None => Option(String).Some(last_var.id.to_string())
+    last_var.is_owning_the_same_rc_value_as(),
+    .Some(owner_box) => Option(String).Some(owner_box.id().to_string()),
+    .None => Option(String).Some(last_var.id().to_string())
   )
 });
 // ---------------------------------------------------------------------------
@@ -310,14 +309,14 @@ detect_await_expr_ :: (
       );
       // Get expression info for the await argument to read its type
       await_info := match(
-        get_info(await_arg.clone()),
+        &get_info(await_arg.clone()),
         .None => {
           return(());
         },
-        .Some(i) => i
+        .Some(i) => Rc.clone(i)
       );
       // The argument's type must implement the Future trait
-      future_type_val := await_info.ty.clone();
+      future_type_val := await_info.ty();
       if(!type_implements_future(future_type_val.clone()), {
         return(());
       });
@@ -511,7 +510,7 @@ analyze_await_points :: (
     );
     expr_char_key := usize(ast_expr_token(sp.expr.clone()).character).to_string();
     match(
-      await_extras.with(extras => extras.get(expr_char_key.clone())),
+      await_extras.with(extras => extras.get_cloned(expr_char_key.clone())),
       .None => (),
       // should not happen: every SP was registered via detect_await_expr_
       .Some(extra) => {
@@ -610,35 +609,35 @@ collect_variable_bindings_ :: (
                     .None => (),
                     .Some(val_arg) => {
                       match(
-                        get_info(val_arg.clone()),
+                        &get_info(val_arg.clone()),
                         .None => (),
                         .Some(val_info) => {
-                          var_type := val_info.ty.clone();
+                          var_type := val_info.ty();
                           // Look up the variable in the name_arg's environment
                           match(
-                            get_info(&name_arg),
+                            &get_info(&name_arg),
                             .None => (),
                             .Some(name_info) => {
                               vars := scope_variables(
                                 ast_expr_id(&name_arg),
-                                &name_info.env,
+                                &name_info.env(),
                                 var_name.clone()
                               );
                               n_vars := vars.len();
                               if(n_vars > usize(0), {
                                 match(
-                                  vars.get(n_vars - usize(1)),
+                                  vars.get_cloned(n_vars - usize(1)),
                                   .None => (),
                                   .Some(variable) => {
                                     match(
-                                      variable.is_owning_the_same_rc_value_as,
+                                      variable.is_owning_the_same_rc_value_as(),
                                       .Some(_) => (),
                                       .None => {
-                                        if(!variable.is_compile_time_only &&
-                                          !seen.contains_key(variable.id.to_string()), {
+                                        if(!variable.is_compile_time_only() &&
+                                          !seen.contains_key(variable.id().to_string()), {
                                           cv := CapturedVariable(
                                             base : SuspensionCapturedVariable(
-                                              id : variable.id.to_string(),
+                                              id : variable.id().to_string(),
                                               name : var_name.clone(),
                                               ty : var_type.clone(),
                                               is_owning_the_same_rc_value_as :
@@ -650,7 +649,7 @@ collect_variable_bindings_ :: (
                                               Option(CapturedVariable).None
                                           );
                                           variables.push(cv);
-                                          seen.insert(variable.id.to_string(), true);
+                                          seen.insert(variable.id().to_string(), true);
                                         });
                                       }
                                     );

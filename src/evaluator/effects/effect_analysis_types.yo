@@ -28,23 +28,21 @@
 // ---------------------------------------------------------------------------
 /// Information about a single ctl effect call point found in an effectful function.
 /// Embeds `SuspensionPoint` as a `base` field.
-EffectCallPoint :: ref(
-  struct(
-    /// Shared suspension-point fields (index, expr, target_variable_id, …).
-    base : SuspensionPoint,
-    /// The types of the arguments passed to the ctl operation.
-    operation_arg_types : ArrayList(TypeValue),
-    /// The return type of the ctl operation at the call site.
-    operation_result_type : TypeValue,
-    /// Whether this is a transitive effect call (call to a function with a
-    /// matching `using` ctl parameter, rather than a direct ctl call).
-    is_transitive_effect_call : Option(bool),
-    /// Whether this transitive call is to a closure (Impl(Fn(...))).
-    is_transitive_closure_call : Option(bool),
-    /// For multi-effect functions, identifies which effect this call point belongs to.
-    /// Index into EffectAnalysisResult.effect_handler_infos.
-    effect_index : Option(usize)
-  )
+EffectCallPoint :: struct(
+  /// Shared suspension-point fields (index, expr, target_variable_id, …).
+  base : SuspensionPoint,
+  /// The types of the arguments passed to the ctl operation.
+  operation_arg_types : ArrayList(TypeValue),
+  /// The return type of the ctl operation at the call site.
+  operation_result_type : TypeValue,
+  /// Whether this is a transitive effect call (call to a function with a
+  /// matching `using` ctl parameter, rather than a direct ctl call).
+  is_transitive_effect_call : Option(bool),
+  /// Whether this transitive call is to a closure (Impl(Fn(...))).
+  is_transitive_closure_call : Option(bool),
+  /// For multi-effect functions, identifies which effect this call point belongs to.
+  /// Index into EffectAnalysisResult.effect_handler_infos.
+  effect_index : Option(usize)
 );
 // ---------------------------------------------------------------------------
 // EffectCapturedVariable
@@ -69,7 +67,7 @@ EffectCapturedVariable :: ref(
 /// Per-effect handler information for multi-effect functions.
 ///
 ///
-EffectHandlerInfo :: ref(
+EffectHandlerInfo ::
   struct(
     effect_parameter_name : String,
     effect_parameter_type : TypeValue,
@@ -77,8 +75,7 @@ EffectHandlerInfo :: ref(
     handler_value : Option(EvalValue),
     operation_arg_types : ArrayList(TypeValue),
     operation_result_type : TypeValue
-  )
-);
+  );
 // ---------------------------------------------------------------------------
 // EffectAnalysisResult
 // ---------------------------------------------------------------------------
@@ -111,6 +108,9 @@ EffectAnalysisResult :: ref(
     effect_handler_infos : Option(ArrayList(EffectHandlerInfo))
   )
 );
+/// A `ref(...)` handle: its `clone` is a second handle to the same result
+/// (`ExprInfoRare` derives `Clone` over it).
+impl(EffectAnalysisResult, Clone(clone : (fn(self : &Self) -> Self)(self)));
 // ---------------------------------------------------------------------------
 // Constructor helpers
 // ---------------------------------------------------------------------------

@@ -34,33 +34,32 @@
 { TypeValue, TypeValueNode, no_types, t_slot_pointee, t_slot_is_mut_ref } :: import("../../types/definitions.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
 /// Generate code for `downcast(dyn_value, T)`.
-generate_downcast :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)(
+generate_downcast :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)(
   bind_owning_result_temp(expr, _downcast_value(expr, indent, context), indent, context)
 );
 /// The `Option(T)` value of a downcast, as one C expression.
-_downcast_value :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
+_downcast_value :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("/* ERROR: downcast not evaluated */")));
   args := match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
   dyn_arg := match(args.get(usize(0)), .Some(x) => x, .None => return(String.from("/* ERROR: downcast requires 2 arguments */")));
   type_arg := match(args.get(usize(1)), .Some(x) => x, .None => return(String.from("/* ERROR: downcast requires 2 arguments */")));
   // First argument: the dyn value (runtime).
   dyn_ei := match(context.base.get_expr_info(&dyn_arg), .Some(e) => e, .None => return(String.from("/* ERROR: downcast dyn arg not evaluated */")));
-  if(!is_dyn_type(&dyn_ei.ty), {
+  if(!is_dyn_type(&dyn_ei.ty()), {
     return(String.from("/* ERROR: downcast expected Dyn type as first argument */"));
   });
   dyn_code := _call_generate_expr(&dyn_arg, indent.clone(), context);
   // Second argument: the target type T (comptime).
-  target_type := match(context.base.get_expr_info(&type_arg), .Some(tei) => match(tei.value, .Some(v) => match(v, .TypeVal(t) => Rc.clone(t), _ => return(String.from("/* ERROR: downcast expected TypeValue as second argument */"))), .None => return(String.from("/* ERROR: downcast expected TypeValue as second argument */"))), .None => return(String.from("/* ERROR: downcast type arg not evaluated */")));
-  target_type_c_name := get_type_string(&target_type, &context.base);
+  target_type := match(context.base.get_expr_info(&type_arg), .Some(tei) => match(tei.value(), .Some(v) => match(v, .TypeVal(t) => Rc.clone(t), _ => return(String.from("/* ERROR: downcast expected TypeValue as second argument */"))), .None => return(String.from("/* ERROR: downcast expected TypeValue as second argument */"))), .None => return(String.from("/* ERROR: downcast type arg not evaluated */")));
+  target_type_c_name := get_type_string(&target_type, &mut context.base);
   // Register the typeid static for the target type (address = canonical id).
   tid := type_key(&target_type);
   type_id_c_name := match(context.base.get_type_c_name(tid.clone()), .Some(cn) => cn, .None => target_type_c_name.clone());
   static_var_name := String.from("__yo_typeid_");
   static_var_name.push_string(c_symbol_name(&type_id_c_name));
   if(!context.base.type_id_static_names.contains(static_var_name.clone()), {
-    cg_base := context.base;
-    cg_base.type_id_static_names.insert(static_var_name.clone());
-    cg_base.type_id_statics.insert(tid.clone(), static_var_name.clone());
+    context.base.type_id_static_names.insert(static_var_name.clone());
+    context.base.type_id_statics.insert(tid.clone(), static_var_name.clone());
     context.base.emit_typeid_static(static_var_name.clone(), String.new());
   });
   context.base.add_c_include(String.from("<stdint.h>"));
@@ -68,7 +67,6 @@ _downcast_value :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGen
   is_check := dyn_code.clone();
   is_check.push_str(".vtable->__yo_type_id == (uintptr_t)&");
   is_check.push_string(&static_var_name);
-  em := context.base.emitter;
   // What the result ternary tests. Normally the inline is-check; the
   // structural-dup path below replaces it with a hoisted flag variable so the
   // dup can be emitted as STATEMENTS behind the same guard.
@@ -105,7 +103,7 @@ _downcast_value :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGen
     // Value/newtype target: find the Rc in the dyn_impls (same dyn, concrete ==
     // target), then extract `((Rc*)data)->valueField`.
     tkey := type_key(&target_type);
-    dyn_tkey := type_key(&dyn_ei.ty);
+    dyn_tkey := type_key(&dyn_ei.ty());
     (box_opt : Option(TypeValue)) = Option(TypeValue).None;
     // The payload's `clone`, when the Dyn lists `Clone`: a move-only payload
     // is copied out through it (below).
@@ -128,7 +126,7 @@ _downcast_value :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGen
     match(
       box_opt,
       .Some(box_ty) => {
-        box_cname := get_type_string(&box_ty, &context.base);
+        box_cname := get_type_string(&box_ty, &mut context.base);
         box_fields := get_runtime_struct_fields(&box_ty);
         field_c := match(box_fields.get(usize(0)), .Some(f) => sanitize_for_c_identifier(&f.label, false), .None => String.from("_u42_"));
         extract := String.from("((");
@@ -168,9 +166,9 @@ _downcast_value :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGen
               uid := fresh_local_name(String.from("u"), &context.base.current_function_name);
               ok_var := `__yo_dc_ok_${uid}`;
               val_var := `__yo_dc_val_${uid}`;
-              em.emit_string_line(`${indent.clone()}int ${ok_var} = (${is_check.clone()}) ? 1 : 0;`);
-              em.emit_string_line(`${indent.clone()}${target_type_c_name.clone()} ${val_var} = (${target_type_c_name.clone()}){0};`);
-              em.emit_string_line(`${indent.clone()}if (${ok_var}) {`);
+              context.base.emitter.emit_string_line(`${indent.clone()}int ${ok_var} = (${is_check.clone()}) ? 1 : 0;`);
+              context.base.emitter.emit_string_line(`${indent.clone()}${target_type_c_name.clone()} ${val_var} = (${target_type_c_name.clone()}){0};`);
+              context.base.emitter.emit_string_line(`${indent.clone()}if (${ok_var}) {`);
               if(type_is_move_only(&target_type), {
                 // A move-only payload has no structural dup: a bitwise copy
                 // would leave the Dyn's box and the result owning one value,
@@ -182,18 +180,18 @@ _downcast_value :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGen
                   .None => codegen_fatal_expr(`downcast to the move-only ${target_type_c_name.clone()}: no Clone impl in the Dyn's evidence`)
                 );
                 receiver := if(clone_fn_takes_self_by_ptr(&clone_fid), `&(${extract})`, extract.clone());
-                em.emit_string_line(`${indent.clone()}  ${val_var} = ${clone_c}(${receiver});`);
+                context.base.emitter.emit_string_line(`${indent.clone()}  ${val_var} = ${clone_c}(${receiver});`);
               }, {
-                em.emit_string_line(`${indent.clone()}  ${val_var} = ${extract};`);
+                context.base.emitter.emit_string_line(`${indent.clone()}  ${val_var} = ${extract};`);
                 dup_code := generate_dup_code_for_value(val_var.clone(), &target_type, context);
                 // The nullable-pointer and no-RC arms emit their own statement
                 // (or nothing) and hand the value straight back; only a real
                 // dup EXPRESSION needs assigning.
                 if((dup_code.len() > usize(0)) && !(dup_code == val_var), {
-                  em.emit_string_line(`${indent.clone()}  ${val_var} = ${dup_code};`);
+                  context.base.emitter.emit_string_line(`${indent.clone()}  ${val_var} = ${dup_code};`);
                 });
               });
-              em.emit_string_line(`${indent.clone()}}`);
+              context.base.emitter.emit_string_line(`${indent.clone()}}`);
               cond_expr = ok_var.clone();
               val_var
             }
@@ -210,7 +208,7 @@ _downcast_value :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGen
     )
   });
   // Result Option type.
-  option_type := Rc.clone(ei.ty);
+  option_type := Rc.clone(ei.ty());
   if(!is_enum_type(&option_type), {
     return(String.from("/* ERROR: downcast expected Option enum as result type */"));
   });
@@ -231,7 +229,7 @@ _downcast_value :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGen
         .Some(_) => String.from("NULL"),
         .None => {
           o := String.from("(");
-          o.push_string(get_type_string(&option_type, &context.base));
+          o.push_string(get_type_string(&option_type, &mut context.base));
           o.push_str("){ .tag = ");
           o.push_string(get_enum_variant_c_name(&option_type, String.from("None"), &context.base));
           o.push_str(" }");
@@ -253,7 +251,7 @@ _downcast_value :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGen
       out
     },
     .None => {
-      option_c_name := get_type_string(&option_type, &context.base);
+      option_c_name := get_type_string(&option_type, &mut context.base);
       some_tag := get_enum_variant_c_name(&option_type, String.from("Some"), &context.base);
       none_tag := get_enum_variant_c_name(&option_type, String.from("None"), &context.base);
       out := String.from("((");
@@ -299,25 +297,24 @@ _is_plain_c_identifier :: (fn(s : &String) -> bool)({
 /// through the source vtable's RC slot (the result is owned, like a
 /// downcast's), behind the payload's vtable for the target, which the source
 /// vtable carries as `__yo_up_<Tgt>`.
-generate_upcast :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)(
+generate_upcast :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)(
   bind_owning_result_temp(expr, _upcast_value(expr, indent, context), indent, context)
 );
 /// The target Dyn of an upcast, as one C expression.
-_upcast_value :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
+_upcast_value :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("/* ERROR: upcast not evaluated */")));
   args := match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
   dyn_arg := match(args.get(usize(0)), .Some(x) => x, .None => return(String.from("/* ERROR: upcast requires 2 arguments */")));
   dyn_ei := match(context.base.get_expr_info(&dyn_arg), .Some(e) => e, .None => return(String.from("/* ERROR: upcast dyn arg not evaluated */")));
   dyn_code := _call_generate_expr(&dyn_arg, indent.clone(), context);
-  tgt_c := get_type_string(&ei.ty, &context.base);
+  tgt_c := get_type_string(&ei.ty(), &mut context.base);
   // Name the source once: a call operand must not run twice.
   src := if(_is_plain_c_identifier(dyn_code.clone()), dyn_code.clone(), {
-    src_c := get_type_string(&dyn_ei.ty, &context.base);
+    src_c := get_type_string(&dyn_ei.ty(), &mut context.base);
     uid := fresh_local_name(String.from("u"), &context.base.current_function_name);
     src_var := `__yo_uc_src_${uid}`;
     line := `${indent.clone()}${src_c} ${src_var} = ${dyn_code};`;
-    em := context.base.emitter;
-    em.emit_string_line(&line);
+    context.base.emitter.emit_string_line(&line);
     src_var
   });
   `((${tgt_c}){ .data = __yo_dyn_retain((void*)${src}.data, (const void*)${src}.vtable), .vtable = ${src}.vtable->__yo_up_${tgt_c} })`

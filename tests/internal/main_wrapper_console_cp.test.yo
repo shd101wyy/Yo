@@ -57,9 +57,8 @@ mk_user_main_funcval :: (fn() -> EvalValue)({
 });
 
 emit_main_wrapper_for :: (fn(triple : str) -> String)({
-  em := Emitter.new();
-  base := CodeGenContext.new(
-    &em,
+  mut(base) := CodeGenContext.new(
+    Emitter.new(),
     expr_info_table_new(),
     mk_target(triple),
     String.from("system"),
@@ -74,9 +73,9 @@ emit_main_wrapper_for :: (fn(triple : str) -> String)({
     mk_user_main_funcval(),
     String.from("__yo_user_main")
   );
-  ctx := FunctionGenerationContext.new(&base);
-  generate_main_wrapper(&ctx, ArrayList(ModuleLevelVarEntry).new());
-  em.print()
+  mut(ctx) := FunctionGenerationContext.new(base);
+  generate_main_wrapper(&mut ctx, ArrayList(ModuleLevelVarEntry).new());
+  ctx.base.emitter.print()
 });
 
 test("windows main wrapper switches the console to UTF-8 and restores it", {

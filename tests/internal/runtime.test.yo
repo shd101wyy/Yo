@@ -8,7 +8,7 @@ import("std/fmt");
 { AstExpr, ast_expr_id, BF_RUNTIME } :: import("../../src/expr.yo");
 { ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set }
 :: import("../../src/expr_info.yo");
-{ Environment } :: import("../../src/env.yo");
+{ Environment, new_environment } :: import("../../src/env.yo");
 { EvalContext, eval_context_new } :: import("../../src/evaluator/context.yo");
 { EvalValue } :: import("../../src/value.yo");
 { TypeValue } :: import("../../src/types/definitions.yo");
@@ -44,7 +44,7 @@ stub_evaluate_comptime_int :: (
   fn(
     expr : &AstExpr,
     env : &Environment,
-    ctx : &EvalContext
+    ctx : &mut EvalContext
   ) -> AstExpr
 )({
   info := new_expr_info(env, t_comptime_int());
@@ -56,7 +56,7 @@ stub_evaluate_comptime_int_raw :: (
   fn(
     expr : &AstExpr,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> AstExpr
 )(
@@ -73,13 +73,13 @@ test("evaluate_runtime: converts comptime_int argument to i32", {
       }
     )
   );
-  ctx := eval_context_new(String.from("/std"), String.from("test"));
-  env := Environment.new(Rc.new(String.from("test")));
+  mut(ctx) := eval_context_new(String.from("/std"), String.from("test"));
+  env := new_environment(Rc.new(String.from("test")));
   call := mk_runtime_call(usize(11), "42", usize(12));
-  result := evaluate_runtime(&call, &env, &ctx, exn);
+  result := evaluate_runtime(&call, &env, &mut ctx, exn);
   // Outer call's ExprInfo must be present, with i32 type and no value.
   info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&result));
-  assert(match(info_opt, .Some(_) => true, .None => false), "runtime did not record an ExprInfo");
+  assert(match(&info_opt, .Some(_) => true, .None => false), "runtime did not record an ExprInfo");
   info := match(
     info_opt,
     .Some(i) => i,
@@ -87,7 +87,7 @@ test("evaluate_runtime: converts comptime_int argument to i32", {
   );
   // Type should be i32 (converted from comptime_int).
   match(
-    &info.ty,
+    &info.ty(),
     Rc(.Int(bits, signed)) => {
       assert(bits.* == u8(32), "expected i32 bits=32");
       assert(signed.*, "expected i32 signed=true");
@@ -96,7 +96,7 @@ test("evaluate_runtime: converts comptime_int argument to i32", {
   );
   // value must be .None (runtime value, not known at compile time).
   match(
-    info.value,
+    info.value(),
     .None => (),
     .Some(_) => assert(false, "expected runtime() to leave value = .None")
   );

@@ -226,14 +226,14 @@ _select_best_variable :: (
   (mut(i) : usize) = usize(0);
   while(i < vars.len(), {
     v := match(
-      vars.get(i),
+      vars.get_cloned(i),
       .Some(x) => x,
       .None => {
         return(Option(Variable).None);
       }
     );
     match(
-      v.initialized_at_token,
+      v.initialized_at_token(),
       .Some(it) => {
         if(it.module_path == target.module_path, {
           exact := ((it.row == target.row) && (it.column == target.column));
@@ -263,8 +263,8 @@ _select_best_variable :: (
   });
   match(
     best_visible,
-    .Some(bv) => Option(Variable).Some(bv),
-    .None => vars.last()
+    .Some(bv) => Option(Variable).Some(Rc.clone(bv)),
+    .None => vars.last_cloned()
   )
 });
 
@@ -272,11 +272,9 @@ _select_best_variable :: (
 // Atom roles
 /// Expression ids of the atoms that are member names or labels (see the
 /// module header).
-AtomRoles :: ref(
-  struct(
-    members : HashSet(usize),
-    labels : HashSet(usize)
-  )
+AtomRoles :: struct(
+  members : HashSet(usize),
+  labels : HashSet(usize)
 );
 /// Callees whose `name : T` arguments INTRODUCE `name` as a binding —
 /// parameters and typed declarations. Every other call's colon pairs are
@@ -290,7 +288,7 @@ _is_declaring_callee :: (fn(callee : &String) -> bool)(
 /// Mark the member position `a` of a `.` call: a bare atom (`p.x`, `.Red`)
 /// or a call whose callee is the member (`p.dist()`, `.Some(v)`) — the
 /// call's ARGUMENTS are ordinary expressions and are classified normally.
-_mark_member :: (fn(a : &AstExpr, roles : &AtomRoles) -> unit)({
+_mark_member :: (fn(a : &AstExpr, roles : &mut AtomRoles) -> unit)({
   match(
     a,
     .Atom(id, _) => {
@@ -316,7 +314,7 @@ _mark_member :: (fn(a : &AstExpr, roles : &AtomRoles) -> unit)({
     }
   );
 });
-_classify_roles :: (fn(e : &AstExpr, roles : &AtomRoles) -> unit)({
+_classify_roles :: (fn(e : &AstExpr, roles : &mut AtomRoles) -> unit)({
   match(
     e,
     .Atom(_, _) => (),
@@ -406,7 +404,7 @@ classify_atom_roles :: (fn(exprs : &ArrayList(AstExpr)) -> AtomRoles)({
   while(i < exprs.len(), {
     match(
       exprs.get(i),
-      .Some(e) => _classify_roles(&e, &roles),
+      .Some(e) => _classify_roles(&e, &mut roles),
       .None => ()
     );
     i = (i + usize(1));
@@ -558,10 +556,10 @@ handle_hover :: (
   match(
     info_opt,
     .Some(info) => {
-      ty_opt = Option(String).Some(type_to_string(&info.ty));
-      fn_val = info.value;
+      ty_opt = Option(String).Some(type_to_string(&info.ty()));
+      fn_val = info.value();
       match(
-        info.value,
+        info.value(),
         .Some(v) => {
           vs := value_to_string(&v);
           if(vs != "<runtime value>", {
@@ -575,15 +573,15 @@ handle_hover :: (
       // declared at/nearest the cursor. NOT for a
       // member — `p.x` is the field, never the local `x` in scope.
       if(!is_member, {
-        vars := get_variables_from_env(&info.env, target.value.*.clone());
+        vars := get_variables_from_env(&info.env(), target.value.*.clone());
         if(vars.len() > usize(0), {
           match(
             _select_best_variable(&vars, &target),
             .Some(sv) => {
               ty_opt = Option(String).Some(type_to_string(&variable_value_type(&sv)));
-              is_comptime = sv.is_compile_time_only;
+              is_comptime = sv.is_compile_time_only();
               match(
-                sv.value.get(usize(0)),
+                sv.value().get(usize(0)),
                 .Some(vv) => {
                   fn_val = Option(EvalValue).Some(vv);
                   vs2 := value_to_string(&vv);

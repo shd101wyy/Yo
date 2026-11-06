@@ -338,7 +338,7 @@ impl(
   )({
     from_info := match(
       expr_info_table_get(table, ast_expr_id(func_expr)),
-      .Some(fi) => fi.value,
+      .Some(fi) => fi.value(),
       .None => Option(EvalValue).None
     );
     is_fv := match(
@@ -364,7 +364,7 @@ impl(
   )({
     info_opt := expr_info_table_get(table, ast_expr_id(e));
     match(
-      info_opt,
+      &info_opt,
       .Some(info) => {
         // A macro call's raw arguments are not what executes — the expansion is.
         match(
@@ -437,7 +437,7 @@ impl(
       match(
         lhs_info,
         .Some(li) => {
-          if(type_contains_rc_type(&li.ty), {
+          if(type_contains_rc_type(&li.ty()), {
             return(true);
           });
         },
@@ -527,9 +527,9 @@ impl(
     // the mutating call on its right-hand side, and report a mutating function
     // as read-only.
     match(
-      info_opt,
+      &info_opt,
       .Some(vinfo) => match(
-        vinfo.value,
+        vinfo.value(),
         .Some(v) => if(_msp_value_is_folded(&v), {
           return(false);
         }),
@@ -621,7 +621,7 @@ impl(
     // declarations resolve this way).
     (type_only : Option(TypeValue)) = match(
       expr_info_table_get(table, ast_expr_id(&func_expr)),
-      .Some(fi2) => Option(TypeValue).Some(Rc.clone(fi2.ty)),
+      .Some(fi2) => Option(TypeValue).Some(Rc.clone(fi2.ty())),
       .None => Option(TypeValue).None
     );
     (type_only2 : Option(TypeValue)) = match(
@@ -993,7 +993,7 @@ _msp_allocator_slot :: (fn(func_expr : &AstExpr, table : &ExprInfoTable) -> Stri
   });
   recv_ty := match(
     recv_opt,
-    .Some(recv) => match(expr_info_table_get(table, ast_expr_id(&recv)), .Some(ri) => Option(TypeValue).Some(Rc.clone(ri.ty)), .None => Option(TypeValue).None),
+    .Some(recv) => match(expr_info_table_get(table, ast_expr_id(&recv)), .Some(ri) => Option(TypeValue).Some(Rc.clone(ri.ty())), .None => Option(TypeValue).None),
     .None => Option(TypeValue).None
   );
   is_vtable := match(
@@ -1158,12 +1158,12 @@ _msp_taint_to :: (fn(ctx : &_MspCtx, name : &String, target : _MspRoot) -> unit)
 /// the env lookup finds nothing and the read classified as unknown storage
 /// (issues/fixed/2026-10-28-a-match-arm-returning-its-pattern-binding-classifies-as-unknown-storage.md).
 _msp_atom_vars :: (fn(atom : &AstExpr, info : &ExprInfo, name : &String) -> ArrayList(Variable))({
-  vars := scope_variables(ast_expr_id(atom), &info.env, name.clone());
+  vars := scope_variables(ast_expr_id(atom), &info.env(), name.clone());
   if(vars.len() > usize(0), {
     return(vars);
   });
   match(
-    info.source_variable,
+    info.source_variable(),
     .Some(sv) => if(sv.name == name, {
       vars.push(sv);
     }),
@@ -1174,12 +1174,12 @@ _msp_atom_vars :: (fn(atom : &AstExpr, info : &ExprInfo, name : &String) -> Arra
 /// The root of a variable read.
 _msp_atom_root :: (fn(ctx : &_MspCtx, atom : &AstExpr) -> _MspRoot)({
   info := match(expr_info_table_get(&ctx.table, ast_expr_id(atom)), .Some(i) => i, .None => return(_msp_root(MSP_ROOTED)));
-  if(!_msp_type_may_root(&info.ty), {
+  if(!_msp_type_may_root(&info.ty()), {
     return(_msp_root(MSP_NONE));
   });
   // A compile-time-known value is inlined by codegen: no shared storage.
   match(
-    info.value,
+    info.value(),
     .Some(v) => if(_msp_value_is_folded(&v), {
       return(_msp_root(MSP_NONE));
     }),
@@ -1194,16 +1194,16 @@ _msp_atom_root :: (fn(ctx : &_MspCtx, atom : &AstExpr) -> _MspRoot)({
   if(vars.len() == usize(0), {
     return(_msp_root(MSP_ROOTED));
   });
-  v := match(vars.last(), .Some(x) => x, .None => return(_msp_root(MSP_ROOTED)));
-  if(v.is_compile_time_only, {
+  v := match(vars.last_cloned(), .Some(x) => x, .None => return(_msp_root(MSP_ROOTED)));
+  if(v.is_compile_time_only(), {
     return(_msp_root(MSP_NONE));
   });
   mapped := ctx.roots.get(name.clone());
-  if(v.is_parameter, {
+  if(v.is_parameter(), {
     base := match(_msp_param_index(ctx, name.clone()), .Some(i) => _msp_param_root(i, false), .None => _msp_root(MSP_ROOTED));
     return(match(mapped, .Some(m) => _msp_join(base, m), .None => base));
   });
-  if(v.is_module_level, {
+  if(v.is_module_level(), {
     return(_msp_root(MSP_ROOTED));
   });
   // A local never defined in this body (a closure capture, an uncollected
@@ -1211,7 +1211,7 @@ _msp_atom_root :: (fn(ctx : &_MspCtx, atom : &AstExpr) -> _MspRoot)({
   // fabricated from integers: unknown storage (as in `ctor_root`).
   match(
     mapped,
-    .Some(m) => if((m.kind == MSP_NONE) && _msp_type_contains_pointer_inner(&info.ty, u32(0)), _msp_root(MSP_ROOTED), m),
+    .Some(m) => if((m.kind == MSP_NONE) && _msp_type_contains_pointer_inner(&info.ty(), u32(0)), _msp_root(MSP_ROOTED), m),
     .None => _msp_root(MSP_ROOTED)
   )
 });
@@ -1219,7 +1219,7 @@ _msp_atom_root :: (fn(ctx : &_MspCtx, atom : &AstExpr) -> _MspRoot)({
 /// value) whose type can root storage? Such locals are what taint tracks.
 _msp_atom_local_name :: (fn(ctx : &_MspCtx, atom : &AstExpr) -> Option(String))({
   info := match(expr_info_table_get(&ctx.table, ast_expr_id(atom)), .Some(i) => i, .None => return(Option(String).None));
-  if(!_msp_type_may_root(&info.ty), {
+  if(!_msp_type_may_root(&info.ty()), {
     return(Option(String).None);
   });
   name := ast_expr_text(atom).*.clone();
@@ -1227,8 +1227,8 @@ _msp_atom_local_name :: (fn(ctx : &_MspCtx, atom : &AstExpr) -> Option(String))(
   if(vars.len() == usize(0), {
     return(Option(String).None);
   });
-  v := match(vars.last(), .Some(x) => x, .None => return(Option(String).None));
-  if(v.is_compile_time_only || v.is_parameter || v.is_module_level, {
+  v := match(vars.last_cloned(), .Some(x) => x, .None => return(Option(String).None));
+  if(v.is_compile_time_only() || v.is_parameter() || v.is_module_level(), {
     return(Option(String).None);
   });
   Option(String).Some(name)
@@ -1275,7 +1275,7 @@ _msp_type_of_name_in :: (fn(e : &AstExpr, name : &String, table : &ExprInfoTable
           table,
           ast_expr_id(e)
         ),
-        .Some(i) => Option(TypeValue).Some(Rc.clone(i.ty)),
+        .Some(i) => Option(TypeValue).Some(Rc.clone(i.ty())),
         .None => Option(TypeValue).None
       ),
       Option(TypeValue).None
@@ -1504,7 +1504,7 @@ impl(
         .FnCall(_, _, Rc(dargs), _, _) => match(
           dargs.get(usize(0)),
           .Some(recv) => {
-            recv_is_type := match(expr_info_table_get(table, ast_expr_id(&recv)), .Some(ri) => is_type_value(&ri.value), .None => false);
+            recv_is_type := match(expr_info_table_get(table, ast_expr_id(&recv)), .Some(ri) => is_type_value(&ri.value()), .None => false);
             if(!recv_is_type, {
               out.push(recv);
               (i2 : usize) = usize(0);
@@ -1792,7 +1792,7 @@ impl(
   classify : (fn(e : &AstExpr, ctx : &_MspCtx) -> _MspRoot)({
     info_opt := expr_info_table_get(&ctx.table, ast_expr_id(e));
     match(
-      info_opt,
+      &info_opt,
       .Some(info) => {
         match(
           expr_info_macro_expansion(&info),
@@ -1801,11 +1801,11 @@ impl(
           },
           .None => ()
         );
-        if(!_msp_type_may_root(&info.ty), {
+        if(!_msp_type_may_root(&info.ty()), {
           return(_msp_root(MSP_NONE));
         });
         match(
-          info.value,
+          info.value(),
           .Some(v) => if(_msp_value_is_folded(&v), {
             return(_msp_root(MSP_NONE));
           }),
@@ -1846,12 +1846,12 @@ impl(
       },
       _ => ()
     );
-    value_is_rc := match(info_opt, .Some(i2) => type_contains_rc_type(&i2.ty), .None => true);
-    value_is_ptr := match(info_opt, .Some(i3) => is_pointer_type(&i3.ty), .None => false);
+    value_is_rc := match(&info_opt, .Some(i2) => type_contains_rc_type(&i2.ty()), .None => true);
+    value_is_ptr := match(&info_opt, .Some(i3) => is_pointer_type(&i3.ty()), .None => false);
     // Field read or deref: contents of the base.
     if((head == ".") && (args.len() == usize(2)), {
       base := match(args.get(usize(0)), .Some(b) => b, .None => e);
-      base_is_type := match(expr_info_table_get(&ctx.table, ast_expr_id(&base)), .Some(bi) => is_type_value(&bi.value), .None => false);
+      base_is_type := match(expr_info_table_get(&ctx.table, ast_expr_id(&base)), .Some(bi) => is_type_value(&bi.value()), .None => false);
       if(base_is_type, {
         return(_msp_root(MSP_NONE));
       });
@@ -1929,7 +1929,7 @@ impl(
       .Some(callee) => match(
         callee,
         .TypeVal(_) => {
-          value_is_struct := match(info_opt, .Some(i4) => match(resolve_struct_shell(&i4.ty), Rc(.Struct({ is_source_namespace : ns })) => !ns, _ => false), .None => false);
+          value_is_struct := match(info_opt, .Some(i4) => match(resolve_struct_shell(&i4.ty()), Rc(.Struct({ is_source_namespace : ns })) => !ns, _ => false), .None => false);
           return(_MsP.ctor_root(&args, ctx, value_is_ptr, value_is_struct));
         },
         .FuncVal(fvd, _) => {
@@ -1999,7 +1999,7 @@ impl(
         match(
           args.get(usize(0)),
           .Some(a0) => {
-            a0_is_ptr := match(expr_info_table_get(&ctx.table, ast_expr_id(&a0)), .Some(ai) => is_pointer_type(&ai.ty), .None => false);
+            a0_is_ptr := match(expr_info_table_get(&ctx.table, ast_expr_id(&a0)), .Some(ai) => is_pointer_type(&ai.ty()), .None => false);
             if(a0_is_ptr, {
               return(_MsP.classify(&a0, ctx));
             });
@@ -2043,11 +2043,11 @@ impl(
           },
           .None => ()
         );
-        if(!_msp_type_may_root(&info.ty), {
+        if(!_msp_type_may_root(&info.ty()), {
           return(());
         });
         match(
-          info.value,
+          info.value(),
           .Some(v) => if(_msp_value_is_folded(&v), {
             return(());
           }),
@@ -2197,7 +2197,7 @@ impl(
           dargs.get(usize(0)),
           .Some(recv) => match(
             expr_info_table_get(table, ast_expr_id(&recv)),
-            .Some(ri) => if(is_function_type(&ri.ty), {
+            .Some(ri) => if(is_function_type(&ri.ty()), {
               return(true);
             }),
             .None => ()
@@ -2213,7 +2213,7 @@ impl(
         args.get(i),
         .Some(a) => match(
           expr_info_table_get(table, ast_expr_id(&a)),
-          .Some(ai) => if(is_function_type(&ai.ty), {
+          .Some(ai) => if(is_function_type(&ai.ty()), {
             return(true);
           }),
           .None => ()
@@ -2254,7 +2254,7 @@ impl(
     );
     (type_only : Option(TypeValue)) = match(
       expr_info_table_get(table, ast_expr_id(func_expr)),
-      .Some(fi2) => Option(TypeValue).Some(Rc.clone(fi2.ty)),
+      .Some(fi2) => Option(TypeValue).Some(Rc.clone(fi2.ty())),
       .None => Option(TypeValue).None
     );
     (type_only2 : Option(TypeValue)) = match(
@@ -2354,7 +2354,7 @@ impl(
   collect : (fn(e : &AstExpr, ctx : &_MspCtx) -> unit)({
     info_opt := expr_info_table_get(&ctx.table, ast_expr_id(e));
     match(
-      info_opt,
+      &info_opt,
       .Some(info) => {
         match(
           expr_info_macro_expansion(&info),
@@ -2486,19 +2486,19 @@ impl(
         lhs,
         .Atom(_, lt) => {
           // Whole-variable store.
-          env_opt := match(info_opt, .Some(si) => Option(Environment).Some(si.env), .None => Option(Environment).None);
+          env_opt := match(info_opt, .Some(si) => Option(Environment).Some(si.env()), .None => Option(Environment).None);
           match(
             env_opt,
             .Some(env) => {
               vars := scope_variables(ast_expr_id(&lhs), &env, lt.value.*.clone());
               match(
-                vars.last(),
+                vars.last_cloned(),
                 .Some(v) => cond(
                   // Through an `inout` parameter: into the caller's storage.
-                  (v.is_parameter && v.is_ref) => _MsP.taint_flowing_to(&rhs, ctx, match(_msp_param_index(ctx, lt.value.*.clone()), .Some(pi) => _msp_param_root(pi, true), .None => _msp_root(MSP_ROOTED))),
+                  (v.is_parameter() && v.is_ref()) => _MsP.taint_flowing_to(&rhs, ctx, match(_msp_param_index(ctx, lt.value.*.clone()), .Some(pi) => _msp_param_root(pi, true), .None => _msp_root(MSP_ROOTED))),
                   // A reassigned by-value parameter names unknown storage.
-                  v.is_parameter => _msp_def(ctx, lt.value.*.clone(), _msp_root(MSP_ROOTED)),
-                  v.is_module_level => _MsP.taint_flowing(&rhs, ctx, MSP_ROOTED),
+                  v.is_parameter() => _msp_def(ctx, lt.value.*.clone(), _msp_root(MSP_ROOTED)),
+                  v.is_module_level() => _MsP.taint_flowing(&rhs, ctx, MSP_ROOTED),
                   true => _MsP.define_from(ctx, lt.value.*.clone(), r, &rhs)
                 ),
                 .None => _MsP.taint_flowing(&rhs, ctx, MSP_ROOTED)
@@ -2612,7 +2612,7 @@ impl(
     match(
       info_opt,
       .Some(vinfo) => match(
-        vinfo.value,
+        vinfo.value(),
         .Some(v) => if(_msp_value_is_folded(&v), {
           return(());
         }),
@@ -2782,7 +2782,7 @@ impl(
   strict_walk : (fn(e : &AstExpr, borrowed_ids : &ArrayList(usize), table : &ExprInfoTable, out : &mut ArrayList(TokenAndError)) -> unit)({
     info_opt := expr_info_table_get(table, ast_expr_id(e));
     match(
-      info_opt,
+      &info_opt,
       .Some(info) => {
         match(
           expr_info_macro_expansion(&info),
@@ -2893,7 +2893,7 @@ impl(
     match(
       info_opt,
       .Some(vinfo) => match(
-        vinfo.value,
+        vinfo.value(),
         .Some(v) => if(_msp_value_is_folded(&v), {
           return(());
         }),
@@ -3061,7 +3061,7 @@ impl(
     m := param_mutation_mask_new();
     info_opt := expr_info_table_get(&ctx.table, ast_expr_id(e));
     match(
-      info_opt,
+      &info_opt,
       .Some(info) => {
         match(
           expr_info_macro_expansion(&info),
@@ -3170,16 +3170,16 @@ impl(
       match(
         lhs,
         .Atom(_, lt) => {
-          env_opt := match(info_opt, .Some(si) => Option(Environment).Some(si.env), .None => Option(Environment).None);
+          env_opt := match(info_opt, .Some(si) => Option(Environment).Some(si.env()), .None => Option(Environment).None);
           match(
             env_opt,
             .Some(env) => {
               vars := scope_variables(ast_expr_id(&lhs), &env, lt.value.*.clone());
               match(
-                vars.last(),
+                vars.last_cloned(),
                 .Some(v) => cond(
                   // Through an `inout` parameter: the caller's storage for it.
-                  (v.is_parameter && v.is_ref) => match(
+                  (v.is_parameter() && v.is_ref()) => match(
                     _msp_param_index(ctx, lt.value.*.clone()),
                     .Some(pi) => _msp_bits_set(&mut m.shallow, pi),
                     .None => {
@@ -3188,7 +3188,7 @@ impl(
                     }
                   ),
                   // Through an `inout` local binding: whatever it aliases.
-                  v.is_ref => {
+                  v.is_ref() => {
                     br := match(ctx.roots.get(lt.value.*.clone()), .Some(r0) => r0, .None => _msp_root(MSP_ROOTED));
                     _msp_mask_add_root(&m, br, br.deep);
                   },
@@ -3203,7 +3203,7 @@ impl(
                   // (issues/fixed/2026-10-24-a-callee-that-writes-a-scalar-global-is-assumed-to-mutate-every-argument.md).
                   // D1 records the write itself where it happens
                   // (`d1_record_global_write`), not through this mask.
-                  v.is_module_level => if(_msp_type_may_root(&variable_value_type(&v)), {
+                  v.is_module_level() => if(_msp_type_may_root(&variable_value_type(&v)), {
                     m.all = true;
                     _msp_debug_all(String.from("walk"), e);
                   }),
@@ -3322,7 +3322,7 @@ impl(
     match(
       info_opt,
       .Some(vinfo) => match(
-        vinfo.value,
+        vinfo.value(),
         .Some(v) => if(_msp_value_is_folded(&v), {
           return(m);
         }),
@@ -3529,7 +3529,7 @@ impl(
     // declarations resolve this way).
     (type_only : Option(TypeValue)) = match(
       expr_info_table_get(&ctx.table, ast_expr_id(&func_expr)),
-      .Some(fi2) => Option(TypeValue).Some(Rc.clone(fi2.ty)),
+      .Some(fi2) => Option(TypeValue).Some(Rc.clone(fi2.ty())),
       .None => Option(TypeValue).None
     );
     (type_only2 : Option(TypeValue)) = match(
@@ -3585,8 +3585,8 @@ _msp_arg_base_var :: (fn(arg : &AstExpr, table : &ExprInfoTable) -> Option(Varia
     .Some(ba) => match(
       expr_info_table_get(table, ast_expr_id(&ba)),
       .Some(bi) => {
-        vars := scope_variables(ast_expr_id(&ba), &bi.env, ast_expr_token(&ba).value.*);
-        vars.last()
+        vars := scope_variables(ast_expr_id(&ba), &bi.env(), ast_expr_token(&ba).value.*);
+        vars.last_cloned()
       },
       .None => Option(Variable).None
     ),
@@ -3596,24 +3596,24 @@ _msp_arg_base_var :: (fn(arg : &AstExpr, table : &ExprInfoTable) -> Option(Varia
 /// Does `v` (or a same-frame alias it shares its count with) belong to the
 /// borrowed set?
 _msp_var_is_borrowed :: (fn(v : &Variable, borrowed_ids : &ArrayList(usize)) -> bool)({
-  (cur : Option(Variable)) = Option(Variable).Some(v);
+  (cur : Option(Variable)) = Option(Variable).Some(Rc.clone(v));
   (hops : usize) = usize(0);
   while(cur.is_some() && (hops < usize(64)), {
     match(
-      cur,
+      cur.clone(),
       .Some(b) => {
         (i : usize) = usize(0);
         while(i < borrowed_ids.len(), {
           match(
             borrowed_ids.get(i),
-            .Some(id) => if(id == b.id, {
+            .Some(id) => if(id == b.id(), {
               return(true);
             }),
             .None => ()
           );
           i = (i + usize(1));
         });
-        cur = b.is_owning_the_same_rc_value_as;
+        cur = b.is_owning_the_same_rc_value_as();
       },
       .None => ()
     );
@@ -3717,7 +3717,7 @@ _rcw_handle_kind :: (fn(t : &TypeValue) -> String)(
 _RcwCross :: struct(handle : AstExpr, kind : String, ty : TypeValue, nearest : AstExpr);
 derive(_RcwCross, Clone);
 _rcw_type_of :: (fn(e : &AstExpr, table : &ExprInfoTable) -> Option(TypeValue))(
-  match(expr_info_table_get(table, ast_expr_id(e)), .Some(i) => Option(TypeValue).Some(Rc.clone(i.ty)), .None => Option(TypeValue).None)
+  match(expr_info_table_get(table, ast_expr_id(e)), .Some(i) => Option(TypeValue).Some(Rc.clone(i.ty())), .None => Option(TypeValue).None)
 );
 /// The head name of a call's callee, "" for a callee that is not an atom.
 _rcw_head :: (fn(f : &AstExpr) -> String)(
@@ -4206,7 +4206,7 @@ d1_note_thread_reach :: (fn(fid : &String) -> Option(String))({
 _gr_env_of :: (fn(e : &AstExpr, ctx : &_GrCtx) -> Option(Environment))(
   match(
     expr_info_table_get(&ctx.table, ast_expr_id(e)),
-    .Some(i) => Option(Environment).Some(i.env),
+    .Some(i) => Option(Environment).Some(i.env()),
     .None => Option(Environment).None
   )
 );
@@ -4221,13 +4221,13 @@ _gr_atom :: (fn(e : &AstExpr, ctx : &_GrCtx) -> Option(String))({
   // A recorded env is queried through `e`'s record; the fallback `ctx.env`
   // is the walk's own env.
   env_rec := _gr_env_of(e, ctx);
-  env := match(env_rec, .Some(en) => en, .None => ctx.env);
+  env := match(&env_rec, .Some(en) => Rc.clone(en), .None => Rc.clone(ctx.env));
   vars := match(env_rec, .Some(_) => scope_variables(ast_expr_id(e), &env, name.clone()), .None => get_variables_from_env(&env, name.clone()));
   if(vars.len() == usize(0), {
     return(Option(String).None);
   });
-  v := match(vars.last(), .Some(v0) => v0, .None => return(Option(String).None));
-  if(!v.is_module_level || v.is_compile_time_only || is_thread_local(&tok.module_path.*, name.clone()), {
+  v := match(vars.last_cloned(), .Some(v0) => v0, .None => return(Option(String).None));
+  if(!v.is_module_level() || v.is_compile_time_only() || is_thread_local(&tok.module_path.*, name.clone()), {
     return(Option(String).None);
   });
   send_ok := match(
@@ -4261,15 +4261,15 @@ _gr_walk_closure_callee :: (fn(f : &AstExpr, ctx : &_GrCtx) -> Option(String))({
     return(Option(String).None);
   });
   env_rec := _gr_env_of(f, ctx);
-  env := match(env_rec, .Some(en) => en, .None => ctx.env);
+  env := match(&env_rec, .Some(en) => Rc.clone(en), .None => Rc.clone(ctx.env));
   vars := match(env_rec, .Some(_) => scope_variables(ast_expr_id(f), &env, &name), .None => get_variables_from_env(&env, &name));
   if(vars.len() == usize(0), {
     return(Option(String).None);
   });
   match(
-    vars.last(),
+    vars.last_cloned(),
     .Some(v) => match(
-      v.value.get(usize(0)),
+      v.value().get(usize(0)),
       .Some(vv) => match(
         vv,
         .FuncVal(fvd, _) => match({
@@ -4292,7 +4292,7 @@ _gr_walk_closure_callee :: (fn(f : &AstExpr, ctx : &_GrCtx) -> Option(String))({
 _gr_value_function :: (fn(e : &AstExpr, ctx : &_GrCtx) -> Option(String))({
   (fv : Option(EvalValue)) = match(
     expr_info_table_get(&ctx.table, ast_expr_id(e)),
-    .Some(ei) => ei.value,
+    .Some(ei) => ei.value(),
     .None => Option(EvalValue).None
   );
   if(fv.is_none() && ast_expr_is_atom(e), {
@@ -4300,7 +4300,7 @@ _gr_value_function :: (fn(e : &AstExpr, ctx : &_GrCtx) -> Option(String))({
     if(!name.is_empty(), {
       vars := match(_gr_env_of(e, ctx), .Some(en) => scope_variables(ast_expr_id(e), &en, &name), .None => get_variables_from_env(&ctx.env, &name));
       if(vars.len() > usize(0), {
-        fv = match(vars.last(), .Some(v) => v.value.get(usize(0)), .None => Option(EvalValue).None);
+        fv = match(vars.last_cloned(), .Some(v) => v.value().get(usize(0)), .None => Option(EvalValue).None);
       });
     });
   });
@@ -4514,7 +4514,7 @@ function_reaches_non_send_global :: (
   // A module-level binding is one static every thread shares: the question is
   // sharing, so the global must be `Sync` (Rust's `static: Sync`;
   // plans/VALUES_BY_DEFAULT.md §3.8).
-  ctx := _GrCtx(table : table.clone(), env : env, send : get_trait_type_from_env(env, String.from("Sync")), fid : fid.clone());
+  ctx := _GrCtx(table : table.clone(), env : Rc.clone(env), send : get_trait_type_from_env(env, String.from("Sync")), fid : fid.clone());
   r := _gr_walk(body, &ctx);
   fid_owned5 := fid.clone();
   g_gr_in_progress.with_mut({ fid_owned5 }(m) => m.remove(fid_owned5.clone()));
@@ -4613,7 +4613,7 @@ summarize_function_bodies :: (fn(values : &ArrayList(EvalValue), table : &ExprIn
   });
   // `YO_DEBUG_BODY_SUMMARY=1`: per module, the functions offered and summarized.
   if(match(debug_knob(`YO_DEBUG_BODY_SUMMARY`), .Some(d) => (d.len() > usize(0)), .None => false), {
-    eprintln(`[body-summary] ${env.module_path.*} offered=${values.len().to_string()} summarized=${summarized.to_string()}`);
+    eprintln(`[body-summary] ${env.module_path().*} offered=${values.len().to_string()} summarized=${summarized.to_string()}`);
   });
 });
 /// Drop every memo keyed by one of `fids` (`mm_invalidate_document`: the

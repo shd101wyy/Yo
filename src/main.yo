@@ -114,7 +114,7 @@ pragma(Pragma.AllowUnsafe);
 { Z3_VERSION } :: import("./verifier/z3.yo");
 json :: import("std/encoding/json");
 { JsonValue } :: import("std/encoding/json");
-{ Environment, set_mut_decl_census, take_mut_decl_facets, take_mut_decl_heads, MUT_FACET_LEND, MUT_FACET_FIELD, MUT_FACET_INDEX, MUT_FACET_DEREF, MUT_FACET_BORROW } :: import("./env.yo");
+{ Environment, set_mut_decl_census, take_mut_decl_facets, take_mut_decl_heads, MUT_FACET_LEND, MUT_FACET_FIELD, MUT_FACET_INDEX, MUT_FACET_DEREF, MUT_FACET_BORROW, new_environment } :: import("./env.yo");
 // The demand-driven module loader, the cached prelude env, the shared codegen
 // ExprInfoTable and std-path resolution all live in `module_manager.yo` so that
 // every subcommand that needs to evaluate a `.yo` file (build, fetch, install,
@@ -134,6 +134,7 @@ json :: import("std/encoding/json");
   mm_resolve_entry_abs,
   mm_invalidate_document,
   mm_eval_entry_exprs,
+  module_load_outcome_ctx,
   mm_load_file,
   mm_preload_prelude,
   _take_load_error
@@ -317,7 +318,7 @@ try_populate_expr_info_table :: (
   // is resolved from `YO_STD` (or `./std` fallback) so the modular import
   // handler can find `std/...` modules. The local exception unwind catches
   // any evaluator coverage gap (e.g. unimplemented HKT/RC features in prelude).
-  env := Environment.new(Rc.new(module_path.clone()));
+  env := new_environment(Rc.new(module_path.clone()));
   ctx := eval_context_new(resolve_std_path(), module_path);
   ctx.is_executing = true;
   // Wire the proper expression-evaluator function pointer.
@@ -328,7 +329,7 @@ try_populate_expr_info_table :: (
   _r := evaluate_anonymous_module_begin_exprs(
     exprs,
     &env,
-    &ctx,
+    &mut ctx,
     false,
     false,
     true,
@@ -904,27 +905,19 @@ _run_contract_verification :: (
     _ := record_elidable_guard_sites(&reports);
   });
   (all_ok : bool) = true;
-  (ri : usize) = usize(0);
-  while(ri < reports.len(), {
-    match(
-      reports.get(ri),
-      .Some(rp) => {
-        _print_verify_fn_report(&rp, false);
-        // The pass/fail rule lives in the driver so this site, `yo verify`
-        // and the self-verification sweep cannot disagree. `check`/`compile`
-        // pass no deny set: `--strict` belongs to `yo verify`, and silently
-        // hardening every build would change what today's code compiles.
-        if(verify_report_is_failure(&rp, ArrayList(String).new()), {
-          all_ok = false;
-        }, {
-          if(verify_report_is_degraded(&rp, ArrayList(String).new()), {
-            eprintln(`           (verify+ fallback: the runtime assert stays)`);
-          });
-        });
-      },
-      .None => ()
-    );
-    ri = (ri + usize(1));
+  for(&reports, rp => {
+    _print_verify_fn_report(&rp, false);
+    // The pass/fail rule lives in the driver so this site, `yo verify`
+    // and the self-verification sweep cannot disagree. `check`/`compile`
+    // pass no deny set: `--strict` belongs to `yo verify`, and silently
+    // hardening every build would change what today's code compiles.
+    if(verify_report_is_failure(&rp, ArrayList(String).new()), {
+      all_ok = false;
+    }, {
+      if(verify_report_is_degraded(&rp, ArrayList(String).new()), {
+        eprintln(`           (verify+ fallback: the runtime assert stays)`);
+      });
+    });
   });
   all_ok
 });
@@ -5957,26 +5950,21 @@ run_verify_cmd :: (
   // a concrete counter-example (guards against a solver that answers
   // garbage, or an encoding that proves by being wrong).
   (harness_ok : bool) = true;
-  match(
-    results.get(usize(0)),
-    .Some(r1) => {
-      match(
-        &r1.verdict,
+  if(results.len() < usize(2), {
+    harness_ok = false;
+  });
+  (hri : usize) = usize(0);
+  for(&results, r => {
+    cond(
+      (hri == usize(0)) => match(
+        &r.verdict,
         .Proved(_) => (),
         _ => {
           harness_ok = false;
         }
-      );
-    },
-    .None => {
-      harness_ok = false;
-    }
-  );
-  match(
-    results.get(usize(1)),
-    .Some(r2) => {
-      match(
-        &r2.verdict,
+      ),
+      (hri == usize(1)) => match(
+        &r.verdict,
         .Refuted(ce) => {
           if(ce.len() == usize(0), {
             harness_ok = false;
@@ -5985,12 +5973,11 @@ run_verify_cmd :: (
         _ => {
           harness_ok = false;
         }
-      );
-    },
-    .None => {
-      harness_ok = false;
-    }
-  );
+      ),
+      true => ()
+    );
+    hri = (hri + usize(1));
+  });
   // V3: evaluate the target set with the mode override and target paths
   // armed, so the evaluator records one VerifyTask per verifiable
   // function (evaluator/builtins/contracts.yo). Targets carry BOTH the
@@ -6059,19 +6046,11 @@ run_verify_cmd :: (
   match(
     &explain_fn,
     .Some(pat) => {
-      (xi : usize) = usize(0);
-      while(xi < all_reports.len(), {
-        match(
-          all_reports.get(xi),
-          .Some(rp) => if(rp.fn_id.contains(pat.clone()), {
-            reports.push(rp);
-          }),
-          .None => ()
-        );
-        xi = (xi + usize(1));
-      });
+      n_all := all_reports.len();
+      all_reports.retain(&(rp => rp.fn_id.contains(pat.clone())));
+      reports = all_reports;
       if(reports.len() == usize(0), {
-        exn.throw(dyn(`verify: --explain '${pat}' matched no verified function (of ${all_reports.len().to_string()})`));
+        exn.throw(dyn(`verify: --explain '${pat}' matched no verified function (of ${n_all.to_string()})`));
       });
     },
     .None => {
@@ -6081,35 +6060,19 @@ run_verify_cmd :: (
   // Aggregate the exit status: every report must be `ok`.
   (bad : usize) = usize(0);
   (refuted_n : usize) = usize(0);
-  (ri3 : usize) = usize(0);
-  while(ri3 < reports.len(), {
-    match(
-      reports.get(ri3),
-      .Some(rp) => {
-        // Same driver-side rule, now consulting `--deny` / `--strict`.
-        if(verify_report_is_failure(&rp, denied.clone()), {
-          bad = (bad + usize(1));
-          if(rp.outcome == "refuted", {
-            refuted_n = (refuted_n + usize(1));
-          });
-        });
-      },
-      .None => ()
-    );
-    ri3 = (ri3 + usize(1));
+  for(&reports, rp => {
+    // Same driver-side rule, now consulting `--deny` / `--strict`.
+    if(verify_report_is_failure(&rp, denied.clone()), {
+      bad = (bad + usize(1));
+      if(rp.outcome == "refuted", {
+        refuted_n = (refuted_n + usize(1));
+      });
+    });
   });
   if(format_json, {
     fn_entries := ArrayList(JsonValue).new();
-    (rj : usize) = usize(0);
-    while(rj < reports.len(), {
-      match(
-        reports.get(rj),
-        .Some(rp) => {
-          fn_entries.push(_verify_fn_report_json(&rp));
-        },
-        .None => ()
-      );
-      rj = (rj + usize(1));
+    for(&reports, rp => {
+      fn_entries.push(_verify_fn_report_json(&rp));
     });
     ks2 := ArrayList(String).new();
     ks2.push(String.from("solver"));
@@ -6140,16 +6103,8 @@ run_verify_cmd :: (
     println(
       `verify: target: ${target_path} (${files.len().to_string()} .yo file(s), mode ${mode_str})`
     );
-    (rk : usize) = usize(0);
-    while(rk < reports.len(), {
-      match(
-        reports.get(rk),
-        .Some(rp) => {
-          _print_verify_fn_report(&rp, explain_fn.is_some());
-        },
-        .None => ()
-      );
-      rk = (rk + usize(1));
+    for(&reports, rp => {
+      _print_verify_fn_report(&rp, explain_fn.is_some());
     });
     if(reports.len() == usize(0), {
       println(
@@ -6264,71 +6219,63 @@ _verify_summary_json :: (
 /// One function report as JSON (the verify subcommand's V3 shape).
 _verify_fn_report_json :: (fn(rp : &VerifyFnReport) -> JsonValue)({
   obl_entries := ArrayList(JsonValue).new();
-  (i : usize) = usize(0);
-  while(i < rp.obligations.len(), {
-    match(
-      rp.obligations.get(i),
-      .Some(obl) => {
-        model := match(
-          &obl.verdict,
-          .Refuted(ce) => _verify_json_strs(&ce),
-          _ => JsonValue.Array(ArrayList(JsonValue).new())
-        );
-        verdict_str := match(
-          &obl.verdict,
-          .Proved(_) => String.from("proved"),
-          .Refuted(_) => String.from("refuted"),
-          .Unproven(_) => String.from("unproven"),
-          .SolverError(_) => String.from("solver-error")
-        );
-        ks := ArrayList(String).new();
-        ks.push(String.from("name"));
-        ks.push(String.from("verdict"));
-        ks.push(String.from("cached"));
-        ks.push(String.from("folded"));
-        ks.push(String.from("goal"));
-        ks.push(String.from("model"));
-        ks.push(String.from("site"));
-        vs := ArrayList(JsonValue).new();
-        vs.push(JsonValue.Str(obl.name.clone()));
-        vs.push(JsonValue.Str(verdict_str));
-        vs.push(JsonValue.Bool(obl.cached));
-        vs.push(JsonValue.Bool(obl.folded));
-        vs.push(JsonValue.Str(obl.goal.clone()));
-        vs.push(model);
-        // The runtime guard the obligation discharges, 1-based like the
-        // guard's own `(at file:row:col)` message; null for a contract,
-        // loop or assert obligation.
-        vs.push(
-          match(
-            &obl.site,
-            .Some(gs) => {
-              sk := ArrayList(String).new();
-              sk.push(String.from("module"));
-              sk.push(String.from("row"));
-              sk.push(String.from("column"));
-              sk.push(String.from("class"));
-              sv := ArrayList(JsonValue).new();
-              sv.push(JsonValue.Str(gs.module.clone()));
-              sv.push(JsonValue.Int(i64(gs.row + usize(1))));
-              sv.push(JsonValue.Int(i64(gs.column + usize(1))));
-              sv.push(JsonValue.Str(gs.class.clone()));
-              JsonValue.Object(keys : sk, values : sv)
-            },
-            .None => JsonValue.Null
-          )
-        );
-        // 5b Phase 2: present only on an elision-only obligation, so a run
-        // without `--elision` prints the same report as before.
-        if(obl.elision_only, {
-          ks.push(String.from("elision_only"));
-          vs.push(JsonValue.Bool(true));
-        });
-        obl_entries.push(JsonValue.Object(keys : ks, values : vs));
-      },
-      .None => ()
+  for(&rp.obligations, obl => {
+    model := match(
+      &obl.verdict,
+      .Refuted(ce) => _verify_json_strs(&ce),
+      _ => JsonValue.Array(ArrayList(JsonValue).new())
     );
-    i = (i + usize(1));
+    verdict_str := match(
+      &obl.verdict,
+      .Proved(_) => String.from("proved"),
+      .Refuted(_) => String.from("refuted"),
+      .Unproven(_) => String.from("unproven"),
+      .SolverError(_) => String.from("solver-error")
+    );
+    ks := ArrayList(String).new();
+    ks.push(String.from("name"));
+    ks.push(String.from("verdict"));
+    ks.push(String.from("cached"));
+    ks.push(String.from("folded"));
+    ks.push(String.from("goal"));
+    ks.push(String.from("model"));
+    ks.push(String.from("site"));
+    vs := ArrayList(JsonValue).new();
+    vs.push(JsonValue.Str(obl.name.clone()));
+    vs.push(JsonValue.Str(verdict_str));
+    vs.push(JsonValue.Bool(obl.cached));
+    vs.push(JsonValue.Bool(obl.folded));
+    vs.push(JsonValue.Str(obl.goal.clone()));
+    vs.push(model);
+    // The runtime guard the obligation discharges, 1-based like the
+    // guard's own `(at file:row:col)` message; null for a contract,
+    // loop or assert obligation.
+    vs.push(
+      match(
+        &obl.site,
+        .Some(gs) => {
+          sk := ArrayList(String).new();
+          sk.push(String.from("module"));
+          sk.push(String.from("row"));
+          sk.push(String.from("column"));
+          sk.push(String.from("class"));
+          sv := ArrayList(JsonValue).new();
+          sv.push(JsonValue.Str(gs.module.clone()));
+          sv.push(JsonValue.Int(i64(gs.row + usize(1))));
+          sv.push(JsonValue.Int(i64(gs.column + usize(1))));
+          sv.push(JsonValue.Str(gs.class.clone()));
+          JsonValue.Object(keys : sk, values : sv)
+        },
+        .None => JsonValue.Null
+      )
+    );
+    // 5b Phase 2: present only on an elision-only obligation, so a run
+    // without `--elision` prints the same report as before.
+    if(obl.elision_only, {
+      ks.push(String.from("elision_only"));
+      vs.push(JsonValue.Bool(true));
+    });
+    obl_entries.push(JsonValue.Object(keys : ks, values : vs));
   });
   ks2 := ArrayList(String).new();
   ks2.push(String.from("fn_id"));
@@ -6355,31 +6302,23 @@ _verify_fn_report_json :: (fn(rp : &VerifyFnReport) -> JsonValue)({
 /// The self-test results as JSON (the V2 shape, kept verbatim).
 _verify_self_test_json :: (fn(results : &ArrayList(VerifyResult)) -> ArrayList(JsonValue))({
   entries := ArrayList(JsonValue).new();
-  (ri : usize) = usize(0);
-  while(ri < results.len(), {
-    match(
-      results.get(ri),
-      .Some(r) => {
-        verdict_json := match(
-          &r.verdict,
-          .Proved(_) => JsonValue.Str(String.from("proved")),
-          .Refuted(ce) => _verify_json_strs(&ce),
-          .Unproven(reason) => JsonValue.Str(`unproven: ${reason}`),
-          .SolverError(msg) => JsonValue.Str(`solver-error: ${msg}`)
-        );
-        ks := ArrayList(String).new();
-        ks.push(String.from("query"));
-        ks.push(String.from("verdict"));
-        ks.push(String.from("cached"));
-        vs := ArrayList(JsonValue).new();
-        vs.push(JsonValue.Str(r.query_name.clone()));
-        vs.push(verdict_json);
-        vs.push(JsonValue.Bool(r.cached));
-        entries.push(JsonValue.Object(keys : ks, values : vs));
-      },
-      .None => ()
+  for(&results, r => {
+    verdict_json := match(
+      &r.verdict,
+      .Proved(_) => JsonValue.Str(String.from("proved")),
+      .Refuted(ce) => _verify_json_strs(&ce),
+      .Unproven(reason) => JsonValue.Str(`unproven: ${reason}`),
+      .SolverError(msg) => JsonValue.Str(`solver-error: ${msg}`)
     );
-    ri = (ri + usize(1));
+    ks := ArrayList(String).new();
+    ks.push(String.from("query"));
+    ks.push(String.from("verdict"));
+    ks.push(String.from("cached"));
+    vs := ArrayList(JsonValue).new();
+    vs.push(JsonValue.Str(r.query_name.clone()));
+    vs.push(verdict_json);
+    vs.push(JsonValue.Bool(r.cached));
+    entries.push(JsonValue.Object(keys : ks, values : vs));
   });
   entries
 });
@@ -6439,52 +6378,44 @@ _print_verify_fn_report :: (fn(rp : &VerifyFnReport, detailed : bool) -> unit)(
     },
     true => {
       println(`  ${rp.outcome}  ${rp.fn_id} [${rp.mode}]`);
-      (i : usize) = usize(0);
-      while(i < rp.obligations.len(), {
-        match(
-          rp.obligations.get(i),
-          .Some(obl) => {
-            bad := match(
-              &obl.verdict,
-              .Proved(_) => false,
-              _ => true
-            );
-            if((bad && !obl.elision_only) || detailed, {
-              detail := match(
-                &obl.verdict,
-                .Proved(_) => String.from("PROVED"),
-                // A folded refutation has no model to print (the verdict
-                // came from constant folding, not a solver run) — the
-                // empty list used to render "counter-example: " with
-                // nothing after it.
-                .Refuted(ce) => if(
-                  ce.len() == usize(0),
-                  String.from("REFUTED"),
-                  `REFUTED  counter-example: ${_verify_join_strs(&ce, String.from(", "))}`
-                ),
-                .Unproven(reason) => `UNPROVEN  ${reason}`,
-                .SolverError(msg) => `SOLVER-ERROR  ${msg}`
-              );
-              // A cached `unknown` (only an rlimit-exhausted one is stored)
-              // was not asked again: say how to ask.
-              cached_mark := cond(
-                !(obl.cached) => String.new(),
-                match(&obl.verdict, .Unproven(_) => true, _ => false) => String.from(" (cached; --no-cache asks the solver again)"),
-                true => String.from(" (cached)")
-              );
-              folded_mark := if(obl.folded, String.from(" (folded)"), String.new());
-              kind_mark := if(obl.elision_only && bad, String.from(" (elision-only: guard kept)"), String.new());
-              println(`    ${obl.name}: ${detail}${cached_mark}${folded_mark}${kind_mark}`);
-              // The VC itself, as the solver saw it (`--explain`'s "VC
-              // set": what the obligation asks, not just its name).
-              if(detailed && (obl.goal.len() > usize(0)), {
-                println(`      goal: ${obl.goal}`);
-              });
-            });
-          },
-          .None => ()
+      for(&rp.obligations, obl => {
+        bad := match(
+          &obl.verdict,
+          .Proved(_) => false,
+          _ => true
         );
-        i = (i + usize(1));
+        if((bad && !obl.elision_only) || detailed, {
+          detail := match(
+            &obl.verdict,
+            .Proved(_) => String.from("PROVED"),
+            // A folded refutation has no model to print (the verdict
+            // came from constant folding, not a solver run) — the
+            // empty list used to render "counter-example: " with
+            // nothing after it.
+            .Refuted(ce) => if(
+              ce.len() == usize(0),
+              String.from("REFUTED"),
+              `REFUTED  counter-example: ${_verify_join_strs(&ce, String.from(", "))}`
+            ),
+            .Unproven(reason) => `UNPROVEN  ${reason}`,
+            .SolverError(msg) => `SOLVER-ERROR  ${msg}`
+          );
+          // A cached `unknown` (only an rlimit-exhausted one is stored)
+          // was not asked again: say how to ask.
+          cached_mark := cond(
+            !(obl.cached) => String.new(),
+            match(&obl.verdict, .Unproven(_) => true, _ => false) => String.from(" (cached; --no-cache asks the solver again)"),
+            true => String.from(" (cached)")
+          );
+          folded_mark := if(obl.folded, String.from(" (folded)"), String.new());
+          kind_mark := if(obl.elision_only && bad, String.from(" (elision-only: guard kept)"), String.new());
+          println(`    ${obl.name}: ${detail}${cached_mark}${folded_mark}${kind_mark}`);
+          // The VC itself, as the solver saw it (`--explain`'s "VC
+          // set": what the obligation asks, not just its name).
+          if(detailed && (obl.goal.len() > usize(0)), {
+            println(`      goal: ${obl.goal}`);
+          });
+        });
       });
       ()
     }
@@ -8939,9 +8870,11 @@ run_compile :: (
       );
       return(());
     });
+    // `ctx` is written below (codegen takes it `&mut`), so it is moved out of
+    // the outcome rather than bound by the destructuring, which borrows.
     module_value := outcome.module_value;
-    env := outcome.env;
-    ctx := outcome.ctx;
+    env := Rc.clone(outcome.env);
+    mut(ctx) := module_load_outcome_ctx(outcome);
     // §4.9: the evaluation is what opens files, so the record is complete now.
     // Written before codegen so `--skip-codegen` and `--skip-c-compiler`
     // callers get a depfile too.
@@ -9006,7 +8939,7 @@ run_compile :: (
     // decision 28's value-root rule rejects once it lands with V2b.
     info_table := ctx.expr_info_table.clone();
     (c_spilled_bytes : usize) = usize(0);
-    c_parts := compile_module(&module_value, &mut info_table, &target, allocator.clone(), heap_size, debug_heap, debug_parallelism, debug_async_await, is_library_build, &ctx, &env, exn, &mut chunk_parts, emit_chunks, chunk_auto_cap, chunk_by_module, code_spill_path.clone(), line_directives, line_c_name.clone(), line_chunk_base.clone(), &mut c_spilled_bytes);
+    c_parts := compile_module(&module_value, &mut info_table, &target, allocator.clone(), heap_size, debug_heap, debug_parallelism, debug_async_await, is_library_build, &mut ctx, &env, exn, &mut chunk_parts, emit_chunks, chunk_auto_cap, chunk_by_module, code_spill_path.clone(), line_directives, line_c_name.clone(), line_chunk_base.clone(), &mut c_spilled_bytes);
     ctx.expr_info_table = info_table;
     // Whether the code spilled is the emitter's own count, never the state of
     // the path: a file that is missing or holds other bytes is a lost part of

@@ -85,7 +85,7 @@ _reports_dump :: (fn(reports : &ArrayList(VerifyFnReport)) -> String)({
   (mut(i) : usize) = usize(0);
   while(i < reports.len(), {
     match(
-      reports.get(i),
+      reports.get_cloned(i),
       .Some(rp) => {
         ids.push(`${rp.fn_id}=${rp.outcome} [${rp.subset_construct}: ${rp.subset_source}]`);
       },
@@ -112,7 +112,7 @@ test("while loops verify (havoc rule: sum_to proves)", {
   reports := _load_reports(String.from("./tests/spec/fixtures/valid/loop_invariant.yo"), io);
   assert(reports.len() == usize(1), `one function, got ${reports.len().to_string()}: [${_reports_dump(&reports)}]`);
   rp := match(
-    reports.get(usize(0)),
+    reports.get_cloned(usize(0)),
     .Some(r) => r,
     .None => {
       assert(false, "report missing");
@@ -129,7 +129,7 @@ test("loop decreases statements verify (count_down proves)", {
   reports := _load_reports(String.from("./tests/spec/fixtures/valid/loop_decreases.yo"), io);
   assert(reports.len() == usize(1), `one function, got ${reports.len().to_string()}: [${_reports_dump(&reports)}]`);
   rp := match(
-    reports.get(usize(0)),
+    reports.get_cloned(usize(0)),
     .Some(r) => r,
     .None => {
       assert(false, "report missing");
@@ -146,7 +146,7 @@ test("recursion verifies through decreases(n) (sum_down proves)", {
   reports := _load_reports(String.from("./tests/spec/fixtures/valid/recursion_decreases.yo"), io);
   assert(reports.len() == usize(1), `one function, got ${reports.len().to_string()}: [${_reports_dump(&reports)}]`);
   rp := match(
-    reports.get(usize(0)),
+    reports.get_cloned(usize(0)),
     .Some(r) => r,
     .None => {
       assert(false, "report missing");
@@ -163,7 +163,7 @@ test("cond arms that assign verify through the phi merge (bsearch_step proves)",
   reports := _load_reports(String.from("./tests/spec/fixtures/valid/cond_phi_merge.yo"), io);
   assert(reports.len() == usize(1), `one function, got ${reports.len().to_string()}: [${_reports_dump(&reports)}]`);
   rp := match(
-    reports.get(usize(0)),
+    reports.get_cloned(usize(0)),
     .Some(r) => r,
     .None => {
       assert(false, "report missing");
@@ -180,7 +180,7 @@ test("continue as the loop body's final statement verifies (skip_step proves)", 
   reports := _load_reports(String.from("./tests/spec/fixtures/valid/loop_continue.yo"), io);
   assert(reports.len() == usize(1), `one function, got ${reports.len().to_string()}: [${_reports_dump(&reports)}]`);
   rp := match(
-    reports.get(usize(0)),
+    reports.get_cloned(usize(0)),
     .Some(r) => r,
     .None => {
       assert(false, "report missing");
@@ -197,7 +197,7 @@ test("a non-decreasing loop measure is REFUTED at the variant obligation", {
   reports := _load_reports(String.from("./tests/spec/fixtures/negative/non_decreasing_measure.yo"), io);
   assert(reports.len() == usize(1), `one function, got ${reports.len().to_string()}: [${_reports_dump(&reports)}]`);
   rp := match(
-    reports.get(usize(0)),
+    reports.get_cloned(usize(0)),
     .Some(r) => r,
     .None => {
       assert(false, "report missing");
@@ -220,7 +220,7 @@ test("an unsigned loop measure that decreases verifies (count_up_usize proves)",
 _refutes_at :: (fn(rp : &VerifyFnReport, suffix : &String) -> bool)({
   (mut(i) : usize) = usize(0);
   while(i < rp.obligations.len(), {
-    ob := rp.obligations(i);
+    ob := rp.obligations(i).clone();
     if(ob.name.ends_with(suffix.clone()), {
       match(
         &ob.verdict,
@@ -252,7 +252,7 @@ test("a wrong loop invariant is REFUTED at the iterate obligation", {
   reports := _load_reports(String.from("./tests/spec/fixtures/negative/wrong_loop_invariant.yo"), io);
   assert(reports.len() == usize(1), `one function, got ${reports.len().to_string()}: [${_reports_dump(&reports)}]`);
   rp := match(
-    reports.get(usize(0)),
+    reports.get_cloned(usize(0)),
     .Some(r) => r,
     .None => {
       assert(false, "report missing");
@@ -311,16 +311,8 @@ test("the SMT encoding of a loop query havocs the assigned names (solver-free)",
   assert(res.error.is_none(), `no subset error expected for the loop fixture`);
   assert(res.obligations.len() > usize(2), `entry + iterate + ensures obligations exist, got ${res.obligations.len().to_string()}`);
   mut(scripts) := StringBuilder.new();
-  (mut(oi) : usize) = usize(0);
-  while(oi < res.obligations.len(), {
-    match(
-      res.obligations.get(oi),
-      .Some(obl) => {
-        scripts.write_string(encode_script(&obl.query, default_encode_options()));
-      },
-      .None => ()
-    );
-    oi = (oi + usize(1));
+  for(&res.obligations, obl => {
+    scripts.write_string(encode_script(&obl.query, default_encode_options()));
   });
   all := scripts.to_string();
   assert(all.contains(String.from("__yo_hv")), "the havoc constants appear in the encoding");
@@ -336,7 +328,7 @@ test("break exits through the disjunction (break_sum proves)", {
   reports := _load_reports(String.from("./tests/spec/fixtures/valid/loop_break.yo"), io);
   assert(reports.len() == usize(1), `one function, got ${reports.len().to_string()}: [${_reports_dump(&reports)}]`);
   rp := match(
-    reports.get(usize(0)),
+    reports.get_cloned(usize(0)),
     .Some(r) => r,
     .None => {
       assert(false, "report missing");
@@ -353,7 +345,7 @@ test("a mid-body continue verifies at its site (skip_then proves)", {
   reports := _load_reports(String.from("./tests/spec/fixtures/valid/loop_continue_mid.yo"), io);
   assert(reports.len() == usize(1), `one function, got ${reports.len().to_string()}: [${_reports_dump(&reports)}]`);
   rp := match(
-    reports.get(usize(0)),
+    reports.get_cloned(usize(0)),
     .Some(r) => r,
     .None => {
       assert(false, "report missing");
@@ -370,7 +362,7 @@ test("a zero-iteration exit is NOT the body's output (pin_exit REFUTED)", {
   reports := _load_reports(String.from("./tests/spec/fixtures/negative/loop_exit_havoc.yo"), io);
   assert(reports.len() == usize(1), `one function, got ${reports.len().to_string()}: [${_reports_dump(&reports)}]`);
   rp := match(
-    reports.get(usize(0)),
+    reports.get_cloned(usize(0)),
     .Some(r) => r,
     .None => {
       assert(false, "report missing");
@@ -428,16 +420,8 @@ test("the exit encoding re-havocs and selects break states (solver-free)", {
   );
   assert(res.error.is_none(), `no subset error expected for the break fixture`);
   mut(scripts) := StringBuilder.new();
-  (mut(oi) : usize) = usize(0);
-  while(oi < res.obligations.len(), {
-    match(
-      res.obligations.get(oi),
-      .Some(obl) => {
-        scripts.write_string(encode_script(&obl.query, default_encode_options()));
-      },
-      .None => ()
-    );
-    oi = (oi + usize(1));
+  for(&res.obligations, obl => {
+    scripts.write_string(encode_script(&obl.query, default_encode_options()));
   });
   all := scripts.to_string();
   assert(all.contains(String.from("__yo_br")), "the break selector constants appear in the encoding");

@@ -23,7 +23,7 @@
 /// Record that the short-circuit family has emitted a drop for `target` in this
 /// function. MONOTONE: never removed. See
 /// `FunctionGenerationContext.short_circuit_emitted_drop_targets`.
-_mark_sc_target_emitted :: (fn(target : &String, context : &FunctionGenerationContext) -> unit)({
+_mark_sc_target_emitted :: (fn(target : &String, context : &mut FunctionGenerationContext) -> unit)({
   // Taken out and stored back: a `match` binding is a copy of the set once
   // collections are values (plans/VALUES_BY_DEFAULT.md §6 V2a).
   em_set := match(context.short_circuit_emitted_drop_targets.take(), .Some(s) => s, .None => HashSet(String).new());
@@ -44,7 +44,7 @@ _indent_n :: (fn(base : &String, n : usize) -> String)({
 _comptime_bool :: (fn(arg : &AstExpr, context : &FunctionGenerationContext) -> Option(bool))(
   match(
     context.base.get_expr_info(arg),
-    .Some(ei) => match(ei.value, .Some(v) => match(v, .BoolVal(b) => Option(bool).Some(b), _ => Option(bool).None), .None => Option(bool).None),
+    .Some(ei) => match(ei.value(), .Some(v) => match(v, .BoolVal(b) => Option(bool).Some(b), _ => Option(bool).None), .None => Option(bool).None),
     .None => Option(bool).None
   )
 );
@@ -52,11 +52,11 @@ _comptime_bool :: (fn(arg : &AstExpr, context : &FunctionGenerationContext) -> O
 /// (a temp declaration or call). Atoms / compile-time values are safe.
 _expr_may_have_side_effects :: (fn(expr : &AstExpr, context : &FunctionGenerationContext) -> bool)({
   ei_opt := context.base.get_expr_info(expr);
-  has_var := match(&ei_opt, .Some(ei) => match(&ei.variable_name, .Some(_) => true, .None => false), .None => false);
+  has_var := match(&ei_opt, .Some(ei) => match(&ei.variable_name(), .Some(_) => true, .None => false), .None => false);
   if(has_var, {
     return(true);
   });
-  has_value := match(ei_opt, .Some(ei) => match(ei.value, .Some(_) => true, .None => false), .None => false);
+  has_value := match(ei_opt, .Some(ei) => match(ei.value(), .Some(_) => true, .None => false), .None => false);
   if(has_value, {
     return(false);
   });
@@ -91,7 +91,7 @@ _collect_created_var_names_from_expr :: (fn(expr : &AstExpr, result : &mut HashS
         context.base.get_expr_info(expr),
         .Some(ei) => {
           match(
-            &ei.variable_name,
+            &ei.variable_name(),
             .Some(vn) => {
               result.insert(vn.clone());
             },
@@ -116,7 +116,7 @@ _collect_created_var_names_from_expr :: (fn(expr : &AstExpr, result : &mut HashS
                   .Some(de) => match(
                     context.base.get_expr_info(&de),
                     .Some(dei) => match(
-                      &dei.variable_name,
+                      &dei.variable_name(),
                       .Some(dvn) => {
                         result.insert(dvn.clone());
                       },
@@ -176,12 +176,12 @@ _collect_created_var_names_from_expr :: (fn(expr : &AstExpr, result : &mut HashS
 ///
 /// A gate-skipped drop is left untouched for the node's other owners.
 _emit_node_list_drops :: (
-  fn(list_owner : &AstExpr, var_names : &HashSet(String), indent : &String, context : &FunctionGenerationContext) -> unit
+  fn(list_owner : &AstExpr, var_names : &HashSet(String), indent : &String, context : &mut FunctionGenerationContext) -> unit
 )(
   match(
     context.base.get_expr_info(list_owner),
     .Some(nei) => match(
-      &nei.deferred_drop_expressions,
+      &nei.deferred_drop_expressions(),
       .Some(node_drops) => {
         nd2 := node_drops.len();
         (j : usize) = usize(0);
@@ -224,8 +224,7 @@ _emit_node_list_drops :: (
                       nline := indent.clone();
                       nline.push_string(&nd_code);
                       nline.push_str(";");
-                      nem := context.base.emitter;
-                      nem.emit_string_line(&nline);
+                      context.base.emitter.emit_string_line(&nline);
                     });
                   });
                 });
@@ -260,7 +259,7 @@ _emit_drops_for_conditional_branch :: (
   fn(
     var_names : &HashSet(String),
     indent : &String,
-    context : &FunctionGenerationContext,
+    context : &mut FunctionGenerationContext,
     (node_expr : &Option(AstExpr)) ?= Option(AstExpr).None
   ) -> unit
 )(
@@ -305,8 +304,7 @@ _emit_drops_for_conditional_branch :: (
                     line := indent.clone();
                     line.push_string(&drop_code);
                     line.push_str(";");
-                    em := context.base.emitter;
-                    em.emit_string_line(&line);
+                    context.base.emitter.emit_string_line(&line);
                   });
                 });
                 note_short_circuit_handled(context, &target);
@@ -348,7 +346,7 @@ _emit_drops_for_conditional_branch :: (
   })
 );
 /// `&&` operator with short-circuit evaluation.
-generate_op_and :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
+generate_op_and :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
   args := match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
   if(args.len() == usize(1), {
     return(_call_generate_expr(match(args.get(usize(0)), .Some(a) => a, .None => expr), indent.clone(), context));
@@ -434,12 +432,11 @@ generate_op_and :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGen
   );
   sc_tok := ast_expr_token(expr);
   sc_var := stable_label_id(String.from("__yo_sc_"), &sc_tok.module_path.*, usize(sc_tok.row), usize(sc_tok.column));
-  em := context.base.emitter;
   d := indent.clone();
   d.push_str("bool ");
   d.push_string(sc_var.clone());
   d.push_str(" = false;");
-  em.emit_string_line(&d);
+  context.base.emitter.emit_string_line(&d);
   depth := (rn - usize(1));
   (level : usize) = usize(0);
   (i2 : usize) = usize(0);
@@ -454,7 +451,7 @@ generate_op_and :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGen
           line.push_str("if (");
           line.push_string(&arg_code);
           line.push_str(") {");
-          em.emit_string_line(&line);
+          context.base.emitter.emit_string_line(&line);
           level = (level + usize(1));
         }, {
           line := ci.clone();
@@ -462,7 +459,7 @@ generate_op_and :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGen
           line.push_str(" = ");
           line.push_string(&arg_code);
           line.push_str(";");
-          em.emit_string_line(&line);
+          context.base.emitter.emit_string_line(&line);
         });
       },
       .None => ()
@@ -480,7 +477,7 @@ generate_op_and :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGen
     close_indent := _indent_n(indent.clone(), level);
     cl := close_indent.clone();
     cl.push_str("}");
-    em.emit_string_line(&cl);
+    context.base.emitter.emit_string_line(&cl);
     c = (c - usize(1));
   });
   // The FIRST operand is evaluated UNCONDITIONALLY, so its created temps
@@ -506,7 +503,7 @@ generate_op_and :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGen
   sc_var
 });
 /// `||` operator with short-circuit evaluation.
-generate_op_or :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
+generate_op_or :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
   args := match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
   if(args.len() == usize(1), {
     return(_call_generate_expr(match(args.get(usize(0)), .Some(a) => a, .None => expr), indent.clone(), context));
@@ -589,12 +586,11 @@ generate_op_or :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
   );
   sc_tok := ast_expr_token(expr);
   sc_var := stable_label_id(String.from("__yo_sc_"), &sc_tok.module_path.*, usize(sc_tok.row), usize(sc_tok.column));
-  em := context.base.emitter;
   d := indent.clone();
   d.push_str("bool ");
   d.push_string(sc_var.clone());
   d.push_str(" = true;");
-  em.emit_string_line(&d);
+  context.base.emitter.emit_string_line(&d);
   depth := (rn - usize(1));
   (level : usize) = usize(0);
   (i2 : usize) = usize(0);
@@ -609,7 +605,7 @@ generate_op_or :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
           line.push_str("if (!(");
           line.push_string(&arg_code);
           line.push_str(")) {");
-          em.emit_string_line(&line);
+          context.base.emitter.emit_string_line(&line);
           level = (level + usize(1));
         }, {
           line := ci.clone();
@@ -617,7 +613,7 @@ generate_op_or :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
           line.push_str(" = ");
           line.push_string(&arg_code);
           line.push_str(";");
-          em.emit_string_line(&line);
+          context.base.emitter.emit_string_line(&line);
         });
       },
       .None => ()
@@ -635,7 +631,7 @@ generate_op_or :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
     close_indent := _indent_n(indent.clone(), level);
     cl := close_indent.clone();
     cl.push_str("}");
-    em.emit_string_line(&cl);
+    context.base.emitter.emit_string_line(&cl);
     c = (c - usize(1));
   });
   // Same first-operand fall-through drop emission as generate_op_and — the

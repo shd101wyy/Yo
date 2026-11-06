@@ -22,7 +22,8 @@
 {
   Environment,
   add_where_clause_constraint_for_type_application,
-  add_where_clause_constraint_to_env
+  add_where_clause_constraint_to_env,
+  new_environment
 } :: import("../../src/env.yo");
 {
   get_type_trait_methods_by_name_from_env,
@@ -124,7 +125,7 @@ test("get_type_trait_methods_by_name_from_env: registry hit", {
     String.from("ty_d"),
     _entry(String.from("greet"))
   );
-  env := Environment.new(Rc.new(String.from("")));
+  env := new_environment(Rc.new(String.from("")));
   hits := get_type_trait_methods_by_name_from_env(
     &env,
     String.from("greet"),
@@ -134,7 +135,7 @@ test("get_type_trait_methods_by_name_from_env: registry hit", {
 });
 test("get_type_trait_methods_by_name_from_env: empty id short-circuits", {
   clear_type_trait_methods();
-  env := Environment.new(Rc.new(String.from("")));
+  env := new_environment(Rc.new(String.from("")));
   hits := get_type_trait_methods_by_name_from_env(
     &env,
     String.from("anything"),
@@ -154,7 +155,7 @@ test("get_receiver_methods_by_name_from_env: direct receiver", {
     String.from("ty_recv"),
     _entry(String.from("greet"))
   );
-  env := Environment.new(Rc.new(String.from("")));
+  env := new_environment(Rc.new(String.from("")));
   hits := get_receiver_methods_by_name_from_env(
     &env,
     String.from("greet"),
@@ -172,7 +173,7 @@ test("get_receiver_methods_by_name_from_env: through pointer deref", {
   );
   // Pointer to struct s.
   ptr_ty := Rc.new(TypeValueNode.Pointer(s));
-  env := Environment.new(Rc.new(String.from("")));
+  env := new_environment(Rc.new(String.from("")));
   hits := get_receiver_methods_by_name_from_env(
     &env,
     String.from("foo"),
@@ -184,7 +185,7 @@ test("get_receiver_methods_by_name_from_env: through pointer deref", {
 test("get_receiver_methods_by_name_from_env: empty when nothing matches", {
   clear_type_trait_methods();
   s := _synth_struct(String.from("ty_none"), String.from("N"));
-  env := Environment.new(Rc.new(String.from("")));
+  env := new_environment(Rc.new(String.from("")));
   hits := get_receiver_methods_by_name_from_env(
     &env,
     String.from("missing"),
@@ -201,7 +202,7 @@ test("get_receiver_methods_by_name_from_env: comptime receiver does not crash", 
   // comptime literal shapes. The asserts pin the no-crash + zero
   // results contract that the larger evaluator will rely on.
   clear_type_trait_methods();
-  env := Environment.new(Rc.new(String.from("")));
+  env := new_environment(Rc.new(String.from("")));
   hits_int := get_receiver_methods_by_name_from_env(
     &env,
     String.from("anything"),
@@ -285,7 +286,7 @@ test("get_receiver_methods_by_name_from_env: SomeT with required trait", {
       resolution : Option(TypeValue).None
     )
   );
-  env := Environment.new(Rc.new(String.from("")));
+  env := new_environment(Rc.new(String.from("")));
   hits := get_receiver_methods_by_name_from_env(
     &env,
     String.from("greet"),
@@ -360,7 +361,7 @@ test("get_receiver_methods_by_name_from_env: Dyn vtable dispatch", {
       negative_trait_levels : no_levels()
     )
   );
-  env := Environment.new(Rc.new(String.from("")));
+  env := new_environment(Rc.new(String.from("")));
   hits := get_receiver_methods_by_name_from_env(
     &env,
     String.from("greet"),
@@ -457,7 +458,7 @@ test("get_receiver_methods_by_name_from_env: TypeApplication HKT walk", {
   // Push a frame so the where-clause-constraint setter has somewhere
   // to record the entry, then register the constraint
   // `F(A) <: Functor`.
-  env := Environment.new(Rc.new(String.from("")));
+  env := new_environment(Rc.new(String.from("")));
   add_where_clause_constraint_for_type_application(
     &env,
     &type_app,
@@ -529,7 +530,7 @@ test("get_receiver_methods_by_name_from_env: infix call keeps *(Self)-first-para
       owner : String.new()
     )
   );
-  env := Environment.new(Rc.new(String.from("")));
+  env := new_environment(Rc.new(String.from("")));
   // Non-infix call → keep the method.
   hits_normal := get_receiver_methods_by_name_from_env(
     &env,
@@ -598,7 +599,7 @@ test("get_receiver_methods_by_name_from_env: non-infix call sets needs_pointer_c
       owner : String.new()
     )
   );
-  env := Environment.new(Rc.new(String.from("")));
+  env := new_environment(Rc.new(String.from("")));
   hits := get_receiver_methods_by_name_from_env(
     &env,
     String.from("incr"),
@@ -686,7 +687,7 @@ test("get_receiver_methods_by_name_from_env: env-frames compatible-SomeType scan
       resolution : Option(TypeValue).None
     )
   );
-  env := Environment.new(Rc.new(String.from("")));
+  env := new_environment(Rc.new(String.from("")));
   add_where_clause_constraint_to_env(&env, &_self_t, &greeter_trait, false);
   hits := get_receiver_methods_by_name_from_env(
     &env,

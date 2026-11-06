@@ -11,7 +11,7 @@ import("std/fmt");
 { TypeValue } :: import("../../src/types/definitions.yo");
 { t_func_simple, t_some_t, t_ptr, t_i32, t_bool } :: import("../../src/types/creators.yo");
 { is_some_type } :: import("../../src/types/guards.yo");
-{ Environment } :: import("../../src/env.yo");
+{ Environment, new_environment } :: import("../../src/env.yo");
 { get_value_of_some_type_from_env } :: import("../../src/types/env_lookup.yo");
 { SynthesizeOptions, TypePair, synthesize_types } :: import("../../src/evaluator/types/synthesizer.yo");
 { assert, panic } :: import("std/assert");
@@ -27,8 +27,8 @@ _synth_ok :: (
   true
 });
 test("synthesize_types: SomeT binds to a concrete given type", {
-  ee := Environment.new(Rc.new(`test`));
-  ge := Environment.new(Rc.new(`test`));
+  ee := new_environment(Rc.new(`test`));
+  ge := new_environment(Rc.new(`test`));
   st := t_some_t(`T`, usize(0));
   ok := _synth_ok(&st, &ee, t_i32(), &ge);
   assert(ok, "synthesis completes");
@@ -36,8 +36,8 @@ test("synthesize_types: SomeT binds to a concrete given type", {
   assert(!is_some_type(&bound), "T resolved to a concrete type");
 });
 test("synthesize_types: generic inside a Func param binds structurally", {
-  ee := Environment.new(Rc.new(`test`));
-  ge := Environment.new(Rc.new(`test`));
+  ee := new_environment(Rc.new(`test`));
+  ge := new_environment(Rc.new(`test`));
   st := t_some_t(`T`, usize(0));
   // expected: fn(a : T) -> bool ; given: fn(a : i32) -> bool  ⇒ T := i32
   mut(pl_e) := ArrayList(String).new();
@@ -56,8 +56,8 @@ test("synthesize_types: generic inside a Func param binds structurally", {
   assert(!is_some_type(&bound), "T bound through the Func param position");
 });
 test("synthesize_types: concrete-vs-concrete match is a no-op success", {
-  ee := Environment.new(Rc.new(`test`));
-  ge := Environment.new(Rc.new(`test`));
+  ee := new_environment(Rc.new(`test`));
+  ge := new_environment(Rc.new(`test`));
   assert(_synth_ok(t_i32(), &ee, t_i32(), &ge), "i32 vs i32 ok");
   assert(_synth_ok(t_ptr(t_i32()), &ee, t_ptr(t_i32()), &ge), "ptr(i32) vs ptr(i32) ok");
 });

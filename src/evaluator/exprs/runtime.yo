@@ -47,7 +47,7 @@ evaluate_runtime :: (
   fn(
     expr : &AstExpr,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
@@ -88,7 +88,7 @@ evaluate_runtime :: (
   // Read the evaluated arg's info.
   info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated));
   match(
-    info_opt,
+    &info_opt,
     .None => {
       exn.throw(
         dyn(
@@ -103,12 +103,12 @@ evaluate_runtime :: (
   );
   arg_info := match(
     info_opt,
-    .Some(i) => i,
+    .Some(i) => Rc.clone(i),
     .None => new_expr_info(env, t_i32())
   );
   // Convert comptime type to runtime type and emit a runtime ExprInfo.
   next_env := expr_info_adopt_env(&arg_info);
-  runtime_type := convert_comptime_type_to_runtime_type(&arg_info.ty, &next_env);
+  runtime_type := convert_comptime_type_to_runtime_type(&arg_info.ty(), &next_env);
   out_info := new_expr_info(&next_env, &runtime_type);
   // value stays .None — `runtime(_)` always yields a runtime value.
   // The wrapper is transparent for ownership: codegen emits the inner node,
@@ -116,8 +116,8 @@ evaluate_runtime :: (
   // Without it a binding of `runtime(f())` found no owner link and became an
   // independent owner of the temp's value — one release too many
   // (issues/fixed/rc-value-copied-address-taken-and-returned-is-double-dropped.md).
-  out_info.variable_name = arg_info.variable_name.clone();
-  out_info.source_variable = arg_info.source_variable;
+  out_info.set_variable_name(arg_info.variable_name());
+  out_info.set_source_variable(arg_info.source_variable());
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   expr
 });
@@ -135,8 +135,8 @@ _reject_borrowed_for_over_mut_global :: (
   fn(info : &LocalBorrowInfo, pl : &LocalBorrowPlace, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit
 )(
   match(
-    get_variables_from_env(env, &pl.root_name).last(),
-    .Some(rv) => if(rv.is_module_level && is_mut_global(&rv.token.module_path.*, &rv.name), {
+    get_variables_from_env(env, &pl.root_name).last_cloned(),
+    .Some(rv) => if(rv.is_module_level() && is_mut_global(&rv.token.module_path.*, &rv.name), {
       at := match(&info.macro_site, .Some(t) => t.clone(), .None => info.decl.clone());
       form := cond(info.is_mut => "for(&mut ...)", true => "for(&...)");
       raise_flow_violation(
@@ -167,7 +167,7 @@ evaluate_borrow_check :: (
   fn(
     expr : &AstExpr,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
@@ -214,28 +214,28 @@ evaluate_borrow_check :: (
   match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_coll)),
     .Some(ci) => match(
-      &ci.variable_name,
+      &ci.variable_name(),
       .Some(vn) => {
-        vars := get_variables_from_env(&ci.env, &vn);
+        vars := get_variables_from_env(&ci.env(), &vn);
         match(
-          vars.last(),
+          vars.last_cloned(),
           .Some(v0) => {
             // The borrowed `for` passes its local borrow `c := &mut coll`
             // (plans/VALUES_BY_DEFAULT.md decision 39): the borrowed
             // collection is the variable `c` borrows, and the aliases are
             // that variable's.
-            (v : Variable) = v0;
+            (v : Variable) = Rc.clone(v0);
             match(
               local_borrow_info_of_variable(&v0),
               .Some(info) => match(
                 info.places.get_cloned(usize(0)),
                 .Some(pl) => {
                   if(pl.module_root, {
-                    _reject_borrowed_for_over_mut_global(&info, &pl, &ci.env, ctx, exn);
+                    _reject_borrowed_for_over_mut_global(&info, &pl, &ci.env(), ctx, exn);
                   });
                   if(pl.steps.len() == usize(0), {
                     match(
-                      get_variables_from_env(&ci.env, &pl.root_name).last(),
+                      get_variables_from_env(&ci.env(), &pl.root_name).last_cloned(),
                       .Some(rv) => {
                         v = rv;
                       },
@@ -247,15 +247,15 @@ evaluate_borrow_check :: (
               ),
               .None => ()
             );
-            borrowed_ids.push(v.id);
-            (cur : Option(Variable)) = v.is_owning_the_same_rc_value_as;
+            borrowed_ids.push(v.id());
+            (cur : Option(Variable)) = v.is_owning_the_same_rc_value_as();
             (hops : usize) = usize(0);
             while(cur.is_some() && (hops < usize(64)), {
               match(
-                cur,
+                cur.clone(),
                 .Some(b) => {
-                  borrowed_ids.push(b.id);
-                  cur = b.is_owning_the_same_rc_value_as;
+                  borrowed_ids.push(b.id());
+                  cur = b.is_owning_the_same_rc_value_as();
                 },
                 .None => ()
               );
@@ -273,7 +273,7 @@ evaluate_borrow_check :: (
   if(violations.len() > usize(0), {
     exn.throw(dyn(format_error_messages(&violations)));
   });
-  out_info := new_expr_info(&loop_info.env, &loop_info.ty);
+  out_info := new_expr_info(&loop_info.env(), &loop_info.ty());
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   expr
 });

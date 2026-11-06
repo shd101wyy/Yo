@@ -40,7 +40,7 @@ evaluate_impl_constraint :: (
   fn(
     expr : &AstExpr,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
@@ -68,7 +68,7 @@ evaluate_impl_constraint :: (
   // `Concrete(T)` specifier — extracted from the marker trait and stamped as
   // the SomeT's resolved-concrete instead of joining required_trait_types.
   (concrete_type : Option(TypeValue)) = Option(TypeValue).None;
-  (cur_env : Environment) = env;
+  (cur_env : Environment) = Rc.clone(env);
   (i : usize) = usize(0);
   while(i < args.len(), {
     arg_opt := args.get(i);
@@ -113,7 +113,7 @@ evaluate_impl_constraint :: (
         );
         cur_env = expr_info_adopt_env(&mod_info);
         // Expect a TypeVal containing a trait type
-        if(!is_type_value(&mod_info.value), {
+        if(!is_type_value(&mod_info.value()), {
           exn.throw(
             dyn(
               format_error_message(
@@ -124,7 +124,7 @@ evaluate_impl_constraint :: (
           );
         });
         trait_tv := match(
-          mod_info.value,
+          mod_info.value(),
           .Some(.TypeVal(tv_box)) => Rc.clone(tv_box),
           .Some(_) => Rc.new(TypeValueNode.TypeUni(usize(0))),
           .None => Rc.new(TypeValueNode.TypeUni(usize(0)))
@@ -198,7 +198,7 @@ evaluate_impl_constraint :: (
   );
   type_val := create_type_value(&some_type);
   out_info := new_expr_info(&cur_env, Rc.new(TypeValueNode.TypeUni(usize(0))));
-  out_info.value = Option(EvalValue).Some(type_val);
+  out_info.set_value(Option(EvalValue).Some(type_val));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   expr
 });

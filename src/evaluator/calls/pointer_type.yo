@@ -3,6 +3,7 @@
 //! `(*T)(val)` pointer cast: handles comptime_str → *u8 / *char
 //! and runtime pointer → pointer via `__yo_as`.
 pragma(Pragma.AllowUnsafe);
+{ replace } :: import("std/mem");
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 {
@@ -31,7 +32,7 @@ pragma(Pragma.AllowUnsafe);
 { is_comptime_string_type, is_u8_type, is_char_type } :: import("../../types/guards.yo");
 { convert_comptime_type_to_runtime_type, convert_comptime_type_to_runtime_type_with_expected } :: import("../../types/env_lookup.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ EvalContext } :: import("../context.yo");
+{ EvalContext, ExpectedTypeCtx } :: import("../context.yo");
 { evaluate_expression_guarded } :: import("../exprs/expr.yo");
 { format_error_message, format_eval_failure } :: import("../../error.yo");
 { Token, TokenKind, intern_token_str } :: import("../../token.yo");
@@ -50,7 +51,7 @@ try_to_convert_to_pointer_type :: (
     arg_expr : &AstExpr,
     expr : &AstExpr,
     caller_env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> Option(AstExpr)
 )({
@@ -58,8 +59,7 @@ try_to_convert_to_pointer_type :: (
     return(Option(AstExpr).None);
   });
   // Evaluate the argument with no expectedType.
-  saved_expected := ctx.expected_type;
-  ctx.expected_type = .None;
+  saved_expected := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
   evaluated_gout := ArrayList(AstExpr).new();
   evaluated_gerr := evaluate_expression_guarded(arg_expr, caller_env, ctx, &mut evaluated_gout);
   ctx.expected_type = saved_expected;
@@ -76,9 +76,9 @@ try_to_convert_to_pointer_type :: (
       )
     );
   });
-  arg_info := match(info_opt, .Some(i) => i, .None => new_expr_info(caller_env, target_type));
+  arg_info := match(info_opt, .Some(i) => Rc.clone(i), .None => new_expr_info(caller_env, target_type));
   env := expr_info_adopt_env(&arg_info);
-  arg_type := Rc.clone(arg_info.ty);
+  arg_type := Rc.clone(arg_info.ty());
   // -----------------------------------------------------------------------
   // Case 1: comptime_str → *(u8) or *(char)
   // -----------------------------------------------------------------------
@@ -97,7 +97,7 @@ try_to_convert_to_pointer_type :: (
     // `(*void)(...)` cast rejected it (std/log.yo's fwrite calls).
     converted_ty := convert_comptime_type_to_runtime_type_with_expected(&arg_type, Option(TypeValue).Some(Rc.clone(target_type)), &env);
     out_info := new_expr_info(&env, &converted_ty);
-    out_info.value = arg_info.value;
+    out_info.set_value(arg_info.value());
     expr_info_set_converted_runtime_type(&out_info, Option(TypeValue).Some(converted_ty));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
     // Annotate the ARG node too — this helper returns `evaluated` (the
@@ -156,17 +156,17 @@ try_to_convert_to_pointer_type :: (
   call_args.push(type_expr);
   yo_as_node := AstExpr.FnCall(fresh_id, func_atom, Rc.new(call_args), false, orig_tok);
   yo_as_info := new_expr_info(&env, target_type);
-  yo_as_info.value = .None;
+  yo_as_info.set_value(.None);
   // runtimeArgExprsInOrder: only the value arg (not the type).
   // `evaluated` is already owned by call_args above; push an independent handle
   // so runtime_arg_exprs does not share that single ref (codegen omits
   // the dup for a variable passed then reused → stage-2 UAF). Clone keeps the id.
   rt_args := ArrayList(AstExpr).new();
   rt_args.push(evaluated.clone());
-  yo_as_info.runtime_arg_exprs_in_order = .Some(rt_args);
+  yo_as_info.set_runtime_arg_exprs_in_order(.Some(rt_args));
   expr_info_table_set(&ctx.expr_info_table, fresh_id, &yo_as_info);
   out_info := new_expr_info(&env, target_type);
-  out_info.value = .None;
+  out_info.set_value(.None);
   // ALSO record in the durable id-keyed side-table: a later eval pass (e.g.
   // a cond-arm re-eval or branch-merge trial) can overwrite this expr's
   // ExprInfo WITHOUT macro_expansion, losing the lowering — codegen then

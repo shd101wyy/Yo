@@ -82,7 +82,7 @@ _reports_dump :: (fn(reports : &ArrayList(VerifyFnReport)) -> String)({
   (mut(i) : usize) = usize(0);
   while(i < reports.len(), {
     match(
-      reports.get(i),
+      reports.get_cloned(i),
       .Some(rp) => {
         ids.push(`${rp.fn_id}=${rp.outcome} [${rp.subset_construct}]`);
       },
@@ -115,7 +115,7 @@ test("a mutually recursive clique with decreases on every member PROVES", {
   (mut(i) : usize) = usize(0);
   while(i < reports.len(), {
     match(
-      reports.get(i),
+      reports.get_cloned(i),
       .Some(rp) => {
         assert(rp.outcome == "ok", `every clique-edge decrease obligation proves, got: [${_reports_dump(&reports)}]`);
       },
@@ -139,7 +139,7 @@ test("a clique edge WITHOUT a decrease REFUTES", {
   (mut(i) : usize) = usize(0);
   while(i < reports.len(), {
     match(
-      reports.get(i),
+      reports.get_cloned(i),
       .Some(rp) => {
         if(rp.outcome == "refuted", {
           refuted = true;

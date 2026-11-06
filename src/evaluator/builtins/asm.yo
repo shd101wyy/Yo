@@ -72,17 +72,16 @@ _asm_option_flags :: (fn() -> ArrayList(String))({
 // ---------------------------------------------------------------------------
 // AsmOperand
 // ---------------------------------------------------------------------------
-AsmOperand :: ref(
-  struct(
-    kind : String,
-    name : Option(String),
-    constraint : Option(String),
-    value_expr : Option(AstExpr),
-    output_type : Option(TypeValue),
-    target_var_name : Option(String),
-    discarded : bool
-  )
+AsmOperand :: struct(
+  kind : String,
+  name : Option(String),
+  constraint : Option(String),
+  value_expr : Option(AstExpr),
+  output_type : Option(TypeValue),
+  target_var_name : Option(String),
+  discarded : bool
 );
+derive(AsmOperand, Clone);
 /// Check whether a Yo type is valid for asm operands.
 _is_valid_asm_operand_type :: (fn(t : &TypeValue) -> bool)(
   is_integer_type(t) || is_float_type(t) || is_pointer_type(t) || is_bool_type(t)
@@ -135,13 +134,13 @@ _strip_delims :: (fn(s : &String) -> String)({
 });
 /// Evaluate `e` and return its comptime-string value if it has one.
 _eval_comptime_str :: (
-  fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> Option(String)
+  fn(e : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> Option(String)
 )({
   evaluated := evaluate_expression_raw(e, env, ctx, exn);
   match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated)),
     .Some(info) => match(
-      info.value,
+      info.value(),
       .Some(.StrLit(s)) => Option(String).Some(_strip_delims(decode_str_lit_escapes(s.clone()))),
       .Some(_) => Option(String).None,
       .None => Option(String).None
@@ -152,7 +151,7 @@ _eval_comptime_str :: (
 /// Evaluate a constraint argument (register class atom, explicit register
 /// string, or raw("constraint")).
 _evaluate_constraint :: (
-  fn(constraint_expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> String
+  fn(constraint_expr : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> String
 )({
   if(_is_register_class_atom(constraint_expr), {
     return(_atom_value(constraint_expr));
@@ -190,7 +189,7 @@ _evaluate_constraint :: (
 });
 /// Parse const_val/sym operands.
 _parse_special_operand :: (
-  fn(operand_expr : &AstExpr, env : &Environment, ctx : &EvalContext, kind : &String, exn : Exception) -> AsmOperand
+  fn(operand_expr : &AstExpr, env : &Environment, ctx : &mut EvalContext, kind : &String, exn : Exception) -> AsmOperand
 )({
   args := _fn_call_args_of(operand_expr);
   if((args.len() < usize(1)) || (args.len() > usize(2)), {
@@ -230,7 +229,7 @@ _parse_special_operand :: (
 });
 /// Parse a single operand sub-call.
 _parse_operand :: (
-  fn(operand_expr : &AstExpr, env : &Environment, ctx : &EvalContext, kind_in : &String, exn : Exception) -> AsmOperand
+  fn(operand_expr : &AstExpr, env : &Environment, ctx : &mut EvalContext, kind_in : &String, exn : Exception) -> AsmOperand
 )({
   // Normalize the `ref` alias to `inout`.
   kind := cond((kind_in == String.from("ref")) => String.from("inout"), true => kind_in.clone());
@@ -327,15 +326,15 @@ _parse_operand :: (
         (var_type : TypeValue) = t_unit();
         (var_initialized : bool) = false;
         match(
-          variables.last(),
+          variables.last_cloned(),
           .Some(variable) => {
             is_type_var = match(
-              variable.value.get(usize(0)),
+              variable.value().get(usize(0)),
               .Some(vv) => match(vv, .TypeVal(_) => true, _ => false),
               .None => false
             );
             var_type = variable_value_type(&variable);
-            var_initialized = variable.initialized_at_token.is_some();
+            var_initialized = variable.initialized_at_token().is_some();
           },
           .None => ()
         );
@@ -379,7 +378,7 @@ _parse_operand :: (
     match(
       expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_ty_e)),
       .Some(info) => match(
-        info.value,
+        info.value(),
         .Some(.TypeVal(tv)) => {
           out_ty = Option(TypeValue).Some(Rc.clone(tv));
         },
@@ -439,7 +438,7 @@ _parse_operand :: (
   evaluated := evaluate_expression_raw(&value_or_type_expr, env, ctx, exn);
   value_ty := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated)),
-    .Some(info) => Rc.clone(info.ty),
+    .Some(info) => Rc.clone(info.ty()),
     .None => {
       exn.throw(
         dyn(
@@ -535,7 +534,7 @@ _validate_template_placeholders :: (
     (i : usize) = usize(0);
     while(i < operands.len(), {
       match(
-        operands.get(i),
+        operands.get_cloned(i),
         .Some(op) => match(
           &op.name,
           .Some(nm) => {
@@ -654,7 +653,7 @@ evaluate_asm :: (
   fn(
     expr : &AstExpr,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
@@ -675,7 +674,7 @@ evaluate_asm :: (
   });
   // asm can only be called inside a function body or test block.
   in_fn_or_test := match(
-    ctx.is_evaluating_function_body_or_async_block,
+    &ctx.is_evaluating_function_body_or_async_block,
     .Some(fab) => match(fab.kind, .FunctionBody => true, .TestBlock => true, _ => false),
     .None => false
   );
@@ -728,7 +727,7 @@ evaluate_asm :: (
       match(
         expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated)),
         .Some(info) => match(
-          info.value,
+          info.value(),
           .Some(.StrLit(s)) => {
             template_parts.push(_strip_delims(decode_str_lit_escapes(s.clone())));
             matched = true;
@@ -846,18 +845,18 @@ evaluate_asm :: (
     (oi : usize) = usize(0);
     while(oi < operands.len(), {
       match(
-        operands.get(oi),
+        operands.get_cloned(oi),
         .Some(op) => match(
           &op.target_var_name,
           .Some(tvn) => if((op.kind == String.from("out")) || (op.kind == String.from("lateout")), {
             variables := get_variables_from_env(env, tvn.clone());
             if(variables.len() > usize(0), {
               match(
-                variables.last(),
+                variables.last_cloned(),
                 .Some(variable) => match(
-                  variable.initialized_at_token,
+                  variable.initialized_at_token(),
                   .None => {
-                    variable.initialized_at_token = Option(Token).Some(tok);
+                    variable.set_initialized_at_token(Option(Token).Some(tok));
                   },
                   .Some(_) => ()
                 ),
@@ -878,7 +877,7 @@ evaluate_asm :: (
     (oi : usize) = usize(0);
     while(oi < operands.len(), {
       match(
-        operands.get(oi),
+        operands.get_cloned(oi),
         .Some(op) => {
           keep := (!op.discarded && op.target_var_name.is_none() && !_is_special_kind(&op.kind) && !(op.kind == String.from("in")));
           if(keep, {
@@ -900,7 +899,7 @@ evaluate_asm :: (
   cond(
     noreturn => {
       return_type = match(
-        ctx.is_evaluating_function_body_or_async_block,
+        &ctx.is_evaluating_function_body_or_async_block,
         .Some(fab) => match(
           fab.kind,
           .FunctionBody => match(
@@ -961,7 +960,7 @@ evaluate_global_asm :: (
   fn(
     expr : &AstExpr,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
@@ -997,7 +996,7 @@ evaluate_global_asm :: (
   match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated)),
     .Some(info) => match(
-      info.value,
+      info.value(),
       .Some(.StrLit(_)) => {
         ok = true;
       },

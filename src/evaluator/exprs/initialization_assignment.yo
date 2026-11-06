@@ -5,6 +5,7 @@
 //!   - `name :: rhs`              — compile-time constant declaration
 //!   - `name := handler`   — implicit parameter declaration
 //!   - `_ := rhs`                 — discard (renamed to a temp var)
+{ replace } :: import("std/mem");
 { String } :: import("std/string");
 { call_promote_index_places_for_write } :: import("../context.yo");
 { ArrayList } :: import("std/collections/array_list");
@@ -211,7 +212,7 @@ _evaluate_inout_local_binding :: (
     rhs : &AstExpr,
     is_compile_time_only : bool,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
@@ -236,7 +237,7 @@ _evaluate_inout_local_binding :: (
   // state machine keeps the reference, its pin and the place's root in task
   // slots (codegen/exprs/init_assignment.yo `_generate_inout_local_binding`).
   match(
-    ctx.is_evaluating_function_body_or_async_block,
+    &ctx.is_evaluating_function_body_or_async_block,
     .None => {
       exn.throw(
         dyn(
@@ -280,7 +281,7 @@ _evaluate_inout_local_binding :: (
   shadow_existing := get_variables_from_env(env, var_name.clone());
   if(shadow_existing.len() > usize(0), {
     match(
-      shadow_existing.last(),
+      shadow_existing.last_cloned(),
       .Some(shadow_var) => {
         sh_entries := ArrayList(TokenAndError).new();
         sh_entries.push(
@@ -340,8 +341,8 @@ _evaluate_inout_local_binding :: (
   if(root_vars.len() == usize(0), {
     exn.throw(dyn(format_error_message(&root_tok, `Variable "${root_tok.value.*}" is not defined.`)));
   });
-  root_var := match(root_vars.last(), .Some(v) => v, .None => make_err_variable(env));
-  if(root_var.is_compile_time_only, {
+  root_var := match(root_vars.last_cloned(), .Some(v) => v, .None => make_err_variable(env));
+  if(root_var.is_compile_time_only(), {
     exn.throw(
       dyn(
         format_error_message(
@@ -360,12 +361,11 @@ _evaluate_inout_local_binding :: (
   });
   // Evaluate the place as an expression (types for every hop), WITHOUT the
   // dup-on-store a value binding performs — nothing is copied.
-  old_expected_type := ctx.expected_type;
-  ctx.expected_type = Option(ExpectedTypeCtx).None;
+  old_expected_type := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
   deref_exempt_mark(rhs);
   evaluated_rhs := evaluate_expression_raw(rhs, env, ctx, exn);
   deref_exempt_clear();
-  ctx.expected_type = old_expected_type;
+  ctx.expected_type = old_expected_type.clone();
   rhs_info := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_rhs)),
     .Some(ri) => ri,
@@ -374,8 +374,8 @@ _evaluate_inout_local_binding :: (
       new_expr_info(env, t_unit())
     }
   );
-  env_adopt(&env, &rhs_info.env);
-  prohibit_void_type(&rhs_info.ty, ast_expr_token(rhs), exn);
+  env_adopt(&env, &rhs_info.env());
+  prohibit_void_type(&rhs_info.ty(), ast_expr_token(rhs), exn);
   require_expr_not_consumed(&evaluated_rhs, env, ctx, exn);
   // Outside privileged code a `*` hop is legal only as the deref of a handle
   // whose payload is read-only through it (an `Rc` or an `Arc`,
@@ -392,7 +392,7 @@ _evaluate_inout_local_binding :: (
         hops.get(dk),
         .Some(dhop) => if(ast_expr_is_atom_of(&dhop.field, "*"), {
           d_recv := if((dk + usize(1)) < hops.len(), match(hops.get(dk + usize(1)), .Some(h2) => h2.node, .None => make_err_expr()), root_atom);
-          d_recv_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&d_recv)), .Some(dri) => Rc.clone(dri.ty), .None => t_unit());
+          d_recv_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&d_recv)), .Some(dri) => Rc.clone(dri.ty()), .None => t_unit());
           // `&r.*…` through the reference binding `r` itself (N1e-1) names
           // the referent: the place `r` already borrows, not a pointer.
           // The recorder reads such a `*` the old way only through a `Box`, a
@@ -422,13 +422,13 @@ _evaluate_inout_local_binding :: (
   // `Type.member` is a namespace access, not storage.
   root_is_type := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&root_atom)),
-    .Some(ri) => is_type_value(&ri.value),
+    .Some(ri) => is_type_value(&ri.value()),
     .None => false
   );
   if(root_is_type, {
     exn.throw(dyn(format_error_message(&root_tok, place_recipe.clone())));
   });
-  place_type := Rc.clone(rhs_info.ty);
+  place_type := Rc.clone(rhs_info.ty());
   // A `unit` local has no C storage (its declaration emits nothing), so there
   // is no address to alias; reject instead of lowering `&()`.
   if(is_unit_type(&place_type), {
@@ -439,11 +439,10 @@ _evaluate_inout_local_binding :: (
   match(
     annotation_e,
     .Some(ann) => {
-      saved_ann_exp := ctx.expected_type;
-      ctx.expected_type = Option(ExpectedTypeCtx).None;
+      saved_ann_exp := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
       ev_ann := evaluate_expression_raw(&ann, env, ctx, exn);
       ctx.expected_type = saved_ann_exp;
-      ann_val := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ev_ann)), .Some(ai) => ai.value, .None => Option(EvalValue).None);
+      ann_val := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ev_ann)), .Some(ai) => ai.value(), .None => Option(EvalValue).None);
       ann_ty := match(
         ann_val,
         .Some(.TypeVal(at)) => Rc.clone(at),
@@ -494,7 +493,7 @@ _evaluate_inout_local_binding :: (
       (pk + usize(1)) < hops.len(),
       match(
         expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&recv_expr)),
-        .Some(ri) => Rc.clone(ri.ty),
+        .Some(ri) => Rc.clone(ri.ty()),
         .None => t_unit()
       ),
       variable_value_type(&root_var)
@@ -545,7 +544,7 @@ _evaluate_inout_local_binding :: (
     pin_expr,
     .Some(pp) => {
       pp_tok := ast_expr_token(&pp);
-      pin_name := generate_new_temp_variable_name(&env.module_path.*, usize(pp_tok.row), usize(pp_tok.column), .None, .Some(pp_tok.module_path.*.clone()));
+      pin_name := generate_new_temp_variable_name(&env.module_path().*, usize(pp_tok.row), usize(pp_tok.column), .None, .Some(pp_tok.module_path.*.clone()));
       pin_var = add_variable_to_env(env, &pin_name, &pin_type, Option(EvalValue).None, false, false, true, false, &name_tok);
     },
     .None => ()
@@ -557,11 +556,11 @@ _evaluate_inout_local_binding :: (
     .Some(bound) => {
       variable_set_is_ref(&bound, true);
       variable_set_reference_mut(&bound, is_mut);
-      variable_set_inout_borrow_root_id(&bound, root_var.id);
+      variable_set_inout_borrow_root_id(&bound, root_var.id());
       if(hops.len() == usize(0), {
         // Whole-variable place: alias the root's value cell so compile-time
         // reads through the binding observe the root (§9 H27).
-        bound.value = Rc.clone(root_var.value);
+        bound.set_value(Rc.clone(root_var.value()));
       });
     },
     .None => ()
@@ -578,9 +577,9 @@ _evaluate_inout_local_binding :: (
       range := local_borrow_range_of(expr, var_name.clone(), &name_tok);
       (step_pin : Option(Variable)) = Option(Variable).None;
       if(range.has_repoint, {
-        sp_name := generate_new_temp_variable_name(&env.module_path.*, usize(name_tok.row), usize(name_tok.column), .None, .Some(name_tok.module_path.*.clone()));
+        sp_name := generate_new_temp_variable_name(&env.module_path().*, usize(name_tok.row), usize(name_tok.column), .None, .Some(name_tok.module_path.*.clone()));
         step_pin = add_variable_to_env(env, &sp_name, t_unit(), Option(EvalValue).None, false, true, true, false, &name_tok);
-        match(step_pin, .Some(spv) => record_local_borrow_step_pin(ast_expr_id(lhs), &spv), .None => ());
+        match(&step_pin, .Some(spv) => record_local_borrow_step_pin(ast_expr_id(lhs), &spv), .None => ());
       });
       _info := local_borrow_register(var_name.clone(), &name_tok, is_mut, &lp, &range, &step_pin);
     },
@@ -589,22 +588,22 @@ _evaluate_inout_local_binding :: (
   // ExprInfos: the name atom (typed as the place), the `inout(name)` node
   // (the pin channel), and the `:=` node (unit).
   name_info := new_expr_info(env, &place_type);
-  name_info.path_collection = path_collection_new();
+  name_info.set_path_collection(path_collection_new());
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&name_expr), &name_info);
   scope_release_note_binding(ast_expr_id(&name_expr), env, var_name.clone());
   lhs_info := new_expr_info(env, t_unit());
-  lhs_info.value = Option(EvalValue).Some(EvalValue.UnitVal);
+  lhs_info.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
   match(
     pin_var,
     .Some(pv) => {
-      lhs_info.source_variable = Option(Variable).Some(pv);
+      lhs_info.set_source_variable(Option(Variable).Some(Rc.clone(pv)));
       expr_info_set_macro_expansion(&lhs_info, &pin_expr);
     },
     .None => ()
   );
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(lhs), &lhs_info);
   expr_info := new_expr_info(env, t_unit());
-  expr_info.value = Option(EvalValue).Some(EvalValue.UnitVal);
+  expr_info.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
   expr_info_set_is_compile_time_only_assignment(&expr_info, Option(bool).Some(false));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &expr_info);
   expr
@@ -665,7 +664,7 @@ _bind_projection_result :: (
   });
   shadow_existing := get_variables_from_env(env, var_name.clone());
   match(
-    shadow_existing.last(),
+    shadow_existing.last_cloned(),
     .Some(shadow_var) => {
       sh_entries := ArrayList(TokenAndError).new();
       sh_entries.push(TokenAndError(token : name_tok, error_message : `Failed to define variable "${var_name}":`));
@@ -682,7 +681,7 @@ _bind_projection_result :: (
       new_expr_info(env, t_unit())
     }
   );
-  place_type := Rc.clone(rhs_info.ty);
+  place_type := Rc.clone(rhs_info.ty());
   // The places the result borrows: a `&mut` projection's place is reached
   // from its `&mut` arguments alone (its body's root rule), a `&` one's from
   // any borrowed argument.
@@ -704,13 +703,13 @@ _bind_projection_result :: (
     // A holder passed by value (N1e-2): the places its references point
     // into, as its own binding froze them (`origin_carrying_value_roots`).
     holder_roots := if(
-      !root.is_mut && match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&root.arg)), .Some(hri) => type_carries_origin(&hri.ty), .None => false),
+      !root.is_mut && match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&root.arg)), .Some(hri) => type_carries_origin(&hri.ty()), .None => false),
       origin_carrying_value_roots(&root.arg, env, ctx),
       ArrayList(OriginRootPlace).new()
     );
     for(&holder_roots, hr => {
       if(!is_mut || hr.is_mut, {
-        match(get_variables_from_env(env, hr.place.root_name.clone()).last(), .Some(rv) => root_vars.push(rv), .None => ());
+        match(get_variables_from_env(env, hr.place.root_name.clone()).last_cloned(), .Some(rv) => root_vars.push(rv), .None => ());
         root_labels.push(root.label.clone());
         root_names.push(hr.place.root_name.clone());
         places.push(hr.place.clone());
@@ -720,7 +719,7 @@ _bind_projection_result :: (
       match(
         local_borrow_place_of(&root.arg, env, ctx),
         .Some(lp) => {
-          match(get_variables_from_env(env, lp.root_name.clone()).last(), .Some(rv) => root_vars.push(rv), .None => ());
+          match(get_variables_from_env(env, lp.root_name.clone()).last_cloned(), .Some(rv) => root_vars.push(rv), .None => ());
           root_labels.push(root.label.clone());
           root_names.push(lp.root_name.clone());
           places.push(lp);
@@ -759,7 +758,7 @@ _bind_projection_result :: (
     .Some(bound) => {
       variable_set_is_ref(&bound, true);
       variable_set_reference_mut(&bound, is_mut);
-      match(root_vars.get(usize(0)), .Some(rv0) => variable_set_inout_borrow_root_id(&bound, rv0.id), .None => ());
+      match(root_vars.get_cloned(usize(0)), .Some(rv0) => variable_set_inout_borrow_root_id(&bound, rv0.id()), .None => ());
     },
     .None => ()
   );
@@ -771,9 +770,9 @@ _bind_projection_result :: (
   range := local_borrow_range_of(expr, var_name.clone(), &name_tok);
   (step_pin : Option(Variable)) = Option(Variable).None;
   if(range.has_repoint, {
-    sp_name := generate_new_temp_variable_name(&env.module_path.*, usize(name_tok.row), usize(name_tok.column), .None, .Some(name_tok.module_path.*.clone()));
+    sp_name := generate_new_temp_variable_name(&env.module_path().*, usize(name_tok.row), usize(name_tok.column), .None, .Some(name_tok.module_path.*.clone()));
     step_pin = add_variable_to_env(env, &sp_name, t_unit(), Option(EvalValue).None, false, true, true, false, &name_tok);
-    match(step_pin, .Some(spv) => record_local_borrow_step_pin(ast_expr_id(name_expr), &spv), .None => ());
+    match(&step_pin, .Some(spv) => record_local_borrow_step_pin(ast_expr_id(name_expr), &spv), .None => ());
   });
   info := local_borrow_register(var_name.clone(), &name_tok, is_mut, &places(usize(0)), &range, &step_pin);
   // An elided result origin is the union of the reference parameters (O2):
@@ -794,11 +793,11 @@ _bind_projection_result :: (
     qi = (qi + usize(1));
   });
   name_info := new_expr_info(env, &place_type);
-  name_info.path_collection = path_collection_new();
+  name_info.set_path_collection(path_collection_new());
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(name_expr), &name_info);
   scope_release_note_binding(ast_expr_id(name_expr), env, var_name.clone());
   expr_info := new_expr_info(env, t_unit());
-  expr_info.value = Option(EvalValue).Some(EvalValue.UnitVal);
+  expr_info.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
   expr_info_set_is_compile_time_only_assignment(&expr_info, Option(bool).Some(false));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &expr_info);
   expr
@@ -824,8 +823,8 @@ _bind_projection_result :: (
 /// Codegen channel (init_assignment.yo `generate_local_borrow_repoint`): the
 /// `mut(cur)` node's ExprInfo carries the step: `source_variable` = the step
 /// pin, `macro_expansion` = the cell expression it takes.
-evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx : &EvalContext, exn : Exception) -> AstExpr)({
-  (env : Environment) = env_in;
+evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr)({
+  (env : Environment) = Rc.clone(env_in);
   args := match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
   lhs := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
   rhs := match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
@@ -840,7 +839,7 @@ evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx
   name_tok := ast_expr_token(&name_expr);
   name := name_tok.value.*.clone();
   cur_var := match(
-    get_variables_from_env(&env, name.clone()).last(),
+    get_variables_from_env(&env, name.clone()).last_cloned(),
     .Some(v) => v,
     .None => {
       exn.throw(dyn(format_error_message(&name_tok, `Variable "${name}" is not defined.`)));
@@ -911,10 +910,9 @@ evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx
     );
     hi = (hi + usize(1));
   });
-  old_expected_type := ctx.expected_type;
-  ctx.expected_type = Option(ExpectedTypeCtx).None;
+  old_expected_type := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
   evaluated_rhs := evaluate_expression_raw(&rhs, &env, ctx, exn);
-  ctx.expected_type = old_expected_type;
+  ctx.expected_type = old_expected_type.clone();
   rhs_info := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_rhs)),
     .Some(ri) => ri,
@@ -923,26 +921,26 @@ evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx
       new_expr_info(&env, t_unit())
     }
   );
-  env_adopt(&env, &rhs_info.env);
+  env_adopt(&env, &rhs_info.env());
   if(is_mut, {
     // D3: a place in an atomic object is not lent `&mut` in safe code.
     throw_if_mut_lend_through_atomic_object(&evaluated_rhs, &env, String.from("borrow `&mut` a place in"), ctx, exn);
     // Decision 46 (E0919): an `Rc`'s payload is read-only through the handle.
     reject_write_through_rc(&evaluated_rhs, "mut-borrow", Option(TypeValue).None, ctx, exn);
   });
-  if(!are_types_compatible(&rhs_info.ty, &variable_value_type(&cur_var)), {
+  if(!are_types_compatible(&rhs_info.ty(), &variable_value_type(&cur_var)), {
     exn.throw(
       dyn(
         format_error_message(
           ast_expr_token(&rhs),
-          `Cannot re-point \`${name}\` to \`${local_borrow_place_text(&rhs)}\`: \`${name}\` borrows a place of type ${type_to_string(&variable_value_type(&cur_var))}, and this place has type ${type_to_string(&rhs_info.ty)}.`
+          `Cannot re-point \`${name}\` to \`${local_borrow_place_text(&rhs)}\`: \`${name}\` borrows a place of type ${type_to_string(&variable_value_type(&cur_var))}, and this place has type ${type_to_string(&rhs_info.ty())}.`
         )
       )
     );
   });
   root_tok := ast_expr_token(&root_atom);
   root_var := match(
-    get_variables_from_env(&env, root_tok.value.*.clone()).last(),
+    get_variables_from_env(&env, root_tok.value.*.clone()).last_cloned(),
     .Some(v) => v,
     .None => {
       exn.throw(dyn(format_error_message(&root_tok, `Variable "${root_tok.value.*}" is not defined.`)));
@@ -967,7 +965,7 @@ evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx
   );
   if(!is_self && !via_pattern, {
     what := cond(
-      root_var.is_module_level => `\`${root_var.name}\` is a module-level binding`,
+      root_var.is_module_level() => `\`${root_var.name}\` is a module-level binding`,
       true => `\`${root_var.name}\` is a different variable, not a place reached from \`${name}\``
     );
     exn.throw(
@@ -1006,7 +1004,7 @@ evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx
       match(hops.get(pk + usize(1)), .Some(h2) => h2.node, .None => make_err_expr()),
       root_atom
     );
-    recv_type := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&recv_expr)), .Some(ri) => Rc.clone(ri.ty), .None => variable_value_type(&root_var));
+    recv_type := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&recv_expr)), .Some(ri) => Rc.clone(ri.ty()), .None => variable_value_type(&root_var));
     if(is_counted_handle_type(&recv_type), {
       pin_expr = Option(AstExpr).Some(recv_expr);
       pin_type = recv_type;
@@ -1018,15 +1016,15 @@ evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx
     pin_expr,
     .Some(_) => {
       sp := match(
-        info.step_pin,
-        .Some(p) => p,
+        &info.step_pin,
+        .Some(p) => Rc.clone(p),
         .None => {
           exn.throw(dyn(format_error_message(&lhs_tok, `Cannot re-point \`${name}\` here: a re-point must be in the block that declares \`${name}\`, or a block nested in it.`)));
           make_err_variable(&env)
         }
       );
       if(is_unit_type(&variable_value_type(&sp)), {
-        variable_set_value_type(&sp, pin_type);
+        variable_set_value_type(&sp, Rc.clone(pin_type));
       }, {
         if(!are_types_compatible(&pin_type, &variable_value_type(&sp)), {
           exn.throw(
@@ -1056,18 +1054,18 @@ evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx
   });
   variable_mark_inout_borrow_root(&root_var);
   lhs_info := new_expr_info(&env, t_unit());
-  lhs_info.value = Option(EvalValue).Some(EvalValue.UnitVal);
+  lhs_info.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
   match(
     step_pin,
     .Some(spv) => {
-      lhs_info.source_variable = Option(Variable).Some(spv);
+      lhs_info.set_source_variable(Option(Variable).Some(Rc.clone(spv)));
       expr_info_set_macro_expansion(&lhs_info, &pin_expr);
     },
     .None => ()
   );
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&lhs), &lhs_info);
   expr_info := new_expr_info(&env, t_unit());
-  expr_info.value = Option(EvalValue).Some(EvalValue.UnitVal);
+  expr_info.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
   expr_info_set_is_compile_time_only_assignment(&expr_info, Option(bool).Some(false));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &expr_info);
   expr
@@ -1094,11 +1092,11 @@ evaluate_initialization_assignment :: (
   fn(
     expr : &AstExpr,
     env_in : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
-  (env : Environment) = env_in;
+  (env : Environment) = Rc.clone(env_in);
   // Validate shape.
   is_const := ast_expr_is_fn_call_of(expr, BK_CONST, .Some(usize(2)));
   is_init_assign := ast_expr_is_fn_call_of(expr, BK_INIT_ASSIGN, .Some(usize(2)));
@@ -1285,7 +1283,7 @@ evaluate_initialization_assignment :: (
   });
   // Evaluate the rhs expression.
   // Save/restore context fields that are locally overridden.
-  old_expected_type := ctx.expected_type;
+  old_expected_type := ctx.expected_type.clone();
   old_is_inside_given_handler := ctx.is_inside_given_handler;
   // A bare `.Variant(…)` right-hand side — or an `io.async(…)` call whose
   // future the local returns (the call-side machinery unwraps the function's
@@ -1294,7 +1292,7 @@ evaluate_initialization_assignment :: (
   // (the enclosing function's result type, when a later statement returns
   // this local) as its expected type; every other RHS is evaluated without
   // one, as before. The hint is one-shot.
-  variant_hint := ctx.local_variant_hint;
+  variant_hint := ctx.local_variant_hint.clone();
   ctx.local_variant_hint = Option(ExpectedTypeCtx).None;
   ctx.expected_type = cond(
     (variant_hint.is_some() && (_rhs_is_bare_variant_literal(&rhs) || is_io_async_call(&rhs))) => variant_hint,
@@ -1310,22 +1308,22 @@ evaluate_initialization_assignment :: (
   // body's trial-evaluation swallow (see `evaluate_test`) actually catch
   // errors raised while evaluating a `:=` rhs.
   rhs = evaluate_expression_raw(&rhs, &env, ctx, exn);
-  ctx.expected_type = old_expected_type;
+  ctx.expected_type = old_expected_type.clone();
   ctx.is_inside_given_handler = old_is_inside_given_handler;
   // Update env from the evaluated rhs.
   rhs_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&rhs));
   match(
-    rhs_info_opt,
+    &rhs_info_opt,
     .Some(rhs_info) => {
-      env_adopt(&env, &rhs_info.env);
+      env_adopt(&env, &rhs_info.env());
     },
     .None => ()
   );
   // Prohibit void rhs type.
   match(
-    rhs_info_opt,
+    &rhs_info_opt,
     .Some(rhs_info) => {
-      prohibit_void_type(&rhs_info.ty, ast_expr_token(&rhs), exn);
+      prohibit_void_type(&rhs_info.ty(), ast_expr_token(&rhs), exn);
     },
     .None => ()
   );
@@ -1335,21 +1333,21 @@ evaluate_initialization_assignment :: (
   // one) would be invokable long after its install frame has returned, where it
   // would `unwind` to a dead frame.
   match(
-    rhs_info_opt,
+    &rhs_info_opt,
     .Some(rhs_info) => {
       is_at_module_level := match(
-        ctx.is_evaluating_function_body_or_async_block,
+        &ctx.is_evaluating_function_body_or_async_block,
         .Some(_) => false,
         .None => true
       );
-      if(is_at_module_level && type_is_control_bound(&rhs_info.ty), {
+      if(is_at_module_level && type_is_control_bound(&rhs_info.ty()), {
         exn.throw(
           dyn(
             format_error_message(
               ast_expr_token(&rhs),
               `Cannot bind a value whose type is control-bound (transitively contains a \`ctl(...) -> ret\` function type) at module level. Module-level bindings outlive every call frame; invoking the contained control-function later would unwind to a dead frame.
 
-Bound type: ${type_to_string(&rhs_info.ty)}`
+Bound type: ${type_to_string(&rhs_info.ty())}`
             )
           )
         );
@@ -1359,11 +1357,11 @@ Bound type: ${type_to_string(&rhs_info.ty)}`
   );
   // Reject rhs that unconditionally transfers control flow.
   match(
-    rhs_info_opt,
+    &rhs_info_opt,
     .Some(rhs_info) => {
-      if(has_any_control_flow(rhs_info.control_flow), {
+      if(has_any_control_flow(rhs_info.control_flow()), {
         match(
-          rhs_info.control_flow,
+          rhs_info.control_flow(),
           .Some(cf) => throw_rhs_contains_control_flow_expression_error(&rhs, cf, exn),
           .None => ()
         );
@@ -1402,7 +1400,7 @@ Bound type: ${type_to_string(&rhs_info.ty)}`
     match(
       expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&rhs)),
       .Some(ri) => {
-        env_adopt(&env, &ri.env);
+        env_adopt(&env, &ri.env());
       },
       .None => ()
     );
@@ -1450,15 +1448,15 @@ Bound type: ${type_to_string(&rhs_info.ty)}`
     effective_should_convert_to_runtime := (!is_implicit && should_convert_to_runtime_type);
     // Determine the LHS type.
     rhs_type_opt := match(
-      rhs_info_opt,
-      .Some(ri) => Option(TypeValue).Some(Rc.clone(ri.ty)),
+      &rhs_info_opt,
+      .Some(ri) => Option(TypeValue).Some(Rc.clone(ri.ty())),
       .None => Option(TypeValue).None
     );
     actual_lhs_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&actual_lhs));
     // Check if the user pre-annotated the LHS with a type (via `(x : T) := rhs`).
     has_predefined_type := match(
-      actual_lhs_info_opt,
-      .Some(ali) => (match(ali.value, .Some(_) => true, .None => false) || (type_value_tag(&ali.ty) != TypeTag.TUnit)),
+      &actual_lhs_info_opt,
+      .Some(ali) => (match(ali.value(), .Some(_) => true, .None => false) || (type_value_tag(&ali.ty()) != TypeTag.TUnit)),
       .None => false
     );
     // More precise: check whether ExprInfo was created with a type annotation —
@@ -1496,7 +1494,7 @@ Bound type: ${type_to_string(&rhs_info.ty)}`
       // User annotated a type — synthesize and check compatibility.
       pre_type := match(
         actual_lhs_info_opt,
-        .Some(ali) => Rc.clone(ali.ty),
+        .Some(ali) => Rc.clone(ali.ty()),
         .None => t_unit()
       );
       synth := synthesize_expr_and_type(&rhs, &pre_type, &env, ctx);
@@ -1525,10 +1523,10 @@ Bound type: ${type_to_string(&rhs_info.ty)}`
       // value-blind, and the C constant truncated silently
       // (issues/fixed/context-typed-integer-literal-is-not-range-checked.md).
       match(
-        rhs_info_opt,
-        .Some(ri_ct) => if(is_comptime_int_type(&ri_ct.ty), {
+        &rhs_info_opt,
+        .Some(ri_ct) => if(is_comptime_int_type(&ri_ct.ty()), {
           match(
-            ri_ct.value,
+            ri_ct.value(),
             .Some(ri_ctv) => match(ri_ctv, .IntLit(ri_raw) => check_comptime_int_value_fits(&ri_raw, &pre_type, ast_expr_token(&rhs), exn), _ => ()),
             .None => ()
           );
@@ -1586,7 +1584,7 @@ ${expr_str}`
     // Get RHS compile-time value.
     rhs_value_opt := match(
       rhs_info_opt,
-      .Some(ri) => ri.value,
+      .Some(ri) => ri.value(),
       .None => Option(EvalValue).None
     );
     // Reject runtime value for a compile-time-only declaration.
@@ -1723,13 +1721,13 @@ ${rhs_str}`
     actual_lhs_info_final_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&actual_lhs));
     (actual_lhs_info : ExprInfo) = match(
       actual_lhs_info_final_opt,
-      .Some(ali) => ali,
+      .Some(ali) => Rc.clone(ali),
       .None => new_expr_info(&env, &lhs_type)
     );
-    actual_lhs_info.ty = Rc.clone(lhs_type);
-    actual_lhs_info.env = env;
-    actual_lhs_info.value = lhs_value_opt;
-    actual_lhs_info.path_collection = path_collection_new();
+    actual_lhs_info.set_ty(Rc.clone(lhs_type));
+    actual_lhs_info.set_env(Rc.clone(env));
+    actual_lhs_info.set_value(lhs_value_opt.clone());
+    actual_lhs_info.set_path_collection(path_collection_new());
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&actual_lhs), &actual_lhs_info);
     // NOTE: no resolvedConcreteType copy here — TypeValue.SomeT does not
     // carry one.
@@ -1739,10 +1737,10 @@ ${rhs_str}`
     is_owning_same_rc_value_as := match(
       rhs_owning_variable,
       .Some(rov) => match(
-        rov.consumed_at_token,
+        rov.consumed_at_token(),
         // If the RHS was moved, LHS becomes the new primary owner (no chain).
         .Some(_) => Option(Variable).None,
-        .None => Option(Variable).Some(rov)
+        .None => Option(Variable).Some(Rc.clone(rov))
       ),
       .None => Option(Variable).None
     );
@@ -1750,7 +1748,7 @@ ${rhs_str}`
     actual_lhs_tok := ast_expr_token(&actual_lhs);
     (var_name : String) = cond(
       (actual_lhs_tok.value.* == "_") =>
-        generate_new_temp_variable_name(&env.module_path.*, usize(actual_lhs_tok.row), usize(actual_lhs_tok.column), .None, .Some(actual_lhs_tok.module_path.*.clone())),
+        generate_new_temp_variable_name(&env.module_path().*, usize(actual_lhs_tok.row), usize(actual_lhs_tok.column), .None, .Some(actual_lhs_tok.module_path.*.clone())),
       true =>
         actual_lhs_tok.value.*.clone()
     );
@@ -1797,8 +1795,8 @@ Use \`::\` for compile-time definitions inside impl.`
       shadow_existing := get_variables_from_env(&env, &var_name);
       if(shadow_existing.len() > usize(0), {
         match(
-          shadow_existing.last(),
-          .Some(shadow_var) => if(match(prebound_opt, .Some(pb) => (pb.id == shadow_var.id), .None => false), (), {
+          shadow_existing.last_cloned(),
+          .Some(shadow_var) => if(match(&prebound_opt, .Some(pb) => (pb.id() == shadow_var.id()), .None => false), (), {
             sh_entries := ArrayList(TokenAndError).new();
             sh_entries.push(
               TokenAndError(
@@ -1825,22 +1823,30 @@ Use \`::\` for compile-time definitions inside impl.`
         variable_set_value_type(&pb, Rc.clone(final_lhs_type));
         match(
           lhs_value_opt,
-          .Some(pb_v) => if(pb.value.len() > usize(0), {
-            pb.value.set(usize(0), pb_v);
+          .Some(pb_v) => if(pb.value().len() > usize(0), {
+            pb.value().set(usize(0), pb_v);
           }, {
             // An EMPTY cell is the shared `empty_value_cell()` (value.yo):
             // never push into it — mint the variable its own cell.
-            pb.value = value_cell_of(Option(EvalValue).Some(pb_v));
+            pb.set_value(value_cell_of(Option(EvalValue).Some(pb_v)));
           }),
           .None => ()
         );
-        pb.is_compile_time_only = effective_is_compile_time_only;
-        pb.is_reassignable = !is_implicit;
-        pb.is_owning_the_rc_value = type_contains_rc_type(&final_lhs_type);
-        pb.is_implicit = is_implicit;
-        pb.token = actual_lhs_tok;
-        pb.initialized_at_token = Option(Token).Some(actual_lhs_tok);
-        Option(Variable).Some(pb)
+        pb.set_is_compile_time_only(effective_is_compile_time_only.clone());
+        pb.set_is_reassignable(!is_implicit);
+        pb.set_is_owning_the_rc_value(type_contains_rc_type(&final_lhs_type));
+        pb.set_is_implicit(is_implicit.clone());
+        // No token write: the pre-binding (`resolve_pending_definition`,
+        // context.yo) declared `pb` at `ast_expr_token` of this definition's
+        // LHS, and
+        // `pending_prebound_variable` matched it on row, column and module
+        // path. A wrapped LHS (`given(x)`, `comptime(x)`) has the wrapper's
+        // token, at another column, so a match means the LHS is the atom
+        // itself and the token is the same handle: every field a reader
+        // uses (module-path spelling, lexeme, kind) is already the one set
+        // here. `token` is one of `Variable`'s read-only fields (VERDICTS-22).
+        pb.set_initialized_at_token(Option(Token).Some(actual_lhs_tok));
+        Option(Variable).Some(Rc.clone(pb))
       },
       .None => add_variable_to_env(
         &env,
@@ -1859,7 +1865,7 @@ Use \`::\` for compile-time definitions inside impl.`
     // Tell the pending-definition table which Variable this statement bound
     // (no-op unless this IS the statement currently being forced).
     match(
-      new_var_opt,
+      &new_var_opt,
       .Some(bound_var) => record_pending_def_variable(var_name.clone(), &actual_lhs_tok, &bound_var),
       .None => ()
     );
@@ -1874,7 +1880,7 @@ Use \`::\` for compile-time definitions inside impl.`
     match(
       new_var_opt,
       .Some(new_var) => {
-        new_var.is_module_level = is_module_level;
+        new_var.set_is_module_level(is_module_level.clone());
         // Also record it in the data-keyed registry — env copies can lose
         // the flag on some resolution paths (see expr_info.yo
         // g_module_level_globals).
@@ -1924,7 +1930,7 @@ Use \`::\` for compile-time definitions inside impl.`
         match(
           is_owning_same_rc_value_as,
           .Some(rov) => {
-            new_var.is_owning_the_same_rc_value_as = Option(Variable).Some(rov);
+            new_var.set_is_owning_the_same_rc_value_as(Option(Variable).Some(Rc.clone(rov)));
           },
           .None => ()
         );
@@ -1938,7 +1944,7 @@ Use \`::\` for compile-time definitions inside impl.`
         .Some(a) => a,
         .None => new_expr_info(&env, &final_lhs_type)
       );
-      ali_after.variable_name = Option(String).Some(var_name.clone());
+      ali_after.set_variable_name(Option(String).Some(var_name.clone()));
       expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&actual_lhs), &ali_after);
     });
     // Update env in ExprInfo for actual_lhs.
@@ -1947,18 +1953,18 @@ Use \`::\` for compile-time definitions inside impl.`
       .Some(a) => a,
       .None => new_expr_info(&env, &final_lhs_type)
     );
-    ali_final.env = env;
+    ali_final.set_env(Rc.clone(env));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&actual_lhs), &ali_final);
     scope_release_note_binding(ast_expr_id(&actual_lhs), &env, var_name.clone());
     // Set ExprInfo on the outer given(...) / comptime(...) wrapper.
     if(is_implicit || is_comptime_wrapped, {
       lhs_info := new_expr_info(&env, t_unit());
-      lhs_info.value = Option(EvalValue).Some(EvalValue.UnitVal);
+      lhs_info.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
       expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&lhs), &lhs_info);
     });
     // Set ExprInfo on the whole :: / := expression.
     expr_info := new_expr_info(&env, t_unit());
-    expr_info.value = Option(EvalValue).Some(EvalValue.UnitVal);
+    expr_info.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
     expr_info_set_is_compile_time_only_assignment(&expr_info, Option(bool).Some(effective_is_compile_time_only));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &expr_info);
     expr
@@ -1990,7 +1996,7 @@ Use \`::\` for compile-time definitions inside impl.`
               rds.get_cloned(rdi),
               .Some(rd) => if(type_carries_origin(&rd.ty) && !(rd.variable_name == ""), {
                 match(
-                  get_variables_from_env(&env, rd.variable_name.clone()).last(),
+                  get_variables_from_env(&env, rd.variable_name.clone()).last_cloned(),
                   .Some(rd_var) => freeze_origin_carrying_binding(expr, &rhs, &rd.variable_name, &rd_var.token, &env, ctx, exn),
                   .None => ()
                 );
@@ -2004,7 +2010,7 @@ Use \`::\` for compile-time definitions inside impl.`
       );
     });
     expr_info := new_expr_info(&env, t_unit());
-    expr_info.value = Option(EvalValue).Some(EvalValue.UnitVal);
+    expr_info.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
     expr_info_set_runtime_destructurings(&expr_info, &destr_result.runtime_destructurings);
     expr_info_set_is_compile_time_only_assignment(&expr_info, Option(bool).Some(effective_is_compile_time_only));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &expr_info);

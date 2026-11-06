@@ -235,7 +235,7 @@ is_flowable_expr :: (fn(expr_in : &AstExpr, ctx : &EvalContext, opts : &FlowOpti
   });
   // Divergent expressions never yield a value here — accept vacuously.
   info_opt := _info(ctx, &expr);
-  has_cf := match(info_opt, .Some(i) => has_any_control_flow(i.control_flow), .None => false);
+  has_cf := match(&info_opt, .Some(i) => has_any_control_flow(i.control_flow()), .None => false);
   if(has_cf, {
     return(true);
   });
@@ -264,35 +264,35 @@ is_flowable_expr :: (fn(expr_in : &AstExpr, ctx : &EvalContext, opts : &FlowOpti
     });
     info := match(
       info_opt,
-      .Some(i) => i,
+      .Some(i) => Rc.clone(i),
       .None => {
         return(false);
       }
     );
     var_name := match(
-      &info.variable_name,
+      &info.variable_name(),
       .Some(n) => n.clone(),
       .None => {
         return(false);
       }
     );
-    vars := get_variables_from_env(&info.env, &var_name);
+    vars := get_variables_from_env(&info.env(), &var_name);
     if(vars.len() == usize(0), {
       return(false);
     });
     v := match(
-      vars.last(),
+      vars.last_cloned(),
       .Some(x) => x,
       .None => {
         return(false);
       }
     );
-    if(v.is_ref, {
+    if(v.is_ref(), {
       return(true);
     });
     // R1' (binding-site only): a same-frame non-module local, bounded by
     // `max_local_frame_level` when set.
-    if(opts.allow_same_frame_local && !v.is_module_level, {
+    if(opts.allow_same_frame_local && !v.is_module_level(), {
       ok := match(
         opts.max_local_frame_level,
         .None => true,
@@ -303,11 +303,11 @@ is_flowable_expr :: (fn(expr_in : &AstExpr, ctx : &EvalContext, opts : &FlowOpti
       });
     });
     // R1'' (slice-flowability): a parameter of the enclosing function.
-    if(opts.allow_parameter_source && v.is_parameter, {
+    if(opts.allow_parameter_source && v.is_parameter(), {
       return(true);
     });
     // R1''' (slice-flowability): a comptime-bound name (static storage).
-    if(opts.allow_comptime_source && v.is_compile_time_only, {
+    if(opts.allow_comptime_source && v.is_compile_time_only(), {
       return(true);
     });
     return(false);
@@ -331,7 +331,7 @@ is_flowable_expr :: (fn(expr_in : &AstExpr, ctx : &EvalContext, opts : &FlowOpti
     // carries no smuggled pointer, so it is flowable.
     base_is_type := match(
       _info(ctx, &base),
-      .Some(bi) => match(bi.value, .Some(bv) => is_type_val(&bv), .None => false),
+      .Some(bi) => match(bi.value(), .Some(bv) => is_type_val(&bv), .None => false),
       .None => false
     );
     if(base_is_type, {
@@ -409,7 +409,7 @@ is_flowable_expr :: (fn(expr_in : &AstExpr, ctx : &EvalContext, opts : &FlowOpti
             fa_recv,
             .Some(fa_r) => match(
               expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&fa_r)),
-              .Some(fa_ri) => if(is_pointer_type(&fa_ri.ty), {
+              .Some(fa_ri) => if(is_pointer_type(&fa_ri.ty()), {
                 return(recur(&fa_r, ctx, opts));
               }),
               .None => ()
@@ -436,7 +436,7 @@ is_flowable_expr :: (fn(expr_in : &AstExpr, ctx : &EvalContext, opts : &FlowOpti
       );
       match(
         _info(ctx, &qrecv),
-        .Some(qi) => match(qi.value, .Some(qv) => is_type_val(&qv), .None => false),
+        .Some(qi) => match(qi.value(), .Some(qv) => is_type_val(&qv), .None => false),
         .None => false
       )
     },
@@ -448,7 +448,7 @@ is_flowable_expr :: (fn(expr_in : &AstExpr, ctx : &EvalContext, opts : &FlowOpti
   // only carry a raw pointer through its arguments.
   is_type_ctor_call := match(
     _info(ctx, &call_func),
-    .Some(cfi) => match(cfi.value, .Some(cfv) => is_type_val(&cfv), .None => false),
+    .Some(cfi) => match(cfi.value(), .Some(cfv) => is_type_val(&cfv), .None => false),
     .None => false
   );
   is_variant_ctor := (
@@ -471,7 +471,7 @@ is_flowable_expr :: (fn(expr_in : &AstExpr, ctx : &EvalContext, opts : &FlowOpti
           _ => a
         );
       });
-      a_ty_opt := match(_info(ctx, &a), .Some(inf) => Option(TypeValue).Some(Rc.clone(inf.ty)), .None => Option(TypeValue).None);
+      a_ty_opt := match(_info(ctx, &a), .Some(inf) => Option(TypeValue).Some(Rc.clone(inf.ty())), .None => Option(TypeValue).None);
       needs := match(a_ty_opt, .Some(t) => type_representation_contains_raw_ptr(&t), .None => false);
       if(needs && !recur(&a, ctx, opts), {
         return(false);
@@ -494,7 +494,7 @@ is_flowable_expr :: (fn(expr_in : &AstExpr, ctx : &EvalContext, opts : &FlowOpti
           _ => te
         );
       });
-      te_ty_opt := match(_info(ctx, &te), .Some(inf) => Option(TypeValue).Some(Rc.clone(inf.ty)), .None => Option(TypeValue).None);
+      te_ty_opt := match(_info(ctx, &te), .Some(inf) => Option(TypeValue).Some(Rc.clone(inf.ty())), .None => Option(TypeValue).None);
       te_needs := match(te_ty_opt, .Some(t) => type_representation_contains_raw_ptr(&t), .None => false);
       if(te_needs && !recur(&te, ctx, opts), {
         return(false);
@@ -514,7 +514,7 @@ is_flowable_expr :: (fn(expr_in : &AstExpr, ctx : &EvalContext, opts : &FlowOpti
   // populated during method dispatch).
   callee_ty_opt := match(
     _info(ctx, &call_func),
-    .Some(inf) => Option(TypeValue).Some(Rc.clone(inf.ty)),
+    .Some(inf) => Option(TypeValue).Some(Rc.clone(inf.ty())),
     .None => lookup_method_callee_type(ast_expr_id(&expr))
   );
   callee_ty := match(
@@ -590,16 +590,16 @@ is_flowable_expr :: (fn(expr_in : &AstExpr, ctx : &EvalContext, opts : &FlowOpti
 /// `is_owning_the_same_rc_value_as` links to the primary owner's id
 /// (step-capped instead of an identity-set cycle guard).
 alias_group_root :: (fn(variable : &Variable) -> String)({
-  (cur : Variable) = variable;
-  (root_id : String) = variable.id.to_string();
+  (cur : Variable) = Rc.clone(variable);
+  (root_id : String) = variable.id().to_string();
   (steps : usize) = usize(0);
   (done : bool) = false;
   while(!done && (steps < usize(64)), {
     match(
-      cur.is_owning_the_same_rc_value_as,
+      cur.is_owning_the_same_rc_value_as(),
       .Some(next_box) => {
         cur = next_box;
-        root_id = cur.id.to_string();
+        root_id = cur.id().to_string();
       },
       .None => {
         done = true;
@@ -677,7 +677,7 @@ require_ref_own_argument_exclusivity :: (
     is_owning := (
       cond((pi < param_is_owning.len()) => match(param_is_owning.get(pi), .Some(o) => o, .None => false), true => false) && !match(
         args.get_cloned(pi),
-        .Some(oa) => match(_info(ctx, &oa), .Some(oi) => type_is_bitwise_copy(Rc.clone(oi.ty)), .None => false),
+        .Some(oa) => match(_info(ctx, &oa), .Some(oi) => type_is_bitwise_copy(Rc.clone(oi.ty())), .None => false),
         .None => false
       )
     );
@@ -706,11 +706,11 @@ require_ref_own_argument_exclusivity :: (
           match(
             root_atom_opt,
             .Some(root_atom) => {
-              root_env := match(_info(ctx, &root_atom), .Some(ri) => expr_info_adopt_env(&ri), .None => env);
+              root_env := match(_info(ctx, &root_atom), .Some(ri) => expr_info_adopt_env(&ri), .None => Rc.clone(env));
               vars := get_variables_from_env(&root_env, ast_expr_text(&root_atom).*);
               if(vars.len() > usize(0), {
                 match(
-                  vars.last(),
+                  vars.last_cloned(),
                   .Some(vv) => {
                     if(is_ref, {
                       ref_root_vars.push(vv);
@@ -748,10 +748,10 @@ require_ref_own_argument_exclusivity :: (
             .Some(ref_idx) =>
               if(!(ref_idx == own_idx), {
                 match(
-                  own_root_vars.get(oi),
+                  own_root_vars.get_cloned(oi),
                   .Some(own_var) =>
                     match(
-                      ref_root_vars.get(ri),
+                      ref_root_vars.get_cloned(ri),
                       .Some(ref_var) =>
                         if(alias_group_root(&ref_var) == alias_group_root(&own_var), {
                           own_lbl := match(own_root_lbls.get_cloned(oi), .Some(l) => l, .None => String.from(""));
@@ -948,7 +948,7 @@ _ref_place_holder_types :: (fn(ref_arg : &AstExpr, kind : str, root : &Variable,
     match(
       expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&cur)),
       .Some(ci) => {
-        keys.insert(type_key(&ci.ty));
+        keys.insert(type_key(&ci.ty()));
       },
       .None => return(.None)
     );
@@ -1124,7 +1124,7 @@ _reject_if_container_reachable :: (
   if(cvars.len() == usize(0), {
     return(());
   });
-  cvar := match(cvars.last(), .Some(v) => v, .None => return(()));
+  cvar := match(cvars.last_cloned(), .Some(v) => v, .None => return(()));
   cname := ast_expr_text(container_atom).*.clone();
   fix := cond(
     (kind == "index") => String.from("Read the element into a local first (\"xs.get(i)\" copies it, std/mem's \"take(&mut xs(i))\" moves it out), or split the calls."),
@@ -1132,20 +1132,20 @@ _reject_if_container_reachable :: (
   );
   // (a) globally reachable: module-level itself, or aliases a module-level var.
   c_root_id := alias_group_root(&cvar);
-  (root_module : bool) = cvar.is_module_level;
+  (root_module : bool) = cvar.is_module_level();
   if(!root_module, {
     // Walk env for a variable whose id == c_root_id and is module-level.
     (fi : usize) = usize(0);
-    while(fi < env.frames.len(), {
+    while(fi < env.frames_len(), {
       match(
-        env.frames.get(fi),
+        env.frame_at(fi),
         .Some(frame) => {
           (vi : usize) = usize(0);
-          while(vi < frame.variables.len(), {
+          while(vi < frame.variables_len(), {
             match(
-              frame.variables.get(vi),
+              frame.variable_at(vi),
               .Some(fv) => {
-                if((fv.id.to_string() == c_root_id) && fv.is_module_level, {
+                if((fv.id().to_string() == c_root_id) && fv.is_module_level(), {
                   root_module = true;
                 });
               },
@@ -1182,7 +1182,7 @@ _reject_if_container_reachable :: (
         match(
           expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&idx_callee)),
           .Some(idx_info) => {
-            ity := resolve_enum_shell(resolve_struct_shell(&t_refine_inner(&idx_info.ty)));
+            ity := resolve_enum_shell(resolve_struct_shell(&t_refine_inner(&idx_info.ty())));
             match(
               ity,
               Rc(.Array(element : _, length : _)) => return(()),
@@ -1243,9 +1243,9 @@ _reject_if_container_reachable :: (
               // is exactly the pre-B6-a rule's pair, so every function-typed
               // sibling keeps the verdict the old rule gave it; only the
               // non-function siblings gain the target-precise walk above.
-              (is_fn : bool) = _is_fn_typed(&oi.ty);
+              (is_fn : bool) = _is_fn_typed(&oi.ty());
               if(is_fn, {
-                fn_may_reach := (type_contains_rc_type(&oi.ty) || type_representation_contains_raw_ptr(&oi.ty));
+                fn_may_reach := (type_contains_rc_type(&oi.ty()) || type_representation_contains_raw_ptr(&oi.ty()));
                 fn_may_reach
               }, {
                 // A sibling lent to a `&`/`&mut` parameter (not by value)
@@ -1253,10 +1253,10 @@ _reject_if_container_reachable :: (
                 // place's holder. An unknown mode counts as a borrow.
                 sibling_is_ref := match(param_is_owning.get(j), .Some(o) => !o, .None => true);
                 seen := HashSet(String).new();
-                _type_may_reach_any_of(&oi.ty, sibling_is_ref, &targets, &mut seen)
+                _type_may_reach_any_of(&oi.ty(), sibling_is_ref, &targets, &mut seen)
               })
             },
-            .None => (type_contains_rc_type(&oi.ty) || type_representation_contains_raw_ptr(&oi.ty))
+            .None => (type_contains_rc_type(&oi.ty()) || type_representation_contains_raw_ptr(&oi.ty()))
           )
         },
         .None => false
@@ -1349,7 +1349,7 @@ require_valid_ref_argument_places :: (
             // Namespace-style access (Type.member) is not a borrow.
             root_is_type := match(
               expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&cur)),
-              .Some(ri) => match(ri.value, .Some(v) => is_type_val(&v), .None => false),
+              .Some(ri) => match(ri.value(), .Some(v) => is_type_val(&v), .None => false),
               .None => false
             );
             if(!root_is_type, {
@@ -1365,7 +1365,7 @@ require_valid_ref_argument_places :: (
                 match(
                   expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&hop)),
                   .Some(hri) => {
-                    if(is_counted_handle_type(&hri.ty), {
+                    if(is_counted_handle_type(&hri.ty()), {
                       has_object_hop = true;
                     });
                   },
@@ -1385,15 +1385,15 @@ require_valid_ref_argument_places :: (
                 root_vars := get_variables_from_env(env, ast_expr_text(&cur).*);
                 if(root_vars.len() > usize(0), {
                   match(
-                    root_vars.last(),
+                    root_vars.last_cloned(),
                     .Some(rv) => {
                       root_is_object := is_counted_handle_type(&variable_value_type(&rv));
                       ref_type_contains_rc := match(
                         _info(ctx, &arg),
-                        .Some(inf) => type_contains_rc_type(&inf.ty),
+                        .Some(inf) => type_contains_rc_type(&inf.ty()),
                         .None => false
                       );
-                      if(rv.is_module_level && (root_is_object || ref_type_contains_rc), {
+                      if(rv.is_module_level() && (root_is_object || ref_type_contains_rc), {
                         exn.throw(
                           dyn(
                             format_error_message(

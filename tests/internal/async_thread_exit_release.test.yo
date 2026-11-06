@@ -30,28 +30,28 @@
 /// The scheduler core for the host target (platform-independent regions only
 /// are pinned).
 emit_core :: (fn() -> String)({
-  em := Emitter.new();
-  generate_async_runtime_core(&em, host_target());
+  mut(em) := Emitter.new();
+  generate_async_runtime_core(&mut em, host_target());
   em.print()
 });
 emit_linux :: (fn() -> String)({
-  em := Emitter.new();
-  generate_async_runtime_io_linux(&em);
+  mut(em) := Emitter.new();
+  generate_async_runtime_io_linux(&mut em);
   em.print()
 });
 emit_macos :: (fn() -> String)({
-  em := Emitter.new();
-  generate_async_runtime_io_macos(&em);
+  mut(em) := Emitter.new();
+  generate_async_runtime_io_macos(&mut em);
   em.print()
 });
 emit_windows :: (fn() -> String)({
-  em := Emitter.new();
-  generate_async_runtime_io_windows(&em);
+  mut(em) := Emitter.new();
+  generate_async_runtime_io_windows(&mut em);
   em.print()
 });
 emit_wasm :: (fn() -> String)({
-  em := Emitter.new();
-  generate_async_runtime_io_wasm(&em, host_target());
+  mut(em) := Emitter.new();
+  generate_async_runtime_io_wasm(&mut em, host_target());
   em.print()
 });
 test("core: the teardown waiter-abort helper is emitted", {

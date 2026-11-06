@@ -12,25 +12,28 @@
 { emit_fixed_allocator_defines, emit_fixed_allocator_impl } :: import("./allocator_fixed.yo");
 { emit_debug_allocator_defines, emit_debug_allocator_impl } :: import("./allocator_debug.yo");
 /// Collect C include headers from the collected types and extern functions.
-collect_c_includes :: (fn(context : &CodeGenContext) -> unit)({
-  // Collect C includes from all collected types. (Loop via a flag, NOT
-  // `return(())` — a bare return would exit the whole function and skip the
-  // extern-function pass below.)
+collect_c_includes :: (fn(context : &mut CodeGenContext) -> unit)({
+  // Collect C includes from all collected types, then from all extern
+  // functions. (Loop via a flag, NOT `return(())` — a bare return would exit
+  // the whole function and skip the extern-function pass below.) The headers
+  // are gathered first and registered after both walks: a walk borrows
+  // `context` for its whole extent.
+  incs := ArrayList(String).new();
   for(&context.types, (_tid, type_entry) => {
     match(
       type_entry.c_include.clone(),
-      .Some(inc) => context.add_c_include(&inc),
+      .Some(inc) => incs.push(inc),
       .None => ()
     );
   });
-  // Collect C includes from all extern functions.
   for(&context.extern_functions, (_fid, fn_entry) => {
     match(
       fn_entry.c_include.clone(),
-      .Some(inc) => context.add_c_include(&inc),
+      .Some(inc) => incs.push(inc),
       .None => ()
     );
   });
+  for(&incs, inc => context.add_c_include(inc));
 });
 /// The C includes to emit, IN ORDER, for one target: the registered set with
 /// platform-incompatible headers filtered out, plus the platform's own file-op
@@ -99,7 +102,7 @@ ordered_c_includes :: (
 /// issues/retired/explicit-allocator-mimalloc-falls-back-to-malloc-when-vendor-is-missing.md).
 /// A compiler without __has_include fails at the #include instead. Pinned by
 /// tests/internal/c_include_order.test.yo.
-emit_mimalloc_allocator_defines :: (fn(emitter : &Emitter) -> unit)({
+emit_mimalloc_allocator_defines :: (fn(emitter : &mut Emitter) -> unit)({
   emitter.emit_header_line("// mimalloc allocator (--allocator mimalloc): compile with -I<vendor>/mimalloc/include and link <vendor>/mimalloc/src/static.c");
   emitter.emit_header_line("#ifdef __has_include");
   emitter.emit_header_line("  #if !__has_include(<mimalloc.h>)");
@@ -117,7 +120,7 @@ emit_mimalloc_allocator_defines :: (fn(emitter : &Emitter) -> unit)({
 /// Emit C include headers (platform feature macros, the collected includes
 /// with platform-incompatible headers filtered out, platform-specific file-op
 /// includes, and the allocator compatibility layer).
-emit_c_includes :: (fn(context : &CodeGenContext) -> unit)({
+emit_c_includes :: (fn(context : &mut CodeGenContext) -> unit)({
   is_windows := is_target_windows(&context.target_info);
   is_macos := is_target_macos(&context.target_info);
   // Emit platform-specific feature macros.
@@ -182,16 +185,16 @@ _Noreturn static inline void __yo_abort(void) {
       // The TLSF fixed-region arm: defines + external prototypes in the
       // header, the implementation defined once in the code section (see
       // allocator_fixed.yo for the chunked-emission reasoning).
-      emit_fixed_allocator_defines(&context.emitter);
+      emit_fixed_allocator_defines(&mut context.emitter);
       emit_fixed_allocator_impl(context);
     },
     (context.allocator == "debug") => {
       // The tracking arm (allocator_debug.yo): the same header/code split.
-      emit_debug_allocator_defines(&context.emitter);
+      emit_debug_allocator_defines(&mut context.emitter);
       emit_debug_allocator_impl(context);
     },
     (context.allocator == "mimalloc") => {
-      emit_mimalloc_allocator_defines(&context.emitter);
+      emit_mimalloc_allocator_defines(&mut context.emitter);
     },
     true => {
       context.emitter.emit_header_line("// Using system allocator");

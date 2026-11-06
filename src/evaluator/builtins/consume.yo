@@ -69,14 +69,14 @@ set_variable_as_consumed :: (
     );
   });
   variable := match(
-    variables.get(n_vars - usize(1)),
+    variables.get_cloned(n_vars - usize(1)),
     .Some(v) => v,
     .None => {
       return(());
     }
   );
   match(
-    variable.consumed_at_token,
+    variable.consumed_at_token(),
     .Some(consumed_token) => {
       if(!allow_consume_again, {
         entries := ArrayList(TokenAndError).new();
@@ -104,10 +104,10 @@ set_variable_as_consumed :: (
       // scan's String-id compares under scope-end drop scheduling.
       // Logged first: per-path move state for joins and loops (a compiler
       // temp's mark is ownership bookkeeping, not a move).
-      if(!is_temp_variable_name(&env.module_path.*, &variable.name), {
-        record_branch_consume(variable.id, token.clone(), &variable.initialized_at_token, Option(Token).None);
+      if(!is_temp_variable_name(&env.module_path().*, &variable.name), {
+        record_branch_consume(variable.id(), token.clone(), &variable.initialized_at_token(), Option(Token).None);
       });
-      variable.consumed_at_token = Option(Token).Some(token.clone());
+      variable.set_consumed_at_token(Option(Token).Some(token.clone()));
     }
   );
 });
@@ -139,7 +139,7 @@ _is_init_assignment :: (fn(arg : &AstExpr) -> bool)(
 /// (issues/fixed/2026-10-31-consume-of-an-fnonce-closure-s-capture-leaks-it.md).
 _consume_releases_variable :: (fn(name : &String, env : &Environment, ctx : &EvalContext) -> bool)({
   vars := get_variables_from_env(env, name);
-  v := match(vars.last(), .Some(v) => v, .None => return(false));
+  v := match(vars.last_cloned(), .Some(v) => v, .None => return(false));
   some_undroppable := match(
     &variable_value_type(&v),
     Rc(.SomeT({ bounds : s_rtt_bnd, resolution : s_rc })) => {
@@ -149,13 +149,13 @@ _consume_releases_variable :: (fn(name : &String, env : &Environment, ctx : &Eva
     _ => false
   );
   captured := (match(&ctx.captured_variables, .Some(cv) => cv.contains_key(v.name.clone()), .None => false) && !is_own_fnonce_capture(&v, env, ctx));
-  v.is_owning_the_rc_value && (type_contains_rc_type(&variable_value_type(&v)) && (!v.is_module_level && (!v.is_ref && (!some_undroppable && (v.consumed_at_token.is_none() && !captured)))))
+  v.is_owning_the_rc_value() && (type_contains_rc_type(&variable_value_type(&v)) && (!v.is_module_level() && (!v.is_ref() && (!some_undroppable && (v.consumed_at_token().is_none() && !captured)))))
 });
 evaluate_consume :: (
   fn(
     expr : &AstExpr,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
@@ -178,9 +178,9 @@ evaluate_consume :: (
   // wrong environment (issues/fixed/consume-swallows-its-arguments-error-and-its-env.md).
   eval_arg := evaluate_expression_raw(&arg_expr, env, ctx, exn);
   arg_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&eval_arg));
-  (cur_env : Environment) = match(arg_info_opt, .Some(i) => expr_info_adopt_env(&i), .None => env);
+  (cur_env : Environment) = match(&arg_info_opt, .Some(i) => expr_info_adopt_env(&i), .None => Rc.clone(env));
   match(
-    arg_info_opt,
+    &arg_info_opt,
     .Some(_) => (),
     .None => {
       exn.throw(
@@ -195,16 +195,16 @@ evaluate_consume :: (
   );
   // Determine if value is a TypeVal.
   is_tv := match(
-    arg_info_opt,
+    &arg_info_opt,
     .Some(info) => match(
-      info.value,
+      info.value(),
       .Some(v) => match(v, .TypeVal(_) => true, _ => false),
       .None => false
     ),
     .None => false
   );
   // Get variable name from ExprInfo.
-  variable_name_opt := match(arg_info_opt, .Some(i) => i.variable_name.clone(), .None => Option(String).None);
+  variable_name_opt := match(arg_info_opt, .Some(i) => i.variable_name(), .None => Option(String).None);
   match(
     variable_name_opt,
     .Some(vname) => {
@@ -218,7 +218,7 @@ evaluate_consume :: (
     .None => ()
   );
   out_info := new_expr_info(&cur_env, t_unit());
-  out_info.value = Option(EvalValue).Some(EvalValue.UnitVal);
+  out_info.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   expr
 });

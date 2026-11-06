@@ -39,3 +39,5 @@ With `bump(&mut child, …)` in place of `recur(&mut child, …)` the program co
 ## Fix plan
 
 Have `generate_recur` emit a `&mut`/`&` argument through the same ref-argument path the ordinary call emitter uses, then turn the reproducer into a test in `tests/` (it fails at the C compiler before the fix). `std/encoding/toml.yo`'s `_store_at` calls itself by name until then; switch it back to `recur` with the fix.
+
+V5 part B hit this again on 2026-11-05 with the v0.2.74 seed. `src/evaluator/exprs/begin.yo` lends the value structs `DupCallsResult` and `_ICScan` `&mut` at four self-calls, which now go by name (`_search_dup_calls`, `_ic_scan`). Return those to `recur` once this is fixed.

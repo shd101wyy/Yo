@@ -8,22 +8,21 @@
 /// `typeid(T)` → a stable `(uintptr_t)&<static>` runtime type id. Registers a
 /// `static const char <var> = 0;` whose ADDRESS is the id (unique per type,
 /// matching vtable typeid naming).
-generate_typeid :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
+generate_typeid :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
   arg_opt := match(expr, .FnCall(_, _, Rc(args), _, _) => args.get(usize(0)), .Atom(_, _) => .None);
   arg := match(arg_opt, .Some(a) => a, .None => return(codegen_fatal_expr(String.from("typeid requires 1 argument"))));
   ty := match(
     context.base.get_expr_info(&arg),
-    .Some(ei) => match(ei.value, .Some(v) => match(v, .TypeVal(t) => Rc.clone(t), _ => return(codegen_fatal_expr(String.from("typeid expected a TypeValue argument")))), .None => return(codegen_fatal_expr(String.from("typeid expected a TypeValue argument")))),
+    .Some(ei) => match(ei.value(), .Some(v) => match(v, .TypeVal(t) => Rc.clone(t), _ => return(codegen_fatal_expr(String.from("typeid expected a TypeValue argument")))), .None => return(codegen_fatal_expr(String.from("typeid expected a TypeValue argument")))),
     .None => return(codegen_fatal_expr(String.from("typeid argument has no evaluation info")))
   );
   tid := type_key(&ty);
-  type_c_name := match(context.base.get_type_c_name(tid.clone()), .Some(cn) => cn, .None => get_type_string(&ty, &context.base));
+  type_c_name := match(context.base.get_type_c_name(tid.clone()), .Some(cn) => cn, .None => get_type_string(&ty, &mut context.base));
   static_var_name := String.from("__yo_typeid_");
   static_var_name.push_string(c_symbol_name(&type_c_name));
   if(!context.base.type_id_static_names.contains(static_var_name.clone()), {
-    cg_base := context.base;
-    cg_base.type_id_static_names.insert(static_var_name.clone());
-    cg_base.type_id_statics.insert(tid.clone(), static_var_name.clone());
+    context.base.type_id_static_names.insert(static_var_name.clone());
+    context.base.type_id_statics.insert(tid.clone(), static_var_name.clone());
     context.base.emit_typeid_static(static_var_name.clone(), String.new());
   });
   context.base.add_c_include(String.from("<stdint.h>"));

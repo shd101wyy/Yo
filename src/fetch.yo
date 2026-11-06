@@ -44,16 +44,14 @@ hex :: import("std/encoding/hex");
 // Data types
 // ---------------------------------------------------------------------------
 /// What fetching one package into the store yields.
-FetchedPackage :: ref(
-  struct(
-    /// The commit the package's tree is at.
-    commit : String,
-    /// `sha256-…` of the normalized tree (`compute_content_hash`) — the
-    /// lock's `integrity` and the tree's name in the store.
-    integrity : String,
-    /// The store directory holding the tree.
-    dir : String
-  )
+FetchedPackage :: struct(
+  /// The commit the package's tree is at.
+  commit : String,
+  /// `sha256-…` of the normalized tree (`compute_content_hash`) — the
+  /// lock's `integrity` and the tree's name in the store.
+  integrity : String,
+  /// The store directory holding the tree.
+  dir : String
 );
 // ---------------------------------------------------------------------------
 // Utilities
@@ -178,12 +176,10 @@ _push_string_bytes :: (fn(buf : &mut ArrayList(u8), s : &String) -> unit)({
   });
 });
 /// Internal item type for the iterative DFS hash stack.
-_HashWorkItem :: ref(
-  struct(
-    abs_path : String,
-    rel_path : String,
-    is_dir : bool
-  )
+_HashWorkItem :: struct(
+  abs_path : String,
+  rel_path : String,
+  is_dir : bool
 );
 /// Compute a content hash for a directory using iterative DFS.
 /// Returns `"sha256-<hex>"`.
@@ -972,25 +968,22 @@ fetch_package :: (
 // yo cache gc
 // ---------------------------------------------------------------------------
 /// What `yo cache gc` found and did.
-GcReport :: ref(
-  struct(
-    projects_kept : usize,
-    projects_forgotten : usize,
-    trees_kept : usize,
-    trees_removed : usize,
-    mirrors_removed : usize,
-    indexes_removed : usize,
-    /// `yo context` index key dirs swept: every one the caller did not name
-    /// in `context_keep` (an index is pure — rebuilt on demand).
-    context_dirs_removed : usize
-  )
+GcReport :: struct(
+  projects_kept : usize,
+  projects_forgotten : usize,
+  trees_kept : usize,
+  trees_removed : usize,
+  mirrors_removed : usize,
+  indexes_removed : usize,
+  /// `yo context` index key dirs swept: every one the caller did not name
+  /// in `context_keep` (an index is pure — rebuilt on demand).
+  context_dirs_removed : usize
 );
 /// The store names (hex) and remote keys one project's lock references.
 _lock_references :: (fn(lock : &LockFile, project_dir : &String, tree_names : &mut ArrayList(String), remote_keys : &mut ArrayList(String)) -> unit)({
   prefix := String.from("sha256-");
   (i : usize) = usize(0);
-  while(i < lock.packages.len(), {
-    entry := lock.packages(i);
+  for(&lock.packages, entry => {
     if(entry.integrity.starts_with(prefix.clone()), {
       tree_names.push(entry.integrity.substring(prefix.len(), entry.integrity.len()));
     });
@@ -1001,7 +994,6 @@ _lock_references :: (fn(lock : &LockFile, project_dir : &String, tree_names : &m
       },
       .None => ()
     );
-    i = (i + usize(1));
   });
 });
 /// The entries of `dir` whose base name (before `strip`) is not in `keep`,

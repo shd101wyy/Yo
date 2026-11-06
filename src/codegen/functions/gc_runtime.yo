@@ -24,7 +24,7 @@
 /// Recursively collect the C type strings of every non-unit `unwind(value)`
 /// argument reachable from `expr`.
 /// Returns a flat list (deduped by the caller into a HashSet).
-_collect_unwind_value_ctypes_from_expr :: (fn(expr : &AstExpr, context : &FunctionGenerationContext) -> ArrayList(String))({
+_collect_unwind_value_ctypes_from_expr :: (fn(expr : &AstExpr, context : &mut FunctionGenerationContext) -> ArrayList(String))({
   out := ArrayList(String).new();
   if(ast_expr_is_fn_call_of(expr, BF_UNWIND, Option(usize).None), {
     match(
@@ -33,8 +33,8 @@ _collect_unwind_value_ctypes_from_expr :: (fn(expr : &AstExpr, context : &Functi
         args.get(usize(0)),
         .Some(arg0) => match(
           context.base.get_expr_info(&arg0),
-          .Some(ei) => if(!is_unit_type(&ei.ty), {
-            out.push(get_type_string(&ei.ty, &context.base));
+          .Some(ei) => if(!is_unit_type(&ei.ty()), {
+            out.push(get_type_string(&ei.ty(), &mut context.base));
           }),
           .None => ()
         ),
@@ -92,30 +92,34 @@ _collect_unwind_value_ctypes_from_expr :: (fn(expr : &AstExpr, context : &Functi
 });
 /// Populate `context.unwind_value_c_types` from every function body in the
 /// program. MUST run before the unwind-value buffer is declared.
-collect_unwind_value_ctypes :: (fn(context : &FunctionGenerationContext) -> unit)({
+collect_unwind_value_ctypes :: (fn(context : &mut FunctionGenerationContext) -> unit)({
   into := HashSet(String).new();
+  // The bodies are gathered first: the walk borrows `context` for its whole
+  // extent, and the collector takes it `&mut`.
+  bodies := ArrayList(AstExpr).new();
   for(
     &context.base.functions,
     (_fid, entry) => match(
       entry.value,
-      .FuncVal(__fvd1, _) => {
-        found := _collect_unwind_value_ctypes_from_expr(&__fvd1.*.body, context);
-        fnlen := found.len();
-        (fj : usize) = usize(0);
-        while(fj < fnlen, {
-          match(
-            found.get_cloned(fj),
-            .Some(s) => {
-              into.insert(s.clone());
-            },
-            .None => ()
-          );
-          fj = (fj + usize(1));
-        });
-      },
+      .FuncVal(__fvd1, _) => bodies.push(__fvd1.*.body.clone()),
       _ => ()
     )
   );
+  for(&bodies, body => {
+    found := _collect_unwind_value_ctypes_from_expr(body, context);
+    fnlen := found.len();
+    (fj : usize) = usize(0);
+    while(fj < fnlen, {
+      match(
+        found.get_cloned(fj),
+        .Some(s) => {
+          into.insert(s.clone());
+        },
+        .None => ()
+      );
+      fj = (fj + usize(1));
+    });
+  });
   context.unwind_value_c_types = Option(HashSet(String)).Some(into);
 });
 // ---------------------------------------------------------------------------
@@ -124,8 +128,7 @@ collect_unwind_value_ctypes :: (fn(context : &FunctionGenerationContext) -> unit
 /// Emit the thread-local `__yo_unwind_value` buffer declaration. With one or
 /// more non-unit unwound values it is a union sized to the largest (plus a
 /// 64-byte floor); with none it is a plain 64-byte buffer.
-emit_unwind_value_buffer :: (fn(context : &FunctionGenerationContext) -> unit)({
-  em := context.base.emitter;
+emit_unwind_value_buffer :: (fn(context : &mut FunctionGenerationContext) -> unit)({
   empty := match(
     &context.unwind_value_c_types,
     .Some(types) => types.is_empty(),
@@ -135,13 +138,12 @@ emit_unwind_value_buffer :: (fn(context : &FunctionGenerationContext) -> unit)({
     // Chunked emission: one TLS definition (chunk 0), extern in the header —
     // the buffer is written/read from every chunk's unwind paths.
     if(context.base.chunk_mode, {
-      em.emit_declaration_line("extern _Thread_local _Alignas(16) char __yo_unwind_value[64];  // Thread-local buffer for unwind value storage");
-      cgb := context.base;
-      cgb.chunk_globals.push_string(String.from("_Thread_local _Alignas(16) char __yo_unwind_value[64];\n"));
+      context.base.emitter.emit_declaration_line("extern _Thread_local _Alignas(16) char __yo_unwind_value[64];  // Thread-local buffer for unwind value storage");
+      context.base.chunk_globals.push_string(String.from("_Thread_local _Alignas(16) char __yo_unwind_value[64];\n"));
     }, {
-      em.emit_declaration_line("static _Thread_local _Alignas(16) char __yo_unwind_value[64];  // Thread-local buffer for unwind value storage");
+      context.base.emitter.emit_declaration_line("static _Thread_local _Alignas(16) char __yo_unwind_value[64];  // Thread-local buffer for unwind value storage");
     });
-    em.emit_declaration_line("#define __YO_UNWIND_VALUE_SIZE 64");
+    context.base.emitter.emit_declaration_line("#define __YO_UNWIND_VALUE_SIZE 64");
     return();
   });
   decl := String.from("// Thread-local buffer for unwind value storage, sized (via a union) to the\n");
@@ -170,14 +172,13 @@ emit_unwind_value_buffer :: (fn(context : &FunctionGenerationContext) -> unit)({
     decl.push_str("} __yo_unwind_value_storage_t;\n");
     decl.push_str("extern _Thread_local _Alignas(16) __yo_unwind_value_storage_t __yo_unwind_value_storage;\n");
     decl.push_str("#define __yo_unwind_value ((char*)&__yo_unwind_value_storage)");
-    cgb2 := context.base;
-    cgb2.chunk_globals.push_string(String.from("_Thread_local _Alignas(16) __yo_unwind_value_storage_t __yo_unwind_value_storage;\n"));
+    context.base.chunk_globals.push_string(String.from("_Thread_local _Alignas(16) __yo_unwind_value_storage_t __yo_unwind_value_storage;\n"));
   }, {
     decl.push_str("} __yo_unwind_value_storage;\n");
     decl.push_str("#define __yo_unwind_value ((char*)&__yo_unwind_value_storage)");
   });
   decl.push_str("\n#define __YO_UNWIND_VALUE_SIZE sizeof(__yo_unwind_value_storage)");
-  em.emit_declaration_string_line(&decl);
+  context.base.emitter.emit_declaration_string_line(&decl);
 });
 // ---------------------------------------------------------------------------
 // emitTaskAbortRegistry
@@ -194,27 +195,25 @@ emit_unwind_value_buffer :: (fn(context : &FunctionGenerationContext) -> unit)({
 /// (issues/fixed/an-awaited-task-abort-is-reported-as-unhandled.md).
 /// Entries are always live state machines: the dispose removes a task before
 /// it is freed, so a reused address can never match a stale entry.
-emit_task_abort_registry :: (fn(context : &FunctionGenerationContext) -> unit)({
-  em := context.base.emitter;
+emit_task_abort_registry :: (fn(context : &mut FunctionGenerationContext) -> unit)({
   // Each entry also carries the unwind that aborted the task: its target (the
   // handler whose `unwind` it was, `__yo_unwind_target`) and a copy of the
   // unwound value. Between a task's abort and the moment its awaiter reads it,
   // other tasks run and may unwind themselves, so the thread-local pair is
   // stale by then; the entry is what the awaiter restores
   // (issues/fixed/unwind-from-a-handler-installed-inside-io-async-exits-main-with-rc-0.md).
-  em.emit_declaration_line("typedef struct { void* fut; uint64_t target; void* value; } __yo_task_abort_entry_t;");
-  em.emit_declaration_line("typedef struct { __yo_task_abort_entry_t* items; size_t len; size_t cap; } __yo_task_abort_registry_t;");
+  context.base.emitter.emit_declaration_line("typedef struct { void* fut; uint64_t target; void* value; } __yo_task_abort_entry_t;");
+  context.base.emitter.emit_declaration_line("typedef struct { __yo_task_abort_entry_t* items; size_t len; size_t cap; } __yo_task_abort_registry_t;");
   if(context.base.chunk_mode, {
-    em.emit_declaration_line("extern _Thread_local __yo_task_abort_registry_t __yo_task_aborts;  // Effect-unwind task aborts nobody has observed yet");
-    em.emit_declaration_line("extern _Thread_local uint64_t __yo_unwind_target;  // The handler the in-flight unwind belongs to (0: none)");
-    cgb := context.base;
-    cgb.chunk_globals.push_string(String.from("_Thread_local __yo_task_abort_registry_t __yo_task_aborts;\n"));
-    cgb.chunk_globals.push_string(String.from("_Thread_local uint64_t __yo_unwind_target;\n"));
+    context.base.emitter.emit_declaration_line("extern _Thread_local __yo_task_abort_registry_t __yo_task_aborts;  // Effect-unwind task aborts nobody has observed yet");
+    context.base.emitter.emit_declaration_line("extern _Thread_local uint64_t __yo_unwind_target;  // The handler the in-flight unwind belongs to (0: none)");
+    context.base.chunk_globals.push_string(String.from("_Thread_local __yo_task_abort_registry_t __yo_task_aborts;\n"));
+    context.base.chunk_globals.push_string(String.from("_Thread_local uint64_t __yo_unwind_target;\n"));
   }, {
-    em.emit_declaration_line("static _Thread_local __yo_task_abort_registry_t __yo_task_aborts;  // Effect-unwind task aborts nobody has observed yet");
-    em.emit_declaration_line("static _Thread_local uint64_t __yo_unwind_target;  // The handler the in-flight unwind belongs to (0: none)");
+    context.base.emitter.emit_declaration_line("static _Thread_local __yo_task_abort_registry_t __yo_task_aborts;  // Effect-unwind task aborts nobody has observed yet");
+    context.base.emitter.emit_declaration_line("static _Thread_local uint64_t __yo_unwind_target;  // The handler the in-flight unwind belongs to (0: none)");
   });
-  em.emit_declaration_string_line(
+  context.base.emitter.emit_declaration_string_line(
     `static void __yo_task_abort_register(void* fut) {
   if (__yo_task_aborts.len == __yo_task_aborts.cap) {
     size_t cap = (__yo_task_aborts.cap == 0) ? 8 : (__yo_task_aborts.cap * 2);
@@ -278,7 +277,7 @@ static void __yo_task_abort_take_unwind(void* fut) {
 }
 `
   );
-  em.emit_declaration_string_line(
+  context.base.emitter.emit_declaration_string_line(
     `// The task's last reference is gone: nobody can observe the abort any more.
 static void __yo_task_abort_released(void* fut) {
   if (__yo_task_aborts.len != 0 && __yo_task_abort_take(fut)) {
@@ -300,9 +299,8 @@ static void __yo_task_abort_report_unobserved(void) {
 // generateBorrowRuntimePrimitives
 // ---------------------------------------------------------------------------
 /// Emit the Law-of-Exclusivity borrow primitives. Emitted unconditionally.
-generate_borrow_runtime_primitives :: (fn(context : &FunctionGenerationContext) -> unit)({
-  em := context.base.emitter;
-  em.emit_string_line(
+generate_borrow_runtime_primitives :: (fn(context : &mut FunctionGenerationContext) -> unit)({
+  context.base.emitter.emit_string_line(
     `
 // Law of Exclusivity (Swift-style runtime backstop). An interior 'ref'
 // into a container's storage (e.g. xs(i)) increments the container's
@@ -505,18 +503,17 @@ static inline void __yo_arc_release_locked(void* slot) {
 // ---------------------------------------------------------------------------
 /// Emit the RC functions: incr/decr, the weak-count primitives, the type-tag
 /// dispose dispatch declaration and the thread-exit hook.
-generate_lightweight_rc_functions :: (fn(context : &FunctionGenerationContext) -> unit)({
-  em := context.base.emitter;
+generate_lightweight_rc_functions :: (fn(context : &mut FunctionGenerationContext) -> unit)({
   // Forward-declare the dispose dispatch function (defined after all dispose functions).
-  em.emit_declaration_line("static int __yo_dispose_dispatch(void* ptr); // Type-tag based dispose dispatch; 1 = it kept the memory");
+  context.base.emitter.emit_declaration_line("static int __yo_dispose_dispatch(void* ptr); // Type-tag based dispose dispatch; 1 = it kept the memory");
   // Chunked emission: the RC primitives are the hot path and must be per-TU
   // `static inline` copies, not one external definition in chunk 0 (measured
   // 16.5% slower). This whole block is header-routable as-is: it touches only
   // the object header, `__yo_rc_free` (a declaration-section static inline,
   // types/generation.yo) and the externally-declared `__yo_dispose_dispatch`.
-  rc_lw_start := if(context.base.chunk_mode, em.code.len(), usize(0));
-  em.emit_string_line(_weak_count_primitives());
-  em.emit_string_line(
+  rc_lw_start := if(context.base.chunk_mode, context.base.emitter.code.len(), usize(0));
+  context.base.emitter.emit_string_line(_weak_count_primitives());
+  context.base.emitter.emit_string_line(
     `// Lightweight reference counting — no cycle detection needed
 // Uses type_id dispatch instead of function pointer for dispose
 // (WASM: br_table ~2 cycles vs call_indirect ~20+ cycles)
@@ -570,12 +567,11 @@ static inline void __yo_rc_forget_payload(void* ptr) {
 }`
   );
   if(context.base.chunk_mode, {
-    cgb6 := context.base;
-    cgb6.chunk_header_ranges.push(
-      ChunkRange(c_name : String.from("__rc_primitives_lightweight"), start_b : rc_lw_start, end_b : em.code.len(), module : String.new())
+    context.base.chunk_header_ranges.push(
+      ChunkRange(c_name : String.from("__rc_primitives_lightweight"), start_b : rc_lw_start, end_b : context.base.emitter.code.len(), module : String.new())
     );
   });
-  em.emit_string_line(
+  context.base.emitter.emit_string_line(
     `
 // Atomic reference counting functions for atomic ref objects (Arc; thread-safe)
 // Memory ordering follows the standard Arc pattern (Rust, Swift, C++ shared_ptr):
@@ -650,30 +646,28 @@ static inline void* __yo_dyn_clone(void* data, const void* vtable) {
   );
   // Effect unwind flag and value buffer (always needed).
   if(context.base.chunk_mode, {
-    em.emit_declaration_line("extern _Thread_local int __yo_effect_escaped;  // Thread-local flag for effect record unwind detection");
-    cgb3 := context.base;
-    cgb3.chunk_globals.push_string(String.from("_Thread_local int __yo_effect_escaped = 0;\n"));
+    context.base.emitter.emit_declaration_line("extern _Thread_local int __yo_effect_escaped;  // Thread-local flag for effect record unwind detection");
+    context.base.chunk_globals.push_string(String.from("_Thread_local int __yo_effect_escaped = 0;\n"));
   }, {
-    em.emit_declaration_line("static _Thread_local int __yo_effect_escaped = 0;  // Thread-local flag for effect record unwind detection");
+    context.base.emitter.emit_declaration_line("static _Thread_local int __yo_effect_escaped = 0;  // Thread-local flag for effect record unwind detection");
   });
   emit_unwind_value_buffer(context);
   emit_task_abort_registry(context);
   // A worker thread's exit: free its async runtime pools.
-  em.emit_string_line(`static void __yo_cleanup_thread(void) { if (__yo_async_thread_exit_hook) __yo_async_thread_exit_hook(); }`);
+  context.base.emitter.emit_string_line(`static void __yo_cleanup_thread(void) { if (__yo_async_thread_exit_hook) __yo_async_thread_exit_hook(); }`);
 });
 // ---------------------------------------------------------------------------
 // generate_atomic_gc_runtime_functions
 // ---------------------------------------------------------------------------
 /// Emit the borrow primitives + the RC runtime.
-generate_atomic_gc_runtime_functions :: (fn(context : &FunctionGenerationContext) -> unit)({
+generate_atomic_gc_runtime_functions :: (fn(context : &mut FunctionGenerationContext) -> unit)({
   // Chunked emission: the borrow primitives are the per-container-access hot
   // path, have no prototypes anywhere, and are called from every chunk —
   // route them into the shared header (per-TU `static inline` copies).
   bp_start := if(context.base.chunk_mode, context.base.emitter.code.len(), usize(0));
   generate_borrow_runtime_primitives(context);
   if(context.base.chunk_mode, {
-    cgb4 := context.base;
-    cgb4.chunk_header_ranges.push(
+    context.base.chunk_header_ranges.push(
       ChunkRange(c_name : String.from("__borrow_primitives"), start_b : bp_start, end_b : context.base.emitter.code.len(), module : String.new())
     );
   });

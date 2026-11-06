@@ -68,7 +68,7 @@ evaluate_derive_rule :: (
   fn(
     expr : &AstExpr,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
@@ -113,7 +113,7 @@ evaluate_derive_rule :: (
   derive_fn_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaled_derive_fn));
   derive_fn_info := match(
     derive_fn_info_opt,
-    .Some(i) => i,
+    .Some(i) => Rc.clone(i),
     .None => {
       exn.throw(
         dyn(
@@ -127,7 +127,7 @@ evaluate_derive_rule :: (
     }
   );
   derive_fn_val := match(
-    derive_fn_info.value,
+    derive_fn_info.value(),
     .Some(v) => v,
     .None => {
       exn.throw(
@@ -156,10 +156,10 @@ evaluate_derive_rule :: (
   rule_key := key.clone();
   g_derive_rules.with_mut({ rule_key, derive_fn_val }(m) => m.insert(rule_key, derive_fn_val));
   type_key := key.clone();
-  rule_type := EvalValue.TypeVal(Rc.clone(derive_fn_info.ty));
+  rule_type := EvalValue.TypeVal(Rc.clone(derive_fn_info.ty()));
   g_derive_rule_types.with_mut({ type_key, rule_type }(m) => m.insert(type_key, rule_type));
   out := new_expr_info(env, t_unit());
-  out.value = Option(EvalValue).Some(EvalValue.UnitVal);
+  out.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
   expr
 });

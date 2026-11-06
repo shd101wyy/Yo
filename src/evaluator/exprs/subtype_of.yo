@@ -32,11 +32,11 @@ evaluate_subtype_of :: (
   fn(
     expr : &AstExpr,
     env_in : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
-  (env : Environment) = env_in;
+  (env : Environment) = Rc.clone(env_in);
   // Validate: `<:` with exactly 2 arguments.
   if(!ast_expr_is_fn_call_of(expr, BK_SUBTYPE_OF, .Some(usize(2))), {
     exn.throw(
@@ -72,7 +72,7 @@ evaluate_subtype_of :: (
   lhs_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_lhs));
   lhs_info := match(
     lhs_info_opt,
-    .Some(i) => i,
+    .Some(i) => Rc.clone(i),
     .None => {
       exn.throw(
         dyn(
@@ -85,10 +85,10 @@ evaluate_subtype_of :: (
       new_expr_info(&env, t_unit())
     }
   );
-  env_adopt(&env, &lhs_info.env);
+  env_adopt(&env, &lhs_info.env());
   // LHS must be a TypeValue.
   lhs_type_val := match(
-    lhs_info.value,
+    lhs_info.value(),
     .Some(v) => if(is_type_val(&v), v, {
       exn.throw(
         dyn(
@@ -201,7 +201,7 @@ evaluate_subtype_of :: (
     te_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_te));
     te_info := match(
       te_info_opt,
-      .Some(i) => i,
+      .Some(i) => Rc.clone(i),
       .None => {
         exn.throw(
           dyn(
@@ -214,10 +214,10 @@ evaluate_subtype_of :: (
         new_expr_info(&env, t_unit())
       }
     );
-    env_adopt(&env, &te_info.env);
+    env_adopt(&env, &te_info.env());
     // RHS must be a TypeValue that is a TraitType.
     trait_ty_val := match(
-      te_info.value,
+      te_info.value(),
       .Some(v) => match(
         v,
         .TypeVal(b) => if(is_trait_type(&b), Rc.clone(b), {
@@ -296,7 +296,7 @@ evaluate_subtype_of :: (
     // (which also only clones it) — else the flow-checker reports "consumed in
     // some cases but not in other cases".
     out_info := new_expr_info(&env, lhs_ty.clone());
-    out_info.value = .Some(lhs_type_val);
+    out_info.set_value(.Some(lhs_type_val));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
     expr
   }, {
@@ -371,7 +371,7 @@ evaluate_subtype_of :: (
     trait_with_receiver_clone := trait_with_receiver.clone();
     trait_type_val := EvalValue.TypeVal(trait_with_receiver);
     out_info := new_expr_info(&env, &trait_with_receiver_clone);
-    out_info.value = .Some(trait_type_val);
+    out_info.set_value(.Some(trait_type_val));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
     expr
   })

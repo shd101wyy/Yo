@@ -167,7 +167,7 @@ _div_checked_expr :: (fn(args : &ArrayList(String), expr : &AstExpr, context : &
 /// operands. The bare `(a + b)` this replaced was never narrowed, so under C's
 /// integer promotion `u8(250).wrapping_add(u8(10))` compared as 260
 /// (issues/fixed/wrapping-methods-shadowed-by-a-loop-based-duplicate.md).
-_wrap_binop :: (fn(args : &ArrayList(String), expr : &AstExpr, context : &FunctionGenerationContext, op : str) -> String)({
+_wrap_binop :: (fn(args : &ArrayList(String), expr : &AstExpr, context : &mut FunctionGenerationContext, op : str) -> String)({
   raw := _binop(args, op);
   if(raw.starts_with("// Failed to transpile"), {
     return(raw);
@@ -176,10 +176,10 @@ _wrap_binop :: (fn(args : &ArrayList(String), expr : &AstExpr, context : &Functi
   if(!is_primitive_type(&ty) || is_unit_type(&ty), {
     return(raw);
   });
-  ct := get_type_string(&ty, &context.base);
+  ct := get_type_string(&ty, &mut context.base);
   `((${ct})((unsigned long long)(${_a(args, usize(0))}) ${op} (unsigned long long)(${_a(args, usize(1))})))`
 });
-_arith_checked_expr :: (fn(args : &ArrayList(String), expr : &AstExpr, context : &FunctionGenerationContext, op : str) -> String)({
+_arith_checked_expr :: (fn(args : &ArrayList(String), expr : &AstExpr, context : &mut FunctionGenerationContext, op : str) -> String)({
   ty := ei_ty(expr, context);
   a := _a(args, usize(0));
   b := _a(args, usize(1));
@@ -189,7 +189,7 @@ _arith_checked_expr :: (fn(args : &ArrayList(String), expr : &AstExpr, context :
   tok := ast_expr_token(expr);
   file_lit := _idx_c_string_literal(&tok.module_path.*);
   loc := `, ${file_lit}, ${(usize(tok.row) + usize(1)).to_string()}, ${(usize(tok.column) + usize(1)).to_string()}`;
-  ct := get_type_string(&ty, &context.base);
+  ct := get_type_string(&ty, &mut context.base);
   wasm := is_target_wasm(&context.base.target_info);
   fnbase := cond((op == "*") => String.from("mul"), (op == "-") => String.from("sub"), true => String.from("add"));
   // 5b Phase 2: where a guard is emitted, a proof that the exact result fits
@@ -238,7 +238,7 @@ _arith_checked_expr :: (fn(args : &ArrayList(String), expr : &AstExpr, context :
 });
 /// Safe mode Phase 3a: negation traps on MIN (signed); unsigned and float
 /// keep the plain narrowing neg.
-_neg_checked_expr :: (fn(args : &ArrayList(String), expr : &AstExpr, context : &FunctionGenerationContext) -> String)({
+_neg_checked_expr :: (fn(args : &ArrayList(String), expr : &AstExpr, context : &mut FunctionGenerationContext) -> String)({
   ty := ei_ty(expr, context);
   a := _a(args, usize(0));
   if((a.len() == usize(0)) || a.starts_with("// Failed to transpile"), {
@@ -247,7 +247,7 @@ _neg_checked_expr :: (fn(args : &ArrayList(String), expr : &AstExpr, context : &
   tok := ast_expr_token(expr);
   file_lit := _idx_c_string_literal(&tok.module_path.*);
   loc := `, ${file_lit}, ${(usize(tok.row) + usize(1)).to_string()}, ${(usize(tok.column) + usize(1)).to_string()}`;
-  ct := get_type_string(&ty, &context.base);
+  ct := get_type_string(&ty, &mut context.base);
   wasm := is_target_wasm(&context.base.target_info);
   // 5b Phase 2: the verifier proved the operand is not the type's MIN.
   if(guard_site_is_proved(expr, "neg-no-overflow"), {
@@ -299,12 +299,12 @@ _shift_checked_expr :: (fn(args : &ArrayList(String), expr : &AstExpr, context :
 /// Safe mode Phase 3c (§6, ruling D2): float→int casts SATURATE (out-of-range
 /// → the target's MIN/MAX, NaN → 0) instead of C UB. Returns `.None` for any
 /// non float→int cast, which keeps the existing `((T)(a))` emission.
-_as_saturating_expr :: (fn(args : &ArrayList(String), expr : &AstExpr, context : &FunctionGenerationContext) -> Option(String))({
+_as_saturating_expr :: (fn(args : &ArrayList(String), expr : &AstExpr, context : &mut FunctionGenerationContext) -> Option(String))({
   sty := match(
     expr,
     .FnCall(_, _, Rc(ua), _, _) => match(
       ua.get(usize(0)),
-      .Some(a0) => match(context.base.get_expr_info(&a0), .Some(aei) => Option(TypeValue).Some(Rc.clone(aei.ty)), .None => Option(TypeValue).None),
+      .Some(a0) => match(context.base.get_expr_info(&a0), .Some(aei) => Option(TypeValue).Some(Rc.clone(aei.ty())), .None => Option(TypeValue).None),
       .None => Option(TypeValue).None
     ),
     .Atom(_, _) => Option(TypeValue).None
@@ -322,7 +322,7 @@ _as_saturating_expr :: (fn(args : &ArrayList(String), expr : &AstExpr, context :
   if((a.len() == usize(0)) || a.starts_with("// Failed to transpile"), {
     return(Option(String).None);
   });
-  ct := get_type_string(&ty, &context.base);
+  ct := get_type_string(&ty, &mut context.base);
   wasm := is_target_wasm(&context.base.target_info);
   if(is_i8_type(&ty), {
     return(Option(String).Some(`((${ct})__yo_sat_i64((double)(${a}), (-128), 127))`));
@@ -383,7 +383,7 @@ _unop :: (fn(args : &ArrayList(String), op : str) -> String)({
 /// The C type of a one-argument call's OPERAND, when it is a nameable
 /// primitive. Used to narrow a prefix arithmetic operator's result — see
 /// `_unop_narrowed`.
-_unary_operand_c_type :: (fn(expr : &AstExpr, context : &FunctionGenerationContext) -> Option(String))(
+_unary_operand_c_type :: (fn(expr : &AstExpr, context : &mut FunctionGenerationContext) -> Option(String))(
   match(
     expr,
     .FnCall(_, _, Rc(ua), _, _) => match(
@@ -391,8 +391,8 @@ _unary_operand_c_type :: (fn(expr : &AstExpr, context : &FunctionGenerationConte
       .Some(u0) => match(
         context.base.get_expr_info(&u0),
         .Some(uei) => if(
-          is_primitive_type(&uei.ty) && !is_unit_type(&uei.ty),
-          Option(String).Some(get_type_string(&uei.ty, &context.base)),
+          is_primitive_type(&uei.ty()) && !is_unit_type(&uei.ty()),
+          Option(String).Some(get_type_string(&uei.ty(), &mut context.base)),
           Option(String).None
         ),
         .None => Option(String).None
@@ -420,7 +420,7 @@ _unary_operand_c_type :: (fn(expr : &AstExpr, context : &FunctionGenerationConte
 ///
 /// `!` does NOT come through here: its result is `bool`, which has no narrower
 /// representation to be promoted out of.
-_unop_narrowed :: (fn(args : &ArrayList(String), op : str, expr : &AstExpr, context : &FunctionGenerationContext) -> String)({
+_unop_narrowed :: (fn(args : &ArrayList(String), op : str, expr : &AstExpr, context : &mut FunctionGenerationContext) -> String)({
   inner := _a(args, usize(0));
   // Same degraded-render guard as `_binop`: `(~())` is invalid C and would
   // break the whole batch rather than this one expression.
@@ -451,7 +451,7 @@ _ptr_binop :: (fn(args : &ArrayList(String), op : str) -> String)({
 /// The expr's result type (Unit if it has no ExprInfo — the metadata-aware
 /// builtins need the guard).
 ei_ty :: (fn(expr : &AstExpr, context : &FunctionGenerationContext) -> TypeValue)(
-  match(context.base.get_expr_info(expr), .Some(ei) => Rc.clone(ei.ty), .None => Rc.new(TypeValueNode.Unit))
+  match(context.base.get_expr_info(expr), .Some(ei) => Rc.clone(ei.ty()), .None => Rc.new(TypeValueNode.Unit))
 );
 /// Whether the call's argument `i` is `unit`-typed (false when it has no
 /// ExprInfo). Reads through a call-site `&x` marker, as the evaluator
@@ -459,7 +459,7 @@ ei_ty :: (fn(expr : &AstExpr, context : &FunctionGenerationContext) -> TypeValue
 _arg_is_unit :: (fn(expr : &AstExpr, i : usize, context : &FunctionGenerationContext) -> bool)(
   match(
     ast_call_args_unmarked(expr).get(i),
-    .Some(a) => match(context.base.get_expr_info(&a), .Some(aei) => is_unit_type(&aei.ty), .None => false),
+    .Some(a) => match(context.base.get_expr_info(&a), .Some(aei) => is_unit_type(&aei.ty()), .None => false),
     .None => false
   )
 );
@@ -494,7 +494,7 @@ _void_effects :: (fn(args : &ArrayList(String)) -> String)({
 });
 /// Whether `__yo_as`'s source operand is a tagged (non-simple) enum.
 _as_source_is_tagged_enum :: (fn(expr : &AstExpr, context : &FunctionGenerationContext) -> bool)(
-  match(expr, .FnCall(_, _, Rc(a), _, _) => match(a.get(usize(0)), .Some(a0) => match(context.base.get_expr_info(&a0), .Some(aei) => (is_enum_type(&aei.ty) && !can_optimize_as_simple_enum(&aei.ty)), .None => false), .None => false), .Atom(_, _) => false)
+  match(expr, .FnCall(_, _, Rc(a), _, _) => match(a.get(usize(0)), .Some(a0) => match(context.base.get_expr_info(&a0), .Some(aei) => (is_enum_type(&aei.ty()) && !can_optimize_as_simple_enum(&aei.ty())), .None => false), .None => false), .Atom(_, _) => false)
 );
 /// Does the borrow-flag builtin's operand (`__yo_borrow_acquire(&c)` and its
 /// two siblings) have a flag to set? Only a reference type's cell header
@@ -512,14 +512,14 @@ _borrow_operand_has_flag :: (fn(expr : &AstExpr, context : &FunctionGenerationCo
     ast_call_args_unmarked(expr).get(usize(0)),
     .Some(a0) => match(
       context.base.get_expr_info(&a0),
-      .Some(aei) => ((is_reference_struct_type(&aei.ty) || is_reference_enum_type(&aei.ty)) && !carries_no_borrow_marks(&aei.ty)),
+      .Some(aei) => ((is_reference_struct_type(&aei.ty()) || is_reference_enum_type(&aei.ty())) && !carries_no_borrow_marks(&aei.ty())),
       .None => true
     ),
     .None => true
   )
 );
 /// Generate a Yo operator / inline-builtin function call.
-generate_yo_inline_function_call :: (fn(function_name : &String, args : &ArrayList(String), expr : &AstExpr, context : &FunctionGenerationContext, indent : &String) -> String)(
+generate_yo_inline_function_call :: (fn(function_name : &String, args : &ArrayList(String), expr : &AstExpr, context : &mut FunctionGenerationContext, indent : &String) -> String)(
   cond(
     (function_name == BF_YO_OP_ADD) => _arith_checked_expr(args, expr, context, "+"),
     (function_name == BF_YO_OP_SUB) => _arith_checked_expr(args, expr, context, "-"),
@@ -558,8 +558,7 @@ generate_yo_inline_function_call :: (fn(function_name : &String, args : &ArrayLi
       line.push_str("__yo_borrow_assert_unborrowed((void*)(");
       line.push_string(_a(args, usize(0)));
       line.push_str("));");
-      em := context.base.emitter;
-      em.emit_string_line(&line);
+      context.base.emitter.emit_string_line(&line);
       String.from("")
     },
     ((function_name == BF_YO_BORROW_ACQUIRE) && !_borrow_operand_has_flag(expr, context)) => String.from(""),
@@ -568,8 +567,7 @@ generate_yo_inline_function_call :: (fn(function_name : &String, args : &ArrayLi
       line.push_str("__yo_borrow_acquire((void*)(");
       line.push_string(_a(args, usize(0)));
       line.push_str("));");
-      em := context.base.emitter;
-      em.emit_string_line(&line);
+      context.base.emitter.emit_string_line(&line);
       String.from("")
     },
     ((function_name == BF_YO_BORROW_RELEASE) && !_borrow_operand_has_flag(expr, context)) => String.from(""),
@@ -578,8 +576,7 @@ generate_yo_inline_function_call :: (fn(function_name : &String, args : &ArrayLi
       line.push_str("__yo_borrow_release((void*)(");
       line.push_string(_a(args, usize(0)));
       line.push_str("));");
-      em := context.base.emitter;
-      em.emit_string_line(&line);
+      context.base.emitter.emit_string_line(&line);
       String.from("")
     },
     (function_name == BF_YO_MS_SLEEP) => if(is_target_windows(&context.base.target_info), {
@@ -603,7 +600,7 @@ generate_yo_inline_function_call :: (fn(function_name : &String, args : &ArrayLi
       _as_saturating_expr(args, expr, context),
       .Some(sat) => sat,
       .None => {
-        target_c_type := get_type_string(ei_ty(expr, context), &context.base);
+        target_c_type := get_type_string(ei_ty(expr, context), &mut context.base);
         if(_as_source_is_tagged_enum(expr, context), {
           out := String.from("((");
           out.push_string(&target_c_type);
@@ -636,7 +633,7 @@ generate_yo_inline_function_call :: (fn(function_name : &String, args : &ArrayLi
     // value emits no C), so the move reads nothing: only the pointer operand
     // is evaluated.
     (function_name == BF_YO_PTR_READ) => cond(
-      match(context.base.get_expr_info(expr), .Some(rei) => is_unit_type(&rei.ty), .None => false) => _void_effects(args),
+      match(context.base.get_expr_info(expr), .Some(rei) => is_unit_type(&rei.ty()), .None => false) => _void_effects(args),
       true => {
         out := String.from("(*(");
         out.push_string(_a(args, usize(0)));
@@ -728,7 +725,7 @@ generate_yo_inline_function_call :: (fn(function_name : &String, args : &ArrayLi
       out
     },
     (function_name == BF_YO_MAYBE_UNINIT_NEW) => {
-      self_c_type := get_type_string(ei_ty(expr, context), &context.base);
+      self_c_type := get_type_string(ei_ty(expr, context), &mut context.base);
       uninit_tok := ast_expr_token(expr);
       uninit_var := stable_label_id(String.from("__yo_uninit_"), &uninit_tok.module_path.*, usize(uninit_tok.row), usize(uninit_tok.column));
       // Zeroed, not a bare declaration: the value is copied into temporaries
@@ -753,12 +750,11 @@ generate_yo_inline_function_call :: (fn(function_name : &String, args : &ArrayLi
       line.push_str(", 0, sizeof(");
       line.push_string(uninit_var.clone());
       line.push_str("));");
-      em := context.base.emitter;
-      em.emit_string_line(&line);
+      context.base.emitter.emit_string_line(&line);
       uninit_var
     },
     (function_name == BF_YO_MAYBE_UNINIT_AS_PTR) => {
-      return_c_type := get_type_string(ei_ty(expr, context), &context.base);
+      return_c_type := get_type_string(ei_ty(expr, context), &mut context.base);
       out := String.from("((");
       out.push_string(&return_c_type);
       out.push_str(")(");
@@ -781,7 +777,7 @@ generate_yo_inline_function_call :: (fn(function_name : &String, args : &ArrayLi
         arr_expr_opt,
         .Some(ae) => match(
           context.base.get_expr_info(&ae),
-          .Some(aei) => _checked_fixed_array_subscript(_a(args, usize(1)), &aei.ty, expr),
+          .Some(aei) => _checked_fixed_array_subscript(_a(args, usize(1)), &aei.ty(), expr),
           .None => _a(args, usize(1))
         ),
         .None => _a(args, usize(1))

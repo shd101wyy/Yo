@@ -48,7 +48,7 @@ evaluate_identifier_and_operator :: (
   fn(
     expr : &AstExpr,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     throw_error_on_undefined : bool,
     exn : Exception
   ) -> AstExpr
@@ -178,7 +178,7 @@ evaluate_identifier_and_operator :: (
       if(!shadowed_by_binding, {
         ev := create_type_value(&ty);
         info := new_expr_info(env, t_type());
-        info.value = Option(EvalValue).Some(ev);
+        info.set_value(Option(EvalValue).Some(ev));
         expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
         return(expr);
       });
@@ -201,11 +201,11 @@ evaluate_identifier_and_operator :: (
       if(is_some_type(&bound), self_tv, bound)
     }, self_tv);
     if(debug_knob(`YO_DEBUG_WARM`).is_some(), {
-      eprintln(`[selfatom] resolved=${type_key(&resolved)} mod=${env.module_path.*} loc=${token.module_path.*}:${token.row.to_string()}:${token.column.to_string()}`);
+      eprintln(`[selfatom] resolved=${type_key(&resolved)} mod=${env.module_path().*} loc=${token.module_path.*}:${token.row.to_string()}:${token.column.to_string()}`);
     });
     ev := create_type_value(&resolved);
     info := new_expr_info(env, t_type());
-    info.value = Option(EvalValue).Some(ev);
+    info.set_value(Option(EvalValue).Some(ev));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
     return(expr);
   });
@@ -217,7 +217,7 @@ evaluate_identifier_and_operator :: (
     trait_tv := match(self_trait_opt, .Some(tv) => Rc.clone(tv), .None => t_unit());
     ev := create_type_value(&trait_tv);
     info := new_expr_info(env, t_type());
-    info.value = Option(EvalValue).Some(ev);
+    info.set_value(Option(EvalValue).Some(ev));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
     return(expr);
   });
@@ -229,7 +229,7 @@ evaluate_identifier_and_operator :: (
     module_tv := match(self_module_opt, .Some(tv) => Rc.clone(tv), .None => t_unit());
     ev := create_type_value(&module_tv);
     info := new_expr_info(env, t_type());
-    info.value = Option(EvalValue).Some(ev);
+    info.set_value(Option(EvalValue).Some(ev));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
     return(expr);
   });
@@ -239,7 +239,7 @@ evaluate_identifier_and_operator :: (
   identifier_string := token.value.*.clone();
   if((identifier == "Self") && debug_knob(`YO_DEBUG_WARM`).is_some(), {
     env_self_cnt := get_variables_from_env(env, String.from("Self")).len();
-    eprintln(`[selfatom] path=env-lookup self_vars=${env_self_cnt.to_string()} mod=${env.module_path.*} loc=${token.module_path.*}:${token.row.to_string()}:${token.column.to_string()}`);
+    eprintln(`[selfatom] path=env-lookup self_vars=${env_self_cnt.to_string()} mod=${env.module_path().*} loc=${token.module_path.*}:${token.row.to_string()}:${token.column.to_string()}`);
   });
   mut(found_frame_idx_out) := ArrayList(usize).new();
   variable := match(
@@ -253,7 +253,7 @@ evaluate_identifier_and_operator :: (
       // unrelated binding that merely shares the name (another module, or
       // another function of the same module) stays ordinary
       // (issues/fixed/ghost-binding-escape-gate-is-a-process-global-name-set.md).
-      if(v.is_ghost_binding && !ctx.is_ghost_context, {
+      if(v.is_ghost_binding() && !ctx.is_ghost_context, {
         exn.throw(
           dyn(
             format_error_message(
@@ -287,7 +287,7 @@ evaluate_identifier_and_operator :: (
         // Unresolved OPERATOR names keep the soft fallback.
         if(string_is_operator(identifier_string.clone()), {
           fallback_info := new_expr_info(env, t_unit());
-          fallback_info.value = Option(EvalValue).Some(create_unknown_val(t_unit()));
+          fallback_info.set_value(Option(EvalValue).Some(create_unknown_val(t_unit())));
           expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &fallback_info);
           return(expr);
         });
@@ -299,13 +299,13 @@ evaluate_identifier_and_operator :: (
         // label-the-return hint still applies to unlabeled ensures below.
         if(ctx.is_evaluating_contract_predicate, {
           pred_info := new_expr_info(env, t_unit());
-          pred_info.value = Option(EvalValue).Some(create_unknown_val(t_unit()));
+          pred_info.set_value(Option(EvalValue).Some(create_unknown_val(t_unit())));
           expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &pred_info);
           return(expr);
         });
         // Ordinary identifiers throw.
         if(debug_knob(`YO_DEBUG_SWALLOW`).is_some(), {
-          eprintln(`[var-miss] name=${identifier_string} env_module=${env.module_path.*} frames=${env.frames.len().to_string()}`);
+          eprintln(`[var-miss] name=${identifier_string} env_module=${env.module_path().*} frames=${env.frames_len().to_string()}`);
         });
         // The suggestion doubles as a MECHANICAL REPAIR: the token IS the
         // name to rewrite (plans/archive/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md §2).
@@ -439,8 +439,8 @@ evaluate_identifier_and_operator :: (
     )
   );
   // Check initialization (unless it's a function type or type value — mutual recursion)
-  if((variable.initialized_at_token == Option(Token).None) && throw_error_on_undefined, {
-    if(!(is_function_type(&variable_value_type(&variable)) || is_type_value(variable.value.get(usize(0)))), {
+  if((variable.initialized_at_token() == Option(Token).None) && throw_error_on_undefined, {
+    if(!(is_function_type(&variable_value_type(&variable)) || is_type_value(variable.value().get(usize(0)))), {
       exn.throw(
         dyn(
           format_error_message(
@@ -461,7 +461,7 @@ evaluate_identifier_and_operator :: (
   // sibling arm or a back edge sees (`reset_sibling_flow_state`,
   // `check_loop_flow`), so a read in another arm is not a read after a move.
   match(
-    variable.consumed_at_token,
+    variable.consumed_at_token(),
     .Some(moved_at) => {
       same_site := ((moved_at.row == token.row) && ((moved_at.column == token.column) && (moved_at.module_path == token.module_path)));
       if(!same_site && _read_after_move_is_checked(&variable, &token, env) && !migrate_borrowed_match_at(&moved_at), {
@@ -477,18 +477,18 @@ evaluate_identifier_and_operator :: (
   // A place a live capture-list closure borrows `mut` is frozen for every
   // access (decision 18 rule 2); synthesized drops and dups are not accesses
   // of the source.
-  if(!variable.is_compile_time_only && !token.module_path.*.starts_with(String.from("auto-generated://")), {
+  if(!variable.is_compile_time_only() && !token.module_path.*.starts_with(String.from("auto-generated://")), {
     check_capture_freeze_access(&variable, ctx.is_lhs_of_assignment, &token, env, ctx, exn);
   });
   // c_include constants (e.g. O_RDONLY from <fcntl.h>) have UnknownValue.
   // NOTE: `is_extern` is not consulted here; skip the runtime-value
   // special-case and always use the variable's compile-time value.
-  resolved_value := variable.value.get(usize(0));
+  resolved_value := variable.value().get(usize(0));
   // The warnings channel's read marker (D15): an identifier expression that
   // resolved to this binding is a USE of it. Assignment TARGETS resolve
   // through the cell, not here, so `x := 1; x = 2;` stays "unread" and the
   // scope-end walk warns — the variable's value never influenced anything.
-  variable.was_read = true;
+  variable.set_was_read(true);
   // `YO_AUDIT_REFERENCE_READ=1` (decision 43 step 2 N1e-2b, VERDICTS-23 R1):
   // every runtime read of a reference binding, by what its position expects
   // — a reference slot, an unbound type binder, a binder bound to a
@@ -516,7 +516,7 @@ evaluate_identifier_and_operator :: (
   // `YO_AUDIT_VARIABLE_TY=1`: a read reference binding's stored mode is the
   // mode the access checks give it (`variable_is_mut_borrow`, which reads a
   // local borrow's `LocalBorrowInfo`; a `&` match's binding is read-only).
-  if(g_audit_reference_mode && variable_is_reference_binding(&variable) && (t_slot_is_mut_ref(&variable_slot_type(&variable)) != (variable_is_mut_borrow(&variable) && !variable.is_borrow_match_binding)), {
+  if(g_audit_reference_mode && variable_is_reference_binding(&variable) && (t_slot_is_mut_ref(&variable_slot_type(&variable)) != (variable_is_mut_borrow(&variable) && !variable.is_borrow_match_binding())), {
     eprintln(`[variable-ty] mode mismatch: ${token.module_path.*}:${(token.row + u32(1)).to_string()}:${(token.column + u32(1)).to_string()} ${variable.name} stored ${type_to_string(&variable_slot_type(&variable))}`);
   });
   // The read rule (decision 43 step 2 N1e-2b, VERDICTS-23 R1): where its
@@ -551,33 +551,41 @@ evaluate_identifier_and_operator :: (
   read_ty := if(reads_reference, reference_binding_read_type(&variable), variable_value_type(&variable));
   info := new_expr_info(env, &read_ty);
   // A reference is the place's runtime address, never a known value.
-  info.value = if(reads_reference, Option(EvalValue).None, resolved_value);
+  info.set_value(if(reads_reference, Option(EvalValue).None, resolved_value));
   expr_info_set_origin_type(&info, Option(TypeValue).Some(variable_value_type(&variable)));
-  info.variable_name = Option(String).Some(variable.name.clone());
-  info.source_variable = Option(Variable).Some(variable);
+  info.set_variable_name(Option(String).Some(variable.name.clone()));
+  info.set_source_variable(Option(Variable).Some(Rc.clone(variable)));
   // path_collection = [[variable.name]], shared per name.
-  info.path_collection = path_collection_of_name(&variable.name);
+  info.set_path_collection(path_collection_of_name(&variable.name));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
   // An extern C symbol's atom can be re-recorded by its call without a
   // `source_variable`; codegen still resolves the symbol by name through
   // the atom, so the scope release records the name (cheap gates first:
   // this path runs for every identifier).
-  if(match(&variable_value_type(&variable), Rc(.Func({ meta : __xm })) => __xm.*.is_extern.is_some(), _ => false) || (variable.is_compile_time_only && (!is_function_type(&variable_value_type(&variable)) && is_extern_c_global(variable.name.clone()))), {
+  if(match(&variable_value_type(&variable), Rc(.Func({ meta : __xm })) => __xm.*.is_extern.is_some(), _ => false) || (variable.is_compile_time_only() && (!is_function_type(&variable_value_type(&variable)) && is_extern_c_global(variable.name.clone()))), {
     scope_release_note_query(ast_expr_id(expr), variable.name.clone());
   });
   // ------------------------------------------------------------------
   // Closure capture tracking — function body
   // ------------------------------------------------------------------
+  // The body context's kind and env, read out first: the tracking below
+  // writes `ctx`.
+  sub_kind_opt := match(
+    &ctx.is_evaluating_function_body_or_async_block,
+    .Some(s) => Option(FuncOrAsyncBlockKind).Some(s.kind),
+    .None => Option(FuncOrAsyncBlockKind).None
+  );
+  sub_env := match(&ctx.is_evaluating_function_body_or_async_block, .Some(s) => Rc.clone(s.eval_env), .None => Rc.clone(env));
   match(
-    ctx.is_evaluating_function_body_or_async_block,
-    .Some(sub_ctx) => {
+    sub_kind_opt,
+    .Some(sub_kind) => {
       match(
-        sub_ctx.kind,
+        sub_kind,
         .FunctionBody => {
           match(
             &ctx.captured_variables,
             .Some(_) => {
-              closure_frame_level := sub_ctx.eval_env.frame_count();
+              closure_frame_level := sub_env.frame_count();
               // Generation-safe INNER test: `variable.frame_level` is stamped
               // at the variable's CREATION env — for the enclosing fn's
               // PARAMS that is a DEEP call-time generation, so comparing it
@@ -607,9 +615,9 @@ evaluate_identifier_and_operator :: (
               );
               if(debug_knob(`YO_DEBUG_CAPTURE`).is_some(), {
                 cap_dbg_fi := match(found_frame_idx_out.get(usize(0)), .Some(v) => v.to_string(), .None => `?`.to_string());
-                cap_dbg_ev_top := match(sub_ctx.eval_env.frames.get(closure_frame_level - usize(1)), .Some(fr) => fr.id.to_string(), .None => `?`.to_string());
-                cap_dbg_cur_top := match(env.frames.last(), .Some(fr2) => fr2.id.to_string(), .None => `?`.to_string());
-                eprintln(`[cap-fb] name=${variable.name} found_fi=${cap_dbg_fi} closure_fl=${closure_frame_level.to_string()} var_fl=${variable.frame_level.to_string()} inner=${cap_is_inner.to_string()} ev_top=${cap_dbg_ev_top} cur_frames=${env.frames.len().to_string()} cur_top=${cap_dbg_cur_top}`);
+                cap_dbg_ev_top := match(sub_env.frame_at(closure_frame_level - usize(1)), .Some(fr) => fr.id().to_string(), .None => `?`.to_string());
+                cap_dbg_cur_top := match(env.last_frame(), .Some(fr2) => fr2.id().to_string(), .None => `?`.to_string());
+                eprintln(`[cap-fb] name=${variable.name} found_fi=${cap_dbg_fi} closure_fl=${closure_frame_level.to_string()} var_fl=${variable.frame_level.to_string()} inner=${cap_is_inner.to_string()} ev_top=${cap_dbg_ev_top} cur_frames=${env.frames_len().to_string()} cur_top=${cap_dbg_cur_top}`);
               });
               if(!cap_is_inner && (variable.frame_level < closure_frame_level), {
                 track_variable_usage_resolved(
@@ -618,7 +626,7 @@ evaluate_identifier_and_operator :: (
                   CaptureUsage.Own,
                   &token,
                   ctx,
-                  Option(bool).Some(variable.is_compile_time_only)
+                  Option(bool).Some(variable.is_compile_time_only())
                 );
               });
               if(!cap_is_inner && (variable.frame_level >= closure_frame_level), {
@@ -636,7 +644,7 @@ evaluate_identifier_and_operator :: (
                   CaptureUsage.Own,
                   &token,
                   ctx,
-                  Option(bool).Some(variable.is_compile_time_only)
+                  Option(bool).Some(variable.is_compile_time_only())
                 );
               });
             },
@@ -647,7 +655,7 @@ evaluate_identifier_and_operator :: (
           match(
             &ctx.captured_variables,
             .Some(_) => {
-              async_frame_level := sub_ctx.eval_env.frame_count();
+              async_frame_level := sub_env.frame_count();
               // Generation-safe INNER test — the SAME repair the FunctionBody
               // arm above carries (the dyn+Impl(Fn) capture loss), which this
               // arm never got: `variable.frame_level` is stamped at the
@@ -676,7 +684,7 @@ evaluate_identifier_and_operator :: (
                   CaptureUsage.Own,
                   &token,
                   ctx,
-                  Option(bool).Some(variable.is_compile_time_only)
+                  Option(bool).Some(variable.is_compile_time_only())
                 );
               });
               if(!ab_is_inner && (variable.frame_level >= async_frame_level), {
@@ -694,7 +702,7 @@ evaluate_identifier_and_operator :: (
                   CaptureUsage.Own,
                   &token,
                   ctx,
-                  Option(bool).Some(variable.is_compile_time_only)
+                  Option(bool).Some(variable.is_compile_time_only())
                 );
               });
             },
@@ -727,7 +735,7 @@ _deleted_handle_ctor :: (fn(name : &String) -> Option(String))(
 /// (issues/fixed/a-reference-value-read-after-a-sink-move-reads-freed-memory.md).
 _read_after_move_is_checked :: (fn(variable : &Variable, token : &Token, env : &Environment) -> bool)(
   !token.module_path.*.starts_with(String.from("auto-generated://"))
-  && !is_temp_variable_name(&env.module_path.*, &variable.name)
+  && !is_temp_variable_name(&env.module_path().*, &variable.name)
 );
 /// The row of the first line that is neither blank nor a `//` comment — where
 /// the E0401 import repair inserts its line, so `//!` module docs stay first.

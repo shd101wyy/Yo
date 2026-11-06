@@ -37,7 +37,7 @@ evaluate_raw_pointer_call :: (
   fn(
     expr : &AstExpr,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
@@ -58,7 +58,7 @@ evaluate_raw_pointer_call :: (
   // Read the expr info for the evaluated argument
   info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated));
   match(
-    info_opt,
+    &info_opt,
     .None => {
       exn.throw(
         dyn(
@@ -73,14 +73,14 @@ evaluate_raw_pointer_call :: (
   );
   arg_info := match(
     info_opt,
-    .Some(i) => i,
+    .Some(i) => Rc.clone(i),
     .None => new_expr_info(env, t_i32()) // unreachable: guarded by throw above
   );
   // If the argument is a type value, create a pointer type; otherwise error.
   cond(
-    is_type_value(&arg_info.value) => {
+    is_type_value(&arg_info.value()) => {
       inner_ty := match(
-        arg_info.value,
+        arg_info.value(),
         .Some(v) => match(v, .TypeVal(inner) => Rc.clone(inner), _ => t_i32()),
         .None => t_i32() // unreachable
       );
@@ -126,7 +126,7 @@ If you need to thread a handler through code, pass it by value (handlers are fn-
       meta_ty := type_of_type(&ptr_ty);
       next_env := expr_info_adopt_env(&arg_info);
       out_info := new_expr_info(&next_env, &meta_ty);
-      out_info.value = .Some(ptr_val);
+      out_info.set_value(.Some(ptr_val));
       expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
       expr
     },

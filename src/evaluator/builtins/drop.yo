@@ -28,7 +28,7 @@ evaluate_drop :: (
   fn(
     expr : &AstExpr,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
@@ -57,7 +57,7 @@ evaluate_drop :: (
   eval_arg := evaluate_expression_raw(&arg_expr, env, ctx, exn);
   arg_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&eval_arg));
   match(
-    arg_info_opt,
+    &arg_info_opt,
     .Some(_) => (),
     .None => {
       exn.throw(
@@ -72,14 +72,14 @@ evaluate_drop :: (
   );
   arg_info := match(
     arg_info_opt,
-    .Some(i) => i,
+    .Some(i) => Rc.clone(i),
     .None => {
       return(expr);
     }
   );
   (cur_env : Environment) = expr_info_adopt_env(&arg_info);
-  arg_type := Rc.clone(arg_info.ty);
-  variable_name_opt := arg_info.variable_name.clone();
+  arg_type := Rc.clone(arg_info.ty());
+  variable_name_opt := arg_info.variable_name();
   // NOTE: When type_contains_rc_type is fully implemented, we need to handle:
   //   - tuple types: generateTupleDropCall → evaluate generated code
   //   - array types: generateArrayDropCall → evaluate generated code
@@ -89,7 +89,7 @@ evaluate_drop :: (
   // the simple path: consume the variable and return unit.
   // Determine if value is a TypeVal (type values are not consumed).
   is_tv := match(
-    arg_info.value,
+    arg_info.value(),
     .Some(v) => match(v, .TypeVal(_) => true, _ => false),
     .None => false
   );

@@ -43,7 +43,7 @@ eval_bool_arg :: (
   fn(
     arg : &AstExpr,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> ExprInfo
 )({
@@ -51,7 +51,7 @@ eval_bool_arg :: (
   info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated));
   info := match(
     info_opt,
-    .Some(i) => i,
+    .Some(i) => Rc.clone(i),
     .None => {
       exn.throw(
         dyn(
@@ -64,7 +64,7 @@ eval_bool_arg :: (
       new_expr_info(env, t_bool())
     }
   );
-  if(!is_bool_type(&info.ty), {
+  if(!is_bool_type(&info.ty()), {
     exn.throw(
       dyn(
         format_error_message(
@@ -80,7 +80,7 @@ evaluate_yo_comptime_boolean_functions :: (
   fn(
     expr : &AstExpr,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
@@ -105,7 +105,7 @@ evaluate_yo_comptime_boolean_functions :: (
     );
     ai := eval_bool_arg(&arg0, env, ctx, exn);
     (cur_env : Environment) = expr_info_adopt_env(&ai);
-    arg_val := ai.value;
+    arg_val := ai.value();
     (result_val : EvalValue) = cond(
       ast_expr_is_fn_call_of(expr, BF_COMPTIME_BOOL_NOT, .Some(usize(1))) =>
         match(
@@ -137,7 +137,7 @@ evaluate_yo_comptime_boolean_functions :: (
     // (UnknownVal ≠ StrLit) wrongly typed `bool`.
     result_ty := type_of_eval_value(&result_val);
     out_info := new_expr_info(&cur_env, &result_ty);
-    out_info.value = .Some(result_val);
+    out_info.set_value(.Some(result_val));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   }, {
     // Binary operations: lhs and rhs.
@@ -156,10 +156,10 @@ evaluate_yo_comptime_boolean_functions :: (
       }
     );
     lhs_info := eval_bool_arg(&arg0, env, ctx, exn);
-    rhs_info := eval_bool_arg(&arg1, &lhs_info.env, ctx, exn);
+    rhs_info := eval_bool_arg(&arg1, &lhs_info.env(), ctx, exn);
     (cur_env : Environment) = expr_info_adopt_env(&rhs_info);
-    lhs_val := lhs_info.value;
-    rhs_val := rhs_info.value;
+    lhs_val := lhs_info.value();
+    rhs_val := rhs_info.value();
     (result_val : EvalValue) = cond(
       ast_expr_is_fn_call_of(expr, BF_COMPTIME_BOOL_AND, .Some(usize(2))) =>
         match(
@@ -237,7 +237,7 @@ evaluate_yo_comptime_boolean_functions :: (
       }
     );
     out_info := new_expr_info(&cur_env, t_bool());
-    out_info.value = .Some(result_val);
+    out_info.set_value(.Some(result_val));
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   });
   expr

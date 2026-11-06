@@ -7,7 +7,7 @@
 { AstExpr } :: import("../../src/expr.yo");
 { TypeValue, TypeValueNode } :: import("../../src/types/definitions.yo");
 { EvalValue, value_cell_new } :: import("../../src/value.yo");
-{ Environment } :: import("../../src/env.yo");
+{ Environment, new_environment } :: import("../../src/env.yo");
 { assert, panic } :: import("std/assert");
 {
   Path,
@@ -212,18 +212,18 @@ test("RuntimeDestructuring construction", {
 // ExprInfo creation
 // ---------------------------------------------------------------------------
 test("new_expr_info creates ExprInfo with None optionals", {
-  env := Environment.new(Rc.new(String.from("test")));
+  env := new_environment(Rc.new(String.from("test")));
   info := new_expr_info(&env, Rc.new(TypeValueNode.BoolT));
-  ty_ok := match(&info.ty, Rc(.BoolT) => true, _ => false);
+  ty_ok := match(&info.ty(), Rc(.BoolT) => true, _ => false);
   assert(ty_ok, "ty set to BoolT");
-  assert(info.path_collection.len() == usize(0), "path_collection empty");
-  assert(info.value == Option(EvalValue).None, "value is None");
-  assert(info.control_flow == Option(ControlFlowFlags).None, "control_flow is None");
-  assert(info.variable_name == Option(String).None, "variable_name is None");
+  assert(info.path_collection().len() == usize(0), "path_collection empty");
+  assert(info.value() == Option(EvalValue).None, "value is None");
+  assert(info.control_flow() == Option(ControlFlowFlags).None, "control_flow is None");
+  assert(info.variable_name() == Option(String).None, "variable_name is None");
 });
 test("new_expr_info env field is set", {
-  env := Environment.new(Rc.new(String.from("mod/path")));
+  env := new_environment(Rc.new(String.from("mod/path")));
   info := new_expr_info(&env, Rc.new(TypeValueNode.Int(u8(32), true)));
-  ty_ok := match(&info.ty, Rc(.Int(bits, signed)) => ((bits.* == u8(32)) && signed.*), _ => false);
+  ty_ok := match(&info.ty(), Rc(.Int(bits, signed)) => ((bits.* == u8(32)) && signed.*), _ => false);
   assert(ty_ok, "ty is i32");
 });

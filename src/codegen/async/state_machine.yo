@@ -24,7 +24,19 @@
 { EvalValue } :: import("../../value.yo");
 { Variable, Environment, get_variables_from_env_by_filter, variable_value_type } :: import("../../env.yo");
 { type_contains_rc_cell_or_move_only, fn_abi_param_is_ptr } :: import("../../types/utils.yo");
-{ FunctionGenerationContext, EvidenceParameter, InAsyncStateMachine, InlineSmLowering, InlineSuspension, InlineAwaitResultField, sm_owns_fnonce_captures } :: import("../functions/context.yo");
+{
+  FunctionGenerationContext,
+  EvidenceParameter,
+  InAsyncStateMachine,
+  InlineSmLowering,
+  InlineSuspension,
+  InlineAwaitResultField,
+  sm_owns_fnonce_captures,
+  sm_lowering_note_emitted,
+  sm_lowering_next_state,
+  sm_lowering_note_moved_into_slot,
+  sm_lowering_push_suspension
+} :: import("../functions/context.yo");
 { expr_contains_await, expr_contains_while_with_await, await_fusion_candidate } :: import("../../expr_traversal.yo");
 { is_temp_variable_name, is_any_temp_variable_name, debug_knob } :: import("../../utils.yo");
 { eprintln } :: import("std/fmt");
@@ -139,17 +151,17 @@ _lv_resolve_keyed :: (fn(key : ExprId, e : &AstExpr, name : &String, w : &_LiveW
   match(
     context.base.get_expr_info(e),
     .Some(info) => {
-      vs := scope_variables(key, &info.env, name);
+      vs := scope_variables(key, &info.env(), name);
       cond(
         (vs.len() == usize(0)) => Option(Variable).None,
-        true => vs.get(vs.len() - usize(1))
+        true => vs.get_cloned(vs.len() - usize(1))
       )
     },
     .None => Option(Variable).None
   )
 );
 _lv_id :: (fn(v : &Variable, w : &_LiveWalk) -> String)({
-  id := v.id.to_string();
+  id := v.id().to_string();
   match(w.remap.get_cloned(id.clone()), .Some(orig) => orig, .None => id)
 });
 /// Declare the local `name` at `def_end` (its scope ends at `scope_end`).
@@ -279,9 +291,9 @@ _lv_call_abi_ptr_flags :: (fn(call : &AstExpr, callee : &AstExpr, context : &Fun
     _ => match(
       context.base.get_expr_info(callee),
       .Some(ci) => match(
-        &ci.ty,
-        Rc(.Func({ result : _ })) => fn_abi_param_is_ptr(&ci.ty),
-        _ => match(extract_fn_trait_from_type(&ci.ty), .Some(sm_ft) => fn_param_mut_ref_flags(&sm_ft).items.clone(), .None => ArrayList(bool).new())
+        &ci.ty(),
+        Rc(.Func({ result : _ })) => fn_abi_param_is_ptr(&ci.ty()),
+        _ => match(extract_fn_trait_from_type(&ci.ty()), .Some(sm_ft) => fn_param_mut_ref_flags(&sm_ft).items.clone(), .None => ArrayList(bool).new())
       ),
       .None => ArrayList(bool).new()
     )
@@ -298,7 +310,7 @@ _lv_call_abi_ptr_flags :: (fn(call : &AstExpr, callee : &AstExpr, context : &Fun
 _lv_mark_call_lends :: (fn(call : &AstExpr, callee : &AstExpr, w : &_LiveWalk, context : &FunctionGenerationContext) -> unit)({
   runtime_args := match(
     context.base.get_expr_info(call),
-    .Some(ei) => match(&ei.runtime_arg_exprs_in_order, .Some(ra) => ra.clone(), .None => return(())),
+    .Some(ei) => match(&ei.runtime_arg_exprs_in_order(), .Some(ra) => ra.clone(), .None => return(())),
     .None => return(())
   );
   if(runtime_args.len() == usize(0), return(()));
@@ -356,7 +368,7 @@ _lv_walk :: (fn(e : &AstExpr, stmt_end : u64, block_end : u64, w : &_LiveWalk, c
           _lv_use(_lv_id(&v, w), stmt_end, w);
           // A local sharing an owner's value is read through the owner's
           // slot (`sm_storage_id`), so the owner is live wherever it is.
-          match(v.is_owning_the_same_rc_value_as, .Some(ob) => _lv_use(_lv_id(&ob, w), stmt_end, w), .None => ());
+          match(v.is_owning_the_same_rc_value_as(), .Some(ob) => _lv_use(_lv_id(&ob, w), stmt_end, w), .None => ());
         },
         // No environment to resolve it in: every local of this name is taken
         // as read here, which can only lengthen a range.
@@ -417,7 +429,7 @@ _lv_walk :: (fn(e : &AstExpr, stmt_end : u64, block_end : u64, w : &_LiveWalk, c
             match(
               context.base.get_expr_info(&lhs),
               .Some(linfo) => match(
-                linfo.source_variable,
+                linfo.source_variable(),
                 .Some(pin) => {
                   pin_id := _lv_id(&pin, w);
                   _lv_declare(pin_id.clone(), pin.name.clone(), _lv_span_end(&rhs, w), block_end, w);
@@ -584,7 +596,7 @@ compute_cross_boundary_variables :: (
           match(
             context.base.get_expr_info(&fut),
             .Some(fi) => match(
-              &fi.variable_name,
+              &fi.variable_name(),
               .Some(vn) => {
                 note_await_consumed_temp(vn.clone());
                 consumed.insert(vn.clone());
@@ -704,7 +716,8 @@ compute_cross_boundary_variables :: (
     pattern_binding_ids : replace(&mut w.bindings, HashSet(String).new())
   )
 });
-_SlotRange :: ref(struct(min : usize, max : usize));
+_SlotRange :: struct(min : usize, max : usize);
+derive(_SlotRange, Copy, Clone);
 /// An overlapping storage slot shared by ≥2 non-RC value vars with disjoint live
 /// ranges.
 OverlappingSlot :: ref(
@@ -761,7 +774,7 @@ compute_overlapping_slots :: (
     captured_variables : &ArrayList(CapturedVariable),
     await_future_temp_var_aliases : &HashMap(String, String),
     pattern_binding_ids : &HashSet(String),
-    context : &FunctionGenerationContext
+    context : &mut FunctionGenerationContext
   ) -> OverlappingStorageResult
 )({
   empty_result := OverlappingStorageResult(
@@ -871,7 +884,7 @@ compute_overlapping_slots :: (
       .Some(v) => {
         vid := v.base.id.to_string();
         if(ranges.contains_key(vid.clone()), {
-          ctype := get_type_string(&v.base.ty, &context.base);
+          ctype := get_type_string(&v.base.ty, &mut context.base);
           if(!by_type.contains_key(ctype.clone()), {
             ordered_c_types.push(ctype.clone());
           });
@@ -1042,16 +1055,15 @@ emit_future_effect_injection_line :: (
     field_label : &String,
     member_code : &String,
     indent : &String,
-    context : &FunctionGenerationContext
+    context : &mut FunctionGenerationContext
   ) -> unit
 )({
-  em := context.base.emitter;
   if(uses_generic_future_interface(future_type, context), {
     lbl := _c_string_literal(field_label.clone());
-    em.emit_string_line(`${indent}if (${future_access}->vt && ${future_access}->vt->set_effect) ${future_access}->vt->set_effect((void*)${future_access}, ${lbl}, (void*)${member_code});`);
+    context.base.emitter.emit_string_line(`${indent}if (${future_access}->vt && ${future_access}->vt->set_effect) ${future_access}->vt->set_effect((void*)${future_access}, ${lbl}, (void*)${member_code});`);
     return();
   });
-  em.emit_string_line(`${indent}${future_access}->__capture.${sanitize_for_c_identifier(field_label.clone(), false)} = (void*)${member_code};`);
+  context.base.emitter.emit_string_line(`${indent}${future_access}->__capture.${sanitize_for_c_identifier(field_label.clone(), false)} = (void*)${member_code};`);
 });
 /// Resolve the C code for an effect-handler field from the surrounding
 /// state-machine scope: a caller evidence param (`current_evidence_params`) wins,
@@ -1203,7 +1215,7 @@ emit_effect_record_injection_for_sm :: (
     future_access : &String,
     indent : &String,
     using_arg_value : &Option(EvalValue),
-    context : &FunctionGenerationContext,
+    context : &mut FunctionGenerationContext,
     expr : &AstExpr
   ) -> unit
 )({
@@ -1290,14 +1302,14 @@ emit_effect_record_injection_for_sm :: (
           context.base.get_expr_info(expr),
           .Some(ei) => {
             scope_release_note_hard(String.from("evidence-sm"), ast_expr_id(expr));
-            implicit_vars := get_variables_from_env_by_filter(&ei.env, (v : Variable) => true);
+            implicit_vars := get_variables_from_env_by_filter(&ei.env(), (v : Variable) => true);
             (k : usize) = implicit_vars.len();
             while((k > usize(0)) && member_code.is_none(), {
               k = (k - usize(1));
               match(
-                implicit_vars.get(k),
+                implicit_vars.get_cloned(k),
                 .Some(v) => match(
-                  v.value.get(usize(0)),
+                  v.value().get(usize(0)),
                   .Some(val) => match(
                     val,
                     .StructVal(_, vlabels, vvals) => {
@@ -1348,16 +1360,15 @@ emit_effect_record_injection_for_sm :: (
 /// the SM scope; a struct/source-namespace effect forwards the outer bundle field
 /// (or injects each member). Iterates the `FutureTraitT` effect arrays.
 emit_effect_injection_for_sm :: (
-  fn(await_expr : &AstExpr, future_access : &String, indent : &String, context : &FunctionGenerationContext) -> unit
+  fn(await_expr : &AstExpr, future_access : &String, indent : &String, context : &mut FunctionGenerationContext) -> unit
 )({
-  em := context.base.emitter;
   args := ast_call_args_unmarked(await_expr);
   match(
     args.get(usize(0)),
     .Some(fut_arg) => match(
       context.base.get_expr_info(&fut_arg),
       .Some(fei) => {
-        fut_ty := Rc.clone(fei.ty);
+        fut_ty := Rc.clone(fei.ty());
         match(
           extract_future_trait_from_type(&fut_ty),
           .Some(ftrait) => {
@@ -1395,18 +1406,18 @@ emit_effect_injection_for_sm :: (
                       bundle_code := _call_generate_expr(&bundle_arg, indent.clone(), context);
                       bundle_cast_ty := match(
                         context.base.get_expr_info(&bundle_arg),
-                        .Some(bae) => if(is_struct_type(&bae.ty), Rc.clone(bae.ty), etype),
+                        .Some(bae) => if(is_struct_type(&bae.ty()), Rc.clone(bae.ty()), etype),
                         .None => etype
                       );
-                      bundle_type := get_type_string(&bundle_cast_ty, &context.base);
+                      bundle_type := get_type_string(&bundle_cast_ty, &mut context.base);
                       tmp_name := fresh_local_name(String.from("__yo_eff_bundle_"), &context.base.current_function_name);
-                      em.emit_string_line(`${indent}${bundle_type} ${tmp_name.clone()} = ${bundle_code};`);
-                      em.emit_string_line(`${indent}__yo_future_set_bundle((void*)${future_access}, (void*)&${tmp_name});`);
+                      context.base.emitter.emit_string_line(`${indent}${bundle_type} ${tmp_name.clone()} = ${bundle_code};`);
+                      context.base.emitter.emit_string_line(`${indent}__yo_future_set_bundle((void*)${future_access}, (void*)&${tmp_name});`);
                     },
                     .None => match(
                       find_bundle_field_name(&ftrait, &context.state_machine_variables, &context.state_machine_field_aliases),
                       .Some(obf) => {
-                        em.emit_string_line(`${indent}__yo_future_set_bundle((void*)${future_access}, (void*)&sm->${obf});`);
+                        context.base.emitter.emit_string_line(`${indent}__yo_future_set_bundle((void*)${future_access}, (void*)&sm->${obf});`);
                       },
                       .None => {
                         emit_effect_record_injection_for_sm(&etype, &fut_ty, future_access, indent, Option(EvalValue).None, context, await_expr);
@@ -1434,32 +1445,31 @@ _emit_await_suspension_core :: (
     resume_function_name : &String,
     effect_expr : &AstExpr,
     ind : &String,
-    context : &FunctionGenerationContext,
+    context : &mut FunctionGenerationContext,
     /// Where the inline fast path continues: the next state's case label
     /// (`state_<next>`) in the segment lowering, the await's own resume label
     /// in the single-pass lowering.
     resume_label : &String
   ) -> unit
 )({
-  em := context.base.emitter;
-  em.emit_string_line(`${ind}// Transition to next state after await`);
-  em.emit_string_line(`${ind}sm->state = ${next_s};`);
-  em.emit_string_line(``);
-  em.emit_string_line(`${ind}// Check if future is ready`);
-  em.emit_string_line(`${ind}int future_state = ${acc}->state;`);
-  em.emit_string_line(`${ind}if (future_state == -1 || future_state == -2) {  // -1 = completed, -2 = aborted`);
-  em.emit_string_line(`${ind}  // Already complete — bounded inline fast-path to avoid scheduler round-trip`);
-  em.emit_string_line(`${ind}  if (__yo_inline_budget > 0) {`);
-  em.emit_string_line(`${ind}    __yo_inline_budget--;`);
-  em.emit_string_line(`${ind}    goto ${resume_label};`);
-  em.emit_string_line(`${ind}  }`);
-  em.emit_string_line(`${ind}  // Budget exhausted — yield once for fairness (microtask yield)`);
-  em.emit_string_line(`${ind}  __yo_async_spawn_task(${resume_function_name}, (void*)sm);`);
-  em.emit_string_line(`${ind}  return;`);
-  em.emit_string_line(`${ind}}`);
-  em.emit_string_line(``);
+  context.base.emitter.emit_string_line(`${ind}// Transition to next state after await`);
+  context.base.emitter.emit_string_line(`${ind}sm->state = ${next_s};`);
+  context.base.emitter.emit_string_line(``);
+  context.base.emitter.emit_string_line(`${ind}// Check if future is ready`);
+  context.base.emitter.emit_string_line(`${ind}int future_state = ${acc}->state;`);
+  context.base.emitter.emit_string_line(`${ind}if (future_state == -1 || future_state == -2) {  // -1 = completed, -2 = aborted`);
+  context.base.emitter.emit_string_line(`${ind}  // Already complete — bounded inline fast-path to avoid scheduler round-trip`);
+  context.base.emitter.emit_string_line(`${ind}  if (__yo_inline_budget > 0) {`);
+  context.base.emitter.emit_string_line(`${ind}    __yo_inline_budget--;`);
+  context.base.emitter.emit_string_line(`${ind}    goto ${resume_label};`);
+  context.base.emitter.emit_string_line(`${ind}  }`);
+  context.base.emitter.emit_string_line(`${ind}  // Budget exhausted — yield once for fairness (microtask yield)`);
+  context.base.emitter.emit_string_line(`${ind}  __yo_async_spawn_task(${resume_function_name}, (void*)sm);`);
+  context.base.emitter.emit_string_line(`${ind}  return;`);
+  context.base.emitter.emit_string_line(`${ind}}`);
+  context.base.emitter.emit_string_line(``);
   if(is_io_future, {
-    em.emit_string_line(`${ind}// Io future: no extra ref needed (completion handler does not decr_rc)`);
+    context.base.emitter.emit_string_line(`${ind}// Io future: no extra ref needed (completion handler does not decr_rc)`);
   });
   if(!is_io_future, {
     // The running-task reference is taken by whoever STARTS the future: its
@@ -1467,62 +1477,61 @@ _emit_await_suspension_core :: (
     // (spawned, or started by another awaiter) has one already, and taking a
     // second leaked the future and its result
     // (issues/fixed/awaiting-an-already-started-future-from-a-state-machine-leaks-it.md).
-    em.emit_string_line(`${ind}if (future_state == 0) {  // 0 = cold (not started)`);
-    em.emit_string_line(`${ind}  __yo_incr_rc((void*)${acc});  // running-task reference, released by its completion`);
+    context.base.emitter.emit_string_line(`${ind}if (future_state == 0) {  // 0 = cold (not started)`);
+    context.base.emitter.emit_string_line(`${ind}  __yo_incr_rc((void*)${acc});  // running-task reference, released by its completion`);
     inner := ind.clone();
     inner.push_str("  ");
     emit_effect_injection_for_sm(effect_expr, acc.clone(), &inner, context);
-    em.emit_string_line(`${ind}  // Cold future — start it via stored resume function pointer`);
-    em.emit_string_line(`${ind}  ${acc}->vt->resume((void*)${acc});`);
-    em.emit_string_line(``);
-    em.emit_string_line(`${ind}  // Re-check: may have completed synchronously`);
-    em.emit_string_line(`${ind}  future_state = ${acc}->state;`);
-    em.emit_string_line(`${ind}  if (future_state == -1 || future_state == -2) {`);
+    context.base.emitter.emit_string_line(`${ind}  // Cold future — start it via stored resume function pointer`);
+    context.base.emitter.emit_string_line(`${ind}  ${acc}->vt->resume((void*)${acc});`);
+    context.base.emitter.emit_string_line(``);
+    context.base.emitter.emit_string_line(`${ind}  // Re-check: may have completed synchronously`);
+    context.base.emitter.emit_string_line(`${ind}  future_state = ${acc}->state;`);
+    context.base.emitter.emit_string_line(`${ind}  if (future_state == -1 || future_state == -2) {`);
     // Continue inline, exactly as for a future that was already complete: the
     // child's running reference is already released, and a round trip through
     // the scheduler (a kernel entry once any I/O is pending) bought nothing
     // but fairness, which the budget still provides
     // (plans/ASYNC_STATE_MACHINE_GENERATION.md §3.4: 330 → 100 ns with I/O pending).
-    em.emit_string_line(`${ind}    if (__yo_inline_budget > 0) {`);
-    em.emit_string_line(`${ind}      __yo_inline_budget--;`);
-    em.emit_string_line(`${ind}      goto ${resume_label};`);
-    em.emit_string_line(`${ind}    }`);
-    em.emit_string_line(`${ind}    __yo_async_spawn_task(${resume_function_name}, (void*)sm);`);
-    em.emit_string_line(`${ind}    return;`);
-    em.emit_string_line(`${ind}  }`);
-    em.emit_string_line(`${ind}}`);
+    context.base.emitter.emit_string_line(`${ind}    if (__yo_inline_budget > 0) {`);
+    context.base.emitter.emit_string_line(`${ind}      __yo_inline_budget--;`);
+    context.base.emitter.emit_string_line(`${ind}      goto ${resume_label};`);
+    context.base.emitter.emit_string_line(`${ind}    }`);
+    context.base.emitter.emit_string_line(`${ind}    __yo_async_spawn_task(${resume_function_name}, (void*)sm);`);
+    context.base.emitter.emit_string_line(`${ind}    return;`);
+    context.base.emitter.emit_string_line(`${ind}  }`);
+    context.base.emitter.emit_string_line(`${ind}}`);
   });
-  em.emit_string_line(``);
+  context.base.emitter.emit_string_line(``);
   // Joins the future's waiters rather than taking its single slot: a second
   // awaiter of one pending future used to evict the first
   // (issues/fixed/two-tasks-awaiting-one-pending-future-lose-the-first-waiter.md).
-  em.emit_string_line(`${ind}// Still pending — register as a waiter and suspend`);
-  em.emit_string_line(`${ind}__yo_future_add_waiter((void*)${acc}, ${resume_function_name}, (void*)sm);`);
-  em.emit_string_line(`${ind}return;`);
+  context.base.emitter.emit_string_line(`${ind}// Still pending — register as a waiter and suspend`);
+  context.base.emitter.emit_string_line(`${ind}__yo_future_add_waiter((void*)${acc}, ${resume_function_name}, (void*)sm);`);
+  context.base.emitter.emit_string_line(`${ind}return;`);
 });
 /// Move an awaited future's result into `dest` (decision 13, §3.13 A1: the
 /// await consumes the future, so the result moves out with no dup). A result
 /// with a drop marks the future's result taken (state -3), so the future's
 /// dispose, which drops a Completed future's result, leaves it to `dest`.
 _emit_await_result_store :: (
-  fn(dest : &String, acc : &String, rt : &TypeValue, is_reassign : bool, ind : &String, context : &FunctionGenerationContext) -> unit
+  fn(dest : &String, acc : &String, rt : &TypeValue, is_reassign : bool, ind : &String, context : &mut FunctionGenerationContext) -> unit
 )({
-  em := context.base.emitter;
   src := `${acc}->result`;
   if(!type_contains_rc_cell_or_move_only(rt), {
-    em.emit_string_line(`${ind}${dest} = ${src};`);
+    context.base.emitter.emit_string_line(`${ind}${dest} = ${src};`);
     return();
   });
   if(!is_reassign, {
-    em.emit_string_line(`${ind}${dest} = ${src};`);
+    context.base.emitter.emit_string_line(`${ind}${dest} = ${src};`);
   }, {
     drop_code := generate_drop_code_for_value(dest.clone(), rt, context);
     if(drop_code.len() > usize(0), {
-      em.emit_string_line(`${ind}${drop_code};`);
+      context.base.emitter.emit_string_line(`${ind}${drop_code};`);
     });
-    em.emit_string_line(`${ind}${dest} = ${src};`);
+    context.base.emitter.emit_string_line(`${ind}${dest} = ${src};`);
   });
-  em.emit_string_line(`${ind}${acc}->state = -3;`);
+  context.base.emitter.emit_string_line(`${ind}${acc}->state = -3;`);
 });
 _append_exprs :: (fn(dst : &mut ArrayList(AstExpr), src : &ArrayList(AstExpr)) -> unit)({
   (i : usize) = usize(0);
@@ -1559,7 +1568,7 @@ _inline_await_result_type :: (fn(expr : &AstExpr, analysis : &Option(AwaitAnalys
     },
     .None => ()
   );
-  match(context.base.get_expr_info(expr), .Some(ei) => Rc.clone(ei.ty), .None => Rc.new(TypeValueNode.Unit))
+  match(context.base.get_expr_info(expr), .Some(ei) => Rc.clone(ei.ty()), .None => Rc.new(TypeValueNode.Unit))
 });
 
 /// Whether `t` is a unit result (or an unresolved Future SomeType): no field.
@@ -1660,25 +1669,25 @@ _report_await_fusion :: (fn(await_expr : &AstExpr, future_arg : &AstExpr) -> uni
 /// result is extracted; a named future (a variable or capture) is awaited in
 /// place and stays with its owner. The suspension itself is the shared core,
 /// continuing at this await's own resume label.
-emit_inline_await :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
-  em := context.base.emitter;
-  low := match(
-    context.sm_inline_lowering,
-    .Some(l) => l,
+emit_inline_await :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
+  // The lowering's read-only facts, taken once; its state is written in
+  // place through the context (sm_lowering_* in functions/context.yo).
+  (low_analysis, low_resume_fn, low_block_id) := match(
+    &context.sm_inline_lowering,
+    .Some(l) => (l.analysis, l.resume_function_name.clone(), l.async_block_id.clone()),
     .None => {
       codegen_fatal(String.from("emit_inline_await outside the single-pass lowering"));
       return(String.from(""));
     }
   );
   eid := ast_expr_id(expr);
-  if(low.emitted.contains(&eid), {
+  if(!sm_lowering_note_emitted(context, eid), {
     codegen_fatal(`the single-pass async lowering emitted await ${eid.to_string()} twice (an emitter generated its expression twice)`);
     return(String.from(""));
   });
-  low.emitted.insert(eid);
   // The result is a C local (not a task field) when no later await in its
   // statement can suspend before it is consumed.
-  out_is_c_local := (inline_await_result_field_of(expr, inline_await_result_fields(&low.analysis, context)).is_none() && inline_await_local_result_type(expr, &low.analysis, context).is_some());
+  out_is_c_local := (inline_await_result_field_of(expr, inline_await_result_fields(&low_analysis, context)).is_none() && inline_await_local_result_type(expr, &low_analysis, context).is_some());
   // An await of a fusable wrapper call runs the wrapper here instead.
   match(
     _call_emit_fused_await(expr, indent.clone(), context),
@@ -1696,7 +1705,7 @@ emit_inline_await :: (fn(expr : &AstExpr, indent : &String, context : &FunctionG
   );
   future_ty := match(
     context.base.get_expr_info(&future_arg),
-    .Some(ei) => Rc.clone(ei.ty),
+    .Some(ei) => Rc.clone(ei.ty()),
     .None => {
       codegen_fatal(String.from("await argument without type information"));
       return(String.from(""));
@@ -1706,14 +1715,13 @@ emit_inline_await :: (fn(expr : &AstExpr, indent : &String, context : &FunctionG
     _report_await_fusion(expr, &future_arg);
   });
   is_io := is_io_future_type(&future_ty);
-  k := low.next_state;
-  low.next_state = (k + usize(1));
+  k := sm_lowering_next_state(context);
   ks := k.to_string();
   label := `__yo_resume_${ks}`;
   future_code := _call_generate_expr(&future_arg, indent, context);
-  (future_c_type : String) = get_type_string(&future_ty, &context.base);
+  (future_c_type : String) = get_type_string(&future_ty, &mut context.base);
   match(
-    awaited_future_c_type_override(&future_arg, &context.base),
+    awaited_future_c_type_override(&future_arg, &mut context.base),
     .Some(o) => {
       future_c_type = o;
     },
@@ -1723,16 +1731,16 @@ emit_inline_await :: (fn(expr : &AstExpr, indent : &String, context : &FunctionG
   // too: the task's one slot owns it while the task is suspended, the abort
   // hook cancels it with the task, and the await releases it.
   acc := `((${future_c_type})sm->__yo_await_slot)`;
-  em.emit_string_line(`${indent}// await (resumes in state ${ks})`);
+  context.base.emitter.emit_string_line(`${indent}// await (resumes in state ${ks})`);
   emit_future_store_into_slot(&future_arg, &future_code, String.from("__yo_await_slot"), indent, context);
   // The slot owns the future now; the temp the evaluator minted for it
   // (its scope-end drop is scheduled) holds nothing of its own.
   match(
     context.base.get_expr_info(&future_arg),
     .Some(fei) => match(
-      &fei.variable_name,
+      &fei.variable_name(),
       .Some(fvn) => {
-        low.moved_into_slot.insert(get_variable_name_for_codegen_at(ast_expr_id(&future_arg), &fvn, Option(Environment).Some(fei.env)));
+        sm_lowering_note_moved_into_slot(context, get_variable_name_for_codegen_at(ast_expr_id(&future_arg), &fvn, Option(Environment).Some(fei.env())));
       },
       .None => ()
     ),
@@ -1740,48 +1748,49 @@ emit_inline_await :: (fn(expr : &AstExpr, indent : &String, context : &FunctionG
   );
   inner := indent.clone();
   inner.push_str("  ");
-  em.emit_string_line(`${indent}{`);
-  _emit_await_suspension_core(acc.clone(), is_io, ks.clone(), low.resume_function_name.clone(), expr, inner.clone(), context, label.clone());
-  em.emit_string_line(`${indent}}`);
-  em.emit_string_line(`${indent}${label}: ;`);
-  low.suspensions.push(InlineSuspension(state : k, in_slot : true, is_io : is_io));
+  context.base.emitter.emit_string_line(`${indent}{`);
+  _emit_await_suspension_core(acc.clone(), is_io, ks.clone(), low_resume_fn.clone(), expr, inner.clone(), context, label.clone());
+  context.base.emitter.emit_string_line(`${indent}}`);
+  context.base.emitter.emit_string_line(`${indent}${label}: ;`);
+  sm_lowering_push_suspension(context, InlineSuspension(state : k, in_slot : true, is_io : is_io));
   // The awaited future was aborted: this task takes over its unwind, and
   // catches it (its own handler) or escapes too.
-  em.emit_string_line(`${indent}if (${acc}->state == -2) {`);
-  em.emit_string_line(`${inner}__yo_task_abort_take_unwind((void*)${acc});`);
-  em.emit_string_line(`${inner}__yo_decr_rc(sm->__yo_await_slot);`);
-  em.emit_string_line(`${inner}sm->__yo_await_slot = NULL;`);
-  emit_sm_unwind_catch(&em, inner.clone(), &context.sm_unwind_catch);
-  emit_async_future_escape(&em, inner.clone(), Option(String).None, Option(String).Some(low.async_block_id.clone()));
-  em.emit_string_line(`${indent}}`);
+  context.base.emitter.emit_string_line(`${indent}if (${acc}->state == -2) {`);
+  context.base.emitter.emit_string_line(`${inner}__yo_task_abort_take_unwind((void*)${acc});`);
+  context.base.emitter.emit_string_line(`${inner}__yo_decr_rc(sm->__yo_await_slot);`);
+  context.base.emitter.emit_string_line(`${inner}sm->__yo_await_slot = NULL;`);
+  emit_sm_unwind_catch(&mut context.base.emitter, inner.clone(), &context.sm_unwind_catch);
+  emit_async_future_escape(&mut context.base.emitter, inner.clone(), Option(String).None, Option(String).Some(low_block_id.clone()));
+  context.base.emitter.emit_string_line(`${indent}}`);
   // The result lives in the task, like every other value of the body: a
   // second await in the same expression suspends before this one's result is
   // read (`f(await a, await b)`), and a C local does not survive the jump.
   (out : String) = String.from("");
   match(
-    inline_await_result_field_of(expr, inline_await_result_fields(&low.analysis, context)),
+    inline_await_result_field_of(expr, inline_await_result_fields(&low_analysis, context)),
     .Some(rf) => {
       field := `sm->${rf.name}`;
       _emit_await_result_store(field.clone(), &acc, &rf.ty, false, indent.clone(), context);
       out = field;
     },
     .None => match(
-      inline_await_local_result_type(expr, &low.analysis, context),
+      inline_await_local_result_type(expr, &low_analysis, context),
       // No suspension between here and the statement's use of it.
       .Some(rty) => {
         local := fresh_local_name(String.from("__yo_await_value"), context.base.current_function_name.clone());
-        em.emit_string_line(`${indent}${get_type_string(&rty, &context.base)} ${local};`);
+        emit_text1 := `${indent}${get_type_string(&rty, &mut context.base)} ${local};`;
+        context.base.emitter.emit_string_line(&emit_text1);
         declare_c_var_name(&context.base, local.clone());
         _emit_await_result_store(local.clone(), &acc, &rty, false, indent.clone(), context);
         out = local;
       },
-      .None => if(!_inline_result_is_unit(_inline_await_result_type(expr, Option(AwaitAnalysisResult).Some(low.analysis), context)), {
+      .None => if(!_inline_result_is_unit(_inline_await_result_type(expr, Option(AwaitAnalysisResult).Some(low_analysis), context)), {
         codegen_fatal(`the single-pass async lowering reached await ${eid.to_string()}, which the suspension analysis did not record`);
       })
     )
   );
-  em.emit_string_line(`${indent}__yo_decr_rc(sm->__yo_await_slot);`);
-  em.emit_string_line(`${indent}sm->__yo_await_slot = NULL;`);
+  context.base.emitter.emit_string_line(`${indent}__yo_decr_rc(sm->__yo_await_slot);`);
+  context.base.emitter.emit_string_line(`${indent}sm->__yo_await_slot = NULL;`);
   _bind_await_result_to_temp(expr, &out, out_is_c_local, indent, context)
 });
 /// Where the await's owned result lives for its consumers, given the code
@@ -1799,27 +1808,27 @@ emit_inline_await :: (fn(expr : &AstExpr, indent : &String, context : &FunctionG
 /// fields and leaves the temp to drop it) otherwise leaves the slot empty and
 /// the value unreleased
 /// (issues/fixed/a-destructured-await-result-is-never-released.md).
-_bind_await_result_to_temp :: (fn(expr : &AstExpr, out : &String, out_is_c_local : bool, indent : &String, context : &FunctionGenerationContext) -> String)({
+_bind_await_result_to_temp :: (fn(expr : &AstExpr, out : &String, out_is_c_local : bool, indent : &String, context : &mut FunctionGenerationContext) -> String)({
   if(out.len() == usize(0), {
     return(out.clone());
   });
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(out.clone()));
-  vn := match(&ei.variable_name, .Some(v) => v.clone(), .None => return(out.clone()));
-  em := context.base.emitter;
+  vn := match(&ei.variable_name(), .Some(v) => v.clone(), .None => return(out.clone()));
   (code : String) = out.clone();
-  if(out_is_c_local && type_contains_rc_cell_or_move_only(&ei.ty), {
-    cname := get_variable_name_for_codegen_at(ast_expr_id(expr), &vn, Option(Environment).Some(ei.env));
+  if(out_is_c_local && type_contains_rc_cell_or_move_only(&ei.ty()), {
+    cname := get_variable_name_for_codegen_at(ast_expr_id(expr), &vn, Option(Environment).Some(ei.env()));
     if(!(cname == out), {
-      em.emit_string_line(`${indent}${get_variable_type_string(&ei.ty, &cname, &context.base)} = ${out};`);
+      emit_text2 := `${indent}${get_variable_type_string(&ei.ty(), &cname, &mut context.base)} = ${out};`;
+      context.base.emitter.emit_string_line(&emit_text2);
       code = cname;
     });
   });
   match(
     &context.state_machine_variables,
     .Some(smv) => match(
-      sm_slot_of(ast_expr_id(expr), &ei.env, &vn, &smv, &context.variable_id_remapping, &context.state_machine_field_aliases, &context.sm_capture_slot),
+      sm_slot_of(ast_expr_id(expr), &ei.env(), &vn, &smv, &context.variable_id_remapping, &context.state_machine_field_aliases, &context.sm_capture_slot),
       .Some(slot) => if(!(slot == code), {
-        em.emit_string_line(`${indent}${slot} = ${code};`);
+        context.base.emitter.emit_string_line(`${indent}${slot} = ${code};`);
       }),
       .None => ()
     ),
@@ -1841,29 +1850,28 @@ generate_async_block_resume_function_inline :: (
     analysis : &AwaitAnalysisResult,
     future_type : &TypeValue,
     capture_type : &Option(TypeValue),
-    context : &FunctionGenerationContext
+    context : &mut FunctionGenerationContext
   ) -> ArrayList(String)
 )({
-  em := context.base.emitter;
   is_unit_result := match(
     extract_future_trait_from_type(future_type),
     .Some(ft) => match(ft, Rc(.FutureTraitT({ output : o })) => is_unit_type(&o), _ => false),
     .None => false
   );
-  em.emit_string_line(`// Resume function for async block ${async_block_id} (single-pass lowering)`);
-  em.emit_string_line(`void ${resume_function_name}(void* sm_ptr) {`);
-  em.emit_string_line(`  ${struct_name}* sm = (${struct_name}*)sm_ptr;`);
-  em.emit_string_line(`  ASYNC_DEBUG("${async_block_id}_resume: state=%d\\n", sm->state);`);
+  context.base.emitter.emit_string_line(`// Resume function for async block ${async_block_id} (single-pass lowering)`);
+  context.base.emitter.emit_string_line(`void ${resume_function_name}(void* sm_ptr) {`);
+  context.base.emitter.emit_string_line(`  ${struct_name}* sm = (${struct_name}*)sm_ptr;`);
+  context.base.emitter.emit_string_line(`  ASYNC_DEBUG("${async_block_id}_resume: state=%d\\n", sm->state);`);
   // Externally aborted while suspended or queued: release the pending await's
   // future and the task's own reference; never resume.
-  em.emit_string_line(`  if (sm->state == -2) {`);
-  em.emit_string_line(`    if (sm->__yo_await_slot) { __yo_decr_rc(sm->__yo_await_slot); sm->__yo_await_slot = NULL; }`);
-  em.emit_string_line(`    __yo_decr_rc((void*)sm);`);
-  em.emit_string_line(`    return;`);
-  em.emit_string_line(`  }`);
-  em.emit_string_line(`  int __yo_inline_budget = 1024;  // bounded inline fast-path for sync-completed awaits`);
-  em.emit_string_line(`  goto __yo_dispatch;`);
-  em.emit_string_line(`__yo_state_0: ;`);
+  context.base.emitter.emit_string_line(`  if (sm->state == -2) {`);
+  context.base.emitter.emit_string_line(`    if (sm->__yo_await_slot) { __yo_decr_rc(sm->__yo_await_slot); sm->__yo_await_slot = NULL; }`);
+  context.base.emitter.emit_string_line(`    __yo_decr_rc((void*)sm);`);
+  context.base.emitter.emit_string_line(`    return;`);
+  context.base.emitter.emit_string_line(`  }`);
+  context.base.emitter.emit_string_line(`  int __yo_inline_budget = 1024;  // bounded inline fast-path for sync-completed awaits`);
+  context.base.emitter.emit_string_line(`  goto __yo_dispatch;`);
+  context.base.emitter.emit_string_line(`__yo_state_0: ;`);
   low := InlineSmLowering(
     async_block_id : async_block_id.clone(),
     resume_function_name : resume_function_name.clone(),
@@ -1877,17 +1885,16 @@ generate_async_block_resume_function_inline :: (
     rc_operand : false,
     owns_fnonce_captures : match(capture_type, .Some(Rc(.Struct({ id : cs_id }))) => is_fnonce_capture_struct(&cs_id), _ => false)
   );
-  p_low := context.sm_inline_lowering;
-  p_in := context.in_async_state_machine;
+  p_low := replace(&mut context.sm_inline_lowering, Option(InlineSmLowering).Some(low));
+  p_in := context.in_async_state_machine.clone();
   p_smv := replace(&mut context.state_machine_variables, Option(HashMap(String, CapturedVariable)).None);
   p_vr := replace(&mut context.variable_id_remapping, Option(HashMap(String, String)).None);
   p_pdd := replace(&mut context.pending_deferred_drops, Option(ArrayList(AstExpr)).None);
-  context.sm_inline_lowering = Option(InlineSmLowering).Some(low);
   context.in_async_state_machine = Option(InAsyncStateMachine).Some(InAsyncStateMachine(future_type : Rc.clone(future_type)));
   context.variable_id_remapping = Option(HashMap(String, String)).Some(analysis.variable_id_remapping.clone());
   context.state_machine_variables = Option(HashMap(String, CapturedVariable)).Some(_build_combined_sm_variables(analysis, capture_type));
   pdd := ArrayList(AstExpr).new();
-  match(context.base.get_expr_info(body_expr), .Some(ei) => match(&ei.deferred_drop_expressions, .Some(d) => _append_exprs(&mut pdd, &d), .None => ()), .None => ());
+  match(context.base.get_expr_info(body_expr), .Some(ei) => match(&ei.deferred_drop_expressions(), .Some(d) => _append_exprs(&mut pdd, &d), .None => ()), .None => ());
   context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(pdd);
   body_exprs := if(ast_expr_is_fn_call_of(body_expr, BK_BEGIN, Option(usize).None), emitted_block_statements(match(body_expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), _ => ArrayList(AstExpr).new())), {
     single := ArrayList(AstExpr).new();
@@ -1911,13 +1918,13 @@ generate_async_block_resume_function_inline :: (
         bcode := if(is_tail, match(arm_value_with_dups(&bexpr, `  `, context), .Some(c) => c, .None => _call_generate_expr(&bexpr, `  `, context)), _call_generate_expr(&bexpr, `  `, context));
         if(is_tail, {
           if(bcode.len() > usize(0), {
-            em.emit_string_line(`  sm->result = ${bcode};`);
+            context.base.emitter.emit_string_line(`  sm->result = ${bcode};`);
           });
         }, {
           // A statement's value temp is already declared by its own emission.
-          skip := ((bcode.len() == usize(0)) || match(context.base.get_expr_info(&bexpr), .Some(bei) => is_temp_variable_name(&bei.env.module_path.*, bcode.clone()), .None => true));
+          skip := ((bcode.len() == usize(0)) || match(context.base.get_expr_info(&bexpr), .Some(bei) => is_temp_variable_name(&bei.env().module_path().*, bcode.clone()), .None => true));
           if(!skip, {
-            em.emit_string_line(`  ${bcode};`);
+            context.base.emitter.emit_string_line(`  ${bcode};`);
           });
         });
       },
@@ -1932,7 +1939,7 @@ generate_async_block_resume_function_inline :: (
   tail_returns := match(body_exprs.last(), .Some(le) => ast_expr_is_fn_call_of(&le, "return", Option(usize).None), .None => false);
   if(!tail_returns, {
     match(
-      match(context.base.get_expr_info(body_expr), .Some(bei) => bei.deferred_drop_expressions.clone(), .None => Option(ArrayList(AstExpr)).None),
+      match(context.base.get_expr_info(body_expr), .Some(bei) => bei.deferred_drop_expressions(), .None => Option(ArrayList(AstExpr)).None),
       .Some(drops) => {
         (di : usize) = usize(0);
         while(di < drops.len(), di = (di + usize(1)), {
@@ -1942,7 +1949,7 @@ generate_async_block_resume_function_inline :: (
             .Some(d) => if(!(sm_owns_fnonce_captures(context) && is_fnonce_capture_drop(ast_expr_id(&d))), {
               dc := _call_generate_expr(&d, String.from("  "), context);
               if(dc.len() > usize(0), {
-                em.emit_string_line(`  ${dc};`);
+                context.base.emitter.emit_string_line(`  ${dc};`);
                 local_var_drop_codes.push(dc);
               });
             }),
@@ -1952,30 +1959,37 @@ generate_async_block_resume_function_inline :: (
       },
       .None => ()
     );
-    emit_async_future_completion(&em, `  `, Option(String).None, Option(String).Some(String.from("Future %p completed")));
+    emit_async_future_completion(&mut context.base.emitter, `  `, Option(String).None, Option(String).Some(String.from("Future %p completed")));
   });
-  context.sm_inline_lowering = p_low;
+  mut(done_low) := match(
+    replace(&mut context.sm_inline_lowering, p_low),
+    .Some(l) => l,
+    .None => {
+      codegen_fatal(String.from("the single-pass lowering's state was lost"));
+      return(ArrayList(String).new());
+    }
+  );
   context.in_async_state_machine = p_in;
   context.state_machine_variables = p_smv;
   context.variable_id_remapping = p_vr;
   context.pending_deferred_drops = p_pdd;
-  em.emit_string_line(`  return;`);
-  em.emit_string_line(`__yo_dispatch:`);
-  em.emit_string_line(`  switch (sm->state) {`);
-  em.emit_string_line(`    case 0: goto __yo_state_0;`);
+  context.base.emitter.emit_string_line(`  return;`);
+  context.base.emitter.emit_string_line(`__yo_dispatch:`);
+  context.base.emitter.emit_string_line(`  switch (sm->state) {`);
+  context.base.emitter.emit_string_line(`    case 0: goto __yo_state_0;`);
   (i : usize) = usize(0);
-  while(i < low.suspensions.len(), i = (i + usize(1)), {
+  while(i < done_low.suspensions.len(), i = (i + usize(1)), {
     match(
-      low.suspensions.get(i),
-      .Some(sp) => em.emit_string_line(`    case ${sp.state.to_string()}: goto __yo_resume_${sp.state.to_string()};`),
+      done_low.suspensions.get(i),
+      .Some(sp) => context.base.emitter.emit_string_line(`    case ${sp.state.to_string()}: goto __yo_resume_${sp.state.to_string()};`),
       .None => ()
     );
   });
-  em.emit_string_line(`    default: return;`);
-  em.emit_string_line(`  }`);
-  em.emit_string_line(`}`);
-  em.emit_string_line(String.from(""));
-  suspensions := replace(&mut low.suspensions, ArrayList(InlineSuspension).new());
+  context.base.emitter.emit_string_line(`    default: return;`);
+  context.base.emitter.emit_string_line(`  }`);
+  context.base.emitter.emit_string_line(`}`);
+  context.base.emitter.emit_string_line(String.from(""));
+  suspensions := replace(&mut done_low.suspensions, ArrayList(InlineSuspension).new());
   g_inline_suspensions.with_mut({ k : async_block_id.clone(), suspensions }(m) => m.insert(k, suspensions));
   local_var_drop_codes
 });
@@ -1985,53 +1999,52 @@ generate_async_block_resume_function_inline :: (
 /// waiters — the phase-2 protocol of generate_async_block_cancel_pending_function,
 /// with the per-state facts the lowering recorded as it emitted each await.
 generate_async_block_cancel_pending_function_inline :: (
-  fn(async_block_id : &String, struct_name : &String, context : &FunctionGenerationContext) -> Option(String)
+  fn(async_block_id : &String, struct_name : &String, context : &mut FunctionGenerationContext) -> Option(String)
 )({
-  em := context.base.emitter;
   // Taken out and stored back below: the recorded list is move-only and
   // `InlineSuspension` has no `Clone`.
   sps := match(g_inline_suspensions.with_mut({ k : async_block_id.clone() }(m) => m.remove(&k)), .Some(l) => l, .None => ArrayList(InlineSuspension).new());
   fn_name := `${async_block_id.clone()}_cancel_pending`;
-  em.emit_declaration_string_line(`void ${fn_name.clone()}(void* sm_ptr, int prev_state);  // Abort hook: cancel what the task is suspended on`);
-  em.emit_declaration_line("");
-  em.emit_string_line(`// Abort hook for async block ${async_block_id.clone()} (single-pass lowering)`);
-  em.emit_string_line(`void ${fn_name.clone()}(void* sm_ptr, int prev_state) {`);
-  em.emit_string_line(`  ${struct_name.clone()}* sm = (${struct_name.clone()}*)sm_ptr;`);
-  em.emit_string_line(`  switch (prev_state) {`);
+  context.base.emitter.emit_declaration_string_line(`void ${fn_name.clone()}(void* sm_ptr, int prev_state);  // Abort hook: cancel what the task is suspended on`);
+  context.base.emitter.emit_declaration_line("");
+  context.base.emitter.emit_string_line(`// Abort hook for async block ${async_block_id.clone()} (single-pass lowering)`);
+  context.base.emitter.emit_string_line(`void ${fn_name.clone()}(void* sm_ptr, int prev_state) {`);
+  context.base.emitter.emit_string_line(`  ${struct_name.clone()}* sm = (${struct_name.clone()}*)sm_ptr;`);
+  context.base.emitter.emit_string_line(`  switch (prev_state) {`);
   (i : usize) = usize(0);
   while(i < sps.len(), i = (i + usize(1)), {
     match(
       sps.get(i),
       .Some(sp) => cond(
         (sp.in_slot && sp.is_io) => {
-          em.emit_string_line(`    case ${sp.state.to_string()}:`);
-          em.emit_string_line(`      if (sm->__yo_await_slot != NULL && __yo_async_io_cancel(sm->__yo_await_slot)) {`);
-          em.emit_string_line(`        __yo_decr_rc(sm->__yo_await_slot);`);
-          em.emit_string_line(`        sm->__yo_await_slot = NULL;`);
-          em.emit_string_line(`        __yo_future_wake_waiters(sm_ptr);`);
-          em.emit_string_line(`        __yo_decr_rc(sm_ptr);  // the suspended task's own reference`);
-          em.emit_string_line(`        return;`);
-          em.emit_string_line(`      }`);
-          em.emit_string_line(`      break;`);
+          context.base.emitter.emit_string_line(`    case ${sp.state.to_string()}:`);
+          context.base.emitter.emit_string_line(`      if (sm->__yo_await_slot != NULL && __yo_async_io_cancel(sm->__yo_await_slot)) {`);
+          context.base.emitter.emit_string_line(`        __yo_decr_rc(sm->__yo_await_slot);`);
+          context.base.emitter.emit_string_line(`        sm->__yo_await_slot = NULL;`);
+          context.base.emitter.emit_string_line(`        __yo_future_wake_waiters(sm_ptr);`);
+          context.base.emitter.emit_string_line(`        __yo_decr_rc(sm_ptr);  // the suspended task's own reference`);
+          context.base.emitter.emit_string_line(`        return;`);
+          context.base.emitter.emit_string_line(`      }`);
+          context.base.emitter.emit_string_line(`      break;`);
         },
         sp.in_slot => {
-          em.emit_string_line(`    case ${sp.state.to_string()}:`);
-          em.emit_string_line(`      if (sm->__yo_await_slot != NULL) {`);
-          em.emit_string_line(`        __yo_future_abort(sm->__yo_await_slot);  // structured cancellation`);
-          em.emit_string_line(`      }`);
-          em.emit_string_line(`      break;`);
+          context.base.emitter.emit_string_line(`    case ${sp.state.to_string()}:`);
+          context.base.emitter.emit_string_line(`      if (sm->__yo_await_slot != NULL) {`);
+          context.base.emitter.emit_string_line(`        __yo_future_abort(sm->__yo_await_slot);  // structured cancellation`);
+          context.base.emitter.emit_string_line(`      }`);
+          context.base.emitter.emit_string_line(`      break;`);
         },
         true => ()
       ),
       .None => ()
     );
   });
-  em.emit_string_line(`    default:`);
-  em.emit_string_line(`      break;`);
-  em.emit_string_line(`  }`);
-  em.emit_string_line(`  __yo_future_wake_waiters(sm_ptr);`);
-  em.emit_string_line(`}`);
-  em.emit_string_line(String.from(""));
+  context.base.emitter.emit_string_line(`    default:`);
+  context.base.emitter.emit_string_line(`      break;`);
+  context.base.emitter.emit_string_line(`  }`);
+  context.base.emitter.emit_string_line(`  __yo_future_wake_waiters(sm_ptr);`);
+  context.base.emitter.emit_string_line(`}`);
+  context.base.emitter.emit_string_line(String.from(""));
   g_inline_suspensions.with_mut({ k : async_block_id.clone(), sps }(m) => m.insert(k, sps));
   Option(String).Some(fn_name)
 });

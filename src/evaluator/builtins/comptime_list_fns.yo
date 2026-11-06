@@ -36,7 +36,7 @@ evaluate_yo_comptime_list_car :: (
   fn(
     expr : &AstExpr,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
@@ -70,7 +70,7 @@ evaluate_yo_comptime_list_car :: (
     }
   );
   (cur_env : Environment) = expr_info_adopt_env(&info);
-  if(!is_comptime_list_type(&info.ty), {
+  if(!is_comptime_list_type(&info.ty()), {
     exn.throw(
       dyn(
         format_error_message(
@@ -80,9 +80,9 @@ evaluate_yo_comptime_list_car :: (
       )
     );
   });
-  child_ty := match(&info.ty, Rc(.ComptimeListT(cb)) => Rc.clone(cb), _ => Rc.new(TypeValueNode.Unit));
+  child_ty := match(&info.ty(), Rc(.ComptimeListT(cb)) => Rc.clone(cb), _ => Rc.new(TypeValueNode.Unit));
   list_val := match(
-    info.value,
+    info.value(),
     .Some(v) => v,
     .None => {
       exn.throw(
@@ -104,8 +104,8 @@ evaluate_yo_comptime_list_car :: (
   // variadic list yielded a bare UnknownVal that
   // `__yo_are_types_compatible` rejects (tests/variadic_comptime).
   car_unk_name := String.from("__comptime_list_car_");
-  car_unk_name.push_string(stable_module_id(String.from("car_unk_"), &env.module_path.*));
-  out_info.value = .Some(create_unknown_val_with_name(&child_ty, &car_unk_name));
+  car_unk_name.push_string(stable_module_id(String.from("car_unk_"), &env.module_path().*));
+  out_info.set_value(.Some(create_unknown_val_with_name(&child_ty, &car_unk_name)));
   match(
     list_val,
     .ComptimeListVal(elements) => {
@@ -113,7 +113,7 @@ evaluate_yo_comptime_list_car :: (
         match(
           elements.get(usize(0)),
           .Some(first) => {
-            out_info.value = .Some(first);
+            out_info.set_value(.Some(first));
           },
           .None => ()
         );
@@ -137,7 +137,7 @@ evaluate_yo_comptime_list_cdr :: (
   fn(
     expr : &AstExpr,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
@@ -171,7 +171,7 @@ evaluate_yo_comptime_list_cdr :: (
     }
   );
   (cur_env : Environment) = expr_info_adopt_env(&info);
-  if(!is_comptime_list_type(&info.ty), {
+  if(!is_comptime_list_type(&info.ty()), {
     exn.throw(
       dyn(
         format_error_message(
@@ -181,9 +181,9 @@ evaluate_yo_comptime_list_cdr :: (
       )
     );
   });
-  list_ty := Rc.clone(info.ty);
+  list_ty := Rc.clone(info.ty());
   list_val := match(
-    info.value,
+    info.value(),
     .Some(v) => v,
     .None => {
       exn.throw(
@@ -198,7 +198,7 @@ evaluate_yo_comptime_list_cdr :: (
     }
   );
   out_info := new_expr_info(&cur_env, &list_ty);
-  out_info.value = .Some(create_unknown_val(&list_ty));
+  out_info.set_value(.Some(create_unknown_val(&list_ty)));
   match(
     list_val,
     .ComptimeListVal(elements) => {
@@ -216,7 +216,7 @@ evaluate_yo_comptime_list_cdr :: (
           );
           i = (i + usize(1));
         });
-        out_info.value = .Some(EvalValue.ComptimeListVal(value_cell_new(new_elems)));
+        out_info.set_value(.Some(EvalValue.ComptimeListVal(value_cell_new(new_elems))));
       }, {
         exn.throw(
           dyn(
@@ -237,7 +237,7 @@ evaluate_yo_comptime_list_cons :: (
   fn(
     expr : &AstExpr,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
@@ -285,7 +285,7 @@ evaluate_yo_comptime_list_cons :: (
   );
   (cur_env : Environment) = expr_info_adopt_env(&car_info);
   car_val := match(
-    car_info.value,
+    car_info.value(),
     .Some(v) => v,
     .None => {
       exn.throw(
@@ -316,7 +316,7 @@ evaluate_yo_comptime_list_cons :: (
     }
   );
   cur_env = expr_info_adopt_env(&cdr_info);
-  if(!is_comptime_list_type(&cdr_info.ty), {
+  if(!is_comptime_list_type(&cdr_info.ty()), {
     exn.throw(
       dyn(
         format_error_message(
@@ -327,7 +327,7 @@ evaluate_yo_comptime_list_cons :: (
     );
   });
   cdr_val := match(
-    cdr_info.value,
+    cdr_info.value(),
     .Some(v) => v,
     .None => {
       exn.throw(
@@ -341,9 +341,9 @@ evaluate_yo_comptime_list_cons :: (
       EvalValue.UnitVal
     }
   );
-  child_ty := match(&cdr_info.ty, Rc(.ComptimeListT(cb)) => Rc.clone(cb), _ => Rc.new(TypeValueNode.Unit));
-  list_ty := Rc.clone(cdr_info.ty);
-  if(!are_types_compatible(&car_info.ty, &child_ty), {
+  child_ty := match(&cdr_info.ty(), Rc(.ComptimeListT(cb)) => Rc.clone(cb), _ => Rc.new(TypeValueNode.Unit));
+  list_ty := Rc.clone(cdr_info.ty());
+  if(!are_types_compatible(&car_info.ty(), &child_ty), {
     exn.throw(
       dyn(
         format_error_message(
@@ -354,7 +354,7 @@ evaluate_yo_comptime_list_cons :: (
     );
   });
   out_info := new_expr_info(&cur_env, &list_ty);
-  out_info.value = .Some(create_unknown_val(&list_ty));
+  out_info.set_value(.Some(create_unknown_val(&list_ty)));
   match(
     cdr_val,
     .ComptimeListVal(elements) => {
@@ -372,7 +372,7 @@ evaluate_yo_comptime_list_cons :: (
         );
         i = (i + usize(1));
       });
-      out_info.value = .Some(EvalValue.ComptimeListVal(value_cell_new(new_elems)));
+      out_info.set_value(.Some(EvalValue.ComptimeListVal(value_cell_new(new_elems))));
     },
     _ => ()
   );
@@ -383,7 +383,7 @@ evaluate_yo_comptime_list_append :: (
   fn(
     expr : &AstExpr,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
@@ -430,7 +430,7 @@ evaluate_yo_comptime_list_append :: (
     }
   );
   (cur_env : Environment) = expr_info_adopt_env(&first_info);
-  if(!is_comptime_list_type(&first_info.ty), {
+  if(!is_comptime_list_type(&first_info.ty()), {
     exn.throw(
       dyn(
         format_error_message(
@@ -441,7 +441,7 @@ evaluate_yo_comptime_list_append :: (
     );
   });
   first_val := match(
-    first_info.value,
+    first_info.value(),
     .Some(v) => v,
     .None => {
       exn.throw(
@@ -472,7 +472,7 @@ evaluate_yo_comptime_list_append :: (
     }
   );
   cur_env = expr_info_adopt_env(&second_info);
-  if(!is_comptime_list_type(&second_info.ty), {
+  if(!is_comptime_list_type(&second_info.ty()), {
     exn.throw(
       dyn(
         format_error_message(
@@ -483,7 +483,7 @@ evaluate_yo_comptime_list_append :: (
     );
   });
   second_val := match(
-    second_info.value,
+    second_info.value(),
     .Some(v) => v,
     .None => {
       exn.throw(
@@ -497,7 +497,7 @@ evaluate_yo_comptime_list_append :: (
       EvalValue.UnitVal
     }
   );
-  if(!are_types_compatible(&first_info.ty, &second_info.ty), {
+  if(!are_types_compatible(&first_info.ty(), &second_info.ty()), {
     exn.throw(
       dyn(
         format_error_message(
@@ -507,9 +507,9 @@ evaluate_yo_comptime_list_append :: (
       )
     );
   });
-  first_ty := Rc.clone(first_info.ty);
+  first_ty := Rc.clone(first_info.ty());
   out_info := new_expr_info(&cur_env, &first_ty);
-  out_info.value = .Some(create_unknown_val(&first_ty));
+  out_info.set_value(.Some(create_unknown_val(&first_ty)));
   match(
     first_val,
     .ComptimeListVal(first_elems) => match(
@@ -540,7 +540,7 @@ evaluate_yo_comptime_list_append :: (
           );
           i2 = (i2 + usize(1));
         });
-        out_info.value = .Some(EvalValue.ComptimeListVal(value_cell_new(new_elems)));
+        out_info.set_value(.Some(EvalValue.ComptimeListVal(value_cell_new(new_elems))));
       },
       _ => ()
     ),
@@ -553,7 +553,7 @@ evaluate_yo_comptime_list_length :: (
   fn(
     expr : &AstExpr,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
@@ -586,7 +586,7 @@ evaluate_yo_comptime_list_length :: (
       new_expr_info(env, Rc.new(TypeValueNode.Unit))
     }
   );
-  if(!is_comptime_list_type(&info.ty), {
+  if(!is_comptime_list_type(&info.ty()), {
     exn.throw(
       dyn(
         format_error_message(
@@ -597,7 +597,7 @@ evaluate_yo_comptime_list_length :: (
     );
   });
   list_val := match(
-    info.value,
+    info.value(),
     .Some(v) => v,
     .None => {
       exn.throw(
@@ -611,12 +611,12 @@ evaluate_yo_comptime_list_length :: (
       EvalValue.UnitVal
     }
   );
-  out_info := new_expr_info(&info.env, t_usize());
-  out_info.value = .Some(create_unknown_val(t_usize()));
+  out_info := new_expr_info(&info.env(), t_usize());
+  out_info.set_value(.Some(create_unknown_val(t_usize())));
   match(
     list_val,
     .ComptimeListVal(elements) => {
-      out_info.value = .Some(EvalValue.IntLit(elements.len().to_string()));
+      out_info.set_value(.Some(EvalValue.IntLit(elements.len().to_string())));
     },
     _ => ()
   );
@@ -627,7 +627,7 @@ evaluate_yo_comptime_list_element_type :: (
   fn(
     expr : &AstExpr,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
@@ -662,7 +662,7 @@ evaluate_yo_comptime_list_element_type :: (
   );
   // The argument must be a TypeVal wrapping a ComptimeList type.
   inner_ty := match(
-    info.value,
+    info.value(),
     .Some(v) => match(
       v,
       .TypeVal(ty_box) => Rc.clone(ty_box),
@@ -701,8 +701,8 @@ evaluate_yo_comptime_list_element_type :: (
     );
   });
   child_ty := match(inner_ty, Rc(.ComptimeListT(cb)) => Rc.clone(cb), _ => Rc.new(TypeValueNode.Unit));
-  out_info := new_expr_info(&info.env, t_type());
-  out_info.value = .Some(EvalValue.TypeVal(child_ty));
+  out_info := new_expr_info(&info.env(), t_type());
+  out_info.set_value(.Some(EvalValue.TypeVal(child_ty)));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   expr
 });
@@ -710,7 +710,7 @@ evaluate_yo_comptime_list_get :: (
   fn(
     expr : &AstExpr,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
@@ -743,7 +743,7 @@ evaluate_yo_comptime_list_get :: (
       new_expr_info(env, Rc.new(TypeValueNode.Unit))
     }
   );
-  if(!is_comptime_list_type(&list_info.ty), {
+  if(!is_comptime_list_type(&list_info.ty()), {
     exn.throw(
       dyn(
         format_error_message(
@@ -753,14 +753,14 @@ evaluate_yo_comptime_list_get :: (
       )
     );
   });
-  child_ty := match(&list_info.ty, Rc(.ComptimeListT(cb)) => Rc.clone(cb), _ => Rc.new(TypeValueNode.Unit));
+  child_ty := match(&list_info.ty(), Rc(.ComptimeListT(cb)) => Rc.clone(cb), _ => Rc.new(TypeValueNode.Unit));
   (cur_env : Environment) = expr_info_adopt_env(&list_info);
   // Same named promotion as the car builtin above.
   get_unk_name := String.from("__comptime_list_get_");
-  get_unk_name.push_string(stable_module_id(String.from("get_unk_"), &env.module_path.*));
+  get_unk_name.push_string(stable_module_id(String.from("get_unk_"), &env.module_path().*));
   (out_val : Option(EvalValue)) = .Some(create_unknown_val_with_name(&child_ty, &get_unk_name));
   match(
-    list_info.value,
+    list_info.value(),
     .Some(list_v) => match(
       list_v,
       .ComptimeListVal(elements) => {
@@ -783,7 +783,7 @@ evaluate_yo_comptime_list_get :: (
           expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&eval_idx_arg)),
           .Some(idx_info) => {
             match(
-              idx_info.value,
+              idx_info.value(),
               .Some(idx_v) => match(
                 idx_v,
                 .IntLit(raw) => {
@@ -845,7 +845,7 @@ evaluate_yo_comptime_list_get :: (
     .None => ()
   );
   out_info := new_expr_info(&cur_env, &child_ty);
-  out_info.value = out_val;
+  out_info.set_value(out_val);
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   expr
 });

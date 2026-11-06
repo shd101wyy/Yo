@@ -120,7 +120,7 @@ _reports_dump :: (fn(reports : &ArrayList(VerifyFnReport)) -> String)({
   (mut(i) : usize) = usize(0);
   while(i < reports.len(), {
     match(
-      reports.get(i),
+      reports.get_cloned(i),
       .Some(rp) => {
         ids.push(`${rp.fn_id}=${rp.outcome} [${rp.subset_construct}]`);
       },
@@ -144,7 +144,7 @@ _count_outcome :: (fn(reports : &ArrayList(VerifyFnReport), outcome : &String) -
   (mut(i) : usize) = usize(0);
   while(i < reports.len(), {
     match(
-      reports.get(i),
+      reports.get_cloned(i),
       .Some(rp) => {
         if(rp.outcome == outcome.*, {
           n = (n + usize(1));
@@ -228,12 +228,12 @@ test("a caller passing an unconstrained value REFUTES at refine#N (the callee st
   (mut(i) : usize) = usize(0);
   while(i < reports.len(), {
     match(
-      reports.get(i),
+      reports.get_cloned(i),
       .Some(rp) => {
         (mut(j) : usize) = usize(0);
         while(j < rp.obligations.len(), {
           match(
-            rp.obligations.get(j),
+            rp.obligations.get_cloned(j),
             .Some(obl) => {
               match(
                 &obl.verdict,
@@ -287,7 +287,7 @@ test("worked example: a refinement-typed index proves an array read in bounds", 
   (mut(i) : usize) = usize(0);
   while(i < reports.len(), {
     match(
-      reports.get(i),
+      reports.get_cloned(i),
       .Some(rp) => {
         if(rp.outcome == "ok", {
           ok_n = (ok_n + usize(1));
@@ -350,7 +350,7 @@ test("refine#N with LITERAL arguments folds — proves and refutes with NO solve
   (mut(i) : usize) = usize(0);
   while(i < reports.len(), {
     match(
-      reports.get(i),
+      reports.get_cloned(i),
       .Some(rp) => {
         if(rp.fn_id.contains(String.from(":14")), {
           lit_refuted = (rp.outcome == "refuted");
@@ -381,12 +381,12 @@ test("refine#N with LITERAL arguments folds — proves and refutes with NO solve
   (mut(gi) : usize) = usize(0);
   while(gi < reports.len(), {
     match(
-      reports.get(gi),
+      reports.get_cloned(gi),
       .Some(rp) => {
         (mut(oi) : usize) = usize(0);
         while(oi < rp.obligations.len(), {
           match(
-            rp.obligations.get(oi),
+            rp.obligations.get_cloned(oi),
             .Some(obl) => {
               if(obl.folded && (obl.goal.len() == usize(0)), {
                 goal_ok = false;

@@ -28,7 +28,7 @@ evaluate_comptime_list_value :: (
   fn(
     expr : &AstExpr,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
@@ -52,7 +52,7 @@ evaluate_comptime_list_value :: (
   });
   // If the context expects a comptime_list type, use its child type as a hint.
   (child_type_opt : Option(TypeValue)) = match(
-    ctx.expected_type,
+    &ctx.expected_type,
     .Some(et) => cond(
       is_comptime_list_type(&et.ty) => match(
         &et.ty,
@@ -64,7 +64,7 @@ evaluate_comptime_list_value :: (
     .None => Option(TypeValue).None
   );
   (elements : ArrayList(EvalValue)) = ArrayList(EvalValue).new();
-  (env_loop : Environment) = env;
+  (env_loop : Environment) = Rc.clone(env);
   (j : usize) = usize(0);
   while(j < n_args, {
     arg := match(args.get(j), .Some(a) => a, .None => make_err_expr());
@@ -72,8 +72,8 @@ evaluate_comptime_list_value :: (
     arg_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_arg));
     // Elements must have a compile-time value.
     has_value := match(
-      arg_info_opt,
-      .Some(info) => info.value.is_some(),
+      &arg_info_opt,
+      .Some(info) => info.value().is_some(),
       .None => false
     );
     if(!has_value, {
@@ -88,12 +88,12 @@ evaluate_comptime_list_value :: (
     });
     arg_info := match(
       arg_info_opt,
-      .Some(info) => info,
+      .Some(info) => Rc.clone(info),
       .None => new_expr_info(&env_loop, t_usize()) // unreachable
     );
     env_loop = expr_info_adopt_env(&arg_info);
     val := match(
-      arg_info.value,
+      arg_info.value(),
       .Some(v) => v,
       .None => {
         exn.throw(
@@ -108,7 +108,7 @@ evaluate_comptime_list_value :: (
       }
     );
     elements.push(val);
-    arg_ty := Rc.clone(arg_info.ty);
+    arg_ty := Rc.clone(arg_info.ty());
     // Determine or type-check the running child type.
     child_type_opt = match(
       &child_type_opt,
@@ -150,7 +150,7 @@ evaluate_comptime_list_value :: (
   list_type := t_comptime_list(&child_type);
   list_val := EvalValue.ComptimeListVal(value_cell_new(elements));
   info := new_expr_info(&env_loop, &list_type);
-  info.value = Option(EvalValue).Some(list_val);
+  info.set_value(Option(EvalValue).Some(list_val));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
   expr
 });

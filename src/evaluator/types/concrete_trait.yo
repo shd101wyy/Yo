@@ -35,7 +35,7 @@ evaluate_concrete_type :: (
   fn(
     expr : &AstExpr,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
@@ -64,7 +64,7 @@ evaluate_concrete_type :: (
   evaluated := evaluate_expression_raw(&concrete_type_expr, env, ctx, exn);
   info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated));
   match(
-    info_opt,
+    &info_opt,
     .None => {
       exn.throw(
         dyn(
@@ -79,11 +79,11 @@ evaluate_concrete_type :: (
   );
   inner_info := match(
     info_opt,
-    .Some(i) => i,
+    .Some(i) => Rc.clone(i),
     .None => new_expr_info(env, t_i32()) // unreachable: guarded above
   );
   // Validate the argument is a type value.
-  if(!is_type_value(&inner_info.value), {
+  if(!is_type_value(&inner_info.value()), {
     exn.throw(
       dyn(
         format_error_message(
@@ -94,7 +94,7 @@ evaluate_concrete_type :: (
     );
   });
   concrete_ty := match(
-    inner_info.value,
+    inner_info.value(),
     .Some(v) => match(
       v,
       .TypeVal(inner) => Rc.clone(inner),
@@ -127,7 +127,7 @@ evaluate_concrete_type :: (
   meta_type := type_of_type(&concrete_trait_ty);
   next_env := expr_info_adopt_env(&inner_info);
   out_info := new_expr_info(&next_env, &meta_type);
-  out_info.value = .Some(trait_val);
+  out_info.set_value(.Some(trait_val));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   expr
 });

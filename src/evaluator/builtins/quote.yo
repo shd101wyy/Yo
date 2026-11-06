@@ -58,7 +58,7 @@ process_unquotes_in_expr :: (
   fn(
     expr : &AstExpr,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
@@ -107,7 +107,7 @@ process_unquotes_in_expr :: (
           }
         );
         val := match(
-          arg_info.value,
+          arg_info.value(),
           .None => {
             exn.throw(dyn(format_error_message(&tok, String.from("unquote: argument must have a compile-time value"))));
             EvalValue.ExprVal(make_err_expr())
@@ -115,7 +115,7 @@ process_unquotes_in_expr :: (
           .Some(v) => v
         );
         // If type is not Expr but value is unknown → leave original expr in
-        if(!is_expr_type(&arg_info.ty), {
+        if(!is_expr_type(&arg_info.ty()), {
           if(is_unknown_val(&val), {
             return(expr);
           });
@@ -164,14 +164,14 @@ process_unquotes_in_expr :: (
                   new_args.push(arg);
                 },
                 .Some(splice_info) => {
-                  opt_splice_val := splice_info.value;
+                  opt_splice_val := splice_info.value();
                   match(
                     opt_splice_val,
                     .None => {
                       new_args.push(arg);
                     },
                     .Some(splice_val) => {
-                      if(!is_expr_list_type(&splice_info.ty), {
+                      if(!is_expr_list_type(&splice_info.ty()), {
                         if(is_unknown_val(&splice_val), {
                           new_args.push(arg);
                         }, {
@@ -234,7 +234,7 @@ evaluate_quote :: (
   fn(
     expr : &AstExpr,
     env : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
@@ -262,7 +262,7 @@ evaluate_quote :: (
   // Wrap result in ExprVal and register ExprInfo.
   val := EvalValue.ExprVal(quoted);
   out_info := new_expr_info(env, t_expr_t());
-  out_info.value = Option(EvalValue).Some(val);
+  out_info.set_value(Option(EvalValue).Some(val));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   expr
 });

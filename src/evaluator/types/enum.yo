@@ -217,7 +217,7 @@ _evaluate_discriminant :: (
   fn(
     discriminant_expr : &AstExpr,
     env_in : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     exn : Exception
   ) -> i64
 )({
@@ -225,7 +225,7 @@ _evaluate_discriminant :: (
   disc_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_disc));
   disc_info := match(
     disc_info_opt,
-    .Some(i) => i,
+    .Some(i) => Rc.clone(i),
     .None => {
       exn.throw(
         dyn(
@@ -238,7 +238,7 @@ _evaluate_discriminant :: (
       new_expr_info(env_in, Rc.new(TypeValueNode.Unit))
     }
   );
-  if(disc_info.value.is_none(), {
+  if(disc_info.value().is_none(), {
     exn.throw(
       dyn(
         format_error_message(
@@ -250,11 +250,11 @@ _evaluate_discriminant :: (
   });
   // Must be a comptime integer.
   is_int_lit_val := match(
-    disc_info.value,
+    disc_info.value(),
     .Some(v) => match(v, .IntLit(_) => true, _ => false),
     .None => false
   );
-  if(!is_int_lit_val && !is_comptime_int_type(&disc_info.ty), {
+  if(!is_int_lit_val && !is_comptime_int_type(&disc_info.ty()), {
     exn.throw(
       dyn(
         format_error_message(
@@ -275,7 +275,7 @@ _evaluate_discriminant :: (
     );
   });
   raw := match(
-    disc_info.value,
+    disc_info.value(),
     .Some(v) => match(v, .IntLit(r) => r.clone(), _ => String.from("0")),
     .None => String.from("0")
   );
@@ -302,13 +302,13 @@ evaluate_enum_type :: (
   fn(
     expr : &AstExpr,
     env_in : &Environment,
-    ctx : &EvalContext,
+    ctx : &mut EvalContext,
     is_atomic_rc : bool,
     force_reference_semantics : bool,
     exn : Exception
   ) -> AstExpr
 )({
-  (env : Environment) = env_in;
+  (env : Environment) = Rc.clone(env_in);
   if(!ast_expr_is_fn_call_of(expr, BK_ENUM, Option(usize).None), {
     exn.throw(
       dyn(
@@ -652,8 +652,8 @@ evaluate_enum_type :: (
           ra := match(recur_args.get(gi), .Some(a) => a, .None => make_err_expr());
           evaluated_ra := evaluate_expression_raw(&ra, &env, ctx, exn);
           ra_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_ra));
-          ra_info := match(ra_info_opt, .Some(ii) => ii, .None => new_expr_info(&env, Rc.new(TypeValueNode.Unit)));
-          if(!is_type_value(&ra_info.value), {
+          ra_info := match(ra_info_opt, .Some(ii) => Rc.clone(ii), .None => new_expr_info(&env, Rc.new(TypeValueNode.Unit)));
+          if(!is_type_value(&ra_info.value()), {
             exn.throw(
               dyn(
                 format_error_message(
@@ -664,7 +664,7 @@ evaluate_enum_type :: (
             );
           });
           ra_ty := match(
-            ra_info.value,
+            ra_info.value(),
             .Some(v) => match(v, .TypeVal(inner) => Rc.clone(inner), _ => Rc.new(TypeValueNode.Unit)),
             .None => Rc.new(TypeValueNode.Unit)
           );
@@ -692,7 +692,7 @@ evaluate_enum_type :: (
     // The match exhaustiveness check uses these to skip GADT-unreachable
     // variants (tests/gadts.test.yo `eval_int_only` on `Value(i32)`).
     match(
-      ctx.is_evaluating_function_body_or_async_block,
+      &ctx.is_evaluating_function_body_or_async_block,
       .Some(fab) => if(match(fab.kind, .FunctionBody => true, _ => false), {
         match(
           &fab.func_type,
@@ -711,9 +711,9 @@ evaluate_enum_type :: (
                   vars := get_variables_from_env(&env, &p_lbl);
                   if(vars.len() > usize(0), {
                     match(
-                      vars.last(),
+                      vars.last_cloned(),
                       .Some(lastv) => match(
-                        lastv.value.get(usize(0)),
+                        lastv.value().get(usize(0)),
                         .Some(.TypeVal(tvb)) => {
                           tca.push(Rc.clone(tvb));
                         },
@@ -897,7 +897,7 @@ evaluate_enum_type :: (
   enum_val := create_type_value(&enum_ty);
   meta_ty := type_of_type(&enum_ty);
   out_info := new_expr_info(&env, &meta_ty);
-  out_info.value = Option(EvalValue).Some(enum_val);
+  out_info.set_value(Option(EvalValue).Some(enum_val));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   // Annotate callee (expr.func) with the same info.
   callee_expr := _fn_call_func(expr);
