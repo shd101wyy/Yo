@@ -27,6 +27,7 @@ import("std/fmt");
 { _call_generate_expr } :: import("./_expr.yo");
 { Environment } :: import("../../env.yo");
 { generate_dup_code_for_value, generate_deferred_dup_expressions, generate_deferred_drop_expressions, has_pending_emittable_drop } :: import("./drop_dup.yo");
+{ _flush_stmt_lent_temp_drops } :: import("./begin.yo");
 { declare_c_var_name, get_type_string, is_self_named_atom, get_variable_name_for_codegen, fresh_local_name, note_line_position, get_variable_name_for_codegen_at, push_declared_scope, scope_stack_contains, element_wise_dup_target } :: import("../utils/index.yo");
 { replace } :: import("std/mem");
 /// True for an ASCII word byte ([A-Za-z0-9_]).
@@ -457,6 +458,11 @@ _emit_begin_arm :: (fn(value : &AstExpr, value_indent : &String, temp_var_opt : 
               line.push_str(";");
               context.base.emitter.emit_string_line(&line);
             });
+            // A non-final statement's LENT temporaries drop here, at the
+            // statement's end (the final expression's drop at the arm's end
+            // IS its statement end).
+            nxt := begin_args.get(j + usize(1));
+            _flush_stmt_lent_temp_drops(&barg, &nxt, &bei, &value_indent, context);
             if(has_any_control_flow(bei.control_flow()), {
               stop = true;
             });

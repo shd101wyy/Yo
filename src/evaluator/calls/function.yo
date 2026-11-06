@@ -12640,6 +12640,10 @@ Fix: wrap the call:
               .None => ()
             );
           });
+          // A temporary LENT to a reference parameter is marked for its
+          // statement-end drop where the call's markers are peeled
+          // (`apply_call_site_borrow_markers`, calls/helper.yo) — this loop's
+          // `fv_args` are those peeled arguments.
           if(is_comptime_string_type(&arg_info.ty()) && !is_some_type(&resolved_decl_pt) && !is_comptime_string_type(&resolved_decl_pt), {
             bind_ty = resolved_decl_pt.clone();
             bind_val = Option(EvalValue).Some(create_unknown_val(&resolved_decl_pt));

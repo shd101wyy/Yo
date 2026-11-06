@@ -53,7 +53,7 @@ pragma(Pragma.AllowUnsafe);
   BF_UNWIND,
   BK_BREAK
 } :: import("./expr.yo");
-{ cloned_expr_node_count, ast_expr_token } :: import("./expr.yo");
+{ cloned_expr_node_count, ast_expr_token, ast_expr_strip_borrow_marker } :: import("./expr.yo");
 { Environment, Variable, expr_info_env_snapshot, snapshot_env, snapshot_ring_stats, Frame, get_variables_from_env, get_variables_from_env_after, env_frames_extend, env_common_prefix_len, env_common_prefix_len_by_id, get_variables_from_env_before, copy_env_frames, mut_census_trusted, mut_census_key, make_environment } :: import("./env.yo");
 { Token } :: import("./token.yo");
 { record_owned_expr_id } :: import("./evaluator/values/type_trait_methods.yo");
@@ -1931,6 +1931,39 @@ record_immediate_old_value_drop :: (fn(assign_id : ExprId, drop_expr : &AstExpr)
 lookup_immediate_old_value_drop :: (fn(assign_id : ExprId) -> Option(AstExpr))(
   g_immediate_old_value_drops.with(m => m.get(&assign_id))
 );
+/// The source tokens of expressions a statement creates only to LEND them —
+/// a temporary passed to a `&T`/`&mut T` parameter (`show(&make())`, the
+/// exempt `show(make())`, a `&self` receiver) or a borrowed `match` scrutinee
+/// (`note_lent_temporary`, keyed `module_path:row:column`). TOKEN-keyed,
+/// like `g_borrowed_match_sites`: a call argument is evaluated several times
+/// (candidate trials, the final pass) and every evaluation mints its own
+/// temp name, so the token is the one fact every pass shares. The emitter
+/// correlates the tokens with the drops the block actually scheduled
+/// (`_flush_stmt_lent_temp_drops`, codegen/exprs/begin.yo): a borrowed
+/// temporary is dropped at the end of the STATEMENT that created it — Rust's
+/// temporary lifetime (plans/VALUES_BY_DEFAULT.md, "`&temp` is allowed") —
+/// not at the enclosing block's end. There is no lifetime extension: a
+/// binding of a borrow of a temporary is rejected, so the borrow always ends
+/// with its statement.
+(g_lent_temp_tokens : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
+lent_temp_token_key :: (fn(tok : &Token) -> String)(`${tok.module_path.*}:${tok.row.to_string()}:${tok.column.to_string()}`);
+note_lent_temporary :: (fn(lent_in : &AstExpr) -> unit)({
+  // Mark the STRIPPED expression: the borrowed temp is minted at the inner
+  // expression's token (`&mk()`'s temp is `mk()`'s), so the token recorded
+  // here must be the one the temp's Variable carries.
+  lent := ast_expr_strip_borrow_marker(lent_in);
+  tok := ast_expr_token(&lent);
+  if(tok.module_path.*.starts_with(String.from("auto-generated://")), {
+    return(());
+  });
+  _i := g_lent_temp_tokens.with_mut(s => s.insert(lent_temp_token_key(&tok)));
+  ()
+});
+/// True iff `note_lent_temporary` marked the token (a statement lends what it
+/// built there).
+is_lent_temp_token :: (fn(tok : &Token) -> bool)(
+  g_lent_temp_tokens.with(s => s.contains(&lent_temp_token_key(tok)))
+);
 /// `consume(e)` call node ids whose argument's owned value the consume
 /// releases on the spot: `e` names an owned local (or is an owning result
 /// temp) the consume marks moved, so no scope-end drop follows, and the builtin
@@ -2963,7 +2996,7 @@ export(expr_info_closure_function_value, expr_info_set_closure_function_value);
 export(ExprInfoTable, expr_info_table_new, expr_info_table_set, expr_info_table_get, codegen_read_log_set, codegen_read_keys, expr_info_table_retain_keys);
 export(record_method_callee_type, lookup_method_callee_type);
 export(record_io_builtin_struct_field, lookup_io_builtin_struct_field, record_io_builtin_call, lookup_io_builtin_call);
-export(record_method_callee_value, lookup_method_callee_value, record_local_borrow_step_pin, lookup_local_borrow_step_pin, record_immediate_old_value_drop, lookup_immediate_old_value_drop, record_consume_release, is_consume_release);
+export(record_method_callee_value, lookup_method_callee_value, record_local_borrow_step_pin, lookup_local_borrow_step_pin, record_immediate_old_value_drop, lookup_immediate_old_value_drop, note_lent_temporary, lent_temp_token_key, is_lent_temp_token, record_consume_release, is_consume_release);
 export(register_extern_c_global, is_extern_c_global, get_extern_c_global_types);
 export(register_extern_c_global_alias, extern_c_global_c_name, register_extern_c_module_id, is_extern_c_module_id);
 export(register_module_level_global, is_module_level_global, module_global_c_suffix);

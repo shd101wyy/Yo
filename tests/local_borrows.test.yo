@@ -933,3 +933,61 @@ comptime_expect_error(
   }),
   "an `Rc`'s payload is shared, so it is read-only through the handle"
 );
+
+// --- a borrowed temporary lives to the end of its statement ------------------
+// Rust's temporary lifetime (plans/VALUES_BY_DEFAULT.md, "`&temp` is
+// allowed"): the temporary a statement creates only to lend it —
+// `show(&make())`, the exempt `show(make())`, a borrowed `match` scrutinee —
+// is dropped at the end of the STATEMENT, not at the enclosing block's end.
+// There is no lifetime extension: a binding of a borrow of a temporary is
+// rejected, so the borrow always ends with its statement
+// (issues/fixed/2026-11-06-a-borrowed-temporary-is-dropped-at-its-blocks-end-not-its-statements.md).
+(mut(g_tmp_drops) : i32) = i32(0);
+TmpPlain :: struct(n : i32);
+impl(
+  TmpPlain,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_tmp_drops = (g_tmp_drops + i32(1));
+    })
+  )
+);
+tmp_mk :: (fn() -> TmpPlain)(TmpPlain(n : i32(3)));
+tmp_rd :: (fn(p : &TmpPlain) -> i32)(p.n);
+impl(TmpPlain, tmp_n : (fn(self : &Self) -> i32)(self.n));
+test("a borrowed temporary is dropped at its statement's end", {
+  g_tmp_drops = i32(0);
+  assert(tmp_rd(&TmpPlain(n : i32(3))) == i32(3), "the marker spelling reads");
+  assert(g_tmp_drops == i32(1), "the marker spelling drops at the statement's end");
+  assert(tmp_rd(tmp_mk()) == i32(3), "the exempt spelling reads");
+  assert(g_tmp_drops == i32(2), "the exempt spelling drops at the statement's end");
+  m := match(&tmp_mk(), p => p.n, _ => i32(0));
+  assert(m == i32(3), "a borrowed match scrutinee reads");
+  assert(g_tmp_drops == i32(3), "a borrowed match scrutinee drops at the statement's end");
+  assert(tmp_mk().tmp_n() == i32(3), "a `&self` receiver reads");
+  assert(g_tmp_drops == i32(4), "a receiver temporary drops at the statement's end");
+  v := tmp_rd(&tmp_mk());
+  assert(v == i32(3), "a lend inside a binding's right-hand side reads");
+  assert(g_tmp_drops == i32(5), "a lend inside a binding's right-hand side drops at the statement's end");
+  (both : i32) = (tmp_rd(&tmp_mk()) + tmp_rd(&TmpPlain(n : i32(4))));
+  assert(both == i32(7), "two lent temps in one statement");
+  assert(g_tmp_drops == i32(7), "both drop at the statement's end, newest first");
+});
+TmpRaise :: (ctl() -> unit);
+tmp_lend_raise :: (fn(p : &TmpPlain, raise : TmpRaise) -> unit)({
+  raise();
+  ()
+});
+tmp_unwinds :: (fn() -> unit)({
+  (raise : TmpRaise) = (
+    () -> {
+      unwind(());
+    }
+  );
+  tmp_lend_raise(&tmp_mk(), raise);
+});
+test("a lent temporary is dropped when its statement unwinds past it", {
+  g_tmp_drops = i32(0);
+  tmp_unwinds();
+  assert(g_tmp_drops == i32(1), "the escape path inside the statement drops the lent temporary");
+});

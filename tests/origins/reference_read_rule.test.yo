@@ -51,9 +51,10 @@ rr_id :: (fn(generic(T : Type), v : T) -> T)(v);
 rr_id_of_reference :: (fn(r : &i32) -> unit)({
   _s := rr_id(r);
 });
-// A holder of a reference with a Drop impl is dropped like any value: by
-// its block's end as a temporary (Yo's rule for every temporary), at its
-// scope's end when bound, and when an effect handler unwinds past it. Dropping it never drops the place
+// A holder of a reference with a Drop impl is dropped like any value: at
+// its STATEMENT's end as a temporary (Rust's temporary lifetime,
+// plans/VALUES_BY_DEFAULT.md "`&temp` is allowed"), at its scope's end when
+// bound, and when an effect handler unwinds past it. Dropping it never drops the place
 // it refers to.
 (mut(g_rr_dropped) : i32) = i32(0);
 RrHolder :: (fn(comptime(T) : Type, comptime(p) : Origin) -> comptime(Type))(struct(r : &(T, p)));
@@ -88,13 +89,11 @@ rr_unwinds :: (fn(x : &i32) -> unit)({
   );
   rr_raises(x, raise);
 });
-test("A holder of a reference with a Drop impl drops as a temporary, at scope end and on unwind", {
+test("A holder of a reference with a Drop impl drops at its statement's end as a temporary, at scope end when bound, and on unwind", {
   x := i32(3);
-  {
-    t := rr_holder_read(&RrHolder(i32, x)(r : &x));
-    assert(t == i32(3), "a temporary holder reads its place");
-  };
-  assert(g_rr_dropped == i32(1), "a temporary holder drops by its block's end");
+  t := rr_holder_read(&RrHolder(i32, x)(r : &x));
+  assert(t == i32(3), "a temporary holder reads its place");
+  assert(g_rr_dropped == i32(1), "a temporary holder drops at its statement's end");
   assert(rr_bound(&x) == i32(3), "a bound holder reads its place");
   assert(g_rr_dropped == i32(2), "a bound holder drops at its scope's end");
   rr_unwinds(&x);
