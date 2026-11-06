@@ -4112,8 +4112,7 @@ and in git, not a silent edit.
       rule (O3), usable as generic arguments (so `&&T` exists and is accepted;
       from VERDICTS-31 P3, v0.2.77, `&r` on a reference binding IS `&&T`,
       and there is no deref coercion — `&r` into a `&T` slot is a type
-      error naming `r`, the reborrow is `&r.*`; the no-coercion position
-      awaits the maintainer's approval),
+      error naming `r`, the reborrow is `&r.*`; approved 2026-11-07),
       and the subject of impls: `impl(&T, Trait(…))` and the blanket
       `impl(generic(T), &T, Trait(…))`, distinct from `impl(T, …)` under
       `TRAIT_COHERENCE.md`. `&T` is `Copy`. `&mut T` is not: passed to a
@@ -5060,8 +5059,9 @@ and in git, not a silent edit.
     - the parity items P1–P16 in v0.2.77–v0.2.79 (decision 34).
 
     Deliberate differences from Rust: Polonius-only cases are recorded
-    divergences. **Awaiting the maintainer's approval:** no deref coercion
-    (`&&T → &T` is written `&r.*`; P3) and scoped threads (P6).
+    divergences. **Approved 2026-11-07** (the maintainer: "for design questions
+    let's do what Fable recommends"): no deref coercion (`&&T → &T` is
+    written `&r.*`; P3) and scoped threads (P6).
 
 ## 5. Prerequisites, gates and the seed
 
