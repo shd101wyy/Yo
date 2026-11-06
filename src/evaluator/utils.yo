@@ -145,7 +145,7 @@ pragma(Pragma.AllowUnsafe);
 { type_to_string, type_to_string_for_message } :: import("../types/string.yo");
 { type_is_bitwise_copy, type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_holds_counted_handle, type_holds_counted_handle_ignoring_migration, set_counted_handle_rule, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow, is_bound_closure_identity, is_closure_capture_struct, resolve_cell_chain, is_future_value_type, is_bare_callable_into_dyn_fn, type_contains_some_type_deep, type_holds_dyn_by_value, dyn_type_lists_clone, fn_trait_call_func_type, type_carries_origin, note_origin_types_exist, type_is_typed_fnmut_closure, capture_struct_is_fnmut, future_unreturnable_borrow, future_origin_names } :: import("../types/utils.yo");
 { expr_info_table_set, migrate_match_scrutinee_on, record_migrate_edit, migrate_dyn_spelling_on, record_dyn_spelling_site, is_mut_global, is_thread_local, migrate_mutable_globals_on, record_mutable_global_site, migrate_mut_bindings_on, record_mut_binding_site, record_mut_binding_site_pending, record_mut_param_site, record_mut_param_site_pending, record_mut_judged, migrate_deref_on, audit_deref_on, deref_rule_suspended, record_deref_site, record_deref_edit_site, note_reference_read_copied, lookup_macro_expansion } :: import("../expr_info.yo");
-{ is_global_mut_rule_exempt, is_deref_rule_exempt } :: import("./memory_safety.yo");
+{ is_global_mut_rule_exempt } :: import("./memory_safety.yo");
 // `set_expr_as_needs_to_call_dup` builds + evaluates a `___dup(name)` call.
 // `parser.yo` is upstream (no cycle); `exprs/expr.yo` is the cycle-free
 // late-binding dispatcher (it imports neither utils.yo nor any handler).
@@ -6839,29 +6839,31 @@ _labels_name_a_star :: (fn(t : &TypeValue) -> bool)({
 variable_is_reference_binding :: (fn(v : &Variable) -> bool)(
   !v.is_compile_time_only() && !v.is_module_level() && (v.is_borrow_match_binding() || ((v.is_ref() || v.is_imm_borrow()) && !v.is_value_rebind()))
 );
-/// E0926's rule judges the expression at `tok`: its defining file is outside
-/// the trees that keep the old reading (`is_deref_rule_exempt`), or the
-/// `YO_AUDIT_DEREF=1` census runs (every file). The machinery a desugared
-/// `for` synthesizes (its hidden borrow and cursor) sits at the `for`
-/// keyword's position, which no name the program wrote shares, and is
-/// compiler code: it keeps the old reading.
+/// E0926's rule judges the expression at `tok`. The path-based exemption
+/// (`is_deref_rule_exempt`) that kept the old reading in std, src, scripts/,
+/// build.yo and the content store was deleted with N3's adoption sweep
+/// (2026-11-06): those trees migrated to the `.*` reading, and every spelled
+/// file is judged alike. Compiler-synthesized code KEEPS the old reading —
+/// the `auto-generated://` expansions (a closure capture's `___dup(r)`, a
+/// derive's generated body) read a reference binding the way their machinery
+/// always did, because the capture/derive machinery does not spell `.*` (the
+/// same reasoning as the `for` desugar guard below; the user-file capture
+/// shape is the R1 lane's open gap, issues/2026-11-06-...-closure-capture).
+/// The `YO_AUDIT_DEREF=1` census forces the rule on through a suspension too.
 deref_rule_applies :: (fn(tok : &Token, ctx : &EvalContext) -> bool)(
-  (audit_deref_on() || (!deref_rule_suspended() && !is_deref_rule_exempt(&tok.module_path.*, &ctx.std_path))) && for_desugar_site_of(tok).is_none()
+  (audit_deref_on() || (!deref_rule_suspended() && !tok.module_path.*.starts_with(String.from("auto-generated://")))) && for_desugar_site_of(tok).is_none()
 );
 /// Whether a WRITTEN `.*` at `tok`, on a reference binding whose referent
-/// is `referent`, is the reference's own deref (N3 deref Generation A,
-/// VERDICTS-34). Where `deref_rule_applies` holds, it always is. The trees
-/// that keep the old reading (std, src, scripts/, build.yo, the store) take
-/// the spelling too, but only for a referent that `.*` does not read through
-/// (`deref_reads_through_pointee`: no `Box`/`Rc`/`Arc` handle, pointer or
-/// field `*`). There a bare `r` and `r.*` name the same value, so the seed,
-/// which reads those trees the old way, and the tree compiler agree on every
-/// line. A read-through referent keeps the old payload reading of `r.*`.
-/// Compiler-synthesized `auto-generated://` code and a desugared `for`'s
-/// hidden machinery never take it. Only the sites that give a written `.*`
-/// its meaning consult this predicate; the sites that reject a bare form
-/// keep `deref_rule_applies`. Generation B (v0.2.77) deletes the exemption,
-/// and with it the difference between the two.
+/// is `referent`, is the reference's own deref. Where `deref_rule_applies`
+/// holds, it always is. While another `yo fix --migrate` mode suspends the
+/// rule (`deref_rule_suspended`), a written `.*` still reads as the deref for
+/// a referent that `.*` does not read through (`deref_reads_through_pointee`:
+/// no `Box`/`Rc`/`Arc` handle, pointer or field `*`), where a bare `r` and
+/// `r.*` name the same value. Compiler-synthesized `auto-generated://` code
+/// and a desugared `for`'s hidden machinery never take it. Only the sites
+/// that give a written `.*` its meaning consult this predicate; the sites
+/// that reject a bare form keep `deref_rule_applies`. (N3 deref Generation A
+/// introduced it for the std/src exemption, which Generation B deleted.)
 deref_spelling_applies :: (fn(tok : &Token, referent : &TypeValue, ctx : &EvalContext) -> bool)(
   deref_rule_applies(tok, ctx) || (!tok.module_path.*.starts_with(String.from("auto-generated://")) && for_desugar_site_of(tok).is_none() && !deref_reads_through_pointee(referent))
 );

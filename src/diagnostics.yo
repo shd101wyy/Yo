@@ -302,6 +302,10 @@ E_RC_PAYLOAD_WRITE :: "E0919";
 /// (issues/fixed/2026-10-17-a-dereference-of-a-borrow-parameter-in-a-closure-reports-an-internal-error.md).
 /// Renumbered from E0919 onto E0920: decision 46's Rc-payload write landed
 /// as E0919 first (#1421), and codes are never renumbered once published.
+/// Since N3's adoption sweep (2026-11-06) this fires only for
+/// compiler-synthesized `auto-generated://` code, which keeps the old
+/// reading (see `deref_rule_applies`): in every spelled file `v.*` on a
+/// reference binding is its deref (E0926's rule).
 E_DEREF_OF_BORROW :: "E0920";
 /// `addr_of(x)` where `x` is a `&T` parameter passed by value, or a place
 /// inside one (a field of a value struct or tuple, an element of an array it
@@ -341,9 +345,9 @@ E_ORIGIN_NAMES_ITSELF :: "E0924";
 /// target of `r = v`, or under `&r`/`&mut r`. A reference is not its
 /// referent: `r.*` reads or writes the value, operators never dereference
 /// (`n + 1` with `n : &i32` is this error), and `.field`, `.method()` and
-/// `r(i)` auto-dereference. Outside std and the compiler tree only, which
-/// keep the old reading until N3 (`is_deref_rule_exempt`). E0920 is retired
-/// there: `.*` on a reference reads its referent.
+/// `r(i)` auto-dereference. Every spelled file alike: the std/src
+/// old-reading exemption (`is_deref_rule_exempt`) was deleted with N3's
+/// adoption sweep (2026-11-06). `.*` on a reference reads its referent.
 E_REFERENCE_READ_WITHOUT_DEREF :: "E0926";
 // Comptime.
 E_COMPTIME_ARGUMENT :: "E1101";
