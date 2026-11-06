@@ -539,9 +539,11 @@ next_global_expr_id :: (fn() -> ExprId)(g_next_global_expr_id);
 /// - a `dyn(v)` of a value that is not a box, `dyn(v)` → `dyn(Rc.new(v))`
 ///   (`evaluate_dyn_value`, `evaluator/values/dyn.yo`).
 /// The rewritten node keeps the id, so its `ExprInfo` is the node's. Every
-/// later reader of such a node — a re-evaluation, `clone_expr_fresh_ids`,
-/// codegen and the evaluator's place walks — reads it through
-/// `ast_rewritten_node`.
+/// later reader of such a node — a re-evaluation, codegen and the
+/// evaluator's place walks — reads it through `ast_rewritten_node`. A
+/// fresh-id clone (`clone_expr_fresh_ids`) is the one reader that does NOT:
+/// it clones the written tree, and the clone's own evaluation re-derives the
+/// rewrite (cloning it materialized the rewrite as source, see there).
 (g_rewritten_nodes : RefCell(HashMap(ExprId, AstExpr))) = RefCell(HashMap(ExprId, AstExpr)).new(HashMap(ExprId, AstExpr).new());
 /// Record `rewritten` as the node its id names, as an evaluator rewrite left
 /// it (`g_rewritten_nodes`).
@@ -615,6 +617,16 @@ _view_children :: (fn(base : &AstExpr) -> AstExpr)(
 /// derived-clone + evaluate writes the ORIGINAL tree's ExprInfo entries
 /// (and id-0 synthesized nodes all collide); use THIS for trial dry-runs,
 /// macro templates/expansions, and quoted-argument binding.
+/// The clone is of the WRITTEN tree, never through `ast_rewritten_node`:
+/// every consumer of a fresh-id clone EVALUATES it (a specialization's body,
+/// a watch revalidation, a trial dry-run), and an evaluation re-derives each
+/// type-directed rewrite itself, as a generic fn's fresh-clone deferred trial
+/// always has. Cloning the rewrite instead MATERIALIZED it — an `r.*` read
+/// the N1e-1 rewrite had turned into the name `r` at the `*` arrived in the
+/// specialization's body as the bare name, and every shape judgment there
+/// (a borrowed `for`'s scrutinee, `y := &r.*`, `match(&r.*, …)`, a receiver
+/// probe, a by-value `match(r.*, …)`) read `r` where the source says `r.*`
+/// (issues/fixed/2026-11-06-a-borrowed-for-over-a-mut-param-is-rejected-when-the-fn-also-takes-an-impl-fn-param.md).
 /// Nodes minted by `clone_expr_fresh_ids` so far — the size of the
 /// specialization / trial-clone population (`YO_SPEC_REPORT=1`,
 /// plans/EVALUATOR_MEMORY_REDUCTION.md Phase 0 step 4).
@@ -622,10 +634,8 @@ _view_children :: (fn(base : &AstExpr) -> AstExpr)(
 cloned_expr_node_count :: (fn() -> usize)(g_cloned_expr_nodes);
 clone_expr_fresh_ids :: (fn(e : &AstExpr) -> AstExpr)({
   g_cloned_expr_nodes = (g_cloned_expr_nodes + usize(1));
-  // A node an evaluator rewrite replaced is cloned as rewritten
-  // (`ast_rewritten_node`).
   match(
-    ast_rewritten_node(e),
+    e,
     .Atom(_, tok) => AstExpr.Atom(alloc_global_expr_id(), tok.clone()),
     .FnCall(_, func_box, Rc(args), is_infix, tok) => {
       new_args := ArrayList(AstExpr).new();
