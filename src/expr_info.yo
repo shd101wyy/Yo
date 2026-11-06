@@ -355,6 +355,37 @@ CaptureFieldInit :: struct(label : String, init : AstExpr, is_borrow : bool);
 // B4-1b: a plain value struct (String + a shared AstExpr handle + bool), so
 // the rare-group deep copy and the setter can spell their copies.
 derive(CaptureFieldInit, Clone);
+/// A place a local borrow freezes, or a place an access touches: a root
+/// variable and the field steps from it (`src/evaluator/utils.yo`'s borrow
+/// machinery, O-1 `access`/`bind`). Defined here because `ExprInfo.origin`
+/// (below) names its entries; the evaluator imports it from this module.
+/// The steps stop at the first step whose receiver is a reference cell
+/// (a `ref` object, `Box`, `Rc`, `Arc`, `Dyn`): below a cell the cell is the
+/// unit (decision 18, rule 2). They also stop at an index, a dereference, or
+/// a member that is not a field of a value aggregate: such a step overlaps
+/// its whole receiver.
+LocalBorrowPlace :: struct(
+  root_name : String,
+  /// The root's declaration token. With the name it identifies the root: a
+  /// variable's `id` changes when a branch reassigns it.
+  root_decl : Token,
+  steps : ArrayList(String),
+  /// A step entered a reference cell: the place is that cell, whole.
+  through_cell : bool,
+  /// The root is a module-level binding (decision 18, rule 3).
+  module_root : bool,
+  /// The place as written, for messages (the steps may be cut short).
+  text : String
+);
+derive(LocalBorrowPlace, Clone);
+/// One ground place an origin-carrying value freezes, with the mode the
+/// reference holding it has (O-1, `ExprInfo.origin`'s entry; decision 43
+/// step 3, T8/T9).
+OriginRootPlace :: struct(
+  place : LocalBorrowPlace,
+  is_mut : bool
+);
+derive(OriginRootPlace, Clone);
 ExprInfoRare :: (
   struct(
     /// Runtime type after comptime-to-runtime conversion (e.g. comptime_str → str).
@@ -398,7 +429,15 @@ ExprInfoRare :: (
     early_return_only_deferred_drop_expressions : Option(ArrayList(AstExpr)),
     /// A capture-list closure's field initializers (decision 35), in field
     /// order; see `CaptureFieldInit`.
-    capture_field_inits : Option(ArrayList(CaptureFieldInit))
+    capture_field_inits : Option(ArrayList(CaptureFieldInit)),
+    /// O-1 (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §3): the computed
+    /// origin of this expression — one `(place, mode)` entry per ground
+    /// place its value freezes — set for every expression whose type carries
+    /// an origin the moment it is typed, read by `bind` at `:=`/`=`/arm and
+    /// element bindings, `lend_through` at a call and `return_check` at a
+    /// result. `.None` on an origin-carrying expression is the totality
+    /// audit's (G-E) finding, never a silent empty set.
+    origin : Option(ArrayList(OriginRootPlace))
   )
 );
 derive(ExprInfoRare, Clone);
@@ -932,7 +971,8 @@ _fresh_expr_info_rare :: (fn() -> ExprInfoRare)(
     is_anonymous_function_definition : Option(bool).None,
     comptime_unrolled_bodies : Option(ArrayList(AstExpr)).None,
     early_return_only_deferred_drop_expressions : Option(ArrayList(AstExpr)).None,
-    capture_field_inits : Option(ArrayList(CaptureFieldInit)).None
+    capture_field_inits : Option(ArrayList(CaptureFieldInit)).None,
+    origin : Option(ArrayList(OriginRootPlace)).None
   )
 );
 /// Take `info`'s rare group out of its cell for a write (a fresh one on the
@@ -949,6 +989,22 @@ _expr_info_rare_put :: (fn(info : &ExprInfo, sink(r) : ExprInfoRare) -> unit)(
 expr_info_converted_runtime_type :: (fn(info : &ExprInfo) -> Option(TypeValue))(
   info.with(d => match(&d.rare, .Some(r) => r.converted_runtime_type.clone(), .None => Option(TypeValue).None))
 );
+/// O-1: the expression's computed origin (see `ExprInfoRare.origin`).
+expr_info_origin :: (fn(info : &ExprInfo) -> Option(ArrayList(OriginRootPlace)))(
+  info.with(d => match(&d.rare, .Some(r) => r.origin.clone(), .None => Option(ArrayList(OriginRootPlace)).None))
+);
+/// O-1: set the expression's computed origin (an empty set is `.Some(empty)`,
+/// distinct from `.None` = not computed).
+expr_info_set_origin :: (fn(info : &ExprInfo, v : &Option(ArrayList(OriginRootPlace))) -> unit)({
+  if(v.is_none() && info.with(d => d.rare.is_none()), {
+    return(());
+  });
+  mut(r) := _expr_info_rare_take(info);
+  r.origin = v.clone();
+  _expr_info_rare_put(info, r);
+  ()
+});
+export(LocalBorrowPlace, OriginRootPlace, expr_info_origin, expr_info_set_origin);
 expr_info_set_converted_runtime_type :: (
   fn(info : &ExprInfo, v : &Option(TypeValue)) -> unit
 )({
