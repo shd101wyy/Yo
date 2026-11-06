@@ -52,7 +52,7 @@
 { type_to_string } :: import("./string.yo");
 { eprintln } :: import("std/fmt");
 { expr_info_adopt_env, expr_info_capture_type, expr_info_index_trait_ptr_type, expr_info_is_anonymous_function_definition } :: import("../expr_info.yo");
-{ RefCell } :: import("std/sync/refcell");
+{ RefCell, cell_list_clone, cell_list_len, cell_list_first } :: import("std/sync/refcell");
 { type_may_provide_slice_source, type_representation_contains_raw_ptr, type_contains_rc_type, type_requires_explicit_copy, type_is_bitwise_copy, collect_type_borrows, CaptureBorrow, is_future_value_type }
 :: import("./utils.yo");
 /// A 1-element mutable box holding the error thrown during a swallowed
@@ -83,9 +83,9 @@ clear_flow_violation :: (fn() -> unit)({
   ()
 });
 /// True iff a rejection was flagged since the last reset.
-flow_violation_pending :: (fn() -> bool)(g_flow_violation_box.with(xs => xs.len()) > usize(0));
+flow_violation_pending :: (fn() -> bool)(g_flow_violation_box.with(cell_list_len) > usize(0));
 /// The flagged rejection, for the def-time caller to re-raise.
-flow_violation_error :: (fn() -> Option(YoError))(g_flow_violation_box.with(xs => xs.get(usize(0))));
+flow_violation_error :: (fn() -> Option(YoError))(g_flow_violation_box.with(cell_list_first));
 /// "Propagate all def-time body-eval errors" mode. Normally `_trial_eval_fn_body`
 /// SWALLOWS any error thrown while evaluating a function body at definition time
 /// (the def-eval wall: it masks def-time body-eval errors so
@@ -133,12 +133,12 @@ record_cee_error_message :: (fn(msg : &String) -> unit)({
   msg_owned := msg.clone();
   g_cee_observed_messages.with_mut({ msg_owned }(xs) => xs.push(msg_owned.clone()));
 });
-cee_observed_messages :: (fn() -> ArrayList(String))(g_cee_observed_messages.with(xs => xs.clone()));
+cee_observed_messages :: (fn() -> ArrayList(String))(g_cee_observed_messages.with(cell_list_clone));
 cee_observed_error :: (fn() -> bool)(
-  match(g_cee_observed_error_box.with(xs => xs.get(usize(0))), .Some(b) => b, .None => false)
+  match(g_cee_observed_error_box.with(cell_list_first), .Some(b) => b, .None => false)
 );
 propagate_def_time_errors :: (fn() -> bool)(
-  match(g_propagate_def_time_errors_box.with(xs => xs.get(usize(0))), .Some(v) => v, .None => false)
+  match(g_propagate_def_time_errors_box.with(cell_list_first), .Some(v) => v, .None => false)
 );
 /// Throw `err`, a deliberate user-facing rejection, flagging it first so a
 /// definition-time swallow re-raises it at `check` time. Not flagged during
@@ -994,7 +994,7 @@ take_deferred_sibling_rules :: (fn(call_id : usize, borrowed : &ArrayList(Captur
   // Snapshot out, compute OUTSIDE the sink callback, write back: the old
   // body mutated `first_unowned`/`remaining` inside `with_mut`'s by-value
   // callback, which cannot carry mutable captures (B8).
-  snapshot := g_deferred_sibling_rules.with(xs => xs.clone());
+  snapshot := g_deferred_sibling_rules.with(cell_list_clone);
   remaining := ArrayList(_DeferredSiblingRule).new();
   (first_unowned : Option(YoError)) = Option(YoError).None;
   (xi : usize) = usize(0);

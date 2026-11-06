@@ -106,7 +106,7 @@ pragma(Pragma.AllowUnsafe);
 { Exception, AnyError } :: import("std/error");
 { analyze_ctfe_capability } :: import("../ctfe/ctfe_analysis.yo");
 { panic, assert } :: import("std/assert");
-{ RefCell } :: import("std/sync/refcell");
+{ RefCell, cell_list_len, cell_list_first_cloned } :: import("std/sync/refcell");
 
 /// The diagnostic evaluation of a `decreases` measure. A lexicographic
 /// measure is the `decreases(M1, M2, ...)` call itself (see the signature
@@ -290,29 +290,29 @@ _clear_trial_swallow :: (fn() -> unit)({
   g_trial_swallow_msg.with_mut(xs => xs.clear());
   g_trial_swallow_diags.with_mut(xs => xs.clear());
 });
-_trial_swallow_pending :: (fn() -> bool)(g_trial_swallow_msg.with(xs => xs.len()) > usize(0));
+_trial_swallow_pending :: (fn() -> bool)(g_trial_swallow_msg.with(cell_list_len) > usize(0));
 /// The swallowed error's code, carried onto a re-raise built from its text.
 _trial_swallow_code :: (fn() -> Option(String))(
-  match(g_trial_swallow_diags.with(xs => xs.get_cloned(usize(0))), .Some(d) => d.code.clone(), .None => Option(String).None)
+  match(g_trial_swallow_diags.with(cell_list_first_cloned), .Some(d) => d.code.clone(), .None => Option(String).None)
 );
 /// The code as census text (`-` for an uncoded error).
 _trial_swallow_code_text :: (fn() -> String)(
   match(_trial_swallow_code(), .Some(c) => c, .None => String.from("-"))
 );
 _trial_swallow_message :: (fn() -> String)(
-  match(g_trial_swallow_msg.with(xs => xs.get_cloned(usize(0))), .Some(m) => m.clone(), .None => String.from(""))
+  match(g_trial_swallow_msg.with(cell_list_first_cloned), .Some(m) => m.clone(), .None => String.from(""))
 );
 /// The swallowed diagnostics, or `.None` when the swallowed error carried
 /// none. Read BEFORE `_clear_trial_swallow()`, like `_trial_swallow_message`.
 _trial_swallow_diagnostics :: (fn() -> Option(ArrayList(Diagnostic)))(
   cond(
-    (g_trial_swallow_diags.with(xs => xs.len()) == usize(0)) => Option(ArrayList(Diagnostic)).None,
+    (g_trial_swallow_diags.with(cell_list_len) == usize(0)) => Option(ArrayList(Diagnostic)).None,
     // Copied element-wise: `Diagnostic` is not `Clone`, so the list cannot be
     // cloned wholesale.
     true => {
       tsd_out := ArrayList(Diagnostic).new();
       (tsd_i : usize) = usize(0);
-      while(tsd_i < g_trial_swallow_diags.with(xs => xs.len()), {
+      while(tsd_i < g_trial_swallow_diags.with(cell_list_len), {
         match(g_trial_swallow_diags.with({ tsd_i }(xs) => xs.get_cloned(tsd_i)), .Some(tsd_d) => tsd_out.push(tsd_d), .None => ());
         tsd_i = (tsd_i + usize(1));
       });
@@ -328,7 +328,7 @@ _trial_swallow_diagnostics :: (fn() -> Option(ArrayList(Diagnostic)))(
 /// whether one was pending before it). Everything else stays swallowed: a
 /// call may still resolve it.
 generic_trial_independent_error :: (fn(fv_was : bool) -> Option(YoError))({
-  if(match(g_trial_swallow_diags.with(xs => xs.get_cloned(usize(0))), .Some(d) => d.generic_independent, .None => false), {
+  if(match(g_trial_swallow_diags.with(cell_list_first_cloned), .Some(d) => d.generic_independent, .None => false), {
     return(Option(YoError).Some(yo_error_from_diagnostics(match(_trial_swallow_diagnostics(), .Some(ds) => ds, .None => ArrayList(Diagnostic).new()))));
   });
   if(!fv_was, {
@@ -1111,14 +1111,14 @@ _build_def_time_body_env :: (
 /// CURRENT caller env (fills visible) and refreshes the original body nodes'
 /// ExprInfos via the id-preserving clone.
 _rerun_pending_def_evals :: (fn(caller_env : &Environment, ctx : &EvalContext) -> Option(YoError))({
-  if(g_rerunning_def_evals || (g_pending_def_evals.with(xs => xs.len()) == usize(0)), {
+  if(g_rerunning_def_evals || (g_pending_def_evals.with(cell_list_len) == usize(0)), {
     return(Option(YoError).None);
   });
   (rp_failure : Option(YoError)) = Option(YoError).None;
   g_rerunning_def_evals = true;
   kept := ArrayList(PendingDefEval).new();
   (rp_i : usize) = usize(0);
-  while(rp_i < g_pending_def_evals.with(xs => xs.len()), {
+  while(rp_i < g_pending_def_evals.with(cell_list_len), {
     match(
       g_pending_def_evals.with({ rp_i }(xs) => xs.get(rp_i)),
       .Some(pd) => {

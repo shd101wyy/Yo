@@ -70,7 +70,7 @@ _(env : warm_dbg_env) :: import("std/env");
 { resolve_all_system_libraries } :: import("./pkg_config.yo");
 { DocCommandOptions, run_doc } :: import("./doc_command.yo");
 { TargetInfo, parse_target, host_target, is_target_windows, is_target_macos, is_target_wasm, _find_available_compiler } :: import("./target.yo");
-{ RefCell } :: import("std/sync/refcell");
+{ RefCell, cell_list_len } :: import("std/sync/refcell");
 // ---------------------------------------------------------------------------
 // Build options
 // ---------------------------------------------------------------------------
@@ -384,7 +384,7 @@ _has_fetchable_unavailable :: (fn(roots : &ImportRoots) -> bool)({
 _import_lines :: (fn() -> ArrayList(String))({
   out := ArrayList(String).new();
   (i : usize) = usize(0);
-  while(i < g_import_lines.with(xs => xs.len()), {
+  while(i < g_import_lines.with(cell_list_len), {
     match(g_import_lines.with(xs => xs.get_cloned(i)), .Some(l) => out.push(l), .None => ());
     i = (i + usize(1));
   });
@@ -548,7 +548,7 @@ _package_import_lines :: (fn(package_dir : &String) -> ArrayList(String))({
     return(_import_lines());
   });
   (i : usize) = usize(0);
-  while(i < g_dep_import_dirs.with(xs => xs.len()), {
+  while(i < g_dep_import_dirs.with(cell_list_len), {
     dir := g_dep_import_dirs.with({ i }(xs) => xs(i).clone());
     if(dir == package_dir, {
       out := ArrayList(String).new();
@@ -567,7 +567,7 @@ _package_import_lines :: (fn(package_dir : &String) -> ArrayList(String))({
 /// Record a package's import closure (see `g_dep_import_dirs`).
 _record_package_import_lines :: (fn(package_dir : &String, lines : &ArrayList(String)) -> unit)({
   (i : usize) = usize(0);
-  while(i < g_dep_import_dirs.with(xs => xs.len()), {
+  while(i < g_dep_import_dirs.with(cell_list_len), {
     dir := g_dep_import_dirs.with({ i }(xs) => xs(i).clone());
     if(dir == package_dir, {
       return(());

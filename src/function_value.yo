@@ -21,7 +21,9 @@
 { t_unit } :: import("./types/creators.yo");
 { debug_knob } :: import("./utils.yo");
 { record_owned_func_id } :: import("./evaluator/values/type_trait_methods.yo");
-{ RefCell } :: import("std/sync/refcell");
+{ RefCell, cell_map_keys_cloned, cell_map_len } :: import("std/sync/refcell");
+/// (seed window) See refcell.yo's filler block; concrete K for the `.into_iter()` chain.
+_capture_info_keys :: (fn(m : &HashMap(String, ClosureCaptureInfo)) -> ArrayList(String))(m.keys_cloned());
 // ---------------------------------------------------------------------------
 // Control-function side-table
 // ---------------------------------------------------------------------------
@@ -204,7 +206,7 @@ register_closure_capture_info :: (fn(func_id : &String, info : &ClosureCaptureIn
 /// callable Func signature. Linear scan — only reached on the non-Func callee
 /// miss path.
 find_closure_fid_by_capture_struct_id :: (fn(struct_id : &String) -> Option(String))({
-  it := g_closure_capture_info.with(m => m.keys_cloned()).into_iter();
+  it := g_closure_capture_info.with(_capture_info_keys).into_iter();
   (out : Option(String)) = Option(String).None;
   (go : bool) = true;
   while(go, {
@@ -455,7 +457,7 @@ fn_has_specializations :: (fn(func_id : &String) -> bool)(
 /// The recorded `Func` type for `func_id`, or `t_unit()` if none was registered.
 /// Every function the evaluator registered a type for (std included) — the
 /// denominator of plans/reference/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §9's number.
-registered_func_type_count :: (fn() -> usize)(g_func_type_registry.with(m => m.len()));
+registered_func_type_count :: (fn() -> usize)(g_func_type_registry.with(cell_map_len));
 get_func_type :: (fn(func_id : &String) -> TypeValue)(
   match(
     g_func_type_registry.with({&func_id}(m) => m.get_cloned(func_id.clone())),

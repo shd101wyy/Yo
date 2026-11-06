@@ -38,6 +38,7 @@
 { emit_inline_await } :: import("./async/state_machine.yo");
 { assemble_chunks } :: import("./chunk_assembly.yo");
 { registered_func_type_count } :: import("../function_value.yo");
+{ RefCell, cell_map_len } :: import("std/sync/refcell");
 /// True if any field of the struct contains a SomeType (generic).
 /// On-demand recovery for a type first seen DURING emission (a lazily-minted
 /// call-site specialization's param/local type — see the hook comment in
@@ -604,7 +605,7 @@ static Slice_uint8_t_u42_ __yo_args;
   if(cg_log_reads, {
     codegen_read_log_set(false);
     ks := codegen_read_keys();
-    eprintln(`[codegen-reads] table=${info.data.with(m => m.len()).to_string()} read=${ks.len().to_string()}`);
+    eprintln(`[codegen-reads] table=${info.data.with(cell_map_len).to_string()} read=${ks.len().to_string()}`);
     kit := ks.into_iter();
     (kgo : bool) = true;
     while(kgo, {

@@ -16,7 +16,7 @@
 { ArrayList } :: import("std/collections/array_list");
 { HashSet } :: import("std/collections/hash_set");
 { Exception, AnyError } :: import("std/error");
-{ RefCell } :: import("std/sync/refcell");
+{ RefCell, cell_opt_is_none } :: import("std/sync/refcell");
 { TypeTag } :: import("../types/tags.yo");
 { Token } :: import("../token.yo");
 { format_error_message, format_coded_error } :: import("../error.yo");
@@ -200,7 +200,7 @@ is_primitive_type_tag :: (fn(t : TypeTag) -> bool)(
 /// `with`/`replace` read and take it.
 (g_codegen_error : RefCell(Option(AnyError))) = RefCell(Option(AnyError)).new(Option(AnyError).None);
 _record_codegen_error :: (fn(err : AnyError) -> unit)(
-  if(g_codegen_error.with(o => o.is_none()), {
+  if(g_codegen_error.with(cell_opt_is_none), {
     g_codegen_error.replace(Option(AnyError).Some(err));
   })
 );

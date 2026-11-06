@@ -49,7 +49,7 @@ import("std/fmt");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 { type_is_comptime_only_full } :: import("../trait_checking.yo");
 { _ctfe_args_equal } :: import("../calls/comptime_fn.yo");
-{ RefCell } :: import("std/sync/refcell");
+{ RefCell, cell_list_len } :: import("std/sync/refcell");
 evaluate_struct_type :: (
   fn(
     expr : &AstExpr,
@@ -411,7 +411,7 @@ derive(_CellInstance, Clone);
 /// `Rc(Node)` do.
 _cell_instance_id :: (fn(is_atomic : bool, v : &TypeValue) -> String)({
   given := EvalValue.TypeVal(v.clone());
-  n := g_cell_instances.with(xs => xs.len());
+  n := g_cell_instances.with(cell_list_len);
   (i : usize) = usize(0);
   while(i < n, {
     match(

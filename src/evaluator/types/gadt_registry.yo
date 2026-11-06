@@ -19,7 +19,7 @@ pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { TypeValue } :: import("../../types/definitions.yo");
-{ RefCell } :: import("std/sync/refcell");
+{ RefCell, cell_list_len } :: import("std/sync/refcell");
 // ---------------------------------------------------------------------------
 // Per-definition variant args
 // ---------------------------------------------------------------------------
@@ -45,7 +45,7 @@ get_gadt_variant_args :: (
   fn(enum_id : &String) -> Option(ArrayList(ArrayList(TypeValue)))
 )({
   (i : usize) = usize(0);
-  n := g_gadt_entries.with(xs => xs.len());
+  n := g_gadt_entries.with(cell_list_len);
   (found : Option(ArrayList(ArrayList(TypeValue)))) = Option(ArrayList(ArrayList(TypeValue))).None;
   while((i < n) && match(&found, .None => true, .Some(_) => false), {
     eid := g_gadt_entries.with(xs => xs(i).enum_id.clone());
@@ -82,7 +82,7 @@ get_gadt_type_constructor_args :: (
   fn(enum_id : &String) -> Option(ArrayList(TypeValue))
 )({
   (i : usize) = usize(0);
-  n := g_gadt_tca_entries.with(xs => xs.len());
+  n := g_gadt_tca_entries.with(cell_list_len);
   (found : Option(ArrayList(TypeValue))) = Option(ArrayList(TypeValue)).None;
   while((i < n) && match(&found, .None => true, .Some(_) => false), {
     eid := g_gadt_tca_entries.with(xs => xs(i).enum_id.clone());

@@ -183,7 +183,7 @@ json :: import("std/encoding/json");
 { ref_spill_counter_reset } :: import("./codegen/exprs/other_fn_call.yo");
 { closure_capture_counter_reset } :: import("./codegen/exprs/closures.yo");
 { panic, assert } :: import("std/assert");
-{ RefCell } :: import("std/sync/refcell");
+{ RefCell, cell_list_len, cell_map_len } :: import("std/sync/refcell");
 // Temporary C source path used during compilation.
 C_TMP :: "/tmp/yo_self_out.c";
 extract_bare_import_path :: (fn(e : &AstExpr) -> Option(String))(
@@ -9447,7 +9447,7 @@ run_compile :: (
   openssl_ok := (!is_target_windows(&target) && !is_target_wasm(&target) && _probe_openssl(io));
   if(openssl_ok, {
     (oii : usize) = usize(0);
-    while(oii < g_openssl_includes.with(xs => xs.len()), {
+    while(oii < g_openssl_includes.with(cell_list_len), {
       oinc0 := match(g_openssl_includes.with(xs => xs.get_cloned(oii)), .Some(x) => x, .None => String.new());
       _arg_c := cmd.arg(`-I${oinc0}`);
       oii = (oii + usize(1));
@@ -9522,7 +9522,7 @@ run_compile :: (
   // build, with the linker naming the missing library.
   if(openssl_ok, {
     (ol : usize) = usize(0);
-    while(ol < g_openssl_libdirs.with(xs => xs.len()), {
+    while(ol < g_openssl_libdirs.with(cell_list_len), {
       olib := match(g_openssl_libdirs.with(xs => xs.get_cloned(ol)), .Some(x) => x, .None => String.new());
       _arg_c := cmd.arg(`-L${olib}`);
       ol = (ol + usize(1));
@@ -9759,7 +9759,7 @@ TEST_BATCH_SIZE :: usize(100);
 /// Entries in the shared codegen ExprInfoTable (0 outside `compile`), for
 /// `--profile`'s per-phase memory lines.
 _shared_table_entries :: (fn() -> usize)(
-  match(mm_shared_expr_info_table(), .Some(t) => t.data.with(m => m.len()), .None => usize(0))
+  match(mm_shared_expr_info_table(), .Some(t) => t.data.with(cell_map_len), .None => usize(0))
 );
 derive(TestDecl, Clone);
 _current_rss_mb :: (fn() -> usize)(

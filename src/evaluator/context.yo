@@ -51,7 +51,14 @@
 { YoError } :: import("../error.yo");
 { Exception } :: import("std/error");
 { fnv1a64, debug_knob, canonical_module_path, TopLevelAnchor, register_top_level_anchors } :: import("../utils.yo");
-{ RefCell } :: import("std/sync/refcell");
+{ RefCell, cell_list_len, cell_map_keys_cloned, cell_map_len, cell_map_values_cloned, cell_value_clone, cell_list_last } :: import("std/sync/refcell");
+/// (seed window) Concrete key/value variants of refcell.yo's
+/// `cell_map_keys_cloned`/`cell_map_values_cloned` for the `.into_iter()`
+/// chains: a fn value generic over K re-spells K's bounds and the
+/// IntoIterator lookup fails on it (see refcell.yo's filler block).
+_finished_walk_values :: (fn(m : &HashMap(String, ModuleWalk)) -> ArrayList(ModuleWalk))(m.values_cloned());
+_def_dep_keys :: (fn(m : &HashMap(String, HashSet(String))) -> ArrayList(String))(m.keys_cloned());
+_module_ordered_read_keys :: (fn(m : &HashMap(String, HashMap(String, HashSet(String)))) -> ArrayList(String))(m.keys_cloned());
 // ---------------------------------------------------------------------------
 // Phase V1 contract diagnostics (plans/backlog/FORMAL_VERIFICATION.md)
 // ---------------------------------------------------------------------------
@@ -1004,7 +1011,7 @@ restore_module_walk :: (fn(prev : &Option(ArrayList(AstExpr)), prev_idx : usize)
   g_module_begin_expr_index = prev_idx;
   ()
 });
-get_module_begin_exprs :: (fn() -> Option(ArrayList(AstExpr)))(g_module_begin_exprs.with(o => o.clone()));
+get_module_begin_exprs :: (fn() -> Option(ArrayList(AstExpr)))(g_module_begin_exprs.with(cell_value_clone));
 get_module_begin_expr_index :: (fn() -> usize)(g_module_begin_expr_index);
 /// Does this binding LHS bind `name`? (Atom head, `comptime(X) ...`, a typed
 /// `(X : T)` head — the module-global spelling `(g : T) = v` — or a
@@ -1088,7 +1095,7 @@ forward_ref_diagnostic :: (fn(msg : &String) -> Option(String))({
         .Some(me) => {
           name := msg.substring(after, me);
           match(
-            g_module_begin_exprs.with(o => o.clone()),
+            g_module_begin_exprs.with(cell_value_clone),
             .None => Option(String).None,
             .Some(exprs) => {
               n := exprs.len();
@@ -1453,7 +1460,7 @@ set_walk_context_retained :: (fn(path : &String, keep : bool) -> unit)({
     _removed := g_retained_walk_paths.with_mut(({ canon_rm }(s) => s.remove(&canon_rm)));
     // `ModuleWalk` is a ref struct: releasing through the value handle
     // releases the table's walk.
-    walk_values := g_finished_walks.with(m => m.values_cloned()).into_iter();
+    walk_values := g_finished_walks.with(_finished_walk_values).into_iter();
     wopt := walk_values.next();
     // The loop body closure captures its OWN clone once; reading `canon`
     // itself per iteration is a move (the capture) reused per iteration.
@@ -1478,7 +1485,7 @@ set_walk_context_retained :: (fn(path : &String, keep : bool) -> unit)({
 /// syntactically from the pending definition instead.
 is_module_ghost_fn_def :: (fn(path : &String, name : &String) -> bool)({
   canon := canonical_module_path(path);
-  (wi : usize) = g_module_walks.with(xs => xs.len());
+  (wi : usize) = g_module_walks.with(cell_list_len);
   while(wi > usize(0), {
     wi = (wi - usize(1));
     match(
@@ -1511,7 +1518,7 @@ is_module_ghost_fn_def :: (fn(path : &String, name : &String) -> bool)({
 /// holds its evaluation context; `.None` when that module has no finished walk.
 finished_walk_has_context :: (fn(path : &String) -> Option(bool))({
   canon := canonical_module_path(path);
-  walk_values := g_finished_walks.with(m => m.values_cloned()).into_iter();
+  walk_values := g_finished_walks.with(_finished_walk_values).into_iter();
   wopt := walk_values.next();
   while(wopt.is_some(), {
     match(
@@ -1530,7 +1537,7 @@ finished_walk_has_context :: (fn(path : &String) -> Option(bool))({
 /// context. The CTFE-clone purge test's probe.
 finished_walk_expr_info_count :: (fn(path : &String) -> Option(usize))({
   canon := canonical_module_path(path);
-  walk_values := g_finished_walks.with(m => m.values_cloned()).into_iter();
+  walk_values := g_finished_walks.with(_finished_walk_values).into_iter();
   wopt := walk_values.next();
   while(wopt.is_some(), {
     match(
@@ -1870,7 +1877,7 @@ def_dependents_closure :: (fn(seeds : &ArrayList(String)) -> ArrayList(String))(
       .Some(s) => s.clone(),
       .None => String.new()
     );
-    kit := g_def_deps.with(m => m.keys_cloned()).into_iter();
+    kit := g_def_deps.with(_def_dep_keys).into_iter();
     kopt := kit.next();
     while(kopt.is_some(), {
       match(
@@ -1899,7 +1906,7 @@ def_dependents_closure :: (fn(seeds : &ArrayList(String)) -> ArrayList(String))(
 /// the invalidator drops each returned importer at file granularity.
 ordered_readers_of :: (fn(target_module : &String, names : &ArrayList(String)) -> ArrayList(String))({
   out := ArrayList(String).new();
-  iit := g_module_ordered_reads.with(m => m.keys_cloned()).into_iter();
+  iit := g_module_ordered_reads.with(_module_ordered_read_keys).into_iter();
   iopt := iit.next();
   while(iopt.is_some(), {
     match(
@@ -2147,7 +2154,7 @@ note_reference_impl_head :: (fn(head : &String) -> unit)({
   ()
 });
 /// Whether any `impl(&C, …)` / `impl(&mut C, …)` has been seen.
-reference_impls_seen :: (fn() -> bool)(g_reference_impl_heads.with(m => (m.len() > usize(0))));
+reference_impls_seen :: (fn() -> bool)((g_reference_impl_heads.with(cell_map_len) > usize(0)));
 /// Whether a reference impl of the head name `head` has been seen.
 reference_impl_head_noted :: (fn(head : &String) -> bool)({
   head_owned := head.clone();
@@ -2212,21 +2219,27 @@ _impl_expr_declares_move_only :: (fn(e : &AstExpr) -> bool)(
   )
 );
 /// Force the unforced pending impls of `type_name` that declare `Drop`
+/// (seed window) The empty-name probe as a named fn: an empty-env closure
+/// literal at `with`'s generic-`R` slot spills a mistyped C temp under the
+/// v0.2.75 seed (std/sync/refcell.yo's filler block). Inline the literal back
+/// once `SEED_VERSION` carries the spill fix.
+_pending_heads_has_empty :: (fn(m : &HashMap(String, bool)) -> bool)(m.contains_key(String.new()));
+
 /// (plans/VALUES_BY_DEFAULT.md §3.4): a type's move-only status
 /// decides how every use of it is evaluated, so its impl cannot wait for a
 /// method miss or the module end. True when an impl was forced.
 force_pending_move_only_impls :: (fn(type_name : &String) -> bool)({
-  if(g_pending_move_only_heads.with(m => m.len()) == usize(0), {
+  if(g_pending_move_only_heads.with(cell_map_len) == usize(0), {
     return(false);
   });
-  if(!(g_pending_move_only_heads.with({ &type_name }(m) => m.contains_key(type_name.clone())) || g_pending_move_only_heads.with(m => m.contains_key(String.new()))), {
+  if(!(g_pending_move_only_heads.with({ &type_name }(m) => m.contains_key(type_name.clone())) || g_pending_move_only_heads.with(_pending_heads_has_empty)), {
     return(false);
   });
   type_name_owned := type_name.clone();
   g_pending_move_only_heads.with_mut({ type_name_owned }(m) => m.remove(type_name_owned.clone()));
   g_pending_move_only_heads.with_mut(m => m.remove(String.new()));
   (forced : bool) = false;
-  (wi : usize) = g_module_walks.with(xs => xs.len());
+  (wi : usize) = g_module_walks.with(cell_list_len);
   while(wi > usize(0), {
     wi = (wi - usize(1));
     match(
@@ -2623,7 +2636,7 @@ unmark_dot_callee :: (fn() -> unit)({
   _ := g_dot_callee_ids.with_mut(xs => xs.pop());
 });
 is_dot_callee :: (fn(id : usize) -> bool)({
-  (i : usize) = g_dot_callee_ids.with(xs => xs.len());
+  (i : usize) = g_dot_callee_ids.with(cell_list_len);
   while(i > usize(0), {
     i = (i - usize(1));
     if(match(g_dot_callee_ids.with({ i }(xs) => xs.get(i)), .Some(v) => (v == id), .None => false), {
@@ -2786,7 +2799,7 @@ _def_variable_for :: (fn(walk : &ModuleWalk, def : &PendingDef, name : &String) 
 /// The innermost active walk for `module_path`.
 _active_walk_for :: (fn(module_path : &String) -> Option(ModuleWalk))({
   (found : Option(ModuleWalk)) = Option(ModuleWalk).None;
-  (i : usize) = g_module_walks.with(xs => xs.len());
+  (i : usize) = g_module_walks.with(cell_list_len);
   while((i > usize(0)) && found.is_none(), {
     i = (i - usize(1));
     match(
@@ -2830,7 +2843,7 @@ cyclic_definition_message :: (fn(def : &PendingDef) -> String)({
   out := String.from("cyclic definition: ");
   (started : bool) = false;
   (i : usize) = usize(0);
-  while(i < g_forcing_stack.with(xs => xs.len()), {
+  while(i < g_forcing_stack.with(cell_list_len), {
     match(
       g_forcing_stack.with(xs => xs.get_cloned(i)),
       .Some(d) => {
@@ -3016,12 +3029,12 @@ module_frame_variable :: (fn(walk : &ModuleWalk, name : &String) -> Option(Varia
 /// Drop walks above `depth` — the walker's abort edge (an error unwound
 /// through it) resets the stacks to what they were when it started.
 truncate_module_walks :: (fn(depth : usize) -> unit)({
-  while(g_module_walks.with(xs => xs.len()) > depth, {
+  while(g_module_walks.with(cell_list_len) > depth, {
     g_module_walks.with_mut(xs => xs.pop());
   });
 });
 truncate_forcing_stack :: (fn(depth : usize) -> unit)({
-  while(g_forcing_stack.with(xs => xs.len()) > depth, {
+  while(g_forcing_stack.with(cell_list_len) > depth, {
     match(
       g_forcing_stack.with_mut(xs => xs.pop()),
       // An entry abandoned mid-force: leave it re-forceable rather than
@@ -3325,7 +3338,7 @@ force_pending_impls_for_type_name :: (fn(type_name : &String, missed : &Option(S
   // later impls as it did while derives were ordered statements.
   (in_own_impl : bool) = false;
   (fi : usize) = usize(0);
-  while(fi < g_forcing_stack.with(xs => xs.len()), {
+  while(fi < g_forcing_stack.with(cell_list_len), {
     match(
       g_forcing_stack.with(xs => xs.get_cloned(fi)),
       .Some(fd) => if((fd.is_impl && !(fd.is_derive())) && (fd.name == type_name), {
@@ -3376,7 +3389,7 @@ force_pending_impls_for_type_name :: (fn(type_name : &String, missed : &Option(S
 _force_pending_impls_pass :: (fn(type_name : &String, declaring : &Option(String), derives_only : bool) -> PendingImplOutcome)({
   (forced : bool) = false;
   (err : Option(String)) = Option(String).None;
-  (wi : usize) = g_module_walks.with(xs => xs.len());
+  (wi : usize) = g_module_walks.with(cell_list_len);
   (innermost : usize) = wi;
   while((wi > usize(0)) && err.is_none(), {
     wi = (wi - usize(1));
@@ -3515,7 +3528,7 @@ pop_impl_in_flight :: (fn() -> unit)({
   ()
 });
 truncate_impls_in_flight :: (fn(depth : usize) -> unit)({
-  while(g_impls_in_flight.with(xs => xs.len()) > depth, {
+  while(g_impls_in_flight.with(cell_list_len) > depth, {
     g_impls_in_flight.with_mut(xs => xs.pop());
   });
 });
@@ -3532,7 +3545,7 @@ truncate_impls_in_flight :: (fn(depth : usize) -> unit)({
 ForcingDepths :: struct(walks : usize, forcing : usize, impls : usize);
 derive(ForcingDepths, Copy, Clone);
 forcing_depths :: (fn() -> ForcingDepths)(
-  ForcingDepths(walks : g_module_walks.with(xs => xs.len()), forcing : g_forcing_stack.with(xs => xs.len()), impls : g_impls_in_flight.with(xs => xs.len()))
+  ForcingDepths(walks : g_module_walks.with(cell_list_len), forcing : g_forcing_stack.with(xs => xs.len()), impls : g_impls_in_flight.with(xs => xs.len()))
 );
 truncate_forcing_depths :: (fn(d : ForcingDepths) -> unit)({
   truncate_module_walks(d.walks);
@@ -3542,7 +3555,7 @@ truncate_forcing_depths :: (fn(d : ForcingDepths) -> unit)({
 /// The newest in-flight impl on `recv_id`, if any.
 newest_impl_in_flight_for :: (fn(recv_id : &String) -> Option(ImplInFlight))({
   (found : Option(ImplInFlight)) = Option(ImplInFlight).None;
-  (i : usize) = g_impls_in_flight.with(xs => xs.len());
+  (i : usize) = g_impls_in_flight.with(cell_list_len);
   while((i > usize(0)) && found.is_none(), {
     i = (i - usize(1));
     match(

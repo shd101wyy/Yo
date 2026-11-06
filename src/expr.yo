@@ -11,7 +11,7 @@ pragma(Pragma.AllowUnsafe);
 { format_error_message, with_code, YoError } :: import("./error.yo");
 { E_DELETED_SPELLING } :: import("./diagnostics.yo");
 { Exception } :: import("std/error");
-{ RefCell } :: import("std/sync/refcell");
+{ RefCell, cell_map_len, cell_set_len } :: import("std/sync/refcell");
 /// The borrow marker each `match(&x, …)` / `match(&mut x, …)` was written
 /// with (plans/VALUES_BY_DEFAULT.md decisions 26 and 33): 1 for `&`, 2 for
 /// `&mut`. The desugar peels the marker so every consumer of the tree reads a
@@ -25,7 +25,7 @@ _borrowed_match_site_key :: (fn(tok : &Token) -> String)(`${tok.module_path.*}:$
 /// `match(&x, …)`, 2 for `match(&mut x, …)`.
 borrowed_match_scrutinee_kind :: (fn(tok : &Token) -> u8)(
   cond(
-    (g_borrowed_match_sites.with(m => m.len()) == usize(0)) => u8(0),
+    (g_borrowed_match_sites.with(cell_map_len) == usize(0)) => u8(0),
     true => match(g_borrowed_match_sites.with({&tok}(m) => m.get(_borrowed_match_site_key(tok))), .Some(k) => k, .None => u8(0))
   )
 );
@@ -52,7 +52,7 @@ register_mut_binding :: (fn(decl : &Token, name : &String) -> unit)({
 });
 /// True if the binding `name` declared at `decl` was declared `mut(name)`.
 is_mut_binding :: (fn(decl : &Token, name : &String) -> bool)({
-  if(g_mut_binder_sites.with(s => s.len()) == usize(0), {
+  if(g_mut_binder_sites.with(cell_set_len) == usize(0), {
     return(false);
   });
   key := _binder_site_key(decl, name);
@@ -67,7 +67,7 @@ register_thread_local_binding :: (fn(decl : &Token, name : &String) -> unit)({
 });
 /// True if the binding `name` declared at `decl` was `thread_local(name)`.
 is_thread_local_binding :: (fn(decl : &Token, name : &String) -> bool)({
-  if(g_thread_local_binder_sites.with(s => s.len()) == usize(0), {
+  if(g_thread_local_binder_sites.with(cell_set_len) == usize(0), {
     return(false);
   });
   key := _binder_site_key(decl, name);
@@ -562,7 +562,7 @@ _recorded_rewrite :: (fn(e : &AstExpr) -> Option(AstExpr))(
 /// `e` as the evaluator rewrote it (`note_rewritten_node`), or `e` itself.
 /// Its children are as built; a walk that recurses reads each through here.
 ast_rewritten_node :: (fn(e : &AstExpr) -> AstExpr)({
-  if(g_rewritten_nodes.with(m => m.len()) == usize(0), {
+  if(g_rewritten_nodes.with(cell_map_len) == usize(0), {
     return(e);
   });
   match(_recorded_rewrite(e), .Some(r) => r, .None => e)
@@ -572,7 +572,7 @@ ast_rewritten_node :: (fn(e : &AstExpr) -> AstExpr)({
 /// into a child without recursing through here: an emitter that takes a
 /// call's `.` callee apart, a field access's object, an assignment's place.
 ast_rewritten_view :: (fn(e : &AstExpr) -> AstExpr)({
-  if(g_rewritten_nodes.with(m => m.len()) == usize(0), {
+  if(g_rewritten_nodes.with(cell_map_len) == usize(0), {
     return(e);
   });
   _view_children(&ast_rewritten_node(e))
@@ -2288,7 +2288,7 @@ _wrap_glob_destructure :: (fn(decl : &AstExpr) -> AstExpr)({
 /// synthesized a node at `tok`'s position, or `.None`.
 for_desugar_site_of :: (fn(tok : &Token) -> Option(AstExpr))(
   cond(
-    (g_for_desugar_sites.with(m => m.len()) == usize(0)) => Option(AstExpr).None,
+    (g_for_desugar_sites.with(cell_map_len) == usize(0)) => Option(AstExpr).None,
     true => g_for_desugar_sites.with({&tok}(m) => m.get(_borrowed_match_site_key(tok)))
   )
 );

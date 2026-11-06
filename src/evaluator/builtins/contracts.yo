@@ -80,7 +80,7 @@
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 { assert, panic } :: import("std/assert");
 { expr_info_adopt_env, expr_info_macro_expansion, lookup_method_callee_value, note_stripped_statement, is_stripped_statement } :: import("../../expr_info.yo");
-{ RefCell } :: import("std/sync/refcell");
+{ RefCell, cell_list_len, cell_set_len, cell_value_clone } :: import("std/sync/refcell");
 /// Evaluate any of the no-op contract markers (`requires` / `ensures` /
 /// `invariant` / `ghost` in expression position). Each argument is evaluated
 /// (so expression-level errors surface), but the call itself returns `unit`.
@@ -168,7 +168,7 @@ set_verify_target_paths :: (fn(paths : &ArrayList(String)) -> unit)({
 _is_verify_target :: (fn(module_path : &String) -> bool)({
   (found : bool) = false;
   (i : usize) = usize(0);
-  while((i < g_verify_target_paths.with(xs => xs.len())) && !found, {
+  while((i < g_verify_target_paths.with(cell_list_len)) && !found, {
     match(
       g_verify_target_paths.with(xs => xs.get_cloned(i)),
       .Some(p) => if(p == module_path, {
@@ -1480,7 +1480,7 @@ index_unchecked_twin_of :: (fn(node_id : ExprId) -> Option(EvalValue))(
 );
 /// How many distinct guards codegen elided since the last clear.
 elided_guard_count :: (fn() -> usize)(
-  g_elided_guard_nodes.with(s => s.len())
+  g_elided_guard_nodes.with(cell_set_len)
 );
 /// Did a proof record exactly this node, this class, and this node's own
 /// canonical position? Any mismatch is `false`.
@@ -1562,7 +1562,7 @@ resolve_verify_mode :: (fn(module_path : &String) -> String)(
     file_has_pragma(Option(String).Some(module_path.clone()), Pragma.Verify) => String.from("verify"),
     file_has_pragma(Option(String).Some(module_path.clone()), Pragma.VerifyOrAssert) => String.from("verify+"),
     true => match(
-      g_verify_mode_override.with(o => o.clone()),
+      g_verify_mode_override.with(cell_value_clone),
       .Some(m) => m,
       .None => String.from("runtime")
     )
@@ -1574,7 +1574,7 @@ resolve_verify_mode :: (fn(module_path : &String) -> String)(
 register_verify_task :: (fn(t : &VerifyTask) -> unit)({
   (dup : bool) = false;
   (i : usize) = usize(0);
-  while((i < g_verify_tasks.with(xs => xs.len())) && !dup, {
+  while((i < g_verify_tasks.with(cell_list_len)) && !dup, {
     match(
       g_verify_tasks.with(xs => xs.get(i)),
       .Some(prev) => if(prev.fn_id == t.fn_id, {

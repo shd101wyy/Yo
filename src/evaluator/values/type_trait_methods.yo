@@ -48,7 +48,11 @@
 { AstExpr } :: import("../../expr.yo");
 { canonical_module_path, debug_knob, set_current_owner, owner_logs_enabled, OwnedKeys, owned_keys_new, owned_keys_record, owned_keys_take } :: import("../../utils.yo");
 { eprintln } :: import("std/fmt");
-{ RefCell } :: import("std/sync/refcell");
+{ RefCell, cell_map_keys_cloned, cell_map_len } :: import("std/sync/refcell");
+/// (seed window) See refcell.yo's filler block; concrete K/V for the `.into_iter()` chains.
+_ttm_keys :: (fn(m : &HashMap(String, ArrayList(MethodEntry))) -> ArrayList(String))(m.keys_cloned());
+_ttm_site_owners_keys :: (fn(m : &HashMap(String, String)) -> ArrayList(String))(m.keys_cloned());
+_ttm_defaults_keys :: (fn(m : &HashMap(String, EvalValue)) -> ArrayList(String))(m.keys_cloned());
 /// Extract the unique `id` string from a `TypeValue` variant that
 /// carries one (Struct / EnumT / TraitT / SomeT). Returns
 /// the empty string for variants that don't — method lookup is
@@ -434,7 +438,7 @@ purge_type_trait_methods_owned_by :: (fn(owner : &String) -> unit)({
   upd_keys := ArrayList(String).new();
   upd_lists := ArrayList(ArrayList(MethodEntry)).new();
   upd_owners := ArrayList(ArrayList(String)).new();
-  it := _type_trait_methods.with(m => m.keys_cloned()).into_iter();
+  it := _type_trait_methods.with(_ttm_keys).into_iter();
   (go : bool) = true;
   while(go, {
     match(
@@ -492,7 +496,7 @@ purge_type_trait_methods_owned_by :: (fn(owner : &String) -> unit)({
 /// one caller that collects them.
 type_trait_method_values_owned_by :: (fn(owner : &String) -> ArrayList(EvalValue))({
   out := ArrayList(EvalValue).new();
-  it := _type_trait_methods.with(m => m.keys_cloned()).into_iter();
+  it := _type_trait_methods.with(_ttm_keys).into_iter();
   (go : bool) = true;
   while(go, {
     match(
@@ -524,7 +528,7 @@ type_trait_method_values_owned_by :: (fn(owner : &String) -> ArrayList(EvalValue
 /// Total registered method entries across all type ids (LSP leak gate).
 type_trait_methods_entry_count :: (fn() -> usize)({
   (total : usize) = usize(0);
-  it := _type_trait_methods.with(m => m.keys_cloned()).into_iter();
+  it := _type_trait_methods.with(_ttm_keys).into_iter();
   (go : bool) = true;
   while(go, {
     match(
@@ -751,7 +755,7 @@ purge_inherent_method_sites_owned_by :: (fn(owner : &String) -> unit)({
   });
 });
 /// Recorded inherent-method sites (the watch-round plateau probe).
-inherent_method_site_count :: (fn() -> usize)(_inherent_method_sites.with(m => m.len()));
+inherent_method_site_count :: (fn() -> usize)(_inherent_method_sites.with(cell_map_len));
 /// TRAIT-IMPL sites (plans/reference/TRAIT_COHERENCE.md rules 1–2), keyed by
 /// `type_id` + newline + the trait's instantiation key, valued by the impl's
 /// `module_path:row:column`. A registration from a DIFFERENT site is a second
@@ -810,7 +814,7 @@ purge_trait_impl_sites_owned_by :: (fn(owner : &String) -> unit)({
     return(());
   });
   stale := ArrayList(String).new();
-  it := _trait_impl_site_owners.with(m => m.keys_cloned()).into_iter();
+  it := _trait_impl_site_owners.with(_ttm_site_owners_keys).into_iter();
   (go : bool) = true;
   while(go, {
     match(
@@ -851,7 +855,7 @@ register_trait_default :: (fn(trait_id : &String, label : &String, value : &Eval
   _trait_method_defaults.with_mut({ tmd_key, tmd_val }(m) => m.insert(tmd_key, tmd_val));
 });
 /// Registered trait defaults (the B2 plateau test's probe).
-trait_default_entry_count :: (fn() -> usize)(_trait_method_defaults.with(m => m.len()));
+trait_default_entry_count :: (fn() -> usize)(_trait_method_defaults.with(cell_map_len));
 /// Drop the trait defaults `owner`'s evaluation registered (its traits are
 /// re-minted under fresh ids when it is re-evaluated).
 purge_trait_defaults_owned_by :: (fn(owner : &String) -> unit)({

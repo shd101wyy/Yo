@@ -72,7 +72,7 @@ pragma(Pragma.AllowUnsafe);
 { get_func_param_comptime } :: import("../types/function.yo");
 { evaluate_comptime_fn_call } :: import("./comptime_fn.yo");
 { Exception } :: import("std/error");
-{ RefCell } :: import("std/sync/refcell");
+{ RefCell, cell_list_first_cloned } :: import("std/sync/refcell");
 // ---------------------------------------------------------------------------
 // Private types
 // ---------------------------------------------------------------------------
@@ -215,7 +215,7 @@ _cached_range_type :: (
   fn(inclusive : bool, env : &Environment, ctx : &mut EvalContext) -> Option(TypeValue)
 )(
   match(
-    if(inclusive, g_range_incl_ty_cache.with(xs => xs.get_cloned(usize(0))), g_range_ty_cache.with(xs => xs.get_cloned(usize(0)))),
+    if(inclusive, g_range_incl_ty_cache.with(cell_list_first_cloned), g_range_ty_cache.with(cell_list_first_cloned)),
     .Some(hit) => Option(TypeValue).Some(hit),
     .None => {
       name := if(inclusive, String.from("RangeInclusive"), String.from("Range"));

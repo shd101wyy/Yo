@@ -26,7 +26,7 @@
 { eprintln } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
 { HashSet } :: import("std/collections/hash_set");
-{ RefCell } :: import("std/sync/refcell");
+{ RefCell, cell_list_len } :: import("std/sync/refcell");
 { HashMap } :: import("std/collections/hash_map");
 { fnv1a64, stable_id_module_path } :: import("../../utils.yo");
 { TokenKind } :: import("../../token.yo");
@@ -1666,7 +1666,7 @@ erased_future_result_type_string :: (fn(t : &TypeValue, context : &mut CodeGenCo
 _gts_stack_contains :: (fn(sid : &String) -> bool)({
   (mut(found) : bool) = false;
   (mut(i) : usize) = usize(0);
-  n := g_gts_some_stack.with(xs => xs.len());
+  n := g_gts_some_stack.with(cell_list_len);
   while((i < n) && !found, {
     match(
       g_gts_some_stack.with({ i }(xs) => xs.get_cloned(i)),

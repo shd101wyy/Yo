@@ -137,7 +137,7 @@ pragma(Pragma.AllowUnsafe);
   pattern_const_values
 } :: import("./pattern_compile.yo");
 { Exception, AnyError } :: import("std/error");
-{ RefCell } :: import("std/sync/refcell");
+{ RefCell, cell_list_len } :: import("std/sync/refcell");
 // ---------------------------------------------------------------------------
 // Local helpers
 // ---------------------------------------------------------------------------
@@ -323,7 +323,7 @@ _evaluate_guard_block :: (fn(g : &AstExpr, env : &Environment, ctx : &mut EvalCo
   _evaluate_guard_block_inner(g, env, ctx, out);
   cond(
     (out.len() > usize(0)) => Option(AnyError).None,
-    (g_guard_block_err.with(xs => xs.len()) == usize(0)) => Option(AnyError).None,
+    (g_guard_block_err.with(cell_list_len) == usize(0)) => Option(AnyError).None,
     true => g_guard_block_err.with_mut(xs => xs.pop())
   )
 });

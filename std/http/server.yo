@@ -37,6 +37,7 @@ import("../string");
 { RefCell } :: import("../sync/refcell");
 { HttpError, HttpHeader, HeaderMap, StatusCode, HttpRequest, HttpResponse, parse_request } :: import("./http.yo");
 { read_http_message, MessageKind } :: import("./wire.yo");
+{ RefCell, cell_value_clone } :: import("std/sync/refcell");
 /// Default ceiling on a request (headers + body): 16 MiB.
 DEFAULT_MAX_REQUEST_BYTES :: (usize(16) * (usize(1024) * usize(1024)));
 /// Write `resp` to `stream`, with `Connection: close` unless it names a
@@ -159,7 +160,7 @@ impl(
       Impl(Future(unit, IoExn))
   )(
     io.async(e => {
-      while(!self.stopped.with(b => b.clone()), {
+      while(!self.stopped.with(cell_value_clone), {
         got := e.io.await(self._accept_request(e.io), e);
         match(
           got,

@@ -20,7 +20,7 @@
 { TypeValue } :: import("../../types/definitions.yo");
 { EvalValue } :: import("../../value.yo");
 { Arch, is_target_wasm } :: import("../../target.yo");
-{ RefCell } :: import("std/sync/refcell");
+{ RefCell, cell_list_len } :: import("std/sync/refcell");
 // ---------------------------------------------------------------------------
 // Constraint tables
 // ---------------------------------------------------------------------------
@@ -500,7 +500,7 @@ _join_comma :: (fn(parts : &ArrayList(String)) -> String)({
 });
 (g_asm_temp_counter : RefCell(ArrayList(usize))) = RefCell(ArrayList(usize)).new(ArrayList(usize).new());
 _next_asm_temp :: (fn() -> usize)({
-  n := g_asm_temp_counter.with(xs => xs.len());
+  n := g_asm_temp_counter.with(cell_list_len);
   g_asm_temp_counter.with_mut(xs => xs.push(n));
   n
 });

@@ -31,7 +31,7 @@
 //! via the `g_size_of_type_fn` / `g_alignment_of_type_fn` slots).
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
-{ RefCell } :: import("std/sync/refcell");
+{ RefCell, cell_list_len, cell_map_len } :: import("std/sync/refcell");
 { eprintln } :: import("std/fmt");
 { debug_knob } :: import("../utils.yo");
 { ArrayList } :: import("std/collections/array_list");
@@ -512,13 +512,13 @@ register_capture_borrows :: (fn(struct_id : &String, borrows : &ArrayList(Captur
 /// The borrow entries recorded for the capture struct `struct_id`.
 capture_struct_borrows :: (fn(struct_id : &String) -> Option(ArrayList(CaptureBorrow)))(
   cond(
-    (g_capture_borrows.with(m => m.len()) == usize(0)) => Option(ArrayList(CaptureBorrow)).None,
+    (g_capture_borrows.with(cell_map_len) == usize(0)) => Option(ArrayList(CaptureBorrow)).None,
     true => g_capture_borrows.with({&struct_id}(m) => m.get_cloned(struct_id))
   )
 );
 /// Some capture list has recorded a borrow: the fast path of every check that
 /// looks for one.
-capture_borrows_exist :: (fn() -> bool)((g_capture_borrows.with(m => m.len()) > usize(0)) || g_future_origins_exist);
+capture_borrows_exist :: (fn() -> bool)((g_capture_borrows.with(cell_map_len) > usize(0)) || g_future_origins_exist);
 /// The place a borrow entry names, as written: `s.items`.
 capture_borrow_place_string :: (fn(b : &CaptureBorrow) -> String)({
   out := b.root_name.clone();
@@ -538,7 +538,7 @@ capture_borrow_place_string :: (fn(b : &CaptureBorrow) -> String)({
 /// second-class type may not be a generic argument of a type constructor.
 collect_type_borrows :: (fn(ty : &TypeValue, out : &mut ArrayList(CaptureBorrow)) -> unit)(
   cond(
-    ((g_capture_borrows.with(m => m.len()) == usize(0)) && !g_future_origins_exist) => (),
+    ((g_capture_borrows.with(cell_map_len) == usize(0)) && !g_future_origins_exist) => (),
     true => _collect_type_borrows_inner(ty, out, u32(0))
   )
 );
@@ -557,7 +557,7 @@ note_unreturnable_future :: (fn(fut_id : &String, b : &CaptureBorrow) -> unit)({
 /// The borrow that keeps the future `ty` from being returned
 /// (`note_unreturnable_future`), through its wrapper and resolution chain.
 future_unreturnable_borrow :: (fn(ty : &TypeValue) -> Option(CaptureBorrow))({
-  if(g_unreturnable_futures.with(m => m.len()) == usize(0), {
+  if(g_unreturnable_futures.with(cell_map_len) == usize(0), {
     return(Option(CaptureBorrow).None);
   });
   (cur : TypeValue) = Rc.clone(ty);
@@ -707,7 +707,7 @@ _collect_type_borrows_inner :: (fn(ty_in : &TypeValue, out : &mut ArrayList(Capt
 /// 38 A's type-position rule rejects it.
 type_pointee_second_class :: (fn(ty : &TypeValue) -> Option(TypeValue))(
   cond(
-    (g_capture_borrows.with(m => m.len()) == usize(0)) => Option(TypeValue).None,
+    (g_capture_borrows.with(cell_map_len) == usize(0)) => Option(TypeValue).None,
     true => _pointee_second_class_inner(ty, u32(0))
   )
 );
@@ -773,7 +773,7 @@ _pointee_second_class_inner :: (fn(ty_in : &TypeValue, depth : u32) -> Option(Ty
 /// constructor's argument.
 type_is_second_class :: (fn(ty : &TypeValue) -> bool)(
   cond(
-    ((g_capture_borrows.with(m => m.len()) == usize(0)) && !g_future_origins_exist) => false,
+    ((g_capture_borrows.with(cell_map_len) == usize(0)) && !g_future_origins_exist) => false,
     true => {
       bs := ArrayList(CaptureBorrow).new();
       _collect_type_borrows_inner(ty, &mut bs, u32(0));
@@ -1057,7 +1057,7 @@ escapable_bound_error :: (fn(ty : &TypeValue, label : &String, tok : &Token) -> 
 /// The first `mut` capture-list borrow `ty` carries (decision 38 B: such a
 /// value is lent exclusively, and it is move-only), if any.
 type_first_mut_borrow :: (fn(ty : &TypeValue) -> Option(CaptureBorrow))({
-  if(g_capture_borrows.with(m => m.len()) == usize(0), {
+  if(g_capture_borrows.with(cell_map_len) == usize(0), {
     return(Option(CaptureBorrow).None);
   });
   bs := ArrayList(CaptureBorrow).new();
@@ -1079,7 +1079,7 @@ type_first_mut_borrow :: (fn(ty : &TypeValue) -> Option(CaptureBorrow))({
 /// `mut` capture itself.
 _capture_struct_declares_mut :: (fn(ty : &TypeValue) -> bool)(
   cond(
-    (g_capture_borrows.with(m => m.len()) == usize(0)) => false,
+    (g_capture_borrows.with(cell_map_len) == usize(0)) => false,
     true => match(
       ty,
       Rc(.Struct({ id : sid })) => match(
@@ -1117,7 +1117,7 @@ mark_fnmut_capture_struct :: (fn(struct_id : &String) -> unit)({
 /// slot typed `FnMut`.
 capture_struct_typed_fnmut :: (fn(ty : &TypeValue) -> bool)(
   cond(
-    (g_fnmut_capture_struct_ids.with(m => m.len()) == usize(0)) => false,
+    (g_fnmut_capture_struct_ids.with(cell_map_len) == usize(0)) => false,
     true => match(resolution_chain_end(ty), Rc(.Struct({ id : cf_sid })) => g_fnmut_capture_struct_ids.with({ &cf_sid }(m) => m.contains_key(cf_sid)), _ => false)
   )
 );
@@ -3578,7 +3578,7 @@ derive(_ReprMemoEntry, Clone);
 (mut(g_repr_allocator_opaque) : bool) = false;
 _repr_path_contains :: (fn(ty : &TypeValue) -> bool)({
   (i : usize) = usize(0);
-  while(i < g_repr_path.with(xs => xs.len()), {
+  while(i < g_repr_path.with(cell_list_len), {
     if(match(g_repr_path.with({ i }(xs) => xs.get_cloned(i)), .Some(p) => __yo_ptr_eq(&p, ty), .None => false), {
       return(true);
     });

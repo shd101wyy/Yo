@@ -15,7 +15,7 @@ pragma(Pragma.AllowUnsafe);
 { is_type_hierarchy_type, is_unit_type, is_some_type, enum_decl_identity, is_prelude_enum_decl } :: import("./guards.yo");
 { is_bound_closure_identity, resolve_cell_chain, enum_phantom_type_args_masked, type_mentions_some_type } :: import("./utils.yo");
 { debug_knob } :: import("../utils.yo");
-{ RefCell } :: import("std/sync/refcell");
+{ RefCell, cell_list_len } :: import("std/sync/refcell");
 (g_struct_cfid_keys : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
 
 // Enum structural-signature dedup (the enum analogue of g_struct_cfid_keys).
@@ -864,7 +864,7 @@ type_identity_cacheable :: (fn(ty : &TypeValue) -> bool)({
   key_epoch := type_key_epoch();
   answer := !type_mentions_some_type(ty);
   if(key_epoch == type_key_epoch(), {
-    if(g_tk_cacheable_handles.with(xs => xs.len()) >= TYPE_IDENTITY_CACHE_CAP, {
+    if(g_tk_cacheable_handles.with(cell_list_len) >= TYPE_IDENTITY_CACHE_CAP, {
       g_tk_cacheable_handles.with_mut(xs => xs.clear());
       g_tk_cacheable_answers.with_mut(xs => xs.clear());
     });

@@ -36,7 +36,7 @@ pragma(Pragma.AllowUnsafe);
 { stat } :: import("std/libc/sys/stat");
 { GlobalAllocator } :: import("std/allocator");
 { evaluate_expression_raw } :: import("./expr.yo");
-{ RefCell } :: import("std/sync/refcell");
+{ RefCell, cell_list_len } :: import("std/sync/refcell");
 // ---------------------------------------------------------------------------
 // _file_exists_sync
 // ---------------------------------------------------------------------------
@@ -98,7 +98,7 @@ clear_import_roots :: (fn() -> unit)({
 });
 lookup_import_unavailable :: (fn(name : &String) -> Option(String))({
   (i : usize) = usize(0);
-  while(i < g_import_unavailable_names.with(xs => xs.len()), {
+  while(i < g_import_unavailable_names.with(cell_list_len), {
     matches := match(g_import_unavailable_names.with({ i }(xs) => xs.get_cloned(i)), .Some(n) => (n == name), .None => false);
     if(matches, {
       match(
@@ -115,7 +115,7 @@ lookup_import_unavailable :: (fn(name : &String) -> Option(String))({
 });
 lookup_import_root :: (fn(name : &String) -> Option(String))({
   (i : usize) = usize(0);
-  while(i < g_import_root_names.with(xs => xs.len()), {
+  while(i < g_import_root_names.with(cell_list_len), {
     // `.get(i)` copies the element out: indexing a module-level container
     // for a `ref` argument is rejected (a callee could reallocate it).
     matches := match(g_import_root_names.with({ i }(xs) => xs.get_cloned(i)), .Some(n) => (n == name), .None => false);

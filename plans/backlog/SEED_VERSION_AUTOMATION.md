@@ -409,6 +409,22 @@ takes `f : &mut Impl(FnMut(...))`; `fn_slot_admits_capture_fnmut` and the
 and the three corpus rows are rewritten. `Fn` stays only at
 `thread.spawn_blocking`'s `sink(cb)` and the http `handler`.
 
+**Seed-gated residue (delete when `SEED_VERSION` carries the ref-spill
+fix):** the switch exposed that a capture-free closure LITERAL at an
+`&mut Impl(FnMut(...))` slot whose trait signature mentions a type variable
+the callee's generics solve (`RefCell.with`'s `R`, `Option.map`'s `B`) keeps
+an abstract `Impl` ExprInfo type, and the caller-side ref-spill temp lowers
+to `void*` where the specialization's capture-struct pointer is expected —
+ill-typed C under a seed with the old codegen
+(`issues/2026-11-06-a-closure-literal-at-a-generic-fnmut-ref-slot-spills-void.md`;
+the fix rides in the same PR, but a seed cannot fix itself). Until the
+published seed carries it, the compiler's own ~300 empty-env reads at those
+slots spell a NAMED function value instead: the exported `cell_*` filler
+family in `std/sync/refcell.yo`, `_ch_*` in `std/async/channel.yo`, and a
+few file-local concrete helpers (`_mm_count_keys`, `_ttm_keys`,
+`_finished_walk_values`, `_pending_heads_has_empty`, …). Inline the
+literals back and delete the fillers in the release after the fix ships.
+
 Decision 43's N1f (v0.2.75) added the closure trait `FnMut(...)`
 (`plans/VALUES_BY_DEFAULT.md` decision 37, its 2026-11-03 as-built note;
 VERDICTS-15). std could not name `FnMut` while the seed that compiled it did

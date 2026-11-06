@@ -121,6 +121,30 @@ _ChannelState :: (fn(comptime(T) : Type) -> comptime(Type))(
     _senders : usize
   )
 );
+
+/// Named-function fillers for the `_ChannelState` reads at `with` slots: an
+/// empty-env closure literal at `with`'s generic-`R` slot spills a mistyped C
+/// temp under a seed whose codegen predates the ref-spill fix
+/// (issues/2026-11-06-a-closure-literal-at-a-generic-fnmut-ref-slot-spills-void.md;
+/// the shared `cell_*` fillers live in `std/sync/refcell.yo`). Inline the
+/// literals back once `SEED_VERSION` carries the spill fix.
+_ch_no_receiver_or_space :: (fn(generic(T : Type), s : &_ChannelState(T)) -> bool)(
+  (s._closed || (s._recv_dropped || (s._buf.len() < s._capacity)))
+);
+_ch_closed_or_recv_dropped :: (fn(generic(T : Type), s : &_ChannelState(T)) -> bool)(
+  (s._closed || s._recv_dropped)
+);
+_ch_has_value_or_closed :: (fn(generic(T : Type), s : &_ChannelState(T)) -> bool)(
+  ((s._buf.len() > usize(0)) || s._closed)
+);
+_ch_full_closed_or_dropped :: (fn(generic(T : Type), s : &_ChannelState(T)) -> bool)(
+  (s._closed || (s._recv_dropped || (s._buf.len() >= s._capacity)))
+);
+_ch_recv_waiters_len :: (fn(generic(T : Type), s : &_ChannelState(T)) -> usize)(s._recv_waiters.len());
+_ch_send_waiters_len :: (fn(generic(T : Type), s : &_ChannelState(T)) -> usize)(s._send_waiters.len());
+_ch_is_closed :: (fn(generic(T : Type), s : &_ChannelState(T)) -> bool)(s._closed);
+_ch_buf_len :: (fn(generic(T : Type), s : &_ChannelState(T)) -> usize)(s._buf.len());
+
 impl(
   generic(T : Type),
   _ChannelState(T),
@@ -188,7 +212,7 @@ impl(
     io.async({ ch : self.clone(), value }(io : Io) => {
       (mut(waiting) : bool) = true;
       while(waiting, {
-        if(ch._st.with(s => (s._closed || (s._recv_dropped || (s._buf.len() < s._capacity)))), {
+        if(ch._st.with(_ch_no_receiver_or_space), {
           waiting = false;
         });
         if(waiting, {
@@ -201,7 +225,7 @@ impl(
         });
       });
       cond(
-        ch._st.with(s => (s._closed || s._recv_dropped)) => return(Result(unit, T).Err(value)),
+        ch._st.with(_ch_closed_or_recv_dropped) => return(Result(unit, T).Err(value)),
         true => {
           // No suspension between the capacity check and this push, so no
           // other task can interleave (single-threaded cooperative loop).
@@ -218,7 +242,7 @@ impl(
     io.async({ ch : self.clone() }(io : Io) => {
       (mut(waiting) : bool) = true;
       while(waiting, {
-        if(ch._st.with(s => ((s._buf.len() > usize(0)) || s._closed)), {
+        if(ch._st.with(_ch_has_value_or_closed), {
           waiting = false;
         });
         if(waiting, {
@@ -240,7 +264,7 @@ impl(
   /// if the channel is full, closed, or has no `Receiver` any more.
   try_send : (fn(self : &Self, value : T) -> Result(unit, T))(
     cond(
-      self._st.with(s => (s._closed || (s._recv_dropped || (s._buf.len() >= s._capacity)))) => Result(unit, T).Err(value),
+      self._st.with(_ch_full_closed_or_dropped) => Result(unit, T).Err(value),
       true => {
         self._push(value);
         self._wake_one_receiver();
@@ -301,7 +325,7 @@ impl(
     // Skip waiters whose task was cancelled: their park refuses the wake, and
     // the next waiter must get it instead (a lost wake here is a hang).
     (mut(woken) : bool) = false;
-    while(!woken && (self._st.with(s => s._recv_waiters.len()) > usize(0)), {
+    while(!woken && (self._st.with(_ch_recv_waiters_len) > usize(0)), {
       w := self._st.with_mut(s => s._recv_waiters.remove(usize(0)));
       w.wake();
       woken = w.is_woken();
@@ -312,7 +336,7 @@ impl(
     // Skip waiters whose task was cancelled: their park refuses the wake, and
     // the next waiter must get it instead (a lost wake here is a hang).
     (mut(woken) : bool) = false;
-    while(!woken && (self._st.with(s => s._send_waiters.len()) > usize(0)), {
+    while(!woken && (self._st.with(_ch_send_waiters_len) > usize(0)), {
       w := self._st.with_mut(s => s._send_waiters.remove(usize(0)));
       w.wake();
       woken = w.is_woken();
@@ -320,7 +344,7 @@ impl(
   }),
   /// Wake every suspended sender and drop the queue.
   _wake_all_senders : (fn(self : &Self) -> unit)({
-    while(self._st.with(s => s._send_waiters.len()) > usize(0), {
+    while(self._st.with(_ch_send_waiters_len) > usize(0), {
       w := self._st.with_mut(s => s._send_waiters.remove(usize(0)));
       w.wake();
     });
@@ -328,18 +352,18 @@ impl(
   /// Wake every suspended task on both sides.
   _wake_all : (fn(self : &Self) -> unit)({
     self._wake_all_senders();
-    while(self._st.with(s => s._recv_waiters.len()) > usize(0), {
+    while(self._st.with(_ch_recv_waiters_len) > usize(0), {
       w := self._st.with_mut(s => s._recv_waiters.remove(usize(0)));
       w.wake();
     });
   }),
   /// True once `close()` has been called.
   is_closed : (fn(self : &Self) -> bool)(
-    self._st.with(s => s._closed)
+    self._st.with(_ch_is_closed)
   ),
   /// Number of values currently buffered.
   len : (fn(self : &Self) -> usize)(
-    self._st.with(s => s._buf.len())
+    self._st.with(_ch_buf_len)
   ),
   /// Buffer `value` (moved in). Internal: the callers check the capacity.
   _push : (fn(self : &Self, value : T) -> unit)(
