@@ -422,7 +422,11 @@ published seed carries it, the compiler's own ~300 empty-env reads at those
 slots spell a NAMED function value instead: the exported `cell_*` filler
 family in `std/sync/refcell.yo`, `_ch_*` in `std/async/channel.yo`, and a
 few file-local concrete helpers (`_mm_count_keys`, `_ttm_keys`,
-`_finished_walk_values`, `_pending_heads_has_empty`, …). Inline the
+`_finished_walk_values`, `_pending_heads_has_empty`, the `_c_*` per-payload
+fillers, …). The `Rc(RefCell(Data))` getters that V5 part B introduced
+(`Variable`, `Frame`, `Environment`, `ExprInfo`, `PendingDef`, `ModuleWalk`
+and their rare groups) read through file-local `_vh_*` helpers the same way
+(`_vh_<payload>_<getter>`, beside each type's impl or getter). Inline the
 literals back and delete the fillers in the release after the fix ships.
 
 Decision 43's N1f (v0.2.75) added the closure trait `FnMut(...)`
