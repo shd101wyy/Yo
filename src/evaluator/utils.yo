@@ -6707,6 +6707,23 @@ variable_is_reference_binding :: (fn(v : &Variable) -> bool)(
 deref_rule_applies :: (fn(tok : &Token, ctx : &EvalContext) -> bool)(
   (audit_deref_on() || (!deref_rule_suspended() && !is_deref_rule_exempt(&tok.module_path.*, &ctx.std_path))) && for_desugar_site_of(tok).is_none()
 );
+/// Whether a WRITTEN `.*` at `tok`, on a reference binding whose referent
+/// is `referent`, is the reference's own deref (N3 deref Generation A,
+/// VERDICTS-34). Where `deref_rule_applies` holds, it always is. The trees
+/// that keep the old reading (std, src, scripts/, build.yo, the store) take
+/// the spelling too, but only for a referent that `.*` does not read through
+/// (`deref_reads_through_pointee`: no `Box`/`Rc`/`Arc` handle, pointer or
+/// field `*`). There a bare `r` and `r.*` name the same value, so the seed,
+/// which reads those trees the old way, and the tree compiler agree on every
+/// line. A read-through referent keeps the old payload reading of `r.*`.
+/// Compiler-synthesized `auto-generated://` code and a desugared `for`'s
+/// hidden machinery never take it. Only the sites that give a written `.*`
+/// its meaning consult this predicate; the sites that reject a bare form
+/// keep `deref_rule_applies`. Generation B (v0.2.77) deletes the exemption,
+/// and with it the difference between the two.
+deref_spelling_applies :: (fn(tok : &Token, referent : &TypeValue, ctx : &EvalContext) -> bool)(
+  deref_rule_applies(tok, ctx) || (!tok.module_path.*.starts_with(String.from("auto-generated://")) && for_desugar_site_of(tok).is_none() && !deref_reads_through_pointee(referent))
+);
 /// Whether a judged site records instead of rejecting: `yo fix --migrate
 /// deref` or the census.
 deref_rule_recording :: (fn() -> bool)(migrate_deref_on() || audit_deref_on());
@@ -8924,6 +8941,7 @@ export(
   variable_is_reference_binding,
   deref_operand_is_raw_pointer,
   deref_rule_applies,
+  deref_spelling_applies,
   deref_rule_recording,
   reject_reference_without_deref,
   local_borrow_is_binding_stmt,
