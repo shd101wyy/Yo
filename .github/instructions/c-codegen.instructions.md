@@ -387,6 +387,15 @@ source order.
   An `.Outer` entry's slot is `sm-><sm_capture_slot>.<name>`
   (`sm_slot_of_variable` takes the context's `sm_capture_slot`, which a fused
   await site renames).
+- **A fused wrapper is emitted inside the caller's match arm but is not in its
+  scope.** The arm state (`local_shadowed_variables`, `shadow_bindings`,
+  `shadow_slots`, `place_bindings`) is keyed by name and `_generate_sm_atom`
+  consults it before any variable lookup, so `emit_fused_await` takes it out
+  (`_leave_caller_arms`) around the wrapper's parameters, prologue, capture and
+  block. The arm bindings' drops leave the two escape-drop lists for the same
+  span: the dispose releases those slots. Any new path that emits one
+  function's nodes inside another's has to do the same
+  (issues/fixed/2026-11-07-a-fused-await-reads-the-callers-match-binding-of-the-wrappers-name.md).
 - **A consuming read of a slot takes the value where the consuming line
   runs** (`_sm_consuming_read`, via `Emitter.defer_move_zero`'s
   `/*yo_mv:…*/` marker): the evaluator's `consumed_at_token` is that atom. A

@@ -276,6 +276,20 @@ in the compiler's own code. The full recipe is in
 
 - Run `gdb` on `./a.out` to debug generated C code.
 - Stick with C11 standard — no GNU extensions.
+- On a Linux box with `ptrace_scope=1`, `gdb -p` is refused. Start the process
+  under gdb instead (`gdb -batch -ex run -ex "thread apply all bt" --args …`;
+  the repo's nix shell has gdb), or sample a spinning thread with
+  `perf record -e cpu-clock -g -t <tid>`, which needs neither ptrace nor a PMU.
+- **A compiler that prints its result and then spins is a double free, until
+  shown otherwise.** mimalloc's release build does not detect one; it leaves a
+  cycle in a page's free list, and the walk of that list at thread exit
+  (`mi_theap_collect_ex`) never ends. Recompile the emitted C on glibc's malloc
+  (`clang … -I scripts/bootstrap/libc_mimalloc`) and run it under gdb: it dies
+  at the bad `free`
+  (issues/fixed/2026-11-07-a-fused-await-reads-the-callers-match-binding-of-the-wrappers-name.md).
+- **A CLI golden with `rc=124` is not evidence of a slow case.** Read its stdout
+  diff first: a kept stdout that reaches the summary means the run finished and
+  the process did not exit, and a larger `timeout=` only waits longer for it.
 
 ## Output debugging
 

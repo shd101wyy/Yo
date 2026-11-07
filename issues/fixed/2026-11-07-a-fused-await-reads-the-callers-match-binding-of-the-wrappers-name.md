@@ -40,14 +40,16 @@ _checked :: (fn(n : i32, io : Io) -> Impl(Future(i32, IoExn)))({
   })
 });
 _caller :: (fn(io : Io) -> Impl(Future(i32, IoExn)))(
-  io.async(e => match(
-    Option(i32).Some(i32(50)),
-    .Some(n) => {
-      v := e.io.await(_checked(i32(4), e.io), e);
-      v + n
-    },
-    .None => i32(0)
-  ))
+  io.async(
+    e => match(
+      Option(i32).Some(i32(50)),
+      .Some(n) => {
+        v := e.io.await(_checked(i32(4), e.io), e);
+        v + n
+      },
+      .None => i32(0)
+    )
+  )
 );
 ```
 

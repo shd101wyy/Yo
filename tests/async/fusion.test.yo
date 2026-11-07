@@ -328,14 +328,16 @@ test("mutually recursive wrappers compile, and are not fused into each other", {
 // (issues/fixed/2026-11-07-a-fused-await-reads-the-callers-match-binding-of-the-wrappers-name.md).
 // The arm's `n` against `_checked`'s parameter `n`, read by its prologue.
 _arm_binds_a_parameter_name :: (fn(io : Io) -> Impl(Future(i32, IoExn)))(
-  io.async(e => match(
+  io.async(
+    e => match(
       Option(i32).Some(i32(50)),
       .Some(n) => {
         v := e.io.await(_checked(i32(4), e.io), e);
         v + n
       },
       .None => i32(0)
-    ))
+    )
+  )
 );
 test("a caller's arm binding does not shadow a fused wrapper's parameter", {
   exn := Exception(
@@ -351,14 +353,16 @@ test("a caller's arm binding does not shadow a fused wrapper's parameter", {
 });
 // The arm's `k` against `_checked`'s prologue local `k`, read by its block.
 _arm_binds_a_local_name :: (fn(io : Io) -> Impl(Future(i32, IoExn)))(
-  io.async(e => match(
+  io.async(
+    e => match(
       Option(i32).Some(i32(50)),
       .Some(k) => {
         v := e.io.await(_checked(i32(4), e.io), e);
         v + k
       },
       .None => i32(0)
-    ))
+    )
+  )
 );
 test("a caller's arm binding does not shadow a fused wrapper's local", {
   exn := Exception(
@@ -382,14 +386,16 @@ _len_plus_one :: (fn(sink(name) : String, io : Io) -> Impl(Future(usize, IoExn))
   })
 );
 _arm_binds_a_sink_name :: (fn(io : Io) -> Impl(Future(usize, IoExn)))(
-  io.async(e => match(
+  io.async(
+    e => match(
       Option(String).Some(String.from("the arm's own binding")),
       .Some(name) => {
         v := e.io.await(_len_plus_one(String.from("arg"), e.io), e);
         v + name.len()
       },
       .None => usize(0)
-    ))
+    )
+  )
 );
 test("a caller's arm binding does not shadow a fused wrapper's sink parameter", {
   exn := Exception(
@@ -407,14 +413,16 @@ test("a caller's arm binding does not shadow a fused wrapper's sink parameter", 
 // name is no pointer, so it must not be read through one.
 _arm_binds_a_place_of_the_name :: (fn(o : &Option(i32), io : Io) -> Impl(Future(i32, IoExn)))({
   own := o.*;
-  io.async(e => match(
+  io.async(
+    e => match(
       &own,
       .Some(n) => {
         v := e.io.await(_checked(i32(4), e.io), e);
         v + n.*
       },
       .None => i32(0)
-    ))
+    )
+  )
 });
 test("a borrowing arm binding does not shadow a fused wrapper's parameter", {
   exn := Exception(
@@ -440,14 +448,16 @@ _throws_with_arm_binding :: (fn(sink(name) : String, io : Io) -> Impl(Future(usi
   })
 );
 _arm_alive_across_a_fused_throw :: (fn(io : Io) -> Impl(Future(usize, IoExn)))(
-  io.async(e => match(
+  io.async(
+    e => match(
       Option(String).Some(String.from("the arm's own binding")),
       .Some(name) => {
         v := e.io.await(_throws_with_arm_binding(String.from("arg"), e.io), e);
         v + name.len()
       },
       .None => usize(0)
-    ))
+    )
+  )
 );
 _caught_with_arm_binding :: (fn(io : Io) -> bool)({
   exn := Exception(

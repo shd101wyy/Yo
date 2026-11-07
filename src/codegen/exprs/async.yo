@@ -2410,17 +2410,14 @@ _leave_caller_arms :: (fn(context : &mut FunctionGenerationContext) -> _CallerAr
 });
 /// Back in the caller's match arms, as `_leave_caller_arms` found them.
 _reenter_caller_arms :: (fn(sink(scope) : _CallerArmScope, context : &mut FunctionGenerationContext) -> unit)(
-  match(
-    scope,
-    { shadowed : sh, bindings : bi, slots : sl, places : pl, pending : pe, consumed : co } => {
-      context.local_shadowed_variables = sh;
-      context.shadow_bindings = bi;
-      context.shadow_slots = sl;
-      context.place_bindings = pl;
-      context.pending_deferred_drops = pe;
-      context.consumed_var_pending_drops = co;
-    }
-  )
+  match(scope, { shadowed : sh, bindings : bi, slots : sl, places : pl, pending : pe, consumed : co } => {
+    context.local_shadowed_variables = sh;
+    context.shadow_bindings = bi;
+    context.shadow_slots = sl;
+    context.place_bindings = pl;
+    context.pending_deferred_drops = pe;
+    context.consumed_var_pending_drops = co;
+  })
 );
 /// Lower `await_expr` as a fused site, or return `.None` to leave it to the
 /// ordinary suspension. Returns the C code of the await's value.
