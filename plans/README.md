@@ -307,6 +307,21 @@ against the libc build. The compiler and its release bundles stay hosted
 static musl. Every runtime phase starts only after VALUES_BY_DEFAULT so
 the cycle collector that decision 48 deletes is never ported onto the
 seam; the std-only P3 (formatting) and P7 (DNS) may start now.
+[`IO_INTERFACE_AND_STD_RUNTIME`](backlog/IO_INTERFACE_AND_STD_RUNTIME.md)
+(2026-11-07, VERDICTS-32) makes `Io` Zig's shape: a `{ctx, vtable}` value,
+like `Allocator`, that carries every operation the event loop mediates. The
+`std/sys` operations dispatch through it, and a test can hand code a
+simulated `Io`. `io.async`/`await`/`spawn`/`state` stay compiler operations,
+and the stackless transform is untouched. The emitted C runtime stays where
+it is, as the interface's native implementation behind a written-down
+future ABI; NO_LIBC §2's "no" is reaffirmed, with an epoll-port experiment
+after P9. IO-1a/IO-1b/IO-1c land in v0.2.80–v0.2.82, before NO_LIBC P0b.
+[`THREAD_POOL_OWNED_WORKERS_AND_SHARED_QUEUE`](backlog/THREAD_POOL_OWNED_WORKERS_AND_SHARED_QUEUE.md)
+(2026-11-07, same consult) retires "thread-per-core", since no affinity was
+ever set. A `ThreadPool` owns exactly `n` workers, and dropping it joins
+them. Unstarted tasks share one queue, which fixes an S2 head-of-line
+blocking. Each worker keeps its own event loop, and pinning is explicit
+(`spawn_on`). It is TP-1, in v0.2.80.
 [`KEBAB_CASE_NAMES`](backlog/KEBAB_CASE_NAMES.md) (2026-10-30) makes every name
 that is only a string kebab-case: package names now (v0.2.74, `markdown-yo`;
 npm `@shd101wyy/markdown-yo`), the four other example projects and the `.yo`

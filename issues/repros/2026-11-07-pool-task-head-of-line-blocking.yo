@@ -1,0 +1,22 @@
+pragma(Pragma.AllowUnsafe);
+{ printf } :: import("std/libc/stdio");
+{ ThreadPool, spawn } :: import("std/thread");
+{ sleep } :: import("std/time/sleep");
+{ Duration } :: import("std/time/duration");
+{ Instant } :: import("std/time/instant");
+main :: (fn() -> unit)({
+  pool := ThreadPool.new(usize(2));
+  start := Instant.now();
+  spawn(&pool, (io : Io) => {
+    io.await(sleep(Duration.from_millis(i64(2000)), io), io);
+  });
+  spawn(&pool, (io : Io) => {
+    ();
+  });
+  spawn(&pool, { start }(io : Io) => {
+    unsafe(printf("third task started after %ld ms\n", start.elapsed().as_millis()));
+  });
+  pool.join_all();
+  unsafe(printf("all done after %ld ms\n", start.elapsed().as_millis()));
+});
+export(main);
