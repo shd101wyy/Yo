@@ -484,9 +484,10 @@ judged; `is_deref_rule_exempt`'s std/src trees are deleted. Three parts remain:
   The prelude's `impl(*T, …)` family and an old-reading user file still need it.
 
 The migrated tree cannot be built by the v0.2.75 seed, because that seed
-reads `.*` on a borrow inside std and src as E0920. It is built by a
-tree-binary chain instead: the seed builds the deletion commit, and that
-binary builds the tree.
+reads `.*` on a borrow inside std and src as E0920. It is Generation B of a
+seed split (VERDICTS-34): v0.2.76 ships Generation A, which lets std and src
+read a written `r.*` where both readings agree, and this branch opens once
+`SEED_VERSION` is v0.2.76.
 
 ## Seed-gated follow-up (2026-11-02): V5 cells — `Rc`/`Arc` become views over `__yo_cell`
 
