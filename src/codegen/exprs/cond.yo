@@ -252,7 +252,7 @@ _emit_value_arm :: (fn(value : &AstExpr, value_indent : &String, temp_var_opt : 
 /// first block's declaration of the same name no longer counts
 /// (issues/fixed/2026-10-22-a-dup-temp-in-a-wrapper-awaited-twice-is-undeclared-at-the-second-site.md).
 _temp_is_declared :: (fn(temp_var_opt : &Option(String), context : &FunctionGenerationContext) -> bool)(
-  match(temp_var_opt, .Some(tv) => context.base.declared_scopes.with(ds_s => scope_stack_contains(ds_s, &tv)), .None => false)
+  match(temp_var_opt, .Some(tv) => context.base.declared_scopes.with({ &tv }(ds_s) => scope_stack_contains(ds_s, tv)), .None => false)
 );
 /// Whether an arm value carries deferred `___dup`s: it returns a borrowed or
 /// shared value out of the arm (`true => methods`, `true => q` with `q : &R`),

@@ -812,7 +812,7 @@ impl(
   /// Scans the bucket array directly rather than probing per key. Removal only
   /// rewrites the removed bucket's control byte and never moves another entry,
   /// so the scan stays valid across the removals it performs.
-  retain : (fn(self : &mut Self, keep : &Impl(Fn(k : &K, v : &V) -> bool)) -> unit)({
+  retain : (fn(self : &mut Self, keep : &mut Impl(FnMut(k : &K, v : &V) -> bool)) -> unit)({
     cond(
       (self.capacity == usize(0)) => return(()),
       true => ()
@@ -1007,16 +1007,37 @@ impl(
   ),
   /// The value for `key`, inserting `make()`'s result first when absent —
   /// use over `get_or_insert` when constructing the default is costly.
-  get_or_insert_with : (fn(self : &mut Self, key : &K, make : &Impl(Fn() -> V), where(K <: Clone, V <: Clone)) -> V)(
-    self.entry(key, { &make }(e) => e.or_insert_with(make))
-  ),
+  ///
+  /// One probe, no entry, like `update_with`: a closure holding `make` would
+  /// borrow it exclusively and could not be moved into `entry`'s by-value
+  /// body, so the vacant insert is spelled over `_probe`/`_insert_at` the
+  /// way `HashMapEntry.or_insert_with` spells it.
+  get_or_insert_with : (fn(self : &mut Self, key : &K, make : &mut Impl(FnMut() -> V), where(K <: Clone, V <: Clone)) -> V)({
+    hash := self._hash(key);
+    match(
+      Self._probe(self, key, hash),
+      .Occupied(index) => (Self._data_ptr(self).add(index)).*.value.clone(),
+      .Vacant(index) => {
+        slot := Self._insert_at(self, index, hash, key.clone(), make());
+        (Self._data_ptr(self).add(slot)).*.value.clone()
+      }
+    )
+  }),
   /// Update the value for `key` through `f` when present; no-op when absent.
-  /// Returns true when an update happened.
-  update_with : (fn(self : &mut Self, key : &K, f : &Impl(Fn(v : &V) -> V), where(K <: Clone)) -> bool)(
-    self.entry(key, { &f }(e) => {
-      e.and_modify(f);
-      e.is_occupied()
-    })
+  /// Returns true when an update happened. One probe, no entry: a closure
+  /// holding `f` would borrow it exclusively and could not be moved into
+  /// `entry`'s by-value body.
+  update_with : (fn(self : &mut Self, key : &K, f : &mut Impl(FnMut(v : &V) -> V)) -> bool)(
+    match(
+      self.get_entry_ptr(key),
+      .Some(p) => {
+        // The value alone is replaced, as `and_modify` does; the assignment
+        // drops the old value.
+        p.*.value = f(&p.*.value);
+        true
+      },
+      .None => false
+    )
   )
 );
 impl(
@@ -1149,7 +1170,7 @@ impl(
   /// use over `or_insert` when constructing the default is costly. As
   /// `or_insert`: the slot flips to `.Occupied`, and the value comes back as
   /// a clone (see the `&mut V` note there); `make()`'s result moves in.
-  or_insert_with : (fn(self : &mut Self, make : &Impl(Fn() -> V), where(K <: Clone, V <: Clone)) -> V)(
+  or_insert_with : (fn(self : &mut Self, make : &mut Impl(FnMut() -> V), where(K <: Clone, V <: Clone)) -> V)(
     match(
       self._slot,
       .Occupied(index) => (self._map.*._data_ptr().add(index)).*.value.clone(),
@@ -1170,7 +1191,7 @@ impl(
   ///   e.or_insert(i32(1));
   /// });
   /// ```
-  and_modify : (fn(self : &Self, f : &Impl(Fn(v : &V) -> V)) -> unit)({
+  and_modify : (fn(self : &Self, f : &mut Impl(FnMut(v : &V) -> V)) -> unit)({
     match(
       self._slot,
       .Occupied(index) => {

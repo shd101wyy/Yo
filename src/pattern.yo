@@ -30,6 +30,13 @@
 { parse_raw_int, codegen_tables_enabled, match_arms_table_enabled } :: import("./utils.yo");
 { get_integer_type_range } :: import("./types/utils.yo");
 { RefCell } :: import("std/sync/refcell");
+/// (seed window) Concrete per-payload variants of refcell.yo's generic
+/// fillers: a fn value generic over its element keeps the variable abstract
+/// through the slot and its specializations COLLAPSE across element types
+/// (see refcell.yo's filler block). Inline the literals back once
+/// `SEED_VERSION` carries the ref-spill fix.
+/// `HashMap(usize, ArrayList(Arm))` (1 use)
+_c_len_1 :: (fn(m : &HashMap(usize, ArrayList(Arm))) -> usize)(m.len());
 /// A compiled match pattern. Positions are typed top-down from the scrutinee;
 /// `Const`/`Range` carry the SYNTHESIZED test expression the evaluator typed
 /// (`subject == lit`, `(lo <= subject) && (subject < hi)`) against a hidden
@@ -291,7 +298,7 @@ pattern_binding_atoms :: (fn(p : &Pattern, out : &mut ArrayList(AstExpr)) -> uni
   )
 );
 /// Registered match nodes (the B2 plateau test's probe).
-match_arms_entry_count :: (fn() -> usize)(g_match_arms.with(m => m.len()));
+match_arms_entry_count :: (fn() -> usize)(g_match_arms.with(_c_len_1));
 // ---------------------------------------------------------------------------
 // GADT reachability (moved from evaluator/exprs/match.yo so the checker can
 // exclude unreachable variants from an enum's constructor set).

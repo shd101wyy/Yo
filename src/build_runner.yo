@@ -71,6 +71,13 @@ _(env : warm_dbg_env) :: import("std/env");
 { DocCommandOptions, run_doc } :: import("./doc_command.yo");
 { TargetInfo, parse_target, host_target, is_target_windows, is_target_macos, is_target_wasm, _find_available_compiler } :: import("./target.yo");
 { RefCell } :: import("std/sync/refcell");
+/// (seed window) Concrete per-payload variants of refcell.yo's generic
+/// fillers: a fn value generic over its element keeps the variable abstract
+/// through the slot and its specializations COLLAPSE across element types
+/// (see refcell.yo's filler block). Inline the literals back once
+/// `SEED_VERSION` carries the ref-spill fix.
+/// `ArrayList(String)` (3 uses)
+_c_len_1 :: (fn(xs : &ArrayList(String)) -> usize)(xs.len());
 // ---------------------------------------------------------------------------
 // Build options
 // ---------------------------------------------------------------------------
@@ -384,7 +391,7 @@ _has_fetchable_unavailable :: (fn(roots : &ImportRoots) -> bool)({
 _import_lines :: (fn() -> ArrayList(String))({
   out := ArrayList(String).new();
   (i : usize) = usize(0);
-  while(i < g_import_lines.with(xs => xs.len()), {
+  while(i < g_import_lines.with(_c_len_1), {
     match(g_import_lines.with(xs => xs.get_cloned(i)), .Some(l) => out.push(l), .None => ());
     i = (i + usize(1));
   });
@@ -548,11 +555,11 @@ _package_import_lines :: (fn(package_dir : &String) -> ArrayList(String))({
     return(_import_lines());
   });
   (i : usize) = usize(0);
-  while(i < g_dep_import_dirs.with(xs => xs.len()), {
-    dir := g_dep_import_dirs.with(xs => xs(i).clone());
+  while(i < g_dep_import_dirs.with(_c_len_1), {
+    dir := g_dep_import_dirs.with({ i }(xs) => xs(i).clone());
     if(dir == package_dir, {
       out := ArrayList(String).new();
-      lines := g_dep_import_texts.with(xs => xs(i).clone());
+      lines := g_dep_import_texts.with({ i }(xs) => xs(i).clone());
       (j : usize) = usize(0);
       while(j < lines.len(), {
         out.push(lines(j).clone());
@@ -567,8 +574,8 @@ _package_import_lines :: (fn(package_dir : &String) -> ArrayList(String))({
 /// Record a package's import closure (see `g_dep_import_dirs`).
 _record_package_import_lines :: (fn(package_dir : &String, lines : &ArrayList(String)) -> unit)({
   (i : usize) = usize(0);
-  while(i < g_dep_import_dirs.with(xs => xs.len()), {
-    dir := g_dep_import_dirs.with(xs => xs(i).clone());
+  while(i < g_dep_import_dirs.with(_c_len_1), {
+    dir := g_dep_import_dirs.with({ i }(xs) => xs(i).clone());
     if(dir == package_dir, {
       return(());
     });

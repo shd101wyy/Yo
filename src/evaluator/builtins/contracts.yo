@@ -81,6 +81,21 @@
 { assert, panic } :: import("std/assert");
 { expr_info_adopt_env, expr_info_macro_expansion, lookup_method_callee_value, note_stripped_statement, is_stripped_statement } :: import("../../expr_info.yo");
 { RefCell } :: import("std/sync/refcell");
+/// (seed window) Concrete variants of refcell.yo's fillers: a fn value
+/// generic over its element keeps the variable abstract through the slot, so
+/// uses of the result needing methods fail (see refcell.yo's filler block).
+_c_clone_opt_str :: (fn(v : &Option(String)) -> Option(String))(v.clone());
+/// (seed window) Concrete per-payload variants of refcell.yo's generic
+/// fillers: a fn value generic over its element keeps the variable abstract
+/// through the slot and its specializations COLLAPSE across element types
+/// (see refcell.yo's filler block). Inline the literals back once
+/// `SEED_VERSION` carries the ref-spill fix.
+/// `ArrayList(String)` (1 use)
+_c_len_1 :: (fn(xs : &ArrayList(String)) -> usize)(xs.len());
+/// `HashSet(String)` (1 use)
+_c_len_2 :: (fn(s : &HashSet(String)) -> usize)(s.len());
+/// `ArrayList(VerifyTask)` (1 use)
+_c_len_3 :: (fn(xs : &ArrayList(VerifyTask)) -> usize)(xs.len());
 /// Evaluate any of the no-op contract markers (`requires` / `ensures` /
 /// `invariant` / `ghost` in expression position). Each argument is evaluated
 /// (so expression-level errors surface), but the call itself returns `unit`.
@@ -168,7 +183,7 @@ set_verify_target_paths :: (fn(paths : &ArrayList(String)) -> unit)({
 _is_verify_target :: (fn(module_path : &String) -> bool)({
   (found : bool) = false;
   (i : usize) = usize(0);
-  while((i < g_verify_target_paths.with(xs => xs.len())) && !found, {
+  while((i < g_verify_target_paths.with(_c_len_1)) && !found, {
     match(
       g_verify_target_paths.with(xs => xs.get_cloned(i)),
       .Some(p) => if(p == module_path, {
@@ -402,7 +417,7 @@ register_ghost_fn :: (fn(func_id : &String) -> unit)({
   ()
 });
 is_ghost_fn :: (fn(func_id : &String) -> bool)(
-  g_ghost_fn_ids.with(s => s.contains(func_id))
+  g_ghost_fn_ids.with({ &func_id }(s) => s.contains(func_id))
 );
 /// V6 task 3: the ghost-fn DEF registry — `func_id → (params, body)` for
 /// every registered ghost_fn. The refinement machinery reads it: a
@@ -426,7 +441,7 @@ register_ghost_fn_def :: (fn(func_id : &String, params : &ArrayList(String), bod
   ()
 });
 ghost_fn_def_of :: (fn(func_id : &String) -> Option(GhostFnDef))(
-  g_ghost_fn_defs.with(m => m.get_cloned(func_id))
+  g_ghost_fn_defs.with({ &func_id }(m) => m.get_cloned(func_id))
 );
 /// The refinement CHAIN registry: an outer predicate's func_id → the
 /// predicates of the refinement it wraps (outermost inner first —
@@ -442,7 +457,7 @@ register_refine_pred_chain :: (fn(outer_fid : &String, chain : &ArrayList(String
 });
 refine_pred_chain_of :: (fn(outer_fid : &String) -> ArrayList(String))(
   match(
-    g_refine_pred_chains.with(m => m.get_cloned(outer_fid.clone())),
+    g_refine_pred_chains.with({ &outer_fid }(m) => m.get_cloned(outer_fid.clone())),
     .Some(chain) => chain,
     .None => ArrayList(String).new()
   )
@@ -1480,14 +1495,14 @@ index_unchecked_twin_of :: (fn(node_id : ExprId) -> Option(EvalValue))(
 );
 /// How many distinct guards codegen elided since the last clear.
 elided_guard_count :: (fn() -> usize)(
-  g_elided_guard_nodes.with(s => s.len())
+  g_elided_guard_nodes.with(_c_len_2)
 );
 /// Did a proof record exactly this node, this class, and this node's own
 /// canonical position? Any mismatch is `false`.
 _guard_site_recorded :: (fn(expr : &AstExpr, class : str) -> bool)(
   match(
     // The value list is taken by remove-style clone: get copies it (B8).
-    g_proved_guard_sites.with(m => m.get_cloned(ast_expr_id(expr))),
+    g_proved_guard_sites.with({ &expr }(m) => m.get_cloned(ast_expr_id(expr))),
     .Some(sites) => {
       tok := ast_expr_token(expr);
       canon := canonical_module_path(&tok.module_path.*);
@@ -1535,7 +1550,7 @@ record_verify_task_def_eval_failure :: (fn(fn_id : &String, msg : &String) -> un
   ()
 });
 verify_task_def_eval_failure :: (fn(fn_id : &String) -> Option(String))(
-  g_verify_def_eval_failures.with(m => m.get_cloned(fn_id))
+  g_verify_def_eval_failures.with({ &fn_id }(m) => m.get_cloned(fn_id))
 );
 /// The file set the current command is verifying (absolute or as-given
 /// paths — matched by equality against `Token.module_path`). Empty = no
@@ -1562,7 +1577,7 @@ resolve_verify_mode :: (fn(module_path : &String) -> String)(
     file_has_pragma(Option(String).Some(module_path.clone()), Pragma.Verify) => String.from("verify"),
     file_has_pragma(Option(String).Some(module_path.clone()), Pragma.VerifyOrAssert) => String.from("verify+"),
     true => match(
-      g_verify_mode_override.with(o => o.clone()),
+      g_verify_mode_override.with(_c_clone_opt_str),
       .Some(m) => m,
       .None => String.from("runtime")
     )
@@ -1574,7 +1589,7 @@ resolve_verify_mode :: (fn(module_path : &String) -> String)(
 register_verify_task :: (fn(t : &VerifyTask) -> unit)({
   (dup : bool) = false;
   (i : usize) = usize(0);
-  while((i < g_verify_tasks.with(xs => xs.len())) && !dup, {
+  while((i < g_verify_tasks.with(_c_len_3)) && !dup, {
     match(
       g_verify_tasks.with(xs => xs.get(i)),
       .Some(prev) => if(prev.fn_id == t.fn_id, {
@@ -1860,7 +1875,7 @@ register_callsite_contracts :: (
   _ := g_callsite_contracts.with_mut({ reqs_owned, call_id_owned, enss_owned }(m) => m.insert(call_id_owned, CallsiteContracts(reqs : reqs_owned.clone(), enss : enss_owned)));
 });
 callsite_contracts_for :: (fn(call_id : &String) -> Option(CallsiteContracts))(
-  g_callsite_contracts.with(m => m.get_cloned(call_id))
+  g_callsite_contracts.with({ &call_id }(m) => m.get_cloned(call_id))
 );
 /// V6 task 4: specialized FuncVal id → the base (unspecialized) id it
 /// was minted from. Written at the specialization mint (calls/helper.yo)
@@ -1873,7 +1888,7 @@ register_specialized_base :: (fn(spec_id : &String, base_id : &String) -> unit)(
   _ := g_specialized_base.with_mut({ spec_id_owned, base_id_owned }(m) => m.insert(spec_id_owned.clone(), base_id_owned));
 });
 specialized_base_of :: (fn(id : &String) -> Option(String))(
-  g_specialized_base.with(m => m.get_cloned(id))
+  g_specialized_base.with({ &id }(m) => m.get_cloned(id))
 );
 /// Task-registration hook: stash contract instances for every contracted
 /// callee call in the task body (see the CallsiteContracts doc).

@@ -120,7 +120,7 @@ _emit_one_deferred_drop :: (fn(drop_expr : &AstExpr, ei : &ExprInfo, indent : St
       get_deferred_drop_target_atom_name(drop_expr),
       .Some(nm) => {
         cn := sanitize_for_c_identifier(&nm, false);
-        (is_temp_variable_name(&ei.env().module_path().*, cn.clone()) || _looks_like_minted_temp(cn.clone())) && !context.base.declared_c_var_names.with(dn_s => dn_s.contains(&cn))
+        (is_temp_variable_name(&ei.env().module_path().*, cn.clone()) || _looks_like_minted_temp(cn.clone())) && !context.base.declared_c_var_names.with({ &cn }(dn_s) => dn_s.contains(&cn))
       },
       .None => false
     );
@@ -138,7 +138,7 @@ _emit_one_deferred_drop :: (fn(drop_expr : &AstExpr, ei : &ExprInfo, indent : St
       get_deferred_drop_target_atom_name(drop_expr),
       .Some(nm2) => {
         cn2 := sanitize_for_c_identifier(&nm2, false);
-        (is_temp_variable_name(&ei.env().module_path().*, cn2.clone()) || _looks_like_minted_temp(cn2.clone())) && !context.base.declared_scopes.with(ds_s => scope_stack_contains(ds_s, &cn2))
+        (is_temp_variable_name(&ei.env().module_path().*, cn2.clone()) || _looks_like_minted_temp(cn2.clone())) && !context.base.declared_scopes.with({ &cn2 }(ds_s) => scope_stack_contains(ds_s, &cn2))
       },
       .None => false
     );

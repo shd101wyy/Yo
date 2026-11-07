@@ -8,9 +8,12 @@
 /// never the reverse (E0913). A closure typed `FnMut(...)` derives neither
 /// `Copy` nor `Clone`: a copy would fork its state.
 ///
-/// Until std's call-repeatedly slots take `FnMut(...)` (decision 43 N3), a
-/// literal that holds a `&mut` capture is still admitted at an `Fn(...)` slot
-/// (`fn_slot_admits_capture_fnmut`, VERDICTS-15 Q4); a `Sync` slot rejects it.
+/// A literal that holds a `&mut` capture is `FnMut(...)` by its captures
+/// alone (VERDICTS-15 Q4′), so at an `Fn(...)` slot it is E0913 with no
+/// exemption: the exemption (`fn_slot_admits_capture_fnmut`) is deleted with
+/// decision 43 N3, and std's non-escaping callback slots take
+/// `&mut Impl(FnMut(...))` (VERDICTS-28 Q1). A `Sync` slot rejects it naming
+/// `FnMut`.
 _fm_twice :: (fn(f : &mut Impl(FnMut() -> i32)) -> i32)(f() + f());
 _fm_each :: (fn(n : i32, f : &mut Impl(FnMut(i : i32) -> unit)) -> unit)({
   mut(i) := i32(0);
@@ -22,6 +25,7 @@ _fm_run_once :: (fn(sink(f) : Impl(FnOnce() -> i32)) -> i32)(f());
 _fm_call_fn :: (fn(f : &Impl(Fn() -> i32)) -> i32)(f());
 _fm_call_fn_twice :: (fn(f : &Impl(Fn() -> i32)) -> i32)(f() + f());
 _fm_run_sync :: (fn(f : &Impl(Fn() -> i32, Sync)) -> i32)(f());
+_fm_call_fn_bound :: (fn(generic(F : Type), f : &F, where(F <: (Fn() -> i32))) -> i32)(f());
 
 // --- own state: the body writes its by-value entries ---------------------------
 test("FnMut: a by-value entry is the closure's own state, kept across calls", {
@@ -128,18 +132,64 @@ test("FnMut: a `&mut` capture written by an FnMut closure reaches the caller", {
   };
   assert(total == i32(6), "0 + 1 + 2 + 3");
 });
-test("FnMut: the Q10 exemption admits a `&mut`-capturing literal at an Fn slot", {
-  mut(z) := i32(0);
+comptime_expect_error(
+  _fm_fnmut_literal_at_fn_slot :: (fn() -> unit)({
+    mut(z) := i32(0);
+    _r := _fm_call_fn_twice({ &mut z }() => {
+      z.* = (z.* + i32(1));
+      z.*
+    });
+  }),
+  "it is an `FnMut(...)` closure, and the slot is"
+);
+// The same literal at the three other `Fn(...)` spellings a slot can take: a
+// generic `F <: Fn(...)` bound, an annotated `Impl(Fn(...))` local, and a
+// `dyn(...)` into a `Dyn(Fn(...))` — all E0913 now that the exemption is
+// gone (VERDICTS-28 Q1's tests-that-pin-it).
+comptime_expect_error(
+  _fm_fnmut_literal_at_generic_fn_bound :: (fn() -> unit)({
+    mut(z) := i32(0);
+    _r := _fm_call_fn_bound({ &mut z }() => {
+      z.* = (z.* + i32(1));
+      z.*
+    });
+  }),
+  "it is an `FnMut(...)` closure, and the slot is"
+);
+comptime_expect_error(
+  _fm_fnmut_literal_annotated_fn :: (fn() -> unit)({
+    mut(z) := i32(0);
+    (f : Impl(Fn() -> i32)) = ({ &mut z }() => {
+      z.* = (z.* + i32(1));
+      z.*
+    });
+    _r := f();
+  }),
+  "it is an `FnMut(...)` closure, and the slot is"
+);
+comptime_expect_error(
+  _fm_fnmut_literal_dyn_fn :: (fn() -> unit)({
+    mut(z) := i32(0);
+    (d : Dyn(Fn() -> i32)) = dyn({ &mut z }() => {
+      z.* = (z.* + i32(1));
+      z.*
+    });
+    _r := d();
+  }),
+  "it is an `FnMut(...)` closure, and the slot is"
+);
+// A named `mut`-bound `FnMut` closure serves a call-once std slot writing its
+// capture (VERDICTS-28 Q1: `Option.inspect` is `&mut Impl(FnMut(...))`).
+test("FnMut: a named FnMut closure passed &mut serves a call-once std slot", {
+  mut(hits) := i32(0);
   {
-    assert(
-      _fm_call_fn_twice({ &mut z }() => {
-        z.* = (z.* + i32(1));
-        z.*
-      }) == i32(3),
-      "1 + 2: the write goes through the capture's pointer"
-    );
+    (mut(bump) : Impl(FnMut(v : &i32) -> unit)) = ({ &mut hits }(v) => {
+      hits.* = (hits.* + v.*);
+    });
+    r := Option(i32).Some(i32(4)).inspect(&mut bump);
+    assert(r == Option(i32).Some(i32(4)), "inspect returns its receiver");
   };
-  assert(z == i32(2), "both calls wrote z");
+  assert(hits == i32(4), "the named closure wrote its capture through inspect");
 });
 // "Writes a `&mut` capture" is read structurally as "holds one" (VERDICTS-15
 // Q4′): an unwritten `&mut` capture still makes the closure `FnMut`.
@@ -315,3 +365,13 @@ comptime_expect_error(
   }),
   "use of moved value"
 );
+// A capture-free literal at an FnMut slot whose trait signature mentions a
+// generic type variable (R here) kept an ABSTRACT Impl type, and the caller's
+// ref-spill temp lowered to void* where the specialization's capture-struct
+// pointer is expected (ill-typed C).
+// issues/fixed/2026-11-06-a-closure-literal-at-a-generic-fnmut-ref-slot-spills-void.md
+_fm_generic_run :: (fn(generic(R : Type), f : &mut Impl(FnMut() -> R)) -> R)(f());
+test("FnMut: a capture-free literal at a generic FnMut slot compiles and runs", {
+  n := _fm_generic_run(() => i32(5));
+  assert(n == i32(5), "the literal reached the slot and ran");
+});

@@ -709,7 +709,7 @@ analyze_effect_call_points :: (
     );
     expr_key := usize(ast_expr_token(sp.expr.clone()).character).to_string();
     match(
-      effect_extras.with(extras => extras.get_cloned(expr_key.clone())),
+      effect_extras.with({ &expr_key }(extras) => extras.get_cloned(expr_key.clone())),
       .None => (),
       .Some(extra) => {
         ecp := EffectCallPoint(

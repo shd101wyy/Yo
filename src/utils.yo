@@ -13,6 +13,13 @@
 { Path } :: import("std/path");
 { cwd, env } :: import("std/env");
 { RefCell } :: import("std/sync/refcell");
+/// (seed window) Concrete per-payload variants of refcell.yo's generic
+/// fillers: a fn value generic over its element keeps the variable abstract
+/// through the slot and its specializations COLLAPSE across element types
+/// (see refcell.yo's filler block). Inline the literals back once
+/// `SEED_VERSION` carries the ref-spill fix.
+/// `ArrayList(String)` (5 uses)
+_c_len_1 :: (fn(xs : &ArrayList(String)) -> usize)(xs.len());
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
 // Unicode escape scanning — shared by the lexer (template strings, and
@@ -296,7 +303,7 @@ emission_occurrence_reset :: (fn() -> unit)({
 });
 stable_occurrence_key :: (fn(key : &String) -> usize)({
   next := match(
-    g_stable_occurrence.with(m => m.get(key)),
+    g_stable_occurrence.with({ &key }(m) => m.get(key)),
     .Some(n) => n,
     .None => usize(0)
   );
@@ -429,10 +436,15 @@ stable_type_id :: (
   (candidate : String) = base.clone();
   (suffix : usize) = usize(1);
   while(true, {
+    // The read is hoisted out of the closure: `with`'s callback is an
+    // `FnMut` now, whose implicit capture would MOVE `candidate` into the
+    // closure (and a `{ &candidate }` borrow freezes it against the loop's
+    // reassignment below), so the probe borrows it only for the call.
+    prev := g_stable_type_id_owner.with({ &candidate }(m) => m.get_cloned(candidate));
     match(
-      g_stable_type_id_owner.with(m => m.get_cloned(&candidate)),
-      .Some(prev) => {
-        if(prev.* == owner.*, {
+      prev,
+      .Some(prev_owner) => {
+        if(prev_owner.* == owner.*, {
           // A clone: the loop body's closure owns `candidate` for its next
           // iteration (the value stays live past the return path).
           return(candidate.clone());
@@ -453,7 +465,7 @@ stable_type_id :: (
 });
 _stable_type_id_owner_key :: (fn(module_path : &String) -> Rc(String))(
   match(
-    g_stable_type_id_owner_memo.with(m => m.get_cloned(module_path)),
+    g_stable_type_id_owner_memo.with({ &module_path }(m) => m.get_cloned(module_path)),
     .Some(c) => c,
     .None => {
       c := Rc.new(canonical_module_path(module_path));
@@ -481,8 +493,11 @@ stable_position_id :: (
   (candidate : String) = base.clone();
   (suffix : usize) = usize(1);
   while(true, {
+    // As in `stable_type_id`: the probe borrows `candidate` only for the
+    // call, so the loop below can reassign it.
+    prev := g_stable_id_owner.with({ &candidate }(m) => m.get_cloned(candidate));
     match(
-      g_stable_id_owner.with(m => m.get_cloned(&candidate)),
+      prev,
       .Some(owner) => {
         if(owner == src_key, {
           return(candidate.clone());
@@ -510,7 +525,7 @@ stable_position_id :: (
 /// three or two `:` segments.
 stable_id_module_path :: (fn(id : &String) -> Option(String))(
   match(
-    g_stable_id_owner.with(m => m.get_cloned(id)),
+    g_stable_id_owner.with({ &id }(m) => m.get_cloned(id)),
     .Some(key) => {
       segs := key.split(":");
       n := segs.len();
@@ -696,7 +711,7 @@ profile_memory_mark :: (fn(label : str) -> unit)({
   g_prof_mark_rss_mb.with_mut(xs => xs.push(_prof_sample(g_prof_rss_probe)));
   g_prof_mark_peak_mb.with_mut(xs => xs.push(_prof_sample(g_prof_peak_probe)));
 });
-profile_mark_count :: (fn() -> usize)(g_prof_mark_labels.with(xs => xs.len()));
+profile_mark_count :: (fn() -> usize)(g_prof_mark_labels.with(_c_len_1));
 profile_mark_line_at :: (fn(i : usize) -> String)(
   `profile: mark ${match(g_prof_mark_labels.with(xs => xs.get_cloned(i)), .Some(l) => l, .None => String.new())} rss=${match(g_prof_mark_rss_mb.with(xs => xs.get(i)), .Some(n) => n, .None => usize(0)).to_string()}MB peak=${match(g_prof_mark_peak_mb.with(xs => xs.get(i)), .Some(n) => n, .None => usize(0)).to_string()}MB`
 );
@@ -710,10 +725,10 @@ profile_record_phase :: (fn(name : &String, nanos : i64) -> unit)({
   rss := _prof_sample(g_prof_rss_probe);
   entries := _prof_sample(g_prof_table_probe);
   (i : usize) = usize(0);
-  while(i < g_prof_phase_names.with(xs => xs.len()), {
+  while(i < g_prof_phase_names.with(_c_len_1), {
     // A copy: an element of a handle global that is pushed to elsewhere is
     // not lent to a call (rule A, decision 47).
-    phase := g_prof_phase_names.with(xs => xs(i).clone());
+    phase := g_prof_phase_names.with({ i }(xs) => xs(i).clone());
     if(phase == name, {
       g_prof_phase_nanos.with_mut(xs => {
         xs(i) = (xs(i) + nanos);
@@ -735,7 +750,7 @@ profile_record_phase :: (fn(name : &String, nanos : i64) -> unit)({
   g_prof_phase_rss_mb.with_mut(xs => xs.push(rss));
   g_prof_phase_table_entries.with_mut(xs => xs.push(entries));
 });
-profile_phase_count :: (fn() -> usize)(g_prof_phase_names.with(xs => xs.len()));
+profile_phase_count :: (fn() -> usize)(g_prof_phase_names.with(_c_len_1));
 profile_phase_name_at :: (fn(i : usize) -> String)(
   match(
     g_prof_phase_names.with(xs => xs.get_cloned(i)),
@@ -768,8 +783,8 @@ profile_record_module :: (fn(path : &String, parse_ns : i64, eval_ns : i64) -> u
     return(());
   });
   (i : usize) = usize(0);
-  while(i < g_prof_mod_paths.with(xs => xs.len()), {
-    mod_path := g_prof_mod_paths.with(xs => xs(i).clone());
+  while(i < g_prof_mod_paths.with(_c_len_1), {
+    mod_path := g_prof_mod_paths.with({ i }(xs) => xs(i).clone());
     if(mod_path == path, {
       g_prof_mod_parse_ns.with_mut(xs => {
         xs(i) = (xs(i) + parse_ns);
@@ -789,7 +804,7 @@ profile_record_module :: (fn(path : &String, parse_ns : i64, eval_ns : i64) -> u
   g_prof_mod_parse_ns.with_mut(xs => xs.push(parse_ns));
   g_prof_mod_eval_ns.with_mut(xs => xs.push(eval_ns));
 });
-profile_module_count :: (fn() -> usize)(g_prof_mod_paths.with(xs => xs.len()));
+profile_module_count :: (fn() -> usize)(g_prof_mod_paths.with(_c_len_1));
 profile_module_path_at :: (fn(i : usize) -> String)(
   match(
     g_prof_mod_paths.with(xs => xs.get_cloned(i)),
@@ -1012,7 +1027,7 @@ export(str_lit_unquote_bytes);
 /// The value of the `YO_DEBUG_*` knob `name`, read from the environment once.
 debug_knob :: (fn(name : &String) -> Option(String))(
   match(
-    g_debug_knobs.with(m => m.get_cloned(name)),
+    g_debug_knobs.with({ &name }(m) => m.get_cloned(name)),
     .Some(cached) => cached,
     .None => {
       fresh := env.get(name);

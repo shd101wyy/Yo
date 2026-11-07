@@ -149,7 +149,7 @@ export(black_box);
 // bench
 // ============================================================================
 /// Run `body` for `iterations` times and return timing statistics.
-bench :: (fn(name : &String, iterations : u64, body : &Impl(Fn() -> unit)) -> BenchResult)({
+bench :: (fn(name : &String, iterations : u64, body : &mut Impl(FnMut() -> unit)) -> BenchResult)({
   // A zero-iteration benchmark has no answer, and the sentinels used to
   // compute one: `min_ns` stayed at i64::MAX and `max_ns` at 0, so the result
   // violated its own `min_ns <= max_ns` invariant and `to_string()` printed
@@ -232,7 +232,7 @@ _PILOT_MAX_ITERS :: u64(1048576);
 /// for the maximum 100 000 000 iterations — a 3.4 s run on a fast machine and
 /// minutes on a CI runner under sanitizers. Extrapolating from the wall time of
 /// the thing actually being repeated cannot make that mistake.
-bench_auto :: (fn(name : &String, body : &Impl(Fn() -> unit)) -> BenchResult)({
+bench_auto :: (fn(name : &String, body : &mut Impl(FnMut() -> unit)) -> BenchResult)({
   (mut(pilot_iters) : u64) = u64(64);
   (mut(wall_ns) : i64) = i64(0);
   while(true, {

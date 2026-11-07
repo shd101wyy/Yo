@@ -510,7 +510,7 @@ analyze_await_points :: (
     );
     expr_char_key := usize(ast_expr_token(sp.expr.clone()).character).to_string();
     match(
-      await_extras.with(extras => extras.get_cloned(expr_char_key.clone())),
+      await_extras.with({ &expr_char_key }(extras) => extras.get_cloned(expr_char_key.clone())),
       .None => (),
       // should not happen: every SP was registered via detect_await_expr_
       .Some(extra) => {
@@ -735,7 +735,7 @@ register_closure_await_analysis :: (fn(func_id : &String, result : &AwaitAnalysi
 });
 /// The await analysis recorded for `func_id`, if any.
 get_closure_await_analysis :: (fn(func_id : &String) -> Option(AwaitAnalysisResult))(
-  g_closure_await_analysis.with(m => m.get(func_id.clone()))
+  g_closure_await_analysis.with({ &func_id }(m) => m.get(func_id.clone()))
 );
 export(
   // Types (re-exported for convenience — canonical home is await_analysis_types.yo)

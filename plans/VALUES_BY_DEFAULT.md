@@ -3184,13 +3184,24 @@ and in git, not a silent edit.
           `E_CLOSURE_TRAIT_TOO_WEAK`): a value typed `FnMut` at an `Fn` slot
           or boxed as `Dyn(Fn)`, an `FnOnce` at an `FnMut` slot or
           `Dyn(FnMut)`. `Dyn(FnMut(...))` is move-only.
-        - VERDICTS-1 Q10's exemption is the one predicate
+        - VERDICTS-1 Q10's exemption was the one predicate
           `fn_slot_admits_capture_fnmut` (`src/evaluator/utils.yo`): a closure
           holding a `&mut` capture whose trait came from an `Fn(...)` slot (a
-          literal, an unannotated closure value, a `Dyn(Fn(...))` boxing) is
-          admitted, `YO_AUDIT_FNMUT=1` printing each site. N3 deletes it in
-          the PR that switches std's slots (`SEED_VERSION_AUTOMATION.md`). A
-          `Sync` slot is not exempt: it rejects such a closure naming `FnMut`.
+          literal, an unannotated closure value, a `Dyn(Fn(...))` boxing) was
+          admitted, `YO_AUDIT_FNMUT=1` printing each site. A `Sync` slot was
+          never exempt: it rejects such a closure naming `FnMut`.
+        - **As built (2026-11-06, decision 43 N3, `vbd/g1-fnmut-slots`;
+          VERDICTS-28 Q1).** The exemption is deleted and every non-escaping
+          std callback slot — call-repeatedly and call-once alike — takes
+          `&mut Impl(FnMut(...))` (the rewritten call-once bullet below). The
+          switch surfaced one rule worth writing down: an `FnMut` closure's
+          IMPLICIT captures are owning moves of the captured places, so a
+          closure at an `FnMut` slot that reads an outer borrowed place (a
+          `&T` parameter) or an owned local it uses again must spell the
+          capture (`{ &p }` in std/src, `{ k : &p.* }` in user code under the
+          deref rule) or own a copy (`{ v : p.clone() }`); under `Fn` those
+          implicit captures were shared borrows, which is why ~230 `RefCell`
+          memo-probe sites in `src/` gained capture lists with the switch.
     - **Calling a closure is a receiver call, so it is never marked**
       (amended 2026-10-05 by the maintainer).
       - `f(x)` is `f`'s call method with `f` as the receiver, so decision
@@ -3234,20 +3245,50 @@ and in git, not a silent edit.
         slot that accepts a second-class body. The future it returns is
         then second-class and follows §3.13 A2. Otherwise the body escapes
         and owns its captures.
-    - **Non-escaping call-once APIs keep `f : &Impl(Fn(...))`:**
-      - `Option`: `map`, `and_then`, `or_else`, `map_or_else`,
-        `unwrap_or_else`, `ok_or_else`;
-      - `Result`: `map`, `map_err`, `and_then`, `or_else`, `map_or_else`,
-        `unwrap_or_else`;
-      - the `with_lock`/`try_with_lock` bodies (`std/sync/mutex.yo`,
-        `std/async/mutex.yo`), which take `Impl(FnMut(...))` since
-        2026-10-10 because a body that mutates a capture is a `FnMut`.
+    - **Non-escaping callback parameters take `f : &mut Impl(FnMut(...))`,
+      call-once included** (rewritten 2026-11-06 by VERDICTS-28 Q1, which
+      supersedes the earlier "call-once keeps `Fn`" list):
+      - `Option`: `map`, `and_then`, `filter`, `or_else`, `map_or`,
+        `map_or_else`, `unwrap_or_else`, `is_some_and`, `ok_or_else`,
+        `inspect`;
+      - `Result`: `map`, `map_err`, `and_then`, `or_else`, `map_or`,
+        `map_or_else`, `unwrap_or_else`, `inspect`, `inspect_err`;
+      - `Once.call`, `OnceCell.get_or_init`, the `*_lazy` loggers,
+        `RefCell.with`/`replace_with`, `HashMap.get_or_insert_with`,
+        `HashMapEntry.or_insert_with`, the `with_lock`/`try_with_lock`
+        bodies, the Iterator and stream adapters.
 
-      Their bodies may borrow captures, including `&mut` captures, but
-      cannot move a capture out. A *non-escaping consuming* parameter mode
-      (by value, but not allowed to escape) is recorded as a possible
-      later addition. It is not adopted, because it would be a fourth
-      parameter mode beside `&`, `&mut` and by-value.
+      One seed-gated exception (2026-11-07, the G1 rebase onto #1804;
+      decided 2026-11-08 by VERDICTS-35): `OnceCell.get_or_init` returns `&T`
+      into the cell, and its exact signature is Q1's slot with the result
+      origin spelled, `(fn(self : &Self, f : &mut Impl(FnMut() -> T)) ->
+      &(T, self))`. The v0.2.75 seed rejects that body (E0912 on the
+      `&`-match binding: it predates #1801), so until `SEED_VERSION` carries
+      #1801 (v0.2.77, `plans/backlog/SEED_VERSION_AUTOMATION.md`) it takes
+      `f : Impl(FnMut() -> T)` by value, no `sink`, so the elided result
+      origin (O2's union, which stands) names only the receiver; it lends
+      `&mut` to the `&mut Impl(FnMut)` `_init` that does the work.
+      `issues/questions/2026-11-07-should-an-elided-result-origin-prefer-the-receiver.md`
+      records the decision.
+
+      The callee calls the closure zero or more times before returning and
+      never stores it, so mutable access through a reference is exactly the
+      callee's obligation, and `FnMut` — never `Fn` — is what a body that
+      writes a capture needs; a call-once slot is a special case of
+      call-repeatedly (a slot that admits `FnMut` admits every call-once
+      use; the converse is false). A named closure passed to such a slot is
+      bound `mut(g)` and passed `&mut g`; an inline literal infers the
+      bound. A slot on a method that returns a reference spells the result
+      origin (`-> &(T, self)`) so the callback is released at the call
+      (VERDICTS-35). `&Impl(Fn(...))` stays only where the callback is shared,
+      stored beyond the call, or called from another thread
+      (`thread.spawn_blocking`'s `sink(cb) : Impl(Fn() -> T, Send)` until
+      `sink`'s deletion, the http `handler`). A closure that must move a
+      capture out still has no slot (second-class closures cannot be passed
+      by value, E0909); `io.async` is the spelled consuming exception, and
+      the by-value `FnOnce` slot question rides with `sink`'s deletion
+      (decision 30's schedule) — a *non-escaping consuming* fourth
+      parameter mode beside `&`, `&mut` and by-value remains rejected.
     - Callbacks that run per element take `Impl(FnMut(...))` from decision
       43's phase (`for_each`, the iterator `map`/`filter`, comparators);
       hashers stay `Fn`.

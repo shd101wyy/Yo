@@ -399,30 +399,82 @@ Generation B"; the repair keeps a migration-only `Dispose` for user code):
   instruction files to `Drop`; keep E0915's text naming `dispose` only as
   the migrated spelling.
 
-## Seed-gated follow-up (2026-11-03): std's call-repeatedly slots take `FnMut` (decision 43 N3)
+## Seed-gated follow-up (2026-11-08): `OnceCell.get_or_init` spells its result origin (VERDICTS-35)
 
-Decision 43's N1f (v0.2.75) adds the closure trait `FnMut(...)`
+**Gen B, v0.2.77; needs #1801 in `SEED_VERSION`.** `OnceCell.get_or_init`
+(`std/sync/once.yo`) becomes
+
+```yo ignore
+get_or_init : (fn(self : &Self, f : &mut Impl(FnMut() -> T)) -> &(T, self))({
+  self._init(f);
+  match(
+    &self._cell.*._value,
+    .Some(v) => &v,
+    .None => __yo_panic("OnceCell: initialized flag published without a value")
+  )
+}),
+```
+
+— VERDICTS-28 Q1's uniform slot, with the receiver the only result origin
+by declaration. Every `tests/sync/once.test.yo` call shape and the
+`once-reentrant-call-panics` cli fixture are accepted unchanged on
+post-#1801 binaries. The v0.2.75 seed rejects the BODY under the spelled
+check (E0912 at `.Some(v) => &v`: its root walk does not follow a `&`
+match's binding into the scrutinee, #1801), and no seed-acceptable body
+exists, so v0.2.76 ships `f : Impl(FnMut() -> T)` by value (no `sink`).
+With the switch, add the named borrowing initializer row to
+`tests/sync/once.test.yo` (`(mut(g) : Impl(FnMut() -> i32)) = ({ &k, &mut n
+}() => …)`, `got := cell.get_or_init(&mut g)`, `got` read after), the E0923
+negative and `{ &mut hits }` positive for a `-> &(T, self)` method with an
+`&mut Impl(FnMut)` slot, and delete
+`issues/questions/2026-11-07-should-an-elided-result-origin-prefer-the-receiver.md`.
+
+## Seed-gated follow-up (2026-11-03): std's call-repeatedly slots take `FnMut` (decision 43 N3) — DONE 2026-11-06
+
+**Done** (`vbd/g1-fnmut-slots`, v0.2.76): every non-escaping std callback
+slot — the call-repeatedly list below AND the call-once family (the
+`Option`/`Result` combinators, `HashMap.get_or_insert_with`,
+`HashMapEntry.or_insert_with`, `RefCell.with`/`replace_with`, `Once.call`,
+`OnceCell.get_or_init`, the `*_lazy` loggers; VERDICTS-28 Q1 option B) —
+takes `f : &mut Impl(FnMut(...))` (`OnceCell.get_or_init` by value until
+the section above lands); `fn_slot_admits_capture_fnmut` and the
+`YO_AUDIT_FNMUT` knob are deleted (E0913 pinned in `tests/fn_mut.test.yo`),
+and the three corpus rows are rewritten. `Fn` stays only at
+`thread.spawn_blocking`'s `sink(cb)` and the http `handler`.
+
+**Seed-gated residue (delete when `SEED_VERSION` carries the ref-spill
+fix):** the switch exposed that a capture-free closure LITERAL at an
+`&mut Impl(FnMut(...))` slot whose trait signature mentions a type variable
+the callee's generics solve (`RefCell.with`'s `R`, `Option.map`'s `B`) keeps
+an abstract `Impl` ExprInfo type, and the caller-side ref-spill temp lowers
+to `void*` where the specialization's capture-struct pointer is expected —
+ill-typed C under a seed with the old codegen
+(`issues/fixed/2026-11-06-a-closure-literal-at-a-generic-fnmut-ref-slot-spills-void.md`;
+the fix rides in the same PR, but a seed cannot fix itself). Until the
+published seed carries it, the compiler's own ~300 empty-env reads at those
+slots spell a NAMED function value instead: the exported `cell_*` filler
+family in `std/sync/refcell.yo`, `_ch_*` in `std/async/channel.yo`, and a
+few file-local concrete helpers (`_mm_count_keys`, `_ttm_keys`,
+`_finished_walk_values`, `_pending_heads_has_empty`, the `_c_*` per-payload
+fillers, …). The `Rc(RefCell(Data))` getters that V5 part B introduced
+(`Variable`, `Frame`, `Environment`, `ExprInfo`, `PendingDef`, `ModuleWalk`
+and their rare groups) read through file-local `_vh_*` helpers the same way
+(`_vh_<payload>_<getter>`, beside each type's impl or getter). Inline the
+literals back and delete the fillers in the release after the fix ships.
+
+Decision 43's N1f (v0.2.75) added the closure trait `FnMut(...)`
 (`plans/VALUES_BY_DEFAULT.md` decision 37, its 2026-11-03 as-built note;
-VERDICTS-15). std cannot name `FnMut` while the seed that compiles it does not
-parse it, so its call-repeatedly callbacks (`for_each`, the Iterator and
+VERDICTS-15). std could not name `FnMut` while the seed that compiled it did
+not parse it, so its call-repeatedly callbacks (`for_each`, the Iterator and
 stream adapters, `sort_by`/`sort_by_key`/`binary_search_by`, `retain`,
 `HashMap.retain`/`update_with`/`and_modify`, the `with_lock` bodies, regex
-`replace_with`, bench; about 35 slots) keep `f : &Impl(Fn(...))`. Until they
-switch, a closure holding a `&mut` capture whose trait came from an `Fn(...)`
-slot is still admitted, as before `FnMut` existed (VERDICTS-1 Q10): the one
+`replace_with`, bench; about 35 slots) kept `f : &Impl(Fn(...))`, and a
+closure holding a `&mut` capture whose trait came from an `Fn(...)` slot was
+still admitted, as before `FnMut` existed (VERDICTS-1 Q10): the one
 predicate `fn_slot_admits_capture_fnmut` (`src/evaluator/utils.yo`), with the
-rejection it suppresses written beside it in
-`judge_capture_fnmut_at_fn_slot`. `YO_AUDIT_FNMUT=1` lists the sites it
-admits.
-
-**Generation B (N3, once `SEED_VERSION` carries N1f, v0.2.75), as ONE PR:**
-switch std's slots to `f : &mut Impl(FnMut(...))` (or by value), delete
-`fn_slot_admits_capture_fnmut`, and pin the rejection (E0913) with tests. The
-same PR rewrites the three corpus rows that pass a `&mut`-capturing closure to
-an `Impl(Fn(...))` slot — `closure-push-capture`,
-`closure-push-capture-then-write` and `closure-param-into-capture`
-(`tests/origins/corpus/`) — to `Impl(FnMut(...))`: their `_each` would
-otherwise fail with E0913 before the rule under test.
+rejection it suppressed written beside it in
+`judge_capture_fnmut_at_fn_slot`. `YO_AUDIT_FNMUT=1` listed the sites it
+admitted.
 
 ## Seed-gated follow-up (2026-11-02): std spells `where(V <: Escapable)` on `Rc` and `Arc` (decision 43 N3)
 

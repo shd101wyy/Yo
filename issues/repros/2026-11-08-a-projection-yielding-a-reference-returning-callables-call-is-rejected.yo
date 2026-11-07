@@ -1,0 +1,11 @@
+// A projection whose body yields the call of a reference-returning callable.
+// Expected: compiles, runs, exit 0. Actual (v0.2.75 seed and develop-based
+// trees): E0601 "Cannot unify incompatible types: "i32" and "*(i32)"" at
+// `f(v)`.
+apply_v : (fn(f : Impl(Fn(x : &i32) -> &i32), v : &i32) -> &i32)(f(v));
+main :: (fn() -> unit)({
+  o := i32(3);
+  a := apply_v(x => x, &o);
+  cond((a.* == i32(3)) => (), true => __yo_panic("r"));
+});
+export(main);

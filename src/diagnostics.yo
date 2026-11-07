@@ -16,6 +16,15 @@
 json :: import("std/encoding/json");
 { JsonValue } :: import("std/encoding/json");
 { RefCell } :: import("std/sync/refcell");
+/// (seed window) Concrete per-payload variants of refcell.yo's generic
+/// fillers: a fn value generic over its element keeps the variable abstract
+/// through the slot and its specializations COLLAPSE across element types
+/// (see refcell.yo's filler block). Inline the literals back once
+/// `SEED_VERSION` carries the ref-spill fix.
+/// `ArrayList(Diagnostic)` (1 use)
+_c_len_1 :: (fn(xs : &ArrayList(Diagnostic)) -> usize)(xs.len());
+/// `ArrayList(String)` (2 uses)
+_c_len_2 :: (fn(xs : &ArrayList(String)) -> usize)(xs.len());
 /// The error-rendering format for this process: "human" (default), "short",
 /// or "json" (JSON Lines — one object per diagnostic, on stdout). Set once
 /// at CLI startup from `--error-format`/`YO_ERROR_FORMAT`; every edge that
@@ -78,7 +87,7 @@ emit_warning :: (fn(d : &Diagnostic) -> unit)({
     // condition drops every iteration's temp the loop's own way.
     (seen : bool) = false;
     (pi : usize) = usize(0);
-    while((pi < g_pending_warnings.with(xs => xs.len())) && !seen, {
+    while((pi < g_pending_warnings.with(_c_len_1)) && !seen, {
       match(
         g_pending_warnings.with(xs => xs.get_cloned(pi)),
         .Some(p) => if((p.span.path == d.span.path) && (p.span.row == d.span.row) && (p.span.col == d.span.col) && (p.message == d.message), {
@@ -622,12 +631,12 @@ register_std_export :: (fn(name : &String, module_spec : &String) -> unit)({
   g_std_export_names.with_mut({ n_ }(xs) => xs.push(n_));
   g_std_export_modules.with_mut({ m_ }(xs) => xs.push(m_));
 });
-std_export_index_size :: (fn() -> usize)(g_std_export_names.with(xs => xs.len()));
+std_export_index_size :: (fn() -> usize)(g_std_export_names.with(_c_len_2));
 /// Every std module spec exporting `name`, in registration (sorted-walk) order.
 lookup_std_exporters :: (fn(name : &String) -> ArrayList(String))({
   out := ArrayList(String).new();
   (i : usize) = usize(0);
-  while(i < g_std_export_names.with(xs => xs.len()), {
+  while(i < g_std_export_names.with(_c_len_2), {
     match(
       g_std_export_names.with(xs => xs.get_cloned(i)),
       .Some(n) => if(n == name, {

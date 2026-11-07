@@ -81,8 +81,12 @@ _intern_type_c_name_fresh :: (fn(key : &String) -> String)({
   (mut(collided) : bool) = true;
   while(collided, {
     collided = false;
+    // The probe borrows `id` only for the call (`with`'s callback is an
+    // `FnMut`): the loop reassigns `id` below, which an implicit capture
+    // would move and a lasting borrow would freeze.
+    prev_owner := _g_type_c_name_intern_r.with({ &id }(m) => m.get_cloned(id));
     match(
-      _g_type_c_name_intern_r.with(m => m.get_cloned(&id)),
+      prev_owner,
       .Some(owner) => {
         if(!(owner == key), {
           ord = (ord + usize(1));
@@ -106,7 +110,7 @@ _intern_type_c_name_fresh :: (fn(key : &String) -> String)({
 });
 _intern_type_c_name :: (fn(key : &String) -> String)(
   match(
-    _g_type_c_name_intern.with(m => m.get_cloned(key)),
+    _g_type_c_name_intern.with({ &key }(m) => m.get_cloned(key)),
     .Some(existing) => existing,
     .None => _intern_type_c_name_fresh(key)
   )
@@ -321,7 +325,7 @@ collect_type :: (fn(type_in : &TypeValue, context : &mut CodeGenContext) -> unit
     stable := stable_type_identity(&type);
     (mut(aliased) : bool) = false;
     match(
-      g_stable_to_key.with(m => m.get_cloned(stable.clone())),
+      g_stable_to_key.with({ &stable }(m) => m.get_cloned(stable.clone())),
       .Some(prev_key) => if(!(prev_key == tk), {
         // Same type, EVOLVED key render: alias to the first registration
         // instead of adding (and later emitting) a second entry. Do NOT skip

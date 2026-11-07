@@ -46,12 +46,38 @@
   BF_DERIVE,
   BF_GHOST_FN
 } :: import("../expr.yo");
-{ PathCollection, path_collection_new, ExprInfoTable, expr_info_table_new, is_module_level_global, ComptimeRef } :: import("../expr_info.yo");
+{ PathCollection, path_collection_new, ExprInfoTable, expr_info_table_new, is_module_level_global, ComptimeRef, ExprInfo } :: import("../expr_info.yo");
 { Token } :: import("../token.yo");
 { YoError } :: import("../error.yo");
 { Exception } :: import("std/error");
 { fnv1a64, debug_knob, canonical_module_path, TopLevelAnchor, register_top_level_anchors } :: import("../utils.yo");
-{ RefCell } :: import("std/sync/refcell");
+{ RefCell, cell_map_len } :: import("std/sync/refcell");
+/// (seed window) Concrete variants of refcell.yo's fillers: a fn value
+/// generic over its element keeps the variable abstract through the slot, so
+/// uses of the result needing methods fail (see refcell.yo's filler block).
+_c_clone_opt_exprs :: (fn(v : &Option(ArrayList(AstExpr))) -> Option(ArrayList(AstExpr)))(v.clone());
+/// (seed window) Concrete per-payload variants of refcell.yo's generic
+/// fillers: a fn value generic over its element keeps the variable abstract
+/// through the slot and its specializations COLLAPSE across element types
+/// (see refcell.yo's filler block). Inline the literals back once
+/// `SEED_VERSION` carries the ref-spill fix.
+/// `ArrayList(ModuleWalk)` (6 uses)
+_c_len_1 :: (fn(xs : &ArrayList(ModuleWalk)) -> usize)(xs.len());
+/// `HashMap(String, bool)` (2 uses)
+_c_len_2 :: (fn(m : &HashMap(String, bool)) -> usize)(m.len());
+/// `ArrayList(usize)` (1 use)
+_c_len_3 :: (fn(xs : &ArrayList(usize)) -> usize)(xs.len());
+/// `ArrayList(PendingDef)` (5 uses)
+_c_len_4 :: (fn(xs : &ArrayList(PendingDef)) -> usize)(xs.len());
+/// `ArrayList(ImplInFlight)` (2 uses)
+_c_len_5 :: (fn(xs : &ArrayList(ImplInFlight)) -> usize)(xs.len());
+/// (seed window) Concrete key/value variants of refcell.yo's
+/// `cell_map_keys_cloned`/`cell_map_values_cloned` for the `.into_iter()`
+/// chains: a fn value generic over K re-spells K's bounds and the
+/// IntoIterator lookup fails on it (see refcell.yo's filler block).
+_finished_walk_values :: (fn(m : &HashMap(String, ModuleWalk)) -> ArrayList(ModuleWalk))(m.values_cloned());
+_def_dep_keys :: (fn(m : &HashMap(String, HashSet(String))) -> ArrayList(String))(m.keys_cloned());
+_module_ordered_read_keys :: (fn(m : &HashMap(String, HashMap(String, HashSet(String)))) -> ArrayList(String))(m.keys_cloned());
 // ---------------------------------------------------------------------------
 // Phase V1 contract diagnostics (plans/backlog/FORMAL_VERIFICATION.md)
 // ---------------------------------------------------------------------------
@@ -1004,7 +1030,7 @@ restore_module_walk :: (fn(prev : &Option(ArrayList(AstExpr)), prev_idx : usize)
   g_module_begin_expr_index = prev_idx;
   ()
 });
-get_module_begin_exprs :: (fn() -> Option(ArrayList(AstExpr)))(g_module_begin_exprs.with(o => o.clone()));
+get_module_begin_exprs :: (fn() -> Option(ArrayList(AstExpr)))(g_module_begin_exprs.with(_c_clone_opt_exprs));
 get_module_begin_expr_index :: (fn() -> usize)(g_module_begin_expr_index);
 /// Does this binding LHS bind `name`? (Atom head, `comptime(X) ...`, a typed
 /// `(X : T)` head — the module-global spelling `(g : T) = v` — or a
@@ -1088,7 +1114,7 @@ forward_ref_diagnostic :: (fn(msg : &String) -> Option(String))({
         .Some(me) => {
           name := msg.substring(after, me);
           match(
-            g_module_begin_exprs.with(o => o.clone()),
+            g_module_begin_exprs.with(_c_clone_opt_exprs),
             .None => Option(String).None,
             .Some(exprs) => {
               n := exprs.len();
@@ -1259,63 +1285,87 @@ PendingDefData :: struct(
   is_impl : bool,
   live : RefCell(PendingDefLive)
 );
+/// (seed window) Concrete per-payload `with` bodies: a capture-free
+/// closure literal at `with`'s generic-`R` slot spills a `void*` C temp
+/// under a seed whose codegen predates the ref-spill fix. Inline the
+/// literals back once `SEED_VERSION` carries the fix
+/// (issues/fixed/2026-11-06-a-closure-literal-at-a-generic-fnmut-ref-slot-spills-void.md).
+_vh_pdf_members :: (fn(l : &PendingDefLive) -> ArrayList(String))(l.members.clone());
+_vh_pdf_expr :: (fn(l : &PendingDefLive) -> AstExpr)(l.expr);
+_vh_pdf_row :: (fn(l : &PendingDefLive) -> usize)(l.row);
+_vh_pdf_is_derive :: (fn(l : &PendingDefLive) -> bool)(l.is_derive);
+_vh_pdf_state :: (fn(l : &PendingDefLive) -> PendingDefState)(l.state);
+_vh_pdf_failure :: (fn(l : &PendingDefLive) -> Option(String))(l.failure.clone());
+_vh_pdf_phase_a_value :: (fn(l : &PendingDefLive) -> Option(EvalValue))(l.phase_a_value);
+_vh_pdf_phase_a_type :: (fn(l : &PendingDefLive) -> Option(TypeValue))(l.phase_a_type.clone());
+_vh_pdf_variable :: (fn(l : &PendingDefLive) -> Option(Variable))(l.variable.clone());
+_vh_pdf_src_hash :: (fn(l : &PendingDefLive) -> u64)(l.src_hash);
+_vh_mwd_be_begin_exprs_len :: (fn(xs : &ArrayList(AstExpr)) -> usize)(xs.len());
+_vh_mwd_be_begin_exprs_snapshot :: (fn(xs : &ArrayList(AstExpr)) -> ArrayList(AstExpr))(xs.clone());
+_vh_mwd_ctx_has_ctx :: (fn(c : &Option(EvalContext)) -> bool)(c.is_some());
+_vh_mwd_ctx_copy :: (fn(c : &Option(EvalContext)) -> Option(EvalContext))(match(c, .Some(wc) => Option(EvalContext).Some(copy_eval_context(&wc)), .None => Option(EvalContext).None));
+_vh_mwd_ctx_expr_info_table :: (fn(c : &Option(EvalContext)) -> Option(ExprInfoTable))(match(c, .Some(wc) => Option(ExprInfoTable).Some(wc.expr_info_table.clone()), .None => Option(ExprInfoTable).None));
+_vh_ctx_expr_info_count :: (fn(c : &Option(EvalContext)) -> Option(usize))(match(c, .Some(wc) => Option(usize).Some(wc.expr_info_table.data.with(_vh_eit_len)), .None => Option(usize).None));
+_vh_eit_len :: (fn(m : &HashMap(ExprId, ExprInfo)) -> usize)(m.len());
+_vh_forcing_stack_last :: (fn(xs : &ArrayList(PendingDef)) -> Option(PendingDef))(xs.last_cloned());
+_vh_forcing_stack_len :: (fn(xs : &ArrayList(PendingDef)) -> usize)(xs.len());
 impl(
   PendingDefData,
-  members : (fn(self : &Self) -> ArrayList(String))(self.live.with(l => l.members.clone())),
+  members : (fn(self : &Self) -> ArrayList(String))(self.live.with(_vh_pdf_members)),
   set_members : (fn(self : &Self, sink(v) : ArrayList(String)) -> unit)(
     self.live.with_mut({ v }(l) => {
       l.members = v;
     })
   ),
-  expr : (fn(self : &Self) -> AstExpr)(self.live.with(l => l.expr)),
+  expr : (fn(self : &Self) -> AstExpr)(self.live.with(_vh_pdf_expr)),
   set_expr : (fn(self : &Self, v : AstExpr) -> unit)(
     self.live.with_mut(l => {
       l.expr = v;
     })
   ),
-  row : (fn(self : &Self) -> usize)(self.live.with(l => l.row)),
+  row : (fn(self : &Self) -> usize)(self.live.with(_vh_pdf_row)),
   set_row : (fn(self : &Self, v : usize) -> unit)(
     self.live.with_mut(l => {
       l.row = v;
     })
   ),
-  is_derive : (fn(self : &Self) -> bool)(self.live.with(l => l.is_derive)),
+  is_derive : (fn(self : &Self) -> bool)(self.live.with(_vh_pdf_is_derive)),
   set_is_derive : (fn(self : &Self, v : bool) -> unit)(
     self.live.with_mut(l => {
       l.is_derive = v;
     })
   ),
-  state : (fn(self : &Self) -> PendingDefState)(self.live.with(l => l.state)),
+  state : (fn(self : &Self) -> PendingDefState)(self.live.with(_vh_pdf_state)),
   set_state : (fn(self : &Self, v : PendingDefState) -> unit)(
     self.live.with_mut(l => {
       l.state = v;
     })
   ),
-  failure : (fn(self : &Self) -> Option(String))(self.live.with(l => l.failure.clone())),
+  failure : (fn(self : &Self) -> Option(String))(self.live.with(_vh_pdf_failure)),
   set_failure : (fn(self : &Self, sink(v) : Option(String)) -> unit)(
     self.live.with_mut({ v }(l) => {
       l.failure = v;
     })
   ),
-  phase_a_value : (fn(self : &Self) -> Option(EvalValue))(self.live.with(l => l.phase_a_value)),
+  phase_a_value : (fn(self : &Self) -> Option(EvalValue))(self.live.with(_vh_pdf_phase_a_value)),
   set_phase_a_value : (fn(self : &Self, v : Option(EvalValue)) -> unit)(
     self.live.with_mut(l => {
       l.phase_a_value = v;
     })
   ),
-  phase_a_type : (fn(self : &Self) -> Option(TypeValue))(self.live.with(l => l.phase_a_type.clone())),
+  phase_a_type : (fn(self : &Self) -> Option(TypeValue))(self.live.with(_vh_pdf_phase_a_type)),
   set_phase_a_type : (fn(self : &Self, sink(v) : Option(TypeValue)) -> unit)(
     self.live.with_mut({ v : v.clone() }(l) => {
       l.phase_a_type = v;
     })
   ),
-  variable : (fn(self : &Self) -> Option(Variable))(self.live.with(l => l.variable.clone())),
+  variable : (fn(self : &Self) -> Option(Variable))(self.live.with(_vh_pdf_variable)),
   set_variable : (fn(self : &Self, sink(v) : Option(Variable)) -> unit)(
     self.live.with_mut({ v : v.clone() }(l) => {
       l.variable = v;
     })
   ),
-  src_hash : (fn(self : &Self) -> u64)(self.live.with(l => l.src_hash)),
+  src_hash : (fn(self : &Self) -> u64)(self.live.with(_vh_pdf_src_hash)),
   set_src_hash : (fn(self : &Self, v : u64) -> unit)(
     self.live.with_mut(l => {
       l.src_hash = v;
@@ -1388,23 +1438,23 @@ ModuleWalkData :: struct(
 );
 impl(
   ModuleWalkData,
-  begin_exprs_len : (fn(self : &Self) -> usize)(self.begin_exprs.with(xs => xs.len())),
+  begin_exprs_len : (fn(self : &Self) -> usize)(self.begin_exprs.with(_vh_mwd_be_begin_exprs_len)),
   begin_expr_at : (fn(self : &Self, i : usize) -> Option(AstExpr))(self.begin_exprs.with(xs => xs.get(i))),
   /// A copy of the statement list (the AST nodes are shared handles).
-  begin_exprs_snapshot : (fn(self : &Self) -> ArrayList(AstExpr))(self.begin_exprs.with(xs => xs.clone())),
+  begin_exprs_snapshot : (fn(self : &Self) -> ArrayList(AstExpr))(self.begin_exprs.with(_vh_mwd_be_begin_exprs_snapshot)),
   set_begin_expr : (fn(self : &Self, i : usize, e : AstExpr) -> unit)(
     self.begin_exprs.with_mut(xs => {
       xs(i) = e;
     })
   ),
-  has_ctx : (fn(self : &Self) -> bool)(self.ctx.with(c => c.is_some())),
+  has_ctx : (fn(self : &Self) -> bool)(self.ctx.with(_vh_mwd_ctx_has_ctx)),
   /// A fresh copy of the walk's context (`copy_eval_context`), if it kept one.
   ctx_copy : (fn(self : &Self) -> Option(EvalContext))(
-    self.ctx.with(c => match(c, .Some(wc) => Option(EvalContext).Some(copy_eval_context(&wc)), .None => Option(EvalContext).None))
+    self.ctx.with(_vh_mwd_ctx_copy)
   ),
   /// The expression-info table of the walk's kept context (a shared handle).
   ctx_expr_info_table : (fn(self : &Self) -> Option(ExprInfoTable))(
-    self.ctx.with(c => match(c, .Some(wc) => Option(ExprInfoTable).Some(wc.expr_info_table.clone()), .None => Option(ExprInfoTable).None))
+    self.ctx.with(_vh_mwd_ctx_expr_info_table)
   ),
   clear_ctx : (fn(self : &Self) -> unit)({
     ___old := self.ctx.replace(Option(EvalContext).None);
@@ -1453,7 +1503,7 @@ set_walk_context_retained :: (fn(path : &String, keep : bool) -> unit)({
     _removed := g_retained_walk_paths.with_mut(({ canon_rm }(s) => s.remove(&canon_rm)));
     // `ModuleWalk` is a ref struct: releasing through the value handle
     // releases the table's walk.
-    walk_values := g_finished_walks.with(m => m.values_cloned()).into_iter();
+    walk_values := g_finished_walks.with(_finished_walk_values).into_iter();
     wopt := walk_values.next();
     // The loop body closure captures its OWN clone once; reading `canon`
     // itself per iteration is a move (the capture) reused per iteration.
@@ -1478,11 +1528,11 @@ set_walk_context_retained :: (fn(path : &String, keep : bool) -> unit)({
 /// syntactically from the pending definition instead.
 is_module_ghost_fn_def :: (fn(path : &String, name : &String) -> bool)({
   canon := canonical_module_path(path);
-  (wi : usize) = g_module_walks.with(xs => xs.len());
+  (wi : usize) = g_module_walks.with(_c_len_1);
   while(wi > usize(0), {
     wi = (wi - usize(1));
     match(
-      g_module_walks.with(xs => xs.get_cloned(wi)),
+      g_module_walks.with({ wi }(xs) => xs.get_cloned(wi)),
       .Some(w) => if(canonical_module_path(&w.module_path) == &canon, {
         match(
           _find_def_by_name(&w.defs, name.clone(), false),
@@ -1511,7 +1561,7 @@ is_module_ghost_fn_def :: (fn(path : &String, name : &String) -> bool)({
 /// holds its evaluation context; `.None` when that module has no finished walk.
 finished_walk_has_context :: (fn(path : &String) -> Option(bool))({
   canon := canonical_module_path(path);
-  walk_values := g_finished_walks.with(m => m.values_cloned()).into_iter();
+  walk_values := g_finished_walks.with(_finished_walk_values).into_iter();
   wopt := walk_values.next();
   while(wopt.is_some(), {
     match(
@@ -1530,13 +1580,13 @@ finished_walk_has_context :: (fn(path : &String) -> Option(bool))({
 /// context. The CTFE-clone purge test's probe.
 finished_walk_expr_info_count :: (fn(path : &String) -> Option(usize))({
   canon := canonical_module_path(path);
-  walk_values := g_finished_walks.with(m => m.values_cloned()).into_iter();
+  walk_values := g_finished_walks.with(_finished_walk_values).into_iter();
   wopt := walk_values.next();
   while(wopt.is_some(), {
     match(
       &wopt,
       .Some(w) => if(canonical_module_path(&w.module_path) == &canon, {
-        return(w.ctx.with(c => match(c, .Some(wc) => Option(usize).Some(wc.expr_info_table.data.with(m => m.len())), .None => Option(usize).None)));
+        return(w.ctx.with(_vh_ctx_expr_info_count));
       }),
       .None => ()
     );
@@ -1546,7 +1596,9 @@ finished_walk_expr_info_count :: (fn(path : &String) -> Option(usize))({
 });
 /// Whether a walk of the module at `module_path` keeps its context when it finishes.
 walk_context_retained_for :: (fn(module_path : &String) -> bool)(
-  g_retain_walk_contexts || ((g_retained_walk_paths.with(s => s.len()) > usize(0)) && g_retained_walk_paths.with(s => s.contains(canonical_module_path(module_path))))
+  g_retain_walk_contexts || (
+    (g_retained_walk_paths.with({ &module_path }(s) => s.len()) > usize(0)) && g_retained_walk_paths.with({ &module_path }(s) => s.contains(canonical_module_path(module_path)))
+  )
 );
 /// Phase 3 (§6) — per-definition dependency tracking.
 ///
@@ -1585,19 +1637,19 @@ register_sns_module :: (fn(struct_id : &String, module_path : &String) -> unit)(
 });
 /// The module behind a source-namespace struct id, if known.
 sns_module_of :: (fn(struct_id : &String) -> Option(String))(
-  g_sns_module.with(m => m.get_cloned(struct_id))
+  g_sns_module.with({ &struct_id }(m) => m.get_cloned(struct_id))
 );
 /// The stored source hash of one definition, for the parse-only differ.
 stored_def_hash :: (fn(module_path : &String, index : usize, name : &String) -> Option(u64))(
-  g_def_hash.with(m => m.get(def_key(module_path, index, name)))
+  g_def_hash.with({ &module_path, &name, index }(m) => m.get(def_key(module_path, index, name)))
 );
 /// The stored ordered-statement sequence hash of a module.
 stored_stmt_hash :: (fn(module_path : &String) -> Option(u64))(
-  g_module_stmt_hash.with(m => m.get(module_path))
+  g_module_stmt_hash.with({ &module_path }(m) => m.get(module_path))
 );
 /// The stored definition count of a module's last walk.
 stored_def_count :: (fn(module_path : &String) -> Option(usize))(
-  g_module_def_count.with(m => m.get(module_path))
+  g_module_def_count.with({ &module_path }(m) => m.get(module_path))
 );
 /// def key helper. `index` (the statement's position in the walk's
 /// begin_exprs) + name — deliberately ROW-FREE: inserting a comment or a
@@ -1619,7 +1671,7 @@ record_def_dependency :: (fn(dependee : &String) -> unit)({
     current_forcing_def(),
     .Some(_) => {
       (top : PendingDef) = match(
-        g_forcing_stack.with(xs => xs.last_cloned()),
+        g_forcing_stack.with(_vh_forcing_stack_last),
         .Some(d) => d,
         .None => return(())
       );
@@ -1675,7 +1727,7 @@ record_module_ordered_read :: (fn(importer : &String, target_module : &String, f
 /// stack) it degrades to the ordered-read table.
 record_module_member_read :: (fn(importer : &String, target_module : &String, field : &String) -> unit)({
   target_def := match(
-    g_finished_walks.with(m => m.get_cloned(target_module)),
+    g_finished_walks.with({ &target_module }(m) => m.get_cloned(target_module)),
     .Some(fwalk) => _find_def_by_name(&fwalk.defs, field, false),
     .None => Option(PendingDef).None
   );
@@ -1739,7 +1791,7 @@ def_key_index :: (fn(key : &String) -> Option(usize))(
 );
 /// The walk a module was finished under, by the def keys' own module segment.
 finished_walk_for :: (fn(module_path : &String) -> Option(ModuleWalk))(
-  g_finished_walks.with(m => m.get_cloned(module_path))
+  g_finished_walks.with({ &module_path }(m) => m.get_cloned(module_path))
 );
 /// Reset one definition for re-evaluation: clear the lazy-binding state and
 /// drop its bindings from the walk's module frame (so a lookup MISSES again
@@ -1870,14 +1922,14 @@ def_dependents_closure :: (fn(seeds : &ArrayList(String)) -> ArrayList(String))(
       .Some(s) => s.clone(),
       .None => String.new()
     );
-    kit := g_def_deps.with(m => m.keys_cloned()).into_iter();
+    kit := g_def_deps.with(_def_dep_keys).into_iter();
     kopt := kit.next();
     while(kopt.is_some(), {
       match(
         kopt,
         .Some(dep) => if(!reached.contains(dep.clone()), {
           match(
-            g_def_deps.with(m => m.get_cloned(dep.clone())),
+            g_def_deps.with({ &dep }(m) => m.get_cloned(dep.clone())),
             .Some(deps) => if(deps.contains(seed.clone()), {
               _ := reached.insert(dep.clone());
               work.push(dep.clone());
@@ -1899,13 +1951,13 @@ def_dependents_closure :: (fn(seeds : &ArrayList(String)) -> ArrayList(String))(
 /// the invalidator drops each returned importer at file granularity.
 ordered_readers_of :: (fn(target_module : &String, names : &ArrayList(String)) -> ArrayList(String))({
   out := ArrayList(String).new();
-  iit := g_module_ordered_reads.with(m => m.keys_cloned()).into_iter();
+  iit := g_module_ordered_reads.with(_module_ordered_read_keys).into_iter();
   iopt := iit.next();
   while(iopt.is_some(), {
     match(
       iopt,
       .Some(importer) => match(
-        g_module_ordered_reads.with(m => m.get_cloned(importer.clone())),
+        g_module_ordered_reads.with({ &importer }(m) => m.get_cloned(importer.clone())),
         .Some(by_target) => match(
           by_target.get_cloned(target_module.clone()),
           .Some(fields) => {
@@ -1938,7 +1990,7 @@ ordered_readers_of :: (fn(target_module : &String, names : &ArrayList(String)) -
 /// The dependees recorded for one def key (the forward edges of
 /// `g_def_deps`), for the invalidator's cross-module ordering.
 def_key_dependees :: (fn(key : &String) -> Option(HashSet(String)))(
-  g_def_deps.with(m => m.get_cloned(key))
+  g_def_deps.with({ &key }(m) => m.get_cloned(key))
 );
 /// The forcer slot. Returns `.None` on success, `.Some(message)` on failure.
 ForcePendingDefFn :: (fn(walk : &ModuleWalk, def : &PendingDef) -> Option(String));
@@ -2147,7 +2199,7 @@ note_reference_impl_head :: (fn(head : &String) -> unit)({
   ()
 });
 /// Whether any `impl(&C, …)` / `impl(&mut C, …)` has been seen.
-reference_impls_seen :: (fn() -> bool)(g_reference_impl_heads.with(m => (m.len() > usize(0))));
+reference_impls_seen :: (fn() -> bool)((g_reference_impl_heads.with(_c_len_2) > usize(0)));
 /// Whether a reference impl of the head name `head` has been seen.
 reference_impl_head_noted :: (fn(head : &String) -> bool)({
   head_owned := head.clone();
@@ -2168,7 +2220,7 @@ note_borrowing_argument :: (fn(arg : &AstExpr) -> unit)({
 });
 /// True when the closure literal `e` is the direct argument of a borrowing
 /// parameter (`note_borrowing_argument`).
-closure_literal_is_borrowed :: (fn(e : &AstExpr) -> bool)(g_borrowing_closure_args.with(m => m.contains_key(ast_expr_id(e))));
+closure_literal_is_borrowed :: (fn(e : &AstExpr) -> bool)(g_borrowing_closure_args.with({ &e }(m) => m.contains_key(ast_expr_id(e))));
 /// `YO_AUDIT_COPY_TRAIT`'s question, answered by trait_checking.yo (installed
 /// at init, which this module cannot import): the named types `ty` is not
 /// `Copy` through, the types decision 36's sweep must give `Copy` before a
@@ -2212,25 +2264,33 @@ _impl_expr_declares_move_only :: (fn(e : &AstExpr) -> bool)(
   )
 );
 /// Force the unforced pending impls of `type_name` that declare `Drop`
+/// (seed window) The empty-name probe as a named fn: an empty-env closure
+/// literal at `with`'s generic-`R` slot spills a mistyped C temp under the
+/// v0.2.75 seed (std/sync/refcell.yo's filler block). Inline the literal back
+/// once `SEED_VERSION` carries the spill fix.
+_pending_heads_has_empty :: (fn(m : &HashMap(String, bool)) -> bool)(m.contains_key(String.new()));
+
 /// (plans/VALUES_BY_DEFAULT.md §3.4): a type's move-only status
 /// decides how every use of it is evaluated, so its impl cannot wait for a
 /// method miss or the module end. True when an impl was forced.
 force_pending_move_only_impls :: (fn(type_name : &String) -> bool)({
-  if(g_pending_move_only_heads.with(m => m.len()) == usize(0), {
+  if(g_pending_move_only_heads.with(_c_len_2) == usize(0), {
     return(false);
   });
-  if(!(g_pending_move_only_heads.with(m => m.contains_key(type_name.clone())) || g_pending_move_only_heads.with(m => m.contains_key(String.new()))), {
+  if(!(
+    g_pending_move_only_heads.with({ &type_name }(m) => m.contains_key(type_name.clone())) || g_pending_move_only_heads.with(_pending_heads_has_empty)
+  ), {
     return(false);
   });
   type_name_owned := type_name.clone();
   g_pending_move_only_heads.with_mut({ type_name_owned }(m) => m.remove(type_name_owned.clone()));
   g_pending_move_only_heads.with_mut(m => m.remove(String.new()));
   (forced : bool) = false;
-  (wi : usize) = g_module_walks.with(xs => xs.len());
+  (wi : usize) = g_module_walks.with(_c_len_1);
   while(wi > usize(0), {
     wi = (wi - usize(1));
     match(
-      g_module_walks.with(xs => xs.get_cloned(wi)),
+      g_module_walks.with({ wi }(xs) => xs.get_cloned(wi)),
       .Some(walk) => {
         (di : usize) = usize(0);
         while(di < walk.defs.len(), {
@@ -2623,10 +2683,10 @@ unmark_dot_callee :: (fn() -> unit)({
   _ := g_dot_callee_ids.with_mut(xs => xs.pop());
 });
 is_dot_callee :: (fn(id : usize) -> bool)({
-  (i : usize) = g_dot_callee_ids.with(xs => xs.len());
+  (i : usize) = g_dot_callee_ids.with(_c_len_3);
   while(i > usize(0), {
     i = (i - usize(1));
-    if(match(g_dot_callee_ids.with(xs => xs.get(i)), .Some(v) => (v == id), .None => false), {
+    if(match(g_dot_callee_ids.with({ i }(xs) => xs.get(i)), .Some(v) => (v == id), .None => false), {
       return(true);
     });
   });
@@ -2786,7 +2846,7 @@ _def_variable_for :: (fn(walk : &ModuleWalk, def : &PendingDef, name : &String) 
 /// The innermost active walk for `module_path`.
 _active_walk_for :: (fn(module_path : &String) -> Option(ModuleWalk))({
   (found : Option(ModuleWalk)) = Option(ModuleWalk).None;
-  (i : usize) = g_module_walks.with(xs => xs.len());
+  (i : usize) = g_module_walks.with(_c_len_1);
   while((i > usize(0)) && found.is_none(), {
     i = (i - usize(1));
     match(
@@ -2803,7 +2863,7 @@ _active_walk_for :: (fn(module_path : &String) -> Option(ModuleWalk))({
 /// stack), if any.
 current_forcing_def :: (fn() -> Option(PendingDef))(
   cond(
-    (g_forcing_stack.with(xs => xs.len()) > usize(0)) => g_forcing_stack.with(xs => xs.last_cloned()),
+    (g_forcing_stack.with(_vh_forcing_stack_len) > usize(0)) => g_forcing_stack.with(_vh_forcing_stack_last),
     true => Option(PendingDef).None
   )
 );
@@ -2830,7 +2890,7 @@ cyclic_definition_message :: (fn(def : &PendingDef) -> String)({
   out := String.from("cyclic definition: ");
   (started : bool) = false;
   (i : usize) = usize(0);
-  while(i < g_forcing_stack.with(xs => xs.len()), {
+  while(i < g_forcing_stack.with(_c_len_4), {
     match(
       g_forcing_stack.with(xs => xs.get_cloned(i)),
       .Some(d) => {
@@ -3016,12 +3076,12 @@ module_frame_variable :: (fn(walk : &ModuleWalk, name : &String) -> Option(Varia
 /// Drop walks above `depth` — the walker's abort edge (an error unwound
 /// through it) resets the stacks to what they were when it started.
 truncate_module_walks :: (fn(depth : usize) -> unit)({
-  while(g_module_walks.with(xs => xs.len()) > depth, {
+  while(g_module_walks.with(_c_len_1) > depth, {
     g_module_walks.with_mut(xs => xs.pop());
   });
 });
 truncate_forcing_stack :: (fn(depth : usize) -> unit)({
-  while(g_forcing_stack.with(xs => xs.len()) > depth, {
+  while(g_forcing_stack.with(_c_len_4) > depth, {
     match(
       g_forcing_stack.with_mut(xs => xs.pop()),
       // An entry abandoned mid-force: leave it re-forceable rather than
@@ -3040,7 +3100,7 @@ force_pending_def :: (fn(walk : &ModuleWalk, def : &PendingDef) -> Option(String
   // read when a program's evaluation order (and so its emitted C) differs
   // from the in-order baseline.
   if(debug_knob(`YO_DEBUG_LAZY`).is_some(), {
-    eprintln(`[force] ${_def_display(def)} in ${walk.module_path} (walk index ${def.index.to_string()}, forcing depth ${g_forcing_stack.with(xs => xs.len()).to_string()})`);
+    eprintln(`[force] ${_def_display(def)} in ${walk.module_path} (walk index ${def.index.to_string()}, forcing depth ${g_forcing_stack.with({&walk}(xs) => xs.len()).to_string()})`);
   });
   // Phase 3b: the watch tests' oracle — only the changed definition (+ its
   // dependents) may re-evaluate in a per-def round.
@@ -3219,7 +3279,7 @@ resolve_pending_definition :: (fn(name : &String, module_path : &String) -> Pend
       )
     ),
     .None => match(
-      g_finished_walks.with(m => m.get_cloned(module_path)),
+      g_finished_walks.with({ &module_path }(m) => m.get_cloned(module_path)),
       .Some(fwalk) => match(
         _find_def_by_name(&fwalk.defs, name.clone(), false),
         .Some(def) => match(
@@ -3301,7 +3361,7 @@ force_pending_impls_for_type_name :: (fn(type_name : &String, missed : &Option(S
     (m : String) = match(&missed, .Some(s) => s.clone(), .None => String.from("<bound>"));
     (stack : String) = String.new();
     (si : usize) = usize(0);
-    while(si < g_forcing_stack.with(xs => xs.len()), {
+    while(si < g_forcing_stack.with(_vh_forcing_stack_len), {
       match(g_forcing_stack.with(xs => xs.get_cloned(si)), .Some(fd) => stack.push_string(cond(fd.is_derive() => ` derive(${fd.name})`, fd.is_impl => ` impl(${fd.name})`, true => ` ${fd.name}`)), .None => ());
       si = (si + usize(1));
     });
@@ -3325,7 +3385,7 @@ force_pending_impls_for_type_name :: (fn(type_name : &String, missed : &Option(S
   // later impls as it did while derives were ordered statements.
   (in_own_impl : bool) = false;
   (fi : usize) = usize(0);
-  while(fi < g_forcing_stack.with(xs => xs.len()), {
+  while(fi < g_forcing_stack.with(_c_len_4), {
     match(
       g_forcing_stack.with(xs => xs.get_cloned(fi)),
       .Some(fd) => if((fd.is_impl && !(fd.is_derive())) && (fd.name == type_name), {
@@ -3376,12 +3436,12 @@ force_pending_impls_for_type_name :: (fn(type_name : &String, missed : &Option(S
 _force_pending_impls_pass :: (fn(type_name : &String, declaring : &Option(String), derives_only : bool) -> PendingImplOutcome)({
   (forced : bool) = false;
   (err : Option(String)) = Option(String).None;
-  (wi : usize) = g_module_walks.with(xs => xs.len());
+  (wi : usize) = g_module_walks.with(_c_len_1);
   (innermost : usize) = wi;
   while((wi > usize(0)) && err.is_none(), {
     wi = (wi - usize(1));
     match(
-      g_module_walks.with(xs => xs.get_cloned(wi)),
+      g_module_walks.with({ wi }(xs) => xs.get_cloned(wi)),
       .Some(walk) => if(((wi + usize(1)) == innermost) || _find_def_by_name(&walk.defs, type_name.clone(), false).is_some(), {
         (di : usize) = usize(0);
         while((di < walk.defs.len()) && err.is_none(), {
@@ -3515,7 +3575,7 @@ pop_impl_in_flight :: (fn() -> unit)({
   ()
 });
 truncate_impls_in_flight :: (fn(depth : usize) -> unit)({
-  while(g_impls_in_flight.with(xs => xs.len()) > depth, {
+  while(g_impls_in_flight.with(_c_len_5) > depth, {
     g_impls_in_flight.with_mut(xs => xs.pop());
   });
 });
@@ -3532,7 +3592,7 @@ truncate_impls_in_flight :: (fn(depth : usize) -> unit)({
 ForcingDepths :: struct(walks : usize, forcing : usize, impls : usize);
 derive(ForcingDepths, Copy, Clone);
 forcing_depths :: (fn() -> ForcingDepths)(
-  ForcingDepths(walks : g_module_walks.with(xs => xs.len()), forcing : g_forcing_stack.with(xs => xs.len()), impls : g_impls_in_flight.with(xs => xs.len()))
+  ForcingDepths(walks : g_module_walks.with(_c_len_1), forcing : g_forcing_stack.with(_c_len_4), impls : g_impls_in_flight.with(_c_len_5))
 );
 truncate_forcing_depths :: (fn(d : ForcingDepths) -> unit)({
   truncate_module_walks(d.walks);
@@ -3542,7 +3602,7 @@ truncate_forcing_depths :: (fn(d : ForcingDepths) -> unit)({
 /// The newest in-flight impl on `recv_id`, if any.
 newest_impl_in_flight_for :: (fn(recv_id : &String) -> Option(ImplInFlight))({
   (found : Option(ImplInFlight)) = Option(ImplInFlight).None;
-  (i : usize) = g_impls_in_flight.with(xs => xs.len());
+  (i : usize) = g_impls_in_flight.with(_c_len_5);
   while((i > usize(0)) && found.is_none(), {
     i = (i - usize(1));
     match(

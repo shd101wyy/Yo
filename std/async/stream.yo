@@ -149,7 +149,7 @@ StreamMap :: (fn(comptime(S) : Type, comptime(B) : Type, comptime(F) : Type) -> 
 );
 impl(
   generic(S : Type, A : Type, B : Type, F : Type),
-  where(S <: Stream(Item := A), F <: (Fn(item : &A) -> B)),
+  where(S <: Stream(Item := A), F <: (FnMut(item : &A) -> B)),
   StreamMap(S, B, F),
   Stream(
     Item : B,
@@ -177,7 +177,7 @@ StreamFilter :: (fn(comptime(S) : Type, comptime(F) : Type) -> comptime(Type))(
 );
 impl(
   generic(S : Type, A : Type, F : Type),
-  where(S <: Stream(Item := A), F <: (Fn(item : &A) -> bool)),
+  where(S <: Stream(Item := A), F <: (FnMut(item : &A) -> bool)),
   StreamFilter(S, F),
   Stream(
     Item : A,
@@ -217,7 +217,7 @@ StreamFilterMap :: (fn(comptime(S) : Type, comptime(B) : Type, comptime(F) : Typ
 );
 impl(
   generic(S : Type, A : Type, B : Type, F : Type),
-  where(S <: Stream(Item := A), F <: (Fn(item : &A) -> Option(B))),
+  where(S <: Stream(Item := A), F <: (FnMut(item : &A) -> Option(B))),
   StreamFilterMap(S, B, F),
   Stream(
     Item : B,
@@ -340,7 +340,7 @@ impl(
       generic(A : Type, B : Type, F : Type),
       sink(self) : Self,
       f : F,
-      where(Self <: Stream(Item := A), F <: (Fn(item : &A) -> B))
+      where(Self <: Stream(Item := A), F <: (FnMut(item : &A) -> B))
     ) -> StreamMap(Self, B, F)
   )(
     StreamMap(Self, B, F)(_inner : self, _f : f)
@@ -351,7 +351,7 @@ impl(
       generic(A : Type, F : Type),
       sink(self) : Self,
       f : F,
-      where(Self <: Stream(Item := A), F <: (Fn(item : &A) -> bool))
+      where(Self <: Stream(Item := A), F <: (FnMut(item : &A) -> bool))
     ) -> StreamFilter(Self, F)
   )(
     StreamFilter(Self, F)(_inner : self, _f : f)
@@ -363,7 +363,7 @@ impl(
       generic(A : Type, B : Type, F : Type),
       sink(self) : Self,
       f : F,
-      where(Self <: Stream(Item := A), F <: (Fn(item : &A) -> Option(B)))
+      where(Self <: Stream(Item := A), F <: (FnMut(item : &A) -> Option(B)))
     ) -> StreamFilterMap(Self, B, F)
   )(
     StreamFilterMap(Self, B, F)(_inner : self, _f : f)
@@ -399,20 +399,22 @@ impl(
       sink(self) : Self,
       f : F,
       io : Io,
-      where(Self <: Stream(Item := A), F <: (Fn(item : &A) -> unit))
+      where(Self <: Stream(Item := A), F <: (FnMut(item : &A) -> unit))
     ) -> Impl(Future(unit, Io))
   )(
     io.async({ self, f }(io : Io) => {
       // A capture-list entry is immutable (decision 47): rebind the stream
-      // to the mutable local `next` advances.
+      // to the mutable local `next` advances, and `f` to the one an `FnMut`
+      // call borrows exclusively.
       mut(st) := self;
+      mut(g) := f;
       (mut(draining) : bool) = true;
       while(draining, {
         nx := io.await(st.next(io), io);
         match(
           nx,
           .Some(item) => {
-            (f)(&item);
+            g(&item);
           },
           .None => {
             draining = false;

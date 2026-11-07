@@ -8245,7 +8245,7 @@ impl(
   generic(T : Type),
   Option(T),
   /// Apply `f` to the contained value (if `Some`), or return `None`.
-  map : (fn(generic(B : Type), self : &Self, f : &Impl(Fn(a : &T) -> B)) -> Option(B))(
+  map : (fn(generic(B : Type), self : &Self, f : &mut Impl(FnMut(a : &T) -> B)) -> Option(B))(
     match(
       self,
       .Some(value) => Option(B).Some(f(&value)),
@@ -8253,7 +8253,7 @@ impl(
     )
   ),
   /// Apply `f` to the contained value (if `Some`) and flatten the result.
-  and_then : (fn(generic(B : Type), self : &Self, f : &Impl(Fn(a : &T) -> Option(B))) -> Option(B))(
+  and_then : (fn(generic(B : Type), self : &Self, f : &mut Impl(FnMut(a : &T) -> Option(B))) -> Option(B))(
     match(
       self,
       .Some(value) => f(&value),
@@ -8261,7 +8261,7 @@ impl(
     )
   ),
   /// Return `Some(value)` if the predicate returns `true`, otherwise `None`.
-  filter : (fn(self : Self, predicate : &Impl(Fn(a : &T) -> bool)) -> Option(T))(
+  filter : (fn(self : Self, predicate : &mut Impl(FnMut(a : &T) -> bool)) -> Option(T))(
     match(
       self,
       .Some(value) => cond(
@@ -8272,7 +8272,7 @@ impl(
     )
   ),
   /// Return this option if `Some`, otherwise call `f` and return its result.
-  or_else : (fn(self : Self, f : &Impl(Fn() -> Option(T))) -> Option(T))(
+  or_else : (fn(self : Self, f : &mut Impl(FnMut() -> Option(T))) -> Option(T))(
     match(
       self,
       .Some(value) => Option(T).Some(value),
@@ -8280,7 +8280,7 @@ impl(
     )
   ),
   /// Apply `f` if `Some`, otherwise return `default_val`.
-  map_or : (fn(generic(B : Type), self : &Self, default_val : B, f : &Impl(Fn(a : &T) -> B)) -> B)(
+  map_or : (fn(generic(B : Type), self : &Self, default_val : B, f : &mut Impl(FnMut(a : &T) -> B)) -> B)(
     match(
       self,
       .Some(value) => {
@@ -8291,7 +8291,7 @@ impl(
     )
   ),
   /// Apply `f` if `Some`, otherwise call `default_fn`.
-  map_or_else : (fn(generic(B : Type), self : &Self, default_fn : &Impl(Fn() -> B), f : &Impl(Fn(a : &T) -> B)) -> B)(
+  map_or_else : (fn(generic(B : Type), self : &Self, default_fn : &mut Impl(FnMut() -> B), f : &mut Impl(FnMut(a : &T) -> B)) -> B)(
     match(
       self,
       .Some(value) => f(&value),
@@ -8321,7 +8321,7 @@ impl(
     )
   ),
   /// Extract the contained value, or call `f` to produce a default.
-  unwrap_or_else : (fn(self : Self, f : &Impl(Fn() -> T)) -> T)(
+  unwrap_or_else : (fn(self : Self, f : &mut Impl(FnMut() -> T)) -> T)(
     match(
       self,
       .Some(value) => value,
@@ -8337,7 +8337,7 @@ impl(
     )
   ),
   /// Return `true` if `Some` and the predicate holds for the value.
-  is_some_and : (fn(self : &Self, f : &Impl(Fn(a : &T) -> bool)) -> bool)(
+  is_some_and : (fn(self : &Self, f : &mut Impl(FnMut(a : &T) -> bool)) -> bool)(
     match(
       self,
       .Some(value) => f(&value),
@@ -8345,7 +8345,7 @@ impl(
     )
   ),
   /// Call `f` with the contained value (if `Some`), then return the option.
-  inspect : (fn(self : Self, f : &Impl(Fn(a : &T) -> unit)) -> Option(T))(
+  inspect : (fn(self : Self, f : &mut Impl(FnMut(a : &T) -> unit)) -> Option(T))(
     match(
       self,
       .Some(value) => {
@@ -9157,7 +9157,7 @@ impl(
   generic(OkType : Type, ErrorType : Type),
   Result(OkType, ErrorType),
   /// Map the `Ok` value with `f`, leaving `Err` untouched.
-  map : (fn(generic(B : Type), self : Self, f : &Impl(Fn(a : &OkType) -> B)) -> Result(B, ErrorType))(
+  map : (fn(generic(B : Type), self : Self, f : &mut Impl(FnMut(a : &OkType) -> B)) -> Result(B, ErrorType))(
     match(
       self,
       .Ok(value) => Result(B, ErrorType).Ok(f(&value)),
@@ -9165,7 +9165,7 @@ impl(
     )
   ),
   /// Map the `Err` value with `f`, leaving `Ok` untouched.
-  map_err : (fn(generic(F : Type), self : Self, f : &Impl(Fn(a : &ErrorType) -> F)) -> Result(OkType, F))(
+  map_err : (fn(generic(F : Type), self : Self, f : &mut Impl(FnMut(a : &ErrorType) -> F)) -> Result(OkType, F))(
     match(
       self,
       .Ok(value) => Result(OkType, F).Ok(value),
@@ -9173,7 +9173,7 @@ impl(
     )
   ),
   /// Chain a computation that may fail on the `Ok` value.
-  and_then : (fn(generic(B : Type), self : Self, f : &Impl(Fn(a : &OkType) -> Result(B, ErrorType))) -> Result(B, ErrorType))(
+  and_then : (fn(generic(B : Type), self : Self, f : &mut Impl(FnMut(a : &OkType) -> Result(B, ErrorType))) -> Result(B, ErrorType))(
     match(
       self,
       .Ok(value) => f(&value),
@@ -9181,7 +9181,7 @@ impl(
     )
   ),
   /// Chain a recovery computation on the `Err` value.
-  or_else : (fn(generic(F : Type), self : Self, f : &Impl(Fn(a : &ErrorType) -> Result(OkType, F))) -> Result(OkType, F))(
+  or_else : (fn(generic(F : Type), self : Self, f : &mut Impl(FnMut(a : &ErrorType) -> Result(OkType, F))) -> Result(OkType, F))(
     match(
       self,
       .Ok(value) => Result(OkType, F).Ok(value),
@@ -9227,7 +9227,7 @@ impl(
     )
   ),
   /// Apply `f` if `Ok`, otherwise return `default_val`.
-  map_or : (fn(generic(B : Type), self : &Self, default_val : B, f : &Impl(Fn(a : &OkType) -> B)) -> B)(
+  map_or : (fn(generic(B : Type), self : &Self, default_val : B, f : &mut Impl(FnMut(a : &OkType) -> B)) -> B)(
     match(
       self,
       .Ok(value) => {
@@ -9238,7 +9238,7 @@ impl(
     )
   ),
   /// Apply `f` if `Ok`, otherwise call `default_fn` with the error.
-  map_or_else : (fn(generic(B : Type), self : &Self, default_fn : &Impl(Fn(a : &ErrorType) -> B), f : &Impl(Fn(a : &OkType) -> B)) -> B)(
+  map_or_else : (fn(generic(B : Type), self : &Self, default_fn : &mut Impl(FnMut(a : &ErrorType) -> B), f : &mut Impl(FnMut(a : &OkType) -> B)) -> B)(
     match(
       self,
       .Ok(value) => f(&value),
@@ -9246,7 +9246,7 @@ impl(
     )
   ),
   /// Extract the `Ok` value, or call `f` with the error to produce a fallback.
-  unwrap_or_else : (fn(self : Self, f : &Impl(Fn(a : &ErrorType) -> OkType)) -> OkType)(
+  unwrap_or_else : (fn(self : Self, f : &mut Impl(FnMut(a : &ErrorType) -> OkType)) -> OkType)(
     match(
       self,
       .Ok(value) => value,
@@ -9278,7 +9278,7 @@ impl(
     )
   ),
   /// Call `f` with the `Ok` value (if any), then return the result.
-  inspect : (fn(self : Self, f : &Impl(Fn(a : &OkType) -> unit)) -> Result(OkType, ErrorType))(
+  inspect : (fn(self : Self, f : &mut Impl(FnMut(a : &OkType) -> unit)) -> Result(OkType, ErrorType))(
     match(
       self,
       .Ok(value) => {
@@ -9289,7 +9289,7 @@ impl(
     )
   ),
   /// Call `f` with the `Err` value (if any), then return the result.
-  inspect_err : (fn(self : Self, f : &Impl(Fn(a : &ErrorType) -> unit)) -> Result(OkType, ErrorType))(
+  inspect_err : (fn(self : Self, f : &mut Impl(FnMut(a : &ErrorType) -> unit)) -> Result(OkType, ErrorType))(
     match(
       self,
       .Ok(value) => Result(OkType, ErrorType).Ok(value),
@@ -9379,7 +9379,7 @@ impl(
     )
   ),
   /// Convert `Some(value)` to `Ok(value)`, or call `err_fn` to produce `Err` if `None`.
-  ok_or_else : (fn(generic(E : Type), self : Self, err_fn : &Impl(Fn() -> E)) -> Result(T, E))(
+  ok_or_else : (fn(generic(E : Type), self : Self, err_fn : &mut Impl(FnMut() -> E)) -> Result(T, E))(
     match(
       self,
       .Some(value) => Result(T, E).Ok(value),
@@ -11450,7 +11450,7 @@ derive(generic(I : Type, B : Type, F : Type), where(I <: Clone, F <: Clone), Ite
 derive(generic(I : Type, B : Type, F : Type), where(I <: Copy, F <: Copy), IterMap(I, B, F), Copy);
 impl(
   generic(I : Type, A : Type, B : Type, F : Type),
-  where(I <: Iterator(Item := A), F <: (Fn(item : &A) -> B)),
+  where(I <: Iterator(Item := A), F <: (FnMut(item : &A) -> B)),
   IterMap(I, B, F),
   Iterator(
     Item : B,
@@ -11480,7 +11480,7 @@ derive(generic(I : Type, F : Type), where(I <: Clone, F <: Clone), IterFilter(I,
 derive(generic(I : Type, F : Type), where(I <: Copy, F <: Copy), IterFilter(I, F), Copy);
 impl(
   generic(I : Type, A : Type, F : Type),
-  where(I <: Iterator(Item := A), F <: (Fn(item : &A) -> bool)),
+  where(I <: Iterator(Item := A), F <: (FnMut(item : &A) -> bool)),
   IterFilter(I, F),
   Iterator(
     Item : A,
@@ -11699,7 +11699,7 @@ derive(generic(I : Type, F : Type), where(I <: Clone, F <: Clone), IterTakeWhile
 derive(generic(I : Type, F : Type), where(I <: Copy, F <: Copy), IterTakeWhile(I, F), Copy);
 impl(
   generic(I : Type, A : Type, F : Type),
-  where(I <: Iterator(Item := A), F <: (Fn(item : &A) -> bool)),
+  where(I <: Iterator(Item := A), F <: (FnMut(item : &A) -> bool)),
   IterTakeWhile(I, F),
   Iterator(
     Item : A,
@@ -11744,7 +11744,7 @@ derive(generic(I : Type, F : Type), where(I <: Clone, F <: Clone), IterSkipWhile
 derive(generic(I : Type, F : Type), where(I <: Copy, F <: Copy), IterSkipWhile(I, F), Copy);
 impl(
   generic(I : Type, A : Type, F : Type),
-  where(I <: Iterator(Item := A), F <: (Fn(item : &A) -> bool)),
+  where(I <: Iterator(Item := A), F <: (FnMut(item : &A) -> bool)),
   IterSkipWhile(I, F),
   Iterator(
     Item : A,
@@ -11787,7 +11787,7 @@ derive(generic(I : Type, B : Type, F : Type), where(I <: Clone, F <: Clone), Ite
 derive(generic(I : Type, B : Type, F : Type), where(I <: Copy, F <: Copy), IterFilterMap(I, B, F), Copy);
 impl(
   generic(I : Type, A : Type, B : Type, F : Type),
-  where(I <: Iterator(Item := A), F <: (Fn(item : &A) -> Option(B))),
+  where(I <: Iterator(Item := A), F <: (FnMut(item : &A) -> Option(B))),
   IterFilterMap(I, B, F),
   Iterator(
     Item : B,
@@ -12875,7 +12875,7 @@ impl(
       generic(A : Type, B : Type, F : Type),
       sink(self) : Self,
       sink(f) : F,
-      where(Self <: Iterator(Item := A), F <: (Fn(item : &A) -> B))
+      where(Self <: Iterator(Item := A), F <: (FnMut(item : &A) -> B))
     ) -> IterMap(Self, B, F)
   )(
     IterMap(Self, B, F)(_inner : self, _f : f)
@@ -12888,7 +12888,7 @@ impl(
       generic(A : Type, F : Type),
       sink(self) : Self,
       sink(f) : F,
-      where(Self <: Iterator(Item := A), F <: (Fn(item : &A) -> bool))
+      where(Self <: Iterator(Item := A), F <: (FnMut(item : &A) -> bool))
     ) -> IterFilter(Self, F)
   )(
     IterFilter(Self, F)(_inner : self, _f : f)
@@ -12942,8 +12942,8 @@ impl(
       generic(A : Type, Acc : Type, F : Type),
       sink(self) : Self,
       init : Acc,
-      f : &F,
-      where(Self <: Iterator(Item := A), F <: (Fn(acc : &Acc, item : &A) -> Acc))
+      f : &mut F,
+      where(Self <: Iterator(Item := A), F <: (FnMut(acc : &Acc, item : &A) -> Acc))
     ) -> Acc
   )({
     mut(acc) := init;
@@ -12966,8 +12966,8 @@ impl(
     fn(
       generic(A : Type, F : Type),
       sink(self) : Self,
-      f : &F,
-      where(Self <: Iterator(Item := A), F <: (Fn(item : &A) -> unit))
+      f : &mut F,
+      where(Self <: Iterator(Item := A), F <: (FnMut(item : &A) -> unit))
     ) -> unit
   )({
     mut(iter) := self;
@@ -13011,8 +13011,8 @@ impl(
     fn(
       generic(A : Type, F : Type),
       sink(self) : Self,
-      pred : &F,
-      where(Self <: Iterator(Item := A), F <: (Fn(item : &A) -> bool))
+      pred : &mut F,
+      where(Self <: Iterator(Item := A), F <: (FnMut(item : &A) -> bool))
     ) -> bool
   )({
     mut(result) := false;
@@ -13041,8 +13041,8 @@ impl(
     fn(
       generic(A : Type, F : Type),
       sink(self) : Self,
-      pred : &F,
-      where(Self <: Iterator(Item := A), F <: (Fn(item : &A) -> bool))
+      pred : &mut F,
+      where(Self <: Iterator(Item := A), F <: (FnMut(item : &A) -> bool))
     ) -> bool
   )({
     mut(result) := true;
@@ -13071,8 +13071,8 @@ impl(
     fn(
       generic(A : Type, F : Type),
       sink(self) : Self,
-      pred : &F,
-      where(Self <: Iterator(Item := A), F <: (Fn(item : &A) -> bool))
+      pred : &mut F,
+      where(Self <: Iterator(Item := A), F <: (FnMut(item : &A) -> bool))
     ) -> Option(A)
   )({
     (mut(found) : Option(A)) = .None;
@@ -13101,8 +13101,8 @@ impl(
     fn(
       generic(A : Type, F : Type),
       sink(self) : Self,
-      pred : &F,
-      where(Self <: Iterator(Item := A), F <: (Fn(item : &A) -> bool))
+      pred : &mut F,
+      where(Self <: Iterator(Item := A), F <: (FnMut(item : &A) -> bool))
     ) -> Option(usize)
   )({
     (mut(found) : Option(usize)) = .None;
@@ -13285,7 +13285,7 @@ impl(
       generic(A : Type, F : Type),
       sink(self) : Self,
       sink(f) : F,
-      where(Self <: Iterator(Item := A), F <: (Fn(item : &A) -> bool))
+      where(Self <: Iterator(Item := A), F <: (FnMut(item : &A) -> bool))
     ) -> IterTakeWhile(Self, F)
   )(
     IterTakeWhile(Self, F)(_inner : self, _f : f, _done : false)
@@ -13296,7 +13296,7 @@ impl(
       generic(A : Type, F : Type),
       sink(self) : Self,
       sink(f) : F,
-      where(Self <: Iterator(Item := A), F <: (Fn(item : &A) -> bool))
+      where(Self <: Iterator(Item := A), F <: (FnMut(item : &A) -> bool))
     ) -> IterSkipWhile(Self, F)
   )(
     IterSkipWhile(Self, F)(_inner : self, _f : f, _skipping : true)
@@ -13307,7 +13307,7 @@ impl(
       generic(A : Type, B : Type, F : Type),
       sink(self) : Self,
       sink(f) : F,
-      where(Self <: Iterator(Item := A), F <: (Fn(item : &A) -> Option(B)))
+      where(Self <: Iterator(Item := A), F <: (FnMut(item : &A) -> Option(B)))
     ) -> IterFilterMap(Self, B, F)
   )(
     IterFilterMap(Self, B, F)(_inner : self, _f : f)

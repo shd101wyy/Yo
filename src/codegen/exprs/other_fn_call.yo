@@ -3,10 +3,10 @@
 { ArrayList } :: import("std/collections/array_list");
 { HashSet } :: import("std/collections/hash_set");
 { AstExpr, ExprId, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_is_address_of_call, ast_expr_token, ast_expr_text, ast_expr_to_string, ast_expr_id, make_err_expr, BF_DOT, BK_BORROW_MUT, ast_rewritten_node } :: import("../../expr.yo");
-{ lookup_method_callee_value, ExprInfo, new_expr_info, expr_info_effect_analysis, expr_info_deferred_dup_expressions, expr_info_index_trait_ptr_type, scope_variables, scope_release_note_hard, is_by_value_param_share_dup, is_call_scoped_share_dup, lookup_macro_expansion, expr_info_converted_runtime_type } :: import("../../expr_info.yo");
+{ lookup_method_callee_value, ExprInfo, new_expr_info, expr_info_effect_analysis, expr_info_deferred_dup_expressions, expr_info_index_trait_ptr_type, scope_variables, scope_release_note_hard, is_by_value_param_share_dup, is_call_scoped_share_dup, lookup_macro_expansion, expr_info_converted_runtime_type, expr_info_capture_type, expr_info_is_anonymous_function_definition } :: import("../../expr_info.yo");
 { EvalValue, is_func_val, is_unknown_val, is_struct_val, is_enum_val } :: import("../../value.yo");
 { get_type_trait_methods_by_name, type_id_or_empty } :: import("../../evaluator/values/type_trait_methods.yo");
-{ get_func_type, is_control_fn, is_effect_record_member, is_io_async_sm_closure } :: import("../../function_value.yo");
+{ get_func_type, is_control_fn, is_effect_record_member, is_io_async_sm_closure, get_closure_capture_info } :: import("../../function_value.yo");
 { should_skip_function_codegen, _async_override_return_type, awaited_future_c_type_override, emitted_return_type_string, generate_function_prototype, fn_value_c_name } :: import("../functions/declarations.yo");
 { TypeValue, TypeValueNode, FuncMeta, no_types, no_labels, no_flags, SharedList, fn_param_mut_ref_at, fn_param_by_value_at, t_slot_pointee, t_slot_is_mut_ref, slot_pointee_at, fn_param_mut_ref_flags, fn_result_pointee, fn_result_is_ref, t_slot_is_borrow } :: import("../../types/definitions.yo");
 { t_ptr } :: import("../../types/creators.yo");
@@ -647,7 +647,7 @@ _materialize_arg :: (fn(arg : &AstExpr, param_is_ref : bool, expr : &AstExpr, in
         // sibling blocks — see scope_stack_contains); the in-scope
         // local/param holds the same value, so reuse it.
         vname_c := sanitize_for_c_identifier(vname.clone(), false);
-        already_in_scope := context.base.declared_scopes.with(ds_s => scope_stack_contains(ds_s, vname_c.clone()));
+        already_in_scope := context.base.declared_scopes.with({ &vname_c }(ds_s) => scope_stack_contains(ds_s, vname_c.clone()));
         (mut(emitted) : bool) = false;
         if(!(arg_code == vname_c) && !is_comptime_only && !is_sm && !param_is_ref && !is_deref_read && !already_in_scope, {
           if(!(arg_code == sanitized), {
@@ -1168,6 +1168,60 @@ _operand_may_write :: (fn(e : &AstExpr, context : &FunctionGenerationContext) ->
     }
   )
 );
+/// The C type for a ref-spill temp holding a CLOSURE LITERAL argument. The
+/// literal's ExprInfo type can stay an ABSTRACT `Impl` — a slot whose trait
+/// signature mentions a type variable the callee's own generics solve (`f :
+/// `&mut Impl(FnMut() -> R)` of a `generic(R)` callee) never has the closure
+/// identity bound into it — and that lowers to `void*`, while the literal's
+/// emitted code is the CONCRETE capture-struct compound literal
+/// `(__yo_tN){…}`. Spilling that into a `void*` temp passes `void**` where
+/// the specialization's `__yo_tN*` body parameter is expected: ill-typed C
+/// (`-Werror=incompatible-pointer-types`). As the closure-literal emitter
+/// already does for its own compound literal (`closures.yo`, the
+/// capture-free branch), recover the type from the closure's registered
+/// capture info: the ExprInfo's `capture_type` first, then
+/// `get_closure_capture_info(fid)` (keyed by the FuncVal recorded on the
+/// definition's `value`; always present, an empty struct for capture-free
+/// closures). Every other argument keeps `default_cty` unchanged.
+_closure_ref_spill_c_type :: (fn(default_cty : String, rei : &ExprInfo, context : &mut FunctionGenerationContext) -> String)({
+  if((default_cty == String.from("void*")) || (default_cty == String.from("void")), {
+    match(
+      expr_info_is_anonymous_function_definition(rei),
+      .Some(true) => {
+        match(
+          expr_info_capture_type(rei),
+          .Some(cst) => match(
+            resolve_some_type_to_concrete(&cst),
+            Rc(.Struct({ id : _csid })) => {
+              s := get_type_string(&cst, &mut context.base);
+              if((s.len() > usize(0)) && !((s == String.from("void*")) || (s == String.from("void"))), {
+                return(s);
+              });
+            },
+            _ => ()
+          ),
+          .None => ()
+        );
+        match(
+          rei.value(),
+          .Some(.FuncVal(cfv_fvd, _)) => match(
+            get_closure_capture_info(cfv_fvd.*.func_id.clone()),
+            .Some(cci) => {
+              s := get_type_string(&cci.capture_type, &mut context.base);
+              if((s.len() > usize(0)) && !((s == String.from("void*")) || (s == String.from("void"))), {
+                return(s);
+              });
+            },
+            .None => ()
+          ),
+          _ => ()
+        );
+      },
+      _ => ()
+    );
+  });
+  default_cty
+});
 /// Apply the auto-`&` wrap to ref-parameter arguments (fold `(*x)`→`x`, wrap
 /// bare literals in a compound literal, address-of addressable exprs, else
 /// spill to a temp).
@@ -1253,7 +1307,7 @@ _apply_ref_amp :: (fn(args : &ArrayList(String), param_is_ref : &ArrayList(bool)
             w.push_str("))");
             w
           }, {
-            cty := match(runtime_args.get(i), .Some(ra) => match(context.base.get_expr_info(&ra), .Some(rei) => get_type_string(&rei.ty(), &mut context.base), .None => String.from("size_t")), .None => String.from("size_t"));
+            cty := match(runtime_args.get(i), .Some(ra) => match(context.base.get_expr_info(&ra), .Some(rei) => _closure_ref_spill_c_type(get_type_string(&rei.ty(), &mut context.base), &rei, context), .None => String.from("size_t")), .None => String.from("size_t"));
             mut(spill) := String.from("__yo_ref_spill_");
             spill_n := g_ref_spill_counter;
             g_ref_spill_counter = (spill_n + usize(1));

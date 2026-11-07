@@ -34,10 +34,13 @@ test("each forwarding helper runs the closure it was given", {
 test("a capture-free closure and a capturing one through the same helper", {
   tag := String.from("T");
   x := m.outer_b(() => String.from("plain"));
-  y := m.outer_b(() => `cap ${tag}`);
+  // The capture is spelled: an implicit capture of the owned `tag` would
+  // MOVE it (an FnMut closure's implicit captures are owning), and the
+  // second closure below would read a moved value.
+  y := m.outer_b({ &tag }() => `cap ${tag}`);
   assert(x == "plain", "capture-free");
   assert(y == "cap T", "capturing");
   // the same closure shape forwarded twice still works
-  z := m.outer_c(() => `cap ${tag}`);
+  z := m.outer_c({ &tag }() => `cap ${tag}`);
   assert(z == "cap T", "second helper, same capture shape");
 });

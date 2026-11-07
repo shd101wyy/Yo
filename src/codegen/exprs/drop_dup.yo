@@ -912,7 +912,7 @@ has_pending_emittable_drop :: (fn(expr : &AstExpr, context : &FunctionGeneration
                   .Some(nm) => {
                     cn := sanitize_for_c_identifier(&nm, false);
                     is_tmp := (is_temp_variable_name(&ei.env().module_path().*, cn.clone()) || _looks_like_minted_temp(cn.clone()));
-                    declared := context.base.declared_c_var_names.with(dn_s => dn_s.contains(&cn));
+                    declared := context.base.declared_c_var_names.with({ &cn }(dn_s) => dn_s.contains(&cn));
                     !is_tmp || declared
                   },
                   .None => true
@@ -996,7 +996,7 @@ generate_deferred_drop_expressions :: (
                   get_deferred_drop_target_atom_name(&drop_expr),
                   .Some(nm) => {
                     cn := sanitize_for_c_identifier(&nm, false);
-                    (is_temp_variable_name(&ei.env().module_path().*, cn.clone()) || _looks_like_minted_temp(cn.clone())) && !context.base.declared_c_var_names.with(dn_s => dn_s.contains(&cn))
+                    (is_temp_variable_name(&ei.env().module_path().*, cn.clone()) || _looks_like_minted_temp(cn.clone())) && !context.base.declared_c_var_names.with({ &cn }(dn_s) => dn_s.contains(&cn))
                   },
                   .None => false
                 );
@@ -1076,7 +1076,7 @@ generate_deferred_dup_expressions :: (fn(expr : &AstExpr, indent : &String, cont
                 get_deferred_dup_target_atom_name(&dup_expr),
                 .Some(dnm) => {
                   dcn := sanitize_for_c_identifier(&dnm, false);
-                  (is_temp_variable_name(&ei.env().module_path().*, dcn.clone()) || _looks_like_minted_temp(dcn.clone())) && !context.base.declared_c_var_names.with(dn_s => dn_s.contains(&dcn))
+                  (is_temp_variable_name(&ei.env().module_path().*, dcn.clone()) || _looks_like_minted_temp(dcn.clone())) && !context.base.declared_c_var_names.with({ &dcn }(dn_s) => dn_s.contains(&dcn))
                 },
                 .None => false
               );
@@ -1103,7 +1103,7 @@ generate_deferred_dup_expressions :: (fn(expr : &AstExpr, indent : &String, cont
                       &ddei.variable_name(),
                       .Some(ddvn) => {
                         ddtn := get_variable_name_for_codegen_at(ast_expr_id(&dup_expr), ddvn.clone(), Option(Environment).Some(ddei.env()));
-                        if(!(ddtn == code) && !context.base.declared_scopes.with(ds_s => scope_stack_contains(ds_s, &ddtn)), Option(String).Some(get_variable_type_string(&ddei.ty(), &ddvn, &mut context.base)), Option(String).None)
+                        if(!(ddtn == code) && !context.base.declared_scopes.with({ &ddtn }(ds_s) => scope_stack_contains(ds_s, &ddtn)), Option(String).Some(get_variable_type_string(&ddei.ty(), &ddvn, &mut context.base)), Option(String).None)
                       },
                       .None => Option(String).None
                     ),
@@ -1493,7 +1493,7 @@ generate_early_return_only_deferred_drop_expressions :: (fn(expr : &AstExpr, ind
                   );
                   // Likewise an `FnOnce` closure's owned capture lives in the
                   // closure context, never a C local (decision 37).
-                  !in_slot && !is_fnonce_capture_drop(ast_expr_id(&drop_expr)) && !context.base.declared_scopes.with(ds_s => scope_stack_contains(ds_s, &cn))
+                  !in_slot && !is_fnonce_capture_drop(ast_expr_id(&drop_expr)) && !context.base.declared_scopes.with({ &cn }(ds_s) => scope_stack_contains(ds_s, cn))
                 },
                 .None => false
               );

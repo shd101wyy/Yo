@@ -318,7 +318,7 @@ log_target :: (fn(generic(T : Type), level : Level, target : str, msg : &T, wher
 );
 /// Log at `level`, building the message from `make` ONLY when it passes the
 /// filter — for messages that are costly to construct.
-log_lazy :: (fn(level : Level, make : &Impl(Fn() -> String)) -> unit)(
+log_lazy :: (fn(level : Level, make : &mut Impl(FnMut() -> String)) -> unit)(
   cond(
     enabled(level) => _emit(level, String.new(), make()),
     true => ()
@@ -365,17 +365,17 @@ export(trace_target, debug_target, info_target, warn_target, error_target);
 /// evaluated at the call site whatever the filter says.
 ///
 /// Untagged; there is no lazy `*_target` form.
-trace_lazy :: (fn(make : &Impl(Fn() -> String)) -> unit)(log_lazy(Level.Trace, make));
+trace_lazy :: (fn(make : &mut Impl(FnMut() -> String)) -> unit)(log_lazy(Level.Trace, make));
 /// `debug` with the message built only if `Debug` passes the filter; see
 /// `trace_lazy`.
-debug_lazy :: (fn(make : &Impl(Fn() -> String)) -> unit)(log_lazy(Level.Debug, make));
+debug_lazy :: (fn(make : &mut Impl(FnMut() -> String)) -> unit)(log_lazy(Level.Debug, make));
 /// `info` with the message built only if `Info` passes the filter; see
 /// `trace_lazy`.
-info_lazy :: (fn(make : &Impl(Fn() -> String)) -> unit)(log_lazy(Level.Info, make));
+info_lazy :: (fn(make : &mut Impl(FnMut() -> String)) -> unit)(log_lazy(Level.Info, make));
 /// `warn` with the message built only if `Warn` passes the filter; see
 /// `trace_lazy`.
-warn_lazy :: (fn(make : &Impl(Fn() -> String)) -> unit)(log_lazy(Level.Warn, make));
+warn_lazy :: (fn(make : &mut Impl(FnMut() -> String)) -> unit)(log_lazy(Level.Warn, make));
 /// `error` with the message built only if `Error` passes the filter; see
 /// `trace_lazy`.
-error_lazy :: (fn(make : &Impl(Fn() -> String)) -> unit)(log_lazy(Level.Error, make));
+error_lazy :: (fn(make : &mut Impl(FnMut() -> String)) -> unit)(log_lazy(Level.Error, make));
 export(trace_lazy, debug_lazy, info_lazy, warn_lazy, error_lazy);

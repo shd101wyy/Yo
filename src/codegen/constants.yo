@@ -21,6 +21,13 @@
 { Token } :: import("../token.yo");
 { format_error_message, format_coded_error } :: import("../error.yo");
 { E_INTERNAL_COMPILER_ERROR } :: import("../diagnostics.yo");
+/// (seed window) Concrete per-payload variants of refcell.yo's generic
+/// fillers: a fn value generic over its element keeps the variable abstract
+/// through the slot and its specializations COLLAPSE across element types
+/// (see refcell.yo's filler block). Inline the literals back once
+/// `SEED_VERSION` carries the ref-spill fix.
+/// `Option(AnyError)` (1 use)
+_c_is_none_1 :: (fn(o : &Option(AnyError)) -> bool)(o.is_none());
 {
   BF_YO_OP_ADD,
   BF_YO_OP_SUB,
@@ -200,7 +207,7 @@ is_primitive_type_tag :: (fn(t : TypeTag) -> bool)(
 /// `with`/`replace` read and take it.
 (g_codegen_error : RefCell(Option(AnyError))) = RefCell(Option(AnyError)).new(Option(AnyError).None);
 _record_codegen_error :: (fn(err : AnyError) -> unit)(
-  if(g_codegen_error.with(o => o.is_none()), {
+  if(g_codegen_error.with(_c_is_none_1), {
     g_codegen_error.replace(Option(AnyError).Some(err));
   })
 );

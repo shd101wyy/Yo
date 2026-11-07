@@ -745,17 +745,17 @@ some_t_bounds_empty :: (fn() -> SomeTBounds(TypeValue))(
 impl(
   SomeTBounds(TypeValue),
   /// A snapshot of the required trait constraints.
-  required : (fn(self : &Self) -> ArrayList(TypeValue))(self.*.with(b => b.required.clone())),
+  required : (fn(self : &Self) -> ArrayList(TypeValue))(self.*.with({ &self }(b) => b.required.clone())),
   /// A snapshot of the required constraints' frame levels.
-  required_levels : (fn(self : &Self) -> ArrayList(usize))(self.*.with(b => b.required_levels.clone())),
+  required_levels : (fn(self : &Self) -> ArrayList(usize))(self.*.with({ &self }(b) => b.required_levels.clone())),
   /// A snapshot of the negative trait constraints.
-  negative : (fn(self : &Self) -> ArrayList(TypeValue))(self.*.with(b => b.negative.clone())),
+  negative : (fn(self : &Self) -> ArrayList(TypeValue))(self.*.with({ &self }(b) => b.negative.clone())),
   /// A snapshot of the negative constraints' frame levels.
-  negative_levels : (fn(self : &Self) -> ArrayList(usize))(self.*.with(b => b.negative_levels.clone())),
+  negative_levels : (fn(self : &Self) -> ArrayList(usize))(self.*.with({ &self }(b) => b.negative_levels.clone())),
   /// Number of required constraints, read in place.
-  required_len : (fn(self : &Self) -> usize)(self.*.with(b => b.required.len())),
+  required_len : (fn(self : &Self) -> usize)(self.*.with({ &self }(b) => b.required.len())),
   /// Number of negative constraints, read in place.
-  negative_len : (fn(self : &Self) -> usize)(self.*.with(b => b.negative.len()))
+  negative_len : (fn(self : &Self) -> usize)(self.*.with({ &self }(b) => b.negative.len()))
 );
 /// A fresh trait body cell holding these lists (a NEW trait identity).
 trait_t_body :: (
@@ -776,18 +776,18 @@ trait_t_body :: (
 impl(
   TraitTBody(TypeValue),
   /// A snapshot of the associated type names.
-  assoc_type_names : (fn(self : &Self) -> ArrayList(String))(self.*.with(b => b.assoc_type_names.clone())),
+  assoc_type_names : (fn(self : &Self) -> ArrayList(String))(self.*.with({ &self }(b) => b.assoc_type_names.clone())),
   /// A snapshot of the member labels.
-  field_labels : (fn(self : &Self) -> ArrayList(String))(self.*.with(b => b.field_labels.clone())),
+  field_labels : (fn(self : &Self) -> ArrayList(String))(self.*.with({ &self }(b) => b.field_labels.clone())),
   /// A snapshot of the member types.
-  field_types : (fn(self : &Self) -> ArrayList(TypeValue))(self.*.with(b => b.field_types.clone())),
+  field_types : (fn(self : &Self) -> ArrayList(TypeValue))(self.*.with({ &self }(b) => b.field_types.clone())),
   /// A snapshot of the `where(Self <: X)` constraints.
-  self_constraints : (fn(self : &Self) -> ArrayList(TypeValue))(self.*.with(b => b.self_constraints.clone())),
+  self_constraints : (fn(self : &Self) -> ArrayList(TypeValue))(self.*.with({ &self }(b) => b.self_constraints.clone())),
   /// A snapshot of the negative `where(Self <: X)` constraints.
-  neg_self_constraints : (fn(self : &Self) -> ArrayList(TypeValue))(self.*.with(b => b.neg_self_constraints.clone())),
+  neg_self_constraints : (fn(self : &Self) -> ArrayList(TypeValue))(self.*.with({ &self }(b) => b.neg_self_constraints.clone())),
   /// A fresh cell holding copies of these lists (a NEW trait identity).
   fresh_copy : (fn(self : &Self) -> Self)(
-    self.*.with(b => trait_t_body(b.assoc_type_names.clone(), b.field_labels.clone(), b.field_types.clone(), b.self_constraints.clone(), b.neg_self_constraints.clone()))
+    self.*.with({ &self }(b) => trait_t_body(b.assoc_type_names.clone(), b.field_labels.clone(), b.field_types.clone(), b.self_constraints.clone(), b.neg_self_constraints.clone()))
   )
 );
 // ---------------------------------------------------------------------------
@@ -1144,7 +1144,7 @@ register_struct_field_comptime_flags :: (
 get_struct_field_comptime_flags :: (
   fn(struct_id : &String) -> Option(ArrayList(bool))
 )(
-  g_struct_field_comptime_flags.with(m => m.get_cloned(struct_id.clone()))
+  g_struct_field_comptime_flags.with({ &struct_id }(m) => m.get_cloned(struct_id.clone()))
 );
 export(TypeValue, TypeValueNode, FuncMeta, SomeTBounds, SomeTBoundsCell, some_t_bounds, some_t_bounds_empty, TraitTBody, TraitTBodyCell, trait_t_body, SharedList, SharedListCell, SharedListElem, shared_list, no_types, no_labels, no_flags, no_levels, no_discriminants, no_type_lists, no_label_lists, t_refine_inner, register_struct_field_comptime_flags, get_struct_field_comptime_flags);
 export(fn_trait_rank, fn_trait_base_serves, fn_trait_call_contract, fn_trait_slot_contract);

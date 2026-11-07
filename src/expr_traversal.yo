@@ -746,7 +746,7 @@ record_await_fusion_candidate :: (fn(call : &AstExpr, func_id : &String, body : 
   if(!codegen_tables_enabled(), {
     return(());
   });
-  if(!g_fusion_candidate_of_fn.with(m => m.contains_key(func_id.clone())), {
+  if(!g_fusion_candidate_of_fn.with({ &func_id }(m) => m.contains_key(func_id.clone())), {
     tok := ast_expr_token(body);
     candidate := match(
       async_wrapper_fusion_verdict(body),
@@ -760,7 +760,7 @@ record_await_fusion_candidate :: (fn(call : &AstExpr, func_id : &String, body : 
   });
   // Only a wrapper's calls are recorded: every other call would grow the
   // table for nothing.
-  if(match(g_fusion_candidate_of_fn.with(m => m.get_cloned(func_id.clone())), .Some(c) => c.is_some(), .None => false), {
+  if(match(g_fusion_candidate_of_fn.with({ &func_id }(m) => m.get_cloned(func_id.clone())), .Some(c) => c.is_some(), .None => false), {
     fc_call_key := ast_expr_id(call).to_string();
     fc_callee := func_id.clone();
     g_fusion_callee_of_call.with_mut({ fc_call_key, fc_callee }(m) => m.insert(fc_call_key, fc_callee));
@@ -769,7 +769,7 @@ record_await_fusion_candidate :: (fn(call : &AstExpr, func_id : &String, body : 
 /// The recorded candidate for `call`, if its callee is an `io.async` wrapper.
 await_fusion_candidate :: (fn(call : &AstExpr) -> Option(FusionCandidate))(
   match(
-    g_fusion_callee_of_call.with(m => m.get_cloned(ast_expr_id(call).to_string())),
+    g_fusion_callee_of_call.with({ &call }(m) => m.get_cloned(ast_expr_id(call).to_string())),
     .Some(fid) => match(g_fusion_candidate_of_fn.with(m => m.get_cloned(&fid)), .Some(c) => c, .None => Option(FusionCandidate).None),
     .None => Option(FusionCandidate).None
   )

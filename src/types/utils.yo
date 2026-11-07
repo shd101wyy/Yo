@@ -77,6 +77,19 @@ pragma(Pragma.AllowUnsafe);
 { format_error_message, format_error_message_with_help, with_code, YoError } :: import("../error.yo");
 { suggest_name, E_FIELD_NOT_FOUND, E_MODULE_FIELD_NOT_FOUND, E_BORROW_ESCAPES, Diagnostic } :: import("../diagnostics.yo");
 { Exception } :: import("std/error");
+/// (seed window) Concrete per-payload variants of refcell.yo's generic
+/// fillers: a fn value generic over its element keeps the variable abstract
+/// through the slot and its specializations COLLAPSE across element types
+/// (see refcell.yo's filler block). Inline the literals back once
+/// `SEED_VERSION` carries the ref-spill fix.
+/// `HashMap(String, ArrayList(CaptureBorrow))` (7 uses)
+_c_len_1 :: (fn(m : &HashMap(String, ArrayList(CaptureBorrow))) -> usize)(m.len());
+/// `HashMap(String, CaptureBorrow)` (1 use)
+_c_len_2 :: (fn(m : &HashMap(String, CaptureBorrow)) -> usize)(m.len());
+/// `HashMap(String, bool)` (1 use)
+_c_len_3 :: (fn(m : &HashMap(String, bool)) -> usize)(m.len());
+/// `ArrayList(TypeValue)` (1 use)
+_c_len_4 :: (fn(xs : &ArrayList(TypeValue)) -> usize)(xs.len());
 // ---------------------------------------------------------------------------
 // Target pointer size
 // ---------------------------------------------------------------------------
@@ -512,13 +525,13 @@ register_capture_borrows :: (fn(struct_id : &String, borrows : &ArrayList(Captur
 /// The borrow entries recorded for the capture struct `struct_id`.
 capture_struct_borrows :: (fn(struct_id : &String) -> Option(ArrayList(CaptureBorrow)))(
   cond(
-    (g_capture_borrows.with(m => m.len()) == usize(0)) => Option(ArrayList(CaptureBorrow)).None,
-    true => g_capture_borrows.with(m => m.get_cloned(struct_id))
+    (g_capture_borrows.with(_c_len_1) == usize(0)) => Option(ArrayList(CaptureBorrow)).None,
+    true => g_capture_borrows.with({ &struct_id }(m) => m.get_cloned(struct_id))
   )
 );
 /// Some capture list has recorded a borrow: the fast path of every check that
 /// looks for one.
-capture_borrows_exist :: (fn() -> bool)((g_capture_borrows.with(m => m.len()) > usize(0)) || g_future_origins_exist);
+capture_borrows_exist :: (fn() -> bool)((g_capture_borrows.with(_c_len_1) > usize(0)) || g_future_origins_exist);
 /// The place a borrow entry names, as written: `s.items`.
 capture_borrow_place_string :: (fn(b : &CaptureBorrow) -> String)({
   out := b.root_name.clone();
@@ -538,7 +551,7 @@ capture_borrow_place_string :: (fn(b : &CaptureBorrow) -> String)({
 /// second-class type may not be a generic argument of a type constructor.
 collect_type_borrows :: (fn(ty : &TypeValue, out : &mut ArrayList(CaptureBorrow)) -> unit)(
   cond(
-    ((g_capture_borrows.with(m => m.len()) == usize(0)) && !g_future_origins_exist) => (),
+    ((g_capture_borrows.with(_c_len_1) == usize(0)) && !g_future_origins_exist) => (),
     true => _collect_type_borrows_inner(ty, out, u32(0))
   )
 );
@@ -557,7 +570,7 @@ note_unreturnable_future :: (fn(fut_id : &String, b : &CaptureBorrow) -> unit)({
 /// The borrow that keeps the future `ty` from being returned
 /// (`note_unreturnable_future`), through its wrapper and resolution chain.
 future_unreturnable_borrow :: (fn(ty : &TypeValue) -> Option(CaptureBorrow))({
-  if(g_unreturnable_futures.with(m => m.len()) == usize(0), {
+  if(g_unreturnable_futures.with(_c_len_2) == usize(0), {
     return(Option(CaptureBorrow).None);
   });
   (cur : TypeValue) = Rc.clone(ty);
@@ -566,7 +579,7 @@ future_unreturnable_borrow :: (fn(ty : &TypeValue) -> Option(CaptureBorrow))({
     match(
       &cur,
       Rc(.SomeT({ id : fu_id, resolution : fu_res })) => {
-        match(g_unreturnable_futures.with(m => m.get_cloned(&fu_id)), .Some(b) => return(Option(CaptureBorrow).Some(b)), .None => ());
+        match(g_unreturnable_futures.with({ &fu_id }(m) => m.get_cloned(fu_id)), .Some(b) => return(Option(CaptureBorrow).Some(b)), .None => ());
         match(
           fu_res,
           .Some(r) => {
@@ -668,7 +681,7 @@ _collect_type_borrows_inner :: (fn(ty_in : &TypeValue, out : &mut ArrayList(Capt
     },
     Rc(.Struct({ id : sid, field_types : fields })) => {
       match(
-        g_capture_borrows.with(m => m.get_cloned(&sid)),
+        g_capture_borrows.with({ &sid }(m) => m.get_cloned(sid)),
         .Some(bs) => {
           (bi : usize) = usize(0);
           while(bi < bs.len(), {
@@ -707,7 +720,7 @@ _collect_type_borrows_inner :: (fn(ty_in : &TypeValue, out : &mut ArrayList(Capt
 /// 38 A's type-position rule rejects it.
 type_pointee_second_class :: (fn(ty : &TypeValue) -> Option(TypeValue))(
   cond(
-    (g_capture_borrows.with(m => m.len()) == usize(0)) => Option(TypeValue).None,
+    (g_capture_borrows.with(_c_len_1) == usize(0)) => Option(TypeValue).None,
     true => _pointee_second_class_inner(ty, u32(0))
   )
 );
@@ -773,7 +786,7 @@ _pointee_second_class_inner :: (fn(ty_in : &TypeValue, depth : u32) -> Option(Ty
 /// constructor's argument.
 type_is_second_class :: (fn(ty : &TypeValue) -> bool)(
   cond(
-    ((g_capture_borrows.with(m => m.len()) == usize(0)) && !g_future_origins_exist) => false,
+    ((g_capture_borrows.with(_c_len_1) == usize(0)) && !g_future_origins_exist) => false,
     true => {
       bs := ArrayList(CaptureBorrow).new();
       _collect_type_borrows_inner(ty, &mut bs, u32(0));
@@ -1057,7 +1070,7 @@ escapable_bound_error :: (fn(ty : &TypeValue, label : &String, tok : &Token) -> 
 /// The first `mut` capture-list borrow `ty` carries (decision 38 B: such a
 /// value is lent exclusively, and it is move-only), if any.
 type_first_mut_borrow :: (fn(ty : &TypeValue) -> Option(CaptureBorrow))({
-  if(g_capture_borrows.with(m => m.len()) == usize(0), {
+  if(g_capture_borrows.with(_c_len_1) == usize(0), {
     return(Option(CaptureBorrow).None);
   });
   bs := ArrayList(CaptureBorrow).new();
@@ -1079,11 +1092,11 @@ type_first_mut_borrow :: (fn(ty : &TypeValue) -> Option(CaptureBorrow))({
 /// `mut` capture itself.
 _capture_struct_declares_mut :: (fn(ty : &TypeValue) -> bool)(
   cond(
-    (g_capture_borrows.with(m => m.len()) == usize(0)) => false,
+    (g_capture_borrows.with(_c_len_1) == usize(0)) => false,
     true => match(
       ty,
       Rc(.Struct({ id : sid })) => match(
-        g_capture_borrows.with(m => m.get_cloned(&sid)),
+        g_capture_borrows.with({ &sid }(m) => m.get_cloned(sid)),
         .Some(bs) => {
           (found : bool) = false;
           (i : usize) = usize(0);
@@ -1117,8 +1130,8 @@ mark_fnmut_capture_struct :: (fn(struct_id : &String) -> unit)({
 /// slot typed `FnMut`.
 capture_struct_typed_fnmut :: (fn(ty : &TypeValue) -> bool)(
   cond(
-    (g_fnmut_capture_struct_ids.with(m => m.len()) == usize(0)) => false,
-    true => match(resolution_chain_end(ty), Rc(.Struct({ id : cf_sid })) => g_fnmut_capture_struct_ids.with(m => m.contains_key(&cf_sid)), _ => false)
+    (g_fnmut_capture_struct_ids.with(_c_len_3) == usize(0)) => false,
+    true => match(resolution_chain_end(ty), Rc(.Struct({ id : cf_sid })) => g_fnmut_capture_struct_ids.with({ &cf_sid }(m) => m.contains_key(cf_sid)), _ => false)
   )
 );
 /// `ty` is an `FnMut` closure (decision 37, decision 43 N1f): its capture
@@ -1126,8 +1139,8 @@ capture_struct_typed_fnmut :: (fn(ty : &TypeValue) -> bool)(
 /// "writes a `&mut` capture" read structurally as "holds one" (VERDICTS-15
 /// Q4′; decision 38's "a `FnMut` closure (one holding a `&mut` capture)") —
 /// or the closure is typed `FnMut(...)`. The one predicate behind the
-/// `Fn`-slot exemption, `YO_AUDIT_FNMUT`, the `Sync`-slot rejection, `Dyn`
-/// boxing and the closure's `Copy`/`Clone`.
+/// `Fn`-slot rejection (E0913), the `Sync`-slot rejection, `Dyn` boxing and
+/// the closure's `Copy`/`Clone`.
 capture_struct_is_fnmut :: (fn(ty : &TypeValue) -> bool)(
   type_first_mut_borrow(ty).is_some() || capture_struct_typed_fnmut(ty)
 );
@@ -1564,7 +1577,7 @@ _plain_data_lacks_copy :: (fn(ty_in : &TypeValue) -> bool)({
   lacks := match(g_type_lacks_copy_fn, .Some(f) => f(&ty), .None => false);
   if(lacks && g_flip_report, {
     shown := type_to_string(&ty);
-    if(g_flip_reported.with(m => m.get(shown.clone())).is_none(), {
+    if(g_flip_reported.with({ &shown }(m) => m.get(shown.clone())).is_none(), {
       eprintln(`[flip] ${shown}`);
       _ := g_flip_reported.with_mut(m => m.insert(shown.clone(), true));
     });
@@ -3325,7 +3338,7 @@ get_alignment_of_type :: (fn(ty_in : &TypeValue) -> Option(usize))({
 // was bypassed (yield unknown, never overflow the stack).
 // issues/fixed/plain-recursive-enum-segfaults-the-evaluator.md.
 (g_size_walk_stack : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
-_size_walk_stack_has :: (fn(id : &String) -> bool)(g_size_walk_stack.with(xs => xs.contains(id)));
+_size_walk_stack_has :: (fn(id : &String) -> bool)(g_size_walk_stack.with({ &id }(xs) => xs.contains(id)));
 /// The value-enum size computation (tag + largest variant payload), factored
 /// out of `get_size_of_type`'s `.EnumT` arm so the arm can bracket it with the
 /// cycle stack push/pop.
@@ -3578,8 +3591,8 @@ derive(_ReprMemoEntry, Clone);
 (mut(g_repr_allocator_opaque) : bool) = false;
 _repr_path_contains :: (fn(ty : &TypeValue) -> bool)({
   (i : usize) = usize(0);
-  while(i < g_repr_path.with(xs => xs.len()), {
-    if(match(g_repr_path.with(xs => xs.get_cloned(i)), .Some(p) => __yo_ptr_eq(&p, ty), .None => false), {
+  while(i < g_repr_path.with(_c_len_4), {
+    if(match(g_repr_path.with({ i }(xs) => xs.get_cloned(i)), .Some(p) => __yo_ptr_eq(&p, ty), .None => false), {
       return(true);
     });
     i = (i + usize(1));
@@ -3587,7 +3600,7 @@ _repr_path_contains :: (fn(ty : &TypeValue) -> bool)({
   false
 });
 _repr_memo_lookup :: (fn(key : &String, ty : &TypeValue) -> Option(bool))({
-  bucket := match(g_repr_memo.with(m => m.get_cloned(key)), .Some(b) => b, .None => return(Option(bool).None));
+  bucket := match(g_repr_memo.with({ &key }(m) => m.get_cloned(key)), .Some(b) => b, .None => return(Option(bool).None));
   (i : usize) = usize(0);
   while(i < bucket.len(), {
     match(
@@ -3602,7 +3615,7 @@ _repr_memo_lookup :: (fn(key : &String, ty : &TypeValue) -> Option(bool))({
   Option(bool).None
 });
 _repr_memo_store :: (fn(key : &String, ty : &TypeValue, answer : bool) -> unit)({
-  bucket := match(g_repr_memo.with(m => m.get_cloned(key.clone())), .Some(b) => b, .None => ArrayList(_ReprMemoEntry).new());
+  bucket := match(g_repr_memo.with({ &key }(m) => m.get_cloned(key.clone())), .Some(b) => b, .None => ArrayList(_ReprMemoEntry).new());
   bucket.push(_ReprMemoEntry(ty : Rc.clone(ty), answer : answer));
   key_owned := key.clone();
   bucket_owned := bucket.clone();
@@ -4557,9 +4570,8 @@ fn_trait_call_func_type :: (fn(ty : &TypeValue) -> Option(TypeValue))(
 /// so (an `Impl(FnMut(...))` value, a `Dyn(FnMut(...))`, a type variable
 /// bounded by `FnMut`), or its capture record is a typed `FnMut` closure's.
 /// Its call is a `&mut self` receiver call. A closure that is `FnMut` only by
-/// its `&mut` captures (`capture_struct_is_fnmut`) and was typed against an
-/// `Fn(...)` slot is still called through that slot's shared borrow until N3
-/// (`fn_slot_admits_capture_fnmut`).
+/// its `&mut` captures (`capture_struct_is_fnmut`) never reaches an `Fn(...)`
+/// slot: that is E0913 (`judge_capture_fnmut_at_fn_slot`, decision 43 N3).
 ///
 /// The trait a slot gives the value decides first: an `FnMut` closure moved
 /// into an `Impl(FnOnce(...))` parameter is called there as an `FnOnce`,

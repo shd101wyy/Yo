@@ -59,7 +59,7 @@
 /// (Phase B2, plans/reference/INCREMENTAL_COMPILATION.md). The tag lives in
 /// type_trait_methods.yo — see `set_registration_owner`'s doc there.
 _sync_registration_owner :: (fn() -> unit)({
-  n := g_loading_keys.with(xs => xs.len());
+  n := g_loading_keys.with(_c_len_1);
   owner := cond(
     (n > usize(0)) => match(g_loading_keys.with(xs => xs.get_cloned(n - usize(1))), .Some(k) => k, .None => String.new()),
     true => String.new()
@@ -89,7 +89,7 @@ loading_key_for_module :: (fn(module : &String) -> Option(String))({
 });
 /// Remove the most-recent loading entry for `path` (LIFO — nested loads).
 unregister_loading :: (fn(path : &String) -> unit)({
-  (i : usize) = g_loading_keys.with(xs => xs.len());
+  (i : usize) = g_loading_keys.with(_c_len_1);
   while(i > usize(0), {
     i = (i - usize(1));
     match(
@@ -109,13 +109,13 @@ unregister_loading :: (fn(path : &String) -> unit)({
 /// loader uses it to attribute import-graph edges to their importer.
 current_loading_module :: (fn() -> Option(String))(
   cond(
-    (g_loading_keys.with(xs => xs.len()) > usize(0)) => g_loading_keys.with(xs => xs.last_cloned()),
+    (g_loading_keys.with(_c_len_1) > usize(0)) => g_loading_keys.with(_c_last_cloned_str),
     true => Option(String).None
   )
 );
 /// The live env of a currently-loading module, or `.None`.
 loading_env :: (fn(path : &String) -> Option(Environment))({
-  (i : usize) = g_loading_keys.with(xs => xs.len());
+  (i : usize) = g_loading_keys.with(_c_len_1);
   while(i > usize(0), {
     i = (i - usize(1));
     match(
@@ -146,7 +146,7 @@ loading_env :: (fn(path : &String) -> Option(Environment))({
 /// touches every edge endpoint).
 _canonical :: (fn(p : &String) -> Rc(String))(
   match(
-    _canonical_memo.with(m => m.get_cloned(p)),
+    _canonical_memo.with({ &p }(m) => m.get_cloned(p)),
     .Some(c) => c,
     .None => {
       c := Rc.new(canonical_module_path(p));
@@ -179,7 +179,7 @@ mark_owner_always_visible :: (fn(module : &String) -> unit)({
 import_closure_of :: (fn(module : &String) -> Rc(HashSet(String)))({
   start := _canonical(module);
   match(
-    g_import_closure_memo.with(m => m.get_cloned(&start.*)),
+    g_import_closure_memo.with({ &start }(m) => m.get_cloned(&start.*)),
     .Some(s) => {
       return(s);
     },
@@ -188,9 +188,9 @@ import_closure_of :: (fn(module : &String) -> Rc(HashSet(String)))({
   seen := HashSet(String).new();
   _ := seen.insert(start.*.clone());
   (ai : usize) = usize(0);
-  while(ai < g_always_visible_owners.with(xs => xs.len()), {
+  while(ai < g_always_visible_owners.with(_c_len_1), {
     match(
-      g_always_visible_owners.with(xs => xs.get_cloned(ai)),
+      g_always_visible_owners.with({ ai }(xs) => xs.get_cloned(ai)),
       .Some(o) => {
         _ := seen.insert(o);
       },
@@ -202,7 +202,7 @@ import_closure_of :: (fn(module : &String) -> Rc(HashSet(String)))({
   work.push(start.*.clone());
   while(work.len() > usize(0), {
     p := match(work.pop(), .Some(x) => x, .None => String.new());
-    n := g_import_edge_importers.with(xs => xs.len());
+    n := g_import_edge_importers.with(_c_len_1);
     (i : usize) = usize(0);
     while(i < n, {
       from_p := match(g_import_edge_importers.with(xs => xs.get_cloned(i)), .Some(a) => (_canonical(&a).* == p), .None => false);
@@ -229,10 +229,10 @@ import_closure_of :: (fn(module : &String) -> Rc(HashSet(String)))({
 /// dropped (a module importing the same dep from several sites is one edge).
 record_import_edge :: (fn(importer : &String, imported : &String) -> unit)({
   (i : usize) = usize(0);
-  n := g_import_edge_importers.with(xs => xs.len());
+  n := g_import_edge_importers.with(_c_len_1);
   while(i < n, {
     same := (
-      match(g_import_edge_importers.with(xs => xs.get_cloned(i)), .Some(a) => (a == importer), .None => false) &&
+      match(g_import_edge_importers.with({ i }(xs) => xs.get_cloned(i)), .Some(a) => (a == importer), .None => false) &&
         match(g_import_edge_imports.with(xs => xs.get_cloned(i)), .Some(b) => (b == imported), .None => false)
     );
     if(same, {
@@ -250,10 +250,10 @@ record_import_edge :: (fn(importer : &String, imported : &String) -> unit)({
 /// invalidated: its re-evaluation re-records its (possibly changed) edges.
 _drop_edges_from :: (fn(importer : &String) -> unit)({
   _clear_import_closure_memo();
-  (i : usize) = g_import_edge_importers.with(xs => xs.len());
+  (i : usize) = g_import_edge_importers.with(_c_len_1);
   while(i > usize(0), {
     i = (i - usize(1));
-    same := match(g_import_edge_importers.with(xs => xs.get_cloned(i)), .Some(a) => (a == importer), .None => false);
+    same := match(g_import_edge_importers.with({ i }(xs) => xs.get_cloned(i)), .Some(a) => (a == importer), .None => false);
     if(same, {
       g_import_edge_importers.with_mut(xs => xs.drain(i .. (i + usize(1))));
       g_import_edge_imports.with_mut(xs => xs.drain(i .. (i + usize(1))));
@@ -277,7 +277,7 @@ clear_module_cache :: (fn() -> unit)({
 _module_cache_index :: (fn(path : &String) -> Option(usize))({
   (idx : Option(usize)) = Option(usize).None;
   (i : usize) = usize(0);
-  n := g_module_cache_keys.with(xs => xs.len());
+  n := g_module_cache_keys.with(_c_len_1);
   while((i < n) && idx.is_none(), {
     match(
       g_module_cache_keys.with(xs => xs.get_cloned(i)),
@@ -300,6 +300,17 @@ module_cache_has :: (fn(path : &String) -> bool)(
 /// `_module_cache_index` returns the first match).
 { eprintln } :: import("std/fmt");
 { debug_knob } :: import("../utils.yo");
+/// (seed window) Concrete variants of refcell.yo's fillers: a fn value
+/// generic over its element keeps the variable abstract through the slot, so
+/// uses of the result needing methods fail (see refcell.yo's filler block).
+_c_last_cloned_str :: (fn(xs : &ArrayList(String)) -> Option(String))(xs.last_cloned());
+/// (seed window) Concrete per-payload variants of refcell.yo's generic
+/// fillers: a fn value generic over its element keeps the variable abstract
+/// through the slot and its specializations COLLAPSE across element types
+/// (see refcell.yo's filler block). Inline the literals back once
+/// `SEED_VERSION` carries the ref-spill fix.
+/// `ArrayList(String)` (10 uses)
+_c_len_1 :: (fn(xs : &ArrayList(String)) -> usize)(xs.len());
 register_module :: (fn(path : &String, module_value : &EvalValue, module_type : &TypeValue) -> unit)({
   if(debug_knob(`YO_DEBUG_WARM`).is_some(), {
     eprintln(`[warmcache] register ${path.clone()}`);
@@ -504,7 +515,7 @@ invalidate_module :: (fn(path : &String) -> ArrayList(String))({
       // (dependents are INCOMING edges — unaffected — but keep the order
       // obvious anyway).
       (ei : usize) = usize(0);
-      while(ei < g_import_edge_imports.with(xs => xs.len()), {
+      while(ei < g_import_edge_imports.with(_c_len_1), {
         hits := match(g_import_edge_imports.with(xs => xs.get_cloned(ei)), .Some(t) => (t == p), .None => false);
         if(hits, {
           match(

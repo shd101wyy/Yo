@@ -326,7 +326,7 @@ is_valid_identifier :: (fn(s : &String) -> bool)({
 g_token_intern := RefCell(HashMap(String, Rc(String))).new(HashMap(String, Rc(String)).new());
 intern_token_str :: (fn(s : &String) -> Rc(String))(
   match(
-    g_token_intern.with(m => m.get_cloned(s)),
+    g_token_intern.with({ &s }(m) => m.get_cloned(s)),
     .Some(canonical) => canonical,
     .None => {
       c := Rc.new(s.clone());

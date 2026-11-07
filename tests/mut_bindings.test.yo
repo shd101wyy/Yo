@@ -279,7 +279,7 @@ test("a `&mut` match scrutinee and a `&mut` capture need mut(...)", {
   }, "a `&mut` match scrutinee");
   mut(z) := i32(1);
   {
-    (bump : Impl(Fn() -> unit)) = ({ &mut z }() => {
+    (mut(bump) : Impl(FnMut() -> unit)) = ({ &mut z }() => {
       z.* = (z.* + i32(1));
     });
     bump();

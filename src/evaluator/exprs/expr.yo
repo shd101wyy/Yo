@@ -11,6 +11,13 @@ import("std/string");
 { EvalContext } :: import("../context.yo");
 { panic, assert } :: import("std/assert");
 { RefCell } :: import("std/sync/refcell");
+/// (seed window) Concrete per-payload variants of refcell.yo's generic
+/// fillers: a fn value generic over its element keeps the variable abstract
+/// through the slot and its specializations COLLAPSE across element types
+/// (see refcell.yo's filler block). Inline the literals back once
+/// `SEED_VERSION` carries the ref-spill fix.
+/// `ArrayList(AnyError)` (1 use)
+_c_len_1 :: (fn(xs : &ArrayList(AnyError)) -> usize)(xs.len());
 /// Function type for the main expression evaluator.
 EvaluateExprFn :: (
   fn(
@@ -85,7 +92,7 @@ evaluate_expression_guarded :: (
     return(Option(AnyError).None);
   });
   cond(
-    (g_guarded_eval_err.with(xs => xs.len()) == usize(0)) => Option(AnyError).None,
+    (g_guarded_eval_err.with(_c_len_1) == usize(0)) => Option(AnyError).None,
     true => g_guarded_eval_err.with_mut(xs => xs.pop())
   )
 });

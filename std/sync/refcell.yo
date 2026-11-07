@@ -30,6 +30,10 @@
 //! 46"). The value lives in a cell of its own (one allocation) until a `&T`
 //! receiver is passed by address (decision 43).
 pragma(Pragma.AllowUnsafe);
+{ ArrayList } :: import("std/collections/array_list");
+{ HashMap } :: import("std/collections/hash_map");
+{ HashSet } :: import("std/collections/hash_set");
+{ String } :: import("std/string");
 
 /// The marks and the value, behind the `RefCell`'s `Box`: a `self : &Self`
 /// receiver is a copy of the `RefCell` today, so the marks it writes must
@@ -100,7 +104,7 @@ impl(
   /// Run `body` with the value lent read-only, and return its result —
   /// Rust's `borrow()` with the guard's scope. Panics if a `with_mut` body
   /// of this cell is running.
-  with : (fn(generic(R : Type), self : &Self, body : &Impl(Fn(v : &T) -> R)) -> R)({
+  with : (fn(generic(R : Type), self : &Self, body : &mut Impl(FnMut(v : &T) -> R)) -> R)({
     slot := addr_of(self._slot.*);
     // SAFETY: `slot` is the cell's live slot, and this thread is the only
     // one that reaches it (`RefCell` is not `Sync`).
@@ -119,7 +123,9 @@ impl(
   /// the body runs exactly once per call, so the closure is moved in and may
   /// move what it captured out of its body (`{ k, v }(m) => m.insert(k, v)`)
   /// instead of copying each capture. An `Fn` closure is accepted too. `with`
-  /// stays `&Impl(Fn(...))`: it only reads.
+  /// is `&mut Impl(FnMut(...))`: the callee never stores the closure, so
+  /// mutable access through a reference is exactly its obligation (VERDICTS-28
+  /// Q1), and a body that only reads is simply an `FnMut` that writes nothing.
   with_mut : (fn(generic(R : Type), self : &Self, sink(body) : Impl(FnOnce(v : &mut T) -> R)) -> R)({
     slot := addr_of(self._slot.*);
     // SAFETY: as in `with`.
@@ -151,8 +157,9 @@ impl(
   /// any `with` or `with_mut` body of this cell is running.
   ///
   /// Unlike Rust's `replace_with`, whose `f` is an `FnOnce(&mut T) -> T`,
-  /// `f` is an `Fn` lent `&T`, as a `with` body is: it cannot move a
-  /// captured move-only value into its result (E0913). Until V2b gives a
+  /// `f` is an `FnMut` lent `&mut` as a non-escaping callback (it may write a
+  /// capture, but not move one out of its body — E0913, since second-class
+  /// closures cannot be passed by value). Until V2b gives a
   /// `String` or a collection its own buffer, an `f` that returns its
   /// argument unchanged (`v => v`) returns a value sharing storage with the
   /// old one, so a write through either reaches the other; return
@@ -163,7 +170,7 @@ impl(
   /// hits := RefCell(i32).new(i32(4));
   /// old := hits.replace_with(n => (n + i32(1))); // old is 4, the cell holds 5
   /// ```
-  replace_with : (fn(self : &Self, f : &Impl(Fn(v : &T) -> T)) -> T)({
+  replace_with : (fn(self : &Self, f : &mut Impl(FnMut(v : &T) -> T)) -> T)({
     slot := addr_of(self._slot.*);
     // SAFETY: as in `with`.
     if(unsafe(slot.*._borrow) != isize(0), {
@@ -224,10 +231,69 @@ impl(
   where(T <: Clone),
   RefCell(T),
   Clone(
-    clone : (fn(self : &Self) -> Self)(
-      RefCell(T).new(self.with(v => v.clone()))
-    )
+    clone : (fn(self : &Self) -> Self)({
+      // (seed window) Spelled over the slot, not `with(v => v.clone())`:
+      // under a seed predating the ref-spill fix a closure literal at
+      // `with`'s generic-`R` slot spills a mistyped C temp, and a generic
+      // fn value's specializations collapse across `T` (this file's filler
+      // block). The borrow accounting is `with`'s own.
+      slot := addr_of(self._slot.*);
+      // SAFETY: as `with`.
+      if(unsafe(slot.*._borrow) < isize(0), {
+        __yo_panic("RefCell.with: the value is mutably borrowed (a with_mut or replace_with body is running)");
+      });
+      unsafe(consume(slot.*._borrow = (slot.*._borrow + isize(1))));
+      _release := _RefCellRelease(_mark : addr_of(slot.*._borrow), _taken : isize(1));
+      Self(
+        _slot : Box.new(
+          _RefCellSlot(T)(_borrow : isize(0), _value : unsafe(slot.*._value.clone()))
+        )
+      )
+    })
   )
 );
 
-export(RefCell);
+/// Named-function fillers for the commonest `with` bodies
+/// (`cell.with(xs => xs.len())` and friends). A capture-free closure LITERAL
+/// at `with`'s generic-`R` slot is `FnMut`-shaped, and under a seed whose
+/// codegen predates the ref-spill fix an empty-env literal there spills a
+/// `void*` C temp where the specialization's capture-struct pointer is
+/// expected (issues/fixed/2026-11-06-a-closure-literal-at-a-generic-fnmut-ref-slot-spills-void.md),
+/// so the compiler's own tree spells those reads as a named `fn` value,
+/// which fills an `FnMut` slot with no capture env. Inline the literals back
+/// and delete these once `SEED_VERSION` carries the spill fix
+/// (plans/backlog/SEED_VERSION_AUTOMATION.md).
+cell_list_len :: (fn(generic(E : Type), xs : &ArrayList(E)) -> usize)(xs.len());
+cell_list_clone :: (fn(generic(E : Type), xs : &ArrayList(E)) -> ArrayList(E))(xs.clone());
+cell_list_last_cloned :: (fn(generic(E : Type), xs : &ArrayList(E)) -> Option(E))(xs.last_cloned());
+cell_map_len :: (fn(generic(K : Type, V : Type), m : &HashMap(K, V)) -> usize)(m.len());
+cell_set_len :: (fn(generic(E : Type), s : &HashSet(E)) -> usize)(s.len());
+cell_map_keys_cloned :: (fn(generic(K : Type, V : Type), m : &HashMap(K, V)) -> ArrayList(K))(m.keys_cloned());
+cell_map_values_cloned :: (fn(generic(K : Type, V : Type), m : &HashMap(K, V)) -> ArrayList(V))(m.values_cloned());
+cell_list_first :: (fn(generic(E : Type), xs : &ArrayList(E)) -> Option(E))(xs.get(usize(0)));
+cell_list_first_cloned :: (fn(generic(E : Type), xs : &ArrayList(E)) -> Option(E))(xs.get_cloned(usize(0)));
+cell_list_last :: (fn(generic(E : Type), xs : &ArrayList(E)) -> Option(E))(xs.last());
+cell_list_is_empty :: (fn(generic(E : Type), xs : &ArrayList(E)) -> bool)(xs.is_empty());
+cell_set_is_empty :: (fn(generic(E : Type), s : &HashSet(E)) -> bool)(s.is_empty());
+cell_opt_is_none :: (fn(generic(T : Type), o : &Option(T)) -> bool)(o.is_none());
+cell_str_len :: (fn(s : &String) -> usize)(s.len());
+cell_value_clone :: (fn(generic(T : Type), v : &T) -> T)(v.clone());
+
+export(
+  RefCell,
+  cell_list_len,
+  cell_list_clone,
+  cell_list_last_cloned,
+  cell_map_len,
+  cell_map_keys_cloned,
+  cell_map_values_cloned,
+  cell_set_len,
+  cell_set_is_empty,
+  cell_opt_is_none,
+  cell_list_first,
+  cell_list_first_cloned,
+  cell_list_last,
+  cell_list_is_empty,
+  cell_str_len,
+  cell_value_clone
+);
