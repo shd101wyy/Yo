@@ -991,3 +991,54 @@ test("a lent temporary is dropped when its statement unwinds past it", {
   tmp_unwinds();
   assert(g_tmp_drops == i32(1), "the escape path inside the statement drops the lent temporary");
 });
+// A temporary an ENCLOSING statement lends lives to the end of THAT
+// statement, not to the end of a statement nested inside it: `for(&r.items,
+// x => …)` mints the handle's temporary and the loop body's element binding at
+// the same `for` token, and the body's statement-end flush released the outer
+// temporary once per iteration — the stage-2 compiler freed its comptime-fn
+// cache entries this way
+// (issues/2026-11-07-a-lent-temporary-of-an-enclosing-statement-is-released-at-an-inner-statements-end.md).
+TmpBag :: struct(items : ArrayList(i32));
+impl(
+  TmpBag,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_tmp_drops = (g_tmp_drops + i32(1));
+    })
+  )
+);
+tmp_bag :: (fn() -> TmpBag)({
+  (mut(xs) : ArrayList(i32)) = ArrayList(i32).new();
+  xs.push(i32(1));
+  xs.push(i32(2));
+  TmpBag(items : xs)
+});
+tmp_share :: (fn(r : &Rc(TmpBag)) -> Option(Rc(TmpBag)))(Option(Rc(TmpBag)).Some(Rc.clone(r)));
+test("a lent temporary of an enclosing statement is not released at an inner statement's end", {
+  g_tmp_drops = i32(0);
+  r := Rc.new(tmp_bag());
+  (mut(sum) : i32) = i32(0);
+  for(&r.items, x => {
+    sum = (sum + x.*);
+  });
+  assert(sum == i32(3), "the loop reads every element");
+  assert(g_tmp_drops == i32(0), "the loop body does not release the handle's temporary once per iteration");
+  assert(r.items.len() == usize(2), "the handle is still live after the loop");
+});
+test("a match binding's lent temporary is not released inside a loop in its arm", {
+  g_tmp_drops = i32(0);
+  r := Rc.new(tmp_bag());
+  (mut(sum) : i32) = i32(0);
+  match(
+    tmp_share(&r),
+    .Some(entry) => {
+      for(&entry.items, x => {
+        sum = (sum + x.*);
+      });
+    },
+    .None => ()
+  );
+  assert(sum == i32(3), "the loop reads every element");
+  assert(g_tmp_drops == i32(0), "the bag outlives the match: `r` still owns it");
+  assert(r.items.len() == usize(2), "the handle is still live after the match");
+});
