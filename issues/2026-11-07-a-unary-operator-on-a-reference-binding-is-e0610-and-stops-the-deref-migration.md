@@ -13,7 +13,7 @@ is independent of the adoption branch.
 ## Reproducer
 
 ```yo
-negate :: (fn(self : &f64) -> f64)(if((self < f64(0.0)), -self, self));
+negate :: (fn(self : &f64) -> f64)(if(self < f64(0.0), -self, self));
 main :: (fn() -> unit)({
   x := f64(-2.5);
   _y := negate(&x);
