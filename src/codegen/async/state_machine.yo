@@ -1897,6 +1897,9 @@ generate_async_block_resume_function_inline :: (
   pdd := ArrayList(AstExpr).new();
   match(context.base.get_expr_info(body_expr), .Some(ei) => match(&ei.deferred_drop_expressions(), .Some(d) => _append_exprs(&mut pdd, &d), .None => ()), .None => ());
   context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(pdd);
+  // The body's OWN scope-end drops: the only ones a statement-end flush may
+  // release (`_flush_stmt_lent_temp_drops`).
+  body_own_drops := match(context.base.get_expr_info(body_expr), .Some(bod_ei) => bod_ei.deferred_drop_expressions(), .None => Option(ArrayList(AstExpr)).None);
   body_exprs := if(ast_expr_is_fn_call_of(body_expr, BK_BEGIN, Option(usize).None), emitted_block_statements(match(body_expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), _ => ArrayList(AstExpr).new())), {
     single := ArrayList(AstExpr).new();
     single.push(body_expr);
@@ -1935,7 +1938,7 @@ generate_async_block_resume_function_inline :: (
               context.base.get_expr_info(&bexpr),
               .Some(bei) => {
                 nxt := body_exprs.get(bi + usize(1));
-                _flush_stmt_lent_temp_drops(&bexpr, &nxt, &bei, &String.from("  "), context);
+                _flush_stmt_lent_temp_drops(&bexpr, &nxt, &body_own_drops, &bei, &String.from("  "), context);
               },
               .None => ()
             );

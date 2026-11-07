@@ -15,7 +15,7 @@
 //! deferred dups, so the last expression is assigned to the result temp as-is.
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr, ast_expr_id, ast_expr_token } :: import("../../expr.yo");
+{ AstExpr, ExprId, ast_expr_id, ast_expr_token } :: import("../../expr.yo");
 { Token } :: import("../../token.yo");
 { ExprInfo, has_any_control_flow, expr_info_consumed_variable_drop_expressions, emitted_block_statements, is_lent_temp_token, lent_temp_token_key } :: import("../../expr_info.yo");
 { is_unit_type } :: import("../../types/guards.yo");
@@ -160,6 +160,28 @@ _emit_one_deferred_drop :: (fn(drop_expr : &AstExpr, ei : &ExprInfo, indent : St
     });
   });
 });
+/// True iff `drops` holds the drop node `id` (a block's own scope-end list).
+_drop_list_has_id :: (fn(drops : &Option(ArrayList(AstExpr)), id : ExprId) -> bool)(
+  match(
+    drops,
+    .Some(ds) => {
+      (mut(found) : bool) = false;
+      (mut(i) : usize) = usize(0);
+      while((i < ds.len()) && !found, {
+        match(
+          ds.get(i),
+          .Some(d) => {
+            found = (ast_expr_id(&d) == id);
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      found
+    },
+    .None => false
+  )
+);
 /// Flush the drops of the temporaries this STATEMENT lent (`&T`/`&mut T`
 /// call arguments, a borrowed `match` scrutinee) right after the statement:
 /// Rust's temporary lifetime — a borrowed temporary lives to the end of the
@@ -178,7 +200,19 @@ _emit_one_deferred_drop :: (fn(drop_expr : &AstExpr, ei : &ExprInfo, indent : St
 /// and, in the same module, before the next sibling's. `next_stmt` is the
 /// following statement of the same block (`.None` only where no flush can
 /// run anyway).
-_flush_stmt_lent_temp_drops :: (fn(stmt : &AstExpr, next_stmt : &Option(AstExpr), ei : &ExprInfo, indent : &String, context : &mut FunctionGenerationContext) -> unit)({
+///
+/// `own_drops` is the scope-end drop list of the block whose statement this
+/// is. Only a drop on it is a candidate: the pending list also carries every
+/// ENCLOSING scope's drops (each block concatenates its own in front of its
+/// parent's), and a temporary an enclosing scope scheduled was minted by an
+/// enclosing statement that is still running — the current block is part of
+/// it. Releasing it at an inner statement's end is early, and inside a loop
+/// body it is a release per iteration. Token spans cannot tell the two apart
+/// when a lowering synthesizes the inner statements at the outer statement's
+/// token (`for(&e.items, x => …)` mints the receiver's temporary AND the
+/// loop body's element binding at the `for` token)
+/// (issues/fixed/2026-11-07-a-lent-temporary-of-an-enclosing-statement-is-released-at-an-inner-statements-end.md).
+_flush_stmt_lent_temp_drops :: (fn(stmt : &AstExpr, next_stmt : &Option(AstExpr), own_drops : &Option(ArrayList(AstExpr)), ei : &ExprInfo, indent : &String, context : &mut FunctionGenerationContext) -> unit)({
   // Two phases: SCAN the pending list under its shared borrow, COLLECT the
   // matching drop nodes, then EMIT them with the mutable context — holding
   // the `&` borrow across `_emit_one_deferred_drop(..., context)` would be
@@ -214,7 +248,7 @@ _flush_stmt_lent_temp_drops :: (fn(stmt : &AstExpr, next_stmt : &Option(AstExpr)
                 // their release (`for(&make(), …)` drops its hidden owning
                 // local after the loop). User-named locals keep their
                 // scope-end drop the same way.
-                if((is_temp_variable_name(&ei.env().module_path().*, tv.name.clone()) || _looks_like_minted_temp(tv.name.clone())) && is_lent_temp_token(&tv.token) && (tv.token.module_path.* == stmt_tok.module_path.*) && ((stmt_tok.row < tv.token.row) || ((stmt_tok.row == tv.token.row) && (stmt_tok.column <= tv.token.column))), {
+                if(_drop_list_has_id(own_drops, ast_expr_id(&de)) && (is_temp_variable_name(&ei.env().module_path().*, tv.name.clone()) || _looks_like_minted_temp(tv.name.clone())) && is_lent_temp_token(&tv.token) && (tv.token.module_path.* == stmt_tok.module_path.*) && ((stmt_tok.row < tv.token.row) || ((stmt_tok.row == tv.token.row) && (stmt_tok.column <= tv.token.column))), {
                   // The upper bound: a LATER sibling of the same module ends
                   // the statement's span.
                   in_span := match(
@@ -332,7 +366,7 @@ generate_begin :: (fn(expr : &AstExpr, indent : &String, context : &mut Function
               // IS its statement end: nothing runs in between).
               if(!is_last, {
                 nxt := args.get(idx + usize(1));
-                _flush_stmt_lent_temp_drops(&arg, &nxt, &arg_ei, &indent2, context);
+                _flush_stmt_lent_temp_drops(&arg, &nxt, &ei.deferred_drop_expressions(), &arg_ei, &indent2, context);
               });
               last_arg_code = result;
               if(has_any_control_flow(arg_ei.control_flow()), {
@@ -399,7 +433,7 @@ generate_begin :: (fn(expr : &AstExpr, indent : &String, context : &mut Function
                 context.base.get_expr_info(&arg),
                 .Some(fei) => {
                   nxt := args.get(idx + usize(1));
-                  _flush_stmt_lent_temp_drops(&arg, &nxt, &fei, &indent2, context);
+                  _flush_stmt_lent_temp_drops(&arg, &nxt, &ei.deferred_drop_expressions(), &fei, &indent2, context);
                 },
                 .None => ()
               );
