@@ -311,3 +311,93 @@ The question is (A) switch only the side-effect call-once slots, (B) switch ever
   with ZERO `void* __yo_ref_spill` (6 typed spill temps); the 60-min session
   watchdog SIGKILLed the task during clang (no binary). Relaunched detached
   (setsid nohup tmp/build_detached.sh -> tmp/build_rb2.{txt,done}).
+
+## HANDOVER STOP (2026-11-07 ~19:00, maintainer stop; coordinator session closing)
+
+**Pushed:** `vbd/g1-fnmut-slots@7dbcef2a0` (WIP on top of origin/develop
+9480d475c; this STATE entry is the commit after it). Branch rewritten by the
+rebase: force-pushed, the old base-round tip 926b06565 is superseded.
+
+**Rebase:** DONE onto 9480d475c (part B #1813, #1814, #1815, #1811/#1812).
+Redone hunk-by-hunk after a first attempt took `--theirs` wholesale (that
+reverted part B; `git rerere forget` was needed). Diff vs develop audited: no
+part-B reversals.
+
+**Filler sweep (seed ref-spill dodge):** COMPLETE for this base.
+- Detector state: `/tmp/g1_scan.py [--all-slots] [--implicit] src std`
+  (body-local subtraction, Capitalized = type refs, variant-pattern bindings,
+  comment blanking) reports 0 capture-free literals at every FnMut slot shape.
+  The authoritative detector is the seed build's C: yo.c had ZERO
+  `void* __yo_ref_spill` (6 typed spill temps). /tmp scripts are scratch
+  (g1_scan.py, g1_fill.py, g1_fill2.py, g1_merge.py, g1_ours.py) — copy them
+  out if wanted; /tmp/g1_* is due for cleanup.
+- Spelled this round: 85 `_vh_*` accessor helpers (env.yo, expr_info.yo,
+  context.yo) + 30 rare-group getter helpers placed beside each getter + 5
+  stragglers (_vh_owned_*_entries, _vh_lock_of_packages, _packages_len, ctx
+  getters) = ~135 sites; 15 explicit `{ &x }` borrow envs at part B's
+  implicit move-only captures; main.yo verify --explain `retain` (E0914).
+- `_closure_ref_spill_c_type` adapted to part B (`&mut` context,
+  `rei.value()`).
+
+**Gates reached (tree binary /tmp/g1_tb built from 81936b6e4, BUILD_RC=0):**
+- seed check src 274/274, std 170/170 (before the last two commits).
+- fmt --check clean on all 108 changed .yo + 7 .md (tree fmt).
+- 34-file test list: all green EXCEPT log_sink_env (see below); once.test
+  19/19 after the get_or_init fix; bench is `tests/bench_black_box.test.yo`
+  (7 passed; the old list had a wrong path).
+- corpus rc=0, model_corpus 78/78, check-issue-refs green.
+- internal: env 14, expr_info 23, resolver 31, diagnostics_registry 9 green;
+  **type_trait_methods rc=1 (19 failed) — NOT investigated**; the rest of the
+  8 (diagnostics_registry_examples, mutation_summary, suspension_analysis)
+  were killed by the stop.
+- embedded rc=1 — NOT investigated (read tmp/rb_embedded.txt).
+- cli-diff: killed mid-run; partial log tmp/rb_clidiff.txt shows
+  build-test-exclude / build-test-suite-flags GOLDEN-DIFF with rc=124
+  (timeouts — likely machine load; re-run those cases alone).
+- fixpoint: NOT run to completion (killed to take the last src fix).
+
+**Found this round (both need follow-through):**
+1. `OnceCell.get_or_init` (#1804, `-> &T`) × Q1's `&mut Impl(FnMut)`: the
+   elided result origin unions the closure, so `got := cell.get_or_init(() =>
+   ...)` was rejected. Fixed: `sink(f) : Impl(FnMut() -> T)` (by value, as
+   #1804 had it) lending `&mut` to `_init`; VALUES_BY_DEFAULT carve-out note;
+   `issues/questions/2026-11-07-should-an-elided-result-origin-prefer-the-receiver.md`.
+2. DEVELOP REGRESSION (S1, reproduced with a clean develop build o12-base):
+   #1814's statement-end temporary drop makes `x.to_cstr().ptr().unwrap()`
+   bound to a local dangle. log_sink_env "init_from_env applies YO_LOG" fails
+   on develop. 9 sites fixed in 7dbcef2a0 (std/log.yo, std/env.yo
+   current_exe, src/module_manager.yo YO_STD, src/manifest.yo x2,
+   src/verifier/z3.yo x4) — the src ones are masked today only because the
+   pre-#1814 seed compiles stage1; the next seed would ship them. That
+   commit is UNGATED: per-file seed checks of log/env/manifest/z3 passed,
+   module_manager's check, the log_sink_env re-run and fmt were cut off.
+   NO issues/ doc filed yet — file one (S1) with the site list; the failing-
+   then-passing test is tests/log_sink_env.test.yo.
+
+**Exact next steps for the successor:**
+1. Re-validate 7dbcef2a0: `yo check ./src --std-path ./std` (expect 274/274)
+   and `./std` (170/170); tree-binary `fmt --check` on the 5 files; rebuild
+   the tree binary (detached: setsid nohup, the session watchdog kills
+   ~60-min tasks; see tmp/build_detached.sh) and re-run log_sink_env (8/8).
+2. File the #1814 cstr issue (or route it to a fix(develop) lane — it
+   affects develop independently of G1; tell the coordinator).
+3. Investigate internal/type_trait_methods (19 failed; owned-id log walk
+   helpers changed there) and check-embedded-yo rc=1; finish the internal 8
+   (diagnostics_registry_examples, mutation_summary, suspension_analysis).
+4. cli-diff full run (YO_SELF_BIN=<tree bin>); read every GOLDEN-DIFF before
+   --record; once-reentrant-call-panics exercises get_or_init.
+5. Fixpoint `S1=<tree bin> P=g1 bash scripts/bootstrap/fixpoint_only.sh`
+   (detached), then clean /tmp/g1_*.
+6. Final rebase over deref adoption when it merges (expect prelude/
+   collections conflicts; std is mine, src part-B shapes are develop's: take
+   ours + graft capture envs, never wholesale --theirs); then fast re-gate
+   (std tests + checks + fmt; fixpoint only if src/evaluator or codegen
+   changed).
+7. PR body stem `g1-fnmut-slots` (~/Workspace/Yo-wt/v0273/pr/): add a Rebase
+   paragraph (_vh_* family, capture envs, get_or_init carve-out, cstr fix),
+   refresh Verification numbers, fix two stale lines (the duplicated
+   "re-tested with the tree binary" in Deferred; the "no bug ... found"
+   claim in Verification is wrong — the S1 spill bug was found and fixed).
+8. STATE.md is TRACKED on the branch (since the base round) — strip it
+   before the squash-merge (`git rm --cached STATE.md`) unless the
+   coordinator wants it kept.
