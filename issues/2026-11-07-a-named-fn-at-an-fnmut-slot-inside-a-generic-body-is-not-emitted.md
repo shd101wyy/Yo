@@ -46,7 +46,7 @@ A related pre-existing facet, same family: FORWARDING a named fn through an `f :
 ## The G1 workaround (seed window, deletable)
 
 `std/async/channel.yo`'s ten state reads spell a capture-carrying literal (`ch._st.with({ h : &ch._st }(s) => …)`) instead: a non-empty capture env takes the addressable-temp branch (no ref-spill under a pre-fix seed) and closure literals inside generic/impl bodies ARE emitted on every binary. Inline the plain literals back once this issue and
-`issues/2026-11-06-a-closure-literal-at-a-generic-fnmut-ref-slot-spills-void.md`
+`issues/fixed/2026-11-06-a-closure-literal-at-a-generic-fnmut-ref-slot-spills-void.md`
 are fixed (tracked together in `plans/backlog/SEED_VERSION_AUTOMATION.md`).
 
 ## The test that fails before and passes after
