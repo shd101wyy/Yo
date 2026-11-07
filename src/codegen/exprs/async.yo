@@ -2366,28 +2366,33 @@ _CallerArmScope :: struct(
 /// Inside the fused site such a name is not the binding. The state machine's
 /// dispose releases the binding's slot on the way out, as it does for every
 /// other local of the caller, so no escape path of the site needs its drop.
-_drops_outside_arms :: (fn(list : &Option(ArrayList(AstExpr)), shadowed : &Option(HashSet(String))) -> Option(ArrayList(AstExpr)))({
-  drops := match(list, .Some(d) => d, .None => return(Option(ArrayList(AstExpr)).None));
-  mut(kept) := ArrayList(AstExpr).new();
-  (mut(i) : usize) = usize(0);
-  while(i < drops.len(), i = (i + usize(1)), {
-    match(
-      drops.get(i),
-      .Some(d) => {
-        of_arm := match(
-          get_deferred_drop_target_atom_name(&d),
-          .Some(name) => match(shadowed, .Some(s) => s.contains(sanitize_for_c_identifier(&name, false)), .None => false),
-          .None => false
+_drops_outside_arms :: (fn(list : &Option(ArrayList(AstExpr)), shadowed : &Option(HashSet(String))) -> Option(ArrayList(AstExpr)))(
+  match(
+    list,
+    .Some(drops) => {
+      mut(kept) := ArrayList(AstExpr).new();
+      (mut(i) : usize) = usize(0);
+      while(i < drops.len(), i = (i + usize(1)), {
+        match(
+          drops.get(i),
+          .Some(d) => {
+            of_arm := match(
+              get_deferred_drop_target_atom_name(&d),
+              .Some(name) => match(shadowed, .Some(s) => s.contains(sanitize_for_c_identifier(&name, false)), .None => false),
+              .None => false
+            );
+            if(!of_arm, {
+              kept.push(d);
+            });
+          },
+          .None => ()
         );
-        if(!of_arm, {
-          kept.push(d);
-        });
-      },
-      .None => ()
-    );
-  });
-  Option(ArrayList(AstExpr)).Some(kept)
-});
+      });
+      Option(ArrayList(AstExpr)).Some(kept)
+    },
+    .None => Option(ArrayList(AstExpr)).None
+  )
+);
 /// Leave the caller's match arms: the wrapper and its block are emitted inside
 /// the arm but are not in its scope, and a shadowed name renders as the
 /// binding whichever variable the atom names (`_generate_sm_atom`), so a name
