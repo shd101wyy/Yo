@@ -190,8 +190,16 @@ impl(
   /// caller blocks until it finishes and then sees its value. The value stays
   /// in the cell, so a move-only `T` is read in place, as Rust's
   /// `OnceLock::get_or_init` lends it.
-  get_or_init : (fn(self : &Self, f : &mut Impl(FnMut() -> T)) -> &T)({
-    self._init(f);
+  ///
+  /// `f` is taken by value, unlike the other non-escaping `FnMut` slots
+  /// (`&mut Impl(FnMut(...))`, VERDICTS-28 Q1): the result is a `&T`, and an
+  /// elided result origin is the union of every reference parameter's origin
+  /// (plans/backlog/REFERENCES_AND_ORIGINS.md O2), so a closure lent by
+  /// reference would make `got := cell.get_or_init(() => ...)` borrow the
+  /// temporary closure. By value, the receiver is the only origin.
+  get_or_init : (fn(self : &Self, sink(f) : Impl(FnMut() -> T)) -> &T)({
+    mut(init) := f;
+    self._init(&mut init);
     match(
       &self._cell.*._value,
       .Some(v) => &v,
