@@ -470,6 +470,19 @@ it first; std's prelude alone records several hundred sites), then delete
 `deref_rule_applies` exemption, E0920 in `property_access.yo`, and the
 recording mode's `v.*` → `v.*.*` rewrite once no exempt tree is left.
 
+**Amended 2026-11-08 (schedule §5f decision 36):** the premise above was
+wrong. A seed carrying N1e-1 still applies its own exemption, so inside std
+and src the v0.2.75 seed rejects a migrated `r.*` with E0920; the branch
+`vbd/deref-adoption` (migration plus deletion) cannot be built by it. v0.2.76
+ships **Generation A**: inside the exempt trees a written `r.*` whose referent
+is not itself dereferenceable reads the referent (a bare read keeps the old
+reading; a `Deref` referent keeps the payload reading). **Generation B moves
+to `SEED_VERSION` ≥ v0.2.76** (v0.2.77, first in order): the sweep, the
+deletion, and the deref-through sites respelled by auto-deref member access
+or an `as_ref` accessor on `Rc`/`Box`/`Arc`, never `r.*.*`. Gate for
+Generation B: seed `check ./std` and `check ./src` with the v0.2.76 seed,
+then the fixpoint.
+
 ## Seed-gated follow-up (2026-11-02): V5 cells — `Rc`/`Arc` become views over `__yo_cell`
 
 V5 Generation A completion (`plans/VALUES_BY_DEFAULT.md` §V5 and §3.5 "Left to V5") retypes the two counted
