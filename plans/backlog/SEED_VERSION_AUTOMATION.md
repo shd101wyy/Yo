@@ -470,6 +470,24 @@ it first; std's prelude alone records several hundred sites), then delete
 `deref_rule_applies` exemption, E0920 in `property_access.yo`, and the
 recording mode's `v.*` → `v.*.*` rewrite once no exempt tree is left.
 
+**Status (2026-11-07, `vbd/deref-adoption`):** std and src are migrated and
+judged; `is_deref_rule_exempt`'s std/src trees are deleted. Three parts remain:
+
+- `scripts/`, the root `build.yo` and content-store dependencies keep the
+  old reading (`deref_rule_legacy_reader`). The release's seed compiles them,
+  so they migrate once a published seed reads `.*` there.
+- Compiler-synthesized `auto-generated://` code keeps the old reading through
+  an inline guard in `deref_rule_applies`, and that code is where E0920 still
+  fires. Both go with the capture read rule
+  (`issues/2026-11-06-a-user-closure-cannot-capture-a-reference-binding.md`).
+- The recording mode's `v.*` → `v.*.*` rewrite stays until the mode retires.
+  The prelude's `impl(*T, …)` family and an old-reading user file still need it.
+
+The migrated tree cannot be built by the v0.2.75 seed, because that seed
+reads `.*` on a borrow inside std and src as E0920. It is built by a
+tree-binary chain instead: the seed builds the deletion commit, and that
+binary builds the tree.
+
 ## Seed-gated follow-up (2026-11-02): V5 cells — `Rc`/`Arc` become views over `__yo_cell`
 
 V5 Generation A completion (`plans/VALUES_BY_DEFAULT.md` §V5 and §3.5 "Left to V5") retypes the two counted
