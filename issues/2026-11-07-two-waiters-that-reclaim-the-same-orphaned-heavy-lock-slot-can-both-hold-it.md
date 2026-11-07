@@ -50,6 +50,14 @@ and nothing stops a stale verdict from deleting a claim made in between.
 `mkdir` remains atomic, but here two `mkdir`s each succeed, because the second
 waiter's `rm -rf` sits between them.
 
+Seen again at 08:16 the same day, with no garbled owner line this time. Four
+gate scripts were started together, each in its own process (so each `$$` was
+its own). All four returned from `heavy_take` and ran their jobs, but two
+minutes later only three of them had a slot directory. The fourth job (pid
+1943683) was alive and running a test with no `.heavy-lock*` directory naming
+it. That is a claim deleted after it was made, which is what the stale-verdict
+`rm -rf` above does. This time no byte evidence pins which waiter removed it.
+
 ## Fix direction
 
 Make reclamation atomic per claim. One way: rename the orphaned directory to a
