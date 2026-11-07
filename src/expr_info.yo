@@ -98,6 +98,7 @@ _c_len_13 :: (fn(m : &HashMap(ExprId, EvalValue)) -> usize)(m.len());
 _c_len_14 :: (fn(m : &HashMap(ExprId, AstExpr)) -> usize)(m.len());
 _c_len_15 :: (fn(s : &HashSet(ExprId)) -> usize)(s.len());
 _c_len_16 :: (fn(m : &HashMap(ExprId, String)) -> usize)(m.len());
+_c_len_17 :: (fn(m : &HashMap(ExprId, ArrayList(AstExpr))) -> usize)(m.len());
 /// (seed window) The spec-report call-sum as a named fn (an empty-env
 /// literal at `with`'s generic-`R` slot spills void* under the seed).
 _sum_fid_rtcalls :: (fn(m : &HashMap(String, usize)) -> usize)({
@@ -2032,6 +2033,27 @@ record_immediate_old_value_drop :: (fn(assign_id : ExprId, drop_expr : &AstExpr)
 lookup_immediate_old_value_drop :: (fn(assign_id : ExprId) -> Option(AstExpr))(
   g_immediate_old_value_drops.with(m => m.get(&assign_id))
 );
+/// Operand node id of `&&` / `||` → the `___drop(name)`s of the values that
+/// operand moves, which codegen emits on the path that SKIPS the operand
+/// (`drop_moves_of_skippable_operand`, evaluator/utils.yo;
+/// `_close_short_circuit_if`, codegen/exprs/and_or.yo). A side table rather
+/// than an `ExprInfoRare` field: few operands move anything, and the rare
+/// group is boxed with a `size_of` the seed computes 16 bytes short (it sizes
+/// `Option(bool)` below the C int tag codegen emits), so growing the group
+/// pushed the seed-built stage 1's under-allocation across a size class.
+(g_skipped_operand_drops : RefCell(HashMap(ExprId, ArrayList(AstExpr)))) = RefCell(HashMap(ExprId, ArrayList(AstExpr))).new(HashMap(ExprId, ArrayList(AstExpr)).new());
+record_skipped_operand_drops :: (fn(operand_id : ExprId, sink(drops) : ArrayList(AstExpr)) -> unit)({
+  record_owned_expr_id(operand_id);
+  g_skipped_operand_drops.with_mut({ drops, operand_id }(m) => m.insert(operand_id, drops));
+  ()
+});
+/// Forget a list an earlier evaluation of the operand recorded.
+clear_skipped_operand_drops :: (fn(operand_id : ExprId) -> unit)({
+  _d := g_skipped_operand_drops.with_mut(m => m.remove(&operand_id));
+});
+lookup_skipped_operand_drops :: (fn(operand_id : ExprId) -> Option(ArrayList(AstExpr)))(
+  g_skipped_operand_drops.with(m => m.get_cloned(&operand_id))
+);
 /// The source tokens of expressions a statement creates only to LEND them —
 /// a temporary passed to a `&T`/`&mut T` parameter (`show(&make())`, the
 /// exempt `show(make())`, a `&self` receiver) or a borrowed `match` scrutinee
@@ -3097,7 +3119,7 @@ export(expr_info_closure_function_value, expr_info_set_closure_function_value);
 export(ExprInfoTable, expr_info_table_new, expr_info_table_set, expr_info_table_get, codegen_read_log_set, codegen_read_keys, expr_info_table_retain_keys);
 export(record_method_callee_type, lookup_method_callee_type);
 export(record_io_builtin_struct_field, lookup_io_builtin_struct_field, record_io_builtin_call, lookup_io_builtin_call);
-export(record_method_callee_value, lookup_method_callee_value, record_local_borrow_step_pin, lookup_local_borrow_step_pin, record_immediate_old_value_drop, lookup_immediate_old_value_drop, note_lent_temporary, lent_temp_token_key, is_lent_temp_token, record_consume_release, is_consume_release);
+export(record_method_callee_value, lookup_method_callee_value, record_local_borrow_step_pin, lookup_local_borrow_step_pin, record_immediate_old_value_drop, lookup_immediate_old_value_drop, record_skipped_operand_drops, clear_skipped_operand_drops, lookup_skipped_operand_drops, note_lent_temporary, lent_temp_token_key, is_lent_temp_token, record_consume_release, is_consume_release);
 export(register_extern_c_global, is_extern_c_global, get_extern_c_global_types);
 export(register_extern_c_global_alias, extern_c_global_c_name, register_extern_c_module_id, is_extern_c_module_id);
 export(register_module_level_global, is_module_level_global, module_global_c_suffix);
@@ -3384,6 +3406,7 @@ _purge_expr_side_tables_at :: (fn(id : usize) -> unit)({
   _m := g_macro_expansions.with_mut(m => m.remove(&id));
   _p := g_local_borrow_step_pins.with_mut(m => m.remove(&id));
   _d := g_immediate_old_value_drops.with_mut(m => m.remove(&id));
+  _s := g_skipped_operand_drops.with_mut(m => m.remove(&id));
   _c := g_consume_releases.with_mut(s => s.remove(&id));
 });
 /// Drop the metadata an EXECUTED fresh-id clone left behind: every node of
@@ -3430,7 +3453,7 @@ purge_executed_clone_metadata :: (fn(table : &ExprInfoTable, root : &AstExpr, lo
 });
 /// Total entries across those tables (the B2 plateau test's probe).
 expr_side_table_entry_count :: (fn() -> usize)(
-  g_method_callee_types.with(_c_len_8) + g_io_builtin_calls.with(_c_len_16) + g_method_callee_values.with(_c_len_13) + g_macro_expansions.with(_c_len_14) + g_immediate_old_value_drops.with(_c_len_14) + g_consume_releases.with(_c_len_15)
+  g_method_callee_types.with(_c_len_8) + g_io_builtin_calls.with(_c_len_16) + g_method_callee_values.with(_c_len_13) + g_macro_expansions.with(_c_len_14) + g_immediate_old_value_drops.with(_c_len_14) + g_skipped_operand_drops.with(_c_len_17) + g_consume_releases.with(_c_len_15)
 );
 export(record_module_level_init_expr, get_module_level_init_exprs);
 export(purge_expr_side_tables, purge_executed_clone_metadata, expr_side_table_entry_count);
