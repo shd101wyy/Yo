@@ -9044,78 +9044,78 @@ lend_through :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalContext, exn
     );
     ai = (ai + usize(1));
   });
-  if(fixed_names.len() == usize(0), {
-    return(());
-  });
   // 2. Every other argument whose parameter names a fixed origin carries
-  // origins within it.
-  (bi : usize) = usize(0);
-  while(bi < op_args.len(), {
-    if(!fixed_by.contains(&bi), {
-      match(
-        slots.get(bi),
-        .Some(slot) => {
-          arg := match(op_args.get(bi), .Some(a) => _unlabeled_argument(&a), .None => make_err_expr());
-          p_os := ArrayList(TypeValue).new();
-          a_os := ArrayList(TypeValue).new();
-          _argument_origin_pairs(&arg, &slot, env, ctx, &mut p_os, &mut a_os);
-          (k : usize) = usize(0);
-          while(k < p_os.len(), {
-            match(
-              t_origin_spelled_names(&p_os(k)),
-              .Some(pn) => if(pn.len() == usize(1), {
-                n := match(pn.get_cloned(usize(0)), .Some(n0) => n0, .None => String.from(""));
-                (fi : usize) = usize(0);
-                while(fi < fixed_names.len(), {
-                  if(match(fixed_names.get_cloned(fi), .Some(fnm) => (fnm == n), .None => false), {
-                    bound := match(fixed_sets.get_cloned(fi), .Some(fs) => fs, .None => shared_list(ArrayList(String).new()));
-                    match(
-                      t_origin_spelled_names(&a_os(k)),
-                      .Some(an) => {
-                        (ni : usize) = usize(0);
-                        while(ni < an.len(), {
-                          a_name := match(an.get_cloned(ni), .Some(x) => x, .None => String.from(""));
-                          (inside : bool) = false;
-                          (bj : usize) = usize(0);
-                          while(bj < bound.len(), {
-                            if(match(bound.get_cloned(bj), .Some(b) => (b == a_name), .None => false), {
-                              inside = true;
+  // origins within it. (Step 3 below still runs when NO origin parameter
+  // was fixed — the flow case's `&mut` argument spells none.)
+  if(fixed_names.len() > usize(0), {
+    (bi : usize) = usize(0);
+    while(bi < op_args.len(), {
+      if(!fixed_by.contains(&bi), {
+        match(
+          slots.get(bi),
+          .Some(slot) => {
+            arg := match(op_args.get(bi), .Some(a) => _unlabeled_argument(&a), .None => make_err_expr());
+            p_os := ArrayList(TypeValue).new();
+            a_os := ArrayList(TypeValue).new();
+            _argument_origin_pairs(&arg, &slot, env, ctx, &mut p_os, &mut a_os);
+            (k : usize) = usize(0);
+            while(k < p_os.len(), {
+              match(
+                t_origin_spelled_names(&p_os(k)),
+                .Some(pn) => if(pn.len() == usize(1), {
+                  n := match(pn.get_cloned(usize(0)), .Some(n0) => n0, .None => String.from(""));
+                  (fi : usize) = usize(0);
+                  while(fi < fixed_names.len(), {
+                    if(match(fixed_names.get_cloned(fi), .Some(fnm) => (fnm == n), .None => false), {
+                      bound := match(fixed_sets.get_cloned(fi), .Some(fs) => fs, .None => shared_list(ArrayList(String).new()));
+                      match(
+                        t_origin_spelled_names(&a_os(k)),
+                        .Some(an) => {
+                          (ni : usize) = usize(0);
+                          while(ni < an.len(), {
+                            a_name := match(an.get_cloned(ni), .Some(x) => x, .None => String.from(""));
+                            (inside : bool) = false;
+                            (bj : usize) = usize(0);
+                            while(bj < bound.len(), {
+                              if(match(bound.get_cloned(bj), .Some(b) => (b == a_name), .None => false), {
+                                inside = true;
+                              });
+                              bj = (bj + usize(1));
                             });
-                            bj = (bj + usize(1));
-                          });
-                          if(!inside, {
-                            by_arg := match(fixed_by.get(fi), .Some(fb) => match(op_args.get(fb), .Some(fa) => _unlabeled_argument(&fa), .None => make_err_expr()), .None => make_err_expr());
-                            raise_flow_violation(
-                              with_code(
-                                format_error_message_with_help(
-                                  ast_expr_token(&arg),
-                                  `\`${_lend_text(&arg)}\` carries origin \`${a_name}\`, outside \`${_origin_names_text(&bound)}\`: the origin \`${n}\` is fixed to \`${_origin_names_text(&bound)}\` by \`${_lend_text(&by_arg)}\`, and an origin reached through a \`&mut\` pointee is invariant (decision 43, plans/backlog/REFERENCES_AND_ORIGINS.md O3 step 3): widening it would let the \`&mut\` argument hold a reference past \`${a_name}\`'s scope.`,
-                                  Option(String).Some(`declare the \`&mut\` argument's type over \`${a_name}\` too (a union, \`(${_origin_names_text(&bound)}, ${a_name})\`), or pass a reference into \`${_origin_names_text(&bound)}\``)
+                            if(!inside, {
+                              by_arg := match(fixed_by.get(fi), .Some(fb) => match(op_args.get(fb), .Some(fa) => _unlabeled_argument(&fa), .None => make_err_expr()), .None => make_err_expr());
+                              raise_flow_violation(
+                                with_code(
+                                  format_error_message_with_help(
+                                    ast_expr_token(&arg),
+                                    `\`${_lend_text(&arg)}\` carries origin \`${a_name}\`, outside \`${_origin_names_text(&bound)}\`: the origin \`${n}\` is fixed to \`${_origin_names_text(&bound)}\` by \`${_lend_text(&by_arg)}\`, and an origin reached through a \`&mut\` pointee is invariant (decision 43, plans/backlog/REFERENCES_AND_ORIGINS.md O3 step 3): widening it would let the \`&mut\` argument hold a reference past \`${a_name}\`'s scope.`,
+                                    Option(String).Some(`declare the \`&mut\` argument's type over \`${a_name}\` too (a union, \`(${_origin_names_text(&bound)}, ${a_name})\`), or pass a reference into \`${_origin_names_text(&bound)}\``)
+                                  ),
+                                  E_ORIGIN_MISMATCH
                                 ),
-                                E_ORIGIN_MISMATCH
-                              ),
-                              ctx,
-                              exn
-                            );
+                                ctx,
+                                exn
+                              );
+                            });
+                            ni = (ni + usize(1));
                           });
-                          ni = (ni + usize(1));
-                        });
-                      },
-                      .None => ()
-                    );
+                        },
+                        .None => ()
+                      );
+                    });
+                    fi = (fi + usize(1));
                   });
-                  fi = (fi + usize(1));
-                });
-              }),
-              .None => ()
-            );
-            k = (k + usize(1));
-          });
-        },
-        .None => ()
-      );
+                }),
+                .None => ()
+              );
+              k = (k + usize(1));
+            });
+          },
+          .None => ()
+        );
+      });
+      bi = (bi + usize(1));
     });
-    bi = (bi + usize(1));
   });
   // 3. The flow write-back (§7 "A local's flow set after a `&mut` lend"): a
   // `&mut`-lent holder whose pointee's origin parameters the argument does

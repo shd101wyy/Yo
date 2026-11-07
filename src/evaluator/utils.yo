@@ -8530,6 +8530,9 @@ lend_place_reference_type :: (fn(place : &AstExpr, place_info : &ExprInfo, is_mu
 origin_of :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext) -> ArrayList(OriginRootPlace))({
   out := ArrayList(OriginRootPlace).new();
   _origin_of_into(e, env, ctx, &mut out, u32(0));
+  if(debug_knob(`YO_DEBUG_ORIGIN`).is_some(), {
+    eprintln(`[origin] ${ast_expr_to_string(e)} -> [${_n2b_roots_text(&out)}] @${ast_expr_token(e).module_path.*.clone()}:${(ast_expr_token(e).row + u32(1)).to_string()}`);
+  });
   // The memo, G-E's totality record: set for every typed node whose type
   // carries an origin (an empty set included — `.None` is "not computed").
   memo_s := ast_expr_strip_borrow_marker(e);
@@ -8549,6 +8552,29 @@ origin_of :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext) -> ArrayL
   );
   out
 });
+/// The `[n2b]` trace's root list: `xs(mut=false)/y(mut=true)`, the place's
+/// root name and its mode.
+_n2b_roots_text :: (fn(roots : &ArrayList(OriginRootPlace)) -> String)({
+  t := String.new();
+  (i : usize) = usize(0);
+  while(i < roots.len(), {
+    if(i > usize(0), {
+      t.push_str(", ");
+    });
+    match(
+      roots.get_cloned(i),
+      .Some(r) => {
+        t.push_string(&r.place.root_name);
+        t.push_str("(");
+        t.push_str(cond(r.is_mut => "mut", true => "imm"));
+        t.push_str(")");
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  t
+});
 /// `origin_of`'s recursion (the R-* rules of
 /// plans/backlog/BORROW_CHECKER_COMPLETENESS.md §3). Order matters: a LEND
 /// marker is read on the UNSTRIPPED node (R-LEND), a recorded lend (T9's
@@ -8556,6 +8582,9 @@ origin_of :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext) -> ArrayL
 _origin_of_into :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, out : &mut ArrayList(OriginRootPlace), depth : u32) -> unit)({
   if(depth > u32(16), {
     return(());
+  });
+  if(debug_knob(`YO_DEBUG_ORIGIN`).is_some(), {
+    eprintln(`[origin:in] d=${depth.to_string()} ${ast_expr_to_string(e)}`);
   });
   // R-LEND (marker form): `&place` / `&mut place` — the operand's place with
   // the marker's mode.
@@ -8687,20 +8716,16 @@ _origin_of_into :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, out
       });
       // A constructor whose callee type is not one of the projection shapes
       // (an enum payload, a struct constructor): every component's origin
-      // joins (R-COMP; over-approximation is sound — §4's propagation).
+      // joins (R-COMP; over-approximation is sound — §4's propagation) — an
+      // ATOM component too (`.Some(x)`'s payload is the for-element binding,
+      // whose registered places are the collection's; R-READ answers atoms).
       oc_ft := projection_call_callee_type(&stripped, ctx);
       if(oc_ft.is_none(), {
         (ci : usize) = usize(0);
         while(ci < fc_args.len(), {
           match(
             fc_args.get(ci),
-            .Some(component) => {
-              comp_v := _unlabeled_value(&component);
-              comp_s := ast_expr_strip_borrow_marker(&comp_v);
-              if(!ast_expr_is_atom(&comp_s), {
-                _origin_of_into(&comp_v, env, ctx, out, (depth + u32(1)));
-              });
-            },
+            .Some(component) => _origin_of_into(&_unlabeled_value(&component), env, ctx, out, (depth + u32(1))),
             .None => ()
           );
           ci = (ci + usize(1));
@@ -8717,9 +8742,60 @@ _origin_push_lend :: (fn(operand : &AstExpr, is_mut : bool, env : &Environment, 
   match(
     local_borrow_place_of(operand, env, ctx),
     .Some(p) => _origin_push(OriginRootPlace(place : p, is_mut : is_mut), out),
-    .None => ()
+    .None => {
+      // R-LEND through R-READ: the operand's root binding is not in `env` —
+      // a match arm binding, whose frame ended with the arm. Its registered
+      // entries are the places it borrows, and a lend through it re-borrows
+      // those places with the marker's mode.
+      match(
+        _place_chain_root_atom(operand),
+        .Some(root_atom) => {
+          entry_roots := ArrayList(OriginRootPlace).new();
+          _holder_roots_into(&root_atom, env, ctx, &mut entry_roots);
+          (pi : usize) = usize(0);
+          while(pi < entry_roots.len(), {
+            match(
+              entry_roots.get_cloned(pi),
+              .Some(er) => _origin_push(OriginRootPlace(place : er.place, is_mut : is_mut), out),
+              .None => ()
+            );
+            pi = (pi + usize(1));
+          });
+        },
+        .None => ()
+      );
+    }
   )
 );
+/// The root atom of a place-shaped chain (`h.*.s` → `h`): only field/deref
+/// dots are followed — a call operand is not a place chain (its result is a
+/// temporary), and `.None` says so.
+_place_chain_root_atom :: (fn(operand : &AstExpr) -> Option(AstExpr))({
+  (e : AstExpr) = ast_expr_strip_borrow_marker(operand);
+  (walking : bool) = true;
+  while(walking, {
+    e = ast_rewritten_node(&e);
+    if(ast_expr_is_atom(&e), {
+      walking = false;
+    }, {
+      if(!ast_expr_is_fn_call_of(&e, BF_DOT, Option(usize).Some(usize(2))), {
+        return(Option(AstExpr).None);
+      });
+      match(
+        e,
+        .FnCall(_, _, Rc(dc_args), _, _) => match(
+          dc_args.get(usize(0)),
+          .Some(recv) => {
+            e = recv;
+          },
+          .None => return(Option(AstExpr).None)
+        ),
+        .Atom(_, _) => return(Option(AstExpr).None)
+      );
+    });
+  });
+  Option(AstExpr).Some(e)
+});
 /// The place of a node, with a mode read off a recorded reference type (the
 /// atom fallback's own slot included).
 _origin_push_place :: (fn(node : &AstExpr, is_mut : bool, env : &Environment, ctx : &EvalContext, out : &mut ArrayList(OriginRootPlace)) -> unit)(
@@ -8902,7 +8978,10 @@ _holder_roots_into :: (fn(a : &AstExpr, env : &Environment, ctx : &EvalContext, 
   _holder_roots_named_into(ast_expr_token(a).value.*.clone(), &ast_expr_token(a), out)
 );
 /// The frozen places of the binding named `name` declared at `decl`
-/// (`_holder_roots_into` by name, for the `=` join's dedup).
+/// (`_holder_roots_into` by name, for the `=` join's dedup). The lookup is
+/// by name and module: `decl` may be a USAGE token (R-READ reads the atom
+/// where it is used, and no shadowing exists — a name identifies its
+/// binding inside a module).
 _holder_roots_named_into :: (fn(name : String, decl : &Token, out : &mut ArrayList(OriginRootPlace)) -> unit)({
   a_name := name;
   hv_name := a_name.clone();
@@ -8914,7 +8993,7 @@ _holder_roots_named_into :: (fn(name : String, decl : &Token, out : &mut ArrayLi
     i = (i - usize(1));
     match(
       g_local_borrows.with(xs => xs.get(i)),
-      .Some(info) => if(_lb_same_decl(info.name.clone(), &info.decl, hv_name.clone(), &hv_decl), {
+      .Some(info) => if((info.name == hv_name) && (info.decl.module_path == hv_decl.module_path), {
         found = true;
         (pi : usize) = usize(0);
         while(pi < info.places.len(), pi = (pi + usize(1)), {
@@ -8956,7 +9035,7 @@ bind :: (fn(binding : &AstExpr, rhs : &AstExpr, var_name : &String, name_tok : &
   // same (the caller gates on a function-body context).
   roots := origin_of(rhs, env, ctx);
   if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
-    eprintln(`[n2b] bind ${var_name}: roots=${roots.len().to_string()} rhs=${ast_expr_to_string(rhs)}`);
+    eprintln(`[n2b] bind ${var_name}: roots=[${_n2b_roots_text(&roots)}] rhs=${ast_expr_to_string(rhs)}`);
   });
   range := local_borrow_range_of(binding, var_name.clone(), name_tok);
   (ri : usize) = usize(0);
@@ -9108,7 +9187,7 @@ bind_join :: (fn(variable : &Variable, value : &AstExpr, env : &Environment, ctx
     return(());
   });
   if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
-    eprintln(`[n2b] join ${variable.name}: roots=${roots.len().to_string()} value=${ast_expr_to_string(value)}`);
+    eprintln(`[n2b] join ${variable.name}: roots=[${_n2b_roots_text(&roots)}] value=${ast_expr_to_string(value)}`);
   });
   v_tok := variable.token;
   // A SPELLED target checks the subset at the TYPE level: every origin the
