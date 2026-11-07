@@ -9361,6 +9361,44 @@ origin_param_names_of :: (fn(ty : &TypeValue, out : &mut ArrayList(String), dept
     _ => ()
   );
 });
+/// The DECLARED slot of `v`, a parameter of the function body being
+/// evaluated, when that slot spells origins: `b : &(i32, q)` as written. A
+/// generic body is evaluated per specialization with its parameters'
+/// origins elided (origins never specialize), so the env's slot type lost
+/// `q`; the body's own function type keeps it, and O2 checks a generic body
+/// with its origin parameters RIGID — `p` and `q` are distinct names
+/// whatever a caller binds them to. `.None` outside a function body, for a
+/// non-parameter, or when the declared slot spells no origin.
+param_declared_origin_slot :: (fn(v : &Variable, ctx : &EvalContext) -> Option(TypeValue))({
+  if(!v.is_parameter(), {
+    return(Option(TypeValue).None);
+  });
+  ft := match(
+    &ctx.is_evaluating_function_body_or_async_block,
+    .Some(fb) => match(fb.kind, .FunctionBody => match(&fb.func_type, .Some(t) => Rc.clone(t), .None => return(Option(TypeValue).None)), _ => return(Option(TypeValue).None)),
+    .None => return(Option(TypeValue).None)
+  );
+  labels := match(&ft, Rc(.Func({ meta : pd_m })) => Rc.clone(pd_m.*.param_labels), _ => return(Option(TypeValue).None));
+  slots := fn_param_slots(&ft);
+  (i : usize) = usize(0);
+  while(i < labels.len(), {
+    if(match(labels.get(i), .Some(l) => (l == v.name), .None => false), {
+      return(
+        match(
+          slots.get_cloned(i),
+          .Some(sl) => {
+            names := ArrayList(String).new();
+            origin_param_names_of(&sl, &mut names, u32(0));
+            if(names.len() > usize(0), Option(TypeValue).Some(sl), Option(TypeValue).None)
+          },
+          .None => Option(TypeValue).None
+        )
+      );
+    });
+    i = (i + usize(1));
+  });
+  Option(TypeValue).None
+});
 /// O-1's `=` join (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §3, §5's
 /// place-write row): after a whole-holder assignment `h = v` succeeds, the
 /// holder's loan set becomes the join over reaching definitions — the value's
@@ -9394,7 +9432,7 @@ bind_join :: (fn(variable : &Variable, value : &AstExpr, env : &Environment, ctx
   // expected type (`.Some(b)` read as `Option(&(i32, p))`) is still judged
   // by what it holds. In a generic body the origin parameters are RIGID
   // (O2): `p` and `q` are distinct names whatever a caller binds them to.
-  hv_ty := variable_slot_type(variable);
+  hv_ty := match(param_declared_origin_slot(variable, ctx), .Some(ds) => ds, .None => variable_slot_type(variable));
   holder_ty := cond(
     t_slot_is_borrow(&hv_ty) => t_slot_pointee(&hv_ty),
     true => variable_value_type(variable)
@@ -9411,7 +9449,7 @@ bind_join :: (fn(variable : &Variable, value : &AstExpr, env : &Environment, ctx
           match(
             get_variables_from_env(env, rt.place.root_name.clone()).last_cloned(),
             .Some(rv) => cond(
-              rv.is_parameter() => origin_param_names_of(&variable_slot_type(&rv), &mut rt_names, u32(0)),
+              rv.is_parameter() => origin_param_names_of(&match(param_declared_origin_slot(&rv, ctx), .Some(ds) => ds, .None => variable_slot_type(&rv)), &mut rt_names, u32(0)),
               !rv.is_module_level() => rt_names.push(rv.name.clone()),
               true => ()
             ),
@@ -9784,7 +9822,7 @@ borrow_match_source :: (fn(var_id : usize) -> Option(AstExpr))({
   });
   Option(AstExpr).None
 });
-export(projection_call_mode_of, ProjectionRootArg, projection_call_root_args, projection_call_callee_type, OriginRootPlace, origin_of, origin_param_names_of, holder_future_roots, bind, bind_join, bind_join_roots_for, return_check, note_ref_payload_source, ref_payload_source, note_borrow_match_source, borrow_match_source, n2b_roots_text);
+export(projection_call_mode_of, ProjectionRootArg, projection_call_root_args, projection_call_callee_type, OriginRootPlace, origin_of, origin_param_names_of, param_declared_origin_slot, holder_future_roots, bind, bind_join, bind_join_roots_for, return_check, note_ref_payload_source, ref_payload_source, note_borrow_match_source, borrow_match_source, n2b_roots_text);
 export(record_pending_scrutinee_borrow, take_pending_scrutinee_borrows, PendingScrutineeBorrow, note_migrate_mut_scrutinee, migrate_mut_scrutinee_at, clear_migrate_mut_scrutinees, drop_owned_match_binding_at_arm_end, match_scrutinee_is_capture, local_borrow_register_match_place, local_borrow_note_match_place, note_consuming_match_scrutinee, consuming_match_scrutinee_at, moved_value_help, migrate_borrowed_match_at, _lb_arrow_shadows, _lb_fn_literal_binds, _lb_mentions);
 export(
   LocalBorrowPlace,
