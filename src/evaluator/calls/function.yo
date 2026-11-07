@@ -9128,16 +9128,22 @@ lend_through :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalContext, exn
     while(wi < op_args.len(), {
       match(
         slots.get(wi),
-        .Some(w_slot) => if(t_slot_is_mut_ref(&w_slot) && type_carries_origin(&t_slot_pointee(&w_slot)), {
+        .Some(w_slot) => if(t_slot_is_mut_ref(&w_slot) && (type_carries_origin(&t_slot_pointee(&w_slot)) || _arg_type_carries_origin(match(op_args.get(wi), .Some(a) => _unlabeled_argument(&a), .None => make_err_expr()), ctx)), {
           w_arg := _unlabeled_argument(match(op_args.get(wi), .Some(a) => a, .None => make_err_expr()));
           w_place := ast_expr_strip_borrow_marker(&w_arg);
           if(ast_expr_is_atom(&w_place), {
-            // The origin parameters the pointee names.
+            // The origin parameters the pointee names, and its TYPE
+            // parameters: `dst : &mut Option(T)` with `T := &S` is as much an
+            // inference variable as a spelled `r` (the row
+            // `generic-slot-lent-mut`), and another argument typed over the
+            // same `T` is what the callee may store into it.
             w_names := ArrayList(String).new();
             origin_param_names_of(&t_slot_pointee(&w_slot), &mut w_names, u32(0));
+            w_tvars := ArrayList(String).new();
+            _type_var_ids_of(&t_slot_pointee(&w_slot), &mut w_tvars, u32(0));
             // Only the flow case: every named parameter the argument spelled
             // is already fixed exactly by step 1.
-            (unfixed : bool) = false;
+            (unfixed : bool) = (w_tvars.len() > usize(0));
             (ni : usize) = usize(0);
             while(ni < w_names.len(), {
               if(!fixed_names.contains(match(w_names.get_cloned(ni), .Some(n) => n, .None => String.new())), {
@@ -9175,6 +9181,17 @@ lend_through :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalContext, exn
                         );
                         pk = (pk + usize(1));
                       });
+                      if(!names_it && (w_tvars.len() > usize(0)), {
+                        x_tvars := ArrayList(String).new();
+                        _type_var_ids_of(&x_slot, &mut x_tvars, u32(0));
+                        (ti : usize) = usize(0);
+                        while(ti < x_tvars.len(), {
+                          if(w_tvars.contains(match(x_tvars.get_cloned(ti), .Some(tv) => tv, .None => String.new())), {
+                            names_it = true;
+                          });
+                          ti = (ti + usize(1));
+                        });
+                      });
                       if(names_it, {
                         x_roots := origin_of(&x_arg, env, ctx);
                         (xr : usize) = usize(0);
@@ -9210,6 +9227,52 @@ lend_through :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalContext, exn
     });
   });
 });
+/// The identities of the type variables (`generic(T : Type)`'s `SomeT`s) a
+/// definition's slot type mentions, through references, type arguments and
+/// tuple fields — the flow write-back's shared-`T` case.
+_type_var_ids_of :: (fn(ty : &TypeValue, out : &mut ArrayList(String), depth : u32) -> unit)({
+  if(depth > u32(16), {
+    return(());
+  });
+  match(
+    ty,
+    Rc(.SomeT({ id : tv_id })) => if(!out.contains(&tv_id), {
+      out.push(tv_id.clone());
+    }),
+    Rc(.Reference(tv_p, _, _)) => _type_var_ids_of(&tv_p, out, (depth + u32(1))),
+    Rc(.Struct({ type_arguments : tv_sargs })) => {
+      (si : usize) = usize(0);
+      while(si < tv_sargs.len(), {
+        match(tv_sargs.get(si), .Some(sa) => _type_var_ids_of(&sa, out, (depth + u32(1))), .None => ());
+        si = (si + usize(1));
+      });
+    },
+    Rc(.EnumT({ type_arguments : tv_eargs })) => {
+      (ei : usize) = usize(0);
+      while(ei < tv_eargs.len(), {
+        match(tv_eargs.get(ei), .Some(ea) => _type_var_ids_of(&ea, out, (depth + u32(1))), .None => ());
+        ei = (ei + usize(1));
+      });
+    },
+    Rc(.Tuple({ field_types : tv_fields })) => {
+      (fi : usize) = usize(0);
+      while(fi < tv_fields.len(), {
+        match(tv_fields.get(fi), .Some(ft) => _type_var_ids_of(&ft, out, (depth + u32(1))), .None => ());
+        fi = (fi + usize(1));
+      });
+    },
+    _ => ()
+  );
+});
+/// The argument's own type carries an origin (a definition slot over a type
+/// variable does not say; the instantiation does).
+_arg_type_carries_origin :: (fn(arg : AstExpr, ctx : &EvalContext) -> bool)(
+  match(
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ast_expr_strip_borrow_marker(&arg))),
+    .Some(ati) => type_carries_origin(&ati.ty()),
+    .None => false
+  )
+);
 /// `a, b` for an origin's names.
 _origin_names_text :: (fn(names : &SharedList(String)) -> String)({
   out := String.from("");
