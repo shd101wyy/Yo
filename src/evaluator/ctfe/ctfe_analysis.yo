@@ -54,6 +54,7 @@ pragma(Pragma.AllowUnsafe);
 { t_unit } :: import("../../types/creators.yo");
 { type_prohibits_comptime_modifier } :: import("../../types/utils.yo");
 { evaluate_begin_expression } :: import("../exprs/begin.yo");
+{ note_ctfe_reference_params } :: import("../utils.yo");
 { Exception } :: import("std/error");
 { debug_knob } :: import("../../utils.yo");
 /// The result of a successful CTFE analysis. Value and type are kept
@@ -220,6 +221,10 @@ _eval_body_for_ctfe :: (
     );
     p_i = (p_i + usize(1));
   });
+  // A `&T` / `&mut T` parameter is bound above as its pointee's value, and
+  // its `p.*` reads that value (decision 43 step 2 N1e-1,
+  // `is_ctfe_reference_param`).
+  note_ctfe_reference_params(param_labels, func_type, &ctfe_env);
   // Save context state.
   (saved_analyzing : bool) = ctx_p.is_analyzing_ctfe_capability;
   (saved_force_ct : bool) = ctx_p.force_compile_time_bindings;

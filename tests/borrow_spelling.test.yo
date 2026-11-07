@@ -988,6 +988,97 @@ comptime_expect_error(
   bs_match_deref_moves :: (fn(o : &Option(Box(i32))) -> i32)(match(o.*, .Some(b) => b.*, .None => i32(0))),
   "Cannot match `o.*` by value"
 );
+// A function with an `&Impl(Fn(...))` or `&mut Impl(FnMut(...))` parameter is
+// specialized per call (the slot's closure type is the call's), and so is a
+// generic one whose result names its type variable. A specialization
+// evaluates a fresh-id clone of the body, and the clone is the body as
+// written: each `r.*` in it reads as `r.*`, as in a function with no such
+// parameter. Before the fix, the clone carried the definition-time
+// evaluation's rewrite of `r.*` to the name `r`, so the borrowed `for` below
+// was E0926 on the `&m.*` it asks for, a by-value `match(m.*, …)` wrote the
+// caller's value through `m`, and a generic call `bs_ident(m.*)` was E0901
+// (issues/fixed/2026-11-06-a-borrowed-for-over-a-mut-param-is-rejected-when-the-fn-also-takes-an-impl-fn-param.md).
+bs_count_beside_fn :: (fn(m : &mut ArrayList(String), g : &Impl(Fn(x : &i32) -> i32)) -> i32)({
+  one := i32(1);
+  mut(n) := i32(0);
+  for(&m.*, k => {
+    n = (n + g(&one));
+  });
+  n
+});
+bs_lens_beside_fn_mut :: (fn(m : &mut ArrayList(String), g : &mut Impl(FnMut(x : usize) -> usize)) -> usize)({
+  mut(n) := usize(0);
+  for(&mut m.*, k => {
+    n = (n + g(k.len()));
+  });
+  n
+});
+bs_count_plain :: (fn(m : &mut ArrayList(String)) -> i32)({
+  mut(n) := i32(0);
+  for(&m.*, k => {
+    n = (n + i32(1));
+  });
+  n
+});
+bs_id_read :: (fn(x : &i32) -> i32)(x.*);
+bs_borrow_beside_fn :: (fn(m : &mut ArrayList(String), g : &Impl(Fn(x : &i32) -> i32)) -> usize)({
+  y := &m.*;
+  y.len()
+});
+bs_match_beside_fn :: (fn(m : &mut Option(String), g : &Impl(Fn(x : &i32) -> i32)) -> usize)(
+  match(&m.*, .Some(s) => s.len(), .None => usize(0))
+);
+bs_copy_out_beside_fn :: (fn(m : &mut Option(BsCell), g : &Impl(Fn(x : &i32) -> i32)) -> i32)(
+  match(
+    m.*,
+    .Some(mut(c)) => {
+      c.n = (c.n + i32(1));
+      c.n
+    },
+    .None => i32(0)
+  )
+);
+bs_ident :: (fn(generic(T : Type), x : T) -> T)(x);
+bs_binder_beside_fn :: (fn(m : &mut i32, g : &Impl(Fn(x : &i32) -> i32)) -> i32)({
+  v := bs_ident(m.*);
+  m.* = (m.* + i32(10));
+  v
+});
+bs_borrow_in_generic :: (fn(generic(T : Type), m : &mut ArrayList(String), d : T) -> T)({
+  mut(n) := usize(0);
+  for(&m.*, k => {
+    n = (n + usize(1));
+  });
+  y := &m.*;
+  assert(y.len() == n, "the loop and the local borrow see the same list");
+  d
+});
+test("a borrowed for over a &mut param beside an Impl Fn param reads it", {
+  mut(xs) := ArrayList(String).new();
+  xs.push(String.from("ab"));
+  xs.push(String.from("cde"));
+  assert(bs_count_beside_fn(&mut xs, bs_id_read) == i32(2), "beside `&Impl(Fn(...))`: both elements counted");
+  assert(
+    bs_lens_beside_fn_mut(&mut xs, { calls : usize(0) }(x : usize) => {
+      calls = (calls + usize(1));
+      x * calls
+    }) == usize(8),
+    "beside `&mut Impl(FnMut(...))`: 2 * 1 + 3 * 2"
+  );
+  assert(bs_count_plain(&mut xs) == i32(2), "the sibling-free control");
+  assert(bs_borrow_beside_fn(&mut xs, bs_id_read) == usize(2), "`y := &m.*` beside an `Impl(Fn)` param");
+  mut(o) := Option(String).Some(String.from("abcd"));
+  assert(bs_match_beside_fn(&mut o, bs_id_read) == usize(4), "`match(&m.*, …)` beside an `Impl(Fn)` param");
+  assert(bs_borrow_in_generic(&mut xs, i32(7)) == i32(7), "a generic `-> T` body reads `&m.*` too");
+});
+test("a specialized body copies out of m.* and keeps the caller's value", {
+  mut(p) := Option(BsCell).Some(BsCell(n : i32(5)));
+  assert(bs_copy_out_beside_fn(&mut p, bs_id_read) == i32(6), "the arm writes its own copy");
+  assert(match(p, .Some(c) => c.n, .None => i32(-1)) == i32(5), "`match(m.*, …)` copied: the caller's value is unchanged");
+  mut(a) := i32(5);
+  assert(bs_binder_beside_fn(&mut a, bs_id_read) == i32(5), "`bs_ident(m.*)` copies the referent");
+  assert(a == i32(15), "the write through `m.*` reached the caller");
+});
 // `r.* = v` drops the referent's old value at the write, as the bare `r = v`
 // did: the write is lowered to that assignment, which records the drop.
 bs_replace_tracked :: (fn(r : &mut Tracked, n : i32) -> i32)({

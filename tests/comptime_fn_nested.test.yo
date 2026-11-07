@@ -79,3 +79,24 @@ test("comptime_fn: the nested helper is STILL callable at runtime", {
   assert(folded == 41, "comptime path must fold to 41");
   assert(at_runtime == 41, "runtime path through the same nested fn must still work");
 });
+// A reference parameter read with `.*` (decision 43 step 2, N1e-1) folds:
+// CTFE binds a `&T` parameter as its pointee's compile-time value, and `y.*`
+// reads that value. CTFE evaluates a fresh-id clone of the body, which is the
+// body as written; until that clone stopped copying the definition-time
+// rewrite of `y.*` to `y`, CTFE never saw a written `y.*` here
+// (issues/fixed/2026-11-06-a-borrowed-for-over-a-mut-param-is-rejected-when-the-fn-also-takes-an-impl-fn-param.md).
+test("comptime_fn: a reference parameter read with .* folds", {
+  outer :: (fn(x : i32) -> i32)({
+    helper :: (fn(y : &i32) -> i32)(y.* + i32(1));
+    v := x;
+    return(helper(&v));
+  });
+  c :: comptime_fn(outer);
+  r :: c(20);
+  assert(r == 21, "a nested helper's y.* folds to 21");
+  add1 :: (fn(y : &i32) -> i32)(y.* + i32(1));
+  c_add1 :: comptime_fn(add1);
+  v :: i32(20);
+  r_add1 :: c_add1(&v);
+  assert(r_add1 == 21, "comptime_fn over a fn reading its &i32 parameter folds to 21");
+});
