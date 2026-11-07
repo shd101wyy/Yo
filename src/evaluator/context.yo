@@ -279,6 +279,27 @@ ComptimeFnCacheEntry :: ref(
     caches : ArrayList(CalledComptimeFnCache)
   )
 );
+/// (seed window) Concrete per-payload `with` bodies: a capture-free
+/// closure literal at `with`'s generic-`R` slot spills a `void*` C temp
+/// under a seed whose codegen predates the ref-spill fix. Inline the
+/// literals back once `SEED_VERSION` carries the fix
+/// (issues/2026-11-06-a-closure-literal-at-a-generic-fnmut-ref-slot-spills-void.md).
+_vh_pdf_members :: (fn(l : &PendingDefLive) -> ArrayList(String))(l.members.clone());
+_vh_pdf_expr :: (fn(l : &PendingDefLive) -> AstExpr)(l.expr);
+_vh_pdf_row :: (fn(l : &PendingDefLive) -> usize)(l.row);
+_vh_pdf_is_derive :: (fn(l : &PendingDefLive) -> bool)(l.is_derive);
+_vh_pdf_state :: (fn(l : &PendingDefLive) -> PendingDefState)(l.state);
+_vh_pdf_failure :: (fn(l : &PendingDefLive) -> Option(String))(l.failure.clone());
+_vh_pdf_phase_a_value :: (fn(l : &PendingDefLive) -> Option(EvalValue))(l.phase_a_value);
+_vh_pdf_phase_a_type :: (fn(l : &PendingDefLive) -> Option(TypeValue))(l.phase_a_type.clone());
+_vh_pdf_variable :: (fn(l : &PendingDefLive) -> Option(Variable))(l.variable.clone());
+_vh_pdf_src_hash :: (fn(l : &PendingDefLive) -> u64)(l.src_hash);
+_vh_mwd_be_begin_exprs_len :: (fn(xs : &ArrayList(AstExpr)) -> usize)(xs.len());
+_vh_mwd_be_begin_exprs_snapshot :: (fn(xs : &ArrayList(AstExpr)) -> ArrayList(AstExpr))(xs.clone());
+_vh_mwd_ctx_has_ctx :: (fn(c : &Option(EvalContext)) -> bool)(c.is_some());
+_vh_eit_len :: (fn(m : &HashMap(ExprId, ExprInfo)) -> usize)(m.len());
+_vh_forcing_stack_last :: (fn(xs : &ArrayList(PendingDef)) -> Option(PendingDef))(xs.last_cloned());
+_vh_forcing_stack_len :: (fn(xs : &ArrayList(PendingDef)) -> usize)(xs.len());
 impl(ComptimeFnCacheEntry, Clone(clone : (fn(self : &Self) -> Self)(self)));
 // ---------------------------------------------------------------------------
 // Specialization cache types
@@ -1290,61 +1311,61 @@ PendingDefData :: struct(
 );
 impl(
   PendingDefData,
-  members : (fn(self : &Self) -> ArrayList(String))(self.live.with(l => l.members.clone())),
+  members : (fn(self : &Self) -> ArrayList(String))(self.live.with(_vh_pdf_members)),
   set_members : (fn(self : &Self, sink(v) : ArrayList(String)) -> unit)(
     self.live.with_mut({ v }(l) => {
       l.members = v;
     })
   ),
-  expr : (fn(self : &Self) -> AstExpr)(self.live.with(l => l.expr)),
+  expr : (fn(self : &Self) -> AstExpr)(self.live.with(_vh_pdf_expr)),
   set_expr : (fn(self : &Self, v : AstExpr) -> unit)(
     self.live.with_mut(l => {
       l.expr = v;
     })
   ),
-  row : (fn(self : &Self) -> usize)(self.live.with(l => l.row)),
+  row : (fn(self : &Self) -> usize)(self.live.with(_vh_pdf_row)),
   set_row : (fn(self : &Self, v : usize) -> unit)(
     self.live.with_mut(l => {
       l.row = v;
     })
   ),
-  is_derive : (fn(self : &Self) -> bool)(self.live.with(l => l.is_derive)),
+  is_derive : (fn(self : &Self) -> bool)(self.live.with(_vh_pdf_is_derive)),
   set_is_derive : (fn(self : &Self, v : bool) -> unit)(
     self.live.with_mut(l => {
       l.is_derive = v;
     })
   ),
-  state : (fn(self : &Self) -> PendingDefState)(self.live.with(l => l.state)),
+  state : (fn(self : &Self) -> PendingDefState)(self.live.with(_vh_pdf_state)),
   set_state : (fn(self : &Self, v : PendingDefState) -> unit)(
     self.live.with_mut(l => {
       l.state = v;
     })
   ),
-  failure : (fn(self : &Self) -> Option(String))(self.live.with(l => l.failure.clone())),
+  failure : (fn(self : &Self) -> Option(String))(self.live.with(_vh_pdf_failure)),
   set_failure : (fn(self : &Self, sink(v) : Option(String)) -> unit)(
     self.live.with_mut({ v }(l) => {
       l.failure = v;
     })
   ),
-  phase_a_value : (fn(self : &Self) -> Option(EvalValue))(self.live.with(l => l.phase_a_value)),
+  phase_a_value : (fn(self : &Self) -> Option(EvalValue))(self.live.with(_vh_pdf_phase_a_value)),
   set_phase_a_value : (fn(self : &Self, v : Option(EvalValue)) -> unit)(
     self.live.with_mut(l => {
       l.phase_a_value = v;
     })
   ),
-  phase_a_type : (fn(self : &Self) -> Option(TypeValue))(self.live.with(l => l.phase_a_type.clone())),
+  phase_a_type : (fn(self : &Self) -> Option(TypeValue))(self.live.with(_vh_pdf_phase_a_type)),
   set_phase_a_type : (fn(self : &Self, sink(v) : Option(TypeValue)) -> unit)(
     self.live.with_mut({ v : v.clone() }(l) => {
       l.phase_a_type = v;
     })
   ),
-  variable : (fn(self : &Self) -> Option(Variable))(self.live.with(l => l.variable.clone())),
+  variable : (fn(self : &Self) -> Option(Variable))(self.live.with(_vh_pdf_variable)),
   set_variable : (fn(self : &Self, sink(v) : Option(Variable)) -> unit)(
     self.live.with_mut({ v : v.clone() }(l) => {
       l.variable = v;
     })
   ),
-  src_hash : (fn(self : &Self) -> u64)(self.live.with(l => l.src_hash)),
+  src_hash : (fn(self : &Self) -> u64)(self.live.with(_vh_pdf_src_hash)),
   set_src_hash : (fn(self : &Self, v : u64) -> unit)(
     self.live.with_mut(l => {
       l.src_hash = v;
@@ -1417,16 +1438,16 @@ ModuleWalkData :: struct(
 );
 impl(
   ModuleWalkData,
-  begin_exprs_len : (fn(self : &Self) -> usize)(self.begin_exprs.with(xs => xs.len())),
+  begin_exprs_len : (fn(self : &Self) -> usize)(self.begin_exprs.with(_vh_mwd_be_begin_exprs_len)),
   begin_expr_at : (fn(self : &Self, i : usize) -> Option(AstExpr))(self.begin_exprs.with(xs => xs.get(i))),
   /// A copy of the statement list (the AST nodes are shared handles).
-  begin_exprs_snapshot : (fn(self : &Self) -> ArrayList(AstExpr))(self.begin_exprs.with(xs => xs.clone())),
+  begin_exprs_snapshot : (fn(self : &Self) -> ArrayList(AstExpr))(self.begin_exprs.with(_vh_mwd_be_begin_exprs_snapshot)),
   set_begin_expr : (fn(self : &Self, i : usize, e : AstExpr) -> unit)(
     self.begin_exprs.with_mut(xs => {
       xs(i) = e;
     })
   ),
-  has_ctx : (fn(self : &Self) -> bool)(self.ctx.with(c => c.is_some())),
+  has_ctx : (fn(self : &Self) -> bool)(self.ctx.with(_vh_mwd_ctx_has_ctx)),
   /// A fresh copy of the walk's context (`copy_eval_context`), if it kept one.
   ctx_copy : (fn(self : &Self) -> Option(EvalContext))(
     self.ctx.with(c => match(c, .Some(wc) => Option(EvalContext).Some(copy_eval_context(&wc)), .None => Option(EvalContext).None))
@@ -1565,7 +1586,7 @@ finished_walk_expr_info_count :: (fn(path : &String) -> Option(usize))({
     match(
       &wopt,
       .Some(w) => if(canonical_module_path(&w.module_path) == &canon, {
-        return(w.ctx.with(c => match(c, .Some(wc) => Option(usize).Some(wc.expr_info_table.data.with(m => m.len())), .None => Option(usize).None)));
+        return(w.ctx.with(c => match(c, .Some(wc) => Option(usize).Some(wc.expr_info_table.data.with(_vh_eit_len)), .None => Option(usize).None)));
       }),
       .None => ()
     );
@@ -1650,7 +1671,7 @@ record_def_dependency :: (fn(dependee : &String) -> unit)({
     current_forcing_def(),
     .Some(_) => {
       (top : PendingDef) = match(
-        g_forcing_stack.with(xs => xs.last_cloned()),
+        g_forcing_stack.with(_vh_forcing_stack_last),
         .Some(d) => d,
         .None => return(())
       );
@@ -2842,7 +2863,7 @@ _active_walk_for :: (fn(module_path : &String) -> Option(ModuleWalk))({
 /// stack), if any.
 current_forcing_def :: (fn() -> Option(PendingDef))(
   cond(
-    (g_forcing_stack.with(xs => xs.len()) > usize(0)) => g_forcing_stack.with(xs => xs.last_cloned()),
+    (g_forcing_stack.with(_vh_forcing_stack_len) > usize(0)) => g_forcing_stack.with(_vh_forcing_stack_last),
     true => Option(PendingDef).None
   )
 );
@@ -3340,7 +3361,7 @@ force_pending_impls_for_type_name :: (fn(type_name : &String, missed : &Option(S
     (m : String) = match(&missed, .Some(s) => s.clone(), .None => String.from("<bound>"));
     (stack : String) = String.new();
     (si : usize) = usize(0);
-    while(si < g_forcing_stack.with(xs => xs.len()), {
+    while(si < g_forcing_stack.with(_vh_forcing_stack_len), {
       match(g_forcing_stack.with(xs => xs.get_cloned(si)), .Some(fd) => stack.push_string(cond(fd.is_derive() => ` derive(${fd.name})`, fd.is_impl => ` impl(${fd.name})`, true => ` ${fd.name}`)), .None => ());
       si = (si + usize(1));
     });

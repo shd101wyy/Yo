@@ -6354,6 +6354,13 @@ LocalBorrowElidedOrigin :: struct(
   labels : ArrayList(String),
   roots : ArrayList(String)
 );
+/// (seed window) Concrete per-payload `with` bodies: a capture-free
+/// closure literal at `with`'s generic-`R` slot spills a `void*` C temp
+/// under a seed whose codegen predates the ref-spill fix. Inline the
+/// literals back once `SEED_VERSION` carries the fix
+/// (issues/2026-11-06-a-closure-literal-at-a-generic-fnmut-ref-slot-spills-void.md).
+_vh_reference_reads_len :: (fn(m : &HashMap(usize, bool)) -> usize)(m.len());
+_vh_local_borrows_len :: (fn(xs : &ArrayList(LocalBorrowInfo)) -> usize)(xs.len());
 impl(LocalBorrowInfo, Clone(clone : (fn(self : &Self) -> Self)(self)));
 /// The innermost macro call whose expansion declares a borrow named at
 /// `decl`, when `decl` is template code of that macro (another module).
@@ -6511,14 +6518,14 @@ note_reference_read :: (fn(id : usize, is_reference : bool) -> unit)({
   if(is_reference, {
     _old := g_reference_reads.with_mut({ id }(m) => m.insert(id, true));
   }, {
-    if(g_reference_reads.with(m => m.len()) > usize(0), {
+    if(g_reference_reads.with(_vh_reference_reads_len) > usize(0), {
       _old := g_reference_reads.with_mut({ id }(m) => m.remove(&id));
     });
   });
 });
 /// The node `id` is a reference value whose C is the place it refers to.
 is_reference_read :: (fn(id : usize) -> bool)(
-  (g_reference_reads.with(m => m.len()) > usize(0)) && g_reference_reads.with(m => m.get(&id)).is_some()
+  (g_reference_reads.with(_vh_reference_reads_len) > usize(0)) && g_reference_reads.with(m => m.get(&id)).is_some()
 );
 /// The reference VALUE a read of the reference binding `v` is: its stored
 /// reference type, whose elided origin names `v` itself (what `v` lends, as
@@ -8685,7 +8692,7 @@ origin_carrying_value_roots :: (fn(e : &AstExpr, env : &Environment, ctx : &Eval
 _holder_roots_into :: (fn(a : &AstExpr, env : &Environment, ctx : &EvalContext, out : &mut ArrayList(OriginRootPlace)) -> unit)({
   a_name := ast_expr_token(a).value.*.clone();
   hv := match(get_variables_from_env(env, a_name.clone()).last_cloned(), .Some(v) => v, .None => return(()));
-  (i : usize) = g_local_borrows.with(xs => xs.len());
+  (i : usize) = g_local_borrows.with(_vh_local_borrows_len);
   (found : bool) = false;
   (done : bool) = false;
   while((i > usize(0)) && !done, {

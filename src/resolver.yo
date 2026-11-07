@@ -64,6 +64,12 @@ SemVer :: struct(
   pre : String
 );
 derive(SemVer, Clone);
+/// (seed window) Concrete per-payload `with` bodies: a capture-free
+/// closure literal at `with`'s generic-`R` slot spills a `void*` C temp
+/// under a seed whose codegen predates the ref-spill fix. Inline the
+/// literals back once `SEED_VERSION` carries the fix
+/// (issues/2026-11-06-a-closure-literal-at-a-generic-fnmut-ref-slot-spills-void.md).
+_packages_len :: (fn(ps : &ArrayList(_Package)) -> usize)(ps.len());
 impl(
   SemVer,
   /// `1.2.3` / `1.2.3-rc.1` — the version without a `v` prefix or build metadata.
@@ -1383,7 +1389,7 @@ _resolve_round :: (
     (i : usize) = usize(0);
     // `packages` may grow during the round (expansion adds packages); the
     // loop re-reads the length so new entries are visited this round.
-    while(i < state.packages.with(ps => ps.len()), {
+    while(i < state.packages.with(_packages_len), {
       pi := i;
       i = (i + usize(1));
       step := e.io.await(_resolve_package(Rc.clone(state), pi, e.io, e.exn), e);
