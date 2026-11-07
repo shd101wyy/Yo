@@ -3178,7 +3178,7 @@ audit_note_match_binding :: (
     .Some(sn) => match(
       find_variable_in_env(&scr_info.env(), &sn),
       .Some(sv) => match(
-        g_implicit_copy_match_roots.with(m => m.get_cloned(&sv.id())),
+        g_implicit_copy_match_roots.with({ &sv }(m) => m.get_cloned(&sv.id())),
         .Some(inherited) => inherited,
         .None => cond(
           (canonical_module_path(&sv.token.module_path.*) != canonical_module_path(&binding.token.module_path.*)) => ImplicitCopyRoot(kind : String.from("macro"), root_id : sv.id()),
@@ -3585,8 +3585,8 @@ audit_record_implicit_copy :: (
             pending_id = Option(usize).Some(v.id());
           });
         },
-        (!v.is_owning_the_rc_value() && g_implicit_copy_match_roots.with(m => m.get_cloned(&v.id())).is_some()) => match(
-          g_implicit_copy_match_roots.with(m => m.get_cloned(&v.id())),
+        (!v.is_owning_the_rc_value() && g_implicit_copy_match_roots.with({ &v }(m) => m.get_cloned(&v.id())).is_some()) => match(
+          g_implicit_copy_match_roots.with({ &v }(m) => m.get_cloned(&v.id())),
           .Some(r) => cond(
             (r.kind == "temp") => {
               kind = String.from("temp-payload");
@@ -3723,7 +3723,7 @@ audit_record_copy_trait :: (
       find_variable_in_env(env, ast_expr_token(source).value.*.clone()),
       .Some(v) => {
         captured := (in_closure_body_check && match(&ctx.captured_variables, .Some(cv) => cv.contains_key(v.name.clone()), .None => false));
-        root := g_implicit_copy_match_roots.with(m => m.get_cloned(&v.id()));
+        root := g_implicit_copy_match_roots.with({ &v }(m) => m.get_cloned(&v.id()));
         cond(
           (is_any_temp_variable_name(v.name.clone()) || v.is_compile_time_only()) => {
             return(());

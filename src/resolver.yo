@@ -962,7 +962,7 @@ _State :: struct(
 );
 /// The index of the package named `name`.
 _find_package :: (fn(state : &Rc(_State), name : &String) -> Option(usize))(
-  state.packages.with(ps => {
+  state.packages.with({ &name }(ps) => {
     (i : usize) = usize(0);
     while(i < ps.len(), {
       if(ps(i).name == name, {
@@ -1159,10 +1159,10 @@ _cached_text :: (fn(keys : &ArrayList(String), values : &ArrayList(String), key 
   Option(String).None
 });
 _cached_tags :: (fn(state : &Rc(_State), url : &String) -> Option(String))(
-  state.remote.with(r => _cached_text(&r.tag_urls, &r.tag_texts, url))
+  state.remote.with({ &url }(r) => _cached_text(&r.tag_urls, &r.tag_texts, url))
 );
 _cached_branch :: (fn(state : &Rc(_State), url : &String) -> Option(String))(
-  state.remote.with(r => _cached_text(&r.branch_urls, &r.branch_names, url))
+  state.remote.with({ &url }(r) => _cached_text(&r.branch_urls, &r.branch_names, url))
 );
 /// Resolve and fetch package `pi` for this round. Returns true when the
 /// package's state changed (a new ref, a fetch, an expansion) — the driver
@@ -1400,33 +1400,35 @@ _resolve_round :: (
     changed
   })
 );
+/// `_build_lock`'s body over the package list (seed window: a capture-free
+/// closure literal at `with`'s generic-`R` slot spills a `void*` C temp, see
+/// `_packages_len`).
+_vh_lock_of_packages :: (fn(ps : &ArrayList(_Package)) -> LockFile)({
+  entries := ArrayList(LockEntry).new();
+  for(&ps, p => {
+    if(p.requirements.len() > usize(0), {
+      deps := ArrayList(String).new();
+      for(&p.dependencies, d => {
+        deps.push(d.clone());
+      });
+      version := match(&p.chosen, .Some(c) => c.version_text(), .None => String.new());
+      entries.push(
+        LockEntry(
+          name : p.name.clone(),
+          version : version,
+          source : if(p.is_path, path_source(p.lock_path.clone()), git_source(p.url.clone(), p.ref_text.clone())),
+          commit : p.commit.clone(),
+          integrity : p.integrity.clone(),
+          dependencies : deps
+        )
+      );
+    });
+  });
+  LockFile(packages : entries)
+});
 /// The lock the resolved graph corresponds to: one entry per package that
 /// still has a requirer, sorted by the writer.
-_build_lock :: (fn(state : &Rc(_State)) -> LockFile)(
-  state.packages.with(ps => {
-    entries := ArrayList(LockEntry).new();
-    for(&ps, p => {
-      if(p.requirements.len() > usize(0), {
-        deps := ArrayList(String).new();
-        for(&p.dependencies, d => {
-          deps.push(d.clone());
-        });
-        version := match(&p.chosen, .Some(c) => c.version_text(), .None => String.new());
-        entries.push(
-          LockEntry(
-            name : p.name.clone(),
-            version : version,
-            source : if(p.is_path, path_source(p.lock_path.clone()), git_source(p.url.clone(), p.ref_text.clone())),
-            commit : p.commit.clone(),
-            integrity : p.integrity.clone(),
-            dependencies : deps
-          )
-        );
-      });
-    });
-    LockFile(packages : entries)
-  })
-);
+_build_lock :: (fn(state : &Rc(_State)) -> LockFile)(state.packages.with(_vh_lock_of_packages));
 /// Does the lock name at least one store tree (a git package with an
 /// integrity hash)?
 _lock_uses_store :: (fn(lock : &LockFile) -> bool)({

@@ -1069,7 +1069,7 @@ evaluate_yo_build_functions :: (
     // A field the manifest does not carry — and every field outside a build,
     // where the registry is empty — reads as the empty string, the same
     // answer `load_manifest` gives for an absent `[package]` key.
-    field_value := g_build_registry.with(reg => match(reg.manifest_fields.get_cloned(&field), .Some(v) => v, .None => String.new()));
+    field_value := g_build_registry.with({ &field }(reg) => match(reg.manifest_fields.get_cloned(&field), .Some(v) => v, .None => String.new()));
     return(_build_string_result(expr, env, ctx, &field_value));
   });
   if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_OPTION, Option(usize).None), {
@@ -1083,7 +1083,7 @@ evaluate_yo_build_functions :: (
       reg.declared_options.insert(declared_name, declared);
     });
     // A `-D<name>=<value>` on the command line overrides the declared default.
-    option_value := g_build_registry.with(reg => match(reg.cli_options.get_cloned(&opt_name), .Some(v) => v, .None => default_value.clone()));
+    option_value := g_build_registry.with({ &opt_name, &default_value }(reg) => match(reg.cli_options.get_cloned(&opt_name), .Some(v) => v, .None => default_value.clone()));
     return(_build_string_result(expr, env, ctx, &option_value));
   });
   // ── build.env (§5.4) ────────────────────────────────────────────────────

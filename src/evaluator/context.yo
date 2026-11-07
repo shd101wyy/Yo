@@ -56,7 +56,6 @@
 /// generic over its element keeps the variable abstract through the slot, so
 /// uses of the result needing methods fail (see refcell.yo's filler block).
 _c_clone_opt_exprs :: (fn(v : &Option(ArrayList(AstExpr))) -> Option(ArrayList(AstExpr)))(v.clone());
-_c_last_pending :: (fn(xs : &ArrayList(PendingDef)) -> Option(PendingDef))(xs.last());
 /// (seed window) Concrete per-payload variants of refcell.yo's generic
 /// fillers: a fn value generic over its element keeps the variable abstract
 /// through the slot and its specializations COLLAPSE across element types
@@ -72,8 +71,6 @@ _c_len_3 :: (fn(xs : &ArrayList(usize)) -> usize)(xs.len());
 _c_len_4 :: (fn(xs : &ArrayList(PendingDef)) -> usize)(xs.len());
 /// `ArrayList(ImplInFlight)` (2 uses)
 _c_len_5 :: (fn(xs : &ArrayList(ImplInFlight)) -> usize)(xs.len());
-/// `HashMap(ExprId, ExprInfo)` (1 use)
-_c_len_6 :: (fn(m : &HashMap(ExprId, ExprInfo)) -> usize)(m.len());
 /// (seed window) Concrete key/value variants of refcell.yo's
 /// `cell_map_keys_cloned`/`cell_map_values_cloned` for the `.into_iter()`
 /// chains: a fn value generic over K re-spells K's bounds and the
@@ -279,27 +276,6 @@ ComptimeFnCacheEntry :: ref(
     caches : ArrayList(CalledComptimeFnCache)
   )
 );
-/// (seed window) Concrete per-payload `with` bodies: a capture-free
-/// closure literal at `with`'s generic-`R` slot spills a `void*` C temp
-/// under a seed whose codegen predates the ref-spill fix. Inline the
-/// literals back once `SEED_VERSION` carries the fix
-/// (issues/2026-11-06-a-closure-literal-at-a-generic-fnmut-ref-slot-spills-void.md).
-_vh_pdf_members :: (fn(l : &PendingDefLive) -> ArrayList(String))(l.members.clone());
-_vh_pdf_expr :: (fn(l : &PendingDefLive) -> AstExpr)(l.expr);
-_vh_pdf_row :: (fn(l : &PendingDefLive) -> usize)(l.row);
-_vh_pdf_is_derive :: (fn(l : &PendingDefLive) -> bool)(l.is_derive);
-_vh_pdf_state :: (fn(l : &PendingDefLive) -> PendingDefState)(l.state);
-_vh_pdf_failure :: (fn(l : &PendingDefLive) -> Option(String))(l.failure.clone());
-_vh_pdf_phase_a_value :: (fn(l : &PendingDefLive) -> Option(EvalValue))(l.phase_a_value);
-_vh_pdf_phase_a_type :: (fn(l : &PendingDefLive) -> Option(TypeValue))(l.phase_a_type.clone());
-_vh_pdf_variable :: (fn(l : &PendingDefLive) -> Option(Variable))(l.variable.clone());
-_vh_pdf_src_hash :: (fn(l : &PendingDefLive) -> u64)(l.src_hash);
-_vh_mwd_be_begin_exprs_len :: (fn(xs : &ArrayList(AstExpr)) -> usize)(xs.len());
-_vh_mwd_be_begin_exprs_snapshot :: (fn(xs : &ArrayList(AstExpr)) -> ArrayList(AstExpr))(xs.clone());
-_vh_mwd_ctx_has_ctx :: (fn(c : &Option(EvalContext)) -> bool)(c.is_some());
-_vh_eit_len :: (fn(m : &HashMap(ExprId, ExprInfo)) -> usize)(m.len());
-_vh_forcing_stack_last :: (fn(xs : &ArrayList(PendingDef)) -> Option(PendingDef))(xs.last_cloned());
-_vh_forcing_stack_len :: (fn(xs : &ArrayList(PendingDef)) -> usize)(xs.len());
 impl(ComptimeFnCacheEntry, Clone(clone : (fn(self : &Self) -> Self)(self)));
 // ---------------------------------------------------------------------------
 // Specialization cache types
@@ -1309,6 +1285,30 @@ PendingDefData :: struct(
   is_impl : bool,
   live : RefCell(PendingDefLive)
 );
+/// (seed window) Concrete per-payload `with` bodies: a capture-free
+/// closure literal at `with`'s generic-`R` slot spills a `void*` C temp
+/// under a seed whose codegen predates the ref-spill fix. Inline the
+/// literals back once `SEED_VERSION` carries the fix
+/// (issues/2026-11-06-a-closure-literal-at-a-generic-fnmut-ref-slot-spills-void.md).
+_vh_pdf_members :: (fn(l : &PendingDefLive) -> ArrayList(String))(l.members.clone());
+_vh_pdf_expr :: (fn(l : &PendingDefLive) -> AstExpr)(l.expr);
+_vh_pdf_row :: (fn(l : &PendingDefLive) -> usize)(l.row);
+_vh_pdf_is_derive :: (fn(l : &PendingDefLive) -> bool)(l.is_derive);
+_vh_pdf_state :: (fn(l : &PendingDefLive) -> PendingDefState)(l.state);
+_vh_pdf_failure :: (fn(l : &PendingDefLive) -> Option(String))(l.failure.clone());
+_vh_pdf_phase_a_value :: (fn(l : &PendingDefLive) -> Option(EvalValue))(l.phase_a_value);
+_vh_pdf_phase_a_type :: (fn(l : &PendingDefLive) -> Option(TypeValue))(l.phase_a_type.clone());
+_vh_pdf_variable :: (fn(l : &PendingDefLive) -> Option(Variable))(l.variable.clone());
+_vh_pdf_src_hash :: (fn(l : &PendingDefLive) -> u64)(l.src_hash);
+_vh_mwd_be_begin_exprs_len :: (fn(xs : &ArrayList(AstExpr)) -> usize)(xs.len());
+_vh_mwd_be_begin_exprs_snapshot :: (fn(xs : &ArrayList(AstExpr)) -> ArrayList(AstExpr))(xs.clone());
+_vh_mwd_ctx_has_ctx :: (fn(c : &Option(EvalContext)) -> bool)(c.is_some());
+_vh_mwd_ctx_copy :: (fn(c : &Option(EvalContext)) -> Option(EvalContext))(match(c, .Some(wc) => Option(EvalContext).Some(copy_eval_context(&wc)), .None => Option(EvalContext).None));
+_vh_mwd_ctx_expr_info_table :: (fn(c : &Option(EvalContext)) -> Option(ExprInfoTable))(match(c, .Some(wc) => Option(ExprInfoTable).Some(wc.expr_info_table.clone()), .None => Option(ExprInfoTable).None));
+_vh_ctx_expr_info_count :: (fn(c : &Option(EvalContext)) -> Option(usize))(match(c, .Some(wc) => Option(usize).Some(wc.expr_info_table.data.with(_vh_eit_len)), .None => Option(usize).None));
+_vh_eit_len :: (fn(m : &HashMap(ExprId, ExprInfo)) -> usize)(m.len());
+_vh_forcing_stack_last :: (fn(xs : &ArrayList(PendingDef)) -> Option(PendingDef))(xs.last_cloned());
+_vh_forcing_stack_len :: (fn(xs : &ArrayList(PendingDef)) -> usize)(xs.len());
 impl(
   PendingDefData,
   members : (fn(self : &Self) -> ArrayList(String))(self.live.with(_vh_pdf_members)),
@@ -1450,11 +1450,11 @@ impl(
   has_ctx : (fn(self : &Self) -> bool)(self.ctx.with(_vh_mwd_ctx_has_ctx)),
   /// A fresh copy of the walk's context (`copy_eval_context`), if it kept one.
   ctx_copy : (fn(self : &Self) -> Option(EvalContext))(
-    self.ctx.with(c => match(c, .Some(wc) => Option(EvalContext).Some(copy_eval_context(&wc)), .None => Option(EvalContext).None))
+    self.ctx.with(_vh_mwd_ctx_copy)
   ),
   /// The expression-info table of the walk's kept context (a shared handle).
   ctx_expr_info_table : (fn(self : &Self) -> Option(ExprInfoTable))(
-    self.ctx.with(c => match(c, .Some(wc) => Option(ExprInfoTable).Some(wc.expr_info_table.clone()), .None => Option(ExprInfoTable).None))
+    self.ctx.with(_vh_mwd_ctx_expr_info_table)
   ),
   clear_ctx : (fn(self : &Self) -> unit)({
     ___old := self.ctx.replace(Option(EvalContext).None);
@@ -1586,7 +1586,7 @@ finished_walk_expr_info_count :: (fn(path : &String) -> Option(usize))({
     match(
       &wopt,
       .Some(w) => if(canonical_module_path(&w.module_path) == &canon, {
-        return(w.ctx.with(c => match(c, .Some(wc) => Option(usize).Some(wc.expr_info_table.data.with(_vh_eit_len)), .None => Option(usize).None)));
+        return(w.ctx.with(_vh_ctx_expr_info_count));
       }),
       .None => ()
     );

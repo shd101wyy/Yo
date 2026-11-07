@@ -280,23 +280,30 @@ record_owned_expr_id :: (fn(id : usize) -> unit)({
   ins_key := cur_owner.clone();
   g_owned_expr_ids.with_mut({ ins_key, ids }(m) => m.insert(ins_key, ids));
 });
+/// (seed window) Concrete `with` bodies for the two log walks: a capture-free
+/// closure literal at `with`'s generic-`R` slot spills a `void*` C temp under
+/// a seed whose codegen predates the ref-spill fix. Inline the literals back
+/// once `SEED_VERSION` carries the fix
+/// (issues/2026-11-06-a-closure-literal-at-a-generic-fnmut-ref-slot-spills-void.md).
+_vh_owned_expr_id_entries :: (fn(m : &HashMap(String, ArrayList(usize))) -> usize)({
+  (mut(acc) : usize) = usize(0);
+  for(&m, (_k, ids) => {
+    acc = (acc + ids.len());
+  });
+  acc
+});
+_vh_owned_func_id_entries :: (fn(m : &HashMap(String, HashMap(String, bool))) -> usize)({
+  (mut(acc) : usize) = usize(0);
+  for(&m, (_k, ids) => {
+    acc = (acc + ids.len());
+  });
+  acc
+});
 /// Entries across the owned expr-id and func-id logs (the owner-log test's probe).
 owned_id_log_entry_count :: (fn() -> usize)({
   // Read-only walks: each log is read in place through the borrowed `for`.
-  en := g_owned_expr_ids.with(m => {
-    (mut(acc) : usize) = usize(0);
-    for(&m, (_k, ids) => {
-      acc = (acc + ids.len());
-    });
-    acc
-  });
-  fnn := g_owned_func_ids.with(m => {
-    (mut(acc) : usize) = usize(0);
-    for(&m, (_k, ids) => {
-      acc = (acc + ids.len());
-    });
-    acc
-  });
+  en := g_owned_expr_ids.with(_vh_owned_expr_id_entries);
+  fnn := g_owned_func_ids.with(_vh_owned_func_id_entries);
   en + fnn
 });
 /// Remove and return the expression ids `owner`'s evaluation recorded.

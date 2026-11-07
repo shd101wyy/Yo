@@ -368,7 +368,7 @@ derive(RecursiveTypeRef, Clone);
 (g_recursive_type_refs : RefCell(ArrayList(RecursiveTypeRef))) = RefCell(ArrayList(RecursiveTypeRef)).new(ArrayList(RecursiveTypeRef).new());
 /// Look up the recursive-type-ref for a placeholder SomeT id, if any.
 lookup_recursive_type_ref :: (fn(some_id : &String) -> Option(RecursiveTypeRef))(
-  g_recursive_type_refs.with(xs => {
+  g_recursive_type_refs.with({ &some_id }(xs) => {
     (found : Option(RecursiveTypeRef)) = Option(RecursiveTypeRef).None;
     (i : usize) = usize(0);
     while((i < xs.len()) && found.is_none(), {
