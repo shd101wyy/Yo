@@ -57,7 +57,8 @@ file_exists_sync :: (fn(path : &String) -> bool)({
   { stat } :: import("std/libc/sys/stat");
   { GlobalAllocator } :: import("std/allocator");
   { malloc, free } :: GlobalAllocator;
-  cstr := path.to_cstr().ptr().unwrap();
+  path_c := path.to_cstr();
+  cstr := path_c.ptr().unwrap();
   // 512 bytes comfortably exceeds `struct stat` on every supported target;
   // only the return code is read.
   buf := malloc(usize(512)).unwrap();
@@ -81,7 +82,8 @@ read_file_sync :: (fn(path : &String, exn : Exception) -> ArrayList(u8))({
   { IoError } :: import("std/sys/errors");
   { GlobalAllocator } :: import("std/allocator");
   { malloc, free } :: GlobalAllocator;
-  cstr := path.to_cstr().ptr().unwrap();
+  path_c := path.to_cstr();
+  cstr := path_c.ptr().unwrap();
   fd := unsafe(fcntl.open((*char)(cstr), int(fcntl.O_RDONLY)));
   if(fd < int(0), {
     exn.throw(dyn(IoError.from_errno(__yo_errno())));

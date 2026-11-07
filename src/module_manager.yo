@@ -244,7 +244,8 @@ _std_canonicalize :: (fn(p : &String) -> String)({
 /// resolver has always read it; `prefer_entry_std_root` shares this read so
 /// the two never disagree about what "explicitly chosen" means.
 _yo_std_env_value :: (fn() -> Option(String))({
-  name_cstr := String.from("YO_STD").to_cstr().ptr().unwrap();
+  name_c := String.from("YO_STD").to_cstr();
+  name_cstr := name_c.ptr().unwrap();
   val_ptr := unsafe(getenv((*char)(name_cstr)));
   match(
     val_ptr,
