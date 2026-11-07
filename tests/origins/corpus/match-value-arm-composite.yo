@@ -1,0 +1,25 @@
+// O-1 corpus row `match-value-arm-composite` (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §8;
+// manifest tests/origins/corpus.tsv): a `match` over an owned value whose arms lend
+// different roots joins only the arm that evaluated (R-ARM's join over every arm).
+// Expected once O-1 lands: rejected: E0911 at the write to `y` while `m` is live.
+flag :: (fn(n : i32) -> bool)(n > i32(2));
+main :: (fn() -> unit)({
+  x := i32(1);
+  mut(y) := i32(2);
+  k := Option(bool).Some(flag(i32(1)));
+  m := match(
+    k,
+    .Some(_) => Option(&i32).Some(&x),
+    .None => Option(&i32).Some(&y)
+  );
+  y = i32(3);
+  match(
+    m,
+    .Some(r) => {
+      _ := r.*;
+    },
+    .None => ()
+  );
+  ()
+});
+export(main);

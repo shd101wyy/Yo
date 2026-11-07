@@ -237,10 +237,21 @@ map_one :: (fn(ck : &mut Ck, o : u64, op : usize, arg : u64, sb : &Subst) -> u64
   )
 );
 /// The structural join of two flow types: origins unioned.
+/// The join of two types whose shapes mismatch (an origin-free initial
+/// against an origin-carrying reassignment, `Option.None` against
+/// `.Some(&x)`): the sound join keeps the side that carries the extra
+/// origins — decision 38 A's "borrow sets join" over-approximates, never
+/// under (the loop fixpoint's flow slot, O-1's `for-element-stored`).
+_join_keeps :: (fn(a : &Ty, b : &Ty) -> Ty)(
+  cond(
+    ((orig(b, usize(0)) & ~orig(a, usize(0))) != u64(0)) => Rc.clone(b),
+    true => Rc.clone(a)
+  )
+);
 join :: (fn(a : &Ty, b : &Ty) -> Ty)(
   match(
     &a.*.*,
-    .Ref(m, p, o) => match(&b.*.*, .Ref(_, q, ob) => Rc.new(TyE.Ref(m.*, recur(&p.*, &q.*), o.* | ob.*)), _ => Rc.clone(a)),
+    .Ref(m, p, o) => match(&b.*.*, .Ref(_, q, ob) => Rc.new(TyE.Ref(m.*, recur(&p.*, &q.*), o.* | ob.*)), _ => _join_keeps(a, b)),
     .Tup(items) => match(
       &b.*.*,
       .Tup(others) => {
@@ -252,13 +263,13 @@ join :: (fn(a : &Ty, b : &Ty) -> Ty)(
         });
         Rc.new(TyE.Tup(out))
       },
-      _ => Rc.clone(a)
+      _ => _join_keeps(a, b)
     ),
-    .Wrap(k, inner) => match(&b.*.*, .Wrap(_, other) => Rc.new(TyE.Wrap(k.*, recur(&inner.*, &other.*))), _ => Rc.clone(a)),
-    .List(elem) => match(&b.*.*, .List(other) => Rc.new(TyE.List(recur(&elem.*, &other.*))), _ => Rc.clone(a)),
-    .Func(p, r, s, e) => match(&b.*.*, .Func(_, r2, s2, e2) => Rc.new(TyE.Func(Rc.clone(p), recur(&r.*, &r2.*), s.* | s2.*, e.* | e2.*)), _ => Rc.clone(a)),
-    .Fut(s, e) => match(&b.*.*, .Fut(s2, e2) => Rc.new(TyE.Fut(s.* | s2.*, e.* | e2.*)), _ => Rc.clone(a)),
-    _ => Rc.clone(a)
+    .Wrap(k, inner) => match(&b.*.*, .Wrap(_, other) => Rc.new(TyE.Wrap(k.*, recur(&inner.*, &other.*))), _ => _join_keeps(a, b)),
+    .List(elem) => match(&b.*.*, .List(other) => Rc.new(TyE.List(recur(&elem.*, &other.*))), _ => _join_keeps(a, b)),
+    .Func(p, r, s, e) => match(&b.*.*, .Func(_, r2, s2, e2) => Rc.new(TyE.Func(Rc.clone(p), recur(&r.*, &r2.*), s.* | s2.*, e.* | e2.*)), _ => _join_keeps(a, b)),
+    .Fut(s, e) => match(&b.*.*, .Fut(s2, e2) => Rc.new(TyE.Fut(s.* | s2.*, e.* | e2.*)), _ => _join_keeps(a, b)),
+    _ => _join_keeps(a, b)
   )
 );
 /// The pointee a `&mut` lend of a declared local exposes: the declared

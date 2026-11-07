@@ -17,8 +17,15 @@ The element binding's origin (`xs`) is not propagated by `=` into the outer slot
 
 ## Fix
 
-O-1, v0.2.76 (`plans/backlog/BORROW_CHECKER_COMPLETENESS.md` §8–§9).
+Fixed by O-1 (`plans/backlog/BORROW_CHECKER_COMPLETENESS.md` §3, §7, §8): the `=` join
+gives the outer slot the element's origin. R-READ finds a binding's entries from a USE
+of its name (name and module — no shadowing exists), R-COMP recurses into atom payloads
+(`.Some(x)`), and the join resolves the roots to GROUND places through the loop's hidden
+collection borrow (`x` → `xs`). The flow set lives in its own table, cleared per function
+body rather than per block (the loop's blocks end before the later `xs.push`), and
+`local_borrows_active()` counts it, so the post-loop write conflicts: E0911.
 
 ## Test that pins it
 
-corpus row `for-element-stored`; the repro under `tests/origins/unsound/`.
+corpus row `for-element-stored`; `tests/origins/unsound/p59-for-element-stored.yo`
+(G-B: rejected with E0911; the positive twin runs clean under ASan).

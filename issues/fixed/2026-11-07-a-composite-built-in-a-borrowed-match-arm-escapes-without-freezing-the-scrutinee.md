@@ -17,8 +17,16 @@ The match result's origin set is never computed (R-ARM); `origin_carrying_value_
 
 ## Fix
 
-O-1 (`ExprInfo.origin`, R-ARM/R-COMP), v0.2.76 (`plans/backlog/BORROW_CHECKER_COMPLETENESS.md` §8–§9).
+Fixed by O-1 (`plans/backlog/BORROW_CHECKER_COMPLETENESS.md` §3, §8): `origin_of`
+computes the match result's origin as the union over its arms (R-ARM), and each arm
+value's composite as the union of its components (R-COMP). A lend through the arm
+binding (`&h.*.s`) is resolved through the binding's registered entries — the binding's
+frame has ended by the time the result is bound, so `local_borrow_place_of` cannot find
+it, and the entries carry the scrutinee's places (R-LEND through R-READ). `bind` freezes
+those places for `m`'s live range, so `o = ...` while `m` is live is E0911.
 
 ## Test that pins it
 
-corpus row `match-arm-composite`; the repro under `tests/origins/unsound/`.
+corpus rows `match-arm-composite`, `match-value-arm-composite`;
+`tests/origins/unsound/h3b-match-arm-composite.yo` (G-B: rejected with E0911; its
+positive twin `h3b-match-arm-composite-pos.yo` compiles and runs clean under ASan).

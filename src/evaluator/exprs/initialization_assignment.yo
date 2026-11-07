@@ -128,8 +128,8 @@
   projection_call_mode_of,
   projection_call_root_args,
   projection_call_callee_type,
-  freeze_origin_carrying_binding,
-  origin_carrying_value_roots,
+  bind,
+  origin_of,
   OriginRootPlace,
   LocalBorrowElidedOrigin
 } :: import("../utils.yo");
@@ -701,10 +701,10 @@ _bind_projection_result :: (
       }
     );
     // A holder passed by value (N1e-2): the places its references point
-    // into, as its own binding froze them (`origin_carrying_value_roots`).
+    // into, as its own binding froze them (`origin_of`).
     holder_roots := if(
       !root.is_mut && match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&root.arg)), .Some(hri) => type_carries_origin(&hri.ty()), .None => false),
-      origin_carrying_value_roots(&root.arg, env, ctx),
+      origin_of(&root.arg, env, ctx),
       ArrayList(OriginRootPlace).new()
     );
     for(&holder_roots, hr => {
@@ -1874,7 +1874,7 @@ Use \`::\` for compile-time definitions inside impl.`
     // origins name, from its initialization to its last use — the E0911
     // machinery sees the contract exactly as a `y := &x` binding's.
     if(!effective_is_compile_time_only && ctx.is_evaluating_function_body_or_async_block.is_some() && type_carries_origin(&final_lhs_type), {
-      freeze_origin_carrying_binding(expr, &rhs, &var_name, &actual_lhs_tok, &env, ctx, exn);
+      bind(expr, &rhs, &var_name, &actual_lhs_tok, &env, ctx, exn);
     });
     // Patch mutable fields not supported by add_variable_to_env.
     match(
@@ -1997,7 +1997,7 @@ Use \`::\` for compile-time definitions inside impl.`
               .Some(rd) => if(type_carries_origin(&rd.ty) && !(rd.variable_name == ""), {
                 match(
                   get_variables_from_env(&env, rd.variable_name.clone()).last_cloned(),
-                  .Some(rd_var) => freeze_origin_carrying_binding(expr, &rhs, &rd.variable_name, &rd_var.token, &env, ctx, exn),
+                  .Some(rd_var) => bind(expr, &rhs, &rd.variable_name, &rd_var.token, &env, ctx, exn),
                   .None => ()
                 );
               }),

@@ -1,0 +1,23 @@
+// O-1 corpus row `match-arm-composite` (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §8;
+// manifest tests/origins/corpus.tsv): a composite built in a `match(&o, …)` arm from the
+// arm binding escapes the match without freezing the scrutinee (R-ARM under R-COMP).
+// Expected once O-1 lands: rejected: E0911 at the reassignment of `o` while `m` is live.
+P :: struct(v : i32);
+main :: (fn() -> unit)({
+  mut(o) := Option(P).Some(P(v : i32(1)));
+  m := match(
+    &o,
+    .Some(h) => Option(&i32).Some(&h.*.v),
+    .None => Option(&i32).None
+  );
+  o = Option(P).None;
+  match(
+    m,
+    .Some(r) => {
+      _ := r.*;
+    },
+    .None => ()
+  );
+  ()
+});
+export(main);

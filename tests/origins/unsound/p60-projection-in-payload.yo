@@ -1,0 +1,17 @@
+// expect: E0911
+// (cc) A projection result stored into an Option slot, then the collection grown.
+{ ArrayList } :: import("std/collections/array_list");
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(i32).new();
+  xs.push(i32(1));
+  slot := Option(&i32).Some(xs.index(usize(0)));
+  mut(i) := usize(0);
+  while(i < usize(1000), {
+    xs.push(i32(7));
+    i = (i + usize(1));
+  });
+  match(slot, .Some(r) => println(`OUT: ${r.*.to_string()}`), .None => println("none"));
+  ()
+});
+export(main);

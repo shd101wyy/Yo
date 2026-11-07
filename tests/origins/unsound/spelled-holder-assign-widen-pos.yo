@@ -1,0 +1,18 @@
+// expect: accept
+// Positive twin of spelled-holder-assign-widen: the assigned composite holds `&x`, a place
+// the holder's spelled origin names.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+main :: (fn() -> unit)({
+  x := Rc.new(X(s : String.from("outer")));
+  mut(s) := Option(&(Rc(X), x)).None;
+  {
+    y := Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz")));
+    s = .Some(&x);
+    _ := y.*.s.len();
+  };
+  match(s, .Some(r) => println(`OUT: ${r.*.*.s.len().to_string()}`), .None => println("none"));
+  ()
+});
+export(main);

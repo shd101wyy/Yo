@@ -17,8 +17,12 @@ Program: `issues/repros/2026-11-07-a-projection-call-inside-a-payload-bound-to-a
 
 ## Fix
 
-O-1, v0.2.76 (`plans/backlog/BORROW_CHECKER_COMPLETENESS.md` §8–§9).
+Fixed by O-1 (`plans/backlog/BORROW_CHECKER_COMPLETENESS.md` §3, §8): R-CALL under
+R-COMP — `origin_of` recurses into a constructor's components and into a projection
+call's root arguments, so `Option(&i32).Some(xs.index(0))` carries `xs`, and `bind`
+freezes it for the holder's live range: the later `xs.push` is E0911.
 
 ## Test that pins it
 
-corpus row `projection-in-payload`; the repro under `tests/origins/unsound/`.
+corpus row `projection-in-payload`; `tests/origins/unsound/p60-projection-in-payload.yo`
+(G-B: rejected with E0911; the positive twin runs clean under ASan).

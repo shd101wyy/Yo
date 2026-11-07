@@ -1,0 +1,19 @@
+// O-2 corpus row `flow-slot-lent-mut-loop` (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §8;
+// manifest tests/origins/corpus.tsv): the flow write-back inside a loop: the slot's set
+// after the call is the solved one, joined over the back edge.
+// Expected once O-2 lands: rejected: E0911 at the second iteration's `y := i32(2)`.
+_store :: (fn(generic(r : Origin), dst : &mut Option(&(i32, r)), v : &(i32, r)) -> unit)({
+  dst.* = .Some(v);
+});
+main :: (fn() -> unit)({
+  mut(slot) := Option(&i32).None;
+  mut(i) := i32(0);
+  while(i < i32(2), {
+    y := i32(2);
+    _store(&mut slot, &y);
+    i = (i + i32(1));
+  });
+  _ := slot.is_some();
+  ()
+});
+export(main);
