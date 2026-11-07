@@ -287,3 +287,27 @@ The question is (A) switch only the side-effect call-once slots, (B) switch ever
   accessor; stragglers replaced by hand. 85 helpers + 96 sites converted;
   both scanners now 0. The part-B literal `g_recursive_type_refs.with(xs =>
   {...})` captures some_id -> capture-carrying -> safe, left as-is.
+- Second sweep pass (improved scanner: body-local subtraction, Capitalized
+  type refs, variant-pattern bindings only, full-line comment blanking):
+  39 more capture-free sites (rare-group getters x30 via /tmp/g1_fill2.py —
+  helper placed right before each getter so ordered derives are in scope;
+  ModuleWalk ctx getters x3; owned-id log walks x2; _build_lock body). All
+  slot shapes now 0. E0901 side: 14 NEW implicit move-only captures from
+  part B got explicit `{ &x }` borrow envs (name/pos/url/tok/v/sv/some_id/
+  field/opt_name/default_value/local_c/cn/cn2/consumed); old sites passed in
+  the base round. Gotchas met: the seed trial-evaluates fn bodies at their
+  definition point, so a helper above `derive(PendingDefState, Copy, Clone)`
+  sees a move-only type (moved the block below the derives); stale
+  base-round `_c_*` helpers with the pre-part-B `last()` API pruned
+  (_c_last_pending, _c_len_6, _c_clone_exprinfo_table: unused anyway);
+  part B made get_type_string take `&mut CodeGenContext` and ExprInfo a
+  `Rc(RefCell(Data))` with getters, so `_closure_ref_spill_c_type` now takes
+  `context : &mut FunctionGenerationContext` and reads `rei.value()`;
+  main.yo's verify --explain `retain(&(rp => ...))` -> bare literal with
+  `{ &pat }` (E0914 at the FnMut slot).
+- Seed checks: src 274/274 (273 + main.yo re-checked OK after its fix),
+  std 170/170. check-issue-refs green.
+- Tree build #1 (rebase round): seed codegen finished, yo.c 146,971,965 B
+  with ZERO `void* __yo_ref_spill` (6 typed spill temps); the 60-min session
+  watchdog SIGKILLed the task during clang (no binary). Relaunched detached
+  (setsid nohup tmp/build_detached.sh -> tmp/build_rb2.{txt,done}).
