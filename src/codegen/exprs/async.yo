@@ -2352,9 +2352,9 @@ _fused_arg_carries_call_share :: (fn(arg : &AstExpr, context : &FunctionGenerati
   });
   false
 });
-/// The match-arm bindings of the caller in force at a fused site, set aside
-/// while the wrapper's own names are emitted.
-_CallerArmScope :: struct(
+/// The caller's scope at a fused site, set aside while the wrapper's own names
+/// are emitted.
+_CallerScope :: struct(
   shadowed : Option(HashSet(String)),
   bindings : Option(HashMap(String, ArrayList(ShadowBinding))),
   slots : Option(HashMap(String, String)),
@@ -2362,11 +2362,42 @@ _CallerArmScope :: struct(
   pending : Option(ArrayList(AstExpr)),
   consumed : Option(ArrayList(AstExpr))
 );
-/// `list`, a drop list of the caller, without the drops of its arm bindings.
-/// Inside the fused site such a name is not the binding. The state machine's
-/// dispose releases the binding's slot on the way out, as it does for every
-/// other local of the caller, so no escape path of the site needs its drop.
-_drops_outside_arms :: (fn(list : &Option(ArrayList(AstExpr)), shadowed : &Option(HashSet(String))) -> Option(ArrayList(AstExpr)))(
+/// The values the fused call hands its wrapper, by the name a drop of one
+/// targets: an atom argument's own name, else the temp the argument is stored
+/// in. From the call on they are the wrapper's (its parameters, then the
+/// block's capture), as they are the callee's at an ordinary call.
+_fused_call_taken :: (fn(rargs : &ArrayList(AstExpr), context : &FunctionGenerationContext) -> HashSet(String))({
+  mut(taken) := HashSet(String).new();
+  (mut(i) : usize) = usize(0);
+  while(i < rargs.len(), i = (i + usize(1)), {
+    match(
+      rargs.get(i),
+      .Some(a) => {
+        name := if(ast_expr_is_atom(&a), Option(String).Some(ast_expr_text(&a).*.clone()), match(context.base.get_expr_info(&a), .Some(ai) => ai.variable_name(), .None => Option(String).None));
+        match(
+          name,
+          .Some(n) => {
+            taken.insert(sanitize_for_c_identifier(&n, false));
+          },
+          .None => ()
+        );
+      },
+      .None => ()
+    );
+  });
+  taken
+});
+/// `list`, a drop list of the caller, without the drops no escape path inside
+/// the fused site may emit: those of the caller's arm bindings, which are not
+/// in the wrapper's scope (the state machine's dispose releases their slots,
+/// as it does every other local of the caller's), and those of the values the
+/// call handed the wrapper (`taken`). An escape inside the site comes after the
+/// call, but the caller's lists order their drops against the caller's own
+/// positions, and an escape point inside the site sits in the wrapper's
+/// source, so a call-consumed argument looked unconsumed there: its drop
+/// released the value the site's capture holds and the dispose releases
+/// (issues/fixed/2026-11-07-a-fused-block-that-throws-drops-its-by-value-capture-twice.md).
+_drops_outside_site :: (fn(list : &Option(ArrayList(AstExpr)), shadowed : &Option(HashSet(String)), taken : &HashSet(String)) -> Option(ArrayList(AstExpr)))(
   match(
     list,
     .Some(drops) => {
@@ -2376,12 +2407,15 @@ _drops_outside_arms :: (fn(list : &Option(ArrayList(AstExpr)), shadowed : &Optio
         match(
           drops.get(i),
           .Some(d) => {
-            of_arm := match(
+            hidden := match(
               get_deferred_drop_target_atom_name(&d),
-              .Some(name) => match(shadowed, .Some(s) => s.contains(sanitize_for_c_identifier(&name, false)), .None => false),
+              .Some(name) => {
+                cname := sanitize_for_c_identifier(&name, false);
+                taken.contains(&cname) || match(shadowed, .Some(s) => s.contains(&cname), .None => false)
+              },
               .None => false
             );
-            if(!of_arm, {
+            if(!hidden, {
               kept.push(d);
             });
           },
@@ -2393,18 +2427,21 @@ _drops_outside_arms :: (fn(list : &Option(ArrayList(AstExpr)), shadowed : &Optio
     .None => Option(ArrayList(AstExpr)).None
   )
 );
-/// Leave the caller's match arms: the wrapper and its block are emitted inside
-/// the arm but are not in its scope, and a shadowed name renders as the
-/// binding whichever variable the atom names (`_generate_sm_atom`), so a name
-/// the wrapper shares with an arm binding read the caller's value
+/// Enter the wrapper's scope from the caller's: the wrapper and its block are
+/// emitted inside the caller's match arm but are not in its scope, and a
+/// shadowed name renders as the binding whichever variable the atom names
+/// (`_generate_sm_atom`), so a name the wrapper shares with an arm binding read
+/// the caller's value
 /// (issues/fixed/2026-11-07-a-fused-await-reads-the-callers-match-binding-of-the-wrappers-name.md).
-_leave_caller_arms :: (fn(context : &mut FunctionGenerationContext) -> _CallerArmScope)({
+/// The caller's escape lists stay in force without the drops of
+/// `_drops_outside_site`.
+_enter_wrapper_scope :: (fn(taken : &HashSet(String), context : &mut FunctionGenerationContext) -> _CallerScope)({
   shadowed := context.local_shadowed_variables.take();
   pending := context.pending_deferred_drops.take();
   consumed := context.consumed_var_pending_drops.take();
-  context.pending_deferred_drops = _drops_outside_arms(&pending, &shadowed);
-  context.consumed_var_pending_drops = _drops_outside_arms(&consumed, &shadowed);
-  _CallerArmScope(
+  context.pending_deferred_drops = _drops_outside_site(&pending, &shadowed, taken);
+  context.consumed_var_pending_drops = _drops_outside_site(&consumed, &shadowed, taken);
+  _CallerScope(
     shadowed : shadowed,
     bindings : context.shadow_bindings.take(),
     slots : context.shadow_slots.take(),
@@ -2413,8 +2450,8 @@ _leave_caller_arms :: (fn(context : &mut FunctionGenerationContext) -> _CallerAr
     consumed : consumed
   )
 });
-/// Back in the caller's match arms, as `_leave_caller_arms` found them.
-_reenter_caller_arms :: (fn(sink(scope) : _CallerArmScope, context : &mut FunctionGenerationContext) -> unit)(
+/// Back in the caller's scope, as `_enter_wrapper_scope` found it.
+_back_to_caller_scope :: (fn(sink(scope) : _CallerScope, context : &mut FunctionGenerationContext) -> unit)(
   match(scope, { shadowed : sh, bindings : bi, slots : sl, places : pl, pending : pe, consumed : co } => {
     context.local_shadowed_variables = sh;
     context.shadow_bindings = bi;
@@ -2507,7 +2544,8 @@ emit_fused_await :: (fn(await_expr : &AstExpr, indent : &String, context : &mut 
   context.base.emitter.emit_string_line(`${indent}{`);
   mut(inner) := indent.clone();
   inner.push_str("  ");
-  wrapper_arms := _leave_caller_arms(context);
+  taken := _fused_call_taken(&rargs, context);
+  wrapper_scope := _enter_wrapper_scope(&taken, context);
   // The fused nodes are also emitted in the wrapper's own function and state
   // machine: the per-program sets that stop a temp from being declared, or a
   // drop from being emitted, twice must not carry over between the two.
@@ -2555,7 +2593,7 @@ emit_fused_await :: (fn(await_expr : &AstExpr, indent : &String, context : &mut 
   context.variable_id_remapping = saved_remap.clone();
   context.declared_temp_vars = saved_temps;
   context.emitted_deferred_drop_ids = saved_drop_ids;
-  _reenter_caller_arms(wrapper_arms, context);
+  _back_to_caller_scope(wrapper_scope, context);
   context.base.emitter.emit_string_line(`${indent}}`);
   // The call's own drops (its argument temps), as after the call.
   generate_deferred_drop_expressions(&site.call, indent.clone(), context);
@@ -2567,7 +2605,7 @@ emit_fused_await :: (fn(await_expr : &AstExpr, indent : &String, context : &mut 
   // temps). Its awaits suspend the CALLER; each is keyed and moved-read per
   // site.
   context.base.emitter.emit_string_line(`${indent}{`);
-  block_arms := _leave_caller_arms(context);
+  block_scope := _enter_wrapper_scope(&taken, context);
   saved_temps2 := replace(&mut context.declared_temp_vars, Option(HashSet(String)).Some(HashSet(String).new()));
   saved_drop_ids2 := replace(&mut context.emitted_deferred_drop_ids, HashSet(usize).new());
   saved_slot := replace(&mut context.sm_capture_slot, `${site.prefix}capture`);
@@ -2607,7 +2645,7 @@ emit_fused_await :: (fn(await_expr : &AstExpr, indent : &String, context : &mut 
   context.fusion_field_prefix = saved_prefix;
   sm_lowering_restore_scope(context, saved_scope);
   context.pending_deferred_drops = saved_pdd;
-  _reenter_caller_arms(block_arms, context);
+  _back_to_caller_scope(block_scope, context);
   Option(String).Some(out)
 });
 /// Emit a statement list whose values are all discarded (a wrapper prologue).

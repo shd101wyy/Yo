@@ -436,3 +436,77 @@ test("a borrowing arm binding does not shadow a fused wrapper's parameter", {
   v := io.await(_arm_binds_a_place_of_the_name(&Option(i32).Some(i32(50)), io), IoExn(io : io, exn : exn));
   assert(v == i32(55), "(4 + 1) + 50");
 });
+
+// A throw out of a fused block, with the call's by-value argument held by the
+// site's capture. The await sits in a scope that hands its consumed values to
+// the escape paths (a match arm, a loop body, a nested block): the argument
+// is the call's from the call on, so the only release on the way out is the
+// state machine's dispose
+// (issues/fixed/2026-11-07-a-fused-block-that-throws-drops-its-by-value-capture-twice.md).
+_throws_taking :: (fn(sink(name) : String, io : Io) -> Impl(Future(usize, IoExn)))(
+  io.async(e => {
+    r := e.io.await(_leaf(i32(1), e.io), e.io);
+    cond(
+      (r > i32(0)) => e.exn.throw(dyn(Boom(msg : name.clone()))),
+      true => name.len()
+    )
+  })
+);
+_throw_in_an_arm :: (fn(io : Io) -> Impl(Future(usize, IoExn)))(
+  io.async(
+    e => match(
+      Option(String).Some(String.from("the arm's own binding")),
+      .Some(name) => {
+        v := e.io.await(_throws_taking(String.from("arg"), e.io), e);
+        v + name.len()
+      },
+      .None => usize(0)
+    )
+  )
+);
+_throw_in_a_loop :: (fn(io : Io) -> Impl(Future(usize, IoExn)))(
+  io.async(e => {
+    (mut(i) : usize) = usize(0);
+    (mut(total) : usize) = usize(0);
+    while(i < usize(2), i = (i + usize(1)), {
+      total = (total + e.io.await(_throws_taking(String.from("arg"), e.io), e));
+    });
+    total
+  })
+);
+_throw_in_a_block :: (fn(io : Io) -> Impl(Future(usize, IoExn)))(
+  io.async(e => {
+    w := {
+      v := e.io.await(_throws_taking(String.from("arg"), e.io), e);
+      v + usize(1)
+    };
+    w + usize(1)
+  })
+);
+// Each runs one of the three to its throw: the handler's unwind value says the
+// thrown message was the wrapper's argument.
+_caught_arg :: (fn(which : i32, io : Io) -> bool)({
+  exn := Exception(
+    throw : (
+      err -> {
+        unwind(err.to_string() == String.from("arg"));
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  _v := cond(
+    (which == i32(0)) => io.await(_throw_in_an_arm(io), e),
+    (which == i32(1)) => io.await(_throw_in_a_loop(io), e),
+    true => io.await(_throw_in_a_block(io), e)
+  );
+  false
+});
+test("a throw in a fused block releases the call's argument once (match arm)", {
+  assert(_caught_arg(i32(0), io), "the thrown message is the wrapper's argument");
+});
+test("a throw in a fused block releases the call's argument once (loop body)", {
+  assert(_caught_arg(i32(1), io), "the thrown message is the wrapper's argument");
+});
+test("a throw in a fused block releases the call's argument once (nested block)", {
+  assert(_caught_arg(i32(2), io), "the thrown message is the wrapper's argument");
+});

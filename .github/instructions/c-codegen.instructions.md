@@ -391,11 +391,16 @@ source order.
   scope.** The arm state (`local_shadowed_variables`, `shadow_bindings`,
   `shadow_slots`, `place_bindings`) is keyed by name and `_generate_sm_atom`
   consults it before any variable lookup, so `emit_fused_await` takes it out
-  (`_leave_caller_arms`) around the wrapper's parameters, prologue, capture and
-  block. The arm bindings' drops leave the two escape-drop lists for the same
-  span: the dispose releases those slots. Any new path that emits one
-  function's nodes inside another's has to do the same
-  (issues/fixed/2026-11-07-a-fused-await-reads-the-callers-match-binding-of-the-wrappers-name.md).
+  (`_enter_wrapper_scope`) around the wrapper's parameters, prologue, capture
+  and block. For the same span the caller's two escape-drop lists lose the
+  arm bindings' drops (the dispose releases those slots) and the drops of the
+  values the call handed the wrapper (`_fused_call_taken`): the lists order a
+  drop against the caller's own positions, and an escape point inside the
+  site sits in the wrapper's source, so a call-consumed argument looked
+  unconsumed there. Any new path that emits one function's nodes inside
+  another's has to do the same
+  (issues/fixed/2026-11-07-a-fused-await-reads-the-callers-match-binding-of-the-wrappers-name.md,
+  issues/fixed/2026-11-07-a-fused-block-that-throws-drops-its-by-value-capture-twice.md).
 - **A consuming read of a slot takes the value where the consuming line
   runs** (`_sm_consuming_read`, via `Emitter.defer_move_zero`'s
   `/*yo_mv:…*/` marker): the evaluator's `consumed_at_token` is that atom. A
