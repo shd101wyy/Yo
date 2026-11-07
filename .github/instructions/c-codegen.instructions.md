@@ -856,8 +856,15 @@ the token is the one stable fact), and the statement loops correlate it with
 the drops the block actually scheduled (`_flush_stmt_lent_temp_drops`: each
 pending drop's target Variable whose mint token is marked and lies in the
 statement's span — at or after its start token, before the next sibling's —
-is flushed right after the statement), so it never outlives its statement;
-the drop STAYS in the block's list, which is what every escape path inside the
+is flushed right after the statement), so it never outlives its statement.
+Only a drop on the CURRENT block's own scope-end list is a candidate: the
+pending list also carries every enclosing scope's drops, and an enclosing
+statement's temporary must not be released at a nested statement's end — the
+`for` lowering mints the receiver's temporary and the loop body's element
+binding at the same `for` token, so a span test alone put the outer temp's
+release inside the loop, once per iteration
+(`issues/fixed/2026-11-07-a-lent-temporary-of-an-enclosing-statement-is-released-at-an-inner-statements-end.md`).
+The drop STAYS in the block's list, which is what every escape path inside the
 statement releases, and the emitted-once guard keeps the two channels to one
 release. A `cond` condition and a `match` guard are each evaluated as a
 one-expression block (`evaluate_begin_expression`), so their temps get their
