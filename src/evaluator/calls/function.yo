@@ -8972,7 +8972,7 @@ _lend_text :: (fn(arg : &AstExpr) -> String)(
   )
 );
 _check_call_origin_invariance :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
-  op_callee := match(call, .FnCall(_, c, _, _, _) => c, .Atom(_, _) => return(()));
+  op_callee := match(call, .FnCall(_, c, _, _, _) => c.*, .Atom(_, _) => return(()));
   if(ast_expr_is_fn_call_of(&op_callee, BF_DOT, Option(usize).Some(usize(2))), {
     return(());
   });
