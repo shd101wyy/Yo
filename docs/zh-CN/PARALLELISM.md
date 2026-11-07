@@ -130,7 +130,9 @@ thread.join();
 
 `ThreadPool` 把任务交给具有**线程亲和性**的**工作线程池**。每个任务固定在分配的操作系统线程上执行（无工作窃取）。
 
-操作系统层面的工作线程是运行时拥有的**进程级全局线程池**；`ThreadPool` 值是它的显式句柄，负责决定线程数、提交任务并等待其排空。由此有两点后果：传给 `new` 的 `num_threads` 只在运行时线程池尚未启动时生效；`join_all`/`shutdown` 排空的是运行时线程池，因此同一程序中的两个 `ThreadPool` 值会互相等待对方提交的任务。
+操作系统层面的工作线程是运行时拥有的**进程级全局线程池**；`ThreadPool` 值是它的显式句柄，负责决定线程数、提交任务并等待其排空。由此有两点后果：传给 `new` 的 `num_threads` 只在运行时线程池尚未启动时生效；所有 `ThreadPool` 值共享这些工作线程。但每个线程池只统计自己的任务：`join_all` 和 `shutdown` 等待的是通过该线程池提交的任务（以及这些任务再提交进同一线程池的任务），而不是其他线程池的任务。
+
+每个工作线程一次只运行一个任务，并运行到结束，包括该任务派生的异步工作。因此，一个在等待慢操作的线程池任务会推迟同一工作线程上排在它后面的所有任务，即使其他工作线程处于空闲状态（`issues/2026-11-07-a-pool-task-that-awaits-blocks-every-task-queued-behind-it-on-its-worker.md`）。线程池正在为此重新设计（[`plans/backlog/THREAD_POOL_OWNED_WORKERS_AND_SHARED_QUEUE.md`](../../plans/backlog/THREAD_POOL_OWNED_WORKERS_AND_SHARED_QUEUE.md)）。
 
 ### API
 
@@ -144,17 +146,17 @@ ThreadPool.new : (fn(num_threads : usize) -> ThreadPool);
 ThreadPool.with_hardware_threads : (fn() -> ThreadPool);
 
 // 当前（或即将）使用的工作线程数
-ThreadPool.num_threads : (fn(self : ThreadPool) -> usize);
+ThreadPool.num_threads : (fn(self : &ThreadPool) -> usize);
 
 // 向线程池提交任务——这是模块级函数，不是方法
-spawn : (fn(pool : ThreadPool, sink(cb) : Impl(FnOnce(io : Io) -> unit, Send)) -> unit);
+spawn : (fn(pool : &ThreadPool, sink(cb) : Impl(FnOnce(io : Io) -> unit, Send)) -> unit);
 
 // 阻塞直到此前提交的所有任务完成；线程池保持开放
-ThreadPool.join_all : (fn(self : ThreadPool) -> unit);
+ThreadPool.join_all : (fn(self : &ThreadPool) -> unit);
 
 // 拒绝新任务，然后排空。可重复调用。
-ThreadPool.shutdown : (fn(self : ThreadPool) -> unit);
-ThreadPool.is_shutdown : (fn(self : ThreadPool) -> bool);
+ThreadPool.shutdown : (fn(self : &ThreadPool) -> unit);
+ThreadPool.is_shutdown : (fn(self : &ThreadPool) -> bool);
 ```
 
 ### 用法
@@ -171,7 +173,7 @@ spawn(&pool, (io : Io) => {
 });
 
 // 在线程池上运行异步任务——每个工作线程都有自己的事件循环
-spawn(pool, (io : Io) => {
+spawn(&pool, (io : Io) => {
   task := io.async((io : Io) => {
     io.await(yield(io), io);
   });
@@ -185,7 +187,7 @@ pool.join_all();
 pool.shutdown();
 ```
 
-`join_all` 是**屏障**而非计数器：它为每个工作线程提交一个哨兵任务并等待全部完成。由于运行时按轮询顺序把连续提交分发给连续的工作线程，且每个工作线程按 FIFO 顺序执行自己的队列，因此当所有哨兵都执行完毕时，排在它们之前的任务也必然都已执行完毕。请勿在线程池任务内部调用 `join_all`——调用者所在的工作线程会因等待自己的哨兵而死锁。
+`join_all` 是一个**完成计数器**：`spawn` 把任务计入，任务的包装函数在任务返回后将其计出，因此当通过该线程池提交的所有任务（以及这些任务再提交进同一线程池的任务）都完成时，`join_all` 才返回。请勿在同一线程池的任务内部调用 `join_all`——该任务会等待它自己。
 
 ### 线程池设计
 
@@ -195,17 +197,16 @@ pool.shutdown();
 │                                                                │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐          │
 │  │ OS 线程 0    │  │ OS 线程 1    │  │ OS 线程 2    │  ...     │
-│  │ (CPU 0)      │  │ (CPU 1)      │  │ (CPU 2)      │          │
 │  ├──────────────┤  ├──────────────┤  ├──────────────┤          │
 │  │ 事件循环     │  │ 事件循环     │  │ 事件循环     │          │
 │  │ 任务队列     │  │ 任务队列     │  │ 任务队列     │          │
 │  │ [A, D, G]    │  │ [B, E, H]    │  │ [C, F, I]    │          │
 │  └──────────────┘  └──────────────┘  └──────────────┘          │
 │                                                                │
-│  - 每核一线程：每个 CPU 核心一个操作系统线程                      │
-│  - 线程亲和性：任务固定在分配的线程上                             │
+│  - 默认每个硬件线程一个工作线程（不绑定 CPU）                     │
+│  - 轮询分配；任务固定在分配的工作线程上                           │
 │  - 每线程事件循环：异步 I/O 无竞争                               │
-│  - 无工作窃取：行为可预测，缓存友好                               │
+│  - 无工作窃取；每个工作线程一次运行一个任务                       │
 └────────────────────────────────────────────────────────────────┘
 ```
 
@@ -351,7 +352,7 @@ Thread(unit).spawn(io => {
 | 线程亲和性 | 不适用             | 是（任务固定在线程上） |
 | 异步 I/O   | 拥有独立事件循环   | 共享每线程事件循环     |
 
-`Thread.join` 和 `ThreadPool.join_all` 都不会把值带出线程。要返回结果，请通过 `Channel` 传回。
+`Thread(T).join()` 返回线程的 `T`。`ThreadPool.join_all` 不携带值：要从线程池任务返回结果，请通过 `Channel` 传回。
 
 ## 总结
 

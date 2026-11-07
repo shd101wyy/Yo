@@ -124,14 +124,13 @@ export(main);
 
 ### Why Not Multi-Threaded Async?
 
-Multi-threaded async (like Rust's tokio) adds complexity:
+Multi-threaded async that moves a started task between threads (Rust's tokio multi-threaded runtime, C#'s thread-pool continuations) would need three things Yo does not have:
 
-- Need `Send` trait to verify thread safety
-- Need atomic reference counting
-- Need cross-thread synchronization
-- Work-stealing adds overhead
+- a future's `Send`, inferred from everything live across each await;
+- atomic task objects in the runtime (the state machine's count, its state and continuation slots, the ready queue);
+- an `Io` that does not name one loop.
 
-Yo's approach: Keep async simple (single-threaded), use `Thread(T).spawn` for parallelism (isolated threads).
+Yo keeps one lock-free event loop per thread, and parallelises unstarted `Send` tasks with `Thread(T).spawn` and `ThreadPool` (`PARALLELISM.md`). A `Send`-gated migrating executor is deferred, not rejected (`plans/backlog/IO_INTERFACE_AND_STD_RUNTIME.md` §7).
 
 ## Language Syntax
 

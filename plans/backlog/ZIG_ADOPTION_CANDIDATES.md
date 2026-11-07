@@ -32,7 +32,7 @@ in `plans/reference/`. Listed so nobody proposes it again:
 | no variable shadowing | the no-shadowing rule ("similar to Zig") | `docs/en-US/DESIGN.md:204` |
 | `?T`, `orelse` | `Option(T)`, `?*T` for pointers, `unwrap_or` | `std/prelude.yo` |
 | `std.ArrayList`, `std.log` with level filtering before rendering | the same names and the same rule | `std/collections/array_list.yo`, `std/log.yo` |
-| the 0.15 `std.Io` interface passed as a parameter | `main :: (fn(io : Io) -> unit)` since the start | `docs/en-US/ASYNC_AWAIT.md` |
+| the 0.15 `std.Io` interface passed as a parameter | half shared: `main :: (fn(io : Io) -> unit)` and `io` in every async signature since the start; the operation set on the interface (`{ctx, vtable}`, like `Allocator`) is decided, not landed | `docs/en-US/ASYNC_AWAIT.md`, `plans/backlog/IO_INTERFACE_AND_STD_RUNTIME.md` |
 | `+%`/`+|` wrapping and saturating arithmetic | `wrapping_*`/`saturating_*`/`overflowing_*`/`checked_*` methods (the operator forms are out: the operator set is fixed) | `std/prelude.yo`, `plans/reference/OPERATOR_SET_AND_PRECEDENCE.md` |
 | `@divFloor`/`@mod`/`@rem` explicitness | `div_euclid`, `rem_euclid`, `checked_div_euclid` | `std/prelude.yo:5040` |
 | `@byteSwap`, `std.mem.readInt` | `swap_bytes`, `to_le_bytes`/`from_be_bytes` and friends | `std/prelude.yo:5424`–`5558` |

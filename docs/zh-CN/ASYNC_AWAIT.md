@@ -4,7 +4,7 @@
 
 Yo 使用基于**代数效应**的 **async/await 状态机变换**来实现高效的**单线程并发**。这是一种无栈协程模型，类似于 JavaScript 的事件循环——所有异步代码都在与调用方**相同的线程**上运行。
 
-**核心思想**：`io.async`/`io.await` 提供的是**并发**（交替执行），而非**并行**（同时执行）。如需并行执行，请参阅 `PARALLELISM.md` 中描述的 `Task.spawn` API，它提供隔离的多线程执行。
+**核心思想**：`io.async`/`io.await` 提供的是**并发**（交替执行），而非**并行**（同时执行）。如需并行执行，请参阅 `PARALLELISM.md`，其中介绍了 `Thread(T).spawn`（std/thread）和工作线程池，用于隔离的多线程执行。
 
 ```yo
 { yield } :: import("std/async");
@@ -34,7 +34,7 @@ export(main);
 | 概念     | 机制                  | 描述                         |
 | -------- | --------------------- | ---------------------------- |
 | **并发** | `io.async`/`io.await` | 多个任务在同一线程上交替执行 |
-| **并行** | `Task.spawn`          | 多个任务在不同线程上同时执行 |
+| **并行** | `Thread(T).spawn`     | 多个任务在不同线程上同时执行 |
 
 ```yo
 // 并发：同一线程，交替执行
@@ -122,14 +122,13 @@ export(main);
 
 ### 为什么不用多线程异步？
 
-多线程异步（如 Rust 的 tokio）增加了复杂性：
+把已启动的任务在线程之间迁移的多线程异步（Rust tokio 的多线程运行时、C# 在线程池上恢复的续体）需要三样 Yo 目前没有的东西：
 
-- 需要 `Send` trait 来验证线程安全
-- 需要原子引用计数
-- 需要跨线程同步
-- 工作窃取带来额外开销
+- 根据每个 await 处仍存活的全部值推断 future 的 `Send`；
+- 运行时中的原子任务对象（状态机的计数、状态与续体槽位、就绪队列）；
+- 不再绑定到单个事件循环的 `Io`。
 
-Yo 的策略：保持 async 简单（单线程），使用 `Task.spawn` 实现并行（隔离线程）。
+Yo 为每个线程保留一个无锁事件循环，并通过 `Thread(T).spawn` 和 `ThreadPool` 并行执行尚未启动的 `Send` 任务（`PARALLELISM.md`）。基于 `Send` 的迁移式执行器是推迟而非否决（`plans/backlog/IO_INTERFACE_AND_STD_RUNTIME.md` §7）。
 
 ## 语言语法
 
@@ -907,7 +906,7 @@ static _Thread_local struct __yo_uring __yo_io_ring;
 这意味着：
 
 - **主线程**：拥有自己的事件循环，用于 `io.async`/`io.await` 任务
-- **工作线程**（来自 `Task.spawn`）：各自获得独立的事件循环
+- **工作线程**（来自 `Thread(T).spawn`）：各自获得独立的事件循环
 - **同一线程上的多个 Worker**：同一操作系统线程上的 Worker 协作共享该线程的事件循环
 - **无跨线程任务迁移**：任务始终在创建它的线程上运行
 - **无需加锁**：队列操作在设计上是单线程的
@@ -1530,7 +1529,7 @@ async 运行时，所以只有当某个已发布的 seed 带上新原语之后�
 - ✅ 无原子引用计数开销
 - ✅ Web 开发者熟悉
 
-如需并行，请使用 `Task.spawn`（参见 `PARALLELISM.md`）。
+如需并行，请使用 `Thread(T).spawn`（参见 `PARALLELISM.md`）。
 
 ## 效应注入（运行时效应绑定）
 
@@ -1679,11 +1678,11 @@ r2 := handle2.await(io); // Option(T)
 | ------------------ | ----------------------------------- |
 | Io 密集型并发任务  | `io.async`/`io.await`               |
 | 同时运行多个任务   | `io.spawn` + `handle.await`         |
-| CPU 密集型并行计算 | `Task.spawn`（参见 PARALLELISM.md） |
-| 后台处理           | `Task.spawn`（参见 PARALLELISM.md） |
+| CPU 密集型并行计算 | `Thread(T).spawn`（参见 PARALLELISM.md） |
+| 后台处理           | `Thread(T).spawn`（参见 PARALLELISM.md） |
 | 等待多个 Io        | `io.spawn` + `handle.await`         |
 | 消费异步序列       | `Stream` + `for_each`/`collect`（参见[异步迭代](#异步迭代stream-trait)） |
-| 利用多个 CPU 核心  | `Task.spawn`（参见 PARALLELISM.md） |
+| 利用多个 CPU 核心  | `Thread(T).spawn`（参见 PARALLELISM.md） |
 
 ## Linux 上的后端选择（`YO_IO_BACKEND`）
 

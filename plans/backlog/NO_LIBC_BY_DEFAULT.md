@@ -227,6 +227,31 @@ the libc symbol itself, opts the artifact into libc (D10). And `std/libc/`
 itself — the `c_include` bindings — remains available unchanged in libc
 mode; in no-libc mode it is the FFI surface D10 governs.
 
+**Amended 2026-11-07 (VERDICTS-32).** The runtime's location is reaffirmed:
+it stays emitted, target-selected C. Its *identity* is now fixed: it is the
+**native implementation of the `Io` interface**
+([`IO_INTERFACE_AND_STD_RUNTIME.md`](IO_INTERFACE_AND_STD_RUNTIME.md)).
+
+- `Io` is `struct(ctx : ?*void, vtable : *IoVTable)`. The vtable carries the
+  executor entries (`spawn`, `run_until`, `now`, `sleep`, `park`) and every
+  `std/sys` operation.
+- Each backend emits one static `__yo_io_native_vtable`, plus
+  `__yo_io_native()` for the calling thread's loop.
+- P0b's crt0 main path constructs that value.
+- P4 swaps libc calls *inside* the native table's functions and changes no
+  entry.
+- P5/P6 port `parallelism/runtime.yo`'s pool **handles**
+  ([`THREAD_POOL_OWNED_WORKERS_AND_SHARED_QUEUE.md`](THREAD_POOL_OWNED_WORKERS_AND_SHARED_QUEUE.md),
+  TP-1), not its former statics.
+
+Both pieces land after VALUES_BY_DEFAULT and before P0b, in the order
+IO-1a → TP-1 → IO-1b → P0.
+
+"Should the runtime be Yo in std?" was asked again on 2026-11-07, and the
+answer was no (that plan's §5). The work is 18k lines of tuned C, not P4's 55
+call sites. The only recorded revisit is one backend (epoll), ported as a
+measured experiment after P9.
+
 Concretely, per class of call site:
 
 | Class | Today | Under no-libc | Phase |

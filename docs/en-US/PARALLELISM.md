@@ -141,9 +141,18 @@ thread.join();
 The OS worker threads are a single process-global pool owned by the runtime; a
 `ThreadPool` value is the explicit handle on it. It decides the thread count,
 submits tasks and drains them. Two consequences: the `num_threads` passed to
-`new` only takes effect while the runtime pool has not started yet, and
-`join_all`/`shutdown` drain the runtime pool, so two `ThreadPool` values in one
-program drain each other's work as well.
+`new` only takes effect while the runtime pool has not started yet, and the
+worker threads are shared by every `ThreadPool` value. Each pool still counts
+its own tasks: `join_all` and `shutdown` wait for the work submitted through
+that pool (and for the tasks that work submits into it), not for another
+pool's.
+
+A worker runs one task at a time to completion, including the async work that
+task spawned. A pool task that awaits something slow therefore delays every
+task queued behind it on the same worker, even while other workers are idle
+(`issues/2026-11-07-a-pool-task-that-awaits-blocks-every-task-queued-behind-it-on-its-worker.md`).
+The pool is being redesigned to fix this
+([`plans/backlog/THREAD_POOL_OWNED_WORKERS_AND_SHARED_QUEUE.md`](../../plans/backlog/THREAD_POOL_OWNED_WORKERS_AND_SHARED_QUEUE.md)).
 
 ### API
 
@@ -157,17 +166,17 @@ ThreadPool.new : (fn(num_threads : usize) -> ThreadPool);
 ThreadPool.with_hardware_threads : (fn() -> ThreadPool);
 
 // Number of worker threads in use (or about to be)
-ThreadPool.num_threads : (fn(self : ThreadPool) -> usize);
+ThreadPool.num_threads : (fn(self : &ThreadPool) -> usize);
 
 // Hand a task to the pool — a module-level function, not a method
-spawn : (fn(pool : ThreadPool, sink(cb) : Impl(FnOnce(io : Io) -> unit, Send)) -> unit);
+spawn : (fn(pool : &ThreadPool, sink(cb) : Impl(FnOnce(io : Io) -> unit, Send)) -> unit);
 
 // Block until every task submitted so far has finished; the pool stays open
-ThreadPool.join_all : (fn(self : ThreadPool) -> unit);
+ThreadPool.join_all : (fn(self : &ThreadPool) -> unit);
 
 // Refuse new work, then drain. Idempotent.
-ThreadPool.shutdown : (fn(self : ThreadPool) -> unit);
-ThreadPool.is_shutdown : (fn(self : ThreadPool) -> bool);
+ThreadPool.shutdown : (fn(self : &ThreadPool) -> unit);
+ThreadPool.is_shutdown : (fn(self : &ThreadPool) -> bool);
 ```
 
 ### Usage
@@ -184,7 +193,7 @@ spawn(&pool, (io : Io) => {
 });
 
 // Async tasks on the pool — each worker thread has its own event loop
-spawn(pool, (io : Io) => {
+spawn(&pool, (io : Io) => {
   task := io.async((io : Io) => {
     io.await(yield(io), io);
   });
@@ -198,12 +207,11 @@ pool.join_all();
 pool.shutdown();
 ```
 
-`join_all` is a **barrier**, not a counter: it submits one sentinel task per
-worker thread and waits for all of them. Because the runtime hands consecutive
-submissions to consecutive worker threads and each worker runs its queue in
-FIFO order, once every sentinel has run, every task queued before it has run
-too. Do not call `join_all` from inside a pool task — the caller's worker
-thread would be busy waiting for its own sentinel.
+`join_all` is a **completion counter**: `spawn` counts a task in, and the
+task's wrapper counts it out after it returns, so `join_all` returns once every
+task submitted through this pool so far (and every task those tasks submitted
+into it) has finished. Do not call `join_all` from inside a task of the same
+pool — the task would be waiting for itself.
 
 ### Thread Pool Design
 
@@ -213,17 +221,16 @@ thread would be busy waiting for its own sentinel.
 │                                                                │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐          │
 │  │ OS Thread 0  │  │ OS Thread 1  │  │ OS Thread 2  │  ...     │
-│  │ (CPU 0)      │  │ (CPU 1)      │  │ (CPU 2)      │          │
 │  ├──────────────┤  ├──────────────┤  ├──────────────┤          │
 │  │ Event Loop   │  │ Event Loop   │  │ Event Loop   │          │
 │  │ Task Queue   │  │ Task Queue   │  │ Task Queue   │          │
 │  │ [A, D, G]    │  │ [B, E, H]    │  │ [C, F, I]    │          │
 │  └──────────────┘  └──────────────┘  └──────────────┘          │
 │                                                                │
-│  - Thread-per-core: one OS thread per CPU core                 │
-│  - Thread affinity: tasks stay on assigned thread              │
+│  - One worker per hardware thread by default (no CPU pinning)  │
+│  - Round-robin assignment; a task stays on its worker          │
 │  - Per-thread event loop: async I/O without contention         │
-│  - No work stealing: predictable, cache-friendly               │
+│  - No work stealing; one task at a time per worker             │
 └────────────────────────────────────────────────────────────────┘
 ```
 
@@ -389,8 +396,9 @@ This means:
 | Thread Affinity | N/A                      | Yes (task stays on thread) |
 | Async I/O       | Own event loop           | Shared per-thread loop     |
 
-Neither `Thread.join` nor `ThreadPool.join_all` carries a value out of a
-thread. To return a result, hand it back over a `Channel`.
+`Thread(T).join()` returns the thread's `T`. `ThreadPool.join_all` carries
+no value: to return a result from a pool task, hand it back over a
+`Channel`.
 
 ## Summary
 
