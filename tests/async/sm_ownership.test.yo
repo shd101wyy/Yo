@@ -15,6 +15,9 @@ pragma(Pragma.AllowUnsafe);
 { IoFuture } :: import("std/sys/future");
 { Error, Exception, IoExn } :: import("std/error");
 { ToString } :: import("std/fmt");
+{ Path } :: import("std/path");
+{ remove_file, rename } :: import("std/fs/dir");
+{ exists } :: import("std/fs/file");
 
 (mut(g_disposed) : i32) = i32(0);
 // A `Thing` is a shared handle (`Rc`): the cases count releases of one
@@ -1405,4 +1408,36 @@ test("an early return after moving a task-slot local into a closure's capture dr
   });
   io.await(task, io);
   assert(result.with(cur => cur.*) == i32(200), "the closure owned the moved local");
+});
+// A fused await site's escape releases each caller temp once
+// (issues/fixed/2026-11-07-a-fused-block-that-throws-drops-its-by-value-capture-twice.md;
+// the rest of that issue's cases are in tests/async/fusion.test.yo). This is
+// the shape of src/fetch.yo's store install: `rename` over a path that is not
+// there, after an `exists` await. It lives here because WASI has no `rename`.
+_land :: (fn(sink(tmp) : String, sink(final_dir) : String, io : Io) -> Impl(Future(unit, IoExn)))(
+  io.async(e => {
+    landed := e.io.await(exists(Path.new(final_dir.clone()), e.io), e.io);
+    if(landed, {
+      e.io.await(remove_file(Path.new(tmp.clone()), e.io), e);
+    }, {
+      e.io.await(rename(Path.new(tmp.clone()), Path.new(final_dir.clone()), e.io), e);
+    });
+  })
+);
+_caught_failed_rename :: (fn(io : Io) -> bool)({
+  exn := Exception(
+    throw : (
+      err -> {
+        unwind(true);
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  a := String.from("/nonexistent/yo-fusion-test/from");
+  b := String.from("/nonexistent/yo-fusion-test/to");
+  io.await(_land(a, b, io), e);
+  false
+});
+test("a failed rename fused after an earlier await releases each caller temp once", {
+  assert(_caught_failed_rename(io), "renaming a path that is not there throws");
 });

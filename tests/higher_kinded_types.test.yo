@@ -27,14 +27,14 @@ test("Basic HKT identity function", {
 // ─────────────────────────────────────────────────────
 Functor :: (fn(comptime(F) : (fn(comptime(T) : Type) -> comptime(Type))) -> comptime(Trait))(
   trait(
-    map : (fn(generic(A : Type, B : Type), self : &F(A), f : (fn(a : &A) -> B)) -> F(B))
+    fmap : (fn(generic(A : Type, B : Type), self : &F(A), f : (fn(a : &A) -> B)) -> F(B))
   )
 );
 impl(
   generic(A : Type),
   Option(A),
   Functor(Option)(
-    map : (fn(generic(A : Type, B : Type), self : &Option(A), f : (fn(a : &A) -> B)) -> Option(B))(
+    fmap : (fn(generic(A : Type, B : Type), self : &Option(A), f : (fn(a : &A) -> B)) -> Option(B))(
       match(
         self,
         .Some(v) => .Some(f(&v.*)),
@@ -45,7 +45,7 @@ impl(
 );
 test("Functor map on Option Some", {
   (x : Option(i32)) = .Some(i32(42));
-  result := x.map(generic(i32), (fn(a : &i32) -> i32)(a.* + i32(1)));
+  result := x.fmap(generic(i32), (fn(a : &i32) -> i32)(a.* + i32(1)));
   match(
     result,
     .Some(v) => {
@@ -57,7 +57,7 @@ test("Functor map on Option Some", {
 });
 test("Functor map on Option None", {
   (x : Option(i32)) = .None;
-  result := x.map(generic(i32), (fn(a : &i32) -> i32)(a.* + i32(1)));
+  result := x.fmap(generic(i32), (fn(a : &i32) -> i32)(a.* + i32(1)));
   match(
     result,
     .Some(_) => assert(false, "expected None"),
@@ -67,7 +67,7 @@ test("Functor map on Option None", {
 });
 test("Functor map changing type", {
   (x : Option(i32)) = .Some(i32(42));
-  result := x.map(generic(bool), (fn(a : &i32) -> bool)(a.* > i32(0)));
+  result := x.fmap(generic(bool), (fn(a : &i32) -> bool)(a.* > i32(0)));
   match(
     result,
     .Some(v) => {
@@ -88,7 +88,7 @@ do_map :: (
     where(F(A) <: Functor(F))
   ) -> F(B)
 )(
-  container.map(generic(B), f)
+  container.fmap(generic(B), f)
 );
 test("Generic do_map with where clause", {
   (x : Option(i32)) = .Some(i32(10));
@@ -301,7 +301,7 @@ test("HKT identity with nested Option", {
 // ─────────────────────────────────────────────────────
 test("Functor map with different values", {
   (x : Option(i32)) = .Some(i32(5));
-  result := x.map(generic(i32), (fn(a : &i32) -> i32)(a.* + i32(100)));
+  result := x.fmap(generic(i32), (fn(a : &i32) -> i32)(a.* + i32(100)));
   match(
     result,
     .Some(v) => assert(v == i32(105), "expected 105"),

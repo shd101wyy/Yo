@@ -109,7 +109,7 @@ test("HashMap of a move-only key and value: remove_entry, retain, clear", {
       .Some(e) => match(e, { key : k, value : v } => assert((k.id == i32(3)) && (_mc_take(v) == i32(3)), "the whole entry moves out")),
       .None => assert(false, "the key was present")
     );
-    m.retain(&((k : &_McTok, v : &_McFd) => (v.n < i32(20))));
+    m.retain(&mut ((k : &_McTok, v : &_McFd) => (v.n < i32(20))));
     assert(m.len() == usize(19), "retain dropped the 20 values from 20 up");
     assert(g_mc_dropped == (before + i32(21)), "retain drops in place, once each");
     m.clear();
@@ -134,7 +134,7 @@ test("HashMap entry: and_modify replaces a move-only value without copying it", 
   {
     mut(m) := HashMap(i32, _McFd).new();
     m.insert(i32(4), _McFd(n : i32(40)));
-    m.entry(&i32(4), e => e.and_modify(&((v : &_McFd) => _McFd(n : (v.n + i32(1))))));
+    m.entry(&i32(4), e => e.and_modify(&mut ((v : &_McFd) => _McFd(n : (v.n + i32(1))))));
     assert(m(i32(4)).n == i32(41), "the value was replaced in place");
     assert(g_mc_dropped == (before + i32(1)), "the old value dropped once");
   };
@@ -289,7 +289,7 @@ test("HashMap of a Drop key: overwrite, remove, remove_entry and retain drop eac
       .None => assert(false, "present")
     );
     assert(g_mc_kdropped == (before + i32(3)), "the moved-out key, once");
-    m.retain(&((k : &_McKd, v : &i32) => (k.id < i32(20))));
+    m.retain(&mut ((k : &_McKd, v : &i32) => (k.id < i32(20))));
     assert(m.len() == usize(18), "0..19 without 5 and 6");
     assert(g_mc_kdropped == (before + i32(23)), "retain drops the twenty keys it removes");
   };

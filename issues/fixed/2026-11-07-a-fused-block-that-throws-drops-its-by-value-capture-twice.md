@@ -21,6 +21,8 @@ freed by thread T1 here:
     #1 _file____home_temp_103041535180771482801_resume
 ```
 
+**Note (2026-11-08):** the `failed rename` case moved to `tests/async/sm_ownership.test.yo`, which WASI skips. WASI has no `rename`, and the import alone made every batch of `fusion.test.yo` fail to instantiate on the `wasm32-wasip1` leg. The moved case still fails on #1817's stage 1 (heap-use-after-free) and passes with the fix.
+
 ## Reproducer
 
 The wrapper of the first three tests:
