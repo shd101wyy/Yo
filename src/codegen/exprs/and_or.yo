@@ -5,6 +5,8 @@
 //! declarations, calls), an if-chain is emitted instead so evaluation order /
 //! short-circuiting is preserved:
 //!   bool __yo_sc = false;  Type t1 = a; if (t1) { Type t2 = b; __yo_sc = t2; }
+//! An operand that moves a value gets an `else` on the path that skips it,
+//! which drops that value (`} else { drop(x); }`, `_close_short_circuit_if`).
 //! Compile-time `true`/`false` operands are folded away (and short-circuit the
 //! whole expression). The result-var name is `random_id`-seeded (uniqueness
 //! only — same choice as loop labels — so a module-level mutable global isn't
@@ -19,7 +21,7 @@
 { _call_generate_expr } :: import("./_expr.yo");
 { get_deferred_drop_target_atom_name, sanitize_for_c_identifier, scope_stack_contains, is_deferred_drop_for_closure_capture } :: import("../utils/index.yo");
 { _looks_like_minted_temp } :: import("./drop_dup.yo");
-{ expr_info_deferred_dup_expressions } :: import("../../expr_info.yo");
+{ expr_info_deferred_dup_expressions, lookup_skipped_operand_drops } :: import("../../expr_info.yo");
 /// Record that the short-circuit family has emitted a drop for `target` in this
 /// function. MONOTONE: never removed. See
 /// `FunctionGenerationContext.short_circuit_emitted_drop_targets`.
@@ -48,6 +50,78 @@ _comptime_bool :: (fn(arg : &AstExpr, context : &FunctionGenerationContext) -> O
     .None => Option(bool).None
   )
 );
+/// The drops of the values operand `arg` moves, for the path that skips it
+/// (the evaluator's `drop_moves_of_skippable_operand`).
+_skipped_operand_drops :: (fn(arg : &AstExpr) -> Option(ArrayList(AstExpr)))(lookup_skipped_operand_drops(ast_expr_id(arg)));
+/// Close the `if` that guards `runtime_args[first..]`. The path that does not
+/// enter it skips every one of those operands, so a value one of them moves is
+/// still owned there: its drop goes in an `else`. Each such path is its own,
+/// so a drop is emitted on every one of them and none is recorded as the
+/// scope's (the drops sit on no deferred list a flush could reach again). A
+/// closure's capture is released by its closure, as every guarded flush
+/// leaves it
+/// (issues/fixed/2026-11-04-a-move-in-the-right-operand-of-a-short-circuit-operator-leaks-when-the-operand-is-skipped.md).
+_close_short_circuit_if :: (
+  fn(runtime_args : &ArrayList(AstExpr), first : usize, close_indent : &String, context : &mut FunctionGenerationContext) -> unit
+)({
+  skip_drops := ArrayList(AstExpr).new();
+  (k : usize) = first;
+  while(k < runtime_args.len(), {
+    match(
+      runtime_args.get(k),
+      .Some(arg) => match(
+        _skipped_operand_drops(&arg),
+        .Some(ds) => {
+          (di : usize) = usize(0);
+          while(di < ds.len(), {
+            match(
+              ds.get(di),
+              .Some(d) => if(!is_deferred_drop_for_closure_capture(&d, &context.current_closure_captures, sm_owns_fnonce_captures(context)), {
+                skip_drops.push(d);
+              }),
+              .None => ()
+            );
+            di = (di + usize(1));
+          });
+        },
+        .None => ()
+      ),
+      .None => ()
+    );
+    k = (k + usize(1));
+  });
+  cl := close_indent.clone();
+  if(skip_drops.len() == usize(0), {
+    cl.push_str("}");
+    context.base.emitter.emit_string_line(&cl);
+    return(());
+  });
+  cl.push_str("} else {");
+  context.base.emitter.emit_string_line(&cl);
+  inner := _indent_n(close_indent.clone(), usize(1));
+  (si : usize) = usize(0);
+  while(si < skip_drops.len(), {
+    match(
+      skip_drops.get(si),
+      .Some(d) => {
+        // `_call_generate_expr` may write a multi-line drop (an enum/Option
+        // `switch`) to the emitter itself and return "".
+        code := _call_generate_expr(&d, inner.clone(), context);
+        if(code.len() > usize(0), {
+          line := inner.clone();
+          line.push_string(&code);
+          line.push_str(";");
+          context.base.emitter.emit_string_line(&line);
+        });
+      },
+      .None => ()
+    );
+    si = (si + usize(1));
+  });
+  end := close_indent.clone();
+  end.push_str("}");
+  context.base.emitter.emit_string_line(&end);
+});
 /// Whether `generate_expr` for this node might emit side-effectful statements
 /// (a temp declaration or call). Atoms / compile-time values are safe.
 _expr_may_have_side_effects :: (fn(expr : &AstExpr, context : &FunctionGenerationContext) -> bool)({
@@ -385,13 +459,14 @@ generate_op_and :: (fn(expr : &AstExpr, indent : &String, context : &mut Functio
   if(rn == usize(1), {
     return(_call_generate_expr(match(runtime_args.get(usize(0)), .Some(a) => a, .None => expr), indent.clone(), context));
   });
-  // Does any arg beyond the first need an if-chain?
+  // Does any arg beyond the first need an if-chain? One whose skipping must
+  // drop what it moves does, even when it emits no statement of its own.
   (needs : bool) = false;
   (k : usize) = usize(1);
   while(k < rn, {
     match(
       runtime_args.get(k),
-      .Some(arg) => if(_expr_may_have_side_effects(&arg, context), {
+      .Some(arg) => if(_expr_may_have_side_effects(&arg, context) || _skipped_operand_drops(&arg).is_some(), {
         needs = true;
       }),
       .None => ()
@@ -475,9 +550,8 @@ generate_op_and :: (fn(expr : &AstExpr, indent : &String, context : &mut Functio
     _emit_drops_for_conditional_branch(&var_names, &drops_indent, context, Option(AstExpr).Some(expr));
     level = (level - usize(1));
     close_indent := _indent_n(indent.clone(), level);
-    cl := close_indent.clone();
-    cl.push_str("}");
-    context.base.emitter.emit_string_line(&cl);
+    // This closes `if (arg_{c-1})`: its other path skips operands c.. .
+    _close_short_circuit_if(&runtime_args, c, &close_indent, context);
     c = (c - usize(1));
   });
   // The FIRST operand is evaluated UNCONDITIONALLY, so its created temps
@@ -545,7 +619,7 @@ generate_op_or :: (fn(expr : &AstExpr, indent : &String, context : &mut Function
   while(k < rn, {
     match(
       runtime_args.get(k),
-      .Some(arg) => if(_expr_may_have_side_effects(&arg, context), {
+      .Some(arg) => if(_expr_may_have_side_effects(&arg, context) || _skipped_operand_drops(&arg).is_some(), {
         needs = true;
       }),
       .None => ()
@@ -629,9 +703,8 @@ generate_op_or :: (fn(expr : &AstExpr, indent : &String, context : &mut Function
     _emit_drops_for_conditional_branch(&var_names, &drops_indent, context, Option(AstExpr).Some(expr));
     level = (level - usize(1));
     close_indent := _indent_n(indent.clone(), level);
-    cl := close_indent.clone();
-    cl.push_str("}");
-    context.base.emitter.emit_string_line(&cl);
+    // This closes `if (!(arg_{c-1}))`: its other path skips operands c.. .
+    _close_short_circuit_if(&runtime_args, c, &close_indent, context);
     c = (c - usize(1));
   });
   // Same first-operand fall-through drop emission as generate_op_and — the

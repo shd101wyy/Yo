@@ -206,6 +206,19 @@ binder means Step 7's re-evaluation lost a binding that Step 6 made
   main checkout, so a failed `stash push` followed by `stash pop` applies a peer
   session's stash. Compare before/after states with file copies (a copy of
   `std/` must sit in a directory named `std`, or the prelude is not recognized).
+- **A seed-built stage 1 that dies at startup with `Box.new: out of memory`**
+  after a struct gained a field: the seed (v0.2.75 and older) sizes an enum
+  whose payload aligns below 4 (`Option(bool)`) with a one-byte tag, so its
+  `size_of(T)` for a struct holding such fields is short of C's `sizeof`
+  (`issues/fixed/2026-11-05-an-enum-with-a-payload-aligned-below-4-is-sized-with-a-one-byte-tag.md`).
+  `Box.new` then writes past its block. `Box(ExprInfoRare)` is already 16 bytes
+  short (464 against 480) and survives only because mimalloc rounds the
+  request up to a 512-byte size class; one more 24-byte field crosses it and
+  corrupts the heap. Until `SEED_VERSION` carries the fix, keep such a boxed
+  struct's size where it is (a side table instead of a new field, as
+  `g_skipped_operand_drops` in `src/expr_info.yo` does) and compare the seed's
+  number (`grep` the `Box.new` specialization in the emitted `yo.c` for its
+  `NNNULL` constant) against C's `sizeof`.
 
 ## `check`-only rejections from a body in another module (2026-10-01)
 
