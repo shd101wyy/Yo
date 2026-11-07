@@ -32,7 +32,7 @@ helpless text, so the omission is invisible to CI.
 Add the `--version <v> — release version (auto-detects from git if
 omitted)` line to the help text (both languages via `tr(...)`) and re-record
 the `help-doc` golden. Per the help-truth plan
-(`plans/backlog/LLM_AUTHORING_AUDIT_2026-09-19.md` §3.5) the goldens exist
+(`plans/archive/LLM_AUTHORING_AUDIT_2026-09-19.md` §3.5) the goldens exist
 to catch exactly this drift — the review step missed it because the golden
 was recorded after the flag landed without its entry.
 

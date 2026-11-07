@@ -1,7 +1,7 @@
 # cli-diff-test: a case directory without a `cmd` was skipped silently, so a goldens-only case was never scored
 
 **Found:** 2026-09-30, running `async-*` cli-cases by name for the await-site
-fusion census (`plans/backlog/ASYNC_AWAIT_SITE_FUSION.md`, F1). Scoring
+fusion census (`plans/reference/ASYNC_AWAIT_SITE_FUSION.md`, F1). Scoring
 `async-unwind-value-must-have-the-block-result-type` by name printed
 `cmd: No such file or directory` and a tree diff (`only-in-golden: ./main.yo`).
 Every whole-corpus run, local and CI, had reported it as nothing at all.

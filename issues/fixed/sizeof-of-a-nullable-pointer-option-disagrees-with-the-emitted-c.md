@@ -1,6 +1,6 @@
 # `sizeof(Option(*(T)))` disagrees with the emitted C
 
-**Status: FIXED** (found and fixed 2026-09-26, while sizing `plans/EVALUATOR_MEMORY_REDUCTION.md` Phase 3).
+**Status: FIXED** (found and fixed 2026-09-26, while sizing `plans/backlog/EVALUATOR_MEMORY_REDUCTION.md` Phase 3).
 
 ## Symptom
 

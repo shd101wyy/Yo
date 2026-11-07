@@ -1,8 +1,8 @@
 # A generic fn whose binder is named `T` cannot return `io.async` of a composite over `T`
 
-**Status:** FIXED 2026-09-26 (Phase 3.8 of `plans/TYPE_SYSTEM_SOUNDNESS.md`). **Found:** 2026-09-26, reducing
+**Status:** FIXED 2026-09-26 (Phase 3.8 of `plans/backlog/TYPE_SYSTEM_SOUNDNESS.md`). **Found:** 2026-09-26, reducing
 `issues/fixed/a-generic-async-fn-whose-future-result-contains-t-emits-two-c-types.md` to a minimal
-program (Phase 3.8 of `plans/TYPE_SYSTEM_SOUNDNESS.md`).
+program (Phase 3.8 of `plans/backlog/TYPE_SYSTEM_SOUNDNESS.md`).
 **Severity:** a false type error: a correct program is rejected at the call.
 **Reproducer:** `issues/repros/a-caller-binder-named-t-collides-with-io-async-t.yo`
 
@@ -70,7 +70,7 @@ Two more defects surfaced once the false E0601 was gone, both fixed here:
 - `_resolve_some_types_deep` registered each carrier binder's env resolution in the global
   id-keyed registry under the binder's DECLARATION id, which every specialization shares. A second
   instantiation read the first one's `U := i32` back. The resolver already returns its answer as a
-  value; the global write is gone (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 3.7).
+  value; the global write is gone (plans/backlog/TYPE_SYSTEM_SOUNDNESS.md Phase 3.7).
 
 - With that write gone, an unannotated `io.async(e => ...)` lowered `e` to `void*`: the closure's
   result re-registration (`evaluate_anonymous_function_implementation`) rebuilt its type from the

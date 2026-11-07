@@ -57,7 +57,7 @@ The caller's value is 55. The fused prologue read the arm's `n`, 50, and the res
 
 ## Root cause
 
-A fused await (`emit_fused_await`, `plans/backlog/ASYNC_AWAIT_SITE_FUSION.md`) emits the wrapper's parameters, prologue, capture construction and block into the caller's resume function, in the middle of whatever the caller is emitting. For the wrapper's names it swaps `state_machine_variables`, `state_machine_field_aliases` and `variable_id_remapping`. It did not swap the state of the caller's match arms: `local_shadowed_variables`, `shadow_bindings`, `shadow_slots` and `place_bindings`.
+A fused await (`emit_fused_await`, `plans/reference/ASYNC_AWAIT_SITE_FUSION.md`) emits the wrapper's parameters, prologue, capture construction and block into the caller's resume function, in the middle of whatever the caller is emitting. For the wrapper's names it swaps `state_machine_variables`, `state_machine_field_aliases` and `variable_id_remapping`. It did not swap the state of the caller's match arms: `local_shadowed_variables`, `shadow_bindings`, `shadow_slots` and `place_bindings`.
 
 That state is keyed by name, and it is deliberately consulted first: a shadowed name renders as the binding whichever variable the atom names (`_generate_sm_atom`, `_shadowed_name_code`), because a single-expression arm body records an env without the arm's frame. So inside an open arm, every atom of the wrapper spelled like an arm binding rendered as that binding, including the implicit capture in the wrapper's capture literal.
 

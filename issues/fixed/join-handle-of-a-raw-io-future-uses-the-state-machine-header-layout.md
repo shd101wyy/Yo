@@ -1,6 +1,6 @@
 # A `JoinHandle` of a raw I/O future reads it through the state-machine header layout
 
-**Status: FIXED (2026-09-29).** Found 2026-09-29 by the async state-machine audit (`plans/ASYNC_STATE_MACHINE_GENERATION.md`, phase 2), reading the emitted C. Tree build of develop `af62bdb28`.
+**Status: FIXED (2026-09-29).** Found 2026-09-29 by the async state-machine audit (`plans/archive/ASYNC_STATE_MACHINE_GENERATION.md`, phase 2), reading the emitted C. Tree build of develop `af62bdb28`.
 
 ## The mismatch
 

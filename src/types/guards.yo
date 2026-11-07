@@ -383,7 +383,7 @@ is_str_type :: (fn(t : &TypeValue) -> bool)(
 /// One spelling of the prelude's shared, counted cell: its type constructor
 /// (`Rc`). The compiler synthesizes the type's `new` (`Rc(T).new(v)`). The
 /// prelude's value constructor `rc`, and the field that named it, went with
-/// static-argument inference B3 (plans/backlog/STATIC_ARGUMENT_INFERENCE.md §5).
+/// static-argument inference B3 (plans/archive/STATIC_ARGUMENT_INFERENCE.md §5).
 SharedCellNames :: struct(type_name : str);
 derive(SharedCellNames, Copy, Clone);
 /// The shared cell's CANONICAL spelling: the one the compiler synthesizes
@@ -480,7 +480,7 @@ is_box_type :: (fn(t : &TypeValue) -> bool)(
 /// `Arc(V)` plus the `atomic(ref(struct((*) : V)))` shape. Such a cell carries
 /// no borrow marks, so codegen never emits a borrow primitive on it: the 16
 /// bits of its header's `borrow_count` are the cell's weak count
-/// (`Weak`/`ArcWeak`, plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §3.2).
+/// (`Weak`/`ArcWeak`, plans/archive/WEAK_AND_UNCOLLECTED_RC.md §3.2).
 is_counted_cell_type :: (fn(t : &TypeValue) -> bool)(
   is_box_type(&t_refine_inner(t))
   || cell_handle_view(t).is_some()
@@ -542,7 +542,7 @@ unique_box_payload_type :: (fn(t : &TypeValue) -> Option(TypeValue))(
 /// True if `t` is the prelude's unique cell `Box(V)` (`unique_box_payload_type`).
 is_unique_box_type :: (fn(t : &TypeValue) -> bool)(unique_box_payload_type(t).is_some());
 /// True if `t` is one of the prelude's non-owning handles, `Weak(V)` or its
-/// atomic twin `ArcWeak(V)` (plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §3): a
+/// atomic twin `ArcWeak(V)` (plans/archive/WEAK_AND_UNCOLLECTED_RC.md §3): a
 /// newtype over `?*V`, its one field `_cell`, stamped with its constructor's
 /// name, identified as `Box` is
 /// (`unique_box_payload_type`). The field names its payload type so that a
@@ -626,7 +626,7 @@ is_atomic_counted_handle_type :: (fn(t : &TypeValue) -> bool)(
 /// `Rc`/`Arc` handle (`is_counted_cell_type`) or the cell primitive behind a
 /// cell handle (`is_cell_primitive_type`, V5's `__yo_cell`/`__yo_atomic_cell`).
 /// The 16 bits of a cell header's `borrow_count` are its weak count
-/// (`Weak`/`ArcWeak`, plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §3.2). The cell
+/// (`Weak`/`ArcWeak`, plans/archive/WEAK_AND_UNCOLLECTED_RC.md §3.2). The cell
 /// itself never reallocates, so an interior reference into its payload needs no
 /// mark on it: a container inside the payload carries its own. Unlike
 /// `is_counted_cell_type`, this says nothing about writes: a cell primitive's
@@ -774,7 +774,7 @@ is_long_double_type :: (fn(t : &TypeValue) -> bool)(
 is_void_type :: (fn(t : &TypeValue) -> bool)(
   match(t_refine_inner(t), Rc(.Void) => true, _ => false)
 );
-/// The bottom type `never` (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 3.6).
+/// The bottom type `never` (plans/backlog/TYPE_SYSTEM_SOUNDNESS.md Phase 3.6).
 is_never_type :: (fn(t : &TypeValue) -> bool)(
   match(t_refine_inner(t), Rc(.Never) => true, _ => false)
 );
@@ -1067,7 +1067,7 @@ _is_nullable_payload_type :: (fn(t : &TypeValue) -> bool)(
 /// `ref(enum)` objects are heap pointers that are never NULL, so `Option(T)`
 /// of one (`String` is `Option(ArrayList(u8))`) is the bare handle with NULL
 /// as `.None` — 8 B instead of a 16 B tagged payload
-/// (plans/EVALUATOR_MEMORY_REDUCTION.md Phase 3).
+/// (plans/backlog/EVALUATOR_MEMORY_REDUCTION.md Phase 3).
 /// Codegen lowers such an enum to the bare pointer (NULL = the empty variant),
 /// and the size/alignment model (`types/utils.yo`) must agree, so the rule
 /// lives here, where both can reach it.

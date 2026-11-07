@@ -1,6 +1,6 @@
 # Channel.new reports an out-of-memory ring buffer as "Called unwrap on a None value"
 
-**Severity:** S2. `Channel(T).new` allocated its ring buffer with the fallible `GlobalAllocator.malloc` and `.unwrap()`ped the result, so an exhausted heap killed the program with `Called unwrap on a None value (at std/prelude.yo:…)` instead of an allocation diagnostic. Every `Thread(T).spawn` (and so `spawn_blocking`) builds a channel first, which breaks the safe-mode contract that out-of-memory is always a diagnosed allocation failure (plans/SAFE_MODE.md §7, §14 R5). It also turned develop's tier-1 cli-diff gate red.
+**Severity:** S2. `Channel(T).new` allocated its ring buffer with the fallible `GlobalAllocator.malloc` and `.unwrap()`ped the result, so an exhausted heap killed the program with `Called unwrap on a None value (at std/prelude.yo:…)` instead of an allocation diagnostic. Every `Thread(T).spawn` (and so `spawn_blocking`) builds a channel first, which breaks the safe-mode contract that out-of-memory is always a diagnosed allocation failure (plans/backlog/SAFE_MODE.md §7, §14 R5). It also turned develop's tier-1 cli-diff gate red.
 
 **Status:** FIXED 2026-10-30 (`fix/develop-fixed-oom-thread-unwrap`). **Found:** 2026-10-30. Develop battery 41000346867 on `0ce055183` failed Self-hosted tier-1 GATE 7 on `tests/cli-cases/compile-allocator-fixed-oom-shapes`:
 

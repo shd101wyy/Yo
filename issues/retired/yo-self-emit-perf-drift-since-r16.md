@@ -28,7 +28,7 @@ binary" from the PR #133 tree (env-sharing included).
 
 ## Why the recorded 98.7 s r16 baseline reads lower than cell A's 150 s
 
-The plans/backlog/YO_SELF_ENV_SHARING.md table's 98.73 s was almost certainly
+The plans/archive/YO_SELF_ENV_SHARING.md table's 98.73 s was almost certainly
 measured with a SELF-BUILT stage-2 binary (that era's records note the s2 emit
 being much faster than the TS-built stage-1), while this matrix deliberately
 uses TS-built stage-1 binaries on both sides for a like-for-like comparison.
@@ -40,7 +40,7 @@ step-24 blocker cares about.
 - **Step 24 (seed-bundles flip)**: the 12.2 GB self-emit footprint is
   INPUT-driven. Compiler-side levers are largely spent (env-sharing landed;
   the capture-env memo family is refuted — see
-  `plans/backlog/YO_SELF_ENV_SHARING.md`). Remaining directions: reduce the
+  `plans/archive/YO_SELF_ENV_SHARING.md`). Remaining directions: reduce the
   instantiation load of the ported modules (generic dedup at the SOURCE
   level), a compiler-side instantiation-dedup/interning pass, or the step-24
   options A/C (cross-emit fan-out / bigger runners) recorded in
@@ -73,7 +73,7 @@ codegen structures. No single module's def-eval closure is heavy, so
 source-level per-module dedup is NOT the lever; the step-24 memory work, if
 resumed, must census the emission phase (what the specialization machinery
 retains per instantiation — building on plans/archive/YO_SELF_EXPRINFO_PRUNE.md's
-rejected prune and the §4a census in plans/backlog/YO_SELF_ENV_SHARING.md).
+rejected prune and the §4a census in plans/archive/YO_SELF_ENV_SHARING.md).
 
 ## Addendum 2: allocator A/B on macOS (2026-08-17) — no lever
 

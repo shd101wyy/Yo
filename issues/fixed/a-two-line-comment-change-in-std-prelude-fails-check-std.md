@@ -203,7 +203,7 @@ id-keyed table answered for both. That is exactly "one specific declaration at o
 Ids now carry the module stem, and the collision cannot recur
 (`issues/fixed/trait-ids-omit-the-module-so-two-traits-can-share-one-id.md`).
 
-**The sensitivity.** Phase 3.3 of `plans/TYPE_SYSTEM_SOUNDNESS.md` keys every identity mint (type,
+**The sensitivity.** Phase 3.3 of `plans/backlog/TYPE_SYSTEM_SOUNDNESS.md` keys every identity mint (type,
 trait, declaration position, function, codegen temp and label) by the enclosing top-level statement
 and the offset within it, not by the absolute line (`_anchored_position`, `src/utils.yo`; anchors
 are registered by the module walk, `register_module_anchors`). A comment or a declaration added

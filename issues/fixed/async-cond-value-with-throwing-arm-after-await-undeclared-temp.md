@@ -85,7 +85,7 @@ the bare `ft`.
 
 ## Re-verified 2026-09-28 (async state-machine audit)
 
-Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
+Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/archive/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
 
 **STILL REPRODUCES** (seed and tree build): `error: use of undeclared identifier '_file____tmp__temp_…'` in the else arm (`… = <undeclared>`) after the throwing arm's escape check. This implicates the final-expression path of `generate_state_segment_code` ("Store final expression result") into the value-cond emitter: the non-throwing arm's operand temp is never emitted.
 
@@ -103,6 +103,6 @@ The segment lowering this shape broke is deleted. An `io.async` body is now
 emitted once, by the ordinary expression generators, into its resume
 function: each await suspends where it is written and resumes at its own
 label, and every local, pattern binding and await result lives in the task
-(`plans/ASYNC_STATE_MACHINE_GENERATION.md` phase 5). `src/` and `std/` keep the statement-form workaround until `SEED_VERSION` carries the fix (the syntax cheatsheet says so).
+(`plans/archive/ASYNC_STATE_MACHINE_GENERATION.md` phase 5). `src/` and `std/` keep the statement-form workaround until `SEED_VERSION` carries the fix (the syntax cheatsheet says so).
 
 Regression tests (each fails on the v0.2.45 seed): `tests/async_await.test.yo` "a value cond whose arm reads a local, after an await".

@@ -1,6 +1,6 @@
 # `match` demands a missing case of a GADT variant the scrutinee's type excludes
 
-**Found:** 2026-09-25, implementing `plans/TYPE_SYSTEM_SOUNDNESS.md` Phase 4.5.
+**Found:** 2026-09-25, implementing `plans/backlog/TYPE_SYSTEM_SOUNDNESS.md` Phase 4.5.
 **Severity:** MEDIUM (a correct program is rejected with a witness that type cannot hold).
 **Status:** FIXED on `tss/phase4-5`.
 

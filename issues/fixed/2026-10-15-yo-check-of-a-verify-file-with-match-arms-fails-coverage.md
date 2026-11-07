@@ -29,7 +29,7 @@ Add a `yo check` of this file to a test that fails before the fix and passes aft
 ## Resolution (2026-10-20)
 
 The cause was as diagnosed. `check` calls `set_codegen_tables_enabled(false)`
-(plans/EVALUATOR_MEMORY_REDUCTION.md §0.21), and `register_match_arms` was
+(plans/backlog/EVALUATOR_MEMORY_REDUCTION.md §0.21), and `register_match_arms` was
 gated on that switch, so no match arms were recorded. `check` still runs the
 verifier on every verify-mode file (`_run_contract_verification`), and the
 verifier's `_match_term` reads the arms through `lookup_match_arms`. Every

@@ -1,6 +1,6 @@
 # Two `Fn` traits are never synthesized against each other, and `Dyn` has no synthesis case
 
-**Status: FIXED 2026-09-25** (Phase 2.6 of `plans/TYPE_SYSTEM_SOUNDNESS.md`).
+**Status: FIXED 2026-09-25** (Phase 2.6 of `plans/backlog/TYPE_SYSTEM_SOUNDNESS.md`).
 
 **Severity: inference gap that ended in an ICE.** A binder that appears only
 inside a `Dyn(Fn(...))` parameter was never inferred from the argument:

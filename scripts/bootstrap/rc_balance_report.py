@@ -1,6 +1,6 @@
 """Per-function refcount balance of the objects still live at exit.
 
-plans/EVALUATOR_MEMORY_REDUCTION.md §0.19. Input: the dump of a binary built
+plans/backlog/EVALUATOR_MEMORY_REDUCTION.md §0.19. Input: the dump of a binary built
 from `alloc_site_census_t.py IN.c OUT.c dump.txt <LABEL> --rc-balance`
 (compiled with -g -fno-omit-frame-pointer). Every incr/decr of a target
 object is counted per call site; a disposed object's counts fold into the

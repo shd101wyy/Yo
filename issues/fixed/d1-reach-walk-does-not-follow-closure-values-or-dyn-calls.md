@@ -4,7 +4,7 @@
 `plans/reference/PARALLELISM_RULES.md`).
 **Status:** FIXED 2026-09-26 (`plans/PARALLELISM_SOUNDNESS.md` Phase 2 PR). Was: OPEN — closes together with rule D4 (a closure type is `Send` iff its captures are),
 which needs the same prerequisite: per-closure identity on `Func` types
-(`plans/TYPE_SYSTEM_SOUNDNESS.md` Phase 3, type identity).
+(`plans/backlog/TYPE_SYSTEM_SOUNDNESS.md` Phase 3, type identity).
 **Class:** thread-safety design gap (a residual of the D1 fix, not a regression).
 
 ## What D1 checks today

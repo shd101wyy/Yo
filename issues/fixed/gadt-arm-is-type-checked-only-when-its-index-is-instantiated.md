@@ -1,6 +1,6 @@
 # A GADT match arm is type-checked only when some caller instantiates its index
 
-**Found:** 2026-09-23, type-system audit (`plans/TYPE_SYSTEM_SOUNDNESS.md`, Phase 1.1); split out
+**Found:** 2026-09-23, type-system audit (`plans/backlog/TYPE_SYSTEM_SOUNDNESS.md`, Phase 1.1); split out
 of `issues/fixed/enum-type-constructor-arguments-are-ignored-by-type-compatibility.md` on
 2026-09-24 when that issue's identity and construction halves were fixed.
 **Status:** FIXED 2026-09-28 (see Resolution)

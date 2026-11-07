@@ -2,11 +2,11 @@
 
 **Severity:** S3 — about 550 extra instructions per spawn of a leaf future (691 → 1239 with 100k live handles); no wrong result
 
-**Status:** FIXED 2026-10-12 (feat/vbd-v3-genb), by `plans/VALUES_BY_DEFAULT.md` §3.13 A3 Generation B: the handle is a move-only value struct, so `io.spawn` allocates nothing for it. Was OPEN from 2026-09-30, when the owning handle became std's again. Found 2026-09-29 while measuring phase 3 of `plans/ASYNC_STATE_MACHINE_GENERATION.md` (the phase 2/3 PR).
+**Status:** FIXED 2026-10-12 (feat/vbd-v3-genb), by `plans/VALUES_BY_DEFAULT.md` §3.13 A3 Generation B: the handle is a move-only value struct, so `io.spawn` allocates nothing for it. Was OPEN from 2026-09-30, when the owning handle became std's again. Found 2026-09-29 while measuring phase 3 of `plans/archive/ASYNC_STATE_MACHINE_GENERATION.md` (the phase 2/3 PR).
 
 ## Symptom
 
-Callgrind instructions per operation, from the audit's benchmark (`plans/ASYNC_STATE_MACHINE_GENERATION.md` §3.4, n=100000 minus n=0). "Before" is the v0.2.45 seed; "after" is the phase 2/3 branch.
+Callgrind instructions per operation, from the audit's benchmark (`plans/archive/ASYNC_STATE_MACHINE_GENERATION.md` §3.4, n=100000 minus n=0). "Before" is the v0.2.45 seed; "after" is the phase 2/3 branch.
 
 | Mode | Before | After |
 |---|---|---|

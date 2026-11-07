@@ -89,7 +89,7 @@ _release_bytes :: (fn(sink(_b) : ArrayList(u8)) -> unit)(());
 /// `push_rune`, `reserve`, `clear`, `truncate`, `insert_str`, `insert`,
 /// `remove`, `pop`) takes `self : &mut Self` and writes in place. `clone()` copies
 /// the bytes (O(n)): the clone is independent of the original. A string is a
-/// value (B8, plans/STRING_VALUE_SEMANTICS.md §0): it is the only owner of its
+/// value (B8, plans/archive/STRING_VALUE_SEMANTICS.md §0): it is the only owner of its
 /// buffer, so a plain `t := s` moves it, and a copy is spelled `s.clone()`.
 /// The bytes are copied (`to_bytes`) or moved (`into_bytes`), never lent.
 /// Operators such as `+` return a new string. For a mutable text buffer that
@@ -747,7 +747,7 @@ impl(
   ///
   /// The UTF-8-aware byte-compare reused by the `Pattern` impls behind the
   /// generic `starts_with<P : Pattern>` (see
-  /// plans/backlog/OVERLOADING_REDESIGN.md §4). Not called directly — go
+  /// plans/archive/OVERLOADING_REDESIGN.md §4). Not called directly — go
   /// through `starts_with`.
   _has_prefix : (fn(self : &Self, prefix : &Self, (position : usize) ?= 0) -> bool)({
     (prefix_bytes : usize) = prefix._bytes.len();
@@ -1200,7 +1200,7 @@ impl(
 /// (mirrors Rust's `core::str::pattern::Pattern`). The PATTERN type implements the
 /// match, so a single generic method per operation accepts any pattern type with no
 /// overload resolution. Implemented by `str` and `String` (and, later, `char`).
-/// See plans/backlog/OVERLOADING_REDESIGN.md §4.
+/// See plans/archive/OVERLOADING_REDESIGN.md §4.
 ///
 /// **Every index in this trait is a BYTE offset into `haystack`**, in both
 /// directions (`plans/archive/STD_API_AUDIT_D4_PLAN.md` D4 PR 3 — they were rune
@@ -1411,7 +1411,7 @@ impl(
 /// `str::starts_with<P : Pattern>` family). These replace the old inherent
 /// `X(arg : String)` + `StrPattern.X(arg : str)` overload pairs: `s.X("lit")`
 /// (P = str) and `s.X(other)` (P = String) both resolve to the one generic method via
-/// trait dispatch — no overload resolution. See plans/backlog/OVERLOADING_REDESIGN.md §4.
+/// trait dispatch — no overload resolution. See plans/archive/OVERLOADING_REDESIGN.md §4.
 ///
 /// **Every index below is a BYTE offset** (`plans/archive/STD_API_AUDIT_D4_PLAN.md`
 /// D4 PR 3), matching `len()` and `substring`, so `index_of`'s answer can be

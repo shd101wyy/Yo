@@ -695,10 +695,10 @@ falsified with probe data 2026-07-20).
 
 ## Re-verified 2026-09-28 (async state-machine audit)
 
-Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
+Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/archive/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
 
 **FIXED (items probed).** One probe covered two spawns in one scope, an i32 and a unit task in one fn, a unit await result bound to a name, `Mutex(T)` generic-impl dispose, and `é` length. All print the expected values. The bootstrap-era ledger in the rest of the doc was not probed item by item.
 
 ## Retired (2026-09-29, async state-machine plan)
 
-A bootstrap-era ledger; the probed items print the expected values (2026-09-28), and the segment/continuation emitters it catalogues were deleted in phase 5 of `plans/ASYNC_STATE_MACHINE_GENERATION.md`.
+A bootstrap-era ledger; the probed items print the expected values (2026-09-28), and the segment/continuation emitters it catalogues were deleted in phase 5 of `plans/archive/ASYNC_STATE_MACHINE_GENERATION.md`.

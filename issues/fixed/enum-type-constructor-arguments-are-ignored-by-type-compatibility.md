@@ -1,7 +1,7 @@
 # Enum type-constructor arguments are ignored by compatibility: `Value(i32)` flows into `Value(bool)`
 
-**Found:** 2026-09-23, type-system audit (`plans/TYPE_SYSTEM_SOUNDNESS.md`, Phase 1).
-**Status:** FIXED 2026-09-24 (Phase 1.1 of `plans/TYPE_SYSTEM_SOUNDNESS.md`) for Repros 1–3: an
+**Found:** 2026-09-23, type-system audit (`plans/backlog/TYPE_SYSTEM_SOUNDNESS.md`, Phase 1).
+**Status:** FIXED 2026-09-24 (Phase 1.1 of `plans/backlog/TYPE_SYSTEM_SOUNDNESS.md`) for Repros 1–3: an
 enum instantiation's type arguments are part of its identity, and a GADT variant constructs only
 the instantiation its index names. The fourth finding (a GADT arm body checked under its
 refinement only when some caller instantiates that index) is split out as

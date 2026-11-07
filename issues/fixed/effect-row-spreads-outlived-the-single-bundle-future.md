@@ -1,6 +1,6 @@
 # Effect-row spreads outlived the single-bundle `Future`
 
-**Kind:** design question — an open decision, not a defect. Raised 2026-10-03 by `plans/ASYNC_IO_API_AUDIT.md` (finding F8, phase A5).
+**Kind:** design question — an open decision, not a defect. Raised 2026-10-03 by `plans/archive/ASYNC_IO_API_AUDIT.md` (finding F8, phase A5).
 
 ## The question
 

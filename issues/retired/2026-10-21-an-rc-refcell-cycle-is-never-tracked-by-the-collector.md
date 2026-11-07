@@ -8,7 +8,7 @@ with the cycle collector, so every such cycle a program builds leaks for the
 life of the process, like
 `issues/fixed/2026-10-20-a-ref-enum-cycle-through-a-ref-struct-is-never-collected.md`.
 
-**Status:** RETIRED 2026-11-03: decision 48 W6b deleted the cycle collector (`plans/backlog/WEAK_AND_UNCOLLECTED_RC.md` §6, branch `vbd/w6b-delete-collector`), so no cycle is tracked and every `Rc` cycle leaks unless a `Weak` breaks it, Rust's rule; the `--allocator debug` oracle reports the leak (`tests/rc.test.yo` pins the `Weak` remedy, the cli-case `a-reference-cycle-leaks-and-the-debug-heap-reports-it` the leak). Not fixed, per the schedule (§5c decision 20); the open-bug repro under `issues/repros/` was deleted with the collector (it imported `std/gc`). Was: open. **Found:** 2026-10-21 with the v0.2.67 seed, as the
+**Status:** RETIRED 2026-11-03: decision 48 W6b deleted the cycle collector (`plans/archive/WEAK_AND_UNCOLLECTED_RC.md` §6, branch `vbd/w6b-delete-collector`), so no cycle is tracked and every `Rc` cycle leaks unless a `Weak` breaks it, Rust's rule; the `--allocator debug` oracle reports the leak (`tests/rc.test.yo` pins the `Weak` remedy, the cli-case `a-reference-cycle-leaks-and-the-debug-heap-reports-it` the leak). Not fixed, per the schedule (§5c decision 20); the open-bug repro under `issues/repros/` was deleted with the collector (it imported `std/gc`). Was: open. **Found:** 2026-10-21 with the v0.2.67 seed, as the
 control for `issues/fixed/2026-10-21-an-arc-cycle-through-mutex-passes-the-acyclic-bound.md`.
 
 ## Reproducer

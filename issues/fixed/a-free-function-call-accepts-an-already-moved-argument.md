@@ -1,6 +1,6 @@
 # A free-function call accepts an already-moved argument; the second call reads freed memory
 
-**Status: FIXED 2026-09-25** (Phase 2.5 of `plans/TYPE_SYSTEM_SOUNDNESS.md`).
+**Status: FIXED 2026-09-25** (Phase 2.5 of `plans/backlog/TYPE_SYSTEM_SOUNDNESS.md`).
 
 **Severity: memory safety.** An `own(...)` parameter consumes its argument, and using the variable
 again is E0901 "use of moved value". The method-call path enforced that. The free-function path

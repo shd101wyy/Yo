@@ -4,7 +4,7 @@
 
 **Status:** FIXED (2026-10-01): such a handler is now a compile error.
 **Found:** 2026-09-30, writing `tests/async/fusion.test.yo` for the await-site
-fusion (`plans/backlog/ASYNC_AWAIT_SITE_FUSION.md`).
+fusion (`plans/reference/ASYNC_AWAIT_SITE_FUSION.md`).
 **Reproducer:** `issues/repros/a-plain-exception-handler-that-returns-a-value.yo`
 
 ## Symptom

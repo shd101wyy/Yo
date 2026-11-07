@@ -13,7 +13,7 @@ Between the two fixes (2026-09-29): #991's owning handle could not be lowered by
 which compiles the compiler's own `io.spawn` sites, so std went back to the value handle and the
 leak returned.
 
-**Previously: FIXED (2026-09-29, #991).** Found 2026-09-28 by the async state-machine audit (`plans/ASYNC_STATE_MACHINE_GENERATION.md`). Reproduces on the v0.2.45 seed and on a tree build of develop `af62bdb28`.
+**Previously: FIXED (2026-09-29, #991).** Found 2026-09-28 by the async state-machine audit (`plans/archive/ASYNC_STATE_MACHINE_GENERATION.md`). Reproduces on the v0.2.45 seed and on a tree build of develop `af62bdb28`.
 
 ## Symptom
 

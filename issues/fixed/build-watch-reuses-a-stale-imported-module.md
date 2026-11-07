@@ -1,7 +1,7 @@
 # `yo build --watch` reused a stale imported module (and, once fixed, emitted an untranspiled call)
 
 > Found 2026-09-25 while checking that the evaluator memory campaign
-> (`plans/EVALUATOR_MEMORY_REDUCTION.md`) had not broken incremental
+> (`plans/backlog/EVALUATOR_MEMORY_REDUCTION.md`) had not broken incremental
 > compilation. **FIXED same day** on `fix/build-watch-stale-imports`. Two
 > stacked bugs. The first had been present since the warm in-process watch
 > build landed (#728): v0.2.38 and v0.2.41 both reproduce it. The second came

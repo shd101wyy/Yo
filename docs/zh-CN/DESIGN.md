@@ -4708,7 +4708,7 @@ Yo 提供了统一的 `Index` 特征，用于对任意类型的自定义索引�
 
 ## 设计中
 
-仍处于设计阶段的特性请查阅 [IN_DESIGN.md](../../plans/backlog/IN_DESIGN.md)。
+仍处于设计阶段的特性请查阅 [IN_DESIGN.md](../../plans/archive/IN_DESIGN.md)。
 
 ## 参考文献
 

@@ -15,7 +15,7 @@ machine with a v0.2.43 or later compiler, and CI holds the claim.
 
 Residual, out of scope for the claim: the call-overload trial clones'
 176 MB (§1 Phase 2).
-Companion: [`EVALUATOR_MEMORY_REDUCTION.md`](../EVALUATOR_MEMORY_REDUCTION.md).
+Companion: [`EVALUATOR_MEMORY_REDUCTION.md`](../backlog/EVALUATOR_MEMORY_REDUCTION.md).
 That campaign shrinks what `check` retains. This one covers the rest of a
 `yo build` of the compiler: the codegen phase, and the C compiler running while
 `yo compile` still holds its heap.

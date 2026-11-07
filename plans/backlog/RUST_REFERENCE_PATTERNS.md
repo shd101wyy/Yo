@@ -1,5 +1,7 @@
 # Rust reference-in-structure patterns in post-VBD Yo
 
+> **Trued 2026-11-07 (plans audit after VBD):** Status: BACKLOG reference catalog, re-checked 2026-11-07. §4.1 and the collector rows are superseded by decision 48: `Weak`/`ArcWeak` exist and cycles leak. `View(T, p)` reads as decision 49's `&([T], p)`/`&str`. It graduates into the docs porting guide (both languages) with OWNERSHIP_AND_BORROWING_DOC_DRAFT once G2 (v0.2.77) and decision 49 S2 (v0.2.78) land, and is then archived.
+
 **Status: BACKLOG** — a reference catalog, not an implementation plan,
 companion to [`VALUES_BY_DEFAULT.md`](../VALUES_BY_DEFAULT.md). It answers
 one question: **Rust stores borrows in data structures**
@@ -916,7 +918,7 @@ meets its replacement in the cheatsheet, not in a backlog doc:
   exists in, and which require `Escapable`);
 - the `yo context` pack's ownership section;
 
-following [`AGENT_KNOWLEDGE_CONSOLIDATION.md`](../AGENT_KNOWLEDGE_CONSOLIDATION.md)'s
+following [`AGENT_KNOWLEDGE_CONSOLIDATION.md`](AGENT_KNOWLEDGE_CONSOLIDATION.md)'s
 one-home-per-fact rule — the skills carry the trigger and a pointer, this
 catalog (then `docs/`) holds the detail. Held until V2b/V5 on purpose: a
 cheatsheet that teaches spellings the current tree cannot compile sends

@@ -1137,7 +1137,7 @@ ${alloc_in_fn}`
 // the future is marked -2 to cancel what the task is suspended on and wake
 // its waiters. A NULL \`vt\` (a raw I/O future) or a NULL operation means
 // there is none (__yo_future_abort only wakes the waiters).
-// plans/ASYNC_STATE_MACHINE_GENERATION.md phases 2 and 6;
+// plans/archive/ASYNC_STATE_MACHINE_GENERATION.md phases 2 and 6;
 // issues/fixed/join-handle-of-a-raw-io-future-uses-the-state-machine-header-layout.md.
 typedef struct __yo_future_vtable_t {
   void (*resume)(void*);
@@ -1157,14 +1157,14 @@ typedef struct __yo_future_header_t {
 } __yo_future_header_t;
 // Inject an effect bundle (\`io.await(f, bundle)\`, \`io.spawn(f, bundle)\`):
 // copy it into the slot the future's type reads it from, with no lookup by
-// name (plans/ASYNC_STATE_MACHINE_GENERATION.md phase 3 item 5). A future
+// name (plans/archive/ASYNC_STATE_MACHINE_GENERATION.md phase 3 item 5). A future
 // with no bundle slot, or no table (a raw I/O future), takes none.
 static inline void __yo_future_set_bundle(void* fut, const void* value) {
   const __yo_future_vtable_t* vt = ((__yo_future_header_t*)fut)->vt;
   if (vt && vt->bundle_size) memcpy((char*)fut + vt->bundle_offset, value, vt->bundle_size);
 }
 // Per-type pools of released state machines
-// (plans/ASYNC_STATE_MACHINE_GENERATION.md phase 7). A task's memory goes back
+// (plans/archive/ASYNC_STATE_MACHINE_GENERATION.md phase 7). A task's memory goes back
 // to its type's pool when its last reference is released, and the next task
 // of that type takes it: a pop and a push instead of malloc and free, which
 // were half of a cold await. A pool is thread-local, like the loop that runs
@@ -1637,7 +1637,7 @@ generate_dyn_declaration :: (fn(type : &TypeValue, c_name : &String, context : &
     _ => ()
   );
   // One pointer per `upcast(d, Dyn(Tgt))` target of this Dyn: the payload's
-  // vtable for the target (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 2.8).
+  // vtable for the target (plans/backlog/TYPE_SYSTEM_SOUNDNESS.md Phase 2.8).
   up_targets := context.dyn_upcast_targets(type.clone());
   (ui : usize) = usize(0);
   while(ui < up_targets.len(), {

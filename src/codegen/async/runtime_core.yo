@@ -367,7 +367,7 @@ static void __yo_async_spawn_task(void (*resume_fn)(void*), void* state_machine)
 // running ready tasks, the waiter it wakes runs right after it, in the SAME
 // scheduler step, instead of queueing behind every other ready task and an
 // I/O poll: a chain of N awaiting tasks used to take N+1 steps to finish
-// (plans/ASYNC_STATE_MACHINE_GENERATION.md §3.4, 2.2x on a depth-4 chain with
+// (plans/archive/ASYNC_STATE_MACHINE_GENERATION.md §3.4, 2.2x on a depth-4 chain with
 // I/O pending). One LIFO slot, drained by __yo_async_run_task after the task
 // returns — so the C stack never grows — and capped per task so a long chain
 // still yields. Outside a task run the slot is never used, so nothing else in
@@ -1469,7 +1469,7 @@ static void __yo_async_thread_exit_release(void) {
 // is still valid memory when the entry fires (the wake is then a no-op: a park
 // completes only from state 0). This is what makes a JoinHandle awaitable from
 // INSIDE a task without nesting the event loop
-// (plans/ASYNC_IO_API_AUDIT.md A1).
+// (plans/archive/ASYNC_IO_API_AUDIT.md A1).
 static void __yo_join_wait_fire(void* p) {
   __yo_io_future_t* w = (__yo_io_future_t*)p;
   __yo_waker_wake_local(w);

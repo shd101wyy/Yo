@@ -1,6 +1,6 @@
 # Module-level binding of a control-bound STRUCT value is not rejected
 
-**Status: FIXED 2026-09-25** (`plans/TYPE_SYSTEM_SOUNDNESS.md` Phase 5.5). Split from
+**Status: FIXED 2026-09-25** (`plans/backlog/TYPE_SYSTEM_SOUNDNESS.md` Phase 5.5). Split from
 issues/fixed/ctl-handler-escaping-its-defining-fn-is-untypeable.md
 (2026-08-30) while implementing the result-type escape rule.
 

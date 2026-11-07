@@ -1,6 +1,6 @@
 # A field write through a borrowed value binding releases a value it does not own
 
-**Found:** 2026-09-25, chasing a nondeterministic hang of `yo check` (`plans/TYPE_SYSTEM_SOUNDNESS.md`
+**Found:** 2026-09-25, chasing a nondeterministic hang of `yo check` (`plans/backlog/TYPE_SYSTEM_SOUNDNESS.md`
 Phase 4.4b). **Severity:** CRITICAL (use-after-free and double release in safe code).
 **Status:** FIXED on `tss/field-write`.
 

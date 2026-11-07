@@ -1,7 +1,7 @@
 # A `ctl` handler stored in a `ref(struct)` field escapes its frame; a later call exits `main` with rc=0
 
-**Found:** 2026-09-23, type-system audit (`plans/TYPE_SYSTEM_SOUNDNESS.md`, Phase 5).
-**Status:** FIXED 2026-09-25 (`plans/TYPE_SYSTEM_SOUNDNESS.md` Phase 5.5). Was an effects-typing hole: control flow silently skipped the rest of `main`.
+**Found:** 2026-09-23, type-system audit (`plans/backlog/TYPE_SYSTEM_SOUNDNESS.md`, Phase 5).
+**Status:** FIXED 2026-09-25 (`plans/backlog/TYPE_SYSTEM_SOUNDNESS.md` Phase 5.5). Was an effects-typing hole: control flow silently skipped the rest of `main`.
 **Measured:** yo 0.2.39 seed; re-verified with the same result on a develop build `d455b6a67`.
 
 ## Repro

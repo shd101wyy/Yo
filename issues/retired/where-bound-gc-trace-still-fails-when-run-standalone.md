@@ -2,7 +2,7 @@
 
 **Severity:** S2 — standalone compiles emit calls to never-declared GC-trace functions — and batch composition hides it, so the suite stays green while the file is red
 
-**Status:** RETIRED 2026-11-03: decision 48 W6b deleted the traversal functions and the `Trace` specializations they called (`plans/backlog/WEAK_AND_UNCOLLECTED_RC.md` §6), so no `__yo_traverse_*` body exists to call an unemitted spec. Measured on `vbd/w6b-delete-collector` with its tree binary, each file alone (`--parallel 1`): `tests/where_clause_fn_inference.test.yo` 5/5 and the second instance, `tests/fs/temp.test.yo`, 10/10. Was: OPEN. Found 2026-08-25 on `develop` at `12d226078`, while landing
+**Status:** RETIRED 2026-11-03: decision 48 W6b deleted the traversal functions and the `Trace` specializations they called (`plans/archive/WEAK_AND_UNCOLLECTED_RC.md` §6), so no `__yo_traverse_*` body exists to call an unemitted spec. Measured on `vbd/w6b-delete-collector` with its tree binary, each file alone (`--parallel 1`): `tests/where_clause_fn_inference.test.yo` 5/5 and the second instance, `tests/fs/temp.test.yo`, 10/10. Was: OPEN. Found 2026-08-25 on `develop` at `12d226078`, while landing
 the STD_API_AUDIT MapEntry unification (S2 chunk 3). **Not caused by that work
 — it reproduces on unmodified `develop`.**
 

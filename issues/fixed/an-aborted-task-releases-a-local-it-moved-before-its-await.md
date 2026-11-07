@@ -2,7 +2,7 @@
 
 **Severity:** S1 — use-after-free: aborting a task released a value the task had already handed to a new owner
 
-**Status: FIXED (2026-09-29).** Found 2026-09-29 while probing phase 6 of `plans/ASYNC_STATE_MACHINE_GENERATION.md` on the phase-5 branch (#1002). The v0.2.45 seed is not affected: its segment lowering kept this local a C local, since nothing reads it after the await.
+**Status: FIXED (2026-09-29).** Found 2026-09-29 while probing phase 6 of `plans/archive/ASYNC_STATE_MACHINE_GENERATION.md` on the phase-5 branch (#1002). The v0.2.45 seed is not affected: its segment lowering kept this local a C local, since nothing reads it after the await.
 
 ## Symptom
 

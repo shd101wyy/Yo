@@ -3,7 +3,7 @@
 **Severity:** S1 — `yo verify` reported `ok` for contracts that are false at runtime (a false proof) whenever a mutated list had a second name.
 
 - **Status:** FIXED on `feat/verifier-list-get-pop` (R1 slice 3 of
-  `plans/backlog/ATS_STYLE_INDEXED_TYPES.md`, 2026-09-30).
+  `plans/archive/ATS_STYLE_INDEXED_TYPES.md`, 2026-09-30).
 - **Component:** `src/verifier/vc.yo` — the R1 list model (slice 2, #1048).
 
 ## Summary

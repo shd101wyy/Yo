@@ -38,7 +38,7 @@ import tempfile
 # subscript that still calls its checked `index` method. When the verifier
 # proved the site, the marker becomes `__yo_cidx_elided(...)` and the call
 # goes to the container's `IndexUnchecked` twin
-# (plans/backlog/SAFE_MODE_5B_CONTAINER_BOUNDS_ELISION.md).
+# (plans/archive/SAFE_MODE_5B_CONTAINER_BOUNDS_ELISION.md).
 HELPER = re.compile(r'\b(__yo_idx_chk|__yo_cidx_chk|__yo_div_guard_u|__yo_div_guard|__yo_sh_chk|__yo_(?:add|sub|mul)_chk_(?:s64|s|u64|u)|__yo_neg_chk_(?:s64|s))\(')
 SITE_TAIL = re.compile(r'"([^"]*)", (\d+), (\d+)$')
 # The proofs each guard needs (obligation classes at its site). A signed

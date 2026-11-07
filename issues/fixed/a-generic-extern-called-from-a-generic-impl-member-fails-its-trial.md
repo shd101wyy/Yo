@@ -2,7 +2,7 @@
 
 **Severity:** S3. The member's definition-time trial failed and the error was swallowed. Every
 specialization worked, so nothing was reported. Phase 6 steps 3–4 of
-`plans/TYPE_SYSTEM_SOUNDNESS.md` (re-raise a swallowed trial error, or make a stub an error)
+`plans/backlog/TYPE_SYSTEM_SOUNDNESS.md` (re-raise a swallowed trial error, or make a stub an error)
 would have turned it into a false error on the prelude.
 
 **Status:** FIXED 2026-10-01 on branch `tss/generic-extern-trial`. Found the same day while
@@ -100,7 +100,7 @@ behaved this way for the same shapes without a pointer: a bare `U` extern called
 pass the trial with no swallow on the seed and on the fixed build. Instantiation still rejects a
 concrete mismatch: the same bodies called with `i32` and `i64` fail with E0601 `Cannot unify
 incompatible types` on both binaries. That fits the monomorphizing model
-(`plans/TYPE_SYSTEM_SOUNDNESS.md` §1): Phase 6 step 3 cannot re-raise a rigid-binder mismatch,
+(`plans/backlog/TYPE_SYSTEM_SOUNDNESS.md` §1): Phase 6 step 3 cannot re-raise a rigid-binder mismatch,
 because the trial never records one. A concrete specialization reports it.
 
 ## Verification

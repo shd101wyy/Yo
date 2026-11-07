@@ -71,7 +71,7 @@ responsibility for the inherent (no-source-trait) case.
 
 Maintainer decision 2026-08-21: fix as the follow-up branch after the
 function-overloading-policy branch lands —
-`plans/backlog/DUPLICATE_INHERENT_METHOD_REJECTION.md` (design, idempotency
+`plans/archive/DUPLICATE_INHERENT_METHOD_REJECTION.md` (design, idempotency
 key, validation requirements).
 
 ## Why not fixed in the overloading-policy branch

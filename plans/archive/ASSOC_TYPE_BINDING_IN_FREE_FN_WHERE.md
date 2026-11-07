@@ -1,6 +1,6 @@
 # `where(T <: Trait(Assoc := A))` binds nothing when `A` is a generic
 
-**Status:** CLOSED 2026-09-25 by Phase 2.6 of `plans/TYPE_SYSTEM_SOUNDNESS.md`
+**Status:** CLOSED 2026-09-25 by Phase 2.6 of `plans/backlog/TYPE_SYSTEM_SOUNDNESS.md`
 (its "Landed" note has the details). Options 1 and 2 are implemented: `A` binds from the
 argument's impl, and blanket combinators work on a generic parameter, for `Iterator` and
 `Stream` alike. Option 3's message names the mismatched associated type. The text below is the

@@ -1,7 +1,7 @@
 # `for_await` — blocked on a macro-aware async transform
 
 **Status:** CLOSED 2026-09-29. Option 1 landed as phase 5 of
-`plans/ASYNC_STATE_MACHINE_GENERATION.md` (the single-pass lowering follows
+`plans/archive/ASYNC_STATE_MACHINE_GENERATION.md` (the single-pass lowering follows
 macro expansions), and `for_await` is back in `std/async/stream.yo`, tested in
 `tests/async/combinators.test.yo` S8 including the in-task case. The rest of
 this doc is the record as written.

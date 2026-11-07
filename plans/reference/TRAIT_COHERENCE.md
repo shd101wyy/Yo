@@ -1,6 +1,6 @@
 # Trait coherence: one impl of a trait per type
 
-**Status:** DECIDED and IMPLEMENTED 2026-09-24 (Phase 2.3 of `plans/TYPE_SYSTEM_SOUNDNESS.md`;
+**Status:** DECIDED and IMPLEMENTED 2026-09-24 (Phase 2.3 of `plans/backlog/TYPE_SYSTEM_SOUNDNESS.md`;
 rule 4 pulled forward from Phase 3.3 because rules 1–3 cannot be checked without it).
 
 ## Problem

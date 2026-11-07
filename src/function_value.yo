@@ -393,7 +393,7 @@ get_closure_body_type :: (fn(func_id : &String) -> Option(TypeValue))(
 /// FuncVal is created). Resolves Gap 10 for the codegen function-emission driver.
 /// The key SHARES the caller's id handle: `String.clone` is a byte copy, and a
 /// specialized id can run to 25 KB, so a cloned key was one more copy of an
-/// id the FuncVal already holds (plans/EVALUATOR_MEMORY_REDUCTION.md §0.23).
+/// id the FuncVal already holds (plans/backlog/EVALUATOR_MEMORY_REDUCTION.md §0.23).
 /// Function ids are never mutated in place once minted.
 register_func_type :: (fn(func_id : &String, func_ty : &TypeValue) -> unit)({
   record_owned_func_id(func_id);
@@ -480,7 +480,7 @@ get_func_type :: (fn(func_id : &String) -> TypeValue)(
 /// after `evaluate_function_parameters`) and the push (in
 /// `try_to_implement_function_by_function_type` before body eval) are part of the
 /// def-time body-eval wiring — the remaining multi-layer work
-/// (plans/backlog/DEFTIME_BODY_EVAL.md). This is the proven storage API for that push.
+/// (plans/archive/DEFTIME_BODY_EVAL.md). This is the proven storage API for that push.
 (g_func_parameters_frame : RefCell(HashMap(String, Frame))) = RefCell(HashMap(String, Frame)).new(HashMap(String, Frame).new());
 /// Store the parameter-bound frame for a function, keyed by its `fn(...)`
 /// type-expression id. (Capture timing is critical — see DEFTIME_BODY_EVAL.md.)
@@ -496,7 +496,7 @@ get_func_parameters_frame :: (fn(func_id : &String) -> Option(Frame))(
   g_func_parameters_frame.with(m => m.get_cloned(func_id.clone()))
 );
 /// Drop the given function ids from this module's per-function registries
-/// (see `purge_function_side_tables`, plans/EVALUATOR_MEMORY_REDUCTION.md
+/// (see `purge_function_side_tables`, plans/backlog/EVALUATOR_MEMORY_REDUCTION.md
 /// Phase 1 step 5).
 purge_function_value_tables :: (fn(ids : &ArrayList(String)) -> unit)({
   (i : usize) = usize(0);

@@ -1,6 +1,8 @@
 # A deadline combinator usable from INSIDE a task — and the HTTP server keep-alive it blocks
 
-**Status: BACKLOG; superseded in part by `plans/ASYNC_IO_API_AUDIT.md` A1
+> **Trued 2026-11-07 (plans audit after VBD):** BACKLOG, narrowed 2026-11-07: the in-task deadline exists. `std/async`'s `timeout` and `select` take futures and run inside an `io.async` body (VALUES_BY_DEFAULT §3.13 A4), and defect 3 is fixed. What is left is opt-in HTTP server keep-alive (`with_keep_alive(idle)`) over `timeout`, plus its test re-expression (§Collateral). The options and corrections below predate A4.
+
+**Status: BACKLOG; superseded in part by `plans/archive/ASYNC_IO_API_AUDIT.md` A1
 (2026-10-03): `JoinHandle.join` suspends inside a task and `std/async`'s
 `timeout` is a future, so option A below is `io.await(timeout(h, limit, io), io)`
 in `serve_once` itself; what is left here is the server keep-alive loop and

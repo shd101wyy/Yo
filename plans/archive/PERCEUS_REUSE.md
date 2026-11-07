@@ -28,7 +28,7 @@
 Perceus a better fit for Yo than an arena?" after
 `ARENA_ALLOCATOR_FEASIBILITY.md` (2026-09-20) found that arenas cannot be made
 RC-free without region types and do not touch the compiler's footprint. Sister
-plan: `../EVALUATOR_MEMORY_REDUCTION.md` (the footprint; this document is about
+plan: `../backlog/EVALUATOR_MEMORY_REDUCTION.md` (the footprint; this document is about
 allocation CHURN and the CPU it costs).
 
 ## 0. Phase 0 results (2026-09-20) and the verdict

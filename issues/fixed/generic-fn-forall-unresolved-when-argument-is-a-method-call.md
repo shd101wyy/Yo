@@ -1,6 +1,6 @@
 # A generic fn's forall stays `unknown` when its argument is a METHOD CALL, minting an abstract spec the emitter skips
 
-**Status:** FIXED 2026-09-24 (Phase 2.4 of `plans/TYPE_SYSTEM_SOUNDNESS.md`).
+**Status:** FIXED 2026-09-24 (Phase 2.4 of `plans/backlog/TYPE_SYSTEM_SOUNDNESS.md`).
 **Found:** 2026-09-08, writing the Core-numerics tests
 **Supersedes:** `generic-impl-method-result-passed-directly-to-a-generic-fn-fails-to-transpile.md`,
 whose stated cause was WRONG (see "Corrections" below).

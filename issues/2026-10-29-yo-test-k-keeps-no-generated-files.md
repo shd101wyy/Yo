@@ -2,7 +2,7 @@
 
 **Severity:** S3 — `yo test --help` documents `-k, --keep-generated-files  Keep generated batch files`, but the flag is parsed and ignored, so the batch `.yo`/`.c` files are deleted anyway; only `YO_KEEP_BATCH=1` keeps them.
 
-**Status:** open. Found 2026-10-29 while measuring decision 48 W6a's tracked-type count (`plans/backlog/WEAK_AND_UNCOLLECTED_RC.md` §6, precondition 3): `yo test ./tests/collections --cycle-collector auto -k` left no `.yo_selftest_batch_*` file behind, and the same run under `YO_KEEP_BATCH=1` kept them. Not fixed on the W6a branch, which does not touch the test runner.
+**Status:** open. Found 2026-10-29 while measuring decision 48 W6a's tracked-type count (`plans/archive/WEAK_AND_UNCOLLECTED_RC.md` §6, precondition 3): `yo test ./tests/collections --cycle-collector auto -k` left no `.yo_selftest_batch_*` file behind, and the same run under `YO_KEEP_BATCH=1` kept them. Not fixed on the W6a branch, which does not touch the test runner.
 
 ## Reproducer
 

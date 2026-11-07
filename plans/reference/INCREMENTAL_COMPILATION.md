@@ -185,7 +185,7 @@ opening work of P4.
    dependency hashing, serializable evaluated exports, and invalidation. The
    evaluated-export state is exactly the structure the memory campaign
    measured: a heavily shared env graph (7.4 M live `Variable`s at peak,
-   `plans/backlog/YO_SELF_ENV_SHARING.md`) — snapshotting it is a project, not
+   `plans/archive/YO_SELF_ENV_SHARING.md`) — snapshotting it is a project, not
    a patch. Codegen additionally assumes a process-lifetime shared
    `ExprInfoTable` (`src/module_manager.yo`).
 3. **Risk timing.** The bootstrap fixpoint gates BYTE-IDENTITY of the emit; a

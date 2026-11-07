@@ -1,6 +1,6 @@
 """The LSP plateau gate: does `yo lsp` stop growing once every module is cached?
 
-plans/EVALUATOR_MEMORY_REDUCTION.md Phase 1 step 3,
+plans/backlog/EVALUATOR_MEMORY_REDUCTION.md Phase 1 step 3,
 issues/lsp-memory-grows-per-open-edit-close-round.md. Drives one `yo lsp`
 process over stdio. Per round, for every document:
 - `didOpen`, then wait for its `publishDiagnostics`;

@@ -13,7 +13,7 @@ retired as a LEAK by W2.
 maintainer's question whether an `UnsafeArc` without the `Acyclic` bound is
 needed (it already is not enforced for this shape).
 
-**2026-10-22, decision 48 W2** (`plans/backlog/WEAK_AND_UNCOLLECTED_RC.md`
+**2026-10-22, decision 48 W2** (`plans/archive/WEAK_AND_UNCOLLECTED_RC.md`
 §2, §4): `Arc`, `Mutex`, `RwLock`, `OnceCell`, `Channel`/`Sender`/`Receiver`
 and `Thread` no longer require `Acyclic`, as Rust's do not. The `Arc` cycle
 this doc first reported is now a legal program that leaks by design

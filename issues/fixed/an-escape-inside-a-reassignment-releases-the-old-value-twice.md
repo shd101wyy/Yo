@@ -2,7 +2,7 @@
 
 **Severity:** S1 — heap use-after-free: a task that escapes while reassigning a heap local from an await released the local's old value twice
 
-**Status: FIXED (2026-09-30).** Found by CI on #1002, the phase 5 PR of `plans/ASYNC_STATE_MACHINE_GENERATION.md`: `tests/http/http.test.yo` "fetch still refuses an unsupported scheme" failed under ASan on every platform. The v0.2.46 seed passes it: this was a regression of the single-pass lowering.
+**Status: FIXED (2026-09-30).** Found by CI on #1002, the phase 5 PR of `plans/archive/ASYNC_STATE_MACHINE_GENERATION.md`: `tests/http/http.test.yo` "fetch still refuses an unsupported scheme" failed under ASan on every platform. The v0.2.46 seed passes it: this was a regression of the single-pass lowering.
 
 ## Symptom
 

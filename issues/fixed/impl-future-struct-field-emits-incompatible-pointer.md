@@ -3,7 +3,7 @@
 **Kind:** design question — an open decision, not a defect. Moved from `issues/` root in the 2026-09-28 severity triage.
 
 **Status: FIXED (2026-09-29).**
-(`plans/ASYNC_STATE_MACHINE_GENERATION.md`). Seed v0.2.45 and
+(`plans/archive/ASYNC_STATE_MACHINE_GENERATION.md`). Seed v0.2.45 and
 develop `af62bdb28` (tree-built compiler).
 
 ## Symptom

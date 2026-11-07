@@ -6,7 +6,7 @@ allocator.
 
 **Status: FIXED 2026-10-01 (branch `fix/emit-chunks-mimalloc`).** Found while
 building the compiler chunked for the scope-release memory work
-(`plans/CODEGEN_MEMORY_REDUCTION.md` §6).
+(`plans/backlog/CODEGEN_MEMORY_REDUCTION.md` §6).
 
 ## Symptom
 

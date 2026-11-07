@@ -1,6 +1,6 @@
 # A small RC header is read through the full 56-byte header type (UB)
 
-**Status: FIXED 2026-09-23** (branch `safe-mode-5-ubsan`, `plans/SAFE_MODE.md`
+**Status: FIXED 2026-09-23** (branch `safe-mode-5-ubsan`, `plans/backlog/SAFE_MODE.md`
 §14 R6, the first finding of the UBSan acceptance run).
 
 ## Symptom

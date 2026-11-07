@@ -339,7 +339,7 @@ _measure_is_signed :: (fn(ctx : &VcCtx, e : &AstExpr) -> bool)(
   )
 );
 /// A lexicographic measure `decreases(m1, m2, ...)` (A5 of
-/// plans/ATS_LESSONS_BEYOND_INDEXED_TYPES.md; ATS `.<m, n>.`): the signature
+/// plans/archive/ATS_LESSONS_BEYOND_INDEXED_TYPES.md; ATS `.<m, n>.`): the signature
 /// stores the `decreases(...)` call itself when it has more than one
 /// component. Its term is the bit-vector CONCATENATION m1 ++ m2 ++ ...;
 /// with every component proved non-negative on entry, unsigned order on the
@@ -355,7 +355,7 @@ _lex_components :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
 (g_uninterpreted_sorts : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
 // ---------------------------------------------------------------------------
 // ArrayList(T) as a ghost pair — R1 slice 1 of
-// plans/backlog/ATS_STYLE_INDEXED_TYPES.md. An `ArrayList(T)` whose `T` is in
+// plans/archive/ATS_STYLE_INDEXED_TYPES.md. An `ArrayList(T)` whose `T` is in
 // the integer/bool subset is the SMT datatype `List_<elem>` with one
 // constructor `List_<elem>_mk (contents : Array BV64 elem) (len : BV64)`.
 // `xs.len()` is the `len` accessor, `xs(i)` is `select(contents(xs), i)` under
@@ -730,7 +730,7 @@ VcBodyResult :: struct(
 // The executor context
 // ============================================================================
 /// A verified `for(xs, x => body)` (R2 task 4 of
-/// plans/backlog/ATS_STYLE_INDEXED_TYPES.md): the loop runs over a ghost
+/// plans/archive/ATS_STYLE_INDEXED_TYPES.md): the loop runs over a ghost
 /// index `idx_name` from 0 to `len(list)`, `x` is `list[idx]`, and
 /// `produced(<coll_name>)` is the list cut at the index.
 ForFrame :: struct(idx_name : String, coll_name : String, list : VcTerm, elem : VcSort, elem_name : String);
@@ -3805,7 +3805,7 @@ _desugared_for_call :: (fn(e : &AstExpr) -> Option(AstExpr))(
   )
 );
 /// A verified `for(xs, x => { invariant(...); body })` over a list
-/// variable (R2 task 4 of plans/backlog/ATS_STYLE_INDEXED_TYPES.md): the
+/// variable (R2 task 4 of plans/archive/ATS_STYLE_INDEXED_TYPES.md): the
 /// `while` rule over a ghost index from 0 while `idx < len(xs)`, with `x`
 /// bound to `xs[idx]` in the body, `idx <= len(xs)` an implicit invariant,
 /// and `produced(xs)` naming `xs[0..idx)`. The body may not change xs (the
@@ -4302,7 +4302,7 @@ _quant_term :: (
     .None => Option(VcTerm).None
   )
 });
-/// R2 task 2 of plans/backlog/ATS_STYLE_INDEXED_TYPES.md: an `ArrayList(T)`
+/// R2 task 2 of plans/archive/ATS_STYLE_INDEXED_TYPES.md: an `ArrayList(T)`
 /// operand's element sort when the expression is list-typed (a list value,
 /// `seq_of(xs)`, or a `seq_append` of lists, which the evaluator types as
 /// the list), else `.None`. A list-backed Seq stays in the list domain
@@ -6449,7 +6449,7 @@ _transparent_call_term :: (
   });
   t
 });
-/// R2 of plans/backlog/ATS_STYLE_INDEXED_TYPES.md: a `ghost_fn` carrying
+/// R2 of plans/archive/ATS_STYLE_INDEXED_TYPES.md: a `ghost_fn` carrying
 /// `decreases` as the uninterpreted function `f`, applied to the walked
 /// actuals. Its meaning is the definitional axiom
 /// `forall ps. f(ps) == body[ps]` with the application as its trigger, the
@@ -6781,7 +6781,7 @@ _callee_call_term :: (
   // the actuals bound to its parameters (spec functions carry no contracts;
   // their meaning IS the body).
   //
-  // A1 (plans/ATS_LESSONS_BEYOND_INDEXED_TYPES.md): a LEMMA — a ghost_fn
+  // A1 (plans/archive/ATS_LESSONS_BEYOND_INDEXED_TYPES.md): a LEMMA — a ghost_fn
   // returning `unit` with an `ensures` — is ATS's `prfun`. Its body is a
   // proof checked once, in its own task, by induction: a recursive call
   // below proves `decreases-step` and its `requires`, then assumes its
@@ -6874,7 +6874,7 @@ _callee_call_term :: (
     }
   );
   if((reqs.len() == usize(0)) && (enss.len() == usize(0)) && !callee_has_refined_spec, {
-    // A3 of plans/ATS_LESSONS_BEYOND_INDEXED_TYPES.md: a callee with no
+    // A3 of plans/archive/ATS_LESSONS_BEYOND_INDEXED_TYPES.md: a callee with no
     // contracts whose body the walk can express, and which changes none of
     // its arguments, is TRANSPARENT: its call is the application of an
     // uninterpreted function defined by its body (the recursive-ghost_fn

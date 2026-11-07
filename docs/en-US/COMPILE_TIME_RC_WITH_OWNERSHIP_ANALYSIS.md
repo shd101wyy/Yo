@@ -24,7 +24,7 @@
 >
 > This page is edited as each phase lands. At V5 it is replaced by an
 > "Ownership and Borrowing" page, drafted in
-> [`plans/OWNERSHIP_AND_BORROWING_DOC_DRAFT.md`](../../plans/OWNERSHIP_AND_BORROWING_DOC_DRAFT.md).
+> [`plans/backlog/OWNERSHIP_AND_BORROWING_DOC_DRAFT.md`](../../plans/backlog/OWNERSHIP_AND_BORROWING_DOC_DRAFT.md).
 
 Yo uses non-atomic reference counting for heap-allocated objects, and employs compile-time **ownership analysis** and **lifetime analysis** to eliminate unnecessary reference counting operations.
 

@@ -1,7 +1,7 @@
 # `Dyn(Trait)` object safety is not enforced by the evaluator; violations become C compiler errors
 
-**Found:** 2026-09-23, type-system audit (`plans/TYPE_SYSTEM_SOUNDNESS.md`, Phase 2).
-**Status:** FIXED 2026-09-25 (Phase 2.7 of `plans/TYPE_SYSTEM_SOUNDNESS.md`).
+**Found:** 2026-09-23, type-system audit (`plans/backlog/TYPE_SYSTEM_SOUNDNESS.md`, Phase 2).
+**Status:** FIXED 2026-09-25 (Phase 2.7 of `plans/backlog/TYPE_SYSTEM_SOUNDNESS.md`).
 says object safety "is enforced at method call time"; no such check exists (grep of `src/` for
 object safety finds nothing).
 **Measured:** yo 0.2.39 seed; re-verified with the same result on a develop build `d455b6a67`.

@@ -1,6 +1,6 @@
 """Peak-composition histogram: what is live at each memory high-water mark.
 
-plans/EVALUATOR_MEMORY_REDUCTION.md Phase 0 step 2. The holder census
+plans/backlog/EVALUATOR_MEMORY_REDUCTION.md Phase 0 step 2. The holder census
 (holder_census_t.py) attributes what is RETAINED at exit; this tool answers
 the other half — the SHAPE of the growth: live-bytes marks along the run
 (rate-limited), plus the final composition by size class and by allocation

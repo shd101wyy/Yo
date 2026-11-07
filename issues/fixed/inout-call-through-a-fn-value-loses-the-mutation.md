@@ -1,8 +1,8 @@
 # Calling an `inout`-parameter function through a fn value silently loses the mutation
 
-**Found:** 2026-09-23, type-system audit (`plans/TYPE_SYSTEM_SOUNDNESS.md`, Phase 3).
+**Found:** 2026-09-23, type-system audit (`plans/backlog/TYPE_SYSTEM_SOUNDNESS.md`, Phase 3).
 **Status:** FIXED. The codegen half (Phase 1.9) landed 2026-09-24; the evaluator half (Phase 3.5 of
-`plans/TYPE_SYSTEM_SOUNDNESS.md`) landed 2026-09-25: `fn(inout(x) : T)` and `fn(x : T)` are two
+`plans/backlog/TYPE_SYSTEM_SOUNDNESS.md`) landed 2026-09-25: `fn(inout(x) : T)` and `fn(x : T)` are two
 types. Originally: **wrong code** with a green `check` and `compile`.
 **Measured:** the yo 0.2.39 seed prints `v=6` and `v=5` (wrong). A develop build `d455b6a67` prints the expected
 `v=7` and `v=6`, but emits the identical truncating cast shown below, so the correct output there is

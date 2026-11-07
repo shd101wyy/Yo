@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Score a `yo verify --format json` report: outcomes.tsv, the tables, the ratchet.
 
-Driven by scripts/verify-src-sweep.sh (plans/SELF_VERIFICATION.md, M0). Kept
+Driven by scripts/verify-src-sweep.sh (plans/backlog/SELF_VERIFICATION.md, M0). Kept
 separate so the scoring is testable without spending three minutes on a sweep:
 
     python3 scripts/verify_sweep_report.py --report fixture.json --tsv /dev/null \
@@ -77,7 +77,7 @@ def read_baseline(path: str) -> dict[str, int]:
 def write_baseline(path: str, counts: dict[str, int]) -> None:
     with open(path, "w", encoding="utf-8") as fh:
         fh.write(
-            "# Self-verification ratchet (plans/SELF_VERIFICATION.md, M0).\n"
+            "# Self-verification ratchet (plans/backlog/SELF_VERIFICATION.md, M0).\n"
             "# <module>\t<functions with >=1 discharged obligation>\n"
             "# Re-record deliberately: scripts/verify-src-sweep.sh --record\n"
         )
@@ -174,7 +174,7 @@ def main() -> int:
     baseline = read_baseline(args.baseline)
     # A module absent from THIS report was not swept (the sweep may cover one
     # subtree — verifying the whole tree peaks at ~9.3 GB, see
-    # plans/SELF_VERIFICATION.md). Comparing it against the baseline would
+    # plans/backlog/SELF_VERIFICATION.md). Comparing it against the baseline would
     # report a regression for work that simply was not measured.
     swept = {r["module"] for r in rows}
     regressions = []

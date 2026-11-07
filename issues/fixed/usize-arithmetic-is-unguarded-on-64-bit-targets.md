@@ -33,7 +33,7 @@ The `usize` sum prints `0`. The same `u64` sum traps with
 wasm`, the 32-bit branch). The 64-bit branch tests `is_u64_type(ty)` alone, so a
 64-bit `usize` falls through to the final "non-integer (float): plain op" arm.
 `isize` has no such gap: its 64-bit branch is `is_i64_type(ty) || is_isize_type(ty)`.
-Neither #837's body nor `plans/SAFE_MODE.md` records `usize` as deliberately
+Neither #837's body nor `plans/backlog/SAFE_MODE.md` records `usize` as deliberately
 exempt, and the function's own comment says "isize/usize follow the target".
 
 ## Fix

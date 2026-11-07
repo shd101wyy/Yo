@@ -1,5 +1,7 @@
 # What else to take from Rust: adoption candidates checked against the tree
 
+> **Trued 2026-11-07 (plans audit after VBD):** Status: BACKLOG research (2026-10-10), re-filtered 2026-11-07. Decisions 43 (origins), 48 (Weak) and 49 (`[T]`/`str`) overturned §0's and §5's rejections of origins, `Weak` and guard values. The macro removal moves L7 `matches` to a builtin and leaves `try` rejected. L1 is adopted (decision 49). Every other candidate is open.
+
 **Status: BACKLOG — research, written 2026-10-10 at the maintainer's
 request.** Nothing here is adopted; each candidate ends with a verdict and
 a trigger, and the maintainer picks. Companion to
@@ -61,8 +63,8 @@ A candidate survives only if it passes all four:
 | `rustc --explain`, `cargo fix`, `cargo fmt`, `cargo doc`, `cargo test` filters | `yo explain`, `yo fix`, `yo fmt`, `yo doc`, `yo test --test-name-pattern` | `src/main.yo` |
 | rust-analyzer: completion, go-to-definition, hover, references, rename, symbols, folding, signature help, diagnostics | present | `src/lsp/` |
 | `cargo miri` / sanitizers | `--sanitize address\|thread\|undefined\|leak` | `src/main.yo` |
-| `#[must_use]` | planned as ATS A2 | `plans/ATS_LESSONS_BEYOND_INDEXED_TYPES.md` §A2 |
-| `?` | ruled back in as the `try(expr)` prelude macro 2026-09-19; **not landed** (no `try` in `std/prelude.yo`) | `plans/backlog/LLM_AUTHORING_AUDIT_2026-09-19.md` §2.3 owns it |
+| `#[must_use]` | planned as ATS A2 | `plans/archive/ATS_LESSONS_BEYOND_INDEXED_TYPES.md` §A2 |
+| `?` | ruled back in as the `try(expr)` prelude macro 2026-09-19; **not landed** (no `try` in `std/prelude.yo`) | `plans/archive/LLM_AUTHORING_AUDIT_2026-09-19.md` §2.3 owns it |
 | `let … else` | not needed: `x := match(opt, .Some(v) => v, .None => return(…));` is the idiom; add it to the cheatsheet, not the language | — |
 
 Two things Yo has that Rust does not, so the comparison is not one-way:

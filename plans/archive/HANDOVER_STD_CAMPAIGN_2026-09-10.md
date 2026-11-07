@@ -203,7 +203,7 @@ resolves to length **0** in the signature while specialized bodies emit the
 right widths, producing invalid C. Filed with a repro:
 `issues/fixed/associated-constant-in-a-type-position-resolves-to-zero.md`,
 `issues/repros/associated-constant-as-an-array-length-in-a-return-type.yo`.
-Design: `plans/backlog/VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md`. **Step 1 (make
+Design: `plans/archive/VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md`. **Step 1 (make
 it an error, not a 0) is small and worth doing on its own.**
 
 ---
@@ -383,7 +383,7 @@ every line as unverified.
 | --- | --- | --- | --- |
 | 1 | Finish §7.1 (`swap_remove`, `race_first`/`any_first`) | small | written, unverified |
 | 2 | Collapse the ten per-type bit batteries onto `T.Unsigned` | small–medium | newly possible (§4.2); byte-identity provable |
-| 3 | `plans/backlog/ASYNC_ITERATION_STREAM.md` — the `Stream` trait + `TcpListener.incoming` | medium | **no compiler change**; `Watcher` already has the shape |
+| 3 | `plans/reference/ASYNC_ITERATION_STREAM.md` — the `Stream` trait + `TcpListener.incoming` | medium | **no compiler change**; `Watcher` already has the shape |
 | 4 | TOML: floats, arrays, dates, inline tables, escapes, comments, serializer | medium | mechanical; `std/encoding/toml*` |
 | 5 | HTTP keep-alive part 2 — the `HttpClient` pool | medium | framing prerequisite lands in #547; design is in the plan's keep-alive record |
 | 6 | `Sender`/`Receiver` split with auto-close on last sender | medium | |

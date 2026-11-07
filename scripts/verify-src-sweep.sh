@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The self-verification sweep (plans/SELF_VERIFICATION.md, M0).
+# The self-verification sweep (plans/backlog/SELF_VERIFICATION.md, M0).
 #
 # Runs `yo verify` over a tree, writes a deterministic `outcomes.tsv`, prints
 # the outcome and blocker tables, and — unless --no-ratchet — fails when the
@@ -49,7 +49,7 @@ TSV="$OUT/outcomes.tsv"
 
 # One `yo verify` process per path, merged. Verifying the WHOLE tree in one
 # process peaks at ~9.3 GB (measured 2026-09-18 — see
-# plans/SELF_VERIFICATION.md), which no hosted CI runner can hold, so the
+# plans/backlog/SELF_VERIFICATION.md), which no hosted CI runner can hold, so the
 # sweep is chunkable and CI sweeps the modules being annotated. Chunking is
 # not a memory cure by itself: a chunk pays for its whole import closure
 # (src/verifier alone peaks at 8.2 GB), but the front end is ~1.9 GB.

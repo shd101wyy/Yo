@@ -2,7 +2,7 @@
 
 > Found 2026-09-24 by the LSP leak investigation
 > (`issues/lsp-memory-grows-per-open-edit-close-round.md`,
-> `plans/EVALUATOR_MEMORY_REDUCTION.md`). Fixed in the same PR as this doc.
+> `plans/backlog/EVALUATOR_MEMORY_REDUCTION.md`). Fixed in the same PR as this doc.
 
 ## Symptom
 

@@ -1,5 +1,7 @@
 # K Framework engineering lessons — the ecosystem, not the logic
 
+> **Trued 2026-11-07 (plans audit after VBD):** Status: PROPOSED 2026-10-08, nothing started. Corrected 2026-11-07: L4 (and LEAN LE2) need named assumptions in production VCs first — unsat cores are empty today (THEOREM_PROVING_DIRECTION.md §1); THEOREM_PROVING_DIRECTION re-ranks where L1/L4 land.
+
 > **Status: PROPOSED 2026-10-08 — backlog (assessment + candidate items, nothing started).**
 > The sibling of
 > [`../reference/MATCHING_LOGIC_RESEARCH.md`](../reference/MATCHING_LOGIC_RESEARCH.md),
@@ -239,9 +241,9 @@ and report work.
   prior record),
   [`THEOREM_PROVING_NEXT.md`](THEOREM_PROVING_NEXT.md) (the adoptees'
   home),
-  [`ATS_STYLE_INDEXED_TYPES.md`](ATS_STYLE_INDEXED_TYPES.md) (R1's
+  [`ATS_STYLE_INDEXED_TYPES.md`](../archive/ATS_STYLE_INDEXED_TYPES.md) (R1's
   per-contract runtime fixture rule; §7.1's splice A/B),
-  [`../SELF_VERIFICATION.md`](../SELF_VERIFICATION.md) (L9/M3, the proof-
+  [`../backlog/SELF_VERIFICATION.md`](SELF_VERIFICATION.md) (L9/M3, the proof-
   level conformance story L3 complements),
   [`FORMAL_VERIFICATION.md`](FORMAL_VERIFICATION.md) (the determinism
   contract L7 must preserve).

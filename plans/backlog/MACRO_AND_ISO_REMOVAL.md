@@ -1,5 +1,7 @@
 # Macro and Iso removal — comptime-only metaprogramming, Rust's thread rule
 
+> **Trued 2026-11-07 (plans audit after VBD):** Status (2026-11-07): Part A (#1530), B1 (#1727), B2 (#1578), B3 (#1527), B4 (#1513) and C5's fixture deletion (#1569) landed. Remaining: Part C C1–C4, C6 (E0010, the machinery and chase-site deletion), placed in the v0.2.76 window per VBD_RELEASE_SCHEDULE.md §1; then this doc moves to archive/ and MACRO_POLICY.md is marked superseded.
+
 **Status:** WRITTEN 2026-10-20, revised 2026-10-20 after review; scheduled in
 the VBD campaign (see "Schedule" at the end). **Part A pulled forward to
 v0.2.68 (maintainer, 2026-10-21)**: see "Part A moves to v0.2.68" in §0.2. This is the decision record and
@@ -33,14 +35,14 @@ precedent (landed 2026-08-21; prelude `if` macro deleted 2026-08-30). The
 exception is the three collection literals, whose call surface is deleted
 outright and replaced by ordinary constructors (B3). Yo is written by LLMs,
 and terse literals are human ergonomics an LLM author does not need (the
-`plans/backlog/LLM_AUTHORING_AUDIT_2026-09-19.md` direction).
+`plans/archive/LLM_AUTHORING_AUDIT_2026-09-19.md` direction).
 
 Why the 2026-08-21 "keep" verdict no longer holds — every load-bearing fact
 behind `MACRO_POLICY.md` §1.5 has since changed direction:
 
 - "`try` alone justifies the mechanism" — `try` was removed the same day
   (policy §3.1), and the proposal to restore it
-  (`plans/backlog/LLM_AUTHORING_AUDIT_2026-09-19.md` §2.3) never landed.
+  (`plans/archive/LLM_AUTHORING_AUDIT_2026-09-19.md` §2.3) never landed.
   Part C closes that backlog item as rejected.
 - "Zig pays with builtin `if`/`for` syntax" — we accept exactly that price
   (maintainer, 2026-10-20). `if` already pays it; `for` joins it in Part B
@@ -411,11 +413,11 @@ before the PR is opened.
   - `plans/reference/OPERATOR_SET_AND_PRECEDENCE.md` (the `(^) ::` sites :29,
     :56, :128, :131 and the "Iso sugar | `^`" table row :90),
     `plans/reference/MEMORY_SAFETY.md` (:156, :728), `ARC_TYPE.md`,
-    `TYPE_REFLECTION.md`; `plans/backlog/LIFETIME_REPLACEMENT_PATTERNS.md`
+    `TYPE_REFLECTION.md`; `plans/archive/LIFETIME_REPLACEMENT_PATTERNS.md`
     (:119, :188), `RUST_REFERENCE_PATTERNS.md` (:739, :878),
     `ARENA_ALLOCATOR_FEASIBILITY.md`, `MULTI_CLOSURE_RC_BUG.md`;
-    `plans/ATS_LESSONS_BEYOND_INDEXED_TYPES.md`; the ROADMAP's parallelism
-    pillar line (:56); and moot follow-up 4 of `plans/TYPE_SYSTEM_SOUNDNESS.md`
+    `plans/archive/ATS_LESSONS_BEYOND_INDEXED_TYPES.md`; the ROADMAP's parallelism
+    pillar line (:56); and moot follow-up 4 of `plans/backlog/TYPE_SYSTEM_SOUNDNESS.md`
     (:830).
   - `.github/instructions/yo-design.instructions.md`: delete the D2 bullet
     (:186), fix the `ref_count` note (:128) and "the GC/`Iso` walk" (:115);

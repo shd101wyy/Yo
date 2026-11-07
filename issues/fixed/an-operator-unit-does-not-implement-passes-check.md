@@ -5,7 +5,7 @@ and the program then aborts at run time with `yo: FATAL: reached …, whose body
 transpile`. In `main` itself, `compile` fails with an internal compiler error.
 
 **Status:** FIXED 2026-10-02 on branch `tss/phase6-reraise`. Found while measuring the FTT
-stubs for Phase 6 step 3 of `plans/TYPE_SYSTEM_SOUNDNESS.md`. It was the only live stub found
+stubs for Phase 6 step 3 of `plans/backlog/TYPE_SYSTEM_SOUNDNESS.md`. It was the only live stub found
 in a specialization a call requested.
 
 ## Reproducer (measured, develop `aa772c3c9`)

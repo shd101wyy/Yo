@@ -296,7 +296,7 @@ test("Test any_first is None when every handle was aborted", {
 // JoinHandle.join — the suspending wait, and the combinators INSIDE a task.
 // `yo test` runs every binary with YO_ASYNC_STRICT=1, so a blocking wait that
 // nested the loop inside any of these bodies would panic
-// (plans/ASYNC_IO_API_AUDIT.md A1, finding F1).
+// (plans/archive/ASYNC_IO_API_AUDIT.md A1, finding F1).
 // ---------------------------------------------------------------------------
 /// Spawns `n` sleepy workers inside a task and joins them one by one.
 join_in_task :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))({
@@ -484,7 +484,7 @@ impl(
 /// consumes it, on the generic parameter itself. That used to fail (`No matching call found with
 /// arguments: (s.collect)(io)`), so this helper took the collect future
 /// instead; it is the shape `plans/archive/ASSOC_TYPE_BINDING_IN_FREE_FN_WHERE.md`
-/// (Phase 2.6 of `plans/TYPE_SYSTEM_SOUNDNESS.md`) made work.
+/// (Phase 2.6 of `plans/backlog/TYPE_SYSTEM_SOUNDNESS.md`) made work.
 _bounded :: (fn(generic(S : Type), s : S, io : Io, where(S <: Stream(Item := i32))) -> ArrayList(i32))(
   match(
     io.await(timeout(s.collect(io), Duration.from_millis(i64(5000)), io), io),

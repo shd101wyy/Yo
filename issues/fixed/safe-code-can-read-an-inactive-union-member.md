@@ -1,7 +1,7 @@
 # Safe code can read an inactive union member (undefined behavior)
 
 **Status: FIXED 2026-09-28** (found the same day by the first full-suite UBSan
-run, `plans/SAFE_MODE.md` D6/§14 R6). Ruling: option 1, gate the reads.
+run, `plans/backlog/SAFE_MODE.md` D6/§14 R6). Ruling: option 1, gate the reads.
 Branch `safe-mode/union-read-gate`.
 
 ## Symptom

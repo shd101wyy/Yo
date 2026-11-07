@@ -2,7 +2,7 @@
 
 **Severity:** S2 — a common shape (a local bound to a value the task captured) was a C compile error; it also blocked `for_await`, which binds its stream that way
 
-**Status: FIXED (2026-09-29).** Found while restoring `for_await` (phase 7 branch of `plans/ASYNC_STATE_MACHINE_GENERATION.md`). The v0.2.45 seed has it too.
+**Status: FIXED (2026-09-29).** Found while restoring `for_await` (phase 7 branch of `plans/archive/ASYNC_STATE_MACHINE_GENERATION.md`). The v0.2.45 seed has it too.
 
 ## Symptom
 

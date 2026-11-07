@@ -5,7 +5,7 @@
 point** for resuming: state, measuring rules, ranked remaining work, rejected
 levers. This file keeps the recipes (§4) and the per-item detail §8 points to.
 Written for the agent who picks up
-`plans/EVALUATOR_MEMORY_REDUCTION.md`. The plan is authoritative for design
+`plans/backlog/EVALUATOR_MEMORY_REDUCTION.md`. The plan is authoritative for design
 and history (its §0.x sections). This file is the current state and the to-do
 list. Rewritten 2026-09-28: the 2026-09-26/27 version had grown contradictory
 sections, and several of its claims did not survive review (see §1.1).

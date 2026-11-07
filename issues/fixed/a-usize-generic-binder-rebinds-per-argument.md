@@ -48,7 +48,7 @@ twin describes for type variables).
 
 Bounded: the wrong `N` is a compile-time constant, so an out-of-range index
 computed from it (`a(N - usize(1))` after `N` was taken from the longer `b`)
-trips the safe-mode array guard at run time (`plans/SAFE_MODE.md`) rather
+trips the safe-mode array guard at run time (`plans/backlog/SAFE_MODE.md`) rather
 than reading out of bounds. A body that only reads `N` (`n_of`) returns a
 value that is not the length of one of its arguments.
 

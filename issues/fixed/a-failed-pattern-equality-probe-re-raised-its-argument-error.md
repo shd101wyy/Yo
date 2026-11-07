@@ -1,6 +1,6 @@
 # A failed pattern-equality probe re-raised its argument error: E0601 where E0609 belongs
 
-**Status:** FIXED 2026-09-25. A regression from Phase 2.5 of `plans/TYPE_SYSTEM_SOUNDNESS.md` (#905),
+**Status:** FIXED 2026-09-25. A regression from Phase 2.5 of `plans/backlog/TYPE_SYSTEM_SOUNDNESS.md` (#905),
 caught by develop's `Compiler internal tests` shard 1
 (`tests/internal/diagnostics_registry_examples.test.yo`: "E0609: the bad example must fail with
 E0609, got E0601").

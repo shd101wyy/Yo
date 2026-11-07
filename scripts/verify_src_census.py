@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """What the compiler needs from the verifier, counted from its signatures.
 
-plans/SELF_VERIFICATION.md's census: which parameter kinds keep `src/` out of
+plans/backlog/SELF_VERIFICATION.md's census: which parameter kinds keep `src/` out of
 the verifiable subset, and therefore which lever (L1..L6) unblocks how much.
 The sweep says which functions are blocked; this says WHY, in terms the levers
 are written against.

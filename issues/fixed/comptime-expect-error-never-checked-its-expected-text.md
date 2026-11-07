@@ -1,6 +1,6 @@
 # `comptime_expect_error(expr, "text")` never checked `text`, so cases went green on unrelated errors
 
-**Status: FIXED 2026-09-25** (found during Phase 2.7 of `plans/TYPE_SYSTEM_SOUNDNESS.md`).
+**Status: FIXED 2026-09-25** (found during Phase 2.7 of `plans/backlog/TYPE_SYSTEM_SOUNDNESS.md`).
 
 **Severity: test-suite soundness.** The second argument was used only as the message printed when
 the expression raised NO error. When an error was raised, any error passed. 94 cases across 9

@@ -29,7 +29,7 @@ forward references — merge them into one block"). Companion records:
 `issues/fixed/def-eval-swallow-remaining-roots.md` (the shell attempt that
 regressed, §"ATTEMPT 2026-08-13"), `issues/fixed/forward-ref-shell-orphan-
 duplicate-emission.md`, `issues/fixed/forward-fn-ref-in-toplevel-holder.md`,
-`plans/backlog/YO_SELF_ENV_SHARING.md` (why envs are shared, not copied).
+`plans/archive/YO_SELF_ENV_SHARING.md` (why envs are shared, not copied).
 
 ---
 

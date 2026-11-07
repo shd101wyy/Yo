@@ -1,5 +1,7 @@
 # Theorem proving after the lemma layer — the remaining surface
 
+> **Trued 2026-11-07 (plans audit after VBD):** BACKLOG catalog (2026-10-08), re-checked 2026-11-07: T1–T4 are not started, and they are sequenced by `THEOREM_PROVING_DIRECTION.md` §4 (E1 landed, #1764). VBD's value enums have landed, so §7's datatype-view limitation needs re-measuring; read `ref(enum)` as a value enum.
+
 > **Status: PROPOSED 2026-10-08 — backlog (written, not started).**
 > **2026-11-04:** [`THEOREM_PROVING_DIRECTION.md`](THEOREM_PROVING_DIRECTION.md) (proposed) re-ranks §10
 > (E1 `assert` assumes, B4 evals first, lemma scoping before T1) and drafts the §8/§9 amendments in
@@ -9,14 +11,14 @@
 > `ghost_fn` with `decreases` as an axiomatized function, lemmas proved by
 > induction, `seq_of(xs)`, `produced(xs)`, `distinct(a, b)`,
 > spec-transparent pure functions, lexicographic `decreases` (R2 of
-> [`ATS_STYLE_INDEXED_TYPES.md`](ATS_STYLE_INDEXED_TYPES.md); A1–A6 of
-> [`../ATS_LESSONS_BEYOND_INDEXED_TYPES.md`](../ATS_LESSONS_BEYOND_INDEXED_TYPES.md);
+> [`ATS_STYLE_INDEXED_TYPES.md`](../archive/ATS_STYLE_INDEXED_TYPES.md); A1–A6 of
+> [`../archive/ATS_LESSONS_BEYOND_INDEXED_TYPES.md`](../archive/ATS_LESSONS_BEYOND_INDEXED_TYPES.md);
 > PRs #1075, #1106, #1107; B0–B2 of
 > [`BEND_LAWS_AND_AGENT_LOOP_LESSONS.md`](BEND_LAWS_AND_AGENT_LOOP_LESSONS.md)).
 > This doc owns what comes **after** that: the ranked remainder, the parked
 > ideas with their revisit triggers, and the non-goals that stay binding.
 > The campaigns that *consume* the surface are elsewhere and not re-planned
-> here: [`../SELF_VERIFICATION.md`](../SELF_VERIFICATION.md) (L9's CTFE↔encoding
+> here: [`../backlog/SELF_VERIFICATION.md`](SELF_VERIFICATION.md) (L9's CTFE↔encoding
 > consistency laws, M2–M5) and B4 (the evals corpus) of the BEND doc.
 
 ---
@@ -346,10 +348,10 @@ tier-2 items above must not creep toward them:
   ([`../ROADMAP.md`](../ROADMAP.md) §Non-goals: "SMT solvers are the
   backend; Yo owns obligation generation").
 - **Runtime dependent types**
-  ([`DEPENDENT_TYPES_POSITION.md`](DEPENDENT_TYPES_POSITION.md)). The ATS
+  ([`DEPENDENT_TYPES_POSITION.md`](../reference/DEPENDENT_TYPES_POSITION.md)). The ATS
   *notation* was audited and rejected — index sorts, `{n}` / `[n]`
   binders, singleton types, constraint solving inside unification
-  ([`ATS_STYLE_INDEXED_TYPES.md`](ATS_STYLE_INDEXED_TYPES.md) §4) — but
+  ([`ATS_STYLE_INDEXED_TYPES.md`](../archive/ATS_STYLE_INDEXED_TYPES.md) §4) — but
   the *substance* landed as the verifier's length-indexed collection
   model (that doc's R1) and the lemma layer (its R2): the doc is DONE for
   what it adopted, and §4 is the standing rejection of the rest.
@@ -385,17 +387,17 @@ verifiable-subset discipline, and `--strict` as the honest gate.
 - In-tree:
   [`FORMAL_VERIFICATION.md`](FORMAL_VERIFICATION.md) (the verifier, V1–V7;
   §Non-goals is the line this doc enforces),
-  [`ATS_STYLE_INDEXED_TYPES.md`](ATS_STYLE_INDEXED_TYPES.md) (R1/R2 — the
+  [`ATS_STYLE_INDEXED_TYPES.md`](../archive/ATS_STYLE_INDEXED_TYPES.md) (R1/R2 — the
   landed indexed-type and lemma layers; R2 task 1's measurement table),
-  [`../ATS_LESSONS_BEYOND_INDEXED_TYPES.md`](../ATS_LESSONS_BEYOND_INDEXED_TYPES.md)
+  [`../archive/ATS_LESSONS_BEYOND_INDEXED_TYPES.md`](../archive/ATS_LESSONS_BEYOND_INDEXED_TYPES.md)
   (A1–A6 closeout; §4's verified-unsafe-std decision),
   [`BEND_LAWS_AND_AGENT_LOOP_LESSONS.md`](BEND_LAWS_AND_AGENT_LOOP_LESSONS.md)
   (B0–B2; B4 evals as T2's gate),
-  [`../SELF_VERIFICATION.md`](../SELF_VERIFICATION.md) (the consumer
+  [`../backlog/SELF_VERIFICATION.md`](SELF_VERIFICATION.md) (the consumer
   campaign; L6/D2 heap-model sequencing),
   [`../reference/MATCHING_LOGIC_RESEARCH.md`](../reference/MATCHING_LOGIC_RESEARCH.md)
   (§8's parked certificate route),
-  [`DEPENDENT_TYPES_POSITION.md`](DEPENDENT_TYPES_POSITION.md),
+  [`DEPENDENT_TYPES_POSITION.md`](../reference/DEPENDENT_TYPES_POSITION.md),
   [`FSTAR_ADOPTION_CANDIDATES.md`](FSTAR_ADOPTION_CANDIDATES.md) (the
   2026-10-14 F\* audit: the T1/T4 amendments above, hint replay, split
   obligations, inferred measures, in-body `assume`).

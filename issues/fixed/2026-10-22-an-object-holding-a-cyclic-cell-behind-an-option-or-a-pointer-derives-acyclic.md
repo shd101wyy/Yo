@@ -9,7 +9,7 @@ requires `Acyclic` since decision 48 W2, so only a user-written bound reads
 the wrong answer, and the cycle itself is formable with or without it.
 
 **Status:** fixed 2026-10-29 by decision 48 W5 (`vbd/w5-acyclic-weak-edges`). **Found:** 2026-10-22, landing decision 48 W2
-(`plans/backlog/WEAK_AND_UNCOLLECTED_RC.md` §2) on
+(`plans/archive/WEAK_AND_UNCOLLECTED_RC.md` §2) on
 `feat/arc-without-acyclic`: with the `Acyclic` bound gone,
 `OnceCell(Cyclic)` and `Channel(Cyclic)` became formable, and their derived
 marker said `true` while `Mutex(Cyclic)`'s and `RwLock(Cyclic)`'s said
@@ -93,7 +93,7 @@ its own. For the marker they are wrong: plan §4 defines `T <: Acyclic` as
 ## Expected
 
 Every line of the reproducer prints its expected value. The fix belongs to
-the W5 derivation rewrite (`plans/backlog/WEAK_AND_UNCOLLECTED_RC.md` §7),
+the W5 derivation rewrite (`plans/archive/WEAK_AND_UNCOLLECTED_RC.md` §7),
 which separates the marker ("reaches no strong cycle") from the
 collector's root test ("is on a cycle"): the generic-enum cut has to key by
 the instance (`enum_instance_node_id`, as the trait checker's on-demand

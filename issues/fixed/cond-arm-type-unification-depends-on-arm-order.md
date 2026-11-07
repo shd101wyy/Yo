@@ -1,7 +1,7 @@
 # `cond`/`match` arm type unification depends on arm order
 
-**Found:** 2026-09-23, type-system audit (`plans/TYPE_SYSTEM_SOUNDNESS.md`, Phase 1).
-**Status:** FIXED 2026-09-24 (Phase 1.5 of `plans/TYPE_SYSTEM_SOUNDNESS.md`). Originally OPEN: the same expression type-checked or not depending on arm order.
+**Found:** 2026-09-23, type-system audit (`plans/backlog/TYPE_SYSTEM_SOUNDNESS.md`, Phase 1).
+**Status:** FIXED 2026-09-24 (Phase 1.5 of `plans/backlog/TYPE_SYSTEM_SOUNDNESS.md`). Originally OPEN: the same expression type-checked or not depending on arm order.
 **Measured:** yo 0.2.39 seed; re-verified with the same result on a develop build `d455b6a67`.
 
 ## Repro

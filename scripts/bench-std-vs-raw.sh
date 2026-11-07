@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # What std's single-await I/O wrappers cost over the raw runtime ops under them
-# (plans/backlog/ASYNC_AWAIT_SITE_FUSION.md, F0): an 8-connection TCP ping-pong
+# (plans/reference/ASYNC_AWAIT_SITE_FUSION.md, F0): an 8-connection TCP ping-pong
 # awaiting IO_tcp.recv/send directly vs TcpStream.read/write, and a loop of
 # one-byte sends that all complete inline. Runs REPS interleaved rounds and
 # prints the medians and std/raw (1.00: the wrapper costs nothing). Wall clock:

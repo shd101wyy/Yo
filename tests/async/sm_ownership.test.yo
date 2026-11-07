@@ -1,5 +1,5 @@
 //! State-machine ownership regressions from the async state-machine audit
-//! (plans/ASYNC_STATE_MACHINE_GENERATION.md, phase 1). Each test is one issue's
+//! (plans/archive/ASYNC_STATE_MACHINE_GENERATION.md, phase 1). Each test is one issue's
 //! repro. Leaks are observed through a `Drop` counter (CI runs with
 //! detect_leaks=0); use-after-frees are caught by the test runner's ASan.
 pragma(Pragma.SkipWasm32Emscripten); // uses the async runtime end-to-end
@@ -465,7 +465,7 @@ test("a bare block's heap local is released at the block's end, not the task's",
   assert(r == i32(1), "the block's value is disposed before the next statement runs");
   assert(g_disposed == i32(1), "and exactly once");
 });
-// Phase 6 (plans/ASYNC_STATE_MACHINE_GENERATION.md): heap locals of sibling
+// Phase 6 (plans/archive/ASYNC_STATE_MACHINE_GENERATION.md): heap locals of sibling
 // scopes have disjoint live ranges, so they share one slot. Every drop of the
 // slot zeroes it, and the abort dispose drops the slot once.
 _sibling_scope_things :: (fn(nap : u64, io : Io) -> Impl(Future(i32, Io)))(

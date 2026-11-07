@@ -7,7 +7,7 @@
 Fixed by #133 (3b015fb93), option A: `_share_def_time_frames` in `src/evaluator/calls/function_type.yo` rebuilds the shared frames, so a binding added later is no longer visible in an earlier sibling's recorded env. Regression test: `tests/late_sibling_method_name_shadow.test.yo`. Re-verified by the 2026-10-14 triage with seed v0.2.62.
 
 **Status:** FIXED (moved 2026-10-14, see Resolution). — found during the env-sharing implementation
-(`plans/backlog/YO_SELF_ENV_SHARING.md` §3), branch `p2/env-sharing`,
+(`plans/archive/YO_SELF_ENV_SHARING.md` §3), branch `p2/env-sharing`,
 commit `eb3f2b8fb` (the naive sharing port). Blocks landing the memory fix.
 
 ## Symptom

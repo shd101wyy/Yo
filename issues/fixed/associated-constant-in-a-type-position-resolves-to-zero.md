@@ -93,7 +93,7 @@ would be the target pointer width and a type-level size cannot be derived the
 way `_USIZE_BITS` derives a value, so hard-coding 8 would be silently wrong on
 wasm32".
 
-The design work is in `plans/backlog/VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md`.
+The design work is in `plans/archive/VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md`.
 
 ## Minimum fix, short of the full feature
 
@@ -107,7 +107,7 @@ silently-wrong-type case.
 The "minimum fix" above is implemented (`src/evaluator/types/array.yo`): a
 length expression that is neither compile-time known nor a bare identifier is
 now REJECTED with a diagnostic naming the limitation and pointing at
-`plans/backlog/VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md`. `Array(u8, T.BYTES)`
+`plans/archive/VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md`. `Array(u8, T.BYTES)`
 in a signature therefore errors instead of quietly becoming
 `Array_uint8_t_0`, and the "a length-0 result the body also produces would
 compile" case above can no longer happen.
@@ -133,7 +133,7 @@ error: Array length is neither a compile-time constant nor a bare generic parame
 
 An associated constant or a computed expression in a LENGTH position needs value
 substitution, which the evaluator cannot express yet
-(plans/backlog/VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md). Bind the length to a
+(plans/archive/VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md). Bind the length to a
 generic(N : usize) parameter and use that name directly, or write the type once
 per instantiation.
    --> issues/repros/associated-constant-as-an-array-length-in-a-return-type.yo:14:39
@@ -157,7 +157,7 @@ limitation, and gives two workarounds.
 
 Value substitution in type positions is still unimplemented. That is a missing
 capability with a written design
-(`plans/backlog/VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md`), which the diagnostic
+(`plans/archive/VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md`), which the diagnostic
 itself now points at — the right home for it. Keeping this doc open would count
 a planned feature as a bug, and would keep a "resolves to zero" symptom on the
 open list that can no longer happen.

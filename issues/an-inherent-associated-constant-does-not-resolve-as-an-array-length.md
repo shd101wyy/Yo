@@ -38,7 +38,7 @@ impl(
 
 `BYTES` beside it would be written the same way, and would not resolve. So the
 byte-conversion row this feature exists to unblock cannot be written in the
-obvious shape. **Step 3 of `plans/backlog/VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md`
+obvious shape. **Step 3 of `plans/archive/VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md`
 should declare `BYTES` as a trait member**, which is verified to work; that is
 recorded there too.
 

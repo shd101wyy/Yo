@@ -1,6 +1,6 @@
 """Allocation-site attribution for the objects still live at exit.
 
-plans/EVALUATOR_MEMORY_REDUCTION.md §0.5 (this is what found the
+plans/backlog/EVALUATOR_MEMORY_REDUCTION.md §0.5 (this is what found the
 `f(match(...))` argument leak). For every constructor of the selected types
 (tracked OR untracked), the instrumented binary records obj -> (return address
 depth 0, depth 1) in an open-addressing side table, clears the entry in the

@@ -8,7 +8,7 @@
 //! without it the emitted translation unit does not link (`__yo_incr_rc` /
 //! `__yo_decr_rc` / borrow primitives are referenced by every RC-managed value).
 //! There is no cycle collector (decision 48 W6b,
-//! plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §6): a reference cycle leaks unless a
+//! plans/archive/WEAK_AND_UNCOLLECTED_RC.md §6): a reference cycle leaks unless a
 //! `Weak` breaks it, as in Rust.
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
@@ -367,7 +367,7 @@ static inline void __yo_borrow_assert_unborrowed_atomic(void* ptr) {
 /// layout-agnostic header prefix. Header-only `static inline` functions, so
 /// under `--emit-chunks` they ride the RC primitives' shared-header range.
 _weak_count_primitives :: (fn() -> String)(
-  `// Weak(T) and ArcWeak(T) (plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §3.2-§3.4).
+  `// Weak(T) and ArcWeak(T) (plans/archive/WEAK_AND_UNCOLLECTED_RC.md §3.2-§3.4).
 // A counted cell's weak count lives in the 16 bits of \`borrow_count\`. A
 // cell never carries borrow marks there: codegen emits no borrow primitive on
 // an Rc or Arc cell (\`is_counted_cell_type\`, plans/VALUES_BY_DEFAULT.md

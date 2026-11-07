@@ -2,7 +2,7 @@
 
 **Severity:** S1 — an internal compiler error on a valid program: any type with a method named `await` cannot be compiled when the method is called.
 
-**Status: FIXED 2026-10-03** (phase A5 of `plans/ASYNC_IO_API_AUDIT.md`). Found 2026-10-03 by `plans/ASYNC_IO_API_AUDIT.md` (finding F8, probe 2). **Measured on:** develop `bcb57bfe7` built by the v0.2.49 seed.
+**Status: FIXED 2026-10-03** (phase A5 of `plans/archive/ASYNC_IO_API_AUDIT.md`). Found 2026-10-03 by `plans/archive/ASYNC_IO_API_AUDIT.md` (finding F8, probe 2). **Measured on:** develop `bcb57bfe7` built by the v0.2.49 seed.
 
 ## Symptom
 
@@ -34,7 +34,7 @@ Method dispatch by the resolved callee: the `JoinHandle.await` lowering fires on
 
 ## Fix direction
 
-Key both matchers on `ExprInfo`'s resolved callee / receiver type instead of the spelling. Regression tests: the repro (prints `5`), and a struct with a field named `io` that has an `await` method. Plan: `plans/ASYNC_IO_API_AUDIT.md` A5.
+Key both matchers on `ExprInfo`'s resolved callee / receiver type instead of the spelling. Regression tests: the repro (prints `5`), and a struct with a field named `io` that has an `await` method. Plan: `plans/archive/ASYNC_IO_API_AUDIT.md` A5.
 
 ## Fix
 

@@ -2,7 +2,7 @@
 
 **Severity:** S1 — a silent miscompile: inside an `io.async` body, `if(match(...), { …await… })` or `cond(match(...) => { …await… }, …)` always takes the other branch. `yo check` and `yo compile` accept the program.
 
-**Status: FIXED 2026-10-03** (phase A1 of `plans/ASYNC_IO_API_AUDIT.md`, where `std/async`'s `any_first` returned `.None` for a handle that had completed). **Measured on:** the v0.2.49 seed and a tree build of develop `576be6e06`, before the fix.
+**Status: FIXED 2026-10-03** (phase A1 of `plans/archive/ASYNC_IO_API_AUDIT.md`, where `std/async`'s `any_first` returned `.None` for a handle that had completed). **Measured on:** the v0.2.49 seed and a tree build of develop `576be6e06`, before the fix.
 
 ## Symptom
 

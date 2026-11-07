@@ -1,5 +1,7 @@
 # What else to take from Zig: adoption candidates checked against the tree
 
+> **Trued 2026-11-07 (plans audit after VBD):** Status: BACKLOG research (2026-10-10), re-checked 2026-11-07. Z11 landed (#1580, `--allocator debug`), and Z7 is answered. Z1's `errdefer` and Z2 have no `try` to hook, because MACRO_AND_ISO_REMOVAL Part C rejects it; they need a new propagation design or a rejection. Every other candidate is open.
+
 **Status: BACKLOG — research, written 2026-10-10 at the maintainer's
 request**, the Zig half of
 [`RUST_ADOPTION_CANDIDATES.md`](RUST_ADOPTION_CANDIDATES.md); the two
@@ -36,7 +38,7 @@ in `plans/reference/`. Listed so nobody proposes it again:
 | `+%`/`+|` wrapping and saturating arithmetic | `wrapping_*`/`saturating_*`/`overflowing_*`/`checked_*` methods (the operator forms are out: the operator set is fixed) | `std/prelude.yo`, `plans/reference/OPERATOR_SET_AND_PRECEDENCE.md` |
 | `@divFloor`/`@mod`/`@rem` explicitness | `div_euclid`, `rem_euclid`, `checked_div_euclid` | `std/prelude.yo:5040` |
 | `@byteSwap`, `std.mem.readInt` | `swap_bytes`, `to_le_bytes`/`from_be_bytes` and friends | `std/prelude.yo:5424`–`5558` |
-| `undefined` + `@memset` for uninitialized buffers | `spare_capacity`/`assume_init`, and ATS A4's init proof token as the safe form | `std/collections/array_list.yo:125`, `plans/ATS_LESSONS_BEYOND_INDEXED_TYPES.md` §A4 |
+| `undefined` + `@memset` for uninitialized buffers | `spare_capacity`/`assume_init`, and ATS A4's init proof token as the safe form | `std/collections/array_list.yo:125`, `plans/archive/ATS_LESSONS_BEYOND_INDEXED_TYPES.md` §A4 |
 | `asm` blocks | `docs/en-US/INLINE_ASSEMBLY.md` | — |
 | `-fstrip`, sanitizers in Debug | `-s`/`--strip`, `--sanitize address\|thread\|undefined\|leak` | `src/main.yo:4308` |
 | incremental compilation, stable names, per-definition dependencies | landed | `plans/reference/INCREMENTAL_COMPILATION_ZIG_LESSONS.md` |

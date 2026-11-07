@@ -3,7 +3,7 @@
 **Severity:** S2 — a failed sub-evaluation is silently typed `unit` — genuine type errors in never-called generic bodies go unreported
 
 **Status:** OPEN
-**Found:** 2026-09-28, Phase 6 step 2 (`plans/TYPE_SYSTEM_SOUNDNESS.md`): trialling EVERY deferred
+**Found:** 2026-09-28, Phase 6 step 2 (`plans/backlog/TYPE_SYSTEM_SOUNDNESS.md`): trialling EVERY deferred
 generic body (not only those whose result mentions a type variable) made `check ./std` fail at
 `std/prelude.yo`'s `to_be_bytes`.
 **Measured:** tree build of `tss/p6-generic-reraise` before the `unit` exclusion in
@@ -106,7 +106,7 @@ reverted symbolic alias (`subst_add_len_var_alias`) resolve it BY NAME against w
 substitution is current. Inside another impl whose binder is also called `T`, that is the wrong
 `T`. So the fix needs a length variable that refers to its type variable by identity (the
 SomeT's id plus the projected constant), not by spelling. That is a design change to
-`TypeValue.Array`'s length, which `plans/TYPE_SYSTEM_SOUNDNESS.md` Phase 3 (type identity) did
+`TypeValue.Array`'s length, which `plans/backlog/TYPE_SYSTEM_SOUNDNESS.md` Phase 3 (type identity) did
 not cover. Until it lands, the `unit` exclusion in `mark_generic_independent` stays.
 
 ## Another reproducer (2026-11-04, Ada/SPARK lessons audit)

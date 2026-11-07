@@ -1,6 +1,6 @@
 # A self-referential bound (`A <: Add(A)`) rejects every candidate for `A`
 
-**Status: FIXED 2026-09-25** (Phase 2.6 of `plans/TYPE_SYSTEM_SOUNDNESS.md`).
+**Status: FIXED 2026-09-25** (Phase 2.6 of `plans/backlog/TYPE_SYSTEM_SOUNDNESS.md`).
 
 **Severity: false rejection.** A binder fixed by an associated-type bound,
 with a second bound that mentions the binder itself, refused every argument:

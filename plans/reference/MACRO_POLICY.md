@@ -307,7 +307,7 @@ tests/ uses both heavily).
   and riskier; only worth it if the remaining macro set grows.
 - Root-cause the open nested-eval corruption
   (`issues/yo-self-dup-eval-inside-macro-generated-body-corrupts-module-eval.md`)
-  — likely falls out of `plans/backlog/YO_SELF_ENV_SHARING.md`.
+  — likely falls out of `plans/archive/YO_SELF_ENV_SHARING.md`.
 
 ## Part 4 — Documentation
 

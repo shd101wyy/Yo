@@ -60,7 +60,7 @@ when it lands.
 The seven blocks and the helper are removed (the `doc_stability` investigation
 they served is closed by #800 itself). This is cleanup of debugging residue,
 not the fix for the mechanism; the mechanism is F8 / Phase 7 of
-`plans/EVALUATOR_MEMORY_REDUCTION.md`.
+`plans/backlog/EVALUATOR_MEMORY_REDUCTION.md`.
 
 ## Isolation (2026-09-20, `check src/evaluator/types/synthesizer.yo`, v0.2.38 binary)
 

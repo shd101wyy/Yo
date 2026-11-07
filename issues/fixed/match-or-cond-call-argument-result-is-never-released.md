@@ -1,7 +1,7 @@
 # A `match` / `cond` passed directly as a call argument never released its result
 
 > Found 2026-09-24 by the evaluator memory campaign
-> (`plans/EVALUATOR_MEMORY_REDUCTION.md` §0.5): 98% of the compiler's live
+> (`plans/backlog/EVALUATOR_MEMORY_REDUCTION.md` §0.5): 98% of the compiler's live
 > `TypeValue`s at the end of `yo check src/main.yo` were leaked temporaries.
 > **FIXED same day** on `fix/control-flow-call-arg-leak`. Present since at
 > least v0.2.32 (reproduced on that seed with a `ref(struct)` + `Dispose`).

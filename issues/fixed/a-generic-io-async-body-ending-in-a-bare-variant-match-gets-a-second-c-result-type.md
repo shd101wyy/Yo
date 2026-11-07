@@ -2,7 +2,7 @@
 
 **Severity:** S2 — a valid program fails in the C compiler while `yo check` passes: any generic function returning `Impl(Future(Result(T, E), …))` whose async body ends in a `match` that builds bare `.Ok(...)` / `.Err(...)` variants.
 
-**Status: FIXED 2026-10-03.** Found 2026-10-03 while turning `std/async`'s `timeout` into a future (phase A1 of `plans/ASYNC_IO_API_AUDIT.md`). **Measured on:** the v0.2.49 seed and a tree build of develop `576be6e06`; both fail the same way.
+**Status: FIXED 2026-10-03.** Found 2026-10-03 while turning `std/async`'s `timeout` into a future (phase A1 of `plans/archive/ASYNC_IO_API_AUDIT.md`). **Measured on:** the v0.2.49 seed and a tree build of develop `576be6e06`; both fail the same way.
 
 ## Reproducer
 

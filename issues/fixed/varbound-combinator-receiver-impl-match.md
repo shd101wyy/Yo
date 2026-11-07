@@ -80,7 +80,7 @@ minimal `map`+`for_each` case, which fail without the cell walk.
 
 ## Closed 2026-09-25
 
-Re-measured for `plans/TYPE_SYSTEM_SOUNDNESS.md` Phase 2.4: a user-level `FlatMap(I, J, F)`
+Re-measured for `plans/backlog/TYPE_SYSTEM_SOUNDNESS.md` Phase 2.4: a user-level `FlatMap(I, J, F)`
 combinator with `impl(generic(I, A, J, B, F), where(I <: Iterator(Item := A), J <: Iterator(Item :=
 B), F <: (Fn(item : A) -> J)), FlatMap(I, J, F), Iterator(Item : B, …))` and a blanket
 `flat_map` method, bound to a variable and consumed by `for_each`, yields all 6 items on the

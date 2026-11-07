@@ -2,7 +2,7 @@
 
 **Severity:** S3 — the real diagnostic (E0611) is swallowed: `check` is green, and `compile` reports only the generic "body was never fully evaluated" E0905
 
-**Status: FIXED (2026-09-29).** Found 2026-09-29 writing async state-machine probes (`plans/ASYNC_STATE_MACHINE_GENERATION.md` phase 5). Reproduces with the v0.2.45 seed and a tree build.
+**Status: FIXED (2026-09-29).** Found 2026-09-29 writing async state-machine probes (`plans/archive/ASYNC_STATE_MACHINE_GENERATION.md` phase 5). Reproduces with the v0.2.45 seed and a tree build.
 
 ## Symptom
 

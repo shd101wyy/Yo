@@ -1,5 +1,7 @@
 # What to take from goose: adoption candidates checked against the tree
 
+> **Trued 2026-11-07 (plans audit after VBD):** Status: BACKLOG research (2026-10-25); nothing adopted. Superseded in part 2026-11-07: decision 49 replaced `View(T, p)` with `&[T]` (G2 now targets a slice-backed buffer), and decision 48's collector is deleted, so §2 G6/§5's collector framing is historical. G1/G3 trigger on V5 Generation B (v0.2.77).
+
 **Status: BACKLOG — research, written 2026-10-25 at the maintainer's
 request, from the brainstorm of the same day.** Goose is Wouter van
 Oortmerssen's memory-safe systems language with no heap allocator
@@ -279,7 +281,7 @@ it is goose with Yo's syntax. The accounting, feature by feature:
 the anti-goose workload — `TypeValue`/`AstExpr` trees retained and
 shared across every phase, the demand loader's cached prelude
 environment, a multi-gigabyte resident `check`: retention, not churn,
-which is why [`../EVALUATOR_MEMORY_REDUCTION.md`](../EVALUATOR_MEMORY_REDUCTION.md)
+which is why [`../backlog/EVALUATOR_MEMORY_REDUCTION.md`](EVALUATOR_MEMORY_REDUCTION.md)
 and `ARENA_ALLOCATOR_FEASIBILITY.md` §0 item 4 concluded arenas do not
 fix its memory story. Complete adoption means rewriting the compiler
 around handle-indexed tables at best, with the evaluator's shared
@@ -344,10 +346,10 @@ Yo:
   runtime's scope (`:1784`); the dup/drop optimizer (`:1756`)
 - [`REFERENCES_AND_ORIGINS.md`](REFERENCES_AND_ORIGINS.md) — O1–O10, §3,
   §6
-- [`ARENA_ALLOCATOR_FEASIBILITY.md`](ARENA_ALLOCATOR_FEASIBILITY.md) —
+- [`ARENA_ALLOCATOR_FEASIBILITY.md`](../archive/ARENA_ALLOCATOR_FEASIBILITY.md) —
   §0 verdicts, §4.1, §4.3 Option C′, §5 hatches
 - [`ALLOCATOR_PLACEMENT.md`](ALLOCATOR_PLACEMENT.md) — C1–C7
-- [`../EVALUATOR_MEMORY_REDUCTION.md`](../EVALUATOR_MEMORY_REDUCTION.md) —
+- [`../backlog/EVALUATOR_MEMORY_REDUCTION.md`](EVALUATOR_MEMORY_REDUCTION.md) —
   why the compiler's footprint is retention, not churn
 - [`ZIG_STYLE_ALLOCATORS.md`](ZIG_STYLE_ALLOCATORS.md) — A1/A3
 - [`../reference/FIXED_REGION_ALLOCATOR.md`](../reference/FIXED_REGION_ALLOCATOR.md) —

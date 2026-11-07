@@ -12,7 +12,7 @@
 > **Revised 2026-10-22 (post-v0.2.68):** v0.2.68 shipped; its row records what landed. The `markdown_yo` half of
 > B2 and `rc`'s `alloc` parameter move to v0.2.69, which also gains decision 48's W1 and W2, `drop_in_place`
 > (§5a decision 13), the explicit-copy migration fixes and the async aliased-argument share S1. Decision 48
-> (`plans/backlog/WEAK_AND_UNCOLLECTED_RC.md`, W1–W6) is placed from v0.2.69 to v0.2.74 (§5a decision 14), and
+> (`plans/archive/WEAK_AND_UNCOLLECTED_RC.md`, W1–W6) is placed from v0.2.69 to v0.2.74 (§5a decision 14), and
 > decision 46 step 3 is deleted (W6 supersedes it). §3 still expects 8 releases. The range becomes 7 to 13:
 > v0.2.68 shipped on its own, which spends one fold, and W6b is a new risk on v0.2.74.
 > **Revised 2026-10-23 (during the v0.2.69 cut; §5c decisions 16–20):** v0.2.69's row records what landed.
@@ -21,7 +21,7 @@
 > stage 1, plus B7a's read walk, Z11, the V3 std half and the v0.2.71 Generation A halves that are gated in time.
 > B4, B6, B7 and the B8–B11 flips then run on the v0.2.70 seed and ship in v0.2.71 with the B12 cut. §3 still
 > expects 8 releases, but the last fold is spent, so the range becomes 8 to 13.
-> **Revised 2026-10-23 (maintainer):** static-argument inference (`plans/backlog/STATIC_ARGUMENT_INFERENCE.md`) is
+> **Revised 2026-10-23 (maintainer):** static-argument inference (`plans/archive/STATIC_ARGUMENT_INFERENCE.md`) is
 > placed as riders that add no cut. Its Generation A goes to v0.2.72. Its Generation B goes to v0.2.73: `box`/`rc`/`arc`
 > become `Box.new`/`Rc.new`/`Arc.new` through `yo fix --migrate handle-ctors`, with the builtins kept for that
 > release so the published mode can type old calls. The builtins are deleted at v0.2.74, and the migration retires
@@ -252,7 +252,7 @@ Allocator placement (2026-10-24) is not a boundary either:
 | Macro plan Part C | MACRO_AND_ISO_REMOVAL Part C | one release after macro B1's: v0.2.75 if B1 makes v0.2.74, else v0.2.76 (§5e decision 26); no `--migrate` mode, so the count holds | needs the seed carrying macro B1 |
 | V5 Generation B | plan V5 | v0.2.77, with the retirement (§5f decision 27; v0.2.76 until 2026-11-04, v0.2.75 until 2026-11-02) | needs the seed carrying V5 Generation A, a std without `ref` (v0.2.75) |
 | Effect records derive `Copy` | plan "Decision 43", open `ctl` point | v0.2.76, with V5 Generation B (§5e decision 24) | needs the rule in the seed |
-| K7 docs sweep, K4 skills removal | `plans/AGENT_KNOWLEDGE_CONSOLIDATION.md` | v0.2.76, with V5 Generation B and before the retirement PR (§5e decision 24) | no |
+| K7 docs sweep, K4 skills removal | `plans/backlog/AGENT_KNOWLEDGE_CONSOLIDATION.md` | v0.2.76, with V5 Generation B and before the retirement PR (§5e decision 24) | no |
 | Retire the `yo fix` migrations | plan "After V5" | v0.2.76 | needs v0.2.75 published and the README projects migrated |
 | Macro plan B3, B4 | MACRO_AND_ISO_REMOVAL Part B; B3 deletes `from_array` (§5 decision 8) | **landed in v0.2.68** (#1527, #1513) | no; B3 runs the escape-hatch checklist |
 | `Acyclic` declarations, then #1486 | #1486's "Deferred"; §5 decision 10 | **landed in v0.2.68** (#1515); the declarations are dead code at W6b | no |
@@ -270,7 +270,7 @@ Allocator placement (2026-10-24) is not a boundary either:
 | Decision 48 W5 (derived `Acyclic` skips `Weak` edges; the S2 derivation fix; no pragma) | WEAK_AND_UNCOLLECTED_RC §4, §7 | v0.2.73 (moved 2026-10-27) | needs W3/W4 in the seed (v0.2.72) |
 | Decision 48 W6a (`Off` the default for one release; the measurement recorded) | WEAK_AND_UNCOLLECTED_RC §6 precondition 3 | v0.2.73 (moved 2026-10-27); v0.2.74 at the latest, since W6b needs it published | needs W3/W4 in the seed (v0.2.72) and Z11 |
 | Decision 48 W6b (delete the collector, `Trace`, the large header, the knob and the DECLARED `Acyclic` form; derived `Acyclic` stays; O9/O10 amended) | WEAK_AND_UNCOLLECTED_RC §6 | v0.2.75, BEFORE V5 Generation A's part B (§5e decision 24; its std half moves to v0.2.76 beside V5 Generation B only if the `Trace`-by-name seed risk fires). **Staged 2026-11-03 on `vbd/w6b-delete-collector` as ONE PR: the seed risk was measured and does not fire** (the v0.2.73 seed checks and builds the tree over a `Trace`-less std; `~/Workspace/Yo-wt/vbd-logs/w6b/PLAN.md`). A positive `impl(T, Acyclic())` is rejected (VERDICTS-16 Q1); O9/O10 amended in text only (Q2) | needs W6a published |
-| Static-argument inference Generation A: the rule, `Rc`/`Box`/`Arc` `.new`, `dyn` stops naming `rc` | `plans/backlog/STATIC_ARGUMENT_INFERENCE.md` §5 A1–A3 | **landed in v0.2.72**: A2+A3 (#1646), after decision 43 step 1 (reversed 2026-10-27), then A1 (#1647) | is the Generation A |
+| Static-argument inference Generation A: the rule, `Rc`/`Box`/`Arc` `.new`, `dyn` stops naming `rc` | `plans/archive/STATIC_ARGUMENT_INFERENCE.md` §5 A1–A3 | **landed in v0.2.72**: A2+A3 (#1646), after decision 43 step 1 (reversed 2026-10-27), then A1 (#1647) | is the Generation A |
 | Static-argument inference Generation B: `--migrate handle-ctors` and the sweep (B1, B2, B4) | same, B1, B2, B4 | v0.2.73, on V2c's tip (v0.2.74 on a slip); the mode retires at v0.2.76 | needs A1–A3 in the seed (v0.2.72) |
 | Static-argument inference B3: `box`/`rc`/`arc` deleted, E0401 names `Rc.new` | same, B3 | v0.2.74 (v0.2.75 on a slip) | one release after the mode ships, so a published mode can type old calls |
 | Allocator placement A1: `__yo_cell`/`__yo_atomic_cell` take the allocator | `plans/backlog/ALLOCATOR_PLACEMENT.md` §6 A1 | **merged** (#1572), ships in v0.2.70 | is the Generation A; `rc`/`arc` adopt it inside V5 Generation A |
@@ -326,7 +326,7 @@ The maintainer made all four. None adds or removes an expected cut. Decisions 11
     - `drop_in_place` is Rust's `ptr::drop_in_place`, with the body `___drop(p.*)`. It runs the destructor in place and does not move the value out. std's 11 `___drop(x_ptr.*)` sites (`std/prelude.yo`, `std/collections/array_list.yo`, `deque.yo`, `hash_map.yo`, `std/sync/channel.yo`) may move to it where that reads better.
     - Reason: macro plan B4 (#1513) deleted the `unsafe.drop` wrapper, so nothing at a `___drop` call asks for `unsafe` any more. The std sites wrap only the dereference. On a field place, safe code can write `___drop(h.xs)` and then read `h.xs`, which is a heap use-after-free with no `unsafe` anywhere. That is filed S2 on `docs/issue-drop-builtin-safe`, and `feat/drop-in-place` carries the issue together with its fix.
     - Not a cut: it is a std function plus a gate in the tree compiler, and the seed compiles both unchanged.
-14. **Decision 48's placement** (`plans/backlog/WEAK_AND_UNCOLLECTED_RC.md` §7; plan "Decision 48" ordering 1–6):
+14. **Decision 48's placement** (`plans/archive/WEAK_AND_UNCOLLECTED_RC.md` §7; plan "Decision 48" ordering 1–6):
 
     | Phase | Release | Why there |
     | --- | --- | --- |

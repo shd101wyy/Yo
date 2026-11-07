@@ -1,7 +1,7 @@
 # An enum variant constructed with the WRONG payload type passes `check` and emits ill-typed C
 
-**Status:** FIXED 2026-09-24 (Phase 1.7 of `plans/TYPE_SYSTEM_SOUNDNESS.md`). Originally OPEN: check-green / C-red.
-`plans/SELF_VERIFICATION.md` (a test passed `String` where the variant declares
+**Status:** FIXED 2026-09-24 (Phase 1.7 of `plans/backlog/TYPE_SYSTEM_SOUNDNESS.md`). Originally OPEN: check-green / C-red.
+`plans/backlog/SELF_VERIFICATION.md` (a test passed `String` where the variant declares
 `ArrayList(String)`).
 **Severity:** check-green / C-red. The evaluator accepts a payload of any type;
 the mistake surfaces as a C compiler error hundreds of thousands of lines into a
@@ -75,7 +75,7 @@ found it is now correct and is not a regression test for this.
 
 ## Scope note
 
-Found while implementing `plans/SELF_VERIFICATION.md` M0; filed, not fixed
+Found while implementing `plans/backlog/SELF_VERIFICATION.md` M0; filed, not fixed
 there. The fix is an evaluator change in the variant-construction path and
 belongs in its own PR with the over-rejection canary above.
 

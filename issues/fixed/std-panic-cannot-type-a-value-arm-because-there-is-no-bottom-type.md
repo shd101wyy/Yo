@@ -1,7 +1,7 @@
 # `std/assert`'s `panic` cannot be used in a value arm because Yo has no bottom type
 
-**Found:** 2026-09-23, type-system audit (`plans/TYPE_SYSTEM_SOUNDNESS.md`, Phase 3).
-**Status:** FIXED 2026-09-26. The compiler half (Phase 3.6 of `plans/TYPE_SYSTEM_SOUNDNESS.md`,
+**Found:** 2026-09-23, type-system audit (`plans/backlog/TYPE_SYSTEM_SOUNDNESS.md`, Phase 3).
+**Status:** FIXED 2026-09-26. The compiler half (Phase 3.6 of `plans/backlog/TYPE_SYSTEM_SOUNDNESS.md`,
 #916) landed 2026-09-25; the std half followed once v0.2.43 put `never` in the seed.
 **Measured:** yo 0.2.39 seed; re-verified with the same result on a develop build `d455b6a67`.
 

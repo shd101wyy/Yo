@@ -38,7 +38,7 @@ accept an `Rc.new`/`Arc.new` member-call head, with or without `alloc :`: today 
 matches (`.Atom` plus `shared_cell_type_name_of_constructor`, `src/evaluator/values/dyn.yo:991`), so
 `dyn(Rc.new(u => …))` would not be typed from the `Dyn` even without `alloc`. That is a separate path from
 static-argument inference A3, which changes what `dyn`'s auto-box synthesizes
-(`plans/backlog/STATIC_ARGUMENT_INFERENCE.md`).
+(`plans/archive/STATIC_ARGUMENT_INFERENCE.md`).
 
 ## Test
 

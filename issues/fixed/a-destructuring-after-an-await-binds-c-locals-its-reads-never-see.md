@@ -2,7 +2,7 @@
 
 **Severity:** S1 — silent wrong values: names bound by a destructuring (`(n, from) := got`, `{ a, b } := s`) inside a task read garbage
 
-**Status: FIXED (2026-09-30).** Found by CI on #1002, the phase 5 PR of `plans/ASYNC_STATE_MACHINE_GENERATION.md`: `tests/net/udp.test.yo` "a quiet recv_from parks the task, not the event loop" read `n == 0`, and its sender address was not loopback. The v0.2.46 seed passes it: this was a regression of the single-pass lowering.
+**Status: FIXED (2026-09-30).** Found by CI on #1002, the phase 5 PR of `plans/archive/ASYNC_STATE_MACHINE_GENERATION.md`: `tests/net/udp.test.yo` "a quiet recv_from parks the task, not the event loop" read `n == 0`, and its sender address was not loopback. The v0.2.46 seed passes it: this was a regression of the single-pass lowering.
 
 ## Symptom
 

@@ -1,7 +1,7 @@
 # A `Box` over an `Impl(Fn(...))` is emitted as TWO C structs, and the return type mismatches
 
 **Status:** FIXED (measured 2026-09-26 on the v0.2.43 seed, Phase 3.8 of
-`plans/TYPE_SYSTEM_SOUNDNESS.md`). **Found:** 2026-09-13, from develop's first full battery to
+`plans/backlog/TYPE_SYSTEM_SOUNDNESS.md`). **Found:** 2026-09-13, from develop's first full battery to
 finish since the merge storm.
 **Severity:** ill-typed C everywhere; a hard ERROR on exactly one CI leg.
 

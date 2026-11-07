@@ -187,7 +187,7 @@ anchored at the clause. gdb (-O0 -g driver, breakpoint on the synthesizer
 unify): the failing parameter check passes the PRELUDE's `~`-impl
 `bit_not` `self` atom (token at `std/prelude.yo:582:4`) whose type has
 been cross-contaminated with the impl method's fn type — the def-time
-body env sharing class from `plans/backlog/FUNCVAL_ENV_SHARING.md`,
+body env sharing class from `plans/archive/FUNCVAL_ENV_SHARING.md`,
 triggered via the trait-entry expected-type path. Bisect table in the
 issue: trait-with-clauses alone OK; inherent impl-with-clauses OK;
 trait + impl-with-clause FAILS (with or without clauses on the trait

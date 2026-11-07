@@ -13,7 +13,7 @@ through FFI, and that purity is what makes framing free
 (`plans/backlog/FORMAL_VERIFICATION.md` §Purity and the effect frame rule).
 The boundary is elegant and it is drawn exactly where user code lives.
 Many Yo functions take `io` or `exn` (13.7% of the compiler's signatures
-take `Exception` and 4.6% take `Io`, `plans/SELF_VERIFICATION.md` census).
+take `Exception` and 4.6% take `Io`, `plans/backlog/SELF_VERIFICATION.md` census).
 A verified body that uses one is outside the subset: reported
 `outside-subset` if it has no contract, `subset-error` (runtime-assert
 fallback under `verify+`) if it does. Nothing in it is proved, including

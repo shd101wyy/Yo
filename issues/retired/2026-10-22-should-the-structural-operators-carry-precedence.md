@@ -118,7 +118,7 @@ expect a hint for (the exact sentences).
 | lambda `->` | computational | `x -> x + 1` | right: the body | `Wrap the right-hand side in parentheses: params -> (x + 1).` |
 | lambda `->` | a binding | `err -> flag = true` | not unique: the lattice says `(err -> flag) = true`, never a program; an author means the body `err -> (flag = true)` | none |
 | lambda `->` | `:`, `=>` | `x -> y : T`, `x -> c => v` | none: a body `(y : T)` declares `y`, and `(x -> c) => v` is no form | none |
-| computational | computational | `1 + 2 * 3` | not unique: both groupings are real programs (the E0003 repair was declined for this, `plans/backlog/LLM_AUTHORING_AUDIT_2026-09-19.md` §3.1) | none |
+| computational | computational | `1 + 2 * 3` | not unique: both groupings are real programs (the E0003 repair was declined for this, `plans/archive/LLM_AUTHORING_AUDIT_2026-09-19.md` §3.1) | none |
 | computational | `=>` | `n <= i32(1) => v`, `p == q && r => v` | left: the WHOLE arm condition. The parser reports the innermost operator (`&&` in the second example), so the hint names no operands: `(a && b) => v` would pick `p == (q && r)`, a different program that compiles | `Parenthesize the whole condition: (condition) => value.` |
 | computational | `->` | `a + b -> c` | none: neither `(a + b) -> c` nor `a + (b -> c)` is a form | none |
 | computational | `:` | `a + b : T` | none: the left of `:` is a name or pattern, never an expression, and `a + (b : T)` is not a form | none |

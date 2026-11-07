@@ -783,7 +783,7 @@ The deferred original Phase C of `INCREMENTAL_COMPILATION.md` — reusing
 evaluated modules across build invocations — has two possible shapes:
 serialize the evaluated state, or never let the process die. The repo
 already concluded serialization is "a project, not a patch" (a 7.4 M-live-
-`Variable` env graph, `plans/backlog/YO_SELF_ENV_SHARING.md`). Zig's answer
+`Variable` env graph, `plans/archive/YO_SELF_ENV_SHARING.md`). Zig's answer
 is the same as `check --watch`'s: **a resident process**. `zig build
 --watch -fincremental` keeps one compiler alive and re-links on change.
 This phase does the same for `build` and `test`.
@@ -1035,7 +1035,7 @@ while the self-build wastes ~27 %. Function count is a proxy for evaluation
 cost (bodies differ in size), but the shape is unambiguous: reachability-
 driven evaluation for `compile` is a small-program lever, not a self-build
 one — and the self-build is where the memory and wall problems live
-(`plans/EVALUATOR_MEMORY_REDUCTION.md`). The decision stands as written
+(`plans/backlog/EVALUATOR_MEMORY_REDUCTION.md`). The decision stands as written
 above: it trades "a broken unused std function fails every build" for build
 time, and the user decides. The instrument stays in the spec report.
 

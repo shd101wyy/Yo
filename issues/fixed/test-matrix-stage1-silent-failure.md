@@ -151,7 +151,7 @@ on all five targets.
 
 Restoring per-PR macOS compiler coverage needs one of:
 
-- bringing the emit's peak memory down — `plans/backlog/YO_SELF_ENV_SHARING.md`
+- bringing the emit's peak memory down — `plans/archive/YO_SELF_ENV_SHARING.md`
   identifies the root cause (def-time body envs COPY what TS SHARES, 7.4 M live
   `Variable`s); or
 - paid larger runners (`macos-*-xlarge`), which is a spend decision, not a code

@@ -13,7 +13,7 @@ begin(xs := (ArrayList(i32).new)(), (xs.push)(i32(1)), (xs.index_unchecked)(usiz
 
 ## Cause
 
-`IndexUnchecked.index_unchecked` and `IndexUncheckedMut.index_unchecked_mut` are `index`/`index_mut` without the length test. Codegen calls them only at a subscript the verifier proved in bounds (`plans/backlog/SAFE_MODE_5B_CONTAINER_BOUNDS_ELISION.md`). Nothing marks them unsafe: what kept safe code from calling them was their raw-pointer result (`-> *Self.Output`), since safe code cannot name a raw pointer.
+`IndexUnchecked.index_unchecked` and `IndexUncheckedMut.index_unchecked_mut` are `index`/`index_mut` without the length test. Codegen calls them only at a subscript the verifier proved in bounds (`plans/archive/SAFE_MODE_5B_CONTAINER_BOUNDS_ELISION.md`). Nothing marks them unsafe: what kept safe code from calling them was their raw-pointer result (`-> *Self.Output`), since safe code cannot name a raw pointer.
 
 V2b Generation B (#1361) moved both into the projection shapes (`-> &Self.Output`, `-> &mut Self.Output`), in `std/prelude.yo` and in `ArrayList`'s impls. A projection result is legal in safe code, so `xs.index_unchecked(usize(5))` compiled and read out of bounds.
 

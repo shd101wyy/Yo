@@ -9,7 +9,7 @@
   this did not need a seed carrying the token API after all. The dependency is
   bumped to `^0.0.9`.
 
-- **Found:** 2026-09-30 by the ATS audit (`plans/ATS_LESSONS_BEYOND_INDEXED_TYPES.md`
+- **Found:** 2026-09-30 by the ATS audit (`plans/archive/ATS_LESSONS_BEYOND_INDEXED_TYPES.md`
   §3, ATS's `T?` uninitialized-type row).
 - **Component:** `std/collections/array_list.yo` — `set_len` (public, no
   pointer in its type, so the safe-mode gate never sees it).

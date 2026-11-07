@@ -1,6 +1,6 @@
 # `dyn(x)` cannot build a vtable when `x`'s impl comes from a GENERIC impl — the undeclared-wrapper crash, again
 
-**Status:** FIXED 2026-09-25 (Phase 2.7 of `plans/TYPE_SYSTEM_SOUNDNESS.md`).
+**Status:** FIXED 2026-09-25 (Phase 2.7 of `plans/backlog/TYPE_SYSTEM_SOUNDNESS.md`).
 **Found:** 2026-09-05, extending the canary set for
 `issues/fixed/dyn-does-not-check-that-the-value-implements-the-traits.md` (C69)
 onto the generic-impl path that PR #429 had just touched.

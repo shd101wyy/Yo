@@ -5,7 +5,7 @@
 `spin :: (fn(x : u32) -> u32)(spin(x) + u32(1))`.
 
 **Status:** FIXED 2026-10-01 (`feat/verifier-distinct`, A3 slice 2 of
-`plans/ATS_LESSONS_BEYOND_INDEXED_TYPES.md`). Found while reading
+`plans/archive/ATS_LESSONS_BEYOND_INDEXED_TYPES.md`). Found while reading
 `_transparent_call_term` to plan that slice.
 
 ## Reproduction

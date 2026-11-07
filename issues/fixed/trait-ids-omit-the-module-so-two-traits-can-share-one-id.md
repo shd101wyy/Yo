@@ -1,6 +1,6 @@
 # Trait ids omit the module, so two traits at the same row/column share one id
 
-**Status:** FIXED 2026-09-24 (Phase 2.3/3.3 of `plans/TYPE_SYSTEM_SOUNDNESS.md`). Found
+**Status:** FIXED 2026-09-24 (Phase 2.3/3.3 of `plans/backlog/TYPE_SYSTEM_SOUNDNESS.md`). Found
 2026-09-16 while investigating `issues/fixed/a-two-line-comment-change-in-std-prelude-fails-check-std.md`.
 
 ## The defect
@@ -82,7 +82,7 @@ than a structural one ([[yo-byte-identity-gate-for-additive-codegen-change]]).
 
 ## Addendum 2026-09-23: anonymous structs share the same id scheme (type-system audit)
 
-MEASURED on a develop build `d455b6a67` (`plans/TYPE_SYSTEM_SOUNDNESS.md`, Phase 3). `stable_type_id`
+MEASURED on a develop build `d455b6a67` (`plans/backlog/TYPE_SYSTEM_SOUNDNESS.md`, Phase 3). `stable_type_id`
 (`src/utils.yo` ~309) is used for traits, CTFE instantiations, anonymous struct values
 (`src/evaluator/values/anonymous_struct.yo` ~89) and unions, so the collision is not trait-only.
 Two modules each export an anonymous record constant at the same row and column:

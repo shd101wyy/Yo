@@ -13,7 +13,7 @@ The doc held four claims. The 2026-10-14 triage split them, and all four are now
 
 Test: `tests/internal/input_record.test.yo` covers three cases: a hit replays its module's inputs with their hashes; a hit replays through a module its load found cached, even one already replayed earlier in the same compile; a never-observed module makes the record unusable. A `--watch` session cannot be scripted as a cli-case, which is why the test is at this level.
 
-**Status:** FIXED (moved 2026-10-14, see Resolution). **Found:** 2026-09-18, during `plans/SELF_VERIFICATION.md` M0 /
+**Status:** FIXED (moved 2026-10-14, see Resolution). **Found:** 2026-09-18, during `plans/backlog/SELF_VERIFICATION.md` M0 /
 Bend-plan B0 work.
 **Severity:** HIGH — every local gate in this repo can silently test the wrong
 binary. A contributor who rebases and re-runs `yo build` gets the pre-rebase

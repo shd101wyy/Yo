@@ -1,7 +1,7 @@
 # An `-> Impl(Trait)` return bound is never checked against the body
 
-**Found:** 2026-09-23, type-system audit (`plans/TYPE_SYSTEM_SOUNDNESS.md`, Phase 2).
-**Status:** FIXED 2026-09-24 (Phase 2.2 of `plans/TYPE_SYSTEM_SOUNDNESS.md`). Originally OPEN: green `yo check`, then an internal compiler error in `yo compile`.
+**Found:** 2026-09-23, type-system audit (`plans/backlog/TYPE_SYSTEM_SOUNDNESS.md`, Phase 2).
+**Status:** FIXED 2026-09-24 (Phase 2.2 of `plans/backlog/TYPE_SYSTEM_SOUNDNESS.md`). Originally OPEN: green `yo check`, then an internal compiler error in `yo compile`.
 **Measured:** yo 0.2.39 seed; re-verified with the same result on a develop build `d455b6a67`.
 
 ## Repro

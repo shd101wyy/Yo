@@ -1,7 +1,7 @@
 # `Dyn(A, B)` and `Dyn(B, A)` are one type to the checker and two C types to codegen
 
 **Status:** FIXED 2026-09-27 (branch `tss/dyn-upcast`; see Resolution)
-**Found:** 2026-09-27, Dyn upcast feasibility audit (`plans/TYPE_SYSTEM_SOUNDNESS.md` Phase 2.8).
+**Found:** 2026-09-27, Dyn upcast feasibility audit (`plans/backlog/TYPE_SYSTEM_SOUNDNESS.md` Phase 2.8).
 **Measured:** yo 0.2.44 seed. `yo check` rc=0; `yo compile --optimize 2` fails in clang.
 **Repro:** `issues/repros/dyn-trait-order-is-part-of-its-c-type.yo`
 

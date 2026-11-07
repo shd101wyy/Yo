@@ -1,5 +1,5 @@
 #!/bin/bash
-# memory_ratchet.sh — the evaluator memory ratchet (plans/EVALUATOR_MEMORY_REDUCTION.md
+# memory_ratchet.sh — the evaluator memory ratchet (plans/backlog/EVALUATOR_MEMORY_REDUCTION.md
 # Phase 0.6). Runs `check src/main.yo` under GNU time and compares its maximum
 # resident set size with the recorded baseline in memory-ratchet.tsv.
 #

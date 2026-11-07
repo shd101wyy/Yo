@@ -1,5 +1,7 @@
 # Kebab-case package, directory and file names
 
+> **Trued 2026-11-07 (plans audit after VBD):** Status (2026-11-07): Parts A (#1686, v0.2.74) and B (#1790, 2026-11-05) are done. Part C is inside VBD: the last PR of the v0.2.78 window, with `--migrate module-names` retiring in v0.2.79 (schedule §5f decision 32).
+
 **Status:** decided 2026-10-30 by the maintainer, on Fable consultations #3 (package names, 2026-10-29) and #9
 (module file and directory names, 2026-10-30).
 - Part A is in progress: the package-name tooling and `markdown-yo` land in v0.2.74.

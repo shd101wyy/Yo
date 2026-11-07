@@ -35,10 +35,10 @@ section).
 
 ## Re-verified 2026-09-28 (async state-machine audit)
 
-Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
+Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/archive/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
 
 **FIXED.** `exists`' SM completion now drops the `path.to_string()` temp (an SM field), with no phantom Option fields. 10 calls under LSan: the seed shows only the 24 B continuation-pool leak, and the tree build is clean.
 
 ## Retired (2026-09-29, async state-machine plan)
 
-Re-verified fixed on 2026-09-28 under LSan, and the completion emitter it describes was deleted with the segment lowering (`plans/ASYNC_STATE_MACHINE_GENERATION.md` phase 5).
+Re-verified fixed on 2026-09-28 under LSan, and the completion emitter it describes was deleted with the segment lowering (`plans/archive/ASYNC_STATE_MACHINE_GENERATION.md` phase 5).

@@ -1,5 +1,7 @@
 # Allocator placement: global by default, placement by argument
 
+> **Trued 2026-11-07 (plans audit after VBD):** Decided 2026-10-24. Trued 2026-11-07: A1 (#1572), A2 (#1613), B1 (#1614) and B2 (B2a with allocator v2, B2b #1757) have landed, and the `Box` layout L2/L3 ride decision 49 S2 (v0.2.78/v0.2.79). Step C, the root `global_allocator` declaration (§6 C, §11.2), has not started and is the post-VBD remainder. Examples spelled `rc(...)` predate static-argument inference B3: read them as `Rc.new(...)`.
+
 > **Status: Backlog — decided 2026-10-24 (maintainer adopted the advisor's verdict); steps A1/B1/B2 are VBD
 > campaign items, step C follows v0.2.75.** A1 is #1572 (merged; it ships in v0.2.70). A2 and B1 are implemented
 > for v0.2.71 (branches `vbd/alloc-placement-a2` and `vbd/alloc-placement-b1`, stacked; 2026-10-25). B2a is
@@ -56,7 +58,7 @@ for correctness, only for placement. Placement is one argument at the creation s
    its source lives (VBD decision 12, unchanged). `clone_in(a)` places a copy explicitly.
 2. **There is one spelling for placement: a defaulted `(alloc : Option(Allocator)) ?= .None`.** It is the
    parameter `rc`/`box`/`arc` already have (`std/prelude.yo:9763`, `:9966`, `:10108`), and `Rc.new`/`Box.new`/
-   `Arc.new` inherit it (`plans/backlog/STATIC_ARGUMENT_INFERENCE.md` A2). The containers take the same
+   `Arc.new` inherit it (`plans/archive/STATIC_ARGUMENT_INFERENCE.md` A2). The containers take the same
    parameter, so `new_in`/`with_capacity_in` are deleted. A user function that passes placement on declares the
    same parameter, which a safe file can do once step A2 makes `Allocator` an opaque handle (§6).
 3. **The global allocator is declared in the root module** (step C): `global_allocator :: heap.Mimalloc;`. Without a

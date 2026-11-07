@@ -1805,7 +1805,7 @@ test("a borrowed value is changed through an owned copy", {
   assert(from_arm == "from-an-arm-long-enough-for-the-heap", "the arm's copy has the new string");
   match(o, .Some(d) => assert(d.s == "original-string-long-enough-for-the-heap", "the matched value is untouched"), .None => assert(false, "unreachable"));
 });
-// plans/STRING_VALUE_SEMANTICS.md S2: copy-on-write clones a buffer when its
+// plans/archive/STRING_VALUE_SEMANTICS.md S2: copy-on-write clones a buffer when its
 // count is above 1, so for a VALUE type holding RC data the live count must
 // never read 1 while two copies are alive. The dup/drop optimizer never cancels
 // a value-with-RC pair ("both copies need their own drop"), unlike the
@@ -2901,7 +2901,7 @@ test("rc alloc : .Some(a) shared by several handles is released into a once, and
 // `rc`'s twin of tests/arc.test.yo's Send case: a `dyn(...)` closure that
 // captures a parameter of a generic (`Impl(Fn)`) function is boxed by a
 // synthesized `__yo_rc_cell(closure)` (`rc(closure)` until H1,
-// plans/backlog/STATIC_ARGUMENT_INFERENCE.md §5) whose `V` is the closure's
+// plans/archive/STATIC_ARGUMENT_INFERENCE.md §5) whose `V` is the closure's
 // capture struct
 // (issues/fixed/2026-10-22-a-dyn-closure-in-a-generic-fn-boxes-through-a-cell-typed-by-the-unbound-return.md).
 _RcDynDetector :: struct(detect : Dyn(Fn(x : i32) -> i32));
@@ -3846,7 +3846,7 @@ test("a ref-handle field operand is read before a later operand writes it throug
     assert((p.a - p.b) == i32(2), "constructor");
   };
 });
-// === Weak(T) (plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §3, W3) ===
+// === Weak(T) (plans/archive/WEAK_AND_UNCOLLECTED_RC.md §3, W3) ===
 // `g_weak_dropped` counts the `_WeakProbe` payloads dropped;
 // `g_weak_self_upgrade_none` records what a payload's own `Drop` saw when it
 // upgraded a `Weak` to its own cell.
@@ -4023,7 +4023,7 @@ test("Rc.make_mut on the only Rc with a Weak alive moves to a fresh cell", {
 });
 // `Rc.make_mut` on a cell only `Weak` handles share moves the payload to a
 // fresh cell, as Rust's does: no clone, no drop, and the old cell goes to the
-// `Weak` handles as dead (plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §3.3). The
+// `Weak` handles as dead (plans/archive/WEAK_AND_UNCOLLECTED_RC.md §3.3). The
 // fresh cell is placed by the default allocator, so the counting allocator
 // sees only the old one.
 (mut(g_rc_mm_clones) : i32) = i32(0);
@@ -4188,7 +4188,7 @@ test("a generic body copies a handle that is its T implicitly", {
   o := match(_v2c_some(), .Some(v) => v, .None => Rc.new(i32(0)));
   assert(ref_count(o) == usize(1), "a match binding of a temporary moves");
 });
-// A `Weak` is not an edge (plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §3.4): a
+// A `Weak` is not an edge (plans/archive/WEAK_AND_UNCOLLECTED_RC.md §3.4): a
 // cycle closed through one frees itself by reference counting, and so does
 // the Rust shape for a parent pointer, strong children and a weak parent.
 // Moved from tests/cycle_collector.test.yo when the collector was deleted

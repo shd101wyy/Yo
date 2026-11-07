@@ -40,7 +40,7 @@ resolved to the closure's `Impl` SomeT — and `Arc` is a nominal type construct
 evaluations mint two struct ids. For a nominal argument (`arc(i32(1))`) both evaluations resolve
 `V` the same way; a closure-typed argument is the case where the bound variable's identity
 differs between the signature and the body. This is the "one notion of type identity for
-resolved type variables" problem of `plans/TYPE_SYSTEM_SOUNDNESS.md` Phase 3, not a parallelism
+resolved type variables" problem of `plans/backlog/TYPE_SYSTEM_SOUNDNESS.md` Phase 3, not a parallelism
 one; handed over to that plan (2026-09-26), and `plans/PARALLELISM_SOUNDNESS.md` Phase 4 keeps
 only the D4 consequence (the legal `arc(closure_over_atomic)` canary waits on it).
 

@@ -170,7 +170,7 @@ test("B2: repeated re-analysis keeps registry entry counts stable", {
   assert(gi2 == gi1, `generic-impl registry leaked: ${gi1} -> ${gi2}`);
   assert(gi3 == gi2, `generic-impl registry leaked: ${gi2} -> ${gi3}`);
   // The FuncVal capture-handle registry (Phase 1 step 5 of
-  // plans/EVALUATOR_MEMORY_REDUCTION.md): each round's definitions register
+  // plans/backlog/EVALUATOR_MEMORY_REDUCTION.md): each round's definitions register
   // fresh env_keys, so without the owner purge it grew by the doc's whole
   // function surface per round.
   assert(fcv2 == fcv1, `capture-handle registry leaked: ${fcv1} -> ${fcv2}`);
@@ -217,7 +217,7 @@ test("B2: re-analysis keeps the memo and trait-default registries flat", {
   assert(total3 == total2, `memo/default/intern registries leaked: ${total2} -> ${total3}`);
 });
 
-// plans/EVALUATOR_MEMORY_REDUCTION.md Phase 1 step 3: the LSP keeps a
+// plans/backlog/EVALUATOR_MEMORY_REDUCTION.md Phase 1 step 3: the LSP keeps a
 // finished walk's evaluation context (the module's whole ExprInfoTable) only
 // for OPEN documents — the only modules a per-definition revalidation
 // re-forces in place. An imported, unopened module's walk releases it like a
@@ -346,7 +346,7 @@ test("captures: a specialization of a handle-backed FuncVal stores no flat captu
   // `cap_names`/`cap_tys` (plus the values and a copy of the handle list):
   // ~1,780 entries per derivation in the compiler's own modules, ~0.5 GB of
   // `check src/main.yo`. It now takes the original's first `n_vals` handles and
-  // reads names/types through them (plans/EVALUATOR_MEMORY_REDUCTION.md §0.13).
+  // reads names/types through them (plans/backlog/EVALUATOR_MEMORY_REDUCTION.md §0.13).
   exn := Exception(
     throw : (
       err -> {
@@ -373,7 +373,7 @@ test("captures: a handle-backed FuncVal keeps no capture value snapshot", {
   // values (`cap_vals`, one entry per visible binding) beside the registered
   // handles, and each derivation (specialization, ctl instance, impl-generic
   // injection) copied it: ~190 MB of `check src/main.yo`. The values are now
-  // read from the handles' cells (plans/EVALUATOR_MEMORY_REDUCTION.md §0.16).
+  // read from the handles' cells (plans/backlog/EVALUATOR_MEMORY_REDUCTION.md §0.16).
   exn := Exception(
     throw : (
       err -> {
@@ -397,7 +397,7 @@ test("captures: a handle-backed FuncVal keeps no capture value snapshot", {
 });
 test("captures: a captured frame slice survives the frame shrinking", {
   // FuncVals record their capture handles as slices of the defining frames'
-  // own lists (`CaptureSlice`, plans/EVALUATOR_MEMORY_REDUCTION.md §0.14). That
+  // own lists (`CaptureSlice`, plans/backlog/EVALUATOR_MEMORY_REDUCTION.md §0.14). That
   // is only sound if a captured list never changes under its slice: the three
   // shrink sites (a pending definition's reset, the c_include/extern scratch
   // truncation, comptime_expect_error's stranded-variable pop) must hand the
@@ -424,7 +424,7 @@ test("captures: a captured frame slice survives the frame shrinking", {
 test("owner logs: a one-shot command records none, an invalidating one does", {
   // The owner logs exist only so `mm_invalidate_document` can purge an edited
   // module's registry entries. A one-shot `check`/`compile`/`doc`/`verify`
-  // never invalidates, so it switches them off (plans/EVALUATOR_MEMORY_REDUCTION.md
+  // never invalidates, so it switches them off (plans/backlog/EVALUATOR_MEMORY_REDUCTION.md
   // §0.15); `yo lsp` and the watch modes keep the default, on.
   exn := Exception(
     throw : (
@@ -484,7 +484,7 @@ test("match-arm registry: re-analysis keeps it flat", {
 
 test("match-arm registry: a command that neither generates code nor verifies records nothing", {
   /// `doc` and the LSP switch the match-arm table off with the codegen-only
-  /// tables (plans/EVALUATOR_MEMORY_REDUCTION.md §0.21). `check` switches only
+  /// tables (plans/backlog/EVALUATOR_MEMORY_REDUCTION.md §0.21). `check` switches only
   /// the codegen-only tables off: it verifies, and the verifier's match walk
   /// reads the arms
   /// (issues/fixed/2026-10-15-yo-check-of-a-verify-file-with-match-arms-fails-coverage.md).

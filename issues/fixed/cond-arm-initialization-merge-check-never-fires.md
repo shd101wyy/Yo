@@ -1,6 +1,6 @@
 # The cond-arm initialization merge check (E0903) never fires
 
-**Status: FIXED 2026-09-25** (`plans/TYPE_SYSTEM_SOUNDNESS.md` Phase 5.6; found 2026-09-20 while verifying the diagnostics registry's
+**Status: FIXED 2026-09-25** (`plans/backlog/TYPE_SYSTEM_SOUNDNESS.md` Phase 5.6; found 2026-09-20 while verifying the diagnostics registry's
 examples). Repro: `issues/repros/cond-arm-init-not-all-arms.yo`.
 
 ## Symptom

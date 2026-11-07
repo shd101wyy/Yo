@@ -105,7 +105,7 @@ comptime_expect_error({
   impl(PlainStruct, Send());
 });
 // A manual impl(T, Acyclic()) is rejected: the marker is derived from the
-// type's structure (decision 48 W6b, plans/backlog/WEAK_AND_UNCOLLECTED_RC.md
+// type's structure (decision 48 W6b, plans/archive/WEAK_AND_UNCOLLECTED_RC.md
 // §4), and a negative impl still opts a type out.
 PlainAcyclicNode :: struct(value : i32, next : Option(Rc(Self)));
 comptime_expect_error(impl(PlainAcyclicNode, Acyclic()), "never implemented by hand");
@@ -169,7 +169,7 @@ test("a HashMap is safe to hold and use", {
 // `IndexUnchecked.index_unchecked` skips the bounds check; codegen calls it
 // only at a subscript the verifier proved in bounds. Its result is a raw
 // pointer, so safe code cannot call it directly, not even to dereference at
-// once (plans/backlog/SAFE_MODE_5B_CONTAINER_BOUNDS_ELISION.md).
+// once (plans/archive/SAFE_MODE_5B_CONTAINER_BOUNDS_ELISION.md).
 comptime_expect_error({
   mut(xs) := ArrayList(i32).new();
   xs.push(i32(1));

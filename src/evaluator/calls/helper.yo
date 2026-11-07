@@ -709,7 +709,7 @@ _refine_wrapper_fn_result :: (fn(ty : &TypeValue, new_result : &TypeValue) -> Ty
 );
 // ---------------------------------------------------------------------------
 // The argument/parameter rule, shared by every binding site
-// (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 2.5). The two call paths —
+// (plans/backlog/TYPE_SYSTEM_SOUNDNESS.md Phase 2.5). The two call paths —
 // `check_if_function_parameter_matches_argument` below (the `try_to_call`
 // path) and the inline FuncVal arm of `calls/function.yo` — and the
 // definition-time body env (`calls/function_type.yo`) and the specialization
@@ -2799,7 +2799,7 @@ specialization_cache_count :: (fn() -> usize)({
 });
 /// Capture VALUES held by cached specializations (`cap_vals` entries summed).
 /// A FuncVal with registered handles keeps none: it reads its values from the
-/// handles' cells (`fv_capture_val`, plans/EVALUATOR_MEMORY_REDUCTION.md §0.16);
+/// handles' cells (`fv_capture_val`, plans/backlog/EVALUATOR_MEMORY_REDUCTION.md §0.16);
 /// the value-snapshot test's probe.
 specialization_capture_value_count :: (fn() -> usize)({
   (n : usize) = usize(0);
@@ -4149,7 +4149,7 @@ create_specialized_function_inline :: (
           // re-bind added a callee-side release on top — measured as corrupt
           // `downcast` payloads and a SIGSEGV in tests/error_ergonomics
           // (`dyn(NotFound(...))` boxes a folded struct through
-          // `rc(own(value))`). Phase 2.5 of plans/TYPE_SYSTEM_SOUNDNESS.md
+          // `rc(own(value))`). Phase 2.5 of plans/backlog/TYPE_SYSTEM_SOUNDNESS.md
           // tried the declared flag here and reverted it.
           (rbp_i : usize) = usize(0);
           n_rbp := params.len();
@@ -4943,7 +4943,7 @@ create_specialized_function_inline :: (
           new_cap_names := ArrayList(String).new();
           new_cap_tys := ArrayList(TypeValue).new();
           new_cap_vals := ArrayList(EvalValue).new();
-          // Campaign 2 (plans/backlog/FUNCVAL_ENV_SHARING.md step 3): the derived
+          // Campaign 2 (plans/archive/FUNCVAL_ENV_SHARING.md step 3): the derived
           // FuncVal inherits the original's SHARED handle list and appends
           // the generic-binding Variables looked up below — so its calls
           // build the capture env from handles too. If the original never
@@ -6173,7 +6173,7 @@ evaluate_ctl_function_body_inline :: (
   ctl_cap_tys := ArrayList(TypeValue).new();
   ctl_cap_vals := ArrayList(EvalValue).new();
   // Campaign 2 step 3: inherit the shared handle list + mint one capture
-  // Variable per generic binding (see plans/backlog/FUNCVAL_ENV_SHARING.md).
+  // Variable per generic binding (see plans/archive/FUNCVAL_ENV_SHARING.md).
   (ctl_cap_vars : ArrayList(Variable)) = ArrayList(Variable).new();
   (ctl_env_key : usize) = usize(0);
   (ctl_have_vars : bool) = false;
@@ -7165,7 +7165,7 @@ _forall_len_binding_now :: (fn(env : &Environment, label : &String) -> Option(St
 /// argument that first fixed it.
 ForallBindingSeen :: struct(label : String, ty : TypeValue, arg_index : usize, len_value : Option(String));
 derive(ForallBindingSeen, Clone);
-/// Per-call binder consistency (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 2.4,
+/// Per-call binder consistency (plans/backlog/TYPE_SYSTEM_SOUNDNESS.md Phase 2.4,
 /// issues/fixed/generic-type-var-rebinds-per-argument.md). Each argument is
 /// matched on its own and a later argument's synthesis REBINDS the binder in
 /// place ("last write wins"), so `pair_same(String, i32)` with
@@ -7550,7 +7550,7 @@ try_to_call_function_with_arguments :: (
           fv,
           // `capture_env_for` memoises the capture env per closure
           // instance; with a registered `env_key` the frame holds the
-          // ORIGINAL Variable handles (plans/backlog/FUNCVAL_ENV_SHARING.md), else
+          // ORIGINAL Variable handles (plans/archive/FUNCVAL_ENV_SHARING.md), else
           // the flat rebuild re-binds every captured name (~660
           // `add_variable_to_env` calls per call in a self-compile, the
           // top allocation site of the bootstrap). See env.yo.
@@ -8852,7 +8852,7 @@ try_to_call_function_with_arguments :: (
                         // Same label, different TYPE (a handler of another
                         // signature) is a different bundle too: the body
                         // would call it with the wrong arguments
-                        // (plans/ASYNC_IO_API_AUDIT.md F6).
+                        // (plans/archive/ASYNC_IO_API_AUDIT.md F6).
                         ebc_tt := match(ebc_ttypes.get(ebc_li), .Some(x) => x, .None => t_unit());
                         ebc_et := match(ebc_etypes.get(ebc_li), .Some(x) => x, .None => t_unit());
                         if(ebc_layout_ok && !are_types_compatible(&ebc_et, &ebc_tt), {

@@ -2,7 +2,7 @@
 
 **Severity:** S3 — fmt cosmetics: `yo fmt` is not idempotent on this shape, so one `yo fmt` run leaves a file that `yo fmt --check` (GATE 6) rejects; a second run fixes it.
 
-**Status: FIXED 2026-10-03.** Found 2026-10-03 while formatting `tests/async/combinators.test.yo` for phase A1 of `plans/ASYNC_IO_API_AUDIT.md`. **Measured on:** the v0.2.49 seed and a tree build of develop `576be6e06`; both behave the same.
+**Status: FIXED 2026-10-03.** Found 2026-10-03 while formatting `tests/async/combinators.test.yo` for phase A1 of `plans/archive/ASYNC_IO_API_AUDIT.md`. **Measured on:** the v0.2.49 seed and a tree build of develop `576be6e06`; both behave the same.
 
 ## Symptom
 

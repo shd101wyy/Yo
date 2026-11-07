@@ -2,7 +2,7 @@
 
 **Severity:** S2 — a valid program is rejected: boxing a value with `dyn(...)` inside a function whose parameter (or match-pattern binding) is named `rc` fails with "rc is not callable", pointing at line 1 column 1.
 
-**Status:** FIXED 2026-10-27 (`feat/sai-a2a3-handle-ctors`, plans/backlog/STATIC_ARGUMENT_INFERENCE.md §5 A3). **Found:** 2026-10-27, while making `dyn(...)` synthesize `Rc(T).new` instead of `rc`.
+**Status:** FIXED 2026-10-27 (`feat/sai-a2a3-handle-ctors`, plans/archive/STATIC_ARGUMENT_INFERENCE.md §5 A3). **Found:** 2026-10-27, while making `dyn(...)` synthesize `Rc(T).new` instead of `rc`.
 
 ## Reproducer
 

@@ -187,7 +187,7 @@ _mark_preset_receiver :: (fn(recv : &Option(usize), on : bool) -> unit)(
 /// The call that boxes a `dyn(...)` payload `value` of type `payload_ty` in
 /// the cell type `cell_ty` (`Rc(T)`, or `Arc(T)` for a Send Dyn; `cell_name`
 /// names its constructor), with the node ids the caller marks pre-evaluated
-/// around its evaluation (plans/backlog/STATIC_ARGUMENT_INFERENCE.md §5, A3).
+/// around its evaluation (plans/archive/STATIC_ARGUMENT_INFERENCE.md §5, A3).
 ///
 /// It is `Rc(T).new(value)`: the receiver is a fresh node whose ExprInfo is
 /// `.TypeVal(cell_ty)` before the call is evaluated, the written
@@ -281,7 +281,7 @@ _prelude_cell_callee :: (fn(cell_name : &String, env : &Environment, ctx : &Eval
 /// (`t_dyn_payload_wrapper`), `Rc(T).new` binds `T` to that variable: a
 /// second C type for the cell, and for a recognized `dyn(Rc.new(<closure>))`
 /// a payload that lowers to `void*` (Fable consultation #5 H1, fallback (a);
-/// plans/backlog/STATIC_ARGUMENT_INFERENCE.md §5). The two constructors and
+/// plans/archive/STATIC_ARGUMENT_INFERENCE.md §5). The two constructors and
 /// this helper, `_prelude_cell_callee` and `_is_open_payload` go once a
 /// generic constructor's specialization adopts its result over that wrapper
 /// (issues/2026-10-23-a-generic-constructors-specialization-keeps-its-declared-return-for-a-capture-struct-argument.md;
@@ -1062,7 +1062,7 @@ _synthesize_dyn_clone_fn :: (fn(payload_in : &TypeValue, dyn_type : &TypeValue, 
 /// `dyn(d)` of a value that is already a `Dyn` is an error: the payload
 /// behind `d` is erased, so there is no concrete type to build a vtable from.
 /// Converting to a `Dyn` with fewer traits is `upcast(d, Dyn(...))`
-/// (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 2.8); before this the evaluator
+/// (plans/backlog/TYPE_SYSTEM_SOUNDNESS.md Phase 2.8); before this the evaluator
 /// accepted it and codegen wrote its refusal into the C as a comment
 /// (issues/fixed/dyn-of-an-existing-dyn-value-emits-an-error-comment-into-the-c.md).
 _reject_dyn_of_dyn :: (fn(ty : &TypeValue, tok : &Token, exn : Exception) -> unit)({
@@ -1381,7 +1381,7 @@ evaluate_dyn_value :: (
         // through the no-expected placeholder fallback (`fn(y : y) -> _ret`)
         // and its C signature emits `void*` params (the cluster-B family).
         // The unapplied `Rc.new` infers nothing from a closure or the
-        // expected type (plans/backlog/STATIC_ARGUMENT_INFERENCE.md §2 steps
+        // expected type (plans/archive/STATIC_ARGUMENT_INFERENCE.md §2 steps
         // 3 and 5), so its receiver is that cell type, `.TypeVal(Rc(W))`,
         // before the call is evaluated (§5 A3). The wrapper `W` is an open
         // type variable, though, and `Rc(W)` has no `new` to dispatch outside

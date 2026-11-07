@@ -1,6 +1,6 @@
 # A folded comptime integer argument to a method is lowered to `i32` and rejected
 
-**Status: FIXED 2026-09-25** (Phase 2.5 of `plans/TYPE_SYSTEM_SOUNDNESS.md`).
+**Status: FIXED 2026-09-25** (Phase 2.5 of `plans/backlog/TYPE_SYSTEM_SOUNDNESS.md`).
 
 **Severity: false rejection, inconsistent between call paths.**
 

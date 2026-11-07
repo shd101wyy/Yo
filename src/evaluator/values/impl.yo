@@ -2092,7 +2092,7 @@ _throw_if_deref_impl_outside_prelude :: (fn(trait_ty : &Option(TypeValue), recei
   });
 });
 /// `Acyclic` is derived from a type's structure and never implemented by hand
-/// (decision 48 W6b, plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §4): a positive
+/// (decision 48 W6b, plans/archive/WEAK_AND_UNCOLLECTED_RC.md §4): a positive
 /// `impl(T, Acyclic())`, concrete or generic, is an error, like `Escapable`'s.
 /// The trusted declaration's one consumer, the cycle collector's tracking
 /// exemption, is deleted, and a claim the walk took on trust would let
@@ -2114,7 +2114,7 @@ _throw_if_acyclic_impl :: (fn(trait_ty : &Option(TypeValue), tok : &Token, env :
       dyn(
         format_error_message(
           tok,
-          `\`Acyclic\` is derived from a type's structure and is never implemented by hand: a type is \`Acyclic\` exactly when no cycle of strong edges is reachable from its values, a \`Weak\`/\`ArcWeak\` edge excluded (docs/en-US/WEAK.md). Break the back edge with \`Weak\` or drop the bound; \`impl(T, !Acyclic)\` still opts out (plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §4).`
+          `\`Acyclic\` is derived from a type's structure and is never implemented by hand: a type is \`Acyclic\` exactly when no cycle of strong edges is reachable from its values, a \`Weak\`/\`ArcWeak\` edge excluded (docs/en-US/WEAK.md). Break the back edge with \`Weak\` or drop the bound; \`impl(T, !Acyclic)\` still opts out (plans/archive/WEAK_AND_UNCOLLECTED_RC.md §4).`
         )
       )
     );
@@ -2619,7 +2619,7 @@ _inject_forall_captures :: (
             new_cvs := ArrayList(EvalValue).new();
             // Campaign 2 step 3: inherit the shared handle list; the
             // per-generic bindings appended below get minted capture
-            // Variables (plans/backlog/FUNCVAL_ENV_SHARING.md).
+            // Variables (plans/archive/FUNCVAL_ENV_SHARING.md).
             (new_cvars : ArrayList(Variable)) = ArrayList(Variable).new();
             (ifc_env_key : usize) = usize(0);
             (ifc_have_vars : bool) = false;
@@ -4465,7 +4465,7 @@ _c3_eval_colon_pair :: (
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&eval_val)),
     .None => (),
     .Some(fi) => {
-      // Trait conformance (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 2.1): a member
+      // Trait conformance (plans/backlog/TYPE_SYSTEM_SOUNDNESS.md Phase 2.1): a member
       // of `impl(T, Trait(...))` must be a member of the trait, and its type
       // must be the trait's after `Self` (and the entry's associated types)
       // are substituted. The impl path used to register whatever it was given,
@@ -4666,7 +4666,7 @@ _c3_eval_colon_pair :: (
               // is Some — `impl(T, Trait(...))`) with their trait id, so
               // resolution can SHADOW them behind a same-name direct/
               // inherent method (`impl(T, m : ...)`, current_trait_ty None
-              // -> ""). See plans/backlog/OVERLOADING_REDESIGN.md §6 +
+              // -> ""). See plans/archive/OVERLOADING_REDESIGN.md §6 +
               // issues/fixed/yo-inherent-first-resolution.md.
               source_trait_id : match(
                 current_trait_ty,
@@ -7308,7 +7308,7 @@ export(has_negative_impl);
 export(GenericImplDocEntry, get_generic_impl_doc_entries, find_generic_impl_method_value);
 export(purge_generic_impls_owned_by, generic_impl_entry_count, generic_impl_binder_bound_counts);
 // ---------------------------------------------------------------------------
-// Static-argument inference (plans/backlog/STATIC_ARGUMENT_INFERENCE.md §2):
+// Static-argument inference (plans/archive/STATIC_ARGUMENT_INFERENCE.md §2):
 // the impls a method called through an unapplied type constructor,
 // `G.m(a1, …, an)`, may come from, and the binders its arguments bind.
 // ---------------------------------------------------------------------------

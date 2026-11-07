@@ -1,7 +1,7 @@
 # `ref(enum)` derived the VALUE-enum marker traits: no `Rc` (so no `Dispose`), and `Send` without an atomic refcount
 
 > Found 2026-09-24 while writing a leak reproducer for the evaluator memory
-> campaign (`plans/EVALUATOR_MEMORY_REDUCTION.md`): a `Dispose` counter on a
+> campaign (`plans/backlog/EVALUATOR_MEMORY_REDUCTION.md`): a `Dispose` counter on a
 > `ref(enum)` was rejected. **FIXED same day** on
 > `fix/ref-enum-auto-derived-markers`.
 

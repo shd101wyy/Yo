@@ -1,6 +1,6 @@
 # A user's typo in an `io.async` body is reported as `internal compiler error … This is a bug in the Yo compiler, not in your program`
 
-**Status:** FIXED 2026-09-25 (`plans/TYPE_SYSTEM_SOUNDNESS.md` Phase 4.1). See "Resolution" at the end.
+**Status:** FIXED 2026-09-25 (`plans/backlog/TYPE_SYSTEM_SOUNDNESS.md` Phase 4.1). See "Resolution" at the end.
 **Severity:** api-lie. Four documented, deliberate, user-facing async
 restrictions are printed with the ICE prefix and a "please file a bug against
 the compiler" URL. They also lose their E-code, their caret/source line, and
@@ -206,7 +206,7 @@ E-code.
 
 ## Addendum 2026-09-23: two more codegen-only async rules (type-system audit)
 
-MEASURED on the yo 0.2.39 seed and a develop build `d455b6a67` (`plans/TYPE_SYSTEM_SOUNDNESS.md`, Phase 4). Both pass `yo check`
+MEASURED on the yo 0.2.39 seed and a develop build `d455b6a67` (`plans/backlog/TYPE_SYSTEM_SOUNDNESS.md`, Phase 4). Both pass `yo check`
 and fail `yo compile --skip-c-compiler` with an internal compiler error:
 
 1. A constant or nested pattern in a `match` arm that awaits (`src/codegen/async/state_code_gen.yo`

@@ -144,7 +144,7 @@ keeps its name) landed in #457.
 - **`iter()` pointers require a FILE-level pragma**, and `unsafe(...)` alone is
   not a grant. Raised by the maintainer against D14; written up with probes and
   a Rust/Swift comparison in
-  `plans/backlog/UNSAFE_SCOPING_AND_POINTER_ITERATORS.md`. Note that #461's
+  `plans/archive/UNSAFE_SCOPING_AND_POINTER_ITERATORS.md`. Note that #461's
   "writing through the pointer mutates in place" framing over-claims — Yo
   already has safe in-place mutation via `list(i) = v`.
 

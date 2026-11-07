@@ -1,7 +1,7 @@
 # Type identity: when two types are the same type
 
 **Status:** DECIDED and IMPLEMENTED 2026-09-25 (Phases 3.1, 3.2, 3.4, 3.5 and 3.6 of
-`plans/TYPE_SYSTEM_SOUNDNESS.md`; the invariant relation split out 2026-09-26, Phase 3.8). The
+`plans/backlog/TYPE_SYSTEM_SOUNDNESS.md`; the invariant relation split out 2026-09-26, Phase 3.8). The
 code is `src/types/compatibility.yo` (`are_types_compatible_exact`, `are_types_compatible_invariant`
 and `are_types_compatible`) and the CTFE memo in
 `src/evaluator/calls/comptime_fn.yo` (`_ctfe_args_equal`, `_ctfe_types_era_equal`).

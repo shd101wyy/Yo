@@ -19,7 +19,7 @@ Native (64-bit) targets were unaffected.
 ## Root cause
 
 `_MAX_CONTENT_LENGTH :: usize(0x0FFFFFFFFFFFFFFF);` is a 64-bit constant. Before #876
-(`plans/TYPE_SYSTEM_SOUNDNESS.md` Phase 1.4, `issues/fixed/context-typed-integer-literal-is-not-range-checked.md`)
+(`plans/backlog/TYPE_SYSTEM_SOUNDNESS.md` Phase 1.4, `issues/fixed/context-typed-integer-literal-is-not-range-checked.md`)
 a literal was never range-checked against its context type, so the wasm32 build compiled a
 value that does not fit. REASONED, not measured: if it reached C as the truncated `0xFFFFFFFF`,
 the parser's no-wrap argument (`n <= MAX / 10` before `n * 10 + digit`) no longer holds on 32-bit —

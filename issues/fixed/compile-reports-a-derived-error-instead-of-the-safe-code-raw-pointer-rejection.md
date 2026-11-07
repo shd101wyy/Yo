@@ -1,7 +1,7 @@
 # `compile` reports a derived error instead of the safe-code raw-pointer rejection
 
 **Status: FIXED** (found and fixed 2026-09-26, while measuring `sizeof(Option(*T))`
-for `plans/EVALUATOR_MEMORY_REDUCTION.md` Phase 3).
+for `plans/backlog/EVALUATOR_MEMORY_REDUCTION.md` Phase 3).
 
 ## Symptom
 

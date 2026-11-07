@@ -3,7 +3,7 @@
 **Severity:** S2 — a query Z3 rejects (a parse error, an unknown constant) comes back as `sat` after the errors, and the harness reports the obligation REFUTED with `model: []` instead of `solver-error`, so an encoder bug reads as a false counter-example.
 
 **Found:** 2026-09-30 while landing the ArrayList list model (R1 slice 2 of
-`plans/backlog/ATS_STYLE_INDEXED_TYPES.md`): a datatype entry with the wrong
+`plans/archive/ATS_STYLE_INDEXED_TYPES.md`): a datatype entry with the wrong
 field-group shape rendered `(declare-datatypes ((List_bv32 0)) (((List_bv32_mk List_bv32_mk_contents (Array ...)) ...)))`;
 z3 5.1.0 printed two `(error ...)` lines, then `sat` for the (now
 unconstrained) `(check-sat)`, and `yo verify` reported a tautology

@@ -1,7 +1,7 @@
 # Struct compatibility accepts a bare name match or an anonymous-struct wildcard, so `check` passes unsound programs
 
-**Found:** 2026-09-23, type-system audit (`plans/TYPE_SYSTEM_SOUNDNESS.md`, Phase 3).
-**Status:** FIXED 2026-09-25 (Phase 3.2 of `plans/TYPE_SYSTEM_SOUNDNESS.md`). Was: green `yo check`; clang error or ICE in `yo compile`.
+**Found:** 2026-09-23, type-system audit (`plans/backlog/TYPE_SYSTEM_SOUNDNESS.md`, Phase 3).
+**Status:** FIXED 2026-09-25 (Phase 3.2 of `plans/backlog/TYPE_SYSTEM_SOUNDNESS.md`). Was: green `yo check`; clang error or ICE in `yo compile`.
 **Measured:** yo 0.2.39 seed; re-verified with the same result on a develop build `d455b6a67`.
 
 ## Repro 1: two modules each export a differently-shaped `P`
