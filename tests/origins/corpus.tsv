@@ -86,9 +86,9 @@ match-value-arm-composite	O-1, R-ARM's join over an owned match	neg	N2	E0911	E09
 for-element-stored	O-1, the for element's bind x the = join	neg	N2	E0911	E0911|`slot` borrows `xs` with `&` and is still live
 projection-in-payload	O-1, R-CALL under R-COMP	neg	N2	E0911	E0911|`slot` borrows `(xs.index)(usize(0))` with `&` and is still live
 tuple-of-lends	O-1, R-LEND as a tuple component (N2b-r)	neg	N2	E0911	E0911|`t` borrows `x` with `&` and is still live
-flow-slot-lent-mut	O-2, §7 flow write-back at a &mut lend	neg	N2	E0911	accept
-flow-slot-lent-mut-loop	O-2, §7 flow write-back over a loop back edge	neg	N2	E0911	accept
-generic-slot-lent-mut	O-2, the flow write-back through generic T := &S	neg	N2	E0911	accept
+flow-slot-lent-mut	O-2, §7 flow write-back at a &mut lend	neg	N2	E0911	E0911|Cannot store a reference to `y` in `slot` here
+flow-slot-lent-mut-loop	O-2, §7 flow write-back over a loop back edge	neg	N2	E0911	E0911|Cannot store a reference to `y` in `slot` here
+generic-slot-lent-mut	O-2, the flow write-back through generic T := &S	neg	N2	E0911	E0911|Cannot store a reference to `y` in `slot` here
 store-widen-named-holder	O-2, O3-3 through a &mut-lent named composite	neg	N2	ORIGIN_MISMATCH	E0923|`&y` carries origin `y`, outside `x`
 store-widen-covariant-field	O-2, O3-3 through a covariant field of a &mut composite	neg	N2	ORIGIN_MISMATCH	E0923|`&y` carries origin `y`, outside `x`
-generic-rigid-origin	O-2, O2 rigid origins in a generic body	neg	N2	ORIGIN_MISMATCH	accept
+generic-rigid-origin	O-2, O2 rigid origins in a generic body	neg	N2	ORIGIN_MISMATCH	E0923|Cannot assign a value holding origin `q` to `dst`

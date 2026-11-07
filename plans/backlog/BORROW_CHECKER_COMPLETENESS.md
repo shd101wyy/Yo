@@ -1,6 +1,6 @@
 # The borrow checker's completeness: one enforcement point, five gates, Rust parity
 
-**Status: ACTIVE, O-1 landed (2026-11-07; VERDICTS-30, VERDICTS-31; §11).** The design of references and origins is
+**Status: ACTIVE, O-1 and O-2 landed (2026-11-07; VERDICTS-30, VERDICTS-31; §11).** The design of references and origins is
 `plans/backlog/REFERENCES_AND_ORIGINS.md` (O1–O10). This file states how the compiler enforces it in ONE place, what
 "complete, without holes" means, the gates that prove it, and the items that bring origins to Rust's expressiveness.
 Nothing here changes what the design accepts; it changes where the compiler decides.
@@ -200,10 +200,10 @@ Tier 1 for every O-/P- PR: `check ./src`, `check ./std`, the corpus `target` set
 
 Filed 2026-11-07 from VERDICTS-30/31; each names its repro under `issues/repros/` and the test that pins it.
 
-- `issues/2026-11-07-a-flow-inferred-holder-lent-mut-to-a-callee-keeps-its-old-origin-set.md` — S1
+- `issues/fixed/2026-11-07-a-flow-inferred-holder-lent-mut-to-a-callee-keeps-its-old-origin-set.md` — S1
 - `issues/2026-11-07-a-closure-body-stores-a-per-call-reference-parameter-through-another-parameter.md` — S1
 - `issues/fixed/2026-11-07-a-composite-built-in-a-borrowed-match-arm-escapes-without-freezing-the-scrutinee.md` — S1
-- `issues/2026-11-07-o3-3-invariance-is-not-applied-through-a-mut-lent-named-composite.md` — S1
+- `issues/fixed/2026-11-07-o3-3-invariance-is-not-applied-through-a-mut-lent-named-composite.md` — S1
 - `issues/fixed/2026-11-07-cond-and-match-arm-results-holding-references-join-only-one-arms-roots.md` — S1
 - `issues/2026-11-07-a-user-drop-holder-declared-before-its-root-reads-the-root-after-it-is-dropped.md` — S1
 - `issues/fixed/2026-11-07-a-borrowed-for-element-stored-into-an-outer-slot-does-not-freeze-the-collection.md` — S1
@@ -226,3 +226,8 @@ Filed 2026-11-07 from VERDICTS-30/31; each names its repro under `issues/repros/
   (`issues/fixed/2026-11-07-assigning-a-composite-to-a-holder-with-a-spelled-origin-widens-it-unchecked.md`). The
   return rule keeps the shallow walk; O-2's `return_check` moves it onto `origin_of`. The G-B runner
   `scripts/origins-unsound.sh` and its directory `tests/origins/unsound/` land here; the CI job does not yet.
+- 2026-11-07: O-2 landed (`lend_through` at every call with the flow write-back, `return_check` over `origin_of`). It
+  closes H1, pins H4 (#1809 had closed it), and makes a generic body's origin parameters rigid, which also closes a
+  widening found while verifying
+  (`issues/fixed/2026-11-07-a-generic-body-checks-its-origin-parameters-elided-so-a-store-widens-a-rigid-origin.md`).
+  Decision 33's six cut-holding holes are closed; O-3 … O-6 are next (v0.2.77).

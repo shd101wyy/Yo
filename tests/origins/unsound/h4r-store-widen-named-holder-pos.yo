@@ -1,0 +1,20 @@
+// expect: accept
+// h4r's positive twin: `put` stores within `p`'s set (`&x` into `Slot(x)`).
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+Slot :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(dst : &mut Option(&(Rc(X), p))));
+put :: (fn(generic(p : Origin), s : &mut Slot(p), v : &(Rc(X), p)) -> unit)({
+  s.dst.* = .Some(v);
+});
+main :: (fn() -> unit)({
+  x := Rc.new(X(s : String.from("x")));
+  mut(slot) := Option(&(Rc(X), x)).Some(&x);
+  mut(s) := Slot(x)(dst : &mut slot);
+  {
+    put(&mut s, &x);
+  };
+  match(slot, .Some(r) => println(`OUT: ${r.*.*.s.len().to_string()}`), .None => println("none"));
+  ()
+});
+export(main);

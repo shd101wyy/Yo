@@ -1,0 +1,22 @@
+// Rigid origin parameters in a generic body (O2), ASan form: `_pick` stores `b : &(_, q)` into a holder
+// over `p` through a nested generic call; the caller binds `q` to a block local.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+_put :: (fn(generic(r : Origin), v : &(Rc(X), r), dst : &mut Option(&(Rc(X), r))) -> unit)({
+  dst.* = .Some(v);
+});
+_pick :: (fn(generic(p : Origin, q : Origin), a : &(Rc(X), p), b : &(Rc(X), q), dst : &mut Option(&(Rc(X), p))) -> unit)({
+  _put(b, dst);
+});
+main :: (fn() -> unit)({
+  x := Rc.new(X(s : String.from("outer")));
+  mut(slot) := Option(&(Rc(X), x)).None;
+  {
+    y := Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz")));
+    _pick(&x, &y, &mut slot);
+  };
+  match(slot, .Some(r) => println(`OUT: ${r.*.*.s.len().to_string()}`), .None => println("none"));
+  ()
+});
+export(main);
