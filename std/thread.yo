@@ -1,5 +1,5 @@
 //! OS threads and a thread pool, each thread with its own async `Io` event
-//! loop; reference counting is per-thread and non-atomic.
+//! loop; `Rc` counts are per-thread and non-atomic (`Arc` crosses threads).
 //!
 //! Two levels are available:
 //!
@@ -168,8 +168,8 @@ impl(
 /// A pool of worker threads that tasks are handed to.
 ///
 /// Each task is pinned to one worker thread (round-robin, no work stealing),
-/// and every worker thread has its own async `Io` event loop (reference
-/// counting is per-thread and non-atomic). A worker runs one task at a time to
+/// and every worker thread has its own async `Io` event loop (`Rc` counts are
+/// per-thread and non-atomic; `Arc` crosses threads). A worker runs one task at a time to
 /// completion, so a task that awaits delays the tasks queued behind it on its
 /// worker
 /// (issues/2026-11-07-a-pool-task-that-awaits-blocks-every-task-queued-behind-it-on-its-worker.md).
