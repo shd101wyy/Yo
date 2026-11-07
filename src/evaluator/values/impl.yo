@@ -6719,11 +6719,7 @@ move_only_declaring_trait_name :: (fn(trait_ty : &TypeValue, env : &Environment)
   )
 });
 _named_trait_key_is :: (fn(env : &Environment, name : str, key : &String) -> bool)(
-  // WORKAROUND: both `== key` (E0926) and `== key.*` (E0920: a borrow
-  // reads as its value) are rejected here — the operator-operand rule and
-  // the E0920 fall-through disagree on this one site; the clone compares
-  // the Strings outright. Remove with the read-rule fix.
-  match(get_trait_type_from_env(env, String.from(name)), .Some(t) => (get_trait_key(&t) == key.clone()), .None => false)
+  match(get_trait_type_from_env(env, String.from(name)), .Some(t) => (get_trait_key(&t) == key.*), .None => false)
 );
 /// The `MoveOnlyNominalFn` answer: the trait through which the value nominal
 /// `ty` declares move-only in a recorded impl, or `""`.
