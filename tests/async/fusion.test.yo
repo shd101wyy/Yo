@@ -514,8 +514,8 @@ test("a throw in a fused block releases the call's argument once (nested block)"
   assert(_caught_arg(i32(2), io), "the thrown message is the wrapper's argument");
 });
 // The caller's temps: an earlier statement's, released before the site, and
-// the site's own arguments' (src/fetch.yo's store install: `rename` over a
-// path that is not there, after an `exists` await).
+// the arguments' own. First the shape of src/fetch.yo's store install: `rename`
+// over a path that is not there, after an `exists` await.
 _land :: (fn(sink(tmp) : String, sink(final_dir) : String, io : Io) -> Impl(Future(unit, IoExn)))(
   io.async(e => {
     landed := e.io.await(exists(Path.new(final_dir.clone()), e.io), e.io);
@@ -526,32 +526,51 @@ _land :: (fn(sink(tmp) : String, sink(final_dir) : String, io : Io) -> Impl(Futu
     });
   })
 );
-// The same, with a block that suspends for real first: a C local of the
-// resume function does not survive that.
-_raise_for :: (fn(path : &Path, exn : Exception) -> unit)({
-  if(path.to_string().len() > usize(0), {
-    exn.throw(dyn(Boom(msg : path.to_string())));
+// The same with nothing of the file system in it. These wrappers stand below
+// their caller on purpose: a drop's position gates compare a caller's temp with
+// the escape point, and a wrapper above its caller in one file reads as coming
+// before the temp, which hides the release.
+_land_lent :: (fn(sink(tmp) : String, sink(final_dir) : String, parked : bool, io : Io) -> Impl(Future(unit, IoExn)))(
+  io.async(e => {
+    blank := e.io.await(_is_blank(final_dir.clone(), e.io), e);
+    cond(
+      blank => (),
+      parked => e.io.await(_parks_then_throws(tmp.clone(), e.io), e),
+      true => e.io.await(_throws_lent(tmp.clone(), e.io), e)
+    );
+  })
+);
+_is_blank :: (fn(s : &String, io : Io) -> Impl(Future(bool, IoExn)))({
+  n := s.len();
+  io.async(e => {
+    a := e.io.await(_leaf(i32(1), e.io), e.io);
+    b := e.io.await(_leaf(i32(2), e.io), e.io);
+    (n + usize(a + b)) == usize(0)
+  })
+});
+_raise_for :: (fn(text : &String, exn : Exception) -> unit)({
+  if(text.len() > usize(0), {
+    exn.throw(dyn(Boom(msg : text.clone())));
   });
 });
-_parks_then_throws :: (fn(path : &Path, io : Io) -> Impl(Future(unit, IoExn)))({
-  owned := path.clone();
+_throws_lent :: (fn(s : &String, io : Io) -> Impl(Future(unit, IoExn)))({
+  owned := s.clone();
+  io.async(e => {
+    r := e.io.await(_leaf(i32(1), e.io), e.io);
+    _raise_for(&owned, e.exn);
+    ()
+  })
+});
+// A block that suspends for real before it throws.
+_parks_then_throws :: (fn(s : &String, io : Io) -> Impl(Future(unit, IoExn)))({
+  owned := s.clone();
   io.async(e => {
     e.io.await(sleep(u64(1)), e.io);
     _raise_for(&owned, e.exn);
     ()
   })
 });
-_land_parked :: (fn(sink(tmp) : String, sink(final_dir) : String, io : Io) -> Impl(Future(unit, IoExn)))(
-  io.async(e => {
-    landed := e.io.await(exists(Path.new(final_dir.clone()), e.io), e.io);
-    if(landed, {
-      e.io.await(remove_file(Path.new(tmp.clone()), e.io), e);
-    }, {
-      e.io.await(_parks_then_throws(Path.new(tmp.clone()), e.io), e);
-    });
-  })
-);
-_caught_landing :: (fn(parked : bool, io : Io) -> bool)({
+_caught_landing :: (fn(which : i32, io : Io) -> bool)({
   exn := Exception(
     throw : (
       err -> {
@@ -563,16 +582,20 @@ _caught_landing :: (fn(parked : bool, io : Io) -> bool)({
   a := String.from("/nonexistent/yo-fusion-test/from");
   b := String.from("/nonexistent/yo-fusion-test/to");
   cond(
-    parked => io.await(_land_parked(a, b, io), e),
-    true => io.await(_land(a, b, io), e)
+    (which == i32(0)) => io.await(_land(a, b, io), e),
+    (which == i32(1)) => io.await(_land_lent(a, b, false, io), e),
+    true => io.await(_land_lent(a, b, true, io), e)
   );
   false
 });
 test("a failed rename fused after an earlier await releases each caller temp once", {
-  assert(_caught_landing(false, io), "renaming a path that is not there throws");
+  assert(_caught_landing(i32(0), io), "renaming a path that is not there throws");
 });
-test("a throw after a real suspension in a fused block touches no caller temp", {
-  assert(_caught_landing(true, io), "the wrapper throws once its timer fires");
+test("a throw fused after an earlier await releases each caller temp once", {
+  assert(_caught_landing(i32(1), io), "the wrapper throws");
+});
+test("a throw after a real suspension in a fused block reaches the caller's handler", {
+  assert(_caught_landing(i32(2), io), "the wrapper throws once its timer fires");
 });
 // A prologue escape leaves the wrapper, as at a call: its own by-value
 // parameter is released, once, and the argument is not the caller's any more.
