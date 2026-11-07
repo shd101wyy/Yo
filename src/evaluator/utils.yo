@@ -161,6 +161,16 @@ pragma(Pragma.AllowUnsafe);
 /// borrow is listed exactly while its block evaluates; `comptime_expect_error`
 /// restores the length a thrown-through body left.
 (g_local_borrows : RefCell(ArrayList(LocalBorrowInfo))) = RefCell(ArrayList(LocalBorrowInfo)).new(ArrayList(LocalBorrowInfo).new());
+/// O-2's FLOW SETS (§7 "A local's flow set after a `&mut` lend", the `=`
+/// join): the holder entries the join and `lend_through`'s write-back
+/// register. They are NOT truncated with the joining block's borrows — the
+/// holder's live range routinely extends past the block the assignment sat
+/// in (a slot filled inside a loop, read after it) — so they live in their
+/// own table and `local_borrow_access` scans it beside `g_local_borrows`.
+/// Liveness is the entry's token range, as for every entry, so a stale entry
+/// from an ended scope is inert. A whole-holder assignment REPLACES the
+/// value, so the join clears the holder's entries first (kill + gen).
+(g_local_borrow_joins : RefCell(ArrayList(LocalBorrowInfo))) = RefCell(ArrayList(LocalBorrowInfo)).new(ArrayList(LocalBorrowInfo).new());
 (g_local_borrow_patterns : RefCell(ArrayList(LocalBorrowPatternBinding))) = RefCell(ArrayList(LocalBorrowPatternBinding)).new(ArrayList(LocalBorrowPatternBinding).new());
 /// The `mut` places `match` arms bind over a local borrow (decision 25's
 /// cursor), with their live ranges: rule 4 checks them at an `await`.
@@ -7401,6 +7411,29 @@ local_borrow_access :: (fn(place : &LocalBorrowPlace, kind : &LocalBorrowAccess,
       .None => ()
     );
   });
+  // The flow sets (O-2 §7): the same conflict test against the join table,
+  // whose entries outlive the joining block.
+  (j : usize) = g_local_borrow_joins.with(xs => xs.len());
+  while(j > usize(0), {
+    j = (j - usize(1));
+    match(
+      g_local_borrow_joins.with(xs => xs.get(j)),
+      .Some(jinfo) => if((jinfo.is_mut || !_lb_is_read(kind)) && _lb_live_at(&jinfo, tok), {
+        (pj : usize) = usize(0);
+        while(pj < jinfo.places.len(), {
+          match(
+            jinfo.places.get_cloned(pj),
+            .Some(jfp) => if(local_borrow_places_overlap(&jfp, place), {
+              _lb_raise_conflict(&jinfo, &jfp, place, kind, tok, ctx, exn);
+            }),
+            .None => ()
+          );
+          pj = (pj + usize(1));
+        });
+      }),
+      .None => ()
+    );
+  });
 });
 /// An access of the place `e` names (no-op when it is not rooted at a
 /// variable or no local borrow is in scope).
@@ -9069,10 +9102,15 @@ bind :: (fn(binding : &AstExpr, rhs : &AstExpr, var_name : &String, name_tok : &
     eprintln(`[n2b]   registered; range last_use=${range.last_use.character} end=${range.end.character} decl=${name_tok.character} entries=${g_local_borrows.with(xs => xs.len()).to_string()}`);
   });
 });
+/// A binding statement in its block: the `:=` that bound the variable, and
+/// the block's scope end (its last statement's last token) — past it the
+/// binding's storage is gone (the `=` join's §7 scope check).
+LbBindingSite :: struct(stmt : AstExpr, scope_end : Token);
 /// The `:=` statement that bound `variable`, out of the armed look-ahead
-/// frames (the whole-holder `=` join recomputes the holder's live range from
-/// its binding, so the joined entries live to the holder's last use).
-_local_borrow_binding_stmt_of :: (fn(variable : &Variable) -> Option(AstExpr))({
+/// frames, with its block's scope end (the whole-holder `=` join recomputes
+/// the holder's live range from its binding, so the joined entries live to
+/// the holder's last use).
+_lb_binding_site_of :: (fn(variable : &Variable) -> Option(LbBindingSite))({
   v_tok := variable.token;
   frames := g_lb_lookaheads.with(xs => xs.clone());
   (fi : usize) = frames.len();
@@ -9114,7 +9152,12 @@ _local_borrow_binding_stmt_of :: (fn(variable : &Variable) -> Option(AstExpr))({
                       true => ast_expr_token(&lhs).clone()
                     );
                     if((is_plain || is_mut_binder) && _lb_same_decl(lhs_name.clone(), &lhs_tok, variable.name.clone(), &v_tok), {
-                      return(Option(AstExpr).Some(stmt.clone()));
+                      frame_last := match(
+                        frame.stmts.get_cloned((frame.stmts.len() - usize(1))),
+                        .Some(last_stmt) => _last_token_of(&last_stmt, &v_tok),
+                        .None => v_tok.clone()
+                      );
+                      return(Option(LbBindingSite).Some(LbBindingSite(stmt : stmt.clone(), scope_end : frame_last)));
                     });
                   },
                   .None => ()
@@ -9130,8 +9173,16 @@ _local_borrow_binding_stmt_of :: (fn(variable : &Variable) -> Option(AstExpr))({
       .None => ()
     );
   });
-  Option(AstExpr).None
+  Option(LbBindingSite).None
 });
+/// The `:=` statement alone (`bind`'s range).
+_local_borrow_binding_stmt_of :: (fn(variable : &Variable) -> Option(AstExpr))(
+  match(
+    _lb_binding_site_of(variable),
+    .Some(site) => Option(AstExpr).Some(site.stmt.clone()),
+    .None => Option(AstExpr).None
+  )
+);
 /// The origin names a type names, at every origin position (a reference's
 /// origin, a type constructor's origin argument), spelled ones only — for
 /// `bind_join`'s subset check and `lend_through`'s flow solve.
@@ -9195,13 +9246,16 @@ origin_param_names_of :: (fn(ty : &TypeValue, out : &mut ArrayList(String), dept
 bind_join :: (fn(variable : &Variable, value : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
   // A bare lend RHS (`r = &y`, `r = &mut y`) is the RE-POINT, which has its
   // own machinery (decision 25: the declared place stays frozen, the set is
-  // the union over re-points) — not a holder join.
+  // the union over re-points) — not a holder join. Either way the holder's
+  // old flow set is gone: the assignment replaced its value (kill).
   value_bare := _unlabeled_value(value);
   if(ast_expr_is_fn_call_of(&value_bare, BF_ADDRESS_OF, Option(usize).Some(usize(1))) || ast_expr_is_fn_call_of(&value_bare, BK_BORROW_MUT, Option(usize).Some(usize(1))), {
+    local_borrow_joins_clear(variable.name.clone(), &variable.token);
     return(());
   });
   roots := origin_of(value, env, ctx);
   if(roots.len() == usize(0), {
+    local_borrow_joins_clear(variable.name.clone(), &variable.token);
     return(());
   });
   if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
@@ -9257,43 +9311,187 @@ bind_join :: (fn(variable : &Variable, value : &AstExpr, env : &Environment, ctx
   );
   // The flow join: register each root not already in the holder's set, with
   // the holder's live range recomputed from its binding statement.
-  bind_join_roots_for(variable, &roots, ast_expr_token(value), env, ctx);
+  bind_join_roots_for(variable, &roots, ast_expr_token(value), env, ctx, exn);
 });
 /// `bind_join`'s registration core, shared with `lend_through`'s flow
 /// write-back: each root not already in the holder's set is registered with
 /// the holder's live range recomputed from its binding statement.
-bind_join_roots_for :: (fn(variable : &Variable, roots : &ArrayList(OriginRootPlace), at : &Token, env : &Environment, ctx : &EvalContext) -> unit)({
+bind_join_roots_for :: (fn(variable : &Variable, roots : &ArrayList(OriginRootPlace), at : &Token, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
   v_tok := variable.token;
-  binding_stmt := _local_borrow_binding_stmt_of(variable);
+  site := _lb_binding_site_of(variable);
   range := match(
-    &binding_stmt,
-    .Some(bs) => local_borrow_range_of(&bs, variable.name.clone(), &v_tok),
+    &site,
+    .Some(s) => local_borrow_range_of(&s.stmt, variable.name.clone(), &v_tok),
     .None => LocalBorrowRange(last_use : v_tok, end : at.clone(), has_repoint : false)
   );
-  if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
-    eprintln(`[n2b] join-register ${variable.name}: stmt=${match(&binding_stmt, .Some(_) => String.from("yes"), .None => String.from("NO"))} end_char=${range.end.character.to_string()} roots=[${n2b_roots_text(roots)}]`);
-  });
-  existing := ArrayList(OriginRootPlace).new();
-  _holder_roots_named_into(variable.name.clone(), &v_tok, &mut existing);
-  (ri : usize) = usize(0);
-  while(ri < roots.len(), {
-    root := roots(ri).clone();
-    (dup : bool) = false;
-    (ei : usize) = usize(0);
-    while(ei < existing.len(), {
+  // KILL + GEN (§7): the assignment REPLACED the holder's value, so its
+  // flow set is the new value's, never the union with the old one.
+  local_borrow_joins_clear(variable.name.clone(), &v_tok);
+  // The roots as GROUND places: a root rooted at a registered borrow (the
+  // hidden `for` local, a projection binding) resolves to the places IT
+  // borrows — the parent chain dies with the joining block's truncation, so
+  // the join entry carries the ground places itself.
+  ground := _origin_ground_roots(roots);
+  // A desugared `for`'s HIDDEN locals (the cursor, the guard) are
+  // gensym'd: no user code can reach them, so a root left AT one by the
+  // elided-result over-approximation (a cursor method's `&cur` argument)
+  // freezes nothing observable — and its loop scope would false-fire the
+  // §7 scope check below. Roots that RESOLVED through the collection local
+  // are the user's places and stay.
+  {
+    (di : usize) = usize(0);
+    while(di < ground.len(), {
+      (is_hidden : bool) = false;
       match(
-        existing.get_cloned(ei),
-        .Some(kept) => if((kept.is_mut == root.is_mut) && (kept.place.text.clone() == root.place.text.clone()), {
-          dup = true;
-        }),
+        ground.get_cloned(di),
+        .Some(gr) => match(
+          get_variables_from_env(env, gr.place.root_name.clone()).last_cloned(),
+          .Some(dv) => {
+            is_hidden = for_desugar_site_of(&dv.token).is_some();
+          },
+          .None => ()
+        ),
         .None => ()
       );
-      ei = (ei + usize(1));
+      if(is_hidden, {
+        _ := ground.swap_remove(di);
+        ()
+      }, {
+        di = (di + usize(1));
+      });
     });
-    if(!dup, {
-      local_borrow_register(variable.name.clone(), &v_tok, root.is_mut, &root.place, &range, &Option(Variable).None);
-    });
+  }
+  if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
+    eprintln(`[n2b] join-register ${variable.name}: site=${match(&site, .Some(_) => String.from("yes"), .None => String.from("NO"))} end_char=${range.end.character.to_string()} ground=[${n2b_roots_text(&ground)}]`);
+  });
+  // The §7 scope check: a ground place's root binding may not end its scope
+  // before the holder's last use — the holder would point at storage that
+  // is gone (an E0911 at the join, the flow form of the scope-end drop
+  // conflict).
+  (gi : usize) = usize(0);
+  while(gi < ground.len(), {
+    match(
+      ground.get_cloned(gi),
+      .Some(gr) => {
+        match(
+          get_variables_from_env(env, gr.place.root_name.clone()).last_cloned(),
+          .Some(root_v) => {
+            match(
+              _lb_binding_site_of(&root_v),
+              .Some(root_site) => if(_lb_tok_after(&range.end, &root_site.scope_end), {
+                raise_flow_violation(
+                  with_code(
+                    format_error_message_with_help(
+                      at,
+                      `Cannot store a reference to \`${gr.place.root_name}\` in \`${variable.name}\` here: \`${gr.place.root_name}\`'s scope ends with its block, while \`${variable.name}\` is live to its last use, so the reference would outlive the storage it points into (decision 43, plans/backlog/REFERENCES_AND_ORIGINS.md O3; plans/backlog/BORROW_CHECKER_COMPLETENESS.md §7).`,
+                      Option(String).Some(`bind what \`${variable.name}\` holds inside \`${gr.place.root_name}\`'s block (and end its use there), or point it at a place that outlives it`)
+                    ),
+                    E_LOCAL_BORROW_CONFLICT
+                  ),
+                  ctx,
+                  exn
+                );
+              }),
+              .None => ()
+            );
+          },
+          .None => ()
+        );
+      },
+      .None => ()
+    );
+    gi = (gi + usize(1));
+  });
+  // Register into the persistent joins table (`local_borrow_access` scans
+  // it beside `g_local_borrows`): the holder freezes each ground place from
+  // the join to its last use.
+  (ri : usize) = usize(0);
+  while(ri < ground.len(), {
+    match(
+      ground.get_cloned(ri),
+      .Some(root) => {
+        places := ArrayList(LocalBorrowPlace).new();
+        places.push(root.place.clone());
+        g_local_borrow_joins.with_mut(xs => {
+          xs.push(
+            LocalBorrowInfo(
+              name : variable.name.clone(),
+              decl : v_tok,
+              start : v_tok,
+              macro_site : Option(Token).None,
+              is_mut : root.is_mut,
+              places : places,
+              last_use : range.last_use,
+              end : range.end,
+              parents : ArrayList(LocalBorrowInfo).new(),
+              crosses_cell : root.place.through_cell,
+              module_root : root.place.module_root,
+              step_pin : Option(Variable).None
+            )
+          );
+          ()
+        });
+      },
+      .None => ()
+    );
     ri = (ri + usize(1));
+  });
+});
+/// Drop the holder's flow-set entries (a whole-holder assignment replaced
+/// its value — kill, before the new set's gen).
+local_borrow_joins_clear :: (fn(name : &String, decl : &Token) -> unit)({
+  g_local_borrow_joins.with_mut(xs => {
+    (i : usize) = xs.len();
+    while(i > usize(0), {
+      i = (i - usize(1));
+      match(
+        xs.get(i),
+        .Some(info) => if((info.name == name) && (info.decl.module_path == decl.module_path), {
+          _ := xs.swap_remove(i);
+          ()
+        }, ()),
+        .None => ()
+      );
+    });
+    ()
+  });
+});
+/// The GROUND places behind join `roots` (see `bind_join_roots_for`).
+_origin_ground_roots :: (fn(roots : &ArrayList(OriginRootPlace)) -> ArrayList(OriginRootPlace))({
+  out := ArrayList(OriginRootPlace).new();
+  (ri : usize) = usize(0);
+  while(ri < roots.len(), {
+    match(
+      roots.get_cloned(ri),
+      .Some(root) => _origin_ground_root(root.clone(), &mut out, u32(0)),
+      .None => ()
+    );
+    ri = (ri + usize(1));
+  });
+  out
+});
+/// One join root: itself when its place roots at a plain binding, else the
+/// GROUND places of the borrow entries its root names (transitively, the
+/// freeze mode the join's value carries).
+_origin_ground_root :: (fn(root : OriginRootPlace, out : &mut ArrayList(OriginRootPlace), depth : u32) -> unit)({
+  if(depth > u32(8), {
+    _origin_push(root, out);
+    return(());
+  });
+  entries := ArrayList(OriginRootPlace).new();
+  _holder_roots_named_into(root.place.root_name.clone(), &root.place.root_decl, &mut entries);
+  if(entries.len() == usize(0), {
+    _origin_push(root, out);
+    return(());
+  });
+  (ei : usize) = usize(0);
+  while(ei < entries.len(), {
+    match(
+      entries.get_cloned(ei),
+      .Some(er) => _origin_ground_root(OriginRootPlace(place : er.place.clone(), is_mut : root.is_mut), out, (depth + u32(1))),
+      .None => ()
+    );
+    ei = (ei + usize(1));
   });
 });
 /// The origin the holder `variable`'s own type spells (a `&(T, (x, y))`
