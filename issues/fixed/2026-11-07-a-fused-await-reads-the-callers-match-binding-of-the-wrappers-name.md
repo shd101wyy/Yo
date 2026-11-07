@@ -92,4 +92,9 @@ The caller's two escape-drop lists (`pending_deferred_drops`, `consumed_var_pend
 
 ## Verification
 
-- `tests/async/fusion.test.yo`: the five new tests fail with the pre-fix stage 1 (four wrong values or wrong thrown messages, one ASan `attempting double-free`) and pass after it. The twelve existing tests pass on both.
+- `tests/async/fusion.test.yo`: the five new tests fail with the pre-fix stage 1 (four wrong values or wrong thrown messages, one ASan `attempting double-free`) and pass after it. The twelve existing tests pass on both, and the file is 16/16 under the fixed stage 1.
+- Language tests (fixed stage 1): `async_await` 293, `async/sm_ownership` 54, `algebraic_effects` 83, `match_nested` 29, `move_only` 94, `borrowed_match_binding_place` 12 — all rc 0.
+- `tests/internal/build_runner.test.yo`: 18/18 rc 0 (fixed stage 1, `--compile-timeout-ms 1800000`).
+- The three red CLI cases pass under the fixed stage 1 through `scripts/cli-diff-test.sh` (with the three fusion CLI goldens: 6/6, 113 s) — the hang is gone. The seed still fails the five new tests, which is by construction: every CI step that runs this file runs a tree-built compiler.
+- `yo check ./src` and `yo check ./std` (seed, `--std-path ./std`): rc 0. `yo fmt --check` (fixed stage 1) and `scripts/check-issue-refs.sh`: pass.
+- A sixth test written with the fix (a fused block that THROWS with the caller's arm binding live) still double-frees the wrapper's by-value argument on the unwind. That is a distinct escape-path defect, filed open as `issues/2026-11-07-a-fused-block-that-throws-drops-its-by-value-capture-twice.md`; its reproducer is out of the suite until that fix lands.
