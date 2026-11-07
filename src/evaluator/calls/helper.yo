@@ -194,7 +194,8 @@ pragma(Pragma.AllowUnsafe);
   migrate_addr_of_on,
   migrate_markers_on,
   record_marker_site,
-  expr_info_index_trait_ptr_type
+  expr_info_index_trait_ptr_type,
+  note_lent_temporary
 } :: import("../../expr_info.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 { call_promote_index_places_for_write } :: import("../context.yo");
@@ -1045,6 +1046,29 @@ apply_call_site_borrow_markers :: (
     exn : Exception
   ) -> ArrayList(AstExpr)
 )({
+  // A temporary LENT to a reference parameter (`show(&make())`, the exempt
+  // `show(make())`, a `&self` receiver, `&mut` alike) is dropped at the end
+  // of the statement that created it — Rust's temporary lifetime
+  // (plans/VALUES_BY_DEFAULT.md, "`&temp` is allowed"). The PARAMETER's slot
+  // decides the lend (a `Reference`, shared or exclusive; `param_is_ref`
+  // names only the `&mut` ones), so every spelling marks here, before the
+  // marker scan's early return: the marker, the exempt bare argument, the
+  // receiver. The mark is token-keyed and idempotent, so the candidate
+  // trials record the same fact as the final pass.
+  (li : usize) = usize(0);
+  while((li < args.len()) && (li < param_types.len()), {
+    match(
+      param_types.get_cloned(li),
+      .Some(lt_slot) => {
+        if(t_slot_is_borrow(&lt_slot), {
+          l_bare := _unlabeled_argument(match(args.get(li), .Some(a) => a, .None => make_err_expr()));
+          note_lent_temporary(&l_bare);
+        });
+      },
+      .None => ()
+    );
+    li = (li + usize(1));
+  });
   (any_marker : bool) = false;
   // A method-form call's receiver (`xs.len()`) is exempt (decision 33): it
   // is never peeled, so `(&x).m()` reaches the evaluator's `&x` error.

@@ -747,7 +747,11 @@ value in every program, and the compiler leaked ~7 M TypeValues per self-check
 a scheduled drop is "missing" from the C, check this set before the evaluator.
 To confirm a suspected leak, use a `Drop` counter on a `ref(struct)` /
 `ref(enum)` and read it after the scope that owns the value (statement temps are
-released at SCOPE end, not after the statement). The old-value save of a FIELD
+released at SCOPE end, not after the statement — EXCEPT a temp the statement
+LENDS: `&temp` call arguments and a borrowed `match` scrutinee are dropped
+right after their statement, Rust's temporary lifetime,
+`_flush_stmt_lent_temp_drops` in `src/codegen/exprs/begin.yo`). The old-value
+save of a FIELD
 reassignment (`k.next = .None`) is released the same way — at the ENCLOSING
 scope's end, not after the statement — so a `Drop` counter read later in the
 same scope still sees the old handle alive. A test that clears a field to drop
@@ -833,7 +837,20 @@ Inside a state machine the spill is skipped when a later operand contains an
 
 A declared temp needs its drop in the C scope that declares it. A temp names
 itself in the nearest begin-block frame, and its scope-end drop runs at that
-block's end. A `cond` condition and a `match` guard are each evaluated as a
+block's end — EXCEPT a temp the statement LENDS (a call argument whose
+parameter slot is a `Reference` — marker, exempt or receiver spelling — and a
+borrowed `match` scrutinee): the evaluator marks only the lent expression's
+SOURCE TOKEN (`note_lent_temporary`, `src/expr_info.yo`, at the marker-peel
+convergence `apply_call_site_borrow_markers` and the match scrutinee; a call
+argument is evaluated several times and each pass mints its own temp NAME, so
+the token is the one stable fact), and the statement loops correlate it with
+the drops the block actually scheduled (`_flush_stmt_lent_temp_drops`: each
+pending drop's target Variable whose mint token is marked and lies in the
+statement's span — at or after its start token, before the next sibling's —
+is flushed right after the statement), so it never outlives its statement;
+the drop STAYS in the block's list, which is what every escape path inside the
+statement releases, and the emitted-once guard keeps the two channels to one
+release. A `cond` condition and a `match` guard are each evaluated as a
 one-expression block (`evaluate_begin_expression`), so their temps get their
 own frame. Their drops ride on the condition or guard node, which the emitter
 flushes right after the bool. Before that, a guard's temp

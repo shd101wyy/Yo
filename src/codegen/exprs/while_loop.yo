@@ -6,11 +6,12 @@
 //! is named while_loop.yo (`while` is a keyword).
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr, ast_expr_is_fn_call_of, ast_expr_token, BK_BEGIN, BK_COMPTIME, BK_ASSIGN } :: import("../../expr.yo");
+{ AstExpr, ast_expr_id, ast_expr_is_fn_call_of, ast_expr_token, BK_BEGIN, BK_COMPTIME, BK_ASSIGN } :: import("../../expr.yo");
 { take_short_circuit_handled, FunctionGenerationContext } :: import("../functions/context.yo");
 { Emitter } :: import("../../emitter.yo");
 { _call_generate_expr } :: import("./_expr.yo");
 { _looks_like_minted_temp, generate_deferred_drop_expressions, has_pending_emittable_drop } :: import("./drop_dup.yo");
+{ _flush_stmt_lent_temp_drops } :: import("./begin.yo");
 { get_deferred_drop_target_atom_name, sanitize_for_c_identifier, note_line_position, fresh_local_name } :: import("../utils/index.yo");
 { is_temp_variable_name, stable_label_id } :: import("../../utils.yo");
 { expr_info_consumed_variable_drop_expressions, expr_info_comptime_unrolled_bodies } :: import("../../expr_info.yo");
@@ -162,6 +163,19 @@ generate_loop_body :: (fn(body_expr : &AstExpr, indent : &String, context : &mut
                 context.base.emitter.emit_string_line(&line);
               });
             });
+            // A non-final statement's LENT temporaries drop here, at the
+            // statement's end (the last statement's drop at the body's end
+            // IS its statement end).
+            if(i != (n - usize(1)), {
+              match(
+                context.base.get_expr_info(&arg),
+                .Some(aei_flush) => {
+                  nxt := args.get(i + usize(1));
+                  _flush_stmt_lent_temp_drops(&arg, &nxt, &aei_flush, &indent, context);
+                },
+                .None => ()
+              );
+            });
           },
           .None => ()
         );
@@ -176,38 +190,53 @@ generate_loop_body :: (fn(body_expr : &AstExpr, indent : &String, context : &mut
             match(
               drops.get(di),
               .Some(de) => {
-                // Skip a drop whose target TEMP was never emitted as a C
-                // declaration — same gate as begin.yo's _emit_deferred_drops /
-                // drop_dup.yo's generate_deferred_drop_expressions (an
-                // expression whose C emission was elided leaves its
-                // eval-minted temp undeclared while the deferred-drop
-                // survives; `__yo_decr_rc(undeclared_temp)` is an
-                // undeclared-identifier error — the await-analysis loop-tail
-                // stage-2 hole). Safe: a never-declared C variable cannot be
-                // double-freed and holds no value to leak.
-                undeclared_temp := match(
-                  get_deferred_drop_target_atom_name(&de),
-                  .Some(nm) => {
-                    cn := sanitize_for_c_identifier(&nm, false);
-                    (is_temp_variable_name(match(&ei_opt, .Some(e2) => e2.env().module_path().*.clone(), .None => String.from("")), cn.clone()) || _looks_like_minted_temp(cn.clone())) && !context.base.declared_c_var_names.with(dn_s => dn_s.contains(&cn))
-                  },
-                  .None => false
-                );
-                if(!undeclared_temp, {
-                  // Skip a drop already emitted inside a short-circuit
-                  // conditional branch (and_or.yo) — same guard as begin.yo's
-                  // scope-end pass. Without it
-                  // an owned temp created in a `||`/`&&` RHS in a
-                  // loop body was re-dropped at the loop scope end:
-                  // issues/fixed/ts-while-loop-body-drops-missing-guards.md.
-                  sc_skip := match(get_deferred_drop_target_atom_name(&de), .Some(target) => take_short_circuit_handled(context, &target), .None => false);
-                  if(!sc_skip, {
-                    code := _call_generate_expr(&de, indent.clone(), context);
-                    if(code.len() > usize(0), {
-                      mut(line) := indent.clone();
-                      line.push_string(&code);
-                      line.push_str(";");
-                      context.base.emitter.emit_string_line(&line);
+                // Skip a drop already emitted at an inner point — a lent
+                // temporary's statement-end flush inside this body, or a
+                // short-circuit branch — through the same emitted-once set
+                // begin.yo's scope-end pass and drop_dup.yo consult. The
+                // body's own statement loop flushes a lent temp's drop right
+                // after its statement; re-emitting it here would release the
+                // value twice
+                // (issues/fixed/2026-11-06-a-borrowed-temporary-is-dropped-
+                // at-its-blocks-end-not-its-statements.md). Checked before
+                // the gates so their state (the short-circuit set) is
+                // untouched for an already-emitted drop; recorded
+                // unconditionally, emitted conditionally.
+                if(!context.emitted_deferred_drop_ids.contains(ast_expr_id(&de)), {
+                  // Skip a drop whose target TEMP was never emitted as a C
+                  // declaration — same gate as begin.yo's _emit_deferred_drops /
+                  // drop_dup.yo's generate_deferred_drop_expressions (an
+                  // expression whose C emission was elided leaves its
+                  // eval-minted temp undeclared while the deferred-drop
+                  // survives; `__yo_decr_rc(undeclared_temp)` is an
+                  // undeclared-identifier error — the await-analysis loop-tail
+                  // stage-2 hole). Safe: a never-declared C variable cannot be
+                  // double-freed and holds no value to leak.
+                  undeclared_temp := match(
+                    get_deferred_drop_target_atom_name(&de),
+                    .Some(nm) => {
+                      cn := sanitize_for_c_identifier(&nm, false);
+                      (is_temp_variable_name(match(&ei_opt, .Some(e2) => e2.env().module_path().*.clone(), .None => String.from("")), cn.clone()) || _looks_like_minted_temp(cn.clone())) && !context.base.declared_c_var_names.with(dn_s => dn_s.contains(&cn))
+                    },
+                    .None => false
+                  );
+                  if(!undeclared_temp, {
+                    // Skip a drop already emitted inside a short-circuit
+                    // conditional branch (and_or.yo) — same guard as begin.yo's
+                    // scope-end pass. Without it
+                    // an owned temp created in a `||`/`&&` RHS in a
+                    // loop body was re-dropped at the loop scope end:
+                    // issues/fixed/ts-while-loop-body-drops-missing-guards.md.
+                    sc_skip := match(get_deferred_drop_target_atom_name(&de), .Some(target) => take_short_circuit_handled(context, &target), .None => false);
+                    if(!sc_skip, {
+                      code := _call_generate_expr(&de, indent.clone(), context);
+                      context.emitted_deferred_drop_ids.insert(ast_expr_id(&de));
+                      if(code.len() > usize(0), {
+                        mut(line) := indent.clone();
+                        line.push_string(&code);
+                        line.push_str(";");
+                        context.base.emitter.emit_string_line(&line);
+                      });
                     });
                   });
                 });

@@ -15,12 +15,14 @@
 //! deferred dups, so the last expression is assigned to the result temp as-is.
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr, ast_expr_id } :: import("../../expr.yo");
-{ ExprInfo, has_any_control_flow, expr_info_consumed_variable_drop_expressions, emitted_block_statements } :: import("../../expr_info.yo");
+{ AstExpr, ast_expr_id, ast_expr_token } :: import("../../expr.yo");
+{ Token } :: import("../../token.yo");
+{ ExprInfo, has_any_control_flow, expr_info_consumed_variable_drop_expressions, emitted_block_statements, is_lent_temp_token, lent_temp_token_key } :: import("../../expr_info.yo");
 { is_unit_type } :: import("../../types/guards.yo");
 { is_temp_variable_name, debug_knob } :: import("../../utils.yo");
 { eprintln } :: import("std/fmt");
 { take_short_circuit_handled, FunctionGenerationContext, sm_owns_fnonce_captures } :: import("../functions/context.yo");
+{ _get_deferred_drop_target_variable } :: import("./return.yo");
 { _call_generate_expr } :: import("./_expr.yo");
 { _looks_like_minted_temp, arm_value_with_dups } :: import("./drop_dup.yo");
 { declare_c_var_name, get_type_string, is_deferred_drop_for_closure_capture, get_deferred_drop_target_atom_name, sanitize_for_c_identifier, note_line_position, scope_stack_contains } :: import("../utils/index.yo");
@@ -79,69 +81,7 @@ _emit_deferred_drops :: (fn(ei : &ExprInfo, indent : &String, context : &mut Fun
         match(
           drops.get(di),
           .Some(drop_expr) => {
-            // Emitted-once guard — same contract as drop_dup.yo's
-            // generate_deferred_drop_expressions (see the long note there):
-            // a shared single-expression begin node is flushed from several
-            // points, and this set is what keeps each drop to one emission
-            // without breaking the pending path's node-list-membership
-            // contract. Checked before the gates so their state (the
-            // short-circuit set) is untouched for an already-emitted drop.
-            if(g_debug_scope_drops, {
-              eprintln(`[sd-emq] target=${match(get_deferred_drop_target_atom_name(&drop_expr), .Some(n) => n, .None => String.from("-"))} already=${context.emitted_deferred_drop_ids.contains(ast_expr_id(&drop_expr)).to_string()}`);
-            });
-            if(!context.emitted_deferred_drop_ids.contains(ast_expr_id(&drop_expr)), {
-              skip_capture := is_deferred_drop_for_closure_capture(&drop_expr, &context.current_closure_captures, sm_owns_fnonce_captures(context));
-              // Skip a drop whose target TEMP was never emitted as a C
-              // declaration — same gate as drop_dup.yo's
-              // generate_deferred_drop_expressions (an arm/expression whose C
-              // emission was elided leaves its eval-minted temp undeclared while
-              // the deferred-drop survives on the scope's ExprInfo; emitting
-              // `__yo_decr_rc(undeclared_temp)` is an undeclared-identifier
-              // error — the await-analysis loop-tail stage-2 hole). Safe: a
-              // never-declared C variable cannot be double-freed or leak.
-              undeclared_temp := match(
-                get_deferred_drop_target_atom_name(&drop_expr),
-                .Some(nm) => {
-                  cn := sanitize_for_c_identifier(&nm, false);
-                  (is_temp_variable_name(&ei.env().module_path().*, cn.clone()) || _looks_like_minted_temp(cn.clone())) && !context.base.declared_c_var_names.with(dn_s => dn_s.contains(&cn))
-                },
-                .None => false
-              );
-              // Skip a drop whose target temp's C DECLARATION sits in a block
-              // that has since closed: `declared_c_var_names` is monotonic,
-              // so a temp declared inside a loop body keeps its name in the
-              // set after the loop's C block closed, and emitting the drop at
-              // this scope's end is an undeclared-identifier error. Ground
-              // truth is the emitter's block-scope stack (`declared_scopes`),
-              // the same signal atom.yo's loop-exit emitter uses. The value
-              // was released inside that block (a three-argument while's
-              // assignment step saves and releases its replaced value inside
-              // the loop, src/codegen/exprs/while_loop.yo) or died with it.
-              closed_scope_temp := match(
-                get_deferred_drop_target_atom_name(&drop_expr),
-                .Some(nm2) => {
-                  cn2 := sanitize_for_c_identifier(&nm2, false);
-                  (is_temp_variable_name(&ei.env().module_path().*, cn2.clone()) || _looks_like_minted_temp(cn2.clone())) && !context.base.declared_scopes.with(ds_s => scope_stack_contains(ds_s, &cn2))
-                },
-                .None => false
-              );
-              if(!skip_capture && !undeclared_temp && !closed_scope_temp, {
-                sc_skip := match(get_deferred_drop_target_atom_name(&drop_expr), .Some(target) => take_short_circuit_handled(context, &target), .None => false);
-                if(!sc_skip, {
-                  drop_code := _call_generate_expr(&drop_expr, indent.clone(), context);
-                  // Record unconditionally, emit conditionally — the drop
-                  // generator writes a multi-line enum/Option drop itself and
-                  // returns "" (see drop_dup.yo's generate_deferred_drop_expressions).
-                  context.emitted_deferred_drop_ids.insert(ast_expr_id(&drop_expr));
-                  if(drop_code.len() > usize(0), {
-                    line := indent.clone();
-                    line.push_string(&drop_code);
-                    line.push_str(";");
-                    context.base.emitter.emit_string_line(&line);
-                  });
-                });
-              });
-            });
+            _emit_one_deferred_drop(&drop_expr, ei, indent.clone(), context);
           },
           .None => ()
         );
@@ -151,6 +91,165 @@ _emit_deferred_drops :: (fn(ei : &ExprInfo, indent : &String, context : &mut Fun
     .None => ()
   )
 );
+/// Emit one deferred drop with the shared gates (used by the block's
+/// scope-end flush and by the statement-end flush of a lent temporary):
+/// the emitted-once guard, closure-capture skip, the undeclared-temp and
+/// closed-scope checks, and the short-circuit branch skip.
+_emit_one_deferred_drop :: (fn(drop_expr : &AstExpr, ei : &ExprInfo, indent : String, context : &mut FunctionGenerationContext) -> unit)({
+  // Emitted-once guard — same contract as drop_dup.yo's
+  // generate_deferred_drop_expressions (see the long note there):
+  // a shared single-expression begin node is flushed from several
+  // points, and this set is what keeps each drop to one emission
+  // without breaking the pending path's node-list-membership
+  // contract. Checked before the gates so their state (the
+  // short-circuit set) is untouched for an already-emitted drop.
+  if(g_debug_scope_drops, {
+    eprintln(`[sd-emq] target=${match(get_deferred_drop_target_atom_name(drop_expr), .Some(n) => n, .None => String.from("-"))} already=${context.emitted_deferred_drop_ids.contains(ast_expr_id(drop_expr)).to_string()}`);
+  });
+  if(!context.emitted_deferred_drop_ids.contains(ast_expr_id(drop_expr)), {
+    skip_capture := is_deferred_drop_for_closure_capture(drop_expr, &context.current_closure_captures, sm_owns_fnonce_captures(context));
+    // Skip a drop whose target TEMP was never emitted as a C
+    // declaration — same gate as drop_dup.yo's
+    // generate_deferred_drop_expressions (an arm/expression whose C
+    // emission was elided leaves its eval-minted temp undeclared while
+    // the deferred-drop survives on the scope's ExprInfo; emitting
+    // `__yo_decr_rc(undeclared_temp)` is an undeclared-identifier
+    // error — the await-analysis loop-tail stage-2 hole). Safe: a
+    // never-declared C variable cannot be double-freed or leak.
+    undeclared_temp := match(
+      get_deferred_drop_target_atom_name(drop_expr),
+      .Some(nm) => {
+        cn := sanitize_for_c_identifier(&nm, false);
+        (is_temp_variable_name(&ei.env().module_path().*, cn.clone()) || _looks_like_minted_temp(cn.clone())) && !context.base.declared_c_var_names.with(dn_s => dn_s.contains(&cn))
+      },
+      .None => false
+    );
+    // Skip a drop whose target temp's C DECLARATION sits in a block
+    // that has since closed: `declared_c_var_names` is monotonic,
+    // so a temp declared inside a loop body keeps its name in the
+    // set after the loop's C block closed, and emitting the drop at
+    // this scope's end is an undeclared-identifier error. Ground
+    // truth is the emitter's block-scope stack (`declared_scopes`),
+    // the same signal atom.yo's loop-exit emitter uses. The value
+    // was released inside that block (a three-argument while's
+    // assignment step saves and releases its replaced value inside
+    // the loop, src/codegen/exprs/while_loop.yo) or died with it.
+    closed_scope_temp := match(
+      get_deferred_drop_target_atom_name(drop_expr),
+      .Some(nm2) => {
+        cn2 := sanitize_for_c_identifier(&nm2, false);
+        (is_temp_variable_name(&ei.env().module_path().*, cn2.clone()) || _looks_like_minted_temp(cn2.clone())) && !context.base.declared_scopes.with(ds_s => scope_stack_contains(ds_s, &cn2))
+      },
+      .None => false
+    );
+    if(!skip_capture && !undeclared_temp && !closed_scope_temp, {
+      sc_skip := match(get_deferred_drop_target_atom_name(drop_expr), .Some(target) => take_short_circuit_handled(context, &target), .None => false);
+      if(!sc_skip, {
+        drop_code := _call_generate_expr(drop_expr, indent.clone(), context);
+        // Record unconditionally, emit conditionally — the drop
+        // generator writes a multi-line enum/Option drop itself and
+        // returns "" (see drop_dup.yo's generate_deferred_drop_expressions).
+        context.emitted_deferred_drop_ids.insert(ast_expr_id(drop_expr));
+        if(drop_code.len() > usize(0), {
+          line := indent.clone();
+          line.push_string(&drop_code);
+          line.push_str(";");
+          context.base.emitter.emit_string_line(&line);
+        });
+      });
+    });
+  });
+});
+/// Flush the drops of the temporaries this STATEMENT lent (`&T`/`&mut T`
+/// call arguments, a borrowed `match` scrutinee) right after the statement:
+/// Rust's temporary lifetime — a borrowed temporary lives to the end of the
+/// enclosing statement or `match` (plans/VALUES_BY_DEFAULT.md, "`&temp` is
+/// allowed"). The block still schedules each one's scope-end drop, so every
+/// escape path INSIDE the statement releases it through the pending list;
+/// here, on the statement's normal completion, the matching pending drop is
+/// emitted early, and the emitted-once guard keeps the block-end flush (and
+/// every exit after the statement) from releasing it a second time.
+///
+/// Correlated by TOKEN against the pending drops: the evaluator marks only
+/// the LENT EXPRESSION's source token (`note_lent_temporary` — a call
+/// argument is evaluated several times and each pass mints its own temp
+/// name, so the token is the one stable fact), and a temp's mint token lies
+/// inside its statement's span — at or after the statement's own start token
+/// and, in the same module, before the next sibling's. `next_stmt` is the
+/// following statement of the same block (`.None` only where no flush can
+/// run anyway).
+_flush_stmt_lent_temp_drops :: (fn(stmt : &AstExpr, next_stmt : &Option(AstExpr), ei : &ExprInfo, indent : &String, context : &mut FunctionGenerationContext) -> unit)({
+  // Two phases: SCAN the pending list under its shared borrow, COLLECT the
+  // matching drop nodes, then EMIT them with the mutable context — holding
+  // the `&` borrow across `_emit_one_deferred_drop(..., context)` would be
+  // E0911 (the emit mutates `context.emitted_deferred_drop_ids` and the
+  // short-circuit set).
+  matching := ArrayList(AstExpr).new();
+  match(
+    &context.pending_deferred_drops,
+    .Some(pending) => {
+      if(pending.len() > usize(0), {
+        stmt_tok := ast_expr_token(stmt);
+        if(stmt_tok.module_path.*.starts_with(String.from("auto-generated://")), {
+          return(());
+        });
+        (next_tok : Option(Token)) = match(
+          next_stmt,
+          .Some(ns) => Option(Token).Some(ast_expr_token(&ns)),
+          .None => Option(Token).None
+        );
+        (g_dbg_lt : bool) = debug_knob(`YO_DEBUG_LENT_TEMP`).is_some();
+        (pi : usize) = usize(0);
+        while(pi < pending.len(), {
+          match(
+            pending.get(pi),
+            .Some(de) => match(
+              _get_deferred_drop_target_variable(&de, context),
+              .Some(tv) => {
+                // Only a MINTED TEMPORARY is a statement-end candidate. A
+                // lowering's hidden named locals (`for_src0`, `for_guard0`,
+                // closure capture structs) share the statement's token with
+                // the synthesized nodes the lowering builds, so token-span
+                // attribution cannot place them — and their lowering owns
+                // their release (`for(&make(), …)` drops its hidden owning
+                // local after the loop). User-named locals keep their
+                // scope-end drop the same way.
+                if((is_temp_variable_name(&ei.env().module_path().*, tv.name.clone()) || _looks_like_minted_temp(tv.name.clone())) && is_lent_temp_token(&tv.token) && (tv.token.module_path.* == stmt_tok.module_path.*) && ((stmt_tok.row < tv.token.row) || ((stmt_tok.row == tv.token.row) && (stmt_tok.column <= tv.token.column))), {
+                  // The upper bound: a LATER sibling of the same module ends
+                  // the statement's span.
+                  in_span := match(
+                    &next_tok,
+                    .Some(nt) => !((nt.module_path.* == stmt_tok.module_path.*) && ((nt.row < tv.token.row) || ((nt.row == tv.token.row) && (nt.column <= tv.token.column)))),
+                    .None => true
+                  );
+                  if(in_span, {
+                    if(g_dbg_lt, {
+                      eprintln(`[lent-flush] stmt=${ast_expr_id(stmt).to_string()} temp=${tv.name} tok=${lent_temp_token_key(&tv.token)}`);
+                    });
+                    matching.push(de);
+                  });
+                });
+              },
+              .None => ()
+            ),
+            .None => ()
+          );
+          pi = (pi + usize(1));
+        });
+      });
+    },
+    .None => ()
+  );
+  (mi : usize) = usize(0);
+  while(mi < matching.len(), {
+    match(
+      matching.get(mi),
+      .Some(de) => _emit_one_deferred_drop(&de, ei, indent.clone(), context),
+      .None => ()
+    );
+    mi = (mi + usize(1));
+  });
+});
 /// The `begin` block generation.
 generate_begin :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("")));
@@ -228,6 +327,13 @@ generate_begin :: (fn(expr : &AstExpr, indent : &String, context : &mut Function
                   });
                 })
               );
+              // A non-final statement's LENT temporaries drop here, at the
+              // statement's end (a final statement's drop at the block's end
+              // IS its statement end: nothing runs in between).
+              if(!is_last, {
+                nxt := args.get(idx + usize(1));
+                _flush_stmt_lent_temp_drops(&arg, &nxt, &arg_ei, &indent2, context);
+              });
               last_arg_code = result;
               if(has_any_control_flow(arg_ei.control_flow()), {
                 stop = true;
@@ -285,6 +391,19 @@ generate_begin :: (fn(expr : &AstExpr, indent : &String, context : &mut Function
               line.push_str(";");
               context.base.emitter.emit_string_line(&line);
             });
+            // A non-final statement's LENT temporaries drop here, at the
+            // statement's end (a final statement's drop at the block's end
+            // IS its statement end: nothing runs in between).
+            if(idx != (n - usize(1)), {
+              match(
+                context.base.get_expr_info(&arg),
+                .Some(fei) => {
+                  nxt := args.get(idx + usize(1));
+                  _flush_stmt_lent_temp_drops(&arg, &nxt, &fei, &indent2, context);
+                },
+                .None => ()
+              );
+            });
           },
           .None => ()
         );
@@ -300,4 +419,4 @@ generate_begin :: (fn(expr : &AstExpr, indent : &String, context : &mut Function
     }
   )
 });
-export(generate_begin);
+export(generate_begin, _flush_stmt_lent_temp_drops);

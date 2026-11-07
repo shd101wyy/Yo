@@ -54,7 +54,8 @@ pragma(Pragma.AllowUnsafe);
   push_arm_init_range,
   branch_init_log_len,
   scope_release_note_binding,
-  ExprInfo
+  ExprInfo,
+  note_lent_temporary
 } :: import("../../expr_info.yo");
 { Environment, Variable, pop_env_frame, snapshot_env, env_adopt, variable_value_type, variable_set_is_ref, variable_set_is_imm_borrow, variable_set_is_borrow_match_binding, variable_set_reference_mut } :: import("../../env.yo");
 { Token, TokenKind, intern_token_str } :: import("../../token.yo");
@@ -1440,6 +1441,19 @@ evaluate_match :: (
   match_mode := _decide_match_mode(&scrutinee_expr, &evaluated_scrutinee, &scr_info, borrowed_match_scrutinee_kind(ast_expr_token(expr)), &env, ctx, exn, expr);
   consuming := (match_mode == MATCH_MODE_CONSUME);
   mut_places := (match_mode == MATCH_MODE_MUT);
+  // A borrowed scrutinee's materialized temporary (`match(&make(), …)`) is
+  // LENT: it lives to the end of the enclosing statement or `match` — Rust's
+  // temporary lifetime (plans/VALUES_BY_DEFAULT.md, "`&temp` is allowed") —
+  // so the emitter flushes its drop right after the match, not at the
+  // enclosing block's end. A consuming match owns its scrutinee (the arms
+  // drop it), and an exempt scrutinee's temp lives in the scrutinee's own
+  // one-expression block, whose drops the match emitter already flushes
+  // (`note_lent_temporary` finds no owning temp in this frame for those).
+  if(!consuming, {
+    // `note_lent_temporary` marks the STRIPPED scrutinee: the borrowed temp
+    // is minted at the inner expression's token (`&mk()`'s temp is `mk()`'s).
+    note_lent_temporary(&evaluated_scrutinee);
+  });
   // Decision 47 step 2: a `&mut` scrutinee lends its place exclusively, so
   // the binding at its root needs `mut(name)`.
   if(mut_places, {
