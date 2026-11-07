@@ -80,7 +80,7 @@ pragma(Pragma.AllowUnsafe);
 { stable_module_id, stable_func_id, private_member_blocked, debug_knob, parse_raw_int, is_temp_variable_name } :: import("../../utils.yo");
 { type_key } :: import("../../types/type_key.yo");
 { record_await_fusion_candidate } :: import("../../expr_traversal.yo");
-{ attach_temp_variable_to_expr, projection_call_mode_of, deref_exempt_mark, deref_exempt_clear, binder_read_mark, binder_read_clear, consume_called_fnonce_closure, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, reject_second_class_escape, reject_write_through_rc, place_cell_hops, PlaceCellHops, handle_payload_is_read_only, require_capture_borrow_exclusivity, local_borrows_active, local_borrow_place_of, local_borrow_value_place_of, local_borrow_places_overlap, LocalBorrowPlace, CellRootedPlace, cell_rooted_place_of, cell_rooted_same_cell, cell_rooted_places_overlap, local_borrow_note_runtime_call, local_borrow_enter_macro_site, local_borrow_leave_macro_site, local_borrow_is_macro_await, local_borrow_is_scalar_type, variable_is_borrow_parameter, variable_id_in_scope, reject_bare_callable_into_dyn_fn, bare_callable_recorded_into_dyn_fn, global_lend_audit_enabled, global_lend_audit_print, global_lend_location, global_lend_key, variable_is_reference_binding, variable_is_mut_borrow, global_place_path, GlobalHandleLend, global_note_handle_mutcall, global_note_handle_lend, global_require_mut, variable_is_future_operand_parameter, place_require_mut, local_borrow_write_expr, check_capture_freeze_access, reference_field_read_mode, deref_operand_is_raw_pointer, RC_CLONE_MIGRATE_HINT, local_borrow_place_text, FutureRoot, note_future_roots, future_roots_of, holder_future_roots, is_reference_read } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, projection_call_mode_of, deref_exempt_mark, deref_exempt_clear, binder_read_mark, binder_read_clear, consume_called_fnonce_closure, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, reject_second_class_escape, reject_write_through_rc, place_cell_hops, PlaceCellHops, handle_payload_is_read_only, require_capture_borrow_exclusivity, local_borrows_active, local_borrow_place_of, local_borrow_value_place_of, local_borrow_places_overlap, LocalBorrowPlace, CellRootedPlace, cell_rooted_place_of, cell_rooted_same_cell, cell_rooted_places_overlap, local_borrow_note_runtime_call, local_borrow_enter_macro_site, local_borrow_leave_macro_site, local_borrow_is_macro_await, local_borrow_is_scalar_type, variable_is_borrow_parameter, variable_id_in_scope, reject_bare_callable_into_dyn_fn, bare_callable_recorded_into_dyn_fn, global_lend_audit_enabled, global_lend_audit_print, global_lend_location, global_lend_key, variable_is_reference_binding, variable_is_mut_borrow, global_place_path, GlobalHandleLend, global_note_handle_mutcall, global_note_handle_lend, global_require_mut, variable_is_future_operand_parameter, place_require_mut, local_borrow_write_expr, origin_of, bind_join_roots_for, origin_param_names_of, param_declared_origin_slot, OriginRootPlace, check_capture_freeze_access, reference_field_read_mode, deref_operand_is_raw_pointer, RC_CLONE_MIGRATE_HINT, local_borrow_place_text, FutureRoot, note_future_roots, future_roots_of, holder_future_roots, is_reference_read, n2b_roots_text } :: import("../utils.yo");
 {
   EvalContext,
   ExpectedTypeCtx,
@@ -8921,9 +8921,26 @@ _origin_position_pairs_list :: (fn(p_os : &SharedList(TypeValue), a_os : &Shared
 /// spelled origin of a reference passed bare; the origins of every
 /// position its pointee shares with the parameter's, each paired with the
 /// parameter's origin there. `out_p` / `out_a` receive the pairs.
+/// The type an argument's origins are read from: a bare parameter of the
+/// function body being evaluated reads its DECLARED slot when that slot
+/// spells origins (`param_declared_origin_slot` — a generic body's origin
+/// parameters are rigid, O2, while its specialization elided them), any
+/// other argument its evaluated type.
+_argument_origin_type :: (fn(a_place : &AstExpr, env : &Environment, ctx : &EvalContext) -> Option(TypeValue))({
+  match(
+    a_place,
+    .Atom(_, _) => match(
+      get_variables_from_env(env, ast_expr_token(a_place).value.*.clone()).last_cloned(),
+      .Some(av) => match(param_declared_origin_slot(&av, ctx), .Some(ds) => return(Option(TypeValue).Some(ds)), .None => ()),
+      .None => ()
+    ),
+    _ => ()
+  );
+  match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(a_place)), .Some(ai) => Option(TypeValue).Some(Rc.clone(ai.ty())), .None => Option(TypeValue).None)
+});
 _argument_origin_pairs :: (fn(arg : &AstExpr, slot : &TypeValue, env : &Environment, ctx : &EvalContext, out_p : &mut ArrayList(TypeValue), out_a : &mut ArrayList(TypeValue)) -> unit)({
   a_place := ast_expr_strip_borrow_marker(arg);
-  a_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&a_place)), .Some(ai) => Rc.clone(ai.ty()), .None => return(()));
+  a_ty := match(_argument_origin_type(&a_place, env, ctx), .Some(t) => t, .None => return(()));
   match(
     slot,
     Rc(.Reference(sp, _, so)) => {
@@ -8971,7 +8988,17 @@ _lend_text :: (fn(arg : &AstExpr) -> String)(
     true => local_borrow_place_text(arg)
   )
 );
-_check_call_origin_invariance :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
+/// O-2's `lend_through` (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §3):
+/// the one place O3 step 1's substitution and step 3's exact unification are
+/// applied at a call — a `&mut` argument fixes the origin parameters its
+/// pointee reaches (through a bare pointee AND through a named composite's
+/// type arguments, N2b-r), every other argument whose parameter names a
+/// fixed origin must carry origins within it (E0923), and a FLOW-inferred
+/// holder is an inference variable: the solved set — what the call's other
+/// same-parameter arguments carry — is written back to the caller's holder
+/// after the call (§7 "A local's flow set after a `&mut` lend"), so a later
+/// access to the widened places is checked.
+lend_through :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
   op_callee := match(call, .FnCall(_, c, _, _, _) => c, .Atom(_, _) => return(()));
   if(ast_expr_is_fn_call_of(&op_callee, BF_DOT, Option(usize).Some(usize(2))), {
     return(());
@@ -8999,11 +9026,11 @@ _check_call_origin_invariance :: (fn(call : &AstExpr, env : &Environment, ctx : 
         arg := match(op_args.get(ai), .Some(a) => _unlabeled_argument(&a), .None => make_err_expr());
         a_place := ast_expr_strip_borrow_marker(&arg);
         match(
-          expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&a_place)),
-          .Some(ai_info) => {
+          _argument_origin_type(&a_place, env, ctx),
+          .Some(ai_ty) => {
             p_os := ArrayList(TypeValue).new();
             a_os := ArrayList(TypeValue).new();
-            _origin_position_pairs(&t_slot_pointee(&slot), &t_slot_pointee(&ai_info.ty()), &mut p_os, &mut a_os, u32(0));
+            _origin_position_pairs(&t_slot_pointee(&slot), &t_slot_pointee(&ai_ty), &mut p_os, &mut a_os, u32(0));
             (k : usize) = usize(0);
             while(k < p_os.len(), {
               match(
@@ -9034,80 +9061,235 @@ _check_call_origin_invariance :: (fn(call : &AstExpr, env : &Environment, ctx : 
     );
     ai = (ai + usize(1));
   });
-  if(fixed_names.len() == usize(0), {
-    return(());
-  });
   // 2. Every other argument whose parameter names a fixed origin carries
-  // origins within it.
-  (bi : usize) = usize(0);
-  while(bi < op_args.len(), {
-    if(!fixed_by.contains(&bi), {
-      match(
-        slots.get(bi),
-        .Some(slot) => {
-          arg := match(op_args.get(bi), .Some(a) => _unlabeled_argument(&a), .None => make_err_expr());
-          p_os := ArrayList(TypeValue).new();
-          a_os := ArrayList(TypeValue).new();
-          _argument_origin_pairs(&arg, &slot, env, ctx, &mut p_os, &mut a_os);
-          (k : usize) = usize(0);
-          while(k < p_os.len(), {
-            match(
-              t_origin_spelled_names(&p_os(k)),
-              .Some(pn) => if(pn.len() == usize(1), {
-                n := match(pn.get_cloned(usize(0)), .Some(n0) => n0, .None => String.from(""));
-                (fi : usize) = usize(0);
-                while(fi < fixed_names.len(), {
-                  if(match(fixed_names.get_cloned(fi), .Some(fnm) => (fnm == n), .None => false), {
-                    bound := match(fixed_sets.get_cloned(fi), .Some(fs) => fs, .None => shared_list(ArrayList(String).new()));
-                    match(
-                      t_origin_spelled_names(&a_os(k)),
-                      .Some(an) => {
-                        (ni : usize) = usize(0);
-                        while(ni < an.len(), {
-                          a_name := match(an.get_cloned(ni), .Some(x) => x, .None => String.from(""));
-                          (inside : bool) = false;
-                          (bj : usize) = usize(0);
-                          while(bj < bound.len(), {
-                            if(match(bound.get_cloned(bj), .Some(b) => (b == a_name), .None => false), {
-                              inside = true;
+  // origins within it. (Step 3 below still runs when NO origin parameter
+  // was fixed — the flow case's `&mut` argument spells none.)
+  if(fixed_names.len() > usize(0), {
+    (bi : usize) = usize(0);
+    while(bi < op_args.len(), {
+      if(!fixed_by.contains(&bi), {
+        match(
+          slots.get(bi),
+          .Some(slot) => {
+            arg := match(op_args.get(bi), .Some(a) => _unlabeled_argument(&a), .None => make_err_expr());
+            p_os := ArrayList(TypeValue).new();
+            a_os := ArrayList(TypeValue).new();
+            _argument_origin_pairs(&arg, &slot, env, ctx, &mut p_os, &mut a_os);
+            (k : usize) = usize(0);
+            while(k < p_os.len(), {
+              match(
+                t_origin_spelled_names(&p_os(k)),
+                .Some(pn) => if(pn.len() == usize(1), {
+                  n := match(pn.get_cloned(usize(0)), .Some(n0) => n0, .None => String.from(""));
+                  (fi : usize) = usize(0);
+                  while(fi < fixed_names.len(), {
+                    if(match(fixed_names.get_cloned(fi), .Some(fnm) => (fnm == n), .None => false), {
+                      bound := match(fixed_sets.get_cloned(fi), .Some(fs) => fs, .None => shared_list(ArrayList(String).new()));
+                      match(
+                        t_origin_spelled_names(&a_os(k)),
+                        .Some(an) => {
+                          (ni : usize) = usize(0);
+                          while(ni < an.len(), {
+                            a_name := match(an.get_cloned(ni), .Some(x) => x, .None => String.from(""));
+                            (inside : bool) = false;
+                            (bj : usize) = usize(0);
+                            while(bj < bound.len(), {
+                              if(match(bound.get_cloned(bj), .Some(b) => (b == a_name), .None => false), {
+                                inside = true;
+                              });
+                              bj = (bj + usize(1));
                             });
-                            bj = (bj + usize(1));
-                          });
-                          if(!inside, {
-                            by_arg := match(fixed_by.get(fi), .Some(fb) => match(op_args.get(fb), .Some(fa) => _unlabeled_argument(&fa), .None => make_err_expr()), .None => make_err_expr());
-                            raise_flow_violation(
-                              with_code(
-                                format_error_message_with_help(
-                                  ast_expr_token(&arg),
-                                  `\`${_lend_text(&arg)}\` carries origin \`${a_name}\`, outside \`${_origin_names_text(&bound)}\`: the origin \`${n}\` is fixed to \`${_origin_names_text(&bound)}\` by \`${_lend_text(&by_arg)}\`, and an origin reached through a \`&mut\` pointee is invariant (decision 43, plans/backlog/REFERENCES_AND_ORIGINS.md O3 step 3): widening it would let the \`&mut\` argument hold a reference past \`${a_name}\`'s scope.`,
-                                  Option(String).Some(`declare the \`&mut\` argument's type over \`${a_name}\` too (a union, \`(${_origin_names_text(&bound)}, ${a_name})\`), or pass a reference into \`${_origin_names_text(&bound)}\``)
+                            if(!inside, {
+                              by_arg := match(fixed_by.get(fi), .Some(fb) => match(op_args.get(fb), .Some(fa) => _unlabeled_argument(&fa), .None => make_err_expr()), .None => make_err_expr());
+                              raise_flow_violation(
+                                with_code(
+                                  format_error_message_with_help(
+                                    ast_expr_token(&arg),
+                                    `\`${_lend_text(&arg)}\` carries origin \`${a_name}\`, outside \`${_origin_names_text(&bound)}\`: the origin \`${n}\` is fixed to \`${_origin_names_text(&bound)}\` by \`${_lend_text(&by_arg)}\`, and an origin reached through a \`&mut\` pointee is invariant (decision 43, plans/backlog/REFERENCES_AND_ORIGINS.md O3 step 3): widening it would let the \`&mut\` argument hold a reference past \`${a_name}\`'s scope.`,
+                                    Option(String).Some(`declare the \`&mut\` argument's type over \`${a_name}\` too (a union, \`(${_origin_names_text(&bound)}, ${a_name})\`), or pass a reference into \`${_origin_names_text(&bound)}\``)
+                                  ),
+                                  E_ORIGIN_MISMATCH
                                 ),
-                                E_ORIGIN_MISMATCH
-                              ),
-                              ctx,
-                              exn
-                            );
+                                ctx,
+                                exn
+                              );
+                            });
+                            ni = (ni + usize(1));
                           });
-                          ni = (ni + usize(1));
-                        });
-                      },
-                      .None => ()
-                    );
+                        },
+                        .None => ()
+                      );
+                    });
+                    fi = (fi + usize(1));
                   });
-                  fi = (fi + usize(1));
+                }),
+                .None => ()
+              );
+              k = (k + usize(1));
+            });
+          },
+          .None => ()
+        );
+      });
+      bi = (bi + usize(1));
+    });
+  });
+  // 3. The flow write-back (§7 "A local's flow set after a `&mut` lend"): a
+  // `&mut`-lent holder whose pointee's origin parameters the argument does
+  // not spell (an elided or flow-inferred position) is an inference
+  // variable — the callee may store anything its parameter type allows, so
+  // the holder's set after the call joins what the call's other arguments
+  // (whose parameters name the same origin parameters) carry.
+  if(ctx.is_evaluating_function_body_or_async_block.is_some(), {
+    (wi : usize) = usize(0);
+    while(wi < op_args.len(), {
+      match(
+        slots.get(wi),
+        .Some(w_slot) => if(t_slot_is_mut_ref(&w_slot) && (type_carries_origin(&t_slot_pointee(&w_slot)) || _arg_type_carries_origin(match(op_args.get(wi), .Some(a) => _unlabeled_argument(&a), .None => make_err_expr()), ctx)), {
+          w_arg := _unlabeled_argument(match(op_args.get(wi), .Some(a) => a, .None => make_err_expr()));
+          w_place := ast_expr_strip_borrow_marker(&w_arg);
+          if(ast_expr_is_atom(&w_place), {
+            // The origin parameters the pointee names, and its TYPE
+            // parameters: `dst : &mut Option(T)` with `T := &S` is as much an
+            // inference variable as a spelled `r` (the row
+            // `generic-slot-lent-mut`), and another argument typed over the
+            // same `T` is what the callee may store into it.
+            w_names := ArrayList(String).new();
+            origin_param_names_of(&t_slot_pointee(&w_slot), &mut w_names, u32(0));
+            w_tvars := ArrayList(String).new();
+            _type_var_ids_of(&t_slot_pointee(&w_slot), &mut w_tvars, u32(0));
+            // Only the flow case: every named parameter the argument spelled
+            // is already fixed exactly by step 1.
+            (unfixed : bool) = (w_tvars.len() > usize(0));
+            (ni : usize) = usize(0);
+            while(ni < w_names.len(), {
+              if(!fixed_names.contains(match(w_names.get_cloned(ni), .Some(n) => n, .None => String.new())), {
+                unfixed = true;
+              });
+              ni = (ni + usize(1));
+            });
+            if(unfixed, {
+              solved := ArrayList(OriginRootPlace).new();
+              (xj : usize) = usize(0);
+              while(xj < op_args.len(), {
+                if(xj != wi, {
+                  match(
+                    slots.get(xj),
+                    .Some(x_slot) => {
+                      x_arg := _unlabeled_argument(match(op_args.get(xj), .Some(a) => a, .None => make_err_expr()));
+                      x_p := ArrayList(TypeValue).new();
+                      x_a := ArrayList(TypeValue).new();
+                      _argument_origin_pairs(&x_arg, &x_slot, env, ctx, &mut x_p, &mut x_a);
+                      (names_it : bool) = false;
+                      (pk : usize) = usize(0);
+                      while(pk < x_p.len(), {
+                        match(
+                          t_origin_spelled_names(&x_p(pk)),
+                          .Some(pn) => {
+                            (qi : usize) = usize(0);
+                            while(qi < pn.len(), {
+                              if(w_names.contains(match(pn.get_cloned(qi), .Some(qn) => qn, .None => String.new())), {
+                                names_it = true;
+                              });
+                              qi = (qi + usize(1));
+                            });
+                          },
+                          .None => ()
+                        );
+                        pk = (pk + usize(1));
+                      });
+                      if(!names_it && (w_tvars.len() > usize(0)), {
+                        x_tvars := ArrayList(String).new();
+                        _type_var_ids_of(&x_slot, &mut x_tvars, u32(0));
+                        (ti : usize) = usize(0);
+                        while(ti < x_tvars.len(), {
+                          if(w_tvars.contains(match(x_tvars.get_cloned(ti), .Some(tv) => tv, .None => String.new())), {
+                            names_it = true;
+                          });
+                          ti = (ti + usize(1));
+                        });
+                      });
+                      if(names_it, {
+                        x_roots := origin_of(&x_arg, env, ctx);
+                        (xr : usize) = usize(0);
+                        while(xr < x_roots.len(), {
+                          solved.push(x_roots(xr).clone());
+                          xr = (xr + usize(1));
+                        });
+                      });
+                    },
+                    .None => ()
+                  );
                 });
-              }),
-              .None => ()
-            );
-            k = (k + usize(1));
+                xj = (xj + usize(1));
+              });
+              if(solved.len() > usize(0), {
+                match(
+                  get_variables_from_env(env, ast_expr_token(&w_place).value.*.clone()).last_cloned(),
+                  .Some(hv) => if(!hv.is_module_level() && !hv.is_compile_time_only() && type_carries_origin(&variable_value_type(&hv)), {
+                    if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
+                      eprintln(`[n2b] write-back ${hv.name}: roots=[${n2b_roots_text(&solved)}] at ${ast_expr_token(&w_arg).module_path.*.clone()}:${(ast_expr_token(&w_arg).row + u32(1)).to_string()}`);
+                    });
+                    bind_join_roots_for(&hv, &solved, ast_expr_token(&w_arg), env, ctx, exn);
+                  }),
+                  .None => ()
+                );
+              });
+            });
           });
-        },
+        }),
         .None => ()
       );
+      wi = (wi + usize(1));
     });
-    bi = (bi + usize(1));
   });
 });
+/// The identities of the type variables (`generic(T : Type)`'s `SomeT`s) a
+/// definition's slot type mentions, through references, type arguments and
+/// tuple fields — the flow write-back's shared-`T` case.
+_type_var_ids_of :: (fn(ty : &TypeValue, out : &mut ArrayList(String), depth : u32) -> unit)({
+  if(depth > u32(16), {
+    return(());
+  });
+  match(
+    ty,
+    Rc(.SomeT({ id : tv_id })) => if(!out.contains(&tv_id), {
+      out.push(tv_id.clone());
+    }),
+    Rc(.Reference(tv_p, _, _)) => _type_var_ids_of(&tv_p, out, (depth + u32(1))),
+    Rc(.Struct({ type_arguments : tv_sargs })) => {
+      (si : usize) = usize(0);
+      while(si < tv_sargs.len(), {
+        match(tv_sargs.get(si), .Some(sa) => _type_var_ids_of(&sa, out, (depth + u32(1))), .None => ());
+        si = (si + usize(1));
+      });
+    },
+    Rc(.EnumT({ type_arguments : tv_eargs })) => {
+      (ei : usize) = usize(0);
+      while(ei < tv_eargs.len(), {
+        match(tv_eargs.get(ei), .Some(ea) => _type_var_ids_of(&ea, out, (depth + u32(1))), .None => ());
+        ei = (ei + usize(1));
+      });
+    },
+    Rc(.Tuple({ field_types : tv_fields })) => {
+      (fi : usize) = usize(0);
+      while(fi < tv_fields.len(), {
+        match(tv_fields.get(fi), .Some(ft) => _type_var_ids_of(&ft, out, (depth + u32(1))), .None => ());
+        fi = (fi + usize(1));
+      });
+    },
+    _ => ()
+  );
+});
+/// The argument's own type carries an origin (a definition slot over a type
+/// variable does not say; the instantiation does).
+_arg_type_carries_origin :: (fn(arg : AstExpr, ctx : &EvalContext) -> bool)(
+  match(
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ast_expr_strip_borrow_marker(&arg))),
+    .Some(ati) => type_carries_origin(&ati.ty()),
+    .None => false
+  )
+);
 /// `a, b` for an origin's names.
 _origin_names_text :: (fn(names : &SharedList(String)) -> String)({
   out := String.from("");
@@ -9177,7 +9359,7 @@ evaluate_function_call :: (
       _check_call_value_root_overlap(&lends, env, ctx, exn);
       _check_call_cell_root_overlap(&lends, env, ctx, exn);
       _check_call_global_lends(expr, &lends, &r, env, ctx, exn);
-      _check_call_origin_invariance(expr, env, ctx, exn);
+      lend_through(expr, env, ctx, exn);
       if(local_borrows_active(), {
         _local_borrow_note_call_site(&r, &call_tok, ctx, exn);
       });

@@ -1,0 +1,18 @@
+// expect: accept
+// h1r's positive twin: the slot's last use is INSIDE the inner scope, before `y` dies.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+store :: (fn(generic(r : Origin), dst : &mut Option(&(Rc(X), r)), v : &(Rc(X), r)) -> unit)({
+  dst.* = .Some(v);
+});
+main :: (fn() -> unit)({
+  mut(slot) := Option(&Rc(X)).None;
+  {
+    y := Rc.new(X(s : String.from("hello")));
+    store(&mut slot, &y);
+    match(slot, .Some(r) => println(`OUT: ${r.*.*.s.len().to_string()}`), .None => println("none"));
+  };
+  ()
+});
+export(main);
