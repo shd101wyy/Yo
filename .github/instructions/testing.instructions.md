@@ -138,6 +138,7 @@ in-file tests ship with their module and cost a no-op.
 - `yo test --help` lists every flag; `yo test` takes ONE positional path (a second path is silently ignored)
 - Tests automatically use AddressSanitizer for leak detection.
 - **The test binaries are compiled by whichever `yo` runs `yo test`.** Run by the installed seed, a test gets the SEED's codegen, and LeakSanitizer then reports leaks the tree has already fixed. 2026-09-29: `entry.or_insert_with` in `tests/collections/hash_map.test.yo` leaked a closure's captures under the v0.2.45 seed, which predates #967, and passed under the tree's stage-1. To judge a leak or a codegen change, run the file with the tree's compiler: `YO_STD=$PWD/std <stage-1> test <file> --parallel 1`.
+- **A drop-on-escape regression test can be hidden by DEFINITION ORDER.** The escape-drop lists decide whether a drop is still due by comparing source tokens (`_variable_initialized_after_cleanup_point`), so a callee (an awaited wrapper, a fused site) defined ABOVE its caller in the same file can make an escape look earlier than a consumption and hide the drop. Define the callee in another file or BELOW the caller, or the test stays green on the broken compiler (`issues/fixed/2026-11-07-a-fused-block-that-throws-drops-its-by-value-capture-twice.md`: five probes stayed clean until their wrappers moved below the caller).
 
 ## A use-after-free check on macOS: put Apple clang first on `PATH`
 

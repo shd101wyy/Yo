@@ -51,7 +51,7 @@
   get_closure_await_analysis
 } :: import("../../evaluator/async/await_analysis.yo");
 { get_func_type, mark_io_async_sm_closure, register_io_async_closure_fid, lookup_io_async_closure_fid, is_fnonce_capture_struct } :: import("../../function_value.yo");
-{ ExprInfo, CaptureFieldInit, expr_info_capture_field_inits, expr_info_table_set, lookup_macro_expansion, lookup_hollow_body_error, expr_info_closure_function_value, expr_info_async_state_machine_struct_name, expr_info_set_async_state_machine_struct_name, expr_info_capture_type, expr_info_deferred_dup_expressions, expr_info_set_deferred_dup_expressions, some_resolution, is_by_value_param_share_dup, is_call_scoped_share_dup, emitted_block_statements } :: import("../../expr_info.yo");
+{ ExprInfo, CaptureFieldInit, expr_info_capture_field_inits, expr_info_consumed_variable_drop_expressions, expr_info_table_set, lookup_macro_expansion, lookup_hollow_body_error, expr_info_closure_function_value, expr_info_async_state_machine_struct_name, expr_info_set_async_state_machine_struct_name, expr_info_capture_type, expr_info_deferred_dup_expressions, expr_info_set_deferred_dup_expressions, some_resolution, is_by_value_param_share_dup, is_call_scoped_share_dup, emitted_block_statements } :: import("../../expr_info.yo");
 {
   extract_future_trait_from_type,
   type_implements_future
@@ -73,7 +73,6 @@
   mark_uses_parallelism,
   mark_uses_tls,
   fresh_local_name,
-  get_deferred_drop_target_atom_name,
   sanitize_for_c_identifier
 } :: import("../utils/index.yo");
 { Environment } :: import("../../env.yo");
@@ -2352,9 +2351,8 @@ _fused_arg_carries_call_share :: (fn(arg : &AstExpr, context : &FunctionGenerati
   });
   false
 });
-/// The match-arm bindings of the caller in force at a fused site, set aside
-/// while the wrapper's own names are emitted.
-_CallerArmScope :: struct(
+/// The caller's scope at a fused site, set aside while the wrapper is emitted.
+_CallerScope :: struct(
   shadowed : Option(HashSet(String)),
   bindings : Option(HashMap(String, ArrayList(ShadowBinding))),
   slots : Option(HashMap(String, String)),
@@ -2362,59 +2360,34 @@ _CallerArmScope :: struct(
   pending : Option(ArrayList(AstExpr)),
   consumed : Option(ArrayList(AstExpr))
 );
-/// `list`, a drop list of the caller, without the drops of its arm bindings.
-/// Inside the fused site such a name is not the binding. The state machine's
-/// dispose releases the binding's slot on the way out, as it does for every
-/// other local of the caller, so no escape path of the site needs its drop.
-_drops_outside_arms :: (fn(list : &Option(ArrayList(AstExpr)), shadowed : &Option(HashSet(String))) -> Option(ArrayList(AstExpr)))(
-  match(
-    list,
-    .Some(drops) => {
-      mut(kept) := ArrayList(AstExpr).new();
-      (mut(i) : usize) = usize(0);
-      while(i < drops.len(), i = (i + usize(1)), {
-        match(
-          drops.get(i),
-          .Some(d) => {
-            of_arm := match(
-              get_deferred_drop_target_atom_name(&d),
-              .Some(name) => match(shadowed, .Some(s) => s.contains(sanitize_for_c_identifier(&name, false)), .None => false),
-              .None => false
-            );
-            if(!of_arm, {
-              kept.push(d);
-            });
-          },
-          .None => ()
-        );
-      });
-      Option(ArrayList(AstExpr)).Some(kept)
-    },
-    .None => Option(ArrayList(AstExpr)).None
-  )
-);
-/// Leave the caller's match arms: the wrapper and its block are emitted inside
-/// the arm but are not in its scope, and a shadowed name renders as the
+/// Leave the caller's scope for the wrapper's: the wrapper and its block are
+/// emitted inside the caller but are not in its scope.
+///
+/// A match arm's state is keyed by name, and a shadowed name renders as the
 /// binding whichever variable the atom names (`_generate_sm_atom`), so a name
 /// the wrapper shares with an arm binding read the caller's value
 /// (issues/fixed/2026-11-07-a-fused-await-reads-the-callers-match-binding-of-the-wrappers-name.md).
-_leave_caller_arms :: (fn(context : &mut FunctionGenerationContext) -> _CallerArmScope)({
-  shadowed := context.local_shadowed_variables.take();
-  pending := context.pending_deferred_drops.take();
-  consumed := context.consumed_var_pending_drops.take();
-  context.pending_deferred_drops = _drops_outside_arms(&pending, &shadowed);
-  context.consumed_var_pending_drops = _drops_outside_arms(&consumed, &shadowed);
-  _CallerArmScope(
-    shadowed : shadowed,
+///
+/// The caller's two escape-drop lists go with it. An escape inside the site is
+/// what the awaited future's abort is at an ordinary await, where the caller's
+/// resume function releases nothing and the state machine's dispose releases
+/// what the caller owns. Left in force here they were emitted through the
+/// wrapper's names, so a caller's temp rendered as its C local: that value was
+/// released twice, or released already at its own statement's end, or, after a
+/// suspension, a stale local
+/// (issues/fixed/2026-11-07-a-fused-block-that-throws-drops-its-by-value-capture-twice.md).
+_enter_wrapper_scope :: (fn(context : &mut FunctionGenerationContext) -> _CallerScope)(
+  _CallerScope(
+    shadowed : context.local_shadowed_variables.take(),
     bindings : context.shadow_bindings.take(),
     slots : context.shadow_slots.take(),
     places : context.place_bindings.take(),
-    pending : pending,
-    consumed : consumed
+    pending : context.pending_deferred_drops.take(),
+    consumed : context.consumed_var_pending_drops.take()
   )
-});
-/// Back in the caller's match arms, as `_leave_caller_arms` found them.
-_reenter_caller_arms :: (fn(sink(scope) : _CallerArmScope, context : &mut FunctionGenerationContext) -> unit)(
+);
+/// Back in the caller's scope, as `_enter_wrapper_scope` found it.
+_back_to_caller_scope :: (fn(sink(scope) : _CallerScope, context : &mut FunctionGenerationContext) -> unit)(
   match(scope, { shadowed : sh, bindings : bi, slots : sl, places : pl, pending : pe, consumed : co } => {
     context.local_shadowed_variables = sh;
     context.shadow_bindings = bi;
@@ -2507,7 +2480,17 @@ emit_fused_await :: (fn(await_expr : &AstExpr, indent : &String, context : &mut 
   context.base.emitter.emit_string_line(`${indent}{`);
   mut(inner) := indent.clone();
   inner.push_str("  ");
-  wrapper_arms := _leave_caller_arms(context);
+  wrapper_scope := _enter_wrapper_scope(context);
+  // A prologue escape leaves the wrapper, as at a call: its block's own lists
+  // release its parameters, which the block body has not taken yet.
+  match(
+    context.base.get_expr_info(&site.wrapper_body),
+    .Some(wei) => {
+      context.pending_deferred_drops = wei.deferred_drop_expressions();
+      context.consumed_var_pending_drops = expr_info_consumed_variable_drop_expressions(&wei);
+    },
+    .None => ()
+  );
   // The fused nodes are also emitted in the wrapper's own function and state
   // machine: the per-program sets that stop a temp from being declared, or a
   // drop from being emitted, twice must not carry over between the two.
@@ -2555,7 +2538,7 @@ emit_fused_await :: (fn(await_expr : &AstExpr, indent : &String, context : &mut 
   context.variable_id_remapping = saved_remap.clone();
   context.declared_temp_vars = saved_temps;
   context.emitted_deferred_drop_ids = saved_drop_ids;
-  _reenter_caller_arms(wrapper_arms, context);
+  _back_to_caller_scope(wrapper_scope, context);
   context.base.emitter.emit_string_line(`${indent}}`);
   // The call's own drops (its argument temps), as after the call.
   generate_deferred_drop_expressions(&site.call, indent.clone(), context);
@@ -2567,19 +2550,19 @@ emit_fused_await :: (fn(await_expr : &AstExpr, indent : &String, context : &mut 
   // temps). Its awaits suspend the CALLER; each is keyed and moved-read per
   // site.
   context.base.emitter.emit_string_line(`${indent}{`);
-  block_arms := _leave_caller_arms(context);
+  block_scope := _enter_wrapper_scope(context);
   saved_temps2 := replace(&mut context.declared_temp_vars, Option(HashSet(String)).Some(HashSet(String).new()));
   saved_drop_ids2 := replace(&mut context.emitted_deferred_drop_ids, HashSet(usize).new());
   saved_slot := replace(&mut context.sm_capture_slot, `${site.prefix}capture`);
   saved_prefix := replace(&mut context.fusion_field_prefix, site.prefix.clone());
-  saved_pdd := replace(&mut context.pending_deferred_drops, Option(ArrayList(AstExpr)).None);
   // The map restored above (the wrapper's) is taken out again and put back
   // when the block is done: one map, as the shared handle was.
   saved_smv2 := replace(&mut context.state_machine_variables, Option(HashMap(String, CapturedVariable)).Some(_fused_sm_variables(&site)));
   context.state_machine_field_aliases = Option(HashMap(String, String)).Some(_fused_sm_aliases(&site));
   context.variable_id_remapping = Option(HashMap(String, String)).Some(site.block.analysis.variable_id_remapping.clone());
   saved_scope := sm_lowering_enter_scope(context, site.block.analysis);
-  mut(pdd) := match(&saved_pdd, .Some(p) => _copy_expr_list(&p), .None => ArrayList(AstExpr).new());
+  // The block's own drops, and no caller's: what its own state machine has.
+  mut(pdd) := ArrayList(AstExpr).new();
   match(context.base.get_expr_info(&site.block.body_expr), .Some(bei) => match(&bei.deferred_drop_expressions(), .Some(d) => _append_expr_list(&mut pdd, &d), .None => ()), .None => ());
   context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(pdd);
   tail := _emit_fused_statements(_fused_statements(&site.block.body_expr), inner.clone(), context);
@@ -2606,8 +2589,7 @@ emit_fused_await :: (fn(await_expr : &AstExpr, indent : &String, context : &mut 
   context.sm_capture_slot = saved_slot;
   context.fusion_field_prefix = saved_prefix;
   sm_lowering_restore_scope(context, saved_scope);
-  context.pending_deferred_drops = saved_pdd;
-  _reenter_caller_arms(block_arms, context);
+  _back_to_caller_scope(block_scope, context);
   Option(String).Some(out)
 });
 /// Emit a statement list whose values are all discarded (a wrapper prologue).
@@ -2626,11 +2608,6 @@ _emit_fused_statements_no_tail :: (fn(stmts : &ArrayList(AstExpr), indent : &Str
       .None => ()
     );
   });
-});
-_copy_expr_list :: (fn(src : &ArrayList(AstExpr)) -> ArrayList(AstExpr))({
-  mut(out) := ArrayList(AstExpr).new();
-  _append_expr_list(&mut out, src);
-  out
 });
 _append_expr_list :: (fn(dst : &mut ArrayList(AstExpr), src : &ArrayList(AstExpr)) -> unit)({
   (mut(i) : usize) = usize(0);
