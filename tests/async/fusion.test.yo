@@ -588,7 +588,7 @@ _throws_in_prologue :: (fn(sink(name) : String, io : Io, exn : Exception) -> Imp
 });
 _prologue_caller :: (fn(sink(name) : String, io : Io) -> Impl(Future(usize, IoExn)))(
   io.async(e => {
-    v := e.io.await(_throws_in_prologue(name, e.io, e.exn), e);
+    v := e.io.await(_throws_in_prologue(name.clone(), e.io, e.exn), e);
     v + usize(1)
   })
 );
