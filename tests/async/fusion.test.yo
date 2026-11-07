@@ -322,3 +322,144 @@ _maybe_ping :: (fn(go : bool, io : Io) -> Impl(Future(i32)))(
 test("mutually recursive wrappers compile, and are not fused into each other", {
   assert(io.await(_maybe_ping(runtime(i32(0) > i32(1)), io), io) == i32(0), "the cycle is never entered");
 });
+// A fused wrapper's names are its own. The wrapper and its block are emitted
+// inside the caller's match arm, and an arm binding is not in their scope,
+// whatever its name: each case below binds a name the wrapper also declares
+// (issues/fixed/2026-11-07-a-fused-await-reads-the-callers-match-binding-of-the-wrappers-name.md).
+// The arm's `n` against `_checked`'s parameter `n`, read by its prologue.
+_arm_binds_a_parameter_name :: (fn(io : Io) -> Impl(Future(i32, IoExn)))(
+  io.async(e => match(
+      Option(i32).Some(i32(50)),
+      .Some(n) => {
+        v := e.io.await(_checked(i32(4), e.io), e);
+        v + n
+      },
+      .None => i32(0)
+    ))
+);
+test("a caller's arm binding does not shadow a fused wrapper's parameter", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "no throw expected");
+        unwind(());
+      }
+    )
+  );
+  v := io.await(_arm_binds_a_parameter_name(io), IoExn(io : io, exn : exn));
+  assert(v == i32(55), "(4 + 1) + 50");
+});
+// The arm's `k` against `_checked`'s prologue local `k`, read by its block.
+_arm_binds_a_local_name :: (fn(io : Io) -> Impl(Future(i32, IoExn)))(
+  io.async(e => match(
+      Option(i32).Some(i32(50)),
+      .Some(k) => {
+        v := e.io.await(_checked(i32(4), e.io), e);
+        v + k
+      },
+      .None => i32(0)
+    ))
+);
+test("a caller's arm binding does not shadow a fused wrapper's local", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "no throw expected");
+        unwind(());
+      }
+    )
+  );
+  v := io.await(_arm_binds_a_local_name(io), IoExn(io : io, exn : exn));
+  assert(v == i32(55), "(4 + 1) + 50");
+});
+// `sink` is the shape `build test` died on: the wrapper's capture owns the
+// argument and the caller's arm owns its own binding, so reading the second
+// as the first releases it twice and leaks the argument.
+_len_plus_one :: (fn(sink(name) : String, io : Io) -> Impl(Future(usize, IoExn)))(
+  io.async(e => {
+    r := e.io.await(_leaf(i32(1), e.io), e.io);
+    name.len() + usize(r)
+  })
+);
+_arm_binds_a_sink_name :: (fn(io : Io) -> Impl(Future(usize, IoExn)))(
+  io.async(e => match(
+      Option(String).Some(String.from("the arm's own binding")),
+      .Some(name) => {
+        v := e.io.await(_len_plus_one(String.from("arg"), e.io), e);
+        v + name.len()
+      },
+      .None => usize(0)
+    ))
+);
+test("a caller's arm binding does not shadow a fused wrapper's sink parameter", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "no throw expected");
+        unwind(());
+      }
+    )
+  );
+  v := io.await(_arm_binds_a_sink_name(io), IoExn(io : io, exn : exn));
+  assert(v == usize(25), "(3 + 1) + 21");
+});
+// A borrowing arm binds a pointer to the part. A wrapper's value of the same
+// name is no pointer, so it must not be read through one.
+_arm_binds_a_place_of_the_name :: (fn(o : &Option(i32), io : Io) -> Impl(Future(i32, IoExn)))({
+  own := o.*;
+  io.async(e => match(
+      &own,
+      .Some(n) => {
+        v := e.io.await(_checked(i32(4), e.io), e);
+        v + n.*
+      },
+      .None => i32(0)
+    ))
+});
+test("a borrowing arm binding does not shadow a fused wrapper's parameter", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "no throw expected");
+        unwind(());
+      }
+    )
+  );
+  v := io.await(_arm_binds_a_place_of_the_name(&Option(i32).Some(i32(50)), io), IoExn(io : io, exn : exn));
+  assert(v == i32(55), "(4 + 1) + 50");
+});
+// The fused tail throws while the arm's binding is live: the state machine's
+// dispose releases the binding once, and the wrapper's capture once.
+_throws_with_arm_binding :: (fn(sink(name) : String, io : Io) -> Impl(Future(usize, IoExn)))(
+  io.async(e => {
+    r := e.io.await(_leaf(i32(1), e.io), e.io);
+    cond(
+      (r > i32(0)) => e.exn.throw(dyn(Boom(msg : name.clone()))),
+      true => name.len()
+    )
+  })
+);
+_arm_alive_across_a_fused_throw :: (fn(io : Io) -> Impl(Future(usize, IoExn)))(
+  io.async(e => match(
+      Option(String).Some(String.from("the arm's own binding")),
+      .Some(name) => {
+        v := e.io.await(_throws_with_arm_binding(String.from("arg"), e.io), e);
+        v + name.len()
+      },
+      .None => usize(0)
+    ))
+);
+_caught_with_arm_binding :: (fn(io : Io) -> bool)({
+  exn := Exception(
+    throw : (
+      err -> {
+        unwind(err.to_string() == String.from("arg"));
+      }
+    )
+  );
+  _v := io.await(_arm_alive_across_a_fused_throw(io), IoExn(io : io, exn : exn));
+  false
+});
+test("a throw in a fused block carries the wrapper's value and releases the arm's", {
+  assert(_caught_with_arm_binding(io), "the thrown message is the wrapper's argument");
+});

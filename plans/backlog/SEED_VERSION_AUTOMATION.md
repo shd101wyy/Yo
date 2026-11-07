@@ -695,6 +695,19 @@ the two bodies above, `Rc.make_mut`'s move, the `extern` block, the stress
 row, a no-clone move row per handle kind, and the issue moved to
 `issues/fixed/`.
 
+## Seed-gated follow-up (2026-11-07): a match binding named like the fused wrapper's parameter
+
+**Generation A (this PR):** a fused await leaves the caller's match arms while
+it emits the wrapper and its block
+(`issues/fixed/2026-11-07-a-fused-await-reads-the-callers-match-binding-of-the-wrappers-name.md`).
+The v0.2.75 seed lacks the fix, and a seed-built stage 1 is its own codegen's
+output, so the tree cannot rely on it: `execute_node`'s `.Test` arm in
+`src/build_runner.yo` binds `test_suite`, not `suite`, the parameter of the
+`run_test_suite` it awaits.
+
+**Generation B (once `SEED_VERSION` carries this fix):** the arm may take the
+name back; delete its seed comment.
+
 ## Seed-gated follow-up (2026-11-03): no consuming match in a wrapper the compiler awaits twice
 
 **Generation A (#1695, on the B8 value flip):** a general-lowered `match`

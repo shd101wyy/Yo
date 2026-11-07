@@ -2551,9 +2551,13 @@ execute_node :: (
         match(
           ctx.registry.find_test(node.name.clone()),
           .None => (),
-          .Some(suite) => {
-            description = `test ${suite.name}`;
-            result := e.io.await(run_test_suite(suite.clone(), ctx, e.io, e.exn), e);
+          // Not `suite`, the wrapper's parameter: a seed without the fix of
+          // issues/fixed/2026-11-07-a-fused-await-reads-the-callers-match-binding-of-the-wrappers-name.md
+          // fuses this await and reads that parameter as this binding, which
+          // frees the binding twice (plans/backlog/SEED_VERSION_AUTOMATION.md).
+          .Some(test_suite) => {
+            description = `test ${test_suite.name}`;
+            result := e.io.await(run_test_suite(test_suite.clone(), ctx, e.io, e.exn), e);
             match(
               result,
               .Ok(_) => (),
