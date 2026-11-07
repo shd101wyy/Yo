@@ -436,8 +436,11 @@ ExprInfoRare :: (
     /// an origin the moment it is typed, read by `bind` at `:=`/`=`/arm and
     /// element bindings, `lend_through` at a call and `return_check` at a
     /// result. `.None` on an origin-carrying expression is the totality
-    /// audit's (G-E) finding, never a silent empty set.
-    origin : Option(ArrayList(OriginRootPlace))
+    /// audit's (G-E) finding, never a silent empty set. BOXED: an
+    /// `Option(ArrayList(...))` field here misfolds its size (the evaluator
+    /// counted 16, the C layout is 32 — issues/2026-11-07-a-rare-group-option-arraylist-field-misfolds-its-size.md),
+    /// while `Option(Box(...))` is a nullable pointer on both sides.
+    origin : Option(Box(ArrayList(OriginRootPlace)))
   )
 );
 derive(ExprInfoRare, Clone);
@@ -972,7 +975,7 @@ _fresh_expr_info_rare :: (fn() -> ExprInfoRare)(
     comptime_unrolled_bodies : Option(ArrayList(AstExpr)).None,
     early_return_only_deferred_drop_expressions : Option(ArrayList(AstExpr)).None,
     capture_field_inits : Option(ArrayList(CaptureFieldInit)).None,
-    origin : Option(ArrayList(OriginRootPlace)).None
+    origin : Option(Box(ArrayList(OriginRootPlace))).None
   )
 );
 /// Take `info`'s rare group out of its cell for a write (a fresh one on the
@@ -991,7 +994,13 @@ expr_info_converted_runtime_type :: (fn(info : &ExprInfo) -> Option(TypeValue))(
 );
 /// O-1: the expression's computed origin (see `ExprInfoRare.origin`).
 expr_info_origin :: (fn(info : &ExprInfo) -> Option(ArrayList(OriginRootPlace)))(
-  info.with(d => match(&d.rare, .Some(r) => r.origin.clone(), .None => Option(ArrayList(OriginRootPlace)).None))
+  info.with(
+    d => match(
+      &d.rare,
+      .Some(r) => match(&r.origin, .Some(b) => Option(ArrayList(OriginRootPlace)).Some(b.*.clone()), .None => Option(ArrayList(OriginRootPlace)).None),
+      .None => Option(ArrayList(OriginRootPlace)).None
+    )
+  )
 );
 /// O-1: set the expression's computed origin (an empty set is `.Some(empty)`,
 /// distinct from `.None` = not computed).
@@ -1000,7 +1009,7 @@ expr_info_set_origin :: (fn(info : &ExprInfo, v : &Option(ArrayList(OriginRootPl
     return(());
   });
   mut(r) := _expr_info_rare_take(info);
-  r.origin = v.clone();
+  r.origin = match(v, .Some(list) => Option(Box(ArrayList(OriginRootPlace))).Some(Box.new(list.clone())), .None => Option(Box(ArrayList(OriginRootPlace))).None);
   _expr_info_rare_put(info, r);
   ()
 });
