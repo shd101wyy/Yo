@@ -392,13 +392,16 @@ source order.
   `shadow_slots`, `place_bindings`) is keyed by name and `_generate_sm_atom`
   consults it before any variable lookup, so `emit_fused_await` takes it out
   (`_enter_wrapper_scope`) around the wrapper's parameters, prologue, capture
-  and block. For the same span the caller's two escape-drop lists lose the
-  arm bindings' drops (the dispose releases those slots) and the drops of the
-  values the call handed the wrapper (`_fused_call_taken`): the lists order a
-  drop against the caller's own positions, and an escape point inside the
-  site sits in the wrapper's source, so a call-consumed argument looked
-  unconsumed there. Any new path that emits one function's nodes inside
-  another's has to do the same
+  and block. The caller's two escape-drop lists (`pending_deferred_drops`,
+  `consumed_var_pending_drops`) leave with it: an escape inside the site is
+  what the awaited future's abort is at an ordinary await, where the caller's
+  resume releases nothing and the dispose releases what the caller owns. Left
+  in force they render through the site's variable map and an empty
+  emitted-drop set, so a caller value is freed twice or after its own
+  statement released it. The prologue runs under the wrapper body's own lists
+  (a prologue escape releases the wrapper's parameters, as at a call), and the
+  block's pending list holds only the block's own drops. Any new path that
+  emits one function's nodes inside another's has to do the same
   (issues/fixed/2026-11-07-a-fused-await-reads-the-callers-match-binding-of-the-wrappers-name.md,
   issues/fixed/2026-11-07-a-fused-block-that-throws-drops-its-by-value-capture-twice.md).
 - **A consuming read of a slot takes the value where the consuming line
