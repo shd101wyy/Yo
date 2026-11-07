@@ -19,7 +19,7 @@ Usage:
   /tmp/re/yo_census check src/main.yo --std-path ./std      # writes census_dump.txt at exit
   sort -k1,1nr /tmp/re/census_dump.txt | head            # join slot → name via census.c.map
 
-Plan: plans/EVALUATOR_MEMORY_REDUCTION.md Phase 0. Do NOT instrument the
+Plan: plans/backlog/EVALUATOR_MEMORY_REDUCTION.md Phase 0. Do NOT instrument the
 stale yo-out/<triple>/bin/yo.c without checking its version line — it may be
 an old emission that rejects today's std.
 """

@@ -1,5 +1,7 @@
 # Zig's allocator catalog in Yo: `std/heap`, and the real arena
 
+> **Trued 2026-11-07 (plans audit after VBD):** Status: BACKLOG (2026-10-21), updated 2026-11-07. A0 (interface v2: alignment, sized free) landed, and A2's `--allocator debug` landed as #1580. std/heap is not started and begins with ALLOCATOR_PLACEMENT step C after VBD. The collector is deleted (decision 48 W6b). Read `with_allocator`/`new_in` as `alloc : .Some(a)`.
+
 **Status: BACKLOG — drafted 2026-10-21 at the maintainer's request** ("I
 was expecting we have real arena … I expect Yo to have all the kinds of
 allocators that Zig supports, such as page_allocator, FixedBufferAllocator,
@@ -11,7 +13,7 @@ prefix, the scope), the allocator interface version 2 queued after V2b
 version 2"), and `plans/backlog/REFERENCES_AND_ORIGINS.md` (the `Origin`
 kind), which is what makes the real arena typeable. It supersedes the
 "not possible without lifetimes" half of
-[`ARENA_ALLOCATOR_FEASIBILITY.md`](ARENA_ALLOCATOR_FEASIBILITY.md) §0 (3)
+[`ARENA_ALLOCATOR_FEASIBILITY.md`](../archive/ARENA_ALLOCATOR_FEASIBILITY.md) §0 (3)
 and §4.3 (Option C′), whose analysis stays the record of why the DYNAMIC
 forms cannot drop reference counting.
 

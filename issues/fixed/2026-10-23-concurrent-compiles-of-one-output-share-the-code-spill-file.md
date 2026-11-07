@@ -45,7 +45,7 @@ section had lost its whole first part.
 
 `yo compile` streams finished function bodies to a spill file during
 emission (`Emitter.spill_code_if_large`, `src/emitter.yo`; landed
-2026-09-30, `plans/CODEGEN_MEMORY_REDUCTION.md` §0.10). Each time the
+2026-09-30, `plans/backlog/CODEGEN_MEMORY_REDUCTION.md` §0.10). Each time the
 in-memory code reaches 8 MiB, the buffer goes to disk. When writing the C
 file, `run_compile` (`src/main.yo`) splices the spill between the
 declarations and the in-memory tail. Two things made that fragile:

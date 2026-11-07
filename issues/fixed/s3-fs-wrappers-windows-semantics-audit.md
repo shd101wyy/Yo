@@ -89,7 +89,7 @@ in `src/codegen/async/runtime_io_windows.yo`:
    through it; the three socketpair validation returns are now plain
    `-ENOTSUP`/`-EAFNOSUPPORT`/`-EPROTONOSUPPORT`.
    *Merge note (2026-10-05):* develop landed the same translation in parallel
-   (`__yo_wsa_to_errno`, plans/ASYNC_IO_API_AUDIT.md A4/F4, #1167). The merge
+   (`__yo_wsa_to_errno`, plans/archive/ASYNC_IO_API_AUDIT.md A4/F4, #1167). The merge
    keeps ONE table — develop's name and choices (WSAEWOULDBLOCK→EWOULDBLOCK,
    both of which `IoError.from_errno` reads as `WouldBlock`; an unmapped code
    →EIO; WSAESOCKTNOSUPPORT→EPROTONOSUPPORT, which is also what socketpair's

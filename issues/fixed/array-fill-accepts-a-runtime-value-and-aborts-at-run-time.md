@@ -334,7 +334,7 @@ to `(Default, Comptime)` does not help — the probe above already carries the
 
 `plans/archive/STD_API_STABILIZATION.md` lists `Array(T,N)` `Default` beside the byte
 conversions under
-`plans/backlog/VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md`, on the reasoning that
+`plans/archive/VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md`, on the reasoning that
 "a `default()` generic over `N` is the same substitution problem". It is not.
 
 - The byte conversions needed an associated constant in a LENGTH position.

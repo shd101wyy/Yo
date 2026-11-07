@@ -1,6 +1,6 @@
 # A `comptime(...)` parameter given a non-comptime argument emits BROKEN C instead of an error
 
-**Status:** FIXED 2026-09-24 (Phase 1.8 of `plans/TYPE_SYSTEM_SOUNDNESS.md`). The probe target named below was right about the symptom and wrong about the site: see "Where the call actually binds". Originally OPEN.
+**Status:** FIXED 2026-09-24 (Phase 1.8 of `plans/backlog/TYPE_SYSTEM_SOUNDNESS.md`). The probe target named below was right about the symptom and wrong about the site: see "Where the call actually binds". Originally OPEN.
 2026-09-17 by the peer session (yo-12) while root-causing
 `Array(T, N).fill(T.default())`; handed over because it is the same family as
 the diagnostics-flattening work in #733, and handed BACK after three probes

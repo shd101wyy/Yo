@@ -3,7 +3,7 @@
 **Severity:** S1 — Yo identifiers can collide with header macros — C failure, or silent computation with the macro's value
 
 **Found:** 2026-09-24, building the compiler with a new helper in `src/evaluator/calls/function.yo`
-(Phase 2.4 of `plans/TYPE_SYSTEM_SOUNDNESS.md`).
+(Phase 2.4 of `plans/backlog/TYPE_SYSTEM_SOUNDNESS.md`).
 **Status:** FIXED 2026-10-02 (`fix/header-macro-prefix`): every Yo-derived local, parameter,
 field and enum payload member is emitted under the prefix `__yo_v_` (see "Fix" below).
 **Class:** valid Yo, invalid C. `yo check` is green; the C compiler fails, or, worse, compiles a

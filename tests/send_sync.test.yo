@@ -46,7 +46,7 @@ test("a non-atomic cell is neither Send nor Sync", {
   comptime_assert(!Type.impls(Rc(i32), Sync), "Rc is not Sync");
   comptime_assert(!Type.impls(Rc(i32), Sync), "Rc (a shared cell) is not Sync");
   // A `Weak` into an `Rc` graph is as thread-local as the graph
-  // (plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §3.5).
+  // (plans/archive/WEAK_AND_UNCOLLECTED_RC.md §3.5).
   comptime_assert(!Type.impls(Weak(i32), Send), "Weak is not Send");
   comptime_assert(!Type.impls(Weak(i32), Sync), "Weak is not Sync");
   comptime_assert(!Type.impls(SsCell, Send), "a struct holding an Rc is not Send");
@@ -85,7 +85,7 @@ test("atomic cells are Send and Sync", {
   comptime_assert(Type.impls(Arc(i32), Send), "Arc(i32) is Send");
   comptime_assert(Type.impls(Arc(i32), Sync), "Arc(i32) is Sync");
   // An `ArcWeak`'s counts are atomic and an `Arc` payload is `Send` and
-  // `Sync` (plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §3.5).
+  // `Sync` (plans/archive/WEAK_AND_UNCOLLECTED_RC.md §3.5).
   comptime_assert(Type.impls(ArcWeak(i32), Send), "ArcWeak(i32) is Send");
   comptime_assert(Type.impls(ArcWeak(i32), Sync), "ArcWeak(i32) is Sync");
   comptime_assert(Type.impls(AtomicI32, Sync), "AtomicI32 is Sync");
@@ -328,7 +328,7 @@ test("a generic function's move-only closure parameter moves into a closure it p
 });
 // ============================================================================
 // Decision 48 W2: `Arc` and the sync types do not require `Acyclic`
-// (plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §2)
+// (plans/archive/WEAK_AND_UNCOLLECTED_RC.md §2)
 // ============================================================================
 // As in Rust, an `Arc` cycle is legal and leaks unless a back edge is
 // cleared. `SsPeer` is a struct reaching itself through
@@ -382,7 +382,7 @@ test("Arc, Mutex, RwLock, Channel and Thread take a cyclic payload", {
 });
 // ============================================================================
 // Decision 48 W5: `Acyclic` is the strong-cycle reach walk
-// (plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §4)
+// (plans/archive/WEAK_AND_UNCOLLECTED_RC.md §4)
 // ============================================================================
 // `T <: Acyclic` iff no cycle of strong edges is reachable from a `T`. A
 // recursion through a shared cell (`Rc`, `Arc`, a `ref` object) is a cycle; one

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Definition-time swallow census (plans/TYPE_SYSTEM_SOUNDNESS.md, Phase 0
+# Definition-time swallow census (plans/backlog/TYPE_SYSTEM_SOUNDNESS.md, Phase 0
 # step 3; the metric Phase 6 drives to zero).
 #
 # `yo check` trial-evaluates bodies at definition time and SWALLOWS what the

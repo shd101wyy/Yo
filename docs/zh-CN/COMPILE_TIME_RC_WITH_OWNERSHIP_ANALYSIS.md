@@ -18,7 +18,7 @@
 >   - 模块级根保持静态检查。
 >
 > 本页会随各阶段落地逐步更新。到 V5 时，本页将被“所有权与借用”一页取代，其草稿见
-> [`plans/OWNERSHIP_AND_BORROWING_DOC_DRAFT.md`](../../plans/OWNERSHIP_AND_BORROWING_DOC_DRAFT.md)。
+> [`plans/backlog/OWNERSHIP_AND_BORROWING_DOC_DRAFT.md`](../../plans/backlog/OWNERSHIP_AND_BORROWING_DOC_DRAFT.md)。
 
 Yo 对堆分配的对象使用非原子引用计数，并通过编译期**所有权分析**和**生命周期分析**来消除不必要的引用计数操作。
 

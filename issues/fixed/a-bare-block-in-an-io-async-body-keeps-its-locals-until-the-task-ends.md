@@ -2,7 +2,7 @@
 
 **Severity:** S3 — a block's values are released late (at task completion), and a `Dispose` runs later than the same code run synchronously
 
-**Status: FIXED (2026-09-29).** Found while testing slot sharing for phase 6 of `plans/ASYNC_STATE_MACHINE_GENERATION.md`. The v0.2.45 seed has it too.
+**Status: FIXED (2026-09-29).** Found while testing slot sharing for phase 6 of `plans/archive/ASYNC_STATE_MACHINE_GENERATION.md`. The v0.2.45 seed has it too.
 
 ## Symptom
 

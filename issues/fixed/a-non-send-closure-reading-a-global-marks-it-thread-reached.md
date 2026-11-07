@@ -47,7 +47,7 @@ second closure's `g_counter = …`, then fails rule D1.
 The second defect is how the error surfaces: it is swallowed by the
 closure's def-time trial, and the user sees an unrelated E0610 on the
 `JoinHandle`. That is the swallow policy tracked as R2 in
-`plans/TYPE_SYSTEM_SOUNDNESS.md`.
+`plans/backlog/TYPE_SYSTEM_SOUNDNESS.md`.
 
 ## Fix direction
 

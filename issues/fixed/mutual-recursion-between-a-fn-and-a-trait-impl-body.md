@@ -135,7 +135,7 @@ same "swallowed, then a runnable no-op" class), and the entry-point FTT gate in
 
 ## 2026-09-24: the swallowed error now reaches `check`
 
-Since `plans/TYPE_SYSTEM_SOUNDNESS.md` Phase 1.6 (an operator whose trait lookup misses is an
+Since `plans/backlog/TYPE_SYSTEM_SOUNDNESS.md` Phase 1.6 (an operator whose trait lookup misses is an
 error, never `unit`), `yo check` on the reproducer is no longer green:
 
 ```

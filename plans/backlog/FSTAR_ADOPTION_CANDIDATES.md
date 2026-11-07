@@ -12,9 +12,9 @@ reading the cited file; an audit pass against develop on 2026-10-14
 marked unverified (refined results, F1; closed `ghost_fn` folding, F7) by
 running probe programs through `yo verify`.
 Every F\* claim cites a primary source (§8). Companions:
-[`DEPENDENT_TYPES_POSITION.md`](DEPENDENT_TYPES_POSITION.md) (the charter;
+[`DEPENDENT_TYPES_POSITION.md`](../reference/DEPENDENT_TYPES_POSITION.md) (the charter;
 this PR adds its "The F\* question" section),
-[`ATS_STYLE_INDEXED_TYPES.md`](ATS_STYLE_INDEXED_TYPES.md) (the sibling
+[`ATS_STYLE_INDEXED_TYPES.md`](../archive/ATS_STYLE_INDEXED_TYPES.md) (the sibling
 audit, whose shape this follows),
 [`THEOREM_PROVING_NEXT.md`](THEOREM_PROVING_NEXT.md) (T1–T4; several items
 below are amendments to it, written here with evidence and pointed to from
@@ -47,7 +47,7 @@ there), [`FORMAL_VERIFICATION.md`](FORMAL_VERIFICATION.md) (the verifier),
    of φ is materialized"); **(c)** erasure — `GTot`, `erased`, `Lemma` and
    every proof are deleted before extraction, and the C that KaRaMeL emits
    is first-order Low\* code.
-2. **(a)** is exactly what [`DEPENDENT_TYPES_POSITION.md`](DEPENDENT_TYPES_POSITION.md)
+2. **(a)** is exactly what [`DEPENDENT_TYPES_POSITION.md`](../reference/DEPENDENT_TYPES_POSITION.md)
    rejects, and F\* is a confirmation of the cost, not a counter-example:
    F\* needs universes because its propositions are types (`prop`,
    `squash`); Yo's propositions are `bool` expressions in ghost context
@@ -116,7 +116,7 @@ Listed so nobody proposes it again.
 | Intrinsic vs extrinsic proofs | `ensures` on the function vs `law` / lemma beside it | BEND B1 |
 | Unsat cores | plumbing only: `:produce-unsat-cores` and `(get-unsat-core)` are emitted and `Proved` carries the core, but production assumptions are unnamed, so the core is empty | `src/verifier/encode.yo:580–587`, `vc.yo:1310`, `driver.yo:291` |
 | Inductives as SMT datatypes | value enums as `declare-datatypes`, `match` as `ite` over testers | `docs/en-US/FORMAL_VERIFICATION.md` §The verifiable subset |
-| Low\*: a verified C-like subset | the verifiable subset (SPARK's discipline) and safe mode | FV §The verifiable subset; `plans/SAFE_MODE.md` |
+| Low\*: a verified C-like subset | the verifiable subset (SPARK's discipline) and safe mode | FV §The verifiable subset; `plans/backlog/SAFE_MODE.md` |
 | Interfaces (`.fsti`) hide an implementation from clients | `_`-prefix privacy and `export(...)`; the SMT-visibility half is F6 | `plans/reference/MEMBER_VISIBILITY.md` |
 | `calc` | planned as T3 | THEOREM_PROVING_NEXT §5 (confirmed by F10) |
 
@@ -150,7 +150,7 @@ subtyping by Z3, and the *runtime* types are C types. That is, line for
 line, Yo's two layers: comptime indices (`Array(T, N)`,
 `generic(N : usize)`) where the length is a constant, and the verifier's
 length-indexed `ArrayList` model, `seq_of(xs)`, `ms_of(a)` and `refine`
-where it is not ([`ATS_STYLE_INDEXED_TYPES.md`](ATS_STYLE_INDEXED_TYPES.md)
+where it is not ([`ATS_STYLE_INDEXED_TYPES.md`](../archive/ATS_STYLE_INDEXED_TYPES.md)
 §3 draws the same correspondence for ATS, and F\*'s Low\* lands on the
 same side of it).
 
@@ -624,7 +624,7 @@ modified code without restarting F\*").
 
 **Yo today.** B4 (the evals corpus) is the live Agent-loop item and is
 unstarted; `yo mcp` is a precedent-backed idea in
-[`AGENT_LOOP_NEXT.md`](AGENT_LOOP_NEXT.md); the resident checker exists
+[`AGENT_LOOP_NEXT.md`](BEND_LAWS_AND_AGENT_LOOP_LESSONS.md); the resident checker exists
 for `check` and `build` (`--watch`) but not for `verify`;
 `docs/*/FORMAL_VERIFICATION.md` §Troubleshooting has seven rows,
 including the extreme-value overflow and weak-invariant symptoms.
@@ -719,7 +719,7 @@ and `--strict` as the honest gate (F15's `assume` counts against it).
 
 ## 7. Companion edits in this PR
 
-- [`DEPENDENT_TYPES_POSITION.md`](DEPENDENT_TYPES_POSITION.md): status line
+- [`DEPENDENT_TYPES_POSITION.md`](../reference/DEPENDENT_TYPES_POSITION.md): status line
   and a "The F\* question (audited 2026-10-14)" section, the ATS
   precedent.
 - [`THEOREM_PROVING_NEXT.md`](THEOREM_PROVING_NEXT.md): T1 and T4 point at

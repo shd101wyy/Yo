@@ -7,7 +7,7 @@ carries the same error over to its link-source declaration. The analysis below i
 on; its line numbers are develop's at `82671f612`.
 
 Found 2026-09-29 while measuring the codegen memory plan
-(`plans/CODEGEN_MEMORY_REDUCTION.md`).
+(`plans/backlog/CODEGEN_MEMORY_REDUCTION.md`).
 
 ## What
 

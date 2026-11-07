@@ -1,7 +1,7 @@
 # A nullable-pointer `match` arm binding stores into a same-named hoisted variable's slot
 
 **Status: FIXED** (found and fixed 2026-09-26, by the stage-2 build of
-`plans/EVALUATOR_MEMORY_REDUCTION.md` Phase 3).
+`plans/backlog/EVALUATOR_MEMORY_REDUCTION.md` Phase 3).
 
 ## Symptom
 

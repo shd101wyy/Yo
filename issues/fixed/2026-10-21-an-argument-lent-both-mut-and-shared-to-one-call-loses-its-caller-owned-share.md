@@ -47,7 +47,7 @@ Measured with seed v0.2.67 and the tree binary of develop 3d3546a21:
 
 ## Root cause
 
-Phase 5.2 (`plans/TYPE_SYSTEM_SOUNDNESS.md`) gives an argument a caller-owned
+Phase 5.2 (`plans/backlog/TYPE_SYSTEM_SOUNDNESS.md`) gives an argument a caller-owned
 +1 for the call when another argument of the same call lends the same whole
 variable `&mut` (`argument_is_aliased_by_inout`, `src/evaluator/calls/helper.yo`).
 `set_expr_as_needs_to_call_dup_for_borrowed_projection(..., force : true)`

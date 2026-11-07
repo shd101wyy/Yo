@@ -1,7 +1,7 @@
 # A recorded `ExprInfo.env` adopted by handle and then mutated rewrites every sharer's scope once snapshots are shared
 
 **Status: FIXED 2026-09-21** on `perf/evaluator-memory-p2-f3`
-(`plans/EVALUATOR_MEMORY_REDUCTION.md` Phase 2 / F3). Provenance: every
+(`plans/backlog/EVALUATOR_MEMORY_REDUCTION.md` Phase 2 / F3). Provenance: every
 site below was FOUND BY MEASUREMENT (the frozen-env guard's backtrace), the
 fix shape was chosen after the emission diff, and the final verdict is the
 same-binary A/B recorded in the plan.

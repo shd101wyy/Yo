@@ -232,7 +232,7 @@ test("Arc.make_mut clones a shared payload and writes a unique one in place", {
   Arc.make_mut(&mut a).b = i32(20);
   assert((a.b == i32(20)) && (b.b == i32(2)), "a was unique: written in place");
 });
-// --- ArcWeak (plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §3, W4): the W3 rows
+// --- ArcWeak (plans/archive/WEAK_AND_UNCOLLECTED_RC.md §3, W4): the W3 rows
 // across a thread ---
 (mut(g_arc_weak_dropped) : i32) = i32(0);
 _ArcWeakProbe :: struct(n : i32);
@@ -400,7 +400,7 @@ test("a locked cell whose payload moved out goes to its ArcWeak handles as dead"
 });
 // `Arc.make_mut` on a cell only `ArcWeak` handles share moves the payload to
 // a fresh cell, as Rust's does: no clone, no drop, and the old cell goes to
-// the `ArcWeak` handles as dead (plans/backlog/WEAK_AND_UNCOLLECTED_RC.md
+// the `ArcWeak` handles as dead (plans/archive/WEAK_AND_UNCOLLECTED_RC.md
 // §3.3). The ArcWeak lives on another thread across the call. The fresh cell
 // is placed by the default allocator, so the counting allocator sees only the
 // old one.

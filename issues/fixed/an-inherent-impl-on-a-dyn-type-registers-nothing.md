@@ -1,6 +1,6 @@
 # An inherent impl on a `Dyn` type is accepted and registers nothing
 
-**Status: FIXED 2026-09-25** (Phase 2.7 of `plans/TYPE_SYSTEM_SOUNDNESS.md`).
+**Status: FIXED 2026-09-25** (Phase 2.7 of `plans/backlog/TYPE_SYSTEM_SOUNDNESS.md`).
 
 **Severity: silent no-op.**
 

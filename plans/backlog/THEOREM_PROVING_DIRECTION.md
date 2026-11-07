@@ -1,8 +1,10 @@
 # Theorem proving for Yo: the direction after the audits (2026-11-04)
 
+> **Trued 2026-11-07 (plans audit after VBD):** PROPOSED 2026-11-04; E1 landed (#1764). Its §4 ranking is the theorem-proving sequence of record (2026-11-07); `THEOREM_PROVING_NEXT.md` is the item catalog it ranks, and the `FSTAR_`, `LEAN_`, `K_FRAMEWORK_` and `ADA_SPARK_` candidates are cited by their ids from here.
+
 **Status: PROPOSED 2026-11-04 — backlog.**
 
-This document builds on the earlier audits and does not repeat them. They are `FORMAL_VERIFICATION.md` (FV), `THEOREM_PROVING_NEXT.md` (TP_NEXT), `../reference/MATCHING_LOGIC_RESEARCH.md`, `ATS_STYLE_INDEXED_TYPES.md`, `../ATS_LESSONS_BEYOND_INDEXED_TYPES.md`, `../SELF_VERIFICATION.md`, `BEND_LAWS_AND_AGENT_LOOP_LESSONS.md` (with its 2026-11-04 BendTT addendum), `K_FRAMEWORK_ENGINEERING_LESSONS.md`, `LEAN_ADOPTION_CANDIDATES.md`, `FSTAR_ADOPTION_CANDIDATES.md`, `DEPENDENT_TYPES_POSITION.md` and `ADA_SPARK_LESSONS.md`. This document adds three things: LLM-era evidence, the proof modes of Verus, Dafny, Lean and Why3, and a tested design for exporting obligations to Lean. It amends TP_NEXT §8–§10. Tree citations refer to `origin/develop` `56cb88d26`. Each fact carries its source, and *Judgment* marks an assessment.
+This document builds on the earlier audits and does not repeat them. They are `FORMAL_VERIFICATION.md` (FV), `THEOREM_PROVING_NEXT.md` (TP_NEXT), `../reference/MATCHING_LOGIC_RESEARCH.md`, `ATS_STYLE_INDEXED_TYPES.md`, `../archive/ATS_LESSONS_BEYOND_INDEXED_TYPES.md`, `../backlog/SELF_VERIFICATION.md`, `BEND_LAWS_AND_AGENT_LOOP_LESSONS.md` (with its 2026-11-04 BendTT addendum), `K_FRAMEWORK_ENGINEERING_LESSONS.md`, `LEAN_ADOPTION_CANDIDATES.md`, `FSTAR_ADOPTION_CANDIDATES.md`, `DEPENDENT_TYPES_POSITION.md` and `ADA_SPARK_LESSONS.md`. This document adds three things: LLM-era evidence, the proof modes of Verus, Dafny, Lean and Why3, and a tested design for exporting obligations to Lean. It amends TP_NEXT §8–§10. Tree citations refer to `origin/develop` `56cb88d26`. Each fact carries its source, and *Judgment* marks an assessment.
 
 ## 1. Answer
 

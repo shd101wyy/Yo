@@ -59,7 +59,7 @@ type variable is synthesized during that trial; the binding does not survive
 into the state-machine's own env, so the body's tail type stays an unresolved
 SomeT and the future is typed `Future(<unresolved>, Io)`. The
 `No matching call` on `await` is that unresolved carrier reaching a method
-lookup. `plans/backlog/DEFTIME_BODY_EVAL.md` and
+lookup. `plans/archive/DEFTIME_BODY_EVAL.md` and
 `issues/fixed/generic-impl-async-method-closure-param-return-type-collapse.md`
 (C27) are the neighbourhood — C27 was the same family, one substitution
 channel over.
@@ -72,7 +72,7 @@ the one the spawn site reads. The C27 fix is the model.
 
 ## Re-verified 2026-09-28 (async state-machine audit)
 
-Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
+Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/archive/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
 
 **FIXED, not yet moved.** The committed repro prints `got=6` on both binaries. Next step: add a regression test (the repro's shape in `tests/async/`) and move this doc to `fixed/`.
 

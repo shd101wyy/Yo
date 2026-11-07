@@ -1,6 +1,6 @@
 # The CTFE memo's raw-id fast paths rest on a false invariant (NOT reproduced)
 
-**Status:** HARDENED 2026-09-25 (Phase 3.4 of `plans/TYPE_SYSTEM_SOUNDNESS.md`), still with no
+**Status:** HARDENED 2026-09-25 (Phase 3.4 of `plans/backlog/TYPE_SYSTEM_SOUNDNESS.md`), still with no
 direct reproducer: the "smallest sound hardening" below is what landed. Filed originally so the next
 person does not re-derive the theory.
 **Found:** 2026-08-25, while fixing

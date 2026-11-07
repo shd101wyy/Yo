@@ -1,6 +1,6 @@
 # std I/O helpers `.unwrap()` a failed `GlobalAllocator.malloc`
 
-**Severity:** S3. When the heap is exhausted, about 48 std scratch-buffer allocations die with `Called unwrap on a None value (at std/prelude.yo:…)`, which names neither the allocation nor the caller, instead of an out-of-memory diagnostic. The process dies either way. Only the message is wrong, and it breaks the safe-mode contract that out-of-memory is a diagnosed allocation failure (plans/SAFE_MODE.md §14 R5).
+**Severity:** S3. When the heap is exhausted, about 48 std scratch-buffer allocations die with `Called unwrap on a None value (at std/prelude.yo:…)`, which names neither the allocation nor the caller, instead of an out-of-memory diagnostic. The process dies either way. Only the message is wrong, and it breaks the safe-mode contract that out-of-memory is a diagnosed allocation failure (plans/backlog/SAFE_MODE.md §14 R5).
 
 **Status:** OPEN. **Found:** 2026-10-30, while fixing `issues/fixed/2026-10-30-channel-new-oom-panics-as-an-unwrap-on-none.md`, the same pattern on the thread-spawn path.
 

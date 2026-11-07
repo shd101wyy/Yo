@@ -36,7 +36,7 @@ and it reads exactly like a pass (cf.
 
 ## This is NOT the duplicate-inherent-method channel
 
-`plans/backlog/DUPLICATE_INHERENT_METHOD_REJECTION.md` is **IMPLEMENTED
+`plans/archive/DUPLICATE_INHERENT_METHOD_REJECTION.md` is **IMPLEMENTED
 (2026-08-21)** and covers *inherent* methods registered twice on one type.
 Both impls here are TRAIT impls of `Default`, one blanket-over-a-bound and one
 for a concrete type. That is **trait-impl overlap** — Rust's coherence and

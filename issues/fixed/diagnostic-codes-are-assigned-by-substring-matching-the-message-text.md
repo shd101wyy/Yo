@@ -1,6 +1,6 @@
 # Diagnostic E-codes are assigned by substring-matching the rendered message, so unrelated errors inherit the wrong code — and `yo explain` then gives wrong advice
 
-**Status:** FIXED 2026-09-25 (`plans/TYPE_SYSTEM_SOUNDNESS.md` Phase 4.4). A raise site names its
+**Status:** FIXED 2026-09-25 (`plans/backlog/TYPE_SYSTEM_SOUNDNESS.md` Phase 4.4). A raise site names its
 code with `with_code(err, code)` (`src/error.yo`). Every E0401 site does, and the loose
 `"not found."` / `"not found "` / `\" not found` rule is deleted. The destructuring label and the
 trait field are E0406, a pattern's variant label E0406, an extended-module label E0403, and the

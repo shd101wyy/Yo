@@ -1,10 +1,12 @@
 # Language feature candidates (2026-10-08)
 
+> **Trued 2026-11-07 (plans audit after VBD):** Status: BACKLOG — four live candidates (§2 SIMD, §4 rest/prefix patterns, §5 V6 sequencing, §6 Soa). Superseded in part 2026-11-07: §1 is BORROW_CHECKER_COMPLETENESS P6 (scoped threads), §3 is decision 43 + FnMut (N1f/G1) + G2 cursors + P7; §0 rows 'FnMut' and 'lifetimes or borrow types' are retracted.
+
 **Status: BACKLOG — six candidates, none adopted.** Proposed 2026-10-08 in a
 design conversation with the maintainer ("what other language features would
 you suggest?", then SoA), the same session as
 [`RUST_REFERENCE_PATTERNS.md`](RUST_REFERENCE_PATTERNS.md) and
-[`CODEGEN_PERFORMANCE.md`](../CODEGEN_PERFORMANCE.md). Every candidate was
+[`CODEGEN_PERFORMANCE.md`](CODEGEN_PERFORMANCE.md). Every candidate was
 checked against what exists in `std/`/`src/`, what is already designed in a
 plan, and what the maintainer has ruled out; the checks are cited per item.
 Nothing here drives a phase. A candidate leaves this file only by becoming
@@ -22,7 +24,7 @@ Rejected again here, per standing rulings — do not re-propose:
 
 | Feature | Where it was rejected |
 | --- | --- |
-| order-free named arguments | `plans/backlog/LLM_AUTHORING_AUDIT_2026-09-19.md` §1 (2026-09-19, final) |
+| order-free named arguments | `plans/archive/LLM_AUTHORING_AUDIT_2026-09-19.md` §1 (2026-09-19, final) |
 | integer-literal inference through bindings | same, §1 (final) |
 | a third closure call trait (`FnMut`) | `plans/VALUES_BY_DEFAULT.md` decision 37 — `mut` captures cover it |
 | `Pin` | `plans/VALUES_BY_DEFAULT.md` decision 40 |
@@ -106,7 +108,7 @@ are the weakest rows of `RUST_REFERENCE_PATTERNS.md` §5.
 
 **The candidate.** Promote those two paragraphs into their own designed
 backlog doc — the way `SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md` answered
-`plans/SAFE_MODE.md` §8 — settling the shape (`struct(imm(xs) : ArrayList(T),
+`plans/backlog/SAFE_MODE.md` §8 — settling the shape (`struct(imm(xs) : ArrayList(T),
 i : usize)` with `next(mut(self)) -> imm(T)`), the escape rules it reuses
 (decision 38 A's structural second-classness was practically built for it),
 and the trigger's measurement. Then adoption, when it comes, is a review

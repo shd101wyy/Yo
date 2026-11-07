@@ -1,6 +1,6 @@
 """Exit heap walk over every TRACKED object (the GC's intrusive list).
 
-plans/EVALUATOR_MEMORY_REDUCTION.md §0.5. Run on top of live_census_t.py's
+plans/backlog/EVALUATOR_MEMORY_REDUCTION.md §0.5. Run on top of live_census_t.py's
 output (or a fresh emission). Only objects with the 56 B tracked header are on
 the GC list; untracked (16 B header) types are invisible to this walk.
 

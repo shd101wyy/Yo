@@ -1,6 +1,6 @@
 # Combinator-on-combinator chains share ONE under-resolved stamp — an Item-binding combinator after `.map` adopts the FIRST call's Item type
 
-**Status: FIXED 2026-09-24** (Phase 2.4 of `plans/TYPE_SYSTEM_SOUNDNESS.md`). Found 2026-08-24 while unparking std S1 chunk 4 (Range
+**Status: FIXED 2026-09-24** (Phase 2.4 of `plans/backlog/TYPE_SYSTEM_SOUNDNESS.md`). Found 2026-08-24 while unparking std S1 chunk 4 (Range
 iteration) on branch `fix/range-op-era-split`. Pre-existing on develop —
 reproduced with a develop-content binary and no ranges involved. Related to
 (but distinct from) the flat_map residual in

@@ -1,7 +1,7 @@
 # Runtime callbacks are called through an incompatible function-pointer type (UB)
 
 **Status: FIXED 2026-09-28** (found 2026-09-23 by the UBSan acceptance run,
-`plans/SAFE_MODE.md` §14 R6). Ruling: option 1, fix it. Promise A excludes
+`plans/backlog/SAFE_MODE.md` §14 R6). Ruling: option 1, fix it. Promise A excludes
 this UB, and the fix costs no machine code. Branch `safe-mode/callback-thunks`.
 
 ## Symptom

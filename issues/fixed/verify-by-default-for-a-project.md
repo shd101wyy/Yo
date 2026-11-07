@@ -1,7 +1,7 @@
 # Should a project be able to arm every file as a verify target, instead of the per-entry pragma?
 
 **Kind:** design question — decided. Filed 2026-09-30 by the ATS-style
-indexed types audit (`plans/backlog/ATS_STYLE_INDEXED_TYPES.md` §5 Q1).
+indexed types audit (`plans/archive/ATS_STYLE_INDEXED_TYPES.md` §5 Q1).
 
 **Verdict (2026-09-30, maintainer: "do what you suggest"):** the
 recommendation below. No `check` switch; a verification build step landed the
@@ -15,7 +15,7 @@ same day — `__yo_build_verify(name, root, mode, strict)` + `StepKind.Verificat
 
 In ATS, index constraints are discharged as part of type checking: every
 compile proves them, nothing is opt-in. Yo's verifier is opt-in three times
-over (`plans/backlog/ATS_STYLE_INDEXED_TYPES.md` §2.2, measured):
+over (`plans/archive/ATS_STYLE_INDEXED_TYPES.md` §2.2, measured):
 
 - `yo check` and `yo compile` verify **only the entry file**, and only when it
   carries `pragma(Pragma.Verify)` or `pragma(Pragma.VerifyOrAssert)`;

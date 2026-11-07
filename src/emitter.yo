@@ -299,7 +299,7 @@ Emitter :: struct(
   /// C brace and records named-local + temp decls — the escape gate's
   /// block-scope-aware liveness signal. See `_emitter_track_scope`.
   scope_ref : Option(Rc(RefCell(ArrayList(String)))),
-  /// Code spill (plans/CODEGEN_MEMORY_REDUCTION.md §3 lever 3): with a
+  /// Code spill (plans/backlog/CODEGEN_MEMORY_REDUCTION.md §3 lever 3): with a
   /// `code_spill_path`, finished code past `CODE_SPILL_BYTES` is written
   /// to that file between functions and the `code` buffer is cleared, so
   /// the ~117 MB of C bodies never sit in memory at once.
@@ -718,7 +718,7 @@ impl(
   /// concatenating them. With a code spill, the spilled bytes come between
   /// the second "\n" and the last part (`code_spilled_bytes` says how many). The compiler's own C is ~125 MB, and the
   /// concatenated copy (grown by doubling) was the peak of `compile`
-  /// (plans/CODEGEN_MEMORY_REDUCTION.md §0.6).
+  /// (plans/backlog/CODEGEN_MEMORY_REDUCTION.md §0.6).
   sections : (fn(self : &mut Self) -> ArrayList(String))({
     self.patch_restore_line_numbers();
     parts := ArrayList(String).with_capacity(usize(5));

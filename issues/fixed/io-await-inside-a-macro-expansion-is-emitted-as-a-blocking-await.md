@@ -81,7 +81,7 @@ point collector in `src/codegen/async/`, and at the `Synchronous await
 
 ## Re-verified 2026-09-28 (async state-machine audit)
 
-Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
+Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/archive/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
 
 **STILL REPRODUCES** (tree build): rc=124 under `timeout`, and the C contains `// Synchronous await (io.await outside state machine)`. The suspension walk in `src/evaluator/shared/suspension_analysis.yo` follows `macro_expansion` only for the hard-coded `if` head, not for user macros. Plan phase 1 (normalising the macro-expanded tree) removes this class.
 
@@ -91,6 +91,6 @@ The segment lowering this shape broke is deleted. An `io.async` body is now
 emitted once, by the ordinary expression generators, into its resume
 function: each await suspends where it is written and resumes at its own
 label, and every local, pattern binding and await result lives in the task
-(`plans/ASYNC_STATE_MACHINE_GENERATION.md` phase 5). The suspension analysis follows macro expansions for awaits (`SuspensionPointDetector.follow_macro_expansions`; the effects analysis keeps it off). `std/async/stream.yo` still ships no `for_await`: `std/` is compiled by the seed, so that waits until `SEED_VERSION` carries this lowering.
+(`plans/archive/ASYNC_STATE_MACHINE_GENERATION.md` phase 5). The suspension analysis follows macro expansions for awaits (`SuspensionPointDetector.follow_macro_expansions`; the effects analysis keeps it off). `std/async/stream.yo` still ships no `for_await`: `std/` is compiled by the seed, so that waits until `SEED_VERSION` carries this lowering.
 
 Regression tests (each fails on the v0.2.45 seed): `tests/async/channel.test.yo` "an await inside a macro expansion suspends the task".

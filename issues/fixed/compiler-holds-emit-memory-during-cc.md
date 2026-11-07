@@ -180,7 +180,7 @@ self-build job.
 2. **Free the C string.** `c_src` is a ~140 MB `String` that stays live across
    the child process; it can be released immediately after `write_file`.
 3. The broader arena cost is the subject of
-   `plans/backlog/YO_SELF_ENV_SHARING.md` (def-time body envs COPY what TS
+   `plans/archive/YO_SELF_ENV_SHARING.md` (def-time body envs COPY what TS
    SHARES — 7.4 M live `Variable`s). Fixing that shrinks the first peak
    generally, but (1) and (2) are cheap and independent of it.
 

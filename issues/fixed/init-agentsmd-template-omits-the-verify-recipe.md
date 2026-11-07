@@ -82,7 +82,7 @@ stdout lines per case. Docs updated together: `docs/en-US/BUILD_SYSTEM.md` +
 file list, AGENTS.md description), the root `README.md` quick-start tree,
 and the four plan pointers (`plans/reference/INIT_AGENT_SCAFFOLD.md`'s open
 item, `plans/reference/YO_CONTEXT.md`'s C6 correction, BEND B3's status
-note, `plans/backlog/AGENT_LOOP_NEXT.md`'s fix-first list). Found on the way
+note, `plans/backlog/BEND_LAWS_AND_AGENT_LOOP_LESSONS.md`'s fix-first list). Found on the way
 and fixed in the same commit: the cli-diff harness could neither score nor
 record these goldens on Windows —
 [`cli-diff-goldens-cannot-score-or-record-on-windows.md`](./cli-diff-goldens-cannot-score-or-record-on-windows.md).

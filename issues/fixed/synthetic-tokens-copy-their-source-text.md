@@ -1,6 +1,6 @@
 # Synthesized tokens copied their module's whole source text
 
-**Status: FIXED 2026-09-25** (`plans/EVALUATOR_MEMORY_REDUCTION.md` §0.12).
+**Status: FIXED 2026-09-25** (`plans/backlog/EVALUATOR_MEMORY_REDUCTION.md` §0.12).
 
 ## Symptom
 

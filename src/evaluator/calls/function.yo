@@ -198,7 +198,7 @@ _call_result_unknown :: (fn(ty : &TypeValue, env : &Environment) -> EvalValue)({
 // Calls whose `FnOnce` callee is released after the call (`_consume_fnonce_callee`).
 (g_fnonce_release_after_call : RefCell(HashMap(usize, AstExpr))) = RefCell(HashMap(usize, AstExpr)).new(HashMap(usize, AstExpr).new());
 /// Static-argument inference's per-call-site memo
-/// (plans/backlog/STATIC_ARGUMENT_INFERENCE.md §4: over budget, the candidate
+/// (plans/archive/STATIC_ARGUMENT_INFERENCE.md §4: over budget, the candidate
 /// index is memoized per call site). A static `G.m(...)` node is evaluated
 /// several times (a definition-time trial, the checking pass, the body
 /// itself); when the arguments the bound call consulted have the same types
@@ -364,7 +364,7 @@ _reject_private_method_call :: (
     );
   });
 });
-/// SAFE MODE (D7, plans/SAFE_MODE.md §3 0c): `unwrap` / `expect` /
+/// SAFE MODE (D7, plans/backlog/SAFE_MODE.md §3 0c): `unwrap` / `expect` /
 /// `unwrap_err` / `expect_err` on an Option/Result receiver in a safe file is a compile
 /// error — the call discards failure information the type already gave the
 /// caller and would abort on the failure case. Runs on the RESOLVED hit like
@@ -1644,7 +1644,7 @@ _find_receiver_method_of :: (
 /// matching.
 UnappliedCtorInference :: struct(bound : bool, preevaluated : ArrayList(usize));
 /// A candidate impl's verdict on the arguments of `G.m(...)`
-/// (plans/backlog/STATIC_ARGUMENT_INFERENCE.md §2 step 4).
+/// (plans/archive/STATIC_ARGUMENT_INFERENCE.md §2 step 4).
 _SaiOutcome :: enum(
   Bound(receiver : TypeValue, site : String),
   Conflict(binder : String, first : TypeValue, first_arg : usize, later : TypeValue, later_arg : usize),
@@ -1658,7 +1658,7 @@ _SaiBinding :: struct(ty : TypeValue, arg : usize);
 derive(_SaiBinding, Clone);
 /// A method called through an UNAPPLIED generic type constructor,
 /// `G.m(a1, …, an)` (plans/VALUES_BY_DEFAULT.md decision 32, widened by
-/// plans/backlog/STATIC_ARGUMENT_INFERENCE.md §2), is `G(A1, …, Ak).m(a1, …,
+/// plans/archive/STATIC_ARGUMENT_INFERENCE.md §2), is `G(A1, …, Ak).m(a1, …,
 /// an)`, and the `Ai` come from the method's declaration:
 ///
 /// - A method whose first parameter's declared type is `Self` (any label or
@@ -7693,7 +7693,7 @@ _evaluate_funcval_runtime_call :: (
   // registered under the async-block future's identity, which only the
   // body's stamped ExprInfo carries (the async-future family root,
   // issues/retired/yo-self-async-emission-cluster.md 2026-07-20 convergence).
-  // Await-site fusion F1 (plans/backlog/ASYNC_AWAIT_SITE_FUSION.md): when the
+  // Await-site fusion F1 (plans/reference/ASYNC_AWAIT_SITE_FUSION.md): when the
   // callee is an `io.async` wrapper, record it and whether its body can run
   // in an awaiting caller's frame; codegen reads the record at the await.
   if(is_some_type(&resolved_ret), {
@@ -8773,7 +8773,7 @@ _evaluate_function_call_trapped :: (
 /// closure, so two constructions with different closures are two
 /// instantiations. It replaces an id-keyed registry write under the field's
 /// SomeT, which the last construction won
-/// (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 3 step 7).
+/// (plans/backlog/TYPE_SYSTEM_SOUNDNESS.md Phase 3 step 7).
 _instantiate_struct_over_closure_args :: (
   fn(st : &TypeValue, fields : &ArrayList(TypeField), arg_types : &ArrayList(Option(TypeValue))) -> TypeValue
 )(
@@ -9186,7 +9186,7 @@ evaluate_function_call :: (
     }
   )
 });
-/// `yo fix --migrate handle-ctors` (plans/backlog/STATIC_ARGUMENT_INFERENCE.md
+/// `yo fix --migrate handle-ctors` (plans/archive/STATIC_ARGUMENT_INFERENCE.md
 /// §5 B1): records `call` when it calls the prelude's `rc`, `box` or `arc`
 /// by name, the binding its callee name resolves to being the prelude's
 /// (a parameter or local named `rc` is not a site). The site carries the
@@ -12323,7 +12323,7 @@ Fix: wrap the call:
         // Build (or reuse) the function body's lexical environment from the
         // FuncVal's capture snapshot, memoised per closure instance by
         // `capture_env_for`. With a registered `env_key` the frame holds the
-        // ORIGINAL Variable handles (plans/backlog/FUNCVAL_ENV_SHARING.md); the flat
+        // ORIGINAL Variable handles (plans/archive/FUNCVAL_ENV_SHARING.md); the flat
         // triple rebuild is the fallback (re-binding every captured name on
         // every call was 31 M `Variable` constructions per self-emit from
         // this site alone).

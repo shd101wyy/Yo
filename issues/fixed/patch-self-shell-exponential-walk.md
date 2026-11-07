@@ -50,7 +50,7 @@ explosion that looks like an infinite loop (it is astronomically finite).
 - Yo has no direct pointer identity to key a memo on.
 - Keying by `Struct.id`/`EnumT.id` is UNSOUND: generic instantiations share the
   definition id while differing in field types (the same wrong-merge class as
-  the hash-consing key lesson — see `plans/backlog/TYPEVALUE_HASH_CONSING.md` §4.8).
+  the hash-consing key lesson — see `plans/archive/TYPEVALUE_HASH_CONSING.md` §4.8).
 - A sound memo key exists — `type_intern_key` (injective, cycle-guarded) — but
   computing it per visited node is itself a full walk per node; total cost
   O(nodes × key size). Linear, but with large constants.

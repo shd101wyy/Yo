@@ -2,7 +2,7 @@
 
 **Severity:** S2: a write the language rejects as an assignment was accepted as a method call. It was silently lost for an empty `String`, and the buffer it allocated leaked.
 
-**Status: FIXED 2026-10-03** (`plans/STRING_VALUE_SEMANTICS.md` S1).
+**Status: FIXED 2026-10-03** (`plans/archive/STRING_VALUE_SEMANTICS.md` S1).
 
 ## Symptom
 

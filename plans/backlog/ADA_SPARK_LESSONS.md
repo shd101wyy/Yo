@@ -1,5 +1,7 @@
 # What Yo can take from Ada and SPARK (and whether to add SMT solvers)
 
+> **Trued 2026-11-07 (plans audit after VBD):** PROPOSED 2026-11-04 — backlog. Trued 2026-11-07: the panic-path fix (#1764) and the verify-cache fix (#1761) landed. Every other item in §2–§5 is open, including Z2's sha256 pin, the cvc5 oracle, K3 narrowing and the two questions §7 asks to file.
+
 **PROPOSED 2026-11-04 — backlog.** This is the keep/reject audit after studying Ada 2022 (the RM at ada-auth.org) and SPARK/GNATprove (the SPARK User's Guide, "UG") against Yo's language and verifier. It is a sibling of [`BEND_LAWS_AND_AGENT_LOOP_LESSONS.md`](BEND_LAWS_AND_AGENT_LOOP_LESSONS.md), whose 2026-11-04 addendum (keep Z3; items Z1–Z5) this doc extends. Four research reports were each checked by a critic against Yo's plans and decisions: the Ada language, SPARK verification, multiple solvers, and tooling/process. Items Yo already has or deliberately rejected are listed in §6.
 
 **Filed from this audit:**
@@ -93,7 +95,7 @@ recip :: (fn(d : refine(i32, non_zero)) -> i32)(i32(100) / d);
 recip(i32(0)); // proposed runtime: abort "refinement non_zero failed for d"; today: accepted
 ```
 
-**2. Checked narrowing.** `u8(i32(300))` gives 44 (measured). The prelude says "Narrowing stays with TryFrom" (`std/prelude.yo:10999`), yet std implements TryFrom for no integer pair. This change only adds methods. Whether `u8(x)` itself should trap would reverse `plans/SAFE_MODE.md:558`, so that belongs in a separate question.
+**2. Checked narrowing.** `u8(i32(300))` gives 44 (measured). The prelude says "Narrowing stays with TryFrom" (`std/prelude.yo:10999`), yet std implements TryFrom for no integer pair. This change only adds methods. Whether `u8(x)` itself should trap would reverse `plans/backlog/SAFE_MODE.md:558`, so that belongs in a separate question.
 
 ```yo ignore
 b := x.narrow(u8);   // abort "300 not in [0, 255]"; verify: narrow-in-range obligation
@@ -142,7 +144,7 @@ type_invariant(Span, _span_ok); // proved at exits of public fns returning Span 
 - Per-site `justify`: the critiques disagree. I side with dropping it, because `verify+` already keeps the runtime assert per obligation (`docs/en-US/FORMAL_VERIFICATION.md:476`).
 - Default overflow obligations: already the 2026-10-14 question.
 - `loop_entry`: a ghost binding already does it (`tests/spec/fixtures/valid/ghost_binding.yo:15`).
-- Assumption ledger and `assumed("reason")`: planned (`plans/SELF_VERIFICATION.md:317-340`, LE2, Z4).
+- Assumption ledger and `assumed("reason")`: planned (`plans/backlog/SELF_VERIFICATION.md:317-340`, LE2, Z4).
 - Ghost Map: SELF_VERIFICATION L4. Lemma library: T1. `paranoid`: `FORMAL_VERIFICATION.md:448`. Vacuity: `FORMAL_VERIFICATION.md:846`.
 - Replay, evidence bundles, session files: F4 and K L1/L5 cover them. With one deterministic solver, re-running is the replay.
 - Coded warnings, lint tables, GNATcheck: Rust T2 settles it (`RUST_ADOPTION_CANDIDATES.md:333-344`).

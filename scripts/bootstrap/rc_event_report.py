@@ -1,6 +1,6 @@
 """Aggregate the refcount event logs of leaked objects.
 
-plans/EVALUATOR_MEMORY_REDUCTION.md §0.8. Input: the dump of a binary built
+plans/backlog/EVALUATOR_MEMORY_REDUCTION.md §0.8. Input: the dump of a binary built
 from alloc_site_census_t.py IN.c OUT.c dump.txt <LABEL> --rc-events, then
 holder_census_t.py OUT.c OUT2.c holders.txt, compiled with
 -g -fno-omit-frame-pointer, run with

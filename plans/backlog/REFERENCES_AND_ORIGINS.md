@@ -1,5 +1,7 @@
 # References as first-class types with origins: the `Origin` kind, `&(T, p)`, and declared place sets
 
+> **Trued 2026-11-07 (plans audit after VBD):** Status: ACTIVE design of decision 43 (2026-11-07): O1–O10 are authoritative. Landed: N0, N1 (#1641–#1806), N2a/N2b/N2b-r, N2g-0, N3-0, N3-1. Remaining inside VBD: G1 (v0.2.76), N2c–N2f and G2 (v0.2.77), G3 (v0.2.78). Enforcement completeness and Rust parity live in BORROW_CHECKER_COMPLETENESS.md. Examples spelled `View(T, p)` read as decision 49's `&([T], p)`, and `Dyn` as a cell reads as `Box(Dyn(T, p))`. Move to plans/reference/ once G3 lands.
+
 **Status: BACKLOG — the design of VALUES_BY_DEFAULT decision 43, amended
 2026-10-19 by the maintainer: references become FIRST-CLASS types
 parameterized by origins.** (This file was `NON_ESCAPABLE_TYPES.md` until

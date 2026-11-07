@@ -1,5 +1,7 @@
 # What to take from Lean: adoption candidates checked against the tree
 
+> **Trued 2026-11-07 (plans audit after VBD):** Status: BACKLOG research (2026-10-14); nothing adopted. Corrected 2026-11-07: LE2 needs named assumptions in production VCs before unsat cores carry provenance (THEOREM_PROVING_DIRECTION.md §1), which also re-ranks LE1 with T1/T4.
+
 **Status: BACKLOG — research, written 2026-10-14 at the maintainer's
 request.** Formal verification only: Lean-the-language candidates outside
 the verifier (the Perceus reuse calculus was already studied in
@@ -27,7 +29,7 @@ A candidate survives only if it passes all four (RUST_ADOPTION_CANDIDATES
    ([`FORMAL_VERIFICATION.md`](FORMAL_VERIFICATION.md) §Non-goals); no
    second solver — decision D2, "Z3 only" (`FORMAL_VERIFICATION.md:14-19`);
    no runtime dependent types
-   ([`DEPENDENT_TYPES_POSITION.md`](DEPENDENT_TYPES_POSITION.md)); no
+   ([`DEPENDENT_TYPES_POSITION.md`](../reference/DEPENDENT_TYPES_POSITION.md)); no
    importing external theorems as trusted axioms (THEOREM_PROVING_NEXT §9).
 2. **Fits the model.** "Either Z3 discharges the VC or the author edits the
    annotations" (FORMAL_VERIFICATION §The surface). Everything below is
@@ -362,9 +364,9 @@ verdicts per pin, ghost erasure, the verifiable-subset discipline, and
   (L1/L4 the shared report surface, L7 the daemon rejection, L8 pinning),
   [`FORMAL_VERIFICATION.md`](FORMAL_VERIFICATION.md) (D2, §Caching,
   §Non-goals, the counter-example diagnostic spec at :797-825),
-  [`DEPENDENT_TYPES_POSITION.md`](DEPENDENT_TYPES_POSITION.md),
-  [`../SELF_VERIFICATION.md`](../SELF_VERIFICATION.md),
-  [`ATS_STYLE_INDEXED_TYPES.md`](ATS_STYLE_INDEXED_TYPES.md).
+  [`DEPENDENT_TYPES_POSITION.md`](../reference/DEPENDENT_TYPES_POSITION.md),
+  [`../backlog/SELF_VERIFICATION.md`](SELF_VERIFICATION.md),
+  [`ATS_STYLE_INDEXED_TYPES.md`](../archive/ATS_STYLE_INDEXED_TYPES.md).
 - External, audited 2026-10-14: the Lean reference manual's
   [Tactic Reference](https://lean-lang.org/doc/reference/latest/Tactic-Proofs/Tactic-Reference/)
   (`omega`, in core since v4.7, pure Lean),

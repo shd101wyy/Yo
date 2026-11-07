@@ -1,5 +1,5 @@
 //! `Rc(T).new`, `Box(T).new` and `Arc(T).new`, the handle constructors
-//! (plans/backlog/STATIC_ARGUMENT_INFERENCE.md §5, A2), and the cell `dyn(...)`
+//! (plans/archive/STATIC_ARGUMENT_INFERENCE.md §5, A2), and the cell `dyn(...)`
 //! synthesizes through them (A3). B3 deleted the prelude's `rc`/`box`/`arc`:
 //! a call of one is E0401, whose help and `yo fix` repair name the
 //! constructor.
@@ -151,7 +151,7 @@ test("dyn(Arc.new(<closure>, alloc : .Some(a))) places the atomic cell in a", {
 // `Dyn`'s open payload wrapper, so the cell is built by the prelude's
 // `__yo_rc_cell`, bound to the call by value: neither `rc` (deleted by
 // static-argument inference B3) nor `Rc(W).new` over the open wrapper, whose
-// payload lowered to `void*` (plans/backlog/STATIC_ARGUMENT_INFERENCE.md §5, H1).
+// payload lowered to `void*` (plans/archive/STATIC_ARGUMENT_INFERENCE.md §5, H1).
 _dyn_rc_new_over :: (fn(get : &Impl(Fn(x : i32) -> i32)) -> i32)({
   d := _Detector(detect : dyn(Rc.new(x => (get(x) + i32(1)))));
   d.detect(i32(2))

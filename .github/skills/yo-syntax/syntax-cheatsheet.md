@@ -1079,7 +1079,7 @@ Inside a destructor, never call a field's destructor: the fields drop after it r
 
 ### `String` out-parameters take `&mut`
 
-`clone()` is a `String`'s independent copy (`plans/STRING_VALUE_SEMANTICS.md` §0): it copies the bytes, empty or not. A plain copy is a move since B8 (`t := s`, then `s` is E0901). A by-value `String` parameter BORROWS the caller's value, so writing it (`push_str`, passing it to a `&mut` parameter) is **E0908**. Before String S1 this compiled and the write was silently lost when the string was empty — an emitter buffer once vanished from the chunked-C output that way, with only a far-downstream `unknown type name` as the symptom. This is the opposite of `HashMap`/`HashSet` (RC `ref` types until their own flips, `plans/VALUES_BY_DEFAULT.md` V2), where mutations through a by-value parameter DO propagate; `ArrayList` is a value like `String` since B8.
+`clone()` is a `String`'s independent copy (`plans/archive/STRING_VALUE_SEMANTICS.md` §0): it copies the bytes, empty or not. A plain copy is a move since B8 (`t := s`, then `s` is E0901). A by-value `String` parameter BORROWS the caller's value, so writing it (`push_str`, passing it to a `&mut` parameter) is **E0908**. Before String S1 this compiled and the write was silently lost when the string was empty — an emitter buffer once vanished from the chunked-C output that way, with only a far-downstream `unknown type name` as the symptom. This is the opposite of `HashMap`/`HashSet` (RC `ref` types until their own flips, `plans/VALUES_BY_DEFAULT.md` V2), where mutations through a by-value parameter DO propagate; `ArrayList` is a value like `String` since B8.
 
 ```yo ignore
 // E0908 — a by-value parameter borrows the caller's string:
@@ -1497,7 +1497,7 @@ both halves of it were true in turn: the length first resolved **silently to
 0** while specialized bodies emitted the right widths, producing invalid C
 (`issues/fixed/associated-constant-in-a-type-position-resolves-to-zero.md`);
 that became a hard error; and the resolution landed on 2026-09-16
-(`plans/backlog/VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md` steps 1-2). `std/`
+(`plans/archive/VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md` steps 1-2). `std/`
 cannot use it until a release carries it — the seed compiles `std/` — so a
 per-type copy there is not evidence the feature is missing.
 
@@ -2016,7 +2016,7 @@ them — the state-machine emitter lives in codegen):
   issues/fixed/async-cond-arm-tail-value-lost-after-second-await.md.
 
 Each shape now has a test in `tests/async_await.test.yo`. The emitter they
-lived in is gone: phase 5 of `plans/ASYNC_STATE_MACHINE_GENERATION.md` lowers
+lived in is gone: phase 5 of `plans/archive/ASYNC_STATE_MACHINE_GENERATION.md` lowers
 an `io.async` body in one pass through the ordinary expression generators, so
 an await may sit in any arm, condition or operand. One older report of this
 family (issues/retired/async-await-nested-if-lost-continuation.md, a nested awaiting

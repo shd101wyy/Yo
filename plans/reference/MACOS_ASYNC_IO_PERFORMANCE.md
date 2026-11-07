@@ -124,7 +124,7 @@ the runtime op is #1019 and std's adoption #1074
 (`issues/fixed/std-net-stream-writes-take-send-where-write-is-cheaper.md`).
 Measured on the std-level pair, medians of 6 rounds: `multi` 3.70 → 3.54 µs a
 round trip (libuv 3.19) and `pingpong` 15.24 → 14.47 (libuv 13.79). The
-wrapper half is `plans/backlog/ASYNC_AWAIT_SITE_FUSION.md` (#1073).
+wrapper half is `plans/reference/ASYNC_AWAIT_SITE_FUSION.md` (#1073).
 
 Reading the rows:
 

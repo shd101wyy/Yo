@@ -271,7 +271,7 @@ stable_occurrence_reset :: (fn() -> unit)({
 /// Keyed by the 64-bit FNV-1a hash of the site key, not the key string: the
 /// strings were full module paths plus a position, and a `check src/main.yo`
 /// kept 428 K of them (66 MB) alive only to count
-/// (plans/EVALUATOR_MEMORY_REDUCTION.md §0.10). A hash collision merges two
+/// (plans/backlog/EVALUATOR_MEMORY_REDUCTION.md §0.10). A hash collision merges two
 /// sites' counters, which only renumbers them: the names built from these
 /// ordinals also carry the hash (temps) or the position (labels), so a shared
 /// counter still hands out distinct names.
@@ -310,7 +310,7 @@ stable_occurrence_key :: (fn(key : &String) -> usize)({
 /// is a byte copy per mint (plans/handover/VBD_HANDOVER_2026-10-19.md §3.1).
 (g_stable_type_id_owner_memo : RefCell(HashMap(String, Rc(String)))) = RefCell(HashMap(String, Rc(String))).new(HashMap(String, Rc(String)).new());
 /// A top-level statement of a module, as an anchor for identity mints
-/// (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 3.3): where it starts, and a label
+/// (plans/backlog/TYPE_SYSTEM_SOUNDNESS.md Phase 3.3): where it starts, and a label
 /// that does not depend on where it is — the bound name (`P` for
 /// `P :: struct(...)`), `impl_<receiver>` for an impl, and for an unnamed
 /// statement the previous label plus a count (`P_s1`).
@@ -397,7 +397,7 @@ stable_label_id :: (
 /// `<prefix><module_stem>_<anchor>_r<row offset>c<col>_n<k>`, the position
 /// relative to the enclosing top-level statement (`_anchored_position`), so a
 /// comment or a declaration added above does not rename the type or its C
-/// name (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 3.3). `k` counts in the IDENTITY namespace
+/// name (plans/backlog/TYPE_SYSTEM_SOUNDNESS.md Phase 3.3). `k` counts in the IDENTITY namespace
 /// (`g_stable_occurrence`, cold-only reset). Struct / enum / trait / union
 /// ids (and an anonymous struct's field labels) key the id-keyed registries
 /// that SURVIVE a warm pass (`g_struct_field_registry`, `g_type_intern`,
@@ -667,7 +667,7 @@ profile_enabled :: (fn() -> bool)(g_prof_enabled);
 /// process SUMS (the shape watch rounds will need); first record inserts.
 (g_prof_phase_names : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
 (g_prof_phase_nanos : RefCell(ArrayList(i64))) = RefCell(ArrayList(i64)).new(ArrayList(i64).new());
-/// Memory at the END of each phase (plans/CODEGEN_MEMORY_REDUCTION.md Phase 0
+/// Memory at the END of each phase (plans/backlog/CODEGEN_MEMORY_REDUCTION.md Phase 0
 /// step 1): resident set in MB and the shared codegen ExprInfoTable's entry
 /// count, sampled by the probes `main.yo` registers (this module cannot import
 /// either source). A phase entered twice keeps its last sample.
@@ -681,7 +681,7 @@ profile_set_memory_probes :: (fn(rss_mb : (fn() -> usize), table_entries : (fn()
   g_prof_table_probe = Option((fn() -> usize)).Some(table_entries);
   g_prof_peak_probe = Option((fn() -> usize)).Some(peak_rss_mb);
 });
-/// Memory marks INSIDE a phase (plans/CODEGEN_MEMORY_REDUCTION.md Phase 0
+/// Memory marks INSIDE a phase (plans/backlog/CODEGEN_MEMORY_REDUCTION.md Phase 0
 /// step 4): the resident set and the process's peak so far at a named point,
 /// so a transient between two marks shows as a peak jump without a phase
 /// boundary. `--profile` prints them as `profile: mark` lines.
@@ -1039,7 +1039,7 @@ current_owner :: (fn() -> String)(g_current_owner.clone());
 /// `build --watch` and `yo fix` do. A one-shot `check`, top-level `compile`
 /// (every `build` child and `test` batch), `doc` or `verify` never invalidates,
 /// so it switches them off and saves the logs' copies of every registry key
-/// (plans/EVALUATOR_MEMORY_REDUCTION.md §0.15). Default on, so every other entry
+/// (plans/backlog/EVALUATOR_MEMORY_REDUCTION.md §0.15). Default on, so every other entry
 /// point (including in-process watch rebuilds and internal tests) keeps them.
 (mut(g_owner_logs_enabled) : bool) = true;
 set_owner_logs_enabled :: (fn(on : bool) -> unit)({
@@ -1050,7 +1050,7 @@ owner_logs_enabled :: (fn() -> bool)(g_owner_logs_enabled);
 /// match's mode and arm-entry drops (`pattern.yo`), the io.async closure
 /// await analyses (`g_closure_await_analysis`) and the await-fusion
 /// candidates. `check`, `doc` and the LSP never generate code, so they switch
-/// it off (plans/EVALUATOR_MEMORY_REDUCTION.md §0.21). Only the recording is
+/// it off (plans/backlog/EVALUATOR_MEMORY_REDUCTION.md §0.21). Only the recording is
 /// skipped; the analyses and their errors run as before. Default on, so every
 /// entry point that may generate code keeps them. The compiled match arms
 /// have their own switch, below: the verifier reads them too.
@@ -1072,7 +1072,7 @@ set_match_arms_table_enabled :: (fn(on : bool) -> unit)({
 });
 match_arms_table_enabled :: (fn() -> bool)(g_match_arms_table_enabled);
 /// Keys a registry wrote, grouped by the owner current at the write
-/// (plans/EVALUATOR_MEMORY_REDUCTION.md Phase 1 step 5): `owned_keys_record`
+/// (plans/backlog/EVALUATOR_MEMORY_REDUCTION.md Phase 1 step 5): `owned_keys_record`
 /// at insert, `owned_keys_take` when `mm_invalidate_document` drops that owner.
 OwnedKeys :: ref(struct(by_owner : HashMap(String, ArrayList(String))));
 owned_keys_new :: (fn() -> OwnedKeys)(OwnedKeys(by_owner : HashMap(String, ArrayList(String)).new()));

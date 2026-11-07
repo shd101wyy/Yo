@@ -2,7 +2,7 @@
 
 **Severity:** S2 — a valid program fails at the C compiler: the call passes the lambda's C symbol, but the lambda's definition is never emitted.
 
-**Status: OPEN.** Found 2026-10-01 on develop `6f5dec5db` while probing generic specialization (plans/CODEGEN_MEMORY_REDUCTION.md, Phase 4 Design 1 of the evaluator plan).
+**Status: OPEN.** Found 2026-10-01 on develop `6f5dec5db` while probing generic specialization (plans/backlog/CODEGEN_MEMORY_REDUCTION.md, Phase 4 Design 1 of the evaluator plan).
 
 ## Repro
 

@@ -479,7 +479,7 @@ additionally verified by hand (101 → 42) and by the full gate battery.
 
 ## Addendum 2026-09-23: the whole-variable `inout` + by-value shape (type-system audit)
 
-MEASURED on the yo 0.2.39 seed and a develop build `d455b6a67` (`plans/TYPE_SYSTEM_SOUNDNESS.md`, Phase 5). The Stage 0 dup
+MEASURED on the yo 0.2.39 seed and a develop build `d455b6a67` (`plans/backlog/TYPE_SYSTEM_SOUNDNESS.md`, Phase 5). The Stage 0 dup
 covers a *projection* aliased with its container (`f(w, w.b)`). Passing the *same variable* to
 an `inout` parameter and a by-value parameter is not covered:
 
@@ -511,7 +511,7 @@ and `docs/en-US/FLOWABILITY.md` ("By-value overlap is fine too") state the oppos
 Fix direction: extend `require_ref_own_argument_exclusivity` to reject `inout` against any other
 argument with the same root, or dup the by-value argument as Stage 0 does for projections.
 
-## Resolution of the addendum (2026-09-25, `plans/TYPE_SYSTEM_SOUNDNESS.md` Phase 5.2)
+## Resolution of the addendum (2026-09-25, `plans/backlog/TYPE_SYSTEM_SOUNDNESS.md` Phase 5.2)
 
 A by-value argument that is the whole variable another argument of the same call passes `inout`
 (`clobber(x, x)`), or the root of an `inout` projection (`f(inout(h.a), h)`), gets a caller-owned

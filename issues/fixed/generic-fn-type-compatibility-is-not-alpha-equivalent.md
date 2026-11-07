@@ -1,6 +1,6 @@
 # Generic function types are compared by BINDER NAME, not alpha-equivalence
 
-**Status: FIXED 2026-09-24** (Phase 2.4 of `plans/TYPE_SYSTEM_SOUNDNESS.md`).
+**Status: FIXED 2026-09-24** (Phase 2.4 of `plans/backlog/TYPE_SYSTEM_SOUNDNESS.md`).
 
 **Severity: type-system correctness (under-approximation).** Two generic
 function types that differ only in the NAME of their `generic(...)` binder are

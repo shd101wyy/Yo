@@ -77,6 +77,6 @@ run behavior).
 2. Or make the marker synthesize the dup WITHOUT a nested
    `evaluate_expression_raw` (build the evaluated form directly — the dup
    of a known temp needs no general evaluation).
-3. Relates to plans/backlog/YO_SELF_ENV_SHARING.md (def-time body envs
+3. Relates to plans/archive/YO_SELF_ENV_SHARING.md (def-time body envs
    COPY what TS SHARES) — the structural fix likely falls out of that
    work.

@@ -3,7 +3,7 @@
 **Severity:** S2 — every DNS failure is the same `DNSFailed(host)` — the getaddrinfo code (retryable vs permanent) is discarded
 
 **Found:** 2026-09-11, during the `std/` `///` doc sweep (agent A4, net/http/io group).
-**Status:** FIXED 2026-10-03 (phase A4 of `plans/ASYNC_IO_API_AUDIT.md`).
+**Status:** FIXED 2026-10-03 (phase A4 of `plans/archive/ASYNC_IO_API_AUDIT.md`).
 
 ## Behaviour
 

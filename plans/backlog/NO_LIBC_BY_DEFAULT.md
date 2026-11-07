@@ -1,5 +1,7 @@
 # No libc by default: a Yo program links nothing it did not bring
 
+> **Trued 2026-11-07 (plans audit after VBD):** Status: BACKLOG design (2026-10-22), not started; sequenced after VBD as IO-1a → TP-1 → IO-1b → P0 (VERDICTS-32, 2026-11-07). P3 and P7 are std-only and may start any time. Updated 2026-11-07: the collector and `--cycle-collector` are gone (W6a/W6b), std/arena is deleted, so §7's collector caveats and P4b's `arena` row are void.
+
 **Status: BACKLOG — audit + design, written 2026-10-22 at the maintainer's
 request.** The goal is Zig's default, not Zig's escape hatch: a program
 compiled for a hosted Linux target links **no libc** unless it asks to
@@ -530,7 +532,7 @@ them independently.
   The one std-level touchpoint is `Drop`-based resource types over
   fds/sockets — they ride `__yo_os` like everything else.
 - [`ZIG_STYLE_ALLOCATORS.md`](ZIG_STYLE_ALLOCATORS.md) A5 (`SmpAllocator`)
-  gains its trigger here (D2); [`STRING_VALUE_SEMANTICS.md`](../STRING_VALUE_SEMANTICS.md)
+  gains its trigger here (D2); [`STRING_VALUE_SEMANTICS.md`](../archive/STRING_VALUE_SEMANTICS.md)
   lands inside VBD and its `String` implementation is covered by P3.
 - ZIG_ADOPTION **Z11** (`--allocator debug`) has landed by then (v0.2.70,
   W6's precondition) and becomes the no-libc leak oracle once P1 gives it

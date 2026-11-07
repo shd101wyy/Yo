@@ -1134,7 +1134,7 @@ expr_info_set_closure_function_value :: (
 ExprInfoTable :: newtype(data : Rc(RefCell(HashMap(ExprId, ExprInfo))));
 derive(ExprInfoTable, Clone);
 // ---------------------------------------------------------------------------
-// Scope-exit release (plans/CODEGEN_MEMORY_REDUCTION.md §6). When an outermost
+// Scope-exit release (plans/backlog/CODEGEN_MEMORY_REDUCTION.md §6). When an outermost
 // function body finishes evaluating, the ExprInfos written during it stop
 // holding their recorded envs (the local frames die while evaluation still
 // allocates, so the space is reused). What codegen later asks of those envs
@@ -1750,7 +1750,7 @@ expr_info_paths_for_write :: (fn(info : &ExprInfo) -> PathCollection)({
   info.path_collection()
 });
 /// The one-path collection `[[name]]`, shared by every ExprInfo that names
-/// `name` (plans/CODEGEN_MEMORY_REDUCTION.md §3 lever 6): identifiers and the
+/// `name` (plans/backlog/CODEGEN_MEMORY_REDUCTION.md §3 lever 6): identifiers and the
 /// lhs of bindings and assignments each built a fresh one, and ~3 of every 4
 /// recorded collections were duplicates. Nothing writes a stored collection
 /// in place; `expr_info_paths_for_write` copies a shared one.
@@ -1809,7 +1809,7 @@ expr_info_table_set :: (fn(table : &ExprInfoTable, id : ExprId, info : &ExprInfo
     m.insert(id, stored);
   })
 });
-/// plans/CODEGEN_MEMORY_REDUCTION.md Phase 0 step 3: which shared-table keys
+/// plans/backlog/CODEGEN_MEMORY_REDUCTION.md Phase 0 step 3: which shared-table keys
 /// codegen reads. Off unless `YO_CODEGEN_READS` / `YO_CODEGEN_KEEP` is set
 /// (`codegen_c.yo` switches it on for collect + emit only).
 (mut(g_codegen_read_log_on) : bool) = false;
@@ -2373,7 +2373,7 @@ get_branch_init_record :: (fn(i : usize) -> Option(BranchInitRecord))(g_branch_i
 /// `merge_and_check_envs`, which is the only reader. It used to be a
 /// process-wide table keyed by arm id that nothing emptied outside the LSP
 /// purge: 81 K entries at exit on `check src/main.yo`, every one dead once
-/// its construct returned (plans/EVALUATOR_MEMORY_REDUCTION.md §0.21).
+/// its construct returned (plans/backlog/EVALUATOR_MEMORY_REDUCTION.md §0.21).
 push_arm_init_range :: (fn(ranges : &mut ArrayList(usize), arm_expr_id : usize, start : usize, end : usize) -> unit)({
   ranges.push(arm_expr_id);
   ranges.push(start);
@@ -2830,7 +2830,7 @@ lookup_hollow_body_error :: (fn(site : &String) -> Option(HollowBodyError))(g_ho
 /// The error a GENERIC body's definition-time trial swallowed and kept, keyed
 /// by the body's source position (`module:row:col`): the trial ran with the
 /// type variables abstract, so a call may still resolve it
-/// (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 6 step 3). Every specialization of
+/// (plans/backlog/TYPE_SYSTEM_SOUNDNESS.md Phase 6 step 3). Every specialization of
 /// the body is a clone with the same tokens, so codegen finds the record when
 /// a specialization reaches emission hollow and reports it instead of an
 /// abort stub (`codegen/functions/generation.yo`).
@@ -2918,7 +2918,7 @@ get_module_level_init_exprs :: (fn() -> ArrayList(AstExpr))(
 /// recorded env goes through here, keyed by the node whose ExprInfo recorded
 /// it, so the recorded env can be released once its function body is
 /// evaluated and the answer come from the node's record instead
-/// (plans/CODEGEN_MEMORY_REDUCTION.md §6, scope-exit release).
+/// (plans/backlog/CODEGEN_MEMORY_REDUCTION.md §6, scope-exit release).
 ///
 /// `YO_SCOPE_RELEASE=shadow` keeps every env and checks each answer the
 /// records would give against the env's; `=release` releases.
@@ -3158,7 +3158,7 @@ record_node_eval :: (fn(id : usize, tok : &Token) -> unit)({
 /// `YO_SPEC_REPORT=1`: at exit, print the specialization population — total
 /// nodes minted by `clone_expr_fresh_ids`, total specializations and runtime
 /// calls, and the 40 function ids with the most specializations
-/// (plans/EVALUATOR_MEMORY_REDUCTION.md Phase 0 step 4 / F2).
+/// (plans/backlog/EVALUATOR_MEMORY_REDUCTION.md Phase 0 step 4 / F2).
 print_spec_report_if_requested :: (fn() -> unit)({
   if(debug_knob(`YO_SPEC_REPORT`).is_none(), {
     return(());
@@ -3270,7 +3270,7 @@ export(SpecInstantiation, record_spec_instantiation, lookup_spec_instantiation);
 /// Drop the given expression ids from this module's ExprId-keyed side tables.
 /// `mm_invalidate_document` passes each removed module's ids
 /// (`take_owned_expr_ids`): the nodes they key died with the module
-/// (plans/EVALUATOR_MEMORY_REDUCTION.md Phase 1 step 5).
+/// (plans/backlog/EVALUATOR_MEMORY_REDUCTION.md Phase 1 step 5).
 purge_expr_side_tables :: (fn(ids : &ArrayList(usize)) -> unit)({
   (i : usize) = usize(0);
   while(i < ids.len(), {
@@ -3732,7 +3732,7 @@ take_dyn_spelling_sites :: (fn() -> ArrayList(DynSpellingSite))({
 export(DynSpellingSite, set_migrate_dyn_spelling, migrate_dyn_spelling_on, record_dyn_spelling_site, take_dyn_spelling_sites);
 /// One call of the prelude's `rc`/`box`/`arc` that `yo fix --migrate
 /// handle-ctors` rewrites to `Rc.new`/`Box.new`/`Arc.new`
-/// (plans/backlog/STATIC_ARGUMENT_INFERENCE.md §5 B1). `row`/`col` are the
+/// (plans/archive/STATIC_ARGUMENT_INFERENCE.md §5 B1). `row`/`col` are the
 /// callee token's, `name` its text, `cell` the constructor (`Rc`, `Box`,
 /// `Arc`). `ty_arg` is the type argument the old call bound, printed, and
 /// `ty_key` its `type_key`: one position evaluated at two keys is a generic

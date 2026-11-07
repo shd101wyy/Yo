@@ -4,7 +4,7 @@
 from the F\* audit's assessment of the verifier
 (`plans/backlog/FSTAR_ADOPTION_CANDIDATES.md`; the gap itself is recorded
 in `plans/backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md` §2.1 and §5.2 and
-in `plans/SAFE_MODE.md` §14 R4).
+in `plans/backlog/SAFE_MODE.md` §14 R4).
 
 ## The question
 
@@ -62,6 +62,6 @@ of `wrapping_*` and of unsafe code, not of safe arithmetic.
    measurement shows the gain; D6's principle (the model matches the
    program that runs) is kept either way, because with traps as
    obligations the integer model *is* the safe-code semantics.
-4. The same obligations feed CP2f (`plans/CODEGEN_PERFORMANCE.md`): every
+4. The same obligations feed CP2f (`plans/backlog/CODEGEN_PERFORMANCE.md`): every
    `no-overflow` the verifier proves by default is a trap codegen may
    elide, which is the 5b plan's point.

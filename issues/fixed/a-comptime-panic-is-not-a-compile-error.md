@@ -1,7 +1,7 @@
 # A panic reached during compile-time evaluation is not a compile error
 
 **Status: FIXED 2026-09-23** (branch `safe-mode-5-comptime-panic`,
-`plans/SAFE_MODE.md` §14 R2).
+`plans/backlog/SAFE_MODE.md` §14 R2).
 
 ## Symptom
 
@@ -87,7 +87,7 @@ Controls that must stay green, each measured:
   input;
 - `comptime_unwrap` on `.Some`.
 
-This is the "comptime carve-out" of `plans/SAFE_MODE.md` §3 0c, re-measured:
+This is the "comptime carve-out" of `plans/backlog/SAFE_MODE.md` §3 0c, re-measured:
 `unwrap` is not comptime-evaluable at all, and the comptime spelling
 (`comptime_unwrap` / `comptime_unwrap_err`) is already legal in safe files.
 What D7 was missing was the "checked at compile time" half, and this

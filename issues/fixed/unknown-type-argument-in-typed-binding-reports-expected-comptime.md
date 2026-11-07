@@ -2,7 +2,7 @@
 
 > Found 2026-09-24 while writing a reproducer for
 > `issues/fixed/match-or-cond-call-argument-result-is-never-released.md`.
-> FIXED 2026-09-28 (see Resolution). Belonged to `plans/TYPE_SYSTEM_SOUNDNESS.md` Phase 4 (diagnostics).
+> FIXED 2026-09-28 (see Resolution). Belonged to `plans/backlog/TYPE_SYSTEM_SOUNDNESS.md` Phase 4 (diagnostics).
 
 ## Reproduction (v0.2.41 seed and develop b9619889b)
 

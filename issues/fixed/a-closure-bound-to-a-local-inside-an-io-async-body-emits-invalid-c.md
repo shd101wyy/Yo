@@ -4,7 +4,7 @@
 
 **Status:** fixed 2026-09-30
 **Found:** 2026-09-30, writing fixture cases for the await-site fusion
-verdicts (`plans/backlog/ASYNC_AWAIT_SITE_FUSION.md`, F1).
+verdicts (`plans/reference/ASYNC_AWAIT_SITE_FUSION.md`, F1).
 **Reproducer:** `issues/repros/a-closure-bound-to-a-local-inside-an-io-async-body.yo`
 
 ## Symptom

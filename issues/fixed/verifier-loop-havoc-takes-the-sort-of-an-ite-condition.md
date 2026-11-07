@@ -4,7 +4,7 @@
 
 - **Status:** FIXED on `feat/verifier-dml-fixtures` (2026-09-30), found while
   verifying `filter` over an `ArrayList` (R1 of
-  `plans/backlog/ATS_STYLE_INDEXED_TYPES.md`).
+  `plans/archive/ATS_STYLE_INDEXED_TYPES.md`).
 - **Component:** `src/verifier/vc.yo` — `_term_width`, `_havoc_binding_sort`.
 
 ## Reproducer (measured: compiler built at develop `5101639ad`)

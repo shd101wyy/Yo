@@ -1,5 +1,7 @@
 # Comptime-only metaprogramming — the audit, the additions, and the Lisp proof
 
+> **Trued 2026-11-07 (plans audit after VBD):** BACKLOG, not started (re-checked 2026-11-07). The release pins in §5 predate the v0.2.75 split: macro Part C is v0.2.76 and V5 Generation B v0.2.77. Before C4, verify the §1.1 storage exclusion, since ArrayList/String/HashMap became values in v0.2.74 (B8–B9).
+
 **Status:** WRITTEN 2026-10-22, backlog (written, not started). The full audit
 of Yo's comptime support, asked for when the macro removal was decided
 (`plans/backlog/MACRO_AND_ISO_REMOVAL.md`, Parts A–C): with the macro layer
@@ -285,7 +287,7 @@ largest existing proof that comptime Yo orchestrates real work.
 Not gaps, recorded so they are not re-proposed: `unwrap` is not
 comptime-evaluable; the comptime spelling is `comptime_unwrap` (a
 `comptime(self)` method), which is outside safe mode's class-1 ban by
-construction (`plans/SAFE_MODE.md` §0c); async,
+construction (`plans/backlog/SAFE_MODE.md` §0c); async,
 extern C calls and runtime allocation are correctly outside CTFE; `Expr`
 equality being structural-with-fresh-ids is the invariant that makes unquote
 splicing safe.

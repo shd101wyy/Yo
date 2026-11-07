@@ -105,7 +105,7 @@ All of these except #1339 merged on 2026-10-14 and shipped in v0.2.62.
 9. **Decision 43** (§6 "Decision 43: references as types", four PRs, after V4's `TypeValue`). Decided 2026-10-13: step 2 lands the `.*` error together with `yo fix --migrate deref`.
 10. **V5:** remove `ref(...)`/`atomic(...)`.
 11. **After V5:**
-    - [`AGENT_KNOWLEDGE_CONSOLIDATION.md`](../AGENT_KNOWLEDGE_CONSOLIDATION.md) K2/K3 → K5 → K7 (the docs sweep) → K4 (delete `yo skills install`) → K6;
+    - [`AGENT_KNOWLEDGE_CONSOLIDATION.md`](../backlog/AGENT_KNOWLEDGE_CONSOLIDATION.md) K2/K3 → K5 → K7 (the docs sweep) → K4 (delete `yo skills install`) → K6;
     - migrate the README's six example projects;
     - retire the `yo fix --migrate` modes (§6 "After V5").
 
@@ -138,7 +138,7 @@ The 2026-10-10 handover's §4 lists the older ones. For the full list, run `pyth
 - **The allocator interface, version 2,** is queued after V2b (§6).
 - **A6 / V2c's bundle (2026-10-13):** an effect bundle is a value: capture-free handlers plus `Copy` data, copied implicitly through the control-bound exemption. It is never lent.
 - **Decision 43's `.*` (2026-10-13):** the error and `yo fix --migrate deref` land in one PR. Still open, for step 2: whether `ctl` handler types become structurally second-class.
-- **No shipped skills** ([`AGENT_KNOWLEDGE_CONSOLIDATION.md`](../AGENT_KNOWLEDGE_CONSOLIDATION.md), amended 2026-10-13).
+- **No shipped skills** ([`AGENT_KNOWLEDGE_CONSOLIDATION.md`](../backlog/AGENT_KNOWLEDGE_CONSOLIDATION.md), amended 2026-10-13).
   - `yo init` writes `AGENTS.md` and a one-line `CLAUDE.md`.
   - `yo skills install` and `.github/skills/` are deleted at K4.
   - `yo context` is the language pack.

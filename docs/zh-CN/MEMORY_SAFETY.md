@@ -158,7 +158,7 @@ std 不提供 arena：`std/arena` 已于 2026-10-24 删除，`FixedBufferAllocat
 ## 引用环会泄漏
 
 引用计数在单元的最后一个强句柄消失时释放它，因此无法释放环：环中的每个单元都让下一个单元的计数保持在零以上。
-Yo 没有环回收器（v0.2.75 移除，决策 48，`plans/backlog/WEAK_AND_UNCOLLECTED_RC.md` §6）。与 Rust 的 `Rc`
+Yo 没有环回收器（v0.2.75 移除，决策 48，`plans/archive/WEAK_AND_UNCOLLECTED_RC.md` §6）。与 Rust 的 `Rc`
 一样，强句柄组成的环会泄漏：它的单元永远不会被释放，其 `Drop` 也永远不会运行。因此 `Drop` 只在一个确定的时刻运行，
 即最后一个句柄被释放时。泄漏并不是不安全：没有指针会悬垂。
 

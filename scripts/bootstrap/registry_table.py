@@ -1,7 +1,7 @@
 """The registry sweep table: every module-level global of the compiler, with
 its size at exit and how (whether) anything ever empties it.
 
-plans/EVALUATOR_MEMORY_REDUCTION.md Phase 1 step 5. Inputs:
+plans/backlog/EVALUATOR_MEMORY_REDUCTION.md Phase 1 step 5. Inputs:
   - the compiler source (`src/**.yo`): every top-level `(name : Type) = ...`
     declaration;
   - a holder-census dump (holder_census_t.py, HOLDER_SCAN=1 HOLDER_DEEP=1):

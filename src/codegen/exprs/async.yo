@@ -706,7 +706,7 @@ emit_async_block_struct_definition :: (
   );
   // ONE owned slot for the pending await (a task has at most one), and one
   // field per await expression for its result
-  // (plans/ASYNC_STATE_MACHINE_GENERATION.md phase 5).
+  // (plans/archive/ASYNC_STATE_MACHINE_GENERATION.md phase 5).
   context.base.emitter.emit_declaration_line("  void* __yo_await_slot;  // the future the task is suspended on (owned)");
   irfs := inline_await_result_fields(&info.analysis, context);
   (mut(iai) : usize) = usize(0);
@@ -1786,7 +1786,7 @@ _build_async_capture_struct_literal :: (
   });
   literal
 });
-// ---- Await-site fusion, F2 (plans/backlog/ASYNC_AWAIT_SITE_FUSION.md) ------
+// ---- Await-site fusion, F2 (plans/reference/ASYNC_AWAIT_SITE_FUSION.md) ------
 // An await whose future is a call to a fusable `io.async` wrapper runs the
 // wrapper inside its caller: the wrapper's parameters, prologue and capture
 // construction at the await, then its block in the caller's resume function,
@@ -2453,7 +2453,7 @@ emit_fused_await :: (fn(await_expr : &AstExpr, indent : &String, context : &mut 
     ),
     .None => ()
   );
-  context.base.emitter.emit_string_line(`${indent}// fused await (plans/backlog/ASYNC_AWAIT_SITE_FUSION.md): the wrapper runs here`);
+  context.base.emitter.emit_string_line(`${indent}// fused await (plans/reference/ASYNC_AWAIT_SITE_FUSION.md): the wrapper runs here`);
   // Or a C local, declared outside the site's block, when no suspension
   // separates the await from its statement's use of the value.
   (mut(outer_local) : String) = String.from("");
@@ -3196,7 +3196,7 @@ _sm_unwind_catch_for :: (fn(block : &DeferredAsyncBlock, context : &FunctionGene
 /// The block's cross-boundary analysis. A closure parameter lives in its
 /// `__yo_param_<i>` slot, which is what its reads render, so its own local
 /// gets no field: that would be a second, never-used copy (the bundle
-/// stored twice, plans/ASYNC_STATE_MACHINE_GENERATION.md §3.4). The struct
+/// stored twice, plans/archive/ASYNC_STATE_MACHINE_GENERATION.md §3.4). The struct
 /// definition and the resume function both read this one result.
 _block_cross_boundary :: (fn(block : &DeferredAsyncBlock, context : &FunctionGenerationContext) -> CrossBoundaryResult)({
   cbr := compute_cross_boundary_variables(&block.body_expr, &block.analysis, context);

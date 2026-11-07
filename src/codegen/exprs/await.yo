@@ -429,7 +429,7 @@ generate_await :: (fn(expr : &AstExpr, indent : &String, context : &mut Function
   context.base.emitter.emit_string_line(`${indent.clone()}    __yo_task_abort_take_unwind((void*)${sync_future_var.clone()});`);
   // The await consumed the future (decision 13): release it on this exit too.
   context.base.emitter.emit_string_line(`${indent.clone()}    __yo_decr_rc((void*)${sync_future_var.clone()});`);
-  // One abort semantics (plans/ASYNC_IO_API_AUDIT.md A2, decision Q1): an
+  // One abort semantics (plans/archive/ASYNC_IO_API_AUDIT.md A2, decision Q1): an
   // aborted future propagates its abort to this awaiter, whether it was
   // aborted before the await started or while it waited, and whether or not
   // its type names a bundle — the state-machine await already behaves so. It
@@ -539,7 +539,7 @@ generate_await :: (fn(expr : &AstExpr, indent : &String, context : &mut Function
 /// `io.state` — read a Future's raw state, mapped to the FutureState enum
 /// (Cold=0, Running=1, Completed=-1, Aborted=-2). A raw I/O future (no vtable)
 /// is submitted when it is created, so its pending state 0 reads as Running,
-/// never Cold (plans/ASYNC_IO_API_AUDIT.md F4).
+/// never Cold (plans/archive/ASYNC_IO_API_AUDIT.md F4).
 generate_state :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
   args := match(expr, .FnCall(_, _, _, _, _) => ast_call_args_unmarked(expr), _ => return(codegen_fatal_expr(String.from("io.state requires exactly 1 argument"))));
   future_arg := match(args.get(usize(0)), .Some(a) => a, .None => return(codegen_fatal_expr(String.from("io.state requires exactly 1 argument"))));

@@ -1,7 +1,7 @@
 # Generic call type variables re-resolve per argument — cross-argument consistency is never enforced
 
 **Found**: 2026-08-27, root-causing the io.await effect-bundle memcpy overflow
-(`issues/fixed/io-await-effect-arg-not-checked-memcpy-overflow.md`). **Status**: FIXED 2026-09-24 (Phase 2.4 of `plans/TYPE_SYSTEM_SOUNDNESS.md`). Related: C18
+(`issues/fixed/io-await-effect-arg-not-checked-memcpy-overflow.md`). **Status**: FIXED 2026-09-24 (Phase 2.4 of `plans/backlog/TYPE_SYSTEM_SOUNDNESS.md`). Related: C18
 (`issues/fixed/struct-literal-missing-field-silently-accepted.md`) supplies the
 second half (lenient struct compatibility).
 

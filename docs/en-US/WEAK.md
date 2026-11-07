@@ -4,7 +4,7 @@
 the payload alive. It is defined in `std/prelude.yo` beside `Rc`, so `Weak` is
 available everywhere. A `Weak` is the way to close a cycle without leaking: a
 parent owns its children through `Rc`, and each child names its parent through a
-`Weak`. The design is `plans/backlog/WEAK_AND_UNCOLLECTED_RC.md` §3.
+`Weak`. The design is `plans/archive/WEAK_AND_UNCOLLECTED_RC.md` §3.
 
 ## The API
 

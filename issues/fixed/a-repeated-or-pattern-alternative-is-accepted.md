@@ -1,6 +1,6 @@
 # A repeated or-pattern alternative is accepted
 
-**Found:** 2026-09-25, implementing `plans/TYPE_SYSTEM_SOUNDNESS.md` Phase 4.5.
+**Found:** 2026-09-25, implementing `plans/backlog/TYPE_SYSTEM_SOUNDNESS.md` Phase 4.5.
 **Severity:** LOW (dead code accepted silently; no wrong output).
 **Status:** FIXED on `tss/phase4-5`.
 

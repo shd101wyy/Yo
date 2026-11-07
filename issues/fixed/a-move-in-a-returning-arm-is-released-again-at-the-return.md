@@ -1,6 +1,6 @@
 # A move in a returning arm is released again at the return
 
-**Found:** 2026-09-26, running the Phase 5 test binaries of `plans/TYPE_SYSTEM_SOUNDNESS.md` under
+**Found:** 2026-09-26, running the Phase 5 test binaries of `plans/backlog/TYPE_SYSTEM_SOUNDNESS.md` under
 `libgmalloc` (the sanitizer substitute on this machine). **Severity:** CRITICAL (a double release in
 safe code). **Status:** FIXED on `tss/phase5` before it merged; develop never had it.
 

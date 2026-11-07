@@ -2732,7 +2732,7 @@ found while writing or measuring std, and each was silent.
 
 4. **An unsubstitutable array length silently became zero** — item 9 of the
    handover's ranked list, and step 1 of
-   `plans/backlog/VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md`.
+   `plans/archive/VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md`.
    `-> Array(u8, T.BYTES)` in a blanket impl emitted `Array_uint8_t_0` while
    the specialized bodies emitted lengths 1 and 4; C caught it only because
    those are different types. It is now a diagnostic naming the limitation.

@@ -3964,7 +3964,7 @@ _run_migrate_dyn_spelling :: (
   });
 });
 /// `yo fix <path> --migrate handle-ctors` — static-argument inference
-/// Generation B1 (plans/backlog/STATIC_ARGUMENT_INFERENCE.md §5): every call
+/// Generation B1 (plans/archive/STATIC_ARGUMENT_INFERENCE.md §5): every call
 /// of the prelude's `rc`, `box` or `arc` becomes a call of the handle's
 /// constructor, `rc(x)` → `Rc.new(x)`, `box(x)` → `Box.new(x)`, `arc(x)` →
 /// `Arc.new(x)`, the arguments (`alloc :` included) kept as written. Semantic:
@@ -7165,7 +7165,7 @@ _print_compile_profile :: (
     i = (i + usize(1));
   });
   // Memory at each phase's end: resident set and the shared codegen table's
-  // entries (plans/CODEGEN_MEMORY_REDUCTION.md Phase 0 step 1). Their own lines,
+  // entries (plans/backlog/CODEGEN_MEMORY_REDUCTION.md Phase 0 step 1). Their own lines,
   // so the `profile: phase` rows keep one shape.
   (pmi : usize) = usize(0);
   while(pmi < profile_phase_count(), {
@@ -8902,7 +8902,7 @@ run_compile :: (
     is_library_build := (static_library || shared_library);
     chunk_parts := ArrayList(String).new();
     // Finished function bodies stream to this file during emission
-    // (plans/CODEGEN_MEMORY_REDUCTION.md §3 lever 3); its bytes belong
+    // (plans/backlog/CODEGEN_MEMORY_REDUCTION.md §3 lever 3); its bytes belong
     // before the last C part. The name carries this process's pid, so no
     // other process ever opens, truncates or deletes it
     // (`code_spill_path_for`); spills of dead compiles of this output go first.
@@ -9033,7 +9033,7 @@ run_compile :: (
       true => {
         // One file, the parts written in order (the spilled code before the
         // last one): no concatenated copy of the whole C text
-        // (plans/CODEGEN_MEMORY_REDUCTION.md §0.6).
+        // (plans/backlog/CODEGEN_MEMORY_REDUCTION.md §0.6).
         c_file := io.await(File.open(Path.new(c_path.clone()), .Write, io), IoExn(io : io, exn : exn));
         // A `File` method's future borrows the file, so its bundle must be a
         // place (E0910).
@@ -9246,7 +9246,7 @@ run_compile :: (
     },
     (sanitize == "undefined") => {
       // UBSan — the safe-mode campaign's measurement instrument
-      // (plans/SAFE_MODE.md §3 0b). -fno-sanitize-recover=all makes
+      // (plans/backlog/SAFE_MODE.md §3 0b). -fno-sanitize-recover=all makes
       // a caught UB abort instead of print-and-continue: a recovering
       // UBSan run is not a gate. The help text has advertised
       // "undefined" all along; only the validation rejected it.
@@ -9874,7 +9874,7 @@ _check_code_spill :: (fn(path : &String, expected : usize, io : Io, exn : Except
   });
 });
 /// Append the code spill at `src_path` to `dst` in 4 MiB pieces
-/// (plans/CODEGEN_MEMORY_REDUCTION.md §3 lever 3: reading it whole would put
+/// (plans/backlog/CODEGEN_MEMORY_REDUCTION.md §3 lever 3: reading it whole would put
 /// the ~110 MB of function bodies back in memory at the end), failing unless
 /// exactly the `expected` bytes the emitter spilled were copied.
 _copy_code_spill_into :: (fn(src_path : &String, expected : usize, dst : &File, io : Io, exn : Exception) -> unit)({

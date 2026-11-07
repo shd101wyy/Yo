@@ -1,6 +1,6 @@
 # `Option(Dyn(Trait)).is_none()` emits a call to a function codegen never defines — the type key is computed two different ways
 
-**Status:** FIXED 2026-09-26 (Phase 3.8 of `plans/TYPE_SYSTEM_SOUNDNESS.md`).
+**Status:** FIXED 2026-09-26 (Phase 3.8 of `plans/backlog/TYPE_SYSTEM_SOUNDNESS.md`).
 **Found:** 2026-09-14, writing the regression test for
 `issues/fixed/self-trait-in-a-return-type-loses-the-trait-on-an-erased-receiver.md`.
 The two are unrelated defects — this one reproduces identically on the
@@ -155,7 +155,7 @@ Phase 5's replacement for the stored codegen handler) wrote `g_codegen_error.is_
 `Option(AnyError)`. The seed-built stage 1 compiled, but the stage-2 C (the stage-1 compiler
 compiling itself) called the undeclared `…_value_2015_ret_bool` and failed the fixpoint gate. The
 site uses a `match` over the slot. The key bug itself is the Phase 3.8 double-emission family's
-(`plans/TYPE_SYSTEM_SOUNDNESS.md`), and remains open here until fixed there.
+(`plans/backlog/TYPE_SYSTEM_SOUNDNESS.md`), and remains open here until fixed there.
 
 ## Root cause and fix (2026-09-26)
 

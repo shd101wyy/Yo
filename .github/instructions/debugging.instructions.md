@@ -81,7 +81,7 @@ the fastest way to see which body failed and why:
 A specialization that reaches emission hollow with `spec=true recorded=true`
 fails the compile: codegen reports the recorded error with a note at the call
 that requested the specialization (Phase 6 step 3,
-`plans/TYPE_SYSTEM_SOUNDNESS.md`).
+`plans/backlog/TYPE_SYSTEM_SOUNDNESS.md`).
 `scripts/soundness/swallow-census.sh` counts the `[kept]` lines by site.
 
 `YO_DEBUG_LAZY=1` is the companion for out-of-order evaluation: `[force] <def>`
@@ -355,7 +355,7 @@ The evaluator uses frame-based environments. Key debugging facts:
 ## A codegen difference that depends on released envs: `YO_SCOPE_RELEASE`
 
 `compile` releases each function body's recorded envs at scope exit and answers
-codegen's name lookups from records (`plans/CODEGEN_MEMORY_REDUCTION.md` §6.1;
+codegen's name lookups from records (`plans/backlog/CODEGEN_MEMORY_REDUCTION.md` §6.1;
 the rules are in `c-codegen.instructions.md`). When generated C looks wrong
 around a variable lookup:
 

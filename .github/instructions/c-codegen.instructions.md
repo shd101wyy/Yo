@@ -249,7 +249,7 @@ Each OS thread has its own **single-threaded event loop**. Within a single threa
 
 An `io.async` body is emitted ONCE, by the ordinary expression generators,
 into its resume function (`generate_async_block_resume_function_inline`,
-`src/codegen/async/state_machine.yo`; plan: `plans/ASYNC_STATE_MACHINE_GENERATION.md`
+`src/codegen/async/state_machine.yo`; plan: `plans/archive/ASYNC_STATE_MACHINE_GENERATION.md`
 phase 5). There are no segments, continuation functions, or per-construct
 async emitters: `await` is legal in any expression position and suspends in
 source order.
@@ -484,7 +484,7 @@ some expression, so the bare-atom arm position had never been exercised.
 
 ## Recorded envs are released at scope exit: look names up through `scope_variables`
 
-`compile` releases recorded environments (`plans/CODEGEN_MEMORY_REDUCTION.md`
+`compile` releases recorded environments (`plans/backlog/CODEGEN_MEMORY_REDUCTION.md`
 §6.1). When an outermost function body finishes evaluating, every `ExprInfo`
 recorded during it has its `env` replaced by a **husk**, a copy of the body's
 entry frame list. The body's own frames are freed. The answers codegen will need
@@ -588,7 +588,7 @@ New runtime C must use `__yo_rc_alloc` for unchecked allocations — never a bar
 `__yo_malloc` whose result is used without a NULL check (an explicit
 `if (!p) return -ENOMEM;` path is still preferred where one exists).
 
-## Safe-mode runtime guards (`plans/SAFE_MODE.md` phases 1–3)
+## Safe-mode runtime guards (`plans/backlog/SAFE_MODE.md` phases 1–3)
 
 Every guard is a `static inline` C11 helper emitted by `src/codegen/c/collection.yo`. Each one prints `<what> (at %s:%d:%d)` to stderr and calls `abort()`. The helpers:
 
@@ -628,7 +628,7 @@ functions are kernel32, the module `CreateThread` already links against. Test:
 
 ### RC headers: one layout
 
-Every RC cell carries the one `__yo_ref_header_t` (`ref_count` u32, `type_id` u16, `borrow_count` u16); `__yo_rc_prefix_t` is a typedef of it, kept so runtime C reads a header through one name. There is no cycle collector, no large header and no `traverse_fn` (decision 48 W6b, `plans/backlog/WEAK_AND_UNCOLLECTED_RC.md` §6): dispose runs through the type-tag `__yo_dispose_dispatch`. `tests/internal/gc_runtime_atomics.test.yo` pins the runtime text.
+Every RC cell carries the one `__yo_ref_header_t` (`ref_count` u32, `type_id` u16, `borrow_count` u16); `__yo_rc_prefix_t` is a typedef of it, kept so runtime C reads a header through one name. There is no cycle collector, no large header and no `traverse_fn` (decision 48 W6b, `plans/archive/WEAK_AND_UNCOLLECTED_RC.md` §6): dispose runs through the type-tag `__yo_dispose_dispatch`. `tests/internal/gc_runtime_atomics.test.yo` pins the runtime text.
 
 **Explicit allocators changed this C contract** (`plans/reference/EXPLICIT_ALLOCATORS.md`, P0–P5 landed 2026-09-30):
 
@@ -1167,7 +1167,7 @@ See `docs/en-US/ALGEBRAIC_EFFECTS.md` (§ Handler Functions Are Not Closures) fo
 `io.spawn(task, ctx)` (where `ctx` is the task's effect bundle) generates:
 
 1. Store the future pointer in a local variable
-2. (No abort check: an already-aborted future is not started — only a cold one is — and its handle reads `.None`. It was a panic until 2026-10-03, `plans/ASYNC_IO_API_AUDIT.md` A2.)
+2. (No abort check: an already-aborted future is not started — only a cold one is — and its handle reads `.None`. It was a panic until 2026-10-03, `plans/archive/ASYNC_IO_API_AUDIT.md` A2.)
 3. Inject effect handler function pointers into the future's capture struct via `emit_io_spawn_effect_injection`
 4. Cold-start via `__yo_resume_fn` (with incr_rc for execution reference)
 5. Move the caller's reference into the handle and return `(JoinHandle cname){ .__future = fut }`: `JoinHandle(T)` is a move-only value struct in the prelude (§3.13 A3) that OWNS that reference, and its `Drop` calls `__yo_join_handle_release_raw`; building it allocates nothing. A dropped, never-awaited handle detaches the task (the running task holds its own reference). `JoinHandle.await` consumes the handle: it moves the result out, marks the future `-3` (result taken) and releases the reference (`generate_join_handle_await`), and the evaluator marks the handle moved, so no scope-end `Drop` follows.

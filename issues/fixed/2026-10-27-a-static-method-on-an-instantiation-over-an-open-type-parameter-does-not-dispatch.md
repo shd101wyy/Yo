@@ -38,7 +38,7 @@ error[E0610]: No method "make" on _Holder(Impl(Fn(i32) -> i32)): the type has no
 
 Codegen needed nothing. The definition-time body of a function with an `Impl(Fn(...))` parameter is not emitted. Each call's specialization re-evaluates it with the closure's type and dispatches concretely, the same way the `rc(f)` definition-time specialization was never emitted.
 
-`dyn(f)` keeps boxing a type-variable payload with the prelude's `rc`/`arc` (`_synthesized_cell_call`, `src/evaluator/values/dyn.yo`). Each call specializes the body with the RESOLVED closure type, and a `Rc(T).new` cell over a resolved variable keeps the variable in its type. Generation B3 has to settle that case when it deletes `rc`/`arc` (`plans/backlog/STATIC_ARGUMENT_INFERENCE.md` §5). The unresolved case no longer blocks it.
+`dyn(f)` keeps boxing a type-variable payload with the prelude's `rc`/`arc` (`_synthesized_cell_call`, `src/evaluator/values/dyn.yo`). Each call specializes the body with the RESOLVED closure type, and a `Rc(T).new` cell over a resolved variable keeps the variable in its type. Generation B3 has to settle that case when it deletes `rc`/`arc` (`plans/archive/STATIC_ARGUMENT_INFERENCE.md` §5). The unresolved case no longer blocks it.
 
 ## Regression tests
 

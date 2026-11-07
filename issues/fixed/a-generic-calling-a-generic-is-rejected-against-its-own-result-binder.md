@@ -4,7 +4,7 @@
 Given: U`, whether it is ever called or not.
 
 **Status:** FIXED 2026-10-02 on branch `tss/phase6-reraise`. Found while probing shapes for
-Phase 6 step 3 of `plans/TYPE_SYSTEM_SOUNDNESS.md`.
+Phase 6 step 3 of `plans/backlog/TYPE_SYSTEM_SOUNDNESS.md`.
 
 ## Reproducer (measured, develop `aa772c3c9` and the v0.2.48 seed)
 

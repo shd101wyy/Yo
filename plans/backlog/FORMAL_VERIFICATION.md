@@ -1,5 +1,7 @@
 # Formal Verification — Dafny-style compile-time verification for Yo
 
+> **Trued 2026-11-07 (plans audit after VBD):** LANDED DESIGN + OPEN TAIL (trued 2026-11-07): Phase 0 and V1–V7 have all landed (V7 complete 2026-09-19), and this is the authoritative verifier design (D1–D12). Still open: vacuity probes, `paranoid`, the mutation gate and distrust lane, `--blame`, and open questions 1-3, 6 and 7. Open question 5 is closed by decision 43, and the `inout` spellings below read as `&mut`. Candidate for reference/ once the open tail moves to THEOREM_PROVING_DIRECTION/SELF_VERIFICATION.
+
 > **Status: ACTIVE PLAN — revised 2026-09-04.**
 > This revision replaces the 2026-05 draft's recommendation ("land Phase 0,
 > park the verifier"). The decision is now made: **Yo builds a compile-time,
@@ -445,7 +447,7 @@ safe_div :: (fn(num : i32, denom : NonZero(i32)) -> i32)(num / denom);
 | `pragma(Pragma.Verify);` | `verify` | Contracts and auto-obligations (AoRTE, below) are proof obligations. Refuted ⇒ compile error with counter-example. Unprovable-within-budget ⇒ compile error. Runtime asserts are **not** emitted (the proof replaces them) |
 | `pragma(Pragma.VerifyOrAssert);` | `verify+` | Try to prove. Proved ⇒ erased (no runtime cost). Refuted ⇒ compile error (a refutation is a bug, never assert-worthy). Budget-exhausted ⇒ fall back to today's runtime assert. **Flagship mode** |
 | `pragma(Pragma.NoContracts);` | `ignore` | Contracts erased entirely (works today) |
-| (no pragma; CLI only) | `paranoid` | `verify+` minus the erasure: every obligation is proved (Refuted ⇒ compile error), and every contract assert is emitted as in `runtime`, Proved ones included. The distrust lane's mode (`../SELF_VERIFICATION.md` "Trust") and the recovery mode if a verifier soundness bug ever ships: a program keeps its proofs AND its tripwires. It also disables CP2g's side table (`../CODEGEN_PERFORMANCE.md`), which is its exact inverse |
+| (no pragma; CLI only) | `paranoid` | `verify+` minus the erasure: every obligation is proved (Refuted ⇒ compile error), and every contract assert is emitted as in `runtime`, Proved ones included. The distrust lane's mode (`../backlog/SELF_VERIFICATION.md` "Trust") and the recovery mode if a verifier soundness bug ever ships: a program keeps its proofs AND its tripwires. It also disables CP2g's side table (`../backlog/CODEGEN_PERFORMANCE.md`), which is its exact inverse |
 
 A CLI global override `--verify-mode {runtime,verify,verify+,ignore,paranoid}`
 selects per invocation; the pragma is source-of-truth when present, with
@@ -892,7 +894,7 @@ sentence is "every stated contract holds". Outside `--strict` it is a
 warning. A vacuous conclusion is a **warning** everywhere — the proof is
 sound — with a hint that says to delete the clause (an author optimizing
 a count has no reason to keep it). Both feed the self-verification
-sweep's ratchet ([`../SELF_VERIFICATION.md`](../SELF_VERIFICATION.md),
+sweep's ratchet ([`../backlog/SELF_VERIFICATION.md`](SELF_VERIFICATION.md),
 "The vacuity gate"), where per-module vacuity counts may only fall — the
 discipline that keeps "functions verified" an honest number while
 contracts are being written by an agent loop. Diagnostics carry a
@@ -1827,7 +1829,7 @@ to `Unproven` without changing the class of the failure, so a survivor
 is re-run before it is believed. The committed score is a regenerated,
 diffable artifact (per-module counts + survivors), never hand-edited,
 under the same re-derived-numbers rule as every other published count
-([`../SELF_VERIFICATION.md`](../SELF_VERIFICATION.md)).
+([`../backlog/SELF_VERIFICATION.md`](SELF_VERIFICATION.md)).
 
 Rules the diff lane follows from day one:
 
@@ -2128,7 +2130,7 @@ What the verifier does:
   (`rlimit` deterministic budgets, unsat cores, `get-model`); vacuity
   detection in model checking (Beer et al., FOOLS 2001; Kupferman &
   Vardi, STTT 2003) — the lineage of the planned vacuity probes.
-- [`../SELF_VERIFICATION.md`](../SELF_VERIFICATION.md) — the campaign
+- [`../backlog/SELF_VERIFICATION.md`](SELF_VERIFICATION.md) — the campaign
   that dogfoods the verifier on the compiler itself; its vacuity gate,
   pinned known-answer rows and re-derived-claims rule consume this
   plan's probes and reports.

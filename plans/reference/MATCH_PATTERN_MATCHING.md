@@ -106,7 +106,7 @@ recorded by the 2026-09-30 closeout audit):
    defensive arm is the idiom the corpus is written in, Rust only warns, and
    Yo has no warnings channel. Exhaustiveness stays full usefulness.
 
-   **Superseded 2026-09-26** (`plans/TYPE_SYSTEM_SOUNDNESS.md` Phase 4.5,
+   **Superseded 2026-09-26** (`plans/backlog/TYPE_SYSTEM_SOUNDNESS.md` Phase 4.5,
    #926): the
    warnings channel landed (#846), so an arm the earlier arms cover only
    collectively is now a WARNING, single-arm subsumption (now also between
@@ -127,7 +127,7 @@ recorded by the 2026-09-30 closeout audit):
    `issues/fixed/if-await-in-a-match-arm-is-rejected-as-a-later-cond-branch.md`
    — an `if(io.await(...), ...)` whose AWAIT sits in a cond CONDITION inside
    a classic arm (a hoisting limitation owned by
-   `plans/ASYNC_STATE_MACHINE_GENERATION.md`, not a pattern-form gap).
+   `plans/archive/ASYNC_STATE_MACHINE_GENERATION.md`, not a pattern-form gap).
 4. **Two designed diagnostics were dropped.** §4.3's const-shadow hint
    ("Pattern \"n\" compares against the constant n :: … in scope; write _n
    or rename the constant to bind") and §4.10's dedicated

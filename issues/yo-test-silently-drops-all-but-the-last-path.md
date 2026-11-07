@@ -2,7 +2,7 @@
 
 **Severity:** S2 — `yo test a b c` silently runs only `c` and exits 0 — a gate listing several suites reports green while skipping all but one
 
-**Status: OPEN** (found 2026-09-23 while gating `plans/SAFE_MODE.md` §14 R1).
+**Status: OPEN** (found 2026-09-23 while gating `plans/backlog/SAFE_MODE.md` §14 R1).
 
 ## Symptom
 

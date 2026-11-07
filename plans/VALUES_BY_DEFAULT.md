@@ -238,7 +238,7 @@ Progress:
 - **Rule for this header:** the PR that lands a phase moves its line from
   "In progress" to "Landed".
 
-- Builds on [`plans/STRING_VALUE_SEMANTICS.md`](STRING_VALUE_SEMANTICS.md):
+- Builds on [`plans/archive/STRING_VALUE_SEMANTICS.md`](archive/STRING_VALUE_SEMANTICS.md):
   S1, S2, S3a (#1190) and S4 (#1175) have landed, and S3b is dropped (§0 below).
 - Absorbs `issues/retired/collections-value-or-reference-semantics.md`.
 - No backward compatibility is kept (AGENTS.md): every user, `std/` and
@@ -503,7 +503,7 @@ c := rc(node, alloc : .Some(a)); // placed in the Allocator `a`
 - **`T` is inferred** from the argument, which the ~1,300 tree-node
   constructions of V4 rely on.
 - **Amended 2026-10-23:** `Box.new`/`Rc.new`/`Arc.new` replace `box`/`rc`/`arc`
-  at Generation B of `plans/backlog/STATIC_ARGUMENT_INFERENCE.md` (the
+  at Generation B of `plans/archive/STATIC_ARGUMENT_INFERENCE.md` (the
   migration at v0.2.73, the builtins deleted at v0.2.74); until then V4's
   constructions use `rc(…)`.
 - **`alloc`.** `alloc : .None`, the default, means the current
@@ -1035,7 +1035,7 @@ Each kind of root gets its own check:
   (`src/evaluator/effects/mutation_summary.yo`) decide one of three
   outcomes:
   - **(a) Proved safe** — no conflicting borrow can be live: a plain
-    write, no assert, no mark traffic (CODEGEN_PERFORMANCE.md CP2c).
+    write, no assert, no mark traffic (backlog/CODEGEN_PERFORMANCE.md CP2c).
   - **(b) Proved conflict** — a borrow of the same place is live and a
     callee's summary writes it (the canonical case: a borrowed `for` whose
     body reaches `push` on its own container): a compile error.
@@ -1061,7 +1061,7 @@ Each kind of root gets its own check:
   (a) elides the run-time check); a plain `Rc` handle is no longer one of
   them. The cell
   header carries **no borrow marks** and a lend through a plain `Rc` sets
-  none, so `Rc(T)` costs what Rust's `Rc<T>` costs (CODEGEN_PERFORMANCE.md
+  none, so `Rc(T)` costs what Rust's `Rc<T>` costs (backlog/CODEGEN_PERFORMANCE.md
   CP2d).
 - **`RefCell(T)`** (`std/sync`, beside `Mutex(T)`: `Mutex` blocks,
   `RefCell` panics) holds the shared/exclusive marks and asserts them. Its
@@ -1131,7 +1131,7 @@ Each kind of root gets its own check:
   and (c), c's naming `RefCell(T)` and `Rc.get_mut`; a `RefCell` conflict
   panics (a closure and an async body calling `with_mut` under a live
   `with`); `RefCell(T)` fails `Sync` and `Arc(RefCell(T))` is rejected.
-  **Ratchet:** CODEGEN_PERFORMANCE.md CP0's "asserts executed" counter,
+  **Ratchet:** backlog/CODEGEN_PERFORMANCE.md CP0's "asserts executed" counter,
   which after this rule counts `RefCell` `with_mut`/`get_mut` entries.
 
 **The run-time check has one spelling, `RefCell(T)`; outside it the check is
@@ -1226,7 +1226,7 @@ and every free routes through the owner prefix.
   each other's fields (`a.*.child = b; a.*.child.*.child = a;`, each write
   proved exclusive because the count is 1 through a field) form a cycle no
   `RefCell` ever sees. So the type-level predicate stays "reaches an
-  `Rc`"; the refinement is CODEGEN_PERFORMANCE.md CP2e's whole-program
+  `Rc`"; the refinement is backlog/CODEGEN_PERFORMANCE.md CP2e's whole-program
   scan of write sites (a `RefCell`/`Mutex`/`RwLock` write, or an
   outcome-(a) write, into a field of the payload that reaches an `Rc`).
   **Open:** whether outcome (a) can be strengthened to a cycle-free proof
@@ -1276,7 +1276,7 @@ instead.
     borrows.
   - `io.await` moves the result out, so a move-only `T` works.
   - This deletes multi-await, the per-await result dup, and the
-    second-spawn bundle rule (`plans/ASYNC_IO_API_AUDIT.md`, A3). V3
+    second-spawn bundle rule (`plans/archive/ASYNC_IO_API_AUDIT.md`, A3). V3
     re-checks `__yo_started_child`.
   - **As built (2026-10-12, A1).**
     - **Which types.** A value whose type is a `SomeT` requiring the
@@ -1853,7 +1853,7 @@ machinery.
   (`Rc` only), for the compiler's trees, and for the futures' own counts
   until A1.
 - **The doc** is replaced, not rescoped (2026-10-13): its successor is drafted
-  in [`OWNERSHIP_AND_BORROWING_DOC_DRAFT.md`](OWNERSHIP_AND_BORROWING_DOC_DRAFT.md),
+  in [`backlog/OWNERSHIP_AND_BORROWING_DOC_DRAFT.md`](backlog/OWNERSHIP_AND_BORROWING_DOC_DRAFT.md),
   kept current as each phase lands, and promoted to
   `docs/en-US/OWNERSHIP_AND_BORROWING.md` and `docs/zh-CN/` at V5, when the
   old page is deleted. The same edits reach
@@ -3873,7 +3873,7 @@ and in git, not a silent edit.
     ("what if we bring `RefCell` to Yo?", after deciding the same day that
     the static verdict is the default). Amends decision 4 and §3.10 (the
     full rule is §3.10's second 2026-10-10 amendment), and reopens
-    CODEGEN_PERFORMANCE.md CP2d on a soundness ground, not the measured one
+    backlog/CODEGEN_PERFORMANCE.md CP2d on a soundness ground, not the measured one
     it asked for.
     - §3.10's outcome (c), the undecidable write through a shared handle,
       is a compile error like (b); `pragma(Pragma.StrictBorrow)` is deleted.
@@ -4462,7 +4462,7 @@ and in git, not a silent edit.
       the non-allocating borrowed object above, and the single allocation
       below.
     - **`Rc(Dyn(Trait))` / `Arc(Dyn(...))` in one allocation** (a later
-      codegen optimization, CODEGEN_PERFORMANCE.md): today the `Rc` cell
+      codegen optimization, backlog/CODEGEN_PERFORMANCE.md): today the `Rc` cell
       holds the `Dyn`'s fat value and the payload is a second heap box;
       `rc(...)` over a `Dyn` builds the payload in place in the `Rc` cell
       and keeps the vtable in the handle, as Rust's `Rc<dyn T>` does. No
@@ -4667,7 +4667,7 @@ and in git, not a silent edit.
         2026-10-21 by the maintainer** ("I also want to introduce Weak"):
         `Weak(T)` and `ArcWeak(T)`, a per-program `--cycle-collector off`
         build, and `Arc` without its `Acyclic` bound are
-        `plans/backlog/WEAK_AND_UNCOLLECTED_RC.md`; `Rc`/`Arc` stay the
+        `plans/archive/WEAK_AND_UNCOLLECTED_RC.md`; `Rc`/`Arc` stay the
         only handle types, and the collector is deleted at that plan's W6
         (with `Trace` and `Acyclic`) once `Weak` and the `--allocator
         debug` leak oracle have shipped and one release has run with it
@@ -4800,7 +4800,7 @@ and in git, not a silent edit.
     `impl(T, Acyclic())` are deleted with the collector, and `Acyclic`
     stays as a derived-only marker** (maintainer, 2026-10-21, agreeing
     with the staged recommendation; the design is
-    `plans/backlog/WEAK_AND_UNCOLLECTED_RC.md`; the user text is written
+    `plans/archive/WEAK_AND_UNCOLLECTED_RC.md`; the user text is written
     with W3, as a `Weak` page, and `docs/en-US/CYCLE_COLLECTION.md` serves
     unchanged until W6 deletes it — a transitional draft was written and
     withdrawn the same day, 2026-10-21). It amends decision 46's
@@ -5075,7 +5075,7 @@ and in git, not a silent edit.
 - **`STRING_VALUE_SEMANTICS`.** S1 (E0908 on `&mut` writes through a
   borrowed value), S2 (count accuracy), S3a (the model-independent part,
   #1190) and S4 (docs, #1175) have landed. S3b (the
-  uniqueness step) is dropped (`plans/STRING_VALUE_SEMANTICS.md` §0).
+  uniqueness step) is dropped (`plans/archive/STRING_VALUE_SEMANTICS.md` §0).
 - **Each phase is one PR, or a stack with one battery** (AGENTS.md).
 - **Gates for every phase:**
   - `yo check ./src` and `yo check ./std --std-path ./std`;
@@ -5246,7 +5246,7 @@ and in git, not a silent edit.
     (`Pair.first(self : p)`) is the first argument too, since labels are
     positional.
   - **Static methods.** (Amended 2026-10-27: A1 of
-    `plans/backlog/STATIC_ARGUMENT_INFERENCE.md` landed, so this bullet's
+    `plans/archive/STATIC_ARGUMENT_INFERENCE.md` landed, so this bullet's
     original rule — a method with no `self` has nothing to infer from, and
     `Pair.make(a, b)` is E0613 — is replaced.) A method whose first
     parameter is not `Self` infers the constructor's arguments from every
@@ -7306,7 +7306,7 @@ compiler; the std shapes are plain structs the seed lowers):
         shapes all still split). It closes with the flip. Each of those
         copies then moves or is E0901, and Generation B carries its test.
         No earlier fix exists: copy-on-write and allocate-on-empty are
-        rejected (`plans/STRING_VALUE_SEMANTICS.md` §0). A predicate clause
+        rejected (`plans/archive/STRING_VALUE_SEMANTICS.md` §0). A predicate clause
         that makes buffer owners explicit-copy before the representation
         changes is the same flip, with the same sweep.
       - **Dependency.** Generation B needs V2b's `Index` split, landed in
@@ -7656,7 +7656,7 @@ heavy run, the command is given in item 2.
        - Why `Rc` and not an interned id: an id is a global-table read on
          every access, the decision-47 read-by-clone class D this campaign
          removes. It would also keep `auto-generated://` paths alive for
-         the process lifetime (`EVALUATOR_MEMORY_REDUCTION.md` §0.24). An
+         the process lifetime (`backlog/EVALUATOR_MEMORY_REDUCTION.md` §0.24). An
          `Rc` copy is a count bump today and stays one after B8.
        - `Environment.input_string` was dead: every write was `""` or a
          copy of another env's field, and its only reader compared two
@@ -7785,7 +7785,7 @@ heavy run, the command is given in item 2.
             and `entry.last.insert(v.name.clone(), k)` at
             `src/env.yo:749/753` in `_frame_index_refresh`, whose source
             comment already records sharing that key as worth 61 MB on
-            `check src/main.yo` (`EVALUATOR_MEMORY_REDUCTION.md` §0.10).
+            `check src/main.yo` (`backlog/EVALUATOR_MEMORY_REDUCTION.md` §0.10).
             (d68) and (e68) were both built with the v0.2.68 seed; (d67)
             is the (d) above, so (d67) against (d68) shows the seed does
             not move the numbers. One run each, back to back, same caps,
@@ -8711,7 +8711,7 @@ heavy run, the command is given in item 2.
        `tests/collections/array_list_convenience.test.yo`); the S1's test
        (`issues/fixed/a-write-through-a-string-copy-is-lost-when-the-string-was-empty.md`
        moves to `fixed/`); docs in both languages, the instructions and
-       the skills cheatsheets; `plans/STRING_VALUE_SEMANTICS.md`'s status.
+       the skills cheatsheets; `plans/archive/STRING_VALUE_SEMANTICS.md`'s status.
      - Flips: every implicit copy of a `String`, an `ArrayList` or a value
        aggregate holding one, whose source lives on, is E0901.
      - Needs: B1–B7 landed. The std change itself needs no newer seed than
@@ -9880,7 +9880,7 @@ not an estimate.
 
 ### Decision 48: `Weak` and the collector's removal
 
-Decision 48 (§4) is the design; `plans/backlog/WEAK_AND_UNCOLLECTED_RC.md`
+Decision 48 (§4) is the design; `plans/archive/WEAK_AND_UNCOLLECTED_RC.md`
 §6–§7 are the full statement. Each phase is one PR; W3 is Generation A
 (the prelude gains the types, std uses them on the next seed). The
 release placement is the VBD session's call in
@@ -10349,7 +10349,7 @@ that later phases add.
   a bug in that migration, fixed before it is deleted.
 - **The other gates.** V5 and every Generation B half have landed, so no
   migration is still carrying this tree across a seed. The post-VBD docs sweep
-  (`plans/AGENT_KNOWLEDGE_CONSOLIDATION.md` K7) and the skills removal (K4) run
+  (`plans/backlog/AGENT_KNOWLEDGE_CONSOLIDATION.md` K7) and the skills removal (K4) run
   before this step. The docs keep naming `--migrate` modes until this step's PR
   removes them. This tree (`std/`,
   `src/`, `tests/`, the docs' Yo blocks, the cli-case fixtures) has no

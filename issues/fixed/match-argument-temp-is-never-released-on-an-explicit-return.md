@@ -1,7 +1,7 @@
 # A `match` / `cond` call argument leaked its result on an explicit `return`
 
 > Found 2026-09-25 by the evaluator memory campaign
-> (`plans/EVALUATOR_MEMORY_REDUCTION.md`, the zero-hit `ArrayList(ArrayList(String))`
+> (`plans/backlog/EVALUATOR_MEMORY_REDUCTION.md`, the zero-hit `ArrayList(ArrayList(String))`
 > leak roots at the end of `yo check src/main.yo`). **FIXED same day** on
 > `fix/path-collection-overwrite`. Follow-up to
 > `issues/fixed/match-or-cond-call-argument-result-is-never-released.md`, which

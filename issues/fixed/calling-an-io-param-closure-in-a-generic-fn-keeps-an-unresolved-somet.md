@@ -334,7 +334,7 @@ reproducers pass it. The test must be a compile-and-run case.
 
 ## Verification (2026-09-24)
 
-Re-measured for Phase 2.4 of `plans/TYPE_SYSTEM_SOUNDNESS.md`: Reproducer 1 compiles and prints
+Re-measured for Phase 2.4 of `plans/backlog/TYPE_SYSTEM_SOUNDNESS.md`: Reproducer 1 compiles and prints
 `ok` on the v0.2.41 seed and on develop `a0573eea7`; boundary row 2 (`(r : T) = cb(io)`) at
 T = i32, u64 and f64 prints the values. Reproducer 2 needs `Thread(unit).spawn` since `Thread`
 became generic, and prints `ok`. No commit between v0.2.24 and v0.2.41 was bisected, so which

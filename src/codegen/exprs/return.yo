@@ -86,7 +86,7 @@ _get_deferred_drop_target_variable :: (fn(drop_expr : &AstExpr, context : &Funct
   )
 );
 /// What a cleanup point's lookup of a pending drop's target name yields. Under
-/// the scope-exit release (plans/CODEGEN_MEMORY_REDUCTION.md §6) the cleanup
+/// the scope-exit release (plans/backlog/CODEGEN_MEMORY_REDUCTION.md §6) the cleanup
 /// node's recorded env is gone, and the drop's own target (resolved through
 /// its atom's record) stands in. A pending drop belongs to a scope enclosing
 /// the cleanup point, so its target is the Variable that env holds. A target
@@ -160,7 +160,7 @@ _variable_was_consumed_before_cleanup_point :: (fn(consumed_at_token : &Token, c
 /// `consumed_at_token` says so, or a move the flow log undid for the paths
 /// after its arm while `cleanup_expr` lies inside that arm: the arm returns
 /// (or escapes) after the move, so the value is already gone there
-/// (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 5.1,
+/// (plans/backlog/TYPE_SYSTEM_SOUNDNESS.md Phase 5.1,
 /// issues/fixed/a-move-in-a-returning-arm-is-released-again-at-the-return.md).
 _variable_moved_before_cleanup_point :: (fn(v : &Variable, cleanup_expr : &AstExpr) -> bool)({
   if(match(v.consumed_at_token(), .Some(ct) => _variable_was_consumed_before_cleanup_point(&ct, cleanup_expr), .None => false), {

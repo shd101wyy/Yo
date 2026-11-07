@@ -1,7 +1,7 @@
 # `MaybeUninit(T).new()` copies an indeterminate value (undefined behavior)
 
 **Status: FIXED 2026-09-28** (found by the first full-suite UBSan run,
-`plans/SAFE_MODE.md` D6/§14 R6; branch `safe-mode/callback-thunks`).
+`plans/backlog/SAFE_MODE.md` D6/§14 R6; branch `safe-mode/callback-thunks`).
 
 ## Symptom
 

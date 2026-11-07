@@ -25,6 +25,6 @@ At ~1.2x per step, the list-model step needs ~68 min and the job ~140 min.
 
 ## Fix
 
-`timeout-minutes: 180` for the job, with the measurement in the workflow comment. The timeout exists to bound a hang; 180 still does that while leaving ~1.3x margin over the projected run. Reclaiming the evaluator's cost is the post-VBD sharing work (`plans/EVALUATOR_MEMORY_REDUCTION.md`), which would also shorten this job.
+`timeout-minutes: 180` for the job, with the measurement in the workflow comment. The timeout exists to bound a hang; 180 still does that while leaving ~1.3x margin over the projected run. Reclaiming the evaluator's cost is the post-VBD sharing work (`plans/backlog/EVALUATOR_MEMORY_REDUCTION.md`), which would also shorten this job.
 
 Test: CI plumbing only. The next develop battery shows the job's verdict instead of `cancelled`.

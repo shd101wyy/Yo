@@ -1,7 +1,7 @@
 # Should the verifier prove std's `assumed()` collection bodies? It needs a raw-buffer model
 
 **Kind:** design question — decided. Filed 2026-10-02 to close §4 of
-`plans/ATS_LESSONS_BEYOND_INDEXED_TYPES.md`. That section said to revisit
+`plans/archive/ATS_LESSONS_BEYOND_INDEXED_TYPES.md`. That section said to revisit
 after A1 (the lemma layer) and A4 (the init proof token), and both have
 landed.
 

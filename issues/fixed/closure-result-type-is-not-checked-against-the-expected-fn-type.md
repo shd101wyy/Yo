@@ -1,8 +1,8 @@
 # A closure's result type is never checked against the expected `Fn(...) -> R`
 
-**Found:** 2026-09-23, type-system audit (`plans/TYPE_SYSTEM_SOUNDNESS.md`, Phase 1).
+**Found:** 2026-09-23, type-system audit (`plans/backlog/TYPE_SYSTEM_SOUNDNESS.md`, Phase 1).
 **Status:** FIXED 2026-09-24 — the concrete half in Phase 1.2, the generic-callee half in
-Phase 2.4 of `plans/TYPE_SYSTEM_SOUNDNESS.md` (see "Fix (2026-09-24, generic callee)").
+Phase 2.4 of `plans/backlog/TYPE_SYSTEM_SOUNDNESS.md` (see "Fix (2026-09-24, generic callee)").
 Originally: soundness hole, wrong program, green `yo check`, runs and prints a wrong value.
 **Measured:** yo 0.2.39 seed; re-verified with the same result on a develop build `d455b6a67`.
 

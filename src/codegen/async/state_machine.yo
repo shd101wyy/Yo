@@ -552,7 +552,7 @@ _lv_walk :: (fn(e : &AstExpr, stmt_end : u64, block_end : u64, w : &_LiveWalk, c
 /// The locals of an `io.async` body that need a state-machine field: those
 /// live across some suspension. Anything else stays a C local — the resume
 /// function jumps past its declaration, which C allows, and nothing reads it
-/// after the jump (plans/ASYNC_STATE_MACHINE_GENERATION.md phase 6, layout
+/// after the jump (plans/archive/ASYNC_STATE_MACHINE_GENERATION.md phase 6, layout
 /// from liveness). A future temp consumed into the await slot never crosses
 /// its own await. Unit locals have no storage at all.
 ///
@@ -1493,7 +1493,7 @@ _emit_await_suspension_core :: (
     // child's running reference is already released, and a round trip through
     // the scheduler (a kernel entry once any I/O is pending) bought nothing
     // but fairness, which the budget still provides
-    // (plans/ASYNC_STATE_MACHINE_GENERATION.md §3.4: 330 → 100 ns with I/O pending).
+    // (plans/archive/ASYNC_STATE_MACHINE_GENERATION.md §3.4: 330 → 100 ns with I/O pending).
     context.base.emitter.emit_string_line(`${ind}    if (__yo_inline_budget > 0) {`);
     context.base.emitter.emit_string_line(`${ind}      __yo_inline_budget--;`);
     context.base.emitter.emit_string_line(`${ind}      goto ${resume_label};`);
@@ -1651,7 +1651,7 @@ inline_await_result_field_of :: (fn(expr : &AstExpr, fields : &ArrayList(InlineA
 });
 /// `YO_DEBUG_FUSION`: print one line per await of the single-pass lowering
 /// with the fusion verdict the evaluator recorded for its future
-/// (plans/backlog/ASYNC_AWAIT_SITE_FUSION.md, F1).
+/// (plans/reference/ASYNC_AWAIT_SITE_FUSION.md, F1).
 _report_await_fusion :: (fn(await_expr : &AstExpr, future_arg : &AstExpr) -> unit)({
   tok := ast_expr_token(await_expr);
   (verdict : String) = match(

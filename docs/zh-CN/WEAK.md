@@ -3,7 +3,7 @@
 `Weak(T)` 对应 Rust 的 `rc::Weak<T>`：它是指向某个 `Rc(T)` 单元的句柄，但不会让载荷保持存活。
 它在 `std/prelude.yo` 中紧挨着 `Rc` 定义，因此 `Weak` 处处可用。`Weak` 是不泄漏地闭合一个环的办法：
 父节点通过 `Rc` 拥有子节点，每个子节点通过 `Weak` 指回父节点。设计见
-`plans/backlog/WEAK_AND_UNCOLLECTED_RC.md` §3。
+`plans/archive/WEAK_AND_UNCOLLECTED_RC.md` §3。
 
 ## API
 

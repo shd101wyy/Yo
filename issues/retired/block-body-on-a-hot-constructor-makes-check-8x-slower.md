@@ -27,7 +27,7 @@
 
 **Status:** RETRACTED 2026-09-21 — see the banner. Surfaced while instrumenting the
 evaluator for the `TypeValue` interning measurement
-(plans/EVALUATOR_MEMORY_REDUCTION.md §0.4′) — the instrumentation could not
+(plans/backlog/EVALUATOR_MEMORY_REDUCTION.md §0.4′) — the instrumentation could not
 be placed because merely making room for a statement cost an order of
 magnitude.
 
@@ -73,7 +73,7 @@ placed in them pays this cost, and the failure mode is a timeout with no
 diagnostic, not an error.
 
 It is also plausibly the same family as the F8 finding already in
-plans/EVALUATOR_MEMORY_REDUCTION.md (`check` cost super-linear in a nested
+plans/backlog/EVALUATOR_MEMORY_REDUCTION.md (`check` cost super-linear in a nested
 call shape, root-caused to a receiver re-evaluated per argument): a cost that
 multiplies per call site rather than per definition.
 

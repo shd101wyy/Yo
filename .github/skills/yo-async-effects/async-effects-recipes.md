@@ -225,7 +225,7 @@ process_dir :: (fn(root : Path, io : Io) -> Impl(Future(unit, WalkCtx)))(
   is kept (an await in a later branch or on the right of `&&` runs only when
   reached). This replaced the segment lowering, whose unsupported shapes were
   rejected with E0904 or silently miscompiled
-  (`plans/ASYNC_STATE_MACHINE_GENERATION.md` phase 5).
+  (`plans/archive/ASYNC_STATE_MACHINE_GENERATION.md` phase 5).
 - **Inside an `io.async` body, wait on a handle with `io.await(h.join(io), io)`,
   never `h.await(io)`.** `JoinHandle.await` waits by looping
   `__yo_async_poll_step()`, and an `io.async` body always runs as a RESUMED

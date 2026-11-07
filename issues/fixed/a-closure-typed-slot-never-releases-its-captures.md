@@ -3,7 +3,7 @@
 **Status:** FIXED 2026-09-28 (see "The complete fix" at the end). The
 spawn-wrapper half landed 2026-09-12 on `fix/zst-closure-fn-result`. The rest
 was found again by the evaluator memory campaign: 38 leaked `ExprInfoTable`s
-pinned 129 MB of `check src/main.yo` (`plans/EVALUATOR_MEMORY_REDUCTION.md`
+pinned 129 MB of `check src/main.yo` (`plans/backlog/EVALUATOR_MEMORY_REDUCTION.md`
 §0.19).
 **Found:** 2026-09-12, measured on the published **v0.2.31** compiler and std —
 this is not a regression, it has always been there.

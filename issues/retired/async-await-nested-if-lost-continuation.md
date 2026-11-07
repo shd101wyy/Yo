@@ -82,7 +82,7 @@ version is preserved in this branch's history —
 
 ## Re-verified 2026-09-28 (async state-machine audit)
 
-Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
+Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/archive/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
 
 **CANNOT REPRODUCE.** The described shape was rebuilt: a recursive plain helper that awaits internally, an outer `if` assigning `stamp`, then a nested `if` with an await. It prints `inner branch ran … hits=1`, which is correct. Without the original code this cannot go further. Candidate for `retired/` if nothing turns up by the next audit.
 
@@ -90,7 +90,7 @@ Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans
 
 The segment lowering this was observed under is deleted: an `io.async` body
 is now emitted once, through the ordinary expression generators
-(`plans/ASYNC_STATE_MACHINE_GENERATION.md` phase 5). A reconstructed minimal
+(`plans/archive/ASYNC_STATE_MACHINE_GENERATION.md` phase 5). A reconstructed minimal
 shape passes both on the v0.2.45 seed and on the single-pass lowering, so
 there is still no reproducer. Left open until one is distilled from a real
 failure; if you meet it again, file the reproducer rather than rewriting
@@ -112,7 +112,7 @@ It prints `inner branch ran, exists=true`, a 3,397-byte stamp and
 
 The original failing code was never committed: #213's PR ref holds only the
 rewritten version. So no closer reproduction exists. The segment lowering it
-was seen under is deleted (`plans/ASYNC_STATE_MACHINE_GENERATION.md`
+was seen under is deleted (`plans/archive/ASYNC_STATE_MACHINE_GENERATION.md`
 phase 5), and every await shape around it is tested in
 `tests/async/sm_shapes_*`. That makes this a record of a lowering that no
 longer exists, not an open bug. If the symptom appears again, file the

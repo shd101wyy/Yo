@@ -1,6 +1,6 @@
 # `g_match_arms` kept every re-evaluation's compiled arms (LSP / watch)
 
-Found 2026-09-27 by the Linux holder census (`plans/EVALUATOR_MEMORY_REDUCTION.md`
+Found 2026-09-27 by the Linux holder census (`plans/backlog/EVALUATOR_MEMORY_REDUCTION.md`
 §0.18); first fix in #957, reworked 2026-09-27 (this record). **Fixed.**
 
 ## Symptom

@@ -1,6 +1,6 @@
 # A generic fn instantiated at two `T` hands one closure the other's parameter type
 
-**Status: FIXED 2026-09-24** (Phase 2.4 of `plans/TYPE_SYSTEM_SOUNDNESS.md`; found 2026-09-07, while implementing D17's stable sort).
+**Status: FIXED 2026-09-24** (Phase 2.4 of `plans/backlog/TYPE_SYSTEM_SOUNDNESS.md`; found 2026-09-07, while implementing D17's stable sort).
 
 **Severity: emitted C does not compile.** Not silent — clang rejects it — but
 the diagnostic names a generated symbol and a `__yo_tN` type, so the user has

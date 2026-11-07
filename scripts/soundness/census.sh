@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Type-system soundness census (plans/TYPE_SYSTEM_SOUNDNESS.md, Phase 0 step 2).
+# Type-system soundness census (plans/backlog/TYPE_SYSTEM_SOUNDNESS.md, Phase 0 step 2).
 #
 # Counts programs that `yo check` ACCEPTS but that later fail: an internal
 # compiler error or a rejection in `yo compile`, a C compiler error, a hollow
@@ -62,7 +62,7 @@ list_test() {
 }
 # The issue docs the plan cites, resolved to wherever each doc lives today.
 plan_docs() {
-  grep -oE 'issues/[a-z0-9/-]+\.md|`[a-z0-9][a-z0-9-]{12,}`' plans/TYPE_SYSTEM_SOUNDNESS.md |
+  grep -oE 'issues/[a-z0-9/-]+\.md|`[a-z0-9][a-z0-9-]{12,}`' plans/backlog/TYPE_SYSTEM_SOUNDNESS.md |
     tr -d '`' | sed 's#^issues/##; s#^fixed/##; s#\.md$##' | sort -u |
     while read -r n; do
       for d in issues issues/fixed issues/retired; do

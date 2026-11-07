@@ -4,7 +4,7 @@
 The goal: macOS async I/O performance at or above libuv's, with every bug
 found on the way documented and fixed, and no workarounds. The authoritative
 measurements are `plans/reference/MACOS_ASYNC_IO_PERFORMANCE.md`; the
-wrapper half of the plan is `plans/backlog/ASYNC_AWAIT_SITE_FUSION.md`.
+wrapper half of the plan is `plans/reference/ASYNC_AWAIT_SITE_FUSION.md`.
 
 ## 1. Where it stands
 

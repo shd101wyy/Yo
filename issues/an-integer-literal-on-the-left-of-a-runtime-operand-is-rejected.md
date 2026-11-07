@@ -4,7 +4,7 @@
 
 **Status:** OPEN
 **Found:** 2026-09-19, during the LLM authoring audit
-(`plans/backlog/LLM_AUTHORING_AUDIT_2026-09-19.md` §2.4)
+(`plans/archive/LLM_AUTHORING_AUDIT_2026-09-19.md` §2.4)
 **Repro:** `issues/repros/an-integer-literal-on-the-left-of-a-runtime-operand-is-rejected.yo`
 **Measured on:** tree `49d75c665`, `yo 0.2.36`, `--std-path ./std`
 

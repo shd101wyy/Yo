@@ -1,6 +1,6 @@
 # Type errors inside a closure body are swallowed at `check` and become a runtime FATAL
 
-**Found:** 2026-09-23, type-system audit (`plans/TYPE_SYSTEM_SOUNDNESS.md`, Phase 1).
+**Found:** 2026-09-23, type-system audit (`plans/backlog/TYPE_SYSTEM_SOUNDNESS.md`, Phase 1).
 **Status:** FIXED 2026-09-27 (branch `tss/p6-closure-reraise-v2`). Green `yo check`, green `yo compile`, the binary aborts.
 **Measured:** yo 0.2.39 seed; re-verified with the same result on a develop build `d455b6a67`.
 

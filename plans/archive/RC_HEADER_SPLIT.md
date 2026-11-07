@@ -7,11 +7,11 @@
 > collector, which decision 48 deletes — the end state is "one 16-byte
 > header everywhere" ([`../VALUES_BY_DEFAULT.md`](../VALUES_BY_DEFAULT.md)
 > decision 48, designed in
-> [`../backlog/WEAK_AND_UNCOLLECTED_RC.md`](../backlog/WEAK_AND_UNCOLLECTED_RC.md))
+> [`../archive/WEAK_AND_UNCOLLECTED_RC.md`](WEAK_AND_UNCOLLECTED_RC.md))
 > — so steps 2 and beyond (shrinking the 56 B tracked header) are moot.
 > Successor memory levers live in
-> [`../EVALUATOR_MEMORY_REDUCTION.md`](../EVALUATOR_MEMORY_REDUCTION.md)
-> and [`../backlog/TYPEVALUE_HASH_CONSING.md`](../backlog/TYPEVALUE_HASH_CONSING.md).
+> [`../backlog/EVALUATOR_MEMORY_REDUCTION.md`](../backlog/EVALUATOR_MEMORY_REDUCTION.md)
+> and [`../archive/TYPEVALUE_HASH_CONSING.md`](TYPEVALUE_HASH_CONSING.md).
 
 **Status: PHASE 1 LANDED 2026-08-17** (branch `perf/rc-header-split`,
 user-directed to start before retirement — implemented in BOTH compilers).
@@ -62,7 +62,7 @@ are inflated ~2x by the instrument — compare only tracked numbers.)
 | 64 B class                                 | 18.1M       | 1.08 GB     | 6.1%  |
 | 112 B (Environment) + 80 B (tracked lists) | 15.8M       | 1.39 GB     | 7.8%  |
 
-**ExprInfo diet: LANDED 2026-09-21 as `perf/exprinfo-diet-v2` — the refutation below was F8's per-call retention (fixed by #805); re-run: 10.01 → 9.61 GB, byte-identical C, source cost gone (see `plans/EVALUATOR_MEMORY_REDUCTION.md` Phase 7 step 4).** Original record:
+**ExprInfo diet: LANDED 2026-09-21 as `perf/exprinfo-diet-v2` — the refutation below was F8's per-call retention (fixed by #805); re-run: 10.01 → 9.61 GB, byte-identical C, source cost gone (see `plans/backlog/EVALUATOR_MEMORY_REDUCTION.md` Phase 7 step 4).** Original record:
 
 **ExprInfo diet: REFUTED AS IMPLEMENTED (2026-08-18, branch
 `perf/exprinfo-diet`, kept parked).** The accessor-based diet (15 read/write-cold

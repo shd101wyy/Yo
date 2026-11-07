@@ -1,5 +1,7 @@
 # Module-prefix stutter: what is left after the encoding sweep
 
+> **Trued 2026-11-07 (plans audit after VBD):** Status: BACKLOG (2026-09-11), not started. Amended 2026-11-07: renames land without deprecated aliases (AGENTS.md 'No backward-compatibility scaffolding'); the encoding record is at archive/STD_API_STABILIZATION.md §4. Schedule after KEBAB_CASE_NAMES Part C so the two sweeps do not conflict.
+
 **Status:** BACKLOG (written 2026-09-11, alongside the landed encoding sweep).
 The `std/encoding` half of D2's "module-prefix stutter ×7" row landed on
 2026-09-11 — see the §4 Encoding record in

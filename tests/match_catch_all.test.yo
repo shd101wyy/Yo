@@ -80,7 +80,7 @@ test("catch-all on a compile-time scrutinee", {
   assert(r == i32(8));
 });
 // `Option` of a reference handle (an `Rc`) lowers to the nullable pointer
-// (plans/EVALUATOR_MEMORY_REDUCTION.md Phase 3), whose match path classified a
+// (plans/backlog/EVALUATOR_MEMORY_REDUCTION.md Phase 3), whose match path classified a
 // `_` arm as the pointer case and let it OVERWRITE the earlier `.Some` arm:
 // `.Some(c) => c.v, _ => fallback` always took the fallback.
 Crate :: struct(v : i32);
@@ -90,7 +90,7 @@ test("a wildcard after .Some on a nullable-pointer Option only covers .None", {
   assert(pick(Option(Rc(Crate)).None) == i32(-1), ".None takes the wildcard");
 });
 // A match on an owned nullable-pointer Option (a reference-handle payload,
-// plans/EVALUATOR_MEMORY_REDUCTION.md Phase 3) must release its scrutinee: the
+// plans/backlog/EVALUATOR_MEMORY_REDUCTION.md Phase 3) must release its scrutinee: the
 // nullable-pointer lowering skipped the match's deferred drops, so every
 // `match(xs.get(i), .Some(t) => …)` leaked the reference `.get()` returned
 // (1.26 M objects in `check src/main.yo`).

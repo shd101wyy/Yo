@@ -1,7 +1,9 @@
 # Safe mode 5b — verifier-driven elision of runtime guards
 
+> **Trued 2026-11-07 (plans audit after VBD):** Status: PHASES 0–2 LANDED 2026-09-30 (#983, #987, #998, #1009); the container hook landed 2026-10-02 (#1131). Phase 3, imported verified modules, is not started and needs std bodies the verifier walks instead of assuming. SAFE_MODE Phase 6 (strict mode) builds on it. Updated 2026-11-07.
+
 **Status: BACKLOG — design written 2026-09-28, implementation not started.**
-This plan answers the three questions `plans/SAFE_MODE.md` §8 (5b) left open
+This plan answers the three questions `plans/backlog/SAFE_MODE.md` §8 (5b) left open
 and is the plan §14 R8 asked for. SAFE_MODE Phase 6 (strict mode) depends on
 it. Every fact about today's verifier cites a file and symbol, and says
 whether it was measured or read. Anything I reasoned but did not run is

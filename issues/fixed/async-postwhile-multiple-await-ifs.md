@@ -59,7 +59,7 @@ fix, and if it compiles, close this as FTT-cascade noise.
 
 ## Re-verified 2026-09-28 (async state-machine audit)
 
-Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
+Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/archive/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
 
 **STILL REPRODUCES** (seed and tree build), and not FTT noise: `no member named 'cond_branch_1'`. The struct declares `cond_branch_0` and `cond_branch_2`, but the second `if` writes `sm->cond_branch_1 = 3`. Repro: `issues/repros/async-postwhile-two-await-ifs.yo`. The field set comes from `needs_own_cond_branch_field` (`src/evaluator/shared/suspension_analysis.yo`), while the index comes from the remaining-body cond emission in `_emit_while_continuation`. The two numberings are computed independently.
 
@@ -69,6 +69,6 @@ The segment lowering this shape broke is deleted. An `io.async` body is now
 emitted once, by the ordinary expression generators, into its resume
 function: each await suspends where it is written and resumes at its own
 label, and every local, pattern binding and await result lives in the task
-(`plans/ASYNC_STATE_MACHINE_GENERATION.md` phase 5).
+(`plans/archive/ASYNC_STATE_MACHINE_GENERATION.md` phase 5).
 
 Regression tests (each fails on the v0.2.45 seed): `tests/async_await.test.yo` "two awaiting ifs after a cond in a while body".

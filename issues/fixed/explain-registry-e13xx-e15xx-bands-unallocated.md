@@ -62,6 +62,6 @@ not exist), `tests/internal/diagnostics_registry.test.yo` (band allocation),
 same one-line `Error: ` → `error[E1501]: ` swap because the case cannot run
 on Windows (the store lives under `%LOCALAPPDATA%`, outside the harness's
 sandbox `HOME`, and the `<PROJ>` substitution needs POSIX path spelling).
-The audit note (`plans/backlog/LLM_AUTHORING_AUDIT_2026-09-19.md` §3.3) is
+The audit note (`plans/archive/LLM_AUTHORING_AUDIT_2026-09-19.md` §3.3) is
 updated, and `docs/en-US/ERROR_DIAGNOSTICS.md` + `docs/zh-CN/ERROR_DIAGNOSTICS.md`
 document the bands.

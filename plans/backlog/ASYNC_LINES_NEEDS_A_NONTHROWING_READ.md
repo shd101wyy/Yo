@@ -1,5 +1,7 @@
 # An async `BufReader.lines` needs a non-throwing read
 
+> **Trued 2026-11-07 (plans audit after VBD):** BACKLOG, re-checked 2026-11-07: still blocked on the `Reader` primitive. Amended: under the no-compatibility rule, option 1 is a single Gen A/B change (`try_read` becomes the required method and `read` a default), with no deprecation window. Sequence it with IO_INTERFACE_AND_STD_RUNTIME, which reshapes `Io`.
+
 **Status:** BACKLOG — designed here, blocked on a `Reader` decision. Written
 2026-09-11 while implementing `plans/reference/ASYNC_ITERATION_STREAM.md`,
 whose "Order of work" item 5 asked for `BufReader.lines` as a `Stream` and

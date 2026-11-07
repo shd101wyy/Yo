@@ -53,7 +53,7 @@ main :: (fn(io : Io) -> i32)({
 
 ## Re-verified 2026-09-28 (async state-machine audit)
 
-Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
+Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/archive/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
 
 **CANNOT REPRODUCE** (seed and tree build). Five variants all run correctly: the doc's global `Option(F)`, a fn-typed local held across an await, fn-typed struct fields across awaits, and an effectful fn type with `Exception`. The original `run_build` shape (#728) was not rebuilt.
 
@@ -63,6 +63,6 @@ Re-verified on the v0.2.45 seed with a minimal shape: a fn-typed local read
 after an await, and a fn-typed payload binding read after an await in its
 arm, compile but return `0` (the value is lost across the suspension). Under
 the single-pass lowering every captured local, a fn-typed one included, lives
-in the task (`plans/ASYNC_STATE_MACHINE_GENERATION.md` phase 5), and both
+in the task (`plans/archive/ASYNC_STATE_MACHINE_GENERATION.md` phase 5), and both
 return the right value. Regression test: `tests/async_await.test.yo`
 "fn-typed locals across suspensions".

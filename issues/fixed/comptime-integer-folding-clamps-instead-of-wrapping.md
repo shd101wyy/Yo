@@ -2,7 +2,7 @@
 
 **Found:** 2026-09-24, while fixing
 `issues/fixed/context-typed-integer-literal-is-not-range-checked.md` (Phase 1.4 of
-`plans/TYPE_SYSTEM_SOUNDNESS.md`).
+`plans/backlog/TYPE_SYSTEM_SOUNDNESS.md`).
 **Status:** FIXED 2026-09-24 in the same change.
 **Class:** silent wrong value. Compile time disagreed with run time on constants, against the
 documented rule that "the same expressions on constants are compile errors" (`docs/*/DESIGN.md`,

@@ -1,6 +1,6 @@
 # The fixed-heap task-spawn oracle filled the heap only through a slot leak
 
-**Severity:** S2: a safe-mode oracle (`plans/SAFE_MODE.md` §7 Phase 4 / §14 R5)
+**Severity:** S2: a safe-mode oracle (`plans/backlog/SAFE_MODE.md` §7 Phase 4 / §14 R5)
 stopped exercising the path it guards. Develop's tier-1 gates went red, and
 the "async task spawn under a tiny heap dies with a diagnostic" property lost
 its only test.

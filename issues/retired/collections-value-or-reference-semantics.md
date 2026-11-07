@@ -2,7 +2,7 @@
 
 **Kind:** design question (decided; retired into a plan).
 
-**Status:** DECIDED 2026-10-03 by the maintainer: values with copy-on-write, as part of a wider change in which every declared type is a value and sharing is spelled `Rc(T)`/`Arc(T)`. The plan is `plans/VALUES_BY_DEFAULT.md` (collections are its phase V2). Raised 2026-10-03 with `plans/STRING_VALUE_SEMANTICS.md`, which makes `String` a copy-on-write value and leaves the collections as they are for now.
+**Status:** DECIDED 2026-10-03 by the maintainer: values with copy-on-write, as part of a wider change in which every declared type is a value and sharing is spelled `Rc(T)`/`Arc(T)`. The plan is `plans/VALUES_BY_DEFAULT.md` (collections are its phase V2). Raised 2026-10-03 with `plans/archive/STRING_VALUE_SEMANTICS.md`, which makes `String` a copy-on-write value and leaves the collections as they are for now.
 
 ## The question
 
@@ -25,7 +25,7 @@ A struct copy is a value for its scalar fields and a shared reference for its co
 
 ## Recommendation (2026-10-03, awaiting maintainer verdict)
 
-Option 1, as the campaign after `plans/STRING_VALUE_SEMANTICS.md`:
+Option 1, as the campaign after `plans/archive/STRING_VALUE_SEMANTICS.md`:
 - **One rule.** A copy of any std data type, including a struct holding collections, is independent; sharing is always spelled out.
 - **The verifier.** Two list parameters can no longer alias, so `requires(distinct(a, b))` (#1107) and the aliasing cases in the list encoding go away.
 - **Agent-written code.** It removes action at a distance through a shared container.

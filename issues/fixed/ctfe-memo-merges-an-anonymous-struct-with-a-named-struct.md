@@ -1,7 +1,7 @@
 # The CTFE instantiation memo merges types that are not equal, so `Type.eq` and instantiations depend on call order
 
-**Found:** 2026-09-23, type-system audit (`plans/TYPE_SYSTEM_SOUNDNESS.md`, Phase 3).
-**Status:** FIXED 2026-09-25 (Phases 3.4 and 3.5 of `plans/TYPE_SYSTEM_SOUNDNESS.md`), all three repros. Was: wrong answers from type
+**Found:** 2026-09-23, type-system audit (`plans/backlog/TYPE_SYSTEM_SOUNDNESS.md`, Phase 3).
+**Status:** FIXED 2026-09-25 (Phases 3.4 and 3.5 of `plans/backlog/TYPE_SYSTEM_SOUNDNESS.md`), all three repros. Was: wrong answers from type
 reflection, a spurious E0610, and a SIGSEGV, each depending only on which instantiation ran first. This is a live, reproduced sibling of the
 hypothesis in `issues/fixed/ctfe-memo-shared-struct-id-fast-path-smell.md`, through a different
 predicate.

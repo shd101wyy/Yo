@@ -1,7 +1,7 @@
 # `yo build`'s artifact cache ignored WHICH compiler built the artifact
 
 **Status:** FIXED 2026-09-28. **Found:** 2026-09-28, building stage-2
-compilers for the plan §0.19 A/B (`plans/EVALUATOR_MEMORY_REDUCTION.md`).
+compilers for the plan §0.19 A/B (`plans/backlog/EVALUATOR_MEMORY_REDUCTION.md`).
 
 ## Symptom
 

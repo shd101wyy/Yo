@@ -13,7 +13,7 @@ The lexer shares token text in two ways, and both rely on a `String` copy being 
 
 - **The eight punctuation globals.** `src/lexer.yo`'s `g_tv_lparen` … `g_tv_semicolon` hold one
   `String` each, and every `(`, `)`, `[`, `]`, `{`, `}`, `,` and `;` token stores a copy of it
-  (`value : g_tv_lparen`). This was added by `plans/EVALUATOR_MEMORY_REDUCTION.md` §0.23.
+  (`value : g_tv_lparen`). This was added by `plans/backlog/EVALUATOR_MEMORY_REDUCTION.md` §0.23.
 - **The intern table.** `src/token.yo`'s `intern_token_str` returns the table's canonical `String`
   (`.Some(canonical) => canonical`, a copy out of `HashMap.get`). Every identifier, keyword, dot and
   number token then shares one buffer, and `String ==` takes its pointer-and-length fast path.

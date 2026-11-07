@@ -340,7 +340,7 @@ A single-function `Call` (callable module) is fine. Duplicate same-name
 inherent methods are REJECTED (2026-08-21): a second `impl(T, m : ...)` for
 the same (type, name) from a different source site errors with
 `Method "X" is already defined for this type`
-(plans/backlog/DUPLICATE_INHERENT_METHOD_REJECTION.md). But
+(plans/archive/DUPLICATE_INHERENT_METHOD_REJECTION.md). But
 **trait-provided methods may share a name** with an inherent
 method and with same-name methods from other traits; dispatch picks by
 argument types. This is how std gives `String` both `contains(String)`

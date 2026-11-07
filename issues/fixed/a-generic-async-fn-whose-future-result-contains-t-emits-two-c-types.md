@@ -1,6 +1,6 @@
 # A generic `io.async` fn whose Future result CONTAINS `T` emits the unsubstituted type beside the substituted one
 
-**Status:** FIXED 2026-09-26 (Phase 3.8 of `plans/TYPE_SYSTEM_SOUNDNESS.md`).
+**Status:** FIXED 2026-09-26 (Phase 3.8 of `plans/backlog/TYPE_SYSTEM_SOUNDNESS.md`).
 **Found:** 2026-09-14, writing `with_deadline` for `std/async` — the last
 actionable row of `plans/backlog/ASYNC_DEADLINE_COMBINATOR.md`. It is the third
 defect standing between that plan and a working combinator, after the two fixed

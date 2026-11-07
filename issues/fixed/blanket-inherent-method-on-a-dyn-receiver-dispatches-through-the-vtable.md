@@ -1,6 +1,6 @@
 # A blanket inherent method reached through a `Dyn` receiver is dispatched through the VTABLE
 
-**Status:** FIXED 2026-09-25 (Phase 2.7 of `plans/TYPE_SYSTEM_SOUNDNESS.md`).
+**Status:** FIXED 2026-09-25 (Phase 2.7 of `plans/backlog/TYPE_SYSTEM_SOUNDNESS.md`).
 **Found:** 2026-09-08, designing `Error.is(T)` for `plans/archive/STD_API_STABILIZATION.md` §4 Core.
 
 ## Symptom

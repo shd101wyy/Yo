@@ -5,7 +5,7 @@
 ## Symptom
 
 Compiling anything with a fused await site (an `io.async` wrapper inlined into its
-caller, `plans/backlog/ASYNC_AWAIT_SITE_FUSION.md`) with the mis-merged compiler:
+caller, `plans/reference/ASYNC_AWAIT_SITE_FUSION.md`) with the mis-merged compiler:
 
 ```
 error: ‘_file_..._state_t’ {aka ‘struct _file_..._state_t_struct’} has no member named ‘__fz507515_live’

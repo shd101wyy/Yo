@@ -267,7 +267,7 @@ CodeGenContext :: struct(
   /// "<concrete_id>_<dyn_id>" string, fixed up to C names post type-gen).
   dyn_impls : HashMap(String, DynImplEntry),
   /// `upcast(d, Dyn(Tgt))` targets per SOURCE Dyn, keyed by the source's
-  /// `type_key` (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 2.8). Filled by the
+  /// `type_key` (plans/backlog/TYPE_SYSTEM_SOUNDNESS.md Phase 2.8). Filled by the
   /// collection pass; every vtable of the source carries one
   /// `__yo_up_<Tgt>` pointer per target, and every (concrete, source) impl
   /// gets a (concrete, target) impl so that vtable exists.
@@ -288,7 +288,7 @@ CodeGenContext :: struct(
   dispose_type_ids : HashMap(String, usize),
   next_dispose_type_id : usize,
   /// State-machine types whose released memory goes back to a per-type pool
-  /// (plans/ASYNC_STATE_MACHINE_GENERATION.md phase 7): dispose-function C
+  /// (plans/archive/ASYNC_STATE_MACHINE_GENERATION.md phase 7): dispose-function C
   /// name → pool index (0-based). The dispose dispatch hands those types'
   /// memory to `__yo_sm_give` instead of freeing it.
   sm_pool_ids : HashMap(String, usize),
@@ -2362,7 +2362,7 @@ find_returned_async_block :: (fn(expr : &Option(AstExpr)) -> Option(AstExpr))(
     )
   )
 );
-/// ── Safe mode Phase 1 (plans/SAFE_MODE.md §4): bounds-checked
+/// ── Safe mode Phase 1 (plans/backlog/SAFE_MODE.md §4): bounds-checked
 /// subscripts ──
 /// Every emitted fixed-array / str element subscript must route its index
 /// through `_checked_index_expr`, which splices the `__yo_idx_chk` runtime

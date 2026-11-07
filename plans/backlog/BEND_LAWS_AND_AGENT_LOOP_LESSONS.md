@@ -1,11 +1,13 @@
 # What Yo can take from Bend 2 (laws, lemmas, and the agent loop)
 
+> **Trued 2026-11-07 (plans audit after VBD):** Trued 2026-11-07: B0, B1 and B2 slice 1 landed; B3 is subsumed by `yo context`. B4 (evals), B5 and B6 slice 1 (`par2`) are unstarted, and B6 slice 2 is dropped because user macros are deleted. Addendum: Z1 is partial (the machine-load flip issue is open), and Z2–Z4 are unstarted. AGENT_LOOP_NEXT.md is folded in here.
+
 **PROPOSED 2026-09-18 — backlog.** The keep/reject audit after studying
 [bendlang/bend](https://github.com/bendlang/bend) ("Bend 2",
 [bend-lang.com](https://bend-lang.com/)) against the live verifier
 (`src/verifier/`, [`FORMAL_VERIFICATION.md`](FORMAL_VERIFICATION.md) V1–V6).
 It is the sibling of
-[`ZEROLANG_AGENT_FIRST_LESSONS.md`](ZEROLANG_AGENT_FIRST_LESSONS.md): a
+[`ZEROLANG_AGENT_FIRST_LESSONS.md`](../archive/ZEROLANG_AGENT_FIRST_LESSONS.md): a
 comparison first, and then — because the user asked for it — an
 implementation breakdown another agent can pick up phase by phase
 (§Implementation phases).
@@ -18,7 +20,7 @@ implementation breakdown another agent can pick up phase by phase
 > recipe — which landed 2026-10-04,
 > `issues/fixed/init-agentsmd-template-omits-the-verify-recipe.md`);
 > B2's substance moved to
-> [`ATS_STYLE_INDEXED_TYPES.md`](ATS_STYLE_INDEXED_TYPES.md) R2 (slice 1 —
+> [`ATS_STYLE_INDEXED_TYPES.md`](../archive/ATS_STYLE_INDEXED_TYPES.md) R2 (slice 1 —
 > recursive `ghost_fn` lemmas + lexicographic `decreases` — LANDED as
 > #1075); B4 (evals corpus) and B5 (repo-shape gate) are UNSTARTED
 > and are the live remainder of the ROADMAP's Agent-loop item; B6 `par2`
@@ -29,7 +31,7 @@ implementation breakdown another agent can pick up phase by phase
 The one-paragraph verdict: **Bend 2's verification foundation is the road
 Yo deliberately did not take** (dependent types, hand-written inductive
 proofs, mandatory termination —
-[`DEPENDENT_TYPES_POSITION.md`](DEPENDENT_TYPES_POSITION.md)), and the
+[`DEPENDENT_TYPES_POSITION.md`](../reference/DEPENDENT_TYPES_POSITION.md)), and the
 measured comparison below says that was right for per-function specs. What
 Bend gets right is the **product wall**: specifications stated *outside*
 the code, owned by the human, with a gate that cannot go quietly green — plus
@@ -297,7 +299,7 @@ lead, not adopted.
 ## Reject
 
 - **Dependent types as the verification foundation** — decided in
-  [`DEPENDENT_TYPES_POSITION.md`](DEPENDENT_TYPES_POSITION.md); the
+  [`DEPENDENT_TYPES_POSITION.md`](../reference/DEPENDENT_TYPES_POSITION.md); the
   comparison above is fresh evidence for the decision.
 - **Hand-written proofs / no automation** — the plan's non-goal "no
   interactive theorem proving" stands; A2 keeps the solver as the prover
@@ -507,7 +509,7 @@ law proves); cheatsheet + docs updated.
 > `ghost_fn` with `decreases` becomes an uninterpreted function defined by
 > a triggered axiom, its own task proves the measure; lexicographic
 > `decreases(m1, m2, ...)` measures) — designed and owned by
-> [`ATS_STYLE_INDEXED_TYPES.md`](ATS_STYLE_INDEXED_TYPES.md) R2; its
+> [`ATS_STYLE_INDEXED_TYPES.md`](../archive/ATS_STYLE_INDEXED_TYPES.md) R2; its
 > remaining slices live there, not here. This section stays as the
 > original design record.
 
@@ -823,7 +825,7 @@ through yet another unverified translator.
 The risk is also misplaced. Every false proof recorded in `issues/fixed/` was
 a bug in `vc.yo`, not in Z3, and only about 1,300 of the verifier's roughly
 10,700 lines are Z3-specific. The *Reject* list above stands, and so does
-[`DEPENDENT_TYPES_POSITION.md`](DEPENDENT_TYPES_POSITION.md).
+[`DEPENDENT_TYPES_POSITION.md`](../reference/DEPENDENT_TYPES_POSITION.md).
 
 **What changes is how Yo depends on Z3.** The maintainer accepted these items
 on 2026-11-04. Z1–Z4 are queued for v0.2.75 or later; Z5 stays parked
@@ -846,6 +848,86 @@ differential testing against the emitted C.
 array procedures, or Yo adopting mandatory termination and affine closures
 (reversing D12 and decision 43's memory model).
 
+## Agent loop: the 2026-10-01 audit queue (merged from `AGENT_LOOP_NEXT.md`, 2026-11-07)
+
+> **Trued 2026-11-07:** fix-first is done except the `--test-bodies` line in `yo check --help`. The evals corpus (B4) and the four toolchain ideas (`yo mcp`, `yo gate`, Repair tiers, `yo test --repro`) are unstarted.
+
+**PROPOSED 2026-10-01 — backlog.** What the 2026-10-01 agent-loop audit
+(27-agent sweep over `pack/`, `.github/instructions/`, `.github/skills/`,
+the CLI surface, the plans and 197 issue docs, plus external research)
+leaves as the ranked, unstarted work. The audit's docs-side fixes shipped
+in the same PR (pack v3, the yo-verification skill, instruction/skill
+truing); this doc carries what needs code or a cycle of its own. The
+BEND plan (`BEND_LAWS_AND_AGENT_LOOP_LESSONS.md`) remains the tracker for
+B4–B6; this file adds what no plan owned.
+
+### Fix-first (filed issues, compiler-side)
+
+1. ~~A law over an imported callee cannot verify (S2)~~ — FIXED
+   2026-10-03 (`issues/fixed/law-over-an-imported-callee-cannot-verify.md`):
+   cross-file laws verify, so the `spec/` convention below is unblocked.
+2. `issues/fixed/yo-context-search-duplicates-rows-and-multiword-queries-hit-nothing.md`
+   (S3) — tokenize the query, dedup the rows; recall is the surface's whole
+   job. Cheap, high leverage.
+3. ~~The `yo init` AGENTS.md template omits the verify recipe (S3)~~ — FIXED
+   2026-10-04 (`issues/fixed/init-agentsmd-template-omits-the-verify-recipe.md`):
+   the recipe teaches `yo verify ./spec --strict` and `yo init` scaffolds
+   `spec/` (claims/proofs wall README + a seed law keeping the gate green);
+   the `init-*` goldens were re-recorded.
+4. ~~The reserved E13xx/E15xx explain bands are unallocated (S3)~~ — FIXED
+   2026-10-04 (`issues/fixed/explain-registry-e13xx-e15xx-bands-unallocated.md`):
+   E1301 names the ICE wrapper and E1501–E1505 the dependency toolchain,
+   raised through `format_coded_error`, with full bilingual registry entries.
+5. `issues/fixed/yo-doc-help-omits-the-implemented---version-flag.md` (S3) and
+   `yo check --help`'s missing `--test-bodies` line (same class).
+
+### The evals corpus (BEND B4) — still the roadmap's Agent-loop item
+
+The single best first PR after the release cut, exactly as B4 specifies it
+(`evals/` + `scripts/evals/run.sh`, oracle = `yo verify --strict` green +
+runtime tests + zero `assumed()`), plus three things B4 does not name that
+the external-research pass argues for:
+
+- a **harness manifest** checked in beside the tasks (model, agent command,
+  token/tool budget, tool surface), recorded into `results.tsv` by the
+  runner, so a number is attributable to a setup;
+- a **public artifact** (GitHub Pages table over `results.tsv`) — Bend
+  ships its evals; visibility is half the value of a corpus;
+- **not a CI gate** (B4's own rule): the models' arena, not the repo's
+  shape.
+
+### Toolchain ideas with a precedent (none started, all S–M effort)
+
+- **`yo mcp`** — a stdio JSON-RPC MCP server wrapping the pure query layer
+  (`check`, `context_query`, `explain`, `effects`; `verify_strict`
+  opt-in). `YO_CONTEXT.md` D6 deferred MCP pending usage data; Go's
+  official experimental gopls MCP server (with its `-instructions`
+  context-file pattern) has since set the precedent, and Yo's query layer
+  is shim-ready by construction. Revisit D6 with that as the trigger.
+- **`yo gate <paths>`** — one verdict collapsing the agent's two-step
+  (`yo check` then `yo compile --skip-c-compiler`) plus optional
+  `--verify`; text and JSON, naming the first failing stage. The
+  check-is-not-codegen distinction is the #1 thing agents get wrong
+  (Ronacher's "A Language for Agents" makes the same argument for
+  one-command verification).
+- **A `unique | candidate | placeholder` tier on `Repair`** — rustc
+  Applicability's lesson: the uniqueness rule that gates `yo fix` today
+  forces out repairs that are merely *probably* right; tiers let JSON/SARIF
+  consumers apply `unique` mechanically and surface `candidate` to the
+  model.
+- **`yo test --test-name-pattern <p> --repro <out.yo>`** — emit a
+  standalone `main`-driven file wrapping the named test's asserts, so the
+  failing case is directly `yo compile`-able instead of extracted by hand
+  (the extraction is today's documented workaround).
+
+### Explicitly not taken
+
+- Bend 2's dependent-type foundation, hand proofs, mandatory termination —
+  re-confirmed by the BEND comparison; unchanged.
+- Anything riding the v0.2.48 freeze: B5 (repo-shape CI job — branch
+  protection is a manual list), the `src/init.yo` template, search/help
+  code fixes. All post-release.
+
 ## References
 
 - [bendlang/bend](https://github.com/bendlang/bend) — `README.md`
@@ -861,9 +943,9 @@ array procedures, or Yo adopting mandatory termination and affine closures
   subject of this audit).
 - [`FORMAL_VERIFICATION.md`](FORMAL_VERIFICATION.md) — the verifier this
   plan extends; its §Design for LLM authorship is what B4 measures.
-- [`DEPENDENT_TYPES_POSITION.md`](DEPENDENT_TYPES_POSITION.md) — the
+- [`DEPENDENT_TYPES_POSITION.md`](../reference/DEPENDENT_TYPES_POSITION.md) — the
   decision the comparison section re-confirms.
-- [`ZEROLANG_AGENT_FIRST_LESSONS.md`](ZEROLANG_AGENT_FIRST_LESSONS.md) — the
+- [`ZEROLANG_AGENT_FIRST_LESSONS.md`](../archive/ZEROLANG_AGENT_FIRST_LESSONS.md) — the
   sibling audit; its "Adopt" items 1 and 6 landed.
 - [`../ROADMAP.md`](../ROADMAP.md) Phase 1 (verification flagship) and
   Phase 4.1 (`yo context`, which B3 realizes).

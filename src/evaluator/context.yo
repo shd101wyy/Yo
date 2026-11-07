@@ -268,7 +268,7 @@ SpecializedFunctionCache :: struct(
   runtime_parameter_types : ArrayList(TypeValue),
   /// The specialized function value (EvalValue.FuncVal with updated func_id).
   /// (A retained `env : Environment` field used to sit here; it was never
-  /// read back — plans/EVALUATOR_MEMORY_REDUCTION.md F2a.)
+  /// read back — plans/backlog/EVALUATOR_MEMORY_REDUCTION.md F2a.)
   specialized_func_value : EvalValue,
   /// The loading key of the module whose evaluation requested this
   /// specialization (`registration_owner()`, `""` outside any module load).
@@ -456,7 +456,7 @@ EvalContext :: (
     /// (`return(name)`, or `name` as the function body's tail) and stores the
     /// function's result type here; `evaluate_initialization_assignment`
     /// consumes it (read + clear) as the RHS expected type when the RHS is a
-    /// bare variant literal (plans/backlog/LLM_AUTHORING_AUDIT_2026-09-19.md
+    /// bare variant literal (plans/archive/LLM_AUTHORING_AUDIT_2026-09-19.md
     /// §2.2). Defaulted so the existing constructors need not change.
     (local_variant_hint : Option(ExpectedTypeCtx)) ?= Option(ExpectedTypeCtx).None
   )
@@ -1380,7 +1380,7 @@ ModuleWalkData :: struct(
   /// shares the module's whole `ExprInfoTable` (in check mode every module
   /// has its own), so `end_module_walk` releases it unless
   /// `set_retain_walk_contexts(true)` was called
-  /// (plans/EVALUATOR_MEMORY_REDUCTION.md F1).
+  /// (plans/backlog/EVALUATOR_MEMORY_REDUCTION.md F1).
   ctx : RefCell(Option(EvalContext)),
   defs : ArrayList(PendingDef),
   /// index in begin_exprs → its entry (the walker's per-statement check).
@@ -1436,7 +1436,7 @@ set_retain_walk_contexts :: (fn(v : bool) -> unit)({
 /// command's, and a revalidation that would need one falls back to the
 /// file-level reload (`mm_revalidate_plan`). Retaining every walk kept each
 /// imported module's whole `ExprInfoTable` alive for the life of the server
-/// (plans/EVALUATOR_MEMORY_REDUCTION.md Phase 1 step 3).
+/// (plans/backlog/EVALUATOR_MEMORY_REDUCTION.md Phase 1 step 3).
 (g_retained_walk_paths : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
 /// Start (`keep`) or stop keeping the walk context of the module at `path`.
 /// Stopping also releases the context of its already-finished walk.
@@ -2545,7 +2545,7 @@ _statement_start :: (fn(e : &AstExpr) -> Tuple(usize, usize))({
   (row, column)
 });
 /// Register the module's top-level statements as identity anchors
-/// (`TopLevelAnchor`, src/utils.yo; plans/TYPE_SYSTEM_SOUNDNESS.md Phase 3.3),
+/// (`TopLevelAnchor`, src/utils.yo; plans/backlog/TYPE_SYSTEM_SOUNDNESS.md Phase 3.3),
 /// so a type, trait or function id minted inside one is keyed by the
 /// statement's label and the offset within it, not by its absolute line.
 register_module_anchors :: (fn(begin_exprs : &ArrayList(AstExpr)) -> unit)({

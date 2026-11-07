@@ -91,7 +91,7 @@ synthesis then resolves `_Self` to a stale `bool` (from the clause
 predicate's comparison) and the final unify throws.
 
 This is the **def-time body env sharing** defect class documented in
-`plans/backlog/FUNCVAL_ENV_SHARING.md`: def-time body envs COPY what TS
+`plans/archive/FUNCVAL_ENV_SHARING.md`: def-time body envs COPY what TS
 SHARES, and the trait-entry path (expected-type propagation + the splice's
 trial frames) aliases frames the prelude's operator-impl FuncVals hold.
 An inherent (non-trait) impl method with the same clauses does not trip

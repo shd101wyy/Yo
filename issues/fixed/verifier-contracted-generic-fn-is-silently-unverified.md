@@ -3,7 +3,7 @@
 **Severity:** S2 — `yo verify` exits green on a contracted generic fn with no verification task registered — obligations silently unproven
 
 - **Status:** FIXED on `feat/verifier-recursive-ghost-fn` (2026-10-01; R1 task 4 of
-  `plans/backlog/ATS_STYLE_INDEXED_TYPES.md`). The abstract machinery (the
+  `plans/archive/ATS_STYLE_INDEXED_TYPES.md`). The abstract machinery (the
   diagnostic body trial, uninterpreted sorts, soft predicate evaluation)
   landed in #697, but the task-registration gate,
   `(is_assumed || !(should_defer_ft))`, still excluded every deferred,

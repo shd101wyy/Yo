@@ -1,6 +1,6 @@
 # A swallowed error that is re-raised from its text loses its code
 
-**Found:** 2026-09-26, reviewing the CLI goldens of `plans/TYPE_SYSTEM_SOUNDNESS.md` Phase 4.4b.
+**Found:** 2026-09-26, reviewing the CLI goldens of `plans/backlog/TYPE_SYSTEM_SOUNDNESS.md` Phase 4.4b.
 **Severity:** LOW (the error is still reported, without its code).
 **Status:** FIXED on `tss/field-write`.
 

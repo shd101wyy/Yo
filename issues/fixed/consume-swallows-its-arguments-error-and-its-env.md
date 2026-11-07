@@ -1,6 +1,6 @@
 # `consume` swallows its argument's error, and its result carries the wrong environment
 
-**Found:** 2026-09-26, the Phase 4.4b battery of `plans/TYPE_SYSTEM_SOUNDNESS.md`
+**Found:** 2026-09-26, the Phase 4.4b battery of `plans/backlog/TYPE_SYSTEM_SOUNDNESS.md`
 (`tests/imm_iterators.test.yo` stopped compiling). **Severity:** MEDIUM (a masked error; the
 enclosing block continued in the wrong environment).
 **Status:** FIXED on `tss/phase4-4b`.

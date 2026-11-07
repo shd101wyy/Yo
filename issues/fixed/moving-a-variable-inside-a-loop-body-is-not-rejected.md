@@ -1,7 +1,7 @@
 # Moving an outer variable inside a loop body is not rejected: use-after-free in safe code
 
-**Found:** 2026-09-23, type-system audit (`plans/TYPE_SYSTEM_SOUNDNESS.md`, Phase 5).
-**Status:** FIXED 2026-09-25 (`plans/TYPE_SYSTEM_SOUNDNESS.md` Phase 5.1). Was a **memory-safety hole** in safe code: green `check` and `compile`.
+**Found:** 2026-09-23, type-system audit (`plans/backlog/TYPE_SYSTEM_SOUNDNESS.md`, Phase 5).
+**Status:** FIXED 2026-09-25 (`plans/backlog/TYPE_SYSTEM_SOUNDNESS.md` Phase 5.1). Was a **memory-safety hole** in safe code: green `check` and `compile`.
 **Measured:** yo 0.2.39 seed; re-verified on a develop build `d455b6a67`.
 
 ## Repro

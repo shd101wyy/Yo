@@ -1,6 +1,6 @@
 # The compiler keeps `Exception` handlers in module globals
 
-**Found:** 2026-09-26, the first full battery of `plans/TYPE_SYSTEM_SOUNDNESS.md` Phase 5.
+**Found:** 2026-09-26, the first full battery of `plans/backlog/TYPE_SYSTEM_SOUNDNESS.md` Phase 5.
 **Severity:** MEDIUM (a latent use of a handler after its frame returned; no failure observed).
 **Status:** FIXED on `tss/phase5`.
 

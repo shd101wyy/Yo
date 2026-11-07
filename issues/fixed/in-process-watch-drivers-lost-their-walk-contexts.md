@@ -1,6 +1,6 @@
 # In-process watch drivers hit "forcing `X` after module finished its walk and released its evaluation context"
 
-**Status: FIXED 2026-09-21.** Regression from #805 (`plans/EVALUATOR_MEMORY_REDUCTION.md`
+**Status: FIXED 2026-09-21.** Regression from #805 (`plans/backlog/EVALUATOR_MEMORY_REDUCTION.md`
 Phase 1, F1): a finished module walk now releases its `EvalContext` unless
 `set_retain_walk_contexts(true)` was called first. `src/main.yo` sets it for
 `check --watch` / `--watch-once`, `src/lsp/server.yo` for the LSP. The internal

@@ -27,7 +27,7 @@
 //! `to_be_bytes`, `to_le_bytes`, `from_be_bytes` and `from_le_bytes` return
 //! `Array(u8, T.BYTES)`, taking the length from the receiver's own associated
 //! constant, which value substitution in a type position made expressible
-//! (`plans/backlog/VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md`). `usize` and
+//! (`plans/archive/VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md`). `usize` and
 //! `isize` therefore HAVE them now, which they could not before: their width
 //! is the target's, and `_USIZE_BYTES` derives it the same way `_USIZE_BITS`
 //! derives the bit width. `BYTES` is declared through the `ByteWidth` trait
@@ -276,7 +276,7 @@ Sync :: trait(
 export(Sync);
 /// Acyclic — a type whose values cannot reach a reference cycle: no cycle of
 /// STRONG edges (`Rc`, `Arc`, a `ref` object) is reachable from `T`, and a
-/// `Weak`/`ArcWeak` edge does not count (plans/backlog/WEAK_AND_UNCOLLECTED_RC.md
+/// `Weak`/`ArcWeak` edge does not count (plans/archive/WEAK_AND_UNCOLLECTED_RC.md
 /// §4). It is derived from the type's structure, like `Escapable`, and never
 /// implemented by hand: a positive `impl(T, Acyclic())` is an error, and
 /// `impl(T, !Acyclic)` opts a type out. A `where(T <: Acyclic)` bound is how
@@ -401,7 +401,7 @@ export(Index, IndexMut);
 /// IndexUnchecked — the bounds-check-free twin of `Index(usize)`.
 /// Codegen calls `index_unchecked` instead of `index` ONLY at a subscript the
 /// verifier proved in bounds, in a verify-mode file
-/// (plans/backlog/SAFE_MODE_5B_CONTAINER_BOUNDS_ELISION.md). An impl's body
+/// (plans/archive/SAFE_MODE_5B_CONTAINER_BOUNDS_ELISION.md). An impl's body
 /// must be its `index` body minus the length test: anything weaker turns a
 /// proof into undefined behavior. `IndexUncheckedMut` is the twin of
 /// `IndexMut(usize)`. Both return a raw pointer, so safe code cannot call them.
@@ -4824,7 +4824,7 @@ impl(u16, Integer());
 impl(u32, Integer());
 impl(u64, Integer());
 impl(usize, Integer());
-// Wrapping arithmetic (safe mode Phase 3a-i, plans/SAFE_MODE.md §6). This
+// Wrapping arithmetic (safe mode Phase 3a-i, plans/backlog/SAFE_MODE.md §6). This
 // is the ONLY definition of wrapping_add/sub/mul: a second, loop-based copy in
 // the Integer impl below silently won dispatch (two blanket impls over the same
 // bound do not collide), and every HashMap hash ran a nested loop — `yo check`
@@ -9720,7 +9720,7 @@ export(Result);
 Rc :: (fn(comptime(V) : Type, where(V <: Escapable)) -> comptime(Type))(
   newtype(_cell : __yo_cell(V))
 );
-/// The constructor of `Rc` (plans/backlog/STATIC_ARGUMENT_INFERENCE.md):
+/// The constructor of `Rc` (plans/archive/STATIC_ARGUMENT_INFERENCE.md):
 /// `Rc.new(value)`, or `Rc(T).new(value)` with the type written. It replaced
 /// the prelude's `rc(value)`, deleted by static-argument inference B3.
 impl(
@@ -9881,7 +9881,7 @@ impl(
 export(Rc);
 /// === Weak ===
 // The weak-count hooks behind `Weak(T)`
-// (plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §3.2). `cell` is an `Rc` cell
+// (plans/archive/WEAK_AND_UNCOLLECTED_RC.md §3.2). `cell` is an `Rc` cell
 // some handle of either kind still names: the cell's header keeps a weak
 // count beside the strong one, and the allocation outlives the payload until
 // the last `Weak` goes.
@@ -9908,7 +9908,7 @@ extern(
     (fn(cell : *void) -> usize)
 );
 /// Weak — a non-owning handle to an `Rc` cell: Rust's `rc::Weak<T>`
-/// (plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §3). `Rc.downgrade(&h)` makes
+/// (plans/archive/WEAK_AND_UNCOLLECTED_RC.md §3). `Rc.downgrade(&h)` makes
 /// one; `w.upgrade()` is `.Some(handle)`, a new `Rc` to the same cell, while
 /// any `Rc` to it is alive, and `.None` once the last one is dropped. A
 /// `Weak` keeps the cell's bytes allocated, never its payload: the last `Rc`
@@ -10099,7 +10099,7 @@ _BoxAlignProbe :: (fn(comptime(V) : Type) -> comptime(Type))(
     _v : V
   )
 );
-/// The constructor of `Box` (plans/backlog/STATIC_ARGUMENT_INFERENCE.md):
+/// The constructor of `Box` (plans/archive/STATIC_ARGUMENT_INFERENCE.md):
 /// `Box.new(value)`, or `Box(T).new(value)` with the type written. It replaced
 /// the prelude's `box(value)`, deleted by static-argument inference B3.
 impl(
@@ -10329,7 +10329,7 @@ export(Box);
 Arc :: (fn(comptime(V) : Type, where(V <: (Send, Sync)), where(V <: Escapable)) -> comptime(Type))(
   newtype(_cell : __yo_atomic_cell(V))
 );
-/// The constructor of `Arc` (plans/backlog/STATIC_ARGUMENT_INFERENCE.md):
+/// The constructor of `Arc` (plans/archive/STATIC_ARGUMENT_INFERENCE.md):
 /// `Arc.new(value)`, or `Arc(T).new(value)` with the type written. It replaced
 /// the prelude's `arc(value)`, deleted by static-argument inference B3.
 impl(
@@ -10477,7 +10477,7 @@ impl(
 export(Arc);
 /// === ArcWeak ===
 // The atomic weak-count hooks behind `ArcWeak(T)`
-// (plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §3.2): `__yo_rc_weak_*`'s twins
+// (plans/archive/WEAK_AND_UNCOLLECTED_RC.md §3.2): `__yo_rc_weak_*`'s twins
 // for an `Arc` cell, whose counts other threads update at the same time.
 extern(
   "Yo",
@@ -10501,7 +10501,7 @@ extern(
     (fn(cell : *void) -> usize)
 );
 /// ArcWeak — a non-owning handle to an `Arc` cell: Rust's `sync::Weak<T>`
-/// (plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §3). `Weak(T)`'s thread-safe
+/// (plans/archive/WEAK_AND_UNCOLLECTED_RC.md §3). `Weak(T)`'s thread-safe
 /// twin: `Arc.downgrade(&h)` makes one, `w.upgrade()` is `.Some(handle)`, a
 /// new `Arc` to the same cell, while any `Arc` to it is alive on any thread,
 /// and `.None` once the last one is dropped. The counts are atomic, so the
@@ -13387,7 +13387,7 @@ FutureState :: enum(
   /// The future is cold: created but not yet started (an `io.async` future
   /// before its first `io.await` / `io.spawn`). Was `Pending` until
   /// 2026-10-03; renamed because "pending" reads as Rust's "not ready yet",
-  /// which every suspended future is (plans/ASYNC_IO_API_AUDIT.md Q4).
+  /// which every suspended future is (plans/archive/ASYNC_IO_API_AUDIT.md Q4).
   Cold = 0,
   /// The future has started and is not finished: suspended at an await, or
   /// an I/O operation in flight.
@@ -13562,7 +13562,7 @@ impl(
 /// a generic constructor's specialization adopts its result type over the
 /// `Dyn` payload wrapper
 /// (issues/2026-10-23-a-generic-constructors-specialization-keeps-its-declared-return-for-a-capture-struct-argument.md;
-/// plans/backlog/STATIC_ARGUMENT_INFERENCE.md §5, H1 fallback (a); Fable
+/// plans/archive/STATIC_ARGUMENT_INFERENCE.md §5, H1 fallback (a); Fable
 /// consultation #7). Its body builds through `__yo_cell`, as `Rc.new`'s does
 /// (V5 cells Generation B); the constructor itself stays until that S3 is fixed.
 /// The `Escapable` bound is `Rc`'s: kept until origin propagation through

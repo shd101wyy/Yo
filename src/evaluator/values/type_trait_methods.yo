@@ -238,7 +238,7 @@ set_registration_owner :: (fn(owner : &String) -> unit)({
 /// registration under the function's own id; specialization COPIES (`to_id`)
 /// are not recorded, because the specialization cache shares them across
 /// modules. `mm_invalidate_document` takes each removed module's ids and
-/// purges them from every such table (plans/EVALUATOR_MEMORY_REDUCTION.md
+/// purges them from every such table (plans/backlog/EVALUATOR_MEMORY_REDUCTION.md
 /// Phase 1 step 5).
 (g_owned_func_ids : RefCell(HashMap(String, HashMap(String, bool)))) = RefCell(HashMap(String, HashMap(String, bool))).new(HashMap(String, HashMap(String, bool)).new());
 /// The current owner tag ("" outside any module evaluation). Read by this
@@ -249,7 +249,7 @@ registration_owner :: (fn() -> String)(_registration_owner.clone());
 /// init ranges, io-builtin calls). An id is recorded when a table is written
 /// while `owner`'s evaluation (or a lazily forced definition of it) is active;
 /// the tables are keyed by that module's AST nodes or their evaluation-time
-/// clones, which die with the module (plans/EVALUATOR_MEMORY_REDUCTION.md
+/// clones, which die with the module (plans/backlog/EVALUATOR_MEMORY_REDUCTION.md
 /// Phase 1 step 5).
 (g_owned_expr_ids : RefCell(HashMap(String, ArrayList(usize)))) = RefCell(HashMap(String, ArrayList(usize))).new(HashMap(String, ArrayList(usize)).new());
 /// Record expression id `id` under the current owner (no-op outside a module load).

@@ -1,5 +1,7 @@
 # SEED_VERSION: consistency guard + release-time auto-bump PR
 
+> **Trued 2026-11-07 (plans audit after VBD):** Status: LIVING LEDGER (2026-11-07). The automation (consistency guard and release-time seed bump) landed in #200 (2026-08-22). This file now records seed-gated follow-ups: each section is Generation A (landed), then Generation B (runs once SEED_VERSION carries it). Sections whose Generation B landed move to an archive record. As of v0.2.75: json insert, box alignment and the twice-awaited consuming match are actionable; the FnMut slots are G1; the fused-await rename waits for v0.2.76.
+
 **Status:** BACKLOG (agreed with maintainer 2026-08-21). Scheduled as the
 follow-up branch after the closed-operator-set / prefix-operand-rule PR
 lands.
@@ -506,7 +508,7 @@ constructor bodies).
 - Add the dyn auto-box reuse test: a `dyn` over a placed `Rc` reuses the wrapper's cell.
 - Correct the doc comments that say "until V5 builds cells through `__yo_cell`" (`std/prelude.yo` above
   `__yo_rc_cell`, `src/evaluator/values/dyn.yo` `_prelude_cell_constructor`, the H1 note in
-  `plans/backlog/STATIC_ARGUMENT_INFERENCE.md` §5).
+  `plans/archive/STATIC_ARGUMENT_INFERENCE.md` §5).
 - Re-baseline the allocation ratchet.
 - The make_mut owner entry below declares its two hooks "beside `__yo_scope_ctx`"; it keeps them in that
   `extern` block after the three scope externs leave.
@@ -1079,7 +1081,7 @@ spelling: `build.manifest()`, a function, instead of the planned module-level
 
 ## Seed-gated follow-up (2026-10-03): `JoinHandle.join` at the three hand-rolled wait loops
 
-**Generation A DONE 2026-10-03** (`plans/ASYNC_IO_API_AUDIT.md` A1): the runtime
+**Generation A DONE 2026-10-03** (`plans/archive/ASYNC_IO_API_AUDIT.md` A1): the runtime
 emits `__yo_join_wait_new` / `__yo_join_wait_add`, `std/async` declares them,
 `JoinHandle.join(io)` and the future-shaped combinators are built on them, and
 `tests/async/combinators.test.yo` proves them from inside a task under the

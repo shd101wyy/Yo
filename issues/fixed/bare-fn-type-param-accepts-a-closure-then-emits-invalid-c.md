@@ -1,6 +1,6 @@
 # A bare `fn(...)` parameter accepts a closure at `check`, then emits invalid C
 
-**Status:** FIXED 2026-09-24 (Phase 1.8 of `plans/TYPE_SYSTEM_SOUNDNESS.md`). Originally OPEN.
+**Status:** FIXED 2026-09-24 (Phase 1.8 of `plans/backlog/TYPE_SYSTEM_SOUNDNESS.md`). Originally OPEN.
 **Found:** 2026-08-25, auditing `.github/instructions/` for Impl/Dyn/closure accuracy —
 two HKT examples there declared their callback parameter as a bare `fn(...)`.
 **Severity:** medium. Loud (the C compiler rejects it), but `yo check` says OK,

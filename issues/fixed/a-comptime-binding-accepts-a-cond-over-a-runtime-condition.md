@@ -2,7 +2,7 @@
 
 **Found:** 2026-09-25, re-measuring finding #11 of
 `issues/fixed/type-error-diagnostics-point-into-std-and-use-inconsistent-codes.md` during
-`plans/TYPE_SYSTEM_SOUNDNESS.md` Phase 4.4. **Severity:** HIGH (`check` passes, and the
+`plans/backlog/TYPE_SYSTEM_SOUNDNESS.md` Phase 4.4. **Severity:** HIGH (`check` passes, and the
 program is either rejected by the C compiler or aborts at runtime).
 **Status:** FIXED on `tss/phase4-4`.
 

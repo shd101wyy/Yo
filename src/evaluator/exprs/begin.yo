@@ -2746,7 +2746,7 @@ evaluate_begin_expression :: (
     exn : Exception
   ) -> AstExpr
 )({
-  // Scope-exit release (plans/CODEGEN_MEMORY_REDUCTION.md §6): an OUTERMOST
+  // Scope-exit release (plans/backlog/CODEGEN_MEMORY_REDUCTION.md §6): an OUTERMOST
   // function body releases the recorded envs of what it evaluated when it
   // ends. Nested closures wait for their enclosing function (capture analysis
   // re-reads them); CTFE bodies are never released (their caller adopts the
@@ -3350,7 +3350,7 @@ _evaluate_begin_expression_impl :: (
         // `name := .Variant(…)` with no type source on the right: look ahead
         // for the local's first typed use and hand the initialization the
         // function's result type as a one-shot hint
-        // (plans/backlog/LLM_AUTHORING_AUDIT_2026-09-19.md §2.2).
+        // (plans/archive/LLM_AUTHORING_AUDIT_2026-09-19.md §2.2).
         ctx.local_variant_hint = _variant_local_hint(&expr_to_eval, &begin_args, loop_i, is_evaluating_function_body_begin_block, &env, ctx);
         // A local borrow's live range ends at its last use in this block
         // (decision 18): hand the binding the statements after it.
@@ -3413,7 +3413,7 @@ _evaluate_begin_expression_impl :: (
           },
           .None => ()
         );
-        // A2 of plans/ATS_LESSONS_BEYOND_INDEXED_TYPES.md: a non-final
+        // A2 of plans/archive/ATS_LESSONS_BEYOND_INDEXED_TYPES.md: a non-final
         // expression STATEMENT may not drop a Result or a future.
         // A statement every path of which leaves produces no value: judged
         // on the SOURCE form, which still has its `cond` / `=>` arms.

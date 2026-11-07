@@ -253,7 +253,7 @@ behavior):
    attempt (already true) + scrub after every attempt.
 5. Memory: one long-lived universe must not accumulate per-file garbage —
    verify RSS across a 10-file run stays near the single-file peak
-   (cf. plans/backlog/YO_SELF_ENV_SHARING.md for why universes are huge).
+   (cf. plans/archive/YO_SELF_ENV_SHARING.md for why universes are huge).
 
 Validation gate: full `tests/internal` run before/after must be
 VERDICT-IDENTICAL per test (not just counts), plus the two new hermeticity

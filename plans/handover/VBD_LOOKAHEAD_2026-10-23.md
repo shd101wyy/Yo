@@ -613,7 +613,7 @@ Before opening each flip, run its probe: a never-merged branch rebased on the ti
 - Five `inout-*-panics` cases: `alias-push`, `pop-under-borrow`, `store-fresh-into-self`, `interior-borrow-growth`, `self-method-under-borrow`. Read each diff: a static error replaces the panic.
 - The 7 cheatsheet-hash cases, if the skills change.
 
-**Docs, in both languages:** `STRINGS`, `MEMORY_SAFETY`, `THREAD_SAFETY`, `PARALLELISM`, the cheatsheets, and the status of `plans/STRING_VALUE_SEMANTICS.md`.
+**Docs, in both languages:** `STRINGS`, `MEMORY_SAFETY`, `THREAD_SAFETY`, `PARALLELISM`, the cheatsheets, and the status of `plans/archive/STRING_VALUE_SEMANTICS.md`.
 
 **Ratchet:**
 

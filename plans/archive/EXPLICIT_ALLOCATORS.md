@@ -64,7 +64,7 @@ the cycle collector) says — an arena cannot bulk-free what RC still counts.
 Yo therefore gets the *placement* benefits (locality, a second TLSF region,
 scoped scratch space, per-subsystem budgets, test/counting allocators) and
 pays for them with one rule: **arena `deinit` verifies emptiness** — live
-blocks at deinit are a tier-3 trap (`plans/SAFE_MODE.md`: defined behavior,
+blocks at deinit are a tier-3 trap (`plans/backlog/SAFE_MODE.md`: defined behavior,
 `file:line:col`, identical at every `-O`), and a process-lifetime arena
 uses the explicit `abandon()` escape hatch instead. Bulk-free-without-check
 is the one Zig capability declined, deliberately: it cannot be made sound
@@ -111,7 +111,7 @@ The Zig-level win — skip every individual free and drop the region — is
 the one thing RC cannot give without a proof that no reference crosses the
 arena boundary in either direction. That proof is escape analysis or a
 verifier obligation, out of scope here (the position of
-`plans/backlog/DEPENDENT_TYPES_POSITION.md`: runtime properties go through
+`plans/reference/DEPENDENT_TYPES_POSITION.md`: runtime properties go through
 the verifier). If self-compile speed is the goal, the levers on record are
 the two rows above that an arena cannot reach.
 
@@ -141,7 +141,7 @@ them, one helper is the entry point for RC blocks:
   `__yo_malloc` + `__yo_alloc_fail` (OOM abort) + the
   `__asm__ volatile("" : "+r"(p))` barrier that keeps clang from fusing
   malloc+memset into a tcache-bypassing calloc
-  (`plans/ASYNC_STATE_MACHINE_GENERATION.md` §3.4). Any variant must keep
+  (`plans/archive/ASYNC_STATE_MACHINE_GENERATION.md` §3.4). Any variant must keep
   the barrier.
 - std reaches the same family through `GlobalAllocator`
   (`std/allocator.yo`, an `impl({...})` of the `__yo_*` externs).
@@ -1075,7 +1075,7 @@ with the release that carries the stack.
 - `plans/reference/FIXED_REGION_ALLOCATOR.md` — the global allocator layer
   this builds on (TLSF, OOM policy, the leak oracle, `--debug-heap`).
 - `plans/reference/MEMORY_SAFETY.md` — the safe/unsafe boundary the
-  Allocator trait sits on (§Allocators); `plans/SAFE_MODE.md` — the trap
+  Allocator trait sits on (§Allocators); `plans/backlog/SAFE_MODE.md` — the trap
   tiers.
 - `plans/reference/PARALLELISM_RULES.md` — D1/D4/D9: why `Allocator` needs
   an explicit `Send` impl and what it promises.

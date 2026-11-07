@@ -1,7 +1,7 @@
 # `Result.expect_err` escapes the class-1 panic ban
 
 **Status: FIXED 2026-09-28** (branch `safe-mode/class1-governance`,
-`plans/SAFE_MODE.md` §14 R7).
+`plans/backlog/SAFE_MODE.md` §14 R7).
 
 ## Symptom
 

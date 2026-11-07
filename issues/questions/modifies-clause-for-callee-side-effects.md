@@ -1,7 +1,7 @@
 # Which arguments may a callee mutate? The verifier infers it from `old(...)` in the contract
 
 **Kind:** design question — an open decision, not a defect. Filed 2026-09-30
-by R1 slice 2 of `plans/backlog/ATS_STYLE_INDEXED_TYPES.md`.
+by R1 slice 2 of `plans/archive/ATS_STYLE_INDEXED_TYPES.md`.
 
 ## The question
 

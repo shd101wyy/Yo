@@ -2,7 +2,7 @@
 
 **Severity:** S2 — `JoinHandle.abort()` on a handle to a raw `IoFuture` is a no-op with a lie in the middle: `state()` reads `Aborted` until the operation completes, then `Completed`, and `await` returns `.Some`; the documented contract ("`await` on an aborted handle returns `.None`") does not hold for this shape.
 
-**Status: FIXED 2026-10-03** (phase A3 of `plans/ASYNC_IO_API_AUDIT.md`). Found 2026-10-03 by `plans/ASYNC_IO_API_AUDIT.md` (finding F5, probe 1). **Measured on:** develop `bcb57bfe7` built by the v0.2.49 seed, macOS arm64, `--optimize 2`.
+**Status: FIXED 2026-10-03** (phase A3 of `plans/archive/ASYNC_IO_API_AUDIT.md`). Found 2026-10-03 by `plans/archive/ASYNC_IO_API_AUDIT.md` (finding F5, probe 1). **Measured on:** develop `bcb57bfe7` built by the v0.2.49 seed, macOS arm64, `--optimize 2`.
 
 ## Symptom
 
@@ -32,7 +32,7 @@ The generated cancel hook that DOES cancel is the state machine's (`src/codegen/
 
 ## Fix direction
 
-`__yo_future_abort`: when `vt == NULL`, call `__yo_async_io_cancel(fut)` directly. Every backend's completion path: `if (state != -2) state = -1`. Regression test: the repro's three assertions, plus the same shape over a kqueue/epoll descriptor operation. Plan: `plans/ASYNC_IO_API_AUDIT.md` A3.
+`__yo_future_abort`: when `vt == NULL`, call `__yo_async_io_cancel(fut)` directly. Every backend's completion path: `if (state != -2) state = -1`. Regression test: the repro's three assertions, plus the same shape over a kqueue/epoll descriptor operation. Plan: `plans/archive/ASYNC_IO_API_AUDIT.md` A3.
 
 ## Fix
 

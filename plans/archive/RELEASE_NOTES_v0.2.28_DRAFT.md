@@ -57,7 +57,7 @@ it panics like Rust's; a bad key or a malformed string still returns `Result`.
   `pragma(Pragma.AllowUnsafe)` in the file that does it** — but `for(list, x => …)`
   and `list(i) = v` both keep working with no pragma, so most code is unaffected.
   The scoping question this raises is written up in
-  `plans/backlog/UNSAFE_SCOPING_AND_POINTER_ITERATORS.md`.
+  `plans/archive/UNSAFE_SCOPING_AND_POINTER_ITERATORS.md`.
 - **The decoders return `Result`** (#467 D13a, #472 D13b) instead of throwing:
   - `hex_decode`, `base64_decode`, `base64_decode_url`, `utf16_to_utf8` →
     `Result(…, EncodingError)`

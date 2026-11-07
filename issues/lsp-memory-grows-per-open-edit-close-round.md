@@ -2,7 +2,7 @@
 
 **Severity:** S2 — `yo lsp` grows without bound across open/edit/close rounds — a long editor session eventually exhausts memory
 
-> Found 2026-09-24 by the plateau gate of `plans/EVALUATOR_MEMORY_REDUCTION.md`
+> Found 2026-09-24 by the plateau gate of `plans/backlog/EVALUATOR_MEMORY_REDUCTION.md`
 > Phase 1 step 3. Open — root cause under investigation.
 
 ## Reproduction
@@ -24,7 +24,7 @@ different holder).
 ## Progress
 
 2026-09-25: most of the growth was the HashMap rehash leak
-(`issues/fixed/cond-unit-arm-statement-is-dropped.md`, `plans/EVALUATOR_MEMORY_REDUCTION.md` §0.8):
+(`issues/fixed/cond-unit-arm-statement-is-dropped.md`, `plans/backlog/EVALUATOR_MEMORY_REDUCTION.md` §0.8):
 
 | session (stage-2 compilers) | before | after |
 | --- | --- | --- |

@@ -1,6 +1,6 @@
 """Holder census: which module-level global retains the live objects at exit.
 
-plans/EVALUATOR_MEMORY_REDUCTION.md Phase 0 step 3c. Every pointer-typed
+plans/backlog/EVALUATOR_MEMORY_REDUCTION.md Phase 0 step 3c. Every pointer-typed
 module-level global of the emitted C (`static __yo_tN* <name>_m<hash>; //
 module-level mutable variable`) is a root. Just before the thread's GC
 teardown disposes everything, the instrumented binary walks from each root
@@ -762,7 +762,7 @@ pos = src.find("\n" + cl)
 assert pos >= 0
 src = src[:pos + 1] + "static void __ho_census(void* st);\nstatic void __ho_at_phase(const char* name);\n" + cl + "\n  __ho_census((void*)__yo_current_thread_gc);" + src[pos + 1 + len(cl):]
 # HOLDER_AT_PHASE=<phase>: census when that `--profile` phase is recorded, not
-# at teardown (plans/CODEGEN_MEMORY_REDUCTION.md Phase 0 step 2). `compile`
+# at teardown (plans/backlog/CODEGEN_MEMORY_REDUCTION.md Phase 0 step 2). `compile`
 # releases the shared ExprInfoTable before teardown, so only a phase-time dump
 # sees its peak. Each statement that carries a phase-name literal (the
 # `profile_record_phase` call sites) is followed by the hook; objects held only

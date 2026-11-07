@@ -20,7 +20,7 @@
 > - **`for_await` (item 4) landed 2026-09-29** (`std/async/stream.yo`, tests in
 >   `tests/async/combinators.test.yo` S8), after the single-pass async lowering
 >   made an await inside a macro expansion a real suspension point
->   (`plans/ASYNC_STATE_MACHINE_GENERATION.md` phase 5). The record of why it
+>   (`plans/archive/ASYNC_STATE_MACHINE_GENERATION.md` phase 5). The record of why it
 >   was parked follows.
 > - **`for_await` (item 4) was written and then REMOVED.** An `io.await` reached
 >   only through a MACRO EXPANSION is not counted as a suspension point, so the
@@ -52,7 +52,7 @@
 > nothing and rejects every argument (a bare bound or a concrete item type
 > works, and `Iterator` behaves the same —
 > `plans/archive/ASSOC_TYPE_BINDING_IN_FREE_FN_WHERE.md`; lifted 2026-09-25 by
-> `plans/TYPE_SYSTEM_SOUNDNESS.md` Phase 2.6, and a blanket combinator can now be
+> `plans/backlog/TYPE_SYSTEM_SOUNDNESS.md` Phase 2.6, and a blanket combinator can now be
 > called on a generic stream parameter), and a chain built
 > INSIDE an `io.async` body loses the future's result type
 > (`issues/fixed/closure-argument-inside-an-io-async-body-loses-the-future-result-type.md`)

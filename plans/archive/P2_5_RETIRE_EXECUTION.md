@@ -301,7 +301,7 @@ Each step is independently landable and gated by `tests/internal` or a new cli-c
     (B) keep TS on the macOS/Windows legs — contradicts Group E (deleting
     `src/` breaks them); recorded for completeness, not a path.
     (C) paid larger macOS/Windows runners — a money decision.
-    (D) wait for plans/backlog/YO_SELF_ENV_SHARING.md (def-time envs COPY
+    (D) wait for plans/archive/YO_SELF_ENV_SHARING.md (def-time envs COPY
     what TS SHARES) to bring the emit under 7 GB.
     The stage-2-builds-stage-1 pre-release gate is Linux-viable regardless
     and should ride whichever variant lands.
@@ -322,7 +322,7 @@ Each step is independently landable and gated by `tests/internal` or a new cli-c
     option C larger runners; option D is now SPENT — the remaining footprint
     is emission-phase specialization structures, see
     `issues/retired/yo-self-emit-perf-drift-since-r16.md` addendum and the
-    refuted capture-memo record in `plans/backlog/YO_SELF_ENV_SHARING.md`),
+    refuted capture-memo record in `plans/archive/YO_SELF_ENV_SHARING.md`),
     the windows leg (16 GB — flip a release after Linux proves the chain),
     and the Pages bun island (B7).
 
@@ -394,7 +394,7 @@ Each step is independently landable and gated by `tests/internal` or a new cli-c
 - `vscode-extension/**` — keeps its own `package.json`, lockfile and `tsconfig.json`; TS by design (§2.3:295).
 - `vendor/**` (git submodules `vendor/mimalloc`, `vendor/markdown_yo`) — `vendor/` must remain a **sibling of `std/`** for the mimalloc paths to resolve.
 - `scripts/bootstrap/{gates_fast,fixpoint_only,hollow_sweep69,measure_one}.sh`, `scripts/count-transpile-failures.sh`, `scripts/bootstrap/known-failing.tsv` — all already bun/node-free (`fixpoint_only.sh`, `hollow_sweep69.sh`, `measure_one.sh` need **no change at all**; only `$S1`'s provenance changes).
-- The ten python instrumentation tools (`scripts/bootstrap/*.py`, `scripts/rc-free-site-catcher.py`, `scripts/rc-tombstone-instrument.py`) — still pointed at by `yo-self/expr_info.yo:354` and `plans/backlog/YO_SELF_ENV_SHARING.md`.
+- The ten python instrumentation tools (`scripts/bootstrap/*.py`, `scripts/rc-free-site-catcher.py`, `scripts/rc-tombstone-instrument.py`) — still pointed at by `yo-self/expr_info.yo:354` and `plans/archive/YO_SELF_ENV_SHARING.md`.
 - `scripts/install.sh`, `scripts/install.ps1` — **rewrite** (P3 item 1: tarball downloader), do not delete; they currently install the compiler that no longer exists (`install.sh:106-107`) and their closing line advertises `yo --help` (`:140`).
 - `count_yo.sh`, `count_std_yo_lines.sh`, `run_gdb.sh` — no TS coupling.
 - `plans/**`, `issues/**`, `code-reviews/**`, `outdated/**` prose — HISTORICAL.

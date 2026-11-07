@@ -160,7 +160,7 @@ Calling `Allocator.alloc` / `free` directly hands out raw pointers, so it needs 
 Reference counting frees a cell when its last strong handle goes, so it cannot
 free a cycle: each cell of the cycle keeps the next one's count above zero.
 Yo has no cycle collector (it was removed in v0.2.75, decision 48,
-`plans/backlog/WEAK_AND_UNCOLLECTED_RC.md` §6). As with Rust's `Rc`, a cycle of
+`plans/archive/WEAK_AND_UNCOLLECTED_RC.md` §6). As with Rust's `Rc`, a cycle of
 strong handles leaks: its cells are never freed and their `Drop` never runs.
 `Drop` therefore runs at one deterministic point, the last handle's drop. A leak
 is not unsafe: no pointer dangles.

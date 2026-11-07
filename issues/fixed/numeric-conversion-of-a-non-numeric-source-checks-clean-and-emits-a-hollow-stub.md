@@ -52,7 +52,7 @@ Pointer → integer conversion is NOT added here: today no spelling of it
 exists (`usize(p)` now errors instead of aborting), and adding one is a
 design decision for the pointer-operations family
 (`plans/archive/POINTER_OPERATORS_TO_TRAITS_AND_METHODS.md`), recorded as
-the open need in plans/EVALUATOR_MEMORY_REDUCTION.md F5 (type-variable cell
+the open need in plans/backlog/EVALUATOR_MEMORY_REDUCTION.md F5 (type-variable cell
 identity wants an address).
 
 ## Gate

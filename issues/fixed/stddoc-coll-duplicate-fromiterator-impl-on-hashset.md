@@ -3,7 +3,7 @@
 **Status:** FIXED 2026-09-24
 **Severity:** papercut / latent — the duplicate is silently accepted today
 (first-wins), so nothing misbehaves; it is exactly the shape
-`plans/backlog/DUPLICATE_INHERENT_METHOD_REJECTION.md` wants rejected, and the
+`plans/archive/DUPLICATE_INHERENT_METHOD_REJECTION.md` wants rejected, and the
 second copy is a place for the two to drift apart.
 **Found:** 2026-09-11, during the `///` documentation sweep of
 `std/collections/hash_set.yo`.

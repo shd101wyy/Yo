@@ -4959,7 +4959,7 @@ For the full design, trait definition, and implementation details, see [INDEX_TR
 
 ## In Design
 
-Please check [IN_DESIGN.md](../../plans/backlog/IN_DESIGN.md) for features that are still in design phase.
+Please check [IN_DESIGN.md](../../plans/archive/IN_DESIGN.md) for features that are still in design phase.
 
 ## References
 

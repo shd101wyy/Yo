@@ -1,6 +1,6 @@
 # `a == b` on a type with no `Eq` impl silently evaluates to `unit` instead of erroring
 
-**Status: FIXED 2026-09-24** (Phase 1.6 of `plans/TYPE_SYSTEM_SOUNDNESS.md`) for every CONCRETE nominal receiver and every operator. The `unit` receiver follow-up below was fixed separately by `issues/fixed/unit-operand-renders-empty-so-binop-reports-ftt.md` (`unit == unit` and `derive(Eq)` over a `unit` field compare correctly; re-measured 2026-09-24). Originally OPEN.
+**Status: FIXED 2026-09-24** (Phase 1.6 of `plans/backlog/TYPE_SYSTEM_SOUNDNESS.md`) for every CONCRETE nominal receiver and every operator. The `unit` receiver follow-up below was fixed separately by `issues/fixed/unit-operand-renders-empty-so-binop-reports-ftt.md` (`unit == unit` and `derive(Eq)` over a `unit` field compare correctly; re-measured 2026-09-24). Originally OPEN.
 implementation is accepted, prints `()`, and in one position is reported as an
 "internal compiler error … please report it" against the user's own type error.
 
@@ -208,7 +208,7 @@ tests and will gain the `derive(Eq)` assertion when this closes.
 
 ## Addendum 2026-09-23: `<` without `Ord` has the same shape (type-system audit)
 
-MEASURED on the yo 0.2.39 seed and a develop build `d455b6a67` (`plans/TYPE_SYSTEM_SOUNDNESS.md`, Phase 1):
+MEASURED on the yo 0.2.39 seed and a develop build `d455b6a67` (`plans/backlog/TYPE_SYSTEM_SOUNDNESS.md`, Phase 1):
 
 ```rust
 P :: struct(x : i32);
