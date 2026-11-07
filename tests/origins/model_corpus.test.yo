@@ -125,8 +125,14 @@ DOC :: usize(29);
 W :: usize(30);
 REG :: usize(32);
 NEXT :: usize(33);
+M :: usize(34);
+T :: usize(35);
+O :: usize(36);
+K :: usize(37);
 /// The first declared origin parameter `p`.
 P :: (u64(1) << u64(40));
+/// The second declared origin parameter `q` (`generic-rigid-origin`).
+Q :: (u64(2) << u64(40));
 o :: (fn(p : usize) -> u64)(bit(p));
 // Types.
 int :: (fn() -> Ty)(Rc.new(TyE.Int));
@@ -323,6 +329,9 @@ store_widen_refcell :: (fn() -> Case)({
 test("store-widen-refcell", {
   verdict("store-widen-refcell", store_widen_refcell(), "ORIGIN_MISMATCH");
 });
+/// `first(generic(r), v : &(i32, r)) -> &(i32, r)`: a projection whose
+/// result names its parameter (projection-in-payload's callee).
+proj_first :: (fn() -> FnDef)(sig(P, al1(prm(V, shr(int(), P))), shr(int(), P)));
 /// `swap(generic(T, r), a : &mut &(T, r), b : &mut &(T, r))`.
 swap :: (fn() -> FnDef)(sig(P, al2(prm(A, exc(shr(int(), P), ELIDED)), prm(B, exc(shr(int(), P), ELIDED))), int()));
 swap_main :: (fn(ta : u64, tb : u64) -> FnDef)(
@@ -756,6 +765,202 @@ test("ret-byvalue-carried", {
   first := fun(P, al1(prm(V, Rc.new(TyE.Tup(al2(shr(int(), P), int()))))), shr(int(), P), al1(Rc.new(NodeE.Return(Rc.new(NodeE.Field(V, usize(0)))))));
   main := entry(al3(let_(X, lit()), let_(R, call(usize(1), al1(Rc.new(NodeE.MakeTup(al2(Rc.new(NodeE.Borrow(false, X)), lit())))))), use_(Rc.new(NodeE.Var(R)))));
   verdict("ret-byvalue-carried", case2(main, first), "ACCEPT");
+});
+// ---------------------------------------------------------------------------
+// The O-1/O-2 rows (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §8–§9): one
+// origin per expression (`origin_of`), `bind` at `:=`/`=`/arm/element
+// bindings, `lend_through` at a call. The toy language has no arm-bound
+// value that outlives a branch, so an arm row joins through a shared slot
+// (the `=` join, the model's own shape); where it cannot spell the Yo
+// fixture's type (a named origin-parameterized holder) the row pins the rule
+// through its expressible twin and says so.
+// ---------------------------------------------------------------------------
+test("match-arm-composite", {
+  // A composite built in a match arm from the borrowed scrutinee's place
+  // (R-ARM under R-COMP): the slot's set after the arms joins the arm's
+  // roots, and the scrutinee's reassignment conflicts.
+  arm_o := Rc.new(NodeE.Assign(M, Rc.new(NodeE.Make(Kind.Some, Rc.new(NodeE.Borrow(false, O))))));
+  main := entry(
+    al5(
+      let_(O, lit()),
+      let_(M, lit()),
+      Rc.new(NodeE.Branch(al1(arm_o), al1(Rc.new(NodeE.Assign(M, lit()))))),
+      Rc.new(NodeE.Assign(O, lit())),
+      use_(Rc.new(NodeE.Var(M)))
+    )
+  );
+  verdict("match-arm-composite", case1(main), "E0911");
+});
+test("cond-arm-composite", {
+  // The two arms lend different roots; the join keeps both, and the second
+  // arm's root is frozen where the joined value is live.
+  arm_x := Rc.new(NodeE.Assign(M, Rc.new(NodeE.Make(Kind.Some, Rc.new(NodeE.Borrow(false, X))))));
+  arm_y := Rc.new(NodeE.Assign(M, Rc.new(NodeE.Make(Kind.Some, Rc.new(NodeE.Borrow(false, Y))))));
+  main := entry(
+    al6(
+      let_(X, lit()),
+      let_(Y, lit()),
+      let_(M, lit()),
+      Rc.new(NodeE.Branch(al1(arm_x), al1(arm_y))),
+      Rc.new(NodeE.Assign(Y, lit())),
+      use_(Rc.new(NodeE.Var(M)))
+    )
+  );
+  verdict("cond-arm-composite", case1(main), "E0911");
+});
+test("match-value-arm-composite", {
+  // The same join over a match on an owned value (the Yo fixture's
+  // `match(k, …)`): the arm that did not run still contributes its roots.
+  arm_x := Rc.new(NodeE.Assign(M, Rc.new(NodeE.Make(Kind.Some, Rc.new(NodeE.Borrow(false, X))))));
+  arm_y := Rc.new(NodeE.Assign(M, Rc.new(NodeE.Make(Kind.Some, Rc.new(NodeE.Borrow(false, Y))))));
+  main := entry(
+    al7(
+      let_(X, lit()),
+      let_(Y, lit()),
+      let_(K, lit()),
+      let_(M, lit()),
+      Rc.new(NodeE.Branch(al1(arm_x), al1(arm_y))),
+      Rc.new(NodeE.Assign(Y, lit())),
+      use_(Rc.new(NodeE.Var(M)))
+    )
+  );
+  verdict("match-value-arm-composite", case1(main), "E0911");
+});
+test("for-element-stored", {
+  // The loop's element (a borrow of the collection) stored into a
+  // flow-inferred slot: the slot's set keeps the collection past the loop
+  // (the join over the back edge, §4's fixpoint).
+  main := entry(
+    al5(
+      let_(XS, Rc.new(NodeE.NewList(int()))),
+      let_(SLOT, lit()),
+      Rc.new(NodeE.Loop(al1(Rc.new(NodeE.Assign(SLOT, Rc.new(NodeE.Make(Kind.Some, Rc.new(NodeE.Borrow(false, XS))))))))),
+      Rc.new(NodeE.Push(XS, lit())),
+      use_(Rc.new(NodeE.Var(SLOT)))
+    )
+  );
+  verdict("for-element-stored", case1(main), "E0911");
+});
+test("projection-in-payload", {
+  // A projection call's result wrapped in a constructor (R-CALL under
+  // R-COMP): the payload's roots are the call's. The Yo fixture grows an
+  // `ArrayList` (`xs.push`); the toy twin writes the borrowed root.
+  main := entry(
+    al4(
+      let_(XS, lit()),
+      let_(SLOT, Rc.new(NodeE.Make(Kind.Some, call(usize(1), al1(Rc.new(NodeE.Borrow(false, XS))))))),
+      Rc.new(NodeE.Assign(XS, lit())),
+      use_(Rc.new(NodeE.Var(SLOT)))
+    )
+  );
+  verdict("projection-in-payload", case2(main, proj_first()), "E0911");
+});
+test("tuple-of-lends", {
+  // A `&place` operand as a tuple component: the tuple's binding freezes
+  // every component's place.
+  main := entry(al4(let_(X, lit()), let_(T, Rc.new(NodeE.MakeTup(al2(Rc.new(NodeE.Borrow(false, X)), lit())))), Rc.new(NodeE.Assign(X, lit())), use_(Rc.new(NodeE.Var(T)))));
+  verdict("tuple-of-lends", case1(main), "E0911");
+});
+test("flow-slot-lent-mut", {
+  // A flow-inferred holder lent `&mut` to a callee that stores a wider
+  // origin: the solved set is written back, and the root's scope-end drop
+  // conflicts (§7 "A local's flow set after a `&mut` lend"). The toy
+  // language cannot spell a None-initialized Option flow slot, so the row
+  // pins the write-back through its flow-container twin.
+  main := entry(
+    al5(
+      let_(X, lit()),
+      let_(SLOT, Rc.new(NodeE.NewList(shr(int(), ELIDED)))),
+      use_(call(usize(1), al2(Rc.new(NodeE.Borrow(true, SLOT)), Rc.new(NodeE.Borrow(false, X))))),
+      Rc.new(NodeE.Assign(X, lit())),
+      use_(Rc.new(NodeE.Var(SLOT)))
+    )
+  );
+  verdict("flow-slot-lent-mut", case2(main, push_s()), "E0911");
+});
+test("flow-slot-lent-mut-loop", {
+  // The write-back inside a loop: the slot's set after the call is the
+  // solved one, joined over the back edge (the flow-container twin).
+  main := entry(
+    al4(
+      let_(X, lit()),
+      let_(SLOT, Rc.new(NodeE.NewList(shr(int(), ELIDED)))),
+      Rc.new(
+        NodeE.Loop(
+          al2(
+            use_(call(usize(1), al2(Rc.new(NodeE.Borrow(true, SLOT)), Rc.new(NodeE.Borrow(false, X))))),
+            Rc.new(NodeE.Assign(X, lit()))
+          )
+        )
+      ),
+      use_(Rc.new(NodeE.Var(SLOT)))
+    )
+  );
+  verdict("flow-slot-lent-mut-loop", case2(main, push_s()), "E0911");
+});
+test("generic-slot-lent-mut", {
+  // The flow write-back through a generic slot bound to a reference type
+  // (`store_g :: fn(generic(T), dst : &mut Option(T), v : T)` at `T := &S`):
+  // the toy twin is the flow-container write-back, the rule the generic
+  // slot needs.
+  main := entry(
+    al5(
+      let_(X, lit()),
+      let_(SLOT, Rc.new(NodeE.NewList(shr(int(), ELIDED)))),
+      use_(call(usize(1), al2(Rc.new(NodeE.Borrow(true, SLOT)), Rc.new(NodeE.Borrow(false, X))))),
+      Rc.new(NodeE.Assign(X, lit())),
+      use_(Rc.new(NodeE.Var(SLOT)))
+    )
+  );
+  verdict("generic-slot-lent-mut", case2(main, push_s()), "E0911");
+});
+test("store-widen-named-holder", {
+  // O3-3 through a named origin-parameterized composite lent `&mut` — the
+  // toy language has no named origin-parameterized holder, so the row pins
+  // the invariance through its expressible twin (the spelled `&mut`
+  // pointee), the rule `&mut Slot(p)` needs.
+  main := entry(
+    al4(
+      let_(X, lit()),
+      let_d(SLOT, Rc.new(NodeE.Make(Kind.Some, Rc.new(NodeE.Borrow(false, X)))), wrap(Kind.Some, shr(int(), o(X)))),
+      Rc.new(NodeE.Block(al2(let_(Y, lit()), use_(call(usize(1), al2(Rc.new(NodeE.Borrow(true, SLOT)), Rc.new(NodeE.Borrow(false, Y)))))))),
+      use_(Rc.new(NodeE.Var(SLOT)))
+    )
+  );
+  verdict("store-widen-named-holder", case2(main, store()), "ORIGIN_MISMATCH");
+});
+test("store-widen-covariant-field", {
+  // The same invariance reached through a covariant field position of the
+  // lent composite — the spelled twin again (the toy language limit).
+  main := entry(
+    al4(
+      let_(X, lit()),
+      let_d(SLOT, Rc.new(NodeE.Make(Kind.Some, Rc.new(NodeE.Borrow(false, X)))), wrap(Kind.Some, shr(int(), o(X)))),
+      Rc.new(NodeE.Block(al2(let_(Y, lit()), use_(call(usize(1), al2(Rc.new(NodeE.Borrow(true, SLOT)), Rc.new(NodeE.Borrow(false, Y)))))))),
+      use_(Rc.new(NodeE.Var(SLOT)))
+    )
+  );
+  verdict("store-widen-covariant-field", case2(main, store()), "ORIGIN_MISMATCH");
+});
+test("generic-rigid-origin", {
+  // A generic body valid only under its first caller's substitution: the
+  // body stores `b : &(i32, q)` into `dst : &mut Option(&(i32, p))` and is
+  // checked with `p` and `q` rigid.
+  body := fun(
+    (P | Q),
+    al3(prm(A, shr(int(), P)), prm(B, shr(int(), Q)), prm(DST, exc(wrap(Kind.Some, shr(int(), P)), ELIDED))),
+    int(),
+    al1(Rc.new(NodeE.WriteThrough(DST, Rc.new(NodeE.Make(Kind.Some, Rc.new(NodeE.Var(B)))))))
+  );
+  main := entry(
+    al4(
+      let_(X, lit()),
+      let_d(SLOT, lit(), wrap(Kind.Some, shr(int(), o(X)))),
+      use_(call(usize(1), al3(Rc.new(NodeE.Borrow(false, X)), Rc.new(NodeE.Borrow(false, X)), Rc.new(NodeE.Borrow(true, SLOT))))),
+      use_(Rc.new(NodeE.Var(SLOT)))
+    )
+  );
+  verdict("generic-rigid-origin", case2(main, body), "ORIGIN_MISMATCH");
 });
 // ---------------------------------------------------------------------------
 // Each hole row tests its rule: with that rule switched off, the model

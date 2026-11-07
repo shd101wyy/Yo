@@ -1,0 +1,26 @@
+// O-2 corpus row `generic-slot-lent-mut` (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §8;
+// manifest tests/origins/corpus.tsv): the flow write-back through a generic `T := &S`
+// slot: `dst : &mut Option(T)` with `T` bound to a reference type still unifies its
+// origin exactly, and the solved set is written back to the caller's holder.
+// Expected once O-2 lands: rejected: E0911 at `y`'s scope-end drop while `slot` is live.
+{ String } :: import("std/string");
+_store_g :: (fn(generic(T : Type), dst : &mut Option(T), v : T) -> unit)({
+  dst.* = .Some(v);
+});
+main :: (fn() -> unit)({
+  mut(slot) := Option(&String).None;
+  {
+    y := String.from("y");
+    ry := &y;
+    _store_g(&mut slot, ry);
+  };
+  match(
+    slot,
+    .Some(r) => {
+      _ := r.*.len();
+    },
+    .None => ()
+  );
+  ()
+});
+export(main);

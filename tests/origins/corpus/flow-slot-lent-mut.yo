@@ -1,0 +1,18 @@
+// O-2 corpus row `flow-slot-lent-mut` (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §8;
+// manifest tests/origins/corpus.tsv): a flow-inferred holder lent `&mut` to a callee
+// that stores a wider origin keeps its old set (§7 "A local's flow set after a `&mut`
+// lend": the solved set is written back to the holder after the call).
+// Expected once O-2 lands: rejected: E0911 at `y`'s scope-end drop while `slot` is live.
+_store :: (fn(generic(r : Origin), dst : &mut Option(&(i32, r)), v : &(i32, r)) -> unit)({
+  dst.* = .Some(v);
+});
+main :: (fn() -> unit)({
+  mut(slot) := Option(&i32).None;
+  {
+    y := i32(2);
+    _store(&mut slot, &y);
+  };
+  _ := slot.is_some();
+  ()
+});
+export(main);

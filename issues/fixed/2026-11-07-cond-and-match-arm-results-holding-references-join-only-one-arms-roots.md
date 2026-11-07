@@ -17,8 +17,12 @@ R-ARM (decision 38 A's "borrow sets join") is not built for composite arm result
 
 ## Fix
 
-O-1, v0.2.76 (`plans/backlog/BORROW_CHECKER_COMPLETENESS.md` §8–§9).
+Fixed by O-1 (`plans/backlog/BORROW_CHECKER_COMPLETENESS.md` §3, §8): R-ARM — the
+origin of a `cond`/`match` result is the union over every arm's value (decision 38 A's
+join), computed by `origin_of` and frozen by `bind`, so a write to the second arm's root
+while the result is live is E0911.
 
 ## Test that pins it
 
-corpus rows `cond-arm-composite`, `match-value-arm-composite`; the repro under `tests/origins/unsound/`.
+corpus row `cond-arm-composite`; `tests/origins/unsound/h5c-cond-arm-composite.yo`
+(G-B: rejected with E0911; the positive twin runs clean under ASan).

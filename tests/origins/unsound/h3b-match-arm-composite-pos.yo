@@ -1,0 +1,13 @@
+// expect: accept
+// h3b's positive twin: the scrutinee is reassigned AFTER `m`'s last use.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+main :: (fn() -> unit)({
+  mut(o) := Option(Rc(X)).Some(Rc.new(X(s : String.from("hello"))));
+  m := match(&o, .Some(h) => Option(&String).Some(&h.*.s), .None => Option(&String).None);
+  match(m, .Some(r) => println(`OUT: ${r.*.len().to_string()}`), .None => println("none"));
+  o = Option(Rc(X)).None;
+  ()
+});
+export(main);

@@ -624,6 +624,15 @@ PHASES=N1 YO=... bash scripts/origins-corpus.sh target                          
   and a `verdict("<id>", …, "<expect>");` call; the script cross-checks all
   three.
 - The runner is not wired into CI.
+- `tests/origins/unsound/` is the G-B must-reject directory
+  (`plans/backlog/BORROW_CHECKER_COMPLETENESS.md` §6): each program carries a
+  `// expect: E09xx` (or `// expect: accept`) header, and a negative's
+  positive twin sits beside it as `<id>-pos.yo`. Its gate is
+  `YO=<binary> bash scripts/origins-unsound.sh`, run inside the nix shell
+  (clang on PATH). A negative that passes `yo check` is compiled under ASan
+  and run, so the use-after-free a missing rejection ships is printed. Every
+  positive twin must compile and run clean under ASan. Not wired into CI
+  either.
 
 ## Build system tests
 

@@ -1,0 +1,17 @@
+// O-2 corpus row `generic-rigid-origin` (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §8;
+// manifest tests/origins/corpus.tsv): a generic body valid only under its first
+// caller's substitution: storing `b : &(i32, q)` into `dst : &mut Option(&(i32, p))`
+// passes when the first call binds `p` and `q` to the same place, and the body must
+// be checked with `p` and `q` RIGID (O2), not under the caller's substitution.
+// Expected once O-2 lands: rejected: E0923 in the body at `.Some(b)`.
+_pick :: (fn(generic(p : Origin, q : Origin), a : &(i32, p), b : &(i32, q), dst : &mut Option(&(i32, p))) -> unit)({
+  dst.* = .Some(b);
+});
+main :: (fn() -> unit)({
+  x := i32(1);
+  mut(slot) := Option(&(i32, x)).None;
+  _pick(&x, &x, &mut slot);
+  _ := slot.is_some();
+  ()
+});
+export(main);

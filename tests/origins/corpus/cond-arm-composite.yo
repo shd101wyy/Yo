@@ -1,0 +1,24 @@
+// O-1 corpus row `cond-arm-composite` (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §8;
+// manifest tests/origins/corpus.tsv): `cond` arm results holding references join only
+// one arm's roots (R-ARM's join, decision 38 A).
+// Expected once O-1 lands: rejected: E0911 at the reassignment of `y` while `m` is live.
+flag :: (fn(n : i32) -> bool)(n > i32(2));
+main :: (fn() -> unit)({
+  x := i32(1);
+  mut(y) := i32(2);
+  c := flag(i32(1));
+  m := cond(
+    c => Option(&i32).Some(&x),
+    true => Option(&i32).Some(&y)
+  );
+  y = i32(3);
+  match(
+    m,
+    .Some(r) => {
+      _ := r.*;
+    },
+    .None => ()
+  );
+  ()
+});
+export(main);

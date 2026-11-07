@@ -1,6 +1,6 @@
 # The borrow checker's completeness: one enforcement point, five gates, Rust parity
 
-**Status: ACTIVE, not started (2026-11-07; VERDICTS-30, VERDICTS-31).** The design of references and origins is
+**Status: ACTIVE, O-1 landed (2026-11-07; VERDICTS-30, VERDICTS-31; §11).** The design of references and origins is
 `plans/backlog/REFERENCES_AND_ORIGINS.md` (O1–O10). This file states how the compiler enforces it in ONE place, what
 "complete, without holes" means, the gates that prove it, and the items that bring origins to Rust's expressiveness.
 Nothing here changes what the design accepts; it changes where the compiler decides.
@@ -202,12 +202,12 @@ Filed 2026-11-07 from VERDICTS-30/31; each names its repro under `issues/repros/
 
 - `issues/2026-11-07-a-flow-inferred-holder-lent-mut-to-a-callee-keeps-its-old-origin-set.md` — S1
 - `issues/2026-11-07-a-closure-body-stores-a-per-call-reference-parameter-through-another-parameter.md` — S1
-- `issues/2026-11-07-a-composite-built-in-a-borrowed-match-arm-escapes-without-freezing-the-scrutinee.md` — S1
+- `issues/fixed/2026-11-07-a-composite-built-in-a-borrowed-match-arm-escapes-without-freezing-the-scrutinee.md` — S1
 - `issues/2026-11-07-o3-3-invariance-is-not-applied-through-a-mut-lent-named-composite.md` — S1
-- `issues/2026-11-07-cond-and-match-arm-results-holding-references-join-only-one-arms-roots.md` — S1
+- `issues/fixed/2026-11-07-cond-and-match-arm-results-holding-references-join-only-one-arms-roots.md` — S1
 - `issues/2026-11-07-a-user-drop-holder-declared-before-its-root-reads-the-root-after-it-is-dropped.md` — S1
-- `issues/2026-11-07-a-borrowed-for-element-stored-into-an-outer-slot-does-not-freeze-the-collection.md` — S1
-- `issues/2026-11-07-a-projection-call-inside-a-payload-bound-to-a-local-does-not-freeze-the-collection.md` — S1
+- `issues/fixed/2026-11-07-a-borrowed-for-element-stored-into-an-outer-slot-does-not-freeze-the-collection.md` — S1
+- `issues/fixed/2026-11-07-a-projection-call-inside-a-payload-bound-to-a-local-does-not-freeze-the-collection.md` — S1
 - `issues/2026-11-07-a-holder-returned-over-a-borrowed-temporary-is-accepted-when-bound.md` — S1 (latent)
 - `issues/2026-11-07-a-closure-capturing-an-origin-carrying-local-crashes-codegen.md` — S1
 - `issues/2026-11-07-reassigning-a-mut-holder-of-a-named-origin-struct-is-a-false-e0908.md` — S2
@@ -221,3 +221,8 @@ Filed 2026-11-07 from VERDICTS-30/31; each names its repro under `issues/repros/
 
 - 2026-11-07: written. O-1 … O-6, P1 … P16 and G-A … G-E: not started. Totality count on develop: not measured (the
   knob does not exist yet).
+- 2026-11-07: O-1 landed (`ExprInfo.origin`, `origin_of`, `bind`, the `=` join with its flow-set table, §7's scope
+  check). It closes H3, H5, H7 and H8, plus a spelled-holder `=` widening found while verifying
+  (`issues/fixed/2026-11-07-assigning-a-composite-to-a-holder-with-a-spelled-origin-widens-it-unchecked.md`). The
+  return rule keeps the shallow walk; O-2's `return_check` moves it onto `origin_of`. The G-B runner
+  `scripts/origins-unsound.sh` and its directory `tests/origins/unsound/` land here; the CI job does not yet.

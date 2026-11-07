@@ -80,3 +80,15 @@ copy-shared-holder	§5 route 3 (superseded row)	pos	N2	ACCEPT	accept
 ret-byvalue-carried	O3 return rule (superseded row)	pos	N2	ACCEPT	accept
 fnmut-two-live-calls	decision 37 FnMut call, O3 step 2 (N1f)	neg	N1	E0911	E0911|
 fnmut-sequential-calls	decision 37 FnMut call, O3 step 2 (N1f)	pos	N1	ACCEPT	accept
+match-arm-composite	O-1, R-ARM x R-COMP (decisions 38 A, 26)	neg	N2	E0911	E0911|`m` borrows `o` with `&` and is still live
+cond-arm-composite	O-1, R-ARM's join (decision 38 A)	neg	N2	E0911	E0911|`m` borrows `y` with `&` and is still live
+match-value-arm-composite	O-1, R-ARM's join over an owned match	neg	N2	E0911	E0911|`m` borrows `y` with `&` and is still live
+for-element-stored	O-1, the for element's bind x the = join	neg	N2	E0911	E0911|`slot` borrows `xs` with `&` and is still live
+projection-in-payload	O-1, R-CALL under R-COMP	neg	N2	E0911	E0911|`slot` borrows `(xs.index)(usize(0))` with `&` and is still live
+tuple-of-lends	O-1, R-LEND as a tuple component (N2b-r)	neg	N2	E0911	E0911|`t` borrows `x` with `&` and is still live
+flow-slot-lent-mut	O-2, §7 flow write-back at a &mut lend	neg	N2	E0911	accept
+flow-slot-lent-mut-loop	O-2, §7 flow write-back over a loop back edge	neg	N2	E0911	accept
+generic-slot-lent-mut	O-2, the flow write-back through generic T := &S	neg	N2	E0911	accept
+store-widen-named-holder	O-2, O3-3 through a &mut-lent named composite	neg	N2	ORIGIN_MISMATCH	E0923|`&y` carries origin `y`, outside `x`
+store-widen-covariant-field	O-2, O3-3 through a covariant field of a &mut composite	neg	N2	ORIGIN_MISMATCH	E0923|`&y` carries origin `y`, outside `x`
+generic-rigid-origin	O-2, O2 rigid origins in a generic body	neg	N2	ORIGIN_MISMATCH	accept

@@ -125,9 +125,11 @@ pragma(Pragma.AllowUnsafe);
   reject_second_class_result_outliving,
   local_borrows_mark,
   local_borrows_truncate,
+  local_borrow_joins_truncate,
   local_borrows_active,
   local_borrow_is_binding_stmt,
   local_borrow_may_bind_projection_stmt,
+  local_borrow_is_mut_binding_stmt,
   local_borrow_set_lookahead,
   local_borrow_result_borrow_of,
   local_borrow_reject_result_borrow,
@@ -2766,10 +2768,15 @@ evaluate_begin_expression :: (
       scope_release_body(sr_mark, &sr_entry);
     });
     local_borrows_truncate(lb_mark);
+    // The flow sets (O-2 §7) die with the function body, not the block.
+    local_borrow_joins_truncate(lb_mark);
     return(sr_r);
   });
   lb_r := _evaluate_begin_expression_impl(expr, env_in, ctx, variables_to_add, is_evaluating_function_body_begin_block, exn);
   local_borrows_truncate(lb_mark);
+  if(is_evaluating_function_body_begin_block, {
+    local_borrow_joins_truncate(lb_mark);
+  });
   lb_r
 });
 _evaluate_begin_expression_impl :: (
@@ -3354,7 +3361,7 @@ _evaluate_begin_expression_impl :: (
         ctx.local_variant_hint = _variant_local_hint(&expr_to_eval, &begin_args, loop_i, is_evaluating_function_body_begin_block, &env, ctx);
         // A local borrow's live range ends at its last use in this block
         // (decision 18): hand the binding the statements after it.
-        if(local_borrow_is_binding_stmt(&expr_to_eval) || local_borrow_may_bind_projection_stmt(&expr_to_eval), {
+        if(local_borrow_is_binding_stmt(&expr_to_eval) || local_borrow_may_bind_projection_stmt(&expr_to_eval) || local_borrow_is_mut_binding_stmt(&expr_to_eval), {
           local_borrow_set_lookahead(&begin_args, loop_i, &expr_to_eval);
         });
         // The result chain's tail (decision 18 rule 1, decision 38 A): when
