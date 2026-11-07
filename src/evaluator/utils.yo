@@ -8531,7 +8531,7 @@ origin_of :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext) -> ArrayL
   out := ArrayList(OriginRootPlace).new();
   _origin_of_into(e, env, ctx, &mut out, u32(0));
   if(debug_knob(`YO_DEBUG_ORIGIN`).is_some(), {
-    eprintln(`[origin] ${ast_expr_to_string(e)} -> [${_n2b_roots_text(&out)}] @${ast_expr_token(e).module_path.*.clone()}:${(ast_expr_token(e).row + u32(1)).to_string()}`);
+    eprintln(`[origin] ${ast_expr_to_string(e)} -> [${n2b_roots_text(&out)}] @${ast_expr_token(e).module_path.*.clone()}:${(ast_expr_token(e).row + u32(1)).to_string()}`);
   });
   // The memo, G-E's totality record: set for every typed node whose type
   // carries an origin (an empty set included — `.None` is "not computed").
@@ -8554,7 +8554,7 @@ origin_of :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext) -> ArrayL
 });
 /// The `[n2b]` trace's root list: `xs(mut=false)/y(mut=true)`, the place's
 /// root name and its mode.
-_n2b_roots_text :: (fn(roots : &ArrayList(OriginRootPlace)) -> String)({
+n2b_roots_text :: (fn(roots : &ArrayList(OriginRootPlace)) -> String)({
   t := String.new();
   (i : usize) = usize(0);
   while(i < roots.len(), {
@@ -8616,6 +8616,24 @@ _origin_of_into :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, out
     .Some(found) => found,
     .None => return(())
   );
+  // The memo (G-E): a non-atom composite's origin is structural — computed
+  // once when its node was first asked for. Atoms are exempt: their holder
+  // entries evolve with the `=` join and re-points, and a lend marker is
+  // read on the unstripped node above.
+  if(!ast_expr_is_atom(&stripped), {
+    match(
+      expr_info_origin(&fi),
+      .Some(memo) => {
+        (mi : usize) = usize(0);
+        while(mi < memo.len(), {
+          match(memo.get_cloned(mi), .Some(mr) => _origin_push(mr.clone(), out), .None => ());
+          mi = (mi + usize(1));
+        });
+        return(());
+      },
+      .None => ()
+    );
+  });
   // R-LEND (recorded form, T9): the marker was peeled out of the tree and
   // the place's recorded reference type carries the mode and the root.
   match(
@@ -9035,7 +9053,7 @@ bind :: (fn(binding : &AstExpr, rhs : &AstExpr, var_name : &String, name_tok : &
   // same (the caller gates on a function-body context).
   roots := origin_of(rhs, env, ctx);
   if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
-    eprintln(`[n2b] bind ${var_name}: roots=[${_n2b_roots_text(&roots)}] rhs=${ast_expr_to_string(rhs)}`);
+    eprintln(`[n2b] bind ${var_name}: roots=[${n2b_roots_text(&roots)}] rhs=${ast_expr_to_string(rhs)}`);
   });
   range := local_borrow_range_of(binding, var_name.clone(), name_tok);
   (ri : usize) = usize(0);
@@ -9187,7 +9205,7 @@ bind_join :: (fn(variable : &Variable, value : &AstExpr, env : &Environment, ctx
     return(());
   });
   if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
-    eprintln(`[n2b] join ${variable.name}: roots=[${_n2b_roots_text(&roots)}] value=${ast_expr_to_string(value)}`);
+    eprintln(`[n2b] join ${variable.name}: roots=[${n2b_roots_text(&roots)}] value=${ast_expr_to_string(value)}`);
   });
   v_tok := variable.token;
   // A SPELLED target checks the subset at the TYPE level: every origin the
@@ -9252,6 +9270,9 @@ bind_join_roots_for :: (fn(variable : &Variable, roots : &ArrayList(OriginRootPl
     .Some(bs) => local_borrow_range_of(&bs, variable.name.clone(), &v_tok),
     .None => LocalBorrowRange(last_use : v_tok, end : at.clone(), has_repoint : false)
   );
+  if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
+    eprintln(`[n2b] join-register ${variable.name}: stmt=${match(&binding_stmt, .Some(_) => String.from("yes"), .None => String.from("NO"))} end_char=${range.end.character.to_string()} roots=[${n2b_roots_text(roots)}]`);
+  });
   existing := ArrayList(OriginRootPlace).new();
   _holder_roots_named_into(variable.name.clone(), &v_tok, &mut existing);
   (ri : usize) = usize(0);
