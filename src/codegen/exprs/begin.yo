@@ -237,37 +237,34 @@ _flush_stmt_lent_temp_drops :: (fn(stmt : &AstExpr, next_stmt : &Option(AstExpr)
         while(pi < pending.len(), {
           match(
             pending.get(pi),
-            .Some(de) => if(
-              _drop_list_has_id(own_drops, ast_expr_id(&de)),
-              match(
-                _get_deferred_drop_target_variable(&de, context),
-                .Some(tv) => {
-                  // Only a MINTED TEMPORARY is a statement-end candidate. A
-                  // lowering's hidden named locals (`for_src0`, `for_guard0`,
-                  // closure capture structs) share the statement's token with
-                  // the synthesized nodes the lowering builds, so token-span
-                  // attribution cannot place them — and their lowering owns
-                  // their release (`for(&make(), …)` drops its hidden owning
-                  // local after the loop). User-named locals keep their
-                  // scope-end drop the same way.
-                  if((is_temp_variable_name(&ei.env().module_path().*, tv.name.clone()) || _looks_like_minted_temp(tv.name.clone())) && is_lent_temp_token(&tv.token) && (tv.token.module_path.* == stmt_tok.module_path.*) && ((stmt_tok.row < tv.token.row) || ((stmt_tok.row == tv.token.row) && (stmt_tok.column <= tv.token.column))), {
-                    // The upper bound: a LATER sibling of the same module ends
-                    // the statement's span.
-                    in_span := match(
-                      &next_tok,
-                      .Some(nt) => !((nt.module_path.* == stmt_tok.module_path.*) && ((nt.row < tv.token.row) || ((nt.row == tv.token.row) && (nt.column <= tv.token.column)))),
-                      .None => true
-                    );
-                    if(in_span, {
-                      if(g_dbg_lt, {
-                        eprintln(`[lent-flush] stmt=${ast_expr_id(stmt).to_string()} temp=${tv.name} tok=${lent_temp_token_key(&tv.token)}`);
-                      });
-                      matching.push(de);
+            .Some(de) => match(
+              _get_deferred_drop_target_variable(&de, context),
+              .Some(tv) => {
+                // Only a MINTED TEMPORARY is a statement-end candidate. A
+                // lowering's hidden named locals (`for_src0`, `for_guard0`,
+                // closure capture structs) share the statement's token with
+                // the synthesized nodes the lowering builds, so token-span
+                // attribution cannot place them — and their lowering owns
+                // their release (`for(&make(), …)` drops its hidden owning
+                // local after the loop). User-named locals keep their
+                // scope-end drop the same way.
+                if(_drop_list_has_id(own_drops, ast_expr_id(&de)) && (is_temp_variable_name(&ei.env().module_path().*, tv.name.clone()) || _looks_like_minted_temp(tv.name.clone())) && is_lent_temp_token(&tv.token) && (tv.token.module_path.* == stmt_tok.module_path.*) && ((stmt_tok.row < tv.token.row) || ((stmt_tok.row == tv.token.row) && (stmt_tok.column <= tv.token.column))), {
+                  // The upper bound: a LATER sibling of the same module ends
+                  // the statement's span.
+                  in_span := match(
+                    &next_tok,
+                    .Some(nt) => !((nt.module_path.* == stmt_tok.module_path.*) && ((nt.row < tv.token.row) || ((nt.row == tv.token.row) && (nt.column <= tv.token.column)))),
+                    .None => true
+                  );
+                  if(in_span, {
+                    if(g_dbg_lt, {
+                      eprintln(`[lent-flush] stmt=${ast_expr_id(stmt).to_string()} temp=${tv.name} tok=${lent_temp_token_key(&tv.token)}`);
                     });
+                    matching.push(de);
                   });
-                },
-                .None => ()
-              )
+                });
+              },
+              .None => ()
             ),
             .None => ()
           );
