@@ -192,12 +192,13 @@ impl(
   /// `OnceLock::get_or_init` lends it.
   ///
   /// `f` is taken by value, unlike the other non-escaping `FnMut` slots
-  /// (`&mut Impl(FnMut(...))`, VERDICTS-28 Q1): the result is a `&T`, and an
-  /// elided result origin is the union of every reference parameter's origin
-  /// (plans/backlog/REFERENCES_AND_ORIGINS.md O2), so a closure lent by
-  /// reference would make `got := cell.get_or_init(() => ...)` borrow the
-  /// temporary closure. By value, the receiver is the only origin.
-  get_or_init : (fn(self : &Self, sink(f) : Impl(FnMut() -> T)) -> &T)({
+  /// (`&mut Impl(FnMut(...))`, VERDICTS-28 Q1). This is a seed gate, not a
+  /// design (VERDICTS-35): the slot becomes `f : &mut Impl(FnMut() -> T)`
+  /// with the result origin spelled, `-> &(T, self)`, once `SEED_VERSION`
+  /// carries #1801 (v0.2.77; plans/backlog/SEED_VERSION_AUTOMATION.md).
+  /// Until then the initializer is taken by value, so the elided result
+  /// origin names only the receiver.
+  get_or_init : (fn(self : &Self, f : Impl(FnMut() -> T)) -> &T)({
     mut(init) := f;
     self._init(&mut init);
     match(

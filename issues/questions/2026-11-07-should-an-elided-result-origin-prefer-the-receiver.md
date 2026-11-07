@@ -2,8 +2,11 @@
 
 **Kind:** design question — an open decision, not a defect.
 
-**Status:** OPEN — filed 2026-11-07 by the G1 lane (`vbd/g1-fnmut-slots`)
-while rebasing VERDICTS-28 Q1 onto #1804.
+**Status:** DECIDED 2026-11-08 (VERDICTS-35): neither option; O2's union
+stands (VERDICTS-1 Q2); `get_or_init` spells `-> &(T, self)` in v0.2.77
+(seed-gated on #1801); v0.2.76 takes `f` by value without `sink`. Filed
+2026-11-07 by the G1 lane (`vbd/g1-fnmut-slots`) while rebasing VERDICTS-28
+Q1 onto #1804.
 
 ## The collision
 
@@ -32,7 +35,9 @@ cli-case fixture bind the result this way.
 
 The G1 branch keeps both decisions by spelling `get_or_init`'s slot
 `sink(f) : Impl(FnMut() -> T)`: Q1's `FnMut` trait, #1804's by-value
-parameter, so the receiver stays the only origin. It is the one non-escaping
+parameter, so the receiver stays the only origin. (As decided: the slot is
+`f : Impl(FnMut() -> T)` without `sink` for v0.2.76 — a closure argument
+always moves, so `sink` there marks nothing.) It is the one non-escaping
 callback slot in std that is not `&mut Impl(FnMut(...))`.
 
 ## What each slot admits (measured 2026-11-07)
@@ -51,6 +56,32 @@ carve-out does not narrow what develop accepts:
 
 A plain by-value `f : Impl(FnMut() -> T)` (no `sink`) gives the same verdicts
 as `sink(f)` in the same probes.
+
+## The spelled form, measured (VERDICTS-35, 2026-11-08)
+
+`get_or_init : (fn(self : &Self, f : &mut Impl(FnMut() -> T)) -> &(T, self))`
+with the body `self._init(f); match(&self._cell.*._value, .Some(v) => &v, …)`,
+checked against a scratch std:
+
+| Shape at `got := cell.get_or_init(...)` | seed v0.2.75 | g1 tree `213c7b008` | O-2 `c7a2f2da9` |
+| --- | --- | --- | --- |
+| capture-free temporary literal, result bound, a second call bound beside it | E0912 **in the callee body** | accepted | accepted |
+| implicit capture of a `Copy` local (`k` usable after) | " | accepted | accepted |
+| move-only payload (`String`), two results bound and compared | " | accepted | accepted |
+| struct payload | " | accepted | accepted |
+| the cli fixture: a nested `cell.get_or_init` inside the initializer | " | accepted | accepted |
+| named borrowing initializer `({ &k, &mut n }() => …)` bound `mut(g)`, passed `&mut g`, `got` read after | " | accepted | (not run) |
+| NEG `(fn(self : &Self, other : &i32) -> &(i32, self))(&other.*)` | E0923 | E0923 | (not run) |
+| POS `-> &(i32, self)` with an `f : &mut Impl(FnMut() -> i32)` slot, called with a `{ &mut hits }` literal, `hits` written after | accepted | accepted | (not run) |
+
+The seed's E0912 is raised at `.Some(v) => &v` (its spelled-origin root walk
+predates #1801, which follows a `&` match's binding into its scrutinee); the
+same body checks clean under the elided `-> &T`. Three seed-acceptable bodies
+were tried and failed: a helper projection `_stored(self) -> &T` holding the
+match (the seed follows the call and raises the same E0912; the tree gives
+E0901 on a move-only payload), `self.get().unwrap()` and
+`match(self.get(), .Some(v) => v, …)` (both E0601 on the seed, which lacks
+N1e-2b's reference reads of an `Option(&T)` payload).
 
 ## The question
 
@@ -71,13 +102,30 @@ Two ways to go:
    spells its origin (O2's "the load-bearing ones spell"), which today has
    no surface syntax.
 
+*Corrections (2026-11-08, VERDICTS-35).* (i) "which today has no surface
+syntax" is false: N1b landed the spelled result origin `-> &(T, xs)` /
+`-> &(T, self)` (`.github/instructions/yo-syntax.instructions.md`, N1b;
+pinned at `tests/borrow_spelling.test.yo:589`), and VERDICTS-1 Q2 names
+`-> &(V, self)` as the release for exactly this false positive. (ii) Option
+2, Rust's receiver rule, was already rejected as the end state by VERDICTS-1
+Q2, which this doc did not cite.
+
 ## Recommendation
 
-Option 2, when the origin surface syntax lands (the checker rejects a body
-whose result does not come from the receiver, so the default stays checked,
-never trusted). It is Rust's rule, it removes the only exception to Q1's
-uniform slot, and it narrows exactly the over-approximation that made #1804
-move `f` by value. Until then option 1 holds: `get_or_init` keeps
-`sink(f) : Impl(FnMut() -> T)` and lends `&mut` to its
-`&mut Impl(FnMut)` `_init`, and a new reference-returning method that takes
-a callback takes it the same way.
+Neither option. The elided result origin stays O2's union (VERDICTS-1 Q2,
+binding). A method that returns a reference and takes a callback spells its
+result origin — `get_or_init : (fn(self : &Self, f : &mut Impl(FnMut() -> T))
+-> &(T, self))` — which is Q1's uniform slot with the receiver as the only
+origin by declaration, checked against the body (a result rooted at `f` or
+any other parameter is E0923 in the callee). Measured on post-#1801
+binaries: every `tests/sync/once.test.yo` call shape and the
+`once-reentrant-call-panics` fixture are accepted unchanged, a named
+borrowing initializer passed `&mut g` is accepted and released after the
+call. The v0.2.75 seed rejects the BODY under the spelled check (E0912 on
+the `&`-match binding; #1801 is not in the seed), so the switch is
+Generation B on the v0.2.76 seed, v0.2.77, parked in
+`plans/backlog/SEED_VERSION_AUTOMATION.md`. For v0.2.76 `get_or_init` takes
+its initializer by value, `f : Impl(FnMut() -> T)` (no `sink`: a closure
+argument always moves, and `sink` is scheduled for deletion), which keeps
+the receiver the only elided origin. No reference-returning std method takes
+a callback by value for this reason again: it spells.

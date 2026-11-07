@@ -3258,16 +3258,18 @@ and in git, not a silent edit.
         `HashMapEntry.or_insert_with`, the `with_lock`/`try_with_lock`
         bodies, the Iterator and stream adapters.
 
-      One as-built carve-out (2026-11-07, the G1 rebase onto #1804):
-      `OnceCell.get_or_init` returns `&T` into the cell, and an elided result
-      origin is the union of every reference parameter's origin
-      (`plans/backlog/REFERENCES_AND_ORIGINS.md` O2), so a closure lent by
-      `&mut` would make `got := cell.get_or_init(() => ...)` borrow the
-      temporary closure. Its slot is `sink(f) : Impl(FnMut() -> T)` — the
-      `FnMut` trait, by value, the receiver the only origin — and it lends
+      One seed-gated exception (2026-11-07, the G1 rebase onto #1804;
+      decided 2026-11-08 by VERDICTS-35): `OnceCell.get_or_init` returns `&T`
+      into the cell, and its exact signature is Q1's slot with the result
+      origin spelled, `(fn(self : &Self, f : &mut Impl(FnMut() -> T)) ->
+      &(T, self))`. The v0.2.75 seed rejects that body (E0912 on the
+      `&`-match binding: it predates #1801), so until `SEED_VERSION` carries
+      #1801 (v0.2.77, `plans/backlog/SEED_VERSION_AUTOMATION.md`) it takes
+      `f : Impl(FnMut() -> T)` by value, no `sink`, so the elided result
+      origin (O2's union, which stands) names only the receiver; it lends
       `&mut` to the `&mut Impl(FnMut)` `_init` that does the work.
       `issues/questions/2026-11-07-should-an-elided-result-origin-prefer-the-receiver.md`
-      asks whether Rust's receiver rule should replace the union instead.
+      records the decision.
 
       The callee calls the closure zero or more times before returning and
       never stores it, so mutable access through a reference is exactly the
@@ -3276,7 +3278,9 @@ and in git, not a silent edit.
       call-repeatedly (a slot that admits `FnMut` admits every call-once
       use; the converse is false). A named closure passed to such a slot is
       bound `mut(g)` and passed `&mut g`; an inline literal infers the
-      bound. `&Impl(Fn(...))` stays only where the callback is shared,
+      bound. A slot on a method that returns a reference spells the result
+      origin (`-> &(T, self)`) so the callback is released at the call
+      (VERDICTS-35). `&Impl(Fn(...))` stays only where the callback is shared,
       stored beyond the call, or called from another thread
       (`thread.spawn_blocking`'s `sink(cb) : Impl(Fn() -> T, Send)` until
       `sink`'s deletion, the http `handler`). A closure that must move a
