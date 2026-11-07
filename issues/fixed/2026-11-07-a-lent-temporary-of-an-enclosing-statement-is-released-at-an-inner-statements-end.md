@@ -108,6 +108,28 @@ the drop is never emitted inside a nested loop. This matches Rust: a temporary
 lives to the end of the statement that created it, and the statements nested
 inside that statement do not end it.
 
+### Every affected site
+
+The fix is in the emitter, so it covers every site. To list the sites, I
+compiled `src/main.yo` twice with `YO_DEBUG_LENT_TEMP=1`, which prints one
+`[lent-flush]` line per statement-end release: once with the develop
+`f89a24b0d` stage 1 and once with this branch's stage 1. The develop compiler
+printed 15,407 releases and the fixed one 15,402. The difference is exactly
+five releases, all removed and none added:
+
+| Site | Shape |
+| ---- | ----- |
+| `src/evaluator/calls/comptime_fn.yo:506` | `for(&bucket.caches, …)` |
+| `src/evaluator/calls/comptime_fn.yo:565` | `for(&bucket.caches, …)` |
+| `src/evaluator/calls/comptime_fn.yo:585` | `for(&bucket.caches, …)` |
+| `src/evaluator/calls/comptime_fn.yo:1096` | `for(&entry.caches, …)` in a `match` arm |
+| `src/evaluator/calls/helper.yo:2536` | `for(&entry.caches, …)` in a `match` arm |
+
+Each one loops over a field of a `ref` cache entry (`ComptimeFnCacheEntry`, the
+specialized-fn cache). The std modules the compiler imports have no other
+site. No source change is needed: the shape is valid Yo and does not involve
+raw pointers.
+
 Tests: `tests/local_borrows.test.yo`, "a lent temporary of an enclosing
 statement is not released at an inner statement's end" (`for(&r.items, …)`
 over an `Rc` handle) and "a match binding's lent temporary is not released
