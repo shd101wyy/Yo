@@ -8699,6 +8699,14 @@ _origin_of_into :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, out
       .None => ()
     );
   });
+  // R-FIELD over a reference-valued field (`self.xs : &mut(ArrayList(T), p)`,
+  // `v.r : &(i32, x)`): the value IS a reference, so its origin is the field
+  // type's — each spelled name a runtime place, an origin parameter the
+  // caller's (none) — never the field's own place (R-DEREF's base case).
+  if(ast_expr_is_fn_call_of(&stripped, BF_DOT, Option(usize).Some(usize(2))) && match(&fi.ty(), Rc(.Reference(_, _, _)) => true, _ => false), {
+    _origin_field_into(&stripped, &fi, env, ctx, out, depth);
+    return(());
+  });
   // R-LEND (recorded form, T9): the marker was peeled out of the tree and
   // the place's recorded reference type carries the mode and the root.
   match(
@@ -8732,6 +8740,13 @@ _origin_of_into :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, out
   match(
     &stripped,
     .FnCall(_, _, Rc(fc_args), fc_infix, _) => {
+      // R-FIELD: a field read (`h.v` of a holder) — its type's spelled
+      // origins, else the receiver's (a holder's field holds what the
+      // holder holds). Never the components: the field name is no value.
+      if(ast_expr_is_fn_call_of(&stripped, BF_DOT, Option(usize).Some(usize(2))), {
+        _origin_field_into(&stripped, &fi, env, ctx, out, depth);
+        return(());
+      });
       // R-ARM: `cond`/`match` — the union over the arms' values (decision
       // 38 A "borrow sets join"); an arm's bindings borrow the scrutinee
       // (decision 26) and are read back by R-READ above.
@@ -8819,9 +8834,87 @@ _origin_of_into :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, out
   );
   ()
 });
+/// R-FIELD's push for the field read `node` (`recv.field`): the field
+/// type's spelled origin names (`_origin_names_into`), else the receiver's
+/// origin.
+_origin_field_into :: (fn(node : &AstExpr, fi : &ExprInfo, env : &Environment, ctx : &EvalContext, out : &mut ArrayList(OriginRootPlace), depth : u32) -> unit)({
+  f_names := ArrayList(String).new();
+  origin_param_names_of(&fi.ty(), &mut f_names, u32(0));
+  if(f_names.len() > usize(0), {
+    _origin_names_into(&f_names, t_slot_is_mut_ref(&fi.ty()), env, out);
+    return(());
+  });
+  match(
+    node,
+    .FnCall(_, _, Rc(f_args), _, _) => match(
+      f_args.get(usize(0)),
+      .Some(recv) => _origin_of_into(&recv, env, ctx, out, (depth + u32(1))),
+      .None => ()
+    ),
+    .Atom(_, _) => ()
+  );
+});
+/// Spelled origin names as roots: a name naming a RUNTIME binding is that
+/// binding's place; an origin parameter (a compile-time `Origin` binding)
+/// is the caller's storage, outside this function — it contributes none.
+_origin_names_into :: (fn(names : &ArrayList(String), is_mut : bool, env : &Environment, out : &mut ArrayList(OriginRootPlace)) -> unit)({
+  (ni : usize) = usize(0);
+  while(ni < names.len(), {
+    match(
+      names.get_cloned(ni),
+      .Some(n) => match(
+        get_variables_from_env(env, n.clone()).last_cloned(),
+        .Some(nv) => if(!nv.is_compile_time_only(), {
+          _origin_push(OriginRootPlace(place : local_borrow_place_of_variable(&nv), is_mut : is_mut), out);
+        }),
+        .None => ()
+      ),
+      .None => ()
+    );
+    ni = (ni + usize(1));
+  });
+});
+/// R-DEREF's indirection: the OUTERMOST receiver on the lend's place chain
+/// (not the root atom) whose value is a reference — the lend points through
+/// it, so its origin is that reference's. Field and deref dots are followed,
+/// and a call's callee (as `local_borrow_place_of` walks).
+_lend_crossed_reference :: (fn(operand : &AstExpr, ctx : &EvalContext) -> Option(AstExpr))({
+  (e : AstExpr) = ast_expr_strip_borrow_marker(operand);
+  (walking : bool) = true;
+  while(walking, {
+    e = ast_rewritten_node(&e);
+    match(
+      e,
+      .Atom(_, _) => {
+        walking = false;
+      },
+      .FnCall(_, lc_callee, Rc(lc_args), _, _) => {
+        next := cond(
+          ast_expr_is_fn_call_of(&e, BF_DOT, Option(usize).Some(usize(2))) => match(lc_args.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
+          ast_expr_is_fn_call_of(&e, BK_COLON, Option(usize).Some(usize(2))) => match(lc_args.get(usize(1)), .Some(a) => a, .None => make_err_expr()),
+          true => lc_callee
+        );
+        if(!ast_expr_is_atom(&next) && match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&next)), .Some(nx_info) => match(&nx_info.ty(), Rc(.Reference(_, _, _)) => true, _ => false), .None => false), {
+          return(Option(AstExpr).Some(next));
+        });
+        e = next;
+      }
+    );
+  });
+  Option(AstExpr).None
+});
 /// R-LEND's push: the operand's place (a lend rooted at a name), with the
-/// marker's mode.
-_origin_push_lend :: (fn(operand : &AstExpr, is_mut : bool, env : &Environment, ctx : &EvalContext, out : &mut ArrayList(OriginRootPlace)) -> unit)(
+/// marker's mode — or, through a reference on the way (R-DEREF), that
+/// reference's origin.
+_origin_push_lend :: (fn(operand : &AstExpr, is_mut : bool, env : &Environment, ctx : &EvalContext, out : &mut ArrayList(OriginRootPlace)) -> unit)({
+  match(
+    _lend_crossed_reference(operand, ctx),
+    .Some(crossed) => {
+      _origin_of_into(&crossed, env, ctx, out, u32(1));
+      return(());
+    },
+    .None => ()
+  );
   match(
     local_borrow_place_of(operand, env, ctx),
     .Some(p) => _origin_push(OriginRootPlace(place : p, is_mut : is_mut), out),
@@ -8848,8 +8941,8 @@ _origin_push_lend :: (fn(operand : &AstExpr, is_mut : bool, env : &Environment, 
         .None => ()
       );
     }
-  )
-);
+  );
+});
 /// The root atom of a place-shaped chain (`h.*.s` → `h`): only field/deref
 /// dots are followed — a call operand is not a place chain (its result is a
 /// temporary), and `.None` says so.
