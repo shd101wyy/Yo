@@ -6774,7 +6774,7 @@ nominal_declares_move_only :: (fn(ty : &TypeValue) -> String)({
       .Some(d) => {
         hit := match(
           &d.generic,
-          .Some(ge) => try_match_generic_impl(ty, &ge, &ge.definition_env, true).is_some(),
+          .Some(ge) => try_match_generic_impl(ty, &ge.*, &ge.definition_env, true).is_some(),
           .None => (d.concrete_id == tid)
         );
         if(hit, {
@@ -6808,7 +6808,7 @@ nominal_declares_move_only :: (fn(ty : &TypeValue) -> String)({
 generic_instantiation_declares_drop :: (fn(ty : &TypeValue) -> bool)({
   (cfid, args, is_ref) := match(
     ty,
-    Rc(.Struct({ constructor_func_id : c, type_arguments : ta, is_reference_semantics : r })) => (c.clone(), Rc.clone(ta), r),
+    Rc(.Struct({ constructor_func_id : c, type_arguments : ta, is_reference_semantics : r })) => (c.clone(), Rc.clone(ta), r.*),
     _ => return(false)
   );
   if(is_ref || cfid.is_empty() || !_any_type_has_some_type(&args.items), {
@@ -6823,7 +6823,7 @@ generic_instantiation_declares_drop :: (fn(ty : &TypeValue) -> bool)({
       g_move_only_decls.with(xs => xs.get_cloned(i)),
       .Some(d) => match(
         &d.generic,
-        .Some(ge) => if(_generic_drop_impl_covers(&ge, &cfid, &args), {
+        .Some(ge) => if(_generic_drop_impl_covers(&ge.*, &cfid, &args), {
           return(true);
         }),
         .None => ()
@@ -6847,7 +6847,7 @@ _generic_drop_impl_covers :: (fn(ge : &GenericImplEntry, cfid : &String, args : 
     Rc(.Struct({ constructor_func_id : c, type_arguments : pta })) => (c.clone(), Rc.clone(pta)),
     _ => return(false)
   );
-  if((pc != cfid) || (pat_args.len() != args.len()), {
+  if((pc != cfid.*) || (pat_args.len() != args.len()), {
     return(false);
   });
   // Each pattern argument is one of the impl's parameters, used once.
@@ -7399,7 +7399,7 @@ impls_of_constructor_method :: (fn(ctor_fid : &String, method : &String) -> Arra
   while(ci < n_conc, ci = (ci + usize(1)), {
     match(
       g_ctor_concrete_methods.with(xs => xs.get_cloned(ci)),
-      .Some(cm) => if((cm.ctor_fid == ctor_fid) && (cm.method == method) && (get_visible_type_trait_methods_by_name(type_id_or_empty(&cm.receiver_ty), method.clone()).len() > usize(0)), {
+      .Some(cm) => if((cm.ctor_fid == ctor_fid.*) && (cm.method == method.*) && (get_visible_type_trait_methods_by_name(type_id_or_empty(&cm.receiver_ty), method.clone()).len() > usize(0)), {
         out.push(CtorMethodImpl(binder_names : ArrayList(String).new(), binder_types : ArrayList(TypeValue).new(), receiver_pattern : Rc.clone(cm.receiver_ty), method_ty : Rc.clone(cm.method_ty), generic_entry : .None, site : cm.site.clone()));
       }),
       .None => ()
@@ -7425,7 +7425,7 @@ _collect_generic_ctor_method_impls :: (fn(ctor_fid : &String, method : &String) 
           (fi : usize) = usize(0);
           (found : Option(TypeValue)) = .None;
           while((fi < entry.field_names.len()) && found.is_none(), fi = (fi + usize(1)), {
-            if(match(entry.field_names.get_cloned(fi), .Some(n) => (n == method), .None => false), {
+            if(match(entry.field_names.get_cloned(fi), .Some(n) => (n == method.*), .None => false), {
               found = entry.field_types.get_cloned(fi);
             });
           });
@@ -7433,7 +7433,7 @@ _collect_generic_ctor_method_impls :: (fn(ctor_fid : &String, method : &String) 
             found,
             .Some(mty) => {
               owner := match(g_impl_registry_entry_owners.with(xs => xs.get_cloned(ki)), .Some(ol) => match(ol.get_cloned(ei), .Some(o) => o.clone(), .None => String.new()), .None => String.new());
-              if(is_function_type(&mty) && (instance_constructor_fid(&entry.receiver_type_pattern) == ctor_fid) && owner_visible_from_current(&owner), {
+              if(is_function_type(&mty) && (instance_constructor_fid(&entry.receiver_type_pattern) == ctor_fid.*) && owner_visible_from_current(&owner), {
                 names := entry.forall_names.clone();
                 somes := entry.forall_some_types.clone();
                 pattern := entry.receiver_type_pattern.clone();

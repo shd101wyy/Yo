@@ -142,7 +142,7 @@ try_to_call_type_with_arguments :: (
   (pre_i : usize) = usize(0);
   while(pre_i < n_fields, {
     values.push(Option(EvalValue).None);
-    runtime_arg_exprs_in_order.push(function_callee_expr);
+    runtime_arg_exprs_in_order.push(function_callee_expr.*);
     arg_types.push(Option(TypeValue).None);
     pre_i = (pre_i + usize(1));
   });
@@ -154,7 +154,7 @@ try_to_call_type_with_arguments :: (
     if(arg_expr_opt.is_none(), {
       i = (i + usize(1));
     });
-    arg_expr := match(arg_expr_opt, .Some(a) => a, .None => function_callee_expr);
+    arg_expr := match(arg_expr_opt, .Some(a) => a, .None => function_callee_expr.*);
     field_opt := type_fields.get_cloned(i);
     member_element := match(
       field_opt,
@@ -283,13 +283,13 @@ try_to_call_type_with_arguments :: (
       match(
         &member_element.ty,
         Rc(.Reference(_, t9_fm, _)) => {
-          if(t9_is_mut_marker != t9_fm, {
+          if(t9_is_mut_marker != t9_fm.*, {
             exn.throw(
               dyn(
                 with_code(
                   format_error_message(
                     ast_expr_token(&actual_arg_expr),
-                    `Field "${member_element.label}" takes \`${type_to_string(&member_element.ty)}\`: lend the place with \`${if(t9_fm, "&mut ", "&")}${ast_place_text(ast_expr_strip_borrow_marker(&actual_arg_expr))}\`.`
+                    `Field "${member_element.label}" takes \`${type_to_string(&member_element.ty)}\`: lend the place with \`${if(t9_fm.*, "&mut ", "&")}${ast_place_text(ast_expr_strip_borrow_marker(&actual_arg_expr))}\`.`
                   ),
                   E_BORROW_MARKER_MISMATCH
                 )
@@ -360,7 +360,7 @@ try_to_call_type_with_arguments :: (
           expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&evaluated_arg), &arg_info);
         }),
         _ => {
-          t9w_lend_ty = lend_place_reference_type(&evaluated_arg, &arg_info, t9w_mut, ctx);
+          t9w_lend_ty = lend_place_reference_type(&evaluated_arg, &arg_info, t9w_mut.*, ctx);
         }
       ),
       _ => ()
