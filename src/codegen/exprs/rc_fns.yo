@@ -96,7 +96,7 @@ _drop_operand :: (fn(arg : &AstExpr, indent : &String, context : &mut FunctionGe
     .None => Option(Variable).None
   );
   tv := match(target, .Some(v) => v, .None => return(_rc_operand(arg, indent, context)));
-  if(match(&innermost.decl, .Some(d) => _same_position(&d, &tv.token), .None => false), {
+  if(match(&innermost.decl, .Some(d) => _same_position(&d.*, &tv.token), .None => false), {
     return(_rc_operand(arg, indent, context));
   });
   (mut(first_decl) : Option(Token)) = Option(Token).None;
@@ -107,7 +107,7 @@ _drop_operand :: (fn(arg : &AstExpr, indent : &String, context : &mut FunctionGe
       .Some(b) => match(
         &b.decl,
         .Some(d) => {
-          if(_same_position(&d, &tv.token), {
+          if(_same_position(&d.*, &tv.token), {
             return(b.c_name.clone());
           });
           if(first_decl.is_none(), {
@@ -119,7 +119,7 @@ _drop_operand :: (fn(arg : &AstExpr, indent : &String, context : &mut FunctionGe
       .None => ()
     );
   });
-  if(!match(&first_decl, .Some(fd) => _position_before(&tv.token, &fd), .None => false), {
+  if(!match(&first_decl, .Some(fd) => _position_before(&tv.token, &fd.*), .None => false), {
     return(_rc_operand(arg, indent, context));
   });
   saved_shadowed := context.local_shadowed_variables.take();

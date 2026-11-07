@@ -332,8 +332,8 @@ generate_field_access :: (fn(expr : &AstExpr, indent : &String, context : &mut F
     ref_ty,
     .Some(Rc(.Reference(gf_pointee, gf_mut, _))) => cond(
       (code.len() == usize(0)) => code,
-      gf_mut.* => `(*${code})`,
-      true => `(*((${get_type_string(&gf_pointee.*, &mut context.base)}*)${code}))`
+      gf_mut => `(*${code})`,
+      true => `(*((${get_type_string(&gf_pointee, &mut context.base)}*)${code}))`
     ),
     _ => code
   )

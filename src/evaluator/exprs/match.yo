@@ -1754,16 +1754,16 @@ evaluate_match :: (
                 _throw_mut_match_copy(&b.atom, &bind_ty, ctx, exn);
               });
             }, {
-              variable_set_is_borrow_match_binding(&bm_var, true);
+              variable_set_is_borrow_match_binding(&bm_var.*, true);
               if(!is_unit_type(&bind_ty), {
                 // The projection root rule follows the binding to the
                 // scrutinee's place (decision 24); a `mut` copy stays a
                 // local.
                 note_borrow_match_source(bm_var.id(), &scrutinee_expr);
-                variable_set_is_ref(&bm_var, true);
+                variable_set_is_ref(&bm_var.*, true);
                 // `is_ref` says the binding is a pointer; a `&` match
                 // lends read-only.
-                variable_set_reference_mut(&bm_var, false);
+                variable_set_reference_mut(&bm_var.*, false);
                 any_ref_binder = true;
               });
             });
@@ -1849,7 +1849,7 @@ evaluate_match :: (
               // A `mut` place: the binding aliases the part, so reads and
               // writes go through it (the guard reads it; it becomes
               // writable for the body).
-              variable_set_is_ref(&av, true);
+              variable_set_is_ref(&av.*, true);
               place_vars.push(Rc.clone(av));
               any_place_binder = true;
             });
