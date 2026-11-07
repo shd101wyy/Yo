@@ -9338,31 +9338,34 @@ bind_join_roots_for :: (fn(variable : &Variable, roots : &ArrayList(OriginRootPl
   // freezes nothing observable — and its loop scope would false-fire the
   // §7 scope check below. Roots that RESOLVED through the collection local
   // are the user's places and stay.
-  {
-    (di : usize) = usize(0);
-    while(di < ground.len(), {
-      (is_hidden : bool) = false;
-      match(
-        ground.get_cloned(di),
-        .Some(gr) => match(
-          get_variables_from_env(env, gr.place.root_name.clone()).last_cloned(),
-          .Some(dv) => {
-            is_hidden = for_desugar_site_of(&dv.token).is_some();
-          },
-          .None => ()
-        ),
+  (di : usize) = usize(0);
+  while(di < ground.len(), {
+    (is_hidden : bool) = false;
+    match(
+      ground.get_cloned(di),
+      .Some(gr) => match(
+        get_variables_from_env(env, gr.place.root_name.clone()).last_cloned(),
+        .Some(dv) => {
+          is_hidden = for_desugar_site_of(&dv.token).is_some();
+        },
         .None => ()
-      );
-      if(is_hidden, {
-        _ := ground.swap_remove(di);
-        ()
-      }, {
-        di = (di + usize(1));
-      });
+      ),
+      .None => ()
+    );
+    if(is_hidden, {
+      _ := ground.swap_remove(di);
+      ()
+    }, {
+      di = (di + usize(1));
     });
-  }
+  });
+  site_text := match(
+    &site,
+    .Some(_) => String.from("yes"),
+    .None => String.from("NO")
+  );
   if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
-    eprintln(`[n2b] join-register ${variable.name}: site=${match(&site, .Some(_) => String.from("yes"), .None => String.from("NO"))} end_char=${range.end.character.to_string()} ground=[${n2b_roots_text(&ground)}]`);
+    eprintln(`[n2b] join-register ${variable.name}: site=${site_text} end_char=${range.end.character.to_string()} ground=[${n2b_roots_text(&ground)}]`);
   });
   // The §7 scope check: a ground place's root binding may not end its scope
   // before the holder's last use — the holder would point at storage that
@@ -9412,23 +9415,22 @@ bind_join_roots_for :: (fn(variable : &Variable, roots : &ArrayList(OriginRootPl
       .Some(root) => {
         places := ArrayList(LocalBorrowPlace).new();
         places.push(root.place.clone());
+        entry := LocalBorrowInfo(
+          name : variable.name.clone(),
+          decl : v_tok,
+          start : v_tok,
+          macro_site : Option(Token).None,
+          is_mut : root.is_mut,
+          places : places,
+          last_use : range.last_use,
+          end : range.end,
+          parents : ArrayList(LocalBorrowInfo).new(),
+          crosses_cell : root.place.through_cell,
+          module_root : root.place.module_root,
+          step_pin : Option(Variable).None
+        );
         g_local_borrow_joins.with_mut(xs => {
-          xs.push(
-            LocalBorrowInfo(
-              name : variable.name.clone(),
-              decl : v_tok,
-              start : v_tok,
-              macro_site : Option(Token).None,
-              is_mut : root.is_mut,
-              places : places,
-              last_use : range.last_use,
-              end : range.end,
-              parents : ArrayList(LocalBorrowInfo).new(),
-              crosses_cell : root.place.through_cell,
-              module_root : root.place.module_root,
-              step_pin : Option(Variable).None
-            )
-          );
+          xs.push(entry);
           ()
         });
       },
@@ -9440,13 +9442,15 @@ bind_join_roots_for :: (fn(variable : &Variable, roots : &ArrayList(OriginRootPl
 /// Drop the holder's flow-set entries (a whole-holder assignment replaced
 /// its value — kill, before the new set's gen).
 local_borrow_joins_clear :: (fn(name : &String, decl : &Token) -> unit)({
+  clear_name := name.clone();
+  clear_path := decl.module_path.*.clone();
   g_local_borrow_joins.with_mut(xs => {
     (i : usize) = xs.len();
     while(i > usize(0), {
       i = (i - usize(1));
       match(
         xs.get(i),
-        .Some(info) => if((info.name == name) && (info.decl.module_path == decl.module_path), {
+        .Some(info) => if((info.name == clear_name) && (info.decl.module_path.* == clear_path), {
           _ := xs.swap_remove(i);
           ()
         }, ()),
