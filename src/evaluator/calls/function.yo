@@ -689,7 +689,7 @@ reject_destructor_member_read :: (fn(dot : &AstExpr, env : &Environment, ctx : &
 _reject_explicit_ref_receiver_slot :: (
   fn(mi_opt : &Option(ReceiverMethodResult), callee : &AstExpr, ctx : &EvalContext, exn : Exception) -> unit
 )(
-  match(mi_opt, .Some(mi) => _reject_explicit_ref_receiver_slot_of(&mi, callee, ctx, exn), .None => ())
+  match(mi_opt, .Some(mi) => _reject_explicit_ref_receiver_slot_of(&mi.*, callee, ctx, exn), .None => ())
 );
 _reject_explicit_ref_receiver_slot_of :: (
   fn(mi : &ReceiverMethodResult, callee : &AstExpr, ctx : &EvalContext, exn : Exception) -> unit
@@ -1242,7 +1242,7 @@ _r_probe_rank :: (fn(e : &MethodEntry, ref_mode : Option(bool)) -> usize)({
         (!rp_mut.* && rp_mut2.*) => usize(5),
         true => usize(6)
       ),
-      _ => cond(rp_mut => usize(2), true => usize(1))
+      _ => cond(rp_mut.* => usize(2), true => usize(1))
     ),
     _ => usize(0)
   );
@@ -1288,7 +1288,7 @@ _r_probe_slots_text :: (fn(base : &TypeValue, ref_mode : Option(bool)) -> String
 /// One method candidate's identity: its trait, its impl's receiver and its
 /// signature (the same impl reached through two lookups is one candidate).
 _method_entry_identity :: (fn(e : &MethodEntry) -> String)(
-  `${e.source_trait_id}|${match(&e.self_type, .Some(st) => type_key(&st), .None => String.new())}|${type_to_string(&e.ty)}`
+  `${e.source_trait_id}|${match(&e.self_type, .Some(st) => type_key(&st.*), .None => String.new())}|${type_to_string(&e.ty)}`
 );
 /// The R-PROBE candidates of `method_name` on a receiver of value type
 /// `base` and reference mode `ref_mode`: `base_hits` (the methods registered
@@ -2841,7 +2841,7 @@ _ambiguous_method_message :: (
           .Some(pr) => Option(TypeValue).Some(pr),
           .None => ae.self_type.clone()
         );
-        ae_recv := match(&ae_self, .Some(st) => type_to_string(&st), .None => String.from("T"));
+        ae_recv := match(&ae_self, .Some(st) => type_to_string(&st.*), .None => String.from("T"));
         ae_slot := match(fn_param_slots(&ae.ty).get(usize(0)), .Some(sl) => sl, .None => Rc.new(TypeValueNode.Unit));
         ae_label := match(&ae.ty, Rc(.Func({ meta : ae_meta })) => match(ae_meta.*.param_labels.get(usize(0)), .Some(l) => l, .None => String.from("self")), _ => String.from("self"));
         ae_mode := match(

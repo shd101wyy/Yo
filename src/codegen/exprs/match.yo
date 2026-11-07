@@ -2019,7 +2019,7 @@ _emit_pattern_chain :: (
     .Bind(name, btok, batom) => {
       if(!is_unit_type(ty), {
         cname := sanitize_for_c_identifier(name.clone(), false);
-        b_place := ((places && !in_cell) || (_binds_by_ref(refs, &batom) && !t_slot_is_borrow(ty)));
+        b_place := ((places && !in_cell) || (_binds_by_ref(refs, &batom.*) && !t_slot_is_borrow(ty)));
         // An or-pattern alternative assigns the binding its arm declared
         // before the alternatives (`.Or` below); any other binding declares
         // its own.
@@ -2037,7 +2037,7 @@ _emit_pattern_chain :: (
           b_place => _emit_place_binding_decl(context, indent.clone(), decl_c.clone(), ty, path.clone()),
           true => _emit_pattern_binding_decl(context, indent.clone(), decl_c.clone(), ty, path.clone())
         );
-        _bind_pattern_name(context, indent.clone(), cname.clone(), decl_c.clone(), &btok, path.clone());
+        _bind_pattern_name(context, indent.clone(), cname.clone(), decl_c.clone(), &btok.*, path.clone());
         if(b_place, _place_add(context, decl_c.clone()));
         shadows.push(cname);
       });
