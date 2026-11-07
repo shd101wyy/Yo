@@ -9,6 +9,9 @@
 { ArrayList } :: import("std/collections/array_list");
 { RefCell } :: import("std/sync/refcell");
 { sleep } :: import("std/sys/timer");
+{ Path } :: import("std/path");
+{ remove_file, rename } :: import("std/fs/dir");
+{ exists } :: import("std/fs/file");
 Boom :: struct(msg : String);
 impl(Boom, ToString(to_string : (self -> self.msg.clone())));
 impl(Boom, Error());
@@ -437,12 +440,12 @@ test("a borrowing arm binding does not shadow a fused wrapper's parameter", {
   assert(v == i32(55), "(4 + 1) + 50");
 });
 
-// A throw out of a fused block, with the call's by-value argument held by the
-// site's capture. The await sits in a scope that hands its consumed values to
-// the escape paths (a match arm, a loop body, a nested block): the argument
-// is the call's from the call on, so the only release on the way out is the
-// state machine's dispose
+// An escape inside a fused site is the awaited future's abort: the caller's
+// resume function releases nothing there, and the state machine's dispose
+// releases what the caller owns, once
 // (issues/fixed/2026-11-07-a-fused-block-that-throws-drops-its-by-value-capture-twice.md).
+// First the call's own by-value argument, held by the site's capture, in the
+// scopes that hand a consumed value to the escape paths.
 _throws_taking :: (fn(sink(name) : String, io : Io) -> Impl(Future(usize, IoExn)))(
   io.async(e => {
     r := e.io.await(_leaf(i32(1), e.io), e.io);
@@ -509,4 +512,99 @@ test("a throw in a fused block releases the call's argument once (loop body)", {
 });
 test("a throw in a fused block releases the call's argument once (nested block)", {
   assert(_caught_arg(i32(2), io), "the thrown message is the wrapper's argument");
+});
+// The caller's temps: an earlier statement's, released before the site, and
+// the site's own arguments' (src/fetch.yo's store install: `rename` over a
+// path that is not there, after an `exists` await).
+_land :: (fn(sink(tmp) : String, sink(final_dir) : String, io : Io) -> Impl(Future(unit, IoExn)))(
+  io.async(e => {
+    landed := e.io.await(exists(Path.new(final_dir.clone()), e.io), e.io);
+    if(landed, {
+      e.io.await(remove_file(Path.new(tmp.clone()), e.io), e);
+    }, {
+      e.io.await(rename(Path.new(tmp.clone()), Path.new(final_dir.clone()), e.io), e);
+    });
+  })
+);
+// The same, with a block that suspends for real first: a C local of the
+// resume function does not survive that.
+_raise_for :: (fn(path : &Path, exn : Exception) -> unit)({
+  if(path.to_string().len() > usize(0), {
+    exn.throw(dyn(Boom(msg : path.to_string())));
+  });
+});
+_parks_then_throws :: (fn(path : &Path, io : Io) -> Impl(Future(unit, IoExn)))({
+  owned := path.clone();
+  io.async(e => {
+    e.io.await(sleep(u64(1)), e.io);
+    _raise_for(&owned, e.exn);
+    ()
+  })
+});
+_land_parked :: (fn(sink(tmp) : String, sink(final_dir) : String, io : Io) -> Impl(Future(unit, IoExn)))(
+  io.async(e => {
+    landed := e.io.await(exists(Path.new(final_dir.clone()), e.io), e.io);
+    if(landed, {
+      e.io.await(remove_file(Path.new(tmp.clone()), e.io), e);
+    }, {
+      e.io.await(_parks_then_throws(Path.new(tmp.clone()), e.io), e);
+    });
+  })
+);
+_caught_landing :: (fn(parked : bool, io : Io) -> bool)({
+  exn := Exception(
+    throw : (
+      err -> {
+        unwind(true);
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  a := String.from("/nonexistent/yo-fusion-test/from");
+  b := String.from("/nonexistent/yo-fusion-test/to");
+  cond(
+    parked => io.await(_land_parked(a, b, io), e),
+    true => io.await(_land(a, b, io), e)
+  );
+  false
+});
+test("a failed rename fused after an earlier await releases each caller temp once", {
+  assert(_caught_landing(false, io), "renaming a path that is not there throws");
+});
+test("a throw after a real suspension in a fused block touches no caller temp", {
+  assert(_caught_landing(true, io), "the wrapper throws once its timer fires");
+});
+// A prologue escape leaves the wrapper, as at a call: its own by-value
+// parameter is released, once, and the argument is not the caller's any more.
+_throws_in_prologue :: (fn(sink(name) : String, io : Io, exn : Exception) -> Impl(Future(usize, IoExn)))({
+  n := name.len();
+  if(n > usize(3), {
+    exn.throw(dyn(Boom(msg : name.clone())));
+  });
+  io.async(e => {
+    r := e.io.await(_leaf(i32(1), e.io), e.io);
+    usize(r) + name.len()
+  })
+});
+_prologue_caller :: (fn(sink(name) : String, io : Io) -> Impl(Future(usize, IoExn)))(
+  io.async(e => {
+    v := e.io.await(_throws_in_prologue(name, e.io, e.exn), e);
+    v + usize(1)
+  })
+);
+_caught_in_prologue :: (fn(name : &String, io : Io) -> usize)({
+  exn := Exception(
+    throw : (
+      err -> {
+        unwind(err.to_string().len());
+      }
+    )
+  );
+  io.await(_prologue_caller(name.clone(), io), IoExn(io : io, exn : exn))
+});
+test("a throw in a fused wrapper's prologue releases its argument", {
+  assert(_caught_in_prologue(&String.from("long enough"), io) == usize(11), "the thrown message is the argument");
+});
+test("a fused wrapper's prologue that does not throw runs its block", {
+  assert(_caught_in_prologue(&String.from("ab"), io) == usize(4), "(1 + 2) + 1");
 });
