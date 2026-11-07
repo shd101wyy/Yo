@@ -1,0 +1,21 @@
+// expect: E0923
+// H4 (ASan form).
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+Slot :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(dst : &mut Option(&(Rc(X), p))));
+put :: (fn(generic(p : Origin), s : &mut Slot(p), v : &(Rc(X), p)) -> unit)({
+  s.dst.* = .Some(v);
+});
+main :: (fn() -> unit)({
+  x := Rc.new(X(s : String.from("x")));
+  mut(slot) := Option(&(Rc(X), x)).Some(&x);
+  mut(s) := Slot(x)(dst : &mut slot);
+  {
+    y := Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz")));
+    put(&mut s, &y);
+  };
+  match(slot, .Some(r) => println(`OUT: ${r.*.*.s.len().to_string()}`), .None => println("none"));
+  ()
+});
+export(main);
