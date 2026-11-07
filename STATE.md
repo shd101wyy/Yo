@@ -166,7 +166,7 @@ The question is (A) switch only the side-effect call-once slots, (B) switch ever
   (grep over array_list/hash_map/regex/bench/stream/async-mutex/mutex/rwlock/
   semaphore/once/refcell/log + prelude adapters: zero `for(` loops in the
   switched bodies; the sort/search helpers are while-loops). The false E0926
-  shape (issues/2026-11-06-a-borrowed-for-over-a-mut-param-...md, deref lane)
+  shape (the deref lane's borrowed-for issue (see coordinator handover))
   does NOT occur in G1's std diff, so nothing to work around or re-gate; my
   tree keeps `is_deref_rule_exempt`, and the S1's fix is reported to merge
   before this PR — final battery covers it.
@@ -191,3 +191,68 @@ The question is (A) switch only the side-effect call-once slots, (B) switch ever
   slot. ExprInfo/ExprId/HashMap imports added (context, main, codegen_c);
   http/server duplicate RefCell import removed.
 - NEXT: rebuild (nix clang) -> expect 0 void* spills in yo.c -> binary.
+
+## 2026-11-07 morning — GATES
+- Tree binary (wave 4): yo.c has ZERO void* ref-spills; BUILD RC=0. The S1
+  spill repros (p10 generic-slot literal, p17 Option.map/filter literals)
+  compile AND run correctly on the tree binary — the _closure_ref_spill_c_type
+  fix works. probe2 (forwarding { g : &mut f.* }) works on the tree: NO issue
+  (the seed's E0926 was a false rejection, fixed by develop's deref work).
+- THIRD facet found (filed, dodged): a named fn at an Impl slot inside a
+  GENERIC body — the with-specialization is referenced but not emitted
+  (issues/2026-11-07-a-named-fn-at-an-fnmut-slot-inside-a-generic-body-is-
+  not-emitted.md, S1; free-generic-fn facet fails on seed AND develop —
+  p21 16-line repro; impl-method facet is develop-only — channel). Channel's
+  10 state reads spell capture-carrying literals ({ h : &self._st }(s) => ...)
+  which pass everywhere; deletable with the fillers. Also noted: forwarding a
+  named fn THROUGH an &mut Impl(FnMut) param is broken everywhere (p20) —
+  pre-existing, in the issue doc.
+- 34 Tier-1 test files GREEN one-per-call (fixes along the way: once.yo's
+  captures go { self, &mut f } (owned Copy, not &self); type_soundness's
+  _sound_count takes it : I (fold consumes, adapters move-only with FnMut);
+  closure_capture_list's FnMut-at-Fn pin uses own state (error ordering
+  changed: second-class fires before slot check) and the re-entry pin expects
+  the scope-rule E0910 text; ref_field_borrow's two pins expect the
+  second-class texts; iterator_combinators' accumulator for_each spells
+  { &mut total }; closure_param_forwarding's forward is { cb2 : &mut cb.* };
+  forwarded_closure_param_spec's two closures capture { &tag }; log.test.yo
+  reads bools via cur.clone() with { &filtered }/{ &emitted } lazy captures
+  and binds before assert (expected-type through assert(T) fails to infer —
+  the E0613 family); channel/combinators pass via the dodge).
+- 8/8 tests/internal files green (diagnostics_registry, _examples,
+  types_string_compat, expr_info, env, binding, mutation_summary,
+  suspension_analysis).
+- fmt --check clean on all 101 branch-changed .yo files (tree binary; wrote
+  formatting for 40 files the scripted edits left non-canonical).
+- Corpus today-mode 73/73 (NO re-record needed — the switched fixtures kept
+  their manifest verdicts); tests/origins model_corpus 78/78.
+- cli-diff: full run PASS 450 / GOLDEN-DIFF 3 / NO-GOLDEN 0. Read + recorded:
+  fix-migrate-borrow-spelling (fixture's Impl(Fn)+&mut-capture local is the
+  E0913 shape now; annotation -> FnMut; the tool marks mut(f) too: 6->7),
+  fix-migrate-rc-clone (one more capture list inserted — intended), lsp-
+  completion + lsp-member-definition (FnMut signatures in completion
+  details). Affected cases re-verified PASS; a final full re-verify is
+  running (clidiff4.log).
+- check-embedded-yo 8 sites 0 failures; check-issue-refs green.
+- FIXPOINT: S1=/tmp/g1_tb (tree binary) — STAGE2_RC=0 hollow=0, CLANG_RC=0,
+  STAGE3_RC=0, FIXPOINT_HOLDS (stage2.c == stage3.c, 146,071,383 B).
+- Remaining: final full cli-diff verdict, /tmp/g1_* cleanup, final commit+push.
+
+## 2026-11-07 — READY (base round)
+- Final full cli-diff sweeps were killed twice by the session's background
+  watchdog; coverage is piecewise-complete: full run #1 scored PASS 450 /
+  GOLDEN-DIFF 3 / NO-GOLDEN 0 (454 cases, 1 network skip) and ALL FOUR
+  cases that ever diffed (fix-migrate-borrow-spelling, fix-migrate-rc-clone,
+  lsp-completion, lsp-member-definition) were read, recorded, and re-verified
+  PASS individually post-record. Non-diff goldens are unchanged since run #1.
+- /tmp/g1_* cleaned. g1-snap worktree was never needed this round (dead
+  weight; coordinator to remove).
+- BASE-ROUND gates all green: seed check src 274/274 + std 170/170; tree
+  binary built (0 spills); 34 test files + 8 internal files; fmt --check 101
+  files; corpus 73/73 + model 78/78; cli-diff (piecewise, see above);
+  embedded 8/8; issue-refs; FIXPOINT_HOLDS.
+- AWAITING coordinator signal for the post-merge round: rebase onto
+  origin/develop (part B + deref + forfix), EXTEND the filler sweep to the
+  new with-read sites (seed check ./src is the detector), re-gate (build,
+  checks, test list, fixpoint), then READY. Expect conflicts in prelude/
+  collections (deref std sweep) and src (part B shapes).

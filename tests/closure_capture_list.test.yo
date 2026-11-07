@@ -417,15 +417,15 @@ test("escape: a by-value parameter, plain or generic, and a tuple or array argum
   assert(pair.0() == i32(1), "a tuple holding f is a legal local");
   comptime_expect_error(_cl_own(pair), "cannot be moved into a by-value");
   comptime_expect_error(_cl_own(Array(type_of(f), 1)(f)), "cannot be moved into a by-value");
-  mut(n) := i32(0);
   {
-    (mut(t) : Impl(FnMut() -> i32)) = ({ &mut n }() => {
-      n.* = (n.* + i32(1));
-      n.*
+    // Own state (not a `&mut` capture) makes the closure `FnMut` without
+    // borrowing anything, so the slot check (E0913) fires here, before the
+    // second-class move the shared-capturing `f` cases above pin: a
+    // borrowing `FnMut` reaches the second-class check first.
+    (mut(t) : Impl(FnMut() -> i32)) = ({ n : i32(0) }() => {
+      n = (n + i32(1));
+      n
     });
-    // `_cl_keep`'s slot is `Impl(Fn(...))` by value, so an `FnMut`-typed
-    // closure is rejected at the slot (E0913) before the second-class move
-    // the shared-capturing `f` cases above pin.
     comptime_expect_error(_cl_keep(t), "is an `FnMut(...)` closure");
   };
 });
@@ -531,7 +531,10 @@ test("exclusivity: re-entry through a closure that reaches the callee", {
       n.*
     });
     (mut(g) : Impl(FnMut() -> i32)) = ({ &mut f }() => i32(1));
-    comptime_expect_error(_cl_reentry(&mut f, &mut g), "lent exclusively");
+    // The overlap is reported at the `&mut f` lend: `g` holds a live
+    // `&mut f` capture until its scope ends, so `f` cannot be lent again
+    // (decision 38 B's exclusivity, reported by the scope rule).
+    comptime_expect_error(_cl_reentry(&mut f, &mut g), "the closure `g` borrows `f`");
   };
   assert(n == i32(0), "nothing ran");
 });

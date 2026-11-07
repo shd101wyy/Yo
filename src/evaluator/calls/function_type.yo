@@ -2372,7 +2372,9 @@ Result type: ${type_to_string(&result_box)}`
           // is not re-run.
           dg_memo_eligible := (!dg_check_result && !is_type_hierarchy_type(&result_box));
           dg_memo_key := if(dg_memo_eligible, `${tok.module_path.*}:${tok.row}:${tok.column}|${type_to_string(function_type)}|${ast_expr_to_string(&body_expr)}`, String.new());
-          if(!(dg_memo_eligible && g_deferred_trial_clean.with({ &dg_memo_key }(s) => s.contains(dg_memo_key))), {
+          if(!(
+            dg_memo_eligible && g_deferred_trial_clean.with({ &dg_memo_key }(s) => s.contains(dg_memo_key))
+          ), {
             dg_where := match(
               expr,
               .FnCall(_, dg_ft_box, _, _, _) => get_func_where_constraints(ast_expr_id(&dg_ft_box).to_string()),

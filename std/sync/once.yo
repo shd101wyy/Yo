@@ -114,7 +114,7 @@ impl(
       // handles (issues/fixed/once-re-entered-from-its-own-closure-deadlocks-on-posix-and-double-runs-on-windows.md).
       self._cell.*._mutex._held_by_current_thread() => __yo_panic("Once.call: re-entered from its own initializer"),
       true =>
-        self._cell.*._mutex.with_lock({ &self, &mut f }(_guarded) => {
+        self._cell.*._mutex.with_lock({ self, &mut f }(_guarded) => {
           // Double-check under the lock: another thread may have finished
           // between the fast-path load and the acquisition.
           cond(

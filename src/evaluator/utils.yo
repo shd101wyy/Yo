@@ -792,7 +792,7 @@ note_consuming_match_scrutinee :: (fn(tok : &Token) -> unit)({
   g_consuming_match_scrutinees.with_mut(s => s.insert(_consuming_match_key(tok)));
 });
 consuming_match_scrutinee_at :: (fn(tok : &Token) -> bool)(
-  (g_consuming_match_scrutinees.with({&tok}(s) => s.len()) > usize(0)) && g_consuming_match_scrutinees.with(s => s.contains(_consuming_match_key(tok)))
+  (g_consuming_match_scrutinees.with({ &tok }(s) => s.len()) > usize(0)) && g_consuming_match_scrutinees.with(s => s.contains(_consuming_match_key(tok)))
 );
 /// A use of moved value `name` at `use_tok` (moved at `moved_tok`), as E0901,
 /// with the move-only note when `ty` is move-only.
@@ -3330,7 +3330,7 @@ note_migrate_mut_scrutinee :: (fn(scr : &AstExpr) -> unit)({
   g_migrate_mut_scrutinees.with_mut(s => s.insert(key.clone()));
 });
 /// Whether `key` (`<canonical module>:<row>:<col>`) is such a position.
-migrate_mut_scrutinee_at :: (fn(key : &String) -> bool)(g_migrate_mut_scrutinees.with({&key}(s) => s.contains(key.clone())));
+migrate_mut_scrutinee_at :: (fn(key : &String) -> bool)(g_migrate_mut_scrutinees.with({ &key }(s) => s.contains(key.clone())));
 clear_migrate_mut_scrutinees :: (fn() -> unit)({
   g_migrate_mut_scrutinees.with_mut(s => s.clear());
 });
@@ -6600,7 +6600,7 @@ note_reference_deref_site :: (fn(tok : &Token) -> unit)({
 });
 /// Whether the name at `tok` is a rewritten `r.*`'s receiver.
 is_reference_deref_site :: (fn(tok : &Token) -> bool)(
-  (g_reference_deref_sites.with({&tok}(s) => s.len()) > usize(0)) && g_reference_deref_sites.with(s => s.contains(&_reference_deref_site_key(tok)))
+  (g_reference_deref_sites.with({ &tok }(s) => s.len()) > usize(0)) && g_reference_deref_sites.with(s => s.contains(&_reference_deref_site_key(tok)))
 );
 /// At the identifier evaluator's entry: `e` is exempt. Clears the mark.
 deref_exempt_take :: (fn(e : &AstExpr) -> bool)({

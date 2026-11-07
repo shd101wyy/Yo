@@ -182,12 +182,14 @@ comptime_expect_error(
 // capture (VERDICTS-28 Q1: `Option.inspect` is `&mut Impl(FnMut(...))`).
 test("FnMut: a named FnMut closure passed &mut serves a call-once std slot", {
   mut(hits) := i32(0);
-  (mut(bump) : Impl(FnMut(v : &i32) -> unit)) = ({ &mut hits }(v) => {
-    hits.* = (hits.* + v.*);
-  });
-  r := Option(i32).Some(i32(4)).inspect(&mut bump);
+  {
+    (mut(bump) : Impl(FnMut(v : &i32) -> unit)) = ({ &mut hits }(v) => {
+      hits.* = (hits.* + v.*);
+    });
+    r := Option(i32).Some(i32(4)).inspect(&mut bump);
+    assert(r == Option(i32).Some(i32(4)), "inspect returns its receiver");
+  };
   assert(hits == i32(4), "the named closure wrote its capture through inspect");
-  assert(r == Option(i32).Some(i32(4)), "inspect returns its receiver");
 });
 // "Writes a `&mut` capture" is read structurally as "holds one" (VERDICTS-15
 // Q4′): an unwritten `&mut` capture still makes the closure `FnMut`.

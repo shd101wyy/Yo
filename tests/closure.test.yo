@@ -949,12 +949,10 @@ _spill_run :: (fn(act : &mut Impl(FnMut() -> unit)) -> unit)({
 });
 test("a mut receiver reached through a captured &mut borrow is written in place", {
   mut(b) := _SpillBag(c : _SpillCounter(n : i32(0)), xs : ArrayList(i32).new());
-  _spill_run(
-    { h : &mut b }() => {
-      h.c.bump();
-      h.xs.push(i32(7));
-    }
-  );
+  _spill_run({ h : &mut b }() => {
+    h.c.bump();
+    h.xs.push(i32(7));
+  });
   assert(b.c.n == i32(1), "the closure's bump reached the handle's counter");
   assert(b.xs.len() == usize(1), "the closure's push reached the handle's list");
 });

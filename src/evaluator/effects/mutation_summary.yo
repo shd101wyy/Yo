@@ -268,7 +268,7 @@ impl(
     ) -> bool
   )({
     match(
-      g_ms_summary_by_fid.with({&fid}(m) => m.get(fid.clone())),
+      g_ms_summary_by_fid.with({ &fid }(m) => m.get(fid.clone())),
       .Some(m) => if(m.body_id == ast_expr_id(body), {
         return(m.mutates);
       }),
@@ -277,7 +277,7 @@ impl(
     if(_ms_body_dups_first_param(fid, body), {
       return(false);
     });
-    if(g_ms_in_progress.with({&fid}(m) => m.get(fid.clone())).is_some(), {
+    if(g_ms_in_progress.with({ &fid }(m) => m.get(fid.clone())).is_some(), {
       _ms_touched_add(touched, fid.clone());
       return(false);
     });
@@ -4657,6 +4657,6 @@ mutation_summary_entry_count :: (fn() -> usize)(
 /// where it is created — `validate_send_closure_global_reach`), for a later
 /// judgement that holds only the closure's type.
 d1_reach_memo :: (fn(fid : &String) -> Option(Option(String)))(
-  match(g_gr_by_fid.with({&fid}(m) => m.get_cloned(fid)), .Some(m) => Option(Option(String)).Some(m.reach.clone()), .None => Option(Option(String)).None)
+  match(g_gr_by_fid.with({ &fid }(m) => m.get_cloned(fid)), .Some(m) => Option(Option(String)).Some(m.reach.clone()), .None => Option(Option(String)).None)
 );
 export(summarize_function_bodies, purge_mutation_summaries, rc_write_audit_enabled, audit_rc_writes, mutation_summary_entry_count, function_may_mutate_rc_storage, function_param_mutation_mask, ParamMutationMask, param_mutation_mask_hits, param_mutation_mask_is_empty, strict_borrow_violations, function_reaches_non_send_global, d1_record_global_write, d1_reach_memo, d1_note_thread_reach);

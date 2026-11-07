@@ -630,7 +630,7 @@ test("soundness canary: two .map chains at different Item types keep their own I
 // impl, a self-referential bound on `A` is judged at that binding, and the
 // blanket combinators can be called on the parameter.
 // ---------------------------------------------------------------------------
-_sound_count :: (fn(generic(I : Type, A : Type), it : &I, where(I <: Iterator(Item := A))) -> usize)(
+_sound_count :: (fn(generic(I : Type, A : Type), it : I, where(I <: Iterator(Item := A))) -> usize)(
   it.fold(usize(0), (n, x) => (n.* + usize(1)))
 );
 _sound_sum :: (fn(generic(I : Type, A : Type), it : &I, zero : &A, where(I <: Iterator(Item := A), A <: Add(A))) -> A)(

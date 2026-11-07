@@ -522,7 +522,9 @@ test("an element borrow beside a variable holding a closure is rejected", {
       _len := xs.len();
       v.* = String.from("w");
     });
-    comptime_expect_error(_write_through(&mut xs(usize(0)), cb), "the closure `cb` borrows `xs`");
+    // A closure that borrows `xs` is second-class (decision 43), so the
+    // by-value move is rejected before the element-borrow overlap itself.
+    comptime_expect_error(_write_through(&mut xs(usize(0)), cb), "second-class and cannot be moved into a by-value");
   };
   assert(xs.len() == usize(1), "nothing ran");
 });
@@ -542,7 +544,9 @@ test("an element borrow beside a closure in a struct field is rejected", {
       _len := xs.len();
       v.* = String.from("w");
     });
-    comptime_expect_error(field_beside(&mut xs(usize(0)), _CbFieldBox(cb : dyn(cb))), "the closure `cb` borrows `xs`");
+    // Boxed or not, a closure that borrows `xs` is second-class (decision
+    // 43): the cell payload is rejected before the overlap itself.
+    comptime_expect_error(field_beside(&mut xs(usize(0)), _CbFieldBox(cb : dyn(cb))), "second-class and cannot be the payload type of a cell");
   };
   assert(xs.len() == usize(1), "nothing ran");
 });

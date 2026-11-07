@@ -417,7 +417,7 @@ register_ghost_fn :: (fn(func_id : &String) -> unit)({
   ()
 });
 is_ghost_fn :: (fn(func_id : &String) -> bool)(
-  g_ghost_fn_ids.with({&func_id}(s) => s.contains(func_id))
+  g_ghost_fn_ids.with({ &func_id }(s) => s.contains(func_id))
 );
 /// V6 task 3: the ghost-fn DEF registry — `func_id → (params, body)` for
 /// every registered ghost_fn. The refinement machinery reads it: a
@@ -457,7 +457,7 @@ register_refine_pred_chain :: (fn(outer_fid : &String, chain : &ArrayList(String
 });
 refine_pred_chain_of :: (fn(outer_fid : &String) -> ArrayList(String))(
   match(
-    g_refine_pred_chains.with({&outer_fid}(m) => m.get_cloned(outer_fid.clone())),
+    g_refine_pred_chains.with({ &outer_fid }(m) => m.get_cloned(outer_fid.clone())),
     .Some(chain) => chain,
     .None => ArrayList(String).new()
   )
@@ -1502,7 +1502,7 @@ elided_guard_count :: (fn() -> usize)(
 _guard_site_recorded :: (fn(expr : &AstExpr, class : str) -> bool)(
   match(
     // The value list is taken by remove-style clone: get copies it (B8).
-    g_proved_guard_sites.with({&expr}(m) => m.get_cloned(ast_expr_id(expr))),
+    g_proved_guard_sites.with({ &expr }(m) => m.get_cloned(ast_expr_id(expr))),
     .Some(sites) => {
       tok := ast_expr_token(expr);
       canon := canonical_module_path(&tok.module_path.*);
@@ -1550,7 +1550,7 @@ record_verify_task_def_eval_failure :: (fn(fn_id : &String, msg : &String) -> un
   ()
 });
 verify_task_def_eval_failure :: (fn(fn_id : &String) -> Option(String))(
-  g_verify_def_eval_failures.with({&fn_id}(m) => m.get_cloned(fn_id))
+  g_verify_def_eval_failures.with({ &fn_id }(m) => m.get_cloned(fn_id))
 );
 /// The file set the current command is verifying (absolute or as-given
 /// paths — matched by equality against `Token.module_path`). Empty = no
@@ -1875,7 +1875,7 @@ register_callsite_contracts :: (
   _ := g_callsite_contracts.with_mut({ reqs_owned, call_id_owned, enss_owned }(m) => m.insert(call_id_owned, CallsiteContracts(reqs : reqs_owned.clone(), enss : enss_owned)));
 });
 callsite_contracts_for :: (fn(call_id : &String) -> Option(CallsiteContracts))(
-  g_callsite_contracts.with({&call_id}(m) => m.get_cloned(call_id))
+  g_callsite_contracts.with({ &call_id }(m) => m.get_cloned(call_id))
 );
 /// V6 task 4: specialized FuncVal id → the base (unspecialized) id it
 /// was minted from. Written at the specialization mint (calls/helper.yo)
@@ -1888,7 +1888,7 @@ register_specialized_base :: (fn(spec_id : &String, base_id : &String) -> unit)(
   _ := g_specialized_base.with_mut({ spec_id_owned, base_id_owned }(m) => m.insert(spec_id_owned.clone(), base_id_owned));
 });
 specialized_base_of :: (fn(id : &String) -> Option(String))(
-  g_specialized_base.with({&id}(m) => m.get_cloned(id))
+  g_specialized_base.with({ &id }(m) => m.get_cloned(id))
 );
 /// Task-registration hook: stash contract instances for every contracted
 /// callee call in the task body (see the CallsiteContracts doc).

@@ -192,7 +192,7 @@ test("iter.for_each with closure that captures ArrayList", {
 test("iter.for_each accumulates side effects", {
   mut(total) := ArrayList(i32).new();
   total.push(i32(0));
-  my_range(i32(1), i32(5)).for_each(x => {
+  my_range(i32(1), i32(5)).for_each({ &mut total }(x) => {
     cur := total(usize(0));
     total(usize(0)) = (cur + x.*);
   });

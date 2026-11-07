@@ -682,7 +682,9 @@ generate_consumed_var_drops_for_escape :: (fn(indent : &String, context : &mut F
                                 ) => false,
                                 // An `FnOnce` closure's owned capture lives in
                                 // the closure context, never a C local.
-                                true => (is_fnonce_capture_drop(ast_expr_id(&de)) || _drop_target_is_state_machine_field(&lv, var_name.clone(), context) || context.base.declared_scopes.with({ &lv_c_name }(ds_s) => scope_stack_contains(ds_s, lv_c_name)))
+                                true => (
+                                  is_fnonce_capture_drop(ast_expr_id(&de)) || _drop_target_is_state_machine_field(&lv, var_name.clone(), context) || context.base.declared_scopes.with({ &lv_c_name }(ds_s) => scope_stack_contains(ds_s, lv_c_name))
+                                )
                               )
                             },
                             .None => false

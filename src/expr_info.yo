@@ -1352,7 +1352,7 @@ scope_release_mode :: (fn() -> usize)(g_scope_mode);
 /// reports a decision that differs from the env's.
 scope_release_note_mismatch :: (fn(kind : &String) -> unit)({
   g_scope_mismatch = (g_scope_mismatch + usize(1));
-  mp := match(g_scope_mm_kinds.with({&kind}(m) => m.get(kind.clone())), .Some(c) => c, .None => usize(0));
+  mp := match(g_scope_mm_kinds.with({ &kind }(m) => m.get(kind.clone())), .Some(c) => c, .None => usize(0));
   kind_owned := kind.clone();
   g_scope_mm_kinds.with_mut({ kind_owned, mp : mp.clone() }(m) => m.insert(kind_owned.clone(), mp + usize(1)));
 });
@@ -1832,7 +1832,7 @@ path_collection_of_name :: (fn(name : &String) -> PathCollection)(
     !g_share_name_paths,
     _fresh_name_path_collection(name),
     match(
-      g_name_path_collections.with({&name}(xs) => xs.get_cloned(name)),
+      g_name_path_collections.with({ &name }(xs) => xs.get_cloned(name)),
       .Some(pc) => pc,
       .None => {
         pc := _fresh_name_path_collection(name);
@@ -2116,17 +2116,17 @@ register_extern_c_global_alias :: (fn(yo_name : &String, c_name : &String, ty : 
 /// Returns a CLONE (never the registry's own String — a caller that appends
 /// to it in place would corrupt the stored name).
 extern_c_global_c_name :: (fn(yo_name : &String) -> String)(
-  match(g_extern_c_global_c_names.with({&yo_name}(m) => m.get_cloned(yo_name.clone())), .Some(c) => c.clone(), .None => yo_name.clone())
+  match(g_extern_c_global_c_names.with({ &yo_name }(m) => m.get_cloned(yo_name.clone())), .Some(c) => c.clone(), .None => yo_name.clone())
 );
 /// Every declared type recorded for the extern-C global `name` (empty when
 /// the name was never declared). Consumers match a resolved binding against
 /// this list by `type_key`.
 get_extern_c_global_types :: (fn(name : &String) -> ArrayList(TypeValue))(
-  match(g_extern_c_globals.with({&name}(m) => m.get_cloned(name)), .Some(l) => l, .None => ArrayList(TypeValue).new())
+  match(g_extern_c_globals.with({ &name }(m) => m.get_cloned(name)), .Some(l) => l, .None => ArrayList(TypeValue).new())
 );
 /// True if `name` is a c_include'd extern-C global symbol (name-only check).
 is_extern_c_global :: (fn(name : &String) -> bool)(
-  g_extern_c_globals.with({&name}(m) => m.get_cloned(name)).is_some()
+  g_extern_c_globals.with({ &name }(m) => m.get_cloned(name)).is_some()
 );
 /// Record `sns_id` as the id of a `c_include(...)` module value.
 register_extern_c_module_id :: (fn(sns_id : &String) -> unit)({
@@ -2136,7 +2136,7 @@ register_extern_c_module_id :: (fn(sns_id : &String) -> unit)({
 });
 /// True if `sns_id` names a `c_include(...)` module value.
 is_extern_c_module_id :: (fn(sns_id : &String) -> bool)(
-  g_extern_c_module_ids.with({&sns_id}(s) => s.contains(sns_id))
+  g_extern_c_module_ids.with({ &sns_id }(s) => s.contains(sns_id))
 );
 /// Registry of module-level RUNTIME globals, keyed "module_path|#|name".
 /// Populated by the evaluator at binding creation
@@ -2655,7 +2655,7 @@ register_struct_ctor_fid :: (fn(struct_id : &String, ctor_fid : &String) -> unit
 });
 /// The constructor funcId stamped for `struct_id`, if any.
 lookup_struct_ctor_fid :: (fn(struct_id : &String) -> Option(String))(
-  g_struct_ctor_fids.with({&struct_id}(m) => m.get_cloned(struct_id))
+  g_struct_ctor_fids.with({ &struct_id }(m) => m.get_cloned(struct_id))
 );
 /// Trait counterpart of the struct ctor-fid table. The generic-impl
 /// registry keys parameterized traits by the trait constructor's funcId
@@ -2667,7 +2667,7 @@ lookup_struct_ctor_fid :: (fn(struct_id : &String) -> Option(String))(
 /// Record the constructor funcId for the trait with `trait_id` (first wins).
 register_trait_ctor_fid :: (fn(trait_id : &String, ctor_fid : &String) -> unit)({
   match(
-    g_trait_ctor_fids.with({&trait_id}(m) => m.get_cloned(trait_id.clone())),
+    g_trait_ctor_fids.with({ &trait_id }(m) => m.get_cloned(trait_id.clone())),
     .Some(_) => (),
     .None => {
       trait_id_owned := trait_id.clone();
@@ -2678,7 +2678,7 @@ register_trait_ctor_fid :: (fn(trait_id : &String, ctor_fid : &String) -> unit)(
 });
 /// The constructor funcId stamped for `trait_id`, if any.
 lookup_trait_ctor_fid :: (fn(trait_id : &String) -> Option(String))(
-  g_trait_ctor_fids.with({&trait_id}(m) => m.get_cloned(trait_id))
+  g_trait_ctor_fids.with({ &trait_id }(m) => m.get_cloned(trait_id))
 );
 /// The type arguments a parameterized trait was instantiated with, by trait
 /// id (the companion of `g_trait_ctor_fids` above). A constructor
@@ -2691,7 +2691,7 @@ lookup_trait_ctor_fid :: (fn(trait_id : &String) -> Option(String))(
 /// Record the instantiation arguments of the trait with `trait_id` (first wins).
 register_trait_type_args :: (fn(trait_id : &String, args : &ArrayList(TypeValue)) -> unit)({
   match(
-    g_trait_type_args.with({&trait_id}(m) => m.get_cloned(trait_id.clone())),
+    g_trait_type_args.with({ &trait_id }(m) => m.get_cloned(trait_id.clone())),
     .Some(_) => (),
     .None => {
       trait_id_owned := trait_id.clone();
@@ -2703,7 +2703,7 @@ register_trait_type_args :: (fn(trait_id : &String, args : &ArrayList(TypeValue)
 /// The type arguments the trait with id `trait_id` was instantiated with
 /// (`register_trait_type_args`), when it is a parameterized trait's mint.
 lookup_trait_type_args :: (fn(trait_id : &String) -> Option(ArrayList(TypeValue)))(
-  g_trait_type_args.with({&trait_id}(m) => m.get_cloned(trait_id))
+  g_trait_type_args.with({ &trait_id }(m) => m.get_cloned(trait_id))
 );
 /// Forget every recorded instantiation. Called where a COLD compile resets
 /// the id counters (`stable_occurrence_reset`, `run_compile`): trait ids are
@@ -2825,14 +2825,14 @@ adopt_receiver_struct_instance :: (
 (g_fid_specs : RefCell(HashMap(String, usize))) = RefCell(HashMap(String, usize)).new(HashMap(String, usize).new());
 /// Count a runtime call dispatch for `fid`.
 record_fid_rtcall :: (fn(fid : &String) -> unit)({
-  n := match(g_fid_rtcalls.with({&fid}(m) => m.get(fid.clone())), .Some(v) => v, .None => usize(0));
+  n := match(g_fid_rtcalls.with({ &fid }(m) => m.get(fid.clone())), .Some(v) => v, .None => usize(0));
   fid_owned := fid.clone();
   g_fid_rtcalls.with_mut({ fid_owned, n : n.clone() }(m) => m.insert(fid_owned.clone(), n + usize(1)));
   ()
 });
 /// Count a successful call-site specialization of `fid`.
 record_fid_spec :: (fn(fid : &String) -> unit)({
-  n := match(g_fid_specs.with({&fid}(m) => m.get(fid.clone())), .Some(v) => v, .None => usize(0));
+  n := match(g_fid_specs.with({ &fid }(m) => m.get(fid.clone())), .Some(v) => v, .None => usize(0));
   fid_owned := fid.clone();
   g_fid_specs.with_mut({ fid_owned, n : n.clone() }(m) => m.insert(fid_owned.clone(), n + usize(1)));
   ()
@@ -2840,8 +2840,8 @@ record_fid_spec :: (fn(fid : &String) -> unit)({
 /// True when every counted runtime call of `fid` was specialized (and at
 /// least one was) — the original body is dead and must not be emitted.
 fid_fully_specialized :: (fn(fid : &String) -> bool)({
-  specs := match(g_fid_specs.with({&fid}(m) => m.get(fid.clone())), .Some(v) => v, .None => usize(0));
-  calls := match(g_fid_rtcalls.with({&fid}(m) => m.get(fid.clone())), .Some(v) => v, .None => usize(0));
+  specs := match(g_fid_specs.with({ &fid }(m) => m.get(fid.clone())), .Some(v) => v, .None => usize(0));
+  calls := match(g_fid_rtcalls.with({ &fid }(m) => m.get(fid.clone())), .Some(v) => v, .None => usize(0));
   (specs > usize(0)) && (specs >= calls)
 });
 // Macro-expansion side-table: a macro CALL's expanded form (e.g. `if(c, t, e)` →
@@ -2881,7 +2881,7 @@ clear_hollow_body_error :: (fn(site : &String) -> unit)({
   });
   ()
 });
-lookup_hollow_body_error :: (fn(site : &String) -> Option(HollowBodyError))(g_hollow_body_errors.with({&site}(m) => m.get_cloned(site)));
+lookup_hollow_body_error :: (fn(site : &String) -> Option(HollowBodyError))(g_hollow_body_errors.with({ &site }(m) => m.get_cloned(site)));
 /// The error a GENERIC body's definition-time trial swallowed and kept, keyed
 /// by the body's source position (`module:row:col`): the trial ran with the
 /// type variables abstract, so a call may still resolve it
@@ -2910,7 +2910,7 @@ clear_generic_trial_error :: (fn(site : &String) -> unit)({
   });
   ()
 });
-lookup_generic_trial_error :: (fn(site : &String) -> Option(HollowBodyError))(g_generic_trial_errors.with({&site}(m) => m.get_cloned(site)));
+lookup_generic_trial_error :: (fn(site : &String) -> Option(HollowBodyError))(g_generic_trial_errors.with({ &site }(m) => m.get_cloned(site)));
 /// Where a specialization was first requested: the call's position and the
 /// instantiation it asked for (`twice` with T = bool). Keyed by the
 /// specialization's func id; written once, by the first call that minted it.
@@ -2918,7 +2918,7 @@ SpecInstantiation :: struct(call_token : Token, description : String);
 derive(SpecInstantiation, Clone);
 (g_spec_instantiations : RefCell(HashMap(String, SpecInstantiation))) = RefCell(HashMap(String, SpecInstantiation)).new(HashMap(String, SpecInstantiation).new());
 record_spec_instantiation :: (fn(spec_fid : &String, call_token : &Token, description : &String) -> unit)({
-  if(g_spec_instantiations.with({&spec_fid}(m) => m.get_cloned(spec_fid.clone())).is_none(), {
+  if(g_spec_instantiations.with({ &spec_fid }(m) => m.get_cloned(spec_fid.clone())).is_none(), {
     spec_fid_owned := spec_fid.clone();
     description_owned := description.clone();
     // `call_token` is a `ref` handle, cheap to capture; the rest are owned
@@ -2927,7 +2927,7 @@ record_spec_instantiation :: (fn(spec_fid : &String, call_token : &Token, descri
   });
   ()
 });
-lookup_spec_instantiation :: (fn(spec_fid : &String) -> Option(SpecInstantiation))(g_spec_instantiations.with({&spec_fid}(m) => m.get_cloned(spec_fid)));
+lookup_spec_instantiation :: (fn(spec_fid : &String) -> Option(SpecInstantiation))(g_spec_instantiations.with({ &spec_fid }(m) => m.get_cloned(spec_fid)));
 (g_macro_expansions : RefCell(HashMap(ExprId, AstExpr))) = RefCell(HashMap(ExprId, AstExpr)).new(HashMap(ExprId, AstExpr).new());
 /// Record the expanded form for a macro-call expr id.
 record_macro_expansion :: (fn(call_id : ExprId, expanded : &AstExpr) -> unit)({

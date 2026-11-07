@@ -214,7 +214,7 @@ _trait_type_id :: (fn(ty : &TypeValue) -> String)(
 /// mutually compatible — wrongly reporting e.g. a plain object as `Send`.
 is_type_registered_as_trait :: (fn(type_id : &String, query_trait : &TypeValue, env : &Environment) -> bool)(
   match(
-    g_type_trait_registry.with({&type_id}(m) => m.get_cloned(type_id)),
+    g_type_trait_registry.with({ &type_id }(m) => m.get_cloned(type_id)),
     .None => false,
     .Some(list) => {
       n := list.len();
@@ -551,7 +551,7 @@ _acy_memo_get :: (fn(key : &String) -> Option(bool))({
     g_acy_memo.with_mut(m => m.clear());
     g_acy_memo_epoch = trait_impl_epoch();
   });
-  g_acy_memo.with({&key}(m) => m.get(key))
+  g_acy_memo.with({ &key }(m) => m.get(key))
 });
 /// The nominal types and leaves `t` holds, seen through the structural types.
 _acy_expand :: (fn(t_in : &TypeValue, nodes : &mut ArrayList(TypeValue), leaves : &mut ArrayList(TypeValue)) -> unit)({
@@ -1519,7 +1519,7 @@ _record_lacks_copy_fast :: (fn(ty : &TypeValue, key_epoch : u64, answer : bool) 
     g_lacks_copy_fast.with_mut(xs => xs.clear());
     g_lacks_copy_fast_answers.with_mut(xs => xs.clear());
   });
-  (slot : usize) = g_lacks_copy_fast.with({&ty}(xs) => type_identity_slot(xs, ty));
+  (slot : usize) = g_lacks_copy_fast.with({ &ty }(xs) => type_identity_slot(xs, ty));
   if(!g_lacks_copy_fast.with({ &ty, slot }(xs) => type_identity_slot_holds(xs, slot, ty)), {
     g_lacks_copy_fast.with_mut({ slot, ty : Rc.clone(ty) }(xs) => xs.insert(slot, Rc.clone(ty)));
     g_lacks_copy_fast_answers.with_mut(xs => xs.insert(slot, answer));

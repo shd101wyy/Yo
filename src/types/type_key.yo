@@ -75,10 +75,10 @@ _c_len_1 :: (fn(xs : &ArrayList(TypeValue)) -> usize)(xs.len());
 _lookup_or_register_enum_sig :: (fn(bare : &String, decl : &String, full_key : &String) -> String)(
   cond(
     (decl.len() == usize(0)) => match(
-      g_enum_bare_claims.with({&bare}(m) => m.get_cloned(bare)),
+      g_enum_bare_claims.with({ &bare }(m) => m.get_cloned(bare)),
       .Some(k) => k.clone(),
       .None => match(
-        g_enum_bare_unclaimed.with({&bare}(m) => m.get_cloned(bare)),
+        g_enum_bare_unclaimed.with({ &bare }(m) => m.get_cloned(bare)),
         .Some(k) => k.clone(),
         .None => {
           full_key_owned := full_key.clone();
@@ -98,10 +98,10 @@ _lookup_or_register_enum_sig :: (fn(bare : &String, decl : &String, full_key : &
           canonical := cond(
             !is_prelude_enum_decl(decl) => full_key.clone(),
             true => match(
-              g_enum_bare_claims.with({&bare}(m) => m.get_cloned(bare)),
+              g_enum_bare_claims.with({ &bare }(m) => m.get_cloned(bare)),
               .Some(_) => full_key.clone(),
               .None => {
-                adopted := match(g_enum_bare_unclaimed.with({&bare, &full_key}(m) => m.get_cloned(bare)), .Some(k) => k.clone(), .None => full_key.clone());
+                adopted := match(g_enum_bare_unclaimed.with({ &bare, &full_key }(m) => m.get_cloned(bare)), .Some(k) => k.clone(), .None => full_key.clone());
                 bare_owned2 := bare.clone();
                 adopted_owned := adopted.clone();
                 g_enum_bare_claims.with_mut({ bare_owned2, adopted_owned }(m) => m.insert(bare_owned2.clone(), adopted_owned));
@@ -216,7 +216,7 @@ _tk_seen :: (fn(id : &String) -> bool)(
   // and `get_cloned` once `String` is a value) deep-copies its byte buffer
   // just to == it and drop it (342 M ArrayList(u8) allocations per
   // self-emit, the #2 string-churn site).
-  g_tk_visited.with({&id}(xs) => xs.contains(id))
+  g_tk_visited.with({ &id }(xs) => xs.contains(id))
 );
 /// Whether a generic instance's argument list holds a `Type` or `unit` slot:
 /// a comptime VALUE argument erased from its key's argument part (see the
@@ -864,7 +864,7 @@ type_identity_cacheable :: (fn(ty : &TypeValue) -> bool)({
     g_tk_cacheable_answers.with_mut(xs => xs.clear());
     g_tk_cacheable_epoch = type_key_epoch();
   });
-  (slot : usize) = g_tk_cacheable_handles.with({&ty}(xs) => type_identity_slot(xs, ty));
+  (slot : usize) = g_tk_cacheable_handles.with({ &ty }(xs) => type_identity_slot(xs, ty));
   if(g_tk_cacheable_handles.with({ &ty, slot }(xs) => type_identity_slot_holds(xs, slot, ty)), {
     return(match(g_tk_cacheable_answers.with(xs => xs.get(slot)), .Some(a) => a, .None => false));
   });
@@ -875,7 +875,7 @@ type_identity_cacheable :: (fn(ty : &TypeValue) -> bool)({
       g_tk_cacheable_handles.with_mut(xs => xs.clear());
       g_tk_cacheable_answers.with_mut(xs => xs.clear());
     });
-    (at : usize) = g_tk_cacheable_handles.with({&ty}(xs) => type_identity_slot(xs, ty));
+    (at : usize) = g_tk_cacheable_handles.with({ &ty }(xs) => type_identity_slot(xs, ty));
     g_tk_cacheable_handles.with_mut({ at, ty : Rc.clone(ty) }(xs) => xs.insert(at, Rc.clone(ty)));
     g_tk_cacheable_answers.with_mut(xs => xs.insert(at, answer));
   });
@@ -904,7 +904,7 @@ type_key_memo_check_enabled :: (fn() -> bool)({
 // render distinctly here (by their own sid), which only means a missed
 // alias — never a wrong merge, since equal renders imply equal structure.
 (g_sti_visited : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
-_sti_seen :: (fn(id : &String) -> bool)(g_sti_visited.with({&id}(xs) => xs.contains(id)));
+_sti_seen :: (fn(id : &String) -> bool)(g_sti_visited.with({ &id }(xs) => xs.contains(id)));
 _stable_identity_at :: (fn(t : &TypeValue, depth : usize) -> String)({
   // DEPTH CAP: the id-based cycle guard below cuts CYCLES, but a memoized
   // instantiation CHAIN (Option(RBNode(Option(RBNode(…)))) where every level

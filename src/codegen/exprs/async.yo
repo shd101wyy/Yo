@@ -1670,7 +1670,9 @@ _build_async_capture_struct_literal :: (
                     // C local of the body) hands back the value itself.
                     dup_code := _call_generate_expr(&dup_expr, indent.clone(), context);
                     vname_c := sanitize_for_c_identifier(vname.clone(), false);
-                    declared := (context.base.declared_c_var_names.with({ &vname }(dn_s) => dn_s.contains(vname.clone())) || context.base.declared_scopes.with({ &vname_c }(ds_s) => scope_stack_contains(ds_s, vname_c)));
+                    declared := (
+                      context.base.declared_c_var_names.with({ &vname }(dn_s) => dn_s.contains(vname.clone())) || context.base.declared_scopes.with({ &vname_c }(ds_s) => scope_stack_contains(ds_s, vname_c))
+                    );
                     parts.push(`.${label_c} = ${if((declared || (dup_code.len() == usize(0))), vname_c, dup_code)}`);
                   },
                   .None => {
