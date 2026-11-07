@@ -17,8 +17,13 @@ Program: `issues/repros/2026-11-07-o3-3-invariance-is-not-applied-through-a-mut-
 
 ## Fix
 
-O-2, v0.2.76 (`plans/backlog/BORROW_CHECKER_COMPLETENESS.md` §8–§9).
+Fixed by #1809 (O3-3's invariance applied through a `&mut`-lent named composite: a
+spelled argument origin fixes the parameter, and another argument outside it is E0923),
+which had landed on the base before this branch reproduced the hole; O-2's `lend_through`
+keeps that rule as its step 2 and pins it with the rows below.
 
 ## Test that pins it
 
-corpus rows `store-widen-named-holder`, `store-widen-covariant-field`; the repro under `tests/origins/unsound/`.
+corpus rows `store-widen-named-holder`, `store-widen-covariant-field`;
+`tests/origins/unsound/h4r-store-widen-named-holder.yo` (G-B: rejected with E0923; the
+positive twin runs clean under ASan).

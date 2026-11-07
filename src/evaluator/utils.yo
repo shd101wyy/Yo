@@ -8648,9 +8648,6 @@ _origin_of_into :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, out
   if(depth > u32(16), {
     return(());
   });
-  if(debug_knob(`YO_DEBUG_ORIGIN`).is_some(), {
-    eprintln(`[origin:in] d=${depth.to_string()} ${ast_expr_to_string(e)}`);
-  });
   // R-LEND (marker form): `&place` / `&mut place` — the operand's place with
   // the marker's mode.
   if(ast_expr_is_fn_call_of(e, BF_ADDRESS_OF, Option(usize).Some(usize(1))) || ast_expr_is_fn_call_of(e, BK_BORROW_MUT, Option(usize).Some(usize(1))), {
@@ -8703,7 +8700,7 @@ _origin_of_into :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, out
   // `v.r : &(i32, x)`): the value IS a reference, so its origin is the field
   // type's — each spelled name a runtime place, an origin parameter the
   // caller's (none) — never the field's own place (R-DEREF's base case).
-  if(ast_expr_is_fn_call_of(&stripped, BF_DOT, Option(usize).Some(usize(2))) && match(&fi.ty(), Rc(.Reference(_, _, _)) => true, _ => false), {
+  if(ast_expr_is_fn_call_of(&stripped, BF_DOT, Option(usize).Some(usize(2))) && (match(&fi.ty(), Rc(.Reference(_, _, _)) => true, _ => false) || reference_field_read_type(ast_expr_id(&stripped)).is_some()), {
     _origin_field_into(&stripped, &fi, env, ctx, out, depth);
     return(());
   });
@@ -8838,10 +8835,13 @@ _origin_of_into :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, out
 /// type's spelled origin names (`_origin_names_into`), else the receiver's
 /// origin.
 _origin_field_into :: (fn(node : &AstExpr, fi : &ExprInfo, env : &Environment, ctx : &EvalContext, out : &mut ArrayList(OriginRootPlace), depth : u32) -> unit)({
+  // A reference field read as the place it refers to (N1e-2) carries its
+  // reference type beside the node; else the node's own type.
+  f_ty := match(reference_field_read_type(ast_expr_id(node)), .Some(rt) => rt, .None => Rc.clone(fi.ty()));
   f_names := ArrayList(String).new();
-  origin_param_names_of(&fi.ty(), &mut f_names, u32(0));
+  origin_param_names_of(&f_ty, &mut f_names, u32(0));
   if(f_names.len() > usize(0), {
-    _origin_names_into(&f_names, t_slot_is_mut_ref(&fi.ty()), env, out);
+    _origin_names_into(&f_names, t_slot_is_mut_ref(&f_ty), env, out);
     return(());
   });
   match(
@@ -8894,7 +8894,7 @@ _lend_crossed_reference :: (fn(operand : &AstExpr, ctx : &EvalContext) -> Option
           ast_expr_is_fn_call_of(&e, BK_COLON, Option(usize).Some(usize(2))) => match(lc_args.get(usize(1)), .Some(a) => a, .None => make_err_expr()),
           true => lc_callee
         );
-        if(!ast_expr_is_atom(&next) && match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&next)), .Some(nx_info) => match(&nx_info.ty(), Rc(.Reference(_, _, _)) => true, _ => false), .None => false), {
+        if(!ast_expr_is_atom(&next) && (reference_field_read_type(ast_expr_id(&next)).is_some() || match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&next)), .Some(nx_info) => match(&nx_info.ty(), Rc(.Reference(_, _, _)) => true, _ => false), .None => false)), {
           return(Option(AstExpr).Some(next));
         });
         e = next;
@@ -9394,10 +9394,10 @@ bind_join :: (fn(variable : &Variable, value : &AstExpr, env : &Environment, ctx
   // expected type (`.Some(b)` read as `Option(&(i32, p))`) is still judged
   // by what it holds. In a generic body the origin parameters are RIGID
   // (O2): `p` and `q` are distinct names whatever a caller binds them to.
-  hv_ty := variable_value_type(variable);
+  hv_ty := variable_slot_type(variable);
   holder_ty := cond(
     t_slot_is_borrow(&hv_ty) => t_slot_pointee(&hv_ty),
-    true => hv_ty
+    true => variable_value_type(variable)
   );
   holder_names := ArrayList(String).new();
   origin_param_names_of(&holder_ty, &mut holder_names, u32(0));
@@ -9411,7 +9411,7 @@ bind_join :: (fn(variable : &Variable, value : &AstExpr, env : &Environment, ctx
           match(
             get_variables_from_env(env, rt.place.root_name.clone()).last_cloned(),
             .Some(rv) => cond(
-              rv.is_parameter() => origin_param_names_of(&variable_value_type(&rv), &mut rt_names, u32(0)),
+              rv.is_parameter() => origin_param_names_of(&variable_slot_type(&rv), &mut rt_names, u32(0)),
               !rv.is_module_level() => rt_names.push(rv.name.clone()),
               true => ()
             ),

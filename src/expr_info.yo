@@ -436,10 +436,12 @@ ExprInfoRare :: (
     /// an origin the moment it is typed, read by `bind` at `:=`/`=`/arm and
     /// element bindings, `lend_through` at a call and `return_check` at a
     /// result. `.None` on an origin-carrying expression is the totality
-    /// audit's (G-E) finding, never a silent empty set. BOXED: an
-    /// `Option(ArrayList(...))` field here misfolds its size (the evaluator
-    /// counted 16, the C layout is 32 — issues/2026-11-07-a-rare-group-option-arraylist-field-misfolds-its-size.md),
-    /// while `Option(Box(...))` is a nullable pointer on both sides.
+    /// audit's (G-E) finding, never a silent empty set. BOXED: the v0.2.75
+    /// seed folds this struct 16 bytes short of C (#1797's enum-tag sizing,
+    /// fixed in tree), and a 32-byte `Option(ArrayList(...))` field would push
+    /// the seed's `Box.new` allocation past mimalloc's 512-byte class
+    /// (issues/fixed/2026-11-07-a-new-exprinforare-field-corrupts-the-heap-of-a-seed-built-compiler.md);
+    /// `Option(Box(...))` is an 8-byte nullable pointer on both sides.
     origin : Option(Box(ArrayList(OriginRootPlace)))
   )
 );

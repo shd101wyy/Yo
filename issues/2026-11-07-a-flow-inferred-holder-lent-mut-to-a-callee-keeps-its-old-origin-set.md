@@ -17,8 +17,17 @@ Program: `issues/repros/2026-11-07-a-flow-inferred-holder-lent-mut-to-a-callee-k
 
 ## Fix
 
-O-2 (`lend_through` with write-back), v0.2.76 (`plans/backlog/BORROW_CHECKER_COMPLETENESS.md` §8–§9).
+Fixed by O-2 (`plans/backlog/BORROW_CHECKER_COMPLETENESS.md` §3, §7, §8): at every
+call, `lend_through` treats a `&mut`-lent flow-inferred holder as an inference variable.
+Its pointee's unfixed origin parameters — and its type parameters (`dst : &mut
+Option(T)` with `T := &S`) — are solved to the union of what the call's other
+same-parameter arguments carry, and the solved set is written back to the caller's
+holder (the `=` join's core: kill, ground, gen). A ground root whose block ends before
+the holder's last use is E0911 at the call, the flow form of the scope-end drop
+conflict.
 
 ## Test that pins it
 
-corpus rows `flow-slot-lent-mut`, `flow-slot-lent-mut-loop`; the repro under `tests/origins/unsound/` (G-B).
+corpus rows `flow-slot-lent-mut`, `flow-slot-lent-mut-loop`, `generic-slot-lent-mut`;
+`tests/origins/unsound/h1r-flow-slot-lent-mut.yo` (G-B: rejected with E0911; the
+positive twin runs clean under ASan).
