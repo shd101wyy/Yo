@@ -1,0 +1,58 @@
+// SIBLING TEST: the `.*` spelling inside std (N3 deref Generation A,
+// plans/backlog/SEED_VERSION_AUTOMATION.md). std and src keep the old
+// reading of a reference binding until v0.2.77 migrates them: a bare `r`
+// reads the value it refers to, and `r.*` on a `&Box(T)`/`&Rc(T)`/`&Arc(T)`
+// is the payload. Generation A lets these trees also spell a written `r.*`
+// where the two readings agree, a referent that is not itself dereferenced
+// by `.*`. This file lives under std so it is judged by std's reading. The
+// v0.2.75 seed compiles std but never runs this file's tests, because
+// `check` and builds treat `test(...)` as a no-op and release bundles drop
+// `*.test.yo`. `yo test ./std` runs it with the tree compiler.
+{ assert } :: import("std/assert");
+
+_DerefPoint :: struct(a : i32, b : i32);
+
+test("a written r.* reads the referent of a reference binding", {
+  x := i32(3);
+  r := &x;
+  assert(r.* == i32(3), "r.* reads the referent");
+  v := r.*;
+  assert(v == i32(3), "r.* binds the referent's value");
+});
+test("a bare read keeps the old reading beside it", {
+  x := i32(4);
+  r := &x;
+  v := r;
+  assert(v == i32(4), "a bare r still reads the referent in std");
+  assert(r == r.*, "both spellings read the same value");
+});
+test("r.* = x writes through a &mut reference binding", {
+  mut(y) := i32(1);
+  w := &mut y;
+  w.* = i32(5);
+  assert(y == i32(5), "the write through w.* landed in y");
+});
+test("&r.* lends the referent", {
+  x := i32(6);
+  r := &x;
+  q := &r.*;
+  assert(q.* == i32(6), "q borrows what r borrows");
+});
+test("r.*.field reads a field of the referent", {
+  p := _DerefPoint(a : i32(7), b : i32(8));
+  pr := &p;
+  assert(pr.*.a == i32(7), "r.*.field reads through the referent");
+  assert(pr.b == i32(8), "the bare receiver still reads through");
+});
+test("match(r.*, …) matches the referent", {
+  x := i32(9);
+  r := &x;
+  hit := match(r.*, i32(9) => true, _ => false);
+  assert(hit, "match(r.*, …) sees the referent");
+});
+test("r.* on a &Box(T) is still the payload in std", {
+  bx := Box.new(i32(10));
+  rb := &bx;
+  n := rb.*;
+  assert(n == i32(10), "rb.* reads the Box's payload under std's reading");
+});
