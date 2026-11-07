@@ -82,7 +82,9 @@ pragma(Pragma.AllowUnsafe);
   mark_call_scoped_share_dup,
   mark_call_scoped_share_drop,
   expr_info_converted_runtime_type,
-  expr_info_set_converted_runtime_type
+  expr_info_set_converted_runtime_type,
+  record_skipped_operand_drops,
+  clear_skipped_operand_drops
 } :: import("../expr_info.yo");
 {
   Environment,
@@ -2216,7 +2218,13 @@ require_capture_borrow_exclusivity :: (
     a_info := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&a));
     carries_mut := match(&a_info, .Some(inf) => type_first_mut_borrow(&inf.ty()).is_some(), .None => false);
     by_value := match(param_is_owning.get(ai), .Some(o) => o, .None => false);
-    copied := (by_value && match(a_info, .Some(inf) => (type_is_bitwise_copy(Rc.clone(inf.ty())) && !type_is_second_class(&inf.ty())), .None => false));
+    // Read by borrow: `a_info` is the table's second handle, and a move of it
+    // here would run only when `by_value` lets the right operand run (a
+    // compiler built by a seed without the short-circuit skip-path drop
+    // leaked it, with its env snapshot, for every argument bound to a
+    // non-owning parameter once capture borrows exist:
+    // issues/fixed/2026-11-06-check-watch-re-force-rounds-leak-a-bounded-cluster-of-envs-and-exprinfos.md).
+    copied := (by_value && match(&a_info, .Some(inf) => (type_is_bitwise_copy(Rc.clone(inf.ty())) && !type_is_second_class(&inf.ty())), .None => false));
     excl.push(is_ref_param || carries_mut);
     named.push(!copied);
     ai = (ai + usize(1));
@@ -5217,6 +5225,95 @@ _drop_in_arms_that_keep :: (
   v.set_consumed_at_token(saved_consumed);
   true
 });
+/// `YO_DEBUG_SC_SKIP_DROPS=1` prints each value a skippable short-circuit
+/// operand moves (`drop_moves_of_skippable_operand`): the sites that drop.
+(g_debug_sc_skip_drops : bool) = debug_knob(`YO_DEBUG_SC_SKIP_DROPS`).is_some();
+/// An operand of `&&` / `||` that follows a runtime operand runs only when
+/// that operand lets it, so a value it moves is moved on that path only: the
+/// path that skips the operand still owns the value. That path gets the drop,
+/// as a `cond` arm that keeps a value its sibling moved does
+/// (`_drop_in_arms_that_keep`): `___drop(name)` is recorded for the operand
+/// (`record_skipped_operand_drops`), and codegen emits it in the `else` of the
+/// `if` that guards the operand (`generate_op_and` / `generate_op_or`).
+/// Where the operator ends the value is moved or dropped on every path, so it
+/// stays marked moved.
+///
+/// `env` is the environment the operand was evaluated in and `log_start` the
+/// flow log's length right before it. A variable of `env` whose first record
+/// in the operand's window starts initialized and unmoved, and that ends the
+/// operand moved, is one the operand moved: a move inside a nested `cond` arm
+/// is already joined there (the arms that keep it drop it), so the operand
+/// moves it on every path through it. Evaluating a drop logs a move at the
+/// drop's generated token, so the operator's net effect is logged after it,
+/// as a branch join logs its own: an enclosing arm or loop then reads the
+/// move where the operand made it. The list is rebuilt on every evaluation of
+/// the operand (a loop body is evaluated more than once)
+/// (issues/fixed/2026-11-04-a-move-in-the-right-operand-of-a-short-circuit-operator-leaks-when-the-operand-is-skipped.md).
+drop_moves_of_skippable_operand :: (
+  fn(operand_expr : &AstExpr, env : &Environment, log_start : usize, ctx : &mut EvalContext, exn : Exception) -> unit
+)({
+  drops := ArrayList(AstExpr).new();
+  // Most operands only read: no record, nothing to scan.
+  if(branch_init_log_len() > log_start, {
+    recs := first_flow_records_in(log_start, branch_init_log_len());
+    for(&recs, r => {
+      match(
+        find_variable_by_id(env, r.var_id),
+        .Some(v) => if(r.before_init.is_some() && r.before_consumed.is_none() && v.consumed_at_token().is_some() && _skipped_operand_drops_value(&v, env), {
+          // Evaluated with the value still owned, as the scope-end drop of
+          // an unmoved local is (`_drop_in_arms_that_keep`).
+          moved_at := v.consumed_at_token();
+          v.set_consumed_at_token(Option(Token).None);
+          drop_expr := generate_expr_from_code(`${BF_DROP}(${v.name})`, exn);
+          drops.push(evaluate_expression_raw(&drop_expr, env, ctx, exn));
+          v.set_consumed_at_token(moved_at);
+          record_flow_event(v.id(), Rc.new(TypeValueNode.Unit), Option(TypeValue).None, FlowEventKind.Join, &v.token, &r.before_init, &r.before_consumed, &v.initialized_at_token(), match(v.consumed_at_token(), .Some(jc) => Option(Token).Some(jc), .None => Option(Token).None));
+          if(g_debug_sc_skip_drops, {
+            op_tok := ast_expr_token(operand_expr);
+            eprintln(`[sc-skip-drop] ${display_module_path(&op_tok.module_path.*)}:${op_tok.row.to_string()}:${op_tok.column.to_string()} ${v.name}`);
+          });
+        }),
+        .None => ()
+      );
+    });
+  });
+  // A list an earlier evaluation of the operand recorded is replaced.
+  if(drops.len() > usize(0), {
+    record_skipped_operand_drops(ast_expr_id(operand_expr), drops);
+  }, {
+    clear_skipped_operand_drops(ast_expr_id(operand_expr));
+  });
+});
+/// Whether a value a skipped short-circuit operand would have moved has a
+/// drop of its own: the eligibility `_drop_in_arms_that_keep` checks. A
+/// module-level value lives for the whole program, a borrow or a binding that
+/// owns nothing (a `match`/`for` binding: its holder is joined on its own)
+/// releases nothing, and a type not known enough to drop (a bare `SomeT` of a
+/// definition-time trial) never reaches codegen. The drop names the value, so
+/// the name must reach it in `env`: the binding the name finds is the value
+/// itself, or the parameter's non-owning re-bind a drop moves through
+/// (`_is_param_rebind_of`). A value its name does not reach keeps the old
+/// behavior: no drop on the skip path.
+_skipped_operand_drops_value :: (fn(v : &Variable, env : &Environment) -> bool)({
+  if(v.is_module_level() || !v.is_owning_the_rc_value() || v.is_ref() || !type_contains_rc_type(&variable_value_type(v)), {
+    return(false);
+  });
+  if(match(
+    &variable_value_type(v),
+    Rc(.SomeT({ bounds : s_rtt_bnd, resolution : s_rc })) => {
+      s_rtt := s_rtt_bnd.required();
+      (s_rc.is_none() && (s_rtt.len() == usize(0)))
+    },
+    _ => false
+  ), {
+    return(false);
+  });
+  match(
+    get_variables_from_env(env, v.name.clone()).last_cloned(),
+    .Some(sv) => ((sv.id() == v.id()) || _is_param_rebind_of(env, &sv, v)),
+    .None => false
+  )
+});
 /// `sv` is the non-owning re-bind of the owning parameter `v` that a
 /// specialized body adds beside it (calls/helper.yo): a parameter of the same
 /// name, owning nothing, in the frame that binds `v`.
@@ -6264,7 +6361,7 @@ export(variable_is_borrow_parameter, variable_is_future_operand_parameter, varia
 export(capture_place_crosses_cell, is_cell_handle_deref_step, place_rc_handle, reject_write_through_rc, place_cell_hops, PlaceCellHops, handle_payload_is_read_only, reject_bare_callable_into_dyn_fn, bare_callable_recorded_into_dyn_fn, reject_closure_literal_into_dyn_fn, reject_bare_callable_result, reject_second_class_escape, reject_second_class_return, note_second_class_binding, reject_second_class_result_outliving, check_capture_freeze_access, require_capture_borrow_exclusivity);
 export(doc_comment_lookup_key_from_token);
 export(_last_token_of);
-export(consume_case_body_temp_var, merge_and_check_envs, reject_mixed_closure_arms, reset_sibling_flow_state, keep_last_arm_moves, snapshot_loop_flow, check_loop_flow);
+export(consume_case_body_temp_var, merge_and_check_envs, reject_mixed_closure_arms, reset_sibling_flow_state, keep_last_arm_moves, snapshot_loop_flow, check_loop_flow, drop_moves_of_skippable_operand);
 export(are_values_equal);
 /// Render an f64 with ROUND-TRIP precision (`%.17g`) for a FloatLit raw.
 /// The naive `v.to_string()` is C `%g` — SIX significant digits — and

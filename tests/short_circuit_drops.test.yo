@@ -153,3 +153,99 @@ test("|| in a while body drops its operand temps every iteration", {
   got := c.n.with(n => n.*);
   assert(got == i32(600), `2 temps x 3 iterations x 100 calls, got ${got.to_string()}`);
 });
+// ── a value the right operand MOVES ───────────────────────────────────────
+// The right operand of `&&` / `||` runs only when the left one lets it, so a
+// local it moves is moved on that path only. The path that skips it still
+// owns the value and must drop it, exactly once, and the path that runs it
+// must not drop it again
+// (issues/fixed/2026-11-04-a-move-in-the-right-operand-of-a-short-circuit-operator-leaks-when-the-operand-is-skipped.md).
+// Every shape below makes ONE `Tracked`, so each call disposes exactly one.
+// Takes its `Tracked` by value: the callee owns it and drops it on return.
+_eat :: (fn(t : Tracked) -> bool)(t.v == i32(1));
+_eat_opt :: (fn(o : Option(Tracked)) -> bool)(match(o, .Some(t) => (t.v == i32(1)), .None => false));
+_and_moves :: (fn(c : &Rc(Counter), a : bool, _b : bool) -> bool)({
+  t := _mk(c, i32(1));
+  a && _eat(t)
+});
+_or_moves :: (fn(c : &Rc(Counter), a : bool, _b : bool) -> bool)({
+  t := _mk(c, i32(1));
+  a || _eat(t)
+});
+// The verifier's shape: an `Option` local whose only consumer is the right
+// operand.
+_and_moves_option :: (fn(c : &Rc(Counter), a : bool, _b : bool) -> bool)({
+  o := Option(Tracked).Some(_mk(c, i32(1)));
+  a && _eat_opt(o)
+});
+// A chain parses as `((a && b) && eat(t))`: the move is skipped when `a` OR
+// `b` is false.
+_chain_moves :: (fn(c : &Rc(Counter), a : bool, b : bool) -> bool)({
+  t := _mk(c, i32(1));
+  a && b && _eat(t)
+});
+// Nested: the inner `||` drops `t` when `b` skips its right operand, the outer
+// `&&` when `a` skips the whole inner one.
+_nested_moves :: (fn(c : &Rc(Counter), a : bool, b : bool) -> bool)({
+  t := _mk(c, i32(1));
+  a && (b || _eat(t))
+});
+// A `match` inside the right operand moves `t` in one arm: the `.None` arm's
+// join drops it there, and the short circuit's skip path drops it when `a` is
+// false.
+_match_in_rhs_moves :: (fn(c : &Rc(Counter), a : bool, b : bool) -> bool)({
+  t := _mk(c, i32(1));
+  a && match(if(b, Option(i32).Some(i32(1)), Option(i32).None), .Some(_) => _eat(t), .None => false)
+});
+// Statement position, then read the result.
+_stmt_and_moves :: (fn(c : &Rc(Counter), a : bool, _b : bool) -> bool)({
+  t := _mk(c, i32(1));
+  r := (a && _eat(t));
+  r
+});
+// A by-value parameter moved only by the right operand: the function owns it.
+_param_and_inner :: (fn(t : Tracked, a : bool) -> bool)(a && _eat(t));
+_param_and_moves :: (fn(c : &Rc(Counter), a : bool, _b : bool) -> bool)(_param_and_inner(_mk(c, i32(1)), a));
+// Run `f` 99 times over every combination of two runtime flags and return
+// how many `Tracked` values it disposed of.
+_disposes_flags :: (fn(f : &Impl(Fn(c : &Rc(Counter), a : bool, b : bool) -> bool)) -> i32)({
+  c := Rc.new(Counter(n : RefCell(i32).new(i32(0))));
+  (mut(i) : usize) = usize(0);
+  while(i < usize(99), {
+    k := (i % usize(3));
+    _r := f(&c, (k != usize(0)), (k == usize(2)));
+    i = (i + usize(1));
+  });
+  c.n.with(n => n.*)
+});
+test("a local the right operand of && moves is dropped once on either path", {
+  got := _disposes_flags(_and_moves);
+  assert(got == i32(99), `1 value x 99 calls, got ${got.to_string()}`);
+});
+test("a local the right operand of || moves is dropped once on either path", {
+  got := _disposes_flags(_or_moves);
+  assert(got == i32(99), `1 value x 99 calls, got ${got.to_string()}`);
+});
+test("an Option local only the right operand consumes is dropped once", {
+  got := _disposes_flags(_and_moves_option);
+  assert(got == i32(99), `1 value x 99 calls, got ${got.to_string()}`);
+});
+test("a move at the end of an && chain is dropped when any earlier operand skips it", {
+  got := _disposes_flags(_chain_moves);
+  assert(got == i32(99), `1 value x 99 calls, got ${got.to_string()}`);
+});
+test("a move inside a nested || under && is dropped once on every path", {
+  got := _disposes_flags(_nested_moves);
+  assert(got == i32(99), `1 value x 99 calls, got ${got.to_string()}`);
+});
+test("a move in a match arm of the right operand is dropped once on every path", {
+  got := _disposes_flags(_match_in_rhs_moves);
+  assert(got == i32(99), `1 value x 99 calls, got ${got.to_string()}`);
+});
+test("statement-position && drops the value its right operand would move", {
+  got := _disposes_flags(_stmt_and_moves);
+  assert(got == i32(99), `1 value x 99 calls, got ${got.to_string()}`);
+});
+test("a by-value parameter only the right operand moves is dropped once", {
+  got := _disposes_flags(_param_and_moves);
+  assert(got == i32(99), `1 value x 99 calls, got ${got.to_string()}`);
+});
