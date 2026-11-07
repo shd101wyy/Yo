@@ -6787,6 +6787,27 @@ local_borrow_may_bind_projection_stmt :: (fn(stmt : &AstExpr) -> bool)(
     .Atom(_, _) => false
   )
 );
+/// `stmt` binds a MUTABLE local (`mut(name) := …`, decision 47), whatever
+/// its right-hand side (`mut(slot) := Option(&T).None` is an infix `.`):
+/// only a mutable binding is reassigned later, and the `=` join and
+/// `lend_through`'s flow write-back recompute its live range and its
+/// block's scope end from this statement (plans/backlog/BORROW_CHECKER_COMPLETENESS.md
+/// §7), so it is handed the look-ahead too.
+local_borrow_is_mut_binding_stmt :: (fn(stmt : &AstExpr) -> bool)(
+  ast_expr_is_fn_call_of(stmt, BK_INIT_ASSIGN, Option(usize).Some(usize(2))) && match(
+    stmt,
+    .FnCall(_, _, Rc(sargs), _, _) => match(
+      sargs.get(usize(0)),
+      .Some(l) => cond(
+        ast_expr_is_fn_call_of(&l, BK_MUT, Option(usize).Some(usize(1))) => true,
+        ast_expr_is_atom(&l) => is_mut_binding(&ast_expr_token(&l), &ast_expr_token(&l).value.*),
+        true => false
+      ),
+      .None => false
+    ),
+    .Atom(_, _) => false
+  )
+);
 /// `evaluate_begin_expression`, before it evaluates `stmts(i)`, a borrow
 /// binding: hand the binding the statements after it.
 local_borrow_set_lookahead :: (fn(stmts : &ArrayList(AstExpr), i : usize, stmt : &AstExpr) -> unit)({
@@ -9698,6 +9719,7 @@ export(
   reject_reference_without_deref,
   local_borrow_is_binding_stmt,
   local_borrow_may_bind_projection_stmt,
+  local_borrow_is_mut_binding_stmt,
   local_borrow_set_lookahead,
   local_borrow_place_of,
   local_borrow_place_of_variable,
