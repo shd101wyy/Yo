@@ -35,6 +35,23 @@ The G1 branch keeps both decisions by spelling `get_or_init`'s slot
 parameter, so the receiver stays the only origin. It is the one non-escaping
 callback slot in std that is not `&mut Impl(FnMut(...))`.
 
+## What each slot admits (measured 2026-11-07)
+
+Probes against a develop-tip f89a24b0d evaluator, once with develop's std
+(`f : Impl(Fn() -> T)`, #1804) and once with this branch's std
+(`sink(f) : Impl(FnMut() -> T)`), give the same verdict on every row, so the
+carve-out does not narrow what develop accepts:
+
+| Initializer at `got := cell.get_or_init(...)` | by value (both stds) | `&mut Impl(FnMut)` (Q1's uniform slot) |
+| --- | --- | --- |
+| capture-free literal | accepted | rejected: `got` borrows the temporary closure |
+| implicit capture of a `Copy` local | accepted (the closure owns a copy) | rejected, same reason |
+| implicit capture of a move-only local used again | E0901 (owning move) | rejected, same reason |
+| `{ &k }` or `{ &mut n }` capture, inline or named | E0909 (second-class into a by-value slot) | accepted when the closure is a named `mut(g)` passed `&mut g` |
+
+A plain by-value `f : Impl(FnMut() -> T)` (no `sink`) gives the same verdicts
+as `sink(f)` in the same probes.
+
 ## The question
 
 Rust resolves the same signature without a by-value slot. Its third elision
