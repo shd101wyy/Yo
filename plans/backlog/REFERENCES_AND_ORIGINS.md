@@ -89,7 +89,9 @@ Cursor :: (fn(comptime(T) : Type, comptime(p) : Origin) -> comptime(Type))(
 longest :: (fn(generic(q : Origin, r : Origin), a : &(ArrayList(u8), q), b : &(ArrayList(u8), r)) -> View(u8, (q, r)))(...);
 ```
 
-- **An origin value is one of:** an origin parameter (`p`, abstract,
+- **An origin value is one of** (each entry carries the MODE of the
+  reference that put the place in, VERDICTS-18 §B; the empty origin is
+  spelled `static`, decision 49): an origin parameter (`p`, abstract,
   instantiated at each application exactly as a `Type` argument is); **a
   reference-typed parameter's place** — a `&`/`&mut` parameter, whose
   place is the *caller's lent place*, spelled by the parameter's name
@@ -210,6 +212,9 @@ signature that lies fails in the callee, not at a caller far away).
 | the result's origin | the union of every reference-holding parameter's origin (the conservative R3-era default): `longest(a, b) -> View(u8)` elided borrows both |
 | a `&` field of a type definition | a fresh anonymous origin parameter per field: `struct(xs : &ArrayList(T), lo : usize)` binds one; spell them when fields must relate |
 | a local binding or container in a body | flow-inferred by the intraprocedural checker; diagnostics print the inferred set. A future value's set includes the locals its body captures (N3-1, VERDICTS-18 §B), which the return rule then rejects |
+| a reference nested in a parameter's type (`xs : &ArrayList(&T)`, a by-value `o : Option(&T)`) | a fresh anonymous origin per `&` occurrence, innermost included (Rust: every elided input lifetime is its own parameter; added 2026-11-07, VERDICTS-31) |
+| a `ctl` operation's result | as a `fn`'s: the union of the operation's reference-holding parameters; a handler's `return(e)` is checked against it (O7; added 2026-11-07) |
+| a closure literal bound without a slot (`c := … => …`) | its captures' origins (R-CLOSURE-LIT); its result's origin is R-CLOSURE-CALL's elided default: the closure's own place in the call's receiver mode, union the parameters' per-call origins (added 2026-11-07; `BORROW_CHECKER_COMPLETENESS.md` §3) |
 
 - Elision is for simple signatures; the load-bearing ones spell. std's
   `Iterator` trait spells `next`'s origin so every impl is checked against
@@ -298,6 +303,11 @@ region solver:
    free functions and for any `&mut`-lent argument whose origin a second
    argument would otherwise widen. These two rows are the whole subtyping
    story — no variance lattice beyond them.
+   A function type's PARAMETER position (`Impl(Fn(v : &(T, p)))`,
+   `Dyn(Fn(...), q)`'s parameters, a `ctl` operation's parameters, a trait
+   method's parameters under `Dyn(Trait, p)`) is invariant: it never
+   widens. Rust makes it contravariant; invariance is the sound subset of
+   that and needs no third rule (added 2026-11-07, VERDICTS-30 D2).
    A type constructor's origin parameter takes its variance from its
    fields (added 2026-10-21): invariant iff some field places it under a
    `&mut` pointee, a `RefCell` payload or a `&mut` capture, covariant
@@ -350,11 +360,16 @@ Around them:
   element while the reborrow lived). The union is what keeps the holder
   frozen while the reborrow lives; the first text asserted that in prose,
   the type now carries it.
-- **Drops that use no root** (R4's `may_dangle` obligation): std's buffer
-  containers free their buffer without touching the joined roots'
-  referents, so `x`'s scope-end drop after `out`'s last use is not a
-  conflict. A user-written `Drop` on a reference-holding type keeps every
-  root live until the drop.
+- **Drops that use no root** (R4's `may_dangle` obligation; restated
+  transitively 2026-11-07, VERDICTS-30 D1): a drop uses its roots iff the
+  dropped type reaches, through fields, payloads, elements and cell
+  payloads, a user `Drop` impl on an origin-carrying type
+  (`type_reaches_user_drop`, transitive — Rust's dropck with
+  `#[may_dangle]` on std's containers plus "the element's drop may use
+  `'a`"). Only then is the holder live to its scope-end drop, and a root
+  declared after it conflicts at the root's drop (E0911). `ArrayList(&T)`
+  frees its buffer and uses no root; `ArrayList(H(p))` with a `Drop` on
+  `H` that reads `self.r` uses them all.
 
 ### O4. First-classness: where origin-carrying types may stand
 
@@ -393,7 +408,7 @@ design makes that state **unrepresentable**:
   name its own fields and a binding's type cannot name its own place (O1's
   well-formedness rule). Every reference inside a value points **outward**,
   at a place owned by an enclosing frame. Inside a body, a flow-inferred
-  set (O2) may come to hold a place declared LATER in the same or an inner
+  set (O2; computed per expression, `BORROW_CHECKER_COMPLETENESS.md` §3) may come to hold a place declared LATER in the same or an inner
   scope (`out := ArrayList(&i32).new(); x := i32(5); out.push(&x);`); what
   keeps that sound is liveness, not scoping — a drop is an access
   (decision 18) and bindings drop in reverse declaration order, so `x`'s
@@ -500,7 +515,11 @@ parameter):
 - **`Impl(Fn(...))` types carry origin parameters** in their argument and
   result positions; a `Dyn(Fn(...), p)` holds a closure whose captures'
   origins are within `p` (O4).
-- **Effect handlers and `Dyn` dispatch:** a handler's `return(expr)` resume
+- **Effect handlers and `Dyn` dispatch:** a `ctl` handler body is a
+  regular function: it names no runtime binding of the installing frame
+  (the evaluator rejects the capture outright), so it holds no loan on the
+  installer's places and cannot alias a place the operation's caller lent
+  (stated 2026-11-07, VERDICTS-30). A handler's `return(expr)` resume
   value is checked against the operation's signature — its result origins
   may name the operation's own parameters, never the handler's captures;
   `unwind` at the enclosing function's return. `Dyn(Trait)` dispatch maps
@@ -707,11 +726,16 @@ is subset coercion into a union, `'static` is the empty origin.
 | `Box<dyn Trait + 'a>`, `Box<dyn Fn(&E) + 'a>` | `Dyn(Trait, p)` | **filled 2026-10-20** — O4; `Dyn(Trait)` is `Dyn(Trait, ∅)` |
 | `PhantomData<&'a T>` | a phantom origin parameter | **filled 2026-10-20** — O1 |
 | `let r = &make();` (temporary lifetime extension to the block) | rejected today ("a root that is a temporary") | **fills at decision 18's phase** — §7: the temporary is bound to a hidden local of the enclosing block, Rust's rule |
-| `Rc<&'a T>` | `Rc(T)` requires `T <: Escapable` | **closed pending the follow-up, reason retired by W6b** — amended 2026-11-03: the reason it stayed closed, the cycle collector running drops at an unbounded later time (O9), went with decision 48 W6b; the fill is origin propagation through counted cells (§6's row), the cell carrying its payload's origins as `Box` does |
-| `thread::scope`, rayon over a local `Vec` | none: a borrow is never `Send` | **parked on decision 43's trigger 2** — the fill is a scoped spawn whose join is structural, with origins ⊆ the scope's lent places and `Sync` for `&`; a parallelism-runtime design, not a borrow-model one |
-| `type Item<'a>` (GATs) for lending iterators | not needed for an inherent `next`, or a trait whose `next` signature spells the origin: the elided `next(self : &mut Self) -> Option(&T)` IS the lending reading (O2) | **not a gap for inherent cursors**; a lending `next` dispatched through `Iterator`'s fixed `Self.Item` still needs §7's associated type constructor over `Origin` (narrowed 2026-10-21) |
+| `Rc<&'a T>` | `Rc(T)` requires `T <: Escapable` | **closed pending the follow-up, reason retired by W6b** — amended 2026-11-03: the reason it stayed closed, the cycle collector running drops at an unbounded later time (O9), went with decision 48 W6b; the fill is origin propagation through counted cells (§6's row), the cell carrying its payload's origins as `Box` does **Scheduled 2026-11-07:** v0.2.78 (`BORROW_CHECKER_COMPLETENESS.md` §7 P5). |
+| `thread::scope`, rayon over a local `Vec` | none: a borrow is never `Send` | **parked on decision 43's trigger 2** — the fill is a scoped spawn whose join is structural, with origins ⊆ the scope's lent places and `Sync` for `&`; a parallelism-runtime design, not a borrow-model one **Designed 2026-11-07:** `BORROW_CHECKER_COMPLETENESS.md` §7 P6, v0.2.79, approved 2026-11-07. |
+| `type Item<'a>` (GATs) for lending iterators | not needed for an inherent `next`, or a trait whose `next` signature spells the origin: the elided `next(self : &mut Self) -> Option(&T)` IS the lending reading (O2) | **not a gap for inherent cursors**; a lending `next` dispatched through `Iterator`'s fixed `Self.Item` still needs §7's associated type constructor over `Origin` (narrowed 2026-10-21) **Designed 2026-11-07:** a trait member of kind `fn(Origin) -> Type`, `BORROW_CHECKER_COMPLETENESS.md` §7 P7, v0.2.78. |
 | self-referential values via `Pin` + `unsafe` | unrepresentable in safe code (O5); `AllowUnsafe` raw pointers otherwise | **not a gap in safe code** — Rust's safe subset cannot either |
 | `static mut` | `mut(G)`, a safe lend with decision 18 rule 3 (no call or `await` in the live range) | **Yo is safe where Rust is `unsafe`** — every access to a `static mut` is unsafe in Rust; the trade is the live-range restriction |
+| `let r = if c { &x } else { &y };` | `&x` is not an expression of its own | **scheduled 2026-11-07:** `&x` as an expression, `BORROW_CHECKER_COMPLETENESS.md` §7 P2, v0.2.77 |
+| `r = &y` for any `y` | re-point only to places reached from `cur` (decision 25) | **scheduled 2026-11-07:** decision 25 widened, P1, v0.2.77 |
+| `&&T`, `swap(&mut a, &mut b)` on references | `&r` on a reference binding is rejected (E0926 kind 2) | **scheduled 2026-11-07:** P3, v0.2.77, without deref coercion (approved 2026-11-07) |
+| `v.push(r.len())` with a named `r := &v` | E0911 | **scheduled 2026-11-07:** two-phase for loans, P9, v0.2.77 |
+| closures returned or stored with borrows | second-class (decision 38 A) | **scheduled 2026-11-07:** P4, v0.2.77, with N2d/N2e |
 
 | Yo can write | Rust |
 | --- | --- |
@@ -733,7 +757,7 @@ difficulty moves into places Yo already has machinery:
 
 | Rust's cost | Yo's corresponding mechanism |
 | --- | --- |
-| region-variable solving (NLL constraints, the Polonius class of accept problems) | none — after substitution an origin is a ground set of places; "do these conflict" is lookup, not constraint solving. Rust's accept problems were artifacts of regions being abstract |
+| region-variable solving (NLL constraints, the Polonius class of accept problems) | no INTERPROCEDURAL solving and no outlives lattice: at a call an origin is a ground set of places after substitution, and conflict is lookup. Per body, a flow-inferred set is an inference variable unified at a `&mut` lend (§7), joined at control-flow merges and iterated to a fixpoint over loops — the NLL-sized half, which Yo has as Rust does. The simplification against Rust is one lattice level (outlives becomes subset into a union) and the naming (a parameter's place instead of a region variable), not the per-body analysis. Enforcement is one point: `BORROW_CHECKER_COMPLETENESS.md` §3 (corrected 2026-11-07, VERDICTS-30/31; the first text said "none") |
 | variance and the subtyping lattice | two rules: subset coercion in covariant positions; exact unification through a `&mut` pointee, a `RefCell` payload or a `&mut` capture (O3-3) |
 | higher-ranked trait bounds (`for<'a>`) | present but never spelled — a `Fn(...)` type's elided parameter origin is universally quantified per call (O2), which is what `for<'a>` writes; a named origin parameter is an ordinary generic parameter instantiated at application like `T` |
 | lifetime elision interacting with closures and traits | four stated defaults (O2), each checked against the body |
@@ -964,20 +988,28 @@ it in those words (2026-10-20).
   access clause waits for a counted need. Ante's convergence here (their
   motivating examples are the same cases) is a soft data point, not a
   counted need.
-- **Temporary lifetime extension.** `r := &make()` is rejected today
-  (a root that is a temporary). Position: adopt Rust's rule at decision
-  18's phase — the temporary of a `:=` initializer's borrow is bound to a
-  hidden local of the enclosing block, so `r`'s origin is that local;
-  nothing in the origin model changes.
+- **Temporary lifetime extension.** Adopted 2026-11-07 (VERDICTS-31 P2,
+  O-5; first position: adopt Rust's rule at decision 18's phase): a
+  temporary borrowed in a `:=` initializer's extending positions (the
+  initializer itself, a constructor field, a tuple/array component, an arm
+  tail of the initializer) is a hidden local of the enclosing block; any
+  other borrowed temporary dies with its statement (the statement-end drop
+  of `issues/2026-11-06-a-borrowed-temporary-is-dropped-at-its-blocks-end-not-its-statements.md`),
+  and a loan that outlives it is rejected naming the temporary. The two
+  land together: the drop fix without the rejection is a use-after-free
+  (`issues/2026-11-07-a-holder-returned-over-a-borrowed-temporary-is-accepted-when-bound.md`).
 - **Associated type constructors over `Origin`.** Rust's GATs
   (`type Item<'a>`) are not needed for lending iterators (elision gives
   the lending reading, O2). Position: an associated type may be a
   comptime fn over `Origin` once a counted need appears; not in N1–N3.
+  Scheduled 2026-11-07 for Rust parity: `LendingIterator` with a trait
+  member of kind `fn(Origin) -> Type` (`BORROW_CHECKER_COMPLETENESS.md` §7 P7, v0.2.78).
 - **Module-level origins.** A global's place as an origin is well-formed
   (`&(ArrayList(i32), COUNTS)`), and decision 18 rule 3 (no call or
   `await` in the live range) is the checking rule; the open question is
   whether a module-level *binding* may carry origin parameters at all.
-  Position: no, initially — no frame owns the roots.
+  Position: no, initially — no frame owns the roots. Refined 2026-11-07
+  (`BORROW_CHECKER_COMPLETENESS.md` §7 P12): only the empty origin `static`.
 - **`[T]` as a builtin or `View(T, p)` in std.** *Reversed 2026-11-06 by
   `plans/VALUES_BY_DEFAULT.md` decision 49: `[T]` is a builtin unsized type,
   and `&([T], p)` is the view `View(T, p)` described; the empty origin is
@@ -1095,6 +1127,7 @@ rows that pin it.
 | N1 | the `Origin` kind and `TypeValue.Reference(T, mutable, origin)` (behavioral identity: every test, the fixpoint, an emit-diff with no C change); Generation A: the `&(T, p)` parse, `generic(p : Origin)`, the elision defaults, O3's checking rules (freeze/exclusivity by origin, the covariant/invariant coercion rule, the return rule, place writes), the `Escapable` marker and its bound at the no-origin positions (O10), the handle-origin rule for borrows through an `Rc`/`Arc` deref (O9), `.*`/auto-deref/auto-borrow, `impl(&T, ...)`, `FnMut`. The storage wall stays as it is today — origins are vocabulary and checking, first-class storage waits for N2, so no build accepts an escape it cannot see | the corpus minus its storage rows, the fast suite, fixpoint |
 | N2 | first-class storage: O4's table — cells (`Box`, `RefCell`, `Dyn(Trait, p)`) and containers carry origin parameters, E0909 becomes the no-origin-position rule, O6's declared unions with the widening `yo fix`. PR split N2a–N2f and inventory: `plans/handover/D43_STEP3_N2_DESIGN.md` (2026-10-30) | the storage rows of the corpus |
 | N3 | std and `src/` adopt (Generation B, on the next seed): `iter`, `slice`, `entry`, the borrowed `for` by `impl(&C, IntoIterator)`, the `FnMut` slots, the `Future(T, p)` spelling replacing A2's registry. **Split by what the seed must compile at stage 1** (VERDICTS-25 Q1, 2026-11-05; `plans/handover/VBD_RELEASE_SCHEDULE.md` §5f decision 31). The borrowing future (`Future(T, E, p)`) landed as N3-1 (#1786). **G1**, v0.2.76: the ~35 `FnMut` slots, with Q10's predicate deleted in the same PR (it needs N1f-1, which v0.2.75 carries). **G2**, v0.2.77, on a seed carrying N1e-2b and N1f-2: the holders (`iter`'s `Cursor(T, p)`, `entry`, the `RefCell` guards, `Rc.get_mut`, the `JsonValue` borrowed accessors; `slice` is decision 49's `&([T], p)`, §5f decision 30), then `impl(&C, IntoIterator)` and `impl(&mut C, IntoIterator)` with the borrowed-`for` desugar retarget as ONE PR, then the blanket `Eq`/`Ord`/`Hash`/`ToString` over `&T`. **G3**, v0.2.78: `BorrowedWalk`/`BorrowedWalkMut`, `__borrow_guard` and `__yo_borrow_check` are deleted, once a seed's parse-time desugar calls `into_iter`. **R-FOR** (VERDICTS-25 Q3), from G2's retarget on: `for(&xs, x => …)` and `for(&mut xs, x => …)` lower to the value form over `(&xs).into_iter()` and `(&mut xs).into_iter()`. The cursor's binding freezes `xs` for the whole loop, so a write to `xs` in the body is E0911, and under `&mut` so is a read. The element is a reference binding `&(T, p)` (`&mut(T, p)` under `&mut`) whose origin is the lent place. A collection without the impl is E0610 naming it, and no built-in walk survives | the catalog's rewritten sections; CP0's rows for `slice` and `sort` |
+| **C** (completeness, 2026-11-07) | `BORROW_CHECKER_COMPLETENESS.md`: `ExprInfo.origin` and the five functions, O-1…O-6, the gates G-A…G-E, Rust parity P1–P16 | the corpus `target` set, `tests/origins/unsound/`, totality 0 |
 
 After decision 42's Generation B and V2b, as before (N0 excepted); each
 phase is one PR or one stack with one battery, per AGENTS.md.

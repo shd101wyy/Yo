@@ -1,0 +1,13 @@
+{ println } :: import("std/fmt");
+H :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(r : &(i32, p)));
+main :: (fn() -> unit)({
+  x := i32(1);
+  mut(h) := H(x)(r : &x);
+  {
+    y := i32(2);
+    h = H(y)(r : &y);
+  };
+  println(`OUT: ${h.r.*.to_string()}`);
+  ()
+});
+export(main);
