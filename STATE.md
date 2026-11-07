@@ -256,3 +256,34 @@ The question is (A) switch only the side-effect call-once slots, (B) switch ever
   new with-read sites (seed check ./src is the detector), re-gate (build,
   checks, test list, fixpoint), then READY. Expect conflicts in prelude/
   collections (deref std sweep) and src (part B shapes).
+
+## 2026-11-07 rebase round (onto 9480d475c, part B #1813 era)
+
+- First rebase attempt resolved 14 src conflicts with wholesale `--theirs` (my
+  side), which reverted part B's structural rewrite whole-file: seed check
+  fell to 77/274 (E0403 new_environment / E0610 .env() cascades). Root cause:
+  during rebase `--theirs` is the commit being applied, not develop. Redone:
+  reset to pushed tip 926b06565, `git rerere forget` the wrong resolutions,
+  re-rebase resolving hunk-by-hunk — ours (part B API) + theirs' capture env
+  grafted onto `.with(` lines (script /tmp/g1_merge.py), `.with_mut(` lines
+  verbatim ours; other_fn_call.yo/comptime_fn.yo hand-merged (rerere replays
+  of the correct first-pass resolutions). Final diff vs develop audited: no
+  part-B reversals (net get_cloned -235/+232 = line moves; no `:: ref(`
+  regressions; new_environment exported again).
+- Filler sweep re-derived for part B's new with-read families. Scanner
+  (/tmp/g1_scan.py, +g1_scan2.py all-slot variant): free-id detector with
+  offset-preserving string blanking, comment/fence skipping, explicit-env
+  prefix = safe, Capitalized identifiers = type refs not captures, bare
+  `f(...)` = fn ref not a place read. 96 capture-free literal sites in 5
+  files, dominated by part B's Rc(RefCell(Data)) accessor getters:
+  env.yo (VariableData.live/WhereClauseConstraints/Frame/FrameNameIndex/
+  Environment impls), expr_info.yo (ExprInfo + 15x rare.is_none +
+  g_scope_table/g_branch_init_log), context.yo (PendingDefData.live,
+  ModuleWalkData begin_exprs/ctx, g_forcing_stack, wc.expr_info_table.data),
+  utils.yo (g_reference_reads, g_local_borrows), resolver.yo (packages).
+  Converter /tmp/g1_fill.py: accessor pass rewrites
+  `name : (fn(self : &Self) -> RET)(self[.recv].with(p => BODY))` to
+  `.with(_vh_<prefix>_<name>)` and emits one concrete per-payload helper per
+  accessor; stragglers replaced by hand. 85 helpers + 96 sites converted;
+  both scanners now 0. The part-B literal `g_recursive_type_refs.with(xs =>
+  {...})` captures some_id -> capture-carrying -> safe, left as-is.
