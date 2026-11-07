@@ -1157,26 +1157,26 @@ _try_find_receiver_method :: (
 /// (a type: `(&C).m` is a static call on the reference type) is left alone.
 _strip_explicit_ref_receiver :: (fn(callee : &AstExpr, env : &Environment) -> AstExpr)({
   if(!ast_expr_is_fn_call_of(callee, BF_DOT, Option(usize).Some(usize(2))), {
-    return(callee);
+    return(callee.*);
   });
   sx_id := ast_expr_id(callee);
-  sx_args := match(callee, .FnCall(_, _, Rc(c), _, _) => c.clone(), .Atom(_, _) => return(callee));
-  sx_recv := match(sx_args.get(usize(0)), .Some(r) => r, .None => return(callee));
+  sx_args := match(callee, .FnCall(_, _, Rc(c), _, _) => c.clone(), .Atom(_, _) => return(callee.*));
+  sx_recv := match(sx_args.get(usize(0)), .Some(r) => r, .None => return(callee.*));
   sx_shared := (ast_expr_is_fn_call_of(&sx_recv, BF_ADDRESS_OF, Option(usize).Some(usize(1))) && !ast_expr_is_infix_op_fn_call(&sx_recv));
   sx_mut := ast_expr_is_fn_call_of(&sx_recv, BK_BORROW_MUT, Option(usize).Some(usize(1)));
   // `yo fix --migrate addr-of` evaluates old code, where `&x` was the
   // address-of and `(&x).m()` a pointer receiver.
   if(!(sx_shared || sx_mut) || migrate_addr_of_on(), {
-    return(callee);
+    return(callee.*);
   });
   sx_operand := ast_expr_strip_borrow_marker(&sx_recv);
   if(!_is_runtime_place_expr(&sx_operand, env), {
-    return(callee);
+    return(callee.*);
   });
   sx_new_args := ArrayList(AstExpr).new();
   sx_new_args.push(sx_operand);
   match(sx_args.get(usize(1)), .Some(m) => sx_new_args.push(m), .None => ());
-  stripped := match(callee, .FnCall(_, sx_fb, _, sx_infix, sx_tok) => AstExpr.FnCall(sx_id, sx_fb, Rc.new(sx_new_args), sx_infix, sx_tok), .Atom(_, _) => return(callee));
+  stripped := match(callee, .FnCall(_, sx_fb, _, sx_infix, sx_tok) => AstExpr.FnCall(sx_id, sx_fb.*, Rc.new(sx_new_args), sx_infix.*, sx_tok.*), .Atom(_, _) => return(callee.*));
   note_rewritten_node(&stripped);
   g_explicit_ref_receivers.with_mut({ sx_id, sx_mut }(m) => m.insert(sx_id, sx_mut));
   stripped
@@ -2847,9 +2847,9 @@ _ambiguous_method_message :: (
         ae_mode := match(
           &ae_self,
           .Some(st) => cond(
-            (type_key(&ae_slot) == type_key(&st)) => String.from("Self"),
-            (type_key(&ae_slot) == type_key(&t_reference(&st, false))) => String.from("&Self"),
-            (type_key(&ae_slot) == type_key(&t_reference(&st, true))) => String.from("&mut Self"),
+            (type_key(&ae_slot) == type_key(&st.*)) => String.from("Self"),
+            (type_key(&ae_slot) == type_key(&t_reference(&st.*, false))) => String.from("&Self"),
+            (type_key(&ae_slot) == type_key(&t_reference(&st.*, true))) => String.from("&mut Self"),
             true => type_to_string(&ae_slot)
           ),
           .None => type_to_string(&ae_slot)
@@ -8957,9 +8957,9 @@ _origin_position_pairs :: (fn(p : &TypeValue, a : &TypeValue, out_p : &mut Array
       },
       _ => ()
     ),
-    Rc(.Struct({ type_arguments : pts })) => match(a, Rc(.Struct({ type_arguments : ats })) => _origin_position_pairs_list(&pts, &ats, out_p, out_a, depth), _ => ()),
-    Rc(.EnumT({ type_arguments : pts })) => match(a, Rc(.EnumT({ type_arguments : ats })) => _origin_position_pairs_list(&pts, &ats, out_p, out_a, depth), _ => ()),
-    Rc(.Tuple({ field_types : pts })) => match(a, Rc(.Tuple({ field_types : ats })) => _origin_position_pairs_list(&pts, &ats, out_p, out_a, depth), _ => ()),
+    Rc(.Struct({ type_arguments : pts })) => match(a, Rc(.Struct({ type_arguments : ats })) => _origin_position_pairs_list(&pts.*, &ats.*, out_p, out_a, depth), _ => ()),
+    Rc(.EnumT({ type_arguments : pts })) => match(a, Rc(.EnumT({ type_arguments : ats })) => _origin_position_pairs_list(&pts.*, &ats.*, out_p, out_a, depth), _ => ()),
+    Rc(.Tuple({ field_types : pts })) => match(a, Rc(.Tuple({ field_types : ats })) => _origin_position_pairs_list(&pts.*, &ats.*, out_p, out_a, depth), _ => ()),
     _ => ()
   )
 });
@@ -9020,7 +9020,7 @@ _argument_origin_pairs :: (fn(arg : &AstExpr, slot : &TypeValue, env : &Environm
             },
             .None => ()
           );
-          _origin_position_pairs(&sp, &a_ty, out_p, out_a, u32(0));
+          _origin_position_pairs(&sp.*, &a_ty, out_p, out_a, u32(0));
         }
       );
     },
