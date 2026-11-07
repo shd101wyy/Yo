@@ -225,15 +225,28 @@ Zig facts as read from `ziglang/zig` master on 2026-11-07:
 | | Follow? |
 | --- | --- |
 | `{userdata, vtable}`, the operations on the interface, `io` passed by argument, user implementations possible, one `Io` per thread handed at the entry | **yes** |
-| `Threaded`: `io.async` runs on another thread | **no.** An `io.async` body captures non-atomic `Rc` values and is `!Send` by construction, and the state machine's own reference count is non-atomic. Yo's spelling of parallel work is `ThreadPool.spawn` with `FnOnce + Send` checked at the boundary |
-| Stackful fibers and fiber stealing | **no.** Both migrate a started task between threads, which contradicts the single-threaded-per-thread rule that keeps the async runtime free of locks |
+| `Threaded`: `io.async` runs on another thread | **No, as an `Io` implementation; yes, as `ThreadPool.spawn`.** `io.async`'s body is `Impl(FnOnce(e : E) -> T)` with no `Send` bound, and an implementation is a runtime value, so the bound cannot depend on it. Zig's `Threaded` moves an *unstarted* task to a pool thread and runs it to completion. Yo spells that `ThreadPool.spawn` with `FnOnce + Send` checked at the boundary, which is TP-1's shared queue |
+| Stackful fibers and fiber stealing (`IoUring`'s `findReadyFiber`) | **No.** They migrate a *started* task. Yo's runtime objects are per-thread and non-atomic by design: the state machine's header count, its `state` and continuation slots, the ready queue and the slab pools. A 4 MiB stack per task is also not the stackless model. A migrating executor for `Send` futures is deferred, not forbidden (§7) |
 | No function colouring | **no.** An `io.async` body is a state machine, and taking `io` is the colour. That is the price of a per-thread, non-atomic, stackless model, and it is the right price |
 
 **A blocking `Io` is possible with stackless futures.** Every operation
 returns `IoFuture.completed(syscall())`, and `spawn` runs the machine inline
 to completion. macOS and Windows already do this for most file operations.
-**A `Threaded`-style `Io` that parallelises `io.async` is not possible, and
-must not be built.**
+
+**An `Io` whose `io.async` runs the body on another thread is not possible**,
+for the typing reason in the table.
+
+**A migrating, work-stealing executor for `Send` futures would be a separate
+entry point,** `ThreadPool.spawn_async(fut)` with the future's `Send`
+checked. It is deferred (§7). After VBD, the program's reference counts are
+not the obstacle: a `Send` value reaches no non-atomic count, and a `String`
+or collection live across an await is `Send`. The obstacles are:
+- inferring a future's `Send`;
+- `Io`'s thread identity (rule 3 makes every future `!Send`);
+- an atomic task kind.
+
+It comes no earlier than NO_LIBC P9, and only for a measured workload the
+per-thread model cannot serve.
 
 ## 5. Where the runtime lives
 
@@ -361,11 +374,26 @@ one sweep, not as a pre-migration
   performance records, no verifier leverage over raw pointers, per-program
   re-evaluation and seed-gated runtime fixes. Revisit with one backend after
   NO_LIBC P9.
-- **A `Threaded`-style `Io` that parallelises `io.async`.** It is unsound
-  under non-atomic reference counting and `!Send` task state. `ThreadPool.spawn`
-  is the typed form.
-- **Zig's stackful fibers or fiber stealing.** They contradict the
-  single-threaded-per-thread rule that keeps the async runtime free of locks.
+- **An `Io` implementation whose `io.async` runs the body on another
+  thread.** `io.async` carries no `Send` bound, and cannot: the
+  implementation is a runtime value. `ThreadPool.spawn` is the typed form. It
+  is also what Zig's `Threaded.async` does: an unstarted task runs to
+  completion on one pool thread.
+- **Zig's stackful fibers or fiber stealing.** They migrate a started task,
+  and the runtime's own objects are per-thread and non-atomic by design.
+- **Deferred, not rejected: a migrating executor for `Send` futures**
+  (`ThreadPool.spawn_async`). Its prerequisites, in order:
+  1. **`Io`'s thread identity.** Rule 3 is replaced by an executor-valued
+     `Io`, with foreign operations routed through the owner loop's inbox.
+  2. **A future's `Send`,** derived from its captures, its await-live locals
+     and the futures it awaits, with a diagnostic naming the slot and the
+     await.
+  3. **An atomic task kind,** selected at `spawn_async`. It is never a
+     global flip of the header, so single-threaded programs pay nothing.
+
+  Revisit after NO_LIBC P9, on a measured workload. Until then, the reason a
+  started task never migrates is "the runtime is per-thread", not "reference
+  counts are not thread-safe" (VERDICTS-33).
 
 ## 8. Text for `docs/*/ASYNC_AWAIT.md` (lands with IO-1b)
 

@@ -98,7 +98,7 @@ One line each; the linked doc is authoritative.
 
 ### Async/await threading model
 
-Yo's async/await is **single-threaded** (like C#): all I/O submissions and completions run on one event loop thread. Do not add mutexes or atomics to async runtime variables. The parallelism runtime (`src/codegen/parallelism/`) is a separate multi-threaded concern.
+Yo's async/await is **single-threaded per thread** (like JavaScript's event loop, or tokio's `current_thread`/`LocalSet`; NOT like C#, whose continuations resume on any thread-pool thread): all I/O submissions and completions run on one event loop thread, and a started task never migrates. Do not add mutexes or atomics to async runtime variables. The parallelism runtime (`src/codegen/parallelism/`) is a separate multi-threaded concern.
 
 ---
 

@@ -56,7 +56,7 @@ Line anchors are against `src/codegen/parallelism/runtime.yo` and
 | --- | --- | --- | --- |
 | Assignment | Round-robin into per-worker queues, no stealing | **One shared intake queue.** An idle worker takes the next unstarted task. A started task never leaves its worker: the per-task `__yo_async_wait_all` drain stays | Taking *unstarted* `FnOnce + Send` tasks is sound by the type. Migrating *started* ones is not, and is not done. This removes the head-of-line blocking and the CPU-bound imbalance in one change, and nothing relies on placement since `join_all` became a counter. It is work-sharing, not work-stealing: one mutex-and-condvar queue, no per-worker deques, no atomics on async state |
 | Pinning | Implicit, by submission order | **`spawn_on(pool, worker : usize, cb)`** submits to that worker's own queue, which the worker checks before the shared one | The one thing thread-per-core is *for* is shard-local state (Seastar, Glommio, Monoio), and that needs a stable worker identity chosen by the program, not by a counter. `pool.worker_count()` and the running task's `worker_id()` (a `thread_local` read) make a sharded design writable. "Affinity by argument" is the same rule as allocator placement by argument |
-| Event loop | One per worker | **Kept** | Required by `!Send` `Io`/`JoinHandle` and non-atomic reference counting. It is the design, not an option |
+| Event loop | One per worker | **Kept** | Required by `!Send` `Io`/`JoinHandle` and the runtime's per-thread, non-atomic task objects. It is the design, not an option |
 | Ownership | One process-global pool; `new(n)` is a request; pools share workers; `atexit` signals | **`ThreadPool.new(n)` creates exactly `n` workers.** Dropping the pool is `shutdown`: close, drain, join. Two pools are `2n` threads | A pool is a resource with a lifetime, as in Rust's `rayon::ThreadPool` and Zig's `std.Thread.Pool`. The "request" semantics were an artifact of the C statics. A pool held in a module global lives until exit, and the process does not wait for it (as today, and as for a detached `Thread`) |
 | Count | Hardware threads by default | **Kept** as the default of `with_hardware_threads()`; `new(n)` is exact | |
 | `join_all`, `shutdown` | Counter, close-and-drain | **Kept**, plus `Drop` joins | |
@@ -174,8 +174,10 @@ former statics.
   every task queued behind it on its worker while other workers sit idle.
 - **A process-global pool whose `new(n)` is a request.** This was an artifact
   of the C statics; a pool is a resource with a lifetime.
-- **Work stealing of started tasks**, as in tokio or Zig's fiber stealing. It
-  is unsound under non-atomic reference counting and `!Send` task state.
+- **Work stealing of started tasks**, as in tokio or Zig's fiber stealing.
+  The runtime's task objects are per-thread and non-atomic, and no future is
+  `Send` while `Io` names one loop. A `Send`-gated `spawn_async` is deferred
+  (`IO_INTERFACE_AND_STD_RUNTIME.md` §7).
 - **Per-worker deques with stealing of unstarted tasks.** The shared queue
   gives the same balance for the task sizes a pool takes, with one lock and
   no atomics. Revisit only on a measured contention profile, after NO_LIBC
