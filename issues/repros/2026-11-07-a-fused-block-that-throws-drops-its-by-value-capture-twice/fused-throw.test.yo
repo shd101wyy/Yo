@@ -1,0 +1,37 @@
+// The fused tail throws while the arm's binding is live: the state machine's
+// dispose releases the binding once, and the wrapper's capture once.
+_throws_with_arm_binding :: (fn(sink(name) : String, io : Io) -> Impl(Future(usize, IoExn)))(
+  io.async(e => {
+    r := e.io.await(_leaf(i32(1), e.io), e.io);
+    cond(
+      (r > i32(0)) => e.exn.throw(dyn(Boom(msg : name.clone()))),
+      true => name.len()
+    )
+  })
+);
+_arm_alive_across_a_fused_throw :: (fn(io : Io) -> Impl(Future(usize, IoExn)))(
+  io.async(
+    e => match(
+      Option(String).Some(String.from("the arm's own binding")),
+      .Some(name) => {
+        v := e.io.await(_throws_with_arm_binding(String.from("arg"), e.io), e);
+        v + name.len()
+      },
+      .None => usize(0)
+    )
+  )
+);
+_caught_with_arm_binding :: (fn(io : Io) -> bool)({
+  exn := Exception(
+    throw : (
+      err -> {
+        unwind(err.to_string() == String.from("arg"));
+      }
+    )
+  );
+  _v := io.await(_arm_alive_across_a_fused_throw(io), IoExn(io : io, exn : exn));
+  false
+});
+test("a throw in a fused block carries the wrapper's value and releases the arm's", {
+  assert(_caught_with_arm_binding(io), "the thrown message is the wrapper's argument");
+});
