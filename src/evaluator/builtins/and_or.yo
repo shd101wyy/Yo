@@ -20,10 +20,12 @@
   new_expr_info,
   expr_info_table_set,
   expr_info_table_get,
-  expr_info_adopt_env
+  expr_info_adopt_env,
+  branch_init_log_len
 } :: import("../../expr_info.yo");
 { Environment, snapshot_env } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
+{ drop_moves_of_skippable_operand } :: import("../utils.yo");
 {
   EvalValue,
   is_bool_val,
@@ -80,7 +82,16 @@ evaluate_and_or :: (
       arg_opt,
       .None => (),
       .Some(arg) => {
+        // After a runtime (or compile-time unknown) operand this one runs
+        // only when that operand lets it, so what it moves is moved on that
+        // path only (`drop_moves_of_skippable_operand`; `cur_env` is still
+        // the environment the operand was evaluated in).
+        skippable := (has_runtime || has_unknown);
+        operand_log_start := branch_init_log_len();
         evaluated_arg := evaluate_expression_raw(&arg, &cur_env, ctx, exn);
+        if(skippable, {
+          drop_moves_of_skippable_operand(&arg, &cur_env, operand_log_start, ctx, exn);
+        });
         arg_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_arg));
         arg_info := match(
           arg_info_opt,
