@@ -6635,7 +6635,7 @@ forget_binder_value_read :: (fn(tok : &Token) -> unit)({
   _old := g_binder_value_reads.with_mut(s => s.remove(&_reference_deref_site_key(tok)));
 });
 is_binder_value_read :: (fn(tok : &Token) -> bool)(
-  (g_binder_value_reads.with(s => s.len()) > usize(0)) && g_binder_value_reads.with(s => s.contains(&_reference_deref_site_key(tok)))
+  (g_binder_value_reads.with({ &tok }(s) => s.len()) > usize(0)) && g_binder_value_reads.with(s => s.contains(&_reference_deref_site_key(tok)))
 );
 /// Record whether the node `id` was read as a reference value (the read
 /// rule); a later evaluation of the same node at another position overrides.
