@@ -6648,8 +6648,11 @@ note_ctfe_reference_param :: (fn(id : usize) -> unit)({
 is_ctfe_reference_param :: (fn(v : &Variable) -> bool)(
   v.is_compile_time_only() && _is_ctfe_reference_param_id(v.id())
 );
+/// (seed window) A concrete `with` body for the generic-`R` slot; see
+/// `_vh_reference_reads_len`.
+_vh_ctfe_reference_params_len :: (fn(s : &HashSet(usize)) -> usize)(s.len());
 _is_ctfe_reference_param_id :: (fn(id : usize) -> bool)(
-  (g_ctfe_reference_params.with(s => s.len()) > usize(0)) && g_ctfe_reference_params.with(s => s.contains(&id))
+  (g_ctfe_reference_params.with(_vh_ctfe_reference_params_len) > usize(0)) && g_ctfe_reference_params.with(s => s.contains(&id))
 );
 /// Records each of the parameters `names` that `ft` types `&T` / `&mut T`
 /// and `env` binds as a compile-time value, as CTFE's binders bind a
