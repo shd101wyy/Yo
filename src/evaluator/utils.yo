@@ -6373,16 +6373,20 @@ derive(LocalBorrowMacroSite, Clone);
 /// How an access touches a place.
 LocalBorrowAccess :: enum(Read, Write, Move, Exclusive);
 /// Any local borrow in scope: the fast gate every access hook checks first.
-local_borrows_active :: (fn() -> bool)(g_local_borrows.with(xs => xs.len()) > usize(0));
-/// The lengths a begin block restores when it ends (`local_borrows_truncate`).
-LocalBorrowMark :: struct(borrows : usize, patterns : usize, match_places : usize, macro_sites : usize);
+local_borrows_active :: (fn() -> bool)((g_local_borrows.with(xs => xs.len()) > usize(0)) || (g_local_borrow_joins.with(xs => xs.len()) > usize(0)));
+/// The lengths a begin block restores when it ends (`local_borrows_truncate`),
+/// and the flow-set table's length a FUNCTION BODY restores when it ends
+/// (`local_borrow_joins_truncate`: a holder is a local or a parameter of the
+/// body that joined it, so its entries die with the body, not the block).
+LocalBorrowMark :: struct(borrows : usize, patterns : usize, match_places : usize, macro_sites : usize, joins : usize);
 derive(LocalBorrowMark, Copy, Clone);
 local_borrows_mark :: (fn() -> LocalBorrowMark)(
   LocalBorrowMark(
     borrows : g_local_borrows.with(xs => xs.len()),
     patterns : g_local_borrow_patterns.with(xs => xs.len()),
     match_places : g_local_borrow_match_places.with(xs => xs.len()),
-    macro_sites : g_lb_macro_sites.with(xs => xs.len())
+    macro_sites : g_lb_macro_sites.with(xs => xs.len()),
+    joins : g_local_borrow_joins.with(xs => xs.len())
   )
 );
 derive(LocalBorrowMatchPlace, Clone);
@@ -6406,6 +6410,13 @@ local_borrows_truncate :: (fn(mark : LocalBorrowMark) -> unit)({
     ()
   });
   g_lb_receiver_armed = false;
+});
+/// A function body's end: the flow sets its holders joined are dead.
+local_borrow_joins_truncate :: (fn(mark : LocalBorrowMark) -> unit)({
+  while(g_local_borrow_joins.with(xs => xs.len()) > mark.joins, {
+    g_local_borrow_joins.with_mut(xs => xs.pop());
+    ()
+  });
 });
 /// Before a `.` access evaluates its receiver `recv`: `recv` is a prefix of
 /// the place the access names.
@@ -9684,6 +9695,7 @@ export(
   local_borrows_active,
   local_borrows_mark,
   local_borrows_truncate,
+  local_borrow_joins_truncate,
   local_borrow_mark_receiver,
   local_borrow_clear_receiver,
   local_borrow_take_receiver,
