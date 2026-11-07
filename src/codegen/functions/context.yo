@@ -476,7 +476,7 @@ shadow_bindings_of :: (fn(context : &FunctionGenerationContext, name : &String) 
 shadow_binding_push :: (fn(context : &mut FunctionGenerationContext, name : &String, c_name : &String, decl : Option(Token)) -> unit)({
   stacks := match(context.shadow_bindings.take(), .Some(m) => m, .None => HashMap(String, ArrayList(ShadowBinding)).new());
   stack := match(stacks.get_cloned(name.clone()), .Some(st) => st, .None => ArrayList(ShadowBinding).new());
-  same := match(stack.last_cloned(), .Some(top) => ((top.c_name == c_name) && _same_decl(&top.decl, &decl)), .None => false);
+  same := match(stack.last_cloned(), .Some(top) => ((top.c_name == c_name.*) && _same_decl(&top.decl, &decl)), .None => false);
   if(!same, {
     stack.push(ShadowBinding(c_name : c_name.clone(), decl : decl));
   });

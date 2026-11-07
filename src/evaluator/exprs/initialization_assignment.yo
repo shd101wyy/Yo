@@ -535,7 +535,7 @@ _evaluate_inout_local_binding :: (
     match(
       &lb_place,
       .Some(lp) => {
-        local_borrow_require_writable(&lp.*, local_borrow_root_is_shared_reference(&lp, env), `borrow \`${local_borrow_place_text(rhs)}\` with \`&mut\``, ast_expr_token(rhs), ctx, exn);
+        local_borrow_require_writable(&lp.*, local_borrow_root_is_shared_reference(&lp.*, env), `borrow \`${local_borrow_place_text(rhs)}\` with \`&mut\``, ast_expr_token(rhs), ctx, exn);
         local_borrow_access(&lp.*, LocalBorrowAccess.Exclusive, ast_expr_token(rhs), ctx, exn);
       },
       .None => ()
