@@ -1,0 +1,8 @@
+# `yo fix --migrate deref` inserts `.*` after a reference binding that a
+# unary operator reads (`-self`, `!b`, `~x`), and the migrated file checks.
+# Before the fix the operator was E0610 ("No matching call found"), which
+# stopped the evaluation of the fn: the tail `self` stayed bare and the file
+# was reported as not evaluating
+# (issues/fixed/2026-11-07-a-unary-operator-on-a-reference-binding-is-e0610-and-stops-the-deref-migration.md).
+stdout_keep=^(fix:|error|check:.*(OK|passed|failed))
+timeout=240

@@ -80,7 +80,7 @@ pragma(Pragma.AllowUnsafe);
 { stable_module_id, stable_func_id, private_member_blocked, debug_knob, parse_raw_int, is_temp_variable_name } :: import("../../utils.yo");
 { type_key } :: import("../../types/type_key.yo");
 { record_await_fusion_candidate } :: import("../../expr_traversal.yo");
-{ attach_temp_variable_to_expr, projection_call_mode_of, deref_exempt_mark, deref_exempt_clear, binder_read_mark, binder_read_clear, consume_called_fnonce_closure, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, reject_second_class_escape, reject_write_through_rc, place_cell_hops, PlaceCellHops, handle_payload_is_read_only, require_capture_borrow_exclusivity, local_borrows_active, local_borrow_place_of, local_borrow_value_place_of, local_borrow_places_overlap, LocalBorrowPlace, CellRootedPlace, cell_rooted_place_of, cell_rooted_same_cell, cell_rooted_places_overlap, local_borrow_note_runtime_call, local_borrow_enter_macro_site, local_borrow_leave_macro_site, local_borrow_is_macro_await, local_borrow_is_scalar_type, variable_is_borrow_parameter, variable_id_in_scope, reject_bare_callable_into_dyn_fn, bare_callable_recorded_into_dyn_fn, global_lend_audit_enabled, global_lend_audit_print, global_lend_location, global_lend_key, variable_is_reference_binding, variable_is_mut_borrow, global_place_path, GlobalHandleLend, global_note_handle_mutcall, global_note_handle_lend, global_require_mut, variable_is_future_operand_parameter, place_require_mut, local_borrow_write_expr, origin_of, bind_join_roots_for, origin_param_names_of, param_declared_origin_slot, OriginRootPlace, check_capture_freeze_access, reference_field_read_mode, deref_operand_is_raw_pointer, RC_CLONE_MIGRATE_HINT, local_borrow_place_text, FutureRoot, note_future_roots, future_roots_of, holder_future_roots, is_reference_read, n2b_roots_text } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, projection_call_mode_of, deref_exempt_mark, deref_exempt_clear, binder_read_mark, binder_read_clear, consume_called_fnonce_closure, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, reject_second_class_escape, reject_write_through_rc, place_cell_hops, PlaceCellHops, handle_payload_is_read_only, require_capture_borrow_exclusivity, local_borrows_active, local_borrow_place_of, local_borrow_value_place_of, local_borrow_places_overlap, LocalBorrowPlace, CellRootedPlace, cell_rooted_place_of, cell_rooted_same_cell, cell_rooted_places_overlap, local_borrow_note_runtime_call, local_borrow_enter_macro_site, local_borrow_leave_macro_site, local_borrow_is_macro_await, local_borrow_is_scalar_type, variable_is_borrow_parameter, variable_id_in_scope, reject_bare_callable_into_dyn_fn, bare_callable_recorded_into_dyn_fn, global_lend_audit_enabled, global_lend_audit_print, global_lend_location, global_lend_key, variable_is_reference_binding, variable_is_mut_borrow, global_place_path, GlobalHandleLend, global_note_handle_mutcall, global_note_handle_lend, global_require_mut, variable_is_future_operand_parameter, place_require_mut, local_borrow_write_expr, origin_of, bind_join_roots_for, origin_param_names_of, param_declared_origin_slot, OriginRootPlace, check_capture_freeze_access, reference_field_read_mode, deref_operand_is_raw_pointer, RC_CLONE_MIGRATE_HINT, local_borrow_place_text, FutureRoot, note_future_roots, future_roots_of, holder_future_roots, is_reference_read, n2b_roots_text, deref_rule_applies, is_reference_deref_site, note_binder_value_read, forget_binder_value_read } :: import("../utils.yo");
 {
   EvalContext,
   ExpectedTypeCtx,
@@ -3103,6 +3103,66 @@ _select_matching_overload :: (
     .None => base.clone()
   )
 });
+/// Trial-call each overload candidate; the indices of those that type-check.
+/// The trials run under is_in_function_call_checking_phase so NESTED
+/// comptime/macro calls short-circuit to UnknownVal instead of executing
+/// (the flag is set on each dry-run). Without this, every trial
+/// re-evaluated its cloned arg exprs INCLUDING macro expansion and CTFE —
+/// exponential in nested operator-call chains (std/glob.yo never
+/// finished). Restored HERE (not inside the per-candidate helper) because
+/// the trial's swallow handler unwinds past that helper's own tail on
+/// failure.
+_trial_call_overload_candidates :: (
+  fn(
+    cand_vals : &ArrayList(EvalValue),
+    cand_tys : &ArrayList(TypeValue),
+    call_expr : &AstExpr,
+    func_expr : &AstExpr,
+    args : &ArrayList(AstExpr),
+    env : &Environment,
+    ctx : &mut EvalContext
+  ) -> ArrayList(usize)
+)({
+  old_checking_ph := ctx.is_in_function_call_checking_phase;
+  ctx.is_in_function_call_checking_phase = true;
+  successes := ArrayList(usize).new();
+  (cand_i : usize) = usize(0);
+  while(cand_i < cand_vals.len(), {
+    cv2 := match(cand_vals.get(cand_i), .Some(v) => v, .None => EvalValue.UnitVal);
+    ct2 := match(cand_tys.get_cloned(cand_i), .Some(t) => t, .None => t_unit());
+    ok_out := ArrayList(bool).new();
+    _trial_call_overload_candidate(&cv2, &ct2, call_expr, func_expr, args, env, ctx, &mut ok_out);
+    if(ok_out.len() > usize(0), {
+      successes.push(cand_i);
+    });
+    cand_i = (cand_i + usize(1));
+  });
+  ctx.is_in_function_call_checking_phase = old_checking_ph;
+  successes
+});
+/// The tokens of the arguments that name a reference binding judged by the
+/// deref rule (a bare `r`, not a written `r.*`).
+_reference_binding_argument_tokens :: (fn(args : &ArrayList(AstExpr), env : &Environment, ctx : &EvalContext) -> ArrayList(Token))({
+  toks := ArrayList(Token).new();
+  (ai : usize) = usize(0);
+  while(ai < args.len(), ai = (ai + usize(1)), {
+    match(
+      args.get(ai),
+      .Some(a) => if(ast_expr_is_atom(&a), {
+        a_tok := ast_expr_token(&a);
+        match(
+          get_variables_from_env(env, a_tok.value.*.clone()).last_cloned(),
+          .Some(av) => if(variable_is_reference_binding(&av) && deref_rule_applies(&a_tok, ctx) && !is_reference_deref_site(&a_tok), {
+            toks.push(a_tok);
+          }),
+          .None => ()
+        );
+      }),
+      .None => ()
+    );
+  });
+  toks
+});
 /// ModuleT/Call overload dispatch. When the callee
 /// evaluated to a source-namespace struct value (an `impl({...})` operator
 /// module like `(!)`/`(-)`/`(~)`) whose `Call` field holds the overload
@@ -3250,28 +3310,25 @@ _try_expand_call_overload :: (
   });
   func_expr := match(call_expr, .FnCall(_, fb, _, _, _) => fb, _ => evaluated_callee);
   // Trial each candidate; collect the indices that type-check.
-  // The trials run under is_in_function_call_checking_phase so NESTED
-  // comptime/macro calls short-circuit to UnknownVal instead of executing
-  // (the flag is set on each dry-run). Without this, every trial
-  // re-evaluated its cloned arg exprs INCLUDING macro expansion and CTFE —
-  // exponential in nested operator-call chains (std/glob.yo never
-  // finished). Restored HERE (not inside the helper) because the trial's
-  // swallow handler unwinds past the helper's own tail on failure.
-  old_checking_ph := ctx.is_in_function_call_checking_phase;
-  ctx.is_in_function_call_checking_phase = true;
-  successes := ArrayList(usize).new();
-  (cand_i : usize) = usize(0);
-  while(cand_i < cand_vals.len(), {
-    cv2 := match(cand_vals.get(cand_i), .Some(v) => v, .None => EvalValue.UnitVal);
-    ct2 := match(cand_tys.get_cloned(cand_i), .Some(t) => t, .None => t_unit());
-    ok_out := ArrayList(bool).new();
-    _trial_call_overload_candidate(&cv2, &ct2, call_expr, &func_expr, args, env, ctx, &mut ok_out);
-    if(ok_out.len() > usize(0), {
-      successes.push(cand_i);
+  mut(successes) := _trial_call_overload_candidates(&cand_vals, &cand_tys, call_expr, &func_expr, args, env, ctx);
+  // A reference binding `r` passed to an operator module (`-r`, `!r`, `~r`
+  // on `r : &T`) reads as the reference at the candidates' unbound binder
+  // (the read rule), and no candidate takes a reference. When one takes its
+  // referent, the argument is a whole-value read: it reads as the referent
+  // (`note_binder_value_read`), so the real call judges it as one (E0926,
+  // spelled `r.*`, or a recorded `.*` under `yo fix --migrate deref`)
+  // instead of failing with "No matching call found"
+  // (issues/fixed/2026-11-07-a-unary-operator-on-a-reference-binding-is-e0610-and-stops-the-deref-migration.md).
+  if(successes.len() == usize(0), {
+    value_toks := _reference_binding_argument_tokens(args, env, ctx);
+    if(value_toks.len() > usize(0), {
+      for(&value_toks, vt => note_binder_value_read(vt));
+      successes = _trial_call_overload_candidates(&cand_vals, &cand_tys, call_expr, &func_expr, args, env, ctx);
+      if(successes.len() == usize(0), {
+        for(&value_toks, vt => forget_binder_value_read(vt));
+      });
     });
-    cand_i = (cand_i + usize(1));
   });
-  ctx.is_in_function_call_checking_phase = old_checking_ph;
   if(successes.len() == usize(0), {
     // When none matches, throw "No matching call found" (the function
     // list is exactly the `Call` tuple's elements). The pre-pass

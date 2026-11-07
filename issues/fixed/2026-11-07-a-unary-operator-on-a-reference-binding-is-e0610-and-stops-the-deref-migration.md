@@ -48,16 +48,20 @@ That judge is the only place E0926 is raised, or recorded in migration mode, for
 by-value operand. A binary operator's other operand binds `_Self` to the value type
 first, so the reference operand reaches the judge.
 
-## Fix direction
+## Fix
 
-When every candidate fails and an argument is a reference binding read as a reference
-by R1's unbound-binder case, retry the resolution with that argument read as its
-referent. If the retry resolves, the read is a whole-value read without `.*`: raise
-E0926 there, or record it under `--migrate deref` and continue with the referent type.
+`_try_expand_call_overload` (`src/evaluator/calls/function.yo`) retries the candidates
+when none accepts the arguments as written and some argument is a bare reference binding
+judged by the deref rule. For the retry, those arguments read as their referent at the
+binder position (`note_binder_value_read`, consulted by `reference_read_wanted`). If a
+candidate then accepts them, that reading stays, and the real call judges the argument
+as the by-value read it is. `check` reports E0926 (spelled `x.*`), and
+`--migrate deref` records the `.*` and goes on evaluating the fn. If no candidate accepts
+them either way, the marks are dropped and the call is still E0610.
 
 ## Test
 
-The fix adds the three unary shapes to `tests/origins/reference_read_rule.test.yo` as
-E0926 expectations, and adds a `tests/cli-cases/fix-migrate-deref-unary-operator` case
-in which the reproducer migrates to `if(self.* < f64(0.0), -self.*, self.*)` and passes
-`check`. Then this doc moves to `issues/fixed/`.
+- `tests/cli-cases/check-unary-operator-on-a-reference-is-e0926`: `~x` on `x : &i32` is
+  E0926.
+- `tests/cli-cases/fix-migrate-deref-unary-operator`: `-self`, `!b` and `~x` migrate, the
+  tail `self` too, and the migrated file passes `check`.
