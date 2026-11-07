@@ -125,7 +125,8 @@ _z3_exists_sync :: (fn(path : &String) -> bool)({
 /// Read a whole file synchronously; `.None` on any failure (the caller
 /// decides what a missing/unreadable file means).
 _z3_read_file_sync :: (fn(path : &String) -> Option(String))({
-  cstr := path.to_cstr().ptr().unwrap();
+  path_c := path.to_cstr();
+  cstr := path_c.ptr().unwrap();
   fd := unsafe(fcntl.open((*char)(cstr), int(fcntl.O_RDONLY)));
   if(fd < int(0), {
     return(Option(String).None);
@@ -163,8 +164,10 @@ _z3_read_file_sync :: (fn(path : &String) -> Option(String))({
 /// Write a whole file synchronously (fopen "w": creates/truncates).
 /// `.false` on failure.
 _z3_write_file_sync :: (fn(path : &String, contents : &String) -> bool)({
-  pcstr := path.to_cstr().ptr().unwrap();
-  mcstr := String.from("w").to_cstr().ptr().unwrap();
+  path_c := path.to_cstr();
+  pcstr := path_c.ptr().unwrap();
+  mode_c := String.from("w").to_cstr();
+  mcstr := mode_c.ptr().unwrap();
   f := unsafe(stdio.fopen((*char)(pcstr), (*char)(mcstr)));
   match(
     f,
@@ -186,7 +189,8 @@ _z3_write_file_sync :: (fn(path : &String, contents : &String) -> bool)({
 });
 /// Unlink a file (best effort — failures ignored; the temp dir recovers).
 _z3_unlink_sync :: (fn(path : &String) -> unit)({
-  cstr := path.to_cstr().ptr().unwrap();
+  path_c := path.to_cstr();
+  cstr := path_c.ptr().unwrap();
   unsafe(unistd.unlink((*char)(cstr)));
   ()
 });

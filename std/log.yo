@@ -210,7 +210,8 @@ export(set_sink, clear_sink);
 /// An unset or unrecognised `YO_LOG` leaves the current level alone — a typo
 /// must not silence a program.
 init_from_env :: (fn() -> Level)({
-  name_cstr := String.from("YO_LOG").to_cstr().ptr().unwrap();
+  name_c := String.from("YO_LOG").to_cstr();
+  name_cstr := name_c.ptr().unwrap();
   raw := unsafe(getenv((*char)(name_cstr)));
   match(
     raw,
