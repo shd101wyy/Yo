@@ -1183,7 +1183,7 @@ _operand_may_write :: (fn(e : &AstExpr, context : &FunctionGenerationContext) ->
 /// `get_closure_capture_info(fid)` (keyed by the FuncVal recorded on the
 /// definition's `value`; always present, an empty struct for capture-free
 /// closures). Every other argument keeps `default_cty` unchanged.
-_closure_ref_spill_c_type :: (fn(default_cty : String, rei : &ExprInfo, context : &FunctionGenerationContext) -> String)({
+_closure_ref_spill_c_type :: (fn(default_cty : String, rei : &ExprInfo, context : &mut FunctionGenerationContext) -> String)({
   if((default_cty == String.from("void*")) || (default_cty == String.from("void")), {
     match(
       expr_info_is_anonymous_function_definition(rei),
@@ -1193,7 +1193,7 @@ _closure_ref_spill_c_type :: (fn(default_cty : String, rei : &ExprInfo, context 
           .Some(cst) => match(
             resolve_some_type_to_concrete(&cst),
             Rc(.Struct({ id : _csid })) => {
-              s := get_type_string(&cst, &context.base);
+              s := get_type_string(&cst, &mut context.base);
               if((s.len() > usize(0)) && !((s == String.from("void*")) || (s == String.from("void"))), {
                 return(s);
               });
@@ -1203,11 +1203,11 @@ _closure_ref_spill_c_type :: (fn(default_cty : String, rei : &ExprInfo, context 
           .None => ()
         );
         match(
-          rei.value,
+          rei.value(),
           .Some(.FuncVal(cfv_fvd, _)) => match(
             get_closure_capture_info(cfv_fvd.*.func_id.clone()),
             .Some(cci) => {
-              s := get_type_string(&cci.capture_type, &context.base);
+              s := get_type_string(&cci.capture_type, &mut context.base);
               if((s.len() > usize(0)) && !((s == String.from("void*")) || (s == String.from("void"))), {
                 return(s);
               });
