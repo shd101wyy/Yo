@@ -189,6 +189,9 @@ pragma(Pragma.AllowUnsafe);
 /// (N1e-1, `property_access.yo`), by source position: the name there is the
 /// deref, never a whole-value read, in this node and in every clone of it.
 (g_reference_deref_sites : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
+/// Reference bindings read as their referent at a binder argument, by source
+/// position (`note_binder_value_read`).
+(g_binder_value_reads : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
 /// Field reads of a reference field (N1e-2), with the field's reference
 /// type as the instance declares it (`note_reference_field_read`).
 (g_reference_field_reads : RefCell(HashMap(usize, TypeValue))) = RefCell(HashMap(usize, TypeValue)).new(HashMap(usize, TypeValue).new());
@@ -6497,8 +6500,24 @@ reference_read_wanted :: (fn(tok : &Token, at_binder : bool, ctx : &EvalContext)
     ),
     .None => ()
   );
-  (at_binder && deref_rule_applies(tok, ctx))
+  (at_binder && deref_rule_applies(tok, ctx) && !is_binder_value_read(tok))
 });
+/// The reference binding at `tok` is an operator module's argument that no
+/// `Call` candidate accepts as a reference, but one accepts as its referent
+/// (`-r`, `!r` or `~r` on `r : &T`; `_try_expand_call_overload`). From here
+/// on it reads as a whole value at its binder position, so the identifier
+/// evaluator judges it as the by-value read it is: E0926 (spelled `r.*`), or
+/// a recorded `.*` under `yo fix --migrate deref`, whose evaluation goes on.
+note_binder_value_read :: (fn(tok : &Token) -> unit)({
+  _new := g_binder_value_reads.with_mut(s => s.insert(_reference_deref_site_key(tok)));
+});
+/// Undo `note_binder_value_read` at `tok`.
+forget_binder_value_read :: (fn(tok : &Token) -> unit)({
+  _old := g_binder_value_reads.with_mut(s => s.remove(&_reference_deref_site_key(tok)));
+});
+is_binder_value_read :: (fn(tok : &Token) -> bool)(
+  (g_binder_value_reads.with(s => s.len()) > usize(0)) && g_binder_value_reads.with(s => s.contains(&_reference_deref_site_key(tok)))
+);
 /// Record whether the node `id` was read as a reference value (the read
 /// rule); a later evaluation of the same node at another position overrides.
 note_reference_read :: (fn(id : usize, is_reference : bool) -> unit)({
@@ -8924,6 +8943,8 @@ export(
   variable_is_reference_binding,
   deref_operand_is_raw_pointer,
   deref_rule_applies,
+  note_binder_value_read,
+  forget_binder_value_read,
   deref_rule_recording,
   reject_reference_without_deref,
   local_borrow_is_binding_stmt,
