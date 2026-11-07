@@ -1,6 +1,6 @@
 # A holder returned over a borrowed temporary is accepted when bound; it is sound only because the temporary drops at the block's end
 
-**Severity:** S1 (latent) — an ordering constraint: fixing `issues/2026-11-06-a-borrowed-temporary-is-dropped-at-its-blocks-end-not-its-statements.md` first turns this accepted program into a use-after-free
+**Severity:** S1 (latent) — an ordering constraint: fixing `issues/fixed/2026-11-06-a-borrowed-temporary-is-dropped-at-its-blocks-end-not-its-statements.md` first turns this accepted program into a use-after-free
 
 Found 2026-11-06 by the advisor's audit of the origin and borrow-checking design (VERDICTS-30), filed with the plan
 `plans/backlog/BORROW_CHECKER_COMPLETENESS.md` (§10).
