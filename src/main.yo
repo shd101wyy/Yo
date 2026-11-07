@@ -6056,7 +6056,7 @@ run_verify_cmd :: (
     &explain_fn,
     .Some(pat) => {
       n_all := all_reports.len();
-      all_reports.retain(&(rp => rp.fn_id.contains(pat.clone())));
+      all_reports.retain({ &pat }(rp) => rp.fn_id.contains(pat.clone()));
       reports = all_reports;
       if(reports.len() == usize(0), {
         exn.throw(dyn(`verify: --explain '${pat}' matched no verified function (of ${n_all.to_string()})`));
