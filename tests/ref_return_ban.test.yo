@@ -121,3 +121,23 @@ test("returning the value instead of a ref", {
   h.s.push_str("!");
   assert(h.s == "hello!", "a write through the holder's binding reaches it");
 });
+// A projection's `&K` parameter is passed by pointer: an argument whose
+// value is known at compile time (`s.at(i32(7))`) is read through that
+// pointer in a generic body, as a runtime one is
+// (issues/fixed/2026-11-08-a-known-argument-at-a-projections-borrowed-parameter-is-read-as-the-pointer.md).
+RrbKeyed :: (fn(comptime(K) : Type) -> comptime(Type))(struct(a : i32, b : K));
+impl(
+  generic(K : Type),
+  RrbKeyed(K),
+  stash : (fn(self : &Self, k : &K) -> K)(k.*),
+  at : (fn(self : &mut Self, k : &K) -> &mut(i32, self))({
+    self.b = self.stash(k);
+    &mut self.a
+  })
+);
+test("A known argument at a projection's borrowed parameter", {
+  mut(s) := RrbKeyed(i32)(a : i32(1), b : i32(2));
+  s.at(i32(7)).* = i32(5);
+  assert(s.a == i32(5), "written through the projection");
+  assert(s.b == i32(7), "the key read through its pointer");
+});
