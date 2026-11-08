@@ -1,0 +1,89 @@
+// An impl's origin parameter in a method's result (decision 43; Rust's
+// `impl<'p> Entry<'p, …> { fn or_insert(self) -> &'p mut V }`): in scope in
+// every method's signature, bound at a call from the receiver's type
+// (`H(…, o)` gives `p := o`), so the result points where the receiver's
+// references do — it may outlive the holder, never the place
+// (issues/fixed/2026-11-08-a-method-result-origin-cannot-name-its-impls-origin-parameter.md).
+{ assert } :: import("std/assert");
+// A `&` holder: `get` reads through its reference.
+IoHeld :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(r : &(i32, p)));
+impl(generic(p : Origin), IoHeld(p), get : (fn(self : &Self) -> &(i32, p))(&self.r.*));
+// The result outlives the holder: it points into `x`, which the caller owns.
+io_read_through :: (fn(x : &i32) -> &(i32, x))({
+  h := IoHeld(x)(r : x);
+  &h.get().*
+});
+test("A method's result names its impl's origin", {
+  x := i32(1);
+  h := IoHeld(x)(r : &x);
+  y := h.get();
+  assert(y.* == i32(1), "bound");
+  assert(h.get().* == i32(1), "in place");
+  assert(io_read_through(&x).* == i32(1), "the result outlives the holder: it points into `x`");
+});
+comptime_expect_error(
+  io_place_written_while_result_lives :: (fn() -> unit)({
+    mut(x) := i32(1);
+    h := IoHeld(x)(r : &x);
+    y := h.get();
+    x = i32(2);
+    _ := y.*;
+  }),
+  "Cannot write `x` here: `y` borrows `x` with `&`"
+);
+// The entry shape: a by-value holder of a `&mut` loan whose consuming
+// method returns a place in the borrowed value.
+IoSlots :: struct(a : i32, b : i32, a_set : bool);
+IoEntry :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(m : &mut(IoSlots, p), key : i32));
+impl(IoSlots, entry : (fn(self : &mut Self, key : i32) -> IoEntry(self))(IoEntry(self)(m : self, key : key)));
+impl(
+  generic(p : Origin),
+  IoEntry(p),
+  or_insert : (fn(self : Self, v : i32) -> &mut(i32, p))({
+    if(!self.m.a_set, {
+      self.m.a = v;
+      self.m.a_set = true;
+    });
+    &mut self.m.*.a
+  })
+);
+test("An entry's or_insert returns a place in the map", {
+  mut(s) := IoSlots(a : i32(0), b : i32(0), a_set : false);
+  s.entry(i32(0)).or_insert(i32(5)).* = (s.entry(i32(0)).or_insert(i32(9)).* + i32(1));
+  assert(s.a == i32(6), "written in place through a temporary entry");
+  r := s.entry(i32(0)).or_insert(i32(9));
+  r.* = i32(7);
+  assert(s.a == i32(7), "written through the bound result");
+});
+comptime_expect_error(
+  io_result_outlives_the_map :: (fn() -> &mut i32)({
+    mut(s) := IoSlots(a : i32(0), b : i32(0), a_set : false);
+    &mut s.entry(i32(0)).or_insert(i32(5)).*
+  }),
+  "points into `s`, a local: its storage ends with the call"
+);
+comptime_expect_error(
+  io_map_read_while_result_lives :: (fn() -> unit)({
+    mut(s) := IoSlots(a : i32(0), b : i32(0), a_set : false);
+    r := s.entry(i32(0)).or_insert(i32(5));
+    _ := s.b;
+    r.* = i32(1);
+  }),
+  "Cannot read `s.b` here: `r` borrows `s` with `&mut`"
+);
+// A by-value holder whose body is the `&mut` place itself: the function
+// literal's body is no argument lent to a call, so dropping `self` at its end
+// is no move of a lent place (E0910 before the fix).
+IoTake :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(m : &mut(i32, p)));
+impl(generic(p : Origin), IoTake(p), take : (fn(self : Self) -> &mut(i32, p))(&mut self.m.*));
+test("A by-value holder yields its reference's place", {
+  mut(x) := i32(1);
+  IoTake(x)(m : &mut x).take().* = i32(4);
+  assert(x == i32(4), "written through the holder's place");
+});
+// An origin parameter no parameter's type names cannot be bound at a call.
+IoPlain :: struct(v : i32);
+comptime_expect_error(
+  impl(generic(p : Origin), IoPlain, io_get : (fn(self : &Self) -> &(i32, p))(&self.v)),
+  "no parameter's type names it"
+);

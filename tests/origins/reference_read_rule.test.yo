@@ -304,3 +304,16 @@ test("a temporary lent within its statement, and a bound guard's projection", {
   r := g.get();
   assert(r.* == i32(5), "the guard outlives the projection");
 });
+
+
+// A projection's tail that lends the deref of another projection call
+// (`&mut f(&mut x).*`) is rooted where that call's place is: a local's
+// place does not escape
+// (issues/fixed/2026-11-08-a-projection-body-lending-a-projection-calls-deref-escapes-the-root-rule.md).
+comptime_expect_error(
+  rr_deref_call_local_escapes :: (fn() -> &mut i32)({
+    mut(q) := RrPair(a : i32(1), b : i32(2));
+    &mut rr_first_mut(&mut q).*
+  }),
+  "`q` is a local: its storage ends with the call"
+);

@@ -1,0 +1,14 @@
+// A method's spelled result origin naming its impl's origin parameter.
+// issues/fixed/2026-11-08-a-method-result-origin-cannot-name-its-impls-origin-parameter.md
+// Expected: checks and runs (exit 0). Before the fix (develop a25a71ee1 tree):
+// error[E0922]: The origin `p` is not declared.
+{ assert } :: import("std/assert");
+H :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(r : &(i32, p)));
+impl(generic(p : Origin), H(p), get : (fn(self : &Self) -> &(i32, p))(self.r));
+main :: (fn() -> unit)({
+  x := i32(1);
+  h := H(x)(r : &x);
+  y := h.get();
+  assert(y.* == i32(1), "read through the holder's origin");
+});
+export(main);
