@@ -8363,7 +8363,15 @@ _origin_of_into :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, out
   if(ast_expr_is_atom(&stripped), {
     before := out.len();
     _holder_roots_into(&stripped, env, ctx, out);
-    if(out.len() == before, {
+    // A by-value parameter holder (`o : Option(&(T, p))`) holds the
+    // caller's references: its own place is no root of its value (a lend
+    // of it, `&o`, is R-LEND's), and a reassignment joins its set above.
+    by_value_param := match(
+      get_variables_from_env(env, ast_expr_token(&stripped).value.*.clone()).last_cloned(),
+      .Some(pv) => (pv.is_parameter() && !variable_is_reference_binding(&pv)),
+      .None => false
+    );
+    if((out.len() == before) && !by_value_param, {
       _origin_push_place(&stripped, t_slot_is_mut_ref(&fi.ty()), env, ctx, out);
     });
     return(());
@@ -8890,10 +8898,29 @@ _origin_carrying_roots_shallow :: (fn(e : &AstExpr, env : &Environment, ctx : &E
 /// entries' places, each with its own entry's mode. An N2b holder binding
 /// registers one entry per root, all together
 /// (`bind`), so the holder's roots are the run of
-/// its entries ending at its latest one.
-_holder_roots_into :: (fn(a : &AstExpr, env : &Environment, ctx : &EvalContext, out : &mut ArrayList(OriginRootPlace)) -> unit)(
-  _holder_roots_named_into(ast_expr_token(a).value.*.clone(), &ast_expr_token(a), out)
-);
+/// its entries ending at its latest one, plus what its `=` joins added.
+_holder_roots_into :: (fn(a : &AstExpr, env : &Environment, ctx : &EvalContext, out : &mut ArrayList(OriginRootPlace)) -> unit)({
+  h_name := ast_expr_token(a).value.*.clone();
+  h_tok := ast_expr_token(a);
+  _holder_roots_named_into(h_name.clone(), &h_tok, out);
+  // The holder's flow set (O-1's `=` join, §7): what its assignments joined
+  // since its last kill, kept in the joins table for the whole body.
+  (j : usize) = g_local_borrow_joins.with(_c_len_5);
+  while(j > usize(0), {
+    j = (j - usize(1));
+    match(
+      g_local_borrow_joins.with(xs => xs.get(j)),
+      .Some(jinfo) => if((jinfo.name == h_name) && (jinfo.decl.module_path == h_tok.module_path), {
+        (pj : usize) = usize(0);
+        while(pj < jinfo.places.len(), {
+          match(jinfo.places.get_cloned(pj), .Some(jp) => _origin_push(OriginRootPlace(place : jp, is_mut : jinfo.is_mut), out), .None => ());
+          pj = (pj + usize(1));
+        });
+      }),
+      .None => ()
+    );
+  });
+});
 /// The frozen places of the binding named `name` declared at `decl`
 /// (`_holder_roots_into` by name, for the `=` join's dedup). The lookup is
 /// by name and module: `decl` may be a USAGE token (R-READ reads the atom
@@ -8982,7 +9009,30 @@ bind :: (fn(binding : &AstExpr, rhs : &AstExpr, var_name : &String, name_tok : &
 /// the block's scope end (its last statement's last token) — past it the
 /// binding's storage is gone (the `=` join's §7 scope check).
 LbBindingSite :: struct(stmt : AstExpr, scope_end : Token);
-/// The `:=` statement that bound `variable`, out of the armed look-ahead
+/// `(name : T) = v` / `(mut(name) : T) = v`: a typed declaration, whose `=`
+/// binds `name` as `:=` does — its `bind` and its `=` joins recompute the
+/// live range from this statement, so it is handed the look-ahead too.
+local_borrow_is_typed_decl_stmt :: (fn(stmt : &AstExpr) -> bool)(_lb_is_typed_decl(stmt));
+_lb_is_typed_decl :: (fn(stmt : &AstExpr) -> bool)(
+  ast_expr_is_fn_call_of(stmt, BK_ASSIGN, Option(usize).Some(usize(2))) && match(
+    stmt,
+    .FnCall(_, _, Rc(td_args), _, _) => match(td_args.get(usize(0)), .Some(td_lhs) => ast_expr_is_fn_call_of(&td_lhs, BK_COLON, Option(usize).Some(usize(2))), .None => false),
+    .Atom(_, _) => false
+  )
+);
+/// The binder of a declaration's left side: a typed one's annotated operand
+/// (`mut(name)` of `(mut(name) : T)`), else the side itself.
+_lb_typed_decl_binder :: (fn(lhs : &AstExpr) -> AstExpr)(
+  cond(
+    ast_expr_is_fn_call_of(lhs, BK_COLON, Option(usize).Some(usize(2))) => match(
+      lhs,
+      .FnCall(_, _, Rc(tb_args), _, _) => match(tb_args.get(usize(0)), .Some(tb) => tb, .None => lhs.clone()),
+      .Atom(_, _) => lhs.clone()
+    ),
+    true => lhs.clone()
+  )
+);
+/// The `:=` statement (or typed `=` declaration) that bound `variable`, out of the armed look-ahead
 /// frames, with its block's scope end (the whole-holder `=` join recomputes
 /// the holder's live range from its binding, so the joined entries live to
 /// the holder's last use).
@@ -8999,13 +9049,15 @@ _lb_binding_site_of :: (fn(variable : &Variable) -> Option(LbBindingSite))({
         while(si < frame.stmts.len(), {
           match(
             frame.stmts.get(si),
-            .Some(stmt) => if(ast_expr_is_fn_call_of(&stmt, BK_INIT_ASSIGN, Option(usize).Some(usize(2))), {
+            .Some(stmt) => if(ast_expr_is_fn_call_of(&stmt, BK_INIT_ASSIGN, Option(usize).Some(usize(2))) || _lb_is_typed_decl(&stmt), {
               match(
                 stmt,
                 .FnCall(_, _, Rc(bs_args), _, _) => match(
                   bs_args.get(usize(0)),
                   .Some(lhs_cand) => {
-                    lhs := ast_expr_strip_borrow_marker(&lhs_cand);
+                    // A typed declaration `(name : T) = v` / `(mut(name) : T) =
+                    // v` names its binding by the annotation's first operand.
+                    lhs := ast_expr_strip_borrow_marker(&_lb_typed_decl_binder(&lhs_cand));
                     // `mut(name) := …` keeps the binder call; its operand
                     // names it, and the binder's token is `mut`'s, so the
                     // name's own token is the operand's.
@@ -10231,6 +10283,7 @@ export(
   local_borrow_is_binding_stmt,
   local_borrow_may_bind_projection_stmt,
   local_borrow_is_mut_binding_stmt,
+  local_borrow_is_typed_decl_stmt,
   local_borrow_set_lookahead,
   local_borrow_place_of,
   local_borrow_place_of_variable,
