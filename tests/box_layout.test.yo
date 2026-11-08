@@ -1,0 +1,62 @@
+//! `Box`'s layout L1 (plans/backlog/ALLOCATOR_PLACEMENT.md "Related: `Box`'s
+//! layout", VERDICTS-29): bit 0 of a `Box` handle's cell pointer is the
+//! handle's "placed" bit, and every projection of the payload masks it off.
+//! Until the prelude stores the bit (L2, decision 49 S2), these tests set it
+//! by hand through the handle's storage, read and write the payload through
+//! every projection, and clear it again before the box drops.
+pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
+
+_BlPoint :: struct(x : i64, y : i64);
+impl(
+  _BlPoint,
+  sum : (fn(self : &Self) -> i64)(self.x + self.y),
+  bump : (fn(self : &mut Self) -> unit)({
+    self.x = (self.x + i64(1));
+  })
+);
+_BlShape :: enum(Circle(r : i64), Square(side : i64));
+_bl_read :: (fn(p : &_BlPoint) -> i64)(p.y);
+_bl_write :: (fn(p : &mut _BlPoint) -> unit)({
+  p.y = i64(7);
+});
+_bl_set_placed :: (fn(h : *usize) -> unit)(
+  unsafe({
+    h.* = (h.* | usize(1));
+  })
+);
+_bl_clear_placed :: (fn(h : *usize) -> unit)(
+  unsafe({
+    h.* = (h.* &~usize(1));
+  })
+);
+
+test("a Box whose placed bit is set projects its payload", {
+  (mut(b) : Box(_BlPoint)) = Box.new(_BlPoint(x : i64(3), y : i64(4)));
+  h := unsafe(unsafe.cast(addr_of(b), *usize));
+  _bl_set_placed(h);
+  assert((h.* & usize(1)) == usize(1), "the handle carries the bit");
+  assert(b.x == i64(3), "an auto-deref field read");
+  assert(b.*.y == i64(4), "an explicit `b.*` field read");
+  assert(b.sum() == i64(7), "a `&Self` method through the box");
+  b.bump();
+  assert(b.x == i64(4), "a `&mut Self` method through the box");
+  assert(_bl_read(&b.*) == i64(4), "`&b.*` lends the payload");
+  _bl_write(&mut b.*);
+  assert(b.y == i64(7), "`&mut b.*` writes the payload");
+  b.*.x = i64(10);
+  assert(b.x == i64(10), "an assignment through `b.*`");
+  p := addr_of(b.*);
+  assert(unsafe(p.*.x) == i64(10), "`addr_of(b.*)` is the payload's address");
+  _bl_clear_placed(h);
+  assert(b.sum() == i64(17), "the box reads the same once the bit is clear");
+});
+
+test("a Box pattern through a placed handle reads the payload", {
+  (mut(s) : Box(_BlShape)) = Box.new(_BlShape.Square(side : i64(6)));
+  h := unsafe(unsafe.cast(addr_of(s), *usize));
+  _bl_set_placed(h);
+  side := match(&s, Box(.Circle(r)) => r.*, Box(.Square(side)) => side.*);
+  _bl_clear_placed(h);
+  assert(side == i64(6), "the pattern looked through the masked cell");
+});
