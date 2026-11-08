@@ -1,0 +1,17 @@
+// expect: accept
+// Positive twin of fn-store-elided-params: `store` spells ONE origin for both parameters, so the
+// store is within it, and the caller's `k` outlives every read of `slot`.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+store :: (fn(generic(p : Origin), v : &(Rc(X), p), s : &mut Option(&(Rc(X), p))) -> unit)({
+  s.* = .Some(v);
+});
+main :: (fn() -> unit)({
+  k := Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz")));
+  mut(slot) := Option(&Rc(X)).None;
+  store(&k, &mut slot);
+  match(slot, .Some(r) => println(`OUT: ${r.*.*.s.len().to_string()}`), .None => println("none"));
+  ()
+});
+export(main);

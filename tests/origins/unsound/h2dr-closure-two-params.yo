@@ -1,0 +1,19 @@
+// expect: E0923
+// H2 (ASan form): a closure body stores its per-call `v` through its other per-call parameter `s`;
+// the two elided origins are distinct rigid origins of the literal (O2), and `k` dies with `each`.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+each :: (fn(f : &Impl(Fn(v : &Rc(X), s : &mut Option(&Rc(X))) -> unit), out : &mut Option(&Rc(X))) -> unit)({
+  k := Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz")));
+  f(&k, out);
+});
+main :: (fn() -> unit)({
+  mut(slot) := Option(&Rc(X)).None;
+  each((v : &Rc(X), s : &mut Option(&Rc(X))) => {
+    s.* = .Some(v);
+  }, &mut slot);
+  match(slot, .Some(r) => println(`OUT: ${r.*.*.s.len().to_string()}`), .None => println("none"));
+  ()
+});
+export(main);
