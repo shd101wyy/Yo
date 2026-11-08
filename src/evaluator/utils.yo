@@ -8601,7 +8601,7 @@ projection_call_root_args :: (fn(call : &AstExpr, ctx : &EvalContext) -> ArrayLi
 });
 /// The label of parameter `i` of the `Func` `ft` (empty past the end).
 _param_label_at :: (fn(ft : &TypeValue, i : usize) -> String)(
-  match(ft, Rc(.Func({ meta : pla_m })) => match(pla_m.*.param_labels.get_cloned(i), .Some(l) => l, .None => String.new()), _ => String.new())
+  match(ft, Rc(.Func({ meta : pla_m })) => match(pla_m.param_labels.get_cloned(i), .Some(l) => l, .None => String.new()), _ => String.new())
 );
 /// One ground place an origin-carrying composite freezes, with the mode the
 /// reference holding it has: `OriginRootPlace` lives in `src/expr_info.yo`
@@ -9556,7 +9556,7 @@ param_declared_origin_slot :: (fn(v : &Variable, ctx : &EvalContext) -> Option(T
     .Some(fb) => match(fb.kind, .FunctionBody => match(&fb.func_type, .Some(t) => Rc.clone(t), .None => return(Option(TypeValue).None)), _ => return(Option(TypeValue).None)),
     .None => return(Option(TypeValue).None)
   );
-  labels := match(&ft, Rc(.Func({ meta : pd_m })) => Rc.clone(pd_m.*.param_labels), _ => return(Option(TypeValue).None));
+  labels := match(&ft, Rc(.Func({ meta : pd_m })) => Rc.clone(pd_m.param_labels), _ => return(Option(TypeValue).None));
   slots := fn_param_slots(&ft);
   (i : usize) = usize(0);
   while(i < labels.len(), {
@@ -9896,7 +9896,7 @@ return_check :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, exn : 
               .Some(cr_t) => match(
                 &cr_names,
                 .Some(cr_n) => {
-                  cr_labels := match(&cr_t, Rc(.Func({ meta : cr_m })) => Rc.clone(cr_m.*.param_labels), _ => shared_list(ArrayList(String).new()));
+                  cr_labels := match(&cr_t, Rc(.Func({ meta : cr_m })) => Rc.clone(cr_m.param_labels), _ => shared_list(ArrayList(String).new()));
                   (cr_i : usize) = usize(0);
                   while(cr_i < cr_labels.len(), {
                     if(match(cr_labels.get(cr_i), .Some(l) => (l == rv.name), .None => false) && !fn_param_in_result_origin(&cr_t, cr_i, &cr_n), {

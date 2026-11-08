@@ -205,7 +205,7 @@ _c_len_12 :: (fn(xs : &ArrayList(ArrayList(String))) -> usize)(xs.len());
 _method_ty_skip_stamp :: (fn(ty : &TypeValue) -> bool)(
   match(
     ty,
-    Rc(.Func({ param_types : pts, meta : __fm1 })) => if(__fm1.*.result_is_comptime_only, true, {
+    Rc(.Func({ param_types : pts, meta : __fm1 })) => if(__fm1.result_is_comptime_only, true, {
       (found : bool) = false;
       (i : usize) = usize(0);
       while((i < pts.len()) && !found, {
@@ -230,9 +230,9 @@ _stamp_impl_forall_on_method :: (fn(v : &EvalValue, names : &ArrayList(String)) 
     match(
       v,
       .FuncVal(__fvm8, cv) => if(
-        __fvm8.*.forall_names.len() > usize(0),
+        __fvm8.forall_names.len() > usize(0),
         v,
-        EvalValue.FuncVal(Rc.new(FuncValData(forall_names : names.clone(), params : __fvm8.*.params.clone(), param_type_names : __fvm8.*.param_type_names.clone(), evidence_params : __fvm8.*.evidence_params.clone(), body : __fvm8.*.body, cap_names : __fvm8.*.cap_names.clone(), cap_tys : __fvm8.*.cap_tys.clone(), func_id : __fvm8.*.func_id.clone(), env_key : __fvm8.*.env_key)), Rc.clone(cv))
+        EvalValue.FuncVal(Rc.new(FuncValData(forall_names : names.clone(), params : __fvm8.params.clone(), param_type_names : __fvm8.param_type_names.clone(), evidence_params : __fvm8.evidence_params.clone(), body : __fvm8.body, cap_names : __fvm8.cap_names.clone(), cap_tys : __fvm8.cap_tys.clone(), func_id : __fvm8.func_id.clone(), env_key : __fvm8.env_key)), Rc.clone(cv))
       ),
       _ => v
     )
@@ -2600,14 +2600,14 @@ _inject_forall_captures :: (
     .Some(mv) => match(
       mv,
       .FuncVal(__fvm9, cvs) => {
-        fns := __fvm9.*.forall_names.clone();
-        ps := __fvm9.*.params.clone();
-        ptns := __fvm9.*.param_type_names.clone();
-        evs := __fvm9.*.evidence_params.clone();
-        body := __fvm9.*.body;
-        csrc := fv_capture_source(&__fvm9.*);
-        fid := __fvm9.*.func_id.clone();
-        ifc_orig_env_key := __fvm9.*.env_key;
+        fns := __fvm9.forall_names.clone();
+        ps := __fvm9.params.clone();
+        ptns := __fvm9.param_type_names.clone();
+        evs := __fvm9.evidence_params.clone();
+        body := __fvm9.body;
+        csrc := fv_capture_source(__fvm9.as_ref());
+        fid := __fvm9.func_id.clone();
+        ifc_orig_env_key := __fvm9.env_key;
         memo_key := fid.clone();
         {
           (mk_i : usize) = usize(0);
@@ -2660,7 +2660,7 @@ _inject_forall_captures :: (
             (ifc_aligned : bool) = false;
             (ifc_prefix : ArrayList(CaptureSlice)) = ArrayList(CaptureSlice).new();
             match(
-              aligned_derived_capture_handles(&__fvm9.*, fv_capture_count(&__fvm9.*, &cvs)),
+              aligned_derived_capture_handles(__fvm9.as_ref(), fv_capture_count(__fvm9.as_ref(), &cvs)),
               .Some(aligned_slices) => {
                 ifc_have_vars = true;
                 ifc_aligned = true;
@@ -2687,10 +2687,10 @@ _inject_forall_captures :: (
             );
             // Copy existing captures (do not mutate the registry's arrays).
             (ci : usize) = usize(0);
-            while(!ifc_aligned && (ci < fv_capture_count(&__fvm9.*, &cvs)), {
+            while(!ifc_aligned && (ci < fv_capture_count(__fvm9.as_ref(), &cvs)), {
               new_cns.push(fv_source_name(&csrc, ci));
               new_cts.push(fv_source_ty(&csrc, ci));
-              new_cvs.push(match(fv_capture_val(&__fvm9.*, &cvs, ci), .Some(x) => x, .None => EvalValue.UnitVal));
+              new_cvs.push(match(fv_capture_val(__fvm9.as_ref(), &cvs, ci), .Some(x) => x, .None => EvalValue.UnitVal));
               ci = (ci + usize(1));
             });
             // Append one capture per impl generic param (bound to its concrete type).
@@ -3873,11 +3873,11 @@ _substitute_assoc_in_method_ty :: (
 /// tests/env.test.yo PathBuf Eq, tests/string/rune.test.yo). Rebuild the
 /// meta with the VALUE's param names (arity permitting) before registering.
 _retype_with_value_param_labels :: (fn(ty : &TypeValue, fv : &EvalValue) -> TypeValue)({
-  fv_params := match(fv, .FuncVal(__rvd, _) => __rvd.*.params.clone(), _ => return(Rc.clone(ty)));
+  fv_params := match(fv, .FuncVal(__rvd, _) => __rvd.params.clone(), _ => return(Rc.clone(ty)));
   match(
     ty,
     Rc(.Func({ forall_types : rw_fts, param_types : rw_pts, implicit_types : rw_its, where_types : rw_wts, result : rw_res, meta : rw_m, variadic_types : rw_vts })) => {
-      if(rw_m.*.param_labels.len() != fv_params.len(), {
+      if(rw_m.param_labels.len() != fv_params.len(), {
         return(Rc.clone(ty));
       });
       Rc.new(
@@ -3889,18 +3889,18 @@ _retype_with_value_param_labels :: (fn(ty : &TypeValue, fv : &EvalValue) -> Type
           Rc.clone(rw_res),
           Rc.new(
             FuncMeta(
-              forall_labels : Rc.clone(rw_m.*.forall_labels),
+              forall_labels : Rc.clone(rw_m.forall_labels),
               param_labels : shared_list(fv_params),
-              implicit_labels : Rc.clone(rw_m.*.implicit_labels),
-              result_is_comptime_only : rw_m.*.result_is_comptime_only,
-              param_is_sink : rw_m.*.param_is_sink.clone(),
-              has_variadic : rw_m.*.has_variadic,
-              is_extern : rw_m.*.is_extern.clone(),
-              extern_name : rw_m.*.extern_name.clone(),
-              is_control : rw_m.*.is_control,
-              variadic_label : rw_m.*.variadic_label.clone(),
-              variadic_comptime : rw_m.*.variadic_comptime,
-              origin_labels : rw_m.*.origin_labels.clone()
+              implicit_labels : Rc.clone(rw_m.implicit_labels),
+              result_is_comptime_only : rw_m.result_is_comptime_only,
+              param_is_sink : rw_m.param_is_sink.clone(),
+              has_variadic : rw_m.has_variadic,
+              is_extern : rw_m.is_extern.clone(),
+              extern_name : rw_m.extern_name.clone(),
+              is_control : rw_m.is_control,
+              variadic_label : rw_m.variadic_label.clone(),
+              variadic_comptime : rw_m.variadic_comptime,
+              origin_labels : rw_m.origin_labels.clone()
             )
           ),
           Rc.clone(rw_vts)
@@ -4246,7 +4246,7 @@ _impl_result_origin_wider :: (fn(actual : &TypeValue, expected : &TypeValue) -> 
   });
   a_set := _result_origin_params(actual);
   e_set := _result_origin_params(expected);
-  labels := match(actual, Rc(.Func({ meta : ir_m })) => Rc.clone(ir_m.*.param_labels), _ => return(Option(String).None));
+  labels := match(actual, Rc(.Func({ meta : ir_m })) => Rc.clone(ir_m.param_labels), _ => return(Option(String).None));
   extra := String.new();
   (ai : usize) = usize(0);
   while(ai < a_set.len(), ai = (ai + usize(1)), {
@@ -4292,7 +4292,7 @@ _migrate_imm_for_trait_mismatch :: (fn(val_expr : &AstExpr, actual : &TypeValue,
           a_ref := t_slot_is_mut_ref(&a_slot);
           if(a_own && !e_own && !e_ref && !a_ref, {
             fixed_slots.push(t_reference(t_slot_pointee(&a_slot), false));
-            to_fix.push(match(ameta.*.param_labels.get_cloned(pi), .Some(l) => l, .None => String.new()));
+            to_fix.push(match(ameta.param_labels.get_cloned(pi), .Some(l) => l, .None => String.new()));
           }, {
             fixed_slots.push(a_slot);
           });
@@ -4348,7 +4348,7 @@ _receiver_writes_where_trait_reads :: (fn(actual : &TypeValue, expected : &TypeV
     Rc(.Func({ meta : ameta })) => match(
       expected,
       Rc(.Func({ meta : emeta })) => (
-        match(ameta.*.param_labels.get(usize(0)), .Some(l) => (l == "self"), .None => false) && match(emeta.*.param_labels.get(usize(0)), .Some(l) => (l == "self"), .None => false) &&
+        match(ameta.param_labels.get(usize(0)), .Some(l) => (l == "self"), .None => false) && match(emeta.param_labels.get(usize(0)), .Some(l) => (l == "self"), .None => false) &&
           (fn_param_is_mut_ref(actual, usize(0)) && !fn_param_is_mut_ref(expected, usize(0)) && !fn_param_is_by_value(expected, usize(0)))
       ),
       _ => false
@@ -4362,7 +4362,7 @@ _with_receiver_mode_of :: (fn(actual : &TypeValue, expected : &TypeValue) -> Typ
     Rc(.Func({ forall_types : afts, param_types : apts, implicit_types : aits, where_types : awts, result : aret, meta : ameta, variadic_types : avts })) => match(
       expected,
       Rc(.Func({ param_types : epts, meta : emeta })) => cond(
-        (match(ameta.*.param_labels.get(usize(0)), .Some(l) => (l == "self"), .None => false) && match(emeta.*.param_labels.get(usize(0)), .Some(l) => (l == "self"), .None => false)) => {
+        (match(ameta.param_labels.get(usize(0)), .Some(l) => (l == "self"), .None => false) && match(emeta.param_labels.get(usize(0)), .Some(l) => (l == "self"), .None => false)) => {
           // The receiver's slot takes the expected receiver's mode; every
           // other parameter keeps its own.
           slots := ArrayList(TypeValue).new();
@@ -4769,7 +4769,7 @@ _c2_register_member :: (
 )({
   (updated : bool) = false;
   if(pf.phase_a_registered, {
-    real_fid := match(value, .FuncVal(__c2r_fvd, _) => __c2r_fvd.*.func_id.clone(), _ => String.new());
+    real_fid := match(value, .FuncVal(__c2r_fvd, _) => __c2r_fvd.func_id.clone(), _ => String.new());
     prior := get_provisional_trait_methods_by_name(&st.recv_id, label.clone());
     (pi : usize) = usize(0);
     while((pi < prior.len()) && !updated, {
@@ -6563,7 +6563,7 @@ evaluate_module_value :: (
                           // its call's values.
                           d_concrete := (
                             (get_all_some_types(&receiver_ty).len() == usize(0)) && (get_all_some_types(&d_sub_ty).len() == usize(0))
-                            && !match(&d_sub_ty, Rc(.Func({ meta : d_cm })) => d_cm.*.result_is_comptime_only, _ => false)
+                            && !match(&d_sub_ty, Rc(.Func({ meta : d_cm })) => d_cm.result_is_comptime_only, _ => false)
                           );
                           if((d_out.len() == usize(0)) && d_concrete && !propagate_def_time_errors(), {
                             match(

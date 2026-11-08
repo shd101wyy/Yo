@@ -3667,6 +3667,12 @@ assert(pp.y == 2); // nested wrappers: pp.*.*.y
 - **Callee position.** `p.items(i)` indexes the payload's `items`, and
   `p.f(x)` calls a payload field that holds a function. A wrapper method
   and a payload field of the same name are the same E0616.
+- **The whole payload as a reference: `as_ref`.** `Rc`, `Box` and `Arc`
+  have `as_ref : (fn(self : &Self) -> &T)`, Rust's name: `h.as_ref()` lends
+  the payload where a `&T` is wanted, such as an argument to a `&T`
+  parameter (`takes_point(p.as_ref())`), and `Rc.as_ref(h)` is the same call
+  through the type. Pass the result straight to a call or bind it first
+  (`q := p.as_ref(); q.clone()` is the payload's `clone`).
 
 ### Rc with Assignments
 

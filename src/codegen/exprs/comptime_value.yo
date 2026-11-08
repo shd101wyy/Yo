@@ -143,11 +143,11 @@ _is_io_builtin_fn_type :: (fn(t : &TypeValue) -> bool)(
   match(
     t,
     Rc(.Func({ meta : __ibm1 })) => match(
-      &__ibm1.*.is_extern,
+      &__ibm1.is_extern,
       .Some(lang) => if(
         lang == "yo",
         match(
-          &__ibm1.*.extern_name,
+          &__ibm1.extern_name,
           .Some(en) => (
             (en == "__yo_io_async") || (en == "__yo_io_await") ||
               (en == "__yo_io_state") || (en == "__yo_io_spawn")
@@ -587,11 +587,11 @@ generate_comptime_value :: (fn(value : &EvalValue, ty : &TypeValue, context : &m
     // thunk when the function returns a concrete future. The
     // function must have been collected for codegen; if not, emit a diagnostic.
     .FuncVal(__fvd1, _) => match(
-      fn_value_c_name(&__fvd1.*.func_id, context),
+      fn_value_c_name(&__fvd1.func_id, context),
       .Some(cn) => cn,
       .None => {
         c := String.from("/* Error: no C function name for func value ");
-        c.push_string(&__fvd1.*.func_id);
+        c.push_string(&__fvd1.func_id);
         c.push_str(" */");
         c
       }

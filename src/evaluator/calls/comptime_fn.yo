@@ -709,12 +709,12 @@ evaluate_comptime_fn_call :: (
   // Extract func_id and body from the FuncVal.
   func_id_str := match(
     function_value,
-    .FuncVal(__fvd1, _) => __fvd1.*.func_id.clone(),
+    .FuncVal(__fvd1, _) => __fvd1.func_id.clone(),
     _ => String.from("")
   );
   body_box := match(
     function_value,
-    .FuncVal(__fvd2, _) => __fvd2.*.body,
+    .FuncVal(__fvd2, _) => __fvd2.body,
     _ => {
       // Inside a DEFINITION-time body trial, a non-FuncVal callee is a
       // dispatch product with no impl value yet (a where-constraint trait
@@ -778,12 +778,12 @@ evaluate_comptime_fn_call :: (
   // exponential in nested operator chains (std/glob.yo never finished).
   ctfe_gate_result_is_comptime := match(
     function_type,
-    Rc(.Func({ meta : __fm1 })) => __fm1.*.result_is_comptime_only,
+    Rc(.Func({ meta : __fm1 })) => __fm1.result_is_comptime_only,
     _ => false
   );
   ctfe_gate_forall_n := match(
     function_type,
-    Rc(.Func({ meta : __fm2 })) => __fm2.*.forall_labels.len(),
+    Rc(.Func({ meta : __fm2 })) => __fm2.forall_labels.len(),
     _ => usize(0)
   );
   if(ctx.is_in_function_call_checking_phase && ctfe_gate_result_is_comptime &&
@@ -1216,7 +1216,7 @@ evaluate_comptime_fn_call :: (
   // its pointee (the comptime version's parameters are compile-time) reads as
   // that value through `p.*` (decision 43 step 2 N1e-1,
   // `is_ctfe_reference_param`).
-  match(function_value, .FuncVal(rp_fvd, _) => note_ctfe_reference_params(&rp_fvd.*.params, function_type, callee_env), _ => ());
+  match(function_value, .FuncVal(rp_fvd, _) => note_ctfe_reference_params(&rp_fvd.params, function_type, callee_env), _ => ());
   // Evaluate a FRESH-ID CLONE of the function body — the
   // ExprInfo table is keyed by expr id, so executing the ORIGINAL
   // tree makes every call overwrite the same ids: `SortedSet(i32)`'s body

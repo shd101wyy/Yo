@@ -478,7 +478,7 @@ _emit_borrow_releases :: (fn(containers : &ArrayList(String), indent : &String, 
 /// (`self` parameter of object type). An `Rc` or `Arc` cell is not one: it
 /// carries no borrow marks (`carries_no_borrow_marks`).
 _is_inside_object_method :: (fn(context : &FunctionGenerationContext) -> bool)(
-  match(&context.current_function_type, .Some(ft) => match(ft, Rc(.Func({ param_types : pts, meta : __fm1 })) => if(__fm1.*.param_labels.len() == usize(0), false, match(__fm1.*.param_labels.get_cloned(usize(0)), .Some(l) => if(l == "self", match(slot_pointee_at(&pts, usize(0)), .Some(t) => (is_reference_struct_type(&t) && !carries_no_borrow_marks(&t)), .None => false), false), .None => false)), _ => false), .None => false)
+  match(&context.current_function_type, .Some(ft) => match(ft, Rc(.Func({ param_types : pts, meta : __fm1 })) => if(__fm1.param_labels.len() == usize(0), false, match(__fm1.param_labels.get_cloned(usize(0)), .Some(l) => if(l == "self", match(slot_pointee_at(&pts, usize(0)), .Some(t) => (is_reference_struct_type(&t) && !carries_no_borrow_marks(&t)), .None => false), false), .None => false)), _ => false), .None => false)
 );
 /// Is the current function's `self` a `self : &mut Self` receiver? Such a receiver
 /// is passed as `T** self` (a pointer to the caller's handle slot), so the
@@ -1492,7 +1492,7 @@ _callee_param_fn_type :: (fn(func_expr : &AstExpr, context : &FunctionGeneration
   match(
     &context.current_function_type,
     .Some(Rc(.Func({ param_types : cpts, meta : cmeta }))) => {
-      labels := Rc.clone(cmeta.*.param_labels);
+      labels := Rc.clone(cmeta.param_labels);
       (mut(i) : usize) = usize(0);
       while(i < labels.len(), {
         if(match(labels.get_cloned(i), .Some(l) => (l == name), .None => false), {
@@ -1737,7 +1737,7 @@ _generate_runtime_enum_construct :: (
   )
 });
 /// FuncVal func_id, or empty if not a FuncVal.
-_func_val_id :: (fn(v : &EvalValue) -> String)(match(v, .FuncVal(__fvd2, _) => __fvd2.*.func_id.clone(), _ => String.new()));
+_func_val_id :: (fn(v : &EvalValue) -> String)(match(v, .FuncVal(__fvd2, _) => __fvd2.func_id.clone(), _ => String.new()));
 /// Whether a call to this callee might trigger an effect escape (it directly is
 /// a control/effect-record fn, its resolved type is `ctl(...)`, it has a
 /// fn-typed / ctl-bound param a handler may be threaded through, its body has
@@ -1754,10 +1754,10 @@ _func_val_id :: (fn(v : &EvalValue) -> String)(match(v, .FuncVal(__fvd2, _) => _
 _call_may_unwind :: (fn(func_ei_value : &Option(EvalValue), function_type : &TypeValue, param_types : &ArrayList(TypeValue), callee_is_atom : bool, context : &FunctionGenerationContext) -> bool)({
   fid_is_control := match(func_ei_value, .Some(v) => if(is_func_val(&v), is_control_fn(_func_val_id(&v)), false), .None => false);
   fid_is_effect_member := match(func_ei_value, .Some(v) => if(is_func_val(&v), is_effect_record_member(_func_val_id(&v)), false), .None => false);
-  ft_is_control := match(function_type, Rc(.Func({ meta : __fm2 })) => __fm2.*.is_control, _ => false);
+  ft_is_control := match(function_type, Rc(.Func({ meta : __fm2 })) => __fm2.is_control, _ => false);
   body_has_effects := match(
     func_ei_value,
-    .Some(v) => match(v, .FuncVal(__fvd3, _) => match(context.base.get_expr_info(&__fvd3.*.body), .Some(bei) => match(expr_info_effect_analysis(&bei), .Some(ea) => ea.has_effects, .None => false), .None => false), _ => false),
+    .Some(v) => match(v, .FuncVal(__fvd3, _) => match(context.base.get_expr_info(&__fvd3.body), .Some(bei) => match(expr_info_effect_analysis(&bei), .Some(ea) => ea.has_effects, .None => false), .None => false), _ => false),
     .None => false
   );
   (mut(param_fn_or_ctl) : bool) = false;
@@ -1795,7 +1795,7 @@ _call_is_handler_installation :: (fn(key : ExprId, func_ei : &ExprInfo, function
   //     _call_may_unwind reads) accepts the valueless callee, and the
   //     binding search then falls back to the callee ATOM's name.
   _fn_meta_is_ctl := (fn(t : &TypeValue) -> bool)(
-    match(t, Rc(.Func({ meta : __m })) => __m.*.is_control, _ => false)
+    match(t, Rc(.Func({ meta : __m })) => __m.is_control, _ => false)
   );
   callee_is_ctl := (_fn_meta_is_ctl(function_type) || _fn_meta_is_ctl(&func_ei.ty()));
   is_direct_handler := match(
@@ -2977,9 +2977,9 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
   match(
     &function_type,
     Rc(.Func({ meta : __fm_sp })) => {
-      sp_is_yo := match(&__fm_sp.*.is_extern, .Some(sp_lang) => ((sp_lang == "yo") || (sp_lang == "c")), .None => false);
+      sp_is_yo := match(&__fm_sp.is_extern, .Some(sp_lang) => ((sp_lang == "yo") || (sp_lang == "c")), .None => false);
       match(
-        &__fm_sp.*.extern_name,
+        &__fm_sp.extern_name,
         .Some(sp_name) => if(sp_is_yo, {
           if(sp_name == "__yo_thread_spawn", {
             return(generate_thread_spawn_call(expr, indent.clone(), context));
@@ -3029,8 +3029,8 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
     &function_type,
     Rc(.Func({ result : r_slot6, meta : __fm6 })) => {
       r := t_slot_pointee(&r_slot6);
-      ie := __fm6.*.is_extern.clone();
-      en := __fm6.*.extern_name.clone();
+      ie := __fm6.is_extern.clone();
+      en := __fm6.extern_name.clone();
       // A `c_include`d function's prototype is the header's, so its result
       // can be a `const T*` the binding spells `*(T)`; a plain `extern("c")`
       // function is declared from its Yo type and needs no cast.
@@ -3115,7 +3115,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
   // See issues/fixed/ctl-handler-void-signature-vs-sret-cast.md and its two repros.
   ctl_generic_ret := (
     is_some_type(&result_type) &&
-      match(&function_type, Rc(.Func({ meta : __ctlm })) => __ctlm.*.is_control, _ => false)
+      match(&function_type, Rc(.Func({ meta : __ctlm })) => __ctlm.is_control, _ => false)
   );
   ctl_callee_ret_str := if(
     ctl_generic_ret,

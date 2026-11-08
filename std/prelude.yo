@@ -9761,7 +9761,7 @@ impl(
   where(T <: Hash),
   Rc(T),
   Hash(
-    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)(self.*.hash(hasher))
+    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)(unsafe(self._cell.*).hash(hasher))
   )
 );
 impl(
@@ -9772,7 +9772,7 @@ impl(
     // SAFETY: an Rc always holds a non-null pointer to its counted cell; the
     // deref is sound for as long as either operand is alive, which covers
     // the duration of this comparison.
-    (==) : ((lhs, rhs) -> unsafe(lhs.* == rhs.*))
+    (==) : ((lhs, rhs) -> unsafe(lhs._cell.* == rhs._cell.*))
   )
 );
 /// `Clone` — a second handle to the same cell, as Rust's `Rc::clone`: a
@@ -9787,6 +9787,24 @@ impl(
   Clone(
     clone : (fn(self : &Self) -> Self)(___dup(self))
   )
+);
+/// The payload, lent: a `&T` borrowed from the handle, Rust's `Rc::as_ref`.
+/// Auto-dereference already reaches the payload's fields and methods
+/// (`h.field`, `h.method()`); `as_ref` names the whole payload where a `&T`
+/// is wanted, such as an argument to a `&T` parameter, or where the payload
+/// has a method of the handle's name (`p := h.as_ref(); p.clone()` clones
+/// the payload, `Rc.clone(h)` the handle). Pass the result straight to a
+/// call, or bind it before reading through it.
+///
+/// ```yo
+/// byte_len :: (fn(s : &String) -> usize)(s.len());
+/// h := Rc.new(String.from("yo"));
+/// assert(byte_len(h.as_ref()) == usize(2), "the payload is lent");
+/// ```
+impl(
+  generic(T : Type),
+  Rc(T),
+  as_ref : (fn(self : &Self) -> &T)(unsafe(addr_of(self._cell.*)))
 );
 /// `Default` — a cell holding `T`'s default.
 impl(
@@ -9862,20 +9880,20 @@ impl(
     cell := unsafe(unsafe.cast(self, *T));
     cond(
       (ref_count(self) != usize(1)) => {
-        self = Rc.new(self.*.clone());
+        self = Rc.new(unsafe(self._cell.*).clone());
       },
       (__yo_rc_weak_weak_count((*void)(cell)) != usize(0)) => {
         // SAFETY: `self` is the cell's only strong handle, so nothing else
         // reads the payload: it moves out bitwise and the cell stops owning
         // it. The assignment's release of the old cell then hands it to the
         // `Weak` handles as dead without dropping the payload.
-        payload := __yo_ptr_read(addr_of(self.*));
+        payload := __yo_ptr_read(unsafe(addr_of(self._cell.*)));
         __yo_rc_forget_payload(self);
         self = Rc.new(payload);
       },
       true => ()
     );
-    addr_of(self.*)
+    unsafe(addr_of(self._cell.*))
   })
 );
 export(Rc);
@@ -10303,6 +10321,24 @@ impl(
     )
   )
 );
+/// The payload, lent: a `&T` borrowed from the handle, Rust's `Box::as_ref`.
+/// Auto-dereference already reaches the payload's fields and methods
+/// (`h.field`, `h.method()`); `as_ref` names the whole payload where a `&T`
+/// is wanted, such as an argument to a `&T` parameter, or where the payload
+/// has a method of the handle's name (`p := h.as_ref(); p.clone()` clones
+/// the payload, `Box.clone(h)` the handle). Pass the result straight to a
+/// call, or bind it before reading through it.
+///
+/// ```yo
+/// byte_len :: (fn(s : &String) -> usize)(s.len());
+/// h := Box.new(String.from("yo"));
+/// assert(byte_len(h.as_ref()) == usize(2), "the payload is lent");
+/// ```
+impl(
+  generic(T : Type),
+  Box(T),
+  as_ref : (fn(self : &Self) -> &T)(unsafe(addr_of(self._cell.*)))
+);
 // The box is its payload's only owner, so moving the box moves the payload
 // (§3.8): it is `Send`/`Sync` exactly when the payload is. The raw `_cell`
 // field derives neither (decision 38 E); `Acyclic` derives from the pointee.
@@ -10379,6 +10415,25 @@ impl(
   Clone(
     clone : (fn(self : &Self) -> Self)(___dup(self))
   )
+);
+/// The payload, lent: a `&T` borrowed from the handle, Rust's `Arc::as_ref`.
+/// Auto-dereference already reaches the payload's fields and methods
+/// (`h.field`, `h.method()`); `as_ref` names the whole payload where a `&T`
+/// is wanted, such as an argument to a `&T` parameter, or where the payload
+/// has a method of the handle's name (`p := h.as_ref(); p.clone()` clones
+/// the payload, `Arc.clone(h)` the handle). Pass the result straight to a
+/// call, or bind it before reading through it.
+///
+/// ```yo
+/// byte_len :: (fn(s : &String) -> usize)(s.len());
+/// h := Arc.new(String.from("yo"));
+/// assert(byte_len(h.as_ref()) == usize(2), "the payload is lent");
+/// ```
+impl(
+  generic(T : Type),
+  where(T <: (Send, Sync)),
+  Arc(T),
+  as_ref : (fn(self : &Self) -> &T)(unsafe(addr_of(self._cell.*)))
 );
 // The uniqueness lock behind `Arc.try_unwrap` and `Arc.make_mut`: Rust's
 // CAS of the strong count from 1 to 0, which an `ArcWeak.upgrade` on another
@@ -10459,19 +10514,19 @@ impl(
             // upgrades: the payload moves out bitwise, the cell goes to the
             // `ArcWeak` handles as dead without dropping it, and the handle's
             // slot, cleared by the release, takes the fresh cell.
-            payload := __yo_ptr_read(addr_of(self.*));
+            payload := __yo_ptr_read(unsafe(addr_of(self._cell.*)));
             __yo_arc_release_locked((*void)(addr_of(self)));
             self = Arc.new(payload);
           }
         );
       },
       true => {
-        self = Arc.new(self.*.clone());
+        self = Arc.new(unsafe(self._cell.*).clone());
       }
     );
     // SAFETY: `self` is now the cell's only handle on every thread, so the
     // write the caller makes through the projection is exclusive.
-    addr_of(self.*)
+    unsafe(addr_of(self._cell.*))
   })
 );
 export(Arc);

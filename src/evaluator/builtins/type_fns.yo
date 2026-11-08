@@ -1301,16 +1301,16 @@ evaluate_yo_type_get_info :: (
     Rc(.Func({ forall_types : fn_fts, param_types : fn_pts, implicit_types : fn_its, result : fn_res, meta : fn_meta, variadic_types : fn_vts })) => {
       fni_name := _ti_bind_function_info(
         &local_env,
-        &fn_meta.*.param_labels.items,
+        &fn_meta.param_labels.items,
         &fn_pts.items,
-        &fn_meta.*.forall_labels.items,
+        &fn_meta.forall_labels.items,
         &fn_fts.items,
-        &fn_meta.*.implicit_labels.items,
+        &fn_meta.implicit_labels.items,
         &fn_its.items,
         &t_slot_pointee(&fn_res),
         &fn_vts.items,
-        match(&fn_meta.*.variadic_label, .Some(vl) => vl.clone(), .None => String.from("...")),
-        fn_meta.*.variadic_comptime,
+        match(&fn_meta.variadic_label, .Some(vl) => vl.clone(), .None => String.from("...")),
+        fn_meta.variadic_comptime,
         ctx,
         exn
       );

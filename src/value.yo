@@ -241,14 +241,14 @@ ValueCell :: Rc(RefCell(ArrayList(EvalValue)));
 impl(
   ValueCell,
   /// Number of values in the place.
-  len : (fn(self : &Self) -> usize)(self.*.with({ &self }(xs) => xs.len())),
+  len : (fn(self : &Self) -> usize)(self.with({ &self }(xs) => xs.len())),
   /// True when the place holds no value (a runtime variable's cell).
-  is_empty : (fn(self : &Self) -> bool)(self.*.with({ &self }(xs) => xs.is_empty())),
+  is_empty : (fn(self : &Self) -> bool)(self.with({ &self }(xs) => xs.is_empty())),
   /// The value at `i`, or `.None` past the end.
-  get : (fn(self : &Self, i : usize) -> Option(EvalValue))(self.*.with({ i }(xs) => xs.get(i))),
+  get : (fn(self : &Self, i : usize) -> Option(EvalValue))(self.with({ i }(xs) => xs.get(i))),
   /// Store `v` at `i`, seen by every holder of the place; panics past the end.
   set : (fn(self : &Self, i : usize, v : EvalValue) -> unit)(
-    self.*.with_mut(xs => {
+    self.with_mut(xs => {
       xs(i) = v;
     })
   )
@@ -285,15 +285,15 @@ shared_values :: (fn(sink(items) : ArrayList(EvalValue)) -> SharedList(EvalValue
 impl(
   SharedList(EvalValue),
   /// Number of elements.
-  len : (fn(self : &Self) -> usize)(self.*.items.len()),
+  len : (fn(self : &Self) -> usize)(self.items.len()),
   /// True when the list holds no elements.
-  is_empty : (fn(self : &Self) -> bool)(self.*.items.is_empty()),
+  is_empty : (fn(self : &Self) -> bool)(self.items.is_empty()),
   /// The element at `i`, or `.None` past the end.
-  get : (fn(self : &Self, i : usize) -> Option(EvalValue))(self.*.items.get(i)),
+  get : (fn(self : &Self, i : usize) -> Option(EvalValue))(self.items.get(i)),
   /// `xs(i)` reads the element at `i` (a read projection); panics past the end.
   Index(usize)(
     Output : EvalValue,
-    index : (fn(self : &Self, idx : usize) -> &Self.Output)(&self.*.items(idx))
+    index : (fn(self : &Self, idx : usize) -> &Self.Output)(&self.items(idx))
   ),
   /// `for(xs, x => ...)` walks the list's elements.
   IntoIterator(
@@ -315,11 +315,11 @@ shared_opt_values :: (fn(sink(items) : ArrayList(Option(EvalValue))) -> SharedLi
 impl(
   SharedList(Option(EvalValue)),
   /// Number of elements.
-  len : (fn(self : &Self) -> usize)(self.*.items.len()),
+  len : (fn(self : &Self) -> usize)(self.items.len()),
   /// True when the list holds no elements.
-  is_empty : (fn(self : &Self) -> bool)(self.*.items.is_empty()),
+  is_empty : (fn(self : &Self) -> bool)(self.items.is_empty()),
   /// The element at `i`, or `.None` past the end.
-  get : (fn(self : &Self, i : usize) -> Option(Option(EvalValue)))(self.*.items.get(i))
+  get : (fn(self : &Self, i : usize) -> Option(Option(EvalValue)))(self.items.get(i))
 );
 /// Element-wise equality for `EvalValue`.
 ///
@@ -694,7 +694,7 @@ value_to_string :: (fn(v : &EvalValue) -> String)(
     .FuncVal(__fvd1, _) => {
       param_str := String.from("");
       (pi : usize) = usize(0);
-      n_p := __fvd1.*.params.len();
+      n_p := __fvd1.params.len();
       while(pi < n_p, {
         cond(
           (pi > usize(0)) => {
@@ -703,7 +703,7 @@ value_to_string :: (fn(v : &EvalValue) -> String)(
           true => ()
         );
         match(
-          __fvd1.*.params.get_cloned(pi),
+          __fvd1.params.get_cloned(pi),
           .Some(p) => {
             param_str = `${param_str}${p}`;
           },
@@ -935,10 +935,10 @@ value_contains_unknown :: (fn(v : &EvalValue) -> bool)(
   match(
     v,
     .UnknownVal(_, _) => true,
-    .EnumVal(_, fields) => _values_contain_unknown(&fields.*.items),
-    .StructVal(_, _, field_values) => field_values.*.with(_values_contain_unknown),
-    .TupleVal(fields) => fields.*.with(_values_contain_unknown),
-    .ArrayVal(elements) => elements.*.with(_values_contain_unknown),
+    .EnumVal(_, fields) => _values_contain_unknown(&fields.items),
+    .StructVal(_, _, field_values) => field_values.with(_values_contain_unknown),
+    .TupleVal(fields) => fields.with(_values_contain_unknown),
+    .ArrayVal(elements) => elements.with(_values_contain_unknown),
     _ => false
   )
 );

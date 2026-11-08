@@ -96,6 +96,10 @@ copied := value.*;
 assert(copied == i32(42), "inner value is 42");
 ```
 
+`value.field` and `value.method()` reach the payload by auto-dereference.
+`value.as_ref()` lends the whole payload as a `&T`, for a `&T` parameter
+(`Arc.as_ref(value)` is the same call through the type).
+
 ### Copying
 
 `Arc.clone(a)` makes a second handle: it increments the reference count and keeps sharing the

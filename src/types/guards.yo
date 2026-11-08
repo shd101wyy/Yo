@@ -680,7 +680,7 @@ is_function_type_and_returns_comptime_value :: (fn(t : &TypeValue) -> bool)(
     // result type with the comptime-ness carried in the meta flag. The
     // type-based test alone made every "runtime binding in a comptime-only
     // fn body" gate silently never fire (tests/fn.test.yo).
-    Rc(.Func({ result : r, meta : __gm })) => (__gm.*.result_is_comptime_only || is_comptime_only_type_simple(&t_slot_pointee(&r))),
+    Rc(.Func({ result : r, meta : __gm })) => (__gm.result_is_comptime_only || is_comptime_only_type_simple(&t_slot_pointee(&r))),
     _ => false
   )
 );
@@ -900,8 +900,8 @@ is_function_type_generic :: (fn(t : &TypeValue) -> bool)(
     t,
     Rc(.Func({ param_types : pts, meta : __fm1 })) =>
       cond(
-        (__fm1.*.forall_labels.len() > usize(0)) => true,
-        (__fm1.*.implicit_labels.len() > usize(0)) => true,
+        (__fm1.forall_labels.len() > usize(0)) => true,
+        (__fm1.implicit_labels.len() > usize(0)) => true,
         // Check if any param is SomeT; Future-implementing SomeTs are exempt.
         true => {
           found := false;
@@ -939,7 +939,7 @@ is_function_type_hard_generic :: (fn(t : &TypeValue) -> bool)(
     t,
     Rc(.Func({ param_types : pts, meta : __fm2 })) =>
       cond(
-        (__fm2.*.forall_labels.len() > usize(0)) => true,
+        (__fm2.forall_labels.len() > usize(0)) => true,
         // A SomeType param makes the unspecialized form hard-generic — UNLESS it
         // has a resolved concrete type, in which case codegen can lower it via the
         // concrete (e.g. a closure-typed param `cb : Impl(Fn(...))` resolved to its

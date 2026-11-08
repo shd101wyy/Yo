@@ -79,7 +79,7 @@ _call_find_function_calls_in_expr :: (fn(expr : &AstExpr, context : &mut CodeGen
 );
 /// True if `t` is an extern function type (any language).
 _type_is_extern :: (fn(t : &TypeValue) -> bool)(
-  match(t, Rc(.Func({ meta : __fm1 })) => __fm1.*.is_extern.is_some(), _ => false)
+  match(t, Rc(.Func({ meta : __fm1 })) => __fm1.is_extern.is_some(), _ => false)
 );
 /// Whether an expression's evaluated value is an UnknownValue (not fully
 /// evaluated), recursing through calls / macro expansions / deferred drops.
@@ -283,12 +283,12 @@ _register_extern_fn_callee :: (
   match(
     cei_ty,
     Rc(.Func({ meta : __fm4 })) => match(
-      &__fm4.*.is_extern,
+      &__fm4.is_extern,
       .Some(lang) => {
-        is_internal := match(&__fm4.*.extern_name, .Some(en) => en.clone().starts_with(String.from("__yo_")), .None => false);
+        is_internal := match(&__fm4.extern_name, .Some(en) => en.clone().starts_with(String.from("__yo_")), .None => false);
         if((lang == "c") || !is_internal, {
           c_name := match(
-            &__fm4.*.extern_name,
+            &__fm4.extern_name,
             .Some(en) => if(lang == "c", en.clone(), c_symbol_name(en.clone())),
             .None => {
               tok := _callee_token_value(expr);
@@ -373,11 +373,11 @@ _register_extern_global_header :: (
 });
 /// func_id of a FuncVal EvalValue, or "".
 _func_val_id :: (fn(v : &EvalValue) -> String)(
-  match(v, .FuncVal(__fvd3, _) => __fvd3.*.func_id.clone(), _ => String.from(""))
+  match(v, .FuncVal(__fvd3, _) => __fvd3.func_id.clone(), _ => String.from(""))
 );
 /// body AstExpr of a FuncVal EvalValue, or an error placeholder.
 _func_val_body :: (fn(v : &EvalValue) -> AstExpr)(
-  match(v, .FuncVal(__fvd4, _) => __fvd4.*.body, _ => make_err_expr())
+  match(v, .FuncVal(__fvd4, _) => __fvd4.body, _ => make_err_expr())
 );
 /// True if any parameter slot in the list holds the `Expr` type (a quoted-AST param) — the
 /// signature of a MACRO (e.g. `if`, `try`: `fn(quote(x) : Expr, …) ->
@@ -876,7 +876,7 @@ _find_function_calls_in_node :: (fn(expr : &AstExpr, context : &mut CodeGenConte
       match(
         expr_info_table_get(info, ast_expr_id(&callee)),
         .Some(cei) => if(is_function_type(&cei.ty()), {
-          is_comptime_only := match(&cei.ty(), Rc(.Func({ meta : __fm3 })) => __fm3.*.result_is_comptime_only, _ => false);
+          is_comptime_only := match(&cei.ty(), Rc(.Func({ meta : __fm3 })) => __fm3.result_is_comptime_only, _ => false);
           match(
             cei.value(),
             .Some(fv) => cond(
@@ -931,7 +931,7 @@ _find_function_calls_in_node :: (fn(expr : &AstExpr, context : &mut CodeGenConte
         v_is_control := (
           is_control_fn(_func_val_id(&v)) ||
             match(get_func_type(_func_val_id(&v)), Rc(.Func({ meta : __fm5 })) => __fm5.*.is_control, _ => false) ||
-              match(&ei.ty(), Rc(.Func({ meta : __fm6 })) => __fm6.*.is_control, _ => false)
+              match(&ei.ty(), Rc(.Func({ meta : __fm6 })) => __fm6.is_control, _ => false)
         );
         cond(
           v_is_control => {

@@ -72,10 +72,11 @@ try_to_implement_array_by_array_type :: (
   // variable (`Array(i32, _)` or a generic-impl `Array(T, U)`): the
   // constructor's element count IS the length. Skip the arity check and
   // resolve the result type to the concrete count below. Matched through a
-  // borrow (`&array_type.*`), so the `lv` field is read in place and no
+  // borrow (`array_type.as_ref()`), so the `lv` field is read in place and no
   // String copy leaves the type node.
+  at_node := array_type.as_ref();
   len_var_present := match(
-    &array_type.*,
+    at_node,
     .Array(_, _, lv) => (lv.len() > usize(0)),
     _ => false
   );
