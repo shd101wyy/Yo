@@ -31,3 +31,7 @@ The same body in a non-generic function, `(fn(h : &mut Rc(i32)) -> &mut i32)(uns
 ## Where to look
 
 The projection-body check (the "a projection … this body has type" diagnostic) runs on the definition-time body. A body with `generic(...)` parameters defers to call time, and the specialized body's raw-pointer type is not compared with the result's pointee there.
+
+## Fix
+
+#1838 (`f23081973`, `issues/fixed/2026-11-08-a-generic-fn-forwarding-a-projection-call-as-its-reference-tail-emits-a-value.md`) gives a specialized generic body the concrete body's decision-24 check. The reproducer is now rejected in the evaluator, as the non-generic one is: "this body has type `*(W(i64))`" (verified on the holders tree binary `c33ee18ad`). That PR's tests in `tests/ref_return_ban.test.yo` pin the check.
