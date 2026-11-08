@@ -186,8 +186,8 @@ evaluate_unsize :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalConte
   arg_ty := info.ty();
   (unsized_ty : Option(TypeValue)) = match(
     t_refine_inner(&arg_ty),
-    Rc(.Reference(Rc(.Array(us_elem, _, us_lv)), us_mut, us_origin)) => if(us_lv.len() == usize(0), Option(TypeValue).Some(Rc.new(TypeValueNode.Reference(t_slice(us_elem), us_mut, Rc.clone(us_origin)))), Option(TypeValue).None),
-    Rc(.Pointer(Rc(.Array(up_elem, _, up_lv)))) => if(up_lv.len() == usize(0), Option(TypeValue).Some(Rc.new(TypeValueNode.Pointer(t_slice(up_elem)))), Option(TypeValue).None),
+    Rc(.Reference(Rc(.Array(us_elem, _, us_lv)), us_mut, us_origin)) => if(us_lv.len() == usize(0), Option(TypeValue).Some(Rc.new(TypeValueNode.Reference(t_slice(&us_elem), us_mut, Rc.clone(us_origin)))), Option(TypeValue).None),
+    Rc(.Pointer(Rc(.Array(up_elem, _, up_lv)))) => if(up_lv.len() == usize(0), Option(TypeValue).Some(Rc.new(TypeValueNode.Pointer(t_slice(&up_elem)))), Option(TypeValue).None),
     _ => Option(TypeValue).None
   );
   match(
@@ -226,7 +226,7 @@ evaluate_slice_primitive :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut 
     ),
     true => match(
       t_refine_inner(&info.ty()),
-      Rc(.Pointer(fp_elem)) => Rc.new(TypeValueNode.Pointer(t_slice(fp_elem))),
+      Rc(.Pointer(fp_elem)) => Rc.new(TypeValueNode.Pointer(t_slice(&fp_elem))),
       _ => {
         exn.throw(dyn(format_error_message(&ptok, `\`${name}(p, n)\` takes a raw pointer to the first element (\`*T\`); its first argument is a \`${type_to_string(&info.ty())}\`.`)));
         t_usize()
