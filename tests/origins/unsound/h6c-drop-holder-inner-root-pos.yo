@@ -1,0 +1,28 @@
+// expect: accept
+// h6c's positive twin: the holder is re-pointed back at the outer root before the inner block ends.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+H :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(r : &(Rc(X), p)));
+impl(
+  generic(p : Origin),
+  H(p),
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      n := self.r.*.*.s.len();
+      println(`H dropped, read len ${n.to_string()}`);
+    })
+  )
+);
+main :: (fn() -> unit)({
+  x := Rc.new(X(s : String.from("x")));
+  mut(h) := H(x)(r : &x);
+  {
+    y := Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz")));
+    h = H(y)(r : &y);
+    h = H(x)(r : &x);
+  };
+  println("end of main");
+  ()
+});
+export(main);

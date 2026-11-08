@@ -1,0 +1,27 @@
+// expect: E0911
+// H6 (O-4), the inner-block form: a user-`Drop` holder re-pointed at a root of an inner block, never read again; the root drops at the block's end, the holder at the function's.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+H :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(r : &(Rc(X), p)));
+impl(
+  generic(p : Origin),
+  H(p),
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      n := self.r.*.*.s.len();
+      println(`H dropped, read len ${n.to_string()}`);
+    })
+  )
+);
+main :: (fn() -> unit)({
+  x := Rc.new(X(s : String.from("x")));
+  mut(h) := H(x)(r : &x);
+  {
+    y := Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz")));
+    h = H(y)(r : &y);
+  };
+  println("end of main");
+  ()
+});
+export(main);
