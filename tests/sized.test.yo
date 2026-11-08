@@ -96,3 +96,18 @@ test("a ?Sized variable at a Type binder is E0619 naming ?Sized", {
 test("?Sized is a binder's kind only", {
   comptime_expect_error((fn(x : ?Sized) -> unit)(()), "kind of a type binder");
 });
+
+// Coherence rule 3 (decision 49): a blanket over a `Type` binder covers the
+// sized types only, so it neither applies to nor overlaps an impl on `[T]`;
+// a blanket over a `?Sized` binder covers both.
+_CoMark :: trait(co : (fn(self : &Self) -> i32));
+impl(generic(T : Type), T, _CoMark(co : (fn(self : &Self) -> i32)(i32(1))));
+impl([i32], _CoMark(co : (fn(self : &Self) -> i32)(i32(2))));
+_CoAll :: trait(co_all : (fn(self : &Self) -> i32));
+impl(generic(T : ?Sized), T, _CoAll(co_all : (fn(self : &Self) -> i32)(i32(3))));
+
+test("a blanket over a Type binder covers the sized types only", {
+  n := i32(5);
+  assert(n.co() == i32(1), "the blanket covers i32");
+  comptime_expect_error(impl([i32], _CoAll(co_all : (fn(self : &Self) -> i32)(i32(4)))), "already implemented");
+});
