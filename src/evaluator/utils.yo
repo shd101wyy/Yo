@@ -10099,9 +10099,9 @@ apply_capture_store_joins :: (fn(cap_ids : &ArrayList(usize), env : &Environment
 /// `p.f = v`, `xs(i) = v`): a field or element write GROWS the root
 /// holder's flow set by the value's origin — the holder's other parts keep
 /// theirs, so nothing is killed — and checks the subset against the
-/// origins the written place's type spells. A root that is a `&mut`
+/// origins the root holder's type spells. A root that is a `&mut`
 /// capture is the outer place (VERDICTS-37 Q3, `_capture_store`).
-place_write_join :: (fn(root : &Variable, place_ty : &TypeValue, value : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
+place_write_join :: (fn(root : &Variable, value : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
   roots := origin_of(value, env, ctx);
   if(roots.len() == usize(0), {
     return(());
@@ -10109,10 +10109,14 @@ place_write_join :: (fn(root : &Variable, place_ty : &TypeValue, value : &AstExp
   if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
     eprintln(`[n2b] place-write ${root.name}: roots=[${n2b_roots_text(&roots)}] value=${ast_expr_to_string(value)}`);
   });
+  // The origins the ROOT holder's type spells (`h : S(z0)` names `z0`): a
+  // field type keeps its definition's origin parameter (`p`), which the
+  // instance's type arguments bind.
+  holder_ty := match(param_declared_origin_slot(root, env, ctx), .Some(ds) => t_slot_pointee(&ds), .None => t_slot_pointee(&variable_value_type(root)));
   holder_names := ArrayList(String).new();
-  origin_param_names_of(place_ty, &mut holder_names, u32(0));
+  origin_param_names_of(&holder_ty, &mut holder_names, u32(0));
   if(holder_names.len() > usize(0), {
-    _bind_join_subset_check(root, place_ty, &holder_names, &roots, value, env, ctx, exn);
+    _bind_join_subset_check(root, &holder_ty, &holder_names, &roots, value, env, ctx, exn);
   });
   bind_join_roots_for(root, &roots, ast_expr_token(value), env, ctx, exn, kill : false);
 });
