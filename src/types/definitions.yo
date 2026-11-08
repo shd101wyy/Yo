@@ -1028,6 +1028,14 @@ fn_result_composite_origin_names :: (fn(ft : &TypeValue) -> Option(SharedList(St
   });
   Option(SharedList(String)).Some(shared_list(names))
 });
+/// `t` spells the origin `name` somewhere inside it: a reference's origin, an
+/// origin argument of a struct or enum instance, through tuples and nested
+/// type arguments (`_spelled_origins_into`).
+type_spells_origin :: (fn(t : &TypeValue, name : &String) -> bool)({
+  names := ArrayList(String).new();
+  _ := _spelled_origins_into(t, &mut names, usize(0));
+  names.contains(name)
+});
 /// Whether `names` holds `name`.
 origin_names_contain :: (fn(names : &SharedList(String), name : &String) -> bool)({
   (oi : usize) = usize(0);
@@ -1170,5 +1178,5 @@ get_struct_field_comptime_flags :: (
 );
 export(TypeValue, TypeValueNode, FuncMeta, SomeTBounds, SomeTBoundsCell, some_t_bounds, some_t_bounds_empty, TraitTBody, TraitTBodyCell, trait_t_body, SharedList, SharedListCell, SharedListElem, shared_list, no_types, no_labels, no_flags, no_levels, no_discriminants, no_type_lists, no_label_lists, t_refine_inner, register_struct_field_comptime_flags, get_struct_field_comptime_flags);
 export(fn_trait_rank, fn_trait_base_serves, fn_trait_call_contract, fn_trait_slot_contract);
-export(fn_result_slot, fn_result_pointee, fn_result_is_ref, fn_result_is_mut_ref, t_origin_spelled_names, t_slot_origin_names, fn_result_origin_names, fn_result_composite_origin_names, origin_names_contain, fn_param_in_result_origin, fn_param_pointee_in_result_origin);
+export(fn_result_slot, fn_result_pointee, fn_result_is_ref, fn_result_is_mut_ref, t_origin_spelled_names, t_slot_origin_names, fn_result_origin_names, fn_result_composite_origin_names, type_spells_origin, origin_names_contain, fn_param_in_result_origin, fn_param_pointee_in_result_origin);
 export(t_maybe_sized_kind, is_maybe_sized_kind, t_slice, t_origin_elided, t_origin_kind, t_origin_named, t_reference_with_origin, is_origin_kind, t_reference, t_slot, t_slot_pointee, slot_pointee_at, slot_pointees, t_slot_is_mut_ref, t_slot_is_borrow, t_slot_is_by_value, t_slot_with_pointee, t_slot_like, fn_param_slots, fn_param_is_mut_ref, fn_param_is_by_value, fn_param_mut_ref_at, fn_param_by_value_at, fn_param_mut_ref_flags, fn_param_by_value_flags);

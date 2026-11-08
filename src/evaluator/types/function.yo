@@ -49,7 +49,7 @@ pragma(Pragma.AllowUnsafe);
 { Environment, make_environment, Variable, get_variables_from_env, add_variable_to_env, add_where_clause_constraint_for_type_application, snapshot_env, copy_env_frames, env_adopt, variable_value_type } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx, force_pending_impls_for_type_name, type_head_name_for_impl_forcing, call_function_value_marker } :: import("../context.yo");
 { EvalValue, create_type_value, create_unknown_val, is_type_value, is_runtime_only_unknown_val } :: import("../../value.yo");
-{ some_t_bounds, TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, SharedList, t_maybe_sized_kind, is_maybe_sized_kind, t_slot, t_slot_pointee, slot_pointee_at, t_origin_named, t_origin_elided, t_origin_kind, t_reference_with_origin, is_origin_kind, t_reference, t_slot_is_borrow } :: import("../../types/definitions.yo");
+{ some_t_bounds, TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, SharedList, t_maybe_sized_kind, is_maybe_sized_kind, t_slot, t_slot_pointee, slot_pointee_at, t_origin_named, t_origin_elided, t_origin_kind, t_reference_with_origin, is_origin_kind, t_reference, t_slot_is_borrow, type_spells_origin } :: import("../../types/definitions.yo");
 { t_some_t, t_some_t_with_kind, t_some_t_of_kind, t_type, t_type_1, t_unit, t_expr_t, t_comptime_list, type_has_computed_array_len } :: import("../../types/creators.yo");
 { type_key } :: import("../../types/type_key.yo");
 { is_some_type, is_trait_type, is_function_type, is_type_0, is_type_kind, is_unit_type } :: import("../../types/guards.yo");
@@ -1396,15 +1396,23 @@ evaluate_reference_type :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut E
 /// Collect the origin names a RESULT type `-> &(T, o)` spells into `out`
 /// (decision 43 step 2, N1b; plans/backlog/REFERENCES_AND_ORIGINS.md O1): an
 /// origin parameter of the signature's `generic(o : Origin)`, a REFERENCE
-/// parameter's place (`-> &(T, xs)` for `xs : &T`), or a union `(p, xs)` of
-/// them. A by-value parameter's place is the callee's own frame, which the
-/// call ends: E0912. Anything else is E0922.
-_result_origin_names_into :: (fn(e : &AstExpr, params : &FuncParamsResult, out : &mut ArrayList(String), exn : Exception) -> unit)({
+/// parameter's place (`-> &(T, xs)` for `xs : &T`), an origin parameter of
+/// the enclosing `impl(generic(p : Origin), …)` that a parameter's type
+/// names, or a union `(p, xs)` of them. A by-value parameter's place is the
+/// callee's own frame, which the call ends: E0912. Anything else is E0922.
+///
+/// An impl's origin parameter is Rust's `impl<'p> Entry<'p, …> { fn
+/// or_insert(self) -> &'p mut V }`: a call binds it the way it binds the
+/// impl's type parameters, from the receiver's type (`Entry(…, o)` gives
+/// `p := o`), so the result points where the receiver's references do
+/// (`projection_call_root_args`, a holder's `origin_of`). A parameter's type
+/// must name it, or no call could determine it.
+_result_origin_names_into :: (fn(e : &AstExpr, params : &FuncParamsResult, env : &Environment, out : &mut ArrayList(String), exn : Exception) -> unit)({
   if(ast_expr_is_fn_call_of(e, BK_TUPLE, Option(usize).None), {
     r_args := _fn_call_args(e);
     (ri : usize) = usize(0);
     while(ri < r_args.len(), {
-      match(r_args.get(ri), .Some(ra) => _result_origin_names_into(&ra, params, out, exn), .None => ());
+      match(r_args.get(ri), .Some(ra) => _result_origin_names_into(&ra, params, env, out, exn), .None => ());
       ri = (ri + usize(1));
     });
     return(());
@@ -1460,6 +1468,42 @@ _result_origin_names_into :: (fn(e : &AstExpr, params : &FuncParamsResult, out :
     );
     rpi = (rpi + usize(1));
   });
+  // An origin parameter of the enclosing impl, `impl(generic(p : Origin),
+  // H(p), …)`: in scope in every method's signature.
+  match(
+    get_variables_from_env(env, &r_name).last_cloned(),
+    .Some(ov) => if(is_origin_kind(&variable_value_type(&ov)), {
+      (opi : usize) = usize(0);
+      (named : bool) = false;
+      while(opi < params.params.len(), {
+        match(
+          params.params.get_cloned(opi),
+          .Some(op) => if(type_spells_origin(&op.ty, &r_name), {
+            named = true;
+          }),
+          .None => ()
+        );
+        opi = (opi + usize(1));
+      });
+      if(!named, {
+        exn.throw(
+          dyn(
+            _origin_error(
+              e,
+              `The origin \`${r_text}\` is the impl's, but no parameter's type names it: a call binds an impl's origin parameter from its arguments' types (the receiver's \`H(..., o)\` gives \`${r_text} := o\`), so this result's origin could not be determined.`,
+              `name it in a parameter's type (\`self : &Self\` for \`impl(generic(${r_text} : Origin), H(${r_text}), …)\`), declare it on the function, \`generic(${r_text} : Origin)\`, or name a reference parameter, \`-> &(T, xs)\` for \`xs : &T\``
+            )
+          )
+        );
+      });
+      ov.set_was_read(true);
+      if(!_names_contain(out, &r_name), {
+        out.push(r_name);
+      });
+      return(());
+    }),
+    .None => ()
+  );
   (rfi : usize) = usize(0);
   while(rfi < params.forall_params.len(), {
     if(match(params.forall_params.get_cloned(rfi), .Some(fp) => (fp.label == r_name), .None => false), {
@@ -1486,9 +1530,9 @@ _result_origin_names_into :: (fn(e : &AstExpr, params : &FuncParamsResult, out :
   );
 });
 /// The origin a result type `-> &(T, o)` spells, as an `OriginSet` of names.
-evaluate_result_origin :: (fn(e : &AstExpr, params : &FuncParamsResult, exn : Exception) -> TypeValue)({
+evaluate_result_origin :: (fn(e : &AstExpr, params : &FuncParamsResult, env : &Environment, exn : Exception) -> TypeValue)({
   names := ArrayList(String).new();
-  _result_origin_names_into(e, params, &mut names, exn);
+  _result_origin_names_into(e, params, env, &mut names, exn);
   t_origin_named(&shared_list(names))
 });
 /// The origin parameter `name` as an origin value: the set naming it.
@@ -4739,7 +4783,7 @@ evaluate_function_type :: (
       is_return_type_ref = true;
       is_return_type_mut_ref = ast_expr_is_fn_call_of(&return_type_expr, BK_BORROW_MUT, Option(usize).None);
       ro_args := _fn_call_args(&return_type_expr);
-      return_origin = Option(TypeValue).Some(evaluate_result_origin(match(ro_args.get(usize(1)), .Some(a) => a, .None => make_err_expr()), &params_result, exn));
+      return_origin = Option(TypeValue).Some(evaluate_result_origin(match(ro_args.get(usize(1)), .Some(a) => a, .None => make_err_expr()), &params_result, &env_mut, exn));
       return_type_expr = match(ro_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
     });
     // comptime modifier
@@ -4837,7 +4881,7 @@ evaluate_function_type :: (
       is_return_type_ref = true;
       is_return_type_mut_ref = ast_expr_is_fn_call_of(&return_type_expr, BK_BORROW_MUT, Option(usize).None);
       ro_args2 := _fn_call_args(&return_type_expr);
-      return_origin = Option(TypeValue).Some(evaluate_result_origin(match(ro_args2.get(usize(1)), .Some(a) => a, .None => make_err_expr()), &params_result, exn));
+      return_origin = Option(TypeValue).Some(evaluate_result_origin(match(ro_args2.get(usize(1)), .Some(a) => a, .None => make_err_expr()), &params_result, &env_mut, exn));
       return_type_expr = match(ro_args2.get(usize(0)), .Some(a) => a, .None => make_err_expr());
     });
     if(ast_expr_is_fn_call_of(&return_type_expr, BK_COMPTIME, Option(usize).None), {
