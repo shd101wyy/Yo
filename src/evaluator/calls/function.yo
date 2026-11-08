@@ -9320,7 +9320,7 @@ lend_through :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalContext, exn
                             match(
                               get_variables_from_env(env, ast_expr_token(&x_bare).value.*.clone()).last_cloned(),
                               .Some(xv) => if(variable_is_reference_binding(&xv), {
-                                match(local_borrow_place_of(&x_bare, env, ctx), .Some(xlp) => x_roots.push(OriginRootPlace(place : xlp, is_mut : variable_is_mut_borrow(&xv))), .None => ());
+                                match(local_borrow_place_of(&x_bare, env, ctx), .Some(xlp) => x_roots.push(OriginRootPlace(place : xlp, is_mut : t_slot_is_mut_ref(&variable_slot_type(&xv)))), .None => ());
                               }),
                               .None => ()
                             );
