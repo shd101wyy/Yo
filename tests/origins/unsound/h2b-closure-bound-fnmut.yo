@@ -1,0 +1,21 @@
+// expect: E0923
+// H2b: H2 with the literal bound to a local `FnMut` closure first and lent to `each` by name.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+each :: (fn(f : &mut Impl(FnMut(v : &Rc(X)) -> unit)) -> unit)({
+  k := Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz")));
+  f(&k);
+});
+main :: (fn() -> unit)({
+  mut(slot) := Option(&Rc(X)).None;
+  {
+    (mut(c) : Impl(FnMut(v : &Rc(X)) -> unit)) = ({ s : &mut slot }(v : &Rc(X)) => {
+      s.* = .Some(v);
+    });
+    each(&mut c);
+  };
+  match(slot, .Some(r) => println(`OUT: ${r.*.*.s.len().to_string()}`), .None => println("none"));
+  ()
+});
+export(main);

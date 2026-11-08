@@ -1,0 +1,17 @@
+// expect: accept
+// Positive twin of p37-async-store-local: the body stores the captured `&x`, which outlives the
+// read of `slot`.
+{ println } :: import("std/fmt");
+store :: (fn(generic(r : Origin), dst : &mut Option(&(i32, r)), v : &(i32, r)) -> unit)({
+  dst.* = .Some(v);
+});
+main :: (fn(io : Io) -> unit)({
+  x := i32(42);
+  mut(slot) := Option(&i32).None;
+  fut := io.async({ s : &mut slot, rx : &x }(io : Io) => {
+    store(&mut s.*, rx);
+  });
+  io.await(fut, io);
+  match(slot, .Some(r) => println(`OUT: ${r.*.to_string()}`), .None => println("none"));
+});
+export(main);

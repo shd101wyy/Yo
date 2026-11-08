@@ -1,0 +1,22 @@
+// expect: accept
+// Positive twin of h2-closure-param-into-capture: the body stores the captured `&x`, whose place
+// outlives every read of `slot`, instead of the per-call parameter.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+each :: (fn(f : &mut Impl(FnMut(v : &String) -> unit)) -> unit)({
+  k := String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz");
+  f(&k);
+});
+main :: (fn() -> unit)({
+  x := String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz");
+  mut(slot) := Option(&String).None;
+  each(
+    &mut ({ s : &mut slot, rx : &x }(v : &String) => {
+      _ := v.len();
+      s.* = .Some(rx);
+    })
+  );
+  match(slot, .Some(r) => println(`OUT: ${r.*.len().to_string()}`), .None => println("none"));
+  ()
+});
+export(main);

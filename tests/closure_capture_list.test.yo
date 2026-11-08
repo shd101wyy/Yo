@@ -718,3 +718,17 @@ test("a closure capturing `&mut` of an origin-carrying local compiles and writes
   );
   assert(slot.is_none(), "the closure cleared the slot through its capture");
 });
+// issues/fixed/2026-11-08-a-shared-capture-is-typed-as-a-mut-reference-inside-the-closure-body.md:
+// a `{ rx : &x }` capture read as `&mut i32` in the body, so storing it into a
+// `&i32` payload was E0601.
+test("a `&` capture reads as a shared reference and stores into a `&` payload", {
+  x := i32(1);
+  mut(slot) := Option(&i32).None;
+  {
+    (mut(c) : Impl(FnMut() -> unit)) = ({ s : &mut slot, rx : &x }() => {
+      s.* = .Some(rx);
+    });
+    c();
+  };
+  assert(match(slot, .Some(r) => (r.* == i32(1)), .None => false), "the slot holds `&x`");
+});

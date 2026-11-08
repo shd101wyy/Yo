@@ -17,8 +17,14 @@ A closure literal's parameters are rigid per-call origins only for RETURNS (E091
 
 ## Fix
 
-O-3 (rigid literal origins), v0.2.77 (`plans/backlog/BORROW_CHECKER_COMPLETENESS.md` §8–§9).
+O-3 (VERDICTS-37). Every elided `&` written in a parameter type is a rigid origin of the body: `rigid_param_slot` and
+`param_declared_origin_slot` in `src/evaluator/utils.yo`, recognising a literal's parameters by their parameter frame.
+A store through another parameter is E0923 (`_bind_join_subset_check`). A store through a `&mut` capture is E0923 for
+a per-call parameter root and E0912 for a body local (`_capture_store`); any other root joins the outer holder's flow
+set at the literal.
 
 ## Test that pins it
 
-corpus rows `closure-param-through-param`, `closure-param-into-capture-inline`; the repro under `tests/origins/unsound/`.
+Corpus rows `closure-param-through-param` and `closure-param-into-capture-inline`. G-B
+`tests/origins/unsound/h2dr-closure-two-params.yo`, `h2-closure-param-into-capture.yo`, `h2b-closure-bound-fnmut.yo` and
+`h2e-closure-capture-holder.yo` (E0923), each with an ASan-clean positive twin.

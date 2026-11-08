@@ -626,6 +626,79 @@ test("closure-push-capture", {
 test("closure-push-capture-then-write", {
   verdict("closure-push-capture-then-write", case2(closure_push_main(X), each()), "E0911");
 });
+test("closure-push-capture-then-clear", {
+  // The store joins `out`'s flow set at the literal; re-binding `out`
+  // kills it (O-1's `=` over reaching definitions), so `x` is writable.
+  main := entry(
+    al7(
+      let_(X, lit()),
+      let_(Y, lit()),
+      let_(OUT, Rc.new(NodeE.NewList(shr(int(), ELIDED)))),
+      use_(call(usize(1), al1(closure(al2(let_(OUT, Rc.new(NodeE.Borrow(true, OUT))), let_(X, Rc.new(NodeE.Borrow(false, X)))), al1(Rc.new(NodeE.Push(OUT, Rc.new(NodeE.Var(X))))), lit())))),
+      Rc.new(NodeE.Assign(OUT, Rc.new(NodeE.NewList(shr(int(), ELIDED))))),
+      Rc.new(NodeE.Assign(X, lit())),
+      use_(Rc.new(NodeE.Var(OUT)))
+    )
+  );
+  verdict("closure-push-capture-then-clear", case2(main, each()), "ACCEPT");
+});
+test("closure-param-into-capture-inline", {
+  // The per-call parameter stored into a captured flow-inferred container
+  // (the compiler row's `Option` slot; the toy language spells a flow slot
+  // as its container twin, as `flow-slot-lent-mut` does).
+  main := entry(
+    al3(
+      let_(OUT, Rc.new(NodeE.NewList(shr(int(), ELIDED)))),
+      use_(call(usize(1), al1(closure(al1(let_(OUT, Rc.new(NodeE.Borrow(true, OUT)))), al1(Rc.new(NodeE.Push(OUT, Rc.new(NodeE.Var(E))))), lit())))),
+      use_(Rc.new(NodeE.Var(OUT)))
+    )
+  );
+  verdict("closure-param-into-capture-inline", case2(main, each()), "UNION");
+});
+// ---------------------------------------------------------------------------
+// O-3: every elided `&` written in a parameter type is a rigid origin of the
+// body, named, closure and `io.async` bodies alike (one binder)
+// ---------------------------------------------------------------------------
+/// `store(v : &i32, dst : &mut Option(&i32))`: two elided origins, distinct
+/// and rigid in the body.
+store_elided :: (fn() -> FnDef)(
+  fun(
+    u64(0),
+    al2(prm(V, shr(int(), ELIDED)), prm(DST, exc(wrap(Kind.Some, shr(int(), ELIDED)), ELIDED))),
+    int(),
+    al1(Rc.new(NodeE.WriteThrough(DST, Rc.new(NodeE.Make(Kind.Some, Rc.new(NodeE.Var(V)))))))
+  )
+);
+test("fn-param-through-param", {
+  verdict("fn-param-through-param", case2(entry(none()), store_elided()), "ORIGIN_MISMATCH");
+});
+test("fn-param-through-param-spelled", {
+  body := fun(
+    P,
+    al2(prm(V, shr(int(), P)), prm(DST, exc(wrap(Kind.Some, shr(int(), P)), ELIDED))),
+    int(),
+    al1(Rc.new(NodeE.WriteThrough(DST, Rc.new(NodeE.Make(Kind.Some, Rc.new(NodeE.Var(V)))))))
+  );
+  verdict("fn-param-through-param-spelled", case2(entry(none()), body), "ACCEPT");
+});
+test("closure-param-through-param", {
+  // A toy closure takes one parameter. The literal's body is checked by the
+  // same binder as a named body, so its two-parameter form is the named
+  // body above.
+  verdict("closure-param-through-param", case2(entry(none()), store_elided()), "ORIGIN_MISMATCH");
+});
+test("async-body-local-into-capture", {
+  // A toy `io.async` carries no body: the escape is the body storing its own
+  // local through the `&mut` it borrows, spelled as a body with that
+  // parameter.
+  body := fun(
+    u64(0),
+    al1(prm(DST, exc(list(shr(int(), ELIDED)), ELIDED))),
+    int(),
+    al2(let_(Y, lit()), Rc.new(NodeE.Push(DST, Rc.new(NodeE.Borrow(false, Y)))))
+  );
+  verdict("async-body-local-into-capture", case2(entry(none()), body), "UNION");
+});
 // ---------------------------------------------------------------------------
 // Futures (O5, O8)
 // ---------------------------------------------------------------------------

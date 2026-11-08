@@ -1,0 +1,17 @@
+// expect: E0912
+// VERDICTS-37 Q2: an `io.async` body stores a reference to its own local `y` into the captured
+// caller slot; `y` dies with the body while `slot` is read after the await.
+{ println } :: import("std/fmt");
+store :: (fn(generic(r : Origin), dst : &mut Option(&(i32, r)), v : &(i32, r)) -> unit)({
+  dst.* = .Some(v);
+});
+main :: (fn(io : Io) -> unit)({
+  mut(slot) := Option(&i32).None;
+  fut := io.async({ s : &mut slot }(io : Io) => {
+    y := i32(42);
+    store(&mut s.*, &y);
+  });
+  io.await(fut, io);
+  match(slot, .Some(r) => println(`OUT: ${r.*.to_string()}`), .None => println("none"));
+});
+export(main);
