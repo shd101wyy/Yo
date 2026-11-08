@@ -53,10 +53,10 @@ RrbW :: (fn(comptime(T) : Type) -> comptime(Type))(struct(v : T));
 impl(generic(T : Type), RrbW(T), get : (fn(self : &Self) -> &T)(&self.v));
 rrb_forward_bare :: (fn(generic(T : Type), r : &RrbW(T)) -> &T)(r.get());
 comptime_expect_error(
-  rrb_forward_bare_use :: (fn() -> i32)({
+  rrb_forward_bare_use :: (fn() -> unit)({
     w := RrbW(i32)(v : i32(8));
     p := rrb_forward_bare(&w);
-    p.*
+    assert(p.* == i32(8), "the forwarded place reads the field");
   }),
   "write `&r.get()`"
 );
