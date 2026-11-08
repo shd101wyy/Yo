@@ -537,6 +537,20 @@ or an `as_ref` accessor on `Rc`/`Box`/`Arc`, never `r.*.*`. Gate for
 Generation B: seed `check ./std` and `check ./src` with the v0.2.76 seed,
 then the fixpoint.
 
+**Amended again 2026-11-08 (schedule §5f decision 36, Fable consultation
+#38):** Generation A decides the reading on the SPECIALIZED referent type, so
+a written `a.*` on `a : &T` inside a generic std/src body reads the old way
+whenever a caller makes `T` read through (`Box`/`Rc`/`Arc`, a raw pointer, a
+`*` field). The v0.2.76 seed therefore cannot build Generation B's text.
+**Generation B moves to `SEED_VERSION` ≥ v0.2.77** (v0.2.78, first in
+order). v0.2.77 carries **PR-R** (every written `r.*` in std/src on a
+read-through or type-parameter referent respelled into a form both readings
+lower identically, plus `as_ref` on `Rc`/`Arc`/`Box`; oracle: the deref census
+at zero with the v0.2.76 seed) and then **Generation A'**
+(`deref_spelling_applies` without its referent argument: a written `r.*` in
+std/src is always the reference's own deref). `--migrate deref` retires in
+v0.2.79, so v0.2.77's retirement PR keeps it.
+
 ## Seed-gated follow-up (2026-11-02): V5 cells — `Rc`/`Arc` become views over `__yo_cell`
 
 V5 Generation A completion (`plans/VALUES_BY_DEFAULT.md` §V5 and §3.5 "Left to V5") retypes the two counted
