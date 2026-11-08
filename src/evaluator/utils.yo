@@ -10035,7 +10035,6 @@ derive(CaptureStoreJoin, Clone);
 _capture_store :: (fn(variable : &Variable, bco : &BorrowCaptureOuter, roots : &ArrayList(OriginRootPlace), at : &Token, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
   ground := _origin_ground_roots(roots);
   outer_roots := ArrayList(OriginRootPlace).new();
-  body_kind := if(ctx.is_inside_io_async_call, String.from("`io.async` body"), String.from("closure"));
   (gi : usize) = usize(0);
   while(gi < ground.len(), {
     match(
@@ -10048,8 +10047,8 @@ _capture_store :: (fn(variable : &Variable, bco : &BorrowCaptureOuter, roots : &
               with_code(
                 format_error_message_with_help(
                   at,
-                  `Cannot store a value holding \`${rv.name}\` into \`${bco.place.text}\` through the capture \`${bco.text}\`: \`${rv.name}\`'s origin is this ${body_kind}'s per-call parameter, \`${bco.place.text}\` outlives the call, and a per-call origin cannot be named outside the literal (decision 43, plans/backlog/REFERENCES_AND_ORIGINS.md O2).`,
-                  Option(String).Some(`store an owned value (\`${rv.name}.*.clone()\`), or make the holder a parameter of the ${body_kind} and share one origin on the slot type (\`Fn(${rv.name} : &(T, p), s : &mut Option(&(T, p)))\`)`)
+                  `Cannot store a value holding \`${rv.name}\` into \`${bco.place.text}\` through the capture \`${bco.text}\`: \`${rv.name}\`'s origin is this literal's per-call parameter, \`${bco.place.text}\` outlives the call, and a per-call origin cannot be named outside the literal (decision 43, plans/backlog/REFERENCES_AND_ORIGINS.md O2).`,
+                  Option(String).Some(`store an owned value (\`${rv.name}.*.clone()\`), or make the holder a parameter of the literal and share one origin on the slot type (\`Fn(${rv.name} : &(T, p), s : &mut Option(&(T, p)))\`)`)
                 ),
                 E_ORIGIN_MISMATCH
               ),
@@ -10065,8 +10064,8 @@ _capture_store :: (fn(variable : &Variable, bco : &BorrowCaptureOuter, roots : &
                   with_code(
                     format_error_message_with_help(
                       at,
-                      `Cannot store a reference to \`${gr.place.text}\` into \`${bco.place.text}\` through the capture \`${bco.text}\`: the origin names a local of this ${body_kind}, whose storage ends with the body, while \`${bco.place.text}\` outlives it (decision 43, plans/backlog/REFERENCES_AND_ORIGINS.md O2; plans/backlog/BORROW_CHECKER_COMPLETENESS.md §3).`,
-                      Option(String).Some(`store an owned value, or a reference to a place the ${body_kind} borrows through its capture list`)
+                      `Cannot store a reference to \`${gr.place.text}\` into \`${bco.place.text}\` through the capture \`${bco.text}\`: the origin names a local of this literal's body, whose storage ends with it, while \`${bco.place.text}\` outlives it (decision 43, plans/backlog/REFERENCES_AND_ORIGINS.md O2; plans/backlog/BORROW_CHECKER_COMPLETENESS.md §3).`,
+                      Option(String).Some(`store an owned value, or a reference to a place the literal borrows through its capture list`)
                     ),
                     E_LOCAL_BORROW_ESCAPES
                   ),
