@@ -1537,7 +1537,7 @@ _scope_type_installs :: (fn(t : &TypeValue) -> bool)(
   match(
     t,
     Rc(.Func({ param_types : pts, meta : m })) => {
-      if(m.*.*.is_control, {
+      if(m.is_control, {
         return(true);
       });
       (i : usize) = usize(0);
@@ -1558,7 +1558,7 @@ _scope_value_installs :: (fn(v : &Option(EvalValue)) -> bool)(
     v,
     .Some(fv) => match(
       fv,
-      .FuncVal(d, _) => (is_control_fn(&d.*.*.func_id) || is_effect_record_member(&d.*.*.func_id) || _scope_type_installs(get_func_type(&d.*.*.func_id))),
+      .FuncVal(d, _) => (is_control_fn(&d.func_id) || is_effect_record_member(&d.func_id) || _scope_type_installs(get_func_type(&d.func_id))),
       _ => false
     ),
     .None => false

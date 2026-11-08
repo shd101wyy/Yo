@@ -512,7 +512,7 @@ _occurs_check :: (fn(some_type_id : &String, some_type_name : &String, ty : &Typ
     // Don't check inside pointer types (valid indirection)
     Rc(.Pointer(_)) => false,
     Rc(.Func({ param_types, implicit_types, result, meta : __fm1 })) => {
-      forall_labels := Rc.clone(__fm1.*.*.forall_labels);
+      forall_labels := Rc.clone(__fm1.forall_labels);
       // A generic declared by this Func's OWN signature SHADOWS the
       // searched variable: occurrences inside its params/return are
       // bound (alpha-renameable), not free occurrences. Value-typed

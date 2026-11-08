@@ -2917,7 +2917,7 @@ _sig_modes_of :: (fn(ty : &TypeValue) -> Option(_SigModes))(
   match(
     ty,
     Rc(.Func({ param_types : sm_pts, meta : sm_meta })) => Option(_SigModes).Some(
-      _SigModes(labels : sm_meta.*.*.param_labels.clone(), types : shared_list(slot_pointees(&sm_pts.*)), refs : fn_param_mut_ref_flags(ty), owns : fn_param_by_value_flags(ty), n : sm_pts.len(), complete : true)
+      _SigModes(labels : sm_meta.param_labels.clone(), types : shared_list(slot_pointees(&sm_pts.*)), refs : fn_param_mut_ref_flags(ty), owns : fn_param_by_value_flags(ty), n : sm_pts.len(), complete : true)
     ),
     _ => match(
       extract_fn_trait_from_type(ty),
@@ -3320,7 +3320,7 @@ type_contains_some_type_for_codegen_param :: (
       found
     },
     Rc(.Func({ param_types : param_types, result : result_box, meta : __fm1 })) => {
-      forall_labels := Rc.clone(__fm1.*.*.forall_labels);
+      forall_labels := Rc.clone(__fm1.forall_labels);
       (found : bool) = (forall_labels.len() > usize(0));
       (i : usize) = usize(0);
       while((i < param_types.len()) && !found, {

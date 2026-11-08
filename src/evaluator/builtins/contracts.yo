@@ -1677,7 +1677,7 @@ register_impl_inheritance_task :: (
   match(
     method_val,
     .FuncVal(__inh_fvd, _) => {
-      __fid := __inh_fvd.*.*.func_id.clone();
+      __fid := __inh_fvd.func_id.clone();
       // The impl method declares its own contracts (or already inherits via
       // the lambda origin-copy — the trait's own nodes, indistinguishable
       // and needing no inheritance): variance governs, nothing to plant.
@@ -1709,7 +1709,7 @@ register_impl_inheritance_task :: (
                 p_types.push(pt.clone());
                 p_names.push(
                   match(
-                    __ihm.*.*.param_labels.get(pih),
+                    __ihm.param_labels.get(pih),
                     .Some(pl) => pl.clone(),
                     .None => String.new()
                   )
@@ -1792,7 +1792,7 @@ register_impl_inheritance_task :: (
           // registered under the fn-type expression id then — and verify
           // mode suppresses the splice regardless), so this is the raw
           // body whose ExprInfo the def-time trial stamped.
-          body : __inh_fvd.*.*.body.clone(),
+          body : __inh_fvd.body.clone(),
           param_names : p_names,
           param_types : p_types,
           result_type : ret_ty,
@@ -2045,8 +2045,8 @@ _callee_param_slot :: (fn(fty : &TypeValue, label : &String) -> Option(TypeValue
     fty,
     Rc(.Func({ param_types : cps, meta : cfm })) => {
       (j : usize) = usize(0);
-      while(j < cfm.*.*.param_labels.items.len(), {
-        if(cfm.*.*.param_labels.items(j) == label.*, {
+      while(j < cfm.param_labels.items.len(), {
+        if(cfm.param_labels.items(j) == label.*, {
           return(cps.items.get_cloned(j));
         });
         j = (j + usize(1));
@@ -2331,7 +2331,7 @@ register_impl_variance_task :: (
             p_types.push(pt.clone());
             p_names.push(
               match(
-                __vm.*.*.param_labels.get(pi),
+                __vm.param_labels.get(pi),
                 .Some(pl) => pl.clone(),
                 .None => String.new()
               )
@@ -2590,7 +2590,7 @@ strip_proved_ensures_asserts :: (
   match(
     func_val,
     .FuncVal(fvd, _) => {
-      body := fvd.*.*.body;
+      body := fvd.body;
       match(
         body,
         .FnCall(_, _, Rc(args), _, _) => {

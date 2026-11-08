@@ -2255,7 +2255,7 @@ value_to_signature_string :: (fn(value : &EvalValue) -> String)(
     // RC/GC-teardown bugs. See
     // issues/fixed/yo-self-specialization-signature-type-identity.md.)
     .TypeVal(t) => _type_signature_string(&t.*),
-    .FuncVal(__fvd2, _) => `fn_${__fvd2.*.*.func_id}`,
+    .FuncVal(__fvd2, _) => `fn_${__fvd2.func_id}`,
     _ => value_to_string(value)
   )
 );
@@ -2320,7 +2320,7 @@ compute_compile_time_signature :: (
   match(
     func_type,
     Rc(.Func({ meta : __fm1 })) => {
-      fl := Rc.clone(__fm1.*.*.forall_labels);
+      fl := Rc.clone(__fm1.forall_labels);
       n_fl := fl.len();
       n_fa := arg_values.forall_args.len();
       (fpi : usize) = usize(0);
@@ -2883,7 +2883,7 @@ _impl_type_captures_sig :: (fn(fv : &EvalValue) -> String)({
   match(
     fv,
     .FuncVal(__fvs1, cvs) => {
-      csrc := fv_capture_source(&__fvs1.*.*);
+      csrc := fv_capture_source(__fvs1.as_ref());
       n := fv_source_count(&csrc, &cvs.*);
       (i : usize) = usize(0);
       while(i < n, {
@@ -2971,10 +2971,10 @@ _build_forward_ref_funcval :: (
       .FuncVal(__fvm1, _) => EvalValue.FuncVal(
         Rc.new(
           FuncValData(
-            forall_names : __fvm1.*.*.forall_names.clone(),
-            params : __fvm1.*.*.params.clone(),
-            param_type_names : __fvm1.*.*.param_type_names.clone(),
-            evidence_params : __fvm1.*.*.evidence_params.clone(),
+            forall_names : __fvm1.forall_names.clone(),
+            params : __fvm1.params.clone(),
+            param_type_names : __fvm1.param_type_names.clone(),
+            evidence_params : __fvm1.evidence_params.clone(),
             body : make_err_expr(),
             cap_names : ArrayList(String).new(),
             cap_tys : ArrayList(TypeValue).new(),
@@ -3271,12 +3271,12 @@ create_specialized_function_inline :: (
   result := match(
     original_func_val,
     .FuncVal(__fvm2, cap_vals) => {
-      forall_names := __fvm2.*.*.forall_names.clone();
-      params := __fvm2.*.*.params.clone();
-      param_type_names := __fvm2.*.*.param_type_names.clone();
-      evidence_params := __fvm2.*.*.evidence_params.clone();
-      body := __fvm2.*.*.body;
-      func_id := __fvm2.*.*.func_id.clone();
+      forall_names := __fvm2.forall_names.clone();
+      params := __fvm2.params.clone();
+      param_type_names := __fvm2.param_type_names.clone();
+      evidence_params := __fvm2.evidence_params.clone();
+      body := __fvm2.body;
+      func_id := __fvm2.func_id.clone();
       // ------------------------------------------------------------------
       // Collect compile-time arg values and runtime parameter types
       // ------------------------------------------------------------------
@@ -4738,7 +4738,7 @@ create_specialized_function_inline :: (
             // has no `Self` variable, and an unconditional clear made every
             // such body fail with E0401 "Variable Self not found" (same
             // issue doc, the 2026-09-17 first attempt).
-            spec_has_self_cap := fv_capture_has_name(&__fvm2.*.*, String.from("Self"));
+            spec_has_self_cap := fv_capture_has_name(__fvm2.as_ref(), String.from("Self"));
             if(spec_has_self_cap, {
               ctx.self_type = Option(TypeValue).None;
               spec_self_set = true;
@@ -4966,7 +4966,7 @@ create_specialized_function_inline :: (
           (new_cap_vars : ArrayList(Variable)) = ArrayList(Variable).new();
           (new_env_key : usize) = usize(0);
           (have_cap_vars : bool) = false;
-          n_oc := fv_capture_count(&__fvm2.*.*, &cap_vals.*);
+          n_oc := fv_capture_count(__fvm2.as_ref(), &cap_vals.*);
           // ALIGNED when the original's handles name its values one-to-one: take
           // exactly those, append one per binding below, and store no flat
           // names/types (`aligned_derived_capture_handles`, memory plan §0.13).
@@ -4979,14 +4979,14 @@ create_specialized_function_inline :: (
           // bindings appended below go into `new_cap_vars` alone.
           (spec_prefix : ArrayList(CaptureSlice)) = ArrayList(CaptureSlice).new();
           match(
-            aligned_derived_capture_handles(&__fvm2.*.*, n_oc),
+            aligned_derived_capture_handles(__fvm2.as_ref(), n_oc),
             .Some(aligned_slices) => {
               have_cap_vars = true;
               spec_aligned = true;
               spec_prefix = aligned_slices;
             },
             .None => match(
-              get_funcval_cap_vars(__fvm2.*.*.env_key),
+              get_funcval_cap_vars(__fvm2.env_key),
               .Some(pv) => {
                 have_cap_vars = true;
                 (pvi : usize) = usize(0);
@@ -5007,7 +5007,7 @@ create_specialized_function_inline :: (
           // Re-use existing captures from original function. The original's
           // names/types are read through its capture source (a definition-site
           // FuncVal stores none).
-          orig_src := fv_capture_source(&__fvm2.*.*);
+          orig_src := fv_capture_source(__fvm2.as_ref());
           (oci : usize) = usize(0);
           while(oci < n_oc, {
             // Aligned: names, types AND values come through the handles, so
@@ -5015,18 +5015,18 @@ create_specialized_function_inline :: (
             if(!spec_aligned, {
               new_cap_names.push(fv_source_name(&orig_src, oci));
               new_cap_tys.push(fv_source_ty(&orig_src, oci));
-              new_cap_vals.push(match(fv_capture_val(&__fvm2.*.*, &cap_vals.*, oci), .Some(v) => v, .None => EvalValue.UnitVal));
+              new_cap_vals.push(match(fv_capture_val(__fvm2.as_ref(), &cap_vals.*, oci), .Some(v) => v, .None => EvalValue.UnitVal));
             });
             oci = (oci + usize(1));
           });
           // Add compile-time args as additional captures (generic type bindings)
           (fai2 : usize) = usize(0);
-          n_fl := match(func_type, Rc(.Func({ meta : __fm3 })) => __fm3.*.*.forall_labels.len(), _ => usize(0));
+          n_fl := match(func_type, Rc(.Func({ meta : __fm3 })) => __fm3.forall_labels.len(), _ => usize(0));
           while(fai2 < n_fl, {
             label := match(
               func_type,
               Rc(.Func({ meta : __fm4 })) => {
-                fl := Rc.clone(__fm4.*.*.forall_labels);
+                fl := Rc.clone(__fm4.forall_labels);
                 r := match(fl.get_cloned(fai2), .Some(s) => s, .None => String.new());
                 r
               },
@@ -5120,7 +5120,7 @@ create_specialized_function_inline :: (
               // The result's `&`/`&mut` is its slot (decision 43 step 2): the
               // pointee is re-evaluated, the slot rebuilt around it below.
               sp_res_b := t_slot_pointee(&sp_res_slot.*);
-              (sp_pl : SharedList(String)) = Rc.clone(__fm5.*.*.param_labels);
+              (sp_pl : SharedList(String)) = Rc.clone(__fm5.param_labels);
               // The spec's C params must be named after the FuncVal's OWN
               // (source) labels — the body references those. `func_type` here
               // can be the DECLARED variable's type whose labels differ:
@@ -5131,15 +5131,15 @@ create_specialized_function_inline :: (
               if(params.len() == sp_pl.len(), {
                 sp_pl = shared_list(params.clone());
               });
-              sp_il := Rc.clone(__fm5.*.*.implicit_labels);
-              sp_rico := __fm5.*.*.result_is_comptime_only;
+              sp_il := Rc.clone(__fm5.implicit_labels);
+              sp_rico := __fm5.result_is_comptime_only;
               sp_pir := fn_param_mut_ref_flags(&func_type.*);
               sp_pio := fn_param_by_value_flags(&func_type.*);
-              sp_pis := match(&__fm5.*.*.param_is_sink, .Some(l) => Rc.clone(l), .None => no_flags());
-              sp_hv := __fm5.*.*.has_variadic;
-              sp_ie := __fm5.*.*.is_extern.clone();
-              sp_en := __fm5.*.*.extern_name.clone();
-              sp_ic := __fm5.*.*.is_control;
+              sp_pis := match(&__fm5.param_is_sink, .Some(l) => Rc.clone(l), .None => no_flags());
+              sp_hv := __fm5.has_variadic;
+              sp_ie := __fm5.is_extern.clone();
+              sp_en := __fm5.extern_name.clone();
+              sp_ic := __fm5.is_control;
               (spec_param_types : ArrayList(TypeValue)) = ArrayList(TypeValue).new();
               (spi : usize) = usize(0);
               while(spi < runtime_param_tys.len(), {
@@ -5907,7 +5907,7 @@ create_specialization_at_call :: (
     exn : Exception
   ) -> EvalValue
 )({
-  callee_in_std := match(fv, .FuncVal(fvd, _) => is_std_module_path(&ast_expr_token(&fvd.*.*.body).module_path.*, ctx.std_path.clone()), _ => false);
+  callee_in_std := match(fv, .FuncVal(fvd, _) => is_std_module_path(&ast_expr_token(&fvd.body).module_path.*, ctx.std_path.clone()), _ => false);
   description := _instantiation_description(callee_name, names, &av.forall_args);
   // The mint restores the in-progress specialization on success only; a
   // body that throws leaves it set, and a probe that catches the error goes
@@ -5976,15 +5976,15 @@ evaluate_ctl_function_body_inline :: (
   ) -> EvalValue
 )({
   // Extract FuncVal fields individually to avoid tuple destructuring.
-  orig_forall_labels := match(original_func_val, .FuncVal(__fvd3, _) => __fvd3.*.*.forall_names.clone(), _ => ArrayList(String).new());
-  orig_params := match(original_func_val, .FuncVal(__fvd4, _) => __fvd4.*.*.params.clone(), _ => ArrayList(String).new());
-  orig_param_type_names := match(original_func_val, .FuncVal(__fvd5, _) => __fvd5.*.*.param_type_names.clone(), _ => ArrayList(String).new());
-  orig_evidence_params := match(original_func_val, .FuncVal(__fvd6, _) => __fvd6.*.*.evidence_params.clone(), _ => ArrayList(String).new());
-  orig_body := match(original_func_val, .FuncVal(__fvd7, _) => __fvd7.*.*.body, _ => make_err_expr());
-  orig_cap_src := match(original_func_val, .FuncVal(__fvd8, _) => fv_capture_source(&__fvd8.*.*), _ => FvCaptureSource.Flat(ArrayList(String).new(), ArrayList(TypeValue).new()));
+  orig_forall_labels := match(original_func_val, .FuncVal(__fvd3, _) => __fvd3.forall_names.clone(), _ => ArrayList(String).new());
+  orig_params := match(original_func_val, .FuncVal(__fvd4, _) => __fvd4.params.clone(), _ => ArrayList(String).new());
+  orig_param_type_names := match(original_func_val, .FuncVal(__fvd5, _) => __fvd5.param_type_names.clone(), _ => ArrayList(String).new());
+  orig_evidence_params := match(original_func_val, .FuncVal(__fvd6, _) => __fvd6.evidence_params.clone(), _ => ArrayList(String).new());
+  orig_body := match(original_func_val, .FuncVal(__fvd7, _) => __fvd7.body, _ => make_err_expr());
+  orig_cap_src := match(original_func_val, .FuncVal(__fvd8, _) => fv_capture_source(__fvd8.as_ref()), _ => FvCaptureSource.Flat(ArrayList(String).new(), ArrayList(TypeValue).new()));
   orig_cap_vals := match(original_func_val, .FuncVal(_, cv) => Rc.clone(cv), _ => no_values());
-  orig_func_id := match(original_func_val, .FuncVal(__fvd10, _) => __fvd10.*.*.func_id.clone(), _ => String.from("__err_ctl"));
-  orig_env_key := match(original_func_val, .FuncVal(__fvd11, _) => __fvd11.*.*.env_key, _ => usize(0));
+  orig_func_id := match(original_func_val, .FuncVal(__fvd10, _) => __fvd10.func_id.clone(), _ => String.from("__err_ctl"));
+  orig_env_key := match(original_func_val, .FuncVal(__fvd11, _) => __fvd11.env_key, _ => usize(0));
   // -------------------------------------------------------------------------
   // Determine concreteTypeForForall from context.
   // For function-body contexts, it's the enclosing function's return type;
@@ -6111,7 +6111,7 @@ evaluate_ctl_function_body_inline :: (
   // -------------------------------------------------------------------------
   forall_labels := match(
     func_type,
-    Rc(.Func({ meta : __fm6 })) => Rc.clone(__fm6.*.*.forall_labels),
+    Rc(.Func({ meta : __fm6 })) => Rc.clone(__fm6.forall_labels),
     _ => no_labels()
   );
   forall_types_list := match(
@@ -6192,12 +6192,12 @@ evaluate_ctl_function_body_inline :: (
   (ctl_cap_vars : ArrayList(Variable)) = ArrayList(Variable).new();
   (ctl_env_key : usize) = usize(0);
   (ctl_have_vars : bool) = false;
-  n_oc := match(original_func_val, .FuncVal(__ctl_cnt, _) => fv_capture_count(&__ctl_cnt.*.*, &orig_cap_vals), _ => orig_cap_vals.len());
+  n_oc := match(original_func_val, .FuncVal(__ctl_cnt, _) => fv_capture_count(__ctl_cnt.as_ref(), &orig_cap_vals), _ => orig_cap_vals.len());
   // Aligned or flat, as in create_specialized_function_inline.
   (ctl_aligned : bool) = false;
   (ctl_prefix : ArrayList(CaptureSlice)) = ArrayList(CaptureSlice).new();
   match(
-    match(original_func_val, .FuncVal(__ctl_fvd, _) => aligned_derived_capture_handles(&__ctl_fvd.*.*, n_oc), _ => Option(ArrayList(CaptureSlice)).None),
+    match(original_func_val, .FuncVal(__ctl_fvd, _) => aligned_derived_capture_handles(__ctl_fvd.as_ref(), n_oc), _ => Option(ArrayList(CaptureSlice)).None),
     .Some(aligned_slices) => {
       ctl_have_vars = true;
       ctl_aligned = true;
@@ -6227,7 +6227,7 @@ evaluate_ctl_function_body_inline :: (
     if(!ctl_aligned, {
       ctl_cap_names.push(fv_source_name(&orig_cap_src, oci));
       ctl_cap_tys.push(fv_source_ty(&orig_cap_src, oci));
-      ctl_cap_vals.push(match(match(original_func_val, .FuncVal(__ctl_v, _) => fv_capture_val(&__ctl_v.*.*, &orig_cap_vals, oci), _ => orig_cap_vals.get(oci)), .Some(v) => v, .None => EvalValue.UnitVal));
+      ctl_cap_vals.push(match(match(original_func_val, .FuncVal(__ctl_v, _) => fv_capture_val(__ctl_v.as_ref(), &orig_cap_vals, oci), _ => orig_cap_vals.get(oci)), .Some(v) => v, .None => EvalValue.UnitVal));
     });
     oci = (oci + usize(1));
   });
@@ -6583,7 +6583,7 @@ resolve_param_types_from_expected :: (
   ) -> unit
 )({
   default_pts := match(func_type, Rc(.Func({ param_types : pt })) => Rc.clone(pt), _ => no_types());
-  forall_lbls := match(func_type, Rc(.Func({ meta : __fm7 })) => Rc.clone(__fm7.*.*.forall_labels), _ => no_labels());
+  forall_lbls := match(func_type, Rc(.Func({ meta : __fm7 })) => Rc.clone(__fm7.forall_labels), _ => no_labels());
   ret_b := match(func_type, Rc(.Func({ result : rb })) => t_slot_pointee(&rb.*), _ => t_unit());
   if(forall_lbls.len() == usize(0), {
     return(());
@@ -6853,8 +6853,8 @@ reject_runtime_comptime_arguments :: (
   match(
     fv,
     .FuncVal(rc_d, _) => {
-      rc_flags := get_func_param_comptime(rc_d.*.*.func_id.clone());
-      rc_params := rc_d.*.*.params.clone();
+      rc_flags := get_func_param_comptime(rc_d.func_id.clone());
+      rc_params := rc_d.params.clone();
       (rci : usize) = usize(0);
       while(rci < args.len(), {
         if(match(rc_flags.get(rci), .Some(f) => f, .None => false), {
@@ -7406,16 +7406,16 @@ try_to_call_function_with_arguments :: (
     Rc(.Func({ forall_types : ft, param_types : pt, implicit_types : it, where_types : wt, result : ret_b_slot, meta : __fm8 })) => {
       // The declared result's VALUE type; a projection's `&` is its slot.
       ret_b := t_slot_pointee(&ret_b_slot.*);
-      fl := Rc.clone(__fm8.*.*.forall_labels);
-      pl := Rc.clone(__fm8.*.*.param_labels);
+      fl := Rc.clone(__fm8.forall_labels);
+      pl := Rc.clone(__fm8.param_labels);
       pio := fn_param_by_value_flags(&norm_func_type2);
-      pis := match(&__fm8.*.*.param_is_sink, .Some(l) => Rc.clone(l), .None => no_flags());
+      pis := match(&__fm8.param_is_sink, .Some(l) => Rc.clone(l), .None => no_flags());
       pref := fn_param_mut_ref_flags(&norm_func_type2);
-      il := Rc.clone(__fm8.*.*.implicit_labels);
-      fn_has_variadic := __fm8.*.*.has_variadic;
+      il := Rc.clone(__fm8.implicit_labels);
+      fn_has_variadic := __fm8.has_variadic;
       // Aliasing Stage 0: extern/builtin callees run no Yo code, so their
       // borrows cannot dangle — Step 4c skips the projection dup for them.
-      callee_is_extern := __fm8.*.*.extern_name.is_some();
+      callee_is_extern := __fm8.extern_name.is_some();
       wt.*;
       // ----------------------------------------------------------------
       // Step 1: Detect explicit generic(…) argument.
@@ -7493,7 +7493,7 @@ try_to_call_function_with_arguments :: (
       n_args := adjusted_args.len();
       call_param_defaults := match(
         func_val,
-        .Some(.FuncVal(__fvd11, _)) => get_func_param_defaults(__fvd11.*.*.func_id.clone()),
+        .Some(.FuncVal(__fvd11, _)) => get_func_param_defaults(__fvd11.func_id.clone()),
         .Some(_) => ArrayList(Option(EvalValue)).new(),
         .None => ArrayList(Option(EvalValue)).new()
       );
@@ -7502,7 +7502,7 @@ try_to_call_function_with_arguments :: (
       // C argument (codegen renders `runtime_arg_exprs_in_order`).
       call_param_default_exprs := match(
         func_val,
-        .Some(.FuncVal(__fvd12, _)) => get_func_param_default_exprs(__fvd12.*.*.func_id.clone()),
+        .Some(.FuncVal(__fvd12, _)) => get_func_param_default_exprs(__fvd12.func_id.clone()),
         .Some(_) => ArrayList(Option(AstExpr)).new(),
         .None => ArrayList(Option(AstExpr)).new()
       );
@@ -7511,7 +7511,7 @@ try_to_call_function_with_arguments :: (
       // the parameter's comptime modifier.
       call_param_comptime := match(
         func_val,
-        .Some(.FuncVal(__fvd13, _)) => get_func_param_comptime(__fvd13.*.*.func_id.clone()),
+        .Some(.FuncVal(__fvd13, _)) => get_func_param_comptime(__fvd13.func_id.clone()),
         .Some(_) => ArrayList(bool).new(),
         .None => ArrayList(bool).new()
       );
@@ -7519,7 +7519,7 @@ try_to_call_function_with_arguments :: (
       // values, so Step 5b can reject a mismatching argument.
       call_param_assigned := match(
         func_val,
-        .Some(.FuncVal(__fvd14, _)) => get_func_param_assigned_values(__fvd14.*.*.func_id.clone()),
+        .Some(.FuncVal(__fvd14, _)) => get_func_param_assigned_values(__fvd14.func_id.clone()),
         .Some(_) => ArrayList(Option(EvalValue)).new(),
         .None => ArrayList(Option(EvalValue)).new()
       );
@@ -7570,10 +7570,10 @@ try_to_call_function_with_arguments :: (
           // `add_variable_to_env` calls per call in a self-compile, the
           // top allocation site of the bootstrap). See env.yo.
           .FuncVal(__fvm3, cv) => capture_env_for(
-            &__fvm3.*.*.func_id,
-            __fvm3.*.*.env_key,
-            &__fvm3.*.*.cap_names,
-            &__fvm3.*.*.cap_tys,
+            &__fvm3.func_id,
+            __fvm3.env_key,
+            &__fvm3.cap_names,
+            &__fvm3.cap_tys,
             &cv.*,
             Rc.clone(caller_env.module_path())
           ),
@@ -7970,7 +7970,7 @@ try_to_call_function_with_arguments :: (
       // each binds as the origin naming itself, as `_build_def_time_body_env`
       // binds it, so a body specialized here may name `p` in a type
       // (`Option(&(T, p))`, step 3, N2a).
-      o_labels := match(&__fm8.*.*.origin_labels, .Some(ol) => Rc.clone(ol), .None => no_labels());
+      o_labels := match(&__fm8.origin_labels, .Some(ol) => Rc.clone(ol), .None => no_labels());
       (o_i : usize) = usize(0);
       while(o_i < o_labels.len(), {
         o_name := match(o_labels.get_cloned(o_i), .Some(n) => n, .None => String.from(""));
@@ -8237,7 +8237,7 @@ try_to_call_function_with_arguments :: (
         .Some(ew_fv) => match(
           ew_fv,
           .FuncVal(ew_fvd, _) => {
-            ew_exprs := get_func_where_clause_exprs(ew_fvd.*.*.func_id.clone());
+            ew_exprs := get_func_where_clause_exprs(ew_fvd.func_id.clone());
             if(ew_exprs.len() > usize(0), {
               ew_apply := ArrayList(AstExpr).new();
               (ew_i : usize) = usize(0);
@@ -8607,7 +8607,7 @@ try_to_call_function_with_arguments :: (
               // generic and earlier-parameter bindings layered on top — never
               // in the caller's scope.
               de_env := default_param_eval_env(
-                match(func_val, .Some(.FuncVal(__fvd15, _)) => __fvd15.*.*.func_id.clone(), _ => String.new()),
+                match(func_val, .Some(.FuncVal(__fvd15, _)) => __fvd15.func_id.clone(), _ => String.new()),
                 Option(Environment).Some(Rc.clone(callee_env_m)),
                 &callee_env_m
               );
@@ -8902,7 +8902,7 @@ try_to_call_function_with_arguments :: (
       // evaluation so the chain types are resolved).
       vrf_param_labels := match(
         func_type,
-        Rc(.Func({ meta : __fm9 })) => Rc.clone(__fm9.*.*.param_labels),
+        Rc(.Func({ meta : __fm9 })) => Rc.clone(__fm9.param_labels),
         _ => no_labels()
       );
       vrf_param_is_ref := match(
@@ -9043,8 +9043,8 @@ try_to_call_function_with_arguments :: (
       match(
         func_val,
         .Some(.FuncVal(__fvd12, _)) => {
-          validate_where_constraints_for_call(__fvd12.*.*.func_id.clone(), &callee_env_m, &tok, ctx, exn);
-          reapply_where_clause_exprs_for_call(__fvd12.*.*.func_id.clone(), &callee_env_m, ctx, exn);
+          validate_where_constraints_for_call(__fvd12.func_id.clone(), &callee_env_m, &tok, ctx, exn);
+          reapply_where_clause_exprs_for_call(__fvd12.func_id.clone(), &callee_env_m, ctx, exn);
         },
         .Some(_) => (),
         .None => ()
@@ -9215,7 +9215,7 @@ try_to_call_function_with_arguments :: (
           .Some(rte_fv9) => match(
             rte_fv9,
             .FuncVal(__fvd13, _) => match(
-              get_func_return_type_expr(__fvd13.*.*.func_id.clone()),
+              get_func_return_type_expr(__fvd13.func_id.clone()),
               .Some(rte_expr9) => {
                 rte9_prev := ctx.is_evaluating_function_type;
                 ctx.is_evaluating_function_type = true;
@@ -9233,7 +9233,7 @@ try_to_call_function_with_arguments :: (
                 {
                   rte9_labels := match(
                     func_type,
-                    Rc(.Func({ meta : __fm9b })) => Rc.clone(__fm9b.*.*.param_labels),
+                    Rc(.Func({ meta : __fm9b })) => Rc.clone(__fm9b.param_labels),
                     _ => no_labels()
                   );
                   rte9_p0_is_self := match(rte9_labels.get(usize(0)), .Some(l) => (l == "self"), .None => false);
@@ -9429,7 +9429,7 @@ try_to_call_function_with_arguments :: (
       // registration would collide across calls). Without this the throw's
       // fn-ptr cast/temp emitted `void*` merge-assigned to i32
       // (the IoError.check stage-2 family).
-      if(is_some_type(&return_type) && match(func_type, Rc(.Func({ meta : __cfm })) => __cfm.*.*.is_control, _ => false), {
+      if(is_some_type(&return_type) && match(func_type, Rc(.Func({ meta : __cfm })) => __cfm.is_control, _ => false), {
         (ctl_rt_conc : TypeValue) = match(
           &ctx.expected_type,
           .Some(cet) => Rc.clone(cet.ty),
@@ -9633,7 +9633,7 @@ try_to_call_function_with_arguments :: (
       // chain (`ch.filter(x => …)`'s per-call `F`) is resolved in the result
       // even though its env slot still holds the marker. A control function's
       // `ResumeType` is exempt (resolved per call site above), as are externs.
-      if(!callee_is_extern && !(__fm8.*.*.is_control) && !ctx.is_evaluating_function_type, {
+      if(!callee_is_extern && !(__fm8.is_control) && !ctx.is_evaluating_function_type, {
         s12_own_ids := ArrayList(String).new();
         s12_somes := collect_somes_with_fn_sigs(&ret_b);
         match(&ret_b, Rc(.SomeT(_, _, _, _, _, _, _)) => s12_somes.push(Rc.clone(ret_b)), _ => ());
@@ -9699,12 +9699,12 @@ try_to_call_function_with_arguments :: (
       // never specialized and codegen only has the abstract body (skipped).
       fv_has_forall := match(
         func_val,
-        .Some(fvp) => match(fvp, .FuncVal(__fvd13, _) => (__fvd13.*.*.forall_names.len() > usize(0)), _ => false),
+        .Some(fvp) => match(fvp, .FuncVal(__fvd13, _) => (__fvd13.forall_names.len() > usize(0)), _ => false),
         .None => false
       );
       callee_own_type := match(
         func_val,
-        .Some(fvg) => match(fvg, .FuncVal(__fvg, _) => get_func_type(&__fvg.*.*.func_id), _ => Rc.clone(func_type)),
+        .Some(fvg) => match(fvg, .FuncVal(__fvg, _) => get_func_type(&__fvg.func_id), _ => Rc.clone(func_type)),
         .None => Rc.clone(func_type)
       );
       callee_own_generic := _func_type_has_runtime_some_param(&callee_own_type);
@@ -9719,7 +9719,7 @@ try_to_call_function_with_arguments :: (
       // ('call to undeclared function fn_yo_id_…' — prelude arm 1's
       // trait-impl-closure emission gap;
       // tests/codegen-bootstrap/assigned_param_overload_select.yo).
-      fv_result_ct := match(func_type, Rc(.Func({ meta : __fm12 })) => __fm12.*.*.result_is_comptime_only, _ => false);
+      fv_result_ct := match(func_type, Rc(.Func({ meta : __fm12 })) => __fm12.result_is_comptime_only, _ => false);
       (fv_has_ct_param : bool) = false;
       if(!fv_result_ct, {
         match(
@@ -9727,7 +9727,7 @@ try_to_call_function_with_arguments :: (
           .Some(fvcp) => match(
             fvcp,
             .FuncVal(__fvd16, _) => {
-              cfp_flags := get_func_param_comptime(__fvd16.*.*.func_id.clone());
+              cfp_flags := get_func_param_comptime(__fvd16.func_id.clone());
               (cfp_i : usize) = usize(0);
               while((cfp_i < cfp_flags.len()) && !fv_has_ct_param, {
                 match(
@@ -9764,7 +9764,7 @@ try_to_call_function_with_arguments :: (
       if(!skip_specialization && is_func_generic, {
         callee_fid_g := match(
           func_val,
-          .Some(fv) => match(fv, .FuncVal(__fvd14, _) => __fvd14.*.*.func_id.clone(), _ => String.from("")),
+          .Some(fv) => match(fv, .FuncVal(__fvd14, _) => __fvd14.func_id.clone(), _ => String.from("")),
           .None => String.from("")
         );
         // The callee's impl-instantiation identity: one func_id is shared

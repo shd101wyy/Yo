@@ -191,7 +191,7 @@ _capture_judgement_type :: (fn(ty : &TypeValue, value : &Option(EvalValue)) -> O
         .Some(v) => match(
           v,
           .FuncVal(fvd, _) => match(
-            get_closure_capture_info(fvd.*.*.func_id.clone()),
+            get_closure_capture_info(fvd.func_id.clone()),
             .Some(cci) => Option(TypeValue).Some(Rc.clone(cci.capture_type)),
             .None => Option(TypeValue).None
           ),
@@ -588,7 +588,7 @@ function_value_marker :: (
   match(
     witness,
     .Some(.FuncVal(wfvd, _)) => {
-      return(Option(Option(String)).Some(_function_value_offense(wfvd.*.*.func_id.clone(), Option(AstExpr).Some(wfvd.*.*.body), marker, env, ctx)));
+      return(Option(Option(String)).Some(_function_value_offense(wfvd.func_id.clone(), Option(AstExpr).Some(wfvd.body), marker, env, ctx)));
     },
     .Some(_) => (),
     .None => ()

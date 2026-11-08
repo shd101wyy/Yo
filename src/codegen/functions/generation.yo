@@ -639,7 +639,7 @@ _maybe_emit_method_entry_borrow_assert :: (fn(function_type : &TypeValue, func_i
   match(
     function_type,
     Rc(.Func({ param_types : pts, result : r, meta : __fm })) => {
-      if(__fm.*.*.param_labels.len() == usize(0), return(()));
+      if(__fm.param_labels.len() == usize(0), return(()));
       if(type_implements_future(&t_slot_pointee(&r.*)), return(()));
       // Any RC-object parameter at all? (Cheap pre-check before the analysis.)
       (has_object_param : bool) = false;
@@ -670,7 +670,7 @@ _maybe_emit_method_entry_borrow_assert :: (fn(function_type : &TypeValue, func_i
       while(i < pts.len(), {
         pt := match(slot_pointee_at(&pts.*, i), .Some(t) => t, .None => t_unit());
         is_object := (is_counted_handle_type(&pt) && !carries_no_borrow_marks(&pt));
-        label := match(__fm.*.*.param_labels.get_cloned(i), .Some(l) => l, .None => String.new());
+        label := match(__fm.param_labels.get_cloned(i), .Some(l) => l, .None => String.new());
         if(is_object && (label.len() > usize(0)) && param_mutation_mask_hits(&mask, i), {
           // An `inout` receiver/parameter is passed as `T** name` (a pointer to
           // the caller's handle slot); the object the flag lives on is `*name`.
@@ -717,8 +717,8 @@ generate_function :: (fn(function_value : &EvalValue, c_function_name : &String,
   match(
     function_value,
     .FuncVal(__fvm6, _) => {
-      body_box := __fvm6.*.*.body;
-      func_id := __fvm6.*.*.func_id.clone();
+      body_box := __fvm6.body;
+      func_id := __fvm6.func_id.clone();
       function_type := get_func_type(func_id.clone());
       // YO_AUDIT_RC_WRITE: decision 46's census of writes through a cell.
       if(rc_write_audit_enabled(), {
@@ -874,7 +874,7 @@ generate_function :: (fn(function_value : &EvalValue, c_function_name : &String,
       match(
         &function_type,
         Rc(.Func({ param_types : _pt, meta : _pm })) => {
-          _pls := Rc.clone(_pm.*.*.param_labels);
+          _pls := Rc.clone(_pm.param_labels);
           _pn := _pt.len();
           (_pi : usize) = usize(0);
           while(_pi < _pn, {

@@ -100,7 +100,7 @@ _enclosing_fn_type :: (fn(ctx : &EvalContext) -> Option(TypeValue))(
 _spelled_origin_error :: (fn(name : &String, ctx : &EvalContext) -> Option(_ProjRootError))({
   ft := match(_enclosing_fn_type(ctx), .Some(t) => t, .None => return(Option(_ProjRootError).None));
   names := match(fn_result_origin_names(&ft), .Some(n) => n, .None => return(Option(_ProjRootError).None));
-  labels := match(&ft, Rc(.Func({ meta : so_m })) => Rc.clone(so_m.*.*.param_labels), _ => return(Option(_ProjRootError).None));
+  labels := match(&ft, Rc(.Func({ meta : so_m })) => Rc.clone(so_m.param_labels), _ => return(Option(_ProjRootError).None));
   (mut(i) : usize) = usize(0);
   while(i < labels.len(), {
     if(match(labels.get_cloned(i), .Some(l) => (l == name.*), .None => false), {
@@ -158,7 +158,7 @@ _enclosing_param_names :: (fn(ctx : &EvalContext) -> Option(ArrayList(String)))(
       fb.kind,
       .FunctionBody => match(
         &fb.func_value,
-        .Some(.FuncVal(epn_d, _)) => if(!epn_d.*.*.params.is_empty(), Option(ArrayList(String)).Some(epn_d.*.*.params.clone()), _enclosing_type_labels(&fb.func_type)),
+        .Some(.FuncVal(epn_d, _)) => if(!epn_d.params.is_empty(), Option(ArrayList(String)).Some(epn_d.params.clone()), _enclosing_type_labels(&fb.func_type)),
         _ => _enclosing_type_labels(&fb.func_type)
       ),
       _ => Option(ArrayList(String)).None
@@ -167,7 +167,7 @@ _enclosing_param_names :: (fn(ctx : &EvalContext) -> Option(ArrayList(String)))(
   )
 );
 _enclosing_type_labels :: (fn(ft : &Option(TypeValue)) -> Option(ArrayList(String)))(
-  match(ft, .Some(Rc(.Func({ meta : etl_m }))) => Option(ArrayList(String)).Some(etl_m.*.*.param_labels.items.clone()), _ => Option(ArrayList(String)).None)
+  match(ft, .Some(Rc(.Func({ meta : etl_m }))) => Option(ArrayList(String)).Some(etl_m.param_labels.items.clone()), _ => Option(ArrayList(String)).None)
 );
 /// Whether `name` (bound to `v`) is a binding of an ENCLOSING function,
 /// which a closure or handler body reaches as a capture: a parameter the
@@ -389,9 +389,9 @@ _is_by_value_borrow_param :: (fn(v : &Variable, ctx : &EvalContext) -> bool)({
           ft,
           Rc(.Func({ meta : bp_m })) => {
             (mut(i) : usize) = usize(0);
-            n := bp_m.*.*.param_labels.len();
+            n := bp_m.param_labels.len();
             while(i < n, {
-              if(match(bp_m.*.*.param_labels.get_cloned(i), .Some(l) => (l == v.name), .None => false), {
+              if(match(bp_m.param_labels.get_cloned(i), .Some(l) => (l == v.name), .None => false), {
                 return(
                   !fn_param_is_mut_ref(&ft.*, i) && !fn_param_is_by_value(&ft.*, i) && !fn_param_is_ptr_borrow(&ft.*, i)
                 );

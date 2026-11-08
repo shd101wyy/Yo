@@ -9761,7 +9761,7 @@ impl(
   where(T <: Hash),
   Rc(T),
   Hash(
-    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)(self.*.*.hash(hasher))
+    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)(self.as_ref().hash(hasher))
   )
 );
 impl(
@@ -9862,7 +9862,7 @@ impl(
     cell := unsafe(unsafe.cast(self, *T));
     cond(
       (ref_count(self.*) != usize(1)) => {
-        self.* = Rc.new(self.*.*.clone());
+        self.* = Rc.new(self.as_ref().clone());
       },
       (__yo_rc_weak_weak_count((*void)(cell)) != usize(0)) => {
         // SAFETY: `self` is the cell's only strong handle, so nothing else
@@ -10466,7 +10466,7 @@ impl(
         );
       },
       true => {
-        self.* = Arc.new(self.*.*.clone());
+        self.* = Arc.new(self.as_ref().clone());
       }
     );
     // SAFETY: `self` is now the cell's only handle on every thread, so the

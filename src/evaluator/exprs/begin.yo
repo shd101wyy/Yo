@@ -3068,7 +3068,7 @@ _evaluate_begin_expression_impl :: (
                   rft,
                   Rc(.Func({ result : rfb_slot, meta : __fm1 })) => {
                     rfb := t_slot_pointee(&rfb_slot.*);
-                    rfco := __fm1.*.*.result_is_comptime_only;
+                    rfco := __fm1.result_is_comptime_only;
                     if(!rfco && type_representation_contains_raw_ptr(&rfb)
                     && !is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(&ret_arg).module_path.*.clone())), {
                       ret_slice_opts := FlowOptions(
@@ -3782,7 +3782,7 @@ _evaluate_begin_expression_impl :: (
                         fty,
                         Rc(.Func({ meta : own_fm })) => {
                           (own_found : bool) = false;
-                          own_labels := Rc.clone(own_fm.*.*.param_labels);
+                          own_labels := Rc.clone(own_fm.param_labels);
                           own_flags := fn_param_by_value_flags(&fty.*);
                           (own_i : usize) = usize(0);
                           n_own := own_labels.len();

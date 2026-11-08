@@ -593,7 +593,7 @@ impl(
     );
     def_mod := match(
       value,
-      .FuncVal(fvd, _) => ast_expr_token(&fvd.*.*.body).module_path.*.clone(),
+      .FuncVal(fvd, _) => ast_expr_token(&fvd.body).module_path.*.clone(),
       _ => String.new()
     );
     self.functions.insert(func_id.clone(), CodegenFunctionEntry(value : value.*, c_name : final_name, def_module : def_mod));
@@ -1295,7 +1295,7 @@ _inline_unwrap_transparent :: (fn(e : &AstExpr) -> AstExpr)({
 });
 _inline_body_passes_params_through :: (fn(call : &AstExpr, fv : &EvalValue) -> bool)({
   args := match(call, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => return(false));
-  params := match(fv, .FuncVal(__fvd2, _) => __fvd2.*.*.params.clone(), _ => return(false));
+  params := match(fv, .FuncVal(__fvd2, _) => __fvd2.params.clone(), _ => return(false));
   nparams := params.len();
   // Walk the body arguments, dropping type arguments, and require the ones that
   // remain to line up with the parameters in order.
@@ -1343,7 +1343,7 @@ _inline_body_passes_params_through :: (fn(call : &AstExpr, fv : &EvalValue) -> b
 is_function_value_with_only_builtin_yo_inline_function_call :: (
   fn(fv : &EvalValue) -> Option(String)
 )({
-  body_box := match(fv, .FuncVal(__fvd1, _) => __fvd1.*.*.body, _ => return(.None));
+  body_box := match(fv, .FuncVal(__fvd1, _) => __fvd1.body, _ => return(.None));
   body := _unwrap_unsafe(&body_box);
   // The call node the operator name comes from — needed by the pass-through
   // check below, which must inspect THAT call's arguments and not the
@@ -2011,7 +2011,7 @@ _codegen_name_of_variables :: (fn(variable_name : &String, variables : &ArrayLis
       // (`stdout`/`stderr` — non-Func, so it can't carry is_extern on its type;
       // tracked in the g_extern_c_globals registry). Either way, keep the REAL
       // C name (skip the `__yo_c_reserved_` reserved-word prefix).
-      is_extern_c_fn := match(&variable_value_type(&variable), Rc(.Func({ meta : __fm1 })) => match(&__fm1.*.*.is_extern, .Some(lang) => (lang.* == "c"), .None => false), _ => false);
+      is_extern_c_fn := match(&variable_value_type(&variable), Rc(.Func({ meta : __fm1 })) => match(&__fm1.is_extern, .Some(lang) => (lang.* == "c"), .None => false), _ => false);
       // The registry is NAME-keyed, but the rule is per-RESOLVED-variable
       // (extern-ness rides the TYPE):
       // a LOCAL binding that merely shares the name (IoError.from_errno's
