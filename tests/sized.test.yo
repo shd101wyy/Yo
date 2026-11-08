@@ -4,6 +4,7 @@
 //! `?Sized` in a binder's kind slot drops it. `[T]` (`Slice(T)`) is unsized:
 //! any by-value use of it, or of a `?Sized` variable, is E0619 — at the use
 //! for a concrete type, at the definition for a `?Sized` binder.
+pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
 { ArrayList } :: import("std/collections/array_list");
 
@@ -24,18 +25,18 @@ _SzBox :: (fn(comptime(V) : Type) -> comptime(Type))(struct(p : *V));
 _sz_sized_only :: (fn(generic(U : Type), y : &U) -> i32)(i32(1));
 
 test("[T] is the builtin Slice(T)", {
-  comptime_assert(Slice(i32) == [i32], "[i32] and Slice(i32) are one type");
-  comptime_assert(!(Slice(i32) == [u8]), "the element is part of the type");
+  assert(type_id(Slice(i32)) == type_id([i32]), "[i32] and Slice(i32) are one type");
+  assert(type_id(Slice(i32)) != type_id([u8]), "the element is part of the type");
 });
 
 test("Sized is derived from the type's structure", {
-  comptime_assert(i32 <: Sized, "a primitive is Sized");
-  comptime_assert(_SzPoint <: Sized, "a struct of sized fields is Sized");
-  comptime_assert(Array(i32, 4) <: Sized, "a fixed-size array is Sized");
-  comptime_assert(!([i32] <: Sized), "[T] is not Sized");
-  comptime_assert(!(_SzTail <: Sized), "a struct whose last field is unsized is not Sized");
-  comptime_assert(*([i32]) <: Sized, "a pointer to an unsized type is Sized");
-  comptime_assert(_SzPtr([i32]) <: Sized, "a struct holding such a pointer is Sized");
+  comptime_assert(Type.impls(i32, Sized), "a primitive is Sized");
+  comptime_assert(Type.impls(_SzPoint, Sized), "a struct of sized fields is Sized");
+  comptime_assert(Type.impls(Array(i32, 4), Sized), "a fixed-size array is Sized");
+  comptime_assert(!Type.impls([i32], Sized), "[T] is not Sized");
+  comptime_assert(!Type.impls(_SzTail, Sized), "a struct whose last field is unsized is not Sized");
+  comptime_assert(Type.impls(*([i32]), Sized), "a pointer to an unsized type is Sized");
+  comptime_assert(Type.impls(_SzPtr([i32]), Sized), "a struct holding such a pointer is Sized");
 });
 
 test("Sized is never implemented by hand", {
@@ -52,9 +53,9 @@ test("a ?Sized generic is called at sized types", {
 });
 
 test("a ?Sized type constructor takes an unsized argument", {
-  comptime_assert(_SzPtr(i32) <: Sized, "at a sized argument");
-  comptime_assert(_SzPtr([u8]) <: Sized, "at [u8]");
-  comptime_expect_error(_SzBox([u8]), "E0619");
+  comptime_assert(Type.impls(_SzPtr(i32), Sized), "at a sized argument");
+  comptime_assert(Type.impls(_SzPtr([u8]), Sized), "at [u8]");
+  comptime_expect_error(_SzBox([u8]), "is not `Sized`");
   comptime_expect_error(_SzBox([u8]), "?Sized");
 });
 
@@ -62,8 +63,8 @@ test("an unsized type by value is E0619", {
   comptime_expect_error(size_of(Slice(i32)), "is not `Sized`");
   comptime_expect_error(size_of(_SzTail), "is not `Sized`");
   comptime_expect_error(align_of([i32]), "`align_of`");
-  comptime_expect_error(Option([i32]), "E0619");
-  comptime_expect_error(ArrayList([i32]), "E0619");
+  comptime_expect_error(Option([i32]), "is not `Sized`");
+  comptime_expect_error(ArrayList([i32]), "is not `Sized`");
   comptime_expect_error(Array([i32], 2), "an array element");
   comptime_expect_error(Slice([i32]), "a slice element");
   comptime_expect_error(Tuple(i32, [i32]), "a tuple element");
@@ -74,7 +75,7 @@ test("an unsized type by value is E0619", {
 });
 
 test("a ?Sized binder used by value is E0619 at the definition", {
-  comptime_expect_error((fn(generic(T : ?Sized), x : &T) -> unit)({ _y := x.*; }), "E0619");
+  comptime_expect_error((fn(generic(T : ?Sized), x : &T) -> unit)({ _y := x.*; }), "is not `Sized`");
   comptime_expect_error((fn(generic(T : ?Sized), x : &T) -> T)(x.*), "a by-value result");
   comptime_expect_error((fn(generic(T : ?Sized), x : T) -> unit)(()), "the by-value parameter");
   comptime_expect_error((fn(generic(T : ?Sized), x : &T) -> usize)(size_of(T)), "`size_of`");
