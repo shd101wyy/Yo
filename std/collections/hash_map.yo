@@ -1138,10 +1138,10 @@ impl(
   or_insert : (fn(self : Self, default : V) -> &mut(V, p))(
     match(
       self._slot,
-      .Occupied(index) => self._map._value_at_mut(index),
+      .Occupied(index) => &mut self._map._value_at_mut(index).*,
       .Vacant(index) => {
         slot := self._map._insert_at(index, self._hash, self._key, default);
-        self._map._value_at_mut(slot)
+        &mut self._map._value_at_mut(slot).*
       }
     )
   ),
@@ -1151,10 +1151,10 @@ impl(
   or_insert_with : (fn(self : Self, make : &mut Impl(FnMut() -> V)) -> &mut(V, p))(
     match(
       self._slot,
-      .Occupied(index) => self._map._value_at_mut(index),
+      .Occupied(index) => &mut self._map._value_at_mut(index).*,
       .Vacant(index) => {
         slot := self._map._insert_at(index, self._hash, self._key, make());
-        self._map._value_at_mut(slot)
+        &mut self._map._value_at_mut(slot).*
       }
     )
   ),
