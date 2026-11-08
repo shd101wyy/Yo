@@ -1356,7 +1356,8 @@ evaluate_origin_argument :: (fn(e : &AstExpr, env : &Environment, ctx : &mut Eva
 /// plans/backlog/REFERENCES_AND_ORIGINS.md O4): a field's type, a type
 /// argument, an alias. The value is the type `Reference(T, mutable,
 /// origin)`; the one-argument form's origin is elided (a fresh origin per
-/// field, O2). A reference to a reference is N1e's.
+/// field, O2). A reference to a reference, `&(&T)`, is one too
+/// (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §7 P3).
 evaluate_reference_type :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext, is_mut : bool, exn : Exception) -> AstExpr)({
   r_args := _fn_call_args(expr);
   pointee_expr := match(r_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
@@ -1374,16 +1375,6 @@ evaluate_reference_type :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut E
       Rc.new(TypeValueNode.Unit)
     }
   );
-  if(t_slot_is_borrow(&pointee), {
-    exn.throw(
-      dyn(
-        format_error_message(
-          ast_expr_token(expr),
-          `\`${ast_expr_to_string(expr)}\` is a reference to a reference: it arrives with references as binding types (decision 43 step 2, N1e). A reference to a value is \`&T\`.`
-        )
-      )
-    );
-  });
   r_env := expr_info_adopt_env(&ev_info);
   origin := cond(
     (r_args.len() == usize(2)) => {
@@ -2291,14 +2282,16 @@ evaluate_function_parameter :: (
   // `x : &T` / `x : &mut T` wrappers set it, and the stored type expression
   // is the pointee `T`, so every later reader (the specializer re-evaluates
   // parameter type expressions) sees what it sees for the elided form.
+  // Under a mode wrapper (`a : &mut &(T, p)`) the sigil is the POINTEE's
+  // type, a reference to a reference (plans/backlog/BORROW_CHECKER_COMPLETENESS.md
+  // §7 P3), evaluated as a type below.
   (spelled_origin_expr : Option(AstExpr)) = Option(AstExpr).None;
   match(
     type_expr,
-    .Some(so_te) => if(is_origin_qualified_reference_expr(&so_te), {
+    .Some(so_te) => if(is_origin_qualified_reference_expr(&so_te) && !(has_imm_wrapper || is_param_ref), {
       so_is_mut := ast_expr_is_fn_call_of(&so_te, BK_BORROW_MUT, Option(usize).None);
       so_args := _fn_call_args(&so_te);
       so_phase := cond(
-        (has_imm_wrapper || is_param_ref) => Option(String).Some(String.from("a reference to a reference (`&mut &(T, p)`) arrives with references as binding types (decision 43 step 2, N1e)")),
         is_parameter_comptime_by_default => Option(String).Some(String.from("a `generic`/`using` parameter is erased at runtime and has no place to borrow")),
         is_compile_time_only => Option(String).Some(String.from("a `comptime` parameter cannot be an origin-qualified reference")),
         is_sink_param => Option(String).Some(String.from("`sink(x) : T` takes ownership and `x : &(T, p)` borrows")),
@@ -2484,15 +2477,16 @@ evaluate_function_parameter :: (
       Rc.new(TypeValueNode.Unit)
     }
   );
-  // `x : &mut &T`: since a `&T` operand that is a type evaluates to a
-  // reference type (decision 43 step 3, N2a), the slot's pointee can be one.
-  // A reference to a reference is N1e's (reference-typed bindings).
-  if((has_imm_wrapper || is_param_ref) && t_slot_is_borrow(&final_param_type), {
+  // A parameter `x : & &T` / `x : &mut &T` is a reference to a reference
+  // (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §7 P3). A RECEIVER slot
+  // `&&C` (`self : &Self` on `impl(&C, …)`) is not: the probe's autoref of
+  // a reference receiver lends no storage of its own yet.
+  if((has_imm_wrapper || is_param_ref) && t_slot_is_borrow(&final_param_type) && match(&label, .Some(l) => (l == "self"), .None => false), {
     exn.throw(
       dyn(
         format_error_message(
           match(type_expr, .Some(e) => ast_expr_token(&e), .None => ast_expr_token(expr)),
-          `This parameter is a reference to a reference (its pointee is \`${type_to_string(&final_param_type)}\`): it arrives with references as binding types (decision 43 step 2, N1e). A reference to a value is \`&T\`.`
+          `A receiver slot that is a reference to a reference (\`self : ${if(is_param_ref, "&mut ", "&")}${type_to_string(&final_param_type)}\`) is not accepted yet. Take the receiver by value (\`self : Self\` on an impl over \`${type_to_string(&final_param_type)}\`).`
         )
       )
     );
@@ -6189,7 +6183,7 @@ export(evaluate_function_type, _resolve_some_types_deep);
 /// Total entries across the per-function side tables (the B2 plateau test's probe).
 function_side_table_entry_count :: (fn() -> usize)(g_macro_quoted_param_indices.with(_c_len_1) + g_macro_return_is_unquote.with(_c_len_2) + g_func_param_defaults.with(_c_len_3) + g_func_variadic_params.with(_c_len_4) + g_func_param_assigned_values.with(_c_len_3) + g_func_param_comptime.with(_c_len_5) + g_func_return_type_expr.with(_c_len_6) + g_func_param_default_exprs.with(_c_len_7) + g_func_param_type_exprs.with(_c_len_8) + g_func_where_constraints.with(_c_len_9) + g_func_where_clause_exprs.with(_c_len_10) + g_func_requires_exprs.with(_c_len_10) + g_func_ensures_exprs.with(_c_len_10) + g_func_decreases_expr.with(_c_len_6) + g_func_assumed_body.with(_c_len_2) + g_func_refined_params.with(_c_len_11) + g_func_return_label.with(_c_len_12));
 export(purge_function_side_tables, function_side_table_entry_count);
-export(evaluate_function_parameters, is_origin_qualified_reference_expr, evaluate_reference_type, evaluate_origin_argument, reject_annotation_naming_its_binding);
+export(evaluate_function_parameters, is_origin_qualified_reference_expr, evaluate_reference_type, evaluate_origin_argument, reject_annotation_naming_its_binding, _type_origin_names_into);
 export(apply_where_clause_constraints);
 export(evaluate_function_parameter_type_again);
 export(evaluate_function_return_type_again);

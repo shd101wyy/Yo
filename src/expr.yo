@@ -1056,7 +1056,9 @@ ast_expr_is_local_borrow_mode_call :: (fn(e : &AstExpr, arg_count : Option(usize
   n_ok := match(
     arg_count,
     .Some(n) => cond(
-      (n == usize(1)) => (ast_expr_is_fn_call_of(e, BK_MUT, Option(usize).Some(usize(1))) || ast_expr_is_fn_call_of(e, BK_IMM, Option(usize).Some(usize(1))) || ast_expr_is_fn_call_of(e, BK_MUT, Option(usize).Some(usize(2))) || ast_expr_is_fn_call_of(e, BK_IMM, Option(usize).Some(usize(2)))),
+      // `I(r)`, `I(r, T)` and `I(r, T, o)` (an origin-qualified annotation,
+      // `(r : &(T, o)) = &x`, §7 P3) all bind the one name `r`.
+      (n == usize(1)) => (ast_expr_is_fn_call_of(e, BK_MUT, Option(usize).Some(usize(1))) || ast_expr_is_fn_call_of(e, BK_IMM, Option(usize).Some(usize(1))) || ast_expr_is_fn_call_of(e, BK_MUT, Option(usize).Some(usize(2))) || ast_expr_is_fn_call_of(e, BK_IMM, Option(usize).Some(usize(2))) || ast_expr_is_fn_call_of(e, BK_MUT, Option(usize).Some(usize(3))) || ast_expr_is_fn_call_of(e, BK_IMM, Option(usize).Some(usize(3)))),
       true => (ast_expr_is_inout_mode_call(e, arg_count) || ast_expr_is_fn_call_of(e, BK_IMM, arg_count))
     ),
     .None => (ast_expr_is_inout_mode_call(e, arg_count) || ast_expr_is_fn_call_of(e, BK_IMM, arg_count))
@@ -1622,11 +1624,26 @@ _bs_wrap_label :: (fn(label : &AstExpr, s : &_BorrowSigil) -> AstExpr)(
 );
 /// A declared parameter `L : &T` / `L : &mut T`, through a `?= default` or
 /// an `= value`: `.Some(rewritten)`, else `.None`.
+/// A label already in its mode (`I(x)`, `comptime(I(x))`): the slot's
+/// sigil was rewritten, and a `&` left in its type is the POINTEE's, a
+/// reference to a reference (`x : & &T` → `I(x) : &T`;
+/// plans/backlog/BORROW_CHECKER_COMPLETENESS.md §7 P3).
+_bs_label_is_mode :: (fn(label : &AstExpr) -> bool)(
+  cond(
+    (ast_expr_is_fn_call_of(label, BK_IMM, Option(usize).None) || ast_expr_is_fn_call_of(label, BK_MUT, Option(usize).None)) => true,
+    (ast_expr_is_fn_call_of(label, BK_COMPTIME, Option(usize).Some(usize(1))) || ast_expr_is_fn_call_of(label, "sink", Option(usize).Some(usize(1)))) => match(
+      _bs_args(label).get(usize(0)),
+      .Some(inner) => (ast_expr_is_fn_call_of(&inner, BK_IMM, Option(usize).None) || ast_expr_is_fn_call_of(&inner, BK_MUT, Option(usize).None)),
+      .None => false
+    ),
+    true => false
+  )
+);
 _bs_param :: (fn(p : &AstExpr) -> Option(AstExpr))(
   match(
     _bs_infix_pair(p, BK_COLON),
     .Some(pr) => match(
-      _borrow_sigil_of(&pr.rhs),
+      if(_bs_label_is_mode(&pr.lhs), Option(_BorrowSigil).None, _borrow_sigil_of(&pr.rhs)),
       .Some(s) => Option(AstExpr).Some(_bs_with_operands(p, _bs_wrap_label(&pr.lhs, &s), &s.inner)),
       .None => Option(AstExpr).None
     ),
@@ -1757,6 +1774,11 @@ _bs_for_handle :: (fn(is_mut : bool, h : &AstExpr, at : &Token) -> AstExpr)(
 _bs_is_sigil :: (fn(e : &AstExpr) -> bool)(
   ast_expr_is_fn_call_of(e, BF_ADDRESS_OF, Option(usize).Some(usize(1))) || ast_expr_is_fn_call_of(e, BK_BORROW_MUT, Option(usize).Some(usize(1)))
 );
+/// `&(T, o)` / `&mut(T, o)`: an origin-qualified sigil, a local borrow's
+/// annotation (`(y : &(T, o)) = &place`).
+_bs_is_origin_sigil :: (fn(e : &AstExpr) -> bool)(
+  match(e, .FnCall(_, f, Rc(a), infix, _) => (!infix && (a.len() == usize(2)) && (ast_expr_is_atom_of(&f, BF_ADDRESS_OF) || ast_expr_is_atom_of(&f, BK_BORROW_MUT))), .Atom(_, _) => false)
+);
 _bs_arg :: (fn(e : &AstExpr, i : usize) -> AstExpr)(
   match(e, .FnCall(_, _, Rc(a), _, _) => match(a.get(i), .Some(x) => x, .None => make_err_expr()), .Atom(_, _) => make_err_expr())
 );
@@ -1811,7 +1833,7 @@ _is_borrow_spelling_target :: (fn(e : &AstExpr) -> bool)(
       },
       _bs_is_infix_of(e, BK_INIT_ASSIGN) => (_bs_is_name(_bs_arg(e, usize(0))) && _bs_is_sigil(_bs_arg(e, usize(1)))),
       _bs_is_infix_of(e, BK_ASSIGN) => (
-        _bs_is_sigil(_bs_arg(e, usize(1))) && (_bs_is_name(_bs_arg(e, usize(0))) || (_bs_is_infix_of(_bs_arg(e, usize(0)), BK_COLON) && _bs_is_name(_bs_arg(_bs_arg(e, usize(0)), usize(0))) && _bs_is_sigil(_bs_arg(_bs_arg(e, usize(0)), usize(1)))))
+        _bs_is_sigil(_bs_arg(e, usize(1))) && (_bs_is_name(_bs_arg(e, usize(0))) || (_bs_is_infix_of(_bs_arg(e, usize(0)), BK_COLON) && _bs_is_name(_bs_arg(_bs_arg(e, usize(0)), usize(0))) && (_bs_is_sigil(_bs_arg(_bs_arg(e, usize(0)), usize(1))) || _bs_is_origin_sigil(_bs_arg(_bs_arg(e, usize(0)), usize(1))))))
       ),
       ast_expr_is_fn_call_of(e, "for", Option(usize).Some(usize(2))) => _bs_is_sigil(_bs_arg(e, usize(0))),
       true => false
@@ -1895,14 +1917,34 @@ _borrow_spelling_rewrite :: (fn(e : &AstExpr) -> Option(AstExpr))({
       match(
         _bs_infix_pair(&sp.lhs, BK_COLON),
         .Some(ap) => if(_bs_is_name(&ap.lhs), {
-          match(
+          // `(y : &(T, o)) = &place`: the annotation's origin rides as a
+          // third argument, `I(y, T, o) := place`
+          // (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §7 P3).
+          (ann_origin : Option(AstExpr)) = Option(AstExpr).None;
+          ann_sigil := match(
             _borrow_sigil_of(&ap.rhs),
+            .Some(s1) => Option(_BorrowSigil).Some(s1),
+            .None => match(
+              &ap.rhs,
+              .FnCall(_, oq_f, Rc(oq_args), oq_infix, _) => cond(
+                (!oq_infix && (oq_args.len() == usize(2)) && (ast_expr_is_atom_of(&oq_f, BK_BORROW_MUT) || ast_expr_is_atom_of(&oq_f, BF_ADDRESS_OF))) => {
+                  ann_origin = Option(AstExpr).Some(match(oq_args.get(usize(1)), .Some(o) => o, .None => make_err_expr()));
+                  Option(_BorrowSigil).Some(_BorrowSigil(is_mut : ast_expr_is_atom_of(&oq_f, BK_BORROW_MUT), inner : match(oq_args.get(usize(0)), .Some(t) => t, .None => make_err_expr()), tok : ast_expr_token(&oq_f).clone()))
+                },
+                true => Option(_BorrowSigil).None
+              ),
+              .Atom(_, _) => Option(_BorrowSigil).None
+            )
+          );
+          match(
+            ann_sigil,
             .Some(ts) => match(
               rs,
               .Some(s) => if(s.is_mut == ts.is_mut, {
                 ann := ArrayList(AstExpr).new();
                 ann.push(ap.lhs);
                 ann.push(ts.inner);
+                match(ann_origin, .Some(ao) => ann.push(ao), .None => ());
                 bind_tok := _synth_desugar_tok(TokenKind.Operator, BK_INIT_ASSIGN, ast_expr_token(e));
                 ops := ArrayList(AstExpr).new();
                 ops.push(_borrow_mode_call(ts.is_mut, &ann, &ts.tok));

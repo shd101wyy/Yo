@@ -36,7 +36,7 @@
 { Environment, get_variables_from_env, Variable, variable_moved_at_cleanup_point, variable_undone_moves } :: import("../../env.yo");
 { Token } :: import("../../token.yo");
 { is_unit_type } :: import("../../types/guards.yo");
-{ expr_info_converted_runtime_type, scope_variables, scope_release_mode, scope_release_note_mismatch, is_fnonce_capture_drop, is_call_scoped_share_drop } :: import("../../expr_info.yo");
+{ expr_info_converted_runtime_type, scope_variables, scope_release_mode, scope_release_note_mismatch, is_fnonce_capture_drop, is_call_scoped_share_drop, is_reference_self_place } :: import("../../expr_info.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
 { extract_future_trait_from_type } :: import("../../evaluator/trait_checking.yo");
@@ -550,6 +550,52 @@ _var_read_code :: (fn(key : ExprId, tv : &String, env_opt : &Option(Environment)
 /// Generate C for an atom expression (literal / identifier / control-flow
 /// keyword).
 generate_atom :: (fn(expr : &AstExpr, context : &mut FunctionGenerationContext, indent : &String) -> String)({
+  code := _generate_atom_read(expr, context, indent);
+  if(is_reference_self_place(ast_expr_id(expr)), _reference_self_place_code(expr, &code, context), code)
+});
+/// The C of a SELF PLACE (`r` under `&r` / `&mut r`, `r` a reference
+/// binding; plans/backlog/BORROW_CHECKER_COMPLETENESS.md §7 P3): the
+/// reference's own storage, an lvalue of the pointer type. A binding that
+/// holds the pointer (a local reference binding, a `&mut T` parameter, a
+/// slot) reads as `(*p)`, and its storage is `p`. Any other reference binding
+/// (a `&T` parameter, passed by value in C) holds the value it refers to: its
+/// reference is that value's address, held in a block-scoped compound
+/// literal, which the evaluator only lends shared (a `&mut r` needs a local
+/// reference binding).
+_reference_self_place_code :: (fn(expr : &AstExpr, read_code : &String, context : &mut FunctionGenerationContext) -> String)({
+  n := read_code.len();
+  ref_c_ty := match(
+    context.base.get_expr_info(expr),
+    .Some(ei) => get_type_string(&ei.ty(), &mut context.base),
+    .None => String.from("void*")
+  );
+  // The storage is read as the reference's C type: a `&` binding's local is
+  // a `T*`, and the `&T` it is lent as is a `T const*`.
+  if(read_code.starts_with("(*") && read_code.ends_with(")") && _is_balanced_parens(&read_code.substring(usize(2), n - usize(1))), {
+    return(`(*((${ref_c_ty}*)&(${read_code.substring(usize(2), n - usize(1))})))`);
+  });
+  `((${ref_c_ty}){ &(${read_code}) })`
+});
+/// Whether every `(` in `code` closes inside it, in order.
+_is_balanced_parens :: (fn(code : &String) -> bool)({
+  (mut(depth) : i32) = i32(0);
+  (mut(i) : usize) = usize(0);
+  while(i < code.len(), {
+    c := code.byte_at(i);
+    if(c == u8(40), {
+      depth = (depth + i32(1));
+    });
+    if(c == u8(41), {
+      depth = (depth - i32(1));
+      if(depth < i32(0), {
+        return(false);
+      });
+    });
+    i = (i + usize(1));
+  });
+  depth == i32(0)
+});
+_generate_atom_read :: (fn(expr : &AstExpr, context : &mut FunctionGenerationContext, indent : &String) -> String)({
   tok := ast_expr_token(expr);
   tv := tok.value.*.clone();
   // --- control flow keywords ---

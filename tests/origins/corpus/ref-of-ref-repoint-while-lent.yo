@@ -1,0 +1,15 @@
+// N0 corpus row `ref-of-ref-repoint-while-lent` (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §7 P3;
+// manifest tests/origins/corpus.tsv): `&r` freezes the reference `r` itself: lending it `&mut` to re-point it while `rr` lives.
+// Expected once decision 43's rules land: rejected: E0911 at the `&mut r` lend.
+main :: (fn() -> unit)({
+  x := i32(1);
+  y := i32(2);
+  (mut(r) : &(i32, (x, y))) = &x;
+  rr := &r;
+  rp := &mut r;
+  ry := &y;
+  rp.* = ry;
+  _ := (rr.*.* + i32(1));
+  ()
+});
+export(main);

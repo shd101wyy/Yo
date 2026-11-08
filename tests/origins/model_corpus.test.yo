@@ -129,6 +129,8 @@ M :: usize(34);
 T :: usize(35);
 O :: usize(36);
 K :: usize(37);
+RR :: usize(38);
+RP :: usize(39);
 /// The first declared origin parameter `p`.
 P :: (u64(1) << u64(40));
 /// The second declared origin parameter `q` (`generic-rigid-origin`).
@@ -366,6 +368,32 @@ test("swap-inferred-locals", {
 });
 test("swap-declared-union", {
   verdict("swap-declared-union", case2(swap_main(o(X) | o(Y), o(X) | o(Y)), swap()), "ACCEPT");
+});
+// ---------------------------------------------------------------------------
+// `&&T` and `&mut &T` (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §7 P3)
+// ---------------------------------------------------------------------------
+/// `len(s : &String) -> usize`, a `&T` slot.
+by_ref :: (fn() -> FnDef)(sig(u64(0), al1(prm(V, shr(int(), ELIDED))), int()));
+test("ref-of-ref-slot-mismatch", {
+  main := entry(al3(let_(X, lit()), let_(R, Rc.new(NodeE.Borrow(false, X))), use_(call(usize(1), al1(Rc.new(NodeE.Borrow(false, R)))))));
+  verdict("ref-of-ref-slot-mismatch", case2(main, by_ref()), "TYPE");
+});
+test("ref-of-ref-method", {
+  // The model has no methods: the row reads through both references.
+  main := entry(al4(let_(X, lit()), let_(R, Rc.new(NodeE.Borrow(false, X))), let_(RR, Rc.new(NodeE.Borrow(false, R))), use_(Rc.new(NodeE.Var(RR)))));
+  verdict("ref-of-ref-method", case1(main), "ACCEPT");
+});
+test("ref-of-ref-root-write", {
+  main := entry(al5(let_(X, lit()), let_(R, Rc.new(NodeE.Borrow(false, X))), let_(RR, Rc.new(NodeE.Borrow(false, R))), Rc.new(NodeE.Assign(X, lit())), use_(Rc.new(NodeE.Var(RR)))));
+  verdict("ref-of-ref-root-write", case1(main), "E0911");
+});
+test("ref-of-ref-repoint-while-lent", {
+  main := entry(al6(let_(X, lit()), let_(Y, lit()), let_(R, Rc.new(NodeE.Borrow(false, X))), let_(RR, Rc.new(NodeE.Borrow(false, R))), Rc.new(NodeE.Assign(R, Rc.new(NodeE.Borrow(false, Y)))), use_(Rc.new(NodeE.Var(RR)))));
+  verdict("ref-of-ref-repoint-while-lent", case1(main), "E0911");
+});
+test("ref-mut-ref-repoint", {
+  main := entry(al6(let_(X, lit()), let_(Y, lit()), let_d(R, Rc.new(NodeE.Borrow(false, X)), shr(int(), o(X) | o(Y))), let_(RP, Rc.new(NodeE.Borrow(true, R))), Rc.new(NodeE.WriteThrough(RP, Rc.new(NodeE.Borrow(false, Y)))), use_(Rc.new(NodeE.Var(R)))));
+  verdict("ref-mut-ref-repoint", case1(main), "ACCEPT");
 });
 // ---------------------------------------------------------------------------
 // Containers: declared unions (O6)

@@ -1150,6 +1150,10 @@ eval_call :: (fn(ck : &mut Ck, env : &mut Env, f : usize, args : &ArrayList(Node
 unify :: (fn(ck : &mut Ck, sb : &mut Subst, pt : &Ty, at : &Ty, inv : bool) -> unit)(
   match(
     &pt.*.*,
+    // Nothing coerces a reference to its referent: a `&&T` given where a
+    // `&T` is expected stops here (no deref coercion,
+    // plans/backlog/BORROW_CHECKER_COMPLETENESS.md §7 P3).
+    .Int => match(&at.*.*, .Ref(_, _, _) => fail(ck, "TYPE", "a reference where a value is expected (no deref coercion)"), _ => ()),
     .TParam(id) => {
       if((sb.tbound & bit(id.*)) == u64(0), {
         sb.types(id.*) = Rc.clone(at);

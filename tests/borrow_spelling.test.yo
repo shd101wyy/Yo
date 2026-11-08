@@ -409,26 +409,20 @@ comptime_expect_error(
   bs_origin_ctor_not_a_type_ctor :: (fn(comptime(p) : Origin) -> i32)(i32(0)),
   "must return `comptime(Type)`"
 );
-// `&mut &i32` in a parameter is the two mode sigils (one borrow, rejected by
-// the parser's mode rule); through an alias the pointee is a reference type.
+// A `&mut` parameter over a reference type is a reference to a reference,
+// spelled through an alias or directly (`v : &mut &i32`), and so is a field
+// `f : &mut &i32` (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §7 P3;
+// tests/ref_of_ref.test.yo has the programs).
 BsRefAlias :: &i32;
-comptime_expect_error(
-  bs_ref_to_ref_param :: (fn(v : &mut BsRefAlias) -> unit)(()),
-  "a reference to a reference"
-);
-comptime_expect_error(
-  bs_ref_to_ref_field :: (fn() -> unit)({
-    S :: struct(f : &mut&i32);
-  }),
-  "a reference to a reference"
-);
+bs_ref_to_ref_param :: (fn(v : &mut BsRefAlias) -> i32)(v.*.*);
 // `&mut(T, p)` is decision 43's origin-qualified reference. Its
 // two-argument marker used to re-evaluate itself until `yo check`
 // overflowed its stack (exit 139), in every type position
 // (issues/fixed/2026-10-21-an-origin-qualified-mut-reference-overflows-the-checker-stack.md).
 // Decision 43 step 2 spells it as a parameter's type (N1a) and as a
-// result type (N1b), step 3 as a field's type and a type argument (N2a); a
-// reference to a reference and a local's annotation are N1e's.
+// result type (N1b), step 3 as a field's type and a type argument (N2a),
+// and P3 as a local borrow's annotation; a RESULT that is a reference to a
+// reference is not accepted.
 comptime_expect_error(
   bs_origin_mut_pointee :: (fn(xs : &mut i32) -> &mut&mut(i32, xs))(xs),
   "a reference to a reference"
@@ -533,10 +527,6 @@ comptime_expect_error(
 comptime_expect_error(
   bs_origin_not_a_name :: (fn(generic(p : Origin), v : &(i32, i32(1))) -> i32)(v),
   "is not an origin"
-);
-comptime_expect_error(
-  bs_origin_ref_to_ref :: (fn(generic(r : Origin), a : &mut&(i32, r)) -> unit)(()),
-  "a reference to a reference"
 );
 comptime_expect_error(
   bs_origin_generic_param :: (fn(generic(p : Origin, T : &(i32, p))) -> unit)(()),
@@ -878,8 +868,9 @@ comptime_expect_error(
 // step 2, N1e-1; plans/backlog/REFERENCES_AND_ORIGINS.md): outside std and
 // the compiler's own source a bare reference binding in a by-value position
 // is E0926. Receivers (`r.f`, `r.m()`, `r(i)`), a lend to a reference
-// parameter (`f(r)`) and the re-point `r = &place` stay bare; `&r` is
-// `&r.*`, and through a reference to a `Box` the payload is `r.*.*`.
+// parameter (`f(r)`) and the re-point `r = &place` stay bare; `&r.*` lends
+// the referent (`&r` lends `r` itself), and through a reference to a `Box`
+// the payload is `r.*.*`.
 BsCell :: struct(n : i32);
 derive(BsCell, Copy, Clone);
 impl(BsCell, twice : (fn(self : &Self) -> i32)(self.n + self.n));
@@ -943,11 +934,14 @@ comptime_expect_error(
   }),
   "writing the value it refers to is spelled `r.* = …`"
 );
+// `&mut r` lends the reference `r` itself, a `&mut &mut i32` (§7 P3 of
+// plans/backlog/BORROW_CHECKER_COMPLETENESS.md), which nothing coerces to the
+// `&mut i32` the parameter takes.
 comptime_expect_error(
   bs_bare_borrow :: (fn(r : &mut i32) -> unit)({
     bs_bump(&mut r);
   }),
-  "borrowing the value it refers to is spelled `&r.*`"
+  "nothing coerces a reference to a reference"
 );
 comptime_expect_error(
   bs_bare_return :: (fn(c : &BsCell) -> BsCell)(c),

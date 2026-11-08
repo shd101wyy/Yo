@@ -32,7 +32,7 @@ pragma(Pragma.AllowUnsafe);
   alloc_global_expr_id,
   ast_rewritten_node
 } :: import("../../expr.yo");
-{ ExprInfo, ComptimeRef, new_expr_info, record_macro_expansion, expr_info_set_macro_expansion, expr_info_table_set, expr_info_table_get, ControlFlowFlags, has_any_control_flow, control_flow_to_string, record_branch_init, has_dominating_branch_init, path_collection_of_name, expr_info_set_converted_runtime_type, register_thread_local, is_thread_local, register_mut_global, expr_info_capture_type, expr_info_comptime_ref, expr_info_index_trait_ptr_type, expr_info_set_is_compile_time_only_assignment, some_resolution, migrate_mut_bindings_on, record_mut_judged } :: import("../../expr_info.yo");
+{ ExprInfo, ComptimeRef, new_expr_info, record_macro_expansion, expr_info_set_macro_expansion, expr_info_table_set, expr_info_table_get, ControlFlowFlags, has_any_control_flow, control_flow_to_string, record_branch_init, has_dominating_branch_init, path_collection_of_name, expr_info_set_converted_runtime_type, register_thread_local, is_thread_local, register_mut_global, expr_info_capture_type, expr_info_comptime_ref, expr_info_index_trait_ptr_type, expr_info_set_is_compile_time_only_assignment, some_resolution, migrate_mut_bindings_on, record_mut_judged, is_reference_self_place, expr_info_converted_runtime_type } :: import("../../expr_info.yo");
 {
   Environment,
   Variable,
@@ -64,7 +64,7 @@ pragma(Pragma.AllowUnsafe);
   shared_values
 } :: import("../../value.yo");
 { t_unit } :: import("../../types/creators.yo");
-{ TypeValue, t_refine_inner, no_labels, t_reference, t_reference_with_origin } :: import("../../types/definitions.yo");
+{ TypeValue, t_refine_inner, no_labels, t_reference, t_reference_with_origin, t_slot_is_borrow } :: import("../../types/definitions.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 {
   is_comptime_int_type,
@@ -122,6 +122,7 @@ pragma(Pragma.AllowUnsafe);
   local_borrow_write_expr,
   bind_join,
   place_write_join,
+  local_borrow_info_of_variable,
   local_borrow_mark_receiver,
   local_borrow_clear_receiver,
   reject_bare_callable_into_dyn_fn,
@@ -149,7 +150,8 @@ pragma(Pragma.AllowUnsafe);
   deref_spelling_applies,
   deref_rule_recording,
   reject_reference_without_deref,
-  ref_payload_source
+  ref_payload_source,
+  is_reference_read
 } :: import("../utils.yo");
 { parse_raw_int, debug_knob } :: import("../../utils.yo");
 { eprintln } :: import("std/fmt");
@@ -602,6 +604,47 @@ _is_v2_value_collection_type :: (fn(t : &TypeValue) -> bool)(
     _ => false
   )
 );
+/// The right side of an assignment is a reference VALUE the read rule
+/// produced (decision 43 step 2 N1e-2b): its C is the place it refers to, so
+/// the store into the reference-typed place takes its address (recorded as
+/// the converted runtime type, the channel an argument's lend uses).
+/// `rp.* = v` where `rp := &mut r` lends the reference binding `r` itself
+/// (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §7 P3): the store replaces
+/// `r`'s whole value, so it is `r = v`'s holder join on `r` (`bind_join`:
+/// KILL + GEN, with the §7 scope check), routed to `r` instead of to `rp`.
+/// A field or element write through `rp` is `place_write_join`'s. Without it
+/// `r` keeps its old flow set and a read of `r` after `v`'s referent dies
+/// goes unchecked. `lender` is `rp`.
+_join_through_mut_self_lend :: (fn(lender : &Variable, rhs : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)(
+  match(
+    local_borrow_info_of_variable(lender),
+    // `rp`'s referent is the reference itself (`rp : &mut &T`): under the
+    // older reading (std, src) `&mut r` lends the referent, never `r`.
+    .Some(js_info) => if(js_info.is_mut && (js_info.places.len() == usize(1)) && t_slot_is_borrow(&variable_value_type(lender)), {
+      match(
+        js_info.places.get_cloned(usize(0)),
+        .Some(js_place) => if((js_place.steps.len() == usize(0)) && !js_place.through_cell, {
+          match(
+            get_variables_from_env(env, js_place.root_name.clone()).last_cloned(),
+            .Some(js_r) => if(variable_is_reference_binding(&js_r) && js_r.is_ref() && (js_r.name != lender.name), {
+              bind_join(&js_r, rhs, env, ctx, exn);
+            }),
+            .None => ()
+          );
+        }),
+        .None => ()
+      );
+    }),
+    .None => ()
+  )
+);
+_note_reference_value_store :: (fn(rhs : &AstExpr, rhs_info : &ExprInfo, ctx : &EvalContext) -> unit)({
+  if(t_slot_is_borrow(&rhs_info.ty()) && is_reference_read(ast_expr_id(rhs)) && expr_info_converted_runtime_type(rhs_info).is_none(), {
+    rv_ty := Option(TypeValue).Some(rhs_info.ty());
+    expr_info_set_converted_runtime_type(rhs_info, &rv_ty);
+    expr_info_table_set(&ctx.expr_info_table, ast_expr_id(rhs), rhs_info);
+  });
+});
 /// E0908 for the `inout` arguments of one call, the `self : &mut Self` receiver of
 /// a method call included: the callee writes the place, so a place rooted in
 /// a borrowed binding (a by-value parameter, a `match`/`for` binding) is the
@@ -658,7 +701,9 @@ require_no_inout_write_through_borrow :: (
                 global : Option(Variable).None,
                 borrow_error : Option(String).None,
                 lb_place : Option(LocalBorrowPlace).Some(lbp.clone()),
-                lb_read_only : local_borrow_root_is_shared_reference(&lbp, env)
+                // `&mut r` of a reference binding (§7 P3) writes `r` itself
+                // (a re-point through the `&mut &T`), never its referent.
+                lb_read_only : (local_borrow_root_is_shared_reference(&lbp, env) && !is_reference_self_place(ast_expr_id(&arg)))
               )
             );
           },
@@ -1713,6 +1758,7 @@ evaluate_assignment :: (
         expr_info_set_converted_runtime_type(&prop_rhs_info, Option(TypeValue).Some(prop_rhs_type.clone()));
       });
     });
+    _note_reference_value_store(&prop_rhs, &prop_rhs_info, ctx);
     // A site `yo fix --migrate dyn-spelling` recorded stands for the
     // rewrite's `dyn(value)`, which the slot takes.
     if(!bare_callable_recorded_into_dyn_fn(&expected_ty, &prop_rhs_type) && !are_types_compatible(&prop_rhs_type, &expected_ty), {
@@ -2411,6 +2457,14 @@ comptime(${variable_name}) : ${dgc_ty_str}
     if(is_comptime_int_type(&rhs_info.ty()) || is_comptime_float_type(&rhs_info.ty()) || is_comptime_string_type(&rhs_info.ty()), {
       expr_info_set_converted_runtime_type(&rhs_info, Option(TypeValue).Some(rhs_type.clone()));
     });
+  });
+  // A reference VALUE stored into a place whose type is a reference
+  // (`rp.* = ry` through a `&mut &T`, plans/backlog/BORROW_CHECKER_COMPLETENESS.md
+  // §7 P3): the read rule's value is the place it refers to in C, so the
+  // store takes that place's address, as an argument does.
+  _note_reference_value_store(&rhs_evaled, &rhs_info, ctx);
+  if(!is_typed_binding_lhs, {
+    _join_through_mut_self_lend(&variable, &rhs_evaled, &env, ctx, exn);
   });
   // Re-fetch variable after RHS evaluation (env may have been updated).
   updated_vars := get_variables_from_env(&env, &variable_name);

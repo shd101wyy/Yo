@@ -17,7 +17,10 @@
   is_extern_c_global,
   scope_release_note_query,
   migrate_deref_on,
-  record_deref_clean_site
+  record_deref_clean_site,
+  self_lend_operand_mode,
+  is_self_lend_forced,
+  mark_reference_self_place
 } :: import("../../expr_info.yo");
 { Token, string_is_operator } :: import("../../token.yo");
 { Environment, Variable, get_variables_from_env, env_candidate_names, find_variable_in_env, find_variable_in_env_at, variable_move_note, variable_value_type, variable_slot_type } :: import("../../env.yo");
@@ -36,7 +39,7 @@
 { suggest_name, lookup_std_exporters, Span, E_VARIABLE_NOT_FOUND } :: import("../../diagnostics.yo");
 { Exception } :: import("std/error");
 { debug_knob, is_temp_variable_name } :: import("../../utils.yo");
-{ use_of_moved_value_error, migrate_borrowed_match_at, check_capture_freeze_access, local_borrow_take_receiver, local_borrows_active, local_borrow_access, local_borrow_place_of_variable, LocalBorrowAccess, deref_exempt_take, is_reference_deref_site, variable_is_reference_binding, deref_rule_applies, reject_reference_without_deref, variable_is_mut_borrow, binder_read_take, reference_read_wanted, reference_binding_read_type, note_reference_read } :: import("../utils.yo");
+{ use_of_moved_value_error, migrate_borrowed_match_at, check_capture_freeze_access, local_borrow_take_receiver, local_borrows_active, local_borrow_access, local_borrow_place_of_variable, LocalBorrowAccess, deref_exempt_take, is_reference_deref_site, variable_is_reference_binding, deref_rule_applies, reject_reference_without_deref, variable_is_mut_borrow, binder_read_take, reference_read_wanted, reference_binding_read_type, note_reference_read, deref_rule_recording } :: import("../utils.yo");
 (g_audit_reference_read : bool) = debug_knob(`YO_AUDIT_REFERENCE_READ`).is_some();
 (g_audit_reference_mode : bool) = debug_knob(`YO_AUDIT_VARIABLE_TY`).is_some();
 { raise_flow_violation } :: import("../../types/flowability.yo");
@@ -524,7 +527,36 @@ evaluate_identifier_and_operator :: (
   // binding's read is the reference itself — no whole-value read, so no
   // E0926 — typed `&U`/`&mut U`.
   is_binder_arg := binder_read_take(expr);
-  reads_reference := (variable_is_reference_binding(&variable) && reference_read_wanted(&token, is_binder_arg, ctx));
+  // `&r` / `&mut r` on a reference binding (plans/backlog/BORROW_CHECKER_COMPLETENESS.md
+  // §7 P3): the operand is `r`'s OWN storage, a place whose type is the
+  // reference itself, so the lend is a `&&T` / `&mut &T`. Codegen emits the
+  // binding's storage there (`is_reference_self_place`). The trees that keep
+  // the old reading (std, src) lend the referent until N3 Generation B.
+  // `yo fix --migrate deref` reads code written before the deref rule, where
+  // `&r` lent the referent: it records the `.*` (E0926's edit) instead.
+  self_lend_mode := self_lend_operand_mode(ast_expr_id(expr));
+  // A slot that takes a reference to a reference forces the reading in
+  // every tree (`is_self_lend_forced`).
+  is_self_place := (variable_is_reference_binding(&variable) && self_lend_mode.is_some() && (deref_rule_applies(&token, ctx) || is_self_lend_forced(ast_expr_id(expr))) && !deref_rule_recording() && !is_reference_deref_site(&token));
+  if(is_self_place, {
+    // `&mut r` writes `r` itself (a re-point through the `&mut &T`), so `r`
+    // must own its pointer: a local reference binding (`mut(r) := &x`). A
+    // `&T` parameter, a pattern binding or a capture holds no storage of its
+    // own to lend exclusively.
+    if(match(self_lend_mode, .Some(m) => m, .None => false) && !variable.is_ref(), {
+      exn.throw(
+        dyn(
+          format_error_message_with_help(
+            &token,
+            `\`&mut ${variable.name}\` lends the reference \`${variable.name}\` itself exclusively (a \`&mut &T\`), and \`${variable.name}\` is not a local reference binding with storage of its own.`,
+            Option(String).Some(`bind it to a local first (\`mut(r) := ${variable.name};\` re-binds the reference), or lend the value it refers to with \`&mut ${variable.name}.*\``)
+          )
+        )
+      );
+    });
+    mark_reference_self_place(ast_expr_id(expr));
+  });
+  reads_reference := (!is_self_place && variable_is_reference_binding(&variable) && reference_read_wanted(&token, is_binder_arg, ctx));
   if(variable_is_reference_binding(&variable), {
     note_reference_read(ast_expr_id(expr), reads_reference);
   });
@@ -532,7 +564,7 @@ evaluate_identifier_and_operator :: (
   // tree a reference binding read as a whole value is spelled `r.*` (E0926);
   // the receiver, reference-slot and re-point positions marked it exempt.
   if(variable_is_reference_binding(&variable) && deref_rule_applies(&token, ctx), {
-    if(!reads_reference && !deref_is_exempt && !is_reference_deref_site(&token), {
+    if(!reads_reference && !is_self_place && !deref_is_exempt && !is_reference_deref_site(&token), {
       reject_reference_without_deref(&variable, &token, u8(0), ctx, exn);
     }, {
       // Judged and read as written: an evaluation for another target that
@@ -548,11 +580,18 @@ evaluate_identifier_and_operator :: (
     local_borrow_access(local_borrow_place_of_variable(&variable), LocalBorrowAccess.Read, &token, ctx, exn);
   });
   // Build ExprInfo
-  read_ty := if(reads_reference, reference_binding_read_type(&variable), variable_value_type(&variable));
+  // A self place is the reference as stored: its origin is the binding's
+  // own (declared, or elided and flow-inferred), which `lend_through` unifies
+  // through a `&mut &(T, p)` slot.
+  read_ty := cond(
+    is_self_place => variable_slot_type(&variable),
+    reads_reference => reference_binding_read_type(&variable),
+    true => variable_value_type(&variable)
+  );
   info := new_expr_info(env, &read_ty);
   // A reference is the place's runtime address, never a known value.
-  info.set_value(if(reads_reference, Option(EvalValue).None, resolved_value));
-  expr_info_set_origin_type(&info, Option(TypeValue).Some(variable_value_type(&variable)));
+  info.set_value(if(reads_reference || is_self_place, Option(EvalValue).None, resolved_value));
+  expr_info_set_origin_type(&info, Option(TypeValue).Some(if(is_self_place, Rc.clone(read_ty), variable_value_type(&variable))));
   info.set_variable_name(Option(String).Some(variable.name.clone()));
   info.set_source_variable(Option(Variable).Some(Rc.clone(variable)));
   // path_collection = [[variable.name]], shared per name.

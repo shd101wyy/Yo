@@ -1,0 +1,14 @@
+// expect: accept
+// p3-ref-ref-root-reassigned's positive twin: `rr`'s last use is before the reassignment.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  mut(s) := String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz");
+  r := &s;
+  rr := &r;
+  println(`OUT: ${rr.*.*.len().to_string()}`);
+  s = String.from("b");
+  println(`OUT: ${s.len().to_string()}`);
+  ()
+});
+export(main);

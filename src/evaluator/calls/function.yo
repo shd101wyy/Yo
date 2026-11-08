@@ -45,7 +45,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../expr.yo");
 { is_auto_generated_expansion, is_implicitly_unsafe_capable_file, is_class1_panic_method_name, is_class1_panic_receiver_type, is_class1_panic_exempt_file, is_std_module_path, is_prelude_or_generated_file } :: import("../memory_safety.yo");
 { D3PendingInout, d3_record_inout_place, d3_check_pending, d3_check_pending_unresolved_callee, require_no_inout_write_through_borrow, shared_borrow_param_root_of_place, reject_write_through_shared_borrow_param } :: import("../exprs/assignment.yo");
-{ ExprInfo, migrate_addr_of_on, is_thread_local, is_mut_global, new_expr_info, expr_info_closure_function_value, expr_info_table_get, expr_info_table_set, record_method_callee_type, lookup_method_callee_type, record_method_callee_value, lookup_method_callee_value, record_io_builtin_struct_field, lookup_io_builtin_struct_field, record_io_builtin_call, record_macro_expansion, lookup_macro_expansion, record_fid_rtcall, active_where_trait_ids, record_fid_spec, lookup_struct_ctor_fid, struct_effective_ctor_fid, struct_fully_concrete_instance, adopt_receiver_struct_instance, mark_node_preevaluated, unmark_node_preevaluated, expr_info_adopt_env, expr_info_capture_type, expr_info_comptime_ref, expr_info_index_method_type, expr_info_index_method_value, expr_info_set_comptime_ref, expr_info_set_deferred_dup_expressions, expr_info_set_index_method_type, expr_info_set_index_method_value, expr_info_set_index_trait_ptr_type, expr_info_set_macro_expansion, some_resolution, purge_executed_clone_metadata, mark_fnonce_post_call_release, migrate_drop_trait_on, record_destructor_site, HandleCtorSite, migrate_handle_ctors_on, record_handle_ctor_site, migrate_mut_bindings_on, record_mut_judged, expr_info_converted_runtime_type, expr_info_set_converted_runtime_type } :: import("../../expr_info.yo");
+{ ExprInfo, migrate_addr_of_on, is_thread_local, is_mut_global, new_expr_info, expr_info_closure_function_value, expr_info_table_get, expr_info_table_set, record_method_callee_type, lookup_method_callee_type, record_method_callee_value, lookup_method_callee_value, record_io_builtin_struct_field, lookup_io_builtin_struct_field, record_io_builtin_call, record_macro_expansion, lookup_macro_expansion, record_fid_rtcall, active_where_trait_ids, record_fid_spec, lookup_struct_ctor_fid, struct_effective_ctor_fid, struct_fully_concrete_instance, adopt_receiver_struct_instance, mark_node_preevaluated, unmark_node_preevaluated, expr_info_adopt_env, expr_info_capture_type, expr_info_comptime_ref, expr_info_index_method_type, expr_info_index_method_value, expr_info_set_comptime_ref, expr_info_set_deferred_dup_expressions, expr_info_set_index_method_type, expr_info_set_index_method_value, expr_info_set_index_trait_ptr_type, expr_info_set_macro_expansion, some_resolution, purge_executed_clone_metadata, mark_fnonce_post_call_release, migrate_drop_trait_on, record_destructor_site, HandleCtorSite, migrate_handle_ctors_on, record_handle_ctor_site, migrate_mut_bindings_on, record_mut_judged, expr_info_converted_runtime_type, expr_info_set_converted_runtime_type, is_reference_self_place } :: import("../../expr_info.yo");
 {
   Variable,
   Environment,
@@ -1562,9 +1562,13 @@ _find_receiver_method_of :: (
     // explicit `w.*.m(...)` to every later reader (codegen, the inout/D3/E0908
     // root walks, through `ast_rewritten_node`); on a miss the callee is left
     // as written for the E0610 message.
+    // A receiver whose VALUE is a reference (`r.*.m()` with `r.* : &C`,
+    // plans/backlog/BORROW_CHECKER_COMPLETENESS.md §7 P3) takes R-PROBE's
+    // deref step (VERDICTS-25 Q2): the retry reads through it, `r.*.*.m()`.
+    recv_is_reference_value := (t_slot_is_borrow(&receiver_type) && !is_pointer_type(&receiver_type));
     if(!is_static && !is_pointer_type(&receiver_type), {
       match(
-        deref_target_type(resolve_struct_shell(&receiver_type), env),
+        cond(recv_is_reference_value => Option(TypeValue).Some(t_slot_pointee(&receiver_type)), true => deref_target_type(resolve_struct_shell(&receiver_type), env)),
         .Some(_) => {
           recv_id := ast_expr_id(&receiver_expr_r);
           mark_node_preevaluated(recv_id);
@@ -7466,7 +7470,27 @@ _evaluate_funcval_runtime_call :: (
                     // into C. Same guard as C18 / helper.yo's overload re-raise.
                     _ac_mmsg := `Cannot unify incompatible types:\nExpected: "${type_to_string(&_ac_pty)}"\nGiven: "${type_to_string(&_ac_aty)}"${dyn_upcast_note(&_ac_pty, &_ac_aty)}${same_name_note(&_ac_pty, &_ac_aty)}`;
                     // Reported at the ARGUMENT (index-aligned with the infos here).
-                    _ac_tok := ast_expr_token(match(runtime_arg_exprs.get(_ac_i), .Some(_ac_ae) => _ac_ae, .None => expr));
+                    _ac_arg := match(runtime_arg_exprs.get(_ac_i), .Some(_ac_ae) => _ac_ae, .None => expr.clone());
+                    _ac_tok := ast_expr_token(&_ac_arg);
+                    // `&r` / `&mut r` of a reference binding lends `r` itself, a
+                    // `&&T` (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §7
+                    // P3), and nothing coerces it to the referent the slot takes.
+                    if(is_reference_self_place(ast_expr_id(&_ac_arg)) && are_types_compatible(&t_slot_pointee(&_ac_aty), &_ac_pty), {
+                      _ac_sig := if(match(fn_param_mut_ref_flags(&_ac_cft).get(_ac_i), .Some(m) => m, .None => false), "&mut ", "&");
+                      _ac_name := _ac_tok.value.*.clone();
+                      raise_flow_violation(
+                        with_code(
+                          format_error_message_with_help(
+                            &_ac_tok,
+                            `\`${_ac_sig}${_ac_name}\` lends the reference \`${_ac_name}\` itself (a \`${_ac_sig}${type_to_string(&_ac_aty)}\`), and the parameter takes \`${_ac_sig}${type_to_string(&_ac_pty)}\`: nothing coerces a reference to a reference into a reference to its referent.`,
+                            Option(String).Some(`lend the value \`${_ac_name}\` refers to with \`${_ac_sig}${_ac_name}.*\`, or pass \`${_ac_name}\` itself`)
+                          ),
+                          E_INCOMPATIBLE_TYPES
+                        ),
+                        ctx,
+                        exn
+                      );
+                    });
                     raise_flow_violation(format_error_message(&_ac_tok, &_ac_mmsg), ctx, exn);
                   });
                   // A FUNCTION-typed slot skips the check above (its type
@@ -9034,8 +9058,9 @@ _argument_origin_pairs :: (fn(arg : &AstExpr, slot : &TypeValue, env : &Environm
     Rc(.Reference(sp, _, so)) => {
       is_lend := (ast_expr_is_fn_call_of(arg, BF_ADDRESS_OF, Option(usize).Some(usize(1))) || ast_expr_is_fn_call_of(arg, BK_BORROW_MUT, Option(usize).Some(usize(1))));
       cond(
-        // A reference value: its own (spelled) origin.
-        t_slot_is_borrow(&a_ty) => _origin_position_pairs(slot, &a_ty, out_p, out_a, u32(0)),
+        // A reference value: its own (spelled) origin. A self place (`&r`
+        // on a reference binding, §7 P3) is a lend of the reference.
+        (t_slot_is_borrow(&a_ty) && !is_reference_self_place(ast_expr_id(&a_place))) => _origin_position_pairs(slot, &a_ty, out_p, out_a, u32(0)),
         // A reference binding passed bare is not a lend of its own place:
         // its origin is its declaration's, which this walk does not read.
         !is_lend => (),
@@ -9118,7 +9143,10 @@ lend_through :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalContext, exn
           .Some(ai_ty) => {
             p_os := ArrayList(TypeValue).new();
             a_os := ArrayList(TypeValue).new();
-            _origin_position_pairs(&t_slot_pointee(&slot), &t_slot_pointee(&ai_ty), &mut p_os, &mut a_os, u32(0));
+            // A self place (`&mut r` on a reference binding, §7 P3) is typed
+            // as the reference itself: that reference is the pointee.
+            ai_val_ty := cond(is_reference_self_place(ast_expr_id(&a_place)) => Rc.clone(ai_ty), true => t_slot_pointee(&ai_ty));
+            _origin_position_pairs(&t_slot_pointee(&slot), &ai_val_ty, &mut p_os, &mut a_os, u32(0));
             (k : usize) = usize(0);
             while(k < p_os.len(), {
               match(

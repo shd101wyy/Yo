@@ -255,3 +255,15 @@ Filed 2026-11-07 from VERDICTS-30/31; each names its repro under `issues/repros/
   landed first. No emit change: O-5 only rejects, and the drop placement was the S2's. P2's extension rule waits for
   P2: a `&temporary` in a constructor field or a tuple component is still rejected by the type rules, so no extending
   position exists yet (rows `lend-of-temporary-extended` and its negative twin land with P2).
+- 2026-11-08: P3 landed (`&&T`, `&mut &T`). `&r` / `&mut r` on a reference binding lends `r`'s own storage in user
+  code, and at a slot that takes a reference to a reference in every tree (std's adapters, so G2's `v.*.*` closures
+  work). The parameter wall is gone; `.*` on a reference-typed place reads through it; R-PROBE's deref step reaches a
+  method through `(&r).m()` and `rr.*.m()`; no deref coercion (`&r` at a `&T` slot is E0601 naming `&r.*`). The three `swap-*` rows and
+  five new rows (`ref-of-ref-*`, `ref-mut-ref-repoint`) are green, plus two G-B pairs. Three bugs found on the way
+  are fixed (`issues/fixed/2026-11-08-a-call-whose-composite-result-spells-its-origin-freezes-the-receiver.md`,
+  `issues/fixed/2026-11-08-a-function-value-call-reads-a-borrow-slot-over-a-reference-as-a-by-value-reference.md`, and
+  the S1 G-B caught, `issues/fixed/2026-11-08-a-store-through-a-mut-lend-of-a-reference-does-not-widen-its-flow-set.md`); a
+  fourth, older one stays open and blocks `filter`/`find` over a reference `Item`, which G2 needs
+  (`issues/2026-11-08-a-match-binding-of-a-reference-payload-carries-its-own-place-as-origin.md`).
+  Not in P3: a receiver slot `self : &&C` (walled: its autoref is mis-passed in C), a capture `{ y : &r }` of a
+  reference binding (E0926 kind 2 kept), `-> &&T` results (walled), and `rp.* = &y` (`&y` as an expression is P2).

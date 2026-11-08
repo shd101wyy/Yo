@@ -1,0 +1,12 @@
+// N0 corpus row `ref-of-ref-root-write` (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §7 P3;
+// manifest tests/origins/corpus.tsv): a `&&T` keeps the referent's referent frozen: writing `x` while `rr` lives.
+// Expected once decision 43's rules land: rejected: E0911 at the write of `x`.
+main :: (fn() -> unit)({
+  mut(x) := i32(1);
+  r := &x;
+  rr := &r;
+  x = i32(2);
+  _ := (rr.*.* + i32(1));
+  ()
+});
+export(main);

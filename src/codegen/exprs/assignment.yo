@@ -18,6 +18,7 @@
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, ExprId, ast_expr_id, ast_expr_is_atom, ast_expr_is_fn_call_of, ast_expr_token, ast_expr_to_string, BK_COLON, BK_COMPTIME, BF_DOT, BF_YO_ARRAY_INDEX, ast_rewritten_node } :: import("../../expr.yo");
 { Environment } :: import("../../env.yo");
+{ TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
 { EvalValue, is_func_val } :: import("../../value.yo");
 { is_array_type, is_unit_type } :: import("../../types/guards.yo");
 { type_contains_rc_cell_or_move_only } :: import("../../types/utils.yo");
@@ -32,7 +33,7 @@
 { sm_local_field_name, sm_move_flag_of } :: import("../async/state_machine_naming.yo");
 { declare_c_var_name, get_type_string, get_variable_type_string, sanitize_for_c_identifier, is_function_value_with_only_builtin_yo_inline_function_call } :: import("../utils/index.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
-{ expr_info_is_compile_time_only_assignment, expr_info_index_method_value, scope_variables, lookup_immediate_old_value_drop } :: import("../../expr_info.yo");
+{ expr_info_is_compile_time_only_assignment, expr_info_index_method_value, scope_variables, lookup_immediate_old_value_drop, expr_info_converted_runtime_type } :: import("../../expr_info.yo");
 /// The last binding for `name` (in node `key`'s recorded scope `env`) is a
 /// module-level global.
 _last_is_module_level :: (fn(key : ExprId, env : &Environment, name : &String) -> bool)({
@@ -117,6 +118,21 @@ _place_evaluation_runs_a_call :: (fn(e : &AstExpr, context : &FunctionGeneration
   runs
 });
 /// Generate an assignment / initialization.
+/// A reference VALUE stored into a reference-typed place (`rp.* = ry`
+/// through a `&mut &T`; plans/backlog/BORROW_CHECKER_COMPLETENESS.md §7 P3):
+/// the evaluator records it as the converted runtime type, and its C is the
+/// place it refers to, so the store takes the place's address, folding a
+/// `(*p)` back to `p`.
+_reference_value_rhs :: (fn(rhs : &AstExpr, code : String, context : &FunctionGenerationContext) -> String)(
+  match(
+    match(context.base.get_expr_info(rhs), .Some(rei) => expr_info_converted_runtime_type(&rei), .None => Option(TypeValue).None),
+    .Some(Rc(.Reference(_, _, _))) => cond(
+      (code.starts_with("(*") && code.ends_with(")")) => code.substring(usize(2), code.len() - usize(1)),
+      true => `(&(${code}))`
+    ),
+    _ => code
+  )
+);
 generate_assignment :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("")));
   // Compile-time-only assignment (e.g. `p.* = v` where `p` is comptime).
@@ -392,7 +408,7 @@ generate_assignment :: (fn(expr : &AstExpr, indent : &String, context : &mut Fun
       context.base.emitter.emit_string_line(&line);
     });
   }, {
-    rhs_code := emit_deferred_dup_or_code(&rhs, _call_generate_expr(&rhs, indent.clone(), context), indent.clone(), context);
+    rhs_code := _reference_value_rhs(&rhs, emit_deferred_dup_or_code(&rhs, _call_generate_expr(&rhs, indent.clone(), context), indent.clone(), context), context);
     // DEGRADED assignment when the RHS render failed to transpile: splicing
     // the comment into `<type> <name> = <comment>;` breaks the C
     // ("unexpected type name", the c03 dyn(rc(closure)) shape). Same

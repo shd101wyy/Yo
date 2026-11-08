@@ -1,0 +1,14 @@
+// N0 corpus row `ref-mut-ref-repoint` (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §7 P3;
+// manifest tests/origins/corpus.tsv): POSITIVE: `&mut r` is a `&mut &T`; writing through it re-points `r` within its declared origin.
+// Expected once decision 43's rules land: accepted (as Rust accepts it).
+main :: (fn() -> unit)({
+  x := i32(1);
+  y := i32(2);
+  (mut(r) : &(i32, (x, y))) = &x;
+  rp := &mut r;
+  ry := &y;
+  rp.* = ry;
+  _ := (r.* + i32(1));
+  ()
+});
+export(main);

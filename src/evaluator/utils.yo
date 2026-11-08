@@ -144,7 +144,7 @@ pragma(Pragma.AllowUnsafe);
 { are_types_compatible, are_types_compatible_exact } :: import("../types/compatibility.yo");
 { type_to_string, type_to_string_for_message } :: import("../types/string.yo");
 { type_is_bitwise_copy, type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_holds_counted_handle, type_holds_counted_handle_ignoring_migration, set_counted_handle_rule, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow, is_bound_closure_identity, is_closure_capture_struct, resolve_cell_chain, is_future_value_type, is_bare_callable_into_dyn_fn, type_contains_some_type_deep, type_holds_dyn_by_value, dyn_type_lists_clone, fn_trait_call_func_type, type_carries_origin, type_reaches_user_drop, note_origin_types_exist, type_is_typed_fnmut_closure, capture_struct_is_fnmut, future_unreturnable_borrow, future_origin_names } :: import("../types/utils.yo");
-{ expr_info_table_set, migrate_match_scrutinee_on, record_migrate_edit, migrate_dyn_spelling_on, record_dyn_spelling_site, is_mut_global, is_thread_local, migrate_mutable_globals_on, record_mutable_global_site, migrate_mut_bindings_on, record_mut_binding_site, record_mut_binding_site_pending, record_mut_param_site, record_mut_param_site_pending, record_mut_judged, migrate_deref_on, audit_deref_on, deref_rule_suspended, record_deref_site, record_deref_edit_site, note_reference_read_copied, lookup_macro_expansion } :: import("../expr_info.yo");
+{ expr_info_table_set, migrate_match_scrutinee_on, record_migrate_edit, migrate_dyn_spelling_on, record_dyn_spelling_site, is_mut_global, is_thread_local, migrate_mutable_globals_on, record_mutable_global_site, migrate_mut_bindings_on, record_mut_binding_site, record_mut_binding_site_pending, record_mut_param_site, record_mut_param_site_pending, record_mut_judged, migrate_deref_on, audit_deref_on, deref_rule_suspended, record_deref_site, record_deref_edit_site, note_reference_read_copied, lookup_macro_expansion, is_reference_self_place } :: import("../expr_info.yo");
 { is_global_mut_rule_exempt, is_deref_rule_exempt } :: import("./memory_safety.yo");
 // `set_expr_as_needs_to_call_dup` builds + evaluates a `___dup(name)` call.
 // `parser.yo` is upstream (no cycle); `exprs/expr.yo` is the cycle-free
@@ -8657,7 +8657,14 @@ projection_call_root_args :: (fn(call : &AstExpr, ctx : &EvalContext) -> ArrayLi
     .Some(ci2) => match(&ci2.runtime_arg_exprs_in_order(), .Some(ra) => ra.clone(), .None => ArrayList(AstExpr).new()),
     .None => ArrayList(AstExpr).new()
   );
-  res_names := fn_result_origin_names(&meta_ty);
+  // A by-value result that spells its origins (`-> Option(&(T, p))`, O3)
+  // names its roots as a reference result does: a parameter whose own slot
+  // lists one of them. A receiver whose POINTEE carries them (`self : &mut
+  // Cursor(p)`) is no root: the result points where the receiver's
+  // references point (the holder walk, `fn_param_pointee_in_result_origin`),
+  // never into the receiver's place
+  // (issues/fixed/2026-11-08-a-call-whose-composite-result-spells-its-origin-freezes-the-receiver.md).
+  res_names := match(fn_result_origin_names(&meta_ty), .Some(rn) => Option(SharedList(String)).Some(rn), .None => fn_result_composite_origin_names(&meta_ty));
   (i : usize) = usize(0);
   while(i < args.len(), {
     p_ref := match(param_is_ref.get(i), .Some(b) => b, .None => false);
@@ -9606,7 +9613,10 @@ _lb_binding_site_of :: (fn(variable : &Variable) -> Option(LbBindingSite))({
                     // names it, and the binder's token is `mut`'s, so the
                     // name's own token is the operand's.
                     is_plain := ast_expr_is_atom(&lhs);
-                    is_mut_binder := ast_expr_is_fn_call_of(&lhs, BK_MUT, Option(usize).Some(usize(1)));
+                    // A local borrow's `__yo_imm(r)` / `__yo_mut(r)`, with the
+                    // annotation's type and origin (`I(r, T, o)`, §7 P3), names
+                    // `r` by its first operand, as the `mut(name)` binder does.
+                    is_mut_binder := (ast_expr_is_fn_call_of(&lhs, BK_MUT, Option(usize).Some(usize(1))) || ast_expr_is_local_borrow_mode_call(&lhs, Option(usize).Some(usize(1))));
                     lhs_name := cond(
                       is_mut_binder => match(
                         lhs,
@@ -9888,7 +9898,54 @@ param_declared_origin_slot :: (fn(v : &Variable, env : &Environment, ctx : &Eval
 /// the holder already holds. Q2: a body local stored into a PARAMETER's
 /// pointee escapes the body (E0912); any other entry outside the holder's
 /// origin is E0923. The first offending entry in root order is reported.
+/// `ty` has an origin left to elision (a `&T` or a type constructor's
+/// origin argument nobody spelled).
+_type_has_elided_origin :: (fn(ty : &TypeValue, depth : u32) -> bool)(
+  cond(
+    (depth > u32(16)) => false,
+    true => match(
+      ty,
+      Rc(.Reference(eo_p, _, eo_o)) => (match(&eo_o, Rc(.OriginSet(_, eo_el)) => eo_el, _ => false) || _type_has_elided_origin(&eo_p, (depth + u32(1)))),
+      Rc(.OriginSet(_, eo_el2)) => eo_el2,
+      Rc(.Struct({ type_arguments : eo_sta })) => _types_have_elided_origin(&eo_sta, depth),
+      Rc(.EnumT({ type_arguments : eo_eta })) => _types_have_elided_origin(&eo_eta, depth),
+      Rc(.Tuple(_, eo_tt)) => _types_have_elided_origin(&eo_tt, depth),
+      _ => false
+    )
+  )
+);
+_types_have_elided_origin :: (fn(tys : &SharedList(TypeValue), depth : u32) -> bool)({
+  (i : usize) = usize(0);
+  while(i < tys.len(), {
+    if(match(tys.get(i), .Some(t) => _type_has_elided_origin(&t, (depth + u32(1))), .None => false), {
+      return(true);
+    });
+    i = (i + usize(1));
+  });
+  false
+});
 _bind_join_subset_check :: (fn(variable : &Variable, holder_ty : &TypeValue, holder_names : &ArrayList(String), roots : &ArrayList(OriginRootPlace), value : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
+  // A READ whose type spells every origin it carries holds only those: a
+  // parameter root contributes its slot's names, but `b.*` read out of `b :
+  // &mut &(T, r)` is a `&(T, r)`, which holds `r`, never the origin of `b`'s
+  // own `&mut` (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §7 P3). Only a
+  // binding's read of its value: its type is its declaration's, while a
+  // constructed value (`.Some(v)`) may be typed from the holder it is stored
+  // into.
+  val_names := ArrayList(String).new();
+  // A reference read (R1) or a lend names its binding, not its rigid origin:
+  // those keep the full check.
+  val_is_read := (ast_expr_is_atom(value) && !is_reference_read(ast_expr_id(value)) && !is_reference_self_place(ast_expr_id(value)));
+  (val_spelled : bool) = (
+    val_is_read && match(
+      expr_info_table_get(&ctx.expr_info_table, ast_expr_id(value)),
+      .Some(vi) => {
+        origin_param_names_of(&vi.ty(), &mut val_names, u32(0));
+        ((val_names.len() > usize(0)) && !_type_has_elided_origin(&vi.ty(), u32(0)))
+      },
+      .None => false
+    )
+  );
   (ri : usize) = usize(0);
   while(ri < roots.len(), {
     match(
@@ -9916,7 +9973,7 @@ _bind_join_subset_check :: (fn(variable : &Variable, holder_ty : &TypeValue, hol
         (ni : usize) = usize(0);
         while(ni < rt_names.len(), {
           v_name := match(rt_names.get_cloned(ni), .Some(n) => n, .None => String.new());
-          if(!holder_names.contains(&v_name), {
+          if(!holder_names.contains(&v_name) && (!val_spelled || val_names.contains(&v_name)), {
             _bind_join_reject(variable, is_body_parameter(variable, env), holder_ty, holder_names, &v_name, &rt.place.root_name, rt_is_local, value, ctx, exn);
           });
           ni = (ni + usize(1));

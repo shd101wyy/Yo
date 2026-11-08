@@ -44,7 +44,9 @@
   register_mut_global,
   expr_info_set_is_compile_time_only_assignment,
   expr_info_set_macro_expansion,
-  record_local_borrow_step_pin
+  record_local_borrow_step_pin,
+  note_self_lend_operand,
+  is_reference_self_place
 } :: import("../../expr_info.yo");
 {
   Environment,
@@ -70,7 +72,7 @@
   record_pending_def_variable
 } :: import("../context.yo");
 { EvalValue, create_unknown_val, is_runtime_only_unknown_val, is_type_value, is_module_val } :: import("../../value.yo");
-{ TypeValue, TypeValueNode, trait_t_body, fn_result_origin_names } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, trait_t_body, fn_result_origin_names, t_origin_named, t_reference_with_origin, shared_list } :: import("../../types/definitions.yo");
 { t_unit, type_value_tag, register_type_binding_name } :: import("../../types/creators.yo");
 { TypeTag } :: import("../../types/tags.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../../types/compatibility.yo");
@@ -89,7 +91,8 @@
 { is_unit_type, is_comptime_int_type, is_counted_handle_type } :: import("../../types/guards.yo");
 { check_comptime_int_value_fits } :: import("../values/integer.yo");
 { format_error_message, format_error_message_with_help, format_error_message_with_repair, format_error_messages, TokenAndError, with_code } :: import("../../error.yo");
-{ E_COMPTIME_RUNTIME_BINDING, E_LOCAL_BORROW_CONFLICT } :: import("../../diagnostics.yo");
+{ E_COMPTIME_RUNTIME_BINDING, E_LOCAL_BORROW_CONFLICT, E_ORIGIN_MISMATCH } :: import("../../diagnostics.yo");
+{ _type_origin_names_into } :: import("../types/function.yo");
 { Token, TokenKind, is_reserved_operator_name, is_reserved_builtin_binding_name, reserved_builtin_binding_message } :: import("../../token.yo");
 { raise_flow_violation } :: import("../../types/flowability.yo");
 { type_implements_comptime, type_implements_runtime_full } :: import("../trait_checking.yo");
@@ -256,7 +259,7 @@ _evaluate_inout_local_binding :: (
   // `(name : &T) = &place`, which the parse-time rewrite (decision 42) passes
   // as a second argument.
   lhs_args := match(lhs, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
-  if((lhs_args.len() != usize(1)) && (lhs_args.len() != usize(2)), {
+  if((lhs_args.len() == usize(0)) || (lhs_args.len() > usize(3)), {
     exn.throw(
       dyn(
         format_error_message(
@@ -267,6 +270,9 @@ _evaluate_inout_local_binding :: (
     );
   });
   annotation_e := lhs_args.get(usize(1));
+  // `(y : &(T, o)) = &place`: the annotation's spelled origin
+  // (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §7 P3).
+  annotation_origin_e := lhs_args.get(usize(2));
   name_expr := match(lhs_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
   if(!ast_expr_is_atom(&name_expr) || !is_valid_variable_name(&name_expr), {
     exn.throw(
@@ -354,16 +360,23 @@ _evaluate_inout_local_binding :: (
       )
     );
   });
-  // `y := &r` on a reference binding `r` borrows the referent, spelled
-  // `y := &r.*` outside std and src (E0926, decision 43 step 2 N1e-1); the
-  // reference's own deref is a transparent hop below.
+  // `y := &r` on a reference binding `r` outside std and src lends `r`'s
+  // OWN storage: `y` is a `&&T` (`&mut r`, a `&mut &T`;
+  // plans/backlog/BORROW_CHECKER_COMPLETENESS.md §7 P3). The identifier
+  // evaluator types the operand as the reference itself. The referent is
+  // spelled `y := &r.*`, the reference's own deref, a transparent hop below.
+  // `yo fix --migrate deref` reads code written before the rule, where `&r`
+  // lent the referent, and records its `.*` (E0926's edit).
   root_is_reference := (variable_is_reference_binding(&root_var) && deref_rule_applies(&root_tok, ctx));
   // A written `&r.*` names the referent wherever the spelling reads
   // (`deref_spelling_applies`, N3 deref Generation A'), including the trees
   // that keep the old reading of a bare `r`.
   root_deref_spelled := (variable_is_reference_binding(&root_var) && deref_spelling_applies(&root_tok, ctx));
-  if(root_is_reference && (hops.len() == usize(0)), {
-    reject_reference_without_deref(&root_var, &root_tok, u8(2), ctx, exn);
+  if(hops.len() == usize(0), {
+    if(root_is_reference && deref_rule_recording(), {
+      reject_reference_without_deref(&root_var, &root_tok, u8(2), ctx, exn);
+    });
+    note_self_lend_operand(ast_expr_id(&root_atom), is_mut);
   });
   // Evaluate the place as an expression (types for every hop), WITHOUT the
   // dup-on-store a value binding performs — nothing is copied.
@@ -536,7 +549,9 @@ _evaluate_inout_local_binding :: (
     match(
       &lb_place,
       .Some(lp) => {
-        local_borrow_require_writable(&lp, local_borrow_root_is_shared_reference(&lp, env), `borrow \`${local_borrow_place_text(rhs)}\` with \`&mut\``, ast_expr_token(rhs), ctx, exn);
+        // `&mut r` of a reference binding (§7 P3) writes `r` itself (a
+        // re-point through the `&mut &T`), never its referent.
+        local_borrow_require_writable(&lp, local_borrow_root_is_shared_reference(&lp, env) && !is_reference_self_place(ast_expr_id(&evaluated_rhs)), `borrow \`${local_borrow_place_text(rhs)}\` with \`&mut\``, ast_expr_token(rhs), ctx, exn);
         local_borrow_access(&lp, LocalBorrowAccess.Exclusive, ast_expr_token(rhs), ctx, exn);
       },
       .None => ()
@@ -557,11 +572,38 @@ _evaluate_inout_local_binding :: (
   );
   // The binding itself.
   bound_opt := add_variable_to_env(env, var_name.clone(), &place_type, Option(EvalValue).None, false, true, false, false, &name_tok);
+  // The annotation's origin: the binding's declared set, which must hold the
+  // lent place's root (E0923 otherwise). Without one the set is elided and
+  // flow-inferred.
+  (declared_origin : Option(TypeValue)) = Option(TypeValue).None;
+  match(
+    annotation_origin_e,
+    .Some(ao) => {
+      ao_names := ArrayList(String).new();
+      _type_origin_names_into(&ao, env, ctx, &mut ao_names, exn);
+      if(!ao_names.contains(&root_var.name), {
+        exn.throw(
+          dyn(
+            with_code(
+              format_error_message(
+                ast_expr_token(rhs),
+                `\`${sig}${local_borrow_place_text(rhs)}\` lends \`${root_var.name}\`, outside the declared origin \`${ast_expr_to_string(&ao)}\` of \`${var_name}\`.`
+              ),
+              E_ORIGIN_MISMATCH
+            )
+          )
+        );
+      });
+      declared_origin = Option(TypeValue).Some(t_origin_named(&shared_list(ao_names)));
+    },
+    .None => ()
+  );
   match(
     bound_opt,
     .Some(bound) => {
       variable_set_is_ref(&bound, true);
       variable_set_reference_mut(&bound, is_mut);
+      match(&declared_origin, .Some(dor) => bound.set_bound_ty(t_reference_with_origin(&place_type, is_mut, &dor)), .None => ());
       variable_set_inout_borrow_root_id(&bound, root_var.id());
       if(hops.len() == usize(0), {
         // Whole-variable place: alias the root's value cell so compile-time
