@@ -9,7 +9,7 @@ Found 2026-11-06 by the advisor's audit of the origin and borrow-checking design
 
 Program: `issues/repros/2026-11-07-a-closure-capturing-an-origin-carrying-local-crashes-codegen.yo`.
 
-`yo check` accepts it; `yo compile` aborts in `src/codegen/utils/index.yo` with `get_type_string: no C type name found for <struct:capture_…>`. Also `h2_closure_param_into_capture_string.yo`, `h2b_closure_fnmut_slot.yo`, `p37_async_store_local.yo`.
+`yo check` accepts it; `yo compile` aborts in `src/codegen/utils/index.yo` with `get_type_string: no C type name found for <struct:capture_…>` (`type not collected before lowering`). The capture forms of H2 (`h2b_closure_fnmut_slot.yo`, `p37_async_store_local.yo`) crash the same way. The program is the minimal valid form, a closure clearing the slot through its capture (it replaced the first reproducer, an H2e program that is unsound and since G1 is E0913).
 
 ## Root cause
 
