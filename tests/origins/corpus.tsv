@@ -54,8 +54,8 @@ generic-bounded-rc	O10	neg	N1	E0909	E0914|lends a borrow, but parameter
 generic-escapable-rc	O10	pos	N1	ACCEPT	accept
 closure-caps-exceed-slot	O7 closures, O3-3	neg	N2	ORIGIN_MISMATCH	-|a payload bounded by an origin
 closure-caps-within-slot	O7 closures	pos	N2	ACCEPT	-|a payload bounded by an origin
-closure-returns-capture	hole: elision x closures	neg	N1	ORIGIN_MISMATCH	-|Last expression in "begin" is not evaluated correctly
-closure-returns-param	O2 per-call Fn origins	pos	N1	ACCEPT	-|Last expression in "begin" is not evaluated correctly
+closure-returns-capture	hole: elision x closures	neg	N1	ORIGIN_MISMATCH	E0604|Function body has type `i32`, but the declared result type is `*(i32)`
+closure-returns-param	O2 per-call Fn origins	pos	N1	ACCEPT	E0604|Function body has type `i32`, but the declared result type is `*(i32)`
 closure-param-into-capture	hole: elision x closures	neg	N2	UNION	-|carries an origin
 closure-push-capture	§7 a &mut capture of a flow-inferred container	pos	N2	ACCEPT	-|carries an origin
 closure-push-capture-then-write	§7 a &mut capture of a flow-inferred container	neg	N2	E0911	-|carries an origin
@@ -65,7 +65,7 @@ async-forward-local	O8 return rule	neg	N3	E0912	E0912|the origin names a local o
 async-forward-param	O8 forwarding	pos	N3	ACCEPT	accept
 await-local-borrow	O5	pos	N1	ACCEPT	accept
 impl-wider-than-trait	O7 traits (an impl against its trait)	neg	N1	ORIGIN_MISMATCH	-|a projection (decision 24)
-impl-narrower-than-trait	O7 traits (an impl against its trait)	pos	N1	ACCEPT	-|Failed to evaluate
+impl-narrower-than-trait	O7 traits (an impl against its trait)	pos	N1	ACCEPT	accept
 dyn-call-elided-result	§5 route 5 (a Dyn call maps from the trait signature)	neg	N1	E0911	E0911|Cannot write `o` here
 dyn-call-spelled-result	§5 route 5 (a Dyn call maps from the trait signature)	pos	N1	ACCEPT	accept
 effect-resume-local	O7 effect handlers, §4 handler lowering	neg	N1	E0912	E0912|Cannot return the local borrow
