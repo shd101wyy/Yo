@@ -53,7 +53,7 @@ test("HashMap.new allocates nothing until the first insert", {
   assert(map.capacity == usize(16), "the first insert grows to DEFAULT_CAPACITY");
   assert(map.get(i32(7)) == Option(i32).Some(i32(70)));
   mut(entry_map) := HashMap(i32, i32).new();
-  assert(entry_map.get_or_insert(i32(3), i32(30)) == i32(30), "entry API on an unallocated map inserts");
+  assert(entry_map.get_or_insert(i32(3), i32(30)).* == i32(30), "entry API on an unallocated map inserts");
   assert(entry_map.len() == usize(1));
   mut(keyed) := HashMap(i32, i32).with_keys(u64(1), u64(2));
   assert(keyed.capacity == usize(0), "with_keys is lazy too");
@@ -740,17 +740,28 @@ test("HashMap values - manual next() iteration terminates", {
 test("get_or_insert inserts once and reads thereafter", {
   mut(m) := HashMap(String, i32).new();
   a := m.get_or_insert(`hits`.to_string(), i32(1));
-  assert(a == i32(1), "inserted default");
+  assert(a.* == i32(1), "inserted default");
   b := m.get_or_insert(`hits`.to_string(), i32(99));
-  assert(b == i32(1), "existing wins over default");
+  assert(b.* == i32(1), "existing wins over default");
   assert(m.len() == usize(1), "one entry");
+});
+test("get_or_insert's result is a place in the map", {
+  mut(m) := HashMap(String, i32).new();
+  c := m.get_or_insert(`hits`.to_string(), i32(0));
+  c.* = (c.* + i32(1));
+  assert(m.get(`hits`.to_string()).unwrap() == i32(1), "the write landed in the map");
+  comptime_expect_error({
+    d := m.get_or_insert(`hits`.to_string(), i32(0));
+    _n := m.len();
+    d.* = i32(2);
+  });
 });
 test("get_or_insert_with defers construction", {
   mut(m) := HashMap(String, String).new();
   v := m.get_or_insert_with(`k`.to_string(), () => `built`.to_string());
-  assert(v == `built`, "constructed on miss");
+  assert(v.* == `built`, "constructed on miss");
   v2 := m.get_or_insert_with(`k`.to_string(), () => `never`.to_string());
-  assert(v2 == `built`, "hit skips make");
+  assert(v2.* == `built`, "hit skips make");
 });
 test("update_with maps present values only", {
   mut(m) := HashMap(String, i32).new();

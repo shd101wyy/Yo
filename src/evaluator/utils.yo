@@ -1729,7 +1729,7 @@ reject_write_through_rc :: (fn(place : &AstExpr, kind : str, param_ty : Option(T
           format_error_message_with_help(
             ast_expr_token(place),
             `Cannot ${what}: it is in the payload of the \`Rc\` handle \`${h_text}\` (\`${h_ty}\`), and an \`Rc\`'s payload is shared, so it is read-only through the handle, as Rust's (plans/VALUES_BY_DEFAULT.md decision 46). Another handle to the same cell would see the write, and a borrow of the payload held elsewhere would change under it.`,
-            Option(String).Some(`mutate through a door: keep the payload in a \`RefCell\` (\`Rc(RefCell(T))\`, then \`${h_text}.with_mut(v => ...)\`, std/sync/refcell), call \`Rc.make_mut(&mut ${h_text})\` (it clones the payload when the cell is shared; \`T <: Clone\`), take the payload out of the only handle with \`Rc.try_unwrap(${h_text})\`, own the value uniquely (a plain value or a \`Box(T)\`) instead of sharing it, or, across threads, use \`Arc(Mutex(T))\` or atomics`)
+            Option(String).Some(`mutate through a door: keep the payload in a \`RefCell\` (\`Rc(RefCell(T))\`, then \`${h_text}.with_mut(v => ...)\`, std/sync/refcell), call \`Rc.get_mut(&mut ${h_text})\` (\`.Some\` only when no other handle shares the cell; it never clones) or \`Rc.make_mut(&mut ${h_text})\` (it clones the payload when the cell is shared; \`T <: Clone\`), take the payload out of the only handle with \`Rc.try_unwrap(${h_text})\`, own the value uniquely (a plain value or a \`Box(T)\`) instead of sharing it, or, across threads, use \`Arc(Mutex(T))\` or atomics`)
           ),
           E_RC_PAYLOAD_WRITE
         ),

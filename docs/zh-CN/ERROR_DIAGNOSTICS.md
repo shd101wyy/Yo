@@ -78,7 +78,7 @@ YO_COLOR=always yo build         # 通过环境变量设置
 
 决策 47 第二步把同一规则应用到模块级以下：局部变量、模式或解构绑定，以及编译期绑定（`x :: v`、`comptime(x) := v`）都是不可变的，除非名字被包在 `mut(...)` 里。写入未标记的绑定是 E0917，涵盖同样的四种写入（重新赋值；写入其值的字段或元素；以 `&mut` 借出其位置，包括 `y := &mut x`、`&mut` 的 match 被匹配值以及 `&mut` 捕获；在其上调用 `&mut self` 方法），`yo fix <path>` 通过给声明名包上 `mut(...)` 来修复它：`x := v` 改为 `mut(x) := v`，`(x : T) = v` 改为 `(mut(x) : T) = v`，`x :: v` 改为 `mut(x) :: v`，`comptime(x)` 改为 `comptime(mut(x))`，`.Some(v)` 改为 `.Some(mut(v))`，`{ a, b }` 改为 `{ a, mut(b) }`。参数不接受标记：请手工重新绑定（`mut(p_m) := p;`）。`YO_AUDIT_MUT_BINDINGS=1` 会打印对模块级以下绑定的每次写入（`[mut-binding] how=… kind=… marked=yes|no`），而不拒绝它。
 
-经由 `Rc` 句柄的写入是 E0919：对 `h.*` 或其下位置的赋值（`h.n = v`、`h.items(i) = v`）、`&mut` 实参（`bump(&mut h.n)`），或在这样的位置上调用 `self : &mut Self` 方法（`h.items.push(v)`）。`Rc(T)` 就是 Rust 的 `Rc`：句柄的每个副本共享同一个单元，因此它的载荷经由句柄是只读的（决策 46）。需要写入的共享状态应改走“门”，错误信息会列出它们：`Rc(RefCell(T))`，在 `h.with_mut(v => ...)` 中写入（`std/sync/refcell`）；`Rc.make_mut(&mut h)`，单元被共享时先把 `h` 移到新单元（要求 `T <: Clone`）；`Rc.try_unwrap(h)`，从唯一的句柄中取出载荷；唯一拥有的值或 `Box(T)`；跨线程则用 `Arc(Mutex(T))` 或原子类型。选哪扇门取决于状态为什么被共享，因此没有修复。
+经由 `Rc` 句柄的写入是 E0919：对 `h.*` 或其下位置的赋值（`h.n = v`、`h.items(i) = v`）、`&mut` 实参（`bump(&mut h.n)`），或在这样的位置上调用 `self : &mut Self` 方法（`h.items.push(v)`）。`Rc(T)` 就是 Rust 的 `Rc`：句柄的每个副本共享同一个单元，因此它的载荷经由句柄是只读的（决策 46）。需要写入的共享状态应改走“门”，错误信息会列出它们：`Rc(RefCell(T))`，在 `h.with_mut(v => ...)` 中写入（`std/sync/refcell`）；`Rc.get_mut(&mut h)`，没有其他句柄共享单元时为 `.Some(&mut T)`；`Rc.make_mut(&mut h)`，单元被共享时先把 `h` 移到新单元（要求 `T <: Clone`）；`Rc.try_unwrap(h)`，从唯一的句柄中取出载荷；唯一拥有的值或 `Box(T)`；跨线程则用 `Arc(Mutex(T))` 或原子类型。选哪扇门取决于状态为什么被共享，因此没有修复。
 
 #### 已退役的迁移
 

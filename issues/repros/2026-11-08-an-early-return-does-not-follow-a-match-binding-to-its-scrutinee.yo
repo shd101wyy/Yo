@@ -1,0 +1,21 @@
+// issues/2026-11-08-an-early-return-does-not-follow-a-match-binding-to-its-scrutinee.md
+// Expected: checks. Actual (v0.2.76): E0912 at the early return.
+{ ArrayList } :: import("std/collections/array_list");
+V :: enum(Num(n : i32), Arr(items : ArrayList(i32)));
+find :: (fn(v : &V, k : &i32) -> Option(&(i32, v)))(
+  match(
+    v,
+    .Arr(items) => {
+      mut(i) := usize(0);
+      while(i < items.len(), i = (i + usize(1)), {
+        if(items(i) == k.*, {
+          return(Option(&(i32, v)).Some(items.index(i)));
+        });
+      });
+      Option(&(i32, v)).None
+    },
+    _ => Option(&(i32, v)).None
+  )
+);
+main :: (fn() -> unit)(());
+export(main);

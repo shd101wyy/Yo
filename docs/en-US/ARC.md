@@ -143,12 +143,15 @@ Rust's do (decision 46 of
 
 - **`Arc.try_unwrap(h)`** consumes the handle and returns `.Ok(payload)` when
   no other handle exists on any thread (the cell is freed), else `.Err(h)`.
+- **`Arc.get_mut(&mut h)`** is `.Some(&mut T)`, a reference into the cell,
+  when no other `Arc` or `ArcWeak` shares it on any thread, and `.None`
+  otherwise; it never clones. Rust's `Arc::get_mut`.
 - **`Arc.make_mut(&mut h)`** (`T <: Clone`) is the payload, written: a shared
   payload is first cloned into a fresh cell that `h` alone holds. When only
   `ArcWeak` handles share the cell, the payload moves to a fresh cell
   without a clone, and the `ArcWeak` handles upgrade to `.None` afterwards.
 
-Both decide uniqueness in one atomic step, Rust's compare-and-swap of the
+All three decide uniqueness in one atomic step, Rust's compare-and-swap of the
 strong count from 1 to 0, so an `ArcWeak.upgrade` on another thread either
 lands before it, and the handle counts as shared, or finds the cell taken
 and returns `.None`.

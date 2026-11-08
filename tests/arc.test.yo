@@ -233,6 +233,62 @@ test("Arc.make_mut clones a shared payload and writes a unique one in place", {
   Arc.make_mut(&mut a).b = i32(20);
   assert((a.b == i32(20)) && (b.b == i32(2)), "a was unique: written in place");
 });
+test("Arc.get_mut on the only handle writes the payload in place", {
+  h := Arc.new(_ArcPair(a : i32(1), b : i32(2)));
+  match(
+    Arc.get_mut(&mut h),
+    .Some(p) => {
+      p.a = i32(10);
+    },
+    .None => assert(false, "the only handle is unique")
+  );
+  assert(h.a == i32(10), "the write landed");
+  assert(ref_count(h) == 1, "no clone: still one handle");
+});
+test("Arc.get_mut is None while another handle or an ArcWeak shares the cell", {
+  a := Arc.new(i32(5));
+  b := Arc.clone(a);
+  assert(Arc.get_mut(&mut a).is_none(), "another Arc shares the cell");
+  consume(b);
+  w := Arc.downgrade(&a);
+  assert(Arc.get_mut(&mut a).is_none(), "an ArcWeak shares the cell");
+  consume(w);
+  match(Arc.get_mut(&mut a), .Some(v) => { v.* = i32(6); }, .None => assert(false, "unique once the ArcWeak is gone"));
+  assert(a.* == i32(6), "and written in place");
+});
+// Under TSan: a write through `get_mut` happens only when no upgrade on the
+// worker can be live, so the worker never races it.
+test("Arc.get_mut against an ArcWeak upgrade on another thread", {
+  (mut(round) : i32) = i32(0);
+  while(round < i32(300), {
+    a := Arc.new(_ArcPair(a : i32(0), b : i32(0)));
+    w := Arc.downgrade(&a);
+    t := Thread(i32).spawn({ w }(io) => {
+      h := w.upgrade();
+      consume(w);
+      match(h, .Some(p) => (p.a + p.b), .None => i32(-1))
+    });
+    match(
+      Arc.get_mut(&mut a),
+      .Some(p) => {
+        p.a = i32(1);
+        p.b = i32(1);
+      },
+      .None => ()
+    );
+    m := t.join();
+    assert((m == i32(0)) || (m == i32(-1)), "the worker never sees get_mut's writes");
+    round = (round + i32(1));
+  });
+});
+test("Arc.get_mut's result borrows the handle exclusively", {
+  h := Arc.new(_ArcPair(a : i32(1), b : i32(2)));
+  comptime_expect_error({
+    r := &h;
+    _m := Arc.get_mut(&mut h);
+    _n := r.a;
+  });
+});
 // --- ArcWeak (plans/archive/WEAK_AND_UNCOLLECTED_RC.md §3, W4): the W3 rows
 // across a thread ---
 (mut(g_arc_weak_dropped) : i32) = i32(0);

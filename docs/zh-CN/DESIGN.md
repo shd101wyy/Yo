@@ -3510,7 +3510,7 @@ test("Rc reference counting", {
 });
 ```
 
-### 修改共享载荷：`RefCell`、`Rc.make_mut`、`Rc.try_unwrap`
+### 修改共享载荷：`RefCell`、`Rc.get_mut`、`Rc.make_mut`、`Rc.try_unwrap`
 
 `Rc` 的载荷是共享的，因此**通过句柄只能读取**，与 Rust 相同（[值默认计划的决策 46](../../plans/VALUES_BY_DEFAULT.md)）。通过 `Rc` 的写入（`h.n = v`、`h.* = v`、`bump(&mut h.n)`、`h.items.push(v)`）是错误 E0919，错误信息会列出下面这些入口（`yo explain E0919`）：
 
@@ -3534,9 +3534,15 @@ test("Rc reference counting", {
   ```
 
 - **`Rc.try_unwrap(h)`** 消耗该句柄：若它是唯一句柄，返回 `.Ok(payload)`（单元被释放），否则返回 `.Err(h)`，即原句柄。它不需要 `Clone`。
-- `Rc.get_mut(&mut h)`（仅当计数为 1 时为 `.Some(&mut T)`）将在 `Option(&mut T)` 可以表达之后提供（决策 43）。
+- **`Rc.get_mut(&mut h)`** 在没有其他 `Rc` 或 `Weak` 共享该单元时为 `.Some(&mut T)`，即指向单元内部的引用，否则为 `.None`；它从不克隆，因此不需要 `Clone`。即 Rust 的 `Rc::get_mut`。
 
-这些入口与 Rust 一样通过类型调用，因此载荷上同名的方法仍可用 `h.name()` 调用。`Arc` 有同样的 `Arc.make_mut` 和 `Arc.try_unwrap`（[ARC.md](./ARC.md)）。
+  ```yo
+  h := Rc.new(i32(1));
+  match(Rc.get_mut(&mut h), .Some(v) => { v.* = i32(2); }, .None => ());
+  assert(h.* == i32(2), "the only handle writes in place");
+  ```
+
+这些入口与 Rust 一样通过类型调用，因此载荷上同名的方法仍可用 `h.name()` 调用。`Arc` 有同样的 `Arc.get_mut`、`Arc.make_mut` 和 `Arc.try_unwrap`（[ARC.md](./ARC.md)）。
 
 ### Weak：不拥有的句柄
 

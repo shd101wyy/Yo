@@ -168,7 +168,8 @@ or a `self : &mut Self` method called on such a place (`h.items.push(v)`). An
 payload is read-only through the handle (decision 46). Shared state that is
 written goes through a door instead, and the error names them: an
 `Rc(RefCell(T))`, written inside `h.with_mut(v => ...)`
-(`std/sync/refcell`); `Rc.make_mut(&mut h)`, which moves `h` to a fresh cell
+(`std/sync/refcell`); `Rc.get_mut(&mut h)`, `.Some(&mut T)` when no other
+handle shares the cell; `Rc.make_mut(&mut h)`, which moves `h` to a fresh cell
 first when the cell is shared (`T <: Clone`); `Rc.try_unwrap(h)`, the payload
 out of the only handle; a uniquely owned value or `Box(T)`; and
 `Arc(Mutex(T))` or atomics across threads. Which door fits depends on why the

@@ -1000,26 +1000,39 @@ impl(
     );
     body(&mut e)
   }),
-  /// The value for `key`, inserting `default` first when absent — one probe,
-  /// through the entry.
-  get_or_insert : (fn(self : &mut Self, key : &K, default : &V, where(K <: Clone, V <: Clone)) -> V)(
-    self.entry(key, { &default }(e) => e.or_insert(default))
+  /// The stored value at `index`, a bucket a probe found occupied, as a
+  /// `&mut` place into the map (`get_or_insert`'s and
+  /// `get_or_insert_with`'s results).
+  _value_at_mut : (fn(self : &mut Self, index : usize) -> &mut V)(
+    addr_of((Self._data_ptr(self).add(index)).*.value)
   ),
-  /// The value for `key`, inserting `make()`'s result first when absent —
-  /// use over `get_or_insert` when constructing the default is costly.
-  ///
-  /// One probe, no entry, like `update_with`: a closure holding `make` would
-  /// borrow it exclusively and could not be moved into `entry`'s by-value
-  /// body, so the vacant insert is spelled over `_probe`/`_insert_at` the
-  /// way `HashMapEntry.or_insert_with` spells it.
-  get_or_insert_with : (fn(self : &mut Self, key : &K, make : &mut Impl(FnMut() -> V), where(K <: Clone, V <: Clone)) -> V)({
+  /// The value for `key` as a `&mut` place into the map, inserting
+  /// `default` first when absent — one probe. The key is cloned only on
+  /// the vacant path.
+  get_or_insert : (fn(self : &mut Self, key : &K, default : V, where(K <: Clone)) -> &mut(V, self))({
     hash := self._hash(key);
     match(
       Self._probe(self, key, hash),
-      .Occupied(index) => (Self._data_ptr(self).add(index)).*.value.clone(),
+      .Occupied(index) => self._value_at_mut(index),
+      .Vacant(index) => {
+        slot := Self._insert_at(self, index, hash, key.clone(), default);
+        self._value_at_mut(slot)
+      }
+    )
+  }),
+  /// The value for `key`, inserting `make()`'s result first when absent —
+  /// use over `get_or_insert` when constructing the default is costly.
+  ///
+  /// One probe over `_probe`/`_insert_at`, the way
+  /// `HashMapEntry.or_insert_with` spells it.
+  get_or_insert_with : (fn(self : &mut Self, key : &K, make : &mut Impl(FnMut() -> V), where(K <: Clone)) -> &mut(V, self))({
+    hash := self._hash(key);
+    match(
+      Self._probe(self, key, hash),
+      .Occupied(index) => self._value_at_mut(index),
       .Vacant(index) => {
         slot := Self._insert_at(self, index, hash, key.clone(), make());
-        (Self._data_ptr(self).add(slot)).*.value.clone()
+        self._value_at_mut(slot)
       }
     )
   }),
