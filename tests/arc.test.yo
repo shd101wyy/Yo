@@ -1,6 +1,7 @@
 pragma(Pragma.SkipWasm32Wasi); // no pthread support in standalone WASI
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
+{ String } :: import("std/string");
 test("Test basic Arc with primitive type", {
   a := Arc.new(i32(42));
   val := a.*;
@@ -511,4 +512,14 @@ test("Arc.clone is a second handle, and an implicit copy whose source is used ag
   }, "Arc.clone(a)");
   d := b;
   assert(ref_count(d) == usize(2), "the last use moved b: still two handles");
+});
+_arc_str_len :: (fn(s : &String) -> usize)(s.len());
+test("Arc.as_ref lends the payload as a &T", {
+  a := Arc.new(String.from("fives"));
+  assert(_arc_str_len(a.as_ref()) == usize(5), "Arc.as_ref lends the payload");
+  assert(_arc_str_len(Arc.as_ref(a)) == usize(5), "the static form is the same call");
+  mut(m) := Arc.new(i32(10));
+  m2 := Arc.clone(m);
+  Arc.make_mut(&mut m) = i32(11);
+  assert((m.* == i32(11)) && (m2.* == i32(10)), "a shared Arc cell is copied before the write");
 });

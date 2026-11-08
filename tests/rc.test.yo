@@ -4252,3 +4252,32 @@ test("a tree with Weak parent pointers frees itself", {
   };
   assert(g_weak_tree_dropped == (before + i32(4)), "the root and its three leaves are dropped by reference counting");
 });
+// `as_ref` lends the whole payload as a `&T` (Rc, Box and Arc alike), the
+// spelling for a `&T` parameter and for a payload method the handle also has.
+_rc_str_len :: (fn(s : &String) -> usize)(s.len());
+test("as_ref lends the payload of an Rc and a Box as a &T", {
+  h := Rc.new(String.from("yo!"));
+  b := Box.new(String.from("four"));
+  assert(_rc_str_len(h.as_ref()) == usize(3), "Rc.as_ref lends the payload");
+  assert(_rc_str_len(Rc.as_ref(h)) == usize(3), "the static form is the same call");
+  assert(_rc_str_len(b.as_ref()) == usize(4), "Box.as_ref lends the payload");
+  p := h.as_ref();
+  c := p.clone();
+  assert(c == String.from("yo!"), "a bound as_ref clones the payload");
+  assert(ref_count(h) == usize(1), "cloning the payload leaves the handle's count alone");
+});
+test("Rc's Eq and Hash read the payload, and make_mut copies on write", {
+  a := Rc.new(String.from("x"));
+  b := Rc.new(String.from("x"));
+  c := Rc.new(String.from("y"));
+  assert(a == b, "equal payloads compare equal");
+  assert(!(a == c), "different payloads compare unequal");
+  assert(hash_one(&a) == hash_one(&b), "equal payloads hash alike");
+  mut(m) := Rc.new(i32(5));
+  m2 := Rc.clone(m);
+  Rc.make_mut(&mut m) = i32(6);
+  assert((m.* == i32(6)) && (m2.* == i32(5)), "a shared cell is copied before the write");
+  assert((ref_count(m) == usize(1)) && (ref_count(m2) == usize(1)), "each handle owns its own cell");
+  Rc.make_mut(&mut m) = i32(7);
+  assert(m.* == i32(7), "a unique cell is written in place");
+});
