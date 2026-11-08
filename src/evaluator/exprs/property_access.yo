@@ -503,9 +503,34 @@ evaluate_property_access :: (
     // `r.*` on a reference binding (N1e-1) was rewritten to the name `r`
     // itself: a re-evaluation reads the name.
     .Atom(rw_id, rw_tok) => evaluate_expression_raw(&AstExpr.Atom(rw_id, rw_tok), env_in, ctx, exn),
-    rw_node => _evaluate_property_access_node(&rw_node, env_in, ctx, exn)
+    // `f(x).*` on a projection call was rewritten to the call: a
+    // re-evaluation evaluates the call and keeps the `.*` node, a value.
+    rw_node => if(ast_expr_is_fn_call_of(&rw_node, BF_DOT, Option(usize).None), _evaluate_property_access_node(&rw_node, env_in, ctx, exn), {
+      rw_call := evaluate_expression_raw(&rw_node, env_in, ctx, exn);
+      _note_projection_call_deref(expr, &rw_call, env_in, ctx);
+      expr.clone()
+    })
   )
 );
+/// `deref` (`f(x).*`) reads the place the evaluated projection call `call`
+/// names: it is recorded rewritten to the call and carries the call's info.
+_note_projection_call_deref :: (fn(deref : &AstExpr, call : &AstExpr, env : &Environment, ctx : &mut EvalContext) -> unit)({
+  note_rewritten_node_as(ast_expr_id(deref), call);
+  match(
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(call)),
+    .Some(pc_oi) => {
+      pc_out := new_expr_info(env, &pc_oi.ty());
+      pc_out.set_value(pc_oi.value());
+      expr_info_set_origin_type(&pc_out, expr_info_origin_type(&pc_oi));
+      pc_out.set_is_accessing_property(pc_oi.is_accessing_property());
+      pc_out.set_path_collection(pc_oi.path_collection());
+      pc_out.set_variable_name(pc_oi.variable_name());
+      pc_out.set_source_variable(pc_oi.source_variable());
+      expr_info_table_set(&ctx.expr_info_table, ast_expr_id(deref), &pc_out);
+    },
+    .None => ()
+  );
+});
 _evaluate_property_access_node :: (
   fn(
     expr : &AstExpr,
@@ -940,10 +965,11 @@ _evaluate_property_access_node :: (
     });
     // `f(x).*` on a projection CALL (decision 24: the call's result is a
     // place of type `T`, which the bare call already names) is the
-    // reference's deref: the call itself. The `.*` node is recorded
-    // rewritten to the evaluated call (`note_rewritten_node_as`), which
-    // keeps its own id and so every record keyed by it (its dispatch, its
-    // specialization), so codegen and the place walks read the bare call. In
+    // reference's deref: the place the call names. The `.*` node keeps the
+    // referent's type and is recorded rewritten to the evaluated call
+    // (`note_rewritten_node_as`), which keeps its own id and so every record
+    // keyed by it (its dispatch, its specialization), so codegen and the
+    // place walks read the bare call. In
     // `f(x).*.*` the outer `.*` is not a second deref of the call: it is the
     // referent's own, judged below.
     // Only where both readings agree, in every tree: a referent `.*` reads
@@ -954,22 +980,10 @@ _evaluate_property_access_node :: (
     pc_object_written := match(all_args.get(usize(0)), .Some(pc_ow) => pc_ow, .None => make_err_expr());
     pc_object_is_deref := match(&pc_object_written, .FnCall(_, _, Rc(pc_ow_args), _, _) => (ast_expr_is_fn_call_of(&pc_object_written, BF_DOT, Option(usize).Some(usize(2))) && match(pc_ow_args.get(usize(1)), .Some(pc_ow_p) => ast_expr_is_atom_of(&pc_ow_p, "*"), .None => false)), .Atom(_, _) => false);
     if(!pc_object_is_deref && _is_written_star(&property_expr) && projection_call_mode_of(&object_expr, ctx).is_some() && match(&obj_ty_deref, .Some(pc_referent) => (deref_spelling_applies(ast_expr_token(&property_expr), &pc_referent, ctx) && !deref_reads_through_pointee(&pc_referent)), .None => false), {
-      note_rewritten_node_as(ast_expr_id(expr), &object_expr);
-      match(
-        &obj_info_opt,
-        .Some(pc_oi) => {
-          pc_out := new_expr_info(&env, &pc_oi.ty());
-          pc_out.set_value(pc_oi.value());
-          expr_info_set_origin_type(&pc_out, expr_info_origin_type(&pc_oi));
-          pc_out.set_is_accessing_property(pc_oi.is_accessing_property());
-          pc_out.set_path_collection(pc_oi.path_collection());
-          pc_out.set_variable_name(pc_oi.variable_name());
-          pc_out.set_source_variable(pc_oi.source_variable());
-          expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &pc_out);
-        },
-        .None => ()
-      );
-      return(object_expr);
+      _note_projection_call_deref(expr, &object_expr, &env, ctx);
+      // The caller keeps the `.*` node: a read of the referent, a value, so
+      // `n := f(x).*` binds a copy where `n := f(x)` binds the reference.
+      return(expr.clone());
     });
     match(
       &obj_ty_deref,
