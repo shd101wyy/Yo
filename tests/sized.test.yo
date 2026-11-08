@@ -15,7 +15,7 @@ impl(i32, Show(show : (fn(self : &Self) -> i32)(self.*)));
 
 // A `?Sized` generic: `T` is used only behind the reference.
 _sz_show :: (fn(generic(T : ?Sized), x : &T, where(T <: Show)) -> i32)(x.show());
-_sz_id_ref :: (fn(generic(T : ?Sized), x : &T) -> &T)(x);
+_sz_id_ref :: (fn(generic(T : ?Sized), x : &T) -> &T)(&x.*);
 // A tail struct: only the last field may be unsized.
 _SzTail :: struct(n : i32, rest : [i32]);
 // A type constructor whose binder is `?Sized`.
@@ -33,8 +33,10 @@ test("Sized is derived from the type's structure", {
   comptime_assert(Type.impls(i32, Sized), "a primitive is Sized");
   comptime_assert(Type.impls(_SzPoint, Sized), "a struct of sized fields is Sized");
   comptime_assert(Type.impls(Array(i32, 4), Sized), "a fixed-size array is Sized");
-  comptime_assert(!Type.impls([i32], Sized), "[T] is not Sized");
-  comptime_assert(!Type.impls(_SzTail, Sized), "a struct whose last field is unsized is not Sized");
+  // `Type.impls` takes a `Type`, which is sized: the unsized rows ask
+  // through a `Type` binder instead (E0619).
+  comptime_expect_error(_SzBox([i32]), "is not `Sized`");
+  comptime_expect_error(_SzBox(_SzTail), "is not `Sized`");
   comptime_assert(Type.impls(* [i32], Sized), "a pointer to an unsized type is Sized");
   comptime_assert(Type.impls(_SzPtr([i32]), Sized), "a struct holding such a pointer is Sized");
 });
