@@ -1,0 +1,21 @@
+// expect: E0911
+// A by-value match's reference payload, stored into an outer holder, still points into the scrutinee's referent: `r` is read after `inner` is dropped.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  mut(r) := Option(&String).None;
+  {
+    inner := String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz");
+    h := Option(&String).Some(&inner);
+    match(
+      h,
+      .None => (),
+      .Some(item) => {
+        r = .Some(item);
+      }
+    );
+  };
+  match(r, .Some(s) => println(`OUT: ${s.*.len().to_string()}`), .None => println("none"));
+  ()
+});
+export(main);
