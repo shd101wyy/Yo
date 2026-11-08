@@ -5394,7 +5394,7 @@ evaluate_module_value :: (
       add_variable_to_env(
         &forall_env,
         param_name_str.clone(),
-        fp_kind,
+        &fp_kind,
         // TypeUni(0) — type-of-a-type
         .Some(tv),
         true,
@@ -6075,7 +6075,7 @@ evaluate_module_value :: (
           );
           neg_head := match(neg_inner, .FnCall(_, fbn, _, _, _) => fbn, .Atom(_, _) => neg_inner);
           if(ast_expr_is_atom(&neg_head) && (ast_expr_text(&neg_head).* == "Sized"), {
-            exn.throw(dyn(format_error_message(ast_expr_token(&field_expr), _SIZED_IS_DERIVED)));
+            exn.throw(dyn(format_error_message(ast_expr_token(&field_expr), String.from(_SIZED_IS_DERIVED))));
           });
           if(ast_expr_is_atom(&neg_head) && (ast_expr_text(&neg_head).* == "Escapable"), {
             exn.throw(
@@ -6140,7 +6140,7 @@ evaluate_module_value :: (
           // `Escapable` is the type's structure (decision 43, O10): no impl
           // can claim or deny it.
           if(pos_trait_name == "Sized", {
-            exn.throw(dyn(format_error_message(ast_expr_token(&field_expr), _SIZED_IS_DERIVED)));
+            exn.throw(dyn(format_error_message(ast_expr_token(&field_expr), String.from(_SIZED_IS_DERIVED))));
           });
           if(pos_trait_name == "Escapable", {
             exn.throw(
