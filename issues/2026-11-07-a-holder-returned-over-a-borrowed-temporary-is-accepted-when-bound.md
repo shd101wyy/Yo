@@ -1,6 +1,6 @@
-# A holder returned over a borrowed temporary is accepted when bound; it is sound only because the temporary drops at the block's end
+# A holder returned over a borrowed temporary is accepted when bound, and is a use-after-free since the temporary drops at its statement's end
 
-**Severity:** S1 (latent) — an ordering constraint: fixing `issues/fixed/2026-11-06-a-borrowed-temporary-is-dropped-at-its-blocks-end-not-its-statements.md` first turns this accepted program into a use-after-free
+**Severity:** S1: a use-after-free in safe code. Filed as latent; the statement-end drop fix (`issues/fixed/2026-11-06-a-borrowed-temporary-is-dropped-at-its-blocks-end-not-its-statements.md`) landed before O-5, so the accepted program now frees the temporary while the bound holder still points into it
 
 Found 2026-11-06 by the advisor's audit of the origin and borrow-checking design (VERDICTS-30), filed with the plan
 `plans/backlog/BORROW_CHECKER_COMPLETENESS.md` (§10).
@@ -9,7 +9,7 @@ Found 2026-11-06 by the advisor's audit of the origin and borrow-checking design
 
 Program: `issues/repros/2026-11-07-a-holder-returned-over-a-borrowed-temporary-is-accepted-when-bound.yo`.
 
-`yo check` accepts it and it runs clean today (`OUT: 72 74`), because the temporary lives to the block's end. The projection form (`p58b_ref_from_temporary_call.yo`) is already rejected.
+`yo check` accepts it. When filed it ran clean (`OUT: 72 74`) because the temporary lived to the block's end. Measured 2026-11-08 on the v0.2.76 seed: compiled with `--sanitize address --allocator system` and run, ASan reports `heap-use-after-free` at the `println`, because `mk_x()`'s temporary is now dropped at the end of `h := mk(&mk_x());`. The projection form (`p58b_ref_from_temporary_call.yo`) is already rejected.
 
 ## Root cause
 

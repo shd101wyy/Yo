@@ -1,5 +1,7 @@
 # A generic fn whose `&T` tail forwards a projection call emits the value, not the address
 
+**Status:** fixed 2026-11-08 (branch `fix/generic-projection-forward-tail`): the specialized body gets the concrete body's decision-24 check.
+
 **Severity:** S1 — miscompilation in safe code: the C returns the referent where the function returns a pointer (clang rejects it with `-Wint-conversion`; a lenient C compiler builds a binary that dereferences the value as an address and crashes).
 
 - Filed: 2026-11-08 (deref lane, VERDICTS-38 §5 item 2; Fable's probes p10b/p10c).
@@ -49,3 +51,24 @@ the pointer it is). The `Rc`/`Arc` holders of G2 (`get_mut -> Option(&mut T)`)
 will meet the same shape.
 
 A test belongs with the fix: the reproducer above prints `8`.
+
+## Fix
+
+The concrete path checks a projection body against `*(T)` (the place's
+address, `rewrite_projection_tails`) in `calls/function_type.yo`; the
+specialized-body result check in `calls/helper.yo` skipped every `-> &T`
+result ("judged elsewhere") and nothing else judged it, so a generic body
+whose tail is a projection call typed `T` reached codegen. The specialization
+now runs the same check, with the same message
+(`projection_body_mismatch_message`, moved to `evaluator/utils.yo` so both
+paths share it). The generic form is rejected as the concrete form always
+was — "write `&r.get()`" — and the spelling with the lend marker yields the
+place. Rust accepts the bare forward (`fn f<T>(r: &W<T>) -> &T { r.get() }`);
+Yo's projection body is a written `&place` in both the concrete and generic
+forms (decision 24), so the generic form follows the concrete one rather than
+the reverse.
+
+Regression tests (`tests/ref_return_ban.test.yo`): the reproducer's shape
+under `comptime_expect_error` with the diagnostic's repair text, and the
+`&r.get()` spelling over `i32` and a move-only `String` payload.
+
