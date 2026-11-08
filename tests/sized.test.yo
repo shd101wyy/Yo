@@ -20,6 +20,8 @@ _SzTail :: struct(n : i32, rest : [i32]);
 // A type constructor whose binder is `?Sized`.
 _SzPtr :: (fn(comptime(V) : ?Sized) -> comptime(Type))(struct(p : *V));
 _SzBox :: (fn(comptime(V) : Type) -> comptime(Type))(struct(p : *V));
+// A `Type` binder: implicitly `where(U <: Sized)`.
+_sz_sized_only :: (fn(generic(U : Type), y : &U) -> i32)(i32(1));
 
 test("[T] is the builtin Slice(T)", {
   comptime_assert(Slice(i32) == [i32], "[i32] and Slice(i32) are one type");
@@ -76,6 +78,10 @@ test("a ?Sized binder used by value is E0619 at the definition", {
   comptime_expect_error((fn(generic(T : ?Sized), x : T) -> unit)(()), "the by-value parameter");
   comptime_expect_error((fn(generic(T : ?Sized), x : &T) -> usize)(size_of(T)), "`size_of`");
   comptime_expect_error((fn(generic(T : ?Sized), x : &T) -> bool)(Option(T).None.is_none()), "?Sized");
+});
+
+test("a ?Sized variable at a Type binder is E0619 naming ?Sized", {
+  comptime_expect_error((fn(generic(T : ?Sized), x : &T) -> i32)(_sz_sized_only(x)), "?Sized");
 });
 
 test("?Sized is a binder's kind only", {

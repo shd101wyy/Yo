@@ -508,6 +508,7 @@ _occurs_check :: (fn(some_type_id : &String, some_type_name : &String, ty : &Typ
       res
     },
     Rc(.Array(elem, _, _)) => recur(some_type_id, some_type_name, &elem, visited, exn),
+    Rc(.SliceT(sl_elem)) => recur(some_type_id, some_type_name, &sl_elem, visited, exn),
     Rc(.ComptimeListT(child)) => recur(some_type_id, some_type_name, &child, visited, exn),
     // Don't check inside pointer types (valid indirection)
     Rc(.Pointer(_)) => false,
@@ -1566,6 +1567,15 @@ _synthesize_types_impl :: (
         i = (i + usize(1));
       });
     });
+    return(SynthesizeResult(expected_env : ee, given_env : ge));
+  });
+  // Case: Slice + Slice (`[T]`, decision 49): the elements synthesize.
+  if(match(expected_ty, Rc(.SliceT(_)) => true, _ => false) && match(given_ty, Rc(.SliceT(_)) => true, _ => false), {
+    exp_sl := match(expected_ty, Rc(.SliceT(c)) => Rc.clone(c), _ => Rc.new(TypeValueNode.Unit));
+    giv_sl := match(given_ty, Rc(.SliceT(c)) => Rc.clone(c), _ => Rc.new(TypeValueNode.Unit));
+    res := _synthesize_types_impl(&exp_sl, &ee, &giv_sl, &ge, checked, opts, exn);
+    ee = Rc.clone(res.expected_env);
+    ge = Rc.clone(res.given_env);
     return(SynthesizeResult(expected_env : ee, given_env : ge));
   });
   // Case: Pointer + Pointer
