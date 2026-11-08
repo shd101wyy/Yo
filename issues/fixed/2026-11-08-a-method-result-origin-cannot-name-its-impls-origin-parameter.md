@@ -36,6 +36,16 @@ With the result origin elided instead (`take : (fn(self : Self) -> &mut i32)(&mu
 
 The spelled-origin check of a projection result resolves origin names against the method's own `generic(...)` clause and its reference parameters only; the impl's `generic(p : Origin)` (in scope for the method's parameter and payload types) is not consulted there.
 
+## Fix
+
+Rust's rule for `impl<'p, K, V> Entry<'p, K, V> { fn or_insert(self) -> &'p mut V }`: the impl's origin parameter is in scope in every method's signature, and a call binds it from the receiver's type.
+
+- `evaluate_result_origin` (`src/evaluator/types/function.yo`) accepts an origin-kind name from the impl's environment. A name no parameter's type spells (`type_spells_origin`, `src/types/definitions.yo`) is E0922 with a message saying the call could not bind it, instead of a guess.
+- At the call, specialization elides origins, so the result's name matches no parameter slot. `projection_call_root_args` (`src/evaluator/utils.yo`) then roots every origin-carrying argument. `origin_of` now walks a method call's receiver (`m.entry(k)` lends `m`), so `or_insert`'s result points into the map, not into the entry.
+- The result of a holder's projection takes over the holder's loan (`_bind_projection_result`), so `e.or_insert(v)` does not conflict with `e`'s own `&mut` of the map.
+- The by-value body `&mut self.m.*` is no longer E0910: `_call_lends` skips a function literal's own value (the end-of-body `___drop(self)` saw the literal's body as a lent argument).
+- The single-root rule (`_projection_call_root_error`, `src/evaluator/builtins/ptr_fns.yo`) checks a holder argument's places, so an entry of a local map returned from a projection is E0912.
+
 ## Test
 
-The fix adds the reproducer and the by-value `self : Self -> &mut(T, p)` shape to `tests/origins/reference_read_rule.test.yo` and moves this doc to `issues/fixed/`.
+`tests/origins/impl_origin_result.test.yo`, std-free: the reproducer's `&` holder (bound, read in place, outliving the holder; a write to its place while the result lives is rejected), the entry's `or_insert` shape (in place and bound; a read of the map while the result lives and a result that outlives a local map are rejected), the by-value `self : Self -> &mut i32` holder, and the E0922 case of a name no parameter's type spells.
