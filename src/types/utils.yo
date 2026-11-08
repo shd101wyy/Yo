@@ -830,6 +830,81 @@ type_carries_origin :: (fn(ty : &TypeValue) -> bool)(
     }
   )
 );
+/// D1's per-nominal answer, installed at init (the impl registries live above
+/// this module): the value nominal `ty` declares a `Drop` whose `drop` may
+/// read the places `ty`'s origins name (`nominal_drop_uses_roots`).
+DropUsesRootsFn :: (fn(ty : &TypeValue, std_path : &String) -> bool);
+(mut(g_drop_uses_roots_fn) : Option(DropUsesRootsFn)) = Option(DropUsesRootsFn).None;
+/// Install the per-nominal answer (`evaluator/trait_checking.yo` does at init).
+set_drop_uses_roots_fn :: (fn(f : Option(DropUsesRootsFn)) -> unit)({
+  g_drop_uses_roots_fn = f;
+});
+/// D1 (`plans/backlog/REFERENCES_AND_ORIGINS.md` O3, "Drops that use no
+/// root"; `BORROW_CHECKER_COMPLETENESS.md` O-4): dropping a value of `ty` may
+/// read the places its origins name — `ty` reaches, through fields, payloads,
+/// elements, tuple components and type arguments (a cell's or a container's
+/// payload), a nominal whose `Drop` uses its roots. A reference or a raw
+/// pointer owns nothing it points at, so the walk stops there. A holder of
+/// such a type is live to its scope-end drop, not only to its last use.
+type_reaches_user_drop :: (fn(ty : &TypeValue, std_path : &String) -> bool)(
+  cond(
+    !(g_move_only_possible && g_origin_types_exist) => false,
+    true => {
+      seen := ArrayList(String).new();
+      _reaches_user_drop_inner(ty, std_path, &mut seen, u32(0))
+    }
+  )
+);
+_any_reaches_user_drop :: (fn(ts : &SharedList(TypeValue), std_path : &String, seen : &mut ArrayList(String), depth : u32) -> bool)({
+  (i : usize) = usize(0);
+  while(i < ts.len(), i = (i + usize(1)), {
+    if(match(ts.get(i), .Some(t) => _reaches_user_drop_inner(&t, std_path, seen, depth + u32(1)), .None => false), {
+      return(true);
+    });
+  });
+  false
+});
+_reaches_user_drop_inner :: (fn(ty : &TypeValue, std_path : &String, seen : &mut ArrayList(String), depth : u32) -> bool)({
+  if((depth > u32(24)) || !type_carries_origin(ty), {
+    return(false);
+  });
+  match(
+    ty,
+    Rc(.Array(element : elem)) => _reaches_user_drop_inner(&elem, std_path, seen, depth + u32(1)),
+    Rc(.RefineT(inner, _)) => _reaches_user_drop_inner(&inner, std_path, seen, depth + u32(1)),
+    Rc(.Tuple({ field_types : fields })) => _any_reaches_user_drop(&fields, std_path, seen, depth),
+    Rc(.SomeT({ resolution : res })) => match(res, .Some(r) => _reaches_user_drop_inner(&r, std_path, seen, depth + u32(1)), .None => false),
+    Rc(.Struct({ id : sid, field_types : fields, type_arguments : targs })) => cond(
+      match(g_drop_uses_roots_fn, .Some(f) => f(ty, std_path), .None => false) => true,
+      _any_reaches_user_drop(&targs, std_path, seen, depth) => true,
+      ((sid.len() > usize(0)) && seen.contains(&sid)) => false,
+      true => {
+        if(sid.len() > usize(0), {
+          seen.push(sid.clone());
+        });
+        _any_reaches_user_drop(&fields, std_path, seen, depth)
+      }
+    ),
+    Rc(.EnumT({ id : eid, variant_fields : vfields, type_arguments : etargs })) => cond(
+      match(g_drop_uses_roots_fn, .Some(f) => f(ty, std_path), .None => false) => true,
+      _any_reaches_user_drop(&etargs, std_path, seen, depth) => true,
+      ((eid.len() > usize(0)) && seen.contains(&eid)) => false,
+      true => {
+        if(eid.len() > usize(0), {
+          seen.push(eid.clone());
+        });
+        (vi : usize) = usize(0);
+        while(vi < vfields.len(), vi = (vi + usize(1)), {
+          if(match(vfields.get(vi), .Some(vf) => _any_reaches_user_drop(&vf, std_path, seen, depth), .None => false), {
+            return(true);
+          });
+        });
+        false
+      }
+    ),
+    _ => false
+  )
+});
 /// The prelude's `Escapable` marker, derived structurally (decision 43,
 /// plans/backlog/REFERENCES_AND_ORIGINS.md O10): `ty` carries no origin
 /// (`type_carries_origin`) and holds no capture-list borrow, which a
@@ -3945,7 +4020,7 @@ type_may_provide_slice_source :: (fn(ty : &TypeValue) -> bool)({
 export(enum_phantom_type_arg_somes, enum_phantom_type_args_masked);
 export(CaptureBorrow, register_capture_borrows, capture_struct_borrows, capture_borrows_exist, capture_borrow_place_string, collect_type_borrows, type_is_second_class, type_first_mut_borrow, type_pointee_second_class);
 export(future_origin_names, note_future_origins_exist, note_unreturnable_future, future_unreturnable_borrow);
-export(type_carries_origin, type_is_escapable, escapable_bound_error, note_origin_types_exist, origin_value_phase_message, reject_origin_carrying_signature, no_origin_position_error, origin_beyond_n2b, origin_beyond_n2b_message);
+export(type_carries_origin, type_reaches_user_drop, DropUsesRootsFn, set_drop_uses_roots_fn, type_is_escapable, escapable_bound_error, note_origin_types_exist, origin_value_phase_message, reject_origin_carrying_signature, no_origin_position_error, origin_beyond_n2b, origin_beyond_n2b_message);
 export(set_target_pointer_size);
 export(is_drop_trait_name, is_drop_method_name, is_destructor_trait_member, is_clone_trait_type, dyn_type_lists_clone, type_holds_dyn_by_value);
 export(get_target_pointer_size_bits);

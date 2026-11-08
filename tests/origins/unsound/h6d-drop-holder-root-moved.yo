@@ -1,0 +1,27 @@
+// expect: E0911
+// H6 (O-4), the move form: the root of a user-`Drop` holder is moved out (and freed) after the holder's last use; the holder's `drop` at the scope end reads it.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+H :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(r : &(Rc(X), p)));
+impl(
+  generic(p : Origin),
+  H(p),
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      n := self.r.*.*.s.len();
+      println(`H dropped, read len ${n.to_string()}`);
+    })
+  )
+);
+sink :: (fn(v : Rc(X)) -> unit)({
+  println(`sink ${v.*.s.len().to_string()}`);
+});
+main :: (fn() -> unit)({
+  y := Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz")));
+  h := H(y)(r : &y);
+  sink(y);
+  println("end of main");
+  ()
+});
+export(main);

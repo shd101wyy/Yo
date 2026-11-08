@@ -208,7 +208,7 @@ Filed 2026-11-07 from VERDICTS-30/31; each names its repro under `issues/repros/
 - `issues/fixed/2026-11-07-a-composite-built-in-a-borrowed-match-arm-escapes-without-freezing-the-scrutinee.md` — S1
 - `issues/fixed/2026-11-07-o3-3-invariance-is-not-applied-through-a-mut-lent-named-composite.md` — S1
 - `issues/fixed/2026-11-07-cond-and-match-arm-results-holding-references-join-only-one-arms-roots.md` — S1
-- `issues/2026-11-07-a-user-drop-holder-declared-before-its-root-reads-the-root-after-it-is-dropped.md` — S1
+- `issues/fixed/2026-11-07-a-user-drop-holder-declared-before-its-root-reads-the-root-after-it-is-dropped.md` — S1
 - `issues/fixed/2026-11-07-a-borrowed-for-element-stored-into-an-outer-slot-does-not-freeze-the-collection.md` — S1
 - `issues/fixed/2026-11-07-a-projection-call-inside-a-payload-bound-to-a-local-does-not-freeze-the-collection.md` — S1
 - `issues/2026-11-07-a-holder-returned-over-a-borrowed-temporary-is-accepted-when-bound.md` — S1 (latent)
@@ -238,3 +238,11 @@ Filed 2026-11-07 from VERDICTS-30/31; each names its repro under `issues/repros/
   parameter type is a rigid origin of the body (named, closure and `io.async` bodies, one binder). A store through a
   `&mut` capture is E0923 for a per-call parameter root, E0912 for a body local, and otherwise joins the outer holder at
   the literal. It closes H2 and its named-body twin, plus the field-write join §5 named but had not built.
+- 2026-11-08: O-4 landed (`Drop`-extended liveness). A holder whose type reaches a nominal whose `Drop` uses its
+  roots (D1, `type_reaches_user_drop`: any impl outside std, a std impl only on a type with its own origin argument,
+  so std's buffer containers stay `may_dangle`) is live to its scope-end drop through `bind` and the `=` join. Moving
+  or writing its root meanwhile is E0911; a root of an inner block is §7's scope check; a root declared after the
+  holder in the same block is E0911 at the store (reverse declaration drop order). It closes H6. The filed program
+  (a spelled `Option(H(x))`) had already been E0923 since O-3; the reachable shapes are a flow-inferred `G(&T)` holder
+  and a move of the root (G-B `h6b`/`h6c`/`h6d`). Known over-rejection, Drop holders only: a store of an inner-block
+  root that the block overwrites before it ends is still rejected (no kill precision; Rust accepts).

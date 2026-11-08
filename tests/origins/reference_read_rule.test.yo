@@ -207,3 +207,56 @@ test("Both operands of an operator can be derefs of reference-returning calls", 
   z := Rc.new(i32(8));
   assert(rr_rc_eq(&x, &y) && !rr_rc_eq(&x, &z), "the same through as_ref in a generic body");
 });
+// O-4 (D1, H6): a holder whose type reaches a user `Drop` is live to its
+// scope-end drop, not only to its last use: its `drop` may read the roots.
+RrDropG :: (fn(comptime(T) : Type) -> comptime(Type))(struct(t : T));
+impl(
+  RrDropG(&i32),
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      _ := self.t.*;
+    })
+  )
+);
+comptime_expect_error(
+  rr_drop_holder_root_written :: (fn() -> unit)({
+    mut(x) := i32(1);
+    _g := RrDropG(&i32)(t : &x);
+    x = i32(2);
+  }),
+  "`_g` borrows `x` with `&` and is still live"
+);
+comptime_expect_error(
+  rr_drop_holder_root_declared_after :: (fn() -> unit)({
+    x := i32(1);
+    mut(g) := RrDropG(&i32)(t : &x);
+    y := i32(2);
+    g = RrDropG(&i32)(t : &y);
+  }),
+  "is dropped first (bindings drop in reverse declaration order)"
+);
+comptime_expect_error(
+  rr_drop_holder_inner_root :: (fn() -> unit)({
+    x := i32(1);
+    mut(g) := RrDropG(&i32)(t : &x);
+    {
+      y := i32(2);
+      g = RrDropG(&i32)(t : &y);
+    };
+  }),
+  "is live to its drop at the end of its own block"
+);
+test("a user-Drop holder re-pointed at a root declared before it", {
+  x := i32(1);
+  y := i32(2);
+  mut(g) := RrDropG(&i32)(t : &x);
+  g = RrDropG(&i32)(t : &y);
+  assert(g.t.* == i32(2), "the holder reads its new root");
+});
+test("a plain holder's root is free after the holder's last use", {
+  mut(x) := i32(1);
+  h := RrCounted(x)(r : &x, n : i32(0));
+  assert(h.r.* == i32(1), "read through the holder");
+  x = i32(2);
+  assert(x == i32(2), "no Drop: the holder's range ended at its last use");
+});

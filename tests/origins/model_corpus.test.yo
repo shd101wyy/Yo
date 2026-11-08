@@ -464,6 +464,12 @@ drop_order_user_drop :: (fn() -> Case)(case1(entry(al3(let_(OUT, Rc.new(NodeE.Ma
 test("drop-order-user-drop", {
   verdict("drop-order-user-drop", drop_order_user_drop(), "E0911");
 });
+// O-4: a user-`Drop` holder declared before its root and re-pointed at it;
+// the root drops first at the scope end while the holder's drop still uses it.
+test("drop-holder-before-root", {
+  main := entry(al4(let_(X, lit()), let_(H, Rc.new(NodeE.Make(Kind.Guard, Rc.new(NodeE.Borrow(false, X))))), let_(Y, lit()), Rc.new(NodeE.Assign(H, Rc.new(NodeE.Make(Kind.Guard, Rc.new(NodeE.Borrow(false, Y))))))));
+  verdict("drop-holder-before-root", case1(main), "E0911");
+});
 test("drop-order-may-dangle", {
   main := entry(al3(let_(OUT, Rc.new(NodeE.NewList(shr(int(), ELIDED)))), let_(X, lit()), Rc.new(NodeE.Push(OUT, Rc.new(NodeE.Borrow(false, X))))));
   verdict("drop-order-may-dangle", case1(main), "ACCEPT");

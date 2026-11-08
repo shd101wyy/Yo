@@ -143,7 +143,7 @@ pragma(Pragma.AllowUnsafe);
 { get_func_type, is_fn_ctfe_clone, is_closure_fn, is_io_async_sm_closure } :: import("../function_value.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../types/compatibility.yo");
 { type_to_string, type_to_string_for_message } :: import("../types/string.yo");
-{ type_is_bitwise_copy, type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_holds_counted_handle, type_holds_counted_handle_ignoring_migration, set_counted_handle_rule, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow, is_bound_closure_identity, is_closure_capture_struct, resolve_cell_chain, is_future_value_type, is_bare_callable_into_dyn_fn, type_contains_some_type_deep, type_holds_dyn_by_value, dyn_type_lists_clone, fn_trait_call_func_type, type_carries_origin, note_origin_types_exist, type_is_typed_fnmut_closure, capture_struct_is_fnmut, future_unreturnable_borrow, future_origin_names } :: import("../types/utils.yo");
+{ type_is_bitwise_copy, type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_holds_counted_handle, type_holds_counted_handle_ignoring_migration, set_counted_handle_rule, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow, is_bound_closure_identity, is_closure_capture_struct, resolve_cell_chain, is_future_value_type, is_bare_callable_into_dyn_fn, type_contains_some_type_deep, type_holds_dyn_by_value, dyn_type_lists_clone, fn_trait_call_func_type, type_carries_origin, type_reaches_user_drop, note_origin_types_exist, type_is_typed_fnmut_closure, capture_struct_is_fnmut, future_unreturnable_borrow, future_origin_names } :: import("../types/utils.yo");
 { expr_info_table_set, migrate_match_scrutinee_on, record_migrate_edit, migrate_dyn_spelling_on, record_dyn_spelling_site, is_mut_global, is_thread_local, migrate_mutable_globals_on, record_mutable_global_site, migrate_mut_bindings_on, record_mut_binding_site, record_mut_binding_site_pending, record_mut_param_site, record_mut_param_site_pending, record_mut_judged, migrate_deref_on, audit_deref_on, deref_rule_suspended, record_deref_site, record_deref_edit_site, note_reference_read_copied, lookup_macro_expansion } :: import("../expr_info.yo");
 { is_global_mut_rule_exempt, is_deref_rule_exempt } :: import("./memory_safety.yo");
 // `set_expr_as_needs_to_call_dup` builds + evaluates a `___dup(name)` call.
@@ -8259,8 +8259,11 @@ _lb_has_repoint :: (fn(e : &AstExpr, name : &String, (in_cond_arm : bool) ?= fal
 /// mention and its region end. Without a block look-ahead (the binding is
 /// not a block statement) the borrow dies at its own binding.
 /// `has_repoint` reports whether a later statement re-points it.
+/// `to_scope_end`: the holder's type reaches a `Drop` that uses its roots
+/// (`type_reaches_user_drop`, O-4), so it is live to its scope-end drop —
+/// the last token of its block — not only to its last mention.
 LocalBorrowRange :: struct(last_use : Token, end : Token, has_repoint : bool);
-local_borrow_range_of :: (fn(binding : &AstExpr, name : &String, decl : &Token) -> LocalBorrowRange)({
+local_borrow_range_of :: (fn(binding : &AstExpr, name : &String, decl : &Token, (to_scope_end : bool) ?= false) -> LocalBorrowRange)({
   (last : Token) = decl;
   (end : Token) = _last_token_of(binding, decl);
   (repoint : bool) = false;
@@ -8291,6 +8294,21 @@ local_borrow_range_of :: (fn(binding : &AstExpr, name : &String, decl : &Token) 
       while((k < stmts.len()) && !repoint, {
         repoint = match(stmts.get(k), .Some(s) => _lb_has_repoint(&s, name.clone()), .None => false);
         k = (k + usize(1));
+      });
+      if(to_scope_end, {
+        match(
+          stmts.get(stmts.len() - usize(1)),
+          .Some(last_stmt) => {
+            scope_end := _last_token_of(&last_stmt, decl);
+            if(_lb_tok_after(&scope_end, &end), {
+              end = scope_end;
+            });
+            if(_lb_tok_after(&scope_end, &last), {
+              last = scope_end;
+            });
+          },
+          .None => ()
+        );
       });
     },
     .None => ()
@@ -9448,7 +9466,9 @@ bind :: (fn(binding : &AstExpr, rhs : &AstExpr, var_name : &String, name_tok : &
   if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
     eprintln(`[n2b] bind ${var_name}: roots=[${n2b_roots_text(&roots)}] rhs=${ast_expr_to_string(rhs)}`);
   });
-  range := local_borrow_range_of(binding, var_name.clone(), name_tok);
+  // O-4: a holder whose drop uses its roots keeps them to its scope end.
+  holder_drops := ((roots.len() > usize(0)) && match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(rhs)), .Some(ri0) => type_reaches_user_drop(&ri0.ty(), &ctx.std_path), .None => false));
+  range := local_borrow_range_of(binding, var_name.clone(), name_tok, to_scope_end : holder_drops);
   (ri : usize) = usize(0);
   while(ri < roots.len(), {
     // No access check HERE: the lend itself was checked where it was made
@@ -10214,9 +10234,11 @@ bind_join_roots_for :: (fn(variable : &Variable, roots : &ArrayList(OriginRootPl
   );
   v_tok := variable.token;
   site := _lb_binding_site_of(variable);
+  // O-4: a holder whose drop uses its roots is live to its scope-end drop.
+  holder_drops := ((roots.len() > usize(0)) && type_reaches_user_drop(&variable_value_type(variable), &ctx.std_path));
   range := match(
     &site,
-    .Some(s) => local_borrow_range_of(&s.stmt, variable.name.clone(), &v_tok),
+    .Some(s) => local_borrow_range_of(&s.stmt, variable.name.clone(), &v_tok, to_scope_end : holder_drops),
     .None => LocalBorrowRange(last_use : v_tok, end : at.clone(), has_repoint : false)
   );
   // KILL + GEN (§7): the assignment REPLACED the holder's value, so its
@@ -10281,11 +10303,12 @@ bind_join_roots_for :: (fn(variable : &Variable, roots : &ArrayList(OriginRootPl
             match(
               _lb_binding_site_of(&root_v),
               .Some(root_site) => if(_lb_tok_after(&range.end, &root_site.scope_end), {
+                live_to := if(holder_drops, String.from("is live to its drop at the end of its own block (its type reaches a `Drop` that may read what it holds)"), String.from("is live to its last use"));
                 raise_flow_violation(
                   with_code(
                     format_error_message_with_help(
                       at,
-                      `Cannot store a reference to \`${gr.place.root_name}\` in \`${variable.name}\` here: \`${gr.place.root_name}\`'s scope ends with its block, while \`${variable.name}\` is live to its last use, so the reference would outlive the storage it points into (decision 43, plans/backlog/REFERENCES_AND_ORIGINS.md O3; plans/backlog/BORROW_CHECKER_COMPLETENESS.md §7).`,
+                      `Cannot store a reference to \`${gr.place.root_name}\` in \`${variable.name}\` here: \`${gr.place.root_name}\`'s scope ends with its block, while \`${variable.name}\` ${live_to}, so the reference would outlive the storage it points into (decision 43, plans/backlog/REFERENCES_AND_ORIGINS.md O3; plans/backlog/BORROW_CHECKER_COMPLETENESS.md §7).`,
                       Option(String).Some(`bind what \`${variable.name}\` holds inside \`${gr.place.root_name}\`'s block (and end its use there), or point it at a place that outlives it`)
                     ),
                     E_LOCAL_BORROW_CONFLICT
@@ -10293,6 +10316,24 @@ bind_join_roots_for :: (fn(variable : &Variable, roots : &ArrayList(OriginRootPl
                   ctx,
                   exn
                 );
+              }, {
+                // O-4, the same block: bindings drop in reverse declaration
+                // order, so a root declared after the holder is dropped
+                // before the holder's `drop` runs and reads it.
+                if(holder_drops && _lb_tok_after(&root_v.token, &v_tok), {
+                  raise_flow_violation(
+                    with_code(
+                      format_error_message_with_help(
+                        at,
+                        `Cannot store a reference to \`${gr.place.root_name}\` in \`${variable.name}\` here: \`${variable.name}\`'s type \`${type_to_string(&variable_value_type(variable))}\` reaches a \`Drop\` that may read \`${gr.place.root_name}\`, and \`${gr.place.root_name}\`, declared after \`${variable.name}\`, is dropped first (bindings drop in reverse declaration order), so that \`drop\` would read storage that is gone (decision 43, plans/backlog/REFERENCES_AND_ORIGINS.md O3, "Drops that use no root").`,
+                        Option(String).Some(`declare \`${gr.place.root_name}\` before \`${variable.name}\``)
+                      ),
+                      E_LOCAL_BORROW_CONFLICT
+                    ),
+                    ctx,
+                    exn
+                  );
+                });
               }),
               .None => ()
             );

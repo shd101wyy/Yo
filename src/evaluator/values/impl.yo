@@ -6822,6 +6822,64 @@ nominal_declares_move_only :: (fn(ty : &TypeValue) -> String)({
   _record_move_only_fast(ty, key_epoch, &found);
   found
 });
+/// The `DropUsesRootsFn` answer (D1, `REFERENCES_AND_ORIGINS.md` O3 "Drops
+/// that use no root"; O-4): the value nominal `ty` declares `Drop` in an impl
+/// whose `drop` may read the places `ty`'s origins name. Any impl outside std
+/// may (Rust's dropck without `#[may_dangle]`); a std impl only on a type
+/// with an origin parameter of its own (a borrowing guard): std's buffer
+/// containers and cells free their storage and run their elements' drops
+/// without reading through them (`#[may_dangle]`), so `ArrayList(&T)`'s
+/// drop uses no root, while `ArrayList(H(p))` reaches `H`'s own drop through
+/// its element (`type_reaches_user_drop`'s walk).
+nominal_drop_uses_roots :: (fn(ty : &TypeValue, std_path : &String) -> bool)({
+  if(!is_value_nominal_type(ty) || (nominal_declares_move_only(ty) != String.from("Drop")), {
+    return(false);
+  });
+  tid := type_id_or_empty(ty);
+  (owner : Option(String)) = .None;
+  (i : usize) = usize(0);
+  while((i < g_move_only_decls.with(_c_len_6)) && owner.is_none(), i = (i + usize(1)), {
+    match(
+      g_move_only_decls.with({ i }(xs) => xs.get_cloned(i)),
+      .Some(d) => {
+        hit := match(
+          &d.generic,
+          .Some(ge) => try_match_generic_impl(ty, &ge, &ge.definition_env, true).is_some(),
+          .None => (d.concrete_id == tid)
+        );
+        if(hit, {
+          owner = .Some(d.owner.clone());
+        });
+      },
+      .None => ()
+    );
+  });
+  match(
+    owner,
+    .Some(o) => cond(
+      (o.is_empty() || is_std_module_path(&o, std_path)) => _type_has_own_origin_argument(ty),
+      true => true
+    ),
+    .None => false
+  )
+});
+/// `ty` is instantiated with an origin argument (`G(T, p)`), not only with
+/// type arguments that carry one (`ArrayList(&T)`).
+_type_has_own_origin_argument :: (fn(ty : &TypeValue) -> bool)({
+  targs := match(
+    ty,
+    Rc(.Struct({ type_arguments : ta })) => Rc.clone(ta),
+    Rc(.EnumT({ type_arguments : ta })) => Rc.clone(ta),
+    _ => return(false)
+  );
+  (i : usize) = usize(0);
+  while(i < targs.len(), i = (i + usize(1)), {
+    if(match(targs.get(i), .Some(Rc(.OriginSet(_, _))) => true, _ => false), {
+      return(true);
+    });
+  });
+  false
+});
 /// The `GenericOwnerDropFn` answer, for the raw-view gate's owner exemption
 /// only: does a recorded generic `Drop` impl cover `ty`, an instantiation of
 /// a value nominal constructor at unresolved type parameters (`Buf(T)` in a
@@ -7325,7 +7383,7 @@ export(GenericImplEntry, MethodCandidate);
 ifc_memo_entry_count :: (fn() -> usize)(g_ifc_memo.with(_c_len_10));
 export(purge_ifc_memo_owned_by, ifc_memo_entry_count);
 export(TypeImplementsTraitFullFn);
-export(set_type_implements_trait_full_fn, set_register_trait_value_fn, set_check_self_constraints_fn, set_receiver_kind_trait_fn, get_trait_key, nominal_declares_move_only, generic_instantiation_declares_drop);
+export(set_type_implements_trait_full_fn, set_register_trait_value_fn, set_check_self_constraints_fn, set_receiver_kind_trait_fn, get_trait_key, nominal_declares_move_only, generic_instantiation_declares_drop, nominal_drop_uses_roots);
 export(register_generic_impl, purge_concrete_trait_impls_owned_by);
 export(register_negative_generic_impl, find_matching_negative_generic_impl);
 export(try_match_generic_impl);
