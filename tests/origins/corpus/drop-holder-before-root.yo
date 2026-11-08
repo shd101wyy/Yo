@@ -1,0 +1,21 @@
+// Corpus row `drop-holder-before-root` (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §5, O-4;
+// manifest tests/origins/corpus.tsv): a holder whose type has a user `Drop` reading its root, declared before that root and re-pointed at it: the root drops first at the scope end (H6).
+// Expected once O-4 lands: rejected: E0911 (the holder is live to its scope-end drop).
+H :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(r : &(i32, p)));
+impl(
+  generic(p : Origin),
+  H(p),
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      _ := self.r.*;
+    })
+  )
+);
+main :: (fn() -> unit)({
+  x := i32(1);
+  mut(h) := H(x)(r : &x);
+  y := i32(2);
+  h = H(y)(r : &y);
+  ()
+});
+export(main);
