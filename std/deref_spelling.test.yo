@@ -1,13 +1,16 @@
-// SIBLING TEST: the `.*` spelling inside std (N3 deref Generation A,
+// SIBLING TEST: the `.*` spelling inside std (N3 deref Generation A',
 // plans/backlog/SEED_VERSION_AUTOMATION.md). std and src keep the old
-// reading of a reference binding until v0.2.77 migrates them: a bare `r`
-// reads the value it refers to, and `r.*` on a `&Box(T)`/`&Rc(T)`/`&Arc(T)`
-// is the payload. Generation A lets these trees also spell a written `r.*`
-// where the two readings agree, a referent that is not itself dereferenced
-// by `.*`. This file lives under std so it is judged by std's reading. The
-// v0.2.75 seed compiles std but never runs this file's tests, because
-// `check` and builds treat `test(...)` as a no-op and release bundles drop
-// `*.test.yo`. `yo test ./std` runs it with the tree compiler.
+// reading of a BARE reference binding until v0.2.78 migrates them: a bare
+// `r` reads the value it refers to. A WRITTEN `r.*` on a reference binding
+// is the reference's own deref here as everywhere else, whatever the
+// referent: `r.*` on `r : &Rc(T)` is the handle, and `a.*` on `a : &T` in a
+// generic body is the `T` at every specialization (Generation A, v0.2.76,
+// read it as the payload or pointee whenever the specialization made `T` a
+// `Box`/`Rc`/`Arc`/pointer). This file lives under std so it is judged by
+// std's reading. The v0.2.76 seed compiles std but never runs this file's
+// tests, because `check` and builds treat `test(...)` as a no-op and release
+// bundles drop `*.test.yo`. `yo test ./std` runs it with the tree compiler.
+pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
 
 _DerefPoint :: struct(a : i32, b : i32);
@@ -50,9 +53,34 @@ test("match(r.*, …) matches the referent", {
   hit := match(r.*, i32(9) => true, _ => false);
   assert(hit, "match(r.*, …) sees the referent");
 });
-test("r.* on a &Box(T) is still the payload in std", {
+test("r.* on a &Box(T) is the handle; r.*.* is its payload", {
   bx := Box.new(i32(10));
   rb := &bx;
-  n := rb.*;
-  assert(n == i32(10), "rb.* reads the Box's payload under std's reading");
+  n := rb.*.*;
+  assert(n == i32(10), "rb.* is the Box, rb.*.* its payload");
+});
+_deref_first :: (fn(generic(T : Type), a : &T) -> T)(a.*);
+test("a.* on a generic &T is the T at a pointer specialization", {
+  x := i32(11);
+  p := addr_of(x);
+  q := _deref_first(&p);
+  assert(q == p, "a.* is the pointer itself, not its pointee");
+  assert(_deref_first(&x) == i32(11), "and the value at an i32 specialization");
+});
+_deref_count :: (fn(generic(T : Type), a : &Rc(T)) -> usize)(ref_count(a.*));
+test("r.* on a &Rc(T) is the handle", {
+  h := Rc.new(i32(12));
+  h2 := Rc.clone(h);
+  rh := &h;
+  assert(ref_count(rh.*) == usize(2), "rh.* is the handle, counted with its clone");
+  assert(_deref_count(&h2) == usize(2), "the same through a generic body");
+});
+test("r.* = Rc.new(...) writes the handle's slot", {
+  mut(h) := Rc.new(i32(13));
+  w := &mut h;
+  w.* = Rc.new(i32(14));
+  assert(h.* == i32(14), "the slot behind w now holds the new handle");
+  bare := &h;
+  v := bare.*.*;
+  assert(v == i32(14), "a written deref beside it reads the same handle");
 });

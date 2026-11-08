@@ -3,6 +3,7 @@
 **Severity:** S1 — a compiler internal error on valid input: `f(&a).* == f(&b).*` with `f` returning `&T` stops the check with "arg has no ExprInfo".
 
 - Filed: 2026-11-08 (deref lane, VERDICTS-38 §5 item 1; found by Fable's probe p6b).
+- **Fixed by #1834** (G2, develop `beefabda4`: `f(x).*` on a projection call reads the place the call names). Re-verified 2026-11-08 on `beefabda4` + Gen A': the reproducer prints `true`, and the generic `as_ref` form prints `true false`. Regression test: `tests/origins/reference_read_rule.test.yo` ("Both operands of an operator can be derefs of reference-returning calls").
 - Reproduced on develop `a25a71ee1` (a tree build), user file and std tree alike: the reading of `.*` (A-narrow or the full rule) does not matter.
 
 ## Reproducer

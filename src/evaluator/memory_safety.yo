@@ -305,10 +305,11 @@ is_global_mut_rule_exempt :: (fn(mp : &String, std_path : &String) -> bool)(
 /// the DEFINING file of the expression, so a std generic body specialized
 /// for a user type keeps std's reading. Everywhere else E0926 rejects a
 /// whole-value read or write of a reference without `.*`. Since N3 deref
-/// Generation A (v0.2.76) these trees also read a WRITTEN `r.*` on a
-/// reference binding whose referent `.*` does not read through
-/// (`deref_spelling_applies`), the spelling Generation B migrates them to.
-/// Deleted at Generation B (v0.2.77), which migrates std and src
+/// Generation A' (v0.2.77) these trees read every WRITTEN `r.*` on a
+/// reference binding as the reference's own deref
+/// (`deref_spelling_applies`), the spelling Generation B migrates them to;
+/// only a bare `r` keeps the old reading. Deleted at Generation B
+/// (v0.2.78), which migrates std and src
 /// (plans/backlog/SEED_VERSION_AUTOMATION.md).
 (g_deref_rule_exempt_memo : RefCell(HashMap(String, bool))) = RefCell(HashMap(String, bool)).new(HashMap(String, bool).new());
 is_deref_rule_exempt :: (fn(mp : &String, std_path : &String) -> bool)(
