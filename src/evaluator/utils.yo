@@ -8309,6 +8309,23 @@ _origin_of_into :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, out
     _origin_field_into(&stripped, &fi, env, ctx, out, depth);
     return(());
   });
+  // R-READ of a reference payload binding (the read rule, R1): the value is
+  // the reference the scrutinee held, so it holds what the scrutinee's
+  // references held (R-DEREF), not the binding's own place.
+  if(ast_expr_is_atom(&stripped) && is_reference_read(ast_expr_id(&stripped)), {
+    match(
+      _ref_payload_held_of(&stripped, env),
+      .Some(held) => {
+        (hi : usize) = usize(0);
+        while(hi < held.len(), {
+          _origin_push(held(hi).clone(), out);
+          hi = (hi + usize(1));
+        });
+        return(());
+      },
+      .None => ()
+    );
+  });
   // R-LEND (recorded form, T9): the marker was peeled out of the tree and
   // the place's recorded reference type carries the mode and the root.
   match(
@@ -8451,17 +8468,18 @@ _origin_of_into :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, out
   ()
 });
 /// The origin of the references `e`'s value HOLDS, for a reference payload
-/// matched out of it: `origin_of(e)`, except that a parameter passed bare
-/// contributes only its registered entries, never its own place. That place
-/// is R-READ's stand-in for the caller's referent, and a payload reference
-/// never points into the referent that stores it: it points where the
-/// referent's own references point, which for a parameter is the caller's.
+/// matched out of it: `origin_of(e)`, except that a parameter passed bare,
+/// or a by-value holder, contributes only its registered entries, never its
+/// own place. A payload reference never points into the value that stores
+/// it: it points where that value's own references point — for a parameter
+/// the caller's storage, for a holder the places its `bind` registered (none
+/// when its references came from outside the function).
 origin_held_by :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext) -> ArrayList(OriginRootPlace))({
   stripped := ast_expr_strip_borrow_marker(e);
   if(ast_expr_is_atom(&stripped), {
     match(
       get_variables_from_env(env, ast_expr_token(&stripped).value.*.clone()).last_cloned(),
-      .Some(sv) => if(sv.is_parameter(), {
+      .Some(sv) => if(sv.is_parameter() || !variable_is_reference_binding(&sv), {
         held := ArrayList(OriginRootPlace).new();
         _holder_roots_into(&stripped, env, ctx, &mut held);
         return(held);
@@ -8816,17 +8834,22 @@ _origin_carrying_roots_shallow :: (fn(e : &AstExpr, env : &Environment, ctx : &E
                 // `r` a reference binding, decision 43 step 2 N1e-2b) points
                 // where `r` does: a local borrow's frozen places, or a
                 // reference parameter's own place.
-                (!v_is_lend_mut && !v_is_lend_amp && is_reference_read(ast_expr_id(&value_s))) => {
-                  rr_before := out.len();
-                  _holder_roots_into(&value_s, env, ctx, &mut out);
-                  if(out.len() == rr_before, {
-                    match(
-                      local_borrow_place_of(&value_s, env, ctx),
-                      .Some(p) => out.push(OriginRootPlace(place : p, is_mut : t_slot_is_mut_ref(&vi.ty()))),
-                      .None => ()
-                    );
-                  });
-                },
+                (!v_is_lend_mut && !v_is_lend_amp && is_reference_read(ast_expr_id(&value_s))) => match(
+                  _ref_payload_held_of(&value_s, env),
+                  // A reference payload binding: the scrutinee's held roots.
+                  .Some(held) => out.extend(held),
+                  .None => {
+                    rr_before := out.len();
+                    _holder_roots_into(&value_s, env, ctx, &mut out);
+                    if(out.len() == rr_before, {
+                      match(
+                        local_borrow_place_of(&value_s, env, ctx),
+                        .Some(p) => out.push(OriginRootPlace(place : p, is_mut : t_slot_is_mut_ref(&vi.ty()))),
+                        .None => ()
+                      );
+                    });
+                  }
+                ),
                 (v_is_lend_mut || v_is_lend_amp || v_lend.is_some()) => {
                   (v_mut : bool) = if(v_is_lend_mut, true, match(v_lend, .Some(Rc(.Reference(_, lm, _))) => lm, _ => false));
                   match(
@@ -10104,6 +10127,30 @@ ref_payload_source :: (fn(var_id : usize) -> Option(AstExpr))({
   });
   Option(AstExpr).None
 });
+/// The roots a reference payload binding's VALUE holds, by variable id: the
+/// references the scrutinee holds (`origin_held_by` at the `match`). The
+/// binding is a copy of one of them, so a read of it points where they do
+/// (R-DEREF), never into the binding's own place or the scrutinee's.
+(g_ref_payload_held : RefCell(HashMap(usize, ArrayList(OriginRootPlace)))) = RefCell(HashMap(usize, ArrayList(OriginRootPlace))).new(HashMap(usize, ArrayList(OriginRootPlace)).new());
+/// Record the roots the reference payload binding `var_id` holds.
+note_ref_payload_held :: (fn(var_id : usize, held : &ArrayList(OriginRootPlace)) -> unit)({
+  rph := held.clone();
+  g_ref_payload_held.with_mut({ var_id, rph }(m) => {
+    m.insert(var_id, rph.clone());
+  });
+});
+/// The roots a read of the reference payload binding named by the atom `a`
+/// holds, or `.None` when `a` names no such binding in `env`.
+_ref_payload_held_of :: (fn(a : &AstExpr, env : &Environment) -> Option(ArrayList(OriginRootPlace)))(
+  match(
+    get_variables_from_env(env, ast_expr_token(a).value.*.clone()).last_cloned(),
+    .Some(v) => {
+      v_id := v.id();
+      g_ref_payload_held.with({ v_id }(m) => m.get_cloned(&v_id))
+    },
+    .None => Option(ArrayList(OriginRootPlace)).None
+  )
+);
 export(lend_place_reference_type);
 /// A binding of a borrowed `match` (`match(&self.v, .Some(x) => …)`, or a
 /// reference binding matched bare, VERDICTS-13 §14): the binding's variable
@@ -10132,7 +10179,7 @@ borrow_match_source :: (fn(var_id : usize) -> Option(AstExpr))({
   });
   Option(AstExpr).None
 });
-export(projection_call_mode_of, projection_body_mismatch_message, ProjectionRootArg, is_temporary_operand, origin_temporary_entry, origin_temporary_root, ORIGIN_TEMPORARY_ROOT, projection_call_root_args, projection_call_callee_type, OriginRootPlace, origin_of, origin_held_by, origin_param_names_of, param_declared_origin_slot, is_body_parameter, place_write_join, rigid_param_slot, is_rigid_origin_name, origin_name_phrase, BorrowCaptureOuter, note_borrow_capture_outer, borrow_capture_outer, apply_capture_store_joins, holder_future_roots, bind, bind_join, bind_join_roots_for, return_check, note_ref_payload_source, ref_payload_source, note_borrow_match_source, borrow_match_source, n2b_roots_text);
+export(projection_call_mode_of, projection_body_mismatch_message, ProjectionRootArg, is_temporary_operand, origin_temporary_entry, origin_temporary_root, ORIGIN_TEMPORARY_ROOT, projection_call_root_args, projection_call_callee_type, OriginRootPlace, origin_of, origin_held_by, origin_param_names_of, param_declared_origin_slot, is_body_parameter, place_write_join, rigid_param_slot, is_rigid_origin_name, origin_name_phrase, BorrowCaptureOuter, note_borrow_capture_outer, borrow_capture_outer, apply_capture_store_joins, holder_future_roots, bind, bind_join, bind_join_roots_for, return_check, note_ref_payload_source, ref_payload_source, note_ref_payload_held, note_borrow_match_source, borrow_match_source, n2b_roots_text);
 export(drop_owned_match_binding_at_arm_end, match_scrutinee_is_capture, local_borrow_register_match_place, local_borrow_note_match_place, note_consuming_match_scrutinee, consuming_match_scrutinee_at, moved_value_help, _lb_arrow_shadows, _lb_fn_literal_binds, _lb_mentions);
 export(
   LocalBorrowPlace,
