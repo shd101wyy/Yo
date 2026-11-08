@@ -245,7 +245,8 @@ Filed 2026-11-07 from VERDICTS-30/31; each names its repro under `issues/repros/
   holder in the same block is E0911 at the store (reverse declaration drop order). It closes H6. The filed program
   (a spelled `Option(H(x))`) had already been E0923 since O-3; the reachable shapes are a flow-inferred `G(&T)` holder
   and a move of the root (G-B `h6b`/`h6c`/`h6d`). Known over-rejection, Drop holders only: a store of an inner-block
-  root that the block overwrites before it ends is still rejected (no kill precision; Rust accepts).
+  root that the block overwrites before it ends is still rejected (no kill precision; Rust accepts;
+  `issues/2026-11-09-a-drop-holder-re-pointed-at-an-inner-block-root-and-back-is-rejected.md`, S3).
 - 2026-11-08: O-5 landed (R-TEMP). A temporary lent to a reference parameter (a call's argument, a method call's
   receiver) is a hidden statement local, an `origin_of` entry; `bind`, the `=` join and `return_check` reject a value
   whose origin names one (E0911; E0912 for a return), and the projection binding rejects a temporary holder at a
