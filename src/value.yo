@@ -9,8 +9,8 @@ pragma(Pragma.AllowUnsafe);
 { ArrayList, ArrayListIter } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { TypeValue, TypeValueNode, SharedList, SharedListCell, shared_list, no_types, no_labels } :: import("./types/definitions.yo");
-{ t_unit, t_bool, t_comptime_int, t_comptime_float, t_comptime_string, t_type, t_some_t } :: import("./types/creators.yo");
-{ is_type_0 } :: import("./types/guards.yo");
+{ t_unit, t_bool, t_comptime_int, t_comptime_float, t_comptime_string, t_type, t_some_t, t_some_t_of_kind } :: import("./types/creators.yo");
+{ is_type_0, is_type_kind } :: import("./types/guards.yo");
 { AstExpr, exprs_are_equal } :: import("./expr.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("./types/compatibility.yo");
 { RefCell } :: import("std/sync/refcell");
@@ -1017,8 +1017,8 @@ create_runtime_unknown_val :: (fn(ty : &TypeValue) -> EvalValue)(
 /// type is `Type`.
 create_unknown_val_with_name :: (fn(ty : &TypeValue, name : &String) -> EvalValue)(
   cond(
-    is_type_0(ty) =>
-      EvalValue.TypeVal(t_some_t(name, usize(0))),
+    is_type_kind(ty) =>
+      EvalValue.TypeVal(t_some_t_of_kind(name, usize(0), ty)),
     true => EvalValue.UnknownVal(Rc.clone(ty), false)
   )
 );
@@ -1029,8 +1029,8 @@ create_unknown_val_with_name :: (fn(ty : &TypeValue, name : &String) -> EvalValu
 /// (issues/fixed/recur-runtime-result-not-marked-runtime-only.md).
 create_runtime_unknown_val_with_name :: (fn(ty : &TypeValue, name : &String) -> EvalValue)(
   cond(
-    is_type_0(ty) =>
-      EvalValue.TypeVal(t_some_t(name, usize(0))),
+    is_type_kind(ty) =>
+      EvalValue.TypeVal(t_some_t_of_kind(name, usize(0), ty)),
     true => EvalValue.UnknownVal(Rc.clone(ty), true)
   )
 );

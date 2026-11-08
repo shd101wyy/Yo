@@ -1182,7 +1182,10 @@ _hard_swallow_classes :: (fn(msg : &String, include_generated : bool) -> Option(
         // (issues/fixed/derive-clone-over-a-non-clone-field-is-swallowed-into-a-runtime-abort.md).
         // The location marker is the generated module path, which the
         // rendered diagnostic carries.
-        ((include_generated && msg.contains(String.from("--> auto-generated://"))) || msg.contains(String.from("Argument count mismatch")) || (msg.contains(String.from("Variable \"")) && msg.contains(String.from("\" not found.")))) => {
+        // Fifth class: E0619 (decision 49). A `?Sized` binder's misuse is
+        // judged at the DEFINITION: the trial is where a `T` bound, returned or
+        // stored by value is seen, before any call instantiates the body.
+        ((include_generated && msg.contains(String.from("--> auto-generated://"))) || msg.contains(String.from("Argument count mismatch")) || (msg.contains(String.from("Variable \"")) && msg.contains(String.from("\" not found."))) || msg.contains(String.from("[E0619]"))) => {
           // The swallowed dyn-message often already carries an "Error: " or
           // "error[E0401]: " prefix; format_error_message adds its own —
           // strip one to avoid "Error: Error:" / "error[E0401]: error[E0401]:".

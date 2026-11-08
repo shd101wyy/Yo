@@ -53,6 +53,7 @@ json :: import("std/encoding/json");
   E_AMBIGUOUS_METHOD,
   E_DISCARDED_MUST_USE,
   E_BARE_CALLABLE_INTO_DYN,
+  E_UNSIZED_BY_VALUE,
   E_NEVER_FULLY_EVALUATED,
   E_FORWARD_REFERENCE,
   E_MOVED_ON_SOME_PATHS,
@@ -1066,6 +1067,21 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "run :: (fn(d : Dyn(Fn() -> i32)) -> i32)(d());\nmain :: (fn() -> unit)({\n  n := i32(3);\n  (f : Impl(Fn() -> i32)) = (() => n);\n  _x := run(dyn(f));\n});\nexport(main);\n",
       "`dyn(f)` boxes the closure as the `Dyn(Fn() -> i32)` the parameter takes.",
       "`dyn(f)` 把闭包装箱为形参所需的 `Dyn(Fn() -> i32)`。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_UNSIZED_BY_VALUE,
+      "an unsized type is used by value",
+      "按值使用了非定长类型",
+      "A type with no size of its own — `[T]` (`Slice(T)`), a `?Sized` type variable, or a struct whose last field is unsized — is used where a value of it would have to be stored, copied or measured.",
+      "没有自身大小的类型 —— `[T]`（`Slice(T)`）、`?Sized` 类型变量，或最后一个字段非定长的结构体 —— 被用在需要存储、复制或度量其值的位置。",
+      "An unsized type lives only behind a pointer (plans/VALUES_BY_DEFAULT.md decision 49): `&T`, `&mut T`, `*T`, or an owning handle. A local, a by-value parameter or result, a field other than a struct's last, an element or payload, `size_of(T)`, and the argument of a `generic(T : Type)` or `comptime(V) : Type` binder all need a size, because every such binder carries the implicit bound `where(T <: Sized)`. A generic whose body uses `T` only behind a pointer declares `generic(T : ?Sized)` and accepts unsized types; the check then runs where the generic is defined, so a `?Sized` body that binds, returns or stores a `T` by value is rejected there. `size_of_val(r)` measures a value through a reference.",
+      "非定长类型只能位于指针之后（plans/VALUES_BY_DEFAULT.md 决策 49）：`&T`、`&mut T`、`*T` 或拥有所有权的句柄。局部变量、按值的形参或返回值、结构体最后一个字段以外的字段、元素或载荷、`size_of(T)`，以及 `generic(T : Type)` 或 `comptime(V) : Type` 绑定器的实参都需要大小，因为每个这样的绑定器都隐含约束 `where(T <: Sized)`。函数体只在指针之后使用 `T` 的泛型应声明 `generic(T : ?Sized)`，从而接受非定长类型；此时检查在泛型定义处进行，因此按值绑定、返回或存储 `T` 的 `?Sized` 函数体会在那里被拒绝。`size_of_val(r)` 通过引用度量一个值。",
+      "n :: size_of(Slice(i32));\nmain :: (fn() -> unit)({\n  _m := n;\n});\nexport(main);\n",
+      "n :: size_of(Array(i32, 4));\nmain :: (fn() -> unit)({\n  _m := n;\n});\nexport(main);\n",
+      "`[i32]` has no size of its own; a fixed-size `Array(i32, 4)` does.",
+      "`[i32]` 没有自身的大小；定长的 `Array(i32, 4)` 有。"
     )
   );
   // ── Internal codegen (E13xx) and CLI/build/deps (E15xx) ──────────────────

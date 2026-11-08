@@ -70,7 +70,9 @@ TypeTag :: enum(
   // `&T` / `&mut T` (decision 43 step 1: a parameter slot)
   TReference,
   // The `Origin` kind and its values
-  TOrigin
+  TOrigin,
+  // `[T]` / `Slice(T)`, the unsized slice (decision 49)
+  TSlice
 );
 derive(TypeTag, Eq(TypeTag), Hash, Clone, Copy);
 /// Short string name for a tag, suitable for diagnostics.
@@ -124,7 +126,8 @@ type_tag_name :: (fn(t : TypeTag) -> String)(
     .TDyn => `Dyn`,
     .TExternOpaque => `extern opaque`,
     .TReference => `Reference`,
-    .TOrigin => `Origin`
+    .TOrigin => `Origin`,
+    .TSlice => `Slice`
   )
 );
 export(TypeTag, type_tag_name);

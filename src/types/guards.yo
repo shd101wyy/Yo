@@ -694,6 +694,12 @@ is_type_hierarchy_type :: (fn(t : &TypeValue) -> bool)(
 is_type_0 :: (fn(t : &TypeValue) -> bool)(
   match(t_refine_inner(t), Rc(.TypeUni(level)) => (level == usize(0)), _ => false)
 );
+/// A type binder's kind: `Type`, or `?Sized` (plans/VALUES_BY_DEFAULT.md
+/// decision 49), which binds a type variable as `Type` does but drops the
+/// implicit `Sized` bound.
+is_type_kind :: (fn(t : &TypeValue) -> bool)(
+  match(t_refine_inner(t), Rc(.TypeUni(level)) => (level == usize(0)), Rc(.MaybeSizedKind) => true, _ => false)
+);
 // ---------------------------------------------------------------------------
 // Pointer / reference / dyn guards
 // ---------------------------------------------------------------------------
@@ -1275,7 +1281,7 @@ export(
   is_function_type_and_returns_comptime_value,
   // Type universe guards
   is_type_hierarchy_type,
-  is_type_0,
+  is_type_0, is_type_kind,
   // Pointer / reference guards
   is_dyn_type,
   is_type_application_type,

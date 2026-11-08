@@ -13658,3 +13658,16 @@ Escapable :: trait(
   id := "Escapable"
 );
 export(Escapable);
+/// Sized trait — a type whose values have a size known at compile time
+/// (plans/VALUES_BY_DEFAULT.md decision 49; Rust's `Sized`).
+///
+/// Derived structurally, never implemented by hand: every type is `Sized`
+/// except `[T]` (`Slice(T)`), a type variable declared `?Sized` and a struct
+/// whose last field is unsized. An unsized type lives only behind a pointer
+/// (`&T`, `&mut T`, `*T`). Every `generic(T : Type)` and `comptime(V) : Type`
+/// binder carries `where(T <: Sized)` implicitly; `generic(T : ?Sized)` drops
+/// it, and `where(T <: Sized)` restates it on one method of a `?Sized` impl.
+Sized :: trait(
+  id := "Sized"
+);
+export(Sized);

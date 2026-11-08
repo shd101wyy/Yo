@@ -40,7 +40,8 @@ pragma(Pragma.AllowUnsafe);
   BK_WHERE,
   BK_TUPLE,
   BK_FN,
-  BK_COMPTIME
+  BK_COMPTIME,
+  is_maybe_sized_kind_spelling
 } :: import("../../expr.yo");
 { migrate_param_modes_on, record_borrow_param_migration, ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, lookup_trait_ctor_fid, lookup_trait_type_args, struct_effective_ctor_fid, take_active_where_trait_ids, restore_active_where_trait_ids, expr_info_adopt_env, some_resolution } :: import("../../expr_info.yo");
 {
@@ -91,9 +92,9 @@ pragma(Pragma.AllowUnsafe);
   visibility_report_enabled
 } :: import("./type_trait_methods.yo");
 { register_impl_inheritance_task, register_impl_variance_task } :: import("../builtins/contracts.yo");
-{ some_t_bounds, FuncMeta, TypeValue, TypeValueNode, no_types, no_flags, shared_list, SharedList, fn_param_mut_ref_at, fn_param_by_value_at, slot_pointee_at, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_by_value, t_reference, t_slot_like, fn_param_is_mut_ref, fn_param_is_by_value, fn_param_mut_ref_flags, fn_result_is_ref, fn_result_origin_names, fn_param_slots, fn_param_in_result_origin, t_slot_is_borrow, t_origin_kind, t_origin_named } :: import("../../types/definitions.yo");
+{ some_t_bounds, FuncMeta, TypeValue, TypeValueNode, no_types, no_flags, shared_list, SharedList, fn_param_mut_ref_at, fn_param_by_value_at, slot_pointee_at, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_by_value, t_reference, t_slot_like, fn_param_is_mut_ref, fn_param_is_by_value, fn_param_mut_ref_flags, fn_result_is_ref, fn_result_origin_names, fn_param_slots, fn_param_in_result_origin, t_slot_is_borrow, t_origin_kind, t_origin_named, t_maybe_sized_kind } :: import("../../types/definitions.yo");
 { type_to_string, type_key_epoch } :: import("../../types/string.yo");
-{ t_unit, t_type, t_some_t, t_usize, register_some_binder_kind, clear_some_binder_kind, generate_some_type_id, enum_phantom_positions } :: import("../../types/creators.yo");
+{ t_unit, t_type, t_some_t, t_some_t_of_kind, t_usize, register_some_binder_kind, clear_some_binder_kind, generate_some_type_id, enum_phantom_positions } :: import("../../types/creators.yo");
 { is_some_type, is_function_type, is_expr_type, is_type_hierarchy_type, is_future_trait_type, is_fn_trait_type, cell_handle_view } :: import("../../types/guards.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { is_implicitly_unsafe_capable_file, is_prelude_or_generated_file, is_std_module_path } :: import("../memory_safety.yo");
@@ -142,6 +143,8 @@ pragma(Pragma.AllowUnsafe);
 :: import("../types/synthesizer.yo");
 { Exception, AnyError } :: import("std/error");
 { RefCell } :: import("std/sync/refcell");
+/// `Sized` (decision 49) is the type's structure: no impl can claim or deny it.
+_SIZED_IS_DERIVED :: "`Sized` is derived from a type's structure and is never implemented by hand: every type is `Sized` except `[T]`, a `?Sized` type variable and a struct whose last field is unsized (plans/VALUES_BY_DEFAULT.md decision 49).";
 /// (seed window) Concrete variants of refcell.yo's fillers: a fn value
 /// generic over its element keeps the variable abstract through the slot, so
 /// uses of the result needing methods fail (see refcell.yo's filler block).
@@ -5322,6 +5325,8 @@ evaluate_module_value :: (
       // receiver pattern never binds a type variable for it, so a placeholder
       // SomeT would stay unbound and fail every match (`all_bound`).
       (fp_is_origin : bool) = false;
+      // A `T : ?Sized` binder (decision 49) mints a variable of that kind.
+      (fp_maybe_sized : bool) = false;
       // Extract name: `T : Type` colon pair or plain atom `T`.
       (param_name_opt : Option(String)) = if(ast_expr_is_fn_call(&fp_expr) && ast_expr_is_fn_call_of(&fp_expr, BK_COLON, .Some(usize(2))), {
         colon_args2 := match(
@@ -5336,6 +5341,7 @@ evaluate_module_value :: (
         // kinds matter, so `: Type` is skipped.
         rhs2 := match(colon_args2.get(usize(1)), .Some(e) => e, .None => make_err_expr());
         (binder_name : Option(String)) = Option(String).Some(ast_expr_token(&lhs2).value.*.clone());
+        fp_maybe_sized = is_maybe_sized_kind_spelling(&rhs2);
         if(ast_expr_is_atom(&rhs2), {
           rhs2_name := ast_expr_token(&rhs2).value.*.clone();
           // An impl-level origin binder (decision 43 step 3, N2b): bound
@@ -5381,13 +5387,14 @@ evaluate_module_value :: (
       });
       (param_name_str : String) = match(param_name_opt, .Some(n) => n, .None => String.from("_"));
       // Create a SomeT for this parameter.
-      some_ty := t_some_t(param_name_str.clone(), frame_lvl);
+      fp_kind := if(fp_maybe_sized, t_maybe_sized_kind(), t_type());
+      some_ty := t_some_t_of_kind(&param_name_str, frame_lvl, &fp_kind);
       tv := create_type_value(&some_ty);
       // Add TypeVal(SomeT) to forall_env so receiver type evaluation sees it.
       add_variable_to_env(
         &forall_env,
         param_name_str.clone(),
-        t_type(),
+        fp_kind,
         // TypeUni(0) — type-of-a-type
         .Some(tv),
         true,
@@ -6067,6 +6074,9 @@ evaluate_module_value :: (
             .Atom(_, _) => make_err_expr()
           );
           neg_head := match(neg_inner, .FnCall(_, fbn, _, _, _) => fbn, .Atom(_, _) => neg_inner);
+          if(ast_expr_is_atom(&neg_head) && (ast_expr_text(&neg_head).* == "Sized"), {
+            exn.throw(dyn(format_error_message(ast_expr_token(&field_expr), _SIZED_IS_DERIVED)));
+          });
           if(ast_expr_is_atom(&neg_head) && (ast_expr_text(&neg_head).* == "Escapable"), {
             exn.throw(
               dyn(
@@ -6129,6 +6139,9 @@ evaluate_module_value :: (
           );
           // `Escapable` is the type's structure (decision 43, O10): no impl
           // can claim or deny it.
+          if(pos_trait_name == "Sized", {
+            exn.throw(dyn(format_error_message(ast_expr_token(&field_expr), _SIZED_IS_DERIVED)));
+          });
           if(pos_trait_name == "Escapable", {
             exn.throw(
               dyn(

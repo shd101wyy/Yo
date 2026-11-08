@@ -110,9 +110,11 @@ pragma(Pragma.AllowUnsafe);
   resolution_chain_end,
   fn_param_is_ptr_borrow,
   is_future_value_type,
-  escapable_bound_error
+  escapable_bound_error,
+  type_is_sized,
+  unsized_by_value_error
 } :: import("../../types/utils.yo");
-{ is_some_type, is_function_type, is_comptime_int_type, is_comptime_float_type, is_comptime_string_type, is_unit_type, is_type_0, is_void_type, is_type_hierarchy_type, is_fn_trait_type, is_never_type, is_pointer_type } :: import("../../types/guards.yo");
+{ is_some_type, is_function_type, is_comptime_int_type, is_comptime_float_type, is_comptime_string_type, is_unit_type, is_type_0, is_type_kind, is_void_type, is_type_hierarchy_type, is_fn_trait_type, is_never_type, is_pointer_type } :: import("../../types/guards.yo");
 { convert_comptime_type_to_runtime_type_with_expected, get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
 {
   type_implements_future,
@@ -1841,6 +1843,22 @@ check_if_function_parameter_matches_argument :: (
   deref_exempt_clear();
   binder_read_clear();
   ctx.expected_type = saved_exp;
+  // A `comptime(V) : Type` parameter carries `where(V <: Sized)` (decision
+  // 49): an unsized type argument is E0619 at the call; `comptime(V) : ?Sized`
+  // takes it.
+  if(is_ct_only && is_type_0(&resolved_pt), {
+    match(
+      expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaled_arg)),
+      .Some(us_info) => match(
+        us_info.value(),
+        .Some(.TypeVal(us_t)) => if(!type_is_sized(&us_t), {
+          exn.throw(dyn(unsized_by_value_error(&us_t, &`the type parameter \`${param_label}\``, &Option(String).Some(param_label.clone()), &ast_expr_token(&actual_arg))));
+        }),
+        _ => ()
+      ),
+      .None => ()
+    );
+  });
   // A `&mut` argument or receiver writes the place it names: an element
   // access on it dispatches `IndexMut` (decision 34, V2b).
   if(param_is_ref, {
@@ -3602,7 +3620,7 @@ create_specialized_function_inline :: (
                   zb_ae.value,
                   .Some(zb_v) => match(
                     zb_v,
-                    .TypeVal(zb_tb) => if(!is_some_type(&zb_tb) && is_type_0(&zb_kind), {
+                    .TypeVal(zb_tb) => if(!is_some_type(&zb_tb) && is_type_kind(&zb_kind), {
                       _zb := add_variable_to_env(
                         callee_env,
                         &zb_name,
@@ -3627,7 +3645,7 @@ create_specialized_function_inline :: (
                       // (a closure arg resolves to its capture struct); bind
                       // THAT so the body eval sees the same concrete `V` the
                       // registered spec type carries.
-                      if(is_some_type(&zb_tb) && is_type_0(&zb_kind), {
+                      if(is_some_type(&zb_tb) && is_type_kind(&zb_kind), {
                         zb_pt := match(func_type, Rc(.Func({ param_types : zpt })) => Rc.clone(zpt), _ => no_types());
                         (zbp : usize) = usize(0);
                         (zb_done : bool) = false;
@@ -5821,6 +5839,32 @@ _instantiation_description :: (fn(callee : &String, names : &ArrayList(String), 
   });
   out
 });
+/// E0619 (plans/VALUES_BY_DEFAULT.md decision 49): a `generic(T : Type)`
+/// binder carries `where(T <: Sized)`, so an unsized type, or a `?Sized`
+/// variable, bound to it at a call is rejected there, naming the binder to
+/// relax. A `?Sized` binder (`generic(T : ?Sized)`) accepts both.
+_reject_unsized_type_binder_arguments :: (
+  fn(ft : &TypeValue, av : &ArgValues, call_tok : &Token, callee_name : &String, names : &ArrayList(String), exn : Exception) -> unit
+)({
+  kinds := match(ft, Rc(.Func({ forall_types : uk_fts })) => Rc.clone(uk_fts), _ => no_types());
+  (i : usize) = usize(0);
+  while(i < kinds.len(), i = (i + usize(1)), {
+    if(match(kinds.get(i), .Some(uk_k) => is_type_0(&uk_k), .None => false), {
+      match(
+        av.forall_args.get(i),
+        .Some(uk_fa) => match(
+          uk_fa.value,
+          .Some(.TypeVal(uk_t)) => if(!type_is_sized(&uk_t), {
+            uk_name := match(names.get_cloned(i), .Some(n) => n, .None => String.from("T"));
+            exn.throw(dyn(unsized_by_value_error(&uk_t, &`\`${callee_name}\`'s type binder \`${uk_name}\``, &Option(String).Some(uk_name.clone()), call_tok)));
+          }),
+          _ => ()
+        ),
+        .None => ()
+      );
+    });
+  });
+});
 /// `create_specialized_function_inline` under a trap that hands the error back;
 /// the specialization goes to `out`.
 _create_specialization_trapped :: (
@@ -5907,6 +5951,7 @@ create_specialization_at_call :: (
     exn : Exception
   ) -> EvalValue
 )({
+  _reject_unsized_type_binder_arguments(ft, av, call_tok, callee_name, names, exn);
   callee_in_std := match(fv, .FuncVal(fvd, _) => is_std_module_path(&ast_expr_token(&fvd.body).module_path.*, ctx.std_path.clone()), _ => false);
   description := _instantiation_description(callee_name, names, &av.forall_args);
   // The mint restores the in-progress specialization on success only; a

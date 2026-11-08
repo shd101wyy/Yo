@@ -170,6 +170,7 @@ _type_has_computed_array_len_d :: (fn(t : &TypeValue, d : usize) -> bool)(
         true => recur(&cal_elem, d + usize(1))
       ),
       Rc(.Pointer(cal_p)) => recur(&cal_p, d + usize(1)),
+      Rc(.SliceT(cal_s)) => recur(&cal_s, d + usize(1)),
       Rc(.Tuple(_, cal_tts)) => {
         (cal_found0 : bool) = false;
         (cal_ti : usize) = usize(0);
@@ -553,6 +554,22 @@ clone_some_fresh :: (fn(s : &TypeValue) -> TypeValue)(
 /// `kind` must be a `Func` TypeValue. Used by `evaluate_function_parameter`
 /// when binding HKT-kinded
 /// generic params so `F(A)` can later be evaluated as a TypeApplication.
+/// A fresh type variable of a binder whose kind is `kind`: a `?Sized`
+/// binder's variable carries the `?Sized` kind as its meta-type, so every
+/// copy knows it may be unsized (decision 49); any other kind is `Type`.
+t_some_t_of_kind :: (fn(name : &String, frame_level : usize, kind : &TypeValue) -> TypeValue)(
+  Rc.new(
+    TypeValueNode.SomeT(
+      generate_some_type_id(),
+      name.clone(),
+      frame_level,
+      match(kind, Rc(.MaybeSizedKind) => Rc.clone(kind), _ => Rc.new(TypeValueNode.TypeUni(usize(0)))),
+      some_t_bounds(ArrayList(TypeValue).new(), ArrayList(usize).new(), ArrayList(TypeValue).new(), ArrayList(usize).new()),
+      Option(TypeValue).None,
+      Option(TypeValue).None
+    )
+  )
+);
 t_some_t_with_kind :: (fn(name : &String, frame_level : usize, kind : &TypeValue) -> TypeValue)(
   Rc.new(
     TypeValueNode.SomeT(
@@ -632,7 +649,10 @@ type_value_tag :: (fn(t : &TypeValue) -> TypeTag)(
     Rc(.ExternOpaqueT(_, _)) => TypeTag.TExternOpaque,
     Rc(.Reference(_, _, _)) => TypeTag.TReference,
     Rc(.OriginKind) => TypeTag.TOrigin,
-    Rc(.OriginSet(_, _)) => TypeTag.TOrigin
+    Rc(.OriginSet(_, _)) => TypeTag.TOrigin,
+    Rc(.SliceT(_)) => TypeTag.TSlice,
+    // The `?Sized` kind is a kind, as `Type` is.
+    Rc(.MaybeSizedKind) => TypeTag.TType
   )
 );
 /// True if `visited` already holds `tok` (linear scan — the set stays small:
@@ -727,6 +747,7 @@ _contains_self_shell :: (
     ),
     Rc(.Pointer(inner)) => recur(&inner, shell_id, visited),
     Rc(.Array(el, _, _)) => recur(&el, shell_id, visited),
+    Rc(.SliceT(el)) => recur(&el, shell_id, visited),
     Rc(.ComptimeListT(el)) => recur(&el, shell_id, visited),
     _ => false
   )
@@ -797,6 +818,7 @@ _patch_self_shell_guarded :: (
     ),
     Rc(.Pointer(inner)) => Rc.new(TypeValueNode.Pointer(recur(&inner, shell_id, final_ty, visited))),
     Rc(.Array(el, n, lv)) => Rc.new(TypeValueNode.Array(recur(&el, shell_id, final_ty, visited), n, lv.clone())),
+    Rc(.SliceT(el)) => Rc.new(TypeValueNode.SliceT(recur(&el, shell_id, final_ty, visited))),
     Rc(.ComptimeListT(el)) => Rc.new(TypeValueNode.ComptimeListT(recur(&el, shell_id, final_ty, visited))),
     Rc(.Struct({ id, name, field_labels, field_types, is_reference_semantics, is_atomic_rc, is_newtype, constructor_func_id, type_arguments, is_source_namespace })) => cond(
       ((id == shell_id) && (field_types.len() == usize(0))) => Rc.clone(final_ty),
@@ -1166,7 +1188,7 @@ export(
   t_module,
   t_module_simple,
   t_some_t,
-  t_some_t_with_kind,
+  t_some_t_with_kind, t_some_t_of_kind,
   clone_some_fresh,
   t_with_resolution,
   t_with_func_result,

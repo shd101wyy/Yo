@@ -52,7 +52,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../env.yo");
 { some_t_bounds, TypeValue, TypeValueNode, shared_list, no_types, no_labels, slot_pointee_at, slot_pointees, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_by_value, t_slot_is_borrow, t_origin_kind, t_origin_named } :: import("../../types/definitions.yo");
 { t_unit, t_some_t, t_ptr, resolve_some_binder_kind, t_with_resolution, t_with_func_result, resolve_enum_shell, register_ctor_phantom_positions } :: import("../../types/creators.yo");
-{ is_type_0, is_some_type, is_unit_type, is_void_type, is_function_type, is_type_hierarchy_type, is_comptime_int_type, is_never_type } :: import("../../types/guards.yo");
+{ is_type_0, is_type_kind, is_some_type, is_unit_type, is_void_type, is_function_type, is_type_hierarchy_type, is_comptime_int_type, is_never_type } :: import("../../types/guards.yo");
 { adopt_never_type, reject_second_class_return, reject_bare_callable_result, bare_callable_recorded_into_dyn_fn, projection_call_mode_of, local_borrow_place_text } :: import("../utils.yo");
 { comptime_int_value_misfit } :: import("../values/integer.yo");
 {
@@ -1023,7 +1023,7 @@ _build_def_time_body_env :: (
       };
       if((fa_name.len() > usize(0)) && !is_param_too, {
         fa_val := if(
-          is_type_0(fa_ty.clone()),
+          is_type_kind(fa_ty.clone()),
           _type_binder_env_value(fa_name.clone(), &sig_some_ts, where_entries, pf_level),
           // A VALUE binder (`generic(N : usize)` on `ArrayList.from`, whose body
           // reads `N` as a value: `Self.with_capacity(...)`, `_length = N`): bind an unknown
@@ -1105,7 +1105,7 @@ _build_def_time_body_env :: (
     // caller's String buffer (net −1 per call).
     p_ct := match(param_is_comptime.get(pi), .Some(b) => b, .None => false);
     pv := if(
-      is_type_0(&pt),
+      is_type_kind(&pt),
       _type_binder_env_value(pn.clone(), &sig_some_ts, where_entries, pf_level),
       if(
         p_ct,
@@ -1115,7 +1115,7 @@ _build_def_time_body_env :: (
     );
     // The shared binding rule (calls/helper.yo): the declared comptime,
     // `inout` and `own` flags.
-    bind_parameter(&fresh_env, &pn, &pt, &pv, p_ct || is_type_0(&pt), p_ref, p_own, _param_decl_token(param_decl_tokens, &pn, &caller_env.module_path().*), fn_param_is_ptr_borrow(fn_type_for_foralls, pi));
+    bind_parameter(&fresh_env, &pn, &pt, &pv, p_ct || is_type_kind(&pt), p_ref, p_own, _param_decl_token(param_decl_tokens, &pn, &caller_env.module_path().*), fn_param_is_ptr_borrow(fn_type_for_foralls, pi));
     pi = (pi + usize(1));
   });
   fresh_env
