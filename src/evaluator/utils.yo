@@ -9265,20 +9265,21 @@ origin_temporary_root :: (fn(roots : &ArrayList(OriginRootPlace)) -> Option(Orig
 /// `bind`/`=` of a holder past its statement over a temporary (R-TEMP, O-5;
 /// the projection binding's temporary message generalized): the temporary
 /// is dropped at the statement's end, the holder outlives it.
-_reject_temporary_root :: (fn(holder : &String, tmp : &OriginRootPlace, rhs_text : &String, at : &Token, ctx : &EvalContext, exn : Exception) -> unit)(
+_reject_temporary_root :: (fn(holder : &String, tmp : &OriginRootPlace, rhs_text : &String, is_store : bool, at : &Token, ctx : &EvalContext, exn : Exception) -> unit)({
+  head := if(is_store, `Cannot store a reference into \`${tmp.place.text}\` in \`${holder}\` here: it is a temporary`, `Cannot bind \`${holder}\` to \`${rhs_text}\`: its value holds a reference into \`${tmp.place.text}\`, a temporary`);
   raise_flow_violation(
     with_code(
       format_error_message_with_help(
         at,
-        `Cannot bind \`${holder}\` to \`${rhs_text}\`: its value holds a reference into \`${tmp.place.text}\`, a temporary that ends with this statement, while \`${holder}\` lives on (decision 43, plans/backlog/BORROW_CHECKER_COMPLETENESS.md §3 R-TEMP).`,
+        `${head} that ends with this statement, while \`${holder}\` lives on (decision 43, plans/backlog/BORROW_CHECKER_COMPLETENESS.md §3 R-TEMP).`,
         Option(String).Some(`bind \`${tmp.place.text}\` to a local first and lend the local`)
       ),
       E_LOCAL_BORROW_CONFLICT
     ),
     ctx,
     exn
-  )
-);
+  );
+});
 /// The root atom of a place-shaped chain (`h.*.s` → `h`): only field/deref
 /// dots are followed — a call operand is not a place chain (its result is a
 /// temporary), and `.None` says so.
@@ -9552,7 +9553,7 @@ bind :: (fn(binding : &AstExpr, rhs : &AstExpr, var_name : &String, name_tok : &
   match(
     origin_temporary_root(&roots),
     .Some(tmp) => {
-      _reject_temporary_root(var_name, &tmp, &ast_expr_to_string(rhs), ast_expr_token(rhs), ctx, exn);
+      _reject_temporary_root(var_name, &tmp, &ast_expr_to_string(rhs), false, ast_expr_token(rhs), ctx, exn);
       return(());
     },
     .None => ()
@@ -10317,7 +10318,7 @@ bind_join_roots_for :: (fn(variable : &Variable, roots : &ArrayList(OriginRootPl
   match(
     origin_temporary_root(roots),
     .Some(tmp) => {
-      _reject_temporary_root(&variable.name, &tmp, &tmp.place.text, at, ctx, exn);
+      _reject_temporary_root(&variable.name, &tmp, &tmp.place.text, true, at, ctx, exn);
       return(());
     },
     .None => ()
