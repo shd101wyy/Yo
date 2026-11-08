@@ -9,9 +9,11 @@ each :: (fn(f : &mut Impl(FnMut(v : &String) -> unit)) -> unit)({
 });
 main :: (fn() -> unit)({
   mut(slot) := Option(&String).None;
-  each(&mut ({ s : &mut slot }(v : &String) => {
-    s.* = .Some(v);
-  }));
+  each(
+    &mut ({ s : &mut slot }(v : &String) => {
+      s.* = .Some(v);
+    })
+  );
   match(slot, .Some(r) => println(`OUT: ${r.*.len().to_string()}`), .None => println("none"));
   ()
 });

@@ -10,9 +10,11 @@ each :: (fn(f : &mut Impl(FnMut(v : &String) -> unit)) -> unit)({
 main :: (fn() -> unit)({
   z0 := String.from("z");
   mut(h) := S(z0)(o : Option(&(String, z0)).None);
-  each(&mut ({ s : &mut h }(v : &String) => {
-    s.o = .Some(v);
-  }));
+  each(
+    &mut ({ s : &mut h }(v : &String) => {
+      s.o = .Some(v);
+    })
+  );
   match(&h.o, .Some(r) => println(`OUT: ${r.*.len().to_string()}`), .None => println("none"));
   ()
 });

@@ -7,9 +7,11 @@ _each :: (fn(f : &mut Impl(FnMut(v : &i32) -> unit)) -> unit)({
 });
 main :: (fn() -> unit)({
   mut(slot) := Option(&i32).None;
-  _each(&mut ({ s : &mut slot }(v : &i32) => {
-    s.* = .Some(v);
-  }));
+  _each(
+    &mut ({ s : &mut slot }(v : &i32) => {
+      s.* = .Some(v);
+    })
+  );
   _ := slot.is_some();
   ()
 });
