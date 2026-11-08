@@ -35,7 +35,7 @@ test("Sized is derived from the type's structure", {
   comptime_assert(Type.impls(Array(i32, 4), Sized), "a fixed-size array is Sized");
   comptime_assert(!Type.impls([i32], Sized), "[T] is not Sized");
   comptime_assert(!Type.impls(_SzTail, Sized), "a struct whose last field is unsized is not Sized");
-  comptime_assert(Type.impls(*([i32]), Sized), "a pointer to an unsized type is Sized");
+  comptime_assert(Type.impls(* [i32], Sized), "a pointer to an unsized type is Sized");
   comptime_assert(Type.impls(_SzPtr([i32]), Sized), "a struct holding such a pointer is Sized");
 });
 
@@ -75,7 +75,12 @@ test("an unsized type by value is E0619", {
 });
 
 test("a ?Sized binder used by value is E0619 at the definition", {
-  comptime_expect_error((fn(generic(T : ?Sized), x : &T) -> unit)({ _y := x.*; }), "is not `Sized`");
+  comptime_expect_error(
+    (fn(generic(T : ?Sized), x : &T) -> unit)({
+      _y := x.*;
+    }),
+    "is not `Sized`"
+  );
   comptime_expect_error((fn(generic(T : ?Sized), x : &T) -> T)(x.*), "a by-value result");
   comptime_expect_error((fn(generic(T : ?Sized), x : T) -> unit)(()), "the by-value parameter");
   comptime_expect_error((fn(generic(T : ?Sized), x : &T) -> usize)(size_of(T)), "`size_of`");
