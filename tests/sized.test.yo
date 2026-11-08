@@ -109,5 +109,9 @@ impl(generic(T : ?Sized), T, _CoAll(co_all : (fn(self : &Self) -> i32)(i32(3))))
 test("a blanket over a Type binder covers the sized types only", {
   n := i32(5);
   assert(n.co() == i32(1), "the blanket covers i32");
+  a := Array(i32, 2)(1, 2);
+  s := unsize(&a);
+  assert(s.co() == i32(2), "[i32] has its own impl beside the blanket");
+  assert(s.co_all() == i32(3), "a ?Sized blanket covers [i32]");
   comptime_expect_error(impl([i32], _CoAll(co_all : (fn(self : &Self) -> i32)(i32(4)))), "already implemented");
 });
