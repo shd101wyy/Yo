@@ -9519,6 +9519,24 @@ origin_param_names_of :: (fn(ty : &TypeValue, out : &mut ArrayList(String), dept
       );
       origin_param_names_of(&op_p, out, (depth + u32(1)));
     },
+    // An origin argument of a type constructor (`S(z0)`'s `z0`).
+    Rc(.OriginSet(_, _)) => match(
+      t_origin_spelled_names(ty),
+      .Some(osn) => {
+        (si : usize) = usize(0);
+        while(si < osn.len(), {
+          match(
+            osn.get_cloned(si),
+            .Some(on) => if(!out.contains(&on), {
+              out.push(on);
+            }),
+            .None => ()
+          );
+          si = (si + usize(1));
+        });
+      },
+      .None => ()
+    ),
     Rc(.Struct({ type_arguments : ots })) => {
       (oi : usize) = usize(0);
       while(oi < ots.len(), {
@@ -9571,6 +9589,14 @@ _rigidify_elided_origins :: (fn(ty : &TypeValue, pname : &String, prefix : &Stri
       inner := _rigidify_elided_origins(&rr_p, pname, prefix, next, (depth + u32(1)));
       t_reference_with_origin(&inner, rr_m, &origin)
     },
+    // An elided origin argument of a type constructor (`S`'s origin left
+    // to elision) is an elided origin like a `&`'s.
+    Rc(.OriginSet(_, ro_el)) => if(ro_el, {
+      names := ArrayList(String).new();
+      names.push(`${pname}#${prefix}${next.to_string()}`);
+      next = (next + u32(1));
+      t_origin_named(&shared_list(names))
+    }, ty.clone()),
     Rc(.Struct(rs_id, rs_n, rs_fl, rs_ft, rs_rs, rs_ar, rs_nt, rs_ctor, rs_tas, rs_ns)) => {
       if(rs_tas.len() == usize(0), {
         return(ty.clone());
