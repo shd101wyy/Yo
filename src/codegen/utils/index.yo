@@ -2550,6 +2550,17 @@ dyn_slot_result_abi_string :: (fn(ft : &TypeValue, context : &mut CodeGenContext
   });
   rs
 });
+/// The payload place of a unique `Box`, given the C code of its handle.
+/// `Box(T) :: newtype(_cell : *T)` is C-transparent, and bit 0 of the cell
+/// pointer is the handle's "placed" bit (`Box`'s layout L1,
+/// plans/backlog/ALLOCATOR_PLACEMENT.md "Related: `Box`'s layout"): every
+/// cell is at least 16-byte aligned, so the payload address is the pointer
+/// with that bit cleared. Every projection of the payload (`b.*`, `b.field`,
+/// `&b.*`, `addr_of(b.*)`, a `Box` pattern) masks it once; a place that takes
+/// the address back strips the outer `(*…)` and keeps the masked pointer.
+box_payload_place_code :: (fn(box_ty : &TypeValue, cell_code : &String, context : &mut CodeGenContext) -> String)(
+  `(*((${get_type_string(box_ty, context)})((uintptr_t)(${cell_code.clone()}) & ~(uintptr_t)1)))`
+);
 /// [`#line` directives, plans/reference/LINE_DIRECTIVES.md] The statement
 /// flush point helper: attribute the C about to be emitted for `expr` to the
 /// `.yo` position of its token. A no-op unless the compile ran with
@@ -2589,6 +2600,7 @@ export(
   std_allocator_abi_is_v2,
   type_key,
   get_type_string,
+  box_payload_place_code,
   erased_future_result_type_string,
   get_storage_type_string,
   dyn_slot_param_abi_string,

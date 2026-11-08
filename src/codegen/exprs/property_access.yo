@@ -25,7 +25,7 @@
 { Environment } :: import("../../env.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
-{ sanitize_for_c_identifier, c_field_name, c_variant_member_name, get_variable_name_for_codegen, get_enum_variant_c_name, can_optimize_as_nullable_pointer, type_key, extern_c_global_matches, get_variable_name_for_codegen_at, get_type_string } :: import("../utils/index.yo");
+{ sanitize_for_c_identifier, c_field_name, c_variant_member_name, get_variable_name_for_codegen, get_enum_variant_c_name, can_optimize_as_nullable_pointer, type_key, extern_c_global_matches, get_variable_name_for_codegen_at, get_type_string, box_payload_place_code } :: import("../utils/index.yo");
 { generate_comptime_value } :: import("./comptime_value.yo");
 { lookup_io_builtin_struct_field, expr_info_deferred_dup_expressions, is_call_scoped_share_dup } :: import("../../expr_info.yo");
 { emit_deferred_dup_or_code } :: import("./drop_dup.yo");
@@ -442,12 +442,10 @@ _generate_field_access_raw :: (fn(expr : &AstExpr, indent : &String, context : &
     return(object_code.clone());
   });
   // `b.*` on the unique `Box` (V1 step 2): the box is a C-transparent newtype
-  // over its cell pointer, so the payload place is that pointer's dereference.
+  // over its cell pointer, so the payload place is that pointer's dereference,
+  // with the handle's placed bit masked off (`box_payload_place_code`).
   if((field_name == "*") && is_unique_box_type(&object_type), {
-    out := String.from("(*");
-    out.push_string(object_code.clone());
-    out.push_str(")");
-    return(out);
+    return(box_payload_place_code(&object_type, &object_code, &mut context.base));
   });
   // `h.*` on a cell handle (`cell_handle_view`): the handle is a
   // C-transparent newtype over its cell, so its value is the cell pointer and
