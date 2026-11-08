@@ -89,7 +89,7 @@ _create_box_type_via :: (fn(ctor : &String, inner_type : &TypeValue, env : &Envi
     .None => Option(TypeValue).None,
     .Some(bfv) => {
       param0_ty := match(&box_ft, Rc(.Func({ param_types : pts })) => match(slot_pointee_at(&pts, usize(0)), .Some(p) => p, .None => t_type()), _ => t_type());
-      param0_label := match(&box_ft, Rc(.Func({ meta : bm })) => match(bm.*.param_labels.get(usize(0)), .Some(l) => l, .None => String.from("V")), _ => String.from("V"));
+      param0_label := match(&box_ft, Rc(.Func({ meta : bm })) => match(bm.param_labels.get(usize(0)), .Some(l) => l, .None => String.from("V")), _ => String.from("V"));
       (cenv : Environment) = Rc.clone(env);
       _cfr := cenv.push_frame(false);
       vtok := synthetic_token(param0_label.clone(), &cenv.module_path().*);
@@ -800,7 +800,7 @@ _monomorphize_default_fv :: (
   cond(
     !is_func_val(fv) => fv,
     (default_fid == String.new()) => fv,
-    match(fv, .FuncVal(__mfv, _) => (__mfv.*.func_id == default_fid), _ => false) => {
+    match(fv, .FuncVal(__mfv, _) => (__mfv.func_id == default_fid), _ => false) => {
       default_ft := get_func_type(default_fid.clone());
       // Every parameter is a runtime argument of its declared type, `Self`
       // read as the receiver. `create_specialized_function_inline` takes the
@@ -814,7 +814,7 @@ _monomorphize_default_fv :: (
       sub_ft := _substitute_self_in_method_ty(&default_ft, value_type);
       sub_pts := match(&sub_ft, Rc(.Func({ param_types : sp })) => Rc.clone(sp), _ => no_types());
       sub_is_ref := match(&sub_ft, Rc(.Func({ result : _ })) => fn_param_mut_ref_flags(&sub_ft), _ => no_flags());
-      param_labels := match(fv, .FuncVal(__plfv, _) => __plfv.*.params.clone(), _ => ArrayList(String).new());
+      param_labels := match(fv, .FuncVal(__plfv, _) => __plfv.params.clone(), _ => ArrayList(String).new());
       spec_args := ArrayList(ArgEntry).new();
       ___mdf := caller_env.push_frame(false);
       (spi : usize) = usize(0);

@@ -482,7 +482,7 @@ _subst_some_types_from_env :: (fn(ty : &TypeValue, env2 : &Environment, allow : 
         ss_new_pts.push(t_slot_with_pointee(&ss_elem, recur(t_slot_pointee(&ss_elem), env2, allow.clone())));
         ss_pi = (ss_pi + usize(1));
       });
-      Rc.new(TypeValueNode.Func(ss_fts.clone(), shared_list(ss_new_pts), ss_its.clone(), ss_wts.clone(), t_slot_with_pointee(&ss_ret, recur(t_slot_pointee(&ss_ret), env2, allow.clone())), Rc.new(ss_fm.*.clone()), no_types()))
+      Rc.new(TypeValueNode.Func(ss_fts.clone(), shared_list(ss_new_pts), ss_its.clone(), ss_wts.clone(), t_slot_with_pointee(&ss_ret, recur(t_slot_pointee(&ss_ret), env2, allow.clone())), Rc.new(ss_fm.as_ref().clone()), no_types()))
     },
     _ => Rc.clone(ty)
   )
@@ -1359,7 +1359,7 @@ evaluate_anonymous_function_implementation :: (
   // checking one against the other emitted C that calls a struct
   // (issues/fixed/bare-fn-type-param-accepts-a-closure-then-emits-invalid-c.md).
   // The closure-carrying slot types are `Impl(Fn(...))` and `Dyn(Fn(...))`.
-  if(is_creating_closure && match(&expected_ty, Rc(.Func({ meta : bf_m })) => !(bf_m.*.is_control), _ => false), {
+  if(is_creating_closure && match(&expected_ty, Rc(.Func({ meta : bf_m })) => !(bf_m.is_control), _ => false), {
     exn.throw(
       dyn(
         format_error_message_with_help(
@@ -1379,12 +1379,12 @@ evaluate_anonymous_function_implementation :: (
   // -------------------------------------------------------------------------
   forall_labels := match(
     &function_type,
-    Rc(.Func({ meta : __fm1 })) => Rc.clone(__fm1.*.forall_labels),
+    Rc(.Func({ meta : __fm1 })) => Rc.clone(__fm1.forall_labels),
     _ => no_labels()
   );
   param_labels := match(
     &function_type,
-    Rc(.Func({ meta : __fm2 })) => Rc.clone(__fm2.*.param_labels),
+    Rc(.Func({ meta : __fm2 })) => Rc.clone(__fm2.param_labels),
     _ => no_labels()
   );
   (param_types : SharedList(TypeValue)) = match(
@@ -1414,7 +1414,7 @@ evaluate_anonymous_function_implementation :: (
   );
   implicit_labels := match(
     &function_type,
-    Rc(.Func({ meta : __fm4 })) => Rc.clone(__fm4.*.implicit_labels),
+    Rc(.Func({ meta : __fm4 })) => Rc.clone(__fm4.implicit_labels),
     _ => no_labels()
   );
   implicit_types := match(
@@ -2081,7 +2081,7 @@ evaluate_anonymous_function_implementation :: (
   // emitted as a RUNTIME C parameter. `origin_id` is the channel for the same
   // thing and travels with the meta through the `.clone()` just above.
   match(
-    match(&corrected_func_type, Rc(.Func({ meta : _oid_m })) => _oid_m.*.origin_id.clone(), _ => Option(String).None),
+    match(&corrected_func_type, Rc(.Func({ meta : _oid_m })) => _oid_m.origin_id.clone(), _ => Option(String).None),
     .Some(_oid) => {
       copy_func_param_defaults(_oid.clone(), func_id.clone());
       copy_func_param_default_exprs(_oid.clone(), func_id.clone());
@@ -2282,7 +2282,7 @@ evaluate_anonymous_function_implementation :: (
   // failing body harmless.
   ctl_force := match(
     &function_type,
-    Rc(.Func({ meta : __fmc9 })) => __fmc9.*.is_control,
+    Rc(.Func({ meta : __fmc9 })) => __fmc9.is_control,
     _ => false
   );
   // §4 escape boundary 1 (rule 8): a fn's RESULT type must not be
@@ -2495,7 +2495,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
     // `unwind` is a type error. Closures are exempt.
     fn_type_is_control := match(
       &function_type,
-      Rc(.Func({ meta : __fm5 })) => __fm5.*.is_control,
+      Rc(.Func({ meta : __fm5 })) => __fm5.is_control,
       _ => false
     );
     match(
@@ -2683,7 +2683,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
               function_type = match(
                 &function_type,
                 Rc(.Func(nrs_fl, nrs_pt, nrs_it, nrs_wt, nrs_old_r, nrs_m, nrs_vt)) => {
-                  nrs_nm := nrs_m.*.clone();
+                  nrs_nm := nrs_m.as_ref().clone();
                   nrs_nm.param_labels = shared_list(actual_param_labels.clone());
                   Rc.new(TypeValueNode.Func(Rc.clone(nrs_fl), Rc.clone(nrs_pt), Rc.clone(nrs_it), Rc.clone(nrs_wt), t_slot_with_pointee(&nrs_old_r, &nrs_body_ty), Rc.new(nrs_nm), Rc.clone(nrs_vt)))
                 },

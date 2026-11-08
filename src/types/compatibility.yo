@@ -838,7 +838,7 @@ _compat_impl :: (
         });
         (ii : usize) = usize(0);
         while(ii < aits.len(), {
-          if(require_exact && (match(ameta.*.implicit_labels.get(ii), .Some(l) => l, .None => ``) != match(emeta.*.implicit_labels.get(ii), .Some(l) => l, .None => ``)), {
+          if(require_exact && (match(ameta.implicit_labels.get(ii), .Some(l) => l, .None => ``) != match(emeta.implicit_labels.get(ii), .Some(l) => l, .None => ``)), {
             return(false);
           });
           if(!recur(match(aits.get(ii), .Some(v) => v, .None => Rc.new(TypeValueNode.Unit)), match(eits.get(ii), .Some(v) => v, .None => Rc.new(TypeValueNode.Unit)), mode, visited), {
@@ -865,7 +865,7 @@ _compat_impl :: (
         });
         a_sig.push(t_slot_pointee(&aret));
         e_sig.push(t_slot_pointee(&eret));
-        n_alpha := _push_alpha_pairs(&ameta.*.forall_labels.items, &a_sig, &emeta.*.forall_labels.items, &e_sig);
+        n_alpha := _push_alpha_pairs(&ameta.forall_labels.items, &a_sig, &emeta.forall_labels.items, &e_sig);
         (func_ok : bool) = true;
         i = usize(0);
         while((i < apts.len()) && func_ok, {

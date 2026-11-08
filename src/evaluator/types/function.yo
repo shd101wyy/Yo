@@ -2555,7 +2555,7 @@ evaluate_function_parameter :: (
   if(!is_compile_time_only && is_function_type(&final_param_type), {
     has_forall := match(
       &final_param_type,
-      Rc(.Func({ meta : __fm1 })) => (__fm1.*.forall_labels.len() > usize(0)),
+      Rc(.Func({ meta : __fm1 })) => (__fm1.forall_labels.len() > usize(0)),
       _ => false
     );
     if(has_forall, {
@@ -2842,7 +2842,7 @@ use_id :: (fn(generic(T : Type),
                     if(
                       match(
                         &final_param_type,
-                        Rc(.Func({ result, meta : __fm2 })) => (__fm2.*.result_is_comptime_only && is_type_0(&t_slot_pointee(&result))),
+                        Rc(.Func({ result, meta : __fm2 })) => (__fm2.result_is_comptime_only && is_type_0(&t_slot_pointee(&result))),
                         _ => false
                       ),
                       Option(EvalValue).Some(create_type_value(t_some_t_with_kind(&label_str, param_frame_level, &final_param_type))),

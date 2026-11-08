@@ -2876,7 +2876,7 @@ _resolve_inner_type :: (fn(field_type : &TypeValue, value : &EvalValue) -> TypeV
     match(
       value,
       .FuncVal(data, _) => {
-        registered := get_func_type(&data.*.func_id);
+        registered := get_func_type(&data.func_id);
         match(
           registered,
           Rc(.Func({ result : rit_slot })) => {
@@ -2906,8 +2906,8 @@ _function_params_to_doc_params :: (
   match(
     func_type,
     Rc(.Func({ param_types, meta })) => {
-      labels := Rc.clone(meta.*.param_labels);
-      origin := match(&meta.*.origin_id, .Some(oid) => oid.clone(), .None => String.new());
+      labels := Rc.clone(meta.param_labels);
+      origin := match(&meta.origin_id, .Some(oid) => oid.clone(), .None => String.new());
       comptime_flags := get_func_param_comptime(&origin);
       defaults := get_func_param_defaults(&origin);
       (i : usize) = usize(0);
@@ -2965,7 +2965,7 @@ _forall_params_to_doc_params :: (
   match(
     func_type,
     Rc(.Func({ forall_types, meta })) => {
-      labels := Rc.clone(meta.*.forall_labels);
+      labels := Rc.clone(meta.forall_labels);
       (i : usize) = usize(0);
       while((i < labels.len()) && (i < forall_types.len()), {
         label := match(labels.get_cloned(i), .Some(l) => l, .None => String.new());
@@ -3062,7 +3062,7 @@ build_doc_function :: (
         func_type,
         Rc(.Func({ result, meta })) => {
           return_type = type_to_string(&t_slot_pointee(&result));
-          if(meta.*.forall_labels.len() > usize(0), {
+          if(meta.forall_labels.len() > usize(0), {
             type_params = Option(ArrayList(DocParam)).Some(_forall_params_to_doc_params(func_type, doc_lookup));
           });
         },
@@ -3331,7 +3331,7 @@ _get_type_constructor_params :: (fn(field_type : &TypeValue) -> Option(ArrayList
   });
   has_forall := match(
     field_type,
-    Rc(.Func({ meta })) => (meta.*.forall_labels.len() > usize(0)),
+    Rc(.Func({ meta })) => (meta.forall_labels.len() > usize(0)),
     _ => false
   );
   if(has_forall, {

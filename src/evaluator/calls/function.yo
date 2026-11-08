@@ -3004,7 +3004,7 @@ _select_matching_overload :: (
       m_idx := match(matching.get(mi), .Some(i) => i, .None => usize(0));
       m_ct := match(
         base.all_hits.get(m_idx),
-        .Some(mc) => match(&mc.ty, Rc(.Func({ meta : __smm1 })) => __smm1.*.result_is_comptime_only, _ => false),
+        .Some(mc) => match(&mc.ty, Rc(.Func({ meta : __smm1 })) => __smm1.result_is_comptime_only, _ => false),
         .None => false
       );
       // One entry per trait: the same comptime impl can be registered
@@ -3048,7 +3048,7 @@ _select_matching_overload :: (
       match(
         base.all_hits.get(am_idx),
         .Some(amc) => {
-          am_ct := match(&amc.ty, Rc(.Func({ meta : __amm })) => __amm.*.result_is_comptime_only, _ => false);
+          am_ct := match(&amc.ty, Rc(.Func({ meta : __amm })) => __amm.result_is_comptime_only, _ => false);
           cond(
             (amc.source_trait_id == "") => if(inh_hi.is_none(), {
               inh_hi = Option(usize).Some(am_idx);
@@ -4002,7 +4002,7 @@ _note_future_producing_call :: (fn(expr : &AstExpr, out_expr : &AstExpr, env : &
     // The callee's parameter labels name the assumed borrows.
     labels := match(
       expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&op_callee)),
-      .Some(ci) => match(&ci.ty(), Rc(.Func({ meta : om })) => Rc.clone(om.*.param_labels), _ => no_labels()),
+      .Some(ci) => match(&ci.ty(), Rc(.Func({ meta : om })) => Rc.clone(om.param_labels), _ => no_labels()),
       .None => no_labels()
     );
     tok := ast_expr_token(expr);
@@ -4145,7 +4145,7 @@ _callee_is_opaque_function_value :: (fn(call : &AstExpr, callee : &AstExpr, ctx 
     return(false);
   });
   // An extern's future is the runtime's, and it borrows nothing.
-  if(match(&callee_info.ty(), Rc(.Func({ meta : em })) => em.*.is_extern.is_some(), _ => false), {
+  if(match(&callee_info.ty(), Rc(.Func({ meta : em })) => em.is_extern.is_some(), _ => false), {
     return(false);
   });
   if(ast_expr_is_fn_call_of(callee, BF_DOT, Option(usize).Some(usize(2))), {
@@ -4256,7 +4256,7 @@ _future_call_receiver_offset :: (fn(op_callee : &AstExpr, op_args : &ArrayList(A
 _check_future_call_argument_conflicts :: (fn(op_callee : &AstExpr, op_args : &ArrayList(AstExpr), bs : &ArrayList(CaptureBorrow), ctx : &EvalContext, exn : Exception) -> unit)({
   labels := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(op_callee)),
-    .Some(ci) => match(&ci.ty(), Rc(.Func({ meta : om })) => Rc.clone(om.*.param_labels), _ => no_labels()),
+    .Some(ci) => match(&ci.ty(), Rc(.Func({ meta : om })) => Rc.clone(om.param_labels), _ => no_labels()),
     .None => no_labels()
   );
   labels_known := (labels.len() > usize(0));
@@ -4359,7 +4359,7 @@ _future_call_lends_into :: (
 )({
   labels := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(leaf_callee)),
-    .Some(ci) => match(&ci.ty(), Rc(.Func({ meta : om })) => Rc.clone(om.*.param_labels), _ => no_labels()),
+    .Some(ci) => match(&ci.ty(), Rc(.Func({ meta : om })) => Rc.clone(om.param_labels), _ => no_labels()),
     .None => no_labels()
   );
   labels_known := (labels.len() > usize(0));
@@ -4404,7 +4404,7 @@ _future_call_lends_into :: (
 _check_future_operand_lends :: (fn(op_callee : &AstExpr, op_args : &ArrayList(AstExpr), bs : &ArrayList(CaptureBorrow), env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
   labels := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(op_callee)),
-    .Some(ci) => match(&ci.ty(), Rc(.Func({ meta : om })) => Rc.clone(om.*.param_labels), _ => no_labels()),
+    .Some(ci) => match(&ci.ty(), Rc(.Func({ meta : om })) => Rc.clone(om.param_labels), _ => no_labels()),
     .None => no_labels()
   );
   arg_offset := _future_call_receiver_offset(op_callee, op_args, &labels.items);
@@ -4517,7 +4517,7 @@ _lent_place_string :: (fn(lp : &_LentPlace) -> String)({
 _check_future_call_global_lends :: (fn(op_callee : &AstExpr, op_args : &ArrayList(AstExpr), bs : &ArrayList(CaptureBorrow), ctx : &EvalContext, exn : Exception) -> unit)({
   labels := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(op_callee)),
-    .Some(ci) => match(&ci.ty(), Rc(.Func({ meta : om })) => Rc.clone(om.*.param_labels), _ => no_labels()),
+    .Some(ci) => match(&ci.ty(), Rc(.Func({ meta : om })) => Rc.clone(om.param_labels), _ => no_labels()),
     .None => no_labels()
   );
   labels_known := (labels.len() > usize(0));
@@ -7756,7 +7756,7 @@ _evaluate_funcval_runtime_call :: (
   if(is_some_type(&resolved_ret), {
     match(
       cv,
-      .FuncVal(fz_fvd, _) => record_await_fusion_candidate(expr, fz_fvd.*.func_id.clone(), &fz_fvd.*.body),
+      .FuncVal(fz_fvd, _) => record_await_fusion_candidate(expr, fz_fvd.func_id.clone(), &fz_fvd.body),
       _ => ()
     );
   });
@@ -7773,7 +7773,7 @@ _evaluate_funcval_runtime_call :: (
     match(
       cv,
       .FuncVal(rc_fvd, _) => match(
-        expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&rc_fvd.*.body)),
+        expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&rc_fvd.body)),
         .Some(rc_binfo) => {
           (rc_conc : TypeValue) = Rc.clone(rc_binfo.ty());
           match(
@@ -8293,7 +8293,7 @@ _evaluate_funcval_runtime_call :: (
     (rt_d3_fid : String) = func_id_fv.clone();
     (rt_d3_body : Option(AstExpr)) = match(
       cv,
-      .FuncVal(rt_d3_cvd, _) => Option(AstExpr).Some(rt_d3_cvd.*.body),
+      .FuncVal(rt_d3_cvd, _) => Option(AstExpr).Some(rt_d3_cvd.body),
       _ => Option(AstExpr).None
     );
     match(
@@ -8316,7 +8316,7 @@ _evaluate_funcval_runtime_call :: (
     (rt_s1_fid : String) = func_id_fv.clone();
     (rt_s1_body : Option(AstExpr)) = match(
       cv,
-      .FuncVal(rt_s1_cvd, _) => Option(AstExpr).Some(rt_s1_cvd.*.body),
+      .FuncVal(rt_s1_cvd, _) => Option(AstExpr).Some(rt_s1_cvd.body),
       _ => Option(AstExpr).None
     );
     match(
@@ -10182,7 +10182,7 @@ _evaluate_function_call_unanchored :: (
         while((ocm_i < op_methods.len()) && op_comptime_m.is_none(), {
           match(
             op_methods.get(ocm_i),
-            .Some(ocm) => if(match(&ocm.ty, Rc(.Func({ meta : __fm1 })) => __fm1.*.result_is_comptime_only, _ => false), {
+            .Some(ocm) => if(match(&ocm.ty, Rc(.Func({ meta : __fm1 })) => __fm1.result_is_comptime_only, _ => false), {
               op_comptime_m = Option(MethodEntry).Some(ocm);
             }),
             .None => ()
@@ -10191,7 +10191,7 @@ _evaluate_function_call_unanchored :: (
         });
       };
       op_eff_m := match(op_comptime_m, .Some(m) => m, .None => first_m);
-      op_is_comptime := match(&op_eff_m.ty, Rc(.Func({ meta : __fm2 })) => __fm2.*.result_is_comptime_only, _ => false);
+      op_is_comptime := match(&op_eff_m.ty, Rc(.Func({ meta : __fm2 })) => __fm2.result_is_comptime_only, _ => false);
       // Only FOLD the operator at comptime when EVERY operand is a concrete
       // value (present and not an `UnknownVal`). With a runtime-unknown operand
       // (e.g. `idx < len` inside a runtime-return method body being evaluated at
@@ -10420,7 +10420,7 @@ _evaluate_function_call_unanchored :: (
       .Some(iob_ci) => match(
         &iob_ci.ty(),
         Rc(.Func({ meta : iob_m })) => match(
-          &iob_m.*.extern_name,
+          &iob_m.extern_name,
           .Some(iob_en) => if((iob_en == "__yo_io_async") || (iob_en == "__yo_io_await")
           || (iob_en == "__yo_io_state") || (iob_en == "__yo_io_spawn")
           || (iob_en == "__yo_join_handle_await"), {
@@ -10564,7 +10564,7 @@ _evaluate_function_call_unanchored :: (
   callee_ty_for_gate := match(&callee_info_opt, .Some(ci) => Rc.clone(ci.ty()), .None => t_unit());
   gate_is_extern_c := match(
     &callee_ty_for_gate,
-    Rc(.Func({ meta : __fm3 })) => match(&__fm3.*.is_extern, .Some(lang) => (lang == "c"), .None => false),
+    Rc(.Func({ meta : __fm3 })) => match(&__fm3.is_extern, .Some(lang) => (lang == "c"), .None => false),
     _ => false
   );
   gate_in_autogen := is_auto_generated_expansion(Option(String).Some(tok.module_path.*.clone()));
@@ -10580,7 +10580,7 @@ _evaluate_function_call_unanchored :: (
   // gated by the `unsafe(...)` rule below.
   gate_is_extern_runtime := match(
     &callee_ty_for_gate,
-    Rc(.Func({ meta : __fm_d6 })) => match(&__fm_d6.*.is_extern, .Some(lang) => (lang != "c"), .None => false),
+    Rc(.Func({ meta : __fm_d6 })) => match(&__fm_d6.is_extern, .Some(lang) => (lang != "c"), .None => false),
     _ => false
   );
   if(gate_is_extern_runtime && _d6_callee_is_by_name(&func_expr, ctx) && !gate_in_autogen && !is_implicitly_unsafe_capable_file(Option(String).Some(tok.module_path.*.clone())), {
@@ -10588,7 +10588,7 @@ _evaluate_function_call_unanchored :: (
       dyn(
         format_error_message(
           &tok,
-          `Calling the runtime extern '${match(&callee_ty_for_gate, Rc(.Func({ meta : __fm_d6n })) => match(&__fm_d6n.*.extern_name, .Some(n) => n.clone(), .None => ast_expr_to_string(&func_expr)), _ => ast_expr_to_string(&func_expr))}' is not available in safe code. Runtime entry points are the implementation of std's wrappers (std/thread, std/fs, ...) and do not keep the invariants those wrappers keep — call the std API instead. A file that genuinely needs the raw entry point declares 'pragma(Pragma.AllowUnsafe);' at the top.`
+          `Calling the runtime extern '${match(&callee_ty_for_gate, Rc(.Func({ meta : __fm_d6n })) => match(&__fm_d6n.extern_name, .Some(n) => n.clone(), .None => ast_expr_to_string(&func_expr)), _ => ast_expr_to_string(&func_expr))}' is not available in safe code. Runtime entry points are the implementation of std's wrappers (std/thread, std/fs, ...) and do not keep the invariants those wrappers keep — call the std API instead. A file that genuinely needs the raw entry point declares 'pragma(Pragma.AllowUnsafe);' at the top.`
         )
       )
     );
@@ -11362,7 +11362,7 @@ Fix: wrap the call:
             });
           };
           pa_fty := match(&callee_info_opt, .Some(pa_ci) => Rc.clone(pa_ci.ty()), .None => t_unit());
-          pa_ret_ct := match(&pa_fty, Rc(.Func({ meta : __pam1 })) => __pam1.*.result_is_comptime_only, _ => false);
+          pa_ret_ct := match(&pa_fty, Rc(.Func({ meta : __pam1 })) => __pam1.result_is_comptime_only, _ => false);
           if(pa_has_hole && pa_ret_ct, {
             pa_pt := match(&pa_fty, Rc(.Func({ param_types : ppt })) => Rc.clone(ppt), _ => no_types());
             pa_res := match(&pa_fty, Rc(.Func({ result : pr })) => t_slot_pointee(&pr), _ => t_unit());
@@ -11577,7 +11577,7 @@ Fix: wrap the call:
           &callee_info_opt,
           .Some(ci) => match(
             &ci.ty(),
-            Rc(.Func({ meta : __fm5 })) => Rc.clone(__fm5.*.param_labels),
+            Rc(.Func({ meta : __fm5 })) => Rc.clone(__fm5.param_labels),
             _ => match(
               extract_fn_trait_from_type(&ci.ty()),
               .Some(Rc(.FnTraitT(_, fv_cpl, _, _, _, _))) => Rc.clone(fv_cpl),
@@ -11632,7 +11632,7 @@ Fix: wrap the call:
           &callee_info_opt,
           .Some(ci_s) => match(
             &ci_s.ty(),
-            Rc(.Func({ meta : __fm7s })) => match(&__fm7s.*.param_is_sink, .Some(l) => Rc.clone(l), .None => no_flags()),
+            Rc(.Func({ meta : __fm7s })) => match(&__fm7s.param_is_sink, .Some(l) => Rc.clone(l), .None => no_flags()),
             _ => no_flags()
           ),
           .None => no_flags()
@@ -12263,7 +12263,7 @@ Fix: wrap the call:
               &callee_info_opt,
               .Some(fv_ci_ext) => match(
                 &fv_ci_ext.ty(),
-                Rc(.Func({ meta : __fmext })) => __fmext.*.extern_name.is_some(),
+                Rc(.Func({ meta : __fmext })) => __fmext.extern_name.is_some(),
                 _ => false
               ),
               .None => false
@@ -12692,7 +12692,7 @@ Fix: wrap the call:
         // (`Option(&(T, p))`, step 3, N2a).
         fv_o_labels := match(
           &fv_callee_ty,
-          Rc(.Func({ meta : fv_o_m })) => match(&fv_o_m.*.origin_labels, .Some(ol) => Rc.clone(ol), .None => no_labels()),
+          Rc(.Func({ meta : fv_o_m })) => match(&fv_o_m.origin_labels, .Some(ol) => Rc.clone(ol), .None => no_labels()),
           _ => no_labels()
         );
         (fv_o_i : usize) = usize(0);
@@ -13129,7 +13129,7 @@ Fix: wrap the call:
         // otherwise wrongly take the non-memoized inline path.
         callee_result_is_comptime := match(
           &callee_func_type_opt,
-          .Some(cft) => match(cft, Rc(.Func({ meta : __fm8 })) => __fm8.*.result_is_comptime_only, _ => false),
+          .Some(cft) => match(cft, Rc(.Func({ meta : __fm8 })) => __fm8.result_is_comptime_only, _ => false),
           .None => false
         );
         // A FuncVal call whose arguments are ALL compile-time type VALUES is a
@@ -13877,7 +13877,7 @@ Fix: wrap the call:
           // reads whichever call wrote last.
           // The forall labels come from the Func's meta, which is the method's
           // own binder list; the gate inside the helper is unchanged.
-          m_forall := match(&method_info.method_ty, Rc(.Func({ meta : __mfm })) => Rc.clone(__mfm.*.forall_labels), _ => no_labels());
+          m_forall := match(&method_info.method_ty, Rc(.Func({ meta : __mfm })) => Rc.clone(__mfm.forall_labels), _ => no_labels());
           m_callee_ty := _freshen_generic_closure_callee(&method_info.method_ty, &m_forall.items);
           all_args := ArrayList(AstExpr).new();
           if(!method_info.is_static, {
@@ -13929,7 +13929,7 @@ Fix: wrap the call:
               Rc(.Func({ param_types : uc_pts, meta : uc_fm })) => {
                 uc_head := ArrayList(AstExpr).new();
                 match(args.get(usize(0)), .Some(a0) => uc_head.push(a0), .None => ());
-                uc_peeled := apply_call_site_borrow_markers(&uc_head, &uc_pts.items, &fn_param_mut_ref_flags(&method_info.method_ty).items, &fn_param_by_value_flags(&method_info.method_ty).items, &uc_fm.*.param_labels.items, false, exn);
+                uc_peeled := apply_call_site_borrow_markers(&uc_head, &uc_pts.items, &fn_param_mut_ref_flags(&method_info.method_ty).items, &fn_param_by_value_flags(&method_info.method_ty).items, &uc_fm.param_labels.items, false, exn);
                 uc_out := ArrayList(AstExpr).new();
                 (uci : usize) = usize(0);
                 while(uci < args.len(), {
@@ -14104,7 +14104,7 @@ Fix: wrap the call:
           // an UnknownVal (without executing) when any arg is unknown, so a
           // runtime receiver is handled safely.
           m_ret_ty := match(m_callee_ty, Rc(.Func({ result : _mrb })) => t_slot_pointee(&_mrb), _ => t_unit());
-          m_is_comptime := match(&method_info.method_ty, Rc(.Func({ meta : __fm9 })) => __fm9.*.result_is_comptime_only, _ => false);
+          m_is_comptime := match(&method_info.method_ty, Rc(.Func({ meta : __fm9 })) => __fm9.result_is_comptime_only, _ => false);
           (m_result_val : Option(EvalValue)) = if(is_type_hierarchy_type(&m_ret_ty) || m_is_comptime, {
             m_self_ty_saved := ctx.self_type.clone();
             match(
