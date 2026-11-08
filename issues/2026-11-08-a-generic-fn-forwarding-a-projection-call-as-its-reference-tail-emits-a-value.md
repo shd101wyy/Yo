@@ -4,6 +4,7 @@
 
 - Filed: 2026-11-08 (deref lane, VERDICTS-38 §5 item 2; Fable's probes p10b/p10c).
 - Reproduced on develop `a25a71ee1` (a tree build) and the v0.2.75 seed, user file, no `unsafe`.
+- Still reproduces on develop `beefabda4` (after #1834's projection-call `.*` fix), re-verified 2026-11-08.
 
 ## Reproducer
 

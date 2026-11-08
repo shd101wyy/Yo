@@ -192,3 +192,20 @@ test("The deref of a mutable projection call's result is written in place", {
   s.get_mut().* = (s.get_mut().* + i32(1));
   assert(s.v == i32(6), "a method projection read and written through `.*`");
 });
+// Both operands of `==` are derefs of reference-returning calls, directly
+// and through a generic body (was an internal error, "arg has no ExprInfo":
+// issues/fixed/2026-11-08-a-deref-of-a-reference-returning-call-as-an-operand-is-an-internal-error.md).
+RrPair :: struct(m : i32);
+rr_pair_m :: (fn(s : &RrPair) -> &i32)(&s.m);
+rr_rc_eq :: (fn(generic(T : Type), a : &Rc(T), b : &Rc(T), where(T <: Eq(T))) -> bool)(a.as_ref().* == b.as_ref().*);
+test("Both operands of an operator can be derefs of reference-returning calls", {
+  a := RrPair(m : i32(5));
+  b := RrPair(m : i32(5));
+  c := RrPair(m : i32(6));
+  assert(rr_pair_m(&a).* == rr_pair_m(&b).*, "equal through two calls");
+  assert(!(rr_pair_m(&a).* == rr_pair_m(&c).*), "unequal through two calls");
+  x := Rc.new(i32(7));
+  y := Rc.new(i32(7));
+  z := Rc.new(i32(8));
+  assert(rr_rc_eq(&x, &y) && !rr_rc_eq(&x, &z), "the same through as_ref in a generic body");
+});

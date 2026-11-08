@@ -4,6 +4,7 @@
 
 - Filed: 2026-11-08 (deref lane, VERDICTS-38 §5 item 3; Fable's probe p8a).
 - Reproduced on develop `a25a71ee1` (a tree build), user file.
+- Still reproduces on develop `beefabda4` (after #1834's projection-call `.*` fix), re-verified 2026-11-08.
 
 ## Reproducer
 
