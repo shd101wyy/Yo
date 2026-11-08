@@ -1190,6 +1190,10 @@ impl(
       exn.throw(dyn(make_parse_error(&tok, `expected 2 expressions for Array type [T; N]`)));
     });
     is_array_type := (is_array_type_form && (n_args == usize(2)));
+    // `[T;]` names no length: it is neither the array type nor the slice.
+    if(match(separator_is_comma, .Some(__sc) => !__sc, .None => false) && (n_args == usize(1)), {
+      exn.throw(dyn(make_parse_error(&tok, `expected 2 expressions for Array type [T; N]; the slice type is [T]`)));
+    });
     is_slice_type := (is_array_type_form && (n_args == usize(1)));
     kw := cond(
       is_array_type => BK_ARRAY,
