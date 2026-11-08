@@ -309,33 +309,17 @@ test("a marker that does not fit the parameter is an error", {
   comptime_expect_error(addr_of(c), "not available in safe code");
 });
 
-// Decision 34's Dyn test: `LogicalNot`'s `(!)` takes `self` by value (as
-// amended 2026-10-11) and returns `bool`, so it has a vtable slot; a by-value
-// impl is reached through it
-// (issues/fixed/a-dyn-over-an-operator-trait-emits-an-invalid-c-wrapper-name.md).
+// `LogicalNot`'s `(!)` takes `self` by value (decision 34 as amended
+// 2026-10-11). A by-value `self` is no vtable slot (decision 49, E0614 for
+// every payload): a `Dyn` is unsized and lives behind the pointer that owns
+// it, so a call would move the payload out of that pointer. The move-only
+// payload was the first case
+// (issues/fixed/a-by-value-self-called-through-a-dyn-frees-the-payload.md); a
+// `Copy` payload is the same rule. The impls themselves stay callable on the
+// concrete types.
 _PmFlag :: struct(on : bool);
 derive(_PmFlag, Copy, Clone);
 impl(_PmFlag, LogicalNot((!) : (fn(self : Self) -> bool)(!self.on)));
-test("Dyn(LogicalNot) over a by-value operator impl", {
-  (d : Dyn(LogicalNot)) = dyn(_PmFlag(on : true));
-  assert(!!d, "!d negates through the Dyn");
-  (e : Dyn(LogicalNot)) = dyn(_PmFlag(on : false));
-  assert(!e, "!e negates through the Dyn");
-});
-
-// The vtable wrapper hands a by-value `self` a copy of the payload, its
-// counted fields incremented: the impl drops its copy and the Dyn keeps the
-// original. A move-only payload has no copy, so it cannot be boxed behind a
-// by-value slot at all
-// (issues/fixed/a-by-value-self-called-through-a-dyn-frees-the-payload.md).
-// A Dyn owns its payload (plans/VALUES_BY_DEFAULT.md decision 7): a call with
-// a by-value receiver moves the Dyn, so each call but the last gets a clone,
-// and no call reads a payload an earlier one could have freed. A slot that
-// consumed the payload instead of copying it would now free each box twice
-// (the call, then the Dyn's drop), which only an AddressSanitizer run of
-// the language suite (as CI runs it) reports.
-// The name sits behind an `Rc`: a `String` is a value since B8, and a
-// move-only payload cannot be called by value through a Dyn at all (E0614).
 _PmNamed :: struct(name : Rc(String));
 derive(_PmNamed, Clone);
 impl(_PmNamed, LogicalNot((!) : (fn(self : Self) -> bool)(self.name.len() == usize(0))));
@@ -349,14 +333,18 @@ impl(
   )
 );
 impl(_PmHeld, LogicalNot((!) : (fn(self : Self) -> bool)(self.n == i32(0))));
-test("a by-value self called through a Dyn gets a copy of the payload", {
-  (e : Dyn(LogicalNot, Clone)) = dyn(_PmNamed(name : Rc.new(String.from("abc"))));
-  assert(!!e.clone(), "first call, on a clone: the name is non-empty");
-  assert(!!e.clone(), "second call reads the payload the first call did not free");
-  assert(!!e, "third call, on the original");
+test("a by-value self is no vtable slot, whatever the payload", {
+  assert(!!_PmFlag(on : true), "the by-value impl on the concrete type");
+  assert(!!_PmNamed(name : Rc.new(String.from("abc"))), "a Clone payload's impl");
+  comptime_expect_error({
+    (_d : Dyn(LogicalNot)) = dyn(_PmFlag(on : true));
+  }, "takes `self` by value");
+  comptime_expect_error({
+    (_e : Dyn(LogicalNot, Clone)) = dyn(_PmNamed(name : Rc.new(String.from("abc"))));
+  }, "takes `self` by value");
   comptime_expect_error({
     (_h : Dyn(LogicalNot)) = dyn(_PmHeld(n : i32(1)));
-  }, "cannot hold the move-only");
+  }, "is move-only");
 });
 
 // Passing a function value checks its type against a function-typed

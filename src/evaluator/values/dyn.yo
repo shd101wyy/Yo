@@ -577,23 +577,22 @@ _require_dyn_traits_implemented :: (
         }),
         .None => ()
       );
-      // A vtable slot that takes `self` BY VALUE (`LogicalNot`'s `(!)`,
-      // decision 34 as amended 2026-10-11) hands the impl its own copy of the
-      // payload, since the Dyn keeps owning the original. A move-only payload
-      // has no copy to hand over: the call would move the value out of the box
-      // the Dyn still owns and drops
-      // (issues/fixed/a-by-value-self-called-through-a-dyn-frees-the-payload.md).
-      if(type_is_move_only(&check_ty), {
-        match(
-          _by_value_self_slot(&rtt.items),
-          .Some(bv) => {
-            mo_why := match(move_only_reason(&check_ty), .Some(r) => `: ${r}`, .None => String.new());
-            bv_msg := `A ${type_to_string(dyn_type.clone())} cannot hold the move-only ${type_to_string(check_ty.clone())}${mo_why}. Its method ${bv} takes \`self\` by value, so a call through the Dyn would move the payload out of the box the Dyn still owns. Box a copyable value, or declare the method with \`self : &Self\`.`;
-            raise_flow_violation(with_code(format_error_message(token, &bv_msg), E_DYN_UNCALLABLE), ctx, exn);
-          },
-          .None => ()
-        );
-      });
+      // A method that takes `self` BY VALUE (`LogicalNot`'s `(!)`, decision
+      // 34 as amended 2026-10-11) is no vtable slot (decision 49, E0614 for
+      // every payload): a `Dyn` is unsized and lives behind the pointer that
+      // owns it, so there is no value to hand the method — a call would move
+      // the payload out of that pointer, which still owns and drops it
+      // (issues/fixed/a-by-value-self-called-through-a-dyn-frees-the-payload.md
+      // was the move-only case; a `Copy` payload is the same rule).
+      match(
+        _by_value_self_slot(&rtt.items),
+        .Some(bv) => {
+          mo_why := if(type_is_move_only(&check_ty), match(move_only_reason(&check_ty), .Some(r) => ` (${type_to_string(check_ty.clone())} is move-only: ${r})`, .None => String.new()), String.new());
+          bv_msg := `A ${type_to_string(dyn_type.clone())} cannot be made: its method ${bv} takes \`self\` by value, and a \`Dyn\` is unsized, so there is no value to hand it — a call would move the payload out of the pointer that owns it${mo_why} (plans/VALUES_BY_DEFAULT.md decision 49). Declare the method with \`self : &Self\`, or call it on the concrete type.`;
+          raise_flow_violation(with_code(format_error_message(token, &bv_msg), E_DYN_UNCALLABLE), ctx, exn);
+        },
+        .None => ()
+      );
     },
     _ => ()
   );
