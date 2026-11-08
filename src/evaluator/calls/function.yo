@@ -2843,7 +2843,7 @@ _ambiguous_method_message :: (
         );
         ae_recv := match(&ae_self, .Some(st) => type_to_string(&st), .None => String.from("T"));
         ae_slot := match(fn_param_slots(&ae.ty).get(usize(0)), .Some(sl) => sl, .None => Rc.new(TypeValueNode.Unit));
-        ae_label := match(&ae.ty, Rc(.Func({ meta : ae_meta })) => match(ae_meta.*.param_labels.get(usize(0)), .Some(l) => l, .None => String.from("self")), _ => String.from("self"));
+        ae_label := match(&ae.ty, Rc(.Func({ meta : ae_meta })) => match(ae_meta.param_labels.get(usize(0)), .Some(l) => l, .None => String.from("self")), _ => String.from("self"));
         ae_mode := match(
           &ae_self,
           .Some(st) => cond(

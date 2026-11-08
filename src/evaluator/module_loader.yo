@@ -179,7 +179,7 @@ mark_owner_always_visible :: (fn(module : &String) -> unit)({
 import_closure_of :: (fn(module : &String) -> Rc(HashSet(String)))({
   start := _canonical(module);
   match(
-    g_import_closure_memo.with({ &start }(m) => m.get_cloned(&start.*)),
+    g_import_closure_memo.with({ &start }(m) => m.get_cloned(start.as_ref())),
     .Some(s) => {
       return(s);
     },
