@@ -1,0 +1,11 @@
+// issues/2026-11-08-a-generic-projections-body-type-is-not-checked-against-its-result.md
+pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
+W :: (fn(comptime(T) : Type) -> comptime(Type))(struct(v : T));
+impl(generic(T : Type), W(T), at : (fn(self : &mut Self) -> &mut T)(unsafe(addr_of(self.*))));
+main :: (fn() -> unit)({
+  mut(w) := W(i64)(v : i64(1));
+  w.at().* = i64(2);
+  assert(w.v == i64(2), "written through the projection");
+});
+export(main);

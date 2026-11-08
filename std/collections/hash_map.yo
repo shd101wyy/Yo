@@ -1013,10 +1013,10 @@ impl(
     hash := self._hash(key);
     match(
       Self._probe(self, key, hash),
-      .Occupied(index) => self._value_at_mut(index),
+      .Occupied(index) => &mut self._value_at_mut(index).*,
       .Vacant(index) => {
         slot := Self._insert_at(self, index, hash, key.clone(), default);
-        self._value_at_mut(slot)
+        &mut self._value_at_mut(slot).*
       }
     )
   }),
@@ -1029,10 +1029,10 @@ impl(
     hash := self._hash(key);
     match(
       Self._probe(self, key, hash),
-      .Occupied(index) => self._value_at_mut(index),
+      .Occupied(index) => &mut self._value_at_mut(index).*,
       .Vacant(index) => {
         slot := Self._insert_at(self, index, hash, key.clone(), make());
-        self._value_at_mut(slot)
+        &mut self._value_at_mut(slot).*
       }
     )
   }),
