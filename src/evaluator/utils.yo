@@ -9557,11 +9557,11 @@ _rigidify_elided_origins :: (fn(ty : &TypeValue, pname : &String, prefix : &Stri
     Rc(.Reference(rr_p, rr_m, rr_o)) => {
       origin := if(match(&rr_o, Rc(.OriginSet(_, rr_el)) => rr_el, _ => false), {
         names := ArrayList(String).new();
-        names.push(`${pname}#${prefix}${next.*.to_string()}`);
-        next.* = (next.* + u32(1));
+        names.push(`${pname}#${prefix}${next.to_string()}`);
+        next = (next + u32(1));
         t_origin_named(&shared_list(names))
       }, {
-        next.* = (next.* + u32(1));
+        next = (next + u32(1));
         rr_o.clone()
       });
       inner := _rigidify_elided_origins(&rr_p, pname, prefix, next, (depth + u32(1)));
@@ -9624,13 +9624,15 @@ origin_name_phrase :: (fn(n : &String) -> String)(
   )
 );
 /// The DECLARED slot of `v`, a parameter of the function body being
-/// evaluated, when that slot spells origins: `b : &(i32, q)` as written. A
-/// generic body is evaluated per specialization with its parameters'
-/// origins elided (origins never specialize), so the env's slot type lost
-/// `q`; the body's own function type keeps it, and O2 checks a generic body
-/// with its origin parameters RIGID — `p` and `q` are distinct names
-/// whatever a caller binds them to. `.None` outside a function body, for a
-/// non-parameter, or when the declared slot spells no origin.
+/// evaluated, with every elided origin written in it rigid
+/// (`rigid_param_slot`; O-3): `b : &(i32, q)` as written, `s : &mut
+/// Option(&T)` as `&mut(Option(&(T, s#1)), s#0)`. A generic body is
+/// evaluated per specialization with its parameters' origins elided
+/// (origins never specialize), so the env's slot type lost `q`; the body's
+/// own function type keeps it, and O2 checks a body with its origin
+/// parameters RIGID — `p` and `q` are distinct names whatever a caller binds
+/// them to, and so are two elided `&`. `.None` outside a function body, for
+/// a non-parameter, or when the declared slot has no origin position.
 param_declared_origin_slot :: (fn(v : &Variable, ctx : &EvalContext) -> Option(TypeValue))({
   if(!v.is_parameter(), {
     return(Option(TypeValue).None);

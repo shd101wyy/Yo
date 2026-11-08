@@ -18,7 +18,11 @@
 #   expect  the verdict once the rules land, as the reference checker returns it:
 #           ACCEPT, an existing code (E0901 E0909 E0910 E0911 E0912 E0919), or a
 #           rule the plan names but has not numbered yet (WF_SELF, WF_UNDECLARED,
-#           ORIGIN_MISMATCH, UNION; `@spec` = inside a generic specialization)
+#           ORIGIN_MISMATCH, UNION; `@spec` = inside a generic specialization).
+#           A rule may name the code it is decided to raise after a `/`:
+#           `UNION/E0923` (a per-call parameter's origin outside the holder's)
+#           or `UNION/E0912` (a body local's), VERDICTS-37 Q2's split; the
+#           model test spells the rule alone.
 #   today   what `yo check` does with the program now: `accept`, or
 #           `<code>|<text>` where <code> is the first error's code (`-` when it
 #           has none) and <text> a fixed string that first error's message
@@ -71,7 +75,7 @@ while IFS=$'\t' read -r id anchor kind phase expect today; do
   case "$id" in \#*) continue ;; esac
   [ -f "$CORPUS/$id.yo" ] || problem "$id: no fixture $CORPUS/$id.yo"
   got=$(awk -F'\t' -v id="$id" '$1 == id { print $2 }' <<<"$model")
-  [ "$got" = "$expect" ] || problem "$id: the model test expects '${got:-nothing}', the manifest '$expect'"
+  [ "$got" = "${expect%%/*}" ] || problem "$id: the model test expects '${got:-nothing}', the manifest '$expect'"
   case "$kind" in neg) [ "$expect" != ACCEPT ] || problem "$id: a neg row expects ACCEPT" ;; pos) [ "$expect" = ACCEPT ] || problem "$id: a pos row expects $expect" ;; *) problem "$id: kind '$kind'" ;; esac
 done < <(grep -v '^#' "$MANIFEST")
 mcount=$(wc -l <<<"$model" | tr -d ' ')
@@ -118,7 +122,9 @@ while IFS=$'\t' read -r id anchor kind phase expect today; do
         if [ $rc -ne 0 ] && [ "$first" = "$want" ]; then pass=$((pass + 1)); else problem "$id: expected $expect, got rc=$rc first='${first:-none}'"; fi ;;
       *)
         rule=${expect%@spec}
+        rule=${rule%%/*}
         want=${RULE_CODES[$rule]-}
+        case "$expect" in */*) want=${expect#*/}; want=${want%@spec} ;; esac
         if [ $rc -ne 0 ] && { [ -z "$want" ] || [ "$first" = "$want" ]; }; then pass=$((pass + 1)); else problem "$id: expected $expect${want:+ ($want)}, got rc=$rc first='${first:-none}'"; fi ;;
     esac
   fi
