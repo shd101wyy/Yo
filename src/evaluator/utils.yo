@@ -9214,19 +9214,35 @@ _origin_push_lend :: (fn(operand : &AstExpr, is_mut : bool, env : &Environment, 
 /// root name of a temporary's entry — a hidden statement local, never a
 /// user name (`#`), so it overlaps no place and names no binding.
 ORIGIN_TEMPORARY_ROOT :: "#temporary";
-/// `operand`, lent, is a temporary: a value computed by the statement (a
-/// call's result, a constructor) rather than a place — no binding roots it,
-/// it is not itself a reference value (a reference passed on is its own
-/// origin, R-READ/R-CALL), and it is not a projection's place.
+/// `operand`, lent, is a temporary: a value the statement computes (a call's
+/// or a method call's result, a constructor, an operator, an arm join) or a
+/// field of one — not a binding's place, not a reference value (a reference
+/// passed on is its own origin, R-READ/R-CALL), not a projection's or a
+/// subscript's place (those lie in their own roots), and not a deref
+/// (`p.*` is a place behind a reference). Structural on purpose:
+/// `local_borrow_place_of` reads a call as its callee's place, so a method
+/// call's receiver (`c.borrow()`) would pass for `c`.
 is_temporary_operand :: (fn(operand : &AstExpr, env : &Environment, ctx : &EvalContext) -> bool)({
-  s := ast_expr_strip_borrow_marker(operand);
-  if(ast_expr_is_atom(&s) || projection_call_mode_of(&s, ctx).is_some() || _place_chain_root_atom(&s).is_some(), {
-    return(false);
-  });
-  if(match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&s)), .Some(si) => match(&si.ty(), Rc(.Reference(_, _, _)) => true, _ => false), .None => true), {
-    return(false);
-  });
-  local_borrow_place_of(&s, env, ctx).is_none()
+  s := ast_rewritten_node(&ast_expr_strip_borrow_marker(operand));
+  match(
+    &s,
+    .Atom(_, _) => false,
+    .FnCall(_, _, Rc(t_args), _, _) => cond(
+      ast_expr_is_fn_call_of(&s, BF_DOT, Option(usize).Some(usize(2))) => match(
+        t_args.get(usize(1)),
+        .Some(member) => if(ast_expr_is_atom(&member) && (ast_expr_token(&member).value.* == "*"), false, match(t_args.get(usize(0)), .Some(recv) => is_temporary_operand(&recv, env, ctx), .None => false)),
+        .None => false
+      ),
+      ast_expr_is_fn_call_of(&s, BK_COLON, Option(usize).Some(usize(2))) => match(t_args.get(usize(1)), .Some(v) => is_temporary_operand(&v, env, ctx), .None => false),
+      projection_call_mode_of(&s, ctx).is_some() => false,
+      match(
+        expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&s)),
+        .Some(si) => (expr_info_index_trait_ptr_type(&si).is_some() || match(&si.ty(), Rc(.Reference(_, _, _)) => true, _ => false)),
+        .None => true
+      ) => false,
+      true => true
+    )
+  )
 });
 /// The R-TEMP entry for the temporary `operand`.
 origin_temporary_entry :: (fn(operand : &AstExpr, is_mut : bool) -> OriginRootPlace)({
