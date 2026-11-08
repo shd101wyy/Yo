@@ -231,6 +231,27 @@ generate_drop_of_operand :: (fn(value_arg : &AstExpr, indent : &String, context 
     return(String.new());
   });
   value_code := _drop_operand(value_arg, indent.clone(), context);
+  // `___drop` of an unsized `[E]` place (decision 49: `drop_in_place(p)` with
+  // `p : *[E]`): drop each element through the fat pointer's length. The
+  // operand is the place `(*p)`, whose address is the fat pointer itself.
+  match(
+    &value_type,
+    Rc(.SliceT(ds_elem)) => {
+      fat := if(value_code.starts_with("(*") && value_code.ends_with(")"), value_code.substring(usize(2), value_code.len() - usize(1)), value_code.clone());
+      sv := fresh_local_name(String.from("__yo_drop_slice_"), &context.base.current_function_name);
+      iv := fresh_local_name(String.from("__yo_drop_i_"), &context.base.current_function_name);
+      et := get_type_string(ds_elem, &mut context.base);
+      elem_code := `((${et}*)${sv.clone()}.ptr)[${iv.clone()}]`;
+      context.base.emitter.emit_string_line(`${indent.clone()}{ __yo_slice_t ${sv.clone()} = ${fat}; for (size_t ${iv.clone()} = 0; ${iv.clone()} < ${sv.clone()}.len; ${iv.clone()}++) {`);
+      elem_drop := generate_drop_code_for_value(&elem_code, ds_elem, context);
+      if(elem_drop.len() > usize(0), {
+        context.base.emitter.emit_string_line(`${indent.clone()}  ${elem_drop};`);
+      });
+      context.base.emitter.emit_string_line(`${indent.clone()}} }`);
+      return(String.new());
+    },
+    _ => ()
+  );
   // Single-pass async lowering: an await moved this temp's future into
   // the task's slot, which releases it.
   if(match(&context.sm_inline_lowering, .Some(low) => low.moved_into_slot.contains(value_code.clone()), .None => false), {
