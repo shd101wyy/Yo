@@ -99,6 +99,7 @@ pragma(Pragma.AllowUnsafe);
   CaptureSlice,
   variable_value_type,
   variable_set_is_ref,
+  variable_set_reference_mut,
   variable_set_is_imm_borrow
 } :: import("../../env.yo");
 { Token } :: import("../../token.yo");
@@ -1701,6 +1702,10 @@ evaluate_anonymous_function_implementation :: (
             .Some(cv) => {
               if(ce.is_borrow, {
                 variable_set_is_ref(&cv, true);
+                // The capture's mode is the one written: `rx : &x` reads as
+                // `&i32` in the body, `s : &mut slot` as `&mut` (the flags
+                // alone make every `is_ref` binding `&mut`).
+                variable_set_reference_mut(&cv, ce.is_mut);
                 match(
                   &ce.outer,
                   .Some(bco) => {

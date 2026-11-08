@@ -1,0 +1,16 @@
+// O-3 corpus row `closure-param-through-param` (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §8, VERDICTS-37;
+// manifest tests/origins/corpus.tsv): a closure literal stores its per-call parameter `v` through its other per-call parameter `s`.
+// Expected once O-3 lands: rejected in the literal's body: E0923 at `.Some(v)` (the slot's elided origins are per-call and distinct).
+_each :: (fn(f : &Impl(Fn(v : &i32, s : &mut Option(&i32)) -> unit), out : &mut Option(&i32)) -> unit)({
+  k := i32(1);
+  f(&k, out);
+});
+main :: (fn() -> unit)({
+  mut(slot) := Option(&i32).None;
+  _each((v : &i32, s : &mut Option(&i32)) => {
+    s.* = .Some(v);
+  }, &mut slot);
+  _ := slot.is_some();
+  ()
+});
+export(main);

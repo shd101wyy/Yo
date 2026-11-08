@@ -1,0 +1,18 @@
+// expect: E0923
+// H2 (VERDICTS-37 Q2): a closure stores its per-call parameter `v` into the captured `slot`; `v`
+// points at `each`'s local `k`, which dies with the call, while `slot` is read after it.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+each :: (fn(f : &mut Impl(FnMut(v : &String) -> unit)) -> unit)({
+  k := String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz");
+  f(&k);
+});
+main :: (fn() -> unit)({
+  mut(slot) := Option(&String).None;
+  each(&mut ({ s : &mut slot }(v : &String) => {
+    s.* = .Some(v);
+  }));
+  match(slot, .Some(r) => println(`OUT: ${r.*.len().to_string()}`), .None => println("none"));
+  ()
+});
+export(main);

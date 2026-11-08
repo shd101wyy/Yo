@@ -1,0 +1,19 @@
+// expect: E0923
+// H2e: H2 through a field of a captured named holder whose origin is spelled over `z0`.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+S :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(o : Option(&(String, p))));
+each :: (fn(f : &mut Impl(FnMut(v : &String) -> unit)) -> unit)({
+  k := String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz");
+  f(&k);
+});
+main :: (fn() -> unit)({
+  z0 := String.from("z");
+  mut(h) := S(z0)(o : Option(&(String, z0)).None);
+  each(&mut ({ s : &mut h }(v : &String) => {
+    s.o = .Some(v);
+  }));
+  match(&h.o, .Some(r) => println(`OUT: ${r.*.len().to_string()}`), .None => println("none"));
+  ()
+});
+export(main);

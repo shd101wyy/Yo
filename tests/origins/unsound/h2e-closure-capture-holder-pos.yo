@@ -1,0 +1,21 @@
+// expect: accept
+// Positive twin of h2e-closure-capture-holder: the body stores the captured `&z0`, the place the
+// holder's origin names.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+S :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(o : Option(&(String, p))));
+each :: (fn(f : &mut Impl(FnMut(v : &String) -> unit)) -> unit)({
+  k := String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz");
+  f(&k);
+});
+main :: (fn() -> unit)({
+  z0 := String.from("z");
+  mut(h) := S(z0)(o : Option(&(String, z0)).None);
+  each(&mut ({ s : &mut h, rz : &z0 }(v : &String) => {
+    _ := v.len();
+    s.o = .Some(rz);
+  }));
+  match(&h.o, .Some(r) => println(`OUT: ${r.*.len().to_string()}`), .None => println("none"));
+  ()
+});
+export(main);

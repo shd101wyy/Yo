@@ -1,0 +1,24 @@
+// expect: E0911
+// VERDICTS-37 Q3: the closure stores its `&x` capture into the captured `slot` and dies with its
+// block; `x` is then reassigned while `slot` still points into it. The capture store joins
+// `slot`'s flow set at the literal, so the reassignment is E0911 (Rust: E0506).
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+put :: (fn(generic(p : Origin), dst : &mut Option(&(Rc(X), p)), v : &(Rc(X), p)) -> unit)({
+  dst.* = .Some(v);
+});
+main :: (fn() -> unit)({
+  mut(x) := Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz")));
+  mut(slot) := Option(&Rc(X)).None;
+  {
+    (mut(c) : Impl(FnMut() -> unit)) = ({ s : &mut slot, rx : &x }() => {
+      put(&mut s.*, rx);
+    });
+    c();
+  };
+  x = Rc.new(X(s : String.from("y")));
+  match(slot, .Some(r) => println(`OUT: ${r.*.*.s.len().to_string()}`), .None => println("none"));
+  ()
+});
+export(main);

@@ -1,0 +1,21 @@
+// O-3 corpus row `closure-push-capture-then-clear` (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §8, VERDICTS-37;
+// manifest tests/origins/corpus.tsv): POSITIVE: the closure stores its `&x` capture into the captured slot, the slot is cleared, then `x` is written.
+// Expected once O-3 lands: accepted: the `=` join kills over reaching definitions (VERDICTS-37 Q3).
+_put :: (fn(generic(p : Origin), dst : &mut Option(&(i32, p)), v : &(i32, p)) -> unit)({
+  dst.* = .Some(v);
+});
+main :: (fn() -> unit)({
+  mut(x) := i32(1);
+  mut(slot) := Option(&i32).None;
+  {
+    (mut(c) : Impl(FnMut() -> unit)) = ({ s : &mut slot, rx : &x }() => {
+      _put(&mut s.*, rx);
+    });
+    c();
+    slot = .None;
+  };
+  x = i32(3);
+  _ := slot.is_some();
+  ()
+});
+export(main);

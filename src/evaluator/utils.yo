@@ -9608,7 +9608,7 @@ is_rigid_origin_name :: (fn(n : &String) -> bool)(n.contains("#"));
 /// How a diagnostic names an origin: a spelled one by its name, a rigid one
 /// by the `&` it was written at — "the origin of `v`", "the origin inside
 /// `s`'s pointee", "the origin inside `x`" (VERDICTS-37 Q1 (a)).
-origin_name_phrase :: (fn(n : &String) -> String)({
+origin_name_phrase :: (fn(n : &String) -> String)(
   match(
     n.index_of("#"),
     .Some(hi) => {
@@ -9622,7 +9622,7 @@ origin_name_phrase :: (fn(n : &String) -> String)({
     },
     .None => `origin \`${n}\``
   )
-});
+);
 /// The DECLARED slot of `v`, a parameter of the function body being
 /// evaluated, when that slot spells origins: `b : &(i32, q)` as written. A
 /// generic body is evaluated per specialization with its parameters'
@@ -9803,9 +9803,13 @@ _shared_origin_repair :: (fn(variable : &Variable, v_name : &String, holder_name
   targets.push(v_name.clone());
   (hi : usize) = usize(0);
   while(hi < holder_names.len(), {
-    match(holder_names.get_cloned(hi), .Some(h) => if(is_rigid_origin_name(&h), {
-      targets.push(h);
-    }), .None => ());
+    match(
+      holder_names.get_cloned(hi),
+      .Some(h) => if(is_rigid_origin_name(&h), {
+        targets.push(h);
+      }),
+      .None => ()
+    );
     hi = (hi + usize(1));
   });
   // The parameters involved, in declaration order.
@@ -9845,7 +9849,7 @@ _shared_origin_repair :: (fn(variable : &Variable, v_name : &String, holder_name
 /// rigid (an elided `&` in a parameter type) gets the repair VERDICTS-37
 /// Q1 (a) prescribes: one origin parameter shared by both positions.
 _bind_join_reject :: (fn(variable : &Variable, holder_ty : &TypeValue, holder_names : &ArrayList(String), v_name : &String, root_name : &String, rt_is_local : bool, value : &AstExpr, ctx : &EvalContext, exn : Exception) -> unit)({
-  holder_rigid := (holder_names.len() > usize(0)) && is_rigid_origin_name(match(holder_names.get_cloned(usize(0)), .Some(h) => h, .None => String.new()));
+  holder_rigid := ((holder_names.len() > usize(0)) && is_rigid_origin_name(match(holder_names.get_cloned(usize(0)), .Some(h) => h, .None => String.new())));
   holder_text := if(holder_names.len() == usize(1), origin_name_phrase(match(holder_names.get_cloned(usize(0)), .Some(h) => h, .None => String.new())), `origin \`${type_to_string(holder_ty)}\``);
   if(rt_is_local && variable.is_parameter(), {
     raise_flow_violation(
@@ -9862,7 +9866,7 @@ _bind_join_reject :: (fn(variable : &Variable, holder_ty : &TypeValue, holder_na
     );
   });
   cond(
-    is_rigid_origin_name(v_name) || holder_rigid => {
+    (is_rigid_origin_name(v_name) || holder_rigid) => {
       repair := _shared_origin_repair(variable, v_name, holder_names, ctx);
       raise_flow_violation(
         with_code(
@@ -9995,7 +9999,7 @@ _capture_store :: (fn(variable : &Variable, bco : &BorrowCaptureOuter, roots : &
               ctx,
               exn
             ),
-            rv.is_module_level() || rv.is_compile_time_only() => (),
+            (rv.is_module_level() || rv.is_compile_time_only()) => (),
             true => match(
               borrow_capture_outer(rv.id()),
               .Some(rco) => outer_roots.push(OriginRootPlace(place : rco.place.clone(), is_mut : gr.is_mut)),

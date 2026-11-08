@@ -1,0 +1,15 @@
+// O-3 corpus row `fn-param-through-param` (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §8, VERDICTS-37;
+// manifest tests/origins/corpus.tsv): a named function stores its reference parameter `v` through its other parameter `s`, both origins elided.
+// Expected once O-3 lands: rejected in the body: E0923 at `.Some(v)`, each elided `&` is its own rigid origin (O2).
+X :: struct(n : i32);
+_store :: (fn(v : &Rc(X), s : &mut Option(&Rc(X))) -> unit)({
+  s.* = .Some(v);
+});
+main :: (fn() -> unit)({
+  mut(slot) := Option(&Rc(X)).None;
+  k := Rc.new(X(n : i32(1)));
+  _store(&k, &mut slot);
+  _ := slot.is_some();
+  ()
+});
+export(main);

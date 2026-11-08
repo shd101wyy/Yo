@@ -1,0 +1,15 @@
+// O-3 corpus row `fn-param-through-param-spelled` (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §8, VERDICTS-37;
+// manifest tests/origins/corpus.tsv): POSITIVE: the same store with one origin spelled for both parameters.
+// Expected once O-3 lands: accepted.
+X :: struct(n : i32);
+_store :: (fn(generic(p : Origin), v : &(Rc(X), p), s : &mut Option(&(Rc(X), p))) -> unit)({
+  s.* = .Some(v);
+});
+main :: (fn() -> unit)({
+  k := Rc.new(X(n : i32(1)));
+  mut(slot) := Option(&Rc(X)).None;
+  _store(&k, &mut slot);
+  _ := slot.is_some();
+  ()
+});
+export(main);
