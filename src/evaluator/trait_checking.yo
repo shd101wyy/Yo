@@ -2641,22 +2641,25 @@ type_implements_dispose :: (fn(ty : &TypeValue, env : &Environment) -> bool)(
     .None => false
   )
 );
+/// `trait_type` is the prelude marker `name`, looked up in `env` and then in
+/// the cached prelude environment. A prelude body's own environment is a
+/// snapshot taken where the body is written, so a marker the prelude defines
+/// further down (`Escapable`, `Sized`) is not in it: `Type.impls(T,
+/// Escapable)` asked through the prelude's `Type.impls` answered `false`
+/// for every `T`
+/// (issues/2026-11-08-type-impls-answers-false-for-escapable-for-every-type.md).
+_is_prelude_marker_trait :: (fn(trait_type : &TypeValue, name : str, env : &Environment) -> bool)({
+  tid := _trait_type_id(trait_type);
+  if(tid.is_empty(), {
+    return(false);
+  });
+  in_env := match(get_trait_type_from_env(env, String.from(name)), .Some(mt) => (_trait_type_id(&mt) == tid), .None => false);
+  in_env || match(g_flip_env.clone(), .Some(pe) => match(get_trait_type_from_env(&pe, String.from(name)), .Some(pt) => (_trait_type_id(&pt) == tid), .None => false), .None => false)
+});
 /// `trait_type` is the prelude's `Sized` marker (decision 49).
-is_sized_trait :: (fn(trait_type : &TypeValue, env : &Environment) -> bool)(
-  match(
-    get_trait_type_from_env(env, String.from("Sized")),
-    .None => false,
-    .Some(st) => (_trait_type_id(trait_type) == _trait_type_id(&st))
-  )
-);
+is_sized_trait :: (fn(trait_type : &TypeValue, env : &Environment) -> bool)(_is_prelude_marker_trait(trait_type, "Sized", env));
 /// `trait_type` is the prelude's `Escapable` marker (decision 43, O10).
-is_escapable_trait :: (fn(trait_type : &TypeValue, env : &Environment) -> bool)(
-  match(
-    get_trait_type_from_env(env, String.from("Escapable")),
-    .None => false,
-    .Some(et) => (_trait_type_id(trait_type) == _trait_type_id(&et))
-  )
-);
+is_escapable_trait :: (fn(trait_type : &TypeValue, env : &Environment) -> bool)(_is_prelude_marker_trait(trait_type, "Escapable", env));
 // ---------------------------------------------------------------------------
 // deref_target_type
 // ---------------------------------------------------------------------------

@@ -4970,7 +4970,7 @@ evaluate_function_type :: (
   });
   // A by-value result is returned in a value (decision 49, E0619); a
   // projection (`-> &T`) returns the place.
-  if(!is_return_comptime_only && !t_slot_is_borrow(&return_type) && !type_is_sized(&return_type), {
+  if(!is_return_comptime_only && !is_return_type_ref && !t_slot_is_borrow(&return_type) && !type_is_sized(&return_type), {
     exn.throw(dyn(unsized_by_value_error(&return_type, &String.from("a by-value result"), &Option(String).None, &ast_expr_token(&return_type_expr))));
   });
   // A `comptime(p) : Origin` parameter belongs to a type constructor (decision
