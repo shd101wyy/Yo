@@ -203,8 +203,7 @@ _verdict_of_json :: (fn(v : &JsonValue) -> Option(VerifyVerdict))({
   // the arm's value unit).
   kind := match(
     v.get(String.from("verdict")),
-    .Some(.Str(s)) => s.clone(),
-    .Some(_) => String.new(),
+    .Some(vk) => match(vk, .Str(s) => s.clone(), _ => String.new()),
     .None => String.new()
   );
   if(kind.len() == usize(0), {
@@ -213,24 +212,22 @@ _verdict_of_json :: (fn(v : &JsonValue) -> Option(VerifyVerdict))({
   cond(
     (kind == "proved") => match(
       v.get(String.from("core")),
-      .Some(core_json) => Option(VerifyVerdict).Some(VerifyVerdict.Proved(_strs_of_json(&core_json))),
+      .Some(core_json) => Option(VerifyVerdict).Some(VerifyVerdict.Proved(_strs_of_json(core_json))),
       .None => Option(VerifyVerdict).Some(VerifyVerdict.Proved(ArrayList(String).new()))
     ),
     (kind == "refuted") => match(
       v.get(String.from("counterexample")),
-      .Some(ce_json) => Option(VerifyVerdict).Some(VerifyVerdict.Refuted(_strs_of_json(&ce_json))),
+      .Some(ce_json) => Option(VerifyVerdict).Some(VerifyVerdict.Refuted(_strs_of_json(ce_json))),
       .None => Option(VerifyVerdict).None
     ),
     (kind == "unproven") => match(
       v.get(String.from("reason")),
-      .Some(.Str(r)) => Option(VerifyVerdict).Some(VerifyVerdict.Unproven(r.clone())),
-      .Some(_) => Option(VerifyVerdict).None,
+      .Some(rj) => match(rj, .Str(r) => Option(VerifyVerdict).Some(VerifyVerdict.Unproven(r.clone())), _ => Option(VerifyVerdict).None),
       .None => Option(VerifyVerdict).None
     ),
     (kind == "solver-error") => match(
       v.get(String.from("message")),
-      .Some(.Str(m)) => Option(VerifyVerdict).Some(VerifyVerdict.SolverError(m.clone())),
-      .Some(_) => Option(VerifyVerdict).None,
+      .Some(mj) => match(mj, .Str(m) => Option(VerifyVerdict).Some(VerifyVerdict.SolverError(m.clone())), _ => Option(VerifyVerdict).None),
       .None => Option(VerifyVerdict).None
     ),
     true => Option(VerifyVerdict).None
@@ -330,7 +327,7 @@ _cache_lookup :: (fn(q : &VcQuery, cfg : &VerifyRunConfig, solver : &String) -> 
       .Ok(j) => match(
         j.get(String.from("verdict")),
         .Some(vj) => match(
-          _verdict_of_json(&vj),
+          _verdict_of_json(vj),
           .Some(v) => Option(VerifyResult).Some(VerifyResult(query_name : q.name.clone(), verdict : v, cached : true)),
           .None => Option(VerifyResult).None
         ),

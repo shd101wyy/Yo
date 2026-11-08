@@ -100,7 +100,7 @@ DocState :: ref(
 _jfield_str :: (fn(v : &JsonValue, key : str) -> String)(
   match(
     v.get(String.from(key)),
-    .Some(f) => match(f, .Str(x) => x, _ => String.new()),
+    .Some(f) => match(f, .Str(x) => x.clone(), _ => String.new()),
     .None => String.new()
   )
 );
@@ -126,7 +126,7 @@ _jfield_bool :: (fn(v : &JsonValue, key : str, dflt : bool) -> bool)(
 _params_uri :: (fn(params : &JsonValue) -> String)(
   match(
     params.get(String.from("textDocument")),
-    .Some(td) => _jfield_str(&td, "uri"),
+    .Some(td) => _jfield_str(td, "uri"),
     .None => String.new()
   )
 );
@@ -143,8 +143,8 @@ _rune_position :: (fn(params : &JsonValue, lines : &ArrayList(String)) -> LspPos
   match(
     params.get(String.from("position")),
     .Some(pos) => {
-      line := _jfield_usize(&pos, "line");
-      character := _jfield_usize(&pos, "character");
+      line := _jfield_usize(pos, "line");
+      character := _jfield_usize(pos, "character");
       LspPos(line : line, character : client_col_to_rune(line_at(lines, line), character))
     },
     .None => LspPos(line : usize(0), character : usize(0))
@@ -385,9 +385,9 @@ _client_position_encodings :: (fn(params : &JsonValue) -> ArrayList(String))({
     .Some(caps) => match(
       caps.get(String.from("general")),
       .Some(general) => general.get(String.from("positionEncodings")),
-      .None => Option(JsonValue).None
+      .None => Option(&JsonValue).None
     ),
-    .None => Option(JsonValue).None
+    .None => Option(&JsonValue).None
   );
   match(
     encodings,
@@ -472,7 +472,7 @@ _client_wants_hierarchical_symbols :: (fn(params : &JsonValue) -> bool)(
       caps.get(String.from("textDocument")),
       .Some(td) => match(
         td.get(String.from("documentSymbol")),
-        .Some(ds) => _jfield_bool(&ds, "hierarchicalDocumentSymbolSupport", false),
+        .Some(ds) => _jfield_bool(ds, "hierarchicalDocumentSymbolSupport", false),
         .None => false
       ),
       .None => false
@@ -492,35 +492,39 @@ _client_accepts_markdown_hover :: (fn(params : &JsonValue) -> bool)({
       .Some(td) => match(
         td.get(String.from("hover")),
         .Some(h) => h.get(String.from("contentFormat")),
-        .None => Option(JsonValue).None
+        .None => Option(&JsonValue).None
       ),
-      .None => Option(JsonValue).None
+      .None => Option(&JsonValue).None
     ),
-    .None => Option(JsonValue).None
+    .None => Option(&JsonValue).None
   );
   match(
     fmts,
-    .Some(.Array(items)) => {
-      if(items.len() == usize(0), {
-        return(true);
-      });
-      (i : usize) = usize(0);
-      while(i < items.len(), {
-        match(
-          items.get_cloned(i),
-          .Some(.Str(s)) => {
-            if(s == String.from("markdown"), {
-              return(true);
-            });
-          },
-          .Some(_) => (),
-          .None => ()
-        );
-        i = (i + usize(1));
-      });
-      false
-    },
-    _ => true
+    .Some(fj) => match(
+      fj,
+      .Array(items) => {
+        if(items.len() == usize(0), {
+          return(true);
+        });
+        (i : usize) = usize(0);
+        while(i < items.len(), {
+          match(
+            items.get_cloned(i),
+            .Some(.Str(s)) => {
+              if(s == String.from("markdown"), {
+                return(true);
+              });
+            },
+            .Some(_) => (),
+            .None => ()
+          );
+          i = (i + usize(1));
+        });
+        false
+      },
+      _ => true
+    ),
+    .None => true
   )
 });
 
@@ -624,8 +628,8 @@ _handle_message :: (
   // scope; this caller is already inside one, so it takes the _exn wrapper.
   v := json.parse_string_exn(body, local_exn);
   method := _jfield_str(&v, "method");
-  id_opt := v.get(String.from("id"));
-  params_opt := v.get(String.from("params"));
+  id_opt := match(v.get(String.from("id")), .Some(id_j) => Option(JsonValue).Some(id_j.clone()), .None => Option(JsonValue).None);
+  params_opt := match(v.get(String.from("params")), .Some(params_j) => Option(JsonValue).Some(params_j.clone()), .None => Option(JsonValue).None);
   cond(
     (method == String.from("initialize")) => {
       // One initialize per connection (LSP): a second is InvalidRequest,
@@ -897,7 +901,7 @@ _handle_message :: (
           // (issues/fixed/lsp-references-ignore-include-declaration.md).
           include_decl := match(
             params.get(String.from("context")),
-            .Some(ctx) => _jfield_bool(&ctx, "includeDeclaration", true),
+            .Some(ctx) => _jfield_bool(ctx, "includeDeclaration", true),
             .None => true
           );
           match(
@@ -1034,8 +1038,8 @@ _handle_message :: (
               match(
                 params.get(String.from("range")),
                 .Some(rg) => {
-                  from_line = match(rg.get(String.from("start")), .Some(sp) => _jfield_usize(&sp, "line"), .None => usize(0));
-                  to_line = match(rg.get(String.from("end")), .Some(ep) => _jfield_usize(&ep, "line"), .None => from_line);
+                  from_line = match(rg.get(String.from("start")), .Some(sp) => _jfield_usize(sp, "line"), .None => usize(0));
+                  to_line = match(rg.get(String.from("end")), .Some(ep) => _jfield_usize(ep, "line"), .None => from_line);
                 },
                 .None => ()
               );
@@ -1148,8 +1152,8 @@ _handle_message :: (
         .Some(params) => match(
           params.get(String.from("textDocument")),
           .Some(td) => {
-            uri := _jfield_str(&td, "uri");
-            text := _jfield_str(&td, "text");
+            uri := _jfield_str(td, "uri");
+            text := _jfield_str(td, "text");
             if(uri.len() > usize(0), {
               _analyze_and_publish(&uri, &text, std_path.clone(), docs, io);
             });
@@ -1202,7 +1206,7 @@ _handle_message :: (
         .Some(params) => match(
           params.get(String.from("textDocument")),
           .Some(td) => {
-            uri := _jfield_str(&td, "uri");
+            uri := _jfield_str(td, "uri");
             if(uri.len() > usize(0), {
               _r := docs.remove(uri.clone());
               // Phase B1: the disk becomes this file's truth again — drop
@@ -1227,8 +1231,8 @@ _handle_message :: (
       match(
         params_opt,
         .Some(params) => match(
-          params.get(String.from("changes")),
-          .Some(.Array(changes)) => {
+          match(params.get(String.from("changes")), .Some(cj) => cj.as_array(), .None => Option(&ArrayList(JsonValue)).None),
+          .Some(changes) => {
             (ci : usize) = usize(0);
             while(ci < changes.len(), {
               match(

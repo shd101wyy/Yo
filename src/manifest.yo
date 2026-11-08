@@ -269,7 +269,7 @@ _string_field :: (
     .None => Result(String, String).Ok(String.new()),
     .Some(v) => match(
       v.as_string(),
-      .Some(s) => Result(String, String).Ok(s),
+      .Some(s) => Result(String, String).Ok(s.clone()),
       .None => Result(String, String).Err(`${where_}: "${key}" must be a string`)
     )
   )
@@ -484,7 +484,7 @@ parse_manifest :: (fn(text : &String, path : &String) -> Result(Manifest, String
     .None => {
       return(Result(Manifest, String).Err(`${where_}: missing [package] table`));
     },
-    .Some(p) => p
+    .Some(p) => p.clone()
   );
   if(!package.is_table(), {
     return(Result(Manifest, String).Err(`${where_}: [package] must be a table`));
@@ -516,7 +516,7 @@ parse_manifest :: (fn(text : &String, path : &String) -> Result(Manifest, String
             mname := keys(i).clone();
             mroot := match(
               values(i).as_string(),
-              .Some(s) => s,
+              .Some(s) => s.clone(),
               .None => {
                 return(Result(Manifest, String).Err(`${where_}: [modules] ${mname} must be a string path`));
               }
@@ -568,7 +568,7 @@ parse_manifest :: (fn(text : &String, path : &String) -> Result(Manifest, String
           if(!members_v.is_array(), {
             return(Result(Manifest, String).Err(`${where_}: [workspace] members must be an array of path patterns`));
           });
-          items := members_v.as_array().unwrap_or(ArrayList(TomlValue).new());
+          items := match(members_v.as_array(), .Some(xs) => xs.clone(), .None => ArrayList(TomlValue).new());
           (mi : usize) = usize(0);
           while(mi < items.len(), {
             match(
@@ -577,7 +577,7 @@ parse_manifest :: (fn(text : &String, path : &String) -> Result(Manifest, String
                 if(!item.is_string(), {
                   return(Result(Manifest, String).Err(`${where_}: [workspace] members entries must be strings`));
                 });
-                pattern := item.as_string().unwrap_or(String.new());
+                pattern := match(item.as_string(), .Some(ps) => ps.clone(), .None => String.new());
                 if(pattern.len() == usize(0), {
                   return(Result(Manifest, String).Err(`${where_}: [workspace] members may not contain an empty pattern`));
                 });

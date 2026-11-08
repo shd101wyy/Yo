@@ -34,7 +34,7 @@ _str_at :: (fn(text : &String, key : &String) -> String)({
   d := _doc(text);
   match(
     d.get(key),
-    .Some(v) => match(v.as_string(), .Some(s) => s, .None => `<not a string>`),
+    .Some(v) => match(v.as_string(), .Some(s) => s.clone(), .None => `<not a string>`),
     .None => `<missing>`
   )
 });
@@ -74,10 +74,10 @@ test("Table insert returns the replaced value", {
   assert(t.has_key(`name`), "should have key name");
   s := t.get(`name`).unwrap().as_string();
   assert(s.is_some(), "should be string");
-  assert(s.unwrap() == `hello`, "should be hello");
+  assert(s.unwrap().* == `hello`, "should be hello");
   second := t.insert(`name`, TomlValue.Str(`bye`));
   assert(second.is_some(), "a replacement returns the old value");
-  assert(second.unwrap().as_string().unwrap() == `hello`, "which is the old string");
+  assert(second.unwrap().as_string().unwrap().* == `hello`, "which is the old string");
   assert(t.table_len() == usize(1), "and does not add a key");
 });
 test("Value accessors and predicates", {
@@ -104,7 +104,7 @@ name = "test"   # after a value
 port = 8080 # after the last value
 # trailing comment, no newline`;
   d := _doc(&input);
-  assert(d.get(`name`).unwrap().as_string().unwrap() == `test`, "name survives its comment");
+  assert(d.get(`name`).unwrap().as_string().unwrap().* == `test`, "name survives its comment");
   srv := d.get(`server`).unwrap();
   assert(srv.get(`port`).unwrap().as_int().unwrap() == i64(8080), "port survives its comment");
   assert(d.table_len() == usize(2), "two root keys");
@@ -308,7 +308,7 @@ multi = [
   assert(ints.at(usize(2)).unwrap().as_int().unwrap() == i64(3), "third int");
   mixed := d.get(`mixed`).unwrap();
   assert(mixed.array_len() == usize(4), "mixed types are legal in TOML v1.0.0");
-  assert(mixed.at(usize(1)).unwrap().as_string().unwrap() == `two`, "string element");
+  assert(mixed.at(usize(1)).unwrap().as_string().unwrap().* == `two`, "string element");
   assert(mixed.at(usize(3)).unwrap().as_bool().unwrap(), "bool element");
   nested := d.get(`nested`).unwrap();
   assert(nested.at(usize(0)).unwrap().array_len() == usize(2), "nested array");
@@ -334,7 +334,7 @@ dotted = { a.b = 1, a.c = 2 }`
   a := d.get(`a`).unwrap();
   assert(a.is_table(), "an inline table is a table");
   assert(a.get(`x`).unwrap().as_int().unwrap() == i64(1), "x");
-  assert(a.get(`y`).unwrap().as_string().unwrap() == `two`, "y");
+  assert(a.get(`y`).unwrap().as_string().unwrap().* == `two`, "y");
   assert(d.get(`empty`).unwrap().table_len() == usize(0), "the empty inline table");
   inner := d.get(`nested`).unwrap().get(`inner`).unwrap();
   assert(inner.get(`deep`).unwrap().as_bool().unwrap(), "nested inline table");
@@ -439,9 +439,9 @@ host = "localhost"
 [a.b.c]
 x = 1`
   );
-  assert(d.get(`title`).unwrap().as_string().unwrap() == `root`, "root key");
+  assert(d.get(`title`).unwrap().as_string().unwrap().* == `root`, "root key");
   srv := d.get(`server`).unwrap();
-  assert(srv.get(`host`).unwrap().as_string().unwrap() == `localhost`, "the super-table may be defined afterwards");
+  assert(srv.get(`host`).unwrap().as_string().unwrap().* == `localhost`, "the super-table may be defined afterwards");
   assert(srv.get(`http`).unwrap().get(`port`).unwrap().as_int().unwrap() == i64(80), "[server.http] nests");
   assert(!d.has_key(`server.http`), "and is not one flat key");
   assert(
@@ -478,17 +478,17 @@ name = "plantain"`
   products := d.get(`products`).unwrap();
   assert(products.is_array(), "[[products]] is an array");
   assert(products.array_len() == usize(3), "three elements");
-  assert(products.at(usize(0)).unwrap().get(`name`).unwrap().as_string().unwrap() == `Hammer`, "first");
+  assert(products.at(usize(0)).unwrap().get(`name`).unwrap().as_string().unwrap().* == `Hammer`, "first");
   assert(products.at(usize(1)).unwrap().table_len() == usize(0), "the empty middle element");
   assert(products.at(usize(2)).unwrap().get(`sku`).unwrap().as_int().unwrap() == i64(284758393), "third");
   fruit := d.get(`fruit`).unwrap();
   assert(fruit.array_len() == usize(2), "two fruits");
   apple := fruit.at(usize(0)).unwrap();
-  assert(apple.get(`physical`).unwrap().get(`color`).unwrap().as_string().unwrap() == `red`, "[fruit.physical] attaches to the last element");
+  assert(apple.get(`physical`).unwrap().get(`color`).unwrap().as_string().unwrap().* == `red`, "[fruit.physical] attaches to the last element");
   assert(apple.get(`variety`).unwrap().array_len() == usize(2), "apple has two varieties");
   banana := fruit.at(usize(1)).unwrap();
   assert(banana.get(`variety`).unwrap().array_len() == usize(1), "banana has one, not three");
-  assert(banana.get(`variety`).unwrap().at(usize(0)).unwrap().get(`name`).unwrap().as_string().unwrap() == `plantain`, "and it is the plantain");
+  assert(banana.get(`variety`).unwrap().at(usize(0)).unwrap().get(`name`).unwrap().as_string().unwrap().* == `plantain`, "and it is the plantain");
 });
 test("Dotted keys extend their own table, and only their own", {
   d := _doc(
@@ -831,10 +831,10 @@ name = "apple"
 [[fruits]]
 name = "banana"`;
   d := _doc(&input);
-  assert(d.get(`title`).unwrap().as_string().unwrap() == `TOML Example`, "title");
+  assert(d.get(`title`).unwrap().as_string().unwrap().* == `TOML Example`, "title");
   assert(d.get(`owner`).unwrap().get(`dob`).unwrap().is_datetime(), "dob");
   assert(d.get(`database`).unwrap().get(`ports`).unwrap().array_len() == usize(3), "ports");
-  assert(d.get(`servers`).unwrap().get(`beta`).unwrap().get(`ip`).unwrap().as_string().unwrap() == `10.0.0.2`, "beta ip");
+  assert(d.get(`servers`).unwrap().get(`beta`).unwrap().get(`ip`).unwrap().as_string().unwrap().* == `10.0.0.2`, "beta ip");
   assert(d.get(`fruits`).unwrap().array_len() == usize(2), "two fruits");
   assert(_round_trips(&input), "the whole document round-trips");
   // And the serialized text is stable: stringify twice, same bytes.

@@ -259,6 +259,16 @@ TomlValue :: enum(
   Table(keys : ArrayList(String), values : ArrayList(Self))
 );
 derive(TomlValue, Clone);
+/// The position of `key` in a table's `keys`, or `.None`.
+_toml_key_index :: (fn(keys : &ArrayList(String), key : &String) -> Option(usize))({
+  mut(i) := usize(0);
+  while(i < keys.len(), i = (i + usize(1)), {
+    if(keys(i) == key, {
+      return(Option(usize).Some(i));
+    });
+  });
+  Option(usize).None
+});
 impl(
   TomlValue,
   /// Create a new empty table.
@@ -269,23 +279,17 @@ impl(
   new_array : (fn() -> Self)(
     Self.Array(items : ArrayList(TomlValue).new())
   ),
-  /// Look up a value by key in a table. Returns `.None` if not a table or key is missing.
-  get : (fn(self : &Self, key : &String) -> Option(TomlValue))(
+  /// The value of `key`, borrowed from `self`, or `.None` if not a table
+  /// or the key is missing (`.clone()` it for an owned value).
+  get : (fn(self : &Self, key : &String) -> Option(&(TomlValue, self)))(
     match(
       self,
-      .Table(keys, values) => {
-        mut(i) := usize(0);
-        while(i < keys.len(), i = (i + usize(1)), {
-          cond(
-            (keys(i) == key) => {
-              return(Option(TomlValue).Some(values(i).clone()));
-            },
-            true => ()
-          );
-        });
-        Option(TomlValue).None
-      },
-      _ => Option(TomlValue).None
+      .Table(keys, values) => match(
+        _toml_key_index(keys, key),
+        .Some(i) => Option(&(TomlValue, self)).Some(values.index(i)),
+        .None => Option(&(TomlValue, self)).None
+      ),
+      _ => Option(&(TomlValue, self)).None
     )
   ),
   /// Check whether the table contains the given key.
@@ -338,17 +342,18 @@ impl(
       _ => usize(0)
     )
   ),
-  /// The `index`-th element of an array, or `.None`.
-  at : (fn(self : &Self, index : usize) -> Option(TomlValue))(
+  /// The `index`-th element of an array, borrowed from `self`, or `.None`.
+  at : (fn(self : &Self, index : usize) -> Option(&TomlValue))(
     match(
       self,
-      .Array(items) => items.get_cloned(index),
-      _ => Option(TomlValue).None
+      .Array(items) => if(index < items.len(), Option(&TomlValue).Some(items.index(index)), Option(&TomlValue).None),
+      _ => Option(&TomlValue).None
     )
   ),
-  /// Extract the string value, or `.None` if not a `Str`.
-  as_string : (fn(self : &Self) -> Option(String))(
-    match(self, .Str(s) => Option(String).Some(s.clone()), _ => Option(String).None)
+  /// The string value, borrowed from `self`, or `.None` if not a `Str`
+  /// (`.clone()` it for an owned `String`).
+  as_string : (fn(self : &Self) -> Option(&String))(
+    match(self, .Str(s) => Option(&String).Some(s), _ => Option(&String).None)
   ),
   /// Extract the integer value, or `.None` if not an `Int`.
   as_int : (fn(self : &Self) -> Option(i64))(
@@ -366,9 +371,10 @@ impl(
   as_datetime : (fn(self : &Self) -> Option(TomlDateTime))(
     match(self, .Datetime(d) => Option(TomlDateTime).Some(d), _ => Option(TomlDateTime).None)
   ),
-  /// Extract the array items, or `.None` if not an `Array`.
-  as_array : (fn(self : &Self) -> Option(ArrayList(TomlValue)))(
-    match(self, .Array(items) => Option(ArrayList(TomlValue)).Some(items.clone()), _ => Option(ArrayList(TomlValue)).None)
+  /// The array items, borrowed from `self`, or `.None` if not an `Array`
+  /// (`.clone()` it for an owned list).
+  as_array : (fn(self : &Self) -> Option(&ArrayList(TomlValue)))(
+    match(self, .Array(items) => Option(&ArrayList(TomlValue)).Some(items), _ => Option(&ArrayList(TomlValue)).None)
   ),
   /// True for a TOML string.
   is_string : (fn(self : &Self) -> bool)(
@@ -2699,19 +2705,24 @@ _write_table_body :: (fn(table : &TomlValue, prefix : &String, out : &mut ArrayL
             recur(&v2, &child_prefix, out);
           },
           _is_array_of_tables(&v2) => {
-            items := match(v2.as_array(), .Some(xs) => xs, .None => ArrayList(TomlValue).new());
-            mut(k) := usize(0);
-            while(k < items.len(), k = (k + usize(1)), {
-              cond(
-                (out.len() > usize(0)) => out.push(_LF),
-                true => ()
-              );
-              _push_lit("[[", out);
-              _push_string(&child_prefix, out);
-              _push_lit("]]", out);
-              out.push(_LF);
-              recur(&items(k), &child_prefix, out);
-            });
+            match(
+              v2.as_array(),
+              .Some(items) => {
+                mut(k) := usize(0);
+                while(k < items.len(), k = (k + usize(1)), {
+                  cond(
+                    (out.len() > usize(0)) => out.push(_LF),
+                    true => ()
+                  );
+                  _push_lit("[[", out);
+                  _push_string(&child_prefix, out);
+                  _push_lit("]]", out);
+                  out.push(_LF);
+                  recur(&items(k), &child_prefix, out);
+                });
+              },
+              .None => ()
+            );
           },
           true => ()
         );

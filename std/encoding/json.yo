@@ -147,31 +147,26 @@ JsonKV :: struct(
 );
 impl(
   JsonValue,
-  /// Get a field from an Object value by key. Returns `.None` if not an Object or key is missing.
-  get : (fn(self : &Self, key : &String) -> Option(JsonValue))(
+  /// The value of field `key`, borrowed from `self`, or `.None` if not an
+  /// `Object` or the key is missing (`.clone()` it for an owned value).
+  get : (fn(self : &Self, key : &String) -> Option(&(JsonValue, self)))(
     match(
       self,
-      .Object(keys, values) => {
-        mut(i) := usize(0);
-        while(i < keys.len(), i = (i + usize(1)), {
-          cond(
-            (keys(i) == key) => {
-              return(.Some(values(i).clone()));
-            },
-            true => ()
-          );
-        });
-        .None
-      },
-      _ => .None
+      .Object(keys, values) => match(
+        _json_key_index(keys, key),
+        .Some(i) => Option(&(JsonValue, self)).Some(values.index(i)),
+        .None => Option(&(JsonValue, self)).None
+      ),
+      _ => Option(&(JsonValue, self)).None
     )
   ),
-  /// Get an element from an Array value by index.
-  at : (fn(self : &Self, index : usize) -> Option(JsonValue))(
+  /// The element at `index`, borrowed from `self`, or `.None` if not an
+  /// `Array` or out of bounds.
+  at : (fn(self : &Self, index : usize) -> Option(&JsonValue))(
     match(
       self,
-      .Array(items) => items.get_cloned(index),
-      _ => .None
+      .Array(items) => if(index < items.len(), Option(&JsonValue).Some(items.index(index)), Option(&JsonValue).None),
+      _ => Option(&JsonValue).None
     )
   ),
   /// Extract the boolean value, or `.None` if not a `Bool`.
@@ -193,20 +188,22 @@ impl(
       _ => .None
     )
   ),
-  /// Extract the string value, or `.None` if not a `Str`.
-  as_string : (fn(self : &Self) -> Option(String))(
+  /// The string value, borrowed from `self`, or `.None` if not a `Str`
+  /// (`.clone()` it for an owned `String`).
+  as_string : (fn(self : &Self) -> Option(&String))(
     match(
       self,
-      .Str(s) => .Some(s.clone()),
-      _ => .None
+      .Str(s) => Option(&String).Some(s),
+      _ => Option(&String).None
     )
   ),
-  /// Extract the array items, or `.None` if not an `Array`.
-  as_array : (fn(self : &Self) -> Option(ArrayList(JsonValue)))(
+  /// The array items, borrowed from `self`, or `.None` if not an `Array`
+  /// (`.clone()` it for an owned list).
+  as_array : (fn(self : &Self) -> Option(&ArrayList(JsonValue)))(
     match(
       self,
-      .Array(items) => .Some(items.clone()),
-      _ => .None
+      .Array(items) => Option(&ArrayList(JsonValue)).Some(items),
+      _ => Option(&ArrayList(JsonValue)).None
     )
   ),
   /// Extract object entries as `ArrayList(JsonKV)`, or `.None` if not an `Object`.
@@ -230,36 +227,44 @@ impl(
 /// silently resolve to element 1.
 /// The value `tokens(ti..)` names below `v` (`JsonValue.pointer`'s walk), a
 /// clone of it, or `.None`. Each step lends the child it descends into.
-_json_pointer_at :: (fn(v : &JsonValue, tokens : &ArrayList(String), ti : usize) -> Option(JsonValue))({
-  if(ti >= tokens.len(), {
-    return(Option(JsonValue).Some(v.clone()));
+/// The position of `key` in an object's `keys`, or `.None`.
+_json_key_index :: (fn(keys : &ArrayList(String), key : &String) -> Option(usize))({
+  mut(i) := usize(0);
+  while(i < keys.len(), i = (i + usize(1)), {
+    if(keys(i) == key, {
+      return(Option(usize).Some(i));
+    });
   });
-  token := tokens(ti).replace(`~1`, `/`).replace(`~0`, `~`);
-  match(
-    v,
-    .Object(keys, values) => {
-      mut(i) := usize(0);
-      while(i < keys.len(), i = (i + usize(1)), {
-        if(keys(i) == token, {
-          return(_json_pointer_at(&values(i), tokens, ti + usize(1)));
-        });
-      });
-      Option(JsonValue).None
-    },
-    .Array(items) => cond(
-      _is_rfc6901_index(&token) => match(
-        token.parse(usize),
-        .Ok(idx) => cond(
-          (idx < items.len()) => _json_pointer_at(&items(idx), tokens, ti + usize(1)),
-          true => Option(JsonValue).None
-        ),
-        .Err(_) => Option(JsonValue).None
-      ),
-      true => Option(JsonValue).None
-    ),
-    _ => Option(JsonValue).None
-  )
+  Option(usize).None
 });
+_json_pointer_at :: (fn(v : &JsonValue, tokens : &ArrayList(String), ti : usize) -> Option(&(JsonValue, v)))(
+  cond(
+    (ti >= tokens.len()) => Option(&(JsonValue, v)).Some(v),
+    true => {
+      token := tokens(ti).replace(`~1`, `/`).replace(`~0`, `~`);
+      match(
+        v,
+        .Object(keys, values) => match(
+          _json_key_index(keys, &token),
+          .Some(i) => _json_pointer_at(values.index(i), tokens, ti + usize(1)),
+          .None => Option(&(JsonValue, v)).None
+        ),
+        .Array(items) => cond(
+          _is_rfc6901_index(&token) => match(
+            token.parse(usize),
+            .Ok(idx) => cond(
+              (idx < items.len()) => _json_pointer_at(items.index(idx), tokens, ti + usize(1)),
+              true => Option(&(JsonValue, v)).None
+            ),
+            .Err(_) => Option(&(JsonValue, v)).None
+          ),
+          true => Option(&(JsonValue, v)).None
+        ),
+        _ => Option(&(JsonValue, v)).None
+      )
+    }
+  )
+);
 _is_rfc6901_index :: (fn(token : &String) -> bool)({
   b := &token;
   if(b.len() == usize(0), {
@@ -428,15 +433,15 @@ impl(
   /// `~1` decoding to `/` and `~0` to `~`. An array index must be `0` or a
   /// digit string with no leading zero, as the RFC requires — `"01"` is not a
   /// valid index and resolves to `.None`, not to element 1.
-  pointer : (fn(self : &Self, path : &String) -> Option(JsonValue))({
+  pointer : (fn(self : &Self, path : &String) -> Option(&(JsonValue, self)))({
     if(path.is_empty(), {
-      return(Option(JsonValue).Some(self.clone()));
+      return(Option(&(JsonValue, self)).Some(self));
     });
     if(!path.starts_with(`/`), {
-      return(Option(JsonValue).None);
+      return(Option(&(JsonValue, self)).None);
     });
     // `"/a/b"`.split("/") is ["", "a", "b"] — drop the leading empty token.
-    // The walk lends each step and clones only the value it resolves to.
+    // The walk lends each step; the result borrows the value it resolves to.
     _json_pointer_at(self, &path.split(`/`), usize(1))
   })
 );
@@ -1975,7 +1980,7 @@ __derive_from_json :: (
       // an `Option(T)` / `ArrayList(T)` / any generic field could not derive
       // FromJson at all. Indexing needs no name and no import at the use site.
       ftype :: ("(Type.get_struct_fields(Self).get(" + fi.to_comptime_string() + ").field_type <: FromJson)");
-      acc + ("__djf_" + fname + " := match(v.get(String.from(\"" + fname + "\")), .Some(__djf_j) => match(" + ftype + ".from_json(&__djf_j), .Ok(__djf_ok) => __djf_ok, .Err(__djf_e) => { return(.Err(__djf_e)); }), .None => { return(.Err(JsonError.Other(String.from(\"missing field " + fname + " in " + type_name + "\")))); }); ")
+      acc + ("__djf_" + fname + " := match(v.get(String.from(\"" + fname + "\")), .Some(__djf_j) => match(" + ftype + ".from_json(__djf_j), .Ok(__djf_ok) => __djf_ok, .Err(__djf_e) => { return(.Err(__djf_e)); }), .None => { return(.Err(JsonError.Other(String.from(\"missing field " + fname + " in " + type_name + "\")))); }); ")
     })
   );
   ctor_args :: __yo_comptime_fold_range(
