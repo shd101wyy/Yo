@@ -1,0 +1,24 @@
+// Expected: accepted, prints 2 and then "G dropped: 1". Rust accepts the same shape:
+// the store of `&y` is overwritten before `y`'s block ends, so `g` holds `&x` when it drops.
+{ println } :: import("std/fmt");
+G :: (fn(comptime(T) : Type) -> comptime(Type))(struct(t : T));
+impl(
+  G(&i32),
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      println(`G dropped: ${self.t.*.to_string()}`);
+    })
+  )
+);
+main :: (fn() -> unit)({
+  x := i32(1);
+  mut(g) := G(&i32)(t : &x);
+  {
+    y := i32(2);
+    g = G(&i32)(t : &y);
+    println(`${g.t.*.to_string()}`);
+    g = G(&i32)(t : &x);
+  };
+  ()
+});
+export(main);

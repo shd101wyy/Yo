@@ -1,0 +1,14 @@
+// Corpus row `holder-from-temporary` (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §5 temporaries, O-5;
+// manifest tests/origins/corpus.tsv): a projection off a temporary holder (a guard) is bound past the statement.
+// Expected once O-5 lands: rejected: E0911 (R-TEMP: the projection's elided origin is the lent guard itself).
+Cell :: struct(v : i32);
+Guard :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(c : &(Cell, p)));
+impl(Cell, borrow : (fn(self : &Self) -> Guard(self))(Guard(self)(c : self)));
+impl(generic(p : Origin), Guard(p), get : (fn(self : &Self) -> &i32)(&self.c.v));
+main :: (fn() -> unit)({
+  c := Cell(v : i32(5));
+  r := c.borrow().get();
+  _ := r.*;
+  ()
+});
+export(main);

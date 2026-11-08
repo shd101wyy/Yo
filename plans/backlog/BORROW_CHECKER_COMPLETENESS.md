@@ -211,7 +211,7 @@ Filed 2026-11-07 from VERDICTS-30/31; each names its repro under `issues/repros/
 - `issues/fixed/2026-11-07-a-user-drop-holder-declared-before-its-root-reads-the-root-after-it-is-dropped.md` — S1
 - `issues/fixed/2026-11-07-a-borrowed-for-element-stored-into-an-outer-slot-does-not-freeze-the-collection.md` — S1
 - `issues/fixed/2026-11-07-a-projection-call-inside-a-payload-bound-to-a-local-does-not-freeze-the-collection.md` — S1
-- `issues/2026-11-07-a-holder-returned-over-a-borrowed-temporary-is-accepted-when-bound.md` — S1 (latent)
+- `issues/fixed/2026-11-07-a-holder-returned-over-a-borrowed-temporary-is-accepted-when-bound.md` — S1 (latent when filed; a live UAF on v0.2.76 once the statement-end drop landed first)
 - `issues/fixed/2026-11-07-a-closure-capturing-an-origin-carrying-local-crashes-codegen.md` — S1
 - `issues/2026-11-07-reassigning-a-mut-holder-of-a-named-origin-struct-is-a-false-e0908.md` — S2
 - `issues/2026-11-07-a-generic-function-storing-a-by-value-reference-parameter-emits-invalid-c.md` — S2
@@ -245,4 +245,13 @@ Filed 2026-11-07 from VERDICTS-30/31; each names its repro under `issues/repros/
   holder in the same block is E0911 at the store (reverse declaration drop order). It closes H6. The filed program
   (a spelled `Option(H(x))`) had already been E0923 since O-3; the reachable shapes are a flow-inferred `G(&T)` holder
   and a move of the root (G-B `h6b`/`h6c`/`h6d`). Known over-rejection, Drop holders only: a store of an inner-block
-  root that the block overwrites before it ends is still rejected (no kill precision; Rust accepts).
+  root that the block overwrites before it ends is still rejected (no kill precision; Rust accepts;
+  `issues/2026-11-09-a-drop-holder-re-pointed-at-an-inner-block-root-and-back-is-rejected.md`, S3).
+- 2026-11-08: O-5 landed (R-TEMP). A temporary lent to a reference parameter (a call's argument, a method call's
+  receiver) is a hidden statement local, an `origin_of` entry; `bind`, the `=` join and `return_check` reject a value
+  whose origin names one (E0911; E0912 for a return), and the projection binding rejects a temporary holder at a
+  reference parameter instead of reading through it (VERDICTS-36's `guard3`). It closes L1, which had become a live
+  use-after-free on v0.2.76: the statement-end drop (the S2, `issues/fixed/2026-11-06-a-borrowed-temporary-…`)
+  landed first. No emit change: O-5 only rejects, and the drop placement was the S2's. P2's extension rule waits for
+  P2: a `&temporary` in a constructor field or a tuple component is still rejected by the type rules, so no extending
+  position exists yet (rows `lend-of-temporary-extended` and its negative twin land with P2).

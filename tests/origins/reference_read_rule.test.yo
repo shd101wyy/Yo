@@ -260,3 +260,47 @@ test("a plain holder's root is free after the holder's last use", {
   x = i32(2);
   assert(x == i32(2), "no Drop: the holder's range ended at its last use");
 });
+// O-5 (R-TEMP): a temporary lent to a reference parameter is a hidden local of
+// its statement; a value holding it may not outlive the statement.
+RrTmpH :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(r : &(i32, p)));
+rr_tmp_mk :: (fn(x : &i32) -> RrTmpH(x))(RrTmpH(x)(r : x));
+rr_tmp_make :: (fn() -> i32)(i32(7));
+RrTmpCell :: struct(v : i32);
+RrTmpGuard :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(c : &(RrTmpCell, p)));
+impl(RrTmpCell, borrow : (fn(self : &Self) -> RrTmpGuard(self))(RrTmpGuard(self)(c : self)));
+impl(generic(p : Origin), RrTmpGuard(p), get : (fn(self : &Self) -> &i32)(&self.c.v));
+comptime_expect_error(
+  rr_tmp_bound :: (fn() -> unit)({
+    h := rr_tmp_mk(&rr_tmp_make());
+    _ := h.r.*;
+  }),
+  "a temporary that ends with this statement, while `h` lives on"
+);
+comptime_expect_error(
+  rr_tmp_stored :: (fn() -> unit)({
+    x := i32(1);
+    mut(h) := rr_tmp_mk(&x);
+    h = rr_tmp_mk(&rr_tmp_make());
+    _ := h.r.*;
+  }),
+  "Cannot store a reference into `rr_tmp_make()` in `h` here"
+);
+comptime_expect_error(
+  rr_tmp_returned :: (fn(y : &i32) -> RrTmpH(y))(rr_tmp_mk(&rr_tmp_make())),
+  "it is a temporary of this statement"
+);
+comptime_expect_error(
+  rr_tmp_projection_off_guard :: (fn() -> unit)({
+    c := RrTmpCell(v : i32(5));
+    r := c.borrow().get();
+    _ := r.*;
+  }),
+  "which is a temporary that ends with this statement"
+);
+test("a temporary lent within its statement, and a bound guard's projection", {
+  assert(rr_tmp_mk(&rr_tmp_make()).r.* == i32(7), "read inside the statement");
+  c := RrTmpCell(v : i32(5));
+  g := c.borrow();
+  r := g.get();
+  assert(r.* == i32(5), "the guard outlives the projection");
+});

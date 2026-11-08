@@ -999,7 +999,7 @@ it in those words (2026-10-20).
   of `issues/fixed/2026-11-06-a-borrowed-temporary-is-dropped-at-its-blocks-end-not-its-statements.md`),
   and a loan that outlives it is rejected naming the temporary. The two
   land together: the drop fix without the rejection is a use-after-free
-  (`issues/2026-11-07-a-holder-returned-over-a-borrowed-temporary-is-accepted-when-bound.md`).
+  (`issues/fixed/2026-11-07-a-holder-returned-over-a-borrowed-temporary-is-accepted-when-bound.md`).
 - **Associated type constructors over `Origin`.** Rust's GATs
   (`type Item<'a>`) are not needed for lending iterators (elision gives
   the lending reading, O2). Position: an associated type may be a

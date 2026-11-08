@@ -1,0 +1,22 @@
+// expect: E0911
+// O-5 (R-TEMP), VERDICTS-36 guard3: a projection off a temporary guard bound past the statement; the guard's `drop` (a RefCell release) runs while the result lives.
+{ println } :: import("std/fmt");
+Cell :: struct(mark : Box(isize), v : i32);
+Guard :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(c : &(Cell, p)));
+impl(
+  generic(p : Origin),
+  Guard(p),
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      println(`guard released, mark ${self.c.mark.*.to_string()}`);
+    })
+  )
+);
+impl(Cell, borrow : (fn(self : &Self) -> Guard(self))(Guard(self)(c : self)));
+impl(generic(p : Origin), Guard(p), get : (fn(self : &Self) -> &i32)(&self.c.v));
+main :: (fn() -> unit)({
+  c := Cell(mark : Box.new(isize(0)), v : i32(5));
+  r := c.borrow().get();
+  println(`read ${r.*.to_string()}`);
+});
+export(main);

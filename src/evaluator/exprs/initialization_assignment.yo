@@ -89,7 +89,7 @@
 { is_unit_type, is_comptime_int_type, is_counted_handle_type } :: import("../../types/guards.yo");
 { check_comptime_int_value_fits } :: import("../values/integer.yo");
 { format_error_message, format_error_message_with_help, format_error_message_with_repair, format_error_messages, TokenAndError, with_code } :: import("../../error.yo");
-{ E_COMPTIME_RUNTIME_BINDING } :: import("../../diagnostics.yo");
+{ E_COMPTIME_RUNTIME_BINDING, E_LOCAL_BORROW_CONFLICT } :: import("../../diagnostics.yo");
 { Token, TokenKind, is_reserved_operator_name, is_reserved_builtin_binding_name, reserved_builtin_binding_message } :: import("../../token.yo");
 { raise_flow_violation } :: import("../../types/flowability.yo");
 { type_implements_comptime, type_implements_runtime_full } :: import("../trait_checking.yo");
@@ -128,6 +128,7 @@
   local_borrow_info_placeholder,
   projection_call_mode_of,
   projection_call_root_args,
+  is_temporary_operand,
   projection_call_callee_type,
   bind,
   origin_of,
@@ -628,6 +629,11 @@ _join_labels :: (fn(xs : &ArrayList(String)) -> String)({
   });
   out
 });
+/// The projection binding's temporary rejection (decision 24; R-TEMP's
+/// first form).
+_projection_temporary_message :: (fn(var_name : &String, call_text : &String, arg : &AstExpr) -> String)(
+  `Cannot bind \`${var_name}\` to \`${call_text}\`: the projection's result is a place inside \`${ast_expr_to_string(arg)}\`, which is a temporary that ends with this statement. Bind the borrowed value to a local first, or copy the result out with \`(${var_name} : T) = ${call_text}\`.`
+);
 /// `r := t.index(i)` / `r := t.index_mut(i)`: a binding of a projection
 /// call's result (plans/VALUES_BY_DEFAULT.md decision 24) is a local borrow
 /// of the place it yields, `&` or `&mut` as the projection's result is,
@@ -705,6 +711,12 @@ _bind_projection_result :: (
         continue;
       }
     );
+    // R-TEMP (O-5): a temporary lent to a reference parameter — a holder
+    // too (`c.borrow().get()`: the result is rooted at the guard itself) —
+    // ends with this statement.
+    if(!root.by_value && is_temporary_operand(&root.arg, env, ctx), {
+      exn.throw(dyn(with_code(format_error_message(ast_expr_token(&root.arg), _projection_temporary_message(&var_name, &call_text, &root.arg)), E_LOCAL_BORROW_CONFLICT)));
+    });
     // A holder passed by value (N1e-2): the places its references point
     // into, as its own binding froze them (`origin_of`).
     holder_roots := if(
@@ -730,14 +742,7 @@ _bind_projection_result :: (
           places.push(lp);
         },
         .None => {
-          exn.throw(
-            dyn(
-              format_error_message(
-                ast_expr_token(&root.arg),
-                `Cannot bind \`${var_name}\` to \`${call_text}\`: the projection's result is a place inside \`${ast_expr_to_string(&root.arg)}\`, which is a temporary that ends with this statement. Bind the borrowed value to a local first, or copy the result out with \`(${var_name} : T) = ${call_text}\`.`
-              )
-            )
-          );
+          exn.throw(dyn(with_code(format_error_message(ast_expr_token(&root.arg), _projection_temporary_message(&var_name, &call_text, &root.arg)), E_LOCAL_BORROW_CONFLICT)));
         }
       );
     });

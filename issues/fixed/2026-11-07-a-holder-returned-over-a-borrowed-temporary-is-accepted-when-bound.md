@@ -22,3 +22,17 @@ O-5 (R-TEMP), v0.2.77 — the statement-end drop fix may not merge before it (`p
 ## Test that pins it
 
 corpus row `holder-from-temporary`; the repro under `tests/origins/unsound/` must stay rejected.
+
+## Resolution (O-5, 2026-11-08)
+
+R-TEMP (`plans/backlog/BORROW_CHECKER_COMPLETENESS.md` §3) in `src/evaluator/utils.yo`: a temporary lent to a
+reference parameter (a call's argument or a method call's receiver; `is_temporary_operand` reads the operand
+structurally, since `local_borrow_place_of` reads a call as its callee's place) is a hidden statement local, an
+`origin_of` entry `#temporary`. `bind` (`:=`), the `=` join and `return_check` reject a value whose origin names one
+(E0911: the temporary's statement-end drop while the holder lives; E0912 for a return). The projection binding
+(`r := c.borrow().get()`) rejects a temporary at a reference parameter even when it is a holder, whose roots it had
+read through before (VERDICTS-36's `guard3`: the guard's `drop` released a RefCell borrow while `r` lived).
+
+Tests: `tests/origins/unsound/l1-holder-from-temporary*.yo` (this program; ASan heap-use-after-free on develop) and
+`guard3-projection-off-temporary-guard*.yo`, corpus rows `lend-of-temporary-in-call-result` and
+`holder-from-temporary` with their model verdicts.
