@@ -8044,11 +8044,17 @@ projection_call_root_args :: (fn(call : &AstExpr, ctx : &EvalContext) -> ArrayLi
   // never into the receiver's place
   // (issues/fixed/2026-11-08-a-call-whose-composite-result-spells-its-origin-freezes-the-receiver.md).
   res_names := match(fn_result_origin_names(&meta_ty), .Some(rn) => Option(SharedList(String)).Some(rn), .None => fn_result_composite_origin_names(&meta_ty));
+  // An impl's origin parameter (`impl(generic(p : Origin), H(p), …)`, Rust's
+  // `fn or_insert(self) -> &'p mut V`) is bound at the call from the
+  // arguments' types, as the impl's type parameters are: the receiver's
+  // `H(o)` gives `p := o`. The specialized parameter slots no longer spell
+  // it (origins never specialize), so a result origin no parameter matches
+  // is carried by every argument whose type carries an origin.
+  unmatched := match(&res_names, .Some(rn) => _result_names_unmatched(&meta_ty, &rn, args.len()), .None => false);
   (i : usize) = usize(0);
   while(i < args.len(), {
     p_ref := match(param_is_ref.get(i), .Some(b) => b, .None => false);
     p_own := match(param_is_owning.get(i), .Some(b) => b, .None => true);
-    p_in := match(&res_names, .Some(rn) => fn_param_in_result_origin(&meta_ty, i, &rn), .None => true);
     // A holder passed by value (an N2b composite carrying origins, N1e-2):
     // the result may point where its references do.
     p_carries := match(
@@ -8056,6 +8062,7 @@ projection_call_root_args :: (fn(call : &AstExpr, ctx : &EvalContext) -> ArrayLi
       .Some(ha) => match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&_strip_lend(&ha))), .Some(hai) => type_carries_origin(&hai.ty()), .None => false),
       .None => false
     );
+    p_in := match(&res_names, .Some(rn) => (fn_param_in_result_origin(&meta_ty, i, &rn) || (unmatched && p_carries)), .None => true);
     p_holder := ((p_own && !p_ref) && p_carries);
     if((p_ref || (!p_own || p_holder)) && p_in, {
       match(args.get(i), .Some(a) => out.push(ProjectionRootArg(arg : _strip_lend(&a), is_mut : p_ref, label : _param_label_at(&meta_ty, i), by_value : p_holder)), .None => ());
@@ -8063,6 +8070,29 @@ projection_call_root_args :: (fn(call : &AstExpr, ctx : &EvalContext) -> ArrayLi
     i = (i + usize(1));
   });
   out
+});
+/// Some name of `names` (a projection's spelled result origin) is matched
+/// by none of the first `n` parameters of `ft`: not a parameter's label,
+/// nor an origin its slot or its pointee spells — an impl's origin
+/// parameter, which the specialization elided from the slots.
+_result_names_unmatched :: (fn(ft : &TypeValue, names : &SharedList(String), n : usize) -> bool)({
+  (ni : usize) = usize(0);
+  while(ni < names.len(), ni = (ni + usize(1)), {
+    one := ArrayList(String).new();
+    one.push(match(names.get_cloned(ni), .Some(nm) => nm, .None => String.new()));
+    one_list := shared_list(one);
+    (matched : bool) = false;
+    (pi : usize) = usize(0);
+    while(pi < n, pi = (pi + usize(1)), {
+      if(fn_param_in_result_origin(ft, pi, &one_list) || fn_param_pointee_in_result_origin(ft, pi, &one_list), {
+        matched = true;
+      });
+    });
+    if(!matched, {
+      return(true);
+    });
+  });
+  false
 });
 /// The label of parameter `i` of the `Func` `ft` (empty past the end).
 _param_label_at :: (fn(ft : &TypeValue, i : usize) -> String)(

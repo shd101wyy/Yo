@@ -1031,10 +1031,34 @@ fn_result_composite_origin_names :: (fn(ft : &TypeValue) -> Option(SharedList(St
 /// `t` spells the origin `name` somewhere inside it: a reference's origin, an
 /// origin argument of a struct or enum instance, through tuples and nested
 /// type arguments (`_spelled_origins_into`).
-type_spells_origin :: (fn(t : &TypeValue, name : &String) -> bool)({
-  names := ArrayList(String).new();
-  _ := _spelled_origins_into(t, &mut names, usize(0));
-  names.contains(name)
+type_spells_origin :: (fn(t : &TypeValue, name : &String) -> bool)(_type_spells_origin_at(t, name, usize(0)));
+/// `type_spells_origin`'s walk: unlike `_spelled_origins_into`, an elided
+/// origin does not stop it, so `&H(p)` (an elided reference to a holder
+/// over `p`) spells `p`.
+_type_spells_origin_at :: (fn(t : &TypeValue, name : &String, depth : usize) -> bool)({
+  if(depth > usize(16), {
+    return(false);
+  });
+  match(
+    t,
+    Rc(.OriginSet(ts_places, _)) => origin_names_contain(&ts_places, name),
+    Rc(.Reference(ts_pointee, _, ts_origin)) => (_type_spells_origin_at(&ts_origin, name, depth + usize(1)) || _type_spells_origin_at(&ts_pointee, name, depth + usize(1))),
+    Rc(.Struct({ type_arguments : ts_tas })) => _type_spells_origin_in_list(&ts_tas, name, depth),
+    Rc(.EnumT({ type_arguments : ts_etas })) => _type_spells_origin_in_list(&ts_etas, name, depth),
+    Rc(.Tuple({ field_types : ts_fts })) => _type_spells_origin_in_list(&ts_fts, name, depth),
+    Rc(.FutureTraitT(origin : ts_fo)) => _type_spells_origin_at(&ts_fo, name, depth + usize(1)),
+    _ => false
+  )
+});
+_type_spells_origin_in_list :: (fn(ts : &SharedList(TypeValue), name : &String, depth : usize) -> bool)({
+  (li : usize) = usize(0);
+  while(li < ts.len(), {
+    if(match(ts.get(li), .Some(lt) => _type_spells_origin_at(&lt, name, depth + usize(1)), .None => false), {
+      return(true);
+    });
+    li = (li + usize(1));
+  });
+  false
 });
 /// Whether `names` holds `name`.
 origin_names_contain :: (fn(names : &SharedList(String), name : &String) -> bool)({
