@@ -201,6 +201,10 @@ _c_len_9 :: (fn(xs : &ArrayList(RefPayloadSource)) -> usize)(xs.len());
 /// Liveness is the entry's token range, as for every entry, so a stale entry
 /// from an ended scope is inert. A whole-holder assignment REPLACES the
 /// value, so the join clears the holder's entries first (kill + gen).
+/// O-3 (VERDICTS-37 Q3): `BorrowCaptureOuter` by capture binding id, and
+/// the capture stores waiting for their literal's end.
+(g_borrow_capture_outer : RefCell(HashMap(usize, BorrowCaptureOuter))) = RefCell(HashMap(usize, BorrowCaptureOuter)).new(HashMap(usize, BorrowCaptureOuter).new());
+(g_capture_store_joins : RefCell(ArrayList(CaptureStoreJoin))) = RefCell(ArrayList(CaptureStoreJoin)).new(ArrayList(CaptureStoreJoin).new());
 (g_local_borrow_joins : RefCell(ArrayList(LocalBorrowInfo))) = RefCell(ArrayList(LocalBorrowInfo)).new(ArrayList(LocalBorrowInfo).new());
 (g_local_borrow_patterns : RefCell(ArrayList(LocalBorrowPatternBinding))) = RefCell(ArrayList(LocalBorrowPatternBinding)).new(ArrayList(LocalBorrowPatternBinding).new());
 /// The `mut` places `match` arms bind over a local borrow (decision 25's
@@ -9955,7 +9959,6 @@ BorrowCaptureOuter :: struct(
   text : String
 );
 derive(BorrowCaptureOuter, Clone);
-(g_borrow_capture_outer : RefCell(HashMap(usize, BorrowCaptureOuter))) = RefCell(HashMap(usize, BorrowCaptureOuter)).new(HashMap(usize, BorrowCaptureOuter).new());
 note_borrow_capture_outer :: (fn(cap_id : usize, entry : BorrowCaptureOuter) -> unit)({
   g_borrow_capture_outer.with_mut({ entry, cap_id }(m) => m.insert(cap_id, entry));
 });
@@ -9971,7 +9974,6 @@ CaptureStoreJoin :: struct(
   at : Token
 );
 derive(CaptureStoreJoin, Clone);
-(g_capture_store_joins : RefCell(ArrayList(CaptureStoreJoin))) = RefCell(ArrayList(CaptureStoreJoin)).new(ArrayList(CaptureStoreJoin).new());
 /// VERDICTS-37 Q2/Q3: a value stored through the `&mut` capture
 /// `variable` leaves the body into the outer place. A root at the literal's
 /// per-call parameter is E0923, at a local of the body E0912 (the first
