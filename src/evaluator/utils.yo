@@ -8508,6 +8508,59 @@ projection_call_mode_of :: (fn(e : &AstExpr, ctx : &EvalContext) -> Option(bool)
     .Atom(_, _) => Option(bool).None
   )
 );
+/// The lending spelling the decision-24 mismatch suggests: a direct
+/// projection call as the user writes it — `self.items.walk_elem(cur)`, not
+/// the evaluator's callee-parenthesised `((self.items).walk_elem)(cur)` —
+/// with each argument's call-site borrow marker read through.
+_bare_projection_tail_text :: (fn(e : &AstExpr) -> String)({
+  s := ast_expr_strip_borrow_marker(e);
+  match(
+    s,
+    .FnCall(_, pf, Rc(pargs), _, _) => {
+      callee_txt := cond(
+        ast_expr_is_fn_call_of(&pf, BF_DOT, Option(usize).Some(usize(2))) => match(
+          pf,
+          .FnCall(_, _, Rc(dargs), _, _) => match(
+            dargs.get(usize(0)),
+            .Some(recv) => `${local_borrow_place_text(&recv)}.${match(dargs.get(usize(1)), .Some(m) => ast_expr_to_string(&m), .None => String.new())}`,
+            .None => ast_expr_to_string(&pf)
+          ),
+          .Atom(_, _) => ast_expr_to_string(&pf)
+        ),
+        true => ast_expr_to_string(&pf)
+      );
+      (arg_txts : String) = String.new();
+      (i : usize) = usize(0);
+      while(i < pargs.len(), {
+        if(i > usize(0), {
+          arg_txts.push_str(", ");
+        });
+        match(pargs.get(i), .Some(a) => arg_txts.push_string(ast_expr_to_string(&ast_expr_strip_borrow_marker(&a))), .None => ());
+        i = (i + usize(1));
+      });
+      `${callee_txt}(${arg_txts})`
+    },
+    .Atom(_, _) => ast_expr_to_string(&s)
+  )
+});
+/// The decision-24 mismatch of a projection body (`-> &T` / `-> &mut T`)
+/// whose value is not the place's address: one text for a concrete body
+/// (calls/function_type.yo) and a specialized generic one (calls/helper.yo).
+/// A body that forwards ANOTHER projection — its tail is a direct projection
+/// call — is the common user shape (a collection's `walk_elem` forwarding
+/// its inner list's), and the missing marker is the whole error: name the
+/// lending spelling, E0914's style for arguments, instead of only the
+/// abstract "write `&mut place`"
+/// (issues/fixed/2026-10-18-a-bare-projection-call-as-a-projection-body-is-a-misleading-e0601.md).
+projection_body_mismatch_message :: (fn(result_ty : &TypeValue, is_mut : bool, body_ty : &TypeValue, body : &AstExpr, ctx : &EvalContext) -> String)({
+  sigil := if(is_mut, "&mut ", "&");
+  fwd := if(
+    projection_call_mode_of(body, ctx).is_some(),
+    ` The body forwards another projection: a \`${sigil}${type_to_string(result_ty)}\` result lends it at the call site — write \`${sigil}${_bare_projection_tail_text(body)}\`.`,
+    String.new()
+  );
+  `This function returns \`${sigil}${type_to_string(result_ty)}\`, a projection (decision 24): its result is a place of type \`${type_to_string(result_ty)}\` written \`${sigil}place\`, and this body has type \`${type_to_string(body_ty)}\`.${fwd}`
+});
 /// The function type of the call `e`'s callee: its callee node's type, or,
 /// for a method resolved by the receiver-method dispatch (a generic impl's
 /// method, `xs.index(i)` on `ArrayList(T)`), whose `.` callee node carries
@@ -10497,7 +10550,7 @@ borrow_match_source :: (fn(var_id : usize) -> Option(AstExpr))({
   });
   Option(AstExpr).None
 });
-export(projection_call_mode_of, ProjectionRootArg, projection_call_root_args, projection_call_callee_type, OriginRootPlace, origin_of, origin_held_by, origin_param_names_of, param_declared_origin_slot, is_body_parameter, place_write_join, rigid_param_slot, is_rigid_origin_name, origin_name_phrase, BorrowCaptureOuter, note_borrow_capture_outer, borrow_capture_outer, apply_capture_store_joins, holder_future_roots, bind, bind_join, bind_join_roots_for, return_check, note_ref_payload_source, ref_payload_source, note_borrow_match_source, borrow_match_source, n2b_roots_text);
+export(projection_call_mode_of, projection_body_mismatch_message, ProjectionRootArg, projection_call_root_args, projection_call_callee_type, OriginRootPlace, origin_of, origin_held_by, origin_param_names_of, param_declared_origin_slot, is_body_parameter, place_write_join, rigid_param_slot, is_rigid_origin_name, origin_name_phrase, BorrowCaptureOuter, note_borrow_capture_outer, borrow_capture_outer, apply_capture_store_joins, holder_future_roots, bind, bind_join, bind_join_roots_for, return_check, note_ref_payload_source, ref_payload_source, note_borrow_match_source, borrow_match_source, n2b_roots_text);
 export(record_pending_scrutinee_borrow, take_pending_scrutinee_borrows, PendingScrutineeBorrow, note_migrate_mut_scrutinee, migrate_mut_scrutinee_at, clear_migrate_mut_scrutinees, drop_owned_match_binding_at_arm_end, match_scrutinee_is_capture, local_borrow_register_match_place, local_borrow_note_match_place, note_consuming_match_scrutinee, consuming_match_scrutinee_at, moved_value_help, migrate_borrowed_match_at, _lb_arrow_shadows, _lb_fn_literal_binds, _lb_mentions);
 export(
   LocalBorrowPlace,

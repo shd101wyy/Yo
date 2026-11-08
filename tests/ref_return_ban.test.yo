@@ -45,6 +45,30 @@ impl(
 // N2b builds it — the constructor's `&mut` field is an ordinary exclusive
 // lend, and the binding freezes the place until its last use (T9, T8).
 RefTypedField :: struct(p : &mut i32);
+// A GENERIC projection is checked per instantiation like a concrete one: a
+// tail forwarding another projection call reads its place's value, so the
+// body needs the lend marker (codegen returned the value where the C function
+// returns a pointer; issues/fixed/2026-11-08-a-generic-fn-forwarding-a-projection-call-as-its-reference-tail-emits-a-value.md).
+RrbW :: (fn(comptime(T) : Type) -> comptime(Type))(struct(v : T));
+impl(generic(T : Type), RrbW(T), get : (fn(self : &Self) -> &T)(&self.v));
+rrb_forward_bare :: (fn(generic(T : Type), r : &RrbW(T)) -> &T)(r.get());
+comptime_expect_error(
+  rrb_forward_bare_use :: (fn() -> i32)({
+    w := RrbW(i32)(v : i32(8));
+    p := rrb_forward_bare(&w);
+    p.*
+  }),
+  "write `&r.get()`"
+);
+rrb_forward :: (fn(generic(T : Type), r : &RrbW(T)) -> &T)(&r.get());
+test("a generic projection forwarding another with the lend marker yields its place", {
+  w := RrbW(i32)(v : i32(8));
+  p := rrb_forward(&w);
+  assert(p.* == i32(8), "the forwarded place reads the field");
+  s := RrbW(String)(v : String.from("yo"));
+  q := rrb_forward(&s);
+  assert(q.len() == usize(2), "a move-only payload is read in place");
+});
 test("a `&mut`-field composite builds and freezes its root (N2b)", {
   mut(x) := i32(1);
   v := RefTypedField(p : &mut x);
