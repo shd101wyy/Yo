@@ -9855,8 +9855,7 @@ impl(
       },
       true => .Err(self)
     )
-  )
-  ,
+  ),
   /// The payload, written in place, when `self` is the only handle of
   /// either kind to its cell: `.Some` of a `&mut` reference into the cell.
   /// `.None` while another `Rc` or a `Weak` shares it, and nothing moves or
@@ -9866,7 +9865,13 @@ impl(
   ///
   /// ```yo
   /// h := Rc.new(i32(1));
-  /// match(Rc.get_mut(&mut h), .Some(v) => { v.* = i32(2); }, .None => ());
+  /// match(
+  ///   Rc.get_mut(&mut h),
+  ///   .Some(v) => {
+  ///     v.* = i32(2);
+  ///   },
+  ///   .None => ()
+  /// );
   /// assert(h.* == i32(2), "the only handle writes in place");
   /// ```
   get_mut : (fn(self : &mut Self) -> Option(&mut T))({
