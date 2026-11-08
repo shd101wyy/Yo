@@ -9,7 +9,9 @@ layout L1).
 
 ## Repro (v0.2.76)
 
-```yo
+Fenced `yo ignore` so `yo fmt` leaves the input as written.
+
+```yo ignore
 pragma(Pragma.AllowUnsafe);
 f :: (fn(h : *usize) -> usize)(unsafe((h.* & ~(usize(1)))));
 ```
