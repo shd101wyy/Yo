@@ -874,6 +874,8 @@ _reaches_user_drop_inner :: (fn(ty : &TypeValue, std_path : &String, seen : &mut
   match(
     ty,
     Rc(.Array(element : elem)) => _reaches_user_drop_inner(&elem, std_path, seen, depth + u32(1)),
+    // A tail struct's `[T]` (decision 49) drops its elements as an array does.
+    Rc(.SliceT(sl_elem)) => _reaches_user_drop_inner(&sl_elem, std_path, seen, depth + u32(1)),
     Rc(.RefineT(inner, _)) => _reaches_user_drop_inner(&inner, std_path, seen, depth + u32(1)),
     Rc(.Tuple({ field_types : fields })) => _any_reaches_user_drop(&fields, std_path, seen, depth),
     Rc(.SomeT({ resolution : res })) => match(res, .Some(r) => _reaches_user_drop_inner(&r, std_path, seen, depth + u32(1)), .None => false),
