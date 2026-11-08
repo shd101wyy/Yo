@@ -1,0 +1,15 @@
+// A field write of a reference into a local holder: the holder outlives the referent.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+S :: struct(o : Option(&Rc(X)));
+main :: (fn() -> unit)({
+  mut(h) := S(o : Option(&Rc(X)).None);
+  {
+    y := Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz")));
+    h.o = .Some(&y);
+  };
+  match(&h.o, .Some(r) => println(`OUT: ${r.*.*.s.len().to_string()}`), .None => println("none"));
+  ()
+});
+export(main);

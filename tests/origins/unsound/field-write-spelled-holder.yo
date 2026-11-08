@@ -1,0 +1,16 @@
+// expect: E0923
+// A field write into a holder whose origin is spelled over `z0` checks the subset: `&y` is outside.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+S :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(o : Option(&(String, p))));
+main :: (fn() -> unit)({
+  z0 := String.from("z");
+  mut(h) := S(z0)(o : Option(&(String, z0)).None);
+  {
+    y := String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz");
+    h.o = .Some(&y);
+  };
+  match(&h.o, .Some(r) => println(`OUT: ${r.*.len().to_string()}`), .None => println("none"));
+  ()
+});
+export(main);
