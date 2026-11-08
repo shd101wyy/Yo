@@ -37,7 +37,7 @@
 { _store_temp_var_to_state_machine_if_needed } :: import("./other_fn_call.yo");
 { _flush_stmt_lent_temp_drops } :: import("./begin.yo");
 { sm_local_field_name, sm_move_flag_of } :: import("../async/state_machine_naming.yo");
-{ declare_c_var_name, get_type_string, fresh_local_name, get_variable_name_for_codegen, type_key, sanitize_for_c_identifier, c_field_name, c_variant_member_name, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, get_enum_variant_c_name, get_deferred_dup_target_atom_name, pattern_param_is_literal, pattern_literal_param_code, pattern_literal_arm_guards, arm_variant_name, arm_params, nullable_arm_selects_payload, nullable_arm_payload_binder, get_runtime_struct_fields, note_line_position, get_variable_name_for_codegen_at } :: import("../utils/index.yo");
+{ declare_c_var_name, get_type_string, fresh_local_name, get_variable_name_for_codegen, type_key, sanitize_for_c_identifier, c_field_name, c_variant_member_name, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, get_enum_variant_c_name, get_deferred_dup_target_atom_name, pattern_param_is_literal, pattern_literal_param_code, pattern_literal_arm_guards, arm_variant_name, arm_params, nullable_arm_selects_payload, nullable_arm_payload_binder, get_runtime_struct_fields, note_line_position, get_variable_name_for_codegen_at, box_payload_place_code } :: import("../utils/index.yo");
 { resolve_enum_shell, t_ptr } :: import("../../types/creators.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
 { Pattern, Arm, lookup_match_arms, pattern_bindings, pattern_binding_atoms, lookup_match_mode, lookup_arm_entry_drops, pattern_position_is_cell, MATCH_MODE_MUT, MATCH_MODE_BORROW, MATCH_MODE_REF, MATCH_MODE_REF_TEMP, match_mode_binds_refs, MATCH_MODE_CONSUME } :: import("../../pattern.yo");
@@ -2249,13 +2249,9 @@ _emit_pattern_chain :: (
         true => path.clone()
       );
       // The unique `Box` is a C-transparent newtype over its cell pointer:
-      // the payload is that pointer's dereference.
-      fcode := if(is_unique_box_type(&box_ty), {
-        d := String.from("(*");
-        d.push_string(&base);
-        d.push_str(")");
-        d
-      }, {
+      // the payload is that pointer's dereference, with the handle's placed
+      // bit masked off (`box_payload_place_code`).
+      fcode := if(is_unique_box_type(&box_ty), box_payload_place_code(&box_ty, &base, &mut context.base), {
         fields := get_runtime_struct_fields(&_through_box_cell_type(&box_ty));
         label := match(
           fields.get(usize(0)),

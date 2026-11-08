@@ -388,6 +388,10 @@ it; its drop reads the bit, then the record, and frees through the owner, tellin
     49 S1. Seed-safe: the bit is clear today, so the mask is the identity. Gates: `check ./src`, an emit-diff of the
     compiler's own C showing only the projection sites, the fixpoint, the `Box`/`dyn`/`explicit_allocators`/`rc`
     tests.
+    *As built (2026-11-08):* one helper, `box_payload_place_code` (`src/codegen/utils/index.yo`), spells the
+    masked place `(*((T*)((uintptr_t)(cell) & ~(uintptr_t)1)))`; the `b.*` projection and the `Box(...)` match
+    pattern use it, and every auto-deref, method receiver and `&b.*`/`addr_of(b.*)` reaches the payload through
+    them. `tests/box_layout.test.yo` sets the bit by hand and reads and writes through each projection.
   - **L2, std:** the placed bit moves to the handle, a global cell becomes the payload, a ZST box allocates nothing,
     and the `Box` doc comment's layout paragraph is rewritten. It lands INSIDE decision 49 S2's rewrite of `Box`
     over `?Sized` (v0.2.78, Generation B on the v0.2.77 seed), so `Box` is rewritten once: S2 already replaces
