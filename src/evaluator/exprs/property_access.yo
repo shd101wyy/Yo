@@ -13,6 +13,7 @@ pragma(Pragma.AllowUnsafe);
   ast_expr_id,
   ast_rewritten_node,
   note_rewritten_node,
+  note_rewritten_node_as,
   ast_expr_to_string,
   ast_expr_is_atom,
   ast_expr_is_atom_of,
@@ -58,7 +59,7 @@ pragma(Pragma.AllowUnsafe);
 { unknown_field_message, unknown_field_code, unknown_variant_message, unknown_field_through_deref_message, type_carries_origin, origin_value_phase_message, origin_beyond_n2b, origin_beyond_n2b_message } :: import("../../types/utils.yo");
 { format_error_message, format_error_message_with_help, with_code } :: import("../../error.yo");
 { suggest_name, E_AMBIGUOUS_METHOD, E_DEREF_OF_BORROW } :: import("../../diagnostics.yo");
-{ attach_temp_variable_to_expr, local_borrow_take_receiver, local_borrow_mark_receiver, local_borrow_clear_receiver, local_borrows_active, local_borrow_access_expr, LocalBorrowAccess, deref_exempt_mark, deref_exempt_clear, variable_is_reference_binding, deref_rule_applies, deref_spelling_applies, deref_rule_recording, note_reference_deref_site, is_reference_deref_site, note_synthesized_deref_star, is_synthesized_deref_star, is_ctfe_reference_param, deref_reads_through_pointee, deref_payload_type, deref_exempt_take, note_reference_field_read, reference_field_read_type, reject_reference_field_without_deref, local_borrow_place_text, reference_read_wanted } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, local_borrow_take_receiver, local_borrow_mark_receiver, local_borrow_clear_receiver, local_borrows_active, local_borrow_access_expr, LocalBorrowAccess, deref_exempt_mark, deref_exempt_clear, variable_is_reference_binding, deref_rule_applies, deref_spelling_applies, deref_rule_recording, note_reference_deref_site, is_reference_deref_site, note_synthesized_deref_star, is_synthesized_deref_star, is_ctfe_reference_param, deref_reads_through_pointee, deref_payload_type, deref_exempt_take, projection_call_mode_of, note_reference_field_read, reference_field_read_type, reject_reference_field_without_deref, local_borrow_place_text, reference_read_wanted } :: import("../utils.yo");
 { is_valid_variable_name } :: import("../utils.yo");
 { is_implicitly_unsafe_capable_file, is_class1_panic_method_name, is_class1_panic_receiver_type, is_class1_panic_exempt_file, is_union_member_read_capable, union_member_read_error_message, is_std_module_path } :: import("../memory_safety.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("./expr.yo");
@@ -936,6 +937,36 @@ _evaluate_property_access_node :: (
         },
         .Atom(_, _) => ()
       );
+    });
+    // `f(x).*` on a projection CALL (decision 24: the call's result is a
+    // place of type `T`, which the bare call already names) is the
+    // reference's deref: the call itself. The `.*` node is recorded
+    // rewritten to the evaluated call (`note_rewritten_node_as`), which
+    // keeps its own id and so every record keyed by it (its dispatch, its
+    // specialization), so codegen and the place walks read the bare call. In
+    // `f(x).*.*` the outer `.*` is the referent's own deref, read below.
+    // Where the old reading holds (`deref_spelling_applies`: std/src over a
+    // referent `.*` reads through) the `.*` keeps it
+    // (issues/2026-11-05-dereferencing-a-projection-call-result-is-an-internal-error.md).
+    pc_object_written := match(all_args.get(usize(0)), .Some(pc_ow) => pc_ow, .None => make_err_expr());
+    pc_object_is_deref := match(&pc_object_written, .FnCall(_, _, Rc(pc_ow_args), _, _) => (ast_expr_is_fn_call_of(&pc_object_written, BF_DOT, Option(usize).Some(usize(2))) && match(pc_ow_args.get(usize(1)), .Some(pc_ow_p) => ast_expr_is_atom_of(&pc_ow_p, "*"), .None => false)), .Atom(_, _) => false);
+    if(!pc_object_is_deref && _is_written_star(&property_expr) && projection_call_mode_of(&object_expr, ctx).is_some() && match(&obj_ty_deref, .Some(pc_referent) => deref_spelling_applies(ast_expr_token(&property_expr), &pc_referent, ctx), .None => false), {
+      note_rewritten_node_as(ast_expr_id(expr), &object_expr);
+      match(
+        &obj_info_opt,
+        .Some(pc_oi) => {
+          pc_out := new_expr_info(&env, &pc_oi.ty());
+          pc_out.set_value(pc_oi.value());
+          expr_info_set_origin_type(&pc_out, expr_info_origin_type(&pc_oi));
+          pc_out.set_is_accessing_property(pc_oi.is_accessing_property());
+          pc_out.set_path_collection(pc_oi.path_collection());
+          pc_out.set_variable_name(pc_oi.variable_name());
+          pc_out.set_source_variable(pc_oi.source_variable());
+          expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &pc_out);
+        },
+        .None => ()
+      );
+      return(object_expr);
     });
     match(
       &obj_ty_deref,

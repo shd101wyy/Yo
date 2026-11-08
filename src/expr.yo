@@ -564,6 +564,14 @@ note_rewritten_node :: (fn(rewritten : &AstExpr) -> unit)({
   _old := g_rewritten_nodes.with_mut(m => m.insert(ast_expr_id(rewritten), rewritten.clone()));
   ()
 });
+/// Record `node` as what the node `id` names, where the rewrite is another
+/// node of the tree with its own id: `f(x).*` on a projection call reads as
+/// the call itself (`evaluate_property_access`), which keeps every record
+/// keyed by the call's id (its dispatch, its specialization).
+note_rewritten_node_as :: (fn(id : ExprId, node : &AstExpr) -> unit)({
+  _old := g_rewritten_nodes.with_mut(m => m.insert(id, node.clone()));
+  ()
+});
 /// The node an evaluator rewrite recorded for `e`'s id, if any.
 _recorded_rewrite :: (fn(e : &AstExpr) -> Option(AstExpr))(
   match(
@@ -2826,7 +2834,7 @@ export(desugar_if_calls, desugar_program_if_calls);
 export(exprs_are_equal);
 export(expect_expr_to_be_fn_call_of, expect_expr_to_be_fn_call_of_any);
 export(is_function_boundary_arrow);
-export(alloc_global_expr_id, next_global_expr_id, clone_expr_fresh_ids, cloned_expr_node_count, note_rewritten_node, ast_rewritten_node, ast_rewritten_view);
+export(alloc_global_expr_id, next_global_expr_id, clone_expr_fresh_ids, cloned_expr_node_count, note_rewritten_node, note_rewritten_node_as, ast_rewritten_node, ast_rewritten_view);
 /// Wrap `body` in a synthetic `begin(body)` call when it is not already a
 /// `begin(...)` node. The wrap gives even a bare-atom body the begin
 /// machinery — in particular the begin-tail ownership pass, so a

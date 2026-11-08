@@ -134,3 +134,44 @@ comptime_expect_error(
   }),
   "`h` borrows `x` with `&` and is still live"
 );
+// `.*` on a projection CALL's result is the reference's deref: the call
+// itself, a place of the referent's type (decision 24), read, compared and
+// written in place, and `.*.*` the referent's own deref
+// (issues/2026-11-05-dereferencing-a-projection-call-result-is-an-internal-error.md).
+RrPair :: struct(a : i32, b : i32);
+rr_first :: (fn(p : &RrPair) -> &i32)(&p.a);
+rr_first_mut :: (fn(p : &mut RrPair) -> &mut i32)(&mut p.a);
+RrHolds :: struct(v : i32, b : Box(i32));
+impl(
+  RrHolds,
+  get : (fn(self : &Self) -> &i32)(&self.v),
+  get_mut : (fn(self : &mut Self) -> &mut i32)(&mut self.v),
+  boxed : (fn(self : &Self) -> &Box(i32))(&self.b)
+);
+// A `Drop` holder over a lent place, read through a projection off it.
+RrGuard :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(c : &(RrHolds, p)));
+impl(generic(p : Origin), RrGuard(p), get : (fn(self : &Self) -> &i32)(&self.c.v));
+impl(generic(p : Origin), RrGuard(p), Drop(drop : (fn(self : &mut Self) -> unit)(())));
+rr_guard :: (fn(c : &RrHolds) -> RrGuard(c))(RrGuard(c)(c : c));
+test("The deref of a projection call's result reads the place it names", {
+  q := RrPair(a : i32(1), b : i32(2));
+  n := rr_first(&q).*;
+  assert(n == i32(1), "bound");
+  assert(rr_first(&q).* == i32(1), "an operand");
+  s := RrHolds(v : i32(5), b : Box.new(i32(8)));
+  assert(s.get().* == i32(5), "a method projection in an operand");
+  m := s.get().*;
+  assert(m == i32(5), "a method projection bound");
+  assert(s.boxed().*.* == i32(8), "`.*.*` reads the referent's own payload");
+  g := rr_guard(&s);
+  assert(g.get().* == i32(5), "through a bound holder");
+  assert(rr_guard(&s).get().* == i32(5), "through a temporary holder");
+});
+test("The deref of a mutable projection call's result is written in place", {
+  mut(q) := RrPair(a : i32(1), b : i32(2));
+  rr_first_mut(&mut q).* = i32(10);
+  assert(q.a == i32(10), "a free projection written through `.*`");
+  mut(s) := RrHolds(v : i32(5), b : Box.new(i32(8)));
+  s.get_mut().* = (s.get_mut().* + i32(1));
+  assert(s.v == i32(6), "a method projection read and written through `.*`");
+});
