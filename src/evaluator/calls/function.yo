@@ -68,7 +68,8 @@ pragma(Pragma.AllowUnsafe);
   generate_variable_id,
   closure_param_slot_trait,
   new_environment,
-  variable_value_type
+  variable_value_type,
+  variable_slot_type
 } :: import("../../env.yo");
 { some_t_bounds, TypeValue, TypeValueNode, FuncMeta, t_refine_inner, shared_list, no_types, no_labels, no_levels, SharedList, no_flags, slot_pointee_at, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_by_value, t_reference, fn_param_mut_ref_flags, fn_param_by_value_flags, t_slot_with_pointee, t_slot_is_borrow, fn_param_slots, is_origin_kind, t_origin_kind, t_origin_named, t_origin_spelled_names, fn_result_slot } :: import("../../types/definitions.yo");
 { get_func_param_defaults, get_func_param_default_exprs, default_param_eval_env, get_func_param_comptime, register_func_param_comptime, is_param_quoted, is_macro_fn, macro_return_is_unquote, evaluate_function_return_type_again, get_func_return_type_expr, get_func_variadic_param, get_func_param_type_exprs, get_func_where_clause_exprs, evaluate_function_parameter_type_again, _collect_type_arg_somes, _resolve_some_types_deep, collect_wrapper_trait_somes, evaluate_origin_argument } :: import("../types/function.yo");
@@ -9010,7 +9011,15 @@ _argument_origin_type :: (fn(a_place : &AstExpr, env : &Environment, ctx : &Eval
     param_atom,
     .Some(pa) => match(
       get_variables_from_env(env, ast_expr_token(&pa).value.*.clone()).last_cloned(),
-      .Some(av) => match(param_declared_origin_slot(&av, env, ctx), .Some(ds) => return(Option(TypeValue).Some(ds)), .None => ()),
+      .Some(av) => match(
+        param_declared_origin_slot(&av, env, ctx),
+        .Some(ds) => return(Option(TypeValue).Some(ds)),
+        // Any other reference binding passed bare (a capture `rx : &x`, a
+        // local borrow): its reference type, whose read is the pointee.
+        .None => if(variable_is_reference_binding(&av) && t_slot_is_borrow(&variable_slot_type(&av)), {
+          return(Option(TypeValue).Some(variable_slot_type(&av)));
+        })
+      ),
       .None => ()
     ),
     .None => ()
