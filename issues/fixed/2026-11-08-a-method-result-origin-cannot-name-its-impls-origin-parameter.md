@@ -11,7 +11,7 @@ Filed 2026-11-08 by the G2 lane (`vbd/g2-holders`) on a develop `a25a71ee1` tree
 ```yo
 { assert } :: import("std/assert");
 H :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(r : &(i32, p)));
-impl(generic(p : Origin), H(p), get : (fn(self : &Self) -> &(i32, p))(self.r));
+impl(generic(p : Origin), H(p), get : (fn(self : &Self) -> &(i32, p))(&self.r.*));
 main :: (fn() -> unit)({
   x := i32(1);
   h := H(x)(r : &x);
