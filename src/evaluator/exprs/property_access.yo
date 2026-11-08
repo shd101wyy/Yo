@@ -979,7 +979,7 @@ _evaluate_property_access_node :: (
     // (issues/fixed/2026-11-05-dereferencing-a-projection-call-result-is-an-internal-error.md).
     pc_object_written := match(all_args.get(usize(0)), .Some(pc_ow) => pc_ow, .None => make_err_expr());
     pc_object_is_deref := match(&pc_object_written, .FnCall(_, _, Rc(pc_ow_args), _, _) => (ast_expr_is_fn_call_of(&pc_object_written, BF_DOT, Option(usize).Some(usize(2))) && match(pc_ow_args.get(usize(1)), .Some(pc_ow_p) => ast_expr_is_atom_of(&pc_ow_p, "*"), .None => false)), .Atom(_, _) => false);
-    if(!pc_object_is_deref && _is_written_star(&property_expr) && projection_call_mode_of(&object_expr, ctx).is_some() && match(&obj_ty_deref, .Some(pc_referent) => (deref_spelling_applies(ast_expr_token(&property_expr), &pc_referent, ctx) && !deref_reads_through_pointee(&pc_referent)), .None => false), {
+    if(!pc_object_is_deref && _is_written_star(&property_expr) && projection_call_mode_of(&object_expr, ctx).is_some() && match(&obj_ty_deref, .Some(pc_referent) => (deref_spelling_applies(ast_expr_token(&property_expr), ctx) && !deref_reads_through_pointee(&pc_referent)), .None => false), {
       _note_projection_call_deref(expr, &object_expr, &env, ctx);
       // The caller keeps the `.*` node: a read of the referent, a value, so
       // `n := f(x).*` binds a copy where `n := f(x)` binds the reference.
