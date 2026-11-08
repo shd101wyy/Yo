@@ -9236,6 +9236,9 @@ lend_through :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalContext, exn
           // reference binding `s` (a parameter, or a `&mut` capture whose
           // store joins the outer place, VERDICTS-37 Q3).
           w_place := match(_deref_atom_of(&ast_expr_strip_borrow_marker(&w_arg)), .Some(wd) => wd, .None => ast_expr_strip_borrow_marker(&w_arg));
+          if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
+            eprintln(`[n2b] lend-through &mut arg ${ast_expr_to_string(&w_arg)}: place=${ast_expr_to_string(&w_place)} atom=${ast_expr_is_atom(&w_place).to_string()} fixed=${fixed_names.len().to_string()}`);
+          });
           if(ast_expr_is_atom(&w_place), {
             // The origin parameters the pointee names, and its TYPE
             // parameters: `dst : &mut Option(T)` with `T := &S` is as much an
