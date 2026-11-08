@@ -8983,15 +8983,37 @@ _origin_position_pairs_list :: (fn(p_os : &SharedList(TypeValue), a_os : &Shared
 /// spells origins (`param_declared_origin_slot` — a generic body's origin
 /// parameters are rigid, O2, while its specialization elided them), any
 /// other argument its evaluated type.
+/// `r.*` of a bare name `r`: the name.
+_deref_atom_of :: (fn(e : &AstExpr) -> Option(AstExpr))(
+  cond(
+    ast_expr_is_fn_call_of(e, BF_DOT, Option(usize).Some(usize(2))) => match(
+      e,
+      .FnCall(_, _, Rc(da_args), _, _) => match(
+        da_args.get(usize(1)),
+        .Some(lbl) => if(
+          ast_expr_is_atom(&lbl) && (ast_expr_token(&lbl).value.* == "*"),
+          match(da_args.get(usize(0)), .Some(base) => if(ast_expr_is_atom(&base), Option(AstExpr).Some(base), Option(AstExpr).None), .None => Option(AstExpr).None),
+          Option(AstExpr).None
+        ),
+        .None => Option(AstExpr).None
+      ),
+      .Atom(_, _) => Option(AstExpr).None
+    ),
+    true => Option(AstExpr).None
+  )
+);
 _argument_origin_type :: (fn(a_place : &AstExpr, env : &Environment, ctx : &EvalContext) -> Option(TypeValue))({
+  // A parameter passed bare (`s`) or re-lent through its deref (`&mut
+  // s.*`, whose reference is `s`'s own): the declared slot.
+  param_atom := match(a_place, .Atom(_, _) => Option(AstExpr).Some(a_place.clone()), _ => _deref_atom_of(a_place));
   match(
-    a_place,
-    .Atom(_, _) => match(
-      get_variables_from_env(env, ast_expr_token(a_place).value.*.clone()).last_cloned(),
-      .Some(av) => match(param_declared_origin_slot(&av, ctx), .Some(ds) => return(Option(TypeValue).Some(ds)), .None => ()),
+    param_atom,
+    .Some(pa) => match(
+      get_variables_from_env(env, ast_expr_token(&pa).value.*.clone()).last_cloned(),
+      .Some(av) => match(param_declared_origin_slot(&av, env, ctx), .Some(ds) => return(Option(TypeValue).Some(ds)), .None => ()),
       .None => ()
     ),
-    _ => ()
+    .None => ()
   );
   match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(a_place)), .Some(ai) => Option(TypeValue).Some(Rc.clone(ai.ty())), .None => Option(TypeValue).None)
 });
@@ -9210,7 +9232,10 @@ lend_through :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalContext, exn
         slots.get(wi),
         .Some(w_slot) => if(t_slot_is_mut_ref(&w_slot) && (type_carries_origin(&t_slot_pointee(&w_slot)) || _arg_type_carries_origin(match(op_args.get(wi), .Some(a) => _unlabeled_argument(&a), .None => make_err_expr()), ctx)), {
           w_arg := _unlabeled_argument(match(op_args.get(wi), .Some(a) => a, .None => make_err_expr()));
-          w_place := ast_expr_strip_borrow_marker(&w_arg);
+          // A holder re-lent through its reference (`&mut s.*`): the
+          // reference binding `s` (a parameter, or a `&mut` capture whose
+          // store joins the outer place, VERDICTS-37 Q3).
+          w_place := match(_deref_atom_of(&ast_expr_strip_borrow_marker(&w_arg)), .Some(wd) => wd, .None => ast_expr_strip_borrow_marker(&w_arg));
           if(ast_expr_is_atom(&w_place), {
             // The origin parameters the pointee names, and its TYPE
             // parameters: `dst : &mut Option(T)` with `T := &S` is as much an

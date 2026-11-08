@@ -121,6 +121,7 @@ pragma(Pragma.AllowUnsafe);
   local_borrow_access,
   local_borrow_write_expr,
   bind_join,
+  place_write_join,
   local_borrow_mark_receiver,
   local_borrow_clear_receiver,
   reject_bare_callable_into_dyn_fn,
@@ -1670,6 +1671,18 @@ evaluate_assignment :: (
       .Some(sbv) => reject_write_through_shared_borrow_param(&sbv, `write \`${_place_source_text(&lhs)}\``, ast_expr_token(&lhs), ctx, exn),
       .None => ()
     );
+    // The place-write join (plans/backlog/BORROW_CHECKER_COMPLETENESS.md
+    // §5): the root holder's flow set grows by the value's origin, or the
+    // written place's spelled origins check the subset (`place_write_join`).
+    if(ctx.is_evaluating_function_body_or_async_block.is_some() && type_carries_origin(&prop_rhs_info.ty()), {
+      match(
+        _place_root_variable(&evaluated_lhs, &env, ctx, true),
+        .Some(pj_root) => if(!pj_root.is_module_level() && !pj_root.is_compile_time_only(), {
+          place_write_join(&pj_root, &expected_ty, &prop_rhs, &env, ctx, exn);
+        }),
+        .None => ()
+      );
+    });
     // Step 4 — Type compatibility check
     (prop_rhs_type : TypeValue) = Rc.clone(prop_rhs_info.ty());
     if(!(is_comptime_int_type(&expected_ty) || is_comptime_float_type(&expected_ty) || is_comptime_string_type(&expected_ty)), {

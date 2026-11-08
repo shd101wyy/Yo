@@ -9627,6 +9627,13 @@ origin_name_phrase :: (fn(n : &String) -> String)(
     .None => `origin \`${n}\``
   )
 );
+/// `v` is a parameter of a body being evaluated: a named function's (the
+/// binding's flag), or a closure or `io.async` literal's (its parameter
+/// frame, `mark_closure_param_frame`; literal parameters are bound as
+/// locals of that frame).
+is_body_parameter :: (fn(v : &Variable, env : &Environment) -> bool)(
+  v.is_parameter() || match(env.frame_at(v.frame_level), .Some(fr) => is_closure_param_frame(fr.id()), .None => false)
+);
 /// The DECLARED slot of `v`, a parameter of the function body being
 /// evaluated, with every elided origin written in it rigid
 /// (`rigid_param_slot`; O-3): `b : &(i32, q)` as written, `s : &mut
@@ -9637,8 +9644,23 @@ origin_name_phrase :: (fn(n : &String) -> String)(
 /// parameters RIGID — `p` and `q` are distinct names whatever a caller binds
 /// them to, and so are two elided `&`. `.None` outside a function body, for
 /// a non-parameter, or when the declared slot has no origin position.
-param_declared_origin_slot :: (fn(v : &Variable, ctx : &EvalContext) -> Option(TypeValue))({
-  if(!v.is_parameter(), {
+/// The names a body binds its parameters to: a closure literal's own
+/// (`(a, b) => …` in a `Fn(v : &T, s : …)` slot), else the type's labels.
+_body_param_labels :: (fn(ft : &TypeValue, ctx : &EvalContext) -> SharedList(String))({
+  n := fn_param_slots(ft).len();
+  match(
+    &ctx.is_evaluating_function_body_or_async_block,
+    .Some(fb) => match(
+      &fb.func_value,
+      .Some(.FuncVal(pd_fv, _)) => if(pd_fv.*.params.len() == n, shared_list(pd_fv.*.params.clone()), _func_param_labels(ft)),
+      _ => _func_param_labels(ft)
+    ),
+    .None => _func_param_labels(ft)
+  )
+});
+_func_param_labels :: (fn(ft : &TypeValue) -> SharedList(String))(match(ft, Rc(.Func({ meta : pl_m })) => Rc.clone(pl_m.*.param_labels), _ => shared_list(ArrayList(String).new())));
+param_declared_origin_slot :: (fn(v : &Variable, env : &Environment, ctx : &EvalContext) -> Option(TypeValue))({
+  if(!is_body_parameter(v, env), {
     return(Option(TypeValue).None);
   });
   ft := match(
@@ -9646,8 +9668,8 @@ param_declared_origin_slot :: (fn(v : &Variable, ctx : &EvalContext) -> Option(T
     .Some(fb) => match(fb.kind, .FunctionBody => match(&fb.func_type, .Some(t) => Rc.clone(t), .None => return(Option(TypeValue).None)), _ => return(Option(TypeValue).None)),
     .None => return(Option(TypeValue).None)
   );
-  labels := match(&ft, Rc(.Func({ meta : pd_m })) => Rc.clone(pd_m.param_labels), _ => return(Option(TypeValue).None));
   slots := fn_param_slots(&ft);
+  labels := _body_param_labels(&ft, ctx);
   (i : usize) = usize(0);
   while(i < labels.len(), {
     if(match(labels.get(i), .Some(l) => (l == v.name), .None => false), {
@@ -9686,11 +9708,16 @@ _bind_join_subset_check :: (fn(variable : &Variable, holder_ty : &TypeValue, hol
         match(
           get_variables_from_env(env, rt.place.root_name.clone()).last_cloned(),
           .Some(rv) => cond(
-            rv.is_parameter() => origin_param_names_of(&match(param_declared_origin_slot(&rv, ctx), .Some(ds) => ds, .None => variable_slot_type(&rv)), &mut rt_names, u32(0)),
-            !rv.is_module_level() => {
-              rt_names.push(rv.name.clone());
-              rt_is_local = true;
-            },
+            is_body_parameter(&rv, env) => origin_param_names_of(&match(param_declared_origin_slot(&rv, env, ctx), .Some(ds) => ds, .None => variable_slot_type(&rv)), &mut rt_names, u32(0)),
+            !rv.is_module_level() => match(
+              borrow_capture_outer(rv.id()),
+              // A capture-list borrow holds the enclosing scope's place.
+              .Some(rco) => rt_names.push(rco.place.root_name.clone()),
+              .None => {
+                rt_names.push(rv.name.clone());
+                rt_is_local = true;
+              }
+            ),
             true => ()
           ),
           .None => ()
@@ -9699,7 +9726,7 @@ _bind_join_subset_check :: (fn(variable : &Variable, holder_ty : &TypeValue, hol
         while(ni < rt_names.len(), {
           v_name := match(rt_names.get_cloned(ni), .Some(n) => n, .None => String.new());
           if(!holder_names.contains(&v_name), {
-            _bind_join_reject(variable, holder_ty, holder_names, &v_name, &rt.place.root_name, rt_is_local, value, ctx, exn);
+            _bind_join_reject(variable, is_body_parameter(variable, env), holder_ty, holder_names, &v_name, &rt.place.root_name, rt_is_local, value, ctx, exn);
           });
           ni = (ni + usize(1));
         });
@@ -9825,7 +9852,7 @@ _shared_origin_repair :: (fn(variable : &Variable, v_name : &String, holder_name
   match(
     &fb_ft,
     .Some(ft) => {
-      labels := match(ft, Rc(.Func({ meta : sr_m })) => Rc.clone(sr_m.*.param_labels), _ => shared_list(ArrayList(String).new()));
+      labels := _body_param_labels(ft, ctx);
       slots := fn_param_slots(&ft);
       (li : usize) = usize(0);
       while(li < labels.len(), {
@@ -9854,10 +9881,10 @@ _shared_origin_repair :: (fn(variable : &Variable, v_name : &String, holder_name
 /// The E0923 / E0912 of `_bind_join_subset_check`. A holder whose origin is
 /// rigid (an elided `&` in a parameter type) gets the repair VERDICTS-37
 /// Q1 (a) prescribes: one origin parameter shared by both positions.
-_bind_join_reject :: (fn(variable : &Variable, holder_ty : &TypeValue, holder_names : &ArrayList(String), v_name : &String, root_name : &String, rt_is_local : bool, value : &AstExpr, ctx : &EvalContext, exn : Exception) -> unit)({
+_bind_join_reject :: (fn(variable : &Variable, holder_is_param : bool, holder_ty : &TypeValue, holder_names : &ArrayList(String), v_name : &String, root_name : &String, rt_is_local : bool, value : &AstExpr, ctx : &EvalContext, exn : Exception) -> unit)({
   holder_rigid := ((holder_names.len() > usize(0)) && is_rigid_origin_name(match(holder_names.get_cloned(usize(0)), .Some(h) => h, .None => String.new())));
   holder_text := if(holder_names.len() == usize(1), origin_name_phrase(match(holder_names.get_cloned(usize(0)), .Some(h) => h, .None => String.new())), `origin \`${type_to_string(holder_ty)}\``);
-  if(rt_is_local && variable.is_parameter(), {
+  if(rt_is_local && holder_is_param, {
     raise_flow_violation(
       with_code(
         format_error_message_with_help(
@@ -9934,7 +9961,7 @@ bind_join :: (fn(variable : &Variable, value : &AstExpr, env : &Environment, ctx
   // expected type (`.Some(b)` read as `Option(&(i32, p))`) is still judged
   // by what it holds. In a generic body the origin parameters are RIGID
   // (O2): `p` and `q` are distinct names whatever a caller binds them to.
-  hv_ty := match(param_declared_origin_slot(variable, ctx), .Some(ds) => ds, .None => variable_slot_type(variable));
+  hv_ty := match(param_declared_origin_slot(variable, env, ctx), .Some(ds) => ds, .None => variable_slot_type(variable));
   holder_ty := cond(
     t_slot_is_borrow(&hv_ty) => t_slot_pointee(&hv_ty),
     true => variable_value_type(variable)
@@ -9991,7 +10018,7 @@ _capture_store :: (fn(variable : &Variable, bco : &BorrowCaptureOuter, roots : &
         match(
           get_variables_from_env(env, gr.place.root_name.clone()).last_cloned(),
           .Some(rv) => cond(
-            rv.is_parameter() => raise_flow_violation(
+            is_body_parameter(&rv, env) => raise_flow_violation(
               with_code(
                 format_error_message_with_help(
                   at,
@@ -10067,6 +10094,27 @@ apply_capture_store_joins :: (fn(cap_ids : &ArrayList(usize), env : &Environment
     );
     k = (k + usize(1));
   });
+});
+/// O-1's place-write row (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §5,
+/// `p.f = v`, `xs(i) = v`): a field or element write GROWS the root
+/// holder's flow set by the value's origin — the holder's other parts keep
+/// theirs, so nothing is killed — and checks the subset against the
+/// origins the written place's type spells. A root that is a `&mut`
+/// capture is the outer place (VERDICTS-37 Q3, `_capture_store`).
+place_write_join :: (fn(root : &Variable, place_ty : &TypeValue, value : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
+  roots := origin_of(value, env, ctx);
+  if(roots.len() == usize(0), {
+    return(());
+  });
+  if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
+    eprintln(`[n2b] place-write ${root.name}: roots=[${n2b_roots_text(&roots)}] value=${ast_expr_to_string(value)}`);
+  });
+  holder_names := ArrayList(String).new();
+  origin_param_names_of(place_ty, &mut holder_names, u32(0));
+  if(holder_names.len() > usize(0), {
+    _bind_join_subset_check(root, place_ty, &holder_names, &roots, value, env, ctx, exn);
+  });
+  bind_join_roots_for(root, &roots, ast_expr_token(value), env, ctx, exn, kill : false);
 });
 /// `bind_join`'s registration core, shared with `lend_through`'s flow
 /// write-back: each root not already in the holder's set is registered with
@@ -10420,7 +10468,7 @@ borrow_match_source :: (fn(var_id : usize) -> Option(AstExpr))({
   });
   Option(AstExpr).None
 });
-export(projection_call_mode_of, ProjectionRootArg, projection_call_root_args, projection_call_callee_type, OriginRootPlace, origin_of, origin_held_by, origin_param_names_of, param_declared_origin_slot, rigid_param_slot, is_rigid_origin_name, origin_name_phrase, BorrowCaptureOuter, note_borrow_capture_outer, borrow_capture_outer, apply_capture_store_joins, holder_future_roots, bind, bind_join, bind_join_roots_for, return_check, note_ref_payload_source, ref_payload_source, note_borrow_match_source, borrow_match_source, n2b_roots_text);
+export(projection_call_mode_of, ProjectionRootArg, projection_call_root_args, projection_call_callee_type, OriginRootPlace, origin_of, origin_held_by, origin_param_names_of, param_declared_origin_slot, is_body_parameter, place_write_join, rigid_param_slot, is_rigid_origin_name, origin_name_phrase, BorrowCaptureOuter, note_borrow_capture_outer, borrow_capture_outer, apply_capture_store_joins, holder_future_roots, bind, bind_join, bind_join_roots_for, return_check, note_ref_payload_source, ref_payload_source, note_borrow_match_source, borrow_match_source, n2b_roots_text);
 export(record_pending_scrutinee_borrow, take_pending_scrutinee_borrows, PendingScrutineeBorrow, note_migrate_mut_scrutinee, migrate_mut_scrutinee_at, clear_migrate_mut_scrutinees, drop_owned_match_binding_at_arm_end, match_scrutinee_is_capture, local_borrow_register_match_place, local_borrow_note_match_place, note_consuming_match_scrutinee, consuming_match_scrutinee_at, moved_value_help, migrate_borrowed_match_at, _lb_arrow_shadows, _lb_fn_literal_binds, _lb_mentions);
 export(
   LocalBorrowPlace,
