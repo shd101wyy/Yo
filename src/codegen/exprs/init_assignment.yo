@@ -8,7 +8,7 @@
 //! compile-time variables are skipped (declared elsewhere / no runtime form).
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr, ExprId, ast_expr_id, ast_expr_is_atom, ast_expr_is_atom_of, ast_expr_is_fn_call_of, ast_expr_token, ast_expr_text, BK_COMPTIME, BK_ARRAY_VAL, ast_expr_is_local_borrow_mode_call, BF_DOT } :: import("../../expr.yo");
+{ AstExpr, ExprId, ast_expr_id, ast_expr_is_atom, ast_expr_is_atom_of, ast_expr_is_fn_call_of, ast_expr_token, ast_expr_text, BK_COMPTIME, BK_ARRAY_VAL, ast_expr_is_local_borrow_mode_call, BF_DOT, ast_call_is_deref_read } :: import("../../expr.yo");
 { RuntimeDestructuring, expr_info_converted_runtime_type, expr_info_runtime_destructurings, expr_info_deferred_dup_expressions, expr_info_macro_expansion, scope_variables, lookup_local_borrow_step_pin } :: import("../../expr_info.yo");
 { Variable, Environment, variable_value_type } :: import("../../env.yo");
 { is_array_type, is_unit_type, is_struct_type, is_reference_struct_type, is_tuple_type, is_newtype_type } :: import("../../types/guards.yo");
@@ -435,8 +435,9 @@ generate_initialization_assignment :: (fn(expr : &AstExpr, indent : &String, con
     return(_generate_inout_local_binding(&lhs, &rhs, inout_key, Option(Environment).Some(ei.env()), indent.clone(), context));
   });
   // `r := t.index(i)`: a projection call's result binds as a local borrow
-  // (decision 24, `_bind_projection_result`), `T* r = f(...)`.
-  if(ast_expr_is_atom(&lhs) && call_projection_mode(&rhs, context).is_some(), {
+  // (decision 24, `_bind_projection_result`), `T* r = f(...)`. The call a
+  // written `.*` reads (`n := f(x).*`) binds its value instead.
+  if(ast_expr_is_atom(&lhs) && call_projection_mode(&rhs, context).is_some() && !ast_call_is_deref_read(&rhs), {
     return(_generate_inout_local_binding(&lhs, &rhs, ast_expr_id(&lhs), Option(Environment).Some(ei.env()), indent.clone(), context));
   });
   // Destructuring binds.

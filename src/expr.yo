@@ -558,6 +558,10 @@ next_global_expr_id :: (fn() -> ExprId)(g_next_global_expr_id);
 /// it clones the written tree, and the clone's own evaluation re-derives the
 /// rewrite (cloning it materialized the rewrite as source, see there).
 (g_rewritten_nodes : RefCell(HashMap(ExprId, AstExpr))) = RefCell(HashMap(ExprId, AstExpr)).new(HashMap(ExprId, AstExpr).new());
+/// The calls a written `.*` reads (`note_rewritten_node_as`): `f(x).*` is a
+/// read of the place the call names, so `n := f(x).*` binds its value where
+/// `n := f(x)` binds the reference.
+(g_deref_read_calls : RefCell(HashMap(ExprId, bool))) = RefCell(HashMap(ExprId, bool)).new(HashMap(ExprId, bool).new());
 /// Record `rewritten` as the node its id names, as an evaluator rewrite left
 /// it (`g_rewritten_nodes`).
 note_rewritten_node :: (fn(rewritten : &AstExpr) -> unit)({
@@ -570,8 +574,17 @@ note_rewritten_node :: (fn(rewritten : &AstExpr) -> unit)({
 /// keyed by the call's id (its dispatch, its specialization).
 note_rewritten_node_as :: (fn(id : ExprId, node : &AstExpr) -> unit)({
   _old := g_rewritten_nodes.with_mut(m => m.insert(id, node.clone()));
+  _old_read := g_deref_read_calls.with_mut(m => m.insert(ast_expr_id(node), true));
   ()
 });
+/// `e` is a projection call a written `.*` reads (`g_deref_read_calls`).
+ast_call_is_deref_read :: (fn(e : &AstExpr) -> bool)(
+  match(
+    e,
+    .Atom(_, _) => false,
+    .FnCall(dr_id, _, _, _, _) => g_deref_read_calls.with(m => m.contains_key(&dr_id))
+  )
+);
 /// The node an evaluator rewrite recorded for `e`'s id, if any.
 _recorded_rewrite :: (fn(e : &AstExpr) -> Option(AstExpr))(
   match(
@@ -2834,7 +2847,7 @@ export(desugar_if_calls, desugar_program_if_calls);
 export(exprs_are_equal);
 export(expect_expr_to_be_fn_call_of, expect_expr_to_be_fn_call_of_any);
 export(is_function_boundary_arrow);
-export(alloc_global_expr_id, next_global_expr_id, clone_expr_fresh_ids, cloned_expr_node_count, note_rewritten_node, note_rewritten_node_as, ast_rewritten_node, ast_rewritten_view);
+export(alloc_global_expr_id, next_global_expr_id, clone_expr_fresh_ids, cloned_expr_node_count, note_rewritten_node, note_rewritten_node_as, ast_call_is_deref_read, ast_rewritten_node, ast_rewritten_view);
 /// Wrap `body` in a synthetic `begin(body)` call when it is not already a
 /// `begin(...)` node. The wrap gives even a bare-atom body the begin
 /// machinery — in particular the begin-tail ownership pass, so a

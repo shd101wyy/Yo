@@ -6,6 +6,7 @@
 // Everywhere else it reads as the place it refers to.
 { assert } :: import("std/assert");
 { ArrayList } :: import("std/collections/array_list");
+{ String } :: import("std/string");
 // A projection's result into a reference payload: `.Some(self.xs.index(self.i))`.
 // VERDICTS-25's cursor, generic over the element type: `T` is inferred through
 // the origin-parameterized composite `RrCursor(T, p)` (the synthesizer's
@@ -142,10 +143,11 @@ comptime_expect_error(
 RrPair :: struct(a : i32, b : i32);
 rr_first :: (fn(p : &RrPair) -> &i32)(&p.a);
 rr_first_mut :: (fn(p : &mut RrPair) -> &mut i32)(&mut p.a);
-RrHolds :: struct(v : i32, b : Box(i32));
+RrHolds :: struct(v : i32, b : Box(i32), name : String);
 impl(
   RrHolds,
   get : (fn(self : &Self) -> &i32)(&self.v),
+  name_ref : (fn(self : &Self) -> &String)(&self.name),
   get_mut : (fn(self : &mut Self) -> &mut i32)(&mut self.v),
   boxed : (fn(self : &Self) -> &Box(i32))(&self.b)
 );
@@ -159,7 +161,7 @@ test("The deref of a projection call's result reads the place it names", {
   n := rr_first(&q).*;
   assert(n == i32(1), "bound");
   assert(rr_first(&q).* == i32(1), "an operand");
-  s := RrHolds(v : i32(5), b : Box.new(i32(8)));
+  s := RrHolds(v : i32(5), b : Box.new(i32(8)), name : `abc`);
   assert(s.get().* == i32(5), "a method projection in an operand");
   m := s.get().*;
   assert(m == i32(5), "a method projection bound");
@@ -168,12 +170,25 @@ test("The deref of a projection call's result reads the place it names", {
   g := rr_guard(&s);
   assert(g.get().* == i32(5), "through a bound holder");
   assert(rr_guard(&s).get().* == i32(5), "through a temporary holder");
+  // A move-only referent is read in place, never moved out of its place.
+  assert(s.name_ref().* == `abc`, "a move-only referent compared in place");
+  assert(s.name_ref().*.len() == usize(3), "a move-only referent's method");
+  c := s.name_ref().*.clone();
+  assert(c == s.name, "a move-only referent cloned out");
 });
+// Binding it moves nothing out of the place: like `r.*`, it is E0901.
+comptime_expect_error(
+  rr_deref_call_cannot_move :: (fn() -> unit)({
+    s := RrHolds(v : i32(5), b : Box.new(i32(8)), name : `abc`);
+    t := s.name_ref().*;
+  }),
+  "use of moved value"
+);
 test("The deref of a mutable projection call's result is written in place", {
   mut(q) := RrPair(a : i32(1), b : i32(2));
   rr_first_mut(&mut q).* = i32(10);
   assert(q.a == i32(10), "a free projection written through `.*`");
-  mut(s) := RrHolds(v : i32(5), b : Box.new(i32(8)));
+  mut(s) := RrHolds(v : i32(5), b : Box.new(i32(8)), name : `abc`);
   s.get_mut().* = (s.get_mut().* + i32(1));
   assert(s.v == i32(6), "a method projection read and written through `.*`");
 });
