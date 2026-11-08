@@ -833,30 +833,37 @@ test("remove_entry hands back the entry it removed", {
   assert(m.is_empty() == true, "map is empty");
 });
 // ===== Entry API =====
+// `entry(key)` returns a holder of the map's `&mut` loan (Rust's `Entry`):
+// the key moves in, `or_insert` returns a `&mut` place into the map, and the
+// entry borrows the map exclusively while it lives.
 test("entry reports occupancy and hands back the key", {
   mut(m) := HashMap(i32, i32).new();
   m.insert(i32(1), i32(10));
-  m.entry(i32(1), e => {
-    assert(e.is_occupied() == true, "present key is occupied");
-    assert(e.is_vacant() == false, "and not vacant");
-    assert(e.key() == i32(1), "the key it was looked up with");
-    assert(match(e.value(), .Some(v) => (v == i32(10)), .None => false), "the stored value");
-  });
-  m.entry(i32(2), e => {
-    assert(e.is_occupied() == false, "absent key is vacant");
-    assert(match(e.value(), .Some(_) => false, .None => true), "a vacant entry has no value");
-  });
+  e := m.entry(i32(1));
+  assert(e.is_occupied() == true, "present key is occupied");
+  assert(e.is_vacant() == false, "and not vacant");
+  assert(e.key() == i32(1), "the key it was looked up with");
+  assert(match(e.value(), .Some(v) => (v == i32(10)), .None => false), "the stored value");
+  f := m.entry(i32(2));
+  assert(f.is_occupied() == false, "absent key is vacant");
+  assert(match(f.value(), .Some(_) => false, .None => true), "a vacant entry has no value");
 });
 test("entry.or_insert returns the stored value and inserts only when vacant", {
   mut(m) := HashMap(i32, i32).new();
-  assert(m.entry(i32(1), e => e.or_insert(i32(10))) == i32(10), "vacant inserts the default");
+  assert(m.entry(i32(1)).or_insert(i32(10)) == i32(10), "vacant inserts the default");
   assert(m.len() == usize(1), "and grew the map");
-  assert(m.entry(i32(1), e => e.or_insert(i32(99))) == i32(10), "occupied keeps the stored value");
+  assert(m.entry(i32(1)).or_insert(i32(99)) == i32(10), "occupied keeps the stored value");
   assert(m.len() == usize(1), "and did not grow the map");
   assert(m.get(i32(1)).unwrap() == i32(10), "the stored value is untouched");
 });
-// The recorder is a `ref` object: a closure captures a list by VALUE since B8
-// (a capture would move it), while a `ref` handle is shared.
+test("entry.or_insert's result is a place in the map", {
+  mut(m) := HashMap(i32, i32).new();
+  c := m.entry(i32(3)).or_insert(i32(0));
+  c.* = (c.* + i32(5));
+  assert(m.get(i32(3)).unwrap() == i32(5), "the write through the result landed in the map");
+  m.entry(i32(3)).or_insert(i32(0)).* = i32(9);
+  assert(m.get(i32(3)).unwrap() == i32(9), "an in-place write through a temporary entry");
+});
 // The calls are counted in a module-level counter: the closures write it
 // without capturing it.
 (mut(g_hm_calls) : i32) = i32(0);
@@ -864,78 +871,52 @@ test("entry.or_insert_with only calls make on the vacant path", {
   mut(m) := HashMap(i32, i32).new();
   g_hm_calls = i32(0);
   assert(
-    m.entry(
-      i32(1),
-      e =>
-        e.or_insert_with(() => {
-          g_hm_calls = (g_hm_calls + i32(1));
-          i32(7)
-        })
-    ) == i32(7),
+    m.entry(i32(1)).or_insert_with(() => {
+      g_hm_calls = (g_hm_calls + i32(1));
+      i32(7)
+    }) == i32(7),
     "vacant makes a value"
   );
   assert(g_hm_calls == i32(1), "make ran once");
   assert(
-    m.entry(
-      i32(1),
-      e =>
-        e.or_insert_with(() => {
-          g_hm_calls = (g_hm_calls + i32(1));
-          i32(9)
-        })
-    ) == i32(7),
+    m.entry(i32(1)).or_insert_with(() => {
+      g_hm_calls = (g_hm_calls + i32(1));
+      i32(9)
+    }) == i32(7),
     "occupied returns the stored value"
   );
   assert(g_hm_calls == i32(1), "make did NOT run again");
 });
-// A consuming callee: the entry body below can call it only because the body
-// is an `FnOnce` that owns its captures.
-_hm_len_of :: (fn(sink(x) : String) -> usize)(x.len());
-test("entry's body is an FnOnce: it moves a capture out of its body", {
-  mut(m) := HashMap(i32, usize).new();
-  s := String.from("first");
-  r := m.entry(i32(1), { s }(e) => {
-    n := _hm_len_of(s);
-    e.or_insert(&n)
-  });
-  assert(r == usize(5), "the body consumed its captured String");
-  assert(m.get(i32(1)).unwrap() == usize(5), "the map holds the inserted value");
+test("entry moves a move-only key into the map, with no clone", {
+  mut(m) := HashMap(String, usize).new();
+  k := String.from("first");
+  m.entry(k).or_insert(usize(5));
+  assert(m.get(String.from("first")).unwrap() == usize(5), "the map holds the inserted value");
 });
 test("entry.and_modify updates in place and or_insert covers the first sighting", {
   mut(m) := HashMap(i32, i32).new();
-  m.entry(i32(1), e => {
-    e.and_modify(n => (n.* + i32(1)));
-    e.or_insert(i32(1));
-  });
+  m.entry(i32(1)).and_modify(n => { n.* = (n.* + i32(1)); }).or_insert(i32(1));
   assert(m.get(i32(1)).unwrap() == i32(1), "first sighting inserts");
-  m.entry(i32(1), e => {
-    e.and_modify(n => (n.* + i32(1)));
-    e.or_insert(i32(1));
-  });
-  m.entry(i32(1), e => {
-    e.and_modify(n => (n.* + i32(1)));
-    e.or_insert(i32(1));
-  });
+  m.entry(i32(1)).and_modify(n => { n.* = (n.* + i32(1)); }).or_insert(i32(1));
+  m.entry(i32(1)).and_modify(n => { n.* = (n.* + i32(1)); }).or_insert(i32(1));
   assert(m.get(i32(1)).unwrap() == i32(3), "later sightings increment");
   assert(m.len() == usize(1), "the counter idiom keeps one entry");
 });
-test("entry stays coherent after its own or_insert flips the slot", {
+test("a live entry freezes its map", {
   mut(m) := HashMap(i32, i32).new();
-  m.entry(i32(5), e => {
-    assert(e.is_occupied() == false, "vacant before the insert");
-    assert(e.or_insert(i32(50)) == i32(50), "or_insert returns the value it wrote");
-    assert(e.is_occupied() == true, "the entry knows it is occupied now");
-    e.and_modify(n => (n.* + i32(1)));
-    assert(match(e.value(), .Some(v) => (v == i32(51)), .None => false), "value reflects and_modify");
+  m.insert(i32(1), i32(10));
+  comptime_expect_error({
+    e := m.entry(i32(1));
+    m.insert(i32(2), i32(20));
+    e.or_insert(i32(0));
   });
-  assert(m.get(i32(5)).unwrap() == i32(51), "the map agrees");
 });
 test("entry.remove takes the entry out of the map", {
   mut(m) := HashMap(i32, i32).new();
   m.insert(i32(1), i32(10));
-  assert(match(m.entry(i32(1), e => e.remove()), .Some(v) => (v == i32(10)), .None => false), "returns the value");
+  assert(match(m.entry(i32(1)).remove(), .Some(v) => (v == i32(10)), .None => false), "returns the value");
   assert(m.contains_key(i32(1)) == false, "the key is gone");
-  assert(match(m.entry(i32(1), e => e.remove()), .Some(_) => false, .None => true), "a vacant entry removes nothing");
+  assert(match(m.entry(i32(1)).remove(), .Some(_) => false, .None => true), "a vacant entry removes nothing");
 });
 test("entry inserts correctly across the resize its own insert triggers", {
   mut(m) := HashMap(i32, i32).with_capacity(usize(16));
@@ -943,7 +924,7 @@ test("entry inserts correctly across the resize its own insert triggers", {
   // rehashes the table and invalidates the slot the probe found.
   (mut(i) : i32) = i32(0);
   while(i < i32(64), i = (i + i32(1)), {
-    assert(m.entry(&i, e => e.or_insert(i * i32(2))) == (i * i32(2)), "each fresh key inserts its default");
+    assert(m.entry(i).or_insert(i * i32(2)) == (i * i32(2)), "each fresh key inserts its default");
   });
   assert(m.len() == usize(64), "every key landed");
   (mut(j) : i32) = i32(0);
@@ -959,10 +940,7 @@ test("entry reuses a tombstone rather than lengthening the chain", {
   m.remove(i32(2));
   before := m.tombstones();
   cap := m.capacity;
-  m.entry(i32(2), e => {
-    e.or_insert(i32(22));
-    ()
-  });
+  m.entry(i32(2)).or_insert(i32(22));
   assert(m.get(i32(2)).unwrap() == i32(22), "the key came back");
   assert(m.tombstones() <= before, "reusing the slot did not add a tombstone");
   assert(m.capacity == cap, "and did not force a resize");
@@ -972,19 +950,13 @@ test("entry reuses a tombstone rather than lengthening the chain", {
 });
 test("entry works with an RC key and value type", {
   mut(m) := HashMap(String, String).new();
-  m.entry(`a`, e => {
-    e.or_insert(`one`);
-    ()
-  });
-  m.entry(`a`, e => e.and_modify(s => (s.clone() + `!`)));
+  m.entry(`a`).or_insert(`one`);
+  m.entry(`a`).and_modify(s => { s.* = (s.clone() + `!`); });
   assert(m.get_cloned(`a`).unwrap() == `one!`, "and_modify replaced the value");
-  m.entry(`b`, e => {
-    e.or_insert_with(() => `two`);
-    ()
-  });
+  m.entry(`b`).or_insert_with(() => `two`);
   assert(m.get_cloned(`b`).unwrap() == `two`, "or_insert_with stored its value");
   assert(m.len() == usize(2), "two entries");
-  assert(match(m.entry(`a`, e => e.remove()), .Some(s) => (s == `one!`), .None => false), "remove hands the value back");
+  assert(match(m.entry(`a`).remove(), .Some(s) => (s == `one!`), .None => false), "remove hands the value back");
   assert(m.len() == usize(1), "one entry left");
 });
 // ===== retain / extend / FromIterator =====
