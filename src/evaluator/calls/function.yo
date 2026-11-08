@@ -9311,6 +9311,24 @@ lend_through :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalContext, exn
                       });
                       if(names_it, {
                         x_roots := origin_of(&x_arg, env, ctx);
+                        // A reference binding passed bare whose read carries
+                        // no recorded origin (a capture `rx : &x`): the
+                        // binding itself, which its own entries resolve.
+                        if(x_roots.len() == usize(0), {
+                          x_bare := ast_expr_strip_borrow_marker(&x_arg);
+                          if(ast_expr_is_atom(&x_bare), {
+                            match(
+                              get_variables_from_env(env, ast_expr_token(&x_bare).value.*.clone()).last_cloned(),
+                              .Some(xv) => if(variable_is_reference_binding(&xv), {
+                                match(local_borrow_place_of(&x_bare, env, ctx), .Some(xlp) => x_roots.push(OriginRootPlace(place : xlp, is_mut : variable_is_mut_borrow(&xv))), .None => ());
+                              }),
+                              .None => ()
+                            );
+                          });
+                        });
+                        if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
+                          eprintln(`[n2b] lend-through solve ${ast_expr_to_string(&x_arg)}: roots=[${n2b_roots_text(&x_roots)}]`);
+                        });
                         (xr : usize) = usize(0);
                         while(xr < x_roots.len(), {
                           solved.push(x_roots(xr).clone());
