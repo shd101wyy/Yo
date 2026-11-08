@@ -702,3 +702,19 @@ test("an implicit capture lent &mut inside a closure moves its elements out exac
   assert(g_cl_moved_lines.with(xs => (xs(usize(0)) == "mylib=mylib/src/lib.yo")), "the first line is intact");
   assert(g_cl_moved_lines.with(xs => (xs(usize(1)) == "other=other/src/lib.yo")), "the second line is intact");
 });
+// issues/fixed/2026-11-07-a-closure-capturing-an-origin-carrying-local-crashes-codegen.md:
+// a `&mut` capture of a local holding a reference (`Option(&i32)`) is a pointer
+// field of the capture struct, an inline borrow; codegen skipped its C type as
+// if the pointer were a container's buffer and crashed lowering the closure.
+_cl_run_fnmut :: (fn(f : &mut Impl(FnMut() -> unit)) -> unit)(f());
+test("a closure capturing `&mut` of an origin-carrying local compiles and writes through", {
+  x := i32(7);
+  mut(slot) := Option(&i32).Some(&x);
+  assert(slot.is_some(), "the slot starts holding `&x`");
+  _cl_run_fnmut(
+    &mut ({ s : &mut slot }() => {
+      s.* = .None;
+    })
+  );
+  assert(slot.is_none(), "the closure cleared the slot through its capture");
+});
