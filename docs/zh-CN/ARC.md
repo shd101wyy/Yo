@@ -78,6 +78,10 @@ copied := value.*;
 assert(copied == i32(42), "inner value is 42");
 ```
 
+`value.field` 与 `value.method()` 通过自动解引用访问载荷。`value.as_ref()`
+把整个载荷作为 `&T` 借出，用于 `&T` 参数（`Arc.as_ref(value)` 是通过类型写出的
+同一个调用）。
+
 ### 复制
 
 `Arc.clone(a)` 产生第二个句柄：它递增引用计数，并继续共享同一份底层值。与 Rust 一样，第二个句柄要显式写出

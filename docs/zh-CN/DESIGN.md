@@ -3478,6 +3478,11 @@ assert(pp.y == 2); // 嵌套包装器：pp.*.*.y
   field "z" either.``（E0406；方法则为 E0610）。
 - **被调用位置。** `p.items(i)` 对载荷的 `items` 进行索引，`p.f(x)` 调用载荷中
   保存函数的字段。包装器的方法与载荷的同名字段同样是 E0616。
+- **把整个载荷当作引用：`as_ref`。** `Rc`、`Box` 和 `Arc` 都有
+  `as_ref : (fn(self : &Self) -> &T)`（沿用 Rust 的名字）：在需要 `&T` 的地方
+  （例如传给 `&T` 参数，`takes_point(p.as_ref())`），`h.as_ref()` 把载荷借出；
+  `Rc.as_ref(h)` 是通过类型写出的同一个调用。结果可以直接传给调用，或先绑定
+  再使用（`q := p.as_ref(); q.clone()` 调用的是载荷的 `clone`）。
 
 ### Rc 与赋值
 
