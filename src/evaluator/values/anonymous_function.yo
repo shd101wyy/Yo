@@ -1067,6 +1067,7 @@ _evaluate_capture_list :: (
           _cap_list_error(ctx, exn, ast_expr_token(&place_e), `A \`&mut\` capture needs a writable place, and \`${ast_expr_to_string(&place_e)}\` is not: \`${root_tok.value.*}\` is a read-only binding (a by-value parameter, a \`match\`/\`for\` binding or a \`&\` borrow). Borrow it read-only with \`${label} : &${ast_expr_to_string(&place_e)}\`, or take the parameter \`${root_tok.value.*} : &mut T\`.`);
         });
       });
+      cap_label_text := label.clone();
       out.push(
         _CapListEntry(
           label : label,
@@ -1081,7 +1082,7 @@ _evaluate_capture_list :: (
           root_is_value_param : root_var.is_imm_borrow(),
           outer : match(
             local_borrow_place_of(&ev_place, env, ctx),
-            .Some(op) => Option(BorrowCaptureOuter).Some(BorrowCaptureOuter(outer : root_var.clone(), text : `${label} : ${if(is_mut, String.from("&mut "), String.from("&"))}${op.text}`, place : op, is_mut : is_mut)),
+            .Some(op) => Option(BorrowCaptureOuter).Some(BorrowCaptureOuter(outer : root_var.clone(), text : `${cap_label_text} : ${if(is_mut, String.from("&mut "), String.from("&"))}${op.text}`, place : op, is_mut : is_mut)),
             .None => Option(BorrowCaptureOuter).None
           )
         )
