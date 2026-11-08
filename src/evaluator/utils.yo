@@ -8818,25 +8818,39 @@ _origin_carrying_roots_shallow :: (fn(e : &AstExpr, env : &Environment, ctx : &E
   // places its holder froze, not its own place.
   oc_ft := projection_call_callee_type(&stripped, ctx);
   oc_names := match(&oc_ft, .Some(oc_t) => fn_result_composite_origin_names(&oc_t), .None => Option(SharedList(String)).None);
+  // A method call's receiver is its first parameter (`m.entry(k)` with
+  // `entry(self : &mut Self, key : K) -> HashMapEntry(K, V, self)`): the
+  // place it lends is a root like a written `&mut m`, and the written
+  // arguments bind the parameters after it.
+  (oc_offset : usize) = usize(0);
+  match(
+    _method_call_receiver(&stripped, ctx),
+    .Some(recv) => {
+      oc_offset = usize(1);
+      (recv_mode : u8) = _call_origin_mode(&oc_ft, &oc_names, usize(0));
+      recv_slot := match(&oc_ft, .Some(oc_t) => fn_param_slots(oc_t).get(usize(0)), .None => Option(TypeValue).None);
+      recv_place := ast_expr_strip_borrow_marker(&recv);
+      cond(
+        (recv_mode == u8(0)) => match(
+          recv_slot,
+          .Some(rs) => if(t_slot_is_borrow(&rs), {
+            match(local_borrow_place_of(&recv_place, env, ctx), .Some(rp) => out.push(OriginRootPlace(place : rp, is_mut : t_slot_is_mut_ref(&rs))), .None => ());
+          }, if(ast_expr_is_atom(&recv_place), _holder_roots_into(&recv_place, env, ctx, out))),
+          .None => ()
+        ),
+        (recv_mode == u8(2)) => if(ast_expr_is_atom(&recv_place), _holder_roots_into(&recv_place, env, ctx, out)),
+        true => ()
+      );
+    },
+    .None => ()
+  );
   match(
     stripped,
     .FnCall(_, _, fc_args, _, _) => {
       (i : usize) = usize(0);
       while(i < fc_args.len(), {
         arg := match(fc_args.get(i), .Some(a) => a, .None => make_err_expr());
-        (oc_mode : u8) = match(
-          &oc_ft,
-          .Some(oc_t) => match(
-            &oc_names,
-            .Some(oc_n) => cond(
-              fn_param_in_result_origin(&oc_t, i, &oc_n) => u8(0),
-              fn_param_pointee_in_result_origin(&oc_t, i, &oc_n) => u8(2),
-              true => u8(1)
-            ),
-            .None => u8(0)
-          ),
-          .None => u8(0)
-        );
+        (oc_mode : u8) = _call_origin_mode(&oc_ft, &oc_names, i + oc_offset);
         if(oc_mode == u8(1), {
           i = (i + usize(1));
           continue;
@@ -8930,6 +8944,39 @@ _origin_carrying_roots_shallow :: (fn(e : &AstExpr, env : &Environment, ctx : &E
     .Atom(_, _) => ()
   );
   ()
+});
+/// How parameter `i` of the callee `oc_ft` reaches the origins `oc_names`
+/// its composite result spells: 0 the argument's own place or holder (or
+/// every argument, when the result spells none), 2 its pointee's holder, 1
+/// not at all.
+_call_origin_mode :: (fn(oc_ft : &Option(TypeValue), oc_names : &Option(SharedList(String)), i : usize) -> u8)(
+  match(
+    oc_ft,
+    .Some(oc_t) => match(
+      oc_names,
+      .Some(oc_n) => cond(
+        fn_param_in_result_origin(oc_t, i, oc_n) => u8(0),
+        fn_param_pointee_in_result_origin(oc_t, i, oc_n) => u8(2),
+        true => u8(1)
+      ),
+      .None => u8(0)
+    ),
+    .None => u8(0)
+  )
+);
+/// The receiver of `call` when it is a method call the receiver-method
+/// dispatch resolved (`recv.m(args)`, whose method type is recorded under
+/// the call's id): the method's first parameter. `.None` for a module
+/// function or a closure-valued field called through `.`.
+_method_call_receiver :: (fn(call : &AstExpr, ctx : &EvalContext) -> Option(AstExpr))({
+  callee := match(call, .FnCall(_, c, _, _, _) => c, .Atom(_, _) => return(Option(AstExpr).None));
+  if(!ast_expr_is_fn_call_of(&callee, BF_DOT, Option(usize).Some(usize(2))) || lookup_method_callee_type(ast_expr_id(call)).is_none(), {
+    return(Option(AstExpr).None);
+  });
+  if(match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&callee)), .Some(ci) => is_function_type(&ci.ty()), .None => false), {
+    return(Option(AstExpr).None);
+  });
+  match(callee, .FnCall(_, _, Rc(d_args), _, _) => d_args.get(usize(0)), .Atom(_, _) => Option(AstExpr).None)
 });
 /// The frozen places of the holder named by the atom `a`: its local-borrow
 /// entries' places, each with its own entry's mode. An N2b holder binding
