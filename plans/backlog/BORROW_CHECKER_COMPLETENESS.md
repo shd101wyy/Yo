@@ -201,7 +201,10 @@ Tier 1 for every O-/P- PR: `check ./src`, `check ./std`, the corpus `target` set
 Filed 2026-11-07 from VERDICTS-30/31; each names its repro under `issues/repros/` and the test that pins it.
 
 - `issues/fixed/2026-11-07-a-flow-inferred-holder-lent-mut-to-a-callee-keeps-its-old-origin-set.md` — S1
-- `issues/2026-11-07-a-closure-body-stores-a-per-call-reference-parameter-through-another-parameter.md` — S1
+- `issues/fixed/2026-11-07-a-closure-body-stores-a-per-call-reference-parameter-through-another-parameter.md` — S1
+- `issues/fixed/2026-11-08-a-function-body-stores-one-reference-parameter-through-another-with-elided-origins.md` — S1
+- `issues/fixed/2026-11-08-a-field-write-of-a-reference-does-not-join-the-holders-flow-set.md` — S1
+- `issues/fixed/2026-11-08-a-shared-capture-is-typed-as-a-mut-reference-inside-the-closure-body.md` — S2
 - `issues/fixed/2026-11-07-a-composite-built-in-a-borrowed-match-arm-escapes-without-freezing-the-scrutinee.md` — S1
 - `issues/fixed/2026-11-07-o3-3-invariance-is-not-applied-through-a-mut-lent-named-composite.md` — S1
 - `issues/fixed/2026-11-07-cond-and-match-arm-results-holding-references-join-only-one-arms-roots.md` — S1
@@ -231,3 +234,7 @@ Filed 2026-11-07 from VERDICTS-30/31; each names its repro under `issues/repros/
   widening found while verifying
   (`issues/fixed/2026-11-07-a-generic-body-checks-its-origin-parameters-elided-so-a-store-widens-a-rigid-origin.md`).
   Decision 33's six cut-holding holes are closed; O-3 … O-6 are next (v0.2.77).
+- 2026-11-08: the capture-struct ICE was fixed (#1832). O-3 then landed (VERDICTS-37): every elided `&` written in a
+  parameter type is a rigid origin of the body (named, closure and `io.async` bodies, one binder). A store through a
+  `&mut` capture is E0923 for a per-call parameter root, E0912 for a body local, and otherwise joins the outer holder at
+  the literal. It closes H2 and its named-body twin, plus the field-write join §5 named but had not built.
