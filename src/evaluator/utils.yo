@@ -9852,7 +9852,7 @@ _shared_origin_repair :: (fn(variable : &Variable, v_name : &String, holder_name
   match(
     &fb_ft,
     .Some(ft) => {
-      labels := _body_param_labels(ft, ctx);
+      labels := _body_param_labels(&ft, ctx);
       slots := fn_param_slots(&ft);
       (li : usize) = usize(0);
       while(li < labels.len(), {
@@ -9882,8 +9882,8 @@ _shared_origin_repair :: (fn(variable : &Variable, v_name : &String, holder_name
 /// rigid (an elided `&` in a parameter type) gets the repair VERDICTS-37
 /// Q1 (a) prescribes: one origin parameter shared by both positions.
 _bind_join_reject :: (fn(variable : &Variable, holder_is_param : bool, holder_ty : &TypeValue, holder_names : &ArrayList(String), v_name : &String, root_name : &String, rt_is_local : bool, value : &AstExpr, ctx : &EvalContext, exn : Exception) -> unit)({
-  holder_rigid := ((holder_names.len() > usize(0)) && is_rigid_origin_name(match(holder_names.get_cloned(usize(0)), .Some(h) => h, .None => String.new())));
-  holder_text := if(holder_names.len() == usize(1), origin_name_phrase(match(holder_names.get_cloned(usize(0)), .Some(h) => h, .None => String.new())), `origin \`${type_to_string(holder_ty)}\``);
+  holder_rigid := ((holder_names.len() > usize(0)) && is_rigid_origin_name(&match(holder_names.get_cloned(usize(0)), .Some(h) => h, .None => String.new())));
+  holder_text := if(holder_names.len() == usize(1), origin_name_phrase(&match(holder_names.get_cloned(usize(0)), .Some(h) => h, .None => String.new())), `origin \`${type_to_string(holder_ty)}\``);
   if(rt_is_local && holder_is_param, {
     raise_flow_violation(
       with_code(
