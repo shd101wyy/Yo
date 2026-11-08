@@ -827,12 +827,12 @@ _evaluate_property_access_node :: (
   if(ast_expr_is_atom(&property_expr) && ast_expr_is_atom_of(&property_expr, "*"), {
     obj_ty_deref := match(&obj_info_opt, .Some(oi) => Option(TypeValue).Some(Rc.clone(oi.ty())), .None => Option(TypeValue).None);
     // `r.*` on a reference binding `r` (decision 43 step 2 N1e-1,
-    // VERDICTS-13 §11): outside std and the compiler tree it is the
-    // reference's deref, the value a bare `r` read before, lowered to the
-    // same C (the node is recorded rewritten to the name, below). A
-    // `Box`/`Rc`/pointer/field-`*` deref through the reference is
-    // `r.*.*`. std and src keep the old reading below (the `.*` reaches
-    // through to the payload), and `yo fix --migrate deref`, which reads old
+    // VERDICTS-13 §11): in every spelled file it is the reference's deref
+    // (std and the compiler tree too since N3 deref Generation A', which
+    // keep the old reading only for a BARE `r`), the value a bare `r` read
+    // before, lowered to the same C (the node is recorded rewritten to the
+    // name, below). A `Box`/`Rc`/pointer/field-`*` deref through the
+    // reference is `r.*.*`. `yo fix --migrate deref`, which reads old
     // source, records such a `.*` as `r.*.*` and evaluates it the old way.
     // CTFE binds a reference parameter as its pointee's compile-time value
     // (`is_ctfe_reference_param`): its `r.*` reads that value the same way.
@@ -840,7 +840,7 @@ _evaluate_property_access_node :: (
       &obj_info_opt,
       .Some(rd_oi) => match(
         rd_oi.source_variable(),
-        .Some(rd_v) => if(ast_expr_is_atom(&object_expr) && (variable_is_reference_binding(&rd_v) || is_ctfe_reference_param(&rd_v)) && deref_spelling_applies(ast_expr_token(&object_expr), &rd_oi.ty(), ctx) && !is_reference_deref_site(ast_expr_token(&object_expr)) && _is_written_star(&property_expr), {
+        .Some(rd_v) => if(ast_expr_is_atom(&object_expr) && (variable_is_reference_binding(&rd_v) || is_ctfe_reference_param(&rd_v)) && deref_spelling_applies(ast_expr_token(&object_expr), ctx) && !is_reference_deref_site(ast_expr_token(&object_expr)) && _is_written_star(&property_expr), {
           // The recorder reads a `.*` through a `Box`, a handle or a pointer
           // the old way (the payload, recorded as `r.*.*`); any other `.*`
           // on a reference is already the new spelling (a file `--migrate
@@ -915,7 +915,7 @@ _evaluate_property_access_node :: (
     );
     rf_spelled := match(
       &rf_mode,
-      .Some(Rc(.Reference(rf_referent, _, _))) => deref_spelling_applies(ast_expr_token(&property_expr), &rf_referent, ctx),
+      .Some(Rc(.Reference(_, _, _))) => deref_spelling_applies(ast_expr_token(&property_expr), ctx),
       .Some(_) => deref_rule_applies(ast_expr_token(&property_expr), ctx),
       .None => false
     );

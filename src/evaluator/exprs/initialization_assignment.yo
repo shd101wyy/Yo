@@ -358,9 +358,9 @@ _evaluate_inout_local_binding :: (
   // reference's own deref is a transparent hop below.
   root_is_reference := (variable_is_reference_binding(&root_var) && deref_rule_applies(&root_tok, ctx));
   // A written `&r.*` names the referent wherever the spelling reads
-  // (`deref_spelling_applies`, N3 deref Generation A), including the trees
+  // (`deref_spelling_applies`, N3 deref Generation A'), including the trees
   // that keep the old reading of a bare `r`.
-  root_deref_spelled := (variable_is_reference_binding(&root_var) && deref_spelling_applies(&root_tok, &variable_value_type(&root_var), ctx));
+  root_deref_spelled := (variable_is_reference_binding(&root_var) && deref_spelling_applies(&root_tok, ctx));
   if(root_is_reference && (hops.len() == usize(0)), {
     reject_reference_without_deref(&root_var, &root_tok, u8(2), ctx, exn);
   });
