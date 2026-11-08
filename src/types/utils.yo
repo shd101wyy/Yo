@@ -4562,16 +4562,27 @@ _params_may_store_a_reference :: (fn(pts : &SharedList(TypeValue)) -> bool)({
 /// own included (VERDICTS-23 R2). Parameter `i` of `fn_ty` is such a
 /// pointer-passed shared borrow (`&mut T` parameters are pointers anyway,
 /// and a by-value parameter is never one).
+///
+/// A `&T` of an UNSIZED `T` (decision 49) is always pointer-passed: there
+/// is no value of `T` to copy, so the argument is the fat pointer itself.
 fn_param_is_ptr_borrow :: (fn(fn_ty : &TypeValue, i : usize) -> bool)(
   match(
     fn_ty,
-    Rc(.Func({ param_types : pb_pts, result : pb_r })) => (
-      (_result_may_point_into_params(&pb_r) || _params_may_store_a_reference(&pb_pts)) && match(pb_pts.get(i), .Some(pb_s) => (t_slot_is_borrow(&pb_s) && !t_slot_is_mut_ref(&pb_s)), .None => false)
+    Rc(.Func({ param_types : pb_pts, result : pb_r })) => match(
+      pb_pts.get(i),
+      .Some(pb_s) => (
+        t_slot_is_borrow(&pb_s) && !t_slot_is_mut_ref(&pb_s) && (!type_is_sized(&t_slot_pointee(&pb_s)) || _result_may_point_into_params(&pb_r) || _params_may_store_a_reference(&pb_pts))
+      ),
+      .None => false
     ),
     // A closure trait returning a reference (`Fn(s : &T) -> &U`, decision
     // 43 step 2, N1c) has the projection's ABI too.
-    Rc(.FnTraitT({ call_param_types : pb_cpts, call_result : pb_cr })) => (
-      (_result_may_point_into_params(&pb_cr) || _params_may_store_a_reference(&pb_cpts)) && match(pb_cpts.get(i), .Some(pb_cs) => (t_slot_is_borrow(&pb_cs) && !t_slot_is_mut_ref(&pb_cs)), .None => false)
+    Rc(.FnTraitT({ call_param_types : pb_cpts, call_result : pb_cr })) => match(
+      pb_cpts.get(i),
+      .Some(pb_cs) => (
+        t_slot_is_borrow(&pb_cs) && !t_slot_is_mut_ref(&pb_cs) && (!type_is_sized(&t_slot_pointee(&pb_cs)) || _result_may_point_into_params(&pb_cr) || _params_may_store_a_reference(&pb_cpts))
+      ),
+      .None => false
     ),
     _ => false
   )

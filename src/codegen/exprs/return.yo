@@ -24,7 +24,7 @@
 
 { generate_deferred_drop_expressions, generate_deferred_dup_expressions, generate_early_return_only_deferred_drop_expressions, has_pending_emittable_drop } :: import("./drop_dup.yo");
 { is_any_temp_variable_name } :: import("../../utils.yo");
-{ declare_c_var_name, get_type_string, is_self_named_atom, get_variable_name_for_codegen, get_variable_name_for_codegen_at, type_key, get_deferred_drop_target_atom_name, is_deferred_drop_for_closure_capture, sanitize_for_c_identifier, scope_stack_contains, fresh_local_name } :: import("../utils/index.yo");
+{ declare_c_var_name, get_type_string, pointer_c_type_string, is_self_named_atom, get_variable_name_for_codegen, get_variable_name_for_codegen_at, type_key, get_deferred_drop_target_atom_name, is_deferred_drop_for_closure_capture, sanitize_for_c_identifier, scope_stack_contains, fresh_local_name } :: import("../utils/index.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
 /// The atom a `___drop(x)` / `x.___drop()` drop expression targets.
 _drop_target_atom :: (fn(drop_expr : &AstExpr) -> Option(AstExpr))(
@@ -1484,10 +1484,7 @@ _current_c_result_type :: (fn(rt : &TypeValue, context : &mut FunctionGeneration
     &context.override_return_type_str,
     .Some(s) => s.clone(),
     .None => {
-      base := get_type_string(rt, &mut context.base);
-      if(_current_result_is_ref(context), {
-        base.push_str("*");
-      });
+      base := if(_current_result_is_ref(context), pointer_c_type_string(rt, &mut context.base), get_type_string(rt, &mut context.base));
       base
     }
   )

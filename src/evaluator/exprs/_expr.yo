@@ -71,6 +71,12 @@ import("std/fmt");
   BF_TYPE_OF,
   BF_SIZE_OF,
   BF_ALIGN_OF,
+  BF_SIZE_OF_VAL,
+  BF_ALIGN_OF_VAL,
+  BF_UNSIZE,
+  BF_SLICE_LEN,
+  BF_SLICE_PTR,
+  BF_SLICE_FROM_RAW_PARTS,
   BF_TYPE_ID,
   BF_ADDR_OF,
   BK_BORROW_MUT,
@@ -419,7 +425,7 @@ _is_deleted_borrow_word :: (fn(e : &AstExpr, with_imm : bool) -> bool)(
   evaluate_yo_some_type_drop,
   evaluate_yo_some_type_dup
 } :: import("../builtins/rc_fns.yo");
-{ evaluate_size_of } :: import("../builtins/sizeof.yo");
+{ evaluate_size_of, evaluate_size_of_val, evaluate_unsize, evaluate_slice_primitive } :: import("../builtins/sizeof.yo");
 { evaluate_unsafe } :: import("../builtins/unsafe.yo");
 { evaluate_pragma } :: import("../builtins/pragma.yo");
 {
@@ -1160,6 +1166,12 @@ _evaluate_expression :: (
           evaluate_set_contains(expr, env, ctx, exn),
         ((__dk_len == usize(8)) && ast_expr_is_fn_call_of(expr, BF_ALIGN_OF, .None)) =>
           evaluate_align_of(expr, env, ctx, exn),
+        (((__dk_len == usize(11)) && ast_expr_is_fn_call_of(expr, BF_SIZE_OF_VAL, .None)) || ((__dk_len == usize(12)) && ast_expr_is_fn_call_of(expr, BF_ALIGN_OF_VAL, .None))) =>
+          evaluate_size_of_val(expr, env, ctx, exn),
+        ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, BF_UNSIZE, .None)) =>
+          evaluate_unsize(expr, env, ctx, exn),
+        ((((__dk_len == usize(14)) && (ast_expr_is_fn_call_of(expr, BF_SLICE_LEN, .None) || ast_expr_is_fn_call_of(expr, BF_SLICE_PTR, .None))) || ((__dk_len == usize(25)) && ast_expr_is_fn_call_of(expr, BF_SLICE_FROM_RAW_PARTS, .None)))) =>
+          evaluate_slice_primitive(expr, env, ctx, exn),
         ((__dk_len == usize(7)) && ast_expr_is_fn_call_of(expr, BF_TYPE_ID, .None)) =>
           evaluate_type_id(expr, env, ctx, exn),
         ((__dk_len == usize(8)) && ast_expr_is_fn_call_of(expr, BF_DOWNCAST, .None)) =>

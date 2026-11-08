@@ -17,7 +17,7 @@
 { record_declared_temp_var, FunctionGenerationContext } :: import("../functions/context.yo");
 { sm_local_field_name, is_await_consumed_temp } :: import("../async/state_machine_naming.yo");
 { is_any_temp_variable_name } :: import("../../utils.yo");
-{ declare_c_var_name, get_type_string, get_storage_type_string, get_variable_type_string, get_variable_name_for_codegen, sanitize_for_c_identifier, c_field_name, c_variant_member_name, is_function_value_with_only_builtin_yo_inline_function_call, type_key, get_runtime_struct_fields, RuntimeStructField, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, get_enum_variant_c_name, ImplClosureCallInfo, scope_stack_contains, _checked_fixed_array_subscript, get_variable_name_for_codegen_at, erased_future_result_type_string, fresh_local_name } :: import("../utils/index.yo");
+{ declare_c_var_name, get_type_string, pointer_c_type_string, get_storage_type_string, get_variable_type_string, get_variable_name_for_codegen, sanitize_for_c_identifier, c_field_name, c_variant_member_name, is_function_value_with_only_builtin_yo_inline_function_call, type_key, get_runtime_struct_fields, RuntimeStructField, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, get_enum_variant_c_name, ImplClosureCallInfo, scope_stack_contains, _checked_fixed_array_subscript, get_variable_name_for_codegen_at, erased_future_result_type_string, fresh_local_name } :: import("../utils/index.yo");
 { resolve_some_type_to_concrete } :: import("./closures.yo");
 { extract_fn_trait_from_type, type_implements_future } :: import("../../evaluator/trait_checking.yo");
 { CapturedVariable } :: import("../../evaluator/async/await_analysis_types.yo");
@@ -1470,11 +1470,7 @@ _fn_pointer_param_type_string :: (fn(param_types : &SharedList(TypeValue), i : u
     param_types.get(i),
     .Some(slot) => {
       t := t_slot_pointee(&slot);
-      if(t_slot_is_mut_ref(&slot) || is_ptr, {
-        mut(rs) := get_type_string(&t, &mut context.base);
-        rs.push_str("*");
-        rs
-      }, get_storage_type_string(&t, &mut context.base))
+      if(t_slot_is_mut_ref(&slot) || is_ptr, pointer_c_type_string(&t, &mut context.base), get_storage_type_string(&t, &mut context.base))
     },
     .None => String.from("void*")
   )
@@ -1536,14 +1532,11 @@ _per_arg_cast :: (fn(args_list : String, param_types : &ArrayList(TypeValue), pa
           // the prototype, so its cast must agree; a REF one stays `void` + `*`.
           base_str := match(
             pty,
-            .Some(t) => if(pref, get_type_string(&t, &mut context.base), get_storage_type_string(&t, &mut context.base)),
-            .None => String.from("void*")
+            .Some(t) => if(pref, pointer_c_type_string(&t, &mut context.base), get_storage_type_string(&t, &mut context.base)),
+            .None => if(pref, String.from("void**"), String.from("void*"))
           );
           out.push_str("(");
           out.push_string(&base_str);
-          if(pref, {
-            out.push_str("*");
-          });
           out.push_str(")(");
           out.push_string(match(parts.get_cloned(i), .Some(p) => p, .None => String.from("")));
           out.push_str(")");
@@ -3436,7 +3429,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
             erased_future_result_type_string(&result_type, &mut context.base),
             .Some(er) => er,
             // A projection's result is its place's address (decision 24).
-            .None => if(fn_result_is_ref(&function_type), `${get_type_string(&result_type, &mut context.base)}*`, get_type_string(&result_type, &mut context.base))
+            .None => if(fn_result_is_ref(&function_type), pointer_c_type_string(&result_type, &mut context.base), get_type_string(&result_type, &mut context.base))
           )
         );
         mut(cast) := String.from("(");

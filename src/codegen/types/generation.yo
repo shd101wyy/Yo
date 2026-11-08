@@ -161,6 +161,14 @@ generate_str_type_declaration :: (fn(context : &mut CodeGenContext) -> unit)({
   context.emitter.emit_declaration_line("  size_t len;");
   context.emitter.emit_declaration_line("} __yo_str;");
   context.emitter.emit_declaration_line("");
+  // A pointer to the unsized `[E]` (decision 49): the element type is erased
+  // here and restored by a cast at each use, as `__yo_str` erases nothing but
+  // its bytes. One C type serves every element type.
+  context.emitter.emit_declaration_line("typedef struct { // a pointer to [T]: the data and the length");
+  context.emitter.emit_declaration_line("  void* ptr;");
+  context.emitter.emit_declaration_line("  size_t len;");
+  context.emitter.emit_declaration_line("} __yo_slice_t;");
+  context.emitter.emit_declaration_line("");
 });
 /// Emit `  <type> <name>;` for each runtime struct field.
 /// (Defined before generate_struct_declaration — Yo has no forward references.)
