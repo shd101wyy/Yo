@@ -4,6 +4,7 @@
 //! and returns the alignment of that type in bytes as a `usize` value.
 //! If the alignment is not statically known, returns an unknown `usize`.
 pragma(Pragma.AllowUnsafe);
+{ type_is_sized, unsized_by_value_error } :: import("../../types/utils.yo");
 { String } :: import("std/string");
 {
   AstExpr,
@@ -83,6 +84,11 @@ evaluate_align_of :: (
     .Some(_) => Rc.clone(info.ty()),
     .None => Rc.clone(info.ty())
   );
+  // An unsized type has no alignment of its own (decision 49, E0619);
+  // `align_of_val(r)` measures a value through a reference.
+  if(!type_is_sized(&type_to_check), {
+    exn.throw(dyn(unsized_by_value_error(&type_to_check, &String.from("`align_of`"), &Option(String).None, &ast_expr_token(&type_expr))));
+  });
   // get_alignment_of_type returns bytes directly.
   align_opt := get_alignment_of_type(&type_to_check);
   out_info := new_expr_info(&cur_env, t_usize());
