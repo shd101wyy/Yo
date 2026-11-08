@@ -152,7 +152,7 @@ pragma(Pragma.AllowUnsafe);
 { create_function_body_evaluation_context, hard_swallow_diagnostic, hard_swallow_diagnostic_in_generic_trial, forcing_depths, truncate_forcing_depths, publish_pending_member_phase_a, closure_literal_is_borrowed } :: import("../context.yo");
 { evaluated_body_contains_unwind } :: import("../../expr_traversal.yo");
 { get_all_some_types, type_is_control_bound, type_contains_rc_type, type_contains_some_type_deep, type_requires_explicit_copy, type_is_bitwise_copy, mark_fnmut_capture_struct } :: import("../../types/utils.yo");
-{ attach_temp_variable_to_expr, judge_capture_fnmut_at_fn_slot, deref_exempt_mark, deref_exempt_clear, variable_is_reference_binding, deref_rule_applies, deref_rule_recording, reject_reference_without_deref, is_reference_deref_site, is_valid_variable_name, require_expr_not_consumed, set_expr_as_needs_to_call_dup, migrate_rc_clone_on, audit_pending_copies_enabled, reject_second_class_return, capture_place_crosses_cell, reject_bare_callable_result, reject_closure_literal_into_dyn_fn, bare_callable_recorded_into_dyn_fn, place_require_mut } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, local_borrow_place_of, BorrowCaptureOuter, note_borrow_capture_outer, apply_capture_store_joins, judge_capture_fnmut_at_fn_slot, deref_exempt_mark, deref_exempt_clear, variable_is_reference_binding, deref_rule_applies, deref_rule_recording, reject_reference_without_deref, is_reference_deref_site, is_valid_variable_name, require_expr_not_consumed, set_expr_as_needs_to_call_dup, migrate_rc_clone_on, audit_pending_copies_enabled, reject_second_class_return, capture_place_crosses_cell, reject_bare_callable_result, reject_closure_literal_into_dyn_fn, bare_callable_recorded_into_dyn_fn, place_require_mut } :: import("../utils.yo");
 { CaptureBorrow, register_capture_borrows, type_is_second_class, fn_param_is_ptr_borrow, reject_origin_carrying_signature } :: import("../../types/utils.yo");
 { is_some_type, is_unit_type, is_void_type, is_never_type, is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_fn_trait_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -853,7 +853,10 @@ _CapListEntry :: struct(
   root_name : String,
   path : ArrayList(String),
   /// The borrowed place's root is a `&T` parameter (a by-value C local).
-  root_is_value_param : bool
+  root_is_value_param : bool,
+  /// A borrow's root binding and place in the enclosing scope (O-3,
+  /// VERDICTS-37 Q3: a store through a `&mut` capture joins it).
+  outer : Option(BorrowCaptureOuter)
 );
 derive(_CapListEntry, Clone);
 _cap_list_error :: (fn(ctx : &EvalContext, exn : Exception, tok : &Token, msg : &String) -> unit)(
@@ -1074,7 +1077,12 @@ _evaluate_capture_list :: (
           root_id : root_var.id(),
           root_name : root_tok.value.*.clone(),
           path : fields,
-          root_is_value_param : root_var.is_imm_borrow()
+          root_is_value_param : root_var.is_imm_borrow(),
+          outer : match(
+            local_borrow_place_of(&ev_place, env, ctx),
+            .Some(op) => Option(BorrowCaptureOuter).Some(BorrowCaptureOuter(outer : root_var.clone(), text : `${label} : ${if(is_mut, String.from("&mut "), String.from("&"))}${op.text}`, place : op, is_mut : is_mut)),
+            .None => Option(BorrowCaptureOuter).None
+          )
         )
       );
     }, {
@@ -1170,7 +1178,8 @@ _evaluate_capture_list :: (
           root_id : usize(0),
           root_name : String.new(),
           path : ArrayList(String).new(),
-          root_is_value_param : false
+          root_is_value_param : false,
+          outer : Option(BorrowCaptureOuter).None
         )
       );
     });
@@ -1663,6 +1672,7 @@ evaluate_anonymous_function_implementation :: (
     .None => ArrayList(_CapListEntry).new()
   );
   (cap_frame_idx : Option(usize)) = Option(usize).None;
+  cap_borrow_ids := ArrayList(usize).new();
   if(cap_list_raw.is_some(), {
     _cap_fr := env.push_frame(false);
     cap_frame_idx = Option(usize).Some(env.frames_len() - usize(1));
@@ -1691,6 +1701,14 @@ evaluate_anonymous_function_implementation :: (
             .Some(cv) => {
               if(ce.is_borrow, {
                 variable_set_is_ref(&cv, true);
+                match(
+                  &ce.outer,
+                  .Some(bco) => {
+                    note_borrow_capture_outer(cv.id(), bco.clone());
+                    cap_borrow_ids.push(cv.id());
+                  },
+                  .None => ()
+                );
               }, if(!ce_owned, {
                 mark_fn_capture_value_binding(cv.id());
               }));
@@ -3365,6 +3383,9 @@ Result type: ${type_to_string(&decl_result_ty)}`
   if(cap_frame_idx.is_some(), {
     env.pop_frame();
   });
+  // VERDICTS-37 Q3: the body's stores through its `&mut` captures join the
+  // outer holders here, at the literal.
+  apply_capture_store_joins(&cap_borrow_ids, env, ctx, exn);
   info := new_expr_info(env, &final_lambda_ty);
   info.set_value(Option(EvalValue).Some(func_val));
   expr_info_set_is_anonymous_function_definition(&info, Option(bool).Some(true));
