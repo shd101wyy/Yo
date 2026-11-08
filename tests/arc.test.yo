@@ -253,7 +253,13 @@ test("Arc.get_mut is None while another handle or an ArcWeak shares the cell", {
   w := Arc.downgrade(&a);
   assert(Arc.get_mut(&mut a).is_none(), "an ArcWeak shares the cell");
   consume(w);
-  match(Arc.get_mut(&mut a), .Some(v) => { v.* = i32(6); }, .None => assert(false, "unique once the ArcWeak is gone"));
+  match(
+    Arc.get_mut(&mut a),
+    .Some(v) => {
+      v.* = i32(6);
+    },
+    .None => assert(false, "unique once the ArcWeak is gone")
+  );
   assert(a.* == i32(6), "and written in place");
 });
 // Under TSan: a write through `get_mut` happens only when no upgrade on the

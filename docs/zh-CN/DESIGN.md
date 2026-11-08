@@ -3538,7 +3538,13 @@ test("Rc reference counting", {
 
   ```yo
   h := Rc.new(i32(1));
-  match(Rc.get_mut(&mut h), .Some(v) => { v.* = i32(2); }, .None => ());
+  match(
+    Rc.get_mut(&mut h),
+    .Some(v) => {
+      v.* = i32(2);
+    },
+    .None => ()
+  );
   assert(h.* == i32(2), "the only handle writes in place");
   ```
 
