@@ -470,6 +470,17 @@ test("drop-holder-before-root", {
   main := entry(al4(let_(X, lit()), let_(H, Rc.new(NodeE.Make(Kind.Guard, Rc.new(NodeE.Borrow(false, X))))), let_(Y, lit()), Rc.new(NodeE.Assign(H, Rc.new(NodeE.Make(Kind.Guard, Rc.new(NodeE.Borrow(false, Y))))))));
   verdict("drop-holder-before-root", case1(main), "E0911");
 });
+// O-5 (R-TEMP): a temporary lent into a call's result or a projection is a
+// hidden statement local `Z`, dropped at the statement's end; the holder
+// bound past the statement still uses it.
+test("lend-of-temporary-in-call-result", {
+  main := entry(al4(let_(Z, lit()), let_(H, Rc.new(NodeE.Make(Kind.Some, Rc.new(NodeE.Borrow(false, Z))))), Rc.new(NodeE.Drop(Z, true)), use_(Rc.new(NodeE.Var(H)))));
+  verdict("lend-of-temporary-in-call-result", case1(main), "E0911");
+});
+test("holder-from-temporary", {
+  main := entry(al4(let_(Z, lit()), let_(R, Rc.new(NodeE.Borrow(false, Z))), Rc.new(NodeE.Drop(Z, true)), use_(Rc.new(NodeE.Var(R)))));
+  verdict("holder-from-temporary", case1(main), "E0911");
+});
 test("drop-order-may-dangle", {
   main := entry(al3(let_(OUT, Rc.new(NodeE.NewList(shr(int(), ELIDED)))), let_(X, lit()), Rc.new(NodeE.Push(OUT, Rc.new(NodeE.Borrow(false, X))))));
   verdict("drop-order-may-dangle", case1(main), "ACCEPT");

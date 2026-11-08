@@ -8609,7 +8609,11 @@ ProjectionRootArg :: struct(
   arg : AstExpr,
   is_mut : bool,
   /// The parameter the argument is passed to (for the elided-origin note).
-  label : String
+  label : String,
+  /// The parameter takes the holder BY VALUE (N1e-2): the result points
+  /// where its references do, never into the argument itself, so a
+  /// temporary argument is no root (R-TEMP).
+  by_value : bool
 );
 derive(ProjectionRootArg, Clone);
 _strip_lend :: (fn(e : &AstExpr) -> AstExpr)(
@@ -8668,7 +8672,7 @@ projection_call_root_args :: (fn(call : &AstExpr, ctx : &EvalContext) -> ArrayLi
     );
     p_holder := ((p_own && !p_ref) && p_carries);
     if((p_ref || (!p_own || p_holder)) && p_in, {
-      match(args.get(i), .Some(a) => out.push(ProjectionRootArg(arg : _strip_lend(&a), is_mut : p_ref, label : _param_label_at(&meta_ty, i))), .None => ());
+      match(args.get(i), .Some(a) => out.push(ProjectionRootArg(arg : _strip_lend(&a), is_mut : p_ref, label : _param_label_at(&meta_ty, i), by_value : p_holder)), .None => ());
     });
     i = (i + usize(1));
   });
@@ -9036,7 +9040,14 @@ _origin_of_into :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, out
       while(ri < root_args.len(), {
         match(
           root_args.get_cloned(ri),
-          .Some(ra) => _origin_of_into(&ra.arg, env, ctx, out, (depth + u32(1))),
+          .Some(ra) => {
+            // R-TEMP: a temporary lent to a reference parameter is a hidden
+            // statement local the result may point into.
+            if(!ra.by_value && is_temporary_operand(&ra.arg, env, ctx), {
+              _origin_push(origin_temporary_entry(&ra.arg, ra.is_mut), out);
+            });
+            _origin_of_into(&ra.arg, env, ctx, out, (depth + u32(1)));
+          },
           .None => ()
         );
         ri = (ri + usize(1));
@@ -9191,11 +9202,67 @@ _origin_push_lend :: (fn(operand : &AstExpr, is_mut : bool, env : &Environment, 
             pi = (pi + usize(1));
           });
         },
-        .None => ()
+        // R-TEMP: the operand is a temporary, a hidden statement local.
+        .None => if(is_temporary_operand(operand, env, ctx), {
+          _origin_push(origin_temporary_entry(operand, is_mut), out);
+        })
       );
     }
   );
 });
+/// R-TEMP (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §3, O-5): the
+/// root name of a temporary's entry — a hidden statement local, never a
+/// user name (`#`), so it overlaps no place and names no binding.
+ORIGIN_TEMPORARY_ROOT :: "#temporary";
+/// `operand`, lent, is a temporary: a value computed by the statement (a
+/// call's result, a constructor) rather than a place — no binding roots it,
+/// it is not itself a reference value (a reference passed on is its own
+/// origin, R-READ/R-CALL), and it is not a projection's place.
+is_temporary_operand :: (fn(operand : &AstExpr, env : &Environment, ctx : &EvalContext) -> bool)({
+  s := ast_expr_strip_borrow_marker(operand);
+  if(ast_expr_is_atom(&s) || projection_call_mode_of(&s, ctx).is_some() || _place_chain_root_atom(&s).is_some(), {
+    return(false);
+  });
+  if(match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&s)), .Some(si) => match(&si.ty(), Rc(.Reference(_, _, _)) => true, _ => false), .None => true), {
+    return(false);
+  });
+  local_borrow_place_of(&s, env, ctx).is_none()
+});
+/// The R-TEMP entry for the temporary `operand`.
+origin_temporary_entry :: (fn(operand : &AstExpr, is_mut : bool) -> OriginRootPlace)({
+  s := ast_expr_strip_borrow_marker(operand);
+  OriginRootPlace(
+    place : LocalBorrowPlace(root_name : String.from(ORIGIN_TEMPORARY_ROOT), root_decl : ast_expr_token(&s), steps : ArrayList(String).new(), through_cell : false, module_root : false, text : ast_expr_to_string(&s)),
+    is_mut : is_mut
+  )
+});
+/// The first R-TEMP entry of `roots`.
+origin_temporary_root :: (fn(roots : &ArrayList(OriginRootPlace)) -> Option(OriginRootPlace))({
+  (i : usize) = usize(0);
+  while(i < roots.len(), i = (i + usize(1)), {
+    if(roots(i).place.root_name == ORIGIN_TEMPORARY_ROOT, {
+      return(Option(OriginRootPlace).Some(roots(i).clone()));
+    });
+  });
+  Option(OriginRootPlace).None
+});
+/// `bind`/`=` of a holder past its statement over a temporary (R-TEMP, O-5;
+/// the projection binding's temporary message generalized): the temporary
+/// is dropped at the statement's end, the holder outlives it.
+_reject_temporary_root :: (fn(holder : &String, tmp : &OriginRootPlace, rhs_text : &String, at : &Token, ctx : &EvalContext, exn : Exception) -> unit)(
+  raise_flow_violation(
+    with_code(
+      format_error_message_with_help(
+        at,
+        `Cannot bind \`${holder}\` to \`${rhs_text}\`: its value holds a reference into \`${tmp.place.text}\`, a temporary that ends with this statement, while \`${holder}\` lives on (decision 43, plans/backlog/BORROW_CHECKER_COMPLETENESS.md §3 R-TEMP).`,
+        Option(String).Some(`bind \`${tmp.place.text}\` to a local first and lend the local`)
+      ),
+      E_LOCAL_BORROW_CONFLICT
+    ),
+    ctx,
+    exn
+  )
+);
 /// The root atom of a place-shaped chain (`h.*.s` → `h`): only field/deref
 /// dots are followed — a call operand is not a place chain (its result is a
 /// temporary), and `.None` says so.
@@ -9466,6 +9533,14 @@ bind :: (fn(binding : &AstExpr, rhs : &AstExpr, var_name : &String, name_tok : &
   if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
     eprintln(`[n2b] bind ${var_name}: roots=[${n2b_roots_text(&roots)}] rhs=${ast_expr_to_string(rhs)}`);
   });
+  match(
+    origin_temporary_root(&roots),
+    .Some(tmp) => {
+      _reject_temporary_root(var_name, &tmp, &ast_expr_to_string(rhs), ast_expr_token(rhs), ctx, exn);
+      return(());
+    },
+    .None => ()
+  );
   // O-4: a holder whose drop uses its roots keeps them to its scope end.
   holder_drops := ((roots.len() > usize(0)) && match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(rhs)), .Some(ri0) => type_reaches_user_drop(&ri0.ty(), &ctx.std_path), .None => false));
   range := local_borrow_range_of(binding, var_name.clone(), name_tok, to_scope_end : holder_drops);
@@ -10222,6 +10297,15 @@ place_write_join :: (fn(root : &Variable, value : &AstExpr, env : &Environment, 
 /// write-back: each root not already in the holder's set is registered with
 /// the holder's live range recomputed from its binding statement.
 bind_join_roots_for :: (fn(variable : &Variable, roots : &ArrayList(OriginRootPlace), at : &Token, env : &Environment, ctx : &EvalContext, exn : Exception, (kill : bool) ?= true) -> unit)({
+  // R-TEMP: a holder outlives the statement whose temporary it would hold.
+  match(
+    origin_temporary_root(roots),
+    .Some(tmp) => {
+      _reject_temporary_root(&variable.name, &tmp, &tmp.place.text, at, ctx, exn);
+      return(());
+    },
+    .None => ()
+  );
   // A store through a `&mut` capture writes the OUTER place (VERDICTS-37
   // Q3): judged here, joined at the literal.
   match(
@@ -10526,7 +10610,21 @@ return_check :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, exn : 
               );
             })
           ),
-          .None => ()
+          // R-TEMP: a result over a temporary of the returning statement.
+          .None => if(roots(oi).place.root_name == ORIGIN_TEMPORARY_ROOT, {
+            raise_flow_violation(
+              with_code(
+                format_error_message_with_help(
+                  ast_expr_token(e),
+                  `Cannot return a value holding a reference into \`${roots(oi).place.text}\`: it is a temporary of this statement, dropped before the caller reads the result (decision 43, plans/backlog/BORROW_CHECKER_COMPLETENESS.md §3 R-TEMP).`,
+                  Option(String).Some(String.from("build the result over a parameter's place, or return an owned value"))
+                ),
+                E_LOCAL_BORROW_ESCAPES
+              ),
+              ctx,
+              exn
+            );
+          })
         );
         oi = (oi + usize(1));
       });
@@ -10591,7 +10689,7 @@ borrow_match_source :: (fn(var_id : usize) -> Option(AstExpr))({
   });
   Option(AstExpr).None
 });
-export(projection_call_mode_of, projection_body_mismatch_message, ProjectionRootArg, projection_call_root_args, projection_call_callee_type, OriginRootPlace, origin_of, origin_held_by, origin_param_names_of, param_declared_origin_slot, is_body_parameter, place_write_join, rigid_param_slot, is_rigid_origin_name, origin_name_phrase, BorrowCaptureOuter, note_borrow_capture_outer, borrow_capture_outer, apply_capture_store_joins, holder_future_roots, bind, bind_join, bind_join_roots_for, return_check, note_ref_payload_source, ref_payload_source, note_borrow_match_source, borrow_match_source, n2b_roots_text);
+export(projection_call_mode_of, projection_body_mismatch_message, ProjectionRootArg, is_temporary_operand, origin_temporary_entry, origin_temporary_root, ORIGIN_TEMPORARY_ROOT, projection_call_root_args, projection_call_callee_type, OriginRootPlace, origin_of, origin_held_by, origin_param_names_of, param_declared_origin_slot, is_body_parameter, place_write_join, rigid_param_slot, is_rigid_origin_name, origin_name_phrase, BorrowCaptureOuter, note_borrow_capture_outer, borrow_capture_outer, apply_capture_store_joins, holder_future_roots, bind, bind_join, bind_join_roots_for, return_check, note_ref_payload_source, ref_payload_source, note_borrow_match_source, borrow_match_source, n2b_roots_text);
 export(record_pending_scrutinee_borrow, take_pending_scrutinee_borrows, PendingScrutineeBorrow, note_migrate_mut_scrutinee, migrate_mut_scrutinee_at, clear_migrate_mut_scrutinees, drop_owned_match_binding_at_arm_end, match_scrutinee_is_capture, local_borrow_register_match_place, local_borrow_note_match_place, note_consuming_match_scrutinee, consuming_match_scrutinee_at, moved_value_help, migrate_borrowed_match_at, _lb_arrow_shadows, _lb_fn_literal_binds, _lb_mentions);
 export(
   LocalBorrowPlace,

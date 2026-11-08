@@ -1,0 +1,12 @@
+// Corpus row `lend-of-temporary-in-call-result` (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §5 temporaries, O-5;
+// manifest tests/origins/corpus.tsv): a call's result holds the temporary lent to it, and is bound past the statement (L1).
+// Expected once O-5 lands: rejected: E0911 (R-TEMP: the temporary drops at the statement's end while the holder lives).
+H :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(r : &(i32, p)));
+mk :: (fn(x : &i32) -> H(x))(H(x)(r : x));
+make :: (fn() -> i32)(i32(7));
+main :: (fn() -> unit)({
+  h := mk(&make());
+  _ := h.r.*;
+  ()
+});
+export(main);
