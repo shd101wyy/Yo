@@ -944,13 +944,16 @@ _evaluate_property_access_node :: (
     // rewritten to the evaluated call (`note_rewritten_node_as`), which
     // keeps its own id and so every record keyed by it (its dispatch, its
     // specialization), so codegen and the place walks read the bare call. In
-    // `f(x).*.*` the outer `.*` is the referent's own deref, read below.
-    // Where the old reading holds (`deref_spelling_applies`: std/src over a
-    // referent `.*` reads through) the `.*` keeps it
+    // `f(x).*.*` the outer `.*` is not a second deref of the call: it is the
+    // referent's own, judged below.
+    // Only where both readings agree, in every tree: a referent `.*` reads
+    // through (a `Box`/`Rc`/`Arc` handle, a pointer, a field `*`) keeps the
+    // old reading of `f(x).*`, its payload, which programs already rely on
+    // and `yo fix --migrate deref` does not rewrite
     // (issues/2026-11-05-dereferencing-a-projection-call-result-is-an-internal-error.md).
     pc_object_written := match(all_args.get(usize(0)), .Some(pc_ow) => pc_ow, .None => make_err_expr());
     pc_object_is_deref := match(&pc_object_written, .FnCall(_, _, Rc(pc_ow_args), _, _) => (ast_expr_is_fn_call_of(&pc_object_written, BF_DOT, Option(usize).Some(usize(2))) && match(pc_ow_args.get(usize(1)), .Some(pc_ow_p) => ast_expr_is_atom_of(&pc_ow_p, "*"), .None => false)), .Atom(_, _) => false);
-    if(!pc_object_is_deref && _is_written_star(&property_expr) && projection_call_mode_of(&object_expr, ctx).is_some() && match(&obj_ty_deref, .Some(pc_referent) => deref_spelling_applies(ast_expr_token(&property_expr), &pc_referent, ctx), .None => false), {
+    if(!pc_object_is_deref && _is_written_star(&property_expr) && projection_call_mode_of(&object_expr, ctx).is_some() && match(&obj_ty_deref, .Some(pc_referent) => (deref_spelling_applies(ast_expr_token(&property_expr), &pc_referent, ctx) && !deref_reads_through_pointee(&pc_referent)), .None => false), {
       note_rewritten_node_as(ast_expr_id(expr), &object_expr);
       match(
         &obj_info_opt,

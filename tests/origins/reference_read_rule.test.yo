@@ -136,7 +136,8 @@ comptime_expect_error(
 );
 // `.*` on a projection CALL's result is the reference's deref: the call
 // itself, a place of the referent's type (decision 24), read, compared and
-// written in place, and `.*.*` the referent's own deref
+// written in place. A referent that `.*` reads through (`Box`, `Rc`, a
+// pointer) keeps the payload reading
 // (issues/2026-11-05-dereferencing-a-projection-call-result-is-an-internal-error.md).
 RrPair :: struct(a : i32, b : i32);
 rr_first :: (fn(p : &RrPair) -> &i32)(&p.a);
@@ -162,7 +163,8 @@ test("The deref of a projection call's result reads the place it names", {
   assert(s.get().* == i32(5), "a method projection in an operand");
   m := s.get().*;
   assert(m == i32(5), "a method projection bound");
-  assert(s.boxed().*.* == i32(8), "`.*.*` reads the referent's own payload");
+  // A referent `.*` reads through keeps the old reading: the payload.
+  assert(s.boxed().* == i32(8), "a `Box` referent's `.*` is its payload");
   g := rr_guard(&s);
   assert(g.get().* == i32(5), "through a bound holder");
   assert(rr_guard(&s).get().* == i32(5), "through a temporary holder");
