@@ -679,6 +679,20 @@ Every RC cell carries the one `__yo_ref_header_t` (`ref_count` u32, `type_id` u1
   A seed older than that fix leaves the call untranspiled, so std must not
   call `align_of` on such a type until `SEED_VERSION` carries the fix.
 
+### A `Box` payload projection masks the handle's placed bit
+
+`Box(T) :: newtype(_cell : *T)` is C-transparent, and bit 0 of the cell
+pointer is the handle's "placed" bit (`Box`'s layout L1,
+`plans/backlog/ALLOCATOR_PLACEMENT.md` "Related: `Box`'s layout"). Every
+projection of the payload (`b.*`, `b.field`, `b.method()`, `&b.*`,
+`addr_of(b.*)`, a `Box(p)` pattern) is emitted through
+`box_payload_place_code` (`src/codegen/utils/index.yo`), which writes
+`(*((BoxT)((uintptr_t)(b) & ~(uintptr_t)1)))`; never spell `(*b)` for a
+`Box`. A place that takes the address back strips the outer `(*…)` and keeps
+the masked pointer. Until decision 49 S2 stores the bit (L2) the mask is the
+identity; `tests/box_layout.test.yo` sets the bit by hand to prove every
+projection reads through it.
+
 ## Memory leak detection
 
 - `--sanitize address` — AddressSanitizer for memory error and leak detection
