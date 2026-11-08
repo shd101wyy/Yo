@@ -52,6 +52,7 @@ import("std/fmt");
   BK_TUPLE,
   BK_TUPLE_TYPE,
   BK_ARRAY,
+  BK_SLICE,
   BK_ARRAY_VAL,
   BK_ANON_STRUCT,
   BK_BEGIN,
@@ -343,7 +344,7 @@ _is_deleted_borrow_word :: (fn(e : &AstExpr, with_imm : bool) -> bool)(
 { evaluate_string_literal } :: import("../values/string.yo");
 { evaluate_tuple_value } :: import("../values/tuple.yo");
 { evaluate_anonymous_struct_value } :: import("../values/anonymous_struct.yo");
-{ evaluate_array_type } :: import("../types/array.yo");
+{ evaluate_array_type, evaluate_slice_type } :: import("../types/array.yo");
 { evaluate_closure_type } :: import("../types/closure.yo");
 { evaluate_comptime_list_type } :: import("../types/comptime_list.yo");
 { evaluate_concrete_type } :: import("../types/concrete_trait.yo");
@@ -1253,6 +1254,8 @@ _evaluate_expression :: (
           evaluate_tuple_type(expr, env, ctx, exn),
         ((__dk_len == usize(5)) && ast_expr_is_fn_call_of(expr, BK_ARRAY, .None)) =>
           evaluate_array_type(expr, env, ctx, exn),
+        ((__dk_len == usize(5)) && ast_expr_is_fn_call_of(expr, BK_SLICE, .None)) =>
+          evaluate_slice_type(expr, env, ctx, exn),
         ((__dk_len == usize(15)) && ast_expr_is_fn_call_of(expr, BF_ARRAY_FILL, .Some(usize(2)))) =>
           evaluate_yo_array_fill(expr, env, ctx, exn),
         ((__dk_len == usize(12)) && ast_expr_is_fn_call_of(expr, BK_COMPTIME_LIST_TYPE, .None)) =>

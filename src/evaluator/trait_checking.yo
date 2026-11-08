@@ -77,7 +77,8 @@ pragma(Pragma.AllowUnsafe);
   trait_impl_epoch,
   is_drop_trait_name,
   buffer_element_types,
-  type_is_escapable
+  type_is_escapable,
+  type_is_sized
 } :: import("../types/utils.yo");
 { type_to_string, type_key_epoch } :: import("../types/string.yo");
 { force_pending_impls_for_type_name, type_head_name_for_impl_forcing, EvalContext, call_function_value_marker, call_closure_capture_marker, set_copy_trait_blockers_fn } :: import("./context.yo");
@@ -1765,6 +1766,10 @@ type_implements_trait :: (
   if(is_escapable_trait(trait_type, env), {
     return(TraitCheckResult(implemented : type_is_escapable(&target), env : Rc.clone(env)));
   });
+  // `Sized` (decision 49) is structural likewise (`type_is_sized`).
+  if(is_sized_trait(trait_type, env), {
+    return(TraitCheckResult(implemented : type_is_sized(&target), env : Rc.clone(env)));
+  });
   // 0. Phase N: Negative-impl check — runs first, authoritative. If the type
   // has a registered negative impl for this trait, it does NOT implement the
   // trait regardless of auto-derive.
@@ -2634,6 +2639,14 @@ type_implements_dispose :: (fn(ty : &TypeValue, env : &Environment) -> bool)(
     get_trait_type_from_env(env, String.from("Drop")),
     .Some(drop_trait) => type_implements_trait_bool(ty, &drop_trait, env),
     .None => false
+  )
+);
+/// `trait_type` is the prelude's `Sized` marker (decision 49).
+is_sized_trait :: (fn(trait_type : &TypeValue, env : &Environment) -> bool)(
+  match(
+    get_trait_type_from_env(env, String.from("Sized")),
+    .None => false,
+    .Some(st) => (_trait_type_id(trait_type) == _trait_type_id(&st))
   )
 );
 /// `trait_type` is the prelude's `Escapable` marker (decision 43, O10).
@@ -3618,7 +3631,7 @@ export(type_clone_runs_no_user_code);
 export(check_type_implements_self_constraints);
 export(type_implements_comptime, type_implements_runtime_full);
 export(begin_send_derivation, end_send_derivation);
-export(type_implements_send, type_implements_sync, type_implements_dispose, is_escapable_trait);
+export(type_implements_send, type_implements_sync, type_implements_dispose, is_escapable_trait, is_sized_trait);
 export(deref_target_type, copy_structural_parts);
 export(set_flip_prelude_env, push_copy_pending, clear_copy_pending);
 export(type_implements_fn);

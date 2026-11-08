@@ -84,7 +84,9 @@
   type_is_control_bound,
   get_all_some_types,
   dyn_upcast_note,
-  type_carries_origin
+  type_carries_origin,
+  type_is_sized,
+  unsized_by_value_error
 } :: import("../../types/utils.yo");
 { convert_comptime_type_to_runtime_type } :: import("../../types/env_lookup.yo");
 { type_to_string, register_type_display_name, type_display_name } :: import("../../types/string.yo");
@@ -1867,6 +1869,11 @@ Use \`::\` for compile-time definitions inside impl.`
           .None => ()
         );
       });
+    });
+    // A runtime local holds its value by value (decision 49, E0619): an
+    // unsized type has no size to hold it in.
+    if(!effective_is_compile_time_only && !type_is_sized(&final_lhs_type), {
+      exn.throw(dyn(unsized_by_value_error(&final_lhs_type, &`the local \`${var_name}\``, &Option(String).None, &actual_lhs_tok)));
     });
     // Add variable to environment (or fill the phase-A pre-bound one).
     new_var_opt := match(

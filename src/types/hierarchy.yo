@@ -170,6 +170,11 @@ _universe_of :: (fn(ty : &TypeValue, visited : &ArrayList(String)) -> TypeValue)
     // Pointer: raw pointers are level-0 types --------------------------------
     Rc(.Pointer(_)) => Rc.new(TypeValueNode.TypeUni(usize(0))),
     // Array: recurse into element type --------------------------------------
+    Rc(.SliceT(elem_box)) => match(
+      g_type_of_type_visited_fn,
+      .Some(f) => f(&elem_box, visited),
+      .None => Rc.new(TypeValueNode.TypeUni(usize(0)))
+    ),
     Rc(.Array(elem_box, _, _)) => match(
       g_type_of_type_visited_fn,
       .Some(f) => f(&elem_box, visited),

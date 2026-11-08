@@ -41,17 +41,18 @@ pragma(Pragma.AllowUnsafe);
   BF_REQUIRES,
   BF_ENSURES,
   BF_DECREASES,
-  BF_ASSUMED
+  BF_ASSUMED,
+  is_maybe_sized_kind_spelling
 }
 :: import("../../expr.yo");
 { ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, expr_info_adopt_env, adopt_receiver_struct_instance, some_resolution, lookup_trait_ctor_fid, lookup_trait_type_args } :: import("../../expr_info.yo");
 { Environment, make_environment, Variable, get_variables_from_env, add_variable_to_env, add_where_clause_constraint_for_type_application, snapshot_env, copy_env_frames, env_adopt, variable_value_type } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx, force_pending_impls_for_type_name, type_head_name_for_impl_forcing, call_function_value_marker } :: import("../context.yo");
 { EvalValue, create_type_value, create_unknown_val, is_type_value, is_runtime_only_unknown_val } :: import("../../value.yo");
-{ some_t_bounds, TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, SharedList, t_slot, t_slot_pointee, slot_pointee_at, t_origin_named, t_origin_elided, t_origin_kind, t_reference_with_origin, is_origin_kind, t_reference, t_slot_is_borrow } :: import("../../types/definitions.yo");
-{ t_some_t, t_some_t_with_kind, t_type, t_type_1, t_unit, t_expr_t, t_comptime_list, type_has_computed_array_len } :: import("../../types/creators.yo");
+{ some_t_bounds, TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, SharedList, t_maybe_sized_kind, is_maybe_sized_kind, t_slot, t_slot_pointee, slot_pointee_at, t_origin_named, t_origin_elided, t_origin_kind, t_reference_with_origin, is_origin_kind, t_reference, t_slot_is_borrow } :: import("../../types/definitions.yo");
+{ t_some_t, t_some_t_with_kind, t_some_t_of_kind, t_type, t_type_1, t_unit, t_expr_t, t_comptime_list, type_has_computed_array_len } :: import("../../types/creators.yo");
 { type_key } :: import("../../types/type_key.yo");
-{ is_some_type, is_trait_type, is_function_type, is_type_0, is_unit_type } :: import("../../types/guards.yo");
+{ is_some_type, is_trait_type, is_function_type, is_type_0, is_type_kind, is_unit_type } :: import("../../types/guards.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
 { is_expr_type, is_expr_list_type, is_fn_trait_type, is_type_application_type }
 :: import("../../types/guards.yo");
@@ -71,7 +72,9 @@ pragma(Pragma.AllowUnsafe);
   fn_type_unrepresentable_impl_message,
   fn_type_unrepresentable_impl_help,
   note_origin_types_exist,
-  escapable_bound_error
+  escapable_bound_error,
+  type_is_sized,
+  unsized_by_value_error
 }
 :: import("../../types/utils.yo");
 { is_implicitly_unsafe_capable_file, is_macro_def_capable_file } :: import("../memory_safety.yo");
@@ -2321,7 +2324,12 @@ evaluate_function_parameter :: (
   // Evaluate type expression
   match(
     type_expr,
-    .Some(te) => {
+    // `T : ?Sized` (decision 49): the kind of a binder that may be unsized.
+    // `?Sized` is read here, in a binder's kind slot; anywhere else `?X` is
+    // `Option(X)`.
+    .Some(te) => if(is_maybe_sized_kind_spelling(&te), {
+      param_type = .Some(t_maybe_sized_kind());
+    }, {
       ty_opt := _eval_and_update_env(&te, env_mut, ctx, exn);
       if(ty_opt.is_none(), {
         exn.throw(
@@ -2334,7 +2342,7 @@ evaluate_function_parameter :: (
         );
       });
       param_type = .Some(match(ty_opt, .Some(t) => Rc.clone(t), .None => Rc.new(TypeValueNode.Unit)));
-    },
+    }),
     .None => ()
   );
   // Evaluate default value expression.
@@ -2484,6 +2492,23 @@ evaluate_function_parameter :: (
   // (step 3, N2a; whether the function is a type constructor is checked once
   // its result is known, `_reject_origin_param_outside_type_constructor`). A
   // run-time parameter of the kind has no meaning.
+  // A by-value parameter holds its value (decision 49, E0619); an unsized
+  // type is taken behind a reference (`x : &T`).
+  if(!is_compile_time_only && !is_parameter_comptime_by_default && !is_param_ref && !has_imm_wrapper && !t_slot_is_borrow(&final_param_type) && !type_is_sized(&final_param_type), {
+    exn.throw(dyn(unsized_by_value_error(&final_param_type, &`the by-value parameter \`${match(&label, .Some(l) => l.clone(), .None => String.from("?"))}\``, &Option(String).None, &match(type_expr, .Some(e) => ast_expr_token(&e), .None => ast_expr_token(expr)))));
+  });
+  // `?Sized` is a binder's kind (decision 49): only a `generic(...)` binder
+  // or a type constructor's `comptime(V)` has one.
+  if(is_maybe_sized_kind(&final_param_type) && !is_parameter_comptime_by_default && !is_compile_time_only, {
+    exn.throw(
+      dyn(
+        format_error_message(
+          match(label_expr, .Some(e) => ast_expr_token(&e), .None => ast_expr_token(expr)),
+          `\`?Sized\` is the kind of a type binder: declare it in the signature's \`generic(...)\` clause, \`generic(${match(&label, .Some(l) => l.clone(), .None => String.from("?"))} : ?Sized)\`, or as a type constructor's \`comptime(V) : ?Sized\`.`
+        )
+      )
+    );
+  });
   if(is_origin_kind(&final_param_type) && !is_parameter_comptime_by_default && !is_compile_time_only, {
     exn.throw(
       dyn(
@@ -2624,7 +2649,7 @@ use_id :: (fn(generic(T : Type),
   // `comptime(x)` parameter follows the same rule (`comptime(imm(x))` borrows,
   // `comptime(mut(x))` is exclusive); the implicit `generic(...)`/`using(...)`
   // parameters are erased and a `Type`-valued one has no mode to speak of.
-  if(!is_parameter_comptime_by_default && !is_quote && !is_param_ref && !is_owning_rc_value && !has_imm_wrapper && !is_type_0(&final_param_type), {
+  if(!is_parameter_comptime_by_default && !is_quote && !is_param_ref && !is_owning_rc_value && !has_imm_wrapper && !is_type_kind(&final_param_type), {
     is_owning_rc_value = true;
   });
   // Check if variable already exists from where clause or pre-add pass
@@ -2792,7 +2817,7 @@ use_id :: (fn(generic(T : Type),
               if(
                 is_compile_time_only,
                 cond(
-                  is_type_0(&final_param_type) => Option(EvalValue).Some(create_type_value(t_some_t(&label_str, param_frame_level))),
+                  is_type_kind(&final_param_type) => Option(EvalValue).Some(create_type_value(t_some_t_of_kind(&label_str, param_frame_level, &final_param_type))),
                   // `generic(p : Origin)` (decision 43 step 2): `p` is the
                   // origin that names itself; the checker substitutes it at
                   // each application.
@@ -4220,7 +4245,7 @@ evaluate_function_parameters :: (
           usize(0)
         );
         val := if(
-          is_type_0(&param_type),
+          is_type_kind(&param_type),
           create_type_value(t_some_t(&info.name, ct_frame_level)),
           create_unknown_val(&param_type)
         );
@@ -4457,7 +4482,7 @@ evaluate_function_parameters :: (
         vval := if(
           is_vcomptime,
           if(
-            is_type_0(&vparam_type),
+            is_type_kind(&vparam_type),
             Option(EvalValue).Some(create_type_value(t_some_t(&vparam_name, v_frame_level))),
             Option(EvalValue).Some(create_unknown_val(&vparam_type))
           ),
@@ -4942,6 +4967,11 @@ evaluate_function_type :: (
   // Prohibit void return type
   if(!ctx.is_unsafe_function_type, {
     prohibit_void_type(&return_type, ast_expr_token(&return_type_expr), exn);
+  });
+  // A by-value result is returned in a value (decision 49, E0619); a
+  // projection (`-> &T`) returns the place.
+  if(!is_return_comptime_only && !t_slot_is_borrow(&return_type) && !type_is_sized(&return_type), {
+    exn.throw(dyn(unsized_by_value_error(&return_type, &String.from("a by-value result"), &Option(String).None, &ast_expr_token(&return_type_expr))));
   });
   // A `comptime(p) : Origin` parameter belongs to a type constructor (decision
   // 43 step 3, N2a): the type it returns carries the origin. A function is

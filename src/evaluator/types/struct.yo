@@ -41,7 +41,7 @@ import("std/fmt");
 { _type_reaches_root_by_value } :: import("./enum.yo");
 { ArrayList } :: import("std/collections/array_list");
 { auto_derive_traits_for_struct_type, enforce_atomic_object_send } :: import("./utils.yo");
-{ fields_have_incompatible_contexts, type_is_control_bound, control_bound_field_message, type_pointee_second_class, type_contains_some_type } :: import("../../types/utils.yo");
+{ fields_have_incompatible_contexts, type_is_control_bound, control_bound_field_message, type_pointee_second_class, type_contains_some_type, type_is_sized, unsized_by_value_error } :: import("../../types/utils.yo");
 { register_type_decl_module } :: import("../../types/guards.yo");
 { reject_second_class_escape } :: import("../utils.yo");
 { type_key } :: import("../../types/type_key.yo");
@@ -236,6 +236,11 @@ evaluate_struct_type :: (
         .Some(sc_t) => reject_second_class_escape(&sc_t, `the type of the heap-stored field \`${field.label}\` (a second-class type may not be a field type, an element type or a type argument)`, ast_expr_token(&arg), ctx, exn),
         .None => ()
       );
+    });
+    // Only a struct's LAST field may be unsized, which makes the struct a
+    // tail struct (decision 49, E0619).
+    if(!field.is_comptime && ((i + usize(1)) < args.len()) && !type_is_sized(&field.ty), {
+      exn.throw(dyn(unsized_by_value_error(&field.ty, &`the field \`${field.label}\`, which is not the struct's last`, &Option(String).None, &ast_expr_token(&arg))));
     });
     field_labels.push(field.label.clone());
     field_types.push(Rc.clone(field.ty));
