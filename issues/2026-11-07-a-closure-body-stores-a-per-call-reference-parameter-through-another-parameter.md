@@ -9,7 +9,7 @@ Found 2026-11-06 by the advisor's audit of the origin and borrow-checking design
 
 Program: `issues/repros/2026-11-07-a-closure-body-stores-a-per-call-reference-parameter-through-another-parameter.yo`.
 
-`yo check` accepts it ("evaluator OK", tree binary at develop `8d475cd81` and later); compiled with `--sanitize address --allocator system` and run, ASan reports `heap-use-after-free`. The capture forms (`h2_closure_param_into_capture_string.yo`, `h2b_closure_fnmut_slot.yo`) crash codegen instead (`issues/2026-11-07-a-closure-capturing-an-origin-carrying-local-crashes-codegen.md`).
+`yo check` accepts it ("evaluator OK", tree binary at develop `8d475cd81` and later); compiled with `--sanitize address --allocator system` and run, ASan reports `heap-use-after-free`. The capture forms (`h2_closure_param_into_capture_string.yo`, `h2b_closure_fnmut_slot.yo`) crash codegen instead (`issues/fixed/2026-11-07-a-closure-capturing-an-origin-carrying-local-crashes-codegen.md`).
 
 ## Root cause
 

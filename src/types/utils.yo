@@ -934,6 +934,39 @@ _any_beyond_n2b :: (fn(ts : &SharedList(TypeValue), seen : &mut ArrayList(String
   });
   false
 });
+/// A struct's fields, beyond N2b? A capture struct's BORROW entry
+/// (`{ s : &mut slot }`) is a pointer field that is a reference by another
+/// spelling (decision 38 A: the borrow is a mode, the field its pointer):
+/// an inline position, like a `&T` field, never a container's buffer. A
+/// closure capturing `&mut slot : Option(&i32)` is an N2b value
+/// (issues/fixed/2026-11-07-a-closure-capturing-an-origin-carrying-local-crashes-codegen.md).
+_any_field_beyond_n2b :: (fn(sid : &String, labels : &SharedList(String), fields : &SharedList(TypeValue), seen : &mut ArrayList(String), depth : u32) -> bool)({
+  borrows := capture_struct_borrows(sid);
+  (i : usize) = usize(0);
+  while(i < fields.len(), {
+    is_borrow_entry := match(
+      &borrows,
+      .Some(bs) => {
+        label := match(labels.get_cloned(i), .Some(l) => l, .None => String.new());
+        (hit : bool) = false;
+        (bi : usize) = usize(0);
+        while(bi < bs.len(), {
+          if(bs(bi).label == label, {
+            hit = true;
+          });
+          bi = (bi + usize(1));
+        });
+        hit
+      },
+      .None => false
+    );
+    if(!is_borrow_entry && match(fields.get(i), .Some(t) => _origin_beyond_n2b_inner(&t, seen, depth + u32(1)), .None => false), {
+      return(true);
+    });
+    i = (i + usize(1));
+  });
+  false
+});
 /// A handle or cell SHAPE (O4 rows 3–4): the origin inside one waits for
 /// N2c (a container's element storage) or N2d (a cell payload). `Rc`/`Arc`
 /// (`is_box_type`/`is_arc_type`/`is_counted_handle_value_type`), the unique
@@ -972,7 +1005,7 @@ _origin_beyond_n2b_inner :: (fn(ty : &TypeValue, seen : &mut ArrayList(String), 
     Rc(.RefineT(inner, _)) => _origin_beyond_n2b_inner(&inner, seen, depth + u32(1)),
     Rc(.Tuple({ field_types : fields })) => _any_beyond_n2b(&fields, seen, depth),
     Rc(.SomeT({ resolution : res })) => match(res, .Some(r) => _origin_beyond_n2b_inner(&r, seen, depth + u32(1)), .None => false),
-    Rc(.Struct({ id : sid, field_types : fields, type_arguments : targs })) => cond(
+    Rc(.Struct({ id : sid, field_labels : flabels, field_types : fields, type_arguments : targs })) => cond(
       // A handle or cell over a reference-holding payload (O4 rows 3–4).
       (_origin_shape_is_handle_or_cell(ty) && type_carries_origin(ty)) => true,
       ((sid.len() > usize(0)) && seen.contains(&sid)) => false,
@@ -980,7 +1013,7 @@ _origin_beyond_n2b_inner :: (fn(ty : &TypeValue, seen : &mut ArrayList(String), 
         if(sid.len() > usize(0), {
           seen.push(sid.clone());
         });
-        _any_beyond_n2b(&targs, seen, depth) || _any_beyond_n2b(&fields, seen, depth)
+        _any_beyond_n2b(&targs, seen, depth) || _any_field_beyond_n2b(&sid, &flabels, &fields, seen, depth)
       }
     ),
     Rc(.EnumT({ id : eid, variant_fields : vfields, type_arguments : etargs })) => cond(
