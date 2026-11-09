@@ -23,18 +23,22 @@ pragma(Pragma.AllowUnsafe);
   make_err_expr,
   expect_expr_to_be_fn_call_of,
   BF_DOWNCAST,
-  BF_UPCAST
+  BF_UPCAST,
+  ast_expr_is_atom
 } :: import("../../expr.yo");
 {
   ExprInfo,
   new_expr_info,
   expr_info_table_get,
   expr_info_table_set,
-  expr_info_adopt_env
+  expr_info_adopt_env,
+  note_downcast_reference
 } :: import("../../expr_info.yo");
 { Environment, snapshot_env } :: import("../../env.yo");
-{ TypeValue, TypeValueNode, no_types } :: import("../../types/definitions.yo");
-{ is_dyn_type } :: import("../../types/guards.yo");
+{ TypeValue, TypeValueNode, no_types, t_refine_inner, t_reference } :: import("../../types/definitions.yo");
+{ is_dyn_type, is_reference_struct_type } :: import("../../types/guards.yo");
+{ projection_call_mode_of, variable_is_reference_binding } :: import("../utils.yo");
+{ _eval_builtin_args } :: import("./sizeof.yo");
 { type_to_string } :: import("../../types/string.yo");
 { EvalContext } :: import("../context.yo");
 { EvalValue, create_unknown_val, is_type_value } :: import("../../value.yo");
@@ -78,21 +82,35 @@ evaluate_downcast :: (
       return(expr);
     }
   );
-  eval_dyn_expr := evaluate_expression_raw(&dyn_expr, &cur_env, ctx, exn);
-  dyn_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&eval_dyn_expr));
-  if(dyn_info_opt.is_none(), {
-    exn.throw(
-      dyn(
-        format_eval_failure(
-          ast_expr_token(&dyn_expr),
-          String.from("Failed to evaluate dyn value argument for downcast.")
-        )
-      )
-    );
-  });
-  dyn_info := match(dyn_info_opt, .Some(i) => Rc.clone(i), .None => new_expr_info(&cur_env, Rc.new(TypeValueNode.Unit)));
+  // Both arguments through the builtin-argument reader, which also reads a
+  // written lend (`downcast(&b.*, V)`, `downcast(dyn(&v), V)`).
+  (dc_call, dc_infos) := _eval_builtin_args(expr, usize(2), "downcast", &cur_env, ctx, exn);
+  dyn_info := Rc.clone(dc_infos(usize(0)));
+  type_info := Rc.clone(dc_infos(usize(1)));
   cur_env = expr_info_adopt_env(&dyn_info);
-  dyn_type := Rc.clone(dyn_info.ty());
+  // The Dyn: an owned value (a legacy `Dyn`), or a reference to one (a lend, a
+  // `&Dyn` binding, a reference-kind `dyn(&v)`), whose downcast is a view of
+  // the payload (decision 49): `Option(&V)` / `Option(&mut V)`.
+  (dyn_type : TypeValue) = Rc.clone(dyn_info.ty());
+  (ref_mode : Option(bool)) = Option(bool).None;
+  match(
+    t_refine_inner(&dyn_type),
+    Rc(.Reference(dr_p, dr_m, _)) => if(is_dyn_type(dr_p), {
+      ref_mode = Option(bool).Some(dr_m);
+      dyn_type = Rc.clone(dr_p);
+    }),
+    _ => if(is_dyn_type(&dyn_type), {
+      ref_mode = match(
+        projection_call_mode_of(&dyn_expr, ctx),
+        .Some(pm) => Option(bool).Some(pm),
+        .None => match(
+          dyn_info.source_variable(),
+          .Some(dv) => if(ast_expr_is_atom(&dyn_expr) && variable_is_reference_binding(&dv), Option(bool).Some(dv.is_ref() && !dv.is_imm_borrow()), Option(bool).None),
+          .None => Option(bool).None
+        )
+      );
+    })
+  );
   if(!is_dyn_type(&dyn_type), {
     exn.throw(
       dyn(
@@ -103,50 +121,42 @@ evaluate_downcast :: (
       )
     );
   });
-  // Second argument: the target type T (comptime).
-  type_expr := match(
-    expr,
-    .FnCall(_, _, Rc(fargs), _, _) => match(
-      fargs.get(usize(1)),
-      .Some(x) => x,
-      .None => {
-        return(expr);
-      }
-    ),
-    _ => {
-      return(expr);
-    }
-  );
-  eval_type_expr := evaluate_expression_raw(&type_expr, &cur_env, ctx, exn);
-  type_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&eval_type_expr));
-  if(type_info_opt.is_none(), {
-    exn.throw(
-      dyn(
-        format_eval_failure(
-          ast_expr_token(&type_expr),
-          String.from("Failed to evaluate type argument for downcast.")
-        )
-      )
-    );
-  });
-  type_info := match(type_info_opt, .Some(i) => Rc.clone(i), .None => new_expr_info(&cur_env, Rc.new(TypeValueNode.Unit)));
-  cur_env = expr_info_adopt_env(&type_info);
   if(!is_type_value(&type_info.value()), {
     exn.throw(
       dyn(
         format_error_message(
-          ast_expr_token(&type_expr),
+          ast_expr_token(&expr),
           `downcast expects a type as second argument, got ${type_to_string(&type_info.ty())}.`
         )
       )
     );
   });
-  // Extract the TypeValue from the TypeVal.
+  type_expr := match(expr, .FnCall(_, _, Rc(fargs2), _, _) => match(fargs2.get(usize(1)), .Some(x) => x, .None => return(expr)), _ => return(expr));
+  cur_env = expr_info_adopt_env(&type_info);
   target_type := match(
     type_info.value(),
     .Some(.TypeVal(ty_box)) => Rc.clone(ty_box),
     .Some(_) => Rc.new(TypeValueNode.Unit),
     .None => Rc.new(TypeValueNode.Unit)
+  );
+  // A reference downcast borrows the payload where it lives: nothing is
+  // copied, so a move-only payload is fine and a `ref` payload, which has no
+  // place apart from its object, keeps the owned form.
+  match(
+    ref_mode,
+    .Some(rm) => {
+      if(is_reference_struct_type(&target_type), {
+        exn.throw(dyn(format_error_message(ast_expr_token(&type_expr), `downcast through a reference views the payload in place, and ${type_to_string(&target_type)} is a \`ref\` object, which has no place apart from its own pointer: downcast the owned Dyn instead.`)));
+      });
+      result_ty := create_option_type(&t_reference(&target_type, rm));
+      out_info_r := new_expr_info(&cur_env, &result_ty);
+      out_info_r.set_value(Option(EvalValue).Some(create_unknown_val(&result_ty)));
+      expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info_r);
+      note_downcast_reference(ast_expr_id(expr), rm);
+      attach_temp_variable_to_expr(expr, true, ctx);
+      return(dc_call);
+    },
+    .None => ()
   );
   // A downcast copies the payload out and the Dyn keeps its own. A move-only
   // payload has no implicit copy, so it is copied through its `Clone`, which
@@ -171,7 +181,7 @@ evaluate_downcast :: (
   out_info.set_value(Option(EvalValue).Some(result_value));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   attach_temp_variable_to_expr(expr, true, ctx);
-  expr
+  dc_call
 });
 /// Is `t` one of `list` (the identity relation on trait types)?
 _trait_in :: (fn(t : &TypeValue, list : &ArrayList(TypeValue)) -> bool)({

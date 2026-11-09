@@ -127,7 +127,7 @@ fixup_dyn_impl_keys :: (fn(context : &mut CodeGenContext) -> unit)({
             .None => `unknown_${concrete_key}`
           )
         );
-        new_key := `${concrete_c}_${dyn_c}`;
+        new_key := if(impl_entry.payload_convention, `${concrete_c}_${dyn_c}_P`, `${concrete_c}_${dyn_c}`);
         new_map.insert(new_key, impl_entry);
       },
       .None => ()

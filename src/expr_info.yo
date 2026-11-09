@@ -2815,6 +2815,18 @@ note_unsize_reference :: (fn(id : usize, is_mut : bool) -> unit)({
 unsize_reference_mode :: (fn(id : usize) -> Option(bool))(
   if(g_unsize_reference_modes.with(_vh_unsize_modes_len) == usize(0), Option(bool).None, g_unsize_reference_modes.with({ id }(m) => m.get(&id)))
 );
+/// The `downcast(r, V)` calls over a reference (a `&Dyn` / `&mut Dyn`), by
+/// node id, with the result's mode: such a call is `Option(&V)` /
+/// `Option(&mut V)`, a view of the payload that copies nothing
+/// (plans/VALUES_BY_DEFAULT.md decision 49, S1d). Codegen reads the payload's
+/// address through the vtable's `payload_of`.
+(g_downcast_reference_modes : RefCell(HashMap(usize, bool))) = RefCell(HashMap(usize, bool)).new(HashMap(usize, bool).new());
+note_downcast_reference :: (fn(id : usize, is_mut : bool) -> unit)({
+  _m := g_downcast_reference_modes.with_mut({ id, is_mut }(m) => m.insert(id, is_mut));
+});
+downcast_reference_mode :: (fn(id : usize) -> Option(bool))(
+  if(g_downcast_reference_modes.with(_vh_unsize_modes_len) == usize(0), Option(bool).None, g_downcast_reference_modes.with({ id }(m) => m.get(&id)))
+);
 /// The constructor funcId stamped for `struct_id`, if any.
 lookup_struct_ctor_fid :: (fn(struct_id : &String) -> Option(String))(
   g_struct_ctor_fids.with({ &struct_id }(m) => m.get_cloned(struct_id))
@@ -3224,6 +3236,8 @@ export(
   register_struct_ctor_fid,
   register_struct_ctor_value,
   note_unsize_reference,
+  note_downcast_reference,
+  downcast_reference_mode,
   unsize_reference_mode,
   lookup_struct_ctor_value,
   record_branch_init,

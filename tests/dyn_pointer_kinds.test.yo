@@ -1,0 +1,35 @@
+pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
+Speak :: trait(speak : (fn(self : &Self) -> i32));
+Bump :: trait(bump : (fn(self : &mut Self) -> i32));
+Cat :: struct(n : i32);
+impl(Cat, Speak(speak : ((self : &Self) -> self.n)));
+impl(
+  Cat,
+  Bump(
+    bump : (
+      (self : &mut Self) -> {
+        self.n = (self.n + i32(1));
+        self.n
+      }
+    )
+  )
+);
+_speak_via :: (fn(d : &Dyn(Speak)) -> i32)(d.speak());
+_bump_via :: (fn(d : &mut Dyn(Bump)) -> i32)(d.bump());
+test("dyn(&v) is a &Dyn over a place that stays usable", {
+  c := Cat(n : i32(7));
+  assert(_speak_via(dyn(&c)) == i32(7), "dispatch through the vtable");
+  assert(c.n == i32(7), "v is still usable");
+});
+test("dyn(&mut v) writes through the reference", {
+  (mut(c) : Cat) = Cat(n : i32(1));
+  assert(_bump_via(dyn(&mut c)) == i32(2), "bump");
+  assert(c.n == i32(2), "visible through v");
+});
+test("size_of_val and align_of_val of a Dyn read the vtable", {
+  c := Cat(n : i32(3));
+  (d : &Dyn(Speak)) = dyn(&c);
+  assert(size_of_val(d) == size_of(Cat), "size");
+  assert(align_of_val(d) == align_of(Cat), "align");
+});

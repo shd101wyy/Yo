@@ -112,7 +112,9 @@ generate_dyn_call :: (fn(expr : &AstExpr, indent : &String, context : &mut Funct
   trait_values := match(expr_info_dyn_call_trait_values(&ei), .Some(tv) => if(tv.len() == usize(0), return(String.from("/* Error: dyn() call missing trait values */")), tv), .None => return(String.from("/* Error: dyn() call missing trait values */")));
   args0 := match(expr, .FnCall(_, _, Rc(a), _, _) => a.get(usize(0)), .Atom(_, _) => Option(AstExpr).None);
   value_expr := match(&ei.runtime_arg_exprs_in_order(), .Some(rargs) => match(rargs.get(usize(0)), .Some(v) => v, .None => match(args0, .Some(a) => a, .None => return(String.from("/* Error: dyn() requires a value argument */")))), .None => match(args0, .Some(a) => a, .None => return(String.from("/* Error: dyn() requires a value argument */"))));
-  dyn_type := Rc.clone(ei.ty());
+  // A `dyn(&v)` result may carry the reference it was read as (a `&Dyn`
+  // declaration's converted type): the Dyn is its pointee.
+  dyn_type := match(t_refine_inner(&ei.ty()), Rc(.Reference(rp, _, _)) => Rc.clone(rp), Rc(.Pointer(pp)) => Rc.clone(pp), _ => Rc.clone(ei.ty()));
   if(!is_dyn_type(&dyn_type), {
     return(String.from("/* Error: dyn() result type is not DynType */"));
   });

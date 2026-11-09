@@ -641,11 +641,6 @@ typedef struct {
   void* (*__yo_clone)(void*);
 } __yo_vtable_prefix_t;
 
-// The retain and release of a reference-kind Dyn, dyn(&v): it borrows its
-// payload, so neither counts anything.
-static inline void* __yo_dyn_noop_retain(void* data) { return data; }
-static inline void __yo_dyn_noop_release(void* data) { (void)data; }
-
 static inline void __yo_dyn_drop_in_place(void* data, const void* vtable) {
   void (*f)(void*) = ((const __yo_vtable_prefix_t*)vtable)->__yo_drop_in_place;
   if (f != NULL) f(data);

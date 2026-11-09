@@ -20,7 +20,8 @@
 //!   (`issues/fixed/downcast-to-a-never-dyned-value-type-emits-invalid-c.md`).
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr } :: import("../../expr.yo");
+{ AstExpr, ast_expr_id, ast_expr_strip_borrow_marker } :: import("../../expr.yo");
+{ downcast_reference_mode } :: import("../../expr_info.yo");
 { EvalValue, is_func_val } :: import("../../value.yo");
 { is_dyn_type, is_enum_type, is_reference_struct_type, cell_handle_view, is_pointer_type } :: import("../../types/guards.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
@@ -41,7 +42,8 @@ generate_downcast :: (fn(expr : &AstExpr, indent : &String, context : &mut Funct
 _downcast_value :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("/* ERROR: downcast not evaluated */")));
   args := match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
-  dyn_arg := match(args.get(usize(0)), .Some(x) => x, .None => return(String.from("/* ERROR: downcast requires 2 arguments */")));
+  // A written lend (`downcast(&b.*, V)`) is read through to its place.
+  dyn_arg := match(args.get(usize(0)), .Some(x) => ast_expr_strip_borrow_marker(&x), .None => return(String.from("/* ERROR: downcast requires 2 arguments */")));
   type_arg := match(args.get(usize(1)), .Some(x) => x, .None => return(String.from("/* ERROR: downcast requires 2 arguments */")));
   // First argument: the dyn value (runtime).
   dyn_ei := match(context.base.get_expr_info(&dyn_arg), .Some(e) => e, .None => return(String.from("/* ERROR: downcast dyn arg not evaluated */")));
@@ -90,7 +92,25 @@ _downcast_value :: (fn(expr : &AstExpr, indent : &String, context : &mut Functio
   // lowered as a constant `.None` (the object cast a value target would
   // otherwise get is not even valid C).
   (statically_impossible : bool) = false;
-  cast_expr := if(is_reference_struct_type(&target_type), {
+  ref_mode := downcast_reference_mode(ast_expr_id(expr));
+  cast_expr := if(ref_mode.is_some(), {
+    // Through a reference: a view of the payload where it lives. The data
+    // word is read only by the vtable's `payload_of` (a legacy cell's word is
+    // its cell, a reference-kind one's the payload itself), never cast.
+    dkey := type_key(&dyn_ei.ty());
+    tkey_r := type_key(&target_type);
+    (found_r : bool) = false;
+    for(&context.base.dyn_impls, (_rk, re) => {
+      if((type_key(&re.dyn_type) == dkey) && (type_key(resolve_some_type_to_concrete(&re.concrete_type)) == tkey_r), {
+        found_r = true;
+      });
+    });
+    if(!found_r, {
+      statically_impossible = true;
+    });
+    qual := if(match(ref_mode, .Some(rm) => rm, .None => false), String.new(), String.from(" const"));
+    `((${target_type_c_name.clone()}${qual}*)(${dyn_code.clone()}).vtable->__yo_payload_of((void*)(${dyn_code.clone()}).data))`
+  }, if(is_reference_struct_type(&target_type), {
     o := String.from("((");
     o.push_string(target_type_c_name.clone());
     o.push_str(")__yo_dyn_retain((void*)");
@@ -206,7 +226,7 @@ _downcast_value :: (fn(expr : &AstExpr, indent : &String, context : &mut Functio
         String.new()
       }
     )
-  });
+  }));
   // Result Option type.
   option_type := Rc.clone(ei.ty());
   if(!is_enum_type(&option_type), {

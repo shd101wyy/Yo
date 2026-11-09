@@ -986,6 +986,19 @@ generate_dyn_vtables :: (fn(context : &mut FunctionGenerationContext) -> unit)({
     });
     context.base.emitter.emit_declaration_line("");
   });
+  // The retain and release of a reference-kind Dyn, dyn(&v): it borrows its
+  // payload, so neither counts anything.
+  (any_payload : bool) = false;
+  for(&context.base.dyn_impls, (_pk, pe) => {
+    if(pe.payload_convention, {
+      any_payload = true;
+    });
+  });
+  if(any_payload, {
+    context.base.emitter.emit_declaration_line("static void* __yo_dyn_noop_retain(void* data) { return data; }");
+    context.base.emitter.emit_declaration_line("static void __yo_dyn_noop_release(void* data) { (void)data; }");
+    context.base.emitter.emit_declaration_line("");
+  });
   // Pass 2: emit the vtable instances.
   (vi : usize) = usize(0);
   while(vi < nk, {
