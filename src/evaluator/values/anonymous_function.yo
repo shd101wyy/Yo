@@ -153,7 +153,7 @@ pragma(Pragma.AllowUnsafe);
 { create_function_body_evaluation_context, hard_swallow_diagnostic, hard_swallow_diagnostic_in_generic_trial, forcing_depths, truncate_forcing_depths, publish_pending_member_phase_a, closure_literal_is_borrowed } :: import("../context.yo");
 { evaluated_body_contains_unwind } :: import("../../expr_traversal.yo");
 { get_all_some_types, type_is_control_bound, type_contains_rc_type, type_contains_some_type_deep, type_requires_explicit_copy, type_is_bitwise_copy, mark_fnmut_capture_struct } :: import("../../types/utils.yo");
-{ attach_temp_variable_to_expr, local_borrow_place_of, BorrowCaptureOuter, note_borrow_capture_outer, apply_capture_store_joins, judge_capture_fnmut_at_fn_slot, deref_exempt_mark, deref_exempt_clear, variable_is_reference_binding, deref_rule_applies, deref_rule_recording, reject_reference_without_deref, is_reference_deref_site, is_valid_variable_name, require_expr_not_consumed, set_expr_as_needs_to_call_dup, reject_second_class_return, capture_place_crosses_cell, reject_bare_callable_result, reject_closure_literal_into_dyn_fn, place_require_mut, audit_copy_trait_enabled } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, local_borrow_place_of, BorrowCaptureOuter, note_borrow_capture_outer, apply_capture_store_joins, judge_capture_fnmut_at_fn_slot, deref_exempt_mark, deref_exempt_clear, variable_is_reference_binding, deref_rule_applies, deref_rule_recording, reject_reference_without_deref, is_reference_deref_site, is_valid_variable_name, require_expr_not_consumed, set_expr_as_needs_to_call_dup, reject_second_class_return, capture_place_crosses_cell, reject_bare_callable_result, projection_body_mismatch_message, reject_closure_literal_into_dyn_fn, place_require_mut, audit_copy_trait_enabled } :: import("../utils.yo");
 { CaptureBorrow, register_capture_borrows, type_is_second_class, fn_param_is_ptr_borrow, reject_origin_carrying_signature } :: import("../../types/utils.yo");
 { is_some_type, is_unit_type, is_void_type, is_never_type, is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_fn_trait_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -2547,14 +2547,19 @@ Result type: ${type_to_string(&decl_result_ty)}`
                 is_unit_type(&cr_body_ty) => String.from(" A `{ ... }` block whose last statement ends with `;` has the value `()` — remove the semicolon after the tail expression, or return the value explicitly."),
                 true => String.new()
               );
-              exn.throw(
-                dyn(
-                  format_error_message(
-                    ast_expr_token(&body_expr),
-                    `Function body has type \`${type_to_string(&cr_body_ty)}\`, but the declared result type is \`${type_to_string(&cr_ret_ty)}\`.${cr_hint}`
-                  )
-                )
+              // A closure returning `&T` / `&mut T` is a projection (decision
+              // 24): the mismatch is the decision-24 one, which names the
+              // `&place` spelling, not the internal `*(T)` result form
+              // (issues/fixed/2026-11-07-a-closure-literal-returning-its-reference-parameter-fails-to-evaluate.md).
+              cr_msg := match(
+                &function_type,
+                Rc(.Func({ result : cr_rs })) => cond(
+                  t_slot_is_borrow(&cr_rs) => projection_body_mismatch_message(&t_slot_pointee(&cr_rs), fn_result_is_mut_ref(&function_type), &cr_body_ty, &body_expr, ctx),
+                  true => `Function body has type \`${type_to_string(&cr_body_ty)}\`, but the declared result type is \`${type_to_string(&cr_ret_ty)}\`.${cr_hint}`
+                ),
+                _ => `Function body has type \`${type_to_string(&cr_body_ty)}\`, but the declared result type is \`${type_to_string(&cr_ret_ty)}\`.${cr_hint}`
               );
+              exn.throw(dyn(format_error_message(ast_expr_token(&body_expr), cr_msg)));
             });
           },
           .None => ()
