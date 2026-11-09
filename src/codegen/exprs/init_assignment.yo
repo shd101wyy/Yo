@@ -12,7 +12,7 @@
 { RuntimeDestructuring, expr_info_converted_runtime_type, expr_info_runtime_destructurings, expr_info_deferred_dup_expressions, expr_info_macro_expansion, scope_variables, lookup_local_borrow_step_pin } :: import("../../expr_info.yo");
 { Variable, Environment, variable_value_type } :: import("../../env.yo");
 { is_array_type, is_unit_type, is_struct_type, is_reference_struct_type, is_tuple_type, is_newtype_type, is_dyn_type } :: import("../../types/guards.yo");
-{ TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, t_refine_inner } :: import("../../types/definitions.yo");
 { t_ptr } :: import("../../types/creators.yo");
 { FunctionGenerationContext, sm_owns_fnonce_captures } :: import("../functions/context.yo");
 { resolve_some_type_to_concrete } :: import("./closures.yo");
@@ -299,7 +299,7 @@ _generate_inout_local_binding :: (fn(lhs : &AstExpr, rhs : &AstExpr, bind_key : 
   place_code := _call_generate_expr(rhs, indent.clone(), context);
   // Address the place: fold a `(*x)` pass-through, otherwise `(&(code))`.
   (mut(addr) : String) = String.new();
-  if(is_dyn_type(&place_type), {
+  if(is_dyn_type(&place_type) || match(t_refine_inner(&place_type), Rc(.Reference(dpp, _, _)) => is_dyn_type(&dpp), _ => false), {
     // The reference to a Dyn is the Dyn's fat struct itself (decision 49).
     addr = dyn_fat_code(&place_code);
   }, if(place_code.starts_with("(*") && place_code.ends_with(")"), {

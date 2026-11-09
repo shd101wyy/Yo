@@ -38,29 +38,49 @@ test("&b.* on a legacy Box(Dyn) built by dyn(Box.new(v)) dispatches", {
   assert(_speak_via(&b.*) == i32(9), "dispatch through &b.*");
   assert(size_of_val(&b.*) == size_of(Cat), "size through &b.*");
 });
-test("downcast through a reference views the payload", {
-  c := Cat(n : i32(5));
-  (d : &Dyn(Speak)) = dyn(&c);
+_view_cat :: (fn(d : &Dyn(Speak)) -> i32)(
   match(
     downcast(d, Cat),
-    .Some(p) => assert(p.n == i32(5), "payload viewed in place"),
-    .None => assert(false, "expected Some")
-  );
+    .Some(p) => p.n,
+    .None => i32(-1)
+  )
+);
+_view_other :: (fn(d : &Dyn(Speak)) -> bool)(
   match(
     downcast(d, i32),
-    .Some(_) => assert(false, "expected None"),
-    .None => ()
-  );
-});
-test("downcast(&mut Dyn) writes through", {
-  (mut(c) : Cat) = Cat(n : i32(1));
-  (d : &mut Dyn(Bump)) = dyn(&mut c);
+    .Some(_) => true,
+    .None => false
+  )
+);
+_write_cat :: (fn(d : &mut Dyn(Bump)) -> unit)(
   match(
     downcast(d, Cat),
     .Some(p) => {
       p.n = i32(40);
     },
-    .None => assert(false, "expected Some")
-  );
+    .None => ()
+  )
+);
+test("downcast through a reference views the payload", {
+  c := Cat(n : i32(5));
+  assert(_view_cat(dyn(&c)) == i32(5), "payload viewed in place");
+  assert(!_view_other(dyn(&c)), "the wrong target is None");
+});
+test("downcast(&mut Dyn) writes through", {
+  (mut(c) : Cat) = Cat(n : i32(1));
+  _write_cat(dyn(&mut c));
   assert(c.n == i32(40), "written through the view");
+});
+Twice :: trait(twice : (fn(self : &Self) -> i32));
+impl(Cat, Twice(twice : ((self : &Self) -> (self.n * i32(10)))));
+_twice_and_speak :: (fn(d : &Dyn(Speak, Twice)) -> i32)((d.twice() + _speak_via(upcast(d, Dyn(Speak)))));
+test("upcast through a reference keeps the borrow", {
+  c := Cat(n : i32(6));
+  assert(_twice_and_speak(dyn(&c)) == i32(66), "both traits, then the upcast");
+});
+test("dyn over a raw pointer is *Dyn, measured through the vtable", {
+  (mut(c) : Cat) = Cat(n : i32(2));
+  (p : *Cat) = addr_of(c);
+  (q : *Dyn(Speak)) = dyn(p);
+  assert(size_of_val(q) == size_of(Cat), "size through *Dyn");
 });
