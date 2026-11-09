@@ -8,6 +8,9 @@
 # diagnostic. Verified 71/71 with the tree binary.
 # 2026-11-08 (P3, `&&T`/`&mut &T`, BORROW_CHECKER_COMPLETENESS.md §7): the three swap-* rows and the five
 # ref-of-ref-*/ref-mut-ref-repoint rows re-recorded with the P3 tree binary.
+# 2026-11-10 (E0912 judges a field read through a borrow by its type): the three effect-resume-* rows' `_use`
+# returns `r.*`, a scalar read through the local borrow `r`, which is no longer E0912; their `today` column
+# now records the handler's own first error, which the old over-rejection masked.
 # id	anchor	kind	phase	expect	today
 wf-self-binding	O1 well-formedness	neg	N2	WF_SELF	E0924|names the binding being declared
 wf-self-field	O1 well-formedness, O5	neg	N2	WF_SELF	E0924|names the value being defined
@@ -72,9 +75,9 @@ impl-wider-than-trait	O7 traits (an impl against its trait)	neg	N1	ORIGIN_MISMAT
 impl-narrower-than-trait	O7 traits (an impl against its trait)	pos	N1	ACCEPT	accept
 dyn-call-elided-result	§5 route 5 (a Dyn call maps from the trait signature)	neg	N1	E0911	E0911|Cannot write `o` here
 dyn-call-spelled-result	§5 route 5 (a Dyn call maps from the trait signature)	pos	N1	ACCEPT	accept
-effect-resume-local	O7 effect handlers, §4 handler lowering	neg	N1	E0912	E0912|Cannot return the local borrow
-effect-resume-capture	O7 effect handlers, §4 handler lowering	neg	N1	ORIGIN_MISMATCH	E0912|Cannot return the local borrow
-effect-resume-param	O7 effect handlers, §4 handler lowering	pos	N1	ACCEPT	E0912|Cannot return the local borrow
+effect-resume-local	O7 effect handlers, §4 handler lowering	neg	N1	E0912	E0912|A projection yields a place reached from one of its
+effect-resume-capture	O7 effect handlers, §4 handler lowering	neg	N1	ORIGIN_MISMATCH	E0923|A closure's reference result is reached from one of its own
+effect-resume-param	O7 effect handlers, §4 handler lowering	pos	N1	ACCEPT	E0605|Return type mismatch
 macro-ret-local	O3 return rule, §4 macro lowering	neg	N1	E0912	-|lends a borrow: it is written as a call argument
 index-mut-twice	O3 step 2, decision 28 index overlap (superseded row)	neg	N1	E0911	-|A local borrow (`y := &mut place`) needs a place
 place-write-join	O3 place writes, O6 (superseded row)	neg	N2	E0911	-|carries an origin
