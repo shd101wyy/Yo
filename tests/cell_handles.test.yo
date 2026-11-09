@@ -155,7 +155,8 @@ test("D3: a struct over an atomic cell is not a handle", {
   l := tlocked(i32(1));
   m := l;
   assert(ref_count(l) == usize(1), "a value struct is not counted, whatever it holds");
-  comptime_expect_error(l.*, "No field");
+  // A value struct has no `.*`: E0621 (VERDICTS-41 Q1).
+  comptime_expect_error(l.*, "a value: `.*` reads through a reference");
 });
 test("S3: Option of a cell handle keeps the one-pointer niche; of an atomic one, the tag", {
   assert(size_of(TRc(i32)) == size_of(usize), "a handle is one pointer");
