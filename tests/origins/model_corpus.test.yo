@@ -395,6 +395,36 @@ test("ref-mut-ref-repoint", {
   main := entry(al6(let_(X, lit()), let_(Y, lit()), let_d(R, Rc.new(NodeE.Borrow(false, X)), shr(int(), o(X) | o(Y))), let_(RP, Rc.new(NodeE.Borrow(true, R))), Rc.new(NodeE.WriteThrough(RP, Rc.new(NodeE.Borrow(false, Y)))), use_(Rc.new(NodeE.Var(R)))));
   verdict("ref-mut-ref-repoint", case1(main), "ACCEPT");
 });
+// P9 (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §7): two-phase borrows with a
+// named `&`. A `&mut` argument is reserved when evaluated and activated when
+// the call begins, so a `&` loan whose last use lies in a later argument is
+// dead at the activation; one used after the call is not.
+/// `push_n(generic(), a : &mut List(int), n : int)`.
+push_n :: (fn() -> FnDef)(sig(u64(0), al2(prm(A, exc(list(int()), ELIDED)), prm(B, int())), int()));
+/// `len(v : &List(int)) -> int`.
+list_len :: (fn() -> FnDef)(sig(u64(0), al1(prm(V, shr(list(int()), ELIDED))), int()));
+two_phase_main :: (fn(used_after : bool) -> FnDef)({
+  mut(body) := al3(
+    let_(XS, Rc.new(NodeE.NewList(int()))),
+    let_(R, Rc.new(NodeE.Borrow(false, XS))),
+    use_(call(usize(1), al2(Rc.new(NodeE.Borrow(true, XS)), call(usize(2), al1(Rc.new(NodeE.Var(R)))))))
+  );
+  if(used_after, {
+    body.push(use_(Rc.new(NodeE.Var(R))));
+  });
+  entry(body)
+});
+test("two-phase-named-last-use", {
+  verdict("two-phase-named-last-use", case3(two_phase_main(false), push_n(), list_len()), "ACCEPT");
+});
+test("two-phase-named-after", {
+  verdict("two-phase-named-after", case3(two_phase_main(true), push_n(), list_len()), "E0911");
+});
+test("two-phase-mut-relend", {
+  both := sig(u64(0), al2(prm(A, exc(list(int()), ELIDED)), prm(B, exc(list(int()), ELIDED))), int());
+  main := entry(al2(let_(XS, Rc.new(NodeE.NewList(int()))), use_(call(usize(1), al2(Rc.new(NodeE.Borrow(true, XS)), Rc.new(NodeE.Borrow(true, XS)))))));
+  verdict("two-phase-mut-relend", case2(main, both), "E0910");
+});
 // ---------------------------------------------------------------------------
 // Containers: declared unions (O6)
 // ---------------------------------------------------------------------------

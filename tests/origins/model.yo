@@ -417,7 +417,14 @@ Ck :: struct(
   next_fresh : usize,
   fresh : u64,
   spec_depth : usize,
-  ablate : u64
+  ablate : u64,
+  /// The places live once the call being evaluated returns: the statement's
+  /// `after` and the later arguments of every enclosing call (P9's
+  /// activation point).
+  call_after : u64,
+  /// A `&mut` argument being evaluated is RESERVED, not yet activated: its
+  /// access is a read until the call begins (P9, two-phase).
+  reserving : bool
 );
 /// The rules `check_ablated` can switch off.
 ABLATE_INVARIANCE :: u64(1);
@@ -674,6 +681,7 @@ check_stmt :: (fn(ck : &mut Ck, env : &mut Env, s : &Node, after : u64) -> unit)
     &s.*.*,
     .Let(p, init, decl) => {
       live := (after | uses(&init.*));
+      ck.call_after = after;
       t := eval(ck, env, &init.*, live);
       match(
         &decl.*,
@@ -706,6 +714,7 @@ check_stmt :: (fn(ck : &mut Ck, env : &mut Env, s : &Node, after : u64) -> unit)
     },
     .Assign(p, v) => {
       live := (after | uses(&v.*));
+      ck.call_after = after;
       t := eval(ck, env, &v.*, live);
       access(ck, env, p.*, ACCESS_WRITE, live);
       if(((env.has_decl & bit(p.*)) != u64(0)) && !sub(&t, &env.decl(p.*), false), {
@@ -716,6 +725,7 @@ check_stmt :: (fn(ck : &mut Ck, env : &mut Env, s : &Node, after : u64) -> unit)
     },
     .WriteThrough(p, v) => {
       live := (after | uses(&v.*) | bit(p.*));
+      ck.call_after = (after | bit(p.*));
       t := eval(ck, env, &v.*, live);
       access(ck, env, p.*, ACCESS_READ, live);
       fp := Rc.clone(&env.flow(p.*));
@@ -734,19 +744,23 @@ check_stmt :: (fn(ck : &mut Ck, env : &mut Env, s : &Node, after : u64) -> unit)
     },
     .Push(p, v) => {
       live := (after | uses(&v.*) | bit(p.*));
+      ck.call_after = (after | bit(p.*));
       t := eval(ck, env, &v.*, live);
       check_push(ck, env, p.*, &t, live);
     },
     .Use(e) => {
+      ck.call_after = after;
       _ := eval(ck, env, &e.*, after | uses(&e.*));
     },
     .Spawn(e) => {
+      ck.call_after = after;
       t := eval(ck, env, &e.*, after | uses(&e.*));
       if(orig(&t, usize(0)) != u64(0), {
         fail(ck, "E0909", "a spawned value carries origins (not Escapable)");
       });
     },
     .Return(e) => {
+      ck.call_after = u64(0);
       t := eval(ck, env, &e.*, uses(&e.*));
       if(!sub(&t, &env.result, false), {
         excess := (orig(&t, usize(0)) & ~orig(&env.result, usize(0)));
@@ -898,7 +912,7 @@ eval :: (fn(ck : &mut Ck, env : &mut Env, e : &Node, live : u64) -> Ty)(
       t
     },
     .Borrow(m, p) => {
-      access(ck, env, p.*, cond(m.* => ACCESS_WRITE, true => ACCESS_READ), live);
+      access(ck, env, p.*, cond((m.* && !ck.reserving) => ACCESS_WRITE, true => ACCESS_READ), live);
       declared := ((env.has_decl & bit(p.*)) != u64(0));
       pointee := cond(
         m.* => flex(&env.flow(p.*), &lend_bound(ck, env, p.*)),
@@ -966,11 +980,20 @@ eval :: (fn(ck : &mut Ck, env : &mut Env, e : &Node, live : u64) -> Ty)(
     .NewList(elem) => Rc.new(TyE.List(map_o(ck, &elem.*, OP_CLEAR, u64(0), &new_subst(u64(0))))),
     .MakeTup(items) => {
       mut(out) := ArrayList(Ty).new();
+      tup_after := ck.call_after;
       mut(i) := usize(0);
       while(i < items.len(), {
+        mut(later) := u64(0);
+        mut(k) := (i + usize(1));
+        while(k < items.len(), {
+          later = (later | uses(&items(k)));
+          k = (k + usize(1));
+        });
+        ck.call_after = (tup_after | later);
         out.push(recur(ck, env, &items(i), live));
         i = (i + usize(1));
       });
+      ck.call_after = tup_after;
       Rc.new(TyE.Tup(out))
     },
     .Closure(param, pty, caps, body, result) => eval_closure(ck, env, param.*, &pty.*, &caps.*, &body.*, &result.*, live),
@@ -1039,6 +1062,7 @@ eval_closure :: (fn(ck : &mut Ck, env : &mut Env, param : usize, pty : &Ty, caps
   stmts := desugar(body);
   inner.drop_uses = cond(ablated(ck, ABLATE_USER_DROP) => u64(0), true => scan_guards(&stmts));
   check_list(ck, &mut inner, &stmts, uses(result));
+  ck.call_after = u64(0);
   rt := eval(ck, &mut inner, result, u64(0));
   Rc.new(TyE.Func(ptype, rt, shared, excl))
 });
@@ -1052,9 +1076,37 @@ eval_call :: (fn(ck : &mut Ck, env : &mut Env, f : usize, args : &ArrayList(Node
   def := case.fns.index(f);
   sig := Rc.clone(&ck.sigs(f));
   mut(types) := ArrayList(Ty).new();
+  // Two-phase (P9): a `&mut` argument is reserved when evaluated (a read)
+  // and activated when the call begins, where only the places live after
+  // the call hold their loans: a `&` loan whose last use is a later
+  // argument has ended.
+  outer_after := ck.call_after;
   mut(i) := usize(0);
   while(i < args.len(), {
+    mut(later) := u64(0);
+    mut(k) := (i + usize(1));
+    while(k < args.len(), {
+      later = (later | uses(&args(k)));
+      k = (k + usize(1));
+    });
+    ck.call_after = (outer_after | later);
+    ra := Rc.clone(&args(i));
+    ck.reserving = match(&ra.*, .Borrow(m, _) => m.*, _ => false);
     types.push(eval(ck, env, &args(i), live));
+    ck.reserving = false;
+    i = (i + usize(1));
+  });
+  ck.call_after = outer_after;
+  i = usize(0);
+  while(i < args.len(), {
+    aa := Rc.clone(&args(i));
+    match(
+      &aa.*,
+      .Borrow(m, p) => if(m.*, {
+        access(ck, env, p.*, ACCESS_WRITE, outer_after);
+      }),
+      _ => ()
+    );
     i = (i + usize(1));
   });
   i = usize(0);
@@ -1322,7 +1374,7 @@ check_case :: (fn(c : Case) -> Ck)(check_ablated(c, u64(0)));
 /// what shows the row tests that rule.
 check_ablated :: (fn(c : Case, ablate : u64) -> Ck)({
   case := Rc.new(c);
-  mut(ck) := Ck(case : Rc.clone(&case), sigs : ArrayList(Rc(NSig)).new(), err : String.from(""), why : String.from(""), next_fresh : FRESH0, fresh : u64(0), spec_depth : usize(0), ablate : ablate);
+  mut(ck) := Ck(case : Rc.clone(&case), sigs : ArrayList(Rc(NSig)).new(), err : String.from(""), why : String.from(""), next_fresh : FRESH0, fresh : u64(0), spec_depth : usize(0), ablate : ablate, call_after : u64(0), reserving : false);
   mut(i) := usize(0);
   while(i < case.types.len(), {
     mut(j) := usize(0);

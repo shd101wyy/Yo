@@ -1,0 +1,13 @@
+// N0 corpus row `two-phase-named-after` (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §7 P9;
+// manifest tests/origins/corpus.tsv): `two-phase-named-last-use` with `r` used again after the call, so it is live when the `&mut` receiver activates.
+// Expected once P9 lands: rejected: E0911.
+{ ArrayList } :: import("std/collections/array_list");
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(i32).new();
+  xs.push(i32(1));
+  r := &xs;
+  xs.push(i32(r.len()));
+  _n := r.len();
+  ()
+});
+export(main);

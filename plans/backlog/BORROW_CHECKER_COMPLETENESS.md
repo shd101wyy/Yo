@@ -285,3 +285,9 @@ Filed 2026-11-07 from VERDICTS-30/31; each names its repro under `issues/repros/
   `issues/fixed/2026-11-09-a-generic-result-over-a-reference-item-roots-a-lent-closure-temporary.md`; G-B
   `find-result-root-cleared`). `Option(&T).unwrap()` (E0601) is R3's lowering of a `T := &U` result, next after P9
   and P8.
+- 2026-11-09: P9 landed (two-phase borrows with a named `&`). A call's `&mut` argument (the receiver included) is
+  judged twice. At the place where it is written, it is a read: a live `&mut` loan conflicts. At the call's
+  activation point, past its last argument, it is a write against the borrows still live there. So a `&` loan whose
+  last use is a later argument has ended (`r := &xs; xs.push(i32(r.len()))`), while one used after the call is
+  E0911. The reference model threads the same activation set (`call_after`). Rows `two-phase-named-last-use` (pos),
+  `two-phase-named-after` and `two-phase-mut-relend` (E0910, unchanged).

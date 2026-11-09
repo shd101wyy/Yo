@@ -4077,6 +4077,13 @@ _first_token_of :: (fn(e : &AstExpr, root : &Token) -> Token)({
   );
   best
 });
+/// The point where the call `call` begins, after its arguments are
+/// evaluated: the latest token of its source in the module of `at`, the
+/// argument's own token (never before it). A `&mut` argument is ACTIVATED
+/// just past it (two-phase, plans/backlog/BORROW_CHECKER_COMPLETENESS.md §7
+/// P9), so a `&` loan whose last use is a later argument has ended
+/// (`local_borrow_access_at` with `after_live`).
+call_activation_token :: (fn(call : &AstExpr, at : &Token) -> Token)(_last_token_of(call, at));
 /// The latest token of `e`'s own source: the end of an arm.
 _last_token_of :: (fn(e : &AstExpr, root : &Token) -> Token)({
   (best : Token) = root;
@@ -6752,6 +6759,11 @@ local_borrow_places_overlap :: (fn(p : &LocalBorrowPlace, q : &LocalBorrowPlace)
 _lb_live_at :: (fn(info : &LocalBorrowInfo, tok : &Token) -> bool)(
   (tok.module_path == info.start.module_path) && ((tok.character > info.start.character) && (tok.character <= info.end.character))
 );
+/// `_lb_live_at` at `tok`, or (`after`) just past it: live past a call's last
+/// token means the range ends after the call (two-phase, P9).
+_lb_live_past :: (fn(info : &LocalBorrowInfo, tok : &Token, after : bool) -> bool)(
+  if(after, (tok.module_path == info.start.module_path) && ((tok.character >= info.start.character) && (tok.character < info.end.character)), _lb_live_at(info, tok))
+);
 _lb_place_text :: (fn(p : &LocalBorrowPlace) -> String)(p.text.clone());
 _lb_mode :: (fn(info : &LocalBorrowInfo) -> str)(cond(info.is_mut => "&mut", true => "&"));
 _lb_verb :: (fn(kind : &LocalBorrowAccess) -> str)(
@@ -6966,13 +6978,31 @@ _lb_tok_after :: (fn(a : &Token, b : &Token) -> bool)((a.module_path == b.module
 /// An access of `place` at `tok`: E0911 if it conflicts with a live local
 /// borrow (decision 18, rule 2). A read conflicts with a live `mut` borrow;
 /// a write, a move or an exclusive borrow with any live borrow.
-local_borrow_access :: (fn(place : &LocalBorrowPlace, kind : &LocalBorrowAccess, tok : &Token, ctx : &EvalContext, exn : Exception) -> unit)({
+local_borrow_access :: (fn(place : &LocalBorrowPlace, kind : &LocalBorrowAccess, tok : &Token, ctx : &EvalContext, exn : Exception) -> unit)(
+  _local_borrow_access_live(place, kind, tok, tok, false, ctx, exn)
+);
+/// `local_borrow_access` of an access reported at `tok` whose borrows are
+/// judged live just past `live_tok`: a call's `&mut` argument is activated
+/// when the call begins (`call_activation_token`), not where it is written
+/// (two-phase, plans/backlog/BORROW_CHECKER_COMPLETENESS.md §7 P9). A borrow
+/// whose range ends at `live_tok`, the call's last token, has ended there.
+local_borrow_access_at :: (fn(place : &LocalBorrowPlace, kind : &LocalBorrowAccess, tok : &Token, live_tok : &Token, ctx : &EvalContext, exn : Exception) -> unit)(
+  _local_borrow_access_live(place, kind, tok, live_tok, true, ctx, exn)
+);
+_local_borrow_access_live :: (fn(place : &LocalBorrowPlace, kind : &LocalBorrowAccess, tok : &Token, live_tok : &Token, after_live : bool, ctx : &EvalContext, exn : Exception) -> unit)({
+  if(debug_knob(`YO_DEBUG_TWO_PHASE`).is_some() && after_live, {
+    eprintln(`[two-phase] ${place.text} at=${tok.character.to_string()} live_after=${live_tok.character.to_string()} borrows=${g_local_borrows.with(_c_len_5).to_string()}`);
+    (dbi : usize) = usize(0);
+    while(dbi < g_local_borrows.with(_c_len_5), dbi = (dbi + usize(1)), {
+      match(g_local_borrows.with(xs => xs.get(dbi)), .Some(dinfo) => eprintln(`[two-phase]   ${dinfo.name} start=${dinfo.start.character.to_string()} last=${dinfo.last_use.character.to_string()} end=${dinfo.end.character.to_string()} live=${_lb_live_past(&dinfo, live_tok, after_live)}`), .None => ());
+    });
+  });
   (i : usize) = g_local_borrows.with(_c_len_5);
   while(i > usize(0), {
     i = (i - usize(1));
     match(
       g_local_borrows.with(xs => xs.get(i)),
-      .Some(info) => if((info.is_mut || !_lb_is_read(kind)) && _lb_live_at(&info, tok), {
+      .Some(info) => if((info.is_mut || !_lb_is_read(kind)) && _lb_live_past(&info, live_tok, after_live), {
         (pi : usize) = usize(0);
         while(pi < info.places.len(), {
           match(
@@ -6995,7 +7025,7 @@ local_borrow_access :: (fn(place : &LocalBorrowPlace, kind : &LocalBorrowAccess,
     j = (j - usize(1));
     match(
       g_local_borrow_joins.with(xs => xs.get(j)),
-      .Some(jinfo) => if((jinfo.is_mut || !_lb_is_read(kind)) && _lb_live_at(&jinfo, tok), {
+      .Some(jinfo) => if((jinfo.is_mut || !_lb_is_read(kind)) && _lb_live_past(&jinfo, live_tok, after_live), {
         (pj : usize) = usize(0);
         while(pj < jinfo.places.len(), {
           match(
@@ -10686,6 +10716,8 @@ export(
   local_borrow_note_pattern_binding,
   local_borrow_access,
   local_borrow_access_expr,
+  local_borrow_access_at,
+  call_activation_token,
   local_borrow_require_writable,
   local_borrow_root_is_shared_reference,
   local_borrow_write_expr,
