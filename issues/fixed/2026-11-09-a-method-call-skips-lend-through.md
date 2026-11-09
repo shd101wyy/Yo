@@ -55,10 +55,11 @@ step 3 flow write-back into a flow-inferred receiver.
 
 ## Fix
 
-`lend_through` reads a method call's arguments as codegen passes them
-(`runtime_arg_exprs_in_order`, the receiver first) and its slots from the
-method's type (`projection_call_callee_type`), as `projection_call_root_args`
-already does for R-CALL; G-E's call-argument audit reads them the same way.
+`lend_through` binds a recorded method call's receiver (the `.`-access's left
+operand) as its first argument and reads the method's own slots
+(`_lend_through_args`, `_lend_through_slots`, the shape `_call_lends` uses for
+decision 28); a qualified `S.m(&mut s, v)` binds its written arguments. G-E's
+call-argument audit reads calls the same way.
 The corpus row's `today` column is E0923, and the program is
 `tests/origins/unsound/method-store-widen-named-holder.yo` beside a positive
 twin.
