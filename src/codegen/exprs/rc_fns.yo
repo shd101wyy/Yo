@@ -18,13 +18,13 @@
 { EvalValue } :: import("../../value.yo");
 { TypeValue, TypeValueNode, t_refine_inner } :: import("../../types/definitions.yo");
 { type_is_sized } :: import("../../types/utils.yo");
-{ is_array_type, is_atomically_counted_rc_type, is_rc_type, is_some_type, is_tuple_type, cell_handle_view, is_atomic_counted_handle_type } :: import("../../types/guards.yo");
+{ is_array_type, is_atomically_counted_rc_type, is_rc_type, is_some_type, is_tuple_type, cell_handle_view, is_atomic_counted_handle_type, is_dyn_type } :: import("../../types/guards.yo");
 { type_implements_future } :: import("../../evaluator/trait_checking.yo");
 { parse_raw_int } :: import("../../utils.yo");
 { FunctionGenerationContext, sm_owns_fnonce_captures, sm_lowering_set_rc_operand, shadow_bindings_of } :: import("../functions/context.yo");
 { sm_move_flag_of } :: import("../async/state_machine_naming.yo");
 { _call_generate_expr } :: import("./_expr.yo");
-{ get_type_string, fresh_local_name, _checked_fixed_array_subscript, sanitize_for_c_identifier, c_field_name } :: import("../utils/index.yo");
+{ dyn_fat_code, get_type_string, fresh_local_name, _checked_fixed_array_subscript, sanitize_for_c_identifier, c_field_name } :: import("../utils/index.yo");
 { generate_drop_code_for_value, generate_dup_code_for_value, get_drop_function_for_type, get_dup_function_for_type, resolve_some_type_param_type } :: import("./drop_dup.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
 { _has_comptime_only_runtime_field } :: import("../types/collection.yo");
@@ -285,6 +285,15 @@ generate_drop_of_operand :: (fn(value_arg : &AstExpr, indent : &String, context 
   // `(*F)`, `F` the fat pointer, whose length bounds the tail.
   if(!type_is_sized(&value_type) && value_code.starts_with("(*") && value_code.ends_with(")"), {
     _emit_unsized_place_drop(&value_type, &value_code.substring(usize(2), value_code.len() - usize(1)), indent, context);
+    return(String.new());
+  });
+  // `___drop` of a `Dyn` place (`drop_in_place(p)` with `p : *Dyn`): the
+  // operand is the place `(*F)` over the fat pointer `F`. The payload is
+  // dropped through the vtable and nothing is freed (Rust's
+  // `ptr::drop_in_place`); a Dyn value, which has no such place, is released.
+  if(is_dyn_type(&value_type) && value_code.starts_with("(*") && (dyn_fat_code(&value_code) != value_code), {
+    dyn_fat := dyn_fat_code(&value_code);
+    context.base.emitter.emit_string_line(`${indent.clone()}__yo_dyn_drop_in_place((void*)(${dyn_fat.clone()}).data, (const void*)(${dyn_fat.clone()}).vtable);`);
     return(String.new());
   });
   // Single-pass async lowering: an await moved this temp's future into

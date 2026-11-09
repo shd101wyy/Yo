@@ -29,7 +29,7 @@ pragma(Pragma.AllowUnsafe);
 { EvalValue, is_func_val, create_type_value, create_unknown_val, no_opt_values, shared_opt_values } :: import("../../value.yo");
 { get_func_type, get_closure_capture_info } :: import("../../function_value.yo");
 { create_specialized_function_inline, try_to_call_function_with_arguments } :: import("../calls/helper.yo");
-{ some_t_bounds, TypeValue, TypeValueNode, no_types, no_levels, slot_pointee_at, fn_param_by_value_at, fn_param_mut_ref_flags, no_flags, shared_list, no_labels, t_slot_pointee, fn_trait_base_serves, fn_trait_call_contract, fn_trait_slot_contract } :: import("../../types/definitions.yo");
+{ t_refine_inner, some_t_bounds, TypeValue, TypeValueNode, no_types, no_levels, slot_pointee_at, fn_param_by_value_at, fn_param_mut_ref_flags, no_flags, shared_list, no_labels, t_slot_pointee, fn_trait_base_serves, fn_trait_call_contract, fn_trait_slot_contract } :: import("../../types/definitions.yo");
 { t_unit, t_type, t_dyn, t_dyn_payload_wrapper } :: import("../../types/creators.yo");
 { is_dyn_type, is_some_type, is_function_type, is_reference_struct_type, is_boxed_type, is_shared_cell_type_name, shared_cell_canonical_names, cell_handle_view, is_atomic_counted_handle_type } :: import("../../types/guards.yo");
 { resolve_cell_chain, is_closure_capture_struct, type_contains_some_type_deep, get_all_some_types, type_is_move_only, move_only_reason, dyn_member_is_method, dyn_member_unsafe_reason, fn_param_is_ptr_borrow, CaptureBorrow, capture_borrows_exist, capture_borrow_place_string, collect_type_borrows, is_future_value_type, is_clone_trait_type } :: import("../../types/utils.yo");
@@ -1318,10 +1318,10 @@ _reject_weaker_closure_into_dyn :: (fn(target : &Option(ExpectedTypeCtx), value_
 _dyn_pointee_of_expected :: (fn(t : &TypeValue) -> Option(TypeValue))({
   r := t_refine_inner(t);
   match(
-    r,
-    Rc(.Reference(rp, _, _)) => if(is_dyn_type(&rp), Option(TypeValue).Some(t_refine_inner(&rp)), Option(TypeValue).None),
-    Rc(.Pointer(pp)) => if(is_dyn_type(&pp), Option(TypeValue).Some(t_refine_inner(&pp)), Option(TypeValue).None),
-    _ => if(is_dyn_type(&r), Option(TypeValue).Some(Rc.clone(r)), Option(TypeValue).None)
+    &r,
+    Rc(.Reference(rp, _, _)) => if(is_dyn_type(rp), Option(TypeValue).Some(t_refine_inner(rp)), Option(TypeValue).None),
+    Rc(.Pointer(pp)) => if(is_dyn_type(pp), Option(TypeValue).Some(t_refine_inner(pp)), Option(TypeValue).None),
+    _ => if(is_dyn_type(&r), Option(TypeValue).Some(Rc.clone(&r)), Option(TypeValue).None)
   )
 });
 /// `dyn(&v)` / `dyn(&mut v)` (plans/VALUES_BY_DEFAULT.md decision 49, S1d):
