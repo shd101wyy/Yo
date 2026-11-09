@@ -1042,3 +1042,61 @@ test("a match binding's lent temporary is not released inside a loop in its arm"
   assert(g_tmp_drops == i32(0), "the bag outlives the match: `r` still owns it");
   assert(r.items.len() == usize(2), "the handle is still live after the match");
 });
+// A holder's flow set is what its `=` joins added (O-1, §7), read wherever
+// the holder is read; a by-value parameter holder holds the caller's
+// references, never its own place
+// (issues/fixed/2026-11-09-a-holder-read-ignores-what-its-assignments-joined.md).
+_keep_joined :: (fn(generic(p : Origin), r : &(i32, p)) -> Option(&(i32, p)))({
+  mut(res) := Option(&(i32, p)).None;
+  res = .Some(r);
+  res
+});
+_keep_typed :: (fn(generic(p : Origin), r : &(i32, p)) -> Option(&(i32, p)))({
+  (mut(res) : Option(&(i32, p))) = .None;
+  res = .Some(r);
+  res
+});
+_copy_param :: (fn(generic(p : Origin), o : Option(&(i32, p))) -> Option(&(i32, p)))({
+  c := o;
+  c
+});
+test("a holder joined from a parameter returns with the parameter's origin", {
+  x := i32(4);
+  assert(_keep_joined(&x).unwrap().* == i32(4), "a `:=` holder");
+  assert(_keep_typed(&x).unwrap().* == i32(4), "a typed holder");
+  assert(_copy_param(.Some(&x)).unwrap().* == i32(4), "a copy of a by-value parameter holder");
+});
+// The joins stay visible to the return check: a local's lend joined into
+// the holder is still E0912.
+comptime_expect_error(
+  _return_joined_local :: (fn(generic(p : Origin), r : &(i32, p)) -> Option(&(i32, p)))({
+    mut(res) := Option(&(i32, p)).Some(r);
+    x := i32(1);
+    res = .Some(&x);
+    res
+  }),
+  "RETURN_JOINED_MSG"
+);
+// A typed declaration `(h : T) = v` is a holder binding as `h := v` is
+// (issues/fixed/2026-11-09-a-typed-declaration-is-not-a-holder-binding.md):
+// it freezes what `v` lends, and its `=` joins reach its last use.
+comptime_expect_error(
+  _typed_holder_freezes :: (fn() -> unit)({
+    mut(s) := String.from("ab");
+    (h : Option(&String)) = .Some(&s);
+    s = String.from("x");
+    _ := h;
+  }),
+  "TYPED_FREEZE_MSG"
+);
+comptime_expect_error(
+  _typed_holder_scope :: (fn() -> unit)({
+    (mut(h) : Option(&String)) = .None;
+    {
+      inner := String.from("ab");
+      h = .Some(&inner);
+    };
+    _ := h;
+  }),
+  "scope ends with its block"
+);

@@ -187,6 +187,11 @@ _c_len_9 :: (fn(xs : &ArrayList(RefPayloadSource)) -> usize)(xs.len());
 /// binding is a copy of one of them, so a read of it points where they do
 /// (R-DEREF), never into the binding's own place or the scrutinee's.
 (g_ref_payload_held : RefCell(HashMap(usize, ArrayList(OriginRootPlace)))) = RefCell(HashMap(usize, ArrayList(OriginRootPlace))).new(HashMap(usize, ArrayList(OriginRootPlace)).new());
+/// The by-value holders `bind` registered, by variable id: their loan set is
+/// their `bind` entries plus their `=` joins, so an empty set is "holds no
+/// place of this function" (R-READ falls back to a holder's own place only
+/// for a binding no rule registered).
+(g_bound_holders : RefCell(HashMap(usize, bool))) = RefCell(HashMap(usize, bool)).new(HashMap(usize, bool).new());
 /// Live capture-list freezes by borrowed root id (`note_second_class_binding`).
 (g_capture_freezes : RefCell(HashMap(usize, ArrayList(_CaptureFreeze)))) = RefCell(HashMap(usize, ArrayList(_CaptureFreeze))).new(HashMap(usize, ArrayList(_CaptureFreeze)).new());
 
@@ -8366,12 +8371,14 @@ _origin_of_into :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, out
     // A by-value parameter holder (`o : Option(&(T, p))`) holds the
     // caller's references: its own place is no root of its value (a lend
     // of it, `&o`, is R-LEND's), and a reassignment joins its set above.
-    by_value_param := match(
+    // A holder `bind` registered (`c := o`) holds exactly its entries and
+    // joins: an empty set holds nothing of this function's.
+    no_own_place := match(
       get_variables_from_env(env, ast_expr_token(&stripped).value.*.clone()).last_cloned(),
-      .Some(pv) => (pv.is_parameter() && !variable_is_reference_binding(&pv)),
+      .Some(pv) => (!variable_is_reference_binding(&pv) && (pv.is_parameter() || _is_bound_holder(pv.id()))),
       .None => false
     );
-    if((out.len() == before) && !by_value_param, {
+    if((out.len() == before) && !no_own_place, {
       _origin_push_place(&stripped, t_slot_is_mut_ref(&fi.ty()), env, ctx, out);
     });
     return(());
@@ -8987,6 +8994,16 @@ bind :: (fn(binding : &AstExpr, rhs : &AstExpr, var_name : &String, name_tok : &
       _reject_temporary_root(var_name, &tmp, &ast_expr_to_string(rhs), false, ast_expr_token(rhs), ctx, exn);
       return(());
     },
+    .None => ()
+  );
+  match(
+    get_variables_from_env(env, var_name.clone()).last_cloned(),
+    .Some(bv) => if(!variable_is_reference_binding(&bv), {
+      bv_id := bv.id();
+      g_bound_holders.with_mut({ bv_id }(m) => {
+        m.insert(bv_id, true);
+      });
+    }),
     .None => ()
   );
   // O-4: a holder whose drop uses its roots keeps them to its scope end.
@@ -10184,6 +10201,10 @@ ref_payload_source :: (fn(var_id : usize) -> Option(AstExpr))({
   });
   Option(AstExpr).None
 });
+/// Whether `bind` registered the by-value holder `var_id`.
+_is_bound_holder :: (fn(var_id : usize) -> bool)(
+  g_bound_holders.with({ var_id }(m) => m.get_cloned(&var_id).is_some())
+);
 /// Record the roots the reference payload binding `var_id` holds.
 note_ref_payload_held :: (fn(var_id : usize, held : &ArrayList(OriginRootPlace)) -> unit)({
   rph := held.clone();
