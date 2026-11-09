@@ -43,3 +43,23 @@ The return check reached through `return(...)` resolves `items` to the match bin
 ## Test
 
 The fix adds the reproducer as a positive case to `tests/origins/reference_read_rule.test.yo`. It then moves this doc to `issues/fixed/`, and `JsonValue.get`/`TomlValue.get` can return from the key loop again.
+
+## Fixed
+
+**Root cause.** `return_check` judged the raw `origin_of` roots of the returned
+value. For an enum constructor over `items.index(i)` the root is `items`, the
+binding of a `match` over a reference (`match(v, .Arr(items) => ...)`), a local.
+The tail form is judged after the match, where the value resolves to the
+scrutinee `v`; the `return` path never followed the binding there. (Decision
+24's root rule already follows such a binding, `note_borrow_match_source`,
+#1801; the return check did not.)
+
+**Fix.** `return_check` replaces each root that names a `&` match binding
+(`is_borrow_match_binding` with a recorded `borrow_match_source`) by the
+scrutinee's own roots (`_origin_through_match_bindings`, transitively for nested
+matches), so a `return` in the arm sees `v`, a parameter. A root that names a
+real local of the arm (`local := items.clone(); ... local.index(0)`) is no match
+binding and is still E0912.
+
+**Test.** `tests/origins/reference_read_rule.test.yo`: the reproducer, and the
+arm-local negative.

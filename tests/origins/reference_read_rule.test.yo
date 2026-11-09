@@ -305,6 +305,47 @@ test("a plain holder's root is free after the holder's last use", {
   x = i32(2);
   assert(x == i32(2), "no Drop: the holder's range ended at its last use");
 });
+// An early `return` inside a `&` match arm follows the arm's binding to the
+// scrutinee, as the same value in tail position does
+// (issues/fixed/2026-11-08-an-early-return-does-not-follow-a-match-binding-to-its-scrutinee.md).
+RrFindV :: enum(Num(n : i32), Arr(items : ArrayList(i32)));
+rr_find :: (fn(v : &RrFindV, k : &i32) -> Option(&(i32, v)))(
+  match(
+    v,
+    .Arr(items) => {
+      mut(i) := usize(0);
+      while(i < items.len(), i = (i + usize(1)), {
+        if(items(i) == k.*, {
+          return(Option(&(i32, v)).Some(items.index(i)));
+        });
+      });
+      Option(&(i32, v)).None
+    },
+    _ => Option(&(i32, v)).None
+  )
+);
+test("An early return in a match arm follows the binding to its scrutinee", {
+  mut(xs) := ArrayList(i32).new();
+  xs.push(i32(4));
+  xs.push(i32(9));
+  v := RrFindV.Arr(items : xs.clone());
+  assert(rr_payload(rr_find(&v, &i32(9))) == i32(9), "found by an early return");
+  assert(rr_find(&v, &i32(5)).is_none(), "not found falls to the tail");
+});
+// A binding of the arm's own local is still a local of the function.
+comptime_expect_error(
+  rr_early_return_local :: (fn(v : &RrFindV) -> Option(&(i32, v)))(
+    match(
+      v,
+      .Arr(items) => {
+        local := items.clone();
+        return(Option(&(i32, v)).Some(local.index(usize(0))));
+      },
+      _ => Option(&(i32, v)).None
+    )
+  ),
+  "Cannot return a value holding"
+);
 // O-5 (R-TEMP): a temporary lent to a reference parameter is a hidden local of
 // its statement; a value holding it may not outlive the statement.
 RrTmpH :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(r : &(i32, p)));
