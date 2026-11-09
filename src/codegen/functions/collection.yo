@@ -1025,7 +1025,7 @@ _find_function_calls_in_node :: (fn(expr : &AstExpr, context : &mut CodeGenConte
           // names. NOTE: type_key on a cyclic dyn (Dyn(Error)) could loop — the
           // corpus's Dyn(Speak) is acyclic so this is corpus-safe; a cycle-safe
           // key is future work for compiling std's self-referential traits.
-          if((tvs.len() > usize(0)) && is_dyn_type(&ei.ty()), {
+          if((tvs.len() > usize(0)) && (is_dyn_type(&ei.ty()) || match(t_refine_inner(&ei.ty()), Rc(.Pointer(pk)) => is_dyn_type(&pk), _ => false)), {
             // The dyn payload codegen emits is runtime_arg_exprs_in_order[0] —
             // for `dyn(valueStruct)` this is a SYNTHESIZED `Rc(T).new(value)` (auto-box,
             // type Rc(Sq)) that is NOT the source arg `cargs[0]` (the bare value).
@@ -1050,9 +1050,13 @@ _find_function_calls_in_node :: (fn(expr : &AstExpr, context : &mut CodeGenConte
                     // `dyn(&v)` / `dyn(&mut v)` (decision 49): the instance over
                     // the lent place's own type, registered here so a downcast
                     // emitted before the creation site sees it.
-                    if(unsize_reference_mode(ast_expr_id(expr)).is_some(), {
+                    if(unsize_reference_mode(ast_expr_id(expr)).is_some() || match(t_refine_inner(&ei.ty()), Rc(.Pointer(_)) => true, _ => false), {
                       match(
                         t_refine_inner(&vty),
+                        Rc(.Pointer(lp)) => {
+                          lp_key := `${type_key(lp.clone())}_${type_key(&match(t_refine_inner(&ei.ty()), Rc(.Pointer(ep)) => Rc.clone(ep), _ => Rc.clone(ei.ty())))}`;
+                          context.register_dyn_impl(&lp_key, DynImplEntry(dyn_type : match(t_refine_inner(&ei.ty()), Rc(.Pointer(ep2)) => Rc.clone(ep2), _ => Rc.clone(ei.ty())), concrete_type : Rc.clone(lp), data_type : Rc.clone(lp), trait_values : tvs.clone(), payload_convention : true));
+                        },
                         Rc(.Reference(lp, _, _)) => {
                           lp_key := `${type_key(lp.clone())}_${type_key(&ei.ty())}`;
                           context.register_dyn_impl(&lp_key, DynImplEntry(dyn_type : Rc.clone(ei.ty()), concrete_type : Rc.clone(lp), data_type : Rc.clone(lp), trait_values : tvs.clone(), payload_convention : true));

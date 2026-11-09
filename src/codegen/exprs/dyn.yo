@@ -120,11 +120,10 @@ generate_dyn_call :: (fn(expr : &AstExpr, indent : &String, context : &mut Funct
   });
   // `dyn(&v)` / `dyn(&mut v)` (decision 49): the Dyn is the fat pointer over
   // the lent place. Its data word is the payload's address.
-  match(
-    unsize_reference_mode(ast_expr_id(expr)),
-    .Some(_) => return(_generate_dyn_over_lend(expr, &dyn_type, &trait_values, &value_expr, indent, context)),
-    .None => ()
-  );
+  is_ptr_kind := match(t_refine_inner(&ei.ty()), Rc(.Pointer(ppk)) => is_dyn_type(&ppk), _ => false);
+  if(unsize_reference_mode(ast_expr_id(expr)).is_some() || is_ptr_kind, {
+    return(_generate_dyn_over_lend(expr, &dyn_type, &trait_values, &value_expr, indent, context));
+  });
   value_ei := match(context.base.get_expr_info(&value_expr), .Some(e) => e, .None => return(String.from("/* Error: dyn() value has no type */")));
   value_type := Rc.clone(value_ei.ty());
   // dyn() requires an object type (value types must use Rc.new()). Box is not

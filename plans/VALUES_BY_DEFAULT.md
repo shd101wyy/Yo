@@ -10240,12 +10240,12 @@ The rule, layout, prelude and tests are in decision 49 (§4).
    - The kinds and types: the `Sized` derivation and the `?Sized` binder kind; `[T]`, `str` and tail structs as unsized types; `Slice(T)` as the builtin keyword `[T]` parses to (as `[T; N]` parses to `Array(T, N)`); fat `*T`/`&T`/`?*T`.
    - The builtins: `size_of_val`, `align_of_val`, `unsize`, and `___drop` of an unsized place.
    - The places and origins: the `Index(Range…)` projections, and the `static` origin.
-   - `dyn(P(V)) : P(Dyn)`, with the vtable prefix `{type_id, size, align, drop_in_place, clone_into}` and `downcast` by pointer kind.
+   - `dyn(P(V)) : P(Dyn)`, with the vtable prefix `{type_id, size, align, drop_in_place, clone_into, payload_of, retain, release, clone}` (the five final slots, then the legacy suffix S3 deletes without moving an offset) and `downcast` by pointer kind (VERDICTS-40, 2026-11-09). `Box(Dyn(…))` is the legacy value `Dyn(…)`, aliased (option (a)): in S1 the reference kinds (`dyn(&v)`, `dyn(&mut v)`, `*Dyn`, `size_of_val`/`drop_in_place` through the vtable, `downcast(r : &Dyn, V) -> Option(&V)`, `upcast` on a reference) are final; `dyn(Box.new(v))` is the legacy box of `v`, and `dyn(h)` over a named `Rc`/`Arc` handle is rejected until the prelude is `?Sized`.
    - The errors: E0619 at the definition, E0620, the E0614 extension to every by-value `self` through a `Dyn`, and coherence rule 3's sized-only blanket.
    - `yo fix <path> --migrate unsized`.
    - Legacy aliases behind the temporary predicate `unsized_legacy_spellings`: a value `Dyn(…)` means `Box(Dyn(…))`, a plain `dyn(v)` means `dyn(Box.new(v))`, a value `str` means `&(str, static)`, and `&d` into a `&Dyn` slot lends. With these, the seed's tree and the swept tests each name one type.
    - Tests, docs, skills and cli fixtures are swept when S1 merges.
-2. **S2, the prelude and std** (on the seed that carries S1).
+2. **S2, the prelude and std** (on the seed that carries S1). Order (VERDICTS-40, reversing VERDICTS-27 Q7): the std/src sweep first (`yo fix ./std ./src --migrate unsized`; seed-safe, because the alias makes `Box(Dyn(X))`, `dyn(Box.new(e))` and `&e.*` the legacy type under the seed), then the prelude flip. The flip PR makes `Box`/`Rc`/`Arc`/`Weak`/`ArcWeak` `?Sized`, deletes the `Box(Dyn)` intercept and `type_is_sized`'s `DynT` exemption, and replaces the two `dyn` desugars with the real unsizing through `*V` and `__yo_cell(V)`, all in one PR, since a bare `Dyn(…)` cannot survive it.
    - `Box`/`Rc`/`Arc`/`Weak`/`ArcWeak` over `comptime(V) : ?Sized`, with the sized-only methods split out.
    - `CloneInto`.
    - `[T]` and `str` impls; `Deref` on `ArrayList`/`Array`/`String`; `as_str`, `into_boxed_slice`, `Rc.from_slice`, `str.from_utf8`.
@@ -10253,7 +10253,7 @@ The rule, layout, prelude and tests are in decision 49 (§4).
    - Then `yo fix ./std ./src --migrate unsized`, regenerated on the tip.
 3. **S3, Generation B.**
    - `unsized_legacy_spellings` deleted, so E0619/E0620 apply everywhere.
-   - The dead arms deleted: `__yo_dyn_self_copy`, `_create_box_type_via`, `_synthesized_cell_call`, `_dyn_target_requires_send`, `is_boxed_type`'s dyn arms, the `__yo_rc_alloc` dyn box, the `Sync` demand, the atomic-payload check, `slice_copy`.
+   - The dead arms deleted, beyond the list below: the vtable's legacy suffix `{payload_of, retain, release, clone}`, the `_P`/`_A` instance keys (one convention remains), the `Box(Dyn)` intercept (if S2 has not removed it), the two `dyn(Box.new)`/`dyn(Rc.new)` desugars, the recognizer's cell arms (`_dyn_cell_constructor_of`, `_dyn_cell_args_recognized`, `_mark_preset_receiver`; S2 replaces them with contextual typing of the literal inside a real constructor call), the named-handle rejection message, and the type printer's `Box(Dyn(…))` arm. Also: `__yo_dyn_self_copy`, `_create_box_type_via`, `_synthesized_cell_call`, `_dyn_target_requires_send`, `is_boxed_type`'s dyn arms, the `__yo_rc_alloc` dyn box, the `Sync` demand, the atomic-payload check, `slice_copy`.
    - `unsized` retires one release after its last in-tree use.
 
 **Placement** (`plans/handover/VBD_RELEASE_SCHEDULE.md` §5f decision 30):
