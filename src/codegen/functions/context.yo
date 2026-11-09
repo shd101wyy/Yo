@@ -244,6 +244,9 @@ FunctionGenerationContext :: struct(
   /// Phase-1b aliases: temp future variable id → its await_future_N SM field
   /// name (atom emission redirects SM lookups to the existing await field).
   state_machine_field_aliases : Option(HashMap(String, String)),
+  /// Expression ids of the operands this state machine holds in a task slot
+  /// across a later operand's `await` (`collect_operand_holds`).
+  sm_operand_holds : Option(HashSet(usize)),
   /// State-machine variable ids whose slot a BORROWING match pattern
   /// binding was stored into. Such a binding reads the scrutinee's payload
   /// (no dup, no scope-end drop), so the abort dispose must not drop its slot
@@ -331,6 +334,7 @@ impl(
       fusion_field_prefix : String.from(""),
       state_machine_variables : Option(HashMap(String, CapturedVariable)).None,
       state_machine_field_aliases : Option(HashMap(String, String)).None,
+      sm_operand_holds : Option(HashSet(usize)).None,
       state_machine_binding_ids : Option(HashSet(String)).None,
       match_binds_own : false,
       current_evidence_params : Option(HashMap(String, EvidenceParameter)).None,
