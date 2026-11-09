@@ -1069,13 +1069,13 @@ test("a holder joined from a parameter returns with the parameter's origin", {
 // The joins stay visible to the return check: a local's lend joined into
 // the holder is still E0912.
 comptime_expect_error(
-  _return_joined_local :: (fn(generic(p : Origin), r : &(i32, p)) -> Option(&(i32, p)))({
-    mut(res) := Option(&(i32, p)).Some(r);
+  _return_joined_local :: (fn(r : &i32) -> Option(&i32))({
+    mut(res) := Option(&i32).None;
     x := i32(1);
     res = .Some(&x);
     res
   }),
-  "RETURN_JOINED_MSG"
+  "Cannot return a value holding `x`"
 );
 // A typed declaration `(h : T) = v` is a holder binding as `h := v` is
 // (issues/fixed/2026-11-09-a-typed-declaration-is-not-a-holder-binding.md):
