@@ -38,6 +38,7 @@
   is_enum_type,
   can_optimize_as_nullable_pointer,
   is_some_type,
+  is_dyn_type,
   get_adopted_extern_c_type
 } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -145,13 +146,17 @@ derive(ArrayStructInfo, Clone);
 /// A `dyn()` usage: a concrete type used with a specific dyn trait. `dyn_type`
 /// is the DynT; `concrete_type` is the user type; `data_type` is what is
 /// stored in Dyn.data (object/Rc); `trait_values` are the TraitVal evidence
-/// values in trait order.
+/// values in trait order. `payload_convention` is set for an instance whose
+/// data word is the payload's own address (a `dyn(&v)` / `dyn(&mut v)` /
+/// `dyn(p : *V)` Dyn pointer, decision 49), not the legacy cell holding it:
+/// its wrappers and slot functions read `*(V*)data`, and its key carries `_P`.
 DynImplEntry :: ref(
   struct(
     dyn_type : TypeValue,
     concrete_type : TypeValue,
     data_type : TypeValue,
-    trait_values : ArrayList(EvalValue)
+    trait_values : ArrayList(EvalValue),
+    payload_convention : bool
   )
 );
 /// A byte range of the emitter's `code` buffer holding one complete emitted
@@ -1698,8 +1703,38 @@ _some_resolution_chain :: (fn(t : &TypeValue) -> Option(TypeValue))({
   });
   if(is_some_type(&cur), Option(TypeValue).None, Option(TypeValue).Some(cur))
 });
-/// A pointee is unsized (decision 49): a pointer to it is fat.
-is_unsized_pointee :: (fn(pointee : &TypeValue) -> bool)(!type_is_sized(pointee));
+/// A pointee is unsized (decision 49): a pointer to it is fat. A `Dyn`
+/// pointee is too, whatever `type_is_sized` says of the legacy value while
+/// `unsized_legacy_spellings` holds (VERDICTS-40 amendment 5): a pointer to a
+/// `Dyn` is the registered fat struct `{ data, vtable }` in every position.
+is_unsized_pointee :: (fn(pointee : &TypeValue) -> bool)(!type_is_sized(pointee) || is_dyn_type(pointee));
+/// The Dyn fat struct a Dyn place's code stands for: a place `(*F)` over the
+/// fat pointer `F` reads as `F` (a `&Dyn` is the fat struct itself, so the
+/// place's dereference is textual only), and a Dyn value's own code is the
+/// struct. Only a dereference whose outer parentheses are one balanced pair is
+/// stripped.
+dyn_fat_code :: (fn(c : &String) -> String)({
+  n := c.len();
+  if((n < usize(4)) || !(c.starts_with("(*") && c.ends_with(")")), {
+    return(c.clone());
+  });
+  (mut(depth) : i32) = i32(0);
+  (mut(i) : usize) = usize(0);
+  while(i < n, {
+    b := c.byte_at(i);
+    if(b == u8(40), {
+      depth = (depth + i32(1));
+    });
+    if(b == u8(41), {
+      depth = (depth - i32(1));
+      if((depth == i32(0)) && (i < (n - usize(1))), {
+        return(c.clone());
+      });
+    });
+    i = (i + usize(1));
+  });
+  c.substring(usize(2), n - usize(1))
+});
 /// The C type of a pointer (`*T`, a `&T`/`&mut T` passed by pointer, an owning
 /// handle's cell pointer) to `pointee`: `T*` for a sized `T`; the fat
 /// `__yo_slice_t` (`{ void* ptr; size_t len; }`, its element type erased as
@@ -1710,6 +1745,8 @@ pointer_c_type_string :: (fn(pointee : &TypeValue, context : &mut CodeGenContext
   match(
     t_refine_inner(pointee),
     Rc(.SliceT(_)) => String.from("__yo_slice_t"),
+    // A pointer to a `Dyn` is the Dyn's fat struct itself.
+    Rc(.DynT({})) => get_type_string(pointee, context),
     // A specialized type variable is its resolution (`r : &T` at `T = [E]`):
     // fat when the resolution is unsized, `T*` (spelled through the variable,
     // as `get_type_string` resolves it) otherwise.
@@ -2649,6 +2686,7 @@ export(
   box_payload_place_code,
   pointer_c_type_string,
   is_unsized_pointee,
+  dyn_fat_code,
   erased_future_result_type_string,
   get_storage_type_string,
   dyn_slot_param_abi_string,

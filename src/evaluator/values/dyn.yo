@@ -9,13 +9,14 @@ pragma(Pragma.AllowUnsafe);
 { replace } :: import("std/mem");
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr, ast_expr_token, ast_expr_id, alloc_global_expr_id, ast_expr_is_fn_call_of, BF_DOT, BK_BORROW_MUT, ast_rewritten_node, note_rewritten_node } :: import("../../expr.yo");
+{ AstExpr, ast_expr_token, ast_expr_id, alloc_global_expr_id, ast_expr_is_fn_call_of, BF_DOT, BK_BORROW_MUT, BF_ADDRESS_OF, ast_rewritten_node, note_rewritten_node } :: import("../../expr.yo");
 {
   ExprInfo,
   new_expr_info,
   expr_info_table_set,
   expr_info_table_get,
   expr_info_set_dyn_call_trait_values,
+  note_unsize_reference,
   expr_info_adopt_env,
   mark_node_preevaluated,
   unmark_node_preevaluated
@@ -46,6 +47,7 @@ pragma(Pragma.AllowUnsafe);
 { get_type_trait_methods_for_type, type_id_or_empty, get_trait_default } :: import("./type_trait_methods.yo");
 { find_methods_from_generic_impls, MethodCandidate, _substitute_self_in_method_ty } :: import("./impl.yo");
 { Exception } :: import("std/error");
+{ _eval_builtin_args } :: import("../builtins/sizeof.yo");
 /// Build the ordered TraitVal evidence for a DynType over a concrete value
 /// type, resolving each trait method to the concrete type's registered impl
 /// FuncVal (via the type_trait_methods registry). C codegen's vtable
@@ -1310,6 +1312,68 @@ _reject_weaker_closure_into_dyn :: (fn(target : &Option(ExpectedTypeCtx), value_
     match(target, .Some(dt) => judge_capture_fnmut_at_fn_slot(tok, &dt.ty, value_ty, ctx, exn), .None => ());
   });
 });
+/// The Dyn a pointer-kind `dyn` builds, read from the type its position
+/// expects: a bare `Dyn(...)` (a `&Dyn` slot's pointee), `&Dyn(...)`,
+/// `&mut Dyn(...)` or `*Dyn(...)`.
+_dyn_pointee_of_expected :: (fn(t : &TypeValue) -> Option(TypeValue))({
+  r := t_refine_inner(t);
+  match(
+    r,
+    Rc(.Reference(rp, _, _)) => if(is_dyn_type(&rp), Option(TypeValue).Some(t_refine_inner(&rp)), Option(TypeValue).None),
+    Rc(.Pointer(pp)) => if(is_dyn_type(&pp), Option(TypeValue).Some(t_refine_inner(&pp)), Option(TypeValue).None),
+    _ => if(is_dyn_type(&r), Option(TypeValue).Some(Rc.clone(r)), Option(TypeValue).None)
+  )
+});
+/// `dyn(&v)` / `dyn(&mut v)` (plans/VALUES_BY_DEFAULT.md decision 49, S1d):
+/// the `&Dyn(...)` / `&mut Dyn(...)` over the lent place `v`, which stays where
+/// it is. Nothing is allocated, boxed or retained: the Dyn is the fat pointer
+/// `{ &v, vtable }`, and `v` is borrowed for as long as the reference lives.
+/// Like `unsize`, the call is a projection of the lent place: its type is the
+/// unsized place (`Dyn`) and its mode is recorded beside it
+/// (`note_unsize_reference`), so the read rule makes it the reference where a
+/// `&Dyn` slot or binder takes one and `d := dyn(&v)` binds a local borrow.
+_evaluate_dyn_over_lend :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr)({
+  tok := ast_expr_token(expr);
+  (call, infos) := _eval_builtin_args(expr, usize(1), "dyn", env, ctx, exn);
+  info := Rc.clone(infos(usize(0)));
+  (pointee : TypeValue) = t_unit();
+  (is_mut : bool) = false;
+  match(
+    t_refine_inner(&info.ty()),
+    Rc(.Reference(rp, rm, _)) => {
+      pointee = Rc.clone(rp);
+      is_mut = rm;
+    },
+    _ => exn.throw(dyn(format_error_message(&tok, `\`dyn(&v)\` lends a place, and its argument is a \`${type_to_string(&info.ty())}\`.`)))
+  );
+  (dyn_type : TypeValue) = match(
+    &ctx.expected_type,
+    .Some(et) => match(
+      _dyn_pointee_of_expected(&et.ty),
+      .Some(d) => d,
+      .None => {
+        exn.throw(dyn(format_error_message_with_help(&tok, String.from("`dyn(&v)` builds a `&Dyn(...)`, and the Dyn it builds is named by the type its position expects."), Option(String).Some(String.from("pass it where a `&Dyn(Trait)` is expected, or annotate the binding: `(d : &Dyn(Trait)) = dyn(&v)`")))));
+        t_unit()
+      }
+    ),
+    .None => {
+      exn.throw(dyn(format_error_message_with_help(&tok, String.from("`dyn(&v)` builds a `&Dyn(...)`, and the Dyn it builds is named by the type its position expects."), Option(String).Some(String.from("pass it where a `&Dyn(Trait)` is expected, or annotate the binding: `(d : &Dyn(Trait)) = dyn(&v)`")))));
+      t_unit()
+    }
+  );
+  if(is_dyn_type(&dyn_type), {
+    _reject_dyn_of_dyn(pointee.clone(), &tok, exn);
+    _require_dyn_traits_implemented(&dyn_type, &pointee, &tok, ctx, env, exn);
+    trait_vals := _resolve_dyn_trait_values(Rc.clone(dyn_type), &pointee, ctx, env, exn);
+    _require_send_dyn_methods_reach_no_global(&dyn_type, &trait_vals, &tok, ctx, env, exn);
+    _reject_dyn_borrowing_future_methods(&dyn_type, &trait_vals, &pointee, &tok, ctx, exn);
+    out_info := new_expr_info(&expr_info_adopt_env(&info), &dyn_type);
+    expr_info_set_dyn_call_trait_values(&out_info, Option(ArrayList(EvalValue)).Some(trait_vals));
+    note_unsize_reference(ast_expr_id(expr), is_mut);
+    expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
+  });
+  call
+});
 evaluate_dyn_value :: (
   fn(
     expr : &AstExpr,
@@ -1352,6 +1416,11 @@ evaluate_dyn_value :: (
       return(expr);
     }
   );
+  // `dyn(&v)` / `dyn(&mut v)`: the reference kinds (decision 49) take no
+  // box and no expected-type plumbing of their own.
+  if(ast_expr_is_fn_call_of(&value_arg, BF_ADDRESS_OF, Option(usize).Some(usize(1))) || ast_expr_is_fn_call_of(&value_arg, BK_BORROW_MUT, Option(usize).Some(usize(1))), {
+    return(_evaluate_dyn_over_lend(expr, env, ctx, exn));
+  });
   // Expected-type for the INNER value expression. The dyn target itself
   // must NOT flow down as the inner's expected type: the inner is a
   // concrete value being coerced into the dyn, so matching its type

@@ -4635,10 +4635,11 @@ _params_may_store_a_reference :: (fn(pts : &SharedList(TypeValue)) -> bool)({
 ///
 /// A `&T` of an UNSIZED `T` (decision 49) is always pointer-passed: there
 /// is no value of `T` to copy, so the argument is the fat pointer itself.
-/// A pointer to `t` is fat (decision 49): `t` is unsized and concrete. A
+/// A pointer to `t` is fat (decision 49): `t` is unsized and concrete, or a
+/// `Dyn` (a `&Dyn` is the fat struct itself: VERDICTS-40 amendment 5). A
 /// `?Sized` variable is decided per specialization, where it is bound; the
 /// generic definition's slot keeps the thin ABI its sized instances use.
-_pointee_is_fat :: (fn(t : &TypeValue) -> bool)(!type_is_sized(t) && !type_contains_some_type(t));
+_pointee_is_fat :: (fn(t : &TypeValue) -> bool)((!type_is_sized(t) && !type_contains_some_type(t)) || is_dyn_type(t));
 fn_param_is_ptr_borrow :: (fn(fn_ty : &TypeValue, i : usize) -> bool)(
   match(
     fn_ty,
