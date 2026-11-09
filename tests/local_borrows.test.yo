@@ -1062,9 +1062,10 @@ _copy_param :: (fn(generic(p : Origin), o : Option(&(i32, p))) -> Option(&(i32, 
 });
 test("a holder joined from a parameter returns with the parameter's origin", {
   x := i32(4);
-  assert(_keep_joined(&x).unwrap().* == i32(4), "a `:=` holder");
-  assert(_keep_typed(&x).unwrap().* == i32(4), "a typed holder");
-  assert(_copy_param(.Some(&x)).unwrap().* == i32(4), "a copy of a by-value parameter holder");
+  // Matched, not unwrapped (issues/2026-11-09-option-unwrap-over-a-reference-payload-is-e0601.md).
+  assert(match(_keep_joined(&x), .Some(r) => (r.* == i32(4)), .None => false), "a `:=` holder");
+  assert(match(_keep_typed(&x), .Some(r) => (r.* == i32(4)), .None => false), "a typed holder");
+  assert(match(_copy_param(.Some(&x)), .Some(r) => (r.* == i32(4)), .None => false), "a copy of a by-value parameter holder");
 });
 // The joins stay visible to the return check: a local's lend joined into
 // the holder is still E0912.

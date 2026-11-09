@@ -318,12 +318,14 @@ _pick_next :: (fn(generic(p : Origin), c : &mut _Ints(p)) -> Option(&(i32, p)))(
 });
 test("ref payload: a by-value match's payload read holds the scrutinee's roots", {
   x := i32(3);
-  assert(_pick_param(.Some(&x)).unwrap().* == i32(3), "a parameter scrutinee");
-  assert(_pick_local(.Some(&x)).unwrap().* == i32(3), "a local holder scrutinee");
+  // Matched, not unwrapped: `Option(&T).unwrap()` is E0601 for now
+  // (issues/2026-11-09-option-unwrap-over-a-reference-payload-is-e0601.md).
+  assert(match(_pick_param(.Some(&x)), .Some(r) => (r.* == i32(3)), .None => false), "a parameter scrutinee");
+  assert(match(_pick_local(.Some(&x)), .Some(r) => (r.* == i32(3)), .None => false), "a local holder scrutinee");
   mut(xs) := ArrayList(i32).new();
   xs.push(i32(7));
   mut(c) := _Ints(xs)(xs : &xs, i : usize(0));
-  assert(_pick_next(&mut c).unwrap().* == i32(7), "a holder bound from a call");
+  assert(match(_pick_next(&mut c), .Some(r) => (r.* == i32(7)), .None => false), "a holder bound from a call");
 });
 // The payload still holds the scrutinee's own roots: a local's lend stored
 // into a holder declared over `p` is E0923.
