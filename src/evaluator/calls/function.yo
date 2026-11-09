@@ -4960,6 +4960,13 @@ _call_lends :: (fn(call : &AstExpr, ctx : &EvalContext) -> ArrayList(_CallLend))
   out := ArrayList(_CallLend).new();
   op_args := match(call, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => return(out));
   (op_callee : AstExpr) = match(call, .FnCall(_, c, _, _, _) => c, .Atom(_, _) => return(out));
+  // A function literal `(fn(...) -> T)(body)` defines a function: its body
+  // is no argument lent to a callee, and the by-value parameters it drops
+  // at its end (`self : Self` under `-> &mut(T, p)`, a place reached
+  // through the holder's reference field) are not moved by a later one.
+  if(match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&op_callee)), .Some(fl_ci) => match(fl_ci.value(), .Some(.TypeVal(fl_t)) => is_function_type(&fl_t), _ => false), .None => false), {
+    return(out);
+  });
   if(ast_expr_is_fn_call_of(&op_callee, BF_DOT, Option(usize).Some(usize(2))), {
     match(
       lookup_method_callee_value(ast_expr_id(call)),

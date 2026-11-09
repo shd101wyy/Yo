@@ -1,0 +1,28 @@
+// issues/2026-11-08-a-drop-holder-yields-a-place-through-its-reference-field.md
+// Expected: rejected (Rust E0713). Actual (develop beefabda4): accepted, and the holder's drop writes through the live loan.
+{ assert } :: import("std/assert");
+Slots :: struct(a : i32, b : i32);
+Entry :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(m : &mut(Slots, p)));
+impl(
+  generic(p : Origin),
+  Entry(p),
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      self.m.a = i32(-1);
+    })
+  )
+);
+impl(generic(p : Origin), Entry(p), take : (fn(self : Self) -> Option(&mut(i32, p)))(.Some(&mut self.m.*.a)));
+main :: (fn() -> unit)({
+  mut(s) := Slots(a : i32(0), b : i32(0));
+  e := Entry(s)(m : &mut s);
+  match(
+    e.take(),
+    .Some(r) => {
+      r.* = i32(1);
+    },
+    .None => ()
+  );
+  assert(s.a == i32(1), "written");
+});
+export(main);

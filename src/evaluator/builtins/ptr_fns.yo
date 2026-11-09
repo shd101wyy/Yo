@@ -7,7 +7,7 @@ pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, ast_expr_token, ast_expr_id, make_err_expr, ast_expr_is_fn_call_of, ast_expr_is_atom_of, ast_expr_to_string, ast_place_text, BF_DOT, projection_tail_mode, ast_expr_is_auto_ref_receiver, ast_rewritten_node, ast_expr_strip_borrow_marker } :: import("../../expr.yo");
 { is_array_type, is_struct_type, is_tuple_type, is_union_type, is_reference_struct_type } :: import("../../types/guards.yo");
-{ fn_param_is_ptr_borrow } :: import("../../types/utils.yo");
+{ fn_param_is_ptr_borrow, type_carries_origin } :: import("../../types/utils.yo");
 { type_to_string } :: import("../../types/string.yo");
 { E_ADDR_OF_BORROW_PARAM, E_LOCAL_BORROW_ESCAPES, E_ORIGIN_MISMATCH } :: import("../../diagnostics.yo");
 {
@@ -35,7 +35,7 @@ pragma(Pragma.AllowUnsafe);
 { TypeValue, TypeValueNode, SharedList, fn_param_is_mut_ref, fn_param_is_by_value, fn_result_origin_names, fn_param_in_result_origin, t_slot_origin_names, origin_names_contain } :: import("../../types/definitions.yo");
 { t_ptr } :: import("../../types/creators.yo");
 { format_error_message, format_error_message_with_help, with_code } :: import("../../error.yo");
-{ attach_temp_variable_to_expr, projection_call_mode_of, projection_call_root_args, reference_field_read_type, ref_payload_source, borrow_match_source } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, projection_call_mode_of, projection_call_root_args, reference_field_read_type, ref_payload_source, borrow_match_source, origin_of, OriginRootPlace } :: import("../utils.yo");
 { evaluate_expression_guarded } :: import("../exprs/expr.yo");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { call_promote_index_places_for_write } :: import("../context.yo");
@@ -228,9 +228,16 @@ _join_names :: (fn(names : &SharedList(String)) -> String)({
 /// result needs a `&mut` parameter. A place whose storage ends with the call
 /// (a local, a by-value parameter, a temporary) is E0912; a root outside a
 /// spelled result origin is E0923. Returns the error, or `.None`.
-_projection_root_error :: (fn(place : &AstExpr, is_mut : bool, env : &Environment, ctx : &EvalContext) -> Option(_ProjRootError))(
+_projection_root_error :: (fn(place : &AstExpr, is_mut : bool, env : &Environment, ctx : &EvalContext) -> Option(_ProjRootError))({
+  // `f(x).*` on a projection call reads as the call itself
+  // (`note_rewritten_node_as`, a node of its own id): its place is the
+  // call's, rooted at the call's borrowed arguments.
+  pr_rw := ast_rewritten_node(place);
+  if(ast_expr_id(&pr_rw) != ast_expr_id(place), {
+    return(_projection_root_error(&pr_rw, is_mut, env, ctx));
+  });
   match(
-    ast_rewritten_node(place),
+    pr_rw,
     .Atom(_, pr_tok) => match(
       get_variables_from_env(env, pr_tok.value.*.clone()).last_cloned(),
       .Some(v) => cond(
@@ -296,7 +303,7 @@ _projection_root_error :: (fn(place : &AstExpr, is_mut : bool, env : &Environmen
       true => _proj_err(String.from("A projection yields a place, and this is a temporary: its storage ends with the call (decision 24, the single-root rule)."), Option(str).Some(E_LOCAL_BORROW_ESCAPES))
     )
   )
-);
+});
 /// The root rule through a `match` binding `name` of a reference payload
 /// (decision 43 step 3, `note_ref_payload_source`): the reference came out
 /// of the scrutinee's value, which a call computed from its borrowed
@@ -355,10 +362,27 @@ _projection_call_root_error :: (fn(call : &AstExpr, is_mut : bool, env : &Enviro
   (mut(checked) : usize) = usize(0);
   (mut(i) : usize) = usize(0);
   while(i < roots.len(), {
-    if(!inner_mut || roots(i).is_mut, {
-      match(_projection_root_error(&roots(i).arg, is_mut, env, ctx), .Some(e) => return(Option(_ProjRootError).Some(e)), .None => ());
+    root_arg := roots(i).arg.clone();
+    // A holder argument (`h.get()` on `h : H(x)`, an impl's origin
+    // parameter bound from the receiver's type): the place lies where the
+    // holder's references point (`origin_of`), not in the holder.
+    held := if(
+      !roots(i).is_mut && match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&root_arg)), .Some(ri) => type_carries_origin(&ri.ty()), .None => false),
+      origin_of(&root_arg, env, ctx),
+      ArrayList(OriginRootPlace).new()
+    );
+    if(held.len() > usize(0), {
+      (hi : usize) = usize(0);
+      while(hi < held.len(), hi = (hi + usize(1)), {
+        if(!is_mut || held(hi).is_mut, {
+          match(_held_place_root_error(&held(hi), is_mut, &root_arg, env, ctx), .Some(e) => return(Option(_ProjRootError).Some(e)), .None => ());
+          checked = (checked + usize(1));
+        });
+      });
+    }, if(!inner_mut || roots(i).is_mut, {
+      match(_projection_root_error(&root_arg, is_mut, env, ctx), .Some(e) => return(Option(_ProjRootError).Some(e)), .None => ());
       checked = (checked + usize(1));
-    });
+    }));
     i = (i + usize(1));
   });
   cond(
@@ -366,6 +390,26 @@ _projection_call_root_error :: (fn(call : &AstExpr, is_mut : bool, env : &Enviro
     true => Option(_ProjRootError).None
   )
 });
+/// The root rule for a place a holder argument's reference points into
+/// (`hp`, one of `origin_of(holder)`): it must be one of this projection's
+/// own borrow parameters, as a place written directly would be.
+_held_place_root_error :: (fn(hp : &OriginRootPlace, is_mut : bool, holder : &AstExpr, env : &Environment, ctx : &EvalContext) -> Option(_ProjRootError))(
+  match(
+    get_variables_from_env(env, hp.place.root_name.clone()).last_cloned(),
+    .Some(v) => cond(
+      (!v.is_parameter() || v.is_compile_time_only() || !(v.is_ref() || v.is_imm_borrow())) => _proj_err(
+        `A projection yields a place reached from one of its \`&\`/\`&mut\` parameters, and \`${ast_expr_to_string(holder)}\` points into \`${hp.place.text}\`, ${cond(v.is_parameter() => "a by-value parameter", v.is_module_level() => "a module-level binding", true => "a local")}: its storage ends with the call (decision 24, the single-root rule).`,
+        if(v.is_module_level(), Option(str).None, Option(str).Some(E_LOCAL_BORROW_ESCAPES))
+      ),
+      (is_mut && (!v.is_ref() || v.is_imm_borrow())) => _proj_err(
+        `A \`&mut\` projection yields a place reached from a \`&mut\` parameter, and \`${hp.place.root_name}\` is a shared borrow (\`&T\`).`,
+        Option(str).None
+      ),
+      true => _spelled_origin_error(&hp.place.root_name, ctx)
+    ),
+    .None => Option(_ProjRootError).None
+  )
+);
 /// Whether `v` is a `&T` parameter passed BY VALUE: decision 34 passes a
 /// `&T` parameter as a copy, except a projection's (`-> &T`, decision 24),
 /// which `fn_param_is_ptr_borrow` passes as a pointer and binds `is_ref`. When
@@ -422,9 +466,13 @@ _holds_its_places_inline :: (fn(e : &AstExpr, ctx : &EvalContext) -> bool)(
 /// through field steps of value aggregates and element accesses of fixed-size
 /// arrays. A raw-pointer dereference (`p.*`), a `ref` handle's field and an
 /// `Index` element of a collection reach storage the parameter does not hold.
-_by_value_borrow_param_root :: (fn(place : &AstExpr, env : &Environment, ctx : &EvalContext) -> Option(Variable))(
+_by_value_borrow_param_root :: (fn(place : &AstExpr, env : &Environment, ctx : &EvalContext) -> Option(Variable))({
+  br_rw := ast_rewritten_node(place);
+  if(ast_expr_id(&br_rw) != ast_expr_id(place), {
+    return(_by_value_borrow_param_root(&br_rw, env, ctx));
+  });
   match(
-    ast_rewritten_node(place),
+    br_rw,
     .Atom(_, br_tok) => match(
       get_variables_from_env(env, br_tok.value.*.clone()).last_cloned(),
       .Some(v) => if(_is_by_value_borrow_param(&v, ctx), Option(Variable).Some(v), Option(Variable).None),
@@ -444,7 +492,7 @@ _by_value_borrow_param_root :: (fn(place : &AstExpr, env : &Environment, ctx : &
       true => Option(Variable).None
     )
   )
-);
+});
 evaluate_address_call :: (
   fn(
     expr : &AstExpr,
