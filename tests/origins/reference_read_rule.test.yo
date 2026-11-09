@@ -375,3 +375,29 @@ comptime_expect_error(
   }),
   "`e` borrows `s` with `&mut` and is still live"
 );
+
+// A scalar field read through a local borrow is a copy of the field, not the
+// borrow: `{ v := r.as_ref(); v.m }` returns the `i32`
+// (issues/fixed/2026-11-08-e0912-flags-a-scalar-field-read-through-a-local-borrow-as-returning-the-borrow.md).
+RrS :: struct(m : i32);
+rr_field_tail :: (fn(r : &Rc(RrS)) -> i32)({
+  v := r.as_ref();
+  v.m
+});
+rr_field_return :: (fn(r : &Rc(RrS)) -> i32)({
+  v := r.as_ref();
+  return(v.m);
+});
+test("A scalar field read through a bound borrow is returnable", {
+  a := Rc.new(RrS(m : i32(5)));
+  assert(rr_field_tail(&a) == i32(5), "the tail `v.m`");
+  assert(rr_field_return(&a) == i32(5), "`return(v.m)`");
+});
+// The bare borrow is still the borrow.
+comptime_expect_error(
+  rr_borrow_tail_still_rejected :: (fn(r : &Rc(RrS)) -> i32)({
+    v := r.as_ref();
+    v
+  }),
+  "Cannot return the local borrow `v`"
+);
