@@ -188,6 +188,16 @@ _c_len_9 :: (fn(xs : &ArrayList(RefPayloadSource)) -> usize)(xs.len());
 /// binding is a copy of one of them, so a read of it points where they do
 /// (R-DEREF), never into the binding's own place or the scrutinee's.
 (g_ref_payload_held : RefCell(HashMap(usize, ArrayList(OriginRootPlace)))) = RefCell(HashMap(usize, ArrayList(OriginRootPlace))).new(HashMap(usize, ArrayList(OriginRootPlace)).new());
+/// A `match` pattern binding of a reference payload (decision 43 step 3):
+/// the binding's variable id and the scrutinee its reference came out of.
+/// The projection root rule follows a returned payload binding to that
+/// scrutinee's own roots (`builtins/ptr_fns.yo`, `_projection_root_error`).
+RefPayloadSource :: struct(var_id : usize, scrutinee : AstExpr);
+derive(RefPayloadSource, Clone);
+(g_ref_payload_sources : RefCell(ArrayList(RefPayloadSource))) = RefCell(ArrayList(RefPayloadSource)).new(ArrayList(RefPayloadSource).new());
+/// The borrowed-`match` bindings' scrutinees (`note_borrow_match_source`). Declared above
+/// `return_check`, whose body reaches it: a runtime binding is bound in order.
+(g_borrow_match_sources : RefCell(ArrayList(RefPayloadSource))) = RefCell(ArrayList(RefPayloadSource)).new(ArrayList(RefPayloadSource).new());
 /// The by-value holders `bind` registered, by variable id: their loan set is
 /// their `bind` entries plus their `=` joins, so an empty set is "holds no
 /// place of this function" (R-READ falls back to a holder's own place only
@@ -10418,13 +10428,6 @@ return_check :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, exn : 
   );
 });
 export(FutureRoot, note_future_roots, future_roots_of);
-/// A `match` pattern binding of a reference payload (decision 43 step 3):
-/// the binding's variable id and the scrutinee its reference came out of.
-/// The projection root rule follows a returned payload binding to that
-/// scrutinee's own roots (`builtins/ptr_fns.yo`, `_projection_root_error`).
-RefPayloadSource :: struct(var_id : usize, scrutinee : AstExpr);
-derive(RefPayloadSource, Clone);
-(g_ref_payload_sources : RefCell(ArrayList(RefPayloadSource))) = RefCell(ArrayList(RefPayloadSource)).new(ArrayList(RefPayloadSource).new());
 /// Record that the pattern binding `var_id` binds a reference payload of
 /// `scrutinee`'s value.
 note_ref_payload_source :: (fn(var_id : usize, scrutinee : &AstExpr) -> unit)({
@@ -10475,7 +10478,6 @@ export(lend_place_reference_type);
 /// id and the scrutinee place it is a place inside. The projection root rule
 /// follows a yielded binding to that place's own root
 /// (`builtins/ptr_fns.yo`, `_projection_root_error`).
-(g_borrow_match_sources : RefCell(ArrayList(RefPayloadSource))) = RefCell(ArrayList(RefPayloadSource)).new(ArrayList(RefPayloadSource).new());
 /// Record that the binding `var_id` of a borrowed `match` is a place inside
 /// `scrutinee`.
 note_borrow_match_source :: (fn(var_id : usize, scrutinee : &AstExpr) -> unit)({
