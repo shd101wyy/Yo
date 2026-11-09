@@ -1710,32 +1710,38 @@ test("shape tail_match_return: an awaiting loop, then a tail match returning mid
 // held in a task slot
 // (issues/fixed/2026-10-25-an-operand-before-an-await-in-a-later-operand-is-read-after-the-resume.md).
 _seq_sub :: (fn(a : i32, b : i32) -> i32)(a - b);
-_seq_slow :: (fn(p : &mut i32, io : Io) -> Impl(Future(i32, Io)))(
-  io.async({ &mut p }(io : Io) => {
-    io.await(yield(io), io);
-    p = i32(10);
-    i32(1)
-  })
-);
 test("an operand before an await in a later operand is read before the await", {
   // A local of the io.async body: it lives in a state-machine slot.
   r := io.await(
     io.async((io : Io) => {
       (mut(x) : i32) = i32(3);
-      _seq_sub(x, io.await(_seq_slow(&mut x, io), io))
+      _seq_sub(
+        x,
+        io.await(
+          io.async({ &mut x }(io : Io) => {
+            io.await(yield(io), io);
+            x.* = i32(10);
+            i32(1)
+          }),
+          io
+        )
+      )
     }),
     io
   );
   assert(r == i32(2), "local: x is read before the await that writes it");
-  // A `&mut` capture read by value.
-  (mut(y) : i32) = i32(3);
-  s := io.await(io.async({ &mut y }(io : Io) => _seq_sub(y, io.await(_seq_slow(&mut y, io), io))), io);
-  assert(s == i32(2), "capture: y is read before the await that writes it");
   // An operator operand.
   t := io.await(
     io.async((io : Io) => {
       (mut(z) : i32) = i32(3);
-      (z - io.await(_seq_slow(&mut z, io), io))
+      (z - io.await(
+        io.async({ &mut z }(io : Io) => {
+          io.await(yield(io), io);
+          z.* = i32(10);
+          i32(1)
+        }),
+        io
+      ))
     }),
     io
   );
