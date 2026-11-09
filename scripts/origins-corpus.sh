@@ -18,7 +18,8 @@
 #   expect  the verdict once the rules land, as the reference checker returns it:
 #           ACCEPT, an existing code (E0901 E0909 E0910 E0911 E0912 E0919), or a
 #           rule the plan names but has not numbered yet (WF_SELF, WF_UNDECLARED,
-#           ORIGIN_MISMATCH, UNION; `@spec` = inside a generic specialization).
+#           ORIGIN_MISMATCH, UNION, TYPE (a type error, E0601); `@spec` = inside a
+#           generic specialization).
 #           A rule may name the code it is decided to raise after a `/`:
 #           `UNION/E0923` (a per-call parameter's origin outside the holder's)
 #           or `UNION/E0912` (a body local's), VERDICTS-37 Q2's split; the
@@ -58,7 +59,7 @@ case "$MODE" in today | target) ;; *) echo "mode is today or target, got $MODE" 
 
 # The codes N1/N2 assign to the rules the plan names but has not numbered.
 # Empty means "any rejection" (the row cannot be checked more precisely yet).
-declare -A RULE_CODES=([WF_SELF]="E0924" [WF_UNDECLARED]="E0922" [ORIGIN_MISMATCH]="E0923" [UNION]="")
+declare -A RULE_CODES=([WF_SELF]="E0924" [WF_UNDECLARED]="E0922" [ORIGIN_MISMATCH]="E0923" [UNION]="" [TYPE]="E0601")
 
 fail=0
 problem() { echo "  FAIL $1"; fail=$((fail + 1)); }

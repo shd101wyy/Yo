@@ -1,0 +1,12 @@
+// N0 corpus row `ref-of-ref-slot-mismatch` (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §7 P3;
+// manifest tests/origins/corpus.tsv): `&r` on a reference binding is a `&&T`, and nothing coerces it to the `&T` slot.
+// Expected once decision 43's rules land: rejected: a type error naming the reborrow `&r.*` (no deref coercion).
+{ String } :: import("std/string");
+_len :: (fn(s : &String) -> usize)(s.len());
+main :: (fn() -> unit)({
+  s := String.from("abc");
+  r := &s;
+  _ := _len(&r);
+  ()
+});
+export(main);

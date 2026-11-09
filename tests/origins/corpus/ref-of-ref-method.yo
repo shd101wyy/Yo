@@ -1,0 +1,14 @@
+// N0 corpus row `ref-of-ref-method` (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §7 P3;
+// manifest tests/origins/corpus.tsv): POSITIVE: a method through a `&&T` reaches the referent's method by the deref steps (R-PROBE): `(&r).len()`, and `rr.*.len()` on the reference `rr.*`.
+// Expected once decision 43's rules land: accepted.
+{ String } :: import("std/string");
+main :: (fn() -> unit)({
+  s := String.from("abcd");
+  r := &s;
+  rr := &r;
+  _ := (&r).len();
+  _ := rr.*.len();
+  _ := rr.*.*.len();
+  ()
+});
+export(main);

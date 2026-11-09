@@ -1,0 +1,123 @@
+//! `&&T` and `&mut &T` (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §7 P3):
+//! `&r` on a reference binding `r` lends `r` itself, a reference to a
+//! reference, and `&mut r` on a `mut(r)` binding a `&mut &T`. Nothing coerces
+//! a `&&T` to a `&T`: the reborrow of the referent is spelled `&r.*`.
+pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+/// A cursor whose `Item` is a reference into the list, as G2's borrowing
+/// cursors are: the adapters' `item : &A` makes a closure parameter `&&i32`.
+RrCursor :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(xs : &(ArrayList(i32), p), i : usize));
+impl(
+  generic(p : Origin),
+  RrCursor(p),
+  Iterator(
+    Item : &(i32, p),
+    next : (fn(self : &mut Self) -> Option(&(i32, p)))(
+      cond(
+        (self.i < self.xs.len()) => {
+          k := self.i;
+          self.i = (k + usize(1));
+          unsafe(.Some(&self.xs.ptr().unwrap().add(k).*))
+        },
+        true => .None
+      )
+    )
+  )
+);
+rr_cursor :: (fn(xs : &ArrayList(i32)) -> RrCursor(xs))(RrCursor(xs)(xs : xs, i : usize(0)));
+rr_list :: (fn() -> ArrayList(i32))({
+  mut(xs) := ArrayList(i32).new();
+  xs.push(i32(1));
+  xs.push(i32(2));
+  xs.push(i32(3));
+  xs
+});
+rr_swap :: (fn(generic(r : Origin), a : &mut&(i32, r), b : &mut&(i32, r)) -> unit)({
+  t := a.*;
+  a.* = b.*;
+  b.* = t;
+});
+rr_read :: (fn(v : & &i32) -> i32)(v.*.*);
+rr_len :: (fn(s : &String) -> usize)(s.len());
+test("&r on a reference binding is a &&T", {
+  x := i32(41);
+  r := &x;
+  rr := &r;
+  assert(rr.*.* == i32(41), "rr.*.* reads the referent's referent");
+  assert(rr_read(&r) == i32(41), "&r passes to a `& &i32` parameter");
+  s := String.from("abcd");
+  rs := &s;
+  assert((&rs).len() == usize(4), "a method through a &&T");
+  rrs := &rs;
+  assert(rrs.*.len() == usize(4), "R-PROBE's deref step reaches String.len through the reference rrs.*");
+  assert(rrs.*.*.len() == usize(4), "the explicit deref chain");
+  assert(rr_len(&rs.*) == usize(4), "the reborrow of the referent is &rs.*");
+});
+test("&mut r re-points r through a &mut &T", {
+  x := i32(1);
+  y := i32(2);
+  (mut(r) : &(i32, (x, y))) = &x;
+  rp := &mut r;
+  ry := &y;
+  rp.* = ry;
+  assert(r.* == i32(2), "the write through rp re-pointed r");
+});
+test("an origin-qualified local borrow binds the name", {
+  x := i32(7);
+  (ra : &(i32, x)) = &x;
+  assert(ra.* == i32(7), "ra : &(i32, x) refers to x");
+});
+/// A function VALUE whose parameter is `& &i32` (a borrow slot over a
+/// reference) takes a place of type `&i32`: `&r`, or a `&&i32` passed on
+/// (issues/fixed/2026-11-08-a-function-value-call-reads-a-borrow-slot-over-a-reference-as-a-by-value-reference.md).
+rr_apply_lend :: (fn(item : &i32, f : (fn(item : & &i32) -> i32)) -> i32)(f(&item));
+rr_apply_on :: (fn(item : &i32, f : (fn(item : & &i32) -> i32)) -> i32)({
+  rr := &item;
+  f(rr)
+});
+rr_apply_local :: (fn(f : (fn(item : & &i32) -> i32)) -> i32)({
+  x := i32(5);
+  r := &x;
+  f(&r)
+});
+test("a function value with a & &i32 parameter takes &r and a &&i32", {
+  x := i32(4);
+  assert(rr_apply_lend(&x, rr_read) == i32(4), "f(&item) on a &i32 parameter");
+  assert(rr_apply_on(&x, rr_read) == i32(4), "f(rr) passes a &&i32 binding on");
+  assert(rr_apply_local(rr_read) == i32(5), "f(&r) on a local reference");
+});
+test("a &mut &(T, p) parameter swaps two references", {
+  x := i32(1);
+  y := i32(2);
+  mut(ra) := &x;
+  mut(rb) := &y;
+  rr_swap(&mut ra, &mut rb);
+  assert(ra.* == i32(2), "ra refers to y");
+  assert(rb.* == i32(1), "rb refers to x");
+});
+test("an adapter closure over a reference Item takes a &&T", {
+  xs := rr_list();
+  n := rr_cursor(&xs).map(v => (v.*.* * i32(10))).filter(v => (v.* > i32(10))).count();
+  assert(n == usize(2), "map's item is &&i32, filter's &i32");
+  total := rr_cursor(&xs).fold(i32(0), (acc, v) => (acc.* + v.*.*));
+  assert(total == i32(6), "fold's item is &&i32");
+  // `filter` / `find` over a reference Item: E0923 in std, open
+  // (issues/2026-11-08-a-match-binding-of-a-reference-payload-carries-its-own-place-as-origin.md).
+});
+comptime_expect_error(
+  rr_no_deref_coercion :: (fn(s : &String) -> usize)({
+    r := &s.*;
+    rr_len(&r)
+  }),
+  "nothing coerces a reference to a reference"
+);
+// Through `&mut &(T, p)` a read holds only the origin its type spells: two
+// rigid origins stay distinct (the swap over one `r` is accepted above).
+comptime_expect_error(
+  rr_store_other_origin :: (fn(generic(p : Origin, q : Origin), a : &mut&(i32, p), b : &mut&(i32, q)) -> unit)({
+    a.* = b.*;
+  }),
+  "Cannot assign a value holding origin `q`"
+);

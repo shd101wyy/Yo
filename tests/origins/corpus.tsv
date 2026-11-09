@@ -6,6 +6,8 @@
 # the two agree on every row except get2-mut-pair and list-mut-two-pushes, where the seed
 # overflows its stack on `&mut(A, B)` and the tree binary's fix gives the recorded
 # diagnostic. Verified 71/71 with the tree binary.
+# 2026-11-08 (P3, `&&T`/`&mut &T`, BORROW_CHECKER_COMPLETENESS.md §7): the three swap-* rows and the five
+# ref-of-ref-*/ref-mut-ref-repoint rows re-recorded with the P3 tree binary.
 # id	anchor	kind	phase	expect	today
 wf-self-binding	O1 well-formedness	neg	N2	WF_SELF	E0924|names the binding being declared
 wf-self-field	O1 well-formedness, O5	neg	N2	WF_SELF	E0924|names the value being defined
@@ -25,9 +27,9 @@ drop-root-while-borrowed	§5 route 6	neg	N1	E0911	E0911|Cannot move `x` here
 store-widen-mut-pointee	O3-3, §5 route 2	neg	N2	ORIGIN_MISMATCH	E0923|an origin reached through a `&mut` pointee is invariant
 store-same-origin	O3-3	pos	N2	ACCEPT	accept
 store-widen-refcell	O3-3, §5 route 2	neg	N2	ORIGIN_MISMATCH	-|carries an origin
-swap-different-origins	O7 swap	neg	N1	ORIGIN_MISMATCH	-|a reference to a reference
-swap-inferred-locals	O2 x O3-3 (§7 flow inference at a &mut lend)	pos	N1	ACCEPT	-|a reference to a reference
-swap-declared-union	O7 swap	pos	N1	ACCEPT	-|a reference to a reference
+swap-different-origins	O7 swap	neg	N1	ORIGIN_MISMATCH	E0923|carries origin `y`, outside `x`
+swap-inferred-locals	O2 x O3-3 (§7 flow inference at a &mut lend)	pos	N1	ACCEPT	accept
+swap-declared-union	O7 swap	pos	N1	ACCEPT	accept
 push-outside-union	O6	neg	N2	UNION	-|carries an origin
 push-inside-union	O6	pos	N2	ACCEPT	-|carries an origin
 push-elided-unrelated	O2 elision checked in the body	neg	N2	UNION/E0923	-|carries an origin
@@ -101,3 +103,8 @@ async-body-local-into-capture	O-3, a body local into a &mut capture (VERDICTS-37
 drop-holder-before-root	O-4, a user Drop holder is live to its scope-end drop (D1, H6)	neg	N2	E0911	E0911|Cannot store a reference to `y` in `g` here
 holder-from-temporary	O-5, R-TEMP: a projection off a temporary holder bound past the statement	neg	N2	E0911	E0911|which is a temporary that ends with this statement
 lend-of-temporary-in-call-result	O-5, R-TEMP: a call result over a lent temporary bound past the statement (L1)	neg	N2	E0911	E0911|a temporary that ends with this statement, while
+ref-of-ref-slot-mismatch	P3 &&T, no deref coercion	neg	N1	TYPE	E0601|nothing coerces a reference to a reference
+ref-of-ref-method	P3 &&T, R-PROBE deref steps	pos	N1	ACCEPT	accept
+ref-of-ref-root-write	P3 &&T, O3 step 2 through two hops	neg	N1	E0911	E0911|Cannot write `x` here
+ref-of-ref-repoint-while-lent	P3 &&T freezes the reference itself	neg	N1	E0911	E0911|Cannot borrow with `&mut` `r` here
+ref-mut-ref-repoint	P3 &mut &T, O3-3 within a declared union	pos	N1	ACCEPT	accept

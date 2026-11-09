@@ -36,7 +36,9 @@ pragma(Pragma.AllowUnsafe);
   expr_info_table_set,
   path_collection_new,
   expr_info_converted_runtime_type,
-  expr_info_set_converted_runtime_type
+  expr_info_set_converted_runtime_type,
+  note_self_lend_operand,
+  is_reference_self_place
 } :: import("../../expr_info.yo");
 { comptime_numeric_slot_type } :: import("../values/integer.yo");
 { Environment, Variable, env_adopt } :: import("../../env.yo");
@@ -50,7 +52,7 @@ pragma(Pragma.AllowUnsafe);
 { is_std_module_path } :: import("../memory_safety.yo");
 { EvalValue, value_to_string } :: import("../../value.yo");
 { TypeField } :: import("../types/field.yo");
-{ set_expr_as_needs_to_call_dup, reject_second_class_escape, reject_bare_callable_into_dyn_fn, bare_callable_recorded_into_dyn_fn, is_reference_read, variable_is_reference_binding, deref_rule_applies, is_reference_deref_site, reject_reference_without_deref, lend_place_reference_type } :: import("../utils.yo");
+{ set_expr_as_needs_to_call_dup, reject_second_class_escape, reject_bare_callable_into_dyn_fn, bare_callable_recorded_into_dyn_fn, is_reference_read, variable_is_reference_binding, deref_rule_applies, is_reference_deref_site, reject_reference_without_deref, lend_place_reference_type, deref_rule_recording } :: import("../utils.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
 { format_error_message, with_code } :: import("../../error.yo");
 { E_INCOMPATIBLE_TYPES, E_ARGUMENT_COUNT_MISMATCH, E_BORROW_MARKER_MISMATCH } :: import("../../diagnostics.yo");
@@ -297,6 +299,11 @@ try_to_call_type_with_arguments :: (
             );
           });
           actual_arg_expr = ast_expr_strip_borrow_marker(&actual_arg_expr);
+          // `&r` over a reference binding lends `r`'s own storage, a `&&T`
+          // (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §7 P3).
+          if(ast_expr_is_atom(&actual_arg_expr), {
+            note_self_lend_operand(ast_expr_id(&actual_arg_expr), t9_is_mut_marker);
+          });
         },
         _ => ()
       );
@@ -315,13 +322,15 @@ try_to_call_type_with_arguments :: (
     // A field typed as a reference (N2b) takes a reference binding, a
     // reference field's read or a projection's result bare: the read IS the
     // reference there (the read rule, decision 43 step 2 N1e-2b — the
-    // expected type is the field's). `&r`/`&mut r` names the referent,
-    // spelled `&r.*`.
+    // expected type is the field's). `&r`/`&mut r` lends `r` itself, a
+    // `&&T` (§7 P3); the referent is spelled `&r.*`.
     t9_field_is_reference := match(&member_element.ty, Rc(.Reference(_, _, _)) => true, _ => false);
     evaluated_arg := evaluate_expression_raw(&actual_arg_expr, &env, ctx, exn);
     ctx.expected_type = saved_expected;
     arg_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_arg));
-    if(t9_field_is_reference && (t9_is_mut_marker || t9_is_amp_marker) && ast_expr_is_atom(&evaluated_arg), {
+    // `yo fix --migrate deref` reads code written before the deref rule,
+    // where `&r` lent the referent: it records the `.*` (E0926's edit).
+    if(t9_field_is_reference && (t9_is_mut_marker || t9_is_amp_marker) && ast_expr_is_atom(&evaluated_arg) && deref_rule_recording(), {
       match(
         match(&arg_info_opt, .Some(t9_ai) => t9_ai.source_variable(), .None => Option(Variable).None),
         .Some(t9_rv) => if(variable_is_reference_binding(&t9_rv) && deref_rule_applies(ast_expr_token(&evaluated_arg), ctx) && !is_reference_deref_site(ast_expr_token(&evaluated_arg)), {
@@ -354,11 +363,19 @@ try_to_call_type_with_arguments :: (
         // reference binding's read, a projection's result) is still the
         // place it refers to in C: the field takes that place's address, as
         // for a lend.
-        Rc(.Reference(_, _, _)) => if(is_reference_read(ast_expr_id(&evaluated_arg)), {
-          rv_lend_ty := Option(TypeValue).Some(arg_info.ty());
-          expr_info_set_converted_runtime_type(&arg_info, &rv_lend_ty);
-          expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&evaluated_arg), &arg_info);
-        }),
+        // `&r` of a reference binding (§7 P3): a lend of `r`'s own storage,
+        // whose place is typed as the reference itself.
+        Rc(.Reference(_, _, _)) => cond(
+          is_reference_self_place(ast_expr_id(&evaluated_arg)) => {
+            t9w_lend_ty = lend_place_reference_type(&evaluated_arg, &arg_info, t9w_mut, ctx);
+          },
+          is_reference_read(ast_expr_id(&evaluated_arg)) => {
+            rv_lend_ty := Option(TypeValue).Some(arg_info.ty());
+            expr_info_set_converted_runtime_type(&arg_info, &rv_lend_ty);
+            expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&evaluated_arg), &arg_info);
+          },
+          true => ()
+        ),
         _ => {
           t9w_lend_ty = lend_place_reference_type(&evaluated_arg, &arg_info, t9w_mut, ctx);
         }

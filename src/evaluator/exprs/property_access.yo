@@ -985,6 +985,40 @@ _evaluate_property_access_node :: (
       // `n := f(x).*` binds a copy where `n := f(x)` binds the reference.
       return(expr.clone());
     });
+    // `.*` on a place whose type IS a reference (plans/backlog/BORROW_CHECKER_COMPLETENESS.md
+    // §7 P3): the referent of a `&&T`'s referent (`rr.*.*`, `v.*.*` on a
+    // `&&T` closure parameter), of a `&mut &T`'s (`a.*.*`), of a reference
+    // read out of a reference field. The object names the reference's own
+    // storage (a binding's read, the reference deref the rewrite above
+    // produced, a field read), so the place is its pointee, reached through
+    // the pointer in C (`(*p)`). A call's result is excluded: its C is the
+    // place it yields already.
+    // R-PROBE's deref step on a reference-valued receiver synthesizes the
+    // outer star of `r.*.*` (`_find_receiver_method_of`): a deref of a deref.
+    rr_deref_of_deref := (ast_expr_is_fn_call_of(&object_expr, BF_DOT, Option(usize).Some(usize(2))) && match(&object_expr, .FnCall(_, _, Rc(dd_args), _, _) => match(dd_args.get(usize(1)), .Some(dd_p) => ast_expr_is_atom_of(&dd_p, "*"), .None => false), .Atom(_, _) => false));
+    if((_is_written_star(&property_expr) || rr_deref_of_deref) && (ast_expr_is_atom(&object_expr) || ast_expr_is_fn_call_of(&object_expr, BF_DOT, Option(usize).Some(usize(2)))), {
+      match(
+        &obj_ty_deref,
+        .Some(Rc(.Reference(rr_pointee, _, _))) => {
+          rr_pt := Rc.clone(rr_pointee);
+          rr_out := new_expr_info(&env, &rr_pt);
+          expr_info_set_origin_type(&rr_out, obj_ty_deref.clone());
+          rr_out.set_is_accessing_property(Option(bool).Some(true));
+          match(
+            &obj_info_opt,
+            .Some(rr_oi) => {
+              rr_out.set_source_variable(rr_oi.source_variable());
+              rr_out.set_path_collection(rr_oi.path_collection());
+            },
+            .None => ()
+          );
+          expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &rr_out);
+          expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &rr_out);
+          return(expr);
+        },
+        _ => ()
+      );
+    });
     match(
       &obj_ty_deref,
       .Some(ot) => {

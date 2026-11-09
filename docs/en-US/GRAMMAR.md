@@ -328,7 +328,8 @@ Placement rules for `&` and `&mut`:
 - In a slot they are a **mode**: they prefix a parameter's type and a local
   borrow's place. Where a type stands on its own (`T :: &i32`, `ArrayList(&T)`,
   `Option(&T)`, a struct field `f : &T`) they make a **reference type**
-  (decision 43 step 3); `&&T` is not accepted yet. A reference-holding type
+  (decision 43 step 3); `&(&T)` is a reference to a reference, written
+  `& &T` in a slot, and `&r` on a reference binding `r` is one. A reference-holding type
   can be named but no value of it is built in this release.
 - The two-argument form `&(T, p)` / `&mut(T, p)` is an **origin-qualified
   reference** (decision 43 step 2): as a parameter's type, `x : &(T, p)` is

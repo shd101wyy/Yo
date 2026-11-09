@@ -441,6 +441,16 @@ _generate_field_access_raw :: (fn(expr : &AstExpr, indent : &String, context : &
   ), {
     return(object_code.clone());
   });
+  // `p.*` on a place whose type is a reference (a `&&T`'s referent, a
+  // `&mut &T` parameter's; plans/backlog/BORROW_CHECKER_COMPLETENESS.md §7
+  // P3): the place's C value is the pointer, so its referent is the
+  // pointer's dereference.
+  if((field_name == "*") && match(&object_type, Rc(.Reference(_, _, _)) => true, _ => false), {
+    out := String.from("(*");
+    out.push_string(object_code.clone());
+    out.push_str(")");
+    return(out);
+  });
   // `b.*` on the unique `Box` (V1 step 2): the box is a C-transparent newtype
   // over its cell pointer, so the payload place is that pointer's dereference,
   // with the handle's placed bit masked off (`box_payload_place_code`).

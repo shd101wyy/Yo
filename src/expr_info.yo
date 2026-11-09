@@ -3281,6 +3281,40 @@ mark_call_scoped_share_dup :: (fn(id : usize) -> unit)({
   _m := g_call_scoped_share_dup_ids.with_mut(s => s.insert(id));
 });
 is_call_scoped_share_dup :: (fn(id : usize) -> bool)(g_call_scoped_share_dup_ids.with(s => s.contains(&id)));
+/// The operands of a written `&r` / `&mut r` (a lend marker over a bare
+/// name), recorded before the operand is evaluated
+/// (`note_self_lend_operand`). Where `r` is a reference binding outside the
+/// trees that keep the old reading, the lend is of `r`'s OWN storage, a
+/// `&&T` / `&mut &T` (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §7 P3):
+/// the identifier evaluator types the read as the reference itself and
+/// records it as a SELF PLACE (`mark_reference_self_place`), whose C is the
+/// binding's own storage, never the place it refers to.
+(g_self_lend_operand_ids : RefCell(HashMap(usize, bool))) = RefCell(HashMap(usize, bool)).new(HashMap(usize, bool).new());
+_vh_usize_set_len :: (fn(s : &HashSet(usize)) -> usize)(s.len());
+_vh_usize_bool_map_len :: (fn(m : &HashMap(usize, bool)) -> usize)(m.len());
+/// `is_mut`: the marker is `&mut`.
+note_self_lend_operand :: (fn(id : usize, is_mut : bool) -> unit)({
+  _m := g_self_lend_operand_ids.with_mut({ id, is_mut }(m) => m.insert(id, is_mut));
+});
+/// `.Some(is_mut)` when `id` is a lend operand.
+self_lend_operand_mode :: (fn(id : usize) -> Option(bool))(
+  if(g_self_lend_operand_ids.with(_vh_usize_bool_map_len) == usize(0), Option(bool).None, g_self_lend_operand_ids.with({ id }(m) => m.get(&id)))
+);
+/// A lend operand whose slot takes a reference to a REFERENCE (a `&A` /
+/// `&mut A` parameter with `A` a reference type): its `&r` lends `r` itself
+/// in every tree, the ones that keep the old reading of `&r` (std, src)
+/// included, since the referent cannot be what such a slot takes (an adapter's
+/// `(self._f)(&item)` over a reference `Item`).
+(g_self_lend_forced_ids : RefCell(HashSet(usize))) = RefCell(HashSet(usize)).new(HashSet(usize).new());
+note_self_lend_forced :: (fn(id : usize) -> unit)({
+  _m := g_self_lend_forced_ids.with_mut(s => s.insert(id));
+});
+is_self_lend_forced :: (fn(id : usize) -> bool)((g_self_lend_forced_ids.with(_vh_usize_set_len) > usize(0)) && g_self_lend_forced_ids.with(s => s.contains(&id)));
+(g_reference_self_place_ids : RefCell(HashSet(usize))) = RefCell(HashSet(usize)).new(HashSet(usize).new());
+mark_reference_self_place :: (fn(id : usize) -> unit)({
+  _m := g_reference_self_place_ids.with_mut(s => s.insert(id));
+});
+is_reference_self_place :: (fn(id : usize) -> bool)((g_reference_self_place_ids.with(_vh_usize_set_len) > usize(0)) && g_reference_self_place_ids.with(s => s.contains(&id)));
 /// The post-call `___drop` that balances a call-scoped share
 /// (`mark_call_scoped_share_dup`). An exit taken while the call's later
 /// arguments are evaluated (`return`, `break`, an unwind) skips the post-call
@@ -3448,6 +3482,7 @@ print_spec_report_if_requested :: (fn() -> unit)({
 });
 export(record_fid_rtcall, record_fid_spec, fid_fully_specialized, print_spec_report_if_requested, record_node_eval);
 export(mark_by_value_param_share_dup, is_by_value_param_share_dup, mark_call_scoped_share_dup, is_call_scoped_share_dup, mark_call_scoped_share_drop, is_call_scoped_share_drop);
+export(note_self_lend_operand, self_lend_operand_mode, note_self_lend_forced, is_self_lend_forced, mark_reference_self_place, is_reference_self_place);
 export(mark_node_preevaluated, unmark_node_preevaluated, node_is_preevaluated, mark_call_once_capture_dup, is_call_once_capture_dup, mark_moved_container_dup, is_moved_container_dup, mark_fnonce_capture_drop, is_fnonce_capture_drop, mark_fnonce_post_call_release, is_fnonce_post_call_release);
 export(record_macro_expansion, lookup_macro_expansion);
 export(HollowBodyError, record_hollow_body_error, clear_hollow_body_error, lookup_hollow_body_error);
