@@ -117,7 +117,7 @@ impl(
 );
 comptime_expect_error(
   impl(generic(p : Origin), DpEntry(p), dp_take_ref : (fn(self : Self) -> &mut(i32, p))(&mut self.m.*.a)),
-  "its destructor runs at the end of this body with `&mut self` while the returned `&mut(i32, p)` is still in use by the caller"
+  "its destructor runs at the end of this body with `&mut self` while the returned `&mut i32` is still in use by the caller"
 );
 comptime_expect_error(
   impl(generic(p : Origin), DpEntry(p), dp_take_payload : (fn(self : Self) -> Option(&mut(i32, p)))(.Some(&mut self.m.*.a))),
@@ -149,8 +149,8 @@ DpGuarded :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(m : &mut(DpSlot
 impl(generic(p : Origin), DpGuarded(p), dp_guarded_take : (fn(self : Self) -> &mut(i32, p))(&mut self.m.*.a));
 test("a by-value parameter's place is yielded when no Drop on its path runs", {
   mut(s) := DpSlots(a : i32(0), b : i32(0));
-  r := DpPlain(s)(m : &mut s).dp_plain_take();
-  r.* = i32(5);
+  res := DpPlain(s)(m : &mut s).dp_plain_take();
+  res.* = i32(5);
   assert(s.a == i32(5), "no Drop: the write through the result lands");
   t := DpSlots(a : i32(2), b : i32(3));
   q := DpShared(t)(r : &t).dp_shared_take();
