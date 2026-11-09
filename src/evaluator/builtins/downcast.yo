@@ -95,9 +95,9 @@ evaluate_downcast :: (
   (ref_mode : Option(bool)) = Option(bool).None;
   match(
     t_refine_inner(&dyn_type),
-    Rc(.Reference(dr_p, dr_m, _)) => if(is_dyn_type(dr_p), {
+    Rc(.Reference(dr_p, dr_m, _)) => if(is_dyn_type(&dr_p), {
       ref_mode = Option(bool).Some(dr_m);
-      dyn_type = Rc.clone(dr_p);
+      dyn_type = Rc.clone(&dr_p);
     }),
     _ => if(is_dyn_type(&dyn_type), {
       ref_mode = match(
