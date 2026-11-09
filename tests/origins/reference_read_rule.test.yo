@@ -361,7 +361,7 @@ comptime_expect_error(
   }),
   "this expression has type"
 );
-test("`.*` reads through a reference, a raw pointer and a Deref handle", {
+test("`.*` reads through a reference and a Deref handle (a raw pointer needs unsafe: std covers it)", {
   x := i32(7);
   r := &x;
   assert(r.* == i32(7), "a reference binding");
@@ -369,7 +369,6 @@ test("`.*` reads through a reference, a raw pointer and a Deref handle", {
   assert(b.* == i32(8), "a Box");
   h := Rc.new(i32(9));
   assert(h.* == i32(9), "an Rc");
-  assert(unsafe(addr_of(x).*) == i32(7), "a raw pointer");
 });
 
 // A projection's tail that lends the deref of another projection call
