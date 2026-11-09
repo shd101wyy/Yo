@@ -585,9 +585,13 @@ _collect_operand_holds_list :: (fn(operands : &ArrayList(AstExpr), out : &mut Ar
         (mut(later_awaits) : bool) = false;
         (mut(j) : usize) = (i + usize(1));
         while(j < n, {
-          match(operands.get(j), .Some(l) => if(expr_contains_await(&l), {
-            later_awaits = true;
-          }), .None => ());
+          match(
+            operands.get(j),
+            .Some(l) => if(expr_contains_await(&l), {
+              later_awaits = true;
+            }),
+            .None => ()
+          );
           j = (j + usize(1));
         });
         skip := (ast_expr_is_address_of_call(&op, Option(usize).Some(usize(1))) || ast_expr_is_fn_call_of(&op, BK_BORROW_MUT, Option(usize).Some(usize(1))) || (ast_expr_is_atom(&op) && !is_any_identifier_atom(&op)));

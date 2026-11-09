@@ -1734,14 +1734,14 @@ test("an operand before an await in a later operand is read before the await", {
   t := io.await(
     io.async((io : Io) => {
       (mut(z) : i32) = i32(3);
-      (z - io.await(
+      z - io.await(
         io.async({ &mut z }(io : Io) => {
           io.await(yield(io), io);
           z.* = i32(10);
           i32(1)
         }),
         io
-      ))
+      )
     }),
     io
   );
