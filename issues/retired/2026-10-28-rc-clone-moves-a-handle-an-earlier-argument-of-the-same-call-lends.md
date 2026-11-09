@@ -4,6 +4,8 @@
 the migrated file needs a hand edit. The rule and E0910 are right; only the
 repair tool picks the wrong spelling.
 
+**Status:** RETIRED 2026-11-09 — retired with the mode (`vbd/retire-migrations`: every `yo fix --migrate` mode but `deref` was deleted after v0.2.76, the last release that ships it).
+
 > Found 2026-10-28 by the V2c sweep of `tests/internal/env_lookup.test.yo`.
 
 ## Reproducer

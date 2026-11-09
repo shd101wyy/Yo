@@ -299,7 +299,7 @@ export(Acyclic);
 /// implement it; the compiler checks this at the `impl`. Calling `drop` by
 /// hand — `x.drop()`, `(T <: Drop).drop(&x)` — is error E0915, as it is in
 /// Rust; the free function `drop(x)` ends a value early. Its old name was
-/// `Dispose` (`yo fix <path> --migrate drop-trait` rewrites old code).
+/// `Dispose`.
 Drop :: trait(
   id := "Drop",
   /// Release the resources `self` owns. Called automatically, exactly once,
@@ -11201,7 +11201,7 @@ for :: (
                 v_callee :: variable.get_callee();
                 comptime_assert(
                   !(v_callee.is_atom() && ((v_callee == quote(mut)) || (v_callee == quote(inout)) || (v_callee == quote(imm)))),
-                  "`for(coll, mut(x) => ...)` was deleted: the borrowed loop is spelled `for(&mut coll, x => ...)` (`for(&coll, x => ...)` to read) (plans/VALUES_BY_DEFAULT.md decision 42). `yo fix <path> --migrate borrow-spelling` rewrites it."
+                  "`for(coll, mut(x) => ...)` was deleted: the borrowed loop is spelled `for(&mut coll, x => ...)` (`for(&coll, x => ...)` to read) (plans/VALUES_BY_DEFAULT.md decision 42)."
                 );
                 v_callee.is_atom() && ((v_callee == quote(__yo_mut)) || (v_callee == quote(__yo_imm)))
               },
@@ -11233,7 +11233,7 @@ for :: (
                             mv_second_callee :: mv_second.get_callee();
                             comptime_assert(
                               !(mv_second_callee.is_atom() && ((mv_second_callee == quote(mut)) || (mv_second_callee == quote(inout)) || (mv_second_callee == quote(imm)))),
-                              "`for(map, (k, mut(v)) => ...)` was deleted: the borrowed loop is spelled `for(&mut map, (k, v) => ...)` (`for(&map, (k, v) => ...)` to read) (plans/VALUES_BY_DEFAULT.md decision 42). `yo fix <path> --migrate borrow-spelling` rewrites it."
+                              "`for(map, (k, mut(v)) => ...)` was deleted: the borrowed loop is spelled `for(&mut map, (k, v) => ...)` (`for(&map, (k, v) => ...)` to read) (plans/VALUES_BY_DEFAULT.md decision 42)."
                             );
                             mv_second_callee.is_atom() && ((mv_second_callee == quote(__yo_mut)) || (mv_second_callee == quote(__yo_imm)))
                           },

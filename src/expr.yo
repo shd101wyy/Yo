@@ -1003,9 +1003,9 @@ ast_expr_is_old_mode_spelling :: (fn(e : &AstExpr) -> Option(String))(
 /// `old` is the word written. Raised with E0009.
 old_mode_spelling_message :: (fn(old : &String) -> String)(
   cond(
-    (old == "imm") => `\`imm(x)\` was deleted: a read-only borrow is spelled \`x : &T\` (a receiver \`self : &Self\`, a local one \`y := &place\`, the borrowed loop \`for(&xs, x => ...)\`) (plans/VALUES_BY_DEFAULT.md decision 42). \`yo fix <path> --migrate borrow-spelling\` rewrites it.`,
-    (old == "own") => `\`own(x)\` is spelled \`sink(x)\`: the \`own\` spelling was deleted (plans/VALUES_BY_DEFAULT.md V3b). \`yo fix <path> --migrate modes\` rewrites it.`,
-    true => `\`${old}(x)\` was deleted: an exclusive borrow is spelled \`x : &mut T\` (a receiver \`self : &mut Self\`, a local one \`y := &mut place\`, the borrowed loop \`for(&mut xs, x => ...)\`) (plans/VALUES_BY_DEFAULT.md decision 42). \`yo fix <path> --migrate borrow-spelling\` rewrites it.`
+    (old == "imm") => `\`imm(x)\` was deleted: a read-only borrow is spelled \`x : &T\` (a receiver \`self : &Self\`, a local one \`y := &place\`, the borrowed loop \`for(&xs, x => ...)\`) (plans/VALUES_BY_DEFAULT.md decision 42).`,
+    (old == "own") => `\`own(x)\` is spelled \`sink(x)\`: the \`own\` spelling was deleted (plans/VALUES_BY_DEFAULT.md V3b).`,
+    true => `\`${old}(x)\` was deleted: an exclusive borrow is spelled \`x : &mut T\` (a receiver \`self : &mut Self\`, a local one \`y := &mut place\`, the borrowed loop \`for(&mut xs, x => ...)\`) (plans/VALUES_BY_DEFAULT.md decision 42).`
   )
 );
 /// E0009 for the deleted mode spelling `old` written at `tok`.
@@ -2536,7 +2536,7 @@ _desugar_for_call :: (fn(e : &AstExpr) -> AstExpr)({
   variable := match(hargs.get(usize(0)), .Some(v) => v, .None => make_err_expr());
   body := match(hargs.get(usize(1)), .Some(b) => b, .None => make_err_expr());
   if(_fd_is_deleted_mode_word(&variable), {
-    return(_fd_reject("`for(coll, mut(x) => ...)` was deleted: the borrowed loop is spelled `for(&mut coll, x => ...)` (`for(&coll, x => ...)` to read) (plans/VALUES_BY_DEFAULT.md decision 42). `yo fix <path> --migrate borrow-spelling` rewrites it.", &tok));
+    return(_fd_reject("`for(coll, mut(x) => ...)` was deleted: the borrowed loop is spelled `for(&mut coll, x => ...)` (`for(&coll, x => ...)` to read) (plans/VALUES_BY_DEFAULT.md decision 42).", &tok));
   });
   is_ref_form := (ast_expr_is_fn_call_of(&variable, BK_MUT, .None) || ast_expr_is_fn_call_of(&variable, BK_IMM, .None));
   is_imm_form := ast_expr_is_fn_call_of(&variable, BK_IMM, .None);
@@ -2545,7 +2545,7 @@ _desugar_for_call :: (fn(e : &AstExpr) -> AstExpr)({
   if(ast_expr_is_fn_call_of(&variable, BK_TUPLE, Option(usize).Some(usize(2))), {
     second := _bs_arg(&variable, usize(1));
     if(_fd_is_deleted_mode_word(&second), {
-      return(_fd_reject("`for(map, (k, mut(v)) => ...)` was deleted: the borrowed loop is spelled `for(&mut map, (k, v) => ...)` (`for(&map, (k, v) => ...)` to read) (plans/VALUES_BY_DEFAULT.md decision 42). `yo fix <path> --migrate borrow-spelling` rewrites it.", &tok));
+      return(_fd_reject("`for(map, (k, mut(v)) => ...)` was deleted: the borrowed loop is spelled `for(&mut map, (k, v) => ...)` (`for(&map, (k, v) => ...)` to read) (plans/VALUES_BY_DEFAULT.md decision 42).", &tok));
     });
     if(ast_expr_is_fn_call_of(&second, BK_MUT, .None) || ast_expr_is_fn_call_of(&second, BK_IMM, .None), {
       map_val = Option(AstExpr).Some(second);

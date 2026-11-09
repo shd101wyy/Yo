@@ -235,7 +235,7 @@ import("std/fmt");
 { is_some_type } :: import("../../types/guards.yo");
 { is_primitive_type, is_unit_type, is_enum_type } :: import("../../types/guards.yo");
 { EvalValue } :: import("../../value.yo");
-{ expr_info_table_get, expr_info_table_set, record_node_eval, node_is_preevaluated, migrate_addr_of_on } :: import("../../expr_info.yo");
+{ expr_info_table_get, expr_info_table_set, record_node_eval, node_is_preevaluated } :: import("../../expr_info.yo");
 { set_evaluate_expression_fn, set_evaluate_expression_raw_fn } :: import("./expr.yo");
 { BindingResult, evaluate_binding } :: import("./binding.yo");
 { register_rerun_pending_def_evals } :: import("../calls/function_type.yo");
@@ -1190,28 +1190,24 @@ _evaluate_expression :: (
         ) => evaluate_reference_type(expr, env, ctx, false, exn),
         // `&x` is only a borrow marker (decision 33, V3b Generation B step
         // 3): a call argument lending to an `imm` parameter is peeled before
-        // evaluation, so one that reaches here is not lending. `yo fix
-        // --migrate addr-of` evaluates old code, where it was the address-of.
-        ((__dk_len == usize(1)) && ast_expr_is_fn_call_of(expr, BF_ADDRESS_OF, .Some(usize(1)))) => cond(
-          migrate_addr_of_on() => evaluate_address_call(expr, env, ctx, exn),
-          true => {
-            amp_place := ast_place_text(ast_expr_strip_borrow_marker(expr));
-            // `&T` whose operand is a type: a reference type (decision 43
-            // step 3, N2a).
-            if(_borrow_operand_is_type(ast_expr_strip_borrow_marker(expr), env, ctx), {
-              return(evaluate_reference_type(expr, env, ctx, false, exn));
-            });
-            exn.throw(
-              dyn(
-                format_error_message(
-                  ast_expr_token(expr),
-                  `\`&${amp_place}\` lends a borrow: it is written as a call argument to a \`&T\` parameter, as a \`match\` scrutinee, as a tuple element, or as a local borrow (\`y := &${amp_place}\`), and is not an expression of its own. Take a raw pointer with \`addr_of(${amp_place})\`; a method receiver is written bare (\`${amp_place}.m()\`).`
-                )
+        // evaluation, so one that reaches here is not lending.
+        ((__dk_len == usize(1)) && ast_expr_is_fn_call_of(expr, BF_ADDRESS_OF, .Some(usize(1)))) => {
+          amp_place := ast_place_text(ast_expr_strip_borrow_marker(expr));
+          // `&T` whose operand is a type: a reference type (decision 43
+          // step 3, N2a).
+          if(_borrow_operand_is_type(ast_expr_strip_borrow_marker(expr), env, ctx), {
+            return(evaluate_reference_type(expr, env, ctx, false, exn));
+          });
+          exn.throw(
+            dyn(
+              format_error_message(
+                ast_expr_token(expr),
+                `\`&${amp_place}\` lends a borrow: it is written as a call argument to a \`&T\` parameter, as a \`match\` scrutinee, as a tuple element, or as a local borrow (\`y := &${amp_place}\`), and is not an expression of its own. Take a raw pointer with \`addr_of(${amp_place})\`; a method receiver is written bare (\`${amp_place}.m()\`).`
               )
-            );
-            expr
-          }
-        ),
+            )
+          );
+          expr
+        },
         // `addr_of(x)` is today's address-of `&x` (decision 33).
         ((__dk_len == usize(7)) && ast_expr_is_fn_call_of(expr, BF_ADDR_OF, .Some(usize(1)))) =>
           evaluate_address_call(expr, env, ctx, exn),

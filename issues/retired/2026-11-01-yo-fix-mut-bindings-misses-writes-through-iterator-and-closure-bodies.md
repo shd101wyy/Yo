@@ -6,7 +6,9 @@ method (the closure-body collection APIs) stays unmarked, so the decision 47
 sweep leaves hand edits behind exactly where the B8–B11 flips concentrate them;
 the migration reports success and nothing flags the gap.
 
-**Status:** fixed 2026-11-02 (branch `fix/mut-bindings-iterator-closure-writes`,
+**Status:** RETIRED 2026-11-09 — retired with the mode (`vbd/retire-migrations`: every `yo fix --migrate` mode but `deref` was deleted after v0.2.76, the last release that ships it).
+
+**Earlier status:** was fixed 2026-11-02 (branch `fix/mut-bindings-iterator-closure-writes`,
 for v0.2.74, before the B8–B11 flips). Found 2026-11-01 by three agents of the
 v0.2.74 window front-load.
 

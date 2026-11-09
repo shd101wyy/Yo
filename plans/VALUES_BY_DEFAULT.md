@@ -9202,9 +9202,9 @@ heavy run, the command is given in item 2.
     - Test sites in seven files: a thread capture whose implicit copy is
       now a move (`arc`), an element copy in a generic reader
       (`async/combinators`), a nested closure's capture (`async_await`,
-      `issues/2026-10-28-rc-clone-misses-a-nested-closures-capture-of-an-enclosing-closures-capture.md`),
+      `issues/retired/2026-10-28-rc-clone-misses-a-nested-closures-capture-of-an-enclosing-closures-capture.md`),
       a last-use move an earlier argument lends (`internal/env_lookup`,
-      `issues/2026-10-28-rc-clone-moves-a-handle-an-earlier-argument-of-the-same-call-lends.md`),
+      `issues/retired/2026-10-28-rc-clone-moves-a-handle-an-earlier-argument-of-the-same-call-lends.md`),
       `Rc` instantiations of a generic `id` that copies `&T` (`fn`), a
       handle holder that is not `Clone` (`sync/refcell`), an `Rc(T)` copy in
       a generic method, and `ref_count` expectations that encoded the dup/drop
@@ -10360,6 +10360,12 @@ The rule, layout, prelude and tests are in decision 49 (§4).
     "RC-managed types" list.
 
 ### After V5: retire the `yo fix` migrations
+
+**Status (2026-11-09, v0.2.77):** landed for every mode except `deref`
+(`vbd/retire-migrations`), which stays until its Generation B (§5f decision
+36). The table of last releases is in `docs/*/ERROR_DIAGNOSTICS.md`
+("Retired migrations"): v0.2.76 for each mode, v0.2.73 for the copy
+migrations and `handle-ctors`.
 
 Queued by the maintainer, 2026-10-13. Each `yo fix --migrate <name>` exists
 to carry code across one seed gate. Once every Yo codebase we own is across,

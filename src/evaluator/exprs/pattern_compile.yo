@@ -42,14 +42,14 @@
   BK_TUPLE
 } :: import("../../expr.yo");
 { Token, TokenKind } :: import("../../token.yo");
-{ new_expr_info, expr_info_table_get, expr_info_table_set, struct_effective_ctor_fid, migrate_rc_pattern_on, record_rc_pattern_site } :: import("../../expr_info.yo");
+{ new_expr_info, expr_info_table_get, expr_info_table_set, struct_effective_ctor_fid } :: import("../../expr_info.yo");
 { Environment, add_variable_to_env, get_variables_from_env } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
 { replace } :: import("std/mem");
 { EvalValue, is_unknown_val, ValueCell } :: import("../../value.yo");
 { TypeValue, TypeValueNode, no_labels, SharedList } :: import("../../types/definitions.yo");
 { t_bool, resolve_enum_shell } :: import("../../types/creators.yo");
-{ is_enum_type, is_pointer_type, is_tuple_type, is_box_type, is_unique_box_type, is_struct_type, cell_handle_view } :: import("../../types/guards.yo");
+{ is_enum_type, is_pointer_type, is_tuple_type, is_unique_box_type, is_struct_type, cell_handle_view } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
 { debug_knob } :: import("../../utils.yo");
 { eprintln } :: import("std/fmt");
@@ -1285,18 +1285,6 @@ _wrapper_position_matches :: (fn(position_ty : &TypeValue, ctor : &_WrapperCtor)
     _ => false
   )
 });
-/// The leftmost source token of a pattern: where `yo fix --migrate
-/// rc-pattern` inserts `Rc(`.
-_pattern_leftmost_token :: (fn(e : &AstExpr) -> Token)(
-  match(
-    e,
-    .Atom(_, t) => t,
-    .FnCall(_, callee, Rc(args), is_infix, tok) => cond(
-      is_infix => match(args.get(usize(0)), .Some(a0) => recur(&a0), .None => tok),
-      true => recur(&callee)
-    )
-  )
-);
 /// The constructor name of a cell type (`Arc(i32)` → `Arc`), for a
 /// diagnostic's suggested spelling.
 _cell_ctor_name :: (fn(t : &TypeValue) -> String)({
@@ -1455,28 +1443,15 @@ compile_pattern :: (
   // implicit form goes once a `SEED_VERSION` carries `Box(p)`, because
   // `src/` cannot spell it before. `_`, a plain binding and the name of `:=`
   // bind/ignore the box itself and never reach here.
-  //
-  // Under `yo fix --migrate rc-pattern` an `Rc(T)` position is looked through
-  // the same way and the pattern recorded, so the migration can wrap it in
-  // `Rc(…)`.
-  rc_migrating := (is_box_type(position_ty) && migrate_rc_pattern_on());
-  if(rc_migrating, {
-    record_rc_pattern_site(_pattern_leftmost_token(e), ast_expr_to_string(e));
-  });
-  if(is_unique_box_type(position_ty) || rc_migrating, {
+  if(is_unique_box_type(position_ty), {
     inner := match(
       box_inner_type(position_ty),
       .Some(i) => resolve_enum_shell(&i),
       .None => Rc.clone(position_ty)
     );
-    // A `Box`'s one field is its cell pointer, and a cell handle's its cell,
-    // not the payload: the payload has no compile-time value here.
-    inner_val := match(
-      value_opt,
-      .Some(.StructVal(_, _, fvs)) => if(is_unique_box_type(position_ty) || cell_handle_view(position_ty).is_some(), Option(EvalValue).None, fvs.get(usize(0))),
-      .Some(_) => Option(EvalValue).None,
-      .None => Option(EvalValue).None
-    );
+    // A `Box`'s one field is its cell pointer, not the payload: the payload
+    // has no compile-time value here.
+    (inner_val : Option(EvalValue)) = Option(EvalValue).None;
     sub := compile_pattern(e, &inner, &inner_val, pc, env, ctx, exn);
     return(Pattern.ThroughBox(box_ty : Rc.clone(position_ty), inner_ty : inner, sub : Box.new(sub)));
   });
@@ -1490,7 +1465,7 @@ compile_pattern :: (
           ast_expr_token(e),
           `Pattern ${ast_expr_to_string(e)} cannot match a value of type ${type_to_string(position_ty)}: a pattern does not look through a cell implicitly.`,
           Option(String).Some(
-            if(cell_name == "Rc", `spell the wrapper the pattern crosses: Rc(${ast_expr_to_string(e)}) (\`yo fix <path> --migrate rc-pattern\` wraps every such pattern)`, `spell the wrapper the pattern crosses: ${cell_name}(${ast_expr_to_string(e)})`)
+            `spell the wrapper the pattern crosses: ${cell_name}(${ast_expr_to_string(e)})`
           )
         )
       )

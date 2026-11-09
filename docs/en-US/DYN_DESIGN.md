@@ -266,8 +266,7 @@ export(main);
 `dyn(f)` of a named `fn` boxes the function's code pointer, and the `Dyn`'s
 call goes through it: a top-level or imported function, or an
 `Impl(Fn(...))` parameter bound to one. It captures nothing, so nothing is
-copied into the box. `yo fix <path> --migrate dyn-spelling` wraps every bare
-site in a tree. An `Impl(Fn(...))` slot is the closure's own static type, not
+copied into the box. An `Impl(Fn(...))` slot is the closure's own static type, not
 an erasure, so a closure flows into it bare.
 
 ## Method Dispatch

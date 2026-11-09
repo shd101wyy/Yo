@@ -20,9 +20,7 @@ pragma(Pragma.AllowUnsafe);
   expr_info_comptime_ref,
   expr_info_index_trait_ptr_type,
   expr_info_set_comptime_ref,
-  expr_info_set_is_index_trait_address_of,
-  record_addr_of_site,
-  migrate_addr_of_on
+  expr_info_set_is_index_trait_address_of
 } :: import("../../expr_info.yo");
 { Variable, Environment, snapshot_env, get_variables_from_env, find_variable_in_env_at, variable_value_type } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx, FuncOrAsyncBlockKind } :: import("../context.yo");
@@ -483,11 +481,6 @@ evaluate_address_call :: (
       )
     );
   });
-  // `yo fix --migrate addr-of`: every `&x` this evaluator sees is the
-  // raw-pointer address-of of old code (a lent marker was peeled before
-  // evaluation, and outside the migration `&x` never reaches here), so the
-  // sweep rewrites it to `addr_of(x)`.
-  if(migrate_addr_of_on(), match(expr, .FnCall(_, amp_callee, _, _, _) => match(amp_callee, .Atom(_, amp_tok) => record_addr_of_site(&amp_tok, ast_expr_to_string(expr), false), _ => ()), _ => ()));
   // Adjust expected type: if expected is a pointer, use the pointee type.
   // Build a FRESH ExpectedTypeCtx — ExpectedTypeCtx is an
   // `object` (reference semantics), so mutating an alias of the current

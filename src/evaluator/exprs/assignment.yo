@@ -32,7 +32,7 @@ pragma(Pragma.AllowUnsafe);
   alloc_global_expr_id,
   ast_rewritten_node
 } :: import("../../expr.yo");
-{ ExprInfo, ComptimeRef, new_expr_info, record_macro_expansion, expr_info_set_macro_expansion, expr_info_table_set, expr_info_table_get, ControlFlowFlags, has_any_control_flow, control_flow_to_string, record_branch_init, has_dominating_branch_init, path_collection_of_name, expr_info_set_converted_runtime_type, register_thread_local, is_thread_local, register_mut_global, expr_info_capture_type, expr_info_comptime_ref, expr_info_index_trait_ptr_type, expr_info_set_is_compile_time_only_assignment, some_resolution, migrate_mut_bindings_on, record_mut_judged, is_reference_self_place, expr_info_converted_runtime_type } :: import("../../expr_info.yo");
+{ ExprInfo, ComptimeRef, new_expr_info, record_macro_expansion, expr_info_set_macro_expansion, expr_info_table_set, expr_info_table_get, ControlFlowFlags, has_any_control_flow, control_flow_to_string, record_branch_init, has_dominating_branch_init, path_collection_of_name, expr_info_set_converted_runtime_type, register_thread_local, is_thread_local, register_mut_global, expr_info_capture_type, expr_info_comptime_ref, expr_info_index_trait_ptr_type, expr_info_set_is_compile_time_only_assignment, some_resolution, is_reference_self_place, expr_info_converted_runtime_type } :: import("../../expr_info.yo");
 {
   Environment,
   Variable,
@@ -126,7 +126,6 @@ pragma(Pragma.AllowUnsafe);
   local_borrow_mark_receiver,
   local_borrow_clear_receiver,
   reject_bare_callable_into_dyn_fn,
-  bare_callable_recorded_into_dyn_fn,
   projection_call_mode_of,
   global_lend_audit_enabled,
   global_lend_audit_print,
@@ -1759,9 +1758,7 @@ evaluate_assignment :: (
       });
     });
     _note_reference_value_store(&prop_rhs, &prop_rhs_info, ctx);
-    // A site `yo fix --migrate dyn-spelling` recorded stands for the
-    // rewrite's `dyn(value)`, which the slot takes.
-    if(!bare_callable_recorded_into_dyn_fn(&expected_ty, &prop_rhs_type) && !are_types_compatible(&prop_rhs_type, &expected_ty), {
+    if(!are_types_compatible(&prop_rhs_type, &expected_ty), {
       exp_str := type_to_string(&expected_ty);
       rhs_str := type_to_string(&prop_rhs_type);
       exn.throw(
@@ -2229,9 +2226,7 @@ Bound type: ${type_to_string(&variable_value_type(&mcb_v))}`
   if(!variable.is_reassignable() && !variable.is_parameter() && !variable.is_implicit(), {
     binding_require_mut(&variable, ast_expr_token(&lhs_resolved), &String.from("assign to"), ctx, exn);
   });
-  // `yo fix --migrate mut-bindings` recorded such a binding above and goes
-  // on evaluating; the marker it inserts makes the binding reassignable.
-  if(!variable.is_reassignable() && !(migrate_mut_bindings_on() && !variable.is_parameter() && !variable.is_implicit()), {
+  if(!variable.is_reassignable(), {
     exn.throw(
       dyn(
         format_error_message_with_help(
@@ -2294,11 +2289,6 @@ Bound type: ${type_to_string(&variable_value_type(&mcb_v))}`
   // (`(x : T);`) is its initialization, not a write, on each branch that
   // makes it (`has_dominating_branch_init`).
   if(!variable.is_module_level() && !d1_is_decl_init, {
-    // `yo fix --migrate mut-bindings`: this assignment is judged here, a
-    // write or a branch's initialization.
-    if(migrate_mut_bindings_on(), {
-      record_mut_judged(&d1_lhs_tok);
-    });
     rb_inited_at_decl := match(variable.initialized_at_token(), .Some(it) => ((it.row == variable.token.row) && ((it.column == variable.token.column) && (it.module_path == variable.token.module_path))), .None => false);
     rb_is_write := cond(
       rb_inited_at_decl => true,
@@ -2513,11 +2503,8 @@ comptime(${variable_name}) : ${dgc_ty_str}
   // (`function_value_slot_mismatch`, the rule a call argument meets).
   // Decision 44: a callable into a `Dyn(Fn(...))` variable is `dyn(f)`.
   reject_bare_callable_into_dyn_fn(&variable_value_type(&variable), &rhs_type, &rhs, `\`${variable_name}\``, ctx, exn);
-  // Recorded by `yo fix --migrate dyn-spelling`: the value stands for the
-  // rewrite's `dyn(value)`, which the slot takes.
-  bind_dyn_recorded := bare_callable_recorded_into_dyn_fn(&variable_value_type(&variable), &rhs_type);
   match(
-    if(bind_dyn_recorded, Option(String).None, function_value_slot_mismatch(&variable_value_type(&variable), &rhs_type)),
+    function_value_slot_mismatch(&variable_value_type(&variable), &rhs_type),
     .Some(fvs_note) => exn.throw(
       dyn(
         mark_generic_independent(
@@ -2530,7 +2517,7 @@ comptime(${variable_name}) : ${dgc_ty_str}
     .None => ()
   );
   // Type-compatibility check.
-  if(!bind_dyn_recorded && !are_types_compatible(&rhs_type, &variable_value_type(&variable)), {
+  if(!are_types_compatible(&rhs_type, &variable_value_type(&variable)), {
     var_ty_str := type_to_string(&variable_value_type(&variable));
     rhs_ty_str := type_to_string(&rhs_type);
     exn.throw(

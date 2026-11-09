@@ -4,6 +4,8 @@
 migrated file needs a hand edit before it type-checks. The rule itself is
 right; only the repair tool misses the site.
 
+**Status:** RETIRED 2026-11-09 — retired with the mode (`vbd/retire-migrations`: every `yo fix --migrate` mode but `deref` was deleted after v0.2.76, the last release that ships it).
+
 > Found 2026-10-28 by the V2c sweep of `tests/` (`tests/async_await.test.yo`,
 > "Test awaited condition really suspends (spawned task interleaves)": an
 > `io.async` body that spawns a second `io.async` reading the same `Rc`).

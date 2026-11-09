@@ -5,6 +5,8 @@ that moves into a closure's capture list and is then moved in the closure body. 
 Because the file "does not evaluate" under the migration, none of its copies, or the copies of any module that
 imports it, are migrated.
 
+**Status:** RETIRED 2026-11-09 — retired with the mode (`vbd/retire-migrations`: every `yo fix --migrate` mode but `deref` was deleted after v0.2.76, the last release that ships it).
+
 > Found 2026-11-05 while running the rc-clone migration over `src/` for V5 part B. Three `src/` sites have the
 > shape: `src/evaluator/exprs/expr.yo` (`g_guarded_eval_err`), `src/evaluator/exprs/match.yo`
 > (`g_guard_block_err`) and `src/evaluator/builtins/derive.yo` (`g_derive_eval_err`). Seed v0.2.74 and a tree

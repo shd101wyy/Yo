@@ -44,7 +44,7 @@ pragma(Pragma.AllowUnsafe);
   BF_ASSUMED
 }
 :: import("../../expr.yo");
-{ record_borrow_param_migration, migrate_param_modes_on, ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, expr_info_adopt_env, adopt_receiver_struct_instance, some_resolution, lookup_trait_ctor_fid, lookup_trait_type_args } :: import("../../expr_info.yo");
+{ ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, expr_info_adopt_env, adopt_receiver_struct_instance, some_resolution, lookup_trait_ctor_fid, lookup_trait_type_args } :: import("../../expr_info.yo");
 { Environment, make_environment, Variable, get_variables_from_env, add_variable_to_env, add_where_clause_constraint_for_type_application, snapshot_env, copy_env_frames, env_adopt, variable_value_type } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx, force_pending_impls_for_type_name, type_head_name_for_impl_forcing, call_function_value_marker } :: import("../context.yo");
 { EvalValue, create_type_value, create_unknown_val, is_type_value, is_runtime_only_unknown_val } :: import("../../value.yo");
@@ -79,8 +79,7 @@ pragma(Pragma.AllowUnsafe);
 {
   get_value_of_some_type_from_env,
   convert_comptime_type_to_runtime_type,
-  convert_comptime_type_to_runtime_type_with_expected,
-  get_trait_type_from_env
+  convert_comptime_type_to_runtime_type_with_expected
 } :: import("../../types/env_lookup.yo");
 { format_error_message, format_error_message_with_help, with_code, YoError } :: import("../../error.yo");
 { E_COMPTIME_PARAM_DEFAULT, E_ORIGIN_NOT_DECLARED, E_ORIGIN_NAMES_ITSELF, E_LOCAL_BORROW_ESCAPES } :: import("../../diagnostics.yo");
@@ -1957,33 +1956,6 @@ _borrow_result_inner :: (fn(e : &AstExpr) -> AstExpr)(
   match(_fn_call_args(e).get(usize(0)), .Some(a) => a, .None => make_err_expr())
 );
 /// Evaluate a single function parameter expression.
-///
-/// Whether a parameter of type `ty` is `Copy`, asking a generic parameter
-/// through its bounds (an unbounded `T` is not). Before the prelude defines
-/// `Copy`, only a type naming no type variable counts (the early prelude's
-/// concrete parameter types are scalars and pointers): answering `true` there
-/// left the operator intrinsics' and traits' `x : T` / `lhs : Self` plain.
-_param_type_is_copy :: (fn(ty : &TypeValue, env : &Environment) -> bool)(
-  match(
-    get_trait_type_from_env(env, String.from("Copy")),
-    .Some(copy_tt) => type_implements_trait(ty, &copy_tt, env).implemented,
-    .None => !type_mentions_some_type(ty)
-  )
-);
-/// The parameter half of the V3b sweep: a plain runtime parameter whose type
-/// is not `Copy` becomes `x : &T`, which is what it meant before the flip
-/// made a plain parameter by value. A generic parameter is borrowed unless
-/// its bounds make it `Copy`. Recorded once per source position: a parameter
-/// evaluated in several instantiations is borrowed when any of them is not
-/// `Copy`.
-_record_param_mode_migration :: (fn(label_tok : &Token, is_plain : bool, ty : &TypeValue, env : &Environment) -> unit)({
-  if(!is_plain, {
-    return(());
-  });
-  if(!_param_type_is_copy(ty, env), {
-    record_borrow_param_migration(label_tok);
-  });
-});
 evaluate_function_parameter :: (
   fn(
     expr : &AstExpr,
@@ -2000,7 +1972,7 @@ evaluate_function_parameter :: (
   (is_owning_rc_value : bool) = false;
   (is_sink_param : bool) = false;
   (is_param_ref : bool) = false;
-  // `yo fix --migrate params`: an explicit `imm(...)` and the `inout` word.
+  // A borrow spelled on the parameter: `x : &T`, or `&(T, o)` with an origin.
   (has_imm_wrapper : bool) = false;
   (lhs_expr : Option(AstExpr)) = Option(AstExpr).None;
   (type_expr : Option(AstExpr)) = Option(AstExpr).None;
@@ -2641,9 +2613,6 @@ use_id :: (fn(generic(T : Type),
   );
   label_str := match(label, .Some(l) => l, .None => String.from("?"));
   lbl_tok := match(label_expr, .Some(e) => ast_expr_token(&e), .None => ast_expr_token(expr));
-  if(migrate_param_modes_on() && !is_compile_time_only && !is_quote && label_expr.is_some(), {
-    _record_param_mode_migration(&lbl_tok, !is_param_ref && !is_owning_rc_value && !has_imm_wrapper, &final_param_type, env_mut);
-  });
   // The flip (plans/VALUES_BY_DEFAULT.md decision 30, V3b Generation B step
   // 2): a plain runtime parameter is BY VALUE, owned by the callee exactly as
   // `sink(x)` spells it; `imm(x)` keeps the borrow. The flag is set for every

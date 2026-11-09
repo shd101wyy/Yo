@@ -30,7 +30,7 @@ pragma(Pragma.AllowUnsafe);
 { HashSet } :: import("std/collections/hash_set");
 { AstExpr, ast_expr_token, ast_expr_id, make_err_expr, clone_expr_fresh_ids, rewrite_projection_tails } :: import("../../expr.yo");
 { copy_func_param_defaults, copy_func_param_default_exprs, copy_func_param_type_exprs, copy_func_param_comptime, copy_func_param_assigned_values, get_func_param_comptime, copy_func_return_type_expr, copy_macro_registration, get_func_variadic_param, copy_func_variadic_param, copy_func_where_constraints, get_func_where_constraints, WhereConstraintEntry, get_func_requires_exprs, get_func_ensures_exprs, get_func_decreases_expr, get_func_return_label, copy_func_contract_exprs, has_func_assumed_body } :: import("../types/function.yo");
-{ ExprInfo, new_expr_info, expr_info_table_set, expr_info_table_get, has_control_flow, has_any_control_flow, push_active_where_trait_ids, pop_active_where_trait_ids, some_resolution, trial_body_site, record_generic_trial_error, clear_generic_trial_error, migrate_dyn_spelling_on } :: import("../../expr_info.yo");
+{ ExprInfo, new_expr_info, expr_info_table_set, expr_info_table_get, has_control_flow, has_any_control_flow, push_active_where_trait_ids, pop_active_where_trait_ids, some_resolution, trial_body_site, record_generic_trial_error, clear_generic_trial_error } :: import("../../expr_info.yo");
 {
   Environment,
   Variable,
@@ -53,7 +53,7 @@ pragma(Pragma.AllowUnsafe);
 { some_t_bounds, TypeValue, TypeValueNode, shared_list, no_types, no_labels, slot_pointee_at, slot_pointees, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_by_value, t_slot_is_borrow, t_origin_kind, t_origin_named } :: import("../../types/definitions.yo");
 { t_unit, t_some_t, t_ptr, resolve_some_binder_kind, t_with_resolution, t_with_func_result, resolve_enum_shell, register_ctor_phantom_positions } :: import("../../types/creators.yo");
 { is_type_0, is_some_type, is_unit_type, is_void_type, is_function_type, is_type_hierarchy_type, is_comptime_int_type, is_never_type } :: import("../../types/guards.yo");
-{ adopt_never_type, reject_second_class_return, reject_bare_callable_result, bare_callable_recorded_into_dyn_fn, projection_body_mismatch_message } :: import("../utils.yo");
+{ adopt_never_type, reject_second_class_return, reject_bare_callable_result, projection_body_mismatch_message } :: import("../utils.yo");
 { comptime_int_value_misfit } :: import("../values/integer.yo");
 {
   wrap_function_body_with_contracts,
@@ -2160,7 +2160,7 @@ Result type: ${type_to_string(&result_box)}`
                   // Decision 44: a callable result into `Dyn(Fn(...))` is
                   // `dyn(f)`; a definition rejected here is not emitted.
                   if(!result_is_ref, {
-                    if(is_bare_callable_into_dyn_fn(&result_box, &ub_ty) && (!migrate_dyn_spelling_on() || propagate_def_time_errors()), {
+                    if(is_bare_callable_into_dyn_fn(&result_box, &ub_ty), {
                       mark_fn_unemittable(fn_val_id.clone());
                     });
                     reject_bare_callable_result(&result_box, &ub_ty, &fb, ctx, exn);
@@ -2195,9 +2195,7 @@ Result type: ${type_to_string(&result_box)}`
                   mark_fn_unemittable(fn_val_id.clone());
                   exn.throw(dyn(format_error_message(ast_expr_token(&fb), projection_body_mismatch_message(&result_box, result_is_mut_ref, &ub_ty, &ub_body, ctx))));
                 });
-                // A tail `yo fix --migrate dyn-spelling` recorded stands for
-                // the rewrite's `dyn(value)`, which the result takes.
-                if(!ub_skip && !result_is_ref && !bare_callable_recorded_into_dyn_fn(&result_box, &ub_ty) && !are_types_compatible(&ub_ty, &result_box), {
+                if(!ub_skip && !result_is_ref && !are_types_compatible(&ub_ty, &result_box), {
                   // The registration above already happened; a definition
                   // rejected here must not be emitted (its callers were
                   // discarded with the throw — a `comptime_expect_error`

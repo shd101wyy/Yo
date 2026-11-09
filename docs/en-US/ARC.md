@@ -105,8 +105,7 @@ assert(copied == i32(42), "inner value is 42");
 `Arc.clone(a)` makes a second handle: it increments the reference count and keeps sharing the
 same value. A second handle is spelled, as in Rust (decision 17 of
 [the values-by-default plan](../../plans/VALUES_BY_DEFAULT.md)): an implicit copy whose source is
-used again is E0901, and a handle's last use moves it. `yo fix <path> --migrate rc-clone` spells
-the clones in existing code. `Arc(T)` is `Clone` for every `T`, and its clone is always a second
+used again is E0901, whose note names `Arc.clone(a)`, and a handle's last use moves it. `Arc(T)` is `Clone` for every `T`, and its clone is always a second
 handle; a deep copy of the value is spelled `Arc.new(a.*.clone())`.
 
 ```yo

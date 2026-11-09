@@ -3,7 +3,7 @@ E0009 — deleted spelling
 
 This spelling was deleted: a borrow is written with the sigil of the call site.
 
-A borrow is spelled `x : &T` (read-only) or `x : &mut T` (exclusive) in every slot that holds one: a parameter, a receiver (`self : &Self`), a closure parameter, an `Fn(...)` slot, a local borrow (`y := &place`, `y := &mut place`), a capture list (`{ &y, z : &mut p }`) and the borrowed loop (`for(&mut xs, x => ...)`). The mode words `imm(x)`, `mut(x)` and the older `inout(x)` were deleted (plans/VALUES_BY_DEFAULT.md decision 42), as was `own(x)`, now `sink(x)`. `yo fix <path> --migrate borrow-spelling` rewrites the borrow words in a whole tree, and `yo fix <path> --migrate modes` rewrites `own`.
+A borrow is spelled `x : &T` (read-only) or `x : &mut T` (exclusive) in every slot that holds one: a parameter, a receiver (`self : &Self`), a closure parameter, an `Fn(...)` slot, a local borrow (`y := &place`, `y := &mut place`), a capture list (`{ &y, z : &mut p }`) and the borrowed loop (`for(&mut xs, x => ...)`). The mode words `imm(x)`, `mut(x)` and the older `inout(x)` were deleted (plans/VALUES_BY_DEFAULT.md decision 42), as was `own(x)`, now `sink(x)`. Older code is upgraded on the last release that ships the migrations: `yo version install 0.2.76 && yo fix <path> --migrate borrow-spelling` (and `--migrate modes` for `own`), then step to the next release.
 
 Example — this fails:
   { String } :: import("std/string");
@@ -19,7 +19,7 @@ Example — write this instead:
 Run 'yo explain --list' for all codes.
 rc=0
 $ yo check main.yo
-error[E0009]: `imm(x)` was deleted: a read-only borrow is spelled `x : &T` (a receiver `self : &Self`, a local one `y := &place`, the borrowed loop `for(&xs, x => ...)`) (plans/VALUES_BY_DEFAULT.md decision 42). `yo fix <path> --migrate borrow-spelling` rewrites it.
+error[E0009]: `imm(x)` was deleted: a read-only borrow is spelled `x : &T` (a receiver `self : &Self`, a local one `y := &place`, the borrowed loop `for(&xs, x => ...)`) (plans/VALUES_BY_DEFAULT.md decision 42).
   --> main.yo:2:15
   |
 2 | len_of :: (fn(imm(s) : String) -> usize)(s.len());

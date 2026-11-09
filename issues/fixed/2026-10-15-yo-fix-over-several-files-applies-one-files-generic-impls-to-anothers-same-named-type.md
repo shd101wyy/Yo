@@ -68,7 +68,7 @@ in any other one-session multi-entry evaluation (`yo lsp` with two open
 projects).
 
 The verify-pragma fixtures that fail the same way under `tests/spec` are a
-separate cause, filed as `issues/yo-fix-migrate-markers-skips-verify-pragma-files.md`.
+separate cause, filed as `issues/retired/yo-fix-migrate-markers-skips-verify-pragma-files.md`.
 
 ## Workaround
 
