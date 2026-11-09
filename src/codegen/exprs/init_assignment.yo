@@ -306,7 +306,8 @@ _generate_inout_local_binding :: (fn(lhs : &AstExpr, rhs : &AstExpr, bind_key : 
     // not a place: it is held in a frame temp, which the borrow points at.
     if(is_dyn_type(&place_type) && !_is_c_lvalue_chain(&place_code), {
       dyn_tmp := `__yo_dyn_ref_${var_name.clone()}`;
-      context.base.emitter.emit_string_line(`${indent.clone()}${get_type_string(&place_type, &mut context.base)} ${dyn_tmp.clone()} = ${place_code.clone()};`);
+      dyn_tmp_decl := `${indent.clone()}${get_type_string(&place_type, &mut context.base)} ${dyn_tmp.clone()} = ${place_code.clone()};`;
+      context.base.emitter.emit_string_line(&dyn_tmp_decl);
       place_code = dyn_tmp;
     });
     if(!_is_c_lvalue_chain(&place_code), {
