@@ -229,6 +229,10 @@ derive(RefPayloadSource, Clone);
 /// O-3 (VERDICTS-37 Q3): `BorrowCaptureOuter` by capture binding id, and
 /// the capture stores waiting for their literal's end.
 (g_borrow_capture_outer : RefCell(HashMap(usize, BorrowCaptureOuter))) = RefCell(HashMap(usize, BorrowCaptureOuter)).new(HashMap(usize, BorrowCaptureOuter).new());
+/// `f := _Slot(a).put`: the DEFINITION's function type of a fn value bound to a local, by the binding's
+/// `Variable.id`. A fn VALUE's own type is the specialized one, whose reference origins are elided
+/// (`v : &i32` for `v : &(i32, p)`), so `lend_through` reads a call through `f` off the definition.
+(g_fn_value_defs : RefCell(HashMap(usize, TypeValue))) = RefCell(HashMap(usize, TypeValue)).new(HashMap(usize, TypeValue).new());
 (g_capture_store_joins : RefCell(ArrayList(CaptureStoreJoin))) = RefCell(ArrayList(CaptureStoreJoin)).new(ArrayList(CaptureStoreJoin).new());
 (g_local_borrow_joins : RefCell(ArrayList(LocalBorrowInfo))) = RefCell(ArrayList(LocalBorrowInfo)).new(ArrayList(LocalBorrowInfo).new());
 (g_local_borrow_patterns : RefCell(ArrayList(LocalBorrowPatternBinding))) = RefCell(ArrayList(LocalBorrowPatternBinding)).new(ArrayList(LocalBorrowPatternBinding).new());
@@ -10571,6 +10575,24 @@ note_borrow_capture_outer :: (fn(cap_id : usize, entry : BorrowCaptureOuter) -> 
 borrow_capture_outer :: (fn(cap_id : usize) -> Option(BorrowCaptureOuter))(
   g_borrow_capture_outer.with({ &cap_id }(m) => m.get_cloned(cap_id))
 );
+/// A local bound to a known fn value (`f := _Slot(a).put`) remembers the value's definition type.
+note_fn_value_definition :: (fn(var_id : usize, rhs : &AstExpr, ctx : &EvalContext) -> unit)(
+  match(
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(rhs)),
+    .Some(nf_ri) => match(
+      nf_ri.value(),
+      .Some(.FuncVal(nf_fv, _)) => {
+        nf_ft := get_func_type(&nf_fv.*.func_id);
+        g_fn_value_defs.with_mut({ var_id, nf_ft }(m) => m.insert(var_id, nf_ft));
+      },
+      _ => ()
+    ),
+    .None => ()
+  )
+);
+fn_value_definition :: (fn(var_id : usize) -> Option(TypeValue))(
+  g_fn_value_defs.with({ &var_id }(m) => m.get_cloned(var_id))
+);
 /// A store into a `&mut` capture, joined into the outer holder when the
 /// literal's evaluation ends (`apply_capture_store_joins`).
 CaptureStoreJoin :: struct(
@@ -11396,7 +11418,7 @@ _origin_through_match_bindings :: (fn(roots : &ArrayList(OriginRootPlace), env :
   });
   out
 });
-export(projection_call_mode_of, unsize_root_args, projection_body_mismatch_message, ProjectionRootArg, is_temporary_operand, origin_temporary_entry, origin_temporary_root, ORIGIN_TEMPORARY_ROOT, projection_call_root_args, projection_call_callee_type, OriginRootPlace, origin_of, variable_holder_roots, origin_held_by, origin_param_names_of, param_declared_origin_slot, is_body_parameter, place_write_join, rigid_param_slot, is_rigid_origin_name, origin_name_phrase, BorrowCaptureOuter, note_borrow_capture_outer, borrow_capture_outer, apply_capture_store_joins, holder_future_roots, bind, bind_join, bind_join_roots_for, return_check, note_ref_payload_source, ref_payload_source, note_ref_payload_held, note_borrow_match_source, borrow_match_source, n2b_roots_text, audit_origin_totality, audit_origin_totality_elided, origin_totality_audit_on, value_origin_names, elide_callee_origin_names);
+export(projection_call_mode_of, unsize_root_args, projection_body_mismatch_message, ProjectionRootArg, is_temporary_operand, origin_temporary_entry, origin_temporary_root, ORIGIN_TEMPORARY_ROOT, projection_call_root_args, projection_call_callee_type, OriginRootPlace, origin_of, variable_holder_roots, origin_held_by, origin_param_names_of, param_declared_origin_slot, is_body_parameter, place_write_join, rigid_param_slot, is_rigid_origin_name, origin_name_phrase, BorrowCaptureOuter, note_borrow_capture_outer, borrow_capture_outer, apply_capture_store_joins, holder_future_roots, bind, bind_join, bind_join_roots_for, return_check, note_ref_payload_source, ref_payload_source, note_ref_payload_held, note_borrow_match_source, borrow_match_source, n2b_roots_text, audit_origin_totality, audit_origin_totality_elided, origin_totality_audit_on, value_origin_names, elide_callee_origin_names, note_fn_value_definition, fn_value_definition);
 export(drop_owned_match_binding_at_arm_end, match_scrutinee_is_capture, local_borrow_register_match_place, local_borrow_note_match_place, note_consuming_match_scrutinee, consuming_match_scrutinee_at, moved_value_help, _lb_arrow_shadows, _lb_fn_literal_binds, _lb_mentions);
 export(
   LocalBorrowPlace,

@@ -138,6 +138,7 @@
   is_temporary_operand,
   projection_call_callee_type,
   bind,
+  note_fn_value_definition,
   audit_origin_totality,
   origin_of,
   OriginRootPlace,
@@ -2022,7 +2023,10 @@ Use \`::\` for compile-time definitions inside impl.`
     // (no-op unless this IS the statement currently being forced).
     match(
       &new_var_opt,
-      .Some(bound_var) => record_pending_def_variable(var_name.clone(), &actual_lhs_tok, &bound_var),
+      .Some(bound_var) => {
+        record_pending_def_variable(var_name.clone(), &actual_lhs_tok, &bound_var);
+        note_fn_value_definition(bound_var.id(), &rhs, ctx);
+      },
       .None => ()
     );
     // N2b's binding freeze (decision 43 step 3, T8/T9): a RUNTIME local
