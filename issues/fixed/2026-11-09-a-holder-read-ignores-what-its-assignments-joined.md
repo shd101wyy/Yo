@@ -14,11 +14,11 @@ develop ee24d9058.
 keep :: (fn(generic(p : Origin), r : &(i32, p)) -> Option(&(i32, p)))({
   mut(res) := Option(&(i32, p)).None;
   res = .Some(r);
-  res   // E0912: "Cannot return a value holding `res`"
+  res // E0912: "Cannot return a value holding `res`"
 });
 copy :: (fn(generic(p : Origin), o : Option(&(i32, p))) -> Option(&(i32, p)))({
   c := o;
-  c     // E0912: "Cannot return the local borrow `c`: it borrows `o`"
+  c // E0912: "Cannot return the local borrow `c`: it borrows `o`"
 });
 ```
 
