@@ -109,11 +109,16 @@ _echo_bench :: (fn(conns : usize, rounds : usize, key : str, io : Io) -> unit)({
     hs.push(io.spawn(_echo_side(fds(k + usize(1)), true, rounds, io), io));
     hs.push(io.spawn(_echo_side(fds(k), false, rounds, io), io));
   });
-  k = usize(0);
-  while(k < hs.len(), k = (k + usize(1)), {
-    if(match(hs(k).await(io), .Some(b) => (b != i32(0)), .None => true), {
-      panic(String.from("echo connection failed"));
-    });
+  // `await` consumes the handle (a `JoinHandle` is move-only), so each one is
+  // moved out of the list to be awaited.
+  while(hs.len() > usize(0), {
+    match(
+      hs.pop(),
+      .Some(h) => if(match(h.await(io), .Some(b) => (b != i32(0)), .None => true), {
+        panic(String.from("echo connection failed"));
+      }),
+      .None => ()
+    );
   });
   conc_us := Instant.now().duration_since(t0c).as_micros();
   println(`${key}_us ${conc_us} ops ${((conns * rounds) * usize(4))}`);
