@@ -246,6 +246,31 @@ comptime_expect_error(
   }),
   "is live to its drop at the end of its own block"
 );
+comptime_expect_error(
+  rr_drop_holder_inner_root_maybe_back :: (fn(c : bool) -> unit)({
+    x := i32(1);
+    mut(g) := RrDropG(&i32)(t : &x);
+    {
+      y := i32(2);
+      g = RrDropG(&i32)(t : &y);
+      if(c, {
+        g = RrDropG(&i32)(t : &x);
+      });
+    };
+  }),
+  "is live to its drop at the end of its own block"
+);
+test("a user-Drop holder re-pointed at an inner-block root and back before the block ends", {
+  x := i32(1);
+  mut(g) := RrDropG(&i32)(t : &x);
+  {
+    y := i32(2);
+    g = RrDropG(&i32)(t : &y);
+    assert(g.t.* == i32(2), "the holder reads the inner root");
+    g = RrDropG(&i32)(t : &x);
+  };
+  assert(g.t.* == i32(1), "the holder is back on the outer root");
+});
 test("a user-Drop holder re-pointed at a root declared before it", {
   x := i32(1);
   y := i32(2);
