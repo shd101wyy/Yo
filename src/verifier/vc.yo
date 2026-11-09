@@ -29,7 +29,6 @@ pragma(Pragma.AllowUnsafe);
   BK_RETURN,
   BK_IMM,
   BF_DECREASES,
-  BF_YO_BORROW_CHECK,
   ast_expr_id,
   ast_expr_token,
   ast_expr_text,
@@ -3692,56 +3691,10 @@ _fn_call_args :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
     .Atom(_, _) => ArrayList(AstExpr).new()
   )
 );
-/// The loop inside a `for`'s read-walk expansion (`for(&xs, x => …)`,
-/// plans/VALUES_BY_DEFAULT.md B7a): `__yo_borrow_check(c, while(valid, step,
-/// { [invariant(...);] x := c.walk_ref(&cur); body }))`. The element binding
-/// is dropped: the `for` frame binds `x` to `xs[idx]` itself, the same index
-/// model as the value form.
-_for_read_walk_loop :: (fn(bc : &AstExpr) -> Option(LoopAnnotations))({
-  wl := _fn_call_args(bc).get(usize(1)).unwrap();
-  if(!ast_expr_is_fn_call_of(&wl, "while", Option(usize).Some(usize(3))), {
-    return(Option(LoopAnnotations).None);
-  });
-  wbody := _fn_call_args(&wl).get(usize(2)).unwrap();
-  (invs : ArrayList(AstExpr)) = ArrayList(AstExpr).new();
-  (stmts : ArrayList(AstExpr)) = _fn_call_args(&wbody);
-  match(
-    _loop_annotations(&wbody),
-    .Some(an) => {
-      invs = an.invariants.clone();
-      stmts = an.body.clone();
-    },
-    .None => ()
-  );
-  if(stmts.len() == usize(0), {
-    return(Option(LoopAnnotations).None);
-  });
-  bind := stmts.get(usize(0)).unwrap();
-  is_walk_ref_bind := (
-    ast_expr_is_fn_call_of(&bind, ":=", Option(usize).Some(usize(2))) && match(
-      _fn_call_args(&bind).get(usize(1)).unwrap(),
-      .FnCall(_, rf, _, _, _) => match(
-        rf,
-        .FnCall(_, df, Rc(dargs), _, _) => (ast_expr_is_atom_of(&df, ".") && match(dargs.get(usize(1)), .Some(m) => ast_expr_is_atom_of(&m, "walk_ref"), .None => false)),
-        .Atom(_, _) => false
-      ),
-      .Atom(_, _) => false
-    )
-  );
-  if(!is_walk_ref_bind, {
-    return(Option(LoopAnnotations).None);
-  });
-  body := ArrayList(AstExpr).new();
-  (bi : usize) = usize(1);
-  while(bi < stmts.len(), {
-    body.push(stmts.get(bi).unwrap().clone());
-    bi = (bi + usize(1));
-  });
-  Option(LoopAnnotations).Some(LoopAnnotations(invariants : invs, decreases : Option(AstExpr).None, body : body))
-});
 /// The loop inside a `for`'s value-form expansion: its hoisted invariant
 /// (if any) and the statements of the `.Some(x)` arm, which are the
-/// user's body. A read walk's expansion goes to `_for_read_walk_loop`.
+/// user's body. The borrowed forms (`for(&xs, x => …)`) lower to this same
+/// value form over `(&xs).into_iter()` (R-FOR).
 _for_expansion_loop :: (fn(xp : &AstExpr) -> Option(LoopAnnotations))({
   // The block ends in a unit after the loop: find the `while` statement.
   outer := _fn_call_args(xp);
@@ -3749,9 +3702,6 @@ _for_expansion_loop :: (fn(xp : &AstExpr) -> Option(LoopAnnotations))({
   (oi : usize) = usize(0);
   while((oi < outer.len()) && wl_opt.is_none(), {
     st := outer.get(oi).unwrap();
-    if(ast_expr_is_fn_call_of(&st, BF_YO_BORROW_CHECK, Option(usize).Some(usize(2))), {
-      return(_for_read_walk_loop(&st));
-    });
     if(ast_expr_is_fn_call_of(&st, "while", Option(usize).Some(usize(2))), {
       wl_opt = Option(AstExpr).Some(st);
     });

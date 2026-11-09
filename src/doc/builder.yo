@@ -2211,8 +2211,8 @@ build_doc_module_from_tokens :: (
   // emission order does not depend on the HashMap's iteration order.
   orphan_receivers := ArrayList(String).new();
   // The read walk borrows each entry in place; the map is read again below.
-  for(&impl_info_map, entry => {
-    receiver := entry.key.clone();
+  for(&impl_info_map, (key, _info) => {
+    receiver := key.clone();
     if(!type_index.contains_key(receiver.clone()) && structure.exported.contains(receiver.clone()), {
       orphan_receivers.push(receiver.clone());
     });

@@ -2210,7 +2210,8 @@ Bound type: ${type_to_string(&variable_value_type(&mcb_v))}`
   // Outside std and src a whole-value write of a reference binding is
   // `r.* = v` (E0926, decision 43 step 2 N1e-1); `r = &place` re-points it
   // and never reaches here, and `r.* = v` arrives exempt.
-  if(!deref_exempt_take(&lhs_resolved) && variable_is_reference_binding(&variable) && deref_rule_applies(ast_expr_token(&lhs_resolved), ctx), {
+  is_deref_write := deref_exempt_take(&lhs_resolved);
+  if(!is_deref_write && variable_is_reference_binding(&variable) && deref_rule_applies(ast_expr_token(&lhs_resolved), ctx), {
     reject_reference_without_deref(&variable, ast_expr_token(&lhs_resolved), u8(1), ctx, exn);
   });
   // Closure capture tracking — a WRITE to an outer variable from inside a
@@ -2234,6 +2235,28 @@ Bound type: ${type_to_string(&variable_value_type(&mcb_v))}`
   // unless declared `mut(name)` there (decision 47): E0917 names the marker.
   if(!variable.is_reassignable() && !variable.is_parameter() && !variable.is_implicit(), {
     binding_require_mut(&variable, ast_expr_token(&lhs_resolved), &String.from("assign to"), ctx, exn);
+  });
+  // `r.* = v` through a `&` reference binding (a parameter, a `&` match or `for`
+  // payload): the referent is read-only, not the binding re-assigned (E0908).
+  if(is_deref_write && !variable.is_reassignable() && variable_is_reference_binding(&variable), {
+    match(
+      variable_slot_type(&variable),
+      Rc(.Reference(_, false, _)) => {
+        raise_flow_violation(
+          with_code(
+            format_error_message_with_help(
+              ast_expr_token(&lhs_resolved),
+              `Cannot assign to \`${variable_name}\`: \`${variable_name}\` is a \`&\` borrow, which is read-only.`,
+              Option(String).Some(`take \`${variable_name} : &mut T\` (or bind \`&mut\`) to write through it, or copy the value into a local and write the copy`)
+            ),
+            E_WRITE_THROUGH_BORROW
+          ),
+          ctx,
+          exn
+        );
+      },
+      _ => ()
+    );
   });
   if(!variable.is_reassignable(), {
     exn.throw(

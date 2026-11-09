@@ -41,6 +41,7 @@ pragma(Pragma.AllowUnsafe);
   ast_expr_strip_borrow_marker,
   AUTO_REF_RECEIVER_PATH,
   is_for_desugar_target,
+  for_desugar_site_of,
   ast_expr_is_infix_op_fn_call
 } :: import("../../expr.yo");
 { is_auto_generated_expansion, is_implicitly_unsafe_capable_file, is_class1_panic_method_name, is_class1_panic_receiver_type, is_class1_panic_exempt_file, is_std_module_path } :: import("../memory_safety.yo");
@@ -694,6 +695,20 @@ _reject_explicit_ref_receiver_slot_of :: (
   recv_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&mi.receiver_expr)), .Some(ri) => ri.ty(), .None => return(()));
   slot_is_single_mut := match(&slot, Rc(.Reference(sp_inner, sp_mut, _)) => (sp_mut && !t_slot_is_borrow(&sp_inner)), _ => false);
   cond(
+    // The borrowed `for(&xs, …)` / `for(&mut xs, …)` lowers to
+    // `(&xs).into_iter()` / `(&mut xs).into_iter()` (R-FOR): a source whose
+    // `into_iter` is only the by-value one has no borrowed walk.
+    ((method_name == "into_iter") && for_desugar_site_of(&ast_expr_token(callee)).is_some() && t_slot_is_by_value(&slot)) => exn.throw(
+      dyn(
+        with_code(
+          format_error_message(
+            ast_expr_token(callee),
+            `A borrowed \`for(&xs, …)\` / \`for(&mut xs, …)\` walks a collection implementing \`IntoIterator\` for \`&C\` / \`&mut C\`, and \`${type_to_string(&recv_ty)}\` has no such impl (a \`HashSet\` or \`PriorityQueue\` has only the read walk \`for(&xs, …)\`: writing an element in place would break its order). Walk a \`String\`'s characters with \`for(s.chars(), c => …)\`, and an \`Array(T, N)\` or an iterator chain with the value form \`for(xs, x => …)\`.`
+          ),
+          E_NO_MATCHING_CALL
+        )
+      )
+    ),
     (match(mi.probe_ref, .Some(pm) => !pm, .None => false) && slot_is_single_mut) => exn.throw(
       dyn(
         with_code(

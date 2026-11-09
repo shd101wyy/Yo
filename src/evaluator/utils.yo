@@ -6757,7 +6757,9 @@ local_borrow_places_overlap :: (fn(p : &LocalBorrowPlace, q : &LocalBorrowPlace)
 });
 /// `tok` lies in `info`'s live range.
 _lb_live_at :: (fn(info : &LocalBorrowInfo, tok : &Token) -> bool)(
-  (tok.module_path == info.start.module_path) && ((tok.character > info.start.character) && (tok.character <= info.end.character))
+  (tok.module_path == info.start.module_path) && (
+    (tok.character > info.start.character) || (info.macro_site.is_some() && (tok.character == info.start.character) && for_desugar_site_of(tok).is_some())
+  ) && (tok.character <= info.end.character)
 );
 /// `_lb_live_at` at `tok`, or (`after`) just past it: live past a call's last
 /// token means the range ends after the call (two-phase, P9).
@@ -7198,6 +7200,20 @@ local_borrow_reject_result_borrow :: (fn(info : &LocalBorrowInfo, tok : &Token, 
   );
   ()
 });
+/// A desugared `for`'s hidden iterator over a module-level place is E0911 only
+/// when that place is a `mut(G)` binding (decision 18 rule 3, decision 47): an
+/// unmarked global is immutable, so lending it to the loop's cursor is sound.
+/// Every other module-rooted borrow is judged whatever its root.
+_lb_for_iterator_lends_mut_global :: (fn(info : &LocalBorrowInfo) -> bool)(
+  match(
+    info.macro_site,
+    .Some(site) => cond(
+      for_desugar_site_of(&site).is_some() => match(info.places.get_cloned(usize(0)), .Some(p0) => is_mut_global(&p0.root_decl.module_path.*, &p0.root_name), .None => true),
+      true => true
+    ),
+    .None => true
+  )
+);
 /// Rule 3 (decision 18): a borrow of a module-level place may not be live
 /// across a call, which could reach the place by name. `tok` is the call.
 local_borrow_note_call :: (fn(tok : &Token, callee_text : &String, ctx : &EvalContext, exn : Exception) -> unit)({
@@ -7206,15 +7222,19 @@ local_borrow_note_call :: (fn(tok : &Token, callee_text : &String, ctx : &EvalCo
     i = (i - usize(1));
     match(
       g_local_borrows.with(xs => xs.get(i)),
-      .Some(info) => if(info.module_root && _lb_live_at(&info, tok), {
+      .Some(info) => if(info.module_root && _lb_live_at(&info, tok) && _lb_for_iterator_lends_mut_global(&info), {
         root_text := match(info.places.get_cloned(usize(0)), .Some(p0) => _lb_place_text(&p0), .None => info.name.clone());
-        // A call a desugared `for` makes (macro plan B1) is the loop's.
+        // A call a desugared `for` makes (macro plan B1) is the loop's: the
+        // loop's cursor holds the lend over the whole loop (R-FOR).
         shown := match(for_desugar_site_of(tok), .Some(fc) => ast_expr_token(&fc).value.*.clone(), .None => callee_text.clone());
         entries := ArrayList(TokenAndError).new();
         entries.push(
           TokenAndError(
             token : tok,
-            error_message : `Cannot call \`${shown}\` while \`${info.name}\` is live: \`${info.name}\` borrows \`${root_text}\`, a module-level place, which has no run-time borrow flag, and a callee can reach a module-level place by name.`
+            error_message : cond(
+              (info.macro_site.is_some() && for_desugar_site_of(tok).is_some()) => `Cannot walk \`${root_text}\` with a borrowed \`for\`: the loop's cursor \`${info.name}\` holds a lend of \`${root_text}\`, a module-level place, which has no run-time borrow flag, and a callee can reach a module-level place by name.`,
+              true => `Cannot call \`${shown}\` while \`${info.name}\` is live: \`${info.name}\` borrows \`${root_text}\`, a module-level place, which has no run-time borrow flag, and a callee can reach a module-level place by name.`
+            )
           )
         );
         entries.push(TokenAndError(token : info.decl, error_message : `\`${info.name}\` borrows \`${root_text}\` here:`));
@@ -10367,15 +10387,34 @@ bind_join_roots_for :: (fn(variable : &Variable, roots : &ArrayList(OriginRootPl
         places := ArrayList(LocalBorrowPlace).new();
         places.push(root.place.clone());
         entry_end := _lb_join_root_end(variable, &root.place.root_name, &range.end, at, env);
+        // A desugared `for`'s hidden iterator (R-FOR: `(&xs).into_iter()`)
+        // holds the lend over the whole loop, as the macro's `c := &xs` did:
+        // every synthesized token sits at the loop's own position, so the
+        // loop's extent, not the mentions' positions, is its live range.
+        (e_start : Token) = v_tok;
+        (e_last_use : Token) = range.last_use;
+        (e_end : Token) = entry_end;
+        (e_site : Option(Token)) = .None;
+        match(
+          for_desugar_site_of(&v_tok),
+          .Some(for_call) => {
+            for_tok := ast_expr_token(&for_call);
+            e_start = for_tok;
+            e_last_use = _last_token_of(&for_call, &for_tok);
+            e_end = e_last_use;
+            e_site = .Some(for_tok);
+          },
+          .None => ()
+        );
         entry := LocalBorrowInfo(
           name : variable.name.clone(),
           decl : v_tok,
-          start : v_tok,
-          macro_site : Option(Token).None,
+          start : e_start,
+          macro_site : e_site,
           is_mut : root.is_mut,
           places : places,
-          last_use : range.last_use,
-          end : entry_end,
+          last_use : e_last_use,
+          end : e_end,
           parents : ArrayList(LocalBorrowInfo).new(),
           crosses_cell : root.place.through_cell,
           module_root : root.place.module_root,

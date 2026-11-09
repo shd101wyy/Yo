@@ -1,16 +1,15 @@
+// The user cursors below take the buffer pointer for the in-place walk.
+pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
 /// `for` macro runtime coverage — the value form `for(coll, (x) => body)`
 /// across `Array(T, N)`, `ArrayList(T)`, `String`, and range copies, and the
 /// BORROWED form `for(&mut coll, x => body)` / `for(&mut map, (k, v) => body)`
-/// (plans/VALUES_BY_DEFAULT.md decision 39): the loop holds a local borrow
-/// `c := &mut coll` and walks a cursor (`BorrowedWalk`) that holds no handle
-/// to the collection; each element is a `&mut` local borrow of the
-/// collection's storage (no per-element dup, in-place mutation). The body
-/// naming the collection is decision 18's E0911. A container operation
-/// reached through ANOTHER handle that could invalidate the element panics at
-/// run time — pinned by tests/cli-cases/inout-for-* (the `yo test` runner has
-/// no expected-panic assertion). User collections are covered by
-/// tests/for_macro_borrow_user_collection.test.yo.
+/// (plans/VALUES_BY_DEFAULT.md decision 39, R-FOR): the loop lowers to the
+/// value form over `(&mut coll).into_iter()`; the cursor holds the lend for the
+/// whole loop and yields each element as a `&mut(T, p)` reference binding
+/// (no per-element dup, in-place mutation). The body naming the collection is
+/// decision 18's E0911. User collections implement `impl(&C, IntoIterator)`
+/// (below).
 { ArrayList } :: import("std/collections/array_list");
 { String } :: import("std/string");
 { HashMap } :: import("std/collections/hash_map");
@@ -434,28 +433,65 @@ comptime_expect_error(
 );
 // The same for a USER collection that is a value. Naming the iterated
 // collection in the body is E0911 for a field write and for a `&mut self`
-// method, in a read walk and an in-place walk alike. A `ref` collection
-// could also be reached through a second handle, which only the run-time
-// flag caught (tests/for_macro_borrow_user_collection.test.yo, the
-// `inout-*-panics` cli cases). A value has no second handle; shared through
-// `Rc(RefCell(...))`, the cell's own flag panics instead
-// (tests/cli-cases/refcell-user-collection-mutated-while-walked-panics).
+// method, in a read walk and an in-place walk alike. A value has no second
+// handle; shared through `Rc(RefCell(...))`, the cell's own flag panics
+// instead.
 _UserBag :: struct(items : ArrayList(i32), version : i32);
+// The borrowed `for` walks any type with `impl(&C, IntoIterator)` (and
+// `impl(&mut C, IntoIterator)` for the in-place walk): the cursor holds the
+// lend for the whole loop (R-FOR, plans/backlog/REFERENCES_AND_ORIGINS.md).
+_UserBagCursor :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(bag : &(_UserBag, p), i : usize));
 impl(
-  _UserBag,
-  BorrowedWalk(
-    WalkCursor : usize,
-    WalkElem : i32,
-    walk_start : (fn(self : &Self) -> usize)(usize(0)),
-    walk_valid : (fn(self : &Self, cur : &usize) -> bool)(cur.* < self.items.len()),
-    walk_ref : (fn(self : &Self, cur : &usize) -> &i32)(&self.items(cur.*)),
-    walk_next : (fn(self : &Self, cur : &usize) -> usize)(cur.* + usize(1))
+  generic(p : Origin),
+  _UserBagCursor(p),
+  Iterator(
+    Item : &(i32, p),
+    next : (fn(self : &mut Self) -> Option(&(i32, p)))(
+      cond(
+        (self.i >= self.bag.items.len()) => .None,
+        true => {
+          at := self.i;
+          self.i = (at + usize(1));
+          .Some(self.bag.items.index(at))
+        }
+      )
+    )
   )
 );
 impl(
-  _UserBag,
-  BorrowedWalkMut(
-    walk_elem : (fn(self : &mut Self, cur : &usize) -> &mut i32)(&mut self.items(cur.*))
+  generic(p : Origin),
+  &(_UserBag, p),
+  IntoIterator(
+    Item : &(i32, p),
+    IntoIter : _UserBagCursor(p),
+    into_iter : (fn(self : Self) -> _UserBagCursor(p))(_UserBagCursor(p)(bag : self, i : usize(0)))
+  )
+);
+_UserBagCursorMut :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(bag : &mut(_UserBag, p), i : usize));
+impl(
+  generic(p : Origin),
+  _UserBagCursorMut(p),
+  Iterator(
+    Item : &mut(i32, p),
+    next : (fn(self : &mut Self) -> Option(&mut(i32, p)))(
+      cond(
+        (self.i >= self.bag.items.len()) => .None,
+        true => {
+          at := self.i;
+          self.i = (at + usize(1));
+          .Some(&mut self.bag.items.ptr().unwrap().add(at).*)
+        }
+      )
+    )
+  )
+);
+impl(
+  generic(p : Origin),
+  &mut(_UserBag, p),
+  IntoIterator(
+    Item : &mut(i32, p),
+    IntoIter : _UserBagCursorMut(p),
+    into_iter : (fn(self : Self) -> _UserBagCursorMut(p))(_UserBagCursorMut(p)(bag : self, i : usize(0)))
   )
 );
 impl(
@@ -511,7 +547,58 @@ test("a value user collection is walked in place, then mutated after the loop", 
   assert((total == i32(3)) && (b.items(usize(1)) == i32(20)), "both walks ran");
   assert((b.version == i32(1)) && (b.items.len() == usize(3)), "the walks released the collection");
 });
-// `HashSet` and `PriorityQueue` have no `BorrowedWalkMut` (only the read walk
+// A user type implementing ONLY `impl(&C, IntoIterator)` is a read-walk source:
+// `for(&mut rb, …)` reads through it as a `&` walk (method probing falls back
+// from `&mut C` to `&C`, as Rust's does), so a write through `x` is E0908.
+_ReadOnlyBag :: struct(items : ArrayList(i32));
+_ReadOnlyBagCursor :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(bag : &(_ReadOnlyBag, p), i : usize));
+impl(
+  generic(p : Origin),
+  _ReadOnlyBagCursor(p),
+  Iterator(
+    Item : &(i32, p),
+    next : (fn(self : &mut Self) -> Option(&(i32, p)))(
+      cond(
+        (self.i >= self.bag.items.len()) => .None,
+        true => {
+          at := self.i;
+          self.i = (at + usize(1));
+          .Some(self.bag.items.index(at))
+        }
+      )
+    )
+  )
+);
+impl(
+  generic(p : Origin),
+  &(_ReadOnlyBag, p),
+  IntoIterator(
+    Item : &(i32, p),
+    IntoIter : _ReadOnlyBagCursor(p),
+    into_iter : (fn(self : Self) -> _ReadOnlyBagCursor(p))(_ReadOnlyBagCursor(p)(bag : self, i : usize(0)))
+  )
+);
+test("a read-only user collection is a read-walk source", {
+  mut(rb) := _ReadOnlyBag(items : ArrayList(i32).new());
+  rb.items.push(i32(4));
+  rb.items.push(i32(5));
+  (mut(total) : i32) = i32(0);
+  for(&rb, x => {
+    total = (total + x.*);
+  });
+  assert(total == i32(9), "the cursor drives the read walk");
+});
+comptime_expect_error(
+  write_walk_over_a_read_only_user_collection :: (fn() -> unit)({
+    (mut(rb) : _ReadOnlyBag) = _ReadOnlyBag(items : ArrayList(i32).new());
+    rb.items.push(i32(1));
+    for(&mut rb, x => {
+      x.* = i32(2);
+    });
+  }),
+  "is a `&` borrow, which is read-only"
+);
+// `HashSet` and `PriorityQueue` have no `impl(&mut C, IntoIterator)` (only the read walk
 // `for(&set, …)`, tests/for_read_walk.test.yo): writing a hashed or
 // heap-ordered element in place would break the container.
 comptime_expect_error(

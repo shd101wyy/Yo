@@ -573,8 +573,83 @@ impl(
     )
   )
 );
+/// The shared walk over a `Deque` (Rust's `Iter<'a, T>`): a `&(Deque(T), p)` lend and a
+/// position, yielding each element as a `&(T, p)`. Binding the cursor freezes the
+/// collection for its life (E0911 on a write), which is what makes the borrowed
+/// `for(&xs, x => body)` lower to the value form over `(&xs).into_iter()`.
+DequeCursor :: (fn(comptime(T) : Type, comptime(p) : Origin) -> comptime(Type))(
+  struct(
+    _coll : &(Deque(T), p),
+    _index : usize
+  )
+);
+impl(
+  generic(T : Type, p : Origin),
+  DequeCursor(T, p),
+  Iterator(
+    Item : &(T, p),
+    next : (fn(self : &mut Self) -> Option(&(T, p)))({
+      at := self._index;
+      cond(
+        (at >= self._coll._len) => .None,
+        true => {
+          self._index = (at + usize(1));
+          .Some(&self._coll._buf.unwrap().add((self._coll._head + at) % self._coll._cap()).*)
+        }
+      )
+    })
+  )
+);
+impl(
+  generic(T : Type, p : Origin),
+  &(Deque(T), p),
+  IntoIterator(
+    Item : &(T, p),
+    IntoIter : DequeCursor(T, p),
+    into_iter : (fn(self : Self) -> DequeCursor(T, p))(DequeCursor(T, p)(_coll : self, _index : usize(0)))
+  )
+);
+/// The write walk over a `Deque` (Rust's `IterMut<'a, T>`): a `&mut(Deque(T), p)` lend and a
+/// position, yielding each element as a `&mut(T, p)`. The collection is frozen
+/// exclusively while the cursor lives (a read of it is E0911 too). The body
+/// reaches each element through the raw buffer pointer; the position only moves
+/// forward, so no two yielded references alias.
+DequeCursorMut :: (fn(comptime(T) : Type, comptime(p) : Origin) -> comptime(Type))(
+  struct(
+    _coll : &mut(Deque(T), p),
+    _index : usize
+  )
+);
+impl(
+  generic(T : Type, p : Origin),
+  DequeCursorMut(T, p),
+  Iterator(
+    Item : &mut(T, p),
+    next : (fn(self : &mut Self) -> Option(&mut(T, p)))({
+      at := self._index;
+      cond(
+        (at >= self._coll._len) => .None,
+        true => {
+          self._index = (at + usize(1));
+          .Some(&mut self._coll._buf.unwrap().add((self._coll._head + at) % self._coll._cap()).*)
+        }
+      )
+    })
+  )
+);
+impl(
+  generic(T : Type, p : Origin),
+  &mut(Deque(T), p),
+  IntoIterator(
+    Item : &mut(T, p),
+    IntoIter : DequeCursorMut(T, p),
+    into_iter : (fn(self : Self) -> DequeCursorMut(T, p))(DequeCursorMut(T, p)(_coll : self, _index : usize(0)))
+  )
+);
 export(
   Deque,
   DequeIter,
-  DequeIterPtr
+  DequeIterPtr,
+  DequeCursor,
+  DequeCursorMut
 );

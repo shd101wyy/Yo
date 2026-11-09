@@ -1196,6 +1196,80 @@ impl(
     })
   )
 );
+/// The shared walk over an `ArrayList` (Rust's `slice::Iter<'a, T>`): it holds a
+/// `&(ArrayList(T), p)` lend of the list and a position, and yields each element
+/// as a reference rooted at that lend. Binding the cursor freezes the list for the
+/// cursor's life (E0911 on a write), which is what makes the borrowed `for`,
+/// `for(&xs, x => body)`, lower to the value form over `(&xs).into_iter()`.
+ArrayListCursor :: (fn(comptime(T) : Type, comptime(p) : Origin) -> comptime(Type))(
+  struct(
+    _list : &(ArrayList(T), p),
+    _index : usize
+  )
+);
+impl(
+  generic(T : Type, p : Origin),
+  ArrayListCursor(T, p),
+  Iterator(
+    Item : &(T, p),
+    next : (fn(self : &mut Self) -> Option(&(T, p)))(
+      cond(
+        (self._index >= self._list._length) => .None,
+        true => {
+          at := self._index;
+          self._index = (at + usize(1));
+          .Some(self._list.index(at))
+        }
+      )
+    )
+  )
+);
+impl(
+  generic(T : Type, p : Origin),
+  &(ArrayList(T), p),
+  IntoIterator(
+    Item : &(T, p),
+    IntoIter : ArrayListCursor(T, p),
+    into_iter : (fn(self : Self) -> ArrayListCursor(T, p))(ArrayListCursor(T, p)(_list : self, _index : usize(0)))
+  )
+);
+/// The write walk (Rust's `slice::IterMut<'a, T>`): `&mut(ArrayList(T), p)` and a
+/// position, yielding each element as a `&mut(T, p)`. The list is frozen
+/// exclusively while the cursor lives (a read of it is E0911 too). The body takes
+/// each element through the raw buffer pointer: the position only moves forward,
+/// so no two yielded references alias.
+ArrayListCursorMut :: (fn(comptime(T) : Type, comptime(p) : Origin) -> comptime(Type))(
+  struct(
+    _list : &mut(ArrayList(T), p),
+    _index : usize
+  )
+);
+impl(
+  generic(T : Type, p : Origin),
+  ArrayListCursorMut(T, p),
+  Iterator(
+    Item : &mut(T, p),
+    next : (fn(self : &mut Self) -> Option(&mut(T, p)))(
+      cond(
+        (self._index >= self._list._length) => .None,
+        true => {
+          at := self._index;
+          self._index = (at + usize(1));
+          .Some(&mut self._list._ptr.unwrap().add(at).*)
+        }
+      )
+    )
+  )
+);
+impl(
+  generic(T : Type, p : Origin),
+  &mut(ArrayList(T), p),
+  IntoIterator(
+    Item : &mut(T, p),
+    IntoIter : ArrayListCursorMut(T, p),
+    into_iter : (fn(self : Self) -> ArrayListCursorMut(T, p))(ArrayListCursorMut(T, p)(_list : self, _index : usize(0)))
+  )
+);
 impl(
   generic(T : Type),
   where(T <: Eq(T)),
@@ -1714,6 +1788,8 @@ export(
   ArrayListError,
   ArrayListIter,
   ArrayListIterPtr,
+  ArrayListCursor,
+  ArrayListCursorMut,
   ArrayListChunks,
   ArrayListWindows
 );

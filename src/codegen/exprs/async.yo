@@ -3152,8 +3152,8 @@ _copy_string_map :: (fn(src : &HashMap(String, String)) -> HashMap(String, Strin
   out := HashMap(String, String).new();
   // The read walk borrows each entry in place (an owning iterator over the
   // shared handle would copy each move-only entry out of its bucket).
-  for(&src, e => {
-    out.insert(e.key.clone(), e.value.clone());
+  for(&src, (k, v) => {
+    out.insert(k.clone(), v.clone());
   });
   out
 });
@@ -3359,8 +3359,8 @@ _emit_one_deferred_async_block :: (fn(block : &DeferredAsyncBlock, context : &mu
   saved_sm_vars := replace(&mut context.state_machine_variables, Option(HashMap(String, CapturedVariable)).Some(sm_var_map));
   // Merged field aliases: await_future_N + slot_N + closure-param slot fields.
   merged_aliases := _copy_string_map(&await_future_temp_var_aliases);
-  for(&overlapping_slot_aliases, e => {
-    merged_aliases.insert(e.key.clone(), e.value.clone());
+  for(&overlapping_slot_aliases, (k, v) => {
+    merged_aliases.insert(k.clone(), v.clone());
   });
   match(
     &block.closure_param_slots,

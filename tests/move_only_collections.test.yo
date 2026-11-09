@@ -396,8 +396,8 @@ test("OrderedMap of a Drop key: insert, overwrite, remove, swap_remove, index_of
     assert(m.get(&k3).unwrap() == i32(30), "k3 still there");
     assert(m.get(&_McKd(id : i32(4))).unwrap() == i32(40), "the last entry moved up");
     (mut(seen) : i32) = i32(0);
-    for(&mut m, e => {
-      seen = (seen + e.key.id);
+    for(&mut m, (k, _v) => {
+      seen = (seen + k.id);
     });
     assert(seen == i32(7), "the borrowed for reads the keys in place: 3 + 4");
     b := g_mc_kdropped;

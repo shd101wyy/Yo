@@ -4,15 +4,16 @@ pragma(Pragma.StrictBorrow);
 /// inside a borrowed `for` body of this file, a call the compiler cannot
 /// prove harmless to the borrowed element is a COMPILE error instead of a
 /// runtime borrow panic — a mutating method on an alias of the borrowed
-/// collection, or a callee whose effects are unknown. Everything the
-/// per-parameter mutation mask can vouch for stays accepted. A call on the
-/// borrowed collection itself is E0911 in every file.
+/// collection. Everything the per-parameter mutation mask can vouch for stays
+/// accepted. A call on the borrowed collection itself is E0911 in every file.
+/// Since R-FOR the loop is the value form over `(&mut xs).into_iter()`: the
+/// iterator's origin freezes the collection, and a closure that could write it
+/// cannot be formed (so no callee of unknown effects needs rejecting).
 { ArrayList } :: import("std/collections/array_list");
 { String } :: import("std/string");
 // The body cannot name the borrowed collection at all since decision 39's
 // lowering (E0911, plans/VALUES_BY_DEFAULT.md), so what the pragma still
-// decides is a call through ANOTHER handle of it, or a callee whose effects
-// are unknown.
+// decides is a call through ANOTHER handle of it.
 Bag :: struct(items : ArrayList(i32), version : i32);
 impl(
   Bag,
@@ -79,17 +80,5 @@ comptime_expect_error(
     for(&mut xs, x => {
       ys.push(x.*);
     });
-  })
-);
-comptime_expect_error(
-  closure_call_rejected :: (fn() -> unit)({
-    run :: (fn(xs : &mut ArrayList(i32), f : &Impl(Fn() -> unit)) -> unit)({
-      for(&mut xs.*, x => {
-        f(); // unknown effects
-      });
-    });
-    mut(xs) := ArrayList(i32).new();
-    xs.push(i32(1));
-    run(&mut xs, () => ());
   })
 );

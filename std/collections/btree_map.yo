@@ -524,11 +524,86 @@ impl(
     )
   )
 );
+/// The shared walk over a `BTreeMap` (Rust's `btree_map::Iter<'a, K, V>`): a `&(BTreeMap(K, V), p)` lend and a
+/// position, yielding each entry as `(&(K, p), &(V, p))`. Binding the cursor
+/// freezes the map for its life (E0911 on a write), which is what makes the
+/// borrowed `for(&map, (k, v) => body)` lower to the value form over
+/// `(&map).into_iter()`.
+BTreeMapCursor :: (fn(comptime(K) : Type, comptime(V) : Type, comptime(p) : Origin) -> comptime(Type))(
+  struct(
+    _coll : &(BTreeMap(K, V), p),
+    _index : usize
+  )
+);
+impl(
+  generic(K : Type, V : Type, p : Origin),
+  BTreeMapCursor(K, V, p),
+  Iterator(
+    Item : Tuple(&(K, p), &(V, p)),
+    next : (fn(self : &mut Self) -> Option(Tuple(&(K, p), &(V, p))))({
+      at := self._index;
+      cond(
+        (at >= self._coll._entries.len()) => .None,
+        true => {
+          self._index = (at + usize(1));
+          .Some((&self._coll._entries._ptr.unwrap().add(at).*.key, &self._coll._entries._ptr.unwrap().add(at).*.value))
+        }
+      )
+    })
+  )
+);
+impl(
+  generic(K : Type, V : Type, p : Origin),
+  &(BTreeMap(K, V), p),
+  IntoIterator(
+    Item : Tuple(&(K, p), &(V, p)),
+    IntoIter : BTreeMapCursor(K, V, p),
+    into_iter : (fn(self : Self) -> BTreeMapCursor(K, V, p))(BTreeMapCursor(K, V, p)(_coll : self, _index : usize(0)))
+  )
+);
+/// The write walk over a `BTreeMap` (Rust's `btree_map::IterMut<'a, K, V>`): a `&mut(BTreeMap(K, V), p)` lend and a
+/// position, yielding each entry as `(&(K, p), &mut(V, p))`: the key is read-only
+/// (a written key would break the map's order), the value is writable. The map is
+/// frozen exclusively while the cursor lives.
+BTreeMapCursorMut :: (fn(comptime(K) : Type, comptime(V) : Type, comptime(p) : Origin) -> comptime(Type))(
+  struct(
+    _coll : &mut(BTreeMap(K, V), p),
+    _index : usize
+  )
+);
+impl(
+  generic(K : Type, V : Type, p : Origin),
+  BTreeMapCursorMut(K, V, p),
+  Iterator(
+    Item : Tuple(&(K, p), &mut(V, p)),
+    next : (fn(self : &mut Self) -> Option(Tuple(&(K, p), &mut(V, p))))({
+      at := self._index;
+      cond(
+        (at >= self._coll._entries.len()) => .None,
+        true => {
+          self._index = (at + usize(1));
+          .Some((&self._coll._entries._ptr.unwrap().add(at).*.key, &mut self._coll._entries._ptr.unwrap().add(at).*.value))
+        }
+      )
+    })
+  )
+);
+impl(
+  generic(K : Type, V : Type, p : Origin),
+  &mut(BTreeMap(K, V), p),
+  IntoIterator(
+    Item : Tuple(&(K, p), &mut(V, p)),
+    IntoIter : BTreeMapCursorMut(K, V, p),
+    into_iter : (fn(self : Self) -> BTreeMapCursorMut(K, V, p))(BTreeMapCursorMut(K, V, p)(_coll : self, _index : usize(0)))
+  )
+);
 export(
   BTreeMap,
   BTreeMapIter,
   BTreeMapIterPtr,
   BTreeMapRange,
   BTreeMapKeys,
-  BTreeMapValues
+  BTreeMapValues,
+  BTreeMapCursor,
+  BTreeMapCursorMut
 );

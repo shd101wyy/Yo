@@ -1917,7 +1917,7 @@ while(i < usize(3), {
 
 组合器链（`coll.into_iter().map(f)`、`.filter(p)`、`.fold(init, f)` 等）保持值产出的 `Iterator` 形状；一个全覆盖的 `into_iter` 实现 `generic(I), where(I <: Iterator), I, into_iter : (fn(self) -> Self)`（恒等函数）使得 `for(combinator_chain, (x) => body)` 与 `for(coll, (x) => body)` 一致。
 
-借用形式 `for(&mut coll, x => body)` 把每个元素原地交给循环体：给 `x` 赋值即写入该元素。借用符号写在来源上，元素的模式随之而定。对映射，`for(&mut m, (k, v) => body)` 借出每个值（键为只读）。循环在整个过程中持有集合的一个局部借用，并在其上走一个游标（`BorrowedWalk` 与 `BorrowedWalkMut`，`plans/VALUES_BY_DEFAULT.md` 决策 39），因此循环体只能通过 `x` 触及集合：在循环体中提到集合本身是 E0911。只读遍历 `for(&coll, x => body)`（映射为 `for(&m, (k, v) => body)`）改为持有只读借用，并经由 `walk_ref` 投影以只读方式绑定每个元素：不复制任何东西，经由 `x` 写入是 E0908，循环体可以读取集合但不能写入它（E0911）。每个 std 集合都支持只读遍历；`HashSet` 与 `PriorityQueue` 没有原地遍历，`String` 两者都没有（请遍历 `s.chars()`）。若要在遍历列表时读取或扩充它，请遍历它的位置：`for(xs.indices(), i => …)` 配合 `xs(i)`。同一集合的其他句柄由其运行时借用标志守护，经由它们让集合增长或缩短会 panic（见 [FLOWABILITY.md](./FLOWABILITY.md)）。
+借用形式 `for(&mut coll, x => body)` 把每个元素原地交给循环体：写 `x.* = …` 即写入该元素。借用符号写在来源上，元素的模式随之而定。对映射，`for(&mut m, (k, v) => body)` 借出每个值（键为只读）。循环是基于 `(&mut coll).into_iter()` 的值形式：`impl(&mut C, IntoIterator)` 返回的游标在整个循环期间持有对集合的借出（`plans/VALUES_BY_DEFAULT.md` 决策 39，`plans/backlog/REFERENCES_AND_ORIGINS.md` 的 R-FOR），因此循环体只能通过 `x` 触及集合：在循环体中提到集合本身是 E0911。只读遍历 `for(&coll, x => body)`（映射为 `for(&m, (k, v) => body)`）同样作用于 `(&coll).into_iter()`，并把每个元素绑定为只读的 `&` 引用：不复制任何东西，经由 `x` 写入是 E0908，循环体可以读取集合但不能写入它（E0911）。每个 std 集合都支持只读遍历；`HashSet` 与 `PriorityQueue` 没有原地遍历，`String` 两者都没有（请遍历 `s.chars()`）。若要在遍历列表时读取或扩充它，请遍历它的位置：`for(xs.indices(), i => …)` 配合 `xs(i)`。经由 `Rc` 触及的来源写成 `for(&xs.*, …)`（见 [FLOWABILITY.md](./FLOWABILITY.md)）。
 
 ```yo
 mut(xs) := ArrayList(i32).new();
