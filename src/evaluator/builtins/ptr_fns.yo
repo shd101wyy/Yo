@@ -5,7 +5,7 @@
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr, ast_expr_token, ast_expr_id, make_err_expr, ast_expr_is_fn_call_of, ast_expr_is_atom_of, ast_expr_to_string, ast_place_text, BF_DOT, projection_tail_mode, ast_expr_is_auto_ref_receiver, ast_rewritten_node, ast_expr_strip_borrow_marker } :: import("../../expr.yo");
+{ AstExpr, ast_expr_token, ast_expr_id, make_err_expr, ast_expr_is_fn_call_of, ast_expr_is_atom_of, ast_expr_to_string, ast_place_text, BF_DOT, projection_tail_mode, projection_tail_is_read, ast_expr_is_auto_ref_receiver, ast_rewritten_node, ast_expr_strip_borrow_marker } :: import("../../expr.yo");
 { is_array_type, is_struct_type, is_tuple_type, is_union_type, is_reference_struct_type } :: import("../../types/guards.yo");
 { fn_param_is_ptr_borrow, type_carries_origin } :: import("../../types/utils.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -22,7 +22,7 @@ pragma(Pragma.AllowUnsafe);
   expr_info_set_comptime_ref,
   expr_info_set_is_index_trait_address_of
 } :: import("../../expr_info.yo");
-{ Variable, Environment, snapshot_env, get_variables_from_env, find_variable_in_env_at, variable_value_type } :: import("../../env.yo");
+{ Variable, Environment, snapshot_env, get_variables_from_env, find_variable_in_env_at, variable_value_type, variable_slot_type } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx, FuncOrAsyncBlockKind } :: import("../context.yo");
 {
   EvalValue,
@@ -32,10 +32,10 @@ pragma(Pragma.AllowUnsafe);
   ValueCell,
   value_cell_new
 } :: import("../../value.yo");
-{ TypeValue, TypeValueNode, SharedList, fn_param_is_mut_ref, fn_param_is_by_value, fn_result_origin_names, fn_param_in_result_origin, t_slot_origin_names, origin_names_contain } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, SharedList, fn_param_is_mut_ref, fn_param_is_by_value, fn_result_origin_names, fn_param_in_result_origin, t_slot_origin_names, origin_names_contain, t_slot_is_mut_ref } :: import("../../types/definitions.yo");
 { t_ptr } :: import("../../types/creators.yo");
 { format_error_message, format_error_message_with_help, with_code } :: import("../../error.yo");
-{ attach_temp_variable_to_expr, projection_call_mode_of, projection_call_root_args, reference_field_read_type, ref_payload_source, borrow_match_source, origin_of, OriginRootPlace } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, projection_call_mode_of, projection_call_root_args, reference_field_read_type, ref_payload_source, borrow_match_source, origin_of, OriginRootPlace, variable_is_reference_binding, local_borrow_info_of_variable } :: import("../utils.yo");
 { evaluate_expression_guarded } :: import("../exprs/expr.yo");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { call_promote_index_places_for_write } :: import("../context.yo");
@@ -221,6 +221,40 @@ _join_names :: (fn(names : &SharedList(String)) -> String)({
   });
   out
 });
+/// `_projection_root_error` of the place the binding `name` names.
+_projection_root_name_error :: (fn(name : &String, is_mut : bool, env : &Environment, ctx : &EvalContext) -> Option(_ProjRootError))(
+  match(
+    get_variables_from_env(env, name.clone()).last_cloned(),
+    .Some(v) => cond(
+      // A closure's result origin is per-call (O2): its own reference
+      // parameters, never a capture, which outlives the call.
+      _place_root_is_closure_capture(name, &v, env, ctx) => _proj_err(
+        `A closure's reference result is reached from one of its own \`&\`/\`&mut\` parameters (its origin is per-call, decision 43 O2), and \`${name}\` is a binding of the enclosing function, which the closure captures.`,
+        Option(str).Some(E_ORIGIN_MISMATCH)
+      ),
+      // A `match` binding of a reference payload (decision 43 step 3):
+      // the place is wherever the scrutinee's reference points.
+      (!v.is_parameter() && (!v.is_compile_time_only() && ref_payload_source(v.id()).is_some())) => _ref_payload_root_error(name, &v, is_mut, env, ctx),
+      // A binding of a borrowed `match` (VERDICTS-13 §14): a place inside
+      // the scrutinee's place, so it is rooted where that place is.
+      (!v.is_parameter() && (!v.is_compile_time_only() && (v.is_borrow_match_binding() && borrow_match_source(v.id()).is_some()))) => _borrow_match_root_error(name, &v, is_mut, env, ctx),
+      // A local borrow (`r := &b.v`): its place is the one it freezes, so
+      // that place must be rooted at this projection's own borrow
+      // parameters (`return(r)`, `&r.*`).
+      (!v.is_parameter() && (!v.is_compile_time_only() && local_borrow_info_of_variable(&v).is_some())) => _local_borrow_root_error(name, &v, is_mut, env, ctx),
+      (!v.is_parameter() || v.is_compile_time_only() || !(v.is_ref() || v.is_imm_borrow())) => _proj_err(
+        `A projection yields a place reached from one of its \`&\`/\`&mut\` parameters, and \`${name}\` is ${cond(v.is_parameter() => "a by-value parameter", v.is_module_level() => "a module-level binding", true => "a local")}: its storage ends with the call (decision 24, the single-root rule).`,
+        if(v.is_module_level(), Option(str).None, Option(str).Some(E_LOCAL_BORROW_ESCAPES))
+      ),
+      (is_mut && (!v.is_ref() || v.is_imm_borrow())) => _proj_err(
+        `A \`&mut\` projection yields a place reached from a \`&mut\` parameter, and \`${name}\` is a shared borrow (\`&T\`).`,
+        Option(str).None
+      ),
+      true => _spelled_origin_error(name, ctx)
+    ),
+    .None => _proj_err(`A projection yields a place reached from one of its \`&\`/\`&mut\` parameters; \`${name}\` is not one.`, Option(str).None)
+  )
+);
 /// Decision 24's root rule (the first cut of `REFERENCES_AND_ORIGINS.md` O3's return rule; R3 before 2026-10-20): the
 /// place a projection yields is reached from one of its own borrow
 /// parameters, through field steps, element accesses and raw-pointer derefs
@@ -238,33 +272,7 @@ _projection_root_error :: (fn(place : &AstExpr, is_mut : bool, env : &Environmen
   });
   match(
     pr_rw,
-    .Atom(_, pr_tok) => match(
-      get_variables_from_env(env, pr_tok.value.*.clone()).last_cloned(),
-      .Some(v) => cond(
-        // A closure's result origin is per-call (O2): its own reference
-        // parameters, never a capture, which outlives the call.
-        _place_root_is_closure_capture(&pr_tok.value.*, &v, env, ctx) => _proj_err(
-          `A closure's reference result is reached from one of its own \`&\`/\`&mut\` parameters (its origin is per-call, decision 43 O2), and \`${pr_tok.value.*}\` is a binding of the enclosing function, which the closure captures.`,
-          Option(str).Some(E_ORIGIN_MISMATCH)
-        ),
-        // A `match` binding of a reference payload (decision 43 step 3):
-        // the place is wherever the scrutinee's reference points.
-        (!v.is_parameter() && (!v.is_compile_time_only() && ref_payload_source(v.id()).is_some())) => _ref_payload_root_error(&pr_tok.value.*, &v, is_mut, env, ctx),
-        // A binding of a borrowed `match` (VERDICTS-13 §14): a place inside
-        // the scrutinee's place, so it is rooted where that place is.
-        (!v.is_parameter() && (!v.is_compile_time_only() && (v.is_borrow_match_binding() && borrow_match_source(v.id()).is_some()))) => _borrow_match_root_error(&pr_tok.value.*, &v, is_mut, env, ctx),
-        (!v.is_parameter() || v.is_compile_time_only() || !(v.is_ref() || v.is_imm_borrow())) => _proj_err(
-          `A projection yields a place reached from one of its \`&\`/\`&mut\` parameters, and \`${pr_tok.value.*}\` is ${cond(v.is_parameter() => "a by-value parameter", v.is_module_level() => "a module-level binding", true => "a local")}: its storage ends with the call (decision 24, the single-root rule).`,
-          if(v.is_module_level(), Option(str).None, Option(str).Some(E_LOCAL_BORROW_ESCAPES))
-        ),
-        (is_mut && (!v.is_ref() || v.is_imm_borrow())) => _proj_err(
-          `A \`&mut\` projection yields a place reached from a \`&mut\` parameter, and \`${pr_tok.value.*}\` is a shared borrow (\`&T\`).`,
-          Option(str).None
-        ),
-        true => _spelled_origin_error(&pr_tok.value.*, ctx)
-      ),
-      .None => _proj_err(`A projection yields a place reached from one of its \`&\`/\`&mut\` parameters; \`${pr_tok.value.*}\` is not one.`, Option(str).None)
-    ),
+    .Atom(_, pr_tok) => _projection_root_name_error(&pr_tok.value.*, is_mut, env, ctx),
     .FnCall(_, pr_callee, Rc(pr_args), _, _) => cond(
       ast_expr_is_fn_call_of(place, BF_DOT, Option(usize).Some(usize(2))) => match(
         pr_args.get(usize(1)),
@@ -303,6 +311,33 @@ _projection_root_error :: (fn(place : &AstExpr, is_mut : bool, env : &Environmen
       true => _proj_err(String.from("A projection yields a place, and this is a temporary: its storage ends with the call (decision 24, the single-root rule)."), Option(str).Some(E_LOCAL_BORROW_ESCAPES))
     )
   )
+});
+/// The root rule through the local borrow `name` (`r := &b.v`,
+/// `local_borrow_info_of_variable`): every place it freezes, the union over
+/// its re-points, must be rooted at this projection's own borrow parameters.
+/// A place below a reference cell is the cell's storage, never a parameter's.
+_local_borrow_root_error :: (fn(name : &String, v : &Variable, is_mut : bool, env : &Environment, ctx : &EvalContext) -> Option(_ProjRootError))({
+  info := match(local_borrow_info_of_variable(v), .Some(i) => i, .None => return(Option(_ProjRootError).None));
+  if(is_mut && !info.is_mut, {
+    return(_proj_err(`A \`&mut\` projection yields a place reached from a \`&mut\` parameter, and \`${name}\` is a shared borrow (\`&T\`).`, Option(str).None));
+  });
+  (li : usize) = usize(0);
+  while(li < info.places.len(), li = (li + usize(1)), {
+    lp := info.places(li).clone();
+    if(lp.through_cell || (lp.module_root || (lp.root_name == name.clone())), {
+      return(
+        _proj_err(
+          `A projection yields a place reached from one of its \`&\`/\`&mut\` parameters, and \`${name}\` borrows \`${lp.text}\`, which is not reached from one: its storage ends with the call (decision 24, the single-root rule).`,
+          Option(str).Some(E_LOCAL_BORROW_ESCAPES)
+        )
+      );
+    });
+    match(_projection_root_name_error(&lp.root_name, is_mut, env, ctx), .Some(e) => return(Option(_ProjRootError).Some(e)), .None => ());
+  });
+  if(info.places.len() == usize(0), {
+    return(_proj_err(`A projection yields a place reached from one of its \`&\`/\`&mut\` parameters, and \`${name}\` is a local: its storage ends with the call (decision 24, the single-root rule).`, Option(str).Some(E_LOCAL_BORROW_ESCAPES)));
+  });
+  Option(_ProjRootError).None
 });
 /// The root rule through a `match` binding `name` of a reference payload
 /// (decision 43 step 3, `note_ref_payload_source`): the reference came out
@@ -514,6 +549,39 @@ evaluate_address_call :: (
       return(expr);
     }
   );
+  // A projection result written as a bare name (`return(key)`,
+  // `PROJECTION_*_READ_PATH`): a reference binding is read as the reference
+  // the `&T` result expects (the read rule, decision 43 step 2 N1e-2b,
+  // VERDICTS-23 R1), so the node stays `addr_of(name.*)`, `&name.*`. Any
+  // other name is evaluated as written, and the body check judges it.
+  if(projection_tail_is_read(expr), {
+    pr_name := match(
+      &arg_expr,
+      .FnCall(_, _, Rc(pr_args), _, _) => match(pr_args.get(usize(0)), .Some(n) => n, .None => make_err_expr()),
+      .Atom(_, _) => make_err_expr()
+    );
+    pr_var := get_variables_from_env(env, ast_expr_token(&pr_name).value.*.clone()).last_cloned();
+    pr_ref := match(&pr_var, .Some(v) => variable_is_reference_binding(v), .None => false);
+    if(!pr_ref, {
+      mut(pr_out) := ArrayList(AstExpr).new();
+      pr_err := evaluate_expression_guarded(&pr_name, env, ctx, &mut pr_out);
+      match(pr_err, .Some(pre) => exn.throw(pre), .None => ());
+      return(match(pr_out.get(usize(0)), .Some(po) => po, .None => make_err_expr()));
+    });
+    // A `&mut T` result hands out an exclusive reference: a `&` binding
+    // has none to give.
+    if(match(projection_tail_mode(expr), .Some(m) => m, .None => false) && match(&pr_var, .Some(v) => !t_slot_is_mut_ref(&variable_slot_type(v)), .None => false), {
+      pr_tok := ast_expr_token(&pr_name);
+      exn.throw(
+        dyn(
+          format_error_message(
+            &pr_tok,
+            `This function returns \`&mut T\`, an exclusive reference, and \`${pr_tok.value.*}\` is a \`&\` reference: it cannot be handed out as \`&mut\`.`
+          )
+        )
+      );
+    });
+  });
   // Phase C structural gate: `addr_of(expr)` produces a raw pointer value
   // (`*(T)`). In safe code that value would have type `*(T)`, which the
   // surrounding rules forbid. Reject at the construction site so the

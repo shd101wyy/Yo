@@ -440,15 +440,22 @@ comptime_expect_error(
   "is a type, not an origin"
 );
 // A borrow result is a projection (decision 24): it yields a place spelled
-// with its sigil, never a value.
+// with its sigil, or a reference binding, which is that reference (the read
+// rule, R1: `s` is `&s.*`), never a value.
 // (A `Copy` pointee: a move-only one is first a copy out of the borrow,
 // E0901, since B8 made `String` a value.)
 comptime_expect_error(
-  bs_result :: (fn(s : &i32) -> &i32)(s),
+  bs_result :: (fn(s : &i32) -> &i32)({
+    v := s.*;
+    v
+  }),
   "a projection (decision 24)"
 );
 comptime_expect_error(
-  bs_mut_result :: (fn(s : &mut i32) -> &mut i32)(s),
+  bs_mut_result :: (fn(s : &mut i32) -> &mut i32)({
+    v := s.*;
+    v
+  }),
   "a projection (decision 24)"
 );
 comptime_expect_error(

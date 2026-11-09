@@ -858,6 +858,11 @@ test("effect-resume-capture", {
 test("effect-resume-param", {
   verdict("effect-resume-param", case2(ask_main(Rc.new(NodeE.Var(E))), ask_use()), "ACCEPT");
 });
+/// `use(ask : Fn(key : &i32) -> H(key))`, `H(p) :: struct(r : &(i32, p))` (§7 P8).
+ask_holder_use :: (fn() -> FnDef)(sig(u64(0), al1(prm(F, fn_t(Rc.new(TyE.Tup(al1(shr(int(), FNQ)))), ELIDED))), int()));
+test("effect-result-holder", {
+  verdict("effect-result-holder", case2(ask_main(Rc.new(NodeE.MakeTup(al1(Rc.new(NodeE.Var(E)))))), ask_holder_use()), "ACCEPT");
+});
 test("macro-ret-local", {
   f := fun(u64(0), al1(prm(XS, shr(int(), ELIDED))), shr(int(), ELIDED), al1(Rc.new(NodeE.Block(al2(let_(Y, lit()), Rc.new(NodeE.Return(Rc.new(NodeE.Borrow(false, Y)))))))));
   verdict("macro-ret-local", case2(entry(none()), f), "E0912");

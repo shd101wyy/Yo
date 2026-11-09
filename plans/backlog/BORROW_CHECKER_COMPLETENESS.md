@@ -216,7 +216,7 @@ Filed 2026-11-07 from VERDICTS-30/31; each names its repro under `issues/repros/
 - `issues/fixed/2026-11-07-a-closure-capturing-an-origin-carrying-local-crashes-codegen.md` — S1
 - `issues/fixed/2026-11-07-reassigning-a-mut-holder-of-a-named-origin-struct-is-a-false-e0908.md` — S2
 - `issues/2026-11-07-a-generic-function-storing-a-by-value-reference-parameter-emits-invalid-c.md` — S2
-- `issues/2026-11-07-a-ctl-operation-returning-its-reference-parameter-is-rejected-with-e0605.md` — S2
+- `issues/fixed/2026-11-07-a-ctl-operation-returning-its-reference-parameter-is-rejected-with-e0605.md` — S2
 - `issues/fixed/2026-11-07-a-closure-literal-returning-its-reference-parameter-fails-to-evaluate.md` — S2
 - `issues/2026-11-07-yo-explain-e0911-e0912-e0910-teach-the-pre-decision-43-model.md` — S3
 - `issues/2026-11-07-e0909-is-raised-with-three-meanings-under-one-registry-entry.md` — S3
@@ -293,3 +293,10 @@ Filed 2026-11-07 from VERDICTS-30/31; each names its repro under `issues/repros/
   E0911. The reference model threads the same activation set (`call_after`). Rows `two-phase-named-last-use` (pos),
   `two-phase-named-after` and `two-phase-mut-relend` (E0910, unchanged).
 - 2026-11-10 (VERDICTS-42): the 2026-10-23 move-only-element issue is a `ref(...)`-only hole; the value language rejects every second name (`hs2 := hs` is E0901 since B8); rows `move-only-element-lent-container-moved` (+ `-pos`) land now, the two `ref` rows with the parser PR.
+- 2026-11-09: P8 landed (`ctl` operations returning references). The gap was not the `ctl` signature: a `fn` with
+  the same `&T` result rejected `return(key)` too. A bare name in a projection's result position now lowers to the
+  marked `addr_of(name.*)`. When the name is a reference binding, that is the read rule (R1): the reference the
+  result expects, checked as `&name.*` is, so a handler that resumes with a capture stays E0923 and one that resumes
+  with a local stays E0912. Any other name is evaluated as written. `effect-resume-param` is green, and
+  `effect-result-holder` is a new positive row
+  (`issues/fixed/2026-11-07-a-ctl-operation-returning-its-reference-parameter-is-rejected-with-e0605.md`).

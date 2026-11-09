@@ -534,3 +534,51 @@ test("a user-Drop holder moved in a match scrutinee frees its root after the mat
   s.b = i32(9);
   assert((s.a == i32(-1)) && (s.b == i32(9)), "dropped inside the call; the root is writable after the match");
 });
+// A `&T` result written as a reference binding (plans/backlog/BORROW_CHECKER_COMPLETENESS.md
+// §7 P8): the binding read where the result expects a reference is the
+// reference itself (R1), `&key.*` — in a `fn`, a generic one, and a closure.
+rr_proj_param :: (fn(key : &i32) -> &(i32, key))(key);
+rr_proj_return :: (fn(key : &mut i32) -> &mut(i32, key))({
+  return(key);
+});
+rr_proj_generic :: (fn(generic(T : Type), x : &T) -> &T)(x);
+RrProjBox :: struct(v : i32);
+rr_proj_local :: (fn(b : &RrProjBox) -> &(i32, b))({
+  r := &b.v;
+  r
+});
+test("a projection's result written as a reference binding", {
+  n := i32(9);
+  assert(rr_proj_param(&n).* == i32(9), "the parameter comes back");
+  assert(rr_proj_generic(&n).* == i32(9), "the parameter comes back from a generic projection");
+  mut(m) := i32(1);
+  s := rr_proj_return(&mut m);
+  s.* = i32(5);
+  assert(m == i32(5), "a `&mut` result writes the caller's place");
+  b := RrProjBox(v : i32(4));
+  assert(rr_proj_local(&b).* == i32(4), "a local reference binding into the parameter");
+  pick := (fn(k : &i32) -> &i32)(k);
+  assert(pick(&n).* == i32(9), "a closure's reference result");
+});
+comptime_expect_error(
+  rr_proj_shared_as_mut :: (fn(key : &mut i32) -> &mut(i32, key))({
+    r := &key.*;
+    r
+  }),
+  "is a `&` reference: it cannot be handed out as `&mut`"
+);
+comptime_expect_error(
+  rr_proj_value_name :: (fn(key : &i32) -> &(i32, key))({
+    v := key.*;
+    v
+  }),
+  "a projection (decision 24)"
+);
+comptime_expect_error(
+  rr_proj_local_of_local :: (fn(b : &RrProjBox) -> &(i32, b))({
+    c := RrProjBox(v : b.v);
+    r := &c.v;
+    r
+  }),
+  "which is not reached from one"
+);
