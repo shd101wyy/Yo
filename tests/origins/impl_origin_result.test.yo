@@ -20,7 +20,18 @@ test("A method's result names its impl's origin", {
   assert(y.* == i32(1), "bound");
   assert(h.get().* == i32(1), "in place");
   assert(io_read_through(&x).* == i32(1), "the result outlives the holder: it points into `x`");
+  z := IoHeld(x)(r : &x).get();
+  assert(z.* == i32(1), "bound off a temporary holder: the result points into `x`, not into the holder");
 });
+comptime_expect_error(
+  io_place_written_while_temp_holders_result_lives :: (fn() -> unit)({
+    mut(x) := i32(1);
+    z := IoHeld(x)(r : &x).get();
+    x = i32(2);
+    _ := z.*;
+  }),
+  "Cannot write `x` here: `z` borrows `x` with `&`"
+);
 comptime_expect_error(
   io_place_written_while_result_lives :: (fn() -> unit)({
     mut(x) := i32(1);
