@@ -61,9 +61,30 @@ the holder's declared origin `p`.
 The value read out is a copy of the reference stored in the scrutinee. By R-DEREF, its origin is the scrutinee's roots
 (`o`, here an origin parameter's, so the caller's storage).
 
-## Proposed fix
+## Fix
 
-In `_origin_of_into`, an R1 read of a pattern binding over a by-value scrutinee should take the scrutinee's origin
-(R-DEREF), not the binding's place. The match evaluator would record the scrutinee per binding, just as a local borrow
-records its places. The spelled-type shortcut (`origin_param_names_of` of the binding's type) is not enough on its own:
-a specialization's types carry elided origins.
+Two rules, both in `src/evaluator/utils.yo`:
+
+- **A reference payload binding's read holds what the scrutinee held.** At the `match`, `note_ref_payload_held`
+  records, for each reference payload binding, the roots `origin_held_by(scrutinee)` returns. That is the same list
+  that freezes those places while the binding is live (`src/evaluator/exprs/match.yo`). An R1 read of the binding
+  pushes that list in both of `origin_of`'s walks: the recursion (`_origin_of_into`, ahead of the R-LEND
+  recorded-form branch, which pushed the binding's own place) and the shallow walk (`_origin_carrying_roots_shallow`).
+  The list is recorded when the match runs, so a later write to the scrutinee does not change what the binding holds.
+- **`origin_held_by` never returns a by-value holder's own place.** Before the fix, only a parameter scrutinee
+  contributed just its registered entries. A by-value holder local now does too. `candidate := self._inner.next()`
+  holds references into the caller's storage, so it registers no entries, and its payload holds nothing. Before
+  the fix, the payload held `candidate`'s place.
+
+A reference binding scrutinee keeps `origin_of`, and a `&` match still freezes its scrutinee through `imm_place`.
+
+## Tests that pin it
+
+- `tests/ref_payload_binding.test.yo`:
+  - the reproducer above, in two forms: a parameter scrutinee and a local holder;
+  - `IterFilter.next`'s shape, a holder bound from `next_ref()`;
+  - a negative, where a local's lend read out of a payload into a holder declared over `p` is still E0923
+    ("holding origin `x`").
+- `tests/ref_of_ref.test.yo`: `filter` and `find` over a reference `Item`, with `v.*.*` closures.
+- G-B: `tests/origins/unsound/mbo-payload-read-inner.yo` must be E0911: a payload stored into an outer holder,
+  then read after its referent's block ends. Its positive twin, `mbo-payload-read-inner-pos.yo`, must be accepted.

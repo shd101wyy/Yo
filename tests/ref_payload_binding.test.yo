@@ -5,6 +5,7 @@
 // call and a lend read through it, `r.*` is the referent, and a `&` payload
 // is read-only. Over an `Option(&Dyn(Trait))` this is what a borrowing
 // `Error.source` walk needs (plans/handover/D43_STEP3_N2_DESIGN.md §3.2).
+pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
 _Cell :: struct(n : i32);
 impl(
@@ -259,3 +260,88 @@ test("a borrowed match binding is yielded as a place of `self`", {
     _r := _bad_copy(&full);
   }, "cannot copy `s` out of the match's borrow");
 });
+// A by-value `match`'s reference payload is a COPY of the reference the
+// scrutinee holds: reading it holds what the scrutinee's references hold
+// (R-DEREF), never the binding's own place or the scrutinee's
+// (issues/fixed/2026-11-08-a-match-binding-of-a-reference-payload-carries-its-own-place-as-origin.md).
+_pick_param :: (fn(generic(p : Origin), o : Option(&(i32, p))) -> Option(&(i32, p)))({
+  (mut(res) : Option(&(i32, p))) = .None;
+  match(
+    o,
+    .None => (),
+    .Some(item) => {
+      res = .Some(item);
+    }
+  );
+  res
+});
+_pick_local :: (fn(generic(p : Origin), o : Option(&(i32, p))) -> Option(&(i32, p)))({
+  (mut(res) : Option(&(i32, p))) = .None;
+  candidate := o;
+  match(
+    candidate,
+    .None => (),
+    .Some(item) => {
+      res = .Some(item);
+    }
+  );
+  res
+});
+_Ints :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(xs : &(ArrayList(i32), p), i : usize));
+impl(
+  generic(p : Origin),
+  _Ints(p),
+  next_ref : (fn(self : &mut Self) -> Option(&(i32, p)))(
+    cond(
+      (self.i < self.xs.len()) => {
+        k := self.i;
+        self.i = (k + usize(1));
+        unsafe(.Some(&self.xs.ptr().unwrap().add(k).*))
+      },
+      true => .None
+    )
+  )
+);
+// `IterFilter.next`'s shape: the scrutinee is a local bound from a call
+// whose result points into the caller's storage.
+_pick_next :: (fn(generic(p : Origin), c : &mut _Ints(p)) -> Option(&(i32, p)))({
+  (mut(res) : Option(&(i32, p))) = .None;
+  candidate := c.next_ref();
+  match(
+    candidate,
+    .None => (),
+    .Some(item) => {
+      res = .Some(item);
+    }
+  );
+  res
+});
+test("ref payload: a by-value match's payload read holds the scrutinee's roots", {
+  x := i32(3);
+  // Matched, not unwrapped: `Option(&T).unwrap()` is E0601 for now
+  // (issues/2026-11-09-option-unwrap-over-a-reference-payload-is-e0601.md).
+  assert(match(_pick_param(.Some(&x)), .Some(r) => (r.* == i32(3)), .None => false), "a parameter scrutinee");
+  assert(match(_pick_local(.Some(&x)), .Some(r) => (r.* == i32(3)), .None => false), "a local holder scrutinee");
+  mut(xs) := ArrayList(i32).new();
+  xs.push(i32(7));
+  mut(c) := _Ints(xs)(xs : &xs, i : usize(0));
+  assert(match(_pick_next(&mut c), .Some(r) => (r.* == i32(7)), .None => false), "a holder bound from a call");
+});
+// The payload still holds the scrutinee's own roots: a local's lend stored
+// into a holder declared over `p` is E0923.
+comptime_expect_error(
+  _store_local_payload :: (fn(generic(p : Origin), o : Option(&(i32, p))) -> unit)({
+    (mut(res) : Option(&(i32, p))) = o;
+    x := i32(1);
+    h := Option(&i32).Some(&x);
+    match(
+      h,
+      .None => (),
+      .Some(item) => {
+        res = .Some(item);
+      }
+    );
+    _ := res;
+  }),
+  "holding origin `x`"
+);

@@ -103,8 +103,14 @@ test("an adapter closure over a reference Item takes a &&T", {
   assert(n == usize(2), "map's item is &&i32, filter's &i32");
   total := rr_cursor(&xs).fold(i32(0), (acc, v) => (acc.* + v.*.*));
   assert(total == i32(6), "fold's item is &&i32");
-  // `filter` / `find` over a reference Item: E0923 in std, open
-  // (issues/2026-11-08-a-match-binding-of-a-reference-payload-carries-its-own-place-as-origin.md).
+  big := rr_cursor(&xs).filter(v => (v.*.* > i32(1))).count();
+  assert(big == usize(2), "filter's item is &&i32 over a reference Item");
+  // `find`'s result is matched in place: binding it is E0911 for now
+  // (issues/2026-11-09-a-generic-result-over-a-reference-item-roots-a-lent-closure-temporary.md).
+  assert(
+    match(rr_cursor(&xs).find(v => (v.*.* == i32(2))), .Some(f) => (f.* == i32(2)), .None => false),
+    "find's item is &&i32 over a reference Item"
+  );
 });
 comptime_expect_error(
   rr_no_deref_coercion :: (fn(s : &String) -> usize)({

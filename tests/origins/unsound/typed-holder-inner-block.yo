@@ -1,0 +1,14 @@
+// expect: E0911
+// A typed declaration is a holder binding: `h`, re-pointed at an inner-scoped String, is read after the String is dropped.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  (mut(h) : Option(&String)) = .None;
+  {
+    inner := String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz");
+    h = .Some(&inner);
+  };
+  match(h, .Some(s) => println(`OUT: ${s.*.len().to_string()}`), .None => println("none"));
+  ()
+});
+export(main);
