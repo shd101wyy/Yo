@@ -267,7 +267,15 @@ Filed 2026-11-07 from VERDICTS-30/31; each names its repro under `issues/repros/
   (`issues/fixed/2026-11-08-a-match-binding-of-a-reference-payload-carries-its-own-place-as-origin.md`).
   Not in P3: a receiver slot `self : &&C` (walled: its autoref is mis-passed in C), a capture `{ y : &r }` of a
   reference binding (E0926 kind 2 kept), `-> &&T` results (walled), and `rp.* = &y` (`&y` as an expression is P2).
-- 2026-11-09: a by-value `match`'s reference payload, read where a reference is expected, holds what the scrutinee's
-  references held (R-DEREF), recorded per binding at the match, instead of the binding's own place. `origin_held_by`
-  no longer falls back to a by-value holder's own place. std's `filter`/`find` over a reference `Item` now check, which
-  unblocks G2's adapters (`issues/fixed/2026-11-08-a-match-binding-of-a-reference-payload-carries-its-own-place-as-origin.md`).
+- 2026-11-09: three fixes that together make std's `filter`/`find` over a reference `Item` check, which unblocks
+  G2's adapters.
+  - A typed declaration `(h : T) = v` is a holder binding, as `h := v` is (S1): `bind` freezes what `v` lends, and the
+    declaration is the binding site of its `=` joins, so §7's scope check reaches its last use
+    (`issues/fixed/2026-11-09-a-typed-declaration-is-not-a-holder-binding.md`).
+  - R-READ of a holder returns its `=` joins as well as its `bind` entries. A holder `bind` registered, or a by-value
+    parameter, never reads as its own place (S2,
+    `issues/fixed/2026-11-09-a-holder-read-ignores-what-its-assignments-joined.md`).
+  - A by-value `match`'s reference payload, read where a reference is expected, holds what the scrutinee's references
+    held (R-DEREF), recorded per binding at the match, and `origin_held_by` no longer falls back to a by-value
+    holder's own place (S2,
+    `issues/fixed/2026-11-08-a-match-binding-of-a-reference-payload-carries-its-own-place-as-origin.md`).
