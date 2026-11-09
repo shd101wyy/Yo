@@ -42,3 +42,28 @@ under R1 and return the pointer itself.
 The generic body is evaluated when the function is called, so the
 specialized body does not take the path the definition-time projection check
 takes. Re-check this on a tree that carries #1805 before fixing it.
+
+## Fixed
+
+**Root cause.** A specialized generic body was never checked against the
+projection result rule (decision 24: a `-> &T` body yields a place written
+`&place`). The concrete body was; the specialization went straight to codegen,
+where the bare `x` of type `&T` read as `T` and emitted `return (*__yo_v_x);`
+from a C function returning `T*`. It is the same hole as
+`2026-11-08-a-generic-fn-forwarding-a-projection-call-as-its-reference-tail-emits-a-value.md`.
+
+**Fix.** #1838 (`f23081973`) gives a specialized generic body the concrete
+body's decision-24 check (`calls/helper.yo`). On a develop build (`b5e6881c3`)
+the reproducer is rejected in the evaluator with the same message as its
+monomorphic twin ("this body has type `i32`"), so no invalid C is emitted. The
+issue's "Expected" premise, that R1 makes the bare `x` a valid projection body
+in both forms, does not hold: R1 (#1805) reads a reference binding as the
+reference where a `&T` slot, payload, field or binder expects one, and a
+projection body's tail is the place-lend position, not one of those; both the
+generic and the monomorphic form are rejected alike and the accepted spelling
+is `&x.*`. Whether a bare reference parameter should also be a projection tail
+is a design question (recorded in the lane's hand-back), not this bug.
+
+**Test.** `tests/ref_return_ban.test.yo`: the generic bare-`x` body is a
+compile error ("this body has type"), and `&x.*` returns the place for `i32`
+and a move-only `String`.
