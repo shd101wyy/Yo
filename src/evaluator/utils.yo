@@ -31,6 +31,7 @@ pragma(Pragma.AllowUnsafe);
   BF_DOT,
   BK_BEGIN,
   BK_COND,
+  BK_WHILE,
   BK_MATCH,
   BK_COLON,
   BK_ASSIGN,
@@ -9141,20 +9142,21 @@ _lb_straight_path :: (fn(e : &AstExpr, t : &Token) -> bool)(
     e,
     .Atom(_, _) => true,
     .FnCall(_, callee, Rc(args), _, _) => {
-      if(
-        ast_expr_is_fn_call_of(e, BK_COND, Option(usize).None) || ast_expr_is_fn_call_of(e, BK_MATCH, Option(usize).None) || ast_expr_is_fn_call_of(e, BK_WHILE, Option(usize).None) || ast_expr_is_fn_call_of(e, BK_OP_AND, Option(usize).None) || ast_expr_is_fn_call_of(e, BK_OP_OR, Option(usize).None) || _lb_is_arrow_literal(e) || _lb_is_arrow_literal(&callee),
-        {
-          return(false);
-        }
-      );
+      if(ast_expr_is_fn_call_of(e, BK_COND, Option(usize).None) || ast_expr_is_fn_call_of(e, BK_MATCH, Option(usize).None) || ast_expr_is_fn_call_of(e, BK_WHILE, Option(usize).None) || ast_expr_is_fn_call_of(e, "&&", Option(usize).None) || ast_expr_is_fn_call_of(e, "||", Option(usize).None) || _lb_is_arrow_literal(e) || _lb_is_arrow_literal(&callee), {
+        return(false);
+      });
       if(_span_holds(&callee, t), {
         return(recur(&callee, t));
       });
       (ci : usize) = usize(0);
       while(ci < args.len(), {
-        match(args.get(ci), .Some(c) => if(_span_holds(&c, t), {
-          return(recur(&c, t));
-        }), .None => ());
+        match(
+          args.get(ci),
+          .Some(c) => if(_span_holds(&c, t), {
+            return(recur(&c, t));
+          }),
+          .None => ()
+        );
         ci = (ci + usize(1));
       });
       true
