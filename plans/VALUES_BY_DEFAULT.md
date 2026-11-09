@@ -5059,8 +5059,17 @@ and in git, not a silent edit.
       campaign"): the campaign completes with S3, not with v0.2.77's
       retirement PR, which retires every other mode; G2 loses its
       `slice`/`View(T, p)` holder.
-    - **As built.** (S1: PRs, dates, the emit-diff and ratchet verdicts.
-      S2: PRs. S3: PR.)
+    - **As built.** S1a (2026-11-08, `vbd/d49-s1-kinds`): the `?Sized`
+      kind (`TypeValueNode.MaybeSizedKind`) in the binder slot of
+      `generic(...)`, `comptime(V) :` and impl/derive binders; `Sized` a
+      prelude marker answered by `type_is_sized` (a hand impl is
+      rejected); `[T]` parses to the builtin `Slice(T)` (`SliceT`); E0619
+      at every by-value position the decision lists, at the instantiation
+      of a `Type` binder (generic, type constructor, `comptime(V) : Type`)
+      and, through the definition-time trial's hard class, at a `?Sized`
+      body's definition; `yo explain E0619`. `Type.impls` takes a `Type`, so
+      it answers for sized types only until S2 gives it `?Sized`. (S1b–S1g,
+      S2, S3: to come.)
     - **Tests** (`tests/sized.test.yo`, `tests/dyn.test.yo`,
       `tests/slice.test.yo`, `tests/str_view.test.yo`,
       `tests/explicit_allocators.test.yo`, the cli case

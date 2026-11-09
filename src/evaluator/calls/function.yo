@@ -107,7 +107,7 @@ pragma(Pragma.AllowUnsafe);
   reference_impls_seen,
   reference_impl_head_noted
 } :: import("../context.yo");
-{ is_pointer_type, is_dyn_type, is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_some_type, is_array_type, is_function_type, is_function_type_generic, is_expr_list_type, is_comptime_list_type, is_fn_trait_type, is_unit_type, is_primitive_type, is_type_0, type_decl_module, is_module_type, is_cell_primitive_type, is_counted_handle_type } :: import("../../types/guards.yo");
+{ is_pointer_type, is_dyn_type, is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_some_type, is_array_type, is_function_type, is_function_type_generic, is_expr_list_type, is_comptime_list_type, is_fn_trait_type, is_unit_type, is_primitive_type, is_type_0, is_type_kind, type_decl_module, is_module_type, is_cell_primitive_type, is_counted_handle_type } :: import("../../types/guards.yo");
 { convert_comptime_type_to_runtime_type, get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../../types/compatibility.yo");
 { is_drop_method_name, is_clone_trait_type, type_contains_some_type, type_contains_some_type_deep, is_bound_closure_identity, resolve_cell_chain, type_contains_rc_type, type_requires_explicit_copy, type_is_bitwise_copy, fn_param_is_ptr_borrow, CaptureBorrow, capture_borrows_exist, collect_type_borrows, register_capture_borrows, capture_struct_borrows, capture_borrow_place_string, is_future_value_type, note_future_origins_exist, note_unreturnable_future, future_origin_names, type_is_second_class, type_carries_origin, origin_value_phase_message, origin_beyond_n2b, origin_beyond_n2b_message, type_lacks_clone } :: import("../../types/utils.yo");
@@ -7055,7 +7055,7 @@ _funcval_bind_foralls :: (
     // VALUE binder (`generic(N : usize)`) with a receiver TYPE argument
     // stamps `N := TypeVal(elem)` and the body throws unify(usize, Type)
     // (the imm_list/imm_vec hollow batch main).
-    fa_kind_is_type := match(forall_kinds.get(fa_i), .Some(k) => is_type_0(&k), .None => true);
+    fa_kind_is_type := match(forall_kinds.get(fa_i), .Some(k) => is_type_kind(&k), .None => true);
     if(!fa_bound && fa_kind_is_type && (fa_i < recv_type_args.len()), {
       match(
         recv_type_args.get(fa_i),

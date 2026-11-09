@@ -44,7 +44,7 @@ pragma(Pragma.AllowUnsafe);
 (mut(g_future_origins_exist) : bool) = false;
 /// Capture-list borrow entries by capture-struct id (`register_capture_borrows`).
 (g_capture_borrows : RefCell(HashMap(String, ArrayList(CaptureBorrow)))) = RefCell(HashMap(String, ArrayList(CaptureBorrow))).new(HashMap(String, ArrayList(CaptureBorrow)).new());
-{ TypeValue, TypeValueNode, FuncMeta, no_labels, t_refine_inner, no_types, SharedList, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_borrow, fn_result_is_ref, t_origin_spelled_names } :: import("./definitions.yo");
+{ TypeValue, TypeValueNode, FuncMeta, no_labels, t_refine_inner, no_types, SharedList, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_borrow, fn_result_is_ref, t_origin_spelled_names, is_maybe_sized_kind } :: import("./definitions.yo");
 { type_intern_key } :: import("./intern.yo");
 { type_to_string, type_to_string_for_message } :: import("./string.yo");
 { type_value_tag, resolve_enum_shell, resolve_struct_shell, enum_phantom_positions } :: import("./creators.yo");
@@ -75,7 +75,7 @@ pragma(Pragma.AllowUnsafe);
 :: import("./guards.yo");
 { Token } :: import("../token.yo");
 { format_error_message, format_error_message_with_help, with_code, YoError } :: import("../error.yo");
-{ suggest_name, E_FIELD_NOT_FOUND, E_MODULE_FIELD_NOT_FOUND, E_BORROW_ESCAPES, Diagnostic } :: import("../diagnostics.yo");
+{ suggest_name, E_FIELD_NOT_FOUND, E_MODULE_FIELD_NOT_FOUND, E_BORROW_ESCAPES, E_UNSIZED_BY_VALUE, Diagnostic } :: import("../diagnostics.yo");
 { Exception } :: import("std/error");
 /// (seed window) Concrete per-payload variants of refcell.yo's generic
 /// fillers: a fn value generic over its element keeps the variable abstract
@@ -291,6 +291,7 @@ type_requires_comptime_modifier :: (fn(ty : &TypeValue) -> bool)(
       });
       rcm_any
     },
+    Rc(.SliceT(rcm_el)) => recur(&rcm_el),
     Rc(.Array(rcm_el, _, _)) => recur(&rcm_el),
     _ => type_is_comptime_only(ty)
   )
@@ -671,6 +672,7 @@ _collect_type_borrows_inner :: (fn(ty_in : &TypeValue, out : &mut ArrayList(Capt
   });
   match(
     ty,
+    Rc(.SliceT(elem)) => recur(&elem, out, depth + u32(1)),
     Rc(.Array(element : elem, length : _)) => recur(&elem, out, depth + u32(1)),
     Rc(.Tuple({ field_types : fields })) => {
       (i : usize) = usize(0);
@@ -735,6 +737,7 @@ _pointee_second_class_inner :: (fn(ty_in : &TypeValue, depth : u32) -> Option(Ty
     Rc(.Pointer(inner)) => {
       return(if(type_is_second_class(&inner), Option(TypeValue).Some(Rc.clone(inner)), Option(TypeValue).None));
     },
+    Rc(.SliceT(elem)) => comps.push(Rc.clone(elem)),
     Rc(.Array(element : elem, length : _)) => comps.push(Rc.clone(elem)),
     Rc(.Tuple({ field_types : fields })) => {
       (i : usize) = usize(0);
@@ -871,6 +874,8 @@ _reaches_user_drop_inner :: (fn(ty : &TypeValue, std_path : &String, seen : &mut
   match(
     ty,
     Rc(.Array(element : elem)) => _reaches_user_drop_inner(&elem, std_path, seen, depth + u32(1)),
+    // A tail struct's `[T]` (decision 49) drops its elements as an array does.
+    Rc(.SliceT(sl_elem)) => _reaches_user_drop_inner(&sl_elem, std_path, seen, depth + u32(1)),
     Rc(.RefineT(inner, _)) => _reaches_user_drop_inner(&inner, std_path, seen, depth + u32(1)),
     Rc(.Tuple({ field_types : fields })) => _any_reaches_user_drop(&fields, std_path, seen, depth),
     Rc(.SomeT({ resolution : res })) => match(res, .Some(r) => _reaches_user_drop_inner(&r, std_path, seen, depth + u32(1)), .None => false),
@@ -912,6 +917,47 @@ _reaches_user_drop_inner :: (fn(ty : &TypeValue, std_path : &String, seen : &mut
 /// An unresolved type variable answers `true`: a generic body is checked
 /// again per instantiation, where the variable is resolved.
 type_is_escapable :: (fn(ty : &TypeValue) -> bool)(!type_carries_origin(ty) && !type_is_second_class(ty));
+/// `Sized` (plans/VALUES_BY_DEFAULT.md decision 49): every type except the
+/// unsized ones, which live only behind a pointer. Derived structurally, as
+/// `Escapable` is, and never implemented by hand. Unsized: `[T]`, an open
+/// type variable declared `?Sized`, and a value struct or newtype whose LAST
+/// field is unsized (a tail struct). `Dyn(...)` and `str` are sized here
+/// while `unsized_legacy_spellings` holds (S1): a value `Dyn(...)` and a
+/// value `str` are still the legacy fat values; S2 moves them onto pointers.
+type_is_sized :: (fn(ty : &TypeValue) -> bool)(_type_is_sized_d(ty, u32(0)));
+/// One of `bounds` is the prelude's `Sized` marker.
+_bounds_name_sized :: (fn(bounds : &ArrayList(TypeValue)) -> bool)({
+  (i : usize) = usize(0);
+  while(i < bounds.len(), i = (i + usize(1)), {
+    if(match(&bounds(i), Rc(.TraitT({ name : bn })) => (bn == "Sized"), _ => false), {
+      return(true);
+    });
+  });
+  false
+});
+_type_is_sized_d :: (fn(ty : &TypeValue, depth : u32) -> bool)(
+  cond(
+    (depth > u32(32)) => true,
+    true => match(
+      t_refine_inner(ty),
+      Rc(.SliceT(_)) => false,
+      // A `?Sized` variable is unsized unless a `where(T <: Sized)` bound
+      // re-tightens it (one method of a `?Sized` impl).
+      Rc(.SomeT({ parent_type : st_kind, bounds : st_bounds, resolution : st_res })) => match(
+        st_res,
+        .Some(st_r) => _type_is_sized_d(&st_r, depth + u32(1)),
+        .None => (!is_maybe_sized_kind(&st_kind) || _bounds_name_sized(&st_bounds.required()))
+      ),
+      // A value struct's tail decides it; a `ref` struct is a handle, and a
+      // source namespace is not a value.
+      Rc(.Struct({ field_types : ts_fts, is_reference_semantics : ts_ref, is_atomic_rc : ts_atomic, is_source_namespace : ts_sns })) => cond(
+        (ts_ref || ts_atomic || ts_sns || (ts_fts.len() == usize(0))) => true,
+        true => match(ts_fts.get(ts_fts.len() - usize(1)), .Some(ts_tail) => _type_is_sized_d(&ts_tail, depth + u32(1)), .None => true)
+      ),
+      _ => true
+    )
+  )
+);
 _any_carries_origin :: (fn(ts : &SharedList(TypeValue), seen : &mut ArrayList(String), depth : u32) -> bool)({
   (i : usize) = usize(0);
   while(i < ts.len(), {
@@ -931,6 +977,7 @@ _carries_origin_inner :: (fn(ty : &TypeValue, seen : &mut ArrayList(String), dep
     Rc(.Reference(_, _, _)) => true,
     Rc(.OriginSet(_, _)) => true,
     Rc(.Pointer(inner)) => _carries_origin_inner(&inner, seen, depth + u32(1)),
+    Rc(.SliceT(elem)) => _carries_origin_inner(&elem, seen, depth + u32(1)),
     Rc(.Array(element : elem)) => _carries_origin_inner(&elem, seen, depth + u32(1)),
     Rc(.RefineT(inner, _)) => _carries_origin_inner(&inner, seen, depth + u32(1)),
     Rc(.Tuple({ field_types : fields })) => _any_carries_origin(&fields, seen, depth),
@@ -1076,6 +1123,7 @@ _origin_beyond_n2b_inner :: (fn(ty : &TypeValue, seen : &mut ArrayList(String), 
     // an inline position
     // (issues/fixed/2026-11-03-a-value-container-over-references-passes-the-n2b-wall.md).
     Rc(.Pointer(inner)) => type_carries_origin(&inner),
+    Rc(.SliceT(elem)) => _origin_beyond_n2b_inner(&elem, seen, depth + u32(1)),
     Rc(.Array(element : elem)) => _origin_beyond_n2b_inner(&elem, seen, depth + u32(1)),
     Rc(.RefineT(inner, _)) => _origin_beyond_n2b_inner(&inner, seen, depth + u32(1)),
     Rc(.Tuple({ field_types : fields })) => _any_beyond_n2b(&fields, seen, depth),
@@ -1161,6 +1209,26 @@ no_origin_position_error :: (fn(ty : &TypeValue, position : &String, why : &Stri
       Option(String).Some(help.clone())
     ),
     E_BORROW_ESCAPES
+  )
+);
+/// E0619 (decision 49): the unsized `ty` is used at `position` (a phrase
+/// such as "a local", "the argument of `Option`'s `T : Type`"), which needs a
+/// size. `binder` names the `generic(T : Type)` binder to relax when the
+/// position is one, so the help can name `?Sized`.
+unsized_by_value_error :: (fn(ty : &TypeValue, position : &String, binder : &Option(String), tok : &Token) -> YoError)(
+  with_code(
+    format_error_message_with_help(
+      tok,
+      `\`${type_to_string(ty)}\` is not \`Sized\`: ${position} needs a size, and an unsized type lives only behind a pointer (\`&T\`, \`&mut T\`, \`*T\`; plans/VALUES_BY_DEFAULT.md decision 49).`,
+      Option(String).Some(
+        match(
+          binder,
+          .Some(b) => `\`${b}\` is a \`Type\` binder, which implies \`where(${b} <: Sized)\`; declare it \`${b} : ?Sized\` if the body uses it only behind a pointer`,
+          .None => String.from("take the value behind a reference (`&T`), or use a sized type such as `Array(T, N)`")
+        )
+      )
+    ),
+    E_UNSIZED_BY_VALUE
   )
 );
 /// E0909 for a failed `where(<label> <: Escapable)` bound (decision 43,
@@ -1363,6 +1431,7 @@ _holds_dyn_by_value_inner :: (fn(ty_in : &TypeValue, depth : u32) -> bool)({
       false
     },
     Rc(.Tuple(field_labels : _, field_types : fields)) => _any_holds_dyn_by_value(&fields.items, depth + u32(1)),
+    Rc(.SliceT(elem)) => _holds_dyn_by_value_inner(&elem, depth + u32(1)),
     Rc(.Array(element : elem, length : _)) => _holds_dyn_by_value_inner(&elem, depth + u32(1)),
     Rc(.SomeT({ resolution : resolved })) => match(resolved, .Some(concrete) => _holds_dyn_by_value_inner(&concrete, depth + u32(1)), .None => false),
     _ => false
@@ -1528,6 +1597,7 @@ _type_is_move_only_inner :: (fn(ty_in : &TypeValue, w : &mut _TypeWalk, depth : 
     (_capture_struct_declares_mut(&ty) || capture_struct_typed_fnmut(&ty)) => true,
     true => match(
       &ty,
+      Rc(.SliceT(elem)) => recur(&elem, w, depth + u32(1)),
       Rc(.Array(element : elem, length : _)) => recur(&elem, w, depth + u32(1)),
       Rc(.Tuple(field_labels : _, field_types : fields)) => match(
         _type_walk_enter(w, &ty, depth),
@@ -1743,6 +1813,7 @@ _holds_counted_handle_inner :: (fn(ty_in : &TypeValue, w : &mut _TypeWalk, depth
     (is_bound_closure_identity(&ty) || is_closure_capture_struct(&ty)) => false,
     true => match(
       &ty,
+      Rc(.SliceT(elem)) => recur(&elem, w, depth + u32(1)),
       Rc(.Array(element : elem, length : _)) => recur(&elem, w, depth + u32(1)),
       Rc(.Tuple(field_labels : _, field_types : fields)) => match(
         _type_walk_enter(w, &ty, depth),
@@ -1823,6 +1894,10 @@ _move_only_reason_inner :: (fn(ty_in : &TypeValue, depth : u32) -> Option(String
   comps := ArrayList(TypeValue).new();
   match(
     &ty,
+    Rc(.SliceT(elem)) => {
+      labels.push(String.from("elements"));
+      comps.push(Rc.clone(elem));
+    },
     Rc(.Array(element : elem, length : _)) => {
       labels.push(String.from("elements"));
       comps.push(Rc.clone(elem));
@@ -1918,6 +1993,7 @@ _type_contains_rc_inner :: (fn(ty_in : &TypeValue, w : &mut _TypeWalk, depth : u
     true => match(
       &ty,
       // Array — recurse on element type
+      Rc(.SliceT(elem)) => recur(&elem, w, depth + u32(1), flip),
       Rc(.Array(element : elem, length : _)) =>
         recur(&elem, w, depth + u32(1), flip),
       // Tuple — check all field types
@@ -2169,6 +2245,7 @@ _reaches_non_atomic_cell_inner :: (fn(ty_in : &TypeValue, w : &mut _TypeWalk, de
         _type_walk_leave(w, &ty, depth, found)
       }
     ),
+    Rc(.SliceT(elem)) => recur(&elem, w, depth + u32(1)),
     Rc(.Array(element : elem, length : _)) => recur(&elem, w, depth + u32(1)),
     Rc(.DynT(required_trait_types : _)) => true,
     Rc(.SomeT({ resolution : resolved })) => match(
@@ -2285,6 +2362,7 @@ _type_is_control_bound_inner :: (fn(ty : &TypeValue, w : &mut _TypeWalk, depth :
       ),
       // Element/pointee recursion (rule 11: a pointer to a ctl type is itself
       // control-bound — `*(Raise)` must be rejected).
+      Rc(.SliceT(elem)) => recur(&elem, w, depth + u32(1)),
       Rc(.Array(element : elem, length : _, length_var : _)) => recur(&elem, w, depth + u32(1)),
       Rc(.Pointer(pointee : p)) => recur(&p, w, depth + u32(1)),
       // SomeT — conservatively false (no resolved concrete type to follow
@@ -2478,6 +2556,9 @@ _collect_some_types_into :: (
     Rc(.Array(element : el, _, _)) => {
       recur(&el, acc, visited_ids);
     },
+    Rc(.SliceT(el)) => {
+      recur(&el, acc, visited_ids);
+    },
     Rc(.Pointer(pointee : pt)) => {
       recur(&pt, acc, visited_ids);
     },
@@ -2649,6 +2730,7 @@ _mentions_some_type_into :: (fn(ty_in : &TypeValue, name : &Option(String), visi
     },
     Rc(.Pointer(pt)) => recur(&pt, name, visited_ids),
     Rc(.Reference(pointee : rpt)) => recur(&rpt, name, visited_ids),
+    Rc(.SliceT(el)) => recur(&el, name, visited_ids),
     Rc(.Array(element : el, _, _)) => recur(&el, name, visited_ids),
     Rc(.TypeAppT(constructor : con, args : cargs)) => {
       if(recur(&con, name, visited_ids), {
@@ -3861,6 +3943,7 @@ _type_repr_contains_raw_ptr :: (fn(ty : &TypeValue, depth : usize) -> bool)(
           }
         )
       },
+      Rc(.SliceT(el)) => recur(&el, depth - usize(1)),
       Rc(.Array({ element : el })) => recur(&el, depth - usize(1)),
       _ => false
     )
@@ -3989,6 +4072,7 @@ _type_provides_slice_source :: (fn(ty : &TypeValue, depth : usize) -> bool)(
           }
         )
       },
+      Rc(.SliceT(el)) => recur(&el, depth - usize(1)),
       Rc(.Array({ element : el })) => recur(&el, depth - usize(1)),
       _ => false
     )
@@ -4004,7 +4088,7 @@ type_may_provide_slice_source :: (fn(ty : &TypeValue) -> bool)({
 export(enum_phantom_type_arg_somes, enum_phantom_type_args_masked);
 export(CaptureBorrow, register_capture_borrows, capture_struct_borrows, capture_borrows_exist, capture_borrow_place_string, collect_type_borrows, type_is_second_class, type_first_mut_borrow, type_pointee_second_class);
 export(future_origin_names, note_future_origins_exist, note_unreturnable_future, future_unreturnable_borrow);
-export(type_carries_origin, type_reaches_user_drop, DropUsesRootsFn, set_drop_uses_roots_fn, type_is_escapable, escapable_bound_error, note_origin_types_exist, origin_value_phase_message, reject_origin_carrying_signature, no_origin_position_error, origin_beyond_n2b, origin_beyond_n2b_message);
+export(type_carries_origin, type_reaches_user_drop, DropUsesRootsFn, set_drop_uses_roots_fn, type_is_escapable, type_is_sized, unsized_by_value_error, escapable_bound_error, note_origin_types_exist, origin_value_phase_message, reject_origin_carrying_signature, no_origin_position_error, origin_beyond_n2b, origin_beyond_n2b_message);
 export(set_target_pointer_size);
 export(is_drop_trait_name, is_drop_method_name, is_destructor_trait_member, is_clone_trait_type, dyn_type_lists_clone, type_holds_dyn_by_value);
 export(get_target_pointer_size_bits);
@@ -4444,6 +4528,7 @@ _type_mentions_generic_length :: (fn(ty : &TypeValue, depth : u32) -> bool)(
     (depth > u32(16)) => false,
     true => match(
       ty,
+      Rc(.SliceT(el)) => _type_mentions_generic_length(&el, depth + u32(1)),
       Rc(.Array(element : el, length : _, length_var : lv)) => ((lv.len() > usize(0)) || _type_mentions_generic_length(&el, depth + u32(1))),
       Rc(.Pointer(pointee : p)) => _type_mentions_generic_length(&p, depth + u32(1)),
       Rc(.Reference(pointee : rp)) => _type_mentions_generic_length(&rp, depth + u32(1)),

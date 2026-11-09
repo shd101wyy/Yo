@@ -730,6 +730,18 @@ _compat_impl :: (
     Rc(.TypeUni(alvl)) => match(
       expected,
       Rc(.TypeUni(elvl)) => (alvl == elvl),
+      // `Type` is the sized sub-kind of `?Sized` (decision 49): a type
+      // argument fits a `?Sized` binder.
+      Rc(.MaybeSizedKind) => (alvl == usize(0)),
+      _ => false
+    ),
+    // A `?Sized` variable's kind fits only a `?Sized` binder; at a `Type`
+    // binder it is E0619, which the binder's own check reports.
+    Rc(.MaybeSizedKind) => match(expected, Rc(.MaybeSizedKind) => true, _ => false),
+    // `[T]`: the element compared exactly, as a pointer's pointee is.
+    Rc(.SliceT(as_elem)) => match(
+      expected,
+      Rc(.SliceT(es_elem)) => recur(&as_elem, &es_elem, _exact_mode(mode), visited),
       _ => false
     ),
     // Pointer children always use require_exact=true

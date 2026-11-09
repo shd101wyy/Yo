@@ -42,10 +42,11 @@ import("std/fmt");
 { EvalValue, create_type_value, is_type_value } :: import("../../value.yo");
 { TypeValue, TypeValueNode, shared_list, no_types, no_labels, no_type_lists, no_label_lists, SharedList, slot_pointee_at } :: import("../../types/definitions.yo");
 { t_unit, register_enum_final, _patch_self_shell } :: import("../../types/creators.yo");
-{ fields_have_incompatible_contexts, type_is_control_bound, control_bound_field_message } :: import("../../types/utils.yo");
+{ fields_have_incompatible_contexts, type_is_control_bound, control_bound_field_message, type_is_sized, unsized_by_value_error } :: import("../../types/utils.yo");
 {
   is_comptime_int_type,
   is_type_0,
+  is_type_kind,
   register_type_decl_module,
   register_enum_decl_identity,
   register_prelude_enum_decl
@@ -615,6 +616,10 @@ evaluate_enum_type :: (
           if((force_reference_semantics || is_atomic_rc) && type_is_control_bound(&field.ty), {
             exn.throw(dyn(format_error_message(ast_expr_token(&field_arg), control_bound_field_message(&field.label, &field.ty))));
           });
+          // A variant's payload is stored by value (decision 49, E0619).
+          if(!type_is_sized(&field.ty), {
+            exn.throw(dyn(unsized_by_value_error(&field.ty, &`the payload \`${field.label}\``, &Option(String).None, &ast_expr_token(&field_arg))));
+          });
           v_field_types.push(Rc.clone(field.ty));
           v_field_labels.push(field.label.clone());
           env_adopt(&env, &result.env);
@@ -707,7 +712,7 @@ evaluate_enum_type :: (
                 p_lbl := match(fc_plabels.get_cloned(tci), .Some(l) => l, .None => String.from(""));
                 p_ty := match(slot_pointee_at(&fc_ptypes, tci), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
                 // Comptime type param ≈ declared type is the `Type` universe.
-                if(is_type_0(&p_ty), {
+                if(is_type_kind(&p_ty), {
                   vars := get_variables_from_env(&env, &p_lbl);
                   if(vars.len() > usize(0), {
                     match(
@@ -732,7 +737,7 @@ evaluate_enum_type :: (
               while(cti < fc_ptypes.len(), {
                 match(
                   slot_pointee_at(&fc_ptypes, cti),
-                  .Some(pt) => if(is_type_0(&pt), {
+                  .Some(pt) => if(is_type_kind(&pt), {
                     n_comptime = (n_comptime + usize(1));
                   }),
                   .None => ()

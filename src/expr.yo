@@ -91,6 +91,8 @@ export(register_mut_binding, is_mut_binding, register_thread_local_binding, is_t
 BK_TUPLE :: "tuple";
 BK_TUPLE_TYPE :: "Tuple";
 BK_ARRAY :: "Array";
+/// `Slice(T)`, the unsized `[T]` (decision 49); `[T]` parses to it.
+BK_SLICE :: "Slice";
 BK_ARRAY_VAL :: "array";
 BK_BEGIN :: "begin";
 BK_IMPORT :: "import";
@@ -896,7 +898,7 @@ ast_expr_to_string :: (fn(e : &AstExpr) -> String)(
     }
   )
 );
-export(AstExpr, ExprId, BK_TUPLE, BK_TUPLE_TYPE, BK_ARRAY, BK_ARRAY_VAL, BK_BEGIN, BK_IMPORT, BK_ANON_STRUCT, BK_EXPORT);
+export(AstExpr, ExprId, BK_TUPLE, BK_TUPLE_TYPE, BK_ARRAY, BK_SLICE, BK_ARRAY_VAL, BK_BEGIN, BK_IMPORT, BK_ANON_STRUCT, BK_EXPORT);
 export(BF_RUNTIME, BF_UNWIND, BF_RECUR, BF_DOT);
 export(BF_SIZE_OF, BF_ALIGN_OF, BF_TYPE_OF, BF_TYPE_ID, BF_ADDR_OF, BK_MUT, BK_IMM, BK_BORROW_MUT);
 export(BK_COMPTIME, BK_GIVEN, BK_GENERIC, BK_COLON, BK_ASSIGN, BK_INIT_ASSIGN, BK_CONST, BK_COND, BK_MATCH, BK_THREAD_LOCAL);
@@ -3126,3 +3128,15 @@ rewrite_projection_tails :: (fn(body : &AstExpr, is_mut : bool, mismatches : &mu
   _projection_tail(body, is_mut, mismatches)
 );
 export(PROJECTION_REF_TAIL_PATH, PROJECTION_MUT_TAIL_PATH, projection_tail_mode, rewrite_projection_tails, AUTO_REF_RECEIVER_PATH, ast_expr_is_auto_ref_receiver);
+/// `?Sized` as written in a binder's kind slot (`generic(T : ?Sized)`,
+/// `comptime(V) : ?Sized`; plans/VALUES_BY_DEFAULT.md decision 49): the
+/// prefix `?` applied to the bare name `Sized`. Read as one kind, never as
+/// `Option(Sized)`.
+is_maybe_sized_kind_spelling :: (fn(e : &AstExpr) -> bool)(
+  ast_expr_is_fn_call_of(e, "?", Option(usize).Some(usize(1))) && match(
+    e,
+    .FnCall(_, _, Rc(mk_args), _, _) => match(mk_args.get(usize(0)), .Some(mk_a) => ast_expr_is_atom_of(&mk_a, "Sized"), .None => false),
+    .Atom(_, _) => false
+  )
+);
+export(is_maybe_sized_kind_spelling);

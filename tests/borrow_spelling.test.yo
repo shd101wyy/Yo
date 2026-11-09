@@ -823,6 +823,14 @@ comptime_expect_error(
   "The bound `where(T <: Escapable)` requires an `Escapable` type"
 );
 comptime_expect_error(impl(BsHeld, Escapable()), "never implemented by hand");
+// `Type.impls` asks the structural question too, from the prelude's own
+// body (issues/fixed/2026-11-08-type-impls-answers-false-for-escapable-for-every-type.md).
+test("Type.impls answers Escapable structurally", {
+  comptime_assert(Type.impls(i32, Escapable), "an i32 carries no origin");
+  comptime_assert(Type.impls(BsHeld, Escapable), "a struct of plain fields carries none");
+  x := i32(1);
+  comptime_assert(!Type.impls(BsView(x), Escapable), "a struct with an origin argument carries one");
+});
 comptime_expect_error(
   bs_handle_dropped :: (fn() -> i32)({
     h := Rc.new(BsHeld(x : i32(1), y : i32(2)));

@@ -328,6 +328,9 @@ _type_mentions_some_id :: (fn(ty : &TypeValue, id : &String) -> bool)({
     Rc(.Pointer(pp)) => {
       return(_type_mentions_some_id(&pp, id));
     },
+    Rc(.SliceT(sp)) => {
+      return(_type_mentions_some_id(&sp, id));
+    },
     _ => no_types()
   );
   (j : usize) = usize(0);
@@ -562,6 +565,7 @@ _substitute_node :: (fn(s : &Substitution, ty : &TypeValue, is_root : bool) -> T
         ty,
         // Recurse into pointer / slice / array.
         Rc(.Pointer(inner)) => Rc.new(TypeValueNode.Pointer(_substitute_at(s, &inner, false))),
+        Rc(.SliceT(sl_inner)) => Rc.new(TypeValueNode.SliceT(_substitute_at(s, &sl_inner, false))),
         // A reference (a parameter slot) substitutes its pointee; the mode and
         // the origin are carried (step 2 substitutes origin parameters).
         // An unchanged pointee keeps the slot node, as an unchanged leaf

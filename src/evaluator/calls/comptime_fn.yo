@@ -27,7 +27,7 @@ pragma(Pragma.AllowUnsafe);
 { are_types_compatible, are_types_compatible_exact } :: import("../../types/compatibility.yo");
 { is_some_type, is_type_hierarchy_type, is_type_0, is_struct_type, is_shared_cell_type_name } :: import("../../types/guards.yo");
 { macro_return_is_unquote } :: import("../types/function.yo");
-{ type_contains_some_type, get_all_some_types, is_bound_closure_identity, type_carries_origin } :: import("../../types/utils.yo");
+{ type_contains_some_type, get_all_some_types, is_bound_closure_identity, type_carries_origin, type_is_sized, unsized_by_value_error } :: import("../../types/utils.yo");
 {
   EvalValue,
   eval_value_eq,
@@ -705,6 +705,37 @@ evaluate_comptime_fn_call :: (
     function_type,
     Rc(.Func({ result : result_b })) => t_slot_pointee(&result_b),
     _ => t_unit()
+  );
+  // A `comptime(V) : Type` parameter carries `where(V <: Sized)` (decision
+  // 49): an unsized type argument is E0619 at the call, `comptime(V) :
+  // ?Sized` takes it. A type constructor's call reaches here without
+  // passing the argument-by-argument check of an ordinary call.
+  match(
+    function_callee_expr,
+    .Some(us_callee) => match(
+      function_type,
+      Rc(.Func({ param_types : us_pts, meta : us_meta })) => {
+        (us_i : usize) = usize(0);
+        while(us_i < us_pts.len(), us_i = (us_i + usize(1)), {
+          if(match(us_pts.get(us_i), .Some(us_pt) => is_type_0(&t_slot_pointee(&us_pt)), .None => false), {
+            match(
+              arg_values.args.get(us_i),
+              .Some(us_a) => match(
+                us_a.value,
+                .Some(.TypeVal(us_t)) => if(!type_is_sized(&us_t), {
+                  us_label := match(us_meta.param_labels.get(us_i), .Some(l) => l, .None => String.from("V"));
+                  exn.throw(dyn(unsized_by_value_error(&us_t, &`\`${ast_expr_to_string(&us_callee)}\`'s type parameter \`${us_label}\``, &Option(String).Some(us_label.clone()), &ast_expr_token(&us_callee))));
+                }),
+                _ => ()
+              ),
+              .None => ()
+            );
+          });
+        });
+      },
+      _ => ()
+    ),
+    .None => ()
   );
   // Extract func_id and body from the FuncVal.
   func_id_str := match(

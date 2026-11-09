@@ -744,6 +744,13 @@ _type_key_at :: (fn(t : &TypeValue, depth : usize) -> String)(
       key.push_str(")");
       key
     },
+    // `[T]` (decision 49): keyed by its element's key.
+    Rc(.SliceT(sl_elem)) => {
+      key := String.from("slice(");
+      key.push_string(recur(&sl_elem, depth + usize(1)));
+      key.push_str(")");
+      key
+    },
     // Tuple: key by the RECURSED keys of the field types (labels included for
     // record-tuples), NOT by `type_to_string`. Tuples are structural — the
     // render fallback embedded the EVALUATOR's type-argument spelling, so
@@ -1008,6 +1015,12 @@ _stable_identity_at :: (fn(t : &TypeValue, depth : usize) -> String)({
     Rc(.Pointer(pointee)) => {
       out := String.from("*(");
       out.push_string(recur(&pointee, depth + usize(1)));
+      out.push_str(")");
+      out
+    },
+    Rc(.SliceT(sl_elem)) => {
+      out := String.from("slice(");
+      out.push_string(recur(&sl_elem, depth + usize(1)));
       out.push_str(")");
       out
     },

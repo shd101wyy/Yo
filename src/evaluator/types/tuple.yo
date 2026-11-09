@@ -20,6 +20,7 @@ import("std/fmt");
 { TypeValue, TypeValueNode, shared_list } :: import("../../types/definitions.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
 { format_error_message } :: import("../../error.yo");
+{ type_is_sized, unsized_by_value_error } :: import("../../types/utils.yo");
 { Exception } :: import("std/error");
 {
   TypeField,
@@ -84,6 +85,10 @@ evaluate_tuple_elements_type :: (
           )
         );
       });
+    });
+    // A tuple element is stored by value (decision 49, E0619).
+    if(!type_is_sized(&field.ty), {
+      exn.throw(dyn(unsized_by_value_error(&field.ty, &String.from("a tuple element"), &Option(String).None, &ast_expr_token(&arg))));
     });
     field_labels.push(field.label.clone());
     field_types.push(Rc.clone(field.ty));

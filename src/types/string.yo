@@ -493,6 +493,9 @@ _tts :: (fn(t : &TypeValue, _d : usize, visited : &mut ArrayList(String)) -> Str
         if(r_mut, `&mut ${r_sig}`, `&${r_sig}`)
       },
       Rc(.OriginKind) => `Origin`,
+      Rc(.MaybeSizedKind) => `?Sized`,
+      // Printed in the named form, as `Array(T, N)` prints for `[T; N]`.
+      Rc(.SliceT(s_elem)) => `Slice(${recur(&s_elem, _d + usize(1), visited)})`,
       Rc(.OriginSet(o_places, o_elided)) => cond(
         o_elided => `origin(_)`,
         true => {

@@ -682,6 +682,11 @@ _intern_key_into :: (
         recur(&r_origin, sb, depth + usize(1), visited);
       },
       Rc(.OriginKind) => sb.write_str("OrK"),
+      Rc(.MaybeSizedKind) => sb.write_str("MSK"),
+      Rc(.SliceT(s_elem)) => {
+        sb.write_str("Sl");
+        recur(&s_elem, sb, depth + usize(1), visited);
+      },
       Rc(.OriginSet(o_places, o_elided)) => {
         sb.write_str("OrS:");
         _append_b(sb, o_elided);

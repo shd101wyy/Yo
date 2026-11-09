@@ -398,6 +398,13 @@ TypeValueNode :: enum(
   /// `impl(generic(T : Type, U : usize), Array(T, U), ...)`) and `length`
   /// is a meaningless placeholder; the variable is bound during synthesis.
   Array(element : Rc(Self), length : usize, length_var : String),
+  /// `[T]`, spelled `Slice(T)` (the builtin type constructor `[T]` parses
+  /// to, as `[T; N]` parses to `Array(T, N)`): a contiguous run of `T`s whose
+  /// length is not part of the type. It is UNSIZED (plans/VALUES_BY_DEFAULT.md
+  /// decision 49): no value of it exists by itself; it lives behind a pointer
+  /// (`&[T]`, `&mut [T]`, `*[T]`, an owning handle), whose metadata is the
+  /// length.
+  SliceT(element : Rc(Self)),
   /// Anonymous tuple. `field_labels(i)` is the optional label for the i-th
   /// field (empty `String` means positional). `field_types(i)` is the type.
   Tuple(field_labels : SharedList(String), field_types : SharedList(Rc(Self))),
@@ -639,6 +646,14 @@ TypeValueNode :: enum(
   /// type of a type. Nothing produces it yet; step 2's `generic(p : Origin)`
   /// gives it a spelling.
   OriginKind,
+  /// The `?Sized` kind (plans/VALUES_BY_DEFAULT.md decision 49): the kind of a
+  /// binder declared `generic(T : ?Sized)` or `comptime(V) : ?Sized`, "a type,
+  /// sized or not". `Type` (`TypeUni(0)`) is its sized sub-kind: a type
+  /// argument of kind `Type` is accepted where `?Sized` is expected, and an
+  /// unsized one (or a `?Sized` variable) where `Type` is expected is E0619.
+  /// A `?Sized` binder's `SomeT` carries this node as its `parent_type`, so
+  /// every copy of the variable keeps its kind.
+  MaybeSizedKind,
   /// A value of the `Origin` kind: a set of places. `places` names them (a
   /// reference parameter's own place is spelled by the parameter's name);
   /// `is_elided` = written without an origin, which step 2's elision defaults
@@ -822,6 +837,13 @@ t_reference_with_origin :: (fn(pointee : &TypeValue, mutable : bool, origin : &T
 );
 /// The value is the `Origin` kind.
 is_origin_kind :: (fn(t : &TypeValue) -> bool)(match(t, Rc(.OriginKind) => true, _ => false));
+(g_maybe_sized_kind : TypeValue) = Rc.new(TypeValueNode.MaybeSizedKind);
+/// The `?Sized` kind value (decision 49).
+t_maybe_sized_kind :: (fn() -> TypeValue)(Rc.clone(g_maybe_sized_kind));
+/// `t` is the `?Sized` kind.
+is_maybe_sized_kind :: (fn(t : &TypeValue) -> bool)(match(t, Rc(.MaybeSizedKind) => true, _ => false));
+/// `Slice(element)`, the unsized `[T]` (decision 49).
+t_slice :: (fn(element : &TypeValue) -> TypeValue)(Rc.new(TypeValueNode.SliceT(Rc.clone(element))));
 /// The slot of a parameter with the given mode: `&mut T` when `is_mut_ref`,
 /// else `T` when `is_by_value`, else `&T`.
 t_slot :: (fn(pointee : &TypeValue, is_mut_ref : bool, is_by_value : bool) -> TypeValue)(
@@ -1149,4 +1171,4 @@ get_struct_field_comptime_flags :: (
 export(TypeValue, TypeValueNode, FuncMeta, SomeTBounds, SomeTBoundsCell, some_t_bounds, some_t_bounds_empty, TraitTBody, TraitTBodyCell, trait_t_body, SharedList, SharedListCell, SharedListElem, shared_list, no_types, no_labels, no_flags, no_levels, no_discriminants, no_type_lists, no_label_lists, t_refine_inner, register_struct_field_comptime_flags, get_struct_field_comptime_flags);
 export(fn_trait_rank, fn_trait_base_serves, fn_trait_call_contract, fn_trait_slot_contract);
 export(fn_result_slot, fn_result_pointee, fn_result_is_ref, fn_result_is_mut_ref, t_origin_spelled_names, t_slot_origin_names, fn_result_origin_names, fn_result_composite_origin_names, origin_names_contain, fn_param_in_result_origin, fn_param_pointee_in_result_origin);
-export(t_origin_elided, t_origin_kind, t_origin_named, t_reference_with_origin, is_origin_kind, t_reference, t_slot, t_slot_pointee, slot_pointee_at, slot_pointees, t_slot_is_mut_ref, t_slot_is_borrow, t_slot_is_by_value, t_slot_with_pointee, t_slot_like, fn_param_slots, fn_param_is_mut_ref, fn_param_is_by_value, fn_param_mut_ref_at, fn_param_by_value_at, fn_param_mut_ref_flags, fn_param_by_value_flags);
+export(t_maybe_sized_kind, is_maybe_sized_kind, t_slice, t_origin_elided, t_origin_kind, t_origin_named, t_reference_with_origin, is_origin_kind, t_reference, t_slot, t_slot_pointee, slot_pointee_at, slot_pointees, t_slot_is_mut_ref, t_slot_is_borrow, t_slot_is_by_value, t_slot_with_pointee, t_slot_like, fn_param_slots, fn_param_is_mut_ref, fn_param_is_by_value, fn_param_mut_ref_at, fn_param_by_value_at, fn_param_mut_ref_flags, fn_param_by_value_flags);

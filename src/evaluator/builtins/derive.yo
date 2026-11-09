@@ -20,7 +20,8 @@ pragma(Pragma.AllowUnsafe);
   BK_GENERIC,
   BK_WHERE,
   desugar_if_calls,
-  ast_expr_is_atom
+  ast_expr_is_atom,
+  is_maybe_sized_kind_spelling
 } :: import("../../expr.yo");
 {
   Environment,
@@ -33,7 +34,7 @@ pragma(Pragma.AllowUnsafe);
   snapshot_env,
   variable_value_type
 } :: import("../../env.yo");
-{ TypeValue, TypeValueNode, t_origin_kind, t_origin_named, shared_list } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, t_origin_kind, t_origin_named, t_maybe_sized_kind, shared_list } :: import("../../types/definitions.yo");
 { t_unit, t_type, t_expr_t, t_comptime_list } :: import("../../types/creators.yo");
 { generate_expr_from_code } :: import("../../parser.yo");
 { EvalValue, create_unknown_val_with_name, value_to_string, value_cell_new, create_type_value } :: import("../../value.yo");
@@ -685,11 +686,22 @@ _evaluate_derive_executing :: (
             synthetic_token(&fp_name, &env.module_path().*)
           );
         }, {
-          unknown_val := create_unknown_val_with_name(Rc.new(TypeValueNode.TypeUni(usize(0))), &fp_name);
+          // `derive(generic(T : ?Sized), …)` (decision 49) binds a variable of
+          // that kind.
+          fp_kind := if(
+            match(
+              fp,
+              .FnCall(_, _, fa4, _, _) => match(fa4.get(usize(1)), .Some(ka4) => is_maybe_sized_kind_spelling(&ka4), .None => false),
+              .Atom(_, _) => false
+            ),
+            t_maybe_sized_kind(),
+            Rc.new(TypeValueNode.TypeUni(usize(0)))
+          );
+          unknown_val := create_unknown_val_with_name(&fp_kind, &fp_name);
           _add_fp := add_variable_to_env(
             env,
             &fp_name,
-            Rc.new(TypeValueNode.TypeUni(usize(0))),
+            &fp_kind,
             Option(EvalValue).Some(unknown_val),
             true,
             false,

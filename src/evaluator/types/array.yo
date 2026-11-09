@@ -19,18 +19,20 @@ import("std/fmt");
   ast_expr_is_atom,
   make_err_expr,
   BF_DOT,
-  BK_ARRAY
+  BK_ARRAY,
+  BK_SLICE
 } :: import("../../expr.yo");
 { new_expr_info, expr_info_table_get, expr_info_table_set, expr_info_adopt_env } :: import("../../expr_info.yo");
 { Environment, add_variable_to_env, snapshot_env } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
 { EvalValue, create_type_value, create_unknown_val, is_type_value } :: import("../../value.yo");
-{ TypeValue } :: import("../../types/definitions.yo");
+{ TypeValue, t_slice } :: import("../../types/definitions.yo");
 { t_array, t_array_var, t_usize, COMPUTED_ARRAY_LEN_PREFIX } :: import("../../types/creators.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
 { stable_module_id, parse_raw_int } :: import("../../utils.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { format_error_message } :: import("../../error.yo");
+{ type_is_sized, unsized_by_value_error } :: import("../../types/utils.yo");
 { Exception } :: import("std/error");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
 { ArrayList } :: import("std/collections/array_list");
@@ -152,6 +154,10 @@ evaluate_array_type :: (
       t_usize() // unreachable
     }
   );
+  // An array's element is stored by value (decision 49, E0619).
+  if(!type_is_sized(&child_type), {
+    exn.throw(dyn(unsized_by_value_error(&child_type, &String.from("an array element"), &Option(String).None, &ast_expr_token(&element_type_expr))));
+  });
   env_after_elem := expr_info_adopt_env(&elem_type_info);
   // `Array(T, _)` — underscore length INFERENCE: mint a
   // UNIQUE placeholder variable name, bind it compile-time as an
@@ -310,4 +316,48 @@ evaluate_array_type :: (
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   expr
 });
-export(evaluate_array_type);
+/// `Slice(T)`, which `[T]` parses to: the unsized slice of `T`
+/// (plans/VALUES_BY_DEFAULT.md decision 49). Its element is sized (E0619).
+evaluate_slice_type :: (
+  fn(
+    expr : &AstExpr,
+    env : &Environment,
+    ctx : &mut EvalContext,
+    exn : Exception
+  ) -> AstExpr
+)({
+  if(!ast_expr_is_fn_call_of(expr, BK_SLICE, Option(usize).Some(usize(1))), {
+    exn.throw(dyn(format_error_message(ast_expr_token(expr), `Expected "Slice(comptime(Type))" with 1 argument, like "Slice(i32)" or "[i32]"\nGot:\n${ast_expr_to_string(expr)}`)));
+  });
+  element_type_expr := match(
+    expr,
+    .FnCall(_, _, Rc(a), _, _) => match(a.get(usize(0)), .Some(x) => x, .None => make_err_expr()),
+    .Atom(_, _) => make_err_expr()
+  );
+  evaluated_elem := evaluate_expression_raw(&element_type_expr, env, ctx, exn);
+  elem_info := match(
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_elem)),
+    .Some(info) => Rc.clone(info),
+    .None => {
+      exn.throw(dyn(format_error_message(ast_expr_token(&element_type_expr), `Failed to evaluate the element type expression:\n${ast_expr_to_string(&element_type_expr)}`)));
+      new_expr_info(env, t_usize())
+    }
+  );
+  elem_ty := match(
+    elem_info.value(),
+    .Some(.TypeVal(inner)) => Rc.clone(inner),
+    _ => {
+      exn.throw(dyn(format_error_message(ast_expr_token(&element_type_expr), `Expected a type for the slice's element, got:\n${ast_expr_to_string(&element_type_expr)}`)));
+      t_usize()
+    }
+  );
+  if(!type_is_sized(&elem_ty), {
+    exn.throw(dyn(unsized_by_value_error(&elem_ty, &String.from("a slice element"), &Option(String).None, &ast_expr_token(&element_type_expr))));
+  });
+  slice_ty := t_slice(&elem_ty);
+  out_info := new_expr_info(&expr_info_adopt_env(&elem_info), &type_of_type(&slice_ty));
+  out_info.set_value(Option(EvalValue).Some(create_type_value(&slice_ty)));
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
+  expr
+});
+export(evaluate_array_type, evaluate_slice_type);
