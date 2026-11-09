@@ -40,3 +40,7 @@ error[E0911]: Cannot read `s.a` here: `e` borrows `s` with `&mut` and is still l
 ## Where to look
 
 The H6 rule extends a `Drop` holder's liveness to its scope-end drop. A holder that was moved has no scope-end drop, so the extension should not apply to it.
+
+## Fixed
+
+`lb_holder_moved` (`src/evaluator/utils.yo`), called where `set_expr_as_consumed` records a variable's first move: when the move is on every path of a later statement of the holder's own block (no `cond`/`match`/`while`/`&&`/`||`/closure on the way down), the holder's entries end with that statement instead of at the scope's end. A move on one path only keeps the scope-end liveness (the drop flag still drops it there). Tests: `tests/origins/reference_read_rule.test.yo` ("a moved user-Drop holder frees its root at the move", `rr_drop_holder_maybe_moved`), corpus row `moved-drop-holder` (+ its model encoding), G-B pair `h6e-drop-holder-moved-pos` / `h6e-drop-holder-maybe-moved`.

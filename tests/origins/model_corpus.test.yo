@@ -509,6 +509,12 @@ test("holder-from-temporary", {
   main := entry(al4(let_(Z, lit()), let_(R, Rc.new(NodeE.Borrow(false, Z))), Rc.new(NodeE.Drop(Z, true)), use_(Rc.new(NodeE.Var(R)))));
   verdict("holder-from-temporary", case1(main), "E0911");
 });
+// O-4: a user-`Drop` holder that is moved into a call drops there, so the root
+// it borrowed is free after the call.
+test("moved-drop-holder", {
+  main := entry(al4(let_(X, lit()), let_(H, Rc.new(NodeE.Make(Kind.Guard, Rc.new(NodeE.Borrow(true, X))))), use_(Rc.new(NodeE.Var(H))), Rc.new(NodeE.Assign(X, lit()))));
+  verdict("moved-drop-holder", case1(main), "ACCEPT");
+});
 test("drop-order-may-dangle", {
   main := entry(al3(let_(OUT, Rc.new(NodeE.NewList(shr(int(), ELIDED)))), let_(X, lit()), Rc.new(NodeE.Push(OUT, Rc.new(NodeE.Borrow(false, X))))));
   verdict("drop-order-may-dangle", case1(main), "ACCEPT");

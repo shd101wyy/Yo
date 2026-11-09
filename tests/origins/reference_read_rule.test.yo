@@ -316,3 +316,37 @@ comptime_expect_error(
   }),
   "`q` is a local: its storage ends with the call"
 );
+// O-4: a holder with a user `Drop` that is MOVED out runs its drop in its new
+// owner, so its live range ends with the statement that moves it
+// (issues/fixed/2026-11-09-a-drop-holder-moved-into-a-call-stays-live-to-its-scope-end.md).
+RrSlots :: struct(a : i32, b : i32);
+RrEntry :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(m : &mut(RrSlots, p)));
+impl(
+  generic(p : Origin),
+  RrEntry(p),
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      self.m.a = i32(-1);
+    })
+  )
+);
+impl(generic(p : Origin), RrEntry(p), rr_finish : (fn(self : Self) -> unit)(()));
+test("a moved user-Drop holder frees its root at the move", {
+  mut(s) := RrSlots(a : i32(0), b : i32(0));
+  e := RrEntry(s)(m : &mut s);
+  e.rr_finish();
+  assert(s.a == i32(-1), "the holder dropped inside the call");
+  s.b = i32(7);
+  assert(s.b == i32(7), "the root is writable again");
+});
+comptime_expect_error(
+  rr_drop_holder_maybe_moved :: (fn(c : bool) -> unit)({
+    mut(s) := RrSlots(a : i32(0), b : i32(0));
+    e := RrEntry(s)(m : &mut s);
+    if(c, {
+      e.rr_finish();
+    });
+    _ := s.a;
+  }),
+  "`e` borrows `s` with `&mut` and is still live"
+);

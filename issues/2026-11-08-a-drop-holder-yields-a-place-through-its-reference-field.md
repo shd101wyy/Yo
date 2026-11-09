@@ -39,7 +39,7 @@ export(main);
 
 `take` consumes `self` and returns a reborrow of `*self.m`. The holder's `drop` runs at the end of `take`, and writes `self.m.a` while the returned `&mut` into `s.a` is live. Rust rejects this shape with E0713 ("borrow may still be in use when destructor runs"). It accepts the shape only when the holder type has no `Drop` impl.
 
-On develop `b1af0cd01` (after #1839) the reproducer is rejected, but at `main`'s `assert` and for the wrong reason (`issues/2026-11-09-a-drop-holder-moved-into-a-call-stays-live-to-its-scope-end.md`). Without that `assert` it is still accepted, so `take`'s body is not checked.
+On develop `b1af0cd01` (after #1839) the reproducer is rejected, but at `main`'s `assert` and for the wrong reason (`issues/fixed/2026-11-09-a-drop-holder-moved-into-a-call-stays-live-to-its-scope-end.md`). Without that `assert` it is still accepted, so `take`'s body is not checked.
 
 ## Where to look
 
