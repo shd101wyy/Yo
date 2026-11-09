@@ -1570,8 +1570,9 @@ evaluate_match :: (
         .None => ()
       );
       // G-E: a binding that holds an origin holds the scrutinee's; a
-      // parameter scrutinee's declared type is its record.
-      if(!ct_known && type_carries_origin(&b.ty) && !(ast_expr_is_atom(&scrutinee_expr) && match(get_variables_from_env(&env, ast_expr_token(&scrutinee_expr).value.*.clone()).last_cloned(), .Some(sv) => sv.is_parameter(), .None => false)), {
+      // parameter scrutinee's declared type is its record, and a reference
+      // payload's holding is `origin_held_by`'s computation just above.
+      if(!ct_known && ref_payload.is_none() && type_carries_origin(&b.ty) && !(ast_expr_is_atom(&scrutinee_expr) && match(get_variables_from_env(&env, ast_expr_token(&scrutinee_expr).value.*.clone()).last_cloned(), .Some(sv) => sv.is_parameter(), .None => false)), {
         audit_origin_totality_elided("match-binding", &scrutinee_expr, ctx);
       });
       // Below a cell a binding borrows whatever the mode (decision 26).
