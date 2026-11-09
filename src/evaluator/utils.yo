@@ -144,7 +144,7 @@ pragma(Pragma.AllowUnsafe);
 { get_func_type, is_fn_ctfe_clone, is_closure_fn, is_io_async_sm_closure } :: import("../function_value.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../types/compatibility.yo");
 { type_to_string, type_to_string_for_message } :: import("../types/string.yo");
-{ type_is_bitwise_copy, type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_holds_counted_handle, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow, is_bound_closure_identity, is_closure_capture_struct, resolve_cell_chain, is_future_value_type, is_bare_callable_into_dyn_fn, type_holds_dyn_by_value, dyn_type_lists_clone, fn_trait_call_func_type, type_carries_origin, type_reaches_user_drop, note_origin_types_exist, type_is_typed_fnmut_closure, capture_struct_is_fnmut, future_unreturnable_borrow, future_origin_names, get_all_some_types } :: import("../types/utils.yo");
+{ type_is_bitwise_copy, type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_holds_counted_handle, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow, is_bound_closure_identity, is_closure_capture_struct, resolve_cell_chain, is_future_value_type, is_bare_callable_into_dyn_fn, type_holds_dyn_by_value, dyn_type_lists_clone, fn_trait_call_func_type, type_carries_origin, type_reaches_user_drop, type_nominal_drop_uses_roots, note_origin_types_exist, type_is_typed_fnmut_closure, capture_struct_is_fnmut, future_unreturnable_borrow, future_origin_names, get_all_some_types } :: import("../types/utils.yo");
 { expr_info_table_set, is_mut_global, is_thread_local, migrate_deref_on, audit_deref_on, record_deref_site, record_deref_edit_site, note_reference_read_copied, lookup_macro_expansion, is_reference_self_place } :: import("../expr_info.yo");
 { is_global_mut_rule_exempt, is_deref_rule_exempt } :: import("./memory_safety.yo");
 // `set_expr_as_needs_to_call_dup` builds + evaluates a `___dup(name)` call.
@@ -9253,13 +9253,42 @@ _lb_typed_decl_binder :: (fn(lhs : &AstExpr) -> AstExpr)(
   )
 );
 /// Does the code from `e` down to the node holding `t` run on every path
-/// through `e`? Not through a branch, a short-circuit operand, a loop or a
+/// through `e`? Not through a branch arm, a short-circuit operand, a loop or a
 /// closure body: a move at `t` there is a possible move only.
 _lb_straight_path :: (fn(e : &AstExpr, t : &Token) -> bool)(
   match(
     e,
     .Atom(_, _) => true,
     .FnCall(_, callee, Rc(args), _, _) => {
+      // A `match` scrutinee and a `cond`'s first condition run on every path.
+      if(ast_expr_is_fn_call_of(e, BK_MATCH, Option(usize).None), {
+        match(
+          args.get(usize(0)),
+          .Some(scr) => if(_span_holds(&scr, t), {
+            return(recur(&scr, t));
+          }),
+          .None => ()
+        );
+      });
+      if(ast_expr_is_fn_call_of(e, BK_COND, Option(usize).None), {
+        match(
+          args.get(usize(0)),
+          .Some(arm) => if(ast_expr_is_fn_call_of(&arm, "=>", Option(usize).Some(usize(2))), {
+            match(
+              arm,
+              .FnCall(_, _, Rc(arm_args), _, _) => match(
+                arm_args.get(usize(0)),
+                .Some(c0) => if(_span_holds(&c0, t), {
+                  return(recur(&c0, t));
+                }),
+                .None => ()
+              ),
+              .Atom(_, _) => ()
+            );
+          }),
+          .None => ()
+        );
+      });
       if(ast_expr_is_fn_call_of(e, BK_COND, Option(usize).None) || ast_expr_is_fn_call_of(e, BK_MATCH, Option(usize).None) || ast_expr_is_fn_call_of(e, BK_WHILE, Option(usize).None) || ast_expr_is_fn_call_of(e, "&&", Option(usize).None) || ast_expr_is_fn_call_of(e, "||", Option(usize).None) || _lb_is_arrow_literal(e) || _lb_is_arrow_literal(&callee), {
         return(false);
       });
@@ -10431,6 +10460,238 @@ _origin_of_holder_origin :: (fn(variable : &Variable) -> TypeValue)({
     true => vt
   )
 });
+/// The path of the place `e` names, root first: its name, then each `.f` step
+/// and `.*`. `.None` for any other shape (an index, a call).
+_place_path_segments :: (fn(e0 : &AstExpr) -> Option(ArrayList(String)))({
+  rev := ArrayList(String).new();
+  (e : AstExpr) = ast_expr_strip_borrow_marker(e0);
+  while(true, {
+    e = ast_rewritten_node(&e);
+    match(
+      e,
+      .Atom(_, atom_tok) => {
+        rev.push(atom_tok.value.*.clone());
+        out := ArrayList(String).new();
+        (ri : usize) = rev.len();
+        while(ri > usize(0), {
+          ri = (ri - usize(1));
+          match(rev.get_cloned(ri), .Some(x) => out.push(x), .None => ());
+        });
+        return(Option(ArrayList(String)).Some(out));
+      },
+      .FnCall(_, _, Rc(args), _, _) => if(ast_expr_is_fn_call_of(&e, BF_DOT, Option(usize).Some(usize(2))), {
+        fld := match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
+        if(!ast_expr_is_atom(&fld), {
+          return(Option(ArrayList(String)).None);
+        });
+        rev.push(ast_expr_token(&fld).value.*.clone());
+        e = match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+      }, {
+        return(Option(ArrayList(String)).None);
+      })
+    );
+  });
+  Option(ArrayList(String)).None
+});
+/// The operands of the lends (`&place`, `&mut place`) a result expression is
+/// built from: through `cond`/`match` arm values, a block's tail, and the
+/// arguments of a constructor or tuple (`.Some(&mut self.m.*.a)`).
+_result_lend_operands :: (fn(e : &AstExpr, ctx : &EvalContext, ctor_args : bool, addr_is_lend : bool, out : &mut ArrayList(AstExpr), depth : u32) -> unit)({
+  if(depth > u32(16), {
+    return(());
+  });
+  if(ast_expr_is_fn_call_of(e, BF_ADDRESS_OF, Option(usize).Some(usize(1))) || (addr_is_lend && ast_expr_is_fn_call_of(e, BF_ADDR_OF, Option(usize).Some(usize(1)))) || ast_expr_is_fn_call_of(e, BK_BORROW_MUT, Option(usize).Some(usize(1))), {
+    match(
+      e,
+      .FnCall(_, _, Rc(l_args), _, _) => match(l_args.get(usize(0)), .Some(a) => out.push(a), .None => ()),
+      .Atom(_, _) => ()
+    );
+    return(());
+  });
+  stripped := ast_expr_strip_borrow_marker(e);
+  // The evaluator peels a lend marker out of a call's argument list and
+  // records the place's reference type instead (T9's recorded form).
+  match(
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&stripped)),
+    .Some(lfi) => match(
+      expr_info_converted_runtime_type(&lfi),
+      .Some(Rc(.Reference(_, _, _))) => {
+        out.push(stripped.clone());
+        return(());
+      },
+      _ => ()
+    ),
+    .None => ()
+  );
+  match(
+    &stripped,
+    .FnCall(_, _, Rc(args), _, _) => {
+      is_branch := (ast_expr_is_fn_call_of(&stripped, BK_COND, Option(usize).None) || ast_expr_is_fn_call_of(&stripped, BK_MATCH, Option(usize).None));
+      if(is_branch, {
+        (ai : usize) = usize(0);
+        while(ai < args.len(), {
+          match(
+            args.get(ai),
+            .Some(arm) => if(ast_expr_is_fn_call_of(&arm, "=>", Option(usize).Some(usize(2))), {
+              match(
+                arm,
+                .FnCall(_, _, Rc(arm_args), _, _) => match(arm_args.get(usize(1)), .Some(v) => recur(&v, ctx, ctor_args, addr_is_lend, out, (depth + u32(1))), .None => ()),
+                .Atom(_, _) => ()
+              );
+            }),
+            .None => ()
+          );
+          ai = (ai + usize(1));
+        });
+      }, {
+        if(ast_expr_is_fn_call_of(&stripped, BK_BEGIN, Option(usize).None), {
+          match(args.last(), .Some(tail) => recur(&tail, ctx, ctor_args, addr_is_lend, out, (depth + u32(1))), .None => ());
+        }, {
+          // A constructor's or tuple's arguments hold what the result holds
+          // only when the result type carries origins.
+          if(ctor_args, {
+            (ci : usize) = usize(0);
+            while(ci < args.len(), {
+              match(args.get(ci), .Some(c) => recur(&_unlabeled_value(&c), ctx, ctor_args, addr_is_lend, out, (depth + u32(1))), .None => ());
+              ci = (ci + usize(1));
+            });
+          });
+        });
+      });
+    },
+    .Atom(_, _) => ()
+  );
+});
+/// VERDICTS-41 Q2 (Rust's E0713): a by-value parameter's end-of-body drop
+/// runs its `Drop` with `&mut self` while the result is still live, so the
+/// result may not borrow a place through the parameter's `&mut` field when
+/// some value prefix of the place path (the parameter itself, then each
+/// field step down to the field's holder) has a `Drop` that uses its roots
+/// (`nominal_drop_uses_roots`, D1). A `&` field is exempt: the destructor
+/// cannot write through it, and a shared reborrow is not invalidated.
+/// `segs` is the lent place's path (the root's name, then each `.f` step and
+/// `.*`), rooted at the parameter `rv`; `result_ty` is the result's type. E0911: the destructor is an access that conflicts
+/// with the live loan.
+_check_drop_param_yield :: (fn(rv : &Variable, segs : &ArrayList(String), e : &AstExpr, result_ty : &TypeValue, ctx : &EvalContext, exn : Exception) -> unit)({
+  if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
+    eprintln(`[n2b] drop-param ${rv.name} param=${rv.is_parameter().to_string()} ctonly=${rv.is_compile_time_only().to_string()} ref=${rv.is_ref().to_string()} imm=${rv.is_imm_borrow().to_string()} segs=${segs.len().to_string()} ty=${type_to_string(&variable_value_type(rv))}`);
+  });
+  if(!rv.is_parameter() || (rv.is_compile_time_only() || (rv.is_ref() || rv.is_imm_borrow())), {
+    return(());
+  });
+  if((segs.len() < usize(3)) || (segs(usize(0)) != rv.name), {
+    return(());
+  });
+  (cur : TypeValue) = variable_value_type(rv);
+  (drops : bool) = type_nominal_drop_uses_roots(&cur, &ctx.std_path);
+  (field_text : String) = rv.name.clone();
+  (si : usize) = usize(1);
+  while(si < segs.len(), {
+    seg := segs(si).clone();
+    // A `.*`, or a field step on a reference (an implicit deref).
+    if((seg == "*") || match(t_refine_inner(&cur), Rc(.Reference(_, _, _)) => true, _ => false), {
+      // The step through the reference field just taken.
+      match(
+        t_refine_inner(&cur),
+        Rc(.Reference({ mutable : ref_mut })) => if(ref_mut && drops, {
+          holder_ty := type_to_string(&variable_value_type(rv));
+          slot_ty := type_to_string(result_ty);
+          into := cond(
+            t_slot_is_borrow(result_ty) => "a reference",
+            true => "a value holding a reference"
+          );
+          raise_flow_violation(
+            with_code(
+              format_error_message_with_help(
+                ast_expr_token(e),
+                `Cannot return ${into} into \`*${field_text}\` from the by-value parameter \`${rv.name}\`: \`${holder_ty}\` has a \`Drop\` impl, and its destructor runs at the end of this body with \`&mut ${rv.name}\` while the returned \`${slot_ty}\` is still in use by the caller (Rust's E0713: a borrow may still be in use when the destructor runs).`,
+                Option(String).Some(`take \`${rv.name} : &mut Self\` so the holder outlives the call; or return what the field holds rather than a place under it (a \`&\` field copies out as \`${rv.name}.field\`; a \`&mut\` field cannot be moved out of a value with a \`Drop\` impl); or drop the \`Drop\` impl — a holder without one is accepted: its storage ends and nothing runs`)
+              ),
+              E_LOCAL_BORROW_CONFLICT
+            ),
+            ctx,
+            exn
+          );
+        }),
+        _ => ()
+      );
+      return(());
+    });
+    // A field step on a value aggregate.
+    next := match(
+      t_refine_inner(&cur),
+      Rc(.Struct({ field_labels : fl, field_types : ft, is_reference_semantics : r, is_source_namespace : sns })) => if(r || sns, Option(TypeValue).None, {
+        (found : Option(TypeValue)) = .None;
+        (fi : usize) = usize(0);
+        while((fi < fl.items.len()) && found.is_none(), {
+          if(fl.items(fi) == seg, {
+            found = ft.get(fi);
+          });
+          fi = (fi + usize(1));
+        });
+        found
+      }),
+      _ => Option(TypeValue).None
+    );
+    match(
+      next,
+      .Some(nt) => {
+        cur = nt;
+        field_text.push_str(".");
+        field_text.push_string(&seg);
+        if(type_nominal_drop_uses_roots(&cur, &ctx.std_path), {
+          drops = true;
+        });
+      },
+      .None => {
+        return(());
+      }
+    );
+    si = (si + usize(1));
+  });
+});
+/// VERDICTS-41 Q2, called by `return_check` on every result: a place lent
+/// through a by-value parameter's `&mut` field has no origin root of its own
+/// (the field's origin is the caller's), and a projection result's type
+/// carries no origin, so the lends the result is built from are judged by
+/// path.
+_return_check_drop_param :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
+  stripped := ast_expr_strip_borrow_marker(e);
+  match(
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&stripped)),
+    .Some(ri) => {
+      carries := type_carries_origin(&ri.ty());
+      drop_res_ty := match(
+        &ctx.is_evaluating_function_body_or_async_block,
+        .Some(dr_fb) => match(dr_fb.kind, .FunctionBody => match(&dr_fb.func_type, .Some(dr_t) => fn_result_slot(&Rc.clone(dr_t)), .None => ri.ty()), _ => ri.ty()),
+        .None => ri.ty()
+      );
+      lends := ArrayList(AstExpr).new();
+      _result_lend_operands(e, ctx, carries, t_slot_is_borrow(&drop_res_ty), &mut lends, u32(0));
+      if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
+        eprintln(`[n2b] drop-param lends=${lends.len().to_string()} of ${ast_expr_to_string(e)}`);
+      });
+      (li : usize) = usize(0);
+      while(li < lends.len(), {
+        match(
+          lends.get_cloned(li),
+          .Some(operand) => match(
+            _place_path_segments(&operand),
+            .Some(segs) => match(
+              get_variables_from_env(env, segs(usize(0)).clone()).last_cloned(),
+              .Some(lv) => _check_drop_param_yield(&lv, &segs, e, &drop_res_ty, ctx, exn),
+              .None => ()
+            ),
+            .None => ()
+          ),
+          .None => ()
+        );
+        li = (li + usize(1));
+      });
+    },
+    .None => ()
+  );
+});
 /// O-2's `return_check` (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §3,
 /// N2b's return rule over composite results, decision 43 O3): an origin in
 /// a result may name origin parameters or reference-typed parameters'
@@ -10534,6 +10795,7 @@ return_check :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, exn : 
     }),
     .None => ()
   );
+  _return_check_drop_param(e, env, ctx, exn);
 });
 export(FutureRoot, note_future_roots, future_roots_of);
 /// Record that the pattern binding `var_id` binds a reference payload of

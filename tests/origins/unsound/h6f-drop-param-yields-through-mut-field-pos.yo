@@ -1,0 +1,14 @@
+// expect: accept
+// h6f's positive twin: a holder without a `Drop` impl yields the same place: its storage ends and nothing runs.
+{ println } :: import("std/fmt");
+Slots :: struct(b : Box(i32));
+Entry :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(m : &mut(Slots, p)));
+impl(generic(p : Origin), Entry(p), take : (fn(self : Self) -> &mut(i32, p))(&mut self.m.*.b.*));
+main :: (fn() -> unit)({
+  mut(s) := Slots(b : Box.new(i32(7)));
+  e := Entry(s)(m : &mut s);
+  r := e.take();
+  r.* = i32(1);
+  println("end of main");
+});
+export(main);

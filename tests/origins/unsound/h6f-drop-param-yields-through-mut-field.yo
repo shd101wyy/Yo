@@ -1,0 +1,23 @@
+// expect: E0911
+// H6's sibling (VERDICTS-41 Q2, Rust's E0713): a by-value holder with a user `Drop` yields a place through its `&mut` field; the destructor at the end of the consuming method frees the storage the result points into, and the caller then writes through it.
+{ println } :: import("std/fmt");
+Slots :: struct(b : Box(i32));
+Entry :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(m : &mut(Slots, p)));
+impl(
+  generic(p : Origin),
+  Entry(p),
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      self.m.b = Box.new(i32(0));
+    })
+  )
+);
+impl(generic(p : Origin), Entry(p), take : (fn(self : Self) -> &mut(i32, p))(&mut self.m.*.b.*));
+main :: (fn() -> unit)({
+  mut(s) := Slots(b : Box.new(i32(7)));
+  e := Entry(s)(m : &mut s);
+  r := e.take();
+  r.* = i32(1);
+  println("end of main");
+});
+export(main);

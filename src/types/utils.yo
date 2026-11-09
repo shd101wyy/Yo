@@ -858,6 +858,14 @@ type_reaches_user_drop :: (fn(ty : &TypeValue, std_path : &String) -> bool)(
     }
   )
 );
+/// D1's per-nominal answer for ONE type, without the walk into its fields
+/// (`type_reaches_user_drop` does that): the value nominal `ty` declares a
+/// `Drop` whose `drop` may read the places its origins name. The
+/// by-value-parameter destructor rule (`return_check`) asks it of each prefix
+/// of a place path.
+type_nominal_drop_uses_roots :: (fn(ty : &TypeValue, std_path : &String) -> bool)(
+  match(g_drop_uses_roots_fn, .Some(f) => f(ty, std_path), .None => false)
+);
 _any_reaches_user_drop :: (fn(ts : &SharedList(TypeValue), std_path : &String, seen : &mut ArrayList(String), depth : u32) -> bool)({
   (i : usize) = usize(0);
   while(i < ts.len(), i = (i + usize(1)), {
@@ -4088,7 +4096,7 @@ type_may_provide_slice_source :: (fn(ty : &TypeValue) -> bool)({
 export(enum_phantom_type_arg_somes, enum_phantom_type_args_masked);
 export(CaptureBorrow, register_capture_borrows, capture_struct_borrows, capture_borrows_exist, capture_borrow_place_string, collect_type_borrows, type_is_second_class, type_first_mut_borrow, type_pointee_second_class);
 export(future_origin_names, note_future_origins_exist, note_unreturnable_future, future_unreturnable_borrow);
-export(type_carries_origin, type_reaches_user_drop, DropUsesRootsFn, set_drop_uses_roots_fn, type_is_escapable, type_is_sized, unsized_by_value_error, escapable_bound_error, note_origin_types_exist, origin_value_phase_message, reject_origin_carrying_signature, no_origin_position_error, origin_beyond_n2b, origin_beyond_n2b_message);
+export(type_carries_origin, type_reaches_user_drop, type_nominal_drop_uses_roots, DropUsesRootsFn, set_drop_uses_roots_fn, type_is_escapable, type_is_sized, unsized_by_value_error, escapable_bound_error, note_origin_types_exist, origin_value_phase_message, reject_origin_carrying_signature, no_origin_position_error, origin_beyond_n2b, origin_beyond_n2b_message);
 export(set_target_pointer_size);
 export(is_drop_trait_name, is_drop_method_name, is_destructor_trait_member, is_clone_trait_type, dyn_type_lists_clone, type_holds_dyn_by_value);
 export(get_target_pointer_size_bits);

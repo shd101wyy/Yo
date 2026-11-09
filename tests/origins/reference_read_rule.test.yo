@@ -503,3 +503,19 @@ comptime_expect_error(
   }),
   "Cannot return the local borrow `v`"
 );
+
+// The move can sit in a `match` scrutinee or a `cond`'s first condition: both
+// run on every path, so the holder is dead after the statement
+// (issues/fixed/2026-11-09-a-drop-holder-moved-in-a-match-scrutinee-stays-live-to-its-scope-end.md).
+impl(generic(p : Origin), RrEntry(p), rr_peek : (fn(self : Self) -> Option(i32))(.None));
+test("a user-Drop holder moved in a match scrutinee frees its root after the match", {
+  mut(s) := RrSlots(a : i32(0), b : i32(0));
+  e := RrEntry(s)(m : &mut s);
+  match(
+    e.rr_peek(),
+    .Some(_) => (),
+    .None => ()
+  );
+  s.b = i32(9);
+  assert(s.a == i32(-1) && (s.b == i32(9)), "dropped inside the call; the root is writable after the match");
+});

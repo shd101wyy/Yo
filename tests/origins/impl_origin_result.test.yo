@@ -98,3 +98,65 @@ comptime_expect_error(
   impl(generic(p : Origin), IoPlain, io_get : (fn(self : &Self) -> &(i32, p))(&self.v)),
   "no parameter's type names it"
 );
+// VERDICTS-41 Q2 (Rust's E0713): a by-value parameter's end-of-body drop runs
+// its `Drop` with `&mut self` while the result is live, so the result may not
+// borrow a place through the parameter's `&mut` field when a value prefix of
+// the place path has a `Drop` that uses its roots. A `&` field is exempt, and
+// so is a holder without a `Drop` on the path
+// (issues/fixed/2026-11-08-a-drop-holder-yields-a-place-through-its-reference-field.md).
+DpSlots :: struct(a : i32, b : i32);
+DpEntry :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(m : &mut(DpSlots, p)));
+impl(
+  generic(p : Origin),
+  DpEntry(p),
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      self.m.a = i32(-1);
+    })
+  )
+);
+comptime_expect_error(
+  impl(generic(p : Origin), DpEntry(p), dp_take_ref : (fn(self : Self) -> &mut(i32, p))(&mut self.m.*.a)),
+  "its destructor runs at the end of this body with `&mut self` while the returned `&mut(i32, p)` is still in use by the caller"
+);
+comptime_expect_error(
+  impl(generic(p : Origin), DpEntry(p), dp_take_payload : (fn(self : Self) -> Option(&mut(i32, p)))(.Some(&mut self.m.*.a))),
+  "Cannot return a value holding a reference into `*self.m` from the by-value parameter `self`"
+);
+comptime_expect_error(
+  impl(generic(p : Origin), DpEntry(p), dp_take_shared : (fn(self : Self) -> &(i32, p))(&self.m.*.a)),
+  "Cannot return a reference into `*self.m` from the by-value parameter `self`"
+);
+// The `Drop` is on a prefix of the path, not on the holder itself.
+DpOuter :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(e : DpEntry(p)));
+comptime_expect_error(
+  impl(generic(p : Origin), DpOuter(p), dp_take_nested : (fn(self : Self) -> &mut(i32, p))(&mut self.e.m.*.a)),
+  "from the by-value parameter `self`"
+);
+// A holder without a `Drop` impl: its storage ends and nothing runs.
+DpPlain :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(m : &mut(DpSlots, p)));
+impl(generic(p : Origin), DpPlain(p), dp_plain_take : (fn(self : Self) -> &mut(i32, p))(&mut self.m.*.a));
+// A `Drop` holder of a SHARED reference: the destructor cannot write through it.
+DpShared :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(r : &(DpSlots, p)));
+impl(generic(p : Origin), DpShared(p), Drop(drop : (fn(self : &mut Self) -> unit)({
+  _ := self.r.a;
+})));
+impl(generic(p : Origin), DpShared(p), dp_shared_take : (fn(self : Self) -> &(i32, p))(&self.r.*.a));
+// A `Drop` field the path does not go through.
+DpGuard :: struct(n : i32);
+impl(DpGuard, Drop(drop : (fn(self : &mut Self) -> unit)(())));
+DpGuarded :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(m : &mut(DpSlots, p), g : DpGuard));
+impl(generic(p : Origin), DpGuarded(p), dp_guarded_take : (fn(self : Self) -> &mut(i32, p))(&mut self.m.*.a));
+test("a by-value parameter's place is yielded when no Drop on its path runs", {
+  mut(s) := DpSlots(a : i32(0), b : i32(0));
+  r := DpPlain(s)(m : &mut s).dp_plain_take();
+  r.* = i32(5);
+  assert(s.a == i32(5), "no Drop: the write through the result lands");
+  t := DpSlots(a : i32(2), b : i32(3));
+  q := DpShared(t)(r : &t).dp_shared_take();
+  assert(q.* == i32(2), "a shared field: the reborrow is not invalidated");
+  mut(u) := DpSlots(a : i32(0), b : i32(0));
+  w := DpGuarded(u)(m : &mut u, g : DpGuard(n : i32(1))).dp_guarded_take();
+  w.* = i32(7);
+  assert(u.a == i32(7), "the guard is not on the path");
+});
