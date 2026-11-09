@@ -8187,6 +8187,15 @@ _future_value_roots_into :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalCon
     true => ()
   );
 });
+/// `e` is a subscript place `xs(i)`: a prefix call whose dispatch recorded the
+/// `Index` method (`projection_call_mode_of` excludes it on purpose).
+_is_subscript_place :: (fn(e : &AstExpr, ctx : &EvalContext) -> bool)(
+  match(
+    e,
+    .FnCall(_, _, _, sp_infix, _) => (!sp_infix && !ast_expr_is_fn_call_of(e, BF_DOT, Option(usize).Some(usize(2))) && match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(e)), .Some(si) => expr_info_index_trait_ptr_type(&si).is_some(), .None => false)),
+    .Atom(_, _) => false
+  )
+);
 /// The type of a LEND `&place` / `&mut place` into a reference slot of a
 /// composite (decision 43 step 3, T9: a struct constructor's reference
 /// field, a tuple literal's element): `&T` / `&mut T` over the place's type
@@ -8202,15 +8211,23 @@ _future_value_roots_into :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalCon
 lend_place_reference_type :: (fn(place : &AstExpr, place_info : &ExprInfo, is_mut : bool, ctx : &EvalContext) -> Option(TypeValue))({
   (cur : AstExpr) = place.clone();
   (is_raw : bool) = false;
-  while(!is_raw && ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))), {
-    base := match(
-      cur,
-      .FnCall(_, _, b_args, _, _) => match(b_args.get(usize(0)), .Some(b) => b, .None => make_err_expr()),
-      .Atom(_, _) => make_err_expr()
-    );
-    is_star := match(&cur, .FnCall(_, _, s_args, _, _) => match(s_args.get(usize(1)), .Some(l) => ast_expr_is_atom_of(&l, "*"), .None => false), .Atom(_, _) => false);
-    is_raw = (is_star && match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&base)), .Some(bi) => is_pointer_type(&bi.ty()), .None => false));
-    cur = base;
+  // A SUBSCRIPT place (`xs(i)`, a call whose dispatch recorded the `Index`
+  // method) is lent like the place it indexes: its root is the callee's.
+  // The `&` marker's operand reaches the slot as the place's own type
+  // otherwise (issues/fixed/2026-11-08-a-subscript-place-cannot-fill-a-reference-payload.md).
+  while(!is_raw && (ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))) || _is_subscript_place(&cur, ctx)), {
+    if(_is_subscript_place(&cur, ctx), {
+      cur = match(&cur, .FnCall(_, sub_callee, _, _, _) => sub_callee.clone(), .Atom(_, _) => make_err_expr());
+    }, {
+      base := match(
+        cur,
+        .FnCall(_, _, b_args, _, _) => match(b_args.get(usize(0)), .Some(b) => b, .None => make_err_expr()),
+        .Atom(_, _) => make_err_expr()
+      );
+      is_star := match(&cur, .FnCall(_, _, s_args, _, _) => match(s_args.get(usize(1)), .Some(l) => ast_expr_is_atom_of(&l, "*"), .None => false), .Atom(_, _) => false);
+      is_raw = (is_star && match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&base)), .Some(bi) => is_pointer_type(&bi.ty()), .None => false));
+      cur = base;
+    });
   });
   cond(
     is_raw => {

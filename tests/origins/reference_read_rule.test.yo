@@ -207,6 +207,26 @@ test("Both operands of an operator can be derefs of reference-returning calls", 
   z := Rc.new(i32(8));
   assert(rr_rc_eq(&x, &y) && !rr_rc_eq(&x, &z), "the same through as_ref in a generic body");
 });
+// A subscript place lent into a reference payload: `.Some(&xs(i))`, also off
+// a `&` match binding, is the reference the lend names, as `xs.index(i)` is
+// (issues/fixed/2026-11-08-a-subscript-place-cannot-fill-a-reference-payload.md).
+RrSubV :: enum(Num(n : i32), Arr(items : ArrayList(i32)));
+rr_sub_get :: (fn(v : &RrSubV, i : usize) -> Option(&(i32, v)))(
+  match(
+    v,
+    .Arr(items) => Option(&(i32, v)).Some(&items(i)),
+    _ => Option(&(i32, v)).None
+  )
+);
+test("A lent subscript place fills a reference payload", {
+  mut(xs) := ArrayList(i32).new();
+  xs.push(i32(2));
+  xs.push(i32(3));
+  o := Option(&i32).Some(&xs(usize(1)));
+  assert(rr_payload(o) == i32(3), "`.Some(&xs(i))`");
+  v := RrSubV.Arr(items : xs.clone());
+  assert(rr_payload(rr_sub_get(&v, usize(0))) == i32(2), "off a `&` match binding");
+});
 // O-4 (D1, H6): a holder whose type reaches a user `Drop` is live to its
 // scope-end drop, not only to its last use: its `drop` may read the roots.
 RrDropG :: (fn(comptime(T) : Type) -> comptime(Type))(struct(t : T));
