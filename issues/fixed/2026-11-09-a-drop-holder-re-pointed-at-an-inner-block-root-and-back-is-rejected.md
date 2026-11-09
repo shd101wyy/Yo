@@ -32,3 +32,7 @@ At the store, compute the holder's live range per entry: the entry ends at the n
 ## Test that pins it
 
 The reproducer, moved under `tests/origins/` as a positive control (`// expect: accept` in `tests/origins/unsound/`, so it also runs clean under ASan) when the fix lands.
+
+## Fixed
+
+`_lb_join_root_end` (`src/evaluator/utils.yo`): at the `=` join, a root whose block ends before the holder's range does is live only to the next whole-holder assignment `holder = …` that is a statement of that root's own block (it drops the stored value there, while the root is alive). The §7 scope check and the entry's end use that point; the same-block declaration-order check applies only to a root whose range was not shortened. Tests: `tests/origins/reference_read_rule.test.yo` (the repro as a runtime test, `rr_drop_holder_inner_root_maybe_back` for the one-path negative), G-B `h6c-drop-holder-inner-root-back-pos`. Stacked on `fix/moved-drop-holder-liveness`.

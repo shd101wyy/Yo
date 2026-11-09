@@ -1,0 +1,27 @@
+// expect: accept
+// h6c's second positive twin: the holder is stored the inner root and re-pointed back at the outer one before the block ends, so its drop never reads the freed root.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+G :: (fn(comptime(T) : Type) -> comptime(Type))(struct(t : T));
+impl(
+  G(&Rc(X)),
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      n := self.t.*.*.s.len();
+      println(`G dropped, read len ${n.to_string()}`);
+    })
+  )
+);
+long :: (fn() -> Rc(X))(Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"))));
+main :: (fn() -> unit)({
+  x := long();
+  {
+    y := long();
+    mut(g) := G(&Rc(X))(t : &x);
+    g = G(&Rc(X))(t : &y);
+    g = G(&Rc(X))(t : &x);
+  };
+  println("end of main");
+});
+export(main);

@@ -9207,6 +9207,61 @@ lb_holder_moved :: (fn(variable : &Variable, tok : &Token) -> unit)({
     .None => ()
   );
 });
+/// O-4: where a store of `variable` at `at` into the root `root_name` stops
+/// being live when that root's block ends before `end` (the holder's
+/// scope-end drop): at a later whole-holder assignment `variable = …` that
+/// is a statement of the root's own block, since it drops the stored value
+/// there, while the root is still alive. `end` otherwise.
+_lb_join_root_end :: (fn(variable : &Variable, root_name : &String, end : &Token, at : &Token, env : &Environment) -> Token)(
+  match(
+    get_variables_from_env(env, root_name.clone()).last_cloned(),
+    .Some(root_v) => match(
+      _lb_binding_site_of(&root_v),
+      .Some(root_site) => {
+        if(!_lb_tok_after(end, &root_site.scope_end), {
+          return(end.clone());
+        });
+        frames := g_lb_lookaheads.with(_c_clone_lbl);
+        match(
+          _lb_lookahead_index_of(&frames, ast_expr_id(&root_site.stmt)),
+          .Some(fi) => match(
+            frames.get_cloned(fi),
+            .Some(frame) => {
+              (k : usize) = (frame.index + usize(1));
+              while(k < frame.stmts.len(), {
+                match(
+                  frame.stmts.get(k),
+                  .Some(st) => if(ast_expr_is_fn_call_of(&st, BK_ASSIGN, Option(usize).Some(usize(2))), {
+                    st_tok := ast_expr_token(&st);
+                    first := _first_token_of(&st, &st_tok);
+                    is_holder := match(
+                      st,
+                      .FnCall(_, _, Rc(sargs), _, _) => match(sargs.get(usize(0)), .Some(l) => (ast_expr_is_atom(&l) && (ast_expr_token(&l).value.* == variable.name)), .None => false),
+                      .Atom(_, _) => false
+                    );
+                    if(is_holder && (first.module_path == at.module_path) && (first.character > at.character), {
+                      stop := _last_token_of(&st, &st_tok);
+                      if(!_lb_tok_after(&stop, &root_site.scope_end), {
+                        return(stop);
+                      });
+                    });
+                  }),
+                  .None => ()
+                );
+                k = (k + usize(1));
+              });
+              end.clone()
+            },
+            .None => end.clone()
+          ),
+          .None => end.clone()
+        )
+      },
+      .None => end.clone()
+    ),
+    .None => end.clone()
+  )
+);
 /// Every entry the holder `name` (declared at `decl`) registered ends at
 /// `end`, when it ended later.
 _lb_shorten_holder_entries :: (fn(name : &String, decl : &Token, end : &Token) -> unit)({
@@ -10108,9 +10163,10 @@ bind_join_roots_for :: (fn(variable : &Variable, roots : &ArrayList(OriginRootPl
         match(
           get_variables_from_env(env, gr.place.root_name.clone()).last_cloned(),
           .Some(root_v) => {
+            root_live_to := _lb_join_root_end(variable, &gr.place.root_name, &range.end, at, env);
             match(
               _lb_binding_site_of(&root_v),
-              .Some(root_site) => if(_lb_tok_after(&range.end, &root_site.scope_end), {
+              .Some(root_site) => if(_lb_tok_after(&root_live_to, &root_site.scope_end), {
                 live_to := if(holder_drops, String.from("is live to its drop at the end of its own block (its type reaches a `Drop` that may read what it holds)"), String.from("is live to its last use"));
                 raise_flow_violation(
                   with_code(
@@ -10128,7 +10184,7 @@ bind_join_roots_for :: (fn(variable : &Variable, roots : &ArrayList(OriginRootPl
                 // O-4, the same block: bindings drop in reverse declaration
                 // order, so a root declared after the holder is dropped
                 // before the holder's `drop` runs and reads it.
-                if(holder_drops && _lb_tok_after(&root_v.token, &v_tok), {
+                if(holder_drops && _lb_tok_after(&root_v.token, &v_tok) && (root_live_to.character == range.end.character), {
                   raise_flow_violation(
                     with_code(
                       format_error_message_with_help(
@@ -10163,6 +10219,7 @@ bind_join_roots_for :: (fn(variable : &Variable, roots : &ArrayList(OriginRootPl
       .Some(root) => {
         places := ArrayList(LocalBorrowPlace).new();
         places.push(root.place.clone());
+        entry_end := _lb_join_root_end(variable, &root.place.root_name, &range.end, at, env);
         entry := LocalBorrowInfo(
           name : variable.name.clone(),
           decl : v_tok,
@@ -10171,7 +10228,7 @@ bind_join_roots_for :: (fn(variable : &Variable, roots : &ArrayList(OriginRootPl
           is_mut : root.is_mut,
           places : places,
           last_use : range.last_use,
-          end : range.end,
+          end : entry_end,
           parents : ArrayList(LocalBorrowInfo).new(),
           crosses_cell : root.place.through_cell,
           module_root : root.place.module_root,
