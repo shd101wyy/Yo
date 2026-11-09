@@ -3700,7 +3700,7 @@ test("Rc reference counting", {
 });
 ```
 
-### Mutating a Shared Payload: `RefCell`, `Rc.make_mut`, `Rc.try_unwrap`
+### Mutating a Shared Payload: `RefCell`, `Rc.get_mut`, `Rc.make_mut`, `Rc.try_unwrap`
 
 An `Rc`'s payload is shared, so it is **read-only through the handle**, as
 in Rust ([decision 46 of the values-by-default plan](../../plans/VALUES_BY_DEFAULT.md)).
@@ -3749,12 +3749,25 @@ A write through an `Rc` (`h.n = v`, `h.* = v`, `bump(&mut h.n)`,
 - **`Rc.try_unwrap(h)`** consumes the handle and returns `.Ok(payload)`
   when it was the only one (the cell is freed), else `.Err(h)`, the handle
   back. It needs no `Clone`.
-- `Rc.get_mut(&mut h)` (`.Some(&mut T)` only when the count is 1) follows
-  once `Option(&mut T)` is expressible (decision 43).
+- **`Rc.get_mut(&mut h)`** is `.Some(&mut T)`, a reference into the cell,
+  when no other `Rc` or `Weak` shares it, and `.None` otherwise; it never
+  clones, so it needs no `Clone`. Rust's `Rc::get_mut`.
+
+  ```yo
+  h := Rc.new(i32(1));
+  match(
+    Rc.get_mut(&mut h),
+    .Some(v) => {
+      v.* = i32(2);
+    },
+    .None => ()
+  );
+  assert(h.* == i32(2), "the only handle writes in place");
+  ```
 
 The doors are called through the type, as in Rust, so a payload method of
 the same name stays reachable as `h.name()`. `Arc` has the same
-`Arc.make_mut` and `Arc.try_unwrap` ([ARC.md](./ARC.md)).
+`Arc.get_mut`, `Arc.make_mut` and `Arc.try_unwrap` ([ARC.md](./ARC.md)).
 
 ### Weak: a Handle That Does Not Own
 

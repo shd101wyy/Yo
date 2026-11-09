@@ -1,0 +1,13 @@
+// issues/2026-11-08-a-projection-call-as-a-blocks-tail-binds-without-exprinfo.md
+// Expected: checks and runs. Actual (v0.2.76): "arg has no ExprInfo" at `z.*`.
+{ assert } :: import("std/assert");
+first :: (fn(p : &i32) -> &i32)(&p.*);
+main :: (fn() -> unit)({
+  x := i32(1);
+  z := {
+    w := i32(2);
+    first(&x)
+  };
+  assert(z.* == i32(1), "a projection result as a block's tail");
+});
+export(main);

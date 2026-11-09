@@ -2606,6 +2606,40 @@ test("Rc.make_mut on a shared handle clones the payload first", {
   Rc.make_mut(&mut b).x = i32(10);
   assert((a.x == i32(1)) && (b.x == i32(10)), "b is unique now: written in place");
 });
+test("Rc.get_mut on the only handle writes the payload in place", {
+  h := Rc.new(_DoorPoint(x : i32(1), label : String.from("a")));
+  before := addr_of(h.*);
+  match(
+    Rc.get_mut(&mut h),
+    .Some(p) => {
+      p.x = i32(2);
+      p.label.push_str("b");
+    },
+    .None => assert(false, "the only handle is unique")
+  );
+  assert(h.x == i32(2), "the write landed");
+  assert(h.label == "ab", "the receiver write landed");
+  assert(addr_of(h.*) == before, "no clone: the same cell");
+});
+test("Rc.get_mut on a shared handle is None and changes nothing", {
+  a := Rc.new(_DoorToken(tag : i32(3)));
+  b := Rc.clone(a);
+  assert(Rc.get_mut(&mut b).is_none(), "another Rc shares the cell");
+  assert(ref_count(a) == 2, "nothing moved or cloned");
+  w := Rc.downgrade(&a);
+  consume(b);
+  assert(Rc.get_mut(&mut a).is_none(), "a Weak shares the cell");
+  consume(w);
+  assert(Rc.get_mut(&mut a).is_some(), "unique once the Weak is gone");
+});
+test("Rc.get_mut's result borrows the handle exclusively", {
+  h := Rc.new(_DoorPoint(x : i32(1), label : String.from("a")));
+  comptime_expect_error({
+    r := &h;
+    _m := Rc.get_mut(&mut h);
+    _n := r.x;
+  });
+});
 test("Rc.make_mut needs a Clone payload, as Rust's does", {
   h := Rc.new(_DoorToken(tag : i32(0)));
   comptime_expect_error(Rc.make_mut(&mut h));

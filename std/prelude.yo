@@ -9855,6 +9855,37 @@ impl(
       },
       true => .Err(self)
     )
+  ),
+  /// The payload, written in place, when `self` is the only handle of
+  /// either kind to its cell: `.Some` of a `&mut` reference into the cell.
+  /// `.None` while another `Rc` or a `Weak` shares it, and nothing moves or
+  /// clones. Rust's `Rc::get_mut` (plans/VALUES_BY_DEFAULT.md decision 46's
+  /// door). The reference borrows `self` exclusively for as long as it
+  /// lives.
+  ///
+  /// ```yo
+  /// h := Rc.new(i32(1));
+  /// match(
+  ///   Rc.get_mut(&mut h),
+  ///   .Some(v) => {
+  ///     v.* = i32(2);
+  ///   },
+  ///   .None => ()
+  /// );
+  /// assert(h.* == i32(2), "the only handle writes in place");
+  /// ```
+  get_mut : (fn(self : &mut Self) -> Option(&mut T))({
+    // SAFETY: an `Rc` handle is the address of its live cell.
+    cell := unsafe(unsafe.cast(self, *T));
+    cond(
+      ((ref_count(self) == usize(1)) && (__yo_rc_weak_weak_count((*void)(cell)) == usize(0))) => .Some(Rc._payload_mut(self)),
+      true => .None
+    )
+  }),
+  /// The payload as a `&mut` place, for a caller that has proved `self`
+  /// unique (`get_mut`).
+  _payload_mut : (fn(self : &mut Self) -> &mut T)(
+    unsafe(addr_of(self._cell.*))
   )
 );
 impl(
@@ -10486,7 +10517,36 @@ impl(
       },
       true => .Err(self)
     )
-  })
+  }),
+  /// The payload, written in place, when `self` is the only handle of
+  /// either kind to its cell on any thread: `.Some` of a `&mut` reference
+  /// into the cell. `.None` while another `Arc` or an `ArcWeak` shares it,
+  /// and nothing moves or clones. Rust's `Arc::get_mut`.
+  ///
+  /// The uniqueness lock makes "no `ArcWeak`" stable while the strong count
+  /// is read, as `make_mut` takes it: after the unlock no other strong
+  /// handle can be made, because `self`, the only one, is lent exclusively
+  /// for as long as the result lives.
+  get_mut : (fn(self : &mut Self) -> Option(&mut T))({
+    // SAFETY: an `Arc` handle is the address of its live cell.
+    cell := (*void)(unsafe(unsafe.cast(self, *T)));
+    cond(
+      __yo_arc_lock_unique(cell) => {
+        unique := (__yo_arc_weak_count_raw(cell) == usize(0));
+        __yo_arc_unlock_unique(cell);
+        cond(
+          unique => .Some(Arc._payload_mut(self)),
+          true => .None
+        )
+      },
+      true => .None
+    )
+  }),
+  /// The payload as a `&mut` place, for a caller that has proved `self`
+  /// unique (`get_mut`).
+  _payload_mut : (fn(self : &mut Self) -> &mut T)(
+    unsafe(addr_of(self._cell.*))
+  )
 );
 impl(
   generic(T : Type),

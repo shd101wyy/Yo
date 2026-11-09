@@ -9922,7 +9922,9 @@ not an estimate.
          the sender count sits in its own `Rc(RefCell(usize))`, so its
          closures do not mention the binder.
      - Not built: `Rc.get_mut` and `RefCell.get()` (decision 43 step 2, as
-       step 1 recorded), so their two tests wait with them.
+       step 1 recorded), so their two tests wait with them. `Rc.get_mut` and
+       `Arc.get_mut` landed with G2's holders (VERDICTS-36 Q3; v0.2.77);
+       `RefCell`'s guard values replace `get()` (VERDICTS-36 Q2).
 3. ~~**Follow-up: the cycle collector's predicate** narrows to
    `RefCell`/`Mutex`/`RwLock`-reaching cells (§3.12), measured on the
    collector's own benchmarks.~~ Superseded by decision 48 (2026-10-21):

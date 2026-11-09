@@ -1,0 +1,12 @@
+// issues/2026-11-08-a-subscript-place-cannot-fill-a-reference-payload.md
+// Expected: checks. Actual (v0.2.76): E0601 "Expected: &i32, Given: i32" at `&xs(usize(0))`.
+{ ArrayList } :: import("std/collections/array_list");
+main :: (fn() -> unit)({
+  y := i32(1);
+  o := Option(&i32).Some(&y);
+  mut(xs) := ArrayList(i32).new();
+  xs.push(i32(2));
+  o2 := Option(&i32).Some(&xs(usize(0)));
+  ()
+});
+export(main);
