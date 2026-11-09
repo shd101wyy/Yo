@@ -34,10 +34,10 @@ a spelled `-> Option(&(T, p))`. The receiver must stay a root: it is a by-value 
 ## Fix
 
 `projection_call_root_args` reads a generic by-value result's origins off the call's SPECIALIZED result type
-(`_generic_call_result_origin_names`): `Option(A)` at `A := &(i32, xs)` spells `xs`, so only the parameters whose
-slots list `xs` are roots. The receiver (`self : RrCursor(xs)`, a by-value holder) stays one, and `pred : &mut F`
-is not, so the lent closure is no R-TEMP entry. Names that no parameter lists (a rigid origin of the callee that was
-not substituted) keep O2's union, so every reference parameter stays a root.
+(`_generic_call_result_origin_names`): `Option(A)` at `A := &(String, p)` spells the impl's origin parameter `p`.
+No parameter slot lists `p` (the specialization elided it), so #1846's rule applies: the arguments whose types carry
+an origin are the roots (the receiver, `self : FrCursor(xs)`, a by-value holder), and `pred : &mut F`, which carries
+none, is not, so the lent closure is no R-TEMP entry.
 
 ## Tests
 
