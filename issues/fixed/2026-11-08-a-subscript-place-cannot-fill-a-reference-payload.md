@@ -41,3 +41,22 @@ These are accepted:
 ## Test
 
 The fix adds the reproducer's two subscript spellings, and a subscript off a `&` match binding, to `tests/origins/reference_read_rule.test.yo`. It then moves this doc to `issues/fixed/`, and std's `JsonValue.get`/`TomlValue.get` can spell `values(i)` again.
+
+## Fixed
+
+**Root cause.** `lend_place_reference_type` (`evaluator/utils.yo`), which types
+the operand of a `&place` lend into a reference slot (a payload, field or tuple
+element) as `&T` and records the lend root, walked only `.` steps down to an
+identifier. A subscript place `xs(i)` is a call whose dispatch recorded the
+`Index` method, so the walk stopped at the call, returned `.None`, and the
+operand reached the slot as the place's own type: E0601 `Expected: &i32, Given:
+i32`.
+
+**Fix.** The walk also steps through a subscript place to its callee, so
+`&xs(i)` (also off a `&` match binding, `&items(i)`) is lent like the place it
+indexes, rooted at `xs`. The bare `.Some(xs(i))` stays rejected, as the bare
+`.Some(y)` of a value local is: a value place is not a reference without the
+`&` lend; `xs.index(i)` and `&xs(i)` are the two spellings.
+
+**Test.** `tests/origins/reference_read_rule.test.yo`: `.Some(&xs(i))` and a
+subscript off a `&` match binding.
