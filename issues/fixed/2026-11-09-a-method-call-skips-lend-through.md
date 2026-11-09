@@ -53,11 +53,12 @@ fits a `.`-access callee, so the function opts out of every method call: no
 step 1 fix from the receiver's type, no step 2 check of the other arguments, no
 step 3 flow write-back into a flow-inferred receiver.
 
-## Fix direction
+## Fix
 
-Read a method call's arguments as codegen passes them
+`lend_through` reads a method call's arguments as codegen passes them
 (`runtime_arg_exprs_in_order`, the receiver first) and its slots from the
 method's type (`projection_call_callee_type`), as `projection_call_root_args`
-already does for R-CALL. The corpus row's `today` column flips to E0923 with
-the fix, and the program moves into `tests/origins/unsound/` beside a positive
+already does for R-CALL; G-E's call-argument audit reads them the same way.
+The corpus row's `today` column is E0923, and the program is
+`tests/origins/unsound/method-store-widen-named-holder.yo` beside a positive
 twin.
