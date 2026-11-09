@@ -30,3 +30,17 @@ a root. O-5's R-TEMP then sees the closure literal, a temporary lent to `pred : 
 After specialization the result is `Option(&(i32, p))`. It spells `p`, which `pred`'s slot does not carry, so `pred`
 is no root. The root arguments should be read from the specialized result type, as P3's composite-origin rule does for
 a spelled `-> Option(&(T, p))`. The receiver must stay a root: it is a by-value holder carrying `p`.
+
+## Fix
+
+`projection_call_root_args` reads a generic by-value result's origins off the call's SPECIALIZED result type
+(`_generic_call_result_origin_names`): `Option(A)` at `A := &(i32, xs)` spells `xs`, so only the parameters whose
+slots list `xs` are roots. The receiver (`self : RrCursor(xs)`, a by-value holder) stays one, and `pred : &mut F`
+is not, so the lent closure is no R-TEMP entry. Names that no parameter lists (a rigid origin of the callee that was
+not substituted) keep O2's union, so every reference parameter stays a root.
+
+## Tests
+
+- `tests/ref_of_ref.test.yo`: "an adapter closure over a reference Item takes a &&T" binds `found`.
+- G-B: `tests/origins/unsound/find-result-root-cleared.yo` (E0911: `xs.clear()` while `found` lives) and its
+  positive twin `find-result-root-cleared-pos.yo`.
