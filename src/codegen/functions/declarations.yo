@@ -14,7 +14,7 @@
 { get_func_type, is_effect_record_member, is_closure_fn, is_io_async_sm_closure, is_fn_unemittable, fn_has_specializations, get_closure_capture_info } :: import("../../function_value.yo");
 { resolve_some_type_to_concrete } :: import("../exprs/closures.yo");
 { is_target_windows } :: import("../../target.yo");
-{ CodeGenContext, get_type_string, get_storage_type_string, sanitize_for_c_identifier, get_runtime_struct_fields, RuntimeStructField, is_function_value_with_only_builtin_yo_inline_function_call, find_returned_async_block, type_key, erased_future_result_type_string } :: import("../utils/index.yo");
+{ CodeGenContext, get_type_string, pointer_c_type_string, get_storage_type_string, sanitize_for_c_identifier, get_runtime_struct_fields, RuntimeStructField, is_function_value_with_only_builtin_yo_inline_function_call, find_returned_async_block, type_key, erased_future_result_type_string } :: import("../utils/index.yo");
 { replace } :: import("std/mem");
 /// One evidence parameter threaded into a function that uses effect-record
 /// evidence passing.
@@ -140,13 +140,7 @@ generate_function_prototype :: (
       return_type_str := match(
         override_return_type,
         .Some(s) => s.clone(),
-        .None => {
-          mut(base) := get_type_string(&result, context);
-          if(result_is_ref, {
-            base.push_str("*");
-          });
-          base
-        }
+        .None => if(result_is_ref, pointer_c_type_string(&result, context), get_type_string(&result, context))
       );
       mut(params) := String.from("");
       n := param_types.len();
@@ -188,11 +182,7 @@ generate_function_prototype :: (
             // parameter keeps `void*` — that is the pointer the call site hands
             // it as `((void*)0)`
             // (issues/fixed/inout-unit-receiver-void-ref-spill.md).
-            pts := if(is_ref, {
-              mut(p0) := get_type_string(&pt, context);
-              p0.push_str("*");
-              p0
-            }, get_storage_type_string(&pt, context));
+            pts := if(is_ref, pointer_c_type_string(&pt, context), get_storage_type_string(&pt, context));
             params.push_string(&pts);
             params.push_str(" ");
             params.push_string(pname.clone());
@@ -805,13 +795,7 @@ emitted_return_type_string :: (
               .Some(s) => s,
               .None => match(
                 ft,
-                Rc(.Func({ result : r_slot })) => {
-                  mut(base) := get_type_string(&t_slot_pointee(&r_slot), context);
-                  if(t_slot_is_borrow(&r_slot), {
-                    base.push_str("*");
-                  });
-                  base
-                },
+                Rc(.Func({ result : r_slot })) => if(t_slot_is_borrow(&r_slot), pointer_c_type_string(&t_slot_pointee(&r_slot), context), get_type_string(&t_slot_pointee(&r_slot), context)),
                 _ => String.new()
               )
             )

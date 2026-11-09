@@ -442,6 +442,12 @@ test("fmt D4: option-pointer cast groups the whole prefix chain", {
   assert(out.contains(String.from("sink((?*u8)(p));")), "?(*(u8))(p) renders as (?*u8)(p)");
   assert(_fmt(out.clone()) == out, "idempotent");
 });
+test("fmt: a prefix operator before a slice type is tight", {
+  src := String.from("f :: (fn(xs : & [i32], p : * [u8], q : ?* [u8]) -> unit)(());\n");
+  out := _fmt(src.clone());
+  assert(out.contains(String.from("xs : &[i32], p : *[u8], q : ?*[u8]")), "&[i32], *[u8] and ?*[u8] print tight");
+  assert(_fmt(out.clone()) == out, "idempotent");
+});
 test("fmt D4: every prefix operator, not just *", {
   src := String.from("main :: (fn() -> unit)({\n  sink((-(x))(y), (~(x))(y));\n});\nexport(main);\n");
   out := _fmt(src.clone());

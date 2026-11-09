@@ -30,17 +30,18 @@
 { HashMap } :: import("std/collections/hash_map");
 { fnv1a64, stable_id_module_path } :: import("../../utils.yo");
 { TokenKind } :: import("../../token.yo");
-{ TypeValue, TypeValueNode, get_struct_field_comptime_flags, no_labels, t_slot_pointee, t_slot_is_mut_ref, fn_param_slots, fn_result_pointee, fn_result_is_ref } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, get_struct_field_comptime_flags, no_labels, t_slot_pointee, t_slot_is_mut_ref, fn_param_slots, fn_result_pointee, fn_result_is_ref, t_refine_inner } :: import("../../types/definitions.yo");
 {
   is_reference_struct_type,
   is_pointer_type,
   is_struct_type,
   is_enum_type,
   can_optimize_as_nullable_pointer,
+  is_some_type,
   get_adopted_extern_c_type
 } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ fn_abi_param_is_ptr } :: import("../../types/utils.yo");
+{ fn_abi_param_is_ptr, type_is_sized } :: import("../../types/utils.yo");
 { resolve_enum_shell, resolve_struct_shell } :: import("../../types/creators.yo");
 { type_key } :: import("../../types/type_key.yo");
 { Environment, Variable, get_variables_from_env, variable_value_type } :: import("../../env.yo");
@@ -1686,6 +1687,57 @@ _gts_stack_contains :: (fn(sid : &String) -> bool)({
   });
   found
 });
+/// The concrete type a type variable resolves to, through a chain of
+/// variables (a specialization's `T` bound to the caller's `T`): `.None`
+/// while the chain ends in an unresolved variable.
+_some_resolution_chain :: (fn(t : &TypeValue) -> Option(TypeValue))({
+  (mut(cur) : TypeValue) = Rc.clone(t);
+  (mut(steps) : u32) = u32(0);
+  while(is_some_type(&cur) && (steps < u32(16)), steps = (steps + u32(1)), {
+    cur = match(some_resolution(&cur), .Some(r) => r, .None => return(.None));
+  });
+  if(is_some_type(&cur), Option(TypeValue).None, Option(TypeValue).Some(cur))
+});
+/// A pointee is unsized (decision 49): a pointer to it is fat.
+is_unsized_pointee :: (fn(pointee : &TypeValue) -> bool)(!type_is_sized(pointee));
+/// The C type of a pointer (`*T`, a `&T`/`&mut T` passed by pointer, an owning
+/// handle's cell pointer) to `pointee`: `T*` for a sized `T`; the fat
+/// `__yo_slice_t` (`{ void* ptr; size_t len; }`, its element type erased as
+/// `__yo_str`'s bytes are) for `[E]` and for a struct whose tail is one, the
+/// length being the tail's (plans/VALUES_BY_DEFAULT.md decision 49). Every
+/// site that spells a pointer to a value type goes through here.
+pointer_c_type_string :: (fn(pointee : &TypeValue, context : &mut CodeGenContext) -> String)(
+  match(
+    t_refine_inner(pointee),
+    Rc(.SliceT(_)) => String.from("__yo_slice_t"),
+    // A specialized type variable is its resolution (`r : &T` at `T = [E]`):
+    // fat when the resolution is unsized, `T*` (spelled through the variable,
+    // as `get_type_string` resolves it) otherwise.
+    (pc_v := Rc(.SomeT({ id : _ }))) => match(
+      _some_resolution_chain(&pc_v),
+      .Some(pc_r) => if(!type_is_sized(&pc_r), String.from("__yo_slice_t"), {
+        mut(rbase) := get_type_string(pointee, context);
+        rbase.push_str("*");
+        rbase
+      }),
+      .None => {
+        mut(vbase) := get_type_string(pointee, context);
+        vbase.push_str("*");
+        vbase
+      }
+    ),
+    Rc(.Struct({ id : _ })) => if(type_is_sized(pointee), {
+      mut(sbase) := get_type_string(pointee, context);
+      sbase.push_str("*");
+      sbase
+    }, String.from("__yo_slice_t")),
+    _ => {
+      mut(base) := get_type_string(pointee, context);
+      base.push_str("*");
+      base
+    }
+  )
+);
 get_type_string :: (fn(t : &TypeValue, context : &mut CodeGenContext) -> String)(
   match(
     t,
@@ -1756,14 +1808,7 @@ get_type_string :: (fn(t : &TypeValue, context : &mut CodeGenContext) -> String)
     ),
     // Function pointers use void* (resolved by the prototype generator).
     Rc(.Func({})) => String.from("void*"),
-    Rc(.Pointer(pointee)) => {
-      // In Yo a PtrType is a borrow `*(T)`. Object types are already pointers
-      // in C; for value types a borrow is a pointer to the value. Either way
-      // the C type is `<base>*`.
-      mut(base) := recur(&pointee, context);
-      base.push_str("*");
-      base
-    },
+    Rc(.Pointer(pointee)) => pointer_c_type_string(&pointee, context),
     // Concrete-length arrays lower to a generated struct wrapper so they are
     // returnable by value. (`length_var` non-empty = unresolved generic
     // length — falls through to the unknown fallback.)
@@ -1879,13 +1924,17 @@ get_type_string :: (fn(t : &TypeValue, context : &mut CodeGenContext) -> String)
     // `T*` exclusive — no dup, no drop, a copy copies the pointer. A
     // parameter slot still takes its pointee first (`t_slot_pointee`), so a
     // slot reaching here remains an internal error at its own call sites.
-    Rc(.Reference(ref_pointee, ref_mut, _)) => {
-      pt := get_type_string(&ref_pointee, context);
-      cond(
-        ref_mut => `${pt} *`,
-        true => `${pt} const *`
-      )
-    },
+    Rc(.Reference(ref_pointee, ref_mut, _)) => cond(
+      // A reference to an unsized pointee is the fat pointer (decision 49).
+      is_unsized_pointee(&ref_pointee) => pointer_c_type_string(&ref_pointee, context),
+      true => {
+        pt := get_type_string(&ref_pointee, context);
+        cond(
+          ref_mut => `${pt} *`,
+          true => `${pt} const *`
+        )
+      }
+    ),
     // Comptime-only / type-level types should not reach codegen.
     _ => {
       mut(fallback) := String.from("// Unknown type: ");
@@ -2534,21 +2583,18 @@ dyn_concrete_c_name :: (fn(t : &TypeValue, context : &CodeGenContext) -> Option(
 /// a projection (`-> &T`, decision 34), is `T*`; every other parameter its
 /// value type. Decision 43 step 2 (N1c): a `Dyn` call maps from the trait's
 /// signature, projections included.
-dyn_slot_param_abi_string :: (fn(ft : &TypeValue, i : usize, context : &mut CodeGenContext) -> String)({
-  pts := match(fn_param_slots(ft).get(i), .Some(s) => get_type_string(&t_slot_pointee(&s), context), .None => String.from("void*"));
-  if(match(fn_abi_param_is_ptr(ft).get(i), .Some(b) => b, .None => false), {
-    pts.push_str("*");
-  });
-  pts
-});
+dyn_slot_param_abi_string :: (fn(ft : &TypeValue, i : usize, context : &mut CodeGenContext) -> String)(
+  match(
+    fn_param_slots(ft).get(i),
+    .Some(s) => if(match(fn_abi_param_is_ptr(ft).get(i), .Some(b) => b, .None => false), pointer_c_type_string(&t_slot_pointee(&s), context), get_type_string(&t_slot_pointee(&s), context)),
+    .None => String.from("void*")
+  )
+);
 /// The C result type of the method type `ft` in a `Dyn` vtable slot or
 /// wrapper: a projection's (`-> &T`) is `T*`.
 dyn_slot_result_abi_string :: (fn(ft : &TypeValue, context : &mut CodeGenContext) -> String)({
-  rs := get_type_string(&match(ft, Rc(.FnTraitT({ call_result : dsr_cr })) => t_slot_pointee(&dsr_cr), _ => fn_result_pointee(ft)), context);
-  if(fn_result_is_ref(ft), {
-    rs.push_str("*");
-  });
-  rs
+  rp := match(ft, Rc(.FnTraitT({ call_result : dsr_cr })) => t_slot_pointee(&dsr_cr), _ => fn_result_pointee(ft));
+  if(fn_result_is_ref(ft), pointer_c_type_string(&rp, context), get_type_string(&rp, context))
 });
 /// The payload place of a unique `Box`, given the C code of its handle.
 /// `Box(T) :: newtype(_cell : *T)` is C-transparent, and bit 0 of the cell
@@ -2601,6 +2647,8 @@ export(
   type_key,
   get_type_string,
   box_payload_place_code,
+  pointer_c_type_string,
+  is_unsized_pointee,
   erased_future_result_type_string,
   get_storage_type_string,
   dyn_slot_param_abi_string,

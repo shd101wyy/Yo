@@ -44,7 +44,7 @@ pragma(Pragma.AllowUnsafe);
 (mut(g_future_origins_exist) : bool) = false;
 /// Capture-list borrow entries by capture-struct id (`register_capture_borrows`).
 (g_capture_borrows : RefCell(HashMap(String, ArrayList(CaptureBorrow)))) = RefCell(HashMap(String, ArrayList(CaptureBorrow))).new(HashMap(String, ArrayList(CaptureBorrow)).new());
-{ TypeValue, TypeValueNode, FuncMeta, no_labels, t_refine_inner, no_types, SharedList, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_borrow, fn_result_is_ref, t_origin_spelled_names, is_maybe_sized_kind } :: import("./definitions.yo");
+{ TypeValue, TypeValueNode, FuncMeta, no_labels, t_refine_inner, no_types, SharedList, t_slot_pointee, t_slot_is_mut_ref, t_slot_is_borrow, fn_result_is_ref, t_origin_spelled_names, is_maybe_sized_kind, is_static_origin } :: import("./definitions.yo");
 { type_intern_key } :: import("./intern.yo");
 { type_to_string, type_to_string_for_message } :: import("./string.yo");
 { type_value_tag, resolve_enum_shell, resolve_struct_shell, enum_phantom_positions } :: import("./creators.yo");
@@ -982,8 +982,9 @@ _carries_origin_inner :: (fn(ty : &TypeValue, seen : &mut ArrayList(String), dep
   });
   match(
     ty,
-    Rc(.Reference(_, _, _)) => true,
-    Rc(.OriginSet(_, _)) => true,
+    // A `static` reference borrows nothing: only its pointee can carry one.
+    Rc(.Reference(co_pointee, _, co_origin)) => (!is_static_origin(&co_origin) || _carries_origin_inner(&co_pointee, seen, depth + u32(1))),
+    Rc(.OriginSet(_, _)) => !is_static_origin(ty),
     Rc(.Pointer(inner)) => _carries_origin_inner(&inner, seen, depth + u32(1)),
     Rc(.SliceT(elem)) => _carries_origin_inner(&elem, seen, depth + u32(1)),
     Rc(.Array(element : elem)) => _carries_origin_inner(&elem, seen, depth + u32(1)),
@@ -4631,16 +4632,31 @@ _params_may_store_a_reference :: (fn(pts : &SharedList(TypeValue)) -> bool)({
 /// own included (VERDICTS-23 R2). Parameter `i` of `fn_ty` is such a
 /// pointer-passed shared borrow (`&mut T` parameters are pointers anyway,
 /// and a by-value parameter is never one).
+///
+/// A `&T` of an UNSIZED `T` (decision 49) is always pointer-passed: there
+/// is no value of `T` to copy, so the argument is the fat pointer itself.
+/// A pointer to `t` is fat (decision 49): `t` is unsized and concrete. A
+/// `?Sized` variable is decided per specialization, where it is bound; the
+/// generic definition's slot keeps the thin ABI its sized instances use.
+_pointee_is_fat :: (fn(t : &TypeValue) -> bool)(!type_is_sized(t) && !type_contains_some_type(t));
 fn_param_is_ptr_borrow :: (fn(fn_ty : &TypeValue, i : usize) -> bool)(
   match(
     fn_ty,
-    Rc(.Func({ param_types : pb_pts, result : pb_r })) => (
-      (_result_may_point_into_params(&pb_r) || _params_may_store_a_reference(&pb_pts)) && match(pb_pts.get(i), .Some(pb_s) => (t_slot_is_borrow(&pb_s) && !t_slot_is_mut_ref(&pb_s)), .None => false)
+    Rc(.Func({ param_types : pb_pts, result : pb_r })) => match(
+      pb_pts.get(i),
+      .Some(pb_s) => (
+        t_slot_is_borrow(&pb_s) && !t_slot_is_mut_ref(&pb_s) && (_pointee_is_fat(&t_slot_pointee(&pb_s)) || _result_may_point_into_params(&pb_r) || _params_may_store_a_reference(&pb_pts))
+      ),
+      .None => false
     ),
     // A closure trait returning a reference (`Fn(s : &T) -> &U`, decision
     // 43 step 2, N1c) has the projection's ABI too.
-    Rc(.FnTraitT({ call_param_types : pb_cpts, call_result : pb_cr })) => (
-      (_result_may_point_into_params(&pb_cr) || _params_may_store_a_reference(&pb_cpts)) && match(pb_cpts.get(i), .Some(pb_cs) => (t_slot_is_borrow(&pb_cs) && !t_slot_is_mut_ref(&pb_cs)), .None => false)
+    Rc(.FnTraitT({ call_param_types : pb_cpts, call_result : pb_cr })) => match(
+      pb_cpts.get(i),
+      .Some(pb_cs) => (
+        t_slot_is_borrow(&pb_cs) && !t_slot_is_mut_ref(&pb_cs) && (_pointee_is_fat(&t_slot_pointee(&pb_cs)) || _result_may_point_into_params(&pb_cr) || _params_may_store_a_reference(&pb_cpts))
+      ),
+      .None => false
     ),
     _ => false
   )

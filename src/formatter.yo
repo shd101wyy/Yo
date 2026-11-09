@@ -1958,11 +1958,12 @@ is_tightly_bound_operator :: (
           (p.kind == TokenKind.RBracket) || (p.kind == TokenKind.RCurlyBracket)
     )
   );
+  // A slice type `[T]` is an operand too (`&[i32]`, `*[u8]`; decision 49).
   next_starts_prefix_operand := match(
     next,
     .None => false,
     .Some(n) => (
-      is_atom_like_token(n.kind) || (
+      is_atom_like_token(n.kind) || (n.kind == TokenKind.LBracket) || (
         (n.kind == TokenKind.Operator) && (
           (n.value.* == "-") || (n.value.* == "!") || (n.value.* == "~") || (n.value.* == "&") || (n.value.* == "*") || (n.value.* == "?")
         )

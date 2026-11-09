@@ -46,7 +46,8 @@
   expr_info_set_macro_expansion,
   record_local_borrow_step_pin,
   note_self_lend_operand,
-  is_reference_self_place
+  is_reference_self_place,
+  expr_info_index_trait_ptr_type
 } :: import("../../expr_info.yo");
 {
   Environment,
@@ -132,6 +133,7 @@
   local_borrow_place_of_variable,
   local_borrow_info_placeholder,
   projection_call_mode_of,
+  ProjectionRootArg,
   projection_call_root_args,
   is_temporary_operand,
   projection_call_callee_type,
@@ -149,6 +151,10 @@
 // evaluate_initialization_assignment
 // ---------------------------------------------------------------------------
 /// Evaluate a `::` or `:=` initialization expression.
+/// `YO_AUDIT_ELIDED_ROOTS=1`: the Q2 census of elided-origin projection
+/// bindings (decision 43 step 2, N1c). Bound above every function whose
+/// body reaches `_bind_projection_result`.
+(_g_audit_elided_roots : bool) = debug_knob(`YO_AUDIT_ELIDED_ROOTS`).is_some();
 /// One hop of an `inout` place chain `root.f1.f2…fn`: the `.`/2 node and the
 /// field atom it selects.
 _InoutPlaceHop :: struct(node : AstExpr, field : AstExpr);
@@ -156,6 +162,15 @@ _InoutPlaceHop :: struct(node : AstExpr, field : AstExpr);
 /// the OUTERMOST (the full place) to the INNERMOST (the hop on the root).
 /// `.None` when the chain does not root at an atom (a call, an index, a
 /// literal, a nested rvalue).
+/// `e` is shaped like a subscript `xs(i)`: a one-argument prefix call whose
+/// callee is a name or a field path.
+_is_subscript_shape :: (fn(e : &AstExpr) -> bool)(
+  match(
+    e,
+    .FnCall(_, ss_callee, Rc(ss_args), ss_infix, _) => ((!ss_infix && (ss_args.len() == usize(1))) && (ast_expr_is_atom(&ss_callee) || ast_expr_is_fn_call_of(&ss_callee, BF_DOT, Option(usize).Some(usize(2))))),
+    .Atom(_, _) => false
+  )
+);
 _inout_place_chain :: (fn(place : &AstExpr, hops : &mut ArrayList(_InoutPlaceHop)) -> Option(AstExpr))({
   (cur : AstExpr) = place;
   (walking : bool) = true;
@@ -308,6 +323,21 @@ _evaluate_inout_local_binding :: (
         );
         exn.throw(dyn(format_error_messages(&sh_entries)));
       },
+      .None => ()
+    );
+  });
+  // `v := &xs(a..b)`: a range projection whose `Output` is unsized
+  // (plans/VALUES_BY_DEFAULT.md decision 49) is a zero-copy view of `xs`,
+  // bound as a projection call's result is, with `xs` its root. The
+  // `&mut` view waits for `IndexMut`'s unsized `Output` (S2).
+  if(!is_mut && _is_subscript_shape(rhs), {
+    sv_ev := evaluate_expression_raw(rhs, env, ctx, exn);
+    match(
+      expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&sv_ev)),
+      .Some(sv_info) => if(expr_info_index_trait_ptr_type(&sv_info).is_some() && !type_is_sized(&sv_info.ty()), {
+        env_adopt(env, &sv_info.env());
+        return(_bind_projection_result(expr, &name_expr, &sv_ev, is_compile_time_only, env, ctx, exn, .Some(ast_expr_id(lhs))));
+      }),
       .None => ()
     );
   });
@@ -658,9 +688,6 @@ _evaluate_inout_local_binding :: (
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &expr_info);
   expr
 });
-/// `YO_AUDIT_ELIDED_ROOTS=1`: the Q2 census of elided-origin projection
-/// bindings (decision 43 step 2, N1c).
-(_g_audit_elided_roots : bool) = debug_knob(`YO_AUDIT_ELIDED_ROOTS`).is_some();
 _join_labels :: (fn(xs : &ArrayList(String)) -> String)({
   out := String.new();
   (i : usize) = usize(0);
@@ -699,10 +726,14 @@ _bind_projection_result :: (
     is_compile_time_only : bool,
     env : &Environment,
     ctx : &EvalContext,
-    exn : Exception
+    exn : Exception,
+    // `v := &xs(a..b)`: the `&(v)` node, which keys the step pin; `rhs` is
+    // the evaluated range projection, a read-only view of `xs`.
+    (view_lhs_id : Option(usize)) ?= .None
   ) -> AstExpr
 )({
-  is_mut := match(projection_call_mode_of(rhs, ctx), .Some(m) => m, .None => false);
+  // `s := unsize(&a)` is a projection call too (decision 49).
+  is_mut := match(view_lhs_id, .Some(_) => false, .None => match(projection_call_mode_of(rhs, ctx), .Some(m) => m, .None => false));
   sig := if(is_mut, String.from("&mut "), String.from("&"));
   call_text := ast_expr_to_string(rhs);
   name_tok := ast_expr_token(name_expr);
@@ -748,7 +779,7 @@ _bind_projection_result :: (
   // borrowed a second time against the holder's own entry.
   held_places := ArrayList(bool).new();
   root_vars := ArrayList(Variable).new();
-  roots := projection_call_root_args(rhs, ctx);
+  roots := if(view_lhs_id.is_some(), _subscript_root_args(rhs), projection_call_root_args(rhs, ctx));
   root_labels := ArrayList(String).new();
   root_names := ArrayList(String).new();
   (ri : usize) = usize(0);
@@ -836,7 +867,7 @@ _bind_projection_result :: (
   if(range.has_repoint, {
     sp_name := generate_new_temp_variable_name(&env.module_path().*, usize(name_tok.row), usize(name_tok.column), .None, .Some(name_tok.module_path.*.clone()));
     step_pin = add_variable_to_env(env, &sp_name, t_unit(), Option(EvalValue).None, false, true, true, false, &name_tok);
-    match(&step_pin, .Some(spv) => record_local_borrow_step_pin(ast_expr_id(name_expr), &spv), .None => ());
+    match(&step_pin, .Some(spv) => record_local_borrow_step_pin(match(view_lhs_id, .Some(vid) => vid, .None => ast_expr_id(name_expr)), &spv), .None => ());
   });
   info := local_borrow_register(var_name.clone(), &name_tok, is_mut, &places(usize(0)), &range, &step_pin);
   // An elided result origin is the union of the reference parameters (O2):
@@ -865,6 +896,17 @@ _bind_projection_result :: (
   expr_info_set_is_compile_time_only_assignment(&expr_info, Option(bool).Some(false));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &expr_info);
   expr
+});
+/// The root of the range projection `xs(a..b)`: the collection `xs`, lent
+/// read-only.
+_subscript_root_args :: (fn(call : &AstExpr) -> ArrayList(ProjectionRootArg))({
+  out := ArrayList(ProjectionRootArg).new();
+  match(
+    call,
+    .FnCall(_, sr_callee, _, _, _) => out.push(ProjectionRootArg(arg : sr_callee.clone(), is_mut : false, label : String.from("self"), by_value : false)),
+    .Atom(_, _) => ()
+  );
+  out
 });
 /// `cur = &place` / `cur = &mut place`: re-point the local borrow `cur`
 /// to `place` (plans/VALUES_BY_DEFAULT.md decision 25, the cursor walk).
@@ -1442,6 +1484,16 @@ Bound type: ${type_to_string(&rhs_info.ty())}`
   if(ast_expr_is_atom(&actual_lhs) && !ctx.force_compile_time_bindings && projection_call_mode_of(&rhs, ctx).is_some(), {
     return(_bind_projection_result(expr, &actual_lhs, &rhs, is_const || (is_implicit || (is_comptime_wrapped || is_thread_local_decl)), &env, ctx, exn));
   });
+  // An unsized place bound by value (`v := xs(a..b)`, decision 49) has no
+  // size to copy or move into: E0619 here, before the copy and move checks
+  // judge a value that cannot exist.
+  match(
+    &rhs_info_opt,
+    .Some(us_rhs_info) => if(!type_is_sized(&us_rhs_info.ty()), {
+      exn.throw(dyn(unsized_by_value_error(&us_rhs_info.ty(), &`the local \`${ast_expr_to_string(&actual_lhs)}\``, &Option(String).None, ast_expr_token(&actual_lhs))));
+    }),
+    .None => ()
+  );
   // --------------------------------------------------------------------------
   // Branch: atom LHS vs destructuring LHS
   // --------------------------------------------------------------------------

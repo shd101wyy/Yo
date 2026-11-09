@@ -1073,6 +1073,10 @@ _origin_operand_is_type :: (fn(e : &AstExpr, env : &Environment, ctx : &mut Eval
   ev := evaluate_expression_raw(e, env, ctx, trial_exn);
   match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ev)), .Some(ti) => is_type_value(&ti.value()), .None => false)
 });
+/// `static`, the empty origin (decision 49): a reference that borrows no
+/// place, as a literal's `&(str, static)`. It adds no name to an origin set,
+/// and the set it leaves is `static` (`t_origin_static`).
+_is_static_origin_spelling :: (fn(e : &AstExpr) -> bool)(ast_expr_is_atom(e) && (ast_expr_text(e).* == "static"));
 /// Collect the origin names `e` spells into `out`: an origin parameter
 /// declared by the signature's `generic(o : Origin)`, or a union `(o1, o2)`
 /// of them (decision 43 step 2, N1a). In a PARAMETER type an origin names
@@ -1086,6 +1090,9 @@ _origin_names_into :: (fn(e : &AstExpr, env : &Environment, ctx : &mut EvalConte
       match(o_args.get(oi), .Some(oa) => _origin_names_into(&oa, env, ctx, out, exn), .None => ());
       oi = (oi + usize(1));
     });
+    return(());
+  });
+  if(_is_static_origin_spelling(e), {
     return(());
   });
   o_text := ast_expr_to_string(e);
@@ -1186,6 +1193,9 @@ _type_origin_names_into :: (fn(e : &AstExpr, env : &Environment, ctx : &mut Eval
       match(o_args.get(oi), .Some(oa) => _type_origin_names_into(&oa, env, ctx, out, exn), .None => ());
       oi = (oi + usize(1));
     });
+    return(());
+  });
+  if(_is_static_origin_spelling(e), {
     return(());
   });
   o_text := ast_place_text(e);
@@ -1415,6 +1425,9 @@ _result_origin_names_into :: (fn(e : &AstExpr, params : &FuncParamsResult, env :
       match(r_args.get(ri), .Some(ra) => _result_origin_names_into(&ra, params, env, out, exn), .None => ());
       ri = (ri + usize(1));
     });
+    return(());
+  });
+  if(_is_static_origin_spelling(e), {
     return(());
   });
   r_text := ast_expr_to_string(e);

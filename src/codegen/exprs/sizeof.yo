@@ -1,10 +1,14 @@
 //! `sizeof(...)` and `align_of(...)` emitters.
 { String } :: import("std/string");
-{ AstExpr } :: import("../../expr.yo");
+{ AstExpr, ast_expr_is_fn_call_of, ast_expr_is_atom, ast_expr_id, ast_expr_token, BF_SIZE_OF_VAL, BF_ALIGN_OF_VAL, BF_UNSIZE, BF_SLICE_LEN, BF_SLICE_PTR, BF_SLICE_FROM_RAW_PARTS, BK_BORROW_MUT } :: import("../../expr.yo");
+{ TypeValue, t_refine_inner } :: import("../../types/definitions.yo");
+{ t_unit } :: import("../../types/creators.yo");
+{ type_is_sized } :: import("../../types/utils.yo");
 { EvalValue } :: import("../../value.yo");
+{ ExprInfo, scope_variables } :: import("../../expr_info.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
-{ get_type_string } :: import("../utils/index.yo");
-{ _call_generate_expr } :: import("./_expr.yo");
+{ get_type_string, pointer_c_type_string, c_field_name } :: import("../utils/index.yo");
+{ _call_generate_expr, call_projection_mode } :: import("./_expr.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
 /// `sizeof(<arg>)` — the C sizeof operator on the argument.
 generate_sizeof :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)(
@@ -53,4 +57,172 @@ generate_alignof :: (fn(expr : &AstExpr, indent : &String, context : &mut Functi
   out.push_str(")");
   out
 });
-export(generate_sizeof, generate_alignof);
+/// The address `c` names: `X` for a `(*X)` dereference, `(&(c))` otherwise.
+_address_of_code :: (fn(c : &String) -> String)(
+  if(c.starts_with("(*") && c.ends_with(")"), c.substring(usize(2), c.len() - usize(1)), `(&(${c.clone()}))`)
+);
+/// The C pointer value of a decision-49 builtin's pointer argument: the place
+/// a written `&x`/`&mut x` lends, a reference's referent address (a fat
+/// `__yo_slice_t` for `[E]`), or a raw pointer as it is.
+_pointer_arg_code :: (fn(arg : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)(
+  cond(
+    (ast_expr_is_fn_call_of(arg, "&", Option(usize).Some(usize(1))) || ast_expr_is_fn_call_of(arg, BK_BORROW_MUT, Option(usize).Some(usize(1)))) => match(
+      arg,
+      .FnCall(_, _, Rc(ba), _, _) => match(ba.get(usize(0)), .Some(place) => _address_of_code(&_call_generate_expr(&place, indent, context)), .None => codegen_fatal_expr(String.from("a borrow needs a place"))),
+      .Atom(_, _) => codegen_fatal_expr(String.from("a borrow needs a place"))
+    ),
+    true => match(
+      context.base.get_expr_info(arg),
+      .Some(ai) => match(
+        t_refine_inner(&ai.ty()),
+        Rc(.Pointer(_)) => _call_generate_expr(arg, indent, context),
+        // A reference: a place `(*F)` strips back to its pointer `F`; a
+        // reference local's C is the pointer itself; a `&T` parameter the C
+        // ABI passes by value holds a copy of the referent, whose address
+        // stands for it (only a sized referent is passed that way).
+        _ => {
+          rc := _call_generate_expr(arg, indent, context);
+          cond(
+            (rc.starts_with("(*") && rc.ends_with(")")) => rc.substring(usize(2), rc.len() - usize(1)),
+            _arg_is_by_value_borrow(arg, &ai) => `(&(${rc}))`,
+            true => rc
+          )
+        }
+      ),
+      .None => codegen_fatal_expr(String.from("a pointer argument has no evaluation info"))
+    )
+  )
+);
+/// `arg` names a `&T` parameter bound by value (`is_imm_borrow`, not
+/// pointer-passed): its C is a copy of the referent. An unsized referent is
+/// never copied: a `?Sized` slot specialized at `[E]` holds the fat pointer.
+_arg_is_by_value_borrow :: (fn(arg : &AstExpr, ai : &ExprInfo) -> bool)(
+  (ast_expr_is_atom(arg) && type_is_sized(&ai.ty())) && match(
+    scope_variables(ast_expr_id(arg), &ai.env(), ast_expr_token(arg).value.*.clone()).last_cloned(),
+    .Some(v) => (v.is_imm_borrow() && !v.is_ref()),
+    .None => false
+  )
+);
+/// `arg` names a reference binding: a local bound to a reference
+/// (`y := &x`, a projection's or `unsize`'s result) or a `match` binding
+/// that borrows. Its evaluation info records the place's type.
+_arg_is_reference_binding :: (fn(arg : &AstExpr, context : &FunctionGenerationContext) -> bool)(
+  ast_expr_is_atom(arg) && match(
+    context.base.get_expr_info(arg),
+    .Some(ai) => match(
+      scope_variables(ast_expr_id(arg), &ai.env(), ast_expr_token(arg).value.*.clone()).last_cloned(),
+      .Some(v) => (v.is_ref() || (v.is_imm_borrow() || v.is_borrow_match_binding())),
+      .None => false
+    ),
+    .None => false
+  )
+);
+/// The pointee of a reference or raw pointer type.
+_measured_pointee :: (fn(t : &TypeValue) -> Option(TypeValue))(
+  match(
+    t_refine_inner(t),
+    Rc(.Reference(rp, _, _)) => Option(TypeValue).Some(Rc.clone(rp)),
+    Rc(.Pointer(pp)) => Option(TypeValue).Some(Rc.clone(pp)),
+    _ => Option(TypeValue).None
+  )
+);
+/// `sizeof(E)` for an element C type, 0 for an erased `unit` element.
+_c_elem_size :: (fn(et : &String) -> String)(if(et == "void", String.from("((size_t)0)"), `sizeof(${et.clone()})`));
+/// The static length of the fixed-size array a sized struct ends with
+/// (`unsize` over a pointer to it gives the tail-unsized struct).
+_tail_array_len :: (fn(st : &TypeValue) -> Option(String))(
+  match(
+    st,
+    Rc(.Struct({ field_types : ta_fts })) => match(
+      ta_fts.get(ta_fts.len() - usize(1)),
+      .Some(ta_tail) => match(t_refine_inner(&ta_tail), Rc(.Array(_, ta_n, _)) => Option(String).Some(ta_n.to_string()), Rc(.Struct({ id : _ })) => _tail_array_len(&ta_tail), _ => Option(String).None),
+      .None => Option(String).None
+    ),
+    _ => Option(String).None
+  )
+);
+/// `size_of_val` of a tail struct `st` whose fat pointer carries `len_code`
+/// (decision 49): the tail's offset plus the tail's own size, rounded up to
+/// the struct's alignment, as Rust lays out a dynamically sized struct.
+_tail_struct_size_code :: (fn(st : &TypeValue, len_code : &String, context : &mut FunctionGenerationContext) -> String)({
+  sct := get_type_string(st, &mut context.base);
+  (tail_label : String) = match(st, Rc(.Struct({ field_labels : tl })) => match(tl.get(tl.len() - usize(1)), .Some(l) => l, .None => String.new()), _ => String.new());
+  (tail_ty : TypeValue) = match(st, Rc(.Struct({ field_types : tf })) => match(tf.get(tf.len() - usize(1)), .Some(t) => t, .None => t_unit()), _ => t_unit());
+  if(tail_label.len() == usize(0), {
+    return(`sizeof(${sct})`);
+  });
+  tail_size := match(
+    t_refine_inner(&tail_ty),
+    Rc(.SliceT(ts_e)) => {
+      et := get_type_string(&ts_e, &mut context.base);
+      `(${len_code.clone()}) * ${_c_elem_size(&et)}`
+    },
+    _ => _tail_struct_size_code(&tail_ty, len_code, context)
+  );
+  `((offsetof(${sct}, ${c_field_name(st, &tail_label)}) + ${tail_size} + _Alignof(${sct}) - 1) / _Alignof(${sct}) * _Alignof(${sct}))`
+});
+/// The decision-49 builtins left for run time (a sized pointee folded to its
+/// constant in the evaluator): `size_of_val`/`align_of_val` of a `[E]` read
+/// the length the fat pointer carries; `unsize` builds the fat pointer from
+/// an array's address and its static length; the slice primitives read or
+/// build one. A `__yo_slice_t` erases its element type, so each use casts.
+generate_unsized_builtin :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
+  args := match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => return(codegen_fatal_expr(String.from("an unsized builtin needs a call"))));
+  arg0 := match(args.get(usize(0)), .Some(a) => a, .None => return(codegen_fatal_expr(String.from("an unsized builtin needs an argument"))));
+  ty0 := match(context.base.get_expr_info(&arg0), .Some(ai) => ai.ty(), .None => return(codegen_fatal_expr(String.from("an unsized builtin's argument has no evaluation info"))));
+  // A reference binding (`s := unsize(&a)`, a `match` binding over a
+  // reference) and a projection call (`unsize(&a)` itself) record their
+  // place's type; the reference points at it.
+  pointee := match(_measured_pointee(&ty0), .Some(p) => p, .None => if(_arg_is_reference_binding(&arg0, context) || call_projection_mode(&arg0, context).is_some(), Rc.clone(ty0), return(codegen_fatal_expr(String.from("an unsized builtin's argument is not a pointer")))));
+  cond(
+    (ast_expr_is_fn_call_of(expr, BF_SIZE_OF_VAL, .None) || ast_expr_is_fn_call_of(expr, BF_ALIGN_OF_VAL, .None)) => {
+      is_size := ast_expr_is_fn_call_of(expr, BF_SIZE_OF_VAL, .None);
+      match(
+        t_refine_inner(&pointee),
+        Rc(.SliceT(sv_e)) => {
+          et := get_type_string(&sv_e, &mut context.base);
+          if(is_size, `((${_pointer_arg_code(&arg0, indent, context)}).len * ${_c_elem_size(&et)})`, if(et == "void", String.from("((size_t)1)"), `_Alignof(${et})`))
+        },
+        Rc(.Struct({ id : _ })) => if(type_is_sized(&pointee), {
+          pt := get_type_string(&pointee, &mut context.base);
+          if(is_size, `sizeof(${pt})`, `_Alignof(${pt})`)
+        }, {
+          pt := get_type_string(&pointee, &mut context.base);
+          if(is_size, _tail_struct_size_code(&pointee, &`(${_pointer_arg_code(&arg0, indent, context)}).len`, context), `_Alignof(${pt})`)
+        }),
+        _ => {
+          pt := get_type_string(&pointee, &mut context.base);
+          if(is_size, `sizeof(${pt})`, `_Alignof(${pt})`)
+        }
+      )
+    },
+    // `unsize(p)`: the fat pointer over `p`'s address and the array's static
+    // length (a tail struct's tail array). A `&`/`&mut` result is a reference
+    // expression, whose code is the place `(*F)` every reader strips back to
+    // `F`; a `*` result is the pointer value.
+    ast_expr_is_fn_call_of(expr, BF_UNSIZE, .None) => {
+      us_len := match(t_refine_inner(&pointee), Rc(.Array(_, us_n, _)) => Option(String).Some(us_n.to_string()), Rc(.Struct({ id : _ })) => _tail_array_len(&pointee), _ => Option(String).None);
+      match(
+        us_len,
+        .Some(n) => {
+          fat := `((__yo_slice_t){ .ptr = (void*)(${_pointer_arg_code(&arg0, indent, context)}), .len = (size_t)${n} })`;
+          if(match(t_refine_inner(&ty0), Rc(.Pointer(_)) => true, _ => false), fat, `(*${fat})`)
+        },
+        .None => codegen_fatal_expr(String.from("unsize of a pointee without a fixed-size array tail reached codegen"))
+      )
+    },
+    ast_expr_is_fn_call_of(expr, BF_SLICE_LEN, .None) => `((${_pointer_arg_code(&arg0, indent, context)}).len)`,
+    ast_expr_is_fn_call_of(expr, BF_SLICE_PTR, .None) => match(
+      t_refine_inner(&pointee),
+      Rc(.SliceT(sp_e)) => `((${pointer_c_type_string(&sp_e, &mut context.base)})(${_pointer_arg_code(&arg0, indent, context)}).ptr)`,
+      _ => codegen_fatal_expr(String.from("__yo_slice_ptr of a non-slice reached codegen"))
+    ),
+    ast_expr_is_fn_call_of(expr, BF_SLICE_FROM_RAW_PARTS, .None) => match(
+      args.get(usize(1)),
+      .Some(arg1) => `((__yo_slice_t){ .ptr = (void*)(${_call_generate_expr(&arg0, indent, context)}), .len = (size_t)(${_call_generate_expr(&arg1, indent, context)}) })`,
+      .None => codegen_fatal_expr(String.from("__yo_slice_from_raw_parts needs two arguments"))
+    ),
+    true => codegen_fatal_expr(String.from("an unknown unsized builtin reached codegen"))
+  )
+});
+export(generate_sizeof, generate_alignof, generate_unsized_builtin);

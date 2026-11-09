@@ -498,6 +498,7 @@ _tts :: (fn(t : &TypeValue, _d : usize, visited : &mut ArrayList(String)) -> Str
       Rc(.SliceT(s_elem)) => `Slice(${recur(&s_elem, _d + usize(1), visited)})`,
       Rc(.OriginSet(o_places, o_elided)) => cond(
         o_elided => `origin(_)`,
+        (o_places.len() == usize(0)) => `static`,
         true => {
           o_body := String.from("");
           (oi : usize) = usize(0);

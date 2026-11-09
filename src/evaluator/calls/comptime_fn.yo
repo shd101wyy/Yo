@@ -20,7 +20,7 @@ pragma(Pragma.AllowUnsafe);
 { replace, swap } :: import("std/mem");
 { AstExpr, ast_expr_token, ast_expr_id, ast_expr_to_string, ast_expr_is_atom_of, make_err_expr, clone_expr_fresh_ids, next_global_expr_id } :: import("../../expr.yo");
 { register_type_display_name, register_type_display_origin_template, DISPLAY_ORIGIN_MARK } :: import("../../types/string.yo");
-{ ExprInfo, new_expr_info, expr_info_table_get, register_struct_ctor_fid, lookup_struct_ctor_fid, register_trait_ctor_fid, register_trait_type_args, ComptimeRef, expr_info_adopt_env, expr_info_comptime_ref, purge_executed_clone_metadata } :: import("../../expr_info.yo");
+{ ExprInfo, new_expr_info, expr_info_table_get, register_struct_ctor_fid, register_struct_ctor_value, lookup_struct_ctor_fid, register_trait_ctor_fid, register_trait_type_args, ComptimeRef, expr_info_adopt_env, expr_info_comptime_ref, purge_executed_clone_metadata } :: import("../../expr_info.yo");
 { Variable, Environment, snapshot_env } :: import("../../env.yo");
 { TypeValue, TypeValueNode, shared_list, no_types, no_type_lists, t_slot_pointee, SharedList } :: import("../../types/definitions.yo");
 { t_unit, t_some_t, stamp_enum_final_type_arguments, ctor_phantom_flags } :: import("../../types/creators.yo");
@@ -1509,6 +1509,7 @@ evaluate_comptime_fn_call :: (
         // Mirror the shared-object stamp for copies that predate this one
         // (self-recursive shells, memoized embedders) — see expr_info.yo.
         register_struct_ctor_fid(sid.clone(), func_id_str.clone());
+        register_struct_ctor_value(&func_id_str, function_value);
         stamped_name := if((sname.len() == usize(0)) && (ctfe_box_name.len() > usize(0)), ctfe_box_name.clone(), sname.clone());
         EvalValue.TypeVal(
           Rc.new(TypeValueNode.Struct(sid.clone(), stamped_name, Rc.clone(slabels), Rc.clone(stypes), sref, satomic, snt, func_id_str.clone(), inst_type_args.clone(), false))

@@ -145,7 +145,7 @@ pragma(Pragma.AllowUnsafe);
 { are_types_compatible, are_types_compatible_exact } :: import("../types/compatibility.yo");
 { type_to_string, type_to_string_for_message } :: import("../types/string.yo");
 { type_is_bitwise_copy, type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_holds_counted_handle, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow, is_bound_closure_identity, is_closure_capture_struct, resolve_cell_chain, is_future_value_type, is_bare_callable_into_dyn_fn, type_holds_dyn_by_value, dyn_type_lists_clone, fn_trait_call_func_type, type_carries_origin, type_reaches_user_drop, type_nominal_drop_uses_roots, note_origin_types_exist, type_is_typed_fnmut_closure, capture_struct_is_fnmut, future_unreturnable_borrow, future_origin_names, get_all_some_types } :: import("../types/utils.yo");
-{ expr_info_table_set, is_mut_global, is_thread_local, migrate_deref_on, audit_deref_on, record_deref_site, record_deref_edit_site, note_reference_read_copied, lookup_macro_expansion, is_reference_self_place } :: import("../expr_info.yo");
+{ expr_info_table_set, is_mut_global, is_thread_local, migrate_deref_on, audit_deref_on, record_deref_site, record_deref_edit_site, note_reference_read_copied, lookup_macro_expansion, is_reference_self_place, unsize_reference_mode } :: import("../expr_info.yo");
 { is_global_mut_rule_exempt, is_deref_rule_exempt } :: import("./memory_safety.yo");
 // `set_expr_as_needs_to_call_dup` builds + evaluates a `___dup(name)` call.
 // `parser.yo` is upstream (no cycle); `exprs/expr.yo` is the cycle-free
@@ -7950,6 +7950,8 @@ projection_call_mode_of :: (fn(e : &AstExpr, ctx : &EvalContext) -> Option(bool)
     e,
     .FnCall(_, _, _, pc_infix, _) => cond(
       pc_infix => Option(bool).None,
+      // `unsize(&a)` / `unsize(&mut a)` (decision 49) projects `a`'s place.
+      unsize_reference_mode(ast_expr_id(e)).is_some() => unsize_reference_mode(ast_expr_id(e)),
       match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(e)), .Some(ci) => expr_info_index_trait_ptr_type(&ci).is_some(), .None => true) => Option(bool).None,
       true => match(
         projection_call_callee_type(e, ctx),
@@ -8071,6 +8073,7 @@ _strip_lend :: (fn(e : &AstExpr) -> AstExpr)(
 /// other arguments unfrozen.
 
 projection_call_root_args :: (fn(call : &AstExpr, ctx : &EvalContext) -> ArrayList(ProjectionRootArg))({
+  match(unsize_reference_mode(ast_expr_id(call)), .Some(ur_mut) => return(unsize_root_args(call, ur_mut)), .None => ());
   out := ArrayList(ProjectionRootArg).new();
   meta_ty := match(projection_call_callee_type(call, ctx), .Some(t) => t, .None => return(out));
   (param_is_ref : SharedList(bool)) = no_flags();
@@ -8222,6 +8225,16 @@ _resolved_spelled_origins_in_list :: (fn(ts : &SharedList(TypeValue), out : &mut
     });
   });
   true
+});
+/// The root of `unsize(p)`'s reference result: `p`, its lend read through.
+unsize_root_args :: (fn(call : &AstExpr, is_mut : bool) -> ArrayList(ProjectionRootArg))({
+  out := ArrayList(ProjectionRootArg).new();
+  match(
+    call,
+    .FnCall(_, _, Rc(ur_args), _, _) => match(ur_args.get(usize(0)), .Some(a) => out.push(ProjectionRootArg(arg : _strip_lend(&a), is_mut : is_mut, label : String.from("p"), by_value : false)), .None => ()),
+    .Atom(_, _) => ()
+  );
+  out
 });
 /// The label of parameter `i` of the `Func` `ft` (empty past the end).
 _param_label_at :: (fn(ft : &TypeValue, i : usize) -> String)(
@@ -10937,7 +10950,7 @@ _origin_through_match_bindings :: (fn(roots : &ArrayList(OriginRootPlace), env :
   });
   out
 });
-export(projection_call_mode_of, projection_body_mismatch_message, ProjectionRootArg, is_temporary_operand, origin_temporary_entry, origin_temporary_root, ORIGIN_TEMPORARY_ROOT, projection_call_root_args, projection_call_callee_type, OriginRootPlace, origin_of, origin_held_by, origin_param_names_of, param_declared_origin_slot, is_body_parameter, place_write_join, rigid_param_slot, is_rigid_origin_name, origin_name_phrase, BorrowCaptureOuter, note_borrow_capture_outer, borrow_capture_outer, apply_capture_store_joins, holder_future_roots, bind, bind_join, bind_join_roots_for, return_check, note_ref_payload_source, ref_payload_source, note_ref_payload_held, note_borrow_match_source, borrow_match_source, n2b_roots_text);
+export(projection_call_mode_of, unsize_root_args, projection_body_mismatch_message, ProjectionRootArg, is_temporary_operand, origin_temporary_entry, origin_temporary_root, ORIGIN_TEMPORARY_ROOT, projection_call_root_args, projection_call_callee_type, OriginRootPlace, origin_of, origin_held_by, origin_param_names_of, param_declared_origin_slot, is_body_parameter, place_write_join, rigid_param_slot, is_rigid_origin_name, origin_name_phrase, BorrowCaptureOuter, note_borrow_capture_outer, borrow_capture_outer, apply_capture_store_joins, holder_future_roots, bind, bind_join, bind_join_roots_for, return_check, note_ref_payload_source, ref_payload_source, note_ref_payload_held, note_borrow_match_source, borrow_match_source, n2b_roots_text);
 export(drop_owned_match_binding_at_arm_end, match_scrutinee_is_capture, local_borrow_register_match_place, local_borrow_note_match_place, note_consuming_match_scrutinee, consuming_match_scrutinee_at, moved_value_help, _lb_arrow_shadows, _lb_fn_literal_binds, _lb_mentions);
 export(
   LocalBorrowPlace,

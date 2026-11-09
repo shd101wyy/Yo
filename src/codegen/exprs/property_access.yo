@@ -29,7 +29,7 @@
 { generate_comptime_value } :: import("./comptime_value.yo");
 { lookup_io_builtin_struct_field, expr_info_deferred_dup_expressions, is_call_scoped_share_dup } :: import("../../expr_info.yo");
 { emit_deferred_dup_or_code } :: import("./drop_dup.yo");
-{ dyn_type_has_vtable_slot } :: import("../../types/utils.yo");
+{ dyn_type_has_vtable_slot, type_is_sized } :: import("../../types/utils.yo");
 /// `e` carries a deferred dup that is the caller-owned share of a call
 /// (`mark_call_scoped_share_dup`): its emission is the dereferencing access's.
 _carries_call_scoped_share :: (fn(e : &AstExpr, context : &FunctionGenerationContext) -> bool)(
@@ -489,6 +489,16 @@ _generate_field_access_raw :: (fn(expr : &AstExpr, indent : &String, context : &
       }),
       _ => ()
     );
+  });
+  // A field of a tail struct's place (decision 49). An unsized place's code
+  // is `(*F)`, `F` its fat pointer: a sized field is read through the
+  // pointer's address, the tail is a place of its own whose fat pointer
+  // carries the same length.
+  if(is_struct_type(&object_type) && !is_reference_struct_type(&object_type) && !type_is_sized(&object_type) && object_code.starts_with("(*") && object_code.ends_with(")"), {
+    fat := object_code.substring(usize(2), object_code.len() - usize(1));
+    sct := get_type_string(&object_type, &mut context.base);
+    member := `((${sct}*)(${fat}).ptr)->${c_field_name(&object_type, &field_name)}`;
+    return(if(type_is_sized(&ei.ty()), member, `(*((__yo_slice_t){ .ptr = (void*)&(${member}), .len = (${fat}).len }))`));
   });
   // Value-shape field access, mutually exclusive branches.
   cond(
