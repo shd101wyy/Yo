@@ -1254,13 +1254,9 @@ test("a projection forwards a reference-returning callable's call", {
   o := i32(3);
   a := bs_fwd_v(x => &x.*, &o);
   assert(a.* == i32(3), "by value");
-  g := (fn(x : &i32) -> &i32)(&x.*);
-  b := bs_fwd_r(&g, &o);
-  assert(b.* == i32(3), "`&` slot");
-  mut(h) := (fn(x : &i32) -> &i32)(&x.*);
-  c := bs_fwd_m(&mut h, &o);
-  assert(c.* == i32(3), "`&mut` slot");
+  assert(bs_fwd_r(&(x => &x.*), &o).* == i32(3), "`&` slot");
+  assert(bs_fwd_m(&mut (x => &x.*), &o).* == i32(3), "`&mut` slot");
   assert(bs_read_v(x => &x.*, &o) == i32(3), "read, by value");
-  assert(bs_read_r(&g, &o) == i32(3), "read, `&` slot");
-  assert(bs_read_m(&mut h, &o) == i32(3), "read, `&mut` slot");
+  assert(bs_read_r(&(x => &x.*), &o) == i32(3), "read, `&` slot");
+  assert(bs_read_m(&mut (x => &x.*), &o) == i32(3), "read, `&mut` slot");
 });
