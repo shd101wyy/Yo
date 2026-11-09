@@ -1371,17 +1371,11 @@ _evaluate_dyn_over_lend :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut E
   info := Rc.clone(infos(usize(0)));
   (pointee : TypeValue) = t_unit();
   (is_mut : bool) = false;
-  (is_raw_ptr : bool) = false;
   match(
     t_refine_inner(&info.ty()),
     Rc(.Reference(rp, rm, _)) => {
       pointee = Rc.clone(rp);
       is_mut = rm;
-    },
-    // `dyn(p)` over a raw pointer is the raw `*Dyn(...)`.
-    Rc(.Pointer(pp)) => {
-      pointee = Rc.clone(pp);
-      is_raw_ptr = true;
     },
     _ => exn.throw(dyn(format_error_message(&tok, `\`dyn(&v)\` lends a place, and its argument is a \`${type_to_string(&info.ty())}\`.`)))
   );
@@ -1406,15 +1400,9 @@ _evaluate_dyn_over_lend :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut E
     trait_vals := _resolve_dyn_trait_values(Rc.clone(dyn_type), &pointee, ctx, env, exn);
     _require_send_dyn_methods_reach_no_global(&dyn_type, &trait_vals, &tok, ctx, env, exn);
     _reject_dyn_borrowing_future_methods(&dyn_type, &trait_vals, &pointee, &tok, ctx, exn);
-    (out_ty : TypeValue) = Rc.clone(dyn_type);
-    if(is_raw_ptr, {
-      out_ty = Rc.new(TypeValueNode.Pointer(Rc.clone(dyn_type)));
-    });
-    out_info := new_expr_info(&expr_info_adopt_env(&info), &out_ty);
+    out_info := new_expr_info(&expr_info_adopt_env(&info), &dyn_type);
     expr_info_set_dyn_call_trait_values(&out_info, Option(ArrayList(EvalValue)).Some(trait_vals));
-    if(!is_raw_ptr, {
-      note_unsize_reference(ast_expr_id(expr), is_mut);
-    });
+    note_unsize_reference(ast_expr_id(expr), is_mut);
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   });
   call
@@ -1469,16 +1457,7 @@ evaluate_dyn_value :: (
   value_is_fresh_cell := !(ast_expr_is_atom(&value_arg) || ast_expr_is_fn_call_of(&value_arg, BF_DOT, Option(usize).Some(usize(2))));
   // `dyn(&v)` / `dyn(&mut v)`: the reference kinds (decision 49) take no
   // box and no expected-type plumbing of their own.
-  value_is_raw_pointer_var := match(
-    &value_arg,
-    .Atom(_, vp_tok) => match(
-      get_variables_from_env(env, vp_tok.value.*.clone()).last_cloned(),
-      .Some(vp_v) => match(t_refine_inner(&variable_value_type(&vp_v)), Rc(.Pointer(_)) => true, _ => false),
-      .None => false
-    ),
-    .FnCall(_, _, _, _, _) => false
-  );
-  if(value_is_raw_pointer_var || ast_expr_is_fn_call_of(&value_arg, BF_ADDRESS_OF, Option(usize).Some(usize(1))) || ast_expr_is_fn_call_of(&value_arg, BK_BORROW_MUT, Option(usize).Some(usize(1))), {
+  if(ast_expr_is_fn_call_of(&value_arg, BF_ADDRESS_OF, Option(usize).Some(usize(1))) || ast_expr_is_fn_call_of(&value_arg, BK_BORROW_MUT, Option(usize).Some(usize(1))), {
     return(_evaluate_dyn_over_lend(expr, env, ctx, exn));
   });
   // Expected-type for the INNER value expression. The dyn target itself

@@ -12,7 +12,7 @@
 { RuntimeDestructuring, expr_info_converted_runtime_type, expr_info_runtime_destructurings, expr_info_deferred_dup_expressions, expr_info_macro_expansion, scope_variables, lookup_local_borrow_step_pin } :: import("../../expr_info.yo");
 { Variable, Environment, variable_value_type } :: import("../../env.yo");
 { is_array_type, is_unit_type, is_struct_type, is_reference_struct_type, is_tuple_type, is_newtype_type, is_dyn_type } :: import("../../types/guards.yo");
-{ TypeValue, TypeValueNode, t_refine_inner } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
 { t_ptr } :: import("../../types/creators.yo");
 { FunctionGenerationContext, sm_owns_fnonce_captures } :: import("../functions/context.yo");
 { resolve_some_type_to_concrete } :: import("./closures.yo");
@@ -20,7 +20,7 @@
 { emit_deferred_dup_or_code, generate_dup_code_for_value, generate_drop_code_for_value } :: import("./drop_dup.yo");
 { type_contains_rc_cell_or_move_only } :: import("../../types/utils.yo");
 { get_state_machine_field_name, sm_slot_of, sm_move_flag_of, sm_local_field_name, sm_storage_id } :: import("../async/state_machine_naming.yo");
-{ dyn_fat_code, get_type_string, get_variable_type_string, get_variable_name_for_codegen, sanitize_for_c_identifier, get_variable_name_for_codegen_at } :: import("../utils/index.yo");
+{ get_type_string, get_variable_type_string, get_variable_name_for_codegen, sanitize_for_c_identifier, get_variable_name_for_codegen_at } :: import("../utils/index.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
 { static_dispatch_callee_return_type } :: import("../functions/declarations.yo");
 /// True if `s` is all ASCII digits (non-empty).
@@ -296,22 +296,26 @@ _generate_inout_local_binding :: (fn(lhs : &AstExpr, rhs : &AstExpr, bind_key : 
     ),
     .None => ()
   );
-  place_code := _call_generate_expr(rhs, indent.clone(), context);
+  (mut(place_code) : String) = _call_generate_expr(rhs, indent.clone(), context);
   // Address the place: fold a `(*x)` pass-through, otherwise `(&(code))`.
   (mut(addr) : String) = String.new();
-  if(is_dyn_type(&place_type) || match(t_refine_inner(&place_type), Rc(.Reference(dpp, _, _)) => is_dyn_type(&dpp), _ => false), {
-    // The reference to a Dyn is the Dyn's fat struct itself (decision 49).
-    addr = dyn_fat_code(&place_code);
-  }, if(place_code.starts_with("(*") && place_code.ends_with(")"), {
+  if(place_code.starts_with("(*") && place_code.ends_with(")"), {
     addr = place_code.substring(usize(2), place_code.len() - usize(1));
   }, {
+    // The reference-kind Dyn (`d := dyn(&v)`, decision 49) is a fat literal,
+    // not a place: it is held in a frame temp, which the borrow points at.
+    if(is_dyn_type(&place_type) && !_is_c_lvalue_chain(&place_code), {
+      dyn_tmp := `__yo_dyn_ref_${var_name.clone()}`;
+      context.base.emitter.emit_string_line(`${indent.clone()}${get_type_string(&place_type, &mut context.base)} ${dyn_tmp.clone()} = ${place_code.clone()};`);
+      place_code = dyn_tmp;
+    });
     if(!_is_c_lvalue_chain(&place_code), {
       return(Option(String).Some(codegen_fatal_expr(`local borrow "${var_name}": place lowered to a non-lvalue C expression: ${place_code}`)));
     });
     addr = String.from("(&(");
     addr.push_string(place_code.clone());
     addr.push_str("))");
-  }));
+  });
   mut(line) := indent.clone();
   ref_slot := match(
     bind_env,

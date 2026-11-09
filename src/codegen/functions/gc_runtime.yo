@@ -641,11 +641,6 @@ typedef struct {
   void* (*__yo_clone)(void*);
 } __yo_vtable_prefix_t;
 
-static inline void __yo_dyn_drop_in_place(void* data, const void* vtable) {
-  void (*f)(void*) = ((const __yo_vtable_prefix_t*)vtable)->__yo_drop_in_place;
-  if (f != NULL) f(data);
-}
-
 static inline void* __yo_dyn_retain(void* data, const void* vtable) {
   if (data == NULL) return NULL;
   return ((const __yo_vtable_prefix_t*)vtable)->__yo_retain(data);

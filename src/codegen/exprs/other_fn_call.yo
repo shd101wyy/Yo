@@ -17,7 +17,7 @@
 { record_declared_temp_var, FunctionGenerationContext } :: import("../functions/context.yo");
 { sm_local_field_name, is_await_consumed_temp } :: import("../async/state_machine_naming.yo");
 { is_any_temp_variable_name } :: import("../../utils.yo");
-{ dyn_fat_code, declare_c_var_name, get_type_string, pointer_c_type_string, get_storage_type_string, get_variable_type_string, get_variable_name_for_codegen, sanitize_for_c_identifier, c_field_name, c_variant_member_name, is_function_value_with_only_builtin_yo_inline_function_call, type_key, get_runtime_struct_fields, RuntimeStructField, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, get_enum_variant_c_name, ImplClosureCallInfo, scope_stack_contains, _checked_fixed_array_subscript, get_variable_name_for_codegen_at, erased_future_result_type_string, fresh_local_name } :: import("../utils/index.yo");
+{ declare_c_var_name, get_type_string, pointer_c_type_string, get_storage_type_string, get_variable_type_string, get_variable_name_for_codegen, sanitize_for_c_identifier, c_field_name, c_variant_member_name, is_function_value_with_only_builtin_yo_inline_function_call, type_key, get_runtime_struct_fields, RuntimeStructField, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, get_enum_variant_c_name, ImplClosureCallInfo, scope_stack_contains, _checked_fixed_array_subscript, get_variable_name_for_codegen_at, erased_future_result_type_string, fresh_local_name } :: import("../utils/index.yo");
 { resolve_some_type_to_concrete } :: import("./closures.yo");
 { extract_fn_trait_from_type, type_implements_future } :: import("../../evaluator/trait_checking.yo");
 { CapturedVariable } :: import("../../evaluator/async/await_analysis_types.yo");
@@ -1284,23 +1284,12 @@ _apply_ref_amp :: (fn(args : &ArrayList(String), param_is_ref : &ArrayList(bool)
       ),
       .None => false
     );
-    // A `Dyn` argument at a pointer slot (`&Dyn`, `&mut Dyn`) is the fat
-    // struct itself: the reference to a Dyn is its `{ data, vtable }`
-    // (decision 49), so there is no address to take.
-    arg_is_dyn := match(
-      runtime_args.get(i),
-      .Some(da) => match(context.base.get_expr_info(&da), .Some(dei) => is_dyn_type(&dei.ty()), .None => false),
-      .None => false
-    );
     transformed := if(
       pref && arg_is_unit,
       String.from("((void*)0)"),
       if(
         !pref,
         c,
-        if(
-          arg_is_dyn,
-          dyn_fat_code(&c),
         if(
           c.starts_with("(*") && c.ends_with(")"),
           c.substring(usize(2), c.len() - usize(1)),
@@ -1336,7 +1325,6 @@ _apply_ref_amp :: (fn(args : &ArrayList(String), param_is_ref : &ArrayList(bool)
             w.push_str("))");
             w
           }))
-        )
         )
       )
     );
@@ -2025,7 +2013,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
     );
     if(dm_is_dyn_clone, {
       dc_recv := match(dmethod_args.get(usize(0)), .Some(rv) => rv, .None => make_err_expr());
-      dc_recv_code := dyn_fat_code(&_call_generate_expr(&dc_recv, indent.clone(), context));
+      dc_recv_code := _call_generate_expr(&dc_recv, indent.clone(), context);
       dc_c := get_type_string(&ei.ty(), &mut context.base);
       dc_call := `((${dc_c}){ .data = __yo_dyn_clone((void*)(${dc_recv_code}).data, (const void*)(${dc_recv_code}).vtable), .vtable = (${dc_recv_code}).vtable })`;
       match(
@@ -2048,7 +2036,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
       recv_expr := match(dmethod_args.get(usize(0)), .Some(rv) => rv, .None => make_err_expr());
       // The receiver is generated before the arguments (`dm_runtime[0]` is
       // its slot), so it is sequenced against them.
-      recv_code := dyn_fat_code(&sequence_operand(&recv_expr, _call_generate_expr(&recv_expr, indent.clone(), context), &dm_runtime, usize(0), false, indent, context));
+      recv_code := sequence_operand(&recv_expr, _call_generate_expr(&recv_expr, indent.clone(), context), &dm_runtime, usize(0), false, indent, context);
       method_name := sanitize_for_c_identifier(ast_expr_token(match(dmethod_args.get(usize(1)), .Some(ma) => ma, .None => make_err_expr())).value.*, false);
       mut(dm_call) := String.from("(");
       dm_call.push_string(recv_code.clone());
@@ -3397,11 +3385,10 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
       );
       (mut(arm_out) : String) = String.new();
       if(dyn_fn_callee, {
-        fat_callee := dyn_fat_code(&func_code);
         mut(o2) := String.from("(");
-        o2.push_string(fat_callee.clone());
+        o2.push_string(func_code.clone());
         o2.push_str(").vtable->call((");
-        o2.push_string(fat_callee.clone());
+        o2.push_string(func_code.clone());
         o2.push_str(").data");
         if(args_list.len() > usize(0), {
           o2.push_str(", ");

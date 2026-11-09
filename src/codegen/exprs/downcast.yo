@@ -26,7 +26,7 @@
 { is_dyn_type, is_enum_type, is_reference_struct_type, cell_handle_view, is_pointer_type } :: import("../../types/guards.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
-{ dyn_fat_code, type_key, get_type_string, sanitize_for_c_identifier, c_symbol_name, c_variant_member_name, get_enum_variant_c_name, can_optimize_as_nullable_pointer, get_runtime_struct_fields, fresh_local_name, CodegenFunctionEntry } :: import("../utils/index.yo");
+{ type_key, get_type_string, sanitize_for_c_identifier, c_symbol_name, c_variant_member_name, get_enum_variant_c_name, can_optimize_as_nullable_pointer, get_runtime_struct_fields, fresh_local_name, CodegenFunctionEntry } :: import("../utils/index.yo");
 { get_dup_function_for_type, generate_dup_code_for_value } :: import("./drop_dup.yo");
 { type_contains_rc_cell_or_move_only, type_is_move_only, is_clone_trait_type } :: import("../../types/utils.yo");
 { get_func_type } :: import("../../function_value.yo");
@@ -52,7 +52,7 @@ _downcast_value :: (fn(expr : &AstExpr, indent : &String, context : &mut Functio
   if(!is_dyn_type(&dyn_ty), {
     return(String.from("/* ERROR: downcast expected Dyn type as first argument */"));
   });
-  dyn_code := dyn_fat_code(&_call_generate_expr(&dyn_arg, indent.clone(), context));
+  dyn_code := _call_generate_expr(&dyn_arg, indent.clone(), context);
   // Second argument: the target type T (comptime).
   target_type := match(context.base.get_expr_info(&type_arg), .Some(tei) => match(tei.value(), .Some(v) => match(v, .TypeVal(t) => Rc.clone(t), _ => return(String.from("/* ERROR: downcast expected TypeValue as second argument */"))), .None => return(String.from("/* ERROR: downcast expected TypeValue as second argument */"))), .None => return(String.from("/* ERROR: downcast type arg not evaluated */")));
   target_type_c_name := get_type_string(&target_type, &mut context.base);
@@ -332,7 +332,7 @@ _upcast_value :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionG
   args := match(expr, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
   dyn_arg := match(args.get(usize(0)), .Some(x) => ast_expr_strip_borrow_marker(&x), .None => return(String.from("/* ERROR: upcast requires 2 arguments */")));
   dyn_ei := match(context.base.get_expr_info(&dyn_arg), .Some(e) => e, .None => return(String.from("/* ERROR: upcast dyn arg not evaluated */")));
-  dyn_code := dyn_fat_code(&_call_generate_expr(&dyn_arg, indent.clone(), context));
+  dyn_code := _call_generate_expr(&dyn_arg, indent.clone(), context);
   tgt_c := get_type_string(&ei.ty(), &mut context.base);
   // Name the source once: a call operand must not run twice.
   src := if(_is_plain_c_identifier(dyn_code.clone()), dyn_code.clone(), {

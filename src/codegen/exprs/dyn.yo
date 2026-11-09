@@ -94,7 +94,7 @@ _concrete_c_name :: (fn(concrete_type : &TypeValue, context : &FunctionGeneratio
 /// retain and release count nothing (the Dyn borrows `v`).
 _generate_dyn_over_lend :: (fn(expr : &AstExpr, dyn_type : &TypeValue, trait_values : &ArrayList(EvalValue), lend_expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
   lend_ei := match(context.base.get_expr_info(lend_expr), .Some(e) => e, .None => return(String.from("/* Error: dyn(&v) lend has no type */")));
-  pointee := match(t_refine_inner(&lend_ei.ty()), Rc(.Reference(rp, _, _)) => Rc.clone(rp), Rc(.Pointer(pp)) => Rc.clone(pp), _ => return(String.from("/* Error: dyn(&v) argument is not a pointer */")));
+  pointee := match(t_refine_inner(&lend_ei.ty()), Rc(.Reference(rp, _, _)) => Rc.clone(rp), _ => return(String.from("/* Error: dyn(&v) argument is not a pointer */")));
   resolved := resolve_some_type_to_concrete(pointee.clone());
   dyn_type_c_name := _dyn_c_name(dyn_type, context);
   concrete_type_c_name := _concrete_c_name(&resolved, context);
@@ -114,14 +114,13 @@ generate_dyn_call :: (fn(expr : &AstExpr, indent : &String, context : &mut Funct
   value_expr := match(&ei.runtime_arg_exprs_in_order(), .Some(rargs) => match(rargs.get(usize(0)), .Some(v) => v, .None => match(args0, .Some(a) => a, .None => return(String.from("/* Error: dyn() requires a value argument */")))), .None => match(args0, .Some(a) => a, .None => return(String.from("/* Error: dyn() requires a value argument */"))));
   // A `dyn(&v)` result may carry the reference it was read as (a `&Dyn`
   // declaration's converted type): the Dyn is its pointee.
-  dyn_type := match(t_refine_inner(&ei.ty()), Rc(.Reference(rp, _, _)) => Rc.clone(rp), Rc(.Pointer(pp)) => Rc.clone(pp), _ => Rc.clone(ei.ty()));
+  dyn_type := match(t_refine_inner(&ei.ty()), Rc(.Reference(rp, _, _)) => Rc.clone(rp), _ => Rc.clone(ei.ty()));
   if(!is_dyn_type(&dyn_type), {
     return(String.from("/* Error: dyn() result type is not DynType */"));
   });
   // `dyn(&v)` / `dyn(&mut v)` (decision 49): the Dyn is the fat pointer over
   // the lent place. Its data word is the payload's address.
-  is_ptr_kind := match(t_refine_inner(&ei.ty()), Rc(.Pointer(ppk)) => is_dyn_type(&ppk), _ => false);
-  if(unsize_reference_mode(ast_expr_id(expr)).is_some() || is_ptr_kind, {
+  if(unsize_reference_mode(ast_expr_id(expr)).is_some(), {
     return(_generate_dyn_over_lend(expr, &dyn_type, &trait_values, &value_expr, indent, context));
   });
   value_ei := match(context.base.get_expr_info(&value_expr), .Some(e) => e, .None => return(String.from("/* Error: dyn() value has no type */")));

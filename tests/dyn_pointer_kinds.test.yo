@@ -27,11 +27,12 @@ test("dyn(&mut v) writes through the reference", {
   assert(_bump_via(dyn(&mut c)) == i32(2), "bump");
   assert(c.n == i32(2), "visible through v");
 });
+_dyn_size :: (fn(d : &Dyn(Speak)) -> usize)(size_of_val(d));
+_dyn_align :: (fn(d : &Dyn(Speak)) -> usize)(align_of_val(d));
 test("size_of_val and align_of_val of a Dyn read the vtable", {
   c := Cat(n : i32(3));
-  (d : &Dyn(Speak)) = dyn(&c);
-  assert(size_of_val(d) == size_of(Cat), "size");
-  assert(align_of_val(d) == align_of(Cat), "align");
+  assert(_dyn_size(dyn(&c)) == size_of(Cat), "size");
+  assert(_dyn_align(dyn(&c)) == align_of(Cat), "align");
 });
 test("&b.* on a legacy Box(Dyn) built by dyn(Box.new(v)) dispatches", {
   (b : Box(Dyn(Speak))) = dyn(Box.new(Cat(n : i32(9))));
@@ -77,10 +78,4 @@ _twice_and_speak :: (fn(d : &Dyn(Speak, Twice)) -> i32)((d.twice() + _speak_via(
 test("upcast through a reference keeps the borrow", {
   c := Cat(n : i32(6));
   assert(_twice_and_speak(dyn(&c)) == i32(66), "both traits, then the upcast");
-});
-test("dyn over a raw pointer is *Dyn, measured through the vtable", {
-  (mut(c) : Cat) = Cat(n : i32(2));
-  (p : *Cat) = addr_of(c);
-  (q : *Dyn(Speak)) = dyn(p);
-  assert(size_of_val(q) == size_of(Cat), "size through *Dyn");
 });
