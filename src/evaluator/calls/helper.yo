@@ -825,8 +825,13 @@ _marker_place_of :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext) ->
           v.is_compile_time_only() => _MarkerPlace.NotAPlace,
           // A `match` binding that borrows the part it binds (`match(&o, …)`,
           // or a reference matched bare) is a reference (N1e-1): passed whole
-          // it lends what it already borrows, as a `&T` parameter does.
-          (v.is_ref() || (v.is_imm_borrow() || v.is_borrow_match_binding())) => _MarkerPlace.Borrow,
+          // it lends what it already borrows, as a `&T` parameter does. A
+          // by-value parameter re-bound in a specialized body
+          // (`is_value_rebind`) carries `is_imm_borrow` for ownership
+          // bookkeeping only: it owns a value, so it is a place and takes
+          // `&` / `&mut` like the same parameter in a concrete body
+          // (issues/fixed/2026-11-08-a-by-value-fn-parameter-in-a-generic-body-is-reported-as-a-read-only-borrow.md).
+          (v.is_borrow_match_binding() || ((v.is_ref() || v.is_imm_borrow()) && !v.is_value_rebind())) => _MarkerPlace.Borrow,
           true => _MarkerPlace.Place
         ),
         .None => _MarkerPlace.NotAPlace
