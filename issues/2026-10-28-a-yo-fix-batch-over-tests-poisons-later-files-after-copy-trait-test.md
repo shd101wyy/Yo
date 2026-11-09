@@ -50,3 +50,22 @@ leaving it behind, so the difference is in the migration mode's evaluation of
 
 Run `tests/internal` (or any file that reads a `mut` global through
 `clone()`) as a separate `yo fix` batch.
+
+## Update 2026-11-09: not specific to `rc-clone`
+
+`rc-clone` was retired with every migration except `deref`
+(`vbd/retire-migrations`), but the poisoning outlives it: the same batch
+reproduces with the surviving mode and with the plain repairs (tree binary of
+that branch, and the v0.2.76 seed):
+
+```bash
+yo fix tests/copy_trait.test.yo tmp/zz_probe.yo --migrate deref --dry-run --std-path ./std
+# fix: tmp/zz_probe.yo does not evaluate; ...
+yo fix tests/copy_trait.test.yo tmp/zz_probe.yo --dry-run --std-path ./std
+# fix: tmp/zz_probe.yo has errors, but no machine-applicable repair was available
+yo fix tmp/zz_probe.yo --migrate deref --dry-run --std-path ./std                  # clean
+yo check tests/copy_trait.test.yo tmp/zz_probe.yo --std-path ./std                 # clean
+```
+
+So the leak is in how `yo fix` evaluates a batch, not in a migration's
+recorder.

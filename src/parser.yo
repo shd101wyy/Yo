@@ -154,7 +154,7 @@ _is_capture_sigil_pun :: (fn(expr : &AstExpr) -> bool)(
 );
 /// The deleted mode-word pun `imm(y)` / `mut(z)` / `inout(z)` on one
 /// identifier (decision 42 Generation B): kept parseable as a record entry so
-/// the evaluator can name it and `yo fix --migrate borrow-spelling` rewrite it.
+/// the evaluator can name it (E0009).
 _is_old_capture_mode_pun :: (fn(expr : &AstExpr) -> bool)(
   match(
     ast_expr_is_old_mode_spelling(expr),
@@ -1223,8 +1223,7 @@ impl(
         ),
         // `imm(y)` / `mut(z)` / `inout(z)`: the deleted mode-word spelling of
         // a capture-list borrow pun (decision 42 Generation B). It still
-        // parses as a record entry, so the evaluator names it (E0009) and
-        // `yo fix --migrate borrow-spelling` can rewrite it.
+        // parses as a record entry, so the evaluator names it (E0009).
         _is_old_capture_mode_pun(expr) => true,
         // `&y` / `&mut z`: the same puns in decision 42's spelling.
         _is_capture_sigil_pun(expr) => true,

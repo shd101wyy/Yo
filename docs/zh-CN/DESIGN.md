@@ -565,7 +565,7 @@ r := match(
 编译期绑定声明为 `mut(x) :: v`（或 `comptime(mut(x)) := v`），在块中和模块级都一样。`for` 的元素
 绑定和闭包捕获列表中的条目同样不接受 `mut`；需要修改它们的函数体应重新绑定。
 
-`yo fix <path> --migrate mut-bindings` 会为旧代码插入这些标记。本版本中，该规则在除编译器自身
+`yo fix <path>` 会为一次写入插入它需要的标记，每轮一处；旧代码请在最后携带这些迁移的版本（[ERROR_DIAGNOSTICS.md](./ERROR_DIAGNOSTICS.md)“已退役的迁移”）上升级。本版本中，该规则在除编译器自身
 源码之外的所有地方生效（编译器源码在下一个版本中迁移）；`std/` 已完成迁移，同样受此检查。
 
 > `mut` 是保留字：它包住绑定的名字（`mut(x) := v`），或出现在 `&` 之后（位置中的 `&mut T`，调用点的 `&mut x`）；名为 `mut` 的绑定或参数是错误。`imm` 已不再是关键字。
@@ -736,7 +736,7 @@ second_of :: (fn(s : &mut Pair) -> &mut(i32, s))(&mut s.b);
 
 **引用上的 impl**（决策 43 N1f-2；[`plans/VALUES_BY_DEFAULT.md`](../../plans/VALUES_BY_DEFAULT.md) 决策 43，R-PROBE）。impl 的接收者可以是引用：`impl(&C, Tr(...))`、`impl(&mut C, Tr(...))`、`impl(generic(p : Origin), &(C, p), Tr(...))`，或通用实现 `impl(generic(T), where(T <: Tr), &T, Tr(...))`。其中 `Self` 就是该引用，所以 `self : Self` 以 `&C` 接收接收者。`impl(C, Tr)`、`impl(&C, Tr)` 与 `impl(&mut C, Tr)` 是三个不同的接收者；origin 不属于接收者，因此 `impl(&(C, p), Tr)` 与 `impl(&C, Tr)` 并存是错误 E0612，裸类型变量的通用实现 `impl(generic(T), T, Tr)` 与二者之一并存也是（它同样覆盖 `&C`）。方法调用按**接收者槽位类型**解析：方法的槽位是其第一个参数代入 `Self` 后的类型（`impl(&C, …)` 上的 `self : Self` 与 `impl(C, …)` 上的 `self : &Self` 槽位都是 `&C`）。对类型为 `R` 的接收者，探测依次尝试 `R`，然后 `&R` 与 `&mut R`，再对 `R` 解引用一次并尝试其借用，第一个有方法适用的步骤胜出；同一步骤中固有方法优先于 trait 方法，同一步骤中两个 trait 方法是错误 E0616，其消息列出每个 impl 以及它们共享的槽位。因此拥有所有权的 `c` 优先采用 `C` 上按值的 `self`（`xs.into_iter()` 消耗它），只有没有按值方法时才借用；`(&c).m()` 与 `(&mut c).m()` 是显式借用，探测从 `&C` 开始（`(&xs).into_iter()` 借用）。显式借用绝不会把值从 `c` 中移出（对非 `Copy` 类型按值的 `self` 是 E0901），`(&c)` 也到达不了 `&mut Self` 方法（E0908）。引用接收者上找不到方法时，消息列出探测过的槽位类型。接收者槽位 `&&C`（`impl(&C, …)` 上的 `self : &Self`）暂不接受：探测对引用接收者的自动借用还不能借出接收者自身的存储。此处请按值接收（`self : Self` 就是 `&C`）。
 
-旧的关键字写法（`imm(x) : T`、`mut(x) : T`、`inout(x) : T`、`imm(self) : Self`、`mut(self) : Self`、`imm(y) := place`、`for(xs, mut(x) => ...)`）已在[值默认计划](../../plans/VALUES_BY_DEFAULT.md)的 Generation B 中删除（决定 42）：它是错误 E0009，错误信息给出借用符号写法；`yo fix <path> --migrate borrow-spelling` 会把整棵树改写为借用符号写法。`imm` 是普通标识符；`mut` 仍是保留字，只出现在 `&` 之后。
+旧的关键字写法（`imm(x) : T`、`mut(x) : T`、`inout(x) : T`、`imm(self) : Self`、`mut(self) : Self`、`imm(y) := place`、`for(xs, mut(x) => ...)`）已在[值默认计划](../../plans/VALUES_BY_DEFAULT.md)的 Generation B 中删除（决定 42）：它是错误 E0009，错误信息给出借用符号写法；旧代码请在最后携带这些迁移的版本（[ERROR_DIAGNOSTICS.md](./ERROR_DIAGNOSTICS.md)“已退役的迁移”）上升级。`imm` 是普通标识符；`mut` 仍是保留字，只出现在 `&` 之后。
 
 运算符 trait 也以同样方式写出操作数的模式，每个 impl 都必须完全照写这些模式（决定 34）。比较 trait `Eq` 与 `Ord` 借用操作数，即 `(==) : (fn(lhs : &Self, rhs : &Rhs) -> bool)`，因此 `a == b` 之后两个操作数都仍可使用。算术、位运算与一元 trait（`Add` 到 `BitRightShift`、`Negate`、`LogicalNot`、`BitNot` 及其 `Comptime*` 对应版本）与 Rust 一样按值接收操作数：`(+) : (fn(lhs : Self, rhs : Rhs) -> Self.Output)`。按值操作数遵循上面的参数规则：`Copy` 操作数被复制，`String` 被共享，仅可移动的操作数被移动进运算符。trait 按值接收而 impl 借用的操作数（反之亦然）会以 "as written" 被拒绝。`Dyn(LogicalNot)` 把载荷的副本交给其 impl，因此仅可移动的载荷不能装箱到其中（E0614）。
 
@@ -757,7 +757,7 @@ show(&s); // s 仍可使用
 take(s); // 被移动
 ```
 
-`&x` 只有这一种含义。传给按值参数时会报错并给出 `x` 和 `x.clone()`；传给裸指针参数，或写在其他任何位置（字段写入、接收者 `(&x).m()`、C 可变参数），会报错并给出 `addr_of(x)`，即不安全代码中的裸指针取址。借用符号可以出现的其他位置是局部借用绑定（`y := &place`、`y := &mut place`，见 [FLOWABILITY.md](./FLOWABILITY.md)）、捕获列表条目，以及借用式 `for` 的来源（`for(&mut xs, x => ...)`）。裸的具名位置传给 `&T` 或 `&mut T` 参数是 E0914，并给出 `&x` 或 `&mut x`，对所有代码生效，包括 std；临时值、字面量、闭包和运算符操作数不需要标记。`yo fix <path> --migrate markers` 会插入缺少的标记，`yo fix <path> --migrate addr-of` 会改写旧代码中作为取址的 `&x`。
+`&x` 只有这一种含义。传给按值参数时会报错并给出 `x` 和 `x.clone()`；传给裸指针参数，或写在其他任何位置（字段写入、接收者 `(&x).m()`、C 可变参数），会报错并给出 `addr_of(x)`，即不安全代码中的裸指针取址。借用符号可以出现的其他位置是局部借用绑定（`y := &place`、`y := &mut place`，见 [FLOWABILITY.md](./FLOWABILITY.md)）、捕获列表条目，以及借用式 `for` 的来源（`for(&mut xs, x => ...)`）。裸的具名位置传给 `&T` 或 `&mut T` 参数是 E0914，并给出 `&x` 或 `&mut x`，对所有代码生效，包括 std；临时值、字面量、闭包和运算符操作数不需要标记。早于这些标记的旧代码（裸的具名位置或作为取址的 `&x`）请在最后携带这些迁移的版本（[ERROR_DIAGNOSTICS.md](./ERROR_DIAGNOSTICS.md)“已退役的迁移”）上升级。
 
 ### 命名参数
 
@@ -1323,7 +1323,7 @@ export(main);
 
 #### 析构函数：`Drop`
 
-`Drop` 是析构 trait，其方法 `drop` 采用 Rust 的语义（[值语义计划](../../plans/VALUES_BY_DEFAULT.md)，决策 45）：析构函数会自动运行且恰好运行一次——在所有者 drop 该值时，或在最后一个 `Rc`/`Arc` 引用消失时；实现它的值类型是只能移动的。它的接收者与 Rust 的 `drop(&mut self)` 一致：`drop : (fn(self : &mut Self) -> unit)`，因此析构函数可以在字段被 drop 之前把某个字段取出或重置（`self.f = .None`），而声明为 `self : &Self` 的 impl 不符合该 trait。它以前名为 `Dispose`，编译器已不再识别这个名字；`yo fix <path> --migrate drop-trait` 会改写旧代码（`Dispose` → `Drop`、`dispose` → `drop`，以及 `x.dispose()` → `drop(x)`；不是析构函数的 `.dispose` 成员，例如同名的固有方法或字段，保持原样）。
+`Drop` 是析构 trait，其方法 `drop` 采用 Rust 的语义（[值语义计划](../../plans/VALUES_BY_DEFAULT.md)，决策 45）：析构函数会自动运行且恰好运行一次——在所有者 drop 该值时，或在最后一个 `Rc`/`Arc` 引用消失时；实现它的值类型是只能移动的。它的接收者与 Rust 的 `drop(&mut self)` 一致：`drop : (fn(self : &mut Self) -> unit)`，因此析构函数可以在字段被 drop 之前把某个字段取出或重置（`self.f = .None`），而声明为 `self : &Self` 的 impl 不符合该 trait。它以前名为 `Dispose`，编译器已不再识别这个名字（`Dispose` → `Drop`、`dispose` → `drop`，以及 `x.dispose()` → `drop(x)`）；旧代码请在最后携带这些迁移的版本（[ERROR_DIAGNOSTICS.md](./ERROR_DIAGNOSTICS.md)“已退役的迁移”）上升级。
 
 手动调用析构函数是错误 E0915，与 Rust 相同：`x.drop()`、`Fd.drop(&x)` 和 `(Fd <: Drop).drop(&x)` 会在值仍然存活时再运行一次析构函数。把它当作值读取（`f := Fd.drop`）也是 E0915，因为通过 `f` 调用会造成同样的结果。其他 trait 中恰好名为 `drop` 的方法是普通方法，可以直接调用，也可以通过 `Dyn` 调用。析构函数也不调用其字段的析构函数：字段会在它返回后自行 drop。要提前结束一个值，请把它传给 prelude 的 `drop(x)`：它把值移入，并在调用返回时 drop 它；之后再使用 `x` 是 E0901。
 
@@ -2547,8 +2547,7 @@ command :: (fn(s : String) -> i32)(
 `Rc(T)`/`Arc(T)`/`Box(T)` 内部的 `T`，可任意嵌套，单元内的变体计入穷尽性检查。
 `Rc(p)` 或 `Arc(p)` 中的绑定借用载荷，因为其他句柄可能共享该单元；
 `(c := Rc(p))` 绑定单元本身。`Rc(T)` 或 `Arc(T)` 位置只接受包装写法：
-不写包装的结构化模式是 E0609，其帮助信息给出 `Rc(p)`；
-`yo fix <path> --migrate rc-pattern` 会为每个这样的模式加上包装。缺失的情形
+不写包装的结构化模式是 E0609，其帮助信息给出 `Rc(p)`。缺失的情形
 也透过包装打印（`.Node(Rc(.Leaf(_)), _)`）。在唯一的 `Box(T)` 位置上，未写
 `Box(…)` 的模式目前仍会被隐式穿透，直到 `src/` 写出 `Box(p)` 为止
 （`plans/VALUES_BY_DEFAULT.md` 决定 31）：
@@ -2668,7 +2667,6 @@ main :: (fn() -> unit)({
 可写的位置（`imm` 绑定是 E0908，临时值是错误）。在 `io.async` 函数体中，位置可以跨越
 `await`，除非被匹配值经过引用单元或模块级位置：当前任务挂起时，其他任务可能访问到该位置
 （E0911，与局部借用的规则相同）。
-`yo fix <path> --migrate match-scrutinee` 会在现有程序需要借用的地方写上 `&`。
 
 ## 字符串
 
@@ -3043,7 +3041,7 @@ Yo 支持闭包（捕获其所在环境的匿名函数）。
 闭包会被编译成一个保存所捕获变量的**捕获结构体**。它如何存储与调用，取决于所标注的类型：
 
 - **`Impl(Fn(...))` —— 静态分发，不做引用计数。** 编译器会将闭包单态化为独立函数，捕获结构体**按值传递**，并生成直接调用：没有堆分配、没有虚表、也没有引用计数。每个闭包都有各自不同的类型（参见 [Closure Type Restrictions](#closure-type-restrictions)），因此这种形式无法用同一个变量持有两个不同的闭包。
-- **`Dyn(Fn(...))` —— 动态分发，进行引用计数。** 捕获结构体被装箱到堆上，其前部带有引用计数头，值本身是 `{data, vtable}` 的胖指针。当不同类型的闭包需要共享同一类型时使用它——例如存入集合、从不同分支返回，或接受任意可调用对象。擦除总是要写出来：`dyn(f)` 把闭包、具名 `fn` 或 `Impl(Fn(...))` 值装箱为 `Dyn(Fn(...))`，绑定、字段、实参和结果都一样。把可调用值裸传入 `Dyn(Fn(...))` 位置（`(d : Dyn(Fn() -> i32)) = f`、`run(f)`、`S(cb : f)`、以 `f` 结尾的函数体）是错误 E0618，其提示会给出 `dyn(f)`；`yo fix <path> --migrate dyn-spelling` 会给每个这样的位置加上 `dyn(...)`。`Impl(Fn(...))` 位置不是擦除，闭包可以直接传入。
+- **`Dyn(Fn(...))` —— 动态分发，进行引用计数。** 捕获结构体被装箱到堆上，其前部带有引用计数头，值本身是 `{data, vtable}` 的胖指针。当不同类型的闭包需要共享同一类型时使用它——例如存入集合、从不同分支返回，或接受任意可调用对象。擦除总是要写出来：`dyn(f)` 把闭包、具名 `fn` 或 `Impl(Fn(...))` 值装箱为 `Dyn(Fn(...))`，绑定、字段、实参和结果都一样。把可调用值裸传入 `Dyn(Fn(...))` 位置（`(d : Dyn(Fn() -> i32)) = f`、`run(f)`、`S(cb : f)`、以 `f` 结尾的函数体）是错误 E0618，其提示会给出 `dyn(f)`；`yo fix <path>` 会给具名可调用值加上 `dyn(...)`。`Impl(Fn(...))` 位置不是擦除，闭包可以直接传入。
 
 两种形式下，**被捕获的值**都遵循一般规则：被捕获的引用语义值由该捕获结构体持有，并在其销毁时释放。
 
@@ -3384,8 +3382,7 @@ Yo 提供了 `Rc`（用 `Rc.new` 构造）用于将值类型堆分配并自动�
 > 使用 `a`）；源值之后仍被使用的隐式拷贝是 E0901，其提示写出 `Rc.clone(a)`。
 > `&Rc(T)` 形参借用句柄而不拷贝。持有句柄的值（结构体字段、`Option(Rc(T))`）
 > 用 `.clone()` 拷贝，它会克隆每个句柄；闭包在捕获列表里取得第二个句柄：
-> `{ a : Rc.clone(a) }() => a.*`。`yo fix <path> --migrate rc-clone` 为已有代码
-> 写出这些克隆。克隆通过类型来写（`Rc.clone(a)`），因为 `a.clone()` 可能指
+> `{ a : Rc.clone(a) }() => a.*`。克隆通过类型来写（`Rc.clone(a)`），因为 `a.clone()` 可能指
 > 负载自己的 `clone`（决定 32）。`Rc(T)` 和 `Arc(T)` 对任何 `T` 都实现 `Clone`，
 > 克隆总是第二个句柄；深拷贝写作 `Rc.new(h.*.clone())`。泛型函数体按每个实例化检查，所以当 `T` 是
 > 句柄时，在那里拷贝 `T` 同样要写 `.clone()`（`where(T <: Clone)`）。std 的泛型

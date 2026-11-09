@@ -122,7 +122,7 @@ These were filed since v0.2.59 and are still open at develop's tip:
 | `issues/cond-arms-with-different-impl-future-types-mix-c-pointer-types.md` | S2 | |
 | `issues/dyn-before-the-impl-in-source-order-reports-the-trait-not-implemented.md` | S2 | |
 | `issues/check-of-the-tests-directory-leaks-state-between-files.md` | S3 | Filed with #1340 |
-| `issues/yo-fix-migrate-markers-skips-verify-pragma-files.md` | S3 | |
+| `issues/retired/yo-fix-migrate-markers-skips-verify-pragma-files.md` | S3 | |
 | `issues/yo-fix-migrate-aborts-a-directory-walk-at-a-malformed-manifest.md` | S3 | |
 
 The 2026-10-10 handover's §4 lists the older ones. For the full list, run `python scripts/gen-issue-triage.py`.

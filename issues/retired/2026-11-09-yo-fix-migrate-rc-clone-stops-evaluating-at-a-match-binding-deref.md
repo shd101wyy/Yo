@@ -24,8 +24,9 @@ fix: inserted 7 clone(s) and 0 capture list(s) and 1 `&` before a `match` scruti
 
 `main.yo:71` is `sum = (sum + r.*);` inside `match(h, .Some(r) => …)` over an `Option(Rc(i32))` parameter `h`.
 
-**Closed by:** the v0.2.77 retirement PR, which removes `--migrate rc-clone` and `--migrate rc-pattern` with their cli
-cases. This doc moves to `issues/retired/` when it lands; neither migration is fixed in the meantime.
+**Status:** RETIRED 2026-11-09 — retired with the mode (`vbd/retire-migrations`: every `yo fix --migrate` mode but
+`deref` was deleted after v0.2.76, the last release that ships it; the cli cases `fix-migrate-rc-clone` and
+`fix-migrate-rc-pattern` were deleted with their modes). Neither migration was fixed; the regression came after v0.2.76 (#1835), so the v0.2.76 release still ships both modes working.
 
 ## Root cause
 

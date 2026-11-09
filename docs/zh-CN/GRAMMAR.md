@@ -326,10 +326,9 @@ BorrowedFor ::= 'for' '(' BorrowPlace ',' ClosureLiteral ')' ;; for(&mut xs, x =
 - 已删除的模式关键字写法 `imm(x) : T`、`mut(x) : T`、`inout(x) : T`、
   `comptime(imm(x)) : T`、`-> imm(T)`、`imm(y) := place`、`mut(cur) = place`、
   捕获项 `imm(y)` / `mut(z) : &mut w` 以及 `for(xs, mut(x) => ...)` 都是
-  错误 E0009，并给出符号写法；`yo fix <path> --migrate borrow-spelling`
-  会改写它们。`imm` 是普通标识符。
-- `own(x)` 是 `sink(x)` 更早的写法，同样是错误 E0009；
-  `yo fix <path> --migrate modes` 会改写它。
+  错误 E0009，并给出符号写法。`imm` 是普通标识符。
+- `own(x)` 是 `sink(x)` 更早的写法，同样是错误 E0009。旧代码请在
+  最后携带这些迁移的版本（[ERROR_DIAGNOSTICS.md](./ERROR_DIAGNOSTICS.md)“已退役的迁移”）上升级。
 - 语义见 [FLOWABILITY.md](./FLOWABILITY.md)。
 
 在调用处，被借出的实参带有与参数匹配的标记：

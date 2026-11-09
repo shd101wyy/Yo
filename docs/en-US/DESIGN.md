@@ -585,7 +585,8 @@ compile-time binding reassigned while compiling is declared `mut(x) :: v` (or
 closure's capture-list entry take no `mut` either; a body that changes one
 rebinds it.
 
-`yo fix <path> --migrate mut-bindings` inserts the markers in older code. In
+`yo fix <path>` inserts the marker a write needs, one write per pass; older
+code is upgraded on the last release that ships the migrations ([ERROR_DIAGNOSTICS.md](./ERROR_DIAGNOSTICS.md), "Retired migrations"). In
 this release the rule is enforced everywhere except the compiler's own
 sources, which the next release migrates; `std/` is migrated and checked too.
 
@@ -759,7 +760,7 @@ second_of :: (fn(s : &mut Pair) -> &mut(i32, s))(&mut s.b);
 
 **Impls over references** (decision 43 N1f-2; [`plans/VALUES_BY_DEFAULT.md`](../../plans/VALUES_BY_DEFAULT.md) decision 43, R-PROBE). An impl's receiver may be a reference: `impl(&C, Tr(...))`, `impl(&mut C, Tr(...))`, `impl(generic(p : Origin), &(C, p), Tr(...))`, or a blanket `impl(generic(T), where(T <: Tr), &T, Tr(...))`. Inside it `Self` is the reference, so `self : Self` takes the receiver as `&C`. `impl(C, Tr)`, `impl(&C, Tr)` and `impl(&mut C, Tr)` are three receivers; the origin is not part of the receiver, so `impl(&(C, p), Tr)` beside `impl(&C, Tr)` is error E0612, and so is a bare-variable blanket `impl(generic(T), T, Tr)` beside either (it covers `&C` too). A method call resolves by **receiver slot types**: a method's slot is its first parameter's type with `Self` substituted (`self : Self` on `impl(&C, …)` and `self : &Self` on `impl(C, …)` both have the slot `&C`). For a receiver of type `R` the probe tries `R`, then `&R` and `&mut R`, then one dereference of `R` and its borrows, and the first step at which a method applies wins; an inherent method beats a trait method at the same step, and two trait methods at the same step are error E0616, whose message names each impl and the slot they share. An owned `c` therefore takes a by-value `self` on `C` first (`xs.into_iter()` consumes) and borrows only when nothing takes it by value; `(&c).m()` and `(&mut c).m()` are the explicit borrows, which start the probe at `&C` (`(&xs).into_iter()` borrows). The explicit borrow never moves out of `c` (a by-value `self` on a type that is not `Copy` is E0901) and `(&c)` never reaches a `&mut Self` method (E0908). A method miss on a reference receiver lists the slot types probed. A receiver slot `&&C` (`self : &Self` on `impl(&C, …)`) is not accepted yet: the probe's autoref of a reference receiver lends no storage of its own yet. Take the receiver by value there (`self : Self` is the `&C`).
 
-The older word spelling (`imm(x) : T`, `mut(x) : T`, `inout(x) : T`, `imm(self) : Self`, `mut(self) : Self`, `imm(y) := place`, `for(xs, mut(x) => ...)`) was deleted in Generation B of the [values-by-default plan](../../plans/VALUES_BY_DEFAULT.md) (decision 42): it is error E0009, which names the sigil spelling, and `yo fix <path> --migrate borrow-spelling` rewrites a tree to it. `imm` is an ordinary identifier; `mut` stays reserved and appears only after `&`.
+The older word spelling (`imm(x) : T`, `mut(x) : T`, `inout(x) : T`, `imm(self) : Self`, `mut(self) : Self`, `imm(y) := place`, `for(xs, mut(x) => ...)`) was deleted in Generation B of the [values-by-default plan](../../plans/VALUES_BY_DEFAULT.md) (decision 42): it is error E0009, which names the sigil spelling, and older code is upgraded on the last release that ships the migrations ([ERROR_DIAGNOSTICS.md](./ERROR_DIAGNOSTICS.md), "Retired migrations"). `imm` is an ordinary identifier; `mut` stays reserved and appears only after `&`.
 
 Operator traits spell their operands' modes the same way, and every impl writes exactly those modes (decision 34). The comparison traits `Eq` and `Ord` borrow, `(==) : (fn(lhs : &Self, rhs : &Rhs) -> bool)`, so `a == b` keeps both operands. The arithmetic, bitwise and unary traits (`Add` through `BitRightShift`, `Negate`, `LogicalNot`, `BitNot` and their `Comptime*` twins) take their operands by value, as in Rust: `(+) : (fn(lhs : Self, rhs : Rhs) -> Self.Output)`. A by-value operand follows the parameter rules above: a `Copy` operand is copied, a `String` is shared, and a move-only operand moves into the operator. An impl that borrows an operand the trait takes by value, or the reverse, is rejected as written. `Dyn(LogicalNot)` hands its impl a copy of the payload, so a move-only payload cannot be boxed into it (E0614).
 
@@ -780,7 +781,7 @@ show(&s); // s stays usable
 take(s); // moved
 ```
 
-`&x` is only this marker. Passed to a by-value parameter it is an error naming `x` and `x.clone()`; passed to a raw-pointer parameter, or written anywhere else (a field store, a receiver `(&x).m()`, a variadic C argument), it is an error naming `addr_of(x)`, the raw-pointer address-of of unsafe code. The other places a sigil stands are a local borrow binding (`y := &place`, `y := &mut place`, see [FLOWABILITY.md](./FLOWABILITY.md)), a capture-list entry and the borrowed `for` source (`for(&mut xs, x => ...)`). A bare named place passed to a `&T` or `&mut T` parameter is E0914 naming `&x` or `&mut x`, in all code, std included; temporaries, literals, closures and operator operands need no marker. `yo fix <path> --migrate markers` inserts the missing markers, and `yo fix <path> --migrate addr-of` rewrites old code whose `&x` was the address-of.
+`&x` is only this marker. Passed to a by-value parameter it is an error naming `x` and `x.clone()`; passed to a raw-pointer parameter, or written anywhere else (a field store, a receiver `(&x).m()`, a variadic C argument), it is an error naming `addr_of(x)`, the raw-pointer address-of of unsafe code. The other places a sigil stands are a local borrow binding (`y := &place`, `y := &mut place`, see [FLOWABILITY.md](./FLOWABILITY.md)), a capture-list entry and the borrowed `for` source (`for(&mut xs, x => ...)`). A bare named place passed to a `&T` or `&mut T` parameter is E0914 naming `&x` or `&mut x`, in all code, std included; temporaries, literals, closures and operator operands need no marker. Older code, whose bare places or address-of `&x` predate the markers, is upgraded on the last release that ships the migrations ([ERROR_DIAGNOSTICS.md](./ERROR_DIAGNOSTICS.md), "Retired migrations").
 
 ### Named arguments
 
@@ -1364,7 +1365,7 @@ For the same reason there is no `Dyn(Reader)` or `Dyn(Writer)` any more. The tra
 
 #### The destructor: `Drop`
 
-`Drop` is the destructor trait, and its method `drop` has Rust's semantics ([the values-by-default plan](../../plans/VALUES_BY_DEFAULT.md), decision 45): it runs automatically, exactly once, when the owner drops the value or the last `Rc`/`Arc` reference goes away, and a value type that implements it is move-only. Its receiver follows Rust's `drop(&mut self)`: `drop : (fn(self : &mut Self) -> unit)`, so a destructor may take a field out or reset it (`self.f = .None`) before the fields are dropped, and an impl that declares `self : &Self` does not conform. Its old name was `Dispose`, which the compiler no longer recognizes; `yo fix <path> --migrate drop-trait` rewrites old code (`Dispose` → `Drop`, `dispose` → `drop`, and `x.dispose()` → `drop(x)`; a `.dispose` member that is not the destructor, such as an inherent method or a field of that name, is left as written).
+`Drop` is the destructor trait, and its method `drop` has Rust's semantics ([the values-by-default plan](../../plans/VALUES_BY_DEFAULT.md), decision 45): it runs automatically, exactly once, when the owner drops the value or the last `Rc`/`Arc` reference goes away, and a value type that implements it is move-only. Its receiver follows Rust's `drop(&mut self)`: `drop : (fn(self : &mut Self) -> unit)`, so a destructor may take a field out or reset it (`self.f = .None`) before the fields are dropped, and an impl that declares `self : &Self` does not conform. Its old name was `Dispose`, which the compiler no longer recognizes (`Dispose` → `Drop`, `dispose` → `drop`, and `x.dispose()` → `drop(x)`); older code is upgraded on the last release that ships the migrations ([ERROR_DIAGNOSTICS.md](./ERROR_DIAGNOSTICS.md), "Retired migrations").
 
 Calling the destructor by hand is error E0915, as in Rust: `x.drop()`, `Fd.drop(&x)` and `(Fd <: Drop).drop(&x)` would run it a second time on a live value. Reading it as a value, `f := Fd.drop`, is E0915 too, since a call through `f` would do the same. A method of another trait that happens to be named `drop` is an ordinary method, called directly or through `Dyn`. A destructor does not call its fields' destructors either: they drop after it returns. To end a value early, pass it to the prelude's `drop(x)`, which moves it in and drops it when the call returns; a later use of `x` is E0901.
 
@@ -2637,8 +2638,7 @@ variants count toward exhaustiveness. A binding inside `Rc(p)` or `Arc(p)`
 borrows the payload, because other handles may share the cell;
 `(c := Rc(p))` binds the cell itself. An `Rc(T)` or `Arc(T)` position takes
 only the wrapper spelling: a structural pattern there without it is E0609,
-whose help names `Rc(p)`, and `yo fix <path> --migrate rc-pattern` wraps
-every such pattern. A missing case is printed through the wrapper
+whose help names `Rc(p)`. A missing case is printed through the wrapper
 (`.Node(Rc(.Leaf(_)), _)`). At a unique `Box(T)` position a pattern without
 `Box(…)` is still looked through implicitly, until `src/` spells `Box(p)`
 (`plans/VALUES_BY_DEFAULT.md` decision 31):
@@ -2783,8 +2783,6 @@ binding is E0908, a temporary is an error). Inside an `io.async` body a place
 lives across an `await`, unless its scrutinee passes through a reference cell
 or a module-level place: another task could reach that place while this one is
 suspended (E0911, the rule for local borrows).
-`yo fix <path> --migrate match-scrutinee` writes `&` where an existing program
-needs the borrow.
 
 ## String
 
@@ -3174,7 +3172,7 @@ Yo supports closures (anonymous functions that capture their environment).
 A closure compiles to a **capture struct** holding the variables it uses. How that struct is stored and called depends on the type it is given:
 
 - **`Impl(Fn(...))` — static dispatch, not reference counted.** The compiler monomorphizes the closure into its own function, passes the capture struct **by value**, and emits a direct call. No heap allocation, no vtable, no reference count. Each closure has its own distinct type (see [Closure Type Restrictions](#closure-type-restrictions)), so this form cannot hold two different closures in one variable.
-- **`Dyn(Fn(...))` — dynamic dispatch, reference counted.** The capture struct is boxed on the heap behind a reference-count header, and the value is a fat pointer of `{data, vtable}`. Use this when closures of different types must share one type — storing them in a collection, returning them from different branches, or accepting any callable. The erasure is always written: `dyn(f)` boxes a closure, a named `fn` or an `Impl(Fn(...))` value as a `Dyn(Fn(...))`, at a binding, a field, an argument and a result alike. A callable passed bare into a `Dyn(Fn(...))` slot (`(d : Dyn(Fn() -> i32)) = f`, `run(f)`, `S(cb : f)`, a body ending in `f`) is error E0618, whose note names `dyn(f)`; `yo fix <path> --migrate dyn-spelling` wraps every such site. An `Impl(Fn(...))` slot is not an erasure and takes the closure bare.
+- **`Dyn(Fn(...))` — dynamic dispatch, reference counted.** The capture struct is boxed on the heap behind a reference-count header, and the value is a fat pointer of `{data, vtable}`. Use this when closures of different types must share one type — storing them in a collection, returning them from different branches, or accepting any callable. The erasure is always written: `dyn(f)` boxes a closure, a named `fn` or an `Impl(Fn(...))` value as a `Dyn(Fn(...))`, at a binding, a field, an argument and a result alike. A callable passed bare into a `Dyn(Fn(...))` slot (`(d : Dyn(Fn() -> i32)) = f`, `run(f)`, `S(cb : f)`, a body ending in `f`) is error E0618, whose note names `dyn(f)`; `yo fix <path>` wraps a named callable. An `Impl(Fn(...))` slot is not an erasure and takes the closure bare.
 
 In both cases the *captured values* follow the usual rules: a captured reference-semantics value is retained by the capture and released when the capture is dropped.
 
@@ -3562,8 +3560,7 @@ Yo provides `Rc` (built with `Rc.new`) for heap-allocating value types with auto
 > `&Rc(T)` parameter borrows the handle without a copy. A value holding a
 > handle (a struct field, an `Option(Rc(T))`) is copied with `.clone()`,
 > which clones each handle; a closure takes a second handle in its capture
-> list, `{ a : Rc.clone(a) }() => a.*`. `yo fix <path> --migrate rc-clone`
-> spells the clones in existing code. The clone is spelled through the type,
+> list, `{ a : Rc.clone(a) }() => a.*`. The clone is spelled through the type,
 > `Rc.clone(a)`, because `a.clone()` could name the payload's own `clone`
 > (decision 32). `Rc(T)` and `Arc(T)` are `Clone` for every `T`, and the
 > clone is always a second handle; a deep copy is `Rc.new(h.*.clone())`. A generic body is judged at each instantiation, so a copy

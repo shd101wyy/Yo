@@ -83,7 +83,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../env.yo");
 // dup-on-store / move for owned fn-call args. utils.yo
 // imports nothing from calls/, so this is acyclic.
-{ set_expr_as_consumed, judge_capture_fnmut_at_fn_slot, deref_exempt_mark, deref_exempt_clear, binder_read_mark, binder_read_clear, variable_is_reference_binding, deref_rule_applies, is_reference_deref_site, reject_reference_without_deref, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, borrowed_place_read_only_handle, are_values_equal, require_expr_not_consumed, adopt_never_type, reject_bare_callable_into_dyn_fn, reject_bare_callable_result, bare_callable_recorded_into_dyn_fn, reject_second_class_escape, reject_second_class_return, require_capture_borrow_exclusivity, audit_copy_trait_enabled, audit_record_copy_trait, reject_write_through_rc, _owning_param_binding_for_capture_move, reference_field_read_type, reject_write_through_shared_reference_field, is_reference_read, projection_body_mismatch_message, lend_place_reference_type } :: import("../utils.yo");
+{ set_expr_as_consumed, judge_capture_fnmut_at_fn_slot, deref_exempt_mark, deref_exempt_clear, binder_read_mark, binder_read_clear, variable_is_reference_binding, deref_rule_applies, is_reference_deref_site, reject_reference_without_deref, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, borrowed_place_read_only_handle, are_values_equal, require_expr_not_consumed, adopt_never_type, reject_bare_callable_into_dyn_fn, reject_bare_callable_result, reject_second_class_escape, reject_second_class_return, require_capture_borrow_exclusivity, audit_copy_trait_enabled, audit_record_copy_trait, reject_write_through_rc, _owning_param_binding_for_capture_move, reference_field_read_type, reject_write_through_shared_reference_field, is_reference_read, projection_body_mismatch_message, lend_place_reference_type } :: import("../utils.yo");
 { function_may_mutate_rc_storage } :: import("../effects/mutation_summary.yo");
 { some_t_bounds, TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, no_levels, no_flags, SharedList, slot_pointee_at, t_slot_pointee, t_slot, t_slot_like, fn_param_is_mut_ref, fn_param_is_by_value, fn_param_mut_ref_flags, fn_param_by_value_flags, t_slot_with_pointee, fn_result_is_ref, fn_result_is_mut_ref, t_slot_origin_names, is_origin_kind, t_origin_kind, t_origin_named, t_reference_with_origin, fn_trait_base_serves, fn_trait_call_contract, fn_trait_slot_contract, t_slot_is_borrow } :: import("../../types/definitions.yo");
 { Token, TokenKind } :: import("../../token.yo");
@@ -166,7 +166,6 @@ pragma(Pragma.AllowUnsafe);
   note_borrowing_argument,
   type_head_name_for_impl_forcing,
   call_function_value_marker,
-  sync_mut_decl_census_untrusted,
   _clone_captured_variables
 } :: import("../context.yo");
 {
@@ -190,10 +189,6 @@ pragma(Pragma.AllowUnsafe);
   mark_by_value_param_share_dup,
   mark_moved_container_dup,
   expr_info_macro_expansion,
-  record_addr_of_site,
-  migrate_addr_of_on,
-  migrate_markers_on,
-  record_marker_site,
   expr_info_index_trait_ptr_type,
   note_lent_temporary,
   note_self_lend_operand,
@@ -859,17 +854,6 @@ _marker_place_of :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext) ->
     )
   )
 );
-/// The leftmost token of a place: where its marker is inserted.
-_place_leftmost_token :: (fn(e : &AstExpr) -> Token)(
-  match(
-    e,
-    .Atom(_, tok) => tok,
-    .FnCall(_, lt_callee, Rc(lt_args), _, _) => cond(
-      ast_expr_is_fn_call_of(e, ".", .Some(usize(2))) => recur(match(lt_args.get(usize(0)), .Some(b) => b, .None => make_err_expr())),
-      true => recur(&lt_callee)
-    )
-  )
-);
 /// Decision 33's mismatch error for a BARE argument (E0914): a named place
 /// passed bare to a `&T` parameter must be written `&x`, and to a `&mut T`
 /// parameter `&mut x`; a bare argument passes by value. `written_arg` is the
@@ -884,9 +868,6 @@ _place_leftmost_token :: (fn(e : &AstExpr) -> Token)(
 /// pointer value, and `&x` there is the `addr_of(x)` error). Ghost context
 /// (a contract predicate, a `ghost_fn` body) is exempt too: spec code never
 /// moves or writes, so it names parameters bare.
-///
-/// Under `yo fix --migrate markers` the site is recorded instead
-/// (`record_marker_site`), and the migration inserts the marker.
 check_call_site_borrow_marker :: (
   fn(
     written_arg : &AstExpr,
@@ -921,10 +902,6 @@ check_call_site_borrow_marker :: (
     _ => return(())
   );
   marker := if(param_is_ref, String.from("&mut "), String.from("&"));
-  if(migrate_markers_on(), {
-    record_marker_site(_place_leftmost_token(place_arg), ast_expr_to_string(place_arg), &marker);
-    return(());
-  });
   place_text := ast_place_text(place_arg);
   mode := if(param_is_ref, String.from("&mut"), String.from("&"));
   mode_ty := if(param_is_ref, String.from("&mut T"), String.from("&T"));
@@ -934,7 +911,7 @@ check_call_site_borrow_marker :: (
       with_code(
         format_error_message(
           ast_expr_token(place_arg),
-          `Parameter "${param_label}" is a \`${mode}\` borrow (\`${param_label} : ${mode_ty}\`): lend \`${place_text}\` with \`${marker}${place_text}\`. The call-site marker says what the call does to its argument: a bare \`${place_text}\` would pass it by value; \`${marker}${place_text}\` ${keeps}. \`yo fix <path> --migrate markers\` inserts the markers.`
+          `Parameter "${param_label}" is a \`${mode}\` borrow (\`${param_label} : ${mode_ty}\`): lend \`${place_text}\` with \`${marker}${place_text}\`. The call-site marker says what the call does to its argument: a bare \`${place_text}\` would pass it by value; \`${marker}${place_text}\` ${keeps}.`
         ),
         E_BORROW_MARKER_MISMATCH
       )
@@ -997,8 +974,7 @@ _check_reference_argument :: (fn(written_arg : &AstExpr, place_arg : &AstExpr, b
 /// too. A `&x` this function leaves in place (a receiver, a variadic
 /// position) reaches the evaluator, which rejects it naming `addr_of(x)`.
 /// There is no mismatch error for a BARE argument yet: a later step turns it
-/// on. Under `yo fix --migrate addr-of` a by-value or raw-pointer `&x` keeps
-/// its old address-of reading, so the recorder can rewrite it.
+/// on.
 ///
 /// `first_is_receiver`: argument 0 is a method-form call's receiver, which
 /// is exempt.
@@ -1166,10 +1142,6 @@ apply_call_site_borrow_markers :: (
             )
           );
         },
-        // `yo fix --migrate addr-of` evaluates old code: there a `&x` that
-        // does not lend keeps the address-of reading it had before decision 33
-        // took it away, so the recorder sees it.
-        ((p_is_owning || is_pointer_type(&p_ty)) && migrate_addr_of_on()) => (),
         // A raw-pointer parameter receives an address, whatever its mode.
         is_pointer_type(&p_ty) => {
           exn.throw(
@@ -1205,9 +1177,6 @@ apply_call_site_borrow_markers :: (
       );
     });
     if(peel, {
-      if(is_amp_marker && migrate_addr_of_on(), {
-        match(bare, .FnCall(_, lent_callee, _, _, _) => match(lent_callee, .Atom(_, lent_tok) => record_addr_of_site(&lent_tok, ast_expr_to_string(&bare), true), _ => ()), _ => ());
-      });
       place := ast_expr_strip_borrow_marker(&bare);
       // `&r` / `&mut r` over a bare name: on a reference binding it lends
       // `r`'s own storage (§7 P3), which the identifier evaluator decides.
@@ -2103,17 +2072,6 @@ ${ast_expr_to_string(&actual_arg)}`
     ),
     .None => ()
   );
-  // A site `yo fix --migrate dyn-spelling` recorded (Step 3c, instead of
-  // E0618) stands for the rewrite's `dyn(value)`, which takes the parameter's
-  // `Dyn` type from it. Synthesis (Step 6), the compatibility check (Step 8)
-  // and the binding (Step 9) see that type: a generic method's `T` slot
-  // (`ArrayList(Dyn(Fn() -> i32)).push(f)`) unified the `Dyn` with the bare
-  // callable's own type and stopped evaluation at the site, or bound `T` to a
-  // closure literal's capture struct
-  // (issues/fixed/yo-fix-migrate-dyn-spelling-stops-at-the-first-site-that-is-not-a-named-closure.md).
-  if(bare_callable_recorded_into_dyn_fn(&resolved_pt, &arg_type), {
-    arg_type = resolved_pt.clone();
-  });
   (arg_type_for_synth : TypeValue) = Rc.clone(arg_type);
   match(
     arg_value,
@@ -4056,11 +4014,6 @@ create_specialized_function_inline :: (
           // instantiation" (a nested call that must mint its own spec) — see
           // _impl_type_captures_sig.
           push_bindings_sig := _impl_type_captures_sig(original_func_val);
-          // A closure's body is generic when the body it is specialized in is.
-          spec_generic_body := cond(
-            is_closure_fn(func_id.clone()) => match(&prev_spec, .Some(ps) => ps.is_generic_body, .None => false),
-            true => ((forall_names.len() > usize(0)) || !push_bindings_sig.is_empty())
-          );
           spec_stack.push(
             SpecializingFunctionInfo(
               original_func_id : func_id.clone(),
@@ -4078,11 +4031,9 @@ create_specialized_function_inline :: (
               specialized_return_type : spec_ret_ty.clone(),
               original_func_value : original_func_val,
               impl_bindings_sig : push_bindings_sig,
-              is_concrete : _spec_bindings_are_concrete(&arg_values.forall_args, &runtime_param_tys),
-              is_generic_body : spec_generic_body
+              is_concrete : _spec_bindings_are_concrete(&arg_values.forall_args, &runtime_param_tys)
             )
           );
-          sync_mut_decl_census_untrusted(ctx);
           // Build a function-body evaluation context so explicit `return(...)`
           // statements inside the specialized body are legal — begin.yo gates
           // `return` on `is_evaluating_function_body_or_async_block` and throws
@@ -4922,9 +4873,7 @@ create_specialized_function_inline :: (
               if(sb_ret_is_ref && !has_any_control_flow(sb_info.control_flow()) && (get_all_some_types(&spec_ret_ty).len() == usize(0)) && (get_all_some_types(&sb_ty).len() == usize(0)) && !are_types_compatible(&sb_ty, &t_ptr(&spec_ret_ty)), {
                 exn.throw(dyn(format_error_message(ast_expr_token(&cloned_body), projection_body_mismatch_message(&spec_ret_ty, fn_result_is_mut_ref(&func_type), &sb_ty, &specialized_body, ctx))));
               });
-              // A tail `yo fix --migrate dyn-spelling` recorded stands for the
-              // rewrite's `dyn(value)`, which the result takes.
-              if(!sb_skip && !bare_callable_recorded_into_dyn_fn(&spec_ret_ty, &sb_ty) && !are_types_compatible(&sb_ty, &spec_ret_ty), {
+              if(!sb_skip && !are_types_compatible(&sb_ty, &spec_ret_ty), {
                 sb_inst := String.new();
                 (sbi : usize) = usize(0);
                 while((sbi < forall_names.len()) && (sbi < arg_values.forall_args.len()), {
@@ -4969,7 +4918,6 @@ create_specialized_function_inline :: (
           swap(&mut ctx.captured_variables, &mut prev_caps);
           ctx.is_evaluating_function_body_or_async_block = prev_fb;
           ctx.currently_specializing_function = prev_spec;
-          sync_mut_decl_census_untrusted(ctx);
           // Pop this specialization off the full stack (pushed at the set site above).
           spec_stack_r := match(
             &ctx.currently_specializing_function_stack,
@@ -5989,7 +5937,6 @@ create_specialization_at_call :: (
     trapped,
     .Some(err) => {
       ctx.currently_specializing_function = prev_spec;
-      sync_mut_decl_census_untrusted(ctx);
       // Taken out and stored back: a `match` binding is a copy of the stack
       // once collections are values.
       match(

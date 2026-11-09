@@ -353,11 +353,10 @@ Placement rules for `&` and `&mut`:
 - The deleted mode-word spellings `imm(x) : T`, `mut(x) : T`, `inout(x) : T`,
   `comptime(imm(x)) : T`, `-> imm(T)`, `imm(y) := place`, `mut(cur) = place`,
   the capture entries `imm(y)` / `mut(z) : &mut w` and `for(xs, mut(x) => ...)`
-  are error E0009 naming the sigil spelling;
-  `yo fix <path> --migrate borrow-spelling` rewrites them. `imm` is an
-  ordinary identifier.
-- `own(x)`, the older spelling of `sink(x)`, is error E0009 as well;
-  `yo fix <path> --migrate modes` rewrites it.
+  are error E0009 naming the sigil spelling. `imm` is an ordinary
+  identifier.
+- `own(x)`, the older spelling of `sink(x)`, is error E0009 as well. Older
+  code is upgraded on the last release that ships the migrations ([ERROR_DIAGNOSTICS.md](./ERROR_DIAGNOSTICS.md), "Retired migrations").
 - See [FLOWABILITY.md](./FLOWABILITY.md) for the semantics.
 
 At a call, a borrowed argument carries a marker that matches the parameter:

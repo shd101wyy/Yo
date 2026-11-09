@@ -104,7 +104,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../env.yo");
 { Token } :: import("../../token.yo");
 { some_t_bounds, TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, no_levels, no_flags, SharedList, slot_pointee_at, t_slot_pointee, t_slot_with_pointee, fn_param_mut_ref_flags, fn_param_by_value_flags, fn_result_is_ref, fn_result_is_mut_ref, t_slot_is_borrow } :: import("../../types/definitions.yo");
-{ t_unit, t_some_t, t_func_simple, t_ptr, generate_some_type_id, t_dyn_payload_wrapper } :: import("../../types/creators.yo");
+{ t_unit, t_some_t, t_func_simple, t_ptr, generate_some_type_id } :: import("../../types/creators.yo");
 {
   EvalValue,
   FuncValData,
@@ -153,7 +153,7 @@ pragma(Pragma.AllowUnsafe);
 { create_function_body_evaluation_context, hard_swallow_diagnostic, hard_swallow_diagnostic_in_generic_trial, forcing_depths, truncate_forcing_depths, publish_pending_member_phase_a, closure_literal_is_borrowed } :: import("../context.yo");
 { evaluated_body_contains_unwind } :: import("../../expr_traversal.yo");
 { get_all_some_types, type_is_control_bound, type_contains_rc_type, type_contains_some_type_deep, type_requires_explicit_copy, type_is_bitwise_copy, mark_fnmut_capture_struct } :: import("../../types/utils.yo");
-{ attach_temp_variable_to_expr, local_borrow_place_of, BorrowCaptureOuter, note_borrow_capture_outer, apply_capture_store_joins, judge_capture_fnmut_at_fn_slot, deref_exempt_mark, deref_exempt_clear, variable_is_reference_binding, deref_rule_applies, deref_rule_recording, reject_reference_without_deref, is_reference_deref_site, is_valid_variable_name, require_expr_not_consumed, set_expr_as_needs_to_call_dup, migrate_rc_clone_on, audit_pending_copies_enabled, reject_second_class_return, capture_place_crosses_cell, reject_bare_callable_result, reject_closure_literal_into_dyn_fn, bare_callable_recorded_into_dyn_fn, place_require_mut } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, local_borrow_place_of, BorrowCaptureOuter, note_borrow_capture_outer, apply_capture_store_joins, judge_capture_fnmut_at_fn_slot, deref_exempt_mark, deref_exempt_clear, variable_is_reference_binding, deref_rule_applies, deref_rule_recording, reject_reference_without_deref, is_reference_deref_site, is_valid_variable_name, require_expr_not_consumed, set_expr_as_needs_to_call_dup, reject_second_class_return, capture_place_crosses_cell, reject_bare_callable_result, reject_closure_literal_into_dyn_fn, place_require_mut, audit_copy_trait_enabled } :: import("../utils.yo");
 { CaptureBorrow, register_capture_borrows, type_is_second_class, fn_param_is_ptr_borrow, reject_origin_carrying_signature } :: import("../../types/utils.yo");
 { is_some_type, is_unit_type, is_void_type, is_never_type, is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_fn_trait_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -1105,17 +1105,7 @@ _evaluate_capture_list :: (
       });
       ev_val := evaluate_expression_raw(&init_e, env, ctx, exn);
       ctx.expected_type = saved_vexp;
-      // For the copy recorder (`migrate_rc_clone_on`): a shorthand entry `x`
-      // names the capture and its source together, so its clone spells
-      // `x : Rc.clone(x)`
-      // (issues/fixed/2026-10-21-explicit-copy-rewrites-a-capture-list-shorthand-into-an-unparseable-clone.md).
-      set_expr_as_needs_to_call_dup(
-        &ev_val,
-        ctx,
-        exn,
-        "field-store",
-        copy_capture_label : if(migrate_rc_clone_on() && _cap_entry_is_shorthand(&label_e, &init_e), Option(String).Some(label.clone()), Option(String).None)
-      );
+      set_expr_as_needs_to_call_dup(&ev_val, ctx, exn, "field-store");
       val_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ev_val)), .Some(vi) => Rc.clone(vi.ty()), .None => t_unit());
       // The field must OWN its reference. An owning temp is consumed by the
       // call above (the store moves it) and a move-only atom read moves at
@@ -1289,24 +1279,9 @@ evaluate_anonymous_function_implementation :: (
     exn.throw(dyn(format_error_message(&tok, String.from("A `->` function literal captures nothing, so it takes no capture list. Write the closure with `=>`: `{ x }(params) => body`."))));
   });
   // Decision 44: a closure or function literal in a `Dyn(Fn(...))` slot is
-  // `dyn(<literal>)` (E0618). Under `yo fix --migrate dyn-spelling` the site
-  // is recorded, and the literal is then evaluated exactly as the rewrite's
-  // `dyn(<literal>)` evaluates it: against the `Dyn`'s payload type variable
-  // (`t_dyn_payload_wrapper`), so a closure takes on that `Impl`-shaped type
-  // and flows on into the slot as a named closure does. Typed from the bare
-  // `fn(...)` of the `Dyn`'s `Fn` trait instead, a closure was a capture
-  // struct and a `->` literal a code pointer, neither of which the slot
-  // accepts, so evaluation stopped at the first literal
-  // (issues/fixed/yo-fix-migrate-dyn-spelling-stops-at-the-first-site-that-is-not-a-named-closure.md).
+  // `dyn(<literal>)` (E0618).
   if(match(&expected_ty, Rc(.DynT(_, _, _, _)) => extract_fn_trait_from_type(&expected_ty).is_some(), _ => false), {
     reject_closure_literal_into_dyn_fn(&expected_ty, expr, is_creating_closure, ctx, exn);
-    match(
-      t_dyn_payload_wrapper(&expected_ty, env.frames_len()),
-      .Some(ad_w) => {
-        expected_ty = ad_w;
-      },
-      .None => ()
-    );
   });
   // Resolve the concrete Func type to use for parameter/return information.
   // For Func expected types: use directly.
@@ -2421,12 +2396,12 @@ Result type: ${type_to_string(&decl_result_ty)}`
       clear_hollow_body_error(&hb_site);
     });
     // An `FnOnce` capture-list body owns its by-value captures (decision 37),
-    // so `audit_record_implicit_copy` held its copies of one pending on the
+    // so `YO_AUDIT_COPY_TRAIT` held its copies of one pending on the
     // capture. Judge them here, against the body's evaluated statements: a
     // capture read again after the copy is a copy, the last use a move —
     // the same judgment a match arm's bindings get (`_judge_arm_copies`,
     // exprs/match.yo). The capture frame is popped only far below.
-    if(closure_owns_captures && audit_pending_copies_enabled(), {
+    if(closure_owns_captures && audit_copy_trait_enabled(), {
       match(
         cap_frame_idx,
         .Some(jcfi) => match(
@@ -2567,9 +2542,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
               reject_second_class_return(&cr_body_ty, ast_expr_token(&anon_eb), env, ctx, exn);
             });
             cr_skip := (has_any_control_flow(cr_info.control_flow()) || is_void_type(&cr_ret_ty) || is_type_hierarchy_type(&cr_ret_ty) || (get_all_some_types(&cr_ret_ty).len() > usize(0)) || (get_all_some_types(&cr_body_ty).len() > usize(0)));
-            // A tail `yo fix --migrate dyn-spelling` recorded stands for the
-            // rewrite's `dyn(value)`, which the result takes.
-            if(!cr_skip && !bare_callable_recorded_into_dyn_fn(&cr_ret_ty, &cr_body_ty) && !are_types_compatible(&cr_body_ty, &cr_ret_ty), {
+            if(!cr_skip && !are_types_compatible(&cr_body_ty, &cr_ret_ty), {
               cr_hint := cond(
                 is_unit_type(&cr_body_ty) => String.from(" A `{ ... }` block whose last statement ends with `;` has the value `()` — remove the semicolon after the tail expression, or return the value explicitly."),
                 true => String.new()

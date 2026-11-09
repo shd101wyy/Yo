@@ -39,7 +39,7 @@
 { suggest_name, lookup_std_exporters, Span, E_VARIABLE_NOT_FOUND } :: import("../../diagnostics.yo");
 { Exception } :: import("std/error");
 { debug_knob, is_temp_variable_name } :: import("../../utils.yo");
-{ use_of_moved_value_error, migrate_borrowed_match_at, check_capture_freeze_access, local_borrow_take_receiver, local_borrows_active, local_borrow_access, local_borrow_place_of_variable, LocalBorrowAccess, deref_exempt_take, is_reference_deref_site, variable_is_reference_binding, deref_rule_applies, reject_reference_without_deref, variable_is_mut_borrow, binder_read_take, reference_read_wanted, reference_binding_read_type, note_reference_read, deref_rule_recording } :: import("../utils.yo");
+{ use_of_moved_value_error, check_capture_freeze_access, local_borrow_take_receiver, local_borrows_active, local_borrow_access, local_borrow_place_of_variable, LocalBorrowAccess, deref_exempt_take, is_reference_deref_site, variable_is_reference_binding, deref_rule_applies, reject_reference_without_deref, variable_is_mut_borrow, binder_read_take, reference_read_wanted, reference_binding_read_type, note_reference_read, deref_rule_recording } :: import("../utils.yo");
 (g_audit_reference_read : bool) = debug_knob(`YO_AUDIT_REFERENCE_READ`).is_some();
 (g_audit_reference_mode : bool) = debug_knob(`YO_AUDIT_VARIABLE_TY`).is_some();
 { raise_flow_violation } :: import("../../types/flowability.yo");
@@ -372,14 +372,13 @@ evaluate_identifier_and_operator :: (
         // constructor is the one fix, so rewriting the token (`rc` →
         // `Rc.new`) is the repair, over any rename or import candidate. The
         // repair cannot print a type argument, so a closure or `.None`
-        // argument then meets E0613's written-arguments help; v0.2.73's
-        // `--migrate handle-ctors` writes it.
+        // argument then meets E0613's written-arguments help.
         (mut(not_found_repair_label) : Option(String)) = Option(String).None;
         match(
           _deleted_handle_ctor(&identifier_string),
           .Some(ctor) => {
             not_found_help = Option(String).Some(
-              `\`${identifier_string}(x)\` is \`${ctor}(x)\`: the prelude's \`rc\`, \`box\` and \`arc\` were removed (static-argument inference). Or run \`yo fix <path> --migrate handle-ctors\` with yo v0.2.73, which also writes the type argument a closure or \`.None\` argument needs (\`Rc(T).new(...)\`).`
+              `\`${identifier_string}(x)\` is \`${ctor}(x)\`: the prelude's \`rc\`, \`box\` and \`arc\` were removed (static-argument inference). A closure or \`.None\` argument also needs the type argument written: \`Rc(T).new(...)\`.`
             );
             not_found_repair = Option(String).Some(ctor.clone());
             not_found_repair_label = Option(String).Some(`rewrite \`${identifier_string}\` to \`${ctor}\``);
@@ -467,7 +466,7 @@ evaluate_identifier_and_operator :: (
     variable.consumed_at_token(),
     .Some(moved_at) => {
       same_site := ((moved_at.row == token.row) && ((moved_at.column == token.column) && (moved_at.module_path == token.module_path)));
-      if(!same_site && _read_after_move_is_checked(&variable, &token, env) && !migrate_borrowed_match_at(&moved_at), {
+      if(!same_site && _read_after_move_is_checked(&variable, &token, env), {
         // Through the flow-violation channel, so a definition-time trial
         // (a closure or `io.async` body) re-raises it instead of swallowing
         // it into an abort stub.

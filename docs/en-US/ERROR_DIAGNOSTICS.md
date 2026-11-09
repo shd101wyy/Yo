@@ -96,127 +96,40 @@ The repairs the compiler computes today:
 | E0401 on `rc`/`box`/`arc`, the prelude builtins static-argument inference B3 deleted | rewrite the name to the handle's constructor (`rc` → `Rc.new`, `box` → `Box.new`, `arc` → `Arc.new`); a closure or `.None` argument then needs its type written, E0613 |
 | E0401 name not found, exported by exactly one std module | insert `{ name } :: import("std/…");` above the first non-comment line (the help names the module; two exporting modules, or a rename candidate as well, give help only) |
 | E0007 `{ f(x) }` — one expression between braces, no `;` | insert `;` before the `}` (two or more comma-separated items give the message only) |
-| E0618 a named callable passed bare into a `Dyn(Fn(...))` slot | wrap the name: `run(f)` → `run(dyn(f))` (a longer value gives help only; `--migrate dyn-spelling` wraps it) |
+| E0618 a named callable passed bare into a `Dyn(Fn(...))` slot | wrap the name: `run(f)` → `run(dyn(f))` (a longer value gives help only) |
 
-`yo fix <path> --migrate <name>` runs a migration rather than a repair, for
-the parameter-convention change (VALUES_BY_DEFAULT V3b) and the borrow
-spelling (decision 42):
+`yo fix <path> --migrate deref` runs a migration rather than a repair, for
+decision 43 step 2 (N1e-1): outside std and the compiler's own source, a
+reference binding reads and writes the value it refers to with `.*`. It
+evaluates every file with E0926 recording instead of rejecting, and appends
+`.*` where a reference is read or written as a whole value (`n + 1` →
+`n.* + 1`, `r = v` → `r.* = v`, `&r` → `&r.*`), turns `v.*` into `v.*.*`
+where `v.*` meant the `Box`/`Rc`/pointer deref through a reference, labels a
+capture-list pun (`{ r }` → `{ r : r.* }`), and drops the redundant marker of
+`match(&r, …)`. A site whose source text no longer prints as the evaluated
+expression on one line, or a copy whose referent is not implicitly copyable
+(`r.*` would be E0901 there), is listed with its position and left as
+written. A second run records nothing.
 
-- `--migrate borrow-spelling` rewrites every borrow spelled with a mode word
-  to the sigil spelling: `imm(x) : T` becomes `x : &T` and `mut(x) : T`
-  becomes `x : &mut T` (parameters, receivers, closure parameters, `Fn(...)`
-  slots), `comptime(imm(x)) : T` becomes `comptime(x) : &T`, a local borrow
-  `mut(y) := place` becomes `y := &mut place`, a re-point `mut(cur) = place`
-  becomes `cur = &mut place`, the capture puns `{ imm(y), mut(z) }` become
-  `{ &y, &mut z }`, and `for(xs, mut(x) => …)` becomes `for(&mut xs, x => …)`.
-  The compiler rejects the mode words (E0009), and each meant exactly the
-  sigil spelling. It only parses each file, so it reaches macro arguments,
-  `quote(...)` templates and generic bodies too; a mode word in a position no
-  rule covers is listed with its position and left as written. `inout(x) : T`,
-  the spelling before `mut`, becomes `x : &mut T` as well.
-- `--migrate modes` rewrites the deleted `own(x)` parameter to `sink(x)`
-  (E0009 rejects `own`). It only parses each file, so it also reaches code
-  evaluation never sees (macro arguments, `quote(...)` templates, test
-  bodies).
-- `--migrate addr-of` rewrites each `&x` that was the raw-pointer address-of
-  to `addr_of(x)`. It evaluates every file, because only the evaluator knows
-  which `&x` is a borrow (`show(&s)` to a `&T` parameter stays) and which is
-  the address-of (a binding, a raw-pointer, by-value or variadic argument, a
-  receiver). A site evaluation never reaches, or whose text no longer matches,
-  is listed with its position and left as written.
-- `--migrate params` runs on files that already evaluate: a plain parameter
-  whose type is not `Copy` becomes a `&T` borrow, which is what a plain
-  parameter meant before the flip. A generic parameter becomes a `&T` borrow
-  unless its `where` bounds make it `Copy`. It writes `x : &T`.
-- `--migrate markers` inserts the call-site borrow markers: `&x` before a
-  bare named place (a variable, a field path, an element `xs(i)`) passed to a
-  `&T` parameter, and `&mut x` before one passed to a `&mut T` parameter. It
-  evaluates every file, because only the evaluator knows a parameter's mode;
-  receivers, temporaries, operator operands, by-value and compile-time
-  parameters, a borrow binding passed whole and ghost code (contract
-  predicates, `ghost_fn` bodies) stay bare. A missing marker is E0914, always
-  on, std included.
+The migration reaches only what evaluation reaches, so two options widen
+it. `yo fix ./std ./tests --migrate deref` evaluates several paths in one
+session: a generic `std` body is evaluated when a test instantiates it.
+Without `--target`, a file whose platform-gated `cond` leaves an arm the host
+does not evaluate is evaluated again for every other supported architecture
+and OS, and a position two targets read differently is listed and left as
+written; `--target <triple>` evaluates for that one target, as
+`compile --target` does. A file that does not evaluate keeps what evaluation
+never reached, and `fix` exits non-zero naming it.
 
-The semantic migrations reach only what evaluation reaches, so two options
-widen it. `yo fix ./std ./tests --migrate markers` evaluates several paths
-in one session: a generic `std` body is evaluated when a test instantiates
-it, and its sites are rewritten because `std` is among the paths.
-`--target <triple>` evaluates for that target, as `compile --target` does,
-so a `cond(platform == ...)` arm for another platform is migrated too.
-
-None of them changes what a program does. A file that does not evaluate keeps
-what evaluation never reached, and `fix` exits non-zero naming it.
-
-`yo fix <path> --migrate match-scrutinee` is the migration for decision 26,
-under which a `match` takes an owned scrutinee by value. It evaluates each file
-with the new rule and writes `&` before a scrutinee wherever the move would be
-an error: an owned local used after the `match` (`match(x, …)` →
-`match(&x, …)`), a module-level binding, a closure capture, and a field, element
-or dereference (`match(x.f, …)` → `match(&x.f, …)`). It leaves the argument of a
-`comptime_expect_error` alone, since that error is the point. A second run
-records nothing.
-
-`yo fix <path> --migrate drop-trait` is the migration for decision 45, which
-renamed the destructor trait `Dispose` to `Drop` (its method `dispose` to
-`drop`) and made an explicit destructor call E0915. `Dispose` becomes `Drop`
-wherever it is an identifier (an `impl` entry, a `<:` bound or witness, an
-import), the impl entry's `dispose :` label and every `.dispose` member that
-resolves to the destructor become `drop`, a written receiver `dispose : (fn(self :
-&Self)` becomes `drop : (fn(self : &mut Self)` (`Drop.drop` takes `&mut Self`,
-as Rust's `drop(&mut self)`; also in a `Dispose :: trait(...)` definition), and an explicit call that ends a named value,
-`x.dispose()` or `(T <: Dispose).dispose(&x)`, becomes `drop(x)`. That last row
-does change the program: `drop(x)` moves `x` in, so a later use of `x` is E0901
-and `check` says where. Any other explicit call (`self.dispose()`, a field's
-`s.f.dispose()`) is renamed, listed with its position and left for a hand edit:
-a destructor never calls a field's destructor (the fields drop after it
-returns), and a resource that must be released while other references live
-gets an ordinary method, such as `TcpStream.close_sync()`. The names are
-rewritten from the parse, but a `.dispose` member may also be an inherent
-method, another trait's method or a field, so the migration first evaluates
-each file and rewrites only the members that resolve to the destructor; any
-other `.dispose` member (or one in code evaluation never reached) is listed
-and left as written. An inherent method named `dispose`
-(`impl(T, dispose : ...)`) is listed for a hand edit too: the old compiler ran
-a method of that name as a reference type's destructor, and only a `Drop`
-impl's `drop` runs now, so move its body into a `Drop(drop : (fn(self : &mut
-Self) -> unit)(...))` entry.
-
-`yo fix <path> --migrate dyn-spelling` is the migration for decision 44, under
-which every erasure into a `Dyn` is spelled. It evaluates each file and wraps
-each callable passed bare into a `Dyn(Fn(...))` binding, field, argument or
-result in `dyn(...)`: a named closure, a named `fn`, an `Impl(Fn(...))`
-parameter, a closure literal (`run(f)` → `run(dyn(f))`, `S(cb : f)` →
-`S(cb : dyn(f))`, a body ending in `g` → `dyn(g)`). The rejection it stands
-in for is E0618. A value whose text no longer prints as the evaluated
-expression on one line is listed with its position and left as written.
-
-`yo fix <path> --migrate handle-ctors` moves the prelude's handle builtins to
-the handles' constructors (static-argument inference, Generation B):
-`rc(x)` → `Rc.new(x)`, `box(x)` → `Box.new(x)`, `arc(x)` → `Arc.new(x)`, with
-the arguments, `alloc :` included, kept as written. It evaluates each file and
-rewrites only the calls whose name resolves to the prelude's function, so a
-parameter or local named `rc` stays. Where inference does not read the value
-argument (an enum shorthand such as `.None`, a closure literal outside
-`dyn(...)`, a `dyn(...)` value, a number literal the old call typed from its context) it writes
-the type argument the old call bound: `(o : Rc(Option(i32))) = rc(.None)`
-becomes `Rc(Option(i32)).new(.None)`. A site that needs the type argument but
-sits in a generic body, or whose type has no spelling (a closure's, a
-`Dyn`'s), is listed with its position and left as written. Static-argument
-inference B3 (v0.2.74) deleted the builtins, so only v0.2.73's mode can type
-an old call; with a later compiler a call of `rc`/`box`/`arc` is E0401, whose
-repair rewrites the name (`rc` → `Rc.new`) and keeps the arguments.
-
-`yo fix <path> --migrate mutable-globals` is the migration for decision 47,
-under which a module-level or `thread_local` runtime binding is immutable
-(Rust's `static`) unless its name is wrapped in `mut(...)` (`static mut`).
-Writing an immutable global is E0917: reassigning it, writing a field or
+A module-level or `thread_local` runtime binding is immutable (Rust's
+`static`) unless its name is wrapped in `mut(...)` (`static mut`, decision
+47). Writing an immutable global is E0917: reassigning it, writing a field or
 element of a value it holds, lending a place of that value as `&mut`, or
 calling a `&mut self` method on it. A write through a `ref` handle the global
 holds (`g.push(x)` on an `ArrayList`, `h.name = …` on a `ref(struct)`) is not
 a write of the binding and needs no marker; only reassigning the binding does.
-The migration evaluates each file and wraps the declared name of every global
-written this way: `G := v` becomes `mut(G) := v`, `(G : T) = v` becomes
-`(mut(G) : T) = v`, and `thread_local(G)` becomes `thread_local(mut(G))`.
+The marker goes on the declared name: `mut(G) := v`, `(mut(G) : T) = v`,
+`thread_local(mut(G))`.
 
 The marker is what decision 18 rule 3 reads: lending a `mut(...)` global, or a
 place under it, to a call (a `&`/`&mut` argument, a borrowed receiver, an
@@ -231,37 +144,22 @@ is lent freely. A global holding a `ref` handle adds two conflicts, each
 reported wherever the compiler sees the second site: a lend into the storage
 behind it (`&g(i)`) is E0916 when a `&mut self` method is called on it
 anywhere, and a lend of a field written through it (`&h.name` after
-`h.name = …`) is E0916 too. The migration marks declarations only; check the
-migrated files and rewrite each E0916 it reports. Both errors apply
-everywhere, `std` and the compiler's own sources included.
+`h.name = …`) is E0916 too. Both errors apply everywhere, `std` and the
+compiler's own sources included.
 
-`yo fix <path> --migrate mut-bindings` is the migration for decision 47's
-second step, which applies the same rule below module level: a local, a
-pattern or destructuring binding and a compile-time binding (`x :: v`,
+Decision 47's second step applies the same rule below module level: a local,
+a pattern or destructuring binding and a compile-time binding (`x :: v`,
 `comptime(x) := v`) are immutable unless the name is wrapped in `mut(...)`.
 Writing an unmarked one is E0917, for the same four writes (a reassignment, a
 field or element write of its value, a `&mut` lend of a place of it, including
 `y := &mut x`, a `&mut` match scrutinee and a `&mut` capture, and a `&mut self`
-call on it). The migration evaluates each file and wraps the declared name of
-every binding written this way: `x := v` becomes `mut(x) := v`, `(x : T) = v`
-becomes `(mut(x) : T) = v`, `x :: v` becomes `mut(x) :: v`, `comptime(x)`
-becomes `comptime(mut(x))`, `.Some(v)` becomes `.Some(mut(v))`, and
-`{ a, b }` becomes `{ a, mut(b) }`. A local's writes are all inside its
-function, so the inference is sound. A parameter takes no marker: each write
-of one is listed with its position, to rebind by hand (`mut(p_m) := p;`).
-Writes inside a `comptime_expect_error` argument are the error that case
-expects and are left alone. `YO_AUDIT_MUT_BINDINGS=1` prints every write of a
-binding below module level (`[mut-binding] how=… kind=… marked=yes|no`)
-without rejecting it. In this release E0917 for these bindings applies
-everywhere except the compiler's own sources (and the repository's scripts and
-build file); `std` is migrated and checked too.
-
-Run the two in phase order on code older than decision 42: in such code
-`mut(z) := x` is the deleted local-borrow spelling, so
-`--migrate borrow-spelling` must rewrite it to `z := &mut x` before
-`--migrate mut-bindings` adds markers. Never run borrow-spelling on code that
-already spells decision 47's `mut(x) := v`: it would turn each mutable local
-into a borrow.
+call on it), and `yo fix <path>` repairs it by wrapping the declared name:
+`x := v` becomes `mut(x) := v`, `(x : T) = v` becomes `(mut(x) : T) = v`,
+`x :: v` becomes `mut(x) :: v`, `comptime(x)` becomes `comptime(mut(x))`,
+`.Some(v)` becomes `.Some(mut(v))`, and `{ a, b }` becomes `{ a, mut(b) }`. A
+parameter takes no marker: rebind it by hand (`mut(p_m) := p;`).
+`YO_AUDIT_MUT_BINDINGS=1` prints every write of a binding below module level
+(`[mut-binding] how=… kind=… marked=yes|no`) without rejecting it.
 
 A write through an `Rc` handle is E0919: an assignment to `h.*` or to a place
 under it (`h.n = v`, `h.items(i) = v`), a `&mut` argument (`bump(&mut h.n)`),
@@ -273,54 +171,47 @@ written goes through a door instead, and the error names them: an
 (`std/sync/refcell`); `Rc.make_mut(&mut h)`, which moves `h` to a fresh cell
 first when the cell is shared (`T <: Clone`); `Rc.try_unwrap(h)`, the payload
 out of the only handle; a uniquely owned value or `Box(T)`; and
-`Arc(Mutex(T))` or atomics across threads. There is no `yo fix` migration:
-which door fits depends on why the state is shared.
-
-`yo fix <path> --migrate rc-clone` spells decision 17's counted-handle copies.
-Copying an `Rc` or `Arc` needs `.clone()`, as in Rust: a second handle is a new
-owner, so an implicit copy of a handle, or of a value holding one, whose source
-is used again is E0901, and a handle's last use moves it. The migration
-evaluates each file with that rule suspended and writes the copies it would
-reject: `Rc.clone(h)` / `Arc.clone(h)` for a handle (through the type, so a
-payload's own `clone` never answers, decision 32), `e.clone()` for a value
-holding one, `{ h : Rc.clone(h) }` for a capture list's shorthand entry. A
-closure that captures a handle implicitly while its source is read again gets
-a capture list naming every value it captures, the handle as
-`h : Rc.clone(h)` (a capture list is exhaustive). `Rc.clone` is the count bump
-the implicit copy made, so no sharing guard applies. Left as
-written and listed: a value holding a handle whose type is not `Clone` (give
-it `derive(T, Clone)`), a copy in a generic body (where the copied value may
-be a type parameter), a position copied at two
-spellings, a site whose source text does not print as the evaluated
-expression, a closure whose parameter list is not found, and a `test(...)`
-body that does not evaluate. A copy inside a generic body where the handle is
-a type parameter (`ArrayList(Rc(T)).get(i)` copies a `T`) is not judged by the
-rule.
+`Arc(Mutex(T))` or atomics across threads. Which door fits depends on why the
+state is shared, so there is no repair.
 
 #### Retired migrations
 
-A migration whose subject a values-by-default flip turns into E0901 retires
-with that flip: once the copy it rewrote is an error, the error's help names
-the same rewrite. These modes are gone from `yo fix`; the release that last
-shipped each one still runs it.
-
-| Migration | What it rewrote | Last shipped |
-| --- | --- | --- |
-| `explicit-copy` (with the `YO_AUDIT_IMPLICIT_COPY` listing) | a copy of a `String`, a collection or a value holding one whose source is used again, to `.clone()` | v0.2.73 |
-| `cloned-accessors` (with the `YO_AUDIT_COPYING_ACCESSOR` listing and `--hot-path`) | a copying accessor call whose result holds a `String` or a collection, `r.get(i)` to `r.get_cloned(i)` | v0.2.73 |
-
-Both retired with the `BTreeMap` flip (v0.2.74). To migrate code written
-against an older std, run them on v0.2.73 in phase order, then step up:
+Each `yo fix --migrate <name>` existed to carry code across one change of the
+language, and is retired once the code we own is across. The errors stay hard
+errors, with help that names the fix, and the per-diagnostic repairs above
+stay. To upgrade code written before a change, install the release that last
+shipped its migration, run it there, and step to the next release:
 
 ```sh
-yo version install 0.2.73
-yo fix <path> --migrate explicit-copy
-yo fix <path> --migrate cloned-accessors
-yo fix <path> --migrate rc-clone
+yo version install 0.2.76
+yo fix <path> --migrate borrow-spelling
 ```
 
-then pin v0.2.74 and fix what is left by E0901's help (`.clone()`,
-`get_cloned(i)`, a borrow or a move).
+| Migration | What it rewrote | Error it stood for | Last shipped |
+| --- | --- | --- | --- |
+| `explicit-copy` (with the `YO_AUDIT_IMPLICIT_COPY` listing) | a copy of a `String`, a collection or a value holding one whose source is used again, to `.clone()` | E0901 | v0.2.73 |
+| `cloned-accessors` (with the `YO_AUDIT_COPYING_ACCESSOR` listing and `--hot-path`) | a copying accessor call whose result holds a `String` or a collection, `r.get(i)` to `r.get_cloned(i)` | E0901 | v0.2.73 |
+| `handle-ctors` | the prelude's `rc(x)`/`box(x)`/`arc(x)` to `Rc.new(x)`/`Box.new(x)`/`Arc.new(x)`, with the type argument a closure or `.None` argument needs | E0401 (its repair rewrites the name) | v0.2.73 (later releases carry the mode, but v0.2.74 deleted the builtins, so only v0.2.73 can type an old call) |
+| `modes` | the deleted `own(x)` parameter to `sink(x)` | E0009 | v0.2.76 |
+| `params` | a plain parameter whose type is not `Copy` to `x : &T`, what it meant before the by-value flip | E0901 | v0.2.76 |
+| `addr-of` | a `&x` that was the raw-pointer address-of to `addr_of(x)` | E0914 | v0.2.76 |
+| `markers` | a bare named place passed to a `&T`/`&mut T` parameter to `&x`/`&mut x` | E0914 | v0.2.76 |
+| `match-scrutinee` | `match(x, …)` to `match(&x, …)` where moving the scrutinee is an error (decision 26) | E0901 | v0.2.76 |
+| `borrow-spelling` | the mode words to the sigils: `imm(x) : T` to `x : &T`, `mut(x) : T` to `x : &mut T`, `mut(y) := p` to `y := &mut p`, `for(xs, mut(x) => …)` to `for(&mut xs, x => …)` (decision 42) | E0009 | v0.2.76 |
+| `drop-trait` | `Dispose`/`dispose` to `Drop`/`drop`, and `x.dispose()` to `drop(x)` (decision 45) | E0915 | v0.2.76 |
+| `rc-pattern` | a pattern `p` at an `Rc(T)` position to `Rc(p)` (decision 31) | E0609 | v0.2.76 |
+| `dyn-spelling` | a callable passed bare into a `Dyn(Fn(...))` slot to `dyn(f)` (decision 44) | E0618 | v0.2.76 |
+| `mutable-globals` | `mut(G)` on every module-level binding the program writes (decision 47) | E0917 | v0.2.76 |
+| `mut-bindings` | `mut(x)` on every local, pattern and compile-time binding the program writes (decision 47 step 2) | E0917 | v0.2.76 |
+| `rc-clone` | `Rc.clone(h)`/`Arc.clone(h)`/`e.clone()` on an implicit copy of a counted handle whose source is used again, and a capture list on a closure that captures one (decision 17) | E0901 | v0.2.76 |
+
+Run them in phase order. Code older than decision 42 runs
+`borrow-spelling` before `mut-bindings`: there `mut(z) := x` is the deleted
+local-borrow spelling, and `mut-bindings` would read it as a mutable local.
+Never run `borrow-spelling` on code that already spells decision 47's
+`mut(x) := v`. The copy migrations run on v0.2.73 in their own order,
+`explicit-copy`, `cloned-accessors`, then `rc-clone`, before pinning v0.2.74.
+`yo fix --migrate deref` is the one mode this release still ships.
 
 ## Warnings
 

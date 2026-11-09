@@ -17,7 +17,7 @@
 { trial_flag_get, trial_flag_set, t_unit, t_ptr, type_binding_name } :: import("../types/creators.yo");
 { note_move_only_possible, is_drop_trait_name } :: import("../types/utils.yo");
 { EvalValue } :: import("../value.yo");
-{ Environment, make_environment, Variable, Frame, _frame_first_position, snapshot_env, add_variable_to_env, get_variables_from_frame, invalidate_frame_index, new_frame, value_cell_of, set_mut_decl_census_untrusted, variable_value_type, variable_set_value_type } :: import("../env.yo");
+{ Environment, make_environment, Variable, Frame, _frame_first_position, snapshot_env, add_variable_to_env, get_variables_from_frame, invalidate_frame_index, new_frame, value_cell_of, variable_value_type, variable_set_value_type } :: import("../env.yo");
 {
   AstExpr,
   ExprId,
@@ -227,22 +227,9 @@ SpecializingFunctionInfo :: struct(
   /// concrete code: an operator on a `unit` operand with no impl is an
   /// error there, not the placeholder a generic trial's degraded operand
   /// leaves.
-  (is_concrete : bool) ?= false,
-  /// The body is generic: the function has `generic`/`comptime` parameters,
-  /// is a generic impl's method, or is a closure specialized inside such a
-  /// body. `yo fix --migrate rc-clone` lists a copy made there, which one
-  /// run sees at one instantiation of many.
-  (is_generic_body : bool) ?= false
+  (is_concrete : bool) ?= false
 );
 derive(SpecializingFunctionInfo, Clone);
-/// Point the `--migrate mut-bindings` declaration census at the
-/// specialization `ctx` is in: it records nothing inside a generic body's
-/// specialization (`set_mut_decl_census_untrusted`, env.yo). Called wherever
-/// `ctx.currently_specializing_function` is entered or restored, so an
-/// unwound specialization cannot leave it set.
-sync_mut_decl_census_untrusted :: (fn(ctx : &EvalContext) -> unit)({
-  set_mut_decl_census_untrusted(match(&ctx.currently_specializing_function, .Some(s) => s.is_generic_body, .None => false));
-});
 // ---------------------------------------------------------------------------
 // Impl concrete-type return tracking
 // ---------------------------------------------------------------------------
@@ -360,8 +347,7 @@ EvalContext :: (
     /// carries an explicit capture list, so it OWNS its by-value captures
     /// (plans/VALUES_BY_DEFAULT.md decision 37): a copy of one inside the
     /// body is judged by liveness at the body's end — read again is a copy,
-    /// the last use a move (the copy recorder, `migrate_rc_clone_on`;
-    /// `audit_record_implicit_copy`).
+    /// the last use a move (`YO_AUDIT_COPY_TRAIT`'s copy tables).
     (captures_owned_by_body : bool) ?= false,
     /// The innermost loop body being evaluated.
     is_evaluating_loop_body : Option(LoopBodyCtx),
@@ -3858,7 +3844,6 @@ export(
   CaptureUsage,
   CapturedVarInfo,
   SpecializingFunctionInfo,
-  sync_mut_decl_census_untrusted,
   ImplConcreteTypeInfo,
   CalledComptimeFnCache,
   ComptimeFnCacheEntry,

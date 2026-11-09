@@ -4,6 +4,8 @@
 unmigrated. The sweep reports them, but the report reads like an ordinary
 evaluation failure, and the misses surface only on CI's Z3 job.
 
+**Status:** RETIRED 2026-11-09 — retired with the mode (`vbd/retire-migrations`: every `yo fix --migrate` mode but `deref` was deleted after v0.2.76, the last release that ships it).
+
 > Found 2026-10-12 fixing develop's Formal-verification job after #1318.
 
 ## Observed

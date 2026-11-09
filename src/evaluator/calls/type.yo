@@ -52,7 +52,7 @@ pragma(Pragma.AllowUnsafe);
 { is_std_module_path } :: import("../memory_safety.yo");
 { EvalValue, value_to_string } :: import("../../value.yo");
 { TypeField } :: import("../types/field.yo");
-{ set_expr_as_needs_to_call_dup, reject_second_class_escape, reject_bare_callable_into_dyn_fn, bare_callable_recorded_into_dyn_fn, is_reference_read, variable_is_reference_binding, deref_rule_applies, is_reference_deref_site, reject_reference_without_deref, lend_place_reference_type, deref_rule_recording } :: import("../utils.yo");
+{ set_expr_as_needs_to_call_dup, reject_second_class_escape, reject_bare_callable_into_dyn_fn, is_reference_read, variable_is_reference_binding, deref_rule_applies, is_reference_deref_site, reject_reference_without_deref, lend_place_reference_type, deref_rule_recording } :: import("../utils.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
 { format_error_message, with_code } :: import("../../error.yo");
 { E_INCOMPATIBLE_TYPES, E_ARGUMENT_COUNT_MISMATCH, E_BORROW_MARKER_MISMATCH } :: import("../../diagnostics.yo");
@@ -417,9 +417,8 @@ try_to_call_type_with_arguments :: (
       },
       .None => ()
     );
-    // Type compatibility check. A site `yo fix --migrate dyn-spelling`
-    // recorded stands for the rewrite's `dyn(value)`, which the field takes.
-    if(!bare_callable_recorded_into_dyn_fn(&member_element.ty, &arg_info.ty()) && !are_types_compatible(&arg_type, &member_element.ty), {
+    // Type compatibility check.
+    if(!are_types_compatible(&arg_type, &member_element.ty), {
       if(in_def_time_trial() && debug_knob(`YO_DEBUG_CTFE`).is_some(), {
         eprintln(
           `[tycall-mismatch] label=${member_element.label} expected=${type_to_string(&member_element.ty)} got=${type_to_string(&arg_type)} argval=${match(arg_info.value(), .Some(av) => value_to_string(&av), .None => String.from("<none>"))}`
