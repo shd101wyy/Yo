@@ -9294,6 +9294,13 @@ _lend_through_slots :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalConte
 lend_through :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
   op_args := _lend_through_args(call, ctx);
   slots := match(_lend_through_slots(call, env, ctx), .Some(sl) => sl, .None => return(()));
+  if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
+    (di : usize) = usize(0);
+    while(di < op_args.len(), {
+      eprintln(`[n2b] lend-through arg ${di.to_string()}: ${match(op_args.get(di), .Some(da) => ast_expr_to_string(&da), .None => String.from("-"))} slot ${match(slots.get(di), .Some(ds) => type_to_string(&ds), .None => String.from("-"))}`);
+      di = (di + usize(1));
+    });
+  });
   // 1. The origin parameters a `&mut` argument fixes, with the argument.
   fixed_names := ArrayList(String).new();
   fixed_sets := ArrayList(SharedList(String)).new();
