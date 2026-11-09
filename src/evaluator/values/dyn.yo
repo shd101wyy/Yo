@@ -9,7 +9,7 @@ pragma(Pragma.AllowUnsafe);
 { replace } :: import("std/mem");
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr, ast_expr_token, ast_expr_id, alloc_global_expr_id, ast_expr_is_fn_call_of, BF_DOT, BK_BORROW_MUT, BF_ADDRESS_OF, ast_rewritten_node, note_rewritten_node } :: import("../../expr.yo");
+{ AstExpr, ast_expr_token, ast_expr_id, alloc_global_expr_id, ast_expr_is_fn_call_of, ast_expr_is_atom, BF_DOT, BK_BORROW_MUT, BF_ADDRESS_OF, ast_rewritten_node, note_rewritten_node } :: import("../../expr.yo");
 {
   ExprInfo,
   new_expr_info,
@@ -1324,6 +1324,39 @@ _dyn_pointee_of_expected :: (fn(t : &TypeValue) -> Option(TypeValue))({
     _ => if(is_dyn_type(&r), Option(TypeValue).Some(Rc.clone(&r)), Option(TypeValue).None)
   )
 });
+/// `dyn(Box.new(v[, alloc]))` builds the legacy owning Dyn of `v` while
+/// `unsized_legacy_spellings` holds (VERDICTS-40 amendment 2): the call is
+/// rewritten to the inline `Rc.new(v[, alloc])` the recognizer already
+/// adopts, a fresh cell whose one count is the Dyn's. The `Box.new` call is
+/// never evaluated as a `Box`.
+_box_new_as_cell_new :: (fn(arg : &AstExpr, env : &Environment) -> AstExpr)(
+  match(
+    arg,
+    .FnCall(a_id, a_fn, a_args, a_infix, a_tok) => match(
+      a_fn,
+      .FnCall(f_id, f_fn, Rc(f_args), f_infix, f_tok) => if(
+        ast_expr_is_fn_call_of(a_fn, BF_DOT, Option(usize).Some(usize(2))) && match(f_args.get(usize(1)), .Some(.Atom(_, m_tok)) => (m_tok.value.* == "new"), _ => false) && match(f_args.get(usize(0)), .Some(.Atom(_, r_tok)) => (r_tok.value.* == "Box"), _ => false),
+        {
+          rc_args := ArrayList(AstExpr).new();
+          rc_args.push(AstExpr.Atom(alloc_global_expr_id(), synthetic_token(String.from("Rc"), &env.module_path().*)));
+          match(f_args.get(usize(1)), .Some(m) => rc_args.push(m), .None => ());
+          AstExpr.FnCall(a_id.*, AstExpr.FnCall(f_id.*, f_fn.clone(), Rc.new(rc_args), f_infix.*, f_tok.clone()), Rc.clone(a_args), a_infix.*, a_tok.clone())
+        },
+        arg.clone()
+      ),
+      _ => arg.clone()
+    ),
+    _ => arg.clone()
+  )
+);
+/// `dyn(h)` over a named `Rc`/`Arc` handle: rejected (VERDICTS-40 amendment
+/// 3). The legacy adoption of a shared cell cannot make `get_mut` sound over a
+/// cell whose count lives elsewhere.
+_reject_dyn_of_named_handle :: (fn(value_ty : &TypeValue, fresh : bool, tok : &Token, exn : Exception) -> unit)({
+  if(!fresh && cell_handle_view(value_ty).is_some(), {
+    exn.throw(dyn(format_error_message(tok, String.from("`dyn(h)` over a named `Rc`/`Arc` handle is not available: erasing a shared handle in place arrives with the `?Sized` prelude; write `dyn(Rc.new(v))` to build the shared object here or `dyn(Box.new(v))` to own it"))));
+  });
+});
 /// `dyn(&v)` / `dyn(&mut v)` (plans/VALUES_BY_DEFAULT.md decision 49, S1d):
 /// the `&Dyn(...)` / `&mut Dyn(...)` over the lent place `v`, which stays where
 /// it is. Nothing is allocated, boxed or retained: the Dyn is the fat pointer
@@ -1416,6 +1449,12 @@ evaluate_dyn_value :: (
       return(expr);
     }
   );
+  // `dyn(Box.new(v))` is `dyn(Rc.new(v))` here, the legacy owning Dyn.
+  value_arg = _box_new_as_cell_new(&value_arg, env);
+  // A fresh cell (`dyn(Rc.new(v))`) is the only handle `dyn` takes: erasing a
+  // NAMED shared handle (a variable or a field) in place waits for the
+  // `?Sized` prelude.
+  value_is_fresh_cell := !(ast_expr_is_atom(&value_arg) || ast_expr_is_fn_call_of(&value_arg, BF_DOT, Option(usize).Some(usize(2))));
   // `dyn(&v)` / `dyn(&mut v)`: the reference kinds (decision 49) take no
   // box and no expected-type plumbing of their own.
   if(ast_expr_is_fn_call_of(&value_arg, BF_ADDRESS_OF, Option(usize).Some(usize(1))) || ast_expr_is_fn_call_of(&value_arg, BK_BORROW_MUT, Option(usize).Some(usize(1))), {
@@ -1545,6 +1584,7 @@ evaluate_dyn_value :: (
     // of whatever really failed inside the inner.
     ne_have_inner_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&inner_ne)), .Some(_) => true, .None => false);
     _reject_dyn_of_dyn(ne_value_type.clone(), &expr_tok, exn);
+    _reject_dyn_of_named_handle(&ne_value_type, value_is_fresh_cell, &expr_tok, exn);
     // The Dyn to build must be NAMED by something. The expected type supplies
     // it when it is a Dyn; otherwise the payload's own trait bounds do (an
     // `Impl(...)` value carries them — the same fallback the executing path
@@ -1724,6 +1764,7 @@ evaluate_dyn_value :: (
   );
   (value_type : TypeValue) = Rc.clone(inner_info.ty());
   _reject_dyn_of_dyn(value_type.clone(), &expr_tok, exn);
+  _reject_dyn_of_named_handle(&value_type, value_is_fresh_cell, &expr_tok, exn);
   _reject_weaker_closure_into_dyn(&ctx.expected_type, &value_type, &expr_tok, ctx, exn);
   (cur_env : Environment) = expr_info_adopt_env(&inner_info);
   (final_value_type : TypeValue) = Rc.clone(value_type);

@@ -25,7 +25,7 @@ pragma(Pragma.AllowUnsafe);
 { TypeValue, TypeValueNode, shared_list, no_types, no_type_lists, t_slot_pointee, SharedList } :: import("../../types/definitions.yo");
 { t_unit, t_some_t, stamp_enum_final_type_arguments, ctor_phantom_flags } :: import("../../types/creators.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../../types/compatibility.yo");
-{ is_some_type, is_type_hierarchy_type, is_type_0, is_struct_type, is_shared_cell_type_name } :: import("../../types/guards.yo");
+{ is_some_type, is_type_hierarchy_type, is_type_0, is_struct_type, is_shared_cell_type_name, is_dyn_type } :: import("../../types/guards.yo");
 { macro_return_is_unquote } :: import("../types/function.yo");
 { type_contains_some_type, get_all_some_types, is_bound_closure_identity, type_carries_origin, type_is_sized, unsized_by_value_error } :: import("../../types/utils.yo");
 {
@@ -1498,7 +1498,7 @@ evaluate_comptime_fn_call :: (
       _ => ()
     );
   });
-  final_return_value := match(
+  final_stamped_value := match(
     return_value,
     .TypeVal(rv_tb) => match(
       rv_tb,
@@ -1544,6 +1544,20 @@ evaluate_comptime_fn_call :: (
       _ => return_value
     ),
     _ => return_value
+  );
+  // `Box(Dyn(...))` is the legacy `Dyn` while `unsized_legacy_spellings`
+  // holds (plans/VALUES_BY_DEFAULT.md decision 49, VERDICTS-40 option (a)):
+  // the same type value, so every spelling of the owning Dyn names one type.
+  // The prelude's `Box` is not instantiated at a `Dyn`; S2 deletes this arm
+  // with the alias when `Box` becomes `?Sized`.
+  final_return_value := match(
+    all_arg_vals.get(usize(0)),
+    .Some(box_av) => match(
+      box_av,
+      .TypeVal(box_arg) => if((ctfe_fn_name == "Box") && (all_arg_vals.len() == usize(1)) && is_dyn_type(&box_arg), EvalValue.TypeVal(Rc.clone(box_arg)), final_stamped_value),
+      _ => final_stamped_value
+    ),
+    .None => final_stamped_value
   );
   // Local copy — `callee_env` is an immutable parameter; thread the updated
   // env through `out_callee_env` and return it.
