@@ -897,9 +897,10 @@ Address operands, settled codes (literals, comptime values, own temps), the
 last operand and unit/never/unresolved-`SomeType` values are left inline
 (`issues/fixed/2026-10-25-an-rc-field-operand-is-read-after-a-later-argument-releases-the-handle.md`,
 `issues/fixed/2026-10-25-a-by-value-operand-is-read-after-a-later-mut-argument-writes-it.md`).
-Inside a state machine the spill is skipped when a later operand contains an
-`await` — a C local does not survive the suspension — and that case stays open
-(`issues/fixed/2026-10-25-an-operand-before-an-await-in-a-later-operand-is-read-after-the-resume.md`).
+Inside a state machine, when a later operand contains an `await` the value is
+held in a task slot `sm->__yo_seq_<expr id>` instead — a C local does not
+survive the suspension — laid out with the struct by `collect_operand_holds`
+(`async.yo`); an operand with no laid-out slot is left inline (`issues/fixed/2026-10-25-an-operand-before-an-await-in-a-later-operand-is-read-after-the-resume.md`).
 
 A declared temp needs its drop in the C scope that declares it. A temp names
 itself in the nearest begin-block frame, and its scope-end drop runs at that
