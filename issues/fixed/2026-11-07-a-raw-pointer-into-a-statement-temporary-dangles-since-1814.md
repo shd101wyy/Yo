@@ -4,6 +4,8 @@
 `current_exe`'s `readlink` walk-up; mimalloc hides it, ASan and glibc crash on it. Production
 binaries built from a tree after #1814 are affected.
 
+**Status:** FIXED by #1818 (the nine sites bind the `CString` first; `tests/env.test.yo` "current_exe returns an absolute path to an existing executable" dies in `readlink` under the sanitizer legs if the pattern returns). Re-verified 2026-11-10: no `:= .*to_cstr().ptr()` binding remains in `std/` or `src/`.
+
 > Found 2026-11-07 by the part B leak lane's probes (its ASan probe, built by a develop-tip
 > `6b1147192` compiler, died at startup with heap-use-after-free in `readlink`); the lane's
 > root-cause read of #1814's statement-end temporary drop named the mechanism. Filed and fixed
