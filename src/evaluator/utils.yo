@@ -144,7 +144,7 @@ pragma(Pragma.AllowUnsafe);
 { get_func_type, is_fn_ctfe_clone, is_closure_fn, is_io_async_sm_closure } :: import("../function_value.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../types/compatibility.yo");
 { type_to_string, type_to_string_for_message } :: import("../types/string.yo");
-{ type_is_bitwise_copy, type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_holds_counted_handle, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow, is_bound_closure_identity, is_closure_capture_struct, resolve_cell_chain, is_future_value_type, is_bare_callable_into_dyn_fn, type_holds_dyn_by_value, dyn_type_lists_clone, fn_trait_call_func_type, type_carries_origin, type_reaches_user_drop, note_origin_types_exist, type_is_typed_fnmut_closure, capture_struct_is_fnmut, future_unreturnable_borrow, future_origin_names } :: import("../types/utils.yo");
+{ type_is_bitwise_copy, type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_holds_counted_handle, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow, is_bound_closure_identity, is_closure_capture_struct, resolve_cell_chain, is_future_value_type, is_bare_callable_into_dyn_fn, type_holds_dyn_by_value, dyn_type_lists_clone, fn_trait_call_func_type, type_carries_origin, type_reaches_user_drop, note_origin_types_exist, type_is_typed_fnmut_closure, capture_struct_is_fnmut, future_unreturnable_borrow, future_origin_names, get_all_some_types } :: import("../types/utils.yo");
 { expr_info_table_set, is_mut_global, is_thread_local, migrate_deref_on, audit_deref_on, record_deref_site, record_deref_edit_site, note_reference_read_copied, lookup_macro_expansion, is_reference_self_place } :: import("../expr_info.yo");
 { is_global_mut_rule_exempt, is_deref_rule_exempt } :: import("./memory_safety.yo");
 // `set_expr_as_needs_to_call_dup` builds + evaluates a `___dup(name)` call.
@@ -8056,7 +8056,16 @@ projection_call_root_args :: (fn(call : &AstExpr, ctx : &EvalContext) -> ArrayLi
   // references point (the holder walk, `fn_param_pointee_in_result_origin`),
   // never into the receiver's place
   // (issues/fixed/2026-11-08-a-call-whose-composite-result-spells-its-origin-freezes-the-receiver.md).
-  res_names := match(fn_result_origin_names(&meta_ty), .Some(rn) => Option(SharedList(String)).Some(rn), .None => fn_result_composite_origin_names(&meta_ty));
+  // A generic result (`-> Option(A)`) spells no origin until it is
+  // specialized: the receiver dispatch records the generic signature, so the
+  // specialized result is read off the call (`find` over a reference `Item`
+  // returns `Option(&(T, p))`, whose roots are the parameters naming `p`, not
+  // the closure lent to `pred : &mut F`).
+  res_names := match(
+    fn_result_origin_names(&meta_ty),
+    .Some(rn) => Option(SharedList(String)).Some(rn),
+    .None => match(fn_result_composite_origin_names(&meta_ty), .Some(cn) => Option(SharedList(String)).Some(cn), .None => _generic_call_result_origin_names(call, &meta_ty, ctx))
+  );
   // An impl's origin parameter (`impl(generic(p : Origin), H(p), …)`, Rust's
   // `fn or_insert(self) -> &'p mut V`) is bound at the call from the
   // arguments' types, as the impl's type parameters are: the receiver's
@@ -8111,6 +8120,65 @@ _result_names_unmatched :: (fn(ft : &TypeValue, names : &SharedList(String), n :
     });
   });
   false
+});
+/// The origin names the call's SPECIALIZED by-value result spells, when the
+/// callee's declared result is generic (a type binder by value): `.None` for
+/// any other result, or a specialized one that spells none or elides one.
+_generic_call_result_origin_names :: (fn(call : &AstExpr, meta_ty : &TypeValue, ctx : &EvalContext) -> Option(SharedList(String)))({
+  decl := fn_result_slot(meta_ty);
+  if(t_slot_is_borrow(&decl) || (get_all_some_types(&decl).len() == usize(0)), {
+    return(Option(SharedList(String)).None);
+  });
+  // The call's type keeps the callee's binders (`Option(A)`); each resolves
+  // through its resolution chain to the specialization's type.
+  names := match(
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(call)),
+    .Some(gi) => if(t_slot_is_borrow(&gi.ty()), Option(SharedList(String)).None, {
+      gn_out := ArrayList(String).new();
+      if(_resolved_spelled_origins_into(&gi.ty(), &mut gn_out, usize(0)) && (gn_out.len() > usize(0)), Option(SharedList(String)).Some(shared_list(gn_out)), Option(SharedList(String)).None)
+    }),
+    .None => Option(SharedList(String)).None
+  );
+  // The names are the specialization's own: an impl's origin parameter (`p`)
+  // is matched by no parameter slot, and `projection_call_root_args` binds it
+  // from the arguments whose types carry an origin (`_result_names_unmatched`).
+  names
+});
+/// The origin names the by-value type `t` spells, its type binders read
+/// through their resolution chains (`Option(A)` at `A := &(T, p)` lists `p`).
+/// False when one is elided or a binder is unresolved: then it names any.
+_resolved_spelled_origins_into :: (fn(t : &TypeValue, out : &mut ArrayList(String), depth : usize) -> bool)({
+  if(depth > usize(16), {
+    return(true);
+  });
+  match(
+    t,
+    Rc(.SomeT(_, _, _, _, _, _, _)) => {
+      rs_end := resolve_cell_chain(t);
+      if(is_some_type(&rs_end), false, _resolved_spelled_origins_into(&rs_end, out, depth + usize(1)))
+    },
+    Rc(.OriginSet(rs_places, rs_elided)) => if(rs_elided, false, {
+      (rsi : usize) = usize(0);
+      while(rsi < rs_places.len(), rsi = (rsi + usize(1)), {
+        match(rs_places.get(rsi), .Some(n) => out.push(n), .None => ());
+      });
+      true
+    }),
+    Rc(.Reference(rs_pointee, _, rs_origin)) => (_resolved_spelled_origins_into(&rs_origin, out, depth + usize(1)) && _resolved_spelled_origins_into(&rs_pointee, out, depth + usize(1))),
+    Rc(.Struct({ type_arguments : rs_tas })) => _resolved_spelled_origins_in_list(&rs_tas, out, depth),
+    Rc(.EnumT({ type_arguments : rs_etas })) => _resolved_spelled_origins_in_list(&rs_etas, out, depth),
+    Rc(.Tuple({ field_types : rs_fts })) => _resolved_spelled_origins_in_list(&rs_fts, out, depth),
+    _ => true
+  )
+});
+_resolved_spelled_origins_in_list :: (fn(ts : &SharedList(TypeValue), out : &mut ArrayList(String), depth : usize) -> bool)({
+  (rli : usize) = usize(0);
+  while(rli < ts.len(), rli = (rli + usize(1)), {
+    if(!match(ts.get(rli), .Some(lt) => _resolved_spelled_origins_into(&lt, out, depth + usize(1)), .None => true), {
+      return(false);
+    });
+  });
+  true
 });
 /// The label of parameter `i` of the `Func` `ft` (empty past the end).
 _param_label_at :: (fn(ft : &TypeValue, i : usize) -> String)(

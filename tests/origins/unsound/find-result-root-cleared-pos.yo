@@ -1,0 +1,35 @@
+// expect: accept
+// find-result-root-cleared's positive twin: the result is read before `xs` is cleared.
+pragma(Pragma.AllowUnsafe);
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ println } :: import("std/fmt");
+FrCursor :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(xs : &(ArrayList(String), p), i : usize));
+impl(
+  generic(p : Origin),
+  FrCursor(p),
+  Iterator(
+    Item : &(String, p),
+    next : (fn(self : &mut Self) -> Option(&(String, p)))(
+      cond(
+        (self.i < self.xs.len()) => {
+          k := self.i;
+          self.i = (k + usize(1));
+          unsafe(.Some(&self.xs.ptr().unwrap().add(k).*))
+        },
+        true => .None
+      )
+    )
+  )
+);
+fr_cursor :: (fn(xs : &ArrayList(String)) -> FrCursor(xs))(FrCursor(xs)(xs : xs, i : usize(0)));
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(String).new();
+  xs.push(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+  xs.push(String.from("abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789"));
+  found := fr_cursor(&xs).find(v => (v.*.len() > usize(10)));
+  match(found, .Some(s) => println(`OUT: ${s.len().to_string()}`), .None => println("none"));
+  xs.clear();
+  ()
+});
+export(main);

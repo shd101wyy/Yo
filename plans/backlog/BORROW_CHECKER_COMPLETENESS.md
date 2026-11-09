@@ -279,3 +279,9 @@ Filed 2026-11-07 from VERDICTS-30/31; each names its repro under `issues/repros/
     held (R-DEREF), recorded per binding at the match, and `origin_held_by` no longer falls back to a by-value
     holder's own place (S2,
     `issues/fixed/2026-11-08-a-match-binding-of-a-reference-payload-carries-its-own-place-as-origin.md`).
+- 2026-11-09: a generic call's by-value result is rooted by its SPECIALIZED type. `find` over a reference `Item`
+  returns `Option(A)` at `A := &(T, p)`, which spells `p`, so `pred`'s lent closure is no R-TEMP root and
+  `found := cursor.find(…)` binds (S2,
+  `issues/fixed/2026-11-09-a-generic-result-over-a-reference-item-roots-a-lent-closure-temporary.md`; G-B
+  `find-result-root-cleared`). `Option(&T).unwrap()` (E0601) is R3's lowering of a `T := &U` result, next after P9
+  and P8.

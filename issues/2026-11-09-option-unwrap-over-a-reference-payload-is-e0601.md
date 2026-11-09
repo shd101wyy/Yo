@@ -31,7 +31,10 @@ note: raised here, inside the standard library
 
 The `match` spelling, `match(_p(&x), .Some(v) => (v.* == i32(4)), .None => false)`, is accepted and runs.
 
-## Root cause (not yet traced)
+## Root cause
+
+It shares the root cause of `issues/2026-11-06-a-generic-result-at-t-reference-is-lowered-as-a-projection.md` (VERDICTS-23 R3) and is fixed with it.
+
 
 `unwrap : (fn(self : Self) -> T)(match(self, .Some(value) => value, …))` specialized at `T := &i32`. The arm binds
 `value` as a reference payload binding (decision 43 step 3), whose name has the pointee's type. The arm's value is
