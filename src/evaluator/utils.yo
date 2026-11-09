@@ -141,7 +141,7 @@ pragma(Pragma.AllowUnsafe);
 :: import("../utils.yo");
 { eprintln } :: import("std/fmt");
 { EvalValue, is_unknown_val, is_type_value, is_var_ref, is_func_val } :: import("../value.yo");
-{ TypeValue, TypeValueNode, t_refine_inner, SharedList, no_flags, no_types, fn_param_mut_ref_flags, fn_param_by_value_flags, fn_param_slots, fn_result_is_ref, fn_result_is_mut_ref, fn_result_origin_names, fn_result_composite_origin_names, fn_param_in_result_origin, fn_param_pointee_in_result_origin, fn_result_slot, shared_list, t_slot_is_mut_ref, t_slot_is_borrow, t_slot_pointee, t_reference, t_reference_with_origin, t_origin_named, t_origin_spelled_names } :: import("../types/definitions.yo");
+{ TypeValue, TypeValueNode, t_refine_inner, SharedList, no_flags, no_types, fn_param_mut_ref_flags, fn_param_by_value_flags, fn_param_slots, fn_result_is_ref, fn_result_is_mut_ref, fn_result_origin_names, fn_result_composite_origin_names, fn_param_in_result_origin, fn_param_pointee_in_result_origin, fn_result_slot, shared_list, t_slot_is_mut_ref, t_slot_is_borrow, t_slot_pointee, t_reference, t_reference_with_origin, t_origin_named, t_origin_spelled_names, t_origin_elided } :: import("../types/definitions.yo");
 { is_never_type, is_unit_type, is_function_type, is_function_type_and_returns_comptime_value, is_box_type, is_unique_box_type, is_dyn_type, is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type, is_primitive_type, is_pointer_type, is_bool_type, is_array_type, is_struct_type, is_tuple_type, is_some_type, cell_handle_view, is_atomic_counted_handle_type, is_counted_cell_type, is_arc_type, is_counted_handle_value_type, unique_box_payload_type, is_fn_trait_type } :: import("../types/guards.yo");
 { get_func_type, is_fn_ctfe_clone, is_closure_fn, is_io_async_sm_closure } :: import("../function_value.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../types/compatibility.yo");
@@ -273,6 +273,8 @@ derive(RefPayloadSource, Clone);
 /// place they refer to, so a consumer that stores or passes the reference
 /// takes its address (`note_reference_read` / `is_reference_read`).
 (g_reference_reads : RefCell(HashMap(usize, bool))) = RefCell(HashMap(usize, bool)).new(HashMap(usize, bool).new());
+/// `YO_AUDIT_ORIGIN_TOTALITY=1`: G-E's totality audit (`audit_origin_totality`).
+(g_audit_origin_totality : bool) = debug_knob(`YO_AUDIT_ORIGIN_TOTALITY`).is_some();
 /// The `*` atoms of the `w.*` derefs the auto-deref hooks synthesize
 /// (`make_deref_expr`, N1e-1), by id: every other `*` of a `.*` was written,
 /// in the source or in a batch the test runner printed from it.
@@ -8506,6 +8508,51 @@ origin_of :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext) -> ArrayL
   );
   out
 });
+/// `YO_AUDIT_ORIGIN_TOTALITY=1` (G-E's totality half,
+/// plans/backlog/BORROW_CHECKER_COMPLETENESS.md §6): print one
+/// `[origin-totality]` line per value whose origin a sink needed and did not
+/// compute — `sink`, an origin-carrying value stored at a sink (`:=`, `=`, a
+/// place write, a destructuring, a result, a borrowed `match` scrutinee, an
+/// argument a `&mut` holder parameter may store) with no `ExprInfo.origin`;
+/// `untyped`, an `origin_of` recursion reaching a node with no `ExprInfo`;
+/// `depth`, one cut at the recursion bound. `scripts/check-origin-sinks.sh`
+/// counts the distinct lines; the gate is 0.
+origin_totality_audit_on :: (fn() -> bool)(g_audit_origin_totality);
+_audit_origin_totality_report :: (fn(kind : str, what : str, e : &AstExpr) -> unit)({
+  at := ast_expr_token(e);
+  eprintln(`[origin-totality] ${kind} ${what} ${at.module_path.*}:${(at.row + u32(1)).to_string()}:${(at.column + u32(1)).to_string()} ${ast_expr_to_string(e)}`);
+});
+/// G-E at a sink: `e`, stored at the sink `what`, must have its origin
+/// computed when its type carries one (`origin_of`'s memo). Free unless the
+/// knob is set.
+audit_origin_totality :: (fn(what : str, e : &AstExpr, ctx : &EvalContext) -> unit)({
+  if(!g_audit_origin_totality, {
+    return(());
+  });
+  stripped := ast_expr_strip_borrow_marker(e);
+  match(
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&stripped)),
+    .Some(fi) => if(type_carries_origin(&fi.ty()) && expr_info_origin(&fi).is_none(), {
+      _audit_origin_totality_report("sink", what, e);
+    }),
+    .None => ()
+  );
+});
+/// G-E at a call argument: an argument whose type spells every origin it
+/// carries is its own record (O3 step 1 reads the type); only an elided
+/// position needs `origin_of`.
+audit_origin_totality_elided :: (fn(what : str, e : &AstExpr, ctx : &EvalContext) -> unit)({
+  if(!g_audit_origin_totality, {
+    return(());
+  });
+  match(
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ast_expr_strip_borrow_marker(e))),
+    .Some(fi) => if(_type_has_elided_origin(&fi.ty(), u32(0)), {
+      audit_origin_totality(what, e, ctx);
+    }),
+    .None => ()
+  );
+});
 /// The `[n2b]` trace's root list: `xs(mut=false)/y(mut=true)`, the place's
 /// root name and its mode.
 n2b_roots_text :: (fn(roots : &ArrayList(OriginRootPlace)) -> String)({
@@ -8535,6 +8582,9 @@ n2b_roots_text :: (fn(roots : &ArrayList(OriginRootPlace)) -> String)({
 /// peeled marker) on the stripped one, and the type gate (`R-NONE`) last.
 _origin_of_into :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, out : &mut ArrayList(OriginRootPlace), depth : u32) -> unit)({
   if(depth > u32(16), {
+    if(g_audit_origin_totality, {
+      _audit_origin_totality_report("depth", "origin_of", e);
+    });
     return(());
   });
   // R-LEND (marker form): `&place` / `&mut place` — the operand's place with
@@ -8571,7 +8621,12 @@ _origin_of_into :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, out
   fi := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&stripped)),
     .Some(found) => found,
-    .None => return(())
+    .None => {
+      if(g_audit_origin_totality, {
+        _audit_origin_totality_report("untyped", "origin_of", &stripped);
+      });
+      return(());
+    }
   );
   // The memo (G-E): a non-atom composite's origin is structural — computed
   // once when its node was first asked for. Atoms are exempt: their holder
@@ -9912,6 +9967,150 @@ _types_have_elided_origin :: (fn(tys : &SharedList(TypeValue), depth : u32) -> b
   });
   false
 });
+/// The origin names `e`'s VALUE carries, from what it holds (`origin_of`),
+/// not from its type: a parameter root names its declared slot's origins, a
+/// capture-list borrow its outer place, any other local itself; a
+/// module-level root names nothing (decision 47's `static`). `lend_through`
+/// reads this where an argument's type leaves the origin elided.
+value_origin_names :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext) -> SharedList(String))({
+  out := ArrayList(String).new();
+  roots := origin_of(e, env, ctx);
+  (ri : usize) = usize(0);
+  while(ri < roots.len(), {
+    match(
+      roots.get_cloned(ri),
+      .Some(rt) => match(
+        get_variables_from_env(env, rt.place.root_name.clone()).last_cloned(),
+        .Some(rv) => cond(
+          is_body_parameter(&rv, env) => origin_param_names_of(&match(param_declared_origin_slot(&rv, env, ctx), .Some(ds) => ds, .None => variable_slot_type(&rv)), &mut out, u32(0)),
+          !rv.is_module_level() => match(
+            borrow_capture_outer(rv.id()),
+            .Some(rco) => if(!out.contains(&rco.place.root_name), {
+              out.push(rco.place.root_name.clone());
+            }),
+            .None => if(!out.contains(&rv.name), {
+              out.push(rv.name.clone());
+            })
+          ),
+          true => ()
+        ),
+        // A hidden statement temporary (R-TEMP) has no binding: its entry's
+        // own name, which no holder's origin names.
+        .None => if(!out.contains(&rt.place.root_name), {
+          out.push(rt.place.root_name.clone());
+        })
+      ),
+      .None => ()
+    );
+    ri = (ri + usize(1));
+  });
+  shared_list(out)
+});
+/// R-CALL in the type domain: a call's result type names its CALLEE's scope —
+/// its parameters (`-> _H(a)`, `-> Option(&(T, self))`) and origin binders
+/// (`-> S(p)`) — names that mean nothing at the call, and that a caller
+/// binding of the same name would capture
+/// (issues/fixed/2026-11-09-a-call-results-type-keeps-its-callees-origin-names.md).
+/// Those origins are elided in the call's type: the value's origin is
+/// `origin_of`'s, R-CALL over the arguments, which `bind` registers and
+/// `lend_through` reads.
+elide_callee_origin_names :: (fn(call : &AstExpr, r : &AstExpr, ctx : &EvalContext) -> unit)({
+  ri := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(r)), .Some(i) => i, .None => return(()));
+  if(!type_carries_origin(&ri.ty()), {
+    return(());
+  });
+  ft := match(projection_call_callee_type(call, ctx), .Some(t) => t, .None => return(()));
+  scope := ArrayList(String).new();
+  match(
+    &ft,
+    Rc(.Func({ meta : ec_m })) => {
+      (li : usize) = usize(0);
+      while(li < ec_m.param_labels.len(), {
+        match(ec_m.param_labels.get_cloned(li), .Some(l) => scope.push(l), .None => ());
+        li = (li + usize(1));
+      });
+      match(
+        &ec_m.origin_labels,
+        .Some(ol) => {
+          (oi : usize) = usize(0);
+          while(oi < ol.len(), {
+            match(ol.get_cloned(oi), .Some(l) => scope.push(l), .None => ());
+            oi = (oi + usize(1));
+          });
+        },
+        .None => ()
+      );
+    },
+    _ => return(())
+  );
+  (changed : bool) = false;
+  new_ty := _elide_origin_names(&ri.ty(), &scope, &mut changed, u32(0));
+  if(changed, {
+    ri.set_ty(new_ty);
+    expr_info_table_set(&ctx.expr_info_table, ast_expr_id(r), &ri);
+  });
+});
+/// `ty` with every origin naming one of `names` elided (`changed` records it).
+_elide_origin_names :: (fn(ty : &TypeValue, names : &ArrayList(String), changed : &mut bool, depth : u32) -> TypeValue)({
+  if(depth > u32(16), {
+    return(ty.clone());
+  });
+  match(
+    ty,
+    Rc(.Reference(er_p, er_m, er_o)) => {
+      inner := _elide_origin_names(&er_p, names, changed, (depth + u32(1)));
+      origin := if(_origin_names_any(&er_o, names), {
+        changed = true;
+        t_origin_elided()
+      }, er_o.clone());
+      t_reference_with_origin(&inner, er_m, &origin)
+    },
+    Rc(.OriginSet(_, _)) => if(_origin_names_any(ty, names), {
+      changed = true;
+      t_origin_elided()
+    }, ty.clone()),
+    Rc(.Struct(es_id, es_n, es_fl, es_ft, es_rs, es_ar, es_nt, es_ctor, es_tas, es_ns)) => {
+      if(es_tas.len() == usize(0), {
+        return(ty.clone());
+      });
+      Rc.new(TypeValueNode.Struct(es_id.clone(), es_n.clone(), Rc.clone(es_fl), Rc.clone(es_ft), es_rs, es_ar, es_nt, es_ctor.clone(), _elide_origin_names_list(&es_tas, names, changed, depth), es_ns))
+    },
+    Rc(.EnumT(ee_id, ee_n, ee_vn, ee_vf, ee_sel, ee_vfl, ee_ds, ee_rs, ee_ar, ee_tas)) => {
+      if(ee_tas.len() == usize(0), {
+        return(ty.clone());
+      });
+      Rc.new(TypeValueNode.EnumT(ee_id.clone(), ee_n.clone(), Rc.clone(ee_vn), Rc.clone(ee_vf), ee_sel.clone(), Rc.clone(ee_vfl), Rc.clone(ee_ds), ee_rs, ee_ar, _elide_origin_names_list(&ee_tas, names, changed, depth)))
+    },
+    Rc(.Tuple(et_fl, et_ft)) => Rc.new(TypeValueNode.Tuple(Rc.clone(et_fl), _elide_origin_names_list(&et_ft, names, changed, depth))),
+    _ => ty.clone()
+  )
+});
+_elide_origin_names_list :: (fn(tys : &SharedList(TypeValue), names : &ArrayList(String), changed : &mut bool, depth : u32) -> SharedList(TypeValue))({
+  out := ArrayList(TypeValue).new();
+  (i : usize) = usize(0);
+  while(i < tys.len(), {
+    match(tys.get(i), .Some(t) => out.push(_elide_origin_names(&t, names, changed, (depth + u32(1)))), .None => ());
+    i = (i + usize(1));
+  });
+  shared_list(out)
+});
+/// The spelled origin `o` names one of `names`.
+_origin_names_any :: (fn(o : &TypeValue, names : &ArrayList(String)) -> bool)(
+  match(
+    t_origin_spelled_names(o),
+    .Some(on) => {
+      (i : usize) = usize(0);
+      while(i < on.len(), {
+        if(match(on.get_cloned(i), .Some(n) => names.contains(&n), .None => false), {
+          return(true);
+        });
+        i = (i + usize(1));
+      });
+      false
+    },
+    .None => false
+  )
+);
 _bind_join_subset_check :: (fn(variable : &Variable, holder_ty : &TypeValue, holder_names : &ArrayList(String), roots : &ArrayList(OriginRootPlace), value : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
   // A READ whose type spells every origin it carries holds only those: a
   // parameter root contributes its slot's names, but `b.*` read out of `b :
@@ -11053,7 +11252,7 @@ _origin_through_match_bindings :: (fn(roots : &ArrayList(OriginRootPlace), env :
   });
   out
 });
-export(projection_call_mode_of, unsize_root_args, projection_body_mismatch_message, ProjectionRootArg, is_temporary_operand, origin_temporary_entry, origin_temporary_root, ORIGIN_TEMPORARY_ROOT, projection_call_root_args, projection_call_callee_type, OriginRootPlace, origin_of, variable_holder_roots, origin_held_by, origin_param_names_of, param_declared_origin_slot, is_body_parameter, place_write_join, rigid_param_slot, is_rigid_origin_name, origin_name_phrase, BorrowCaptureOuter, note_borrow_capture_outer, borrow_capture_outer, apply_capture_store_joins, holder_future_roots, bind, bind_join, bind_join_roots_for, return_check, note_ref_payload_source, ref_payload_source, note_ref_payload_held, note_borrow_match_source, borrow_match_source, n2b_roots_text);
+export(projection_call_mode_of, unsize_root_args, projection_body_mismatch_message, ProjectionRootArg, is_temporary_operand, origin_temporary_entry, origin_temporary_root, ORIGIN_TEMPORARY_ROOT, projection_call_root_args, projection_call_callee_type, OriginRootPlace, origin_of, variable_holder_roots, origin_held_by, origin_param_names_of, param_declared_origin_slot, is_body_parameter, place_write_join, rigid_param_slot, is_rigid_origin_name, origin_name_phrase, BorrowCaptureOuter, note_borrow_capture_outer, borrow_capture_outer, apply_capture_store_joins, holder_future_roots, bind, bind_join, bind_join_roots_for, return_check, note_ref_payload_source, ref_payload_source, note_ref_payload_held, note_borrow_match_source, borrow_match_source, n2b_roots_text, audit_origin_totality, audit_origin_totality_elided, origin_totality_audit_on, value_origin_names, elide_callee_origin_names);
 export(drop_owned_match_binding_at_arm_end, match_scrutinee_is_capture, local_borrow_register_match_place, local_borrow_note_match_place, note_consuming_match_scrutinee, consuming_match_scrutinee_at, moved_value_help, _lb_arrow_shadows, _lb_fn_literal_binds, _lb_mentions);
 export(
   LocalBorrowPlace,

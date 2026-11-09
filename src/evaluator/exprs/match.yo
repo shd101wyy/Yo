@@ -85,7 +85,7 @@ pragma(Pragma.AllowUnsafe);
   is_never_type,
   is_unit_type
 } :: import("../../types/guards.yo");
-{ type_contains_some_type, type_mentions_impl_fn_or_future, mark_generic_independent, type_requires_explicit_copy, type_contains_rc_cell_or_move_only, type_is_bitwise_copy } :: import("../../types/utils.yo");
+{ type_contains_some_type, type_mentions_impl_fn_or_future, mark_generic_independent, type_requires_explicit_copy, type_contains_rc_cell_or_move_only, type_is_bitwise_copy, type_carries_origin } :: import("../../types/utils.yo");
 { raise_flow_violation } :: import("../../types/flowability.yo");
 { E_USE_OF_MOVED_VALUE, E_WRITE_THROUGH_BORROW } :: import("../../diagnostics.yo");
 { with_code } :: import("../../error.yo");
@@ -99,7 +99,7 @@ pragma(Pragma.AllowUnsafe);
 { type_to_string } :: import("../../types/string.yo");
 { format_error_message, format_error_message_with_help, warning_diagnostic_of_token } :: import("../../error.yo");
 { emit_warning } :: import("../../diagnostics.yo");
-{ owning_param_binding_beside, move_through_sink_shadow, note_ref_payload_source, note_ref_payload_held, note_borrow_match_source, origin_held_by, audit_copy_trait_enabled } :: import("../utils.yo");
+{ owning_param_binding_beside, move_through_sink_shadow, note_ref_payload_source, note_ref_payload_held, note_borrow_match_source, origin_held_by, audit_copy_trait_enabled, audit_origin_totality_elided } :: import("../utils.yo");
 { reject_dyn_place_by_value, merge_and_check_envs, reject_mixed_closure_arms, consume_case_body_temp_var, attach_temp_variable_to_expr, adopt_never_type, reset_sibling_flow_state, keep_last_arm_moves, dyn_copy_pending_exists, dyn_copy_rule_applies, note_dyn_copy_pending, audit_note_match_binding, LocalBorrowInfo, local_borrows_active, local_borrow_scrutinee_source, local_borrow_note_pattern_binding, note_second_class_binding, reject_malformed_pattern_mut_markers, reject_malformed_mut_marker, place_require_mut, reject_write_through_rc, _lb_arrow_shadows, _lb_fn_literal_binds } :: import("../utils.yo");
 { throw_if_mut_lend_through_atomic_object } :: import("./assignment.yo");
 { set_expr_as_consumed, deref_exempt_mark, deref_exempt_clear, variable_is_reference_binding, deref_rule_applies, reject_reference_without_deref, drop_owned_match_binding_at_arm_end, match_scrutinee_is_capture, local_borrow_register_match_place, local_borrow_note_match_place, note_consuming_match_scrutinee, LocalBorrowPlace, LocalBorrowAccess, local_borrow_place_of, local_borrow_access, local_borrow_require_writable, local_borrow_root_is_shared_reference, variable_is_mut_borrow, variable_is_imm_borrow, local_borrow_info_of_variable, deref_operand_is_raw_pointer } :: import("../utils.yo");
@@ -1569,6 +1569,11 @@ evaluate_match :: (
         },
         .None => ()
       );
+      // G-E: a binding that holds an origin holds the scrutinee's; a
+      // parameter scrutinee's declared type is its record.
+      if(!ct_known && type_carries_origin(&b.ty) && !(ast_expr_is_atom(&scrutinee_expr) && match(get_variables_from_env(&env, ast_expr_token(&scrutinee_expr).value.*.clone()).last_cloned(), .Some(sv) => sv.is_parameter(), .None => false)), {
+        audit_origin_totality_elided("match-binding", &scrutinee_expr, ctx);
+      });
       // Below a cell a binding borrows whatever the mode (decision 26).
       if((consuming || mut_places) && !_names_contain(&own.borrowed, b.name.clone()), {
         match(

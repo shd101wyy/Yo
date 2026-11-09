@@ -1147,6 +1147,34 @@ test("store-widen-named-holder", {
   );
   verdict("store-widen-named-holder", case2(main, store()), "ORIGIN_MISMATCH");
 });
+test("call-result-origin-name-capture", {
+  // A call result's type keeps its callee's parameter names, which a caller
+  // binding of the same name captured — the toy language has no names to
+  // capture, so the row pins the rule it needs: what the argument holds is
+  // checked against the `&mut` holder's fixed origin (the spelled twin).
+  main := entry(
+    al4(
+      let_(X, lit()),
+      let_d(SLOT, Rc.new(NodeE.Make(Kind.Some, Rc.new(NodeE.Borrow(false, X)))), wrap(Kind.Some, shr(int(), o(X)))),
+      Rc.new(NodeE.Block(al2(let_(Y, lit()), use_(call(usize(1), al2(Rc.new(NodeE.Borrow(true, SLOT)), Rc.new(NodeE.Borrow(false, Y)))))))),
+      use_(Rc.new(NodeE.Var(SLOT)))
+    )
+  );
+  verdict("call-result-origin-name-capture", case2(main, store()), "ORIGIN_MISMATCH");
+});
+test("method-store-widen-named-holder", {
+  // `store-widen-named-holder` through a method's `&mut self` receiver — the
+  // toy language's calls have no receivers, so the spelled twin again.
+  main := entry(
+    al4(
+      let_(X, lit()),
+      let_d(SLOT, Rc.new(NodeE.Make(Kind.Some, Rc.new(NodeE.Borrow(false, X)))), wrap(Kind.Some, shr(int(), o(X)))),
+      Rc.new(NodeE.Block(al2(let_(Y, lit()), use_(call(usize(1), al2(Rc.new(NodeE.Borrow(true, SLOT)), Rc.new(NodeE.Borrow(false, Y)))))))),
+      use_(Rc.new(NodeE.Var(SLOT)))
+    )
+  );
+  verdict("method-store-widen-named-holder", case2(main, store()), "ORIGIN_MISMATCH");
+});
 test("store-widen-covariant-field", {
   // The same invariance reached through a covariant field position of the
   // lent composite — the spelled twin again (the toy language limit).

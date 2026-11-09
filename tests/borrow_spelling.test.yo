@@ -365,6 +365,35 @@ comptime_expect_error(
   }),
   "an origin reached through a `&mut` pointee is invariant"
 );
+// A call's result type names its callee's parameter (`-> BsH(a)`): the value
+// holds what the argument lent, never a caller binding that happens to be
+// named `a`, so an argument whose origin is elided is judged by `origin_of`
+// (issues/fixed/2026-11-09-a-call-results-type-keeps-its-callees-origin-names.md).
+BsH :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(r : &(i32, p)));
+bs_store_h :: (fn(generic(p : Origin), dst : &mut Option(&(i32, p)), v : BsH(p)) -> unit)({
+  dst.* = .Some(v.r);
+});
+bs_mk_h :: (fn(a : &i32) -> BsH(a))(BsH(a)(r : a));
+test("a call's result holds what its argument lent, not its callee's names", {
+  x := i32(6);
+  (mut(slot) : Option(&(i32, x))) = .None;
+  h := bs_mk_h(&x);
+  bs_store_h(&mut slot, h);
+  assert(match(slot, .Some(r) => (r.* == i32(6)), .None => false), "slot holds `&x`");
+});
+comptime_expect_error(
+  bs_store_call_result_name_capture :: (fn() -> unit)({
+    a := i32(1);
+    (mut(slot) : Option(&(i32, a))) = .Some(&a);
+    {
+      y := i32(2);
+      h := bs_mk_h(&y);
+      bs_store_h(&mut slot, h);
+    };
+    _ := slot.is_some();
+  }),
+  "an origin reached through a `&mut` pointee is invariant"
+);
 // A tuple literal's element `&place` / `&mut place` is a lend, as a struct
 // constructor's reference field is (decision 43 step 3, T9): the element
 // holds the place's address.

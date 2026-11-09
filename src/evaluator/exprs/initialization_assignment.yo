@@ -138,6 +138,7 @@
   is_temporary_operand,
   projection_call_callee_type,
   bind,
+  audit_origin_totality,
   origin_of,
   OriginRootPlace,
   LocalBorrowElidedOrigin
@@ -2031,6 +2032,9 @@ Use \`::\` for compile-time definitions inside impl.`
     if(!effective_is_compile_time_only && ctx.is_evaluating_function_body_or_async_block.is_some() && type_carries_origin(&final_lhs_type), {
       bind(expr, &rhs, &var_name, &actual_lhs_tok, &env, ctx, exn);
     });
+    if(!effective_is_compile_time_only && type_carries_origin(&final_lhs_type), {
+      audit_origin_totality(":=", &rhs, ctx);
+    });
     // Patch mutable fields not supported by add_variable_to_env.
     match(
       new_var_opt,
@@ -2163,6 +2167,9 @@ Use \`::\` for compile-time definitions inside impl.`
         },
         .None => ()
       );
+    });
+    if(!effective_is_compile_time_only && match(&destr_result.runtime_destructurings, .Some(rds) => (rds.len() > usize(0)), .None => false), {
+      audit_origin_totality("destructuring", &rhs, ctx);
     });
     expr_info := new_expr_info(&env, t_unit());
     expr_info.set_value(Option(EvalValue).Some(EvalValue.UnitVal));
