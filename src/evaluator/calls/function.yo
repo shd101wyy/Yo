@@ -9279,6 +9279,15 @@ _lend_through_slots :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalConte
   if(m_slots.len() > usize(0), {
     return(Option(SharedList(TypeValue)).Some(m_slots));
   });
+  if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
+    match(
+      expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ls_callee)),
+      .Some(dci) => {
+        eprintln(`[n2b] slots-src callee=${ast_expr_to_string(&ls_callee)} ty=${type_to_string(&dci.ty())} value=${match(dci.value(), .Some(.FuncVal(dfv, _)) => `FuncVal ${type_to_string(&get_func_type(&dfv.*.func_id))}`, .Some(_) => String.from("other"), .None => String.from("none"))}`);
+      },
+      .None => eprintln(`[n2b] slots-src callee=${ast_expr_to_string(&ls_callee)} no info`)
+    );
+  });
   match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ls_callee)), .Some(ci) => Option(SharedList(TypeValue)).Some(_callee_param_slots(&ci.ty())), .None => Option(SharedList(TypeValue)).None)
 });
 /// O-2's `lend_through` (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §3):
