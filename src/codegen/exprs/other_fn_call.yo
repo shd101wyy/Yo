@@ -769,8 +769,9 @@ _dispatch_arg_code :: (fn(arg : &AstExpr, param_is_ref : bool, expr : &AstExpr, 
 ///   typed by the option's payload, which a header parameter spelling can
 ///   reject (`LPDWORD` vs `uint32_t*` on Windows)
 ///   (issues/fixed/2026-10-25-an-option-none-operand-is-spilled-into-a-wrong-typed-temp.md);
-/// - inside a state machine, an operand a later operand's `await` separates
-///   from its use: a C local does not survive the suspension
+/// - (state machine) an operand a later operand's `await` separates from its use
+///   is not copied into a C local, which does not survive the suspension: it is
+///   held in its task slot instead (`collect_operand_holds`, exprs/async.yo)
 ///   (issues/fixed/2026-10-25-an-operand-before-an-await-in-a-later-operand-is-read-after-the-resume.md);
 /// - a value whose type has no C spelling here (an unresolved `SomeType`).
 sequence_operand :: (fn(arg : &AstExpr, code : String, operands : &ArrayList(AstExpr), index : usize, is_ptr : bool, indent : &String, context : &mut FunctionGenerationContext) -> String)({

@@ -64,4 +64,4 @@ The same root and fix close
 `issues/fixed/2026-10-25-a-by-value-operand-is-read-after-a-later-mut-argument-writes-it.md`.
 Inside a state machine the spill is skipped when a later operand contains an `await` — that case
 stays open as
-`issues/2026-10-25-an-operand-before-an-await-in-a-later-operand-is-read-after-the-resume.md`.
+`issues/fixed/2026-10-25-an-operand-before-an-await-in-a-later-operand-is-read-after-the-resume.md`.

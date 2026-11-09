@@ -899,7 +899,7 @@ last operand and unit/never/unresolved-`SomeType` values are left inline
 `issues/fixed/2026-10-25-a-by-value-operand-is-read-after-a-later-mut-argument-writes-it.md`).
 Inside a state machine the spill is skipped when a later operand contains an
 `await` — a C local does not survive the suspension — and that case stays open
-(`issues/2026-10-25-an-operand-before-an-await-in-a-later-operand-is-read-after-the-resume.md`).
+(`issues/fixed/2026-10-25-an-operand-before-an-await-in-a-later-operand-is-read-after-the-resume.md`).
 
 A declared temp needs its drop in the C scope that declares it. A temp names
 itself in the nearest begin-block frame, and its scope-end drop runs at that
