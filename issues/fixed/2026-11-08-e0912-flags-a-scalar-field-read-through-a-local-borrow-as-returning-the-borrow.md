@@ -34,3 +34,24 @@ escape walk treats the tail `v.m` as returning `v` itself. Writing the tail as
 `r.m` (auto-dereference) is accepted.
 
 A test belongs with the fix: the reproducer above prints `5`.
+
+## Fixed
+
+**Root cause.** The function-result escape check (`local_borrow_result_borrow_of`,
+`evaluator/utils.yo`, called from `evaluator/exprs/begin.yo` at a `return(...)`
+and at the result chain's tail) ran BEFORE the result expression was
+evaluated, so it judged only syntax: a place "reached from" a local borrow
+(`v`, or `v.m`) names the borrow. A field read through the borrow, `v.m`, is
+the field's VALUE (a copy of a scalar), but the syntactic check could not see
+the field's type.
+
+**Fix.** A bare borrow (`v`) is still rejected before evaluation. A field place
+(`v.m`) is judged after the result is evaluated, and is E0912 only when its
+type is second-class (a reference field, still the borrow's own storage); a
+copyable value is returned. `tests/local_borrows.test.yo` had a deliberate
+negative for the same shape (`y := &sh.origin; return(y.x)`, decision 18's
+"rejected even where reading through copies today", written before borrows
+were references); it is now a positive test, per VERDICTS-38 section 5 item 3.
+
+**Test.** `tests/origins/reference_read_rule.test.yo` (the reproducer, tail and
+`return`; the bare borrow tail stays E0912) and `tests/local_borrows.test.yo`.
