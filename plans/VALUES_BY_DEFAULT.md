@@ -10286,6 +10286,10 @@ The rule, layout, prelude and tests are in decision 49 (§4).
     and 3 `ref(enum)` declarations, std's non-collection `ref` types, and
     tests' 267 core declarations plus 151 cli-case fixtures.
   - **v0.2.76.** Generation B below.
+  - **Amended 2026-11-09 (schedule §5f decision 37):** Generation B moves
+    to v0.2.79, behind the retype of the three shared trees (`Token`,
+    `AstExpr`, `EvalValue`); src's last 74 declarations land in batches
+    across v0.2.77–v0.2.79. The parser drop is tree-gated, not seed-gated.
   - **Amended 2026-11-04 (schedule §5f decisions 27–29):** v0.2.75 became a
     cadence cut. The declaration migration ("part B") is v0.2.76's only
     must-have, and Generation B moves to v0.2.77 with the retirement.
@@ -10340,7 +10344,8 @@ The rule, layout, prelude and tests are in decision 49 (§4).
   - The parser drops the constructors.
   - `is_reference_semantics`/`is_atomic_rc` become "is a cell payload"
     flags, set only by the primitive.
-  - The 527 sites in 73 files that test them are read against the new
+  - The sites that test them (527 in 73 files when written; 160 on
+    2026-11-09) are read against the new
     meaning (`src/types/guards.yo` 35, `src/evaluator/utils.yo` 30,
     `src/env.yo` 23, `src/types/utils.yo` 22,
     `src/codegen/functions/constructors.yo` 22,
