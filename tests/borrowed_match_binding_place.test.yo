@@ -233,8 +233,8 @@ test("a mut binding of a borrowed match is a copy of its part", {
   assert(po == i32(1), "an or-pattern's copy");
   assert(match(&e, .Two(x, y) => ((x.* == i32(1)) && (y.* == i32(21))), _ => false), "under the general lowering");
 });
-// The copy is not a reference: `.*` on it is an error (VERDICTS-28 Q2), the
-// non-reference spelling's diagnostic.
+// The copy is not a reference: `.*` on it is an error (VERDICTS-28 Q2), E0621
+// (`.*` on a value, VERDICTS-41 Q1).
 comptime_expect_error({
   _deref_copy :: (fn() -> i32)(
     match(
@@ -244,7 +244,7 @@ comptime_expect_error({
     )
   );
   _v := _deref_copy();
-}, "is not evaluated correctly");
+}, "a value: `.*` reads through a reference");
 _PS :: struct(s : String);
 test("a mut binding of a borrowed match cannot release data its owner holds", {
   comptime_expect_error({
