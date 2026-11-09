@@ -663,9 +663,13 @@ _find_function_calls_in_node :: (fn(expr : &AstExpr, context : &mut CodeGenConte
         match(expr, .FnCall(_, _, Rc(uargs), _, _) => uargs.get(usize(0)), .Atom(_, _) => Option(AstExpr).None),
         .Some(usrc) => match(
           expr_info_table_get(info, ast_expr_id(&usrc)),
-          .Some(usei) => if(is_dyn_type(&usei.ty()) && is_dyn_type(&uei.ty()), {
-            context.register_dyn_upcast(&usei.ty(), &uei.ty());
-          }),
+          .Some(usei) => {
+            // Through a reference (decision 49) the source Dyn is its pointee.
+            usrc_ty := match(t_refine_inner(&usei.ty()), Rc(.Reference(usp, _, _)) => Rc.clone(usp), _ => Rc.clone(usei.ty()));
+            if(is_dyn_type(&usrc_ty) && is_dyn_type(&uei.ty()), {
+              context.register_dyn_upcast(&usrc_ty, &uei.ty());
+            });
+          },
           .None => ()
         ),
         .None => ()

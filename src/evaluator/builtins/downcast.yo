@@ -32,7 +32,8 @@ pragma(Pragma.AllowUnsafe);
   expr_info_table_get,
   expr_info_table_set,
   expr_info_adopt_env,
-  note_downcast_reference
+  note_downcast_reference,
+  note_unsize_reference
 } :: import("../../expr_info.yo");
 { Environment, snapshot_env } :: import("../../env.yo");
 { TypeValue, TypeValueNode, no_types, t_refine_inner, t_reference } :: import("../../types/definitions.yo");
@@ -222,24 +223,34 @@ evaluate_upcast :: (
       return(expr);
     }
   );
-  eval_dyn_expr := evaluate_expression_raw(&dyn_expr, &cur_env, ctx, exn);
-  dyn_info := match(
-    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&eval_dyn_expr)),
-    .Some(i) => i,
-    .None => {
-      exn.throw(
-        dyn(
-          format_eval_failure(
-            ast_expr_token(&dyn_expr),
-            String.from("Failed to evaluate dyn value argument for upcast.")
-          )
+  (uc_call, uc_infos) := _eval_builtin_args(expr, usize(2), "upcast", &cur_env, ctx, exn);
+  dyn_info := Rc.clone(uc_infos(usize(0)));
+  type_info := Rc.clone(uc_infos(usize(1)));
+  cur_env = expr_info_adopt_env(&dyn_info);
+  // An upcast through a reference (a lend, a `&Dyn` binding, `dyn(&v)`) is a
+  // reference to the same payload behind fewer traits (decision 49): it
+  // retains nothing, and its result is a place read as a reference like
+  // `unsize`'s.
+  (src_type : TypeValue) = Rc.clone(dyn_info.ty());
+  (uc_ref : Option(bool)) = Option(bool).None;
+  match(
+    t_refine_inner(&src_type),
+    Rc(.Reference(ur_p, ur_m, _)) => if(is_dyn_type(&ur_p), {
+      uc_ref = Option(bool).Some(ur_m);
+      src_type = Rc.clone(&ur_p);
+    }),
+    _ => if(is_dyn_type(&src_type), {
+      uc_ref = match(
+        projection_call_mode_of(&dyn_expr, ctx),
+        .Some(pm) => Option(bool).Some(pm),
+        .None => match(
+          dyn_info.source_variable(),
+          .Some(dv) => if(ast_expr_is_atom(&dyn_expr) && variable_is_reference_binding(&dv), Option(bool).Some(dv.is_ref() && !dv.is_imm_borrow()), Option(bool).None),
+          .None => Option(bool).None
         )
       );
-      return(expr);
-    }
+    })
   );
-  cur_env = expr_info_adopt_env(&dyn_info);
-  src_type := Rc.clone(dyn_info.ty());
   if(!is_dyn_type(&src_type), {
     exn.throw(
       dyn(
@@ -250,35 +261,7 @@ evaluate_upcast :: (
       )
     );
   });
-  type_expr := match(
-    expr,
-    .FnCall(_, _, Rc(fargs), _, _) => match(
-      fargs.get(usize(1)),
-      .Some(x) => x,
-      .None => {
-        return(expr);
-      }
-    ),
-    _ => {
-      return(expr);
-    }
-  );
-  eval_type_expr := evaluate_expression_raw(&type_expr, &cur_env, ctx, exn);
-  type_info := match(
-    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&eval_type_expr)),
-    .Some(i) => i,
-    .None => {
-      exn.throw(
-        dyn(
-          format_eval_failure(
-            ast_expr_token(&type_expr),
-            String.from("Failed to evaluate type argument for upcast.")
-          )
-        )
-      );
-      return(expr);
-    }
-  );
+  type_expr := match(expr, .FnCall(_, _, Rc(fargs2), _, _) => match(fargs2.get(usize(1)), .Some(x) => x, .None => return(expr)), _ => return(expr));
   cur_env = expr_info_adopt_env(&type_info);
   target_type := match(
     type_info.value(),
@@ -339,7 +322,11 @@ evaluate_upcast :: (
   out_info := new_expr_info(&cur_env, &target_type);
   out_info.set_value(Option(EvalValue).Some(result_value));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
-  attach_temp_variable_to_expr(expr, true, ctx);
-  expr
+  match(
+    uc_ref,
+    .Some(um) => note_unsize_reference(ast_expr_id(expr), um),
+    .None => attach_temp_variable_to_expr(expr, true, ctx)
+  );
+  uc_call
 });
 export(evaluate_downcast, evaluate_upcast);

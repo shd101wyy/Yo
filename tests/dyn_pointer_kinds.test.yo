@@ -33,3 +33,34 @@ test("size_of_val and align_of_val of a Dyn read the vtable", {
   assert(size_of_val(d) == size_of(Cat), "size");
   assert(align_of_val(d) == align_of(Cat), "align");
 });
+test("&b.* on a legacy Box(Dyn) built by dyn(Box.new(v)) dispatches", {
+  (b : Box(Dyn(Speak))) = dyn(Box.new(Cat(n : i32(9))));
+  assert(_speak_via(&b.*) == i32(9), "dispatch through &b.*");
+  assert(size_of_val(&b.*) == size_of(Cat), "size through &b.*");
+});
+test("downcast through a reference views the payload", {
+  c := Cat(n : i32(5));
+  (d : &Dyn(Speak)) = dyn(&c);
+  match(
+    downcast(d, Cat),
+    .Some(p) => assert(p.n == i32(5), "payload viewed in place"),
+    .None => assert(false, "expected Some")
+  );
+  match(
+    downcast(d, i32),
+    .Some(_) => assert(false, "expected None"),
+    .None => ()
+  );
+});
+test("downcast(&mut Dyn) writes through", {
+  (mut(c) : Cat) = Cat(n : i32(1));
+  (d : &mut Dyn(Bump)) = dyn(&mut c);
+  match(
+    downcast(d, Cat),
+    .Some(p) => {
+      p.n = i32(40);
+    },
+    .None => assert(false, "expected Some")
+  );
+  assert(c.n == i32(40), "written through the view");
+});

@@ -1101,7 +1101,7 @@ generate_dyn_vtables :: (fn(context : &mut FunctionGenerationContext) -> unit)({
             cand := match(keys.get_cloned(uk), .Some(k) => k, .None => String.from(""));
             match(
               context.base.dyn_impls.get(cand.clone()),
-              .Some(ce) => if((type_key(ce.dyn_type.clone()) == ut_key) && (type_key(ce.concrete_type.clone()) == concrete_key), {
+              .Some(ce) => if((type_key(ce.dyn_type.clone()) == ut_key) && (type_key(ce.concrete_type.clone()) == concrete_key) && (ce.payload_convention == impl_entry.payload_convention), {
                 context.base.emitter.emit_declaration_string_line(`  .__yo_up_${ut_c} = &__yo_vtable_${cand},`);
                 u_found = true;
               }),

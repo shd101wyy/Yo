@@ -88,7 +88,7 @@ _concrete_c_name :: (fn(concrete_type : &TypeValue, context : &FunctionGeneratio
     )
   )
 );
-/// `dyn(&v)` / `dyn(&mut v)`: the place `(*F)` of the fat pointer `F = { .data
+/// `dyn(&v)` / `dyn(&mut v)`: the fat pointer `F = { .data
 /// = &v, .vtable = &vtable }`. The instance is keyed `_P`: its data word is the
 /// payload's own address, so its wrappers and slots read `*(V*)data` and its
 /// retain and release count nothing (the Dyn borrows `v`).
@@ -104,7 +104,7 @@ _generate_dyn_over_lend :: (fn(expr : &AstExpr, dyn_type : &TypeValue, trait_val
   impl_key.push_str("_P");
   context.base.register_dyn_impl(impl_key.clone(), DynImplEntry(dyn_type : Rc.clone(dyn_type), concrete_type : pointee, data_type : Rc.clone(resolved), trait_values : trait_values.clone(), payload_convention : true));
   ptr_code := _pointer_arg_code(lend_expr, indent, context);
-  `(*((${dyn_type_c_name}){ .data = (void*)(${ptr_code}), .vtable = &__yo_vtable_${impl_key} }))`
+  `((${dyn_type_c_name}){ .data = (void*)(${ptr_code}), .vtable = &__yo_vtable_${impl_key} })`
 });
 /// Generate C code for a `dyn()` constructor call.
 generate_dyn_call :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
