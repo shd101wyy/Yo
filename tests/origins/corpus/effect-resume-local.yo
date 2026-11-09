@@ -5,9 +5,7 @@ _Ask :: (ctl(key : &i32) -> &(i32, key));
 _use :: (fn(ask : _Ask) -> i32)({
   k := i32(1);
   r := ask(&k);
-  // Read into a local, not a tail `r.*`: issues/2026-11-08-e0912-flags-a-scalar-field-read-through-a-local-borrow-as-returning-the-borrow.md.
-  v := r.*;
-  v
+  r.*
 });
 main :: (fn() -> unit)({
   (ask : _Ask) = (fn(key : &i32) -> &(i32, key))({

@@ -41,10 +41,6 @@ The root rule also follows a local borrow into the places it freezes (`_local_bo
 `&r.*`) in a `-> &(T, b)` body was E0912 ("`r` is a local") on develop, although `r`'s place is reached from `b`.
 A local borrow of a body local is still E0912.
 
-The corpus fixtures read the result into a local (`v := r.*; v`) instead of a tail `r.*`. The tail is the open
-`issues/2026-11-08-e0912-flags-a-scalar-field-read-through-a-local-borrow-as-returning-the-borrow.md`, which is not
-about handlers.
-
 ## Tests
 
 - Corpus: `effect-resume-param` is accepted (target ACCEPT). `effect-resume-local` stays E0912 and
