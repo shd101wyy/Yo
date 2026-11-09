@@ -125,6 +125,21 @@ test("A mut holder of a shared lend is writable", {
   assert(h.n == i32(6), "a holder's own field written");
   assert(h.r.* == i32(7), "the lent place is unchanged");
 });
+// A `mut` holder of a NAMED origin-parameterized struct is reassigned whole
+// (`h = RrCounted(x)(...)`), as the `Option` holder is: its slot is a value
+// of a struct type, not a `&` binding, so the write is not E0908
+// (issues/fixed/2026-11-07-reassigning-a-mut-holder-of-a-named-origin-struct-is-a-false-e0908.md).
+test("a mut holder of a named origin struct is reassignable", {
+  x := i32(7);
+  mut(h) := RrCounted(x)(r : &x, n : i32(1));
+  h = RrCounted(x)(r : &x, n : i32(2));
+  assert(h.n == i32(2), "the holder was reassigned");
+  assert(h.r.* == i32(7), "it still lends x");
+  mut(g) := RrCounted(x)(r : &x, n : i32(3));
+  g.n = h.n;
+  h = RrCounted(x)(r : g.r, n : g.n);
+  assert(h.n == i32(2), "reassigned from another holder's parts");
+});
 comptime_expect_error(
   rr_holder_still_freezes :: (fn() -> unit)({
     mut(x) := i32(1);
