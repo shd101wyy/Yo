@@ -69,18 +69,16 @@ test("a generic projection forwarding another with the lend marker yields its pl
   q := rrb_forward(&s);
   assert(q.len() == usize(2), "a move-only payload is read in place");
 });
-// A generic projection whose body is its reference parameter: the bare `x`
-// is checked per instantiation (it was emitted as `return (*x);` from a C
-// function returning a pointer; issues/fixed/2026-11-08-a-generic-projection-whose-body-is-its-reference-parameter-emits-invalid-c.md).
-// The lend spelling `&x.*` yields the place and returns the pointer itself.
+// A generic projection whose body is its reference parameter: the bare `x` in
+// the result position is the reference the `&T` result expects (the read rule,
+// P8), the same as the lend spelling `&x.*`. It was emitted as `return (*x);`
+// from a C function returning a pointer
+// (issues/fixed/2026-11-08-a-generic-projection-whose-body-is-its-reference-parameter-emits-invalid-c.md).
 rrb_id_bare :: (fn(generic(T : Type), x : &T) -> &T)(x);
-comptime_expect_error(
-  rrb_id_bare_use :: (fn() -> unit)({
-    n := i32(9);
-    assert(rrb_id_bare(&n).* == i32(9), "the place comes back");
-  }),
-  "this body has type"
-);
+test("a generic projection whose body is its bare reference parameter yields its place", {
+  n := i32(9);
+  assert(rrb_id_bare(&n).* == i32(9), "the place comes back");
+});
 rrb_id :: (fn(generic(T : Type), x : &T) -> &T)(&x.*);
 test("a generic projection returning its reference parameter's place", {
   n := i32(9);
