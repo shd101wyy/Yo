@@ -2369,6 +2369,7 @@ set_expr_as_consumed :: (
             .None => {
               _log_user_move(&v, ast_expr_token(expr), env);
               v.set_consumed_at_token(Option(Token).Some(ast_expr_token(expr)));
+              lb_holder_moved(&v, ast_expr_token(expr));
             },
             .Some(consumed_tok) => cond(
               // Allowed to re-consume — overwrite the consumption point.
@@ -9132,6 +9133,104 @@ _lb_typed_decl_binder :: (fn(lhs : &AstExpr) -> AstExpr)(
     true => lhs.clone()
   )
 );
+/// Does the code from `e` down to the node holding `t` run on every path
+/// through `e`? Not through a branch, a short-circuit operand, a loop or a
+/// closure body: a move at `t` there is a possible move only.
+_lb_straight_path :: (fn(e : &AstExpr, t : &Token) -> bool)(
+  match(
+    e,
+    .Atom(_, _) => true,
+    .FnCall(_, callee, Rc(args), _, _) => {
+      if(
+        ast_expr_is_fn_call_of(e, BK_COND, Option(usize).None) || ast_expr_is_fn_call_of(e, BK_MATCH, Option(usize).None) || ast_expr_is_fn_call_of(e, BK_WHILE, Option(usize).None) || ast_expr_is_fn_call_of(e, BK_OP_AND, Option(usize).None) || ast_expr_is_fn_call_of(e, BK_OP_OR, Option(usize).None) || _lb_is_arrow_literal(e) || _lb_is_arrow_literal(&callee),
+        {
+          return(false);
+        }
+      );
+      if(_span_holds(&callee, t), {
+        return(recur(&callee, t));
+      });
+      (ci : usize) = usize(0);
+      while(ci < args.len(), {
+        match(args.get(ci), .Some(c) => if(_span_holds(&c, t), {
+          return(recur(&c, t));
+        }), .None => ());
+        ci = (ci + usize(1));
+      });
+      true
+    }
+  )
+);
+/// O-4 (decision 43; issues/fixed/2026-11-09-a-drop-holder-moved-into-a-call-stays-live-to-its-scope-end.md):
+/// `variable` was moved at `tok`. A holder that was moved out runs its drop
+/// in its new owner, not at its scope's end, so when the move is on every
+/// path of a statement of the holder's own block (a later statement, no
+/// branch, loop or closure on the way down) its live range, which
+/// `to_scope_end` extended to that block's end, ends with that statement.
+lb_holder_moved :: (fn(variable : &Variable, tok : &Token) -> unit)({
+  if(!local_borrows_active(), {
+    return(());
+  });
+  match(
+    _lb_binding_site_of(variable),
+    .Some(site) => {
+      frames := g_lb_lookaheads.with(_c_clone_lbl);
+      match(
+        _lb_lookahead_index_of(&frames, ast_expr_id(&site.stmt)),
+        .Some(fi) => match(
+          frames.get_cloned(fi),
+          .Some(frame) => {
+            (k : usize) = (frame.index + usize(1));
+            while(k < frame.stmts.len(), {
+              match(
+                frame.stmts.get(k),
+                .Some(st) => if(_span_holds(&st, tok), {
+                  if(_lb_straight_path(&st, tok), {
+                    v_tok := variable.token;
+                    stmt_end := _last_token_of(&st, tok);
+                    _lb_shorten_holder_entries(&variable.name, &v_tok, &stmt_end);
+                  });
+                  return(());
+                }),
+                .None => ()
+              );
+              k = (k + usize(1));
+            });
+          },
+          .None => ()
+        ),
+        .None => ()
+      );
+    },
+    .None => ()
+  );
+});
+/// Every entry the holder `name` (declared at `decl`) registered ends at
+/// `end`, when it ended later.
+_lb_shorten_holder_entries :: (fn(name : &String, decl : &Token, end : &Token) -> unit)({
+  (i : usize) = g_local_borrows.with(_c_len_5);
+  while(i > usize(0), {
+    i = (i - usize(1));
+    match(
+      g_local_borrows.with(xs => xs.get(i)),
+      .Some(info) => if(_lb_same_decl(info.name.clone(), &info.decl, name.clone(), decl) && _lb_tok_after(&info.end, end), {
+        info.end = end.clone();
+      }),
+      .None => ()
+    );
+  });
+  (j : usize) = g_local_borrow_joins.with(_c_len_5);
+  while(j > usize(0), {
+    j = (j - usize(1));
+    match(
+      g_local_borrow_joins.with(xs => xs.get(j)),
+      .Some(info) => if(_lb_same_decl(info.name.clone(), &info.decl, name.clone(), decl) && _lb_tok_after(&info.end, end), {
+        info.end = end.clone();
+      }),
+      .None => ()
+    );
+  });
+});
 /// The `:=` statement (or typed `=` declaration) that bound `variable`, out of the armed look-ahead
 /// frames, with its block's scope end (the whole-holder `=` join recomputes
 /// the holder's live range from its binding, so the joined entries live to

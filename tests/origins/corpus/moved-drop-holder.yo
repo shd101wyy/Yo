@@ -1,0 +1,22 @@
+// Corpus row `moved-drop-holder` (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §5, O-4; manifest tests/origins/corpus.tsv): a user-`Drop` holder moved into a call runs its drop there, so its root is usable again after the call. Expected: accepted.
+// issues/2026-11-09-a-drop-holder-moved-into-a-call-stays-live-to-its-scope-end.md
+{ assert } :: import("std/assert");
+Slots :: struct(a : i32, b : i32);
+Entry :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(m : &mut(Slots, p)));
+impl(
+  generic(p : Origin),
+  Entry(p),
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      self.m.a = i32(-1);
+    })
+  )
+);
+impl(generic(p : Origin), Entry(p), finish : (fn(self : Self) -> unit)(()));
+main :: (fn() -> unit)({
+  mut(s) := Slots(a : i32(0), b : i32(0));
+  e := Entry(s)(m : &mut s);
+  e.finish();
+  assert(s.a == i32(-1), "the holder dropped inside finish");
+});
+export(main);

@@ -1,0 +1,32 @@
+// expect: E0911
+// h6e: a user-`Drop` holder moved on ONE path only is still dropped at the scope end on the other (its drop flag), so its root cannot be moved first.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+H :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(r : &(Rc(X), p)));
+impl(
+  generic(p : Origin),
+  H(p),
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      n := self.r.*.*.s.len();
+      println(`H dropped, read len ${n.to_string()}`);
+    })
+  )
+);
+impl(generic(p : Origin), H(p), finish : (fn(self : Self) -> unit)(()));
+sink :: (fn(v : Rc(X)) -> unit)({
+  println(`sink ${v.*.s.len().to_string()}`);
+});
+main :: (fn() -> unit)({
+  y := Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz")));
+  h := H(y)(r : &y);
+  c := runtime(false);
+  if(c, {
+    h.finish();
+  });
+  sink(y);
+  println("end of main");
+  ()
+});
+export(main);
