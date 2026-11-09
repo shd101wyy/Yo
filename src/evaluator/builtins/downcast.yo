@@ -141,14 +141,13 @@ evaluate_downcast :: (
     .None => Rc.new(TypeValueNode.Unit)
   );
   // A reference downcast borrows the payload where it lives: nothing is
-  // copied, so a move-only payload is fine and a `ref` payload, which has no
-  // place apart from its object, keeps the owned form.
+  // copied, so a move-only payload is fine. A `ref` object has no place apart
+  // from its own pointer (the Dyn's data word IS the object), so a `ref`
+  // target keeps the owned form, `Option(V)`, retained: the `ref` spelling
+  // goes with V5, and src's `downcast(err, YoError)` reads it.
   match(
     ref_mode,
-    .Some(rm) => {
-      if(is_reference_struct_type(&target_type), {
-        exn.throw(dyn(format_error_message(ast_expr_token(&type_expr), `downcast through a reference views the payload in place, and ${type_to_string(&target_type)} is a \`ref\` object, which has no place apart from its own pointer: downcast the owned Dyn instead.`)));
-      });
+    .Some(rm) => if(!is_reference_struct_type(&target_type), {
       result_ty := create_option_type(&t_reference(&target_type, rm));
       out_info_r := new_expr_info(&cur_env, &result_ty);
       out_info_r.set_value(Option(EvalValue).Some(create_unknown_val(&result_ty)));
@@ -156,7 +155,7 @@ evaluate_downcast :: (
       note_downcast_reference(ast_expr_id(expr), rm);
       attach_temp_variable_to_expr(expr, true, ctx);
       return(dc_call);
-    },
+    }),
     .None => ()
   );
   // A downcast copies the payload out and the Dyn keeps its own. A move-only
