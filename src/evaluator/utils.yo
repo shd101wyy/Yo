@@ -10313,6 +10313,35 @@ _origin_of_holder_origin :: (fn(variable : &Variable) -> TypeValue)({
     true => vt
   )
 });
+/// `roots` with every root that names a binding of a `&` match
+/// (`is_borrow_match_binding`, `note_borrow_match_source`) replaced by the
+/// scrutinee's own roots: the binding is a place inside the scrutinee's place.
+_origin_through_match_bindings :: (fn(roots : &ArrayList(OriginRootPlace), env : &Environment, ctx : &EvalContext, depth : u32) -> ArrayList(OriginRootPlace))({
+  out := ArrayList(OriginRootPlace).new();
+  (ri : usize) = usize(0);
+  while(ri < roots.len(), {
+    root := roots(ri).clone();
+    scr := match(
+      get_variables_from_env(env, root.place.root_name.clone()).last_cloned(),
+      .Some(v) => if(!v.is_parameter() && !v.is_compile_time_only() && v.is_borrow_match_binding() && (depth < u32(8)), borrow_match_source(v.id()), Option(AstExpr).None),
+      .None => Option(AstExpr).None
+    );
+    match(
+      scr,
+      .Some(scr_e) => {
+        inner := _origin_through_match_bindings(&origin_of(&ast_expr_strip_borrow_marker(&scr_e), env, ctx), env, ctx, (depth + u32(1)));
+        (ii : usize) = usize(0);
+        while(ii < inner.len(), {
+          _origin_push(inner(ii).clone(), &mut out);
+          ii = (ii + usize(1));
+        });
+      },
+      .None => _origin_push(root, &mut out)
+    );
+    ri = (ri + usize(1));
+  });
+  out
+});
 /// O-2's `return_check` (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §3,
 /// N2b's return rule over composite results, decision 43 O3): an origin in
 /// a result may name origin parameters or reference-typed parameters'
@@ -10329,12 +10358,11 @@ return_check :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, exn : 
   match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&stripped)),
     .Some(ri) => if(type_carries_origin(&ri.ty()), {
-      // GROUND roots: a root that is a `&` match binding or a lend binding
-      // stands for the places its entries borrow, so `return(.Some(items.index(i)))`
-      // inside the arm judges `items` as the scrutinee it borrows, the way
-      // the tail form of the same value is judged
+      // A root that is a `&` match binding stands for the place it points
+      // into, the scrutinee's roots: `return(.Some(items.index(i)))` inside
+      // the arm is judged as the tail form of the same value is
       // (issues/fixed/2026-11-08-an-early-return-does-not-follow-a-match-binding-to-its-scrutinee.md).
-      roots := _origin_ground_roots(&origin_of(&stripped, env, ctx));
+      roots := _origin_through_match_bindings(&origin_of(&stripped, env, ctx), env, ctx, u32(0));
       if(debug_knob(`YO_DEBUG_N2B`).is_some(), {
         eprintln(`[n2b] return-check roots=${roots.len().to_string()} ty=${type_to_string(&ri.ty())}`);
       });
