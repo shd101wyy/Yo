@@ -97,10 +97,13 @@ test("fmt comma frames: single-row calls inside a multiline array stay whole", {
 // The two load-bearing break cases the frame gate must PRESERVE: commas
 // directly at the multiline frame's own depth (bracket elements, struct
 // fields) still break, and a comma inside an ALREADY-multiline paren still
-// breaks (now via the paren arm) — both are already fixed points.
+// breaks (now via the paren arm) — both are already fixed points. The array
+// is a one-element array VALUE, so it carries its trailing comma: `[x]` is the
+// slice TYPE `Slice(x)` since decision 49 S1a, and before that it was a parse
+// error the formatter passed through unchanged, so this test proved nothing.
 test("fmt comma frames: multiline call inside a multiline array is unchanged", {
   src := String.from(
-    "add :: (fn(a : i32, b : i32) -> i32)((a + b));\nmain :: (fn() -> unit)({\n  xs := [\n    add(\n      i32(1),\n      i32(2)\n    )\n  ];\n});\nexport(main);\n"
+    "add :: (fn(a : i32, b : i32) -> i32)(a + b);\nmain :: (fn() -> unit)({\n  xs := [\n    add(\n      i32(1),\n      i32(2)\n    ),\n  ];\n});\nexport(main);\n"
   );
   out := _fmt(src.clone());
   assert(out == src, "canonical exploded form is stable");
