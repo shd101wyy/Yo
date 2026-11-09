@@ -9236,7 +9236,7 @@ _lb_join_root_end :: (fn(variable : &Variable, root_name : &String, end : &Token
                     first := _first_token_of(&st, &st_tok);
                     is_holder := match(
                       st,
-                      .FnCall(_, _, Rc(sargs), _, _) => match(sargs.get(usize(0)), .Some(l) => ast_expr_is_atom(&l) && (ast_expr_token(&l).value.* == variable.name), .None => false),
+                      .FnCall(_, _, Rc(sargs), _, _) => match(sargs.get(usize(0)), .Some(l) => (ast_expr_is_atom(&l) && (ast_expr_token(&l).value.* == variable.name)), .None => false),
                       .Atom(_, _) => false
                     );
                     if(is_holder && (first.module_path == at.module_path) && (first.character > at.character), {
