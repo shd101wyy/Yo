@@ -9243,6 +9243,19 @@ _origin_carrying_roots_shallow :: (fn(e : &AstExpr, env : &Environment, ctx : &E
             },
             .None => ()
           );
+        }, {
+          // A lend of a place that is no bare name (`&yb.*`, `&s.f`): R-LEND
+          // roots it where `origin_of` does (a `Box`'s content at the box),
+          // so a call result holding it points there
+          // (issues/fixed/2026-11-09-a-call-results-type-keeps-its-callees-origin-names.md).
+          nl_recorded := match(
+            expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&value_s)),
+            .Some(nli) => match(expr_info_converted_runtime_type(&nli), .Some(nlt) => match(&nlt, Rc(.Reference(_, _, _)) => true, _ => false), .None => false),
+            .None => false
+          );
+          if(nl_recorded || ast_expr_is_fn_call_of(&value, BK_BORROW_MUT, Option(usize).Some(usize(1))) || ast_expr_is_fn_call_of(&value, BF_ADDRESS_OF, Option(usize).Some(usize(1))), {
+            _origin_of_into(&value, env, ctx, &mut out, u32(1));
+          });
         });
         i = (i + usize(1));
       });
