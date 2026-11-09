@@ -485,6 +485,8 @@ comptime_expect_error(
 // result expression is one name the BORROW as the function's result, not
 // the value it reads through, so both are rejected even where reading
 // through a borrow of an implicitly copyable type produces a copy today.
+// (A field of a borrowed place is the exception: `y.x` is that field's
+// value, judged by its type.)
 comptime_expect_error(
   return_of_a_borrow_rejected :: (fn() -> i32)({
     x := i32(1);
@@ -493,14 +495,23 @@ comptime_expect_error(
   }),
   "Cannot return the local borrow `y`"
 );
-comptime_expect_error(
-  return_of_a_place_reached_from_a_borrow_rejected :: (fn() -> i32)({
-    sh := Shape(origin : Point(x : i32(1), y : i32(2)), name : String.from("sq"));
-    y := &sh.origin;
-    return(y.x);
-  }),
-  "Cannot return the local borrow `y`"
-);
+// A FIELD read through a borrow (`y.x`) yields the field's value, a copy of
+// a scalar: it is not the borrow, so returning it is fine
+// (issues/fixed/2026-11-08-e0912-flags-a-scalar-field-read-through-a-local-borrow-as-returning-the-borrow.md).
+return_of_a_scalar_field_read_through_a_borrow :: (fn() -> i32)({
+  sh := Shape(origin : Point(x : i32(1), y : i32(2)), name : String.from("sq"));
+  y := &sh.origin;
+  return(y.x);
+});
+tail_of_a_scalar_field_read_through_a_borrow :: (fn() -> i32)({
+  sh := Shape(origin : Point(x : i32(1), y : i32(2)), name : String.from("sq"));
+  y := &sh.origin;
+  y.y
+});
+test("a scalar field read through a local borrow is a copy, returnable", {
+  assert(return_of_a_scalar_field_read_through_a_borrow() == i32(1), "return(y.x)");
+  assert(tail_of_a_scalar_field_read_through_a_borrow() == i32(2), "tail y.y");
+});
 comptime_expect_error(
   body_tail_yielding_a_borrow_rejected :: (fn() -> i32)({
     x := i32(1);

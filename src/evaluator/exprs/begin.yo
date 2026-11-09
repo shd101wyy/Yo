@@ -127,6 +127,7 @@ pragma(Pragma.AllowUnsafe);
   local_borrow_set_lookahead,
   local_borrow_result_borrow_of,
   local_borrow_reject_result_borrow,
+  LocalBorrowInfo,
   return_check,
   reject_bare_callable_into_dyn_fn,
   deref_exempt_mark,
@@ -2460,6 +2461,13 @@ _contains_return_of :: (fn(e : &AstExpr, name : &String) -> bool)({
     .Atom(_, _) => false
   )
 });
+/// The evaluated result expression `e` has a second-class type (a borrow).
+/// A field read through a local borrow (`y.m`) yields the field's VALUE, a
+/// copy, unless the field itself is a reference, so only that case names the
+/// borrow as the function's result.
+_result_reads_second_class :: (fn(e : &AstExpr, ctx : &EvalContext) -> bool)(
+  match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(e)), .Some(ri) => type_is_second_class(&ri.ty()), .None => false)
+);
 /// The enclosing function returns a reference (a projection, `-> &T`):
 /// a bare reference binding returned from it passes what it borrows, not a
 /// whole-value read (E0926, decision 43 step 2 N1e-1).
@@ -2887,9 +2895,14 @@ _evaluate_begin_expression_impl :: (
           // same spelling would have to move the borrowed place or escape
           // the borrow itself. The way out is to copy the value into an
           // owned local first (`v := y; return(v);`).
+          // A FIELD place (`y.m`) is judged after the argument is evaluated:
+          // the field's value is a copy unless its type is itself second-class.
+          ret_lb_deferred := local_borrow_result_borrow_of(&ret_arg, &env, ctx);
           match(
-            local_borrow_result_borrow_of(&ret_arg, &env, ctx),
-            .Some(lb_info) => local_borrow_reject_result_borrow(&lb_info, ast_expr_token(&ret_arg), ctx, exn),
+            &ret_lb_deferred,
+            .Some(lb_info) => if(ast_expr_is_atom(&ast_expr_strip_borrow_marker(&ret_arg)), {
+              local_borrow_reject_result_borrow(lb_info, ast_expr_token(&ret_arg), ctx, exn);
+            }),
             .None => ()
           );
           // Pass the function-body's return type as the expected type for the
@@ -2935,6 +2948,13 @@ _evaluate_begin_expression_impl :: (
           // is evaluated (the check reads its type), not gated on
           // `local_borrows_active()` (the first holder in a body must be
           // checked too).
+          match(
+            &ret_lb_deferred,
+            .Some(lb_info) => if(_result_reads_second_class(&evaluated_ret_arg, ctx), {
+              local_borrow_reject_result_borrow(lb_info, ast_expr_token(&ret_arg), ctx, exn);
+            }),
+            .None => ()
+          );
           return_check(&evaluated_ret_arg, &env, ctx, exn);
           ret_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_ret_arg));
           if(ret_info_opt.is_none(), {
@@ -3299,6 +3319,7 @@ _evaluate_begin_expression_impl :: (
         // inside itself are still registered (a `return(...)` inside it is
         // checked by the return branch above).
         (chain_tail_armed : bool) = false;
+        (chain_lb_deferred : Option(LocalBorrowInfo)) = Option(LocalBorrowInfo).None;
         if(is_result_chain_block && is_last_in_loop, {
           // The arming cannot be gated on `local_borrows_active()`: the
           // borrow the tail block yields may be DECLARED inside it (its own
@@ -3311,9 +3332,16 @@ _evaluate_begin_expression_impl :: (
               chain_tail_armed = true;
             },
             true => {
+              // A bare borrow is rejected now; a FIELD place (`y.m`) after
+              // the tail is evaluated, when its value's type is known.
+              chain_lb := local_borrow_result_borrow_of(&chain_tail, &env, ctx);
               match(
-                local_borrow_result_borrow_of(&chain_tail, &env, ctx),
-                .Some(lb_info) => local_borrow_reject_result_borrow(&lb_info, ast_expr_token(&chain_tail), ctx, exn),
+                &chain_lb,
+                .Some(lb_info) => if(ast_expr_is_atom(&chain_tail), {
+                  local_borrow_reject_result_borrow(lb_info, ast_expr_token(&chain_tail), ctx, exn);
+                }, {
+                  chain_lb_deferred = chain_lb.clone();
+                }),
                 .None => ()
               );
             }
@@ -3328,6 +3356,13 @@ _evaluate_begin_expression_impl :: (
         // body-tail form: judged AFTER the tail is evaluated (the check
         // reads its type), not gated on `local_borrows_active()` (the first
         // holder in a body must be checked too).
+        match(
+          &chain_lb_deferred,
+          .Some(lb_info) => if(_result_reads_second_class(&evaluated, ctx), {
+            local_borrow_reject_result_borrow(lb_info, ast_expr_token(&expr_to_eval), ctx, exn);
+          }),
+          .None => ()
+        );
         if(is_result_chain_block && is_last_in_loop, {
           return_check(&evaluated, &env, ctx, exn);
         });
