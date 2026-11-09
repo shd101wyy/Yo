@@ -3,7 +3,6 @@
 **Severity:** S3: a wrong diagnostic. The program is rightly rejected, but the
 message names the wrong cause and suggests repairs that do not apply.
 
-**Status:** OPEN. Filed 2026-11-08 while fixing develop after #1824 (G1), whose
 `&mut Impl(FnMut(...))` callback slots turned `tests/higher_kinded_types.test.yo`
 red with this message.
 
@@ -40,3 +39,7 @@ A function with `generic(...)` parameters checks its body at call time, and
 that binding site marks a `fn`-typed parameter as a `&T` parameter. AGENTS.md
 lists this family: a parameter is bound in three places, and the call-time
 binder must mirror the definition-time binder's flags.
+
+## Fixed
+
+The per-specialization re-bind of a closure-typed parameter (`calls/helper.yo`, `_rbc`) binds it non-owning and sets `is_imm_borrow` for ownership bookkeeping; `_mark_value_rebind` records that a by-value slot's re-bind is not a reference (`is_value_rebind`, read by `variable_is_reference_binding`), but two readers of `is_imm_borrow` did not honor it: `shared_borrow_param_root_of_place` (the E0908 "write through a `&T` parameter" check, `exprs/assignment.yo`) and `_marker_place_of` (which classified the name as a borrow that passes bare, so E0914/E0917 never ran). Both now ignore a value re-bind, so a by-value `fn` parameter in a generic body gets the diagnostics its concrete twin gets: a bare `f` to a `&mut` slot is E0914, `&mut f` is E0917 (a parameter is immutable). Test: "a by-value fn parameter in a generic body is not reported as a read-only borrow" in `tests/parameter_modes.test.yo`.
