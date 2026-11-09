@@ -54,6 +54,7 @@ json :: import("std/encoding/json");
   E_DISCARDED_MUST_USE,
   E_BARE_CALLABLE_INTO_DYN,
   E_UNSIZED_BY_VALUE,
+  E_DEREF_OF_VALUE,
   E_NEVER_FULLY_EVALUATED,
   E_FORWARD_REFERENCE,
   E_MOVED_ON_SOME_PATHS,
@@ -1082,6 +1083,21 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "n :: size_of(Array(i32, 4));\nmain :: (fn() -> unit)({\n  _m := n;\n});\nexport(main);\n",
       "`[i32]` has no size of its own; a fixed-size `Array(i32, 4)` does.",
       "`[i32]` 没有自身的大小；定长的 `Array(i32, 4)` 有。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_DEREF_OF_VALUE,
+      "a dereference (`.*`) is written on a value",
+      "对值写了解引用（`.*`）",
+      "`x.*` where `x` is a plain value: its type is not a reference (`&T`, `&mut T`), a raw pointer (`*T`) or a `Deref` type (`Box`, `Rc`, `Arc`), so there is nothing to read through.",
+      "`x.*` 中的 `x` 是普通的值：它的类型不是引用（`&T`、`&mut T`）、裸指针（`*T`）或 `Deref` 类型（`Box`、`Rc`、`Arc`），因此没有可供读取的间接层。",
+      "`.*` reads through a reference, a raw pointer or a `Deref` handle to the place it refers to. A value such as an `i32`, a struct or a tuple is not one of those: it is the place itself, so `x` already is what `x.*` would name. The error is Rust's E0614 (the type cannot be dereferenced). It also appears behind a block, `cond` or `match` that yields a value: the result of `z := { ...; w }` is the value of `w`, a copy, and `z.*` has nothing to read through. Read the value directly: `x`, `x.field`, `x(i)`. To bind a reference to a value, write `r := &x` and read `r.*`. Before the code existed the same program failed with an evaluator internal (`check_if_function_parameter_matches_argument: arg has no ExprInfo`) or with `Failed to evaluate, got (x.(*))`.",
+      "`.*` 经由引用、裸指针或 `Deref` 句柄读取它所指向的位置。`i32`、结构体或元组这样的值不是其中任何一种：它就是位置本身，因此 `x` 已经就是 `x.*` 所指代的东西。该错误对应 Rust 的 E0614（该类型不能被解引用）。当块、`cond` 或 `match` 产生的是值时也会出现：`z := { ...; w }` 的结果是 `w` 的值（一份拷贝），`z.*` 没有可读取的间接层。请直接读值：`x`、`x.field`、`x(i)`。要绑定指向某个值的引用，请写 `r := &x` 并读取 `r.*`。在该错误码存在之前，同样的程序会以求值器内部错误（`check_if_function_parameter_matches_argument: arg has no ExprInfo`）或 `Failed to evaluate, got (x.(*))` 失败。",
+      "main :: (fn() -> unit)({\n  x := i32(1);\n  y := x.*;\n  _z := y;\n});\nexport(main);\n",
+      "main :: (fn() -> unit)({\n  x := i32(1);\n  y := x;\n  _z := y;\n});\nexport(main);\n",
+      "`x : i32` is a value, so `x.*` has no reference to read through; `x` alone is the `i32` (to refer to it, `r := &x` and `r.*`).",
+      "`x : i32` 是值，因此 `x.*` 没有可读取的引用；单独的 `x` 就是那个 `i32`（要引用它，写 `r := &x` 再读 `r.*`）。"
     )
   );
   // ── Internal codegen (E13xx) and CLI/build/deps (E15xx) ──────────────────

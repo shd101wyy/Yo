@@ -43,7 +43,7 @@ On a develop build (`b5e6881c3`): `z := { w := i32(2); first(&x) }` binds the
 VALUE (an `i32` copy of the place), exactly as `z := { w := i32(2); x }` does,
 and `assert(z == i32(1), ...)` and `v := z` both compile and run. The internal
 error comes from the reproducer's `z.*`, a `.*` on a plain value
-(`issues/2026-11-09-a-deref-of-a-plain-value-is-an-internal-error-not-a-diagnostic.md`;
+(`issues/fixed/2026-11-09-a-deref-of-a-plain-value-is-an-internal-error-not-a-diagnostic.md`;
 `x.*` with `x := i32(1)` fails the same way), not from the block tail. So the
 open question is the design one: does a block whose tail is a projection call
 yield the reference (option A below, with the block locals' roots checked) or

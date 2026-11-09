@@ -50,15 +50,15 @@ pragma(Pragma.AllowUnsafe);
   is_type_value,
   no_values
 } :: import("../../value.yo");
-{ TypeValue, TypeValueNode, no_types, no_labels, SharedList } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, no_types, no_labels, SharedList, t_slot_is_borrow } :: import("../../types/definitions.yo");
 { t_unit, t_type, t_some_t, resolve_enum_shell, resolve_struct_shell } :: import("../../types/creators.yo");
 { is_pointer_type, is_enum_type, is_reference_enum_type, is_struct_type, is_union_type, is_module_type, is_trait_type, is_tuple_type, is_some_type, is_type_0, is_function_type, type_decl_module, unique_box_payload_type, cell_handle_view } :: import("../../types/guards.yo");
 { private_member_blocked, is_private_member_name, debug_knob } :: import("../../utils.yo");
 { get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ unknown_field_message, unknown_field_code, unknown_variant_message, unknown_field_through_deref_message, type_carries_origin, origin_value_phase_message, origin_beyond_n2b, origin_beyond_n2b_message } :: import("../../types/utils.yo");
+{ unknown_field_message, unknown_field_code, unknown_variant_message, unknown_field_through_deref_message, type_carries_origin, origin_value_phase_message, origin_beyond_n2b, origin_beyond_n2b_message, get_all_some_types } :: import("../../types/utils.yo");
 { format_error_message, format_error_message_with_help, with_code } :: import("../../error.yo");
-{ suggest_name, E_AMBIGUOUS_METHOD, E_DEREF_OF_BORROW } :: import("../../diagnostics.yo");
+{ suggest_name, E_AMBIGUOUS_METHOD, E_DEREF_OF_BORROW, E_DEREF_OF_VALUE } :: import("../../diagnostics.yo");
 { attach_temp_variable_to_expr, local_borrow_take_receiver, local_borrow_mark_receiver, local_borrow_clear_receiver, local_borrows_active, local_borrow_access_expr, LocalBorrowAccess, deref_exempt_mark, deref_exempt_clear, variable_is_reference_binding, deref_rule_applies, deref_spelling_applies, deref_rule_recording, note_reference_deref_site, is_reference_deref_site, note_synthesized_deref_star, is_synthesized_deref_star, is_ctfe_reference_param, deref_reads_through_pointee, deref_payload_type, deref_exempt_take, projection_call_mode_of, note_reference_field_read, reference_field_read_type, reject_reference_field_without_deref, local_borrow_place_text, reference_read_wanted } :: import("../utils.yo");
 { is_valid_variable_name } :: import("../utils.yo");
 { is_implicitly_unsafe_capable_file, is_class1_panic_method_name, is_class1_panic_receiver_type, is_class1_panic_exempt_file, is_union_member_read_capable, union_member_read_error_message, is_std_module_path } :: import("../memory_safety.yo");
@@ -283,6 +283,12 @@ _field_labels_of :: (fn(t : &TypeValue) -> SharedList(String))(
     Rc(.Union(_, labels, _)) => Rc.clone(labels),
     _ => no_labels()
   )
+);
+/// Whether `.*` can read through a value of type `ty`: a reference, a raw
+/// pointer, a handle `.*` reads through (`Box`, `Rc`, `Arc`: `Deref`, or a
+/// cell handle), or a type declaring a field named `*` (std's atomics).
+_type_is_dereferenceable :: (fn(ty : &TypeValue, env : &Environment) -> bool)(
+  t_slot_is_borrow(ty) || deref_reads_through_pointee(ty) || deref_target_type(ty, env).is_some()
 );
 /// Where auto-dereference of `w.label` lands, for a `w` of `Deref` type `t`
 /// whose own fields lack `label`: `.Ok(())` when some payload in the chain
@@ -1231,6 +1237,40 @@ Raw pointer operations may dereference invalid memory.`
         .None => ()
       );
     });
+    // `x.*` on a plain value (decision 43; VERDICTS-41 Q1): every legal `.*`
+    // has returned or thrown above (a reference binding, a CTFE reference
+    // parameter, a projection call, a reference-typed place, the E0920 branch),
+    // so an operand whose type is no reference, raw pointer, `Deref` handle or
+    // type with a field `*` has nothing to read through. Before this arm it
+    // fell through to the field lookup and left no ExprInfo (an internal
+    // "arg has no ExprInfo", or "Failed to evaluate, got (x.(*))").
+    match(
+      &obj_info_opt,
+      .Some(dv_oi) => if(_is_written_star(&property_expr) && !is_type_value(&dv_oi.value()) && !is_module_type(&dv_oi.ty()) && (get_all_some_types(&dv_oi.ty()).len() == usize(0)) && !_type_is_dereferenceable(&dv_oi.ty(), &env), {
+        dv_ty_text := type_to_string(&dv_oi.ty());
+        dv_subject := cond(
+          ast_expr_is_atom(&object_expr) => `\`${ast_expr_to_string(&object_expr)}\` has type \`${dv_ty_text}\``,
+          true => `this expression has type \`${dv_ty_text}\``
+        );
+        dv_help := cond(
+          ast_expr_is_atom(&object_expr) => `read \`${ast_expr_to_string(&object_expr)}\` itself; to bind a reference to it write \`r := &${ast_expr_to_string(&object_expr)}\` and read \`r.*\``,
+          true => String.from("read the value itself; to bind a reference to a place write `r := &place` and read `r.*`")
+        );
+        exn.throw(
+          dyn(
+            with_code(
+              format_error_message_with_help(
+                ast_expr_token(expr),
+                `${dv_subject}, a value: \`.*\` reads through a reference (\`&T\`, \`&mut T\`), a raw pointer (\`*T\`) or a \`Deref\` type (\`Box\`, \`Rc\`, \`Arc\`), and \`${dv_ty_text}\` is none of them.`,
+                Option(String).Some(dv_help)
+              ),
+              E_DEREF_OF_VALUE
+            )
+          )
+        );
+      }),
+      .None => ()
+    );
     // Not a pointer — fall through to normal property lookup below.
   });
   // -------------------------------------------------------------------------
