@@ -1228,6 +1228,30 @@ test("method-store-widen-named-holder", {
   );
   verdict("method-store-widen-named-holder", case2(main, store()), "ORIGIN_MISMATCH");
 });
+test("qualified-method-store-widen-named-holder", {
+  // `store-widen-named-holder` as a qualified call: the toy language has no receivers or fn values, so the spelled twin again.
+  main := entry(
+    al4(
+      let_(X, lit()),
+      let_d(SLOT, Rc.new(NodeE.Make(Kind.Some, Rc.new(NodeE.Borrow(false, X)))), wrap(Kind.Some, shr(int(), o(X)))),
+      Rc.new(NodeE.Block(al2(let_(Y, lit()), use_(call(usize(1), al2(Rc.new(NodeE.Borrow(true, SLOT)), Rc.new(NodeE.Borrow(false, Y)))))))),
+      use_(Rc.new(NodeE.Var(SLOT)))
+    )
+  );
+  verdict("qualified-method-store-widen-named-holder", case2(main, store()), "ORIGIN_MISMATCH");
+});
+test("fn-value-store-widen-named-holder", {
+  // `store-widen-named-holder` as a call through a fn value: the toy language has no receivers or fn values, so the spelled twin again.
+  main := entry(
+    al4(
+      let_(X, lit()),
+      let_d(SLOT, Rc.new(NodeE.Make(Kind.Some, Rc.new(NodeE.Borrow(false, X)))), wrap(Kind.Some, shr(int(), o(X)))),
+      Rc.new(NodeE.Block(al2(let_(Y, lit()), use_(call(usize(1), al2(Rc.new(NodeE.Borrow(true, SLOT)), Rc.new(NodeE.Borrow(false, Y)))))))),
+      use_(Rc.new(NodeE.Var(SLOT)))
+    )
+  );
+  verdict("fn-value-store-widen-named-holder", case2(main, store()), "ORIGIN_MISMATCH");
+});
 test("bare-reference-store-widen", {
   // `store-widen-named-holder` with the reference bound to a local first, `r := &y; store(&mut slot, r)` — the toy
   // language reads a binding's references directly, so the row pins the rule the spelled twin needs.

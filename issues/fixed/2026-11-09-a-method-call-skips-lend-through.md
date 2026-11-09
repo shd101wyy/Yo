@@ -60,6 +60,14 @@ operand) as its first argument and reads the method's own slots
 (`_lend_through_args`, `_lend_through_slots`, the shape `_call_lends` uses for
 decision 28); a qualified `S.m(&mut s, v)` binds its written arguments. G-E's
 call-argument audit reads calls the same way.
+
+The qualified spelling and a fn value bound to a local (`f := _Slot(a).put; f(&mut s, &yb.*)`) needed one more
+step: the callee's SPECIALIZED type has lost the references' origins (`v : &i32` for `v : &(i32, p)`; only `self`'s
+`_Slot(origin(a))` survives), so there is no origin parameter left for step 1 to fix. Those calls read the
+DEFINITION's slots, off the callee's recorded `FuncVal` (a qualified access) or off the definition type a
+`:=` binding remembers for a local bound to a known fn value (`note_fn_value_definition`, keyed by `Variable.id`).
+Their programs are `tests/origins/unsound/qualified-method-store-widen-named-holder.yo` and
+`fn-value-store-widen-named-holder.yo`, each beside a positive twin, and the two corpus rows of the same names.
 The corpus row's `today` column is E0923, and the program is
 `tests/origins/unsound/method-store-widen-named-holder.yo` beside a positive
 twin.

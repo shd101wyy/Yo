@@ -1,0 +1,26 @@
+// O-6 corpus row `fn-value-store-widen-named-holder` (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §5, the call row;
+// manifest tests/origins/corpus.tsv): `method-store-widen-named-holder` as a fn VALUE, `f := _Slot(a).put; f(&mut s, &yb.*)`: the local remembers the definition of the value it is bound to
+// (issues/fixed/2026-11-09-a-method-call-skips-lend-through.md).
+// Expected: rejected: E0923 at `&yb.*`.
+{ println } :: import("std/fmt");
+_Slot :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(dst : &mut Option(&(i32, p))));
+impl(
+  generic(p : Origin),
+  _Slot(p),
+  put : (fn(self : &mut Self, v : &(i32, p)) -> unit)({
+    self.dst.* = .Some(v);
+  })
+);
+main :: (fn() -> unit)({
+  a := i32(1);
+  mut(slot) := Option(&(i32, a)).Some(&a);
+  mut(s) := _Slot(a)(dst : &mut slot);
+  f := _Slot(a).put;
+  {
+    yb := Box.new(i32(2));
+    f(&mut s, &yb.*);
+  };
+  match(slot, .Some(r) => println(`OUT: ${r.*.to_string()}`), .None => println("none"));
+  ()
+});
+export(main);
