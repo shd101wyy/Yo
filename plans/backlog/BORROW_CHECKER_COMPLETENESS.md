@@ -216,7 +216,7 @@ Filed 2026-11-07 from VERDICTS-30/31; each names its repro under `issues/repros/
 - `issues/fixed/2026-11-07-reassigning-a-mut-holder-of-a-named-origin-struct-is-a-false-e0908.md` — S2
 - `issues/2026-11-07-a-generic-function-storing-a-by-value-reference-parameter-emits-invalid-c.md` — S2
 - `issues/2026-11-07-a-ctl-operation-returning-its-reference-parameter-is-rejected-with-e0605.md` — S2
-- `issues/2026-11-07-a-closure-literal-returning-its-reference-parameter-fails-to-evaluate.md` — S2
+- `issues/fixed/2026-11-07-a-closure-literal-returning-its-reference-parameter-fails-to-evaluate.md` — S2
 - `issues/2026-11-07-yo-explain-e0911-e0912-e0910-teach-the-pre-decision-43-model.md` — S3
 - `issues/2026-11-07-e0909-is-raised-with-three-meanings-under-one-registry-entry.md` — S3
 
