@@ -2953,7 +2953,12 @@ _projection_read_tail :: (fn(name : &AstExpr, is_mut : bool) -> AstExpr)({
   dtok := _synth_desugar_tok(TokenKind.Dot, ".", &at);
   dargs := ArrayList(AstExpr).new();
   dargs.push(name.clone());
-  dargs.push(AstExpr.Atom(alloc_global_expr_id(), _synth_desugar_tok(TokenKind.Operator, "*", &at)));
+  // The star sits just past the name, never AT it: a deref site is keyed by
+  // the position of the star, and a generic body evaluates this node once per
+  // specialization, after the first recorded `name`'s own position.
+  star_tok := _synth_desugar_tok(TokenKind.Operator, "*", &at);
+  star_tok.byte_offset = (at.byte_offset + u32(at.value.*.len()));
+  dargs.push(AstExpr.Atom(alloc_global_expr_id(), star_tok));
   deref := AstExpr.FnCall(alloc_global_expr_id(), AstExpr.Atom(alloc_global_expr_id(), dtok), Rc.new(dargs), true, dtok);
   mark := _synth_desugar_tok(TokenKind.Identifier, cond(is_mut => PROJECTION_MUT_READ_PATH, true => PROJECTION_REF_READ_PATH), &at);
   mark.module_path = Rc.new(mark.value.*.clone());

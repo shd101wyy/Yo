@@ -560,6 +560,18 @@ test("a projection's result written as a reference binding", {
   pick := (fn(k : &i32) -> &i32)(k);
   assert(pick(&n).* == i32(9), "a closure's reference result");
 });
+// A closure LITERAL returning its reference parameter, into an
+// `Impl(Fn(v : &i32) -> &i32)` slot
+// (issues/fixed/2026-11-07-a-closure-literal-returning-its-reference-parameter-fails-to-evaluate.md).
+rr_apply_closure :: (fn(f : Impl(Fn(v : &i32) -> &i32), v : &i32) -> i32)({
+  r := f(v);
+  out := r.*;
+  out
+});
+test("a closure literal returns its reference parameter", {
+  x := i32(7);
+  assert(rr_apply_closure((v : &i32) => v, &x) == i32(7), "the parameter comes back through the closure");
+});
 comptime_expect_error(
   rr_proj_shared_as_mut :: (fn(key : &mut i32) -> &mut(i32, key))({
     r := &key.*;
@@ -580,5 +592,5 @@ comptime_expect_error(
     r := &c.v;
     r
   }),
-  "which is not reached from one"
+  "`c` is a local: its storage ends with the call"
 );

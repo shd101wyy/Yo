@@ -32,6 +32,9 @@ O-3, v0.2.77 (`plans/backlog/BORROW_CHECKER_COMPLETENESS.md` §8–§9).
 
 the corpus row goes green; `tests/closure_capture_list.test.yo` gains the positive.
 
-## Fixed
+## Resolution (P8)
 
-Measured 2026-11-10 on a develop-built tree binary (`f8c70b02a`). The internal "Last expression in `begin` is not evaluated correctly" was already gone (the projection-call `.*` fix of 2026-11-08). What remained was the corpus rows' own spelling: a closure literal returning `&T` is a projection (decision 24), whose tail is written `&place`, and `closure-returns-param` / `closure-returns-capture` wrote the bare name (`(v : &i32) => v`, `=> c`), the form a NAMED `-> &T` function rejects with "this body has type `i32`" too. Spelled `&v.*` the row is accepted, and `closure-returns-capture` (`=> &c.*`) is rejected for the intended origin reason, E0923 ("a closure's reference result is reached from one of its own `&`/`&mut` parameters ... `c` is a binding of the enclosing function"). So: (1) the two rows are re-spelled and their `today` column re-recorded (`accept`, `E0923|...`); (2) the closure path's mismatch, which printed the internal result form ("Function body has type `i32`, but the declared result type is `*(i32)`", E0604), now raises the decision-24 text the named path raises (`projection_body_mismatch_message`: "... a projection (decision 24): its result is a place ... written `&place`"); (3) the test "a closure literal returning its reference parameter is a projection" in `tests/closure_capture_list.test.yo` pins the accepted `&v.*`, the bare-`v` diagnostic and the E0923 capture row. Whether a bare reference binding should be a valid projection tail (R1 at the result position) is a design question, recorded in the hand-back; today it is rejected for named functions and closures alike.
+Fixed with `issues/fixed/2026-11-07-a-ctl-operation-returning-its-reference-parameter-is-rejected-with-e0605.md`: the
+closure literal's tail `v` is a bare name in a projection's result position, which now reads as the reference the `&T`
+result expects. `closure-returns-param` is accepted and `closure-returns-capture` is E0923 (the capture, by name), both
+re-recorded. Test: `tests/origins/reference_read_rule.test.yo`, "a closure literal returns its reference parameter".

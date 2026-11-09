@@ -11,6 +11,7 @@
 # 2026-11-10 (E0912 judges a field read through a borrow by its type): the three effect-resume-* rows' `_use`
 # returns `r.*`, a scalar read through the local borrow `r`, which is no longer E0912; their `today` column
 # now records the handler's own first error, which the old over-rejection masked.
+# 2026-11-09 (P8, BORROW_CHECKER_COMPLETENESS.md §7): closure-returns-param and closure-returns-capture re-recorded.
 # id	anchor	kind	phase	expect	today
 wf-self-binding	O1 well-formedness	neg	N2	WF_SELF	E0924|names the binding being declared
 wf-self-field	O1 well-formedness, O5	neg	N2	WF_SELF	E0924|names the value being defined
@@ -59,7 +60,7 @@ generic-bounded-rc	O10	neg	N1	E0909	E0914|lends a borrow, but parameter
 generic-escapable-rc	O10	pos	N1	ACCEPT	accept
 closure-caps-exceed-slot	O7 closures, O3-3	neg	N2	ORIGIN_MISMATCH	-|a payload bounded by an origin
 closure-caps-within-slot	O7 closures	pos	N2	ACCEPT	-|a payload bounded by an origin
-closure-returns-capture	hole: elision x closures	neg	N1	ORIGIN_MISMATCH	E0923|A closure's reference result is reached from one of its own
+closure-returns-capture	hole: elision x closures	neg	N1	ORIGIN_MISMATCH	E0923|which the closure captures
 closure-returns-param	O2 per-call Fn origins	pos	N1	ACCEPT	accept
 closure-param-into-capture	hole: elision x closures	neg	N2	UNION/E0923	-|carries an origin
 closure-push-capture	§7 a &mut capture of a flow-inferred container	pos	N2	ACCEPT	-|carries an origin
