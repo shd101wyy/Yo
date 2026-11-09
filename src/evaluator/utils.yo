@@ -6990,13 +6990,6 @@ local_borrow_access_at :: (fn(place : &LocalBorrowPlace, kind : &LocalBorrowAcce
   _local_borrow_access_live(place, kind, tok, live_tok, true, ctx, exn)
 );
 _local_borrow_access_live :: (fn(place : &LocalBorrowPlace, kind : &LocalBorrowAccess, tok : &Token, live_tok : &Token, after_live : bool, ctx : &EvalContext, exn : Exception) -> unit)({
-  if(debug_knob(`YO_DEBUG_TWO_PHASE`).is_some() && after_live, {
-    eprintln(`[two-phase] ${place.text} at=${tok.character.to_string()} live_after=${live_tok.character.to_string()} borrows=${g_local_borrows.with(_c_len_5).to_string()}`);
-    (dbi : usize) = usize(0);
-    while(dbi < g_local_borrows.with(_c_len_5), dbi = (dbi + usize(1)), {
-      match(g_local_borrows.with(xs => xs.get(dbi)), .Some(dinfo) => eprintln(`[two-phase]   ${dinfo.name} start=${dinfo.start.character.to_string()} last=${dinfo.last_use.character.to_string()} end=${dinfo.end.character.to_string()} live=${_lb_live_past(&dinfo, live_tok, after_live)}`), .None => ());
-    });
-  });
   (i : usize) = g_local_borrows.with(_c_len_5);
   while(i > usize(0), {
     i = (i - usize(1));

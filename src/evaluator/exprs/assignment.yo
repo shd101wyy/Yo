@@ -1120,9 +1120,6 @@ d3_check_pending :: (
         &entry.lb_place,
         .Some(lbp) => if(match(borrow_mask, .Some(bm) => param_mutation_mask_hits(&bm, entry.param_index), .None => false), {
           local_borrow_require_writable(&lbp, entry.lb_read_only, entry.how.clone(), ast_expr_token(&entry.place), ctx, exn);
-          if(debug_knob(`YO_DEBUG_TWO_PHASE`).is_some(), {
-            eprintln(`[two-phase] call ${ast_expr_to_string(call)}`);
-          });
           local_borrow_access_at(&lbp, LocalBorrowAccess.Write, ast_expr_token(&entry.place), &call_activation_token(call, ast_expr_token(&entry.place)), ctx, exn);
           local_borrow_access(&lbp, LocalBorrowAccess.Read, ast_expr_token(&entry.place), ctx, exn);
         }),
