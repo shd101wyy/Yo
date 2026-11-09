@@ -4,8 +4,8 @@
 # made that push panic instead of reallocating the buffer under the live
 # element reference `x`. A value list has no shared handle: `h := xs` moves
 # the walked list, which the loop's `&` borrow rejects at compile time (E0911).
-# A user wrapper whose `walk_ref` forwards into an inner collection is NOT
-# covered by the flag:
-# issues/2026-10-24-a-forwarded-walk-leaves-the-inner-collection-unguarded.md.
-stdout_keep_match=error\[E0911\]: Cannot move .xs. here: .for_coll0. borrows .xs. with .&. and is still live.*|--> src/main\.yo:[0-9]+:[0-9]+
+# Since R-FOR the loop is the value form over `(&xs).into_iter()`: the cursor's
+# items hold the `&xs` lend, so the move is rejected whichever binding the
+# message names.
+stdout_keep_match=error\[E0911\]: Cannot move .xs. here: .[a-z_0-9]+. borrows .xs. with .&. and is still live.*|--> src/main\.yo:[0-9]+:[0-9]+
 timeout=300

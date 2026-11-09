@@ -1,6 +1,7 @@
-error[E0911]: Cannot read `list.push` here: `for_coll0` borrows `list` with `&mut` and is still live, and a `&mut` borrow is exclusive: while it is live, `list`, the places inside it and the places containing it are reached only through `for_coll0`.
+error[E0911]: Cannot read `list.push` here: `x` borrows `list` with `&mut` and is still live, and a `&mut` borrow is exclusive: while it is live, `list`, the places inside it and the places containing it are reached only through `x`.
 --> main.yo:7:10
-help: the borrow lasts for the whole `for` loop: make the access after the loop, or through the element the loop binds (`x` in a borrowed `for(&mut coll, x => ...)`; to read or grow an `ArrayList` or a `Deque` in the body, walk `for(coll.indices(), i => ...)` with `coll(i)` instead)
+help: make the access after `x`'s last use, or make it through `x`
 help: run `yo explain E0911` for more information
---> main.yo:6:3
+--> main.yo:6:18
+--> main.yo:7:15
 error: check: 1 file(s) failed evaluator coverage
