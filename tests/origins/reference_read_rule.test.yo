@@ -330,6 +330,49 @@ test("a temporary lent within its statement, and a bound guard's projection", {
   assert(r.* == i32(5), "the guard outlives the projection");
 });
 
+// `.*` on a plain value is E0621: a value is its own place, there is nothing
+// to read through (VERDICTS-41 Q1; was an internal "arg has no ExprInfo",
+// issues/fixed/2026-11-09-a-deref-of-a-plain-value-is-an-internal-error-not-a-diagnostic.md).
+comptime_expect_error(
+  rr_deref_of_scalar_value :: (fn() -> unit)({
+    x := i32(1);
+    assert(x.* == i32(1), "m");
+  }),
+  "`x` has type `i32`, a value"
+);
+comptime_expect_error(
+  rr_deref_of_scalar_value_bound :: (fn() -> unit)({
+    x := i32(1);
+    q := x.*;
+  }),
+  "`.*` reads through a reference"
+);
+comptime_expect_error(
+  rr_deref_of_struct_value :: (fn() -> unit)({
+    s := RrPair(a : i32(1), b : i32(2));
+    t := s.*;
+  }),
+  "`s` has type `RrPair`, a value"
+);
+comptime_expect_error(
+  rr_deref_of_non_atom_value :: (fn() -> unit)({
+    x := i32(1);
+    q := (x + i32(1)).*;
+  }),
+  "this expression has type"
+);
+test("`.*` reads through a reference, a raw pointer and a Deref handle", {
+  x := i32(7);
+  r := &x;
+  assert(r.* == i32(7), "a reference binding");
+  b := Box.new(i32(8));
+  assert(b.* == i32(8), "a Box");
+  h := Rc.new(i32(9));
+  assert(h.* == i32(9), "an Rc");
+  p := addr_of(x);
+  assert(unsafe(p.*) == i32(7), "a raw pointer");
+});
+
 // A projection's tail that lends the deref of another projection call
 // (`&mut f(&mut x).*`) is rooted where that call's place is: a local's
 // place does not escape
