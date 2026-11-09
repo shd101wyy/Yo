@@ -6,6 +6,16 @@ three classes"; schedule §5f decision 35). Measured on develop `5aa0e1800`.
 It is regenerated on the tip before each batch; the class column changes only
 with a reason recorded here.
 
+## Batches (2026-11-09)
+
+Schedule §5f decision 37 (Fable consultation #39) batches the 74 `src/`
+declarations still on develop `e769f6b0d` by conflict surface: **3a**, the
+off-path records (~24), rides v0.2.77 as an optional rider or opens v0.2.78;
+**3b**, the evaluator/codegen records (~47, `VcSort` first), lands in v0.2.78
+between deref Generation B and kebab-case; **3c** `Token`, **3d** `AstExpr` and
+**3e** `EvalValue` open v0.2.79, before the parser drop. `Token`'s row keeps
+"`Rc(S)` unless the emit-diff shows a plain struct within noise".
+
 ## Method
 
 The classes and the procedure are Fable consultation #18 §C (confirming #13
