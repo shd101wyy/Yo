@@ -1112,3 +1112,36 @@ comptime_expect_error(
   }),
   "scope ends with its block"
 );
+// Two-phase borrows with a named `&` (plans/backlog/BORROW_CHECKER_COMPLETENESS.md
+// §7 P9): a `&mut` argument, the receiver included, is reserved where it is
+// written and activated when the call begins, so a `&` loan whose last use is
+// a later argument of the same call has ended by then.
+_tp_push_len :: (fn(a : &mut ArrayList(i32), n : usize) -> unit)(a.push(i32(n)));
+test("a & loan used last in a later argument does not conflict with the &mut receiver", {
+  mut(xs) := ArrayList(i32).new();
+  xs.push(i32(1));
+  r := &xs;
+  xs.push(i32(r.len()));
+  assert(xs.len() == usize(2), "pushed");
+  assert(xs(usize(1)) == i32(1), "pushed r.len() before the push");
+  s := &xs;
+  _tp_push_len(&mut xs, s.len());
+  assert(xs(usize(2)) == i32(2), "an explicit &mut argument is two-phase too");
+});
+comptime_expect_error(
+  two_phase_loan_used_after_rejected :: (fn() -> unit)({
+    mut(xs) := ArrayList(i32).new();
+    r := &xs;
+    xs.push(i32(r.len()));
+    _n := r.len();
+  }),
+  "Cannot write `xs` here"
+);
+comptime_expect_error(
+  two_phase_mut_loan_in_argument_rejected :: (fn() -> unit)({
+    mut(xs) := ArrayList(i32).new();
+    m := &mut xs;
+    xs.push(i32(m.len()));
+  }),
+  "a `&mut` borrow is exclusive"
+);

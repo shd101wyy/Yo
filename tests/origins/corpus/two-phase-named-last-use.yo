@@ -1,0 +1,12 @@
+// N0 corpus row `two-phase-named-last-use` (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §7 P9;
+// manifest tests/origins/corpus.tsv): a `&` loan `r` of `xs` whose last use lies in a later argument of the call that lends `xs` with `&mut` (the receiver): two-phase, `r` is dead when the call begins.
+// Expected once P9 lands: accepted.
+{ ArrayList } :: import("std/collections/array_list");
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(i32).new();
+  xs.push(i32(1));
+  r := &xs;
+  xs.push(i32(r.len()));
+  ()
+});
+export(main);

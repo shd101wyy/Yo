@@ -8297,7 +8297,7 @@ _evaluate_funcval_runtime_call :: (
     );
     match(
       rt_d3_body,
-      .Some(rt_d3_b) => d3_check_pending(fv_d3_pending, &rt_d3_fid, &rt_d3_b, ctx, exn),
+      .Some(rt_d3_b) => d3_check_pending(fv_d3_pending, &rt_d3_fid, &rt_d3_b, expr, ctx, exn),
       // No body to read: an unknown mask is a write.
       .None => d3_check_pending_unresolved_callee(fv_d3_pending, &rt_d3_fid, ctx, exn)
     );
@@ -13567,7 +13567,7 @@ Fix: wrap the call:
         // try_to_call_function_with_arguments gate; the callee body was just
         // inline-evaluated, so its ExprInfo is complete for the walk).
         // D3: the inline-evaluated callee's ExprInfo is complete for the mask.
-        d3_check_pending(&fv_d3_pending, func_id_fv.clone(), &body_box, ctx, exn);
+        d3_check_pending(&fv_d3_pending, func_id_fv.clone(), &body_box, expr, ctx, exn);
         (fv_s1_elided : bool) = false;
         if(fv_s0_drops.len() > usize(0), {
           if(!is_control_fn(func_id_fv.clone()), {

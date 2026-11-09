@@ -119,6 +119,8 @@ pragma(Pragma.AllowUnsafe);
   local_borrow_require_writable,
   local_borrow_root_is_shared_reference,
   local_borrow_access,
+  local_borrow_access_at,
+  call_activation_token,
   local_borrow_write_expr,
   bind,
   bind_join,
@@ -1076,7 +1078,7 @@ d3_check_pending_unresolved_callee :: (
 /// CALLER (`d3_record_inout_place`). The summary target is the
 /// specialization when one exists.
 d3_check_pending :: (
-  fn(pending : &ArrayList(D3PendingInout), callee_fid : &String, callee_body : &AstExpr, ctx : &EvalContext, exn : Exception) -> unit
+  fn(pending : &ArrayList(D3PendingInout), callee_fid : &String, callee_body : &AstExpr, call : &AstExpr, ctx : &EvalContext, exn : Exception) -> unit
 )({
   if((pending.len() == usize(0)) || ctx.is_in_function_call_checking_phase, {
     return(());
@@ -1105,6 +1107,11 @@ d3_check_pending :: (
   _d3_judge_borrow_errors(pending, borrow_mask, callee_fid, ctx, exn);
   // Local borrows (decision 18): a place the callee writes is a write at the
   // call. Not trusted by file either: std's mutators are the writes at stake.
+  // Two-phase (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §7 P9): the
+  // `&mut` argument is RESERVED where it is written, a read, and ACTIVATED
+  // when the call begins, a write judged against the borrows still live
+  // then: a `&` loan whose last use is a later argument has ended
+  // (`r := &xs; xs.push(i32(r.len()))`), one used after the call has not.
   (li : usize) = usize(0);
   while(li < pending.len(), {
     match(
@@ -1113,7 +1120,8 @@ d3_check_pending :: (
         &entry.lb_place,
         .Some(lbp) => if(match(borrow_mask, .Some(bm) => param_mutation_mask_hits(&bm, entry.param_index), .None => false), {
           local_borrow_require_writable(&lbp, entry.lb_read_only, entry.how.clone(), ast_expr_token(&entry.place), ctx, exn);
-          local_borrow_access(&lbp, LocalBorrowAccess.Write, ast_expr_token(&entry.place), ctx, exn);
+          local_borrow_access_at(&lbp, LocalBorrowAccess.Write, ast_expr_token(&entry.place), &call_activation_token(call, ast_expr_token(&entry.place)), ctx, exn);
+          local_borrow_access(&lbp, LocalBorrowAccess.Read, ast_expr_token(&entry.place), ctx, exn);
         }),
         .None => ()
       ),

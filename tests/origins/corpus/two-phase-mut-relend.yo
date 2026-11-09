@@ -1,0 +1,11 @@
+// N0 corpus row `two-phase-mut-relend` (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §7 P9;
+// manifest tests/origins/corpus.tsv): a later argument relends `&mut` the place an earlier `&mut` argument reserved; two-phase does not relax it.
+// Expected once P9 lands: rejected: E0910 (unchanged).
+{ ArrayList } :: import("std/collections/array_list");
+_both :: (fn(a : &mut ArrayList(i32), b : &mut ArrayList(i32)) -> unit)(a.push(i32(b.len())));
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(i32).new();
+  _both(&mut xs, &mut xs);
+  ()
+});
+export(main);

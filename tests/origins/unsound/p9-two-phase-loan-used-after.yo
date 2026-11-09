@@ -1,0 +1,15 @@
+// expect: E0911
+// Two-phase (§7 P9): `e` borrows an element of `xs`, is read in the receiver call's argument, and is read again after the push, which may reallocate the buffer it points into.
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ println } :: import("std/fmt");
+_first :: (fn(xs : &ArrayList(String)) -> &String)(&xs(usize(0)));
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(String).new();
+  xs.push(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+  e := _first(&xs);
+  xs.push(e.clone());
+  println(`OUT: ${e.len().to_string()}`);
+  ()
+});
+export(main);
