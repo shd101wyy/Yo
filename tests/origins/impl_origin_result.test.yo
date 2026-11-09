@@ -166,3 +166,18 @@ test("a by-value parameter's place is yielded when no Drop on its path runs", {
   w.* = i32(7);
   assert(u.a == i32(7), "the guard is not on the path");
 });
+// O-6's call-result elision names no callee origin in a call's result type
+// (issues/fixed/2026-11-09-a-call-results-type-keeps-its-callees-origin-names.md): the origin an impl method's
+// result binds from its receiver is `origin_of`'s, so a store of it through a `&mut` holder still compares it with
+// the holder's fixed origin.
+IoStore :: (fn(generic(q : Origin), dst : &mut Option(&(i32, q)), v : &(i32, q)) -> unit)({
+  dst.* = .Some(v);
+});
+test("A method result bound from its receiver is stored through a &mut holder", {
+  x := i32(1);
+  (mut(slot) : Option(&(i32, x))) = .None;
+  h := IoHeld(x)(r : &x);
+  y := h.get();
+  IoStore(&mut slot, y);
+  assert(match(slot, .Some(s) => (s.* == i32(1)), .None => false), "stored within the holder's origin");
+});

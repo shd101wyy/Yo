@@ -1,0 +1,14 @@
+// A caller's local named like the impl's origin parameter: `h.get()` binds `p := o` from the receiver's type, and
+// the local `p` is no part of that
+// (issues/2026-11-09-a-callers-local-named-like-an-impls-origin-breaks-the-methods-result.md).
+{ println } :: import("std/fmt");
+_H :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(r : &(i32, p)));
+impl(generic(p : Origin), _H(p), get : (fn(self : &Self) -> &(i32, p))(&self.r.*));
+main :: (fn() -> unit)({
+  p := i32(1);
+  h := _H(p)(r : &p);
+  r := h.get();
+  println(&r.*);
+  ()
+});
+export(main);

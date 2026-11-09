@@ -1175,6 +1175,31 @@ test("method-store-widen-named-holder", {
   );
   verdict("method-store-widen-named-holder", case2(main, store()), "ORIGIN_MISMATCH");
 });
+test("bare-reference-store-widen", {
+  // `store-widen-named-holder` with the reference bound to a local first, `r := &y; store(&mut slot, r)` — the toy
+  // language reads a binding's references directly, so the row pins the rule the spelled twin needs.
+  main := entry(
+    al4(
+      let_(X, lit()),
+      let_d(SLOT, Rc.new(NodeE.Make(Kind.Some, Rc.new(NodeE.Borrow(false, X)))), wrap(Kind.Some, shr(int(), o(X)))),
+      Rc.new(NodeE.Block(al2(let_(Y, lit()), use_(call(usize(1), al2(Rc.new(NodeE.Borrow(true, SLOT)), Rc.new(NodeE.Borrow(false, Y)))))))),
+      use_(Rc.new(NodeE.Var(SLOT)))
+    )
+  );
+  verdict("bare-reference-store-widen", case2(main, store()), "ORIGIN_MISMATCH");
+});
+test("impl-origin-name-collides-with-local", {
+  // A name collision between an impl's origin parameter and a caller's local has no toy-language form (the model has
+  // no names to capture): the row pins the accepted program, a call that binds a result from its argument.
+  main := entry(
+    al3(
+      let_(X, lit()),
+      let_(Y, Rc.new(NodeE.Borrow(false, X))),
+      use_(Rc.new(NodeE.Var(Y)))
+    )
+  );
+  verdict("impl-origin-name-collides-with-local", case1(main), "ACCEPT");
+});
 test("store-widen-covariant-field", {
   // The same invariance reached through a covariant field position of the
   // lent composite — the spelled twin again (the toy language limit).
