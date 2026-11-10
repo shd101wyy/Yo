@@ -1113,10 +1113,10 @@ test("a by-value operand is read before a later block assigns it", {
 // `&mut f` is E0917 (a parameter is immutable), never E0908 "`f` is a `&T`
 // parameter"
 // (issues/fixed/2026-11-08-a-by-value-fn-parameter-in-a-generic-body-is-reported-as-a-read-only-borrow.md).
-_pm_apply_bare :: (fn(generic(A : Type, B : Type), x : &Option(A), f : (fn(a : &A) -> B)) -> Option(B))(
+_pm_gen_bare :: (fn(generic(A : Type, B : Type), x : &Option(A), f : (fn(a : &A) -> B)) -> Option(B))(
   x.map(generic(B), f)
 );
-_pm_apply_mut :: (fn(generic(A : Type, B : Type), x : &Option(A), f : (fn(a : &A) -> B)) -> Option(B))(
+_pm_gen_mut :: (fn(generic(A : Type, B : Type), x : &Option(A), f : (fn(a : &A) -> B)) -> Option(B))(
   x.map(generic(B), &mut f)
 );
 _pm_apply_local :: (fn(generic(A : Type, B : Type), x : &Option(A), f : (fn(a : &A) -> B)) -> Option(B))({
@@ -1126,8 +1126,8 @@ _pm_apply_local :: (fn(generic(A : Type, B : Type), x : &Option(A), f : (fn(a : 
 test("a by-value fn parameter in a generic body is not reported as a read-only borrow", {
   o := Option(i32).Some(i32(1));
   inc := (fn(a : &i32) -> i32)(a.* + i32(1));
-  comptime_expect_error(_pm_apply_bare(generic(i32, i32), &o, inc), "lend `f` with `&mut f`");
-  comptime_expect_error(_pm_apply_mut(generic(i32, i32), &o, inc), "a parameter is immutable");
+  comptime_expect_error(_pm_gen_bare(generic(i32, i32), &o, inc), "lend `f` with `&mut f`");
+  comptime_expect_error(_pm_gen_mut(generic(i32, i32), &o, inc), "a parameter is immutable");
   r := _pm_apply_local(generic(i32, i32), &o, inc);
   assert(r.unwrap() == i32(2), "the working form, a mutable local");
 });
