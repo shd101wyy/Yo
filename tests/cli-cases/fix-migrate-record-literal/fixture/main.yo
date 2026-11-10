@@ -13,19 +13,19 @@ main :: (fn() -> unit)({
   s := { a };
   (p : Point) = { x : a, y : b };
   (q : Solo) = { v : a };
-  z := {};
+  _z := {};
   nested := { inner : { x : a }, k : b };
   shape := Shape.At({ x : a, y : b });
   { x, y } := r;
-  { v } := s;
+  { a : v } := s;
   total := match(
     shape,
     .At({ p }) => (p.x + p.y),
     .Gone => i32(0)
   );
   m := match(r, { x : c, y : d } => (c * d));
-  f := ({ a }(n : i32) => (n * a));
-  g := ({ v : a }() => a);
+  (f : Impl(Fn(n : i32) -> i32)) = ({ a }(n : i32) => (n * a));
+  (g : Impl(Fn() -> i32)) = ({ w : a }() => w);
   cond(
     (total > i32(0)) => {
       println(sum({ x : a, y : b }));
