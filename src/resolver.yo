@@ -1104,12 +1104,12 @@ _expand_package :: (
       .Ok(m) => m,
       .Err(msg) => {
         exn.throw(dyn(`Error: dependency "${pkg_name}": ${msg}`));
-        state.manifest
+        state.manifest.clone()
       }
     );
     (i : usize) = usize(0);
     while(i < dep_manifest.dependencies.len(), {
-      d := dep_manifest.dependencies(i);
+      d := dep_manifest.dependencies(i).clone();
       if(!d.dev, {
         dep_name := d.name.clone();
         state.packages.with_mut({ pi, dep_name }(ps) => ps(pi).dependencies.push(dep_name));

@@ -1049,6 +1049,7 @@ RebindEntry :: struct(
     /// The changed names this importer destructured.
     names : ArrayList(String)
   );
+derive(RebindEntry, Clone);
 RevalPlan :: struct(
     module_key : String,
     changed : ArrayList(PendingDef),
@@ -1540,7 +1541,7 @@ mm_revalidate_plan :: (fn(fs_path : &String) -> Option(RevalPlan))({
   (rsi : usize) = usize(0);
   while(rsi < rebind_seeds.len(), {
     match(
-      rebind_seeds.get(rsi),
+      rebind_seeds.get_cloned(rsi),
       .Some(entry) => {
         mentioning := _defs_mentioning(entry.reader_module.clone(), entry.names.clone());
         extra := _revalidation_closure(mentioning.clone());
