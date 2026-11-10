@@ -155,6 +155,10 @@ pragma(Pragma.AllowUnsafe);
 { get_all_some_types, type_is_control_bound, type_contains_rc_type, type_contains_some_type_deep, type_requires_explicit_copy, type_is_bitwise_copy, mark_fnmut_capture_struct } :: import("../../types/utils.yo");
 { attach_temp_variable_to_expr, local_borrow_place_of, BorrowCaptureOuter, note_borrow_capture_outer, apply_capture_store_joins, judge_capture_fnmut_at_fn_slot, deref_exempt_mark, deref_exempt_clear, variable_is_reference_binding, deref_rule_applies, deref_rule_recording, reject_reference_without_deref, is_reference_deref_site, is_valid_variable_name, require_expr_not_consumed, set_expr_as_needs_to_call_dup, reject_second_class_return, capture_place_crosses_cell, reject_bare_callable_result, projection_body_mismatch_message, reject_closure_literal_into_dyn_fn, place_require_mut, audit_copy_trait_enabled } :: import("../utils.yo");
 { CaptureBorrow, register_capture_borrows, type_is_second_class, fn_param_is_ptr_borrow, reject_origin_carrying_signature } :: import("../../types/utils.yo");
+{ OriginRootPlace, origin_of, variable_holder_roots, binder_read_mark, binder_read_clear, reference_binding_read_type, variable_is_mut_borrow, note_reference_read } :: import("../utils.yo");
+{ type_carries_origin } :: import("../../types/utils.yo");
+{ with_code } :: import("../../error.yo");
+{ E_USE_OF_MOVED_VALUE } :: import("../../diagnostics.yo");
 { is_some_type, is_unit_type, is_void_type, is_never_type, is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_fn_trait_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
 { synthesize_types, SynthesizeOptions, TypePair } :: import("../types/synthesizer.yo");
@@ -801,11 +805,19 @@ outcome after the guarded call instead (e.g. a result the handler unwinds past).
                         // (the field holds the value), as it did when the
                         // binding was a copy.
                         if(v.is_ref() && !in_cap_frame && !v.is_borrow_match_binding(), {
+                          // A judged tree names the reference itself (VERDICTS-44
+                          // R-CAP-1): `{ y }` copies a `&T`, `{ m : &mut m.* }`
+                          // reborrows a `&mut T`. The trees that keep the old
+                          // reading name a borrow of the place.
+                          how := cond(
+                            deref_rule_applies(&ci.token, ctx) => `Name it in the capture list: \`{ ${k} }(...) => ...\` copies a \`&T\` reference (the closure then refers to what \`${k}\` refers to), and \`{ ${k} : &mut ${k}.* }(...) => ...\` reborrows a \`&mut T\`.`,
+                            true => `Name it in a capture list (\`{ &${k} }(...) => ...\` or \`{ &mut ${k} }(...) => ...\`), which keeps the closure second-class, or read the value into a local first.`
+                          );
                           _raise_capture_rejection(
                             ctx,
                             exn,
                             &ci.token,
-                            `Cannot capture the borrow '${k}' in a closure implicitly: '${k}' is a local borrow (\`${k} := &place\`, \`${k} := &mut place\`), a second-class borrow of another place, and an implicit capture would copy the borrow into a closure that may outlive it. Name it in a capture list (\`{ &${k} }(...) => ...\` or \`{ &mut ${k} }(...) => ...\`), which keeps the closure second-class, or read the value into a local first.`
+                            `Cannot capture the borrow '${k}' in a closure implicitly: '${k}' is a local borrow (\`${k} := &place\`, \`${k} := &mut place\`), a second-class borrow of another place, and an implicit capture would copy the borrow into a closure that may outlive it. ${how}`
                           );
                         });
                         if(!v.is_compile_time_only() && type_is_control_bound(&variable_value_type(&v)), {
@@ -857,7 +869,18 @@ _CapListEntry :: struct(
   root_is_value_param : bool,
   /// A borrow's root binding and place in the enclosing scope (O-3,
   /// VERDICTS-37 Q3: a store through a `&mut` capture joins it).
-  outer : Option(BorrowCaptureOuter)
+  outer : Option(BorrowCaptureOuter),
+  /// R-CLOSURE-LIT's by-value clause (plans/backlog/BORROW_CHECKER_COMPLETENESS.md
+  /// §3, VERDICTS-44 R-CAP-2): the places the captured VALUE's origin names,
+  /// each with its mode, when its type carries an origin (a `&T` copied from a
+  /// reference binding, a holder, a borrowing closure). They become the
+  /// closure's capture borrows, so the escape, freeze and exclusivity checks
+  /// read them.
+  origin_roots : ArrayList(OriginRootPlace),
+  /// `root_*` and `path` are the entry's capture place, not its borrows: the
+  /// closure's capture borrows are `origin_roots` (a reference copy `{ y }`,
+  /// whose pointer field points at what `y` refers to).
+  uses_origin_roots : bool
 );
 derive(_CapListEntry, Clone);
 _cap_list_error :: (fn(ctx : &EvalContext, exn : Exception, tok : &Token, msg : &String) -> unit)(
@@ -903,12 +926,6 @@ _cap_place_root :: (fn(place : &AstExpr, fields : &mut ArrayList(String)) -> Opt
   });
   Option(AstExpr).Some(cur)
 });
-/// A capture-list entry written as the shorthand `x`: the record literal's
-/// shorthand reaches the evaluator as `x : x`, whose label and initializer
-/// are one token.
-_cap_entry_is_shorthand :: (fn(label_e : &AstExpr, init_e : &AstExpr) -> bool)(
-  ast_expr_is_atom(label_e) && ast_expr_is_atom(init_e) && (ast_expr_token(label_e).byte_offset == ast_expr_token(init_e).byte_offset)
-);
 /// Evaluate a closure's capture list `{ … }` (decision 35) in the scope that
 /// writes the literal. Each entry becomes one field of the capture struct:
 /// - `x` (or `x : e`) is by value: plain data copies, and a value that is
@@ -977,6 +994,19 @@ _evaluate_capture_list :: (
     if(is_borrow && !is_pun && !_is_borrow_sigil(&init_e, is_mut), {
       want := if(is_mut, String.from("&mut "), String.from("&"));
       _cap_list_error(ctx, exn, ast_expr_token(&init_e), `A borrow capture's initializer is a place under its sigil (\`${label} : ${want}place\`, or the pun \`${want}${label}\`); got \`${ast_expr_to_string(&init_e)}\`.`);
+    });
+    // The entry `y` / `r : y` whose initializer is a reference binding of a
+    // judged tree reads the reference (R-CAP-1); the trees that keep the old
+    // reading (`deref_rule_applies`) copy the referent as before.
+    (ref_copy_var : Option(Variable)) = Option(Variable).None;
+    if(!is_borrow && ast_expr_is_atom(&init_e) && is_valid_variable_name(&init_e) && deref_rule_applies(ast_expr_token(&init_e), ctx) && !is_reference_deref_site(ast_expr_token(&init_e)), {
+      match(
+        get_variables_from_env(env, ast_expr_token(&init_e).value.*.clone()).last_cloned(),
+        .Some(rcv) => if(variable_is_reference_binding(&rcv), {
+          ref_copy_var = Option(Variable).Some(rcv);
+        }),
+        .None => ()
+      );
     });
     if(is_borrow, {
       place_e := if(is_pun, init_e, _only_arg(&init_e));
@@ -1084,29 +1114,62 @@ _evaluate_capture_list :: (
             local_borrow_place_of(&ev_place, env, ctx),
             .Some(op) => Option(BorrowCaptureOuter).Some(BorrowCaptureOuter(outer : root_var.clone(), text : `${cap_label_text} : ${if(is_mut, String.from("&mut "), String.from("&"))}${op.text}`, place : op, is_mut : is_mut)),
             .None => Option(BorrowCaptureOuter).None
-          )
+          ),
+          origin_roots : ArrayList(OriginRootPlace).new(),
+          uses_origin_roots : false
+        )
+      );
+    }, if(ref_copy_var.is_some(), {
+      // VERDICTS-44 R-CAP-1: the entry `y` / `r : y` of a reference binding
+      // copies the REFERENCE (a `&T` is `Copy`, decision 43), not the value it
+      // refers to. The field is a pointer to what `y` refers to, as a borrow
+      // entry's is, and the closure's capture borrows are the places `y`'s
+      // origin names (R-CAP-2), so the closure outlives `y` the binding but
+      // not what `y` refers to.
+      rv := match(&ref_copy_var, .Some(v) => Rc.clone(v), .None => return(out));
+      if(match(&reference_binding_read_type(&rv), Rc(.Reference(_, rc_m, _)) => rc_m, _ => false), {
+        _cap_list_error(
+          ctx,
+          exn,
+          ast_expr_token(&init_e),
+          `\`${rv.name}\` is a \`&mut\` reference, and the by-value entry \`${label}\` would move it into the closure. A \`&mut T\` moves at its last use (decision 35); this closure cannot take it. Reborrow it for the closure's life with \`{ ${label} : &mut ${rv.name}.* }\`.`
+        );
+      });
+      saved_rexp := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
+      binder_read_mark(&init_e);
+      ev_ref := evaluate_expression_raw(&init_e, env, ctx, exn);
+      binder_read_clear();
+      ctx.expected_type = saved_rexp;
+      require_expr_not_consumed(&ev_ref, env, ctx, exn);
+      out.push(
+        _CapListEntry(
+          label : label,
+          label_tok : name_tok,
+          is_borrow : true,
+          is_mut : false,
+          value_ty : variable_value_type(&rv),
+          init : ev_ref.clone(),
+          root_id : rv.id(),
+          root_name : rv.name.clone(),
+          path : ArrayList(String).new(),
+          root_is_value_param : rv.is_imm_borrow(),
+          outer : Option(BorrowCaptureOuter).None,
+          origin_roots : origin_of(&ev_ref, env, ctx),
+          uses_origin_roots : true
         )
       );
     }, {
       // By value: the initializer is stored in the field, the move point of
       // a record field.
       saved_vexp := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
-      // A shorthand `{ r }` of a reference binding copies the referent,
-      // spelled `{ r : r.* }`: the `.*` is E0926's, the label is recorded
-      // here (decision 43 step 2 N1e-1).
-      if(deref_rule_recording() && _cap_entry_is_shorthand(&label_e, &init_e), {
-        match(
-          get_variables_from_env(env, label.clone()).last_cloned(),
-          .Some(sh_v) => if(variable_is_reference_binding(&sh_v) && deref_rule_applies(ast_expr_token(&init_e), ctx), {
-            record_deref_edit_site(ast_expr_token(&init_e), &label, u8(1));
-          }),
-          .None => ()
-        );
-      });
       ev_val := evaluate_expression_raw(&init_e, env, ctx, exn);
       ctx.expected_type = saved_vexp;
       set_expr_as_needs_to_call_dup(&ev_val, ctx, exn, "field-store");
       val_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ev_val)), .Some(vi) => Rc.clone(vi.ty()), .None => t_unit());
+      // R-CLOSURE-LIT's by-value clause: a captured value whose type carries
+      // an origin (a holder, a borrowing closure) puts that origin in the
+      // closure (VERDICTS-44 R-CAP-2).
+      val_roots := if(type_carries_origin(&val_ty), origin_of(&ev_val, env, ctx), ArrayList(OriginRootPlace).new());
       // The field must OWN its reference. An owning temp is consumed by the
       // call above (the store moves it) and a move-only atom read moves at
       // the read; but an ATOM read of an RC-typed binding has no temp, so
@@ -1171,13 +1234,48 @@ _evaluate_capture_list :: (
           root_name : String.new(),
           path : ArrayList(String).new(),
           root_is_value_param : false,
-          outer : Option(BorrowCaptureOuter).None
+          outer : Option(BorrowCaptureOuter).None,
+          origin_roots : val_roots,
+          uses_origin_roots : false
         )
       );
-    });
+    }));
     ei = (ei + usize(1));
   });
   out
+});
+/// The capture borrows of a by-value capture `label` whose type carries an
+/// origin: one per place `roots` names, in the mode of the reference that put
+/// it there (R-CLOSURE-LIT's by-value clause, VERDICTS-44 R-CAP-2). A root
+/// that names no binding of this scope (a temporary, an origin parameter)
+/// is skipped: `bind` already judged it where the holder was made.
+_capture_origin_borrows :: (
+  fn(label : &String, roots : &ArrayList(OriginRootPlace), tok : &Token, env : &Environment, out : &mut ArrayList(CaptureBorrow)) -> unit
+)({
+  (ri : usize) = usize(0);
+  while(ri < roots.len(), {
+    r := roots(ri).clone();
+    match(
+      get_variables_from_env(env, r.place.root_name.clone()).last_cloned(),
+      .Some(rv) => if(!rv.is_compile_time_only() && (rv.token.module_path == r.place.root_decl.module_path) && (rv.token.byte_offset == r.place.root_decl.byte_offset), {
+        out.push(
+          CaptureBorrow(
+            label : label.clone(),
+            is_mut : r.is_mut,
+            root_id : rv.id(),
+            root_name : r.place.root_name.clone(),
+            path : r.place.steps.clone(),
+            root_is_value_param : rv.is_imm_borrow(),
+            through_value : false,
+            assumed : false,
+            site : `${tok.module_path.*}:${(tok.row + u32(1)).to_string()}:${(tok.column + u32(1)).to_string()}`
+          )
+        );
+      }),
+      .None => ()
+    );
+    ri = (ri + usize(1));
+  });
 });
 evaluate_anonymous_function_implementation :: (
   fn(
@@ -3129,7 +3227,12 @@ Result type: ${type_to_string(&decl_result_ty)}`
           while(cb_i < cap_entries.len(), {
             match(
               cap_entries.get_cloned(cb_i),
-              .Some(ce) => if(ce.is_borrow, {
+              .Some(ce) => if(ce.uses_origin_roots || (ce.origin_roots.len() > usize(0)), {
+                // The value's origin is the closure's (R-CLOSURE-LIT's
+                // by-value clause): one capture borrow per place, in the
+                // mode the reference holding it has.
+                _capture_origin_borrows(&ce.label, &ce.origin_roots, &ce.label_tok, env, &mut cbs);
+              }, if(ce.is_borrow, {
                 cbs.push(
                   CaptureBorrow(
                     label : ce.label.clone(),
@@ -3143,10 +3246,41 @@ Result type: ${type_to_string(&decl_result_ty)}`
                     site : `${ce.label_tok.module_path.*}:${(ce.label_tok.row + u32(1)).to_string()}:${(ce.label_tok.column + u32(1)).to_string()}`
                   )
                 );
-              }),
+              })),
               .None => ()
             );
             cb_i = (cb_i + usize(1));
+          });
+          // An implicit capture of a value whose type carries an origin
+          // (a holder `h` read in the body) puts it in the closure too.
+          if(cap_list_raw.is_none(), {
+            match(
+              &cvwv,
+              .Some(icv) => {
+                ic_iter := icv.keys_cloned().into_iter();
+                (ic_more : bool) = true;
+                while(ic_more, {
+                  match(
+                    ic_iter.next(),
+                    .None => {
+                      ic_more = false;
+                    },
+                    .Some(ic_name) => match(
+                      icv.get_cloned(ic_name.clone()),
+                      .Some(ic_info) => if(type_carries_origin(&ic_info.ty), {
+                        match(
+                          get_variables_from_env(env, ic_name.clone()).last_cloned(),
+                          .Some(ic_var) => _capture_origin_borrows(&ic_name, &variable_holder_roots(&ic_var), &ic_info.token, env, &mut cbs),
+                          .None => ()
+                        );
+                      }),
+                      .None => ()
+                    )
+                  );
+                });
+              },
+              .None => ()
+            );
           });
           register_capture_borrows(cb_sid.clone(), &cbs);
         },
