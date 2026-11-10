@@ -79,3 +79,81 @@ test("upcast through a reference keeps the borrow", {
   c := Cat(n : i32(6));
   assert(_twice_and_speak(dyn(&c)) == i32(66), "both traits, then the upcast");
 });
+// A move-only payload (a Drop with no Clone): the borrowing downcast views it
+// in place, and its drop runs once, when `v` dies.
+(mut(g_tok_dropped) : i32) = i32(0);
+Tok :: struct(n : i32);
+impl(Tok, Speak(speak : ((self : &Self) -> self.n)));
+impl(
+  Tok,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_tok_dropped = (g_tok_dropped + i32(1));
+    })
+  )
+);
+_view_tok :: (fn(d : &Dyn(Speak)) -> i32)(
+  match(
+    downcast(d, Tok),
+    .Some(p) => p.n,
+    .None => i32(-1)
+  )
+);
+test("downcast(&Dyn) borrows a move-only payload without a drop", {
+  before := g_tok_dropped;
+  {
+    t := Tok(n : i32(11));
+    assert(_view_tok(dyn(&t)) == i32(11), "viewed");
+    assert(_view_tok(dyn(&t)) == i32(11), "viewed again");
+    assert(g_tok_dropped == before, "no drop while v lives");
+  };
+  assert(g_tok_dropped == (before + i32(1)), "exactly one drop at v's end");
+});
+test("downcast(&b.*) on a legacy Box(Dyn) drops its payload once at the box's end", {
+  before := g_tok_dropped;
+  {
+    (b : Box(Dyn(Speak))) = dyn(Box.new(Tok(n : i32(12))));
+    assert(_view_tok(&b.*) == i32(12), "viewed through payload_of");
+  };
+  assert(g_tok_dropped == (before + i32(1)), "exactly one drop");
+});
+test("dyn(Rc.new(v)) is an Rc(Dyn) and the handle is shared", {
+  (h : Rc(Dyn(Speak))) = dyn(Rc.new(Cat(n : i32(4))));
+  h2 := Rc.clone(h);
+  assert(Rc.ref_count(h) == usize(2), "one count per handle");
+  assert(h2.*.speak() == i32(4), "dispatch through a handle");
+});
+test("dyn(Arc.new(v)) is an Arc(Dyn(T, Send, Sync))", {
+  (h : Arc(Dyn(Speak, Send, Sync))) = dyn(Arc.new(Cat(n : i32(5))));
+  assert(h.*.speak() == i32(5), "dispatch through the handle");
+});
+test("dyn(h) over a named Rc handle is rejected", {
+  comptime_expect_error(
+    (fn() -> unit)({
+      c := Rc.new(Cat(n : i32(4)));
+      (d : Dyn(Speak)) = dyn(c);
+      ()
+    }),
+    "named `Rc`/`Arc` handle"
+  );
+});
+test("a Dyn place used by value is E0619", {
+  comptime_expect_error((fn(b : Box(Dyn(Speak))) -> unit)({ _x := b.*; }), "is not `Sized`");
+  comptime_expect_error((fn(b : &Box(Dyn(Speak))) -> unit)({ _x := b.*.*; }), "is not `Sized`");
+});
+_take_dyn_value :: (fn(d : Dyn(Speak)) -> unit)(());
+test("a Dyn place passed by value is E0619", {
+  comptime_expect_error((fn(b : Box(Dyn(Speak))) -> unit)(_take_dyn_value(b.*)), "is not `Sized`");
+});
+// TEST READY FOR THE DANGLING-RETURN RULE (STATE.md): a `dyn(&mut v)` returned
+// out of its frame must stay rejected whatever lowering the pointer kinds get.
+test("a dyn(&mut v) returned out of its frame is rejected", {
+  comptime_expect_error(
+    (fn() -> &mut Dyn(Bump))({
+      (mut(c) : Cat) = Cat(n : i32(1));
+      (d : &mut Dyn(Bump)) = dyn(&mut c);
+      d
+    }),
+    "may not cross the function boundary"
+  );
+});

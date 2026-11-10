@@ -85,7 +85,8 @@ pragma(Pragma.AllowUnsafe);
   expr_info_converted_runtime_type,
   expr_info_set_converted_runtime_type,
   record_skipped_operand_drops,
-  clear_skipped_operand_drops
+  clear_skipped_operand_drops,
+  is_dyn_place
 } :: import("../expr_info.yo");
 {
   Environment,
@@ -5752,6 +5753,29 @@ in_compile_time_fn_body :: (fn(ctx : &EvalContext) -> bool)(
     .None => false
   )
 );
+/// E0619 for a `Dyn` place read, bound, moved, assigned or matched by value
+/// (`x := b.*`, `f(b.*)`, `b.* = v`, `match(b.*, ...)`; decision 49,
+/// VERDICTS-40 amendment 5). `b.*` over an owned `Box(Dyn(T))` is the unsized
+/// place the Dyn's payload sits in: it is lent (`&b.*`, `&mut b.*`) or called
+/// through, and raised here whatever `type_is_sized` says of a `Dyn` while the
+/// alias holds.
+reject_dyn_place_by_value :: (fn(id : usize, position : &String, tok : &Token, exn : Exception) -> unit)({
+  if(is_dyn_place(id), {
+    exn.throw(
+      dyn(
+        with_code(
+          format_error_message_with_help(
+            tok,
+            `A \`Dyn(...)\` place is not \`Sized\`: ${position} needs a size, and the value a \`Box(Dyn(...))\` owns lives only behind a pointer (plans/VALUES_BY_DEFAULT.md decision 49).`,
+            Option(String).Some(String.from("lend it: `&b.*` or `&mut b.*`, or call a method through `b.*`; move the whole box (`b`) to move the object"))
+          ),
+          E_UNSIZED_BY_VALUE
+        )
+      )
+    );
+  });
+});
+export(reject_dyn_place_by_value);
 export(in_compile_time_fn_body);
 export(throw_expr_is_implicit_variable_error);
 export(require_expr_not_consumed);

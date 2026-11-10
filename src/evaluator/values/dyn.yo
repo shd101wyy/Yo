@@ -1455,6 +1455,48 @@ evaluate_dyn_value :: (
   // NAMED shared handle (a variable or a field) in place waits for the
   // `?Sized` prelude.
   value_is_fresh_cell := !(ast_expr_is_atom(&value_arg) || ast_expr_is_fn_call_of(&value_arg, BF_DOT, Option(usize).Some(usize(2))));
+  // `dyn(Rc.new(v[, alloc]))` / `dyn(Arc.new(v[, alloc]))` against an expected
+  // `Rc(Dyn(T))` / `Arc(Dyn(T, Send, Sync))` (VERDICTS-40 amendment 3): the
+  // shared handle of the owning Dyn of `v`, `Rc(Dyn(T)).new(dyn(Rc.new(v)))`.
+  // While `Rc(Dyn(T))` is `Rc(Box(Dyn(T)))` by the alias this is two cells with
+  // the final type and the final ownership rules.
+  shared_dyn_handle := match(
+    ctx.expected_type.clone(),
+    .Some(et) => match(
+      cell_handle_view(&et.ty),
+      .Some(hv) => if(is_dyn_type(&hv.payload) && value_is_fresh_cell, Option(Tuple(TypeValue, TypeValue)).Some((Rc.clone(et.ty), Rc.clone(hv.payload))), Option(Tuple(TypeValue, TypeValue)).None),
+      .None => Option(Tuple(TypeValue, TypeValue)).None
+    ),
+    .None => Option(Tuple(TypeValue, TypeValue)).None
+  );
+  match(
+    shared_dyn_handle,
+    .Some((handle_ty, dyn_payload_ty)) => match(
+      value_arg,
+      .FnCall(_, sh_callee, _, _, _) => match(
+        _dyn_cell_constructor_of(&sh_callee),
+        .Some(sh_cell) => {
+          sh_inner := match(
+            expr,
+            .FnCall(_, sh_dyn_fn, _, sh_infix, sh_tok) => {
+              sh_args := ArrayList(AstExpr).new();
+              sh_args.push(value_arg.clone());
+              AstExpr.FnCall(alloc_global_expr_id(), sh_dyn_fn.clone(), Rc.new(sh_args), sh_infix.*, sh_tok.clone())
+            },
+            _ => expr.clone()
+          );
+          (sh_call, sh_recv) := _synthesized_cell_call(&handle_ty, &sh_cell.type_name, &dyn_payload_ty, sh_inner, &expr_tok, env, ctx);
+          mark_node_preevaluated(sh_recv);
+          sh_out := evaluate_expression_raw(&sh_call, env, ctx, exn);
+          unmark_node_preevaluated(sh_recv);
+          return(sh_out);
+        },
+        .None => ()
+      ),
+      _ => ()
+    ),
+    .None => ()
+  );
   // `dyn(&v)` / `dyn(&mut v)`: the reference kinds (decision 49) take no
   // box and no expected-type plumbing of their own.
   if(ast_expr_is_fn_call_of(&value_arg, BF_ADDRESS_OF, Option(usize).Some(usize(1))) || ast_expr_is_fn_call_of(&value_arg, BK_BORROW_MUT, Option(usize).Some(usize(1))), {

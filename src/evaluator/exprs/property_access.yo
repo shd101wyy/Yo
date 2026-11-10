@@ -36,7 +36,8 @@ pragma(Pragma.AllowUnsafe);
   mark_node_preevaluated,
   unmark_node_preevaluated,
   record_deref_edit_site,
-  note_deref_migrated_file
+  note_deref_migrated_file,
+  note_dyn_place
 } :: import("../../expr_info.yo");
 { Environment, Variable, get_variables_from_env, get_receiver_methods_by_name_from_env, get_pointer_own_methods_by_name_from_env, env_adopt } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx, record_module_member_read, sns_module_of, is_dot_callee } :: import("../context.yo");
@@ -849,6 +850,7 @@ _evaluate_property_access_node :: (
           out_dd.set_path_collection(dd_oi.path_collection());
           dd_atom := AstExpr.Atom(ast_expr_id(expr), ast_expr_token(&object_expr));
           note_rewritten_node(&dd_atom);
+          note_dyn_place(ast_expr_id(expr));
           expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_dd);
           return(dd_atom);
         }),
