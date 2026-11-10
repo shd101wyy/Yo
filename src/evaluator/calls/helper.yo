@@ -1805,7 +1805,11 @@ specialize_generic_function_at_slot :: (
         slot_lends => AstExpr.FnCall(
           alloc_global_expr_id(),
           AstExpr.Atom(alloc_global_expr_id(), synthetic_token(&cond(slot_is_mut => String.from(BK_BORROW_MUT), true => String.from(BF_ADDRESS_OF)), &env.module_path().*)),
-          Rc.new({ a := ArrayList(AstExpr).new(); a.push(atom); a }),
+          Rc.new({
+            a := ArrayList(AstExpr).new();
+            a.push(atom);
+            a
+          }),
           false,
           tok.clone()
         ),

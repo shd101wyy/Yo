@@ -37,11 +37,17 @@ export(main);
 
 Call `_p21_len_of` from a NON-generic fn instead (or pass a closure literal instead of the named fn) and it compiles, links and runs. The same shape inside an `impl` method (`Channel(T).len`'s `self._st.with(_ch_buf_len)`) compiles on the v0.2.75 seed but not on develop-tip (battery 2026-11-06-era), i.e. the impl-method path regressed on develop while the free-generic-fn path was already broken on the seed.
 
-## Root cause (locus, not yet fixed)
+## Root cause
 
-The slot's specialization and the named fn's specialization are created when the GENERIC body is specialized, but only closure LITERALS at such slots get their implementation registered for emission (the `register_impl_closure_call_mappings` pre-pass / the closure collection); a module-level named fn value referenced only from a specialized generic body never enters the emit set. Verified NOT the G1 ref-spill fix: the develop-tip binary without any G1 codegen change reproduces both facets.
+Not the slot and not the generic BODY: a GENERIC named function (`generic(T : Type)` binder) passed as a value at ANY function-typed slot is never specialized. `apply(idf, i32(3))` with `apply :: (fn(f : (fn(a : i32) -> i32), v : i32) -> i32)` and `idf :: (fn(generic(T : Type), x : T) -> T)(x)` passes `check` and emits C naming the TEMPLATE's `yo_id_<id>`, which is never declared. Only a CALL of a generic function mints a specialization (the binders are inferred from the arguments' types); an argument that is the function VALUE has no call, so its `FuncVal` stays the template. A closure literal is unaffected (it has no binders), and a call from a non-generic body only looked fine because the slot there is typically a literal.
 
-A related pre-existing facet, same family: FORWARDING a named fn through an `f : &mut Impl(FnMut(...))` parameter and calling the slot through it emits `&(fn)` where the specialization's function-pointer parameter is expected (`void**`→`T(*)(…)`, fails on seed and develop alike — 12-line repro in the G1 worktree's `tmp/p20.yo`).
+The earlier hypothesis here (the closure-collection pre-pass `register_impl_closure_call_mappings` skipping named fns) was wrong: the specialization is never created, so there is nothing for any pre-pass to register. The impl-method facet that "regressed on develop" is the same bug; the seed only differed in the order it evaluated the slot.
+
+A related pre-existing facet, same family: FORWARDING a named fn through an `f : &mut Impl(FnMut(...))` parameter and calling the slot through it emits `&(fn)` where the specialization's function-pointer parameter is expected (`void**`→`T(*)(...)`, fails on seed and develop alike - 12-line repro in the G1 worktree's `tmp/p20.yo`). Not fixed by this change.
+
+## Fix
+
+`specialize_generic_function_at_slot` (`src/evaluator/calls/helper.yo`) specializes the function at the slot's signature, as Rust instantiates a generic `fn` item when it coerces to a function pointer (not eta-expansion: the argument stays the named function). It runs where an argument meets its parameter, in both call paths (`check_if_function_parameter_matches_argument` for method calls and `try_to_call_function_with_arguments`, and the inline `FuncVal` arm in `calls/function.yo`). When the slot's parameter types are concrete after resolution it CALLS the function in a scratch frame on one binding per slot parameter (`&v`/`&mut v` where the slot lends), so the ordinary call machinery infers the binders and mints and records the specialization; the specialized `FuncVal` and its type replace the argument's. A slot whose parameter types still name a type variable is left alone.
 
 ## The G1 workaround (seed window, deletable)
 
@@ -51,4 +57,4 @@ are fixed (tracked together in `plans/backlog/SEED_VERSION_AUTOMATION.md`).
 
 ## The test that fails before and passes after
 
-`tests/async/channel.test.yo` and `tests/async/combinators.test.yo` (22 + 73 tests) fail to build with the errors above when channel.yo's reads spell the named fn; they pass with the capture-carrying literals. A dedicated regression test should land WITH the emission fix: the `_p21_len_of` shape above as `tests/codegen-bootstrap/named-fn-at-impl-slot-in-generic-body.yo` (golden-recorded), plus the forwarded-param shape.
+`tests/fn_mut.test.yo`: "a generic named fn at a plain function-typed slot is specialized at the slot" and "a generic named fn at an FnMut slot inside a generic body is emitted" (the `_p21_len_of` shape above). Both failed to build with the errors above before the change. `tests/async/channel.test.yo` and `tests/async/combinators.test.yo` keep passing; the capture-carrying literals in `std/async/channel.yo` can be inlined back to plain named functions once the seed carries this fix.
