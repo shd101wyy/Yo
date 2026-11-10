@@ -2549,12 +2549,16 @@ jobs:
     # measured per-file minutes in scripts/bootstrap/differential-shard-weights.tsv
     # (the SLOWEST sample of three batteries, ~545 min in all): 90.7-90.8 min
     # predicted per shard. The next step, if the tier outgrows ~110 min a
-    # shard, is more shards (8 would predict ~68), not a longer timeout.
+    # shard, is more shards, not a longer timeout.
+    # 8-way since 2026-11-11 (issues/fixed/2026-11-11-the-wasm-legs-and-the-differential-shards-run-at-their-timeouts.md):
+    # the six shards ran 100-141 min of 150 on three develop batteries
+    # (the table's 90.8 predicted, real runs about 30% over). Eight predict
+    # ~68 per shard, about 90 real at today's drift. The cap stays 150.
     timeout-minutes: 150
     strategy:
       fail-fast: false
       matrix:
-        shard: [0, 1, 2, 3, 4, 5]
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
 
     steps:
       - name: Checkout repository
@@ -2642,14 +2646,14 @@ jobs:
           # to get it WITHOUT waiting for CI, with each shard's predicted
           # minutes:
           #
-          #   scripts/bootstrap/differential_shard.sh --table 6
+          #   scripts/bootstrap/differential_shard.sh --table 8
           #
           # Do NOT hardcode the resulting map: adding ONE file to
           # tests/internal/ (or re-measuring one) can move others.
           shard=${{ matrix.shard }}
           # No pipe here: `bash -e` without pipefail would let a failing
           # selection through as an empty, green shard.
-          files=$(scripts/bootstrap/differential_shard.sh "$shard" 6)
+          files=$(scripts/bootstrap/differential_shard.sh "$shard" 8)
           if [ -z "$files" ]; then
             echo "::error::shard $shard selected no files"
             exit 1
@@ -2917,6 +2921,7 @@ jobs:
         run: bash scripts/tsan-thread-corpus.sh
 
   test-wasm32_emscripten:
+    name: test-wasm32_emscripten shard ${{ matrix.shard }}/2
     needs: [changes, tree-hygiene]
     if: needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
@@ -2932,7 +2937,17 @@ jobs:
     # The 32 -> 87 min growth is unexplained; this PR measured the symptom, not
     # a cause. Sharding this leg the way test-native is sharded here would cut
     # it and remove the cliff rather than move it.
+    #
+    # SHARDED 2-way (issues/fixed/2026-11-11-the-wasm-legs-and-the-differential-shards-run-at-their-timeouts.md):
+    # the unsharded leg ran 149, 91 and 147 min of its 150 on three develop
+    # batteries. `--shard i/n` stripes the sorted file list, so the shards
+    # partition the suite. Each leg repeats the stage-1 build (needed by the
+    # tests); the stage-2 build and the build-system smoke run once, on shard 0.
     timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1]
 
     steps:
       - name: Checkout repository
@@ -2991,6 +3006,7 @@ jobs:
       # suite below stays on stage-1: its children are cross-compiled by the
       # tree's codegen either way.
       - name: Build stage-2 for the smoke
+        if: ${{ matrix.shard == 0 }}
         env:
           YO_MAIN_STACK_MB: "4096"
         run: |
@@ -3007,6 +3023,7 @@ jobs:
             -o /tmp/yo-stage2
 
       - name: Build system smoke test (WASM)
+        if: ${{ matrix.shard == 0 }}
         run: |
           /tmp/yo-stage2 init ./tmp/hello-world --name hello-world
           cd tmp/hello-world
@@ -3031,9 +3048,11 @@ jobs:
       - name: Run WASM tests
         run: |
           "$S1" test ./tests --exclude tests/internal --exclude tests/cli-cases \
-            --parallel 2 --bail --verbose --c-compiler emcc --profile
+            --parallel 2 --bail --verbose --c-compiler emcc --profile \
+            --shard ${{ matrix.shard }}/2
 
   test-wasm32_wasi:
+    name: test-wasm32_wasi shard ${{ matrix.shard }}/2
     needs: [changes, tree-hygiene]
     if: needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
@@ -3043,7 +3062,13 @@ jobs:
     # wrapping_* loops (O(width) bitwise, on HashMap's fmix64 per key hash)
     # pushed the 218-file suite past 90 — the 8bdc0f968 run was canceled at
     # exactly 90 min with tests/time/* (the last files) mid-pass, 95% green.
+    # SHARDED 2-way since 2026-11-11 (it ran 110 of 120 min on one battery;
+    # issues/fixed/2026-11-11-the-wasm-legs-and-the-differential-shards-run-at-their-timeouts.md).
     timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1]
 
     steps:
       - name: Checkout repository
@@ -3111,7 +3136,8 @@ jobs:
       - name: Run WASI tests
         run: |
           "$S1" test ./tests --exclude tests/internal --exclude tests/cli-cases \
-            --parallel 2 --bail --verbose --target wasm32-wasip1 --profile
+            --parallel 2 --bail --verbose --target wasm32-wasip1 --profile \
+            --shard ${{ matrix.shard }}/2
 
   # Full-corpus HOLLOW SWEEP under the self-hosted binary.
   #
