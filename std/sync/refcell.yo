@@ -87,8 +87,11 @@ impl(
       // ending. A cell reached through an `Rc` or `Arc` outlives the call
       // (the caller holds a share of the handle), and a body naming the place
       // the cell is lent from is E0910. A cell stored by value in a container
-      // that the body clears through another handle is not covered yet
-      // (issues/2026-10-23-a-move-only-element-borrowed-for-a-call-is-freed-when-an-argument-clears-its-container-through-another-handle.md).
+      // cannot be reached through a second handle (B8: the container is its
+      // only owner; a second name is E0901/E0910/E0911), except through the
+      // deprecated `ref(...)` spelling
+      // (issues/2026-10-23-a-move-only-element-borrowed-for-a-call-is-freed-when-an-argument-clears-its-container-through-another-handle.md,
+      // closed by V5 Generation B).
       unsafe(consume(self._mark.* = (self._mark.* - self._taken)));
     })
   )

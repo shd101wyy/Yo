@@ -1,0 +1,17 @@
+// expect: E0901
+// A move-only element lent for a call while the container is cleared through a second name: `hs2 := hs` MOVES (B8), so the second name is E0901.
+// VERDICTS-42; issues/2026-10-23-a-move-only-element-borrowed-for-a-call-is-freed-when-an-argument-clears-its-container-through-another-handle.md
+{ println } :: import("std/fmt");
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ RefCell } :: import("std/sync/refcell");
+main :: (fn() -> unit)({
+  mut(hs) := ArrayList(RefCell(String)).new();
+  hs.push(RefCell(String).new(String.from("hello")));
+  mut(hs2) := hs;
+  hs(usize(0)).with_mut(v => {
+    hs2.clear();
+    println(&v.*);
+  });
+});
+export(main);

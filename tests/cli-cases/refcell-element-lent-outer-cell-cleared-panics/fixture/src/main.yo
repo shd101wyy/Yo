@@ -1,0 +1,20 @@
+// The Rust twin is `Rc<RefCell<Vec<RefCell<String>>>>`: clearing the outer
+// cell through a second `Rc` while an element's `with_mut` body runs panics at
+// the OUTER cell (`BorrowMutError`), before the element is touched.
+{ println } :: import("std/fmt");
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ RefCell } :: import("std/sync/refcell");
+main :: (fn() -> unit)({
+  hs := Rc.new(RefCell(ArrayList(RefCell(String))).new(ArrayList(RefCell(String)).new()));
+  hs.with_mut(xs => xs.push(RefCell(String).new(String.from("hello"))));
+  hs2 := Rc.clone(hs);
+  hs.with(
+    xs => xs(usize(0)).with_mut({ h : &hs2 }(v) => {
+      h.with_mut(xs2 => xs2.clear());
+      println(&v.*);
+    })
+  );
+  println("unreachable");
+});
+export(main);

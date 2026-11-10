@@ -1145,3 +1145,36 @@ comptime_expect_error(
   }),
   "a `&mut` borrow is exclusive"
 );
+// --- A move-only element lent for a call while its container is touched through another name ---
+// issues/2026-10-23-a-move-only-element-borrowed-for-a-call-is-freed-when-an-argument-clears-its-container-through-another-handle.md
+// (VERDICTS-42): the value language rejects every second name; the shared-cell twin panics at the outer cell
+// (cli-case refcell-element-lent-outer-cell-cleared-panics).
+comptime_expect_error(
+  element_lent_container_moved_to_a_second_name_rejected :: (fn() -> unit)({
+    hs := ArrayList(RefCell(String)).new();
+    hs2 := hs;
+    hs(usize(0)).with_mut(v => {
+      hs2.clear();
+    });
+  }),
+  "use of moved value"
+);
+comptime_expect_error(
+  element_lent_container_cleared_by_name_rejected :: (fn() -> unit)({
+    mut(hs) := ArrayList(RefCell(String)).new();
+    hs(usize(0)).with_mut(v => {
+      hs.clear();
+    });
+  }),
+  "which an earlier argument of the same call lends to it"
+);
+comptime_expect_error(
+  element_lent_container_cleared_through_a_live_mut_borrow_rejected :: (fn() -> unit)({
+    mut(hs) := ArrayList(RefCell(String)).new();
+    r := &mut hs;
+    hs(usize(0)).with_mut(v => {
+      r.clear();
+    });
+  }),
+  "`r` borrows `hs` with `&mut` and is still live"
+);

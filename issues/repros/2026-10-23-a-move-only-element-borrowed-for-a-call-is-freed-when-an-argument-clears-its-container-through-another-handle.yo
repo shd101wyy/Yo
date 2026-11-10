@@ -2,13 +2,14 @@
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { RefCell } :: import("std/sync/refcell");
+H :: ref(struct(items : ArrayList(RefCell(String))));
 main :: (fn() -> unit)({
-  hs := ArrayList(RefCell(String)).new();
-  hs.push(RefCell(String).new(String.from("hello")));
-  hs2 := hs;
-  hs(usize(0)).with_mut(v => {
-    hs2.clear();
-    println(&v);
+  h := H(items : ArrayList(RefCell(String)).new());
+  h.items.push(RefCell(String).new(String.from("hello")));
+  h2 := h;
+  h.items(usize(0)).with_mut(v => {
+    h2.items.clear();
+    println(&v.*);
   });
 });
 export(main);

@@ -291,3 +291,4 @@ Filed 2026-11-07 from VERDICTS-30/31; each names its repro under `issues/repros/
   last use is a later argument has ended (`r := &xs; xs.push(i32(r.len()))`), while one used after the call is
   E0911. The reference model threads the same activation set (`call_after`). Rows `two-phase-named-last-use` (pos),
   `two-phase-named-after` and `two-phase-mut-relend` (E0910, unchanged).
+- 2026-11-10 (VERDICTS-42): the 2026-10-23 move-only-element issue is a `ref(...)`-only hole; the value language rejects every second name (`hs2 := hs` is E0901 since B8); rows `move-only-element-lent-container-moved` (+ `-pos`) land now, the two `ref` rows with the parser PR.
