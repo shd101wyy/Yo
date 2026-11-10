@@ -1,0 +1,36 @@
+# R-PROBE runs its reference lookups on every instance call once any reference impl exists
+
+**Severity:** S2. A compiler-performance regression: `check src/main.yo` makes 2.3x more allocation calls and runs about 16% longer on CI. Every build compiled by a seed that carries it pays the cost.
+
+Found 2026-11-10 by the develop battery's `Evaluator memory ratchet` job on develop `a4c34e1a1` (run 42763312857).
+
+## Symptom
+
+| Develop | Allocation calls, `check src/main.yo` | Max RSS | CI wall |
+| --- | --- | --- | --- |
+| `fe58873dd` (green) | 7,064,194,617 | 1779 MB | 10:22 |
+| `a4c34e1a1` (red) | 16,195,326,699 | 1795 MB | 12:02 |
+
+The baseline is 6,992,690,036 (±5%). Memory is unchanged, so the extra allocations are transient.
+
+## Cause (from reading the code; the fix PR's A/B confirms it)
+
+`src/evaluator/calls/function.yo` runs R-PROBE's reference-slot lookups (`&R`, `&mut R`) for every non-static method call whenever `reference_impls_seen()` (`src/evaluator/context.yo`) is true. That function is a global switch: it turns on as soon as any `impl(&C, …)` exists in the program. Until #1876 there was none in std or src, so the cheap path ran. #1876 added `impl(&C, IntoIterator)` / `impl(&mut C, IntoIterator)` to std. Since then, every instance call in every program does three extra things:
+- repeats the base lookup;
+- looks up a freshly built `&base` and `&mut base`;
+- rebuilds the structural type key twice, because fresh handles miss the generic-impl cache's identity front.
+
+The other cost in the range, #1876's lowering of `src/`'s borrowed `for` sites, is real and is not part of this issue.
+
+## Fix (Fable consultation #50)
+
+Gate the two reference lookups on whether the probe can find anything:
+- `probe_explicit`;
+- or a reference impl is noted for the receiver's pointee head (registration also notes the type-derived head, for alias and primitive receivers);
+- or the method name is provided by a bare-binder blanket impl (std's `impl(generic(T), where(T <: …), T, …)` blankets unify with `&C`).
+
+Keep one code path, and delete `reference_impls_seen` and the else arm.
+
+The invariant: a reference lookup can return a candidate the base lookup lacks only under one of those conditions. A `YO_DEBUG_RPROBE_AUDIT=1` knob runs both paths and aborts on a differing hit list. No golden moves, because the "Receiver slot types probed" note still prints on a miss. Tests go in `tests/impl_ref.test.yo`, and the ratchet is the regression test. Any residual above 5% is re-baselined in the same PR.
+
+**Timing:** a v0.2.77 cut gate, because a seed's cost cannot be fixed forward. If the fix is not on develop by 2026-11-14, the ratchet is re-baselined, v0.2.77 is cut on schedule, and the fix is the first merge of v0.2.78.
