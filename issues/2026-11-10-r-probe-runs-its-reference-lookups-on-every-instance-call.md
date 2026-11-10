@@ -35,11 +35,19 @@ The invariant: a reference lookup can return a candidate the base lookup lacks o
 
 **Timing:** a v0.2.77 cut gate, because a seed's cost cannot be fixed forward. If the fix is not on develop by 2026-11-14, the ratchet is re-baselined, v0.2.77 is cut on schedule, and the fix is the first merge of v0.2.78.
 
-## Fixed
+## Partly fixed: `vbd/rprobe-gate` (VERDICTS-50/51), open at S2
 
-`vbd/rprobe-gate` (VERDICTS-50). `reference_impls_seen` and the else arm are deleted; one path, the `&base` / `&mut base` lookups gated on
-`probe_explicit || reference_impl_head_noted(head) || reference_blanket_method_noted(method)`; both reference-impl registration sites also note the
-type-derived head; `register_generic_impl` notes the methods of a bare-binder receiver. Measured by CI's method (stage-2 C on the libc stand-in,
-REPEAT=2): A (develop 30e1411cd) 16,198,306,101 allocation calls, B (this tree) 12,381,196,693 (-23.6%). The switch was the prime cause but not the whole
-step: the residual is `issues/2026-11-10-r-probe-residual-after-the-head-gate.md`. Tests: `tests/impl_ref.test.yo` (x), and `YO_DEBUG_RPROBE_AUDIT=1`
-over `check ./std`, `check ./src`, `impl_ref`, `reference_read_rule`, `for_read_walk`, `for_macro_borrow` (no differing hit list).
+The global switch and the else arm are gone; the `&base` / `&mut base` lookups are gated on
+`probe_explicit || reference_impl_head_noted(head) || reference_blanket_method_noted(method)`, both registration sites also note the type-derived head,
+`register_generic_impl` notes a bare-binder blanket's methods, and `YO_DEBUG_RPROBE_AUDIT=1` is the soundness check (clean over `check ./std`, `check ./src`,
+`impl_ref`, `reference_read_rule`, `for_read_walk`, `for_macro_borrow`). Measured by CI's method (stage-2 C on the libc stand-in, REPEAT=2):
+
+| Tree | Allocation calls, `check src/main.yo` |
+| --- | --- |
+| `fe58873dd` (green baseline) | 7,064,194,617 |
+| A: develop `30e1411cd` | 16,198,306,101 |
+| B: `vbd/rprobe-gate` | 12,381,196,693 (-23.6%) |
+
+**Scope that remains:** the residual +5.32e9 is the same defect on a receiver whose head has a reference impl (std's collections: `ArrayList`, `HashMap`,
+`BTreeMap`, `Deque`, `HashSet`, `OrderedMap`, `PriorityQueue`, whose `IntoIterator` impls provide only `into_iter`). The head index is too coarse: every
+`xs.len()`, `xs.push(v)`, `m.insert(k, v)` still runs the full probe. The (head, method) index (VERDICTS-51 section 3) closes it. Tests: `tests/impl_ref.test.yo` (x).
