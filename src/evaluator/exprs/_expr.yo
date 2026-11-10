@@ -115,6 +115,7 @@ import("std/fmt");
   BF_UNWIND,
   BF_RECUR,
   BF_DOT,
+  ast_expr_is_atom_of,
   BF_COMPTIME_ASSERT,
   BF_COMPTIME_FN,
   BF_COMPTIME_PRINT,
@@ -1729,6 +1730,13 @@ _projection_result_as_reference :: (fn(expr : &AstExpr, result : &AstExpr, ctx :
         },
         .None => ()
       );
+    }, {
+      // A dereference whose own type is already a reference (`lhs.*` with
+      // `lhs : &&T`) is the reference value where the position expects one:
+      // nothing to retype, only the read to record.
+      if(ast_expr_is_fn_call_of(result, BF_DOT, Option(usize).Some(usize(2))) && match(result, .FnCall(_, _, Rc(dr_args), _, _) => match(dr_args.get(usize(1)), .Some(dr_f) => ast_expr_is_atom_of(&dr_f, "*"), .None => false), .Atom(_, _) => false), {
+        note_reference_read(ast_expr_id(result), true);
+      });
     }),
     .None => ()
   );
