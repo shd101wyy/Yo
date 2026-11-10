@@ -5,7 +5,7 @@ V :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(r : &(i32, p), n : i32)
 mk :: (fn(k : i32) -> i32)({
   x := Box(i32).new(k);
   h := V(x)(r : &x.*, n : i32(0));
-  g := ({ h }() => h.r.*);
+  (g : Impl(Fn() -> i32)) = ({ h }() => h.r.*);
   g()
 });
 main :: (fn() -> unit)({

@@ -23,3 +23,13 @@ mk :: (fn() -> Impl(Fn() -> i32))({
 
 The closure's origin is built from `&name` / `&mut name` entries only; a by-value capture of a value whose type carries an origin
 (a `&T`, `&mut T`, a holder struct, a borrowing closure or future) contributes nothing.
+
+## Fixed
+
+`_evaluate_capture_list` (`src/evaluator/values/anonymous_function.yo`) records, for every by-value entry whose type carries an
+origin, one capture borrow per place of the value's origin (`origin_of`), and the implicit-capture path does the same for a captured
+holder (`variable_holder_roots`). The closure's capture struct is then second-class and its roots are frozen while it lives, so the
+existing E0909/E0911/E0910 checks apply. Ungated: every tree.
+
+Tests: `tests/origins/unsound/closure-holder-capture-returned-over-local.yo` (+ `-pos`, ASan pair), corpus rows
+`closure-holder-capture-returned-over-local` and `closure-holder-capture-write-root`.
