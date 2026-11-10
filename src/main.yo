@@ -1643,8 +1643,8 @@ _record_args :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
 /// record, except the guard of `(pattern && (guard))`, which is an expression.
 _record_sites_pattern :: (fn(p : &AstExpr, out : &mut ArrayList(Token)) -> unit)({
   if(ast_expr_is_fn_call_of(p, "&&", Option(usize).Some(usize(2))), {
-    args := _record_args(p);
-    _record_sites_expr(&args(usize(1)), out);
+    rargs := _record_args(p);
+    _record_sites_expr(&rargs(usize(1)), out);
   });
 });
 /// Every brace group in EXPRESSION position that parses as a record today
@@ -1666,13 +1666,13 @@ _record_sites_expr :: (fn(e : &AstExpr, out : &mut ArrayList(Token)) -> unit)({
     });
   });
   head := _record_head(e);
-  args := _record_args(e);
+  rargs := _record_args(e);
   (start : usize) = usize(0);
-  if(((head == ":=") || (head == "::") || (head == "=")) && (args.len() == usize(2)), {
+  if(((head == ":=") || (head == "::") || (head == "=")) && (rargs.len() == usize(2)), {
     start = usize(1);
   });
-  if((head == "=>") && (args.len() == usize(2)), {
-    _record_sites_pattern(&args(usize(0)), out);
+  if((head == "=>") && (rargs.len() == usize(2)), {
+    _record_sites_pattern(&rargs(usize(0)), out);
     start = usize(1);
   });
   match(
@@ -1683,13 +1683,13 @@ _record_sites_expr :: (fn(e : &AstExpr, out : &mut ArrayList(Token)) -> unit)({
     .Atom(_, _) => ()
   );
   (i : usize) = start;
-  while(i < args.len(), i = (i + usize(1)), {
-    if((head == BK_COND) && ast_expr_is_fn_call_of(&args(i), "=>", Option(usize).Some(usize(2))), {
-      arm_args := _record_args(&args(i));
+  while(i < rargs.len(), i = (i + usize(1)), {
+    if((head == BK_COND) && ast_expr_is_fn_call_of(&rargs(i), "=>", Option(usize).Some(usize(2))), {
+      arm_args := _record_args(&rargs(i));
       _record_sites_expr(&arm_args(usize(0)), out);
       _record_sites_expr(&arm_args(usize(1)), out);
     }, {
-      _record_sites_expr(&args(i), out);
+      _record_sites_expr(&rargs(i), out);
     });
   });
 });
