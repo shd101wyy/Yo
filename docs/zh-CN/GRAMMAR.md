@@ -318,7 +318,7 @@ BorrowedFor ::= 'for' '(' BorrowPlace ',' ClosureLiteral ')' ;; for(&mut xs, x =
   `&(a, b)` 仍是 `a & b` 的运算符调用形式。
 - 在**返回类型位置**（`-> &T`、`-> &mut T`、`-> (name : &mut T)`）它们声明一个
   **投影**（决策 24）：函数体产出用结果符号书写的位置（`&self.a`、
-  `&mut self.rows(i)`），其根是函数的某个借用参数。投影通过下标（`x(i)`）
+  `&mut self.rows(i)`），或引用绑定（`x : &T` 的 `x`；结果是引用位置），其根是函数的某个借用参数。投影通过下标（`x(i)`）
   到达，也可以直接调用（`t.index(i)`），其结果就是那个位置：可作操作数、接收者、
   借用实参、局部借用（`r := t.index(i)`），`&mut` 投影的结果还可作 `=` 的左边
   （[INDEX_TRAIT.md](./INDEX_TRAIT.md#投影)）。

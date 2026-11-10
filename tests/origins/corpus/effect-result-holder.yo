@@ -1,0 +1,21 @@
+// N0 corpus row `effect-result-holder` (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §7 P8;
+// manifest tests/origins/corpus.tsv): POSITIVE: a handler resuming with a holder of the operation's own parameter, `H(key)(r : key)` (O7 effect handlers).
+// Expected once P8 lands: accepted.
+_H :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(r : &(i32, p)));
+_Ask :: (ctl(key : &i32) -> _H(key));
+_use :: (fn(ask : _Ask) -> i32)({
+  k := i32(3);
+  h := ask(&k);
+  v := h.r.*;
+  v
+});
+main :: (fn() -> unit)({
+  (ask : _Ask) = (
+    key -> {
+      return(_H(key)(r : key));
+    }
+  );
+  _ := _use(ask);
+  ()
+});
+export(main);

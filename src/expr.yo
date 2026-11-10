@@ -2908,6 +2908,14 @@ export(wrap_body_in_begin);
 /// `*(T)`, it is the projection's `T*` return.
 PROJECTION_REF_TAIL_PATH :: "auto-generated://projection-ref";
 PROJECTION_MUT_TAIL_PATH :: "auto-generated://projection-mut";
+/// The marker paths of a result position written as a bare name (`return(key)`,
+/// a tail `r`): `rewrite_projection_tails` turns it into `addr_of(name.*)`
+/// carrying one of these. Where the name is a reference binding, the read
+/// rule (decision 43 step 2 N1e-2b, VERDICTS-23 R1) makes it the reference
+/// value the `&T` result expects, `&name.*`; any other name is evaluated bare,
+/// as it was written (`evaluate_address_call`).
+PROJECTION_REF_READ_PATH :: "auto-generated://projection-ref-read";
+PROJECTION_MUT_READ_PATH :: "auto-generated://projection-mut-read";
 /// The marker module path of the callee token of an `addr_of(receiver)` the
 /// evaluator synthesizes for a method whose receiver is a raw pointer
 /// (`self : *Self`, `self : &*Self`) called on a value (`x.m()`): the pointer
@@ -2930,13 +2938,64 @@ projection_tail_mode :: (fn(e : &AstExpr) -> Option(bool))(
   match(
     e,
     .FnCall(_, _, _, _, ptm_tok) => cond(
-      (ptm_tok.module_path.* == PROJECTION_MUT_TAIL_PATH) => Option(bool).Some(true),
-      (ptm_tok.module_path.* == PROJECTION_REF_TAIL_PATH) => Option(bool).Some(false),
+      ((ptm_tok.module_path.* == PROJECTION_MUT_TAIL_PATH) || (ptm_tok.module_path.* == PROJECTION_MUT_READ_PATH)) => Option(bool).Some(true),
+      ((ptm_tok.module_path.* == PROJECTION_REF_TAIL_PATH) || (ptm_tok.module_path.* == PROJECTION_REF_READ_PATH)) => Option(bool).Some(false),
       true => Option(bool).None
     ),
     .Atom(_, _) => Option(bool).None
   )
 );
+/// The projection result node `e` was written as a bare name
+/// (`PROJECTION_REF_READ_PATH` / `PROJECTION_MUT_READ_PATH`).
+projection_tail_is_read :: (fn(e : &AstExpr) -> bool)(
+  match(
+    e,
+    .FnCall(_, _, _, _, ptr_tok) => ((ptr_tok.module_path.* == PROJECTION_REF_READ_PATH) || (ptr_tok.module_path.* == PROJECTION_MUT_READ_PATH)),
+    .Atom(_, _) => false
+  )
+);
+/// The token a diagnostic about the projection result node `e` points at:
+/// for a result written as a bare name (`PROJECTION_*_READ_PATH`) the user's
+/// name, not the marker (whose module path is `auto-generated://...`).
+projection_tail_diag_token :: (fn(e : &AstExpr) -> Token)(
+  match(
+    e,
+    .FnCall(_, _, Rc(pd_args), _, pd_tok) => cond(
+      projection_tail_is_read(e) => match(
+        pd_args.get(usize(0)),
+        .Some(pd_deref) => match(
+          &pd_deref,
+          .FnCall(_, _, Rc(pd_dargs), _, _) => match(pd_dargs.get(usize(0)), .Some(pd_name) => ast_expr_token(&pd_name), .None => pd_tok),
+          .Atom(_, _) => pd_tok
+        ),
+        .None => pd_tok
+      ),
+      true => pd_tok
+    ),
+    .Atom(_, pd_atok) => pd_atok
+  )
+);
+/// `addr_of(name.*)` marked as a projection result written as the bare
+/// name `name` (`PROJECTION_*_READ_PATH`).
+_projection_read_tail :: (fn(name : &AstExpr, is_mut : bool) -> AstExpr)({
+  at := ast_expr_token(name);
+  dtok := _synth_desugar_tok(TokenKind.Dot, ".", &at);
+  dargs := ArrayList(AstExpr).new();
+  dargs.push(name.clone());
+  // The star sits just past the name, never AT it: a deref site is keyed by
+  // the position of the star, and a generic body evaluates this node once per
+  // specialization, after the first recorded `name`'s own position.
+  star_tok := _synth_desugar_tok(TokenKind.Operator, "*", &at);
+  star_tok.byte_offset = (at.byte_offset + u32(at.value.*.len()));
+  dargs.push(AstExpr.Atom(alloc_global_expr_id(), star_tok));
+  deref := AstExpr.FnCall(alloc_global_expr_id(), AstExpr.Atom(alloc_global_expr_id(), dtok), Rc.new(dargs), true, dtok);
+  mark := _synth_desugar_tok(TokenKind.Identifier, cond(is_mut => PROJECTION_MUT_READ_PATH, true => PROJECTION_REF_READ_PATH), &at);
+  mark.module_path = Rc.new(mark.value.*.clone());
+  head := _synth_desugar_tok(TokenKind.Identifier, BF_ADDR_OF, &at);
+  one := ArrayList(AstExpr).new();
+  one.push(deref);
+  AstExpr.FnCall(alloc_global_expr_id(), AstExpr.Atom(alloc_global_expr_id(), head), Rc.new(one), false, mark)
+});
 /// `e` with argument `i` replaced.
 _with_arg :: (fn(e : &AstExpr, i : usize, a : &AstExpr) -> AstExpr)(
   match(
@@ -2959,7 +3018,9 @@ _is_arm :: (fn(e : &AstExpr) -> bool)(
   ast_expr_is_fn_call_of(e, "=>", Option(usize).Some(usize(2)))
 );
 /// Rewrite one result position of a projection body. A sigil becomes the
-/// marked `addr_of(place)`; a block, `cond`, `match` or `return` passes the
+/// marked `addr_of(place)`; a bare name becomes the marked `addr_of(name.*)`
+/// (`_projection_read_tail`: a reference binding read where the `&T` result
+/// expects a reference, R1); a block, `cond`, `match` or `return` passes the
 /// position to its own results; any other expression stays (a diverging
 /// call, or in a `pragma(AllowUnsafe)` file a raw `*(T)` to the place) and
 /// is searched for a nested `return(...)`. A sigil whose mode differs from
@@ -3034,6 +3095,7 @@ _projection_tail :: (fn(e : &AstExpr, is_mut : bool, mismatches : &mut ArrayList
         new_ret := _projection_tail(&ret_arg, is_mut, mismatches);
         _with_arg(e, usize(0), &new_ret)
       },
+      (match(e, .Atom(_, pa_tok) => (pa_tok.kind == TokenKind.Identifier), _ => false)) => _projection_read_tail(e, is_mut),
       true => match(_projection_returns(e, is_mut, mismatches), .Some(r) => r, .None => e)
     )
   )
@@ -3092,7 +3154,7 @@ _projection_returns :: (fn(e : &AstExpr, is_mut : bool, mismatches : &mut ArrayL
 rewrite_projection_tails :: (fn(body : &AstExpr, is_mut : bool, mismatches : &mut ArrayList(Token)) -> AstExpr)(
   _projection_tail(body, is_mut, mismatches)
 );
-export(PROJECTION_REF_TAIL_PATH, PROJECTION_MUT_TAIL_PATH, projection_tail_mode, rewrite_projection_tails, AUTO_REF_RECEIVER_PATH, ast_expr_is_auto_ref_receiver);
+export(PROJECTION_REF_TAIL_PATH, PROJECTION_MUT_TAIL_PATH, PROJECTION_REF_READ_PATH, PROJECTION_MUT_READ_PATH, projection_tail_mode, projection_tail_is_read, projection_tail_diag_token, rewrite_projection_tails, AUTO_REF_RECEIVER_PATH, ast_expr_is_auto_ref_receiver);
 /// `?Sized` as written in a binder's kind slot (`generic(T : ?Sized)`,
 /// `comptime(V) : ?Sized`; plans/VALUES_BY_DEFAULT.md decision 49): the
 /// prefix `?` applied to the bare name `Sized`. Read as one kind, never as

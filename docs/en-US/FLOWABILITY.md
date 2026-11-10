@@ -99,7 +99,7 @@ memory-safe even when another handle drops a node.
 
 **A function returns a borrow only as a projection** (`-> &T` / `-> &mut T`,
 decision 24): its body yields a place spelled with the result's sigil
-(`&self.a`, `&mut self.rows(i)`), rooted at one of its own borrow parameters,
+(`&self.a`, `&mut self.rows(i)`) or a reference binding (`x` for `x : &T`), rooted at one of its own borrow parameters,
 and it is reached through the subscript (`x(i)`) or called directly
 (`t.index(i)`, whose result is the place; `r := t.index(i)` binds a local
 borrow that freezes the call's borrowed arguments while it is live; see

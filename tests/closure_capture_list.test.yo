@@ -734,14 +734,16 @@ test("a `&` capture reads as a shared reference and stores into a `&` payload", 
 });
 // issues/fixed/2026-11-07-a-closure-literal-returning-its-reference-parameter-fails-to-evaluate.md:
 // a closure literal returning `&T` is a projection (decision 24): its tail is
-// written `&place`. `&v.*` hands the per-call parameter back, accepted; a bare
-// `v` is the decision-24 mismatch (it names `&place`), not the internal
-// `*(i32)` result form; a capture's place is a per-call origin violation.
+// written `&place` or as a reference binding (VERDICTS-45). `&v.*` and the
+// bare `v` both hand the per-call parameter back, accepted; a by-value name is
+// the decision-24 mismatch, not the internal `*(i32)` result form; a capture's
+// place is a per-call origin violation.
 _cl_project :: (fn(f : Impl(Fn(v : &i32) -> &i32), v : &i32) -> i32)(f(v).*);
 test("a closure literal returning its reference parameter is a projection", {
   x := i32(7);
   assert(_cl_project((v : &i32) => &v.*, &x) == i32(7), "the parameter is handed back");
-  comptime_expect_error(_cl_project((v : &i32) => v, &x), "a projection (decision 24)");
+  assert(_cl_project((v : &i32) => v, &x) == i32(7), "the bare reference binding is handed back");
+  comptime_expect_error(_cl_project((v : &i32) => v.*, &x), "a projection (decision 24)");
   y := i32(2);
   comptime_expect_error(_cl_project({ c : &y }(v : &i32) => &c.*, &x), "reached from one of its own");
 });

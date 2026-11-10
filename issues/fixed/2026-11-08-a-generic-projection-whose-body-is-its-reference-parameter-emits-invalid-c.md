@@ -67,3 +67,7 @@ is a design question (recorded in the lane's hand-back), not this bug.
 **Test.** `tests/ref_return_ban.test.yo`: the generic bare-`x` body is a
 compile error ("this body has type"), and `&x.*` returns the place for `i32`
 and a move-only `String`.
+
+## Superseded 2026-11-10 (VERDICTS-45)
+
+The bare body is accepted, in both forms: `(fn(generic(T), x : &T) -> &T)(x)` and `&x.*` are valid, as this issue's original "Expected" said. A function result declared `&T` is a reference slot (R1, decision 43 step 2), so a bare reference binding is the reference. The sentence above that a projection body's tail is "the place-lend position, not one of those" is overruled. The per-instantiation check of the fix above stays: it is what makes the generic form checked at all (P8, `tests/ref_return_ban.test.yo` `rrb_id_bare` beside `rrb_id`).
