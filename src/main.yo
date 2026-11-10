@@ -1677,8 +1677,8 @@ _record_sites_expr :: (fn(e : &AstExpr, out : &mut ArrayList(Token)) -> unit)({
   });
   match(
     e,
-    .FnCall(_, callee, _, _, _) => if(!ast_expr_is_atom(&callee), {
-      _record_sites_expr(&callee, out);
+    .FnCall(_, callee, _, _, _) => if(!ast_expr_is_atom(callee), {
+      _record_sites_expr(callee, out);
     }),
     .Atom(_, _) => ()
   );
@@ -1694,7 +1694,7 @@ _record_sites_expr :: (fn(e : &AstExpr, out : &mut ArrayList(Token)) -> unit)({
   });
 });
 /// The runes of one source line.
-_line_runes :: (fn(line : &String) -> ArrayList(rune))({
+_line_runes :: (fn(line : String) -> ArrayList(rune))({
   runes := ArrayList(rune).new();
   it := line.chars();
   (go : bool) = true;
@@ -1728,7 +1728,10 @@ _run_migrate_record_literal :: (fn(files : &ArrayList(String), dry_run : bool, i
       },
       .Some(prog) => {
         toks := ArrayList(Token).new();
-        for(&prog, e => _record_sites_expr(e, &mut toks));
+        (pi : usize) = usize(0);
+        while(pi < prog.len(), pi = (pi + usize(1)), {
+          _record_sites_expr(&prog(pi), &mut toks);
+        });
         lines := src.split(String.from("\n"));
         checked := ArrayList(_PendingFix).new();
         seen := HashSet(String).new();
@@ -1736,7 +1739,7 @@ _run_migrate_record_literal :: (fn(files : &ArrayList(String), dry_run : bool, i
           row := usize(t.row);
           col := usize(t.column);
           line := match(lines.get_cloned(row), .Some(l) => l, .None => String.new());
-          runes := _line_runes(&line);
+          runes := _line_runes(line);
           at_brace := ((col < runes.len()) && (runes(col).char == u32(0x7B)));
           dotted := ((col > usize(0)) && (col <= runes.len()) && (runes(col - usize(1)).char == u32(0x2E)));
           if((at_brace && !dotted) && seen.insert(`${row.to_string()}:${col.to_string()}`), {
