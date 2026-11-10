@@ -495,7 +495,7 @@ register_generic_impl :: (fn(entry : &GenericImplEntry) -> unit)({
   if(is_some_type(&rp_pattern) || (t_slot_is_borrow(&rp_pattern) && is_some_type(&t_slot_pointee(&rp_pattern))), {
     (rp_i : usize) = usize(0);
     while(rp_i < entry.field_names.len(), {
-      match(entry.field_names.get(rp_i), .Some(rp_name) => note_reference_blanket_method(&rp_name), .None => ());
+      note_reference_blanket_method(&entry.field_names(rp_i));
       rp_i = (rp_i + usize(1));
     });
   });
