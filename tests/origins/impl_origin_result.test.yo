@@ -138,9 +138,15 @@ DpPlain :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(m : &mut(DpSlots,
 impl(generic(p : Origin), DpPlain(p), dp_plain_take : (fn(self : Self) -> &mut(i32, p))(&mut self.m.*.a));
 // A `Drop` holder of a SHARED reference: the destructor cannot write through it.
 DpShared :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(r : &(DpSlots, p)));
-impl(generic(p : Origin), DpShared(p), Drop(drop : (fn(self : &mut Self) -> unit)({
-  _ := self.r.a;
-})));
+impl(
+  generic(p : Origin),
+  DpShared(p),
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      _ := self.r.a;
+    })
+  )
+);
 impl(generic(p : Origin), DpShared(p), dp_shared_take : (fn(self : Self) -> &(i32, p))(&self.r.*.a));
 // A `Drop` field the path does not go through.
 DpGuard :: struct(n : i32);
