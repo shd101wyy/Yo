@@ -92,7 +92,13 @@
   ast_expr_id,
   ast_expr_is_atom,
   ast_expr_is_local_borrow_mode_call,
-  ast_call_args_unmarked
+  ast_call_args_unmarked,
+  BF_SIZE_OF_VAL,
+  BF_ALIGN_OF_VAL,
+  BF_UNSIZE,
+  BF_SLICE_LEN,
+  BF_SLICE_PTR,
+  BF_SLICE_FROM_RAW_PARTS
 } :: import("../../expr.yo");
 { has_any_control_flow, ExprInfo, lookup_macro_expansion, is_call_scoped_share_drop, expr_info_deferred_dup_expressions, expr_info_index_method_type, expr_info_index_method_value, expr_info_index_trait_ptr_type, expr_info_is_index_trait_address_of, expr_info_macro_expansion, scope_variables } :: import("../../expr_info.yo");
 { is_func_val, is_unknown_val, is_struct_val, is_enum_val, EvalValue } :: import("../../value.yo");
@@ -118,7 +124,7 @@
 { generate_address_of } :: import("./ptr_fns.yo");
 { generate_anonymous_tuple } :: import("./tuple_fn.yo");
 { generate_recur } :: import("./recur.yo");
-{ generate_sizeof, generate_alignof } :: import("./sizeof.yo");
+{ generate_sizeof, generate_alignof, generate_unsized_builtin } :: import("./sizeof.yo");
 { generate_typeid } :: import("./typeid.yo");
 { generate_downcast, generate_upcast } :: import("./downcast.yo");
 { generate_yo_inline_function_call } :: import("./inline_fns.yo");
@@ -928,6 +934,7 @@ generate_func_call :: (fn(expr : &AstExpr, indent : &String, context : &mut Func
   if(ast_expr_is_fn_call_of(expr, BF_YO_BORROW_CHECK, Option(usize).Some(usize(2))), return(match(expr, .FnCall(_, _, Rc(a), _, _) => match(a.get(usize(1)), .Some(inner) => _call_generate_expr(&inner, indent.clone(), context), .None => String.from("")), .Atom(_, _) => String.from(""))));
   if(ast_expr_is_size_of_call(expr, Option(usize).Some(usize(1))), return(generate_sizeof(expr, indent.clone(), context)));
   if(ast_expr_is_align_of_call(expr, Option(usize).Some(usize(1))), return(generate_alignof(expr, indent.clone(), context)));
+  if(ast_expr_is_fn_call_of(expr, BF_SIZE_OF_VAL, .None) || ast_expr_is_fn_call_of(expr, BF_ALIGN_OF_VAL, .None) || ast_expr_is_fn_call_of(expr, BF_UNSIZE, .None) || ast_expr_is_fn_call_of(expr, BF_SLICE_LEN, .None) || ast_expr_is_fn_call_of(expr, BF_SLICE_PTR, .None) || ast_expr_is_fn_call_of(expr, BF_SLICE_FROM_RAW_PARTS, .None), return(generate_unsized_builtin(expr, indent.clone(), context)));
   if(ast_expr_is_type_id_call(expr, Option(usize).Some(usize(1))), return(generate_typeid(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BF_DOWNCAST, Option(usize).Some(usize(2))), return(generate_downcast(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BF_UPCAST, Option(usize).Some(usize(2))), return(generate_upcast(expr, indent.clone(), context)));

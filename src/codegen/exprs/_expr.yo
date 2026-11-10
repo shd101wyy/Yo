@@ -12,7 +12,7 @@
 //! at init.
 { String } :: import("std/string");
 { AstExpr, ast_expr_id, ast_rewritten_view } :: import("../../expr.yo");
-{ expr_info_index_trait_ptr_type, lookup_method_callee_type } :: import("../../expr_info.yo");
+{ expr_info_index_trait_ptr_type, lookup_method_callee_type, unsize_reference_mode } :: import("../../expr_info.yo");
 { TypeValue, fn_result_is_ref, fn_result_is_mut_ref } :: import("../../types/definitions.yo");
 { is_function_type } :: import("../../types/guards.yo");
 { fn_trait_call_func_type } :: import("../../types/utils.yo");
@@ -49,6 +49,8 @@ call_projection_mode :: (fn(expr : &AstExpr, context : &FunctionGenerationContex
     expr,
     .FnCall(_, pc_callee, _, pc_infix, _) => cond(
       pc_infix => Option(bool).None,
+      // `unsize(&a)` (decision 49): its C is the place `(*fat)`.
+      unsize_reference_mode(ast_expr_id(expr)).is_some() => unsize_reference_mode(ast_expr_id(expr)),
       match(context.base.get_expr_info(expr), .Some(ci) => expr_info_index_trait_ptr_type(&ci).is_some(), .None => true) => Option(bool).None,
       true => match(
         // A method the receiver-method dispatch resolved (a generic impl's,

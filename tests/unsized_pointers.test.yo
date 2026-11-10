@@ -1,0 +1,84 @@
+//! Pointers to unsized values (plans/VALUES_BY_DEFAULT.md decision 49, S1):
+//! a `&[T]`, `&mut [T]` or `*[T]` is a fat pointer that carries the slice's
+//! length; `unsize(p)` makes one from a pointer to a fixed-size array,
+//! `size_of_val`/`align_of_val` measure through it, and `___drop` of an
+//! unsized place drops every element.
+pragma(Pragma.AllowUnsafe);
+{ assert, panic } :: import("std/assert");
+{ malloc, free } :: import("std/libc/stdlib.yo");
+
+_us_size :: (fn(generic(T : ?Sized), r : &T) -> usize)(size_of_val(r));
+_us_align :: (fn(generic(T : ?Sized), r : &T) -> usize)(align_of_val(r));
+_us_len :: (fn(r : &[i32]) -> usize)(__yo_slice_len(r));
+_us_first :: (fn(r : &[i32]) -> i32)(unsafe(__yo_slice_ptr(r).*));
+_us_drop_in_place :: (fn(generic(T : ?Sized), p : *T) -> unit)(unsafe(___drop(p.*)));
+
+test("unsize(&a) is a slice reference carrying the array's length", {
+  a := Array(i32, 4)(10, 20, 30, 40);
+  s := unsize(&a);
+  assert(__yo_slice_len(s) == usize(4), "the length moved into the pointer");
+  assert(_us_len(s) == usize(4), "a `&[i32]` parameter receives the length");
+  assert(_us_first(s) == i32(10), "the pointer addresses the first element");
+  assert(size_of_val(s) == usize(16), "four i32s");
+  assert(align_of_val(s) == usize(4), "an i32's alignment");
+});
+
+test("a ?Sized binder measures sized and unsized pointees", {
+  a := Array(i64, 3)(1, 2, 3);
+  x := i64(7);
+  assert(_us_size(unsize(&a)) == usize(24), "`T = [i64]` is measured at run time");
+  assert(_us_align(unsize(&a)) == usize(8), "the element's alignment");
+  assert(_us_size(&x) == usize(8), "`T = i64` folds to size_of(i64)");
+  assert(size_of_val(&x) == size_of(i64), "a sized pointee is size_of");
+});
+
+test("unsize(&mut a) writes through the slice", {
+  (mut(a) : Array(i32, 2)) = Array(i32, 2)(1, 2);
+  s := unsize(&mut a);
+  unsafe({
+    __yo_slice_ptr(s).* = i32(5);
+  });
+  assert(__yo_slice_len(s) == usize(2), "a `&mut [i32]` carries the length");
+  assert(a(usize(0)) == i32(5), "the write reached the array once the slice is dead");
+});
+
+test("__yo_slice_from_raw_parts views a prefix", {
+  a := Array(i32, 4)(1, 2, 3, 4);
+  p := unsafe(__yo_slice_ptr(unsize(&a)));
+  s := unsafe(__yo_slice_from_raw_parts(p, usize(2)));
+  assert(__yo_slice_len(s) == usize(2), "the view's own length");
+  assert(size_of_val(s) == usize(8), "two i32s");
+});
+
+mut(_US_DROPPED) := i32(0);
+_UsTracked :: struct(id : i32);
+impl(
+  _UsTracked,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      _US_DROPPED = (_US_DROPPED + self.id);
+    })
+  )
+);
+
+test("___drop of an unsized place drops every element", {
+  _US_DROPPED = i32(0);
+  raw := unsafe(malloc(size_of(Array(_UsTracked, 3))));
+  slot := match(raw, .Some(r) => (*Array(_UsTracked, 3))(r), .None => panic("malloc failed"));
+  unsafe(consume(slot.* = Array(_UsTracked, 3)(_UsTracked(id : i32(1)), _UsTracked(id : i32(2)), _UsTracked(id : i32(4)))));
+  s := unsize(slot);
+  assert(size_of_val(s) == (usize(3) * size_of(_UsTracked)), "three elements");
+  unsafe(_us_drop_in_place(s));
+  assert(_US_DROPPED == i32(7), "each element dropped once");
+  unsafe(free(.Some((*void)(slot))));
+  assert(_US_DROPPED == i32(7), "freeing the dead slots runs nothing");
+});
+
+test("a slice element must be sized", {
+  comptime_expect_error(size_of(Slice(Slice(i32))), "a slice element");
+});
+
+test("unsize of a value is E0620", {
+  a := Array(i32, 2)(1, 2);
+  comptime_expect_error(unsize(a), "unsizes a pointer");
+});

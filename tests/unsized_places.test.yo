@@ -1,0 +1,95 @@
+//! Unsized places and the `static` origin (plans/VALUES_BY_DEFAULT.md
+//! decision 49, S1). An `Index(Range(usize))` impl whose `Output` is `[T]`
+//! makes `xs(a..b)` an unsized place, so `&xs(a..b)` is a zero-copy view with
+//! origin `xs`. A tail struct's last field is `[T]`: `unsize` turns a pointer
+//! to its fixed-size instance into a pointer to it, whose fields read through
+//! the fat pointer. `static` is the empty origin.
+pragma(Pragma.AllowUnsafe);
+{ assert, panic } :: import("std/assert");
+{ malloc, free } :: import("std/libc/stdlib.yo");
+
+// A test-local container: the prelude's `Index` keeps `Output : Type` until
+// decision 49 S2, and an unsized `Output` already fits it.
+_UpBuf :: struct(items : Array(i32, 4));
+impl(
+  _UpBuf,
+  Index(Range(usize))(
+    Output : [i32],
+    index : (fn(self : &Self, r : Range(usize)) -> &[i32])({
+      assert((r.start <= r.end) && (r.end <= usize(4)), "range in bounds");
+      p := unsafe(__yo_slice_ptr(unsize(&self.items)));
+      part := unsafe(__yo_slice_from_raw_parts(p.add(r.start), r.end - r.start));
+      &part.*
+    })
+  )
+);
+_up_sum :: (fn(xs : &[i32]) -> i32)({
+  p := unsafe(__yo_slice_ptr(xs));
+  (mut(total) : i32) = i32(0);
+  (mut(i) : usize) = usize(0);
+  while(i < __yo_slice_len(xs), i = (i + usize(1)), {
+    total = (total + unsafe(p.add(i).*));
+  });
+  total
+});
+
+test("&xs(a..b) is a view of the range", {
+  b := _UpBuf(items : Array(i32, 4)(1, 2, 3, 4));
+  v := &b(usize(1) .. usize(3));
+  assert(__yo_slice_len(v) == usize(2), "two elements");
+  assert(_up_sum(v) == i32(5), "the view reads the buffer in place");
+  assert(size_of_val(v) == usize(8), "two i32s");
+});
+
+test("an unsized place has no value of its own", {
+  comptime_expect_error(
+    _up_copy_view :: (fn(b : &_UpBuf) -> unit)({
+      _v := b(usize(0) .. usize(2));
+    }),
+    "is not `Sized`"
+  );
+});
+
+// A tail struct over its `?Sized` binder: `_UpTail(Array(i32, 3))` is the
+// sized instance and `_UpTail([i32])` the tail-unsized one.
+_UpTail :: (fn(comptime(T) : ?Sized) -> comptime(Type))(struct(n : i32, items : T));
+_up_tail_n :: (fn(t : &_UpTail([i32])) -> i32)(t.n);
+_up_tail_sum :: (fn(t : &_UpTail([i32])) -> i32)(_up_sum(&t.items));
+
+test("unsize turns a tail struct's array into its slice", {
+  s := _UpTail(Array(i32, 3))(n : i32(7), items : Array(i32, 3)(10, 20, 30));
+  u := unsize(&s);
+  assert(_up_tail_n(u) == i32(7), "a sized field through the fat pointer");
+  assert(_up_tail_sum(u) == i32(60), "the tail is a [i32] place");
+  assert(size_of_val(u) == size_of(_UpTail(Array(i32, 3))), "the same bytes as the sized instance");
+  assert(align_of_val(u) == align_of(i32), "the struct's alignment");
+});
+
+mut(_UP_DROPPED) := i32(0);
+_UpTracked :: struct(id : i32);
+impl(
+  _UpTracked,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      _UP_DROPPED = (_UP_DROPPED + self.id);
+    })
+  )
+);
+_up_drop_in_place :: (fn(generic(T : ?Sized), p : *T) -> unit)(unsafe(___drop(p.*)));
+
+test("___drop of a tail struct place drops its fields and its tail", {
+  _UP_DROPPED = i32(0);
+  raw := unsafe(malloc(size_of(_UpTail(Array(_UpTracked, 2)))));
+  slot := match(raw, .Some(r) => (*_UpTail(Array(_UpTracked, 2)))(r), .None => panic("malloc failed"));
+  unsafe(consume(slot.* = _UpTail(Array(_UpTracked, 2))(n : i32(0), items : Array(_UpTracked, 2)(_UpTracked(id : i32(1)), _UpTracked(id : i32(2))))));
+  unsafe(_up_drop_in_place(unsize(slot)));
+  assert(_UP_DROPPED == i32(3), "each tail element dropped once");
+  unsafe(free(.Some((*void)(slot))));
+});
+
+// `static`: the empty origin. A reference with it borrows no place.
+_UpStaticRef :: &(i32, static);
+
+test("static is the empty origin", {
+  comptime_assert(Type.impls(_UpStaticRef, Escapable), "a static reference borrows nothing");
+});

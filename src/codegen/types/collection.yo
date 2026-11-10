@@ -305,6 +305,16 @@ collect_type :: (fn(type_in : &TypeValue, context : &mut CodeGenContext) -> unit
     _gs := get_type_string(&type, context);
     return(());
   });
+  // `[E]` (decision 49) has no C type of its own: a pointer to it is the
+  // erased `__yo_slice_t`, and a tail struct's flexible member names `E`.
+  match(
+    &type,
+    Rc(.SliceT(sl_elem)) => {
+      recur(&sl_elem, context);
+      return(());
+    },
+    _ => ()
+  );
   is_registerable := (
     is_struct_type(&type) || is_union_type(&type) || is_enum_type(&type) || is_tuple_type(&type)
     // FutureTraitT: the generic Future trait-object interface struct — a

@@ -16,14 +16,15 @@
 { Variable } :: import("../../env.yo");
 { scope_variables } :: import("../../expr_info.yo");
 { EvalValue } :: import("../../value.yo");
-{ TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, t_refine_inner } :: import("../../types/definitions.yo");
+{ type_is_sized } :: import("../../types/utils.yo");
 { is_array_type, is_atomically_counted_rc_type, is_rc_type, is_some_type, is_tuple_type, cell_handle_view, is_atomic_counted_handle_type } :: import("../../types/guards.yo");
 { type_implements_future } :: import("../../evaluator/trait_checking.yo");
 { parse_raw_int } :: import("../../utils.yo");
 { FunctionGenerationContext, sm_owns_fnonce_captures, sm_lowering_set_rc_operand, shadow_bindings_of } :: import("../functions/context.yo");
 { sm_move_flag_of } :: import("../async/state_machine_naming.yo");
 { _call_generate_expr } :: import("./_expr.yo");
-{ get_type_string, fresh_local_name, _checked_fixed_array_subscript, sanitize_for_c_identifier } :: import("../utils/index.yo");
+{ get_type_string, fresh_local_name, _checked_fixed_array_subscript, sanitize_for_c_identifier, c_field_name } :: import("../utils/index.yo");
 { generate_drop_code_for_value, generate_dup_code_for_value, get_drop_function_for_type, get_dup_function_for_type, resolve_some_type_param_type } :: import("./drop_dup.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
 { _has_comptime_only_runtime_field } :: import("../types/collection.yo");
@@ -217,6 +218,54 @@ generate_drop :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionG
     .None => codegen_fatal_expr(String.from("___drop requires exactly 1 argument"))
   )
 );
+/// Drop the unsized place a fat pointer `fat` addresses (decision 49): each
+/// element of a `[E]`; a tail struct's sized fields in order, then its tail.
+_emit_unsized_place_drop :: (fn(ty : &TypeValue, fat : &String, indent : &String, context : &mut FunctionGenerationContext) -> unit)(
+  match(
+    t_refine_inner(ty),
+    Rc(.SliceT(ds_elem)) => {
+      sv := fresh_local_name(String.from("__yo_drop_slice_"), &context.base.current_function_name);
+      iv := fresh_local_name(String.from("__yo_drop_i_"), &context.base.current_function_name);
+      et := get_type_string(&ds_elem, &mut context.base);
+      elem_code := `((${et}*)${sv.clone()}.ptr)[${iv.clone()}]`;
+      // The loop is opened first: the element's drop may emit statements of
+      // its own, which must land inside it.
+      context.base.emitter.emit_string_line(`${indent.clone()}{ __yo_slice_t ${sv.clone()} = ${fat.clone()}; for (size_t ${iv.clone()} = 0; ${iv.clone()} < ${sv.clone()}.len; ${iv.clone()}++) {`);
+      elem_drop := generate_drop_code_for_value(&elem_code, &ds_elem, context);
+      if(elem_drop.len() > usize(0), {
+        context.base.emitter.emit_string_line(`${indent.clone()}  ${elem_drop};`);
+      });
+      context.base.emitter.emit_string_line(`${indent.clone()}} }`);
+    },
+    Rc(.Struct({ field_labels : du_labels, field_types : du_types })) => {
+      sct := get_type_string(ty, &mut context.base);
+      (fi : usize) = usize(0);
+      while(fi < du_types.len(), {
+        match(
+          du_labels.get(fi),
+          .Some(du_label) => match(
+            du_types.get(fi),
+            .Some(du_ft) => {
+              member := `((${sct}*)(${fat.clone()}).ptr)->${c_field_name(ty, &du_label)}`;
+              if(type_is_sized(&du_ft), {
+                f_drop := generate_drop_code_for_value(&member, &du_ft, context);
+                if(f_drop.len() > usize(0), {
+                  context.base.emitter.emit_string_line(`${indent.clone()}${f_drop};`);
+                });
+              }, {
+                _emit_unsized_place_drop(&du_ft, &`((__yo_slice_t){ .ptr = (void*)&(${member}), .len = (${fat.clone()}).len })`, indent, context);
+              });
+            },
+            .None => ()
+          ),
+          .None => ()
+        );
+        fi = (fi + usize(1));
+      });
+    },
+    _ => ()
+  )
+);
 /// Release the value `value_arg` evaluates to: the body of `___drop(<value>)`,
 /// shared with `consume(x)` of an owned value (`generate_consume`).
 generate_drop_of_operand :: (fn(value_arg : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
@@ -231,6 +280,13 @@ generate_drop_of_operand :: (fn(value_arg : &AstExpr, indent : &String, context 
     return(String.new());
   });
   value_code := _drop_operand(value_arg, indent.clone(), context);
+  // `___drop` of an unsized place (decision 49: `drop_in_place(p)` with
+  // `p : *[E]` or a pointer to a tail struct). The operand is the place
+  // `(*F)`, `F` the fat pointer, whose length bounds the tail.
+  if(!type_is_sized(&value_type) && value_code.starts_with("(*") && value_code.ends_with(")"), {
+    _emit_unsized_place_drop(&value_type, &value_code.substring(usize(2), value_code.len() - usize(1)), indent, context);
+    return(String.new());
+  });
   // Single-pass async lowering: an await moved this temp's future into
   // the task's slot, which releases it.
   if(match(&context.sm_inline_lowering, .Some(low) => low.moved_into_slot.contains(value_code.clone()), .None => false), {

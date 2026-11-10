@@ -2788,6 +2788,33 @@ register_struct_ctor_fid :: (fn(struct_id : &String, ctor_fid : &String) -> unit
   g_struct_ctor_fids.with_mut({ ctor_fid_owned, struct_id_owned }(m) => m.insert(struct_id_owned, ctor_fid_owned.clone()));
   ()
 });
+/// The function value of each struct type constructor, by funcId: the
+/// constructor `unsize` re-applies to make a struct's tail-unsized twin
+/// (decision 49: `_T(Array(E, N))` → `_T([E])`). The latest stamp wins.
+(g_struct_ctor_values : RefCell(HashMap(String, EvalValue))) = RefCell(HashMap(String, EvalValue)).new(HashMap(String, EvalValue).new());
+register_struct_ctor_value :: (fn(ctor_fid : &String, value : &EvalValue) -> unit)({
+  fid_owned := ctor_fid.clone();
+  value_owned := value.clone();
+  g_struct_ctor_values.with_mut({ fid_owned, value_owned }(m) => m.insert(fid_owned, value_owned.clone()));
+  ()
+});
+lookup_struct_ctor_value :: (fn(ctor_fid : &String) -> Option(EvalValue))(
+  g_struct_ctor_values.with({ &ctor_fid }(m) => m.get_cloned(ctor_fid))
+);
+/// The `unsize(p)` calls whose result is a reference, by node id, with the
+/// reference's mode (`true` for `&mut`; plans/VALUES_BY_DEFAULT.md decision
+/// 49). Such a call is a projection of `p`'s place: its ExprInfo type is the
+/// unsized place (`[E]`, a tail struct) and the mode lives here, as a
+/// projection call's mode lives in its callee's type
+/// (`projection_call_mode_of`, codegen's `call_projection_mode`).
+(g_unsize_reference_modes : RefCell(HashMap(usize, bool))) = RefCell(HashMap(usize, bool)).new(HashMap(usize, bool).new());
+_vh_unsize_modes_len :: (fn(m : &HashMap(usize, bool)) -> usize)(m.len());
+note_unsize_reference :: (fn(id : usize, is_mut : bool) -> unit)({
+  _m := g_unsize_reference_modes.with_mut({ id, is_mut }(m) => m.insert(id, is_mut));
+});
+unsize_reference_mode :: (fn(id : usize) -> Option(bool))(
+  if(g_unsize_reference_modes.with(_vh_unsize_modes_len) == usize(0), Option(bool).None, g_unsize_reference_modes.with({ id }(m) => m.get(&id)))
+);
 /// The constructor funcId stamped for `struct_id`, if any.
 lookup_struct_ctor_fid :: (fn(struct_id : &String) -> Option(String))(
   g_struct_ctor_fids.with({ &struct_id }(m) => m.get_cloned(struct_id))
@@ -3195,6 +3222,10 @@ export(module_global_recording_mark, rollback_module_level_globals_to);
 export(some_resolution);
 export(
   register_struct_ctor_fid,
+  register_struct_ctor_value,
+  note_unsize_reference,
+  unsize_reference_mode,
+  lookup_struct_ctor_value,
   record_branch_init,
   record_branch_consume,
   record_flow_event,

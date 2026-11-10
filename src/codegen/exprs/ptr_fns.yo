@@ -22,6 +22,7 @@
 { generate_arg_code_with_deferred_dups } :: import("./drop_dup.yo");
 { get_type_string, get_variable_name_for_codegen, sanitize_for_c_identifier, is_function_value_with_only_builtin_yo_inline_function_call, _checked_fixed_array_subscript, get_variable_name_for_codegen_at } :: import("../utils/index.yo");
 { is_array_type, is_unit_type } :: import("../../types/guards.yo");
+{ type_is_sized } :: import("../../types/utils.yo");
 { expr_info_converted_runtime_type, expr_info_index_method_value, expr_info_is_index_trait_address_of } :: import("../../expr_info.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
 /// The C function name for a func id (registered cName, else None).
@@ -219,6 +220,11 @@ generate_address_of :: (fn(expr : &AstExpr, indent : &String, context : &mut Fun
     return(if(arg_code.starts_with("(*") && arg_code.ends_with(")"), arg_code.substring(usize(2), arg_code.len() - usize(1)), `(&${arg_code})`));
   });
   // Rvalue function-call operand → spill into a named temp first.
+  // An unsized place (`p.*` on a `*[E]`, decision 49) is `(*F)` over its fat
+  // pointer `F`; its address is `F` (C has no `&` of a struct dereference).
+  if(match(&arg_ei_opt, .Some(us_ei) => !type_is_sized(&us_ei.ty()), .None => false) && (arg_code.starts_with("(*") && arg_code.ends_with(")")), {
+    return(arg_code.substring(usize(2), arg_code.len() - usize(1)));
+  });
   if(ast_expr_is_fn_call(&arg) && (!ast_expr_is_atom(&arg) && !ast_expr_is_fn_call_of(&arg, BF_DOT, Option(usize).None)), {
     match(
       arg_ei_opt,

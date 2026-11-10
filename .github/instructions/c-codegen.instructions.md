@@ -693,6 +693,41 @@ the masked pointer. Until decision 49 S2 stores the bit (L2) the mask is the
 identity; `tests/box_layout.test.yo` sets the bit by hand to prove every
 projection reads through it.
 
+### A pointer to an unsized type is the fat `__yo_slice_t`
+
+Decision 49 (`plans/VALUES_BY_DEFAULT.md`) makes `[T]` and a struct whose
+last field is `[T]` unsized. Every pointer to one (`&[T]`, `&mut [T]`, `*[T]`,
+and the same over a tail struct) is the one erased C type
+`__yo_slice_t { void* ptr; size_t len; }`, emitted once with the type
+declarations. Spell the C type of a pointer with `pointer_c_type_string`
+(`src/codegen/utils/index.yo`), never `get_type_string(pointee) + "*"`: the
+helper returns `__yo_slice_t` for an unsized pointee and `T*` otherwise. A
+`?Sized` generic slot stays thin until it is specialized
+(`_pointee_is_fat` in `src/types/utils.yo` is false for a type variable).
+
+- **An unsized place is `(*F)`, with `F` its fat pointer.** A consumer that
+  needs the pointer strips the outer `(*…)`, as it does for a thin place.
+  `unsize(&a)` emits `(*fat)`; `unsize(p)` over a `*T` emits `fat`. A local
+  bound to `unsize(&a)` is a reference binding declared `__yo_slice_t s = fat`.
+- **A tail struct's `[T]` field is a C flexible array member** (`E items[];`).
+  Its other fields are read through the fat pointer's `ptr`, and the tail
+  through a fat pointer whose `len` is the outer one. The declaration-order
+  walk (`src/codegen/types/generation.yo`) orders the struct after `E`, as it
+  does for an `Array(E, N)` field.
+- **`unsize(&a)` is a projection call.** Its ExprInfo type is the unsized
+  place and its mode is in `unsize_reference_mode` (`src/expr_info.yo`), so
+  `call_projection_mode` and the evaluator's `projection_call_mode_of` treat
+  it like a function returning `&T`. Never give a call's ExprInfo a reference
+  type for a reference it yields: the read rule marks the reference read only
+  for a projection, and a generic `&T` would bind `T` to the reference.
+- **`size_of_val`** of a tail struct is
+  `round_up(offsetof(tail) + len * sizeof(E), alignment)`, and of `[E]` it is
+  `len * sizeof(E)`.
+- **`___drop` of an unsized place** (`_emit_unsized_place_drop`,
+  `src/codegen/exprs/rc_fns.yo`) drops a tail struct's fields and then loops
+  over the elements. The loop's variables are declared before the element's
+  drop is emitted, because that drop's code names them.
+
 ## Memory leak detection
 
 - `--sanitize address` — AddressSanitizer for memory error and leak detection

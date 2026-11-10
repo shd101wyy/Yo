@@ -5068,8 +5068,25 @@ and in git, not a silent edit.
       of a `Type` binder (generic, type constructor, `comptime(V) : Type`)
       and, through the definition-time trial's hard class, at a `?Sized`
       body's definition; `yo explain E0619`. `Type.impls` takes a `Type`, so
-      it answers for sized types only until S2 gives it `?Sized`. (S1b–S1g,
-      S2, S3: to come.)
+      it answers for sized types only until S2 gives it `?Sized`.
+      S1b+S1c (2026-11-09, `vbd/d49-s1-places`): every pointer to `[T]` or
+      to a tail struct is the erased fat `__yo_slice_t { ptr, len }`
+      (`pointer_c_type_string`); a `?Sized` slot stays thin until it is
+      specialized. Builtins: `size_of_val` and `align_of_val` (a sized
+      pointee folds to `size_of`/`align_of`); `unsize` over `&`, `&mut` and
+      `*` to an `Array(T, N)` or to a struct whose tail is one, re-applying
+      the struct's type constructor to `[T]`; `___drop` of an unsized place;
+      and the unsafe primitives `__yo_slice_len`, `__yo_slice_ptr` and
+      `__yo_slice_from_raw_parts` that S2's `[T]` impls are written with.
+      `s := unsize(&a)` binds a local borrow of `a`, as a projection's
+      result does. `Index(Range(usize))` with `Output : [T]` makes
+      `&xs(a..b)` a zero-copy view, and `v := &xs(a..b)` binds it with
+      root `xs` (the `&mut` view waits for `IndexMut`'s unsized `Output`,
+      S2). A tail struct's `[T]` is a C flexible
+      array member. `static` is the empty origin, and `Escapable` holds when
+      the pointee is. An assignment to an unsized place is E0619, and
+      `unsize` of a value is E0620 (`yo explain E0620`). (S1d–S1g, S2, S3:
+      to come.)
     - **Tests** (`tests/sized.test.yo`, `tests/dyn.test.yo`,
       `tests/slice.test.yo`, `tests/str_view.test.yo`,
       `tests/explicit_allocators.test.yo`, the cli case

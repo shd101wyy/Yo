@@ -10,7 +10,7 @@
 { ArrayList } :: import("std/collections/array_list");
 { HashSet } :: import("std/collections/hash_set");
 { HashMap } :: import("std/collections/hash_map");
-{ TypeValue, TypeValueNode, no_types, no_labels, t_slot_pointee } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, no_types, no_labels, t_slot_pointee, t_refine_inner } :: import("../../types/definitions.yo");
 { is_unit_type, is_struct_type, is_enum_type, is_tuple_type, is_reference_struct_type, is_newtype_type, is_dyn_type, is_union_type, is_future_trait_type, is_function_type, is_fn_trait_type, is_some_type, is_array_type } :: import("../../types/guards.yo");
 { type_contains_some_type, dyn_member_is_method, dyn_member_unsafe_reason, is_destructor_trait_member } :: import("../../types/utils.yo");
 { some_resolution } :: import("../../expr_info.yo");
@@ -161,6 +161,14 @@ generate_str_type_declaration :: (fn(context : &mut CodeGenContext) -> unit)({
   context.emitter.emit_declaration_line("  size_t len;");
   context.emitter.emit_declaration_line("} __yo_str;");
   context.emitter.emit_declaration_line("");
+  // A pointer to the unsized `[E]` (decision 49): the element type is erased
+  // here and restored by a cast at each use, as `__yo_str` erases nothing but
+  // its bytes. One C type serves every element type.
+  context.emitter.emit_declaration_line("typedef struct { // a pointer to [T]: the data and the length");
+  context.emitter.emit_declaration_line("  void* ptr;");
+  context.emitter.emit_declaration_line("  size_t len;");
+  context.emitter.emit_declaration_line("} __yo_slice_t;");
+  context.emitter.emit_declaration_line("");
 });
 /// Emit `  <type> <name>;` for each runtime struct field.
 /// (Defined before generate_struct_declaration — Yo has no forward references.)
@@ -219,10 +227,24 @@ _emit_runtime_fields :: (fn(fields : &ArrayList(RuntimeStructField), context : &
       // field (exprs/property_access.yo). A struct whose every field is `unit`
       // is an empty C struct (GNU extension, sizeof 0 — same as Rust).
       .Some(field) => if(!is_unit_type(&field.ty), {
-        fts := get_type_string(&field.ty, context);
         fname := sanitize_for_c_identifier(field.label.clone(), false);
-        context.emitter.emit_declaration_string_line(`  ${fts} ${fname};`);
-        emitted = true;
+        match(
+          t_refine_inner(&field.ty),
+          // A tail `[E]` (decision 49): a C flexible array member, laid out
+          // where the sized instance's `Array(E, N)` wrapper is (the wrapper
+          // has `E`'s alignment), so a pointer to either reads the same
+          // prefix. A `[unit]` tail has no storage.
+          Rc(.SliceT(tail_elem)) => if(!is_unit_type(&tail_elem), {
+            tes := get_type_string(&tail_elem, context);
+            context.emitter.emit_declaration_string_line(`  ${tes} ${fname}[];`);
+            emitted = true;
+          }),
+          _ => {
+            fts := get_type_string(&field.ty, context);
+            context.emitter.emit_declaration_string_line(`  ${fts} ${fname};`);
+            emitted = true;
+          }
+        );
       }),
       .None => ()
     );
@@ -1437,7 +1459,13 @@ _walk_by_value_dep :: (fn(deps_set : &mut HashSet(String), ft : &TypeValue, self
       Rc(.Array(elem, _, _)) => recur(deps_set, &elem, self_type_id, guard_nullable, cname_to_typeid, context),
       _ => ()
     ),
-    true => ()
+    // A tail struct's `[E]` field is a C flexible array member of `E`
+    // (decision 49): it needs `E`'s definition just as an array does.
+    true => match(
+      t_refine_inner(ft),
+      Rc(.SliceT(sl_elem)) => recur(deps_set, &sl_elem, self_type_id, guard_nullable, cname_to_typeid, context),
+      _ => ()
+    )
   )
 );
 /// A type collected for topological ordering: (typeId, type, cName, kind).
