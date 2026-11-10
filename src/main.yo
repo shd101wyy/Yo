@@ -1737,9 +1737,9 @@ _run_migrate_record_literal :: (fn(files : &ArrayList(String), dry_run : bool, i
           col := usize(t.column);
           line := match(lines.get_cloned(row), .Some(l) => l, .None => String.new());
           runes := _line_runes(&line);
-          at_brace := (col < runes.len()) && (runes(col).char == u32(0x7B));
-          dotted := (col > usize(0)) && (col <= runes.len()) && (runes(col - usize(1)).char == u32(0x2E));
-          if(at_brace && !dotted && seen.insert(`${row.to_string()}:${col.to_string()}`), {
+          at_brace := ((col < runes.len()) && (runes(col).char == u32(0x7B)));
+          dotted := ((col > usize(0)) && (col <= runes.len()) && (runes(col - usize(1)).char == u32(0x2E)));
+          if((at_brace && !dotted) && seen.insert(`${row.to_string()}:${col.to_string()}`), {
             checked.push(_PendingFix(row : row, col : col, len : usize(0), replacement : String.from("."), description : `${file}:${(row + usize(1)).to_string()}:${(col + usize(1)).to_string()}`));
           });
         });
