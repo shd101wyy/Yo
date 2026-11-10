@@ -1970,8 +1970,11 @@ try_match_generic_impl :: (
   // Coherence rule 3 as refined by decision 49: a binder of kind `Type`
   // carries `where(T <: Sized)`, so a blanket over it covers the sized types
   // only and never matches (nor overlaps an impl on) an unsized one. A
-  // `T : ?Sized` binder takes both.
-  if(all_bound, {
+  // `T : ?Sized` binder takes both. Only a BARE blanket (`impl(T, ...)`) is
+  // sized-only: `impl(*T, ...)` and `impl(&T, ...)` are about the pointer,
+  // which is sized whatever `T` is, and std's pointer impls (`*T : Copy`)
+  // predate `?Sized` (S2 respells them).
+  if(all_bound && is_some_type(&entry.receiver_type_pattern), {
     (sz_i : usize) = usize(0);
     while(sz_i < bindings.len(), sz_i = (sz_i + usize(1)), {
       sz_sized_kind := match(entry.forall_some_types.get_cloned(sz_i), .Some(Rc(.SomeT({ parent_type : sz_pt }))) => !is_maybe_sized_kind(&sz_pt), _ => false);
