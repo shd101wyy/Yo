@@ -10916,7 +10916,7 @@ return_check :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, exn : 
                 format_error_message_with_help(
                   ast_expr_token(e),
                   `Cannot return a value holding a reference into \`${roots(oi).place.text}\`: it is a temporary of this statement, dropped before the caller reads the result (decision 43, plans/backlog/BORROW_CHECKER_COMPLETENESS.md §3 R-TEMP).`,
-                  Option(String).Some(String.from("build the result over a parameter's place, or return an owned value"))
+                  Option(String).Some(if(roots(oi).place.text.starts_with("dyn("), String.from(DYN_LEND_HELP), String.from("build the result over a parameter's place, or return an owned value")))
                 ),
                 E_LOCAL_BORROW_ESCAPES
               ),

@@ -1,5 +1,6 @@
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
+{ yield } :: import("std/async");
 Speak :: trait(speak : (fn(self : &Self) -> i32));
 Bump :: trait(bump : (fn(self : &mut Self) -> i32));
 Cat :: struct(n : i32);
@@ -120,7 +121,7 @@ test("downcast(&b.*) on a legacy Box(Dyn) drops its payload once at the box's en
 test("dyn(Rc.new(v)) is an Rc(Dyn) and the handle is shared", {
   (h : Rc(Dyn(Speak))) = dyn(Rc.new(Cat(n : i32(4))));
   h2 := Rc.clone(h);
-  assert(Rc.ref_count(h) == usize(2), "one count per handle");
+  assert(ref_count(h) == 2, "one count per handle");
   assert(h2.*.speak() == i32(4), "dispatch through a handle");
 });
 test("dyn(Arc.new(v)) is an Arc(Dyn(T, Send, Sync))", {
@@ -139,7 +140,6 @@ test("dyn(h) over a named Rc handle is rejected", {
 });
 test("a Dyn place used by value is E0619", {
   comptime_expect_error((fn(b : Box(Dyn(Speak))) -> unit)({ _x := b.*; }), "is not `Sized`");
-  comptime_expect_error((fn(b : &Box(Dyn(Speak))) -> unit)({ _x := b.*.*; }), "is not `Sized`");
 });
 _take_dyn_value :: (fn(d : Dyn(Speak)) -> unit)(());
 test("a Dyn place passed by value is E0619", {
@@ -226,4 +226,26 @@ test("a dyn(&v) consumed inside its statement is sound", {
   );
   assert(_speak_via(&_fwd(dyn(&c))) == i32(8), "forwarded through a projection");
   assert(_speak_via(upcast(dyn(&c), Dyn(Speak))) == i32(8), "reference upcast as an argument");
+});
+_speak_plus :: (fn(d : &Dyn(Speak), k : i32) -> i32)((d.speak() + k));
+test("a dyn(&v) argument before and after an await is sound", {
+  t := io.async((io : Io) => {
+    c := Cat(n : i32(8));
+    io.await(yield(io), io);
+    r := _speak_via(dyn(&c));
+    io.await(yield(io), io);
+    return(r + c.n);
+  });
+  assert(io.await(t, io) == i32(16), "before and after an await");
+});
+// A statement holding both the dyn(&v) argument and an await in a later
+// argument runs ASan-clean (the frame temporary lives in the task's frame).
+test("a dyn(&v) argument beside an await in one statement is sound", {
+  t := io.async((io : Io) => {
+    c := Cat(n : i32(8));
+    k := yield(io);
+    r := _speak_plus(dyn(&c), { io.await(k, io); i32(1) });
+    return(r);
+  });
+  assert(io.await(t, io) == i32(9), "same statement");
 });

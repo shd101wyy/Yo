@@ -9,7 +9,7 @@ pragma(Pragma.AllowUnsafe);
 { replace } :: import("std/mem");
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr, ast_expr_token, ast_expr_id, alloc_global_expr_id, ast_expr_is_fn_call_of, ast_expr_is_atom, BF_DOT, BK_BORROW_MUT, BF_ADDRESS_OF, ast_rewritten_node, note_rewritten_node } :: import("../../expr.yo");
+{ AstExpr, ast_expr_token, ast_expr_id, alloc_global_expr_id, ast_expr_is_fn_call_of, ast_expr_is_atom, ast_expr_is_atom_of, BF_DOT, BK_BORROW_MUT, BF_ADDRESS_OF, ast_rewritten_node, note_rewritten_node } :: import("../../expr.yo");
 {
   ExprInfo,
   new_expr_info,
@@ -1418,6 +1418,16 @@ evaluate_dyn_value :: (
   ) -> AstExpr
 )({
   expr_tok := ast_expr_token(expr);
+  // A `dyn(Rc.new(v))` the shared-handle arm below rewrote reads as the
+  // handle call (`Rc(Dyn(T)).new(dyn(Rc.new(v)))`): a re-evaluation evaluates
+  // that call again.
+  match(
+    ast_rewritten_node(expr),
+    .FnCall(sr_id, sr_callee, _, _, _) => if((sr_id == ast_expr_id(expr)) && !ast_expr_is_atom_of(&sr_callee, "dyn"), {
+      return(evaluate_expression_raw(&ast_rewritten_node(expr), env, ctx, exn));
+    }),
+    .Atom(_, _) => ()
+  );
   // Extract the args ArrayList and the single value argument. A `dyn(v)` the
   // auto-box below rewrote reads as rewritten (`ast_rewritten_node`), so a
   // re-evaluation does not box it again.
@@ -1488,9 +1498,18 @@ evaluate_dyn_value :: (
             _ => expr.clone()
           );
           (sh_call, sh_recv) := _synthesized_cell_call(&handle_ty, &sh_cell.type_name, &dyn_payload_ty, sh_inner, &expr_tok, env, ctx);
+          // The handle call takes this node's id, so the tree reads it where
+          // the `dyn(...)` call was written (`note_rewritten_node`, as the
+          // auto-box does) and the ExprInfo side table keys it there.
+          sh_call_here := match(
+            &sh_call,
+            .FnCall(_, sh_c0, sh_a0, sh_i0, sh_t0) => AstExpr.FnCall(ast_expr_id(expr), sh_c0.clone(), Rc.clone(sh_a0), sh_i0.*, sh_t0.clone()),
+            .Atom(_, _) => sh_call.clone()
+          );
           mark_node_preevaluated(sh_recv);
-          sh_out := evaluate_expression_raw(&sh_call, env, ctx, exn);
+          sh_out := evaluate_expression_raw(&sh_call_here, env, ctx, exn);
           unmark_node_preevaluated(sh_recv);
+          note_rewritten_node(&sh_out);
           return(sh_out);
         },
         .None => ()
