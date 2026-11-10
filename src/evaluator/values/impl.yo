@@ -128,6 +128,7 @@ pragma(Pragma.AllowUnsafe);
   force_pending_move_only_impls,
   type_head_name_for_impl_forcing,
   note_reference_impl_head,
+  note_reference_blanket_method,
   impl_receiver_head_name
 } :: import("../context.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
@@ -487,6 +488,17 @@ get_base_trait_key :: (fn(trait_ty : &TypeValue) -> String)(
 /// Register a new generic impl entry.
 register_generic_impl :: (fn(entry : &GenericImplEntry) -> unit)({
   bump_trait_impl_epoch();
+  // R-PROBE's index (ii) (VERDICTS-50): a bare-binder receiver (`T`, `&T`)
+  // unifies with `&C`, so every method it registers can answer the lookup on a
+  // reference.
+  rp_pattern := Rc.clone(entry.receiver_type_pattern);
+  if(is_some_type(&rp_pattern) || (t_slot_is_borrow(&rp_pattern) && is_some_type(&t_slot_pointee(&rp_pattern))), {
+    (rp_i : usize) = usize(0);
+    while(rp_i < entry.field_names.len(), {
+      note_reference_blanket_method(&entry.field_names(rp_i));
+      rp_i = (rp_i + usize(1));
+    });
+  });
   key := entry.trait_key.clone();
   // Find existing bucket for this key, or create a new one.
   (key_idx : Option(usize)) = Option(usize).None;
@@ -5333,6 +5345,9 @@ evaluate_module_value :: (
     // lookup probes references from now on (decision 43 N1f-2).
     if(t_slot_is_borrow(&receiver_type_pattern), {
       note_reference_impl_head(&impl_receiver_head_name(&receiver_type_expr2));
+      // Also the head the receiver's pointee TYPE carries: an alias or a
+      // primitive spells a name the type never does (VERDICTS-50 index (i)).
+      note_reference_impl_head(&type_head_name_for_impl_forcing(&t_slot_pointee(&receiver_type_pattern)));
     });
     // Collect method fields: name : fn_def pairs.
     (method_names : ArrayList(String)) = ArrayList(String).new();
@@ -5793,6 +5808,9 @@ evaluate_module_value :: (
   // classified as pending, is seen here first).
   if(t_slot_is_borrow(&receiver_ty), {
     note_reference_impl_head(&impl_receiver_head_name(&receiver_type_expr));
+    // Also the head the receiver's pointee TYPE carries (an alias, a
+    // primitive; VERDICTS-50 index (i)).
+    note_reference_impl_head(&type_head_name_for_impl_forcing(&t_slot_pointee(&receiver_ty)));
   });
   // Pre-register each trait name in this impl so that recursive types
   // (e.g. `TreeNode :: enum(Branch(left : Rc(Self)))` with

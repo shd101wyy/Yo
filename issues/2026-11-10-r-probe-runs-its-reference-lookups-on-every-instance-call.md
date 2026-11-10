@@ -34,3 +34,20 @@ Keep one code path, and delete `reference_impls_seen` and the else arm.
 The invariant: a reference lookup can return a candidate the base lookup lacks only under one of those conditions. A `YO_DEBUG_RPROBE_AUDIT=1` knob runs both paths and aborts on a differing hit list. No golden moves, because the "Receiver slot types probed" note still prints on a miss. Tests go in `tests/impl_ref.test.yo`, and the ratchet is the regression test. Any residual above 5% is re-baselined in the same PR.
 
 **Timing:** a v0.2.77 cut gate, because a seed's cost cannot be fixed forward. If the fix is not on develop by 2026-11-14, the ratchet is re-baselined, v0.2.77 is cut on schedule, and the fix is the first merge of v0.2.78.
+
+## Partly fixed: `vbd/rprobe-gate` (VERDICTS-50/51), open at S2
+
+The global switch and the else arm are gone; the `&base` / `&mut base` lookups are gated on
+`probe_explicit || reference_impl_head_noted(head) || reference_blanket_method_noted(method)`, both registration sites also note the type-derived head,
+`register_generic_impl` notes a bare-binder blanket's methods, and `YO_DEBUG_RPROBE_AUDIT=1` is the soundness check (clean over `check ./std`, `check ./src`,
+`impl_ref`, `reference_read_rule`, `for_read_walk`, `for_macro_borrow`). Measured by CI's method (stage-2 C on the libc stand-in, REPEAT=2):
+
+| Tree | Allocation calls, `check src/main.yo` |
+| --- | --- |
+| `fe58873dd` (green baseline) | 7,064,194,617 |
+| A: develop `30e1411cd` | 16,198,306,101 |
+| B: `vbd/rprobe-gate` | 12,381,196,693 (-23.6%) |
+
+**Scope that remains:** the residual +5.32e9 is the same defect on a receiver whose head has a reference impl (std's collections: `ArrayList`, `HashMap`,
+`BTreeMap`, `Deque`, `HashSet`, `OrderedMap`, `PriorityQueue`, whose `IntoIterator` impls provide only `into_iter`). The head index is too coarse: every
+`xs.len()`, `xs.push(v)`, `m.insert(k, v)` still runs the full probe. The (head, method) index (VERDICTS-51 section 3) closes it. Tests: `tests/impl_ref.test.yo` (x).
