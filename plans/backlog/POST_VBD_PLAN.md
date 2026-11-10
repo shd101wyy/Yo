@@ -116,6 +116,11 @@ battery takes the next lane-F item.
     plus COMPTIME_METAPROGRAMMING_AUDIT's C5 (bigint `comptime_int`) and C6
     (`source_location`).
   - Move `REFERENCES_AND_ORIGINS.md` to `reference/` once G3 has landed.
+  - **Brace groups** ([`BRACE_BLOCKS.md`](BRACE_BLOCKS.md), decided 2026-11-10):
+    `.{ … }` builds a record, `{ names }` on a binding side picks fields, every
+    other `{ … }` is a block. Generation A (`.{ … }` accepted,
+    `yo fix --migrate record-literal`) in v0.2.81, Generation B (the sweep and
+    the flip) in v0.2.82, so K7's docs sweep teaches the final rule.
 - **Lane B:**
   - IO-1b, the std Generation B (`Io` becomes `{ctx, vtable}`).
   - IO-1c.
@@ -217,8 +222,8 @@ The order is the one THEOREM_PROVING_DIRECTION §4 ranks:
 | Release | Lane A | Lane B | Lane C | Lane D / E / F |
 | --- | --- | --- | --- | --- |
 | v0.2.80 | VBD slips; G-D generator scheduled | IO-1a, TP-1 | P-PERF-0 baselines | Ownership guide promoted; issue-date rename; K7 list fixed |
-| v0.2.81 | TSS Phase 6 step 4 | IO-1b (Gen B on v0.2.80) | merge the memory plans | K2–K4 (skills deleted); B4 evals corpus |
-| v0.2.82 | `Comptime` exclusion; C5 | IO-1c; ALLOCATOR step C Gen A | evaluator step 1 | K5 gate; Z2 sha pin; Z1 |
+| v0.2.81 | TSS Phase 6 step 4; brace groups Gen A | IO-1b (Gen B on v0.2.80) | merge the memory plans | K2–K4 (skills deleted); B4 evals corpus |
+| v0.2.82 | `Comptime` exclusion; C5; brace groups Gen B | IO-1c; ALLOCATOR step C Gen A | evaluator step 1 | K5 gate; Z2 sha pin; Z1 |
 | v0.2.83 | TSS Phase 3 step 9 | step C Gen B; NO_LIBC P3 | evaluator step 2 | K6–K7 docs sweep |
 | v0.2.84 | REFERENCES_AND_ORIGINS → `reference/` | NO_LIBC P7; P0 | PARALLEL_COMPILATION P2 | keep-alive |
 | v0.2.85 | TSS kept-swallow kinds | NO_LIBC P0b | P3; P4 step 2 | `try_read`/`lines()` |
