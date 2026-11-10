@@ -121,6 +121,18 @@ written; `--target <triple>` evaluates for that one target, as
 `compile --target` does. A file that does not evaluate keeps what evaluation
 never reached, and `fix` exits non-zero naming it.
 
+`yo fix <path> --migrate record-literal` is the migration for the brace-group
+rule (`plans/backlog/BRACE_BLOCKS.md`, Generation A): the parser accepts a
+record value spelled with a dot before the opening brace, and the migration
+writes that dot before every brace group in expression position that is a
+record today, the punned one-field group and the empty group included. It
+reads the parse and does not evaluate, so it needs no prelude and reaches
+every file. It touches no binder: the left side of `:=`, `=` and `::`
+(destructurings, imports, globs), match patterns and sub-patterns, `for`
+element patterns, closure capture lists and parameters, and blocks keep their
+braces. A group that already carries the dot is left alone, so a second run
+changes nothing; a file that does not parse is named and `fix` exits non-zero.
+
 A module-level or `thread_local` runtime binding is immutable (Rust's
 `static`) unless its name is wrapped in `mut(...)` (`static mut`, decision
 47). Writing an immutable global is E0917: reassigning it, writing a field or
@@ -212,7 +224,7 @@ local-borrow spelling, and `mut-bindings` would read it as a mutable local.
 Never run `borrow-spelling` on code that already spells decision 47's
 `mut(x) := v`. The copy migrations run on v0.2.73 in their own order,
 `explicit-copy`, `cloned-accessors`, then `rc-clone`, before pinning v0.2.74.
-`yo fix --migrate deref` is the one mode this release still ships.
+`yo fix --migrate deref` and `yo fix --migrate record-literal` are the two modes this release ships.
 
 ## Warnings
 

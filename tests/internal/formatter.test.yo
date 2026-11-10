@@ -632,3 +632,15 @@ test("fmt: the `&T` / `&mut T` spelling is stable in every slot", {
   );
   assert(_fmt(src.clone()) == src, `the sigil spelling is canonical as written; got:\n${_fmt(src.clone())}`);
 });
+// Brace groups Generation A (plans/backlog/BRACE_BLOCKS.md): a record value
+// `.{ ... }` and the empty record `.{}` are laid out with no space after the
+// dot, however the source spaced them, and the layout is a fixed point.
+test("fmt: `.{ a, b }` and `.{}` take no space after the dot", {
+  src := String.from(
+    "main :: (fn() -> unit)({\n  r := . { x : 1, y : 2 };\n  e := .{};\n  s := .{x};\n  f(.{a, b}, . {});\n  t := .{x:1,y:.{z:2}};\n  c := Foo.V(.{ x : 1 });\n  { a, b } := r;\n  ()\n});\n"
+  );
+  want := "main :: (fn() -> unit)({\n  r := .{ x : 1, y : 2 };\n  e := .{};\n  s := .{ x };\n  f(.{ a, b }, .{});\n  t := .{ x : 1, y : .{ z : 2 } };\n  c := Foo.V(.{ x : 1 });\n  { a, b } := r;\n  ()\n});\n";
+  once := _fmt(src.clone());
+  assert(once == want, `got:\n${once}`);
+  assert(_fmt(once.clone()) == once, "the dot record layout is a fixed point");
+});

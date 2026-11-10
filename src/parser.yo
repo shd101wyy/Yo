@@ -1753,14 +1753,30 @@ impl(
             match(primary_expr, .Atom(_, pt) => pt, .FnCall(_, _, _, _, pt) => pt),
           true => dot_tok
         );
+        // `.{ … }` — a prefix dot ADJACENT to a record brace group IS that
+        // record value (plans/backlog/BRACE_BLOCKS.md, Generation A): the
+        // dot marks "the type comes from context", exactly as `.Some(x)`
+        // does, so the node is the record `_(…)` itself and coerces to an
+        // expected struct like today's bare brace. A block group `.{ a; b }`
+        // and `x.{ … }` keep their old (error) path.
+        is_dot_record := (
+          primary_is_dot && (rhs_start == idx) && ast_expr_is_fn_call_of(&rhs_expr, BK_ANON_STRUCT, .None) && match(
+            self.tokens.get(rhs_start),
+            .Some(bt) => ((bt.kind == TokenKind.LCurlyBracket) && (bt.byte_offset == (dot_fn_tok.byte_offset + u32(1)))),
+            .None => false
+          )
+        );
         init_args := ArrayList(AstExpr).with_capacity(usize(2));
         if(!primary_is_dot, {
           init_args.push(primary_expr);
         });
-        init_args.push(rhs_expr);
+        init_args.push(rhs_expr.clone());
         init_infix := (primary_is_dot == false);
         // Accumulate further immediate dot-chains (no whitespace)
-        (cur_expr : AstExpr) = .FnCall(self.alloc_id(), .Atom(self.alloc_id(), dot_fn_tok), Rc.new(init_args), init_infix, dot_fn_tok);
+        (cur_expr : AstExpr) = cond(
+          is_dot_record => rhs_expr,
+          true => .FnCall(self.alloc_id(), .Atom(self.alloc_id(), dot_fn_tok), Rc.new(init_args), init_infix, dot_fn_tok)
+        );
         cur_idx := rhs_idx;
         while(true, {
           match(

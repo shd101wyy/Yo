@@ -1,0 +1,90 @@
+{ assert } :: import("std/assert");
+// Brace groups, Generation A (plans/backlog/BRACE_BLOCKS.md): `.{ ... }` in
+// expression position is a record value, with exactly the meaning today's
+// bare record brace has. The bare form keeps working in this generation, and
+// a binder position (a destructuring, a pattern, a capture list) keeps its
+// bare braces.
+Point :: struct(x : i32, y : i32);
+Solo :: struct(v : i32);
+Z :: struct();
+Shape :: enum(At(p : Point), Gone);
+Cfg :: .{ name : "cfg", size : i32(3) };
+test("`.{ k : v }` builds an anonymous record", {
+  r := .{ x : i32(1), y : i32(2) };
+  assert(r.x == i32(1));
+  assert(r.y == i32(2));
+  one := .{ k : i32(7) };
+  assert(one.k == i32(7));
+});
+test("`.{ a, b }` puns each field", {
+  x := i32(3);
+  y := i32(4);
+  r := .{ x, y };
+  assert((r.x + r.y) == i32(7));
+  mixed := .{ x, z : i32(9) };
+  assert((mixed.x + mixed.z) == i32(12));
+});
+test("`.{ x }` is the one-field punned record", {
+  v := i32(5);
+  s := .{ v };
+  assert(s.v == i32(5));
+  (t : Solo) = .{ v };
+  assert(t.v == i32(5));
+});
+test("`.{}` is the empty record", {
+  (z : Z) = .{};
+  mkz :: (fn() -> Z)(.{});
+  zz := mkz();
+  _ := (z, zz);
+});
+test("`.{ ... }` coerces to the expected struct type", {
+  (p : Point) = .{ x : i32(1), y : i32(2) };
+  assert(p.y == i32(2));
+  x := i32(8);
+  y := i32(9);
+  (q : Point) = .{ x, y };
+  assert((q.x + q.y) == i32(17));
+  mk :: (fn() -> Point)(.{ x : i32(10), y : i32(20) });
+  assert(mk().y == i32(20));
+  sum :: (fn(a : Point) -> i32)(a.x + a.y);
+  assert(sum(.{ x : i32(1), y : i32(2) }) == i32(3));
+});
+test("a record nested in a record", {
+  r := .{ inner : .{ x : i32(1) }, y : i32(2) };
+  assert(r.inner.x == i32(1));
+  assert(r.y == i32(2));
+});
+test("a module-level record constant", {
+  assert(Cfg.size == i32(3));
+});
+test("a struct-payload variant takes a record value", {
+  s := Shape.At(.{ x : i32(4), y : i32(5) });
+  n := match(
+    s,
+    .At({ p }) => (p.x + p.y),
+    .Gone => i32(0)
+  );
+  assert(n == i32(9));
+});
+test("a parenthesized dot record takes a trailing field access", {
+  r := (
+    .{ x : i32(5) }
+  ).x;
+  assert(r == i32(5));
+});
+test("the bare form still builds the same record", {
+  a := .{ x : i32(1), y : i32(2) };
+  b := { x : i32(1), y : i32(2) };
+  assert(a.x == b.x);
+  assert(a.y == b.y);
+});
+test("binder positions keep bare braces", {
+  r := .{ x : i32(6), y : i32(7) };
+  { x, y } := r;
+  assert((x + y) == i32(13));
+  m := match(r, { x : a, y : b } => (a * b));
+  assert(m == i32(42));
+  k := i32(2);
+  (f : Impl(Fn(n : i32) -> i32)) = ({ k }(n : i32) => (n * k));
+  assert(f(i32(4)) == i32(8));
+});
