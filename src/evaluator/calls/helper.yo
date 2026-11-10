@@ -1864,6 +1864,7 @@ check_if_function_parameter_matches_argument :: (
   // A `Dyn` place (`b.*`) passed into a by-value slot: E0619.
   if(!param_is_ref && !is_ct_only && !is_some_type(&resolved_pt) && !t_slot_is_borrow(&resolved_pt), {
     reject_dyn_place_by_value(ast_expr_id(&evaled_arg), &`the by-value parameter \`${param_label}\``, &ast_expr_token(&actual_arg), exn);
+    reject_dyn_place_by_value(ast_expr_id(&actual_arg), &`the by-value parameter \`${param_label}\``, &ast_expr_token(&actual_arg), exn);
   });
   // A `&mut` argument or receiver writes the place it names: an element
   // access on it dispatches `IndexMut` (decision 34, V2b).

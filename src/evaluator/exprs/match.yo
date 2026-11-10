@@ -1087,6 +1087,7 @@ evaluate_match :: (
   // Check scrutinee ExprInfo has variable_name
   scr_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_scrutinee));
   reject_dyn_place_by_value(ast_expr_id(&evaluated_scrutinee), &String.from("a `match` scrutinee"), ast_expr_token(&scrutinee_expr), exn);
+  reject_dyn_place_by_value(ast_expr_id(&scrutinee_expr), &String.from("a `match` scrutinee"), ast_expr_token(&scrutinee_expr), exn);
   (scr_has_var_name : bool) = match(
     &scr_info_opt,
     .Some(si) => si.variable_name().is_some(),
