@@ -215,3 +215,18 @@ test("(viii) impl(&(C, p), Tr) twice and a bare blanket beside impl(&C, Tr) are 
   comptime_expect_error(impl(&_CoC, _CoTr(co : (fn(self : Self) -> i32)(i32(3)))), "is already implemented");
   comptime_expect_error(impl(generic(T), T, _CoTr2(co2 : (fn(self : Self) -> i32)(i32(2)))), "is already implemented");
 });
+// (ix) A reference VALUE receiver (`rr.*` with `rr : &&C`) reaches a method of
+// `C` through the deref step while the program has a reference impl, as it
+// does without one (issues/2026-11-10-a-reference-value-receiver-is-e0601-once-the-program-has-a-reference-impl.md).
+_VrC :: struct(n : i32);
+impl(_VrC, vr_len : (fn(self : &Self) -> i32)(self.n));
+_VrD :: struct(n : i32);
+impl(&_VrD, _ShShow(show : (fn(self : Self) -> i32)(i32(1))));
+test("(ix) rr.*.m() on a reference value reaches the referent's method beside a reference impl", {
+  c := _VrC(n : i32(5));
+  r := &c;
+  rr := &r;
+  assert(rr.*.vr_len() == i32(5), "rr.*.vr_len()");
+  assert(rr.*.*.vr_len() == i32(5), "rr.*.*.vr_len()");
+  assert((&r).vr_len() == i32(5), "(&r).vr_len()");
+});

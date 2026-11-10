@@ -1537,9 +1537,23 @@ _find_receiver_method_of :: (
       true => get_receiver_methods_by_name_from_env(env, method_name.clone(), &receiver_type, false)
     );
     probed := _r_probe_candidates(&probe_base_hits, &probe_base, probe_ref, &method_name, env);
-    hits = probed.hits.clone();
-    probe_ranks = probed.ranks.clone();
-    probe_receivers = probed.receivers.clone();
+    // A receiver that is a reference VALUE (`rr.*` with `rr : &&C`, a call
+    // returning `&C`) is not a place of `C`: a method registered on `C`
+    // reaches it only through the deref step below (`rr.*.*.m()`), exactly as
+    // before the program had a reference impl. Only a method whose impl
+    // receiver is itself a reference answers the value directly.
+    value_receiver := (t_slot_is_borrow(&receiver_type) && !is_pointer_type(&receiver_type) && !probe_explicit && !ast_expr_is_atom(&receiver_expr_r));
+    hits = ArrayList(MethodEntry).new();
+    (pf_i : usize) = usize(0);
+    while(pf_i < probed.hits.len(), {
+      keep := match(probed.receivers.get(pf_i), .Some(pr) => (!value_receiver || t_slot_is_borrow(&pr)), .None => true);
+      if(keep, {
+        match(probed.hits.get(pf_i), .Some(h) => hits.push(h), .None => ());
+        match(probed.ranks.get(pf_i), .Some(r) => probe_ranks.push(r), .None => ());
+        match(probed.receivers.get_cloned(pf_i), .Some(pr) => probe_receivers.push(pr), .None => ());
+      });
+      pf_i = (pf_i + usize(1));
+    });
     if(hits.len() == usize(0), {
       slots_text := _r_probe_slots_text(&probe_base, probe_ref);
       g_probed_receiver_slots.with_mut({ callee_id, slots_text }(m) => m.insert(callee_id, slots_text.clone()));
