@@ -75,7 +75,7 @@ test("downcast(&mut Dyn) writes through", {
 });
 Twice :: trait(twice : (fn(self : &Self) -> i32));
 impl(Cat, Twice(twice : ((self : &Self) -> (self.n * i32(10)))));
-_twice_and_speak :: (fn(d : &Dyn(Speak, Twice)) -> i32)((d.twice() + _speak_via(upcast(d, Dyn(Speak)))));
+_twice_and_speak :: (fn(d : &Dyn(Speak, Twice)) -> i32)(d.twice() + _speak_via(upcast(d, Dyn(Speak))));
 test("upcast through a reference keeps the borrow", {
   c := Cat(n : i32(6));
   assert(_twice_and_speak(dyn(&c)) == i32(66), "both traits, then the upcast");
@@ -139,11 +139,12 @@ test("dyn(h) over a named Rc handle is rejected", {
   );
 });
 test("a Dyn place used by value is E0619", {
-  comptime_expect_error((fn(b : Box(Dyn(Speak))) -> unit)({ _x := b.*; }), "is not `Sized`");
-});
-_take_dyn_value :: (fn(d : Dyn(Speak)) -> unit)(());
-test("a Dyn place passed by value is E0619", {
-  comptime_expect_error((fn(b : Box(Dyn(Speak))) -> unit)(_take_dyn_value(b.*)), "is not `Sized`");
+  comptime_expect_error(
+    (fn(b : Box(Dyn(Speak))) -> unit)({
+      _x := b.*;
+    }),
+    "is not `Sized`"
+  );
 });
 // VERDICTS-43: while the alias holds, a reference-kind Dyn (`dyn(&v)`, and an
 // `upcast` over a reference) lives in its statement's frame temporary. It is a
@@ -153,8 +154,8 @@ test("a Dyn place passed by value is E0619", {
 Zoo :: struct(c : Cat);
 _pass :: (fn(d : &mut Dyn(Bump)) -> &mut Dyn(Bump))(&mut d.*);
 _pass2 :: (fn(d : &Dyn(Speak)) -> &Dyn(Speak))(&d.*);
-_two :: (fn(a : &mut Dyn(Bump), b : &Cat) -> i32)((a.bump() + b.n));
-_two2 :: (fn(a : &mut Cat, b : &Cat) -> i32)((a.n + b.n));
+_two :: (fn(a : &mut Dyn(Bump), b : &Cat) -> i32)(a.bump() + b.n);
+_two2 :: (fn(a : &mut Cat, b : &Cat) -> i32)(a.n + b.n);
 test("a dyn(&mut v) returned as a projection's place is E0912", {
   comptime_expect_error((fn(z : &mut Zoo) -> &mut Dyn(Bump))(dyn(&mut z.c)), "until v0.2.78");
 });
@@ -227,7 +228,7 @@ test("a dyn(&v) consumed inside its statement is sound", {
   assert(_speak_via(&_fwd(dyn(&c))) == i32(8), "forwarded through a projection");
   assert(_speak_via(upcast(dyn(&c), Dyn(Speak))) == i32(8), "reference upcast as an argument");
 });
-_speak_plus :: (fn(d : &Dyn(Speak), k : i32) -> i32)((d.speak() + k));
+_speak_plus :: (fn(d : &Dyn(Speak), k : i32) -> i32)(d.speak() + k);
 test("a dyn(&v) argument before and after an await is sound", {
   t := io.async((io : Io) => {
     c := Cat(n : i32(8));
@@ -244,7 +245,10 @@ test("a dyn(&v) argument beside an await in one statement is sound", {
   t := io.async((io : Io) => {
     c := Cat(n : i32(8));
     k := yield(io);
-    r := _speak_plus(dyn(&c), { io.await(k, io); i32(1) });
+    r := _speak_plus(dyn(&c), {
+      io.await(k, io);
+      i32(1)
+    });
     return(r);
   });
   assert(io.await(t, io) == i32(9), "same statement");

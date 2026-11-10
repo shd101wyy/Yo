@@ -1335,16 +1335,12 @@ _box_new_as_cell_new :: (fn(arg : &AstExpr, env : &Environment) -> AstExpr)(
     arg,
     .FnCall(a_id, a_fn, a_args, a_infix, a_tok) => match(
       a_fn,
-      .FnCall(f_id, f_fn, Rc(f_args), f_infix, f_tok) => if(
-        ast_expr_is_fn_call_of(a_fn, BF_DOT, Option(usize).Some(usize(2))) && match(f_args.get(usize(1)), .Some(.Atom(_, m_tok)) => (m_tok.value.* == "new"), _ => false) && match(f_args.get(usize(0)), .Some(.Atom(_, r_tok)) => (r_tok.value.* == "Box"), _ => false),
-        {
-          rc_args := ArrayList(AstExpr).new();
-          rc_args.push(AstExpr.Atom(alloc_global_expr_id(), synthetic_token(String.from("Rc"), &env.module_path().*)));
-          match(f_args.get(usize(1)), .Some(m) => rc_args.push(m), .None => ());
-          AstExpr.FnCall(a_id.*, AstExpr.FnCall(f_id.*, f_fn.clone(), Rc.new(rc_args), f_infix.*, f_tok.clone()), Rc.clone(a_args), a_infix.*, a_tok.clone())
-        },
-        arg.clone()
-      ),
+      .FnCall(f_id, f_fn, Rc(f_args), f_infix, f_tok) => if(ast_expr_is_fn_call_of(a_fn, BF_DOT, Option(usize).Some(usize(2))) && match(f_args.get(usize(1)), .Some(.Atom(_, m_tok)) => (m_tok.value.* == "new"), _ => false) && match(f_args.get(usize(0)), .Some(.Atom(_, r_tok)) => (r_tok.value.* == "Box"), _ => false), {
+        rc_args := ArrayList(AstExpr).new();
+        rc_args.push(AstExpr.Atom(alloc_global_expr_id(), synthetic_token(String.from("Rc"), &env.module_path().*)));
+        match(f_args.get(usize(1)), .Some(m) => rc_args.push(m), .None => ());
+        AstExpr.FnCall(a_id.*, AstExpr.FnCall(f_id.*, f_fn.clone(), Rc.new(rc_args), f_infix.*, f_tok.clone()), Rc.clone(a_args), a_infix.*, a_tok.clone())
+      }, arg.clone()),
       _ => arg.clone()
     ),
     _ => arg.clone()
