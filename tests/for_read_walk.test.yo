@@ -1,8 +1,8 @@
 { assert } :: import("std/assert");
 /// The read walk `for(&xs, x => body)` (plans/VALUES_BY_DEFAULT.md decision 39,
-/// B7a): the loop holds a read borrow `c := &xs` for its whole extent and
-/// walks the `BorrowedWalk` cursor, binding each element through the
-/// `walk_ref` read projection. Nothing is copied: not the collection, not an
+/// B7a, R-FOR): the loop lowers to the value form over `(&xs).into_iter()`;
+/// the cursor holds the `&xs` lend for its whole extent and yields each element
+/// as a `&(T, p)` reference binding. Nothing is copied: not the collection, not an
 /// element. The body may read `xs` but not write it (E0911), and the element
 /// is read-only (E0908) and second-class (E0912). Maps take
 /// `for(&m, (k, v) => body)`, both borrowed. The in-place form
@@ -119,7 +119,7 @@ test("read walk over Deque, PriorityQueue and HashSet", {
   assert((sum == i32(60)) && (count == usize(3)), "every set element once");
   assert(set.contains(i32(20)), "the set is untouched");
 });
-test("read walk over the maps: (k, v) borrows both, a single name the entry", {
+test("read walk over the maps: (k, v) borrows both", {
   mut(m) := HashMap(String, i32).new();
   m.insert(String.from("a"), i32(1));
   m.insert(String.from("bb"), i32(2));
@@ -136,10 +136,10 @@ test("read walk over the maps: (k, v) borrows both, a single name the entry", {
   m.insert(String.from("c"), i32(3)); // the guard released
   assert(m.len() == usize(3), "insert after the walk");
   (mut(esum) : i32) = i32(0);
-  for(&m, e => {
-    esum = (esum + e.value);
+  for(&m, (_k, v) => {
+    esum = (esum + v.*);
   });
-  assert(esum == i32(6), "the whole entry, read");
+  assert(esum == i32(6), "every value, read");
   mut(om) := OrderedMap(i32, i32).new();
   om.insert(i32(3), i32(30));
   om.insert(i32(1), i32(10));
@@ -282,7 +282,7 @@ comptime_expect_error(
       e.hp = i32(0);
     });
   }),
-  "is a `&` borrow, which is read-only"
+  "it binds a `&T` payload, a read-only borrow"
 );
 comptime_expect_error(
   read_walk_map_value_write :: (fn() -> unit)({
@@ -294,8 +294,16 @@ comptime_expect_error(
   }),
   "is a `&` borrow, which is read-only"
 );
-// The body writing the walked collection is E0911: the loop's `c := &xs` is
-// live for the whole loop, and a `&` borrow freezes its place.
+// The same write through a `&` reference parameter: the referent is read-only
+// (E0908), not a reassignment of the parameter.
+comptime_expect_error(
+  shared_reference_parameter_write :: (fn(r : &i32) -> unit)({
+    r.* = i32(2);
+  }),
+  "is a `&` borrow, which is read-only"
+);
+// The body writing the walked collection is E0911: the loop's cursor holds the
+// `&xs` lend for the whole loop, and a `&` borrow freezes its place.
 comptime_expect_error(
   read_walk_push_on_the_collection :: (fn() -> unit)({
     mut(xs) := ArrayList(i32).new();
@@ -326,7 +334,7 @@ comptime_expect_error(
       x = i32(2);
     });
   }),
-  "needs `BorrowedWalkMut`"
+  "has no such impl"
 );
 comptime_expect_error(
   write_walk_over_a_priority_queue :: (fn() -> unit)({
@@ -336,7 +344,7 @@ comptime_expect_error(
       x = i32(2);
     });
   }),
-  "needs `BorrowedWalkMut`"
+  "has no such impl"
 );
 // A `String` has no read walk (D19): a `&u8` element would silently change
 // what the loop means. The error names `s.chars()`.

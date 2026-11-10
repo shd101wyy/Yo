@@ -4015,7 +4015,7 @@ test("no borrow mark reaches an Rc cell's weak count", {
   w2 := Rc.downgrade(&xs);
   assert(w.weak_count() == usize(2), "two downgrades of one handle");
   (mut(sum) : i32) = i32(0);
-  for(&xs, x => {
+  for(&xs.*, x => {
     sum = (sum + x.*);
     assert(w.weak_count() == usize(2), "a borrowed for over the Rc marks nothing");
   });

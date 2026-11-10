@@ -1700,6 +1700,83 @@ impl(
     )
   )
 );
+/// The shared walk over a `HashMap` (Rust's `hash_map::Iter<'a, K, V>`): a `&(HashMap(K, V), p)` lend and a
+/// position, yielding each entry as `(&(K, p), &(V, p))`. Binding the cursor
+/// freezes the map for its life (E0911 on a write), which is what makes the
+/// borrowed `for(&map, (k, v) => body)` lower to the value form over
+/// `(&map).into_iter()`.
+HashMapCursor :: (fn(comptime(K) : Type, comptime(V) : Type, comptime(p) : Origin) -> comptime(Type))(
+  struct(
+    _coll : &(HashMap(K, V), p),
+    _index : usize
+  )
+);
+impl(
+  generic(K : Type, V : Type, p : Origin),
+  where(K <: (Eq(K), Hash)),
+  HashMapCursor(K, V, p),
+  Iterator(
+    Item : Tuple(&(K, p), &(V, p)),
+    next : (fn(self : &mut Self) -> Option(Tuple(&(K, p), &(V, p))))({
+      at := self._coll._walk_from(self._index);
+      cond(
+        (at >= self._coll.capacity) => .None,
+        true => {
+          self._index = (at + usize(1));
+          .Some((&HashMap(K, V)._data_ptr(self._coll).add(at).*.key, &HashMap(K, V)._data_ptr(self._coll).add(at).*.value))
+        }
+      )
+    })
+  )
+);
+impl(
+  generic(K : Type, V : Type, p : Origin),
+  where(K <: (Eq(K), Hash)),
+  &(HashMap(K, V), p),
+  IntoIterator(
+    Item : Tuple(&(K, p), &(V, p)),
+    IntoIter : HashMapCursor(K, V, p),
+    into_iter : (fn(self : Self) -> HashMapCursor(K, V, p))(HashMapCursor(K, V, p)(_coll : self, _index : usize(0)))
+  )
+);
+/// The write walk over a `HashMap` (Rust's `hash_map::IterMut<'a, K, V>`): a `&mut(HashMap(K, V), p)` lend and a
+/// position, yielding each entry as `(&(K, p), &mut(V, p))`: the key is read-only
+/// (a written key would break the map's order), the value is writable. The map is
+/// frozen exclusively while the cursor lives.
+HashMapCursorMut :: (fn(comptime(K) : Type, comptime(V) : Type, comptime(p) : Origin) -> comptime(Type))(
+  struct(
+    _coll : &mut(HashMap(K, V), p),
+    _index : usize
+  )
+);
+impl(
+  generic(K : Type, V : Type, p : Origin),
+  where(K <: (Eq(K), Hash)),
+  HashMapCursorMut(K, V, p),
+  Iterator(
+    Item : Tuple(&(K, p), &mut(V, p)),
+    next : (fn(self : &mut Self) -> Option(Tuple(&(K, p), &mut(V, p))))({
+      at := self._coll._walk_from(self._index);
+      cond(
+        (at >= self._coll.capacity) => .None,
+        true => {
+          self._index = (at + usize(1));
+          .Some((&HashMap(K, V)._data_ptr(self._coll).add(at).*.key, &mut HashMap(K, V)._data_ptr(self._coll).add(at).*.value))
+        }
+      )
+    })
+  )
+);
+impl(
+  generic(K : Type, V : Type, p : Origin),
+  where(K <: (Eq(K), Hash)),
+  &mut(HashMap(K, V), p),
+  IntoIterator(
+    Item : Tuple(&(K, p), &mut(V, p)),
+    IntoIter : HashMapCursorMut(K, V, p),
+    into_iter : (fn(self : Self) -> HashMapCursorMut(K, V, p))(HashMapCursorMut(K, V, p)(_coll : self, _index : usize(0)))
+  )
+);
 export(
   HashMap,
   HashMapEntry,
@@ -1709,5 +1786,7 @@ export(
   HashMapIter,
   HashMapIterPtr,
   HashMapKeys,
-  HashMapValues
+  HashMapValues,
+  HashMapCursor,
+  HashMapCursorMut
 );

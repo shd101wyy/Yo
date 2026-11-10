@@ -192,98 +192,68 @@ for(&mut scores, (k, v) => {
 }); // maps: key read-only, value borrowed
 ```
 
-The macro takes a local borrow `c := &mut coll` for the whole loop and walks
-a cursor over it (the `BorrowedWalk` trait: a position that holds no handle
-to the collection; plus `BorrowedWalkMut`'s `walk_elem` projection), binding each element as a
-`&mut` local into the collection's own storage
-(`plans/VALUES_BY_DEFAULT.md` decision 39). No copy of the collection is
-made, and every step re-derives the element from the collection. Because `c`
-is live for the whole loop, the body cannot name `coll` at all: `coll.push(x)`,
-but also `coll.len()`, `coll.clone()` or a nested loop over `coll`, is a
-compile error (E0911, the rule for any `&mut` local borrow and Rust's rule
-for `iter_mut`). The element itself is a local borrow, so it cannot be
-returned (copy it out first, `v := x; return(v)`) or captured by an escaping
-closure. To read or grow a collection while walking it, walk its positions
-instead: `for(xs.indices(), i => …)` with `xs(i)` (`ArrayList`, `Deque`),
-where each `xs(i)` reads the current buffer.
+The borrowed `for` lowers to the value form over a borrowed iterator:
+`for(&mut coll, x => body)` is `for((&mut coll).into_iter(), …)`, and
+`for(&coll, x => body)` is the same over `(&coll).into_iter()`
+(`plans/backlog/REFERENCES_AND_ORIGINS.md` R-FOR). `into_iter` is the
+`IntoIterator` impl for `&C` / `&mut C`: it returns a cursor
+(`ArrayListCursor(T, p)`, `HashMapCursor(K, V, p)`, …) that holds the lend of
+`coll` and yields each element as a reference binding `&(T, p)` /
+`&mut(T, p)` rooted at the lent place. No copy of the collection is made.
+Because the cursor holds the lend for the whole loop, the body cannot name
+`coll` at all: `coll.push(x)`, but also `coll.len()`, `coll.clone()` or a nested
+loop over `coll`, is a compile error (E0911, the rule for any `&mut` local
+borrow and Rust's rule for `iter_mut`). The element itself is a reference
+binding, so it cannot be returned (copy it out first, `v := x.*; return(v)`) or
+captured by an escaping closure. To read or grow a collection while walking
+it, walk its positions instead: `for(xs.indices(), i => …)` with `xs(i)`
+(`ArrayList`, `Deque`), where each `xs(i)` reads the current buffer.
 
-The **read walk** `for(&coll, x => body)` is the same loop over a read
-borrow `c := &coll`: each element is bound through the `walk_ref` read
-projection as a `&` local, so neither the collection nor an element is
-copied (a `String` element is not dup'd), and a write through `x` is
-E0908. A `&` borrow only freezes its place, so the body may read `coll`
-(`coll.len()`, a nested `for(&coll, …)`) but not write it (E0911). Maps
-take `for(&m, (k, v) => …)`, the key and the value both borrowed.
+The **read walk** `for(&coll, x => body)` is the same loop over `&coll`: each
+element is a `&` reference, so neither the collection nor an element is copied
+(a `String` element is not dup'd), and a write through `x` is E0908. A `&`
+borrow only freezes its place, so the body may read `coll` (`coll.len()`, a
+nested `for(&coll, …)`) but not write it (E0911). Maps take
+`for(&m, (k, v) => …)`: the Item is `(&(K, p), &(V, p))` (`(&(K, p), &mut(V, p))`
+under `&mut`), so the key is read-only in both forms.
 
 ```yo
 for(&enemies, e => {
   total = (total + e.hp);
 }); // read in place, nothing copied
 for(&scores, (k, v) => {
-  seen = (seen + v);
+  seen = (seen + v.*);
 }); // maps: key and value borrowed read-only
 ```
 
-A collection reached through *another* handle (a second `ref` handle, a
-global) is invisible to that static rule, so the loop also holds the
-collection's **runtime borrow flag**; `break`, `continue`, `return` and
-effect `unwind` all release it. While it is held, any operation that could
-invalidate an element — growth, shrink, removal — made through another
-handle **panics deterministically** (`container operation while an interior
-reference … borrows from it`) instead of leaving the element reference
-dangling. The compiler emits that assert at the entry of every method of an
-RC object whose body may mutate the object (decided from the body, not from
-the receiver's mode), so any collection is covered without annotations. The
-decision is per parameter and tracks where each mutated value's storage
-lives: a method that mutates only storage it allocated itself (`clone`
-pushing into its result, `collect`), or walks the collection with `for`,
-carries no assert; a method that stores fresh storage into `self` and then
-mutates it does. Read-only methods (`len`, `get`, `contains`, `index_of`,
-`==`, `clone`, iteration) cost nothing; a mutating method pays one
-load-compare at entry (~7–9 % on a nanosecond-scale `push`/`pop`
-microbenchmark, unmeasurable elsewhere). Once the collections are values
-(V2b), a collection has no other handle and the flag goes.
-
-A plain `e` in `for(&mut m, e => …)` yields the whole entry; prefer
-`(k, v)`, which keeps keys immutable (the key is borrowed read-only in both
-map forms). Every std collection implements `BorrowedWalk` and is a
-read-walk source; the in-place sources also implement `BorrowedWalkMut`
-(`ArrayList`, `Deque`, `HashMap`, `BTreeMap`, `OrderedMap`).
+A source reached through a `Rc` handle is lent through the handle's payload:
+write `for(&xs.*, …)` (Rust's `&*rc`), as `(&xs).into_iter()` has no
+auto-deref step to the payload. Every std collection implements
+`IntoIterator` for `&C` (`ArrayList`, `Deque`, `HashMap`, `HashSet`,
+`BTreeMap`, `OrderedMap`, `PriorityQueue`); the in-place sources also implement
+it for `&mut C` (`ArrayList`, `Deque`, `HashMap`, `BTreeMap`, `OrderedMap`).
 `HashSet` and `PriorityQueue` have the read walk only, because writing a
 hashed or heap-ordered element in place would break the container, so
-`for(&mut set, …)` is an error naming `BorrowedWalkMut`. A user type becomes
-a source by implementing `BorrowedWalk` (and `BorrowedWalkMut` for the
-in-place walk); `walk_ref` and `walk_elem` forward the inner collection's
-projection with its call-site marker (`&self.items(cur)`,
-`&mut self.items(cur)`) in safe code, and only a spelling that hands out a
-raw pointer (`self.items.ptr().unwrap().add(cur)`) needs
-`pragma(Pragma.AllowUnsafe)`. A forwarded walk has one open gap while
-collections are reference objects: the loop's flag guards the wrapper, not
-the inner collection, so a body that shares the inner handle (`h := bag.items`,
-which the read walk allows) and grows it leaves `x` dangling
-(`issues/2026-10-24-a-forwarded-walk-leaves-the-inner-collection-unguarded.md`,
-closed by V2b). `String` has no walk (walk `s.chars()`), and
-`Array(T, N)` takes the value form or an index loop. A
-source that is not a place (`for(&mut make(), x => …)`) is held by a hidden
-local for the loop. The borrowed `for` works inside an `io.async` body, with
-awaits in the loop body.
+`for(&mut set, …)` is an error naming the missing impl. A user type becomes a
+source by implementing `IntoIterator` for `&C` (and `&mut C` for the in-place
+walk) over a cursor struct holding `&(C, p)`; a cursor that hands out
+`&mut(T, p)` reaches the element through a raw buffer pointer and needs
+`pragma(Pragma.AllowUnsafe)`. `String` has no walk (walk `s.chars()`), and
+`Array(T, N)` takes the value form or an index loop. A source that is not a
+place (`for(&mut make(), x => …)`) is held by a hidden local for the loop. The
+borrowed `for` works inside an `io.async` body, with awaits in the loop body.
 
-Two opt-in tightenings close the remaining runtime cases at compile time.
-`pragma(Pragma.StrictBorrow);` makes every call inside a borrowed loop body
-of that file a compile error unless the compiler can prove it leaves the
-element valid: a mutating method on a same-frame alias of the borrowed
-collection is rejected, and so is any callee whose effects are unknown — a
-closure or `dyn` call, a function pointer, an effect handler, an extern with
-a callback, or a body that reaches storage through a global or raw pointer.
-Read-only methods, `clone`, `collect`, element writes through `x`, and calls
-on other collections are accepted; the escape is to move the call out of the
-loop or copy the collection first. Independently of the pragma, safe code can
-no longer *hold* a raw pointer value: `it.next()` on a pointer iterator yields
-`Option(*(T))`, which is an error outside `pragma(Pragma.AllowUnsafe)` files
-(the standard library, the audited trusted base, is exempt),
-so the borrowed `for` is the only way safe code borrows an element (iterator
-combinators such as `count` or `map` that never surface the pointer remain
-available).
+A collection reached through a second handle is not a thing a value
+collection has: the origin freezes the one place that owns it, so the loop
+needs no run-time flag. A `mut` module-level binding has no such place
+(any function can write it by name), so walking one is E0911 at the loop.
+
+Safe code cannot *hold* a raw pointer value: `it.next()` on a pointer
+iterator (`xs.iter()`) yields `Option(*(T))`, which is an error outside
+`pragma(Pragma.AllowUnsafe)` files (the standard library, the audited trusted
+base, is exempt), so the borrowed `for` is the only way safe code borrows an
+element (iterator combinators such as `count` or `map` that never surface the
+pointer remain available).
 
 There is no `project` and no `Indexable`. `str` remains the immortal
 static-bytes view (freely copyable, no constraints), and range indexing

@@ -162,76 +162,55 @@ for(&mut scores, (k, v) => {
 }); // map：键只读、值被借用
 ```
 
-宏在整个循环期间持有一个局部借用 `c := &mut coll`，并在其上走一个游标
-（`BorrowedWalk` trait：一个不持有集合句柄的位置；加上 `BorrowedWalkMut` 的
-`walk_elem` 投影），把每个元素绑定为指向集合自身存储的 `&mut` 局部
-（`plans/VALUES_BY_DEFAULT.md` 决策 39）。循环不会复制集合，每一步都从集合
-重新取出元素。由于 `c` 在整个循环期间都存活，循环体完全不能再提到 `coll`：
+借用形式的 `for` 降级为基于借用迭代器的值形式：`for(&mut coll, x => body)` 即
+`for((&mut coll).into_iter(), …)`，`for(&coll, x => body)` 则是同样的循环，作用于
+`(&coll).into_iter()`（`plans/backlog/REFERENCES_AND_ORIGINS.md` R-FOR）。
+`into_iter` 是 `&C` / `&mut C` 的 `IntoIterator` 实现：它返回一个游标
+（`ArrayListCursor(T, p)`、`HashMapCursor(K, V, p)` 等），游标持有对 `coll` 的借出，
+并把每个元素作为以被借出位置为根的引用绑定 `&(T, p)` / `&mut(T, p)` 交出。循环不会
+复制集合。由于游标在整个循环期间持有该借出，循环体完全不能再提到 `coll`：
 `coll.push(x)` 是编译错误，`coll.len()`、`coll.clone()` 或对 `coll` 的嵌套
 循环同样是（E0911，即任何 `&mut` 局部借用的规则，也是 Rust 对 `iter_mut` 的
-规则）。元素本身是局部借用，因此不能被返回（先复制出来：`v := x; return(v)`），
+规则）。元素本身是引用绑定，因此不能被返回（先复制出来：`v := x.*; return(v)`），
 也不能被逃逸闭包捕获。若要在遍历时读取或扩充集合，请改为遍历它的位置：
 `for(xs.indices(), i => …)` 配合 `xs(i)`（`ArrayList`、`Deque`），每次 `xs(i)`
 都读取当前的缓冲区。
 
-**只读遍历** `for(&coll, x => body)` 是同一个循环，只是借用换成只读借用
-`c := &coll`：每个元素经由 `walk_ref` 只读投影绑定为 `&` 局部，因此既不复制
-集合也不复制元素（`String` 元素不会被 dup），经由 `x` 写入是 E0908。`&` 借用
-只冻结它的位置，所以循环体可以读取 `coll`（`coll.len()`、嵌套的
-`for(&coll, …)`），但不能写入它（E0911）。map 使用 `for(&m, (k, v) => …)`，
-键和值都以只读方式借用。
+**只读遍历** `for(&coll, x => body)` 是同一个循环，作用于 `&coll`：每个元素是 `&`
+引用，因此既不复制集合也不复制元素（`String` 元素不会被 dup），经由 `x` 写入是
+E0908。`&` 借用只冻结它的位置，所以循环体可以读取 `coll`（`coll.len()`、嵌套的
+`for(&coll, …)`），但不能写入它（E0911）。map 使用 `for(&m, (k, v) => …)`：元素类型是
+`(&(K, p), &(V, p))`（`&mut` 下为 `(&(K, p), &mut(V, p))`），所以两种形式里键都是只读的。
 
 ```yo
 for(&enemies, e => {
   total = (total + e.hp);
 }); // 原地读取，不复制
 for(&scores, (k, v) => {
-  seen = (seen + v);
+  seen = (seen + v.*);
 }); // map：键和值都只读借用
 ```
 
-经由*另一个*句柄（第二个 `ref` 句柄、全局变量）触及的集合对这条静态规则不可见，
-因此循环还会持有集合的**运行时借用标志**；`break`、`continue`、`return` 与效应
-`unwind` 都会释放它。标志被持有期间，经由其他句柄进行的任何可能使元素失效的
-操作 —— 增长、收缩、删除 —— 都会**确定性地 panic**（`container operation while
-an interior reference … borrows from it`），而不是让元素引用悬垂。编译器会在
-每个可能修改对象的 RC 对象方法入口自动插入该断言（由方法体判定，而不是由接收者
-的模式判定），因此任何集合都无需标注即可获得保护。该判定按参数逐个进行，并追踪
-每个被修改值的存储位于何处：只修改自己分配的存储的方法（`clone` 向其结果 push、
-`collect`），或用 `for` 遍历集合的方法，不带断言；把新建存储存入 `self` 之后再
-修改它的方法则带断言。只读方法（`len`、`get`、`contains`、`index_of`、`==`、
-`clone`、迭代）零开销；修改方法在入口付出一次加载比较（在纳秒级的 `push`/`pop`
-微基准上约 7–9 %，其他场景不可测量）。集合成为值之后（V2b），集合不再有其他
-句柄，这个标志也随之取消。
+经由 `Rc` 句柄触及的来源要借出句柄的载荷：写成 `for(&xs.*, …)`（Rust 的 `&*rc`），
+`(&xs).into_iter()` 不会自动解引用到载荷。每个 std 集合都为 `&C` 实现了
+`IntoIterator`（`ArrayList`、`Deque`、`HashMap`、`HashSet`、`BTreeMap`、`OrderedMap`、
+`PriorityQueue`）；可原地写入的来源还为 `&mut C` 实现了它（`ArrayList`、`Deque`、
+`HashMap`、`BTreeMap`、`OrderedMap`）。`HashSet` 与 `PriorityQueue` 只有只读遍历，
+因为原地改写一个按哈希或堆序存放的元素会破坏容器，所以 `for(&mut set, …)` 是一个
+点名缺失实现的错误。用户类型为 `&C`（原地遍历还要为 `&mut C`）实现 `IntoIterator`，
+并提供一个持有 `&(C, p)` 的游标结构体即可成为来源；交出 `&mut(T, p)` 的游标通过裸缓冲区
+指针取元素，需要 `pragma(Pragma.AllowUnsafe)`。`String` 没有遍历（请遍历
+`s.chars()`），`Array(T, N)` 请使用值形式或索引循环。不是位置的来源
+（`for(&mut make(), x => …)`）由一个隐藏局部在循环期间持有。借用形式的 `for` 在
+`io.async` 体内同样可用，循环体里也可以 await。
 
-在 `for(&mut m, e => …)` 中，普通的 `e` 会交出整个条目；请优先使用 `(k, v)`，
-它保持键不可变（两种 map 形式都以只读方式借用键）。每个 std 集合都实现了
-`BorrowedWalk`，都可以只读遍历；可原地写入的来源还实现了 `BorrowedWalkMut`
-（`ArrayList`、`Deque`、`HashMap`、`BTreeMap`、`OrderedMap`）。
-`HashSet` 与 `PriorityQueue` 只有只读遍历，因为原地改写一个按哈希或堆序存放的
-元素会破坏容器，所以 `for(&mut set, …)` 是一个点名 `BorrowedWalkMut` 的错误。
-用户类型实现 `BorrowedWalk`（原地遍历还需 `BorrowedWalkMut`）即可成为来源：
-`walk_ref` 与 `walk_elem` 带调用点标记转发内层集合的投影（`&self.items(cur)`、
-`&mut self.items(cur)`），安全代码即可；只有交出裸指针的写法
-（`self.items.ptr().unwrap().add(cur)`）才需要 `pragma(Pragma.AllowUnsafe)`。
-在集合仍是引用对象期间，转发式遍历还有一处未堵上的缺口：循环的标志只守护外层类型，
-不守护内层集合，因此循环体若共享内层句柄（`h := bag.items`，只读遍历允许这样读）
-并使其增长，`x` 就会悬垂
-（`issues/2026-10-24-a-forwarded-walk-leaves-the-inner-collection-unguarded.md`，
-由 V2b 修复）。
-`String` 没有遍历（请遍历 `s.chars()`），`Array(T, N)` 请使用值形式或索引循环。不是位置的来源（`for(&mut make(), x => …)`）
-由一个隐藏局部在循环期间持有。借用形式的 `for` 在 `io.async` 体内同样可用，
-循环体里也可以 await。
+值集合没有"第二个句柄"：origin 冻结拥有它的那一个位置，所以循环不需要运行时标志。
+`mut` 模块级绑定没有这样的位置（任何函数都能按名字写它），因此遍历它在循环处就是
+E0911。
 
-两项可选的收紧把剩余的运行时情形提前到编译期。`pragma(Pragma.StrictBorrow);`
-让该文件中借用循环体内的每个调用都必须被编译器证明不会使元素失效，否则报编译
-错误：对被借用集合的同帧别名的修改方法会被拒绝；效果未知的被调用者
-—— 闭包或 `dyn` 调用、函数指针、效应处理器、带回调的 extern、经由全局变量或
-原始指针触及存储的函数体 —— 同样被拒绝。只读方法、`clone`、`collect`、经由
-`x` 的元素写入以及对其他集合的调用都被接受；出路是把调用移出循环，或先复制
-集合。与该 pragma 无关的另一项：安全代码不再能*持有*原始指针值 —— 指针迭代器
-的 `it.next()` 交出 `Option(*(T))`，在没有 `pragma(Pragma.AllowUnsafe)` 的文件
-中是错误（标准库作为经审计的可信基础除外），因此借用形式的 `for` 是安全代码借用元素的唯一途径（`count`、`map`
+安全代码不能*持有*原始指针值 —— 指针迭代器（`xs.iter()`）的 `it.next()` 交出
+`Option(*(T))`，在没有 `pragma(Pragma.AllowUnsafe)` 的文件中是错误（标准库作为经审计的
+可信基础除外），因此借用形式的 `for` 是安全代码借用元素的唯一途径（`count`、`map`
 等不暴露指针的迭代器组合子仍然可用）。
 
 `project` 与 `Indexable` 已不存在。`str` 仍然是永生的静态字节视图（自由

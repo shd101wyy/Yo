@@ -871,12 +871,12 @@ _handle_message :: (
           query := _jfield_str(&params, "query");
           ws_docs := ArrayList(WorkspaceDoc).new();
           // The read walk borrows each entry in place: no copy of the map.
-          for(&docs, entry => {
+          for(&docs, (uri, doc) => {
             ws_docs.push(
               WorkspaceDoc(
-                uri : entry.key.clone(),
-                exprs : entry.value.outcome.exprs.clone(),
-                lines : entry.value.lines.clone()
+                uri : uri.clone(),
+                exprs : doc.outcome.exprs.clone(),
+                lines : doc.lines.clone()
               )
             );
           });
@@ -1237,8 +1237,8 @@ _handle_message :: (
                   changed_fs := uri_to_fs_path(_jfield_str(&ch, "uri"));
                   if(changed_fs.len() > usize(0), {
                     is_open := false;
-                    for(&docs, entry => {
-                      if(entry.value.entry_abs == changed_fs, {
+                    for(&docs, (_uri, doc) => {
+                      if(doc.entry_abs == changed_fs, {
                         is_open = true;
                       });
                     });
@@ -1255,8 +1255,8 @@ _handle_message :: (
             // the open buffer's own text stays authoritative for its file.
             open_uris := ArrayList(String).new();
             open_texts := ArrayList(String).new();
-            for(&docs, entry => {
-              open_uris.push(entry.key.clone());
+            for(&docs, (uri, _doc) => {
+              open_uris.push(uri.clone());
             });
             (oi : usize) = usize(0);
             while(oi < open_uris.len(), {

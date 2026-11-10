@@ -147,18 +147,21 @@ test("lending a mut global, or a place under it, to a call is E0916", {
   comptime_expect_error(_gl_read_i64(&_gl_tl_count), "is declared `mut(_gl_tl_count)`");
   comptime_expect_error(_gl_mstr == String.from("m"), "is declared `mut(_gl_mstr)`");
   comptime_expect_error(`${_gl_mstr}`, "is declared `mut(_gl_mstr)`");
+  // The borrowed `for` is the value form over `(&G).into_iter()` (R-FOR): the
+  // cursor holds the lend over the whole loop, and every `next()` is a call a
+  // callee could reach the global by name during (E0911,
+  // issues/fixed/2026-10-23-a-borrowed-for-over-a-mut-global-is-not-e0916.md).
   comptime_expect_error({
     for(&_gl_mlist, x => {
       _gl_count = x.*;
     });
-  }, "is declared `mut(_gl_mlist)`");
-  // The in-place walk lends it the same way; its loop body needs no call
-  // (issues/fixed/2026-10-23-a-borrowed-for-over-a-mut-global-is-not-e0916.md).
+  }, "a module-level place, which has no run-time borrow flag");
+  // The in-place walk lends it the same way; its loop body needs no call.
   comptime_expect_error({
     for(&mut _gl_mlist, x => {
       x.* = i64(0);
     });
-  }, "is declared `mut(_gl_mlist)`");
+  }, "a module-level place, which has no run-time borrow flag");
   // A closure and a function value lend it the same way.
   comptime_expect_error({
     (f : Impl(Fn(g : &Gauge) -> i64)) = ((g : &Gauge) => g.n);
