@@ -1546,7 +1546,7 @@ _find_receiver_method_of :: (
     hits = ArrayList(MethodEntry).new();
     (pf_i : usize) = usize(0);
     while(pf_i < probed.hits.len(), {
-      keep := match(probed.receivers.get(pf_i), .Some(pr) => (!value_receiver || t_slot_is_borrow(&pr)), .None => true);
+      keep := match(probed.receivers.get_cloned(pf_i), .Some(pr) => (!value_receiver || t_slot_is_borrow(&pr)), .None => true);
       if(keep, {
         match(probed.hits.get(pf_i), .Some(h) => hits.push(h), .None => ());
         match(probed.ranks.get(pf_i), .Some(r) => probe_ranks.push(r), .None => ());
