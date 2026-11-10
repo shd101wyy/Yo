@@ -2252,7 +2252,11 @@ note_rprobe_call :: (fn(explicit : bool, by_method : bool, by_blanket : bool) ->
 /// Print the `YO_DEBUG_RPROBE_STATS=1` counters at exit.
 print_rprobe_stats_if_requested :: (fn() -> unit)({
   if(g_rprobe_stats, {
-    eprintln(`[rprobe-stats] instance_calls=${g_rprobe_calls.to_string()} probe_refs: explicit=${g_rprobe_explicit.to_string()} reference_impl_method=${g_rprobe_method.to_string()} blanket_method=${g_rprobe_blanket.to_string()}`);
+    (rs_calls : usize) = g_rprobe_calls;
+    (rs_explicit : usize) = g_rprobe_explicit;
+    (rs_method : usize) = g_rprobe_method;
+    (rs_blanket : usize) = g_rprobe_blanket;
+    eprintln(`[rprobe-stats] instance_calls=${rs_calls.to_string()} probe_refs: explicit=${rs_explicit.to_string()} reference_impl_method=${rs_method.to_string()} blanket_method=${rs_blanket.to_string()}`);
   });
 });
 /// The method names provided by a generic impl whose receiver pattern is a
