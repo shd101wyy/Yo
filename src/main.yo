@@ -68,7 +68,7 @@ pragma(Pragma.AllowUnsafe);
 { malloc : valve_malloc, free : valve_free } :: GlobalAllocator;
 { ArrayList } :: import("std/collections/array_list");
 { HashSet } :: import("std/collections/hash_set");
-{ AstExpr, ExprId, BK_IMPORT, BK_TEST, BK_CONST, BK_EXPORT, BF_DOT, ast_expr_is_fn_call_of, ast_expr_is_atom, ast_expr_is_atom_of, ast_expr_token, ast_expr_to_string, make_err_expr } :: import("./expr.yo");
+{ AstExpr, ExprId, BK_IMPORT, BK_TEST, BK_CONST, BK_EXPORT, BK_COND, BK_ANON_STRUCT, BF_DOT, ast_expr_is_fn_call_of, ast_expr_is_atom, ast_expr_is_atom_of, ast_expr_token, ast_expr_to_string, make_err_expr } :: import("./expr.yo");
 { ExprInfoTable, expr_info_table_new, print_spec_report_if_requested, ExprInfo } :: import("./expr_info.yo");
 { Token, TokenKind } :: import("./token.yo");
 { parse, Parser } :: import("./parser.yo");
@@ -1631,6 +1631,136 @@ _run_migrate_deref :: (
     exn.throw(dyn(`fix: ${failed.to_string()} file(s) do not evaluate — run \`yo check\` on them; their unevaluated references were not migrated`));
   });
 });
+/// The callee name of a call node (`:=`, `=>`, `cond`, ...), or "" for an atom
+/// or a call whose callee is itself a call.
+_record_head :: (fn(e : &AstExpr) -> String)(
+  match(e, .FnCall(_, .Atom(_, t), _, _, _) => t.value.*.clone(), _ => String.new())
+);
+_record_args :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
+  match(e, .FnCall(_, _, Rc(a), _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new())
+);
+/// A match arm's or closure's left side is a binder: nothing in it builds a
+/// record, except the guard of `(pattern && (guard))`, which is an expression.
+_record_sites_pattern :: (fn(p : &AstExpr, out : &mut ArrayList(Token)) -> unit)({
+  if(ast_expr_is_fn_call_of(p, "&&", Option(usize).Some(usize(2))), {
+    args := _record_args(p);
+    _record_sites_expr(&args(usize(1)), out);
+  });
+});
+/// Every brace group in EXPRESSION position that parses as a record today
+/// (`--migrate record-literal`, plans/backlog/BRACE_BLOCKS.md Generation A),
+/// as its `{` token. The binder positions are skipped whole: the left side of
+/// `:=`, `::` and `=` (destructurings, imports, globs), the left side of `=>`
+/// (match patterns and sub-patterns, `for` element patterns, a closure's
+/// capture list and parameters) except under `cond`, where an arrow's left
+/// side is a condition. A function body or a block is a `begin` node, not a
+/// record, so it is never collected.
+_record_sites_expr :: (fn(e : &AstExpr, out : &mut ArrayList(Token)) -> unit)({
+  if(ast_expr_is_atom(e), {
+    return(());
+  });
+  if(ast_expr_is_fn_call_of(e, BK_ANON_STRUCT, .None), {
+    tok := ast_expr_token(e);
+    if(tok.value.* == "{", {
+      out.push(tok.clone());
+    });
+  });
+  head := _record_head(e);
+  args := _record_args(e);
+  (start : usize) = usize(0);
+  if(((head == ":=") || (head == "::") || (head == "=")) && (args.len() == usize(2)), {
+    start = usize(1);
+  });
+  if((head == "=>") && (args.len() == usize(2)), {
+    _record_sites_pattern(&args(usize(0)), out);
+    start = usize(1);
+  });
+  match(
+    e,
+    .FnCall(_, callee, _, _, _) => if(!ast_expr_is_atom(&callee), {
+      _record_sites_expr(&callee, out);
+    }),
+    .Atom(_, _) => ()
+  );
+  (i : usize) = start;
+  while(i < args.len(), i = (i + usize(1)), {
+    if((head == BK_COND) && ast_expr_is_fn_call_of(&args(i), "=>", Option(usize).Some(usize(2))), {
+      arm_args := _record_args(&args(i));
+      _record_sites_expr(&arm_args(usize(0)), out);
+      _record_sites_expr(&arm_args(usize(1)), out);
+    }, {
+      _record_sites_expr(&args(i), out);
+    });
+  });
+});
+/// The runes of one source line.
+_line_runes :: (fn(line : &String) -> ArrayList(rune))({
+  runes := ArrayList(rune).new();
+  it := line.chars();
+  (go : bool) = true;
+  while(go, {
+    match(
+      it.next(),
+      .Some(r) => runes.push(r),
+      .None => {
+        go = false;
+      }
+    );
+  });
+  runes
+});
+/// `yo fix <path> --migrate record-literal`: write every expression-position
+/// record brace group `{ ... }` as `.{ ... }` (plans/backlog/BRACE_BLOCKS.md,
+/// Generation A). Purely syntactic: it reads the parse, so it needs no
+/// evaluation, and a group already written `.{` is left alone (idempotent).
+_run_migrate_record_literal :: (fn(files : &ArrayList(String), dry_run : bool, io : Io, exn : Exception) -> unit)({
+  (n_done : usize) = usize(0);
+  (failed : usize) = usize(0);
+  (fi : usize) = usize(0);
+  while(fi < files.len(), fi = (fi + usize(1)), {
+    file := files(fi).clone();
+    src := String.from_bytes(io.await(read(Path.new(file.clone()), io), IoExn(io : io, exn : exn)));
+    match(
+      _parse_or_none(&src, &file),
+      .None => {
+        failed = (failed + usize(1));
+        println(`fix: ${file} does not parse; its record literals were not migrated`);
+      },
+      .Some(prog) => {
+        toks := ArrayList(Token).new();
+        for(&prog, e => _record_sites_expr(e, &mut toks));
+        lines := src.split(String.from("\n"));
+        checked := ArrayList(_PendingFix).new();
+        seen := HashSet(String).new();
+        for(&toks, t => {
+          row := usize(t.row);
+          col := usize(t.column);
+          line := match(lines.get_cloned(row), .Some(l) => l, .None => String.new());
+          runes := _line_runes(&line);
+          at_brace := (col < runes.len()) && (runes(col).char == u32(0x7B));
+          dotted := (col > usize(0)) && (col <= runes.len()) && (runes(col - usize(1)).char == u32(0x2E));
+          if(at_brace && !dotted && seen.insert(`${row.to_string()}:${col.to_string()}`), {
+            checked.push(_PendingFix(row : row, col : col, len : usize(0), replacement : String.from("."), description : `${file}:${(row + usize(1)).to_string()}:${(col + usize(1)).to_string()}`));
+          });
+        });
+        n_done = (n_done + checked.len());
+        if(!dry_run && (checked.len() > usize(0)), {
+          _apply_fixes_to_file(file.clone(), &mut checked, io, exn);
+          fmt_argv := ArrayList(String).new();
+          fmt_argv.push(String.from("yo"));
+          fmt_argv.push(String.from("fmt"));
+          fmt_argv.push(file.clone());
+          run_fmt(&fmt_argv, io, exn);
+        });
+      }
+    );
+  });
+  verb := if(dry_run, String.from("would rewrite"), String.from("rewrote"));
+  println(`fix: ${verb} ${n_done.to_string()} record literal(s) to \`.{ ... }\`; ${failed.to_string()} file(s) did not parse`);
+  if(failed > usize(0), {
+    exn.throw(dyn(`fix: ${failed.to_string()} file(s) do not parse`));
+  });
+});
 /// `yo fix <path> [--dry-run]` — apply the mechanical repairs the compiler
 /// already computed (plans/archive/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md §2).
 ///
@@ -1648,7 +1778,7 @@ run_fix :: (
   ) -> unit
 )({
   if(argv.len() < usize(3), {
-    exn.throw(dyn(`fix: missing input file. Usage: yo fix <input.yo | dir>... [--exclude PATH] [--dry-run] [--target TRIPLE] [--migrate deref]`));
+    exn.throw(dyn(`fix: missing input file. Usage: yo fix <input.yo | dir>... [--exclude PATH] [--dry-run] [--target TRIPLE] [--migrate deref|record-literal]`));
   });
   target_paths := ArrayList(String).new();
   (dry_run : bool) = false;
@@ -1673,8 +1803,8 @@ run_fix :: (
       },
       (a == "--migrate") => {
         next_m := (ai + usize(1));
-        if((next_m >= argv.len()) || (argv(next_m) != "deref"), {
-          exn.throw(dyn(`fix: --migrate takes one migration name: deref`));
+        if((next_m >= argv.len()) || ((argv(next_m) != "deref") && (argv(next_m) != "record-literal")), {
+          exn.throw(dyn(`fix: --migrate takes one migration name: deref or record-literal`));
         });
         migrate = argv(next_m).clone();
         ai = (ai + usize(2));
@@ -1689,7 +1819,7 @@ run_fix :: (
         });
       },
       a.starts_with(String.from("-")) => {
-        exn.throw(dyn(`fix: unknown option '${a}'. Usage: yo fix <input.yo | dir>... [--exclude PATH] [--dry-run] [--target TRIPLE] [--migrate deref]`));
+        exn.throw(dyn(`fix: unknown option '${a}'. Usage: yo fix <input.yo | dir>... [--exclude PATH] [--dry-run] [--target TRIPLE] [--migrate deref|record-literal]`));
       },
       true => {
         target_paths.push(a.clone());
@@ -1746,6 +1876,11 @@ run_fix :: (
   // prelude's included.
   if(migrate == "deref", {
     set_migrate_deref(true);
+  });
+  // Purely syntactic: no prelude, no evaluation.
+  if(migrate == "record-literal", {
+    _run_migrate_record_literal(&files, dry_run, io, exn);
+    return(());
   });
   // Bootstrap the prelude ONCE, exactly as `run_check` does. An earlier
   // version called `mm_reset()` per file, which threw away the cached prelude
