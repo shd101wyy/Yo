@@ -1063,6 +1063,15 @@ _owning_param_binding_beside :: (fn(env : &Environment, v : &Variable) -> Option
   });
   Option(Variable).None
 });
+/// The sentence that names the capture-list entry `{ p }` when the capture
+/// that cannot move `v` is a reference parameter in a judged tree: the entry
+/// copies the reference, which is what the closure wants (VERDICTS-44).
+_reference_capture_hint :: (fn(v : &Variable, tok : &Token, ctx : &EvalContext) -> String)(
+  cond(
+    (v.is_imm_borrow() && variable_is_reference_binding(v) && deref_rule_applies(tok, ctx)) => ` A closure that only reads \`${v.name}\` takes the reference itself, not the value: name it in the capture list, \`{ ${v.name} }(...) => ...\`.`,
+    true => String.new()
+  )
+);
 move_captured_explicit_copy_variable :: (fn(v : &Variable, tok : &Token, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
   match(
     v.consumed_at_token(),
@@ -1082,7 +1091,7 @@ move_captured_explicit_copy_variable :: (fn(v : &Variable, tok : &Token, env : &
       // (issues/fixed/a-move-only-value-cannot-be-moved-into-thread-spawn.md).
       owner := if(!v.is_owning_the_rc_value() && v.is_parameter(), _owning_param_binding_for_capture_move(env, v.name.clone()), Option(Variable).None);
       if((!v.is_owning_the_rc_value() && owner.is_none()) || (v.is_ref() || v.is_module_level()), {
-        msg := `use of moved value: the closure captures \`${v.name}\`, whose type \`${type_to_string(&variable_value_type(v))}\` ${_explicit_copy_kind(&variable_value_type(v))}, so the capture moves it, and \`${v.name}\` cannot be moved: it is borrowed (a by-value parameter, a \`match\`/\`for\` binding, a \`&mut\` borrow or a module-level binding). Take it \`sink(...)\` to own it.`;
+        msg := `use of moved value: the closure captures \`${v.name}\`, whose type \`${type_to_string(&variable_value_type(v))}\` ${_explicit_copy_kind(&variable_value_type(v))}, so the capture moves it, and \`${v.name}\` cannot be moved: it is borrowed (a by-value parameter, a \`match\`/\`for\` binding, a \`&mut\` borrow or a module-level binding). Take it \`sink(...)\` to own it.${_reference_capture_hint(v, tok, ctx)}`;
         raise_flow_violation(with_code(format_error_message_with_help(tok, &msg, move_only_help(v.name.clone(), &variable_value_type(v))), E_USE_OF_MOVED_VALUE), ctx, exn);
       });
       moved := match(
@@ -9145,7 +9154,18 @@ _method_call_receiver :: (fn(call : &AstExpr, ctx : &EvalContext) -> Option(AstE
 _holder_roots_into :: (fn(a : &AstExpr, env : &Environment, ctx : &EvalContext, out : &mut ArrayList(OriginRootPlace)) -> unit)({
   h_name := ast_expr_token(a).value.*.clone();
   h_tok := ast_expr_token(a);
-  _holder_roots_named_into(h_name.clone(), &h_tok, out);
+  _holder_roots_of_name(h_name, &h_tok, out);
+});
+/// The frozen places of the binding `v` (a holder: `_holder_roots_into` by
+/// the variable's own name and declaration), for a capture the closure takes
+/// by value without an expression to read (R-CLOSURE-LIT's by-value clause).
+variable_holder_roots :: (fn(v : &Variable) -> ArrayList(OriginRootPlace))({
+  out := ArrayList(OriginRootPlace).new();
+  _holder_roots_of_name(v.name.clone(), &v.token, &mut out);
+  out
+});
+_holder_roots_of_name :: (fn(h_name : String, h_tok : &Token, out : &mut ArrayList(OriginRootPlace)) -> unit)({
+  _holder_roots_named_into(h_name.clone(), h_tok, out);
   // The holder's flow set (O-1's `=` join, §7): what its assignments joined
   // since its last kill, kept in the joins table for the whole body.
   (j : usize) = g_local_borrow_joins.with(_c_len_5);
@@ -10950,7 +10970,7 @@ _origin_through_match_bindings :: (fn(roots : &ArrayList(OriginRootPlace), env :
   });
   out
 });
-export(projection_call_mode_of, unsize_root_args, projection_body_mismatch_message, ProjectionRootArg, is_temporary_operand, origin_temporary_entry, origin_temporary_root, ORIGIN_TEMPORARY_ROOT, projection_call_root_args, projection_call_callee_type, OriginRootPlace, origin_of, origin_held_by, origin_param_names_of, param_declared_origin_slot, is_body_parameter, place_write_join, rigid_param_slot, is_rigid_origin_name, origin_name_phrase, BorrowCaptureOuter, note_borrow_capture_outer, borrow_capture_outer, apply_capture_store_joins, holder_future_roots, bind, bind_join, bind_join_roots_for, return_check, note_ref_payload_source, ref_payload_source, note_ref_payload_held, note_borrow_match_source, borrow_match_source, n2b_roots_text);
+export(projection_call_mode_of, unsize_root_args, projection_body_mismatch_message, ProjectionRootArg, is_temporary_operand, origin_temporary_entry, origin_temporary_root, ORIGIN_TEMPORARY_ROOT, projection_call_root_args, projection_call_callee_type, OriginRootPlace, origin_of, variable_holder_roots, origin_held_by, origin_param_names_of, param_declared_origin_slot, is_body_parameter, place_write_join, rigid_param_slot, is_rigid_origin_name, origin_name_phrase, BorrowCaptureOuter, note_borrow_capture_outer, borrow_capture_outer, apply_capture_store_joins, holder_future_roots, bind, bind_join, bind_join_roots_for, return_check, note_ref_payload_source, ref_payload_source, note_ref_payload_held, note_borrow_match_source, borrow_match_source, n2b_roots_text);
 export(drop_owned_match_binding_at_arm_end, match_scrutinee_is_capture, local_borrow_register_match_place, local_borrow_note_match_place, note_consuming_match_scrutinee, consuming_match_scrutinee_at, moved_value_help, _lb_arrow_shadows, _lb_fn_literal_binds, _lb_mentions);
 export(
   LocalBorrowPlace,
