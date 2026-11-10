@@ -1,6 +1,6 @@
 # A method call `s.m()` on a `&[T]` receiver does not find an impl on `[T]`
 
-**Severity:** S3: the trait-qualified call `Trait.m(s)` works, and std spells no impl on `[T]` yet (S2 adds them), so nothing in the tree hits it. It blocks the first user-visible `impl([T], Show)`-style API, so S2 must close it.
+**Severity:** S3: the trait-qualified call `Trait.m(s)` works while no blanket impl of the trait is in scope, and std spells no impl on `[T]` yet (S2 adds them), so nothing in the tree hits it. It blocks the first user-visible `impl([T], Show)`-style API, so S2 must close it.
 
 ## Reproducer
 
@@ -15,7 +15,7 @@ main :: (fn() -> unit)({
 export(main);
 ```
 
-`yo check` reports `error[E0610]: No method "co" on Slice(i32): the type has no field or method with that name.` Writing `_CoMark.co(s)` checks and runs.
+`yo check` reports `error[E0610]: No method "co" on Slice(i32): the type has no field or method with that name.` Writing `_CoMark.co(s)` checks and runs when no blanket impl exists. With a blanket (`impl(generic(T : Type), T, _CoMark(...))`, or `T : ?Sized`) in scope, `_CoMark.co(s)` fails too: `E0601 Expected "_CoMark" Given "Slice(i32)"` (the blanket matches the reference type `&[i32]` itself as a sized `T`; the `&&T` receiver-slot family, P3b).
 
 ## Root cause
 
@@ -23,4 +23,4 @@ Not investigated: method-name resolution on a receiver whose type is `&Slice(T)`
 
 ## Test
 
-`tests/sized.test.yo`, "a blanket over a Type binder covers the sized types only", calls through the trait-qualified form; a `s.co()` row belongs with the fix (S2).
+`tests/sized.test.yo`, "a blanket over a Type binder covers the sized types only", checks the coexistence and overlap rows at module level; the slice-call rows belong with the fix (S2).
