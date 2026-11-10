@@ -81,8 +81,7 @@ _c_len_1 :: (fn(xs : &ArrayList(String)) -> usize)(xs.len());
 // ---------------------------------------------------------------------------
 // Build options
 // ---------------------------------------------------------------------------
-BuildOptions :: ref(
-  struct(
+BuildOptions :: struct(
     build_file : String,
     target_triple : Option(String),
     verbose : bool,
@@ -111,30 +110,25 @@ BuildOptions :: ref(
     /// §7 step 2: set by the `--watch` loop — artifacts compile in-process
     /// through the registered callback (see InProcessCompileFn).
     watch_in_process : bool
-  )
-);
+  );
 // ---------------------------------------------------------------------------
 // DAG types
 // ---------------------------------------------------------------------------
 DAGNodeKind :: enum(Artifact, Test, Run, Step, Doc, Verify);
 derive(DAGNodeKind, Copy, Clone);
-DAGNode :: ref(
-  struct(
+DAGNode :: struct(
     name : String,
     kind : DAGNodeKind,
     depends_on : ArrayList(String)
-  )
-);
+  );
 derive(DAGNode, Clone);
-StepResult :: ref(
-  struct(
+StepResult :: struct(
     name : String,
     kind : DAGNodeKind,
     success : bool,
     duration_ms : i64,
     description : String
-  )
-);
+  );
 // §7 step 2 (plans/reference/INCREMENTAL_COMPILATION_ZIG_LESSONS.md): the watch
 // rounds' in-process artifact compile. main.yo registers a wrapper over
 // run_compile (failures return false instead of exiting); `.Some(f)` in the
@@ -151,8 +145,7 @@ set_in_process_compile_fn :: (fn(f : InProcessCompileFn) -> unit)({
   g_in_process_compile_fn = Option(InProcessCompileFn).Some(f);
   ()
 });
-ExecutionContext :: ref(
-  struct(
+ExecutionContext :: struct(
     registry : BuildRegistry,
     project_dir : String,
     /// `[package] name` of the project's `yo.toml` ("" without one) — the
@@ -180,8 +173,7 @@ ExecutionContext :: ref(
     /// reported and the loop continues (`unwind(false)` out of the round),
     /// and a hard exit here killed the process on the first failed round.
     watch_round : bool
-  )
-);
+  );
 /// `git describe --tags --always` in the project dir, or `.None` when that fails
 /// for any reason (not a repo, no git, non-zero exit, empty output) — the
 /// version is decoration on the "Building …"

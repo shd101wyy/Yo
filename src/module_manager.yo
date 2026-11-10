@@ -599,8 +599,7 @@ mm_module_source :: (fn(fs_path : &String) -> Option(String))({
 /// path. `fallback = false`: `changed` holds the fresh (re-parsed) defs whose
 /// source hash moved, in index order; everything else in the file is
 /// hash-identical to the last walk.
-DefDiff :: ref(
-  struct(
+DefDiff :: struct(
     fallback : bool,
     /// The key the module's definitions hash under — its walk's
     /// `module_path` (demand loads: the `file://` cache key; entries: the
@@ -611,8 +610,7 @@ DefDiff :: ref(
     /// The whole fresh statement list — the invalidator's ordered-statement
     /// and export-alias scans walk it.
     fresh_exprs : ArrayList(AstExpr)
-  )
-);
+  );
 mm_changed_definitions :: (fn(fs_path : &String) -> Option(DefDiff))({
   // The stored hashes are keyed by the WALK's module path. Demand loads walk
   // under the `file://` cache key; entry modules under the path as typed —
@@ -1043,18 +1041,15 @@ _rev_add_module :: (fn(modules : &mut ArrayList(String), excluded : &HashSet(Str
 /// Phase 3 (§6): one DESTRUCTURED importer whose bindings the apply step
 /// re-points at the re-forced definitions instead of dropping the importer's
 /// whole module (and with it the importer's reverse import closure).
-RebindEntry :: ref(
-  struct(
+RebindEntry :: struct(
     /// The importer's module key.
     reader_module : String,
     /// The module whose definitions changed.
     target_module : String,
     /// The changed names this importer destructured.
     names : ArrayList(String)
-  )
-);
-RevalPlan :: ref(
-  struct(
+  );
+RevalPlan :: struct(
     module_key : String,
     changed : ArrayList(PendingDef),
     fresh_exprs : ArrayList(AstExpr),
@@ -1068,8 +1063,7 @@ RevalPlan :: ref(
     /// own definitions that mention a changed name are already in
     /// `closure_keys`, so a re-bind never stands alone.
     rebinds : ArrayList(RebindEntry)
-  )
-);
+  );
 /// True when `module` is already among the importers being re-bound.
 _rebinds_contain :: (fn(rebinds : &ArrayList(RebindEntry), module : &String) -> bool)({
   (i : usize) = usize(0);

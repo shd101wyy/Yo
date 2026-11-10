@@ -182,8 +182,7 @@ reraise_flow_violation :: (fn(err : &YoError, ctx : &EvalContext, exn : Exceptio
   raise_flow_violation(err, ctx, exn);
 });
 /// Options refining the base R1–R4 rule.
-FlowOptions :: ref(
-  struct(
+FlowOptions :: struct(
     /// Accept a same-frame (non-module) local (the assignment-target checks).
     /// Bounded by `max_local_frame_level` when that is `.Some`. (`inout(name)
     /// = …` bindings do not use this rule: their place shape is validated in
@@ -196,8 +195,7 @@ FlowOptions :: ref(
     /// Scope bound for `allow_same_frame_local` (the assignment target's frame
     /// level); a same-frame local is accepted only if its level is no deeper.
     max_local_frame_level : Option(usize)
-  )
-);
+  );
 /// Default options (strict R1–R4, the function-return enforcement form).
 flow_options_default :: (fn() -> FlowOptions)(
   FlowOptions(
