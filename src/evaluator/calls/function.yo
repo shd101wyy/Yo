@@ -46,7 +46,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../expr.yo");
 { is_auto_generated_expansion, is_implicitly_unsafe_capable_file, is_class1_panic_method_name, is_class1_panic_receiver_type, is_class1_panic_exempt_file, is_std_module_path } :: import("../memory_safety.yo");
 { D3PendingInout, d3_record_inout_place, d3_check_pending, d3_check_pending_unresolved_callee, require_no_inout_write_through_borrow, shared_borrow_param_root_of_place, reject_write_through_shared_borrow_param } :: import("../exprs/assignment.yo");
-{ ExprInfo, is_thread_local, is_mut_global, new_expr_info, expr_info_closure_function_value, expr_info_table_get, expr_info_table_set, record_method_callee_type, lookup_method_callee_type, record_method_callee_value, lookup_method_callee_value, record_io_builtin_struct_field, lookup_io_builtin_struct_field, record_io_builtin_call, record_macro_expansion, lookup_macro_expansion, record_fid_rtcall, active_where_trait_ids, record_fid_spec, lookup_struct_ctor_fid, struct_effective_ctor_fid, struct_fully_concrete_instance, adopt_receiver_struct_instance, mark_node_preevaluated, unmark_node_preevaluated, expr_info_adopt_env, expr_info_capture_type, expr_info_comptime_ref, expr_info_index_method_type, expr_info_index_method_value, expr_info_set_comptime_ref, expr_info_set_deferred_dup_expressions, expr_info_set_index_method_type, expr_info_set_index_method_value, expr_info_set_index_trait_ptr_type, expr_info_set_macro_expansion, some_resolution, purge_executed_clone_metadata, mark_fnonce_post_call_release, expr_info_converted_runtime_type, expr_info_set_converted_runtime_type, is_reference_self_place } :: import("../../expr_info.yo");
+{ ExprInfo, is_dyn_lend, is_thread_local, is_mut_global, new_expr_info, expr_info_closure_function_value, expr_info_table_get, expr_info_table_set, record_method_callee_type, lookup_method_callee_type, record_method_callee_value, lookup_method_callee_value, record_io_builtin_struct_field, lookup_io_builtin_struct_field, record_io_builtin_call, record_macro_expansion, lookup_macro_expansion, record_fid_rtcall, active_where_trait_ids, record_fid_spec, lookup_struct_ctor_fid, struct_effective_ctor_fid, struct_fully_concrete_instance, adopt_receiver_struct_instance, mark_node_preevaluated, unmark_node_preevaluated, expr_info_adopt_env, expr_info_capture_type, expr_info_comptime_ref, expr_info_index_method_type, expr_info_index_method_value, expr_info_set_comptime_ref, expr_info_set_deferred_dup_expressions, expr_info_set_index_method_type, expr_info_set_index_method_value, expr_info_set_index_trait_ptr_type, expr_info_set_macro_expansion, some_resolution, purge_executed_clone_metadata, mark_fnonce_post_call_release, expr_info_converted_runtime_type, expr_info_set_converted_runtime_type, is_reference_self_place } :: import("../../expr_info.yo");
 {
   Variable,
   Environment,
@@ -5099,7 +5099,9 @@ _call_lends :: (fn(call : &AstExpr, ctx : &EvalContext) -> ArrayList(_CallLend))
   );
   (ai : usize) = usize(0);
   while(ai < op_args.len(), ai = (ai + usize(1)), {
-    lent := match(op_args.get(ai), .Some(a) => _unlabeled_argument(&a), .None => make_err_expr());
+    // A `dyn(&v)` / `dyn(&mut v)` argument lends `v` as the bare `&v` /
+    // `&mut v` would, for as long as the statement (VERDICTS-43).
+    lent := _dyn_lend_unwrapped(match(op_args.get(ai), .Some(a) => _unlabeled_argument(&a), .None => make_err_expr()));
     match(
       _lent_argument_place(&lent),
       .Some(place) => {
@@ -5460,6 +5462,22 @@ _call_receiver_place :: (fn(call : &AstExpr) -> Option(AstExpr))({
   if(_is_plain_place_expr(&recv), Option(AstExpr).Some(recv), Option(AstExpr).None)
 });
 /// The place an argument `&x`/`&mut x` lends.
+/// The lend a `dyn(&v)` / `dyn(&mut v)` call (or an `upcast` over one) is made
+/// of: its marker form `&v` / `&mut v`; any other argument as written.
+_dyn_lend_unwrapped :: (fn(lent : AstExpr) -> AstExpr)(
+  cond(
+    is_dyn_lend(ast_expr_id(&lent)) => match(
+      &lent,
+      .FnCall(_, _, Rc(dl_args), _, _) => match(
+        dl_args.get(usize(0)),
+        .Some(dl_a) => if(ast_expr_is_fn_call_of(&dl_a, "&", .Some(usize(1))) || ast_expr_is_fn_call_of(&dl_a, "&mut", .Some(usize(1))), dl_a, _dyn_lend_unwrapped(dl_a)),
+        .None => lent.clone()
+      ),
+      .Atom(_, _) => lent.clone()
+    ),
+    true => lent
+  )
+);
 _lent_argument_place :: (fn(lent : &AstExpr) -> Option(AstExpr))(
   if(ast_expr_is_fn_call_of(lent, "&", .Some(usize(1))) || ast_expr_is_fn_call_of(lent, "&mut", .Some(usize(1))), match(lent, .FnCall(_, _, Rc(m_args), _, _) => m_args.get(usize(0)), .Atom(_, _) => Option(AstExpr).None), Option(AstExpr).None)
 );

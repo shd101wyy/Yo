@@ -84,7 +84,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../env.yo");
 // dup-on-store / move for owned fn-call args. utils.yo
 // imports nothing from calls/, so this is acyclic.
-{ reject_dyn_place_by_value, set_expr_as_consumed, judge_capture_fnmut_at_fn_slot, deref_exempt_mark, deref_exempt_clear, binder_read_mark, binder_read_clear, variable_is_reference_binding, deref_rule_applies, is_reference_deref_site, reject_reference_without_deref, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, borrowed_place_read_only_handle, are_values_equal, require_expr_not_consumed, adopt_never_type, reject_bare_callable_into_dyn_fn, reject_bare_callable_result, reject_second_class_escape, reject_second_class_return, require_capture_borrow_exclusivity, audit_copy_trait_enabled, audit_record_copy_trait, reject_write_through_rc, _owning_param_binding_for_capture_move, reference_field_read_type, reject_write_through_shared_reference_field, is_reference_read, projection_body_mismatch_message, lend_place_reference_type } :: import("../utils.yo");
+{ reject_dyn_place_by_value, dyn_lend_return_error, set_expr_as_consumed, judge_capture_fnmut_at_fn_slot, deref_exempt_mark, deref_exempt_clear, binder_read_mark, binder_read_clear, variable_is_reference_binding, deref_rule_applies, is_reference_deref_site, reject_reference_without_deref, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, borrowed_place_read_only_handle, are_values_equal, require_expr_not_consumed, adopt_never_type, reject_bare_callable_into_dyn_fn, reject_bare_callable_result, reject_second_class_escape, reject_second_class_return, require_capture_borrow_exclusivity, audit_copy_trait_enabled, audit_record_copy_trait, reject_write_through_rc, _owning_param_binding_for_capture_move, reference_field_read_type, reject_write_through_shared_reference_field, is_reference_read, projection_body_mismatch_message, lend_place_reference_type } :: import("../utils.yo");
 { function_may_mutate_rc_storage } :: import("../effects/mutation_summary.yo");
 { some_t_bounds, TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, no_levels, no_flags, SharedList, slot_pointee_at, t_slot_pointee, t_slot, t_slot_like, fn_param_is_mut_ref, fn_param_is_by_value, fn_param_mut_ref_flags, fn_param_by_value_flags, t_slot_with_pointee, fn_result_is_ref, fn_result_is_mut_ref, t_slot_origin_names, is_origin_kind, t_origin_kind, t_origin_named, t_reference_with_origin, fn_trait_base_serves, fn_trait_call_contract, fn_trait_slot_contract, t_slot_is_borrow } :: import("../../types/definitions.yo");
 { Token, TokenKind } :: import("../../token.yo");
@@ -197,7 +197,8 @@ pragma(Pragma.AllowUnsafe);
   note_self_lend_operand,
   is_reference_self_place,
   self_lend_operand_mode,
-  note_self_lend_forced
+  note_self_lend_forced,
+  is_dyn_lend
 } :: import("../../expr_info.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 { call_promote_index_places_for_write } :: import("../context.yo");
@@ -4899,6 +4900,9 @@ create_specialized_function_inline :: (
               // where the C function returns a pointer
               // (issues/fixed/2026-11-08-a-generic-fn-forwarding-a-projection-call-as-its-reference-tail-emits-a-value.md).
               if(sb_ret_is_ref && !has_any_control_flow(sb_info.control_flow()) && (get_all_some_types(&spec_ret_ty).len() == usize(0)) && (get_all_some_types(&sb_ty).len() == usize(0)) && !are_types_compatible(&sb_ty, &t_ptr(&spec_ret_ty)), {
+                if(is_dyn_lend(ast_expr_id(&specialized_body)), {
+                  exn.throw(dyn(dyn_lend_return_error(projection_tail_diag_token(&cloned_body))));
+                });
                 exn.throw(dyn(format_error_message(projection_tail_diag_token(&cloned_body), projection_body_mismatch_message(&spec_ret_ty, fn_result_is_mut_ref(&func_type), &sb_ty, &specialized_body, ctx))));
               });
               if(!sb_skip && !are_types_compatible(&sb_ty, &spec_ret_ty), {

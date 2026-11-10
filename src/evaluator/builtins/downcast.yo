@@ -33,7 +33,8 @@ pragma(Pragma.AllowUnsafe);
   expr_info_table_set,
   expr_info_adopt_env,
   note_downcast_reference,
-  note_unsize_reference
+  note_unsize_reference,
+  note_dyn_lend
 } :: import("../../expr_info.yo");
 { Environment, snapshot_env } :: import("../../env.yo");
 { TypeValue, TypeValueNode, no_types, t_refine_inner, t_reference } :: import("../../types/definitions.yo");
@@ -323,7 +324,10 @@ evaluate_upcast :: (
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   match(
     uc_ref,
-    .Some(um) => note_unsize_reference(ast_expr_id(expr), um),
+    .Some(um) => {
+      note_unsize_reference(ast_expr_id(expr), um);
+      note_dyn_lend(ast_expr_id(expr));
+    },
     .None => attach_temp_variable_to_expr(expr, true, ctx)
   );
   uc_call

@@ -86,7 +86,8 @@ pragma(Pragma.AllowUnsafe);
   expr_info_set_converted_runtime_type,
   record_skipped_operand_drops,
   clear_skipped_operand_drops,
-  is_dyn_place
+  is_dyn_place,
+  is_dyn_lend
 } :: import("../expr_info.yo");
 {
   Environment,
@@ -5753,6 +5754,57 @@ in_compile_time_fn_body :: (fn(ctx : &EvalContext) -> bool)(
     .None => false
   )
 );
+/// Is the `dyn(&mut v)` / `upcast(dyn(&mut v), ...)` node `n` exclusive? Read off
+/// the marker of its lent operand.
+dyn_lend_is_mut :: (fn(n : &AstExpr) -> bool)(
+  match(
+    n,
+    .FnCall(_, _, Rc(dl_args), _, _) => match(
+      dl_args.get(usize(0)),
+      .Some(a0) => cond(
+        ast_expr_is_fn_call_of(&a0, BK_BORROW_MUT, Option(usize).Some(usize(1))) => true,
+        ast_expr_is_fn_call_of(&a0, BF_ADDRESS_OF, Option(usize).Some(usize(1))) => false,
+        ast_expr_is_atom(&a0) => false,
+        true => dyn_lend_is_mut(&a0)
+      ),
+      .None => false
+    ),
+    .Atom(_, _) => false
+  )
+);
+/// The one help line every E0911/E0912 raised for a reference-kind `dyn(&v)`
+/// carries until S2's flip (VERDICTS-43).
+DYN_LEND_HELP :: "until v0.2.78 a `dyn(&v)` reference lives for its statement only: pass it directly as an argument, or own the object with `dyn(Box.new(v))`";
+/// E0911 for a `dyn(&v)` / `dyn(&mut v)` / reference `upcast` bound or stored
+/// past its statement (`(d : &Dyn(T)) = dyn(&v)`, `d := dyn(&v)`).
+reject_dyn_lend_bind :: (fn(rhs : &AstExpr, holder : &String, tok : &Token, exn : Exception) -> unit)({
+  if(is_dyn_lend(ast_expr_id(rhs)), {
+    exn.throw(
+      dyn(
+        with_code(
+          format_error_message_with_help(
+            tok,
+            `Cannot bind \`${holder}\` to \`${ast_expr_to_string(rhs)}\`: it is a reference to a temporary that ends with this statement, while \`${holder}\` lives on (decision 49, VERDICTS-43).`,
+            Option(String).Some(String.from(DYN_LEND_HELP))
+          ),
+          E_LOCAL_BORROW_CONFLICT
+        )
+      )
+    );
+  });
+});
+/// E0912 for a `dyn(&v)` / reference `upcast` node returned as a projection's
+/// place.
+dyn_lend_return_error :: (fn(tok : &Token) -> YoError)(
+  with_code(
+    format_error_message_with_help(
+      tok,
+      String.from("A projection yields a place, and this is a `dyn(&v)` reference: its storage is a temporary of the statement, which ends with the call (decision 49, VERDICTS-43)."),
+      Option(String).Some(String.from(DYN_LEND_HELP))
+    ),
+    E_LOCAL_BORROW_ESCAPES
+  )
+);
 /// E0619 for a `Dyn` place read, bound, moved, assigned or matched by value
 /// (`x := b.*`, `f(b.*)`, `b.* = v`, `match(b.*, ...)`; decision 49,
 /// VERDICTS-40 amendment 5). `b.*` over an owned `Box(Dyn(T))` is the unsized
@@ -5775,7 +5827,7 @@ reject_dyn_place_by_value :: (fn(id : usize, position : &String, tok : &Token, e
     );
   });
 });
-export(reject_dyn_place_by_value);
+export(reject_dyn_place_by_value, reject_dyn_lend_bind, dyn_lend_return_error, DYN_LEND_HELP);
 export(in_compile_time_fn_body);
 export(throw_expr_is_implicit_variable_error);
 export(require_expr_not_consumed);
@@ -8501,6 +8553,12 @@ _origin_of_into :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, out
     },
     .None => ()
   );
+  // A `dyn(&v)` reference lives in its statement's frame temporary while the
+  // alias holds (VERDICTS-43): the temporary the reference points at, not `v`.
+  if(is_dyn_lend(ast_expr_id(&stripped)), {
+    _origin_push(origin_temporary_entry(&stripped, dyn_lend_is_mut(&stripped)), out);
+    return(());
+  });
   fi := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&stripped)),
     .Some(found) => found,
@@ -8861,6 +8919,7 @@ is_temporary_operand :: (fn(operand : &AstExpr, env : &Environment, ctx : &EvalC
         .None => false
       ),
       ast_expr_is_fn_call_of(&s, BK_COLON, Option(usize).Some(usize(2))) => match(t_args.get(usize(1)), .Some(v) => is_temporary_operand(&v, env, ctx), .None => false),
+      is_dyn_lend(ast_expr_id(&s)) => true,
       projection_call_mode_of(&s, ctx).is_some() => false,
       match(
         expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&s)),
@@ -8899,7 +8958,7 @@ _reject_temporary_root :: (fn(holder : &String, tmp : &OriginRootPlace, rhs_text
       format_error_message_with_help(
         at,
         `${head} that ends with this statement, while \`${holder}\` lives on (decision 43, plans/backlog/BORROW_CHECKER_COMPLETENESS.md §3 R-TEMP).`,
-        Option(String).Some(`bind \`${tmp.place.text}\` to a local first and lend the local`)
+        Option(String).Some(if(tmp.place.text.starts_with("dyn("), String.from(DYN_LEND_HELP), `bind \`${tmp.place.text}\` to a local first and lend the local`))
       ),
       E_LOCAL_BORROW_CONFLICT
     ),

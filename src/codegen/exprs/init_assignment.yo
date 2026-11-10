@@ -11,7 +11,7 @@
 { AstExpr, ExprId, ast_expr_id, ast_expr_is_atom, ast_expr_is_atom_of, ast_expr_is_fn_call_of, ast_expr_token, ast_expr_text, BK_COMPTIME, BK_ARRAY_VAL, ast_expr_is_local_borrow_mode_call, BF_DOT, ast_call_is_deref_read } :: import("../../expr.yo");
 { RuntimeDestructuring, expr_info_converted_runtime_type, expr_info_runtime_destructurings, expr_info_deferred_dup_expressions, expr_info_macro_expansion, scope_variables, lookup_local_borrow_step_pin } :: import("../../expr_info.yo");
 { Variable, Environment, variable_value_type } :: import("../../env.yo");
-{ is_array_type, is_unit_type, is_struct_type, is_reference_struct_type, is_tuple_type, is_newtype_type, is_dyn_type } :: import("../../types/guards.yo");
+{ is_array_type, is_unit_type, is_struct_type, is_reference_struct_type, is_tuple_type, is_newtype_type } :: import("../../types/guards.yo");
 { TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
 { t_ptr } :: import("../../types/creators.yo");
 { FunctionGenerationContext, sm_owns_fnonce_captures } :: import("../functions/context.yo");
@@ -296,20 +296,12 @@ _generate_inout_local_binding :: (fn(lhs : &AstExpr, rhs : &AstExpr, bind_key : 
     ),
     .None => ()
   );
-  (mut(place_code) : String) = _call_generate_expr(rhs, indent.clone(), context);
+  place_code := _call_generate_expr(rhs, indent.clone(), context);
   // Address the place: fold a `(*x)` pass-through, otherwise `(&(code))`.
   (mut(addr) : String) = String.new();
   if(place_code.starts_with("(*") && place_code.ends_with(")"), {
     addr = place_code.substring(usize(2), place_code.len() - usize(1));
   }, {
-    // The reference-kind Dyn (`d := dyn(&v)`, decision 49) is a fat literal,
-    // not a place: it is held in a frame temp, which the borrow points at.
-    if(is_dyn_type(&place_type) && !_is_c_lvalue_chain(&place_code), {
-      dyn_tmp := `__yo_dyn_ref_${var_name.clone()}`;
-      dyn_tmp_decl := `${indent.clone()}${get_type_string(&place_type, &mut context.base)} ${dyn_tmp.clone()} = ${place_code.clone()};`;
-      context.base.emitter.emit_string_line(&dyn_tmp_decl);
-      place_code = dyn_tmp;
-    });
     if(!_is_c_lvalue_chain(&place_code), {
       return(Option(String).Some(codegen_fatal_expr(`local borrow "${var_name}": place lowered to a non-lvalue C expression: ${place_code}`)));
     });
