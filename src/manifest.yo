@@ -126,6 +126,7 @@ ManifestModule :: struct(
     name : String,
     root : String
   );
+derive(ManifestModule, Clone);
 /// What a git dependency's entry pins (plans §4.2). Exactly one is written;
 /// `git` alone means the remote's default branch, resolved to a commit when
 /// the lock is written and moved only by `yo update`.
@@ -151,6 +152,7 @@ DependencySource :: enum(
   /// A directory on disk, relative to the manifest's directory unless absolute.
   Path(path : String)
 );
+derive(DependencySource, Clone);
 /// One `[dependencies]` / `[dev-dependencies]` entry.
 ManifestDependency :: struct(
     name : String,
@@ -159,6 +161,7 @@ ManifestDependency :: struct(
     /// propagated to a package that depends on it.
     dev : bool
   );
+derive(ManifestDependency, Clone);
 /// A parsed `yo.toml`.
 Manifest :: struct(
     /// Absolute path of the manifest file.
@@ -185,15 +188,15 @@ Manifest :: struct(
     /// a Manifest too, so a new field here must be added there as well.
     workspace_members : ArrayList(String)
   );
+derive(Manifest, Clone);
 impl(
   Manifest,
   /// The dependency named `name`, if the manifest declares one.
   find_dependency : (fn(self : &Self, name : &String) -> Option(ManifestDependency))({
     (i : usize) = usize(0);
     while(i < self.dependencies.len(), {
-      d := self.dependencies(i);
-      if(d.name == name, {
-        return(Option(ManifestDependency).Some(d));
+      if(self.dependencies(i).name == name, {
+        return(Option(ManifestDependency).Some(self.dependencies(i).clone()));
       });
       i = (i + usize(1));
     });
@@ -203,9 +206,8 @@ impl(
   find_module : (fn(self : &Self, name : &String) -> Option(ManifestModule))({
     (i : usize) = usize(0);
     while(i < self.modules.len(), {
-      m := self.modules(i);
-      if(m.name == name, {
-        return(Option(ManifestModule).Some(m));
+      if(self.modules(i).name == name, {
+        return(Option(ManifestModule).Some(self.modules(i).clone()));
       });
       i = (i + usize(1));
     });
@@ -216,8 +218,7 @@ impl(
     out := ArrayList(ManifestDependency).new();
     (i : usize) = usize(0);
     while(i < self.dependencies.len(), {
-      d := self.dependencies(i);
-      match(&d.source, .Git(_, _, _) => out.push(d), .Path(_) => ());
+      match(&self.dependencies(i).source, .Git(_, _, _) => out.push(self.dependencies(i).clone()), .Path(_) => ());
       i = (i + usize(1));
     });
     out
@@ -641,6 +642,7 @@ ImportRoot :: struct(
     name : String,
     root : String
   );
+derive(ImportRoot, Clone);
 /// A declared dependency whose sources are not on disk (a git dependency that
 /// `yo install` has not fetched, or one whose root file cannot be found). The
 /// resolver reports `reason` when a program imports `name` instead of the
@@ -739,7 +741,7 @@ _add_root :: (
 )({
   (i : usize) = usize(0);
   while(i < roots.len(), {
-    existing := roots(i);
+    existing := roots(i).clone();
     if(existing.name == name, {
       if(existing.root == root, {
         return(Result(unit, String).Ok(()));
@@ -761,17 +763,17 @@ _register_package_roots :: (
   fn(
     entry : &_ClosureEntry,
     is_root : bool,
-    out : &ImportRoots,
+    out : &mut ImportRoots,
     via : &String
   ) -> Result(unit, String)
 )({
   (default_root : Option(String)) = Option(String).None;
   match(
-    entry.manifest,
+    &entry.manifest,
     .Some(m) => {
       (i : usize) = usize(0);
       while(i < m.modules.len(), {
-        m_entry := m.modules(i);
+        m_entry := m.modules(i).clone();
         root := abs_under(entry.dir.clone(), m_entry.root.clone());
         if(m_entry.name == "default", {
           default_root = Option(String).Some(root);
@@ -825,9 +827,9 @@ resolve_import_roots :: (
   ) -> Result(ImportRoots, String)
 )({
   out := ImportRoots(roots : ArrayList(ImportRoot).new(), unavailable : ArrayList(UnavailableImport).new());
-  root_entry := _ClosureEntry(name : manifest.name.clone(), dir : manifest.dir.clone(), manifest : Option(Manifest).Some(manifest));
+  root_entry := _ClosureEntry(name : manifest.name.clone(), dir : manifest.dir.clone(), manifest : Option(Manifest).Some(manifest.clone()));
   match(
-    _register_package_roots(&root_entry, true, &out, manifest.path.clone()),
+    _register_package_roots(&root_entry, true, &mut out, manifest.path.clone()),
     .Ok(_) => (),
     .Err(msg) => {
       return(Result(ImportRoots, String).Err(msg));
@@ -840,8 +842,8 @@ resolve_import_roots :: (
   while(pending.len() > usize(0), {
     current := pending.pop().unwrap();
     current_manifest := match(
-      current.manifest,
-      .Some(m) => m,
+      &current.manifest,
+      .Some(m) => m.clone(),
       .None => {
         continue;
       }
@@ -849,7 +851,7 @@ resolve_import_roots :: (
     is_root := (current.dir == manifest.dir);
     (di : usize) = usize(0);
     while(di < current_manifest.dependencies.len(), {
-      dep := current_manifest.dependencies(di);
+      dep := current_manifest.dependencies(di).clone();
       di = (di + usize(1));
       // A dependency's dev-dependencies are its own business.
       if(dep.dev && !is_root, {
@@ -876,7 +878,7 @@ resolve_import_roots :: (
       });
       entry := _ClosureEntry(name : dep.name.clone(), dir : dep_dir.clone(), manifest : dep_manifest);
       match(
-        _register_package_roots(&entry, false, &out, `${current_manifest.path} → ${dep.name}`),
+        _register_package_roots(&entry, false, &mut out, `${current_manifest.path} → ${dep.name}`),
         .Ok(_) => (),
         .Err(msg) => {
           return(Result(ImportRoots, String).Err(msg));

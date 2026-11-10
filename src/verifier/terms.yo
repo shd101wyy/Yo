@@ -262,19 +262,16 @@ derive(VcFunDecl, Clone);
 impl(
   VcQuery,
   /// Builder: push a declaration.
-  declare : (fn(self : &Self, name : &String, sort : &VcSort) -> Self)({
+  declare : (fn(self : &mut Self, name : &String, sort : &VcSort) -> unit)({
     self.declarations.push(VcDecl(name : name.clone(), sort : sort));
-    self
   }),
   /// Builder: push an unnamed assumption.
-  assume : (fn(self : &Self, term : &VcTerm) -> Self)({
+  assume : (fn(self : &mut Self, term : &VcTerm) -> unit)({
     self.assumptions.push(VcAssumption(name : Option(String).None, term : Rc.clone(term)));
-    self
   }),
   /// Builder: push a named assumption (unsat-core attribution).
-  assume_named : (fn(self : &Self, name : &String, term : &VcTerm) -> Self)({
+  assume_named : (fn(self : &mut Self, name : &String, term : &VcTerm) -> unit)({
     self.assumptions.push(VcAssumption(name : Option(String).Some(name.clone()), term : Rc.clone(term)));
-    self
   })
 );
 /// Construct an empty query with a diagnostic name.
