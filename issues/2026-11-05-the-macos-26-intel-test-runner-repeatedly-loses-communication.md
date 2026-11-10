@@ -33,3 +33,30 @@ Do two things, in this order:
 2. **Until then, one automatic retry of a lost-communication leg.** AGENTS.md's rule is one manual rerun per flaky job, and this job now needs that rerun on most batteries. A rerun policy confined to this message (not to test failures) keeps a real failure red on its first occurrence.
 
 Moving the shard to `macos-latest` would drop x86_64 macOS coverage, which nothing else in the matrix provides, so it is not recommended.
+
+## Update 2026-11-10: the loss is not specific to macos-26-intel, and the data does not show memory growth
+
+Three more losses on develop, on two other runner types, all with the same annotation ("The hosted runner lost communication with the server...") and all with `gh api repos/shd101wyy/Yo/actions/jobs/<id>/logs` returning HTTP 404 `BlobNotFound` (the log blob never lands):
+
+| Date | Run (sha) | Job | Lost in | Ran for | Normal for that step |
+| --- | --- | --- | --- | --- | --- |
+| 2026-11-08 | 42502891207 (f23081973) | test (macos-26-intel) shard 2/4, 128822793948 | Compile the suite compiler natively | 49 min | 5-8 min (the other three shards ran 48-56 min of tests) |
+| 2026-11-08 | 42532190979 (b1af0cd01) | test-wasm32_wasi, 128889041895 | Run WASI tests | 78 min | whole job 66-80 min (green runs 42605340282, 42708865105) |
+| 2026-11-09 | 42708865105 (fe58873dd) | test suite (ubuntu-24.04-arm) shard 2/4, 129516870451 | Run tests | 56 min | 24-26 min |
+| 2026-11-09 | 42708865105 (fe58873dd) | test (macos-26-intel) shard 1/4, 129522337326 | Run tests | 84 min | 50-70 min (siblings 69-94 min) |
+
+Measured from step timings of the last eight develop batteries with a completed `test` leg (11-07 a25a71ee1 through 11-09 fe58873dd):
+
+| `Run tests` step | 11-07 a25a71ee1 | 11-08 40e10e7e9 | 11-08 f23081973 | 11-09 3ff5d6f05 | 11-09 367f37489 | 11-09 f8c70b02a (shard 3 died in 7 min, red for another reason) |
+| --- | --- | --- | --- | --- | --- | --- |
+| ubuntu-24.04-arm shards 0-3 (min) | 23 23 24 21 | 24 24 24 21 | 22 24 24 23 | 23 23 25 22 | 23 24 26 24 | 23 23 24 - |
+| macos-26-intel shards 0-3 (min) | 49 50 55 44 | 55 58 62 74 | 55 56 - 48 | 64 63 68 76 | 71 54 72 85 | 99 70 57 - |
+
+What this says:
+
+- **ubuntu-24.04-arm (4 vCPU, 16 GB) is flat**: every shard is 21-26 min in every battery, with the same files, before and after #1837-#1840 and the later borrow/liveness work. A per-file RSS growth that pushed a shard toward the RAM limit would first show as swap slowdowns; there are none. The shard that was lost normally ends at 24-25 min and was still "running" at 56 min, so it was frozen or the runner was gone for the last half hour, not slowly finishing.
+- **macos-26-intel (4 vCPU, 14 GB) is slow and noisy**: the same shard varies 44-99 min between batteries with no code change in the shard's files, and its compile step varies 5-15 min. It trends up (shard 3: 44, 74, 48, 76, 85), which cannot come from the compiler's footprint alone because the identical binary on arm does not move. This is the shared-host contention the leg's Intel hardware already had, and the longer a job runs, the more exposure to a drop.
+- **`yo test` does not parallelise**: `--parallel` is ignored by the runner, one batch compiles at a time (`--test-batch-size` files merged into one program), and `test.yml` sets no `YO_TEST_MAX_RSS_MB`. Only the steady state is measured: the per-file `profile: file ... rss=` lines are not printed by the CI `--verbose` call and the lost jobs' logs are gone, so peak RSS in CI is unknown, not shown to be fine.
+- The losses straddle a GitHub Actions incident (2026-11-09 18:12Z-~19:00Z) only for 42677134002; the 2026-11-08 losses and the 11-09 23:35Z-01:11Z ones are outside it.
+
+**Verdict:** flake or infrastructure (VM loss), not a compiler memory regression, with one gap: nothing in CI records memory, so "OOM" is neither proved nor excluded for the intel leg. The mitigation order in the Recommendation above stands; a sampler step cannot help a lost runner by itself (its upload step never runs, and the live log blob is what 404s), so write the samples with a `trap`-free background loop to the job log every 30 s (`vm_stat`/`free -m` lines survive up to the last flushed chunk) and, separately, decide whether to add a retry-on-"lost communication" policy; that is a maintainer decision about CI, not a code fix.
