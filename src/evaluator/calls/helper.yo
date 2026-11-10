@@ -86,7 +86,7 @@ pragma(Pragma.AllowUnsafe);
 // imports nothing from calls/, so this is acyclic.
 { reject_dyn_place_by_value, dyn_lend_return_error, set_expr_as_consumed, judge_capture_fnmut_at_fn_slot, deref_exempt_mark, deref_exempt_clear, binder_read_mark, binder_read_clear, variable_is_reference_binding, deref_rule_applies, is_reference_deref_site, reject_reference_without_deref, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, borrowed_place_read_only_handle, are_values_equal, require_expr_not_consumed, adopt_never_type, reject_bare_callable_into_dyn_fn, reject_bare_callable_result, reject_second_class_escape, reject_second_class_return, require_capture_borrow_exclusivity, audit_copy_trait_enabled, audit_record_copy_trait, reject_write_through_rc, _owning_param_binding_for_capture_move, reference_field_read_type, reject_write_through_shared_reference_field, is_reference_read, projection_body_mismatch_message, lend_place_reference_type } :: import("../utils.yo");
 { function_may_mutate_rc_storage } :: import("../effects/mutation_summary.yo");
-{ some_t_bounds, TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, no_levels, no_flags, SharedList, slot_pointee_at, t_slot_pointee, t_slot, t_slot_like, fn_param_is_mut_ref, fn_param_is_by_value, fn_param_mut_ref_flags, fn_param_by_value_flags, t_slot_with_pointee, fn_result_is_ref, fn_result_is_mut_ref, t_slot_origin_names, is_origin_kind, t_origin_kind, t_origin_named, t_reference_with_origin, fn_trait_base_serves, fn_trait_call_contract, fn_trait_slot_contract, t_slot_is_borrow } :: import("../../types/definitions.yo");
+{ some_t_bounds, TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, no_levels, no_flags, SharedList, slot_pointee_at, t_slot_pointee, t_slot, t_slot_like, fn_param_is_mut_ref, fn_param_is_by_value, fn_param_mut_ref_flags, fn_param_by_value_flags, t_slot_with_pointee, fn_result_is_ref, fn_result_is_mut_ref, t_slot_origin_names, is_origin_kind, t_origin_kind, t_origin_named, t_reference_with_origin, fn_trait_base_serves, fn_trait_call_contract, fn_trait_slot_contract, t_slot_is_borrow, t_slot_is_mut_ref } :: import("../../types/definitions.yo");
 { Token, TokenKind } :: import("../../token.yo");
 { HashMap } :: import("std/collections/hash_map");
 { HashSet } :: import("std/collections/hash_set");
@@ -817,6 +817,18 @@ _mark_value_rebind :: (fn(v : &Option(Variable), func_type : &TypeValue, i : usi
 /// place (`s.items`, `p.*`), or an element of one (`xs(i)`, an `Index` or
 /// array access, decision 20) is a place.
 _marker_place_of :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext) -> _MarkerPlace)(
+  cond(
+    // An argument typed as a `&T` reference (a reference binding, a reference
+    // field, `lhs.*` with `lhs : &&T`) is the reference value where a `&T`
+    // slot expects it (the read rule, VERDICTS-23 R1, stated by type): it
+    // passes bare, whatever its syntax. `&lhs.*.*` relends the referent and
+    // stays legal. A `&mut T` is not `Copy`: only a `&mut` reference FIELD's
+    // read (N1e-2) passes whole; any other keeps the syntactic arms.
+    match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(e)), .Some(ei) => (t_slot_is_borrow(&ei.ty()) && (!t_slot_is_mut_ref(&ei.ty()) || reference_field_read_type(ast_expr_id(e)).is_some())), .None => false) => _MarkerPlace.Borrow,
+    true => _marker_place_of_syntax(e, env, ctx)
+  )
+);
+_marker_place_of_syntax :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext) -> _MarkerPlace)(
   match(
     e,
     .Atom(_, tok) => cond(
@@ -840,9 +852,6 @@ _marker_place_of :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext) ->
       )
     ),
     .FnCall(_, mp_callee, Rc(mp_args), mp_infix, _) => cond(
-      // A reference field's read (N1e-2) passes the reference it holds, as
-      // a borrow binding passed whole does.
-      reference_field_read_type(ast_expr_id(e)).is_some() => _MarkerPlace.Borrow,
       ast_expr_is_fn_call_of(e, ".", .Some(usize(2))) => match(
         mp_args.get(usize(1)),
         .Some(.Atom(_, _)) => match(
