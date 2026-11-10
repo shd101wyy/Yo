@@ -343,7 +343,8 @@ Placement rules for `&` and `&mut`:
   operator-call form of `a & b`.
 - In **return-type position** (`-> &T`, `-> &mut T`, `-> (name : &mut T)`)
   they declare a **projection** (decision 24): the body yields a place written
-  with the result's sigil (`&self.a`, `&mut self.rows(i)`), rooted at one of
+  with the result's sigil (`&self.a`, `&mut self.rows(i)`), or a reference
+  binding (`x` for `x : &T`, the result is a reference slot), rooted at one of
   the function's borrow parameters. A projection is reached through the
   subscript (`x(i)`) or called directly (`t.index(i)`), whose result is the
   place: an operand, a receiver, a borrow argument, a local borrow

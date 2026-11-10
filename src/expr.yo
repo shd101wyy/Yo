@@ -2946,6 +2946,27 @@ projection_tail_is_read :: (fn(e : &AstExpr) -> bool)(
     .Atom(_, _) => false
   )
 );
+/// The token a diagnostic about the projection result node `e` points at:
+/// for a result written as a bare name (`PROJECTION_*_READ_PATH`) the user's
+/// name, not the marker (whose module path is `auto-generated://...`).
+projection_tail_diag_token :: (fn(e : &AstExpr) -> Token)(
+  match(
+    e,
+    .FnCall(_, _, Rc(pd_args), _, pd_tok) => cond(
+      projection_tail_is_read(e) => match(
+        pd_args.get(usize(0)),
+        .Some(pd_deref) => match(
+          &pd_deref,
+          .FnCall(_, _, Rc(pd_dargs), _, _) => match(pd_dargs.get(usize(0)), .Some(pd_name) => ast_expr_token(&pd_name), .None => pd_tok),
+          .Atom(_, _) => pd_tok
+        ),
+        .None => pd_tok
+      ),
+      true => pd_tok
+    ),
+    .Atom(_, pd_atok) => pd_atok
+  )
+);
 /// `addr_of(name.*)` marked as a projection result written as the bare
 /// name `name` (`PROJECTION_*_READ_PATH`).
 _projection_read_tail :: (fn(name : &AstExpr, is_mut : bool) -> AstExpr)({
@@ -3125,7 +3146,7 @@ _projection_returns :: (fn(e : &AstExpr, is_mut : bool, mismatches : &mut ArrayL
 rewrite_projection_tails :: (fn(body : &AstExpr, is_mut : bool, mismatches : &mut ArrayList(Token)) -> AstExpr)(
   _projection_tail(body, is_mut, mismatches)
 );
-export(PROJECTION_REF_TAIL_PATH, PROJECTION_MUT_TAIL_PATH, PROJECTION_REF_READ_PATH, PROJECTION_MUT_READ_PATH, projection_tail_mode, projection_tail_is_read, rewrite_projection_tails, AUTO_REF_RECEIVER_PATH, ast_expr_is_auto_ref_receiver);
+export(PROJECTION_REF_TAIL_PATH, PROJECTION_MUT_TAIL_PATH, PROJECTION_REF_READ_PATH, PROJECTION_MUT_READ_PATH, projection_tail_mode, projection_tail_is_read, projection_tail_diag_token, rewrite_projection_tails, AUTO_REF_RECEIVER_PATH, ast_expr_is_auto_ref_receiver);
 /// `?Sized` as written in a binder's kind slot (`generic(T : ?Sized)`,
 /// `comptime(V) : ?Sized`; plans/VALUES_BY_DEFAULT.md decision 49): the
 /// prefix `?` applied to the bare name `Sized`. Read as one kind, never as

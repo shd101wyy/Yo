@@ -593,3 +593,69 @@ comptime_expect_error(
   }),
   "`c` is a local: its storage ends with the call"
 );
+// VERDICTS-45 (R-RESULT): the result position is a reference slot, and each
+// result leaf is `&place` or a reference binding read. Both spellings stay
+// legal (`&x.*` is `&place` with the place `x.*`).
+// A `&mut` binding handed out as a `&T` result is a shared reborrow.
+rr_res_downgrade :: (fn(k : &mut i32) -> &i32)(k);
+// `cond` and `match` arms that are bare bindings, and a chain mixing a
+// binding with a lend.
+rr_res_cond :: (fn(c : bool, a : &i32, b : &i32) -> &i32)(cond(c => a, true => b));
+rr_res_match :: (fn(o : Option(i32), a : &i32, b : &i32) -> &i32)(
+  match(
+    o,
+    .Some(_) => a,
+    .None => b
+  )
+);
+rr_res_mixed :: (fn(c : bool, a : &i32, b : &RrProjBox) -> &i32)(cond(c => a, true => &b.v));
+// A move-only pointee through the generic id: no copy of the `String`.
+rr_res_id :: (fn(generic(T : Type), x : &T) -> &T)(x);
+rr_res_id_lend :: (fn(generic(T : Type), x : &T) -> &T)(&x.*);
+test("a bare reference binding is a result leaf", {
+  mut(m) := i32(3);
+  assert(rr_res_downgrade(&mut m).* == i32(3), "a `&mut` binding into a `&T` result");
+  a := i32(1);
+  b := i32(2);
+  assert(rr_res_cond(true, &a, &b).* == i32(1), "the first cond arm");
+  assert(rr_res_cond(false, &a, &b).* == i32(2), "the second cond arm");
+  assert(rr_res_match(.Some(i32(0)), &a, &b).* == i32(1), "the first match arm");
+  assert(rr_res_match(.None, &a, &b).* == i32(2), "the second match arm");
+  bx := RrProjBox(v : i32(8));
+  assert(rr_res_mixed(true, &a, &bx).* == i32(1), "the binding leaf");
+  assert(rr_res_mixed(false, &a, &bx).* == i32(8), "the lend leaf");
+  s := String.from("move-only");
+  assert(rr_res_id(&s).len() == usize(9), "the pointee is read in place");
+  assert(rr_res_id_lend(&s).len() == usize(9), "the `&x.*` spelling is still legal");
+  assert(s.len() == usize(9), "the owner is untouched");
+});
+// An origin that does not name the binding's parameter is the same error
+// `&b.*` gives.
+comptime_expect_error(
+  rr_res_origin_bare :: (fn(a : &i32, b : &i32) -> &(i32, a))(b),
+  "ORIGIN_MISMATCH_TEXT"
+);
+comptime_expect_error(
+  rr_res_origin_lend :: (fn(a : &i32, b : &i32) -> &(i32, a))(&b.*),
+  "ORIGIN_MISMATCH_TEXT"
+);
+// The caller's loan is the parameter's: a write to the lent place while the
+// result is live is E0911.
+rr_res_g :: (fn(k : &mut i32) -> &mut i32)(k);
+comptime_expect_error(
+  rr_res_caller :: (fn() -> unit)({
+    mut(a) := i32(1);
+    r := rr_res_g(&mut a);
+    a = i32(4);
+    r.* = i32(3);
+  }),
+  "CALLER_TEXT"
+);
+// A closure returning a captured reference bare is per-call: E0923.
+comptime_expect_error(
+  rr_res_capture :: (fn(k : &i32) -> i32)({
+    f := (fn() -> &i32)(k);
+    f().*
+  }),
+  "CAPTURE_TEXT"
+);
