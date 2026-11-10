@@ -221,13 +221,10 @@ test("capture list: a `&mut` binding's by-value entry moves the reference into a
 test("capture list: a `&mut` entry moves the reference, so a later use of it is E0901", {
   mut(x) := i32(1);
   m := &mut x;
-  comptime_expect_error(
-    {
-      (mut(g) : Impl(FnMut() -> i32)) = ({ m }() => m.*);
-      m.* = i32(5);
-    },
-    "`{ m : &mut m.* }`"
-  );
+  comptime_expect_error({
+    (mut(g) : Impl(FnMut() -> i32)) = ({ m }() => m.*);
+    m.* = i32(5);
+  }, "`{ m : &mut m.* }`");
 });
 test("capture list: a closure holding a moved `&mut` is FnMut, not Fn", {
   mut(x) := i32(1);
