@@ -2514,20 +2514,6 @@ evaluate_function_parameter :: (
       Rc.new(TypeValueNode.Unit)
     }
   );
-  // A parameter `x : & &T` / `x : &mut &T` is a reference to a reference
-  // (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §7 P3). A RECEIVER slot
-  // `&&C` (`self : &Self` on `impl(&C, …)`) is not: the probe's autoref of
-  // a reference receiver lends no storage of its own yet.
-  if((has_imm_wrapper || is_param_ref) && t_slot_is_borrow(&final_param_type) && match(&label, .Some(l) => (l == "self"), .None => false), {
-    exn.throw(
-      dyn(
-        format_error_message(
-          match(type_expr, .Some(e) => ast_expr_token(&e), .None => ast_expr_token(expr)),
-          `A receiver slot that is a reference to a reference (\`self : ${if(is_param_ref, "&mut ", "&")}${type_to_string(&final_param_type)}\`) is not accepted yet. Take the receiver by value (\`self : Self\` on an impl over \`${type_to_string(&final_param_type)}\`).`
-        )
-      )
-    );
-  });
   // Raw-view naming gate (plans/archive/SLICE_REWORK.md): a SAFE file may not
   // annotate a parameter with a type whose representation carries a raw
   // pointer (RawSlice(T), structs wrapping *(T), ...). The prelude's
