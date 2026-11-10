@@ -2921,7 +2921,7 @@ jobs:
         run: bash scripts/tsan-thread-corpus.sh
 
   test-wasm32_emscripten:
-    name: test-wasm32_emscripten shard ${{ matrix.shard }}/2
+    name: test-wasm32_emscripten ${{ matrix.shard == 'smoke' && 'build-system smoke' || format('shard {0}/2', matrix.shard) }}
     needs: [changes, tree-hygiene]
     if: needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
@@ -2942,12 +2942,15 @@ jobs:
     # the unsharded leg ran 149, 91 and 147 min of its 150 on three develop
     # batteries. `--shard i/n` stripes the sorted file list, so the shards
     # partition the suite. Each leg repeats the stage-1 build (needed by the
-    # tests); the stage-2 build and the build-system smoke run once, on shard 0.
+    # tests); the stage-2 build and the build-system smoke run once, in their
+    # own `smoke` leg. On shard 0 they took 24 of its 123 min (battery
+    # 42865362929: stage-1 53, stage-2 24, tests 43; shard 1 93), past three
+    # quarters of the cap; alone they are ~77 min and each test shard ~96.
     timeout-minutes: 150
     strategy:
       fail-fast: false
       matrix:
-        shard: [0, 1]
+        shard: [0, 1, smoke]
 
     steps:
       - name: Checkout repository
@@ -3006,7 +3009,7 @@ jobs:
       # suite below stays on stage-1: its children are cross-compiled by the
       # tree's codegen either way.
       - name: Build stage-2 for the smoke
-        if: ${{ matrix.shard == 0 }}
+        if: ${{ matrix.shard == 'smoke' }}
         env:
           YO_MAIN_STACK_MB: "4096"
         run: |
@@ -3023,7 +3026,7 @@ jobs:
             -o /tmp/yo-stage2
 
       - name: Build system smoke test (WASM)
-        if: ${{ matrix.shard == 0 }}
+        if: ${{ matrix.shard == 'smoke' }}
         run: |
           /tmp/yo-stage2 init ./tmp/hello-world --name hello-world
           cd tmp/hello-world
@@ -3046,6 +3049,7 @@ jobs:
       # tests/internal is host-toolchain-only (it compiles the compiler); excluded
       # from the cross-target jobs for the same runtime/memory reason as above.
       - name: Run WASM tests
+        if: ${{ matrix.shard != 'smoke' }}
         run: |
           "$S1" test ./tests --exclude tests/internal --exclude tests/cli-cases \
             --parallel 2 --bail --verbose --c-compiler emcc --profile \
