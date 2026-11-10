@@ -1,10 +1,10 @@
 # Brace groups: `.{ … }` builds a record, `{ names }` on a binding side picks fields, every other `{ … }` is a block
 
 **Status:** decided 2026-11-10 (maintainer proposals; Fable consultations #46 and #47, #47 adopted). Not started.
-Placed **after the VBD campaign** by the maintainer (2026-11-10): post-VBD plan
-([`POST_VBD_PLAN.md`](POST_VBD_PLAN.md)) phase 1, lane A, Generation A in v0.2.81 and Generation B in v0.2.82,
-ahead of K7's docs sweep. Until Generation B lands the tree keeps today's rule ("a brace group is a record unless
-it has a `;`"). Moves to `plans/reference/` when Generation B lands. Supersedes
+Placed **inside the VBD campaign** (maintainer, 2026-11-10; Fable consultation #48): Generation A in v0.2.77 as a
+rider, never a cut gate; Generation B second in v0.2.78; the mode retired in v0.2.79; the fallback is in
+[`../handover/VBD_RELEASE_SCHEDULE.md`](../handover/VBD_RELEASE_SCHEDULE.md) §5f decision 38. Until Generation B lands
+the tree keeps today's rule ("a brace group is a record unless it has a `;`"), and nobody teaches `.{ … }` early. Moves to `plans/reference/` when Generation B lands. Supersedes
 `plans/archive/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md` §4 (the 2026-09-16 rule), which stays frozen as a record, and
 the first version of this doc (#1869, consultation #46's comma rule, never shipped).
 
@@ -120,7 +120,7 @@ Binder      ::= Identifier | 'mut' '(' Identifier ')' | Identifier ':' Pattern |
 | `.{ a; b }` | "`.{ … }` is a record; a block has no dot" | delete `.` |
 | `{}` where a record is expected | E0601 plus "`{}` is the empty block (unit); the empty record is `.{}`" | insert `.` |
 
-## The work (after VBD)
+## The work
 
 Two PRs separated by one seed bump, because std, src and the repository's `build.yo` are compiled by the seed.
 
