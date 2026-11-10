@@ -91,14 +91,14 @@ pragma(Pragma.AllowUnsafe);
   visibility_report_enabled
 } :: import("./type_trait_methods.yo");
 { register_impl_inheritance_task, register_impl_variance_task } :: import("../builtins/contracts.yo");
-{ some_t_bounds, FuncMeta, TypeValue, TypeValueNode, no_types, no_flags, shared_list, SharedList, fn_param_mut_ref_at, fn_param_by_value_at, slot_pointee_at, t_slot_pointee, t_slot_like, fn_param_is_mut_ref, fn_param_is_by_value, fn_param_mut_ref_flags, fn_result_is_ref, fn_result_origin_names, fn_param_slots, fn_param_in_result_origin, t_slot_is_borrow, t_origin_kind, t_origin_named, t_maybe_sized_kind } :: import("../../types/definitions.yo");
+{ some_t_bounds, FuncMeta, TypeValue, TypeValueNode, no_types, no_flags, shared_list, SharedList, fn_param_mut_ref_at, fn_param_by_value_at, slot_pointee_at, t_slot_pointee, t_slot_like, fn_param_is_mut_ref, fn_param_is_by_value, fn_param_mut_ref_flags, fn_result_is_ref, fn_result_origin_names, fn_param_slots, fn_param_in_result_origin, t_slot_is_borrow, t_origin_kind, t_origin_named, t_maybe_sized_kind, is_maybe_sized_kind } :: import("../../types/definitions.yo");
 { type_to_string, type_key_epoch } :: import("../../types/string.yo");
 { t_unit, t_type, t_some_t, t_some_t_of_kind, t_usize, register_some_binder_kind, clear_some_binder_kind, generate_some_type_id, enum_phantom_positions } :: import("../../types/creators.yo");
 { is_some_type, is_function_type, is_expr_type, is_type_hierarchy_type, is_future_trait_type, is_fn_trait_type, cell_handle_view } :: import("../../types/guards.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { is_implicitly_unsafe_capable_file, is_prelude_or_generated_file, is_std_module_path } :: import("../memory_safety.yo");
 { Substitution, subst_new, subst_add, subst_add_len_var, subst_set_self, substitute } :: import("../../types/substitution.yo");
-{ get_all_some_types, type_mentions_some_type, is_bound_closure_identity, resolve_cell_chain, is_value_nominal_type, note_move_only_possible, bump_trait_impl_epoch, trait_impl_epoch, fn_param_is_ptr_borrow } :: import("../../types/utils.yo");
+{ get_all_some_types, type_mentions_some_type, is_bound_closure_identity, resolve_cell_chain, is_value_nominal_type, note_move_only_possible, bump_trait_impl_epoch, trait_impl_epoch, fn_param_is_ptr_borrow, type_is_sized } :: import("../../types/utils.yo");
 { type_key, _tk_resolve_arg_slot, TYPE_IDENTITY_CACHE_CAP, type_identity_slot, type_identity_slot_holds, type_identity_cacheable, type_key_memo_check_enabled } :: import("../../types/type_key.yo");
 { stable_func_id, debug_knob, display_module_path, OwnedKeys, owned_keys_new, owned_keys_record, owned_keys_take, parse_raw_int } :: import("../../utils.yo");
 { register_func_type } :: import("../../function_value.yo");
@@ -1966,6 +1966,22 @@ try_match_generic_impl :: (
       }
     );
     vi = (vi + usize(1));
+  });
+  // Coherence rule 3 as refined by decision 49: a binder of kind `Type`
+  // carries `where(T <: Sized)`, so a blanket over it covers the sized types
+  // only and never matches (nor overlaps an impl on) an unsized one. A
+  // `T : ?Sized` binder takes both. Only a BARE blanket (`impl(T, ...)`) is
+  // sized-only: `impl(*T, ...)` and `impl(&T, ...)` are about the pointer,
+  // which is sized whatever `T` is, and std's pointer impls (`*T : Copy`)
+  // predate `?Sized` (S2 respells them).
+  if(all_bound && is_some_type(&entry.receiver_type_pattern), {
+    (sz_i : usize) = usize(0);
+    while(sz_i < bindings.len(), sz_i = (sz_i + usize(1)), {
+      sz_sized_kind := match(entry.forall_some_types.get_cloned(sz_i), .Some(Rc(.SomeT({ parent_type : sz_pt }))) => !is_maybe_sized_kind(&sz_pt), _ => false);
+      if(sz_sized_kind && match(bindings.get_cloned(sz_i), .Some(sz_b) => !type_is_sized(&sz_b), .None => false), {
+        return(Option(ArrayList(TypeValue)).None);
+      });
+    });
   });
   // DURABLE assoc-type registration at first success (impl fields
   // live ON the type). A repeat full trait check of the same (record, trait)
