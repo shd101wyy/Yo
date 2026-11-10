@@ -1,0 +1,11 @@
+// R-CLOSURE-LIT's by-value clause: a closure that captures a holder by value carries the holder's
+// origin, so the holder's root is frozen while the closure lives (VERDICTS-44 c1).
+V :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(r : &(i32, p), n : i32));
+f :: (fn() -> i32)({
+  mut(x) := i32(1);
+  h := V(x)(r : &x, n : i32(0));
+  (g : Impl(Fn() -> i32)) = ({ h }() => h.r.*);
+  x = i32(3);
+  g()
+});
+export(f);

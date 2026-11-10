@@ -116,4 +116,11 @@ moved-drop-holder	O-4, a user Drop holder moved into a call ends its liveness at
 two-phase-named-last-use	P9 two-phase, decision 28	pos	N1	ACCEPT	accept
 two-phase-named-after	P9 two-phase, decision 28	neg	N1	E0911	E0911|Cannot write `xs` here
 two-phase-mut-relend	P9 two-phase, decision 28	neg	N1	E0910	E0910|an earlier argument of the same call lends
-effect-result-holder	P8 ctl results, O7 effect handlers	pos	N1	ACCEPT	accept
+closure-captures-ref-binding	O7 closures, VERDICTS-44 R-CAP-1: `{ y }` copies a reference	pos	N2	ACCEPT	accept
+closure-captures-self-ref	O7 closures, VERDICTS-44: a `&T` parameter of a move-only type captured	pos	N2	ACCEPT	accept
+closure-ref-capture-outlives-binding	O7 closures, VERDICTS-44 R-CAP-2: the origin is what the reference refers to	pos	N2	ACCEPT	accept
+closure-ref-capture-write-root	O7 closures, VERDICTS-44 R-CAP-2: the root is frozen while the closure lives	neg	N2	E0911	E0911|
+closure-ref-capture-returned-over-local	O7 closures, VERDICTS-44 R-CAP-2: returned over a local	neg	N2	E0912	E0909|
+closure-holder-capture-write-root	R-CLOSURE-LIT by-value clause, VERDICTS-44 c1	neg	N2	E0911	E0911|
+closure-holder-capture-returned-over-local	R-CLOSURE-LIT by-value clause, VERDICTS-44 d2 (a heap-use-after-free)	neg	N2	E0912	E0909|
+async-captures-ref-param	O7 closures, O8, VERDICTS-44: an io.async body copies a `&P` parameter	pos	N3	ACCEPT	accept

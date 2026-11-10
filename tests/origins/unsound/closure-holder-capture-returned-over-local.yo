@@ -1,0 +1,16 @@
+// expect: E0909
+// R-CLOSURE-LIT's by-value clause: the closure captures the holder `h` (which holds `&x.*`) by
+// value, so it carries `h`'s origin; returned over the local `x` it is a heap-use-after-free under
+// ASan when the rejection is missing (VERDICTS-44 d2).
+{ println } :: import("std/fmt");
+V :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(r : &(i32, p), n : i32));
+mk :: (fn(k : i32) -> Impl(Fn() -> i32))({
+  x := Box(i32).new(k);
+  h := V(x)(r : &x.*, n : i32(0));
+  ({ h }() => h.r.*)
+});
+main :: (fn() -> unit)({
+  g := mk(i32(41));
+  println(`OUT: ${g().to_string()}`);
+});
+export(main);

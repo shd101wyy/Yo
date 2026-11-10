@@ -3275,6 +3275,17 @@ count := i32(0);
   `z : &mut p` borrow the place `p`; `&y` and `&mut z` are the puns of
   `y : &y` and `z : &mut z`. The left of an entry names the field, and the
   sigil on the right carries the mode.
+- **A reference binding is captured by copying the reference.** Outside std and
+  the compiler's own source, the entry `y` (or `r : y`) of a reference binding
+  (a `&T` parameter, `self : &Self`, `y := &x`, a `match` or `for` binding)
+  copies the reference, not the value it refers to: a `&T` is `Copy`, so `y`
+  stays usable, and the closure's origin is what `y` refers to (`x`), not the
+  binding `y`. `{ q : &p.field }` projects and `{ m : &mut m.* }` reborrows a
+  `&mut T`; the by-value entry `{ m }` of a `&mut` binding is rejected because
+  it would move the reference. A closure that captures any value carrying an
+  origin by value (a holder `h`, a reference copy) carries that origin: it
+  cannot be returned over the local the origin names, and that local is frozen
+  while the closure lives.
 - **The list is exhaustive.** With a list the body may read only the listed
   captures and module-level items; `{}()` captures nothing. Without a list,
   capture stays implicit.

@@ -230,6 +230,55 @@ test("words-then-write", {
   verdict("words-then-write", case2(main, words), "E0911");
 });
 // ---------------------------------------------------------------------------
+// A closure capturing a reference or a holder by value (VERDICTS-44 R-CAP-1/2). A capture of an
+// origin-carrying value puts that origin in the closure, which the model checks as the holder
+// bound by a call that lends the root: the freeze (E0911) and the return rule (E0912) are the
+// shapes `words`, `words-then-write` and `ret-local` already encode.
+// ---------------------------------------------------------------------------
+words_main :: (fn(write_before_use : bool) -> FnDef)(
+  entry(
+    cond(
+      write_before_use => al4(let_(DOC, lit()), let_(W, call(usize(1), al1(Rc.new(NodeE.Borrow(false, DOC))))), Rc.new(NodeE.Assign(DOC, lit())), use_(Rc.new(NodeE.Var(W)))),
+      true => al4(let_(DOC, lit()), let_(W, call(usize(1), al1(Rc.new(NodeE.Borrow(false, DOC))))), use_(Rc.new(NodeE.Var(W))), Rc.new(NodeE.Assign(DOC, lit())))
+    )
+  )
+);
+words_fn :: (fn() -> FnDef)(
+  fun(
+    u64(0),
+    al1(prm(SELF, shr(int(), ELIDED))),
+    list(shr(int(), o(SELF))),
+    al3(let_(OUT, Rc.new(NodeE.NewList(shr(int(), o(SELF))))), Rc.new(NodeE.Push(OUT, Rc.new(NodeE.Reborrow(SELF)))), Rc.new(NodeE.Return(Rc.new(NodeE.Var(OUT)))))
+  )
+);
+ret_param_main :: (fn() -> FnDef)(entry(al3(let_(X, lit()), let_(R, call(usize(1), al1(Rc.new(NodeE.Borrow(false, X))))), use_(Rc.new(NodeE.Var(R))))));
+ret_param_fn :: (fn() -> FnDef)(fun(u64(0), al1(prm(XS, shr(int(), ELIDED))), shr(int(), o(XS)), al1(Rc.new(NodeE.Return(Rc.new(NodeE.Reborrow(XS)))))));
+ret_local_fn :: (fn() -> FnDef)(fun(u64(0), al1(prm(XS, shr(int(), ELIDED))), shr(int(), ELIDED), al2(let_(Y, lit()), Rc.new(NodeE.Return(Rc.new(NodeE.Borrow(false, Y)))))));
+test("closure-captures-ref-binding", {
+  verdict("closure-captures-ref-binding", case2(words_main(false), words_fn()), "ACCEPT");
+});
+test("closure-captures-self-ref", {
+  verdict("closure-captures-self-ref", case2(ret_param_main(), ret_param_fn()), "ACCEPT");
+});
+test("closure-ref-capture-outlives-binding", {
+  verdict("closure-ref-capture-outlives-binding", case2(words_main(false), words_fn()), "ACCEPT");
+});
+test("closure-ref-capture-write-root", {
+  verdict("closure-ref-capture-write-root", case2(words_main(true), words_fn()), "E0911");
+});
+test("closure-ref-capture-returned-over-local", {
+  verdict("closure-ref-capture-returned-over-local", case2(entry(none()), ret_local_fn()), "E0912");
+});
+test("closure-holder-capture-write-root", {
+  verdict("closure-holder-capture-write-root", case2(words_main(true), words_fn()), "E0911");
+});
+test("closure-holder-capture-returned-over-local", {
+  verdict("closure-holder-capture-returned-over-local", case2(entry(none()), ret_local_fn()), "E0912");
+});
+test("async-captures-ref-param", {
+  verdict("async-captures-ref-param", case2(ret_param_main(), ret_param_fn()), "ACCEPT");
+});
+// ---------------------------------------------------------------------------
 // Several `&mut` out of one lend (O3 step 2)
 // ---------------------------------------------------------------------------
 get2_mut :: (fn() -> FnDef)(sig(u64(0), al1(prm(SELF, exc(list(int()), ELIDED))), Rc.new(TyE.Tup(al2(exc(int(), o(SELF)), exc(int(), o(SELF)))))));
