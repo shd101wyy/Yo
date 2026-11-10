@@ -205,10 +205,34 @@ test("capture list: the closure's origin is what the reference refers to, not th
   };
   assert(g() == i32(42), "the closure outlives y, not x");
 });
-test("capture list: a `&mut` binding's by-value entry names the reborrow", {
+test("capture list: a `&mut` binding's by-value entry moves the reference into an FnMut closure", {
+  mut(x) := i32(1);
+  {
+    m := &mut x;
+    (mut(g) : Impl(FnMut() -> i32)) = ({ m }() => {
+      m.* = (m.* + i32(1));
+      m.*
+    });
+    assert(g() == i32(2), "the closure writes through the moved reference");
+    assert(g() == i32(3), "and again");
+  };
+  assert(x == i32(3), "the writes reached x");
+});
+test("capture list: a `&mut` entry moves the reference, so a later use of it is E0901", {
   mut(x) := i32(1);
   m := &mut x;
-  comptime_expect_error(_cl_call0({ m }() => m.*), "Reborrow it for the closure's life with `{ m : &mut m.* }`");
+  comptime_expect_error(
+    {
+      (mut(g) : Impl(FnMut() -> i32)) = ({ m }() => m.*);
+      m.* = i32(5);
+    },
+    "`{ m : &mut m.* }`"
+  );
+});
+test("capture list: a closure holding a moved `&mut` is FnMut, not Fn", {
+  mut(x) := i32(1);
+  m := &mut x;
+  comptime_expect_error(_cl_call0({ m }() => m.*), "FnMut");
 });
 // ---------------------------------------------------------------------------
 // Exhaustiveness and entry shapes

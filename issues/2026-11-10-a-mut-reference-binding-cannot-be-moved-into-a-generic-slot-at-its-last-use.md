@@ -12,3 +12,11 @@ g :: (fn(m : &mut i32) -> unit)({
   q.* = i32(3);
 });
 ```
+
+## Update (capture lane PR 2)
+
+The closure-capture half is fixed: the by-value entry `{ m }` of a `&mut T` binding moves the reference into the closure
+(`tests/closure_capture_list.test.yo`, "a `&mut` binding's by-value entry moves the reference into an FnMut closure"), a later use of
+`m` is E0901 naming `{ m : &mut m.* }`, and the closure is `FnMut` (E0913 at an `Fn` slot). The generic-slot half (`q := id(m)` at `m`'s
+last use, probe `d1`) is still open: `check_dyn_copy`'s "it is a `&mut` borrow, which names storage the caller owns" predicate has to be
+narrowed so a `&mut` binding, not its referent, is a movable value (decision 43's unbuilt move).
