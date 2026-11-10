@@ -1,0 +1,8 @@
+{ assert } :: import("std/assert");
+bs_fwd_r :: (fn(f : &Impl(Fn(x : &i32) -> &i32), v : &i32) -> &i32)(&f(v));
+main :: (fn() -> unit)({
+  o := i32(3);
+  g := (fn(x : &i32) -> &i32)(&x.*);
+  assert(bs_fwd_r(&g, &o).* == i32(3), "r");
+});
+export(main);

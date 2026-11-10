@@ -46,3 +46,7 @@ fails earlier, in unification.
 ## Test
 
 The fix adds the three shapes (by-value, `&`, `&mut` slots; the `-> &i32` body and the `.*` body) to `tests/borrow_spelling.test.yo` or `tests/fn_mut.test.yo`, plus the P14 corpus row, and moves this doc to `issues/fixed/`.
+
+## Fixed
+
+Measured 2026-11-10 on a develop-built tree binary (`f8c70b02a`). The issue's reproducer spelled the projection `apply_v : (fn(...) -> &i32)(f(v))` with a single `:` (a type-annotation binding, not a definition), and its body forwarded the call BARE. The accepted spelling is decision 24's `&f(v)`: it works for the by-value, `&` and `&mut` callable slots, and `f(v).*` reads the result in the value form, for all three slots too. Test: "a projection forwards a reference-returning callable's call" in `tests/borrow_spelling.test.yo`. The bare `f(v)` of an `Impl(Fn(...) -> &T)` callable is still E0601 (`i32` vs `*(i32)`) where a bare call of a named projection, or of an `fn`-typed parameter, gets the decision-24 text naming `&g(v)`: filed as `issues/2026-11-10-a-bare-call-of-an-impl-fn-callable-as-a-projection-body-is-e0601.md` (S3, a wrong diagnostic for a program that is rightly rejected).
