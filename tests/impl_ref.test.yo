@@ -277,3 +277,11 @@ test("(xi) (head, method): a reference impl's method, a method of the value type
   assert((&g).hm1() == i32(31), "a generic reference impl's member");
   assert((&g).hmd() == i32(40), "a generic reference impl's trait default");
 });
+test("(xi) (head, method) on an owned receiver: a reference impl's member and a trait default it took", {
+  c := _HmC(n : i32(2));
+  assert(c.hm1() == i32(30), "the reference impl's member, receiver C");
+  assert(c.hmd() == i32(40), "a trait default only the reference impl provides, receiver C");
+  g := _HmG(n : i32(5));
+  assert(g.hm1() == i32(31), "a generic reference impl's member, receiver G");
+  assert(g.hmd() == i32(40), "a generic reference impl's trait default, receiver G");
+});

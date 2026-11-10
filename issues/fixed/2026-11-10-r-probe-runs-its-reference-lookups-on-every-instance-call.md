@@ -51,3 +51,16 @@ The global switch and the else arm are gone; the `&base` / `&mut base` lookups a
 **Scope that remains:** the residual +5.32e9 is the same defect on a receiver whose head has a reference impl (std's collections: `ArrayList`, `HashMap`,
 `BTreeMap`, `Deque`, `HashSet`, `OrderedMap`, `PriorityQueue`, whose `IntoIterator` impls provide only `into_iter`). The head index is too coarse: every
 `xs.len()`, `xs.push(v)`, `m.insert(k, v)` still runs the full probe. The (head, method) index (VERDICTS-51 section 3) closes it. Tests: `tests/impl_ref.test.yo` (x).
+
+## Fixed: (head, method) index (VERDICTS-51 B2)
+
+Index (i) is keyed by `(head, method)`: a reference impl notes every method name it registers (members and trait defaults), under the syntactic and the type-derived head, at the concrete and the generic registration sites. A pending reference impl of the head is forced before the gate reads the index. A call such as `xs.len()` on a std collection no longer probes the reference slots, because the collections' reference impls register only `into_iter`.
+
+| Tree | Allocation calls, `check src/main.yo` |
+| --- | --- |
+| `fe58873dd` (green baseline) | 7,064,194,617 |
+| A: develop `30e1411cd` | 16,198,306,101 |
+| B: #1882 | 12,381,196,693 |
+| B2 | **7,361,723,027** (two runs agreeing to the call) |
+
+`YO_DEBUG_RPROBE_STATS=1` over `check ./src`: 174,513 instance calls; 938 run the reference lookups (198 explicit `(&x)`, 214 a reference impl's method, 526 a bare-binder blanket's method). The ratchet baseline is set to B2's count; the remaining +4.2% over `fe58873dd` is #1876's own cost. `YO_DEBUG_RPROBE_AUDIT=1` is clean over `check ./std`, `check ./src` and the R-PROBE tests. Tests: `tests/impl_ref.test.yo` (x), (xi).
