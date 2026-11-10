@@ -1,0 +1,41 @@
+{ println } :: import("std/fmt");
+Point :: struct(x : i32, y : i32);
+Solo :: struct(v : i32);
+Z :: struct();
+Shape :: enum(At(p : Point), Gone);
+Cfg :: { name : "cfg", size : i32(3) };
+sum :: (fn(a : Point) -> i32)((a.x + a.y));
+mkz :: (fn() -> Z)({});
+main :: (fn() -> unit)({
+  a := i32(1);
+  b := i32(2);
+  r := { x : a, y : b };
+  s := { a };
+  (p : Point) = { x : a, y : b };
+  (q : Solo) = { v : a };
+  z := {};
+  nested := { inner : { x : a }, k : b };
+  shape := Shape.At({ x : a, y : b });
+  { x, y } := r;
+  { v } := s;
+  total := match(
+    shape,
+    .At({ p }) => (p.x + p.y),
+    .Gone => i32(0)
+  );
+  m := match(r, { x : c, y : d } => (c * d));
+  f := { a }(n : i32) => (n * a);
+  g := { v : a }() => a;
+  cond(
+    (total > i32(0)) => {
+      println(sum({ x : a, y : b }));
+    },
+    true => {
+      println(`none`);
+    }
+  );
+  println(`${x} ${y} ${v} ${m} ${f(b)} ${g()} ${nested.inner.x} ${Cfg.size} ${p.x} ${q.v}`);
+  _zz := mkz();
+  ()
+});
+export(main);
