@@ -1,0 +1,9 @@
+// The closure copies `y`, whose origin is `x`: `x` is frozen while the closure lives.
+mk :: (fn() -> i32)({
+  mut(x) := i32(1);
+  y := &x;
+  (g : Impl(Fn() -> i32)) = ({ y }() => y.*);
+  x = i32(3);
+  g()
+});
+export(mk);

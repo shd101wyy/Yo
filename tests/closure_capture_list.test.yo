@@ -176,6 +176,41 @@ test("capture list: a closure literal argument with a capture list", {
   assert(_cl_call0({ &k }() => k.*) == i32(5), "borrowed");
 });
 // ---------------------------------------------------------------------------
+// A capture entry of a reference binding copies the reference (VERDICTS-44)
+// ---------------------------------------------------------------------------
+_ClNamed :: struct(s : String);
+_cl_len_via_capture :: (fn(p : &_ClNamed) -> usize)({
+  (h : Impl(Fn() -> usize)) = ({ p }() => p.s.len());
+  h()
+});
+test("capture list: an entry of a reference binding copies the reference", {
+  x := i32(41);
+  y := &x;
+  (g : Impl(Fn() -> i32)) = ({ y }() => (y.* + i32(1)));
+  assert(g() == i32(42), "`{ y }` reads what y refers to");
+  (h : Impl(Fn() -> i32)) = ({ r : y }() => (r.* + i32(2)));
+  assert(h() == i32(43), "`{ r : y }` renames the copied reference");
+  assert(y.* == i32(41), "y is usable after the capture: a `&T` is Copy");
+});
+test("capture list: a `&T` parameter of a move-only type is captured as a reference", {
+  n := _ClNamed(s : String.from("hello"));
+  assert(_cl_len_via_capture(&n) == usize(5), "the capture reads the caller's String");
+  assert(n.s.len() == usize(5), "the caller's value is untouched");
+});
+test("capture list: the closure's origin is what the reference refers to, not the binding", {
+  x := i32(41);
+  (g : Impl(Fn() -> i32)) = {
+    y := &x;
+    ({ y }() => (y.* + i32(1)))
+  };
+  assert(g() == i32(42), "the closure outlives y, not x");
+});
+test("capture list: a `&mut` binding's by-value entry names the reborrow", {
+  mut(x) := i32(1);
+  m := &mut x;
+  comptime_expect_error(_cl_call0({ m }() => m.*), "Reborrow it for the closure's life with `{ m : &mut m.* }`");
+});
+// ---------------------------------------------------------------------------
 // Exhaustiveness and entry shapes
 // ---------------------------------------------------------------------------
 test("capture list: the list is exhaustive", {

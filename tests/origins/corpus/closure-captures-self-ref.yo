@@ -1,0 +1,9 @@
+// A `&T` parameter of a move-only type captured by a closure that reads it (the shape of
+// `Once.call`): the capture is the reference, not a move of the value.
+{ String } :: import("std/string");
+P :: struct(s : String);
+len_of :: (fn(p : &P) -> usize)({
+  (h : Impl(Fn() -> usize)) = ({ p }() => p.s.len());
+  h()
+});
+export(len_of);

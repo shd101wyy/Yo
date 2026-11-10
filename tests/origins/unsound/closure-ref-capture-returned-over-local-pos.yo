@@ -1,0 +1,13 @@
+// expect: accept
+// Positive twin of closure-ref-capture-returned-over-local: the closure is called where `x` lives.
+{ println } :: import("std/fmt");
+mk :: (fn(k : i32) -> i32)({
+  x := Box(i32).new(k);
+  y := &x.*;
+  g := ({ y }() => y.*);
+  g()
+});
+main :: (fn() -> unit)({
+  println(`OUT: ${mk(i32(41)).to_string()}`);
+});
+export(main);
