@@ -46,7 +46,7 @@ test("`.{ ... }` coerces to the expected struct type", {
   assert((q.x + q.y) == i32(17));
   mk :: (fn() -> Point)(.{ x : i32(10), y : i32(20) });
   assert(mk().y == i32(20));
-  sum :: (fn(a : Point) -> i32)((a.x + a.y));
+  sum :: (fn(a : Point) -> i32)(a.x + a.y);
   assert(sum(.{ x : i32(1), y : i32(2) }) == i32(3));
 });
 test("a record nested in a record", {
@@ -67,7 +67,9 @@ test("a struct-payload variant takes a record value", {
   assert(n == i32(9));
 });
 test("a parenthesized dot record takes a trailing field access", {
-  r := (.{ x : i32(5) }).x;
+  r := (
+    .{ x : i32(5) }
+  ).x;
   assert(r == i32(5));
 });
 test("the bare form still builds the same record", {
