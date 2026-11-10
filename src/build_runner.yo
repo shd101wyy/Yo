@@ -129,6 +129,7 @@ StepResult :: struct(
     duration_ms : i64,
     description : String
   );
+derive(StepResult, Clone);
 // §7 step 2 (plans/reference/INCREMENTAL_COMPILATION_ZIG_LESSONS.md): the watch
 // rounds' in-process artifact compile. main.yo registers a wrapper over
 // run_compile (failures return false instead of exiting); `.Some(f)` in the
@@ -1052,7 +1053,7 @@ _dfs_cycle :: (
 )({
   color.insert(name.clone(), _COLOR_GRAY);
   match(
-    node_map.get(name),
+    node_map.get_cloned(name),
     .None => {
       color.insert(name.clone(), _COLOR_BLACK);
       return(Option(String).None);
@@ -1095,7 +1096,7 @@ detect_cycle :: (fn(dag : &ArrayList(DAGNode)) -> Option(String))({
   i := usize(0);
   n := dag.len();
   while(i < n, {
-    node := dag(i);
+    node := dag(i).clone();
     node_map.insert(node.name.clone(), node);
     i = (i + usize(1));
   });
@@ -1783,7 +1784,7 @@ compile_artifact :: (
     exn : Exception
   ) -> Impl(Future(Result(unit, String), IoExn))
 )(
-  io.async((e : IoExn) => {
+  io.async({ artifact, &ctx }(e : IoExn) => {
     effective_target := match(
       &ctx.target_triple,
       .Some(t) => t.clone(),
@@ -2307,7 +2308,7 @@ run_executable :: (
   ) -> Impl(Future(Result(unit, String), IoExn))
 )({
   owned_args := args.clone();
-  io.async((e : IoExn) => {
+  io.async({ artifact, &ctx, owned_args }(e : IoExn) => {
     effective_target := match(
       &ctx.target_triple,
       .Some(t) => t.clone(),
@@ -2382,7 +2383,7 @@ run_verify_step :: (
     exn : Exception
   ) -> Impl(Future(Result(unit, String), IoExn))
 )(
-  io.async((e : IoExn) => {
+  io.async({ cfg, &ctx }(e : IoExn) => {
     target := Path.new(&ctx.project_dir).join(Path.new(&cfg.root));
     mut(cmd) := Command.new(_self_exe());
     cmd = cmd.arg(String.from("verify"));
@@ -2421,7 +2422,7 @@ run_test_suite :: (
     exn : Exception
   ) -> Impl(Future(Result(unit, String), IoExn))
 )(
-  io.async((e : IoExn) => {
+  io.async({ suite, &ctx }(e : IoExn) => {
     test_path := Path.new(&ctx.project_dir).join(Path.new(&suite.root));
     mut(cmd) := Command.new(_self_exe());
     cmd = cmd.arg(String.from("test"));
@@ -2515,7 +2516,7 @@ execute_node :: (
     exn : Exception
   ) -> Impl(Future(StepResult, IoExn))
 )(
-  io.async((e : IoExn) => {
+  io.async({ &node, &ctx }(e : IoExn) => {
     description := node.name.clone();
     success := true;
     match(
@@ -2684,7 +2685,7 @@ _dependency_failed :: (fn(node : &DAGNode, results : &HashMap(String, StepResult
   (i : usize) = usize(0);
   while(i < node.depends_on.len(), {
     match(
-      results.get(&node.depends_on(i)),
+      results.get_cloned(&node.depends_on(i)),
       .Some(r) => if(!r.success, {
         return(true);
       }),
@@ -2707,7 +2708,7 @@ _execute_node_unless_blocked :: (
     exn : Exception
   ) -> Impl(Future(StepResult, IoExn))
 )(
-  io.async((e : IoExn) => {
+  io.async({ &node, blocked, &ctx }(e : IoExn) => {
     if(blocked, {
       println(`Skipping ${node.name}: a step it depends on failed`);
       return(
@@ -2752,11 +2753,11 @@ _execute_batch :: (
   for(&owned_batch, node => {
     owned_blocked.push(_dependency_failed(&node, results));
   });
-  io.async((e : IoExn) => {
+  io.async({ &ctx, owned_batch, owned_blocked }(e : IoExn) => {
     handles := ArrayList(JoinHandle(StepResult)).new();
     (i : usize) = usize(0);
     while(i < owned_batch.len(), {
-      node := owned_batch(i);
+      node := owned_batch(i).clone();
       blocked := owned_blocked(i);
       handles.push(e.io.spawn(_execute_node_unless_blocked(&node, blocked, ctx, e.io, e.exn), e));
       i = (i + usize(1));
@@ -2769,9 +2770,9 @@ _execute_batch :: (
     batch_results := ArrayList(StepResult).new();
     i = usize(0);
     while(i < owned_batch.len(), {
-      node := owned_batch(i);
+      node := owned_batch(i).clone();
       result := match(
-        outs.get(i),
+        outs.get_cloned(i),
         .Some(.Some(r)) => r,
         .Some(.None) => StepResult(
           name : node.name.clone(),
@@ -2803,7 +2804,7 @@ execute_dag :: (
   ) -> Impl(Future(HashMap(String, StepResult), IoExn))
 )({
   owned_dag := dag.clone();
-  io.async((e : IoExn) => {
+  io.async({ &ctx, owned_dag }(e : IoExn) => {
     results := HashMap(String, StepResult).new();
     n := owned_dag.len();
     if(n == usize(0), return(results));
@@ -2812,7 +2813,7 @@ execute_dag :: (
     // Compute initial in-degrees
     i := usize(0);
     while(i < n, {
-      node := owned_dag(i);
+      node := owned_dag(i).clone();
       if(!in_degree.contains_key(&node.name), {
         in_degree.insert(node.name.clone(), i32(0));
       });
@@ -2842,7 +2843,7 @@ execute_dag :: (
       ready := ArrayList(DAGNode).new();
       i = usize(0);
       while(i < n, {
-        node := owned_dag(i);
+        node := owned_dag(i).clone();
         if(!completed.contains_key(&node.name) && (in_degree.get(&node.name).unwrap_or(i32(0)) == i32(0)), {
           ready.push(node);
         });
@@ -2863,14 +2864,14 @@ execute_dag :: (
         batch := ArrayList(DAGNode).new();
         (bi : usize) = usize(0);
         while((bi < width) && ((k + bi) < rn), {
-          batch.push(ready(k + bi));
+          batch.push(ready(k + bi).clone());
           bi = (bi + usize(1));
         });
         k = (k + batch.len());
         batch_results := e.io.await(_execute_batch(&batch, &results, ctx, e.io, e.exn), e);
         (ri : usize) = usize(0);
         while(ri < batch_results.len(), {
-          br := batch_results(ri);
+          br := batch_results(ri).clone();
           results.insert(br.name.clone(), br);
           ri = (ri + usize(1));
         });
@@ -2883,7 +2884,7 @@ execute_dag :: (
         // Decrement in-degree of all not-yet-completed nodes that depend on this
         m := usize(0);
         while(m < n, {
-          other := owned_dag(m);
+          other := owned_dag(m).clone();
           if(!completed.contains_key(&other.name), {
             j := usize(0);
             nd := other.depends_on.len();
@@ -2918,19 +2919,19 @@ _print_summary_node :: (
   ) -> unit
 )({
   status_str := match(
-    results.get(&node.name),
+    results.get_cloned(&node.name),
     .None => String.from("skipped"),
     .Some(r) => if(r.success, String.from("ok"), String.from("FAILED"))
   );
   desc := match(
-    results.get(&node.name),
+    results.get_cloned(&node.name),
     .None => node.name.clone(),
     .Some(r) => r.description.clone()
   );
   // The duration is part of what the summary promises; a node that never ran
   // (skipped) has none to show.
   timing := match(
-    results.get(&node.name),
+    results.get_cloned(&node.name),
     .None => String.new(),
     .Some(r) => ` (${r.duration_ms.to_string()} ms)`
   );
@@ -2944,7 +2945,7 @@ _print_summary_node :: (
   while(i < nd, {
     dep_name := node.depends_on(i).clone();
     match(
-      node_map.get(&dep_name),
+      node_map.get_cloned(&dep_name),
       .None => (),
       .Some(child) => {
         is_last := (i == (nd - usize(1)));
@@ -2976,7 +2977,7 @@ print_build_summary :: (
   i := usize(0);
   while(i < n, {
     match(
-      results.get(&dag(i).name),
+      results.get_cloned(&dag(i).name),
       .None => (),
       .Some(r) => {
         if(r.success, {
@@ -2995,7 +2996,7 @@ print_build_summary :: (
       node_map := HashMap(String, DAGNode).new();
       j := usize(0);
       while(j < n, {
-        nd := dag(j);
+        nd := dag(j).clone();
         node_map.insert(nd.name.clone(), nd);
         j = (j + usize(1));
       });
@@ -3056,7 +3057,7 @@ _print_plan :: (fn(step_name : &String, dag : &ArrayList(DAGNode)) -> unit)({
   println(`[dry-run] step "${step_name}" resolves to ${dag.len().to_string()} node(s):`);
   (i : usize) = usize(0);
   while(i < dag.len(), {
-    node := dag(i);
+    node := dag(i).clone();
     kind_label := match(
       node.kind,
       .Artifact => "artifact",
@@ -3086,7 +3087,7 @@ execute_step :: (
   ) -> Impl(Future(unit, IoExn))
 )({
   owned_step_name := step_name.clone();
-  io.async((e : IoExn) => {
+  io.async({ &ctx, dry_run, owned_step_name }(e : IoExn) => {
     // Planning is the same work either way — the step must exist, every
     // dependency name must resolve and the graph must be acyclic — so
     // `--dry-run` is a REAL resolution that stops here (the plan's B7).
@@ -3109,7 +3110,7 @@ execute_step :: (
     (ri : usize) = usize(0);
     while(ri < dag.len(), {
       match(
-        results.get(&dag(ri).name),
+        results.get_cloned(&dag(ri).name),
         .Some(r) => if(!r.success, {
           any_failed = true;
         }),
@@ -3318,7 +3319,7 @@ run_build :: (
     exn : Exception
   ) -> Impl(Future(unit, IoExn))
 )(
-  io.async((e : IoExn) => {
+  io.async({ &options }(e : IoExn) => {
     // §4.6: `-p <name>` names a WORKSPACE MEMBER. Resolving it to that member's
     // build file is the whole implementation — `project_dir` is this file's
     // parent, and every path downstream derives from it, so the member builds
