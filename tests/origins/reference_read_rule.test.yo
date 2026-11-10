@@ -633,11 +633,11 @@ test("a bare reference binding is a result leaf", {
 // `&b.*` gives.
 comptime_expect_error(
   rr_res_origin_bare :: (fn(a : &i32, b : &i32) -> &(i32, a))(b),
-  "ORIGIN_MISMATCH_TEXT"
+  "which that origin does not name"
 );
 comptime_expect_error(
   rr_res_origin_lend :: (fn(a : &i32, b : &i32) -> &(i32, a))(&b.*),
-  "ORIGIN_MISMATCH_TEXT"
+  "which that origin does not name"
 );
 // The caller's loan is the parameter's: a write to the lent place while the
 // result is live is E0911.
@@ -649,13 +649,16 @@ comptime_expect_error(
     a = i32(4);
     r.* = i32(3);
   }),
-  "CALLER_TEXT"
+  "`r` borrows `a` with `&mut` and is still live"
 );
 // A closure returning a captured reference bare is per-call: E0923.
+rr_res_apply :: (fn(f : Impl(Fn(v : &i32) -> &i32), v : &i32) -> i32)(f(v).*);
 comptime_expect_error(
-  rr_res_capture :: (fn(k : &i32) -> i32)({
-    f := (fn() -> &i32)(k);
-    f().*
+  rr_res_capture :: (fn() -> unit)({
+    x := i32(1);
+    y := i32(2);
+    _ := rr_res_apply({ c : &y }(v : &i32) => c, &x);
+    ()
   }),
-  "CAPTURE_TEXT"
+  "which the closure captures"
 );
