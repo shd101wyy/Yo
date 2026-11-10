@@ -212,14 +212,8 @@ register_recursion_cliques :: (fn(tasks : &ArrayList(VerifyTask)) -> unit)({
   (nodes : ArrayList(String)) = ArrayList(String).new();
   (ti : usize) = usize(0);
   while(ti < tasks.len(), {
-    match(
-      tasks.get(ti),
-      .Some(t) => {
-        nodes.push(t.func_id.clone());
-        _scan_call_edges(&t.table, &t.body, t.func_id.clone(), &mut from, &mut to);
-      },
-      .None => ()
-    );
+    nodes.push(tasks(ti).func_id.clone());
+    _scan_call_edges(&tasks(ti).table, &tasks(ti).body, tasks(ti).func_id.clone(), &mut from, &mut to);
     ti = (ti + usize(1));
   });
   // Reachability by iterative DFS over the small task graph.
@@ -7775,9 +7769,10 @@ register_frame_tasks :: (fn(tasks : &ArrayList(VerifyTask)) -> unit)({
   (ti : usize) = usize(0);
   while(ti < tasks.len(), {
     match(
-      tasks.get(ti),
+      tasks.get_cloned(ti),
       .Some(t) => {
-        g_frame_tasks.with_mut(m => m.insert(t.func_id.clone(), t));
+        fid_task := t.func_id.clone();
+        g_frame_tasks.with_mut({ fid_task, t }(m) => m.insert(fid_task, t));
         ()
       },
       .None => ()
@@ -7890,9 +7885,9 @@ _callee_frame_open :: (fn(fv : &EvalValue, table : &ExprInfoTable) -> bool)({
     return(false);
   });
   task := match(
-    g_frame_tasks.with({ &fid }(m) => m.get(fid.clone())),
+    g_frame_tasks.with({ &fid }(m) => m.get_cloned(fid)),
     .Some(t) => Option(VerifyTask).Some(t),
-    .None => g_frame_tasks.with({ &base }(m) => m.get(base.clone()))
+    .None => g_frame_tasks.with({ &base }(m) => m.get_cloned(base))
   );
   // Only a body THIS run verifies is checked: a verify-mode function in an
   // imported file outside the targets (`yo compile` verifies the targets

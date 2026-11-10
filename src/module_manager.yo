@@ -1068,13 +1068,9 @@ RevalPlan :: struct(
 _rebinds_contain :: (fn(rebinds : &ArrayList(RebindEntry), module : &String) -> bool)({
   (i : usize) = usize(0);
   while(i < rebinds.len(), {
-    match(
-      rebinds.get(i),
-      .Some(e) => if(e.reader_module == module, {
-        return(true);
-      }),
-      .None => ()
-    );
+    if(rebinds(i).reader_module == module, {
+      return(true);
+    });
     i = (i + usize(1));
   });
   false
