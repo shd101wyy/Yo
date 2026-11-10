@@ -35,6 +35,7 @@ pragma(Pragma.AllowUnsafe);
   ast_expr_to_string,
   make_err_expr,
   clone_expr_fresh_ids,
+  alloc_global_expr_id,
   wrap_body_in_begin,
   ast_expr_strip_borrow_marker,
   ast_place_text,
@@ -85,7 +86,7 @@ pragma(Pragma.AllowUnsafe);
 // imports nothing from calls/, so this is acyclic.
 { set_expr_as_consumed, judge_capture_fnmut_at_fn_slot, deref_exempt_mark, deref_exempt_clear, binder_read_mark, binder_read_clear, variable_is_reference_binding, deref_rule_applies, is_reference_deref_site, reject_reference_without_deref, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, borrowed_place_read_only_handle, are_values_equal, require_expr_not_consumed, adopt_never_type, reject_bare_callable_into_dyn_fn, reject_bare_callable_result, reject_second_class_escape, reject_second_class_return, require_capture_borrow_exclusivity, audit_copy_trait_enabled, audit_record_copy_trait, reject_write_through_rc, _owning_param_binding_for_capture_move, reference_field_read_type, reject_write_through_shared_reference_field, is_reference_read, projection_body_mismatch_message, lend_place_reference_type } :: import("../utils.yo");
 { function_may_mutate_rc_storage } :: import("../effects/mutation_summary.yo");
-{ some_t_bounds, TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, no_levels, no_flags, SharedList, slot_pointee_at, t_slot_pointee, t_slot, t_slot_like, fn_param_is_mut_ref, fn_param_is_by_value, fn_param_mut_ref_flags, fn_param_by_value_flags, t_slot_with_pointee, fn_result_is_ref, fn_result_is_mut_ref, t_slot_origin_names, is_origin_kind, t_origin_kind, t_origin_named, t_reference_with_origin, fn_trait_base_serves, fn_trait_call_contract, fn_trait_slot_contract, t_slot_is_borrow } :: import("../../types/definitions.yo");
+{ some_t_bounds, TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, no_levels, no_flags, SharedList, slot_pointee_at, t_slot_pointee, t_slot, t_slot_like, fn_param_is_mut_ref, fn_param_is_by_value, fn_param_mut_ref_flags, fn_param_by_value_flags, t_slot_with_pointee, fn_result_is_ref, fn_result_is_mut_ref, t_slot_origin_names, is_origin_kind, t_origin_kind, t_origin_named, t_reference_with_origin, fn_trait_base_serves, fn_trait_call_contract, fn_trait_slot_contract, t_slot_is_borrow, t_slot_is_mut_ref } :: import("../../types/definitions.yo");
 { Token, TokenKind } :: import("../../token.yo");
 { HashMap } :: import("std/collections/hash_map");
 { HashSet } :: import("std/collections/hash_set");
@@ -1733,6 +1734,103 @@ check_argument_for_parameter :: (
   );
   lowered
 });
+/// A GENERIC named function passed as a value at a function-typed slot is
+/// specialized at the slot's signature, as Rust instantiates a generic `fn`
+/// item when it coerces to a function pointer: `apply(idf, 3)` with
+/// `apply :: (fn(f : (fn(a : i32) -> i32), v : i32) -> i32)` takes `idf` at
+/// `i32`, and `cell.with(len_of)` takes `len_of` at the slot's `&ArrayList(i32)`.
+/// Without it the argument is the template's FuncVal, whose C name is never
+/// declared (issues/fixed/2026-11-07-a-named-fn-at-an-fnmut-slot-inside-a-generic-body-is-not-emitted.md).
+///
+/// The slot's parameter types stand in for argument types: the function is
+/// CALLED, in a scratch frame, on one binding per slot parameter (`&v` /
+/// `&mut v` where the slot lends), so the ordinary call machinery infers the
+/// binders, mints the specialization and records it for emission. The call
+/// itself is never emitted; its callee expression's ExprInfo carries the
+/// specialized FuncVal, which replaces the argument's value and type. A slot
+/// whose parameter types still name a type variable (`slot_env` does not
+/// bind them yet) leaves the argument alone.
+specialize_generic_function_at_slot :: (
+  fn(
+    arg_expr : &AstExpr,
+    arg_info : &ExprInfo,
+    slot_ty : &TypeValue,
+    slot_env : &Environment,
+    env : &Environment,
+    ctx : &mut EvalContext,
+    exn : Exception
+  ) -> unit
+)({
+  template_is_generic := match(
+    arg_info.value(),
+    .Some(.FuncVal(_, _)) => match(&arg_info.ty(), Rc(.Func({ forall_types : tf })) => (tf.len() > usize(0)), _ => false),
+    _ => false
+  );
+  if(!template_is_generic || !(ast_expr_is_atom(arg_expr) || ast_expr_is_fn_call_of(arg_expr, BF_DOT, Option(usize).Some(usize(2)))), {
+    return(());
+  });
+  n_template := match(&arg_info.ty(), Rc(.Func({ param_types : tp })) => tp.len(), _ => usize(0));
+  slot_params := match(
+    &t_slot_pointee(slot_ty),
+    Rc(.Func({ param_types : sp })) => Rc.clone(sp),
+    sty => match(extract_fn_trait_from_type(sty), .Some(Rc(.FnTraitT(_, _, cpt, _, _, _))) => Rc.clone(cpt), _ => no_types())
+  );
+  if((slot_params.len() != n_template) || (n_template == usize(0)), {
+    return(());
+  });
+  slot_pointees := ArrayList(TypeValue).new();
+  (si : usize) = usize(0);
+  while(si < n_template, {
+    sp_ty := match(slot_pointee_at(&slot_params, si), .Some(t) => t, .None => t_unit());
+    resolved := evaluate_function_parameter_type_again(&sp_ty, slot_env, ctx);
+    if(is_some_type(&resolved) || (get_all_some_types(&resolved).len() > usize(0)), {
+      return(());
+    });
+    slot_pointees.push(resolved);
+    si = (si + usize(1));
+  });
+  tok := ast_expr_token(arg_expr);
+  _scratch := env.push_frame(false);
+  call_args := ArrayList(AstExpr).new();
+  (ai : usize) = usize(0);
+  while(ai < n_template, {
+    name := `__yo_slot_arg_${ai.to_string()}`;
+    pointee := match(slot_pointees.get_cloned(ai), .Some(t) => t, .None => t_unit());
+    slot_is_mut := match(slot_params.get(ai), .Some(sl) => t_slot_is_mut_ref(&sl), .None => false);
+    slot_lends := match(slot_params.get(ai), .Some(sl) => t_slot_is_borrow(&sl), .None => false);
+    add_variable_to_env(env, &name, &pointee, &Option(EvalValue).Some(create_unknown_val(&pointee)), false, slot_is_mut, false, false, &synthetic_token(&name, &env.module_path().*));
+    atom := AstExpr.Atom(alloc_global_expr_id(), synthetic_token(&name, &env.module_path().*));
+    call_args.push(
+      cond(
+        slot_lends => AstExpr.FnCall(
+          alloc_global_expr_id(),
+          AstExpr.Atom(alloc_global_expr_id(), synthetic_token(&cond(slot_is_mut => String.from(BK_BORROW_MUT), true => String.from(BF_ADDRESS_OF)), &env.module_path().*)),
+          Rc.new({ a := ArrayList(AstExpr).new(); a.push(atom); a }),
+          false,
+          tok.clone()
+        ),
+        true => atom
+      )
+    );
+    ai = (ai + usize(1));
+  });
+  callee := clone_expr_fresh_ids(arg_expr);
+  call := AstExpr.FnCall(alloc_global_expr_id(), callee.clone(), Rc.new(call_args), false, tok.clone());
+  _call_eval := evaluate_expression_raw(&call, env, ctx, exn);
+  env.pop_frame();
+  match(
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&callee)),
+    .Some(spec_info) => match(
+      spec_info.value(),
+      .Some(spec_val) => if(is_func_val(&spec_val), {
+        arg_info.set_value(Option(EvalValue).Some(spec_val));
+        arg_info.set_ty(Rc.clone(spec_info.ty()));
+      }),
+      .None => ()
+    ),
+    .None => ()
+  );
+});
 /// Check that one function parameter matches its argument expression.
 /// Evaluates the arg, synthesizes type bindings into callee_env, and adds
 /// the parameter variable to callee_env.
@@ -1932,6 +2030,11 @@ check_if_function_parameter_matches_argument :: (
     rv_ty := Option(TypeValue).Some(arg_info.ty());
     expr_info_set_converted_runtime_type(&arg_info, &rv_ty);
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&evaled_arg), &arg_info);
+  });
+  // A generic named function at a function-typed slot is taken at the slot's
+  // signature (`specialize_generic_function_at_slot`).
+  if(!is_ct_only, {
+    specialize_generic_function_at_slot(&actual_arg, &arg_info, &resolved_pt, &callee_env_r, &caller_env_r, ctx, exn);
   });
   // Steps 3a–3c and the comptime-argument gate: the shared rule
   // (`check_argument_for_parameter`), which also lowers a comptime literal to
@@ -10078,7 +10181,7 @@ export(forall_binding_now, strip_argument_label, apply_call_site_borrow_markers,
 export(specialization_recording_begin, specialization_recording_take, purge_specialization_caches_owned_by, specialization_cache_count, specialization_flat_capture_count, specialization_capture_value_count);
 export(reject_runtime_comptime_arguments, runtime_value_for_comptime_param);
 export(resolve_param_types_from_expected);
-export(check_if_function_parameter_matches_argument);
+export(check_if_function_parameter_matches_argument, specialize_generic_function_at_slot);
 export(validate_where_constraints_for_call);
 export(_somes_are_closure_forall_args);
 export(reapply_where_clause_exprs_for_call);

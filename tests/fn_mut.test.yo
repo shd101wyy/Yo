@@ -375,3 +375,25 @@ test("FnMut: a capture-free literal at a generic FnMut slot compiles and runs", 
   n := _fm_generic_run(() => i32(5));
   assert(n == i32(5), "the literal reached the slot and ran");
 });
+// A GENERIC named function passed as a value at a function-typed slot is
+// specialized at the slot's signature (Rust's coercion of a generic `fn`
+// item to a function pointer). The template's C name was never declared.
+// issues/fixed/2026-11-07-a-named-fn-at-an-fnmut-slot-inside-a-generic-body-is-not-emitted.md
+{ ArrayList } :: import("std/collections/array_list");
+{ RefCell } :: import("std/sync/refcell");
+_gf_id :: (fn(generic(T : Type), x : T) -> T)(x);
+_gf_apply :: (fn(f : (fn(a : i32) -> i32), v : i32) -> i32)(f(v));
+_gf_len :: (fn(generic(T : Type), xs : &ArrayList(T)) -> usize)(xs.len());
+_GfBox :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(_st : Rc(RefCell(ArrayList(T))))
+);
+_gf_len_of :: (fn(generic(T : Type), self : &_GfBox(T)) -> usize)(
+  self._st.with(_gf_len)
+);
+test("a generic named fn at a plain function-typed slot is specialized at the slot", {
+  assert(_gf_apply(_gf_id, i32(3)) == i32(3), "the identity function at i32");
+});
+test("a generic named fn at an FnMut slot inside a generic body is emitted", {
+  b := _GfBox(i32)(_st : Rc.new(RefCell(ArrayList(i32)).new(ArrayList(i32).new())));
+  assert(_gf_len_of(&b) == usize(0), "the named helper ran through RefCell.with");
+});
