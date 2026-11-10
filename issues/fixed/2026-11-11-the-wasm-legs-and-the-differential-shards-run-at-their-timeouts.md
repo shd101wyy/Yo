@@ -30,6 +30,6 @@ Raising the caps again would turn each of these into a 2.5-3 hour job on every b
 
 `merge-gate` lists job ids in `needs:`, so matrix legs need no edit there and the ruleset (whose one required check is `merge-gate`) needs no change. No other workflow or script names these jobs.
 
-Any of these legs above 75% of its cap after the split is a new issue.
+Any of these legs above 75% of its cap after the split is a new issue. (Emscripten shard 0 was: `issues/fixed/2026-11-11-emscripten-shard-0-runs-at-82-percent-of-its-cap.md`.)
 
 Test: CI plumbing only. The next develop battery shows each leg's verdict and duration.
