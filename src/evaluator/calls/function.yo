@@ -106,7 +106,10 @@ pragma(Pragma.AllowUnsafe);
   unmark_dot_callee,
   call_promote_index_places_for_write,
   reference_impl_head_noted,
-  reference_blanket_method_noted
+  reference_impl_method_noted,
+  reference_blanket_method_noted,
+  note_rprobe_call,
+  rprobe_stats_on
 } :: import("../context.yo");
 { is_pointer_type, is_dyn_type, is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_some_type, is_array_type, is_function_type, is_function_type_generic, is_expr_list_type, is_comptime_list_type, is_fn_trait_type, is_unit_type, is_primitive_type, is_type_0, is_type_kind, type_decl_module, is_module_type, is_cell_primitive_type, is_counted_handle_type } :: import("../../types/guards.yo");
 { convert_comptime_type_to_runtime_type, get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
@@ -1551,24 +1554,34 @@ _find_receiver_method_of :: (
   if(!is_static, {
     probe_base := t_slot_pointee(&receiver_type);
     probe_head := type_head_name_for_impl_forcing(&probe_base);
-    head_noted := reference_impl_head_noted(&probe_head);
-    // The lookups on `&base` / `&mut base` run only when a reference impl can
-    // answer them (VERDICTS-50 invariant I): the receiver was written `(&x)`,
-    // a reference impl of the receiver's head exists, or a bare-binder blanket
-    // provides the method.
-    probe_refs := (probe_explicit || head_noted || reference_blanket_method_noted(&method_name));
-    if(head_noted, {
+    // A pending reference impl of the head is forced BEFORE the gate reads
+    // the (head, method) index, so the methods it registers are noted in time.
+    (forced : bool) = false;
+    if(reference_impl_head_noted(&probe_head), {
       match(
         force_pending_impls_for_type_name(&probe_head, Option(String).Some(method_name.clone())),
+        .Forced => {
+          forced = true;
+        },
         .Error({ msg : probe_force_msg }) => flag_pending_impl_force_error(&probe_force_msg),
         _ => ()
       );
     });
-    // The base hits are the lookup above whenever the receiver is not a
-    // reference and nothing was forced since.
+    // The lookups on `&base` / `&mut base` run only when a reference impl can
+    // answer them (VERDICTS-50/51 invariant I): the receiver was written
+    // `(&x)`, a reference impl of the receiver's head registers the method, or
+    // a bare-binder blanket provides it.
+    by_method := reference_impl_method_noted(&probe_head, &method_name);
+    by_blanket := reference_blanket_method_noted(&method_name);
+    probe_refs := (probe_explicit || by_method || by_blanket);
+    if(rprobe_stats_on(), {
+      note_rprobe_call(probe_explicit, by_method, by_blanket);
+    });
+    // The base hits are the lookup above unless the receiver is a reference or
+    // a pending impl was forced since.
     probe_base_hits := cond(
       t_slot_is_borrow(&receiver_type) => get_receiver_methods_by_name_from_env(env, method_name.clone(), &probe_base, false),
-      head_noted => get_receiver_methods_by_name_from_env(env, method_name.clone(), &receiver_type, false),
+      forced => get_receiver_methods_by_name_from_env(env, method_name.clone(), &receiver_type, false),
       true => hits.clone()
     );
     probed := _r_probe_candidates(&probe_base_hits, &probe_base, probe_ref, &method_name, env, probe_refs);
