@@ -158,7 +158,7 @@ json :: import("std/encoding/json");
   emit_chatter,
   register_std_export
 } :: import("./diagnostics.yo");
-{ eval_context_new, set_retain_walk_contexts } :: import("./evaluator/context.yo");
+{ eval_context_new, set_retain_walk_contexts, print_rprobe_stats_if_requested } :: import("./evaluator/context.yo");
 { register_evaluate_expression, set_evaluator_deadline, evaluator_deadline_tripped, evaluator_deadline_message } :: import("./evaluator/exprs/_expr.yo");
 { evaluate_anonymous_module_begin_exprs } :: import("./evaluator/values/anonymous_module.yo");
 { decode_str_lit_escapes } :: import("./evaluator/values/string.yo");
@@ -11268,6 +11268,7 @@ main :: (fn(io : Io) -> unit)({
     exn.throw(dyn(tr(`unknown subcommand '${subcmd}'. Usage: yo <${SUBCOMMAND_NAMES}> ... (yo --help lists them)`, `未知子命令 '${subcmd}'。用法：yo <${SUBCOMMAND_NAMES}> ...（yo --help 列出全部）`)));
   })))))))))))))))))))))));
   print_spec_report_if_requested();
+  print_rprobe_stats_if_requested();
   flush_user_warnings(resolve_std_path(), get_global_cache_dir());
 });
 export(main);

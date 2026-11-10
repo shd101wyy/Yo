@@ -257,3 +257,23 @@ test("(x) the gated probe: an alias, a primitive, a blanket at T := &C, a type w
   p := _RgPlain(n : i32(3));
   assert(p.plain() == i32(3), "a type with no reference impl");
 });
+// (xi) The probe's reference lookups are keyed by (head, method)
+// (VERDICTS-51): `impl(&C, Tr)` registering `m1` answers `(&c).m1()` while
+// `c.m2()` (a method of `C` alone) resolves without them, and a method only a
+// trait DEFAULT provides through a reference impl is found.
+_HmC :: struct(n : i32);
+impl(_HmC, hm2 : (fn(self : &Self) -> i32)(self.n));
+_HmTr :: trait(hm1 : (fn(self : Self) -> i32), (hmd : (fn(self : Self) -> i32)) ?= (self -> i32(40)));
+impl(&_HmC, _HmTr(hm1 : (fn(self : Self) -> i32)(i32(30))));
+_HmG :: struct(n : i32);
+impl(generic(p : Origin), &(_HmG, p), _HmTr(hm1 : (fn(self : Self) -> i32)(i32(31))));
+test("(xi) (head, method): a reference impl's method, a method of the value type alone, a trait default", {
+  c := _HmC(n : i32(2));
+  assert((&c).hm1() == i32(30), "the reference impl's member");
+  assert(c.hm2() == i32(2), "a method of C alone, on an owned receiver");
+  assert((&c).hm2() == i32(2), "a method of C alone, through (&c)");
+  assert((&c).hmd() == i32(40), "a trait default reached through the reference impl");
+  g := _HmG(n : i32(5));
+  assert((&g).hm1() == i32(31), "a generic reference impl's member");
+  assert((&g).hmd() == i32(40), "a generic reference impl's trait default");
+});

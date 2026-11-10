@@ -72,6 +72,7 @@ pragma(Pragma.AllowUnsafe);
 {
   MethodEntry,
   register_type_trait_method,
+  get_type_trait_methods_for_type,
   note_inherent_method_site,
   note_trait_impl_site,
   trait_impl_site_of,
@@ -128,6 +129,7 @@ pragma(Pragma.AllowUnsafe);
   force_pending_move_only_impls,
   type_head_name_for_impl_forcing,
   note_reference_impl_head,
+  note_reference_impl_method,
   note_reference_blanket_method,
   impl_receiver_head_name
 } :: import("../context.yo");
@@ -498,7 +500,16 @@ register_generic_impl :: (fn(entry : &GenericImplEntry) -> unit)({
       note_reference_blanket_method(&entry.field_names(rp_i));
       rp_i = (rp_i + usize(1));
     });
-  });
+  }, if(t_slot_is_borrow(&rp_pattern), {
+    // Index (i), keyed by (head, method) (VERDICTS-51): the methods a generic
+    // reference impl of `C` registers, under the head its pointee carries.
+    rp_head := type_head_name_for_impl_forcing(&t_slot_pointee(&rp_pattern));
+    (rp_j : usize) = usize(0);
+    while(rp_j < entry.field_names.len(), {
+      note_reference_impl_method(&rp_head, &entry.field_names(rp_j));
+      rp_j = (rp_j + usize(1));
+    });
+  }));
   key := entry.trait_key.clone();
   // Find existing bucket for this key, or create a new one.
   (key_idx : Option(usize)) = Option(usize).None;
@@ -6581,6 +6592,18 @@ evaluate_module_value :: (
   // a stale valueless entry here would shadow the REAL registration in every
   // later lookup (provisional entries are consulted first).
   clear_provisional_trait_methods(&receiver_type_id);
+  // A concrete reference impl (`impl(&C, Tr)`): index (i), keyed by (head,
+  // method) (VERDICTS-51), from what the registry now holds for the receiver
+  // (the impl's members and the trait defaults it took).
+  if(t_slot_is_borrow(&receiver_ty), {
+    rp_c_head := type_head_name_for_impl_forcing(&t_slot_pointee(&receiver_ty));
+    rp_c_entries := get_type_trait_methods_for_type(&receiver_type_id);
+    (rp_c_i : usize) = usize(0);
+    while(rp_c_i < rp_c_entries.len(), {
+      match(rp_c_entries.get(rp_c_i), .Some(rp_c_e) => note_reference_impl_method(&rp_c_head, &rp_c_e.label), .None => ());
+      rp_c_i = (rp_c_i + usize(1));
+    });
+  });
   // Restore self_type so the impl's parent scope sees its prior value.
   ctx.self_type = old_self_type;
   // Set ExprInfo on the impl expression and return.
