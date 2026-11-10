@@ -34,3 +34,12 @@ Keep one code path, and delete `reference_impls_seen` and the else arm.
 The invariant: a reference lookup can return a candidate the base lookup lacks only under one of those conditions. A `YO_DEBUG_RPROBE_AUDIT=1` knob runs both paths and aborts on a differing hit list. No golden moves, because the "Receiver slot types probed" note still prints on a miss. Tests go in `tests/impl_ref.test.yo`, and the ratchet is the regression test. Any residual above 5% is re-baselined in the same PR.
 
 **Timing:** a v0.2.77 cut gate, because a seed's cost cannot be fixed forward. If the fix is not on develop by 2026-11-14, the ratchet is re-baselined, v0.2.77 is cut on schedule, and the fix is the first merge of v0.2.78.
+
+## Fixed
+
+`vbd/rprobe-gate` (VERDICTS-50). `reference_impls_seen` and the else arm are deleted; one path, the `&base` / `&mut base` lookups gated on
+`probe_explicit || reference_impl_head_noted(head) || reference_blanket_method_noted(method)`; both reference-impl registration sites also note the
+type-derived head; `register_generic_impl` notes the methods of a bare-binder receiver. Measured by CI's method (stage-2 C on the libc stand-in,
+REPEAT=2): A (develop 30e1411cd) 16,198,306,101 allocation calls, B (this tree) 12,381,196,693 (-23.6%). The switch was the prime cause but not the whole
+step: the residual is `issues/2026-11-10-r-probe-residual-after-the-head-gate.md`. Tests: `tests/impl_ref.test.yo` (x), and `YO_DEBUG_RPROBE_AUDIT=1`
+over `check ./std`, `check ./src`, `impl_ref`, `reference_read_rule`, `for_read_walk`, `for_macro_borrow` (no differing hit list).
