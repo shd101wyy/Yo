@@ -386,7 +386,9 @@ shared_borrow_param_root_of_place :: (fn(place : &AstExpr, env : &Environment, c
   match(
     _place_root_variable(&stripped, env, ctx, false),
     .Some(v) => cond(
-      (v.is_imm_borrow() && !v.is_compile_time_only()) => Option(Variable).Some(v),
+      // A by-value parameter re-bound in a specialized body owns its value:
+      // its `is_imm_borrow` is ownership bookkeeping, not a `&T` parameter.
+      (v.is_imm_borrow() && !v.is_value_rebind() && !v.is_compile_time_only()) => Option(Variable).Some(v),
       true => Option(Variable).None
     ),
     .None => Option(Variable).None

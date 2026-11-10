@@ -1107,3 +1107,21 @@ test("a by-value operand is read before a later block assigns it", {
   assert(n == usize(5), "the old String reaches the callee");
   assert(s.len() == usize(32), "the replacement is kept");
 });
+
+// A by-value `fn` parameter in a generic body is the same by-value parameter
+// as in a concrete one: passed bare to a `&mut` slot it is E0914, and
+// `&mut f` is E0917 (a parameter is immutable), never E0908 "`f` is a `&T`
+// parameter"
+// (issues/fixed/2026-11-08-a-by-value-fn-parameter-in-a-generic-body-is-reported-as-a-read-only-borrow.md).
+_pm_gen_bare :: (fn(generic(A : Type, B : Type), x : &Option(A), f : (fn(a : &A) -> B)) -> Option(B))(
+  x.map(generic(B), f)
+);
+_pm_gen_mut :: (fn(generic(A : Type, B : Type), x : &Option(A), f : (fn(a : &A) -> B)) -> Option(B))(
+  x.map(generic(B), &mut f)
+);
+test("a by-value fn parameter in a generic body is not reported as a read-only borrow", {
+  o := Option(i32).Some(i32(1));
+  inc := (fn(a : &i32) -> i32)(a.* + i32(1));
+  comptime_expect_error(_pm_gen_bare(generic(i32, i32), &o, inc), "lend `f` with `&mut f`");
+  comptime_expect_error(_pm_gen_mut(generic(i32, i32), &o, inc), "a parameter is immutable");
+});
