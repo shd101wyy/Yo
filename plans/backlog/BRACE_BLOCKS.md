@@ -22,7 +22,7 @@ other `{ … }` is a block.**
    a bare expression brace is an error whose repair is the dot.
 3. **Binder positions keep bare braces: a field list, no dot, no comma for one element.** `{ a } := s`,
    `{ a : alias } = s`, `{ String } :: import("std/string")`, `{ ... } :: import("m")`,
-   `match(p, { x, y } => …)`, `.V({ x })`, `.V({ a, b : c })`, `.V({})`, and the closure capture list
+   `match(p, { x, y } => …)`, the variant patterns `.V({ x })`, `.V({ a, b : c })`, `.V({})`, and the closure capture list
    `{ y }(p) => …`, `{ &y, k : v }() => …`, `{}() => …` (VERDICTS-44 stands). A dot there is an error whose repair
    removes it.
 4. **`(a, b)` stays the only tuple spelling.** `.{ 1, 2 }` is an error naming `(1, 2)`; Zig's tuple reading is not
@@ -53,7 +53,9 @@ other `{ … }` is a block.**
 | `:=` / `=` destructuring | `{ a } := s`, `{ a : x, mut(b) } := s` | unchanged |
 | `::` module destructuring, import, glob | `{ A } :: M`, `{ A } :: import("m")`, `{ ... } :: import("m")` | unchanged |
 | `match` struct pattern and sub-patterns | `match(p, { x : 0, y } => …)` | unchanged |
-| Variant curly shorthand | `.V({ x })`, `.V({ a, b : c })`, `.V({})` | unchanged |
+| Variant curly shorthand in a pattern | `match(e, .V({ x }) => …)`, `.V({ a : 1, b })`, `.V({})` | unchanged |
+| Variant value with a named-field payload `V(a : i32, b : i32)` | `.V(a : 1, b : 2)`; `.V({ a : 1, b : 2 })` is E0601 | unchanged (`.V({ a : 1, b : 2 })` becomes a parse error naming the dot) |
+| Variant value with one struct payload `V(p : Point)` | `.V({ x : 1, y : 2 })` | `.V(.{ x : 1, y : 2 })` (the braces are a record value; migrated) |
 | Closure capture list | `{ y }() => …`, `{ &y, k : v }(x) => …`, `{}() => …` | unchanged (a binder) |
 | Bodies | `(fn(…) -> T)({ … })`, `=> { … }`, `test("n", { … })` | unchanged; `{}` is a valid empty body |
 | `${x}` in a template string, `asm` `{name}` placeholders | not brace groups | unchanged |
@@ -74,8 +76,8 @@ capture lists, 1,417 patterns, 28 `:=` destructurings).
    named struct (probed on seed v0.2.76).
 5. Binder positions were already separated from expressions by consultation #46, so the 2026-09-16 objection to a
    marked record value no longer applies.
-6. "A literal is a valid pattern" already fails today (`.V({ a : 1, b : 2 })` as a value is E0601 while
-   `.V({ a, b })` is the preferred pattern), so keeping binders bare loses nothing that holds now.
+6. "A literal is a valid pattern" already fails today (for `V(a : i32, b : i32)`, `.V({ a : 1, b : 2 })` as a value
+   is E0601 while `.V({ a, b })` is the preferred pattern), so keeping binders bare loses nothing that holds now.
 
 Rejected: the dot in binders too (`.{ a } := s`, `.V(.{ x })`, `.{ String } :: import(…)` on 8,400 import lines,
 for no information); the comma rule (consultation #46; more exceptions, a silent `y := { x }`); `.{ 1, 2 }` as a
@@ -112,7 +114,7 @@ Binder      ::= Identifier | 'mut' '(' Identifier ')' | Identifier ':' Pattern |
 | `{ a, b }`, `{ k : v }`, `{ a : 1, b }` as a value | E0007: "`{ … }` is a block, and a block separates statements with `;`. A record literal is written `.{ a, b }`" | insert `.` (plain `yo fix`) |
 | `{ x }` where a struct / anonymous record / `Type.Struct` is expected | E0601 plus "`{ x }` is a block that yields `x`; the one-field record is `.{ x }`" | insert `.` (plain `yo fix`) |
 | `{ a; b, c }` | E0007: mixing `,` and `;` | none |
-| `.{ a } := s`, `.{ A } :: import(…)`, `.V(.{ x })`, `.{ y }() => …`, a `.{ … }` pattern | "a field list on the binding side is written without the dot: `{ a }`. `.{ … }` builds a record value" | delete `.` (plain `yo fix`) |
+| `.{ a } := s`, `.{ A } :: import(…)`, `.V(.{ x })` in a pattern, `.{ y }() => …`, a `.{ … }` pattern | "a field list on the binding side is written without the dot: `{ a }`. `.{ … }` builds a record value" | delete `.` (plain `yo fix`) |
 | `.{ .x = 1 }` (Zig) or `.{ x = 1 }` | "a record field is `x : 1`" | rewrite when every field has that shape |
 | `.{ 1, 2 }`, `.{ f(x) }` | "a record's fields are named; a tuple is `(1, 2)`" | none |
 | `.{ a; b }` | "`.{ … }` is a record; a block has no dot" | delete `.` |
