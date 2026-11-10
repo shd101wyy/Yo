@@ -13,4 +13,4 @@ Passing the call straight into a `&Dyn` parameter (`f(dyn(&c))`) works, and `d.s
 
 Also: the same annotated form with `size_of_val(d)` works, and a C `(&(<fat literal>))` initializer is emitted for the local (an `&` of the by-value fat struct); the local borrow path (`_generate_inout_local_binding`) handles the unannotated `d := dyn(&c)` form.
 
-Not fixed in S1d; the tests use parameters.
+**Status:** deferred to S2 (the form is rejected in S1, VERDICTS-43: `(d : &Dyn(T)) = dyn(&v)` is E0911 until the flip, and S2's flip PR owns its fix and its test). Still open.
