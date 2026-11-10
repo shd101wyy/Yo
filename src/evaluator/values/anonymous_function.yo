@@ -155,7 +155,7 @@ pragma(Pragma.AllowUnsafe);
 { get_all_some_types, type_is_control_bound, type_contains_rc_type, type_contains_some_type_deep, type_requires_explicit_copy, type_is_bitwise_copy, mark_fnmut_capture_struct } :: import("../../types/utils.yo");
 { attach_temp_variable_to_expr, local_borrow_place_of, BorrowCaptureOuter, note_borrow_capture_outer, apply_capture_store_joins, judge_capture_fnmut_at_fn_slot, deref_exempt_mark, deref_exempt_clear, variable_is_reference_binding, deref_rule_applies, deref_rule_recording, reject_reference_without_deref, is_reference_deref_site, is_valid_variable_name, require_expr_not_consumed, set_expr_as_needs_to_call_dup, reject_second_class_return, capture_place_crosses_cell, reject_bare_callable_result, projection_body_mismatch_message, reject_closure_literal_into_dyn_fn, place_require_mut, audit_copy_trait_enabled } :: import("../utils.yo");
 { CaptureBorrow, register_capture_borrows, type_is_second_class, fn_param_is_ptr_borrow, reject_origin_carrying_signature } :: import("../../types/utils.yo");
-{ OriginRootPlace, origin_of, variable_holder_roots, binder_read_mark, binder_read_clear, reference_binding_read_type, variable_is_mut_borrow, note_reference_read } :: import("../utils.yo");
+{ OriginRootPlace, note_mut_ref_capture_move, origin_of, variable_holder_roots, binder_read_mark, binder_read_clear, reference_binding_read_type, variable_is_mut_borrow, note_reference_read } :: import("../utils.yo");
 { type_carries_origin } :: import("../../types/utils.yo");
 { with_code } :: import("../../error.yo");
 { E_USE_OF_MOVED_VALUE } :: import("../../diagnostics.yo");
@@ -1127,26 +1127,38 @@ _evaluate_capture_list :: (
       // origin names (R-CAP-2), so the closure outlives `y` the binding but
       // not what `y` refers to.
       rv := match(&ref_copy_var, .Some(v) => Rc.clone(v), .None => return(out));
-      if(match(&reference_binding_read_type(&rv), Rc(.Reference(_, rc_m, _)) => rc_m, _ => false), {
-        _cap_list_error(
-          ctx,
-          exn,
-          ast_expr_token(&init_e),
-          `\`${rv.name}\` is a \`&mut\` reference, and the by-value entry \`${label}\` would move it into the closure. A \`&mut T\` moves at its last use (decision 35); this closure cannot take it. Reborrow it for the closure's life with \`{ ${label} : &mut ${rv.name}.* }\`.`
-        );
-      });
+      // A `&mut T` is move-only: the by-value entry moves the reference into
+      // the closure (decision 35), so it must be the binding's last use; a
+      // later use of `m` is E0901, whose help names the reborrow entry.
+      rc_is_mut := match(&reference_binding_read_type(&rv), Rc(.Reference(_, rc_m, _)) => rc_m, _ => false);
+      // The literal is evaluated more than once (a trial, the def-time pass):
+      // this entry's own earlier move is not a use after a move.
+      match(
+        rv.consumed_at_token(),
+        .Some(prev_ct) => {
+          it := ast_expr_token(&init_e);
+          if((prev_ct.row == it.row) && (prev_ct.column == it.column) && (prev_ct.module_path == it.module_path), {
+            rv.set_consumed_at_token(Option(Token).None);
+          });
+        },
+        .None => ()
+      );
       saved_rexp := replace(&mut ctx.expected_type, Option(ExpectedTypeCtx).None);
       binder_read_mark(&init_e);
       ev_ref := evaluate_expression_raw(&init_e, env, ctx, exn);
       binder_read_clear();
       ctx.expected_type = saved_rexp;
       require_expr_not_consumed(&ev_ref, env, ctx, exn);
+      if(rc_is_mut, {
+        rv.set_consumed_at_token(Option(Token).Some(ast_expr_token(&init_e)));
+        note_mut_ref_capture_move(ast_expr_token(&init_e));
+      });
       out.push(
         _CapListEntry(
           label : label,
           label_tok : name_tok,
           is_borrow : true,
-          is_mut : false,
+          is_mut : rc_is_mut,
           value_ty : variable_value_type(&rv),
           init : ev_ref.clone(),
           root_id : rv.id(),

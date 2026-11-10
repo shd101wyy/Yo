@@ -307,6 +307,10 @@ derive(RefPayloadSource, Clone);
 /// The scrutinee tokens of the consuming `match`es (see
 /// `note_consuming_match_scrutinee`).
 (g_consuming_match_scrutinees : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
+/// The tokens at which a by-value capture-list entry moved a `&mut` reference
+/// (`{ m }`, VERDICTS-44 R-CAP-2 PR 2), so a use of `m` after the closure names
+/// the reborrow entry that keeps it. Keyed by token position.
+(g_mut_ref_capture_moves : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
 /// Attach a generated temp variable to `expr`'s ExprInfo for RC drop-tracking.
 ///
 /// Steps:
@@ -831,6 +835,12 @@ _consuming_match_key :: (fn(tok : &Token) -> String)(`${tok.module_path.*}:${tok
 note_consuming_match_scrutinee :: (fn(tok : &Token) -> unit)({
   g_consuming_match_scrutinees.with_mut(s => s.insert(_consuming_match_key(tok)));
 });
+note_mut_ref_capture_move :: (fn(tok : &Token) -> unit)({
+  g_mut_ref_capture_moves.with_mut(s => s.insert(_consuming_match_key(tok)));
+});
+mut_ref_capture_move_at :: (fn(tok : &Token) -> bool)(
+  (g_mut_ref_capture_moves.with({ &tok }(s) => s.len()) > usize(0)) && g_mut_ref_capture_moves.with(s => s.contains(_consuming_match_key(tok)))
+);
 consuming_match_scrutinee_at :: (fn(tok : &Token) -> bool)(
   (g_consuming_match_scrutinees.with({ &tok }(s) => s.len()) > usize(0)) && g_consuming_match_scrutinees.with(s => s.contains(_consuming_match_key(tok)))
 );
@@ -855,6 +865,9 @@ moved_value_help :: (fn(name : &String, ty : &TypeValue, moved_tok : &Token) -> 
   cond(
     consuming_match_scrutinee_at(moved_tok) => Option(String).Some(
       `a \`match\` consumes an owned scrutinee (plans/VALUES_BY_DEFAULT.md decision 26): match through a borrow to keep using \`${name}\`, \`match(&${name}, …)\`, or \`match(&mut ${name}, …)\` to write through the bindings`
+    ),
+    mut_ref_capture_move_at(moved_tok) => Option(String).Some(
+      `the by-value capture entry of a \`&mut\` reference moves it into the closure (plans/VALUES_BY_DEFAULT.md decision 35): the closure's last use of \`${name}\` is its capture. To keep using \`${name}\` after the closure, reborrow it for the closure's life with \`{ ${name} : &mut ${name}.* }\``
     ),
     true => move_only_help(name, ty)
   )
@@ -5765,6 +5778,7 @@ export(in_compile_time_fn_body);
 export(throw_expr_is_implicit_variable_error);
 export(require_expr_not_consumed);
 export(move_only_help, move_only_type_help, use_of_moved_value_error, move_captured_explicit_copy_variable, consume_called_fnonce_closure, is_own_fnonce_capture, _owning_param_binding_for_capture_move, transfer_explicit_copy_value);
+export(note_mut_ref_capture_move);
 export(set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, borrowed_place_read_only_handle);
 export(audit_copy_trait_enabled, audit_record_copy_trait);
 export(ImplicitCopyPending, audit_note_match_binding, audit_take_implicit_copy_pending, audit_print_implicit_copy);
