@@ -261,3 +261,26 @@ test("a mut binding of a borrowed match cannot release data its owner holds", {
     _rename(&o);
   }, "cannot copy `d` out of the match's borrow");
 });
+// issues/fixed/2026-11-07-a-for-over-a-field-of-a-match-binding-of-an-inline-some-is-rejected-as-a-compile-time-value.md:
+// the scrutinee's variant is known at compile time and its payload is a
+// run-time value (`Rc.clone(&r)`), so the arm's binding is a run-time place,
+// which `&entry.items` (here a `for`'s borrow) can lend.
+_InlineBag :: struct(items : ArrayList(i32));
+test("a match binding of an inline Some over a run-time payload is a place a `for` can borrow", {
+  mut(xs) := ArrayList(i32).new();
+  xs.push(i32(1));
+  xs.push(i32(2));
+  r := Rc.new(_InlineBag(items : xs));
+  (mut(n) : usize) = usize(0);
+  match(
+    Option(Rc(_InlineBag)).Some(Rc.clone(&r)),
+    .Some(entry) => {
+      for(&entry.items, x => {
+        n = (n + usize(1));
+      });
+    },
+    .None => ()
+  );
+  assert(n == usize(2), "the `for` walked the payload's items");
+  assert(ref_count(r) == usize(1), "the payload's clone was released");
+});

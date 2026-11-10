@@ -1406,6 +1406,12 @@ evaluate_match :: (
     owned_vars := ArrayList(Variable).new();
     place_vars := ArrayList(Variable).new();
     for(&pc.binds, b => {
+      // A binding whose part of a known scrutinee has no compile-time value
+      // (`.Some(entry)` over `Option(Rc(T)).Some(Rc.clone(&r))`: the variant
+      // is known, the payload is a run-time value) is a RUN-TIME binding, a
+      // place `&entry.f` can borrow
+      // (issues/fixed/2026-11-07-a-for-over-a-field-of-a-match-binding-of-an-inline-some-is-rejected-as-a-compile-time-value.md).
+      b_ct_known := (ct_known && match(&b.value, .Some(bv) => !is_unknown_val(bv), .None => false));
       // A payload whose type is a reference (`.Some(r)` over an
       // `Option(&T)`, decision 43 step 3) binds a REFERENCE BINDING, as
       // `r := &x` and a `-> &T` projection's result do: the name has the
@@ -1416,7 +1422,7 @@ evaluate_match :: (
       // A `mut` match's place binding of a reference payload stays the
       // payload slot itself (re-pointing it is decision 25's).
       (ref_payload : Option(bool)) = cond(
-        (ct_known || mut_places) => Option(bool).None,
+        (b_ct_known || mut_places) => Option(bool).None,
         true => match(&b.ty, Rc(.Reference(_, rp_mut, _)) => Option(bool).Some(rp_mut), _ => Option(bool).None)
       );
       bind_ty := match(&ref_payload, .Some(_) => t_slot_pointee(&b.ty), .None => Rc.clone(b.ty));
@@ -1424,8 +1430,8 @@ evaluate_match :: (
         &env,
         b.name.clone(),
         &bind_ty,
-        cond(ct_known => b.value, true => Option(EvalValue).None),
-        ct_known,
+        cond(b_ct_known => b.value, true => Option(EvalValue).None),
+        b_ct_known,
         false,
         false,
         false,
@@ -1477,7 +1483,7 @@ evaluate_match :: (
       // Decision 38 A: a pattern binding is a binding. A second-class
       // value it binds freezes what it borrows for the arm, and a
       // borrowing future cannot be bound at all (§3.13 A2).
-      if(!ct_known, {
+      if(!b_ct_known, {
         match(&_added, .Some(sc_var) => note_second_class_binding(&sc_var, &b.ty, ast_expr_token(&b.atom), &env, ctx, exn), .None => ());
       });
       match(lb_scr_source, .Some(lbs) => local_borrow_note_pattern_binding(b.name.clone(), ast_expr_token(&b.atom), &lbs), .None => ());
@@ -1489,7 +1495,7 @@ evaluate_match :: (
       // by-value binding of type T, a copy of its part (VERDICTS-28 Q2,
       // issues/retired/2026-11-06-a-mut-binding-of-a-borrowed-match-reads-as-a-reference.md),
       // under both spellings of a borrowed scrutinee.
-      if(!ct_known && ref_binds, {
+      if(!b_ct_known && ref_binds, {
         match(
           &_added,
           // The binding points at its part, a read-only borrow. A

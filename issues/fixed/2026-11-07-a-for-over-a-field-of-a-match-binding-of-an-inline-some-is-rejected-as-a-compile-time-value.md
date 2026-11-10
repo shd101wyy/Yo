@@ -56,3 +56,7 @@ run-time binding and `&entry.items` borrows it.
 ## Root cause
 
 Not investigated.
+
+## Fixed
+
+Not the `for`: `&entry.items` of ANY borrow of the binding (`p := &entry.items;`) fails. The scrutinee `Option(Rc(Bag)).Some(Rc.clone(&r))` has a KNOWN variant (an `EnumVal`) whose payload is an `UnknownVal` (a run-time value), so `ct_known` in `evaluate_match` is true, and every binding of the arm was added to the environment as a compile-time-only variable (`add_variable_to_env(..., ct_known, ...)`), a name with no storage for `&` to alias. The binding is now compile-time only when its OWN part of the scrutinee has a value (`b_ct_known`, `exprs/match.yo`); a run-time payload binds a run-time variable, which also takes the second-class and borrow-binding notes a run-time binding gets. Test: "a match binding of an inline Some over a run-time payload is a place a `for` can borrow" in `tests/borrowed_match_binding_place.test.yo`.
