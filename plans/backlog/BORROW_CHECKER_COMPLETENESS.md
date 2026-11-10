@@ -213,7 +213,7 @@ Filed 2026-11-07 from VERDICTS-30/31; each names its repro under `issues/repros/
 - `issues/fixed/2026-11-07-a-projection-call-inside-a-payload-bound-to-a-local-does-not-freeze-the-collection.md` — S1
 - `issues/fixed/2026-11-07-a-holder-returned-over-a-borrowed-temporary-is-accepted-when-bound.md` — S1 (latent when filed; a live UAF on v0.2.76 once the statement-end drop landed first)
 - `issues/fixed/2026-11-07-a-closure-capturing-an-origin-carrying-local-crashes-codegen.md` — S1
-- `issues/2026-11-07-reassigning-a-mut-holder-of-a-named-origin-struct-is-a-false-e0908.md` — S2
+- `issues/fixed/2026-11-07-reassigning-a-mut-holder-of-a-named-origin-struct-is-a-false-e0908.md` — S2
 - `issues/2026-11-07-a-generic-function-storing-a-by-value-reference-parameter-emits-invalid-c.md` — S2
 - `issues/2026-11-07-a-ctl-operation-returning-its-reference-parameter-is-rejected-with-e0605.md` — S2
 - `issues/2026-11-07-a-closure-literal-returning-its-reference-parameter-fails-to-evaluate.md` — S2
