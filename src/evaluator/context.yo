@@ -2173,13 +2173,21 @@ impl_receiver_head_name :: (fn(recv : &AstExpr) -> String)(
 _is_reference_impl_receiver :: (fn(recv : &AstExpr) -> bool)(
   (ast_expr_is_fn_call_of(recv, BF_ADDRESS_OF, .None) || ast_expr_is_fn_call_of(recv, BK_BORROW_MUT, .None))
 );
-/// The head names (`impl_receiver_head_name`) of the `impl(&C, …)` /
-/// `impl(&mut C, …)` receivers this compilation has seen, pending or
-/// registered (decision 43 N1f-2). Receiver-method lookup probes a
-/// reference's impls only once one exists (`reference_impls_seen`), and a
-/// pending one of the receiver's head is forced first
-/// (`reference_impl_head_noted`): a program without reference impls resolves
-/// exactly as before.
+/// The head names of the reference impls this compilation has seen, pending
+/// or registered (decision 43 N1f-2): the syntactic one
+/// (`impl_receiver_head_name`, which also drives forcing a pending impl) and,
+/// at registration, the type-derived one
+/// (`type_head_name_for_impl_forcing` of the receiver's pointee: an alias or a
+/// primitive spells a name its receiver type never carries).
+///
+/// R-PROBE's lookups on `&C` / `&mut C` add a candidate the lookup on `C` does
+/// not hold only if (VERDICTS-50 invariant I) (i) a registered impl has a
+/// receiver that is a reference whose pointee's head is `head(C)`, or (ii) a
+/// receiver pattern that is a bare binder (or a reference to one) provides the
+/// method. Index (i) is this map, (ii) is `g_reference_blanket_methods`: the
+/// reference lookups run only when one of them answers
+/// (`reference_impl_head_noted`, `reference_blanket_method_noted`) or the
+/// receiver was written `(&x)`.
 (g_reference_impl_heads : RefCell(HashMap(String, bool))) = RefCell(HashMap(String, bool)).new(HashMap(String, bool).new());
 /// Record a reference impl receiver's head name.
 note_reference_impl_head :: (fn(head : &String) -> unit)({
@@ -2187,12 +2195,26 @@ note_reference_impl_head :: (fn(head : &String) -> unit)({
   g_reference_impl_heads.with_mut({ head_owned }(m) => m.insert(head_owned.clone(), true));
   ()
 });
-/// Whether any `impl(&C, …)` / `impl(&mut C, …)` has been seen.
-reference_impls_seen :: (fn() -> bool)((g_reference_impl_heads.with(_c_len_2) > usize(0)));
 /// Whether a reference impl of the head name `head` has been seen.
 reference_impl_head_noted :: (fn(head : &String) -> bool)({
   head_owned := head.clone();
   g_reference_impl_heads.with({ head_owned }(m) => m.contains_key(head_owned.clone()))
+});
+/// The method names provided by a generic impl whose receiver pattern is a
+/// bare binder or a reference to one (`impl(generic(T), where(T <: Integer),
+/// T, …)`, `impl(generic(T), &T, …)`): a bare binder unifies with `&C`, so
+/// the lookup on `&C` can return such an impl at `T := &C`.
+(g_reference_blanket_methods : RefCell(HashMap(String, bool))) = RefCell(HashMap(String, bool)).new(HashMap(String, bool).new());
+/// Record a method name a bare-binder blanket impl registers.
+note_reference_blanket_method :: (fn(name : &String) -> unit)({
+  name_owned := name.clone();
+  g_reference_blanket_methods.with_mut({ name_owned }(m) => m.insert(name_owned.clone(), true));
+  ()
+});
+/// Whether a bare-binder blanket impl provides the method `name`.
+reference_blanket_method_noted :: (fn(name : &String) -> bool)({
+  name_owned := name.clone();
+  g_reference_blanket_methods.with({ name_owned }(m) => m.contains_key(name_owned.clone()))
 });
 /// AST ids of closure literals evaluated as the DIRECT argument of a call to a
 /// borrowing parameter (neither `sink` nor `inout`): such a closure cannot
@@ -3968,8 +3990,9 @@ export(
   take_pending_impl_force_error,
   force_pending_impls_for_type_name,
   note_reference_impl_head,
-  reference_impls_seen,
   reference_impl_head_noted,
+  note_reference_blanket_method,
+  reference_blanket_method_noted,
   force_pending_move_only_impls,
   note_borrowing_argument,
   closure_literal_is_borrowed,

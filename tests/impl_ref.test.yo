@@ -230,3 +230,30 @@ test("(ix) rr.*.m() on a reference value reaches the referent's method beside a 
   assert(rr.*.*.vr_len() == i32(5), "rr.*.*.vr_len()");
   assert((&r).vr_len() == i32(5), "(&r).vr_len()");
 });
+// (x) R-PROBE's reference lookups run only where a reference impl can answer
+// (VERDICTS-50, `YO_DEBUG_RPROBE_AUDIT=1` aborts when the gate skips one that
+// would have added a candidate): a reference impl declared through an alias
+// and on a primitive, a bare-binder blanket reached at `T := &C`, and a type
+// with no reference impl beside one that has.
+_RgTr :: trait(rg : (fn(self : Self) -> i32));
+_RgC :: struct(n : i32);
+_RgAlias :: _RgC;
+impl(&_RgAlias, _RgTr(rg : (fn(self : Self) -> i32)(i32(11))));
+_RgPrim :: trait(rgp : (fn(self : Self) -> i32));
+impl(&i32, _RgPrim(rgp : (fn(self : Self) -> i32)(i32(12))));
+_RgBl :: trait(bl : (fn(self : &Self) -> i32));
+impl(generic(T), T, _RgBl(bl : (fn(self : &Self) -> i32)(i32(7))));
+_RgPlain :: struct(n : i32);
+impl(_RgPlain, plain : (fn(self : &Self) -> i32)(self.n));
+_rg_through_binding :: (fn(r : &_RgC) -> i32)(r.bl());
+test("(x) the gated probe: an alias, a primitive, a blanket at T := &C, a type with no reference impl", {
+  c := _RgC(n : i32(1));
+  assert((&c).rg() == i32(11), "impl(&Alias, Tr) is found through the alias");
+  x := i32(5);
+  assert((&x).rgp() == i32(12), "impl(&i32, Tr)");
+  assert(c.bl() == i32(7), "the bare blanket at T := _RgC");
+  assert((&c).bl() == i32(7), "the bare blanket through an explicit borrow");
+  assert(_rg_through_binding(&c) == i32(7), "the bare blanket through a `&C` binding");
+  p := _RgPlain(n : i32(3));
+  assert(p.plain() == i32(3), "a type with no reference impl");
+});
