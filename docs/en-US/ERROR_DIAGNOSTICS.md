@@ -133,6 +133,24 @@ element patterns, closure capture lists and parameters, and blocks keep their
 braces. A group that already carries the dot is left alone, so a second run
 changes nothing; a file that does not parse is named and `fix` exits non-zero.
 
+`yo fix <path> --migrate unsized` is the migration for decision 49
+(`plans/VALUES_BY_DEFAULT.md`): `Dyn(...)` is unsized and lives behind a
+pointer, so the owning trait object that a bare `Dyn(...)` value type names
+in v0.2.77 is written `Box(Dyn(...))`. The migration rewrites every bare
+`Dyn(...)` type spelling to `Box(Dyn(...))`: a binding, parameter, field,
+element or result type, a type alias body, a `Type.impls`/`Type.eq`/`size_of`
+argument, and `*Dyn(...)`/`?*Dyn(...)`, which point at an owned box. A
+`Dyn(...)` that is the immediate argument of `Box`, `Rc`, `Arc`, `Weak`,
+`ArcWeak`, `&` or `&mut` (with or without an origin) already names the
+unsized object and is left alone, and so is `upcast`'s target, so a second
+run changes nothing. Under v0.2.77 the two spellings are one type, so a
+`yo check` verdict does not change. It reads the parse and does not
+evaluate, like `record-literal`. It lists, with their positions and without
+rewriting them, a spelling that does not print back on one line,
+`Rc(Dyn(T)).new(...)` (write `dyn(Rc.new(v))` for one shared object, or keep
+the box with `Rc(Box(Dyn(T))).new(...)`), and `impl(Dyn(...), ...)` (the
+owning value today, the unsized object in v0.2.78).
+
 A module-level or `thread_local` runtime binding is immutable (Rust's
 `static`) unless its name is wrapped in `mut(...)` (`static mut`, decision
 47). Writing an immutable global is E0917: reassigning it, writing a field or
