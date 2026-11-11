@@ -9,6 +9,9 @@
  * Portable C, no ISA beyond the baseline: the 16-byte vector type lowers to SSE2 on x86_64 and NEON
  * on aarch64, both part of the base ABI, so the binary still runs on any x86-64 / aarch64.
  *
+ * x86_64 only: on aarch64 musl already ships an assembly memcpy, and the recipe keeps it
+ * (VERDICTS-56).
+ *
  * MUST be compiled on its own with `-fno-builtin` (the release steps assert `nm -u` lists no mem*
  * symbol): without it the compiler may turn the copy loops below back into calls to memcpy itself.
  */
@@ -69,14 +72,6 @@ static void copy_bwd(unsigned char *d, const unsigned char *s, size_t n) {
   ST16(d0, head);
 }
 
-void *memcpy(void *restrict dst, const void *restrict src, size_t n) {
-  unsigned char *d = dst;
-  const unsigned char *s = src;
-  if (n <= 64) copy_small(d, s, n);
-  else copy_fwd(d, s, n);
-  return dst;
-}
-
 void *memmove(void *dst, const void *src, size_t n) {
   unsigned char *d = dst;
   const unsigned char *s = src;
@@ -84,6 +79,14 @@ void *memmove(void *dst, const void *src, size_t n) {
   else if ((uintptr_t)d - (uintptr_t)s >= n) copy_fwd(d, s, n);
   else copy_bwd(d, s, n);
   return dst;
+}
+
+/* memcpy has memmove semantics on purpose. Overlapping memcpy is undefined behavior, but until this
+ * file existed Alpine's fortify-headers turned it into a trap, so an overlapping call in the compiler
+ * could not have gone unnoticed; with fortify off (the musl recipe builds with -U_FORTIFY_SOURCE) a
+ * silent wrong copy would be the worse outcome. The direction test costs one compare. */
+void *memcpy(void *restrict dst, const void *restrict src, size_t n) {
+  return memmove(dst, src, n);
 }
 
 int memcmp(const void *vl, const void *vr, size_t n) {

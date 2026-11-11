@@ -1,6 +1,6 @@
 /* Exhaustive check of scripts/musl-fastmem.c against byte-loop references: every n <= 300 at 40x40
- * source/destination offsets, overlapping both ways for memmove, disjoint for memcpy, and memcmp with
- * one differing byte at every position. Link it with the fastmem object (the release and CI musl
+ * source/destination offsets, overlapping both ways for memmove AND memcpy (which deliberately has
+ * memmove semantics), disjoint for memcpy, and memcmp with one differing byte at every position. Link it with the fastmem object (the release and CI musl
  * steps do) so the calls below resolve to those definitions, not libc's. Compile with -fno-builtin
  * so the compiler emits real calls instead of open-coding them. Exit 0 = all agree. */
 #include <stdio.h>
@@ -22,15 +22,19 @@ int main(void) {
         for (int i = 0; i < 1024; i++) buf[i] = ref[i] = orig[i];
         for (size_t i = 0; i < n; i++) tmp[i] = ref[280 + so + i];
         for (size_t i = 0; i < n; i++) ref[280 + dof + i] = tmp[i];
-        if (memmove(buf + 280 + dof, buf + 280 + so, n) != buf + 280 + dof) {
-          printf("memmove returned the wrong pointer (n=%zu)\n", n);
-          return 1;
-        }
-        for (int i = 0; i < 1024; i++)
-          if (buf[i] != ref[i]) {
-            printf("memmove n=%zu src+%d dst+%d differs at %d\n", n, so, dof, i);
+        for (int fn = 0; fn < 2; fn++) {
+          for (int i = 0; i < 1024; i++) buf[i] = orig[i];
+          void *got = fn ? memcpy(buf + 280 + dof, buf + 280 + so, n) : memmove(buf + 280 + dof, buf + 280 + so, n);
+          if (got != buf + 280 + dof) {
+            printf("%s returned the wrong pointer (n=%zu)\n", fn ? "memcpy" : "memmove", n);
             return 1;
           }
+          for (int i = 0; i < 1024; i++)
+            if (buf[i] != ref[i]) {
+              printf("overlapping %s n=%zu src+%d dst+%d differs at %d\n", fn ? "memcpy" : "memmove", n, so, dof, i);
+              return 1;
+            }
+        }
         /* memcpy between disjoint ranges. */
         for (int i = 0; i < 1024; i++) buf[i] = ref[i] = orig[i];
         for (size_t i = 0; i < n; i++) ref[600 + dof + i] = ref[so + i];
@@ -43,7 +47,7 @@ int main(void) {
             printf("memcpy n=%zu src+%d dst+%d differs at %d\n", n, so, dof, i);
             return 1;
           }
-        checks += 2;
+        checks += 3;
       }
       /* memcmp: equal ranges, then one differing byte at each position k. */
       for (size_t k = 0; k <= n; k++) {
