@@ -79,14 +79,15 @@ joins move states, never loans.
 
 ## Expected
 
-E0911 at `x = Box.new(String.from("q"))`: the loans live at the end of the body (and at each `continue`) are live at the loop
-head, so they are checked against every access the body makes before re-pointing their holder. `BORROW_CHECKER_COMPLETENESS.md`
-§3: "a holder's loans are the join over reaching definitions (loops to a fixpoint)"; `REFERENCES_AND_ORIGINS.md` §4:
-the per-body set is "joined at control-flow merges and iterated to a fixpoint over loops". The reference checker
-(`tests/origins/model.yo`) has the fixpoint; one of its five ablations switches it off.
+E0911 at `x = Box.new(String.from("q"))`: the loans live at the end of the body (and at each `continue`) are live
+at the loop head, so they are checked against every access the body makes before re-pointing their holder.
+`BORROW_CHECKER_COMPLETENESS.md` §3: "a holder's loans are the join over reaching definitions (loops to a
+fixpoint)"; `REFERENCES_AND_ORIGINS.md` §4: the per-body set is "joined at control-flow merges and iterated to a
+fixpoint over loops". The reference checker (`tests/origins/model.yo`) has the fixpoint; one of its five ablations
+switches it off.
 
 ## Test
 
-With the fix: both negative programs and the positive control move to `tests/origins/unsound/`; corpus rows
+With the fix: the three negative programs and the positive control move to `tests/origins/unsound/`; corpus rows
 `loop-join-option-slot` (neg, E0911) and `loop-join-option-slot-after` (pos) in `tests/origins/corpus.tsv` beside
 `loop-join-push`, encoded for the model in `tests/origins/model_corpus.test.yo`.

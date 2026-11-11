@@ -1,0 +1,13 @@
+// expect: accept
+// A tuple of two `&i32`: E0901 "`Tuple(0 : &i32, 1 : &i32)` is move-only (it is neither `Copy` nor `Clone`)".
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  b := i32(4);
+  t := (&b, &b);
+  a := t;
+  c := t;
+  println(`OUT: ${a.0.*.to_string()} ${c.1.*.to_string()}`);
+  ()
+});
+export(main);

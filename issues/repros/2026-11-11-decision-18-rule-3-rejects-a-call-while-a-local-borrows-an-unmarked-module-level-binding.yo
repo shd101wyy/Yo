@@ -1,0 +1,10 @@
+// expect: accept (decision 47: an unmarked module-level binding is never written, so it may be lent freely)
+// Today E0911 at the `to_string` call the interpolation makes while `y` borrows `H`.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+H := String.from("0123456789abcdefghijklmnopqrstuvwxyz");
+main :: (fn() -> unit)({
+  y := &H;
+  println(`OUT: ${y.*}`);
+});
+export(main);

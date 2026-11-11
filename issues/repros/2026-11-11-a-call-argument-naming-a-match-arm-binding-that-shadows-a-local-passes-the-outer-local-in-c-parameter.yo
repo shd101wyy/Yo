@@ -1,0 +1,16 @@
+// expect: accept
+// The shadowed name is a parameter: `eat(x)` in the arm passes the parameter `x`.
+// Correct output: "OUT: OUTER-…"; observed: heap-use-after-free.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+eat :: (fn(b : String) -> unit)(());
+f :: (fn(x : String) -> unit)({
+  o := Option(String).Some(String.from("INNER-0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+  match(o, .Some(x) => eat(x), .None => ());
+  println(`OUT: ${x}`);
+});
+main :: (fn() -> unit)({
+  f(String.from("OUTER-0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+  ()
+});
+export(main);

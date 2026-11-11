@@ -1,0 +1,15 @@
+// expect: accept
+// A valid program, miscompiled: the arm binding `x` shadows the local `x`, yet the C for `eat(x)`
+// passes the OUTER local, so `eat` frees it and the `println` reads freed memory (ASan:
+// heap-use-after-free). Correct output: "OUT: OUTER-…".
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+eat :: (fn(b : String) -> unit)(());
+main :: (fn() -> unit)({
+  x := String.from("OUTER-0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz");
+  o := Option(String).Some(String.from("INNER-0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+  match(o, .Some(x) => eat(x), .None => ());
+  println(`OUT: ${x}`);
+  ()
+});
+export(main);

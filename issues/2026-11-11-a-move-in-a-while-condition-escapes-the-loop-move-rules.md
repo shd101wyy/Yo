@@ -44,7 +44,7 @@ $ yo compile repro.yo --optimize 1 --sanitize address --allocator system -o t &&
 | Shape | Verdict | Correct |
 | --- | --- | --- |
 | `while(take(a), …)` | accepted, double free | E0901 |
-| a block condition binding `t := a` (ledger g14) | accepted, double free | E0901 |
+| a block condition binding `t := a` (`…-block.yo`; ledger g14 tests it once only and runs clean) | accepted, double free | E0901 |
 | `while(take_b(a) && (i < i32(3)), …)` on a `Drop` type (ledger c06) | accepted, double free | E0901 |
 | `take(a)` in the loop body (ledger c01) | E0901 "moved inside the loop" | E0901 |
 | a move in the body on a path that `break`s while the normal exit keeps the value (ledger c02) | E0907 | E0907 |

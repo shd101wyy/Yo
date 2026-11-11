@@ -44,7 +44,7 @@ $ yo compile repro.yo --optimize 1 --sanitize address --allocator system -o t &&
 | a by-value PARAMETER moved by a guard (ledger g15) | accepted, double free | E0901 |
 | a guard block binding a guard-local, `{ t := a; t.len() > usize(0) }` (ledger g16) | accepted, double free | E0901 |
 | the guard move inside a `while` body (ledger g04) | accepted, double free | E0901 |
-| the guard move inside an `io.async` body (ledger y01) | accepted, Drop runs twice | E0901 |
+| the guard move inside an `io.async` body (ledger y01) | accepted, double free | E0901 |
 | a guard moves `a` and a later arm's BODY moves it too (ledger g02) | E0907, blamed on the guard's arm | E0901 |
 | a guard moves one of its own pattern bindings, `(.Some(t) && (take(t)))` | E0901 | E0901 |
 

@@ -68,16 +68,17 @@ resolves. A function result is judged by `return_check` inside the body, which i
 
 The tail's origin is computed where the tail is evaluated, in the block's own scope, and carried out as the
 block's `ExprInfo.origin`: a root that is the block's own local is then E0911 at the binding ("`y`'s scope ends
-with its block, while `h` is live", the message holders j05 gets), and a holder binding's entries become the
+with its block, while `h` is live to its last use", the message holders j05 gets), and a holder binding's entries become the
 block's (k07 freezes `x`). `BORROW_CHECKER_COMPLETENESS.md` §3, R-ARM: "`match`, `cond`, a block tail … the union
-over the arms"; R-COMP: "an origin is never smaller than its sources' union".
+over the arms"; Propagation: "an origin is never smaller than its sources' union".
 
 P2 (`BORROW_CHECKER_COMPLETENESS.md` §7 row P2) makes `&place` an expression of type `&(T, place)` "wherever a value
 may stand", block tails included, with R-LEND giving its origin. That covers a BARE `&y` tail (rejected today and by
-v0.2.76: "`&y` lends a borrow: it is written as a call argument to a `&T` parameter, …") and gives it the same origin a constructor field gets today; it does not change where
-R-ARM evaluates the tail. A holder constructor in the tail is already expressible, and P2 makes more such tails
-expressible, so P2 widens the exposure unless R-ARM's evaluation point is fixed first (§7: "P1 and P2 are UNSAFE
-before A … a `&x` arm tail would be exactly H5/H1-class programs").
+v0.2.76: "`&y` lends a borrow: it is written as a call argument to a `&T` parameter, …") and gives it the origin a
+constructor field gets today; it does not change where R-ARM evaluates the tail. A holder constructor in the tail
+is already expressible, and P2 makes more such tails expressible, so P2 widens the exposure unless R-ARM's
+evaluation point is fixed first (§7: "P1 and P2 are UNSAFE before A … a `&x` arm tail would be exactly H5/H1-class
+programs").
 
 ## Test
 

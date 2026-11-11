@@ -1,0 +1,13 @@
+// expect: accept
+// Positive control: the arm binding has a name of its own; runs clean and prints "OUT: OUTER-…".
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+eat :: (fn(b : String) -> unit)(());
+main :: (fn() -> unit)({
+  x := String.from("OUTER-0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz");
+  o := Option(String).Some(String.from("INNER-0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+  match(o, .Some(y) => eat(y), .None => ());
+  println(`OUT: ${x}`);
+  ()
+});
+export(main);

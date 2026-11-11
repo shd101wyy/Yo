@@ -1,0 +1,17 @@
+// expect: E0910
+// Two live `&mut` lends of one place in one tuple: a write through `a` is seen through `b`.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+L :: (fn() -> String)(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));
+main :: (fn() -> unit)({
+  mut(x) := L();
+  match(
+    (&mut x, &mut x),
+    (a, b) => {
+      a.* = String.from("a");
+      println(`OUT: ${b.*}`);
+    }
+  );
+  ()
+});
+export(main);

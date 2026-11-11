@@ -1,0 +1,12 @@
+// expect: accept
+// The same over a `&String`: matching `slot` twice is E0901 at the second match.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  b := String.from("abc");
+  slot := Option(&String).Some(&b);
+  match(slot, .Some(r) => println(`OUT: ${r.*}`), .None => ());
+  match(slot, .Some(r) => println(`OUT: ${r.*}`), .None => ());
+  ()
+});
+export(main);

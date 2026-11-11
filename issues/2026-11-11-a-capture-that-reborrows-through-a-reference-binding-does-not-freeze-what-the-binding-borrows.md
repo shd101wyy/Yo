@@ -66,10 +66,11 @@ true`; the reborrow branch has no such step. A `:=` reference binding `r := &s.*
 
 ## Expected
 
-E0910 at the write of the root while the closure is live, the verdict `{ y : &x }` gets. R-DEREF (`BORROW_CHECKER_COMPLETENESS.md` §3): "`&r.*`
-is a reborrow: `origin_of(r)` ∪ `{(r, &)}` when `r` is reached through a `&` path and holds `&mut`, else
-`origin_of(r)`"; R-CLOSURE-LIT: "a `&`/`&mut` capture is R-LEND of the captured place", so the capture's origin is
-`origin_of(s)` = `{(b, &)}` and `b` is frozen for the closure's live range, as `{ y : &b }` freezes it.
+E0910 at the write of the root while the closure is live, the verdict `{ y : &x }` gets. R-DEREF
+(`BORROW_CHECKER_COMPLETENESS.md` §3): "`&r.*` is a reborrow: `origin_of(r)` ∪ `{(r, &)}` when `r` is reached
+through a `&` path and holds `&mut`, else `origin_of(r)`"; R-CLOSURE-LIT: "a `&`/`&mut` capture is R-LEND of the
+captured place", so the capture's origin is `origin_of(s)` = `{(b, &)}` and `b` is frozen for the closure's live
+range, as `{ y : &b }` freezes it.
 
 ## Test
 
