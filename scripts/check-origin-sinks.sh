@@ -7,7 +7,8 @@
 #      binding sites listed in REGISTRARS below (`bind` and the three
 #      binding forms that still register their own entries).
 #   2. The conflict check `_lb_raise_conflict` is called only from
-#      `local_borrow_access`, the one `access`; the loan table
+#      `_local_borrow_access_live`, the one `access` (`local_borrow_access` and
+#      `local_borrow_access_at` delegate to it); the loan table
 #      `g_local_borrows` is written only by the registrar and the block-end
 #      truncation.
 #   3. Every lowering of §5's table calls its sink at least once in the file
@@ -102,7 +103,7 @@ done < <(callers_of 'local_borrow_register\(' $(grep -rlE 'local_borrow_register
 
 # --- 2. the one access check --------------------------------------------------
 while read -r site fn; do
-  [ "$fn" = local_borrow_access ] || problem "$site: \`_lb_raise_conflict\` called from \`$fn\`, not \`local_borrow_access\`"
+  [ "$fn" = _local_borrow_access_live ] || problem "$site: \`_lb_raise_conflict\` called from \`$fn\`, not \`_local_borrow_access_live\`"
 done < <(callers_of '_lb_raise_conflict\(' $(grep -rlE '_lb_raise_conflict\(' src --include='*.yo') |
   grep -v ' _lb_raise_conflict$')
 while read -r site fn; do
