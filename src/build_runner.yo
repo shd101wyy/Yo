@@ -111,6 +111,7 @@ BuildOptions :: struct(
     /// through the registered callback (see InProcessCompileFn).
     watch_in_process : bool
   );
+derive(BuildOptions, Clone);
 // ---------------------------------------------------------------------------
 // DAG types
 // ---------------------------------------------------------------------------
@@ -473,11 +474,12 @@ _link_store_trees :: (
     exn : Exception
   ) -> Impl(Future(unit, IoExn))
 )(
-  io.async({ &manifest }(e : IoExn) => {
+  owned_manifest := manifest.clone();
+  io.async((e : IoExn) => {
     if(platform == Platform.Windows, {
       return(());
     });
-    lock_text := match(read_lock_text(manifest, e.exn), .Some(t) => t.clone(), .None => String.new());
+    lock_text := match(read_lock_text(&owned_manifest, e.exn), .Some(t) => t.clone(), .None => String.new());
     if(lock_text.len() == usize(0), {
       return(());
     });
@@ -489,7 +491,7 @@ _link_store_trees :: (
       }
     );
     cache_root := get_global_cache_dir();
-    deps_dir := `${manifest.dir}/yo-out/deps`;
+    deps_dir := `${owned_manifest.dir}/yo-out/deps`;
     (has_git : bool) = false;
     (i : usize) = usize(0);
     while(i < lock.packages.len(), {
@@ -1203,9 +1205,11 @@ _split_member_pattern :: (fn(pattern : &String) -> _MemberSplit)(
 expand_workspace_members :: (
   fn(manifest : &Manifest, io : Io) -> Impl(Future(ArrayList(String), IoExn))
 )(
-  io.async({ &manifest }(e : IoExn) => {
+  owned_patterns := manifest.workspace_members.clone();
+  owned_dir := manifest.dir.clone();
+  io.async((e : IoExn) => {
     out := ArrayList(String).new();
-    patterns := manifest.workspace_members.clone();
+    patterns := owned_patterns.clone();
     (pi : usize) = usize(0);
     while(pi < patterns.len(), {
       pattern := patterns(pi).clone();
@@ -1221,8 +1225,8 @@ expand_workspace_members :: (
       });
       parent_abs := if(
         parent_rel.len() == usize(0),
-        manifest.dir.clone(),
-        Path.new(manifest.dir.clone()).join(Path.new(parent_rel.clone())).normalize().to_string()
+        owned_dir.clone(),
+        Path.new(owned_dir.clone()).join(Path.new(parent_rel.clone())).normalize().to_string()
       );
       if(leaf.contains("*"), {
         entries := e.io.await(_read_dir_task(parent_abs.clone(), e.io), e);
@@ -1246,7 +1250,7 @@ expand_workspace_members :: (
           ni = (ni + usize(1));
         });
       }, {
-        cand := Path.new(manifest.dir.clone()).join(Path.new(pattern.clone())).normalize().to_string();
+        cand := Path.new(owned_dir.clone()).join(Path.new(pattern.clone())).normalize().to_string();
         if(!file_exists_sync(Path.new(cand.clone()).join(Path.new(String.from(MANIFEST_FILENAME))).to_string()), {
           e.exn.throw(
             dyn(
@@ -3261,13 +3265,14 @@ evaluate_build_file :: (
 )({
   owned_build_file := build_file.clone();
   owned_defines := defines.clone();
-  io.async({ &manifest_opt, owned_build_file, owned_defines }(e : IoExn) => {
+  owned_manifest_opt := manifest_opt.clone();
+  io.async({ owned_manifest_opt, owned_build_file, owned_defines }(e : IoExn) => {
     clear_build_registry();
     // Seed `-Dname=value` overrides BEFORE evaluating: `build.option(...)`
     // reads `cli_options` at evaluation time and returns the override in place
     // of its declared default. The manifest's `[package]` table goes in the
     // same way — `build.manifest.name` reads it during evaluation.
-    seed_build_registry(owned_defines.clone(), _manifest_fields(manifest_opt));
+    seed_build_registry(owned_defines.clone(), _manifest_fields(&owned_manifest_opt));
     outcome := mm_load_yo_file(&owned_build_file, e.io, e.exn);
     load_error := _take_load_error();
     // No `mm_reset()` here: the caller resets once, after the manifest's
@@ -3321,13 +3326,14 @@ run_build :: (
     exn : Exception
   ) -> Impl(Future(unit, IoExn))
 )(
-  io.async({ &options }(e : IoExn) => {
+  owned_options := options.clone();
+  io.async((e : IoExn) => {
     // §4.6: `-p <name>` names a WORKSPACE MEMBER. Resolving it to that member's
     // build file is the whole implementation — `project_dir` is this file's
     // parent, and every path downstream derives from it, so the member builds
     // exactly as it would if you had cd'd into it.
-    member_build_file := e.io.await(_resolve_workspace_member(options.package.clone(), e.io, e.exn), e);
-    effective_build_file := match(member_build_file, .Some(bf) => bf, .None => options.build_file.clone());
+    member_build_file := e.io.await(_resolve_workspace_member(owned_options.package.clone(), e.io, e.exn), e);
+    effective_build_file := match(member_build_file, .Some(bf) => bf, .None => owned_options.build_file.clone());
     build_file_path := Path.new(effective_build_file.clone());
     build_file_exists := e.io.await(exists(&build_file_path, e.io), e.io);
     if(!build_file_exists, {
@@ -3351,7 +3357,7 @@ run_build :: (
     // `_resolve_c_compiler`. The literal "clang" this replaces died with a
     // bare ENOENT on any box whose PATH had no clang
     // (issues/fixed/2026-10-31-yo-build-defaults-to-clang-and-dies-on-clang-less-boxes.md).
-    c_compiler := _resolve_c_compiler(&options.c_compiler, e.io, e.exn);
+    c_compiler := _resolve_c_compiler(&owned_options.c_compiler, e.io, e.exn);
     // The project's manifest (yo.toml): its `[package]` table is what
     // `build.manifest` reads during the evaluation below, its dependency
     // closure is what every artifact's `import("name")` resolves through, and
@@ -3362,18 +3368,18 @@ run_build :: (
     mut(registry) := e.io.await(
       evaluate_build_file(
         build_file_path.to_string(),
-        &options.defines,
+        &owned_options.defines,
         &manifest_opt,
         e.io,
         e.exn
       ),
       e
     );
-    if(options.list_steps, {
+    if(owned_options.list_steps, {
       print_steps(&registry);
       return(());
     });
-    if(options.list_options, {
+    if(owned_options.list_options, {
       print_options(&registry);
       return(());
     });
@@ -3388,13 +3394,13 @@ run_build :: (
     });
     // Fetching the git dependencies the manifest declares runs before the
     // single evaluator reset that follows (see evaluate_build_file).
-    e.io.await(resolve_build_import_roots(&manifest_opt, &registry, options.locked, options.offline, options.verbose, e.io, e.exn), e);
+    e.io.await(resolve_build_import_roots(&manifest_opt, &registry, owned_options.locked, owned_options.offline, owned_options.verbose, e.io, e.exn), e);
     // Every `dep.artifact(...)` this build file named becomes a real artifact
     // of ours, built from the dependency's own build.yo (§4.5.2). Runs after
     // the fetch above, so a git dependency's sources are on disk.
     registry = match(
       &manifest_opt,
-      .Some(m) => e.io.await(_evaluate_dependency_builds(&m, registry, &options.defines, e.io, e.exn), e),
+      .Some(m) => e.io.await(_evaluate_dependency_builds(&m, registry, &owned_options.defines, e.io, e.exn), e),
       .None => registry
     );
     project_name := match(manifest_opt, .Some(m) => m.name.clone(), .None => String.new());
@@ -3408,7 +3414,7 @@ run_build :: (
     // registries' instances — "Cannot unify incompatible struct types:
     // struct_r28c4_n50 and ArrayList(u8)",
     // issues/warm-compile-selfcheck.md failure-modes item 1).
-    if(!options.watch_in_process, {
+    if(!owned_options.watch_in_process, {
       mm_reset();
     });
     // Resolve system libraries per-artifact via pkg-config
@@ -3435,7 +3441,7 @@ run_build :: (
             });
           });
           if(linked.len() > usize(0), {
-            eff_target := match(&options.target_triple, .Some(t) => t.clone(), .None => art.target.clone());
+            eff_target := match(&owned_options.target_triple, .Some(t) => t.clone(), .None => art.target.clone());
             eff_ti := match(parse_target(eff_target.clone()), .Ok(t) => t, .Err(_) => host_target());
             if(is_target_wasm(&eff_ti), {
               for(&linked, wlib => {
@@ -3450,7 +3456,7 @@ run_build :: (
                 });
               });
             }, {
-              sys_flags := e.io.await(resolve_all_system_libraries(&linked, options.verbose, e.io, e.exn), e);
+              sys_flags := e.io.await(resolve_all_system_libraries(&linked, owned_options.verbose, e.io, e.exn), e);
               _push_all_strings(&mut art.include_paths, &sys_flags.include_paths);
               _push_all_strings(&mut art.library_paths, &sys_flags.library_paths);
               _push_all_strings(&mut art.link_libraries, &sys_flags.link_libraries);
@@ -3467,21 +3473,21 @@ run_build :: (
       project_dir : project_dir,
       project_name : project_name,
       c_compiler : c_compiler,
-      target_triple : options.target_triple.clone(),
-      sysroot : options.sysroot.clone(),
-      verbose : options.verbose,
-      dry_run : options.dry_run,
-      summary : options.summary,
-      run_args : options.run_args.clone(),
-      jobs : options.jobs,
+      target_triple : owned_options.target_triple.clone(),
+      sysroot : owned_options.sysroot.clone(),
+      verbose : owned_options.verbose,
+      dry_run : owned_options.dry_run,
+      summary : owned_options.summary,
+      run_args : owned_options.run_args.clone(),
+      jobs : owned_options.jobs,
       in_process_compile_fn : g_in_process_compile_fn,
-      watch_round : options.watch_in_process
+      watch_round : owned_options.watch_in_process
     );
-    requested := if(options.steps.len() == usize(0), {
+    requested := if(owned_options.steps.len() == usize(0), {
       defaults := ArrayList(String).new();
       defaults.push(String.from("install"));
       defaults
-    }, options.steps.clone());
+    }, owned_options.steps.clone());
     i := usize(0);
     n := requested.len();
     while(i < n, {
@@ -3492,7 +3498,7 @@ run_build :: (
       // graph without running it", and printing one line per requested step
       // promised nothing (the plan's B7). `execute_step` itself branches,
       // after planning and before its only await.
-      e.io.await(execute_step(&step_name, &ctx, options.dry_run, e.io, e.exn), e);
+      e.io.await(execute_step(&step_name, &ctx, owned_options.dry_run, e.io, e.exn), e);
       i = (i + usize(1));
     });
   })
