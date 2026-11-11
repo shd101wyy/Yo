@@ -1,0 +1,14 @@
+// expect: E0909
+// `{ y }` copies a reference to the local `x` (a `Box`, whose heap value dies with it) into the closure; returning the
+// closure outlives `x` (a heap-use-after-free under ASan when the rejection is missing).
+{ println } :: import("std/fmt");
+mk :: (fn(k : i32) -> Impl(Fn() -> i32))({
+  x := Box(i32).new(k);
+  y := &x;
+  ({ y }() => y.*.*)
+});
+main :: (fn() -> unit)({
+  g := mk(i32(41));
+  println(`OUT: ${g().to_string()}`);
+});
+export(main);

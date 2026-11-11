@@ -1,0 +1,9 @@
+// The closure captures a holder of `&x.*` by value and is returned over the local `x`: a
+// heap-use-after-free at run time before R-CLOSURE-LIT's by-value clause (VERDICTS-44 d2).
+V :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(r : &(i32, p), n : i32));
+mk :: (fn(k : i32) -> Impl(Fn() -> i32))({
+  x := Box(i32).new(k);
+  h := V(x)(r : &x.*, n : i32(0));
+  { h }() => h.r.*
+});
+export(mk);

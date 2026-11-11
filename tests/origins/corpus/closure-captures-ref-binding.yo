@@ -1,0 +1,9 @@
+// A by-value capture entry of a reference binding copies the reference (VERDICTS-44 R-CAP-1):
+// the closure refers to what `y` refers to, and `y` stays usable.
+mk :: (fn() -> i32)({
+  x := i32(41);
+  y := &x;
+  (g : Impl(Fn() -> i32)) = ({ y }() => (y.* + i32(1)));
+  g()
+});
+export(mk);

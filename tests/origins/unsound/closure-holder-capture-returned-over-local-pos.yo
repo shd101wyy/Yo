@@ -1,0 +1,14 @@
+// expect: accept
+// Positive twin of closure-holder-capture-returned-over-local: the closure is called where `x` lives.
+{ println } :: import("std/fmt");
+V :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(r : &(i32, p), n : i32));
+mk :: (fn(k : i32) -> i32)({
+  x := Box(i32).new(k);
+  h := V(x)(r : &x.*, n : i32(0));
+  (g : Impl(Fn() -> i32)) = ({ h }() => h.r.*);
+  g()
+});
+main :: (fn() -> unit)({
+  println(`OUT: ${mk(i32(41)).to_string()}`);
+});
+export(main);

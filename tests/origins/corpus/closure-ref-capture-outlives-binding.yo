@@ -1,0 +1,11 @@
+// `y := &x` in an inner block: the closure `{ y }` leaves the block and is called. Its origin is
+// `x` (what `y` refers to), which outlives the block, not the binding `y`.
+mk :: (fn() -> i32)({
+  x := i32(41);
+  (g : Impl(Fn() -> i32)) = {
+    y := &x;
+    { y }() => (y.* + i32(1))
+  };
+  g()
+});
+export(mk);

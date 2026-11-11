@@ -1,0 +1,8 @@
+// The 2026-11-05 reproducer: an `io.async` body captures a `&P` parameter of a move-only type, as
+// the entry `{ p }`; the future borrows the parameter and is awaited by the caller.
+{ String } :: import("std/string");
+P :: struct(s : String);
+probe :: (fn(p : &P, io : Io) -> Impl(Future(usize, Io)))(
+  io.async({ p }(io : Io) => p.s.len())
+);
+export(probe);
