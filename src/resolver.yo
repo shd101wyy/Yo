@@ -1104,12 +1104,12 @@ _expand_package :: (
       .Ok(m) => m,
       .Err(msg) => {
         exn.throw(dyn(`Error: dependency "${pkg_name}": ${msg}`));
-        state.manifest
+        state.manifest.clone()
       }
     );
     (i : usize) = usize(0);
     while(i < dep_manifest.dependencies.len(), {
-      d := dep_manifest.dependencies(i);
+      d := dep_manifest.dependencies(i).clone();
       if(!d.dev, {
         dep_name := d.name.clone();
         state.packages.with_mut({ pi, dep_name }(ps) => ps(pi).dependencies.push(dep_name));
@@ -1470,9 +1470,10 @@ resolve_and_fetch :: (
     io : Io,
     exn : Exception
   ) -> Impl(Future(LockFile, IoExn))
-)(
-  io.async({ manifest, options }(e : IoExn) => {
-    root_dir := manifest.dir.clone();
+)({
+  manifest_owned := manifest.clone();
+  io.async({ manifest_owned, options }(e : IoExn) => {
+    root_dir := manifest_owned.dir.clone();
     cache_root := e.io.await(ensure_cache_layout(e.io, e.exn), e);
     read := e.io.await(read_lock_file(Path.new(root_dir.clone()), e.io, e.exn), e);
     match(
@@ -1492,7 +1493,7 @@ resolve_and_fetch :: (
     });
     state := Rc.new(
       _State(
-        manifest : manifest,
+        manifest : manifest_owned,
         options : options.clone(),
         cache_root : cache_root.clone(),
         old_lock : read.lock.clone(),
@@ -1509,8 +1510,8 @@ resolve_and_fetch :: (
     );
     // The root's requirements (its dev-dependencies included).
     (di : usize) = usize(0);
-    while(di < manifest.dependencies.len(), {
-      _add_requirement(&state, String.from("<root>"), &manifest.dependencies(di), root_dir.clone(), root_dir.clone(), e.exn);
+    while(di < state.manifest.dependencies.len(), {
+      _add_requirement(&state, String.from("<root>"), &state.manifest.dependencies(di), root_dir.clone(), root_dir.clone(), e.exn);
       di = (di + usize(1));
     });
     // Rounds until a fixpoint: a later requirer may move an earlier choice,
@@ -1554,7 +1555,7 @@ resolve_and_fetch :: (
     });
     new_lock
   })
-);
+});
 export(
   SemVer,
   VersionReq,

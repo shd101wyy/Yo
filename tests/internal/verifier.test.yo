@@ -132,7 +132,7 @@ test("encode_term: the ms_of function + its declare-fun (V5 task 6)", {
 // Query encoding goldens (the canonical self-test query)
 // ---------------------------------------------------------------------------
 test("encode_content: declarations, named assumptions, negated goal, check-sat", {
-  q := new_vc_query(String.from("golden"));
+  mut(q) := new_vc_query(String.from("golden"));
   q.declare(String.from("x"), VcSort.BvS(width : usize(32)));
   q.assume_named(String.from("a1"), _app2(VcOp.EqOp, _bv32_var(String.from("x")), _app2(VcOp.BvAdd, _bv32_lit(u64(1)), _bv32_lit(u64(1)))));
   q.goal = vc_eq(_bv32_var(String.from("x")), _bv32_lit(u64(2)));
@@ -145,7 +145,7 @@ test("encode_content: declarations, named assumptions, negated goal, check-sat",
   assert(encode_content(&q) == expected, "content golden");
 });
 test("encode_script: options, content, evidence directives in fixed order", {
-  q := new_vc_query(String.from("golden"));
+  mut(q) := new_vc_query(String.from("golden"));
   q.declare(String.from("x"), VcSort.BvS(width : usize(32)));
   q.assume(_app2(VcOp.EqOp, _bv32_var(String.from("x")), _app2(VcOp.BvAdd, _bv32_lit(u64(1)), _bv32_lit(u64(1)))));
   q.goal = vc_eq(_bv32_var(String.from("x")), _bv32_lit(u64(3)));
@@ -336,7 +336,7 @@ test("verdict_of_response: an error BEFORE the verdict is a SolverError, one aft
 // Cache keys
 // ---------------------------------------------------------------------------
 _golden_query :: (fn(goal_val : u64) -> VcQuery)({
-  q := new_vc_query(String.from("cache-key"));
+  mut(q) := new_vc_query(String.from("cache-key"));
   q.declare(String.from("x"), VcSort.BvS(width : usize(32)));
   q.assume(_app2(VcOp.EqOp, _bv32_var(String.from("x")), _app2(VcOp.BvAdd, _bv32_lit(u64(1)), _bv32_lit(u64(1)))));
   q.goal = vc_eq(_bv32_var(String.from("x")), _bv32_lit(goal_val));
@@ -714,7 +714,7 @@ test("usize/isize width follows the compilation target (32 on wasm32)", {
 });
 /// A query no other test runs: its default-budget key must stay unused.
 _budget_query :: (fn() -> VcQuery)({
-  q := new_vc_query(String.from("budget-isolation"));
+  mut(q) := new_vc_query(String.from("budget-isolation"));
   q.declare(String.from("x"), VcSort.BvS(width : usize(32)));
   q.assume(_app2(VcOp.EqOp, _bv32_var(String.from("x")), _app2(VcOp.BvAdd, _bv32_lit(u64(5)), _bv32_lit(u64(5)))));
   q.goal = vc_eq(_bv32_var(String.from("x")), _bv32_lit(u64(10)));

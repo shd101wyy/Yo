@@ -599,19 +599,17 @@ mm_module_source :: (fn(fs_path : &String) -> Option(String))({
 /// path. `fallback = false`: `changed` holds the fresh (re-parsed) defs whose
 /// source hash moved, in index order; everything else in the file is
 /// hash-identical to the last walk.
-DefDiff :: ref(
-  struct(
-    fallback : bool,
-    /// The key the module's definitions hash under — its walk's
-    /// `module_path` (demand loads: the `file://` cache key; entries: the
-    /// path as typed), resolved through the finished-walk table.
-    module_key : String,
-    /// Fresh defs whose `src_hash` moved (new ASTs for grafting).
-    changed : ArrayList(PendingDef),
-    /// The whole fresh statement list — the invalidator's ordered-statement
-    /// and export-alias scans walk it.
-    fresh_exprs : ArrayList(AstExpr)
-  )
+DefDiff :: struct(
+  fallback : bool,
+  /// The key the module's definitions hash under — its walk's
+  /// `module_path` (demand loads: the `file://` cache key; entries: the
+  /// path as typed), resolved through the finished-walk table.
+  module_key : String,
+  /// Fresh defs whose `src_hash` moved (new ASTs for grafting).
+  changed : ArrayList(PendingDef),
+  /// The whole fresh statement list — the invalidator's ordered-statement
+  /// and export-alias scans walk it.
+  fresh_exprs : ArrayList(AstExpr)
 );
 mm_changed_definitions :: (fn(fs_path : &String) -> Option(DefDiff))({
   // The stored hashes are keyed by the WALK's module path. Demand loads walk
@@ -1043,44 +1041,37 @@ _rev_add_module :: (fn(modules : &mut ArrayList(String), excluded : &HashSet(Str
 /// Phase 3 (§6): one DESTRUCTURED importer whose bindings the apply step
 /// re-points at the re-forced definitions instead of dropping the importer's
 /// whole module (and with it the importer's reverse import closure).
-RebindEntry :: ref(
-  struct(
-    /// The importer's module key.
-    reader_module : String,
-    /// The module whose definitions changed.
-    target_module : String,
-    /// The changed names this importer destructured.
-    names : ArrayList(String)
-  )
+RebindEntry :: struct(
+  /// The importer's module key.
+  reader_module : String,
+  /// The module whose definitions changed.
+  target_module : String,
+  /// The changed names this importer destructured.
+  names : ArrayList(String)
 );
-RevalPlan :: ref(
-  struct(
-    module_key : String,
-    changed : ArrayList(PendingDef),
-    fresh_exprs : ArrayList(AstExpr),
-    /// Reverse-edge dependent def keys (the changed module's own defs
-    /// EXCLUDED — they are in `changed`), unordered.
-    closure_keys : ArrayList(String),
-    /// Module KEYS the caller must `mm_invalidate_document` (fs path = the
-    /// key minus any `file://` prefix).
-    fallback_modules : ArrayList(String),
-    /// Destructured importers to re-bind rather than drop (Phase 3 §6); their
-    /// own definitions that mention a changed name are already in
-    /// `closure_keys`, so a re-bind never stands alone.
-    rebinds : ArrayList(RebindEntry)
-  )
+derive(RebindEntry, Clone);
+RevalPlan :: struct(
+  module_key : String,
+  changed : ArrayList(PendingDef),
+  fresh_exprs : ArrayList(AstExpr),
+  /// Reverse-edge dependent def keys (the changed module's own defs
+  /// EXCLUDED — they are in `changed`), unordered.
+  closure_keys : ArrayList(String),
+  /// Module KEYS the caller must `mm_invalidate_document` (fs path = the
+  /// key minus any `file://` prefix).
+  fallback_modules : ArrayList(String),
+  /// Destructured importers to re-bind rather than drop (Phase 3 §6); their
+  /// own definitions that mention a changed name are already in
+  /// `closure_keys`, so a re-bind never stands alone.
+  rebinds : ArrayList(RebindEntry)
 );
 /// True when `module` is already among the importers being re-bound.
 _rebinds_contain :: (fn(rebinds : &ArrayList(RebindEntry), module : &String) -> bool)({
   (i : usize) = usize(0);
   while(i < rebinds.len(), {
-    match(
-      rebinds.get(i),
-      .Some(e) => if(e.reader_module == module, {
-        return(true);
-      }),
-      .None => ()
-    );
+    if(rebinds(i).reader_module == module, {
+      return(true);
+    });
     i = (i + usize(1));
   });
   false
@@ -1550,7 +1541,7 @@ mm_revalidate_plan :: (fn(fs_path : &String) -> Option(RevalPlan))({
   (rsi : usize) = usize(0);
   while(rsi < rebind_seeds.len(), {
     match(
-      rebind_seeds.get(rsi),
+      rebind_seeds.get_cloned(rsi),
       .Some(entry) => {
         mentioning := _defs_mentioning(entry.reader_module.clone(), entry.names.clone());
         extra := _revalidation_closure(mentioning.clone());
@@ -1942,7 +1933,7 @@ mm_revalidate_apply :: (
             (rbi : usize) = usize(0);
             while(rbi < plan.rebinds.len(), {
               match(
-                plan.rebinds.get(rbi),
+                plan.rebinds.get_cloned(rbi),
                 .Some(entry) => if(entry.target_module == module, {
                   (rni : usize) = usize(0);
                   while(rni < entry.names.len(), {

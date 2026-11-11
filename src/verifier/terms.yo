@@ -228,55 +228,50 @@ VcAssumption :: struct(name : Option(String), term : VcTerm);
 derive(VcAssumption, Clone);
 /// One verification obligation: assumptions Φ and a goal P. Discharging
 /// means proving Φ ⇒ P (the runner checks Φ ∧ ¬P for unsat).
-VcQuery :: ref(
-  struct(
-    /// Obligation group name (function name + site) for diagnostics.
-    name : String,
-    /// Declared constants (variables of Φ and P).
-    declarations : ArrayList(VcDecl),
-    /// Assumed terms, conjoined.
-    assumptions : ArrayList(VcAssumption),
-    /// The obligation proper.
-    goal : VcTerm,
-    /// Function declarations — the elem SORT of each distinct
-    /// `__yo_msof_<elem>` multiset function used by the terms (V5 task 6).
-    /// Rendered as one `declare-fun` per entry before the constants.
-    fundecls : ArrayList(VcSort),
-    /// Axioms assumed by EVERY obligation (V5 task 6): closed quantified
-    /// terms (the per-array `ms_of` definitions, with `:pattern` triggers)
-    /// asserted ahead of the path assumptions.
-    axioms : ArrayList(VcTerm),
-    /// Uninterpreted function symbols the axioms and terms apply (R2).
-    fun_decls : ArrayList(VcFunDecl),
-    /// Declared UNINTERPRETED sorts (V6 task 2) — one mangled name per
-    /// abstractly verified generic parameter. Rendered as
-    /// `(declare-sort <name> 0)` lines before the datatypes.
-    sorts : ArrayList(String),
-    /// Datatype declaration BLOCK CONTENT — one entry per datatype, the
-    /// `(name 0)` arity pair plus its constructors. Rendered as ONE
-    /// combined `declare-datatypes` before the constants so mutually
-    /// recursive datatypes need no ordering.
-    datatypes : ArrayList(String)
-  )
+VcQuery :: struct(
+  /// Obligation group name (function name + site) for diagnostics.
+  name : String,
+  /// Declared constants (variables of Φ and P).
+  declarations : ArrayList(VcDecl),
+  /// Assumed terms, conjoined.
+  assumptions : ArrayList(VcAssumption),
+  /// The obligation proper.
+  goal : VcTerm,
+  /// Function declarations — the elem SORT of each distinct
+  /// `__yo_msof_<elem>` multiset function used by the terms (V5 task 6).
+  /// Rendered as one `declare-fun` per entry before the constants.
+  fundecls : ArrayList(VcSort),
+  /// Axioms assumed by EVERY obligation (V5 task 6): closed quantified
+  /// terms (the per-array `ms_of` definitions, with `:pattern` triggers)
+  /// asserted ahead of the path assumptions.
+  axioms : ArrayList(VcTerm),
+  /// Uninterpreted function symbols the axioms and terms apply (R2).
+  fun_decls : ArrayList(VcFunDecl),
+  /// Declared UNINTERPRETED sorts (V6 task 2) — one mangled name per
+  /// abstractly verified generic parameter. Rendered as
+  /// `(declare-sort <name> 0)` lines before the datatypes.
+  sorts : ArrayList(String),
+  /// Datatype declaration BLOCK CONTENT — one entry per datatype, the
+  /// `(name 0)` arity pair plus its constructors. Rendered as ONE
+  /// combined `declare-datatypes` before the constants so mutually
+  /// recursive datatypes need no ordering.
+  datatypes : ArrayList(String)
 );
 derive(VcAssumption, Clone);
 derive(VcFunDecl, Clone);
 impl(
   VcQuery,
   /// Builder: push a declaration.
-  declare : (fn(self : &Self, name : &String, sort : &VcSort) -> Self)({
+  declare : (fn(self : &mut Self, name : &String, sort : &VcSort) -> unit)({
     self.declarations.push(VcDecl(name : name.clone(), sort : sort));
-    self
   }),
   /// Builder: push an unnamed assumption.
-  assume : (fn(self : &Self, term : &VcTerm) -> Self)({
+  assume : (fn(self : &mut Self, term : &VcTerm) -> unit)({
     self.assumptions.push(VcAssumption(name : Option(String).None, term : Rc.clone(term)));
-    self
   }),
   /// Builder: push a named assumption (unsat-core attribution).
-  assume_named : (fn(self : &Self, name : &String, term : &VcTerm) -> Self)({
+  assume_named : (fn(self : &mut Self, name : &String, term : &VcTerm) -> unit)({
     self.assumptions.push(VcAssumption(name : Option(String).Some(name.clone()), term : Rc.clone(term)));
-    self
   })
 );
 /// Construct an empty query with a diagnostic name.
