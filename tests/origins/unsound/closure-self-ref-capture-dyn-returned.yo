@@ -5,7 +5,10 @@
 { String } :: import("std/string");
 { println } :: import("std/fmt");
 S :: struct(a : String);
-impl(S, reader : (fn(self : &Self) -> Dyn(Fn() -> usize))(dyn({ self }() => self.a.len())));
+impl(
+  S,
+  reader : (fn(self : &Self) -> Dyn(Fn() -> usize))(dyn({ self }() => self.a.len()))
+);
 main :: (fn() -> unit)({
   mut(h) := Rc.new(S(a : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz")));
   g := h.*.reader();
