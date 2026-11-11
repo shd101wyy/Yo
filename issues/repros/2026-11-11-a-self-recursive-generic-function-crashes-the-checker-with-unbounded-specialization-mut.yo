@@ -1,0 +1,18 @@
+// expect: accept
+// The same crash with a `&mut Option(T)` parameter and a `unit` result: the recursion is in the
+// specialization, not in the result type.
+deep :: (fn(generic(T : Type), n : usize, dst : &mut Option(T), v : T) -> unit)(
+  cond(
+    (n == usize(0)) => {
+      dst.* = .Some(v);
+    },
+    true => deep(n - usize(1), dst, v)
+  )
+);
+main :: (fn() -> unit)({
+  mut(o) := Option(i32).None;
+  deep(usize(3), &mut o, i32(5));
+  match(o, .Some(v) => println(`OUT: ${v.to_string()}`), .None => println("none"));
+  ()
+});
+export(main);

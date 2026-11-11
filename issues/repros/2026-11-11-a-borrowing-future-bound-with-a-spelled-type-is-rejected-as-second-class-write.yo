@@ -1,0 +1,19 @@
+// expect: E0911
+// After the fix the typed binding freezes `x` like the untyped one: moving `x` before the await
+// is E0911 at `sink(x)` (today: E0909 at the binding).
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+{ yield } :: import("std/async");
+sink :: (fn(v : String) -> unit)({
+  println(`sink ${v.len().to_string()}`);
+});
+main :: (fn(io : Io) -> unit)({
+  x := String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz");
+  (f : Impl(Future(unit, Io))) = io.async({ &x }(io : Io) => {
+    io.await(yield(io), io);
+    println(`OUT: ${x.*}`);
+  });
+  sink(x);
+  io.await(f, io);
+});
+export(main);
