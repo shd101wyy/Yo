@@ -12,6 +12,15 @@ on:
           - patch
           - minor
           - none
+      musl_recipe:
+        description: "Static musl bundle C-compile recipe (scripts/musl-compile.sh). 'fast' = clang -U_FORTIFY_SOURCE (+ musl-fastmem on x64); 'legacy-arm64' = fast on x64, the old GCC recipe on arm64; 'legacy' = the old GCC recipe on both. Rollback only; deleted in v0.2.78."
+        required: true
+        default: "fast"
+        type: choice
+        options:
+          - fast
+          - legacy-arm64
+          - legacy
 
 # One release at a time: a second dispatch computes the same version and dies
 # at `git push` (or worse, half-publishes). A running release is never
@@ -979,9 +988,12 @@ jobs:
     # The earlier failures are root-caused, not mysterious — every red run's
     # musl log dies on `duplicate 'static'` in the emitted C, the GCC
     # comptime-prototype blocker (issues/fixed/comptime-only-prototype-breaks-
-    # gcc.md): Alpine's cc is GCC, making this job the second GCC-family
+    # gcc.md): Alpine's cc was GCC, making this job the second GCC-family
     # consumer after portable-c, and PR #130 (the only substantive commit
     # between the last red run 31909103188 and the first green) fixed it.
+    # Since v0.2.77 the compile is clang (scripts/musl-compile.sh); the GCC
+    # front end still sees this C in test.yml's musl leg (`gcc -fsyntax-only`)
+    # and in portable-c below.
     # `needs` on publish-release added in this same commit, per the pairing
     # rule recorded here previously.
     continue-on-error: false
@@ -1066,27 +1078,16 @@ jobs:
           ls -la yo-g1.c
 
       - name: "C -> static stage-1 binary, inside Alpine (musl)"
+        env:
+          MUSL_RECIPE: ${{ inputs.musl_recipe }}
         run: |
-          docker run --rm -v "$PWD:/w" -w /w alpine:3.20 sh -euc '
-            apk add --no-cache build-base linux-headers openssl-dev openssl-libs-static
-            # std/http in the compiler closure (D6 PR-3) puts OpenSSL into the
-            # emitted C. Alpine splits the archives out of openssl-dev (headers +
-            # .so) into openssl-libs-static — without it the assert below fires
-            # (the PR 364 first run hit this). Static here means the artifact
-            # needs NO openssl on the machine of whoever runs it. Same
-            # assert-the-.a stance. No apostrophes in here:
-            # the whole script is single-quoted for docker sh -euc, and one
-            # broke the quoting on the test.yml twin of this block.
-            test -f /usr/lib/libssl.a || {
-              echo "::error::openssl-libs-static did not provide /usr/lib/libssl.a; -static -lssl cannot work"
-              exit 1
-            }
-            cc -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
-              yo-g1.c vendor/mimalloc/src/static.c \
-              -I vendor/mimalloc/include -DMI_BUILD_RELEASE \
-              -static -lssl -lcrypto -lpthread -lm \
-              -o yo-g1
-          '
+          # scripts/musl-compile.sh is the ONE copy of the recipe (test.yml's
+          # musl leg runs the same file): clang -O2 -U_FORTIFY_SOURCE, plus
+          # scripts/musl-fastmem.c on x64, after the GCC + fortify-headers
+          # recipe shipped a binary 1.6x slower than a glibc build of the same
+          # C (issues/fixed/2026-11-11-the-static-musl-bundle-runs-1-6x-slower-than-a-glibc-build.md).
+          docker run --rm -v "$PWD:/w" -w /w -e MUSL_RECIPE alpine:3.20 \
+            sh -euc 'sh scripts/musl-compile.sh yo-g1.c yo-g1 "$MUSL_RECIPE"'
           file yo-g1 | tee file.txt
           grep -q "statically linked" file.txt || {
             echo "::error::stage-1 musl binary is not statically linked"; exit 1; }
@@ -1106,19 +1107,11 @@ jobs:
           ls -la yo-musl.c
 
       - name: "C -> static SHIPPED binary, inside Alpine (musl)"
+        env:
+          MUSL_RECIPE: ${{ inputs.musl_recipe }}
         run: |
-          docker run --rm -v "$PWD:/w" -w /w alpine:3.20 sh -euc '
-            apk add --no-cache build-base linux-headers openssl-dev openssl-libs-static
-            test -f /usr/lib/libssl.a || {
-              echo "::error::openssl-libs-static did not provide /usr/lib/libssl.a; -static -lssl cannot work"
-              exit 1
-            }
-            cc -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
-              yo-musl.c vendor/mimalloc/src/static.c \
-              -I vendor/mimalloc/include -DMI_BUILD_RELEASE \
-              -static -lssl -lcrypto -lpthread -lm \
-              -o yo-musl
-          '
+          docker run --rm -v "$PWD:/w" -w /w -e MUSL_RECIPE alpine:3.20 \
+            sh -euc 'sh scripts/musl-compile.sh yo-musl.c yo-musl "$MUSL_RECIPE"'
           file yo-musl | tee file.txt
           grep -q "statically linked" file.txt || {
             echo "::error::musl bundle is not statically linked"; exit 1; }

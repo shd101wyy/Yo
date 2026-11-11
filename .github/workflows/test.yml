@@ -2751,28 +2751,20 @@ jobs:
             --emit-c --skip-c-compiler -o yo-musl > /dev/null
           ls -la yo-musl.c
 
+      # The SAME file release.yml's two musl-bundle compile steps run
+      # (VERDICTS-56), with the shipped default recipe: clang -O2
+      # -U_FORTIFY_SOURCE, plus scripts/musl-fastmem.c on x64 (whose
+      # exhaustive test and `nm -u` assert run inside the script, against the
+      # object it links). Then GCC's front end reads the same C: since the
+      # recipe moved to clang this leg is the battery's only GCC look at the
+      # compiler's emitted C (the `duplicate 'static'` class,
+      # issues/fixed/comptime-only-prototype-breaks-gcc.md), and
+      # -fsyntax-only keeps that for seconds instead of an 18 GB compile.
       - name: "C -> static binary, inside Alpine (musl)"
         run: |
           docker run --rm -v "$PWD:/w" -w /w alpine:3.20 sh -euc '
-            apk add --no-cache build-base linux-headers openssl-dev openssl-libs-static
-            # std/http in the compiler closure (D6 PR-3) puts OpenSSL into the
-            # emitted C. Alpine splits the archives out of openssl-dev (headers +
-            # .so) into openssl-libs-static — without it the assert below fires
-            # (the PR 364 first run hit this). Static here means the artifact
-            # needs NO openssl on the host. Same assert-the-.a stance.
-            # NOTE: no apostrophes in here — the whole script is
-            # single-quoted for docker sh -euc, and one in the PR 364 comment
-            # broke the quoting (the musl leg died on "syntax error near
-            # unexpected token )" before reaching apk).
-            test -f /usr/lib/libssl.a || {
-              echo "::error::openssl-libs-static did not provide /usr/lib/libssl.a; -static -lssl cannot work"
-              exit 1
-            }
-            cc -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
-              yo-musl.c vendor/mimalloc/src/static.c \
-              -I vendor/mimalloc/include -DMI_BUILD_RELEASE \
-              -static -lssl -lcrypto -lpthread -lm \
-              -o yo-musl
+            sh scripts/musl-compile.sh yo-musl.c yo-musl fast
+            gcc -std=c11 -fsyntax-only -w -I vendor/mimalloc/include -DMI_BUILD_RELEASE yo-musl.c
           '
 
       # A static binary that merely LINKS is not the deliverable; it must
