@@ -75,6 +75,31 @@ The `musl_recipe` input of `release.yml` can select `legacy-arm64` (old recipe o
 (old recipe on both). It exists for rollback only and is deleted in v0.2.78. GCC still reads the
 emitted C in `test.yml`'s musl leg, through `gcc -std=c11 -fsyntax-only`.
 
+### After: the shipped recipe on this tree
+
+On x86_64 the local release chain ran with the exact modified commands: seed stage-1 emit,
+`musl-compile.sh` stage-1 build, stage-2 emit, stage-2 build, and the stage-3 emit, which was
+byte-identical. The Alpine and glibc-host smokes passed. The full workload was
+`check ./src --std-path ./std`, run in concurrent pairs, using the stage-2 C compiled three ways:
+
+| Pair | `fast` (shipped) | Other                                  |
+| ---- | ---------------: | -------------------------------------: |
+| A    |          691.0 s | glibc, host clang 21: 670.3 s (-3.0%)  |
+| B    |          604.1 s | `legacy` (old recipe): 963.4 s (+59%)  |
+
+On aarch64, `fixpoint-arm64.yml` on a scratch branch ran natively on `ubuntu-24.04-arm`. Run
+42956838694 executed the release job's arm64 steps through `musl-compile.sh fast`: stage-3
+byte-identical, both smokes green. Run 42969549173 timed one seed-emitted C three ways, each binary
+alone:
+
+| Workload                     |  glibc (Ubuntu clang 18) | `fast` | `legacy` |
+| ---------------------------- | -----------------------: | -----: | -------: |
+| `check ./std/collections` r1 |                     23.4 |   23.0 |     30.5 |
+| `check ./std/collections` r2 |                     23.5 |   22.8 |     30.3 |
+| `check ./src`                |                    738.9 |  794.5 |   1028.5 |
+
+`fast` is within 8% of glibc on aarch64, and within 3% on x86_64.
+
 The regression guards are these. The fortify-predefine assert, the `nm` asserts and the fastmem
 test all run inside `scripts/musl-compile.sh`, in every develop battery and in the release. The
 fastmem test fails on a deliberately broken `memmove`, which was checked when the test was written.
