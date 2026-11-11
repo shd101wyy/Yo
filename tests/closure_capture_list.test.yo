@@ -205,6 +205,34 @@ test("capture list: the closure's origin is what the reference refers to, not th
   };
   assert(g() == i32(42), "the closure outlives y, not x");
 });
+test("capture list: a label that names the reference's own root still borrows it", {
+  s := i32(41);
+  y := &s;
+  (g : Impl(Fn() -> i32)) = ({ s : y }() => (s.* + i32(1)));
+  assert(g() == i32(42), "`{ s : y }` reads the outer `s` through the copy");
+  comptime_expect_error(
+    _cl_call0({
+      w := i32(1);
+      r := &w;
+      { w : r }() => w.*
+    }),
+    "declared inside the block"
+  );
+});
+test("capture list: a `&T` parameter's copy borrows the parameter (R-CAP-2)", {
+  comptime_expect_error(
+    (fn(p : &_ClNamed) -> Impl(Fn() -> usize))({ p }() => p.s.len()),
+    "cannot be returned"
+  );
+  comptime_expect_error(
+    (fn(p : &_ClNamed) -> Dyn(Fn() -> usize))(dyn({ p }() => p.s.len())),
+    "second-class"
+  );
+  comptime_expect_error(
+    (fn(p : &_ClNamed) -> Impl(Fn() -> usize))({ q : p }() => q.s.len()),
+    "cannot be returned"
+  );
+});
 test("capture list: a `&mut` binding's by-value entry names the reborrow", {
   mut(x) := i32(1);
   m := &mut x;

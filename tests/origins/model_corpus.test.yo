@@ -279,6 +279,15 @@ test("closure-holder-capture-returned-over-local", {
 test("async-captures-ref-param", {
   verdict("async-captures-ref-param", case2(ret_param_main(), ret_param_fn()), "ACCEPT");
 });
+test("async-ref-capture-caller-writes-arg", {
+  // The forwarded future holds the argument's origin: the caller's write while it is live is
+  // `words-then-write`'s shape.
+  words_then_write_main := entry(al4(let_(DOC, lit()), let_(W, call(usize(1), al1(Rc.new(NodeE.Borrow(false, DOC))))), Rc.new(NodeE.Assign(DOC, lit())), use_(Rc.new(NodeE.Var(W)))));
+  verdict("async-ref-capture-caller-writes-arg", case2(words_then_write_main, words_fn()), "E0911");
+});
+test("async-ref-capture-local-returned", {
+  verdict("async-ref-capture-local-returned", case2(entry(none()), ret_local_fn()), "E0912");
+});
 // ---------------------------------------------------------------------------
 // Several `&mut` out of one lend (O3 step 2)
 // ---------------------------------------------------------------------------

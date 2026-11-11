@@ -1,0 +1,21 @@
+// expect: accept
+// Positive twin of async-self-ref-capture-root-written: the caller writes `w.s` after the await.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+LONG :: "0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz";
+W :: struct(s : String);
+impl(
+  W,
+  show : (fn(self : &Self, io : Io) -> Impl(Future(unit, Io)))(
+    io.async({ self }(io : Io) => {
+      println(`OUT: ${self.*.s.len().to_string()}`);
+    })
+  )
+);
+main :: (fn(io : Io) -> unit)({
+  mut(w) := W(s : String.from(LONG));
+  fut := w.show(io);
+  io.await(fut, io);
+  w.s = String.from("b");
+});
+export(main);

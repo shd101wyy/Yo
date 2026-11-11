@@ -1,0 +1,17 @@
+// expect: accept
+// Positive twin of closure-ref-param-capture-returned: the closure is called in the frame that
+// holds the parameter, and the caller re-points `h` after the call.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+S :: struct(a : String);
+len_of :: (fn(p : &Rc(S)) -> usize)({
+  (g : Impl(Fn() -> usize)) = ({ p }() => p.*.*.a.len());
+  g()
+});
+main :: (fn() -> unit)({
+  mut(h) := Rc.new(S(a : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz")));
+  n := len_of(&h);
+  h = Rc.new(S(a : String.from("z")));
+  println(`OUT: ${n.to_string()} ${len_of(&h).to_string()}`);
+});
+export(main);

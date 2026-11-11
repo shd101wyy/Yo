@@ -1,0 +1,13 @@
+// The future returned by `mk` copies its `&String` parameter (`{ s }`), so it forwards the
+// parameter's origin: the caller's argument `x` is frozen until the await (VERDICTS-58).
+{ String } :: import("std/string");
+mk :: (fn(s : &String, io : Io) -> Impl(Future(usize, Io)))(
+  io.async({ s }(io : Io) => s.len())
+);
+caller :: (fn(io : Io) -> usize)({
+  mut(x) := String.from("abc");
+  fut := mk(&x, io);
+  x = String.from("b");
+  io.await(fut, io)
+});
+export(caller);

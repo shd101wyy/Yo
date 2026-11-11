@@ -1,0 +1,21 @@
+// expect: accept
+// Positive twin of async-ref-capture-caller-writes-arg: the caller writes `x` after the await, and
+// the body awaits once before it reads `s` (the future's copy of the lent parameter outlives `mk`).
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+{ yield } :: import("std/async");
+LONG :: "0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz";
+mk :: (fn(s : &String, io : Io) -> Impl(Future(unit, Io)))(
+  io.async({ s }(io : Io) => {
+    io.await(yield(io), io);
+    println(`OUT: ${s.*.len().to_string()}`);
+  })
+);
+main :: (fn(io : Io) -> unit)({
+  mut(x) := String.from(LONG);
+  fut := mk(&x, io);
+  io.await(fut, io);
+  x = String.from("b");
+  println(`OUT: ${x.len().to_string()}`);
+});
+export(main);

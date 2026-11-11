@@ -1,0 +1,16 @@
+// expect: E0909
+// `{ s : y }` with `y := &s`: the entry's label names the reference's own root. The closure still
+// borrows the block-local `s`, so boxing it into the outer `d` is E0909. Accepted, `d` reads `s`
+// after its block freed it (an ASan heap-use-after-free).
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  (mut(d) : Dyn(Fn() -> usize)) = dyn({}() => usize(0));
+  {
+    s := String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz");
+    y := &s;
+    d = dyn({ s : y }() => s.clone().len());
+  };
+  println(`OUT: ${d().to_string()}`);
+});
+export(main);
