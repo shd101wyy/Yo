@@ -6,7 +6,7 @@ counts as a read, so the caller ends up holding a `&mut` path beside live `&` lo
 `for(&mut xs, …)` to `(&mut xs).into_iter()`, every write walk is affected: accepted, heap-use-after-free. The
 write-walk forms are a regression since v0.2.76 (the seed rejects them with E0911); the holder form predates it.
 
-Found 2026-11-11 by the ownership / borrowing / origin audit
+Found 2026-11-11 by the ownership / borrowing / origin audit (yo-6c)
 (`plans/backlog/OWNERSHIP_BORROWING_ORIGINS_AUDIT.md` §3 A6). Confirmed on develop `64f33c710`.
 
 ## Reproducers
@@ -89,8 +89,34 @@ A `&mut` argument, the receiver included, is an exclusive access of its place at
 whatever the callee's body does (E0911 against any live loan of an overlapping place; E0910 against another
 argument). The mutation mask feeds only D3 and the runtime asserts.
 
+## Fix
+
+v0.2.77 takes VERDICTS-57 §3.1's narrow rule: **making a `&mut` reference VALUE of a place is a write of that
+place.** The general rule (every `&mut` argument is a write whatever the callee's body does, unresolved callees
+included) is v0.2.78's G, filed open as
+`issues/2026-11-12-a-mut-argument-to-a-callee-that-neither-writes-nor-lends-it-is-a-read.md`.
+
+- **The record.** The evaluator notes every node it makes a `&mut` reference value at
+  (`note_mut_lend_value`, `src/expr_info.yo`): a `&mut` lend into a by-value slot whose type is `&mut T`
+  (`(&mut xs).into_iter()`'s `self : Self`, the T9 path in `check_if_function_parameter_matches_argument`), a read
+  of a `&mut` reference binding passed on into such a slot, a `&mut` field of a struct constructor
+  (`src/evaluator/calls/type.yo`) and a `&mut` tuple element (`src/evaluator/values/tuple.yo`).
+- **Caller.** A call argument so made is a pending local-borrow entry with `lends_mut`
+  (`require_no_inout_write_through_borrow`), judged by `_d3_judge_local_borrows` as an exclusive access whatever
+  the callee is, two-phase as P9's `&mut` argument (reserved where written, activated at the call); an unresolved
+  callee judges it too. A `&mut` field or tuple element is an exclusive access where it is written.
+- **Summary.** `ParamMutationMask` gains `lends_mut`: parameter `i`'s bit is set when the body makes a `&mut`
+  reference value of storage rooted in it (a noted node, or a `&mut` marker that is not a `&mut` parameter's
+  argument: `ys := &mut b.*`, a `match` scrutinee, a payload), or passes it to a callee's `&mut` parameter whose
+  bit is set; unknown storage sets every parameter. Only the local-borrow judge reads it
+  (`param_mutation_mask_hits(…) || param_mutation_mask_lends_mut(…)`): `deep`, `shallow`, `all`, D3 and codegen
+  are untouched, and the emitted C of the compiler is byte-identical.
+
 ## Test
 
-With the fix: the three negative programs and the positive control move to `tests/origins/unsound/`; corpus rows
-`for-mut-walk-while-shared` (E0911) and `mut-lend-readonly-callee-while-shared` (E0911); `tests/for_macro_borrow*.test.yo`
-gains the write-walk-under-a-live-`&` case.
+The rows are under `tests/origins/unsound/` (`scripts/origins-unsound.sh`, each must fail `yo check` with E0911;
+the positive controls compile and run ASan-clean): `v57-for-mut-live-loan` (`ArrayList`), `-hashmap`, `-deque`,
+`v57-into-iter-mut-explicit`, `v57-for-mut-in-callee`, `v57-for-mut-in-method`, `v57-for-mut-bare-param`,
+`v57-for-mut-relend-local`, `v57-handle-mut-escape`; positive `v57-for-mut-live-loan-pos`,
+`v57-for-mut-in-callee-pos`, `v57-mut-self-nonwriting-live-loan-pos` (accepted in v0.2.77, flips at G). Every
+negative row is accepted by develop `64f33c710`.

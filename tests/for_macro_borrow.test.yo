@@ -431,6 +431,48 @@ comptime_expect_error(
     });
   })
 );
+// A write walk while a `&` loan into the collection is live: the loop's
+// `(&mut xs).into_iter()` makes a `&mut` reference value of `xs`, a write of
+// it whatever `into_iter`'s body does, so the loan is E0911 (VERDICTS-57 §3.1;
+// accepted from #1876 until then, a heap-use-after-free). The same when the
+// walk is a callee's body: its summary's `lends_mut` bit makes the `&mut`
+// argument a write.
+comptime_expect_error(
+  write_walk_while_a_shared_loan_is_live :: (fn() -> unit)({
+    mut(xs) := ArrayList(String).new();
+    xs.push(String.from("a"));
+    r := xs.index(usize(0));
+    for(&mut xs, x => {
+      x.* = String.from("b");
+    });
+    assert(r.*.len() == usize(1), "the loan is used after the walk");
+  })
+);
+_overwrite_all :: (fn(b : &mut ArrayList(String)) -> unit)({
+  for(&mut b.*, x => {
+    x.* = String.from("b");
+  });
+});
+comptime_expect_error(
+  write_walk_callee_while_a_shared_loan_is_live :: (fn() -> unit)({
+    mut(xs) := ArrayList(String).new();
+    xs.push(String.from("a"));
+    r := xs.index(usize(0));
+    _overwrite_all(&mut xs);
+    assert(r.*.len() == usize(1), "the loan is used after the call");
+  })
+);
+test("a write walk after a shared loan's last use", {
+  mut(xs) := ArrayList(String).new();
+  xs.push(String.from("a"));
+  r := xs.index(usize(0));
+  assert(r.*.len() == usize(1), "the loan's last use");
+  for(&mut xs, x => {
+    x.* = String.from("bb");
+  });
+  _overwrite_all(&mut xs);
+  assert(xs(usize(0)).len() == usize(1), "both walks wrote");
+});
 // The same for a USER collection that is a value. Naming the iterated
 // collection in the body is E0911 for a field write and for a `&mut self`
 // method, in a read walk and an in-place walk alike. A value has no second
