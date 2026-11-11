@@ -466,7 +466,24 @@ A type can have the following **Kind**:
 #### Static/Dynamic dispatch types:
 
 - `Impl(Trait)` (static dispatch type that implements Trait)
-- `Dyn(Trait)` (dynamic dispatch type that implements Trait)
+- `Dyn(Trait)` (dynamic dispatch: an unsized trait object, used behind a pointer such as `Box(Dyn(Trait))`, `Rc(Dyn(Trait))` or `&Dyn(Trait)`; see [DYN_DESIGN.md](./DYN_DESIGN.md))
+
+#### Unsized types
+
+A type with no size of its own lives only behind a pointer: `&T`, `&mut T`, `*T`, or an owning handle such as `Box(T)` (decision 49 in [`plans/VALUES_BY_DEFAULT.md`](../../plans/VALUES_BY_DEFAULT.md)). There are three:
+
+- `[T]` (`Slice(T)`), a run of `T`s whose length is carried by the pointer. `unsize(&a)` turns a `&Array(T, N)` into a `&[T]` (`&mut a` and `*Array(T, N)` likewise), and `&xs(a..b)` is a view of part of a container whose `Index(Range(usize))` impl has `Output : [T]`, with no copy. `size_of_val(s)` and `align_of_val(s)` measure through the pointer.
+- `Dyn(Trait, ...)`, a trait object, whose pointer carries the vtable ([DYN_DESIGN.md](./DYN_DESIGN.md)).
+- A struct whose last field is unsized.
+
+A pointer to an unsized type is two words, the address and the length or vtable. Using an unsized type by value (a local, a by-value parameter or result, a field other than a struct's last, an element, `size_of(T)`) is E0619, and so is assigning to an unsized place. `unsize` and `dyn` change a pointer's type, never a value's, so `unsize(a)` of a value is E0620. A `generic(T : Type)` binder carries the implicit bound `where(T <: Sized)`; a generic whose body uses `T` only behind a pointer declares `generic(T : ?Sized)` and accepts unsized types too, and its body is checked where it is defined:
+
+```yo
+Show :: trait(show : (fn(self : &Self) -> i32));
+show :: (fn(generic(T : ?Sized), x : &T, where(T <: Show)) -> i32)(x.show());
+```
+
+The standard library's methods on `[T]` (`len`, indexing, iteration) come with v0.2.78.
 
 #### Value Types vs Reference-Semantics Types
 
@@ -762,7 +779,7 @@ second_of :: (fn(s : &mut Pair) -> &mut(i32, s))(&mut s.b);
 
 The older word spelling (`imm(x) : T`, `mut(x) : T`, `inout(x) : T`, `imm(self) : Self`, `mut(self) : Self`, `imm(y) := place`, `for(xs, mut(x) => ...)`) was deleted in Generation B of the [values-by-default plan](../../plans/VALUES_BY_DEFAULT.md) (decision 42): it is error E0009, which names the sigil spelling, and older code is upgraded on the last release that ships the migrations ([ERROR_DIAGNOSTICS.md](./ERROR_DIAGNOSTICS.md), "Retired migrations"). `imm` is an ordinary identifier; `mut` stays reserved and appears only after `&`.
 
-Operator traits spell their operands' modes the same way, and every impl writes exactly those modes (decision 34). The comparison traits `Eq` and `Ord` borrow, `(==) : (fn(lhs : &Self, rhs : &Rhs) -> bool)`, so `a == b` keeps both operands. The arithmetic, bitwise and unary traits (`Add` through `BitRightShift`, `Negate`, `LogicalNot`, `BitNot` and their `Comptime*` twins) take their operands by value, as in Rust: `(+) : (fn(lhs : Self, rhs : Rhs) -> Self.Output)`. A by-value operand follows the parameter rules above: a `Copy` operand is copied, a `String` is shared, and a move-only operand moves into the operator. An impl that borrows an operand the trait takes by value, or the reverse, is rejected as written. `Dyn(LogicalNot)` hands its impl a copy of the payload, so a move-only payload cannot be boxed into it (E0614).
+Operator traits spell their operands' modes the same way, and every impl writes exactly those modes (decision 34). The comparison traits `Eq` and `Ord` borrow, `(==) : (fn(lhs : &Self, rhs : &Rhs) -> bool)`, so `a == b` keeps both operands. The arithmetic, bitwise and unary traits (`Add` through `BitRightShift`, `Negate`, `LogicalNot`, `BitNot` and their `Comptime*` twins) take their operands by value, as in Rust: `(+) : (fn(lhs : Self, rhs : Rhs) -> Self.Output)`. A by-value operand follows the parameter rules above: a `Copy` operand is copied, a `String` is shared, and a move-only operand moves into the operator. An impl that borrows an operand the trait takes by value, or the reverse, is rejected as written. A `Dyn` has no value to hand a by-value operand, so a trait whose method takes `self` by value (`LogicalNot`, `Negate`, `Add`, ...) cannot be put behind a `Dyn` for any payload (E0614).
 
 ```yo
 Money :: struct(cents : i64);
@@ -3172,7 +3189,7 @@ Yo supports closures (anonymous functions that capture their environment).
 A closure compiles to a **capture struct** holding the variables it uses. How that struct is stored and called depends on the type it is given:
 
 - **`Impl(Fn(...))` — static dispatch, not reference counted.** The compiler monomorphizes the closure into its own function, passes the capture struct **by value**, and emits a direct call. No heap allocation, no vtable, no reference count. Each closure has its own distinct type (see [Closure Type Restrictions](#closure-type-restrictions)), so this form cannot hold two different closures in one variable.
-- **`Dyn(Fn(...))` — dynamic dispatch, reference counted.** The capture struct is boxed on the heap behind a reference-count header, and the value is a fat pointer of `{data, vtable}`. Use this when closures of different types must share one type — storing them in a collection, returning them from different branches, or accepting any callable. The erasure is always written: `dyn(f)` boxes a closure, a named `fn` or an `Impl(Fn(...))` value as a `Dyn(Fn(...))`, at a binding, a field, an argument and a result alike. A callable passed bare into a `Dyn(Fn(...))` slot (`(d : Dyn(Fn() -> i32)) = f`, `run(f)`, `S(cb : f)`, a body ending in `f`) is error E0618, whose note names `dyn(f)`; `yo fix <path>` wraps a named callable. An `Impl(Fn(...))` slot is not an erasure and takes the closure bare.
+- **`Box(Dyn(Fn(...)))` and `&Dyn(Fn(...))` — dynamic dispatch.** The value is a fat pointer of `{data, vtable}` ([DYN_DESIGN.md](./DYN_DESIGN.md)): `dyn(Box.new(f))` moves the capture struct into a heap box the `Box` owns, and `dyn(&f)` borrows a closure where it is, with no allocation. Use this when closures of different types must share one type — storing them in a collection, returning them from different branches, or accepting any callable. The erasure is always written, at a binding, a field, an argument and a result alike; in v0.2.77 `dyn(f)` of a closure, a named `fn` or an `Impl(Fn(...))` value is still the spelling of `dyn(Box.new(f))`. A callable passed bare into a `Dyn(Fn(...))` slot (`(d : Dyn(Fn() -> i32)) = f`, `run(f)`, `S(cb : f)`, a body ending in `f`) is error E0618, whose note names `dyn(f)`; `yo fix <path>` wraps a named callable. An `Impl(Fn(...))` slot is not an erasure and takes the closure bare.
 
 In both cases the *captured values* follow the usual rules: a captured reference-semantics value is retained by the capture and released when the capture is dropped.
 
@@ -3361,7 +3378,7 @@ run_once(add); // an `Fn` serves for one call
   `Fn(...)`, whose call borrows the captures so the closure can run again, a
   move out is E0913 at the moving line. In this release an implicit capture
   cannot be moved out either (E0913 names the capture-list spelling).
-- `Dyn(FnOnce(...) -> R)` holds any call-once closure; its call consumes it too.
+- `Box(Dyn(FnOnce(...) -> R))` holds any call-once closure; its call consumes it too.
 
 ### Call-repeatedly closures: `FnMut`
 
@@ -3388,20 +3405,20 @@ twice({ n : i32(10) }() => {
 
 - **The call borrows the closure exclusively**, like `xs.push(v)`. So the
   closure is called through a `mut(f)` binding, a `f : &mut Impl(FnMut(...))`
-  parameter, a `(mut(d) : Dyn(FnMut(...)))` or a temporary. Calling it
+  parameter, a `(mut(d) : Box(Dyn(FnMut(...))))` or a temporary. Calling it
   through an unmarked binding or a by-value parameter is E0917 (rebind a
   parameter: `mut(g) := f;`), through `f : &Impl(FnMut(...))` or a
   `&Dyn(FnMut(...))` E0908, and while a borrow of it is live E0911.
 - **`Fn` implies `FnMut`.** An `Fn(...)` closure is accepted wherever
   `FnMut(...)` is required. A closure typed `FnMut(...)` passed where
-  `Fn(...)` is required, or boxed as a `Dyn(Fn(...))`, is E0913: that slot may
+  `Fn(...)` is required, or erased into a `Dyn(Fn(...))`, is E0913: that slot may
   call it again through a shared borrow. An `FnOnce` closure is not an
   `FnMut` (E0913).
 - **A by-value entry is writable only under `FnMut`.** The same body typed
   `Fn(...)` or `FnOnce(...)` writing an entry is E0917: there the write would
   reach a per-call copy. Under `FnOnce`, rebind the entry (`mut(m) := n;`).
 - **An `FnMut` closure is move-only.** It derives neither `Copy` nor `Clone`,
-  whatever its captures are: a copy would fork its state. `Dyn(FnMut(...))` is
+  whatever its captures are: a copy would fork its state. `Box(Dyn(FnMut(...)))` is
   move-only too.
 - **A `Sync` slot rejects it.** `Impl(Fn(...), Sync)` may call the closure
   from several threads at once, so a closure that writes a `&mut` capture or
@@ -3465,7 +3482,7 @@ l1.push(k1); // OK
 l1.push(k2); // error: k2 is a different closure type
 ```
 
-To keep different closures in one collection, store them as `Dyn(Fn(...))`.
+To keep different closures in one collection, store them as `Box(Dyn(Fn(...)))`.
 
 ### Closures with Reference-Semantics Types
 
@@ -3617,8 +3634,8 @@ allocates a fresh cell whose count is 1; the count is read with `ref_count(x)`.
 write the type, `Rc(T).new(...)`, when the argument does not carry it (an enum
 shorthand such as `.None`, a closure literal). `alloc : .Some(a)` places the cell
 in the allocator `a`; the default, `.None`, places it on the global allocator
-([EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md)). `dyn(v)` builds its cell through `Rc(T).new` (or
-`Arc(T).new` for a `Send` target).
+([EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md)). `dyn(Rc.new(v))` builds an `Rc(Dyn(Trait))`
+over a fresh cell ([DYN_DESIGN.md](./DYN_DESIGN.md)).
 
 ### Usage Examples
 
@@ -3805,18 +3822,16 @@ assert(w.upgrade().is_none(), "the last Rc dropped the payload");
 
 - **Heap allocation**: When you need a value type on the heap
 - **Shared ownership**: Several handles to one value; shared mutation goes through `Rc(RefCell(T))`
-- **Dynamic dispatch**: Wrapping value types for use with `Dyn` (`dyn(v)` on a value type does this for you: it wraps `v` in `Rc.new(v)`)
+- **Shared dynamic dispatch**: `dyn(Rc.new(v))` builds an `Rc(Dyn(Trait))`, one trait object several handles share; a uniquely owned one is `dyn(Box.new(v))`
 - **Recursive types**: only when the nodes are shared; a tree of uniquely owned nodes uses `Box`
 
 ```yo
-// Dynamic dispatch requires reference-semantics types
 impl(i32, SomeTrait(...));
+use_dyn :: (fn(value : &Dyn(SomeTrait)) -> unit)({ ... });
 
-// Value types reach Dyn through an Rc
-use_dyn :: (fn(value : Dyn(SomeTrait)) -> unit)({ ... });
-
-// Wrap the i32 in an Rc for use with Dyn
-use_dyn(dyn(Rc.new(i32(42))));
+// One i32 behind a shared trait object
+(shared : Rc(Dyn(SomeTrait))) = dyn(Rc.new(i32(42)));
+use_dyn(&shared.*);
 ```
 
 ## Impl Types
@@ -3879,10 +3894,10 @@ get_value :: (fn(use_bool : bool) -> Impl(RetI32))({
 });
 
 // To return DIFFERENT concrete types from different arms, erase to `Dyn`:
-get_any :: (fn(use_bool : bool) -> Dyn(RetI32))({
+get_any :: (fn(use_bool : bool) -> Box(Dyn(RetI32)))({
   cond(
-    use_bool => return(dyn(true)),
-    true => return(dyn(i32(42)))
+    use_bool => return(dyn(Box.new(true))),
+    true => return(dyn(Box.new(i32(42))))
   );
 });
 ```
@@ -3919,69 +3934,41 @@ See [DYN_DESIGN.md](./DYN_DESIGN.md) for comprehensive documentation on dynamic 
 
 ### `Dyn` and `dyn`
 
-Use `Dyn` to define dynamic dispatch types that can hold any object implementing specified traits. Use the `dyn()` function to create a `Dyn` instance from an object.
+`Dyn(Trait, ...)` is a trait object: any concrete type implementing the listed traits, erased, with its methods called through a vtable. It is unsized, so it is used behind a pointer, and the pointer decides who owns it: `Box(Dyn(Trait))` owns it, `Rc(Dyn(Trait))` shares it, and `&Dyn(Trait)` borrows it. `dyn(...)` is the only way in: `dyn(Box.new(v))`, `dyn(Rc.new(v))`, `dyn(Arc.new(v))`, `dyn(&v)` and `dyn(&mut v)` erase the pointee of that pointer.
 
-The position of the `dyn(v)` call must say which `Dyn(...)` to build — a parameter of `Dyn(...)` type, an annotated binding `(x : Dyn(Trait)) = dyn(v)`, a declared return type, a struct field, or a collection element slot. A bare `dyn(v)` in a position with no such expected type (for example directly inside `downcast(dyn(v), T)`, whose first parameter accepts any `Dyn`) is a compile error: `cannot infer the Dyn type of dyn(...) here — annotate the value or bind it first`.
-
-`Dyn` types in Yo are reference-counted, like other reference-semantics types. They enable dynamic dispatch through trait objects. This applies to closures too: a `Dyn(Fn(...))` closure is heap-boxed and reference counted, whereas the `Impl(Fn(...))` form is monomorphized, passed by value and carries no reference count of its own.
+The position of the `dyn(...)` call must say which `Dyn(...)` to build — a parameter, an annotated binding `(x : Box(Dyn(Trait))) = dyn(Box.new(v))`, a declared return type, a struct field, or a collection element slot. A bare `dyn(...)` in a position with no such expected type (for example directly inside `downcast(dyn(...), T)`) is a compile error: `cannot infer the Dyn type of dyn(...) here — annotate the value or bind it first`.
 
 **Key features:**
 
-- Reference counted automatically
-- No need for `addr_of` - they are objects
-- Automatic memory management
-- Support multiple trait bounds
+- Ownership is the pointer's: `Box` unique, `Rc`/`Arc` shared and read-only, `&`/`&mut` borrowed
+- `dyn(&v)` allocates nothing
+- `downcast` and `upcast` keep the pointer kind
+- Several traits in one `Dyn`: `Dyn(Speak, Run)`
+
+In v0.2.77 the older spellings still compile: a bare `Dyn(Trait)` value type means `Box(Dyn(Trait))`, and `dyn(v)` of a plain value means `dyn(Box.new(v))`. `yo fix <path> --migrate unsized` writes the type spellings the new way. See [DYN_DESIGN.md](./DYN_DESIGN.md) for what else changes in v0.2.78.
 
 ### Examples
 
 ```yo
-Speak :: trait(
-  speak : (fn(self : Self) -> i32)
-);
+{ println } :: import("std/fmt");
+Speak :: trait(speak : (fn(self : &Self) -> i32));
+Run :: trait(run : (fn(self : &Self) -> i32));
+Dog :: struct(legs : i32);
+impl(Dog, Speak(speak : ((self : &Self) -> i32(1))));
+impl(Dog, Run(run : ((self : &Self) -> self.legs)));
 
-Run :: trait(
-  run : (fn(self : Self) -> i32)
-);
-
-// Must be a reference-semantics type to work with Dyn
-Dog :: ref(struct());
-
-DogSpeak :: impl(
-  Dog,
-  Speak(
-    speak : (
-      (self : Self) -> {
-        printf("Woof!\n");
-        return(1);
-      }
-    )
-  )
-);
-
-DogRun :: impl(
-  Dog,
-  Run(
-    run : (
-      (self : Self) -> {
-        printf("The dog is running!\n");
-        return(2);
-      }
-    )
-  )
-);
-
-// Dyn type is reference counted - no & needed
-act :: (fn(s : Dyn(Speak, Run)) -> i32)(s.speak() + s.run());
+act :: (fn(s : &Dyn(Speak, Run)) -> i32)(s.speak() + s.run());
 
 main :: (fn() -> unit)({
-  dog := Dog();
-  // dyn() creates a reference-counted trait object
-  result := act(dyn(dog));
-  printf("%d\n", result);
+  dog := Dog(legs : i32(4));
+  a := act(dyn(&dog)); // a borrowed trait object: no allocation
+  (owned : Box(Dyn(Speak, Run))) = dyn(Box.new(Dog(legs : i32(3)))); // an owned one
+  b := act(&owned.*);
+  total := (a + b);
+  println(&total);
 });
+export(main);
 ```
-
-**Note:** `Dyn` types are internally reference-counted objects, providing automatic memory management without manual pointer handling.
 
 ## Existential Types
 
@@ -3992,26 +3979,26 @@ Which one to reach for:
 
 | You want to... | Use | What is hidden, and how |
 | --- | --- | --- |
-| store values of **different** concrete types in one variable, field or collection, and call trait methods on them | `Dyn(Trait)` + `dyn(v)` | the type is **erased**: a fat pointer `{data, vtable}`; the vtable is the only thing the consumer can use. Recover a concrete type only with `downcast(d, T)`. |
+| store values of **different** concrete types in one variable, field or collection, and call trait methods on them | `Box(Dyn(Trait))` + `dyn(Box.new(v))`, or `&Dyn(Trait)` + `dyn(&v)` | the type is **erased**: a fat pointer `{data, vtable}`; the vtable is the only thing the consumer can use. Recover a concrete type only with `downcast(&d.*, T)`. |
 | return **one** concrete type without naming it (a closure, an iterator, a future) | `Impl(Trait)` in result position, `Impl(Fn(...))`, `Impl(Future(T, E))` | the type is **opaque, not erased**: every return path must produce the same concrete type, the compiler monomorphizes the callers, nothing is boxed. |
 | hide a **length** or other value the type depends on (`[n:nat] list(a, n)` in ATS / DML) | an ordinary runtime value plus a contract: `ensures(r.len() == ...)`, `requires(i < xs.len())`, `refine(T, p)` | the witness is a **ghost** the verifier reasons about ([FORMAL_VERIFICATION.md](./FORMAL_VERIFICATION.md)); nothing exists at runtime. |
 
 ### Packed: `Dyn(Trait)`
 
 ```yo
-Shape :: trait(area : (fn(self : Self) -> f64));
+Shape :: trait(area : (fn(self : &Self) -> f64));
 
 // A heterogeneous list: each element's concrete type is gone, only `Shape` remains.
-mut(shapes) := ArrayList(Dyn(Shape)).new();
-shapes.push(dyn(Circle(r : f64(1.0))));
-shapes.push(dyn(Square(side : f64(2.0))));
-for(shapes, s => println(s.area()));
+mut(shapes) := ArrayList(Box(Dyn(Shape))).new();
+shapes.push(dyn(Box.new(Circle(r : f64(1.0)))));
+shapes.push(dyn(Box.new(Square(side : f64(2.0)))));
+for(&shapes, s => println(s.area()));
 ```
 
-The trait must be object-safe (`self` first, no other `Self` in the signature,
-no `generic(...)` parameters), the payload is reference counted, and an
-upcast to a smaller trait set is explicit: `upcast(d, Dyn(Sub))`. Details:
-[DYN_DESIGN.md](./DYN_DESIGN.md).
+The trait must be object-safe (a `&Self` or `&mut Self` receiver, no other
+`Self` in the signature, no `generic(...)` parameters), each element owns its
+payload through its `Box`, and an upcast to a smaller trait set is explicit:
+`upcast(d, Dyn(Sub))`. Details: [DYN_DESIGN.md](./DYN_DESIGN.md).
 
 ### Opaque: `Impl(Trait)` and closures
 
@@ -4047,7 +4034,7 @@ use_mk :: (fn(generic(G : Type), mk : &Impl(Fn(x : i32) -> G), v : i32, where(G 
 ```
 
 To store functions with different closure results in one slot, return
-`Dyn(Fn(...))` (one boxed representation). Not rejected: `Impl(Future(...))`
+`Box(Dyn(Fn(...)))` (one boxed representation). Not rejected: `Impl(Future(...))`
 (every future is one pointer to a state machine, so
 `fn(x : i32, io : Io) -> Impl(Future(i32, Io))` is a valid parameter type); a
 `comptime(f)` parameter (specialized per value); a local annotation
@@ -4067,7 +4054,7 @@ Showable :: enum(
 This is the ML-style `pack`. Its lowering in a compiler that monomorphizes
 everything is exactly a `Dyn`: a hidden `T` with no vtable cannot be operated
 on, and with one it is a trait object. It stays a non-goal (see
-[GADTS.md](./GADTS.md#limitations)); write `Dyn(Show)` instead.
+[GADTS.md](./GADTS.md#limitations)); write `Box(Dyn(Show))` instead.
 
 Yo therefore has no `exists` at the type level. The identifier `exists` is the
 verifier's ghost quantifier over values, as in
@@ -4076,7 +4063,7 @@ verifier's ghost quantifier over values, as in
 ## Impl vs Dyn
 
 - **Impl**: Static dispatch, compile-time polymorphism, no runtime overhead
-- **Dyn**: Dynamic dispatch, runtime polymorphism, requires reference-semantics types
+- **Dyn**: Dynamic dispatch, runtime polymorphism, used behind a pointer (`Box(Dyn(...))`, `&Dyn(...)`)
 
 ```yo
 // Impl - static dispatch (monomorphization)
@@ -4085,7 +4072,7 @@ use_impl :: (fn(generic(T : Type), value : T, where(T <: SomeTrait)) -> unit)({
 });
 
 // Dyn - dynamic dispatch (vtable)
-use_dyn :: (fn(value : Dyn(SomeTrait)) -> unit)({
+use_dyn :: (fn(value : &Dyn(SomeTrait)) -> unit)({
   value.method(); // Dynamically dispatched
 });
 ```
@@ -4182,16 +4169,15 @@ derive(MathError, Clone);
 //   .NotFound(path : String)  =>  `not found: ${path}`
 // Writing the two impls by hand still works, and is the way to go when the
 // message is not a simple per-variant string.
-// AnyError is Dyn(Error, Clone) — any type implementing Error and Clone can
-// be wrapped. A Dyn owns its payload uniquely, and `throw` passes the error by
-// value, so a handler keeps a caught error by moving it. (The Clone bound is a
-// v0.2.73 interim: from v0.2.74 AnyError is Dyn(Error) again and
-// `Error.source` lends the cause, so the Clone requirement goes away.)
-(err : AnyError) = dyn(MathError.DivisionByZero);
+// AnyError is the owning Dyn(Error, Clone) — any type implementing Error and
+// Clone can be wrapped (v0.2.78 spells it Box(Dyn(Error))). It owns its payload
+// uniquely, and `throw` passes the error by value, so a handler keeps a caught
+// error by moving it.
+(err : AnyError) = dyn(Box.new(MathError.DivisionByZero));
 
-// Downcast back to the concrete type:
+// Downcast back to the concrete type, borrowing it:
 match(
-  downcast(err, MathError),
+  downcast(&err.*, MathError),
   .Some(math_err) => printf("Got MathError\n"),
   .None => printf("Not a MathError\n")
 );

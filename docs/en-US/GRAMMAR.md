@@ -192,11 +192,12 @@ ArrayExpression ::=
   | '[' ']'                                           ;; Empty array value
   | '[' Expression (',' Expression)* ','? ']'         ;; Array value (comma-separated)
   | '[' Expression ';' Expression ']'                 ;; Array type [T; N]
+  | '[' Expression ']'                                ;; Slice type [T]
 
-;; The old slice-type forms `[T]` and `[T;]` are REMOVED — the builtin
-;; Slice type is deleted (plans/archive/SLICE_REWORK.md), so both are a
-;; parse error telling you to write `RawSlice(T)`. A one-element array
-;; value is written with a trailing comma: `[expr,]`.
+;; `[T]` is the unsized slice type `Slice(T)` (plans/VALUES_BY_DEFAULT.md
+;; decision 49), used behind a pointer: `&[T]`, `&mut [T]`, `*[T]`. `[T;]`
+;; names no length and is a parse error. A one-element array value is
+;; written with a trailing comma: `[expr,]`.
 
 ;; Curly Bracket Expressions
 ;; A brace group is a RECORD unless it contains a semicolon — the same rule in
