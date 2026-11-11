@@ -4,7 +4,11 @@
 # `size_of`/`Type.eq` argument included, and leaves `Box`/`Rc`/`&`/`&mut`'s
 # argument and `upcast`'s target alone. It lists `Rc(Dyn(T)).new(...)`,
 # `impl(Dyn(...), ...)` and a spelling over several lines (multi.yo). The
-# second run rewrites nothing, and both files still type-check.
+# evaluation writes `dyn(v)` as `dyn(Box.new(v))` and `dyn(Rc.new(v))` into
+# an owning Dyn as `dyn(Box.new(v))`, and lists `dyn(p)` over a raw pointer
+# and an owned `downcast`. The second run rewrites nothing, and both files
+# still type-check (check only: `dyn(p)` over a raw pointer emits invalid C,
+# issues/2026-11-11-dyn-over-a-raw-pointer-emits-invalid-c.md).
 fix . --migrate unsized
 fix . --migrate unsized
 check main.yo
