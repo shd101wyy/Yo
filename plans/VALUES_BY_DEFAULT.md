@@ -3259,18 +3259,15 @@ and in git, not a silent edit.
         `HashMapEntry.or_insert_with`, the `with_lock`/`try_with_lock`
         bodies, the Iterator and stream adapters.
 
-      One seed-gated exception (2026-11-07, the G1 rebase onto #1804;
-      decided 2026-11-08 by VERDICTS-35): `OnceCell.get_or_init` returns `&T`
-      into the cell, and its exact signature is Q1's slot with the result
-      origin spelled, `(fn(self : &Self, f : &mut Impl(FnMut() -> T)) ->
-      &(T, self))`. The v0.2.75 seed rejects that body (E0912 on the
-      `&`-match binding: it predates #1801), so until `SEED_VERSION` carries
-      #1801 (v0.2.77, `plans/backlog/SEED_VERSION_AUTOMATION.md`) it takes
-      `f : Impl(FnMut() -> T)` by value, no `sink`, so the elided result
-      origin (O2's union, which stands) names only the receiver; it lends
-      `&mut` to the `&mut Impl(FnMut)` `_init` that does the work.
-      `issues/questions/2026-11-07-should-an-elided-result-origin-prefer-the-receiver.md`
-      records the decision.
+      One exception to the by-reference slot's default result origin
+      (2026-11-07; decided 2026-11-08 by VERDICTS-35, landed 2026-11-11 by
+      VERDICTS-53): `OnceCell.get_or_init` returns `&T` into the cell, and
+      its signature is Q1's slot with the result origin spelled,
+      `(fn(self : &Self, f : &mut Impl(FnMut() -> T)) -> &(T, self))`.
+      Until v0.2.77 it took `f : Impl(FnMut() -> T)` by value, because the
+      v0.2.75 seed rejected the spelled body (E0912 on the `&`-match binding:
+      it predates #1801); v0.2.76 carries #1801, so the seed gate is gone.
+      The elided result origin (O2's union) stands everywhere else.
 
       The callee calls the closure zero or more times before returning and
       never stores it, so mutable access through a reference is exactly the

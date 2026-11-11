@@ -399,9 +399,13 @@ Generation B"; the repair keeps a migration-only `Dispose` for user code):
   instruction files to `Drop`; keep E0915's text naming `dispose` only as
   the migrated spelling.
 
-## Seed-gated follow-up (2026-11-08): `OnceCell.get_or_init` spells its result origin (VERDICTS-35)
+## Seed-gated follow-up (2026-11-08): `OnceCell.get_or_init` spells its result origin (VERDICTS-35) — DONE 2026-11-11
 
-**Gen B, v0.2.77; needs #1801 in `SEED_VERSION`.** `OnceCell.get_or_init`
+**Done** (`std/oncecell-borrowing-init`, v0.2.77; VERDICTS-53): the seed gate was
+#1801, and v0.2.76 carries it, so the change needed no compiler or seed work.
+The rows named below are in `tests/sync/once.test.yo` and
+`tests/borrow_spelling.test.yo`, and the `issues/questions/` doc is deleted.
+Kept as the record of the shape: `OnceCell.get_or_init`
 (`std/sync/once.yo`) becomes
 
 ```yo ignore
@@ -422,12 +426,10 @@ post-#1801 binaries. The v0.2.75 seed rejects the BODY under the spelled
 check (E0912 at `.Some(v) => &v`: its root walk does not follow a `&`
 match's binding into the scrutinee, #1801), and no seed-acceptable body
 exists, so v0.2.76 ships `f : Impl(FnMut() -> T)` by value (no `sink`).
-With the switch, add the named borrowing initializer row to
-`tests/sync/once.test.yo` (`(mut(g) : Impl(FnMut() -> i32)) = ({ &k, &mut n
-}() => …)`, `got := cell.get_or_init(&mut g)`, `got` read after), the E0923
-negative and `{ &mut hits }` positive for a `-> &(T, self)` method with an
-`&mut Impl(FnMut)` slot, and delete
-`issues/questions/2026-11-07-should-an-elided-result-origin-prefer-the-receiver.md`.
+The switch added the named borrowing initializer row and the `{ &mut hits }`
+literal row to `tests/sync/once.test.yo`, and the `&mut Impl(FnMut)` slot
+beside `-> &(T, self)` positive and E0923 negative to
+`tests/borrow_spelling.test.yo`.
 
 ## Seed-gated follow-up (2026-11-03): std's call-repeatedly slots take `FnMut` (decision 43 N3) — DONE 2026-11-06
 
@@ -436,8 +438,8 @@ slot — the call-repeatedly list below AND the call-once family (the
 `Option`/`Result` combinators, `HashMap.get_or_insert_with`,
 `HashMapEntry.or_insert_with`, `RefCell.with`/`replace_with`, `Once.call`,
 `OnceCell.get_or_init`, the `*_lazy` loggers; VERDICTS-28 Q1 option B) —
-takes `f : &mut Impl(FnMut(...))` (`OnceCell.get_or_init` by value until
-the section above lands); `fn_slot_admits_capture_fnmut` and the
+takes `f : &mut Impl(FnMut(...))` (`OnceCell.get_or_init` followed on
+2026-11-11, the section above); `fn_slot_admits_capture_fnmut` and the
 `YO_AUDIT_FNMUT` knob are deleted (E0913 pinned in `tests/fn_mut.test.yo`),
 and the three corpus rows are rewritten. `Fn` stays only at
 `thread.spawn_blocking`'s `sink(cb)` and the http `handler`.
