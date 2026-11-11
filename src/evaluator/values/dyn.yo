@@ -1440,7 +1440,8 @@ _record_unsized_dyn_site :: (fn(expr : &AstExpr, written : &AstExpr, value_ty : 
               .FnCall(_, _, Rc(w_dot), _, _) => match(
                 w_dot.get(usize(0)),
                 .Some(.Atom(_, rc_tok)) => if((rc_tok.value.* == "Rc") || (rc_tok.value.* == "Arc"), {
-                  record_unsized_site(&rc_tok, u8(3), &rc_tok.value.*.clone());
+                  rc_text := rc_tok.value.*.clone();
+                  record_unsized_site(&rc_tok, u8(3), &rc_text);
                 }),
                 _ => ()
               ),
