@@ -269,16 +269,16 @@ impl(UpA, Twice(twice : ((self : &Self) -> (self.n * i32(10)))));
 test("an owned upcast after a reference one to the same target", {
   a := UpA(n : i32(1));
   assert(_speak_via(upcast(dyn(&a), Dyn(Speak))) == i32(1), "reference upcast");
-  (b : Dyn(Speak, Twice)) = dyn(UpA(n : i32(2)));
-  (s : Dyn(Speak)) = upcast(b, Dyn(Speak));
+  (b : Box(Dyn(Speak, Twice))) = dyn(UpA(n : i32(2)));
+  (s : Box(Dyn(Speak))) = upcast(b, Dyn(Speak));
   assert(s.speak() == i32(2), "owned upcast");
 });
 UpB :: struct(n : i32);
 impl(UpB, Speak(speak : ((self : &Self) -> self.n)));
 impl(UpB, Twice(twice : ((self : &Self) -> (self.n * i32(10)))));
 test("an owned upcast before a reference one to the same target", {
-  (b : Dyn(Speak, Twice)) = dyn(UpB(n : i32(3)));
-  (s : Dyn(Speak)) = upcast(b, Dyn(Speak));
+  (b : Box(Dyn(Speak, Twice))) = dyn(UpB(n : i32(3)));
+  (s : Box(Dyn(Speak))) = upcast(b, Dyn(Speak));
   assert(s.speak() == i32(3), "owned upcast");
   a := UpB(n : i32(4));
   assert(_speak_via(upcast(dyn(&a), Dyn(Speak))) == i32(4), "reference upcast");
@@ -289,8 +289,8 @@ impl(UpC, Twice(twice : ((self : &Self) -> (self.n * i32(10)))));
 test("one source Dyn upcast by reference and owned", {
   a := UpC(n : i32(5));
   assert(_twice_and_speak(dyn(&a)) == i32(55), "reference upcast from Dyn(Speak, Twice)");
-  (b : Dyn(Speak, Twice)) = dyn(UpC(n : i32(6)));
-  (s : Dyn(Speak)) = upcast(b, Dyn(Speak));
+  (b : Box(Dyn(Speak, Twice))) = dyn(UpC(n : i32(6)));
+  (s : Box(Dyn(Speak))) = upcast(b, Dyn(Speak));
   assert(s.speak() == i32(6), "owned upcast from Dyn(Speak, Twice)");
 });
 UpD :: struct(n : i32);
@@ -299,10 +299,10 @@ impl(UpD, Twice(twice : ((self : &Self) -> (self.n * i32(10)))));
 test("two upcast targets of one source, by reference and owned", {
   a := UpD(n : i32(1));
   assert(_two_targets(dyn(&a)) == i32(11), "both targets by reference");
-  (b : Dyn(Speak, Twice)) = dyn(UpD(n : i32(2)));
-  (s : Dyn(Speak)) = upcast(b, Dyn(Speak));
-  (b2 : Dyn(Speak, Twice)) = dyn(UpD(n : i32(3)));
-  (t : Dyn(Twice)) = upcast(b2, Dyn(Twice));
+  (b : Box(Dyn(Speak, Twice))) = dyn(UpD(n : i32(2)));
+  (s : Box(Dyn(Speak))) = upcast(b, Dyn(Speak));
+  (b2 : Box(Dyn(Speak, Twice))) = dyn(UpD(n : i32(3)));
+  (t : Box(Dyn(Twice))) = upcast(b2, Dyn(Twice));
   assert((s.speak() + t.twice()) == i32(32), "both targets owned");
 });
 UpE :: struct(n : i32);
@@ -312,10 +312,10 @@ impl(UpE, Purr(purr : ((self : &Self) -> (self.n * i32(100)))));
 test("an upcast chain by reference and owned", {
   a := UpE(n : i32(1));
   assert(_purr_chain(dyn(&a)) == i32(111), "Dyn(Speak, Twice, Purr) to Dyn(Speak, Twice) to Dyn(Speak) by reference");
-  (b : Dyn(Speak, Twice, Purr)) = dyn(UpE(n : i32(2)));
-  (m : Dyn(Speak, Twice)) = upcast(b, Dyn(Speak, Twice));
+  (b : Box(Dyn(Speak, Twice, Purr))) = dyn(UpE(n : i32(2)));
+  (m : Box(Dyn(Speak, Twice))) = upcast(b, Dyn(Speak, Twice));
   k := m.twice();
-  (s : Dyn(Speak)) = upcast(m, Dyn(Speak));
+  (s : Box(Dyn(Speak))) = upcast(m, Dyn(Speak));
   assert((k + s.speak()) == i32(22), "the same chain owned");
 });
 UpF :: struct(n : i32);
@@ -324,8 +324,8 @@ impl(UpF, Twice(twice : ((self : &Self) -> (self.n * i32(10)))));
 test("an owned upcast beside a plain dyn(&v) of the target", {
   a := UpF(n : i32(7));
   assert(_speak_via(dyn(&a)) == i32(7), "no upcast on the reference");
-  (b : Dyn(Speak, Twice)) = dyn(UpF(n : i32(8)));
-  (s : Dyn(Speak)) = upcast(b, Dyn(Speak));
+  (b : Box(Dyn(Speak, Twice))) = dyn(UpF(n : i32(8)));
+  (s : Box(Dyn(Speak))) = upcast(b, Dyn(Speak));
   assert(s.speak() == i32(8), "owned upcast");
 });
 // Decision 49 S1g (VERDICTS-40 §4, the plan's test list): a `?Sized` binder
