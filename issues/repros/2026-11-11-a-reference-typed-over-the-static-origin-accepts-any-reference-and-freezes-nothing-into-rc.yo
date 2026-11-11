@@ -1,0 +1,16 @@
+// expect: E0923
+// Launder a parameter reference into &(T, static) (Escapable), then into an Rc payload that outlives the root.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+X :: struct(s : String);
+mk :: (fn(x : &Rc(X)) -> Option(&(Rc(X), static)))(.Some(x));
+main :: (fn() -> unit)({
+  mut(keep) := Option(Rc(Option(&(Rc(X), static)))).None;
+  {
+    b := Rc.new(X(s : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz")));
+    keep = .Some(Rc.new(mk(&b)));
+  };
+  match(&keep, .Some(h) => match(&h.*.*, .Some(r) => println(`OUT: ${r.*.*.s.len().to_string()}`), .None => ()), .None => println("none"));
+  ()
+});
+export(main);

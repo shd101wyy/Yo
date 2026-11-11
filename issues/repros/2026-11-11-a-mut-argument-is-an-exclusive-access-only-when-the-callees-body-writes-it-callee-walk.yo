@@ -1,0 +1,28 @@
+// expect: E0911
+// A read-walk element stored in `slot`, then `overwrite(&mut xs)` whose body is an in-place walk
+// `for(&mut b.*, x => x.* = …)`: the callee summary misses the walk's element writes, so the `&mut xs` argument is
+// judged a read against `slot`'s live loan. v0.2.76 rejects this (E0911); regression of #1876 (G2 R-FOR retarget).
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ HashMap } :: import("std/collections/hash_map");
+{ Deque } :: import("std/collections/deque");
+{ println } :: import("std/fmt");
+overwrite :: (fn(b : &mut ArrayList(ArrayList(String))) -> unit)({
+  for(&mut b.*, x => {
+    x.* = ArrayList(String).new();
+  });
+});
+main :: (fn() -> unit)({
+  mut(inner) := ArrayList(String).new();
+  inner.push(String.from("hello-world-hello-world-hello-world"));
+  mut(xs) := ArrayList(ArrayList(String)).new();
+  xs.push(inner);
+  mut(slot) := Option(&String).None;
+  for(&xs, x => {
+    slot = .Some(x.index(usize(0)));
+  });
+  overwrite(&mut xs);
+  match(slot, .Some(s) => println(`OUT: ${s.*}`), .None => ());
+  ()
+});
+export(main);
