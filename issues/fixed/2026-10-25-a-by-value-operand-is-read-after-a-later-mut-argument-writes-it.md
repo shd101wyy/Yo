@@ -48,4 +48,4 @@ operand is read before a later &mut argument writes it", "a by-value receiver or
 read before a later &mut argument writes its root", and "a by-value operand is read before a later
 block assigns it" (all three failed on the develop binary of 2026-10-25). The S1 sibling case
 (inside a state machine, a later operand's `await` between the operand and its use) stays open as
-`issues/2026-10-25-an-operand-before-an-await-in-a-later-operand-is-read-after-the-resume.md`.
+`issues/fixed/2026-10-25-an-operand-before-an-await-in-a-later-operand-is-read-after-the-resume.md`.

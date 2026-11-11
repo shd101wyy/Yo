@@ -2,7 +2,7 @@
 
 **Severity:** S1 — inside an `io.async` body, `sub(x, io.await(f(&mut x, io), io))` passes the value `x` has after the awaited future wrote it; a by-value read of a `&mut` capture in the same position is copied into a C local that a real suspension leaves uninitialized.
 
-**Status:** open (codegen). Found 2026-10-25 while fixing
+**Status:** FIXED 2026-11-10 (codegen; local-slot and operator shapes). Found 2026-10-25 while fixing
 `issues/fixed/2026-10-25-an-rc-field-operand-is-read-after-a-later-argument-releases-the-handle.md`
 and `issues/fixed/2026-10-25-a-by-value-operand-is-read-after-a-later-mut-argument-writes-it.md`.
 That fix (`sequence_operand`, `src/codegen/exprs/other_fn_call.yo`) copies an earlier operand into a
@@ -71,3 +71,21 @@ Have the await analysis (`src/evaluator/async/`) give each operand that precedes
 operand of the same call, operator or literal its own slot, and have `sequence_operand` and
 `_materialize_arg` store the copy there (`_store_temp_var_to_state_machine_if_needed`) and read it
 back after the resume.
+
+## Fix (2026-11-10)
+
+`collect_operand_holds` (`src/codegen/exprs/async.yo`) walks an `io.async` body (the same boundaries as
+`expr_contains_await`, following macro expansions) and lays out one struct field `__yo_seq_<expr id>` per operand
+that precedes a later operand containing an `await`, typed by `operand_hold_type` (`other_fn_call.yo`, the one place
+`sequence_operand` decides the copy's type). The set of ids reaches the resume function through
+`FunctionGenerationContext.sm_operand_holds`. In a state machine, `sequence_operand` no longer returns the operand
+inline when a later operand awaits: when `must` holds and a slot was laid out for the operand, it stores the value
+into `sm->__yo_seq_<id>` before the suspension and uses that slot as the operand's code. An operand without a laid-out
+slot keeps the old behavior (a missed shape degrades to the old bug, never to a missing field).
+
+Test: `tests/async/sm_shapes_4.test.yo` "an operand before an await in a later operand is read before the await"
+(call argument and operator over an `io.async` local; fails on a develop-built compiler with rc 6, passes after).
+
+Not covered by the test: the second shape above, a `&mut` capture read by value (its `_materialize_arg` C local is now
+also routed through the slot, but the repro's `{ &mut p }` capture spelling no longer type-checks since E0926, so the
+shape lacks a reproducer under the current reference rules).

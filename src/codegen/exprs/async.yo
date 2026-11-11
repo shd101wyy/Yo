@@ -15,14 +15,20 @@
   ast_expr_text,
   ast_expr_is_atom,
   ast_expr_is_fn_call_of,
+  ast_expr_is_address_of_call,
+  is_function_boundary_arrow,
   BK_BEGIN,
+  BK_COND,
+  BK_MATCH,
+  BK_BORROW_MUT,
   ast_call_args_unmarked,
   make_err_expr
 } :: import("../../expr.yo");
 { EvalValue, is_func_val } :: import("../../value.yo");
 { stable_position_id, stable_label_id, debug_knob, is_temp_variable_name, is_any_temp_variable_name } :: import("../../utils.yo");
 { eprintln } :: import("std/fmt");
-{ await_fusion_candidate } :: import("../../expr_traversal.yo");
+{ TokenKind } :: import("../../token.yo");
+{ await_fusion_candidate, expr_contains_await } :: import("../../expr_traversal.yo");
 { TypeValue, TypeValueNode, no_types, no_labels, t_slot_is_mut_ref, slot_pointee_at, t_slot_pointee } :: import("../../types/definitions.yo");
 {
   is_function_type,
@@ -35,7 +41,7 @@
   is_rc_type
 } :: import("../../types/guards.yo");
 { type_contains_rc_cell_or_move_only, capture_struct_borrows, type_requires_explicit_copy, fn_abi_param_is_ptr } :: import("../../types/utils.yo");
-{ sequence_operand } :: import("./other_fn_call.yo");
+{ sequence_operand, operand_hold_type, operand_hold_field } :: import("./other_fn_call.yo");
 {
   CapturedVariable,
   CapturedVariableKind,
@@ -491,7 +497,8 @@ AsyncBlockStructInfo :: ref(
     await_future_temp_var_aliases : Option(HashMap(String, String)),
     overlapping_slot_aliases : Option(HashMap(String, String)),
     overlapping_slots : Option(ArrayList(OverlappingSlot)),
-    closure_param_slots : Option(ArrayList(ClosureParamSlot))
+    closure_param_slots : Option(ArrayList(ClosureParamSlot)),
+    operand_holds : ArrayList(OperandHold)
   )
 );
 /// The result type (`T` of `Future(T)`) each async block's emission resolved,
@@ -549,6 +556,125 @@ _join_dotted :: (fn(parts : &ArrayList(String)) -> String)({
   });
   out
 });
+/// An operand a later operand's `await` separates from its use: it is copied
+/// into the task's slot `operand_hold_field(expr_id)` before the suspension
+/// (`sequence_operand`, other_fn_call.yo).
+OperandHold :: struct(expr_id : usize, ty : TypeValue);
+derive(OperandHold, Clone);
+/// The operands of `body` that `sequence_operand` may hold across an await:
+/// every operand of a call, operator or constructor that precedes a later
+/// operand containing an `await`, in a walk that crosses the boundaries
+/// `expr_contains_await` does. A C local does not survive the suspension, so
+/// the struct gets one slot per such operand before the body is generated
+/// (issues/fixed/2026-10-25-an-operand-before-an-await-in-a-later-operand-is-read-after-the-resume.md).
+/// Over-approximates (a slot `sequence_operand` ends up not using costs a
+/// field); `sequence_operand` uses a slot only when one was laid out here.
+collect_operand_holds :: (fn(body : &AstExpr, context : &FunctionGenerationContext) -> ArrayList(OperandHold))({
+  out := ArrayList(OperandHold).new();
+  seen := HashSet(usize).new();
+  _collect_operand_holds_walk(body, &mut out, &mut seen, context);
+  out
+});
+_collect_operand_holds_list :: (fn(operands : &ArrayList(AstExpr), out : &mut ArrayList(OperandHold), seen : &mut HashSet(usize), context : &FunctionGenerationContext) -> unit)({
+  n := operands.len();
+  (mut(i) : usize) = usize(0);
+  while((i + usize(1)) < n, {
+    match(
+      operands.get(i),
+      .Some(op) => {
+        (mut(later_awaits) : bool) = false;
+        (mut(j) : usize) = (i + usize(1));
+        while(j < n, {
+          match(
+            operands.get(j),
+            .Some(l) => if(expr_contains_await(&l), {
+              later_awaits = true;
+            }),
+            .None => ()
+          );
+          j = (j + usize(1));
+        });
+        skip := (ast_expr_is_address_of_call(&op, Option(usize).Some(usize(1))) || ast_expr_is_fn_call_of(&op, BK_BORROW_MUT, Option(usize).Some(usize(1))) || (ast_expr_is_atom(&op) && !is_any_identifier_atom(&op)));
+        if(later_awaits && !skip && !seen.contains(ast_expr_id(&op)), {
+          match(
+            operand_hold_type(&op, context),
+            .Some(ty) => {
+              seen.insert(ast_expr_id(&op));
+              out.push(OperandHold(expr_id : ast_expr_id(&op), ty : ty));
+            },
+            .None => ()
+          );
+        });
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+});
+is_any_identifier_atom :: (fn(e : &AstExpr) -> bool)(
+  match(
+    e,
+    .Atom(_, tok) => (tok.kind == TokenKind.Identifier),
+    .FnCall(_, _, _, _, _) => false
+  )
+);
+_collect_operand_holds_walk :: (fn(expr : &AstExpr, out : &mut ArrayList(OperandHold), seen : &mut HashSet(usize), context : &FunctionGenerationContext) -> unit)(
+  match(
+    expr,
+    .Atom(_, _) => (),
+    .FnCall(_, fn_box, Rc(args), _, _) => {
+      match(
+        lookup_macro_expansion(ast_expr_id(expr)),
+        .Some(me) => _collect_operand_holds_walk(&me, out, seen, context),
+        .None => {
+          if(ast_expr_is_fn_call_of(expr, BK_COND, Option(usize).None) || ast_expr_is_fn_call_of(expr, BK_MATCH, Option(usize).None), {
+            _collect_operand_holds_walk(&fn_box, out, seen, context);
+            (mut(ci) : usize) = usize(0);
+            while(ci < args.len(), {
+              match(
+                args.get(ci),
+                .Some(a) => if(ast_expr_is_fn_call_of(&a, "=>", Option(usize).None), {
+                  match(
+                    a,
+                    .Atom(_, _) => (),
+                    .FnCall(_, _, Rc(branch_args), _, _) => {
+                      (mut(bj) : usize) = usize(0);
+                      while(bj < branch_args.len(), {
+                        match(branch_args.get(bj), .Some(ba) => _collect_operand_holds_walk(&ba, out, seen, context), .None => ());
+                        bj = (bj + usize(1));
+                      });
+                    }
+                  );
+                }, {
+                  _collect_operand_holds_walk(&a, out, seen, context);
+                }),
+                .None => ()
+              );
+              ci = (ci + usize(1));
+            });
+          }, {
+            if(!(is_io_async_call(expr) || is_function_boundary_arrow(expr)), {
+              _collect_operand_holds_list(args, out, seen, context);
+              // The operands a call is generated from, in order (a method
+              // call's receiver leads them).
+              match(
+                context.base.get_expr_info(expr),
+                .Some(ei) => match(&ei.runtime_arg_exprs_in_order(), .Some(ra) => _collect_operand_holds_list(ra, out, seen, context), .None => ()),
+                .None => ()
+              );
+              _collect_operand_holds_walk(&fn_box, out, seen, context);
+              (mut(ai) : usize) = usize(0);
+              while(ai < args.len(), {
+                match(args.get(ai), .Some(a) => _collect_operand_holds_walk(&a, out, seen, context), .None => ());
+                ai = (ai + usize(1));
+              });
+            });
+          });
+        }
+      );
+    }
+  )
+);
 /// Emit the C `struct <name>_struct { ... }` definition for one async-block state
 /// machine.:
 /// RC header → state → result → continuation/resume/set_effect fn ptrs → capture
@@ -707,6 +833,17 @@ emit_async_block_struct_definition :: (
   // field per await expression for its result
   // (plans/archive/ASYNC_STATE_MACHINE_GENERATION.md phase 5).
   context.base.emitter.emit_declaration_line("  void* __yo_await_slot;  // the future the task is suspended on (owned)");
+  (mut(ohi) : usize) = usize(0);
+  while(ohi < info.operand_holds.len(), ohi = (ohi + usize(1)), {
+    match(
+      info.operand_holds.get_cloned(ohi),
+      .Some(oh) => {
+        emit_text_oh := `  ${get_type_string(&oh.ty, &mut context.base)} ${operand_hold_field(oh.expr_id)};  // an operand held across a later await`;
+        context.base.emitter.emit_declaration_string_line(&emit_text_oh);
+      },
+      .None => ()
+    );
+  });
   irfs := inline_await_result_fields(&info.analysis, context);
   (mut(iai) : usize) = usize(0);
   while(iai < irfs.len(), iai = (iai + usize(1)), {
@@ -975,7 +1112,8 @@ emit_deferred_async_block_struct_definitions :: (fn(context : &mut FunctionGener
             await_future_temp_var_aliases : Option(HashMap(String, String)).Some(cbr.await_future_temp_var_aliases.clone()),
             overlapping_slot_aliases : Option(HashMap(String, String)).Some(osr.slot_aliases.clone()),
             overlapping_slots : Option(ArrayList(OverlappingSlot)).Some(replace(&mut osr.slots, ArrayList(OverlappingSlot).new())),
-            closure_param_slots : b.closure_param_slots.clone()
+            closure_param_slots : b.closure_param_slots.clone(),
+            operand_holds : collect_operand_holds(&b.body_expr, context)
           ),
           context
         );
@@ -3380,6 +3518,12 @@ _emit_one_deferred_async_block :: (fn(block : &DeferredAsyncBlock, context : &mu
     .None => ()
   );
   saved_field_aliases := replace(&mut context.state_machine_field_aliases, Option(HashMap(String, String)).Some(merged_aliases));
+  hold_ids := HashSet(usize).new();
+  block_holds := collect_operand_holds(&block.body_expr, context);
+  for(&block_holds, oh => {
+    hold_ids.insert(oh.expr_id);
+  });
+  saved_operand_holds := replace(&mut context.sm_operand_holds, Option(HashSet(usize)).Some(hold_ids));
   // Resume function (returns local-var drops). It is its own C function, so
   // it gets its own declared-name set and block-scope stack, seeded with its
   // one parameter `sm`, exactly as generate_function does for a body. The
@@ -3427,6 +3571,7 @@ _emit_one_deferred_async_block :: (fn(block : &DeferredAsyncBlock, context : &mu
   context.state_machine_variables = saved_sm_vars;
   context.current_evidence_params = saved_evidence_params;
   context.state_machine_field_aliases = saved_field_aliases;
+  context.sm_operand_holds = saved_operand_holds;
   context.base.emitter.emit_string_line(String.from(""));
   // Dispose function.
   generate_async_block_state_dispose_function(block.async_block_id.clone(), block.struct_name.clone(), block.dispose_function_name.clone(), &block.result_type, &block.capture_type, &filtered_analysis, &local_var_drops, &cbr.cross_boundary_ids, &await_future_temp_var_aliases, &overlapping_slot_aliases, &osr.slots, context);
@@ -3483,7 +3628,8 @@ generate_deferred_async_blocks :: (fn(context : &mut FunctionGenerationContext) 
                 await_future_temp_var_aliases : Option(HashMap(String, String)).Some(ncbr.await_future_temp_var_aliases.clone()),
                 overlapping_slot_aliases : Option(HashMap(String, String)).Some(nosr.slot_aliases.clone()),
                 overlapping_slots : Option(ArrayList(OverlappingSlot)).Some(replace(&mut nosr.slots, ArrayList(OverlappingSlot).new())),
-                closure_param_slots : nb.closure_param_slots.clone()
+                closure_param_slots : nb.closure_param_slots.clone(),
+                operand_holds : collect_operand_holds(&nb.body_expr, context)
               ),
               context
             );
