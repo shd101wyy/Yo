@@ -191,16 +191,11 @@ impl(
   /// in the cell, so a move-only `T` is read in place, as Rust's
   /// `OnceLock::get_or_init` lends it.
   ///
-  /// `f` is taken by value, unlike the other non-escaping `FnMut` slots
-  /// (`&mut Impl(FnMut(...))`, VERDICTS-28 Q1). This is a seed gate, not a
-  /// design (VERDICTS-35): the slot becomes `f : &mut Impl(FnMut() -> T)`
-  /// with the result origin spelled, `-> &(T, self)`, once `SEED_VERSION`
-  /// carries #1801 (v0.2.77; plans/backlog/SEED_VERSION_AUTOMATION.md).
-  /// Until then the initializer is taken by value, so the elided result
-  /// origin names only the receiver.
-  get_or_init : (fn(self : &Self, f : Impl(FnMut() -> T)) -> &T)({
-    mut(init) := f;
-    self._init(&mut init);
+  /// The result's origin is the receiver alone (`-> &(T, self)`): the
+  /// initializer is released when the call returns, so a capture it wrote is
+  /// readable again while the returned reference lives.
+  get_or_init : (fn(self : &Self, f : &mut Impl(FnMut() -> T)) -> &(T, self))({
+    self._init(f);
     match(
       &self._cell.*._value,
       .Some(v) => &v,

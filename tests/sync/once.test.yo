@@ -316,6 +316,36 @@ test("OnceCell holds a move-only value and lends it", {
   assert(t.len() == s.len(), "a later call lends the same String");
   assert(match(cell.get(), .Some(g) => (g.* == String.from("a move-only payload")), .None => false), "get lends it too");
 });
+// `get_or_init` takes its initializer as `f : &mut Impl(FnMut() -> T)`, like
+// every other non-escaping std callback, and spells its result origin
+// `-> &(T, self)`: the returned reference holds the cell alone, so the
+// initializer's captures are released at the call.
+test("OnceCell get_or_init takes a borrowing initializer literal and releases its captures", {
+  mut(hits) := i32(0);
+  cell := OnceCell(i32).new();
+  got := cell.get_or_init({ &mut hits }() => {
+    hits.* = (hits.* + i32(1));
+    i32(5)
+  });
+  hits = (hits + i32(10));
+  assert(got.* == i32(5), "got is read after the initializer's capture is written");
+  assert(hits == i32(11), "the initializer ran once and `hits` was writable while `got` lived");
+});
+test("OnceCell get_or_init lends a named borrowing initializer", {
+  mut(n) := i32(0);
+  k := i32(5);
+  cell := OnceCell(i32).new();
+  (mut(g) : Impl(FnMut() -> i32)) = ({ &k, &mut n }() => {
+    n.* = (n.* + i32(1));
+    k.* + n.*
+  });
+  got := cell.get_or_init(&mut g);
+  n = (n + i32(10));
+  assert(got.* == i32(6), "the initializer read `k` and wrote `n`");
+  assert(n == i32(11), "`n` is writable while `got` lives");
+  again := cell.get_or_init(&mut g);
+  assert((again.* == i32(6)) && (n == i32(11)), "a later call lends the stored value and does not run `g`");
+});
 // ============================================================================
 // The slow path runs under with_lock
 // ============================================================================
