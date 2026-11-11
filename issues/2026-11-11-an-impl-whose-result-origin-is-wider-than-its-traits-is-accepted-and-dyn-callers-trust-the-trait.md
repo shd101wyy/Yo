@@ -46,7 +46,9 @@ $ yo compile repro.yo --optimize 1 --sanitize address --allocator system -o t &&
 | the impl above, called directly on `P` (the caller reads the impl's own signature) | E0911 | E0911 | E0923 at the impl |
 | an impl that SPELLS a wider result than the trait | E0923 | E0923 | E0923 |
 | a trait default body wider than the trait's spelled result | E0923 | E0923 | E0923 |
-| the parameter direction: the trait has `v : &Rc(X)` (a fresh origin), the impl narrows it to `v : &(Rc(X), p)` shared with `self` | accepted | accepted | E0923 at the impl |
+| the parameter direction: the trait has `v : &Rc(X)` (a fresh origin), the impl narrows it to `v : &(Rc(X), p)` shared with `self` and stores `v` into `self` (VERDICTS-57's probe (c)) | accepted | accepted | E0923 at the impl |
+| … called directly, `s.put(&b)` with `b` block-local | accepted, UAF | accepted, UAF (the direct call is also the method-lend hole of lane `o6-method-lend`) | E0923 at the impl |
+| … called through `Dyn(Store)` or from a `where(T <: Store)` generic body | accepted | check accepts; the emitted C does not compile (two emission defects found by this audit, §3 B2 and B3), so the escape through the trait is latent behind them | E0923 at the impl |
 
 ## Root cause
 

@@ -1,5 +1,17 @@
 # Flowability — safe-by-default references
 
+> **Status (2026-11-12).** This page still describes a borrow as second-class
+> (parameter and local-binding positions only). Since decision 43 a reference
+> is a first-class value whose type carries its origin, the set of places it
+> may point into: it may also be returned, stored in a struct field, a tuple
+> or an `Option`, and captured by a closure
+> ([`plans/backlog/REFERENCES_AND_ORIGINS.md`](../../plans/backlog/REFERENCES_AND_ORIGINS.md);
+> the user-level summary is in [MEMORY_SAFETY.md](./MEMORY_SAFETY.md#in-place-mutation-name--mut-t)).
+> The freeze and liveness rules below are unchanged. Where this page says a
+> dangling reference is "inexpressible", read "rejected by the origin
+> checker"; the checker's known gaps are listed in
+> [`plans/backlog/OWNERSHIP_BORROWING_ORIGINS_AUDIT.md`](../../plans/backlog/OWNERSHIP_BORROWING_ORIGINS_AUDIT.md).
+
 Yo guarantees, at compile time, that safe code cannot construct a
 dangling reference. The design is **sound by construction**: the safe
 language has no way to form a pointer into reallocatable storage, so

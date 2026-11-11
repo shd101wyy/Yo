@@ -65,6 +65,13 @@ second-class: E0909 at the `dyn(...)` and at the return. After P4: returning it 
 caller's argument root stays frozen while the result lives (E0911 at the write), and `Dyn(Fn(...))` without an
 origin still rejects it (its payload must be `Escapable`).
 
+A future is the exception to "E0909 until P4" (added 2026-11-12 with the async probes, audit §3 A49): an
+`io.async({ s }(io : Io) => …)` returned from the function that takes `s : &String` is forwarding, which O8
+accepts today (corpus rows `async-forward-param`, `async-captures-ref-param`). There the fix keeps the program
+accepted and makes the caller freeze its argument while the future lives (E0911 at the caller's write). The same
+capture has a second, independent defect in codegen — the record stores the address of the callee's C parameter
+copy — which A49's own document carries.
+
 ## Test
 
 With the fix: the two negative programs and the positive control move to `tests/origins/unsound/`; rows in

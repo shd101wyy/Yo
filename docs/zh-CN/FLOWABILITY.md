@@ -1,5 +1,14 @@
 # 可流动性（Flowability）—— 默认安全的引用
 
+> **状态（2026-11-12）。** 本页仍把借用描述为二等的（只出现在参数位置和局部绑定位置）。
+> 自决策 43 起，引用是一等值，其类型带有它的来源（origin），即它可能指向的位置集合：
+> 它还可以被返回，存入 struct 字段、元组或 `Option`，以及被闭包捕获
+> （[`plans/backlog/REFERENCES_AND_ORIGINS.md`](../../plans/backlog/REFERENCES_AND_ORIGINS.md)；
+> 面向用户的概述见 [MEMORY_SAFETY.md](./MEMORY_SAFETY.md)）。
+> 下文的冻结与存活规则没有变化。本页说悬垂引用“无法表达”的地方，应读作“被来源检查器拒绝”；
+> 检查器的已知缺口列在
+> [`plans/backlog/OWNERSHIP_BORROWING_ORIGINS_AUDIT.md`](../../plans/backlog/OWNERSHIP_BORROWING_ORIGINS_AUDIT.md)。
+
 Yo 在编译期保证：安全代码无法构造出悬垂引用。这一设计是**构造即正确**
 （sound by construction）：安全语言中根本没有任何方式能形成指向可重分配
 存储的指针，因此经典的失效陷阱（增长列表导致借用悬垂）不是被某种聪明的

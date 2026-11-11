@@ -1,6 +1,18 @@
 # Compile-time Reference Counting with Ownership and Lifetime Analysis
 
-> **Status (2026-10-05).** This page describes today's compiler. Yo is moving
+> **Status (2026-11-12).** Most of this page is now history. Unique ownership
+> has landed: binding or passing an owning value (`String`, a collection,
+> `Box`) by value MOVES it, and a later use of the source is E0901; plain data
+> is copied; an `Rc`/`Arc` handle is copied only with `.clone()`; a parameter
+> is by value unless it is spelled `x : &T` or `x : &mut T`, and the caller
+> writes the lend (`f(&x)`, `f(&mut x)`). The sections "Ownership Model"
+> (1–4), "Assignment Creates Ownership", "Function Parameters Borrow" and the
+> `___dup` rules describe the compiler before that change. The current rules
+> are summarized in [MEMORY_SAFETY.md](./MEMORY_SAFETY.md); the design is
+> `plans/VALUES_BY_DEFAULT.md`. The 2026-10-05 note below is kept as the
+> record of what was planned.
+>
+> **Status (2026-10-05).** This page described the compiler of that date. Yo was moving
 > to unique ownership with explicit copies
 > ([`plans/VALUES_BY_DEFAULT.md`](../../plans/VALUES_BY_DEFAULT.md) §0, §3.14).
 > - **What goes away:**
