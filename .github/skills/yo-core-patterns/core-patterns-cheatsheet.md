@@ -377,12 +377,12 @@ add1 :: add(i32(1), _);
 ## Dynamic dispatch
 
 ```yo
-(value : Dyn(ToString)) = dyn(i32(42));
-println(&value);
+(value : Box(Dyn(ToString))) = dyn(Box.new(i32(42)));
+s := value.to_string();
 ```
 
-- `Dyn(Trait)` is a type-erased trait object
-- `dyn(expr)` wraps a concrete value into the trait object
+- `Dyn(Trait)` is an UNSIZED type-erased trait object, used behind a pointer (decision 49): `Box(Dyn(T))` owns it (`dyn(Box.new(v))`), `Rc(Dyn(T))` shares it (`dyn(Rc.new(v))`), `&Dyn(T)` borrows it with no allocation (`dyn(&v)`, or `&b.*` of an owned one)
+- In v0.2.77 a bare `Dyn(T)` value type and `dyn(v)` of a plain value are the older spellings of `Box(Dyn(T))` and `dyn(Box.new(v))`; `src/`/`std/` keep them until v0.2.78 because the seed compiles them (`yo fix <path> --migrate unsized` writes the types the new way). A `dyn(&v)` reference is a call argument only until v0.2.78
 - `Impl(Trait)` is the static dispatch counterpart
 
 ## Derive traits
@@ -471,7 +471,7 @@ safe_div :: (fn(a : i32, b : i32) -> Result(i32, DivError))(
   move, and a read-only helper borrows it (`render(&e)`); `Context.new(msg, cause)` takes the
   cause by value. The `Clone` bound is a v0.2.73 INTERIM: from v0.2.74 `AnyError` is a move-only
   `Dyn(Error)` and `Error.source` returns a borrow
-- Use `downcast(err, MyError)` to recover the concrete type from `AnyError`
+- Use `downcast(&err.*, MyError)` to borrow the concrete type out of an `AnyError` (`Option(&MyError)`); `downcast(err, MyError)` on the owned error copies the payload out (`Option(MyError)`) until v0.2.78
 - A downcast to a type nothing in the program ever puts in a `dyn()` is legal and
   answers `.None` — that is how a negative "is this error some OTHER type?"
   helper is written. (Before 2026-09-05 it emitted invalid C for a value target:
@@ -513,10 +513,10 @@ transform :: (fn(values : &mut ArrayList(i32), f : Impl(Fn(x : i32) -> i32)) -> 
 
 - `(params) => expr` creates a closure
 - `Impl(Fn(params) -> ReturnType)` is the STATIC closure type — monomorphized, capture struct by value, direct call, no allocation or refcount on the closure itself
-- `Dyn(Fn(params) -> ReturnType)` is the TYPE-ERASED closure type — capture heap-boxed behind a refcount header, called through a `{data, vtable}` fat pointer; wrap the value with `dyn(...)`
+- `Box(Dyn(Fn(params) -> ReturnType))` is the owned TYPE-ERASED closure type (`dyn(Box.new(f))`), `&Dyn(Fn(...))` a borrowed one (`dyn(&f)`, no allocation); both are a `{data, vtable}` fat pointer
 - Closures capture: value types by copy, reference-semantics types by reference (the captured value carries the refcount, not the `Impl` closure). A closure is `Copy`/`Clone` by its capture record, as in Rust: one that owns a `String`/`Rc`/collection (listed or implicit capture) is NOT `Copy` — `d := c` moves it, `c.clone()` clones each capture; `&` captures keep it `Copy`, a `&mut` capture makes it move-only. A collection a closure writes on purpose is a `Rc(ArrayList(T))` (`calls.*.push(x)`): the collections are becoming values, and a write to a captured bare list will land in the closure's copy
 - Collection mutators (`push`, `insert`, `remove`, `clear`, `sort`, `write_str`, …) take `self : &mut Self`: write a collection through a place (`xs(i).push(x)`, `for(&mut xs, x => ...)`, a `&mut` parameter), never through a `match` binding or a by-value parameter
-- Each closure has a unique anonymous type, so one `Impl(Fn(...))` variable cannot hold two different closures — use `Dyn(Fn(...))` for that, and for struct fields, where `Impl(Fn(...))` is rejected outright
+- Each closure has a unique anonymous type, so one `Impl(Fn(...))` variable cannot hold two different closures — use `Box(Dyn(Fn(...)))` for that, and for struct fields, where `Impl(Fn(...))` is rejected outright
 
 ## Iterator and for loop
 

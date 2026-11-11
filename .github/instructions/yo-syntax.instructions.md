@@ -1578,6 +1578,28 @@ A closure's body is checked against the `Fn(...) -> R` it adopts (E0604 when it 
 match), and a `comptime(x) : T` parameter needs a compile-time argument (E1101 for a runtime
 value such as `c(i32.default())`).
 
+## `Dyn` is unsized: `Box(Dyn(T))`, `Rc(Dyn(T))`, `&Dyn(T)` (decision 49)
+
+`Dyn(T)`, `[T]` and a struct with an unsized last field have no size of their
+own and live behind a pointer (`plans/VALUES_BY_DEFAULT.md` decision 49;
+`docs/en-US/DYN_DESIGN.md`). The owner is spelled: `dyn(Box.new(v))` is a
+`Box(Dyn(T))`, `dyn(Rc.new(v))` an `Rc(Dyn(T))`, `dyn(&v)`/`dyn(&mut v)` a
+`&Dyn(T)`/`&mut Dyn(T)` with no allocation, and `&b.*` lends an owned one.
+`downcast(&b.*, V)` gives `Option(&V)`; `upcast(p, Dyn(A))` keeps the pointer
+kind. Using an unsized type by value is E0619; `unsize(a)` of a value is E0620;
+`generic(T : ?Sized)` opts a generic in.
+
+In v0.2.77 (S1) the older spellings are aliases: a bare `Dyn(T)` value type is
+`Box(Dyn(T))` and `dyn(v)` of a plain value is `dyn(Box.new(v))`.
+`yo fix <path> --migrate unsized` writes the type spellings the new way.
+**`src/` and `std/` keep the older spellings until v0.2.78's sweep**: the seed
+compiles them, and v0.2.76 predates the alias, so to it `Box(Dyn(T))` is a
+second box around the older value. Tests, docs and cli fixtures, which the
+tree binary compiles, use the new ones. Until v0.2.78 a
+`dyn(&v)` reference is a call argument only (binding or storing it is E0911,
+returning it E0912), `Rc(Dyn(T))` costs two allocations, and an owned
+`downcast(d, V)` keeps the copying `Option(V)` form.
+
 ## A callable into a `Dyn(Fn(...))` slot is always `dyn(f)` (E0618)
 
 Every erasure into a `Dyn` is spelled (`plans/VALUES_BY_DEFAULT.md` decision 44,

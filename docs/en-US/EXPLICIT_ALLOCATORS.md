@@ -108,8 +108,8 @@ Everything a program creates without such an argument is global:
 
 - `ref` struct and `ref` enum constructors (to place one, make it a value
   struct and wrap it: `Rc.new(v, alloc : .Some(a))`),
-- the cell `dyn` makes for a value (`dyn(Rc.new(v, alloc : .Some(a)))` places the
-  `Dyn`'s data object: the `Rc` cell is used as it is, with no second cell),
+- the box of a trait object (`dyn(Box.new(v, alloc : .Some(a)))` places an owned
+  `Box(Dyn(...))`, `dyn(Rc.new(v, alloc : .Some(a)))` a shared `Rc(Dyn(...))`),
 - interpolated strings (build a placed one with
   `StringBuilder.new(alloc : .Some(a))`),
 - closure environments,

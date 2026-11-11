@@ -427,7 +427,7 @@ freezes `c` until `f`'s last use, like the direct call.
 
 A call through a `Dyn` goes through its vtable, whose Future type carries no
 borrows, so a type whose trait method returns a borrowing Future cannot be
-made a `Dyn` of that trait: `dyn(v)` is E0909 there. Call the method on the
+made a `Dyn` of that trait: `dyn(...)` is E0909 there. Call the method on the
 concrete type or through a generic `Impl(Trait)` parameter, or let the
 method's `io.async` capture what it needs by value; a Future made through a
 `Dyn` is then first-class and may be bound or spawned.
