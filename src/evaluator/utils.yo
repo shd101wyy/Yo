@@ -32,6 +32,7 @@ pragma(Pragma.AllowUnsafe);
   BF_DOT,
   BK_BEGIN,
   BK_COND,
+  BK_RETURN,
   BK_WHILE,
   BK_MATCH,
   BK_COLON,
@@ -270,6 +271,9 @@ derive(RefPayloadSource, Clone);
 /// Reference bindings read as their referent at a binder argument, by source
 /// position (`note_binder_value_read`).
 (g_binder_value_reads : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
+/// The leaves of a `:=` initializer's result chain that read as references
+/// (R-TAIL, VERDICTS-41 Q1), by source position (`chain_ref_leaf_register`).
+(g_chain_ref_leaves : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
 /// Field reads of a reference field (N1e-2), with the field's reference
 /// type as the instance declares it (`note_reference_field_read`).
 (g_reference_field_reads : RefCell(HashMap(usize, TypeValue))) = RefCell(HashMap(usize, TypeValue)).new(HashMap(usize, TypeValue).new());
@@ -6192,6 +6196,11 @@ _some_type_is_callable :: (fn(ty : &TypeValue) -> bool)(
 /// binder still takes the value until the deref adoption deletes the
 /// exemption.
 reference_read_wanted :: (fn(tok : &Token, at_binder : bool, ctx : &EvalContext) -> bool)({
+  // A leaf of a `:=` initializer's result chain that every sibling leaf
+  // makes a reference (R-TAIL): the chain binds the reference.
+  if(chain_ref_leaf_is(tok), {
+    return(true);
+  });
   match(
     &ctx.expected_type,
     .Some(rw_et) => cond(
@@ -6220,6 +6229,136 @@ note_binder_value_read :: (fn(tok : &Token) -> unit)({
 forget_binder_value_read :: (fn(tok : &Token) -> unit)({
   _old := g_binder_value_reads.with_mut(s => s.remove(&_reference_deref_site_key(tok)));
 });
+/// Mark the leaf at `tok` of a `:=` initializer's result chain as one that
+/// reads as a reference (R-TAIL).
+chain_ref_leaf_register :: (fn(tok : &Token) -> unit)({
+  _new := g_chain_ref_leaves.with_mut(s => s.insert(_reference_deref_site_key(tok)));
+});
+/// Undo `chain_ref_leaf_register` at `tok`.
+chain_ref_leaf_forget :: (fn(tok : &Token) -> unit)({
+  _old := g_chain_ref_leaves.with_mut(s => s.remove(&_reference_deref_site_key(tok)));
+});
+chain_ref_leaf_is :: (fn(tok : &Token) -> bool)(
+  (g_chain_ref_leaves.with({ &tok }(s) => s.len()) > usize(0)) && g_chain_ref_leaves.with(s => s.contains(&_reference_deref_site_key(tok)))
+);
+/// `e` is a `begin`, `cond` or `match`: a node a result chain passes through.
+is_result_chain_node :: (fn(e : &AstExpr) -> bool)(
+  ast_expr_is_fn_call_of(e, BK_BEGIN, Option(usize).None) || ast_expr_is_fn_call_of(e, BK_COND, Option(usize).None) || ast_expr_is_fn_call_of(e, BK_MATCH, Option(usize).None)
+);
+/// R-TAIL (plans/backlog/BORROW_CHECKER_COMPLETENESS.md §7 P2, VERDICTS-41
+/// Q1): the leaves of the result chain of `rhs` — the tail of a `begin`, each
+/// arm value of a `cond`/`match`, recursively — when EVERY leaf is certainly
+/// a reference before anything is evaluated: a lend `&place` / `&mut place`,
+/// a reference binding read (`atoms_ok`: the tree applies the deref rule), or a call of a named function whose result is a reference (a projection).
+/// An arm that leaves the chain (`return`, `break`, `continue`) takes no part.
+/// `.None` for any other chain, which keeps today's value reading: a leaf
+/// whose callee is not yet known (a method) is a value here, the mixed chain
+/// of Q1 item 2.
+ref_chain_leaves_of :: (fn(rhs : &AstExpr, env : &Environment, atoms_ok : bool) -> Option(ArrayList(AstExpr)))({
+  out := ArrayList(AstExpr).new();
+  // An untyped tuple literal's component that is a reference binding reads
+  // as the reference (VERDICTS-23 R1: `(y, i32(1))` is a `(&i32, i32)`).
+  if(atoms_ok && ast_expr_is_fn_call_of(rhs, BK_TUPLE, Option(usize).None), {
+    match(
+      rhs,
+      .FnCall(_, _, Rc(t_args), _, _) => {
+        (ti : usize) = usize(0);
+        while(ti < t_args.len(), ti = (ti + usize(1)), {
+          comp := t_args(ti).clone();
+          if(ast_expr_is_atom(&comp), {
+            match(
+              get_variables_from_env(env, ast_expr_token(&comp).value.*.clone()).last_cloned(),
+              .Some(tv) => if(variable_is_reference_binding(&tv), {
+                out.push(comp);
+              }),
+              .None => ()
+            );
+          });
+        });
+      },
+      .Atom(_, _) => ()
+    );
+    if(out.len() > usize(0), {
+      return(Option(ArrayList(AstExpr)).Some(out));
+    });
+    return(Option(ArrayList(AstExpr)).None);
+  });
+  if(!is_result_chain_node(rhs) && !(atoms_ok && ast_expr_is_atom(rhs)), {
+    return(Option(ArrayList(AstExpr)).None);
+  });
+  if(_ref_chain_collect(rhs, env, &mut out, u32(0), atoms_ok) && (out.len() > usize(0)), {
+    return(Option(ArrayList(AstExpr)).Some(out));
+  });
+  Option(ArrayList(AstExpr)).None
+});
+_ref_chain_collect :: (fn(e : &AstExpr, env : &Environment, out : &mut ArrayList(AstExpr), depth : u32, atoms_ok : bool) -> bool)({
+  if(depth > u32(16), {
+    return(false);
+  });
+  cond(
+    (ast_expr_is_fn_call_of(e, BF_ADDRESS_OF, Option(usize).Some(usize(1))) || ast_expr_is_fn_call_of(e, BK_BORROW_MUT, Option(usize).Some(usize(1)))) => {
+      out.push(e.clone());
+      true
+    },
+    ast_expr_is_fn_call_of(e, BK_BEGIN, Option(usize).None) => match(
+      e,
+      .FnCall(_, _, Rc(b_args), _, _) => match(b_args.last(), .Some(tail) => _ref_chain_collect(&tail, env, out, (depth + u32(1)), atoms_ok), .None => false),
+      .Atom(_, _) => false
+    ),
+    (ast_expr_is_fn_call_of(e, BK_COND, Option(usize).None) || ast_expr_is_fn_call_of(e, BK_MATCH, Option(usize).None)) => match(
+      e,
+      .FnCall(_, _, Rc(c_args), _, _) => {
+        (ok : bool) = true;
+        (ai : usize) = usize(0);
+        while(ok && (ai < c_args.len()), ai = (ai + usize(1)), {
+          arm := c_args(ai).clone();
+          if(ast_expr_is_fn_call_of(&arm, "=>", Option(usize).Some(usize(2))), {
+            body := match(arm, .FnCall(_, _, Rc(arm_args), _, _) => arm_args.get_cloned(usize(1)), .Atom(_, _) => Option(AstExpr).None);
+            match(
+              body,
+              .Some(b) => if(!_ref_chain_leaves_the_chain(&b), {
+                ok = _ref_chain_collect(&b, env, out, (depth + u32(1)), atoms_ok);
+              }),
+              .None => {
+                ok = false;
+              }
+            );
+          });
+        });
+        ok
+      },
+      .Atom(_, _) => false
+    ),
+    ast_expr_is_atom(e) => cond(
+      !atoms_ok => false,
+      true => match(
+        get_variables_from_env(env, ast_expr_token(e).value.*.clone()).last_cloned(),
+        .Some(av) => if(variable_is_reference_binding(&av), {
+          out.push(e.clone());
+          true
+        }, false),
+        .None => false
+      )
+    ),
+    ast_expr_is_fn_call(e) => match(
+      e,
+      .FnCall(_, callee, _, infix, _) => if(infix || !ast_expr_is_atom(&callee), false, match(
+        get_variables_from_env(env, ast_expr_token(&callee).value.*.clone()).last_cloned(),
+        .Some(fv) => if(is_function_type(&variable_value_type(&fv)) && fn_result_is_ref(&variable_value_type(&fv)), {
+          out.push(e.clone());
+          true
+        }, false),
+        .None => false
+      )),
+      .Atom(_, _) => false
+    ),
+    true => false
+  )
+});
+/// An arm value that leaves the chain instead of yielding to it.
+_ref_chain_leaves_the_chain :: (fn(e : &AstExpr) -> bool)(
+  ast_expr_is_fn_call_of(e, BK_RETURN, Option(usize).None) || (ast_expr_is_atom(e) && ((ast_expr_token(e).value.* == "break") || (ast_expr_token(e).value.* == "continue")))
+);
 is_binder_value_read :: (fn(tok : &Token) -> bool)(
   (g_binder_value_reads.with({ &tok }(s) => s.len()) > usize(0)) && g_binder_value_reads.with(s => s.contains(&_reference_deref_site_key(tok)))
 );
@@ -11362,7 +11501,7 @@ _ref_payload_held_of :: (fn(a : &AstExpr, env : &Environment) -> Option(ArrayLis
     .None => Option(ArrayList(OriginRootPlace)).None
   )
 );
-export(lend_place_reference_type);
+export(lend_place_reference_type, chain_ref_leaf_register, chain_ref_leaf_forget, chain_ref_leaf_is, is_result_chain_node, ref_chain_leaves_of);
 /// A binding of a borrowed `match` (`match(&self.v, .Some(x) => …)`, or a
 /// reference binding matched bare, VERDICTS-13 §14): the binding's variable
 /// id and the scrutinee place it is a place inside. The projection root rule

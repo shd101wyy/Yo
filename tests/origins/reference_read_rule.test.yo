@@ -727,3 +727,105 @@ test("a generic over a by-value slot is instantiated at a reference type and at 
   assert(_sm_pick(i32(3), i32(4), false) == i32(4), "the by-value instance beside it");
   assert(_sm_pick(i32(3), i32(4), true) == i32(3), "and it still differs");
 });
+
+// R-TAIL (VERDICTS-41 Q1): an unannotated `:=` whose initializer is a block,
+// `cond` or `match` every result-chain leaf of which is a reference (a lend,
+// a projection call) binds the REFERENCE
+// (issues/2026-11-08-a-projection-call-as-a-blocks-tail-binds-without-exprinfo.md).
+rr_tail_first :: (fn(p : &i32) -> &i32)(&p.*);
+rr_tail_first_s :: (fn(p : &String) -> &String)(&p.*);
+test("A block, cond or match whose every leaf is a reference binds the reference", {
+  x := i32(1);
+  y := i32(2);
+  z := {
+    w := i32(9);
+    rr_tail_first(&x)
+  };
+  assert(z.* == i32(1), "a projection call as a block's tail");
+  l := {
+    w := i32(9);
+    &x
+  };
+  assert(l.* == i32(1), "a lend as a block's tail");
+  c := true;
+  a := cond(c => rr_tail_first(&x), true => rr_tail_first(&y));
+  assert(a.* == i32(1), "a two-arm cond of projections");
+  m := match(c, true => &x, false => &y);
+  assert(m.* == i32(1), "a match of lends");
+  s := String.from("hello");
+  t := {
+    w := i32(9);
+    rr_tail_first_s(&s)
+  };
+  assert(t.len() == usize(5), "a move-only referent is read in place");
+  assert(s.len() == usize(5), "and stays in its place");
+});
+test("A mixed chain is the value", {
+  x := i32(1);
+  c := true;
+  v := cond(c => rr_tail_first(&x).*, true => i32(0));
+  assert(v == i32(1), "a mixed cond binds an i32");
+});
+// A block-local root is E0911 at the block's end (Q1 item 3).
+comptime_expect_error(
+  rr_tail_block_local_root :: (fn() -> unit)({
+    z := {
+      w := i32(2);
+      rr_tail_first(&w)
+    };
+    z.*;
+  }),
+  "Cannot end this block while its result borrows `w`"
+);
+comptime_expect_error(
+  rr_tail_block_local_lend :: (fn() -> unit)({
+    z := {
+      w := i32(2);
+      &w
+    };
+    z.*;
+  }),
+  "Cannot end this block while its result borrows `w`"
+);
+// Both roots of a two-arm cond stay frozen while the binding lives.
+comptime_expect_error(
+  rr_tail_cond_roots_frozen :: (fn() -> unit)({
+    mut(x) := i32(1);
+    mut(y) := i32(2);
+    c := true;
+    a := cond(c => rr_tail_first(&x), true => rr_tail_first(&y));
+    y = i32(5);
+    a.*;
+  }),
+  "`a` borrows `y` with `&` and is still live"
+);
+// A bare reference-binding read binds the reference too (VERDICTS-23 R1,
+// VERDICTS-45 §11, VERDICTS-44 PR 3): `q := y` and an untyped tuple
+// component, alone and as a block's tail.
+test("A reference binding read at a := binds the reference", {
+  x := i32(1);
+  k := &x;
+  r := k;
+  assert(r.* == i32(1), "r := k");
+  r2 := {
+    w := i32(2);
+    k
+  };
+  assert(r2.* == i32(1), "r := { ...; k }");
+  t := (k, i32(3));
+  assert(t.0.* == i32(1), "an untyped tuple component");
+  assert(t.1 == i32(3), "the other component");
+});
+// KNOWN GAP (issues/2026-11-10-a-method-call-leaf-of-a-block-tail-is-not-classified-before-evaluation.md):
+// a METHOD-call projection leaf (`s.get()`) is not recognized before the
+// chain is evaluated, so a block ending in one reads its value (today's
+// behaviour, pinned here), where a free-function leaf (`rr_tail_first(&x)`
+// above) binds the reference.
+test("A method-call projection leaf of a block tail reads as its value today", {
+  s := RrHolds(v : i32(5), b : Box.new(i32(8)), name : `abc`);
+  z := {
+    w := i32(0);
+    s.get()
+  };
+  assert(z == i32(5), "the value of the projection");
+});

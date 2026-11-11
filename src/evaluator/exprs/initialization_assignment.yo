@@ -20,6 +20,9 @@
   make_err_expr,
   BK_COLON,
   BK_CONST,
+  BK_BEGIN,
+  BK_COND,
+  BK_MATCH,
   BK_INIT_ASSIGN,
   BK_GIVEN,
   BK_COMPTIME,
@@ -73,7 +76,7 @@
   record_pending_def_variable
 } :: import("../context.yo");
 { EvalValue, create_unknown_val, is_runtime_only_unknown_val, is_type_value, is_module_val } :: import("../../value.yo");
-{ TypeValue, TypeValueNode, trait_t_body, fn_result_origin_names, t_origin_named, t_reference_with_origin, shared_list } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, trait_t_body, fn_result_origin_names, t_origin_named, t_reference_with_origin, shared_list, t_slot_is_borrow, t_slot_is_mut_ref, t_slot_pointee } :: import("../../types/definitions.yo");
 { t_unit, type_value_tag, register_type_binding_name } :: import("../../types/creators.yo");
 { TypeTag } :: import("../../types/tags.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../../types/compatibility.yo");
@@ -133,8 +136,13 @@
   local_borrow_place_of_variable,
   local_borrow_info_placeholder,
   projection_call_mode_of,
-  ProjectionRootArg,
+  chain_ref_leaf_register,
+  is_result_chain_node,
+  ORIGIN_TEMPORARY_ROOT,
+  chain_ref_leaf_forget,
+  ref_chain_leaves_of,
   projection_call_root_args,
+  ProjectionRootArg,
   is_temporary_operand,
   projection_call_callee_type,
   bind,
@@ -704,6 +712,63 @@ _join_labels :: (fn(xs : &ArrayList(String)) -> String)({
 });
 /// The projection binding's temporary rejection (decision 24; R-TEMP's
 /// first form).
+/// The union of the origins of `e`'s result-chain leaves (the tail of a
+/// `begin`, each arm value of a `cond`/`match`), each read in the environment
+/// its own evaluation recorded: a root declared inside the block is in scope
+/// there, and not in the binding's environment once the block has ended.
+_chain_leaf_origins :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, out : &mut ArrayList(OriginRootPlace), depth : u32) -> unit)({
+  if(depth > u32(16), {
+    return(());
+  });
+  match(
+    e,
+    .FnCall(_, _, Rc(c_args), _, _) => {
+      if(ast_expr_is_fn_call_of(e, BK_BEGIN, .None), {
+        match(c_args.last(), .Some(tail) => _chain_leaf_origins(&tail, env, ctx, out, (depth + u32(1))), .None => ());
+        return(());
+      });
+      if(ast_expr_is_fn_call_of(e, BK_COND, .None) || ast_expr_is_fn_call_of(e, BK_MATCH, .None), {
+        (ai : usize) = usize(0);
+        while(ai < c_args.len(), ai = (ai + usize(1)), {
+          arm := c_args(ai).clone();
+          if(ast_expr_is_fn_call_of(&arm, "=>", Option(usize).Some(usize(2))), {
+            match(arm, .FnCall(_, _, Rc(arm_args), _, _) => match(arm_args.get_cloned(usize(1)), .Some(v) => _chain_leaf_origins(&v, env, ctx, out, (depth + u32(1))), .None => ()), .Atom(_, _) => ());
+          });
+        });
+        return(());
+      });
+    },
+    .Atom(_, _) => ()
+  );
+  leaf_env := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(e)), .Some(li) => li.env(), .None => Rc.clone(env));
+  leaf_roots := origin_of(e, &leaf_env, ctx);
+  (li : usize) = usize(0);
+  while(li < leaf_roots.len(), li = (li + usize(1)), {
+    out.push(leaf_roots(li).clone());
+  });
+});
+/// The byte offset of the last token under `e` (a block's extent).
+_expr_last_byte_offset :: (fn(e : &AstExpr) -> u32)({
+  (best : u32) = ast_expr_token(e).byte_offset;
+  match(
+    e,
+    .FnCall(_, f, Rc(fa), _, _) => {
+      fo := _expr_last_byte_offset(&f);
+      if(fo > best, {
+        best = fo;
+      });
+      (i : usize) = usize(0);
+      while(i < fa.len(), i = (i + usize(1)), {
+        ao := _expr_last_byte_offset(&fa(i));
+        if(ao > best, {
+          best = ao;
+        });
+      });
+    },
+    .Atom(_, _) => ()
+  );
+  best
+});
 _projection_temporary_message :: (fn(var_name : &String, call_text : &String, arg : &AstExpr) -> String)(
   `Cannot bind \`${var_name}\` to \`${call_text}\`: the projection's result is a place inside \`${ast_expr_to_string(arg)}\`, which is a temporary that ends with this statement. Bind the borrowed value to a local first, or copy the result out with \`(${var_name} : T) = ${call_text}\`.`
 );
@@ -734,8 +799,21 @@ _bind_projection_result :: (
     (view_lhs_id : Option(usize)) ?= .None
   ) -> AstExpr
 )({
-  // `s := unsize(&a)` is a projection call too (decision 49).
-  is_mut := match(view_lhs_id, .Some(_) => false, .None => match(projection_call_mode_of(rhs, ctx), .Some(m) => m, .None => false));
+  // `s := unsize(&a)` is a projection call too (decision 49). A
+  // `begin`/`cond`/`match` initializer whose leaves are all references
+  // (R-TAIL, VERDICTS-41 Q1) binds like a projection call: `&mut` only when
+  // the chain's type is. A range view (`v := &xs(a..b)`) is neither.
+  chain := view_lhs_id.is_none() && projection_call_mode_of(rhs, ctx).is_none();
+  is_mut := match(
+    view_lhs_id,
+    .Some(_) => false,
+    .None =>
+      if(
+        chain,
+        match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(rhs)), .Some(chain_ri) => t_slot_is_mut_ref(&chain_ri.ty()), .None => false),
+        match(projection_call_mode_of(rhs, ctx), .Some(m) => m, .None => false)
+      )
+  );
   sig := if(is_mut, String.from("&mut "), String.from("&"));
   call_text := ast_expr_to_string(rhs);
   name_tok := ast_expr_token(name_expr);
@@ -769,7 +847,7 @@ _bind_projection_result :: (
       new_expr_info(env, t_unit())
     }
   );
-  place_type := Rc.clone(rhs_info.ty());
+  place_type := if(chain, t_slot_pointee(&rhs_info.ty()), Rc.clone(rhs_info.ty()));
   // The places the result borrows: a `&mut` projection's place is reached
   // from its `&mut` arguments alone (its body's root rule), a `&` one's from
   // any borrowed argument.
@@ -781,13 +859,41 @@ _bind_projection_result :: (
   // borrowed a second time against the holder's own entry.
   held_places := ArrayList(bool).new();
   root_vars := ArrayList(Variable).new();
-  roots := if(view_lhs_id.is_some(), _subscript_root_args(rhs), projection_call_root_args(rhs, ctx));
+  roots := if(view_lhs_id.is_some(), _subscript_root_args(rhs), if(chain, ArrayList(ProjectionRootArg).new(), projection_call_root_args(rhs, ctx)));
   root_labels := ArrayList(String).new();
   root_names := ArrayList(String).new();
   // The holders' own places the union adds (below): the same parameter as
   // its holder places, so not one more argument the elided-origin note
   // lists.
   (holder_self_roots : usize) = usize(0);
+  // A result chain's roots are the union over its leaves (decision 38 A's
+  // join, `origin_of`'s R-ARM): a lend's place, a projection call's
+  // arguments. A temporary root ends with this statement (R-TEMP); a root
+  // declared inside the block ends with the block, while the binding reads
+  // through it afterwards (Q1 item 3, Rust's E0597).
+  if(chain, {
+    chain_roots := ArrayList(OriginRootPlace).new();
+    _chain_leaf_origins(rhs, env, ctx, &mut chain_roots, u32(0));
+    rhs_tok := ast_expr_token(rhs);
+    rhs_end := _expr_last_byte_offset(rhs);
+    (cr_i : usize) = usize(0);
+    while(cr_i < chain_roots.len(), cr_i = (cr_i + usize(1)), {
+      cr := chain_roots(cr_i).clone();
+      if(cr.place.root_name == ORIGIN_TEMPORARY_ROOT, {
+        exn.throw(dyn(with_code(format_error_message_with_help(ast_expr_token(rhs), `Cannot bind \`${var_name}\` to this result: it holds a reference into \`${cr.place.text}\`, a temporary that ends with this statement, while \`${var_name}\` lives on (decision 43, plans/backlog/BORROW_CHECKER_COMPLETENESS.md §3 R-TEMP).`, Option(String).Some(`bind \`${cr.place.text}\` to a local first and lend the local`)), E_LOCAL_BORROW_CONFLICT)));
+      });
+      if((cr.place.root_decl.module_path.*.clone() == rhs_tok.module_path.*.clone()) && (cr.place.root_decl.byte_offset >= rhs_tok.byte_offset) && (cr.place.root_decl.byte_offset <= rhs_end), {
+        exn.throw(dyn(with_code(format_error_message_with_help(ast_expr_token(rhs), `Cannot end this block while its result borrows \`${cr.place.root_name}\`: \`${cr.place.root_name}\` is a local of the block and is dropped here, and \`${var_name}\` would read through it afterwards (decision 43; Rust's E0597).`, Option(String).Some(`declare \`${cr.place.root_name}\` before the block, or read the value out of it inside the block (a \`.*\` read of the result copies it)`)), E_LOCAL_BORROW_CONFLICT)));
+      });
+      if(!is_mut || cr.is_mut, {
+        match(get_variables_from_env(env, cr.place.root_name.clone()).last_cloned(), .Some(rv) => root_vars.push(rv), .None => ());
+        root_labels.push(String.from("the result"));
+        root_names.push(cr.place.root_name.clone());
+        places.push(cr.place.clone());
+        held_places.push(false);
+      });
+    });
+  });
   (ri : usize) = usize(0);
   while(ri < roots.len(), {
     root := match(
@@ -1443,7 +1549,19 @@ evaluate_initialization_assignment :: (
   // continues with a placeholder expr). In particular this lets a test
   // body's trial-evaluation swallow (see `evaluate_test`) actually catch
   // errors raised while evaluating a `:=` rhs.
+  // R-TAIL (VERDICTS-41 Q1): a `begin`/`cond`/`match` initializer whose every
+  // result-chain leaf is certainly a reference (a lend, a projection call)
+  // reads each leaf as the reference, so the binding below binds it.
+  chain_leaves := if(ast_expr_is_atom(&actual_lhs) && !is_const && !is_implicit && !ctx.force_compile_time_bindings && ctx.is_evaluating_function_body_or_async_block.is_some(), ref_chain_leaves_of(&rhs, &env, deref_rule_applies(ast_expr_token(&rhs), ctx)), Option(ArrayList(AstExpr)).None);
+  (cl_i : usize) = usize(0);
+  while(cl_i < match(&chain_leaves, .Some(cl_leaves) => cl_leaves.len(), .None => usize(0)), cl_i = (cl_i + usize(1)), {
+    match(&chain_leaves, .Some(cl_leaves) => chain_ref_leaf_register(ast_expr_token(&cl_leaves(cl_i))), .None => ());
+  });
   rhs = evaluate_expression_raw(&rhs, &env, ctx, exn);
+  (cl_j : usize) = usize(0);
+  while(cl_j < match(&chain_leaves, .Some(cl_leaves) => cl_leaves.len(), .None => usize(0)), cl_j = (cl_j + usize(1)), {
+    match(&chain_leaves, .Some(cl_leaves) => chain_ref_leaf_forget(ast_expr_token(&cl_leaves(cl_j))), .None => ());
+  });
   ctx.expected_type = old_expected_type.clone();
   ctx.is_inside_given_handler = old_is_inside_given_handler;
   // Update env from the evaluated rhs.
@@ -1516,7 +1634,9 @@ Bound type: ${type_to_string(&rhs_info.ty())}`
   if(ast_expr_is_atom(&actual_lhs), {
     reject_dyn_lend_bind(&rhs, &ast_expr_to_string(&actual_lhs), ast_expr_token(&actual_lhs), exn);
   });
-  if(ast_expr_is_atom(&actual_lhs) && !ctx.force_compile_time_bindings && projection_call_mode_of(&rhs, ctx).is_some(), {
+  // A result chain of references binds the reference too (R-TAIL).
+  chain_binds_reference := (chain_leaves.is_some() && match(&rhs_info_opt, .Some(cri) => t_slot_is_borrow(&cri.ty()), .None => false));
+  if(ast_expr_is_atom(&actual_lhs) && !ctx.force_compile_time_bindings && (projection_call_mode_of(&rhs, ctx).is_some() || chain_binds_reference), {
     return(_bind_projection_result(expr, &actual_lhs, &rhs, is_const || (is_implicit || (is_comptime_wrapped || is_thread_local_decl)), &env, ctx, exn));
   });
   // An unsized place bound by value (`v := xs(a..b)`, decision 49) has no
