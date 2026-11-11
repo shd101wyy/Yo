@@ -24,6 +24,7 @@ pragma(Pragma.AllowUnsafe);
   ast_expr_is_atom_of,
   ast_expr_is_fn_call,
   ast_expr_is_fn_call_of,
+  ast_expr_is_capture_list_params,
   ast_expr_to_string,
   make_err_expr,
   BF_DUP,
@@ -8622,7 +8623,10 @@ _origin_of_into :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, out
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&stripped)),
     .Some(found) => found,
     .None => {
-      if(g_audit_origin_totality, {
+      // A closure literal's capture list `{ h }(...)` is the arrow's left
+      // operand, syntax with no value of its own: the closure's origins are
+      // its capture borrows (R-CLOSURE-LIT's by-value clause).
+      if(g_audit_origin_totality && !ast_expr_is_capture_list_params(&stripped), {
         _audit_origin_totality_report("untyped", "origin_of", &stripped);
       });
       return(());
