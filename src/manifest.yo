@@ -123,9 +123,9 @@ read_file_sync :: (fn(path : &String, exn : Exception) -> ArrayList(u8))({
 /// directory. The entry named `default` is what `import("<package>")` means;
 /// any other is `import("<package>/<name>")`.
 ManifestModule :: struct(
-    name : String,
-    root : String
-  );
+  name : String,
+  root : String
+);
 derive(ManifestModule, Clone);
 /// What a git dependency's entry pins (plans §4.2). Exactly one is written;
 /// `git` alone means the remote's default branch, resolved to a commit when
@@ -155,39 +155,39 @@ DependencySource :: enum(
 derive(DependencySource, Clone);
 /// One `[dependencies]` / `[dev-dependencies]` entry.
 ManifestDependency :: struct(
-    name : String,
-    source : DependencySource,
-    /// From `[dev-dependencies]`: visible to this package's own build, never
-    /// propagated to a package that depends on it.
-    dev : bool
-  );
+  name : String,
+  source : DependencySource,
+  /// From `[dev-dependencies]`: visible to this package's own build, never
+  /// propagated to a package that depends on it.
+  dev : bool
+);
 derive(ManifestDependency, Clone);
 /// A parsed `yo.toml`.
 Manifest :: struct(
-    /// Absolute path of the manifest file.
-    path : String,
-    /// Its directory — every relative path in the manifest is relative to it.
-    dir : String,
-    name : String,
-    version : String,
-    description : String,
-    license : String,
-    /// `[package] yo = "0.2.30"` — minimum compiler version ("" = unset).
-    yo_version : String,
-    modules : ArrayList(ManifestModule),
-    dependencies : ArrayList(ManifestDependency),
-    /// `[workspace] members = [...]` — the member PATTERNS exactly as written,
-    /// each relative to `dir`. Empty when this manifest declares no workspace.
-    /// `workspace_members` (the function) expands them; the raw patterns are
-    /// kept so a diagnostic can name what the author wrote.
-    ///
-    /// Empty means no workspace, which is what `expand_workspace_members` and
-    /// `run_build` both test for. Every construction site writes it: a `?=`
-    /// default must be a compile-time known value, and `ArrayList(String).new()`
-    /// is a runtime call (#1098). `tests/internal/manifest.test.yo` constructs
-    /// a Manifest too, so a new field here must be added there as well.
-    workspace_members : ArrayList(String)
-  );
+  /// Absolute path of the manifest file.
+  path : String,
+  /// Its directory — every relative path in the manifest is relative to it.
+  dir : String,
+  name : String,
+  version : String,
+  description : String,
+  license : String,
+  /// `[package] yo = "0.2.30"` — minimum compiler version ("" = unset).
+  yo_version : String,
+  modules : ArrayList(ManifestModule),
+  dependencies : ArrayList(ManifestDependency),
+  /// `[workspace] members = [...]` — the member PATTERNS exactly as written,
+  /// each relative to `dir`. Empty when this manifest declares no workspace.
+  /// `workspace_members` (the function) expands them; the raw patterns are
+  /// kept so a diagnostic can name what the author wrote.
+  ///
+  /// Empty means no workspace, which is what `expand_workspace_members` and
+  /// `run_build` both test for. Every construction site writes it: a `?=`
+  /// default must be a compile-time known value, and `ArrayList(String).new()`
+  /// is a runtime call (#1098). `tests/internal/manifest.test.yo` constructs
+  /// a Manifest too, so a new field here must be added there as well.
+  workspace_members : ArrayList(String)
+);
 derive(Manifest, Clone);
 impl(
   Manifest,
@@ -639,27 +639,27 @@ default_module_root :: (fn(dir : &String, name : &String) -> Option(String))({
 });
 /// One `import("name")` → absolute root file mapping.
 ImportRoot :: struct(
-    name : String,
-    root : String
-  );
+  name : String,
+  root : String
+);
 derive(ImportRoot, Clone);
 /// A declared dependency whose sources are not on disk (a git dependency that
 /// `yo install` has not fetched, or one whose root file cannot be found). The
 /// resolver reports `reason` when a program imports `name` instead of the
 /// generic "module not found".
 UnavailableImport :: struct(
-    name : String,
-    reason : String,
-    /// True when `yo install` would make it available (a git dependency that
-    /// is not fetched); false for a missing path or a package without a
-    /// module root, which no fetch repairs.
-    fetchable : bool
-  );
+  name : String,
+  reason : String,
+  /// True when `yo install` would make it available (a git dependency that
+  /// is not fetched); false for a missing path or a package without a
+  /// module root, which no fetch repairs.
+  fetchable : bool
+);
 /// What `resolve_import_roots` computes for one project.
 ImportRoots :: struct(
-    roots : ArrayList(ImportRoot),
-    unavailable : ArrayList(UnavailableImport)
-  );
+  roots : ArrayList(ImportRoot),
+  unavailable : ArrayList(UnavailableImport)
+);
 /// The directory a dependency's sources live in, or the reason it is not
 /// available. A path dependency is `<manifest dir>/<path>`; a git dependency
 /// is its entry in the ROOT project's `yo.lock` mapped into the store by its

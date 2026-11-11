@@ -50,14 +50,14 @@ derive(Abi, Copy, Clone);
 derive(Abi, Eq(Abi));
 // ── Target info ───────────────────────────────────────────────────────
 TargetInfo :: struct(
-    arch : Arch,
-    os : Os,
-    abi : Option(Abi),
-    pointer_size_bits : u32,
-    /// The canonical triple, e.g. `aarch64-apple-darwin`. Always the
-    /// normalized spelling, whatever the user typed.
-    triple : String
-  );
+  arch : Arch,
+  os : Os,
+  abi : Option(Abi),
+  pointer_size_bits : u32,
+  /// The canonical triple, e.g. `aarch64-apple-darwin`. Always the
+  /// normalized spelling, whatever the user typed.
+  triple : String
+);
 derive(TargetInfo, Clone);
 // ── Host info ─────────────────────────────────────────────────────────
 HostInfo :: struct(
@@ -311,7 +311,9 @@ host_target :: (fn() -> TargetInfo)({
 /// Set the target for the current compilation.
 set_current_target :: (fn(t : &TargetInfo) -> unit)({
   t_owned := t.clone();
-  g_current_target.with_mut({ t_owned }(slot) => { slot.* = Option(TargetInfo).Some(t_owned); });
+  g_current_target.with_mut({ t_owned }(slot) => {
+    slot.* = Option(TargetInfo).Some(t_owned);
+  });
   ()
 });
 /// The current compilation target, falling back to the host when a caller

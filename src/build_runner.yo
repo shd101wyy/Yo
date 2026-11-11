@@ -82,35 +82,35 @@ _c_len_1 :: (fn(xs : &ArrayList(String)) -> usize)(xs.len());
 // Build options
 // ---------------------------------------------------------------------------
 BuildOptions :: struct(
-    build_file : String,
-    target_triple : Option(String),
-    verbose : bool,
-    dry_run : bool,
-    list_steps : bool,
-    /// `--list-options`: print the options this build file DECLARES (name,
-    /// default, description) and build nothing. The docs promised `yo build
-    /// --help` would list them, and nothing ever did (the plan's B4).
-    list_options : bool,
-    /// Everything after `--`, handed to whatever a `run` step executes.
-    run_args : ArrayList(String),
-    /// `-j N` / `--jobs N`: nodes per DAG level to run at once (default 1).
-    jobs : usize,
-    steps : ArrayList(String),
-    defines : HashMap(String, String),
-    c_compiler : Option(String),
-    sysroot : Option(String),
-    summary : bool,
-    /// `--locked`: fail if fetching dependencies would change `yo.lock`.
-    locked : bool,
-    /// `--offline`: fail if fetching dependencies would need the network.
-    offline : bool,
-    /// `-p <name>` / `--package <name>`: build this workspace MEMBER instead of
-    /// the project in the current directory (§4.6). `.None` = build here.
-    package : Option(String),
-    /// §7 step 2: set by the `--watch` loop — artifacts compile in-process
-    /// through the registered callback (see InProcessCompileFn).
-    watch_in_process : bool
-  );
+  build_file : String,
+  target_triple : Option(String),
+  verbose : bool,
+  dry_run : bool,
+  list_steps : bool,
+  /// `--list-options`: print the options this build file DECLARES (name,
+  /// default, description) and build nothing. The docs promised `yo build
+  /// --help` would list them, and nothing ever did (the plan's B4).
+  list_options : bool,
+  /// Everything after `--`, handed to whatever a `run` step executes.
+  run_args : ArrayList(String),
+  /// `-j N` / `--jobs N`: nodes per DAG level to run at once (default 1).
+  jobs : usize,
+  steps : ArrayList(String),
+  defines : HashMap(String, String),
+  c_compiler : Option(String),
+  sysroot : Option(String),
+  summary : bool,
+  /// `--locked`: fail if fetching dependencies would change `yo.lock`.
+  locked : bool,
+  /// `--offline`: fail if fetching dependencies would need the network.
+  offline : bool,
+  /// `-p <name>` / `--package <name>`: build this workspace MEMBER instead of
+  /// the project in the current directory (§4.6). `.None` = build here.
+  package : Option(String),
+  /// §7 step 2: set by the `--watch` loop — artifacts compile in-process
+  /// through the registered callback (see InProcessCompileFn).
+  watch_in_process : bool
+);
 derive(BuildOptions, Clone);
 // ---------------------------------------------------------------------------
 // DAG types
@@ -118,18 +118,18 @@ derive(BuildOptions, Clone);
 DAGNodeKind :: enum(Artifact, Test, Run, Step, Doc, Verify);
 derive(DAGNodeKind, Copy, Clone);
 DAGNode :: struct(
-    name : String,
-    kind : DAGNodeKind,
-    depends_on : ArrayList(String)
-  );
+  name : String,
+  kind : DAGNodeKind,
+  depends_on : ArrayList(String)
+);
 derive(DAGNode, Clone);
 StepResult :: struct(
-    name : String,
-    kind : DAGNodeKind,
-    success : bool,
-    duration_ms : i64,
-    description : String
-  );
+  name : String,
+  kind : DAGNodeKind,
+  success : bool,
+  duration_ms : i64,
+  description : String
+);
 derive(StepResult, Clone);
 // §7 step 2 (plans/reference/INCREMENTAL_COMPILATION_ZIG_LESSONS.md): the watch
 // rounds' in-process artifact compile. main.yo registers a wrapper over

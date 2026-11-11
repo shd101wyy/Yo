@@ -1391,48 +1391,48 @@ _hoist_old_in :: (
 // ============================================================================
 /// One function queued for the verifier pass.
 VerifyTask :: struct(
-    /// Display id — `fn@<module>:<row>` of the fn-type expression. The
-    /// defining name binding (`name :: (fn(...))(body)`) is not in scope
-    /// at the registration site, so the source location is the id.
-    fn_id : String,
-    /// The FuncVal's `func_id` — the re-keyed contract side tables are
-    /// readable under it, and self-recursion detection compares it.
-    func_id : String,
-    module_path : String,
-    /// The UNWRAPPED body (pre-splice): the verifier walks the real body,
-    /// never the assert-spliced one.
-    body : AstExpr,
-    param_names : ArrayList(String),
-    param_types : ArrayList(TypeValue),
-    result_type : TypeValue,
-    requires_exprs : ArrayList(AstExpr),
-    ensures_exprs : ArrayList(AstExpr),
-    /// Phase V4 `decreases(M)` termination measure (at most one).
-    (decreases_expr : Option(AstExpr)) ?= Option(AstExpr).None,
-    return_label : Option(String),
-    table : ExprInfoTable,
-    /// `"verify"` | `"verify+"` — only those modes register.
-    mode : String,
-    /// The FuncVal itself — the `verify+` strip pass rewrites its boxed
-    /// body data in place (dropping asserts whose predicates proved).
-    func_val : EvalValue,
-    /// V6 task 5: the signature carried `assumed()` — the verifier reports
-    /// the fn as `assumed` without walking the body (raw-pointer internals
-    /// are outside the verifiable subset); its contracts still gate callers.
-    (body_assumed : bool) ?= false,
-    /// The body is a GENERIC one verified abstractly (its type parameters are
-    /// uninterpreted sorts). Its proofs remove no guards: guard bounds are
-    /// width-specific and each specialization is a distinct emission
-    /// (plans/backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md §5.1 rule 5).
-    (body_abstract : bool) ?= false,
-    /// Per `requires_exprs` entry: whether a runtime entry assert enforces
-    /// it (always in `verify+`; in `verify`, only a runtime-checkable one
-    /// outside a `ghost_fn`). An unenforced requires is an assumption a
-    /// caller the verifier never walks can break, so no guard may be elided
-    /// on it (plans/backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md §5.1 rule 3).
-    /// Empty = none enforced.
-    requires_enforced : ArrayList(bool)
-  );
+  /// Display id — `fn@<module>:<row>` of the fn-type expression. The
+  /// defining name binding (`name :: (fn(...))(body)`) is not in scope
+  /// at the registration site, so the source location is the id.
+  fn_id : String,
+  /// The FuncVal's `func_id` — the re-keyed contract side tables are
+  /// readable under it, and self-recursion detection compares it.
+  func_id : String,
+  module_path : String,
+  /// The UNWRAPPED body (pre-splice): the verifier walks the real body,
+  /// never the assert-spliced one.
+  body : AstExpr,
+  param_names : ArrayList(String),
+  param_types : ArrayList(TypeValue),
+  result_type : TypeValue,
+  requires_exprs : ArrayList(AstExpr),
+  ensures_exprs : ArrayList(AstExpr),
+  /// Phase V4 `decreases(M)` termination measure (at most one).
+  (decreases_expr : Option(AstExpr)) ?= Option(AstExpr).None,
+  return_label : Option(String),
+  table : ExprInfoTable,
+  /// `"verify"` | `"verify+"` — only those modes register.
+  mode : String,
+  /// The FuncVal itself — the `verify+` strip pass rewrites its boxed
+  /// body data in place (dropping asserts whose predicates proved).
+  func_val : EvalValue,
+  /// V6 task 5: the signature carried `assumed()` — the verifier reports
+  /// the fn as `assumed` without walking the body (raw-pointer internals
+  /// are outside the verifiable subset); its contracts still gate callers.
+  (body_assumed : bool) ?= false,
+  /// The body is a GENERIC one verified abstractly (its type parameters are
+  /// uninterpreted sorts). Its proofs remove no guards: guard bounds are
+  /// width-specific and each specialization is a distinct emission
+  /// (plans/backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md §5.1 rule 5).
+  (body_abstract : bool) ?= false,
+  /// Per `requires_exprs` entry: whether a runtime entry assert enforces
+  /// it (always in `verify+`; in `verify`, only a runtime-checkable one
+  /// outside a `ghost_fn`). An unenforced requires is an assumption a
+  /// caller the verifier never walks can break, so no guard may be elided
+  /// on it (plans/backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md §5.1 rule 3).
+  /// Empty = none enforced.
+  requires_enforced : ArrayList(bool)
+);
 derive(VerifyTask, Clone);
 (g_verify_tasks : RefCell(ArrayList(VerifyTask))) = RefCell(ArrayList(VerifyTask)).new(ArrayList(VerifyTask).new());
 // ============================================================================

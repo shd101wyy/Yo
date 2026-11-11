@@ -600,17 +600,17 @@ mm_module_source :: (fn(fs_path : &String) -> Option(String))({
 /// source hash moved, in index order; everything else in the file is
 /// hash-identical to the last walk.
 DefDiff :: struct(
-    fallback : bool,
-    /// The key the module's definitions hash under — its walk's
-    /// `module_path` (demand loads: the `file://` cache key; entries: the
-    /// path as typed), resolved through the finished-walk table.
-    module_key : String,
-    /// Fresh defs whose `src_hash` moved (new ASTs for grafting).
-    changed : ArrayList(PendingDef),
-    /// The whole fresh statement list — the invalidator's ordered-statement
-    /// and export-alias scans walk it.
-    fresh_exprs : ArrayList(AstExpr)
-  );
+  fallback : bool,
+  /// The key the module's definitions hash under — its walk's
+  /// `module_path` (demand loads: the `file://` cache key; entries: the
+  /// path as typed), resolved through the finished-walk table.
+  module_key : String,
+  /// Fresh defs whose `src_hash` moved (new ASTs for grafting).
+  changed : ArrayList(PendingDef),
+  /// The whole fresh statement list — the invalidator's ordered-statement
+  /// and export-alias scans walk it.
+  fresh_exprs : ArrayList(AstExpr)
+);
 mm_changed_definitions :: (fn(fs_path : &String) -> Option(DefDiff))({
   // The stored hashes are keyed by the WALK's module path. Demand loads walk
   // under the `file://` cache key; entry modules under the path as typed —
@@ -1042,29 +1042,29 @@ _rev_add_module :: (fn(modules : &mut ArrayList(String), excluded : &HashSet(Str
 /// re-points at the re-forced definitions instead of dropping the importer's
 /// whole module (and with it the importer's reverse import closure).
 RebindEntry :: struct(
-    /// The importer's module key.
-    reader_module : String,
-    /// The module whose definitions changed.
-    target_module : String,
-    /// The changed names this importer destructured.
-    names : ArrayList(String)
-  );
+  /// The importer's module key.
+  reader_module : String,
+  /// The module whose definitions changed.
+  target_module : String,
+  /// The changed names this importer destructured.
+  names : ArrayList(String)
+);
 derive(RebindEntry, Clone);
 RevalPlan :: struct(
-    module_key : String,
-    changed : ArrayList(PendingDef),
-    fresh_exprs : ArrayList(AstExpr),
-    /// Reverse-edge dependent def keys (the changed module's own defs
-    /// EXCLUDED — they are in `changed`), unordered.
-    closure_keys : ArrayList(String),
-    /// Module KEYS the caller must `mm_invalidate_document` (fs path = the
-    /// key minus any `file://` prefix).
-    fallback_modules : ArrayList(String),
-    /// Destructured importers to re-bind rather than drop (Phase 3 §6); their
-    /// own definitions that mention a changed name are already in
-    /// `closure_keys`, so a re-bind never stands alone.
-    rebinds : ArrayList(RebindEntry)
-  );
+  module_key : String,
+  changed : ArrayList(PendingDef),
+  fresh_exprs : ArrayList(AstExpr),
+  /// Reverse-edge dependent def keys (the changed module's own defs
+  /// EXCLUDED — they are in `changed`), unordered.
+  closure_keys : ArrayList(String),
+  /// Module KEYS the caller must `mm_invalidate_document` (fs path = the
+  /// key minus any `file://` prefix).
+  fallback_modules : ArrayList(String),
+  /// Destructured importers to re-bind rather than drop (Phase 3 §6); their
+  /// own definitions that mention a changed name are already in
+  /// `closure_keys`, so a re-bind never stands alone.
+  rebinds : ArrayList(RebindEntry)
+);
 /// True when `module` is already among the importers being re-bound.
 _rebinds_contain :: (fn(rebinds : &ArrayList(RebindEntry), module : &String) -> bool)({
   (i : usize) = usize(0);
