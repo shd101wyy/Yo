@@ -8,9 +8,15 @@ Cell :: struct(xs : ArrayList(String));
 Guard :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(c : &mut(Cell, p)));
 impl(Cell, borrow_mut : (fn(self : &mut Self) -> Guard(self))(Guard(self)(c : self)));
 impl(generic(p : Origin), Guard(p), get : (fn(self : &Self) -> &String)(&self.c.xs(usize(0))));
-impl(generic(p : Origin), Guard(p), Drop(drop : (fn(self : &mut Self) -> unit)({
-  self.c.xs = ArrayList(String).new();
-})));
+impl(
+  generic(p : Origin),
+  Guard(p),
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      self.c.xs = ArrayList(String).new();
+    })
+  )
+);
 main :: (fn() -> unit)({
   mut(xs) := ArrayList(String).new();
   xs.push(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"));

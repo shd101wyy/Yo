@@ -99,9 +99,41 @@ of the component's origin and the path's place — for `c : &Holder` over an ele
 `&(T, (xs, c))` … The union is what keeps the holder frozen while the reborrow lives." BCC's R-DEREF row says the
 same: `origin_of(r) ∪ {(r, &)}` when `r` is reached through a `&` path and holds `&mut`.
 
+## Fix
+
+The fix landed on 2026-11-12 in `fix/a31-holder-freeze`. `_bind_projection_result` now also records the holder's own
+place, as an unheld `&` place, whenever a root holder reaches the call through a `&` slot (`self : &Self`,
+`h : &H(p)`), the result is `&`, and the holder's `origin_of` contributed places. This is O3's union:
+`r := g.get()` borrows `(c, &mut)` through the holder and `(g, &)` itself. Any write through `g` (`g.c.xs.push`,
+`grow(h.m)`), a move of `g`, or `drop(g)` is then E0911 while `r` lives, with the seed's message: "`r` borrows `g`".
+The other two cases keep the old rule, because their result never points into the argument:
+
+- A holder passed BY VALUE, or one that is a root only through an impl's origin parameter (`ProjectionRootArg.by_value`,
+  `Entry::or_insert(self)`).
+- A `&mut` result, which takes the holder's loan over.
+
+The union is not limited to a `&mut` field. With an elided result, O2 says the result borrows `self`, and the body
+may point into a by-value field of the holder (`&self.n(0)` beside a `&` field). Taking the union for every holder
+also closes that form (`holder-own-field-read-then-write`). v0.2.76 accepted it.
+
+The elided-origin note in the E0911 counts the parameters without these added places (`holder_self_roots`). A
+one-parameter call therefore still prints no note, and a call that already printed one is unchanged.
+
+**Coverage.** The fix covers both halves. The plain-holder form, which v0.2.76 already accepted, is fixed as well,
+because it runs through the same branch. A composite of the read (`o := Option(&String).Some(g.get())`) was already
+rejected before the fix (`_origin_carrying_roots_shallow`). The temporary-guard ledger rows (`id(c.borrow_mut().get())`
+…) are R-TEMP's and were not re-probed here.
+
 ## Test
 
-With the fix: the two negative programs and the positive control move to `tests/origins/unsound/`; the 2026-10-21
-audit's corpus row ("a `&` reborrow of a `&mut` component returned through `c : &Holder`, with `c` then lent `&mut`
-while it lives", `REFERENCES_AND_ORIGINS.md` §7) goes into `tests/origins/corpus.tsv` with the method, free-fn and
-guard forms.
+The rows are in `tests/origins/unsound/` (`scripts/origins-unsound.sh`). Each negative row is accepted by develop
+`64f33c710` and rejected with E0911 after the fix.
+
+- `holder-mut-field-read-then-write` (the method form), with a `-pos` twin.
+- `guard-mut-field-read-then-write` (the guard form), with a `-pos` twin.
+- `guard-mut-field-read-then-guard-dropped` (the `Drop` form).
+- `holder-mut-field-read-free-fn` (the free-function form).
+- `holder-own-field-read-then-write` (a by-value field beside a `&` field).
+
+The `tests/origins/corpus.tsv` row for the 2026-10-21 corpus case (`REFERENCES_AND_ORIGINS.md` §7) is not added. It
+also needs a model-checker encoding (`model_corpus.test.yo`), and the G-B rows above cover the same programs.
