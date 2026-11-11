@@ -328,3 +328,20 @@ test("an owned upcast beside a plain dyn(&v) of the target", {
   (s : Dyn(Speak)) = upcast(b, Dyn(Speak));
   assert(s.speak() == i32(8), "owned upcast");
 });
+// Decision 49 S1g (VERDICTS-40 §4, the plan's test list): a `?Sized` binder
+// takes the place an owned Dyn lends (`&b.*`, `T` is the `Dyn`), and
+// `Rc(Box(Dyn(T)))` is an ordinary instantiation, the spelling
+// `yo fix --migrate unsized` names for a shared handle over a box.
+_speak_any :: (fn(generic(T : ?Sized), x : &T, where(T <: Speak)) -> i32)(x.speak());
+test("a ?Sized binder takes &b.* of an owned Dyn", {
+  (b : Box(Dyn(Speak))) = dyn(Box.new(Cat(n : i32(4))));
+  assert(_speak_any(&b.*) == i32(4), "T is the Dyn");
+  c := Cat(n : i32(5));
+  assert(_speak_any(&c) == i32(5), "T is the concrete type");
+});
+test("Rc(Box(Dyn(T))) shares a box", {
+  r := Rc(Box(Dyn(Speak))).new(dyn(Box.new(Cat(n : i32(2)))));
+  s := Rc.clone(r);
+  assert(s.speak() == i32(2), "through the shared box");
+  assert(r.speak() == i32(2), "both handles");
+});
