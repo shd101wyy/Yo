@@ -150,14 +150,16 @@ export(main);
 
 ### `dyn(...)` 是唯一入口
 
-只有程序写出 `dyn(...)` 的地方，值才会变成 `Dyn`（决策 44）。带类型的槽位不做隐式转换，无论是名义类型的值还是可调用值。把具名闭包、具名 `fn`、`Impl(Fn(...))` 形参或闭包字面量放进 `Dyn(Fn(...))` 槽位是错误 E0618，其附注会给出写法：对引用类型的调用实参写 `dyn(&f)`，对拥有型槽位写 `dyn(Box.new(f))`。
+只有程序写出 `dyn(...)` 的地方，值才会变成 `Dyn`（决策 44）。带类型的槽位不做隐式转换，无论是名义类型的值还是可调用值。把具名闭包、具名 `fn`、`Impl(Fn(...))` 形参或闭包字面量放进拥有型 `Dyn(Fn(...))` 的绑定、字段、实参或结果是错误 E0618，其附注给出 `dyn(f)`，即 v0.2.77 中 `dyn(Box.new(f))` 的写法。`&Dyn(Fn(...))` 形参用 `dyn(&f)` 借用闭包，不做任何分配。
 
 ```yo
 run :: (fn(d : &Dyn(Fn() -> i32)) -> i32)(d());
 main :: (fn() -> unit)({
   n := i32(3);
   (f : Impl(Fn() -> i32)) = (() => n);
-  _x := run(dyn(&f)); // `run(f)` is E0618: write `dyn(&f)`
+  _x := run(dyn(&f)); // a borrowed closure: no allocation
+  (g : Box(Dyn(Fn() -> i32))) = dyn(Box.new(f)); // `= f` is E0618
+  _y := run(&g.*);
 });
 export(main);
 ```

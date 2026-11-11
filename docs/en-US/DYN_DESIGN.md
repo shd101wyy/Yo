@@ -191,16 +191,19 @@ export(main);
 
 A value becomes a `Dyn` only where the program writes `dyn(...)` (decision 44). There is no
 implicit conversion at a typed slot, for a nominal value or for a callable. A named closure, a
-named `fn`, an `Impl(Fn(...))` parameter or a closure literal in a `Dyn(Fn(...))` slot is error
-E0618, whose note names the spelling: `dyn(&f)` for a call argument of reference type, and
-`dyn(Box.new(f))` for an owning slot.
+named `fn`, an `Impl(Fn(...))` parameter or a closure literal in an owning `Dyn(Fn(...))` binding,
+field, argument or result is error E0618, whose note names `dyn(f)`, the v0.2.77 spelling of
+`dyn(Box.new(f))`. A `&Dyn(Fn(...))` parameter borrows the closure with `dyn(&f)`, which
+allocates nothing.
 
 ```yo
 run :: (fn(d : &Dyn(Fn() -> i32)) -> i32)(d());
 main :: (fn() -> unit)({
   n := i32(3);
   (f : Impl(Fn() -> i32)) = (() => n);
-  _x := run(dyn(&f)); // `run(f)` is E0618: write `dyn(&f)`
+  _x := run(dyn(&f)); // a borrowed closure: no allocation
+  (g : Box(Dyn(Fn() -> i32))) = dyn(Box.new(f)); // `= f` is E0618
+  _y := run(&g.*);
 });
 export(main);
 ```
