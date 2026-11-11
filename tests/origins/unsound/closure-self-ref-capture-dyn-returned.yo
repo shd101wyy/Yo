@@ -1,0 +1,15 @@
+// expect: E0909
+// R-CAP-2's parameter-rooted case through a method receiver: `{ self }` copies `self : &Self`, so
+// the closure is second-class and a `Dyn(Fn)` result cannot carry it. Accepted, the caller
+// re-points `h` while `g` lives (an ASan stack-use-after-scope; found by the borrow/ownership audit).
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+S :: struct(a : String);
+impl(S, reader : (fn(self : &Self) -> Dyn(Fn() -> usize))(dyn({ self }() => self.a.len())));
+main :: (fn() -> unit)({
+  mut(h) := Rc.new(S(a : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz")));
+  g := h.*.reader();
+  h = Rc.new(S(a : String.from("z")));
+  println(`OUT: ${g().to_string()}`);
+});
+export(main);

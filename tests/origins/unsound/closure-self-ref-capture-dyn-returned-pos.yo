@@ -1,0 +1,20 @@
+// expect: accept
+// Positive twin of closure-self-ref-capture-dyn-returned: the `{ self }` closure is called inside
+// the method.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+S :: struct(a : String);
+impl(
+  S,
+  read_len : (fn(self : &Self) -> usize)({
+    (g : Impl(Fn() -> usize)) = ({ self }() => self.a.len());
+    g()
+  })
+);
+main :: (fn() -> unit)({
+  mut(h) := Rc.new(S(a : String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz")));
+  n := h.*.read_len();
+  h = Rc.new(S(a : String.from("z")));
+  println(`OUT: ${n.to_string()} ${h.*.read_len().to_string()}`);
+});
+export(main);
