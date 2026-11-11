@@ -146,7 +146,8 @@ set_in_process_compile_fn :: (fn(f : InProcessCompileFn) -> unit)({
   g_in_process_compile_fn = Option(InProcessCompileFn).Some(f);
   ()
 });
-ExecutionContext :: struct(
+ExecutionContext :: ref(
+  struct(
     registry : BuildRegistry,
     project_dir : String,
     /// `[package] name` of the project's `yo.toml` ("" without one) — the
@@ -174,7 +175,8 @@ ExecutionContext :: struct(
     /// reported and the loop continues (`unwind(false)` out of the round),
     /// and a hard exit here killed the process on the first failed round.
     watch_round : bool
-  );
+  )
+);
 /// `git describe --tags --always` in the project dir, or `.None` when that fails
 /// for any reason (not a repo, no git, non-zero exit, empty output) — the
 /// version is decoration on the "Building …"
@@ -1784,7 +1786,7 @@ compile_artifact :: (
     exn : Exception
   ) -> Impl(Future(Result(unit, String), IoExn))
 )(
-  io.async({ artifact, &ctx }(e : IoExn) => {
+  io.async((e : IoExn) => {
     effective_target := match(
       &ctx.target_triple,
       .Some(t) => t.clone(),
@@ -2308,7 +2310,7 @@ run_executable :: (
   ) -> Impl(Future(Result(unit, String), IoExn))
 )({
   owned_args := args.clone();
-  io.async({ artifact, &ctx, owned_args }(e : IoExn) => {
+  io.async((e : IoExn) => {
     effective_target := match(
       &ctx.target_triple,
       .Some(t) => t.clone(),
@@ -2383,7 +2385,7 @@ run_verify_step :: (
     exn : Exception
   ) -> Impl(Future(Result(unit, String), IoExn))
 )(
-  io.async({ cfg, &ctx }(e : IoExn) => {
+  io.async((e : IoExn) => {
     target := Path.new(&ctx.project_dir).join(Path.new(&cfg.root));
     mut(cmd) := Command.new(_self_exe());
     cmd = cmd.arg(String.from("verify"));
@@ -2422,7 +2424,7 @@ run_test_suite :: (
     exn : Exception
   ) -> Impl(Future(Result(unit, String), IoExn))
 )(
-  io.async({ suite, &ctx }(e : IoExn) => {
+  io.async((e : IoExn) => {
     test_path := Path.new(&ctx.project_dir).join(Path.new(&suite.root));
     mut(cmd) := Command.new(_self_exe());
     cmd = cmd.arg(String.from("test"));
@@ -2510,13 +2512,13 @@ _push_all_strings :: (fn(dst : &mut ArrayList(String), src : &ArrayList(String))
 /// Execute a single DAG node.
 execute_node :: (
   fn(
-    node : &DAGNode,
+    sink(node) : DAGNode,
     ctx : &ExecutionContext,
     io : Io,
     exn : Exception
   ) -> Impl(Future(StepResult, IoExn))
 )(
-  io.async({ &node, &ctx, io }(e : IoExn) => {
+  io.async((e : IoExn) => {
     description := node.name.clone();
     success := true;
     match(
@@ -2701,14 +2703,14 @@ _dependency_failed :: (fn(node : &DAGNode, results : &HashMap(String, StepResult
 /// if-branch loses its continuation — issues/retired/async-await-nested-if-lost-continuation.md).
 _execute_node_unless_blocked :: (
   fn(
-    node : &DAGNode,
+    sink(node) : DAGNode,
     blocked : bool,
     ctx : &ExecutionContext,
     io : Io,
     exn : Exception
   ) -> Impl(Future(StepResult, IoExn))
 )(
-  io.async({ &node, blocked, &ctx }(e : IoExn) => {
+  io.async((e : IoExn) => {
     if(blocked, {
       println(`Skipping ${node.name}: a step it depends on failed`);
       return(
@@ -2722,7 +2724,7 @@ _execute_node_unless_blocked :: (
       );
     });
     node_t0 := Instant.now();
-    r := e.io.await(execute_node(node, ctx, e.io, e.exn), e);
+    r := e.io.await(execute_node(node.clone(), ctx, e.io, e.exn), e);
     r.duration_ms = node_t0.elapsed().as_millis();
     r
   })
@@ -2753,13 +2755,13 @@ _execute_batch :: (
   for(&owned_batch, node => {
     owned_blocked.push(_dependency_failed(&node, results));
   });
-  io.async({ &ctx, owned_batch, owned_blocked }(e : IoExn) => {
+  io.async((e : IoExn) => {
     handles := ArrayList(JoinHandle(StepResult)).new();
     (i : usize) = usize(0);
     while(i < owned_batch.len(), {
       node := owned_batch(i).clone();
       blocked := owned_blocked(i);
-      handles.push(e.io.spawn(_execute_node_unless_blocked(&node, blocked, ctx, e.io, e.exn), e));
+      handles.push(e.io.spawn(_execute_node_unless_blocked(node, blocked, ctx, e.io, e.exn), e));
       i = (i + usize(1));
     });
     // `join_all` is a future (plans/archive/ASYNC_IO_API_AUDIT.md A1): awaiting it
@@ -2804,7 +2806,7 @@ execute_dag :: (
   ) -> Impl(Future(HashMap(String, StepResult), IoExn))
 )({
   owned_dag := dag.clone();
-  io.async({ &ctx, owned_dag }(e : IoExn) => {
+  io.async((e : IoExn) => {
     results := HashMap(String, StepResult).new();
     n := owned_dag.len();
     if(n == usize(0), return(results));
@@ -3087,7 +3089,7 @@ execute_step :: (
   ) -> Impl(Future(unit, IoExn))
 )({
   owned_step_name := step_name.clone();
-  io.async({ &ctx, dry_run, owned_step_name }(e : IoExn) => {
+  io.async((e : IoExn) => {
     // Planning is the same work either way — the step must exist, every
     // dependency name must resolve and the graph must be acyclic — so
     // `--dry-run` is a REAL resolution that stops here (the plan's B7).
