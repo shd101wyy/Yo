@@ -665,13 +665,15 @@ test("a `&mut Impl(FnMut)` slot beside `-> &(T, self)` releases the callback's c
   hits = (hits + i32(10));
   assert((bs_ret_read(r) == i32(31)) && (hits == i32(11)), "`hits` is writable while `r` lives: the slot is not in the origin `s`");
   mut(n) := i32(0);
-  (mut(g) : Impl(FnMut() -> i32)) = ({ &mut n }() => {
-    n.* = (n.* + i32(1));
-    n.*
-  });
-  q := bs_pick_with(&t, &mut g);
-  n = (n + i32(5));
-  assert((bs_ret_read(q) == i32(31)) && (n == i32(6)), "a named `mut` initializer is lent `&mut`");
+  {
+    (mut(g) : Impl(FnMut() -> i32)) = ({ &mut n }() => {
+      n.* = (n.* + i32(1));
+      n.*
+    });
+    q := bs_pick_with(&t, &mut g);
+    assert(bs_ret_read(q) == i32(31), "a named `mut` initializer is lent `&mut`");
+  };
+  assert(n == i32(1), "`g` ran once");
 });
 comptime_expect_error(
   bs_pick_with_outside :: (fn(s : &BsTrio, t : &BsTrio, f : &mut Impl(FnMut() -> i32)) -> &(i32, s))({

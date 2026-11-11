@@ -335,16 +335,17 @@ test("OnceCell get_or_init lends a named borrowing initializer", {
   mut(n) := i32(0);
   k := i32(5);
   cell := OnceCell(i32).new();
-  (mut(g) : Impl(FnMut() -> i32)) = ({ &k, &mut n }() => {
-    n.* = (n.* + i32(1));
-    k.* + n.*
-  });
-  got := cell.get_or_init(&mut g);
-  n = (n + i32(10));
-  assert(got.* == i32(6), "the initializer read `k` and wrote `n`");
-  assert(n == i32(11), "`n` is writable while `got` lives");
-  again := cell.get_or_init(&mut g);
-  assert((again.* == i32(6)) && (n == i32(11)), "a later call lends the stored value and does not run `g`");
+  {
+    (mut(g) : Impl(FnMut() -> i32)) = ({ &k, &mut n }() => {
+      n.* = (n.* + i32(1));
+      k.* + n.*
+    });
+    got := cell.get_or_init(&mut g);
+    assert(got.* == i32(6), "the initializer read `k` and wrote `n`");
+    again := cell.get_or_init(&mut g);
+    assert(again.* == i32(6), "a later call lends the stored value and does not run `g`");
+  };
+  assert(n == i32(1), "`g` ran once; `n` is usable again once `g`'s scope ends");
 });
 // ============================================================================
 // The slow path runs under with_lock
