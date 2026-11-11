@@ -19,7 +19,7 @@
 { get_func_type, is_fnonce_closure_fn } :: import("../../function_value.yo");
 { is_boxed_type, is_fn_trait_type, is_function_type, is_void_type, is_pointer_type, is_some_type, is_atomic_reference_struct_type, is_atomic_reference_enum_type, cell_handle_view, is_atomic_counted_handle_type, is_cell_primitive_type } :: import("../../types/guards.yo");
 { FunctionGenerationContext } :: import("./context.yo");
-{ type_key, get_type_string, dyn_slot_param_abi_string, dyn_slot_result_abi_string, dyn_concrete_func_type, dyn_concrete_c_name, sanitize_for_c_identifier, ImplClosureCallInfo, CodegenFunctionEntry } :: import("../utils/index.yo");
+{ DynImplEntry, type_key, get_type_string, dyn_slot_param_abi_string, dyn_slot_result_abi_string, dyn_concrete_func_type, dyn_concrete_c_name, sanitize_for_c_identifier, ImplClosureCallInfo, CodegenFunctionEntry } :: import("../utils/index.yo");
 { get_drop_function_for_type, generate_drop_code_for_value, generate_dup_code_for_value } :: import("../exprs/drop_dup.yo");
 { dyn_impl_clone_fid, clone_fn_takes_self_by_ptr } :: import("../exprs/downcast.yo");
 { type_contains_rc_cell_or_move_only, dyn_member_is_method, dyn_member_unsafe_reason, is_destructor_trait_member, fn_abi_param_is_ptr, dyn_type_lists_clone } :: import("../../types/utils.yo");
@@ -193,6 +193,119 @@ generate_dyn_box_functions :: (fn(context : &mut FunctionGenerationContext) -> u
           context.base.emitter.emit_line("");
         });
       },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+});
+/// The C type of the payload an impl's slot functions read, or `void` for a
+/// unit payload.
+_slot_payload_c :: (fn(entry : &DynImplEntry, context : &mut FunctionGenerationContext) -> String)(
+  get_type_string(resolve_some_type_to_concrete(entry.concrete_type.clone()), &mut context.base)
+);
+/// Does this impl's vtable carry the payload slots (`drop_in_place`,
+/// `payload_of`, `clone_into`)? A payload-convention instance and a boxed
+/// legacy cell do; a reference payload's data word IS the object, which has
+/// no payload place apart from it.
+_slot_functions_exist :: (fn(entry : &DynImplEntry) -> bool)(entry.payload_convention || is_boxed_type(entry.data_type.clone()));
+/// The statement lines that bind `pp`, the payload's address, from `self_ptr`.
+_emit_payload_address :: (fn(entry : &DynImplEntry, vs : &String, context : &mut FunctionGenerationContext) -> unit)({
+  if(entry.payload_convention, {
+    context.base.emitter.emit_string_line(`  ${vs.clone()}* pp = (${vs.clone()}*)self_ptr;`);
+  }, {
+    boxed_cname := _boxed_c_name(entry.data_type.clone(), context);
+    field_name := _box_field_name(entry.data_type.clone());
+    context.base.emitter.emit_string_line(`  ${boxed_cname}* box = (${boxed_cname}*)self_ptr;`);
+    context.base.emitter.emit_string_line(`  ${vs.clone()}* pp = (${vs.clone()}*)&box->${field_name};`);
+  });
+});
+/// The vtable's payload slot functions for every impl (decision 49):
+/// `__yo_dip_<impl>(data)` drops the payload in place and frees nothing,
+/// `__yo_pof_<impl>(data)` is the payload's address, and
+/// `__yo_cli_<impl>(data, dst)` writes the payload's `clone` at `dst` (a Dyn
+/// that lists `Clone`). The same function serves a legacy cell's data word and
+/// a reference-kind payload's, by the impl's convention. Prototypes go to the
+/// declarations (the vtables name them), bodies to the code buffer, where the
+/// payload's drop lowering emits its statements.
+generate_dyn_slot_functions :: (fn(context : &mut FunctionGenerationContext) -> unit)({
+  if(context.base.dyn_impls.is_empty(), {
+    return(());
+  });
+  keys := _dyn_impl_keys(context);
+  n := keys.len();
+  (mut(i) : usize) = usize(0);
+  while(i < n, {
+    key := match(keys.get_cloned(i), .Some(k) => k, .None => String.from(""));
+    match(
+      context.base.dyn_impls.get(key.clone()),
+      .Some(entry) => if(_slot_functions_exist(&entry), {
+        res := resolve_some_type_to_concrete(entry.concrete_type.clone());
+        vs := _slot_payload_c(&entry, context);
+        is_unit := (vs == "void");
+        context.base.emitter.emit_declaration_string_line(`static void __yo_dip_${key.clone()}(void* self_ptr);`);
+        context.base.emitter.emit_declaration_string_line(`static void* __yo_pof_${key.clone()}(void* self_ptr);`);
+        // drop_in_place
+        context.base.emitter.emit_string_line(`static void __yo_dip_${key.clone()}(void* self_ptr) {`);
+        if(is_unit, {
+          context.base.emitter.emit_line("  (void)self_ptr;");
+        }, {
+          _emit_payload_address(&entry, &vs, context);
+          match(
+            get_drop_function_for_type(res.clone(), context),
+            .Some(drop_c) => context.base.emitter.emit_string_line(`  ${drop_c}(*pp);`),
+            .None => {
+              before_len := context.base.emitter.code.len();
+              dc := generate_drop_code_for_value(String.from("(*pp)"), res.clone(), context);
+              if(dc.len() > usize(0), {
+                context.base.emitter.emit_string_line(`  ${dc};`);
+              }, {
+                if((context.base.emitter.code.len() == before_len) && type_contains_rc_cell_or_move_only(res.clone()), {
+                  context.base.emitter.emit_string_line(`  /* __yo_MISSING_DROP: no drop lowering for ${vs.clone()} */`);
+                });
+              });
+            }
+          );
+        });
+        context.base.emitter.emit_line("}");
+        context.base.emitter.emit_line("");
+        // payload_of
+        context.base.emitter.emit_string_line(`static void* __yo_pof_${key.clone()}(void* self_ptr) {`);
+        if(is_unit, {
+          context.base.emitter.emit_line("  return self_ptr;");
+        }, {
+          _emit_payload_address(&entry, &vs, context);
+          context.base.emitter.emit_line("  return (void*)pp;");
+        });
+        context.base.emitter.emit_line("}");
+        context.base.emitter.emit_line("");
+        // clone_into, for a Dyn that lists Clone
+        if(dyn_type_lists_clone(entry.dyn_type.clone()), {
+          req_traits := match(entry.dyn_type.clone(), Rc(.DynT({ required_trait_types })) => Rc.clone(required_trait_types), _ => no_types());
+          clone_fid := dyn_impl_clone_fid(&req_traits.items, &entry.trait_values);
+          context.base.emitter.emit_declaration_string_line(`static void __yo_cli_${key.clone()}(void* self_ptr, void* dst);`);
+          context.base.emitter.emit_string_line(`static void __yo_cli_${key.clone()}(void* self_ptr, void* dst) {`);
+          (clone_entry : Option(CodegenFunctionEntry)) = if(clone_fid.is_empty(), Option(CodegenFunctionEntry).None, context.base.get_function_entry(clone_fid.clone()));
+          match(
+            clone_entry,
+            .Some(ce) => if(is_unit || should_skip_function_codegen(clone_fid.clone(), ce.c_name.clone(), &ce.value, &context.base), {
+              context.base.emitter.emit_line("  (void)self_ptr; (void)dst;");
+              if(!is_unit, {
+                context.base.emitter.emit_line("  __yo_abort(); /* dyn clone unavailable: impl fn skipped (degraded type) */");
+              });
+            }, {
+              _emit_payload_address(&entry, &vs, context);
+              receiver := if(clone_fn_takes_self_by_ptr(&clone_fid), String.from("pp"), String.from("(*pp)"));
+              context.base.emitter.emit_string_line(`  *(${vs.clone()}*)dst = ${ce.c_name.clone()}(${receiver});`);
+            }),
+            .None => {
+              context.base.emitter.emit_line("  (void)self_ptr; (void)dst;");
+              context.base.emitter.emit_line("  __yo_abort(); /* __yo_MISSING_CLONE: no clone function for this Dyn payload */");
+            }
+          );
+          context.base.emitter.emit_line("}");
+          context.base.emitter.emit_line("");
+        });
+      }),
       .None => ()
     );
     i = (i + usize(1));
@@ -455,7 +568,26 @@ generate_dyn_wrapper_functions :: (fn(context : &mut FunctionGenerationContext) 
                   );
                   cc_info := if(cc_struct_id.len() > usize(0), context.base.impl_closure_call_map.get(&cc_struct_id), Option(ImplClosureCallInfo).None);
                   fn_payload := dyn_concrete_func_type(impl_entry.concrete_type.clone());
-                  if(is_boxed && match(cc_info, .Some(_) => true, .None => false), {
+                  if(impl_entry.payload_convention && match(cc_info, .Some(_) => true, .None => false), {
+                    // A reference-kind Dyn over a closure (`dyn(&f)`): the data
+                    // word is the capture struct's own address, and nothing is
+                    // released (the Dyn borrows it).
+                    cc_fn_p := match(cc_info, .Some(mp) => mp.function_c_name.clone(), .None => String.from(""));
+                    call_p := String.from("  ");
+                    if(!is_void, {
+                      call_p.push_str("return ");
+                    });
+                    call_p.push_string(&cc_fn_p);
+                    call_p.push_str("(self_ptr");
+                    (cpi : usize) = usize(0);
+                    while(cpi < ncp, {
+                      call_p.push_str(", arg");
+                      call_p.push_string((cpi + usize(1)).to_string());
+                      cpi = (cpi + usize(1));
+                    });
+                    call_p.push_str(");");
+                    context.base.emitter.emit_declaration_string_line(&call_p);
+                  }, if(is_boxed && match(cc_info, .Some(_) => true, .None => false), {
                     boxed_cname := _boxed_c_name(data_type.clone(), context);
                     field_name := _box_field_name(data_type.clone());
                     context.base.emitter.emit_declaration_string_line(`  ${boxed_cname}* box = (${boxed_cname}*)self_ptr;`);
@@ -589,7 +721,7 @@ generate_dyn_wrapper_functions :: (fn(context : &mut FunctionGenerationContext) 
                       context.base.emitter.emit_declaration_string_line(`  ${return_str} zero = (${return_str})0;`);
                       context.base.emitter.emit_declaration_line("  return zero;");
                     });
-                  })));
+                  }))));
                   context.base.emitter.emit_declaration_line("}");
                   context.base.emitter.emit_declaration_line("");
                 },
@@ -725,7 +857,11 @@ generate_dyn_wrapper_functions :: (fn(context : &mut FunctionGenerationContext) 
                                   });
                                   context.base.emitter.emit_declaration_string_line(`static ${slot_ret} ${wrapper}(${params}) {`);
                                   (first_arg : String) = String.from("");
-                                  if(is_boxed, {
+                                  if(impl_entry.payload_convention, {
+                                    // A reference-kind Dyn: the data word is the payload's address.
+                                    pay_c := get_type_string(self_concrete.clone(), &mut context.base);
+                                    first_arg = if(pbp, `((${pay_c}*)self_ptr)`, `(*(${pay_c}*)self_ptr)`);
+                                  }, if(is_boxed, {
                                     boxed_cname := _boxed_c_name(data_type.clone(), context);
                                     field_name := _box_field_name(data_type.clone());
                                     context.base.emitter.emit_declaration_string_line(`  ${boxed_cname}* box = (${boxed_cname}*)self_ptr;`);
@@ -734,7 +870,7 @@ generate_dyn_wrapper_functions :: (fn(context : &mut FunctionGenerationContext) 
                                     concrete_str := get_type_string(impl_entry.concrete_type.clone(), &mut context.base);
                                     context.base.emitter.emit_declaration_string_line(`  ${concrete_str} concrete_value = (${concrete_str})self_ptr;`);
                                     first_arg = if(pbp, String.from("&concrete_value"), String.from("concrete_value"));
-                                  });
+                                  }));
                                   match(
                                     self_copy_fn,
                                     .Some(cf) => {
@@ -850,6 +986,19 @@ generate_dyn_vtables :: (fn(context : &mut FunctionGenerationContext) -> unit)({
     });
     context.base.emitter.emit_declaration_line("");
   });
+  // The retain and release of a reference-kind Dyn, dyn(&v): it borrows its
+  // payload, so neither counts anything.
+  (any_payload : bool) = false;
+  for(&context.base.dyn_impls, (_pk, pe) => {
+    if(pe.payload_convention, {
+      any_payload = true;
+    });
+  });
+  if(any_payload, {
+    context.base.emitter.emit_declaration_line("static void* __yo_dyn_noop_retain(void* data) { return data; }");
+    context.base.emitter.emit_declaration_line("static void __yo_dyn_noop_release(void* data) { (void)data; }");
+    context.base.emitter.emit_declaration_line("");
+  });
   // Pass 2: emit the vtable instances.
   (vi : usize) = usize(0);
   while(vi < nk, {
@@ -865,9 +1014,19 @@ generate_dyn_vtables :: (fn(context : &mut FunctionGenerationContext) -> unit)({
         context.base.emitter.emit_declaration_string_line(`// Vtable for impl(${concrete_cname}, ${dyn_cname})`);
         context.base.emitter.emit_declaration_string_line(`static const ${vtable_type} ${vtable_name} = {`);
         context.base.emitter.emit_declaration_string_line(`  .__yo_type_id = (uintptr_t)&${typeid_name},`);
+        // The payload's own size and alignment, and the slot functions that
+        // reach it from the data word (decision 49).
+        slot_vs := _slot_payload_c(&impl_entry, context);
+        slot_unit := (slot_vs == "void");
+        context.base.emitter.emit_declaration_string_line(if(slot_unit, String.from("  .__yo_size = 0,"), `  .__yo_size = sizeof(${slot_vs.clone()}),`));
+        context.base.emitter.emit_declaration_string_line(if(slot_unit, String.from("  .__yo_align = 1,"), `  .__yo_align = _Alignof(${slot_vs.clone()}),`));
+        has_slots := _slot_functions_exist(&impl_entry);
+        context.base.emitter.emit_declaration_string_line(if(has_slots, `  .__yo_drop_in_place = __yo_dip_${impl_key.clone()},`, String.from("  .__yo_drop_in_place = NULL,")));
+        context.base.emitter.emit_declaration_string_line(if(has_slots && dyn_type_lists_clone(impl_entry.dyn_type.clone()), `  .__yo_clone_into = __yo_cli_${impl_key.clone()},`, String.from("  .__yo_clone_into = NULL,")));
+        context.base.emitter.emit_declaration_string_line(if(has_slots, `  .__yo_payload_of = __yo_pof_${impl_key.clone()},`, String.from("  .__yo_payload_of = NULL,")));
         data_atomic := _dyn_data_is_atomic(impl_entry.data_type.clone());
-        context.base.emitter.emit_declaration_string_line(if(data_atomic, `  .__yo_retain = __yo_incr_rc_atomic,`, `  .__yo_retain = __yo_incr_rc,`));
-        context.base.emitter.emit_declaration_string_line(if(data_atomic, `  .__yo_release = __yo_decr_rc_atomic,`, `  .__yo_release = __yo_decr_rc,`));
+        context.base.emitter.emit_declaration_string_line(if(impl_entry.payload_convention, `  .__yo_retain = __yo_dyn_noop_retain,`, if(data_atomic, `  .__yo_retain = __yo_incr_rc_atomic,`, `  .__yo_retain = __yo_incr_rc,`)));
+        context.base.emitter.emit_declaration_string_line(if(impl_entry.payload_convention, `  .__yo_release = __yo_dyn_noop_release,`, if(data_atomic, `  .__yo_release = __yo_decr_rc_atomic,`, `  .__yo_release = __yo_decr_rc,`)));
         // The clone slot: this impl's `__yo_dyn_clone_<impl>` for a Dyn that
         // lists Clone (emitted with the wrappers), NULL for any other Dyn,
         // which is never copied through it (decision 7).
@@ -942,7 +1101,7 @@ generate_dyn_vtables :: (fn(context : &mut FunctionGenerationContext) -> unit)({
             cand := match(keys.get_cloned(uk), .Some(k) => k, .None => String.from(""));
             match(
               context.base.dyn_impls.get(cand.clone()),
-              .Some(ce) => if((type_key(ce.dyn_type.clone()) == ut_key) && (type_key(ce.concrete_type.clone()) == concrete_key), {
+              .Some(ce) => if((type_key(ce.dyn_type.clone()) == ut_key) && (type_key(ce.concrete_type.clone()) == concrete_key) && (ce.payload_convention == impl_entry.payload_convention), {
                 context.base.emitter.emit_declaration_string_line(`  .__yo_up_${ut_c} = &__yo_vtable_${cand},`);
                 u_found = true;
               }),
@@ -960,4 +1119,4 @@ generate_dyn_vtables :: (fn(context : &mut FunctionGenerationContext) -> unit)({
     vi = (vi + usize(1));
   });
 });
-export(generate_dyn_dup_drop, generate_dyn_box_functions, generate_dyn_wrapper_functions, generate_dyn_vtables);
+export(generate_dyn_dup_drop, generate_dyn_box_functions, generate_dyn_slot_functions, generate_dyn_wrapper_functions, generate_dyn_vtables);

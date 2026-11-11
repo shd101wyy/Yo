@@ -15,7 +15,7 @@
 { HashSet } :: import("std/collections/hash_set");
 { AstExpr, ast_expr_id, ast_expr_to_string } :: import("../../expr.yo");
 { EvalValue } :: import("../../value.yo");
-{ TypeValue } :: import("../../types/definitions.yo");
+{ TypeValue, t_refine_inner } :: import("../../types/definitions.yo");
 { is_dyn_type, is_boxed_type, is_atomic_counted_handle_type, is_counted_handle_type, cell_handle_view } :: import("../../types/guards.yo");
 { extract_fn_trait_from_type } :: import("../../evaluator/trait_checking.yo");
 { type_id_or_empty } :: import("../../evaluator/values/type_trait_methods.yo");
@@ -26,7 +26,8 @@
 { _call_generate_expr } :: import("./_expr.yo");
 { generate_deferred_dup_expressions } :: import("./drop_dup.yo");
 { resolve_some_type_to_concrete } :: import("./closures.yo");
-{ ExprInfo, expr_info_dyn_call_trait_values, expr_info_deferred_dup_expressions } :: import("../../expr_info.yo");
+{ ExprInfo, expr_info_dyn_call_trait_values, expr_info_deferred_dup_expressions, unsize_reference_mode } :: import("../../expr_info.yo");
+{ _pointer_arg_code } :: import("./sizeof.yo");
 /// For a BOXED dyn payload (`Rc(Sq)`), the impl concrete type is the UNDERLYING
 /// type (`Sq`, the box's single `*` field) while the runtime data type stays
 /// `Rc(Sq)`. Keeps the dyn-box / vtable / impl_key keyed on the
@@ -87,15 +88,40 @@ _concrete_c_name :: (fn(concrete_type : &TypeValue, context : &FunctionGeneratio
     )
   )
 );
+/// `dyn(&v)` / `dyn(&mut v)`: the fat pointer `F = { .data
+/// = &v, .vtable = &vtable }`. The instance is keyed `_P`: its data word is the
+/// payload's own address, so its wrappers and slots read `*(V*)data` and its
+/// retain and release count nothing (the Dyn borrows `v`).
+_generate_dyn_over_lend :: (fn(expr : &AstExpr, dyn_type : &TypeValue, trait_values : &ArrayList(EvalValue), lend_expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
+  lend_ei := match(context.base.get_expr_info(lend_expr), .Some(e) => e, .None => return(String.from("/* Error: dyn(&v) lend has no type */")));
+  pointee := match(t_refine_inner(&lend_ei.ty()), Rc(.Reference(rp, _, _)) => Rc.clone(rp), _ => return(String.from("/* Error: dyn(&v) argument is not a pointer */")));
+  resolved := resolve_some_type_to_concrete(pointee.clone());
+  dyn_type_c_name := _dyn_c_name(dyn_type, context);
+  concrete_type_c_name := _concrete_c_name(&resolved, context);
+  impl_key := concrete_type_c_name.clone();
+  impl_key.push_str("_");
+  impl_key.push_string(dyn_type_c_name.clone());
+  impl_key.push_str("_P");
+  context.base.register_dyn_impl(impl_key.clone(), DynImplEntry(dyn_type : Rc.clone(dyn_type), concrete_type : pointee, data_type : Rc.clone(resolved), trait_values : trait_values.clone(), payload_convention : true));
+  ptr_code := _pointer_arg_code(lend_expr, indent, context);
+  `((${dyn_type_c_name}){ .data = (void*)(${ptr_code}), .vtable = &__yo_vtable_${impl_key} })`
+});
 /// Generate C code for a `dyn()` constructor call.
 generate_dyn_call :: (fn(expr : &AstExpr, indent : &String, context : &mut FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("/* Error: dyn() not evaluated */")));
   trait_values := match(expr_info_dyn_call_trait_values(&ei), .Some(tv) => if(tv.len() == usize(0), return(String.from("/* Error: dyn() call missing trait values */")), tv), .None => return(String.from("/* Error: dyn() call missing trait values */")));
   args0 := match(expr, .FnCall(_, _, Rc(a), _, _) => a.get(usize(0)), .Atom(_, _) => Option(AstExpr).None);
   value_expr := match(&ei.runtime_arg_exprs_in_order(), .Some(rargs) => match(rargs.get(usize(0)), .Some(v) => v, .None => match(args0, .Some(a) => a, .None => return(String.from("/* Error: dyn() requires a value argument */")))), .None => match(args0, .Some(a) => a, .None => return(String.from("/* Error: dyn() requires a value argument */"))));
-  dyn_type := Rc.clone(ei.ty());
+  // A `dyn(&v)` result may carry the reference it was read as (a `&Dyn`
+  // declaration's converted type): the Dyn is its pointee.
+  dyn_type := match(t_refine_inner(&ei.ty()), Rc(.Reference(rp, _, _)) => Rc.clone(rp), _ => Rc.clone(ei.ty()));
   if(!is_dyn_type(&dyn_type), {
     return(String.from("/* Error: dyn() result type is not DynType */"));
+  });
+  // `dyn(&v)` / `dyn(&mut v)` (decision 49): the Dyn is the fat pointer over
+  // the lent place. Its data word is the payload's address.
+  if(unsize_reference_mode(ast_expr_id(expr)).is_some(), {
+    return(_generate_dyn_over_lend(expr, &dyn_type, &trait_values, &value_expr, indent, context));
   });
   value_ei := match(context.base.get_expr_info(&value_expr), .Some(e) => e, .None => return(String.from("/* Error: dyn() value has no type */")));
   value_type := Rc.clone(value_ei.ty());
@@ -129,7 +155,7 @@ generate_dyn_call :: (fn(expr : &AstExpr, indent : &String, context : &mut Funct
   if(is_atomic_counted_handle_type(&value_type), {
     impl_key.push_str("_A");
   });
-  context.base.register_dyn_impl(impl_key.clone(), DynImplEntry(dyn_type : dyn_type, concrete_type : concrete_type, data_type : Rc.clone(value_type), trait_values : trait_values));
+  context.base.register_dyn_impl(impl_key.clone(), DynImplEntry(dyn_type : dyn_type, concrete_type : concrete_type, data_type : Rc.clone(value_type), trait_values : trait_values, payload_convention : false));
   (value_code : String) = _call_generate_expr(&value_expr, indent.clone(), context);
   // DEGRADED dyn when the INNER value failed to transpile (e.g. a
   // `rc(<closure>)` whose spec was dropped — the c03 cluster-B shape):

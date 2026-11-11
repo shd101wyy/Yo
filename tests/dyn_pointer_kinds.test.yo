@@ -1,0 +1,255 @@
+pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
+{ yield } :: import("std/async");
+Speak :: trait(speak : (fn(self : &Self) -> i32));
+Bump :: trait(bump : (fn(self : &mut Self) -> i32));
+Cat :: struct(n : i32);
+impl(Cat, Speak(speak : ((self : &Self) -> self.n)));
+impl(
+  Cat,
+  Bump(
+    bump : (
+      (self : &mut Self) -> {
+        self.n = (self.n + i32(1));
+        self.n
+      }
+    )
+  )
+);
+_speak_via :: (fn(d : &Dyn(Speak)) -> i32)(d.speak());
+_bump_via :: (fn(d : &mut Dyn(Bump)) -> i32)(d.bump());
+test("dyn(&v) is a &Dyn over a place that stays usable", {
+  c := Cat(n : i32(7));
+  assert(_speak_via(dyn(&c)) == i32(7), "dispatch through the vtable");
+  assert(c.n == i32(7), "v is still usable");
+});
+test("dyn(&mut v) writes through the reference", {
+  (mut(c) : Cat) = Cat(n : i32(1));
+  assert(_bump_via(dyn(&mut c)) == i32(2), "bump");
+  assert(c.n == i32(2), "visible through v");
+});
+_dyn_size :: (fn(d : &Dyn(Speak)) -> usize)(size_of_val(d));
+_dyn_align :: (fn(d : &Dyn(Speak)) -> usize)(align_of_val(d));
+test("size_of_val and align_of_val of a Dyn read the vtable", {
+  c := Cat(n : i32(3));
+  assert(_dyn_size(dyn(&c)) == size_of(Cat), "size");
+  assert(_dyn_align(dyn(&c)) == align_of(Cat), "align");
+});
+test("&b.* on a legacy Box(Dyn) built by dyn(Box.new(v)) dispatches", {
+  (b : Box(Dyn(Speak))) = dyn(Box.new(Cat(n : i32(9))));
+  assert(_speak_via(&b.*) == i32(9), "dispatch through &b.*");
+  assert(size_of_val(&b.*) == size_of(Cat), "size through &b.*");
+});
+_view_cat :: (fn(d : &Dyn(Speak)) -> i32)(
+  match(
+    downcast(d, Cat),
+    .Some(p) => p.n,
+    .None => i32(-1)
+  )
+);
+_view_other :: (fn(d : &Dyn(Speak)) -> bool)(
+  match(
+    downcast(d, i32),
+    .Some(_) => true,
+    .None => false
+  )
+);
+_write_cat :: (fn(d : &mut Dyn(Bump)) -> unit)(
+  match(
+    downcast(d, Cat),
+    .Some(p) => {
+      p.n = i32(40);
+    },
+    .None => ()
+  )
+);
+test("downcast through a reference views the payload", {
+  c := Cat(n : i32(5));
+  assert(_view_cat(dyn(&c)) == i32(5), "payload viewed in place");
+  assert(!_view_other(dyn(&c)), "the wrong target is None");
+});
+test("downcast(&mut Dyn) writes through", {
+  (mut(c) : Cat) = Cat(n : i32(1));
+  _write_cat(dyn(&mut c));
+  assert(c.n == i32(40), "written through the view");
+});
+Twice :: trait(twice : (fn(self : &Self) -> i32));
+impl(Cat, Twice(twice : ((self : &Self) -> (self.n * i32(10)))));
+_twice_and_speak :: (fn(d : &Dyn(Speak, Twice)) -> i32)(d.twice() + _speak_via(upcast(d, Dyn(Speak))));
+test("upcast through a reference keeps the borrow", {
+  c := Cat(n : i32(6));
+  assert(_twice_and_speak(dyn(&c)) == i32(66), "both traits, then the upcast");
+});
+// A move-only payload (a Drop with no Clone): the borrowing downcast views it
+// in place, and its drop runs once, when `v` dies.
+(mut(g_tok_dropped) : i32) = i32(0);
+Tok :: struct(n : i32);
+impl(Tok, Speak(speak : ((self : &Self) -> self.n)));
+impl(
+  Tok,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_tok_dropped = (g_tok_dropped + i32(1));
+    })
+  )
+);
+_view_tok :: (fn(d : &Dyn(Speak)) -> i32)(
+  match(
+    downcast(d, Tok),
+    .Some(p) => p.n,
+    .None => i32(-1)
+  )
+);
+test("downcast(&Dyn) borrows a move-only payload without a drop", {
+  before := g_tok_dropped;
+  {
+    t := Tok(n : i32(11));
+    assert(_view_tok(dyn(&t)) == i32(11), "viewed");
+    assert(_view_tok(dyn(&t)) == i32(11), "viewed again");
+    assert(g_tok_dropped == before, "no drop while v lives");
+  };
+  assert(g_tok_dropped == (before + i32(1)), "exactly one drop at v's end");
+});
+test("downcast(&b.*) on a legacy Box(Dyn) drops its payload once at the box's end", {
+  before := g_tok_dropped;
+  {
+    (b : Box(Dyn(Speak))) = dyn(Box.new(Tok(n : i32(12))));
+    assert(_view_tok(&b.*) == i32(12), "viewed through payload_of");
+  };
+  assert(g_tok_dropped == (before + i32(1)), "exactly one drop");
+});
+test("dyn(Rc.new(v)) is an Rc(Dyn) and the handle is shared", {
+  (h : Rc(Dyn(Speak))) = dyn(Rc.new(Cat(n : i32(4))));
+  h2 := Rc.clone(h);
+  assert(ref_count(h) == 2, "one count per handle");
+  assert(h2.*.speak() == i32(4), "dispatch through a handle");
+});
+test("dyn(Arc.new(v)) is an Arc(Dyn(T, Send, Sync))", {
+  (h : Arc(Dyn(Speak, Send, Sync))) = dyn(Arc.new(Cat(n : i32(5))));
+  assert(h.*.speak() == i32(5), "dispatch through the handle");
+});
+test("dyn(h) over a named Rc handle is rejected", {
+  comptime_expect_error(
+    (fn() -> unit)({
+      c := Rc.new(Cat(n : i32(4)));
+      (d : Dyn(Speak)) = dyn(c);
+      ()
+    }),
+    "named `Rc`/`Arc` handle"
+  );
+});
+test("a Dyn place used by value is E0619", {
+  comptime_expect_error(
+    (fn(b : Box(Dyn(Speak))) -> unit)({
+      _x := b.*;
+    }),
+    "is not `Sized`"
+  );
+});
+// VERDICTS-43: while the alias holds, a reference-kind Dyn (`dyn(&v)`, and an
+// `upcast` over a reference) lives in its statement's frame temporary. It is a
+// temporary of the statement for every escape rule and a lend of `v` for every
+// exclusivity rule, legal as a direct call argument only. S2's flip accepts the
+// escaping programs below; these rows then run them under ASan instead.
+Zoo :: struct(c : Cat);
+_pass :: (fn(d : &mut Dyn(Bump)) -> &mut Dyn(Bump))(&mut d.*);
+_pass2 :: (fn(d : &Dyn(Speak)) -> &Dyn(Speak))(&d.*);
+_two :: (fn(a : &mut Dyn(Bump), b : &Cat) -> i32)(a.bump() + b.n);
+_two2 :: (fn(a : &mut Cat, b : &Cat) -> i32)(a.n + b.n);
+test("a dyn(&mut v) returned as a projection's place is E0912", {
+  comptime_expect_error((fn(z : &mut Zoo) -> &mut Dyn(Bump))(dyn(&mut z.c)), "until v0.2.78");
+});
+test("a dyn(&v) forwarded through a projection is E0912", {
+  comptime_expect_error((fn(z : &mut Zoo) -> &mut Dyn(Bump))(&mut _pass(dyn(&mut z.c))), "until v0.2.78");
+  comptime_expect_error((fn(z : &Zoo) -> &Dyn(Speak))(&_pass2(dyn(&z.c))), "until v0.2.78");
+});
+test("a dyn(&v) inside a returned Option is E0912", {
+  comptime_expect_error(
+    (fn(z : &Zoo) -> Option(&Dyn(Speak)))(Option(&Dyn(Speak)).Some(dyn(&z.c))),
+    "until v0.2.78"
+  );
+});
+test("a dyn(&v) bound to a local is E0911", {
+  comptime_expect_error(
+    (fn() -> unit)({
+      c := Cat(n : i32(1));
+      (d : &Dyn(Speak)) = dyn(&c);
+      ()
+    }),
+    "until v0.2.78"
+  );
+  comptime_expect_error(
+    (fn() -> unit)({
+      (mut(c) : Cat) = Cat(n : i32(1));
+      (d : &mut Dyn(Bump)) = dyn(&mut c);
+      ()
+    }),
+    "until v0.2.78"
+  );
+});
+test("a dyn(&v) stored in a holder past its statement is E0911", {
+  comptime_expect_error(
+    (fn() -> unit)({
+      c := Cat(n : i32(1));
+      o := Option(&Dyn(Speak)).Some(dyn(&c));
+      ()
+    }),
+    "until v0.2.78"
+  );
+});
+test("dyn(&mut c) beside &c in one call is E0910", {
+  comptime_expect_error(
+    (fn() -> i32)({
+      (mut(c) : Cat) = Cat(n : i32(1));
+      _two(dyn(&mut c), &c)
+    }),
+    "overlaps it"
+  );
+  comptime_expect_error(
+    (fn() -> i32)({
+      (mut(c) : Cat) = Cat(n : i32(1));
+      _two2(&mut c, &c)
+    }),
+    "overlaps it"
+  );
+});
+_get_opt :: (fn(d : &Dyn(Speak)) -> Option(&Dyn(Speak)))(Option(&Dyn(Speak)).Some(d));
+_fwd :: (fn(d : &Dyn(Speak)) -> &Dyn(Speak))(&d.*);
+test("a dyn(&v) consumed inside its statement is sound", {
+  c := Cat(n : i32(8));
+  assert(
+    match(
+      _get_opt(dyn(&c)),
+      .Some(d) => d.speak(),
+      .None => i32(-1)
+    ) == i32(8),
+    "holder consumed in the statement"
+  );
+  assert(_speak_via(&_fwd(dyn(&c))) == i32(8), "forwarded through a projection");
+  assert(_speak_via(upcast(dyn(&c), Dyn(Speak))) == i32(8), "reference upcast as an argument");
+});
+_speak_plus :: (fn(d : &Dyn(Speak), k : i32) -> i32)(d.speak() + k);
+test("a dyn(&v) argument before and after an await is sound", {
+  t := io.async((io : Io) => {
+    c := Cat(n : i32(8));
+    io.await(yield(io), io);
+    r := _speak_via(dyn(&c));
+    io.await(yield(io), io);
+    return(r + c.n);
+  });
+  assert(io.await(t, io) == i32(16), "before and after an await");
+});
+// A statement holding both the dyn(&v) argument and an await in a later
+// argument runs ASan-clean (the frame temporary lives in the task's frame).
+test("a dyn(&v) argument beside an await in one statement is sound", {
+  t := io.async((io : Io) => {
+    c := Cat(n : i32(8));
+    k := yield(io);
+    r := _speak_plus(dyn(&c), {
+      io.await(k, io);
+      i32(1)
+    });
+    return(r);
+  });
+  assert(io.await(t, io) == i32(9), "same statement");
+});

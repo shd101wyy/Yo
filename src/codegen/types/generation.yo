@@ -1684,6 +1684,11 @@ generate_dyn_declaration :: (fn(type : &TypeValue, c_name : &String, context : &
   // The payload's RC functions and its clone, in `__yo_vtable_prefix_t`'s
   // layout (functions/gc_runtime.yo): `__yo_dyn_retain` / `__yo_dyn_release`
   // / `__yo_dyn_clone`.
+  context.emitter.emit_declaration_line("  size_t __yo_size; // size_of_val: the payload's size");
+  context.emitter.emit_declaration_line("  size_t __yo_align; // align_of_val: the payload's alignment");
+  context.emitter.emit_declaration_line("  void (*__yo_drop_in_place)(void*); // drops the payload at the data word, frees nothing");
+  context.emitter.emit_declaration_line("  void (*__yo_clone_into)(void*, void*); // writes an independent payload copy at dst; NULL without Clone");
+  context.emitter.emit_declaration_line("  void* (*__yo_payload_of)(void*); // the payload's address from the data word (legacy: the cell's value)");
   context.emitter.emit_declaration_line("  void* (*__yo_retain)(void*); // payload retain: atomic for an atomically counted payload");
   context.emitter.emit_declaration_line("  void (*__yo_release)(void*); // payload release");
   context.emitter.emit_declaration_line("  void* (*__yo_clone)(void*); // independent payload copy for a Dyn with Clone; NULL otherwise");

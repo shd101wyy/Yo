@@ -29,7 +29,7 @@
 { fixup_dyn_impl_keys, register_dyn_upcast_targets } :: import("./utils/fixup.yo");
 { generate_function_declarations, should_skip_function_codegen } :: import("./functions/declarations.yo");
 { generate_all_functions, generate_main_wrapper, emit_module_level_variable_declarations, emit_thread_local_accessors } :: import("./functions/generation.yo");
-{ generate_dyn_box_functions, generate_dyn_wrapper_functions, generate_dyn_vtables, generate_dyn_dup_drop } :: import("./functions/dyn.yo");
+{ generate_dyn_box_functions, generate_dyn_slot_functions, generate_dyn_wrapper_functions, generate_dyn_vtables, generate_dyn_dup_drop } :: import("./functions/dyn.yo");
 { register_generate_expr } :: import("./exprs/generation.yo");
 { register_impl_closure_call_mappings, set_sm_atom_resolver, set_deferred_dup_or_code } :: import("./exprs/closures.yo");
 { emit_deferred_dup_or_code } :: import("./exprs/drop_dup.yo");
@@ -524,6 +524,7 @@ static Slice_uint8_t_u42_ __yo_args;
   // Dyn dispatch scaffolding (box ctor/dispose, wrapper functions, typeid
   // vtables, and RC dup/drop).
   generate_dyn_box_functions(&mut ctx);
+  generate_dyn_slot_functions(&mut ctx);
   generate_dyn_wrapper_functions(&mut ctx);
   generate_dyn_vtables(&mut ctx);
   generate_dyn_dup_drop(&mut ctx);

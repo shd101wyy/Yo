@@ -145,13 +145,17 @@ derive(ArrayStructInfo, Clone);
 /// A `dyn()` usage: a concrete type used with a specific dyn trait. `dyn_type`
 /// is the DynT; `concrete_type` is the user type; `data_type` is what is
 /// stored in Dyn.data (object/Rc); `trait_values` are the TraitVal evidence
-/// values in trait order.
+/// values in trait order. `payload_convention` is set for an instance whose
+/// data word is the payload's own address (a `dyn(&v)` / `dyn(&mut v)` /
+/// `dyn(p : *V)` Dyn pointer, decision 49), not the legacy cell holding it:
+/// its wrappers and slot functions read `*(V*)data`, and its key carries `_P`.
 DynImplEntry :: ref(
   struct(
     dyn_type : TypeValue,
     concrete_type : TypeValue,
     data_type : TypeValue,
-    trait_values : ArrayList(EvalValue)
+    trait_values : ArrayList(EvalValue),
+    payload_convention : bool
   )
 );
 /// A byte range of the emitter's `code` buffer holding one complete emitted

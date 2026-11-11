@@ -102,6 +102,7 @@ pragma(Pragma.AllowUnsafe);
 { evaluate_binding, set_defer_generic_fn_type_check } :: import("./binding.yo");
 { all_paths_unwind } :: import("../../expr_traversal.yo");
 {
+  reject_dyn_place_by_value,
   require_expr_not_consumed,
   throw_expr_is_implicit_variable_error,
   set_expr_as_needs_to_call_dup,
@@ -2318,6 +2319,8 @@ Bound type: ${type_to_string(&variable_value_type(&mcb_v))}`
     );
   });
   rhs_info := match(rhs_info_opt, .Some(i) => Rc.clone(i), .None => new_expr_info(&env, t_unit()));
+  reject_dyn_place_by_value(ast_expr_id(&rhs_evaled), &String.from("an assignment's value"), ast_expr_token(&rhs), exn);
+  reject_dyn_place_by_value(ast_expr_id(&rhs), &String.from("an assignment's value"), ast_expr_token(&rhs), exn);
   // E0918: a compile-time binding reassigned by code that runs at runtime.
   if(is_atom_lhs, {
     _reject_runtime_write_of_comptime_binding(&variable, ast_expr_token(&lhs_resolved), rhs_info.value().is_none(), ctx, exn);

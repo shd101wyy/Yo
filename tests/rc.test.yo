@@ -1414,11 +1414,10 @@ test("a local stored into a temporary Dyn passed by value outlives the call", {
   };
   assert(g_nested_disposed == (before + i32(1)), "disposed exactly once, when its own scope ended");
 });
-test("a temporary passed by value takes a local that is not read again exactly once", {
+test("a temporary Dyn passed by value is dropped exactly once", {
   before := g_nested_disposed;
   {
-    sink := Rc.new(_NestedSinkVal(tag : i32(11)));
-    _take_dyn_tag(dyn(sink));
+    _take_dyn_tag(dyn(Rc.new(_NestedSinkVal(tag : i32(11)))));
   };
   assert(g_nested_disposed == (before + i32(1)), "disposed exactly once: no leak, no double drop");
 });

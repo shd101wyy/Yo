@@ -5,6 +5,7 @@
 //! If the size is not statically known, returns an unknown `usize`.
 pragma(Pragma.AllowUnsafe);
 { type_is_sized, unsized_by_value_error } :: import("../../types/utils.yo");
+{ is_dyn_type } :: import("../../types/guards.yo");
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 {
@@ -228,7 +229,7 @@ evaluate_size_of_val :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut Eval
     }
   );
   out_info := new_expr_info(&expr_info_adopt_env(&info), t_usize());
-  if(type_is_sized(&pointee), {
+  if(type_is_sized(&pointee) && !is_dyn_type(&pointee), {
     match(
       if(is_size, match(get_size_of_type(&pointee), .Some(bits) => Option(usize).Some(bits / usize(8)), .None => Option(usize).None), get_alignment_of_type(&pointee)),
       .Some(n) => out_info.set_value(.Some(EvalValue.IntLit(n.to_string()))),
@@ -383,4 +384,4 @@ evaluate_slice_primitive :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut 
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   call
 });
-export(evaluate_size_of, evaluate_size_of_val, evaluate_unsize, evaluate_slice_primitive);
+export(evaluate_size_of, evaluate_size_of_val, evaluate_unsize, evaluate_slice_primitive, _eval_builtin_args);

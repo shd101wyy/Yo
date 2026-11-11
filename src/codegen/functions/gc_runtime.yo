@@ -613,10 +613,17 @@ static void __yo_decr_rc_atomic(void* ptr) {
   }
 }
 
-// A Dyn's data object is released and retained through its VTABLE, whose
-// first slots after the type id are the concrete payload's own RC functions:
-// atomic for an atomically counted payload (a Dyn(..., Send) boxes with
-// arc), plain otherwise. The static Dyn type cannot choose: a
+// A Dyn's data word is dropped, measured, cloned and released through its
+// VTABLE. The prefix is { type_id, size, align, drop_in_place, clone_into,
+// payload_of, retain, release, clone } (plans/VALUES_BY_DEFAULT.md decision
+// 49). size and align are the payload's own; drop_in_place(data) drops the
+// payload and frees nothing; clone_into(data, dst) writes an independent copy
+// of it at dst (NULL without Clone); payload_of(data) is the payload's address
+// (a legacy Dyn's data word is its cell, a reference-kind Dyn's is the
+// payload). retain, release and clone are the legacy cell's and go with it:
+// the RC functions are the concrete payload's own, atomic for an atomically
+// counted payload (a Dyn(..., Send) boxes with arc), plain otherwise. The
+// static Dyn type cannot choose: a
 // Dyn(Fn, Send) upcast to Dyn(Fn) still shares its box with other threads
 // (issues/fixed/a-send-dyn-shares-a-non-atomic-box-across-threads.md).
 // __yo_clone makes an independent payload for d.clone() on a
@@ -624,6 +631,11 @@ static void __yo_decr_rc_atomic(void* ptr) {
 // vtable of a Dyn without Clone.
 typedef struct {
   uintptr_t __yo_type_id;
+  size_t __yo_size;
+  size_t __yo_align;
+  void (*__yo_drop_in_place)(void*);
+  void (*__yo_clone_into)(void*, void*);
+  void* (*__yo_payload_of)(void*);
   void* (*__yo_retain)(void*);
   void (*__yo_release)(void*);
   void* (*__yo_clone)(void*);

@@ -1,6 +1,6 @@
 //! `sizeof(...)` and `align_of(...)` emitters.
 { String } :: import("std/string");
-{ AstExpr, ast_expr_is_fn_call_of, ast_expr_is_atom, ast_expr_id, ast_expr_token, BF_SIZE_OF_VAL, BF_ALIGN_OF_VAL, BF_UNSIZE, BF_SLICE_LEN, BF_SLICE_PTR, BF_SLICE_FROM_RAW_PARTS, BK_BORROW_MUT } :: import("../../expr.yo");
+{ AstExpr, ast_expr_strip_borrow_marker, ast_expr_is_fn_call_of, ast_expr_is_atom, ast_expr_id, ast_expr_token, BF_SIZE_OF_VAL, BF_ALIGN_OF_VAL, BF_UNSIZE, BF_SLICE_LEN, BF_SLICE_PTR, BF_SLICE_FROM_RAW_PARTS, BK_BORROW_MUT } :: import("../../expr.yo");
 { TypeValue, t_refine_inner } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
 { type_is_sized } :: import("../../types/utils.yo");
@@ -68,7 +68,11 @@ _pointer_arg_code :: (fn(arg : &AstExpr, indent : &String, context : &mut Functi
   cond(
     (ast_expr_is_fn_call_of(arg, "&", Option(usize).Some(usize(1))) || ast_expr_is_fn_call_of(arg, BK_BORROW_MUT, Option(usize).Some(usize(1)))) => match(
       arg,
-      .FnCall(_, _, Rc(ba), _, _) => match(ba.get(usize(0)), .Some(place) => _address_of_code(&_call_generate_expr(&place, indent, context)), .None => codegen_fatal_expr(String.from("a borrow needs a place"))),
+      .FnCall(_, _, Rc(ba), _, _) => match(
+        ba.get(usize(0)),
+        .Some(place) => _address_of_code(&_call_generate_expr(&place, indent, context)),
+        .None => codegen_fatal_expr(String.from("a borrow needs a place"))
+      ),
       .Atom(_, _) => codegen_fatal_expr(String.from("a borrow needs a place"))
     ),
     true => match(
@@ -179,6 +183,8 @@ generate_unsized_builtin :: (fn(expr : &AstExpr, indent : &String, context : &mu
       is_size := ast_expr_is_fn_call_of(expr, BF_SIZE_OF_VAL, .None);
       match(
         t_refine_inner(&pointee),
+        // A `Dyn`'s size and alignment are its vtable's (decision 49).
+        Rc(.DynT({})) => `((${_call_generate_expr(&ast_expr_strip_borrow_marker(&arg0), indent.clone(), context)}).vtable->${if(is_size, "__yo_size", "__yo_align")})`,
         Rc(.SliceT(sv_e)) => {
           et := get_type_string(&sv_e, &mut context.base);
           if(is_size, `((${_pointer_arg_code(&arg0, indent, context)}).len * ${_c_elem_size(&et)})`, if(et == "void", String.from("((size_t)1)"), `_Alignof(${et})`))
@@ -225,4 +231,4 @@ generate_unsized_builtin :: (fn(expr : &AstExpr, indent : &String, context : &mu
     true => codegen_fatal_expr(String.from("an unknown unsized builtin reached codegen"))
   )
 });
-export(generate_sizeof, generate_alignof, generate_unsized_builtin);
+export(generate_sizeof, generate_alignof, generate_unsized_builtin, _pointer_arg_code);
