@@ -30,7 +30,8 @@ Develop accepts it. Compiled with `--sanitize address --allocator system`, the c
 `xs`'s buffer: `heap-use-after-free`. The same hole, every form accepted by develop and rejected by v0.2.76 with E0911:
 
 - the reference passed bare, in either order: `r := &x; read_clr(&mut x, r)`, `clr_read(r, &mut x)`, `a := idr(&x); clr_read(a, &mut x)`;
-- a holder or an `Option(&T)` passed by value: `h := Option(&Rc(X)).Some(&x); replace_then_read(&mut x, h)`;
+- a holder or an `Option(&T)` passed by value, in either order: `h := Option(&Rc(X)).Some(&x); replace_then_read(&mut x, h)`,
+  `h := H(xs)(r : &xs(usize(0))); f(h, &mut xs)`;
 - a nested call's reference result over a named loan: `q := &xs; f(&mut xs, first(q))`.
 
 ## Root cause
@@ -53,6 +54,6 @@ that carries no origin (`xs.push(i32(r.len()))`, `push_n(&mut xs, h.r.len())`), 
 The model's activation live set adds the uses of every argument whose type carries an origin.
 
 Regression rows: `tests/local_borrows.test.yo` (`two_phase_*_argument_rejected` and the holder-value control), corpus rows
-`two-phase-holder-arg`, `two-phase-option-arg`, `two-phase-ref-result-arg` (E0911) and `two-phase-holder-value-arg` (accept) in
+`two-phase-holder-arg`, `two-phase-holder-first-arg`, `two-phase-option-arg`, `two-phase-ref-result-arg` (E0911) and `two-phase-holder-value-arg` (accept) in
 `tests/origins/corpus.tsv` and `tests/origins/model_corpus.test.yo`, and the G-B pair
 `tests/origins/unsound/p9-two-phase-holder-argument{,-pos}.yo`.

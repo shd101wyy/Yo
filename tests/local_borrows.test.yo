@@ -1152,6 +1152,7 @@ comptime_expect_error(
 // (issues/fixed/2026-11-11-two-phase-ends-a-loan-a-later-argument-carries-into-the-callee.md).
 _TpHolder :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(r : &(ArrayList(i32), p)));
 _tp_push_holder :: (fn(generic(p : Origin), a : &mut ArrayList(i32), h : _TpHolder(p)) -> unit)(a.push(i32(h.r.len())));
+_tp_holder_push :: (fn(generic(p : Origin), h : _TpHolder(p), a : &mut ArrayList(i32)) -> unit)(a.push(i32(h.r.len())));
 _tp_push_opt :: (fn(a : &mut ArrayList(i32), h : Option(&ArrayList(i32))) -> unit)(a.push(i32(match(h, .Some(r) => r.len(), .None => usize(0)))));
 _tp_push_list :: (fn(a : &mut ArrayList(i32), r : &ArrayList(i32)) -> unit)(a.push(i32(r.len())));
 _tp_list_push :: (fn(r : &ArrayList(i32), a : &mut ArrayList(i32)) -> unit)(a.push(i32(r.len())));
@@ -1187,6 +1188,14 @@ comptime_expect_error(
     mut(xs) := ArrayList(i32).new();
     h := _TpHolder(xs)(r : &xs);
     _tp_push_holder(&mut xs, h);
+  }),
+  "Cannot write `xs` here: `h` borrows `xs`"
+);
+comptime_expect_error(
+  two_phase_holder_argument_before_rejected :: (fn() -> unit)({
+    mut(xs) := ArrayList(i32).new();
+    h := _TpHolder(xs)(r : &xs);
+    _tp_holder_push(h, &mut xs);
   }),
   "Cannot write `xs` here: `h` borrows `xs`"
 );

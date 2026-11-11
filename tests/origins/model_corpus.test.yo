@@ -489,6 +489,18 @@ test("two-phase-holder-arg", {
   main := two_phase_carrier_main(Rc.new(NodeE.MakeTup(al1(Rc.new(NodeE.Borrow(false, XS))))), Rc.new(NodeE.Var(H)));
   verdict("two-phase-holder-arg", case2(main, push_carried(Rc.new(TyE.Tup(al1(shr(list(int()), ELIDED)))))), "E0911");
 });
+test("two-phase-holder-first-arg", {
+  // The holder first, the `&mut` second: `carried_push(h, &mut xs)`.
+  carried_push := sig(u64(0), al2(prm(B, Rc.new(TyE.Tup(al1(shr(list(int()), ELIDED))))), prm(A, exc(list(int()), ELIDED))), int());
+  main := entry(
+    al3(
+      let_(XS, Rc.new(NodeE.NewList(int()))),
+      let_(H, Rc.new(NodeE.MakeTup(al1(Rc.new(NodeE.Borrow(false, XS)))))),
+      use_(call(usize(1), al2(Rc.new(NodeE.Var(H)), Rc.new(NodeE.Borrow(true, XS)))))
+    )
+  );
+  verdict("two-phase-holder-first-arg", case2(main, carried_push), "E0911");
+});
 test("two-phase-option-arg", {
   main := two_phase_carrier_main(Rc.new(NodeE.Make(Kind.Some, Rc.new(NodeE.Borrow(false, XS)))), Rc.new(NodeE.Var(H)));
   verdict("two-phase-option-arg", case2(main, push_carried(wrap(Kind.Some, shr(list(int()), ELIDED)))), "E0911");
