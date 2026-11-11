@@ -467,12 +467,14 @@ _ensure_prelude :: (fn(std_path : &String, io : Io) -> unit)({
 /// requests. `parsed && !ok` means the evaluation stopped at an error:
 /// `exprs` is the full program and `info_table` holds everything recorded
 /// before the error.
-AnalyzeOutcome :: struct(
+AnalyzeOutcome :: ref(
+  struct(
     ok : bool,
     parsed : bool,
     exprs : ArrayList(AstExpr),
     info_table : ExprInfoTable
-  );
+  )
+);
 export(AnalyzeOutcome);
 /// Parse the document text under a swallowing handler; `.None` when it does
 /// not parse. The handler's `unwind` exits THIS Option-typed frame (see
