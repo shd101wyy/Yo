@@ -1,0 +1,13 @@
+// expect: E0912
+// The unsound neighbour that must stay rejected: the reference points INTO the by-value parameter's own
+// storage (`o : Option(String)` owns its payload), which ends with the call.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+inner :: (fn(o : Option(String), d : &String) -> &String)(match(&o, .Some(s) => s, .None => d));
+main :: (fn() -> unit)({
+  a := String.from("hello-world-hello-world-hello-world");
+  r := inner(.Some(String.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz")), &a);
+  println(`OUT: ${r.*}`);
+  ()
+});
+export(main);

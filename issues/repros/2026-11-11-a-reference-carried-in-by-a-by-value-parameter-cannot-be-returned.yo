@@ -1,0 +1,17 @@
+// expect: accept
+// `o : Option(&(String, q))` carries a reference into the CALLER's storage; returning it as `-> &(String, q)` is
+// sound, but E0912 says its storage "ends with the call".
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ println } :: import("std/fmt");
+unwrap_or_first :: (fn(generic(q : Origin), xs : &(ArrayList(String), q), o : Option(&(String, q))) -> &(String, q))(
+  match(o, .Some(s) => s, .None => xs.index(usize(0)))
+);
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(String).new();
+  xs.push(String.from("hello-world-hello-world-hello-world"));
+  r := unwrap_or_first(&xs, .None);
+  println(`OUT: ${r.*}`);
+  ()
+});
+export(main);
