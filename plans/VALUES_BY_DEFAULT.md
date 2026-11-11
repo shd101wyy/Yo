@@ -5091,9 +5091,16 @@ and in git, not a silent edit.
       immediate argument of `Box`/`Rc`/`Arc`/`Weak`/`ArcWeak`/`&`/`&mut` or
       `upcast`'s target; it reads the parse only, and lists
       `Rc(Dyn(T)).new(...)`, `impl(Dyn(...), ...)` and multi-line spellings.
-      The evaluator-recorded rewrites (`dyn(v)` → `dyn(Box.new(v))`, the
-      `dyn(Rc.new(e))` exception, `&d` → `&d.*`) and their lists are the
-      second half. The `str`/`RawSlice`/range-copy rewrites of VERDICTS-27
+      Second half (#1900's follow-up, `vbd/d49-s1-migrate-rec`): the mode
+      evaluates each file with a recorder (`record_unsized_site`,
+      `src/expr_info.yo`) and rewrites `dyn(v)` to `dyn(Box.new(v))` (a
+      closure too) and a `dyn(Rc.new(e))`/`dyn(Arc.new(e))` into an owning
+      `Dyn` to `dyn(Box.new(e))`. It lists `dyn(p)` over a raw pointer, a
+      `dyn(h)` over a named handle, an owned `downcast` and every file whose
+      platform-gated `cond` left an arm unevaluated. The evaluation for every
+      target is S2-prep, and so is `&d` → `&d.*` at a slot written
+      `&Dyn(...)`: the call-site check sees the parameter's type, not how it
+      was written. The `str`/`RawSlice`/range-copy rewrites of VERDICTS-27
       Q2b(d) move to S2, and S3's `str`/`slice_copy` deletions ship one
       release after them. (S1d and S1e merged as #1890 and #1886; their
       as-built notes, S1g, S2 and S3: to come.)

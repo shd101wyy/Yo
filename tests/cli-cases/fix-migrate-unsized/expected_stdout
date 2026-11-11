@@ -1,8 +1,14 @@
-fix: main.yo:18:6: `impl(Dyn(Loud), ...)` implements on the owning Dyn value today; after v0.2.78 `Dyn(Loud)` is the unsized object: write `impl(Box(Dyn(Loud)), ...)` to keep the owner, or keep it for the unsized object; left as written
-fix: main.yo:31:13: `Rc(Dyn(Speak)).new(...)` puts an owned Dyn behind a shared handle: write `dyn(Rc.new(v))` for one shared object, or `Rc(Box(Dyn(...))).new(dyn(Box.new(v)))` to keep the box; left as written
+fix: arms.yo: a platform-gated `cond` arm this target does not evaluate keeps its `dyn` sites as written; run again with `--target <triple>` for that target
+fix: main.yo:24:6: `impl(Dyn(Loud), ...)` implements on the owning Dyn value today; after v0.2.78 `Dyn(Loud)` is the unsized object: write `impl(Box(Dyn(Loud)), ...)` to keep the owner, or keep it for the unsized object; left as written
+fix: main.yo:37:13: `Rc(Dyn(Speak)).new(...)` puts an owned Dyn behind a shared handle: write `dyn(Rc.new(v))` for one shared object, or `Rc(Box(Dyn(...))).new(dyn(Box.new(v)))` to keep the box; left as written
+fix: main.yo:43:20: `dyn(addr_of(c))` boxes the raw pointer `addr_of(c)` today, and in v0.2.78 `dyn` over a raw pointer unsizes it to a `*Dyn(...)` instead: write `dyn(Box.new(addr_of(c)))` to keep the box, or keep `dyn(addr_of(c))` for the unsized pointer; left as written
+fix: main.yo:45:17: `downcast(fresh, ...)` copies the payload out of an owned Dyn; v0.2.78's owning form is `Result(Box(V), Box(Dyn(...)))`: write `downcast(&fresh.*, ...)` where only the payload is read; left as written
 fix: multi.yo:6:5: `Dyn(Speak, Show)` does not print back on one line; write it `Box(Dyn(Speak, Show))` by hand; left as written
-fix: rewrote 15 `Dyn(...)` spelling(s) to `Box(Dyn(...))`; 3 site(s) listed for a hand rewrite; 0 file(s) did not parse
-fix: main.yo:18:6: `impl(Dyn(Loud), ...)` implements on the owning Dyn value today; after v0.2.78 `Dyn(Loud)` is the unsized object: write `impl(Box(Dyn(Loud)), ...)` to keep the owner, or keep it for the unsized object; left as written
-fix: main.yo:31:13: `Rc(Dyn(Speak)).new(...)` puts an owned Dyn behind a shared handle: write `dyn(Rc.new(v))` for one shared object, or `Rc(Box(Dyn(...))).new(dyn(Box.new(v)))` to keep the box; left as written
+fix: rewrote 18 `Dyn(...)` spelling(s) to `Box(Dyn(...))` and 5 `dyn(...)` site(s) to `dyn(Box.new(...))`; 6 site(s) listed for a hand rewrite; 0 file(s) did not evaluate or parse
+fix: arms.yo: a platform-gated `cond` arm this target does not evaluate keeps its `dyn` sites as written; run again with `--target <triple>` for that target
+fix: main.yo:24:6: `impl(Dyn(Loud), ...)` implements on the owning Dyn value today; after v0.2.78 `Dyn(Loud)` is the unsized object: write `impl(Box(Dyn(Loud)), ...)` to keep the owner, or keep it for the unsized object; left as written
+fix: main.yo:37:13: `Rc(Dyn(Speak)).new(...)` puts an owned Dyn behind a shared handle: write `dyn(Rc.new(v))` for one shared object, or `Rc(Box(Dyn(...))).new(dyn(Box.new(v)))` to keep the box; left as written
+fix: main.yo:43:25: `dyn(addr_of(c))` boxes the raw pointer `addr_of(c)` today, and in v0.2.78 `dyn` over a raw pointer unsizes it to a `*Dyn(...)` instead: write `dyn(Box.new(addr_of(c)))` to keep the box, or keep `dyn(addr_of(c))` for the unsized pointer; left as written
+fix: main.yo:45:17: `downcast(fresh, ...)` copies the payload out of an owned Dyn; v0.2.78's owning form is `Result(Box(V), Box(Dyn(...)))`: write `downcast(&fresh.*, ...)` where only the payload is read; left as written
 fix: multi.yo:6:5: `Dyn(Speak, Show)` does not print back on one line; write it `Box(Dyn(Speak, Show))` by hand; left as written
-fix: rewrote 0 `Dyn(...)` spelling(s) to `Box(Dyn(...))`; 3 site(s) listed for a hand rewrite; 0 file(s) did not parse
+fix: rewrote 0 `Dyn(...)` spelling(s) to `Box(Dyn(...))` and 0 `dyn(...)` site(s) to `dyn(Box.new(...))`; 6 site(s) listed for a hand rewrite; 0 file(s) did not evaluate or parse

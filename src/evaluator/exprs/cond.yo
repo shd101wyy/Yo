@@ -35,6 +35,7 @@ pragma(Pragma.AllowUnsafe);
   expr_info_set_case_executed,
   expr_info_adopt_env,
   migrate_deref_on,
+  migrate_unsized_on,
   note_deref_dead_arm_file
 } :: import("../../expr_info.yo");
 { Environment, snapshot_env, env_adopt } :: import("../../env.yo");
@@ -273,7 +274,8 @@ evaluate_cond :: (
   // is another target's (`arch == Arch.Aarch64`). Note the file, so the
   // migration evaluates it again for every other target
   // (issues/fixed/2026-11-04-migrate-deref-and-e0926-skip-a-platform-gated-dead-arm.md).
-  if(migrate_deref_on(), {
+  // `--migrate unsized` lists the file instead (VERDICTS-55).
+  if(migrate_deref_on() || migrate_unsized_on(), {
     (dead_arm : bool) = (evaluated_conds.len() < parsed_stmts.len());
     (dai : usize) = usize(0);
     while((dai < evaluated_conds.len()) && !dead_arm, dai = (dai + usize(1)), {

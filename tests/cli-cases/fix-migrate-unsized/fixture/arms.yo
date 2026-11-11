@@ -1,0 +1,18 @@
+//! A platform-gated `cond` leaves an arm the host does not evaluate, so the
+//! recorder cannot see a `dyn(...)` there: `--migrate unsized` lists the file
+//! (VERDICTS-55). No arm holds a `dyn` site, so the tree is the same on every
+//! host.
+{ println } :: import("std/fmt");
+{ arch, Arch } :: import("std/process");
+width :: (fn() -> i32)(
+  cond(
+    (arch == Arch.Aarch64) => i32(1),
+    (arch == Arch.X86_64) => i32(2),
+    true => i32(3)
+  )
+);
+main :: (fn() -> unit)({
+  w := width();
+  println(&w);
+});
+export(main);
