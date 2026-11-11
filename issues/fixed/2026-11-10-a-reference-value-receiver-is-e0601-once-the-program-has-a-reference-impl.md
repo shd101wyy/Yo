@@ -43,3 +43,17 @@ receiver's type `&Foo`, not `Foo`.
 For a receiver that is a reference value (not an identifier, not an explicit `(&x)`), the probe keeps only the
 candidates whose impl receiver is itself a reference; a method of `C` is reached by the deref step as before.
 Test: `tests/impl_ref.test.yo` (ix).
+
+## Fixed by #1876 (triaged 2026-11-11)
+
+#1876 (R-FOR / G2 `impl(&C, IntoIterator)`, merged `a4c34e1a1`) reworked R-PROBE's receiver walk for reference impls; the
+commit list shows no later change to this path apart from the R-PROBE gates #1882 and #1884, which only narrow when the lookups run. Two checks show the bug is gone:
+
+- The reproducer above checks clean. `yo check` rc 0 with a binary built from develop `26a422d55`, which includes #1876
+  and the R-PROBE gates #1882 and #1884.
+- The origins corpus row `ref-of-ref-method` (`tests/origins/corpus.tsv`, run by `tests/origins/model_corpus.test.yo`
+  and `scripts/origins-corpus.sh today`) is `accept` in the today column, and every develop battery since #1876 has
+  passed it.
+- `tests/impl_ref.test.yo` case (ix) runs the same shape as a language test.
+
+The doc stayed in `issues/` by oversight. It moved to `fixed/` when the v0.2.77 release notes were drafted.
