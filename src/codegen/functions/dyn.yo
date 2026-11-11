@@ -19,7 +19,7 @@
 { get_func_type, is_fnonce_closure_fn } :: import("../../function_value.yo");
 { is_boxed_type, is_fn_trait_type, is_function_type, is_void_type, is_pointer_type, is_some_type, is_atomic_reference_struct_type, is_atomic_reference_enum_type, cell_handle_view, is_atomic_counted_handle_type, is_cell_primitive_type } :: import("../../types/guards.yo");
 { FunctionGenerationContext } :: import("./context.yo");
-{ DynImplEntry, type_key, get_type_string, dyn_slot_param_abi_string, dyn_slot_result_abi_string, dyn_concrete_func_type, dyn_concrete_c_name, sanitize_for_c_identifier, ImplClosureCallInfo, CodegenFunctionEntry } :: import("../utils/index.yo");
+{ DynImplEntry, type_key, get_type_string, dyn_slot_param_abi_string, dyn_slot_result_abi_string, dyn_concrete_func_type, dyn_concrete_c_name, dyn_impl_key_suffix, sanitize_for_c_identifier, ImplClosureCallInfo, CodegenFunctionEntry } :: import("../utils/index.yo");
 { get_drop_function_for_type, generate_drop_code_for_value, generate_dup_code_for_value } :: import("../exprs/drop_dup.yo");
 { dyn_impl_clone_fid, clone_fn_takes_self_by_ptr } :: import("../exprs/downcast.yo");
 { type_contains_rc_cell_or_move_only, dyn_member_is_method, dyn_member_unsafe_reason, is_destructor_trait_member, fn_abi_param_is_ptr, dyn_type_lists_clone } :: import("../../types/utils.yo");
@@ -1101,7 +1101,7 @@ generate_dyn_vtables :: (fn(context : &mut FunctionGenerationContext) -> unit)({
             cand := match(keys.get_cloned(uk), .Some(k) => k, .None => String.from(""));
             match(
               context.base.dyn_impls.get(cand.clone()),
-              .Some(ce) => if((type_key(ce.dyn_type.clone()) == ut_key) && (type_key(ce.concrete_type.clone()) == concrete_key) && (ce.payload_convention == impl_entry.payload_convention), {
+              .Some(ce) => if((type_key(ce.dyn_type.clone()) == ut_key) && (type_key(ce.concrete_type.clone()) == concrete_key) && (dyn_impl_key_suffix(ce.payload_convention, &ce.data_type) == dyn_impl_key_suffix(impl_entry.payload_convention, &impl_entry.data_type)), {
                 context.base.emitter.emit_declaration_string_line(`  .__yo_up_${ut_c} = &__yo_vtable_${cand},`);
                 u_found = true;
               }),

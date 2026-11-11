@@ -38,7 +38,8 @@
   is_enum_type,
   can_optimize_as_nullable_pointer,
   is_some_type,
-  get_adopted_extern_c_type
+  get_adopted_extern_c_type,
+  is_atomic_counted_handle_type
 } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
 { fn_abi_param_is_ptr, type_is_sized } :: import("../../types/utils.yo");
@@ -157,6 +158,16 @@ DynImplEntry :: ref(
     trait_values : ArrayList(EvalValue),
     payload_convention : bool
   )
+);
+/// The convention suffix every key of a dyn impl carries: `_P` for a
+/// payload-convention instance, `_A` for a legacy instance over an atomically
+/// counted cell (`Arc(V)`: atomic retain and release), empty for the legacy
+/// cell. The `dyn(...)` site, the collection pass, `fixup_dyn_impl_keys` and an
+/// upcast target all key through it, so the instances of one (concrete, Dyn)
+/// pair in two conventions are two entries, never one overwriting the other
+/// (issues/fixed/2026-11-11-a-reference-upcast-and-an-owned-upcast-to-one-dyn-in-one-program-crash.md).
+dyn_impl_key_suffix :: (fn(payload_convention : bool, data_type : &TypeValue) -> String)(
+  cond(payload_convention => String.from("_P"), is_atomic_counted_handle_type(data_type) => String.from("_A"), true => String.new())
 );
 /// A byte range of the emitter's `code` buffer holding one complete emitted
 /// function (recorded AFTER its generate_function call returns — extents are
@@ -282,7 +293,8 @@ CodeGenContext :: struct(
   /// `type_key` (plans/backlog/TYPE_SYSTEM_SOUNDNESS.md Phase 2.8). Filled by the
   /// collection pass; every vtable of the source carries one
   /// `__yo_up_<Tgt>` pointer per target, and every (concrete, source) impl
-  /// gets a (concrete, target) impl so that vtable exists.
+  /// gets a (concrete, target) impl in its own convention so that vtable
+  /// exists.
   dyn_upcasts : HashMap(String, ArrayList(TypeValue)),
   /// `file://` path of the ENTRY module being compiled; `.None` until
   /// `compile_module` sets it. A top-level export whose defining token lives
@@ -2659,6 +2671,7 @@ export(
   dyn_slot_result_abi_string,
   dyn_concrete_func_type,
   dyn_concrete_c_name,
+  dyn_impl_key_suffix,
   get_variable_type_string,
   declare_c_var_name,
   push_declared_scope,
