@@ -41,7 +41,8 @@ pragma(Pragma.AllowUnsafe);
   BF_ADDRESS_OF,
   BF_DOT,
   BK_BORROW_MUT,
-  projection_tail_diag_token
+  projection_tail_diag_token,
+  alloc_global_expr_id
 } :: import("../../expr.yo");
 { evaluated_body_contains_unwind } :: import("../../expr_traversal.yo");
 {
@@ -86,8 +87,8 @@ pragma(Pragma.AllowUnsafe);
 // imports nothing from calls/, so this is acyclic.
 { reject_dyn_place_by_value, dyn_lend_return_error, set_expr_as_consumed, judge_capture_fnmut_at_fn_slot, deref_exempt_mark, deref_exempt_clear, binder_read_mark, binder_read_clear, variable_is_reference_binding, deref_rule_applies, is_reference_deref_site, reject_reference_without_deref, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, borrowed_place_read_only_handle, are_values_equal, require_expr_not_consumed, adopt_never_type, reject_bare_callable_into_dyn_fn, reject_bare_callable_result, reject_second_class_escape, reject_second_class_return, require_capture_borrow_exclusivity, audit_copy_trait_enabled, audit_record_copy_trait, reject_write_through_rc, _owning_param_binding_for_capture_move, reference_field_read_type, reject_write_through_shared_reference_field, is_reference_read, projection_body_mismatch_message, lend_place_reference_type } :: import("../utils.yo");
 { function_may_mutate_rc_storage } :: import("../effects/mutation_summary.yo");
-{ some_t_bounds, TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, no_levels, no_flags, SharedList, slot_pointee_at, t_slot_pointee, t_slot, t_slot_like, fn_param_is_mut_ref, fn_param_is_by_value, fn_param_mut_ref_flags, fn_param_by_value_flags, t_slot_with_pointee, fn_result_is_ref, fn_result_is_mut_ref, t_slot_origin_names, is_origin_kind, t_origin_kind, t_origin_named, t_reference_with_origin, fn_trait_base_serves, fn_trait_call_contract, fn_trait_slot_contract, t_slot_is_borrow } :: import("../../types/definitions.yo");
-{ Token, TokenKind } :: import("../../token.yo");
+{ some_t_bounds, TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, no_levels, no_flags, SharedList, slot_pointee_at, t_slot_pointee, t_slot, t_slot_like, fn_param_is_mut_ref, fn_param_is_by_value, fn_param_mut_ref_flags, fn_param_by_value_flags, t_slot_with_pointee, fn_result_is_ref, fn_result_is_mut_ref, t_slot_origin_names, is_origin_kind, t_origin_kind, t_origin_named, t_reference_with_origin, fn_trait_base_serves, fn_trait_call_contract, fn_trait_slot_contract, t_slot_is_borrow, t_slot_is_mut_ref } :: import("../../types/definitions.yo");
+{ Token, TokenKind, intern_token_str } :: import("../../token.yo");
 { HashMap } :: import("std/collections/hash_map");
 { HashSet } :: import("std/collections/hash_set");
 { t_unit, t_type, t_ptr, t_usize, clone_some_fresh } :: import("../../types/creators.yo");
@@ -198,7 +199,10 @@ pragma(Pragma.AllowUnsafe);
   is_reference_self_place,
   self_lend_operand_mode,
   note_self_lend_forced,
-  is_dyn_lend
+  is_dyn_lend,
+  mark_node_preevaluated,
+  unmark_node_preevaluated,
+  node_is_preevaluated
 } :: import("../../expr_info.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 { call_promote_index_places_for_write } :: import("../context.yo");
@@ -817,6 +821,86 @@ _mark_value_rebind :: (fn(v : &Option(Variable), func_type : &TypeValue, i : usi
 /// place (`s.items`, `p.*`), or an element of one (`xs(i)`, an `Index` or
 /// array access, decision 20) is a place.
 _marker_place_of :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext) -> _MarkerPlace)(
+  cond(
+    // An argument typed as a shared `&U` reference (`lhs.*` with
+    // `lhs : & &U`) is the reference where a `&U` slot expects it (the read
+    // rule, VERDICTS-23 R1, stated by type; VERDICTS-49 gap 4): it passes
+    // bare, whatever its syntax, and `reference_argument_as_referent` passes
+    // the pointer it holds. `&lhs.*.*` relends the referent and stays legal.
+    // A `&mut U` below a `&` is not `Copy` (E0901): the syntactic arms judge it.
+    match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(e)), .Some(ei) => (t_slot_is_borrow(&ei.ty()) && !t_slot_is_mut_ref(&ei.ty())), .None => false) => _MarkerPlace.Borrow,
+    true => _marker_place_of_syntax(e, env, ctx)
+  )
+);
+/// The place nodes of peeled call-site markers (`&x` / `&mut x` lent to a
+/// reference parameter): the argument was written with its marker, so it is
+/// a lend of that place, never a bare reference read
+/// (`reference_argument_as_referent`). Keyed by node id; idempotent across
+/// the candidate trials, which peel the same nodes.
+(g_peeled_lend_ids : RefCell(HashSet(usize))) = RefCell(HashSet(usize)).new(HashSet(usize).new());
+/// A shared `&U` reference passed bare to a `&U` parameter (VERDICTS-49
+/// gap 4: `lhs.*` with `lhs : & &U`, which `_marker_place_of` classes as a
+/// borrow by its type). The slot takes a place of type `U`, and the argument
+/// is the reference to that place, so it binds as `arg.*`: what `&lhs.*.*`
+/// spells once its marker is peeled. The callee receives the pointer the
+/// reference holds (`*lhs`), never the reference's own address. Only a BARE
+/// argument: `written_arg` (label stripped, before evaluation) whose marker
+/// was peeled is a lend of that place (`g_peeled_lend_ids`). A slot whose
+/// pointee is itself that reference (`& &U`, §7 P3), a generic one, a
+/// receiver (evaluated before its call, `node_is_preevaluated`) and a
+/// `&mut U` argument (not `Copy` below a `&`, E0901) keep `evaled_arg`.
+reference_argument_as_referent :: (fn(written_arg : &AstExpr, evaled_arg : AstExpr, resolved_pt : &TypeValue, env : &Environment, ctx : &mut EvalContext, exn : Exception) -> AstExpr)({
+  // `&r` / `&lhs.*` written with its marker lends that place (a `&&U`):
+  // nothing coerces it to the referent (§7 P3's E0601 stays).
+  if((g_peeled_lend_ids.with(m => m.len()) > usize(0)) && g_peeled_lend_ids.with({ id : ast_expr_id(written_arg) }(m) => m.contains(&id)), {
+    return(evaled_arg);
+  });
+  ra_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaled_arg)), .Some(ra_info) => ra_info.ty(), .None => return(evaled_arg));
+  if(!t_slot_is_borrow(&ra_ty) || t_slot_is_mut_ref(&ra_ty) || node_is_preevaluated(ast_expr_id(&evaled_arg)), {
+    return(evaled_arg);
+  });
+  if(is_some_type(resolved_pt) || (get_all_some_types(resolved_pt).len() > usize(0)) || are_types_compatible(&ra_ty, resolved_pt) || !are_types_compatible(&t_slot_pointee(&ra_ty), resolved_pt), {
+    return(evaled_arg);
+  });
+  // The node `arg.*` as a user's `lhs.*.*` reads: a written star (not
+  // `make_deref_expr`'s synthesized one, which the deref evaluator reads as a
+  // `Deref` payload step), so the evaluator's `.*`-on-a-reference-place arm
+  // yields the referent. The star sits just past the argument's token, never
+  // AT a recorded deref site.
+  ra_at := ast_expr_token(&evaled_arg);
+  ra_dot := Token(
+    kind : TokenKind.Dot,
+    value : intern_token_str(String.from(".")),
+    row : ra_at.row,
+    column : ra_at.column,
+    character : ra_at.character,
+    byte_offset : ra_at.byte_offset,
+    module_path : Rc.clone(ra_at.module_path),
+    input : Rc.clone(ra_at.input)
+  );
+  ra_star := Token(
+    kind : TokenKind.Operator,
+    value : intern_token_str(String.from("*")),
+    row : ra_at.row,
+    column : ra_at.column,
+    character : ra_at.character,
+    byte_offset : (ra_at.byte_offset + u32(ra_at.value.*.len())),
+    module_path : Rc.clone(ra_at.module_path),
+    input : Rc.clone(ra_at.input)
+  );
+  ra_args := ArrayList(AstExpr).new();
+  ra_args.push(evaled_arg.clone());
+  ra_args.push(AstExpr.Atom(alloc_global_expr_id(), ra_star));
+  ra_deref := AstExpr.FnCall(alloc_global_expr_id(), AstExpr.Atom(alloc_global_expr_id(), ra_dot.clone()), Rc.new(ra_args), true, ra_dot);
+  ra_saved_exp := ctx.expected_type.clone();
+  ctx.expected_type = Option(ExpectedTypeCtx).None;
+  mark_node_preevaluated(ast_expr_id(&evaled_arg));
+  ra_out := evaluate_expression_raw(&ra_deref, env, ctx, exn);
+  unmark_node_preevaluated(ast_expr_id(&evaled_arg));
+  ctx.expected_type = ra_saved_exp;
+  ra_out
+});
+_marker_place_of_syntax :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext) -> _MarkerPlace)(
   match(
     e,
     .Atom(_, tok) => cond(
@@ -1187,6 +1271,7 @@ apply_call_site_borrow_markers :: (
     });
     if(peel, {
       place := ast_expr_strip_borrow_marker(&bare);
+      _pl := g_peeled_lend_ids.with_mut({ id : ast_expr_id(&place) }(m) => m.insert(id));
       // `&r` / `&mut r` over a bare name: on a reference binding it lends
       // `r`'s own storage (§7 P3), which the identifier evaluator decides.
       if(ast_expr_is_atom(&place), {
@@ -1837,7 +1922,7 @@ check_if_function_parameter_matches_argument :: (
   if(slot_of_reference && ast_expr_is_atom(&actual_arg) && self_lend_operand_mode(ast_expr_id(&actual_arg)).is_some(), {
     note_self_lend_forced(ast_expr_id(&actual_arg));
   });
-  evaled_arg := if(
+  evaled_arg0 := if(
     is_ct_only && is_origin_kind(&resolved_pt),
     evaluate_origin_argument(&actual_arg, caller_env, ctx, exn),
     evaluate_expression_raw(&actual_arg, caller_env, ctx, exn)
@@ -1845,6 +1930,9 @@ check_if_function_parameter_matches_argument :: (
   deref_exempt_clear();
   binder_read_clear();
   ctx.expected_type = saved_exp;
+  // A shared reference passed bare to a `&U` slot binds as the place it
+  // refers to (VERDICTS-49 gap 4).
+  evaled_arg := if(is_ct_only || param_is_owning || param_is_ref || slot_of_reference, evaled_arg0, reference_argument_as_referent(&actual_arg, evaled_arg0, &resolved_pt, caller_env, ctx, exn));
   // A `comptime(V) : Type` parameter carries `where(V <: Sized)` (decision
   // 49): an unsized type argument is E0619 at the call; `comptime(V) : ?Sized`
   // takes it.
@@ -10088,7 +10176,7 @@ export(forall_binding_now, strip_argument_label, apply_call_site_borrow_markers,
 export(specialization_recording_begin, specialization_recording_take, purge_specialization_caches_owned_by, specialization_cache_count, specialization_flat_capture_count, specialization_capture_value_count);
 export(reject_runtime_comptime_arguments, runtime_value_for_comptime_param);
 export(resolve_param_types_from_expected);
-export(check_if_function_parameter_matches_argument);
+export(check_if_function_parameter_matches_argument, reference_argument_as_referent);
 export(validate_where_constraints_for_call);
 export(_somes_are_closure_forall_args);
 export(reapply_where_clause_exprs_for_call);
