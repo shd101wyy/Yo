@@ -17,7 +17,7 @@ _status_plus_one :: (fn(rc : i32) -> i32)(rc + i32(1));
 // `dyn(rc)` boxes the parameter through the cell constructor the compiler
 // names itself, `Rc(i32).new`, which no binding can capture
 // (issues/fixed/2026-10-27-dyn-of-a-value-under-a-parameter-named-rc-calls-the-parameter.md).
-_boxed_under_rc_param :: (fn(rc : i32) -> Dyn(ToString))(dyn(rc));
+_boxed_under_rc_param :: (fn(rc : i32) -> Box(Dyn(ToString)))(dyn(rc));
 test("a call of rc with no binding of it is E0401, naming Rc.new", {
   comptime_expect_error(rc(i32(7)), "`rc(x)` is `Rc.new(x)`");
   b := Rc.new(i32(7));

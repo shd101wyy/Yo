@@ -100,12 +100,12 @@ test("rc, box and arc are deleted: E0401 names the constructor", {
 // `dyn(...)` around a payload that is not an object builds its cell through
 // the type's `new`: `Rc(T).new(v)`, or `Arc(T).new(v)` for a Send Dyn.
 test("dyn(i32(1)) boxes through Rc(i32).new", {
-  (d : Dyn(ToString)) = dyn(i32(1));
+  (d : Box(Dyn(ToString))) = dyn(i32(1));
   assert(d.to_string() == `1`, "the boxed payload");
-  (s : Dyn(ToString, Send)) = dyn(i32(2));
+  (s : Box(Dyn(ToString, Send))) = dyn(i32(2));
   assert(s.to_string() == `2`, "the Send payload, boxed through Arc(i32).new");
 });
-_Detector :: struct(detect : Dyn(Fn(x : i32) -> i32));
+_Detector :: struct(detect : Box(Dyn(Fn(x : i32) -> i32)));
 test("dyn(Rc.new(<closure>)) contextually types the closure", {
   base := i32(10);
   a := _Detector(detect : dyn(Rc.new(x => (x + base))));
@@ -114,7 +114,7 @@ test("dyn(Rc.new(<closure>)) contextually types the closure", {
 // `dyn(Rc.new(<closure>, alloc : a))` and its `Arc.new` twin are recognized
 // too, and the cell they build through `__yo_rc_cell`/`__yo_arc_cell` is placed
 // in `a`: the recognizer forwards the written `alloc` (Fable consultation #7).
-_SendDetector :: struct(detect : Dyn(Fn(x : i32) -> i32, Send));
+_SendDetector :: struct(detect : Box(Dyn(Fn(x : i32) -> i32, Send)));
 test("dyn(Rc.new(<closure>, alloc : .Some(a))) places the cell in a", {
   counts := _Counts(live : usize(0));
   heap := _counting(addr_of(counts));
@@ -171,8 +171,8 @@ test("dyn(Rc.new(<closure>)) in a generic body boxes per specialization", {
 // A payload over a type variable (`f : Impl(Fn(...))`) is boxed by the
 // prelude's `__yo_rc_cell`, bound to the callee (`_synthesized_cell_call`,
 // src/evaluator/values/dyn.yo).
-_box_fn :: (fn(f : Impl(Fn(x : i32) -> i32)) -> Dyn(Fn(x : i32) -> i32))(dyn(f));
-_box_fn_under_rc :: (fn(rc : Impl(Fn(x : i32) -> i32)) -> Dyn(Fn(x : i32) -> i32))(dyn(rc));
+_box_fn :: (fn(f : Impl(Fn(x : i32) -> i32)) -> Box(Dyn(Fn(x : i32) -> i32)))(dyn(f));
+_box_fn_under_rc :: (fn(rc : Impl(Fn(x : i32) -> i32)) -> Box(Dyn(Fn(x : i32) -> i32)))(dyn(rc));
 test("dyn(f) of an Impl(Fn) parameter boxes, also under a parameter named rc", {
   n := i32(5);
   d := _box_fn(x => (x + n));

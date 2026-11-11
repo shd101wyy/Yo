@@ -8126,10 +8126,10 @@ impl(
 );
 test("dyn(v) rejects a v whose method returns a borrowing future (§3.13 A2)", {
   comptime_expect_error({
-    (d : Dyn(_A2Bump)) = dyn(_A2DynBorrowing(n : i32(41)));
+    (d : Box(Dyn(_A2Bump))) = dyn(_A2DynBorrowing(n : i32(41)));
     ()
   }, "returns a future that borrows");
-  (d : Dyn(_A2Bump)) = dyn(_A2DynByValue(n : i32(41)));
+  (d : Box(Dyn(_A2Bump))) = dyn(_A2DynByValue(n : i32(41)));
   h := io.spawn(d.bump(io), io);
   assert(h.await(io) == .Some(i32(42)), "a by-value future made through the vtable is spawned");
   mut(cb) := _A2DynBorrowing(n : i32(1));

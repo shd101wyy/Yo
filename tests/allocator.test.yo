@@ -157,10 +157,10 @@ test("aligned_free of .None is a no-op", {
 // `ArrayList(Dyn(Error)).with_capacity` — emitted a reference to an undeclared
 // `type_size` (issues/fixed/sizeof-of-a-dyn-type-is-not-a-compile-time-constant.md).
 test("sizeof of a dyn type is a compile-time fat pointer", {
-  d :: size_of(Dyn(Error));
+  d :: size_of(Box(Dyn(Error)));
   assert(d == (usize(2) * size_of(*u8)), "two pointers");
-  assert(!size_would_overflow(Dyn(Error), usize(4)), "four dyn values fit");
-  xs := ArrayList(Dyn(Error)).with_capacity(usize(4));
+  assert(!size_would_overflow(Box(Dyn(Error)), usize(4)), "four dyn values fit");
+  xs := ArrayList(Box(Dyn(Error))).with_capacity(usize(4));
   assert(xs.capacity() >= usize(4), "capacity");
 });
 // A `::` binding whose value the evaluator can only TYPE — `sizeof(int)` is

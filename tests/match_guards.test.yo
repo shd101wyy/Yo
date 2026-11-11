@@ -96,7 +96,7 @@ impl(
 );
 impl(_GuardTok, peek : (fn(self : &Self) -> i32)(self.n));
 _guard_tok :: (fn(x : i32) -> _GuardTok)(_GuardTok(n : x));
-_GuardHolder :: struct(mk : Dyn(Fn(x : i32) -> _GuardTok), ms : Dyn(Fn(x : i32) -> String));
+_GuardHolder :: struct(mk : Box(Dyn(Fn(x : i32) -> _GuardTok)), ms : Box(Dyn(Fn(x : i32) -> String)));
 test("a guard over an object it builds", {
   k := i32(3);
   r := match(k, (n && (Rc.new(n).* > i32(1))) => i32(2), _ => i32(3));

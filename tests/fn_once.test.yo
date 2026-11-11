@@ -165,7 +165,7 @@ test("FnOnce: Dyn(FnOnce(...)) is called once", {
   before := g_once_disposed;
   {
     t := _OnceTok(n : i32(9));
-    (d : Dyn(FnOnce() -> i32)) = dyn({ t }() => _once_take(t));
+    (d : Box(Dyn(FnOnce() -> i32))) = dyn({ t }() => _once_take(t));
     assert(d() == i32(9), "the dyn call moved the capture out");
     comptime_expect_error(d(), "use of moved value");
   };
@@ -176,7 +176,7 @@ test("Dyn(Fn(...)) of a closure capturing a move-only value", {
   before := g_once_disposed;
   {
     t := _OnceTok(n : i32(3));
-    (d : Dyn(Fn() -> i32)) = dyn(() => t.n);
+    (d : Box(Dyn(Fn() -> i32))) = dyn(() => t.n);
     assert(d() == i32(3), "the closure reads its own capture");
     assert(d() == i32(3), "an Fn call borrows it");
   };
@@ -243,7 +243,7 @@ comptime_expect_error(
   _dyn_fn_rejects_fnonce :: (fn() -> unit)({
     k := i32(1);
     (f : Impl(FnOnce() -> i32)) = ({ k }() => k);
-    (d : Dyn(Fn() -> i32)) = dyn(f);
+    (d : Box(Dyn(Fn() -> i32))) = dyn(f);
     _r := d();
   }),
   "Cannot box an `FnOnce(...)` closure as a `Dyn(Fn(...))`"
@@ -311,14 +311,14 @@ test("FnOnce: an Fn closure boxed as Dyn(FnOnce(...)) drops its captures when ca
   {
     t := _OnceTok(n : i32(5));
     (c : Impl(Fn() -> i32)) = ({ t }() => t.n);
-    (d : Dyn(FnOnce() -> i32)) = dyn(c);
+    (d : Box(Dyn(FnOnce() -> i32))) = dyn(c);
     assert(d() == i32(5), "the Fn body borrows its capture");
   };
   assert(g_once_disposed == (before + i32(1)), "the call's release disposed the capture");
 });
 test("FnOnce: Dyn(FnOnce(...)) is move-only", {
   k := i32(1);
-  (d : Dyn(FnOnce() -> i32)) = dyn({ k }() => k);
+  (d : Box(Dyn(FnOnce() -> i32))) = dyn({ k }() => k);
   d2 := d;
   comptime_expect_error(d(), "use of moved value");
   assert(d2() == i32(1), "the moved-to handle calls once");
@@ -391,7 +391,7 @@ test("FnOnce: a consuming match moves the closure out of its holder and calls it
 // argument moving an `Fn` closure was flagged the same way
 // (issues/fixed/2026-10-24-calling-an-fnonce-closure-is-a-false-e0910-after-the-receiver-exclusivity-extension.md).
 _once_eat_fn :: (fn(sink(g) : Impl(Fn(x : i32) -> i32)) -> i32)(g(i32(1)));
-_once_eat_dyn_fn :: (fn(sink(g) : Dyn(Fn(x : i32) -> i32)) -> i32)(g(i32(1)));
+_once_eat_dyn_fn :: (fn(sink(g) : Box(Dyn(Fn(x : i32) -> i32))) -> i32)(g(i32(1)));
 _OnceSum :: struct(n : i32);
 impl(_OnceSum, plus : (fn(self : &Self, k : i32) -> i32)(self.n + k));
 _once_eat_mk :: (fn(sink(mk) : Impl(Fn(x : i32) -> _OnceSum)) -> i32)(mk(i32(0)).n);
@@ -403,10 +403,10 @@ test("FnOnce: a one-argument call of an FnOnce local is either operand of ==", {
     (f : Impl(FnOnce(go : bool) -> i32)) = ({ t }(go : bool) => _once_take(t));
     assert(i32(5) == f(true), "the right operand consumed f");
     u := _OnceTok(n : i32(6));
-    (d : Dyn(FnOnce(go : bool) -> i32)) = dyn({ u }(go : bool) => _once_take(u));
+    (d : Box(Dyn(FnOnce(go : bool) -> i32))) = dyn({ u }(go : bool) => _once_take(u));
     assert(d(true) == i32(6), "a Dyn(FnOnce) call as the left operand");
     w := _OnceTok(n : i32(7));
-    (e : Dyn(FnOnce(go : bool) -> i32)) = dyn({ w }(go : bool) => _once_take(w));
+    (e : Box(Dyn(FnOnce(go : bool) -> i32))) = dyn({ w }(go : bool) => _once_take(w));
     assert(i32(7) == e(true), "a Dyn(FnOnce) call as the right operand");
   };
   assert(g_once_disposed == (before + i32(3)), "each capture disposed exactly once");
@@ -418,7 +418,7 @@ test("FnOnce: an Fn closure's call result is a temporary a later argument may mo
     (g : Impl(Fn(x : i32) -> i32)) = ({ t }(x : i32) => (x + t.n));
     assert(g(i32(1)) == _once_eat_fn(g), "the operand lends nothing of g");
     u := _OnceTok(n : i32(3));
-    (dg : Dyn(Fn(x : i32) -> i32)) = dyn({ u }(x : i32) => (x + u.n));
+    (dg : Box(Dyn(Fn(x : i32) -> i32))) = dyn({ u }(x : i32) => (x + u.n));
     assert(dg(i32(1)) == _once_eat_dyn_fn(dg), "the same through Dyn(Fn)");
   };
   assert(g_once_disposed == (before + i32(2)), "each moved closure released its capture once");
@@ -449,7 +449,7 @@ _once_log :: (fn(k : i32) -> i32)({
   g_once_order = ((g_once_order * i32(10)) + k);
   k
 });
-_OnceCbHolder :: struct(cb0 : Dyn(Fn() -> i32), cb1 : Dyn(Fn(x : i32) -> i32), cb2 : Dyn(Fn(x : i32, y : i32) -> i32), mk : Dyn(Fn(x : i32) -> _OnceSum), tag : i32);
+_OnceCbHolder :: struct(cb0 : Box(Dyn(Fn() -> i32)), cb1 : Box(Dyn(Fn(x : i32) -> i32)), cb2 : Box(Dyn(Fn(x : i32, y : i32) -> i32)), mk : Box(Dyn(Fn(x : i32) -> _OnceSum)), tag : i32);
 impl(_OnceCbHolder, tag_of : (fn(self : &Self) -> i32)(self.tag));
 _once_eat_holder :: (fn(sink(h) : _OnceCbHolder) -> i32)(h.tag);
 _once_eat_logged :: (fn(sink(h) : _OnceCbHolder) -> i32)(_once_log(h.tag + i32(1)));
@@ -550,7 +550,7 @@ test("FnOnce: a fn-pointer field call on an Rc holder runs before a later argume
 // expression whose temp was never declared, and the result leaked
 // (issues/fixed/2026-10-25-a-closure-field-call-result-used-as-a-borrowed-receiver-is-never-released.md).
 impl(_OnceTok, peek_n : (fn(self : &Self) -> i32)(self.n));
-_OnceTokHolder :: struct(mk : Dyn(Fn(x : i32) -> _OnceTok));
+_OnceTokHolder :: struct(mk : Box(Dyn(Fn(x : i32) -> _OnceTok)));
 test("FnOnce: a closure-field call's owned result as a borrowed receiver is released once", {
   before := g_once_disposed;
   {

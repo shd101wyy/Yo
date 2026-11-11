@@ -55,10 +55,10 @@ test("a one-link error reports no source", {
 // while that trait is being defined. This is the shape from
 // issues/fixed/dyn-selftrait-payload-never-matches-the-named-trait.md.
 _Node :: trait(
-  (parent : (fn(self : &mut Self) -> Option(Dyn(SelfTrait)))) ?= (self -> .None),
+  (parent : (fn(self : &mut Self) -> Option(Box(Dyn(SelfTrait))))) ?= (self -> .None),
   where(Self <: ToString)
 );
-_AnyNode :: Dyn(_Node);
+_AnyNode :: Box(Dyn(_Node));
 _Root :: struct(tag : String);
 impl(_Root, ToString(to_string : (fn(self : &Self) -> String)(`root(${self.tag})`)));
 impl(_Root, _Node());
@@ -94,11 +94,11 @@ test("a user trait's Dyn(SelfTrait) payload binds and passes as Dyn(ThatTrait)",
 // shared cell (`TraitTBody`, consultation #13 §13); a snapshot taken when the
 // first member was evaluated would build a vtable with one slot.
 _Chain :: trait(
-  (link : (fn(self : &Self) -> Option(Dyn(SelfTrait)))) ?= (self -> .None),
+  (link : (fn(self : &Self) -> Option(Box(Dyn(SelfTrait))))) ?= (self -> .None),
   weight : (fn(self : &Self) -> i32),
   where(Self <: ToString)
 );
-_AnyChain :: Dyn(_Chain);
+_AnyChain :: Box(Dyn(_Chain));
 _ChainLeaf :: struct(w : i32);
 impl(_ChainLeaf, ToString(to_string : (fn(self : &Self) -> String)(`leaf`)));
 impl(_ChainLeaf, _Chain(weight : (fn(self : &Self) -> i32)(self.w)));

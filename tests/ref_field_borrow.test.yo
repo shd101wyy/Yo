@@ -534,7 +534,7 @@ test("an element borrow beside a plain fn is accepted", {
   _write_through(&mut xs(usize(0)), _plain_write);
   assert(xs(usize(0)) == "plain", "the plain fn ran in place");
 });
-_CbFieldBox :: struct(cb : Dyn(Fn(v : &mut String) -> unit));
+_CbFieldBox :: struct(cb : Box(Dyn(Fn(v : &mut String) -> unit)));
 test("an element borrow beside a closure in a struct field is rejected", {
   field_beside :: (fn(dst : &mut String, other : _CbFieldBox) -> unit)(());
   mut(xs) := ArrayList(String).new();
@@ -557,7 +557,7 @@ test("an element borrow beside a &Dyn is rejected", {
   dyn_beside :: (fn(dst : &mut String, other : &Dyn(_AreaT)) -> unit)(());
   mut(xs) := ArrayList(String).new();
   xs.push(String.from("a"));
-  (d : Dyn(_AreaT)) = dyn(Rc.new(_SquareT(s : i32(2))));
+  (d : Box(Dyn(_AreaT))) = dyn(Rc.new(_SquareT(s : i32(2))));
   comptime_expect_error(dyn_beside(&mut xs(usize(0)), &d), "could hold a handle");
   assert(xs.len() == usize(1), "nothing ran");
 });

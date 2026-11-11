@@ -722,7 +722,7 @@ test("an impl may narrow its trait's result origin, and a trait call maps from t
   mut(o) := i32(2);
   r := b.pick_any(&o);
   assert(bs_ret_read(r) == i32(21), "an impl narrower than its trait (`self` within the elided union)");
-  (d : Dyn(BsPick)) = dyn(BsOne(v : i32(22)));
+  (d : Box(Dyn(BsPick))) = dyn(BsOne(v : i32(22)));
   s := d.pick(&o);
   o = i32(3);
   assert((bs_ret_read(s) == i32(22)) && (o == i32(3)), "a Dyn call's result origin is the trait's `self`: `o` stays writable");
@@ -733,7 +733,7 @@ test("an impl may narrow its trait's result origin, and a trait call maps from t
 BsPk :: trait(pk : (fn(self : &Self, other : &i32) -> &i32));
 impl(BsOne, BsPk(pk : (fn(self : &Self, other : &i32) -> &i32)(&self.v)));
 test("a Dyn over a trait with an elided-origin projection method", {
-  (d : Dyn(BsPk)) = dyn(BsOne(v : i32(23)));
+  (d : Box(Dyn(BsPk))) = dyn(BsOne(v : i32(23)));
   o := i32(2);
   r := d.pk(&o);
   assert(bs_ret_read(r) == i32(23), "the Dyn projection call reads the payload's field");
@@ -759,7 +759,7 @@ bs_poke_impl :: (fn(f : Impl(Fn(t : &mut BsTrio) -> &mut i32), t : &mut BsTrio) 
   r := f(&mut t.*);
   r.* = i32(70);
 });
-bs_via_dyn :: (fn(f : Dyn(Fn(t : &BsTrio) -> &i32), t : &BsTrio) -> i32)({
+bs_via_dyn :: (fn(f : Box(Dyn(Fn(t : &BsTrio) -> &i32)), t : &BsTrio) -> i32)({
   r := f(&t.*);
   bs_ret_read(r)
 });
@@ -782,9 +782,9 @@ test("a projection is called through a function value, a closure trait and an ef
   assert(bs_via_impl((s : &BsTrio) => &s.b, &t) == i32(2), "a closure literal yielding `&place`");
   bs_poke_impl((s : &mut BsTrio) => &mut s.a, &mut t);
   assert(t.a == i32(70), "a `&mut` closure projection writes through");
-  (d : Dyn(Fn(s : &BsTrio) -> &i32)) = dyn((s : &BsTrio) => &s.c);
+  (d : Box(Dyn(Fn(s : &BsTrio) -> &i32))) = dyn((s : &BsTrio) => &s.c);
   assert(bs_via_dyn(d, &t) == i32(30), "a `Dyn(Fn(...) -> &T)` closure");
-  (e : Dyn(Fn(s : &BsTrio) -> &i32)) = dyn(bs_first);
+  (e : Box(Dyn(Fn(s : &BsTrio) -> &i32))) = dyn(bs_first);
   assert(bs_via_dyn(e, &t) == i32(70), "a `Dyn(Fn(...) -> &T)` named projection");
   (ask : BsAsk) = (fn(key : &i32) -> &(i32, key))({
     return(&key.*);

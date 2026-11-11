@@ -667,7 +667,7 @@ test("soundness: a free fn binds an associated type from its where-clause", {
 // ---------------------------------------------------------------------------
 _sound_apply_dyn :: (fn(generic(A : Type, B : Type), f : &Dyn(Fn(x : &A) -> B), v : &A) -> B)(f(v));
 test("soundness: Dyn(Fn(x : A) -> B) binds A and B from the argument", {
-  (inc : Dyn(Fn(y : &i32) -> i32)) = dyn(y => (y.* + i32(1)));
+  (inc : Box(Dyn(Fn(y : &i32) -> i32))) = dyn(y => (y.* + i32(1)));
   assert(_sound_apply_dyn(&inc, i32(41)) == i32(42), "B inferred");
 });
 // ---------------------------------------------------------------------------
@@ -768,9 +768,9 @@ test("soundness: Type.eq does not depend on the order of earlier questions", {
   assert(!Type.eq(struct(x : i32), _P34A), "an anonymous record is not a named struct");
   assert(!Type.eq(Tuple(a : i32, b : bool), Tuple(c : i32, d : bool)), "tuple labels are part of the identity");
   assert(Type.eq(Tuple(a : i32, b : bool), Tuple(a : i32, b : bool)), "the same labelled tuple");
-  assert(!Type.eq(Dyn(_P34T1, _P34T2), Dyn(_P34T1)), "a Dyn with more traits is another type");
-  assert(!Type.eq(Dyn(_P34T1), Dyn(_P34T1, _P34T2)), "... in either order");
-  assert(Type.eq(Dyn(_P34T1, _P34T2), Dyn(_P34T2, _P34T1)), "the same trait set in another order");
+  assert(!Type.eq(Box(Dyn(_P34T1, _P34T2)), Box(Dyn(_P34T1))), "a Dyn with more traits is another type");
+  assert(!Type.eq(Box(Dyn(_P34T1)), Box(Dyn(_P34T1, _P34T2))), "... in either order");
+  assert(Type.eq(Box(Dyn(_P34T1, _P34T2)), Box(Dyn(_P34T2, _P34T1))), "the same trait set in another order");
 });
 test("soundness: an instantiation does not adopt an earlier, different one", {
   (w0 : _P34Wrap(struct(x : i32))) = _P34Wrap(struct(x : i32))(
@@ -843,11 +843,11 @@ test("soundness: never flows into every type and nothing flows into it", {
 // ---------------------------------------------------------------------------
 { ToString : _P38ToString } :: import("std/fmt");
 _p38_none :: (fn() -> bool)({
-  (o : Option(Dyn(_P38ToString))) = Option(Dyn(_P38ToString)).None;
+  (o : Option(Box(Dyn(_P38ToString)))) = Option(Box(Dyn(_P38ToString))).None;
   o.is_none()
 });
 _p38_some :: (fn() -> bool)({
-  (o : Option(Dyn(_P38ToString))) = Option(Dyn(_P38ToString)).Some(dyn(i32(3)));
+  (o : Option(Box(Dyn(_P38ToString)))) = Option(Box(Dyn(_P38ToString))).Some(dyn(i32(3)));
   o.is_none()
 });
 test("soundness: an inherent Option method over a trait object is emitted", {
@@ -860,8 +860,8 @@ test("soundness: an inherent Option method over a trait object is emitted", {
 { FILE : _P38File, fpos_t : _P38Fpos } :: import("std/libc/stdio");
 _p38_file_eq :: Type.eq(_P38File, _P38File);
 _p38_file_not_fpos :: Type.eq(_P38File, _P38Fpos);
-_p38_dyn_not_file :: Type.is_compatible_with(Dyn(_P38ToString), _P38File);
-_p38_file_not_dyn :: Type.is_compatible_with(_P38File, Dyn(_P38ToString));
+_p38_dyn_not_file :: Type.is_compatible_with(Box(Dyn(_P38ToString)), _P38File);
+_p38_file_not_dyn :: Type.is_compatible_with(_P38File, Box(Dyn(_P38ToString)));
 test("soundness: an extern opaque type is nominal", {
   assert(_p38_file_eq, "FILE is FILE");
   assert(!_p38_file_not_fpos, "FILE is not fpos_t");
@@ -907,15 +907,15 @@ impl(_P38Both, _P38DA(da : (self -> self.n)));
 impl(_P38Both, _P38DB(db : (self -> (self.n + i32(1)))));
 _p38_takes_both :: (fn(x : &Dyn(_P38DA, _P38DB)) -> i32)(x.db());
 _p38_takes_a :: (fn(x : &Dyn(_P38DA)) -> i32)(x.da());
-_p38_both_into_a :: Type.is_compatible_with(Dyn(_P38DA, _P38DB), Dyn(_P38DA));
-_p38_a_into_both :: Type.is_compatible_with(Dyn(_P38DA), Dyn(_P38DB, _P38DA));
+_p38_both_into_a :: Type.is_compatible_with(Box(Dyn(_P38DA, _P38DB)), Box(Dyn(_P38DA)));
+_p38_a_into_both :: Type.is_compatible_with(Box(Dyn(_P38DA)), Box(Dyn(_P38DB, _P38DA)));
 test("soundness: an extern opaque value is not a scalar argument", {
   comptime_expect_error((fn(a : &_P38Ull) -> u64)(_p38_u64_sink(a.*)));
   assert(true, "rejected");
 });
 test("soundness: a Dyn is neither downcast nor upcast", {
-  (one : Dyn(_P38DA)) = dyn(_P38OnlyA(n : i32(5)));
-  (mut(both) : Dyn(_P38DA, _P38DB)) = dyn(_P38Both(n : i32(1)));
+  (one : Box(Dyn(_P38DA))) = dyn(_P38OnlyA(n : i32(5)));
+  (mut(both) : Box(Dyn(_P38DA, _P38DB))) = dyn(_P38Both(n : i32(1)));
   // `_P38OnlyA` has no `db`: a downcast would dispatch through a missing slot.
   comptime_expect_error(_p38_takes_both(&one));
   comptime_expect_error({

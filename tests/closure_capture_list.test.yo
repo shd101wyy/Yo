@@ -405,7 +405,7 @@ _ClSlot :: (fn(comptime(T) : Type) -> comptime(Type))(struct(f : Option(T)));
 _cl_byv :: (fn(f : Impl(Fn() -> i32)) -> i32)(f());
 _cl_own :: (fn(generic(T : Type), sink(x) : T) -> unit)(());
 _cl_id :: (fn(generic(T : Type), x : &T) -> T)(x.*);
-_cl_keep_dyn :: (fn(sink(d) : Dyn(Fn() -> i32)) -> i32)(d());
+_cl_keep_dyn :: (fn(sink(d) : Box(Dyn(Fn() -> i32))) -> i32)(d());
 _cl_take_string :: (fn(sink(s) : String) -> usize)(s.len());
 // Each is generic over its `Impl(Fn)` argument, so the rule is checked per
 // instantiation: the escape is reported at the call that lends a borrowing
@@ -451,9 +451,9 @@ comptime_expect_error(
   "cannot be returned"
 );
 comptime_expect_error(
-  _cl_esc_dyn :: (fn(x : i32) -> Dyn(Fn() -> i32))({
+  _cl_esc_dyn :: (fn(x : i32) -> Box(Dyn(Fn() -> i32)))({
     (f : Impl(Fn() -> i32)) = ({ &x }() => x.*);
-    (d : Dyn(Fn() -> i32)) = dyn(f);
+    (d : Box(Dyn(Fn() -> i32))) = dyn(f);
     d
   }),
   "second-class"
@@ -512,10 +512,10 @@ test("escape: every route into a `Dyn` keeps the value second-class", {
   comptime_expect_error(_cl_keep_dyn(f), "Write `dyn(f)`");
   comptime_expect_error(_cl_keep_dyn(dyn(f)), "second-class");
   comptime_expect_error({
-    (d : Dyn(Fn() -> i32)) = dyn(f);
+    (d : Box(Dyn(Fn() -> i32))) = dyn(f);
     _cl_keep_dyn(d)
   }, "second-class");
-  (outer : Dyn(Fn() -> i32)) = dyn({}() => i32(0));
+  (outer : Box(Dyn(Fn() -> i32))) = dyn({}() => i32(0));
   comptime_expect_error({
     v := i32(1);
     (g : Impl(Fn() -> i32)) = ({ &v }() => v.*);
@@ -632,7 +632,7 @@ test("a function literal rejects an Impl(Fn(...)) parameter", {
     "function literal has one body"
   );
   // The boxed spelling remains a literal's way to take a closure argument.
-  (d : Impl(Fn(k : &Dyn(Fn() -> i32)) -> i32)) = ((k : Dyn(Fn() -> i32)) => (k() + n));
+  (d : Impl(Fn(k : &Dyn(Fn() -> i32)) -> i32)) = ((k : Box(Dyn(Fn() -> i32))) => (k() + n));
   assert(d(dyn(() => i32(2))) == i32(3), "a Dyn(Fn(...)) parameter works");
 });
 // ---------------------------------------------------------------------------
