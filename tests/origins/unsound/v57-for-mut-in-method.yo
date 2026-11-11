@@ -5,11 +5,14 @@
 { ArrayList } :: import("std/collections/array_list");
 { println } :: import("std/fmt");
 Bag :: struct(items : ArrayList(ArrayList(String)));
-impl(Bag, reset_all : (fn(self : &mut Self) -> unit)({
-  for(&mut self.items, x => {
-    x.* = ArrayList(String).new();
-  });
-}));
+impl(
+  Bag,
+  reset_all : (fn(self : &mut Self) -> unit)({
+    for(&mut self.items, x => {
+      x.* = ArrayList(String).new();
+    });
+  })
+);
 main :: (fn() -> unit)({
   mut(inner) := ArrayList(String).new();
   inner.push(String.from("hello-world-hello-world-hello-world"));
