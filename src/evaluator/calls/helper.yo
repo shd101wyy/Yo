@@ -832,6 +832,12 @@ _marker_place_of :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext) ->
     true => _marker_place_of_syntax(e, env, ctx)
   )
 );
+/// The place nodes of peeled call-site markers (`&x` / `&mut x` lent to a
+/// reference parameter): the argument was written with its marker, so it is
+/// a lend of that place, never a bare reference read
+/// (`reference_argument_as_referent`). Keyed by node id; idempotent across
+/// the candidate trials, which peel the same nodes.
+(g_peeled_lend_ids : RefCell(HashSet(usize))) = RefCell(HashSet(usize)).new(HashSet(usize).new());
 /// A shared `&U` reference passed bare to a `&U` parameter (VERDICTS-49
 /// gap 4: `lhs.*` with `lhs : & &U`, which `_marker_place_of` classes as a
 /// borrow by its type). The slot takes a place of type `U`, and the argument
@@ -1117,12 +1123,6 @@ _t9_reference_param_takes_lend :: (fn(p_ty : &TypeValue, is_mut_marker : bool, p
     _ => false
   )
 );
-/// The place nodes of peeled call-site markers (`&x` / `&mut x` lent to a
-/// reference parameter): the argument was written with its marker, so it is
-/// a lend of that place, never a bare reference read
-/// (`reference_argument_as_referent`). Keyed by node id; idempotent across
-/// the candidate trials, which peel the same nodes.
-(g_peeled_lend_ids : RefCell(HashSet(usize))) = RefCell(HashSet(usize)).new(HashSet(usize).new());
 apply_call_site_borrow_markers :: (
   fn(
     args : &ArrayList(AstExpr),
