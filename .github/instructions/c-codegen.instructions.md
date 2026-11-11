@@ -1014,7 +1014,7 @@ Index methods backed by builtins (e.g., `__yo_array_index`) are detected by `is_
 ## Dyn codegen — `dyn_impls` is the whole-program registry, and it decides
 
 `context.base.dyn_impls` holds one entry per `dyn()` CREATION site, keyed by
-`(dyn_type, concrete_type)`. It is filled by the collection pass
+`(dyn_type, concrete_type, convention)`. It is filled by the collection pass
 (`collect_required_functions`, `src/codegen/functions/collection.yo`), re-keyed
 to C names by `fixup_dyn_impl_keys`, and then read by everything that emits dyn
 machinery — the box typedefs (`generate_dyn_box_types`), the box ctor/dispose
@@ -1032,6 +1032,14 @@ Two consequences worth knowing before touching `src/codegen/exprs/downcast.yo`:
   to a constant `.None` (with the operand still spliced for effect). Falling
   through to the object cast instead emitted a `void*`-to-struct cast, which is
   not valid C — `issues/fixed/downcast-to-a-never-dyned-value-type-emits-invalid-c.md`.
+- **Every key carries the convention suffix `dyn_impl_key_suffix`** (`_P` for a
+  `dyn(&v)` instance whose data word is the payload's address, `_A` for a legacy
+  `Arc(V)` cell, empty for the legacy cell), in the collection pass, the
+  fixup's re-key, an upcast target and the `dyn(...)` site alike. Without it a
+  `dyn(&c)` and an owned `dyn(Cat(...))` of one Dyn share an entry, one
+  overwrites the other, and an upcast target registered from the survivor
+  leaves the other convention's `__yo_up_<Tgt>` slot NULL
+  (`issues/fixed/2026-11-11-a-reference-upcast-and-an-owned-upcast-to-one-dyn-in-one-program-crash.md`).
 - **Resolve `concrete_type` through `resolve_some_type_to_concrete` before
   keying or comparing it**, the way `generate_dyn_box_types` does. An entry can
   record an unresolved `SomeT` concrete, and an unresolved comparison turns a
