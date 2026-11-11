@@ -1,0 +1,17 @@
+{ println } :: import("std/fmt");
+Speak :: trait(speak : (fn(self : &Self) -> i32));
+Run :: trait(run : (fn(self : &Self) -> i32));
+Cat :: struct(n : i32);
+impl(Cat, Speak(speak : ((self : &Self) -> self.n)));
+impl(Cat, Run(run : ((self : &Self) -> (self.n + i32(1)))));
+speak_via :: (fn(d : &Dyn(Speak)) -> i32)(d.speak());
+main :: (fn() -> unit)({
+  c := Cat(n : i32(1));
+  a := speak_via(upcast(dyn(&c), Dyn(Speak)));
+  println(&a);
+  (b : Dyn(Speak, Run)) = dyn(Cat(n : i32(2)));
+  (s : Dyn(Speak)) = upcast(b, Dyn(Speak));
+  y := s.speak();
+  println(&y);
+});
+export(main);
