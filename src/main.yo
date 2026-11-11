@@ -1860,11 +1860,16 @@ _unsized_sites_expr :: (fn(e : &AstExpr, parent : &String, idx : usize, out : &m
 /// `Box(Dyn(X))` is the same type, so a `yo check` verdict does not change. A
 /// `Dyn(...)` that is the immediate argument of `Box`/`Rc`/`Arc`/`Weak`/
 /// `ArcWeak`/`&`/`&mut`, or `upcast`'s target, is left alone, so a second run
-/// rewrites nothing. Purely syntactic, like `record-literal`: it reads the
-/// parse, needs no evaluation, and reaches every platform arm. A spelling
-/// that does not print back on one line is listed, and so are
-/// `Rc(Dyn(T)).new(...)` (two ways to write it) and `impl(Dyn(...), ...)`
-/// (the owning value today, the unsized object after v0.2.78).
+/// rewrites nothing. The type spellings are read from the parse, so every
+/// platform arm is reached. Every file is also evaluated with the recorder on
+/// (`record_unsized_site`): `dyn(v)` of a plain value becomes
+/// `dyn(Box.new(v))`, and the `Rc`/`Arc` of a fresh `dyn(Rc.new(e))` against
+/// an owning `Dyn` becomes `Box`. Listed, never rewritten: a site that does
+/// not print back on one line, `Rc(Dyn(T)).new(...)` (two ways to write it),
+/// `impl(Dyn(...), ...)` (the owning value today, the unsized object after
+/// v0.2.78), `dyn(p)` over a raw pointer, `dyn(h)` over a named handle, a
+/// `downcast` of an owned `Dyn`, and a file with a platform arm this target
+/// does not evaluate.
 _run_migrate_unsized :: (fn(files : &ArrayList(String), std_path : &String, dry_run : bool, io : Io, exn : Exception) -> unit)({
   (failed : usize) = usize(0);
   (n_done : usize) = usize(0);
@@ -10581,8 +10586,9 @@ Options:
                             each is listed in docs/en-US/ERROR_DIAGNOSTICS.md
   --migrate unsized         Run decision 49's migration: a bare Dyn(...)
                             type (*Dyn(...) included) -> Box(Dyn(...));
-                            Rc(Dyn(T)).new(...) and impl(Dyn(...), ...)
-                            are listed for a hand rewrite
+                            dyn(v) -> dyn(Box.new(v)); Rc(Dyn(T)).new(...),
+                            impl(Dyn(...), ...), dyn(p) over a raw
+                            pointer and owned downcasts are listed
   --target <triple>         Evaluate for this target, as compile --target
                             does, so the target's platform arms are
                             repaired or migrated (default: the host)
@@ -10608,9 +10614,10 @@ Examples:
                             各自最后提供它的版本列在
                             docs/zh-CN/ERROR_DIAGNOSTICS.md
   --migrate unsized         运行决定 49 的迁移：裸 Dyn(...) 类型（含
-                            *Dyn(...)）-> Box(Dyn(...))；列出
-                            Rc(Dyn(T)).new(...) 与 impl(Dyn(...), ...)，
-                            留待手工改写
+                            *Dyn(...)）-> Box(Dyn(...))；dyn(v) ->
+                            dyn(Box.new(v))；列出 Rc(Dyn(T)).new(...)、
+                            impl(Dyn(...), ...)、原始指针上的 dyn(p) 与
+                            拥有型 downcast，留待手工改写
   --target <triple>         按该目标求值（同 compile --target），从而修复
                             或迁移该目标的平台分支（默认：宿主平台）
   --std-path <dir>          覆盖 std 库目录
