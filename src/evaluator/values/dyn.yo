@@ -1420,6 +1420,22 @@ _evaluate_dyn_over_lend :: (fn(expr : &AstExpr, env : &Environment, ctx : &mut E
 /// `Rc`/`Arc` is rewritten `Box` (recorded at that token); kind 5, a named
 /// `Rc`/`Arc` handle, listed (it is rejected in v0.2.77). `written` is the
 /// argument before `dyn(Box.new(v))` reads as `dyn(Rc.new(v))`.
+/// Whether `written` is `Box.new(...)`, `Rc.new(...)` or `Arc.new(...)`.
+_written_cell_new :: (fn(written : &AstExpr) -> bool)(
+  match(
+    written,
+    .FnCall(_, w_callee, _, _, _) => if(
+      ast_expr_is_fn_call_of(w_callee, BF_DOT, Option(usize).Some(usize(2))),
+      match(
+        w_callee,
+        .FnCall(_, _, Rc(w_dot), _, _) => (match(w_dot.get(usize(1)), .Some(.Atom(_, m_tok)) => (m_tok.value.* == "new"), _ => false) && match(w_dot.get(usize(0)), .Some(.Atom(_, r_tok)) => ((r_tok.value.* == "Box") || (r_tok.value.* == "Rc") || (r_tok.value.* == "Arc")), _ => false)),
+        .Atom(_, _) => false
+      ),
+      false
+    ),
+    .Atom(_, _) => false
+  )
+);
 _record_unsized_dyn_site :: (fn(expr : &AstExpr, written : &AstExpr, value_ty : &TypeValue, fresh : bool, expected : &Option(ExpectedTypeCtx)) -> unit)({
   if(!migrate_unsized_on() || unsized_handle_dyn_node(ast_expr_id(expr)), {
     return(());
@@ -1429,7 +1445,9 @@ _record_unsized_dyn_site :: (fn(expr : &AstExpr, written : &AstExpr, value_ty : 
   raw := (is_pointer_type(value_ty) || match(can_optimize_as_nullable_pointer(value_ty), .Some(p) => is_pointer_type(&p), .None => false));
   cond(
     raw => record_unsized_site(&tok, u8(1), &text),
-    (!is_reference_struct_type(value_ty) && !is_dyn_type(value_ty) && cell_handle_view(value_ty).is_none()) => record_unsized_site(&tok, u8(2), &text),
+    // An open payload's `dyn(Box.new(v))` evaluates through the prelude cell
+    // with `v`'s type: the written box is there already.
+    (!is_reference_struct_type(value_ty) && !is_dyn_type(value_ty) && cell_handle_view(value_ty).is_none() && !_written_cell_new(written)) => record_unsized_site(&tok, u8(2), &text),
     (!fresh && cell_handle_view(value_ty).is_some()) => record_unsized_site(&tok, u8(5), &text),
     true => {
       owning_dyn := match(expected, .Some(et) => match(t_refine_inner(&et.ty), Rc(.DynT(_, _, _, _)) => true, _ => false), .None => false);
