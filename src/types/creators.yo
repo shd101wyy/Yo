@@ -648,6 +648,8 @@ type_value_tag :: (fn(t : &TypeValue) -> TypeTag)(
     Rc(.RefineT(inner, _)) => type_value_tag(&inner),
     Rc(.ExternOpaqueT(_, _)) => TypeTag.TExternOpaque,
     Rc(.Reference(_, _, _)) => TypeTag.TReference,
+    // A binder-typed by-value slot (R3) is the type it carries.
+    Rc(.ValueSlot(vs_tag_inner)) => type_value_tag(&vs_tag_inner),
     Rc(.OriginKind) => TypeTag.TOrigin,
     Rc(.OriginSet(_, _)) => TypeTag.TOrigin,
     Rc(.SliceT(_)) => TypeTag.TSlice,

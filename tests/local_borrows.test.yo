@@ -1073,7 +1073,7 @@ _copy_param :: (fn(generic(p : Origin), o : Option(&(i32, p))) -> Option(&(i32, 
 });
 test("a holder joined from a parameter returns with the parameter's origin", {
   x := i32(4);
-  // Matched, not unwrapped (issues/2026-11-09-option-unwrap-over-a-reference-payload-is-e0601.md).
+  // Matched, not unwrapped (issues/fixed/2026-11-09-option-unwrap-over-a-reference-payload-is-e0601.md).
   assert(match(_keep_joined(&x), .Some(r) => (r.* == i32(4)), .None => false), "a `:=` holder");
   assert(match(_keep_typed(&x), .Some(r) => (r.* == i32(4)), .None => false), "a typed holder");
   assert(match(_copy_param(.Some(&x)), .Some(r) => (r.* == i32(4)), .None => false), "a copy of a by-value parameter holder");

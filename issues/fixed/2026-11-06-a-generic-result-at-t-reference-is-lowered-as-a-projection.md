@@ -53,3 +53,24 @@ VERDICTS-23 R3 (N2c): keep the declared result's shape (a spelled `&` versus
 a type parameter) through specialization, and lower a `T := &U` result as a
 pointer value. Test: `tests/origins/reference_read_rule.test.yo`'s
 `rr_id_of_reference` gains a call with `rr_read(_s)` at runtime.
+
+## Resolution (R3, VERDICTS-23)
+
+The three reports are one root: a function type's slot was either a borrow (`Reference`) or the bare by-value type,
+and a by-value slot whose type became a reference at a specialization (`T := &U`) was the same `Reference` node as a
+borrow. So `-> T` at `T := &U` was lowered as a projection (`-> &T`), a `v : T` at `T := &U` as a borrowed place, and
+`Option(&T).unwrap`'s body `.Some(value) => value` was checked against the projection's `*(T)`.
+
+- `TypeValueNode.ValueSlot(inner)` is a by-value slot of a reference type. `t_slot` and `t_slot_with_pointee` build it
+  and substitution builds it for a bare slot that becomes a reference (`_subst_slot_at`); `t_slot_pointee` reads through
+  it and `t_slot_is_borrow` is false for it, so every reader of a slot keeps its meaning. It prints parenthesized
+  (`(&i32)`) and keys apart from the borrow `&i32` (`VS` in the intern key).
+- A specialization whose by-value result is a reference (`!fn_result_is_ref(declared) && spec_ret_ty` is a reference)
+  rewrites its result positions with `rewrite_value_reference_tails`: a bare name becomes the marked `addr_of(name.*)`
+  (`VALUE_*_READ_PATH`), which reads a reference binding (a `match` payload binding, a `&T` parameter) as the reference
+  value. The root rule of decision 24 does not apply to it: the result is a value.
+- The enum-literal C no longer takes the address of a reference payload that is already a reference value (a by-value
+  parameter, a call's result); only a place or a recorded lend does.
+
+Tests: `tests/origins/reference_read_rule.test.yo`, "a generic result at T := &U is a reference value", "a generic
+function stores its by-value reference parameter", "Option(&T).unwrap returns the reference".

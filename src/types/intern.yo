@@ -681,6 +681,10 @@ _intern_key_into :: (
         sb.write_str("|");
         recur(&r_origin, sb, depth + usize(1), visited);
       },
+      Rc(.ValueSlot(vs_inner)) => {
+        sb.write_str("VS");
+        recur(&vs_inner, sb, depth + usize(1), visited);
+      },
       Rc(.OriginKind) => sb.write_str("OrK"),
       Rc(.MaybeSizedKind) => sb.write_str("MSK"),
       Rc(.SliceT(s_elem)) => {

@@ -5,7 +5,7 @@
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr, ast_expr_token, ast_expr_id, make_err_expr, ast_expr_is_fn_call_of, ast_expr_is_atom_of, ast_expr_to_string, ast_place_text, BF_DOT, projection_tail_mode, projection_tail_is_read, ast_expr_is_auto_ref_receiver, ast_rewritten_node, ast_expr_strip_borrow_marker } :: import("../../expr.yo");
+{ AstExpr, ast_expr_token, ast_expr_id, make_err_expr, ast_expr_is_fn_call_of, ast_expr_is_atom_of, ast_expr_to_string, ast_place_text, BF_DOT, projection_tail_mode, value_tail_mode, projection_tail_is_read, ast_expr_is_auto_ref_receiver, ast_rewritten_node, ast_expr_strip_borrow_marker } :: import("../../expr.yo");
 { is_array_type, is_struct_type, is_tuple_type, is_union_type, is_reference_struct_type } :: import("../../types/guards.yo");
 { fn_param_is_ptr_borrow, type_carries_origin } :: import("../../types/utils.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -23,6 +23,7 @@ pragma(Pragma.AllowUnsafe);
   expr_info_set_is_index_trait_address_of,
   is_dyn_lend
 } :: import("../../expr_info.yo");
+{ note_rewritten_node } :: import("../../expr.yo");
 { Variable, Environment, snapshot_env, get_variables_from_env, find_variable_in_env_at, variable_value_type, variable_slot_type } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx, FuncOrAsyncBlockKind } :: import("../context.yo");
 {
@@ -33,7 +34,7 @@ pragma(Pragma.AllowUnsafe);
   ValueCell,
   value_cell_new
 } :: import("../../value.yo");
-{ TypeValue, TypeValueNode, SharedList, fn_param_is_mut_ref, fn_param_is_by_value, fn_result_origin_names, fn_param_in_result_origin, t_slot_origin_names, origin_names_contain, t_slot_is_mut_ref } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, SharedList, fn_param_is_mut_ref, fn_param_is_by_value, fn_result_origin_names, fn_param_in_result_origin, t_slot_origin_names, origin_names_contain, t_slot_is_mut_ref, t_reference } :: import("../../types/definitions.yo");
 { t_ptr } :: import("../../types/creators.yo");
 { format_error_message, format_error_message_with_help, with_code } :: import("../../error.yo");
 { DYN_LEND_HELP, attach_temp_variable_to_expr, projection_call_mode_of, projection_call_root_args, reference_field_read_type, ref_payload_source, borrow_match_source, origin_of, OriginRootPlace, variable_is_reference_binding, local_borrow_info_of_variable } :: import("../utils.yo");
@@ -572,11 +573,26 @@ evaluate_address_call :: (
       mut(pr_out) := ArrayList(AstExpr).new();
       pr_err := evaluate_expression_guarded(&pr_name, env, ctx, &mut pr_out);
       match(pr_err, .Some(pre) => exn.throw(pre), .None => ());
-      return(match(pr_out.get(usize(0)), .Some(po) => po, .None => make_err_expr()));
+      po := match(pr_out.get(usize(0)), .Some(po_e) => po_e, .None => make_err_expr());
+      // A by-value reference result (`VALUE_*_READ_PATH`) that is no reference
+      // binding is the bare name: this node reads as it, under its own id.
+      if(value_tail_mode(expr).is_some(), {
+        match(
+          expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&po)),
+          .Some(po_info) => {
+            expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &po_info);
+            vr_atom := AstExpr.Atom(ast_expr_id(expr), ast_expr_token(&po).clone());
+            note_rewritten_node(&vr_atom);
+            return(vr_atom);
+          },
+          .None => ()
+        );
+      });
+      return(po);
     });
     // A `&mut T` result hands out an exclusive reference: a `&` binding
     // has none to give.
-    if(match(projection_tail_mode(expr), .Some(m) => m, .None => false) && match(&pr_var, .Some(v) => !t_slot_is_mut_ref(&variable_slot_type(v)), .None => false), {
+    if(match(projection_tail_mode(expr), .Some(m) => m, .None => match(value_tail_mode(expr), .Some(vm) => vm, .None => false)) && match(&pr_var, .Some(v) => !t_slot_is_mut_ref(&variable_slot_type(v)), .None => false), {
       pr_tok := ast_expr_token(&pr_name);
       exn.throw(
         dyn(
@@ -667,7 +683,7 @@ evaluate_address_call :: (
   // A raw pointer and a `&mut` projection's result write the place, so its
   // element accesses dispatch `IndexMut` (decision 34, V2b); a `&`
   // projection's result only reads it.
-  if(match(projection_tail_mode(expr), .Some(ptm) => ptm, .None => true), {
+  if(match(projection_tail_mode(expr), .Some(ptm) => ptm, .None => match(value_tail_mode(expr), .Some(vtm) => vtm, .None => true)), {
     call_promote_index_places_for_write(&eval_arg, env, ctx, exn, is_addr_of : true);
   });
   // A projection's result (`rewrite_projection_tails`): the place must be
@@ -690,7 +706,7 @@ evaluate_address_call :: (
   // node (its `&T` parameters are pointers, and it yields a borrow), and the
   // `addr_of(receiver)` synthesized for a pointer-receiver method call, whose
   // pointer lives for the call.
-  if(projection_tail_mode(expr).is_none() && !ast_expr_is_auto_ref_receiver(expr), {
+  if(projection_tail_mode(expr).is_none() && (!projection_tail_is_read(expr) && !ast_expr_is_auto_ref_receiver(expr)), {
     match(
       _by_value_borrow_param_root(&eval_arg, env, ctx),
       .Some(bp) => {
@@ -780,6 +796,20 @@ evaluate_address_call :: (
       Option(EvalValue).None
     ),
     .None => Option(EvalValue).None
+  );
+  // A by-value reference result's read (`VALUE_*_READ_PATH`) is the reference
+  // VALUE: `&place`'s pointer, typed `&U` / `&mut U`, never a raw `*(U)`.
+  match(
+    value_tail_mode(expr),
+    .Some(vt_mut) => {
+      vt_ty := t_reference(&arg_type, vt_mut);
+      vt_info := new_expr_info(&cur_env, &vt_ty);
+      vt_info.set_path_collection(arg_info.path_collection());
+      expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &vt_info);
+      attach_temp_variable_to_expr(expr, false, ctx);
+      return(expr);
+    },
+    .None => ()
   );
   out_info := new_expr_info(&cur_env, &pointer_type);
   // The ladder runs IN ORDER, and the order

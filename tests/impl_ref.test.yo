@@ -11,7 +11,7 @@
 // receiver auto-borrows; nothing auto-moves: `c.m()` takes a by-value `self`
 // on `C` first, and `(&c).m()` is the explicit borrow.
 { assert } :: import("std/assert");
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList, ArrayListIter } :: import("std/collections/array_list");
 // issues/fixed/2026-11-05-an-impl-over-a-reference-type-registers-nothing.md:
 // `impl(&Bag, …)` registered nothing, and a `&Bag` receiver silently called
 // `impl(Bag, …)`.
@@ -314,4 +314,43 @@ test("(vii-b) a blanket impl(&T, Show) with a `self : &Self` receiver, called th
   r := &c;
   assert(_pb_show_generic(r) == i32(9), "T := _PbC");
   assert(c.show() == i32(9), "the owned receiver");
+});
+// (R3, VERDICTS-54) A by-value slot keeps what it declared. `Self` is a written
+// reference at an `impl(&C)` and a type variable's name at a bare-variable
+// blanket: neither specializes into a by-value reference slot, so they run as
+// before, beside the generic `v : T` that does.
+_R3Bag :: struct(n : usize);
+_R3Named :: trait(nl : (fn(self : Self) -> usize));
+impl(&_R3Bag, _R3Named(nl : (fn(self : Self) -> usize)(self.n)));
+_R3Tr :: trait(m : (fn(self : Self) -> usize));
+impl(generic(T), where(T <: _R3Named), T, _R3Tr(m : (fn(self : Self) -> usize)(self.nl() + usize(1))));
+_r3_mk :: (fn() -> _R3Bag)(_R3Bag(n : usize(9)));
+test("(R3 q1) a bare-variable blanket's `self : Self` reached at T := &Bag", {
+  b := _R3Bag(n : usize(3));
+  r := &b;
+  assert(r.m() == usize(4), "T := &Bag through a reference binding");
+  assert(b.m() == usize(4), "an owned Bag");
+  assert(_r3_mk().m() == usize(10), "a temporary Bag");
+});
+_R3Dup :: trait(dup : (fn(self : Self) -> Self));
+impl(&_R3Bag, _R3Dup(dup : (fn(self : Self) -> Self)(self)));
+test("(R3 q3) `-> Self` at a concrete Self = &Bag", {
+  b := _R3Bag(n : usize(3));
+  r := &b;
+  q := r.dup();
+  qn := q.n;
+  assert(qn == usize(3), "the result is the reference");
+});
+test("(R3) an owned temporary receiver picks the by-value impl: `.clone().into_iter()` runs and counts", {
+  mut(xs) := ArrayList(i32).new();
+  xs.push(i32(1));
+  xs.push(i32(2));
+  xs.push(i32(3));
+  (mut(it) : ArrayListIter(i32)) = xs.clone().into_iter();
+  (mut(count) : usize) = usize(0);
+  while(it.next().is_some(), {
+    count = (count + usize(1));
+  });
+  assert(count == usize(3), "the clone's three elements");
+  assert(xs.len() == usize(3), "the original is untouched");
 });

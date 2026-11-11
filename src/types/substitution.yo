@@ -7,7 +7,7 @@
 pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("std/collections/array_list");
 { String } :: import("std/string");
-{ some_t_bounds, trait_t_body, TypeValue, TypeValueNode, SharedList, shared_list, no_types } :: import("./definitions.yo");
+{ some_t_bounds, trait_t_body, TypeValue, TypeValueNode, SharedList, shared_list, no_types, t_value_slot } :: import("./definitions.yo");
 // P2 hash-consing: RE-WIRED (2026-07-02) — the runaway explosion this was
 // unwired for during the bisect turned out to be _patch_self_shell's missing
 // cycle guard (now fixed + guarded, issues/fixed/patch-self-shell-exponential-walk.md);
@@ -475,14 +475,14 @@ _mask_func_own_binders :: (fn(s : &Substitution, forall_labels : &ArrayList(Stri
 /// `xs` with `s` applied to every element: `.None` when no element changed
 /// (each substituted element is the handle it was), so the caller keeps the
 /// list it has instead of building an equal one.
-_subst_list_changed :: (fn(s : &Substitution, xs : &SharedList(TypeValue)) -> Option(ArrayList(TypeValue)))({
+_subst_list_changed :: (fn(s : &Substitution, xs : &SharedList(TypeValue), slots : bool) -> Option(ArrayList(TypeValue)))({
   // The output list is allocated at the first changed element (the prefix
   // before it is copied then), so an unchanged list costs no allocation.
   (out : Option(ArrayList(TypeValue))) = .None;
   i := usize(0);
   while(i < xs.len(), {
     elem := match(xs.get(i), .Some(t) => t, .None => Rc.new(TypeValueNode.Unit));
-    new_elem := _substitute_at(s, &elem, false);
+    new_elem := if(slots, _subst_slot_at(s, &elem), _substitute_at(s, &elem, false));
     out = match(
       out,
       .Some(o) => {
@@ -511,11 +511,27 @@ _subst_list_changed :: (fn(s : &Substitution, xs : &SharedList(TypeValue)) -> Op
 /// when no element changed.
 _subst_list :: (fn(s : &Substitution, xs : &SharedList(TypeValue)) -> SharedList(TypeValue))(
   match(
-    _subst_list_changed(s, xs),
+    _subst_list_changed(s, xs, false),
     .Some(out) => shared_list(out),
     .None => xs.clone()
   )
 );
+/// `_subst_list` over parameter slots (`Func.param_types`,
+/// `FnTraitT.call_param_types`): see `_subst_slot_at`.
+_subst_slot_list :: (fn(s : &Substitution, xs : &SharedList(TypeValue)) -> SharedList(TypeValue))(
+  match(
+    _subst_list_changed(s, xs, true),
+    .Some(out) => shared_list(out),
+    .None => xs.clone()
+  )
+);
+/// `s` applied to a parameter or result SLOT. A binder-typed by-value slot
+/// (`ValueSlot(T)`) whose `T` becomes a reference is `ValueSlot(&U)`
+/// (`_substitute_node`'s arm), not the bare `Reference` that would read as a
+/// borrow (VERDICTS-23 R3): the declared mode survives the specialization. A
+/// bare slot (a slot of `Self`, a written reference, an alias) is substituted
+/// as it is: what it declared is what it stays (VERDICTS-54).
+_subst_slot_at :: (fn(s : &Substitution, slot : &TypeValue) -> TypeValue)(_substitute_at(s, slot, false));
 /// `_substitute_node` through the walk's struct/enum memo (see
 /// `node_memo_from`): a shared node is substituted once per walk.
 _substitute_at :: (fn(s : &Substitution, ty : &TypeValue, is_root : bool) -> TypeValue)({
@@ -577,6 +593,15 @@ _substitute_node :: (fn(s : &Substitution, ty : &TypeValue, is_root : bool) -> T
             true => Rc.new(TypeValueNode.Reference(r_new, r_mut, Rc.clone(r_origin)))
           )
         },
+        // A by-value slot of a reference type (R3): its inner substitutes,
+        // and a result that stops being a reference is the plain type.
+        Rc(.ValueSlot(vs_inner)) => {
+          vs_new := _substitute_at(s, &vs_inner, false);
+          cond(
+            __yo_ptr_eq(&vs_new, &vs_inner) => Rc.clone(ty),
+            true => t_value_slot(&vs_new)
+          )
+        },
         // The element type substitutes like any other child; the LENGTH is a
         // value binder, resolved from the const-generic side map when the
         // impl's `generic(N : usize)` was bound at match time. Unbound (or
@@ -613,13 +638,13 @@ _substitute_node :: (fn(s : &Substitution, ty : &TypeValue, is_root : bool) -> T
         Rc(.Func({ forall_types : fts, param_types : pts, implicit_types : its, where_types : wts, result : ret, meta : __fm1, variadic_types : vts })) => {
           s_in := if(is_root, s, _mask_func_own_binders(s, &__fm1.forall_labels.items));
           new_fts := _subst_list(&s_in, &fts);
-          new_pts := _subst_list(&s_in, &pts);
+          new_pts := _subst_slot_list(&s_in, &pts);
           new_its := _subst_list(&s_in, &its);
           new_wts := _subst_list(&s_in, &wts);
           new_vts := _subst_list(&s_in, &vts);
           // Preserve result_is_comptime_only + ref-tracking + variadic flag +
           // FFI metadata across substitution.
-          Rc.new(TypeValueNode.Func(new_fts, new_pts, new_its, new_wts, _substitute_at(&s_in, &ret, false), Rc.clone(__fm1), new_vts))
+          Rc.new(TypeValueNode.Func(new_fts, new_pts, new_its, new_wts, _subst_slot_at(&s_in, &ret), Rc.clone(__fm1), new_vts))
         },
         // TraitT — recurse into field types. (Source-namespace structs go
         // through the Struct arm above.)
@@ -777,15 +802,15 @@ _substitute_node :: (fn(s : &Substitution, ty : &TypeValue, is_root : bool) -> T
         ) =>
           // Re-sorted: substituting a trait argument can change its key.
           t_dyn(
-            match(_subst_list_changed(s, &rtt), .Some(l) => l, .None => rtt.items.clone()),
+            match(_subst_list_changed(s, &rtt, false), .Some(l) => l, .None => rtt.items.clone()),
             rtl.items.clone(),
-            match(_subst_list_changed(s, &ntt), .Some(l) => l, .None => ntt.items.clone()),
+            match(_subst_list_changed(s, &ntt, false), .Some(l) => l, .None => ntt.items.clone()),
             ntl.items.clone()
           ),
         Rc(.FnTraitT(base_name : bn, call_param_labels : cpls, call_param_types : cpts, call_result : cr, implicit_labels : ils, implicit_types : its)) => {
-          new_cpts := _subst_list(s, &cpts);
+          new_cpts := _subst_slot_list(s, &cpts);
           new_its := _subst_list(s, &its);
-          Rc.new(TypeValueNode.FnTraitT(base_name : bn.clone(), call_param_labels : Rc.clone(cpls), call_param_types : new_cpts, call_result : _substitute_at(s, &cr, false), implicit_labels : Rc.clone(ils), implicit_types : new_its))
+          Rc.new(TypeValueNode.FnTraitT(base_name : bn.clone(), call_param_labels : Rc.clone(cpls), call_param_types : new_cpts, call_result : _subst_slot_at(s, &cr), implicit_labels : Rc.clone(ils), implicit_types : new_its))
         },
         Rc(.FutureTraitT(base_name : bn, output : out, effect_labels : els, effect_types : ets, origin : fog)) => {
           new_ets := _subst_list(s, &ets);

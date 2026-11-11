@@ -677,7 +677,19 @@ TypeValueNode :: enum(
     pointee : Rc(Self),
     mutable : bool,
     origin : Rc(Self)
-  )
+  ),
+  /// A parameter or result slot taken BY VALUE whose declared type is a
+  /// type BINDER other than `Self` (VERDICTS-23 R3, narrowed by VERDICTS-54):
+  /// `v : T` / `-> T` for a `T` the function or its impl binds. The bare slot
+  /// encoding cannot say what `T := &U` means, because a bare `Reference`
+  /// slot is a borrow (`v : &U`, a projection result), and a by-value `&U` (a
+  /// pointer VALUE: copied, stored, returned) must not lower as one. It is
+  /// built where the declaration is read (`_param_slot`, the result slot) and
+  /// kept through substitution, which wraps its inner type: a slot whose
+  /// declared type is `Self`, a written reference or an alias is never one.
+  /// `t_slot_pointee` reads through it, `t_slot_is_borrow` is false for it,
+  /// and its inner type is the value type (a `Reference` once specialized).
+  ValueSlot(inner : Rc(Self))
 );
 /// The Yo type universe: a shared, immutable handle to a `TypeValueNode`.
 TypeValue :: Rc(TypeValueNode);
@@ -848,6 +860,25 @@ t_maybe_sized_kind :: (fn() -> TypeValue)(Rc.clone(g_maybe_sized_kind));
 is_maybe_sized_kind :: (fn(t : &TypeValue) -> bool)(match(t, Rc(.MaybeSizedKind) => true, _ => false));
 /// `Slice(element)`, the unsized `[T]` (decision 49).
 t_slice :: (fn(element : &TypeValue) -> TypeValue)(Rc.new(TypeValueNode.SliceT(Rc.clone(element))));
+/// A binder-typed by-value slot specialized to `ty`: `ValueSlot(ty)` when `ty`
+/// is a reference type or still a binder, else `ty` itself (R3).
+t_value_slot :: (fn(ty : &TypeValue) -> TypeValue)(
+  match(
+    ty,
+    Rc(.Reference(_, _, _)) => Rc.new(TypeValueNode.ValueSlot(Rc.clone(ty))),
+    // Still a binder (another binder renamed it): the slot stays one.
+    Rc(.SomeT(_, _, _, _, _, _, _)) => Rc.new(TypeValueNode.ValueSlot(Rc.clone(ty))),
+    _ => ty.clone()
+  )
+);
+/// The by-value slot of a parameter or result whose DECLARED type is the
+/// binder `ty` (`v : T`, `-> T`, not `Self`): `ValueSlot(ty)`, so that
+/// specializing `T` to a reference keeps the by-value mode (R3).
+t_binder_slot :: (fn(ty : &TypeValue) -> TypeValue)(Rc.new(TypeValueNode.ValueSlot(Rc.clone(ty))));
+/// The slot is a by-value reference type (`ValueSlot` over a `Reference`, R3).
+t_slot_is_value_ref :: (fn(t : &TypeValue) -> bool)(match(t, Rc(.ValueSlot(vs_i)) => match(vs_i, Rc(.Reference(_, _, _)) => true, _ => false), _ => false));
+/// The slot is a binder-typed by-value slot (`ValueSlot`), specialized or not.
+t_slot_is_binder_slot :: (fn(t : &TypeValue) -> bool)(match(t, Rc(.ValueSlot(_)) => true, _ => false));
 /// The slot of a parameter with the given mode: `&mut T` when `is_mut_ref`,
 /// else `T` when `is_by_value`, else `&T`.
 t_slot :: (fn(pointee : &TypeValue, is_mut_ref : bool, is_by_value : bool) -> TypeValue)(
@@ -862,6 +893,7 @@ t_slot_pointee :: (fn(t : &TypeValue) -> TypeValue)(
   match(
     t,
     Rc(.Reference(pointee, _, _)) => Rc.clone(pointee),
+    Rc(.ValueSlot(vs_inner)) => Rc.clone(vs_inner),
     _ => Rc.clone(t)
   )
 );
@@ -877,6 +909,7 @@ t_slot_with_pointee :: (fn(slot : &TypeValue, pointee : &TypeValue) -> TypeValue
   match(
     slot,
     Rc(.Reference(_, mutable, origin)) => Rc.new(TypeValueNode.Reference(pointee : pointee.clone(), mutable : mutable, origin : Rc.clone(origin))),
+    Rc(.ValueSlot(_)) => t_value_slot(pointee),
     _ => pointee.clone()
   )
 );
@@ -998,6 +1031,7 @@ _spelled_origins_into :: (fn(t : &TypeValue, out : &mut ArrayList(String), depth
       true
     },
     Rc(.Reference(so_pointee, _, so_origin)) => (_spelled_origins_into(&so_origin, out, depth + usize(1)) && _spelled_origins_into(&so_pointee, out, depth + usize(1))),
+    Rc(.ValueSlot(so_vs)) => _spelled_origins_into(&so_vs, out, depth + usize(1)),
     Rc(.Struct({ type_arguments : so_tas })) => _spelled_origins_in_list(&so_tas, out, depth),
     Rc(.EnumT({ type_arguments : so_etas })) => _spelled_origins_in_list(&so_etas, out, depth),
     Rc(.Tuple({ field_types : so_fts })) => _spelled_origins_in_list(&so_fts, out, depth),
@@ -1047,6 +1081,7 @@ _type_spells_origin_at :: (fn(t : &TypeValue, name : &String, depth : usize) -> 
     t,
     Rc(.OriginSet(ts_places, _)) => origin_names_contain(&ts_places, name),
     Rc(.Reference(ts_pointee, _, ts_origin)) => (_type_spells_origin_at(&ts_origin, name, depth + usize(1)) || _type_spells_origin_at(&ts_pointee, name, depth + usize(1))),
+    Rc(.ValueSlot(ts_vs)) => _type_spells_origin_at(&ts_vs, name, depth + usize(1)),
     Rc(.Struct({ type_arguments : ts_tas })) => _type_spells_origin_in_list(&ts_tas, name, depth),
     Rc(.EnumT({ type_arguments : ts_etas })) => _type_spells_origin_in_list(&ts_etas, name, depth),
     Rc(.Tuple({ field_types : ts_fts })) => _type_spells_origin_in_list(&ts_fts, name, depth),
@@ -1207,4 +1242,4 @@ get_struct_field_comptime_flags :: (
 export(TypeValue, TypeValueNode, FuncMeta, SomeTBounds, SomeTBoundsCell, some_t_bounds, some_t_bounds_empty, TraitTBody, TraitTBodyCell, trait_t_body, SharedList, SharedListCell, SharedListElem, shared_list, no_types, no_labels, no_flags, no_levels, no_discriminants, no_type_lists, no_label_lists, t_refine_inner, register_struct_field_comptime_flags, get_struct_field_comptime_flags);
 export(fn_trait_rank, fn_trait_base_serves, fn_trait_call_contract, fn_trait_slot_contract);
 export(fn_result_slot, fn_result_pointee, fn_result_is_ref, fn_result_is_mut_ref, t_origin_spelled_names, t_slot_origin_names, fn_result_origin_names, fn_result_composite_origin_names, type_spells_origin, origin_names_contain, fn_param_in_result_origin, fn_param_pointee_in_result_origin);
-export(t_maybe_sized_kind, is_maybe_sized_kind, t_slice, t_origin_elided, t_origin_kind, t_origin_named, is_static_origin, t_reference_with_origin, is_origin_kind, t_reference, t_slot, t_slot_pointee, slot_pointee_at, slot_pointees, t_slot_is_mut_ref, t_slot_is_borrow, t_slot_is_by_value, t_slot_with_pointee, t_slot_like, fn_param_slots, fn_param_is_mut_ref, fn_param_is_by_value, fn_param_mut_ref_at, fn_param_by_value_at, fn_param_mut_ref_flags, fn_param_by_value_flags);
+export(t_value_slot, t_binder_slot, t_slot_is_value_ref, t_slot_is_binder_slot, t_maybe_sized_kind, is_maybe_sized_kind, t_slice, t_origin_elided, t_origin_kind, t_origin_named, is_static_origin, t_reference_with_origin, is_origin_kind, t_reference, t_slot, t_slot_pointee, slot_pointee_at, slot_pointees, t_slot_is_mut_ref, t_slot_is_borrow, t_slot_is_by_value, t_slot_with_pointee, t_slot_like, fn_param_slots, fn_param_is_mut_ref, fn_param_is_by_value, fn_param_mut_ref_at, fn_param_by_value_at, fn_param_mut_ref_flags, fn_param_by_value_flags);

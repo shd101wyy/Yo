@@ -216,7 +216,7 @@ Filed 2026-11-07 from VERDICTS-30/31; each names its repro under `issues/repros/
 - `issues/fixed/2026-11-07-a-holder-returned-over-a-borrowed-temporary-is-accepted-when-bound.md` — S1 (latent when filed; a live UAF on v0.2.76 once the statement-end drop landed first)
 - `issues/fixed/2026-11-07-a-closure-capturing-an-origin-carrying-local-crashes-codegen.md` — S1
 - `issues/fixed/2026-11-07-reassigning-a-mut-holder-of-a-named-origin-struct-is-a-false-e0908.md` — S2
-- `issues/2026-11-07-a-generic-function-storing-a-by-value-reference-parameter-emits-invalid-c.md` — S2
+- `issues/fixed/2026-11-07-a-generic-function-storing-a-by-value-reference-parameter-emits-invalid-c.md` — S2
 - `issues/fixed/2026-11-07-a-ctl-operation-returning-its-reference-parameter-is-rejected-with-e0605.md` — S2
 - `issues/fixed/2026-11-07-a-closure-literal-returning-its-reference-parameter-fails-to-evaluate.md` — S2
 - `issues/2026-11-07-yo-explain-e0911-e0912-e0910-teach-the-pre-decision-43-model.md` — S3
@@ -309,3 +309,14 @@ Filed 2026-11-07 from VERDICTS-30/31; each names its repro under `issues/repros/
   is known); any other receiver (an owned place, a call result, a field, an explicit `(&c)`) has no storage to lend and
   is an error at the call naming the repair, never the mis-passed C. Open (the rest of P3b): an owned or temporary
   receiver at `&&C` through an O-5 hidden local, and gap 1 (operator operands).
+- 2026-11-09: R3 landed (VERDICTS-23: a specialization keeps the declared shape of its slots). A by-value slot whose
+  type becomes a reference at a specialization (`-> T` / `v : T` at `T := &U`) is `ValueSlot(&U)`, a node of its own
+  next to the borrow `Reference` slot, so `-> T` is a reference VALUE (a pointer), no longer lowered as a projection,
+  and `v : T` is the pointer, no longer a borrowed place. A specialization with such a result rewrites its result
+  positions with `rewrite_value_reference_tails`, so `Option(&T).unwrap`'s `.Some(value) => value` reads the payload
+  binding as the reference; the decision-24 root rule does not apply to a value. The enum-literal C addresses only a
+  place or a recorded lend, not a reference value. Closes `Option(&T).unwrap` (E0601), the result half and the
+  by-value-parameter half of the same root
+  (`issues/fixed/2026-11-09-option-unwrap-over-a-reference-payload-is-e0601.md`,
+  `issues/fixed/2026-11-06-a-generic-result-at-t-reference-is-lowered-as-a-projection.md`,
+  `issues/fixed/2026-11-07-a-generic-function-storing-a-by-value-reference-parameter-emits-invalid-c.md`).
